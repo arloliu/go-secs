@@ -227,11 +227,11 @@ func (d *hsmsDecoder) decodeIntItem(byteSize int, length int) (secs2.Item, error
 		case 1:
 			d.intBuf = append(d.intBuf, int64(int8(d.input[d.pos+i])))
 		case 2:
-			d.intBuf = append(d.intBuf, int64(int16(binary.BigEndian.Uint16(d.input[start:]))))
+			d.intBuf = append(d.intBuf, int64(int16(binary.BigEndian.Uint16(d.input[start:])))) //nolint:gosec
 		case 4:
-			d.intBuf = append(d.intBuf, int64(int32(binary.BigEndian.Uint32(d.input[start:]))))
+			d.intBuf = append(d.intBuf, int64(int32(binary.BigEndian.Uint32(d.input[start:])))) //nolint:gosec
 		case 8:
-			d.intBuf = append(d.intBuf, int64(binary.BigEndian.Uint64(d.input[start:])))
+			d.intBuf = append(d.intBuf, int64(binary.BigEndian.Uint64(d.input[start:]))) //nolint:gosec
 		}
 	}
 	d.pos += length

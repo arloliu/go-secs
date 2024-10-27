@@ -404,12 +404,12 @@ func genRandomUint(length int, byteSize int) []uint64 {
 	result := make([]uint64, length)
 
 	// Calculate the maximum value based on byteSize
-	max := big.NewInt(0).Lsh(big.NewInt(1), uint(byteSize*8))
-	max.Sub(max, big.NewInt(1))
+	maxVal := big.NewInt(0).Lsh(big.NewInt(1), uint(byteSize*8))
+	maxVal.Sub(maxVal, big.NewInt(1))
 
 	for i := 0; i < length; i++ {
 		// Generate a random big integer within the range [0, max]
-		n, _ := rand.Int(rand.Reader, max)
+		n, _ := rand.Int(rand.Reader, maxVal)
 
 		// Convert to uint64 and store in the slice
 		result[i] = n.Uint64()

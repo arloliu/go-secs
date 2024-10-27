@@ -27,7 +27,7 @@ SUMMARY_COVER_PROFILE      := $(COVER_ROOT)/summary.out
 # Tools
 update-tools:
 	@printf "Install/update linter tool...\n"
-	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.56.1
+	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.61.0
 
 # Tests
 clean:

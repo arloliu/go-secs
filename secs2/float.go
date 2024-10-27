@@ -345,9 +345,9 @@ func combineFloatValues(byteSize int, values ...any) ([]float64, error) { //noli
 		}
 	}
 
-	max := math.MaxFloat64
+	maxVal := math.MaxFloat64
 	if byteSize == 4 {
-		max = math.MaxFloat32
+		maxVal = math.MaxFloat32
 	}
 
 	for _, v := range itemValues {
@@ -355,7 +355,7 @@ func combineFloatValues(byteSize int, values ...any) ([]float64, error) { //noli
 			return nil, errors.New("invalid float value")
 		}
 
-		if v < -max || v > max {
+		if v < -maxVal || v > maxVal {
 			return nil, errors.New("value overflow")
 		}
 	}

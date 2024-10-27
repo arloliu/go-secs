@@ -173,7 +173,8 @@ func (msg *DataMessage) ToBytes() []byte {
 
 	result := make([]byte, 14, totalBytes)
 	// Message length bytes, MSB first
-	var msgLength uint32 = uint32(totalBytes - 4) // message length = total length - 4 length bytes
+	// message length = total length - 4 length bytes
+	msgLength := (totalBytes - 4)
 	result[0] = byte(msgLength >> 24)
 	result[1] = byte(msgLength >> 16)
 	result[2] = byte(msgLength >> 8)

@@ -60,7 +60,7 @@ func (s *BaseSession) SendDataMessage(stream byte, function byte, replyExpected 
 	}
 
 	if !replyExpected {
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 
 	dataMsg, ok := replyMsg.(*DataMessage)
@@ -87,7 +87,7 @@ func (s *BaseSession) SendSECS2Message(msg secs2.SECS2Message) (*DataMessage, er
 	}
 
 	if !msg.WaitBit() {
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 
 	replyDataMsg, ok := replyMsg.(*DataMessage)

@@ -155,11 +155,11 @@ func (item *UintItem) ToBytes() []byte {
 		}
 	case 2:
 		for _, value := range item.values {
-			result = binary.BigEndian.AppendUint16(result, uint16(value))
+			result = binary.BigEndian.AppendUint16(result, uint16(value)) //nolint:gosec
 		}
 	case 4:
 		for _, value := range item.values {
-			result = binary.BigEndian.AppendUint32(result, uint32(value))
+			result = binary.BigEndian.AppendUint32(result, uint32(value)) //nolint:gosec
 		}
 	case 8:
 		for _, value := range item.values {
@@ -351,10 +351,10 @@ func combineUintValues(byteSize int, values ...any) ([]uint64, error) { //nolint
 		}
 	}
 
-	var max uint64 = 1<<(byteSize*8) - 1 // Calculate max value for unsigned based on byteSize
+	var maxVal uint64 = 1<<(byteSize*8) - 1 // Calculate max value for unsigned based on byteSize
 
 	for _, v := range itemValues {
-		if v > max {
+		if v > maxVal {
 			return nil, errors.New("value overflow")
 		}
 	}

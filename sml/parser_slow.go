@@ -147,7 +147,7 @@ func (p *parser) parseHSMSDataMessage() (ok bool) {
 
 	message, err := hsms.NewDataMessage(stream, function, waitBit, 0, nil, dataItem)
 	if err != nil {
-		p.errorf(err.Error())
+		p.errorf("error:%s", err.Error())
 		return false
 	}
 	if msgName != "" {
@@ -202,7 +202,7 @@ func (p *parser) parseStreamFunctionCode() (uint8, uint8, bool) {
 		function = 0
 		ok = false
 	} else {
-		function = uint8(functionVal)
+		function = uint8(functionVal) //nolint:gosec
 	}
 
 	return stream, function, ok

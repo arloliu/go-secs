@@ -365,19 +365,19 @@ func genRandomInt(length int, intSize int) []int64 {
 
 	for i := 0; i < length; i++ {
 		// Calculate the maximum and minimum values based on intSize
-		max := big.NewInt(1)
-		max.Lsh(max, uint(intSize*8-1))
-		max.Sub(max, big.NewInt(1))
+		maxVal := big.NewInt(1)
+		maxVal.Lsh(maxVal, uint(intSize*8-1))
+		maxVal.Sub(maxVal, big.NewInt(1))
 
-		min := big.NewInt(0)
-		min.Sub(max, big.NewInt(1))
-		min.Neg(min)
+		minVal := big.NewInt(0)
+		minVal.Sub(maxVal, big.NewInt(1))
+		minVal.Neg(minVal)
 
 		// Generate a random big integer within the range
-		n, _ := rand.Int(rand.Reader, max)
+		n, _ := rand.Int(rand.Reader, maxVal)
 
 		// Adjust to include negative values
-		n.Add(n, min)
+		n.Add(n, minVal)
 
 		// Convert to int64 and store in the slice
 		result[i] = n.Int64()

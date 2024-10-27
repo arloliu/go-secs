@@ -210,7 +210,7 @@ func (c *Connection) sendControlMsg(msg *hsms.ControlMessage, replyExpected bool
 	}
 
 	if !replyExpected {
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 
 	ctrlMsg, ok := replyMsg.ToControlMessage()
@@ -239,7 +239,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 
 	if !msg.WaitBit() {
 		c.sendMsgAsync(msg)
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 
 	// set T3 or T6 timeout

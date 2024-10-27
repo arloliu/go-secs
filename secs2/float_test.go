@@ -192,19 +192,19 @@ func BenchmarkFloatItem_ToSML(b *testing.B) {
 func genRandomFloat(length int, byteSize int) []float64 {
 	result := make([]float64, length)
 
-	var min float64
-	var max float64
+	var minVal float64
+	var maxVal float64
 	if byteSize == 4 {
-		min = -math.MaxFloat32 / 2
-		max = math.MaxFloat32 / 2
+		minVal = -math.MaxFloat32 / 2
+		maxVal = math.MaxFloat32 / 2
 	} else {
-		min = -math.MaxFloat64 / 2
-		max = math.MaxFloat64 / 2
+		minVal = -math.MaxFloat64 / 2
+		maxVal = math.MaxFloat64 / 2
 	}
 
 	for i := 0; i < length; i++ {
 		// Generate a random float64 between -max and max
-		result[i] = rand.Float64()*(max-min) + min
+		result[i] = rand.Float64()*(maxVal-minVal) + minVal
 	}
 
 	return result
@@ -213,15 +213,15 @@ func genRandomFloat(length int, byteSize int) []float64 {
 func genFixedFloat(length int, byteSize int) []float64 {
 	result := make([]float64, length)
 
-	var max float64
+	var maxVal float64
 	if byteSize == 4 {
-		max = math.MaxFloat32
+		maxVal = math.MaxFloat32
 	} else {
-		max = math.MaxFloat64
+		maxVal = math.MaxFloat64
 	}
 
 	for i := 0; i < length; i++ {
-		result[i] = float64(i) / float64(length) * max
+		result[i] = float64(i) / float64(length) * maxVal
 	}
 
 	return result
