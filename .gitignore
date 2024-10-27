@@ -1,0 +1,13 @@
+tests/
+tmp/
+
+.vscode/settings.json
+.vscode
+*.code-workspace
+.coverage
+
+*.out
+*.log
+*.cov
+*.html
+*.pprof
