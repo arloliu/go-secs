@@ -3,7 +3,6 @@
 This project is a library that implements [SECS-II](https://en.wikipedia.org/wiki/SECS-II)/[HSMS](https://en.wikipedia.org/wiki/High-Speed_SECS_Message_Services) in Go.
 
 ![Test Status](https://github.com/arloliu/go-secs/actions/workflows/ci.yaml/badge.svg)
- [![Go Coverage](https://github.com/arloliu/go-secs/wiki/coverage.svg)](https://raw.githack.com/wiki/arloliu/go-secs/coverage.html)
 [![Go Reference](https://pkg.go.dev/badge/github.com/arloliu/go-secs.svg)](https://pkg.go.dev/github.com/arloliu/go-secs)
 [![Go Report Card](https://goreportcard.com/badge/github.com/arloliu/go-secs)](https://goreportcard.com/report/github.com/arloliu/go-secs)
 
