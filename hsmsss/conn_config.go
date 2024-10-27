@@ -77,7 +77,7 @@ type ConnectionConfig struct {
 	senderQueueSize int
 
 	// dataMsgQueueSize defines the size of the data message queue, which buffers received primary messages before
-	// invoking registed data message handler by AddDataMessageHandler.
+	// invoking registered data message handler by AddDataMessageHandler.
 	//
 	// Defaults to 10.
 	dataMsgQueueSize int
