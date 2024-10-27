@@ -1,6 +1,6 @@
 package logger
 
-var defLogger = newSlog(InfoLevel, false)
+var defLogger = NewSlog(InfoLevel, false)
 
 func Debug(msg string, keysAndValues ...any) {
 	defLogger.Debug(msg, keysAndValues...)

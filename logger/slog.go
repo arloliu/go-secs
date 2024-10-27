@@ -19,8 +19,8 @@ type SlogLogger struct {
 	output io.Writer
 }
 
-// newSlog
-func newSlog(level Level, addSource bool) Logger {
+// NewSlog create a slog instance
+func NewSlog(level Level, addSource bool) Logger {
 	inst := &SlogLogger{
 		output: os.Stdout,
 	}
