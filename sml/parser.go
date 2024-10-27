@@ -792,7 +792,7 @@ func (p *HSMSParser) nextCode() (uint8, error) {
 		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 			valStr += string(ch)
 		default:
-			code, err := strconv.Atoi(valStr)
+			code, err := strconv.ParseUint(valStr, 10, 8)
 			if err != nil {
 				return 0, err
 			}

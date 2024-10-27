@@ -441,7 +441,7 @@ func (p *parser) parseASCII() (item secs2.Item, ok bool) {
 			literal += val
 
 		case tokenTypeNumber:
-			val, err := strconv.ParseUint(t.val, 0, 0)
+			val, err := strconv.ParseUint(t.val, 0, 8)
 			if err != nil {
 				if errors.Is(err, strconv.ErrSyntax) {
 					p.errorf("expected ASCII number code, found %q", t.val)
