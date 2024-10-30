@@ -231,7 +231,7 @@ func (p *HSMSParser) parseItem() (secs2.Item, error) {
 		if p.strictMode {
 			item, err = p.parseASCIIStrict(maxSize)
 		} else {
-			item, err = p.parseASCIIFast(maxSize)
+			item, err = p.parseASCIIFast()
 		}
 	case secs2.BooleanFormatCode:
 		item, err = p.parseBoolean(maxSize)
@@ -295,9 +295,9 @@ func (p *HSMSParser) parseList(size int) (secs2.Item, error) {
 
 // parseASCIIStrict parses an ASCII data item from the input string in strict mode.
 //
-// In strict mode, the parser adheres to the ASCII standard (character codes 32 to 126) and handles
-// escape characters (e.g., \n, \t) as literal characters. It also supports parsing non-printable
-// ASCII characters represented by their decimal values (e.g., 10 for newline).
+// In strict mode, the parser adheres to the ASCII printable characters (character codes 32 to 126) and
+// supports parsing non-printable ASCII characters represented by their decimal values
+// (e.g., 0x0A for newline).
 //
 // This method is typically used when parsing SML generated with strict mode for SECS-II ASCII items.
 //
@@ -358,8 +358,7 @@ func (p *HSMSParser) parseASCIIStrict(size int) (secs2.Item, error) {
 				if val > unicode.MaxASCII {
 					return nil, fmt.Errorf("non-printable char out of ASCII range, got %d", val)
 				}
-
-				_, _ = sb.WriteString(string(byte(val)))
+				sb.WriteByte(byte(val))
 				numStr = ""
 			default:
 				numStr += string(ch)
@@ -391,20 +390,17 @@ func (p *HSMSParser) parseASCIIStrict(size int) (secs2.Item, error) {
 
 // parseASCIIFast parses an ASCII data item from the input string in fast mode.
 //
-// In fast mode, the parser allows non-printable ASCII characters and interprets escape characters
-// according to their usual meanings. It optimizes for the common case where the ASCII string
-// does not contain non-printable or escaped characters.
+// In fast mode, the parser optimizes for performance by making certain assumptions about the input:
+//   - It assumes that the ASCII string does not contain the same quote character as the one used
+//     to enclose the ASCII item.
+//   - It does not handle escape sequences.
 //
-// If the parser encounters potential non-printable or escaped characters, it switches to
-// strict mode parsing using parseASCIIStrict to handle them correctly.
-//
-// Note: The detection of non-printable or escaped characters in fast mode is not exhaustive.
-// There might be cases where the fast mode fails to identify these characters, leading to
-// inaccurate parsing. In such scenarios, it's recommended to use strict mode (WithStrictMode(true))
-// for more reliable parsing.
+// Note: The detection of the same quote character in fast mode is not exhaustive. There might be cases where
+// the fast mode fails to identify these characters correctly, leading to inaccurate parsing. In such scenarios,
+// it's recommended to use strict mode (WithStrictMode(true)) for more reliable parsing.
 //
 // It returns the parsed ASCII item as a secs2.Item and an error if any occurred during parsing.
-func (p *HSMSParser) parseASCIIFast(size int) (secs2.Item, error) {
+func (p *HSMSParser) parseASCIIFast() (secs2.Item, error) {
 	// consume first quote
 	ch := p.nextNonSpaceRune()
 
@@ -424,15 +420,7 @@ func (p *HSMSParser) parseASCIIFast(size int) (secs2.Item, error) {
 		switch ch {
 		case quoteCh:
 			quoteCount++
-			// possible non-printable char exists
-			if quoteCount > 1 {
-				p.backward(1)
-				return p.parseASCIIStrict(size)
-			}
 			lastQuotePos = i
-
-		case '\n', '\r':
-			return nil, errors.New("unclosed quote string")
 
 		case '>':
 			if quoteCount == 0 {
