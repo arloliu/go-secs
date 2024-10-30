@@ -45,8 +45,38 @@ This project is a library that implements [SECS-II](https://en.wikipedia.org/wik
 * **Quoting and Escaping:** Supports various SML formats, including different quoting styles for stream and function codes and handling of non-printable ASCII characters and escape sequences.
 * **Strict Mode:** Offers a strict parsing mode that adheres to the ASCII standard and handles escape characters literally.
 
-## Sample Usage
-## Installation
+## Package Introduction
+* secs2 -  provides data structures and functions for working with SECS-II messages
+* gem - provides functions for creating GEM messages, offers a convenient way to generate SECS-II messages for various GEM message types.
+* hsms - provides functions and interfaces for establishing/decoding HSMS control and data message and defining generic interface for HSMS session.
+* hsmsss - provides an implementation of HSMS-SS (HSMS Single Session) for communication according to the SEMI E37 standard.
+* logger - provides a standardized way for different logging frameworks to be integrated into go-secs.
+
+## Object representation HSMS/SECS-II Message
+The SECS-II message is defined by the `secs2.SECS2Message` interface, which defines stream code, funtcion code, waitbit, and SECS-II data item method. The GEM message generation functions in the `gem` package implement this interface.
+
+The `hsms.HSMSMessage` embeds `secs2.SECS2Message` and extends the method definitions including session ID, system bytes, header bytes...etc.
+
+The HSMS messages can be represented by the `hsms.DataMessage` and `hsms.ControlMessage` objects which implements `hsms.HSMSMessage` interface.
+
+The SECS-II data item has a unified `secs2.Item` interface, and all types of data item implements it.
+
+```text
+hsms.HSMSMessage (interface): embeds secs2.SECS2Message interface
+├── hsms.DataMessage
+└── hsms.ControlMessage
+
+secs2.Item (interface)
+├── ASCIIItem   (shortcut: A)
+├── BinaryItem  (shortcut: B)
+├── BooleanItem (shortcut: BOOLEAN)
+├── FloatItem   (shortcut: F4 ,F8)
+├── IntItem     (shortcut: I1, I2, I4, I8)
+├── UintItem    (shortcut: U1, U2, U4, U8)
+└── ListItem    (shortcut: L)
+```
+## Usage
+### Installation
 ```bash
 go get github.com/arloliu/go-secs
 ```
@@ -102,14 +132,67 @@ nestItem, err = listItem.Get(3, 1) // ascii item "test3"
 nestItem, err = listItem.Get(3, 2) // nil, err == "failed to get nested item"
 ```
 
+### HSMS and SECS-II Item SML various formats
+```go
+// set stream-function SML string with single quote. e.g. 'S1F1' W <A 'test'>
+hsms.UseStreamFunctionSingleQuote()
+// set stream-function SML string with double quote. e.g. "S1F1" W <A 'test'>
+hsms.UseStreamFunctionDoubleQuote()
+// set stream-function SML string without quote. e.g. S1F1 W <A 'test'>
+hsms.UseStreamFunctionNoQuote()
+
+// quote ASCII item SML string with double quote. e.g. S1F1 W <A "test">
+secs2.UseASCIIDoubleQuote()
+// quote ASCII item SML string with double quote. e.g. S1F1 W <A 'test'>
+secs2.UseASCIISingleQuote()
+```
+
+### Parse SML
+```go
+// set stream-function SML string with single quote, and quote ASCII item SML string with double quote.
+// e.g. 'S1F1' W <A "test">
+hsms.UseStreamFunctionSingleQuote()
+secs2.UseASCIIDoubleQuote()
+
+sml = `MessageName:'S7F26'
+<L[4]
+	<A "path">
+	<A "model">
+	<A "version">
+	<L[2]
+		<U4[1] 256>
+		<A "value">
+	>
+>
+.`
+
+msgs, err := sml.ParseHSMS(sml)
+if err != nil {
+	// handle error
+}
+
+for _, msg := range msgs {
+	// msg.Name() == "MessageName"
+	// msg.StreamCode == uint8(7)
+	// msg.FunctionCode == uint8(26)
+	// msg.WaitBit() == false
+}
+```
+
 ### Create HSMS-SS Host with Active Mode
 ```go
 func msgHandler(msg *hsms.DataMessage, session hsms.Session) {
 	switch msg.StreamCode() {
+		case 98:
+			switch msg.FunctionCode() {
+				case 1:
+					err := session.ReplyDataMessage(msg, msg.Item())
+					if err != nil {
+						// handle reply error
+					}
+			}
 
 	}
-	session.ReplyDataMessage(msg, msg.Item())
-	// ... handle error ...
 }
 
 func main() {
@@ -139,7 +222,7 @@ func main() {
 		// ... handle error ...
 	}
 
-	// Send an S1F1 message
+	// Send an S99F1 message
 	reply, err := session.SendDataMessage(1, 1, true, secs2.NewASCIIItem("test"))
 	if err != nil {
 		// ... handle error ...
@@ -147,4 +230,58 @@ func main() {
 	// Process the reply
 
 	// ... other HSMS-SS operations ...
+}
+```
+
+### Create HSMS-SS Equipment with Passive Mode
+```go
+func msgHandler(msg *hsms.DataMessage, session hsms.Session) {
+	switch msg.StreamCode() {
+		case 99:
+			switch msg.FunctionCode() {
+				case 1:
+					err := session.ReplyDataMessage(msg, msg.Item())
+					if err != nil {
+						// handle reply error
+					}
+			}
+	}
+}
+
+func main() {
+	// ...
+	// Create a new HSMS-SS connection
+	connCfg := hsmsss.NewConnectionConfig("127.0.0.1", 5000,
+	WithPassive(), // passive mode
+	WithEquipRole(), // equipment role
+	WithT3Timeout(30*time.Second),
+	// other options...
+	)
+	conn, err := hsmsss.NewConnection(ctx, connCfg)
+	if err != nil {
+		// ... handle error ...
+	}
+	defer conn.Close()
+
+	// Add a session with session id 1000 before open connection
+	session := conn.AddSession(1000)
+
+	// Add a data message handler
+	session.AddDataMessageHandler(msgHandler)
+
+	// Open connection and wait it to selected state
+	err = conn.Open(true)
+	if err != nil {
+		// ... handle error ...
+	}
+
+	// Send an S98F1 message
+	reply, err := session.SendDataMessage(98, 1, true, secs2.NewASCIIItem("test"))
+	if err != nil {
+		// ... handle error ...
+	}
+	// Process the reply
+
+	// ... other HSMS-SS operations ...
+}
 ```
