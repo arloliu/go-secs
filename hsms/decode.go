@@ -165,7 +165,6 @@ func (d *hsmsDecoder) decodeMessageText() (secs2.Item, error) { //nolint: cyclop
 
 	case secs2.BinaryFormatCode:
 		item := secs2.NewBinaryItem(d.read(length))
-		d.pos += length
 		return item, nil
 
 	case secs2.BooleanFormatCode:
