@@ -203,6 +203,7 @@ func (item *UintItem) ToSML() string {
 	}
 
 	sb.WriteByte('>') // Close the SML tag
+
 	return sb.String()
 }
 

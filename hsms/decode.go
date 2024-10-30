@@ -55,7 +55,7 @@ func (d *hsmsDecoder) read(length int) []byte {
 // readByte reads a single byte from the input and advances the current position.
 func (d *hsmsDecoder) readByte() byte {
 	result := d.input[d.pos]
-	d.pos += 1
+	d.pos++
 	return result
 }
 
@@ -126,14 +126,16 @@ func (d *hsmsDecoder) decodeMessageText() (secs2.Item, error) { //nolint: cyclop
 	// decode format code and no. of length bytes
 	formatByte := d.readByte()
 	formatCode := formatByte >> 2
+
 	lenBytesCount := int(formatByte & 0x3)
 	if lenBytesCount == 0 {
 		return secs2.NewEmptyItem(), fmt.Errorf("length bytes count is zero")
 	}
 
 	// decode length bytes to length
-	lenBytes := d.read(lenBytesCount)
 	length := 0
+	lenBytes := d.read(lenBytesCount)
+
 	switch lenBytesCount {
 	case 1:
 		length = int(lenBytes[0])
@@ -154,6 +156,7 @@ func (d *hsmsDecoder) decodeMessageText() (secs2.Item, error) { //nolint: cyclop
 				return secs2.NewEmptyItem(), err
 			}
 		}
+
 		return secs2.NewListItem(values...), nil
 
 	case secs2.ASCIIFormatCode:
@@ -179,6 +182,7 @@ func (d *hsmsDecoder) decodeMessageText() (secs2.Item, error) { //nolint: cyclop
 				d.boolBuf = append(d.boolBuf, true)
 			}
 		}
+
 		return secs2.NewBooleanItem(d.boolBuf), nil
 
 	case secs2.Int8FormatCode:
@@ -235,6 +239,7 @@ func (d *hsmsDecoder) decodeIntItem(byteSize int, length int) (secs2.Item, error
 		}
 	}
 	d.pos += length
+
 	return secs2.NewIntItem(byteSize, d.intBuf), nil
 }
 
@@ -264,6 +269,7 @@ func (d *hsmsDecoder) decodeUintItem(byteSize int, length int) (secs2.Item, erro
 		}
 	}
 	d.pos += length
+
 	return secs2.NewUintItem(byteSize, d.uintBuf), nil
 }
 
@@ -290,5 +296,6 @@ func (d *hsmsDecoder) decodeFloatItem(byteSize int, length int) (secs2.Item, err
 		}
 	}
 	d.pos += length
+
 	return secs2.NewFloatItem(byteSize, d.floatBuf), nil
 }

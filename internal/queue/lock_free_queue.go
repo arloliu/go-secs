@@ -60,6 +60,7 @@ retry:
 			casQueueItem(&q.tail, tail, next)
 		}
 	}
+
 	goto retry
 }
 
@@ -89,6 +90,7 @@ retry:
 			}
 		}
 	}
+
 	goto retry
 }
 
@@ -113,6 +115,7 @@ retry:
 			return next.value
 		}
 	}
+
 	goto retry
 }
 

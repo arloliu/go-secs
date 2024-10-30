@@ -43,6 +43,7 @@ func NewSlog(level LogLevel, addSource bool) Logger {
 				if a.Key == slog.TimeKey {
 					a.Key = "ts"
 				}
+
 				return a
 			},
 		}
@@ -90,6 +91,7 @@ func (l *slogLogger) Fatal(msg string, keysAndValues ...any) {
 // Key-values added to the child don't affect the parent, and vice versa.
 func (l *slogLogger) With(keyValues ...any) Logger {
 	newLog := l.logger.With(keyValues...)
+
 	return &slogLogger{
 		logger: newLog,
 		level:  l.level,
@@ -108,6 +110,7 @@ func (l *slogLogger) Level() LogLevel {
 	if level, ok := levelMap[lv]; ok {
 		return level
 	}
+
 	return ErrorLevel
 }
 
@@ -149,5 +152,6 @@ func toSlogLevel(level LogLevel) slog.Level {
 	if slogLevel, ok := levelMap[level]; ok {
 		return slogLevel
 	}
+
 	return slog.LevelError
 }

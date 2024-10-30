@@ -71,6 +71,7 @@ func (c *Connection) recvMsgPassive(msg hsms.HSMSMessage) {
 
 			replyMsg := hsms.NewRejectReq(msg, hsms.RejectNotSelected)
 			_, _ = c.sendMsg(replyMsg)
+
 			break
 		}
 
@@ -255,5 +256,6 @@ func (c *Connection) closeListener() error {
 		c.listener = nil
 		return err
 	}
+
 	return nil
 }

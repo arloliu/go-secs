@@ -45,6 +45,7 @@ func ParseHSMS(input string) ([]*hsms.DataMessage, error) {
 
 	p := NewHSMSParser()
 	p.WithStrictMode(defStrictMode)
+
 	return p.Parse(input)
 }
 
@@ -494,6 +495,7 @@ func (p *HSMSParser) parseFloat(byteSize int, size int) (secs2.Item, error) {
 			if errors.Is(err, strconv.ErrRange) {
 				return nil, fmt.Errorf("F%d overflow", byteSize)
 			}
+
 			return nil, fmt.Errorf("expect float, found %s", val)
 		}
 
@@ -513,11 +515,13 @@ func (p *HSMSParser) parseInt(byteSize int, size int) (secs2.Item, error) {
 			if errors.Is(err, strconv.ErrRange) {
 				return nil, fmt.Errorf("I%d range overflow", byteSize)
 			}
+
 			return nil, fmt.Errorf("expect signed integer, found %s", val)
 		}
 
 		items = append(items, item)
 	}
+
 	return secs2.NewIntItem(byteSize, items), nil
 }
 
@@ -531,6 +535,7 @@ func (p *HSMSParser) parseUint(byteSize int, size int) (secs2.Item, error) {
 			if errors.Is(err, strconv.ErrRange) {
 				return nil, fmt.Errorf("U%d range overflow", byteSize)
 			}
+
 			return nil, fmt.Errorf("expect unsigned integer, found %s", val)
 		}
 
@@ -637,6 +642,7 @@ func (p *HSMSParser) parseItemType() (secs2.FormatCode, bool) {
 			}
 		}
 		p.forward(1)
+
 		return secs2.BinaryFormatCode, true
 
 	case 'F':
@@ -662,6 +668,7 @@ func (p *HSMSParser) parseItemType() (secs2.FormatCode, bool) {
 			return -1, false
 		}
 		p.forward(2)
+
 		return formatCode, true
 	}
 
@@ -706,6 +713,7 @@ func (p *HSMSParser) forward(n int) bool {
 		p.data = p.input[p.pos:]
 		return true
 	}
+
 	return false
 }
 
@@ -725,6 +733,7 @@ func (p *HSMSParser) skipSpace() bool {
 			return p.forward(i)
 		}
 	}
+
 	return false
 }
 
@@ -739,6 +748,7 @@ func (p *HSMSParser) skipComment() {
 		}
 
 		p.forward(i + 1)
+
 		return
 	} else if strings.HasPrefix(p.data, "/*") {
 		i := strings.Index(p.data, "*/")
@@ -747,6 +757,7 @@ func (p *HSMSParser) skipComment() {
 		}
 
 		p.forward(i + 2)
+
 		return
 	}
 }
@@ -759,6 +770,7 @@ func (p *HSMSParser) peekNonSpaceRune() rune {
 	if !p.skipSpace() {
 		return eof
 	}
+
 	return p.peekRune()
 }
 
@@ -771,6 +783,7 @@ func (p *HSMSParser) nextRune() rune {
 	if !p.forward(1) {
 		return eof
 	}
+
 	return r
 }
 
@@ -778,6 +791,7 @@ func (p *HSMSParser) nextNonSpaceRune() rune {
 	if !p.skipSpace() {
 		return eof
 	}
+
 	return p.nextRune()
 }
 
@@ -797,6 +811,7 @@ func (p *HSMSParser) nextCode() (uint8, error) {
 				return 0, err
 			}
 			p.forward(i)
+
 			return uint8(code), nil
 		}
 	}
@@ -820,6 +835,7 @@ func (p *HSMSParser) nextItemSize() (int, error) {
 				return 0, err
 			}
 			p.forward(i)
+
 			return size, nil
 		}
 	}

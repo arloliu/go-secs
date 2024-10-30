@@ -20,8 +20,10 @@ func GetTimer(d time.Duration) *time.Timer {
 			default:
 			}
 		}
+
 		return t
 	}
+
 	return time.NewTimer(d)
 }
 

@@ -7,7 +7,7 @@ import (
 	"unicode"
 )
 
-var asciiQuote rune = '"'
+var asciiQuote = '"'
 
 // UseASCIISingleQuote sets the quoting character for ASCII items in SML to a single quote (').
 func UseASCIISingleQuote() {
@@ -24,7 +24,7 @@ func ASCIIQuote() rune {
 	return asciiQuote
 }
 
-var strictMode bool = false
+var strictMode = false
 
 // WithStrictMode enables or disables strict mode for generating SML representations of ASCII items.
 //
@@ -185,6 +185,7 @@ func (item *ASCIIItem) ToSML() string {
 	if strictMode {
 		return item.toSMLStrict()
 	}
+
 	return item.toSMLFast()
 }
 
@@ -232,6 +233,7 @@ func (item *ASCIIItem) toSMLStrict() string {
 	}
 
 	sb.WriteRune('>') // Add the closing tag
+
 	return sb.String()
 }
 
@@ -254,6 +256,7 @@ func (item *ASCIIItem) toSMLFast() string {
 	sb.WriteRune(asciiQuote)
 
 	sb.WriteRune('>') // Add the closing tag
+
 	return sb.String()
 }
 

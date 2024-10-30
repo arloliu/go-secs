@@ -76,6 +76,7 @@ func (msg *ControlMessage) ToBytes() []byte {
 	result := make([]byte, 0, 14)
 	result = append(result, 0, 0, 0, 10)        // 4 bytes: message length, MSB first.
 	result = append(result, msg.header[:10]...) // 10 bytes: message header
+
 	return result
 }
 

@@ -20,6 +20,7 @@ func getASCIIItem() *ASCIIItem {
 		if item == nil {
 			return &ASCIIItem{}
 		}
+
 		return item
 	}
 
@@ -38,6 +39,7 @@ func getBooleanItem() *BooleanItem {
 		if item == nil {
 			return &BooleanItem{}
 		}
+
 		return item
 	}
 
@@ -56,6 +58,7 @@ func getBinaryItem() *BinaryItem {
 		if item == nil {
 			return &BinaryItem{}
 		}
+
 		return item
 	}
 
@@ -74,6 +77,7 @@ func getIntItem() *IntItem {
 		if item == nil {
 			return &IntItem{}
 		}
+
 		return item
 	}
 
@@ -92,6 +96,7 @@ func getUintItem() *UintItem {
 		if item == nil {
 			return &UintItem{}
 		}
+
 		return item
 	}
 
@@ -110,6 +115,7 @@ func getFloatItem() *FloatItem {
 		if item == nil {
 			return &FloatItem{}
 		}
+
 		return item
 	}
 
@@ -128,6 +134,7 @@ func getListItem() *ListItem {
 		if item == nil {
 			return &ListItem{}
 		}
+
 		return item
 	}
 

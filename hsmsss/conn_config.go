@@ -129,6 +129,7 @@ func NewConnectionConfig(ipAddress string, port int, opts ...ConnOption) (*Conne
 			return cfg, err
 		}
 	}
+
 	return cfg, nil
 }
 
@@ -162,6 +163,7 @@ func WithipAddress(ipAddr string) ConnOption {
 			return errors.New("ip address is not valid")
 		}
 		cfg.ipAddress = ipAddr
+
 		return nil
 	})
 }
@@ -179,6 +181,7 @@ func WithPort(port int) ConnOption {
 			return errors.New("port is out of range [1, 65535]")
 		}
 		cfg.port = port
+
 		return nil
 	})
 }
@@ -193,6 +196,7 @@ func WithEquipRole() ConnOption {
 		}
 
 		cfg.isEquip = true
+
 		return nil
 	})
 }
@@ -207,26 +211,10 @@ func WithHostRole() ConnOption {
 		}
 
 		cfg.isEquip = false
+
 		return nil
 	})
 }
-
-// // WithSessionID sets the session ID for the HSMS-SS connection.
-// // It returns a ConnOption that updates the configuration with the provided session ID.
-// // An error is returned if the configuration is nil.
-// func WithSessionID(sessionID uint16) ConnOption {
-// 	return newConnOptFunc(func(cfg *ConnectionConfig) error {
-// 		if cfg == nil {
-// 			return hsms.ErrConnConfigNil
-// 		}
-// 		if sessionID > 0x7FFF {
-// 			return errors.New("the session id in HSMS-SS needs to be a 15-bit unsigned integer")
-// 		}
-
-// 		cfg.sessionID = sessionID
-// 		return nil
-// 	})
-// }
 
 // WithActive sets the connection mode to active.
 // It returns a ConnOption that updates the configuration to indicate an active connection.
@@ -238,6 +226,7 @@ func WithActive() ConnOption {
 		}
 
 		cfg.isActive = true
+
 		return nil
 	})
 }
@@ -258,6 +247,7 @@ func WithAutoLinktest(val bool) ConnOption {
 		}
 
 		cfg.autoLinktest = val
+
 		return nil
 	})
 }
@@ -277,6 +267,7 @@ func WithLinktestInterval(interval time.Duration) ConnOption {
 		}
 
 		cfg.linktestInterval = interval
+
 		return nil
 	})
 }
@@ -291,6 +282,7 @@ func WithPassive() ConnOption {
 		}
 
 		cfg.isActive = false
+
 		return nil
 	})
 }
@@ -308,6 +300,7 @@ func WithT3Timeout(val time.Duration) ConnOption {
 			return errors.New("t3 timeout out of range [1, 120]")
 		}
 		cfg.t3Timeout = val
+
 		return nil
 	})
 }
@@ -325,6 +318,7 @@ func WithT5Timeout(val time.Duration) ConnOption {
 			return errors.New("t5 timeout out of range [1, 240]")
 		}
 		cfg.t5Timeout = val
+
 		return nil
 	})
 }
@@ -342,6 +336,7 @@ func WithT6Timeout(val time.Duration) ConnOption {
 			return errors.New("t6 timeout out of range [1, 240]")
 		}
 		cfg.t6Timeout = val
+
 		return nil
 	})
 }
@@ -359,6 +354,7 @@ func WithT7Timeout(val time.Duration) ConnOption {
 			return errors.New("t7 timeout out of range [1, 240]")
 		}
 		cfg.t7Timeout = val
+
 		return nil
 	})
 }
@@ -376,6 +372,7 @@ func WithT8Timeout(val time.Duration) ConnOption {
 			return errors.New("t8 timeout out of range [1, 120]")
 		}
 		cfg.t8Timeout = val
+
 		return nil
 	})
 }
@@ -395,6 +392,7 @@ func WithConnectRemoteTimeout(val time.Duration) ConnOption {
 			return errors.New("connect remote timeout out of range [1, 30]")
 		}
 		cfg.connRemoteTimeout = val
+
 		return nil
 	})
 }
@@ -414,6 +412,7 @@ func WithAcceptConnTimeout(val time.Duration) ConnOption {
 			return errors.New("accept connection timeout out of range [1, 2]")
 		}
 		cfg.acceptConnTimeout = val
+
 		return nil
 	})
 }
@@ -433,6 +432,7 @@ func WithCloseConnectionTimeout(val time.Duration) ConnOption {
 			return errors.New("accept connection timeout out of range [3, 30]")
 		}
 		cfg.closeConnTimeout = val
+
 		return nil
 	})
 }
@@ -455,6 +455,7 @@ func WithSenderQueueSize(size int) ConnOption {
 		}
 
 		cfg.senderQueueSize = size
+
 		return nil
 	})
 }
@@ -469,6 +470,7 @@ func WithLogger(logger logger.Logger) ConnOption {
 		}
 
 		cfg.logger = logger
+
 		return nil
 	})
 }

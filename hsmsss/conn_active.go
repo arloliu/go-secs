@@ -55,6 +55,7 @@ func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 			)
 			replyMsg := hsms.NewRejectReq(msg, hsms.RejectNotSelected)
 			_, _ = c.sendMsg(replyMsg)
+
 			break
 		}
 
@@ -135,5 +136,6 @@ func (c *Connection) tryConnect(ctx context.Context) error {
 	)
 
 	c.stateMgr.ToNotSelectedAsync()
+
 	return nil
 }

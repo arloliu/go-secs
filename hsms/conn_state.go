@@ -21,7 +21,7 @@ func (cs ConnState) IsNotSelected() bool { return cs == NotSelectedState }
 // IsSelected returns if the current state is selected.
 func (cs ConnState) IsSelected() bool { return cs == SelectedState }
 
-// String returns string represention of the current state.
+// String returns string representation of the current state.
 func (cs ConnState) String() string {
 	switch cs {
 	case NotConnectedState:

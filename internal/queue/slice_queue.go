@@ -22,6 +22,7 @@ func (q *sliceQueue) Dequeue() any {
 	}
 	item := q.items[0]
 	q.items = q.items[1:]
+
 	return item
 }
 
@@ -30,6 +31,7 @@ func (q *sliceQueue) Peek() any {
 	if len(q.items) == 0 {
 		return nil
 	}
+
 	return q.items[0]
 }
 

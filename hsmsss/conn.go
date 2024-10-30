@@ -85,6 +85,7 @@ func NewConnection(ctx context.Context, cfg *ConnectionConfig) (*Connection, err
 // It returns the newly created Session.
 func (c *Connection) AddSession(sessionID uint16) hsms.Session {
 	c.session = NewSession(sessionID, c)
+
 	return c.session
 }
 
@@ -285,6 +286,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 					return nil, err
 				}
 			}
+
 			return nil, hsms.ErrConnClosed
 		}
 
@@ -299,6 +301,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 		if c.logger.Level() == logger.DebugLevel {
 			c.logger.Debug("reply message received", hsms.MsgInfo(replyMsg, "method", "sendMsg")...)
 		}
+
 		return replyMsg, nil
 	}
 }
@@ -324,6 +327,7 @@ func (c *Connection) sendMsgSync(msg hsms.HSMSMessage) error {
 	if c.logger.Level() == logger.DebugLevel {
 		c.logger.Debug("message sent to remote", hsms.MsgInfo(msg, "method", "sendMsgSync")...)
 	}
+
 	return nil
 }
 
@@ -393,6 +397,7 @@ func (c *Connection) receiverTask(reader *bufio.Reader, msgLenBuf []byte) bool {
 		if err != io.EOF && !errors.Is(err, net.ErrClosed) && !strings.Contains(err.Error(), "connection reset by peer") {
 			c.logger.Error("failed to read the length of HSMS message", "method", "receiverTask", "error", err)
 		}
+
 		return false
 	}
 
@@ -403,6 +408,7 @@ func (c *Connection) receiverTask(reader *bufio.Reader, msgLenBuf []byte) bool {
 		if err != io.EOF {
 			c.logger.Error("failed to read HSMS message", "method", "receiverTask", "error", err)
 		}
+
 		return false
 	}
 

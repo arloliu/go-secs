@@ -171,6 +171,7 @@ func (item *BinaryItem) ToSML() string {
 	}
 
 	sb.WriteByte('>') // Close the SML tag
+
 	return sb.String()
 }
 

@@ -94,6 +94,7 @@ func (item *ListItem) Get(indices ...int) (Item, error) {
 		}
 		dataItem = listItem.values[idx]
 	}
+
 	return dataItem, nil
 }
 

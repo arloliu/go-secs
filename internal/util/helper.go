@@ -29,6 +29,7 @@ func AppendInt64Slice[T int | int8 | int16 | int32 | int64 | uint | uint8 | uint
 	for i, v := range values {
 		target[targetLen-varLen+i] = int64(v)
 	}
+
 	return target
 }
 
@@ -49,6 +50,7 @@ func AppendUint64Slice[T int | int8 | int16 | int32 | int64 | uint | uint8 | uin
 	for i, v := range values {
 		target[targetLen-varLen+i] = uint64(v)
 	}
+
 	return target
 }
 
@@ -72,5 +74,6 @@ func AppendFloat64Slice[T float32 | float64 | int | int8 | int16 | int32 | int64
 	for i, v := range values {
 		target[targetLen-varLen+i] = float64(v)
 	}
+
 	return target
 }

@@ -164,12 +164,13 @@ func genRandomBinary(length int) []byte {
 	if length == 0 {
 		return []byte{}
 	}
-	var seededRand *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
+	seededRand := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	b := make([]byte, length)
 	for i := range b {
 		b[i] = byte(seededRand.Intn(256))
 	}
+
 	return b
 }
 
@@ -181,5 +182,6 @@ func genFixedBinary(length int) []byte {
 	for i := range b {
 		b[i] = byte(i % 0xff)
 	}
+
 	return b
 }

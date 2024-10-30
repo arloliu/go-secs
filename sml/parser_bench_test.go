@@ -118,6 +118,7 @@ func genIntSML(count int) string {
 	if err != nil {
 		return ""
 	}
+
 	return msg.ToSML()
 }
 
@@ -135,5 +136,6 @@ func genASCIISML(count int) string {
 	if err != nil {
 		return ""
 	}
+
 	return msg.ToSML()
 }

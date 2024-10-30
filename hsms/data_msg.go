@@ -217,6 +217,7 @@ func (msg *DataMessage) ToSML() string {
 		if msg.name != "" {
 			return msg.name + ":" + msg.SMLHeader() + "\n."
 		}
+
 		return msg.SMLHeader() + "\n."
 	}
 
@@ -224,6 +225,7 @@ func (msg *DataMessage) ToSML() string {
 		if msg.name != "" {
 			return msg.name + ":" + msg.SMLHeader() + "\n."
 		}
+
 		return msg.SMLHeader() + "\n."
 	}
 	var sb strings.Builder

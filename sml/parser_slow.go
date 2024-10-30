@@ -64,6 +64,7 @@ func (p *parser) peek() *token {
 		}
 		p.tokenQueue.Enqueue(t)
 	}
+
 	return p.tokenQueue.Peek().(*token)
 }
 
@@ -84,6 +85,7 @@ func (p *parser) accept(typ tokenType) (t *token, ok bool) {
 	if t.typ != typ {
 		return t, false
 	}
+
 	return p.dequeueToken(), true
 }
 
@@ -155,6 +157,7 @@ func (p *parser) parseHSMSDataMessage() (ok bool) {
 	}
 
 	p.messages = append(p.messages, message)
+
 	return true
 }
 
@@ -539,6 +542,7 @@ func (p *parser) parseFloat(byteSize int, size int) (item secs2.Item, ok bool) {
 			} else {
 				p.errorf("expect float, found %q", str)
 			}
+
 			return secs2.NewEmptyItem(), false
 		}
 
@@ -566,6 +570,7 @@ func (p *parser) parseInt(byteSize int, size int) (item secs2.Item, ok bool) {
 			} else {
 				p.errorf("expected integer, found %q", str)
 			}
+
 			return secs2.NewEmptyItem(), false
 		}
 
@@ -593,6 +598,7 @@ func (p *parser) parseUint(byteSize int, size int) (item secs2.Item, ok bool) {
 			} else {
 				p.errorf("expected unsigned integer, found %q", str)
 			}
+
 			return secs2.NewEmptyItem(), false
 		}
 

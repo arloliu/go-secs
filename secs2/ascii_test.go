@@ -251,7 +251,7 @@ func genRandomASCIIString(length int) string {
 		return ""
 	}
 
-	var seededRand *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
+	seededRand := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	randomBytes := make([]byte, length)
 	_, err := seededRand.Read(randomBytes)

@@ -216,6 +216,7 @@ func (item *FloatItem) ToSML() string {
 	}
 
 	sb.WriteByte('>')
+
 	return sb.String()
 }
 

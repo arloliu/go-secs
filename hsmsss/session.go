@@ -38,6 +38,7 @@ func NewSession(id uint16, hsmsConn *Connection) *Session {
 	// assign HSMS-SS specific implementations to base session
 	session.BaseSession.ID = session.ID
 	session.BaseSession.SendMessage = session.SendMessage
+
 	return session
 }
 

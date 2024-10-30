@@ -17,6 +17,7 @@ func getToken(typ tokenType, val string) *token {
 	t, _ := tokenPool.Get().(*token)
 	t.typ = typ
 	t.val = val
+
 	return t
 }
 
@@ -76,6 +77,7 @@ func getLexer(input string) *lexer {
 	l, _ := lexerPool.Get().(*lexer)
 	l.input = input
 	l.state = lexMessageHeader
+
 	return l
 }
 
@@ -113,6 +115,7 @@ func (l *lexer) next() (r rune) {
 
 	r, l.width = utf8.DecodeRuneInString(l.input[l.pos:])
 	l.pos += l.width
+
 	return r
 }
 
@@ -177,6 +180,7 @@ func (l *lexer) accept(valid string) bool {
 		return true
 	}
 	l.back()
+
 	return false
 }
 
@@ -208,6 +212,7 @@ func (l *lexer) nextToken() *token {
 			}
 
 			token, _ := data.(*token)
+
 			return token
 		}
 	}
@@ -237,8 +242,9 @@ func lexMessageHeader(l *lexer) stateFn {
 		if loc := re.FindStringSubmatchIndex(l.input[l.pos:]); loc != nil {
 			l.pos += loc[3]
 			l.emit(tokenTypeMsgName)
-			l.pos += 1
+			l.pos++
 			l.start = l.pos
+
 			return lexMessageHeader
 		}
 
@@ -278,6 +284,7 @@ func lexMessageHeader(l *lexer) stateFn {
 				}
 			}
 			l.emit(tokenTypeMsgName)
+
 			return lexMessageHeader
 		}
 	}
@@ -313,6 +320,7 @@ func lexMessageText(l *lexer) stateFn {
 					fmt.Printf("Handle optional array-like notation: %s\n", l.input[l.pos:l.pos+loc[1]])
 					l.pos += loc[1]
 				}
+
 				return lexMessageText
 			}
 		}
@@ -372,10 +380,11 @@ func lexComment(l *lexer) stateFn {
 	}
 
 	for unicode.IsSpace(rune(l.input[l.pos+i-1])) {
-		i -= 1
+		i--
 	}
 	l.pos += i
 	l.emit(tokenTypeComment)
+
 	return l.lastState
 }
 
@@ -403,6 +412,7 @@ func lexDataItemSize(l *lexer) stateFn {
 		return l.errorf("invalid data item size")
 	}
 	l.emitSpaceRemoved(tokenTypeItemSize)
+
 	return lexMessageText
 }
 
@@ -420,7 +430,7 @@ func lexDoubleQuotedString(l *lexer) stateFn {
 		return l.errorf("unclosed double quoted string")
 	}
 	// exclude the double quote
-	l.start += 1
+	l.start++
 	l.pos += i
 	l.emit(tokenTypeQuotedString)
 	l.skip(1)
@@ -441,7 +451,7 @@ func lexSingleQuotedString(l *lexer) stateFn {
 		return l.errorf("unclosed single quoted string")
 	}
 	// exclude the single quote
-	l.start += 1
+	l.start++
 	l.pos += i
 	l.emit(tokenTypeQuotedString)
 	l.skip(1)
@@ -485,6 +495,7 @@ func lexNumber(l *lexer) stateFn {
 	}
 
 	l.emit(tokenTypeNumber)
+
 	return lexMessageText
 }
 

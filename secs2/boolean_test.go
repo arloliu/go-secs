@@ -148,7 +148,7 @@ func genRandomBool(length int) []bool {
 	if length == 0 {
 		return []bool{}
 	}
-	var seededRand *rand.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
+	seededRand := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	b := make([]bool, length)
 	for i := range b {
@@ -156,6 +156,7 @@ func genRandomBool(length int) []bool {
 			b[i] = true
 		}
 	}
+
 	return b
 }
 
@@ -172,5 +173,6 @@ func genFixedBool(length int) []bool {
 			b[i] = false
 		}
 	}
+
 	return b
 }

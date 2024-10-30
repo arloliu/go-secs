@@ -28,6 +28,7 @@ func newMsgIDGenerator() *msgIDGenerator {
 		return inst
 	}
 	inst.id.Store(binary.LittleEndian.Uint32(buf[:]))
+
 	return inst
 }
 
@@ -50,6 +51,7 @@ func getMsgIDGenerator() *msgIDGenerator {
 	once.Do(func() {
 		genInst = newMsgIDGenerator()
 	})
+
 	return genInst
 }
 

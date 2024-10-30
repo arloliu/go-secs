@@ -128,5 +128,6 @@ func (s *BaseSession) ReplyDataMessage(primaryMsg *DataMessage, dataItem secs2.I
 	}
 
 	_, err = s.SendMessage(replyMsg)
+
 	return err
 }
