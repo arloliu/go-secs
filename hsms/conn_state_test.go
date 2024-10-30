@@ -172,6 +172,6 @@ func (_ *mockLogger) Warn(msg string, keysAndValues ...any)  {}
 func (_ *mockLogger) Error(msg string, keysAndValues ...any) {}
 func (_ *mockLogger) Fatal(msg string, keysAndValues ...any) {}
 func (_ *mockLogger) With(keyValues ...any) logger.Logger    { return &mockLogger{} }
-func (_ *mockLogger) Level() logger.Level                    { return logger.InfoLevel }
-func (_ *mockLogger) SetLevel(level logger.Level)            {}
+func (_ *mockLogger) Level() logger.LogLevel                 { return logger.InfoLevel }
+func (_ *mockLogger) SetLevel(level logger.LogLevel)         {}
 func (_ *mockLogger) SetOutput(output io.Writer)             {}

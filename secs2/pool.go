@@ -21,9 +21,9 @@ func getASCIIItem() *ASCIIItem {
 			return &ASCIIItem{}
 		}
 		return item
-	} else {
-		return &ASCIIItem{}
 	}
+
+	return &ASCIIItem{}
 }
 
 func putASCIIItem(item *ASCIIItem) {
@@ -39,9 +39,9 @@ func getBooleanItem() *BooleanItem {
 			return &BooleanItem{}
 		}
 		return item
-	} else {
-		return &BooleanItem{}
 	}
+
+	return &BooleanItem{}
 }
 
 func putBooleanItem(item *BooleanItem) {
@@ -57,9 +57,9 @@ func getBinaryItem() *BinaryItem {
 			return &BinaryItem{}
 		}
 		return item
-	} else {
-		return &BinaryItem{}
 	}
+
+	return &BinaryItem{}
 }
 
 func putBinaryItem(item *BinaryItem) {
@@ -75,9 +75,9 @@ func getIntItem() *IntItem {
 			return &IntItem{}
 		}
 		return item
-	} else {
-		return &IntItem{}
 	}
+
+	return &IntItem{}
 }
 
 func putIntItem(item *IntItem) {
@@ -93,9 +93,9 @@ func getUintItem() *UintItem {
 			return &UintItem{}
 		}
 		return item
-	} else {
-		return &UintItem{}
 	}
+
+	return &UintItem{}
 }
 
 func putUintItem(item *UintItem) {
@@ -111,9 +111,9 @@ func getFloatItem() *FloatItem {
 			return &FloatItem{}
 		}
 		return item
-	} else {
-		return &FloatItem{}
 	}
+
+	return &FloatItem{}
 }
 
 func putFloatItem(item *FloatItem) {
@@ -129,9 +129,9 @@ func getListItem() *ListItem {
 			return &ListItem{}
 		}
 		return item
-	} else {
-		return &ListItem{}
 	}
+
+	return &ListItem{}
 }
 
 func putListItem(item *ListItem) {
@@ -142,10 +142,16 @@ func putListItem(item *ListItem) {
 
 var usePool = true
 
+// IsUsePool returns true if object pooling for SECS-II items is enabled, false otherwise.
 func IsUsePool() bool {
 	return usePool
 }
 
+// UsePool enables or disables object pooling for SECS-II items.
+// When enabled, the package reuses item objects from a pool to reduce memory allocations.
+// This can improve performance, especially when creating and discarding many items.
+//
+// Pooling is enabled by default.
 func UsePool(val bool) {
 	usePool = val
 }

@@ -83,7 +83,7 @@ func (item *UintItem) Get(indices ...int) (Item, error) {
 	return item, nil
 }
 
-// GetUint retrieves the unsigned integer data stored within the item.
+// ToUint retrieves the unsigned integer data stored within the item.
 //
 // This method implements a specialized version of Item.Get() for unsigned integer data retrieval.
 // It returns the uint64 slice containing the unsigned integer data.
@@ -214,6 +214,7 @@ func (item *UintItem) Clone() Item {
 	return &UintItem{byteSize: item.byteSize, values: util.CloneSlice(item.values, 0)}
 }
 
+// Type returns "u1", "u2", "u4", or "u8" string depends on the byte size.
 func (item *UintItem) Type() string {
 	switch item.byteSize {
 	case 1:
@@ -229,9 +230,16 @@ func (item *UintItem) Type() string {
 	}
 }
 
-func (item *UintItem) IsUint8() bool  { return item.byteSize == 1 }
+// IsUint8 returns true, indicating that UintItem is a 8-bit unsigned integer data item.
+func (item *UintItem) IsUint8() bool { return item.byteSize == 1 }
+
+// IsUint16 returns true, indicating that UintItem is a 16-bit unsigned integer data item.
 func (item *UintItem) IsUint16() bool { return item.byteSize == 2 }
+
+// IsUint32 returns true, indicating that UintItem is a 32-bit unsigned integer data item.
 func (item *UintItem) IsUint32() bool { return item.byteSize == 4 }
+
+// IsUint64 returns true, indicating that UintItem is a 64-bit unsigned integer data item.
 func (item *UintItem) IsUint64() bool { return item.byteSize == 8 }
 
 func (item *UintItem) dataType() string {

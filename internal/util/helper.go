@@ -1,5 +1,7 @@
 package util
 
+// CloneSlice clones slice with cloneSize.
+// This function will use src length as the clons size if cloneSize is 0.
 func CloneSlice[T any](src []T, cloneSize int) []T {
 	if cloneSize == 0 {
 		cloneSize = len(src)

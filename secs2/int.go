@@ -84,7 +84,7 @@ func (item *IntItem) Get(indices ...int) (Item, error) {
 	return item, nil
 }
 
-// GetInt retrieves the integer data stored within the item.
+// ToInt retrieves the integer data stored within the item.
 //
 // This method implements a specialized version of Item.Get() for signed integer data retrieval.
 // It returns the int64 slice containing the signed integer data.
@@ -219,6 +219,7 @@ func (item *IntItem) Clone() Item {
 	return &IntItem{byteSize: item.byteSize, values: util.CloneSlice(item.values, 0)}
 }
 
+// Type returns "i1", "i2", "i4", or "i8" string depends on the byte size.
 func (item *IntItem) Type() string {
 	switch item.byteSize {
 	case 1:
@@ -234,9 +235,16 @@ func (item *IntItem) Type() string {
 	}
 }
 
-func (item *IntItem) IsInt8() bool  { return item.byteSize == 1 }
+// IsInt8 returns true, indicating that IntItem is a 8-bit signed integer data item.
+func (item *IntItem) IsInt8() bool { return item.byteSize == 1 }
+
+// IsInt16 returns true, indicating that IntItem is a 16-bit signed integer data item.
 func (item *IntItem) IsInt16() bool { return item.byteSize == 2 }
+
+// IsInt32 returns true, indicating that IntItem is a 32-bit signed integer data item.
 func (item *IntItem) IsInt32() bool { return item.byteSize == 4 }
+
+// IsInt64 returns true, indicating that IntItem is a 64-bit signed integer data item.
 func (item *IntItem) IsInt64() bool { return item.byteSize == 8 }
 
 func (item *IntItem) dataType() string {

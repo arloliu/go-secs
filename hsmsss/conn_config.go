@@ -86,6 +86,17 @@ type ConnectionConfig struct {
 	logger logger.Logger
 }
 
+// NewConnectionConfig creates a new HSMS-SS connection configuration with the given IP address, port number, and optional functional options.
+//
+// It initializes a ConnectionConfig struct with default values and then applies the provided options to customize the configuration.
+//
+// The ipAddress parameter specifies the IP address of the remote HSMS device.
+// The port parameter specifies the TCP port number for the HSMS connection.
+//
+// The opts parameter is a variadic argument that accepts a list of ConnOption functions to customize the configuration.
+// See the documentation for ConnOption and the various WithXXX functions for available configuration options.
+//
+// Returns a pointer to the initialized ConnectionConfig and an error if any occurred during the configuration process.
 func NewConnectionConfig(ipAddress string, port int, opts ...ConnOption) (*ConnectionConfig, error) {
 	cfg := &ConnectionConfig{
 		isEquip:           false,

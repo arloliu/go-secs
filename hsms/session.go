@@ -39,11 +39,16 @@ type Session interface {
 	AddDataMessageHandler(handlers ...DataMessageHandler)
 }
 
+// BaseSession implements common methods for HSMS-SS and HSMS-GS session.
 type BaseSession struct {
 	ID          func() uint16
 	SendMessage func(msg HSMSMessage) (HSMSMessage, error)
 }
 
+// SendDataMessage sends an HSMS data message with the specified stream, function, and data item.
+// It waits for a reply if replyExpected is true.
+// It returns the received reply DataMessage if replyExpected is true, nil otherwise,
+// and and an error if any occurred during sending or receiving.
 func (s *BaseSession) SendDataMessage(stream byte, function byte, replyExpected bool, dataItem secs2.Item) (*DataMessage, error) {
 	if function%2 == 0 {
 		return nil, ErrInvalidReqMsg
@@ -71,6 +76,8 @@ func (s *BaseSession) SendDataMessage(stream byte, function byte, replyExpected 
 	return dataMsg, nil
 }
 
+// SendSECS2Message sends a SECS-II message and waits for its reply.
+// It returns the received reply message (as a DataMessage) and an error if any occurred during sending or receiving.
 func (s *BaseSession) SendSECS2Message(msg secs2.SECS2Message) (*DataMessage, error) {
 	if msg.FunctionCode()%2 == 0 {
 		return nil, ErrInvalidReqMsg
@@ -98,6 +105,11 @@ func (s *BaseSession) SendSECS2Message(msg secs2.SECS2Message) (*DataMessage, er
 	return replyDataMsg, nil
 }
 
+// ReplyDataMessage sends a reply to a previously received data message.
+// It takes the original primary DataMessage and the data item for the reply as arguments.
+// It returns an error if any occurred during sending the reply.
+//
+// It is a wrapper method to reply data message with the corresponding function code of primary message.
 func (s *BaseSession) ReplyDataMessage(primaryMsg *DataMessage, dataItem secs2.Item) error {
 	if primaryMsg.StreamCode() == 9 || primaryMsg.FunctionCode()%2 == 0 {
 		return ErrInvalidReqMsg

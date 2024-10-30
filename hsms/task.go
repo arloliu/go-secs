@@ -16,6 +16,8 @@ import (
 // It should return true to continue running the task, or false to stop the goroutine.
 type TaskFunc func() bool
 
+// TaskRecvFunc represents a function that performs a receive task within a goroutine managed by the TaskManager.
+// It should return true to continue running the task, or false to stop the goroutine.
 type TaskRecvFunc func(reader *bufio.Reader, msgLenBuf []byte) bool
 
 // TaskCancelFunc represents a function that will be called when a goroutine managed by the TaskManager exits or is canceled.

@@ -12,7 +12,7 @@ import (
 	"github.com/phsym/console-slog"
 )
 
-type SlogLogger struct {
+type slogLogger struct {
 	mu     sync.Mutex
 	logger *slog.Logger
 	level  *slog.LevelVar
@@ -20,8 +20,8 @@ type SlogLogger struct {
 }
 
 // NewSlog create a slog instance
-func NewSlog(level Level, addSource bool) Logger {
-	inst := &SlogLogger{
+func NewSlog(level LogLevel, addSource bool) Logger {
+	inst := &slogLogger{
 		output: os.Stdout,
 	}
 
@@ -39,7 +39,7 @@ func NewSlog(level Level, addSource bool) Logger {
 		opts := &slog.HandlerOptions{
 			AddSource: addSource,
 			Level:     inst.level,
-			ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
 				if a.Key == slog.TimeKey {
 					a.Key = "ts"
 				}
@@ -53,37 +53,52 @@ func NewSlog(level Level, addSource bool) Logger {
 	return inst
 }
 
-func (l *SlogLogger) Debug(msg string, keysAndValues ...any) {
+// Debug logs a message at DebugLevel
+// The message includes any fields passed at the log site, as well as any fields accumulated on the logger.
+func (l *slogLogger) Debug(msg string, keysAndValues ...any) {
 	l.log(context.Background(), slog.LevelDebug, msg, keysAndValues...)
 }
 
-func (l *SlogLogger) Info(msg string, keysAndValues ...any) {
+// Info logs a message at InfoLevel
+// The message includes any fields passed at the log site, as well as any fields accumulated on the logger.
+func (l *slogLogger) Info(msg string, keysAndValues ...any) {
 	l.log(context.Background(), slog.LevelInfo, msg, keysAndValues...)
 }
 
-func (l *SlogLogger) Warn(msg string, keysAndValues ...any) {
+// Warn logs a message at WarnLevel
+// The message includes any fields passed at the log site, as well as any fields accumulated on the logger.
+func (l *slogLogger) Warn(msg string, keysAndValues ...any) {
 	l.log(context.Background(), slog.LevelWarn, msg, keysAndValues...)
 }
 
-func (l *SlogLogger) Error(msg string, keysAndValues ...any) {
+// Error logs a message at ErrorLevel
+// The message includes any fields passed at the log site, as well as any fields accumulated on the logger.
+func (l *slogLogger) Error(msg string, keysAndValues ...any) {
 	l.log(context.Background(), slog.LevelError, msg, keysAndValues...)
 }
 
-func (l *SlogLogger) Fatal(msg string, keysAndValues ...any) {
+// Fatal logs a message at FatalLevel
+// The message includes any fields passed at the log site, as well as any fields accumulated on the logger.
+//
+// The logger then calls os.Exit(1), even if logging at FatalLevel is disabled.
+func (l *slogLogger) Fatal(msg string, keysAndValues ...any) {
 	l.log(context.Background(), slog.LevelError, msg, keysAndValues...)
 	os.Exit(1)
 }
 
-func (l *SlogLogger) With(keyValues ...any) Logger {
+// With creates a child logger and adds structured context to it.
+// Key-values added to the child don't affect the parent, and vice versa.
+func (l *slogLogger) With(keyValues ...any) Logger {
 	newLog := l.logger.With(keyValues...)
-	return &SlogLogger{
+	return &slogLogger{
 		logger: newLog,
 		level:  l.level,
 	}
 }
 
-func (l *SlogLogger) Level() Level {
-	levelMap := map[slog.Level]Level{
+// Level returns the minimum enabled level for this logger.
+func (l *slogLogger) Level() LogLevel {
+	levelMap := map[slog.Level]LogLevel{
 		slog.LevelDebug: DebugLevel,
 		slog.LevelInfo:  InfoLevel,
 		slog.LevelWarn:  WarnLevel,
@@ -96,7 +111,8 @@ func (l *SlogLogger) Level() Level {
 	return ErrorLevel
 }
 
-func (l *SlogLogger) SetLevel(level Level) {
+// SetLevel sets the minimum enabled level for this logger.
+func (l *slogLogger) SetLevel(level LogLevel) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -106,7 +122,7 @@ func (l *SlogLogger) SetLevel(level Level) {
 // log is the low-level logging method for methods that take ...any.
 // It must always be called directly by an exported logging method
 // or function, because it uses a fixed call depth to obtain the pc.
-func (l *SlogLogger) log(ctx context.Context, level slog.Level, msg string, args ...any) {
+func (l *slogLogger) log(ctx context.Context, level slog.Level, msg string, args ...any) {
 	if !l.logger.Enabled(ctx, level) {
 		return
 	}
@@ -123,8 +139,8 @@ func (l *SlogLogger) log(ctx context.Context, level slog.Level, msg string, args
 	_ = l.logger.Handler().Handle(ctx, r)
 }
 
-func toSlogLevel(level Level) slog.Level {
-	levelMap := map[Level]slog.Level{ //nolint: exhaustive
+func toSlogLevel(level LogLevel) slog.Level {
+	levelMap := map[LogLevel]slog.Level{ //nolint: exhaustive
 		DebugLevel: slog.LevelDebug,
 		InfoLevel:  slog.LevelInfo,
 		WarnLevel:  slog.LevelWarn,

@@ -9,6 +9,7 @@ import (
 	"github.com/arloliu/go-secs/secs2"
 )
 
+// WaitBit byte constants representing if wait-bit is set.
 const (
 	WaitBitFalse = uint8(0)
 	WaitBitTrue  = uint8(1)
@@ -146,12 +147,12 @@ func (msg *DataMessage) Item() secs2.Item {
 	return msg.dataItem
 }
 
-// Header returns the message header of the SECS-II message, e.g. "S6F11 W".
-func (item *DataMessage) SMLHeader() string {
+// SMLHeader returns the message header of the SECS-II message, e.g. "S6F11 W".
+func (msg *DataMessage) SMLHeader() string {
 	quote := StreamFunctionQuote()
-	header := fmt.Sprintf("%sS%dF%d%s", quote, item.stream, item.function, quote)
+	header := fmt.Sprintf("%sS%dF%d%s", quote, msg.stream, msg.function, quote)
 
-	if item.waitBit == WaitBitTrue {
+	if msg.waitBit == WaitBitTrue {
 		header += " W"
 	}
 
@@ -188,18 +189,24 @@ func (msg *DataMessage) ToBytes() []byte {
 	return result
 }
 
+// IsControlMessage returns false, indicating that a DataMessage is not a control message.
 func (msg *DataMessage) IsControlMessage() bool {
 	return false
 }
 
+// ToControlMessage attempts to convert the message to an HSMS control message.
+// Since a DataMessage cannot be converted to a ControlMessage, it always returns nil and false.
 func (msg *DataMessage) ToControlMessage() (*ControlMessage, bool) {
 	return nil, false
 }
 
+// IsDataMessage returns true, indicating that a DataMessage is a data message.
 func (msg *DataMessage) IsDataMessage() bool {
 	return true
 }
 
+// ToDataMessage converts the message to an HSMS data message.
+// Since the message is already a DataMessage, it returns a pointer to itself and true.
 func (msg *DataMessage) ToDataMessage() (*DataMessage, bool) {
 	return msg, true
 }
@@ -213,7 +220,7 @@ func (msg *DataMessage) ToSML() string {
 		return msg.SMLHeader() + "\n."
 	}
 
-	if _, ok := msg.dataItem.(secs2.EmptyItemPtr); ok {
+	if _, ok := msg.dataItem.(*secs2.EmptyItem); ok {
 		if msg.name != "" {
 			return msg.name + ":" + msg.SMLHeader() + "\n."
 		}

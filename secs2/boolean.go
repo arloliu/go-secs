@@ -64,7 +64,7 @@ func (item *BooleanItem) Get(indices ...int) (Item, error) {
 	return item, nil
 }
 
-// GetBoolean retrieves the boolean data stored within the item.
+// ToBoolean retrieves the boolean data stored within the item.
 //
 // This method implements a specialized version of Item.Get() for boolean data retrieval.
 // It returns the bool slice containing the boolean data.
@@ -187,8 +187,10 @@ func (item *BooleanItem) Clone() Item {
 	return &BooleanItem{values: util.CloneSlice(item.values, 0)}
 }
 
+// Type returns "boolean" string.
 func (item *BooleanItem) Type() string { return BooleanType }
 
+// IsBoolean returns true, indicating that BooleanItem is a boolean data item.
 func (item *BooleanItem) IsBoolean() bool { return true }
 
 func combineBoolValues(values []any) ([]bool, error) {

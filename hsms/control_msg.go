@@ -107,18 +107,24 @@ func (msg *ControlMessage) Item() secs2.Item {
 	return secs2.NewEmptyItem()
 }
 
-func (msg *ControlMessage) IsDataMessage() bool {
-	return false
-}
-
-func (msg *ControlMessage) ToControlMessage() (*ControlMessage, bool) {
-	return msg, true
-}
-
+// IsControlMessage returns true, indicating that a ControlMessage is a control message.
 func (msg *ControlMessage) IsControlMessage() bool {
 	return true
 }
 
+// ToControlMessage converts the message to an HSMS control message.
+// Since the message is already a ControlMessage, it returns a pointer to itself and true.
+func (msg *ControlMessage) ToControlMessage() (*ControlMessage, bool) {
+	return msg, true
+}
+
+// IsDataMessage returns false, indicating that a ControlMessage is not a data message.
+func (msg *ControlMessage) IsDataMessage() bool {
+	return false
+}
+
+// ToDataMessage attempts to convert the message to an HSMS data message.
+// Since a ControlMessage cannot be converted to a DataMessage, it always returns nil and false.
 func (msg *ControlMessage) ToDataMessage() (*DataMessage, bool) {
 	return nil, false
 }
@@ -269,6 +275,7 @@ func NewLinktestRsp(linktestReq HSMSMessage) (*ControlMessage, error) {
 	return &ControlMessage{header, false}, nil
 }
 
+// Reject code contstants defining reason codes of Reject.req control message.
 const (
 	RejectSTypeNotSupported  = 1 // received message's sType is not supported,
 	RejectPTypeNotSupported  = 2 // received message's pType is not supported,

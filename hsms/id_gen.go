@@ -58,11 +58,12 @@ func GenerateMsgID() uint32 {
 	return getMsgIDGenerator().genID()
 }
 
-// GenerateMsgSystemBytes returns a unique 4-byte array representing the system bytes for a message.
+// GenerateMsgSystemBytes returns a unique 4-byte slice representing the system bytes for a message.
 func GenerateMsgSystemBytes() []byte {
 	return getMsgIDGenerator().genSystemBytes()
 }
 
+// ToSystemBytes converts id to 4-byte slice system bytes.
 func ToSystemBytes(id uint32) []byte {
 	systemBytes := make([]byte, 4)
 	binary.BigEndian.PutUint32(systemBytes, id)

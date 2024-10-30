@@ -69,7 +69,7 @@ func (item *BinaryItem) Get(indices ...int) (Item, error) {
 	return item, nil
 }
 
-// GetBinary retrieves the binary data stored within the item.
+// ToBinary retrieves the binary data stored within the item.
 //
 // This method implements a specialized version of Item.Get() for binary data retrieval.
 // It returns the byte slice containing the binary data.
@@ -182,8 +182,10 @@ func (item *BinaryItem) Clone() Item {
 	return &BinaryItem{values: util.CloneSlice(item.values, 0)}
 }
 
+// Type returns "binary" string.
 func (item *BinaryItem) Type() string { return BinaryType }
 
+// IsBinary returns true, indicating that BinaryItem is a binary data item.
 func (item *BinaryItem) IsBinary() bool { return true }
 
 func combineByteValues(values []any) ([]byte, error) {

@@ -199,9 +199,9 @@ func (c *Connection) tryAcceptConn() bool {
 			}
 
 			return true // re-accept again
-		} else {
-			return false // terminate this task
 		}
+
+		return false // terminate this task
 	}
 
 	connCount := c.connCount.Load()

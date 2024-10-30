@@ -12,9 +12,16 @@ import (
 // ConnState represents the various stages of an HSMS connection.
 type ConnState uint32
 
+// IsNotConnected returns if the current state is not connected.
 func (cs ConnState) IsNotConnected() bool { return cs == NotConnectedState }
-func (cs ConnState) IsNotSelected() bool  { return cs == NotSelectedState }
-func (cs ConnState) IsSelected() bool     { return cs == SelectedState }
+
+// IsNotSelected returns if the current state is not selected.
+func (cs ConnState) IsNotSelected() bool { return cs == NotSelectedState }
+
+// IsSelected returns if the current state is selected.
+func (cs ConnState) IsSelected() bool { return cs == SelectedState }
+
+// String returns string represention of the current state.
 func (cs ConnState) String() string {
 	switch cs {
 	case NotConnectedState:
@@ -221,7 +228,7 @@ func (cs *ConnStateMgr) ToNotConnectedAsync() {
 	cs.changeStateAsync(NotConnectedState)
 }
 
-// ToNotConnectedAsync transitions connection state to NotSelectedState asynchronously.
+// ToNotSelectedAsync transitions connection state to NotSelectedState asynchronously.
 //
 // It will notify a goroutine and transite state in the back asynchronously.
 //
@@ -230,7 +237,7 @@ func (cs *ConnStateMgr) ToNotSelectedAsync() {
 	cs.changeStateAsync(NotSelectedState)
 }
 
-// ToNotConnectedAsync transitions connection state to SelectedState asynchronously.
+// ToSelectedAsync transitions connection state to SelectedState asynchronously.
 //
 // It will notify a goroutine and transite state in the back asynchronously.
 //
@@ -239,16 +246,19 @@ func (cs *ConnStateMgr) ToSelectedAsync() {
 	cs.changeStateAsync(SelectedState)
 }
 
+// IsNotConnected returns if the current state is not connected.
 func (cs *ConnStateMgr) IsNotConnected() bool {
-	return cs.State() == NotConnectedState
+	return cs.State().IsNotConnected()
 }
 
+// IsNotSelected returns if the current state is not selected.
 func (cs *ConnStateMgr) IsNotSelected() bool {
-	return cs.State() == NotSelectedState
+	return cs.State().IsNotSelected()
 }
 
+// IsSelected returns if the current state is selected.
 func (cs *ConnStateMgr) IsSelected() bool {
-	return cs.State() == SelectedState
+	return cs.State().IsSelected()
 }
 
 // setState atomically set current state to the newState. It also broadcasts a signal to any waiting goroutines.

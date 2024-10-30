@@ -272,9 +272,9 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 			}
 
 			return nil, hsms.ErrT3Timeout
-		} else {
-			return nil, hsms.ErrT6Timeout
 		}
+
+		return nil, hsms.ErrT6Timeout
 
 	// wait reply message from receiverTask
 	case replyMsg := <-replyMsgChan:

@@ -85,7 +85,7 @@ func (item *FloatItem) Get(indices ...int) (Item, error) {
 	return item, nil
 }
 
-// GetFloat retrieves the float data stored within the item.
+// ToFloat retrieves the float data stored within the item.
 //
 // This method implements a specialized version of Item.Get() for float data retrieval.
 // It returns the float64 slice containing the float data.
@@ -228,6 +228,7 @@ func (item *FloatItem) Clone() Item {
 	return &FloatItem{byteSize: item.byteSize, values: clonedValues}
 }
 
+// Type returns "f4" or "f8" string depends on the byte size.
 func (item *FloatItem) Type() string {
 	switch item.byteSize {
 	case 4:
@@ -239,7 +240,10 @@ func (item *FloatItem) Type() string {
 	}
 }
 
+// IsFloat32 returns true, indicating that FloatItem is a 32-bit float data item.
 func (item *FloatItem) IsFloat32() bool { return item.byteSize == 4 }
+
+// IsFloat64 returns true, indicating that FloatItem is a 64-bit float data item.
 func (item *FloatItem) IsFloat64() bool { return item.byteSize == 8 }
 
 func combineFloatValues(byteSize int, values ...any) ([]float64, error) { //nolint:gocyclo,cyclop

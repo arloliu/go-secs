@@ -180,9 +180,9 @@ func TestASCIIItem_Errors_StrictMode(t *testing.T) {
 	require := require.New(t)
 
 	itemErr := &ItemError{}
-	nonAsciiBytes := []byte{0xE4, 0xB8, 0xAD, 0xE6, 0x96, 0x87}
+	nonASCIIBytes := []byte{0xE4, 0xB8, 0xAD, 0xE6, 0x96, 0x87}
 
-	item := NewASCIIItem(string(nonAsciiBytes))
+	item := NewASCIIItem(string(nonASCIIBytes))
 	require.ErrorAs(item.Error(), &itemErr)
 	require.Equal("", item.Values().(string))
 

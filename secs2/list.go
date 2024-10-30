@@ -97,7 +97,7 @@ func (item *ListItem) Get(indices ...int) (Item, error) {
 	return dataItem, nil
 }
 
-// GetList retrieves list of items stored within the item.
+// ToList retrieves list of items stored within the item.
 //
 // This method implements a specialized version of Item.Get() for items retrieval.
 // It returns the Item slice containing items in the list.
@@ -213,8 +213,10 @@ func (item *ListItem) Error() error {
 	return errs
 }
 
+// Type returns "list" string.
 func (item *ListItem) Type() string { return ListType }
 
+// IsList returns true, indicating that ListItem is a list data item.
 func (item *ListItem) IsList() bool { return true }
 
 // formatSML returns the indented string representation of this list node.

@@ -90,15 +90,12 @@ func (item *ASCIIItem) Get(indices ...int) (Item, error) {
 	return item, nil
 }
 
-// GetBinary retrieves the ASCII data stored within the item.
-//
-// This method implements a specialized version of Item.Get() for ASCII data retrieval.
-// It returns the string containing the ASCII data.
+// ToASCII retrieves the ASCII data stored within the item.
 func (item *ASCIIItem) ToASCII() (string, error) {
 	return item.value, nil
 }
 
-// Values retrieves the ASCII string value stored in the item.
+// Values retrieves the ASCII string value as the any data format stored in the item.
 //
 // This method implements the Item.Values() interface. It returns the
 // underlying ASCII string value associated with the item.
@@ -272,6 +269,8 @@ func (item *ASCIIItem) Clone() Item {
 	return &ASCIIItem{value: item.value}
 }
 
+// Type returns "ascii" string.
 func (item *ASCIIItem) Type() string { return ASCIIType }
 
+// IsASCII returns true, indicating that ASCIIItem is a ASCII data item.
 func (item *ASCIIItem) IsASCII() bool { return true }

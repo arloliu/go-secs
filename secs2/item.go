@@ -8,6 +8,7 @@ import (
 // MaxByteSize defines the maximum allowed size (in bytes) for an Item's data.
 const MaxByteSize = 1<<24 - 1
 
+// Type contants defines SECS-II data item type strings.
 const (
 	EmptyType   = "empty"
 	ListType    = "list"
@@ -26,8 +27,10 @@ const (
 	Float64Type = "f8"
 )
 
+// FormatCode defines constants representing data item format codes.
 type FormatCode = int
 
+// Format constants defines format codes of SECS-II data items
 const (
 	ListFormatCode    FormatCode = 0o00
 	BinaryFormatCode  FormatCode = 0o10
@@ -45,12 +48,12 @@ const (
 	Uint32FormatCode  FormatCode = 0o54
 )
 
-type ItemType struct {
+type itemType struct {
 	FormatCode FormatCode
 	Size       int
 }
 
-var itemTypeMap = map[string]*ItemType{
+var itemTypeMap = map[string]*itemType{
 	ListType:    {FormatCode: ListFormatCode, Size: 1},
 	BinaryType:  {FormatCode: BinaryFormatCode, Size: 1},
 	BooleanType: {FormatCode: BooleanFormatCode, Size: 1},
@@ -69,53 +72,72 @@ var itemTypeMap = map[string]*ItemType{
 
 // Item represents an immutable data item in a SECS-II message.
 //
-// Items can hold various data types (e.g., binary, boolean, ASCII, integers, floats) and can
-// be nested to form complex structures.
+// It defines a common interface for various SECS-II data item types, including:
+//   - List: A collection of other Items.
+//   - Binary: A sequence of bytes.
+//   - Boolean: A boolean value (true or false).
+//   - ASCII: An ASCII string.
+//   - Integer: Signed integers (I1, I2, I4, I8) with different byte sizes.
+//   - Unsigned Integer: Unsigned integers (U1, U2, U4, U8) with different byte sizes.
+//   - Float: Floating-point numbers (F4, F8) with different byte sizes.
 //
+// Immutability:
+// Items are designed to be immutable. For operations that might modify the data, use the `Clone()` method
+// to create a new, independent copy of the item before performing the operation.
+//
+// Size Limit:
 // There's a limit on the total size of data an Item can contain, as defined by the SEMI standard:
 //
 //	n * b <= 16,777,215 (3 bytes)
-//	- n: number of data values within the Item (and its nested children)
-//	- b: byte size to represent each individual data value (varies by Item type)
+//	where:
+//	  - n: number of data values within the Item (and its nested children)
+//	  - b: byte size to represent each individual data value (varies by Item type)
+//
+// This interface provides methods for:
+//   - Accessing nested items: `Get(indices ...int)`
+//   - Converting to specific data types: `ToList()`, `ToBinary()`, `ToBoolean()`, etc.
+//   - Getting and setting values: `Values()`, `SetValues(...)`
+//   - Serializing to bytes and SML: `ToBytes()`, `ToSML()`
+//   - Cloning: `Clone()`
+//   - Error handling: `Error()`
+//   - Resource management: `Free()`
+//   - Type checking: `Type()`, `IsEmpty()`, `IsList()`, `IsBinary()`, etc.
 type Item interface {
 	// Get retrieves a nested Item at the specified indices.
-	// An error is returned if the item doesn't represent a list or if the indices are invalid.
+	// It returns an error if the item is not a list or if the indices are invalid.
 	Get(indices ...int) (Item, error)
 
-	// ToList retrieves a list of items stored within the item.
-	// Only available for ListItem.
+	// ToList retrieves the list of items if the item is a ListItem.
+	// It returns an error if the item is not a list.
 	ToList() ([]Item, error)
 
-	// ToBinary retrieves binary data as a byte slice data stored within the item.
-	// Only available for BinaryItem.
+	// ToBinary retrieves the byte slice if the item is a BinaryItem.
+	// It returns an error if the item is not a binary item.
 	ToBinary() ([]byte, error)
 
-	// ToBoolean retrieves a list of boolean data stored within the item.
-	// Only available for BooleanItem.
+	// ToBoolean retrieves the boolean values if the item is a BooleanItem.
+	// It returns an error if the item is not a boolean item.
 	ToBoolean() ([]bool, error)
 
-	// ToASCII retrieves a nested ASCII string data stored within the item.
-	// Only available for ASCIIItem.
+	// ToASCII retrieves the ASCII string if the item is an ASCIIItem.
+	// It returns an error if the item is not an ASCII item.
 	ToASCII() (string, error)
 
-	// ToInt retrieves a list of signed 64-bit integer data stored within the item.
-	// Only available for IntItem.
+	// ToInt retrieves the signed integer values as int64 if the item is an IntItem.
+	// It returns an error if the item is not an integer item.
 	ToInt() ([]int64, error)
 
-	// ToUint retrieves a list of unsigned 64-bit integer data stored within the item.
-	// Only available for UintItem.
+	// ToUint retrieves the unsigned integer values as uint64 if the item is a UintItem.
+	// It returns an error if the item is not an unsigned integer item.
 	ToUint() ([]uint64, error)
 
-	// ToFloat retrieves a list of 64-bit float data stored within the item.
-	// Only available for FloatItem
+	// ToFloat retrieves the floating-point values as float64 if the item is a FloatItem.
+	// It returns an error if the item is not a float item.
 	ToFloat() ([]float64, error)
 
 	// Values returns the value(s) held by the Item.
-	// The return type is `any`, and the actual type depends on the specific Item implementation.
-	// It can be a single value or a list, depending on the item type.
-	// Please refer to the documentation of the specific item type for details on the returned value's type.
-	//
-	// The returned data is the same as Get() without index argument.
+	// The return type is any, and the actual type depends on the specific Item implementation.
+	// Refer to the documentation of the specific item type for details on the returned value's type.
 	Values() any
 
 	// SetValues sets the value(s) within the Item.
@@ -123,7 +145,7 @@ type Item interface {
 	// It may return an error if the provided values are invalid.
 	SetValues(values ...any) error
 
-	// Size returns the list size of the data item, aka., the number of data items.
+	// Size returns the number of data values within the Item.
 	Size() int
 
 	// ToBytes serializes the Item into its byte representation for SECS-II message transmission.
@@ -132,34 +154,62 @@ type Item interface {
 	// ToSML converts the Item into its SML (SECS Message Language) representation.
 	ToSML() string
 
-	// Clone creates a deep copy of the Item, allowing for safe modification without affecting the original.
+	// Clone creates a deep copy of the Item.
 	Clone() Item
 
 	// Error returns any error that occurred during the creation or manipulation of the Item.
 	Error() error
 
-	// Free releases the item resource and put back to the corresponding pool.
-	//
-	// After calling Free, the item should not be accessed or used again, as its underlying memory
-	// might be reused for other item objects.
+	// Free releases the Item back to the pool for reuse.
+	// After calling Free, the item should not be accessed or used again.
 	Free()
 
+	// Type returns the item type name.
 	Type() string
 
+	// IsEmpty returns true if the item is empty, false otherwise.
 	IsEmpty() bool
+
+	// IsList returns true if the item is a ListItem, false otherwise.
 	IsList() bool
+
+	// IsBinary returns true if the item is a BinaryItem, false otherwise.
 	IsBinary() bool
+
+	// IsBoolean returns true if the item is a BooleanItem, false otherwise.
 	IsBoolean() bool
+
+	// IsASCII returns true if the item is an ASCIIItem, false otherwise.
 	IsASCII() bool
+
+	// IsInt8 returns true if the item is an Int8Item, false otherwise.
 	IsInt8() bool
+
+	// IsInt16 returns true if the item is an Int16Item, false otherwise.
 	IsInt16() bool
+
+	// IsInt32 returns true if the item is an Int32Item, false otherwise.
 	IsInt32() bool
+
+	// IsInt64 returns true if the item is an Int64Item, false otherwise.
 	IsInt64() bool
+
+	// IsUint8 returns true if the item is a Uint8Item, false otherwise.
 	IsUint8() bool
+
+	// IsUint16 returns true if the item is a Uint16Item, false otherwise.
 	IsUint16() bool
+
+	// IsUint32 returns true if the item is a Uint32Item, false otherwise.
 	IsUint32() bool
+
+	// IsUint64 returns true if the item is a Uint64Item, false otherwise.
 	IsUint64() bool
+
+	// IsFloat32 returns true if the item is a Float32Item, false otherwise.
 	IsFloat32() bool
+
+	// IsFloat64 returns true if the item is a Float64Item, false otherwise.
 	IsFloat64() bool
 }
 
@@ -168,10 +218,13 @@ type ItemError struct {
 	err error
 }
 
+// newItemErrorWithMsg creates a new ItemError with the given error message.
 func newItemErrorWithMsg(errMsg string) *ItemError {
 	return &ItemError{err: errors.New(errMsg)}
 }
 
+// newItemError creates a new ItemError from the given error.
+// If the provided error is already an ItemError, it unwraps the underlying error to avoid nested ItemErrors.
 func newItemError(err error) *ItemError {
 	itemErr := &ItemError{}
 
@@ -182,27 +235,33 @@ func newItemError(err error) *ItemError {
 	return &ItemError{err: err}
 }
 
+// Error returns the string representation of the underlying error.
 func (e *ItemError) Error() string {
 	return e.err.Error()
 }
 
+// Unwrap returns the underlying error.
 func (e *ItemError) Unwrap() error {
 	return e.err
 }
 
-// EmptyItem is a immutable data type that represents a empty data item item.
-// It will be used mostly on error cases.
+// EmptyItem represents an empty data item in a SECS-II message.
+// It is often used as a placeholder or in error cases where a valid data item cannot be provided.
+//
+// EmptyItem implements the Item interface, providing default implementations for the interface methods
+// that are appropriate for an empty item.
 type EmptyItem struct {
 	baseItem
 }
-
-type EmptyItemPtr = *EmptyItem
 
 // NewEmptyItem creates a new empty data item item.
 func NewEmptyItem() Item {
 	return &EmptyItem{}
 }
 
+// Get retrieves a nested Item at the specified indices.
+// Since EmptyItem represents an empty item, it returns itself if no indices are provided.
+// If indices are provided, it returns an error indicating that the item is not a list.
 func (item *EmptyItem) Get(indices ...int) (Item, error) {
 	if len(indices) != 0 {
 		err := newItemError(fmt.Errorf("item is not a list, item is %s, indices is %v", item.ToSML(), indices))
@@ -213,35 +272,42 @@ func (item *EmptyItem) Get(indices ...int) (Item, error) {
 	return item, nil
 }
 
+// Size returns 0, as an EmptyItem has no size.
 func (item *EmptyItem) Size() int {
 	return 0
 }
 
+// Values returns an empty string slice, as an EmptyItem holds no values.
 func (item *EmptyItem) Values() any {
 	return []string{}
 }
 
+// SetValues does nothing and returns nil, as an EmptyItem cannot hold any values.
 func (item *EmptyItem) SetValues(_ ...any) error {
 	return nil
 }
 
+// ToBytes returns an empty byte slice, as an EmptyItem has no byte representation.
 func (item *EmptyItem) ToBytes() []byte {
 	return []byte{}
 }
 
-// ToSML returns the SML representation of the item.
+// ToSML returns an empty string, as an EmptyItem has no SML representation.
 func (item *EmptyItem) ToSML() string {
 	return ""
 }
 
+// Clone creates a new EmptyItem, effectively returning a copy of itself.
 func (item *EmptyItem) Clone() Item {
 	return &EmptyItem{}
 }
 
+// Type returns "empty" string, indicating the type of a empty data item.
 func (item *EmptyItem) Type() string {
 	return EmptyType
 }
 
+// IsEmpty returns true, as an EmptyItem is always empty.
 func (item *EmptyItem) IsEmpty() bool { return true }
 
 // baseItem provides a partial implementation of the Item interface,

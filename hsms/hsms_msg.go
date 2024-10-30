@@ -91,20 +91,29 @@ type HSMSMessage interface {
 	Clone() HSMSMessage
 }
 
-var sfQuote string = "'"
+var sfQuote = "'"
 
+// UseStreamFunctionNoQuote sets the quoting style for stream and function codes in SML to use no quotes.
+// This affects both the generation of SML strings (ToSML methods) and the parsing of SML strings.
 func UseStreamFunctionNoQuote() {
 	sfQuote = ""
 }
 
+// UseStreamFunctionSingleQuote sets the quoting style for stream and function codes in SML to use single quotes (').
+// This affects both the generation of SML strings and the parsing of SML strings.
 func UseStreamFunctionSingleQuote() {
 	sfQuote = "'"
 }
 
+// UseStreamFunctionDoubleQuote sets the quoting style for stream and function codes in SML to use double quotes (").
+// This affects both the generation of SML strings and the parsing of SML strings.
 func UseStreamFunctionDoubleQuote() {
 	sfQuote = "\""
 }
 
+// StreamFunctionQuote returns the current quoting character used for stream and function codes in SML.
+// It returns an empty string if no quotes are used, a single quote (') if single quotes are used,
+// or a double quote (") if double quotes are used.
 func StreamFunctionQuote() string {
 	return sfQuote
 }

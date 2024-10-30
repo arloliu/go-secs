@@ -7,6 +7,11 @@ import (
 	"github.com/arloliu/go-secs/logger"
 )
 
+// Session represents an HSMS-SS session within an HSMS-SS connection.
+// It provides methods for interacting with the session, sending and receiving messages,
+// handling data messages, and managing connection state change handlers.
+//
+// It implements the hsms.Session interface.
 type Session struct {
 	hsms.BaseSession
 	id       uint16
@@ -18,6 +23,8 @@ type Session struct {
 	dataMsgHandlers []hsms.DataMessageHandler
 }
 
+// NewSession creates a new HSMS-SS Session with the specified session ID and associated Connection.
+// It initializes the session's internal state and assigns HSMS-SS specific implementations to the base session methods.
 func NewSession(id uint16, hsmsConn *Connection) *Session {
 	session := &Session{
 		id:              id,
@@ -34,18 +41,23 @@ func NewSession(id uint16, hsmsConn *Connection) *Session {
 	return session
 }
 
+// ID returns the session ID for this HSMS-SS session.
 func (s *Session) ID() uint16 {
 	return s.id
 }
 
+// SendMessage sends an HSMS message through the associated HSMS-SS connection and waits for its reply.
+// It returns the received reply message and an error if any occurred during sending or receiving.
 func (s *Session) SendMessage(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	return s.hsmsConn.sendMsg(msg)
 }
 
+// AddConnStateChangeHandler adds one or more ConnStateChangeHandler functions to be invoked when the connection state changes.
 func (s *Session) AddConnStateChangeHandler(handlers ...hsms.ConnStateChangeHandler) {
 	s.hsmsConn.stateMgr.AddHandler(handlers...)
 }
 
+// AddDataMessageHandler adds one or more DataMessageHandler functions to be invoked when a data message is received.
 func (s *Session) AddDataMessageHandler(handlers ...hsms.DataMessageHandler) {
 	for _, handler := range handlers {
 		s.dataMsgChans = append(s.dataMsgChans, make(chan *hsms.DataMessage, s.cfg.dataMsgQueueSize))
