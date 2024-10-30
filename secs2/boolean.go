@@ -96,10 +96,11 @@ func (item *BooleanItem) Values() any {
 // If an error occurs during the combination process (e.g., due to incompatible types),
 // the error is returned and also stored within the item for later retrieval.
 func (item *BooleanItem) SetValues(values ...any) error {
-	var err error
-
 	item.resetError()
-	item.values, err = combineBoolValues(values)
+
+	item.values = item.values[:0]
+
+	err := item.combineBoolValues(values)
 	if err != nil {
 		item.setError(err)
 		return item.Error()
@@ -194,18 +195,21 @@ func (item *BooleanItem) Type() string { return BooleanType }
 // IsBoolean returns true, indicating that BooleanItem is a boolean data item.
 func (item *BooleanItem) IsBoolean() bool { return true }
 
-func combineBoolValues(values []any) ([]bool, error) {
-	itemValues := make([]bool, 0, len(values))
+func (item *BooleanItem) combineBoolValues(values []any) error {
+	if cap(item.values) < len(values) {
+		item.values = make([]bool, 0, len(values))
+	}
+
 	for _, value := range values {
 		switch v := value.(type) {
 		case bool:
-			itemValues = append(itemValues, v)
+			item.values = append(item.values, v)
 		case []bool:
-			itemValues = append(itemValues, v...)
+			item.values = append(item.values, v...)
 		default:
-			return []bool{}, errors.New("the type of value needs to be bool or []bool")
+			return errors.New("the type of value needs to be bool or []bool")
 		}
 	}
 
-	return itemValues, nil
+	return nil
 }

@@ -122,10 +122,11 @@ func (item *IntItem) Values() any {
 // If an error occurs during the combination process (e.g., due to incompatible types),
 // the error is returned and also stored within the item for later retrieval.
 func (item *IntItem) SetValues(values ...any) error {
-	var err error
-
 	item.resetError()
-	item.values, err = combineIntValues(item.byteSize, values...)
+
+	item.values = item.values[:0]
+
+	err := item.combineIntValues(values...)
 	if err != nil {
 		item.setError(err)
 		return item.Error()
@@ -253,106 +254,110 @@ func (item *IntItem) dataType() string {
 	return dataTypeStr[item.byteSize]
 }
 
-func combineIntValues(byteSize int, values ...any) ([]int64, error) { //nolint:gocyclo,cyclop
-	itemValues := make([]int64, 0, len(values))
+func (item *IntItem) combineIntValues(values ...any) error { //nolint:gocyclo,cyclop
+	if cap(item.values) < len(values) {
+		item.values = make([]int64, 0, len(values))
+	}
+	item.values = make([]int64, 0, len(values))
+
 	for _, value := range values {
 		switch value := value.(type) {
 		case int:
-			itemValues = append(itemValues, int64(value))
+			item.values = append(item.values, int64(value))
 		case []int:
-			itemValues = util.AppendInt64Slice(itemValues, value)
+			item.values = util.AppendInt64Slice(item.values, value)
 
 		case int8:
-			itemValues = append(itemValues, int64(value))
+			item.values = append(item.values, int64(value))
 		case []int8:
-			itemValues = util.AppendInt64Slice(itemValues, value)
+			item.values = util.AppendInt64Slice(item.values, value)
 
 		case int16:
-			itemValues = append(itemValues, int64(value))
+			item.values = append(item.values, int64(value))
 		case []int16:
-			itemValues = util.AppendInt64Slice(itemValues, value)
+			item.values = util.AppendInt64Slice(item.values, value)
 
 		case int32:
-			itemValues = append(itemValues, int64(value))
+			item.values = append(item.values, int64(value))
 		case []int32:
-			itemValues = util.AppendInt64Slice(itemValues, value)
+			item.values = util.AppendInt64Slice(item.values, value)
 
 		case int64:
-			itemValues = append(itemValues, value)
+			item.values = append(item.values, value)
 		case []int64:
-			itemValues = util.AppendInt64Slice(itemValues, value)
+			item.values = util.AppendInt64Slice(item.values, value)
 
 		case uint8:
-			itemValues = append(itemValues, int64(value))
+			item.values = append(item.values, int64(value))
 		case []uint8:
-			itemValues = util.AppendInt64Slice(itemValues, value)
+			item.values = util.AppendInt64Slice(item.values, value)
 
 		case uint16:
-			itemValues = append(itemValues, int64(value))
+			item.values = append(item.values, int64(value))
 		case []uint16:
-			itemValues = util.AppendInt64Slice(itemValues, value)
+			item.values = util.AppendInt64Slice(item.values, value)
 
 		case uint32:
-			itemValues = append(itemValues, int64(value))
+			item.values = append(item.values, int64(value))
 		case []uint32:
-			itemValues = util.AppendInt64Slice(itemValues, value)
+			item.values = util.AppendInt64Slice(item.values, value)
 
 		case uint:
 			if value > math.MaxInt64 {
-				return nil, errors.New("value overflow")
+				return errors.New("value overflow")
 			}
-			itemValues = append(itemValues, int64(value))
+			item.values = append(item.values, int64(value))
 		case []uint:
 			for _, v := range value {
 				if v > math.MaxInt64 {
-					return nil, errors.New("value overflow")
+					return errors.New("value overflow")
 				}
-				itemValues = append(itemValues, int64(v))
+				item.values = append(item.values, int64(v))
 			}
 		case uint64:
 			if value > math.MaxInt64 {
-				return nil, errors.New("value overflow")
+				return errors.New("value overflow")
 			}
-			itemValues = append(itemValues, int64(value))
+			item.values = append(item.values, int64(value))
 		case []uint64:
 			for _, v := range value {
 				if v > math.MaxInt64 {
-					return nil, errors.New("value overflow")
+					return errors.New("value overflow")
 				}
-				itemValues = append(itemValues, int64(v))
+				item.values = append(item.values, int64(v))
 			}
 
 		case string:
 			intVal, err := strconv.ParseInt(value, 0, 0)
 			if err != nil {
-				return nil, err
+				return err
 			}
 
-			itemValues = append(itemValues, intVal)
+			item.values = append(item.values, intVal)
 		case []string:
 			for _, v := range value {
 				intVal, err := strconv.ParseInt(v, 0, 0)
 				if err != nil {
-					return nil, err
+					return err
 				}
-				itemValues = append(itemValues, intVal)
+				item.values = append(item.values, intVal)
 			}
 
 		default:
-			return nil, errors.New("input argument contains invalid type for IntItem")
+			return errors.New("input argument contains invalid type for IntItem")
 		}
 	}
 
 	var (
-		maxVal int64 = 1<<(byteSize*8-1) - 1
-		minVal int64 = -1 << (byteSize*8 - 1)
+		maxVal int64 = 1<<(item.byteSize*8-1) - 1
+		minVal int64 = -1 << (item.byteSize*8 - 1)
 	)
 
-	for _, v := range itemValues {
+	for _, v := range item.values {
 		if !(minVal <= v && v <= maxVal) {
-			return nil, errors.New("value overflow")
+			return errors.New("value overflow")
 		}
 	}
 
-	return itemValues, nil
+	return nil
 }

@@ -125,10 +125,11 @@ func (item *FloatItem) Values() any {
 // If an error occurs during the combination process (e.g., due to incompatible types or values outside the representable range),
 // the error is returned and also stored within the item for later retrieval.
 func (item *FloatItem) SetValues(values ...any) error {
-	var err error
-
 	item.resetError()
-	item.values, err = combineFloatValues(item.byteSize, values...)
+
+	item.values = item.values[:0]
+
+	err := item.combineFloatValues(values...)
 	if err != nil {
 		item.setError(err)
 		return item.Error()
@@ -247,123 +248,126 @@ func (item *FloatItem) IsFloat32() bool { return item.byteSize == 4 }
 // IsFloat64 returns true, indicating that FloatItem is a 64-bit float data item.
 func (item *FloatItem) IsFloat64() bool { return item.byteSize == 8 }
 
-func combineFloatValues(byteSize int, values ...any) ([]float64, error) { //nolint:gocyclo,cyclop
-	itemValues := make([]float64, 0, len(values))
+func (item *FloatItem) combineFloatValues(values ...any) error { //nolint:gocyclo,cyclop
+	if cap(item.values) < len(values) {
+		item.values = make([]float64, 0, len(values))
+	}
+
 	for _, value := range values {
 		switch value := value.(type) {
 		case float32:
-			itemValues = append(itemValues, float64(value))
+			item.values = append(item.values, float64(value))
 		case float64:
-			itemValues = append(itemValues, value)
+			item.values = append(item.values, value)
 		case []float32:
-			itemValues = util.AppendFloat64Slice(itemValues, value)
+			item.values = util.AppendFloat64Slice(item.values, value)
 		case []float64:
-			itemValues = util.AppendFloat64Slice(itemValues, value)
+			item.values = util.AppendFloat64Slice(item.values, value)
 
 		case int:
-			itemValues = append(itemValues, float64(value))
+			item.values = append(item.values, float64(value))
 		case []int:
 			for _, v := range value {
-				itemValues = append(itemValues, float64(v))
+				item.values = append(item.values, float64(v))
 			}
 
 		case int8:
-			itemValues = append(itemValues, float64(value))
+			item.values = append(item.values, float64(value))
 		case []int8:
-			itemValues = util.AppendFloat64Slice(itemValues, value)
+			item.values = util.AppendFloat64Slice(item.values, value)
 
 		case int16:
-			itemValues = append(itemValues, float64(value))
+			item.values = append(item.values, float64(value))
 		case []int16:
-			itemValues = util.AppendFloat64Slice(itemValues, value)
+			item.values = util.AppendFloat64Slice(item.values, value)
 
 		case int32:
-			itemValues = append(itemValues, float64(value))
+			item.values = append(item.values, float64(value))
 		case []int32:
-			itemValues = util.AppendFloat64Slice(itemValues, value)
+			item.values = util.AppendFloat64Slice(item.values, value)
 
 		case int64:
-			itemValues = append(itemValues, float64(value))
+			item.values = append(item.values, float64(value))
 		case []int64:
 			for _, v := range value {
-				itemValues = append(itemValues, float64(v))
+				item.values = append(item.values, float64(v))
 			}
 
 		case uint8:
-			itemValues = append(itemValues, float64(value))
+			item.values = append(item.values, float64(value))
 		case []uint8:
-			itemValues = util.AppendFloat64Slice(itemValues, value)
+			item.values = util.AppendFloat64Slice(item.values, value)
 
 		case uint16:
-			itemValues = append(itemValues, float64(value))
+			item.values = append(item.values, float64(value))
 		case []uint16:
-			itemValues = util.AppendFloat64Slice(itemValues, value)
+			item.values = util.AppendFloat64Slice(item.values, value)
 
 		case uint32:
-			itemValues = append(itemValues, float64(value))
+			item.values = append(item.values, float64(value))
 		case []uint32:
-			itemValues = util.AppendFloat64Slice(itemValues, value)
+			item.values = util.AppendFloat64Slice(item.values, value)
 
 		case uint:
 			if value > 1<<53 {
-				return nil, errors.New("value overflow")
+				return errors.New("value overflow")
 			}
-			itemValues = append(itemValues, float64(value))
+			item.values = append(item.values, float64(value))
 		case []uint:
 			for _, v := range value {
 				if v > 1<<53 {
-					return nil, errors.New("value overflow")
+					return errors.New("value overflow")
 				}
-				itemValues = append(itemValues, float64(v))
+				item.values = append(item.values, float64(v))
 			}
 		case uint64:
 			if value > 1<<53 {
-				return nil, errors.New("value overflow")
+				return errors.New("value overflow")
 			}
-			itemValues = append(itemValues, float64(value))
+			item.values = append(item.values, float64(value))
 		case []uint64:
 			for _, v := range value {
 				if v > 1<<53 {
-					return nil, errors.New("value overflow")
+					return errors.New("value overflow")
 				}
-				itemValues = append(itemValues, float64(v))
+				item.values = append(item.values, float64(v))
 			}
 
 		case string:
 			floatVal, err := strconv.ParseFloat(value, 64)
 			if err != nil {
-				return nil, err
+				return err
 			}
 
-			itemValues = append(itemValues, floatVal)
+			item.values = append(item.values, floatVal)
 		case []string:
 			for _, v := range value {
 				floatVal, err := strconv.ParseFloat(v, 64)
 				if err != nil {
-					return nil, err
+					return err
 				}
-				itemValues = append(itemValues, floatVal)
+				item.values = append(item.values, floatVal)
 			}
 
 		default:
-			return nil, errors.New("input argument contains invalid type for FloatItem")
+			return errors.New("input argument contains invalid type for FloatItem")
 		}
 	}
 
 	maxVal := math.MaxFloat64
-	if byteSize == 4 {
+	if item.byteSize == 4 {
 		maxVal = math.MaxFloat32
 	}
 
-	for _, v := range itemValues {
+	for _, v := range item.values {
 		if math.IsInf(v, 0) || math.IsNaN(v) {
-			return nil, errors.New("invalid float value")
+			return errors.New("invalid float value")
 		}
 
 		if v < -maxVal || v > maxVal {
-			return nil, errors.New("value overflow")
+			return errors.New("value overflow")
 		}
 	}
 
-	return itemValues, nil
+	return nil
 }

@@ -452,7 +452,7 @@ func getHeaderBytes(dataType string, size int, preAlloc int) ([]byte, error) {
 	}
 
 	if dataByteLength > MaxByteSize {
-		return []byte{}, fmt.Errorf("size limit exceeded")
+		return []byte{}, errors.New("size limit exceeded")
 	}
 
 	lenBytes := []byte{

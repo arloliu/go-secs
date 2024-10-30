@@ -309,7 +309,8 @@ func TestCombineIntValues(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := combineIntValues(test.byteSize, test.values...)
+			item, _ := NewIntItem(test.byteSize).(*IntItem)
+			err := item.combineIntValues(test.values...)
 			if (err != nil) != test.wantErr {
 				t.Errorf("combineIntValues() error = %v, wantErr %v", err, test.wantErr)
 				return
@@ -319,6 +320,7 @@ func TestCombineIntValues(t *testing.T) {
 				t.Errorf("combineIntValues() error text = %v, wantErrorText %v", err.Error(), test.errorText)
 				return
 			}
+			got, _ := item.ToInt()
 
 			if !test.wantErr && !reflect.DeepEqual(got, test.want) {
 				t.Errorf("combineIntValues() = %v, want %v", got, test.want)

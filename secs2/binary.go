@@ -40,6 +40,7 @@ type BinaryItem struct {
 func NewBinaryItem(values ...any) Item {
 	item := getBinaryItem()
 	_ = item.SetValues(values...)
+
 	return item
 }
 
@@ -105,10 +106,11 @@ func (item *BinaryItem) Values() any {
 // If an error occurs during the combination process (e.g., due to incompatible types),
 // the error is returned and also stored within the item for later retrieval.
 func (item *BinaryItem) SetValues(values ...any) error {
-	var err error
-
 	item.resetError()
-	item.values, err = combineByteValues(values)
+
+	item.values = item.values[:0]
+
+	err := item.combineByteValues(values)
 	if err != nil {
 		item.setError(err)
 		return item.Error()
@@ -189,32 +191,36 @@ func (item *BinaryItem) Type() string { return BinaryType }
 // IsBinary returns true, indicating that BinaryItem is a binary data item.
 func (item *BinaryItem) IsBinary() bool { return true }
 
-func combineByteValues(values []any) ([]byte, error) {
-	itemValues := make([]byte, 0, len(values))
+func (item *BinaryItem) combineByteValues(values []any) error {
+	if cap(item.values) < len(values) {
+		item.values = make([]byte, 0, len(values))
+	}
+
 	for _, value := range values {
 		switch v := value.(type) {
 		case int:
 			if v < 0 || v > 255 {
-				return nil, fmt.Errorf("the value %d out of range, must between [0, 255]", v)
+				return fmt.Errorf("the value %d out of range, must between [0, 255]", v)
 			}
-			itemValues = append(itemValues, byte(v))
+			item.values = append(item.values, byte(v))
 		case byte:
-			itemValues = append(itemValues, v)
+			item.values = append(item.values, v)
 		case []byte:
-			itemValues = append(itemValues, v...)
+			item.values = append(item.values, v...)
 		case string:
 			intVal, err := strconv.ParseInt(v, 0, 0)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			if intVal < 0 || intVal > 255 {
-				return nil, fmt.Errorf("the value %d out of range, must between [0, 255]", intVal)
+				return fmt.Errorf("the value %d out of range, must between [0, 255]", intVal)
 			}
-			itemValues = append(itemValues, byte(intVal))
+			item.values = append(item.values, byte(intVal))
 		default:
-			return []byte{}, errors.New("the type of value needs to be byte, []byte, or string")
+			item.values = []byte{}
+			return errors.New("the type of value needs to be byte, []byte, or string")
 		}
 	}
 
-	return itemValues, nil
+	return nil
 }

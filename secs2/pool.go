@@ -6,12 +6,12 @@ import (
 
 var (
 	asciiItemPool  = sync.Pool{New: func() any { return &ASCIIItem{} }}
-	boolItemPool   = sync.Pool{New: func() any { return &BooleanItem{} }}
-	binaryItemPool = sync.Pool{New: func() any { return &BinaryItem{} }}
-	intItemPool    = sync.Pool{New: func() any { return &IntItem{} }}
-	uintItemPool   = sync.Pool{New: func() any { return &UintItem{} }}
-	floatItemPool  = sync.Pool{New: func() any { return &FloatItem{} }}
-	listItemPool   = sync.Pool{New: func() any { return &ListItem{} }}
+	boolItemPool   = sync.Pool{New: func() any { return &BooleanItem{values: []bool{}} }}
+	binaryItemPool = sync.Pool{New: func() any { return &BinaryItem{values: []byte{}} }}
+	intItemPool    = sync.Pool{New: func() any { return &IntItem{values: []int64{}} }}
+	uintItemPool   = sync.Pool{New: func() any { return &UintItem{values: []uint64{}} }}
+	floatItemPool  = sync.Pool{New: func() any { return &FloatItem{values: []float64{}} }}
+	listItemPool   = sync.Pool{New: func() any { return &ListItem{values: []Item{}} }}
 )
 
 func getASCIIItem() *ASCIIItem {
@@ -56,13 +56,13 @@ func getBinaryItem() *BinaryItem {
 	if usePool {
 		item, _ := binaryItemPool.Get().(*BinaryItem)
 		if item == nil {
-			return &BinaryItem{}
+			return &BinaryItem{values: []byte{}}
 		}
 
 		return item
 	}
 
-	return &BinaryItem{}
+	return &BinaryItem{values: []byte{}}
 }
 
 func putBinaryItem(item *BinaryItem) {
@@ -75,13 +75,13 @@ func getIntItem() *IntItem {
 	if usePool {
 		item, _ := intItemPool.Get().(*IntItem)
 		if item == nil {
-			return &IntItem{}
+			return &IntItem{values: []int64{}}
 		}
 
 		return item
 	}
 
-	return &IntItem{}
+	return &IntItem{values: []int64{}}
 }
 
 func putIntItem(item *IntItem) {
@@ -94,13 +94,13 @@ func getUintItem() *UintItem {
 	if usePool {
 		item, _ := uintItemPool.Get().(*UintItem)
 		if item == nil {
-			return &UintItem{}
+			return &UintItem{values: []uint64{}}
 		}
 
 		return item
 	}
 
-	return &UintItem{}
+	return &UintItem{values: []uint64{}}
 }
 
 func putUintItem(item *UintItem) {
@@ -113,13 +113,13 @@ func getFloatItem() *FloatItem {
 	if usePool {
 		item, _ := floatItemPool.Get().(*FloatItem)
 		if item == nil {
-			return &FloatItem{}
+			return &FloatItem{values: []float64{}}
 		}
 
 		return item
 	}
 
-	return &FloatItem{}
+	return &FloatItem{values: []float64{}}
 }
 
 func putFloatItem(item *FloatItem) {
@@ -132,17 +132,18 @@ func getListItem() *ListItem {
 	if usePool {
 		item, _ := listItemPool.Get().(*ListItem)
 		if item == nil {
-			return &ListItem{}
+			return &ListItem{values: []Item{}}
 		}
 
 		return item
 	}
 
-	return &ListItem{}
+	return &ListItem{values: []Item{}}
 }
 
 func putListItem(item *ListItem) {
 	if usePool {
+		item.values = item.values[:0]
 		listItemPool.Put(item)
 	}
 }

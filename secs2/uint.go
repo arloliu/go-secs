@@ -121,10 +121,11 @@ func (item *UintItem) Values() any {
 // If an error occurs during the combination process (e.g., due to incompatible types or negative signed integer values),
 // the error is returned and also stored within the item for later retrieval.
 func (item *UintItem) SetValues(values ...any) error {
-	var err error
-
 	item.resetError()
-	item.values, err = combineUintValues(item.byteSize, values...)
+
+	item.values = item.values[:0]
+
+	err := item.combineUintValues(values...)
 	if err != nil {
 		item.setError(err)
 		return item.Error()
@@ -248,125 +249,128 @@ func (item *UintItem) dataType() string {
 	return dataTypeStr[item.byteSize]
 }
 
-func combineUintValues(byteSize int, values ...any) ([]uint64, error) { //nolint:gocyclo,cyclop
-	itemValues := make([]uint64, 0, len(values))
+func (item *UintItem) combineUintValues(values ...any) error { //nolint:gocyclo,cyclop
+	if cap(item.values) < len(values) {
+		item.values = make([]uint64, 0, len(values))
+	}
+
 	for _, value := range values {
 		switch value := value.(type) {
 		case uint:
-			itemValues = append(itemValues, uint64(value))
+			item.values = append(item.values, uint64(value))
 		case []uint:
-			itemValues = util.AppendUint64Slice(itemValues, value)
+			item.values = util.AppendUint64Slice(item.values, value)
 		case uint8:
-			itemValues = append(itemValues, uint64(value))
+			item.values = append(item.values, uint64(value))
 		case []uint8:
-			itemValues = util.AppendUint64Slice(itemValues, value)
+			item.values = util.AppendUint64Slice(item.values, value)
 
 		case uint16:
-			itemValues = append(itemValues, uint64(value))
+			item.values = append(item.values, uint64(value))
 		case []uint16:
-			itemValues = util.AppendUint64Slice(itemValues, value)
+			item.values = util.AppendUint64Slice(item.values, value)
 
 		case uint32:
-			itemValues = append(itemValues, uint64(value))
+			item.values = append(item.values, uint64(value))
 		case []uint32:
-			itemValues = util.AppendUint64Slice(itemValues, value)
+			item.values = util.AppendUint64Slice(item.values, value)
 
 		case uint64:
-			itemValues = append(itemValues, value)
+			item.values = append(item.values, value)
 		case []uint64:
-			itemValues = util.AppendUint64Slice(itemValues, value)
+			item.values = util.AppendUint64Slice(item.values, value)
 
 		case int:
 			if value < 0 {
-				return nil, errors.New("negative value not allowed for UintItem")
+				return errors.New("negative value not allowed for UintItem")
 			}
-			itemValues = append(itemValues, uint64(value))
+			item.values = append(item.values, uint64(value))
 		case []int:
 			for _, v := range value {
 				if v < 0 {
-					return nil, errors.New("negative value not allowed for UintItem")
+					return errors.New("negative value not allowed for UintItem")
 				}
-				itemValues = append(itemValues, uint64(v))
+				item.values = append(item.values, uint64(v))
 			}
 		case int8:
 			if value < 0 {
-				return nil, errors.New("negative value not allowed for UintItem")
+				return errors.New("negative value not allowed for UintItem")
 			}
-			itemValues = append(itemValues, uint64(value))
+			item.values = append(item.values, uint64(value))
 		case []int8:
 			for _, v := range value {
 				if v < 0 {
-					return nil, errors.New("negative value not allowed for UintItem")
+					return errors.New("negative value not allowed for UintItem")
 				}
-				itemValues = append(itemValues, uint64(v))
+				item.values = append(item.values, uint64(v))
 			}
 
 		case int16:
 			if value < 0 {
-				return nil, errors.New("negative value not allowed for UintItem")
+				return errors.New("negative value not allowed for UintItem")
 			}
-			itemValues = append(itemValues, uint64(value))
+			item.values = append(item.values, uint64(value))
 		case []int16:
 			for _, v := range value {
 				if v < 0 {
-					return nil, errors.New("negative value not allowed for UintItem")
+					return errors.New("negative value not allowed for UintItem")
 				}
-				itemValues = append(itemValues, uint64(v))
+				item.values = append(item.values, uint64(v))
 			}
 
 		case int32:
 			if value < 0 {
-				return nil, errors.New("negative value not allowed for UintItem")
+				return errors.New("negative value not allowed for UintItem")
 			}
-			itemValues = append(itemValues, uint64(value))
+			item.values = append(item.values, uint64(value))
 		case []int32:
 			for _, v := range value {
 				if v < 0 {
-					return nil, errors.New("negative value not allowed for UintItem")
+					return errors.New("negative value not allowed for UintItem")
 				}
-				itemValues = append(itemValues, uint64(v))
+				item.values = append(item.values, uint64(v))
 			}
 
 		case int64:
 			if value < 0 {
-				return nil, errors.New("negative value not allowed for UintItem")
+				return errors.New("negative value not allowed for UintItem")
 			}
-			itemValues = append(itemValues, uint64(value))
+			item.values = append(item.values, uint64(value))
 		case []int64:
 			for _, v := range value {
 				if v < 0 {
-					return nil, errors.New("negative value not allowed for UintItem")
+					return errors.New("negative value not allowed for UintItem")
 				}
-				itemValues = append(itemValues, uint64(v))
+				item.values = append(item.values, uint64(v))
 			}
 
 		case string:
 			uintVal, err := strconv.ParseUint(value, 0, 0) // Use ParseUint for unsigned values
 			if err != nil {
-				return nil, err
+				return err
 			}
-			itemValues = append(itemValues, uintVal)
+			item.values = append(item.values, uintVal)
 		case []string:
 			for _, v := range value {
 				uintVal, err := strconv.ParseUint(v, 0, 0)
 				if err != nil {
-					return nil, err
+					return err
 				}
-				itemValues = append(itemValues, uintVal)
+				item.values = append(item.values, uintVal)
 			}
 
 		default:
-			return nil, errors.New("input argument contains invalid type for UintItem")
+			return errors.New("input argument contains invalid type for UintItem")
 		}
 	}
 
-	var maxVal uint64 = 1<<(byteSize*8) - 1 // Calculate max value for unsigned based on byteSize
+	var maxVal uint64 = 1<<(item.byteSize*8) - 1 // Calculate max value for unsigned based on byteSize
 
-	for _, v := range itemValues {
+	for _, v := range item.values {
 		if v > maxVal {
-			return nil, errors.New("value overflow")
+			return errors.New("value overflow")
 		}
 	}
 
-	return itemValues, nil
+	return nil
 }

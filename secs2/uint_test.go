@@ -349,7 +349,8 @@ func TestCombineUintValues(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := combineUintValues(test.byteSize, test.values...)
+			item, _ := NewUintItem(test.byteSize).(*UintItem)
+			err := item.combineUintValues(test.values...)
 			if (err != nil) != test.wantErr {
 				t.Errorf("combineUintValues() error = %v, wantErr %v", err, test.wantErr)
 				return
@@ -360,6 +361,7 @@ func TestCombineUintValues(t *testing.T) {
 				return
 			}
 
+			got, _ := item.ToUint()
 			if !test.wantErr && !reflect.DeepEqual(got, test.want) {
 				t.Errorf("combineUintValues() = %v, want %v", got, test.want)
 			}

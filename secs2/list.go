@@ -46,14 +46,18 @@ func NewListItem(values ...Item) Item {
 		return item
 	}
 
-	item.values = make([]Item, 0, len(values))
+	if cap(item.values) < len(values) {
+		item.values = make([]Item, 0, len(values))
+	} else {
+		item.values = item.values[:0]
+	}
+
 	for _, value := range values {
 		if value == nil {
 			continue
 		}
 		item.values = append(item.values, value)
 	}
-	// item.values = util.CloneSlice(values, 0)
 
 	return item
 }
@@ -85,12 +89,12 @@ func (item *ListItem) Get(indices ...int) (Item, error) {
 	var dataItem Item = item
 	for _, idx := range indices {
 		if !dataItem.IsList() {
-			return nil, fmt.Errorf("failed to get nested item")
+			return nil, errors.New("failed to get nested item")
 		}
 
 		listItem, _ := dataItem.(*ListItem)
 		if idx < 0 || idx >= listItem.Size() {
-			return nil, fmt.Errorf("failed to get nested item")
+			return nil, errors.New("failed to get nested item")
 		}
 		dataItem = listItem.values[idx]
 	}
@@ -143,7 +147,12 @@ func (item *ListItem) SetValues(values ...any) error {
 		return item.Error()
 	}
 
-	item.values = make([]Item, 0, len(values))
+	if cap(item.values) < len(values) {
+		item.values = make([]Item, 0, len(values))
+	} else {
+		item.values = item.values[:0]
+	}
+
 	for _, value := range values {
 		if v, ok := value.(Item); ok {
 			item.values = append(item.values, v)
@@ -226,7 +235,7 @@ func (item *ListItem) IsList() bool { return true }
 func (item *ListItem) formatSML(level int) string {
 	indentStr := strings.Repeat("  ", level)
 	if item.Size() == 0 {
-		return fmt.Sprintf("%s<L[0]>", indentStr)
+		return indentStr + "<L[0]>"
 	}
 
 	var sb strings.Builder
