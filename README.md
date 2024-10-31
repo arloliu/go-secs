@@ -86,6 +86,7 @@ secs2.Item (interface)
 ### Installation
 ```bash
 go get github.com/arloliu/go-secs
+```
 
 ### Create and use SECS-II data items
 ```go
