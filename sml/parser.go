@@ -3,6 +3,7 @@ package sml
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"unicode"
@@ -834,9 +835,14 @@ func (p *HSMSParser) nextItemSize() (int, error) {
 			if err != nil {
 				return 0, err
 			}
+
+			if size > math.MaxInt32 {
+				return 0, errors.New("parsed size exceeds maximum int value")
+			}
+
 			p.forward(i)
 
-			return int(size), nil //nolint:gosec
+			return int(size), nil
 		}
 	}
 

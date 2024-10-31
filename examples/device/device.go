@@ -50,7 +50,7 @@ func dataMsgHandler(msg *hsms.DataMessage, session hsms.Session) {
 func main() {
 	ip := "127.0.0.1"
 	port := 5000
-	sessionID := 1000
+	var sessionID uint16 = 1000
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -88,8 +88,8 @@ func main() {
 		}
 	}
 	if val := os.Getenv("SESSION_ID"); val != "" {
-		if n, err := strconv.Atoi(val); err != nil {
-			sessionID = n
+		if n, err := strconv.ParseUint(val, 10, 16); err != nil {
+			sessionID = uint16(n)
 		}
 	}
 
@@ -105,7 +105,7 @@ func main() {
 		return
 	}
 
-	session := conn.AddSession(uint16(sessionID)) //nolint:gosec
+	session := conn.AddSession(sessionID)
 
 	session.AddConnStateChangeHandler(connStateChangeHandler)
 	session.AddDataMessageHandler(dataMsgHandler)
