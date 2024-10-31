@@ -80,11 +80,12 @@ secs2.Item (interface)
 ├── IntItem     (shortcut: I1, I2, I4, I8)
 ├── UintItem    (shortcut: U1, U2, U4, U8)
 └── ListItem    (shortcut: L)
+```
+
 ## Usage
 ### Installation
 ```bash
 go get github.com/arloliu/go-secs
-```
 
 ### Create and use SECS-II data items
 ```go
