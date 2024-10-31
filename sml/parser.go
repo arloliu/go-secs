@@ -32,7 +32,7 @@ func NewHSMSParser() *HSMSParser {
 	return &HSMSParser{}
 }
 
-// ParseHSMS parses the input string using a new HSMSParser with the default strict mode setting.
+// ParseHSMS parses the input string using a new HSMSParser instanace with the default strict mode setting.
 // It returns a slice of parsed HSMS data messages and an error if any occurred during parsing.
 //
 // The input string should be a valid UTF-8 encoded representation of one or more HSMS data messages.
@@ -51,17 +51,35 @@ func ParseHSMS(input string) ([]*hsms.DataMessage, error) {
 
 var defStrictMode bool = false
 
-// WithStrictMode configures the parser to use strict mode for parsing ASCII characters.
-// In strict mode, non-printable ASCII characters and escape characters are parsed literally.
-// This is useful when parsing SML generated with strict mode for SECS-II ASCII items.
+// WithStrictMode configures the default setting to use strict mode for parsing ASCII characters.
+// It affects when calling ParseHSMS function.
 //
-// The strict mode of SECS-II ASCII items can be configured by secs2.WithStrictMode.
+// In strict mode, the parser adheres to the ASCII printable characters (character codes 32 to 126) and
+// supports parsing non-printable ASCII characters represented by their decimal values
+// (e.g., 0x0A for newline).
+//
+// In non-strict mode, the parser optimizes for performance by making certain assumptions about the input:
+//   - It assumes that the ASCII string does not contain the same quote character as the one used
+//     to enclose the ASCII item.
+//   - It does not handle escape sequences.
+//
+// The strict mode setting of SECS-II ASCII items can be configured by secs2.WithStrictMode.
 func WithStrictMode(enable bool) {
 	defStrictMode = enable
 }
 
-// WithStrictMode sets if using ASCII parsing strict mode or not.
-// Defaults to false.
+// WithStrictMode configures the parser to use strict mode for parsing ASCII characters.
+//
+// In strict mode, the parser adheres to the ASCII printable characters (character codes 32 to 126) and
+// supports parsing non-printable ASCII characters represented by their decimal values
+// (e.g., 0x0A for newline).
+//
+// In non-strict mode, the parser optimizes for performance by making certain assumptions about the input:
+//   - It assumes that the ASCII string does not contain the same quote character as the one used
+//     to enclose the ASCII item.
+//   - It does not handle escape sequences.
+//
+// The strict mode setting of SECS-II ASCII items can be configured by secs2.WithStrictMode.
 func (p *HSMSParser) WithStrictMode(enable bool) {
 	p.strictMode = enable
 	secs2.WithStrictMode(enable)
@@ -78,14 +96,15 @@ func (p *HSMSParser) Parse(input string) ([]*hsms.DataMessage, error) {
 	p.data = input
 	p.len = len(input)
 	p.pos = 0
-	p.name = ""
-	p.stream = 0
-	p.function = 0
-	p.wbit = false
 
 	messages := make([]*hsms.DataMessage, 0, 1)
 
 	for {
+		p.name = ""
+		p.stream = 0
+		p.function = 0
+		p.wbit = false
+
 		p.skipComment()
 
 		if p.peekNonSpaceRune() == eof {
@@ -231,7 +250,7 @@ func (p *HSMSParser) parseItem() (secs2.Item, error) {
 		if p.strictMode {
 			item, err = p.parseASCIIStrict(maxSize)
 		} else {
-			item, err = p.parseASCIIFast(maxSize)
+			item, err = p.parseASCIIFast()
 		}
 	case secs2.BooleanFormatCode:
 		item, err = p.parseBoolean(maxSize)
@@ -295,9 +314,9 @@ func (p *HSMSParser) parseList(size int) (secs2.Item, error) {
 
 // parseASCIIStrict parses an ASCII data item from the input string in strict mode.
 //
-// In strict mode, the parser adheres to the ASCII standard (character codes 32 to 126) and handles
-// escape characters (e.g., \n, \t) as literal characters. It also supports parsing non-printable
-// ASCII characters represented by their decimal values (e.g., 10 for newline).
+// In strict mode, the parser adheres to the ASCII printable characters (character codes 32 to 126) and
+// supports parsing non-printable ASCII characters represented by their decimal values
+// (e.g., 0x0A for newline).
 //
 // This method is typically used when parsing SML generated with strict mode for SECS-II ASCII items.
 //
@@ -358,8 +377,7 @@ func (p *HSMSParser) parseASCIIStrict(size int) (secs2.Item, error) {
 				if val > unicode.MaxASCII {
 					return nil, fmt.Errorf("non-printable char out of ASCII range, got %d", val)
 				}
-
-				_, _ = sb.WriteString(string(byte(val)))
+				sb.WriteByte(byte(val))
 				numStr = ""
 			default:
 				numStr += string(ch)
@@ -391,20 +409,17 @@ func (p *HSMSParser) parseASCIIStrict(size int) (secs2.Item, error) {
 
 // parseASCIIFast parses an ASCII data item from the input string in fast mode.
 //
-// In fast mode, the parser allows non-printable ASCII characters and interprets escape characters
-// according to their usual meanings. It optimizes for the common case where the ASCII string
-// does not contain non-printable or escaped characters.
+// In fast mode, the parser optimizes for performance by making certain assumptions about the input:
+//   - It assumes that the ASCII string does not contain the same quote character as the one used
+//     to enclose the ASCII item.
+//   - It does not handle escape sequences.
 //
-// If the parser encounters potential non-printable or escaped characters, it switches to
-// strict mode parsing using parseASCIIStrict to handle them correctly.
-//
-// Note: The detection of non-printable or escaped characters in fast mode is not exhaustive.
-// There might be cases where the fast mode fails to identify these characters, leading to
-// inaccurate parsing. In such scenarios, it's recommended to use strict mode (WithStrictMode(true))
-// for more reliable parsing.
+// Note: The detection of the same quote character in fast mode is not exhaustive. There might be cases where
+// the fast mode fails to identify these characters correctly, leading to inaccurate parsing. In such scenarios,
+// it's recommended to use strict mode (WithStrictMode(true)) for more reliable parsing.
 //
 // It returns the parsed ASCII item as a secs2.Item and an error if any occurred during parsing.
-func (p *HSMSParser) parseASCIIFast(size int) (secs2.Item, error) {
+func (p *HSMSParser) parseASCIIFast() (secs2.Item, error) {
 	// consume first quote
 	ch := p.nextNonSpaceRune()
 
@@ -424,15 +439,7 @@ func (p *HSMSParser) parseASCIIFast(size int) (secs2.Item, error) {
 		switch ch {
 		case quoteCh:
 			quoteCount++
-			// possible non-printable char exists
-			if quoteCount > 1 {
-				p.backward(1)
-				return p.parseASCIIStrict(size)
-			}
 			lastQuotePos = i
-
-		case '\n', '\r':
-			return nil, errors.New("unclosed quote string")
 
 		case '>':
 			if quoteCount == 0 {
@@ -453,9 +460,10 @@ func (p *HSMSParser) parseBoolean(size int) (secs2.Item, error) {
 	values := p.getItemValueStrings()
 
 	for _, val := range values {
-		if val == "T" {
+		val = strings.ToUpper(val)
+		if val == "T" || val == "TRUE" {
 			items = append(items, true)
-		} else if val == "F" {
+		} else if val == "F" || val == "FALSE" {
 			items = append(items, false)
 		} else {
 			return nil, fmt.Errorf("expect boolean, found %s", val)
@@ -546,7 +554,7 @@ func (p *HSMSParser) parseUint(byteSize int, size int) (secs2.Item, error) {
 }
 
 func (p *HSMSParser) getItemValueStrings() []string {
-	rabIdx := strings.IndexRune(p.data, '>')
+	rabIdx := strings.IndexByte(p.data, '>')
 	if rabIdx == -1 {
 		return []string{""}
 	}
@@ -608,12 +616,12 @@ func (p *HSMSParser) parseItemType() (secs2.FormatCode, bool) {
 		return -1, false
 	}
 
-	firstChar := p.peekRune()
+	firstChar := toUpperRune(p.peekRune())
 
 	var secondChar rune
 	var hasSecondChar bool
 	if len(p.data) >= 2 {
-		secondChar = rune(p.data[1])
+		secondChar = toUpperRune(rune(p.data[1]))
 		hasSecondChar = true
 	}
 
@@ -630,7 +638,7 @@ func (p *HSMSParser) parseItemType() (secs2.FormatCode, bool) {
 		if hasSecondChar {
 			switch secondChar {
 			case 'O':
-				if len(p.data) >= 7 && p.data[:7] == "BOOLEAN" {
+				if len(p.data) >= 7 && strings.ToUpper(p.data[:7]) == "BOOLEAN" {
 					p.forward(7)
 					return secs2.BooleanFormatCode, true
 				}
@@ -725,8 +733,8 @@ func (p *HSMSParser) backward(n int) {
 }
 
 func (p *HSMSParser) skipSpace() bool {
-	for i, r := range p.data {
-		switch r {
+	for i := 0; i < len(p.data); i++ {
+		switch p.data[i] {
 		case ' ', '\t', '\r', '\n':
 			continue
 		default:
@@ -742,7 +750,7 @@ func (p *HSMSParser) skipComment() {
 		return
 	}
 	if strings.HasPrefix(p.data, "//") {
-		i := strings.Index(p.data, "\n")
+		i := strings.IndexByte(p.data, '\n')
 		if i < 0 {
 			return
 		}
@@ -800,13 +808,9 @@ func (p *HSMSParser) nextCode() (uint8, error) {
 		return 0, errors.New("invalid sml code")
 	}
 
-	var valStr string
 	for i, ch := range p.data {
-		switch ch {
-		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-			valStr += string(ch)
-		default:
-			code, err := strconv.ParseUint(valStr, 10, 8)
+		if ch < '0' || ch > '9' {
+			code, err := strconv.ParseUint(p.data[:i], 10, 8)
 			if err != nil {
 				return 0, err
 			}
@@ -824,21 +828,29 @@ func (p *HSMSParser) nextItemSize() (int, error) {
 		return 0, errors.New("invalid item size")
 	}
 
-	var valStr string
 	for i, ch := range p.data {
-		switch ch {
-		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-			valStr += string(ch)
-		default:
-			size, err := strconv.Atoi(valStr)
+		if ch < '0' || ch > '9' {
+			size, err := strconv.ParseUint(p.data[:i], 10, 32)
 			if err != nil {
 				return 0, err
 			}
 			p.forward(i)
 
-			return size, nil
+			return int(size), nil //nolint:gosec
 		}
 	}
 
 	return 0, errors.New("invalid item size")
+}
+
+func toUpperRune(ch rune) rune {
+	hasLower := false
+	hasLower = hasLower || ('a' <= ch && ch <= 'z')
+	if !hasLower {
+		return ch
+	}
+
+	ch -= 'a' - 'A'
+
+	return ch
 }

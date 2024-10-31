@@ -6,11 +6,17 @@
 //
 // It supports various SECS-II data item types and provides options for handling different
 // ASCII parsing modes:
-//   - Strict Mode:  Adheres to the ASCII standard (character codes 32 to 126) and handles escape
-//     characters (e.g., \n, \t) as literal characters. This is useful when parsing SML generated with
-//     strict mode for SECS-II ASCII items (e.g., using secs2.WithStrictMode(true)).
-//   - Non-Strict Mode (default): Allows non-printable ASCII characters and interprets escape characters
-//     according to their usual meanings.
+//
+// Strict Mode: Adheres to the ASCII printable characters (character codes 32 to 126) and
+// supports parsing non-printable ASCII characters represented by their decimal values (e.g., 0x0A for newline).
+//
+// This is useful when parsing SML generated with strict mode for SECS-II ASCII items (e.g., using secs2.WithStrictMode(true)).
+//
+// Non-Strict Mode (default): Optimizes for performance by making certain assumptions about the input:
+//
+//   - It assumes that the ASCII string does not contain the same quote character as the one used to enclose the ASCII item.
+//
+//   - It does not handle escape sequences.
 //
 // Usage Example:
 //

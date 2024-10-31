@@ -1,8 +1,10 @@
 package sml
 
 import (
+	"os"
 	"testing"
 
+	"github.com/arloliu/go-secs/hsms"
 	"github.com/arloliu/go-secs/secs2"
 	"github.com/stretchr/testify/require"
 )
@@ -21,6 +23,8 @@ func checkTestCase(t *testing.T, tests []testCase) {
 		t.Logf("Test #%d: %s", i, test.description)
 		msgs, err := ParseHSMS(test.input)
 
+		require.Lenf(msgs, test.expectedNumOfMsgs, "should have %d message, got %d, error:%s", test.expectedNumOfMsgs, len(msgs), err)
+
 		for j, msg := range msgs {
 			require.NotNil(msg)
 			str := msg.ToSML()
@@ -32,7 +36,6 @@ func checkTestCase(t *testing.T, tests []testCase) {
 			require.Equal(msg, reparsedMsgs[0])
 		}
 
-		require.Lenf(msgs, test.expectedNumOfMsgs, "should have %d message, got %d, error:%s", test.expectedNumOfMsgs, len(msgs), err)
 		if len(test.expectedErrStr) > 0 {
 			errStr := err.Error()
 			require.Contains(errStr, test.expectedErrStr)
@@ -40,14 +43,33 @@ func checkTestCase(t *testing.T, tests []testCase) {
 	}
 }
 
+func TestParseHSMS_TestData_Common(t *testing.T) {
+	require := require.New(t)
+	data, err := os.ReadFile("./testdata/common.sml")
+	require.NoError(err)
+	require.NotNil(data)
+
+	secs2.UseASCIISingleQuote()
+	WithStrictMode(true)
+	msgs, err := ParseHSMS(string(data))
+	require.NoError(err)
+	require.NotNil(msgs)
+
+	secs2.UseASCIISingleQuote()
+	WithStrictMode(false)
+	msgs, err = ParseHSMS(string(data))
+	require.NoError(err)
+	require.NotNil(msgs)
+}
+
 func TestParseHSMS_NoErrorCases_StrictMode(t *testing.T) {
 	tests := commonTestCases()
 	tests = append(tests,
 		testCase{
 			description:       "1 message, contains non-printable ASCII node, case 1",
-			input:             `TestMessage:'S1F1' W <A 'te"s\'t 1' 0x09 0x7F ' test \'2\''>.`,
+			input:             `TestMessage:'S1F1' W <A 'te"s\'t 1' 0x0A 0x0D ' test \'2\''>.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"TestMessage:'S1F1' W\n<A[19] 'te\"s\\'t 1' 0x09 0x7F ' test \\'2\\''>\n."},
+			expectedStr:       []string{"TestMessage:'S1F1' W\n<A[19] 'te\"s\\'t 1' 0x0A 0x0D ' test \\'2\\''>\n."},
 		},
 		testCase{
 			description: "1 message, contains non-printable ASCII node, case 2",
@@ -68,12 +90,25 @@ string 2'>
 	WithStrictMode(true)
 	checkTestCase(t, tests)
 
+	msg, _ := hsms.NewDataMessage(1, 1, true, 0, nil, secs2.A("first 'line'\n\rsecond line"))
 	tests = []testCase{
 		{
 			description:       "1 message, single-quote ASCII node",
 			input:             `TestMessage:'S1F1' W <A 'text'>.`,
 			expectedNumOfMsgs: 1,
 			expectedStr:       []string{"TestMessage:'S1F1' W\n<A[4] 'text'>\n."},
+		},
+		{
+			description:       "1 message, single-quote ASCII node with newlines",
+			input:             "TestMessage:'S1F1' W <A 'text1\ntest2\ntest3'>.",
+			expectedNumOfMsgs: 1,
+			expectedStr:       []string{"TestMessage:'S1F1' W\n<A[17] 'text1' 0x0A 'test2' 0x0A 'test3'>\n."},
+		},
+		{
+			description:       "1 message, from ToSML",
+			input:             msg.ToSML(),
+			expectedNumOfMsgs: 1,
+			expectedStr:       []string{"'S1F1' W\n<A[25] 'first \\'line\\'' 0x0A 0x0D 'second line'>\n."},
 		},
 	}
 	secs2.UseASCIISingleQuote()
@@ -106,6 +141,12 @@ func TestParseHSMS_NoErrorCases_NonStrictMode(t *testing.T) {
 			expectedNumOfMsgs: 1,
 			expectedStr:       []string{"TestMessage:'S1F1' W\n<A[4] 'text'>\n."},
 		},
+		{
+			description:       "1 message, single-quote ASCII node with newlines",
+			input:             "TestMessage:'S1F1' W <A 'text1\ntest2\ntest3'>.",
+			expectedNumOfMsgs: 1,
+			expectedStr:       []string{"TestMessage:'S1F1' W\n<A[17] 'text1\ntest2\ntest3'>\n."},
+		},
 	}
 	secs2.UseASCIISingleQuote()
 	checkTestCase(t, tests)
@@ -116,6 +157,12 @@ func TestParseHSMS_NoErrorCases_NonStrictMode(t *testing.T) {
 			input:             `TestMessage:'S1F1' W <A "text">.`,
 			expectedNumOfMsgs: 1,
 			expectedStr:       []string{"TestMessage:'S1F1' W\n<A[4] \"text\">\n."},
+		},
+		{
+			description:       "1 message, double-quote ASCII node with newlines",
+			input:             "TestMessage:'S1F1' W <A \"text1\ntest2\ntest3\">.",
+			expectedNumOfMsgs: 1,
+			expectedStr:       []string{"TestMessage:'S1F1' W\n<A[17] \"text1\ntest2\ntest3\">\n."},
 		},
 	}
 
@@ -310,20 +357,8 @@ func TestParseHSMS_ASCII_ErrorCases_NonStrictMode(t *testing.T) {
 			expectedErrStr:    "invalid quote for ASCII string",
 		},
 		{
-			description:       "unexpected token (quote)",
-			input:             "S0F0\n<A 'ab''> .",
-			expectedNumOfMsgs: 0,
-			expectedErrStr:    "unclosed quote string",
-		},
-		{
 			description:       "unexpected token (> in quote string)",
 			input:             "S0F0\n<A 'ab>'> .",
-			expectedNumOfMsgs: 0,
-			expectedErrStr:    "unclosed quote string",
-		},
-		{
-			description:       "unexpected token (newline in quote string)",
-			input:             "S0F0\n<A 'ab\n'> .",
 			expectedNumOfMsgs: 0,
 			expectedErrStr:    "unclosed quote string",
 		},

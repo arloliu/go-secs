@@ -45,22 +45,28 @@ This project is a library that implements [SECS-II](https://en.wikipedia.org/wik
 * **Quoting and Escaping:** Supports various SML formats, including different quoting styles for stream and function codes and handling of non-printable ASCII characters and escape sequences.
 * **Strict Mode:** Offers a strict parsing mode that adheres to the ASCII standard and handles escape characters literally.
 
+> Refer to the [SML document](sml/README.md) for details.
+
 ## Package Introduction
-* secs2 -  provides data structures and functions for working with SECS-II messages
-* gem - provides functions for creating GEM messages, offers a convenient way to generate SECS-II messages for various GEM message types.
-* hsms - provides functions and interfaces for establishing/decoding HSMS control and data message and defining generic interface for HSMS session.
-* hsmsss - provides an implementation of HSMS-SS (HSMS Single Session) for communication according to the SEMI E37 standard.
-* logger - provides a standardized way for different logging frameworks to be integrated into go-secs.
+* **secs2** -  provides data structures and functions for working with SECS-II messages
+* **gem** - provides functions for creating GEM messages, offers a convenient way to generate SECS-II messages for various GEM message types.
+* **hsms** - provides functions and interfaces for establishing/decoding HSMS control and data message and defining generic interface for HSMS session.
+* **hsmsss** - provides an implementation of HSMS-SS (HSMS Single Session) for communication according to the SEMI E37 standard.
+* **logger** - provides a standardized way for different logging frameworks to be integrated into go-secs.
 
-## Object representation HSMS/SECS-II Message
-The SECS-II message is defined by the `secs2.SECS2Message` interface, which defines stream code, funtcion code, waitbit, and SECS-II data item method. The GEM message generation functions in the `gem` package implement this interface.
+## Object Representation of HSMS/SECS-II Messages
 
-The `hsms.HSMSMessage` embeds `secs2.SECS2Message` and extends the method definitions including session ID, system bytes, header bytes...etc.
+The `go-secs` library provides a structured object representation of HSMS/SECS-II messages and data items using interfaces and concrete types.
 
-The HSMS messages can be represented by the `hsms.DataMessage` and `hsms.ControlMessage` objects which implements `hsms.HSMSMessage` interface.
+* **`secs2.SECS2Message` Interface:** This interface defines the core components of a SECS-II message, including the stream code, function code, wait bit (W-bit), and the SECS-II data item. The `gem` package provides functions for generating GEM (Generic Equipment Model) messages that implement this interface.
 
-The SECS-II data item has a unified `secs2.Item` interface, and all types of data item implements it.
+* **`hsms.HSMSMessage` Interface:** This interface extends `secs2.SECS2Message` to include HSMS-specific attributes, such as the session ID, system bytes, and header bytes.
 
+* **`hsms.DataMessage` and `hsms.ControlMessage`:** These structs are concrete implementations of the `hsms.HSMSMessage` interface. `hsms.DataMessage` represents SECS-II data messages used for exchanging information, while `hsms.ControlMessage` represents control messages used for managing the HSMS connection.
+
+* **`secs2.Item` Interface:** This interface provides a unified representation of SECS-II data items. All SECS-II data types (ASCII, Binary, Boolean, Float, Int, Uint, List) implement this interface.
+
+**Object Hierarchy**
 ```text
 hsms.HSMSMessage (interface): embeds secs2.SECS2Message interface
 ├── hsms.DataMessage
@@ -70,11 +76,12 @@ secs2.Item (interface)
 ├── ASCIIItem   (shortcut: A)
 ├── BinaryItem  (shortcut: B)
 ├── BooleanItem (shortcut: BOOLEAN)
-├── FloatItem   (shortcut: F4 ,F8)
+├── FloatItem   (shortcut: F4, F8)
 ├── IntItem     (shortcut: I1, I2, I4, I8)
 ├── UintItem    (shortcut: U1, U2, U4, U8)
 └── ListItem    (shortcut: L)
 ```
+
 ## Usage
 ### Installation
 ```bash
@@ -133,6 +140,8 @@ nestItem, err = listItem.Get(3, 2) // nil, err == "failed to get nested item"
 ```
 
 ### HSMS and SECS-II Item SML various formats
+> Refer to the [SML document](sml/README.md) for details.
+
 ```go
 // set stream-function SML string with single quote. e.g. 'S1F1' W <A 'test'>
 hsms.UseStreamFunctionSingleQuote()
@@ -148,6 +157,8 @@ secs2.UseASCIISingleQuote()
 ```
 
 ### Parse SML
+> Refer to the [SML document](sml/README.md) for details.
+
 ```go
 // set stream-function SML string with single quote, and quote ASCII item SML string with double quote.
 // e.g. 'S1F1' W <A "test">
