@@ -18,6 +18,7 @@ TEST_TIMEOUT := 5m
 ALL_SRC         := $(shell find . -name "*.go")
 ALL_SRC         += go.mod
 TEST_DIRS       := $(sort $(dir $(filter %_test.go,$(ALL_SRC))))
+LATEST_GIT_TAG  := $(shell git describe --tags --abbrev=0)
 
 # Code coverage output files.
 COVER_ROOT                 := ./.coverage
@@ -44,6 +45,11 @@ test: clean
 		@go test $(TEST_DIR) -short -timeout=$(TEST_TIMEOUT) $(VERBOSE_TAG) -race | tee -a test.log \
 	$(NEWLINE))
 	@! grep -q "^--- FAIL" test.log
+
+# Update https://pkg.go.dev/
+update-pkg-cache:
+	@printf "Update package cache with latest git tag: $(LATEST_GIT_TAG)\n"
+	@curl -s https://proxy.golang.org/github.com/arloliu/go-secs/@v/$(LATEST_GIT_TAG).info > /dev/null
 
 ##### Coverage #####
 $(COVER_ROOT):
