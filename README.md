@@ -45,7 +45,7 @@ This project is a library that implements [SECS-II](https://en.wikipedia.org/wik
 * **Quoting and Escaping:** Supports various SML formats, including different quoting styles for stream and function codes and handling of non-printable ASCII characters and escape sequences.
 * **Strict Mode:** Offers a strict parsing mode that adheres to the ASCII standard and handles escape characters literally.
 
-> Please refer to the [SML document](sml/README.md) for details.
+> Refer to the [SML document](sml/README.md) for details.
 
 ## Package Introduction
 * **secs2** -  provides data structures and functions for working with SECS-II messages
@@ -139,6 +139,8 @@ nestItem, err = listItem.Get(3, 2) // nil, err == "failed to get nested item"
 ```
 
 ### HSMS and SECS-II Item SML various formats
+> Refer to the [SML document](sml/README.md) for details.
+
 ```go
 // set stream-function SML string with single quote. e.g. 'S1F1' W <A 'test'>
 hsms.UseStreamFunctionSingleQuote()
@@ -154,6 +156,8 @@ secs2.UseASCIISingleQuote()
 ```
 
 ### Parse SML
+> Refer to the [SML document](sml/README.md) for details.
+
 ```go
 // set stream-function SML string with single quote, and quote ASCII item SML string with double quote.
 // e.g. 'S1F1' W <A "test">
