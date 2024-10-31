@@ -1,6 +1,7 @@
 package sml
 
 import (
+	"os"
 	"testing"
 
 	"github.com/arloliu/go-secs/hsms"
@@ -40,6 +41,25 @@ func checkTestCase(t *testing.T, tests []testCase) {
 			require.Contains(errStr, test.expectedErrStr)
 		}
 	}
+}
+
+func TestParseHSMS_TestData_Common(t *testing.T) {
+	require := require.New(t)
+	data, err := os.ReadFile("./testdata/common.sml")
+	require.NoError(err)
+	require.NotNil(data)
+
+	secs2.UseASCIISingleQuote()
+	WithStrictMode(true)
+	msgs, err := ParseHSMS(string(data))
+	require.NoError(err)
+	require.NotNil(msgs)
+
+	secs2.UseASCIISingleQuote()
+	WithStrictMode(false)
+	msgs, err = ParseHSMS(string(data))
+	require.NoError(err)
+	require.NotNil(msgs)
 }
 
 func TestParseHSMS_NoErrorCases_StrictMode(t *testing.T) {

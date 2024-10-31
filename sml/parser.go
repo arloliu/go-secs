@@ -78,14 +78,15 @@ func (p *HSMSParser) Parse(input string) ([]*hsms.DataMessage, error) {
 	p.data = input
 	p.len = len(input)
 	p.pos = 0
-	p.name = ""
-	p.stream = 0
-	p.function = 0
-	p.wbit = false
 
 	messages := make([]*hsms.DataMessage, 0, 1)
 
 	for {
+		p.name = ""
+		p.stream = 0
+		p.function = 0
+		p.wbit = false
+
 		p.skipComment()
 
 		if p.peekNonSpaceRune() == eof {
@@ -441,9 +442,10 @@ func (p *HSMSParser) parseBoolean(size int) (secs2.Item, error) {
 	values := p.getItemValueStrings()
 
 	for _, val := range values {
-		if val == "T" {
+		val = strings.ToUpper(val)
+		if val == "T" || val == "TRUE" {
 			items = append(items, true)
-		} else if val == "F" {
+		} else if val == "F" || val == "FALSE" {
 			items = append(items, false)
 		} else {
 			return nil, fmt.Errorf("expect boolean, found %s", val)
@@ -534,7 +536,7 @@ func (p *HSMSParser) parseUint(byteSize int, size int) (secs2.Item, error) {
 }
 
 func (p *HSMSParser) getItemValueStrings() []string {
-	rabIdx := strings.IndexRune(p.data, '>')
+	rabIdx := strings.IndexByte(p.data, '>')
 	if rabIdx == -1 {
 		return []string{""}
 	}
@@ -596,12 +598,12 @@ func (p *HSMSParser) parseItemType() (secs2.FormatCode, bool) {
 		return -1, false
 	}
 
-	firstChar := p.peekRune()
+	firstChar := toUpperRune(p.peekRune())
 
 	var secondChar rune
 	var hasSecondChar bool
 	if len(p.data) >= 2 {
-		secondChar = rune(p.data[1])
+		secondChar = toUpperRune(rune(p.data[1]))
 		hasSecondChar = true
 	}
 
@@ -618,7 +620,7 @@ func (p *HSMSParser) parseItemType() (secs2.FormatCode, bool) {
 		if hasSecondChar {
 			switch secondChar {
 			case 'O':
-				if len(p.data) >= 7 && p.data[:7] == "BOOLEAN" {
+				if len(p.data) >= 7 && strings.ToUpper(p.data[:7]) == "BOOLEAN" {
 					p.forward(7)
 					return secs2.BooleanFormatCode, true
 				}
@@ -713,8 +715,8 @@ func (p *HSMSParser) backward(n int) {
 }
 
 func (p *HSMSParser) skipSpace() bool {
-	for i, r := range p.data {
-		switch r {
+	for i := 0; i < len(p.data); i++ {
+		switch p.data[i] {
 		case ' ', '\t', '\r', '\n':
 			continue
 		default:
@@ -730,7 +732,7 @@ func (p *HSMSParser) skipComment() {
 		return
 	}
 	if strings.HasPrefix(p.data, "//") {
-		i := strings.Index(p.data, "\n")
+		i := strings.IndexByte(p.data, '\n')
 		if i < 0 {
 			return
 		}
@@ -788,13 +790,9 @@ func (p *HSMSParser) nextCode() (uint8, error) {
 		return 0, errors.New("invalid sml code")
 	}
 
-	var valStr string
 	for i, ch := range p.data {
-		switch ch {
-		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-			valStr += string(ch)
-		default:
-			code, err := strconv.ParseUint(valStr, 10, 8)
+		if ch < '0' || ch > '9' {
+			code, err := strconv.ParseUint(p.data[:i], 10, 8)
 			if err != nil {
 				return 0, err
 			}
@@ -812,21 +810,29 @@ func (p *HSMSParser) nextItemSize() (int, error) {
 		return 0, errors.New("invalid item size")
 	}
 
-	var valStr string
 	for i, ch := range p.data {
-		switch ch {
-		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-			valStr += string(ch)
-		default:
-			size, err := strconv.Atoi(valStr)
+		if ch < '0' || ch > '9' {
+			size, err := strconv.ParseUint(p.data[:i], 10, 32)
 			if err != nil {
 				return 0, err
 			}
 			p.forward(i)
 
-			return size, nil
+			return int(size), nil //nolint:gosec
 		}
 	}
 
 	return 0, errors.New("invalid item size")
+}
+
+func toUpperRune(ch rune) rune {
+	hasLower := false
+	hasLower = hasLower || ('a' <= ch && ch <= 'z')
+	if !hasLower {
+		return ch
+	}
+
+	ch -= 'a' - 'A'
+
+	return ch
 }
