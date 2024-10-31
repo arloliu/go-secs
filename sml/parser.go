@@ -32,7 +32,7 @@ func NewHSMSParser() *HSMSParser {
 	return &HSMSParser{}
 }
 
-// ParseHSMS parses the input string using a new HSMSParser with the default strict mode setting.
+// ParseHSMS parses the input string using a new HSMSParser instanace with the default strict mode setting.
 // It returns a slice of parsed HSMS data messages and an error if any occurred during parsing.
 //
 // The input string should be a valid UTF-8 encoded representation of one or more HSMS data messages.
@@ -51,17 +51,35 @@ func ParseHSMS(input string) ([]*hsms.DataMessage, error) {
 
 var defStrictMode bool = false
 
-// WithStrictMode configures the parser to use strict mode for parsing ASCII characters.
-// In strict mode, non-printable ASCII characters and escape characters are parsed literally.
-// This is useful when parsing SML generated with strict mode for SECS-II ASCII items.
+// WithStrictMode configures the default setting to use strict mode for parsing ASCII characters.
+// It affects when calling ParseHSMS function.
 //
-// The strict mode of SECS-II ASCII items can be configured by secs2.WithStrictMode.
+// In strict mode, the parser adheres to the ASCII printable characters (character codes 32 to 126) and
+// supports parsing non-printable ASCII characters represented by their decimal values
+// (e.g., 0x0A for newline).
+//
+// In non-strict mode, the parser optimizes for performance by making certain assumptions about the input:
+//   - It assumes that the ASCII string does not contain the same quote character as the one used
+//     to enclose the ASCII item.
+//   - It does not handle escape sequences.
+//
+// The strict mode setting of SECS-II ASCII items can be configured by secs2.WithStrictMode.
 func WithStrictMode(enable bool) {
 	defStrictMode = enable
 }
 
-// WithStrictMode sets if using ASCII parsing strict mode or not.
-// Defaults to false.
+// WithStrictMode configures the parser to use strict mode for parsing ASCII characters.
+//
+// In strict mode, the parser adheres to the ASCII printable characters (character codes 32 to 126) and
+// supports parsing non-printable ASCII characters represented by their decimal values
+// (e.g., 0x0A for newline).
+//
+// In non-strict mode, the parser optimizes for performance by making certain assumptions about the input:
+//   - It assumes that the ASCII string does not contain the same quote character as the one used
+//     to enclose the ASCII item.
+//   - It does not handle escape sequences.
+//
+// The strict mode setting of SECS-II ASCII items can be configured by secs2.WithStrictMode.
 func (p *HSMSParser) WithStrictMode(enable bool) {
 	p.strictMode = enable
 	secs2.WithStrictMode(enable)
