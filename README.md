@@ -167,132 +167,132 @@ secs2.UseASCIIDoubleQuote()
 
 sml = `MessageName:'S7F26'
 <L[4]
-	<A "path">
-	<A "model">
-	<A "version">
-	<L[2]
-		<U4[1] 256>
-		<A "value">
-	>
+    <A "path">
+    <A "model">
+    <A "version">
+    <L[2]
+        <U4[1] 256>
+        <A "value">
+    >
 >
 .`
 
 msgs, err := sml.ParseHSMS(sml)
 if err != nil {
-	// handle error
+    // handle error
 }
 
 for _, msg := range msgs {
-	// msg.Name() == "MessageName"
-	// msg.StreamCode == uint8(7)
-	// msg.FunctionCode == uint8(26)
-	// msg.WaitBit() == false
+    // msg.Name() == "MessageName"
+    // msg.StreamCode == uint8(7)
+    // msg.FunctionCode == uint8(26)
+    // msg.WaitBit() == false
 }
 ```
 
 ### Create HSMS-SS Host with Active Mode
 ```go
 func msgHandler(msg *hsms.DataMessage, session hsms.Session) {
-	switch msg.StreamCode() {
-		case 98:
-			switch msg.FunctionCode() {
-				case 1:
-					err := session.ReplyDataMessage(msg, msg.Item())
-					if err != nil {
-						// handle reply error
-					}
-			}
+    switch msg.StreamCode() {
+        case 98:
+            switch msg.FunctionCode() {
+                case 1:
+                    err := session.ReplyDataMessage(msg, msg.Item())
+                    if err != nil {
+                        // handle reply error
+                    }
+            }
 
-	}
+    }
 }
 
 func main() {
-	// ...
-	// Create a new HSMS-SS connection
-	connCfg := hsmsss.NewConnectionConfig("127.0.0.1", 5000,
-	WithActive(), // active mode
-	WithHostRole(), // host role
-	WithT3Timeout(30*time.Second),
-	// other options...
-	)
-	conn, err := hsmsss.NewConnection(ctx, connCfg)
-	if err != nil {
-		// ... handle error ...
-	}
-	defer conn.Close()
+    // ...
+    // Create a new HSMS-SS connection
+    connCfg := hsmsss.NewConnectionConfig("127.0.0.1", 5000,
+    WithActive(), // active mode
+    WithHostRole(), // host role
+    WithT3Timeout(30*time.Second),
+    // other options...
+    )
+    conn, err := hsmsss.NewConnection(ctx, connCfg)
+    if err != nil {
+        // ... handle error ...
+    }
+    defer conn.Close()
 
-	// Add a session with session id 1000 before open connection
-	session := conn.AddSession(1000)
+    // Add a session with session id 1000 before open connection
+    session := conn.AddSession(1000)
 
-	// Add a data message handler
-	session.AddDataMessageHandler(msgHandler)
+    // Add a data message handler
+    session.AddDataMessageHandler(msgHandler)
 
-	// Open connection and wait it to selected state
-	err = conn.Open(true)
-	if err != nil {
-		// ... handle error ...
-	}
+    // Open connection and wait it to selected state
+    err = conn.Open(true)
+    if err != nil {
+        // ... handle error ...
+    }
 
-	// Send an S99F1 message
-	reply, err := session.SendDataMessage(1, 1, true, secs2.NewASCIIItem("test"))
-	if err != nil {
-		// ... handle error ...
-	}
-	// Process the reply
+    // Send an S99F1 message
+    reply, err := session.SendDataMessage(1, 1, true, secs2.NewASCIIItem("test"))
+    if err != nil {
+        // ... handle error ...
+    }
+    // Process the reply
 
-	// ... other HSMS-SS operations ...
+    // ... other HSMS-SS operations ...
 }
 ```
 
 ### Create HSMS-SS Equipment with Passive Mode
 ```go
 func msgHandler(msg *hsms.DataMessage, session hsms.Session) {
-	switch msg.StreamCode() {
-		case 99:
-			switch msg.FunctionCode() {
-				case 1:
-					err := session.ReplyDataMessage(msg, msg.Item())
-					if err != nil {
-						// handle reply error
-					}
-			}
-	}
+    switch msg.StreamCode() {
+        case 99:
+            switch msg.FunctionCode() {
+                case 1:
+                    err := session.ReplyDataMessage(msg, msg.Item())
+                    if err != nil {
+                        // handle reply error
+                    }
+            }
+    }
 }
 
 func main() {
-	// ...
-	// Create a new HSMS-SS connection
-	connCfg := hsmsss.NewConnectionConfig("127.0.0.1", 5000,
-	WithPassive(), // passive mode
-	WithEquipRole(), // equipment role
-	WithT3Timeout(30*time.Second),
-	// other options...
-	)
-	conn, err := hsmsss.NewConnection(ctx, connCfg)
-	if err != nil {
-		// ... handle error ...
-	}
-	defer conn.Close()
+    // ...
+    // Create a new HSMS-SS connection
+    connCfg := hsmsss.NewConnectionConfig("127.0.0.1", 5000,
+    WithPassive(), // passive mode
+    WithEquipRole(), // equipment role
+    WithT3Timeout(30*time.Second),
+    // other options...
+    )
+    conn, err := hsmsss.NewConnection(ctx, connCfg)
+    if err != nil {
+        // ... handle error ...
+    }
+    defer conn.Close()
 
-	// Add a session with session id 1000 before open connection
-	session := conn.AddSession(1000)
+    // Add a session with session id 1000 before open connection
+    session := conn.AddSession(1000)
 
-	// Add a data message handler
-	session.AddDataMessageHandler(msgHandler)
+    // Add a data message handler
+    session.AddDataMessageHandler(msgHandler)
 
-	// Open connection and wait it to selected state
-	err = conn.Open(true)
-	if err != nil {
-		// ... handle error ...
-	}
+    // Open connection and wait it to selected state
+    err = conn.Open(true)
+    if err != nil {
+        // ... handle error ...
+    }
 
-	// Send an S98F1 message
-	reply, err := session.SendDataMessage(98, 1, true, secs2.NewASCIIItem("test"))
-	if err != nil {
-		// ... handle error ...
-	}
-	// Process the reply
+    // Send an S98F1 message
+    reply, err := session.SendDataMessage(98, 1, true, secs2.NewASCIIItem("test"))
+    if err != nil {
+        // ... handle error ...
+    }
+    // Process the reply
 
-	// ... other HSMS-SS operations ...
+    // ... other HSMS-SS operations ...
 }
 ```
