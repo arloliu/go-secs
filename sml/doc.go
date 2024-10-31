@@ -1,4 +1,4 @@
-// Package sml provides functions for parsing and generating SML (SECS Message Language)
+// Package sml provides functions for parsing SML (SECS Message Language)
 // representations of SECS-II messages, primarily used in the context of HSMS (High-Speed SECS Message Services).
 //
 // SML is a human-readable text-based format for representing SECS-II messages, which are used for
