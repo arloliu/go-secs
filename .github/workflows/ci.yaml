@@ -20,7 +20,7 @@ jobs:
     - name: Setup Go ${{ matrix.go-version }}
       uses: actions/setup-go@v5
       with:
-        go-version-file: ${{ matrix.go-version }}
+        go-version: ${{ matrix.go-version }}
         check-latest: true
     - name: Display Go version
       run: go version
