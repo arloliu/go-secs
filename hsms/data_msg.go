@@ -79,6 +79,11 @@ func (msg *DataMessage) SessionID() uint16 {
 	return msg.sessionID
 }
 
+// SetSessionID sets the session id of the SECS-II message.
+func (msg *DataMessage) SetSessionID(sessionID uint16) {
+	msg.sessionID = sessionID
+}
+
 // ID returns a numeric representation of the system bytes (message ID).
 //
 // This method implements the HSMSMessage.ID() interface.
@@ -262,11 +267,12 @@ func (msg *DataMessage) Free() {
 // Clone returns a duplicated Message
 func (msg *DataMessage) Clone() HSMSMessage {
 	cloned := &DataMessage{
-		stream:    msg.stream,
-		function:  msg.function,
-		waitBit:   msg.waitBit,
-		dataItem:  msg.dataItem,
-		sessionID: msg.sessionID,
+		name:        msg.name,
+		stream:      msg.stream,
+		function:    msg.function,
+		waitBit:     msg.waitBit,
+		sessionID:   msg.sessionID,
+		systemBytes: util.CloneSlice(msg.systemBytes, 4),
 	}
 
 	if msg.dataItem == nil {
@@ -274,7 +280,6 @@ func (msg *DataMessage) Clone() HSMSMessage {
 	} else {
 		cloned.dataItem = msg.dataItem.Clone()
 	}
-	cloned.systemBytes = util.CloneSlice(msg.systemBytes, 4)
 
 	return cloned
 }

@@ -105,5 +105,42 @@ func TestDataMessage(t *testing.T) {
 		require.NoError(err)
 		require.Equal(test.expectedToBytes, msg.ToBytes())
 		require.Equal(test.expectedToSML, msg.ToSML())
+		require.True(msg.IsDataMessage())
 	}
+}
+
+func TestDataMessage_Set(t *testing.T) {
+	require := require.New(t)
+
+	msg, err := NewDataMessage(1, 1, true, 0, []byte{}, secs2.NewEmptyItem())
+	require.NoError(err)
+	require.NotNil(msg)
+
+	require.Equal(uint32(0), msg.ID())
+	require.Equal(uint16(0), msg.SessionID())
+	require.Equal([]byte{0, 0, 0, 0}, msg.SystemBytes())
+	require.Equal("", msg.Name())
+
+	msg.SetSessionID(123)
+	require.Equal(uint16(123), msg.SessionID())
+
+	msg.SetSystemBytes([]byte{0x12, 0x34, 0x56, 0x78})
+	require.Equal([]byte{0x12, 0x34, 0x56, 0x78}, msg.SystemBytes())
+
+	msg.SetName("test")
+	require.Equal("test", msg.Name())
+
+	cloned := msg.Clone()
+	clonedDataMsg, ok := cloned.(*DataMessage)
+	require.True(ok)
+
+	require.Equal(msg.ID(), clonedDataMsg.ID())
+	require.Equal(msg.StreamCode(), clonedDataMsg.StreamCode())
+	require.Equal(msg.FunctionCode(), clonedDataMsg.FunctionCode())
+	require.Equal(msg.WaitBit(), clonedDataMsg.WaitBit())
+	require.Equal(msg.SessionID(), clonedDataMsg.SessionID())
+	require.Equal(msg.SMLHeader(), clonedDataMsg.SMLHeader())
+	require.Equal(msg.SystemBytes(), clonedDataMsg.SystemBytes())
+	require.Equal(msg.Name(), clonedDataMsg.Name())
+	require.Equal(msg.Name(), clonedDataMsg.Name())
 }
