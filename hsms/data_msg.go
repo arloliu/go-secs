@@ -98,6 +98,10 @@ func (msg *DataMessage) ID() uint32 {
 //
 // This method implements the HSMSMessage.SystemBytes() interface.
 func (msg *DataMessage) SystemBytes() []byte {
+	if len(msg.systemBytes) < 4 {
+		return []byte{0, 0, 0, 0}
+	}
+
 	return msg.systemBytes[:4]
 }
 

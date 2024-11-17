@@ -113,6 +113,67 @@ func TestConnStateTransitions(t *testing.T) {
 	})
 }
 
+func TestConnStateAsyncTransitions(t *testing.T) {
+	require := require.New(t)
+
+	ctx := context.Background()
+
+	t.Run("ToNotConnectedAsync", func(t *testing.T) {
+		stateChangeCount := 0
+		cs := NewConnStateMgr(ctx, nil)
+		cs.AddHandler(func(conn Connection, prevState ConnState, newState ConnState) { stateChangeCount++ })
+
+		cs.ToNotConnectedAsync()
+		time.Sleep(10 * time.Millisecond) // allow async transition to complete
+		require.Equal(NotConnectedState, cs.State())
+		require.Equal(0, stateChangeCount) // no state change event for NotConnectedState
+		require.True(cs.IsNotConnected())
+
+		// No-op transition when already in NotConnectedState
+		cs.ToNotConnectedAsync()
+		time.Sleep(10 * time.Millisecond)
+		require.Equal(0, stateChangeCount)
+	})
+
+	t.Run("ToNotSelectedAsync", func(t *testing.T) {
+		stateChangeCount := 0
+		cs := NewConnStateMgr(ctx, nil)
+		cs.AddHandler(func(conn Connection, prevState ConnState, newState ConnState) { stateChangeCount++ })
+
+		cs.ToNotSelectedAsync()
+		time.Sleep(10 * time.Millisecond) // allow async transition to complete
+		require.Equal(NotSelectedState, cs.State())
+		require.Equal(1, stateChangeCount)
+		require.True(cs.IsNotSelected())
+
+		// No-op transition when already in NotSelectedState
+		cs.ToNotSelectedAsync()
+		time.Sleep(10 * time.Millisecond)
+		require.Equal(1, stateChangeCount)
+	})
+
+	t.Run("ToSelectedAsync", func(t *testing.T) {
+		stateChangeCount := 0
+		cs := NewConnStateMgr(ctx, nil)
+		cs.AddHandler(func(conn Connection, prevState ConnState, newState ConnState) { stateChangeCount++ })
+
+		err := cs.ToNotSelected()
+		require.NoError(err)
+		require.Equal(1, stateChangeCount)
+
+		cs.ToSelectedAsync()
+		time.Sleep(10 * time.Millisecond) // allow async transition to complete
+		require.Equal(SelectedState, cs.State())
+		require.Equal(2, stateChangeCount)
+		require.True(cs.IsSelected())
+
+		// No-op transition when already in SelectedState
+		cs.ToSelectedAsync()
+		time.Sleep(10 * time.Millisecond)
+		require.Equal(2, stateChangeCount)
+	})
+}
+
 func TestWaitConnState(t *testing.T) {
 	require := require.New(t)
 

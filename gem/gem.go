@@ -20,6 +20,14 @@ type GEMMessage struct {
 // ensure GEMMessage implements secs2.SECS2Message interface.
 var _ secs2.SECS2Message = &GEMMessage{}
 
+// NewMessage creates a new GEMMessage with the specified stream code (s), function code (f),
+// wait bit (w), and SECS-II data item (item).
+//
+// The wait bit (w) should be set to true if a reply is expected from the receiver, and false otherwise.
+func NewMessage(s uint8, f uint8, w bool, item secs2.Item) *GEMMessage {
+	return &GEMMessage{s: s, f: f, w: w, item: item}
+}
+
 // StreamCode returns the stream code for the SECS-II message.
 func (msg *GEMMessage) StreamCode() uint8 { return msg.s & 0x7F }
 
