@@ -112,24 +112,43 @@ func TestDataMessage(t *testing.T) {
 func TestDataMessage_Set(t *testing.T) {
 	require := require.New(t)
 
+	// create a new DataMessage with initial values
 	msg, err := NewDataMessage(1, 1, true, 0, []byte{}, secs2.NewEmptyItem())
 	require.NoError(err)
 	require.NotNil(msg)
 
+	// verify initial values
 	require.Equal(uint32(0), msg.ID())
 	require.Equal(uint16(0), msg.SessionID())
 	require.Equal([]byte{0, 0, 0, 0}, msg.SystemBytes())
 	require.Equal("", msg.Name())
 
+	// set and verify SessionID
 	msg.SetSessionID(123)
 	require.Equal(uint16(123), msg.SessionID())
 
-	msg.SetSystemBytes([]byte{0x12, 0x34, 0x56, 0x78})
+	// set and verify SystemBytes
+	err = msg.SetSystemBytes([]byte{0x12, 0x34, 0x56, 0x78})
+	require.NoError(err)
 	require.Equal([]byte{0x12, 0x34, 0x56, 0x78}, msg.SystemBytes())
 
+	// set and verify Name
 	msg.SetName("test")
 	require.Equal("test", msg.Name())
 
+	// attempt to set an invalid header and expect an error
+	err = msg.SetHeader([]byte{0})
+	require.ErrorIs(err, ErrInvalidHeaderLength)
+
+	// set a valid header and verify the values
+	err = msg.SetHeader([]byte{0, 0x7b, 0x81, 0x1, 0x0, 0x0, 0x12, 0x34, 0x56, 0x78})
+	require.NoError(err)
+	require.Equal([]byte{0x12, 0x34, 0x56, 0x78}, msg.SystemBytes())
+	require.Equal(uint16(0x7b), msg.SessionID())
+	require.Equal(uint8(1), msg.StreamCode())
+	require.Equal(uint8(1), msg.FunctionCode())
+
+	// clone the message and verify the cloned values
 	cloned := msg.Clone()
 	clonedDataMsg, ok := cloned.(*DataMessage)
 	require.True(ok)

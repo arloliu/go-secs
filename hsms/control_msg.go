@@ -55,6 +55,13 @@ func (msg *ControlMessage) SessionID() uint16 {
 	return binary.BigEndian.Uint16(msg.header[:2])
 }
 
+// SetSessionID sets the session id of the HSMS message.
+//
+// This method implements the HSMSMessage.SetSessionID() interface.
+func (msg *ControlMessage) SetSessionID(sessionID uint16) {
+	binary.BigEndian.PutUint16(msg.header[:2], sessionID)
+}
+
 // SystemBytes returns the 4-byte system bytes (message ID).
 //
 // This method implements the HSMSMessage.SystemBytes() interface.
@@ -62,11 +69,49 @@ func (msg *ControlMessage) SystemBytes() []byte {
 	return msg.header[6:10]
 }
 
+// SetSystemBytes sets system bytes to the data message.
+//
+// It will return error if the systemBytes is not 4 bytes.
+//
+// This method implements the HSMSMessage.SetSystemBytes() interface.
+func (msg *ControlMessage) SetSystemBytes(systemBytes []byte) error {
+	if len(systemBytes) != 4 {
+		return ErrInvalidSystemBytes
+	}
+
+	copy(msg.header[6:10], systemBytes)
+
+	return nil
+}
+
 // Header returns the 10-byte SECS-II message header
 //
 // This method implements the HSMSMessage.Header() interface.
 func (msg *ControlMessage) Header() []byte {
 	return msg.header
+}
+
+// SetHeader sets the header of the HSMS message.
+//
+// It will return error if the header is invalid.
+//
+// This method implements the HSMSMessage.SetHeader() interface.
+func (msg *ControlMessage) SetHeader(header []byte) error {
+	if len(header) != 10 {
+		return ErrInvalidHeaderLength
+	}
+
+	if header[4] != 0 {
+		return ErrInvalidPType
+	}
+
+	if header[5] < 1 || header[5] > 9 {
+		return ErrInvalidControlMsgSType
+	}
+
+	msg.header = util.CloneSlice(header, 10)
+
+	return nil
 }
 
 // ToBytes returns the HSMS byte representation of the control message.

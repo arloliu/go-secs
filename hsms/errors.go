@@ -3,6 +3,21 @@ package hsms
 import "errors"
 
 var (
+	// ErrInvalidHeaderLength indicates that an invalid header length was provided.
+	// The header length should be 10 bytes.
+	ErrInvalidHeaderLength = errors.New("invalid header length, should be 10 bytes")
+
+	// ErrInvalidPType indicates that an invalid PType was provided.
+	// The PType should be 0 for SECS-II message.
+	ErrInvalidPType = errors.New("invalid PType, should be 0 for SECS-II message")
+
+	// ErrInvalidDataMsgSType indicates that an invalid SType was provided.
+	// The SType should be 0 for data message.
+	ErrInvalidDataMsgSType = errors.New("invalid SType for data message, should be 0")
+	// ErrInvalidControlMsgSType indicates that an invalid SType was provided.
+	// The SType should be 0 for data message.
+	ErrInvalidControlMsgSType = errors.New("invalid SType for control message, should be in range of [1, 9]")
+
 	// ErrInvalidStreamCode indicates that an invalid stream code was provided.
 	// Valid stream codes are in the range of 0 to 127.
 	ErrInvalidStreamCode = errors.New("invalid stream code, should be in range of [0, 127]")

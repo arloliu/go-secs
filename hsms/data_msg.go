@@ -80,6 +80,8 @@ func (msg *DataMessage) SessionID() uint16 {
 }
 
 // SetSessionID sets the session id of the SECS-II message.
+//
+// This method implements the HSMSMessage.SetSessionID() interface.
 func (msg *DataMessage) SetSessionID(sessionID uint16) {
 	msg.sessionID = sessionID
 }
@@ -100,18 +102,54 @@ func (msg *DataMessage) SystemBytes() []byte {
 }
 
 // SetSystemBytes sets system bytes to the data message.
-func (msg *DataMessage) SetSystemBytes(systemBytes []byte) *DataMessage {
+//
+// It will return error if the systemBytes is not 4 bytes.
+//
+// This method implements the HSMSMessage.SetSystemBytes() interface.
+func (msg *DataMessage) SetSystemBytes(systemBytes []byte) error {
+	if len(systemBytes) != 4 {
+		return ErrInvalidSystemBytes
+	}
+
 	msg.systemBytes = util.CloneSlice(systemBytes, 4)
-	return msg
+
+	return nil
 }
 
 // Header returns the 10-byte HSMS message header.
 //
-// This method implements the HSMSMessage.SystemBytes() interface.
+// This method implements the HSMSMessage.Header() interface.
 func (msg *DataMessage) Header() []byte {
 	header := make([]byte, 10)
-	msg.setHeader(header)
+	msg.generateHeader(header)
 	return header
+}
+
+// SetHeader sets the header of the SECS-II message.
+//
+// It will return error if the header is invalid.
+//
+// This method implements the HSMSMessage.SetHeader() interface.
+func (msg *DataMessage) SetHeader(header []byte) error {
+	if len(header) != 10 {
+		return ErrInvalidHeaderLength
+	}
+
+	if header[4] != 0 {
+		return ErrInvalidPType
+	}
+
+	if header[5] != DataMsgType {
+		return ErrInvalidDataMsgSType
+	}
+
+	msg.sessionID = binary.BigEndian.Uint16(header[:2])
+	msg.stream = header[2] & 0x7F
+	msg.function = header[3]
+	msg.systemBytes = util.CloneSlice(header[6:], 4)
+	msg.waitBit = header[2] >> 7
+
+	return nil
 }
 
 // Name returns the optional message name of the SECS-II message.
@@ -186,7 +224,7 @@ func (msg *DataMessage) ToBytes() []byte {
 	result[2] = byte(msgLength >> 8)
 	result[3] = byte(msgLength)
 
-	msg.setHeader(result[4:14])
+	msg.generateHeader(result[4:14])
 
 	// Message text
 	result = append(result, itemBytes...)
@@ -284,7 +322,7 @@ func (msg *DataMessage) Clone() HSMSMessage {
 	return cloned
 }
 
-func (msg *DataMessage) setHeader(header []byte) {
+func (msg *DataMessage) generateHeader(header []byte) {
 	// Header byte 0-1: session(device) ID
 	header[0] = byte(msg.sessionID >> 8)
 	header[1] = byte(msg.sessionID)

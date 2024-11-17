@@ -59,14 +59,28 @@ type HSMSMessage interface {
 	// SessionID returns the session ID for the HSMS message.
 	SessionID() uint16
 
+	// SetSessionID sets the session ID for the HSMS message.
+	SetSessionID(sessionID uint16)
+
 	// ID returns a numeric representation of the system bytes (message ID).
 	ID() uint32
 
 	// SystemBytes returns the 4-byte system bytes (message ID).
 	SystemBytes() []byte
 
+	// SetSystemBytes sets the system bytes (message ID) for the HSMS message.
+	// The systemBytes should have length of 4.
+	//
+	// It will return error if the systemBytes is invalid.
+	SetSystemBytes(systemBytes []byte) error
+
 	// Header returns the 10-byte HSMS message header.
 	Header() []byte
+
+	// SetHeader sets the header of the HSMS message.
+	//
+	// It will return error if the header is invalid.
+	SetHeader(header []byte) error
 
 	// ToBytes serializes the HSMS message into its byte representation for transmission.
 	ToBytes() []byte
