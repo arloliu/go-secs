@@ -160,7 +160,7 @@ func (c *Connection) openPassive() error {
 }
 
 func (c *Connection) tryListen() (net.Listener, error) {
-	address := net.JoinHostPort(c.cfg.ipAddress, strconv.Itoa(c.cfg.port))
+	address := net.JoinHostPort(c.cfg.host, strconv.Itoa(c.cfg.port))
 
 	c.logger.Debug("try to listen", "address", address)
 	var lc net.ListenConfig

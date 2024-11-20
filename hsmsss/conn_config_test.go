@@ -22,7 +22,7 @@ func TestNewConnectionConfig(t *testing.T) {
 			WithConnectRemoteTimeout(30*time.Second),
 		)
 		require.NoError(err)
-		require.Equal("192.168.1.1", cfg.ipAddress)
+		require.Equal("192.168.1.1", cfg.host)
 		require.Equal(5000, cfg.port)
 		require.False(cfg.isActive)
 		require.Equal(60*time.Second, cfg.t3Timeout)
@@ -34,7 +34,7 @@ func TestNewConnectionConfig(t *testing.T) {
 	t.Run("Invalid IP Address", func(t *testing.T) {
 		_, err := NewConnectionConfig("invalid-ip", 5000)
 		require.Error(err)
-		require.EqualError(err, "ip address is not valid")
+		require.EqualError(err, "invalid host")
 	})
 
 	t.Run("Invalid Port - Below Range", func(t *testing.T) {

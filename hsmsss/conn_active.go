@@ -113,10 +113,10 @@ func (c *Connection) openActive() bool {
 }
 
 func (c *Connection) tryConnect(ctx context.Context) error {
-	address := net.JoinHostPort(c.cfg.ipAddress, strconv.Itoa(c.cfg.port))
+	address := net.JoinHostPort(c.cfg.host, strconv.Itoa(c.cfg.port))
 	dialer := &net.Dialer{KeepAlive: 30 * time.Second}
 
-	dialCtx, cancel := context.WithTimeout(ctx, c.cfg.connRemoteTimeout)
+	dialCtx, cancel := context.WithTimeout(ctx, c.cfg.connectRemoteTimeout)
 	defer cancel()
 
 	conn, err := dialer.DialContext(dialCtx, "tcp", address)
@@ -130,7 +130,7 @@ func (c *Connection) tryConnect(ctx context.Context) error {
 	c.connMutex.Unlock()
 
 	c.logger.Debug("connected to the remote",
-		"ip", c.cfg.ipAddress,
+		"host", c.cfg.host,
 		"port", c.cfg.port,
 		"method", "connect",
 	)

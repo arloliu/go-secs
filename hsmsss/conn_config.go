@@ -3,6 +3,7 @@ package hsmsss
 import (
 	"errors"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/arloliu/go-secs/hsms"
@@ -11,8 +12,8 @@ import (
 
 // ConnectionConfig represents the configuration parameters for an HSMS-SS (Single Session) connection.
 type ConnectionConfig struct {
-	// ipAddress specifies the IP address of the remote HSMS-SS device.
-	ipAddress string
+	// host specifies the host of the remote HSMS-SS device.
+	host string
 
 	// port specifies the TCP port number for the HSMS-SS connection.
 	port int
@@ -50,11 +51,11 @@ type ConnectionConfig struct {
 	// Defaults to 5 seconds.
 	t8Timeout time.Duration
 
-	// connRemoteTimeout defines the timeout for establishing a connection in active mode. It should be between 1 and 30 seconds.
+	// connectRemoteTimeout defines the timeout for establishing a connection in active mode. It should be between 1 and 30 seconds.
 	// Defaults to 3 seconds.
 	//
 	// This field is only relevant for active mode.
-	connRemoteTimeout time.Duration
+	connectRemoteTimeout time.Duration
 
 	// acceptConnTimeout defines the timeout for each iteration of accepting a connection in passive mode.
 	// It should between 1 and 2 seconds and shorter than closeConnTimeout.
@@ -86,41 +87,41 @@ type ConnectionConfig struct {
 	logger logger.Logger
 }
 
-// NewConnectionConfig creates a new HSMS-SS connection configuration with the given IP address, port number, and optional functional options.
+// NewConnectionConfig creates a new HSMS-SS connection configuration with the given host, port number, and optional functional options.
 //
 // It initializes a ConnectionConfig struct with default values and then applies the provided options to customize the configuration.
 //
-// The ipAddress parameter specifies the IP address of the remote HSMS device.
+// The host parameter specifies the host of the remote HSMS device.
 // The port parameter specifies the TCP port number for the HSMS connection.
 //
 // The opts parameter is a variadic argument that accepts a list of ConnOption functions to customize the configuration.
 // See the documentation for ConnOption and the various WithXXX functions for available configuration options.
 //
 // Returns a pointer to the initialized ConnectionConfig and an error if any occurred during the configuration process.
-func NewConnectionConfig(ipAddress string, port int, opts ...ConnOption) (*ConnectionConfig, error) {
+func NewConnectionConfig(host string, port int, opts ...ConnOption) (*ConnectionConfig, error) {
 	cfg := &ConnectionConfig{
-		isEquip:           false,
-		isActive:          true,
-		autoLinktest:      true,
-		linktestInterval:  10 * time.Second,
-		t3Timeout:         45 * time.Second,
-		t5Timeout:         10 * time.Second,
-		t6Timeout:         5 * time.Second,
-		t7Timeout:         10 * time.Second,
-		t8Timeout:         5 * time.Second,
-		connRemoteTimeout: 3 * time.Second,
-		acceptConnTimeout: 1 * time.Second,
-		closeConnTimeout:  3 * time.Second,
-		senderQueueSize:   10,
-		dataMsgQueueSize:  10,
-		logger:            logger.GetLogger(),
+		isEquip:              false,
+		isActive:             true,
+		autoLinktest:         true,
+		linktestInterval:     10 * time.Second,
+		t3Timeout:            45 * time.Second,
+		t5Timeout:            10 * time.Second,
+		t6Timeout:            5 * time.Second,
+		t7Timeout:            10 * time.Second,
+		t8Timeout:            5 * time.Second,
+		connectRemoteTimeout: 3 * time.Second,
+		acceptConnTimeout:    1 * time.Second,
+		closeConnTimeout:     3 * time.Second,
+		senderQueueSize:      10,
+		dataMsgQueueSize:     10,
+		logger:               logger.GetLogger(),
 	}
 
-	if err := WithipAddress(ipAddress).apply(cfg); err != nil {
+	if err := withRemoteHost(host).apply(cfg); err != nil {
 		return cfg, err
 	}
 
-	if err := WithPort(port).apply(cfg); err != nil {
+	if err := withPort(port).apply(cfg); err != nil {
 		return cfg, err
 	}
 
@@ -150,28 +151,37 @@ func newConnOptFunc(f func(*ConnectionConfig) error) *connOptFunc {
 	}
 }
 
-// WithipAddress sets the IP address for the HSMS-SS connection.
-// It returns a ConnOption that validates the IP address and updates the configuration.
-// An error is returned if the provided IP address is invalid or if the configuration is nil.
-func WithipAddress(ipAddr string) ConnOption {
+// withRemoteHost sets the host for the HSMS-SS connection.
+// It returns a ConnOption that validates the host updates the configuration.
+// An error is returned if the configuration is nil.
+func withRemoteHost(host string) ConnOption {
 	return newConnOptFunc(func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
 		}
 
-		if ip := net.ParseIP(ipAddr); ip == nil {
-			return errors.New("ip address is not valid")
+		// Check if it's a valid IP address
+		if ip := net.ParseIP(host); ip != nil {
+			cfg.host = host
+			return nil
 		}
-		cfg.ipAddress = ipAddr
 
-		return nil
+		// If not an IP, check if it's a valid domain name
+		host = strings.TrimPrefix(host, ".")
+		host = strings.TrimSuffix(host, ".")
+		if _, err := net.LookupHost(host); err == nil {
+			cfg.host = host
+			return nil
+		}
+
+		return errors.New("invalid host")
 	})
 }
 
-// WithPort sets the TCP port number for the HSMS-SS connection.
+// withPort sets the TCP port number for the HSMS-SS connection.
 // It returns a ConnOption that validates the port number and updates the configuration.
 // An error is returned if the port number is out of the valid range (1-65535) or if the configuration is nil.
-func WithPort(port int) ConnOption {
+func withPort(port int) ConnOption {
 	return newConnOptFunc(func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
@@ -391,7 +401,7 @@ func WithConnectRemoteTimeout(val time.Duration) ConnOption {
 		if val < 1*time.Second || val > 30*time.Second {
 			return errors.New("connect remote timeout out of range [1, 30]")
 		}
-		cfg.connRemoteTimeout = val
+		cfg.connectRemoteTimeout = val
 
 		return nil
 	})
@@ -417,12 +427,12 @@ func WithAcceptConnTimeout(val time.Duration) ConnOption {
 	})
 }
 
-// WithCloseConnectionTimeout sets the timeout for close a connection in active mode.
+// WithCloseConnTimeout sets the timeout for close a connection in active mode.
 // It returns a ConnOption that validates the timeout value and updates the configuration.
 // An error is returned if the timeout is outside the valid range (3-30 seconds) or if the configuration is nil.
 //
 // The default value is 3 seconds.
-func WithCloseConnectionTimeout(val time.Duration) ConnOption {
+func WithCloseConnTimeout(val time.Duration) ConnOption {
 	return newConnOptFunc(func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
@@ -445,6 +455,8 @@ func WithCloseConnectionTimeout(val time.Duration) ConnOption {
 //
 // The queue size must be within the range of 1 to 1000.
 // An error is returned if the queue size is invalid or if the provided ConnectionConfig is nil.
+//
+// The default value is 10.
 func WithSenderQueueSize(size int) ConnOption {
 	return newConnOptFunc(func(cfg *ConnectionConfig) error {
 		if cfg == nil {
@@ -455,6 +467,28 @@ func WithSenderQueueSize(size int) ConnOption {
 		}
 
 		cfg.senderQueueSize = size
+
+		return nil
+	})
+}
+
+// WithDataMsgQueueSize sets the size of the data message queue, which buffers received primary messages before
+// invoking registered data message handler by AddDataMessageHandler.
+//
+// The queue size must be within the range of 1 to 1000.
+// An error is returned if the queue size is invalid or if the provided ConnectionConfig is nil.
+//
+// The default value is 10.
+func WithDataMsgQueueSize(size int) ConnOption {
+	return newConnOptFunc(func(cfg *ConnectionConfig) error {
+		if cfg == nil {
+			return hsms.ErrConnConfigNil
+		}
+		if size < 1 || size > 1000 {
+			return errors.New("the data message queue size out of range [1, 1000]")
+		}
+
+		cfg.dataMsgQueueSize = size
 
 		return nil
 	})
