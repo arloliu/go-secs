@@ -39,7 +39,7 @@ type Connection struct {
 	stateMgr       *hsms.ConnStateMgr
 	taskMgr        *hsms.TaskManager
 	shutdown       atomic.Bool // indicates if has entered shutdown mode
-	recvSeparate   atomic.Bool /// indicates if spearate request has been received
+	recvSeparate   atomic.Bool // indicates if spearate request has been received
 	linktestTicker *time.Ticker
 
 	senderMsgChan chan hsms.HSMSMessage
@@ -330,6 +330,7 @@ func (c *Connection) sendMsgSync(msg hsms.HSMSMessage) error {
 	if c.logger.Level() == logger.DebugLevel {
 		c.logger.Debug("try to send message to remote", hsms.MsgInfo(msg, "method", "sendMsgSync", "timeout", c.cfg.t8Timeout)...)
 	}
+
 	_, err = c.conn.Write(buf)
 	if err != nil {
 		return err

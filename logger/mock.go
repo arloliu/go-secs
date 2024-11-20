@@ -40,10 +40,10 @@ func (m *MockLogger) SetLevel(level LogLevel) {
 
 func (m *MockLogger) Level() LogLevel {
 	args := m.Called()
-	return args.Get(0).(LogLevel)
+	return args.Get(0).(LogLevel) //nolint:revive
 }
 
 func (m *MockLogger) With(keyValues ...any) Logger {
 	args := m.Called(keyValues...)
-	return args.Get(0).(Logger)
+	return args.Get(0).(Logger) //nolint:revive
 }

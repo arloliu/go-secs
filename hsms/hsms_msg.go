@@ -142,7 +142,7 @@ func MsgInfoSML(msg HSMSMessage, keyValues ...any) []any {
 	return msgInfo(msg, true, keyValues...)
 }
 
-func msgInfo(msg HSMSMessage, sml bool, keyValues ...any) []any {
+func msgInfo(msg HSMSMessage, sml bool, keyValues ...any) []any { //nolint:revive
 	msgType, ok := hsmsMsgTypeMap[msg.Type()]
 	if !ok {
 		msgType = "undefined"

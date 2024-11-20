@@ -18,7 +18,7 @@ import (
 // The input string should be a valid UTF-8 encoded representation of one or more HSMS data messages.
 //
 // If any errors are encountered during parsing, no messages will be returned to ensure data integrity.
-func ParseHSMSSlow(input string) (messages []*hsms.DataMessage, errors []error) {
+func ParseHSMSSlow(input string) (messages []*hsms.DataMessage, errs []error) {
 	queueSize := len(input) / 4
 	if queueSize < 10 {
 		queueSize = 10
@@ -65,7 +65,12 @@ func (p *parser) peek() *token {
 		p.tokenQueue.Enqueue(t)
 	}
 
-	return p.tokenQueue.Peek().(*token)
+	token, ok := p.tokenQueue.Peek().(*token)
+	if !ok {
+		return nil
+	}
+
+	return token
 }
 
 // dequeueToken returns the next token and removes it from the token queue.
@@ -75,7 +80,12 @@ func (p *parser) dequeueToken() *token {
 		return nil
 	}
 
-	return data.(*token)
+	token, ok := data.(*token)
+	if !ok {
+		return nil
+	}
+
+	return token
 }
 
 // accept returns the next token and removes the token if the token type matches/
@@ -162,7 +172,7 @@ func (p *parser) parseHSMSDataMessage() (ok bool) {
 }
 
 // parseStreamFunctionCode parses the stream function token.
-func (p *parser) parseStreamFunctionCode() (uint8, uint8, bool) {
+func (p *parser) parseStreamFunctionCode() (stream uint8, function uint8, ok bool) {
 	t, accepted := p.accept(tokenTypeStreamFunc)
 	defer putToken(t)
 
@@ -186,9 +196,7 @@ func (p *parser) parseStreamFunctionCode() (uint8, uint8, bool) {
 		}
 	}
 
-	var stream uint8
-	var function uint8
-	var ok bool = true
+	ok = true
 
 	streamVal, _ := strconv.Atoi(t.val[s:f])
 	functionVal, _ := strconv.Atoi(t.val[f+1 : e])
@@ -247,13 +255,14 @@ func (p *parser) parseItem() (item secs2.Item, ok bool) { //nolint:cyclop
 
 	var dataItemType string
 	t, ok = p.accept(tokenTypeItemType)
-	if ok {
-		dataItemType = t.val
-	} else {
+	if !ok {
 		p.errorf("invalid data item type: %q", t.val)
 		putToken(t)
 		return secs2.NewEmptyItem(), false
 	}
+
+	dataItemType = t.val
+
 	putToken(t)
 
 	sizeStart := 0
@@ -320,9 +329,9 @@ func (p *parser) parseItem() (item secs2.Item, ok bool) { //nolint:cyclop
 }
 
 // parseItemSize parses data item and returns lower and upper bound of data item size.
-func (p *parser) parseItemSize() (int, int) {
-	sizeStart := 0
-	sizeEnd := -1
+func (p *parser) parseItemSize() (sizeStart int, sizeEnd int) {
+	sizeStart = 0
+	sizeEnd = -1
 	t, ok := p.accept(tokenTypeItemSize)
 	if ok {
 		// possible token value: [x], [x..], [..y], [x..y], where x and y are integers

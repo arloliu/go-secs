@@ -463,13 +463,13 @@ func WithSenderQueueSize(size int) ConnOption {
 // WithLogger sets the logger for the HSMS-SS connection.
 // It returns a ConnOption that updates the configuration with the provided logger.
 // An error is returned if the configuration is nil.
-func WithLogger(logger logger.Logger) ConnOption {
+func WithLogger(l logger.Logger) ConnOption {
 	return newConnOptFunc(func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
 		}
 
-		cfg.logger = logger
+		cfg.logger = l
 
 		return nil
 	})

@@ -84,7 +84,7 @@ func (l *slogLogger) Error(msg string, keysAndValues ...any) {
 // The logger then calls os.Exit(1), even if logging at FatalLevel is disabled.
 func (l *slogLogger) Fatal(msg string, keysAndValues ...any) {
 	l.log(context.Background(), slog.LevelError, msg, keysAndValues...)
-	os.Exit(1)
+	os.Exit(1) //nolint:revive
 }
 
 // With creates a child logger and adds structured context to it.

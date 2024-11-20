@@ -105,15 +105,15 @@ retry:
 	// Are head, tail, and next consistent?
 	if head == loadQueueItem(&q.head) {
 		// Is queue empty or tail falling behind?
-		if head == tail {
-			// Is queue empty?
-			if next == nil {
-				return nil
-			}
-			casQueueItem(&q.tail, tail, next) // tail is falling behind, try to advance it.
-		} else {
+		if head != tail {
 			return next.value
 		}
+
+		// Is queue empty?
+		if next == nil {
+			return nil
+		}
+		casQueueItem(&q.tail, tail, next) // tail is falling behind, try to advance it.
 	}
 
 	goto retry

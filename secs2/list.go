@@ -154,12 +154,12 @@ func (item *ListItem) SetValues(values ...any) error {
 	}
 
 	for _, value := range values {
-		if v, ok := value.(Item); ok {
-			item.values = append(item.values, v)
-		} else {
+		v, ok := value.(Item)
+		if !ok {
 			item.setErrorMsg("invalid item type")
 			return item.Error()
 		}
+		item.values = append(item.values, v)
 	}
 
 	return nil

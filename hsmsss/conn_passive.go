@@ -208,7 +208,7 @@ func (c *Connection) tryAcceptConn() bool {
 	connCount := c.connCount.Load()
 	if connCount > 0 {
 		c.logger.Warn("connection already existed", "method", "tryListenAccept", "remote_address", conn.RemoteAddr())
-		conn.Close()
+		_ = conn.Close()
 		return true // re-accept again
 	}
 

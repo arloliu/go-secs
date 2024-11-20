@@ -7,7 +7,7 @@ import (
 	"github.com/arloliu/go-secs/secs2"
 )
 
-var dataMsgPool = sync.Pool{New: func() interface{} { return new(DataMessage) }}
+var dataMsgPool = sync.Pool{New: func() any { return new(DataMessage) }}
 
 // getDataMessage retrieves a DataMessage from the pool if enabled, or creates a new one otherwise.
 //

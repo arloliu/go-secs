@@ -68,8 +68,8 @@ type TaskManager struct {
 }
 
 // NewTaskManager creates a new TaskManager with the given context as the parent context and logger.
-func NewTaskManager(ctx context.Context, logger logger.Logger) *TaskManager {
-	mgr := &TaskManager{pctx: ctx, logger: logger}
+func NewTaskManager(ctx context.Context, l logger.Logger) *TaskManager {
+	mgr := &TaskManager{pctx: ctx, logger: l}
 	mgr.ctx, mgr.cancel = context.WithCancel(ctx)
 
 	return mgr

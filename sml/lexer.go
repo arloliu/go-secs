@@ -11,7 +11,7 @@ import (
 	"github.com/arloliu/go-secs/internal/queue"
 )
 
-var tokenPool = sync.Pool{New: func() interface{} { return new(token) }}
+var tokenPool = sync.Pool{New: func() any { return new(token) }}
 
 func getToken(typ tokenType, val string) *token {
 	t, _ := tokenPool.Get().(*token)
@@ -71,7 +71,7 @@ type lexer struct {
 	tokens queue.Queue
 }
 
-var lexerPool = sync.Pool{New: func() interface{} { return newLexer("") }}
+var lexerPool = sync.Pool{New: func() any { return newLexer("") }}
 
 func getLexer(input string) *lexer {
 	l, _ := lexerPool.Get().(*lexer)
@@ -192,7 +192,7 @@ func (l *lexer) acceptRun(valid string) {
 }
 
 // errorf returns an error token and terminates the running lexer.
-func (l *lexer) errorf(format string, args ...interface{}) stateFn {
+func (l *lexer) errorf(format string, args ...any) stateFn {
 	// l.tokens.Enqueue(&token{tokenTypeError, fmt.Sprintf(format, args...)})
 	l.tokens.Enqueue(getToken(tokenTypeError, fmt.Sprintf(format, args...)))
 	return l.terminate()
@@ -202,9 +202,7 @@ func (l *lexer) errorf(format string, args ...interface{}) stateFn {
 // If lexer.tokens channel is closed, it will return EOF token.
 func (l *lexer) nextToken() *token {
 	for {
-		if l.tokens.IsEmpty() {
-			l.lastState, l.state = l.state, l.state(l)
-		} else {
+		if !l.tokens.IsEmpty() {
 			data := l.tokens.Dequeue()
 			if data == nil {
 				// return &token{typ: tokenTypeEOF}
@@ -215,6 +213,8 @@ func (l *lexer) nextToken() *token {
 
 			return token
 		}
+
+		l.lastState, l.state = l.state, l.state(l)
 	}
 	// should not reach here
 }

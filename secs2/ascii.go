@@ -199,7 +199,7 @@ func (item *ASCIIItem) toSMLStrict() string {
 	sizeStr := strconv.FormatInt(int64(item.Size()), 10)
 	sb.Grow(len(item.value) + len(sizeStr)) // Pre-allocate space, accounting for "<A", ">", and potential quotes
 
-	sb.WriteString("<A[")
+	_, _ = sb.WriteString("<A[")
 	sb.WriteString(sizeStr)
 	sb.WriteRune(']')
 
@@ -224,7 +224,7 @@ func (item *ASCIIItem) toSMLStrict() string {
 			}
 			sb.WriteRune(ch)
 		} else {
-			fmt.Fprintf(&sb, " 0x%02X", ch) // 0xNN format
+			_, _ = fmt.Fprintf(&sb, " 0x%02X", ch) // 0xNN format
 		}
 	}
 
