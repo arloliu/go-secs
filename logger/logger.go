@@ -14,7 +14,7 @@
 package logger
 
 // LogLevel indicates the logging severity level.
-type LogLevel int8
+type LogLevel = int8
 
 const (
 	// DebugLevel logs are typically voluminous, and are usually disabled in production.
