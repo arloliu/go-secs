@@ -226,9 +226,11 @@ func (c *Connection) sendControlMsg(msg *hsms.ControlMessage, replyExpected bool
 // It returns the received reply message and an error if any occurred.
 // It handles T3 and T6 timeouts and manages reply channels for concurrent message sending.
 func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
-	c.logger.Debug("start to send message",
-		hsms.MsgInfo(msg, "method", "sendMsg", "state", c.stateMgr.State())...,
-	)
+	if c.logger.Level() == logger.DebugLevel {
+		c.logger.Debug("start to send message",
+			hsms.MsgInfo(msg, "method", "sendMsg", "state", c.stateMgr.State())...,
+		)
+	}
 
 	if msg.Type() == hsms.DataMsgType && !c.stateMgr.IsSelected() {
 		c.logger.Warn("failed to send message, not selected state",
@@ -239,7 +241,10 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	}
 
 	if !msg.WaitBit() {
-		c.sendMsgAsync(msg)
+		if err := c.sendMsgAsync(msg); err != nil {
+			return nil, err
+		}
+
 		return nil, nil //nolint:nilnil
 	}
 
@@ -255,7 +260,11 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	id := msg.ID()
 	replyMsgChan := c.addReplyExpectedMsg(id)
 
-	c.sendMsgAsync(msg)
+	err := c.sendMsgAsync(msg)
+	if err != nil {
+		c.removeReplyExpectedMsg(id)
+		return nil, err
+	}
 
 	select {
 	case <-c.ctx.Done():
@@ -265,7 +274,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	case <-sendMsgTimer.C:
 		c.removeReplyExpectedMsg(id)
 
-		c.logger.Debug("send message timeout", hsms.MsgInfo(msg, "method", "sendMsg", "timeout", timeout)...)
+		c.logger.Warn("send message timeout", hsms.MsgInfo(msg, "method", "sendMsg", "timeout", timeout)...)
 		if timeout == c.cfg.t3Timeout {
 			// If entity is equipment, send SECS-II S9F9 when t3/t6 timeout.
 			if c.cfg.isEquip {
@@ -318,7 +327,9 @@ func (c *Connection) sendMsgSync(msg hsms.HSMSMessage) error {
 		return err
 	}
 
-	c.logger.Debug("try to send message to remote", hsms.MsgInfo(msg, "method", "sendMsgSync", "timeout", c.cfg.t8Timeout)...)
+	if c.logger.Level() == logger.DebugLevel {
+		c.logger.Debug("try to send message to remote", hsms.MsgInfo(msg, "method", "sendMsgSync", "timeout", c.cfg.t8Timeout)...)
+	}
 	_, err = c.conn.Write(buf)
 	if err != nil {
 		return err
@@ -333,13 +344,15 @@ func (c *Connection) sendMsgSync(msg hsms.HSMSMessage) error {
 
 // sendMsgAsync sends an HSMS message asynchronously by sending it to the senderMsgChan.
 // It uses a non-blocking select with a timeout to avoid blocking the caller.
-func (c *Connection) sendMsgAsync(msg hsms.HSMSMessage) {
+func (c *Connection) sendMsgAsync(msg hsms.HSMSMessage) error {
 	timer := pool.GetTimer(c.cfg.t8Timeout)
 	defer pool.PutTimer(timer)
 
 	select {
 	case <-timer.C:
+		return hsms.ErrT8Timeout
 	case c.senderMsgChan <- msg: // send message to sender message channel, senderTask will handle it.
+		return nil
 	}
 }
 
@@ -437,6 +450,13 @@ func (c *Connection) replyToSender(msg hsms.HSMSMessage) {
 				return
 			}
 		}
+
+		return
+	}
+
+	// if reply channel not found, send to data message handler
+	if dataMsg, ok := msg.ToDataMessage(); ok {
+		c.session.recvDataMsg(dataMsg)
 	}
 }
 

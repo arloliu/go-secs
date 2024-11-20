@@ -35,9 +35,10 @@ func NewSession(id uint16, hsmsConn *Connection) *Session {
 		dataMsgHandlers: make([]hsms.DataMessageHandler, 0),
 	}
 
-	// assign HSMS-SS specific implementations to base session
-	session.BaseSession.ID = session.ID
-	session.BaseSession.SendMessage = session.SendMessage
+	// register HSMS-SS specific implementations to base session
+	session.RegisterIDFunc(session.ID)
+	session.RegisterSendMessageFunc(session.SendMessage)
+	session.RegisterSendMessageAsyncFunc(session.SendMessageAsync)
 
 	return session
 }
@@ -53,12 +54,60 @@ func (s *Session) SendMessage(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	return s.hsmsConn.sendMsg(msg)
 }
 
+// SendMessageAsync sends an HSMS message through the associated HSMS-SS connection asynchronously.
+// It sends the message and its reply to the specified channel when received.
+func (s *Session) SendMessageAsync(msg hsms.HSMSMessage) error {
+	return s.hsmsConn.sendMsgAsync(msg)
+}
+
 // AddConnStateChangeHandler adds one or more ConnStateChangeHandler functions to be invoked when the connection state changes.
+//
+// Notes:
+//   - The handler is responsible for processing the state change and taking appropriate action.
+//   - The handler should not block the channel to prevent message loss.
+//   - The handler should be registered before the session is opened.
+//   - The handlers are invoked in the order they are added.
+//   - The session will broadcast state information to all handlers' channels.
+//
+// Example:
+//
+//	session.AddConnStateChangeHandler(func(state hsms.ConnState) {
+//		switch state {
+//		case hsms.ConnStateConnected:
+//			// handle connected state
+//			case hsms.ConnStateDisconnected:
+//			// handle disconnected state
+//		}
+//	})
 func (s *Session) AddConnStateChangeHandler(handlers ...hsms.ConnStateChangeHandler) {
 	s.hsmsConn.stateMgr.AddHandler(handlers...)
 }
 
 // AddDataMessageHandler adds one or more DataMessageHandler functions to be invoked when a data message is received.
+//
+// It creates a channel for each handler to receive messages, and it's used to handle data messages asynchronously.
+//
+// Notes:
+//   - The handler is responsible for processing the message and sending a reply if necessary.
+//   - The handler should not block the channel to prevent message loss.
+//   - The handler should be registered before the session is opened.
+//   - The handlers are invoked in the order they are added.
+//   - The session will broadcast messages to all handlers' channels.
+//
+// Example:
+//
+//	session.AddDataMessageHandler(func(msg *hsms.DataMessage, session hsms.Session) {
+//	    if msg.FunctionCode()%2 == 1 {
+//	        // handle request message
+//	        err := session.ReplyDataMessage(msg, msg.Item())
+//	        if err != nil {
+//	            // handle reply error
+//	        }
+//	        return
+//	    }
+//
+//	    // handle response message
+//	})
 func (s *Session) AddDataMessageHandler(handlers ...hsms.DataMessageHandler) {
 	for _, handler := range handlers {
 		s.dataMsgChans = append(s.dataMsgChans, make(chan *hsms.DataMessage, s.cfg.dataMsgQueueSize))

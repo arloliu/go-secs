@@ -8,24 +8,55 @@ import (
 // It provides methods for sending and receiving messages, handling data messages, and managing
 // connection state change handlers.
 type Session interface {
+	// RegisterIDFunc registers a function to generate a unique ID for this session.
+	RegisterIDFunc(f func() uint16)
+
+	// RegisterSendMessageFunc registers a function to send an HSMS message and wait for its reply.
+	RegisterSendMessageFunc(f func(msg HSMSMessage) (HSMSMessage, error))
+
+	// RegisterSendMessageAsyncFunc registers a function to send an HSMS message asynchronously.
+	RegisterSendMessageAsyncFunc(f func(msg HSMSMessage) error)
+
 	// ID returns the session ID for this session.
 	ID() uint16
 
 	// SendMessage sends an HSMSMessage and waits for its reply.
+	//
 	// It returns the received reply message and an error if any occurred during sending or receiving.
 	SendMessage(msg HSMSMessage) (HSMSMessage, error)
 
+	// SendMessageAsync sends an HSMSMessage asynchronously.
+	//
+	// It sends the message  and returns immediately after sending,
+	// and let user specified data message handler to receive reply if any.
+	SendMessageAsync(msg HSMSMessage) error
+
 	// SendSECS2Message sends a SECS-II message and waits for its reply.
+	//
 	// It returns the received reply message (as a DataMessage) and an error if any occurred during sending or receiving.
 	SendSECS2Message(msg secs2.SECS2Message) (*DataMessage, error)
 
+	// SendSECS2MessageAsync sends a SECS-II message asynchronously.
+	//
+	// It sends the message and returns immediately after sending,
+	// and let user specified data message handler to receive reply if any.
+	SendSECS2MessageAsync(msg secs2.SECS2Message) error
+
 	// SendDataMessage sends an HSMS data message with the specified stream, function, and data item.
+	//
 	// It waits for a reply if replyExpected is true.
 	// It returns the received reply DataMessage if replyExpected is true, nil otherwise,
 	// and and an error if any occurred during sending or receiving.
 	SendDataMessage(stream byte, function byte, replyExpected bool, dataItem secs2.Item) (*DataMessage, error)
 
+	// SendDataMessageAsync sends an HSMS data message asynchronously.
+	//
+	// It sends the message and returns immediately after sending,
+	// and let user specified data message handler to receive reply if any.
+	SendDataMessageAsync(stream byte, function byte, replyExpected bool, dataItem secs2.Item) error
+
 	// ReplyDataMessage sends a reply to a previously received data message.
+	//
 	// It takes the original primary DataMessage and the data item for the reply as arguments.
 	// It returns an error if any occurred during sending the reply.
 	//
@@ -36,98 +67,8 @@ type Session interface {
 	AddConnStateChangeHandler(handlers ...ConnStateChangeHandler)
 
 	// AddDataMessageHandler adds one or more DataMessageHandler functions to be invoked when a data message is received.
+	//
+	// It is used to handle data messages asynchronously.
+	// The handlers are invoked in the order they are added.
 	AddDataMessageHandler(handlers ...DataMessageHandler)
-}
-
-// BaseSession implements common methods for HSMS-SS and HSMS-GS session.
-type BaseSession struct {
-	ID          func() uint16
-	SendMessage func(msg HSMSMessage) (HSMSMessage, error)
-}
-
-// SendDataMessage sends an HSMS data message with the specified stream, function, and data item.
-// It waits for a reply if replyExpected is true.
-// It returns the received reply DataMessage if replyExpected is true, nil otherwise,
-// and and an error if any occurred during sending or receiving.
-func (s *BaseSession) SendDataMessage(stream byte, function byte, replyExpected bool, dataItem secs2.Item) (*DataMessage, error) {
-	if function%2 == 0 {
-		return nil, ErrInvalidReqMsg
-	}
-
-	msg, err := NewDataMessage(stream, function, replyExpected, s.ID(), GenerateMsgSystemBytes(), dataItem)
-	if err != nil {
-		return nil, err
-	}
-
-	replyMsg, err := s.SendMessage(msg)
-	if err != nil {
-		return nil, err
-	}
-
-	if !replyExpected {
-		return nil, nil //nolint:nilnil
-	}
-
-	dataMsg, ok := replyMsg.(*DataMessage)
-	if !ok {
-		return nil, ErrNotDataMsg
-	}
-
-	return dataMsg, nil
-}
-
-// SendSECS2Message sends a SECS-II message and waits for its reply.
-// It returns the received reply message (as a DataMessage) and an error if any occurred during sending or receiving.
-func (s *BaseSession) SendSECS2Message(msg secs2.SECS2Message) (*DataMessage, error) {
-	if msg.FunctionCode()%2 == 0 {
-		return nil, ErrInvalidReqMsg
-	}
-
-	dataMsg, err := NewDataMessage(msg.StreamCode(), msg.FunctionCode(), msg.WaitBit(), s.ID(), GenerateMsgSystemBytes(), msg.Item())
-	if err != nil {
-		return nil, err
-	}
-
-	replyMsg, err := s.SendMessage(dataMsg)
-	if err != nil {
-		return nil, err
-	}
-
-	if !msg.WaitBit() {
-		return nil, nil //nolint:nilnil
-	}
-
-	replyDataMsg, ok := replyMsg.(*DataMessage)
-	if !ok {
-		return nil, ErrNotDataMsg
-	}
-
-	return replyDataMsg, nil
-}
-
-// ReplyDataMessage sends a reply to a previously received data message.
-// It takes the original primary DataMessage and the data item for the reply as arguments.
-// It returns an error if any occurred during sending the reply.
-//
-// It is a wrapper method to reply data message with the corresponding function code of primary message.
-func (s *BaseSession) ReplyDataMessage(primaryMsg *DataMessage, dataItem secs2.Item) error {
-	if primaryMsg.StreamCode() == 9 || primaryMsg.FunctionCode()%2 == 0 {
-		return ErrInvalidReqMsg
-	}
-
-	replyMsg, err := NewDataMessage(
-		primaryMsg.StreamCode(),
-		primaryMsg.FunctionCode()+1,
-		false,
-		primaryMsg.SessionID(),
-		primaryMsg.SystemBytes(),
-		dataItem,
-	)
-	if err != nil {
-		return err
-	}
-
-	_, err = s.SendMessage(replyMsg)
-
-	return err
 }

@@ -55,7 +55,7 @@ func testConnection(ctx context.Context, require *require.Assertions, hostIsActi
 
 	// send from host
 	hostComm.testMsgSuccess(1, 1, secs2.A("from host"), `<A[9] "from host">`)
-	time.Sleep(time.Second)
+	hostComm.testAsyncMsgSuccess(1, 1, secs2.A("from host async"), `<A[15] "from host async">`)
 
 	// empty item
 	hostComm.testMsgSuccess(1, 3, nil, "")
@@ -65,6 +65,8 @@ func testConnection(ctx context.Context, require *require.Assertions, hostIsActi
 
 	// send from eqp
 	eqpComm.testMsgSuccess(2, 1, secs2.A("from eqp"), `<A[8] "from eqp">`)
+	eqpComm.testAsyncMsgSuccess(2, 1, secs2.A("from eqp async"), `<A[14] "from eqp async">`)
+
 	// empty item
 	eqpComm.testMsgSuccess(2, 3, nil, "")
 	// even function code
@@ -123,10 +125,14 @@ type testComm struct {
 	require *require.Assertions
 	conn    hsms.Connection
 	session hsms.Session
+
+	recvReplyChan chan *hsms.DataMessage
 }
 
 func newTestComm(ctx context.Context, require *require.Assertions, isHost bool, isActive bool) *testComm {
 	c := &testComm{ctx: ctx, require: require}
+
+	c.recvReplyChan = make(chan *hsms.DataMessage, 1)
 
 	c.conn = newConn(ctx, require, isHost, isActive)
 	require.NotNil(c.conn)
@@ -146,6 +152,12 @@ func newTestComm(ctx context.Context, require *require.Assertions, isHost bool, 
 }
 
 func (c *testComm) msgEchoHandler(msg *hsms.DataMessage, session hsms.Session) {
+	// receives reply message
+	if msg.FunctionCode()%2 == 0 {
+		c.recvReplyChan <- msg
+		return
+	}
+
 	err := session.ReplyDataMessage(msg, msg.Item())
 	c.require.NoError(err)
 }
@@ -154,6 +166,16 @@ func (c *testComm) testMsgSuccess(stream byte, function byte, dataItem secs2.Ite
 	reply, err := c.session.SendDataMessage(stream, function, true, dataItem)
 	c.require.NoError(err)
 	c.require.NotNil(reply)
+	c.require.Equal(stream, reply.StreamCode())
+	c.require.Equal(function+1, reply.FunctionCode())
+	c.require.Equal(expectedSML, reply.Item().ToSML())
+}
+
+func (c *testComm) testAsyncMsgSuccess(stream byte, function byte, dataItem secs2.Item, expectedSML string) {
+	err := c.session.SendDataMessageAsync(stream, function, true, dataItem)
+	c.require.NoError(err)
+
+	reply := <-c.recvReplyChan
 	c.require.Equal(stream, reply.StreamCode())
 	c.require.Equal(function+1, reply.FunctionCode())
 	c.require.Equal(expectedSML, reply.Item().ToSML())

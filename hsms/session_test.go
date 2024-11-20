@@ -82,12 +82,11 @@ func TestSendDataMessage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			session := &BaseSession{
-				ID: func() uint16 {
-					return 1
-				},
-				SendMessage: tt.sendMessage,
-			}
+			session := &BaseSession{}
+			session.RegisterIDFunc(func() uint16 {
+				return 1
+			})
+			session.RegisterSendMessageFunc(tt.sendMessage)
 
 			reply, err := session.SendDataMessage(tt.stream, tt.function, tt.replyExpected, tt.dataItem)
 			assert.Equal(t, tt.expectedErr, err)
@@ -151,12 +150,11 @@ func TestSendSECS2Message(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			session := &BaseSession{
-				ID: func() uint16 {
-					return 1
-				},
-				SendMessage: tt.sendMessage,
-			}
+			session := NewBaseSession(func() uint16 {
+				return 1
+			}, func(msg HSMSMessage) (HSMSMessage, error) {
+				return tt.sendMessage(msg)
+			}, nil)
 
 			reply, err := session.SendSECS2Message(tt.msg)
 			assert.Equal(t, tt.expectedErr, err)
@@ -214,12 +212,11 @@ func TestReplyDataMessage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			session := &BaseSession{
-				ID: func() uint16 {
-					return 1
-				},
-				SendMessage: tt.sendMessage,
-			}
+			session := NewBaseSession(func() uint16 {
+				return 1
+			}, func(msg HSMSMessage) (HSMSMessage, error) {
+				return tt.sendMessage(msg)
+			}, nil)
 
 			err := session.ReplyDataMessage(tt.primaryMsg, tt.dataItem)
 			assert.Equal(t, tt.expectedErr, err)
