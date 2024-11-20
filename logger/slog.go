@@ -143,7 +143,7 @@ func (l *slogLogger) log(ctx context.Context, level slog.Level, msg string, args
 }
 
 func toSlogLevel(level LogLevel) slog.Level {
-	levelMap := map[LogLevel]slog.Level{ //nolint: exhaustive
+	levelMap := map[LogLevel]slog.Level{
 		DebugLevel: slog.LevelDebug,
 		InfoLevel:  slog.LevelInfo,
 		WarnLevel:  slog.LevelWarn,

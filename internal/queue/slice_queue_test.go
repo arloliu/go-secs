@@ -135,7 +135,13 @@ func benchSliceQueue(b *testing.B, iterCount int) {
 					if item == nil {
 						break
 					}
-					if item.(int) == iterCount {
+
+					count, ok := item.(int)
+					if !ok {
+						continue
+					}
+
+					if count == iterCount {
 						close(stopCh)
 						return
 					}

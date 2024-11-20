@@ -27,6 +27,9 @@ linters-settings:
     # Such cases aren't reported by default.
     # Default: false
     check-type-assertions: true
+    exclude-functions:
+      - require.Equal
+      - assert.Equal
 
   exhaustive:
     # Program elements to check for exhaustiveness.
@@ -182,10 +185,7 @@ linters-settings:
         disabled: true
       # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#max-public-structs
       - name: max-public-structs
-        severity: warning
-        disabled: false
-        exclude: [""]
-        arguments: [10]
+        disabled: true
       # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#unused-parameter
       - name: unused-parameter
         disabled: true

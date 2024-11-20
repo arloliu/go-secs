@@ -28,7 +28,7 @@ SUMMARY_COVER_PROFILE      := $(COVER_ROOT)/summary.out
 # Tools
 update-tools:
 	@printf "Install/update linter tool...\n"
-	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.61.0
+	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.62.0
 
 # Tests
 clean:
@@ -81,7 +81,7 @@ coverage-report: $(SUMMARY_COVER_PROFILE)
 # Checks
 check: lint vet
 
-lint:
+lint: update-tools
 	@printf "Run linter...\n"
 	@golangci-lint run
 
