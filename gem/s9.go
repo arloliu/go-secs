@@ -2,10 +2,10 @@ package gem
 
 import "github.com/arloliu/go-secs/secs2"
 
-// s9fx is a helper function that creates a GEMMessage with the specified function code (f)
+// s9fx is a helper function that creates a Message with the specified function code (f)
 // within stream 9 (S9Fx). It sets the W-bit (wait bit) to false and includes an empty data item.
 func s9fx(f uint8) secs2.SECS2Message {
-	return &GEMMessage{s: 9, f: f, w: false, item: secs2.NewEmptyItem()}
+	return &Message{s: 9, f: f, w: false, item: secs2.NewEmptyItem()}
 }
 
 // S9F1 creates an S9F1 (Unrecognized Device ID) message.
