@@ -6,11 +6,11 @@
 //
 // Log Levels:
 //
-// - DebugLevel:  Detailed debug information, typically disabled in production.
-// - InfoLevel:  General informational messages.
-// - WarnLevel:  Warnings about potential issues.
-// - ErrorLevel:  Errors that require attention.
-// - FatalLevel:  Critical errors that cause program termination.
+//   - DebugLevel:  Detailed debug information, typically disabled in production.
+//   - InfoLevel:  General informational messages.
+//   - WarnLevel:  Warnings about potential issues.
+//   - ErrorLevel:  Errors that require attention.
+//   - FatalLevel:  Critical errors that cause program termination.
 package logger
 
 // LogLevel indicates the logging severity level.
