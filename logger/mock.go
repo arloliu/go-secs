@@ -44,6 +44,6 @@ func (m *MockLogger) Level() LogLevel {
 }
 
 func (m *MockLogger) With(keyValues ...any) Logger {
-	args := m.Called(keyValues)
+	args := m.Called(keyValues...)
 	return args.Get(0).(Logger)
 }
