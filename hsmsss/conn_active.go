@@ -91,7 +91,10 @@ func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 	case hsms.LinkTestReqType:
 		c.logger.Debug("linktest request received", hsms.MsgInfo(msg, "method", "recvMsgActive")...)
 		replyMsg, _ := hsms.NewLinktestRsp(msg)
-		_, _ = c.sendMsg(replyMsg)
+		_, err := c.sendMsg(replyMsg)
+		if err != nil {
+			c.logger.Error("failed to send linktest response", hsms.MsgInfo(msg, "method", "recvMsgActive", "error", err)...)
+		}
 
 	case hsms.SeparateReqType:
 		c.logger.Debug("separate request received", hsms.MsgInfo(msg, "method", "recvMsgActive")...)
@@ -105,9 +108,14 @@ func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 
 func (c *Connection) openActive() bool {
 	c.logger.Debug("start openActive")
+
+	// terminate interval tasks when connect success
 	if err := c.tryConnect(c.ctx); err == nil {
+		c.metrics.resetConnRetryGauge()
 		return false
 	}
+
+	c.metrics.incConnRetryGauge()
 
 	return true
 }

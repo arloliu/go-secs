@@ -39,6 +39,126 @@ func TestConnection_PassiveHost_ActiveEQP(t *testing.T) {
 	testConnection(ctx, require, false)
 }
 
+func TestConnection_ActiveHost_RetryConnect(t *testing.T) {
+	require := require.New(t)
+
+	ctx := context.Background()
+
+	logger.SetLevel(logger.DebugLevel)
+
+	hostComm := newTestComm(ctx, require, true, true,
+		WithT5Timeout(100*time.Millisecond),
+		WithConnectRemoteTimeout(100*time.Millisecond),
+	)
+	eqpComm := newTestComm(ctx, require, false, false,
+		WithT5Timeout(100*time.Millisecond),
+		WithConnectRemoteTimeout(100*time.Millisecond),
+	)
+
+	var hostMetrics *ConnectionMetrics
+
+	require.NoError(hostComm.conn.Open(false))
+
+	time.Sleep(300 * time.Millisecond)
+
+	hostMetrics = hostComm.conn.GetMetrics()
+	require.GreaterOrEqual(hostMetrics.ConnRetryGauge.Load(), uint32(3))
+
+	require.NoError(eqpComm.conn.Open(true))
+
+	err := hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState)
+	require.NoError(err)
+
+	require.Equal(hostMetrics.ConnRetryGauge.Load(), uint32(0))
+
+	// close host
+	require.NoError(hostComm.conn.Close())
+	// close equipment
+	require.NoError(eqpComm.conn.Close())
+}
+
+func TestConnection_Linktest(t *testing.T) {
+	require := require.New(t)
+
+	ctx := context.Background()
+
+	logger.SetLevel(logger.InfoLevel)
+
+	hostComm := newTestComm(ctx, require, true, true,
+		WithAutoLinktest(true),
+		WithLinktestInterval(100*time.Millisecond),
+		WithT6Timeout(1000*time.Millisecond),
+	)
+	eqpComm := newTestComm(ctx, require, false, false, WithAutoLinktest(true), WithLinktestInterval(100*time.Millisecond))
+
+	var hostMetrics *ConnectionMetrics
+	var eqpMetrics *ConnectionMetrics
+
+	require.NoError(eqpComm.conn.Open(true))
+	require.NoError(hostComm.conn.Open(true))
+
+	expectedTotal := uint64(5)
+	time.Sleep(500 * time.Millisecond)
+
+	// expects to receive 5 linktests after connection established
+	hostMetrics = hostComm.conn.GetMetrics()
+	eqpMetrics = eqpComm.conn.GetMetrics()
+	require.InDelta(hostMetrics.LinktestSendCount.Load(), expectedTotal, 1)
+	require.InDelta(hostMetrics.LinktestRecvCount.Load(), expectedTotal, 1)
+	require.InDelta(eqpMetrics.LinktestSendCount.Load(), expectedTotal, 1)
+	require.InDelta(eqpMetrics.LinktestRecvCount.Load(), expectedTotal, 1)
+
+	t.Log("Disable linktest")
+	require.NoError(hostComm.conn.UpdateConfigOptions(WithAutoLinktest(false)))
+	require.NoError(eqpComm.conn.UpdateConfigOptions(WithAutoLinktest(false)))
+
+	time.Sleep(200 * time.Millisecond)
+
+	// expects no mote linktests after linktest disabled
+	hostMetrics = hostComm.conn.GetMetrics()
+	eqpMetrics = eqpComm.conn.GetMetrics()
+	require.InDelta(hostMetrics.LinktestSendCount.Load(), expectedTotal, 1)
+	require.InDelta(hostMetrics.LinktestRecvCount.Load(), expectedTotal, 1)
+	require.InDelta(eqpMetrics.LinktestSendCount.Load(), expectedTotal, 1)
+	require.InDelta(eqpMetrics.LinktestRecvCount.Load(), expectedTotal, 1)
+
+	t.Log("Resume linktest")
+	require.NoError(hostComm.conn.UpdateConfigOptions(WithAutoLinktest(true)))
+	require.NoError(eqpComm.conn.UpdateConfigOptions(WithAutoLinktest(true)))
+
+	expectedTotal += 5
+	time.Sleep(500 * time.Millisecond)
+
+	// expects to receive 5 more linktests after linktest enabled
+	hostMetrics = hostComm.conn.GetMetrics()
+	eqpMetrics = eqpComm.conn.GetMetrics()
+	require.InDelta(hostMetrics.LinktestSendCount.Load(), expectedTotal, 1)
+	require.InDelta(hostMetrics.LinktestRecvCount.Load(), expectedTotal, 1)
+	require.InDelta(eqpMetrics.LinktestSendCount.Load(), expectedTotal, 1)
+	require.InDelta(eqpMetrics.LinktestRecvCount.Load(), expectedTotal, 1)
+
+	t.Log("Change linktest interval to 50ms")
+	require.NoError(hostComm.conn.UpdateConfigOptions(WithLinktestInterval(50 * time.Millisecond)))
+	require.NoError(eqpComm.conn.UpdateConfigOptions(WithLinktestInterval(50 * time.Millisecond)))
+
+	expectedTotal += 10
+	time.Sleep(500 * time.Millisecond)
+
+	// expects to receive 1- more linktests after linktest interval changed to 50ms
+	hostMetrics = hostComm.conn.GetMetrics()
+	eqpMetrics = eqpComm.conn.GetMetrics()
+	require.InDelta(hostMetrics.LinktestSendCount.Load(), expectedTotal, 2)
+	require.InDelta(hostMetrics.LinktestRecvCount.Load(), expectedTotal, 2)
+	require.InDelta(eqpMetrics.LinktestSendCount.Load(), expectedTotal, 2)
+	require.InDelta(eqpMetrics.LinktestRecvCount.Load(), expectedTotal, 2)
+
+	t.Log("Close connection")
+	// close host
+	require.NoError(hostComm.conn.Close())
+	// close equipment
+	require.NoError(eqpComm.conn.Close())
+}
+
 func testConnection(ctx context.Context, require *require.Assertions, hostIsActive bool) {
 	hostComm := newTestComm(ctx, require, true, hostIsActive)
 	eqpComm := newTestComm(ctx, require, false, !hostIsActive)
@@ -123,18 +243,18 @@ func testConnection(ctx context.Context, require *require.Assertions, hostIsActi
 type testComm struct {
 	ctx     context.Context
 	require *require.Assertions
-	conn    hsms.Connection
+	conn    *Connection
 	session hsms.Session
 
 	recvReplyChan chan *hsms.DataMessage
 }
 
-func newTestComm(ctx context.Context, require *require.Assertions, isHost bool, isActive bool) *testComm {
+func newTestComm(ctx context.Context, require *require.Assertions, isHost bool, isActive bool, extraOpts ...ConnOption) *testComm {
 	c := &testComm{ctx: ctx, require: require}
 
 	c.recvReplyChan = make(chan *hsms.DataMessage, 1)
 
-	c.conn = newConn(ctx, require, isHost, isActive)
+	c.conn = newConn(ctx, require, isHost, isActive, extraOpts...)
 	require.NotNil(c.conn)
 
 	require.True(c.conn.IsSingleSession())
@@ -216,9 +336,8 @@ func (c *testComm) testMsgNetError(stream byte, function byte, dataItem secs2.It
 	c.require.Nil(reply)
 }
 
-func newConn(ctx context.Context, require *require.Assertions, isHost, isActive bool) *Connection {
+func newConn(ctx context.Context, require *require.Assertions, isHost, isActive bool, extraOpts ...ConnOption) *Connection {
 	opts := []ConnOption{
-		WithHostRole(),
 		WithT3Timeout(3 * time.Second),
 		WithT5Timeout(500 * time.Millisecond),
 		WithT6Timeout(3 * time.Second),
@@ -234,6 +353,8 @@ func newConn(ctx context.Context, require *require.Assertions, isHost, isActive 
 	} else {
 		opts = append(opts, WithEquipRole())
 	}
+
+	opts = append(opts, extraOpts...)
 
 	if isActive {
 		l := logger.GetLogger().With("role", "ACTIVE")

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/arloliu/go-secs/hsms"
@@ -12,6 +13,8 @@ import (
 
 // ConnectionConfig represents the configuration parameters for an HSMS-SS (Single Session) connection.
 type ConnectionConfig struct {
+	mu sync.RWMutex
+
 	// host specifies the host of the remote HSMS-SS device.
 	host string
 
@@ -134,19 +137,37 @@ func NewConnectionConfig(host string, port int, opts ...ConnOption) (*Connection
 	return cfg, nil
 }
 
+func (cfg *ConnectionConfig) AutoLinktest() bool {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	return cfg.autoLinktest
+}
+
+func (cfg *ConnectionConfig) LinktestInterval() time.Duration {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	return cfg.linktestInterval
+}
+
 // ConnOption represents a functional option for configuring a ConnectionConfig.
 type ConnOption interface {
 	apply(*ConnectionConfig) error
 }
 
 type connOptFunc struct {
+	name      string
+	runtime   bool
 	applyFunc func(*ConnectionConfig) error
 }
 
 func (c *connOptFunc) apply(cfg *ConnectionConfig) error { return c.applyFunc(cfg) }
 
-func newConnOptFunc(f func(*ConnectionConfig) error) *connOptFunc {
+func newConnOptFunc(name string, runtime bool, f func(*ConnectionConfig) error) *connOptFunc {
 	return &connOptFunc{
+		name:      name,
+		runtime:   runtime,
 		applyFunc: f,
 	}
 }
@@ -155,7 +176,7 @@ func newConnOptFunc(f func(*ConnectionConfig) error) *connOptFunc {
 // It returns a ConnOption that validates the host updates the configuration.
 // An error is returned if the configuration is nil.
 func withRemoteHost(host string) ConnOption {
-	return newConnOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("withRemoteHost", false, func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
 		}
@@ -182,7 +203,7 @@ func withRemoteHost(host string) ConnOption {
 // It returns a ConnOption that validates the port number and updates the configuration.
 // An error is returned if the port number is out of the valid range (1-65535) or if the configuration is nil.
 func withPort(port int) ConnOption {
-	return newConnOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("withPort", false, func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
 		}
@@ -199,8 +220,12 @@ func withPort(port int) ConnOption {
 // WithEquipRole sets the HSMS-SS connection as equipment role.
 // It returns a ConnOption that updates the configuration to indicate an equipment role.
 // An error is returned if the configuration is nil.
+//
+// The default role is host.
+//
+// This option can't be changed at runtime.
 func WithEquipRole() ConnOption {
-	return newConnOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithEquipRole", false, func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
 		}
@@ -214,8 +239,12 @@ func WithEquipRole() ConnOption {
 // WithHostRole sets the HSMS-SS connection as host role.
 // It returns a ConnOption that updates the configuration to indicate an host role.
 // An error is returned if the configuration is nil.
+//
+// The default role is host.
+//
+// This option can't be changed at runtime.
 func WithHostRole() ConnOption {
-	return newConnOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithHostRole", false, func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
 		}
@@ -229,13 +258,36 @@ func WithHostRole() ConnOption {
 // WithActive sets the connection mode to active.
 // It returns a ConnOption that updates the configuration to indicate an active connection.
 // An error is returned if the configuration is nil.
+//
+// The default mode is active.
+//
+// This option can't be changed at runtime.
 func WithActive() ConnOption {
-	return newConnOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithActive", false, func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
 		}
 
 		cfg.isActive = true
+
+		return nil
+	})
+}
+
+// WithPassive sets the connection mode to passive.
+// It returns a ConnOption that updates the configuration to indicate a passive connection.
+// An error is returned if the configuration is nil.
+//
+// The default mode is active.
+//
+// This option can't be changed at runtime.
+func WithPassive() ConnOption {
+	return newConnOptFunc("WithPassive", false, func(cfg *ConnectionConfig) error {
+		if cfg == nil {
+			return hsms.ErrConnConfigNil
+		}
+
+		cfg.isActive = false
 
 		return nil
 	})
@@ -250,8 +302,12 @@ func WithActive() ConnOption {
 // When disabled (val = false), no automatic linktest requests will be sent.
 //
 // An error is returned if the provided ConnectionConfig is nil.
+//
+// The default value is true.
+//
+// This option can be changed at runtime.
 func WithAutoLinktest(val bool) ConnOption {
-	return newConnOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithAutoLinktest", true, func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
 		}
@@ -270,10 +326,18 @@ func WithAutoLinktest(val bool) ConnOption {
 // This setting has no effect if autoLinktest is disabled by WithAutoLinktest(false).
 //
 // An error is returned if the provided ConnectionConfig is nil.
+//
+// The default value is 10 seconds.
+//
+// This option can be changed at runtime.
 func WithLinktestInterval(interval time.Duration) ConnOption {
-	return newConnOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithLinktestInterval", true, func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
+		}
+
+		if interval <= 0 {
+			return errors.New("linktest interval must be positive")
 		}
 
 		cfg.linktestInterval = interval
@@ -282,26 +346,15 @@ func WithLinktestInterval(interval time.Duration) ConnOption {
 	})
 }
 
-// WithPassive sets the connection mode to passive.
-// It returns a ConnOption that updates the configuration to indicate a passive connection.
-// An error is returned if the configuration is nil.
-func WithPassive() ConnOption {
-	return newConnOptFunc(func(cfg *ConnectionConfig) error {
-		if cfg == nil {
-			return hsms.ErrConnConfigNil
-		}
-
-		cfg.isActive = false
-
-		return nil
-	})
-}
-
 // WithT3Timeout sets the reply timeout (T3) for HSMS messages.
 // It returns a ConnOption that validates the timeout value and updates the configuration.
 // An error is returned if the timeout is outside the valid range (1-120 seconds) or if the configuration is nil.
+//
+// The default value is 45 seconds.
+//
+// This option can be changed at runtime.
 func WithT3Timeout(val time.Duration) ConnOption {
-	return newConnOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithT3Timeout", true, func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
 		}
@@ -318,8 +371,12 @@ func WithT3Timeout(val time.Duration) ConnOption {
 // WithT5Timeout sets the connect separation time (T5).
 // It returns a ConnOption that validates the timeout value and updates the configuration.
 // An error is returned if the timeout is outside the valid range (0.01-240 seconds) or if the configuration is nil.
+//
+// The default value is 10 seconds.
+//
+// This option can be changed at runtime.
 func WithT5Timeout(val time.Duration) ConnOption {
-	return newConnOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithT5Timeout", true, func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
 		}
@@ -336,8 +393,12 @@ func WithT5Timeout(val time.Duration) ConnOption {
 // WithT6Timeout sets the control timeout (T6) for control messages.
 // It returns a ConnOption that validates the timeout value and updates the configuration.
 // An error is returned if the timeout is outside the valid range (1-240 seconds) or if the configuration is nil.
+//
+// The default value is 5 seconds.
+//
+// This option can be changed at runtime.
 func WithT6Timeout(val time.Duration) ConnOption {
-	return newConnOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithT6Timeout", true, func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
 		}
@@ -354,8 +415,12 @@ func WithT6Timeout(val time.Duration) ConnOption {
 // WithT7Timeout sets the not selected timeout (T7).
 // It returns a ConnOption that validates the timeout value and updates the configuration.
 // An error is returned if the timeout is outside the valid range (1-240 seconds) or if the configuration is nil.
+//
+// The default value is 10 seconds.
+//
+// This option can be changed at runtime.
 func WithT7Timeout(val time.Duration) ConnOption {
-	return newConnOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithT7Timeout", true, func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
 		}
@@ -372,8 +437,12 @@ func WithT7Timeout(val time.Duration) ConnOption {
 // WithT8Timeout sets the inter-character timeout (T8).
 // It returns a ConnOption that validates the timeout value and updates the configuration.
 // An error is returned if the timeout is outside the valid range (1-120 seconds) or if the configuration is nil.
+//
+// The default value is 5 seconds.
+//
+// This option can be changed at runtime.
 func WithT8Timeout(val time.Duration) ConnOption {
-	return newConnOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithT8Timeout", true, func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
 		}
@@ -389,16 +458,18 @@ func WithT8Timeout(val time.Duration) ConnOption {
 
 // WithConnectRemoteTimeout sets the timeout for establishing a connection in active mode.
 // It returns a ConnOption that validates the timeout value and updates the configuration.
-// An error is returned if the timeout is outside the valid range (1-30 seconds) or if the configuration is nil.
+// An error is returned if the timeout is outside the valid range (0.1-30 seconds) or if the configuration is nil.
 //
 // The default value is 1 second.
+//
+// This option can be changed at runtime.
 func WithConnectRemoteTimeout(val time.Duration) ConnOption {
-	return newConnOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithConnectRemoteTimeout", true, func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
 		}
 
-		if val < 1*time.Second || val > 30*time.Second {
+		if val < 100*time.Millisecond || val > 30*time.Second {
 			return errors.New("connect remote timeout out of range [1, 30]")
 		}
 		cfg.connectRemoteTimeout = val
@@ -412,8 +483,10 @@ func WithConnectRemoteTimeout(val time.Duration) ConnOption {
 // An error is returned if the timeout is outside the valid range (1-2 seconds) or if the configuration is nil.
 //
 // The default value is 1 second.
+//
+// This option can be changed at runtime.
 func WithAcceptConnTimeout(val time.Duration) ConnOption {
-	return newConnOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithAcceptConnTimeout", true, func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
 		}
@@ -432,8 +505,10 @@ func WithAcceptConnTimeout(val time.Duration) ConnOption {
 // An error is returned if the timeout is outside the valid range (3-30 seconds) or if the configuration is nil.
 //
 // The default value is 3 seconds.
+//
+// This option can be changed at runtime.
 func WithCloseConnTimeout(val time.Duration) ConnOption {
-	return newConnOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithCloseConnTimeout", true, func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
 		}
@@ -457,8 +532,10 @@ func WithCloseConnTimeout(val time.Duration) ConnOption {
 // An error is returned if the queue size is invalid or if the provided ConnectionConfig is nil.
 //
 // The default value is 10.
+//
+// This option can't be changed at runtime.
 func WithSenderQueueSize(size int) ConnOption {
-	return newConnOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithSenderQueueSize", false, func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
 		}
@@ -479,8 +556,10 @@ func WithSenderQueueSize(size int) ConnOption {
 // An error is returned if the queue size is invalid or if the provided ConnectionConfig is nil.
 //
 // The default value is 10.
+//
+// This option can't be changed at runtime.
 func WithDataMsgQueueSize(size int) ConnOption {
-	return newConnOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithDataMsgQueueSize", false, func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
 		}
@@ -497,8 +576,12 @@ func WithDataMsgQueueSize(size int) ConnOption {
 // WithLogger sets the logger for the HSMS-SS connection.
 // It returns a ConnOption that updates the configuration with the provided logger.
 // An error is returned if the configuration is nil.
+//
+// The default logger is the global logger instance.
+//
+// This option can't be changed at runtime.
 func WithLogger(l logger.Logger) ConnOption {
-	return newConnOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithLogger", false, func(cfg *ConnectionConfig) error {
 		if cfg == nil {
 			return hsms.ErrConnConfigNil
 		}

@@ -134,7 +134,7 @@ func (s *Session) separateSession() {
 	s.logger.Debug("send separate.req message and wait it to be sent", "method", "separateSession", "id", msg.ID())
 	err := s.hsmsConn.sendMsgSync(msg)
 	if err != nil {
-		s.logger.Debug("failed to send separate control message", "method", "separateSession", "id", msg.ID(), "error", err)
+		s.logger.Warn("failed to send separate control message", "method", "separateSession", "id", msg.ID(), "error", err)
 	}
 }
 

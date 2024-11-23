@@ -36,15 +36,17 @@ type Connection struct {
 	connCount     atomic.Int32 // connection counter for passive mode only
 	session       *Session     // HSMS-SS has only one session
 
-	stateMgr       *hsms.ConnStateMgr
-	taskMgr        *hsms.TaskManager
-	shutdown       atomic.Bool // indicates if has entered shutdown mode
-	recvSeparate   atomic.Bool // indicates if spearate request has been received
-	linktestTicker *time.Ticker
+	stateMgr     *hsms.ConnStateMgr
+	taskMgr      *hsms.TaskManager
+	shutdown     atomic.Bool // indicates if has entered shutdown mode
+	recvSeparate atomic.Bool // indicates if spearate request has been received
+	ticketMgr    tickerCtl   // linktest control
 
 	senderMsgChan chan hsms.HSMSMessage
 	replyMsgChans sync.Map
 	replyErrs     sync.Map
+
+	metrics ConnectionMetrics // connection metrics
 }
 
 // ensure Connection implements hsms.Connection interface.
@@ -73,11 +75,57 @@ func NewConnection(ctx context.Context, cfg *ConnectionConfig) (*Connection, err
 		conn.stateMgr = hsms.NewConnStateMgr(ctx, conn, conn.passiveConnStateHandler)
 	}
 
-	if cfg.autoLinktest {
-		conn.stateMgr.AddHandler(conn.linktestConnStateHandler)
-	}
+	conn.stateMgr.AddHandler(conn.linktestConnStateHandler)
 
 	return conn, nil
+}
+
+func (c *Connection) UpdateConfigOptions(opts ...ConnOption) error {
+	var autoLinktest bool
+	var linktestInterval time.Duration
+	var t5Timeout time.Duration
+
+	for _, opt := range opts {
+		connOpt, ok := opt.(*connOptFunc)
+		if !ok {
+			return errors.New("invalid ConnOption type")
+		}
+
+		switch connOpt.name {
+		case "WithAutoLinktest":
+			autoLinktest = c.cfg.autoLinktest
+
+		case "WithLinktestInterval":
+			linktestInterval = c.cfg.linktestInterval
+
+		case "WithT5Timeout":
+			t5Timeout = c.cfg.t5Timeout
+		}
+
+		if err := opt.apply(c.cfg); err != nil {
+			return err
+		}
+	}
+
+	if c.cfg.autoLinktest != autoLinktest { // autoLinktest changed
+		if c.cfg.autoLinktest { // enable autoLinktest
+			c.ticketMgr.resetLinktestTicker(c.cfg.linktestInterval)
+		} else { // disable autoLinktest
+			c.ticketMgr.stopLinktestTicker()
+		}
+	} else if c.cfg.linktestInterval != linktestInterval { // autoLinktest doesn't changed ,linktestInterval changed
+		if c.cfg.autoLinktest {
+			c.ticketMgr.resetLinktestTicker(c.cfg.linktestInterval)
+		} else {
+			c.ticketMgr.resetLinktestTicker(time.Duration(1<<63 - 1))
+		}
+	}
+
+	if c.cfg.t5Timeout != t5Timeout {
+		c.ticketMgr.resetActiveConnectTicker(c.cfg.t5Timeout)
+	}
+
+	return nil
 }
 
 // AddSession creates and adds a new Session to the connection with the specified session ID.
@@ -92,6 +140,11 @@ func (c *Connection) AddSession(sessionID uint16) hsms.Session {
 // GetLogger returns the logger associated with the HSMS-SS connection.
 func (c *Connection) GetLogger() logger.Logger {
 	return c.logger
+}
+
+// GetMetrics returns the metrics associated with the HSMS-SS connection
+func (c *Connection) GetMetrics() *ConnectionMetrics {
+	return &c.metrics
 }
 
 // IsSingleSession returns true, indicating that this is an HSMS-SS connection.
@@ -115,7 +168,9 @@ func (c *Connection) Open(waitOpened bool) error {
 	c.createContext()
 
 	if c.cfg.isActive {
-		c.taskMgr.StartInterval("openActive", c.openActive, c.cfg.t5Timeout, true)
+		ticker := c.taskMgr.StartInterval("openActive", c.openActive, c.cfg.t5Timeout, true)
+		c.ticketMgr.setActiveConnectTicker(ticker)
+
 		if waitOpened {
 			return c.stateMgr.WaitState(c.ctx, hsms.SelectedState)
 		}
@@ -384,8 +439,14 @@ func (c *Connection) dropAllReplyMsgs() {
 // senderTask is the task function for the sender goroutine.
 // It receives messages from the senderMsgChan and sends them synchronously over the connection.
 func (c *Connection) senderTask(msg hsms.HSMSMessage) bool {
+	c.metrics.incDataMsgSendCount()
+	if msg.WaitBit() {
+		c.metrics.incDataMsgInflightCount()
+	}
+
 	err := c.sendMsgSync(msg)
 	if err != nil {
+		c.metrics.incDataMsgErrCount()
 		c.replyErrToSender(msg.ID(), err)
 
 		opErr := &net.OpError{}
@@ -407,6 +468,8 @@ func (c *Connection) cancelReceiverTask() {
 // receiverTask is the task function for the receiver goroutine.
 // It reads and decodes HSMS messages from the connection and processes them accordingly.
 func (c *Connection) receiverTask(reader *bufio.Reader, msgLenBuf []byte) bool {
+	c.metrics.decDataMsgInflightCount()
+
 	if _, err := io.ReadFull(reader, msgLenBuf); err != nil {
 		if err != io.EOF && !errors.Is(err, net.ErrClosed) && !strings.Contains(err.Error(), "connection reset by peer") {
 			c.logger.Error("failed to read the length of HSMS message", "method", "receiverTask", "error", err)
@@ -428,8 +491,11 @@ func (c *Connection) receiverTask(reader *bufio.Reader, msgLenBuf []byte) bool {
 
 	msg, err := hsms.DecodeMessage(msgLen, msgBuf)
 	if err != nil {
+		c.metrics.incDataMsgErrCount()
 		c.logger.Error("failed to decode HSMS message")
 	}
+
+	c.metrics.incDataMsgRecvCount()
 
 	if c.cfg.isActive {
 		c.recvMsgActive(msg)
@@ -480,21 +546,89 @@ func (c *Connection) replyErrToSender(id uint32, err error) {
 func (c *Connection) linktestConnStateHandler(_ hsms.Connection, _ hsms.ConnState, curState hsms.ConnState) {
 	// HSMS-SS limits the use of linktest is only selected mode
 	if curState.IsSelected() {
-		c.linktestTicker = c.taskMgr.StartInterval("autoLinktestTask", c.autoLinktestTask, c.cfg.linktestInterval, false)
-	} else if c.linktestTicker != nil {
-		c.linktestTicker.Stop()
+		ticker := c.taskMgr.StartInterval("autoLinktestTask", c.autoLinktestTask, c.cfg.linktestInterval, false)
+		c.ticketMgr.setLinktestTicker(ticker)
+	} else {
+		c.ticketMgr.stopLinktestTicker()
 	}
 }
 
 func (c *Connection) autoLinktestTask() bool {
 	msg := hsms.NewLinktestReq(hsms.GenerateMsgSystemBytes())
 
-	_, err := c.sendMsg(msg)
+	c.metrics.incLinktestSendCount()
+
+	resMsg, err := c.sendMsg(msg)
+
 	if errors.Is(err, hsms.ErrT6Timeout) {
-		c.logger.Debug("linktest T6 timeout")
+		c.metrics.incLinktestErrCount()
+		c.logger.Error("linktest T6 timeout")
 		c.stateMgr.ToNotConnectedAsync()
+
 		return false
 	}
 
+	// if connection closed, stop linktest task and doesn't need to increase error count
+	if resMsg == nil || errors.Is(err, hsms.ErrConnClosed) {
+		return false
+	}
+
+	if resMsg.Type() != hsms.LinkTestRspType {
+		c.metrics.incLinktestErrCount()
+		c.logger.Warn("linktest response is not LinktestRsp")
+
+		return true
+	}
+
+	c.metrics.incLinktestRecvCount()
+
 	return true
+}
+
+// tickerCtl is a helper struct for managing interval tasks interval.
+type tickerCtl struct {
+	mu                  sync.Mutex
+	linktestTicker      *time.Ticker
+	activeConnectTicker *time.Ticker
+}
+
+func (l *tickerCtl) setLinktestTicker(ticker *time.Ticker) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.linktestTicker = ticker
+}
+
+func (l *tickerCtl) stopLinktestTicker() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.linktestTicker != nil {
+		l.linktestTicker.Stop()
+	}
+}
+
+func (l *tickerCtl) resetLinktestTicker(d time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.linktestTicker != nil && d > 0 {
+		l.linktestTicker.Reset(d)
+	}
+}
+
+func (l *tickerCtl) setActiveConnectTicker(ticker *time.Ticker) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.activeConnectTicker = ticker
+}
+
+func (l *tickerCtl) resetActiveConnectTicker(d time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.activeConnectTicker != nil && d > 0 {
+		l.activeConnectTicker.Reset(d)
+	}
 }

@@ -59,12 +59,13 @@ type TaskDataMsgFunc func(msg *DataMessage, handler DataMessageHandler) bool
 //	// Wait for all goroutines to terminate
 //	taskMgr.Wait()
 type TaskManager struct {
-	pctx   context.Context
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
-	logger logger.Logger
-	count  atomic.Int32
+	pctx    context.Context
+	ctx     context.Context
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
+	logger  logger.Logger
+	count   atomic.Int32
+	tickers sync.Map // map[string]*time.Ticker
 }
 
 // NewTaskManager creates a new TaskManager with the given context as the parent context and logger.
@@ -198,6 +199,7 @@ func (mgr *TaskManager) StartRecvDataMsg(name string, taskFunc DataMessageHandle
 // The function returns a *time.Ticker that can be used to stop the interval.
 func (mgr *TaskManager) StartInterval(name string, taskFunc TaskFunc, interval time.Duration, runNow bool) *time.Ticker {
 	ticker := time.NewTicker(interval)
+	mgr.tickers.Store(name, ticker)
 
 	if runNow && !taskFunc() {
 		defer mgr.logger.Debug(fmt.Sprintf("%s interval task terminated", name))
@@ -223,7 +225,7 @@ func (mgr *TaskManager) StartInterval(name string, taskFunc TaskFunc, interval t
 				return
 
 			case <-ticker.C:
-				mgr.logger.Debug("StartInterval func", "name", name)
+				mgr.logger.Debug("execute interval func", "name", name)
 				if !taskFunc() {
 					ticker.Stop()
 					return
@@ -237,8 +239,35 @@ func (mgr *TaskManager) StartInterval(name string, taskFunc TaskFunc, interval t
 
 // Stop signals all running goroutines.
 func (mgr *TaskManager) Stop() {
+	// stop all tickers
+	mgr.tickers.Range(func(key, value any) bool {
+		ticker, ok := value.(*time.Ticker)
+		if ok {
+			ticker.Stop()
+		}
+
+		return true
+	})
+
 	// terminate all tasks
 	mgr.cancel()
+}
+
+// StopInterval stops the interval task with the given name.
+//
+// It returns an error if the task is not found or if the task is not a *time.Ticker.
+func (mgr *TaskManager) StopInterval(name string) error {
+	if val, ok := mgr.tickers.Load(name); ok {
+		ticker, ok := val.(*time.Ticker)
+		if ok {
+			ticker.Stop()
+			return nil
+		}
+
+		return fmt.Errorf("ticker %s is not a *time.Ticker", name)
+	}
+
+	return fmt.Errorf("ticker %s not found", name)
 }
 
 // Wait waits for all goroutines to terminate.

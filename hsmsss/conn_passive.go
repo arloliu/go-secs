@@ -115,7 +115,10 @@ func (c *Connection) recvMsgPassive(msg hsms.HSMSMessage) {
 	case hsms.LinkTestReqType:
 		c.logger.Debug("linktest request received", hsms.MsgInfo(msg, "method", "recvMsgPassive")...)
 		replyMsg, _ := hsms.NewLinktestRsp(msg)
-		_, _ = c.sendMsg(replyMsg)
+		_, err := c.sendMsg(replyMsg)
+		if err != nil {
+			c.logger.Error("failed to send linktest response", "error", err)
+		}
 
 	// reply to sender when linktest response received.
 	case hsms.LinkTestRspType:
