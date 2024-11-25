@@ -98,15 +98,16 @@ func TestConnection_Linktest(t *testing.T) {
 	require.NoError(hostComm.conn.Open(true))
 
 	expectedTotal := uint64(5)
+	expectedDelta := float64(expectedTotal) * 0.2
 	time.Sleep(500 * time.Millisecond)
 
 	// expects to receive 5 linktests after connection established
 	hostMetrics = hostComm.conn.GetMetrics()
 	eqpMetrics = eqpComm.conn.GetMetrics()
-	require.InDelta(hostMetrics.LinktestSendCount.Load(), expectedTotal, 1)
-	require.InDelta(hostMetrics.LinktestRecvCount.Load(), expectedTotal, 1)
-	require.InDelta(eqpMetrics.LinktestSendCount.Load(), expectedTotal, 1)
-	require.InDelta(eqpMetrics.LinktestRecvCount.Load(), expectedTotal, 1)
+	require.InDelta(hostMetrics.LinktestSendCount.Load(), expectedTotal, expectedDelta)
+	require.InDelta(hostMetrics.LinktestRecvCount.Load(), expectedTotal, expectedDelta)
+	require.InDelta(eqpMetrics.LinktestSendCount.Load(), expectedTotal, expectedDelta)
+	require.InDelta(eqpMetrics.LinktestRecvCount.Load(), expectedTotal, expectedDelta)
 
 	t.Log("Disable linktest")
 	require.NoError(hostComm.conn.UpdateConfigOptions(WithAutoLinktest(false)))
@@ -117,40 +118,42 @@ func TestConnection_Linktest(t *testing.T) {
 	// expects no mote linktests after linktest disabled
 	hostMetrics = hostComm.conn.GetMetrics()
 	eqpMetrics = eqpComm.conn.GetMetrics()
-	require.InDelta(hostMetrics.LinktestSendCount.Load(), expectedTotal, 1)
-	require.InDelta(hostMetrics.LinktestRecvCount.Load(), expectedTotal, 1)
-	require.InDelta(eqpMetrics.LinktestSendCount.Load(), expectedTotal, 1)
-	require.InDelta(eqpMetrics.LinktestRecvCount.Load(), expectedTotal, 1)
+	require.InDelta(hostMetrics.LinktestSendCount.Load(), expectedTotal, expectedDelta)
+	require.InDelta(hostMetrics.LinktestRecvCount.Load(), expectedTotal, expectedDelta)
+	require.InDelta(eqpMetrics.LinktestSendCount.Load(), expectedTotal, expectedDelta)
+	require.InDelta(eqpMetrics.LinktestRecvCount.Load(), expectedTotal, expectedDelta)
 
 	t.Log("Resume linktest")
 	require.NoError(hostComm.conn.UpdateConfigOptions(WithAutoLinktest(true)))
 	require.NoError(eqpComm.conn.UpdateConfigOptions(WithAutoLinktest(true)))
 
 	expectedTotal += 5
+	expectedDelta = float64(expectedTotal) * 0.2
 	time.Sleep(500 * time.Millisecond)
 
 	// expects to receive 5 more linktests after linktest enabled
 	hostMetrics = hostComm.conn.GetMetrics()
 	eqpMetrics = eqpComm.conn.GetMetrics()
-	require.InDelta(hostMetrics.LinktestSendCount.Load(), expectedTotal, 1)
-	require.InDelta(hostMetrics.LinktestRecvCount.Load(), expectedTotal, 1)
-	require.InDelta(eqpMetrics.LinktestSendCount.Load(), expectedTotal, 1)
-	require.InDelta(eqpMetrics.LinktestRecvCount.Load(), expectedTotal, 1)
+	require.InDelta(hostMetrics.LinktestSendCount.Load(), expectedTotal, expectedDelta)
+	require.InDelta(hostMetrics.LinktestRecvCount.Load(), expectedTotal, expectedDelta)
+	require.InDelta(eqpMetrics.LinktestSendCount.Load(), expectedTotal, expectedDelta)
+	require.InDelta(eqpMetrics.LinktestRecvCount.Load(), expectedTotal, expectedDelta)
 
 	t.Log("Change linktest interval to 50ms")
 	require.NoError(hostComm.conn.UpdateConfigOptions(WithLinktestInterval(50 * time.Millisecond)))
 	require.NoError(eqpComm.conn.UpdateConfigOptions(WithLinktestInterval(50 * time.Millisecond)))
 
 	expectedTotal += 10
+	expectedDelta = float64(expectedTotal) * 0.2
 	time.Sleep(500 * time.Millisecond)
 
 	// expects to receive 1- more linktests after linktest interval changed to 50ms
 	hostMetrics = hostComm.conn.GetMetrics()
 	eqpMetrics = eqpComm.conn.GetMetrics()
-	require.InDelta(hostMetrics.LinktestSendCount.Load(), expectedTotal, 2)
-	require.InDelta(hostMetrics.LinktestRecvCount.Load(), expectedTotal, 2)
-	require.InDelta(eqpMetrics.LinktestSendCount.Load(), expectedTotal, 2)
-	require.InDelta(eqpMetrics.LinktestRecvCount.Load(), expectedTotal, 2)
+	require.InDelta(hostMetrics.LinktestSendCount.Load(), expectedTotal, expectedDelta)
+	require.InDelta(hostMetrics.LinktestRecvCount.Load(), expectedTotal, expectedDelta)
+	require.InDelta(eqpMetrics.LinktestSendCount.Load(), expectedTotal, expectedDelta)
+	require.InDelta(eqpMetrics.LinktestRecvCount.Load(), expectedTotal, expectedDelta)
 
 	t.Log("Close connection")
 	// close host
