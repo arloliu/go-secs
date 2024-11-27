@@ -3,6 +3,7 @@ package hsms
 import (
 	"context"
 	"io"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -153,24 +154,25 @@ func TestConnStateAsyncTransitions(t *testing.T) {
 	})
 
 	t.Run("ToSelectedAsync", func(t *testing.T) {
-		stateChangeCount := 0
+		var stateChangeCount atomic.Int32
+
 		cs := NewConnStateMgr(ctx, nil)
-		cs.AddHandler(func(conn Connection, prevState ConnState, newState ConnState) { stateChangeCount++ })
+		cs.AddHandler(func(conn Connection, prevState ConnState, newState ConnState) { stateChangeCount.Add(1) })
 
 		err := cs.ToNotSelected()
 		require.NoError(err)
-		require.Equal(1, stateChangeCount)
+		require.Equal(int32(1), stateChangeCount.Load())
 
 		cs.ToSelectedAsync()
 		time.Sleep(10 * time.Millisecond) // allow async transition to complete
 		require.Equal(SelectedState, cs.State())
-		require.Equal(2, stateChangeCount)
+		require.Equal(int32(2), stateChangeCount.Load())
 		require.True(cs.IsSelected())
 
 		// No-op transition when already in SelectedState
 		cs.ToSelectedAsync()
 		time.Sleep(10 * time.Millisecond)
-		require.Equal(2, stateChangeCount)
+		require.Equal(int32(2), stateChangeCount.Load())
 	})
 }
 

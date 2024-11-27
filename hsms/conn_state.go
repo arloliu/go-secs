@@ -212,9 +212,10 @@ func (cs *ConnStateMgr) ToSelected() error {
 		return ErrInvalidTransition
 	}
 
-	cs.invokeHandlers(curState, SelectedState)
-	// change state after all handlers finished
+	// change state BEFORE all handlers finished
 	cs.setState(SelectedState)
+
+	cs.invokeHandlers(curState, SelectedState)
 
 	return nil
 }
