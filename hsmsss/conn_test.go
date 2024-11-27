@@ -3,7 +3,6 @@ package hsmsss
 import (
 	"context"
 	"errors"
-	"net"
 	"testing"
 	"time"
 
@@ -322,8 +321,7 @@ func (c *testComm) testMsgError(stream byte, function byte, dataItem secs2.Item,
 func (c *testComm) testMsgNetError(stream byte, function byte, dataItem secs2.Item, expectedErrs ...error) {
 	reply, err := c.session.SendDataMessage(stream, function, true, dataItem)
 
-	opErr := &net.OpError{}
-	if errors.As(err, &opErr) {
+	if isNetOpError(err) {
 		return
 	}
 

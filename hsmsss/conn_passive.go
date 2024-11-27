@@ -197,8 +197,7 @@ func (c *Connection) tryAcceptConn() bool {
 		}
 
 		if !c.shutdown.Load() {
-			opErr := &net.OpError{}
-			if !errors.As(err, &opErr) {
+			if !isNetOpError(err) {
 				c.logger.Error("failed to accept connection", "method", "tryAcceptConn", "error", err.Error())
 			}
 

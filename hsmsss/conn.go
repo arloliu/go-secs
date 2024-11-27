@@ -463,8 +463,7 @@ func (c *Connection) senderTask(msg hsms.HSMSMessage) bool {
 		c.metrics.incDataMsgErrCount()
 		c.replyErrToSender(msg.ID(), err)
 
-		opErr := &net.OpError{}
-		if !errors.As(err, &opErr) {
+		if !isNetOpError(err) {
 			c.logger.Error("failed to send message", "method", "senderTask", "error", err)
 		}
 
@@ -485,7 +484,7 @@ func (c *Connection) receiverTask(reader *bufio.Reader, msgLenBuf []byte) bool {
 	c.metrics.decDataMsgInflightCount()
 
 	if _, err := io.ReadFull(reader, msgLenBuf); err != nil {
-		if err != io.EOF && !errors.Is(err, net.ErrClosed) && !strings.Contains(err.Error(), "connection reset by peer") {
+		if !isNetError(err) {
 			c.logger.Error("failed to read the length of HSMS message", "method", "receiverTask", "error", err)
 		}
 
@@ -651,4 +650,29 @@ func (l *tickerCtl) resetActiveConnectTicker(d time.Duration) {
 	if l.activeConnectTicker != nil && d > 0 {
 		l.activeConnectTicker.Reset(d)
 	}
+}
+
+func isNetOpError(err error) bool {
+	opErr := &net.OpError{}
+	return errors.As(err, &opErr)
+}
+
+func isConnClosedError(err error) bool {
+	return errors.Is(err, net.ErrClosed)
+}
+
+func isConnResetError(err error) bool {
+	return strings.Contains(err.Error(), "connection reset by peer")
+}
+
+func isNetError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if errors.Is(err, io.EOF) || isNetOpError(err) || isConnClosedError(err) || isConnResetError(err) {
+		return true
+	}
+
+	return false
 }
