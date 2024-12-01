@@ -307,7 +307,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 
 	// set T3 or T6 timeout
 	timeout := c.cfg.t3Timeout
-	if msg.Type() != hsms.DataMsgType {
+	if msg.IsControlMessage() {
 		timeout = c.cfg.t6Timeout
 	}
 
@@ -332,7 +332,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 		c.removeReplyExpectedMsg(id)
 
 		c.logger.Warn("send message timeout", hsms.MsgInfo(msg, "method", "sendMsg", "timeout", timeout)...)
-		if timeout == c.cfg.t3Timeout {
+		if msg.IsDataMessage() {
 			// If entity is equipment, send SECS-II S9F9 when t3/t6 timeout.
 			if c.cfg.isEquip {
 				_, _ = c.session.SendSECS2Message(gem.S9F9())
