@@ -6,6 +6,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"unicode"
 
 	"github.com/arloliu/go-secs/hsms"
@@ -25,7 +26,7 @@ type HSMSParser struct {
 	stream     uint8
 	function   uint8
 	wbit       bool
-	strictMode bool
+	strictMode atomic.Bool
 }
 
 // NewHSMSParser creates a new SML HSMS parser.
@@ -45,12 +46,12 @@ func ParseHSMS(input string) ([]*hsms.DataMessage, error) {
 	}
 
 	p := NewHSMSParser()
-	p.WithStrictMode(defStrictMode)
+	p.WithStrictMode(defStrictMode.Load())
 
 	return p.Parse(input)
 }
 
-var defStrictMode bool = false
+var defStrictMode atomic.Bool
 
 // WithStrictMode configures the default setting to use strict mode for parsing ASCII characters.
 // It affects when calling ParseHSMS function.
@@ -66,7 +67,7 @@ var defStrictMode bool = false
 //
 // The strict mode setting of SECS-II ASCII items can be configured by secs2.WithStrictMode.
 func WithStrictMode(enable bool) {
-	defStrictMode = enable
+	defStrictMode.Store(enable)
 }
 
 // WithStrictMode configures the parser to use strict mode for parsing ASCII characters.
@@ -82,8 +83,8 @@ func WithStrictMode(enable bool) {
 //
 // The strict mode setting of SECS-II ASCII items can be configured by secs2.WithStrictMode.
 func (p *HSMSParser) WithStrictMode(enable bool) {
-	p.strictMode = enable
-	secs2.WithStrictMode(enable)
+	p.strictMode.Store(enable)
+	secs2.WithASCIIStrictMode(enable)
 }
 
 // Parse parses the input SML string and returns a slice of parsed HSMS data messages and an error
@@ -248,7 +249,7 @@ func (p *HSMSParser) parseItem() (secs2.Item, error) {
 	case secs2.ListFormatCode:
 		item, err = p.parseList(maxSize)
 	case secs2.ASCIIFormatCode:
-		if p.strictMode {
+		if p.strictMode.Load() {
 			item, err = p.parseASCIIStrict(maxSize)
 		} else {
 			item, err = p.parseASCIIFast()

@@ -78,7 +78,7 @@ func TestASCIIItem_Create_StrictMode(t *testing.T) {
 		},
 	}
 
-	WithStrictMode(true)
+	WithASCIIStrictMode(true)
 	for i, test := range tests {
 		t.Logf("Test #%d: %s", i, test.desc)
 		item := NewASCIIItem(test.input)
@@ -163,7 +163,7 @@ func TestASCIIItem_SetValues_StrictMode(t *testing.T) {
 
 	require := require.New(t)
 
-	WithStrictMode(true)
+	WithASCIIStrictMode(true)
 	for i, test := range tests {
 		t.Logf("Test #%d: %s", i, test.desc)
 		item := NewASCIIItem(test.input)
@@ -176,7 +176,7 @@ func TestASCIIItem_SetValues_StrictMode(t *testing.T) {
 }
 
 func TestASCIIItem_Errors_StrictMode(t *testing.T) {
-	WithStrictMode(true)
+	WithASCIIStrictMode(true)
 
 	require := require.New(t)
 
@@ -194,7 +194,7 @@ func TestASCIIItem_Errors_StrictMode(t *testing.T) {
 }
 
 func BenchmarkASCIIItem_Create(b *testing.B) {
-	WithStrictMode(true)
+	WithASCIIStrictMode(true)
 
 	values := genRandomASCIIString(1000)
 
@@ -206,7 +206,7 @@ func BenchmarkASCIIItem_Create(b *testing.B) {
 }
 
 func BenchmarkASCIIItem_ToBytes(b *testing.B) {
-	WithStrictMode(true)
+	WithASCIIStrictMode(true)
 
 	values := genRandomASCIIString(1000)
 
@@ -220,7 +220,7 @@ func BenchmarkASCIIItem_ToBytes(b *testing.B) {
 }
 
 func BenchmarkASCIIItem_ToSML_StrictMode(b *testing.B) {
-	WithStrictMode(true)
+	WithASCIIStrictMode(true)
 
 	values := genRandomASCIIString(1000)
 
@@ -234,7 +234,7 @@ func BenchmarkASCIIItem_ToSML_StrictMode(b *testing.B) {
 }
 
 func BenchmarkASCIIItem_ToSML_NonStrictMode(b *testing.B) {
-	WithStrictMode(false)
+	WithASCIIStrictMode(false)
 
 	values := genRandomASCIIString(1000)
 

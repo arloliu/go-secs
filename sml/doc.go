@@ -10,7 +10,7 @@
 // Strict Mode: Adheres to the ASCII printable characters (character codes 32 to 126) and
 // supports parsing non-printable ASCII characters represented by their decimal values (e.g., 0x0A for newline).
 //
-// This is useful when parsing SML generated with strict mode for SECS-II ASCII items (e.g., using secs2.WithStrictMode(true)).
+// This is useful when parsing SML generated with strict mode for SECS-II ASCII items (e.g., using secs2.WithASCIIStrictMode(true)).
 //
 // Non-Strict Mode (default): Optimizes for performance by making certain assumptions about the input:
 //
@@ -21,7 +21,7 @@
 // Usage Example:
 //
 //	// Use strict mode
-//	sml.WithStrictMode(true)
+//	sml.WithASCIIStrictMode(true)
 //	// Parse an SML string
 //	messages, err := sml.ParseHSMS(`
 //	    MessageName: 'S1F1' W

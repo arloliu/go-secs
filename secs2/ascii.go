@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"unicode"
 )
 
@@ -24,16 +25,16 @@ func ASCIIQuote() rune {
 	return asciiQuote
 }
 
-var strictMode = false
+var asciiStrictMode atomic.Bool
 
-// WithStrictMode enables or disables strict mode for generating SML representations of ASCII items.
+// WithASCIIStrictMode enables or disables strict mode for generating SML representations of ASCII items.
 //
 // In strict mode, non-printable ASCII characters and escape characters are represented literally in the SML output.
 // This is useful for generating SML that adheres to the ASCII standard (character codes 32 to 126).
 //
 // By default, strict mode is disabled.
-func WithStrictMode(enable bool) {
-	strictMode = enable
+func WithASCIIStrictMode(enable bool) {
+	asciiStrictMode.Store(enable)
 }
 
 // ASCIIItem represents an ASCII string in a SECS-II message.
@@ -182,7 +183,7 @@ func (item *ASCIIItem) ToBytes() []byte {
 //
 // Note: the non-strict mode can't handle non-printable characters and quote escaping well.
 func (item *ASCIIItem) ToSML() string {
-	if strictMode {
+	if asciiStrictMode.Load() {
 		return item.toSMLStrict()
 	}
 
