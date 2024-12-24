@@ -130,7 +130,8 @@ func (s *Session) recvDataMsg(msg *hsms.DataMessage) {
 }
 
 func (s *Session) separateSession() {
-	msg := hsms.NewSeparateReq(s.id, hsms.GenerateMsgSystemBytes())
+	// send separate.req message, in HSMS-SS, the session ID is always 0xffff
+	msg := hsms.NewSeparateReq(0xffff, hsms.GenerateMsgSystemBytes())
 	s.logger.Debug("send separate.req message and wait it to be sent", "method", "separateSession", "id", msg.ID())
 	err := s.hsmsConn.sendMsgSync(msg)
 	if err != nil && !isNetError(err) {
@@ -140,8 +141,8 @@ func (s *Session) separateSession() {
 
 func (s *Session) selectSession() error {
 	s.logger.Debug("send select.req", "method", "selectSession")
-	// select request
-	msg := hsms.NewSelectReq(s.id, hsms.GenerateMsgSystemBytes())
+	// select request, in HSMS-SS, the session ID is always 0xffff
+	msg := hsms.NewSelectReq(0xffff, hsms.GenerateMsgSystemBytes())
 	replyMsg, err := s.hsmsConn.sendControlMsg(msg, true)
 	if err != nil {
 		return err
