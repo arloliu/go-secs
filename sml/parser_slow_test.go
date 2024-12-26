@@ -173,7 +173,7 @@ func TestParser_NoErrorCases(t *testing.T) {
 <L[2]
   <L[0]>
   <L[2]
-    <A[0]>
+    <A[0] ''>
     <B[0]>
   >
 >

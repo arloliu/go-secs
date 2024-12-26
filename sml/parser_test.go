@@ -362,7 +362,7 @@ func commonTestCases() []testCase {
 <L          // comment1
   <L[0]>    // comment
   <L[2]     // comment
-    <A[0]>  // comment
+    <A[0] ''>  // comment
     <B[0]>  // comment
   >         // comment
 >           // comment
@@ -374,7 +374,7 @@ func commonTestCases() []testCase {
 <L[2]
   <L[0]>
   <L[2]
-    <A[0]>
+    <A[0] ''>
     <B[0]>
   >
 >
@@ -387,7 +387,7 @@ func commonTestCases() []testCase {
 <L          /* comment1 */
   <L[0]>    /* comment */
   <L[2]     /* comment */
-    <A[0]>  /* comment */
+    <A[0] ''>  /* comment */
     <B[0]>  /* comment */
   >         /* comment */
 >           /* comment */
@@ -399,7 +399,7 @@ func commonTestCases() []testCase {
 <L[2]
   <L[0]>
   <L[2]
-    <A[0]>
+    <A[0] ''>
     <B[0]>
   >
 >

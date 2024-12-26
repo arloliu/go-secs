@@ -25,7 +25,7 @@ func TestASCIIItem_Create_StrictMode(t *testing.T) {
 			input:           "",
 			expectedSize:    0,
 			expectedToBytes: []byte{0x41, 0},
-			expectedToSML:   `<A[0]>`,
+			expectedToSML:   `<A[0] "">`,
 		},
 		{
 			desc:            "Length: 1",

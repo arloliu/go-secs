@@ -175,7 +175,7 @@ func (item *ASCIIItem) ToBytes() []byte {
 //   - Within the tag:
 //   - Printable ASCII characters are enclosed in double quotes (e.g., "Hello").
 //   - Non-printable control characters (code points < 32 or 127) are represented in hexadecimal format (e.g., 0x0A for newline).
-//   - If the item's value is empty, it's represented as `<A[0]>`.
+//   - If the item's value is empty, it's represented as `<A[0] ”>` or <A[0] "">.
 //
 // The format of non-strict mode is as follows:
 //   - `<A ...>`: The overall tag indicating an ASCII item.
@@ -192,7 +192,11 @@ func (item *ASCIIItem) ToSML() string {
 
 func (item *ASCIIItem) toSMLStrict() string {
 	if item.value == "" {
-		return "<A[0]>"
+		if asciiQuote == '"' {
+			return "<A[0] \"\">"
+		}
+
+		return "<A[0] ''>"
 	}
 
 	var sb strings.Builder
@@ -240,7 +244,11 @@ func (item *ASCIIItem) toSMLStrict() string {
 
 func (item *ASCIIItem) toSMLFast() string {
 	if item.value == "" {
-		return "<A[0]>"
+		if asciiQuote == '"' {
+			return "<A[0] \"\">"
+		}
+
+		return "<A[0] ''>"
 	}
 
 	var sb strings.Builder
