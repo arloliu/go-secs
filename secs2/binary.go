@@ -9,6 +9,18 @@ import (
 	"github.com/arloliu/go-secs/internal/util"
 )
 
+var hexLiteral = false
+
+// UseUseHexLiteral sets the literal format for binary SML item to hexadecimal(0xHH).
+func UseHexLiteral() {
+	hexLiteral = true
+}
+
+// UseBinaryLiteral sets the literal format for binary SML item to binary(0bBBBBBBBB).
+func UseBinaryLiteral() {
+	hexLiteral = false
+}
+
 // BinaryItem represents a list of boolean items in a SECS-II message.
 //
 // It implements the Item interface, providing methods to interact with and manipulate the boolean data.
@@ -162,14 +174,23 @@ func (item *BinaryItem) ToSML() string {
 
 	sb.WriteString(fmt.Sprintf("<B[%d] ", item.Size()))
 
-	// Reuse a buffer for strconv.AppendInt to avoid allocations
-	var binBuf [8]byte
-	for i, v := range item.values {
-		if i > 0 {
-			sb.WriteByte(' ') // Add space separator between values
+	if hexLiteral {
+		for i, v := range item.values {
+			if i > 0 {
+				sb.WriteByte(' ') // Add space separator between values
+			}
+			sb.WriteString(fmt.Sprintf("0x%02X", v))
 		}
-		sb.WriteString("0b")
-		sb.Write(strconv.AppendInt(binBuf[:0], int64(v), 2))
+	} else {
+		// Reuse a buffer for strconv.AppendInt to avoid allocations
+		var binBuf [8]byte
+		for i, v := range item.values {
+			if i > 0 {
+				sb.WriteByte(' ') // Add space separator between values
+			}
+			sb.WriteString("0b")
+			sb.Write(strconv.AppendInt(binBuf[:0], int64(v), 2))
+		}
 	}
 
 	sb.WriteByte('>') // Close the SML tag

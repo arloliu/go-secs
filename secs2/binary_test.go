@@ -12,72 +12,84 @@ import (
 
 func TestBinaryItem(t *testing.T) {
 	tests := []struct {
-		description     string // Test case description
-		input           []any  // Input
-		expectedSize    int    // expected result from Size()
-		expectedValues  []byte // expected result from Values()
-		expectedToBytes []byte // expected result from ToBytes()
-		expectedToSML   string // expected result from String()
+		description         string // Test case description
+		input               []any  // Input
+		expectedSize        int    // expected result from Size()
+		expectedValues      []byte // expected result from Values()
+		expectedToBytes     []byte // expected result from ToBytes()
+		expectedToSMLBinary string // expected result from String()
+		expectedToSMLHex    string // expected result from String()
 	}{
 		{
-			description:     "Size: 0",
-			input:           []any{},
-			expectedSize:    0,
-			expectedValues:  []byte{},
-			expectedToBytes: []byte{33, 0},
-			expectedToSML:   "<B[0]>",
+			description:         "Size: 0",
+			input:               []any{},
+			expectedSize:        0,
+			expectedValues:      []byte{},
+			expectedToBytes:     []byte{33, 0},
+			expectedToSMLBinary: "<B[0]>",
+			expectedToSMLHex:    "<B[0]>",
 		},
 		{
-			description:     "Size: 1, Byte input",
-			input:           []any{byte(0)},
-			expectedSize:    1,
-			expectedValues:  []byte{0},
-			expectedToBytes: []byte{33, 1, 0},
-			expectedToSML:   "<B[1] 0b0>",
+			description:         "Size: 1, Byte input",
+			input:               []any{byte(0)},
+			expectedSize:        1,
+			expectedValues:      []byte{0},
+			expectedToBytes:     []byte{33, 1, 0},
+			expectedToSMLBinary: "<B[1] 0b0>",
+			expectedToSMLHex:    "<B[1] 0x00>",
 		},
 		{
-			description:     "Size: 3, Byte input",
-			input:           []any{byte(1), byte(2), byte(255)},
-			expectedSize:    3,
-			expectedValues:  []byte{1, 2, 255},
-			expectedToBytes: []byte{33, 3, 1, 2, 255},
-			expectedToSML:   "<B[3] 0b1 0b10 0b11111111>",
+			description:         "Size: 3, Byte input",
+			input:               []any{byte(1), byte(2), byte(255)},
+			expectedSize:        3,
+			expectedValues:      []byte{1, 2, 255},
+			expectedToBytes:     []byte{33, 3, 1, 2, 255},
+			expectedToSMLBinary: "<B[3] 0b1 0b10 0b11111111>",
+			expectedToSMLHex:    "<B[3] 0x01 0x02 0xFF>",
 		},
 		{
-			description:     "Size: 3, Byte slice input",
-			input:           []any{[]byte{1, 2, 255}},
-			expectedSize:    3,
-			expectedValues:  []byte{1, 2, 255},
-			expectedToBytes: []byte{33, 3, 1, 2, 255},
-			expectedToSML:   "<B[3] 0b1 0b10 0b11111111>",
+			description:         "Size: 3, Byte slice input",
+			input:               []any{[]byte{1, 2, 255}},
+			expectedSize:        3,
+			expectedValues:      []byte{1, 2, 255},
+			expectedToBytes:     []byte{33, 3, 1, 2, 255},
+			expectedToSMLBinary: "<B[3] 0b1 0b10 0b11111111>",
+			expectedToSMLHex:    "<B[3] 0x01 0x02 0xFF>",
 		},
 		{
-			description:     "Size: 3, Integer input",
-			input:           []any{1, 2, 255},
-			expectedSize:    3,
-			expectedValues:  []byte{1, 2, 255},
-			expectedToBytes: []byte{33, 3, 1, 2, 255},
-			expectedToSML:   "<B[3] 0b1 0b10 0b11111111>",
+			description:         "Size: 3, Integer input",
+			input:               []any{1, 2, 255},
+			expectedSize:        3,
+			expectedValues:      []byte{1, 2, 255},
+			expectedToBytes:     []byte{33, 3, 1, 2, 255},
+			expectedToSMLBinary: "<B[3] 0b1 0b10 0b11111111>",
+			expectedToSMLHex:    "<B[3] 0x01 0x02 0xFF>",
 		},
 		{
-			description:     "Size: 3, Binary string input",
-			input:           []any{"0b00", "0b01", "0b11111111"},
-			expectedSize:    3,
-			expectedValues:  []byte{0, 1, 255},
-			expectedToBytes: []byte{33, 3, 0, 1, 255},
-			expectedToSML:   "<B[3] 0b0 0b1 0b11111111>",
+			description:         "Size: 3, Binary string input",
+			input:               []any{"0b00", "0b01", "0b11111111"},
+			expectedSize:        3,
+			expectedValues:      []byte{0, 1, 255},
+			expectedToBytes:     []byte{33, 3, 0, 1, 255},
+			expectedToSMLBinary: "<B[3] 0b0 0b1 0b11111111>",
+			expectedToSMLHex:    "<B[3] 0x00 0x01 0xFF>",
 		},
 		{
-			description:     "Size: 7, Integer, byte and binary string input",
-			input:           []any{1, byte(2), "0b1111", []byte{10, 55, 255}, byte(42)},
-			expectedSize:    7,
-			expectedValues:  []byte{1, 2, 15, 10, 55, 255, 42},
-			expectedToBytes: []byte{33, 7, 1, 2, 15, 10, 55, 255, 42},
-			expectedToSML:   "<B[7] 0b1 0b10 0b1111 0b1010 0b110111 0b11111111 0b101010>",
+			description:         "Size: 7, Integer, byte and binary string input",
+			input:               []any{1, byte(2), "0b1111", []byte{10, 55, 255}, byte(42)},
+			expectedSize:        7,
+			expectedValues:      []byte{1, 2, 15, 10, 55, 255, 42},
+			expectedToBytes:     []byte{33, 7, 1, 2, 15, 10, 55, 255, 42},
+			expectedToSMLBinary: "<B[7] 0b1 0b10 0b1111 0b1010 0b110111 0b11111111 0b101010>",
+			expectedToSMLHex:    "<B[7] 0x01 0x02 0x0F 0x0A 0x37 0xFF 0x2A>",
 		},
 	}
 
 	require := require.New(t)
+
+	t.Cleanup(func() {
+		UseBinaryLiteral()
+	})
 
 	for i, test := range tests {
 		t.Logf("Test #%d: %s", i, test.description)
@@ -85,7 +97,10 @@ func TestBinaryItem(t *testing.T) {
 		require.NoError(item.Error())
 		require.Equal(test.expectedToBytes, item.ToBytes())
 		require.Equal(test.expectedSize, item.Size())
-		require.Equal(test.expectedToSML, item.ToSML())
+		UseBinaryLiteral()
+		require.Equal(test.expectedToSMLBinary, item.ToSML())
+		UseHexLiteral()
+		require.Equal(test.expectedToSMLHex, item.ToSML())
 		require.Equal(test.expectedValues, item.Values().([]byte))
 
 		val, err := item.ToBinary()
@@ -106,14 +121,20 @@ func TestBinaryItem(t *testing.T) {
 		require.NoError(err)
 		require.Equal(test.expectedSize, emptyItem.Size())
 		require.Equal(test.expectedToBytes, emptyItem.ToBytes())
-		require.Equal(test.expectedToSML, emptyItem.ToSML())
+		UseBinaryLiteral()
+		require.Equal(test.expectedToSMLBinary, emptyItem.ToSML())
+		UseHexLiteral()
+		require.Equal(test.expectedToSMLHex, emptyItem.ToSML())
 		require.Equal(test.expectedValues, emptyItem.Values().([]byte))
 
 		// clone a item, it should contains the same content as original item.
 		clonedItem := item.Clone()
 		require.Equal(test.expectedSize, clonedItem.Size())
 		require.Equal(test.expectedToBytes, clonedItem.ToBytes())
-		require.Equal(test.expectedToSML, clonedItem.ToSML())
+		UseBinaryLiteral()
+		require.Equal(test.expectedToSMLBinary, clonedItem.ToSML())
+		UseHexLiteral()
+		require.Equal(test.expectedToSMLHex, clonedItem.ToSML())
 		require.Equal(test.expectedValues, clonedItem.Values().([]byte))
 
 		// set a random string to cloned item
