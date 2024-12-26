@@ -15,6 +15,7 @@ const (
 	BinaryType  = "binary"
 	BooleanType = "boolean"
 	ASCIIType   = "ascii"
+	JIS8Type    = "jis8"
 	Int8Type    = "i1"
 	Int16Type   = "i2"
 	Int32Type   = "i4"
@@ -36,6 +37,7 @@ const (
 	BinaryFormatCode  FormatCode = 0o10
 	BooleanFormatCode FormatCode = 0o11
 	ASCIIFormatCode   FormatCode = 0o20
+	JIS8FormatCode    FormatCode = 0o21
 	Int64FormatCode   FormatCode = 0o30
 	Int8FormatCode    FormatCode = 0o31
 	Int16FormatCode   FormatCode = 0o32
@@ -58,6 +60,7 @@ var itemTypeMap = map[string]*itemType{
 	BinaryType:  {FormatCode: BinaryFormatCode, Size: 1},
 	BooleanType: {FormatCode: BooleanFormatCode, Size: 1},
 	ASCIIType:   {FormatCode: ASCIIFormatCode, Size: 1},
+	JIS8Type:    {FormatCode: JIS8FormatCode, Size: 1},
 	Int64Type:   {FormatCode: Int64FormatCode, Size: 8},
 	Int8Type:    {FormatCode: Int8FormatCode, Size: 1},
 	Int16Type:   {FormatCode: Int16FormatCode, Size: 2},
@@ -123,6 +126,10 @@ type Item interface {
 	// It returns an error if the item is not an ASCII item.
 	ToASCII() (string, error)
 
+	// ToJIS8 retrieves the JIS-8 string if the item is an JIS8Item.
+	// It returns an error if the item is not an JIS-8 item.
+	ToJIS8() (string, error)
+
 	// ToInt retrieves the signed integer values as int64 if the item is an IntItem.
 	// It returns an error if the item is not an integer item.
 	ToInt() ([]int64, error)
@@ -181,6 +188,9 @@ type Item interface {
 
 	// IsASCII returns true if the item is an ASCIIItem, false otherwise.
 	IsASCII() bool
+
+	// IsJIS8 returns true if the item is an JIS8Item, false otherwise.
+	IsJIS8() bool
 
 	// IsInt8 returns true if the item is an Int8Item, false otherwise.
 	IsInt8() bool
@@ -324,49 +334,56 @@ type baseItem struct {
 }
 
 func (item *baseItem) ToList() ([]Item, error) {
-	err := newItemErrorWithMsg("method GetList not implemented")
+	err := newItemErrorWithMsg("method ToList not implemented")
 	item.setError(err)
 
 	return nil, err
 }
 
 func (item *baseItem) ToBinary() ([]byte, error) {
-	err := newItemErrorWithMsg("method GetBinary not implemented")
+	err := newItemErrorWithMsg("method ToBinary not implemented")
 	item.setError(err)
 
 	return nil, err
 }
 
 func (item *baseItem) ToBoolean() ([]bool, error) {
-	err := newItemErrorWithMsg("method GetBoolean not implemented")
+	err := newItemErrorWithMsg("method ToBoolean not implemented")
 	item.setError(err)
 
 	return nil, err
 }
 
 func (item *baseItem) ToASCII() (string, error) {
-	err := newItemErrorWithMsg("method GetASCII not implemented")
+	err := newItemErrorWithMsg("method ToASCII not implemented")
+	item.setError(err)
+
+	return "", err
+}
+
+func (item *baseItem) ToJIS8() (string, error) {
+	err := newItemErrorWithMsg("method ToJIS8 not implemented")
 	item.setError(err)
 
 	return "", err
 }
 
 func (item *baseItem) ToInt() ([]int64, error) {
-	err := newItemErrorWithMsg("method GetInt not implemented")
+	err := newItemErrorWithMsg("method ToInt not implemented")
 	item.setError(err)
 
 	return nil, err
 }
 
 func (item *baseItem) ToUint() ([]uint64, error) {
-	err := newItemErrorWithMsg("method GetUint not implemented")
+	err := newItemErrorWithMsg("method ToUint not implemented")
 	item.setError(err)
 
 	return nil, err
 }
 
 func (item *baseItem) ToFloat() ([]float64, error) {
-	err := newItemErrorWithMsg("method GetFloat not implemented")
+	err := newItemErrorWithMsg("method ToFloat not implemented")
 	item.setError(err)
 
 	return nil, err
@@ -384,6 +401,7 @@ func (item *baseItem) IsList() bool    { return false }
 func (item *baseItem) IsBinary() bool  { return false }
 func (item *baseItem) IsBoolean() bool { return false }
 func (item *baseItem) IsASCII() bool   { return false }
+func (item *baseItem) IsJIS8() bool    { return false }
 func (item *baseItem) IsInt8() bool    { return false }
 func (item *baseItem) IsInt16() bool   { return false }
 func (item *baseItem) IsInt32() bool   { return false }

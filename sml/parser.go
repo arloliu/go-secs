@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/arloliu/go-secs/hsms"
 	"github.com/arloliu/go-secs/secs2"
@@ -254,6 +255,8 @@ func (p *HSMSParser) parseItem() (secs2.Item, error) {
 		} else {
 			item, err = p.parseASCIIFast()
 		}
+	case secs2.JIS8FormatCode:
+		item, err = p.parseJIS8()
 	case secs2.BooleanFormatCode:
 		item, err = p.parseBoolean(maxSize)
 	case secs2.BinaryFormatCode:
@@ -463,6 +466,52 @@ func (p *HSMSParser) parseASCIIFast() (secs2.Item, error) {
 	return nil, errors.New("unclosed quote string")
 }
 
+// paseJIS8 parses a JIS-8 data item from the input string.
+//
+// It returns the parsed JIS-8 item as a secs2.Item and an error if any occurred during parsing.
+func (p *HSMSParser) parseJIS8() (secs2.Item, error) {
+	// consume first quote
+	ch := p.nextNonSpaceRune()
+
+	if ch == '>' { // empty string
+		return secs2.NewJIS8Item(""), nil
+	}
+
+	if ch != '\'' && ch != '"' {
+		return nil, errors.New("invalid quote for JIS-8 string")
+	}
+
+	quoteCh := ch
+	quoteCount := 0
+	lastQuotePos := 0
+
+	for i, ch := range p.data {
+		switch ch {
+		case quoteCh:
+			quoteCount++
+			lastQuotePos = i
+
+		case '>':
+			// check if the pattern is "'>"
+			if lastQuotePos < i-1 {
+				continue
+			}
+
+			data := p.data[:lastQuotePos]
+			p.forward(i + 1)
+
+			return secs2.NewJIS8Item(data), nil
+
+		default:
+			if utf8.ValidRune(ch) {
+				return nil, fmt.Errorf("out of utf-8 range, got %d", ch)
+			}
+		}
+	}
+
+	return nil, errors.New("unclosed quote string")
+}
+
 func (p *HSMSParser) parseBoolean(size int) (secs2.Item, error) {
 	items := make([]bool, 0, size)
 	values := p.getItemValueStrings()
@@ -641,6 +690,10 @@ func (p *HSMSParser) parseItemType() (secs2.FormatCode, bool) {
 	case 'A':
 		p.forward(1)
 		return secs2.ASCIIFormatCode, true
+
+	case 'J':
+		p.forward(1)
+		return secs2.JIS8FormatCode, true
 
 	case 'B':
 		if hasSecondChar {

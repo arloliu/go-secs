@@ -8,6 +8,10 @@ var L = NewListItem
 // It's equivalent to calling NewASCIIItem.
 var A = NewASCIIItem
 
+// J is a shorthand function for creating a new JIS8Item.
+// It's equivalent to calling NewJIS8Item.
+var J = NewJIS8Item
+
 // B is a shorthand function for creating a new BinaryItem.
 // It's equivalent to calling NewBinaryItem.
 var B = NewBinaryItem

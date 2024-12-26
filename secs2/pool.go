@@ -6,6 +6,7 @@ import (
 
 var (
 	asciiItemPool  = sync.Pool{New: func() any { return &ASCIIItem{} }}
+	jis8ItemPool   = sync.Pool{New: func() any { return &JIS8Item{} }}
 	boolItemPool   = sync.Pool{New: func() any { return &BooleanItem{values: []bool{}} }}
 	binaryItemPool = sync.Pool{New: func() any { return &BinaryItem{values: []byte{}} }}
 	intItemPool    = sync.Pool{New: func() any { return &IntItem{values: []int64{}} }}
@@ -30,6 +31,25 @@ func getASCIIItem() *ASCIIItem {
 func putASCIIItem(item *ASCIIItem) {
 	if usePool {
 		asciiItemPool.Put(item)
+	}
+}
+
+func getJIS8Item() *JIS8Item {
+	if usePool {
+		item, _ := jis8ItemPool.Get().(*JIS8Item)
+		if item == nil {
+			return &JIS8Item{}
+		}
+
+		return item
+	}
+
+	return &JIS8Item{}
+}
+
+func putJIS8Item(item *JIS8Item) {
+	if usePool {
+		jis8ItemPool.Put(item)
 	}
 }
 
