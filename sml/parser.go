@@ -376,8 +376,8 @@ func (p *HSMSParser) parseASCIIStrict(size int) (secs2.Item, error) {
 				if err != nil {
 					return nil, err
 				}
-				if val > unicode.MaxASCII {
-					return nil, fmt.Errorf("non-printable char out of ASCII range, got %d", val)
+				if val > unicode.MaxLatin1 {
+					return nil, fmt.Errorf("non-printable char out of latin-1 range, got %d", val)
 				}
 				sb.WriteByte(byte(val))
 				numStr = ""
@@ -412,8 +412,7 @@ func (p *HSMSParser) parseASCIIStrict(size int) (secs2.Item, error) {
 // parseASCIIFast parses an ASCII data item from the input string in fast mode.
 //
 // In fast mode, the parser optimizes for performance by making certain assumptions about the input:
-//   - It assumes that the ASCII string does not contain the same quote character as the one used
-//     to enclose the ASCII item.
+//   - It only detects the first quote + right angle bracket ("'>") pattern to identify the end of the ASCII item.
 //   - It does not handle escape sequences.
 //
 // Note: The detection of the same quote character in fast mode is not exhaustive. There might be cases where
@@ -444,13 +443,20 @@ func (p *HSMSParser) parseASCIIFast() (secs2.Item, error) {
 			lastQuotePos = i
 
 		case '>':
-			if quoteCount == 0 {
-				return nil, errors.New("unclosed quote string")
+			// check if the pattern is "'>"
+			if lastQuotePos < i-1 {
+				continue
 			}
+
 			data := p.data[:lastQuotePos]
 			p.forward(i + 1)
 
 			return secs2.NewASCIIItem(data), nil
+
+		default:
+			if ch > unicode.MaxLatin1 {
+				return nil, fmt.Errorf("out of latin-1 range, got %d", ch)
+			}
 		}
 	}
 

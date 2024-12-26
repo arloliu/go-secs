@@ -170,6 +170,104 @@ func TestParseHSMS_NoErrorCases_NonStrictMode(t *testing.T) {
 	checkTestCase(t, tests)
 }
 
+func TestParseHSMS_parseItem_ASCII(t *testing.T) {
+	secs2.UseASCIISingleQuote()
+	WithStrictMode(false)
+
+	testcases := []struct {
+		description    string
+		strictMode     bool
+		sml            string
+		expectedStr    string
+		expectedErrStr string
+	}{
+		{
+			description: "ASCII normal string",
+			strictMode:  false,
+			sml:         "<A 'text'>",
+			expectedStr: "text",
+		},
+		{
+			description: "ASCII unescaped single quote with characters",
+			strictMode:  false,
+			sml:         "<A[5] 'a'b'c'>",
+			expectedStr: "a'b'c",
+		},
+		{
+			description: "ASCII unescaped single quote only",
+			strictMode:  false,
+			sml:         "<A[2] ''''>",
+			expectedStr: "''",
+		},
+		{
+			description: "ASCII unescaped single quote with new line",
+			strictMode:  false,
+			sml:         "<A[3] '''\n'>",
+			expectedStr: "''\n",
+		},
+		{
+			description: "ASCII extended character",
+			strictMode:  false,
+			sml:         "<A[1] '©'>",
+			expectedStr: "©",
+		},
+		{
+			description: "ASCII unescaped single quote,  with characters, with new line",
+			strictMode:  false,
+			sml:         "<A[4] 'a''\n'>",
+			expectedStr: "a''\n",
+		},
+		{
+			description: "ASCII special characters",
+			strictMode:  false,
+			sml:         "<A[31] '~`!@#$%^&*()_+-=[]\\{}|:;,./<>?\"'>",
+			expectedStr: "~`!@#$%^&*()_+-=[]\\{}|:;,./<>?\"",
+		},
+		{
+			description:    "invalid ASCII quote",
+			strictMode:     false,
+			sml:            "<A[1] abcd'>",
+			expectedErrStr: "invalid quote for ASCII string",
+		},
+		{
+			description:    "invalid ASCII quote",
+			strictMode:     false,
+			sml:            "<A[1] abcd'>",
+			expectedErrStr: "invalid quote for ASCII string",
+		},
+		{
+			description:    "out of latin-1 range",
+			strictMode:     false,
+			sml:            "<A[1] '中文'>",
+			expectedErrStr: "out of latin-1 range",
+		},
+	}
+
+	require := require.New(t)
+
+	for i, tt := range testcases {
+		t.Logf("Test #%d: %s", i, tt.description)
+		parser := NewHSMSParser()
+		parser.WithStrictMode(tt.strictMode)
+		parser.input = tt.sml
+		parser.data = tt.sml
+		parser.len = len(tt.sml)
+		parser.pos = 0
+
+		item, err := parser.parseItem()
+		if len(tt.expectedErrStr) > 0 {
+			require.Nil(item)
+			require.ErrorContains(err, tt.expectedErrStr)
+		} else {
+			require.NoError(err)
+			require.NotNil(item)
+			str, err := item.ToASCII()
+			require.NoError(err)
+			require.Equal(tt.expectedStr, str)
+		}
+	}
+}
+
 func commonTestCases() []testCase {
 	return []testCase{
 		{
@@ -357,10 +455,16 @@ func TestParseHSMS_ASCII_ErrorCases_NonStrictMode(t *testing.T) {
 			expectedErrStr:    "invalid quote for ASCII string",
 		},
 		{
-			description:       "unexpected token (> in quote string)",
-			input:             "S0F0\n<A 'ab>'> .",
+			description:       "unexpected token (has extra >)",
+			input:             "S0F0\n<A 'ab>'>> .",
 			expectedNumOfMsgs: 0,
-			expectedErrStr:    "unclosed quote string",
+			expectedErrStr:    "expect dot in the end",
+		},
+		{
+			description:       "unexpected token (has '> in quote string)",
+			input:             "S0F0\n<L <A 'ab'>'> <A 'second'> >.",
+			expectedNumOfMsgs: 0,
+			expectedErrStr:    "expected child data item",
 		},
 	}
 
@@ -384,10 +488,10 @@ func TestParseHSMS_ASCII_ErrorCases_StrictMode(t *testing.T) {
 			expectedErrStr:    "invalid syntax",
 		},
 		{
-			description:       "ASCII number character out of range",
-			input:             "S0F0\n<A 128> .",
+			description:       "ASCII number character out of latin-1 range",
+			input:             "S0F0\n<A 256> .",
 			expectedNumOfMsgs: 0,
-			expectedErrStr:    "out of ASCII range",
+			expectedErrStr:    "out of latin-1 range",
 		},
 		{
 			description:       "unexpected token (invalid token)",
@@ -402,7 +506,7 @@ func TestParseHSMS_ASCII_ErrorCases_StrictMode(t *testing.T) {
 			expectedErrStr:    "unclosed quote string",
 		},
 		{
-			description:       "unexpected token (> in quote string)",
+			description:       "unexpected token (extra > in quote string)",
 			input:             "S0F0\n<A 'ab>'> .",
 			expectedNumOfMsgs: 0,
 			expectedErrStr:    "unclosed quote string",

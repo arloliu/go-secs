@@ -297,7 +297,7 @@ func TestParser_ASCII_ErrorCases(t *testing.T) {
 			input:             "S0F0\n<A \"စာသား\"> .",
 			expectedNumOfMsgs: 0,
 			expectedNumOfErrs: 1,
-			expectedErrStr:    []string{"expected ASCII"},
+			expectedErrStr:    []string{"expected latin-1 characters"},
 		},
 		{
 			description:       "invalid character number code",

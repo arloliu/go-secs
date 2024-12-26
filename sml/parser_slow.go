@@ -444,9 +444,9 @@ func (p *parser) parseASCII() (item secs2.Item, ok bool) {
 			// val, _ := unquoteString(t.val)
 			val := t.val
 			for _, r := range val {
-				if r > unicode.MaxASCII {
+				if r > unicode.MaxLatin1 {
 					val = ""
-					p.errorf("expected ASCII characters, found %q", r)
+					p.errorf("expected latin-1 characters, found %q", r)
 					break
 				}
 			}
