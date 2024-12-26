@@ -136,8 +136,8 @@ func (item *ASCIIItem) SetValues(values ...any) error {
 	}
 
 	for _, ch := range itemValue {
-		if ch > unicode.MaxASCII {
-			item.setErrorMsg("encountered non-ASCII character")
+		if ch > unicode.MaxLatin1 {
+			item.setErrorMsg("encountered non-latin-1 character")
 			return item.Error()
 		}
 	}
