@@ -253,7 +253,7 @@ func (p *HSMSParser) parseItem() (secs2.Item, error) {
 		if p.strictMode.Load() {
 			item, err = p.parseASCIIStrict(maxSize)
 		} else {
-			item, err = p.parseASCIIFast()
+			item, err = p.parseASCIIFast(maxSize)
 		}
 	case secs2.JIS8FormatCode:
 		item, err = p.parseJIS8()
@@ -423,7 +423,7 @@ func (p *HSMSParser) parseASCIIStrict(size int) (secs2.Item, error) {
 // it's recommended to use strict mode (WithStrictMode(true)) for more reliable parsing.
 //
 // It returns the parsed ASCII item as a secs2.Item and an error if any occurred during parsing.
-func (p *HSMSParser) parseASCIIFast() (secs2.Item, error) {
+func (p *HSMSParser) parseASCIIFast(maxSize int) (secs2.Item, error) {
 	// consume first quote
 	ch := p.nextNonSpaceRune()
 
@@ -431,35 +431,37 @@ func (p *HSMSParser) parseASCIIFast() (secs2.Item, error) {
 		return secs2.NewASCIIItem(""), nil
 	}
 
+	// check if the first quote is valid
 	if ch != '\'' && ch != '"' {
 		return nil, errors.New("invalid quote for ASCII string")
 	}
 
-	quoteCh := ch
-	quoteCount := 0
-	lastQuotePos := 0
+	quoteCh := byte(ch)
 
-	for i, ch := range p.data {
-		switch ch {
-		case quoteCh:
-			quoteCount++
-			lastQuotePos = i
+	// use size hint to parse ASCII item.
+	// this is the optimized method when the size hint is provided.
+	if maxSize > 0 {
+		// the data length should be >= maxSize + 2 (quote + right angle bracket)
+		if len(p.data) < maxSize+2 {
+			return nil, fmt.Errorf("ASCII item size overflow, expect (%d+2), got %d", maxSize, len(p.data))
+		}
 
-		case '>':
-			// check if the pattern is "'>"
-			if lastQuotePos < i-1 {
-				continue
-			}
-
-			data := p.data[:lastQuotePos]
-			p.forward(i + 1)
-
+		// check if the pattern is "'>" at the end, if so, return the ASCII item without further parsing.
+		if p.data[maxSize] == quoteCh && p.data[maxSize+1] == '>' {
+			data := p.data[:maxSize]
+			p.forward(maxSize + 2)
 			return secs2.NewASCIIItem(data), nil
+		}
+	}
 
-		default:
-			if ch > unicode.MaxLatin1 {
-				return nil, fmt.Errorf("out of latin-1 range, got %d", ch)
-			}
+	// parse ASCII item byte-by-byte until the end of the item.
+	// this is the fallback method when the size hint is not provided or the pattern "'>" is not found at the end.
+	for i := 0; i < len(p.data); i++ {
+		// check if the pattern is "'>" at the end and ensure the access index is within the data length.
+		if p.data[i] == quoteCh && i+1 < len(p.data) && p.data[i+1] == '>' {
+			data := p.data[:i]
+			p.forward(i + 2)
+			return secs2.NewASCIIItem(data), nil
 		}
 	}
 

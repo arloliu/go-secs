@@ -2,7 +2,9 @@ package secs2
 
 import (
 	"fmt"
+	"math/rand"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 )
@@ -99,7 +101,7 @@ func TestJIS8Item_Create(t *testing.T) {
 		require.Equal(test.input, clonedStr)
 
 		// set a random string to cloned item
-		randVal := genRandomASCIIString(test.expectedSize)
+		randVal := generateRandomUTF8String(test.expectedSize)
 		err = clonedItem.SetValues(randVal)
 		require.NoError(err)
 		require.Equal(test.expectedSize, clonedItem.Size())
@@ -118,7 +120,7 @@ func TestJIS8Item_Create(t *testing.T) {
 	require.Error(item.Error())
 
 	for i := 0; i < 100; i++ {
-		item := NewJIS8Item(genRandomASCIIString(i + 1))
+		item := NewJIS8Item(generateRandomUTF8String(i + 1))
 		require.NoError(item.Error())
 	}
 }
@@ -164,7 +166,7 @@ func TestJIS8Item_SetValues(t *testing.T) {
 }
 
 func BenchmarkJIS8Item_Create(b *testing.B) {
-	values := genRandomASCIIString(1000)
+	values := generateRandomUTF8String(1000)
 
 	b.ResetTimer()
 	for i := 0; i <= b.N; i++ {
@@ -174,7 +176,7 @@ func BenchmarkJIS8Item_Create(b *testing.B) {
 }
 
 func BenchmarkJIS8Item_ToBytes(b *testing.B) {
-	values := genRandomASCIIString(1000)
+	values := generateRandomUTF8String(1000)
 
 	item, _ := NewJIS8Item(values).(*JIS8Item)
 
@@ -186,7 +188,7 @@ func BenchmarkJIS8Item_ToBytes(b *testing.B) {
 }
 
 func BenchmarkJIS8Item_ToSML(b *testing.B) {
-	values := genRandomASCIIString(1000)
+	values := generateRandomUTF8String(1000)
 
 	item, _ := NewJIS8Item(values).(*JIS8Item)
 
@@ -195,4 +197,37 @@ func BenchmarkJIS8Item_ToSML(b *testing.B) {
 		_ = item.ToSML()
 	}
 	b.StopTimer()
+}
+
+// generateRandomUTF8String generates a random valid UTF-8 string of a given size (in bytes).
+func generateRandomUTF8String(size int) string {
+	if size <= 0 {
+		return ""
+	}
+
+	result := make([]byte, size)
+	for i := 0; i < size; {
+		// generate a random rune
+		r := rune(rand.Intn(0x10FFFF + 1)) // generate rune up to the maximum valid code point
+
+		// encode the rune to UTF-8
+		if r <= 0x7F {
+			// if it is a single-byte character, write it directly
+			result[i] = byte(r)
+			i++
+		} else if utf8.ValidRune(r) {
+			// for multi-byte characters, encode and write
+			runeSize := utf8.RuneLen(r)
+
+			if i+runeSize > size {
+				// not enough space for the current rune, try generating another one
+				continue
+			}
+
+			utf8.EncodeRune(result[i:i+runeSize], r)
+			i += runeSize
+		}
+	}
+
+	return string(result)
 }

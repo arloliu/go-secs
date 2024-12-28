@@ -182,6 +182,30 @@ func TestParseHSMS_parseItem_ASCII(t *testing.T) {
 		expectedErrStr string
 	}{
 		{
+			description: "ASCII empty string with quote, with size hint",
+			strictMode:  false,
+			sml:         "<A[0] ''>",
+			expectedStr: "",
+		},
+		{
+			description: "ASCII empty string with quote, without size hint",
+			strictMode:  false,
+			sml:         "<A ''>",
+			expectedStr: "",
+		},
+		{
+			description: "ASCII empty string without quote, with size hint",
+			strictMode:  false,
+			sml:         "<A[0]>",
+			expectedStr: "",
+		},
+		{
+			description: "ASCII empty string without quote, without size hint",
+			strictMode:  false,
+			sml:         "<A>",
+			expectedStr: "",
+		},
+		{
 			description: "ASCII normal string",
 			strictMode:  false,
 			sml:         "<A 'text'>",
@@ -208,8 +232,20 @@ func TestParseHSMS_parseItem_ASCII(t *testing.T) {
 		{
 			description: "ASCII extended character",
 			strictMode:  false,
-			sml:         "<A[1] '©'>",
-			expectedStr: "©",
+			sml:         "<A[1] '\xa9'>",
+			expectedStr: "\xa9",
+		},
+		{
+			description: "ASCII string with size hint, with extended character",
+			strictMode:  false,
+			sml:         "<A[4] '\xa9abc'>",
+			expectedStr: "\xa9abc",
+		},
+		{
+			description: "ASCII string without size hint, with extended character",
+			strictMode:  false,
+			sml:         "<A '\xa9abc'>",
+			expectedStr: "\xa9abc",
 		},
 		{
 			description: "ASCII unescaped single quote,  with characters, with new line",
@@ -218,16 +254,34 @@ func TestParseHSMS_parseItem_ASCII(t *testing.T) {
 			expectedStr: "a''\n",
 		},
 		{
-			description: "ASCII special characters",
+			description: "ASCII '> in quote string, with size hint",
+			strictMode:  false,
+			sml:         "<A[5] 'ab'>c'>",
+			expectedStr: "ab'>c",
+		},
+		{
+			description: "ASCII '> in quote string, without size hint",
+			strictMode:  false,
+			sml:         "<A 'ab'>c'>",
+			expectedStr: "ab",
+		},
+		{
+			description: "ASCII special characters, with size hint",
 			strictMode:  false,
 			sml:         "<A[31] '~`!@#$%^&*()_+-=[]\\{}|:;,./<>?\"'>",
 			expectedStr: "~`!@#$%^&*()_+-=[]\\{}|:;,./<>?\"",
 		},
 		{
-			description:    "invalid ASCII quote",
+			description: "ASCII special characters, without size hint",
+			strictMode:  false,
+			sml:         "<A '~`!@#$%^&*()_+-=[]\\{}|:;,./<>?\"'>",
+			expectedStr: "~`!@#$%^&*()_+-=[]\\{}|:;,./<>?\"",
+		},
+		{
+			description:    "invalid size hint, size larger than actual string",
 			strictMode:     false,
-			sml:            "<A[1] abcd'>",
-			expectedErrStr: "invalid quote for ASCII string",
+			sml:            "<A[5] 'abcd'>",
+			expectedErrStr: "size overflow",
 		},
 		{
 			description:    "invalid ASCII quote",
@@ -236,10 +290,10 @@ func TestParseHSMS_parseItem_ASCII(t *testing.T) {
 			expectedErrStr: "invalid quote for ASCII string",
 		},
 		{
-			description:    "out of latin-1 range",
+			description:    "invalid ASCII quote",
 			strictMode:     false,
-			sml:            "<A[1] '中文'>",
-			expectedErrStr: "out of latin-1 range",
+			sml:            "<A[1] abcd'>",
+			expectedErrStr: "invalid quote for ASCII string",
 		},
 	}
 

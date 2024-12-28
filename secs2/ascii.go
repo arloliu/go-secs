@@ -6,9 +6,10 @@ import (
 	"strings"
 	"sync/atomic"
 	"unicode"
+	"unsafe"
 )
 
-var asciiQuote = '"'
+var asciiQuote byte = '"'
 
 // UseASCIISingleQuote sets the quoting character for ASCII items in SML to a single quote (').
 func UseASCIISingleQuote() {
@@ -22,7 +23,7 @@ func UseASCIIDoubleQuote() {
 
 // ASCIIQuote returns the quote of ASCII items
 func ASCIIQuote() rune {
-	return asciiQuote
+	return rune(asciiQuote)
 }
 
 var asciiStrictMode atomic.Bool
@@ -50,7 +51,7 @@ func WithASCIIStrictMode(enable bool) {
 // can only store a single string value.
 type ASCIIItem struct {
 	baseItem
-	value string // The ASCII string literal
+	value []byte // The ASCII byte literal
 }
 
 // NewASCIIItem creates a new ASCIIItem containing the given ASCII string.
@@ -93,7 +94,7 @@ func (item *ASCIIItem) Get(indices ...int) (Item, error) {
 
 // ToASCII retrieves the ASCII data stored within the item.
 func (item *ASCIIItem) ToASCII() (string, error) {
-	return item.value, nil
+	return bytesToString(item.value), nil
 }
 
 // Values retrieves the ASCII string value as the any data format stored in the item.
@@ -103,13 +104,13 @@ func (item *ASCIIItem) ToASCII() (string, error) {
 //
 // The returned value can be type-asserted to a `string`.
 func (item *ASCIIItem) Values() any {
-	return item.value
+	return bytesToString(item.value)
 }
 
 // SetValues sets the ASCII string for the item.
 //
 // This method implements the Item.SetValues() interface.
-// It accepts one or more values, which must all be of type `string`.
+// It accepts one or more values, which must be of type `string` or `[]byte`.
 // All provided string values are concatenated and stored within the item.
 //
 // If any of the provided values are not of type `string`, an error is returned
@@ -117,16 +118,31 @@ func (item *ASCIIItem) Values() any {
 func (item *ASCIIItem) SetValues(values ...any) error {
 	item.resetError()
 
-	var itemValue string
-	for _, value := range values {
-		strVal, ok := value.(string)
-		if !ok {
-			err := newItemErrorWithMsg("the value is not a string")
+	var itemValue []byte
+	if len(values) == 1 { // avoid memory allocation if there is only one value
+		switch val := values[0].(type) {
+		case string:
+			itemValue = stringToBytes(val)
+		case []byte:
+			itemValue = val
+		default:
+			err := newItemErrorWithMsg("the value is not a string or []byte")
 			item.setError(err)
 			return err
 		}
-
-		itemValue += strVal
+	} else {
+		for _, value := range values {
+			switch val := value.(type) {
+			case string:
+				itemValue = append(itemValue, stringToBytes(val)...)
+			case []byte:
+				itemValue = append(itemValue, val...)
+			default:
+				err := newItemErrorWithMsg("the value is not a string")
+				item.setError(err)
+				return err
+			}
+		}
 	}
 
 	dataBytes, _ := getDataByteLength(ASCIIType, len(itemValue))
@@ -135,10 +151,12 @@ func (item *ASCIIItem) SetValues(values ...any) error {
 		return item.Error()
 	}
 
-	for _, ch := range itemValue {
-		if ch > unicode.MaxLatin1 {
-			item.setErrorMsg("encountered non-latin-1 character")
-			return item.Error()
+	if asciiStrictMode.Load() {
+		for _, ch := range itemValue {
+			if ch > unicode.MaxASCII {
+				item.setErrorMsg("encountered non-ASCII character")
+				return item.itemErr
+			}
 		}
 	}
 
@@ -191,7 +209,7 @@ func (item *ASCIIItem) ToSML() string {
 }
 
 func (item *ASCIIItem) toSMLStrict() string {
-	if item.value == "" {
+	if len(item.value) == 0 {
 		if asciiQuote == '"' {
 			return "<A[0] \"\">"
 		}
@@ -206,7 +224,7 @@ func (item *ASCIIItem) toSMLStrict() string {
 
 	_, _ = sb.WriteString("<A[")
 	sb.WriteString(sizeStr)
-	sb.WriteRune(']')
+	sb.WriteByte(']')
 
 	inPrintableRun := false
 
@@ -215,11 +233,11 @@ func (item *ASCIIItem) toSMLStrict() string {
 		isPrintable := ch >= 0x20 && ch != 0x7f
 
 		if isPrintable && !inPrintableRun {
-			sb.WriteRune(' ')
-			sb.WriteRune(asciiQuote) // Start a printable run
+			sb.WriteByte(' ')
+			sb.WriteByte(asciiQuote) // Start a printable run
 			inPrintableRun = true
 		} else if !isPrintable && inPrintableRun {
-			sb.WriteRune(asciiQuote) // End a printable run
+			sb.WriteByte(asciiQuote) // End a printable run
 			inPrintableRun = false
 		}
 
@@ -227,23 +245,23 @@ func (item *ASCIIItem) toSMLStrict() string {
 			if ch == asciiQuote { // write escape char for quote
 				sb.WriteRune('\\')
 			}
-			sb.WriteRune(ch)
+			sb.WriteByte(ch)
 		} else {
 			_, _ = fmt.Fprintf(&sb, " 0x%02X", ch) // 0xNN format
 		}
 	}
 
 	if inPrintableRun {
-		sb.WriteRune(asciiQuote) // Close the final printable run if needed
+		sb.WriteByte(asciiQuote) // Close the final printable run if needed
 	}
 
-	sb.WriteRune('>') // Add the closing tag
+	sb.WriteByte('>') // Add the closing tag
 
 	return sb.String()
 }
 
 func (item *ASCIIItem) toSMLFast() string {
-	if item.value == "" {
+	if len(item.value) == 0 {
 		if asciiQuote == '"' {
 			return "<A[0] \"\">"
 		}
@@ -260,11 +278,11 @@ func (item *ASCIIItem) toSMLFast() string {
 	sb.WriteString(sizeStr)
 	sb.WriteString("] ")
 
-	sb.WriteRune(asciiQuote)
-	sb.WriteString(item.value)
-	sb.WriteRune(asciiQuote)
+	sb.WriteByte(asciiQuote)
+	sb.Write(item.value)
+	sb.WriteByte(asciiQuote)
 
-	sb.WriteRune('>') // Add the closing tag
+	sb.WriteByte('>') // Add the closing tag
 
 	return sb.String()
 }
@@ -286,3 +304,13 @@ func (item *ASCIIItem) Type() string { return ASCIIType }
 
 // IsASCII returns true, indicating that ASCIIItem is a ASCII data item.
 func (item *ASCIIItem) IsASCII() bool { return true }
+
+// stringToBytes converts a string to a byte slice without memory allocation.
+func stringToBytes(s string) []byte {
+	return unsafe.Slice(unsafe.StringData(s), len(s))
+}
+
+// bytesToString converts a byte slice to a string without memory allocation.
+func bytesToString(bs []byte) string {
+	return unsafe.String(unsafe.SliceData(bs), len(bs))
+}
