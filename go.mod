@@ -4,6 +4,7 @@ go 1.23.0
 
 require (
 	github.com/phsym/console-slog v0.3.1
+	github.com/puzpuzpuz/xsync/v2 v2.5.1
 	github.com/stretchr/testify v1.9.0
 )
 

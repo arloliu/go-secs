@@ -17,6 +17,7 @@ import (
 	"github.com/arloliu/go-secs/hsms"
 	"github.com/arloliu/go-secs/internal/pool"
 	"github.com/arloliu/go-secs/logger"
+	"github.com/puzpuzpuz/xsync/v2"
 )
 
 // Connection represents an HSMS-SS (Single Session) connection, implementing the hsms.Connection interface.
@@ -43,9 +44,8 @@ type Connection struct {
 	ticketMgr    tickerCtl   // linktest control
 
 	senderMsgChan chan hsms.HSMSMessage
-	rmcMutex      sync.Mutex // mutex for replyMsgChans
-	replyMsgChans map[uint32]chan hsms.HSMSMessage
-	replyErrs     sync.Map
+	replyMsgChans *xsync.MapOf[uint32, chan hsms.HSMSMessage]
+	replyErrs     *xsync.MapOf[uint32, error]
 
 	metrics ConnectionMetrics // connection metrics
 }
@@ -65,7 +65,8 @@ func NewConnection(ctx context.Context, cfg *ConnectionConfig) (*Connection, err
 		pctx:          ctx,
 		logger:        cfg.logger,
 		senderMsgChan: make(chan hsms.HSMSMessage, cfg.senderQueueSize),
-		replyMsgChans: make(map[uint32]chan hsms.HSMSMessage),
+		replyErrs:     xsync.NewIntegerMapOf[uint32, error](),
+		replyMsgChans: xsync.NewIntegerMapOf[uint32, chan hsms.HSMSMessage](),
 		taskMgr:       hsms.NewTaskManager(ctx, cfg.logger),
 	}
 
@@ -234,9 +235,6 @@ func (c *Connection) closeConn(timeout time.Duration) {
 	}
 	c.connMutex.Unlock()
 
-	// drop all message that wait reply
-	c.dropAllReplyMsgs()
-
 	go func() {
 		c.logger.Debug("wait all goroutines terminated, taskMgr", "method", "closeConn")
 		c.taskMgr.Wait()
@@ -252,6 +250,9 @@ func (c *Connection) closeConn(timeout time.Duration) {
 	} else {
 		c.logger.Error("close timeout", "method", "closeConn", "error", ctx.Err(), "timeout", timeout)
 	}
+
+	// drop all message that wait reply
+	c.dropAllReplyMsgs()
 }
 
 // createContext creates a new context for the connection, derived from the parent context.
@@ -315,6 +316,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	defer pool.PutTimer(sendMsgTimer)
 
 	id := msg.ID()
+	c.logger.Info("send message", "method", "sendMsg", "id", id, "type", msg.Type())
 	replyMsgChan := c.addReplyExpectedMsg(id)
 
 	err := c.sendMsgAsync(msg)
@@ -347,10 +349,8 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	case replyMsg := <-replyMsgChan:
 		if replyMsg == nil {
 			// check if error existed
-			if val, ok := c.replyErrs.LoadAndDelete(id); ok {
-				if err, ok := val.(error); ok {
-					return nil, err
-				}
+			if err, ok := c.replyErrs.LoadAndDelete(id); ok {
+				return nil, err
 			}
 
 			return nil, hsms.ErrConnClosed
@@ -416,38 +416,36 @@ func (c *Connection) sendMsgAsync(msg hsms.HSMSMessage) error {
 
 // addReplyExpectedMsg adds a reply channel to the replyMsgChans map for a message that expects a reply.
 func (c *Connection) addReplyExpectedMsg(id uint32) <-chan hsms.HSMSMessage {
-	c.rmcMutex.Lock()
-	defer c.rmcMutex.Unlock()
-
 	ch := make(chan hsms.HSMSMessage)
-	c.replyMsgChans[id] = ch
+	c.replyMsgChans.Store(id, ch)
 
 	return ch
 }
 
 // removeReplyExpectedMsg removes the reply channel from the replyMsgChans map for the given message ID.
 func (c *Connection) removeReplyExpectedMsg(id uint32) {
-	c.rmcMutex.Lock()
-	defer c.rmcMutex.Unlock()
-
 	// find and delete the reply channel
-	if ch, ok := c.replyMsgChans[id]; ok {
-		close(ch)
-		delete(c.replyMsgChans, id)
-	}
+	_, _ = c.replyMsgChans.Compute(id, func(ch chan hsms.HSMSMessage, loaded bool) (chan hsms.HSMSMessage, bool) {
+		if loaded {
+			close(ch)
+		}
+
+		return nil, true
+	})
 }
 
 // dropAllReplyMsgs closes all reply channels in the replyMsgChans map, effectively dropping any pending replies.
 func (c *Connection) dropAllReplyMsgs() {
-	c.rmcMutex.Lock()
-	defer c.rmcMutex.Unlock()
-
 	// close all reply channels
-	for _, ch := range c.replyMsgChans {
-		close(ch)
-	}
+	c.replyMsgChans.Range(func(id uint32, ch chan hsms.HSMSMessage) bool {
+		if ch != nil {
+			close(ch)
+		}
 
-	c.replyMsgChans = make(map[uint32]chan hsms.HSMSMessage)
+		return true
+	})
+
+	c.replyMsgChans.Clear()
 }
 
 // senderTask is the task function for the sender goroutine.
@@ -521,37 +519,36 @@ func (c *Connection) receiverTask(reader *bufio.Reader, msgLenBuf []byte) bool {
 
 // replyToSender sends a received reply message to the corresponding reply channel in the replyMsgChans map.
 func (c *Connection) replyToSender(msg hsms.HSMSMessage) {
-	c.rmcMutex.Lock()
+	// use Compute to avoid race condition, the valueFn in Compute is thread-safe.
+	_, _ = c.replyMsgChans.Compute(msg.ID(), func(replyChan chan hsms.HSMSMessage, loaded bool) (chan hsms.HSMSMessage, bool) {
+		if loaded {
+			if replyChan == nil {
+				return nil, true
+			}
 
-	replyChan, ok := c.replyMsgChans[msg.ID()]
+			select {
+			case <-c.ctx.Done(): // the connection context done, exit without block the process.
+				return nil, true
+			case replyChan <- msg:
+				return replyChan, false
+			}
+		}
 
-	// if reply channel not found, send to data message handler
-	if !ok {
-		c.rmcMutex.Unlock()
+		// if reply channel not found, send to data message handler
 		if dataMsg, ok := msg.ToDataMessage(); ok {
 			c.session.recvDataMsg(dataMsg)
 		}
 
-		return
-	}
-
-	select {
-	case <-c.ctx.Done(): // the connection context done, exit without block the process.
-		c.rmcMutex.Unlock()
-		return
-	case replyChan <- msg:
-		c.rmcMutex.Unlock()
-		return
-	}
+		// set delete to true to not
+		return nil, true
+	})
 }
 
 // replyErrToSender sends an error to the corresponding reply channel in the replyMsgChans map, indicating
 // that an error occurred while processing a message that expected a reply.
 func (c *Connection) replyErrToSender(id uint32, err error) {
-	c.rmcMutex.Lock()
-	defer c.rmcMutex.Unlock()
-
-	if replyChan, ok := c.replyMsgChans[id]; ok {
+	replyChan, ok := c.replyMsgChans.Load(id)
+	if ok {
 		c.replyErrs.Store(id, err)
 		select {
 		case <-c.ctx.Done(): // the connection context done, exit without block the process.
