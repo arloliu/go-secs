@@ -212,8 +212,14 @@ func (item *FloatItem) ToSML() string {
 		if i > 0 {
 			sb.WriteByte(' ')
 		}
-		// sb.WriteString(strconv.FormatFloat(v, 'g', -1, item.byteSize*8))
-		sb.Write(strconv.AppendFloat(buf[:0], v, 'g', -1, item.byteSize*8))
+
+		// fixed precision G9 for float32, G17 for float64
+		prec := 9
+		if item.byteSize == 8 {
+			prec = 17
+		}
+
+		sb.Write(strconv.AppendFloat(buf[:0], v, 'G', prec, item.byteSize*8))
 	}
 
 	sb.WriteByte('>')

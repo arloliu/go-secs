@@ -118,8 +118,8 @@ func TestParser_NoErrorCases(t *testing.T) {
 			expectedNumOfMsgs: 2,
 			expectedNumOfErrs: 0,
 			expectedStr: []string{
-				"'S126F254'\n<F4[2] 0.1 -0.1>\n.",
-				"'S127F255'\n<F8[3] 1000 0.001 0.05>\n.",
+				"'S126F254'\n<F4[2] 0.100000001 -0.100000001>\n.",
+				"'S127F255'\n<F8[3] 1000 0.001 0.050000000000000003>\n.",
 			},
 		},
 		{

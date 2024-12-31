@@ -36,7 +36,7 @@ func TestFloatItem(t *testing.T) {
 			expectedSize:    3,
 			expectedValues:  []float64{-1.234, 0.0, 3.14159},
 			expectedToBytes: []byte{0x91, 0xc, 0xbf, 0x9d, 0xf3, 0xb6, 0x00, 0x00, 0x00, 0x00, 0x40, 0x49, 0x0f, 0xd0},
-			expectedToSML:   "<F4[3] -1.234 0 3.14159>",
+			expectedToSML:   "<F4[3] -1.23399997 0 3.14159012>",
 		},
 		{
 			description:    "Byte size: 8, data size: 3, min/max",
@@ -50,7 +50,7 @@ func TestFloatItem(t *testing.T) {
 				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 				0x7f, 0xef, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 			},
-			expectedToSML: "<F8[3] -1.7976931348623157e+308 0 1.7976931348623157e+308>",
+			expectedToSML: "<F8[3] -1.7976931348623157E+308 0 1.7976931348623157E+308>",
 		},
 		{
 			description:    "Byte size: 8, float bounary",
@@ -65,7 +65,7 @@ func TestFloatItem(t *testing.T) {
 				0xFF, 0xEF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 			},
 
-			expectedToSML: fmt.Sprintf("<F8[3] %g -2 %g>", -math.SmallestNonzeroFloat64, -math.MaxFloat64),
+			expectedToSML: "<F8[3] -4.9406564584124654E-324 -2 -1.7976931348623157E+308>",
 		},
 		{
 			description:    "Byte size: 8, mixed input types",
@@ -81,7 +81,7 @@ func TestFloatItem(t *testing.T) {
 				0x40, 0x8, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
 				0x40, 0x12, 0x44, 0x9b, 0xa5, 0xe3, 0x53, 0xf8,
 			},
-			expectedToSML: "<F8[5] 3.14159 1 2 3 4.567>",
+			expectedToSML: "<F8[5] 3.1415899999999999 1 2 3 4.5670000000000002>",
 		},
 	}
 

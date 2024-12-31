@@ -26,7 +26,7 @@ func TestShortcuts(t *testing.T) {
 		F8(1.23),
 	)
 	require.NoError(item.Error())
-	require.Equal(item.ToSML(), `<L[14]
+	require.Equal(`<L[14]
   <A[4] "test">
   <J[21] "こんにちは世界">
   <BOOLEAN[2] T F>
@@ -39,9 +39,9 @@ func TestShortcuts(t *testing.T) {
   <U2[1] 1>
   <U4[1] 1>
   <U8[1] 1>
-  <F4[1] 1.23>
+  <F4[1] 1.23000002>
   <F8[1] 1.23>
->`)
+>`, item.ToSML())
 
 	require.Equal(item.ToBytes(), []byte{
 		0x1, 0xe, 0x41, 0x4, 0x74, 0x65, 0x73, 0x74, 0x45, 0x15, 0xe3, 0x81, 0x93, 0xe3, 0x82, 0x93,

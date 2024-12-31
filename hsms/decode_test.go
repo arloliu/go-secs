@@ -91,7 +91,7 @@ func TestDecodeMessage_DataMessage(t *testing.T) {
 			expectedWaitBit:      true,
 			expectedSessionID:    65534,
 			expectedSystemBytes:  []byte{0xFF, 0xFF, 0xFF, 0xFE},
-			expectedToSML:        "S127F255 W\n<F4[3] -1 0 3.141592>\n.",
+			expectedToSML:        "S127F255 W\n<F4[3] -1 0 3.14159203>\n.",
 		},
 		{
 			description: `S0F0 <F8[3] -1 0 1>`,
