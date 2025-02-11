@@ -17,7 +17,7 @@ import (
 	"github.com/arloliu/go-secs/hsms"
 	"github.com/arloliu/go-secs/internal/pool"
 	"github.com/arloliu/go-secs/logger"
-	"github.com/puzpuzpuz/xsync/v2"
+	"github.com/puzpuzpuz/xsync/v3"
 )
 
 // Connection represents an HSMS-SS (Single Session) connection, implementing the hsms.Connection interface.
@@ -65,8 +65,8 @@ func NewConnection(ctx context.Context, cfg *ConnectionConfig) (*Connection, err
 		pctx:          ctx,
 		logger:        cfg.logger,
 		senderMsgChan: make(chan hsms.HSMSMessage, cfg.senderQueueSize),
-		replyErrs:     xsync.NewIntegerMapOf[uint32, error](),
-		replyMsgChans: xsync.NewIntegerMapOf[uint32, chan hsms.HSMSMessage](),
+		replyErrs:     xsync.NewMapOf[uint32, error](),
+		replyMsgChans: xsync.NewMapOf[uint32, chan hsms.HSMSMessage](),
 		taskMgr:       hsms.NewTaskManager(ctx, cfg.logger),
 	}
 
