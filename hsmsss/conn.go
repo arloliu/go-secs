@@ -316,7 +316,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	defer pool.PutTimer(sendMsgTimer)
 
 	id := msg.ID()
-	c.logger.Info("send message", "method", "sendMsg", "id", id, "type", msg.Type())
+	c.logger.Debug("send message", "method", "sendMsg", "id", id, "type", msg.Type())
 	replyMsgChan := c.addReplyExpectedMsg(id)
 
 	err := c.sendMsgAsync(msg)
