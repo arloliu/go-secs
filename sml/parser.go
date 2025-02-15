@@ -91,58 +91,137 @@ func (p *HSMSParser) WithStrictMode(enable bool) {
 // Parse parses the input SML string and returns a slice of parsed HSMS data messages and an error
 // if any occurred during parsing.
 //
+// This method is similar to ParseMessage, but it parses multiple HSMS data messages from the input string.
+//
 // The parser will attempt to extract and validate individual HSMS data messages from the input string.
 // If any errors are encountered during parsing, an error will be returned, and no messages will be
 // returned to ensure data integrity.
 func (p *HSMSParser) Parse(input string) ([]*hsms.DataMessage, error) {
-	p.input = input
-	p.data = input
-	p.len = len(input)
-	p.pos = 0
+	p.initInput(input)
 
 	messages := make([]*hsms.DataMessage, 0, 1)
 
 	for {
-		p.name = ""
-		p.stream = 0
-		p.function = 0
-		p.wbit = false
+		msg, err := p.parseMsg(false, false)
+		if err != nil {
+			return nil, err
+		}
 
-		p.skipComment()
-
-		if p.peekNonSpaceRune() == eof {
+		// no more messages
+		if msg == nil {
 			break
 		}
 
-		// clear message name
-		p.name = ""
+		messages = append(messages, msg)
+	}
 
-		// parse header
-		err := p.parseHSMSHeader()
-		if err != nil {
-			return nil, err
-		}
-		// parse text
-		item, err := p.parseHSMSText()
-		if err != nil {
-			return nil, err
-		}
+	return messages, nil
+}
 
-		if ch := p.nextNonSpaceRune(); ch != '.' {
-			return nil, fmt.Errorf("expect dot in the end of message, got %c", ch)
-		}
+// ParseMessage parses a single HSMS data message from the input string, returns the parsed message
+// and an error if any occurred during parsing.
+//
+// The parser will attempt to extract and validate individual HSMS data messages from the input string.
+// If any errors are encountered during parsing, an error will be returned, and no messages will be
+// returned to ensure data integrity.
+//
+// The lazy flag can be set to true to skip parsing the message body immediately. This is useful when
+// the message body is not required for further processing.
+func (p *HSMSParser) ParseMessage(input string, lazy bool) (*hsms.DataMessage, error) {
+	p.initInput(input)
 
-		msg, err := hsms.NewDataMessage(p.stream, p.function, p.wbit, 0, nil, item)
+	msg, err := p.parseMsg(false, lazy)
+	if err != nil {
+		return nil, err
+	}
+
+	if msg == nil {
+		return nil, errors.New("no message parsed")
+	}
+
+	return msg, nil
+}
+
+// ParseMessageHeader parses the header of a single HSMS data message from the input string and returns
+// the parsed message with header information but without the message body.
+func (p *HSMSParser) ParseMessageHeader(input string) (*hsms.DataMessage, error) {
+	p.initInput(input)
+
+	msg, err := p.parseMsg(true, true)
+	if err != nil {
+		return nil, err
+	}
+
+	if msg == nil {
+		return nil, errors.New("no message parsed")
+	}
+
+	return msg, nil
+}
+
+func (p *HSMSParser) initInput(input string) {
+	p.input = input
+	p.data = input
+	p.len = len(input)
+	p.pos = 0
+}
+
+func (p *HSMSParser) parseMsg(headerOnly bool, lazy bool) (*hsms.DataMessage, error) {
+	p.name = ""
+	p.stream = 0
+	p.function = 0
+	p.wbit = false
+
+	p.skipComment()
+
+	if p.peekNonSpaceRune() == eof {
+		return nil, nil //nolint:nilnil
+	}
+
+	// clear message name
+	p.name = ""
+
+	// parse header
+	err := p.parseHSMSHeader()
+	if err != nil {
+		return nil, err
+	}
+
+	if headerOnly {
+		return hsms.NewDataMessage(p.stream, p.function, p.wbit, 0, nil, nil)
+	}
+
+	// skip body parsing if lazy flag is set
+	if lazy {
+		rawSMLItem := NewRawSMLItem([]byte(p.data), p.strictMode.Load())
+		msg, err := hsms.NewDataMessage(p.stream, p.function, p.wbit, 0, nil, rawSMLItem)
 		if err != nil {
 			return nil, err
 		}
 
 		msg.SetName(p.name)
 
-		messages = append(messages, msg)
+		return msg, nil
 	}
 
-	return messages, nil
+	// parse text
+	item, err := p.parseText()
+	if err != nil {
+		return nil, err
+	}
+
+	if ch := p.nextNonSpaceRune(); ch != '.' {
+		return nil, fmt.Errorf("expect dot in the end of message, got %c", ch)
+	}
+
+	msg, err := hsms.NewDataMessage(p.stream, p.function, p.wbit, 0, nil, item)
+	if err != nil {
+		return nil, err
+	}
+
+	msg.SetName(p.name)
+
+	return msg, nil
 }
 
 func (p *HSMSParser) parseHSMSHeader() error {
@@ -207,7 +286,7 @@ func (p *HSMSParser) parseHSMSHeader() error {
 	return nil
 }
 
-func (p *HSMSParser) parseHSMSText() (secs2.Item, error) {
+func (p *HSMSParser) parseText() (secs2.Item, error) {
 	p.skipComment()
 
 	ch := p.peekNonSpaceRune()

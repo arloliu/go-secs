@@ -268,7 +268,7 @@ func (msg *DataMessage) ToSML() string {
 		return msg.SMLHeader() + "\n."
 	}
 
-	if _, ok := msg.dataItem.(*secs2.EmptyItem); ok {
+	if msg.dataItem.IsEmpty() {
 		if msg.name != "" {
 			return msg.name + ":" + msg.SMLHeader() + "\n."
 		}

@@ -77,7 +77,7 @@ func (item *FloatItem) Free() {
 // If any indices are provided, an error is returned indicating that the item is not a list.
 func (item *FloatItem) Get(indices ...int) (Item, error) {
 	if len(indices) != 0 {
-		err := newItemError(fmt.Errorf("item is not a list, item is %s, indices is %v", item.ToSML(), indices))
+		err := NewItemError(fmt.Errorf("item is not a list, item is %s, indices is %v", item.ToSML(), indices))
 		item.setError(err)
 		return nil, err
 	}

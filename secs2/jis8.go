@@ -109,7 +109,7 @@ func (item *JIS8Item) SetValues(values ...any) error {
 	for _, value := range values {
 		strVal, ok := value.(string)
 		if !ok {
-			err := newItemErrorWithMsg("the value is not a string")
+			err := NewItemErrorWithMsg("the value is not a string")
 			item.setError(err)
 			return err
 		}

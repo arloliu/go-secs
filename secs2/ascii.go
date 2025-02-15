@@ -94,7 +94,7 @@ func (item *ASCIIItem) Get(indices ...int) (Item, error) {
 
 // ToASCII retrieves the ASCII data stored within the item.
 func (item *ASCIIItem) ToASCII() (string, error) {
-	return bytesToString(item.value), nil
+	return BytesToString(item.value), nil
 }
 
 // Values retrieves the ASCII string value as the any data format stored in the item.
@@ -104,7 +104,7 @@ func (item *ASCIIItem) ToASCII() (string, error) {
 //
 // The returned value can be type-asserted to a `string`.
 func (item *ASCIIItem) Values() any {
-	return bytesToString(item.value)
+	return BytesToString(item.value)
 }
 
 // SetValues sets the ASCII string for the item.
@@ -122,11 +122,11 @@ func (item *ASCIIItem) SetValues(values ...any) error {
 	if len(values) == 1 { // avoid memory allocation if there is only one value
 		switch val := values[0].(type) {
 		case string:
-			itemValue = stringToBytes(val)
+			itemValue = StringToBytes(val)
 		case []byte:
 			itemValue = val
 		default:
-			err := newItemErrorWithMsg("the value is not a string or []byte")
+			err := NewItemErrorWithMsg("the value is not a string or []byte")
 			item.setError(err)
 			return err
 		}
@@ -134,11 +134,11 @@ func (item *ASCIIItem) SetValues(values ...any) error {
 		for _, value := range values {
 			switch val := value.(type) {
 			case string:
-				itemValue = append(itemValue, stringToBytes(val)...)
+				itemValue = append(itemValue, StringToBytes(val)...)
 			case []byte:
 				itemValue = append(itemValue, val...)
 			default:
-				err := newItemErrorWithMsg("the value is not a string")
+				err := NewItemErrorWithMsg("the value is not a string")
 				item.setError(err)
 				return err
 			}
@@ -305,12 +305,12 @@ func (item *ASCIIItem) Type() string { return ASCIIType }
 // IsASCII returns true, indicating that ASCIIItem is a ASCII data item.
 func (item *ASCIIItem) IsASCII() bool { return true }
 
-// stringToBytes converts a string to a byte slice without memory allocation.
-func stringToBytes(s string) []byte {
+// StringToBytes converts a string to a byte slice without memory allocation.
+func StringToBytes(s string) []byte {
 	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
 
-// bytesToString converts a byte slice to a string without memory allocation.
-func bytesToString(bs []byte) string {
+// BytesToString converts a byte slice to a string without memory allocation.
+func BytesToString(bs []byte) string {
 	return unsafe.String(unsafe.SliceData(bs), len(bs))
 }

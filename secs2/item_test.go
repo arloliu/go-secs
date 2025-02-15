@@ -106,17 +106,17 @@ func TestItem_ItemError(t *testing.T) {
 	itemErr := &ItemError{}
 	strErr := errors.New("")
 
-	err := newItemErrorWithMsg("test")
+	err := NewItemErrorWithMsg("test")
 	require.ErrorAs(err, &itemErr)
 	require.ErrorContains(err, "test")
 
-	err = newItemError(errors.New("basic error"))
+	err = NewItemError(errors.New("basic error"))
 	require.ErrorAs(err, &itemErr)
 	require.ErrorContains(err, "basic error")
 	require.ErrorContains(err.Unwrap(), "basic error")
 	require.ErrorAs(err.Unwrap(), &strErr)
 
-	err = newItemError(newItemErrorWithMsg("item item error"))
+	err = NewItemError(NewItemErrorWithMsg("item item error"))
 	require.ErrorAs(err, &itemErr)
 	require.ErrorContains(err, "item item error")
 

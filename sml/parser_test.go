@@ -17,7 +17,7 @@ type testCase struct {
 	expectedErrStr    string   // expected error strings
 }
 
-func checkTestCase(t *testing.T, tests []testCase) {
+func checkTestCase(t *testing.T, tests []testCase, strictMode bool) {
 	require := require.New(t)
 	for i, test := range tests {
 		t.Logf("Test #%d: %s", i, test.description)
@@ -29,6 +29,32 @@ func checkTestCase(t *testing.T, tests []testCase) {
 			require.NotNil(msg)
 			str := msg.ToSML()
 			require.Equal(test.expectedStr[j], str)
+
+			if len(msgs) == 1 && j == 0 {
+				p := NewHSMSParser()
+				p.WithStrictMode(strictMode)
+
+				// lazy parsing
+				smsg, err := p.ParseMessage(test.input, true)
+				require.NoError(err)
+				require.NotNil(smsg)
+				require.Equal(msg.ToSML(), smsg.ToSML())
+
+				// non-lazy parsing
+				smsg, err = p.ParseMessage(test.input, true)
+				require.NoError(err)
+				require.NotNil(smsg)
+				require.Equal(msg.ToSML(), smsg.ToSML())
+
+				// parse header only
+				smsg, err = p.ParseMessageHeader(test.input)
+				require.NoError(err)
+				require.NotNil(smsg)
+				require.Equal(msg.Header(), smsg.Header())
+				require.Equal(msg.StreamCode(), smsg.StreamCode())
+				require.Equal(msg.FunctionCode(), smsg.FunctionCode())
+				require.Equal(msg.WaitBit(), smsg.WaitBit())
+			}
 
 			reparsedMsgs, reparseErr := ParseHSMS(str)
 			require.NoError(reparseErr)
@@ -88,7 +114,7 @@ string 2'>
 
 	secs2.UseASCIISingleQuote()
 	WithStrictMode(true)
-	checkTestCase(t, tests)
+	checkTestCase(t, tests, true)
 
 	msg, _ := hsms.NewDataMessage(1, 1, true, 0, nil, secs2.A("first 'line'\n\rsecond line"))
 	tests = []testCase{
@@ -112,7 +138,7 @@ string 2'>
 		},
 	}
 	secs2.UseASCIISingleQuote()
-	checkTestCase(t, tests)
+	checkTestCase(t, tests, true)
 
 	tests = []testCase{
 		{
@@ -124,7 +150,7 @@ string 2'>
 	}
 
 	secs2.UseASCIIDoubleQuote()
-	checkTestCase(t, tests)
+	checkTestCase(t, tests, true)
 }
 
 func TestParseHSMS_NoErrorCases_NonStrictMode(t *testing.T) {
@@ -132,7 +158,7 @@ func TestParseHSMS_NoErrorCases_NonStrictMode(t *testing.T) {
 
 	secs2.UseASCIISingleQuote()
 	WithStrictMode(false)
-	checkTestCase(t, tests)
+	checkTestCase(t, tests, false)
 
 	tests = []testCase{
 		{
@@ -149,7 +175,7 @@ func TestParseHSMS_NoErrorCases_NonStrictMode(t *testing.T) {
 		},
 	}
 	secs2.UseASCIISingleQuote()
-	checkTestCase(t, tests)
+	checkTestCase(t, tests, false)
 
 	tests = []testCase{
 		{
@@ -167,7 +193,7 @@ func TestParseHSMS_NoErrorCases_NonStrictMode(t *testing.T) {
 	}
 
 	secs2.UseASCIIDoubleQuote()
-	checkTestCase(t, tests)
+	checkTestCase(t, tests, false)
 }
 
 func TestParseHSMS_parseItem_ASCII(t *testing.T) {
@@ -479,7 +505,7 @@ func TestParseHSMS_List_ErrorCases(t *testing.T) {
 		},
 	}
 
-	checkTestCase(t, tests)
+	checkTestCase(t, tests, true)
 }
 
 func TestParseHSMS_ASCII_ErrorCases_NonStrictMode(t *testing.T) {
@@ -524,7 +550,7 @@ func TestParseHSMS_ASCII_ErrorCases_NonStrictMode(t *testing.T) {
 
 	secs2.UseASCIISingleQuote()
 	WithStrictMode(false)
-	checkTestCase(t, tests)
+	checkTestCase(t, tests, false)
 }
 
 func TestParseHSMS_ASCII_ErrorCases_StrictMode(t *testing.T) {
@@ -569,7 +595,7 @@ func TestParseHSMS_ASCII_ErrorCases_StrictMode(t *testing.T) {
 
 	secs2.UseASCIISingleQuote()
 	WithStrictMode(true)
-	checkTestCase(t, tests)
+	checkTestCase(t, tests, true)
 }
 
 func TestParseHSMS_Binary_ErrorCases(t *testing.T) {
@@ -600,7 +626,7 @@ func TestParseHSMS_Binary_ErrorCases(t *testing.T) {
 		},
 	}
 
-	checkTestCase(t, tests)
+	checkTestCase(t, tests, false)
 }
 
 func TestParseHSMS_Boolean_ErrorCases(t *testing.T) {
@@ -619,7 +645,7 @@ func TestParseHSMS_Boolean_ErrorCases(t *testing.T) {
 		},
 	}
 
-	checkTestCase(t, tests)
+	checkTestCase(t, tests, false)
 }
 
 func TestParseHSMS_Float_ErrorCases(t *testing.T) {
@@ -650,7 +676,7 @@ func TestParseHSMS_Float_ErrorCases(t *testing.T) {
 		},
 	}
 
-	checkTestCase(t, tests)
+	checkTestCase(t, tests, false)
 }
 
 func TestParseHSMS_Int_ErrorCases(t *testing.T) {
@@ -693,7 +719,7 @@ func TestParseHSMS_Int_ErrorCases(t *testing.T) {
 		},
 	}
 
-	checkTestCase(t, tests)
+	checkTestCase(t, tests, false)
 }
 
 func TestParseHSMS_Uint_ErrorCases(t *testing.T) {
@@ -724,5 +750,5 @@ func TestParseHSMS_Uint_ErrorCases(t *testing.T) {
 		},
 	}
 
-	checkTestCase(t, tests)
+	checkTestCase(t, tests, false)
 }

@@ -317,7 +317,6 @@ func lexMessageText(l *lexer) stateFn {
 				// Handle optional array-like notation
 				re = l.arrayRegexp
 				if loc = re.FindStringIndex(l.input[l.pos:]); loc != nil {
-					fmt.Printf("Handle optional array-like notation: %s\n", l.input[l.pos:l.pos+loc[1]])
 					l.pos += loc[1]
 				}
 

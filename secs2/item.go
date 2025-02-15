@@ -229,13 +229,13 @@ type ItemError struct {
 }
 
 // newItemErrorWithMsg creates a new ItemError with the given error message.
-func newItemErrorWithMsg(errMsg string) *ItemError {
+func NewItemErrorWithMsg(errMsg string) *ItemError {
 	return &ItemError{err: errors.New(errMsg)}
 }
 
 // newItemError creates a new ItemError from the given error.
 // If the provided error is already an ItemError, it unwraps the underlying error to avoid nested ItemErrors.
-func newItemError(err error) *ItemError {
+func NewItemError(err error) *ItemError {
 	itemErr := &ItemError{}
 
 	if errors.As(err, &itemErr) {
@@ -274,7 +274,7 @@ func NewEmptyItem() Item {
 // If indices are provided, it returns an error indicating that the item is not a list.
 func (item *EmptyItem) Get(indices ...int) (Item, error) {
 	if len(indices) != 0 {
-		err := newItemError(fmt.Errorf("item is not a list, item is %s, indices is %v", item.ToSML(), indices))
+		err := NewItemError(fmt.Errorf("item is not a list, item is %s, indices is %v", item.ToSML(), indices))
 		item.setError(err)
 		return nil, err
 	}
@@ -334,56 +334,56 @@ type baseItem struct {
 }
 
 func (item *baseItem) ToList() ([]Item, error) {
-	err := newItemErrorWithMsg("method ToList not implemented")
+	err := NewItemErrorWithMsg("method ToList not implemented")
 	item.setError(err)
 
 	return nil, err
 }
 
 func (item *baseItem) ToBinary() ([]byte, error) {
-	err := newItemErrorWithMsg("method ToBinary not implemented")
+	err := NewItemErrorWithMsg("method ToBinary not implemented")
 	item.setError(err)
 
 	return nil, err
 }
 
 func (item *baseItem) ToBoolean() ([]bool, error) {
-	err := newItemErrorWithMsg("method ToBoolean not implemented")
+	err := NewItemErrorWithMsg("method ToBoolean not implemented")
 	item.setError(err)
 
 	return nil, err
 }
 
 func (item *baseItem) ToASCII() (string, error) {
-	err := newItemErrorWithMsg("method ToASCII not implemented")
+	err := NewItemErrorWithMsg("method ToASCII not implemented")
 	item.setError(err)
 
 	return "", err
 }
 
 func (item *baseItem) ToJIS8() (string, error) {
-	err := newItemErrorWithMsg("method ToJIS8 not implemented")
+	err := NewItemErrorWithMsg("method ToJIS8 not implemented")
 	item.setError(err)
 
 	return "", err
 }
 
 func (item *baseItem) ToInt() ([]int64, error) {
-	err := newItemErrorWithMsg("method ToInt not implemented")
+	err := NewItemErrorWithMsg("method ToInt not implemented")
 	item.setError(err)
 
 	return nil, err
 }
 
 func (item *baseItem) ToUint() ([]uint64, error) {
-	err := newItemErrorWithMsg("method ToUint not implemented")
+	err := NewItemErrorWithMsg("method ToUint not implemented")
 	item.setError(err)
 
 	return nil, err
 }
 
 func (item *baseItem) ToFloat() ([]float64, error) {
-	err := newItemErrorWithMsg("method ToFloat not implemented")
+	err := NewItemErrorWithMsg("method ToFloat not implemented")
 	item.setError(err)
 
 	return nil, err
@@ -422,7 +422,7 @@ func (item *baseItem) setError(err error) {
 }
 
 func (item *baseItem) setErrorMsg(errMsg string) {
-	item.itemErr = errors.Join(item.itemErr, newItemErrorWithMsg(errMsg))
+	item.itemErr = errors.Join(item.itemErr, NewItemErrorWithMsg(errMsg))
 }
 
 // getDataByteLength calculates the total number of bytes needed to represent data of a given type and size.
