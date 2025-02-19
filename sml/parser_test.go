@@ -173,6 +173,12 @@ func TestParseHSMS_NoErrorCases_NonStrictMode(t *testing.T) {
 			expectedNumOfMsgs: 1,
 			expectedStr:       []string{"TestMessage:'S1F1' W\n<A[17] 'text1\ntest2\ntest3'>\n."},
 		},
+		{
+			description:       "1 message, single-quote ASCII node with space before closing quote",
+			input:             `S99F99 <A 'test1  'test2'  >   .`,
+			expectedNumOfMsgs: 1,
+			expectedStr:       []string{"'S99F99'\n<A[13] 'test1  'test2'>\n."},
+		},
 	}
 	secs2.UseASCIISingleQuote()
 	checkTestCase(t, tests, false)
@@ -189,6 +195,12 @@ func TestParseHSMS_NoErrorCases_NonStrictMode(t *testing.T) {
 			input:             "TestMessage:'S1F1' W <A \"text1\ntest2\ntest3\">.",
 			expectedNumOfMsgs: 1,
 			expectedStr:       []string{"TestMessage:'S1F1' W\n<A[17] \"text1\ntest2\ntest3\">\n."},
+		},
+		{
+			description:       "1 message, double-quote ASCII node with space before closing quote",
+			input:             `S99F99 <A "test1  "test2"  >   .`,
+			expectedNumOfMsgs: 1,
+			expectedStr:       []string{"'S99F99'\n<A[13] \"test1  \"test2\">\n."},
 		},
 	}
 

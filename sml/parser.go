@@ -439,7 +439,7 @@ func (p *HSMSParser) parseASCIIStrict(size int) (secs2.Item, error) {
 			// found >
 			case '>':
 				if !isEscapedCh {
-					return nil, errors.New("unclosed quote string")
+					return nil, errors.New("unclosed quote string, no closing quote found")
 				}
 				sb.WriteRune(ch)
 				isEscapedCh = false
@@ -526,9 +526,9 @@ func (p *HSMSParser) parseASCIIFast(maxSize int) (secs2.Item, error) {
 		}
 
 		// check if the pattern is "'>" at the end, if so, return the ASCII item without further parsing.
-		if p.data[maxSize] == quoteCh && p.data[maxSize+1] == '>' {
+		if ok, nidx := p.checkASCIICloseQuote(maxSize, quoteCh); ok {
 			data := p.data[:maxSize]
-			p.forward(maxSize + 2)
+			p.forward(nidx)
 			return secs2.NewASCIIItem(data), nil
 		}
 	}
@@ -537,14 +537,34 @@ func (p *HSMSParser) parseASCIIFast(maxSize int) (secs2.Item, error) {
 	// this is the fallback method when the size hint is not provided or the pattern "'>" is not found at the end.
 	for i := 0; i < len(p.data); i++ {
 		// check if the pattern is "'>" at the end and ensure the access index is within the data length.
-		if p.data[i] == quoteCh && i+1 < len(p.data) && p.data[i+1] == '>' {
+		if ok, nidx := p.checkASCIICloseQuote(i, quoteCh); ok {
 			data := p.data[:i]
-			p.forward(i + 2)
+			p.forward(nidx)
 			return secs2.NewASCIIItem(data), nil
 		}
 	}
 
-	return nil, errors.New("unclosed quote string")
+	return nil, errors.New("unclosed quote string for ASCII item")
+}
+
+func (p *HSMSParser) checkASCIICloseQuote(idx int, quoteCh byte) (bool, int) {
+	if idx+1 >= p.len || idx >= p.len || p.data[idx] != quoteCh {
+		return false, 0
+	}
+
+	// skip space characters
+	for nidx := idx + 1; nidx < p.len; nidx++ {
+		switch p.data[nidx] {
+		case ' ', '\t', '\r', '\n':
+			continue
+		case '>':
+			return true, nidx + 1
+		default:
+			return false, 0
+		}
+	}
+
+	return false, 0
 }
 
 // paseJIS8 parses a JIS-8 data item from the input string.
@@ -590,7 +610,7 @@ func (p *HSMSParser) parseJIS8() (secs2.Item, error) {
 		}
 	}
 
-	return nil, errors.New("unclosed quote string")
+	return nil, errors.New("unclosed quote string for JIS-8 item")
 }
 
 func (p *HSMSParser) parseBoolean(size int) (secs2.Item, error) {
