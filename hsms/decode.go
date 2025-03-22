@@ -13,6 +13,43 @@ import (
 // HSMS decoder pool
 var decoderPool = sync.Pool{New: func() any { return new(hsmsDecoder) }}
 
+// DecodeHSMSMessage decodes an HSMS message from the given byte slice.
+//
+// data is the byte array containing the encoded HSMS message including the message length, header, and data.
+//
+// It returns the decoded HSMSMessage and an error if any occurred during decoding.
+func DecodeHSMSMessage(data []byte) (HSMSMessage, error) {
+	if len(data) < 14 {
+		return nil, fmt.Errorf("invalid hsms message length: %d", len(data))
+	}
+
+	msgLen := binary.BigEndian.Uint32(data)
+
+	msg, err := DecodeMessage(msgLen, data[4:])
+	if err != nil {
+		return nil, err
+	}
+
+	return msg, nil
+}
+
+// DecodeSECS2Item decodes an SECS-II item from the given byte slice.
+//
+// data is the byte array containing the encoded SECS-II item.
+//
+// It returns the decoded SECS-II item and an error if any occurred during decoding.
+func DecodeSECS2Item(data []byte) (secs2.Item, error) {
+	decoder, _ := decoderPool.Get().(*hsmsDecoder)
+	decoder.msgLen = uint32(10 + len(data)) //nolint: gosec
+	decoder.input = data
+	decoder.pos = 0
+
+	item, err := decoder.decodeMessageText()
+	decoderPool.Put(decoder)
+
+	return item, err
+}
+
 // DecodeMessage decodes an HSMS message from the given byte slice.
 //
 // msgLen specifies the total length of the message in bytes, including the header and data.

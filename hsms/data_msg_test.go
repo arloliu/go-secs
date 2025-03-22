@@ -106,6 +106,19 @@ func TestDataMessage(t *testing.T) {
 		require.Equal(test.expectedToBytes, msg.ToBytes())
 		require.Equal(test.expectedToSML, msg.ToSML())
 		require.True(msg.IsDataMessage())
+
+		msg2, err := NewDataMessageFromRawItem(
+			test.inputStreamCode,
+			test.inputFunctionCode,
+			test.inputReplyExpected,
+			test.inputSessionID,
+			test.inputSystemBytes,
+			test.inputDataItem.ToBytes(),
+		)
+		require.NoError(err)
+		require.Equal(test.expectedToBytes, msg2.ToBytes())
+		require.Equal(test.expectedToSML, msg2.ToSML())
+		require.True(msg2.IsDataMessage())
 	}
 }
 

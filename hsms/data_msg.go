@@ -2,6 +2,7 @@ package hsms
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -62,6 +63,21 @@ func NewDataMessage(stream byte, function byte, replyExpected bool, sessionID ui
 	}
 
 	return msg, nil
+}
+
+// NewDataMessageFromRawItem creates a new SECS-II message from SECS-II raw binary data.
+//
+// This function is similar to NewDataMessage, but it accepts raw binary data
+// for the SECS-II message instead of SECS-II item.
+//
+// Please refer to NewDataMessage for more information.
+func NewDataMessageFromRawItem(stream byte, function byte, replyExpected bool, sessionID uint16, systemBytes []byte, data []byte) (*DataMessage, error) {
+	item, err := DecodeSECS2Item(data)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewDataMessage(stream, function, replyExpected, sessionID, systemBytes, item)
 }
 
 // Type returns HSMS message type.
@@ -234,6 +250,32 @@ func (msg *DataMessage) ToBytes() []byte {
 	result = append(result, itemBytes...)
 
 	return result
+}
+
+// Marshal serializes the HSMS data message into its byte representation for transmission.
+//
+// This method implements the HSMSMessage.Marshal() interface.
+func (msg *DataMessage) Marshal() ([]byte, error) {
+	return msg.ToBytes(), nil
+}
+
+// Unmarshal deserializes the byte data into the HSMS data message.
+//
+// This method implements the HSMSMessage.Unmarshal() interface.
+func (msg *DataMessage) Unmarshal(data []byte) error {
+	m, err := DecodeHSMSMessage(data)
+	if err != nil {
+		return err
+	}
+
+	dMsg, ok := m.ToDataMessage()
+	if !ok {
+		return errors.New("expected data message")
+	}
+
+	*msg = *dMsg
+
+	return nil
 }
 
 // IsControlMessage returns false, indicating that a DataMessage is not a control message.

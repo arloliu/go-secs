@@ -125,6 +125,32 @@ func (msg *ControlMessage) ToBytes() []byte {
 	return result
 }
 
+// Marshal serializes the HSMS control message into its byte representation for transmission.
+//
+// This method implements the HSMSMessage.Marshal() interface.
+func (msg *ControlMessage) Marshal() ([]byte, error) {
+	return msg.ToBytes(), nil
+}
+
+// Unmarshal deserializes the byte data into the HSMS control message.
+//
+// This method implements the HSMSMessage.Unmarshal() interface.
+func (msg *ControlMessage) Unmarshal(data []byte) error {
+	m, err := DecodeHSMSMessage(data)
+	if err != nil {
+		return err
+	}
+
+	cMsg, ok := m.ToControlMessage()
+	if !ok {
+		return errors.New("expected control message")
+	}
+
+	*msg = *cMsg
+
+	return nil
+}
+
 // StreamCode returns the stream code for the HSMS message.
 //
 // This method implements the secs2.SECS2Message.StreamCode() interface.

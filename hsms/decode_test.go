@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDecodeMessage_DataMessage(t *testing.T) {
+func TestDecode_DataMessage(t *testing.T) {
 	tests := []struct {
 		description          string // test case description
 		input                []byte // input
@@ -176,10 +176,25 @@ func TestDecodeMessage_DataMessage(t *testing.T) {
 		assert.Equal(test.expectedSessionID, msg.(*DataMessage).SessionID())
 		assert.Equal(test.expectedSystemBytes, msg.(*DataMessage).SystemBytes())
 		assert.Equal(test.expectedToSML, msg.(*DataMessage).ToSML())
+
+		msg2, err := DecodeHSMSMessage(msg.ToBytes())
+		require.NoError(err)
+		assert.Equal(test.expectedType, msg2.Type())
+		assert.Equal(test.input, msg2.ToBytes())
+		assert.Equal(test.expectedStreamCode, msg2.(*DataMessage).StreamCode())
+		assert.Equal(test.expectedFunctionCode, msg2.(*DataMessage).FunctionCode())
+		assert.Equal(test.expectedWaitBit, msg2.(*DataMessage).WaitBit())
+		assert.Equal(test.expectedSessionID, msg2.(*DataMessage).SessionID())
+		assert.Equal(test.expectedSystemBytes, msg2.(*DataMessage).SystemBytes())
+		assert.Equal(test.expectedToSML, msg2.(*DataMessage).ToSML())
+
+		item, err := DecodeSECS2Item(msg.Item().ToBytes())
+		require.NoError(err)
+		assert.Equal(msg.Item().ToSML(), item.ToSML())
 	}
 }
 
-func TestDecodeMessage_ControlMessage(t *testing.T) {
+func TestDecode_ControlMessage(t *testing.T) {
 	tests := []struct {
 		input        []byte // input to the parser
 		expectedType int    // expected message type
@@ -227,6 +242,16 @@ func TestDecodeMessage_ControlMessage(t *testing.T) {
 		require.NoError(err)
 		assert.Equal(test.expectedType, msg.Type())
 		assert.Equal(test.input, msg.ToBytes())
+
+		msg2, err := DecodeHSMSMessage(msg.ToBytes())
+		require.NoError(err)
+		assert.Equal(test.expectedType, msg2.Type())
+		assert.Equal(test.input, msg2.ToBytes())
+
+		item, err := DecodeSECS2Item(msg.Item().ToBytes())
+		require.NoError(err)
+		assert.True(item.IsEmpty())
+		assert.Equal(msg.Item().ToSML(), item.ToSML())
 	}
 }
 
