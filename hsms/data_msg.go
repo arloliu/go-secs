@@ -252,17 +252,17 @@ func (msg *DataMessage) ToBytes() []byte {
 	return result
 }
 
-// Marshal serializes the HSMS data message into its byte representation for transmission.
+// MarshalBinary serializes the HSMS data message into its byte representation for transmission.
 //
-// This method implements the HSMSMessage.Marshal() interface.
-func (msg *DataMessage) Marshal() ([]byte, error) {
+// This method implements the encoding.BinaryMarshaler interface.
+func (msg *DataMessage) MarshalBinary() ([]byte, error) {
 	return msg.ToBytes(), nil
 }
 
-// Unmarshal deserializes the byte data into the HSMS data message.
+// UnmarshalBinary deserializes the byte data into the HSMS data message.
 //
-// This method implements the HSMSMessage.Unmarshal() interface.
-func (msg *DataMessage) Unmarshal(data []byte) error {
+// This method implements the encoding.BinaryUnmarshaler interface.
+func (msg *DataMessage) UnmarshalBinary(data []byte) error {
 	m, err := DecodeHSMSMessage(data)
 	if err != nil {
 		return err

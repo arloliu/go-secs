@@ -125,17 +125,17 @@ func (msg *ControlMessage) ToBytes() []byte {
 	return result
 }
 
-// Marshal serializes the HSMS control message into its byte representation for transmission.
+// MarshalBinary serializes the HSMS control message into its byte representation for transmission.
 //
-// This method implements the HSMSMessage.Marshal() interface.
-func (msg *ControlMessage) Marshal() ([]byte, error) {
+// This method implements the encoding.BinaryMarshaler interface.
+func (msg *ControlMessage) MarshalBinary() ([]byte, error) {
 	return msg.ToBytes(), nil
 }
 
-// Unmarshal deserializes the byte data into the HSMS control message.
+// UnmarshalBinary deserializes the byte data into the HSMS control message.
 //
-// This method implements the HSMSMessage.Unmarshal() interface.
-func (msg *ControlMessage) Unmarshal(data []byte) error {
+// This method implements the encoding.BinaryUnmarshaler interface.
+func (msg *ControlMessage) UnmarshalBinary(data []byte) error {
 	m, err := DecodeHSMSMessage(data)
 	if err != nil {
 		return err

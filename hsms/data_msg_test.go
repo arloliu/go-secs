@@ -119,6 +119,17 @@ func TestDataMessage(t *testing.T) {
 		require.Equal(test.expectedToBytes, msg2.ToBytes())
 		require.Equal(test.expectedToSML, msg2.ToSML())
 		require.True(msg2.IsDataMessage())
+
+		var msg3 DataMessage
+		msgBytes, err := msg.MarshalBinary()
+		require.NoError(err)
+		require.Equal(test.expectedToBytes, msgBytes)
+
+		err = msg3.UnmarshalBinary(msgBytes)
+		require.NoError(err)
+		require.Equal(test.expectedToBytes, msg3.ToBytes())
+		require.Equal(test.expectedToSML, msg3.ToSML())
+		require.True(msg3.IsDataMessage())
 	}
 }
 

@@ -74,3 +74,19 @@ func TestControlMessage_Set(t *testing.T) {
 	require.Equal(msg.SessionID(), clonedDataMsg.SessionID())
 	require.Equal(msg.SystemBytes(), clonedDataMsg.SystemBytes())
 }
+
+func TestControlMessage_Marshal_Unmarshal(t *testing.T) {
+	require := require.New(t)
+	systemBytes := []byte{0x12, 0x34, 0x56, 0x78}
+	msg := NewSelectReq(123, systemBytes)
+	msgBytes := msg.ToBytes()
+
+	var msg2 ControlMessage
+	err := msg2.UnmarshalBinary(msgBytes)
+	require.NoError(err)
+	require.Equal(msgBytes, msg2.ToBytes())
+
+	msgBytes2, err := msg.MarshalBinary()
+	require.NoError(err)
+	require.Equal(msgBytes, msgBytes2)
+}

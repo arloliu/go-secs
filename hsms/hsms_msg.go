@@ -1,6 +1,8 @@
 package hsms
 
 import (
+	"encoding"
+
 	"github.com/arloliu/go-secs/secs2"
 )
 
@@ -42,6 +44,8 @@ var hsmsMsgTypeMap = map[int]string{
 // This interface provides methods for accessing common HSMS message attributes and converting the message
 // into its specific data or control message representation.
 type HSMSMessage interface {
+	encoding.BinaryMarshaler
+	encoding.BinaryUnmarshaler
 	secs2.SECS2Message
 
 	// Type returns the HSMS message type, which can be one of the following constants:
@@ -84,17 +88,6 @@ type HSMSMessage interface {
 
 	// ToBytes serializes the HSMS message into its byte representation for transmission.
 	ToBytes() []byte
-
-	// Marshal serializes the HSMS message into its byte representation for transmission.
-	//
-	// It provids a standardized way to serialize the message.
-	Marshal() ([]byte, error)
-
-	// Unmarshal deserializes the byte data into the HSMS message.
-	//
-	// It provides a standardized way to deserialize the message.
-	// It will return error if the data is invalid.
-	Unmarshal(data []byte) error
 
 	// IsControlMessage returns if the message is control message.
 	IsControlMessage() bool
