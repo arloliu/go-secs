@@ -182,8 +182,12 @@ func (c *Connection) tryAcceptConn() bool {
 	if tcpListener == nil {
 		return false
 	}
+	if !c.opState.IsOpening() {
+		c.logger.Debug("tryAcceptConn skipped, opState is not opening", "opState", c.opState.String())
+		return true // retry to accept again
+	}
 
-	c.logger.Info("try to accept connection", "method", "tryAcceptConn")
+	c.logger.Info("try to accept connection", "method", "tryAcceptConn", "opState", c.opState.String())
 	conn, err := tcpListener.Accept()
 	if err != nil {
 		var netErr net.Error
