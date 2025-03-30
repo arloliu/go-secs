@@ -98,9 +98,9 @@ func TestConnStateTransitions(t *testing.T) {
 		require.Equal(3, stateChangeCount)
 		require.True(cs.IsNotConnected())
 
-		// No-op transition when already in NotConnectedState
+		// ToNotConnectedState allows multiple transitions
 		cs.ToNotConnected()
-		require.Equal(3, stateChangeCount)
+		require.Equal(4, stateChangeCount)
 	})
 
 	t.Run("setState", func(t *testing.T) {

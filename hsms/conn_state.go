@@ -150,11 +150,6 @@ func (cs *ConnStateMgr) ToNotConnected() {
 
 	curState := cs.State()
 
-	if curState == NotConnectedState {
-		cs.logger.Debug("Already in NotConnectedState, no need to transition")
-		return // Already in NotConnectedState, no need to transition
-	}
-
 	// change state to not connected BEFORE all handlers finished
 	cs.setState(NotConnectedState)
 

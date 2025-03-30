@@ -137,6 +137,10 @@ func (c *Connection) tryConnect(ctx context.Context) error {
 	c.conn = conn
 	c.connMutex.Unlock()
 
+	if !c.opState.ToOpened() {
+		c.logger.Warn("failed to set connection state to opened", "opState", c.opState.String())
+	}
+
 	c.logger.Debug("connected to the remote",
 		"host", c.cfg.host,
 		"port", c.cfg.port,

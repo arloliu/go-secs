@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,12 +31,13 @@ type Connection struct {
 	cfg       *ConnectionConfig
 	logger    logger.Logger
 
-	listener      net.Listener // listener is for passive mode only
-	listenerMutex sync.Mutex   // TCP connection mutex
-	conn          net.Conn     // TCP connection
-	connMutex     sync.Mutex   // TCP connection mutex
-	connCount     atomic.Int32 // connection counter for passive mode only
-	session       *Session     // HSMS-SS has only one session
+	listener      net.Listener  // listener is for passive mode only
+	listenerMutex sync.Mutex    // TCP connection mutex
+	conn          net.Conn      // TCP connection
+	opState       AtomicOpState // connection operation state
+	connMutex     sync.RWMutex  // TCP connection mutex
+	connCount     atomic.Int32  // connection counter for passive mode only
+	session       *Session      // HSMS-SS has only one session
 
 	stateMgr     *hsms.ConnStateMgr
 	taskMgr      *hsms.TaskManager
@@ -64,11 +66,12 @@ func NewConnection(ctx context.Context, cfg *ConnectionConfig) (*Connection, err
 		cfg:           cfg,
 		pctx:          ctx,
 		logger:        cfg.logger,
-		senderMsgChan: make(chan hsms.HSMSMessage, cfg.senderQueueSize),
 		replyErrs:     xsync.NewMapOf[uint32, error](),
 		replyMsgChans: xsync.NewMapOf[uint32, chan hsms.HSMSMessage](),
 		taskMgr:       hsms.NewTaskManager(ctx, cfg.logger),
 	}
+
+	conn.opState.Set(ClosedState)
 
 	conn.createContext()
 
@@ -165,10 +168,21 @@ func (c *Connection) Open(waitOpened bool) error {
 		return hsms.ErrSessionNil
 	}
 
+	if !c.opState.ToOpening() {
+		c.logger.Warn("fail to set connection to opening state", "opState", c.opState.String())
+		return nil
+	}
+
+	c.logger.Debug("start to open connection", "method", "Open", "opState", c.opState.String())
+
 	c.recvSeparate.Store(false)
 	c.shutdown.Store(false)
 
 	c.createContext()
+
+	// create sender message channel before open connection
+	// the sender message channel is used to send messages to the senderTask
+	c.senderMsgChan = make(chan hsms.HSMSMessage, c.cfg.senderQueueSize)
 
 	if c.cfg.isActive {
 		ticker := c.taskMgr.StartInterval("openActive", c.openActive, c.cfg.t5Timeout, true)
@@ -191,21 +205,79 @@ func (c *Connection) Open(waitOpened bool) error {
 // It terminates all running tasks, closes the TCP connection, and resets the connection state.
 func (c *Connection) Close() error {
 	c.shutdown.Store(true)
-	c.stateMgr.ToNotConnected()
 
-	// call closeListener() to ensure listener close
-	if !c.cfg.isActive {
-		_ = c.closeListener()
+	if c.opState.IsClosed() || c.opState.IsClosing() {
+		c.logger.Debug("connection already closed or closing, no need to close again", "opState", c.opState.String())
+	} else {
+		c.stateMgr.ToNotConnected()
+
+		// force to close connection
+		c.closeConn(c.cfg.closeConnTimeout)
+
+		// call closeListener() to ensure listener close
+		if !c.cfg.isActive {
+			_ = c.closeListener()
+		}
 	}
 
-	return nil
+	closeTimer := pool.GetTimer(c.cfg.closeConnTimeout)
+	defer pool.PutTimer(closeTimer)
+
+	// wait for connection to be closed
+	for {
+		select {
+		case <-closeTimer.C:
+			if c.opState.IsClosed() {
+				c.logger.Debug("wait for connection closed success at timeout", "timeout", c.cfg.closeConnTimeout, "opState", c.opState.String())
+				return nil
+			}
+
+			c.logger.Error("close connection timeout", "timeout", c.cfg.closeConnTimeout, "opState", c.opState.String())
+
+			return errors.New("close connection timeout")
+		default:
+			if c.opState.IsClosed() {
+				c.logger.Debug("wait for connection closed success")
+				return nil
+			}
+
+			runtime.Gosched() // yield the CPU to allow other goroutines to run
+			time.Sleep(1 * time.Millisecond)
+		}
+	}
 }
 
 // closeConn performs the actual connection closing process with a timeout.
 // It cancels the context, stops the task manager, closes the TCP connection, and waits for
 // all goroutines to terminate.
 func (c *Connection) closeConn(timeout time.Duration) {
-	c.logger.Debug("start closeConn process")
+	if !c.opState.ToClosing() {
+		if c.opState.IsClosed() {
+			c.logger.Debug("connection already closed, no need to close again", "method", "closeConn", "opState", c.opState.String())
+		} else {
+			c.logger.Warn("failed to set connection to closing state", "method", "closeConn", "opState", c.opState.String())
+		}
+
+		return
+	}
+
+	c.logger.Debug("start to close connection", "method", "closeConn", "opState", c.opState.String())
+
+	// drain sender message channel before close connection
+drainLoop:
+	for {
+		select {
+		case msg, ok := <-c.senderMsgChan:
+			if !ok {
+				break drainLoop
+			}
+			if msg != nil {
+				_ = c.senderTask(msg)
+			}
+		default:
+			break drainLoop
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -219,7 +291,9 @@ func (c *Connection) closeConn(timeout time.Duration) {
 
 	// close TCP connection
 	c.connMutex.Lock()
+	remoteAddr := ""
 	if c.conn != nil {
+		remoteAddr = c.conn.RemoteAddr().String()
 		c.logger.Debug("close TCP connection", "method", "closeConn")
 		if tcpConn, ok := c.conn.(*net.TCPConn); ok {
 			_ = tcpConn.SetLinger(0) // Set linger timeout to 0 to force close
@@ -253,6 +327,15 @@ func (c *Connection) closeConn(timeout time.Duration) {
 
 	// drop all message that wait reply
 	c.dropAllReplyMsgs()
+
+	// close sender message channel
+	close(c.senderMsgChan)
+
+	if !c.opState.ToClosed() {
+		c.logger.Warn("failed to set connection to closed state", "method", "closeConn", "opState", c.opState.String())
+	} else {
+		c.logger.Debug("connection closed", "method", "closeConn", "remoteAddr", remoteAddr)
+	}
 }
 
 // createContext creates a new context for the connection, derived from the parent context.
@@ -316,7 +399,6 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	defer pool.PutTimer(sendMsgTimer)
 
 	id := msg.ID()
-	c.logger.Debug("send message", "method", "sendMsg", "id", id, "type", msg.Type())
 	replyMsgChan := c.addReplyExpectedMsg(id)
 
 	err := c.sendMsgAsync(msg)
@@ -379,6 +461,10 @@ func (c *Connection) sendMsgSync(msg hsms.HSMSMessage) error {
 	defer msg.Free()
 
 	buf := msg.ToBytes()
+
+	c.connMutex.RLock()
+	defer c.connMutex.RUnlock()
+
 	err := c.conn.SetWriteDeadline(time.Now().Add(c.cfg.t8Timeout))
 	if err != nil {
 		return err

@@ -67,7 +67,7 @@ type ConnectionConfig struct {
 	// This field is only relevant for passive mode.
 	acceptConnTimeout time.Duration
 
-	// closeConnTimeout defines the timeout for closing whole HSMS-SS connection. It should be between 3 and 30 seconds.
+	// closeConnTimeout defines the timeout for closing whole HSMS-SS connection. It should be between 1 and 30 seconds.
 	// Defaults to 3 seconds.
 	closeConnTimeout time.Duration
 
@@ -382,7 +382,7 @@ func WithT5Timeout(val time.Duration) ConnOption {
 		}
 
 		if val < 10*time.Millisecond || val > 240*time.Second {
-			return errors.New("t5 timeout out of range [1, 240]")
+			return errors.New("t5 timeout out of range [0.01, 240]")
 		}
 		cfg.t5Timeout = val
 
@@ -513,8 +513,8 @@ func WithCloseConnTimeout(val time.Duration) ConnOption {
 			return hsms.ErrConnConfigNil
 		}
 
-		if val < 3*time.Second || val > 30*time.Second {
-			return errors.New("accept connection timeout out of range [3, 30]")
+		if val < 1*time.Second || val > 30*time.Second {
+			return errors.New("accept connection timeout out of range [1, 30]")
 		}
 		cfg.closeConnTimeout = val
 

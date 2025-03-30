@@ -3,6 +3,9 @@ package hsmsss
 import (
 	"context"
 	"errors"
+	"math/rand"
+	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,24 +21,43 @@ const (
 	testSessionID = 9527
 )
 
-func TestConnection_ActiveHost_PassiveEQP(t *testing.T) {
-	require := require.New(t)
+func TestMain(m *testing.M) {
+	logLevel := os.Getenv("LOG_LEVEL")
+	if logLevel == "" {
+		logLevel = "info"
+	}
 
+	var level logger.LogLevel
+	switch logLevel {
+	case "debug":
+		level = logger.DebugLevel
+	case "info":
+		level = logger.InfoLevel
+	case "warn":
+		level = logger.WarnLevel
+	case "error":
+		level = logger.ErrorLevel
+	case "fatal":
+		level = logger.FatalLevel
+	default:
+		level = logger.InfoLevel
+	}
+
+	logger.SetLevel(level)
+
+	os.Exit(m.Run())
+}
+
+func TestConnection_ActiveHost_PassiveEQP(t *testing.T) {
 	ctx := context.Background()
 
-	logger.SetLevel(logger.InfoLevel)
-
-	testConnection(ctx, require, true)
+	testConnection(ctx, t, true)
 }
 
 func TestConnection_PassiveHost_ActiveEQP(t *testing.T) {
-	require := require.New(t)
-
 	ctx := context.Background()
 
-	logger.SetLevel(logger.InfoLevel)
-
-	testConnection(ctx, require, false)
+	testConnection(ctx, t, false)
 }
 
 func TestConnection_ActiveHost_RetryConnect(t *testing.T) {
@@ -43,37 +65,79 @@ func TestConnection_ActiveHost_RetryConnect(t *testing.T) {
 
 	ctx := context.Background()
 
-	logger.SetLevel(logger.DebugLevel)
+	port := getPort()
 
-	hostComm := newTestComm(ctx, require, true, true,
-		WithT5Timeout(100*time.Millisecond),
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithT3Timeout(1000*time.Millisecond),
+		WithT6Timeout(1000*time.Millisecond),
+		WithT5Timeout(10*time.Millisecond),
 		WithConnectRemoteTimeout(100*time.Millisecond),
+		WithCloseConnTimeout(2*time.Second),
 	)
-	eqpComm := newTestComm(ctx, require, false, false,
-		WithT5Timeout(100*time.Millisecond),
+	eqpComm := newTestComm(ctx, t, port, false, false,
+		WithT3Timeout(1000*time.Millisecond),
+		WithT6Timeout(1000*time.Millisecond),
+		WithT5Timeout(10*time.Millisecond),
 		WithConnectRemoteTimeout(100*time.Millisecond),
+		WithCloseConnTimeout(2*time.Second),
 	)
 
-	var hostMetrics *ConnectionMetrics
+	defer func() {
+		// close host
+		t.Log("=== defer host close ===")
+		require.NoError(hostComm.close())
 
-	require.NoError(hostComm.conn.Open(false))
+		// close equipment
+		t.Log("=== defer eqp close ===")
+		require.NoError(eqpComm.close())
+	}()
 
-	time.Sleep(300 * time.Millisecond)
+	for range 10 {
+		randBool := rand.Intn(2) == 1
+		if randBool {
+			// open host first
+			require.NoError(hostComm.open(false))
+			// open equipment later
+			require.NoError(eqpComm.open(false))
+		} else {
+			// open equipment first
+			require.NoError(eqpComm.open(false))
+			// open host later
+			require.NoError(hostComm.open(false))
+		}
 
-	hostMetrics = hostComm.conn.GetMetrics()
-	require.GreaterOrEqual(hostMetrics.ConnRetryGauge.Load(), uint32(3))
+		err := hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState)
+		require.NoError(err)
 
-	require.NoError(eqpComm.conn.Open(true))
+		err = eqpComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState)
+		require.NoError(err)
 
-	err := hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState)
-	require.NoError(err)
+		// send from host
+		hostComm.testMsgSuccess(1, 3, secs2.A("from host"), `<A[9] "from host">`)
+		hostComm.testAsyncMsgSuccess(1, 3, secs2.A("from host async"), `<A[15] "from host async">`)
 
-	require.Equal(hostMetrics.ConnRetryGauge.Load(), uint32(0))
+		// send from eqp
+		eqpComm.testMsgSuccess(2, 5, secs2.A("from eqp"), `<A[8] "from eqp">`)
+		eqpComm.testAsyncMsgSuccess(2, 5, secs2.A("from eqp async"), `<A[14] "from eqp async">`)
 
-	// close host
-	require.NoError(hostComm.conn.Close())
-	// close equipment
-	require.NoError(eqpComm.conn.Close())
+		randBool = rand.Intn(2) == 1
+		if randBool {
+			// close equipment first
+			require.NoError(eqpComm.close())
+			// close host lster
+			require.NoError(hostComm.close())
+		} else {
+			// close host first
+			require.NoError(hostComm.close())
+			// close equipment later
+			require.NoError(eqpComm.close())
+		}
+		err = hostComm.conn.stateMgr.WaitState(ctx, hsms.NotConnectedState)
+		require.NoError(err)
+
+		err = eqpComm.conn.stateMgr.WaitState(ctx, hsms.NotConnectedState)
+		require.NoError(err)
+	}
 }
 
 func TestConnection_Linktest(t *testing.T) {
@@ -81,20 +145,23 @@ func TestConnection_Linktest(t *testing.T) {
 
 	ctx := context.Background()
 
-	logger.SetLevel(logger.InfoLevel)
+	port := getPort()
 
-	hostComm := newTestComm(ctx, require, true, true,
+	hostComm := newTestComm(ctx, t, port, true, true,
 		WithAutoLinktest(true),
 		WithLinktestInterval(100*time.Millisecond),
 		WithT6Timeout(1000*time.Millisecond),
 	)
-	eqpComm := newTestComm(ctx, require, false, false, WithAutoLinktest(true), WithLinktestInterval(100*time.Millisecond))
+	eqpComm := newTestComm(ctx, t, port, false, false,
+		WithAutoLinktest(true),
+		WithLinktestInterval(100*time.Millisecond),
+	)
 
 	var hostMetrics *ConnectionMetrics
 	var eqpMetrics *ConnectionMetrics
 
-	require.NoError(eqpComm.conn.Open(true))
-	require.NoError(hostComm.conn.Open(true))
+	require.NoError(eqpComm.open(true))
+	require.NoError(hostComm.open(true))
 
 	expectedTotal := uint64(5)
 	expectedDelta := float64(expectedTotal) * 0.2
@@ -156,24 +223,27 @@ func TestConnection_Linktest(t *testing.T) {
 
 	t.Log("Close connection")
 	// close host
-	require.NoError(hostComm.conn.Close())
+	require.NoError(hostComm.close())
 	// close equipment
-	require.NoError(eqpComm.conn.Close())
+	require.NoError(eqpComm.close())
 }
 
-func testConnection(ctx context.Context, require *require.Assertions, hostIsActive bool) {
-	hostComm := newTestComm(ctx, require, true, hostIsActive)
-	eqpComm := newTestComm(ctx, require, false, !hostIsActive)
+func testConnection(ctx context.Context, t testing.TB, hostIsActive bool) {
+	require := require.New(t)
+
+	port := getPort()
+	hostComm := newTestComm(ctx, t, port, true, hostIsActive)
+	eqpComm := newTestComm(ctx, t, port, false, !hostIsActive)
 
 	if hostIsActive {
-		require.NoError(eqpComm.conn.Open(true))
-		require.NoError(hostComm.conn.Open(true))
+		require.NoError(eqpComm.open(true))
+		require.NoError(hostComm.open(true))
 	} else {
-		require.NoError(hostComm.conn.Open(true))
-		require.NoError(eqpComm.conn.Open(true))
+		require.NoError(hostComm.open(true))
+		require.NoError(eqpComm.open(true))
 	}
-	defer hostComm.conn.Close()
-	defer eqpComm.conn.Close()
+	defer hostComm.close()
+	defer eqpComm.close()
 
 	// send from host
 	hostComm.testMsgSuccess(1, 1, secs2.A("from host"), `<A[9] "from host">`)
@@ -195,19 +265,19 @@ func testConnection(ctx context.Context, require *require.Assertions, hostIsActi
 	eqpComm.testMsgError(2, 4, secs2.I1(1), hsms.ErrInvalidReqMsg)
 
 	// close equipment
-	require.NoError(eqpComm.conn.Close())
+	require.NoError(eqpComm.close())
 
 	// expects to get error when equipment has closed
 	hostComm.testMsgNetError(3, 15, nil, hsms.ErrConnClosed, hsms.ErrNotSelectedState)
 
 	// close host
-	require.NoError(hostComm.conn.Close())
+	require.NoError(hostComm.close())
 
 	// reopen
 	if hostIsActive {
-		require.NoError(eqpComm.conn.Open(true))
+		require.NoError(eqpComm.open(true))
 	} else {
-		require.NoError(hostComm.conn.Open(true))
+		require.NoError(hostComm.open(true))
 	}
 
 	// expects to get error when host has closed
@@ -215,11 +285,9 @@ func testConnection(ctx context.Context, require *require.Assertions, hostIsActi
 
 	// reopen
 	if hostIsActive {
-		// hostComm = newTestComm(ctx, require, true, hostIsActive)
-		require.NoError(hostComm.conn.Open(true))
+		require.NoError(hostComm.open(true))
 	} else {
-		// eqpComm = newTestComm(ctx, require, false, !hostIsActive)
-		require.NoError(eqpComm.conn.Open(true))
+		require.NoError(eqpComm.open(true))
 	}
 
 	// send from host
@@ -237,33 +305,45 @@ func testConnection(ctx context.Context, require *require.Assertions, hostIsActi
 	eqpComm.testMsgError(8, 2, nil, hsms.ErrInvalidReqMsg)
 
 	// close host
-	require.NoError(hostComm.conn.Close())
+	require.NoError(hostComm.close())
 	// close equipment
-	require.NoError(eqpComm.conn.Close())
+	require.NoError(eqpComm.close())
+}
+
+var portInUse atomic.Int32
+
+func getPort() int {
+	port := testPort + int(portInUse.Load())
+	portInUse.Add(1)
+	return port
 }
 
 type testComm struct {
-	ctx     context.Context
-	require *require.Assertions
-	conn    *Connection
-	session hsms.Session
+	ctx      context.Context
+	t        testing.TB
+	require  *require.Assertions
+	isHost   bool
+	isActive bool
+	conn     *Connection
+	session  hsms.Session
 
 	recvReplyChan chan *hsms.DataMessage
 }
 
-func newTestComm(ctx context.Context, require *require.Assertions, isHost bool, isActive bool, extraOpts ...ConnOption) *testComm {
-	c := &testComm{ctx: ctx, require: require}
+func newTestComm(ctx context.Context, t testing.TB, port int, isHost bool, isActive bool, extraOpts ...ConnOption) *testComm {
+	require := require.New(t)
+	c := &testComm{ctx: ctx, t: t, require: require, isHost: isHost, isActive: isActive}
 
 	c.recvReplyChan = make(chan *hsms.DataMessage, 1)
 
-	c.conn = newConn(ctx, require, isHost, isActive, extraOpts...)
+	c.conn = newConn(ctx, require, port, isHost, isActive, extraOpts...)
 	require.NotNil(c.conn)
 
 	require.True(c.conn.IsSingleSession())
 	require.False(c.conn.IsGeneralSession())
 	require.NotNil(c.conn.GetLogger())
 
-	require.ErrorIs(c.conn.Open(false), hsms.ErrSessionNil)
+	require.ErrorIs(c.open(false), hsms.ErrSessionNil)
 
 	c.session = c.conn.AddSession(testSessionID)
 	require.NotNil(c.session)
@@ -271,6 +351,42 @@ func newTestComm(ctx context.Context, require *require.Assertions, isHost bool, 
 	c.session.AddDataMessageHandler(c.msgEchoHandler)
 
 	return c
+}
+
+func (c *testComm) open(waitOpened bool) error {
+	if c.isHost {
+		c.t.Logf("=== host open [active: %t] ===", c.isActive)
+	} else {
+		c.t.Logf("=== eqp open [active: %t] ===", c.isActive)
+	}
+
+	err := c.conn.Open(waitOpened)
+
+	if c.isHost {
+		c.t.Logf("=== host open finished [active: %t] ===", c.isActive)
+	} else {
+		c.t.Logf("=== eqp open finished [active: %t] ===", c.isActive)
+	}
+
+	return err
+}
+
+func (c *testComm) close() error {
+	if c.isHost {
+		c.t.Logf("=== host close [active: %t] ===", c.isActive)
+	} else {
+		c.t.Logf("=== eqp close [active: %t] ===", c.isActive)
+	}
+
+	err := c.conn.Close()
+
+	if c.isHost {
+		c.t.Logf("=== host close finished [active: %t] ===", c.isActive)
+	} else {
+		c.t.Logf("=== eqp close finished [active: %t] ===", c.isActive)
+	}
+
+	return err
 }
 
 func (c *testComm) msgEchoHandler(msg *hsms.DataMessage, session hsms.Session) {
@@ -337,7 +453,7 @@ func (c *testComm) testMsgNetError(stream byte, function byte, dataItem secs2.It
 	c.require.Nil(reply)
 }
 
-func newConn(ctx context.Context, require *require.Assertions, isHost, isActive bool, extraOpts ...ConnOption) *Connection {
+func newConn(ctx context.Context, require *require.Assertions, port int, isHost bool, isActive bool, extraOpts ...ConnOption) *Connection {
 	opts := []ConnOption{
 		WithT3Timeout(3 * time.Second),
 		WithT5Timeout(500 * time.Millisecond),
@@ -365,7 +481,7 @@ func newConn(ctx context.Context, require *require.Assertions, isHost, isActive 
 		opts = append(opts, WithPassive(), WithLogger(l))
 	}
 
-	connCfg, err := NewConnectionConfig(testIP, testPort, opts...)
+	connCfg, err := NewConnectionConfig(testIP, port, opts...)
 	require.NotNil(connCfg)
 	require.NoError(err)
 

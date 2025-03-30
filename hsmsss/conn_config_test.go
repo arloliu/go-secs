@@ -68,11 +68,11 @@ func TestNewConnectionConfig(t *testing.T) {
 	t.Run("Invalid T5 Timeout - Below Range", func(t *testing.T) {
 		_, err := NewConnectionConfig("192.168.1.1", 5000, WithT5Timeout(0))
 		require.Error(err)
-		require.EqualError(err, "t5 timeout out of range [1, 240]")
+		require.EqualError(err, "t5 timeout out of range [0.01, 240]")
 
 		_, err = NewConnectionConfig("192.168.1.1", 5000, WithT5Timeout(241))
 		require.Error(err)
-		require.EqualError(err, "t5 timeout out of range [1, 240]")
+		require.EqualError(err, "t5 timeout out of range [0.01, 240]")
 
 		err = WithT5Timeout(5).apply(nil)
 		require.Error(err)

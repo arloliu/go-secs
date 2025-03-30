@@ -54,7 +54,7 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, prevState hsms.C
 
 			c.closeConn(c.cfg.closeConnTimeout)
 
-			if !shutdown {
+			if !c.shutdown.Load() {
 				_ = c.Open(false)
 			}
 		}
@@ -183,6 +183,7 @@ func (c *Connection) tryAcceptConn() bool {
 		return false
 	}
 
+	c.logger.Info("try to accept connection", "method", "tryAcceptConn")
 	conn, err := tcpListener.Accept()
 	if err != nil {
 		var netErr net.Error
@@ -209,7 +210,7 @@ func (c *Connection) tryAcceptConn() bool {
 
 	connCount := c.connCount.Load()
 	if connCount > 0 {
-		c.logger.Warn("connection already existed", "method", "tryListenAccept", "remote_address", conn.RemoteAddr())
+		c.logger.Warn("connection already existed", "method", "tryListenAccept", "remote_address", conn.RemoteAddr(), "connCount", connCount, "opState", c.opState.String())
 		_ = conn.Close()
 		return true // re-accept again
 	}
@@ -217,6 +218,10 @@ func (c *Connection) tryAcceptConn() bool {
 	c.connMutex.Lock()
 	c.conn = conn
 	c.connMutex.Unlock()
+
+	if !c.opState.ToOpened() {
+		c.logger.Warn("failed to set connection state to opened state", "method", "tryListenAccept", "state", c.opState.String())
+	}
 
 	c.connCount.Add(1)
 
