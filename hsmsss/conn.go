@@ -31,13 +31,13 @@ type Connection struct {
 	cfg       *ConnectionConfig
 	logger    logger.Logger
 
-	listener      net.Listener  // listener is for passive mode only
-	listenerMutex sync.Mutex    // TCP connection mutex
-	conn          net.Conn      // TCP connection
-	opState       AtomicOpState // connection operation state
-	connMutex     sync.RWMutex  // TCP connection mutex
-	connCount     atomic.Int32  // connection counter for passive mode only
-	session       *Session      // HSMS-SS has only one session
+	listener      net.Listener       // listener is for passive mode only
+	listenerMutex sync.Mutex         // TCP connection mutex
+	conn          net.Conn           // TCP connection
+	opState       hsms.AtomicOpState // operation state
+	connMutex     sync.RWMutex       // TCP connection mutex
+	connCount     atomic.Int32       // connection counter for passive mode only
+	session       *Session           // HSMS-SS has only one session
 
 	stateMgr     *hsms.ConnStateMgr
 	taskMgr      *hsms.TaskManager
@@ -71,7 +71,7 @@ func NewConnection(ctx context.Context, cfg *ConnectionConfig) (*Connection, err
 		taskMgr:       hsms.NewTaskManager(ctx, cfg.logger),
 	}
 
-	conn.opState.Set(ClosedState)
+	conn.opState.Set(hsms.ClosedState)
 
 	conn.createContext()
 
@@ -159,11 +159,20 @@ func (c *Connection) IsSingleSession() bool { return true }
 // IsGeneralSession returns false, indicating that this is not an HSMS-GS connection.
 func (c *Connection) IsGeneralSession() bool { return false }
 
-// Open establishes the HSMS-SS connection.
+// open establishes the HSMS-SS connection.
 // If waitOpened is true, it blocks until the connection is fully established (Selected state)
 // or an error occurs.
 // If waitOpened is false, it initiates the connection process and returns immediately.
 func (c *Connection) Open(waitOpened bool) error {
+	// reset shutdown flag to false when user call Open() again
+	c.shutdown.Store(false)
+
+	c.stateMgr.Start()
+
+	return c.doOpen(waitOpened)
+}
+
+func (c *Connection) doOpen(waitOpened bool) error {
 	if c.session == nil {
 		return hsms.ErrSessionNil
 	}
@@ -176,7 +185,6 @@ func (c *Connection) Open(waitOpened bool) error {
 	c.logger.Debug("start to open connection", "method", "Open", "opState", c.opState.String())
 
 	c.recvSeparate.Store(false)
-	c.shutdown.Store(false)
 
 	c.createContext()
 
@@ -204,20 +212,16 @@ func (c *Connection) Open(waitOpened bool) error {
 // Close closes the HSMS-SS connection gracefully.
 // It terminates all running tasks, closes the TCP connection, and resets the connection state.
 func (c *Connection) Close() error {
+	defer func() {
+		c.stateMgr.Stop()
+	}()
+
 	c.shutdown.Store(true)
-
-	if c.opState.IsClosed() || c.opState.IsClosing() {
-		c.logger.Debug("connection already closed or closing, no need to close again", "opState", c.opState.String())
+	c.logger.Debug("start to close connection", "method", "Close", "opState", c.opState.String())
+	if c.stateMgr.DesiredState() == hsms.NotConnectedState {
+		c.logger.Debug("connection desired state is not connected, no need to close", "method", "Close", "opState", c.stateMgr.DesiredState().String())
 	} else {
-		c.stateMgr.ToNotConnected()
-
-		// force to close connection
-		c.closeConn(c.cfg.closeConnTimeout)
-
-		// call closeListener() to ensure listener close
-		if !c.cfg.isActive {
-			_ = c.closeListener()
-		}
+		c.stateMgr.ToNotConnectedAsync()
 	}
 
 	closeTimer := pool.GetTimer(c.cfg.closeConnTimeout)
@@ -225,18 +229,24 @@ func (c *Connection) Close() error {
 
 	// wait for connection to be closed
 	for {
+		closed := c.opState.IsClosed() && c.stateMgr.State() == hsms.NotConnectedState && c.stateMgr.DesiredState() == hsms.NotConnectedState
 		select {
 		case <-closeTimer.C:
-			if c.opState.IsClosed() {
+			if closed {
 				c.logger.Debug("wait for connection closed success at timeout", "timeout", c.cfg.closeConnTimeout, "opState", c.opState.String())
 				return nil
 			}
 
-			c.logger.Error("close connection timeout", "timeout", c.cfg.closeConnTimeout, "opState", c.opState.String())
+			c.logger.Error("close connection timeout",
+				"timeout", c.cfg.closeConnTimeout,
+				"opState", c.opState.String(),
+				"curState", c.stateMgr.State().String(),
+				"desiredState", c.stateMgr.DesiredState().String(),
+			)
 
 			return errors.New("close connection timeout")
 		default:
-			if c.opState.IsClosed() {
+			if closed {
 				c.logger.Debug("wait for connection closed success")
 				return nil
 			}
@@ -253,7 +263,7 @@ func (c *Connection) Close() error {
 func (c *Connection) closeConn(timeout time.Duration) {
 	if !c.opState.ToClosing() {
 		if c.opState.IsClosed() {
-			c.logger.Debug("connection already closed, no need to close again", "method", "closeConn", "opState", c.opState.String())
+			c.logger.Warn("connection already closed, no need to close again", "method", "closeConn", "opState", c.opState.String())
 		} else {
 			c.logger.Warn("failed to set connection to closing state", "method", "closeConn", "opState", c.opState.String())
 		}
@@ -303,7 +313,7 @@ drainLoop:
 		}
 
 		err := c.conn.Close()
-		if err != nil {
+		if err != nil && !errors.Is(err, net.ErrClosed) {
 			c.logger.Error("failed to close TCP connection", "method", "closeConn", "error", err)
 		}
 	}
@@ -532,6 +542,10 @@ func (c *Connection) dropAllReplyMsgs() {
 	})
 
 	c.replyMsgChans.Clear()
+}
+
+func (c *Connection) cancelSenderTask() {
+	c.stateMgr.ToNotConnectedAsync()
 }
 
 // senderTask is the task function for the sender goroutine.

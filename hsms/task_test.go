@@ -155,7 +155,9 @@ func TestTaskManager_StartSender(t *testing.T) {
 		return true
 	}
 
-	taskMgr.StartSender("testSender", taskFunc, inputChan)
+	taskCancelFunc := func() {}
+
+	taskMgr.StartSender("testSender", taskFunc, taskCancelFunc, inputChan)
 
 	// Allow some time for the goroutine to start
 	time.Sleep(100 * time.Millisecond)

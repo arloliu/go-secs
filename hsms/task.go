@@ -143,12 +143,15 @@ func (mgr *TaskManager) StartReceiver(name string, conn net.Conn, taskFunc TaskR
 // StartSender starts a new goroutine that receives HSMS messages from the given channel.
 //
 // The taskFunc should return true to continue receiving messages, or false to stop the goroutine.
-func (mgr *TaskManager) StartSender(name string, taskFunc TaskMsgFunc, inputChan chan HSMSMessage) {
+func (mgr *TaskManager) StartSender(name string, taskFunc TaskMsgFunc, taskCancelFunc TaskCancelFunc, inputChan chan HSMSMessage) {
 	mgr.count.Add(1)
 
 	mgr.logger.Debug("StartSender task", "name", name)
 	mgr.wg.Add(1)
 	go func() {
+		if taskCancelFunc != nil {
+			defer taskCancelFunc()
+		}
 		defer mgr.wg.Done()
 		defer func() {
 			mgr.count.Add(-1)

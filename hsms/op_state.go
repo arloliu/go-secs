@@ -1,4 +1,4 @@
-package hsmsss
+package hsms
 
 import "sync/atomic"
 

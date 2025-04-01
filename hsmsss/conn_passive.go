@@ -13,51 +13,48 @@ import (
 )
 
 func (c *Connection) passiveConnStateHandler(_ hsms.Connection, prevState hsms.ConnState, curState hsms.ConnState) {
-	select {
-	case <-c.ctx.Done(): // the connection context done, exit.
-		c.logger.Debug("passiveConnStateHandler ctx done", "prevState", prevState, "curState", curState)
-		return
+	c.logger.Debug("passive: connection state changes", "prevState", prevState, "curState", curState)
+	switch curState {
+	case hsms.NotSelectedState:
+		c.logger.Debug("passive: not selected state, start to open passive connection")
+		c.taskMgr.StartReceiver("receiverTask", c.conn, c.receiverTask, nil)
+		c.taskMgr.StartSender("senderTask", c.senderTask, c.cancelSenderTask, c.senderMsgChan)
+		c.session.startDataMsgTasks()
 
-	default:
-		c.logger.Debug("passive: connection state changes", "prevState", prevState, "curState", curState)
-		switch curState {
-		case hsms.NotSelectedState:
-			c.taskMgr.StartReceiver("receiverTask", c.conn, c.receiverTask, nil)
-			c.taskMgr.StartSender("senderTask", c.senderTask, c.senderMsgChan)
-			c.session.startDataMsgTasks()
+		go func() {
+			waitSelectTimer := pool.GetTimer(c.cfg.t7Timeout)
+			<-waitSelectTimer.C
 
-			go func() {
-				waitSelectTimer := pool.GetTimer(c.cfg.t7Timeout)
-				<-waitSelectTimer.C
-
-				if c.stateMgr.IsNotSelected() {
-					c.logger.Debug("wait selected state timeout", "method", "passiveConnStateHandler", "timeout", c.cfg.t7Timeout)
-					c.stateMgr.ToNotConnectedAsync()
-				}
-				pool.PutTimer(waitSelectTimer)
-			}()
-
-		case hsms.SelectedState:
-			// do nothing
-
-		case hsms.NotConnectedState:
-			if !c.recvSeparate.Load() && prevState == hsms.SelectedState {
-				c.session.separateSession()
+			if c.stateMgr.IsNotSelected() {
+				c.logger.Debug("wait selected state timeout", "method", "passiveConnStateHandler", "timeout", c.cfg.t7Timeout)
+				c.stateMgr.ToNotConnectedAsync()
 			}
+			pool.PutTimer(waitSelectTimer)
+		}()
 
-			shutdown := c.shutdown.Load()
-			c.logger.Debug("start to close connection", "shutdown", shutdown)
-			// call closeListener() if Close() be called before connection closed
-			if shutdown {
-				_ = c.closeListener()
-			}
+	case hsms.SelectedState:
+		// do nothing
 
-			c.closeConn(c.cfg.closeConnTimeout)
-
-			if !c.shutdown.Load() {
-				_ = c.Open(false)
-			}
+	case hsms.NotConnectedState:
+		if !c.recvSeparate.Load() && prevState == hsms.SelectedState {
+			c.session.separateSession()
 		}
+
+		shutdown := c.shutdown.Load()
+		c.logger.Debug("passive: start to close connection", "shutdown", shutdown)
+		// call closeListener() if Close() be called before connection closed
+		if shutdown {
+			_ = c.closeListener()
+		}
+
+		c.closeConn(c.cfg.closeConnTimeout)
+
+		if !c.shutdown.Load() {
+			c.stateMgr.ToConnectingAsync()
+		}
+	case hsms.ConnectingState:
+		c.logger.Debug("passive: start to try to open and listen")
+		_ = c.doOpen(false)
 	}
 }
 
@@ -182,12 +179,22 @@ func (c *Connection) tryAcceptConn() bool {
 	if tcpListener == nil {
 		return false
 	}
+
+	if c.shutdown.Load() {
+		c.logger.Debug("tryAcceptConn: shutdown, skip accept")
+		c.stateMgr.ToNotConnectedAsync()
+		return false
+	}
+
 	if !c.opState.IsOpening() {
-		c.logger.Debug("tryAcceptConn skipped, opState is not opening", "opState", c.opState.String())
+		c.logger.Warn("tryAcceptConn skipped, opState is not opening", "opState", c.opState.String(), "sleep", c.cfg.t5Timeout)
+		// respect the t5 timeout
+		time.Sleep(c.cfg.t5Timeout)
+
 		return true // retry to accept again
 	}
 
-	c.logger.Info("try to accept connection", "method", "tryAcceptConn", "opState", c.opState.String())
+	c.logger.Debug("try to accept connection", "method", "tryAcceptConn", "opState", c.opState.String())
 	conn, err := tcpListener.Accept()
 	if err != nil {
 		var netErr net.Error
@@ -231,10 +238,9 @@ func (c *Connection) tryAcceptConn() bool {
 
 	c.logger.Debug("connection accepted", "method", "tryListenAccept", "remote_address", conn.RemoteAddr())
 
-	// c.stateMgr.ToConnectedAsync()
 	c.stateMgr.ToNotSelectedAsync()
 
-	return true
+	return false // terminate this task, only accept new connection once
 }
 
 func (c *Connection) getTCPListener() *net.TCPListener {

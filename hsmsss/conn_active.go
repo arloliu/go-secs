@@ -11,38 +11,40 @@ import (
 )
 
 func (c *Connection) activeConnStateHandler(_ hsms.Connection, prevState hsms.ConnState, curState hsms.ConnState) {
-	select {
-	case <-c.ctx.Done():
-		return
+	c.logger.Debug("active: connection state changes", "prevState", prevState, "curState", curState)
+	switch curState {
+	case hsms.NotSelectedState:
+		c.taskMgr.StartReceiver("receiverTask", c.conn, c.receiverTask, c.cancelReceiverTask)
+		c.taskMgr.StartSender("senderTask", c.senderTask, c.cancelSenderTask, c.senderMsgChan)
+		c.session.startDataMsgTasks()
 
-	default:
-		switch curState {
-		case hsms.NotSelectedState:
-			c.taskMgr.StartReceiver("receiverTask", c.conn, c.receiverTask, c.cancelReceiverTask)
-			c.taskMgr.StartSender("senderTask", c.senderTask, c.senderMsgChan)
-			c.session.startDataMsgTasks()
-
-			err := c.session.selectSession()
-			if err != nil {
-				c.stateMgr.ToNotConnectedAsync()
-			} else {
-				c.stateMgr.ToSelectedAsync()
-			}
-
-		case hsms.NotConnectedState:
-			if !c.recvSeparate.Load() && prevState == hsms.SelectedState {
-				c.session.separateSession()
-			}
-
-			c.closeConn(c.cfg.closeConnTimeout)
-
-			if !c.shutdown.Load() {
-				_ = c.Open(false)
-			}
-
-		case hsms.SelectedState:
-			// do nothing
+		err := c.session.selectSession()
+		if err != nil {
+			c.logger.Debug("failed to select session, switch to not-connected", "error", err)
+			c.stateMgr.ToNotConnectedAsync()
+		} else {
+			c.logger.Debug("session selected, switch to selected state")
+			c.stateMgr.ToSelectedAsync()
 		}
+
+	case hsms.NotConnectedState:
+		if !c.recvSeparate.Load() && prevState == hsms.SelectedState {
+			c.session.separateSession()
+		}
+
+		c.closeConn(c.cfg.closeConnTimeout)
+
+		c.logger.Debug("closeConn in connection state handler", "shutdown", c.shutdown.Load())
+		if !c.shutdown.Load() {
+			c.stateMgr.ToConnectingAsync()
+		}
+
+	case hsms.ConnectingState:
+		c.logger.Debug("connecting state, try to connect to remote")
+		_ = c.doOpen(false)
+
+	case hsms.SelectedState:
+		// do nothing
 	}
 }
 
@@ -115,6 +117,12 @@ func (c *Connection) openActive() bool {
 		return false
 	}
 
+	if c.shutdown.Load() {
+		c.logger.Debug("openActive: shutdown, skip connect")
+		c.stateMgr.ToNotConnectedAsync()
+		return false
+	}
+
 	c.metrics.incConnRetryGauge()
 
 	return true
@@ -144,6 +152,8 @@ func (c *Connection) tryConnect(ctx context.Context) error {
 	c.logger.Debug("connected to the remote",
 		"host", c.cfg.host,
 		"port", c.cfg.port,
+		"local_addr", conn.LocalAddr().String(),
+		"remote_addr", conn.RemoteAddr().String(),
 		"method", "connect",
 	)
 

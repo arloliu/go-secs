@@ -26,6 +26,8 @@ func TestConnStateTransitions(t *testing.T) {
 		// create instance for mock HSMS-SS connection
 		cs := NewConnStateMgr(ctx, &ssConn{})
 		cs.AddHandler(func(conn Connection, prevState ConnState, newState ConnState) { stateChangeCount++ })
+		cs.Start()
+		defer cs.Stop()
 
 		require.NoError(cs.ToNotSelected())
 		require.Equal(NotSelectedState, cs.State())
@@ -65,6 +67,8 @@ func TestConnStateTransitions(t *testing.T) {
 		stateChangeCount := 0
 		cs := NewConnStateMgr(ctx, nil)
 		cs.AddHandler(func(conn Connection, prevState ConnState, newState ConnState) { stateChangeCount++ })
+		cs.Start()
+		defer cs.Stop()
 
 		// Invalid transition from NotConnectedState to SelectedState
 		require.ErrorIs(cs.ToSelected(), ErrInvalidTransition)
@@ -87,6 +91,8 @@ func TestConnStateTransitions(t *testing.T) {
 		stateChangeCount := 0
 		cs := NewConnStateMgr(ctx, nil)
 		cs.AddHandler(func(conn Connection, prevState ConnState, newState ConnState) { stateChangeCount++ })
+		cs.Start()
+		defer cs.Stop()
 
 		require.NoError(cs.ToNotSelected()) // Transition to NotSelectedState
 		require.Equal(1, stateChangeCount)
@@ -105,6 +111,9 @@ func TestConnStateTransitions(t *testing.T) {
 
 	t.Run("setState", func(t *testing.T) {
 		cs := NewConnStateMgr(ctx, nil)
+		cs.Start()
+		defer cs.Stop()
+
 		cs.setState(NotConnectedState)
 		require.Equal(NotConnectedState, cs.State())
 		cs.setState(NotSelectedState)
@@ -123,6 +132,8 @@ func TestConnStateAsyncTransitions(t *testing.T) {
 		stateChangeCount := 0
 		cs := NewConnStateMgr(ctx, nil)
 		cs.AddHandler(func(conn Connection, prevState ConnState, newState ConnState) { stateChangeCount++ })
+		cs.Start()
+		defer cs.Stop()
 
 		cs.ToNotConnectedAsync()
 		time.Sleep(10 * time.Millisecond) // allow async transition to complete
@@ -140,6 +151,8 @@ func TestConnStateAsyncTransitions(t *testing.T) {
 		stateChangeCount := 0
 		cs := NewConnStateMgr(ctx, nil)
 		cs.AddHandler(func(conn Connection, prevState ConnState, newState ConnState) { stateChangeCount++ })
+		cs.Start()
+		defer cs.Stop()
 
 		cs.ToNotSelectedAsync()
 		time.Sleep(10 * time.Millisecond) // allow async transition to complete
@@ -158,6 +171,8 @@ func TestConnStateAsyncTransitions(t *testing.T) {
 
 		cs := NewConnStateMgr(ctx, nil)
 		cs.AddHandler(func(conn Connection, prevState ConnState, newState ConnState) { stateChangeCount.Add(1) })
+		cs.Start()
+		defer cs.Stop()
 
 		err := cs.ToNotSelected()
 		require.NoError(err)
@@ -213,6 +228,8 @@ func (_ *ssConn) AddSession(sessionID uint16) Session { return nil }
 func (_ *ssConn) IsSingleSession() bool               { return true }
 func (_ *ssConn) IsGeneralSession() bool              { return false }
 func (_ *ssConn) GetLogger() logger.Logger            { return &mockLogger{} }
+func (_ *ssConn) ConnState() ConnState                { return NotConnectedState }
+func (_ *ssConn) OpState() OpState                    { return ClosedState }
 
 type gsConn struct{}
 
@@ -224,6 +241,8 @@ func (_ *gsConn) AddSession(sessionID uint16) Session { return nil }
 func (_ *gsConn) IsSingleSession() bool               { return false }
 func (_ *gsConn) IsGeneralSession() bool              { return true }
 func (_ *gsConn) GetLogger() logger.Logger            { return &mockLogger{} }
+func (_ *gsConn) ConnState() ConnState                { return NotConnectedState }
+func (_ *gsConn) OpState() OpState                    { return ClosedState }
 
 type mockLogger struct{}
 

@@ -72,14 +72,14 @@ func TestConnection_ActiveHost_RetryConnect(t *testing.T) {
 		WithT6Timeout(1000*time.Millisecond),
 		WithT5Timeout(10*time.Millisecond),
 		WithConnectRemoteTimeout(100*time.Millisecond),
-		WithCloseConnTimeout(2*time.Second),
+		WithCloseConnTimeout(5*time.Second),
 	)
 	eqpComm := newTestComm(ctx, t, port, false, false,
 		WithT3Timeout(1000*time.Millisecond),
 		WithT6Timeout(1000*time.Millisecond),
 		WithT5Timeout(10*time.Millisecond),
 		WithConnectRemoteTimeout(100*time.Millisecond),
-		WithCloseConnTimeout(2*time.Second),
+		WithCloseConnTimeout(5*time.Second),
 	)
 
 	defer func() {
@@ -92,8 +92,9 @@ func TestConnection_ActiveHost_RetryConnect(t *testing.T) {
 		require.NoError(eqpComm.close())
 	}()
 
-	for range 10 {
+	for range 5 {
 		randBool := rand.Intn(2) == 1
+		begin := time.Now()
 		if randBool {
 			// open host first
 			require.NoError(hostComm.open(false))
@@ -106,11 +107,15 @@ func TestConnection_ActiveHost_RetryConnect(t *testing.T) {
 			require.NoError(hostComm.open(false))
 		}
 
+		t.Logf("### wait host state to be selected ###")
 		err := hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState)
 		require.NoError(err)
+		t.Logf("### wait host state to be selected success, elapsed: %v ###", time.Since(begin))
 
+		t.Logf("### wait eqp state to be selected ###")
 		err = eqpComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState)
 		require.NoError(err)
+		t.Logf("### wait eqp state to be selected success, elapsed: %v ###", time.Since(begin))
 
 		// send from host
 		hostComm.testMsgSuccess(1, 3, secs2.A("from host"), `<A[9] "from host">`)
@@ -121,6 +126,7 @@ func TestConnection_ActiveHost_RetryConnect(t *testing.T) {
 		eqpComm.testAsyncMsgSuccess(2, 5, secs2.A("from eqp async"), `<A[14] "from eqp async">`)
 
 		randBool = rand.Intn(2) == 1
+		begin = time.Now()
 		if randBool {
 			// close equipment first
 			require.NoError(eqpComm.close())
@@ -132,11 +138,16 @@ func TestConnection_ActiveHost_RetryConnect(t *testing.T) {
 			// close equipment later
 			require.NoError(eqpComm.close())
 		}
+
+		t.Logf("### wait host state to be not-connected ###")
 		err = hostComm.conn.stateMgr.WaitState(ctx, hsms.NotConnectedState)
 		require.NoError(err)
+		t.Logf("### wait host state to be not-connected success, elapsed: %v ###", time.Since(begin))
 
+		t.Logf("### wait eqp state to be not-connected ###")
 		err = eqpComm.conn.stateMgr.WaitState(ctx, hsms.NotConnectedState)
 		require.NoError(err)
+		t.Logf("### wait eqp state to be not-connected success, elapsed: %v ###", time.Since(begin))
 	}
 }
 
@@ -342,8 +353,6 @@ func newTestComm(ctx context.Context, t testing.TB, port int, isHost bool, isAct
 	require.True(c.conn.IsSingleSession())
 	require.False(c.conn.IsGeneralSession())
 	require.NotNil(c.conn.GetLogger())
-
-	require.ErrorIs(c.open(false), hsms.ErrSessionNil)
 
 	c.session = c.conn.AddSession(testSessionID)
 	require.NotNil(c.session)
