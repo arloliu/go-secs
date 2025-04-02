@@ -75,6 +75,7 @@ type ConnStateChangeHandler func(conn Connection, prevState ConnState, newState 
 // The state transitions are thread safety in concurrent environments.
 type ConnStateMgr struct {
 	mu              sync.Mutex
+	stateMu         sync.Mutex
 	pctx            context.Context
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -116,6 +117,9 @@ func NewConnStateMgr(ctx context.Context, conn Connection, handlers ...ConnState
 }
 
 func (cs *ConnStateMgr) Start() {
+	cs.stateMu.Lock()
+	defer cs.stateMu.Unlock()
+
 	cs.logger.Debug("start connection state manager")
 
 	cctx, cancel := context.WithCancel(cs.pctx)
@@ -123,6 +127,7 @@ func (cs *ConnStateMgr) Start() {
 	cs.cancel = cancel
 	cs.stateChangeChan = make(chan ConnState, 10)
 
+	cs.logger.Debug("set shutdowned flag to false")
 	cs.shutdowned.Store(false)
 
 	cs.wg.Add(1)
@@ -131,7 +136,7 @@ func (cs *ConnStateMgr) Start() {
 
 func (cs *ConnStateMgr) Stop() {
 	if cs.shutdowned.Load() {
-		cs.logger.Warn("conn state manager already shutdowned, ignore stop",
+		cs.logger.Debug("conn state manager already shutdowned, ignore stop",
 			"method", "Stop",
 			"curState", cs.State(),
 			"desiredState", cs.DesiredState(),
@@ -146,11 +151,17 @@ func (cs *ConnStateMgr) Stop() {
 
 	cs.wg.Wait()
 
+	cs.stateMu.Lock()
+	// set shutdowned flag to true to prevent any further state changes
+	// it shoule be set before closing the stateChangeChan to prevent any further channel writes
 	cs.shutdowned.Store(true)
+
+	cs.logger.Debug("close stateChangeChan", "shutdowned", cs.shutdowned.Load())
 	close(cs.stateChangeChan)
 
 	cs.setState(NotConnectedState)
 	cs.logger.Debug("stop connection state manager finished", "state", cs.State().String())
+	cs.stateMu.Unlock()
 }
 
 // State returns the current connection state.
@@ -170,6 +181,7 @@ func (cs *ConnStateMgr) DesiredState() ConnState {
 func (cs *ConnStateMgr) AddHandler(handlers ...ConnStateChangeHandler) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
+
 	cs.handlers = append(cs.handlers, handlers...)
 }
 
@@ -214,6 +226,7 @@ func (cs *ConnStateMgr) ToNotConnected() {
 
 	// change state to not connected BEFORE all handlers finished
 	cs.setState(NotConnectedState)
+	cs.setDesiredState(NotConnectedState)
 
 	cs.invokeHandlers(curState, NotConnectedState)
 }
@@ -233,6 +246,7 @@ func (cs *ConnStateMgr) ToConnecting() error {
 	}
 	// change state to connecting BEFORE all handlers finished
 	cs.setState(ConnectingState)
+	cs.setDesiredState(ConnectingState)
 
 	cs.invokeHandlers(curState, ConnectingState)
 
@@ -248,6 +262,8 @@ func (cs *ConnStateMgr) ToConnecting() error {
 func (cs *ConnStateMgr) ToNotSelected() error {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
+
+	cs.setDesiredState(NotSelectedState)
 
 	curState := cs.State()
 
@@ -296,6 +312,7 @@ func (cs *ConnStateMgr) ToSelected() error {
 
 	// change state BEFORE all handlers finished
 	cs.setState(SelectedState)
+	cs.setDesiredState(SelectedState)
 
 	cs.invokeHandlers(curState, SelectedState)
 
@@ -359,6 +376,11 @@ func (cs *ConnStateMgr) setState(newState ConnState) {
 	cs.cond.Broadcast()
 }
 
+// setDesiredState atomically set desired state to the newState. It also broadcasts a signal to any waiting goroutines.
+func (cs *ConnStateMgr) setDesiredState(newState ConnState) {
+	cs.desiredState.Store(uint32(newState))
+}
+
 // invokeHandlers invokes all registered ConnStateChangeHandler functions with the previous and new states.
 func (cs *ConnStateMgr) invokeHandlers(prevState ConnState, newState ConnState) {
 	for _, handler := range cs.handlers {
@@ -374,18 +396,19 @@ func (cs *ConnStateMgr) invokeHandlers(prevState ConnState, newState ConnState) 
 //
 // If the state is the same as the current state, the function is a no-op.
 func (cs *ConnStateMgr) changeStateAsync(state ConnState) {
+	cs.stateMu.Lock()
+	defer cs.stateMu.Unlock()
+
 	if cs.State() == state {
 		return
 	}
-	if cs.shutdowned.Load() {
-		cs.logger.Warn("conn state manager shutdowned, ignore async state change",
-			"method", "changeStateAsync",
-			"curState", cs.State(),
-			"desiredState", state,
-		)
 
-		return
-	}
+	cs.logger.Debug("put state change to stateChangeChan channel",
+		"method", "changeStateAsync",
+		"curState", cs.State(),
+		"desiredState", state,
+		"shutdowned", cs.shutdowned.Load(),
+	)
 
 	cs.stateChangeChan <- state
 }
@@ -414,6 +437,7 @@ loop:
 		select {
 		case desiredState, ok := <-cs.stateChangeChan:
 			if !ok {
+				cs.logger.Debug("asyncStateChangeTask receive channel closed, exit")
 				return
 			}
 			cs.logger.Debug("drain asyncStateChange channel",
@@ -423,13 +447,14 @@ loop:
 			)
 			cs.processAsyncStateChange(desiredState, true)
 		default:
+			cs.logger.Debug("no data, drain asyncStateChange channel finished")
 			return
 		}
 	}
 }
 
 func (cs *ConnStateMgr) processAsyncStateChange(desiredState ConnState, shutdown bool) {
-	cs.desiredState.Store(uint32(desiredState))
+	cs.setDesiredState(desiredState)
 
 	prevState := cs.State()
 

@@ -17,7 +17,7 @@ import (
 
 const (
 	testIP        = "127.0.0.1"
-	testPort      = 15000
+	testPort      = 35000
 	testSessionID = 9527
 )
 

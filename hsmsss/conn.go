@@ -212,16 +212,20 @@ func (c *Connection) doOpen(waitOpened bool) error {
 // Close closes the HSMS-SS connection gracefully.
 // It terminates all running tasks, closes the TCP connection, and resets the connection state.
 func (c *Connection) Close() error {
-	defer func() {
-		c.stateMgr.Stop()
-	}()
-
 	c.shutdown.Store(true)
 	c.logger.Debug("start to close connection", "method", "Close", "opState", c.opState.String())
-	if c.stateMgr.DesiredState() == hsms.NotConnectedState {
-		c.logger.Debug("connection desired state is not connected, no need to close", "method", "Close", "opState", c.stateMgr.DesiredState().String())
-	} else {
-		c.stateMgr.ToNotConnectedAsync()
+
+	// stop state manager first
+	c.stateMgr.Stop()
+
+	// force to set state to not connected state if not already
+	// this is to ensure that the connection is closed even if the state manager is not in a connected state
+	if !c.isClosed() {
+		c.logger.Debug("force to set connection desired state to not-connected", "method", "Close",
+			"curDesiredState", c.stateMgr.DesiredState().String(),
+			"curState", c.stateMgr.State().String(),
+		)
+		c.stateMgr.ToNotConnected()
 	}
 
 	closeTimer := pool.GetTimer(c.cfg.closeConnTimeout)
@@ -229,10 +233,9 @@ func (c *Connection) Close() error {
 
 	// wait for connection to be closed
 	for {
-		closed := c.opState.IsClosed() && c.stateMgr.State() == hsms.NotConnectedState && c.stateMgr.DesiredState() == hsms.NotConnectedState
 		select {
 		case <-closeTimer.C:
-			if closed {
+			if c.isClosed() {
 				c.logger.Debug("wait for connection closed success at timeout", "timeout", c.cfg.closeConnTimeout, "opState", c.opState.String())
 				return nil
 			}
@@ -246,7 +249,7 @@ func (c *Connection) Close() error {
 
 			return errors.New("close connection timeout")
 		default:
-			if closed {
+			if c.isClosed() {
 				c.logger.Debug("wait for connection closed success")
 				return nil
 			}
@@ -255,6 +258,10 @@ func (c *Connection) Close() error {
 			time.Sleep(1 * time.Millisecond)
 		}
 	}
+}
+
+func (c *Connection) isClosed() bool {
+	return c.opState.IsClosed() && c.stateMgr.State() == hsms.NotConnectedState && c.stateMgr.DesiredState() == hsms.NotConnectedState
 }
 
 // closeConn performs the actual connection closing process with a timeout.

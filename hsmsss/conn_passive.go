@@ -40,18 +40,19 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, prevState hsms.C
 			c.session.separateSession()
 		}
 
-		shutdown := c.shutdown.Load()
-		c.logger.Debug("passive: start to close connection", "shutdown", shutdown)
+		isShutdown := c.shutdown.Load()
+		c.logger.Debug("passive: start to close connection", "shutdown", isShutdown)
 		// call closeListener() if Close() be called before connection closed
-		if shutdown {
+		if isShutdown {
 			_ = c.closeListener()
 		}
 
 		c.closeConn(c.cfg.closeConnTimeout)
 
-		if !c.shutdown.Load() {
+		if !isShutdown {
 			c.stateMgr.ToConnectingAsync()
 		}
+
 	case hsms.ConnectingState:
 		c.logger.Debug("passive: start to try to open and listen")
 		_ = c.doOpen(false)
@@ -96,15 +97,14 @@ func (c *Connection) recvMsgPassive(msg hsms.HSMSMessage) {
 		}
 
 		// transite to selected state
-		_ = c.stateMgr.ToSelected()
-
 		c.logger.Debug("passive: to selected state after select.req received", "state", c.stateMgr.State())
+		c.stateMgr.ToSelectedAsync()
 
 		// reply select request
 		replyMsg, _ := hsms.NewSelectRsp(msg, hsms.SelectStatusSuccess)
 		_, _ = c.sendMsg(replyMsg)
 
-	// the HSMS-SS doesn't support to receive deselect request/response in passive mode
+		// the HSMS-SS doesn't support to receive deselect request/response in passive mode
 	case hsms.DeselectReqType, hsms.DeselectRspType:
 		replyMsg := hsms.NewRejectReq(msg, hsms.RejectSTypeNotSupported)
 		_, _ = c.sendMsg(replyMsg)
