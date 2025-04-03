@@ -69,6 +69,9 @@ type HSMSMessage interface {
 	// ID returns a numeric representation of the system bytes (message ID).
 	ID() uint32
 
+	// SetID sets the system bytes (message ID) for the HSMS message.
+	SetID(id uint32)
+
 	// SystemBytes returns the 4-byte system bytes (message ID).
 	SystemBytes() []byte
 

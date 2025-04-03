@@ -48,6 +48,13 @@ func (msg *ControlMessage) ID() uint32 {
 	return binary.BigEndian.Uint32(msg.header[6:10])
 }
 
+// SetID sets the system bytes (message ID) of the HSMS message.
+func (msg *ControlMessage) SetID(id uint32) {
+	systemBytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(systemBytes, id)
+	copy(msg.header[6:10], systemBytes)
+}
+
 // SessionID returns the session id of the HSMS message.
 //
 // This method implements the HSMSMessage.SessionID() interface.

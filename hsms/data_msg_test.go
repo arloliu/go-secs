@@ -156,6 +156,11 @@ func TestDataMessage_Set(t *testing.T) {
 	require.NoError(err)
 	require.Equal([]byte{0x12, 0x34, 0x56, 0x78}, msg.SystemBytes())
 
+	// set and verify ID
+	msg.SetID(0x23456789)
+	require.Equal(uint32(0x23456789), msg.ID())
+	require.Equal([]byte{0x23, 0x45, 0x67, 0x89}, msg.SystemBytes())
+
 	// set and verify Name
 	msg.SetName("test")
 	require.Equal("test", msg.Name())

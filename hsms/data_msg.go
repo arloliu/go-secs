@@ -109,6 +109,14 @@ func (msg *DataMessage) ID() uint32 {
 	return binary.BigEndian.Uint32(msg.systemBytes)
 }
 
+// SetID sets the system bytes of the SECS-II message.
+//
+// This method implements the HSMSMessage.SetID() interface.
+func (msg *DataMessage) SetID(id uint32) {
+	msg.systemBytes = make([]byte, 4)
+	binary.BigEndian.PutUint32(msg.systemBytes, id)
+}
+
 // SystemBytes returns the system bytes of the SECS-II message.
 // If the system bytes was not set, it will return []byte{0, 0, 0, 0}.
 //
