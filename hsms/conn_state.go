@@ -360,6 +360,11 @@ func (cs *ConnStateMgr) IsNotConnected() bool {
 	return cs.State().IsNotConnected()
 }
 
+// IsConnecting returns if the current state is connecting.
+func (cs *ConnStateMgr) IsConnecting() bool {
+	return cs.State().IsConnecting()
+}
+
 // IsNotSelected returns if the current state is not selected.
 func (cs *ConnStateMgr) IsNotSelected() bool {
 	return cs.State().IsNotSelected()

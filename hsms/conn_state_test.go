@@ -29,18 +29,23 @@ func TestConnStateTransitions(t *testing.T) {
 		cs.Start()
 		defer cs.Stop()
 
+		require.NoError(cs.ToConnecting())
+		require.Equal(ConnectingState, cs.State())
+		require.Equal(1, stateChangeCount)
+		require.True(cs.IsConnecting())
+
 		require.NoError(cs.ToNotSelected())
 		require.Equal(NotSelectedState, cs.State())
-		require.Equal(1, stateChangeCount)
+		require.Equal(2, stateChangeCount)
 		require.True(cs.IsNotSelected())
 
 		// No-op transition when already in NotSelectedState
 		require.NoError(cs.ToNotSelected())
-		require.Equal(1, stateChangeCount)
+		require.Equal(2, stateChangeCount)
 
 		// Transition to SelectedState
 		require.NoError(cs.ToSelected())
-		require.Equal(2, stateChangeCount)
+		require.Equal(3, stateChangeCount)
 		// Invalid transition from SelectedState to NotSelectedState
 		require.ErrorIs(cs.ToNotSelected(), ErrInvalidTransition)
 
@@ -148,22 +153,21 @@ func TestConnStateAsyncTransitions(t *testing.T) {
 	})
 
 	t.Run("ToNotSelectedAsync", func(t *testing.T) {
-		stateChangeCount := 0
+		var stateChangeCount atomic.Int32
 		cs := NewConnStateMgr(ctx, nil)
-		cs.AddHandler(func(conn Connection, prevState ConnState, newState ConnState) { stateChangeCount++ })
+		cs.AddHandler(func(conn Connection, prevState ConnState, newState ConnState) { stateChangeCount.Add(1) })
 		cs.Start()
 		defer cs.Stop()
 
 		cs.ToNotSelectedAsync()
-		time.Sleep(10 * time.Millisecond) // allow async transition to complete
-		require.Equal(NotSelectedState, cs.State())
-		require.Equal(1, stateChangeCount)
-		require.True(cs.IsNotSelected())
+		require.Eventually(func() bool {
+			return cs.IsNotSelected() && stateChangeCount.Load() == int32(1)
+		}, time.Second, 1*time.Millisecond)
 
 		// No-op transition when already in NotSelectedState
 		cs.ToNotSelectedAsync()
 		time.Sleep(10 * time.Millisecond)
-		require.Equal(1, stateChangeCount)
+		require.Equal(int32(1), stateChangeCount.Load())
 	})
 
 	t.Run("ToSelectedAsync", func(t *testing.T) {
@@ -176,13 +180,16 @@ func TestConnStateAsyncTransitions(t *testing.T) {
 
 		err := cs.ToNotSelected()
 		require.NoError(err)
-		require.Equal(int32(1), stateChangeCount.Load())
+		require.Eventually(func() bool {
+			return cs.IsNotSelected() && stateChangeCount.Load() == int32(1)
+		}, time.Second, 1*time.Millisecond)
 
 		cs.ToSelectedAsync()
 		time.Sleep(10 * time.Millisecond) // allow async transition to complete
-		require.Equal(SelectedState, cs.State())
-		require.Equal(int32(2), stateChangeCount.Load())
-		require.True(cs.IsSelected())
+
+		require.Eventually(func() bool {
+			return cs.IsSelected() && stateChangeCount.Load() == int32(2)
+		}, time.Second, 1*time.Millisecond)
 
 		// No-op transition when already in SelectedState
 		cs.ToSelectedAsync()
