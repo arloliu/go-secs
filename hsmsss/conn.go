@@ -313,7 +313,12 @@ drainLoop:
 		remoteAddr = c.conn.RemoteAddr().String()
 		c.logger.Debug("close TCP connection", "method", "closeConn")
 		if tcpConn, ok := c.conn.(*net.TCPConn); ok {
-			_ = tcpConn.SetLinger(0) // Set linger timeout to 0 to force close
+			linger := int(timeout.Seconds())
+			if linger > 0 {
+				_ = tcpConn.SetLinger(linger)
+			} else {
+				_ = tcpConn.SetLinger(0)
+			}
 		}
 		if !c.cfg.isActive {
 			c.connCount.Add(-1)
