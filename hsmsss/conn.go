@@ -39,11 +39,10 @@ type Connection struct {
 	connCount     atomic.Int32       // connection counter for passive mode only
 	session       *Session           // HSMS-SS has only one session
 
-	stateMgr     *hsms.ConnStateMgr
-	taskMgr      *hsms.TaskManager
-	shutdown     atomic.Bool // indicates if has entered shutdown mode
-	recvSeparate atomic.Bool // indicates if spearate request has been received
-	ticketMgr    tickerCtl   // linktest control
+	stateMgr  *hsms.ConnStateMgr
+	taskMgr   *hsms.TaskManager
+	shutdown  atomic.Bool // indicates if has entered shutdown mode
+	ticketMgr tickerCtl   // linktest control
 
 	senderMsgChan chan hsms.HSMSMessage
 	replyMsgChans *xsync.MapOf[uint32, chan hsms.HSMSMessage]
@@ -183,8 +182,6 @@ func (c *Connection) doOpen(waitOpened bool) error {
 	}
 
 	c.logger.Debug("start to open connection", "method", "Open", "opState", c.opState.String())
-
-	c.recvSeparate.Store(false)
 
 	c.createContext()
 

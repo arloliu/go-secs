@@ -28,9 +28,7 @@ func (c *Connection) activeConnStateHandler(_ hsms.Connection, prevState hsms.Co
 		}
 
 	case hsms.NotConnectedState:
-		if !c.recvSeparate.Load() && prevState == hsms.SelectedState {
-			c.session.separateSession()
-		}
+		c.session.separateSession()
 
 		c.closeConn(c.cfg.closeConnTimeout)
 
@@ -100,7 +98,6 @@ func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 
 	case hsms.SeparateReqType:
 		c.logger.Debug("separate request received", hsms.MsgInfo(msg, "method", "recvMsgActive")...)
-		c.recvSeparate.Store(true)
 		c.stateMgr.ToNotConnectedAsync()
 
 	// ignore

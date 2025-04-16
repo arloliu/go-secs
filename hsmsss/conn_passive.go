@@ -36,9 +36,7 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, prevState hsms.C
 		// do nothing
 
 	case hsms.NotConnectedState:
-		if !c.recvSeparate.Load() && prevState == hsms.SelectedState {
-			c.session.separateSession()
-		}
+		c.session.separateSession()
 
 		isShutdown := c.shutdown.Load()
 		c.logger.Debug("passive: start to close connection", "shutdown", isShutdown)
@@ -124,7 +122,6 @@ func (c *Connection) recvMsgPassive(msg hsms.HSMSMessage) {
 
 	case hsms.SeparateReqType:
 		c.logger.Debug("separate request received", hsms.MsgInfo(msg, "method", "recvMsgPassive")...)
-		c.recvSeparate.Store(true)
 		c.stateMgr.ToNotConnectedAsync()
 
 	//  the HSMS-SS will not send select request in passive mode, so it dosen't expect to receive select response
