@@ -28,7 +28,9 @@ func (c *Connection) activeConnStateHandler(_ hsms.Connection, prevState hsms.Co
 		}
 
 	case hsms.NotConnectedState:
-		c.session.separateSession()
+		if prevState != hsms.NotConnectedState {
+			c.session.separateSession()
+		}
 
 		c.closeConn(c.cfg.closeConnTimeout)
 

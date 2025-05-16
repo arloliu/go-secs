@@ -36,7 +36,9 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, prevState hsms.C
 		// do nothing
 
 	case hsms.NotConnectedState:
-		c.session.separateSession()
+		if prevState != hsms.NotConnectedState {
+			c.session.separateSession()
+		}
 
 		isShutdown := c.shutdown.Load()
 		c.logger.Debug("passive: start to close connection", "shutdown", isShutdown)
