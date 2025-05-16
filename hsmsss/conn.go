@@ -484,6 +484,10 @@ func (c *Connection) sendMsgSync(msg hsms.HSMSMessage) error {
 	c.connMutex.RLock()
 	defer c.connMutex.RUnlock()
 
+	if c.conn == nil {
+		return hsms.ErrConnClosed
+	}
+
 	err := c.conn.SetWriteDeadline(time.Now().Add(c.cfg.t8Timeout))
 	if err != nil {
 		return err
