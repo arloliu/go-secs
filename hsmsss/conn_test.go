@@ -60,6 +60,52 @@ func TestConnection_PassiveHost_ActiveEQP(t *testing.T) {
 	testConnection(ctx, t, false)
 }
 
+func TestConnection_ActiveHost_CloseMultipleTimes(t *testing.T) {
+	require := require.New(t)
+
+	ctx := context.Background()
+
+	port := getPort()
+
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithT3Timeout(1000*time.Millisecond),
+		WithT6Timeout(1000*time.Millisecond),
+		WithT5Timeout(10*time.Millisecond),
+		WithConnectRemoteTimeout(100*time.Millisecond),
+		WithCloseConnTimeout(5*time.Second),
+	)
+	eqpComm := newTestComm(ctx, t, port, false, false,
+		WithT3Timeout(1000*time.Millisecond),
+		WithT6Timeout(1000*time.Millisecond),
+		WithT5Timeout(10*time.Millisecond),
+		WithConnectRemoteTimeout(100*time.Millisecond),
+		WithCloseConnTimeout(1*time.Second),
+	)
+
+	// stop before open
+	require.NoError(hostComm.close())
+	require.NoError(eqpComm.close())
+
+	// open host & equipment
+	require.NoError(eqpComm.open(true))
+	require.NoError(hostComm.open(false))
+
+	for range 5 {
+		require.NoError(hostComm.close())
+	}
+
+	for range 5 {
+		require.NoError(eqpComm.close())
+	}
+
+	// reopen host only
+	require.NoError(hostComm.close())
+
+	for range 5 {
+		require.NoError(hostComm.close())
+	}
+}
+
 func TestConnection_ActiveHost_RetryConnect(t *testing.T) {
 	require := require.New(t)
 

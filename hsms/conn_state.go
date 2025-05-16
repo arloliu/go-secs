@@ -135,6 +135,17 @@ func (cs *ConnStateMgr) Start() {
 }
 
 func (cs *ConnStateMgr) Stop() {
+	if cs.ctx == nil {
+		cs.logger.Debug("conn state manager not started, ignore stop",
+			"method", "Stop",
+			"curState", cs.State(),
+			"desiredState", cs.DesiredState(),
+			"shutdowned", cs.shutdowned.Load(),
+		)
+
+		return
+	}
+
 	if cs.shutdowned.Load() {
 		cs.logger.Debug("conn state manager already shutdowned, ignore stop",
 			"method", "Stop",
