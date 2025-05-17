@@ -17,7 +17,7 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, prevState hsms.C
 	switch curState {
 	case hsms.NotSelectedState:
 		c.logger.Debug("passive: not selected state, start to open passive connection")
-		c.taskMgr.StartReceiver("receiverTask", c.conn, c.receiverTask, nil)
+		c.taskMgr.StartReceiver("receiverTask", c.conn, c.receiverTask, c.cancelReceiverTask)
 		c.taskMgr.StartSender("senderTask", c.senderTask, c.cancelSenderTask, c.senderMsgChan)
 		c.session.startDataMsgTasks()
 
@@ -36,7 +36,7 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, prevState hsms.C
 		// do nothing
 
 	case hsms.NotConnectedState:
-		if prevState != hsms.NotConnectedState {
+		if c.opState.IsOpened() {
 			c.session.separateSession()
 		}
 
@@ -47,7 +47,7 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, prevState hsms.C
 			_ = c.closeListener()
 		}
 
-		c.closeConn(c.cfg.closeConnTimeout)
+		_ = c.closeConn(c.cfg.closeConnTimeout)
 
 		if !isShutdown {
 			c.stateMgr.ToConnectingAsync()

@@ -261,23 +261,10 @@ func (c *Connection) isClosed() bool {
 	return c.opState.IsClosed() && c.stateMgr.State() == hsms.NotConnectedState && c.stateMgr.DesiredState() == hsms.NotConnectedState
 }
 
-// closeConn performs the actual connection closing process with a timeout.
-// It cancels the context, stops the task manager, closes the TCP connection, and waits for
-// all goroutines to terminate.
-func (c *Connection) closeConn(timeout time.Duration) {
-	if !c.opState.ToClosing() {
-		if c.opState.IsClosed() {
-			c.logger.Warn("connection already closed, no need to close again", "method", "closeConn", "opState", c.opState.String())
-		} else {
-			c.logger.Warn("failed to set connection to closing state", "method", "closeConn", "opState", c.opState.String())
-		}
+// drainSenderMsgChan drains the sender message channel until it is closed or empty.
+func (c *Connection) drainSenderMsgChan() {
+	lastSendMsgOk := true
 
-		return
-	}
-
-	c.logger.Debug("start to close connection", "method", "closeConn", "opState", c.opState.String())
-
-	// drain sender message channel before close connection
 drainLoop:
 	for {
 		select {
@@ -285,76 +272,115 @@ drainLoop:
 			if !ok {
 				break drainLoop
 			}
-			if msg != nil {
-				_ = c.senderTask(msg)
+			// only continue to send message if msg is not nil and the last of senderTask success
+			if msg != nil && lastSendMsgOk {
+				lastSendMsgOk = c.senderTask(msg)
 			}
 		default:
 			break drainLoop
 		}
 	}
+}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
+// closeTCP closes the TCP connection with a specified timeout and returns the remote address.
+func (c *Connection) closeTCP(timeout time.Duration) string {
+	c.connMutex.Lock()
+	defer c.connMutex.Unlock()
 
+	if c.conn == nil {
+		return ""
+	}
+
+	remote := c.conn.RemoteAddr().String()
+	c.logger.Debug("close TCP connection", "method", "closeConn")
+
+	if tcp, ok := c.conn.(*net.TCPConn); ok {
+		linger := int(timeout.Seconds())
+		if linger > 0 {
+			_ = tcp.SetLinger(linger)
+		} else {
+			_ = tcp.SetLinger(0)
+		}
+	}
+
+	if !c.cfg.isActive {
+		c.connCount.Add(-1)
+	}
+
+	if err := c.conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		c.logger.Error("failed to close TCP connection", "method", "closeConn", "error", err)
+	}
+
+	return remote
+}
+
+// closeConn performs the actual connection closing process with a timeout.
+// It cancels the context, stops the task manager, closes the TCP connection, and waits for
+// all goroutines to terminate.
+func (c *Connection) closeConn(timeout time.Duration) error {
+	// 1. try to transition the connection state to closing
+	if !c.opState.ToClosing() {
+		if c.opState.IsClosed() {
+			c.logger.Warn("connection already closed, no need to close again", "method", "closeConn", "opState", c.opState.String())
+			return nil
+		}
+		c.logger.Warn("failed to set connection to closing state", "method", "closeConn", "opState", c.opState.String())
+
+		return fmt.Errorf("failed to set connection to closing state, current state: %s", c.opState.String())
+	}
+
+	c.logger.Debug("start to close connection", "method", "closeConn", "opState", c.opState.String())
+
+	// 2. create a new context for waiting all tasks to be terminated
+	closeCtx, closeCtxCancel := context.WithTimeout(context.Background(), timeout)
+	defer closeCtxCancel()
+
+	// 3. drain sender message channel
+	c.drainSenderMsgChan()
+
+	// 4. cancel per-connection context created by createContext method
 	if c.ctxCancel != nil {
 		c.logger.Debug("trigger context cancel function", "method", "closeConn")
 		c.ctxCancel()
 	}
 
+	// 5. try to close TCP connection with timeout
+	remoteAddr := c.closeTCP(timeout)
+
+	// 6. stop all tasks
 	c.taskMgr.Stop()
-
-	// close TCP connection
-	c.connMutex.Lock()
-	remoteAddr := ""
-	if c.conn != nil {
-		remoteAddr = c.conn.RemoteAddr().String()
-		c.logger.Debug("close TCP connection", "method", "closeConn")
-		if tcpConn, ok := c.conn.(*net.TCPConn); ok {
-			linger := int(timeout.Seconds())
-			if linger > 0 {
-				_ = tcpConn.SetLinger(linger)
-			} else {
-				_ = tcpConn.SetLinger(0)
-			}
-		}
-		if !c.cfg.isActive {
-			c.connCount.Add(-1)
-		}
-
-		err := c.conn.Close()
-		if err != nil && !errors.Is(err, net.ErrClosed) {
-			c.logger.Error("failed to close TCP connection", "method", "closeConn", "error", err)
-		}
-	}
-	c.connMutex.Unlock()
-
+	// wait for all tasks to be terminated in a goroutine to avoid blocking the close process.
+	// the close context will be canceled when all tasks are terminated, or timeout occurs.
 	go func() {
 		c.logger.Debug("wait all goroutines terminated, taskMgr", "method", "closeConn")
 		c.taskMgr.Wait()
 		c.logger.Debug("all goroutines terminated", "method", "closeConn")
-		cancel()
+		closeCtxCancel()
 	}()
 
-	// wait all goroutines terminated
-	<-ctx.Done()
+	// 6. wait all goroutines terminated or timeout
+	<-closeCtx.Done()
 
-	if errors.Is(ctx.Err(), context.Canceled) {
-		c.logger.Debug("close success", "method", "closeConn")
-	} else {
-		c.logger.Error("close timeout", "method", "closeConn", "error", ctx.Err(), "timeout", timeout)
+	if !errors.Is(closeCtx.Err(), context.Canceled) {
+		c.logger.Error("close timeout", "method", "closeConn", "error", closeCtx.Err(), "timeout", timeout)
+		return fmt.Errorf("close timeout: %w", closeCtx.Err())
 	}
 
-	// drop all message that wait reply
-	c.dropAllReplyMsgs()
+	c.logger.Debug("close success", "method", "closeConn")
 
-	// close sender message channel
+	// 7. cleanup reply channels and queue
+	c.dropAllReplyMsgs()
 	close(c.senderMsgChan)
 
+	// 8. final transition to closed state
 	if !c.opState.ToClosed() {
 		c.logger.Warn("failed to set connection to closed state", "method", "closeConn", "opState", c.opState.String())
-	} else {
-		c.logger.Debug("connection closed", "method", "closeConn", "remoteAddr", remoteAddr)
+		return fmt.Errorf("failed to set connection to closed state, current state: %s", c.opState.String())
 	}
+
+	c.logger.Debug("connection closed", "method", "closeConn", "remoteAddr", remoteAddr)
+
+	return nil
 }
 
 // createContext creates a new context for the connection, derived from the parent context.
@@ -597,8 +623,11 @@ func (c *Connection) receiverTask(reader *bufio.Reader, msgLenBuf []byte) bool {
 	if _, err := io.ReadFull(reader, msgLenBuf); err != nil {
 		if !isNetError(err) {
 			c.logger.Error("failed to read the length of HSMS message", "method", "receiverTask", "error", err)
+		} else {
+			c.logger.Debug("network error, failed to read the length of HSMS message", "method", "receiverTask", "error", err)
 		}
 
+		// if connection closed or any error occurred, stop the receiver task
 		return false
 	}
 
@@ -606,10 +635,13 @@ func (c *Connection) receiverTask(reader *bufio.Reader, msgLenBuf []byte) bool {
 
 	msgBuf := make([]byte, msgLen)
 	if _, err := io.ReadFull(reader, msgBuf); err != nil {
-		if err != io.EOF {
+		if !isNetError(err) {
 			c.logger.Error("failed to read HSMS message", "method", "receiverTask", "error", err)
+		} else {
+			c.logger.Debug("network error, failed to read HSMS message", "method", "receiverTask", "error", err)
 		}
 
+		// if connection closed or any error occurred, stop the receiver task
 		return false
 	}
 

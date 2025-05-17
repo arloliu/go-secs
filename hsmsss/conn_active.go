@@ -28,11 +28,11 @@ func (c *Connection) activeConnStateHandler(_ hsms.Connection, prevState hsms.Co
 		}
 
 	case hsms.NotConnectedState:
-		if prevState != hsms.NotConnectedState {
+		if c.opState.IsOpened() {
 			c.session.separateSession()
 		}
 
-		c.closeConn(c.cfg.closeConnTimeout)
+		_ = c.closeConn(c.cfg.closeConnTimeout)
 
 		c.logger.Debug("closeConn in connection state handler", "shutdown", c.shutdown.Load())
 		if !c.shutdown.Load() {

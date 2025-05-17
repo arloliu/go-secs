@@ -60,6 +60,57 @@ func TestConnection_PassiveHost_ActiveEQP(t *testing.T) {
 	testConnection(ctx, t, false)
 }
 
+func TestConnection_ActiveHost_AbnormalClose(t *testing.T) {
+	require := require.New(t)
+
+	ctx := context.Background()
+
+	port := getPort()
+
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithConnectRemoteTimeout(100*time.Millisecond),
+		WithCloseConnTimeout(1*time.Second),
+		WithT8Timeout(1000*time.Millisecond),
+	)
+	eqpComm := newTestComm(ctx, t, port, false, false,
+		WithCloseConnTimeout(1*time.Second),
+		WithT8Timeout(1000*time.Millisecond),
+	)
+
+	defer func() {
+		require.NoError(hostComm.close())
+		require.NoError(eqpComm.close())
+	}()
+
+	// open host & equipment
+	require.NoError(eqpComm.open(false))
+	require.NoError(hostComm.open(false))
+
+	// wait eqp state to be selected
+	require.NoError(eqpComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+	// wait host state to be selected
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+	// make host close abnormally
+	require.NoError(hostComm.abnormalClose())
+
+	// wait host state to be not-connected
+	t.Log("=== wait host state to be not-connected ===")
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.NotConnectedState))
+	t.Log("=== wait host state to be not-connected success ===")
+
+	t.Log("=== wait eqp state to be connecting ===")
+	require.NoError(eqpComm.conn.stateMgr.WaitState(ctx, hsms.ConnectingState))
+	t.Log("=== wait eqp state to be connecting success ===")
+
+	// reopen host
+	require.NoError(hostComm.open(false))
+
+	// wait host state to be selected
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+}
+
 func TestConnection_ActiveHost_CloseMultipleTimes(t *testing.T) {
 	require := require.New(t)
 
@@ -87,8 +138,12 @@ func TestConnection_ActiveHost_CloseMultipleTimes(t *testing.T) {
 	require.NoError(eqpComm.close())
 
 	// open host & equipment
-	require.NoError(eqpComm.open(true))
+	require.NoError(eqpComm.open(false))
 	require.NoError(hostComm.open(false))
+
+	// wait host state to be selected
+	err := hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState)
+	require.NoError(err)
 
 	for range 5 {
 		require.NoError(hostComm.close())
@@ -99,7 +154,7 @@ func TestConnection_ActiveHost_CloseMultipleTimes(t *testing.T) {
 	}
 
 	// reopen host only
-	require.NoError(hostComm.close())
+	require.NoError(hostComm.open(false))
 
 	for range 5 {
 		require.NoError(hostComm.close())
@@ -118,14 +173,14 @@ func TestConnection_ActiveHost_RetryConnect(t *testing.T) {
 		WithT6Timeout(1000*time.Millisecond),
 		WithT5Timeout(10*time.Millisecond),
 		WithConnectRemoteTimeout(100*time.Millisecond),
-		WithCloseConnTimeout(5*time.Second),
+		WithCloseConnTimeout(3*time.Second),
 	)
 	eqpComm := newTestComm(ctx, t, port, false, false,
 		WithT3Timeout(1000*time.Millisecond),
 		WithT6Timeout(1000*time.Millisecond),
 		WithT5Timeout(10*time.Millisecond),
 		WithConnectRemoteTimeout(100*time.Millisecond),
-		WithCloseConnTimeout(5*time.Second),
+		WithCloseConnTimeout(3*time.Second),
 	)
 
 	defer func() {
@@ -138,7 +193,7 @@ func TestConnection_ActiveHost_RetryConnect(t *testing.T) {
 		require.NoError(eqpComm.close())
 	}()
 
-	for range 5 {
+	for range 10 {
 		randBool := rand.Intn(2) == 1
 		begin := time.Now()
 		if randBool {
@@ -175,9 +230,9 @@ func TestConnection_ActiveHost_RetryConnect(t *testing.T) {
 		begin = time.Now()
 		if randBool {
 			// close equipment first
-			require.NoError(eqpComm.close())
-			// close host lster
-			require.NoError(hostComm.close())
+			require.NoError(eqpComm.randomClose())
+			// close host later
+			require.NoError(hostComm.randomClose())
 		} else {
 			// close host first
 			require.NoError(hostComm.close())
@@ -442,6 +497,35 @@ func (c *testComm) close() error {
 	}
 
 	return err
+}
+
+// abnormalClose closes the connection without sending separate control message.
+func (c *testComm) abnormalClose() error {
+	var target string
+	if c.isHost {
+		target = "host"
+	} else {
+		target = "eqp"
+	}
+	c.t.Logf("=== %s abnormal close [active: %t] ===", target, c.isActive)
+	c.conn.shutdown.Store(true)
+	c.conn.stateMgr.Stop()
+	if err := c.conn.closeConn(time.Second); err != nil {
+		c.t.Logf("=== %s abnormal close failed [active: %t] ===", target, c.isActive)
+		return err
+	}
+	c.t.Logf("=== %s abnormal close finished [active: %t] ===", target, c.isActive)
+
+	return nil
+}
+
+// randomClose normal or abnormal close the connection randomly.
+func (c *testComm) randomClose() error {
+	if rand.Intn(2) == 1 {
+		return c.close()
+	}
+
+	return c.abnormalClose()
 }
 
 func (c *testComm) msgEchoHandler(msg *hsms.DataMessage, session hsms.Session) {
