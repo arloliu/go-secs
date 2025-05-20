@@ -404,9 +404,9 @@ func commonTestCases() []testCase {
 		},
 		{
 			description:       "1 message, Boolean node",
-			input:             `TestMessage:'S126F254' <BOOLEAN T F>.`,
+			input:             `TestMessage:'S126F254' <BOOLEAN True False>.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"TestMessage:'S126F254'\n<BOOLEAN[2] T F>\n."},
+			expectedStr:       []string{"TestMessage:'S126F254'\n<BOOLEAN[2] True False>\n."},
 		},
 		{
 			description: "2 messages, F4, F8 node",

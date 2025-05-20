@@ -67,7 +67,7 @@ func TestDataMessage(t *testing.T) {
 				0, 0, 0, 14, 0x01, 0x00, 0x40, 0x80, 0, 0, 0x12, 0x34, 0x56, 0x78,
 				37, 2, 1, 0,
 			},
-			expectedToSML: "'S64F128'\n<BOOLEAN[2] T F>\n.",
+			expectedToSML: "'S64F128'\n<BOOLEAN[2] True False>\n.",
 		},
 		{
 			description:        "S127F255 W, nested list node",

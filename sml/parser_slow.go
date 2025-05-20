@@ -308,6 +308,8 @@ func (p *parser) parseItem() (item secs2.Item, ok bool) { //nolint:cyclop
 		item, ok = p.parseUint(4, size)
 	case "U8":
 		item, ok = p.parseUint(8, size)
+	default:
+		ok = false
 	}
 	if !ok {
 		return secs2.NewEmptyItem(), false
@@ -365,7 +367,6 @@ func (p *parser) checkItemSizeError(size, lowerLimit, upperLimit int) {
 
 func (p *parser) parseList(size int) (item secs2.Item, ok bool) {
 	values := make([]secs2.Item, 0, size)
-
 	for {
 		switch t := p.peek(); t.typ { //nolint:exhaustive
 		case tokenTypeLeftAngleBracket:
@@ -516,13 +517,13 @@ func (p *parser) parseBoolean(size int) (item secs2.Item, ok bool) {
 
 	valStrs := p.getItemValueStrings(size)
 	for _, str := range valStrs {
-		switch str {
+		switch strings.ToUpper(str) {
 		case "":
 			p.errorf("syntax error")
 			return secs2.NewEmptyItem(), false
-		case "T":
+		case "TRUE", "T":
 			values = append(values, true)
-		case "F":
+		case "FALSE", "F":
 			values = append(values, false)
 		default:
 			p.errorf("expect boolean, found %q", str)

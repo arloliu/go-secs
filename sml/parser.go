@@ -618,12 +618,12 @@ func (p *HSMSParser) parseBoolean(size int) (secs2.Item, error) {
 	values := p.getItemValueStrings()
 
 	for _, val := range values {
-		val = strings.ToUpper(val)
-		if val == "T" || val == "TRUE" {
+		switch strings.ToUpper(val) {
+		case "TRUE", "T":
 			items = append(items, true)
-		} else if val == "F" || val == "FALSE" {
+		case "FALSE", "F":
 			items = append(items, false)
-		} else {
+		default:
 			return nil, fmt.Errorf("expect boolean, found %s", val)
 		}
 	}

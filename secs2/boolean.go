@@ -149,7 +149,7 @@ func (item *BooleanItem) ToBytes() []byte {
 // - `<BOOLEAN[0]>` if the item has no values.
 // - `<BOOLEAN[size] value1 value2 ...>` otherwise, where:
 //   - `size`: The number of boolean values in the item.
-//   - `value1`, `value2`, ...: Each value is represented as "T" (true) or "F" (false).
+//   - `value1`, `value2`, ...: Each value is represented as "True" (true) or "False" (false).
 func (item *BooleanItem) ToSML() string {
 	if item.Size() == 0 {
 		return "<BOOLEAN[0]>"
@@ -170,9 +170,9 @@ func (item *BooleanItem) ToSML() string {
 			sb.WriteByte(' ') // Add space separator between values
 		}
 		if v {
-			sb.WriteByte('T')
+			sb.WriteString("True")
 		} else {
-			sb.WriteByte('F')
+			sb.WriteString("False")
 		}
 	}
 

@@ -33,7 +33,7 @@ func TestBooleanItem(t *testing.T) {
 			expectedSize:    1,
 			expectedGet:     []bool{false},
 			expectedToBytes: []byte{37, 1, 0},
-			expectedToSML:   "<BOOLEAN[1] F>",
+			expectedToSML:   "<BOOLEAN[1] False>",
 		},
 		{
 			description:     "Size: 3",
@@ -41,7 +41,7 @@ func TestBooleanItem(t *testing.T) {
 			expectedSize:    3,
 			expectedGet:     []bool{false, true, true},
 			expectedToBytes: []byte{37, 3, 0, 1, 1},
-			expectedToSML:   "<BOOLEAN[3] F T T>",
+			expectedToSML:   "<BOOLEAN[3] False True True>",
 		},
 		{
 			description:     "Size: 3, Bool slice",
@@ -49,7 +49,7 @@ func TestBooleanItem(t *testing.T) {
 			expectedSize:    3,
 			expectedGet:     []bool{true, false, true},
 			expectedToBytes: []byte{37, 3, 1, 0, 1},
-			expectedToSML:   "<BOOLEAN[3] T F T>",
+			expectedToSML:   "<BOOLEAN[3] True False True>",
 		},
 		{
 			description:     "Size: 6, Bool and bool slice",
@@ -57,7 +57,7 @@ func TestBooleanItem(t *testing.T) {
 			expectedSize:    6,
 			expectedGet:     []bool{true, false, true, false, true, false},
 			expectedToBytes: []byte{37, 6, 1, 0, 1, 0, 1, 0},
-			expectedToSML:   "<BOOLEAN[6] T F T F T F>",
+			expectedToSML:   "<BOOLEAN[6] True False True False True False>",
 		},
 	}
 

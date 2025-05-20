@@ -308,7 +308,7 @@ func lexMessageText(l *lexer) stateFn {
 				l.pos += loc[1]
 				l.emitUppercase(tokenTypeItemType)
 				return lexMessageText
-			case "T", "F":
+			case "TRUE", "FALSE":
 				l.pos += loc[1]
 				l.emitUppercase(tokenTypeBool)
 				return lexMessageText

@@ -63,7 +63,7 @@ func TestDecode_DataMessage(t *testing.T) {
 			expectedToSML:        "S50F50\n<B[0]>\n.",
 		},
 		{
-			description: `S126F254 <BOOLEAN[2] T F>`,
+			description: `S126F254 <BOOLEAN[2] True False>`,
 			input: []byte{
 				0, 0, 0, 14, 0xFE, 0xFE, 126, 254, 0, 0, 0xFE, 0xFE, 0xFE, 0xFE,
 				37, 2, 1, 0,
@@ -74,7 +74,7 @@ func TestDecode_DataMessage(t *testing.T) {
 			expectedWaitBit:      false,
 			expectedSessionID:    65278,
 			expectedSystemBytes:  []byte{0xFE, 0xFE, 0xFE, 0xFE},
-			expectedToSML:        "S126F254\n<BOOLEAN[2] T F>\n.",
+			expectedToSML:        "S126F254\n<BOOLEAN[2] True False>\n.",
 		},
 		{
 			description: `S127F255 W <F4[3] -1.0 0.0 3.141592>`,

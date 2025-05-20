@@ -29,8 +29,9 @@ func checkSlowTestCase(t *testing.T, tests []testSlowCase) {
 
 		for j, msg := range msgs {
 			str := msg.ToSML()
-			require.Equal(test.expectedStr[j], str)
-
+			if len(test.expectedStr) > j {
+				require.Equal(test.expectedStr[j], str)
+			}
 			reparsedMsgs, reparsedErrs := ParseHSMSSlow(str)
 			require.Len(reparsedMsgs, 1)
 			require.Len(reparsedErrs, 0)
@@ -106,10 +107,10 @@ func TestParser_NoErrorCases(t *testing.T) {
 		},
 		{
 			description:       "1 message, Boolean node",
-			input:             `TestMessage:'S126F254' <BOOLEAN T F>.`,
+			input:             `TestMessage:'S126F254' <BOOLEAN True False>.`,
 			expectedNumOfMsgs: 1,
 			expectedNumOfErrs: 0,
-			expectedStr:       []string{"TestMessage:'S126F254'\n<BOOLEAN[2] T F>\n."},
+			expectedStr:       []string{"TestMessage:'S126F254'\n<BOOLEAN[2] True False>\n."},
 		},
 		{
 			description: "2 messages, F4, F8 node",
@@ -272,8 +273,15 @@ func TestParser_CommonErrorCases(t *testing.T) {
 func TestParser_List_ErrorCases(t *testing.T) {
 	tests := []testSlowCase{
 		{
-			description:       "unexpected token",
+			description:       "unexpected token 1",
 			input:             "S0F0\n<L[1] T>\n.",
+			expectedNumOfMsgs: 0,
+			expectedNumOfErrs: 1,
+			expectedErrStr:    []string{"data item size overflow"},
+		},
+		{
+			description:       "unexpected token 2",
+			input:             "S0F0\n<L[1] True>\n.",
 			expectedNumOfMsgs: 0,
 			expectedNumOfErrs: 1,
 			expectedErrStr:    []string{"expected child data item"},

@@ -29,7 +29,7 @@ func TestShortcuts(t *testing.T) {
 	require.Equal(`<L[14]
   <A[4] "test">
   <J[21] "こんにちは世界">
-  <BOOLEAN[2] T F>
+  <BOOLEAN[2] True False>
   <B[2] 0b11 0b100>
   <I1[1] 1>
   <I2[1] 1>
