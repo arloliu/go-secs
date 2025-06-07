@@ -355,18 +355,21 @@ func (c *Connection) closeConn(timeout time.Duration) error {
 		c.logger.Debug("wait all goroutines terminated, taskMgr", "method", "closeConn")
 		c.taskMgr.Wait()
 		c.logger.Debug("all goroutines terminated", "method", "closeConn")
+
+		// notify the close context that all tasks are terminated
 		closeCtxCancel()
 	}()
 
 	// 6. wait all goroutines terminated or timeout
 	<-closeCtx.Done()
 
+	var closeErr error
 	if !errors.Is(closeCtx.Err(), context.Canceled) {
-		c.logger.Error("close timeout", "method", "closeConn", "error", closeCtx.Err(), "timeout", timeout)
-		return fmt.Errorf("close timeout: %w", closeCtx.Err())
+		c.logger.Error("context close timeout", "method", "closeConn", "error", closeCtx.Err(), "timeout", timeout)
+		closeErr = fmt.Errorf("close timeout: %w", closeCtx.Err())
+	} else {
+		c.logger.Debug("context closed", "method", "closeConn")
 	}
-
-	c.logger.Debug("close success", "method", "closeConn")
 
 	// 7. cleanup reply channels and queue
 	c.dropAllReplyMsgs()
@@ -380,7 +383,7 @@ func (c *Connection) closeConn(timeout time.Duration) error {
 
 	c.logger.Debug("connection closed", "method", "closeConn", "remoteAddr", remoteAddr)
 
-	return nil
+	return closeErr
 }
 
 // createContext creates a new context for the connection, derived from the parent context.
@@ -590,6 +593,11 @@ func (c *Connection) cancelSenderTask() {
 // senderTask is the task function for the sender goroutine.
 // It receives messages from the senderMsgChan and sends them synchronously over the connection.
 func (c *Connection) senderTask(msg hsms.HSMSMessage) bool {
+	if msg == nil {
+		c.logger.Warn("received nil message in senderTask, ignore")
+		return true // continue the sender task
+	}
+
 	c.metrics.incDataMsgSendCount()
 	if msg.WaitBit() {
 		c.metrics.incDataMsgInflightCount()
@@ -612,6 +620,9 @@ func (c *Connection) senderTask(msg hsms.HSMSMessage) bool {
 
 // cancelReceiverTask cancels the receiver task by transitioning the connection state to NotConnected.
 func (c *Connection) cancelReceiverTask() {
+	// close all data message channels associated with the session.
+	c.session.closeChannels()
+	// transition the connection state to NotConnected
 	c.stateMgr.ToNotConnectedAsync()
 }
 

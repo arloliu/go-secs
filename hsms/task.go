@@ -190,7 +190,12 @@ func (mgr *TaskManager) StartRecvDataMsg(name string, taskFunc DataMessageHandle
 			select {
 			case <-mgr.ctx.Done():
 				return
-			case msg := <-inputChan:
+			case msg, ok := <-inputChan:
+				if !ok || msg == nil {
+					mgr.logger.Debug("data message channel closed or nil message received", "name", name)
+					return
+				}
+
 				taskFunc(msg, session)
 			}
 		}

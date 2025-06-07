@@ -2,6 +2,7 @@ package hsmsss
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/arloliu/go-secs/hsms"
 	"github.com/arloliu/go-secs/logger"
@@ -19,6 +20,8 @@ type Session struct {
 	cfg      *ConnectionConfig
 	logger   logger.Logger
 
+	mu              sync.RWMutex
+	closeOnce       sync.Once
 	dataMsgChans    []chan *hsms.DataMessage
 	dataMsgHandlers []hsms.DataMessageHandler
 }
@@ -109,23 +112,60 @@ func (s *Session) AddConnStateChangeHandler(handlers ...hsms.ConnStateChangeHand
 //	    // handle response message
 //	})
 func (s *Session) AddDataMessageHandler(handlers ...hsms.DataMessageHandler) {
-	for _, handler := range handlers {
-		s.dataMsgChans = append(s.dataMsgChans, make(chan *hsms.DataMessage, s.cfg.dataMsgQueueSize))
-		s.dataMsgHandlers = append(s.dataMsgHandlers, handler)
-	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.dataMsgHandlers = append(s.dataMsgHandlers, handlers...)
 }
 
 func (s *Session) startDataMsgTasks() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// reset closeOnce for new channels
+	s.closeOnce = sync.Once{}
+
+	// create a new data message channel slice for each handler
+	s.dataMsgChans = make([]chan *hsms.DataMessage, 0)
+
 	for i, handler := range s.dataMsgHandlers {
+		dataMsgChan := make(chan *hsms.DataMessage, s.cfg.dataMsgQueueSize)
+		s.dataMsgChans = append(s.dataMsgChans, dataMsgChan)
+
 		name := fmt.Sprintf("dataMsgTask-%d", i+1)
-		s.hsmsConn.taskMgr.StartRecvDataMsg(name, handler, s, s.dataMsgChans[i])
+		s.hsmsConn.taskMgr.StartRecvDataMsg(name, handler, s, dataMsgChan)
 	}
+}
+
+// closeChannels closes all data message channels associated with the session.
+//
+// it should be called in the receive cancel function.
+func (s *Session) closeChannels() {
+	s.closeOnce.Do(func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		for _, dataMsgChan := range s.dataMsgChans {
+			close(dataMsgChan)
+		}
+		s.dataMsgChans = nil
+	})
 }
 
 // recvDataMsg broadcast message to all data message handlers' channel
 func (s *Session) recvDataMsg(msg *hsms.DataMessage) {
-	for _, dataMsgChan := range s.dataMsgChans {
-		dataMsgChan <- msg
+	s.mu.RLock()
+	dataMsgChans := make([]chan *hsms.DataMessage, len(s.dataMsgChans))
+	copy(dataMsgChans, s.dataMsgChans)
+	s.mu.RUnlock()
+
+	for _, dataMsgChan := range dataMsgChans {
+		select {
+		case <-s.hsmsConn.ctx.Done():
+			s.logger.Debug("context done, stop receiving data message and close dataMsgChan channel", "id", s.id, "msg_id", msg.ID())
+			return
+		case dataMsgChan <- msg:
+		}
 	}
 }
 
