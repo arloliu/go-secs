@@ -91,6 +91,7 @@ func BenchmarkDecodeMessage_DataMessage_AllTypes(b *testing.B) {
 	}
 	decodedMsg.Free()
 
+	b.SetBytes(int64(len(input)))
 	b.ResetTimer()
 	for i := 0; i <= b.N; i++ {
 		msg, err := DecodeMessage(uint32(len(input)), input)
@@ -101,6 +102,56 @@ func BenchmarkDecodeMessage_DataMessage_AllTypes(b *testing.B) {
 		msg.Free()
 	}
 	b.StopTimer()
+}
+
+// Benchmark typical recipe transfer (large ASCII data)
+func BenchmarkDecodeMessage_LargeRecipe(b *testing.B) {
+	// simulate a 1MB recipe
+	recipeData := make([]byte, 1024*1024)
+	for i := range recipeData {
+		recipeData[i] = byte('A' + (i % 26))
+	}
+
+	msg, _ := NewDataMessage(1, 1, true, 1234, GenerateMsgSystemBytes(),
+		secs2.L(
+			secs2.A("RECIPE_NAME"),
+			secs2.A(string(recipeData)),
+		),
+	)
+
+	input := msg.ToBytes()[4:]
+	b.SetBytes(int64(len(input)))
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		decodedMsg, _ := DecodeMessage(uint32(len(input)), input)
+		decodedMsg.Free()
+	}
+}
+
+// Benchmark typical wafer map (binary data)
+func BenchmarkDecodeMessage_WaferMap(b *testing.B) {
+	// simulate 300mm wafer with 100k die
+	waferData := make([]byte, 100000)
+	for i := range waferData {
+		waferData[i] = byte(i % 4) // 0-3 for bin codes
+	}
+
+	msg, _ := NewDataMessage(1, 1, true, 1234, GenerateMsgSystemBytes(),
+		secs2.L(
+			secs2.U4(300), // wafer size
+			secs2.B(waferData),
+		),
+	)
+
+	input := msg.ToBytes()[4:]
+	b.SetBytes(int64(len(input)))
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		decodedMsg, _ := DecodeMessage(uint32(len(input)), input)
+		decodedMsg.Free()
+	}
 }
 
 func benchmarkDecodeDataMessage(b *testing.B, testSize int) {
@@ -132,7 +183,9 @@ func benchmarkDecodeDataMessage(b *testing.B, testSize int) {
 	}
 	decodedMsg.Free()
 
+	b.SetBytes(int64(len(input)))
 	b.ResetTimer()
+
 	for i := 0; i <= b.N; i++ {
 		msg, err := DecodeMessage(uint32(len(input)), input)
 		if err != nil {

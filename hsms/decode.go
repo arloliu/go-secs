@@ -24,6 +24,9 @@ func DecodeHSMSMessage(data []byte) (HSMSMessage, error) {
 	}
 
 	msgLen := binary.BigEndian.Uint32(data)
+	if msgLen > secs2.MaxByteSize-14 {
+		return nil, fmt.Errorf("hsms message length exceeds maximum allowed size: %d", msgLen)
+	}
 
 	msg, err := DecodeMessage(msgLen, data[4:])
 	if err != nil {
@@ -254,14 +257,15 @@ func (d *hsmsDecoder) decodeIntItem(byteSize int, length int) (secs2.Item, error
 		return secs2.NewEmptyItem(), fmt.Errorf("invalid message length:%d for I%d item", length, byteSize)
 	}
 
-	if cap(d.intBuf) < length {
-		d.intBuf = make([]int64, 0, length)
+	count := length / byteSize
+
+	if cap(d.intBuf) < count {
+		d.intBuf = make([]int64, 0, count)
 	} else {
 		d.intBuf = d.intBuf[:0]
 	}
 
-	count := length / byteSize
-	for i := 0; i < count; i++ {
+	for i := range count {
 		start := d.pos + byteSize*i
 		switch byteSize {
 		case 1:
@@ -284,13 +288,14 @@ func (d *hsmsDecoder) decodeUintItem(byteSize int, length int) (secs2.Item, erro
 		return secs2.NewEmptyItem(), fmt.Errorf("invalid message length:%d for I%d item", length, byteSize)
 	}
 
-	if cap(d.uintBuf) < length {
-		d.uintBuf = make([]uint64, 0, length)
+	count := length / byteSize
+
+	if cap(d.uintBuf) < count {
+		d.uintBuf = make([]uint64, 0, count)
 	} else {
 		d.uintBuf = d.uintBuf[:0]
 	}
 
-	count := length / byteSize
 	for i := 0; i < count; i++ {
 		start := d.pos + byteSize*i
 		switch byteSize {
@@ -314,13 +319,14 @@ func (d *hsmsDecoder) decodeFloatItem(byteSize int, length int) (secs2.Item, err
 		return secs2.NewEmptyItem(), fmt.Errorf("invalid message length:%d for I%d item", length, byteSize)
 	}
 
-	if cap(d.floatBuf) < length {
-		d.floatBuf = make([]float64, 0, length)
+	count := length / byteSize
+
+	if cap(d.floatBuf) < count {
+		d.floatBuf = make([]float64, 0, count)
 	} else {
 		d.floatBuf = d.floatBuf[:0]
 	}
 
-	count := length / byteSize
 	for i := 0; i < count; i++ {
 		start := d.pos + byteSize*i
 		if byteSize == 4 {
