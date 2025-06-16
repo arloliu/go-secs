@@ -23,7 +23,6 @@ type HSMSParser struct {
 	len        int
 	input      string
 	data       string
-	name       string
 	stream     uint8
 	function   uint8
 	wbit       bool
@@ -167,7 +166,6 @@ func (p *HSMSParser) initInput(input string) {
 }
 
 func (p *HSMSParser) parseMsg(headerOnly bool, lazy bool) (*hsms.DataMessage, error) {
-	p.name = ""
 	p.stream = 0
 	p.function = 0
 	p.wbit = false
@@ -177,9 +175,6 @@ func (p *HSMSParser) parseMsg(headerOnly bool, lazy bool) (*hsms.DataMessage, er
 	if p.peekNonSpaceRune() == eof {
 		return nil, nil //nolint:nilnil
 	}
-
-	// clear message name
-	p.name = ""
 
 	// parse header
 	err := p.parseHSMSHeader()
@@ -199,8 +194,6 @@ func (p *HSMSParser) parseMsg(headerOnly bool, lazy bool) (*hsms.DataMessage, er
 			return nil, err
 		}
 
-		msg.SetName(p.name)
-
 		return msg, nil
 	}
 
@@ -219,8 +212,6 @@ func (p *HSMSParser) parseMsg(headerOnly bool, lazy bool) (*hsms.DataMessage, er
 		return nil, err
 	}
 
-	msg.SetName(p.name)
-
 	return msg, nil
 }
 
@@ -233,7 +224,7 @@ func (p *HSMSParser) parseHSMSHeader() error {
 	// get optional message name
 	midx := strings.IndexByte(p.data[:i], byte(':'))
 	if midx > 0 {
-		p.name = strings.TrimSpace(p.data[:midx])
+		// ignore message name
 		p.forward(midx + 1)
 	}
 

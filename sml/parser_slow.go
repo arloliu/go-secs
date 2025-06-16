@@ -110,7 +110,6 @@ func (p *parser) errorf(format string, args ...any) {
 // including the header, system bytes, and the SECS-II data item.
 func (p *parser) parseHSMSDataMessage() (ok bool) {
 	var (
-		msgName  string
 		stream   uint8
 		function uint8
 		waitBit  bool
@@ -119,7 +118,7 @@ func (p *parser) parseHSMSDataMessage() (ok bool) {
 
 	// parse optional message name at front
 	if t, ok := p.accept(tokenTypeMsgName); ok {
-		msgName = strings.Trim(t.val, " ")
+		// ignore message name
 		putToken(t)
 	}
 
@@ -140,7 +139,7 @@ func (p *parser) parseHSMSDataMessage() (ok bool) {
 
 	// parse optional message name after stream-function and optional waitbit
 	if t, ok := p.accept(tokenTypeMsgName); ok {
-		msgName = t.val
+		// ignore message name
 		putToken(t)
 	}
 
@@ -161,9 +160,6 @@ func (p *parser) parseHSMSDataMessage() (ok bool) {
 	if err != nil {
 		p.errorf("error:%s", err.Error())
 		return false
-	}
-	if msgName != "" {
-		message.SetName(msgName)
 	}
 
 	p.messages = append(p.messages, message)

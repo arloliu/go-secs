@@ -145,7 +145,6 @@ func TestDataMessage_Set(t *testing.T) {
 	require.Equal(uint32(0), msg.ID())
 	require.Equal(uint16(0), msg.SessionID())
 	require.Equal([]byte{0, 0, 0, 0}, msg.SystemBytes())
-	require.Equal("", msg.Name())
 
 	// set and verify SessionID
 	msg.SetSessionID(123)
@@ -160,10 +159,6 @@ func TestDataMessage_Set(t *testing.T) {
 	msg.SetID(0x23456789)
 	require.Equal(uint32(0x23456789), msg.ID())
 	require.Equal([]byte{0x23, 0x45, 0x67, 0x89}, msg.SystemBytes())
-
-	// set and verify Name
-	msg.SetName("test")
-	require.Equal("test", msg.Name())
 
 	// attempt to set an invalid header and expect an error
 	err = msg.SetHeader([]byte{0})
@@ -189,6 +184,4 @@ func TestDataMessage_Set(t *testing.T) {
 	require.Equal(msg.SessionID(), clonedDataMsg.SessionID())
 	require.Equal(msg.SMLHeader(), clonedDataMsg.SMLHeader())
 	require.Equal(msg.SystemBytes(), clonedDataMsg.SystemBytes())
-	require.Equal(msg.Name(), clonedDataMsg.Name())
-	require.Equal(msg.Name(), clonedDataMsg.Name())
 }

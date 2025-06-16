@@ -95,7 +95,7 @@ func TestParseHSMS_NoErrorCases_StrictMode(t *testing.T) {
 			description:       "1 message, contains non-printable ASCII node, case 1",
 			input:             `TestMessage:'S1F1' W <A 'te"s\'t 1' 0x0A 0x0D ' test \'2\''>.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"TestMessage:'S1F1' W\n<A[19] 'te\"s\\'t 1' 0x0A 0x0D ' test \\'2\\''>\n."},
+			expectedStr:       []string{"'S1F1' W\n<A[19] 'te\"s\\'t 1' 0x0A 0x0D ' test \\'2\\''>\n."},
 		},
 		testCase{
 			description: "1 message, contains non-printable ASCII node, case 2",
@@ -108,7 +108,7 @@ string 2'>
 >
 .`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"TestMessage:'S1F1' W\n<L[2]\n  <A[16] '\\'quote\\'' 0x0A 'string 1'>\n  <A[16] '\\'quote\\'' 0x0A 'string 2'>\n>\n."},
+			expectedStr:       []string{"'S1F1' W\n<L[2]\n  <A[16] '\\'quote\\'' 0x0A 'string 1'>\n  <A[16] '\\'quote\\'' 0x0A 'string 2'>\n>\n."},
 		},
 	)
 
@@ -122,13 +122,13 @@ string 2'>
 			description:       "1 message, single-quote ASCII node",
 			input:             `TestMessage:'S1F1' W <A 'text'>.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"TestMessage:'S1F1' W\n<A[4] 'text'>\n."},
+			expectedStr:       []string{"'S1F1' W\n<A[4] 'text'>\n."},
 		},
 		{
 			description:       "1 message, single-quote ASCII node with newlines",
 			input:             "TestMessage:'S1F1' W <A 'text1\ntest2\ntest3'>.",
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"TestMessage:'S1F1' W\n<A[17] 'text1' 0x0A 'test2' 0x0A 'test3'>\n."},
+			expectedStr:       []string{"'S1F1' W\n<A[17] 'text1' 0x0A 'test2' 0x0A 'test3'>\n."},
 		},
 		{
 			description:       "1 message, from ToSML",
@@ -145,7 +145,7 @@ string 2'>
 			description:       "1 message, double-quote ASCII node",
 			input:             `TestMessage:'S1F1' W <A "text">.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"TestMessage:'S1F1' W\n<A[4] \"text\">\n."},
+			expectedStr:       []string{"'S1F1' W\n<A[4] \"text\">\n."},
 		},
 	}
 
@@ -165,13 +165,13 @@ func TestParseHSMS_NoErrorCases_NonStrictMode(t *testing.T) {
 			description:       "1 message, single-quote ASCII node",
 			input:             `TestMessage:'S1F1' W <A 'text'>.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"TestMessage:'S1F1' W\n<A[4] 'text'>\n."},
+			expectedStr:       []string{"'S1F1' W\n<A[4] 'text'>\n."},
 		},
 		{
 			description:       "1 message, single-quote ASCII node with newlines",
 			input:             "TestMessage:'S1F1' W <A 'text1\ntest2\ntest3'>.",
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"TestMessage:'S1F1' W\n<A[17] 'text1\ntest2\ntest3'>\n."},
+			expectedStr:       []string{"'S1F1' W\n<A[17] 'text1\ntest2\ntest3'>\n."},
 		},
 		{
 			description:       "1 message, single-quote ASCII node with space before closing quote",
@@ -188,13 +188,13 @@ func TestParseHSMS_NoErrorCases_NonStrictMode(t *testing.T) {
 			description:       "1 message, double-quote ASCII node",
 			input:             `TestMessage:'S1F1' W <A "text">.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"TestMessage:'S1F1' W\n<A[4] \"text\">\n."},
+			expectedStr:       []string{"'S1F1' W\n<A[4] \"text\">\n."},
 		},
 		{
 			description:       "1 message, double-quote ASCII node with newlines",
 			input:             "TestMessage:'S1F1' W <A \"text1\ntest2\ntest3\">.",
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"TestMessage:'S1F1' W\n<A[17] \"text1\ntest2\ntest3\">\n."},
+			expectedStr:       []string{"'S1F1' W\n<A[17] \"text1\ntest2\ntest3\">\n."},
 		},
 		{
 			description:       "1 message, double-quote ASCII node with space before closing quote",
@@ -382,31 +382,31 @@ func commonTestCases() []testCase {
 			description:       "1 message, no data item, with message name at frond",
 			input:             "TestMessage:S0F1 W\n.",
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"TestMessage:'S0F1' W\n."},
+			expectedStr:       []string{"'S0F1' W\n."},
 		},
 		{
 			description:       "1 message, no data item, with single quoted stream-function",
 			input:             "TestMessage : 'S0F1' W\n.",
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"TestMessage:'S0F1' W\n."},
+			expectedStr:       []string{"'S0F1' W\n."},
 		},
 		{
 			description:       "1 message, single-quote ASCII node",
 			input:             `TestMessage:'S1F1' W <A 'text'>.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"TestMessage:'S1F1' W\n<A[4] 'text'>\n."},
+			expectedStr:       []string{"'S1F1' W\n<A[4] 'text'>\n."},
 		},
 		{
 			description:       "1 message, Binary node",
 			input:             `TestMessage   : S63F127 W <B[3] 0b0 0xFE 255>.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"TestMessage:'S63F127' W\n<B[3] 0b0 0b11111110 0b11111111>\n."},
+			expectedStr:       []string{"'S63F127' W\n<B[3] 0b0 0b11111110 0b11111111>\n."},
 		},
 		{
 			description:       "1 message, Boolean node",
 			input:             `TestMessage:'S126F254' <BOOLEAN True False>.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"TestMessage:'S126F254'\n<BOOLEAN[2] True False>\n."},
+			expectedStr:       []string{"'S126F254'\n<BOOLEAN[2] True False>\n."},
 		},
 		{
 			description: "2 messages, F4, F8 node",
@@ -427,7 +427,7 @@ func commonTestCases() []testCase {
 			expectedNumOfMsgs: 4,
 			expectedStr: []string{
 				"'S0F0'\n<I1[7] -128 -64 -1 0 1 64 127>\n.",
-				"Line2:'S0F0'\n<I2[2] -32768 32767>\n.",
+				"'S0F0'\n<I2[2] -32768 32767>\n.",
 				"'S0F0'\n<I4[2] -2147483648 2147483647>\n.",
 				"'S0F0'\n<I8[2] -9223372036854775808 9223372036854775807>\n.",
 			},

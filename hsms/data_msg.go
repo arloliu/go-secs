@@ -20,7 +20,6 @@ const (
 //
 // It implements the HSMSMessage and secs2.SECS2Message interfaces.
 type DataMessage struct {
-	name        string
 	dataItem    secs2.Item
 	systemBytes []byte
 	sessionID   uint16
@@ -180,16 +179,6 @@ func (msg *DataMessage) SetHeader(header []byte) error {
 	return nil
 }
 
-// Name returns the optional message name of the SECS-II message.
-func (msg *DataMessage) Name() string {
-	return msg.name
-}
-
-// SetName sets the optional message name of the SECS-II message.
-func (msg *DataMessage) SetName(name string) {
-	msg.name = name
-}
-
 // StreamCode returns the stream code of the SECS-II message.
 //
 // This method implements the secs2.SECS2Message.StreamCode() interface.
@@ -310,32 +299,17 @@ func (msg *DataMessage) ToDataMessage() (*DataMessage, bool) {
 
 // ToSML returns SML representation of data message.
 func (msg *DataMessage) ToSML() string {
-	if msg.dataItem == nil {
-		if msg.name != "" {
-			return msg.name + ":" + msg.SMLHeader() + "\n."
-		}
-
+	if msg.dataItem == nil || msg.dataItem.IsEmpty() {
 		return msg.SMLHeader() + "\n."
 	}
 
-	if msg.dataItem.IsEmpty() {
-		if msg.name != "" {
-			return msg.name + ":" + msg.SMLHeader() + "\n."
-		}
-
-		return msg.SMLHeader() + "\n."
-	}
 	var sb strings.Builder
 
 	header := msg.SMLHeader()
 	msgBody := msg.dataItem.ToSML()
 
-	sb.Grow(len(msg.name) + len(header) + len(msgBody) + 2)
+	sb.Grow(len(header) + len(msgBody) + 2)
 
-	if msg.name != "" {
-		sb.WriteString(msg.name)
-		sb.WriteString(":")
-	}
 	sb.WriteString(header)
 	sb.WriteString("\n")
 	sb.WriteString(msgBody)
@@ -359,7 +333,6 @@ func (msg *DataMessage) Free() {
 // Clone returns a duplicated Message
 func (msg *DataMessage) Clone() HSMSMessage {
 	cloned := &DataMessage{
-		name:        msg.name,
 		stream:      msg.stream,
 		function:    msg.function,
 		waitBit:     msg.waitBit,
