@@ -13,6 +13,7 @@ import (
 // It implements the HSMSMessage and secs2.SECS2Message interfaces.
 type ControlMessage struct {
 	header        []byte
+	err           error
 	replyExpected bool
 }
 
@@ -28,9 +29,9 @@ func NewControlMessage(header []byte, replyExpected bool) HSMSMessage {
 	return &ControlMessage{header: util.CloneSlice(header, 10), replyExpected: replyExpected}
 }
 
-// Type returns the message type of the HSMS control message.
+// Type returns the message type of the control message.
 //
-// This method implements the HSMSMessage.Type() interface.
+// It implements the Type method of the HSMSMessage interface.
 func (msg *ControlMessage) Type() int {
 	stype := int(msg.header[5])
 	_, ok := hsmsMsgTypeMap[stype]
@@ -43,44 +44,47 @@ func (msg *ControlMessage) Type() int {
 
 // ID returns a numeric representation of the system bytes (message ID).
 //
-// This method implements the HSMSMessage.ID() interface.
+// It implements the ID method of the HSMSMessage interface.
 func (msg *ControlMessage) ID() uint32 {
 	return binary.BigEndian.Uint32(msg.header[6:10])
 }
 
-// SetID sets the system bytes (message ID) of the HSMS message.
+// SetID sets the system bytes (message ID) of the control message.
+// It will convert the id to 4-byte big-endian representation and set it in the header.
+//
+// It implements the SetID method of the HSMSMessage interface.
 func (msg *ControlMessage) SetID(id uint32) {
 	systemBytes := make([]byte, 4)
 	binary.BigEndian.PutUint32(systemBytes, id)
 	copy(msg.header[6:10], systemBytes)
 }
 
-// SessionID returns the session id of the HSMS message.
+// SessionID returns the session id of the control message.
 //
-// This method implements the HSMSMessage.SessionID() interface.
+// It implements the SessionID() method of the HSMSMessage interface.
 func (msg *ControlMessage) SessionID() uint16 {
 	return binary.BigEndian.Uint16(msg.header[:2])
 }
 
-// SetSessionID sets the session id of the HSMS message.
+// SetSessionID sets the session id of the control message.
+// It will convert the sessionID to 2-byte big-endian representation and set it in the header.
 //
-// This method implements the HSMSMessage.SetSessionID() interface.
+// It implements the SetSessionID method of the HSMSMessage interface.
 func (msg *ControlMessage) SetSessionID(sessionID uint16) {
 	binary.BigEndian.PutUint16(msg.header[:2], sessionID)
 }
 
 // SystemBytes returns the 4-byte system bytes (message ID).
 //
-// This method implements the HSMSMessage.SystemBytes() interface.
+// It implements the SystemBytes method of the HSMSMessage interface.
 func (msg *ControlMessage) SystemBytes() []byte {
 	return msg.header[6:10]
 }
 
-// SetSystemBytes sets system bytes to the data message.
-//
+// SetSystemBytes sets system bytes to the control message.
 // It will return error if the systemBytes is not 4 bytes.
 //
-// This method implements the HSMSMessage.SetSystemBytes() interface.
+// It implements the SetSystemBytes method of the HSMSMessage interface.
 func (msg *ControlMessage) SetSystemBytes(systemBytes []byte) error {
 	if len(systemBytes) != 4 {
 		return ErrInvalidSystemBytes
@@ -91,18 +95,40 @@ func (msg *ControlMessage) SetSystemBytes(systemBytes []byte) error {
 	return nil
 }
 
-// Header returns the 10-byte SECS-II message header
+// Error returns the error associated with the control message.
 //
-// This method implements the HSMSMessage.Header() interface.
+// It implements the Error method of the HSMSMessage interface.
+func (msg *ControlMessage) Error() error {
+	if msg == nil {
+		return nil
+	}
+
+	return msg.err
+}
+
+// SetError sets the error of the control message.
+// It is used to indicate an error condition in the message.
+//
+// It implements the SetError method of the HSMSMessage interface.
+func (msg *ControlMessage) SetError(err error) {
+	if msg == nil {
+		return
+	}
+
+	msg.err = err
+}
+
+// Header returns the 10-byte control message header
+//
+// It implements the Header method of the HSMSMessage interface.
 func (msg *ControlMessage) Header() []byte {
 	return msg.header
 }
 
-// SetHeader sets the header of the HSMS message.
-//
+// SetHeader sets the header of the control message.
 // It will return error if the header is invalid.
 //
-// This method implements the HSMSMessage.SetHeader() interface.
+// It implements the SetHeader method of the HSMSMessage interface.
 func (msg *ControlMessage) SetHeader(header []byte) error {
 	if len(header) != 10 {
 		return ErrInvalidHeaderLength
@@ -123,7 +149,7 @@ func (msg *ControlMessage) SetHeader(header []byte) error {
 
 // ToBytes returns the HSMS byte representation of the control message.
 //
-// This method implements the HSMSMessage.ToBytes() interface.
+// It implements the ToBytes method of the HSMSMessage interface.
 func (msg *ControlMessage) ToBytes() []byte {
 	result := make([]byte, 0, 14)
 	result = append(result, 0, 0, 0, 10)        // 4 bytes: message length, MSB first.
@@ -132,16 +158,16 @@ func (msg *ControlMessage) ToBytes() []byte {
 	return result
 }
 
-// MarshalBinary serializes the HSMS control message into its byte representation for transmission.
+// MarshalBinary serializes the control message into its byte representation for transmission.
 //
-// This method implements the encoding.BinaryMarshaler interface.
+// It implements the MarshalBinary method of the encoding.BinaryMarshaler interface.
 func (msg *ControlMessage) MarshalBinary() ([]byte, error) {
 	return msg.ToBytes(), nil
 }
 
 // UnmarshalBinary deserializes the byte data into the HSMS control message.
 //
-// This method implements the encoding.BinaryUnmarshaler interface.
+// It implements the UnmarshalBinary method of encoding.BinaryUnmarshaler interface.
 func (msg *ControlMessage) UnmarshalBinary(data []byte) error {
 	m, err := DecodeHSMSMessage(data)
 	if err != nil {
@@ -158,64 +184,73 @@ func (msg *ControlMessage) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// StreamCode returns the stream code for the HSMS message.
+// StreamCode returns the stream code for the control message.
 //
-// This method implements the secs2.SECS2Message.StreamCode() interface.
+// It implements the StreamCode method of the secs2.SECS2Message interface.
 func (msg *ControlMessage) StreamCode() uint8 {
 	return msg.header[2]
 }
 
-// FunctionCode returns the header[3] for the HSMS message, it's defined by different control message type.
+// FunctionCode returns the header[3] for the control message, it's defined by different control message type.
 //
-// This method implements the secs2.SECS2Message.FunctionCode() interface.
+// It implements the FunctionCode method of the secs2.SECS2Message interface.
 func (msg *ControlMessage) FunctionCode() uint8 {
 	return msg.header[3]
 }
 
 // WaitBit returnes the boolean representation to indicates WBit is set
 //
-// This method implements the secs2.SECS2Message.WaitBit() interface.
+// It implements the WaitBit method of the secs2.SECS2Message interface.
 func (msg *ControlMessage) WaitBit() bool {
 	return msg.replyExpected
 }
 
-// Item returns empty SECS-II data item for HSMS control message.
+// Item returns empty SECS-II data item for control message.
 //
-// This method implements the secs2.SECS2Message.Item() interface.
+// It implements the Item method of the secs2.SECS2Message interface.
 func (msg *ControlMessage) Item() secs2.Item {
 	return secs2.NewEmptyItem()
 }
 
-// IsControlMessage returns true, indicating that a ControlMessage is a control message.
+// IsControlMessage returns true, indicating that the message is a control message.
+//
+// It implements the IsControlMessage method of the HSMSMessage interface.
 func (msg *ControlMessage) IsControlMessage() bool {
 	return true
 }
 
-// ToControlMessage converts the message to an HSMS control message.
+// ToControlMessage converts the message to an control message.
 // Since the message is already a ControlMessage, it returns a pointer to itself and true.
+//
+// It implements the ToControlMessage method of the HSMSMessage interface.
 func (msg *ControlMessage) ToControlMessage() (*ControlMessage, bool) {
 	return msg, true
 }
 
-// IsDataMessage returns false, indicating that a ControlMessage is not a data message.
+// IsDataMessage returns false, indicating that the message is not a data message.
+//
+// It implements the IsDataMessage() method of the HSMSMessage interface.
 func (msg *ControlMessage) IsDataMessage() bool {
 	return false
 }
 
-// ToDataMessage attempts to convert the message to an HSMS data message.
+// ToDataMessage attempts to convert the message to an data message.
 // Since a ControlMessage cannot be converted to a DataMessage, it always returns nil and false.
+//
+// It implements the ToDataMessage method of the HSMSMessage interface.
 func (msg *ControlMessage) ToDataMessage() (*DataMessage, bool) {
 	return nil, false
 }
 
-// Free takes no action for HSMS control message
+// Free takes no action for control message.
+// It is a no-op method, as control messages do not require resource cleanup like data messages do.
 //
-// This method implements the HSMSMessage.Free() interface.
+// It implements the Free() method of the HSMSMessage interface.
 func (msg *ControlMessage) Free() {}
 
 // Clone creates a deep copy of the message, allowing modifications to the clone without affecting the original message.
 //
-// This method implements the HSMSMessage.Clone() interface.
+// It implements the Clone method of the HSMSMessage interface.
 func (msg *ControlMessage) Clone() HSMSMessage {
 	cloned := &ControlMessage{header: make([]byte, 10), replyExpected: msg.replyExpected}
 	copy(cloned.header, msg.header)
@@ -234,7 +269,7 @@ func NewSelectReq(sessionID uint16, systemBytes []byte) *ControlMessage {
 	header[8] = systemBytes[2]
 	header[9] = systemBytes[3]
 
-	return &ControlMessage{header, true}
+	return &ControlMessage{header: header, replyExpected: true}
 }
 
 const (
@@ -278,7 +313,7 @@ func NewSelectRsp(selectReq HSMSMessage, selectStatus byte) (*ControlMessage, er
 	header[8] = msg.header[8]
 	header[9] = msg.header[9]
 
-	return &ControlMessage{header, false}, nil
+	return &ControlMessage{header: header, replyExpected: false}, nil
 }
 
 // NewDeselectReq creates HSMS Deselect.req control message.
@@ -293,7 +328,7 @@ func NewDeselectReq(sessionID uint16, systemBytes []byte) *ControlMessage {
 	header[8] = systemBytes[2]
 	header[9] = systemBytes[3]
 
-	return &ControlMessage{header, true}
+	return &ControlMessage{header: header, replyExpected: true}
 }
 
 // NewDeselectRsp creates HSMS Deselect.rsp control message from Deselect.req message.
@@ -317,7 +352,7 @@ func NewDeselectRsp(deselectReq HSMSMessage, deselectStatus byte) (*ControlMessa
 	header[8] = msg.header[8]
 	header[9] = msg.header[9]
 
-	return &ControlMessage{header, false}, nil
+	return &ControlMessage{header: header, replyExpected: false}, nil
 }
 
 // NewLinktestReq creates HSMS Linktest.req control message.
@@ -332,7 +367,7 @@ func NewLinktestReq(systemBytes []byte) *ControlMessage {
 	header[8] = systemBytes[2]
 	header[9] = systemBytes[3]
 
-	return &ControlMessage{header, true}
+	return &ControlMessage{header: header, replyExpected: true}
 }
 
 // NewLinktestRsp creates HSMS Linktest.rsp control message from Linktest.req message.
@@ -351,7 +386,7 @@ func NewLinktestRsp(linktestReq HSMSMessage) (*ControlMessage, error) {
 	header[8] = msg.header[8]
 	header[9] = msg.header[9]
 
-	return &ControlMessage{header, false}, nil
+	return &ControlMessage{header: header, replyExpected: false}, nil
 }
 
 // Reject code contstants defining reason codes of Reject.req control message.
@@ -395,7 +430,7 @@ func NewRejectReq(recvMsg HSMSMessage, reasonCode byte) *ControlMessage {
 	header[3] = reasonCode
 	header[5] = RejectReqType
 
-	return &ControlMessage{header, false}
+	return &ControlMessage{header: header, replyExpected: false}
 }
 
 // NewRejectReqRaw creates HSMS Reject.req control message.
@@ -425,7 +460,7 @@ func NewRejectReqRaw(sessionID uint16, pType, sType byte, systemBytes []byte, re
 	header[8] = systemBytes[2]
 	header[9] = systemBytes[3]
 
-	return &ControlMessage{header, false}
+	return &ControlMessage{header: header, replyExpected: false}
 }
 
 // NewSeparateReq creates HSMS Separate.req control message.
@@ -440,5 +475,5 @@ func NewSeparateReq(sessionID uint16, systemBytes []byte) *ControlMessage {
 	header[8] = systemBytes[2]
 	header[9] = systemBytes[3]
 
-	return &ControlMessage{header, false}
+	return &ControlMessage{header: header, replyExpected: false}
 }

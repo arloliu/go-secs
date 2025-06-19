@@ -22,6 +22,7 @@ const (
 type DataMessage struct {
 	dataItem    secs2.Item
 	systemBytes []byte
+	err         error
 	sessionID   uint16
 	stream      byte
 	function    byte
@@ -79,47 +80,64 @@ func NewDataMessageFromRawItem(stream byte, function byte, replyExpected bool, s
 	return NewDataMessage(stream, function, replyExpected, sessionID, systemBytes, item)
 }
 
-// Type returns HSMS message type.
+// NewErrorDataMessage creates a new SECS-II message with an error.
 //
-// This method implements the HSMSMessage.Type() interface.
+// This function is used to create a data message that indicates an error condition.
+// It sets the wait bit to false, indicating that no reply is expected.
+// The session ID and system bytes are provided, and the error is set in the message.
+// The function code should be set to a value that indicates an error condition,
+// typically an odd number to indicate a primary message.
+func NewErrorDataMessage(stream byte, function byte, sessionID uint16, systemBytes []byte, err error) *DataMessage {
+	msg := getDataMessage(stream, function, false, sessionID, systemBytes, secs2.NewEmptyItem())
+	msg.err = err
+
+	// set the wait bit to false for error messages
+	msg.waitBit = WaitBitFalse
+
+	return msg
+}
+
+// Type returns the message type of the data message.
+//
+// It implements the Type method of the HSMSMessage interface.
 func (msg *DataMessage) Type() int {
 	return DataMsgType
 }
 
-// SessionID returns the session id of the SECS-II message.
-//
-// This method implements the HSMSMessage.SessionID() interface.
+// SessionID returns the session id of the data message.
 // If the session id was not set, it will return -1.
+//
+// It implements the SessionID method of the HSMSMessage interface.
 func (msg *DataMessage) SessionID() uint16 {
 	return msg.sessionID
 }
 
-// SetSessionID sets the session id of the SECS-II message.
+// SetSessionID sets the session id of the data message.
 //
-// This method implements the HSMSMessage.SetSessionID() interface.
+// It implements the SetSessionID method of the HSMSMessage interface.
 func (msg *DataMessage) SetSessionID(sessionID uint16) {
 	msg.sessionID = sessionID
 }
 
 // ID returns a numeric representation of the system bytes (message ID).
 //
-// This method implements the HSMSMessage.ID() interface.
+// It implements the ID method of the HSMSMessage interface.
 func (msg *DataMessage) ID() uint32 {
 	return binary.BigEndian.Uint32(msg.systemBytes)
 }
 
-// SetID sets the system bytes of the SECS-II message.
+// SetID sets the system bytes of the data message.
 //
-// This method implements the HSMSMessage.SetID() interface.
+// It implements the SetID method of the HSMSMessage interface.
 func (msg *DataMessage) SetID(id uint32) {
 	msg.systemBytes = make([]byte, 4)
 	binary.BigEndian.PutUint32(msg.systemBytes, id)
 }
 
-// SystemBytes returns the system bytes of the SECS-II message.
+// SystemBytes returns the system bytes of the data message.
 // If the system bytes was not set, it will return []byte{0, 0, 0, 0}.
 //
-// This method implements the HSMSMessage.SystemBytes() interface.
+// It implements the SystemBytes method of the HSMSMessage interface.
 func (msg *DataMessage) SystemBytes() []byte {
 	if len(msg.systemBytes) < 4 {
 		return []byte{0, 0, 0, 0}
@@ -129,10 +147,9 @@ func (msg *DataMessage) SystemBytes() []byte {
 }
 
 // SetSystemBytes sets system bytes to the data message.
-//
 // It will return error if the systemBytes is not 4 bytes.
 //
-// This method implements the HSMSMessage.SetSystemBytes() interface.
+// It implements the SetSystemBytes method of the HSMSMessage interface.
 func (msg *DataMessage) SetSystemBytes(systemBytes []byte) error {
 	if len(systemBytes) != 4 {
 		return ErrInvalidSystemBytes
@@ -143,20 +160,42 @@ func (msg *DataMessage) SetSystemBytes(systemBytes []byte) error {
 	return nil
 }
 
+// Error returns the error of the data message.
+//
+// It implements the Error method of the HSMSMessage interface.
+func (msg *DataMessage) Error() error {
+	if msg == nil {
+		return nil
+	}
+
+	return msg.err
+}
+
+// SetError sets the error of the data message.
+// It is used to indicate an error condition in the message.
+//
+// It implements the SetError method of the HSMSMessage interface.
+func (msg *DataMessage) SetError(err error) {
+	if msg == nil {
+		return
+	}
+
+	msg.err = err
+}
+
 // Header returns the 10-byte HSMS message header.
 //
-// This method implements the HSMSMessage.Header() interface.
+// It implements the Header method of the HSMSMessage interface.
 func (msg *DataMessage) Header() []byte {
 	header := make([]byte, 10)
 	msg.generateHeader(header)
 	return header
 }
 
-// SetHeader sets the header of the SECS-II message.
-//
+// SetHeader sets the header of the data message.
 // It will return error if the header is invalid.
 //
-// This method implements the HSMSMessage.SetHeader() interface.
+// It implements the SetHeader method of the HSMSMessage interface.
 func (msg *DataMessage) SetHeader(header []byte) error {
 	if len(header) != 10 {
 		return ErrInvalidHeaderLength
@@ -179,35 +218,37 @@ func (msg *DataMessage) SetHeader(header []byte) error {
 	return nil
 }
 
-// StreamCode returns the stream code of the SECS-II message.
+// StreamCode returns the stream code of the data message.
 //
-// This method implements the secs2.SECS2Message.StreamCode() interface.
+// It implements the StreamCode method of the secs2.SECS2Message interface.
 func (msg *DataMessage) StreamCode() uint8 {
 	return msg.stream
 }
 
-// FunctionCode returns the function code of the SECS-II message.
+// FunctionCode returns the function code of the data message.
 //
-// This method implements the secs2.SECS2Message.FunctionCode() interface.
+// It implements the FunctionCode method of the secs2.SECS2Message interface.
 func (msg *DataMessage) FunctionCode() uint8 {
 	return msg.function
 }
 
 // WaitBit returnes the boolean representation to indicates WBit is set
 //
-// This method implements the secs2.SECS2Message.WaitBit() interface.
+// It implements the WaitBit method of the secs2.SECS2Message interface.
 func (msg *DataMessage) WaitBit() bool {
 	return msg.waitBit == WaitBitTrue
 }
 
-// Item returnes the SECS-II data item in DataMessage.
+// Item returnes the SECS-II data item in data message.
 //
-// This method implements the secs2.SECS2Message.Item() interface.
+// It implements the Item method of the secs2.SECS2Message interface.
 func (msg *DataMessage) Item() secs2.Item {
 	return msg.dataItem
 }
 
-// SMLHeader returns the message header of the SECS-II message, e.g. "S6F11 W".
+// SMLHeader returns the message header of the data message, e.g. "S6F11 W".
+//
+// This method only exists on DataMessage, and it is used to generate the SML header
 func (msg *DataMessage) SMLHeader() string {
 	quote := StreamFunctionQuote()
 	header := fmt.Sprintf("%sS%dF%d%s", quote, msg.stream, msg.function, quote)
@@ -219,12 +260,12 @@ func (msg *DataMessage) SMLHeader() string {
 	return header
 }
 
-// ToBytes returns the HSMS byte representation of the SECS-II message.
+// ToBytes returns the HSMS byte representation of the data message.
 //
 // It will return empty byte slice if the message can't be represented as HSMS format,
 // i.e. wait bit is optional.
 //
-// This method implements the HSMSMessage.ToBytes() interface.
+// It implements the ToBytes method of the HSMSMessage interface.
 func (msg *DataMessage) ToBytes() []byte {
 	var itemBytes []byte
 	if msg.dataItem != nil {
@@ -249,16 +290,16 @@ func (msg *DataMessage) ToBytes() []byte {
 	return result
 }
 
-// MarshalBinary serializes the HSMS data message into its byte representation for transmission.
+// MarshalBinary serializes the data message into its byte representation for transmission.
 //
-// This method implements the encoding.BinaryMarshaler interface.
+// It implements the MarshalBinary method of the encoding.BinaryMarshaler interface.
 func (msg *DataMessage) MarshalBinary() ([]byte, error) {
 	return msg.ToBytes(), nil
 }
 
 // UnmarshalBinary deserializes the byte data into the HSMS data message.
 //
-// This method implements the encoding.BinaryUnmarshaler interface.
+// It implements the UnmarshalBinary method of the encoding.BinaryUnmarshaler interface.
 func (msg *DataMessage) UnmarshalBinary(data []byte) error {
 	m, err := DecodeHSMSMessage(data)
 	if err != nil {
@@ -275,29 +316,38 @@ func (msg *DataMessage) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
-// IsControlMessage returns false, indicating that a DataMessage is not a control message.
+// IsControlMessage returns false, indicating that the message is not a control message.
+// It implements the IsControlMessage method of the HSMSMessage interface.
 func (msg *DataMessage) IsControlMessage() bool {
 	return false
 }
 
 // ToControlMessage attempts to convert the message to an HSMS control message.
 // Since a DataMessage cannot be converted to a ControlMessage, it always returns nil and false.
+//
+// It implements the ToControlMessage method of the HSMSMessage interface.
 func (msg *DataMessage) ToControlMessage() (*ControlMessage, bool) {
 	return nil, false
 }
 
-// IsDataMessage returns true, indicating that a DataMessage is a data message.
+// IsDataMessage returns true, indicating that the message is a data message.
+//
+// It implements the IsDataMessage method of the HSMSMessage interface.
 func (msg *DataMessage) IsDataMessage() bool {
 	return true
 }
 
-// ToDataMessage converts the message to an HSMS data message.
+// ToDataMessage converts the message to an data message.
 // Since the message is already a DataMessage, it returns a pointer to itself and true.
+//
+// It implements the ToDataMessage method of the HSMSMessage interface.
 func (msg *DataMessage) ToDataMessage() (*DataMessage, bool) {
 	return msg, true
 }
 
 // ToSML returns SML representation of data message.
+//
+// It implements the ToSML method of the secs2.SECS2Message interface.
 func (msg *DataMessage) ToSML() string {
 	if msg.dataItem == nil || msg.dataItem.IsEmpty() {
 		return msg.SMLHeader() + "\n."
@@ -320,6 +370,8 @@ func (msg *DataMessage) ToSML() string {
 
 // Free releases the message and its associated resources back to the pool.
 // After calling Free, the message should not be accessed again.
+//
+// It implements the Free method of the HSMSMessage interface.
 func (msg *DataMessage) Free() {
 	if usePool {
 		item := msg.Item()
@@ -331,6 +383,8 @@ func (msg *DataMessage) Free() {
 }
 
 // Clone returns a duplicated Message
+//
+// It implements the Clone method of the HSMSMessage interface.
 func (msg *DataMessage) Clone() HSMSMessage {
 	cloned := &DataMessage{
 		stream:      msg.stream,

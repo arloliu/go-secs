@@ -81,6 +81,13 @@ type HSMSMessage interface {
 	// It will return error if the systemBytes is invalid.
 	SetSystemBytes(systemBytes []byte) error
 
+	// Error returns the error associated with the HSMS message.
+	Error() error
+
+	// SetError sets the error for the HSMS message.
+	// It is used to indicate an error condition in the message.
+	SetError(err error)
+
 	// Header returns the 10-byte HSMS message header.
 	Header() []byte
 
