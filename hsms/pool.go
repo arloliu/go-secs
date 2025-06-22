@@ -73,3 +73,62 @@ func UsePool(val bool) {
 	usePool = val
 	secs2.UsePool(val)
 }
+
+const DefaultMessageBufferSize = 128 * 1024 // 64KB default size
+
+type msgBuf struct {
+	buf []byte
+}
+
+// messageBufferPool manages reusable byte buffers for HSMS message reading.
+var messageBufferPool = sync.Pool{
+	New: func() any {
+		return &msgBuf{
+			buf: make([]byte, 0, DefaultMessageBufferSize),
+		}
+	},
+}
+
+// GetMessageBuffer retrieves a buffer from the pool or creates a new one.
+// The returned buffer has the exact length of msgLen.
+// Caller owns the buffer until it's returned with PutMessageBuffer.
+//
+// Added in v1.8.0
+func GetMessageBuffer(msgLen uint32) []byte {
+	// for oversized messages, allocate directly
+	if msgLen > DefaultMessageBufferSize {
+		return make([]byte, msgLen)
+	}
+
+	// try to get from pool
+	if v := messageBufferPool.Get(); v != nil {
+		if mb, ok := v.(*msgBuf); ok && mb != nil {
+			buf := mb.buf
+			if cap(buf) >= int(msgLen) {
+				return buf[:msgLen]
+			}
+		}
+	}
+
+	// fallback: create new buffer
+	return make([]byte, msgLen)
+}
+
+// PutMessageBuffer returns a buffer to the pool for reuse.
+// Only buffers with default capacity are pooled.
+// The buffer is reset to zero length before pooling.
+//
+// Added in v1.8.0
+func PutMessageBuffer(buf []byte) {
+	if buf == nil {
+		return
+	}
+
+	// only pool buffers with default capacity
+	if cap(buf) != DefaultMessageBufferSize {
+		return
+	}
+
+	// reset to zero length but keep capacity
+	messageBufferPool.Put(&msgBuf{buf: buf[:0]})
+}
