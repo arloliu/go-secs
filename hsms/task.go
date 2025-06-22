@@ -1,10 +1,8 @@
 package hsms
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,7 +16,7 @@ type TaskFunc func() bool
 
 // TaskRecvFunc represents a function that performs a receive task within a goroutine managed by the TaskManager.
 // It should return true to continue running the task, or false to stop the goroutine.
-type TaskRecvFunc func(reader *bufio.Reader, msgLenBuf []byte) bool
+type TaskRecvFunc func(msgLenBuf []byte) bool
 
 // TaskCancelFunc represents a function that will be called when a goroutine managed by the TaskManager exits or is canceled.
 // It can be used to perform cleanup actions or release resources associated with the goroutine.
@@ -65,43 +63,42 @@ type TaskManager struct {
 	wg      sync.WaitGroup
 	logger  logger.Logger
 	count   atomic.Int32
-	tickers sync.Map // map[string]*time.Ticker
+	tickers sync.Map     // map[string]*time.Ticker
+	mu      sync.RWMutex // protect ctx and cancel
+	taskMu  sync.RWMutex // protect task creation during Wait()
 }
 
 // NewTaskManager creates a new TaskManager with the given context as the parent context and logger.
 func NewTaskManager(ctx context.Context, l logger.Logger) *TaskManager {
 	mgr := &TaskManager{pctx: ctx, logger: l}
 	mgr.ctx, mgr.cancel = context.WithCancel(ctx)
-
 	return mgr
+}
+
+// getContext safely returns the current context
+func (mgr *TaskManager) getContext() context.Context {
+	mgr.mu.RLock()
+	defer mgr.mu.RUnlock()
+
+	return mgr.ctx
 }
 
 // Start starts a new goroutine with the given name and task function.
 //
 // The taskFunc should return true to continue running, or false to stop the goroutine.
-func (mgr *TaskManager) Start(name string, taskFunc TaskFunc) {
-	mgr.count.Add(1)
-
+func (mgr *TaskManager) Start(name string, taskFunc TaskFunc) error {
 	mgr.logger.Debug("Start task", "name", name)
-	mgr.wg.Add(1)
-	go func() {
-		defer mgr.wg.Done()
-		defer func() {
-			mgr.count.Add(-1)
-			mgr.logger.Debug(fmt.Sprintf("%s task terminated", name), "task_count", mgr.TaskCount())
-		}()
 
-		for {
-			select {
-			case <-mgr.ctx.Done():
-				return
-			default:
-				if !taskFunc() {
-					return
-				}
-			}
-		}
-	}()
+	starter, err := mgr.newTaskStarter(name)
+	if err != nil {
+		return err
+	}
+
+	starter.startTask(func() {
+		mgr.runTaskLoop(taskFunc)
+	})
+
+	return starter.waitForStart()
 }
 
 // StartReceiver starts a new goroutine with the given name, task function, and a cancel function.
@@ -109,140 +106,198 @@ func (mgr *TaskManager) Start(name string, taskFunc TaskFunc) {
 // The taskFunc should return true to continue running, or false to stop the goroutine.
 //
 // The taskCancelFunc will be called when the goroutine exits or is canceled.
-func (mgr *TaskManager) StartReceiver(name string, conn net.Conn, taskFunc TaskRecvFunc, taskCancelFunc TaskCancelFunc) {
-	mgr.count.Add(1)
-
+// StartReceiver starts a new goroutine with the given name, task function, and a cancel function.
+func (mgr *TaskManager) StartReceiver(name string, taskFunc TaskRecvFunc, taskCancelFunc TaskCancelFunc) error {
 	mgr.logger.Debug("StartReceiver task", "name", name)
-	mgr.wg.Add(1)
-	go func() {
+
+	starter, err := mgr.newTaskStarter(name)
+	if err != nil {
+		return err
+	}
+
+	starter.startTask(func() {
 		if taskCancelFunc != nil {
 			defer taskCancelFunc()
 		}
-		defer mgr.wg.Done()
-		defer func() {
-			mgr.count.Add(-1)
-			mgr.logger.Debug(fmt.Sprintf("%s task terminated", name), "task_count", mgr.TaskCount())
-		}()
 
-		reader := bufio.NewReaderSize(conn, 64*1024)
 		msgLenBuf := make([]byte, 4)
+		mgr.runTaskLoop(func() bool {
+			return taskFunc(msgLenBuf)
+		})
+	})
 
-		for {
-			select {
-			case <-mgr.ctx.Done():
-				return
-			default:
-				if !taskFunc(reader, msgLenBuf) {
-					return
-				}
-			}
-		}
-	}()
+	return starter.waitForStart()
 }
 
 // StartSender starts a new goroutine that receives HSMS messages from the given channel.
 //
 // The taskFunc should return true to continue receiving messages, or false to stop the goroutine.
-func (mgr *TaskManager) StartSender(name string, taskFunc TaskMsgFunc, taskCancelFunc TaskCancelFunc, inputChan chan HSMSMessage) {
-	mgr.count.Add(1)
-
+func (mgr *TaskManager) StartSender(name string, taskFunc TaskMsgFunc, taskCancelFunc TaskCancelFunc, inputChan chan HSMSMessage) error {
 	mgr.logger.Debug("StartSender task", "name", name)
-	mgr.wg.Add(1)
-	go func() {
+
+	if inputChan == nil {
+		return fmt.Errorf("input channel is nil")
+	}
+
+	starter, err := mgr.newTaskStarter(name)
+	if err != nil {
+		return err
+	}
+
+	starter.startTask(func() {
 		if taskCancelFunc != nil {
 			defer taskCancelFunc()
 		}
-		defer mgr.wg.Done()
-		defer func() {
-			mgr.count.Add(-1)
-			mgr.logger.Debug(fmt.Sprintf("%s message task terminated", name), "task_count", mgr.TaskCount())
-		}()
 
 		for {
+			ctx := mgr.getContext()
 			select {
-			case <-mgr.ctx.Done():
+			case <-ctx.Done():
 				return
-			case msg := <-inputChan:
+			case msg, ok := <-inputChan:
+				if !ok {
+					mgr.logger.Debug("input channel closed", "name", name)
+					return
+				}
 				if !taskFunc(msg) {
 					return
 				}
 			}
 		}
-	}()
+	})
+
+	return starter.waitForStart()
 }
 
 // StartRecvDataMsg starts a new goroutine that receives HSMS data messages from the given channel.
 //
 // The task function (DataMessageHandler) will be called for each received message.
-func (mgr *TaskManager) StartRecvDataMsg(name string, taskFunc DataMessageHandler, session Session, inputChan chan *DataMessage) {
-	mgr.count.Add(1)
-
+func (mgr *TaskManager) StartRecvDataMsg(name string, taskFunc DataMessageHandler, session Session, inputChan chan *DataMessage) error {
 	mgr.logger.Debug("StartRecvDataMsg task", "name", name)
-	mgr.wg.Add(1)
-	go func() {
-		defer mgr.wg.Done()
-		defer func() {
-			mgr.count.Add(-1)
-			mgr.logger.Debug(fmt.Sprintf("%s message task terminated", name), "task_count", mgr.TaskCount())
-		}()
 
+	if inputChan == nil {
+		return fmt.Errorf("input channel is nil")
+	}
+	if session == nil {
+		return fmt.Errorf("session is nil")
+	}
+
+	starter, err := mgr.newTaskStarter(name)
+	if err != nil {
+		return err
+	}
+
+	starter.startTask(func() {
 		for {
+			ctx := mgr.getContext()
 			select {
-			case <-mgr.ctx.Done():
+			case <-ctx.Done():
 				return
 			case msg, ok := <-inputChan:
-				if !ok || msg == nil {
-					mgr.logger.Debug("data message channel closed or nil message received", "name", name)
+				if !ok {
+					mgr.logger.Debug("data message channel closed", "name", name)
 					return
 				}
+				if msg == nil {
+					mgr.logger.Debug("nil message received", "name", name)
+					continue
+				}
 
-				taskFunc(msg, session)
+				// call handler with panic protection
+				mgr.callWithRecover(name, func() {
+					taskFunc(msg, session)
+				})
 			}
 		}
-	}()
+	})
+
+	return starter.waitForStart()
 }
 
 // StartInterval starts a new goroutine that executes the given task function at the specified interval.
 // If runNow is true, the task function is executed immediately before starting the interval.
 // The function returns a *time.Ticker that can be used to stop the interval.
-func (mgr *TaskManager) StartInterval(name string, taskFunc TaskFunc, interval time.Duration, runNow bool) *time.Ticker {
-	ticker := time.NewTicker(interval)
-	mgr.tickers.Store(name, ticker)
+func (mgr *TaskManager) StartInterval(name string, taskFunc TaskFunc, interval time.Duration, runNow bool) (*time.Ticker, error) {
+	mgr.logger.Debug("StartInterval task", "name", name, "interval", interval, "runNow", runNow)
 
-	if runNow && !taskFunc() {
-		defer mgr.logger.Debug(fmt.Sprintf("%s interval task terminated", name))
-		ticker.Stop()
-		return ticker
+	if interval <= 0 {
+		return nil, fmt.Errorf("invalid interval: %v", interval)
 	}
 
-	mgr.count.Add(1)
+	ticker := time.NewTicker(interval)
 
-	mgr.wg.Add(1)
+	// store ticker before starting goroutine
+	if _, loaded := mgr.tickers.LoadOrStore(name, ticker); loaded {
+		ticker.Stop()
+		return nil, fmt.Errorf("interval task %s already exists", name)
+	}
 
-	go func(ticker *time.Ticker) {
-		defer mgr.wg.Done()
-		defer func() {
-			mgr.count.Add(-1)
-			mgr.logger.Debug(fmt.Sprintf("%s interval task terminated", name), "task_count", mgr.TaskCount())
-		}()
+	// cleanup on any error
+	cleanup := func() {
+		ticker.Stop()
+		mgr.tickers.Delete(name)
+	}
+
+	// run immediately if requested
+	if runNow {
+		if !mgr.callWithRecoverBool(name, taskFunc) {
+			cleanup()
+			mgr.logger.Debug(fmt.Sprintf("%s interval task terminated by runNow", name))
+			return ticker, nil
+		}
+	}
+
+	starter, err := mgr.newTaskStarter(name)
+	if err != nil {
+		cleanup()
+		return nil, err
+	}
+
+	starter.startTask(func() {
+		defer cleanup()
 
 		for {
+			ctx := mgr.getContext()
 			select {
-			case <-mgr.ctx.Done():
-				ticker.Stop()
+			case <-ctx.Done():
 				return
-
 			case <-ticker.C:
 				mgr.logger.Debug("execute interval func", "name", name)
-				if !taskFunc() {
-					ticker.Stop()
+				if !mgr.callWithRecoverBool(name, taskFunc) {
 					return
 				}
 			}
 		}
-	}(ticker)
+	})
 
-	return ticker
+	if err := starter.waitForStart(); err != nil {
+		cleanup()
+		return nil, err
+	}
+
+	return ticker, nil
+}
+
+// callWithRecover calls a function with panic protection
+func (mgr *TaskManager) callWithRecover(name string, fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			mgr.logger.Error("panic in task", "name", name, "panic", r)
+		}
+	}()
+
+	fn()
+}
+
+// callWithRecoverBool calls a function that returns bool with panic protection
+func (mgr *TaskManager) callWithRecoverBool(name string, fn func() bool) bool {
+	defer func() {
+		if r := recover(); r != nil {
+			mgr.logger.Error("panic in task", "name", name, "panic", r)
+		}
+	}()
+
+	return fn()
 }
 
 // Stop signals all running goroutines.
@@ -258,14 +313,18 @@ func (mgr *TaskManager) Stop() {
 	})
 
 	// terminate all tasks
-	mgr.cancel()
+	mgr.mu.Lock()
+	if mgr.cancel != nil {
+		mgr.cancel()
+	}
+	mgr.mu.Unlock()
 }
 
 // StopInterval stops the interval task with the given name.
 //
 // It returns an error if the task is not found or if the task is not a *time.Ticker.
 func (mgr *TaskManager) StopInterval(name string) error {
-	if val, ok := mgr.tickers.Load(name); ok {
+	if val, ok := mgr.tickers.LoadAndDelete(name); ok {
 		ticker, ok := val.(*time.Ticker)
 		if ok {
 			ticker.Stop()
@@ -280,12 +339,118 @@ func (mgr *TaskManager) StopInterval(name string) error {
 
 // Wait waits for all goroutines to terminate.
 func (mgr *TaskManager) Wait() {
+	mgr.taskMu.Lock()
+	defer mgr.taskMu.Unlock()
+
 	// wait all tasks be terminated
 	mgr.wg.Wait()
+
+	// recreate context with lock
+	mgr.mu.Lock()
 	mgr.ctx, mgr.cancel = context.WithCancel(mgr.pctx)
+	mgr.mu.Unlock()
 }
 
 // TaskCount returns the number of currently running goroutines.
 func (mgr *TaskManager) TaskCount() int {
 	return int(mgr.count.Load())
+}
+
+// taskStarter encapsulates common startup logic
+type taskStarter struct {
+	mgr     *TaskManager
+	name    string
+	started chan error
+}
+
+func (mgr *TaskManager) newTaskStarter(name string) (*taskStarter, error) {
+	ctx := mgr.getContext()
+
+	// check if already cancelled
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("task manager already stopped")
+	default:
+	}
+
+	return &taskStarter{
+		mgr:     mgr,
+		name:    name,
+		started: make(chan error, 1),
+	}, nil
+}
+
+// startTask runs the common startup sequence for all tasks
+func (s *taskStarter) startTask(taskBody func()) {
+	s.mgr.taskMu.RLock()
+	defer s.mgr.taskMu.RUnlock()
+
+	s.mgr.wg.Add(1)
+
+	go func() {
+		defer s.mgr.wg.Done()
+
+		// signal startup status
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					s.started <- fmt.Errorf("panic during startup: %v", r)
+				}
+			}()
+
+			s.mgr.count.Add(1)
+			s.started <- nil
+		}()
+
+		// setup cleanup
+		defer func() {
+			s.mgr.count.Add(-1)
+			s.mgr.logger.Debug(fmt.Sprintf("%s task terminated", s.name), "task_count", s.mgr.TaskCount())
+		}()
+
+		// run the actual task body
+		taskBody()
+	}()
+}
+
+// waitForStart waits for the task to start with timeout
+func (s *taskStarter) waitForStart() error {
+	ctx := s.mgr.getContext()
+
+	select {
+	case err := <-s.started:
+		if err != nil {
+			s.mgr.wg.Done() // compensate for failed start
+			return fmt.Errorf("failed to start %s: %w", s.name, err)
+		}
+
+		return nil
+
+	case <-time.After(5 * time.Second):
+		return fmt.Errorf("timeout waiting for %s to start", s.name)
+
+	case <-ctx.Done():
+		return fmt.Errorf("context cancelled while starting %s", s.name)
+	}
+}
+
+// runTaskLoop runs a task function in a loop with context cancellation
+func (mgr *TaskManager) runTaskLoop(taskFunc func() bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			mgr.logger.Error("panic in task loop", "panic", r)
+		}
+	}()
+
+	for {
+		ctx := mgr.getContext()
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			if !taskFunc() {
+				return
+			}
+		}
+	}
 }

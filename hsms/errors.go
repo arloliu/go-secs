@@ -18,6 +18,15 @@ var (
 	// The SType should be 0 for data message.
 	ErrInvalidControlMsgSType = errors.New("invalid SType for control message, should be in range of [1, 9]")
 
+	// ErrInvalidRejectMsg indicates that the message is not a valid reject control message.
+	//
+	// Added in v1.8.0
+	ErrInvalidRejectMsg = errors.New("the message is not a reject control message")
+	// ErrInvalidRejectReason indicates that an invalid reject reason was provided.
+	//
+	// Added in v1.8.0
+	ErrInvalidRejectReason = errors.New("invalid reject reason, should be in range of [1, 4]")
+
 	// ErrInvalidStreamCode indicates that an invalid stream code was provided.
 	// Valid stream codes are in the range of 0 to 127.
 	ErrInvalidStreamCode = errors.New("invalid stream code, should be in range of [0, 127]")
@@ -40,6 +49,11 @@ var (
 
 	// ErrConnClosed indicates that the connection is closed.
 	ErrConnClosed = errors.New("connection closed")
+
+	// ErrSendMsgTimeout indicates that sending a message timed out.
+	//
+	// Added in v1.8.0
+	ErrSendMsgTimeout = errors.New("send message timeout")
 
 	// ErrSelectFailed indicates that the session selection failed.
 	ErrSelectFailed = errors.New("select failed")

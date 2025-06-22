@@ -38,23 +38,48 @@ type ConnectionConfig struct {
 	// Defaults to 10 seconds.
 	linktestInterval time.Duration
 
-	// t3Timeout defines the reply timeout (T3) for HSMS messages. It should be between 1 and 120 seconds.
+	// t3Timeout defines the reply timeout (T3) for HSMS messages. It should be between 1 and 600 seconds.
+	// It defines the maximum time to wait for a reply after sending a primary message that requires a reply.
+	//
 	// Defaults to 45 seconds.
 	t3Timeout time.Duration
+
 	// t5Timeout defines the connect separation time (T5). It should be between 1 and 240 seconds.
+	//
 	// Defaults to 10 seconds.
 	t5Timeout time.Duration
+
 	// t6Timeout defines the control timeout (T6) for control messages. It should be between 1 and 240 seconds.
+	// It defines the maximum time to wait for a control message reply after sending a control message.
+	//
 	// Defaults to 5 seconds.
 	t6Timeout time.Duration
+
 	// t7Timeout defines the not selected timeout (T7). It should be between 1 and 240 seconds.
+	// It is used to detect an idle or "zombie" connection that has been established at the TCP/IP level
+	// but has not completed the HSMS-level handshake to become active.
+	//
+	// It starts as soon as the TCP/IP connection is established. It measures how long the connection remains in the NOT SELECTED state.
+	//
 	// Defaults to 10 seconds.
 	t7Timeout time.Duration
+
 	// t8Timeout defines the inter-character timeout (T8). It should be between 1 and 120 seconds.
+	// It detects a stall in the transmission of a single, complete HSMS message.
+	//
+	// When an entity begins receiving an HSMS message, the T8 timer is started (or reset) after each byte is successfully received.
+	// If the next byte is not received before the T8 timer expires, the HSMS message is considered incomplete and is discarded.
+	// This timeout is used to detect incomplete messages and ensure that the connection remains responsive.
+	//
+	// If the T8 timer expires, it means there has been an unacceptably long pause during the transmission of one message.
+	// The receiving entity assumes the message is incomplete or corrupt and that the communication link has failed.
+	// This will lead to the termination of the TCP/IP connection.
+	//
 	// Defaults to 5 seconds.
 	t8Timeout time.Duration
 
-	// connectRemoteTimeout defines the timeout for establishing a connection in active mode. It should be between 1 and 30 seconds.
+	// connectRemoteTimeout defines the timeout for establishing a connection in active mode.
+	// It should be between 1 and 30 seconds.
 	// Defaults to 3 seconds.
 	//
 	// This field is only relevant for active mode.
@@ -67,9 +92,18 @@ type ConnectionConfig struct {
 	// This field is only relevant for passive mode.
 	acceptConnTimeout time.Duration
 
-	// closeConnTimeout defines the timeout for closing whole HSMS-SS connection. It should be between 1 and 30 seconds.
+	// closeConnTimeout defines the timeout for closing whole HSMS-SS connection.
+	// It should be between 1 and 30 seconds.
 	// Defaults to 3 seconds.
 	closeConnTimeout time.Duration
+
+	// sendTimeout defines the timeout for sending messages to the remote HSMS device.
+	// It should be between 1 and 30 seconds.
+	//
+	// Defaults to 3 seconds.
+	//
+	// Added in v1.8.0
+	sendTimeout time.Duration
 
 	// senderQueueSize defines the size of the sender queue, which buffers messages before sending them
 	// to the remote HSMS device.
@@ -115,6 +149,7 @@ func NewConnectionConfig(host string, port int, opts ...ConnOption) (*Connection
 		connectRemoteTimeout: 3 * time.Second,
 		acceptConnTimeout:    1 * time.Second,
 		closeConnTimeout:     3 * time.Second,
+		sendTimeout:          1 * time.Second,
 		senderQueueSize:      10,
 		dataMsgQueueSize:     10,
 		logger:               logger.GetLogger(),
@@ -348,7 +383,7 @@ func WithLinktestInterval(interval time.Duration) ConnOption {
 
 // WithT3Timeout sets the reply timeout (T3) for HSMS messages.
 // It returns a ConnOption that validates the timeout value and updates the configuration.
-// An error is returned if the timeout is outside the valid range (1-120 seconds) or if the configuration is nil.
+// An error is returned if the timeout is outside the valid range (1-600 seconds) or if the configuration is nil.
 //
 // The default value is 45 seconds.
 //
@@ -359,8 +394,8 @@ func WithT3Timeout(val time.Duration) ConnOption {
 			return hsms.ErrConnConfigNil
 		}
 
-		if val < 1*time.Second || val > 120*time.Second {
-			return errors.New("t3 timeout out of range [1, 120]")
+		if val < 1*time.Second || val > 600*time.Second {
+			return errors.New("t3 timeout out of range [1, 600]")
 		}
 		cfg.t3Timeout = val
 
@@ -517,6 +552,30 @@ func WithCloseConnTimeout(val time.Duration) ConnOption {
 			return errors.New("accept connection timeout out of range [1, 30]")
 		}
 		cfg.closeConnTimeout = val
+
+		return nil
+	})
+}
+
+// WithSendTimeout sets the timeout for sending messages to the remote HSMS device.
+// It returns a ConnOption that validates the timeout value and updates the configuration.
+// An error is returned if the timeout is outside the valid range (1-30 seconds) or if the configuration is nil.
+//
+// The default value is 1 second.
+//
+// This option can be changed at runtime.
+//
+// Added in v1.8.0
+func WithSendTimeout(val time.Duration) ConnOption {
+	return newConnOptFunc("WithSendTimeout", true, func(cfg *ConnectionConfig) error {
+		if cfg == nil {
+			return hsms.ErrConnConfigNil
+		}
+
+		if val < 1*time.Second || val > 30*time.Second {
+			return errors.New("send timeout out of range [1, 30]")
+		}
+		cfg.sendTimeout = val
 
 		return nil
 	})

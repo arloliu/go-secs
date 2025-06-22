@@ -14,9 +14,25 @@ func (c *Connection) activeConnStateHandler(_ hsms.Connection, prevState hsms.Co
 	c.logger.Debug("active: connection state changes", "prevState", prevState, "curState", curState)
 	switch curState {
 	case hsms.NotSelectedState:
-		c.taskMgr.StartReceiver("receiverTask", c.conn, c.receiverTask, c.cancelReceiverTask)
-		c.taskMgr.StartSender("senderTask", c.senderTask, c.cancelSenderTask, c.senderMsgChan)
-		c.session.startDataMsgTasks()
+		// start data message tasks and sender task before the message receiver task
+		// because the receiver task may receive select request message before the sender task started.
+		if err := c.session.startDataMsgTasks(); err != nil {
+			c.logger.Error("failed to start data message tasks", "error", err)
+			c.stateMgr.ToNotConnectedAsync()
+			return
+		}
+
+		if err := c.taskMgr.StartSender("senderTask", c.senderTask, c.cancelSenderTask, c.senderMsgChan); err != nil {
+			c.logger.Error("failed to start sender task", "error", err)
+			c.stateMgr.ToNotConnectedAsync()
+			return
+		}
+
+		if err := c.taskMgr.StartReceiver("receiverTask", c.receiverTask, c.cancelReceiverTask); err != nil {
+			c.logger.Error("failed to start receiver task", "error", err)
+			c.stateMgr.ToNotConnectedAsync()
+			return
+		}
 
 		err := c.session.selectSession()
 		if err != nil {
@@ -76,6 +92,21 @@ func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 			c.replyToSender(msg)
 		}
 
+	// receive the reject from the remote, it means the request is rejected by the remote.
+	case hsms.RejectReqType:
+		rejectReason, err := hsms.GetRejectReasonCode(msg)
+		if err != nil {
+			c.replyErrToSender(msg, err)
+			return
+		}
+
+		if rejectReason == hsms.RejectNotSelected {
+			c.logger.Warn("active: reject message by not selected state reason",
+				hsms.MsgInfo(msg, "method", "recvMsgActive", "state", c.stateMgr.State())...,
+			)
+			c.replyErrToSender(msg, hsms.ErrNotSelectedState)
+		}
+
 	// the HSMS-SS doesn't support to accept select/deselect request in active mode.
 	case hsms.SelectReqType, hsms.DeselectReqType:
 		replyMsg := hsms.NewRejectReq(msg, hsms.RejectSTypeNotSupported)
@@ -103,7 +134,7 @@ func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 		c.stateMgr.ToNotConnectedAsync()
 
 	// ignore
-	case hsms.DeselectRspType, hsms.RejectReqType:
+	case hsms.DeselectRspType:
 	}
 }
 
@@ -140,9 +171,7 @@ func (c *Connection) tryConnect(ctx context.Context) error {
 		return err
 	}
 
-	c.connMutex.Lock()
-	c.conn = conn
-	c.connMutex.Unlock()
+	c.setupResources(conn)
 
 	if !c.opState.ToOpened() {
 		c.logger.Warn("failed to set connection state to opened", "opState", c.opState.String())

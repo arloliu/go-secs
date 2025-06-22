@@ -16,10 +16,27 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, prevState hsms.C
 	c.logger.Debug("passive: connection state changes", "prevState", prevState, "curState", curState)
 	switch curState {
 	case hsms.NotSelectedState:
+		// start data message tasks and sender task before the message receiver task,
+		// because the receiver task may receive select request message before the sender task started.
+		if err := c.session.startDataMsgTasks(); err != nil {
+			c.logger.Error("failed to start data message tasks", "error", err)
+			c.stateMgr.ToNotConnectedAsync()
+			return
+		}
+
+		if err := c.taskMgr.StartSender("senderTask", c.senderTask, c.cancelSenderTask, c.senderMsgChan); err != nil {
+			c.logger.Error("failed to start sender task", "error", err)
+			c.stateMgr.ToNotConnectedAsync()
+			return
+		}
+
+		if err := c.taskMgr.StartReceiver("receiverTask", c.receiverTask, c.cancelReceiverTask); err != nil {
+			c.logger.Error("failed to start receiver task", "error", err)
+			c.stateMgr.ToNotConnectedAsync()
+			return
+		}
+
 		c.logger.Debug("passive: not selected state, start to open passive connection")
-		c.taskMgr.StartReceiver("receiverTask", c.conn, c.receiverTask, c.cancelReceiverTask)
-		c.taskMgr.StartSender("senderTask", c.senderTask, c.cancelSenderTask, c.senderMsgChan)
-		c.session.startDataMsgTasks()
 
 		go func() {
 			waitSelectTimer := pool.GetTimer(c.cfg.t7Timeout)
@@ -62,7 +79,7 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, prevState hsms.C
 func (c *Connection) recvMsgPassive(msg hsms.HSMSMessage) {
 	switch msg.Type() {
 	case hsms.DataMsgType:
-		if !c.stateMgr.IsSelected() {
+		if !c.isSelectedState() {
 			c.logger.Warn("passive: reject msg by not selected state reason",
 				hsms.MsgInfo(msg, "method", "recvMsgActive", "state", c.stateMgr.State())...,
 			)
@@ -153,9 +170,7 @@ func (c *Connection) openPassive() error {
 
 	c.logger.Debug("listen success", "address", c.listener.Addr())
 
-	c.taskMgr.Start("tryAcceptConn", c.tryAcceptConn)
-
-	return nil
+	return c.taskMgr.Start("tryAcceptConn", c.tryAcceptConn)
 }
 
 func (c *Connection) tryListen() (net.Listener, error) {
@@ -225,9 +240,7 @@ func (c *Connection) tryAcceptConn() bool {
 		return true // re-accept again
 	}
 
-	c.connMutex.Lock()
-	c.conn = conn
-	c.connMutex.Unlock()
+	c.setupResources(conn)
 
 	if !c.opState.ToOpened() {
 		c.logger.Warn("failed to set connection state to opened state", "method", "tryListenAccept", "state", c.opState.String())

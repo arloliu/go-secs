@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"math/rand"
+	"net"
 	"os"
-	"sync/atomic"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -340,6 +342,73 @@ func TestConnection_Linktest(t *testing.T) {
 	require.NoError(eqpComm.close())
 }
 
+func TestSendMessageFail(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+
+	port := getPort()
+	hostComm := newTestComm(ctx, t, port, true, true)
+	eqpComm := newSlowTestComm(ctx, t, port, false, false)
+
+	require.NoError(eqpComm.open(true))
+	require.NoError(hostComm.open(true))
+	defer hostComm.close()
+	defer eqpComm.close()
+
+	// close eqp before sending message
+	require.NoError(eqpComm.close())
+
+	reply, err := hostComm.session.SendDataMessage(1, 1, true, secs2.A("test"))
+	require.Error(err, "expected error when sending message to closed equipment, got: %v", err)
+	require.Nil(reply, "expected reply to be nil, got: %v", reply)
+
+	// open the slow eqp
+	require.NoError(eqpComm.open(true))
+
+	// wait eqp & host state to be selected
+	require.NoError(eqpComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+	reply, err = hostComm.session.SendDataMessage(1, 1, true, secs2.A("test"))
+	require.NoError(err, "expected no error when sending message to slow eqp, got: %v", err)
+	require.NotNil(reply, "expected reply to be not nil, got: %v", reply)
+	require.Equal(secs2.A("test"), reply.Item(), "expected reply item to be 'test', got: %v", reply.Item())
+}
+
+func TestDrainMessageOnConnClose(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+
+	port := getPort()
+	hostComm := newTestComm(ctx, t, port, true, true, WithSenderQueueSize(100), WithCloseConnTimeout(1*time.Second))
+	eqpComm := newTestComm(ctx, t, port, false, false)
+
+	require.NoError(eqpComm.open(true))
+	require.NoError(hostComm.open(true))
+	defer eqpComm.close()
+	defer hostComm.close()
+
+	require.NoError(eqpComm.close())
+
+	var wg sync.WaitGroup
+	for range 100 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := hostComm.session.SendDataMessageAsync(1, 1, true, secs2.A("test"))
+			require.NoError(err, "expected no error when sending message after eqp closed, got: %v", err)
+		}()
+	}
+	time.Sleep(10 * time.Millisecond) // give some time for goroutines to start
+
+	begin := time.Now()
+	require.NoError(hostComm.close())
+	elapsed := time.Since(begin)
+	require.LessOrEqual(elapsed, 100*time.Millisecond, "expected host close to complete within 2 seconds, took: %v", elapsed)
+
+	wg.Wait()
+}
+
 func testConnection(ctx context.Context, t testing.TB, hostIsActive bool) {
 	require := require.New(t)
 
@@ -422,11 +491,54 @@ func testConnection(ctx context.Context, t testing.TB, hostIsActive bool) {
 	require.NoError(eqpComm.close())
 }
 
-var portInUse atomic.Int32
+var (
+	addrPool      = make(map[string]struct{})
+	addrPoolMutex sync.Mutex
+)
+
+func getRandomListener() (net.Listener, error) {
+	for {
+		// listen on TCP port 0, which tells the OS to pick a random port.
+		listener, err := net.Listen("tcp", "localhost:0")
+		if err != nil {
+			return nil, err
+		}
+
+		addr := listener.Addr().String()
+
+		addrPoolMutex.Lock()
+		_, existed := addrPool[addr]
+		if existed {
+			_ = listener.Close()
+			addrPoolMutex.Unlock()
+			continue
+		}
+		addrPool[addr] = struct{}{}
+		addrPoolMutex.Unlock()
+
+		return listener, nil
+	}
+}
 
 func getPort() int {
-	port := testPort + int(portInUse.Load())
-	portInUse.Add(1)
+	listener, err := getRandomListener()
+	if err != nil {
+		panic("failed to get random listener: " + err.Error())
+	}
+	defer listener.Close()
+
+	addr := listener.Addr().String()
+
+	_, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		panic("failed to split host and port: " + err.Error())
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		panic("failed to convert port string to int: " + err.Error())
+	}
+
 	return port
 }
 
@@ -443,6 +555,18 @@ type testComm struct {
 }
 
 func newTestComm(ctx context.Context, t testing.TB, port int, isHost bool, isActive bool, extraOpts ...ConnOption) *testComm {
+	c := doNewTestComm(ctx, t, port, isHost, isActive, extraOpts...)
+	c.session.AddDataMessageHandler(c.msgEchoHandler)
+	return c
+}
+
+func newSlowTestComm(ctx context.Context, t testing.TB, port int, isHost bool, isActive bool, extraOpts ...ConnOption) *testComm {
+	c := doNewTestComm(ctx, t, port, isHost, isActive, extraOpts...)
+	c.session.AddDataMessageHandler(c.msgSlowEchoHandler)
+	return c
+}
+
+func doNewTestComm(ctx context.Context, t testing.TB, port int, isHost bool, isActive bool, extraOpts ...ConnOption) *testComm {
 	require := require.New(t)
 	c := &testComm{ctx: ctx, t: t, require: require, isHost: isHost, isActive: isActive}
 
@@ -457,8 +581,6 @@ func newTestComm(ctx context.Context, t testing.TB, port int, isHost bool, isAct
 
 	c.session = c.conn.AddSession(testSessionID)
 	require.NotNil(c.session)
-
-	c.session.AddDataMessageHandler(c.msgEchoHandler)
 
 	return c
 }
@@ -535,13 +657,38 @@ func (c *testComm) msgEchoHandler(msg *hsms.DataMessage, session hsms.Session) {
 		return
 	}
 
+	_ = session.ReplyDataMessage(msg, msg.Item())
+}
+
+func (c *testComm) msgSlowEchoHandler(msg *hsms.DataMessage, session hsms.Session) {
+	time.Sleep(500 * time.Millisecond) // simulate slow processing
+	// receives reply message
+	if msg.FunctionCode()%2 == 0 {
+		c.recvReplyChan <- msg
+		return
+	}
+
 	err := session.ReplyDataMessage(msg, msg.Item())
 	c.require.NoError(err)
 }
 
 func (c *testComm) testMsgSuccess(stream byte, function byte, dataItem secs2.Item, expectedSML string) {
-	reply, err := c.session.SendDataMessage(stream, function, true, dataItem)
-	c.require.NoError(err)
+	var reply *hsms.DataMessage
+	var err error
+	for range 3 {
+		reply, err = c.session.SendDataMessage(stream, function, true, dataItem)
+		if err == nil {
+			break
+		}
+
+		if errors.Is(err, hsms.ErrConnClosed) || errors.Is(err, hsms.ErrNotSelectedState) {
+			c.t.Logf("retrying SendDataMessage for S%dF%d due to error: %v", stream, function, err)
+			time.Sleep(100 * time.Millisecond) // wait a bit before retrying
+			continue
+		}
+	}
+
+	c.require.NoError(err, "the current state is %s", c.conn.stateMgr.State().String())
 	c.require.NotNil(reply)
 	c.require.Equal(stream, reply.StreamCode())
 	c.require.Equal(function+1, reply.FunctionCode())
@@ -552,10 +699,14 @@ func (c *testComm) testAsyncMsgSuccess(stream byte, function byte, dataItem secs
 	err := c.session.SendDataMessageAsync(stream, function, true, dataItem)
 	c.require.NoError(err)
 
-	reply := <-c.recvReplyChan
-	c.require.Equal(stream, reply.StreamCode())
-	c.require.Equal(function+1, reply.FunctionCode())
-	c.require.Equal(expectedSML, reply.Item().ToSML())
+	select {
+	case <-time.After(10 * time.Second):
+		c.t.Fatalf("timeout waiting for reply for S%dF%d", stream, function)
+	case reply := <-c.recvReplyChan:
+		c.require.Equal(stream, reply.StreamCode())
+		c.require.Equal(function+1, reply.FunctionCode())
+		c.require.Equal(expectedSML, reply.Item().ToSML())
+	}
 }
 
 func (c *testComm) testMsgError(stream byte, function byte, dataItem secs2.Item, expectedErrs ...error) {

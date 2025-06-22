@@ -31,6 +31,16 @@ type Session interface {
 	// and let user specified data message handler to receive reply if any.
 	SendMessageAsync(msg HSMSMessage) error
 
+	// SendMessageSync sends an HSMSMessage synchronously.
+	//
+	// It sends the message and blocks until it's sent to the connection's underlying transport layer.
+	// It returns an error if any occurred during sending.
+	//
+	// Note: it does not wait for a reply.
+	//
+	// Added in v1.8.0
+	SendMessageSync(msg HSMSMessage) error
+
 	// SendSECS2Message sends a SECS-II message and waits for its reply.
 	//
 	// It returns the received reply message (as a DataMessage) and an error if any occurred during sending or receiving.

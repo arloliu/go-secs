@@ -433,6 +433,25 @@ func NewRejectReq(recvMsg HSMSMessage, reasonCode byte) *ControlMessage {
 	return &ControlMessage{header: header, replyExpected: false}
 }
 
+// GetRejectReasonCode extracts the reason code from a Reject.req message.
+func GetRejectReasonCode(recvMsg HSMSMessage) (int, error) {
+	if recvMsg.Type() != RejectReqType {
+		return 0, ErrInvalidRejectMsg
+	}
+
+	msg, _ := recvMsg.ToControlMessage()
+	if len(msg.header) < 10 {
+		return 0, ErrInvalidHeaderLength
+	}
+
+	reasonCode := int(msg.header[3])
+	if reasonCode < RejectSTypeNotSupported || reasonCode > RejectNotSelected {
+		return 0, ErrInvalidRejectReason
+	}
+
+	return reasonCode, nil
+}
+
 // NewRejectReqRaw creates HSMS Reject.req control message.
 //
 // sessionID, pType, sType, and systemBytes should be same as the HSMS message being rejected.

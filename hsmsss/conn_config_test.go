@@ -54,11 +54,11 @@ func TestNewConnectionConfig(t *testing.T) {
 	t.Run("Invalid T3 Timeout - Out of Range", func(t *testing.T) {
 		_, err := NewConnectionConfig("192.168.1.1", 5000, WithT3Timeout(0))
 		require.Error(err)
-		require.EqualError(err, "t3 timeout out of range [1, 120]")
+		require.EqualError(err, "t3 timeout out of range [1, 600]")
 
 		_, err = NewConnectionConfig("192.168.1.1", 5000, WithT3Timeout(121))
 		require.Error(err)
-		require.EqualError(err, "t3 timeout out of range [1, 120]")
+		require.EqualError(err, "t3 timeout out of range [1, 600]")
 
 		err = WithT3Timeout(5).apply(nil)
 		require.Error(err)

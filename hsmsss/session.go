@@ -1,6 +1,7 @@
 package hsmsss
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -21,7 +22,6 @@ type Session struct {
 	logger   logger.Logger
 
 	mu              sync.RWMutex
-	closeOnce       sync.Once
 	dataMsgChans    []chan *hsms.DataMessage
 	dataMsgHandlers []hsms.DataMessageHandler
 }
@@ -58,9 +58,14 @@ func (s *Session) SendMessage(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 }
 
 // SendMessageAsync sends an HSMS message through the associated HSMS-SS connection asynchronously.
-// It sends the message and its reply to the specified channel when received.
 func (s *Session) SendMessageAsync(msg hsms.HSMSMessage) error {
 	return s.hsmsConn.sendMsgAsync(msg)
+}
+
+// SendMessageSync sends an HSMS message through the associated HSMS-SS connection synchronously.
+// It sends the message and blocks until it's sent to the connection's underlying transport layer.
+func (s *Session) SendMessageSync(msg hsms.HSMSMessage) error {
+	return s.hsmsConn.sendMsgSync(msg)
 }
 
 // AddConnStateChangeHandler adds one or more ConnStateChangeHandler functions to be invoked when the connection state changes.
@@ -118,38 +123,27 @@ func (s *Session) AddDataMessageHandler(handlers ...hsms.DataMessageHandler) {
 	s.dataMsgHandlers = append(s.dataMsgHandlers, handlers...)
 }
 
-func (s *Session) startDataMsgTasks() {
+func (s *Session) startDataMsgTasks() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	// reset closeOnce for new channels
-	s.closeOnce = sync.Once{}
 
 	// create a new data message channel slice for each handler
 	s.dataMsgChans = make([]chan *hsms.DataMessage, 0)
 
+	var errs error
 	for i, handler := range s.dataMsgHandlers {
 		dataMsgChan := make(chan *hsms.DataMessage, s.cfg.dataMsgQueueSize)
-		s.dataMsgChans = append(s.dataMsgChans, dataMsgChan)
 
 		name := fmt.Sprintf("dataMsgTask-%d", i+1)
-		s.hsmsConn.taskMgr.StartRecvDataMsg(name, handler, s, dataMsgChan)
-	}
-}
-
-// closeChannels closes all data message channels associated with the session.
-//
-// it should be called in the receive cancel function.
-func (s *Session) closeChannels() {
-	s.closeOnce.Do(func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-
-		for _, dataMsgChan := range s.dataMsgChans {
-			close(dataMsgChan)
+		if err := s.hsmsConn.taskMgr.StartRecvDataMsg(name, handler, s, dataMsgChan); err != nil {
+			errs = errors.Join(errs, err)
+			continue
 		}
-		s.dataMsgChans = nil
-	})
+
+		s.dataMsgChans = append(s.dataMsgChans, dataMsgChan)
+	}
+
+	return errs
 }
 
 // recvDataMsg broadcast message to all data message handlers' channel

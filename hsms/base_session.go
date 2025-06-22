@@ -46,7 +46,17 @@ func (s *BaseSession) SendDataMessage(stream byte, function byte, replyExpected 
 
 	replyMsg, err := s.sendMessageFunc(msg)
 	if err != nil {
-		return nil, err
+		if replyMsg == nil {
+			return nil, err
+		}
+
+		// returns reply message as DataMessage with error if it can be converted
+		dataMsg, ok := replyMsg.ToDataMessage()
+		if !ok {
+			return nil, err
+		}
+
+		return dataMsg, err
 	}
 
 	if !replyExpected {
