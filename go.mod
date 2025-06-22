@@ -1,10 +1,10 @@
 module github.com/arloliu/go-secs
 
-go 1.23.0
+go 1.24.1
 
 require (
 	github.com/phsym/console-slog v0.3.1
-	github.com/puzpuzpuz/xsync/v3 v3.5.0
+	github.com/puzpuzpuz/xsync/v3 v3.5.1
 	github.com/stretchr/testify v1.9.0
 )
 
