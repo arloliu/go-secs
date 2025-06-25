@@ -223,7 +223,10 @@ func (p *HSMSParser) parseHSMSHeader() error {
 
 	// get optional message name
 	midx := strings.IndexByte(p.data[:i], byte(':'))
-	if midx > 0 {
+
+	// if colon found, it means there is a message name regardless it is empty or not,
+	// so we can skip the message name part by forwarding the index to the next character after the colon.
+	if midx >= 0 {
 		// ignore message name
 		p.forward(midx + 1)
 	}

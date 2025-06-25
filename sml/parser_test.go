@@ -397,6 +397,12 @@ func commonTestCases() []testCase {
 			expectedStr:       []string{"'S1F1' W\n<A[4] 'text'>\n."},
 		},
 		{
+			description:       "1 message, single-quote ASCII node, empty message name",
+			input:             `  :  'S1F1' W <A 'text'>.`,
+			expectedNumOfMsgs: 1,
+			expectedStr:       []string{"'S1F1' W\n<A[4] 'text'>\n."},
+		},
+		{
 			description:       "1 message, Binary node",
 			input:             `TestMessage   : S63F127 W <B[3] 0b0 0xFE 255>.`,
 			expectedNumOfMsgs: 1,
@@ -408,6 +414,17 @@ func commonTestCases() []testCase {
 			expectedNumOfMsgs: 1,
 			expectedStr:       []string{"'S126F254'\n<BOOLEAN[2] True False>\n."},
 		},
+		{
+			description: "2 messages, F4, F8 node, empty message names",
+			input: `  :  S126F254 <F4 +0.1 -0.1>.
+			         : S127F255 <F8 1e3 1E-3 .5e-1>.`,
+			expectedNumOfMsgs: 2,
+			expectedStr: []string{
+				"'S126F254'\n<F4[2] 0.100000001 -0.100000001>\n.",
+				"'S127F255'\n<F8[3] 1000 0.001 0.050000000000000003>\n.",
+			},
+		},
+
 		{
 			description: "2 messages, F4, F8 node",
 			input: `S126F254 <F4 +0.1 -0.1>.
