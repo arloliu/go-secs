@@ -101,3 +101,50 @@ var (
 	// This occurs when the inter-character timeout (T8) has elapsed during message transmission.
 	ErrT8Timeout = errors.New("T8 timeout")
 )
+
+var (
+	// ErrUnrecognizedDeviceID indicates that an unrecognized Device ID was received in a message.
+	// This error is typically sent in response to an S9F1 message.
+	//
+	// Added in v1.9.0
+	ErrUnrecognizedDeviceID = errors.New("unrecognized device id")
+
+	// ErrUnrecognizedStreamType indicates that an unrecognized Stream Type was received in a message.
+	// This error is typically sent in response to an S9F3 message.
+	//
+	// Added in v1.9.0
+	ErrUnrecognizedStreamType = errors.New("unrecognized stream type")
+
+	// ErrUnrecognizedFunctionType indicates that an unrecognized Function Type wasreceived in a message.
+	// This error is typically sent in response to an S9F5 message.
+	//
+	// Added in v1.9.0
+	ErrUnrecognizedFunctionType = errors.New("unrecognized function type")
+
+	// ErrIllegalData indicates that the data is illegal for the Function Type.
+	// This error is typically sent in response to an S9F7 message.
+	//
+	// Added in v1.9.0
+	ErrIllegalData = errors.New("illegal data")
+
+	// ErrTransactionTimeout indicates that the equipment failed to process a message
+	// from the host within the timeout period.
+	// This error is typically sent in response to an S9F9 message.
+	//
+	// Added in v1.9.0
+	ErrTransactionTimeout = errors.New("transaction timeout")
+
+	// ErrDataTooLong indicates that the length of the data in a message exceeds
+	// the maximum message length that the equipment can process.
+	// This error is typically sent in response to an S9F11 message.
+	//
+	// Added in v1.9.0
+	ErrDataTooLong = errors.New("data too long")
+
+	// ErrConversationTimeout indicates that the host failed to respond to a message
+	// within the timeout period.
+	// This error is typically sent in response to an S9F13 message.
+	//
+	// Added in v1.9.0
+	ErrConversationTimeout = errors.New("conversation timeout")
+)

@@ -120,6 +120,10 @@ type ConnectionConfig struct {
 	// Defaults to 10.
 	dataMsgQueueSize int
 
+	// validateDataMessage indicates whether to validate the data message before invoking the registered data message handler.
+	// If true, the data message will be validated and returns S9Fx messages if validation fails.
+	validateDataMessage bool
+
 	// logger provides a logger instance for logging HSMS-related events and errors.
 	logger logger.Logger
 }
@@ -152,6 +156,7 @@ func NewConnectionConfig(host string, port int, opts ...ConnOption) (*Connection
 		sendTimeout:          1 * time.Second,
 		senderQueueSize:      10,
 		dataMsgQueueSize:     10,
+		validateDataMessage:  true,
 		logger:               logger.GetLogger(),
 	}
 
@@ -627,6 +632,21 @@ func WithDataMsgQueueSize(size int) ConnOption {
 		}
 
 		cfg.dataMsgQueueSize = size
+
+		return nil
+	})
+}
+
+// WithValidateDataMessage enables or disables the validation of data messages before invoking the registered data message handler.
+// When enabled (value = true), the data message will be validated, and if validation fails,
+// it will return S9Fx messages to the sender.
+func WithValidateDataMessage(value bool) ConnOption {
+	return newConnOptFunc("WithValidateDataMessage", true, func(cfg *ConnectionConfig) error {
+		if cfg == nil {
+			return hsms.ErrConnConfigNil
+		}
+
+		cfg.validateDataMessage = value
 
 		return nil
 	})

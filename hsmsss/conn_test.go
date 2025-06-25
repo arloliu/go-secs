@@ -409,6 +409,48 @@ func TestDrainMessageOnConnClose(t *testing.T) {
 	wg.Wait()
 }
 
+func TestConn_validateMsg(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+
+	connCfg, err := NewConnectionConfig("localhost", 6666,
+		WithHostRole(),
+		WithValidateDataMessage(true),
+	)
+	require.NotNil(connCfg)
+	require.NoError(err)
+
+	conn, err := NewConnection(ctx, connCfg)
+	require.NoError(err)
+	require.NotNil(conn)
+
+	testSessionID := uint16(0)
+
+	_ = conn.AddSession(testSessionID)
+
+	testCases := []struct {
+		sessionID   uint16
+		expectError bool
+	}{
+		{sessionID: testSessionID, expectError: false},
+		{sessionID: testSessionID | 0x8000, expectError: true},
+		{sessionID: 1234, expectError: true},
+	}
+
+	for _, tt := range testCases {
+		msg, err := hsms.NewDataMessage(99, 1, true, tt.sessionID, hsms.ToSystemBytes(12345), secs2.NewEmptyItem())
+		require.NoError(err)
+		require.NotNil(msg)
+
+		err = conn.validateMsg(msg)
+		if tt.expectError {
+			require.Error(err, "expected error for session ID %d", tt.sessionID)
+		} else {
+			require.NoError(err, "unexpected error for session ID %d", tt.sessionID)
+		}
+	}
+}
+
 func testConnection(ctx context.Context, t testing.TB, hostIsActive bool) {
 	require := require.New(t)
 

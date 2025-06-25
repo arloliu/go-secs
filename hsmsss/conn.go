@@ -95,6 +95,7 @@ func NewConnection(ctx context.Context, cfg *ConnectionConfig) (*Connection, err
 	return conn, nil
 }
 
+// UpdateConfigOptions updates the connection configuration options.
 func (c *Connection) UpdateConfigOptions(opts ...ConnOption) error {
 	var autoLinktest bool
 	var linktestInterval time.Duration
@@ -897,6 +898,22 @@ func (c *Connection) autoLinktestTask() bool {
 	c.metrics.incLinktestRecvCount()
 
 	return true
+}
+
+func (c *Connection) validateMsg(msg hsms.HSMSMessage) error {
+	if !c.cfg.validateDataMessage {
+		return nil // skip validation if not enabled
+	}
+
+	// if session id mismatch and not a S9F1 message, reply S9F1.
+	isS9F1 := msg.StreamCode() == 9 && msg.FunctionCode() == 1
+	if msg.SessionID() != c.session.ID() && !isS9F1 {
+		_, _ = c.session.SendSECS2Message(gem.S9F1())
+		return hsms.ErrUnrecognizedDeviceID
+	}
+
+	// TODO: validate other message fields if needed,e.g. S9F3, S9F5, ... etc.
+	return nil
 }
 
 // isSelectedState checks if the connection is in the selected state.

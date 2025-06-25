@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/arloliu/go-secs/gem"
 	"github.com/arloliu/go-secs/hsms"
 )
 
@@ -77,9 +76,19 @@ func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 			break
 		}
 
-		// if session id mismatch and not a S9F1 message, reply S9F1.
-		if msg.SessionID() != c.session.ID() && msg.StreamCode() != 9 && msg.FunctionCode() != 1 {
-			_, _ = c.session.SendSECS2Message(gem.S9F1())
+		if err := c.validateMsg(msg); err != nil {
+			c.logger.Debug("active: invalid message received, reply error to sender",
+				hsms.MsgInfo(msg, "method", "recvMsgActive", "error", err)...,
+			)
+
+			break
+		}
+
+		if err := c.validateMsg(msg); err != nil {
+			c.logger.Debug("active: invalid message received, reply error to sender",
+				hsms.MsgInfo(msg, "method", "recvMsgActive", "error", err)...,
+			)
+
 			break
 		}
 
