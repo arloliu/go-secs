@@ -179,3 +179,37 @@ func msgInfo(msg HSMSMessage, sml bool, keyValues ...any) []any { //nolint:reviv
 
 	return result
 }
+
+// MsgHexString returns a hex string representation of the provided byte slices.
+// It outputs byte by byte in hex format, separated by a space.
+func MsgHexString(datas ...[]byte) string {
+	// Calculate total length across all byte slices
+	totalLen := 0
+	for _, data := range datas {
+		totalLen += len(data)
+	}
+
+	if totalLen == 0 {
+		return ""
+	}
+
+	// pre-allocate buffer with exact capacity needed
+	// each byte becomes 2 hex chars + 1 space, minus 1 space for the last byte
+	buf := make([]byte, 0, totalLen*3-1)
+
+	// Use a lookup table for hex digits (faster than hex.EncodeToString)
+	const hexChars = "0123456789ABCDEF"
+
+	first := true
+	for _, data := range datas {
+		for _, b := range data {
+			if !first {
+				buf = append(buf, ' ')
+			}
+			buf = append(buf, hexChars[b>>4], hexChars[b&0x0F])
+			first = false
+		}
+	}
+
+	return string(buf)
+}

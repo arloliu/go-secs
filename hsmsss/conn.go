@@ -568,6 +568,10 @@ func (c *Connection) sendMsgSync(msg hsms.HSMSMessage) error {
 
 	buf := msg.ToBytes()
 
+	if c.cfg.traceTraffic {
+		c.logger.Info("trace: send message", hsms.MsgInfo(msg, "raw", hsms.MsgHexString(buf))...)
+	}
+
 	// lock the write mutex to ensure thread-safe writing to the connection
 	c.writeMutex.Lock()
 	defer c.writeMutex.Unlock()
@@ -769,6 +773,10 @@ func (c *Connection) receiverTask(msgLenBuf []byte) bool {
 		// if message decode failed, it means the message is malformed or not a valid HSMS message.
 		// stop the receiver task
 		return false
+	}
+
+	if c.cfg.traceTraffic {
+		c.logger.Info("trace: received message", hsms.MsgInfo(msg, "raw", hsms.MsgHexString(msgLenBuf, msgBuf))...)
 	}
 
 	c.metrics.incDataMsgRecvCount()

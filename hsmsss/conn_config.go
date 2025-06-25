@@ -124,6 +124,13 @@ type ConnectionConfig struct {
 	// If true, the data message will be validated and returns S9Fx messages if validation fails.
 	validateDataMessage bool
 
+	// traceTraffic indicates whether to trace the network traffic for debugging purposes.
+	// If true, the connection will log detailed information about sent and received messages.
+	// This can be useful for debugging and monitoring the HSMS-SS communication.
+	//
+	// Defaults to false.
+	traceTraffic bool
+
 	// logger provides a logger instance for logging HSMS-related events and errors.
 	logger logger.Logger
 }
@@ -157,6 +164,7 @@ func NewConnectionConfig(host string, port int, opts ...ConnOption) (*Connection
 		senderQueueSize:      10,
 		dataMsgQueueSize:     10,
 		validateDataMessage:  true,
+		traceTraffic:         false,
 		logger:               logger.GetLogger(),
 	}
 
@@ -647,6 +655,21 @@ func WithValidateDataMessage(value bool) ConnOption {
 		}
 
 		cfg.validateDataMessage = value
+
+		return nil
+	})
+}
+
+// WithTraceTraffic enables or disables the tracing of network traffic for debugging purposes.
+// When enabled (value = true), the connection will log detailed information about sent and received messages.
+// This can be useful for debugging and monitoring the HSMS-SS communication.
+func WithTraceTraffic(value bool) ConnOption {
+	return newConnOptFunc("WithTraceTraffic", true, func(cfg *ConnectionConfig) error {
+		if cfg == nil {
+			return hsms.ErrConnConfigNil
+		}
+
+		cfg.traceTraffic = value
 
 		return nil
 	})
