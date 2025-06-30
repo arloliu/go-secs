@@ -397,10 +397,28 @@ func commonTestCases() []testCase {
 			expectedStr:       []string{"'S1F1' W\n<A[4] 'text'>\n."},
 		},
 		{
+			description:       "1 message, single-quote ASCII node, message name contains dot",
+			input:             `Test.Messaage : 'S1F1' W <A 'text'>.`,
+			expectedNumOfMsgs: 1,
+			expectedStr:       []string{"'S1F1' W\n<A[4] 'text'>\n."},
+		},
+		{
 			description:       "1 message, single-quote ASCII node, empty message name",
 			input:             `  :  'S1F1' W <A 'text'>.`,
 			expectedNumOfMsgs: 1,
 			expectedStr:       []string{"'S1F1' W\n<A[4] 'text'>\n."},
+		},
+		{
+			description:       "1 message, single-quote ASCII node, without message name",
+			input:             `'S1F1' W <A 'text'>.`,
+			expectedNumOfMsgs: 1,
+			expectedStr:       []string{"'S1F1' W\n<A[4] 'text'>\n."},
+		},
+		{
+			description:       "1 message, single-quote ASCII node, without message name and contains colon in text",
+			input:             `'S1F1' W <A 'this.is:text'>.`,
+			expectedNumOfMsgs: 1,
+			expectedStr:       []string{"'S1F1' W\n<A[12] 'this.is:text'>\n."},
 		},
 		{
 			description:       "1 message, Binary node",

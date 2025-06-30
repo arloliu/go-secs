@@ -216,9 +216,31 @@ func (p *HSMSParser) parseMsg(headerOnly bool, lazy bool) (*hsms.DataMessage, er
 }
 
 func (p *HSMSParser) parseHSMSHeader() error {
-	i := strings.IndexAny(p.data, "\n.<")
+	// find if the first dot or newline character is present in the data.
+	//
+	// ths header SML message should be terminated by a dot or newline character.
+	//
+	// there are several cases:
+	// 1. the first dot is present, it means the message is terminated by a dot.
+	// 2. the first newline is present, it means the header message is terminated by a newline.
+	// 3. the output does not contain any dot symbol, it means the firstTerm is not accurate,
+	firstTerm := strings.IndexAny(p.data, "\n.")
+	if firstTerm < 0 {
+		return errors.New("invalid SML message without dot symbol or newline")
+	}
+
+	// try to find if the first item bracket '<' is present in the data, and choose the maximum index
+	// of the firstTerm and firstItemBracket.
+	//
+	// if firstTerm is not found or < firstItemBracket, we needs to use the firstItemBracket index
+	// as the end of search range for searching the message name.
+	//
+	// if firstItemBracket is not found or < firstTerm, we needs to use the firstTerm index
+	// as the end of search range for searching the message name.
+	firstItemBracket := strings.IndexByte(p.data, byte('<'))
+	i := max(firstTerm, firstItemBracket)
 	if i < 0 {
-		return errors.New("invalid SML message without end symbol")
+		return errors.New("invalid SML message without item bracket '<' and dot symbol")
 	}
 
 	// get optional message name
