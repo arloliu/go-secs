@@ -19,8 +19,12 @@ import (
 // which means there is no ellipsis and Item variable.
 type ListItem struct {
 	baseItem
-	values []Item // Array of Items that this ListItem contains
+	values   []Item // Array of Items that this ListItem contains
+	rawBytes []byte // Raw bytes of the ListItem, if available
+	// The ListItem struct aligns to 64 bytes of CPU cache line size
 }
+
+var _ Item = (*ListItem)(nil)
 
 // NewListItem creates a new ListItem representing an ordered set of elemments in a SECS-II message.
 //
@@ -38,6 +42,10 @@ type ListItem struct {
 //
 // The newly created ListItem is returned, potentially with an error attached.
 func NewListItem(values ...Item) Item {
+	return newListItem(values...)
+}
+
+func newListItem(values ...Item) *ListItem { //nolint:revive
 	item := getListItem()
 
 	dataBytes, _ := getDataByteLength(ListType, len(values))
@@ -59,6 +67,20 @@ func NewListItem(values ...Item) Item {
 		item.values = append(item.values, value)
 	}
 
+	return item
+}
+
+// NewListItemWithBytes creates a new ListItem with the specified raw bytes and values.
+//
+// This function is useful when decoding a SECS-II message and you have the raw byte representation of the ListItem.
+//
+// Note: This function does not validate the raw bytes, so it should only be used when you are sure that the
+// raw bytes conform to the SECS-II data format for a ListItem.
+//
+// Added in v1.10.0
+func NewListItemWithBytes(rawBytes []byte, values ...Item) Item {
+	item := newListItem(values...)
+	item.rawBytes = rawBytes
 	return item
 }
 
@@ -172,6 +194,10 @@ func (item *ListItem) SetValues(values ...any) error {
 // If an error occurs during header generation, an empty byte slice is returned,
 // and the error is stored within the item for later retrieval.
 func (item *ListItem) ToBytes() []byte {
+	if item.rawBytes != nil {
+		return item.rawBytes
+	}
+
 	result, _ := getHeaderBytes(ListType, len(item.values), 0)
 
 	for _, value := range item.values {
@@ -186,6 +212,8 @@ func (item *ListItem) ToBytes() []byte {
 
 		result = append(result, nestedResult...)
 	}
+
+	item.rawBytes = result
 
 	return result
 }

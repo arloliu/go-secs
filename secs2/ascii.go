@@ -51,7 +51,8 @@ func WithASCIIStrictMode(enable bool) {
 // can only store a single string value.
 type ASCIIItem struct {
 	baseItem
-	value []byte // The ASCII byte literal
+	value    []byte // The ASCII byte literal
+	rawBytes []byte // Raw bytes for the item, if needed
 }
 
 // NewASCIIItem creates a new ASCIIItem containing the given ASCII string.
@@ -64,6 +65,23 @@ type ASCIIItem struct {
 func NewASCIIItem(value string) Item {
 	item := getASCIIItem()
 	_ = item.SetValues(value)
+	return item
+}
+
+// NewASCIIItemWithBytes creates a new ASCIIItem with the given raw bytes
+//
+// This function is useful when you have the raw byte representation of the ASCII data
+// and want to create an ASCIIItem without needing to convert the string to bytes again.
+//
+// Note: This function does not validate the raw bytes, so it should only be used when you are sure that the
+// raw bytes conform to the SECS-II data format for a ASCIIItem.
+//
+// Added in v1.10.0
+func NewASCIIItemWithBytes(rawBytes []byte, value string) Item {
+	item := getASCIIItem()
+	_ = item.SetValues(value)
+	item.rawBytes = rawBytes
+
 	return item
 }
 
@@ -177,8 +195,14 @@ func (item *ASCIIItem) Size() int {
 // If an error occurs during header generation, an empty byte slice is returned,
 // and the error is stored within the item for later retrieval.
 func (item *ASCIIItem) ToBytes() []byte {
+	if item.rawBytes != nil {
+		return item.rawBytes
+	}
 	result, _ := getHeaderBytes(ASCIIType, item.Size(), len(item.value))
-	return append(result, item.value...)
+	result = append(result, item.value...)
+	item.rawBytes = result
+
+	return result
 }
 
 // ToSML converts the ASCIIItem into its SML representation.

@@ -164,6 +164,8 @@ func getListItem() *ListItem {
 func putListItem(item *ListItem) {
 	if usePool {
 		item.values = item.values[:0]
+		item.itemErr = nil
+		item.rawBytes = nil
 		listItemPool.Put(item)
 	}
 }

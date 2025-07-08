@@ -287,6 +287,33 @@ func TestDecodeMessage_LargeData(t *testing.T) {
 	}
 }
 
+func TestDecode_ListItemWithBytes(t *testing.T) {
+	require := require.New(t)
+	msg, err := NewDataMessage(1, 1, true, 1234, GenerateMsgSystemBytes(),
+		secs2.L(
+			secs2.I8(1),
+			secs2.B([]byte{0x01, 0x02, 0x03}),
+			secs2.L(
+				secs2.I4(10),
+				secs2.B([]byte{0x04, 0x05, 0x06}),
+			),
+		),
+	)
+	require.NoError(err)
+	require.NotNil(msg)
+
+	input := msg.ToBytes()[4:]
+	decodedMsg, err := DecodeMessage(uint32(len(input)), input)
+	require.NoError(err)
+	require.NotNil(decodedMsg)
+
+	listItem := decodedMsg.Item()
+	require.Equal(
+		input[10:],
+		listItem.ToBytes(),
+	)
+}
+
 // decodeMessageLength decodes the message length from the first 4 bytes of an HSMS message.
 // The message length is encoded as a 32-bit unsigned integer in big-endian order.
 func decodeMessageLength(input []byte) uint32 {

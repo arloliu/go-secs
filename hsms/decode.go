@@ -103,7 +103,7 @@ func (d *hsmsDecoder) readByte() byte {
 func (d *hsmsDecoder) readString(length int) string {
 	result := d.input[d.pos : d.pos+length]
 	d.pos += length
-	return string(result)
+	return secs2.BytesToString(result)
 }
 
 // decodeMessage decodes the HSMS message from the input byte array.
@@ -163,6 +163,8 @@ func (d *hsmsDecoder) decodeMessageText() (secs2.Item, error) { //nolint: cyclop
 		return secs2.NewEmptyItem(), nil
 	}
 
+	startPos := d.pos
+
 	// decode format code and no. of length bytes
 	formatByte := d.readByte()
 	formatCode := formatByte >> 2
@@ -196,15 +198,20 @@ func (d *hsmsDecoder) decodeMessageText() (secs2.Item, error) { //nolint: cyclop
 				return secs2.NewEmptyItem(), err
 			}
 		}
+		item := secs2.NewListItemWithBytes(d.input[startPos:d.pos], values...)
 
-		return secs2.NewListItem(values...), nil
+		return item, nil
 
 	case secs2.ASCIIFormatCode:
-		item := secs2.NewASCIIItem(d.readString(length))
+		value := d.readString(length)
+		item := secs2.NewASCIIItemWithBytes(d.input[startPos:d.pos], value)
+
 		return item, nil
 
 	case secs2.BinaryFormatCode:
-		item := secs2.NewBinaryItem(d.read(length))
+		value := d.read(length)
+		item := secs2.NewBinaryItemWithBytes(d.input[startPos:d.pos], value)
+
 		return item, nil
 
 	case secs2.BooleanFormatCode:
@@ -222,7 +229,7 @@ func (d *hsmsDecoder) decodeMessageText() (secs2.Item, error) { //nolint: cyclop
 			}
 		}
 
-		return secs2.NewBooleanItem(d.boolBuf), nil
+		return secs2.NewBooleanItemWithBytes(d.input[startPos:d.pos], d.boolBuf), nil
 
 	case secs2.Int8FormatCode:
 		return d.decodeIntItem(1, length)
@@ -296,7 +303,7 @@ func (d *hsmsDecoder) decodeUintItem(byteSize int, length int) (secs2.Item, erro
 		d.uintBuf = d.uintBuf[:0]
 	}
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		start := d.pos + byteSize*i
 		switch byteSize {
 		case 1:
@@ -327,7 +334,7 @@ func (d *hsmsDecoder) decodeFloatItem(byteSize int, length int) (secs2.Item, err
 		d.floatBuf = d.floatBuf[:0]
 	}
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		start := d.pos + byteSize*i
 		if byteSize == 4 {
 			value := binary.BigEndian.Uint32(d.input[start:])

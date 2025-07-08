@@ -16,7 +16,8 @@ import (
 // For immutable operations (i.e., those that should not modify the original item), use the `Clone()` method to create a new, independent copy of the item.
 type BooleanItem struct {
 	baseItem
-	values []bool // List of boolean values
+	values   []bool // List of boolean values
+	rawBytes []byte // Raw bytes for the item, if needed
 }
 
 // NewBooleanItem creates a new BooleanItem containing the provided boolean values.
@@ -35,6 +36,23 @@ type BooleanItem struct {
 func NewBooleanItem(values ...any) Item {
 	item := getBooleanItem()
 	_ = item.SetValues(values...)
+	return item
+}
+
+// NewBooleanItemWithBytes creates a new BooleanItem with the provided raw bytes and boolean values.
+//
+// This function is useful when you have pre-existing byte data that you want to associate with the item,
+// while also setting the boolean values.
+//
+// Note: This function does not validate the raw bytes, so it should only be used when you are sure that the
+// raw bytes are correctly formatted for a BooleanItem.
+//
+// Added in v1.10.0
+func NewBooleanItemWithBytes(rawBytes []byte, values ...any) Item {
+	item := getBooleanItem()
+	_ = item.SetValues(values...)
+	item.rawBytes = rawBytes
+
 	return item
 }
 
@@ -127,6 +145,10 @@ func (item *BooleanItem) Size() int {
 // If an error occurs during header generation, an empty byte slice is returned,
 // and the error is stored within the item for later retrieval.
 func (item *BooleanItem) ToBytes() []byte {
+	if item.rawBytes != nil {
+		return item.rawBytes
+	}
+
 	result, _ := getHeaderBytes(BooleanType, item.Size(), len(item.values))
 
 	for _, value := range item.values {
@@ -136,6 +158,8 @@ func (item *BooleanItem) ToBytes() []byte {
 			result = append(result, 0)
 		}
 	}
+
+	item.rawBytes = result
 
 	return result
 }

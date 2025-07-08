@@ -28,7 +28,8 @@ func UseBinaryLiteral() {
 // For immutable operations (i.e., those that should not modify the original item), use the `Clone()` method to create a new, independent copy of the item.
 type BinaryItem struct {
 	baseItem
-	values []byte // Array of binary values
+	values   []byte // Array of binary values
+	rawBytes []byte // Raw bytes for the item, if needed
 }
 
 // NewBinaryItem creates a new BinaryItem representing binary data.
@@ -52,6 +53,23 @@ type BinaryItem struct {
 func NewBinaryItem(values ...any) Item {
 	item := getBinaryItem()
 	_ = item.SetValues(values...)
+
+	return item
+}
+
+// NewBinaryItemWithBytes creates a new BinaryItem with the provided raw bytes.
+//
+// This function is useful when you already have the binary data in a byte slice
+// and want to create a BinaryItem without needing to convert it from other types.
+//
+// Note: This function does not validate the raw bytes, so it should only be used when you are sure that the
+// raw bytes conform to the SECS-II data format for a BinaryItem.
+//
+// Added in v1.10.0
+func NewBinaryItemWithBytes(rawBytes []byte, values ...any) Item {
+	item := getBinaryItem()
+	_ = item.SetValues(values...)
+	item.rawBytes = rawBytes
 
 	return item
 }
@@ -148,8 +166,15 @@ func (item *BinaryItem) Size() int {
 // If an error occurs during header generation, an empty byte slice is returned,
 // and the error is stored within the item for later retrieval.
 func (item *BinaryItem) ToBytes() []byte {
+	if item.rawBytes != nil {
+		return item.rawBytes
+	}
+
 	result, _ := getHeaderBytes(BinaryType, item.Size(), len(item.values))
-	return append(result, item.values...)
+	result = append(result, item.values...)
+	item.rawBytes = result
+
+	return result
 }
 
 // ToSML converts the BinaryItem into its SML representation.
