@@ -30,6 +30,7 @@ func getASCIIItem() *ASCIIItem {
 
 func putASCIIItem(item *ASCIIItem) {
 	if usePool {
+		item.rawBytes = nil
 		asciiItemPool.Put(item)
 	}
 }
@@ -68,6 +69,7 @@ func getBooleanItem() *BooleanItem {
 
 func putBooleanItem(item *BooleanItem) {
 	if usePool {
+		item.rawBytes = nil
 		boolItemPool.Put(item)
 	}
 }
@@ -87,6 +89,7 @@ func getBinaryItem() *BinaryItem {
 
 func putBinaryItem(item *BinaryItem) {
 	if usePool {
+		item.rawBytes = nil
 		binaryItemPool.Put(item)
 	}
 }
