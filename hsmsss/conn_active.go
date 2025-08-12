@@ -84,14 +84,6 @@ func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 			break
 		}
 
-		if err := c.validateMsg(msg); err != nil {
-			c.logger.Debug("active: invalid message received, reply error to sender",
-				hsms.MsgInfo(msg, "method", "recvMsgActive", "error", err)...,
-			)
-
-			break
-		}
-
 		dataMsg, _ := msg.ToDataMessage()
 		if dataMsg.FunctionCode()%2 != 0 {
 			// primary message, put message to data message channel and invoke data message handlers
