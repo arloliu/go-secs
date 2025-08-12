@@ -185,6 +185,7 @@ func NewConnectionConfig(host string, port int, opts ...ConnOption) (*Connection
 	return cfg, nil
 }
 
+// AutoLinktest returns whether the automatic periodic linktest mechanism is enabled.
 func (cfg *ConnectionConfig) AutoLinktest() bool {
 	cfg.mu.RLock()
 	defer cfg.mu.RUnlock()
@@ -192,11 +193,62 @@ func (cfg *ConnectionConfig) AutoLinktest() bool {
 	return cfg.autoLinktest
 }
 
+// LinktestInterval returns the interval between automatic periodic linktest requests.
 func (cfg *ConnectionConfig) LinktestInterval() time.Duration {
 	cfg.mu.RLock()
 	defer cfg.mu.RUnlock()
 
 	return cfg.linktestInterval
+}
+
+// T3Timeout returns the reply timeout (T3) for HSMS messages.
+//
+// Added in v1.11.0.
+func (cfg *ConnectionConfig) T3Timeout() time.Duration {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	return cfg.t3Timeout
+}
+
+// T5Timeout returns the connect separation time (T5).
+//
+// Added in v1.11.0.
+func (cfg *ConnectionConfig) T5Timeout() time.Duration {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	return cfg.t5Timeout
+}
+
+// T6Timeout returns the control timeout (T6) for control messages.
+//
+// Added in v1.11.0.
+func (cfg *ConnectionConfig) T6Timeout() time.Duration {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	return cfg.t6Timeout
+}
+
+// T7Timeout returns the not selected timeout (T7).
+//
+// Added in v1.11.0.
+func (cfg *ConnectionConfig) T7Timeout() time.Duration {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	return cfg.t7Timeout
+}
+
+// T8Timeout returns the inter-character timeout (T8).
+//
+// Added in v1.11.0.
+func (cfg *ConnectionConfig) T8Timeout() time.Duration {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	return cfg.t8Timeout
 }
 
 // ConnOption represents a functional option for configuring a ConnectionConfig.
@@ -278,7 +330,9 @@ func WithEquipRole() ConnOption {
 			return hsms.ErrConnConfigNil
 		}
 
+		cfg.mu.Lock()
 		cfg.isEquip = true
+		cfg.mu.Unlock()
 
 		return nil
 	})
@@ -297,7 +351,9 @@ func WithHostRole() ConnOption {
 			return hsms.ErrConnConfigNil
 		}
 
+		cfg.mu.Lock()
 		cfg.isEquip = false
+		cfg.mu.Unlock()
 
 		return nil
 	})
@@ -316,7 +372,9 @@ func WithActive() ConnOption {
 			return hsms.ErrConnConfigNil
 		}
 
+		cfg.mu.Lock()
 		cfg.isActive = true
+		cfg.mu.Unlock()
 
 		return nil
 	})
@@ -335,7 +393,9 @@ func WithPassive() ConnOption {
 			return hsms.ErrConnConfigNil
 		}
 
+		cfg.mu.Lock()
 		cfg.isActive = false
+		cfg.mu.Unlock()
 
 		return nil
 	})
@@ -360,7 +420,9 @@ func WithAutoLinktest(val bool) ConnOption {
 			return hsms.ErrConnConfigNil
 		}
 
+		cfg.mu.Lock()
 		cfg.autoLinktest = val
+		cfg.mu.Unlock()
 
 		return nil
 	})
@@ -388,7 +450,9 @@ func WithLinktestInterval(interval time.Duration) ConnOption {
 			return errors.New("linktest interval must be positive")
 		}
 
+		cfg.mu.Lock()
 		cfg.linktestInterval = interval
+		cfg.mu.Unlock()
 
 		return nil
 	})
@@ -410,7 +474,10 @@ func WithT3Timeout(val time.Duration) ConnOption {
 		if val < 1*time.Second || val > 600*time.Second {
 			return errors.New("t3 timeout out of range [1, 600]")
 		}
+
+		cfg.mu.Lock()
 		cfg.t3Timeout = val
+		cfg.mu.Unlock()
 
 		return nil
 	})
@@ -432,7 +499,10 @@ func WithT5Timeout(val time.Duration) ConnOption {
 		if val < 10*time.Millisecond || val > 240*time.Second {
 			return errors.New("t5 timeout out of range [0.01, 240]")
 		}
+
+		cfg.mu.Lock()
 		cfg.t5Timeout = val
+		cfg.mu.Unlock()
 
 		return nil
 	})
@@ -454,7 +524,10 @@ func WithT6Timeout(val time.Duration) ConnOption {
 		if val < 1*time.Second || val > 240*time.Second {
 			return errors.New("t6 timeout out of range [1, 240]")
 		}
+
+		cfg.mu.Lock()
 		cfg.t6Timeout = val
+		cfg.mu.Unlock()
 
 		return nil
 	})
@@ -476,7 +549,10 @@ func WithT7Timeout(val time.Duration) ConnOption {
 		if val < 1*time.Second || val > 240*time.Second {
 			return errors.New("t7 timeout out of range [1, 240]")
 		}
+
+		cfg.mu.Lock()
 		cfg.t7Timeout = val
+		cfg.mu.Unlock()
 
 		return nil
 	})
@@ -498,7 +574,10 @@ func WithT8Timeout(val time.Duration) ConnOption {
 		if val < 1*time.Second || val > 120*time.Second {
 			return errors.New("t8 timeout out of range [1, 120]")
 		}
+
+		cfg.mu.Lock()
 		cfg.t8Timeout = val
+		cfg.mu.Unlock()
 
 		return nil
 	})
@@ -520,7 +599,10 @@ func WithConnectRemoteTimeout(val time.Duration) ConnOption {
 		if val < 100*time.Millisecond || val > 30*time.Second {
 			return errors.New("connect remote timeout out of range [1, 30]")
 		}
+
+		cfg.mu.Lock()
 		cfg.connectRemoteTimeout = val
+		cfg.mu.Unlock()
 
 		return nil
 	})
@@ -542,7 +624,10 @@ func WithAcceptConnTimeout(val time.Duration) ConnOption {
 		if val < 1*time.Second || val > 2*time.Second {
 			return errors.New("accept connection timeout out of range [1, 2]")
 		}
+
+		cfg.mu.Lock()
 		cfg.acceptConnTimeout = val
+		cfg.mu.Unlock()
 
 		return nil
 	})
@@ -564,7 +649,10 @@ func WithCloseConnTimeout(val time.Duration) ConnOption {
 		if val < 1*time.Second || val > 30*time.Second {
 			return errors.New("accept connection timeout out of range [1, 30]")
 		}
+
+		cfg.mu.Lock()
 		cfg.closeConnTimeout = val
+		cfg.mu.Unlock()
 
 		return nil
 	})
@@ -588,7 +676,10 @@ func WithSendTimeout(val time.Duration) ConnOption {
 		if val < 1*time.Second || val > 30*time.Second {
 			return errors.New("send timeout out of range [1, 30]")
 		}
+
+		cfg.mu.Lock()
 		cfg.sendTimeout = val
+		cfg.mu.Unlock()
 
 		return nil
 	})
@@ -615,7 +706,9 @@ func WithSenderQueueSize(size int) ConnOption {
 			return errors.New("the sender queue size out of range [1, 1000]")
 		}
 
+		cfg.mu.Lock()
 		cfg.senderQueueSize = size
+		cfg.mu.Unlock()
 
 		return nil
 	})
@@ -639,7 +732,9 @@ func WithDataMsgQueueSize(size int) ConnOption {
 			return errors.New("the data message queue size out of range [1, 1000]")
 		}
 
+		cfg.mu.Lock()
 		cfg.dataMsgQueueSize = size
+		cfg.mu.Unlock()
 
 		return nil
 	})
@@ -654,7 +749,9 @@ func WithValidateDataMessage(value bool) ConnOption {
 			return hsms.ErrConnConfigNil
 		}
 
+		cfg.mu.Lock()
 		cfg.validateDataMessage = value
+		cfg.mu.Unlock()
 
 		return nil
 	})
@@ -669,7 +766,9 @@ func WithTraceTraffic(value bool) ConnOption {
 			return hsms.ErrConnConfigNil
 		}
 
+		cfg.mu.Lock()
 		cfg.traceTraffic = value
+		cfg.mu.Unlock()
 
 		return nil
 	})
@@ -688,7 +787,9 @@ func WithLogger(l logger.Logger) ConnOption {
 			return hsms.ErrConnConfigNil
 		}
 
+		cfg.mu.Lock()
 		cfg.logger = l
+		cfg.mu.Unlock()
 
 		return nil
 	})
