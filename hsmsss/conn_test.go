@@ -51,13 +51,13 @@ func TestMain(m *testing.M) {
 }
 
 func TestConnection_ActiveHost_PassiveEQP(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	testConnection(ctx, t, true)
 }
 
 func TestConnection_PassiveHost_ActiveEQP(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	testConnection(ctx, t, false)
 }
@@ -65,7 +65,7 @@ func TestConnection_PassiveHost_ActiveEQP(t *testing.T) {
 func TestConnection_ActiveHost_AbnormalClose(t *testing.T) {
 	require := require.New(t)
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	port := getPort()
 
@@ -116,7 +116,7 @@ func TestConnection_ActiveHost_AbnormalClose(t *testing.T) {
 func TestConnection_ActiveHost_CloseMultipleTimes(t *testing.T) {
 	require := require.New(t)
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	port := getPort()
 
@@ -166,7 +166,7 @@ func TestConnection_ActiveHost_CloseMultipleTimes(t *testing.T) {
 func TestConnection_ActiveHost_RetryConnect(t *testing.T) {
 	require := require.New(t)
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	port := getPort()
 
@@ -254,13 +254,38 @@ func TestConnection_ActiveHost_RetryConnect(t *testing.T) {
 	}
 }
 
-func TestConnection_Linktest(t *testing.T) {
+func verifyLinktestCounts(t *testing.T, hostComm, eqpComm *testComm, expected uint64, delta float64, message string) {
+	t.Helper()
 	require := require.New(t)
 
-	ctx := context.Background()
+	t.Log(message)
+	hostMetrics := hostComm.conn.GetMetrics()
+	eqpMetrics := eqpComm.conn.GetMetrics()
 
+	require.InDelta(hostMetrics.LinktestSendCount.Load(), expected, delta,
+		"host send count mismatch: %s", message)
+	require.InDelta(hostMetrics.LinktestRecvCount.Load(), expected, delta,
+		"host recv count mismatch: %s", message)
+	require.InDelta(eqpMetrics.LinktestSendCount.Load(), expected, delta,
+		"eqp send count mismatch: %s", message)
+	require.InDelta(eqpMetrics.LinktestRecvCount.Load(), expected, delta,
+		"eqp recv count mismatch: %s", message)
+}
+
+func updateBothConfigs(t *testing.T, hostComm, eqpComm *testComm, opts ...ConnOption) {
+	t.Helper()
+	require := require.New(t)
+
+	require.NoError(hostComm.conn.UpdateConfigOptions(opts...))
+	require.NoError(eqpComm.conn.UpdateConfigOptions(opts...))
+}
+
+func TestConnection_Linktest(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
 	port := getPort()
 
+	// Setup connections with initial linktest configuration
 	hostComm := newTestComm(ctx, t, port, true, true,
 		WithAutoLinktest(true),
 		WithLinktestInterval(100*time.Millisecond),
@@ -271,80 +296,76 @@ func TestConnection_Linktest(t *testing.T) {
 		WithLinktestInterval(100*time.Millisecond),
 	)
 
-	var hostMetrics *ConnectionMetrics
-	var eqpMetrics *ConnectionMetrics
-
+	// Open connections
 	require.NoError(eqpComm.open(true))
 	require.NoError(hostComm.open(true))
+	defer func() {
+		t.Log("Close connection")
+		require.NoError(hostComm.close())
+		require.NoError(eqpComm.close())
+	}()
 
-	expectedTotal := uint64(5)
-	expectedDelta := float64(expectedTotal) * 0.2
+	// Test 1: Initial linktest with 100ms interval
+	expectedCount := uint64(5)
+	expectedDelta := float64(expectedCount) * 0.2
 	time.Sleep(500 * time.Millisecond)
+	verifyLinktestCounts(t, hostComm, eqpComm, expectedCount, expectedDelta,
+		"After 500ms with 100ms interval, expecting ~5 linktests")
 
-	// expects to receive 5 linktests after connection established
-	hostMetrics = hostComm.conn.GetMetrics()
-	eqpMetrics = eqpComm.conn.GetMetrics()
-	require.InDelta(hostMetrics.LinktestSendCount.Load(), expectedTotal, expectedDelta)
-	require.InDelta(hostMetrics.LinktestRecvCount.Load(), expectedTotal, expectedDelta)
-	require.InDelta(eqpMetrics.LinktestSendCount.Load(), expectedTotal, expectedDelta)
-	require.InDelta(eqpMetrics.LinktestRecvCount.Load(), expectedTotal, expectedDelta)
-
+	// Test 2: Disable linktest
 	t.Log("Disable linktest")
-	require.NoError(hostComm.conn.UpdateConfigOptions(WithAutoLinktest(false)))
-	require.NoError(eqpComm.conn.UpdateConfigOptions(WithAutoLinktest(false)))
-
+	updateBothConfigs(t, hostComm, eqpComm, WithAutoLinktest(false))
 	time.Sleep(200 * time.Millisecond)
+	verifyLinktestCounts(t, hostComm, eqpComm, expectedCount, expectedDelta,
+		"After disabling linktest, count should remain the same")
 
-	// expects no mote linktests after linktest disabled
-	hostMetrics = hostComm.conn.GetMetrics()
-	eqpMetrics = eqpComm.conn.GetMetrics()
-	require.InDelta(hostMetrics.LinktestSendCount.Load(), expectedTotal, expectedDelta)
-	require.InDelta(hostMetrics.LinktestRecvCount.Load(), expectedTotal, expectedDelta)
-	require.InDelta(eqpMetrics.LinktestSendCount.Load(), expectedTotal, expectedDelta)
-	require.InDelta(eqpMetrics.LinktestRecvCount.Load(), expectedTotal, expectedDelta)
-
+	// Test 3: Re-enable linktest
 	t.Log("Resume linktest")
-	require.NoError(hostComm.conn.UpdateConfigOptions(WithAutoLinktest(true)))
-	require.NoError(eqpComm.conn.UpdateConfigOptions(WithAutoLinktest(true)))
-
-	expectedTotal += 5
-	expectedDelta = float64(expectedTotal) * 0.2
+	updateBothConfigs(t, hostComm, eqpComm, WithAutoLinktest(true))
+	expectedCount += 5
+	expectedDelta = float64(expectedCount) * 0.2
 	time.Sleep(500 * time.Millisecond)
+	verifyLinktestCounts(t, hostComm, eqpComm, expectedCount, expectedDelta,
+		"After re-enabling linktest, expecting 5 more linktests")
 
-	// expects to receive 5 more linktests after linktest enabled
-	hostMetrics = hostComm.conn.GetMetrics()
-	eqpMetrics = eqpComm.conn.GetMetrics()
-	require.InDelta(hostMetrics.LinktestSendCount.Load(), expectedTotal, expectedDelta)
-	require.InDelta(hostMetrics.LinktestRecvCount.Load(), expectedTotal, expectedDelta)
-	require.InDelta(eqpMetrics.LinktestSendCount.Load(), expectedTotal, expectedDelta)
-	require.InDelta(eqpMetrics.LinktestRecvCount.Load(), expectedTotal, expectedDelta)
-
+	// Test 4: Change interval to 50ms
 	t.Log("Change linktest interval to 50ms")
-	require.NoError(hostComm.conn.UpdateConfigOptions(WithLinktestInterval(50 * time.Millisecond)))
-	require.NoError(eqpComm.conn.UpdateConfigOptions(WithLinktestInterval(50 * time.Millisecond)))
-
-	expectedTotal += 10
-	expectedDelta = float64(expectedTotal) * 0.2
+	updateBothConfigs(t, hostComm, eqpComm, WithLinktestInterval(50*time.Millisecond))
+	expectedCount += 10
+	expectedDelta = float64(expectedCount) * 0.2
 	time.Sleep(500 * time.Millisecond)
+	verifyLinktestCounts(t, hostComm, eqpComm, expectedCount, expectedDelta,
+		"After changing interval to 50ms, expecting 10 more linktests in 500ms")
 
-	// expects to receive 1- more linktests after linktest interval changed to 50ms
-	hostMetrics = hostComm.conn.GetMetrics()
-	eqpMetrics = eqpComm.conn.GetMetrics()
-	require.InDelta(hostMetrics.LinktestSendCount.Load(), expectedTotal, expectedDelta)
-	require.InDelta(hostMetrics.LinktestRecvCount.Load(), expectedTotal, expectedDelta)
-	require.InDelta(eqpMetrics.LinktestSendCount.Load(), expectedTotal, expectedDelta)
-	require.InDelta(eqpMetrics.LinktestRecvCount.Load(), expectedTotal, expectedDelta)
+	// Test 5: Linktest suppression when sending messages from host
+	t.Log("Send message from host per 25ms")
+	for range 10 {
+		time.Sleep(25 * time.Millisecond)
+		hostComm.testMsgSuccess(1, 1, secs2.A("from host"), `<A[9] "from host">`)
+	}
+	verifyLinktestCounts(t, hostComm, eqpComm, expectedCount, expectedDelta,
+		"Linktest should be suppressed when host sends messages")
 
-	t.Log("Close connection")
-	// close host
-	require.NoError(hostComm.close())
-	// close equipment
-	require.NoError(eqpComm.close())
+	// Test 6: Linktest suppression when sending messages from equipment
+	t.Log("Send message from eqp per 25ms")
+	for range 10 {
+		time.Sleep(25 * time.Millisecond)
+		eqpComm.testMsgSuccess(1, 1, secs2.A("from eqp"), `<A[8] "from eqp">`)
+	}
+	verifyLinktestCounts(t, hostComm, eqpComm, expectedCount, expectedDelta,
+		"Linktest should be suppressed when equipment sends messages")
+
+	// Test 7: Resume linktest after idle period
+	expectedCount += 5
+	expectedDelta = float64(expectedCount) * 0.2
+	time.Sleep(250 * time.Millisecond)
+	verifyLinktestCounts(t, hostComm, eqpComm, expectedCount, expectedDelta,
+		"After 250ms idle, expecting 5 more linktests")
 }
 
 func TestSendMessageFail(t *testing.T) {
 	require := require.New(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	port := getPort()
 	hostComm := newTestComm(ctx, t, port, true, true)
@@ -372,12 +393,12 @@ func TestSendMessageFail(t *testing.T) {
 	reply, err = hostComm.session.SendDataMessage(1, 1, true, secs2.A("test"))
 	require.NoError(err, "expected no error when sending message to slow eqp, got: %v", err)
 	require.NotNil(reply, "expected reply to be not nil, got: %v", reply)
-	require.Equal(secs2.A("test"), reply.Item(), "expected reply item to be 'test', got: %v", reply.Item())
+	require.Equal(secs2.A("test").ToBytes(), reply.Item().ToBytes(), "expected reply item to be 'test', got: %v", reply.Item())
 }
 
 func TestDrainMessageOnConnClose(t *testing.T) {
 	require := require.New(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	port := getPort()
 	hostComm := newTestComm(ctx, t, port, true, true, WithSenderQueueSize(100), WithCloseConnTimeout(1*time.Second))
@@ -411,7 +432,7 @@ func TestDrainMessageOnConnClose(t *testing.T) {
 
 func TestConn_validateMsg(t *testing.T) {
 	require := require.New(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	connCfg, err := NewConnectionConfig("localhost", 6666,
 		WithHostRole(),
@@ -715,6 +736,8 @@ func (c *testComm) msgSlowEchoHandler(msg *hsms.DataMessage, session hsms.Sessio
 }
 
 func (c *testComm) testMsgSuccess(stream byte, function byte, dataItem secs2.Item, expectedSML string) {
+	c.t.Helper()
+
 	var reply *hsms.DataMessage
 	var err error
 	for range 3 {
@@ -738,6 +761,8 @@ func (c *testComm) testMsgSuccess(stream byte, function byte, dataItem secs2.Ite
 }
 
 func (c *testComm) testAsyncMsgSuccess(stream byte, function byte, dataItem secs2.Item, expectedSML string) {
+	c.t.Helper()
+
 	err := c.session.SendDataMessageAsync(stream, function, true, dataItem)
 	c.require.NoError(err)
 
@@ -752,6 +777,8 @@ func (c *testComm) testAsyncMsgSuccess(stream byte, function byte, dataItem secs
 }
 
 func (c *testComm) testMsgError(stream byte, function byte, dataItem secs2.Item, expectedErrs ...error) {
+	c.t.Helper()
+
 	reply, err := c.session.SendDataMessage(stream, function, true, dataItem)
 
 	isExpectedErr := false
@@ -767,6 +794,8 @@ func (c *testComm) testMsgError(stream byte, function byte, dataItem secs2.Item,
 }
 
 func (c *testComm) testMsgNetError(stream byte, function byte, dataItem secs2.Item, expectedErrs ...error) {
+	c.t.Helper()
+
 	reply, err := c.session.SendDataMessage(stream, function, true, dataItem)
 
 	if isNetOpError(err) {

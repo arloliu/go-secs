@@ -42,10 +42,10 @@ type Connection struct {
 	resources  connectionResources // resources for the connection, including reader and writer
 	writeMutex sync.Mutex          // mutex for writing to the connection
 
-	stateMgr  *hsms.ConnStateMgr
-	taskMgr   *hsms.TaskManager
-	shutdown  atomic.Bool // indicates if has entered shutdown mode
-	ticketMgr tickerCtl   // linktest control
+	stateMgr *hsms.ConnStateMgr
+	taskMgr  *hsms.TaskManager
+	shutdown atomic.Bool // indicates if has entered shutdown mode
+	tickers  tickerCtl   // linktest control
 
 	senderMsgChan chan hsms.HSMSMessage // channel for sending messages to the senderTask, the lifetime is the same as this connection object
 	replyMsgChans *xsync.MapOf[uint32, chan hsms.HSMSMessage]
@@ -97,25 +97,15 @@ func NewConnection(ctx context.Context, cfg *ConnectionConfig) (*Connection, err
 
 // UpdateConfigOptions updates the connection configuration options.
 func (c *Connection) UpdateConfigOptions(opts ...ConnOption) error {
-	var autoLinktest bool
-	var linktestInterval time.Duration
-	var t5Timeout time.Duration
+	// Store original values that might trigger actions
+	origAutoLinktest := c.cfg.AutoLinktest()
+	origLinktestInterval := c.cfg.LinktestInterval()
+	origT5Timeout := c.cfg.T5Timeout()
 
+	// apply all options
 	for _, opt := range opts {
-		connOpt, ok := opt.(*connOptFunc)
-		if !ok {
+		if _, ok := opt.(*connOptFunc); !ok {
 			return errors.New("invalid ConnOption type")
-		}
-
-		switch connOpt.name {
-		case "WithAutoLinktest":
-			autoLinktest = c.cfg.autoLinktest
-
-		case "WithLinktestInterval":
-			linktestInterval = c.cfg.linktestInterval
-
-		case "WithT5Timeout":
-			t5Timeout = c.cfg.t5Timeout
 		}
 
 		if err := opt.apply(c.cfg); err != nil {
@@ -123,22 +113,27 @@ func (c *Connection) UpdateConfigOptions(opts ...ConnOption) error {
 		}
 	}
 
-	if c.cfg.autoLinktest != autoLinktest { // autoLinktest changed
-		if c.cfg.autoLinktest { // enable autoLinktest
-			c.ticketMgr.resetLinktestTicker(c.cfg.linktestInterval)
-		} else { // disable autoLinktest
-			c.ticketMgr.stopLinktestTicker()
-		}
-	} else if c.cfg.linktestInterval != linktestInterval { // autoLinktest doesn't changed ,linktestInterval changed
-		if c.cfg.autoLinktest {
-			c.ticketMgr.resetLinktestTicker(c.cfg.linktestInterval)
+	// store linktest configuration changes
+	curAutoLinktest := c.cfg.AutoLinktest()
+	curLinktestInterval := c.cfg.LinktestInterval()
+
+	// check if autoLinktest setting changed
+	if curAutoLinktest != origAutoLinktest {
+		if curAutoLinktest {
+			// autoLinktest was enabled
+			c.tickers.resetLinktestTicker(curLinktestInterval)
 		} else {
-			c.ticketMgr.resetLinktestTicker(time.Duration(1<<63 - 1))
+			// autoLinktest was disabled
+			c.tickers.stopLinktestTicker()
 		}
+	} else if curAutoLinktest && curLinktestInterval != origLinktestInterval {
+		// only interval changed while autoLinktest is enabled
+		c.tickers.resetLinktestTicker(curLinktestInterval)
 	}
 
-	if c.cfg.t5Timeout != t5Timeout {
-		c.ticketMgr.resetActiveConnectTicker(c.cfg.t5Timeout)
+	// handle T5 timeout changes (for active connections)
+	if c.cfg.T5Timeout() != origT5Timeout {
+		c.tickers.resetActiveConnectTicker(c.cfg.T5Timeout())
 	}
 
 	return nil
@@ -203,7 +198,7 @@ func (c *Connection) doOpen(waitOpened bool) error {
 			return fmt.Errorf("failed to start active connection ticker: %w", err)
 		}
 
-		c.ticketMgr.setActiveConnectTicker(ticker)
+		c.tickers.setActiveConnectTicker(ticker)
 
 		if waitOpened {
 			return c.stateMgr.WaitState(c.ctx, hsms.SelectedState)
@@ -682,6 +677,9 @@ func (c *Connection) senderTask(msg hsms.HSMSMessage) bool {
 		return false
 	}
 
+	// reset the linktest ticker when a message is sent successfully
+	c.resetLinktest()
+
 	return true
 }
 
@@ -787,7 +785,18 @@ func (c *Connection) receiverTask(msgLenBuf []byte) bool {
 		c.recvMsgPassive(msg)
 	}
 
+	// reset the linktest ticker after receiving a message
+	c.resetLinktest()
+
 	return true
+}
+
+func (c *Connection) resetLinktest() {
+	if !c.cfg.AutoLinktest() {
+		return
+	}
+
+	c.tickers.resetLinktestTicker(c.cfg.LinktestInterval())
 }
 
 // replyToSender sends a received reply message to the corresponding reply channel in the replyMsgChans map.
@@ -870,9 +879,9 @@ func (c *Connection) linktestConnStateHandler(_ hsms.Connection, _ hsms.ConnStat
 			return
 		}
 
-		c.ticketMgr.setLinktestTicker(ticker)
+		c.tickers.setLinktestTicker(ticker)
 	} else {
-		c.ticketMgr.stopLinktestTicker()
+		c.tickers.stopLinktestTicker()
 	}
 }
 
@@ -946,7 +955,7 @@ func (c *Connection) isSelectedState() bool {
 
 // tickerCtl is a helper struct for managing interval tasks interval.
 type tickerCtl struct {
-	mu                  sync.Mutex
+	mu                  sync.RWMutex
 	linktestTicker      *time.Ticker
 	activeConnectTicker *time.Ticker
 }
@@ -959,8 +968,8 @@ func (l *tickerCtl) setLinktestTicker(ticker *time.Ticker) {
 }
 
 func (l *tickerCtl) stopLinktestTicker() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.mu.RLock()
+	defer l.mu.RUnlock()
 
 	if l.linktestTicker != nil {
 		l.linktestTicker.Stop()
@@ -968,8 +977,8 @@ func (l *tickerCtl) stopLinktestTicker() {
 }
 
 func (l *tickerCtl) resetLinktestTicker(d time.Duration) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.mu.RLock()
+	defer l.mu.RUnlock()
 
 	if l.linktestTicker != nil && d > 0 {
 		l.linktestTicker.Reset(d)
@@ -984,8 +993,8 @@ func (l *tickerCtl) setActiveConnectTicker(ticker *time.Ticker) {
 }
 
 func (l *tickerCtl) resetActiveConnectTicker(d time.Duration) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.mu.RLock()
+	defer l.mu.RUnlock()
 
 	if l.activeConnectTicker != nil && d > 0 {
 		l.activeConnectTicker.Reset(d)
