@@ -218,6 +218,20 @@ func (msg *DataMessage) SetHeader(header []byte) error {
 	return nil
 }
 
+// SetStreamCode sets the stream code of the data message.
+// It will return error if the stream code is invalid.
+//
+// Added in v1.12.0
+func (msg *DataMessage) SetStreamCode(stream uint8) error {
+	if stream >= 128 {
+		return ErrInvalidStreamCode
+	}
+
+	msg.stream = stream & 0x7F
+
+	return nil
+}
+
 // StreamCode returns the stream code of the data message.
 //
 // It implements the StreamCode method of the secs2.SECS2Message interface.
@@ -225,11 +239,29 @@ func (msg *DataMessage) StreamCode() uint8 {
 	return msg.stream
 }
 
+// SetFunctionCode sets the function code of the data message.
+//
+// Added in v1.12.0
+func (msg *DataMessage) SetFunctionCode(function uint8) {
+	msg.function = function
+}
+
 // FunctionCode returns the function code of the data message.
 //
 // It implements the FunctionCode method of the secs2.SECS2Message interface.
 func (msg *DataMessage) FunctionCode() uint8 {
 	return msg.function
+}
+
+// SetWaitBit sets the wait bit of the data message.
+//
+// Added in v1.12.0
+func (msg *DataMessage) SetWaitBit(wait bool) {
+	if wait {
+		msg.waitBit = WaitBitTrue
+	} else {
+		msg.waitBit = WaitBitFalse
+	}
 }
 
 // WaitBit returnes the boolean representation to indicates WBit is set

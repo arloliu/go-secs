@@ -1,6 +1,7 @@
 package hsms
 
 import (
+	"errors"
 	"os"
 	"testing"
 
@@ -159,6 +160,30 @@ func TestDataMessage_Set(t *testing.T) {
 	msg.SetID(0x23456789)
 	require.Equal(uint32(0x23456789), msg.ID())
 	require.Equal([]byte{0x23, 0x45, 0x67, 0x89}, msg.SystemBytes())
+
+	// set and verify StreamCode
+	require.NoError(msg.SetStreamCode(64))
+	require.Equal(uint8(64), msg.StreamCode())
+	require.Equal("'S64F1' W", msg.SMLHeader())
+	require.ErrorIs(ErrInvalidStreamCode, msg.SetStreamCode(128))
+
+	// set and verify FunctionCode
+	msg.SetFunctionCode(128)
+	require.Equal(uint8(128), msg.FunctionCode())
+	require.Equal("'S64F128' W", msg.SMLHeader())
+
+	// set and verify WaitBit
+	msg.SetWaitBit(false)
+	require.Equal(false, msg.WaitBit())
+	require.Equal("'S64F128'", msg.SMLHeader())
+	msg.SetWaitBit(true)
+	require.Equal(true, msg.WaitBit())
+	require.Equal("'S64F128' W", msg.SMLHeader())
+
+	// set and verify error
+	err = errors.New("some error")
+	msg.SetError(err)
+	require.ErrorIs(err, msg.Error())
 
 	// attempt to set an invalid header and expect an error
 	err = msg.SetHeader([]byte{0})
