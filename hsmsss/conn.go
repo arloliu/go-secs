@@ -879,8 +879,15 @@ func (c *Connection) linktestConnStateHandler(_ hsms.Connection, _ hsms.ConnStat
 			return
 		}
 
+		// if auto linktest is disabled after connection is established, stop the ticker immediately.
+		// the linktest ticker can be restarted when auto linktest is enabled again.
+		if !c.cfg.AutoLinktest() {
+			ticker.Stop()
+		}
+
 		c.tickers.setLinktestTicker(ticker)
 	} else {
+		// stop linktest ticker when not in selected state regardless of auto linktest setting.
 		c.tickers.stopLinktestTicker()
 	}
 }

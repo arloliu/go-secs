@@ -285,14 +285,14 @@ func TestConnection_Linktest(t *testing.T) {
 	ctx := t.Context()
 	port := getPort()
 
-	// Setup connections with initial linktest configuration
+	// Setup connections with initial linktest configuration (disabled)
 	hostComm := newTestComm(ctx, t, port, true, true,
-		WithAutoLinktest(true),
+		WithAutoLinktest(false),
 		WithLinktestInterval(100*time.Millisecond),
 		WithT6Timeout(1000*time.Millisecond),
 	)
 	eqpComm := newTestComm(ctx, t, port, false, false,
-		WithAutoLinktest(true),
+		WithAutoLinktest(false),
 		WithLinktestInterval(100*time.Millisecond),
 	)
 
@@ -304,6 +304,20 @@ func TestConnection_Linktest(t *testing.T) {
 		require.NoError(hostComm.close())
 		require.NoError(eqpComm.close())
 	}()
+
+	// Wait for both connections to reach the Selected state
+	require.NoError(eqpComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+	time.Sleep(300 * time.Millisecond)
+
+	// Initial verification: No linktests should have occurred
+	verifyLinktestCounts(t, hostComm, eqpComm, 0, 0,
+		"Initial state with linktest disabled, expecting 0 linktests")
+
+	// Enable linktest on both connections with 100ms interval
+	t.Log("Enable linktest with 100ms interval")
+	updateBothConfigs(t, hostComm, eqpComm, WithAutoLinktest(true), WithLinktestInterval(100*time.Millisecond))
 
 	// Test 1: Initial linktest with 100ms interval
 	expectedCount := uint64(5)
