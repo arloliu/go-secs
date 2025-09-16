@@ -19,7 +19,7 @@ import (
 	"github.com/arloliu/go-secs/internal/pool"
 	"github.com/arloliu/go-secs/logger"
 	"github.com/arloliu/go-secs/secs2"
-	"github.com/puzpuzpuz/xsync/v3"
+	"github.com/puzpuzpuz/xsync/v4"
 )
 
 // Connection represents an HSMS-SS (Single Session) connection, implementing the hsms.Connection interface.
@@ -48,8 +48,8 @@ type Connection struct {
 	tickers  tickerCtl   // linktest control
 
 	senderMsgChan chan hsms.HSMSMessage // channel for sending messages to the senderTask, the lifetime is the same as this connection object
-	replyMsgChans *xsync.MapOf[uint32, chan hsms.HSMSMessage]
-	replyErrs     *xsync.MapOf[uint32, error]
+	replyMsgChans *xsync.Map[uint32, chan hsms.HSMSMessage]
+	replyErrs     *xsync.Map[uint32, error]
 
 	metrics ConnectionMetrics // connection metrics
 }
@@ -73,8 +73,8 @@ func NewConnection(ctx context.Context, cfg *ConnectionConfig) (*Connection, err
 		cfg:           cfg,
 		pctx:          ctx,
 		logger:        cfg.logger,
-		replyErrs:     xsync.NewMapOf[uint32, error](),
-		replyMsgChans: xsync.NewMapOf[uint32, chan hsms.HSMSMessage](),
+		replyErrs:     xsync.NewMap[uint32, error](),
+		replyMsgChans: xsync.NewMap[uint32, chan hsms.HSMSMessage](),
 		taskMgr:       hsms.NewTaskManager(ctx, cfg.logger),
 	}
 	// create sender message channel at beginning and not close it.
