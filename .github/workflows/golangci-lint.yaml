@@ -20,8 +20,7 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.25"
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.62.0
-          install-mode: "goinstall"
+          check-latest: true
+
+      - name: Lint
+        run: make lint

@@ -81,9 +81,9 @@ coverage-report: $(SUMMARY_COVER_PROFILE)
 # Checks
 check: lint vet
 
-lint: update-tools
+lint:
 	@printf "Run linter...\n"
-	@golangci-lint run
+	@go tool -modfile=linter.go.mod golangci-lint run
 
 # Misc
 update-gomod: gomod-tidy gomod-vendor
