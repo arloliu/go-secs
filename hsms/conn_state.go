@@ -247,6 +247,9 @@ func (cs *ConnStateMgr) ToNotConnected() {
 func (cs *ConnStateMgr) ToConnecting() error {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
+
+	cs.setDesiredState(ConnectingState)
+
 	curState := cs.State()
 	if curState.IsConnecting() {
 		return nil // Already in ConnectingState, No-op
@@ -255,10 +258,8 @@ func (cs *ConnStateMgr) ToConnecting() error {
 	if !curState.IsNotConnected() {
 		return ErrInvalidTransition
 	}
-	// change state to connecting BEFORE all handlers finished
+	// change state to connecting before all handlers finished
 	cs.setState(ConnectingState)
-	cs.setDesiredState(ConnectingState)
-
 	cs.invokeHandlers(curState, ConnectingState)
 
 	return nil
@@ -292,9 +293,9 @@ func (cs *ConnStateMgr) ToNotSelected() error {
 		}
 	}
 
-	cs.invokeHandlers(curState, NotSelectedState)
-	// change state after all handlers finished
+	// change state before all handlers finished
 	cs.setState(NotSelectedState)
+	cs.invokeHandlers(curState, NotSelectedState)
 
 	return nil
 }
@@ -310,6 +311,8 @@ func (cs *ConnStateMgr) ToSelected() error {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
+	cs.setDesiredState(SelectedState)
+
 	curState := cs.State()
 
 	if curState.IsSelected() {
@@ -321,9 +324,8 @@ func (cs *ConnStateMgr) ToSelected() error {
 		return ErrInvalidTransition
 	}
 
-	// change state BEFORE all handlers finished
+	// change state before all handlers finished
 	cs.setState(SelectedState)
-	cs.setDesiredState(SelectedState)
 
 	cs.invokeHandlers(curState, SelectedState)
 

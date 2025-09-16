@@ -68,6 +68,35 @@ func TestConnStateTransitions(t *testing.T) {
 		require.Equal(3, stateChangeCount)
 	})
 
+	t.Run("ToNotSelected_ToNotConnectedInHandler", func(t *testing.T) {
+		stateChangeCount := 0
+		// create instance for mock HSMS-SS connection
+		cs := NewConnStateMgr(ctx, &ssConn{})
+		cs.AddHandler(func(_ Connection, _ ConnState, _ ConnState) { stateChangeCount++ })
+		cs.AddHandler(func(_ Connection, _ ConnState, newState ConnState) {
+			// simulate the target doesn't reply the select.req message,
+			// so the connection state manager should transition to NotConnectedState
+			// after the ToNotSelected transition is completed.
+			if newState == NotSelectedState {
+				cs.ToNotConnectedAsync()
+			}
+		})
+
+		cs.Start()
+		defer cs.Stop()
+
+		require.NoError(cs.ToNotSelected())
+
+		tctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+		defer cancel()
+		err := cs.WaitState(tctx, NotConnectedState)
+		require.NoError(err, "failed to wait for NotConnectedState when ToNotSelected handler triggered ToNotConnectedAsync")
+
+		require.Equal(NotConnectedState, cs.State())
+		require.Equal(2, stateChangeCount)
+		require.True(cs.IsNotConnected())
+	})
+
 	t.Run("ToSelected", func(t *testing.T) {
 		stateChangeCount := 0
 		cs := NewConnStateMgr(ctx, nil)
