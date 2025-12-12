@@ -694,8 +694,6 @@ func (c *Connection) cancelReceiverTask() {
 //
 // It respects the T8 timeout for reading messages and handles message length validation.
 func (c *Connection) receiverTask(msgLenBuf []byte) bool {
-	c.metrics.decDataMsgInflightCount()
-
 	conn := c.getConn()
 
 	if conn == nil {
@@ -717,7 +715,6 @@ func (c *Connection) receiverTask(msgLenBuf []byte) bool {
 			c.logger.Debug("network error, failed to read the length of HSMS message",
 				"method", "receiverTask",
 				"error", err,
-				"timeout", c.cfg.t8Timeout,
 			)
 		}
 
@@ -728,6 +725,14 @@ func (c *Connection) receiverTask(msgLenBuf []byte) bool {
 	}
 
 	msgLen := binary.BigEndian.Uint32(msgLenBuf)
+	if msgLen == 0 {
+		c.metrics.incDataMsgErrCount()
+		c.logger.Error("HSMS message length is zero", "method", "receiverTask")
+
+		// zero-length message is invalid, stop the receiver task
+		return false
+	}
+
 	if msgLen > secs2.MaxByteSize {
 		c.metrics.incDataMsgErrCount()
 		c.logger.Error("HSMS message length exceeds maximum allowed length",
@@ -766,7 +771,17 @@ func (c *Connection) receiverTask(msgLenBuf []byte) bool {
 	// decode the HSMS message
 	msg, err := hsms.DecodeMessage(msgLen, msgBuf)
 	if err != nil {
-		c.logger.Error("failed to decode HSMS message")
+		if c.cfg.traceTraffic {
+			c.logger.Error("failed to decode HSMS message",
+				hsms.MsgInfo(
+					msg,
+					"error", err,
+					"raw", hsms.MsgHexString(msgLenBuf, msgBuf),
+				)...,
+			)
+		} else {
+			c.logger.Error("failed to decode HSMS message", "error", err)
+		}
 		c.metrics.incDataMsgErrCount()
 		// if message decode failed, it means the message is malformed or not a valid HSMS message.
 		// stop the receiver task
@@ -812,6 +827,9 @@ func (c *Connection) replyToSender(msg hsms.HSMSMessage) {
 
 		return
 	}
+
+	// decrement inflight count when a reply message is matched to a waiting sender
+	c.metrics.decDataMsgInflightCount()
 
 	// set timeout for reply channel to avoid blocking forever
 	// if the reply channel is full, it means the senderTask is not ready to receive the reply message.
