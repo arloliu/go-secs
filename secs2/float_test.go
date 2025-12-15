@@ -145,9 +145,6 @@ func TestFloatItem_Errors(t *testing.T) {
 	item = NewFloatItem(3) // Invalid byteSize
 	require.ErrorAs(item.Error(), &itemErr)
 
-	item = NewFloatItem(4, math.NaN())
-	require.ErrorAs(item.Error(), &itemErr)
-
 	item = NewFloatItem(4)
 	require.NoError(item.Error())
 	result, err := item.Get(0)
@@ -226,4 +223,143 @@ func genFixedFloat(length int, byteSize int) []float64 {
 	}
 
 	return result
+}
+
+func TestFloatItem_Refactor(t *testing.T) {
+	require := require.New(t)
+
+	t.Run("Accept NaN and Inf", func(t *testing.T) {
+		// Test F4
+		item := NewFloatItem(4, float32(math.NaN()), float32(math.Inf(1)), float32(math.Inf(-1)))
+		require.NoError(item.Error())
+		values := item.Values().([]float64)
+		require.Equal(3, len(values))
+		require.True(math.IsNaN(values[0]))
+		require.True(math.IsInf(values[1], 1))
+		require.True(math.IsInf(values[2], -1))
+
+		// Test F8
+		item = NewFloatItem(8, math.NaN(), math.Inf(1), math.Inf(-1))
+		require.NoError(item.Error())
+		values = item.Values().([]float64)
+		require.Equal(3, len(values))
+		require.True(math.IsNaN(values[0]))
+		require.True(math.IsInf(values[1], 1))
+		require.True(math.IsInf(values[2], -1))
+	})
+
+	t.Run("Int Precision Checks", func(t *testing.T) {
+		// Valid int64 (2^53)
+		val := int64(1) << 53
+		item := NewFloatItem(8, val)
+		require.NoError(item.Error())
+		require.Equal(float64(val), item.Values().([]float64)[0])
+
+		// Invalid int64 (2^53 + 1) - should fail
+		val = (int64(1) << 53) + 1
+		item = NewFloatItem(8, val)
+		require.Error(item.Error())
+		require.Contains(item.Error().Error(), "value overflow")
+
+		// Valid int (2^53)
+		valInt := int(1) << 53
+		item = NewFloatItem(8, valInt)
+		require.NoError(item.Error())
+
+		// Invalid int (2^53 + 1) - should fail
+		valInt = (int(1) << 53) + 1
+		item = NewFloatItem(8, valInt)
+		require.Error(item.Error())
+		require.Contains(item.Error().Error(), "value overflow")
+	})
+
+	t.Run("Uint Precision Checks", func(t *testing.T) {
+		// Valid uint64 (2^53)
+		val := uint64(1) << 53
+		item := NewFloatItem(8, val)
+		require.NoError(item.Error())
+		require.Equal(float64(val), item.Values().([]float64)[0])
+
+		// Invalid uint64 (2^53 + 1) - should fail
+		val = (uint64(1) << 53) + 1
+		item = NewFloatItem(8, val)
+		require.Error(item.Error())
+		require.Contains(item.Error().Error(), "value overflow")
+
+		// Valid uint (2^53)
+		valUint := uint(1) << 53
+		item = NewFloatItem(8, valUint)
+		require.NoError(item.Error())
+
+		// Invalid uint (2^53 + 1) - should fail
+		valUint = (uint(1) << 53) + 1
+		item = NewFloatItem(8, valUint)
+		require.Error(item.Error())
+		require.Contains(item.Error().Error(), "value overflow")
+	})
+
+	t.Run("F4 Range Checks", func(t *testing.T) {
+		maxF32 := float64(math.MaxFloat32)
+
+		// Valid float64 within float32 range
+		item := NewFloatItem(4, maxF32)
+		require.NoError(item.Error())
+
+		// Invalid float64 > max float32 - should be clamped
+		item = NewFloatItem(4, maxF32*1.1)
+		require.NoError(item.Error())
+		require.Equal(maxF32, item.Values().([]float64)[0])
+
+		// Invalid float64 < -max float32 - should be clamped
+		item = NewFloatItem(4, -maxF32*1.1)
+		require.NoError(item.Error())
+		require.Equal(-maxF32, item.Values().([]float64)[0])
+
+		// Valid string within float32 range
+		item = NewFloatItem(4, "3.4e38")
+		require.NoError(item.Error())
+
+		// Invalid string > max float32 - should be clamped
+		item = NewFloatItem(4, "3.5e38")
+		require.NoError(item.Error())
+		require.Equal(maxF32, item.Values().([]float64)[0])
+	})
+
+	t.Run("F4 Always Accepts Float32", func(t *testing.T) {
+		// Even if we pass a float32, it should be accepted for F4
+		item := NewFloatItem(4, float32(math.MaxFloat32))
+		require.NoError(item.Error())
+	})
+
+	t.Run("F8 Accepts Large Values", func(t *testing.T) {
+		// F8 should accept values larger than MaxFloat32
+		val := float64(math.MaxFloat32) * 2
+		item := NewFloatItem(8, val)
+		require.NoError(item.Error())
+		require.Equal(val, item.Values().([]float64)[0])
+	})
+
+	t.Run("Invalid Types", func(t *testing.T) {
+		item := NewFloatItem(4, true) // bool is invalid
+		require.Error(item.Error())
+		require.Contains(item.Error().Error(), "invalid type")
+	})
+
+	t.Run("Slice Inputs", func(t *testing.T) {
+		// []int64 with overflow
+		vals := []int64{1, (1 << 53) + 1}
+		item := NewFloatItem(8, vals)
+		require.Error(item.Error())
+
+		// []float64 with overflow for F4 - should be clamped
+		fVals := []float64{1.0, float64(math.MaxFloat32) * 2}
+		item = NewFloatItem(4, fVals)
+		require.NoError(item.Error())
+		require.Equal(float64(math.MaxFloat32), item.Values().([]float64)[1])
+
+		// []float64 valid for F4
+		fVals = []float64{1.0, 2.0}
+		item = NewFloatItem(4, fVals)
+		require.NoError(item.Error())
+	})
 }
