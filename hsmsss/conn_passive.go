@@ -1,13 +1,13 @@
 package hsmsss
 
 import (
+	"context"
 	"errors"
 	"net"
 	"reflect"
 	"strconv"
 	"time"
 
-	"github.com/arloliu/go-secs/gem"
 	"github.com/arloliu/go-secs/hsms"
 	"github.com/arloliu/go-secs/internal/pool"
 )
@@ -38,16 +38,24 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, prevState hsms.C
 
 		c.logger.Debug("passive: not selected state, start to open passive connection")
 
-		go func() {
+		// Start T7 timeout goroutine with context cancellation support to prevent goroutine leaks.
+		// The goroutine will exit early if the connection context is cancelled (e.g., during Close()).
+		go func(ctx context.Context) {
 			waitSelectTimer := pool.GetTimer(c.cfg.t7Timeout)
-			<-waitSelectTimer.C
+			defer pool.PutTimer(waitSelectTimer)
 
-			if c.stateMgr.IsNotSelected() {
-				c.logger.Debug("wait selected state timeout", "method", "passiveConnStateHandler", "timeout", c.cfg.t7Timeout)
-				c.stateMgr.ToNotConnectedAsync()
+			select {
+			case <-ctx.Done():
+				// Connection closed, exit early without triggering state transition
+				c.logger.Debug("T7 timeout cancelled by context", "method", "passiveConnStateHandler")
+				return
+			case <-waitSelectTimer.C:
+				if c.stateMgr.IsNotSelected() {
+					c.logger.Debug("wait selected state timeout", "method", "passiveConnStateHandler", "timeout", c.cfg.t7Timeout)
+					c.stateMgr.ToNotConnectedAsync()
+				}
 			}
-			pool.PutTimer(waitSelectTimer)
-		}()
+		}(c.ctx)
 
 	case hsms.SelectedState:
 		// do nothing
@@ -81,7 +89,7 @@ func (c *Connection) recvMsgPassive(msg hsms.HSMSMessage) {
 	case hsms.DataMsgType:
 		if !c.isSelectedState() {
 			c.logger.Warn("passive: reject msg by not selected state reason",
-				hsms.MsgInfo(msg, "method", "recvMsgActive", "state", c.stateMgr.State())...,
+				hsms.MsgInfo(msg, "method", "recvMsgPassive", "state", c.stateMgr.State())...,
 			)
 
 			replyMsg := hsms.NewRejectReq(msg, hsms.RejectNotSelected)
@@ -90,9 +98,12 @@ func (c *Connection) recvMsgPassive(msg hsms.HSMSMessage) {
 			break
 		}
 
-		// if session id mismatch and not a S9F1 message, reply S9F1.
-		if msg.SessionID() != c.session.ID() && msg.StreamCode() != 9 && msg.FunctionCode() != 1 {
-			_, _ = c.session.SendSECS2Message(gem.S9F1())
+		// validate message using shared validation logic
+		if err := c.validateMsg(msg); err != nil {
+			c.logger.Debug("passive: invalid message received",
+				hsms.MsgInfo(msg, "method", "recvMsgPassive", "error", err)...,
+			)
+
 			break
 		}
 

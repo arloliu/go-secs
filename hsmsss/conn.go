@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +19,17 @@ import (
 	"github.com/arloliu/go-secs/logger"
 	"github.com/arloliu/go-secs/secs2"
 	"github.com/puzpuzpuz/xsync/v3"
+)
+
+const (
+	// defaultWriteBufferSize is the size of the buffered writer for TCP connections.
+	defaultWriteBufferSize = 64 * 1024
+
+	// replyChannelTimeout is the timeout for sending to reply channels.
+	replyChannelTimeout = time.Second
+
+	// closeCheckInterval is the interval for checking close status in Close() method.
+	closeCheckInterval = 5 * time.Millisecond
 )
 
 // Connection represents an HSMS-SS (Single Session) connection, implementing the hsms.Connection interface.
@@ -142,6 +152,9 @@ func (c *Connection) UpdateConfigOptions(opts ...ConnOption) error {
 // AddSession creates and adds a new Session to the connection with the specified session ID.
 // For HSMS-SS, this method should only be called once, as it supports only a single session.
 // It returns the newly created Session.
+//
+// IMPORTANT: This method is NOT thread-safe and MUST be called before Open().
+// Calling AddSession after Open() or from multiple goroutines may result in data races.
 func (c *Connection) AddSession(sessionID uint16) hsms.Session {
 	c.session = NewSession(sessionID, c)
 
@@ -235,6 +248,10 @@ func (c *Connection) Close() error {
 	closeTimer := pool.GetTimer(c.cfg.closeConnTimeout)
 	defer pool.PutTimer(closeTimer)
 
+	// Use a ticker instead of busy loop with sleep for better CPU efficiency
+	checkTicker := time.NewTicker(closeCheckInterval)
+	defer checkTicker.Stop()
+
 	// wait for connection to be closed
 	for {
 		select {
@@ -252,14 +269,11 @@ func (c *Connection) Close() error {
 			)
 
 			return errors.New("close connection timeout")
-		default:
+		case <-checkTicker.C:
 			if c.isClosed() {
 				c.logger.Debug("wait for connection closed success")
 				return nil
 			}
-
-			runtime.Gosched() // yield the CPU to allow other goroutines to run
-			time.Sleep(1 * time.Millisecond)
 		}
 	}
 }
@@ -300,7 +314,7 @@ func (c *Connection) setupResources(conn net.Conn) {
 	// create new resources atomically
 	c.resources = connectionResources{
 		conn:   conn,
-		writer: bufio.NewWriterSize(conn, 64*1024),
+		writer: bufio.NewWriterSize(conn, defaultWriteBufferSize),
 	}
 }
 
@@ -822,7 +836,11 @@ func (c *Connection) replyToSender(msg hsms.HSMSMessage) {
 	if !loaded || replyChan == nil {
 		// handle data message
 		if dataMsg, ok := msg.ToDataMessage(); ok {
-			c.session.recvDataMsg(dataMsg)
+			if c.session != nil {
+				c.session.recvDataMsg(dataMsg)
+			} else {
+				c.logger.Warn("session is nil, cannot handle data message", "msgID", msg.ID())
+			}
 		}
 
 		return
@@ -833,7 +851,7 @@ func (c *Connection) replyToSender(msg hsms.HSMSMessage) {
 
 	// set timeout for reply channel to avoid blocking forever
 	// if the reply channel is full, it means the senderTask is not ready to receive the reply message.
-	timer := pool.GetTimer(time.Second)
+	timer := pool.GetTimer(replyChannelTimeout)
 	defer pool.PutTimer(timer)
 
 	select {
@@ -885,7 +903,11 @@ func (c *Connection) replyErrToSender(msg hsms.HSMSMessage, err error) {
 		err,
 	)
 
-	c.session.recvDataMsg(errMsg)
+	if c.session != nil {
+		c.session.recvDataMsg(errMsg)
+	} else {
+		c.logger.Warn("session is nil, cannot handle error data message", "msgID", msg.ID(), "error", err)
+	}
 }
 
 func (c *Connection) linktestConnStateHandler(_ hsms.Connection, _ hsms.ConnState, curState hsms.ConnState) {

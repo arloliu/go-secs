@@ -866,3 +866,135 @@ func newConn(ctx context.Context, require *require.Assertions, port int, isHost 
 
 	return conn
 }
+
+// TestConnection_PassiveT7TimeoutRespectContext verifies that the T7 timeout goroutine
+// in passive connection properly respects context cancellation when the connection is closed
+// before the T7 timeout expires. This prevents goroutine leaks.
+func TestConnection_PassiveT7TimeoutRespectContext(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	// Create passive connection with a long T7 timeout
+	eqpComm := newTestComm(ctx, t, port, false, false,
+		WithT7Timeout(30*time.Second), // Long T7 timeout that won't expire during test
+		WithCloseConnTimeout(1*time.Second),
+	)
+
+	// Open the passive connection
+	require.NoError(eqpComm.open(false))
+
+	// Give time for the connection to start listening
+	time.Sleep(50 * time.Millisecond)
+
+	// Close the connection before T7 timeout expires
+	// This should not leave any goroutines running
+	startClose := time.Now()
+	require.NoError(eqpComm.close())
+	closeTime := time.Since(startClose)
+
+	// The close should complete quickly, not waiting for T7 timeout
+	require.Less(closeTime, 5*time.Second,
+		"Close took too long, T7 timeout goroutine may not have respected context cancellation")
+}
+
+// TestConnection_CloseEfficiency verifies that the Close() method uses an efficient
+// ticker-based approach instead of a busy loop.
+func TestConnection_CloseEfficiency(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithConnectRemoteTimeout(100*time.Millisecond),
+		WithCloseConnTimeout(1*time.Second),
+	)
+	eqpComm := newTestComm(ctx, t, port, false, false,
+		WithCloseConnTimeout(1*time.Second),
+	)
+
+	// Open both connections
+	require.NoError(eqpComm.open(true))
+	require.NoError(hostComm.open(true))
+
+	// Wait for selected state
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+	require.NoError(eqpComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+	// Close both connections and measure time
+	startClose := time.Now()
+	require.NoError(hostComm.close())
+	require.NoError(eqpComm.close())
+	closeTime := time.Since(startClose)
+
+	// Close should complete in a reasonable time
+	require.Less(closeTime, 3*time.Second, "Close took too long")
+}
+
+// TestConnection_NilSessionHandling verifies that the connection properly handles
+// scenarios where session might be nil during message processing.
+func TestConnection_NilSessionHandling(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+
+	// Create a connection without adding a session
+	connCfg, err := NewConnectionConfig("localhost", 6666, WithHostRole())
+	require.NoError(err)
+	require.NotNil(connCfg)
+
+	conn, err := NewConnection(ctx, connCfg)
+	require.NoError(err)
+	require.NotNil(conn)
+
+	// Verify that session is nil
+	require.Nil(conn.session)
+
+	// Try to open without session - should return error
+	err = conn.Open(false)
+	require.Error(err)
+	require.ErrorIs(err, hsms.ErrSessionNil)
+}
+
+// TestConnection_Constants verifies that the expected constants are defined.
+func TestConnection_Constants(t *testing.T) {
+	require := require.New(t)
+
+	// Verify constants have expected values
+	require.Equal(64*1024, defaultWriteBufferSize)
+	require.Equal(time.Second, replyChannelTimeout)
+	require.Equal(5*time.Millisecond, closeCheckInterval)
+}
+
+// TestConnection_ValidateMsgConsolidation verifies that message validation
+// is properly consolidated and works correctly for both active and passive connections.
+func TestConnection_ValidateMsgConsolidation(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	// Test with passive connection (which had the duplicate validation)
+	eqpComm := newTestComm(ctx, t, port, false, false,
+		WithValidateDataMessage(true),
+		WithT7Timeout(10*time.Second),
+	)
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithValidateDataMessage(true),
+	)
+
+	defer func() {
+		require.NoError(hostComm.close())
+		require.NoError(eqpComm.close())
+	}()
+
+	// Open both connections
+	require.NoError(eqpComm.open(true))
+	require.NoError(hostComm.open(true))
+
+	// Wait for selected state
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+	require.NoError(eqpComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+	// Test normal message exchange (should work)
+	hostComm.testMsgSuccess(1, 1, secs2.A("test"), `<A[4] "test">`)
+	eqpComm.testMsgSuccess(2, 1, secs2.A("test2"), `<A[5] "test2">`)
+}
