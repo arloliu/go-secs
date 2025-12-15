@@ -181,25 +181,37 @@ func TestIntItem_SetValues(t *testing.T) {
 	}
 }
 
+func TestIntItem_Clamping(t *testing.T) {
+	require := require.New(t)
+
+	tests := []struct {
+		byteSize      int
+		inputValue    any
+		expectedValue int64
+	}{
+		{byteSize: 1, inputValue: int(128), expectedValue: 127},
+		{byteSize: 1, inputValue: int(-129), expectedValue: -128},
+		{byteSize: 2, inputValue: int(32768), expectedValue: 32767},
+		{byteSize: 2, inputValue: int(-32769), expectedValue: -32768},
+		{byteSize: 4, inputValue: int64(math.MaxInt32 + 1), expectedValue: math.MaxInt32},
+		{byteSize: 4, inputValue: int64(math.MinInt32 - 1), expectedValue: math.MinInt32},
+		{byteSize: 8, inputValue: uint64(math.MaxInt64) + 1, expectedValue: math.MaxInt64}, // uint64 > MaxInt64 -> MaxInt64
+	}
+
+	for i, test := range tests {
+		t.Logf("Test #%d: ByteSize: %d, Input: %v", i, test.byteSize, test.inputValue)
+		item := NewIntItem(test.byteSize, test.inputValue)
+		require.NoError(item.Error())
+		val, err := item.ToInt()
+		require.NoError(err)
+		require.Equal([]int64{test.expectedValue}, val)
+	}
+}
+
 func TestIntItem_Errors(t *testing.T) {
 	require := require.New(t)
 
 	itemErr := &ItemError{}
-
-	tests := []struct {
-		byteSize      int
-		overflowValue uint64
-	}{
-		{byteSize: 1, overflowValue: math.MaxInt8 + 1},
-		{byteSize: 2, overflowValue: math.MaxInt16 + 1},
-		{byteSize: 4, overflowValue: math.MaxInt32 + 1},
-		{byteSize: 8, overflowValue: math.MaxInt64 + 1},
-	}
-
-	for _, test := range tests {
-		item := NewIntItem(test.byteSize, test.overflowValue)
-		require.ErrorAs(item.Error(), &itemErr)
-	}
 
 	var item Item
 	item = NewIntItem(3)
@@ -266,25 +278,22 @@ func TestCombineIntValues(t *testing.T) {
 			want: []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
 		},
 		{
-			name:      "Overflow Uint (exceeds int64 range)",
-			byteSize:  4,
-			values:    []any{uint64(math.MaxUint64)},
-			wantErr:   true,
-			errorText: "value overflow",
+			name:     "Overflow Uint (exceeds int64 range)",
+			byteSize: 4,
+			values:   []any{uint64(math.MaxUint64)},
+			want:     []int64{math.MaxInt32},
 		},
 		{
-			name:      "Overflow Int",
-			byteSize:  1,
-			values:    []any{int(128)},
-			wantErr:   true,
-			errorText: "value overflow",
+			name:     "Overflow Int",
+			byteSize: 1,
+			values:   []any{int(128)},
+			want:     []int64{127},
 		},
 		{
-			name:      "Overflow Int in Slice",
-			byteSize:  2,
-			values:    []any{[]int32{32768}},
-			wantErr:   true,
-			errorText: "value overflow",
+			name:     "Overflow Int in Slice",
+			byteSize: 2,
+			values:   []any{[]int32{32768}},
+			want:     []int64{32767},
 		},
 		{
 			name:     "String to Int",
@@ -397,4 +406,70 @@ func genFixedInt(length int) []int64 {
 	}
 
 	return result
+}
+
+func TestIntItem_Refactor(t *testing.T) {
+	require := require.New(t)
+
+	t.Run("Fast Path []int64", func(t *testing.T) {
+		input := []int64{math.MinInt64, 0, math.MaxInt64}
+		item := NewIntItem(8, input)
+		require.NoError(item.Error())
+		val, err := item.ToInt()
+		require.NoError(err)
+		require.Equal(input, val)
+	})
+
+	t.Run("Fast Path []int", func(t *testing.T) {
+		input := []int{-100, 0, 100}
+		item := NewIntItem(4, input)
+		require.NoError(item.Error())
+		val, err := item.ToInt()
+		require.NoError(err)
+		expected := []int64{-100, 0, 100}
+		require.Equal(expected, val)
+	})
+
+	t.Run("Clamping I1", func(t *testing.T) {
+		// I1 range: -128 to 127
+		input := []int{128, -129, 100}
+		item := NewIntItem(1, input)
+		require.NoError(item.Error())
+		val, err := item.ToInt()
+		require.NoError(err)
+		expected := []int64{127, -128, 100}
+		require.Equal(expected, val)
+	})
+
+	t.Run("Clamping I2", func(t *testing.T) {
+		// I2 range: -32768 to 32767
+		input := []int{32768, -32769, 0}
+		item := NewIntItem(2, input)
+		require.NoError(item.Error())
+		val, err := item.ToInt()
+		require.NoError(err)
+		expected := []int64{32767, -32768, 0}
+		require.Equal(expected, val)
+	})
+
+	t.Run("Clamping Uint to I4", func(t *testing.T) {
+		// I4 max: 2147483647
+		input := []uint{2147483648, 0}
+		item := NewIntItem(4, input)
+		require.NoError(item.Error())
+		val, err := item.ToInt()
+		require.NoError(err)
+		expected := []int64{2147483647, 0}
+		require.Equal(expected, val)
+	})
+
+	t.Run("Slow Path Mixed", func(t *testing.T) {
+		input := []any{int(1), "2", []int{3}}
+		item := NewIntItem(4, input...)
+		require.NoError(item.Error())
+		val, err := item.ToInt()
+		require.NoError(err)
+		expected := []int64{1, 2, 3}
+		require.Equal(expected, val)
+	})
 }
