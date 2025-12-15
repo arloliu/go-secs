@@ -210,3 +210,26 @@ func TestDataMessage_Set(t *testing.T) {
 	require.Equal(msg.SMLHeader(), clonedDataMsg.SMLHeader())
 	require.Equal(msg.SystemBytes(), clonedDataMsg.SystemBytes())
 }
+
+func TestDataMessage_SanityCheck(t *testing.T) {
+	require := require.New(t)
+
+	// Test invalid stream code (> MaxStreamCode)
+	_, err := NewDataMessage(128, 1, true, 1, []byte{0, 0, 0, 1}, secs2.A("test"))
+	require.ErrorIs(err, ErrInvalidStreamCode)
+
+	// Test invalid wait bit on reply message (even function code)
+	_, err = NewDataMessage(1, 2, true, 1, []byte{0, 0, 0, 1}, secs2.A("test"))
+	require.ErrorIs(err, ErrInvalidRspMsg)
+
+	// Test SetStreamCode with invalid value
+	msg, err := NewDataMessage(1, 1, true, 1, []byte{0, 0, 0, 1}, secs2.A("test"))
+	require.NoError(err)
+	err = msg.SetStreamCode(128)
+	require.ErrorIs(err, ErrInvalidStreamCode)
+
+	// Test SetStreamCode with valid max value
+	err = msg.SetStreamCode(MaxStreamCode)
+	require.NoError(err)
+	require.Equal(uint8(MaxStreamCode), msg.StreamCode())
+}

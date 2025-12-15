@@ -16,6 +16,9 @@ const (
 	WaitBitTrue  = uint8(1)
 )
 
+// MaxStreamCode is the maximum valid stream code value (0-127).
+const MaxStreamCode = 127
+
 // DataMessage represents a HSMS data message.
 //
 // It implements the HSMSMessage and secs2.SECS2Message interfaces.
@@ -223,7 +226,7 @@ func (msg *DataMessage) SetHeader(header []byte) error {
 //
 // Added in v1.12.0
 func (msg *DataMessage) SetStreamCode(stream uint8) error {
-	if stream >= 128 {
+	if stream > MaxStreamCode {
 		return ErrInvalidStreamCode
 	}
 
@@ -455,11 +458,13 @@ func (msg *DataMessage) generateHeader(header []byte) {
 }
 
 func (msg *DataMessage) sanityCheck() error {
-	if err := msg.dataItem.Error(); err != nil {
-		return err
+	if msg.dataItem != nil {
+		if err := msg.dataItem.Error(); err != nil {
+			return err
+		}
 	}
 
-	if msg.stream >= 128 {
+	if msg.stream > MaxStreamCode {
 		return ErrInvalidStreamCode
 	}
 
