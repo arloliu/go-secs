@@ -319,3 +319,159 @@ func TestDecode_ListItemWithBytes(t *testing.T) {
 func decodeMessageLength(input []byte) uint32 {
 	return binary.BigEndian.Uint32(input[:4])
 }
+
+func TestDecode_Errors(t *testing.T) {
+	t.Run("MessageTooShort", func(t *testing.T) {
+		// Less than MinHSMSSize (14 bytes)
+		_, err := DecodeHSMSMessage([]byte{0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid hsms message length")
+	})
+
+	t.Run("MessageLengthMismatch", func(t *testing.T) {
+		// msgLen says 20 but only 10 bytes provided
+		_, err := DecodeMessage(20, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "length mismatch")
+	})
+
+	t.Run("InvalidPType", func(t *testing.T) {
+		// PType (byte 4) is 1 instead of 0
+		_, err := DecodeMessage(10, []byte{0, 0, 0, 0, 1, 0, 0, 0, 0, 0})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid PType")
+	})
+
+	t.Run("InvalidSType", func(t *testing.T) {
+		// SType (byte 5) is 99 (undefined)
+		_, err := DecodeMessage(10, []byte{0, 0, 0, 0, 0, 99, 0, 0, 0, 0})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "undefined SType")
+	})
+
+	t.Run("TruncatedASCIIItem", func(t *testing.T) {
+		// ASCII item header claims 10 bytes but only 5 provided
+		// Format byte: 0x41 (ASCII, 1 length byte), length: 10, data: only 5 bytes
+		input := []byte{
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // header
+			0x41, 10, 'h', 'e', 'l', 'l', 'o', // truncated
+		}
+		_, err := DecodeMessage(uint32(len(input)), input)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected end of message")
+	})
+
+	t.Run("TruncatedIntItem", func(t *testing.T) {
+		// I4 item claims 8 bytes (2 integers) but only 4 provided
+		// Format byte: 0x71 (I4, 1 length byte), length: 8, data: only 4 bytes
+		input := []byte{
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // header
+			0x71, 8, 0, 0, 0, 1, // truncated - only 4 bytes instead of 8
+		}
+		_, err := DecodeMessage(uint32(len(input)), input)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected end of message")
+	})
+
+	t.Run("TruncatedListItem", func(t *testing.T) {
+		// List claims 5 items but only 1 item's worth of data
+		// Format byte: 0x01 (List, 1 length byte), length: 5
+		input := []byte{
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // header
+			0x01, 5, // list with 5 items
+			0x41, 1, 'a', // only 1 ASCII item
+		}
+		_, err := DecodeMessage(uint32(len(input)), input)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "list claims")
+	})
+
+	t.Run("ZeroLengthBytes", func(t *testing.T) {
+		// Format byte with 0 length bytes (invalid)
+		input := []byte{
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // header
+			0x40, // ASCII format but 0 length bytes (lower 2 bits = 0)
+		}
+		_, err := DecodeMessage(uint32(len(input)), input)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "length bytes count is zero")
+	})
+
+	t.Run("InvalidFormatCode", func(t *testing.T) {
+		// Format code 0x3F (format code 15, invalid)
+		input := []byte{
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // header
+			0x3D, 0, // format code 15, 1 length byte, length 0
+		}
+		_, err := DecodeMessage(uint32(len(input)), input)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid format")
+	})
+
+	t.Run("InvalidIntItemLength", func(t *testing.T) {
+		// I4 item with length 5 (not divisible by 4)
+		input := []byte{
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // header
+			0x71, 5, 0, 0, 0, 1, 0, // 5 bytes, not divisible by 4
+		}
+		_, err := DecodeMessage(uint32(len(input)), input)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid message length")
+	})
+
+	t.Run("DecodeSECS2Item_Truncated", func(t *testing.T) {
+		// ASCII item with insufficient data
+		input := []byte{0x41, 10, 'h', 'e', 'l', 'l', 'o'} // claims 10, has 5
+		_, err := DecodeSECS2Item(input)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected end of message")
+	})
+}
+
+func TestDecode_MaxListDepth(t *testing.T) {
+	t.Run("ExceedsMaxDepth", func(t *testing.T) {
+		// Build a deeply nested list structure that exceeds MaxListDepth
+		// Each nested list: 0x01 (List, 1 length byte), 0x01 (1 item)
+		nestedBytes := make([]byte, 0, 10+(MaxListDepth+2)*2)
+		nestedBytes = append(nestedBytes, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) // header
+
+		for i := 0; i < MaxListDepth+2; i++ {
+			nestedBytes = append(nestedBytes, 0x01, 0x01) // List with 1 item
+		}
+		// Add an empty ASCII item at the bottom
+		nestedBytes = append(nestedBytes, 0x41, 0x00) // Empty ASCII
+
+		_, err := DecodeMessage(uint32(len(nestedBytes)), nestedBytes)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "nesting depth exceeds maximum")
+	})
+
+	t.Run("AtMaxDepth_Succeeds", func(t *testing.T) {
+		// Build a list structure exactly at MaxListDepth - should succeed
+		nestedBytes := make([]byte, 0, 10+MaxListDepth*2+2)
+		nestedBytes = append(nestedBytes, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) // header
+
+		for i := 0; i < MaxListDepth; i++ {
+			nestedBytes = append(nestedBytes, 0x01, 0x01) // List with 1 item
+		}
+		// Add an empty ASCII item at the bottom
+		nestedBytes = append(nestedBytes, 0x41, 0x00) // Empty ASCII
+
+		_, err := DecodeMessage(uint32(len(nestedBytes)), nestedBytes)
+		require.NoError(t, err)
+	})
+}
+
+func TestDecode_ListAllocationCheck(t *testing.T) {
+	t.Run("ListClaimsMoreItemsThanBytes", func(t *testing.T) {
+		// List claims 1000 items but has very few bytes remaining
+		input := []byte{
+			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // header
+			0x01, 0x02, 0x03, 0xe8, // List with 3-byte length = 1000 items
+			0x41, 0x00, // only one empty ASCII item
+		}
+		_, err := DecodeMessage(uint32(len(input)), input)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "list claims")
+	})
+}

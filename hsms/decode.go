@@ -10,6 +10,17 @@ import (
 	"github.com/arloliu/go-secs/secs2"
 )
 
+const (
+	// HeaderSize is the size of the HSMS message header in bytes.
+	HeaderSize = 10
+	// LengthFieldSize is the size of the message length field in bytes.
+	LengthFieldSize = 4
+	// MinHSMSSize is the minimum size of an HSMS message (length field + header).
+	MinHSMSSize = LengthFieldSize + HeaderSize
+	// MaxListDepth is the maximum allowed nesting depth for SECS-II list items.
+	MaxListDepth = 64
+)
+
 // HSMS decoder pool
 var decoderPool = sync.Pool{New: func() any { return new(hsmsDecoder) }}
 
@@ -19,16 +30,16 @@ var decoderPool = sync.Pool{New: func() any { return new(hsmsDecoder) }}
 //
 // It returns the decoded HSMSMessage and an error if any occurred during decoding.
 func DecodeHSMSMessage(data []byte) (HSMSMessage, error) {
-	if len(data) < 14 {
+	if len(data) < MinHSMSSize {
 		return nil, fmt.Errorf("invalid hsms message length: %d", len(data))
 	}
 
 	msgLen := binary.BigEndian.Uint32(data)
-	if msgLen > secs2.MaxByteSize-14 {
+	if msgLen > secs2.MaxByteSize-MinHSMSSize {
 		return nil, fmt.Errorf("hsms message length exceeds maximum allowed size: %d", msgLen)
 	}
 
-	msg, err := DecodeMessage(msgLen, data[4:])
+	msg, err := DecodeMessage(msgLen, data[LengthFieldSize:])
 	if err != nil {
 		return nil, err
 	}
@@ -43,9 +54,10 @@ func DecodeHSMSMessage(data []byte) (HSMSMessage, error) {
 // It returns the decoded SECS-II item and an error if any occurred during decoding.
 func DecodeSECS2Item(data []byte) (secs2.Item, error) {
 	decoder, _ := decoderPool.Get().(*hsmsDecoder)
-	decoder.msgLen = uint32(10 + len(data)) //nolint: gosec
+	decoder.msgLen = uint32(HeaderSize + len(data)) //nolint: gosec
 	decoder.input = data
 	decoder.pos = 0
+	decoder.depth = 0
 
 	item, err := decoder.decodeMessageText()
 	decoderPool.Put(decoder)
@@ -65,6 +77,7 @@ func DecodeMessage(msgLen uint32, input []byte) (HSMSMessage, error) {
 	decoder.msgLen = msgLen
 	decoder.input = input
 	decoder.pos = 0
+	decoder.depth = 0
 
 	msg, err := decoder.decodeMessage()
 	decoderPool.Put(decoder)
@@ -82,28 +95,49 @@ type hsmsDecoder struct {
 	uintBuf  []uint64
 	floatBuf []float64
 	pos      int
+	depth    int
 	msgLen   uint32
 }
 
+// remaining returns the number of bytes remaining in the input buffer.
+func (d *hsmsDecoder) remaining() int {
+	return len(d.input) - d.pos
+}
+
 // read reads a specified number of bytes from the input and advances the current position.
-func (d *hsmsDecoder) read(length int) []byte {
+// Returns an error if there are not enough bytes remaining.
+func (d *hsmsDecoder) read(length int) ([]byte, error) {
+	if d.pos+length > len(d.input) {
+		return nil, fmt.Errorf("unexpected end of message: need %d bytes, have %d", length, d.remaining())
+	}
 	result := d.input[d.pos : d.pos+length]
 	d.pos += length
-	return result
+
+	return result, nil
 }
 
 // readByte reads a single byte from the input and advances the current position.
-func (d *hsmsDecoder) readByte() byte {
+// Returns an error if there are no bytes remaining.
+func (d *hsmsDecoder) readByte() (byte, error) {
+	if d.pos >= len(d.input) {
+		return 0, errors.New("unexpected end of message: need 1 byte")
+	}
 	result := d.input[d.pos]
 	d.pos++
-	return result
+
+	return result, nil
 }
 
 // readString reads a string of the specified length from the input and advances the current position.
-func (d *hsmsDecoder) readString(length int) string {
+// Returns an error if there are not enough bytes remaining.
+func (d *hsmsDecoder) readString(length int) (string, error) {
+	if d.pos+length > len(d.input) {
+		return "", fmt.Errorf("unexpected end of message: need %d bytes, have %d", length, d.remaining())
+	}
 	result := d.input[d.pos : d.pos+length]
 	d.pos += length
-	return secs2.BytesToString(result)
+
+	return secs2.BytesToString(result), nil
 }
 
 // decodeMessage decodes the HSMS message from the input byte array.
@@ -114,7 +148,10 @@ func (d *hsmsDecoder) decodeMessage() (HSMSMessage, error) {
 		return nil, fmt.Errorf("hsms message length mismatch, expected: %d, actual: %d", int(d.msgLen), len(d.input))
 	}
 
-	header := d.read(10)
+	header, err := d.read(HeaderSize)
+	if err != nil {
+		return nil, err
+	}
 
 	if header[4] != 0 { // PType is not a SECS-II message
 		return nil, fmt.Errorf("invalid PType: %d", header[4])
@@ -158,25 +195,31 @@ func (d *hsmsDecoder) decodeMessage() (HSMSMessage, error) {
 // decodeMessageText decodes the SECS-II data item from the input byte array.
 // It handles various data types (list, ASCII, binary, boolean, integer, float) and
 // recursively decodes nested items if necessary.
-func (d *hsmsDecoder) decodeMessageText() (secs2.Item, error) { //nolint: cyclop
-	if d.msgLen == 10 {
+func (d *hsmsDecoder) decodeMessageText() (secs2.Item, error) { //nolint:cyclop,gocyclo
+	if d.msgLen == HeaderSize {
 		return secs2.NewEmptyItem(), nil
 	}
 
 	startPos := d.pos
 
 	// decode format code and no. of length bytes
-	formatByte := d.readByte()
+	formatByte, err := d.readByte()
+	if err != nil {
+		return nil, err
+	}
 	formatCode := formatByte >> 2
 
 	lenBytesCount := int(formatByte & 0x3)
 	if lenBytesCount == 0 {
-		return secs2.NewEmptyItem(), fmt.Errorf("length bytes count is zero")
+		return nil, fmt.Errorf("length bytes count is zero")
 	}
 
 	// decode length bytes to length
 	length := 0
-	lenBytes := d.read(lenBytesCount)
+	lenBytes, err := d.read(lenBytesCount)
+	if err != nil {
+		return nil, err
+	}
 
 	switch lenBytesCount {
 	case 1:
@@ -190,26 +233,45 @@ func (d *hsmsDecoder) decodeMessageText() (secs2.Item, error) { //nolint: cyclop
 	// decode data to SECS-II item
 	switch secs2.FormatCode(formatCode) {
 	case secs2.ListFormatCode:
+		// Check recursion depth limit
+		d.depth++
+		if d.depth > MaxListDepth {
+			return nil, fmt.Errorf("list nesting depth exceeds maximum allowed: %d", MaxListDepth)
+		}
+
+		// Validate that we have at least enough bytes for the list items
+		// Each item needs at least 2 bytes (1 format byte + 1 length byte)
+		if d.remaining() < length {
+			return nil, fmt.Errorf("list claims %d items but only %d bytes remaining", length, d.remaining())
+		}
+
 		values := make([]secs2.Item, length) // the length indicates the number of items in the list
 		for i := 0; i < length; i++ {
 			var err error
 			values[i], err = d.decodeMessageText()
 			if err != nil {
-				return secs2.NewEmptyItem(), err
+				return nil, err
 			}
 		}
+		d.depth--
 		item := secs2.NewListItemWithBytes(d.input[startPos:d.pos], values...)
 
 		return item, nil
 
 	case secs2.ASCIIFormatCode:
-		value := d.readString(length)
+		value, err := d.readString(length)
+		if err != nil {
+			return nil, err
+		}
 		item := secs2.NewASCIIItemWithBytes(d.input[startPos:d.pos], value)
 
 		return item, nil
 
 	case secs2.BinaryFormatCode:
-		value := d.read(length)
+		value, err := d.read(length)
+		if err != nil {
+			return nil, err
+		}
 		item := secs2.NewBinaryItemWithBytes(d.input[startPos:d.pos], value)
 
 		return item, nil
@@ -221,7 +283,11 @@ func (d *hsmsDecoder) decodeMessageText() (secs2.Item, error) { //nolint: cyclop
 			d.boolBuf = d.boolBuf[:0]
 		}
 
-		for _, v := range d.read(length) {
+		data, err := d.read(length)
+		if err != nil {
+			return nil, err
+		}
+		for _, v := range data {
 			if v == 0 {
 				d.boolBuf = append(d.boolBuf, false)
 			} else {
@@ -261,7 +327,11 @@ func (d *hsmsDecoder) decodeMessageText() (secs2.Item, error) { //nolint: cyclop
 
 func (d *hsmsDecoder) decodeIntItem(byteSize int, length int) (secs2.Item, error) {
 	if length%byteSize != 0 {
-		return secs2.NewEmptyItem(), fmt.Errorf("invalid message length:%d for I%d item", length, byteSize)
+		return nil, fmt.Errorf("invalid message length:%d for I%d item", length, byteSize)
+	}
+
+	if d.remaining() < length {
+		return nil, fmt.Errorf("unexpected end of message: need %d bytes, have %d", length, d.remaining())
 	}
 
 	count := length / byteSize
@@ -292,7 +362,11 @@ func (d *hsmsDecoder) decodeIntItem(byteSize int, length int) (secs2.Item, error
 
 func (d *hsmsDecoder) decodeUintItem(byteSize int, length int) (secs2.Item, error) {
 	if length%byteSize != 0 {
-		return secs2.NewEmptyItem(), fmt.Errorf("invalid message length:%d for I%d item", length, byteSize)
+		return nil, fmt.Errorf("invalid message length:%d for U%d item", length, byteSize)
+	}
+
+	if d.remaining() < length {
+		return nil, fmt.Errorf("unexpected end of message: need %d bytes, have %d", length, d.remaining())
 	}
 
 	count := length / byteSize
@@ -323,7 +397,11 @@ func (d *hsmsDecoder) decodeUintItem(byteSize int, length int) (secs2.Item, erro
 
 func (d *hsmsDecoder) decodeFloatItem(byteSize int, length int) (secs2.Item, error) {
 	if length%byteSize != 0 {
-		return secs2.NewEmptyItem(), fmt.Errorf("invalid message length:%d for I%d item", length, byteSize)
+		return nil, fmt.Errorf("invalid message length:%d for F%d item", length, byteSize)
+	}
+
+	if d.remaining() < length {
+		return nil, fmt.Errorf("unexpected end of message: need %d bytes, have %d", length, d.remaining())
 	}
 
 	count := length / byteSize
