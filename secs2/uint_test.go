@@ -222,21 +222,6 @@ func TestUintItem_Errors(t *testing.T) {
 
 	itemErr := &ItemError{}
 
-	tests := []struct {
-		byteSize      int
-		overflowValue uint64
-	}{
-		{byteSize: 1, overflowValue: math.MaxUint8 + 1},
-		{byteSize: 2, overflowValue: math.MaxUint16 + 1},
-		{byteSize: 4, overflowValue: math.MaxUint32 + 1},
-		// No overflow test for byteSize 8 as uint64 can hold any uint64 value
-	}
-
-	for _, test := range tests {
-		item := NewUintItem(test.byteSize, test.overflowValue)
-		require.ErrorAs(item.Error(), &itemErr)
-	}
-
 	var item Item
 	item = NewUintItem(3) // Invalid byteSize
 	require.ErrorAs(item.Error(), &itemErr)
@@ -313,18 +298,16 @@ func TestCombineUintValues(t *testing.T) {
 			errorText: "negative value not allowed for UintItem",
 		},
 		{
-			name:      "Overflow Uint",
-			byteSize:  1,
-			values:    []any{uint(256)},
-			wantErr:   true,
-			errorText: "value overflow",
+			name:     "Overflow Uint",
+			byteSize: 1,
+			values:   []any{uint(256)},
+			want:     []uint64{255},
 		},
 		{
-			name:      "Overflow Uint in Slice",
-			byteSize:  2,
-			values:    []any{[]uint{65536}},
-			wantErr:   true,
-			errorText: "value overflow",
+			name:     "Overflow Uint in Slice",
+			byteSize: 2,
+			values:   []any{[]uint{65536}},
+			want:     []uint64{65535},
 		},
 		{
 			name:     "String to Uint",
@@ -368,6 +351,44 @@ func TestCombineUintValues(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUintItem_Refactor(t *testing.T) {
+	require := require.New(t)
+
+	// Test fast path with pre-allocation
+	t.Run("FastPath_PreAllocation", func(t *testing.T) {
+		input := []uint64{1, 2, 3, 4, 5}
+		item := NewUintItem(8, input)
+		require.NoError(item.Error())
+		require.Equal(input, item.Values().([]uint64))
+		require.Equal(5, cap(item.(*UintItem).values))
+	})
+
+	// Test slow path with clamping
+	t.Run("SlowPath_Clamping", func(t *testing.T) {
+		input := []any{uint64(10), "20", int(30), uint(40)}
+		item := NewUintItem(1, input...) // byteSize 1, max value 255
+		require.NoError(item.Error())
+		expected := []uint64{10, 20, 30, 40}
+		require.Equal(expected, item.Values().([]uint64))
+
+		// Test clamping
+		inputOverflow := []any{uint64(300), "400", int(500), uint(600)}
+		itemOverflow := NewUintItem(1, inputOverflow...)
+		require.NoError(itemOverflow.Error())
+		expectedOverflow := []uint64{255, 255, 255, 255}
+		require.Equal(expectedOverflow, itemOverflow.Values().([]uint64))
+	})
+
+	// Test mixed types
+	t.Run("MixedTypes", func(t *testing.T) {
+		input := []any{uint8(1), uint16(2), uint32(3), uint64(4), int(5), "6"}
+		item := NewUintItem(8, input...)
+		require.NoError(item.Error())
+		expected := []uint64{1, 2, 3, 4, 5, 6}
+		require.Equal(expected, item.Values().([]uint64))
+	})
 }
 
 func BenchmarkUintItem_Create(b *testing.B) {

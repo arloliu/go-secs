@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -249,128 +250,190 @@ func (item *UintItem) dataType() string {
 	return dataTypeStr[item.byteSize]
 }
 
-func (item *UintItem) combineUintValues(values ...any) error { //nolint:gocyclo,cyclop
+func (item *UintItem) combineUintValues(values ...any) error { //nolint:cyclop
 	if cap(item.values) < len(values) {
-		item.values = make([]uint64, 0, len(values))
+		capacity := len(values)
+		if len(values) == 1 {
+			switch v := values[0].(type) {
+			case []uint:
+				capacity = len(v)
+			case []uint8:
+				capacity = len(v)
+			case []uint16:
+				capacity = len(v)
+			case []uint32:
+				capacity = len(v)
+			case []uint64:
+				capacity = len(v)
+			case []int:
+				capacity = len(v)
+			case []int8:
+				capacity = len(v)
+			case []int16:
+				capacity = len(v)
+			case []int32:
+				capacity = len(v)
+			case []int64:
+				capacity = len(v)
+			case []string:
+				capacity = len(v)
+			}
+		}
+		item.values = make([]uint64, 0, capacity)
+	} else {
+		item.values = item.values[:0]
+	}
+
+	var maxVal uint64
+	if item.byteSize == 8 {
+		maxVal = math.MaxUint64
+	} else {
+		maxVal = (1 << (item.byteSize * 8)) - 1
 	}
 
 	for _, value := range values {
 		switch value := value.(type) {
 		case uint:
-			item.values = append(item.values, uint64(value))
+			item.values = append(item.values, clampUint64(uint64(value), maxVal))
 		case []uint:
-			item.values = util.AppendUint64Slice(item.values, value)
-		case uint8:
-			item.values = append(item.values, uint64(value))
-		case []uint8:
-			item.values = util.AppendUint64Slice(item.values, value)
-
-		case uint16:
-			item.values = append(item.values, uint64(value))
-		case []uint16:
-			item.values = util.AppendUint64Slice(item.values, value)
-
-		case uint32:
-			item.values = append(item.values, uint64(value))
-		case []uint32:
-			item.values = util.AppendUint64Slice(item.values, value)
-
+			for _, v := range value {
+				item.values = append(item.values, clampUint64(uint64(v), maxVal))
+			}
 		case uint64:
-			item.values = append(item.values, value)
+			item.values = append(item.values, clampUint64(value, maxVal))
 		case []uint64:
-			item.values = util.AppendUint64Slice(item.values, value)
-
-		case int:
-			if value < 0 {
-				return errors.New("negative value not allowed for UintItem")
-			}
-			item.values = append(item.values, uint64(value))
-		case []int:
 			for _, v := range value {
-				if v < 0 {
-					return errors.New("negative value not allowed for UintItem")
-				}
-				item.values = append(item.values, uint64(v))
+				item.values = append(item.values, clampUint64(v, maxVal))
 			}
-		case int8:
-			if value < 0 {
-				return errors.New("negative value not allowed for UintItem")
-			}
-			item.values = append(item.values, uint64(value))
-		case []int8:
-			for _, v := range value {
-				if v < 0 {
-					return errors.New("negative value not allowed for UintItem")
-				}
-				item.values = append(item.values, uint64(v))
-			}
-
-		case int16:
-			if value < 0 {
-				return errors.New("negative value not allowed for UintItem")
-			}
-			item.values = append(item.values, uint64(value))
-		case []int16:
-			for _, v := range value {
-				if v < 0 {
-					return errors.New("negative value not allowed for UintItem")
-				}
-				item.values = append(item.values, uint64(v))
-			}
-
-		case int32:
-			if value < 0 {
-				return errors.New("negative value not allowed for UintItem")
-			}
-			item.values = append(item.values, uint64(value))
-		case []int32:
-			for _, v := range value {
-				if v < 0 {
-					return errors.New("negative value not allowed for UintItem")
-				}
-				item.values = append(item.values, uint64(v))
-			}
-
-		case int64:
-			if value < 0 {
-				return errors.New("negative value not allowed for UintItem")
-			}
-			item.values = append(item.values, uint64(value))
-		case []int64:
-			for _, v := range value {
-				if v < 0 {
-					return errors.New("negative value not allowed for UintItem")
-				}
-				item.values = append(item.values, uint64(v))
-			}
-
-		case string:
-			uintVal, err := strconv.ParseUint(value, 0, 0) // Use ParseUint for unsigned values
-			if err != nil {
+		default:
+			if err := item.combineUintValuesSlow(value, maxVal); err != nil {
 				return err
 			}
-			item.values = append(item.values, uintVal)
-		case []string:
-			for _, v := range value {
-				uintVal, err := strconv.ParseUint(v, 0, 0)
-				if err != nil {
-					return err
-				}
-				item.values = append(item.values, uintVal)
-			}
-
-		default:
-			return errors.New("input argument contains invalid type for UintItem")
-		}
-	}
-
-	var maxVal uint64 = 1<<(item.byteSize*8) - 1 // Calculate max value for unsigned based on byteSize
-
-	for _, v := range item.values {
-		if v > maxVal {
-			return errors.New("value overflow")
 		}
 	}
 
 	return nil
+}
+
+func (item *UintItem) combineUintValuesSlow(value any, maxVal uint64) error { //nolint:gocyclo,cyclop
+	switch value := value.(type) {
+	case uint8:
+		item.values = append(item.values, clampUint64(uint64(value), maxVal))
+	case []uint8:
+		for _, v := range value {
+			item.values = append(item.values, clampUint64(uint64(v), maxVal))
+		}
+
+	case uint16:
+		item.values = append(item.values, clampUint64(uint64(value), maxVal))
+	case []uint16:
+		for _, v := range value {
+			item.values = append(item.values, clampUint64(uint64(v), maxVal))
+		}
+
+	case uint32:
+		item.values = append(item.values, clampUint64(uint64(value), maxVal))
+	case []uint32:
+		for _, v := range value {
+			item.values = append(item.values, clampUint64(uint64(v), maxVal))
+		}
+
+	case int:
+		if value < 0 {
+			return errors.New("negative value not allowed for UintItem")
+		}
+		item.values = append(item.values, clampUint64(uint64(value), maxVal))
+	case []int:
+		for _, v := range value {
+			if v < 0 {
+				return errors.New("negative value not allowed for UintItem")
+			}
+			item.values = append(item.values, clampUint64(uint64(v), maxVal))
+		}
+	case int8:
+		if value < 0 {
+			return errors.New("negative value not allowed for UintItem")
+		}
+		item.values = append(item.values, clampUint64(uint64(value), maxVal))
+	case []int8:
+		for _, v := range value {
+			if v < 0 {
+				return errors.New("negative value not allowed for UintItem")
+			}
+			item.values = append(item.values, clampUint64(uint64(v), maxVal))
+		}
+
+	case int16:
+		if value < 0 {
+			return errors.New("negative value not allowed for UintItem")
+		}
+		item.values = append(item.values, clampUint64(uint64(value), maxVal))
+	case []int16:
+		for _, v := range value {
+			if v < 0 {
+				return errors.New("negative value not allowed for UintItem")
+			}
+			item.values = append(item.values, clampUint64(uint64(v), maxVal))
+		}
+
+	case int32:
+		if value < 0 {
+			return errors.New("negative value not allowed for UintItem")
+		}
+		item.values = append(item.values, clampUint64(uint64(value), maxVal))
+	case []int32:
+		for _, v := range value {
+			if v < 0 {
+				return errors.New("negative value not allowed for UintItem")
+			}
+			item.values = append(item.values, clampUint64(uint64(v), maxVal))
+		}
+
+	case int64:
+		if value < 0 {
+			return errors.New("negative value not allowed for UintItem")
+		}
+		item.values = append(item.values, clampUint64(uint64(value), maxVal))
+	case []int64:
+		for _, v := range value {
+			if v < 0 {
+				return errors.New("negative value not allowed for UintItem")
+			}
+			item.values = append(item.values, clampUint64(uint64(v), maxVal))
+		}
+
+	case string:
+		uintVal, err := strconv.ParseUint(value, 0, 64)
+		if err != nil {
+			var numErr *strconv.NumError
+			if !errors.As(err, &numErr) || !errors.Is(numErr.Err, strconv.ErrRange) {
+				return err
+			}
+		}
+		item.values = append(item.values, clampUint64(uintVal, maxVal))
+	case []string:
+		for _, v := range value {
+			uintVal, err := strconv.ParseUint(v, 0, 64)
+			if err != nil {
+				var numErr *strconv.NumError
+				if !errors.As(err, &numErr) || !errors.Is(numErr.Err, strconv.ErrRange) {
+					return err
+				}
+			}
+			item.values = append(item.values, clampUint64(uintVal, maxVal))
+		}
+
+	default:
+		return errors.New("input argument contains invalid type for UintItem")
+	}
+
+	return nil
+}
+
+func clampUint64(v, maxVal uint64) uint64 {
+	if v > maxVal {
+		return maxVal
+	}
+
+	return v
 }
