@@ -9,6 +9,50 @@ import (
 	"github.com/arloliu/go-secs/hsms"
 )
 
+const (
+	initialRetryDelay = 100 * time.Millisecond
+	retryDelayFactor  = 2
+)
+
+func (c *Connection) scheduleActiveReconnect(delay time.Duration) bool {
+	if delay <= 0 {
+		delay = initialRetryDelay
+	}
+	if c.shutdown.Load() {
+		return false
+	}
+	if !c.reconnectScheduled.CompareAndSwap(false, true) {
+		return false
+	}
+
+	gen := c.reconnectGen.Load()
+
+	// Never block the connection state manager handler.
+	// NOTE: Do NOT use c.ctx here. c.ctx is canceled by closeConn() on disconnect,
+	// but we still want reconnect scheduling to work after disconnects.
+	go func(ctx context.Context, d time.Duration, g uint64) {
+		defer c.reconnectScheduled.Store(false)
+
+		timer := time.NewTimer(d)
+		defer timer.Stop()
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			if c.reconnectGen.Load() != g {
+				return
+			}
+			if c.shutdown.Load() {
+				return
+			}
+			c.stateMgr.ToConnectingAsync()
+		}
+	}(c.pctx, delay, gen)
+
+	return true
+}
+
 func (c *Connection) activeConnStateHandler(_ hsms.Connection, prevState hsms.ConnState, curState hsms.ConnState) {
 	c.logger.Debug("active: connection state changes", "prevState", prevState, "curState", curState)
 	switch curState {
@@ -51,7 +95,17 @@ func (c *Connection) activeConnStateHandler(_ hsms.Connection, prevState hsms.Co
 
 		c.logger.Debug("closeConn in connection state handler", "shutdown", c.shutdown.Load())
 		if !c.shutdown.Load() {
-			c.stateMgr.ToConnectingAsync()
+			delay := c.retryDelay
+			c.logger.Debug("not-connected state, schedule retry connection", "delay", delay)
+
+			if c.scheduleActiveReconnect(delay) {
+				// exponential backoff with a maximum delay of T5 timeout
+				nextDelay := delay * retryDelayFactor
+				if nextDelay > c.cfg.t5Timeout {
+					nextDelay = c.cfg.t5Timeout
+				}
+				c.retryDelay = nextDelay
+			}
 		}
 
 	case hsms.ConnectingState:
@@ -59,6 +113,8 @@ func (c *Connection) activeConnStateHandler(_ hsms.Connection, prevState hsms.Co
 		_ = c.doOpen(false)
 
 	case hsms.SelectedState:
+		// reset retry delay upon successful connection
+		c.retryDelay = initialRetryDelay
 		// do nothing
 	}
 }

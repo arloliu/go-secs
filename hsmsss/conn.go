@@ -55,11 +55,21 @@ type Connection struct {
 	stateMgr *hsms.ConnStateMgr
 	taskMgr  *hsms.TaskManager
 	shutdown atomic.Bool // indicates if has entered shutdown mode
-	tickers  tickerCtl   // linktest control
+
+	// reconnectScheduled prevents overlapping reconnect timers in active mode.
+	// It is intentionally independent from c.ctx (which is canceled on disconnect).
+	reconnectScheduled atomic.Bool
+
+	// reconnectGen invalidates reconnect timers across Close/Open cycles.
+	// Incremented on Close() so timers scheduled before Close() cannot fire after a later Open().
+	reconnectGen atomic.Uint64
+	tickers      tickerCtl // linktest control
 
 	senderMsgChan chan hsms.HSMSMessage // channel for sending messages to the senderTask, the lifetime is the same as this connection object
 	replyMsgChans *xsync.MapOf[uint32, chan hsms.HSMSMessage]
 	replyErrs     *xsync.MapOf[uint32, error]
+
+	retryDelay time.Duration // delay between connection retries for active mode
 
 	metrics ConnectionMetrics // connection metrics
 }
@@ -86,6 +96,7 @@ func NewConnection(ctx context.Context, cfg *ConnectionConfig) (*Connection, err
 		replyErrs:     xsync.NewMapOf[uint32, error](),
 		replyMsgChans: xsync.NewMapOf[uint32, chan hsms.HSMSMessage](),
 		taskMgr:       hsms.NewTaskManager(ctx, cfg.logger),
+		retryDelay:    initialRetryDelay,
 	}
 	// create sender message channel at beginning and not close it.
 	conn.senderMsgChan = make(chan hsms.HSMSMessage, cfg.senderQueueSize)
@@ -229,6 +240,10 @@ func (c *Connection) doOpen(waitOpened bool) error {
 // Close closes the HSMS-SS connection gracefully.
 // It terminates all running tasks, closes the TCP connection, and resets the connection state.
 func (c *Connection) Close() error {
+	// Invalidate any pending reconnect timers from a previous lifecycle.
+	c.reconnectGen.Add(1)
+	c.reconnectScheduled.Store(false)
+
 	c.shutdown.Store(true)
 	c.logger.Debug("start to close connection", "method", "Close", "opState", c.opState.String())
 

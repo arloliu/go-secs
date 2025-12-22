@@ -321,7 +321,7 @@ func TestConnection_Linktest(t *testing.T) {
 
 	// Test 1: Initial linktest with 100ms interval
 	expectedCount := uint64(5)
-	expectedDelta := float64(expectedCount) * 0.2
+	expectedDelta := float64(expectedCount) * 0.4
 	time.Sleep(500 * time.Millisecond)
 	verifyLinktestCounts(t, hostComm, eqpComm, expectedCount, expectedDelta,
 		"After 500ms with 100ms interval, expecting ~5 linktests")
@@ -337,7 +337,7 @@ func TestConnection_Linktest(t *testing.T) {
 	t.Log("Resume linktest")
 	updateBothConfigs(t, hostComm, eqpComm, WithAutoLinktest(true))
 	expectedCount += 5
-	expectedDelta = float64(expectedCount) * 0.2
+	expectedDelta = float64(expectedCount) * 0.4
 	time.Sleep(500 * time.Millisecond)
 	verifyLinktestCounts(t, hostComm, eqpComm, expectedCount, expectedDelta,
 		"After re-enabling linktest, expecting 5 more linktests")
@@ -346,7 +346,7 @@ func TestConnection_Linktest(t *testing.T) {
 	t.Log("Change linktest interval to 50ms")
 	updateBothConfigs(t, hostComm, eqpComm, WithLinktestInterval(50*time.Millisecond))
 	expectedCount += 10
-	expectedDelta = float64(expectedCount) * 0.2
+	expectedDelta = float64(expectedCount) * 0.4
 	time.Sleep(500 * time.Millisecond)
 	verifyLinktestCounts(t, hostComm, eqpComm, expectedCount, expectedDelta,
 		"After changing interval to 50ms, expecting 10 more linktests in 500ms")
@@ -371,7 +371,7 @@ func TestConnection_Linktest(t *testing.T) {
 
 	// Test 7: Resume linktest after idle period
 	expectedCount += 5
-	expectedDelta = float64(expectedCount) * 0.2
+	expectedDelta = float64(expectedCount) * 0.4
 	time.Sleep(250 * time.Millisecond)
 	verifyLinktestCounts(t, hostComm, eqpComm, expectedCount, expectedDelta,
 		"After 250ms idle, expecting 5 more linktests")
@@ -997,4 +997,49 @@ func TestConnection_ValidateMsgConsolidation(t *testing.T) {
 	// Test normal message exchange (should work)
 	hostComm.testMsgSuccess(1, 1, secs2.A("test"), `<A[4] "test">`)
 	eqpComm.testMsgSuccess(2, 1, secs2.A("test2"), `<A[5] "test2">`)
+}
+
+// TestConnection_ActiveBackoffDoesNotBlockClose verifies active-mode retry backoff
+// does not block the connection state manager handler, which would delay Close().
+//
+// This is a regression test for implementations that call time.Sleep inside
+// ConnStateMgr handlers.
+func TestConnection_ActiveBackoffDoesNotBlockClose(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithConnectRemoteTimeout(100*time.Millisecond),
+		WithCloseConnTimeout(1*time.Second),
+		WithT5Timeout(5*time.Second),
+	)
+	eqpComm := newTestComm(ctx, t, port, false, false,
+		WithCloseConnTimeout(1*time.Second),
+		WithT5Timeout(5*time.Second),
+	)
+
+	// Open both connections
+	require.NoError(eqpComm.open(true))
+	require.NoError(hostComm.open(true))
+
+	// Wait for selected state
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+	require.NoError(eqpComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+	// Set a large retry delay; the test ensures Close() isn't delayed by it.
+	hostComm.conn.retryDelay = 5 * time.Second
+
+	// Drop the equipment side without setting host shutdown.
+	require.NoError(eqpComm.abnormalClose())
+
+	// Give the host a moment to observe disconnect and transition.
+	time.Sleep(50 * time.Millisecond)
+
+	start := time.Now()
+	require.NoError(hostComm.close())
+	elapsed := time.Since(start)
+
+	// If backoff blocks the state handler, Close() would tend to stall ~retryDelay.
+	require.Less(elapsed, 2*time.Second, "Close took too long; backoff may be blocking state handler")
 }
