@@ -255,6 +255,7 @@ func (d *hsmsDecoder) decodeMessageText() (secs2.Item, error) { //nolint:cyclop,
 		}
 		d.depth--
 		item := secs2.NewListItemWithBytes(d.input[startPos:d.pos], values...)
+		values = nil //nolint:ineffassign,wastedassign
 
 		return item, nil
 

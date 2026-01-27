@@ -401,7 +401,10 @@ func (p *HSMSParser) parseList(size int) (secs2.Item, error) {
 
 		case '>':
 			p.forward(1)
-			return secs2.NewListItem(childItems...), nil
+			item := secs2.NewListItem(childItems...)
+			childItems = nil //nolint:ineffassign,wastedassign
+
+			return item, nil
 
 		case eof:
 			return nil, errors.New("should not got eof")
