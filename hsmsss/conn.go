@@ -565,7 +565,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 
 		if ctrlMsg, ok := replyMsg.ToControlMessage(); ok {
 			if ctrlMsg.Type() == hsms.RejectReqType {
-				return nil, fmt.Errorf("reject by reason %d", ctrlMsg.Header()[3])
+				return nil, rejectReasonErr(int(ctrlMsg.Header()[3]))
 			}
 		}
 

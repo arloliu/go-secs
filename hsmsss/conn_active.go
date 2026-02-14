@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/arloliu/go-secs/hsms"
+	"github.com/arloliu/go-secs/internal/pool"
 )
 
 const (
@@ -76,6 +77,24 @@ func (c *Connection) activeConnStateHandler(_ hsms.Connection, prevState hsms.Co
 			c.stateMgr.ToNotConnectedAsync()
 			return
 		}
+
+		// Start T7 timeout goroutine per §9.2.2 — disconnect if NOT SELECTED persists.
+		// This provides defense-in-depth alongside the T6 timeout on selectSession().
+		go func(ctx context.Context) {
+			waitSelectTimer := pool.GetTimer(c.cfg.t7Timeout)
+			defer pool.PutTimer(waitSelectTimer)
+
+			select {
+			case <-ctx.Done():
+				c.logger.Debug("T7 timeout cancelled by context", "method", "activeConnStateHandler")
+				return
+			case <-waitSelectTimer.C:
+				if c.stateMgr.IsNotSelected() {
+					c.logger.Debug("T7 timeout in active mode, still not selected", "method", "activeConnStateHandler", "timeout", c.cfg.t7Timeout)
+					c.stateMgr.ToNotConnectedAsync()
+				}
+			}
+		}(c.ctx)
 
 		err := c.session.selectSession()
 		if err != nil {
@@ -175,9 +194,10 @@ func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 			_, _ = c.sendMsg(replyMsg)
 		} else {
 			// Not yet selected — this is a simultaneous select scenario (§7.4.3).
-			// Accept the remote's select request.
+			// Accept the remote's select request and transition to SELECTED.
 			replyMsg, _ := hsms.NewSelectRsp(msg, hsms.SelectStatusSuccess)
 			_, _ = c.sendMsg(replyMsg)
+			c.stateMgr.ToSelectedAsync()
 		}
 
 	// handle deselect request from remote per SEMI E37 §7.7
@@ -214,7 +234,12 @@ func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 
 	case hsms.SeparateReqType:
 		c.logger.Debug("separate request received", hsms.MsgInfo(msg, "method", "recvMsgActive")...)
-		c.stateMgr.ToNotConnectedAsync()
+		// Per §7.9.2: if not in SELECTED state, the Separate.req is ignored.
+		if c.stateMgr.IsSelected() {
+			c.stateMgr.ToNotConnectedAsync()
+		} else {
+			c.logger.Debug("active: ignoring separate.req in non-selected state", "state", c.stateMgr.State())
+		}
 
 	// route deselect response to the sender waiting for reply
 	case hsms.DeselectRspType:

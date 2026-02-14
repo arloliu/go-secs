@@ -164,6 +164,12 @@ func (s *Session) recvDataMsg(msg *hsms.DataMessage) {
 }
 
 func (s *Session) separateSession() {
+	// Per §7.9, Separate requires the connection to be in SELECTED state.
+	if !s.hsmsConn.stateMgr.IsSelected() {
+		s.logger.Debug("skip separate.req, not in selected state", "method", "separateSession", "state", s.hsmsConn.stateMgr.State())
+		return
+	}
+
 	// send separate.req message, in HSMS-SS, the session ID is always 0xffff
 	msg := hsms.NewSeparateReq(0xffff, hsms.GenerateMsgSystemBytes())
 	s.logger.Debug("send separate.req message and wait it to be sent", "method", "separateSession", "id", msg.ID())

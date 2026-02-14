@@ -168,7 +168,12 @@ func (c *Connection) recvMsgPassive(msg hsms.HSMSMessage) {
 
 	case hsms.SeparateReqType:
 		c.logger.Debug("separate request received", hsms.MsgInfo(msg, "method", "recvMsgPassive")...)
-		c.stateMgr.ToNotConnectedAsync()
+		// Per §7.9.2: if not in SELECTED state, the Separate.req is ignored.
+		if c.stateMgr.IsSelected() {
+			c.stateMgr.ToNotConnectedAsync()
+		} else {
+			c.logger.Debug("passive: ignoring separate.req in non-selected state", "state", c.stateMgr.State())
+		}
 
 	// Per §8.3.20, an unsolicited response with no open transaction requires Reject(TransactionNotOpen).
 	case hsms.SelectRspType:
