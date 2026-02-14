@@ -184,7 +184,7 @@ func (a *messageAssembler) processBlock(block *Block) error {
 	}
 
 	// Step 2: Duplicate detection (Section 9.4.2).
-	if a.cfg.duplicateDetection && a.isDuplicate(block) {
+	if a.cfg.DuplicateDetection() && a.isDuplicate(block) {
 		a.logger.Debug("assembler: duplicate block discarded")
 
 		return ErrDuplicateBlock
@@ -325,7 +325,7 @@ func (a *messageAssembler) handleExpectedBlock(block *Block, om *openMessage) er
 // --- T4 timer management ---
 
 func (a *messageAssembler) startT4(om *openMessage) {
-	om.t4Timer = pool.GetTimer(a.cfg.t4Timeout)
+	om.t4Timer = pool.GetTimer(a.cfg.T4Timeout())
 	om.t4Cancel = make(chan struct{})
 
 	go func(key uint64, timer *time.Timer, cancel <-chan struct{}) {

@@ -122,7 +122,7 @@ func (bt *blockTransport) drainUntilSilence() {
 	buf := make([]byte, 256)
 
 	for {
-		_ = bt.conn.SetReadDeadline(time.Now().Add(bt.cfg.t1Timeout))
+		_ = bt.conn.SetReadDeadline(time.Now().Add(bt.cfg.T1Timeout()))
 
 		_, err := bt.reader.Read(buf)
 		if err != nil {
@@ -155,7 +155,7 @@ func (bt *blockTransport) receiveBlock(ctx context.Context) (*Block, error) {
 	// Step 1: Read length byte with T2 timeout.
 	// Per SEMI E4 §7.8.5: "If T2 is exceeded while waiting for the length
 	// character ... an NAK is sent."
-	lengthByte, err := bt.readByte(bt.cfg.t2Timeout)
+	lengthByte, err := bt.readByte(bt.cfg.T2Timeout())
 	if err != nil {
 		_ = bt.writeByte(NAK)
 
@@ -181,7 +181,7 @@ func (bt *blockTransport) receiveBlock(ctx context.Context) (*Block, error) {
 	remaining := length + checksumSize
 	buf := make([]byte, remaining)
 
-	if err := bt.readFull(buf, bt.cfg.t1Timeout); err != nil {
+	if err := bt.readFull(buf, bt.cfg.T1Timeout()); err != nil {
 		_ = bt.writeByte(NAK)
 
 		return nil, fmt.Errorf("%w: reading block data: %w", ErrT1Timeout, err)
@@ -236,7 +236,7 @@ const (
 func (bt *blockTransport) sendBlock(ctx context.Context, block *Block) error {
 	retry := 0
 
-	for retry <= bt.cfg.retryLimit {
+	for retry <= bt.cfg.RetryLimit() {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -267,7 +267,7 @@ func (bt *blockTransport) sendBlock(ctx context.Context, block *Block) error {
 			}
 			bt.logger.Debug("secs1: send retry",
 				"retry", retry,
-				"maxRetry", bt.cfg.retryLimit,
+				"maxRetry", bt.cfg.RetryLimit(),
 				"error", err,
 			)
 
@@ -299,7 +299,7 @@ func (bt *blockTransport) lineControlAndSend(ctx context.Context, block *Block) 
 
 	// Step 2: Wait for response within T2, with a read loop to handle
 	// ignored bytes per §7.8.2.1.
-	deadline := time.Now().Add(bt.cfg.t2Timeout)
+	deadline := time.Now().Add(bt.cfg.T2Timeout())
 
 	for {
 		select {
@@ -388,7 +388,7 @@ func (bt *blockTransport) sendBlockData(block *Block) (sendResult, error) {
 	// Wait for ACK within T2.
 	// Per §7.8.2.2: "the time between sending the second checksum byte and
 	// receiving any character exceeds T2" → retry.
-	b, err := bt.readByte(bt.cfg.t2Timeout)
+	b, err := bt.readByte(bt.cfg.T2Timeout())
 	if err != nil {
 		return sendRetry, ErrT2Timeout
 	}

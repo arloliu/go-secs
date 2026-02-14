@@ -373,7 +373,7 @@ func newAssemblerConfig(t *testing.T, opts ...ConnOption) *ConnectionConfig {
 // withShortT4 directly sets the T4 timeout on a config, bypassing
 // validation. Use only in tests that need sub-second T4.
 func withShortT4(cfg *ConnectionConfig, d time.Duration) {
-	cfg.t4Timeout = d
+	cfg.t4Timeout.Store(int64(d))
 }
 
 // blockOpts configures a test block.

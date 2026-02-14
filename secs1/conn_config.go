@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/arloliu/go-secs/logger"
@@ -48,6 +49,10 @@ const (
 )
 
 // ConnectionConfig holds all configuration for a SECS-I over TCP/IP connection.
+//
+// Runtime-updatable fields (T1–T4 timeouts, retry limit, send timeout,
+// duplicate detection, validate data message) use atomic types so the
+// protocol-loop goroutine can read them without locking.
 type ConnectionConfig struct {
 	host string
 	port int
@@ -65,23 +70,24 @@ type ConnectionConfig struct {
 	isEquip bool
 
 	// SECS-I protocol timeouts (SEMI E4 Table 4).
-	t1Timeout time.Duration
-	t2Timeout time.Duration
-	t3Timeout time.Duration
-	t4Timeout time.Duration
+	// Stored as nanoseconds in atomic.Int64 for lock-free hot-path reads.
+	t1Timeout atomic.Int64
+	t2Timeout atomic.Int64
+	t3Timeout atomic.Int64
+	t4Timeout atomic.Int64
 
 	// retryLimit is RTY: max number of send retries per block.
-	retryLimit int
+	retryLimit atomic.Int64
 
 	// TCP-level timeouts.
 	connectTimeout time.Duration
 	acceptTimeout  time.Duration
 	closeTimeout   time.Duration
-	sendTimeout    time.Duration
+	sendTimeout    atomic.Int64
 
 	// Feature toggles.
-	duplicateDetection  bool
-	validateDataMessage bool // when true and isEquip, send S9Fx on protocol errors
+	duplicateDetection  atomic.Bool
+	validateDataMessage atomic.Bool // when true and isEquip, send S9Fx on protocol errors
 
 	// Queue sizes.
 	senderQueueSize  int
@@ -96,22 +102,23 @@ type ConnectionConfig struct {
 // opts are functional options applied in order; see With* functions.
 func NewConnectionConfig(host string, port int, opts ...ConnOption) (*ConnectionConfig, error) {
 	cfg := &ConnectionConfig{
-		isActive:           true,
-		isEquip:            false, // default: Host role (= Slave per SEMI E4 §7.5)
-		t1Timeout:          DefaultT1Timeout,
-		t2Timeout:          DefaultT2Timeout,
-		t3Timeout:          DefaultT3Timeout,
-		t4Timeout:          DefaultT4Timeout,
-		retryLimit:         DefaultRetryLimit,
-		connectTimeout:     DefaultConnectTimeout,
-		acceptTimeout:      DefaultAcceptTimeout,
-		closeTimeout:       DefaultCloseTimeout,
-		sendTimeout:        DefaultSendTimeout,
-		duplicateDetection: true,
-		senderQueueSize:    DefaultSenderQueueSize,
-		dataMsgQueueSize:   DefaultDataMsgQueueSize,
-		logger:             logger.GetLogger(),
+		isActive:         true,
+		isEquip:          false, // default: Host role (= Slave per SEMI E4 §7.5)
+		connectTimeout:   DefaultConnectTimeout,
+		acceptTimeout:    DefaultAcceptTimeout,
+		closeTimeout:     DefaultCloseTimeout,
+		senderQueueSize:  DefaultSenderQueueSize,
+		dataMsgQueueSize: DefaultDataMsgQueueSize,
+		logger:           logger.GetLogger(),
 	}
+
+	cfg.t1Timeout.Store(int64(DefaultT1Timeout))
+	cfg.t2Timeout.Store(int64(DefaultT2Timeout))
+	cfg.t3Timeout.Store(int64(DefaultT3Timeout))
+	cfg.t4Timeout.Store(int64(DefaultT4Timeout))
+	cfg.retryLimit.Store(int64(DefaultRetryLimit))
+	cfg.sendTimeout.Store(int64(DefaultSendTimeout))
+	cfg.duplicateDetection.Store(true)
 
 	if err := cfg.setHost(host); err != nil {
 		return nil, err
@@ -193,28 +200,47 @@ func (cfg *ConnectionConfig) IsMaster() bool { return cfg.isEquip }
 func (cfg *ConnectionConfig) IsSlave() bool { return !cfg.isEquip }
 
 // T1Timeout returns the inter-character timeout.
-func (cfg *ConnectionConfig) T1Timeout() time.Duration { return cfg.t1Timeout }
+func (cfg *ConnectionConfig) T1Timeout() time.Duration {
+	return time.Duration(cfg.t1Timeout.Load())
+}
 
 // T2Timeout returns the protocol timeout.
-func (cfg *ConnectionConfig) T2Timeout() time.Duration { return cfg.t2Timeout }
+func (cfg *ConnectionConfig) T2Timeout() time.Duration {
+	return time.Duration(cfg.t2Timeout.Load())
+}
 
 // T3Timeout returns the reply timeout.
-func (cfg *ConnectionConfig) T3Timeout() time.Duration { return cfg.t3Timeout }
+func (cfg *ConnectionConfig) T3Timeout() time.Duration {
+	return time.Duration(cfg.t3Timeout.Load())
+}
 
 // T4Timeout returns the inter-block timeout.
-func (cfg *ConnectionConfig) T4Timeout() time.Duration { return cfg.t4Timeout }
+func (cfg *ConnectionConfig) T4Timeout() time.Duration {
+	return time.Duration(cfg.t4Timeout.Load())
+}
 
 // RetryLimit returns the maximum number of send retries per block (RTY).
-func (cfg *ConnectionConfig) RetryLimit() int { return cfg.retryLimit }
+func (cfg *ConnectionConfig) RetryLimit() int {
+	return int(cfg.retryLimit.Load())
+}
 
 // DuplicateDetection returns whether duplicate block detection is enabled.
-func (cfg *ConnectionConfig) DuplicateDetection() bool { return cfg.duplicateDetection }
+func (cfg *ConnectionConfig) DuplicateDetection() bool {
+	return cfg.duplicateDetection.Load()
+}
 
 // ValidateDataMessage returns whether data message validation is enabled.
 // When enabled and the connection role is Equipment, the connection will
 // automatically send S9Fx error messages (e.g. S9F1, S9F7) on protocol
 // violations detected during block assembly.
-func (cfg *ConnectionConfig) ValidateDataMessage() bool { return cfg.validateDataMessage }
+func (cfg *ConnectionConfig) ValidateDataMessage() bool {
+	return cfg.validateDataMessage.Load()
+}
+
+// SendTimeout returns the TCP write timeout for sending data.
+func (cfg *ConnectionConfig) SendTimeout() time.Duration {
+	return time.Duration(cfg.sendTimeout.Load())
+}
 
 // GetLogger returns the configured logger.
 func (cfg *ConnectionConfig) GetLogger() logger.Logger { return cfg.logger }
@@ -226,14 +252,26 @@ type ConnOption interface {
 	apply(*ConnectionConfig) error
 }
 
-type connOptFunc func(*ConnectionConfig) error
+type connOptFunc struct {
+	name      string
+	runtime   bool
+	applyFunc func(*ConnectionConfig) error
+}
 
-func (f connOptFunc) apply(cfg *ConnectionConfig) error { return f(cfg) }
+func (c *connOptFunc) apply(cfg *ConnectionConfig) error { return c.applyFunc(cfg) }
+
+func newConnOptFunc(name string, runtime bool, f func(*ConnectionConfig) error) *connOptFunc {
+	return &connOptFunc{
+		name:      name,
+		runtime:   runtime,
+		applyFunc: f,
+	}
+}
 
 // WithActive sets the connection to active mode (TCP client, typically Host).
 // This is the default.
 func WithActive() ConnOption {
-	return connOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithActive", false, func(cfg *ConnectionConfig) error {
 		cfg.isActive = true
 		return nil
 	})
@@ -241,7 +279,7 @@ func WithActive() ConnOption {
 
 // WithPassive sets the connection to passive mode (TCP server, typically Equipment).
 func WithPassive() ConnOption {
-	return connOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithPassive", false, func(cfg *ConnectionConfig) error {
 		cfg.isActive = false
 		return nil
 	})
@@ -252,7 +290,7 @@ func WithPassive() ConnOption {
 // Per SEMI E4 §7.5: Equipment is always the Master in contention resolution.
 // This also sets the default TCP mode to passive (TCP server) if not explicitly overridden.
 func WithEquipRole() ConnOption {
-	return connOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithEquipRole", false, func(cfg *ConnectionConfig) error {
 		cfg.isEquip = true
 		return nil
 	})
@@ -263,7 +301,7 @@ func WithEquipRole() ConnOption {
 // Per SEMI E4 §7.5: Host is always the Slave in contention resolution.
 // This is the default role.
 func WithHostRole() ConnOption {
-	return connOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithHostRole", false, func(cfg *ConnectionConfig) error {
 		cfg.isEquip = false
 		return nil
 	})
@@ -271,7 +309,7 @@ func WithHostRole() ConnOption {
 
 // WithDeviceID sets the 15-bit device ID. Must be in [0, 32767].
 func WithDeviceID(id uint16) ConnOption {
-	return connOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithDeviceID", false, func(cfg *ConnectionConfig) error {
 		if id > MaxDeviceID {
 			return fmt.Errorf("secs1: device ID %d exceeds maximum %d", id, MaxDeviceID)
 		}
@@ -284,11 +322,11 @@ func WithDeviceID(id uint16) ConnOption {
 // WithT1Timeout sets the inter-character timeout.
 // Per SEMI E4 Table 4: 100ms–10s, resolution 100ms.
 func WithT1Timeout(d time.Duration) ConnOption {
-	return connOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithT1Timeout", true, func(cfg *ConnectionConfig) error {
 		if d < MinT1Timeout || d > MaxT1Timeout {
 			return fmt.Errorf("secs1: T1 timeout %v out of range [%v, %v]", d, MinT1Timeout, MaxT1Timeout)
 		}
-		cfg.t1Timeout = d
+		cfg.t1Timeout.Store(int64(d))
 
 		return nil
 	})
@@ -297,11 +335,11 @@ func WithT1Timeout(d time.Duration) ConnOption {
 // WithT2Timeout sets the protocol timeout.
 // Per SEMI E4 Table 4: 200ms–25s, resolution 200ms.
 func WithT2Timeout(d time.Duration) ConnOption {
-	return connOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithT2Timeout", true, func(cfg *ConnectionConfig) error {
 		if d < MinT2Timeout || d > MaxT2Timeout {
 			return fmt.Errorf("secs1: T2 timeout %v out of range [%v, %v]", d, MinT2Timeout, MaxT2Timeout)
 		}
-		cfg.t2Timeout = d
+		cfg.t2Timeout.Store(int64(d))
 
 		return nil
 	})
@@ -310,11 +348,11 @@ func WithT2Timeout(d time.Duration) ConnOption {
 // WithT3Timeout sets the reply timeout.
 // Per SEMI E4 Table 4: 1s–120s, resolution 1s.
 func WithT3Timeout(d time.Duration) ConnOption {
-	return connOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithT3Timeout", true, func(cfg *ConnectionConfig) error {
 		if d < MinT3Timeout || d > MaxT3Timeout {
 			return fmt.Errorf("secs1: T3 timeout %v out of range [%v, %v]", d, MinT3Timeout, MaxT3Timeout)
 		}
-		cfg.t3Timeout = d
+		cfg.t3Timeout.Store(int64(d))
 
 		return nil
 	})
@@ -323,11 +361,11 @@ func WithT3Timeout(d time.Duration) ConnOption {
 // WithT4Timeout sets the inter-block timeout.
 // Per SEMI E4 Table 4: 1s–120s, resolution 1s.
 func WithT4Timeout(d time.Duration) ConnOption {
-	return connOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithT4Timeout", true, func(cfg *ConnectionConfig) error {
 		if d < MinT4Timeout || d > MaxT4Timeout {
 			return fmt.Errorf("secs1: T4 timeout %v out of range [%v, %v]", d, MinT4Timeout, MaxT4Timeout)
 		}
-		cfg.t4Timeout = d
+		cfg.t4Timeout.Store(int64(d))
 
 		return nil
 	})
@@ -336,11 +374,11 @@ func WithT4Timeout(d time.Duration) ConnOption {
 // WithRetryLimit sets the maximum number of retries per block (RTY).
 // Per SEMI E4 Table 4: 0–31.
 func WithRetryLimit(n int) ConnOption {
-	return connOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithRetryLimit", true, func(cfg *ConnectionConfig) error {
 		if n < 0 || n > MaxRetryLimit {
 			return fmt.Errorf("secs1: retry limit %d out of range [0, %d]", n, MaxRetryLimit)
 		}
-		cfg.retryLimit = n
+		cfg.retryLimit.Store(int64(n))
 
 		return nil
 	})
@@ -349,8 +387,8 @@ func WithRetryLimit(n int) ConnOption {
 // WithDuplicateDetection enables or disables duplicate block detection (SEMI E4 §9.4.2).
 // Enabled by default.
 func WithDuplicateDetection(enabled bool) ConnOption {
-	return connOptFunc(func(cfg *ConnectionConfig) error {
-		cfg.duplicateDetection = enabled
+	return newConnOptFunc("WithDuplicateDetection", true, func(cfg *ConnectionConfig) error {
+		cfg.duplicateDetection.Store(enabled)
 
 		return nil
 	})
@@ -362,8 +400,8 @@ func WithDuplicateDetection(enabled bool) ConnOption {
 // device ID mismatch and S9F7 (Illegal Data) on block number mismatch.
 // Disabled by default.
 func WithValidateDataMessage(enabled bool) ConnOption {
-	return connOptFunc(func(cfg *ConnectionConfig) error {
-		cfg.validateDataMessage = enabled
+	return newConnOptFunc("WithValidateDataMessage", true, func(cfg *ConnectionConfig) error {
+		cfg.validateDataMessage.Store(enabled)
 
 		return nil
 	})
@@ -371,7 +409,7 @@ func WithValidateDataMessage(enabled bool) ConnOption {
 
 // WithConnectTimeout sets the TCP dial timeout for active mode.
 func WithConnectTimeout(d time.Duration) ConnOption {
-	return connOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithConnectTimeout", false, func(cfg *ConnectionConfig) error {
 		if d <= 0 {
 			return errors.New("secs1: connect timeout must be positive")
 		}
@@ -383,11 +421,11 @@ func WithConnectTimeout(d time.Duration) ConnOption {
 
 // WithSendTimeout sets the TCP write timeout for sending data.
 func WithSendTimeout(d time.Duration) ConnOption {
-	return connOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithSendTimeout", true, func(cfg *ConnectionConfig) error {
 		if d <= 0 {
 			return errors.New("secs1: send timeout must be positive")
 		}
-		cfg.sendTimeout = d
+		cfg.sendTimeout.Store(int64(d))
 
 		return nil
 	})
@@ -395,7 +433,7 @@ func WithSendTimeout(d time.Duration) ConnOption {
 
 // WithLogger sets the logger for the connection.
 func WithLogger(l logger.Logger) ConnOption {
-	return connOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithLogger", false, func(cfg *ConnectionConfig) error {
 		if l == nil {
 			return errors.New("secs1: logger must not be nil")
 		}
@@ -407,7 +445,7 @@ func WithLogger(l logger.Logger) ConnOption {
 
 // WithSenderQueueSize sets the size of the outgoing message queue.
 func WithSenderQueueSize(size int) ConnOption {
-	return connOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithSenderQueueSize", false, func(cfg *ConnectionConfig) error {
 		if size < 1 {
 			return errors.New("secs1: sender queue size must be >= 1")
 		}
@@ -419,7 +457,7 @@ func WithSenderQueueSize(size int) ConnOption {
 
 // WithDataMsgQueueSize sets the size of the incoming data message queue.
 func WithDataMsgQueueSize(size int) ConnOption {
-	return connOptFunc(func(cfg *ConnectionConfig) error {
+	return newConnOptFunc("WithDataMsgQueueSize", false, func(cfg *ConnectionConfig) error {
 		if size < 1 {
 			return errors.New("secs1: data message queue size must be >= 1")
 		}

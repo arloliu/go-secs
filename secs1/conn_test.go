@@ -2,6 +2,9 @@ package secs1
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"net"
 	"os"
 	"strconv"
@@ -1053,4 +1056,160 @@ func TestConnection_T3StartsAfterSend(t *testing.T) {
 	// (which would indicate T3 started before send completion).
 	r.Greater(elapsed, 900*time.Millisecond, "T3 should not expire before ~1s after send")
 	r.Less(elapsed, 3*time.Second, "should not wait much longer than T3")
+}
+
+// --- isDisconnectError tests ---
+
+func TestIsDisconnectError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"io.EOF", io.EOF, true},
+		{"io.ErrUnexpectedEOF", io.ErrUnexpectedEOF, true},
+		{"net.ErrClosed", net.ErrClosed, true},
+		{"connection reset by peer", errors.New("read tcp 127.0.0.1:5000->127.0.0.1:5001: connection reset by peer"), true},
+		{"broken pipe", errors.New("write tcp 127.0.0.1:5000->127.0.0.1:5001: broken pipe"), true},
+		{"wrapped io.EOF", fmt.Errorf("read failed: %w", io.EOF), true},
+		{"wrapped net.ErrClosed", fmt.Errorf("write failed: %w", net.ErrClosed), true},
+		{"timeout error", errors.New("i/o timeout"), false},
+		{"context canceled", context.Canceled, false},
+		{"random error", errors.New("something else"), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isDisconnectError(tt.err)
+			if got != tt.want {
+				t.Errorf("isDisconnectError(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+// --- UpdateConfigOptions tests ---
+
+func TestUpdateConfigOptions_RuntimeTimeouts(t *testing.T) {
+	r := require.New(t)
+
+	cfg, err := NewConnectionConfig("127.0.0.1", 5000)
+	r.NoError(err)
+
+	conn, err := NewConnection(context.Background(), cfg)
+	r.NoError(err)
+
+	// Update all runtime-updatable timeout options.
+	err = conn.UpdateConfigOptions(
+		WithT1Timeout(1*time.Second),
+		WithT2Timeout(5*time.Second),
+		WithT3Timeout(60*time.Second),
+		WithT4Timeout(60*time.Second),
+		WithRetryLimit(10),
+		WithSendTimeout(5*time.Second),
+		WithDuplicateDetection(false),
+		WithValidateDataMessage(true),
+	)
+	r.NoError(err)
+
+	// Verify updates took effect.
+	r.Equal(1*time.Second, cfg.T1Timeout())
+	r.Equal(5*time.Second, cfg.T2Timeout())
+	r.Equal(60*time.Second, cfg.T3Timeout())
+	r.Equal(60*time.Second, cfg.T4Timeout())
+	r.Equal(10, cfg.RetryLimit())
+	r.Equal(5*time.Second, cfg.SendTimeout())
+	r.False(cfg.DuplicateDetection())
+	r.True(cfg.ValidateDataMessage())
+}
+
+func TestUpdateConfigOptions_RejectsNonRuntimeOptions(t *testing.T) {
+	r := require.New(t)
+
+	cfg, err := NewConnectionConfig("127.0.0.1", 5000)
+	r.NoError(err)
+
+	conn, err := NewConnection(context.Background(), cfg)
+	r.NoError(err)
+
+	// Non-runtime options should be rejected.
+	nonRuntimeOpts := []struct {
+		name string
+		opt  ConnOption
+	}{
+		{"WithActive", WithActive()},
+		{"WithPassive", WithPassive()},
+		{"WithEquipRole", WithEquipRole()},
+		{"WithHostRole", WithHostRole()},
+		{"WithDeviceID", WithDeviceID(1)},
+		{"WithConnectTimeout", WithConnectTimeout(5 * time.Second)},
+		{"WithLogger", WithLogger(logger.GetLogger())},
+		{"WithSenderQueueSize", WithSenderQueueSize(20)},
+		{"WithDataMsgQueueSize", WithDataMsgQueueSize(20)},
+	}
+
+	for _, tt := range nonRuntimeOpts {
+		t.Run(tt.name, func(t *testing.T) {
+			err := conn.UpdateConfigOptions(tt.opt)
+			r.Error(err, "expected error for non-runtime option %s", tt.name)
+			r.Contains(err.Error(), "cannot be changed at runtime")
+		})
+	}
+}
+
+func TestUpdateConfigOptions_ValidationStillApplied(t *testing.T) {
+	r := require.New(t)
+
+	cfg, err := NewConnectionConfig("127.0.0.1", 5000)
+	r.NoError(err)
+
+	conn, err := NewConnection(context.Background(), cfg)
+	r.NoError(err)
+
+	// Out-of-range values should still be rejected.
+	r.Error(conn.UpdateConfigOptions(WithT1Timeout(50 * time.Millisecond)))
+	r.Error(conn.UpdateConfigOptions(WithT2Timeout(100 * time.Millisecond)))
+	r.Error(conn.UpdateConfigOptions(WithT3Timeout(500 * time.Millisecond)))
+	r.Error(conn.UpdateConfigOptions(WithT4Timeout(500 * time.Millisecond)))
+	r.Error(conn.UpdateConfigOptions(WithRetryLimit(32)))
+	r.Error(conn.UpdateConfigOptions(WithSendTimeout(0)))
+
+	// Original values should be unchanged after failed updates.
+	r.Equal(DefaultT1Timeout, cfg.T1Timeout())
+	r.Equal(DefaultT2Timeout, cfg.T2Timeout())
+	r.Equal(DefaultT3Timeout, cfg.T3Timeout())
+	r.Equal(DefaultT4Timeout, cfg.T4Timeout())
+	r.Equal(DefaultRetryLimit, cfg.RetryLimit())
+}
+
+func TestUpdateConfigOptions_PartialFailureRollback(t *testing.T) {
+	r := require.New(t)
+
+	cfg, err := NewConnectionConfig("127.0.0.1", 5000)
+	r.NoError(err)
+
+	conn, err := NewConnection(context.Background(), cfg)
+	r.NoError(err)
+
+	// First option succeeds, second fails — first change persists (no rollback).
+	err = conn.UpdateConfigOptions(
+		WithT1Timeout(1*time.Second),
+		WithT2Timeout(100*time.Millisecond), // invalid: below minimum
+	)
+	r.Error(err)
+
+	// T1 was applied before T2 failed.
+	r.Equal(1*time.Second, cfg.T1Timeout())
+	// T2 remains at default.
+	r.Equal(DefaultT2Timeout, cfg.T2Timeout())
+}
+
+// --- SendTimeout getter test ---
+
+func TestSendTimeout_Getter(t *testing.T) {
+	r := require.New(t)
+
+	cfg, err := NewConnectionConfig("127.0.0.1", 5000, WithSendTimeout(5*time.Second))
+	r.NoError(err)
+	r.Equal(5*time.Second, cfg.SendTimeout())
 }

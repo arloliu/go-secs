@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"sync"
@@ -228,6 +229,35 @@ func (c *Connection) GetMetrics() *ConnectionMetrics {
 	return &c.metrics
 }
 
+// UpdateConfigOptions updates the connection configuration options at runtime.
+//
+// Only runtime-updatable options can be applied: T1–T4 timeouts, retry limit,
+// send timeout, duplicate detection, and validate data message.
+// Options that affect the connection structure (host, port, active/passive mode,
+// equip/host role, device ID, queue sizes, logger) cannot be changed at runtime
+// and will return an error.
+//
+// The updated values take effect for subsequent operations; in-flight operations
+// use the values that were read before the update.
+func (c *Connection) UpdateConfigOptions(opts ...ConnOption) error {
+	for _, opt := range opts {
+		optFunc, ok := opt.(*connOptFunc)
+		if !ok {
+			return errors.New("secs1: invalid ConnOption type")
+		}
+
+		if !optFunc.runtime {
+			return fmt.Errorf("secs1: option %q cannot be changed at runtime", optFunc.name)
+		}
+
+		if err := optFunc.applyFunc(c.cfg); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // IsSingleSession returns true; SECS-I is a point-to-point single-session protocol.
 func (c *Connection) IsSingleSession() bool { return true }
 
@@ -449,9 +479,7 @@ func (c *Connection) protocolLoopIteration(bt *blockTransport) bool {
 			return true
 		}
 
-		c.handleOutgoingMessage(bt, req)
-
-		return true
+		return c.handleOutgoingMessage(bt, req)
 
 	default:
 		// No outgoing message — poll for incoming traffic.
@@ -463,10 +491,14 @@ func (c *Connection) protocolLoopIteration(bt *blockTransport) bool {
 // handleOutgoingMessage splits a DataMessage into blocks and sends them
 // sequentially via the block-transfer protocol.
 //
+// Returns true if the connection is still alive and the protocol loop should
+// continue, or false if a TCP disconnect was detected and the connection
+// should transition to NotConnectedState.
+//
 // If the request has a sentChan, it is signaled with nil on success or
 // the error on failure. Otherwise, send failures are reported via
 // replyErrToSender (fire-and-forget path).
-func (c *Connection) handleOutgoingMessage(bt *blockTransport, req *sendRequest) {
+func (c *Connection) handleOutgoingMessage(bt *blockTransport, req *sendRequest) bool {
 	msg := req.msg
 	blocks := SplitMessage(msg, c.cfg.deviceID, c.cfg.isEquip)
 
@@ -485,7 +517,16 @@ func (c *Connection) handleOutgoingMessage(bt *blockTransport, req *sendRequest)
 				c.replyErrToSender(msg, err)
 			}
 
-			return
+			// TCP disconnect — transition to NotConnected so the
+			// reconnect flow can kick in.
+			if isDisconnectError(err) {
+				c.logger.Debug("secs1: connection lost during send")
+				c.stateMgr.ToNotConnectedAsync()
+
+				return false
+			}
+
+			return true
 		}
 
 		c.metrics.incBlockSendCount()
@@ -496,6 +537,8 @@ func (c *Connection) handleOutgoingMessage(bt *blockTransport, req *sendRequest)
 	if req.sentChan != nil {
 		req.sentChan <- nil
 	}
+
+	return true
 }
 
 // pollForIncoming reads a single byte from the TCP connection with a short
@@ -505,7 +548,7 @@ func (c *Connection) pollForIncoming(bt *blockTransport) bool {
 	b, err := bt.readByte(pollTimeout)
 	if err != nil {
 		// Timeout or context cancellation — normal in idle state.
-		if isConnClosedError(err) || isConnResetError(err) {
+		if isDisconnectError(err) {
 			c.logger.Debug("secs1: connection closed during poll")
 			c.stateMgr.ToNotConnectedAsync()
 
@@ -557,7 +600,7 @@ func (c *Connection) handleReceivedBlock(block *Block) {
 		c.logger.Debug("secs1: assembler rejected block", "error", err)
 
 		// Send S9Fx error messages (equipment → host only).
-		if c.cfg.isEquip && c.cfg.validateDataMessage && c.session != nil {
+		if c.cfg.isEquip && c.cfg.ValidateDataMessage() && c.session != nil {
 			switch {
 			case errors.Is(err, ErrDeviceIDMismatch):
 				_, _ = c.session.SendSECS2Message(gem.S9F1())
@@ -649,7 +692,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	}
 
 	// Phase 2: All blocks sent — start T3 per §9.3.1.
-	sendTimer := pool.GetTimer(c.cfg.t3Timeout)
+	sendTimer := pool.GetTimer(c.cfg.T3Timeout())
 	defer pool.PutTimer(sendTimer)
 
 	c.metrics.incDataMsgInflightCount()
@@ -668,7 +711,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 		c.logger.Warn("secs1: T3 reply timeout",
 			"stream", msg.StreamCode(),
 			"function", msg.FunctionCode(),
-			"timeout", c.cfg.t3Timeout)
+			"timeout", c.cfg.T3Timeout())
 
 		// If equipment, send S9F9 on T3 timeout.
 		if c.cfg.isEquip && c.session != nil {
@@ -712,7 +755,7 @@ func (c *Connection) sendMsgAsync(msg *hsms.DataMessage) error {
 
 // queueSendRequest puts a sendRequest onto the protocol loop's channel.
 func (c *Connection) queueSendRequest(req *sendRequest) error {
-	timer := pool.GetTimer(c.cfg.sendTimeout)
+	timer := pool.GetTimer(c.cfg.SendTimeout())
 	defer pool.PutTimer(timer)
 
 	select {
@@ -846,10 +889,18 @@ func isNetOpError(err error) bool {
 	return errors.As(err, &opErr)
 }
 
-func isConnClosedError(err error) bool {
-	return errors.Is(err, net.ErrClosed)
-}
+// isDisconnectError returns true for any error indicating the TCP connection
+// is no longer usable: local close, remote graceful close (FIN), remote
+// reset (RST), or broken pipe.
+func isDisconnectError(err error) bool {
+	if errors.Is(err, net.ErrClosed) ||
+		errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
 
-func isConnResetError(err error) bool {
-	return strings.Contains(err.Error(), "connection reset by peer")
+	s := err.Error()
+
+	return strings.Contains(s, "connection reset by peer") ||
+		strings.Contains(s, "broken pipe")
 }
