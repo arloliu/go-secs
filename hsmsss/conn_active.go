@@ -87,9 +87,10 @@ func (c *Connection) activeConnStateHandler(_ hsms.Connection, prevState hsms.Co
 		}
 
 	case hsms.NotConnectedState:
-		if c.opState.IsOpened() {
+		if c.opState.IsOpened() && !c.deselected.Load() {
 			c.session.separateSession()
 		}
+		c.deselected.Store(false)
 
 		_ = c.closeConn(c.cfg.closeConnTimeout)
 
@@ -150,6 +151,7 @@ func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 		}
 
 	// receive the reject from the remote, it means the request is rejected by the remote.
+	// Per §7.10.1, the initiator takes appropriate local action.
 	case hsms.RejectReqType:
 		rejectReason, err := hsms.GetRejectReasonCode(msg)
 		if err != nil {
@@ -157,17 +159,41 @@ func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 			return
 		}
 
-		if rejectReason == hsms.RejectNotSelected {
-			c.logger.Warn("active: reject message by not selected state reason",
-				hsms.MsgInfo(msg, "method", "recvMsgActive", "state", c.stateMgr.State())...,
-			)
-			c.replyErrToSender(msg, hsms.ErrNotSelectedState)
+		c.logger.Warn("active: reject received from remote",
+			hsms.MsgInfo(msg, "method", "recvMsgActive", "rejectReason", rejectReason, "state", c.stateMgr.State())...,
+		)
+
+		c.replyErrToSender(msg, rejectReasonErr(rejectReason))
+
+	// In HSMS-SS active mode, the active side initiates its own select procedure,
+	// so a Select.req from the remote is responded with Select.rsp per §7.4.2.
+	case hsms.SelectReqType:
+		c.logger.Debug("active: select.req received", hsms.MsgInfo(msg, "method", "recvMsgActive")...)
+		if c.stateMgr.IsSelected() {
+			// Already in SELECTED state — reply with "communication already active"
+			replyMsg, _ := hsms.NewSelectRsp(msg, hsms.SelectStatusActived)
+			_, _ = c.sendMsg(replyMsg)
+		} else {
+			// Not yet selected — this is a simultaneous select scenario (§7.4.3).
+			// Accept the remote's select request.
+			replyMsg, _ := hsms.NewSelectRsp(msg, hsms.SelectStatusSuccess)
+			_, _ = c.sendMsg(replyMsg)
 		}
 
-	// the HSMS-SS doesn't support to accept select/deselect request in active mode.
-	case hsms.SelectReqType, hsms.DeselectReqType:
-		replyMsg := hsms.NewRejectReq(msg, hsms.RejectSTypeNotSupported)
-		_, _ = c.sendMsg(replyMsg)
+	// handle deselect request from remote per SEMI E37 §7.7
+	case hsms.DeselectReqType:
+		c.logger.Debug("active: deselect.req received", hsms.MsgInfo(msg, "method", "recvMsgActive")...)
+		if c.stateMgr.IsSelected() {
+			replyMsg, _ := hsms.NewDeselectRsp(msg, hsms.DeselectStatusSuccess)
+			// use sendMsgSync to ensure the response is written to TCP before disconnecting
+			_ = c.sendMsgSync(replyMsg)
+			// set deselected flag before transitioning to prevent sending separate.req
+			c.deselected.Store(true)
+			c.stateMgr.ToNotConnectedAsync()
+		} else {
+			replyMsg, _ := hsms.NewDeselectRsp(msg, hsms.DeselectStatusNotEstablished)
+			_, _ = c.sendMsg(replyMsg)
+		}
 
 	// reply to sender when linktest or selected response received.
 	case hsms.SelectRspType:
@@ -190,8 +216,10 @@ func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 		c.logger.Debug("separate request received", hsms.MsgInfo(msg, "method", "recvMsgActive")...)
 		c.stateMgr.ToNotConnectedAsync()
 
-	// ignore
+	// route deselect response to the sender waiting for reply
 	case hsms.DeselectRspType:
+		c.logger.Debug("deselect.rsp received", hsms.MsgInfo(msg, "method", "recvMsgActive")...)
+		c.replyToSender(msg)
 	}
 }
 

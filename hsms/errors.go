@@ -81,6 +81,36 @@ var (
 )
 
 var (
+	// ErrRejectSTypeNotSupported indicates that the remote entity rejected the message
+	// because the SType is not supported.
+	// This corresponds to reject reason code 1 in SEMI E37.
+	//
+	// Added in v1.10.0
+	ErrRejectSTypeNotSupported = errors.New("reject: SType not supported")
+
+	// ErrRejectPTypeNotSupported indicates that the remote entity rejected the message
+	// because the PType is not supported.
+	// This corresponds to reject reason code 2 in SEMI E37.
+	//
+	// Added in v1.10.0
+	ErrRejectPTypeNotSupported = errors.New("reject: PType not supported")
+
+	// ErrRejectTransactionNotOpen indicates that the remote entity rejected the message
+	// because the transaction is not open (i.e., a response was received without a corresponding request).
+	// This corresponds to reject reason code 3 in SEMI E37.
+	//
+	// Added in v1.10.0
+	ErrRejectTransactionNotOpen = errors.New("reject: transaction not open")
+
+	// ErrRejectNotSelected indicates that the remote entity rejected the message
+	// because the connection is not in the selected state.
+	// This corresponds to reject reason code 4 in SEMI E37.
+	//
+	// Added in v1.10.0
+	ErrRejectNotSelected = errors.New("reject: entity not selected")
+)
+
+var (
 	// ErrT3Timeout indicates that a T3 timeout has occurred.
 	// This occurs when a reply message is not received within the T3 timeout period after sending a primary message.
 	ErrT3Timeout = errors.New("T3 timeout")

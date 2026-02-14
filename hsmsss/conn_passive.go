@@ -61,9 +61,10 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, prevState hsms.C
 		// do nothing
 
 	case hsms.NotConnectedState:
-		if c.opState.IsOpened() {
+		if c.opState.IsOpened() && !c.deselected.Load() {
 			c.session.separateSession()
 		}
+		c.deselected.Store(false)
 
 		isShutdown := c.shutdown.Load()
 		c.logger.Debug("passive: start to close connection", "shutdown", isShutdown)
@@ -132,10 +133,25 @@ func (c *Connection) recvMsgPassive(msg hsms.HSMSMessage) {
 		replyMsg, _ := hsms.NewSelectRsp(msg, hsms.SelectStatusSuccess)
 		_, _ = c.sendMsg(replyMsg)
 
-		// the HSMS-SS doesn't support to receive deselect request/response in passive mode
-	case hsms.DeselectReqType, hsms.DeselectRspType:
-		replyMsg := hsms.NewRejectReq(msg, hsms.RejectSTypeNotSupported)
-		_, _ = c.sendMsg(replyMsg)
+	// handle deselect request from remote per SEMI E37 §7.7
+	case hsms.DeselectReqType:
+		c.logger.Debug("passive: deselect.req received", hsms.MsgInfo(msg, "method", "recvMsgPassive")...)
+		if c.stateMgr.IsSelected() {
+			replyMsg, _ := hsms.NewDeselectRsp(msg, hsms.DeselectStatusSuccess)
+			// use sendMsgSync to ensure the response is written to TCP before disconnecting
+			_ = c.sendMsgSync(replyMsg)
+			// set deselected flag before transitioning to prevent sending separate.req
+			c.deselected.Store(true)
+			c.stateMgr.ToNotConnectedAsync()
+		} else {
+			replyMsg, _ := hsms.NewDeselectRsp(msg, hsms.DeselectStatusNotEstablished)
+			_, _ = c.sendMsg(replyMsg)
+		}
+
+	// route deselect response to the sender waiting for reply
+	case hsms.DeselectRspType:
+		c.logger.Debug("passive: deselect.rsp received", hsms.MsgInfo(msg, "method", "recvMsgPassive")...)
+		c.replyToSender(msg)
 
 	case hsms.LinkTestReqType:
 		c.logger.Debug("linktest request received", hsms.MsgInfo(msg, "method", "recvMsgPassive")...)
@@ -154,12 +170,25 @@ func (c *Connection) recvMsgPassive(msg hsms.HSMSMessage) {
 		c.logger.Debug("separate request received", hsms.MsgInfo(msg, "method", "recvMsgPassive")...)
 		c.stateMgr.ToNotConnectedAsync()
 
-	//  the HSMS-SS will not send select request in passive mode, so it dosen't expect to receive select response
+	// Per §8.3.20, an unsolicited response with no open transaction requires Reject(TransactionNotOpen).
 	case hsms.SelectRspType:
-		// ignore
+		c.logger.Warn("passive: unexpected select.rsp received", hsms.MsgInfo(msg, "method", "recvMsgPassive")...)
+		replyMsg := hsms.NewRejectReq(msg, hsms.RejectTransactionNotOpen)
+		_, _ = c.sendMsg(replyMsg)
 
+	// Per §7.10.1, the initiator takes appropriate local action.
 	case hsms.RejectReqType:
-		// c.removeReplyExpectedMsg()
+		rejectReason, err := hsms.GetRejectReasonCode(msg)
+		if err != nil {
+			c.replyErrToSender(msg, err)
+			return
+		}
+
+		c.logger.Warn("passive: reject received from remote",
+			hsms.MsgInfo(msg, "method", "recvMsgPassive", "rejectReason", rejectReason, "state", c.stateMgr.State())...,
+		)
+
+		c.replyErrToSender(msg, rejectReasonErr(rejectReason))
 	}
 }
 

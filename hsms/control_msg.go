@@ -289,6 +289,15 @@ const (
 	SelectStatusEntityAlreadyUsed = 5
 	// SelectStatusEntitActived indicates that entity(session) is already actived.
 	SelectStatusEntitActived = 6
+
+	// DeselectStatusSuccess indicates that communication is successfully ended.
+	DeselectStatusSuccess = 0
+	// DeselectStatusNotEstablished indicates that HSMS communication has not yet been
+	// established with a select, or has already been ended with a previous deselect.
+	DeselectStatusNotEstablished = 1
+	// DeselectStatusBusy indicates that the session is still in use by the responding entity
+	// and so it cannot yet relinquish it gracefully.
+	DeselectStatusBusy = 2
 )
 
 // NewSelectRsp creates HSMS Select.rsp control message from Select.req message.

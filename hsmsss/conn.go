@@ -52,9 +52,10 @@ type Connection struct {
 	resources  connectionResources // resources for the connection, including reader and writer
 	writeMutex sync.Mutex          // mutex for writing to the connection
 
-	stateMgr *hsms.ConnStateMgr
-	taskMgr  *hsms.TaskManager
-	shutdown atomic.Bool // indicates if has entered shutdown mode
+	stateMgr   *hsms.ConnStateMgr
+	taskMgr    *hsms.TaskManager
+	shutdown   atomic.Bool // indicates if has entered shutdown mode
+	deselected atomic.Bool // indicates if disconnect was triggered by remote deselect
 
 	// reconnectScheduled prevents overlapping reconnect timers in active mode.
 	// It is intentionally independent from c.ctx (which is canceled on disconnect).
@@ -198,6 +199,7 @@ func (c *Connection) IsSECS1() bool { return false }
 func (c *Connection) Open(waitOpened bool) error {
 	// reset shutdown flag to false when user call Open() again
 	c.shutdown.Store(false)
+	c.deselected.Store(false)
 
 	c.stateMgr.Start()
 
@@ -468,16 +470,12 @@ func (c *Connection) createContext() {
 	c.ctx, c.ctxCancel = context.WithCancel(c.pctx)
 }
 
-// sendControlMsg sends an HSMS control message and optionally waits for a reply.
-// It returns the received control message (if replyExpected is true) and an error if any occurred.
-func (c *Connection) sendControlMsg(msg *hsms.ControlMessage, replyExpected bool) (*hsms.ControlMessage, error) {
+// sendControlMsg sends an HSMS control message and waits for a reply.
+// It returns the received control message and an error if any occurred.
+func (c *Connection) sendControlMsg(msg *hsms.ControlMessage) (*hsms.ControlMessage, error) {
 	replyMsg, err := c.sendMsg(msg)
 	if err != nil || replyMsg == nil {
 		return nil, err
-	}
-
-	if !replyExpected {
-		return nil, nil //nolint:nilnil
 	}
 
 	ctrlMsg, ok := replyMsg.ToControlMessage()
@@ -1110,4 +1108,20 @@ func isNetError(err error) bool {
 	}
 
 	return false
+}
+
+// rejectReasonErr returns a pre-defined error for the given reject reason code.
+func rejectReasonErr(reason int) error {
+	switch reason {
+	case hsms.RejectSTypeNotSupported:
+		return hsms.ErrRejectSTypeNotSupported
+	case hsms.RejectPTypeNotSupported:
+		return hsms.ErrRejectPTypeNotSupported
+	case hsms.RejectTransactionNotOpen:
+		return hsms.ErrRejectTransactionNotOpen
+	case hsms.RejectNotSelected:
+		return hsms.ErrRejectNotSelected
+	default:
+		return fmt.Errorf("reject: unknown reason code %d", reason)
+	}
 }

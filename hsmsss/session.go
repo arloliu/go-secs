@@ -177,7 +177,7 @@ func (s *Session) selectSession() error {
 	s.logger.Debug("send select.req", "method", "selectSession")
 	// select request, in HSMS-SS, the session ID is always 0xffff
 	msg := hsms.NewSelectReq(0xffff, hsms.GenerateMsgSystemBytes())
-	replyMsg, err := s.hsmsConn.sendControlMsg(msg, true)
+	replyMsg, err := s.hsmsConn.sendControlMsg(msg)
 	if err != nil {
 		return err
 	}
