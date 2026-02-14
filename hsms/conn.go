@@ -33,4 +33,7 @@ type Connection interface {
 
 	// IsGeneralSession returns true if the connection is an HSMS-GS (General Session) connection, false otherwise.
 	IsGeneralSession() bool
+
+	// IsSECS1 returns true if the connection is a SECS-I connection, false otherwise.
+	IsSECS1() bool
 }

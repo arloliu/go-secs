@@ -263,6 +263,7 @@ func (_ *ssConn) Close() error                        { return nil }
 func (_ *ssConn) AddSession(sessionID uint16) Session { return nil }
 func (_ *ssConn) IsSingleSession() bool               { return true }
 func (_ *ssConn) IsGeneralSession() bool              { return false }
+func (_ *ssConn) IsSECS1() bool                       { return false }
 func (_ *ssConn) GetLogger() logger.Logger            { return &mockLogger{} }
 func (_ *ssConn) ConnState() ConnState                { return NotConnectedState }
 func (_ *ssConn) OpState() OpState                    { return ClosedState }
@@ -276,6 +277,7 @@ func (_ *gsConn) Close() error                        { return nil }
 func (_ *gsConn) AddSession(sessionID uint16) Session { return nil }
 func (_ *gsConn) IsSingleSession() bool               { return false }
 func (_ *gsConn) IsGeneralSession() bool              { return true }
+func (_ *gsConn) IsSECS1() bool                       { return false }
 func (_ *gsConn) GetLogger() logger.Logger            { return &mockLogger{} }
 func (_ *gsConn) ConnState() ConnState                { return NotConnectedState }
 func (_ *gsConn) OpState() OpState                    { return ClosedState }

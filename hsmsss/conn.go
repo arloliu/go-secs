@@ -188,6 +188,9 @@ func (c *Connection) IsSingleSession() bool { return true }
 // IsGeneralSession returns false, indicating that this is not an HSMS-GS connection.
 func (c *Connection) IsGeneralSession() bool { return false }
 
+// IsSECS1 returns false, indicating that this is not a SECS-I connection.
+func (c *Connection) IsSECS1() bool { return false }
+
 // open establishes the HSMS-SS connection.
 // If waitOpened is true, it blocks until the connection is fully established (Selected state)
 // or an error occurs.

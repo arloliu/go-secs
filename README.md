@@ -9,6 +9,7 @@ This project is a library that implements [SECS-II](https://en.wikipedia.org/wik
 ## Supports
 
 * SECS-II (SEMI-E5)
+* SECS-I over TCP/IP (SEMI-E4)
 * HSMS(SEMI-E37), HSMS-SS(SEMI-E37.1)
 * SML(supports various formats, single-quoted stream-function, optional message name, single/double-quoted ASCII item,....etc.)
 
@@ -39,6 +40,19 @@ This project is a library that implements [SECS-II](https://en.wikipedia.org/wik
 * **Concurrent Operations:** Utilizes goroutines and channels for efficient concurrent message sending and receiving.
 * **Customization:** Offers configurable options for various HSMS parameters, such as timeouts, linktest behavior, and connection settings.
 
+### SECS-I over TCP/IP Communication
+
+* **SEMI E4 Compliant:** Implements the SECS-I block-transfer and message protocols per SEMI E4, running over a TCP/IP stream.
+* **Half-Duplex Protocol:** Implements the ENQ/EOT/ACK/NAK handshake for direction control.
+* **Contention Resolution:** Supports Master/Slave contention per SEMI E4 §7.5 (Equipment = Master, Host = Slave).
+* **Multi-Block Messages:** Automatically splits large messages into blocks (≤244 bytes each) and reassembles on receive.
+* **Configurable Timeouts:** T1 (inter-character), T2 (protocol), T3 (reply), T4 (inter-block) per SEMI E4 Table 4.
+* **Duplicate Detection:** Detects and discards duplicate blocks per SEMI E4 §9.4.2.
+* **Active/Passive Modes:** Supports both TCP client (active) and TCP server (passive) connection modes.
+* **Automatic Reconnection:** Active mode automatically retries connection with exponential backoff.
+* **S9Fx Error Reporting:** Optional automatic S9F1/S9F7/S9F9 error messages for protocol violations (equipment role).
+* **Unified Interface:** Implements the same `hsms.Connection` and `hsms.Session` interfaces as HSMS-SS, enabling transport-agnostic application code.
+
 ### SML Operations
 
 * **Parsing:** Parses SML strings into HSMS data messages.
@@ -52,6 +66,7 @@ This project is a library that implements [SECS-II](https://en.wikipedia.org/wik
 * **gem** - provides functions for creating GEM messages, offers a convenient way to generate SECS-II messages for various GEM message types.
 * **hsms** - provides functions and interfaces for establishing/decoding HSMS control and data message and defining generic interface for HSMS session.
 * **hsmsss** - provides an implementation of HSMS-SS (HSMS Single Session) for communication according to the SEMI E37 standard.
+* **secs1** - provides an implementation of SECS-I over TCP/IP for communication according to the SEMI E4 standard. Implements the same `hsms.Connection` and `hsms.Session` interfaces as `hsmsss`.
 * **logger** - provides a standardized way for different logging frameworks to be integrated into go-secs.
 
 ## Object Representation of HSMS/SECS-II Messages
@@ -294,5 +309,106 @@ func main() {
     // Process the reply
 
     // ... other HSMS-SS operations ...
+}
+```
+
+### Create SECS-I Host with Active Mode
+```go
+func msgHandler(msg *hsms.DataMessage, session hsms.Session) {
+    // handle received messages
+    _ = session.ReplyDataMessage(msg, msg.Item())
+}
+
+func main() {
+    // ...
+    // Create a new SECS-I connection
+    connCfg, err := secs1.NewConnectionConfig("127.0.0.1", 5000,
+        secs1.WithActive(),     // active mode (TCP client)
+        secs1.WithHostRole(),   // host role (Slave per SEMI E4 §7.5)
+        secs1.WithDeviceID(1),  // 15-bit device ID
+        secs1.WithT3Timeout(30*time.Second),
+        // other options...
+    )
+    if err != nil {
+        // ... handle error ...
+    }
+
+    conn, err := secs1.NewConnection(ctx, connCfg)
+    if err != nil {
+        // ... handle error ...
+    }
+    defer conn.Close()
+
+    // Add a session with device ID before opening connection
+    session := conn.AddSession(1)
+
+    // Add a data message handler
+    session.AddDataMessageHandler(msgHandler)
+
+    // Open connection and wait for selected state
+    err = conn.Open(true)
+    if err != nil {
+        // ... handle error ...
+    }
+
+    // Send an S1F1 message and wait for reply
+    reply, err := session.SendDataMessage(1, 1, true, secs2.NewASCIIItem("test"))
+    if err != nil {
+        // ... handle error ...
+    }
+    // Process the reply
+
+    // ... other SECS-I operations ...
+}
+```
+
+### Create SECS-I Equipment with Passive Mode
+```go
+func msgHandler(msg *hsms.DataMessage, session hsms.Session) {
+    // handle received messages
+    _ = session.ReplyDataMessage(msg, msg.Item())
+}
+
+func main() {
+    // ...
+    // Create a new SECS-I connection
+    connCfg, err := secs1.NewConnectionConfig("127.0.0.1", 5000,
+        secs1.WithPassive(),    // passive mode (TCP server)
+        secs1.WithEquipRole(),  // equipment role (Master per SEMI E4 §7.5)
+        secs1.WithDeviceID(1),  // 15-bit device ID
+        secs1.WithT3Timeout(30*time.Second),
+        secs1.WithValidateDataMessage(true), // enable S9Fx error reporting
+        // other options...
+    )
+    if err != nil {
+        // ... handle error ...
+    }
+
+    conn, err := secs1.NewConnection(ctx, connCfg)
+    if err != nil {
+        // ... handle error ...
+    }
+    defer conn.Close()
+
+    // Add a session with device ID before opening connection
+    session := conn.AddSession(1)
+
+    // Add a data message handler
+    session.AddDataMessageHandler(msgHandler)
+
+    // Open connection and wait for selected state
+    err = conn.Open(true)
+    if err != nil {
+        // ... handle error ...
+    }
+
+    // Send an S1F13 message and wait for reply
+    reply, err := session.SendDataMessage(1, 13, true, nil)
+    if err != nil {
+        // ... handle error ...
+    }
+    // Process the reply
+
+    // ... other SECS-I operations ...
 }
 ```
