@@ -14,6 +14,7 @@ define NEWLINE
 endef
 
 TEST_TIMEOUT := 5m
+GO_TEST_P ?= $(shell nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 8)
 
 ALL_SRC         := $(shell find . -name "*.go")
 ALL_SRC         += go.mod
@@ -40,11 +41,9 @@ build-tests:
 	@go test -exec="true" -count=0 $(TEST_DIRS)
 
 test: clean
-	@printf "Run tests...\n"
-	$(foreach TEST_DIR,$(TEST_DIRS),\
-		@CGO_ENABLED=1  go test $(TEST_DIR) -short -timeout=$(TEST_TIMEOUT) $(VERBOSE_TAG) -race | tee -a test.log \
-	$(NEWLINE))
-	@! grep -q "^--- FAIL" test.log
+	@printf "Run tests with V=$(V), timeout=$(TEST_TIMEOUT), parallelism=$(GO_TEST_P)...\n"
+	@CGO_ENABLED=1 go test ./... -short -timeout=$(TEST_TIMEOUT) $(VERBOSE_TAG) -race -p $(GO_TEST_P) > test.log 2>&1 || { cat test.log; exit 1; }
+	@cat test.log
 
 # Update https://pkg.go.dev/
 update-pkg-cache:
