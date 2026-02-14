@@ -24,7 +24,7 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, prevState hsms.C
 			return
 		}
 
-		if err := c.taskMgr.StartSender("senderTask", c.senderTask, c.cancelSenderTask, c.senderMsgChan); err != nil {
+		if err := c.taskMgr.Start("senderTask", c.senderLoop); err != nil {
 			c.logger.Error("failed to start sender task", "error", err)
 			c.stateMgr.ToNotConnectedAsync()
 			return
@@ -88,7 +88,11 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, prevState hsms.C
 func (c *Connection) recvMsgPassive(msg hsms.HSMSMessage) {
 	switch msg.Type() {
 	case hsms.DataMsgType:
-		if !c.isSelectedState() {
+		// Accept data messages if in SELECTED state, or if the connection is
+		// transitioning to SELECTED (desired state is SELECTED after a Select.req
+		// was accepted). This avoids a race where the remote sends data before
+		// the async state transition completes.
+		if !c.stateMgr.IsSelected() && c.stateMgr.DesiredState() != hsms.SelectedState {
 			c.logger.Warn("passive: reject msg by not selected state reason",
 				hsms.MsgInfo(msg, "method", "recvMsgPassive", "state", c.stateMgr.State())...,
 			)

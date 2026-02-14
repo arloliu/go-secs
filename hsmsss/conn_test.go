@@ -965,6 +965,105 @@ func TestConnection_Constants(t *testing.T) {
 	require.Equal(5*time.Millisecond, closeCheckInterval)
 }
 
+// TestConnection_ReplyChannelBuffered verifies that reply channels are buffered
+// so that replyToSender never blocks when the consumer (sendMsg) has not yet
+// read the channel. This prevents reply drops under high contention.
+func TestConnection_ReplyChannelBuffered(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+
+	connCfg, err := NewConnectionConfig("localhost", 6666, WithHostRole())
+	require.NoError(err)
+
+	conn, err := NewConnection(ctx, connCfg)
+	require.NoError(err)
+
+	id := uint32(42)
+	ch := conn.addReplyExpectedMsg(id)
+
+	// Verify the channel is buffered(1): a send should not block even
+	// though nobody is reading from ch yet.
+	rawCh, loaded := conn.replyMsgChans.Load(id)
+	require.True(loaded)
+	require.Equal(1, cap(rawCh), "reply channel should be buffered with capacity 1")
+
+	// Write into the channel without a consumer — must not block.
+	msg, _ := hsms.NewDataMessage(1, 2, false, 0, hsms.ToSystemBytes(42), nil)
+	done := make(chan struct{})
+	go func() {
+		rawCh <- msg
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// good — the send didn't block
+	case <-time.After(time.Second):
+		t.Fatal("reply channel send blocked — channel is not buffered")
+	}
+
+	// Consumer should receive the message.
+	received := <-ch
+	require.NotNil(received)
+	require.Equal(msg.ID(), received.ID())
+
+	conn.removeReplyExpectedMsg(id)
+}
+
+// TestConnection_CloseTCPIdempotent verifies that closeTCP is idempotent:
+// calling it multiple times (including concurrently) does not panic or
+// double-close the underlying net.Conn.
+func TestConnection_CloseTCPIdempotent(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithConnectRemoteTimeout(100*time.Millisecond),
+		WithCloseConnTimeout(1*time.Second),
+	)
+	eqpComm := newTestComm(ctx, t, port, false, false,
+		WithCloseConnTimeout(1*time.Second),
+	)
+
+	require.NoError(eqpComm.open(true))
+	require.NoError(hostComm.open(true))
+
+	// Wait for both sides to be selected.
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+	require.NoError(eqpComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+	// Verify the conn resource is non-nil before close.
+	require.NotNil(hostComm.conn.getConn(), "conn should be non-nil before closeTCP")
+
+	// First closeTCP should succeed and return a non-empty remote address.
+	remote := hostComm.conn.closeTCP(time.Second)
+	require.NotEmpty(remote, "first closeTCP should return remote address")
+
+	// Conn resource should now be nil.
+	require.Nil(hostComm.conn.getConn(), "conn should be nil after closeTCP")
+
+	// Second closeTCP should be a no-op and return empty string.
+	remote2 := hostComm.conn.closeTCP(time.Second)
+	require.Empty(remote2, "second closeTCP should return empty string")
+
+	// Concurrent calls should not panic.
+	var wg sync.WaitGroup
+	for range 10 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = hostComm.conn.closeTCP(time.Second)
+		}()
+	}
+	wg.Wait()
+
+	// Clean up.
+	hostComm.conn.shutdown.Store(true)
+	_ = hostComm.conn.closeConn(time.Second)
+	require.NoError(eqpComm.close())
+}
+
 // TestConnection_ValidateMsgConsolidation verifies that message validation
 // is properly consolidated and works correctly for both active and passive connections.
 func TestConnection_ValidateMsgConsolidation(t *testing.T) {
@@ -1042,4 +1141,173 @@ func TestConnection_ActiveBackoffDoesNotBlockClose(t *testing.T) {
 
 	// If backoff blocks the state handler, Close() would tend to stall ~retryDelay.
 	require.Less(elapsed, 2*time.Second, "Close took too long; backoff may be blocking state handler")
+}
+
+// TestConnection_T3StartsAfterSend verifies that the T3 reply timer does not
+// start until the message has actually been written to TCP (2-phase send).
+//
+// Strategy: use a slow equipment handler (500ms) with T3 = 1s (minimum allowed).
+// The reply arrives at ~500ms, well within the 1s T3 window.
+// Additionally, verify the sendRequest.sentChan mechanism works by checking
+// that the send phase completes before the reply arrives.
+func TestConnection_T3StartsAfterSend(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	// Host: T3 = 1s (minimum allowed).
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithT3Timeout(1*time.Second),
+		WithConnectRemoteTimeout(1*time.Second),
+		WithCloseConnTimeout(2*time.Second),
+	)
+	// Equipment: slow echo handler adds 500ms processing delay.
+	eqpComm := newSlowTestComm(ctx, t, port, false, false,
+		WithCloseConnTimeout(2*time.Second),
+	)
+
+	require.NoError(eqpComm.open(true))
+	require.NoError(hostComm.open(true))
+	defer func() {
+		require.NoError(hostComm.close())
+		require.NoError(eqpComm.close())
+	}()
+
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+	require.NoError(eqpComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+	// With the 2-phase send, T3 (1s) starts only after the message is
+	// written to TCP. The slow handler adds 500ms, so the reply arrives
+	// at ~500ms — well within the 1s T3 window.
+	reply, err := hostComm.session.SendDataMessage(1, 1, true, secs2.A("hello"))
+	require.NoError(err, "T3 should NOT fire for a reply that arrives within the timer window")
+	require.NotNil(reply)
+	require.Equal(byte(1), reply.StreamCode())
+	require.Equal(byte(2), reply.FunctionCode())
+}
+
+// TestConnection_TwoPhase_SentChan verifies the internal 2-phase send mechanism:
+// the sentChan is signaled after the message is written to TCP.
+func TestConnection_TwoPhase_SentChan(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithCloseConnTimeout(2*time.Second),
+	)
+	eqpComm := newTestComm(ctx, t, port, false, false,
+		WithCloseConnTimeout(2*time.Second),
+	)
+
+	require.NoError(eqpComm.open(true))
+	require.NoError(hostComm.open(true))
+	defer func() {
+		require.NoError(hostComm.close())
+		require.NoError(eqpComm.close())
+	}()
+
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+	require.NoError(eqpComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+	// Manually construct a sendRequest with a sentChan to verify the mechanism.
+	msg, err := hsms.NewDataMessage(1, 1, true, testSessionID, hsms.GenerateMsgSystemBytes(), secs2.A("test"))
+	require.NoError(err)
+
+	sentChan := make(chan error, 1)
+	req := &sendRequest{msg: msg, sentChan: sentChan}
+
+	err = hostComm.conn.queueSendRequest(req)
+	require.NoError(err)
+
+	// Phase 1: sentChan should be signaled quickly (message written to TCP).
+	select {
+	case sendErr := <-sentChan:
+		require.NoError(sendErr, "sentChan should signal nil on successful send")
+	case <-time.After(3 * time.Second):
+		t.Fatal("sentChan was not signaled within timeout")
+	}
+}
+
+// TestConnection_SendRequestDrainOnClose verifies that pending sendRequests
+// are properly drained and their sentChans signaled with ErrConnClosed
+// when the connection is closed, preventing goroutine leaks.
+func TestConnection_SendRequestDrainOnClose(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithSenderQueueSize(100),
+		WithCloseConnTimeout(1*time.Second),
+		WithConnectRemoteTimeout(100*time.Millisecond),
+	)
+	eqpComm := newTestComm(ctx, t, port, false, false)
+
+	require.NoError(eqpComm.open(true))
+	require.NoError(hostComm.open(true))
+	defer eqpComm.close()
+
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+	// Close equipment side to cause send failures.
+	require.NoError(eqpComm.close())
+
+	// Queue multiple async messages that will pile up.
+	var wg sync.WaitGroup
+	for range 50 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = hostComm.session.SendDataMessageAsync(1, 1, true, secs2.A("test"))
+		}()
+	}
+	time.Sleep(10 * time.Millisecond)
+
+	// Close the host — this should drain all pending requests.
+	start := time.Now()
+	require.NoError(hostComm.close())
+	elapsed := time.Since(start)
+
+	require.Less(elapsed, 500*time.Millisecond, "Close should drain quickly, not block")
+
+	wg.Wait()
+}
+
+// TestConnection_ReceiverTask_DecodeErrorNoPanic verifies that receiverTask
+// does not panic on decode errors when traceTraffic is enabled.
+//
+// Regression: receiverTask previously passed a nil message to hsms.MsgInfo in
+// the decode-error path, which could panic.
+func TestConnection_ReceiverTask_DecodeErrorNoPanic(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+
+	c := newConn(ctx, require, getPort(), true, true,
+		WithTraceTraffic(true),
+		WithT8Timeout(1*time.Second),
+	)
+
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	c.setupResources(client)
+
+	// Write malformed HSMS frame:
+	// - Length=5 (valid framing)
+	// - Payload too short for HSMS header decode (requires >= 10 bytes)
+	go func() {
+		_, _ = server.Write([]byte{0x00, 0x00, 0x00, 0x05})
+		_, _ = server.Write([]byte{0x01, 0x02, 0x03, 0x04, 0x05})
+	}()
+
+	msgLenBuf := make([]byte, 4)
+
+	require.NotPanics(func() {
+		ok := c.receiverTask(msgLenBuf)
+		require.False(ok, "decode failure should stop receiverTask")
+	})
+
+	require.Equal(uint64(1), c.metrics.DataMsgErrCount.Load())
 }

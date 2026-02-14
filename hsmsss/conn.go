@@ -3,7 +3,6 @@ package hsmsss
 import (
 	"bufio"
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -17,7 +16,6 @@ import (
 	"github.com/arloliu/go-secs/hsms"
 	"github.com/arloliu/go-secs/internal/pool"
 	"github.com/arloliu/go-secs/logger"
-	"github.com/arloliu/go-secs/secs2"
 	"github.com/puzpuzpuz/xsync/v3"
 )
 
@@ -66,7 +64,7 @@ type Connection struct {
 	reconnectGen atomic.Uint64
 	tickers      tickerCtl // linktest control
 
-	senderMsgChan chan hsms.HSMSMessage // channel for sending messages to the senderTask, the lifetime is the same as this connection object
+	senderMsgChan chan *sendRequest // channel for sending messages to the senderTask, the lifetime is the same as this connection object
 	replyMsgChans *xsync.MapOf[uint32, chan hsms.HSMSMessage]
 	replyErrs     *xsync.MapOf[uint32, error]
 
@@ -78,6 +76,16 @@ type Connection struct {
 type connectionResources struct {
 	conn   net.Conn
 	writer *bufio.Writer
+}
+
+// sendRequest wraps an HSMSMessage with an optional send-completion channel.
+//
+// When sentChan is non-nil, the sender task signals it with nil on success
+// or with the error on failure. This is used by sendMsg to start the T3/T6
+// timer only after the message is on the wire, per SEMI E37 §8.3.6.
+type sendRequest struct {
+	msg      hsms.HSMSMessage
+	sentChan chan error // nil for fire-and-forget (sendMsgAsync / sendMsgSync)
 }
 
 // ensure Connection implements hsms.Connection interface.
@@ -100,7 +108,7 @@ func NewConnection(ctx context.Context, cfg *ConnectionConfig) (*Connection, err
 		retryDelay:    initialRetryDelay,
 	}
 	// create sender message channel at beginning and not close it.
-	conn.senderMsgChan = make(chan hsms.HSMSMessage, cfg.senderQueueSize)
+	conn.senderMsgChan = make(chan *sendRequest, cfg.senderQueueSize)
 
 	conn.opState.Set(hsms.ClosedState)
 
@@ -302,27 +310,24 @@ func (c *Connection) isClosed() bool {
 	return c.opState.IsClosed() && c.stateMgr.State() == hsms.NotConnectedState && c.stateMgr.DesiredState() == hsms.NotConnectedState
 }
 
-// drainSenderMsgChan drains the sender message channel until it is closed or empty.
+// drainSenderMsgChan drains pending sendRequests from the channel.
+// Each drained request with a sentChan is signaled with ErrConnClosed so
+// that any goroutine blocked in sendMsg wakes up immediately.
 func (c *Connection) drainSenderMsgChan(ctx context.Context) {
-	lastSendMsgOk := true
-
-drainLoop:
 	for {
 		select {
 		case <-ctx.Done():
-			c.logger.Debug("context done, stop draining sender message channel", "method", "drainSenderMsgChan")
-			break drainLoop
-		case msg, ok := <-c.senderMsgChan:
+			return
+		case req, ok := <-c.senderMsgChan:
 			if !ok {
-				break drainLoop
+				return
 			}
 
-			// only continue to send message if msg is not nil and the last of senderTask success
-			if msg != nil && lastSendMsgOk {
-				lastSendMsgOk = c.senderTask(msg)
+			if req != nil && req.sentChan != nil {
+				req.sentChan <- hsms.ErrConnClosed
 			}
 		default:
-			break drainLoop
+			return
 		}
 	}
 }
@@ -363,12 +368,20 @@ func (c *Connection) withResources(fn func(conn net.Conn, writer *bufio.Writer) 
 }
 
 // closeTCP closes the TCP connection with a specified timeout and returns the remote address.
+// The conn reference is nil'd under the write lock so that subsequent calls are no-ops.
 func (c *Connection) closeTCP(timeout time.Duration) string {
-	conn := c.getConn()
-
+	c.resMutex.Lock()
+	conn := c.resources.conn
 	if conn == nil {
+		c.resMutex.Unlock()
+
 		return ""
 	}
+
+	// Nil the references under the write lock so subsequent calls are no-ops.
+	c.resources.conn = nil
+	c.resources.writer = nil
+	c.resMutex.Unlock()
 
 	remote := conn.RemoteAddr().String()
 	c.logger.Debug("close TCP connection", "method", "closeConn")
@@ -488,7 +501,13 @@ func (c *Connection) sendControlMsg(msg *hsms.ControlMessage) (*hsms.ControlMess
 
 // sendMsg sends an HSMS message (data or control) and waits for a reply if the message's W-bit is set.
 // It returns the received reply message and an error if any occurred.
-// It handles T3 and T6 timeouts and manages reply channels for concurrent message sending.
+//
+// For messages that expect a reply (W-bit set), the method uses a two-phase approach:
+//   - Phase 1: Queue the message and wait for the senderTask to confirm it is on the wire.
+//   - Phase 2: Start the T3/T6 timer and wait for the reply.
+//
+// This ensures the reply timer does not include queuing and TCP write latency,
+// consistent with SEMI E37 §8.3.6.
 func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	if c.logger.Level() == logger.DebugLevel {
 		c.logger.Debug("start to send message",
@@ -512,7 +531,36 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 		return nil, nil //nolint:nilnil
 	}
 
-	// set T3 or T6 timeout
+	// --- W-bit set: register reply channel and use 2-phase send ---
+
+	id := msg.ID()
+	replyMsgChan := c.addReplyExpectedMsg(id)
+
+	sentChan := make(chan error, 1)
+	req := &sendRequest{msg: msg, sentChan: sentChan}
+
+	if err := c.queueSendRequest(req); err != nil {
+		c.removeReplyExpectedMsg(id)
+
+		return nil, err
+	}
+
+	// Phase 1: Wait for the senderTask to confirm the message is on the wire.
+	select {
+	case <-c.ctx.Done():
+		c.removeReplyExpectedMsg(id)
+
+		return nil, hsms.ErrConnClosed
+
+	case sendErr := <-sentChan:
+		if sendErr != nil {
+			c.removeReplyExpectedMsg(id)
+
+			return nil, sendErr
+		}
+	}
+
+	// Phase 2: Message is on the wire — start T3 or T6 timer.
 	timeout := c.cfg.t3Timeout
 	if msg.IsControlMessage() {
 		timeout = c.cfg.t6Timeout
@@ -521,22 +569,18 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	sendMsgTimer := pool.GetTimer(timeout)
 	defer pool.PutTimer(sendMsgTimer)
 
-	id := msg.ID()
-	replyMsgChan := c.addReplyExpectedMsg(id)
-
-	err := c.sendMsgAsync(msg)
-	if err != nil {
-		c.removeReplyExpectedMsg(id)
-		return nil, err
-	}
+	c.metrics.incDataMsgInflightCount()
 
 	select {
 	case <-c.ctx.Done():
 		c.removeReplyExpectedMsg(id)
+		c.metrics.decDataMsgInflightCount()
+
 		return nil, hsms.ErrConnClosed
 
 	case <-sendMsgTimer.C:
 		c.removeReplyExpectedMsg(id)
+		c.metrics.decDataMsgInflightCount()
 
 		c.logger.Warn("send message timeout", hsms.MsgInfo(msg, "method", "sendMsg", "timeout", timeout)...)
 		if msg.IsDataMessage() {
@@ -552,6 +596,8 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 
 	// wait reply message from receiverTask
 	case replyMsg := <-replyMsgChan:
+		c.metrics.decDataMsgInflightCount()
+
 		if replyMsg == nil {
 			// check if error existed
 			if err, ok := c.replyErrs.LoadAndDelete(id); ok {
@@ -637,22 +683,29 @@ func (c *Connection) sendMsgSync(msg hsms.HSMSMessage) error {
 }
 
 // sendMsgAsync sends an HSMS message asynchronously by sending it to the senderMsgChan.
-// It uses a non-blocking select with a timeout to avoid blocking the caller.
+// This is the fire-and-forget path: the caller does not wait for send completion.
 func (c *Connection) sendMsgAsync(msg hsms.HSMSMessage) error {
+	return c.queueSendRequest(&sendRequest{msg: msg})
+}
+
+// queueSendRequest puts a sendRequest onto the senderTask's channel.
+func (c *Connection) queueSendRequest(req *sendRequest) error {
 	timer := pool.GetTimer(c.cfg.sendTimeout)
 	defer pool.PutTimer(timer)
 
 	select {
 	case <-timer.C:
 		return hsms.ErrSendMsgTimeout
-	case c.senderMsgChan <- msg: // send message to sender message channel, senderTask will handle it.
+	case c.senderMsgChan <- req:
 		return nil
 	}
 }
 
 // addReplyExpectedMsg adds a reply channel to the replyMsgChans map for a message that expects a reply.
+// The channel is buffered with capacity 1 so that replyToSender never blocks
+// waiting for the consumer, which prevents reply drops under high contention.
 func (c *Connection) addReplyExpectedMsg(id uint32) <-chan hsms.HSMSMessage {
-	ch := make(chan hsms.HSMSMessage)
+	ch := make(chan hsms.HSMSMessage, 1)
 	c.replyMsgChans.Store(id, ch)
 
 	return ch
@@ -682,29 +735,62 @@ func (c *Connection) cancelSenderTask() {
 	c.stateMgr.ToNotConnectedAsync()
 }
 
-// senderTask is the task function for the sender goroutine.
-// It receives messages from the senderMsgChan and sends them synchronously over the connection.
-func (c *Connection) senderTask(msg hsms.HSMSMessage) bool {
-	if msg == nil {
-		c.logger.Warn("received nil message in senderTask, ignore")
-		return true // continue the sender task
+// senderLoop reads sendRequests from the channel and sends them synchronously.
+// It returns false to stop the task on fatal errors.
+func (c *Connection) senderLoop() bool {
+	select {
+	case <-c.ctx.Done():
+		return false
+
+	case req, ok := <-c.senderMsgChan:
+		if !ok {
+			return false
+		}
+
+		if req == nil || req.msg == nil {
+			c.logger.Warn("received nil sendRequest in senderLoop, ignore")
+
+			return true
+		}
+
+		if !c.processSendRequest(req) {
+			c.cancelSenderTask()
+
+			return false
+		}
+
+		return true
 	}
+}
+
+// processSendRequest handles a single sendRequest: writes the message to TCP
+// and signals the optional sentChan with the result.
+func (c *Connection) processSendRequest(req *sendRequest) bool {
+	msg := req.msg
 
 	c.metrics.incDataMsgSendCount()
-	if msg.WaitBit() {
-		c.metrics.incDataMsgInflightCount()
-	}
 
 	err := c.sendMsgSync(msg)
 	if err != nil {
 		c.metrics.incDataMsgErrCount()
-		c.replyErrToSender(msg, err)
+
+		// Signal the caller that send failed.
+		if req.sentChan != nil {
+			req.sentChan <- err
+		} else {
+			c.replyErrToSender(msg, err)
+		}
 
 		if !isNetOpError(err) {
 			c.logger.Error("failed to send message", "method", "senderTask", "error", err)
 		}
 
 		return false
+	}
+
+	// Signal the caller that send succeeded.
+	if req.sentChan != nil {
+		req.sentChan <- nil
 	}
 
 	// reset the linktest ticker when a message is sent successfully
@@ -720,106 +806,46 @@ func (c *Connection) cancelReceiverTask() {
 }
 
 // receiverTask is the task function for the receiver goroutine.
-// It reads and decodes HSMS messages from the connection and processes them accordingly.
+// It uses messageReader to read and decode HSMS messages from the connection,
+// then dispatches them to the appropriate handler.
 //
 // It respects the T8 timeout for reading messages and handles message length validation.
 func (c *Connection) receiverTask(msgLenBuf []byte) bool {
 	conn := c.getConn()
-
 	if conn == nil {
 		return false // stop the receiver task if connection is closed
 	}
 
-	// no timeout for reading message length - allow connection to idle
-	if err := conn.SetReadDeadline(time.Time{}); err != nil {
-		c.logger.Error("failed to clear read deadline", "error", err)
-		return false // stop the receiver task
-	}
+	reader := &messageReader{t8Timeout: c.cfg.t8Timeout}
 
-	// read 4 bytes message length (blocks until data arrives)
-	// the blocking read will returns when the connection is closed or an error occurs.
-	if _, err := io.ReadFull(conn, msgLenBuf); err != nil {
-		if !isNetError(err) {
-			c.logger.Error("failed to read the length of HSMS message", "method", "receiverTask", "error", err)
-		} else {
-			c.logger.Debug("network error, failed to read the length of HSMS message",
+	msg, rawBody, err := reader.ReadMessage(conn, msgLenBuf)
+	if err != nil {
+		// Exactly one log per error, at the appropriate level.
+		// rawBody non-nil indicates a decode failure (payload was read successfully
+		// but could not be decoded). Note: msg is nil on decode failure, so we must
+		// NOT pass it to hsms.MsgInfo which would panic on nil.
+		switch {
+		case rawBody != nil && c.cfg.traceTraffic:
+			c.logger.Error("failed to decode HSMS message",
 				"method", "receiverTask",
 				"error", err,
+				"raw", hsms.MsgHexString(msgLenBuf, rawBody),
 			)
-		}
-
-		// if connection closed or any error occurred other than timeout, stop the receiver task
-		c.metrics.incDataMsgErrCount()
-
-		return false
-	}
-
-	msgLen := binary.BigEndian.Uint32(msgLenBuf)
-	if msgLen == 0 {
-		c.metrics.incDataMsgErrCount()
-		c.logger.Error("HSMS message length is zero", "method", "receiverTask")
-
-		// zero-length message is invalid, stop the receiver task
-		return false
-	}
-
-	if msgLen > secs2.MaxByteSize {
-		c.metrics.incDataMsgErrCount()
-		c.logger.Error("HSMS message length exceeds maximum allowed length",
-			"method", "receiverTask",
-			"msgLen", msgLen,
-			"maxLen", secs2.MaxByteSize,
-		)
-
-		// the message length exceeds the maximum allowed length, stop the receiver task
-		return false
-	}
-
-	// now set T8 timeout for reading the HSMS message
-	if err := conn.SetReadDeadline(time.Now().Add(c.cfg.t8Timeout)); err != nil {
-		c.logger.Error("failed to set read deadline", "error", err)
-		return false
-	}
-
-	// no need to use message pool, the performance impact is negligible
-	msgBuf := make([]byte, msgLen)
-
-	if _, err := io.ReadFull(conn, msgBuf); err != nil {
-		if !isNetError(err) {
+		case rawBody != nil:
+			c.logger.Error("failed to decode HSMS message", "method", "receiverTask", "error", err)
+		case !isNetError(err):
 			c.logger.Error("failed to read HSMS message", "method", "receiverTask", "error", err)
-		} else {
-			c.logger.Debug("network error, failed to read HSMS message", "method", "receiverTask", "error", err)
+		default:
+			c.logger.Debug("network error reading HSMS message", "method", "receiverTask", "error", err)
 		}
 
 		c.metrics.incDataMsgErrCount()
 
-		// if connection closed or any error, including timeout, stop the receiver task
-		// because the message is not complete or malformed.
-		return false
-	}
-
-	// decode the HSMS message
-	msg, err := hsms.DecodeMessage(msgLen, msgBuf)
-	if err != nil {
-		if c.cfg.traceTraffic {
-			c.logger.Error("failed to decode HSMS message",
-				hsms.MsgInfo(
-					msg,
-					"error", err,
-					"raw", hsms.MsgHexString(msgLenBuf, msgBuf),
-				)...,
-			)
-		} else {
-			c.logger.Error("failed to decode HSMS message", "error", err)
-		}
-		c.metrics.incDataMsgErrCount()
-		// if message decode failed, it means the message is malformed or not a valid HSMS message.
-		// stop the receiver task
 		return false
 	}
 
 	if c.cfg.traceTraffic {
-		c.logger.Info("trace: received message", hsms.MsgInfo(msg, "raw", hsms.MsgHexString(msgLenBuf, msgBuf))...)
+		c.logger.Info("trace: received message", hsms.MsgInfo(msg, "raw", hsms.MsgHexString(msgLenBuf, rawBody))...)
 	}
 
 	c.metrics.incDataMsgRecvCount()
@@ -994,26 +1020,6 @@ func (c *Connection) validateMsg(msg hsms.HSMSMessage) error {
 
 	// TODO: validate other message fields if needed,e.g. S9F3, S9F5, ... etc.
 	return nil
-}
-
-// isSelectedState checks if the connection is in the selected state.
-// It tries to check the state several times to handle edge cases where the passive connection
-// may change to selected state after the active connection, and the active connection may send
-// data message before the passive connection transits to selected state.
-// This is particularly useful in scenarios where the connection state may not be immediately
-// reflected in the state manager due to timing issues.
-func (c *Connection) isSelectedState() bool {
-	isSelectedState := false
-	for range 3 {
-		isSelectedState = c.stateMgr.IsSelected()
-		if isSelectedState {
-			break
-		}
-		sleep := min(max(c.cfg.t7Timeout/100, 50*time.Millisecond), 100*time.Millisecond)
-		time.Sleep(sleep)
-	}
-
-	return isSelectedState
 }
 
 // tickerCtl is a helper struct for managing interval tasks interval.

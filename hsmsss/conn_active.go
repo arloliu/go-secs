@@ -66,7 +66,7 @@ func (c *Connection) activeConnStateHandler(_ hsms.Connection, prevState hsms.Co
 			return
 		}
 
-		if err := c.taskMgr.StartSender("senderTask", c.senderTask, c.cancelSenderTask, c.senderMsgChan); err != nil {
+		if err := c.taskMgr.Start("senderTask", c.senderLoop); err != nil {
 			c.logger.Error("failed to start sender task", "error", err)
 			c.stateMgr.ToNotConnectedAsync()
 			return
