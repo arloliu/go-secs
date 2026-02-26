@@ -105,6 +105,26 @@ type ConnectionConfig struct {
 	// Added in v1.8.0
 	sendTimeout time.Duration
 
+	// keepAlivePeriod defines the TCP Keep-Alive probe interval for the connection.
+	// TCP Keep-Alive allows the OS to detect dead peers (TCP half-open connections)
+	// by periodically sending probe packets on idle connections.
+	//
+	// Set to 0 to disable TCP Keep-Alive.
+	//
+	// Defaults to 30 seconds.
+	keepAlivePeriod time.Duration
+
+	// idleReadTimeout defines the periodic read deadline used when waiting for
+	// the 4-byte message length header. It prevents the receiver goroutine from
+	// blocking indefinitely in the kernel read syscall, which is critical for
+	// detecting TCP half-open connections.
+	//
+	// Each time the deadline fires without receiving data, the receiver loop
+	// continues, allowing the task manager to check context cancellation.
+	//
+	// Defaults to 10 seconds.
+	idleReadTimeout time.Duration
+
 	// senderQueueSize defines the size of the sender queue, which buffers messages before sending them
 	// to the remote HSMS device.
 	//
@@ -161,6 +181,8 @@ func NewConnectionConfig(host string, port int, opts ...ConnOption) (*Connection
 		acceptConnTimeout:    1 * time.Second,
 		closeConnTimeout:     3 * time.Second,
 		sendTimeout:          1 * time.Second,
+		keepAlivePeriod:      30 * time.Second,
+		idleReadTimeout:      10 * time.Second,
 		senderQueueSize:      10,
 		dataMsgQueueSize:     10,
 		validateDataMessage:  true,
@@ -249,6 +271,22 @@ func (cfg *ConnectionConfig) T8Timeout() time.Duration {
 	defer cfg.mu.RUnlock()
 
 	return cfg.t8Timeout
+}
+
+// KeepAlivePeriod returns the TCP Keep-Alive probe interval.
+func (cfg *ConnectionConfig) KeepAlivePeriod() time.Duration {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	return cfg.keepAlivePeriod
+}
+
+// IdleReadTimeout returns the periodic read deadline for message header reads.
+func (cfg *ConnectionConfig) IdleReadTimeout() time.Duration {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	return cfg.idleReadTimeout
 }
 
 // ConnOption represents a functional option for configuring a ConnectionConfig.
@@ -679,6 +717,64 @@ func WithSendTimeout(val time.Duration) ConnOption {
 
 		cfg.mu.Lock()
 		cfg.sendTimeout = val
+		cfg.mu.Unlock()
+
+		return nil
+	})
+}
+
+// WithKeepAlivePeriod sets the TCP Keep-Alive probe interval for the connection.
+// TCP Keep-Alive allows the OS to detect dead peers (TCP half-open connections)
+// by periodically sending probe packets on idle connections.
+//
+// Set to 0 to disable TCP Keep-Alive.
+// An error is returned if the value exceeds 120 seconds or if the configuration is nil.
+//
+// The default value is 30 seconds.
+//
+// This option can be changed at runtime.
+func WithKeepAlivePeriod(val time.Duration) ConnOption {
+	return newConnOptFunc("WithKeepAlivePeriod", true, func(cfg *ConnectionConfig) error {
+		if cfg == nil {
+			return hsms.ErrConnConfigNil
+		}
+
+		if val < 0 || val > 120*time.Second {
+			return errors.New("keep alive period out of range [0, 120]")
+		}
+
+		cfg.mu.Lock()
+		cfg.keepAlivePeriod = val
+		cfg.mu.Unlock()
+
+		return nil
+	})
+}
+
+// WithIdleReadTimeout sets the periodic read deadline for the message header read.
+// It prevents the receiver goroutine from blocking indefinitely in the kernel read
+// syscall, which is critical for detecting TCP half-open connections.
+//
+// Each time the deadline fires without receiving data, the receiver loop continues,
+// allowing the task manager to check context cancellation.
+//
+// An error is returned if the value is outside the valid range (1-120 seconds) or if the configuration is nil.
+//
+// The default value is 10 seconds.
+//
+// This option can be changed at runtime.
+func WithIdleReadTimeout(val time.Duration) ConnOption {
+	return newConnOptFunc("WithIdleReadTimeout", true, func(cfg *ConnectionConfig) error {
+		if cfg == nil {
+			return hsms.ErrConnConfigNil
+		}
+
+		if val < 1*time.Second || val > 120*time.Second {
+			return errors.New("idle read timeout out of range [1, 120]")
+		}
+
+		cfg.mu.Lock()
+		cfg.idleReadTimeout = val
 		cfg.mu.Unlock()
 
 		return nil

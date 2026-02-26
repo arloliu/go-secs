@@ -31,6 +31,13 @@ func TestNewConnectionConfig(t *testing.T) {
 		require.True(cfg.isActive)
 	})
 
+	t.Run("Default KeepAlivePeriod and IdleReadTimeout", func(t *testing.T) {
+		cfg, err := NewConnectionConfig("192.168.1.1", 5000)
+		require.NoError(err)
+		require.Equal(30*time.Second, cfg.KeepAlivePeriod())
+		require.Equal(10*time.Second, cfg.IdleReadTimeout())
+	})
+
 	t.Run("Invalid IP Address", func(t *testing.T) {
 		_, err := NewConnectionConfig("invalid-ip", 5000)
 		require.Error(err)
@@ -131,6 +138,34 @@ func TestNewConnectionConfig(t *testing.T) {
 		require.EqualError(err, "connect remote timeout out of range [1, 30]")
 
 		err = WithConnectRemoteTimeout(5).apply(nil)
+		require.Error(err)
+		require.ErrorIs(hsms.ErrConnConfigNil, err)
+	})
+
+	t.Run("Invalid KeepAlivePeriod", func(t *testing.T) {
+		_, err := NewConnectionConfig("192.168.1.1", 5000, WithKeepAlivePeriod(-1))
+		require.Error(err)
+		require.EqualError(err, "keep alive period out of range [0, 120]")
+
+		_, err = NewConnectionConfig("192.168.1.1", 5000, WithKeepAlivePeriod(121*time.Second))
+		require.Error(err)
+		require.EqualError(err, "keep alive period out of range [0, 120]")
+
+		err = WithKeepAlivePeriod(5 * time.Second).apply(nil)
+		require.Error(err)
+		require.ErrorIs(hsms.ErrConnConfigNil, err)
+	})
+
+	t.Run("Invalid IdleReadTimeout", func(t *testing.T) {
+		_, err := NewConnectionConfig("192.168.1.1", 5000, WithIdleReadTimeout(0))
+		require.Error(err)
+		require.EqualError(err, "idle read timeout out of range [1, 120]")
+
+		_, err = NewConnectionConfig("192.168.1.1", 5000, WithIdleReadTimeout(121*time.Second))
+		require.Error(err)
+		require.EqualError(err, "idle read timeout out of range [1, 120]")
+
+		err = WithIdleReadTimeout(5 * time.Second).apply(nil)
 		require.Error(err)
 		require.ErrorIs(hsms.ErrConnConfigNil, err)
 	})

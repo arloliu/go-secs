@@ -69,7 +69,7 @@ func FuzzMessageReader_ReadMessage(f *testing.F) {
 		}()
 		defer client.Close()
 
-		reader := &messageReader{t8Timeout: 50 * time.Millisecond}
+		reader := &messageReader{t8Timeout: 50 * time.Millisecond, idleReadTimeout: 10 * time.Second}
 		lenBuf := make([]byte, 4)
 
 		// Must not panic.

@@ -2,8 +2,8 @@ package hsmsss
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
-	"io"
 	"net"
 	"time"
 
@@ -14,7 +14,7 @@ import (
 // messageReader reads and decodes individual HSMS messages from a net.Conn.
 //
 // It implements the HSMS message framing protocol (SEMI E37 §7):
-//  1. Read 4-byte big-endian message length (no timeout — allows idle connections)
+//  1. Read 4-byte big-endian message length (periodic deadline to avoid infinite blocking)
 //  2. Validate length (non-zero, ≤ secs2.MaxByteSize)
 //  3. Set T8 timeout and read the message payload
 //  4. Decode into an HSMSMessage via hsms.DecodeMessage
@@ -23,7 +23,8 @@ import (
 // ReadMessage call is active at a time, consistent with the single-receiver
 // design of an HSMS connection.
 type messageReader struct {
-	t8Timeout time.Duration
+	t8Timeout       time.Duration
+	idleReadTimeout time.Duration
 }
 
 // ReadMessage reads one complete HSMS message from conn.
@@ -39,14 +40,46 @@ type messageReader struct {
 // the appropriate log level. When decoding fails, rawBody is still returned
 // to allow hex-dump logging of the malformed payload.
 func (mr *messageReader) ReadMessage(conn net.Conn, lenBuf []byte) (msg hsms.HSMSMessage, rawBody []byte, err error) {
-	// Phase 1: read the 4-byte length header.
-	// No timeout — the connection is allowed to idle indefinitely between messages.
-	if err = conn.SetReadDeadline(time.Time{}); err != nil {
-		return nil, nil, fmt.Errorf("clear read deadline: %w", err)
+	// Phase 1: read the 4-byte length header with periodic deadline.
+	//
+	// Uses raw conn.Read with manual offset tracking instead of io.ReadFull
+	// to correctly handle partial reads across deadline expirations.
+	//
+	// On each iteration a fresh deadline is set. If the deadline fires:
+	//   - With 0 bytes read in that iteration → idle timeout, safe to loop
+	//     (this lets runTaskLoop's ctx.Done() check fire between iterations).
+	//   - With >0 bytes read → partial data arrived, continue reading remainder.
+	// Any non-timeout error (EOF, connection reset, etc.) is fatal.
+	idleTimeout := mr.idleReadTimeout
+	if idleTimeout <= 0 {
+		idleTimeout = 10 * time.Second
 	}
 
-	if _, err = io.ReadFull(conn, lenBuf); err != nil {
-		return nil, nil, fmt.Errorf("read message length: %w", err)
+	totalRead := 0
+	for totalRead < 4 {
+		if err = conn.SetReadDeadline(time.Now().Add(idleTimeout)); err != nil {
+			return nil, nil, fmt.Errorf("set read deadline: %w", err)
+		}
+
+		n, readErr := conn.Read(lenBuf[totalRead:])
+		totalRead += n
+
+		if readErr != nil {
+			if totalRead >= 4 {
+				break // got all 4 bytes despite error
+			}
+
+			var netErr net.Error
+			if errors.As(readErr, &netErr) && netErr.Timeout() {
+				// Timeout — if some data arrived (n > 0), keep looping to read
+				// remaining header bytes. If no data arrived (n == 0), this is a
+				// clean idle timeout; loop to allow ctx.Done() check.
+				continue
+			}
+
+			// Non-timeout error (EOF, reset, closed) → fatal
+			return nil, nil, fmt.Errorf("read message length: %w", readErr)
+		}
 	}
 
 	// Phase 2: validate the length.
@@ -67,7 +100,7 @@ func (mr *messageReader) ReadMessage(conn net.Conn, lenBuf []byte) (msg hsms.HSM
 
 	rawBody = make([]byte, msgLen)
 
-	if _, err = io.ReadFull(conn, rawBody); err != nil {
+	if _, err = readFull(conn, rawBody); err != nil {
 		return nil, nil, fmt.Errorf("read message payload: %w", err)
 	}
 
@@ -78,4 +111,20 @@ func (mr *messageReader) ReadMessage(conn net.Conn, lenBuf []byte) (msg hsms.HSM
 	}
 
 	return msg, rawBody, nil
+}
+
+// readFull reads exactly len(buf) bytes from r into buf.
+// Unlike io.ReadFull, it does not wrap a short-read EOF into
+// io.ErrUnexpectedEOF — it returns the raw error from Read.
+func readFull(r net.Conn, buf []byte) (int, error) {
+	total := 0
+	for total < len(buf) {
+		n, err := r.Read(buf[total:])
+		total += n
+		if err != nil {
+			return total, err
+		}
+	}
+
+	return total, nil
 }

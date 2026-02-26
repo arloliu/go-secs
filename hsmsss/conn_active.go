@@ -270,7 +270,9 @@ func (c *Connection) openActive() bool {
 
 func (c *Connection) tryConnect(ctx context.Context) error {
 	address := net.JoinHostPort(c.cfg.host, strconv.Itoa(c.cfg.port))
-	dialer := &net.Dialer{KeepAlive: 30 * time.Second}
+	// KeepAlive is intentionally omitted; setupResources applies the
+	// configured keepAlivePeriod uniformly for both active and passive modes.
+	dialer := &net.Dialer{}
 
 	dialCtx, cancel := context.WithTimeout(ctx, c.cfg.connectRemoteTimeout)
 	defer cancel()

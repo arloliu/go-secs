@@ -333,6 +333,19 @@ func (c *Connection) drainSenderMsgChan(ctx context.Context) {
 }
 
 func (c *Connection) setupResources(conn net.Conn) {
+	// Enable TCP Keep-Alive for half-open detection.
+	// This is essential for passive mode (accepted connections don't go through
+	// net.Dialer) and ensures both modes are covered uniformly.
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		period := c.cfg.KeepAlivePeriod()
+		if period > 0 {
+			_ = tcpConn.SetKeepAlive(true)
+			_ = tcpConn.SetKeepAlivePeriod(period)
+		} else {
+			_ = tcpConn.SetKeepAlive(false)
+		}
+	}
+
 	c.resMutex.Lock()
 	defer c.resMutex.Unlock()
 
@@ -816,7 +829,7 @@ func (c *Connection) receiverTask(msgLenBuf []byte) bool {
 		return false // stop the receiver task if connection is closed
 	}
 
-	reader := &messageReader{t8Timeout: c.cfg.t8Timeout}
+	reader := &messageReader{t8Timeout: c.cfg.T8Timeout(), idleReadTimeout: c.cfg.IdleReadTimeout()}
 
 	msg, rawBody, err := reader.ReadMessage(conn, msgLenBuf)
 	if err != nil {
