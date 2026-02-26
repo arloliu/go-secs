@@ -8,8 +8,8 @@ This project is a library that implements [SECS-II](https://en.wikipedia.org/wik
 
 ## Supports
 
-* SECS-II (SEMI-E5)
 * SECS-I over TCP/IP (SEMI-E4)
+* SECS-II (SEMI-E5)
 * HSMS(SEMI-E37), HSMS-SS(SEMI-E37.1)
 * SML(supports various formats, single-quoted stream-function, optional message name, single/double-quoted ASCII item,....etc.)
 
@@ -62,11 +62,11 @@ This project is a library that implements [SECS-II](https://en.wikipedia.org/wik
 > Refer to the [SML document](sml/README.md) for details.
 
 ## Package Introduction
+* **secs1** - provides an implementation of SECS-I over TCP/IP for communication according to the SEMI E4 standard. Implements the same `hsms.Connection` and `hsms.Session` interfaces as `hsmsss`.
 * **secs2** -  provides data structures and functions for working with SECS-II messages
 * **gem** - provides functions for creating GEM messages, offers a convenient way to generate SECS-II messages for various GEM message types.
 * **hsms** - provides functions and interfaces for establishing/decoding HSMS control and data message and defining generic interface for HSMS session.
 * **hsmsss** - provides an implementation of HSMS-SS (HSMS Single Session) for communication according to the SEMI E37 standard.
-* **secs1** - provides an implementation of SECS-I over TCP/IP for communication according to the SEMI E4 standard. Implements the same `hsms.Connection` and `hsms.Session` interfaces as `hsmsss`.
 * **logger** - provides a standardized way for different logging frameworks to be integrated into go-secs.
 
 ## Object Representation of HSMS/SECS-II Messages
