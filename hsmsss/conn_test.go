@@ -14,6 +14,7 @@ import (
 	"github.com/arloliu/go-secs/hsms"
 	"github.com/arloliu/go-secs/logger"
 	"github.com/arloliu/go-secs/secs2"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1315,4 +1316,51 @@ func TestConnection_ReceiverTask_DecodeErrorNoPanic(t *testing.T) {
 	})
 
 	require.Equal(uint64(1), c.metrics.DataMsgErrCount.Load())
+}
+
+// TestConnection_Passive_CloseWhileAccepting verifies that calling Close() while the passive
+// connection is blocked in the accept loop (ConnectingState or NotSelectedState)
+// safely transitions to NotConnectedState and tears everything down, proving that
+// ToNotConnectedAsync() in the accept loop is redundant on shutdown.
+func TestConnection_Passive_CloseWhileAccepting(t *testing.T) {
+	ctx := context.Background()
+
+	mockLogger := logger.NewMockLogger()
+	mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
+	mockLogger.On("Info", mock.Anything, mock.Anything).Return()
+	mockLogger.On("Warn", mock.Anything, mock.Anything).Return()
+	mockLogger.On("Error", mock.Anything, mock.Anything).Return()
+
+	cfg, err := NewConnectionConfig("127.0.0.1", getPort(), WithPassive(), WithLogger(mockLogger))
+	require.NoError(t, err)
+
+	conn, err := NewConnection(ctx, cfg)
+	require.NoError(t, err)
+
+	session := conn.AddSession(1)
+	require.NotNil(t, session)
+
+	err = conn.Open(false) // Open without waiting for SelectedState
+	require.NoError(t, err)
+
+	// Wait a short moment for the accept task to start running
+	time.Sleep(100 * time.Millisecond)
+
+	// Since Open(false) on a passive connection doesn't advance the stateMgr out of NotConnectedState
+	// until a connection is actually accepted (ToNotSelectedAsync), it should still be NotConnectedState.
+	require.Equal(t, hsms.NotConnectedState, conn.stateMgr.State(), "State should be NotConnectedState before accept")
+
+	// Call Close() while it's in the accept loop
+	err = conn.Close()
+	require.NoError(t, err, "Close() should succeed cleanly")
+
+	// Verify state is forced to NotConnectedState without async help
+	require.Equal(t, hsms.NotConnectedState, conn.stateMgr.State(), "State should be NotConnectedState after Close")
+	require.Equal(t, hsms.NotConnectedState, conn.stateMgr.DesiredState(), "DesiredState should be NotConnectedState after Close")
+
+	// Ensure the listener is properly closed
+	conn.listenerMutex.Lock()
+	listener := conn.listener
+	conn.listenerMutex.Unlock()
+	require.Nil(t, listener, "Listener should be nil after Close")
 }

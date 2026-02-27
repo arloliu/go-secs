@@ -202,27 +202,25 @@ func (c *Connection) recvMsgPassive(msg hsms.HSMSMessage) {
 }
 
 func (c *Connection) openPassive() error {
-	c.logger.Debug("start openPassive")
-
 	c.connCount.Store(0)
 
-	c.listenerMutex.Lock()
-	if c.listener == nil {
-		listener, err := c.tryListen()
-		if err != nil {
-			c.listenerMutex.Unlock()
-			return err
-		}
-		c.listener = listener
+	if err := c.ensureListener(); err != nil {
+		return err
 	}
-	c.listenerMutex.Unlock()
 
 	c.logger.Debug("listen success", "address", c.listener.Addr())
 
-	return c.taskMgr.Start("tryAcceptConn", c.tryAcceptConn)
+	return c.taskMgr.Start("acceptConn", c.acceptConnTask)
 }
 
-func (c *Connection) tryListen() (net.Listener, error) {
+func (c *Connection) ensureListener() error {
+	c.listenerMutex.Lock()
+	defer c.listenerMutex.Unlock()
+
+	if c.listener != nil {
+		return nil
+	}
+
 	address := net.JoinHostPort(c.cfg.host, strconv.Itoa(c.cfg.port))
 
 	c.logger.Debug("try to listen", "address", address)
@@ -230,13 +228,15 @@ func (c *Connection) tryListen() (net.Listener, error) {
 	listener, err := lc.Listen(c.ctx, "tcp", address)
 	if err != nil {
 		c.logger.Error("failed to listen", "address", address, "error", err)
-		return nil, err
+		return err
 	}
 
-	return listener, nil
+	c.listener = listener
+
+	return nil
 }
 
-func (c *Connection) tryAcceptConn() bool {
+func (c *Connection) acceptConnTask() bool {
 	tcpListener := c.getTCPListener()
 	// listener already closed, skip
 	if tcpListener == nil {
@@ -244,53 +244,31 @@ func (c *Connection) tryAcceptConn() bool {
 	}
 
 	if c.shutdown.Load() {
-		c.logger.Debug("tryAcceptConn: shutdown, skip accept")
-		c.stateMgr.ToNotConnectedAsync()
+		c.logger.Debug("acceptConnTask: shutdown, skip accept")
 		return false
 	}
 
 	if !c.opState.IsOpening() {
-		c.logger.Warn("tryAcceptConn skipped, opState is not opening", "opState", c.opState.String(), "sleep", c.cfg.t5Timeout)
-		// respect the t5 timeout
-		time.Sleep(c.cfg.t5Timeout)
+		c.logger.Warn("acceptConnTask skipped, opState is not opening", "opState", c.opState.String(), "sleep", c.cfg.t5Timeout)
+		// respect the t5 timeout, but remain responsive to context cancellation
+		select {
+		case <-c.ctx.Done():
+			return false
+		case <-time.After(c.cfg.t5Timeout):
+		}
 
 		return true // retry to accept again
 	}
 
-	c.logger.Debug("try to accept connection", "method", "tryAcceptConn", "opState", c.opState.String())
+	c.logger.Debug("try to accept connection", "method", "acceptConnTask", "opState", c.opState.String())
 	conn, err := tcpListener.Accept()
 	if err != nil {
-		var netErr net.Error
-		if errors.As(err, &netErr) && netErr.Timeout() {
-			select {
-			case <-c.ctx.Done():
-				c.logger.Debug("accept canceled by context", "method", "tryAcceptConn", "error", err, "ctxError", c.ctx.Err())
-				return false
-			default:
-				return true // re-accept if context is not done
-			}
-		}
-
-		if !c.shutdown.Load() {
-			if !isNetOpError(err) {
-				c.logger.Error("failed to accept connection", "method", "tryAcceptConn", "error", err.Error())
-			}
-
-			// Add a short sleep to prevent spin-looping on persistent errors
-			select {
-			case <-c.ctx.Done():
-				return false
-			case <-time.After(100 * time.Millisecond):
-				return true // re-accept again
-			}
-		}
-
-		return false // terminate this task
+		return c.handleAcceptError(err)
 	}
 
 	connCount := c.connCount.Load()
 	if connCount > 0 {
-		c.logger.Warn("connection already existed", "method", "tryListenAccept", "remote_address", conn.RemoteAddr(), "connCount", connCount, "opState", c.opState.String())
+		c.logger.Warn("connection already existed", "method", "acceptConnTask", "remote_address", conn.RemoteAddr(), "connCount", connCount, "opState", c.opState.String())
 		_ = conn.Close()
 		return true // re-accept again
 	}
@@ -298,16 +276,49 @@ func (c *Connection) tryAcceptConn() bool {
 	c.setupResources(conn)
 
 	if !c.opState.ToOpened() {
-		c.logger.Warn("failed to set connection state to opened state", "method", "tryListenAccept", "state", c.opState.String())
+		c.logger.Warn("failed to set connection state to opened state", "method", "acceptConnTask", "state", c.opState.String())
 	}
 
 	c.connCount.Add(1)
 
-	c.logger.Debug("connection accepted", "method", "tryListenAccept", "remote_address", conn.RemoteAddr())
+	c.logger.Debug("connection accepted", "method", "acceptConnTask", "remote_address", conn.RemoteAddr())
 
 	c.stateMgr.ToNotSelectedAsync()
 
 	return false // terminate this task, only accept new connection once
+}
+
+// handleAcceptError handles errors from Accept(). Returns true to retry,
+// false to stop the accept loop.
+func (c *Connection) handleAcceptError(err error) bool {
+	// Accept timeout — check context and retry.
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		select {
+		case <-c.ctx.Done():
+			c.logger.Debug("accept canceled by context", "method", "handleAcceptError", "error", err, "ctxError", c.ctx.Err())
+			return false
+		default:
+			return true // re-accept if context is not done
+		}
+	}
+
+	// Shutdown — stop.
+	if c.shutdown.Load() {
+		return false
+	}
+
+	if !isNetOpError(err) {
+		c.logger.Error("failed to accept connection", "method", "handleAcceptError", "error", err.Error())
+	}
+
+	// Add a short sleep to prevent spin-looping on persistent errors
+	select {
+	case <-c.ctx.Done():
+		return false
+	case <-time.After(100 * time.Millisecond):
+		return true // re-accept again
+	}
 }
 
 func (c *Connection) getTCPListener() *net.TCPListener {
