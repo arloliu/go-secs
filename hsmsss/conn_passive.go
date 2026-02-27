@@ -276,7 +276,13 @@ func (c *Connection) tryAcceptConn() bool {
 				c.logger.Error("failed to accept connection", "method", "tryAcceptConn", "error", err.Error())
 			}
 
-			return true // re-accept again
+			// Add a short sleep to prevent spin-looping on persistent errors
+			select {
+			case <-c.ctx.Done():
+				return false
+			case <-time.After(100 * time.Millisecond):
+				return true // re-accept again
+			}
 		}
 
 		return false // terminate this task

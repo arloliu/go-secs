@@ -167,7 +167,13 @@ func (c *Connection) handleAcceptError(err error) bool {
 		c.logger.Error("secs1 passive: accept failed", "error", err)
 	}
 
-	return true
+	// Add a short sleep to prevent spin-looping on persistent errors
+	select {
+	case <-c.ctx.Done():
+		return false
+	case <-time.After(100 * time.Millisecond):
+		return true // re-accept again
+	}
 }
 
 // getTCPListener retrieves the listener and sets the accept deadline.

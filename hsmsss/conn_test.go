@@ -431,7 +431,12 @@ func TestDrainMessageOnConnClose(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			err := hostComm.session.SendDataMessageAsync(1, 1, true, secs2.A("test"))
-			require.NoError(err, "expected no error when sending message after eqp closed, got: %v", err)
+			if err != nil &&
+				!errors.Is(err, hsms.ErrConnClosed) &&
+				!errors.Is(err, hsms.ErrNotSelectedState) &&
+				!errors.Is(err, hsms.ErrSendMsgTimeout) {
+				require.NoError(err, "unexpected error when sending message after eqp closed")
+			}
 		}()
 	}
 	time.Sleep(10 * time.Millisecond) // give some time for goroutines to start

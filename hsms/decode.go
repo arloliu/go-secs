@@ -241,7 +241,7 @@ func (d *hsmsDecoder) decodeMessageText() (secs2.Item, error) { //nolint:cyclop,
 
 		// Validate that we have at least enough bytes for the list items
 		// Each item needs at least 2 bytes (1 format byte + 1 length byte)
-		if d.remaining() < length {
+		if d.remaining() < length*2 {
 			return nil, fmt.Errorf("list claims %d items but only %d bytes remaining", length, d.remaining())
 		}
 

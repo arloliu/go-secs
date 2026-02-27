@@ -707,6 +707,8 @@ func (c *Connection) queueSendRequest(req *sendRequest) error {
 	defer pool.PutTimer(timer)
 
 	select {
+	case <-c.ctx.Done():
+		return hsms.ErrConnClosed
 	case <-timer.C:
 		return hsms.ErrSendMsgTimeout
 	case c.senderMsgChan <- req:
