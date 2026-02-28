@@ -60,6 +60,21 @@ var (
 // Connection represents a SECS-I over TCP/IP connection, implementing the
 // [hsms.Connection] interface.
 //
+// Connection State Architecture:
+// This Connection relies on two parallel state tracking mechanisms by design:
+//
+//  1. opState (hsms.AtomicOpState): Tracks the physical lifecycle of the Go object
+//     and underlying TCP socket (Closed -> Opening -> Opened -> Closing). It heavily
+//     uses atomic Compare-And-Swap to ensure idempotent, lock-free teardowns
+//     and to prevent race conditions during concurrent Open/Close calls.
+//
+//  2. stateMgr (*hsms.ConnStateMgr): Tracks the logical SEMI E4 protocol states
+//     (NotConnected -> Connected -> Selected). It handles protocol-level transitions
+//     and triggers user-facing or internal callbacks.
+//
+// Do not attempt to merge these. opState controls physical resources and goroutines,
+// whereas stateMgr strictly controls standard protocol compliance.
+//
 // It manages the communication with a remote SECS-I device, handling
 // block-transfer protocol, message assembly/disassembly, connection state
 // transitions, and the half-duplex ENQ/EOT/ACK/NAK protocol.
