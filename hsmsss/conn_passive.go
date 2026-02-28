@@ -251,10 +251,14 @@ func (c *Connection) acceptConnTask() bool {
 	if !c.opState.IsOpening() {
 		c.logger.Warn("acceptConnTask skipped, opState is not opening", "opState", c.opState.String(), "sleep", c.cfg.T5Timeout())
 		// respect the t5 timeout, but remain responsive to context cancellation
+		t5Timer := pool.GetTimer(c.cfg.T5Timeout())
+
 		select {
 		case <-c.getContext().Done():
+			pool.PutTimer(t5Timer)
 			return false
-		case <-time.After(c.cfg.T5Timeout()):
+		case <-t5Timer.C:
+			pool.PutTimer(t5Timer)
 		}
 
 		return true // retry to accept again
@@ -313,12 +317,17 @@ func (c *Connection) handleAcceptError(err error) bool {
 	}
 
 	// Add a short sleep to prevent spin-looping on persistent errors
+	// Use pool timer instead of time.After to prevent leaks on short spins
+	spinTimer := pool.GetTimer(100 * time.Millisecond)
 	select {
 	case <-c.getContext().Done():
+		pool.PutTimer(spinTimer)
 		return false
-	case <-time.After(100 * time.Millisecond):
-		return true // re-accept again
+	case <-spinTimer.C:
+		pool.PutTimer(spinTimer)
 	}
+
+	return true // re-accept again
 }
 
 func (c *Connection) getTCPListener() *net.TCPListener {

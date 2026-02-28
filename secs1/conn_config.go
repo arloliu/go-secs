@@ -87,6 +87,7 @@ type ConnectionConfig struct {
 	closeConnTimeout     time.Duration
 	initialRetryDelay    time.Duration
 	maxRetryDelay        time.Duration
+	keepAlivePeriod      time.Duration
 	sendTimeout          atomic.Int64
 
 	// Feature toggles.
@@ -113,6 +114,7 @@ func NewConnectionConfig(host string, port int, opts ...ConnOption) (*Connection
 		closeConnTimeout:     DefaultCloseTimeout,
 		initialRetryDelay:    100 * time.Millisecond,
 		maxRetryDelay:        10 * time.Second,
+		keepAlivePeriod:      30 * time.Second,
 		senderQueueSize:      DefaultSenderQueueSize,
 		dataMsgQueueSize:     DefaultDataMsgQueueSize,
 		logger:               logger.GetLogger(),
@@ -284,6 +286,13 @@ func (cfg *ConnectionConfig) MaxRetryDelay() time.Duration {
 	cfg.mu.RLock()
 	defer cfg.mu.RUnlock()
 	return cfg.maxRetryDelay
+}
+
+// KeepAlivePeriod returns the TCP Keep-Alive period.
+func (cfg *ConnectionConfig) KeepAlivePeriod() time.Duration {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+	return cfg.keepAlivePeriod
 }
 
 // --- ConnOption ---
@@ -575,6 +584,29 @@ func WithSendTimeout(d time.Duration) ConnOption {
 			return errors.New("secs1: send timeout must be positive")
 		}
 		cfg.sendTimeout.Store(int64(d))
+
+		return nil
+	})
+}
+
+// WithKeepAlivePeriod sets the TCP Keep-Alive period.
+// It returns a ConnOption that validates the delay value and updates the configuration.
+// An error is returned if the delay is less than 0 or greater than 120 seconds.
+// A value of 0 disables TCP Keep-Alive.
+//
+// The default value is 30 seconds.
+//
+// This option can be changed at runtime.
+func WithKeepAlivePeriod(val time.Duration) ConnOption {
+	return newConnOptFunc("WithKeepAlivePeriod", true, func(cfg *ConnectionConfig) error {
+		if val < 0 || val > 120*time.Second {
+			// using formatted error message to be consistent with the other error messages
+			return fmt.Errorf("secs1: keep-alive period %v out of range [0s, 120s]", val)
+		}
+
+		cfg.mu.Lock()
+		cfg.keepAlivePeriod = val
+		cfg.mu.Unlock()
 
 		return nil
 	})

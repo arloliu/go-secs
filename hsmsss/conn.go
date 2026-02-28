@@ -228,13 +228,9 @@ func (c *Connection) doOpen(waitOpened bool) error {
 	c.logger.Debug("start to open connection", "method", "Open", "opState", c.opState.String())
 
 	c.createContext()
-	c.loopCtx, c.loopCancel = context.WithCancel(c.pctx)
 
 	if c.cfg.isActive {
-		err := c.openActive()
-		if err != nil {
-			return err
-		}
+		c.openActive()
 
 		if waitOpened {
 			return c.stateMgr.WaitState(c.getContext(), hsms.SelectedState)
@@ -254,7 +250,14 @@ func (c *Connection) doOpen(waitOpened bool) error {
 func (c *Connection) Close() error {
 	// Invalidate any pending reconnect timers from a previous lifecycle.
 	c.reconnectGen.Add(1)
-	c.connectLoopRunning.Store(false)
+
+	// ensure any background connect loop is cancelled
+	c.ctxMutex.RLock()
+	loopCancel := c.loopCancel
+	c.ctxMutex.RUnlock()
+	if loopCancel != nil {
+		loopCancel()
+	}
 
 	c.shutdown.Store(true)
 	c.logger.Debug("start to close connection", "method", "Close", "opState", c.opState.String())
@@ -500,6 +503,7 @@ func (c *Connection) createContext() {
 	defer c.ctxMutex.Unlock()
 
 	c.ctx, c.ctxCancel = context.WithCancel(c.pctx)
+	c.loopCtx, c.loopCancel = context.WithCancel(c.pctx)
 }
 
 // getContext returns the per-connection context safely.
@@ -508,6 +512,14 @@ func (c *Connection) getContext() context.Context {
 	defer c.ctxMutex.RUnlock()
 
 	return c.ctx
+}
+
+// getLoopContext returns the per-connection background loop context safely.
+func (c *Connection) getLoopContext() context.Context {
+	c.ctxMutex.RLock()
+	defer c.ctxMutex.RUnlock()
+
+	return c.loopCtx
 }
 
 // sendControlMsg sends an HSMS control message and waits for a reply.

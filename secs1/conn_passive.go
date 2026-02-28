@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/arloliu/go-secs/hsms"
+	"github.com/arloliu/go-secs/internal/pool"
 )
 
 // passiveConnStateHandler handles connection state transitions for passive
@@ -168,12 +169,17 @@ func (c *Connection) handleAcceptError(err error) bool {
 	}
 
 	// Add a short sleep to prevent spin-looping on persistent errors
+	// Use pool timer instead of time.After to prevent leaks on short spins
+	spinTimer := pool.GetTimer(100 * time.Millisecond)
 	select {
 	case <-c.getContext().Done():
+		pool.PutTimer(spinTimer)
 		return false
-	case <-time.After(100 * time.Millisecond):
-		return true // re-accept again
+	case <-spinTimer.C:
+		pool.PutTimer(spinTimer)
 	}
+
+	return true // re-accept again
 }
 
 // getTCPListener retrieves the listener and sets the accept deadline.

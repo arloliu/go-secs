@@ -4,7 +4,6 @@ import (
 	"context"
 	"net"
 	"strconv"
-	"time"
 
 	"github.com/arloliu/go-secs/hsms"
 	"github.com/arloliu/go-secs/internal/pool"
@@ -17,12 +16,16 @@ const (
 // startConnectLoop launches the background connect-retry goroutine.
 // Only one loop runs at a time (guarded by connectLoopRunning CAS).
 func (c *Connection) startConnectLoop() {
-	if !c.connectLoopRunning.CompareAndSwap(false, true) {
+	if !c.connectLoopRunning.CompareAndSwap(false, true) { // capture the current generation and loop context atomically
 		return
 	}
 
 	gen := c.reconnectGen.Load()
-	loopCtx := c.loopCtx
+	loopCtx := c.getLoopContext()
+
+	if loopCtx == nil || loopCtx.Err() != nil {
+		return
+	}
 
 	go c.connectLoop(loopCtx, gen)
 }
@@ -215,26 +218,21 @@ func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 	}
 }
 
-// openActive initiates the TCP connection for active mode.
-//
-// It tries a synchronous dial first so that callers using waitOpened=true
-// can immediately block on WaitState. On failure, it starts the background
-// connect loop for retries.
-func (c *Connection) openActive() error {
+// openActive establishes the HSMS connection in active mode.
+// It initiates the background connect loop which handles retries and exponential backoff.
+func (c *Connection) openActive() {
 	if err := c.tryConnect(c.getContext()); err == nil {
-		return nil // connected on first attempt
+		return // connected on first attempt
 	}
 
 	if c.shutdown.Load() {
 		c.stateMgr.ToNotConnectedAsync()
 
-		return nil
+		return
 	}
 
 	// Start the background connect loop for retries.
 	c.startConnectLoop()
-
-	return nil
 }
 
 // connectLoop is the core retry loop for active mode. It exits when:
@@ -258,15 +256,15 @@ func (c *Connection) connectLoop(loopCtx context.Context, gen uint64) {
 	for {
 		c.metrics.incConnRetryGauge()
 
-		timer := time.NewTimer(delay)
+		timer := pool.GetTimer(delay)
 
 		select {
 		case <-loopCtx.Done():
-			timer.Stop()
-
+			pool.PutTimer(timer)
 			return
 
 		case <-timer.C:
+			pool.PutTimer(timer)
 		}
 
 		// Check guards after waking up.

@@ -153,7 +153,6 @@ func NewConnection(ctx context.Context, cfg *ConnectionConfig) (*Connection, err
 // and returns immediately.
 func (c *Connection) Open(waitOpened bool) error {
 	c.shutdown.Store(false)
-	c.loopCtx, c.loopCancel = context.WithCancel(c.pctx)
 	c.stateMgr.Start()
 
 	return c.doOpen(waitOpened)
@@ -168,8 +167,12 @@ func (c *Connection) Close() error {
 	c.shutdown.Store(true)
 
 	// Cancel loopCtx to wake the connect loop immediately.
-	if c.loopCancel != nil {
-		c.loopCancel()
+	c.ctxMutex.RLock()
+	loopCancel := c.loopCancel
+	c.ctxMutex.RUnlock()
+
+	if loopCancel != nil {
+		loopCancel()
 	}
 
 	c.logger.Debug("secs1: start to close connection", "opState", c.opState.String())
@@ -311,13 +314,23 @@ func (c *Connection) createContext() {
 	c.ctxMutex.Lock()
 	defer c.ctxMutex.Unlock()
 	c.ctx, c.ctxCancel = context.WithCancel(c.pctx)
+	c.loopCtx, c.loopCancel = context.WithCancel(c.pctx)
 }
 
 // getContext returns the per-connection context safely.
 func (c *Connection) getContext() context.Context {
 	c.ctxMutex.RLock()
 	defer c.ctxMutex.RUnlock()
+
 	return c.ctx
+}
+
+// getLoopContext returns the background connect-loop context safely.
+func (c *Connection) getLoopContext() context.Context {
+	c.ctxMutex.RLock()
+	defer c.ctxMutex.RUnlock()
+
+	return c.loopCtx
 }
 
 // --- TCP resource management ---

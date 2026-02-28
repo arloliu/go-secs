@@ -4,9 +4,9 @@ import (
 	"context"
 	"net"
 	"strconv"
-	"time"
 
 	"github.com/arloliu/go-secs/hsms"
+	"github.com/arloliu/go-secs/internal/pool"
 )
 
 const (
@@ -83,6 +83,22 @@ func (c *Connection) openActive() error {
 	return nil
 }
 
+// setupResources safely configures connection resources uniformly for active and passive mode.
+func (c *Connection) setupResources(conn net.Conn) {
+	// align keepalive configurations
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		period := c.cfg.KeepAlivePeriod()
+		if period > 0 {
+			_ = tcpConn.SetKeepAlive(true)
+			_ = tcpConn.SetKeepAlivePeriod(period)
+		} else {
+			_ = tcpConn.SetKeepAlive(false)
+		}
+	}
+
+	c.setupTCPConn(conn)
+}
+
 // startConnectLoop launches the background connect-retry goroutine.
 // Only one loop runs at a time (guarded by connectLoopRunning CAS).
 func (c *Connection) startConnectLoop() {
@@ -91,7 +107,13 @@ func (c *Connection) startConnectLoop() {
 	}
 
 	gen := c.reconnectGen.Load()
-	loopCtx := c.loopCtx
+	loopCtx := c.getLoopContext()
+
+	if loopCtx == nil || loopCtx.Err() != nil {
+		c.connectLoopRunning.Store(false)
+
+		return
+	}
 
 	go c.connectLoop(loopCtx, gen)
 }
@@ -110,19 +132,20 @@ func (c *Connection) connectLoop(loopCtx context.Context, gen uint64) {
 	for {
 		c.metrics.incConnRetryGauge()
 
-		timer := time.NewTimer(delay)
+		timer := pool.GetTimer(delay)
 
 		select {
 		case <-loopCtx.Done():
-			timer.Stop()
-
+			pool.PutTimer(timer) // Ensure timer is returned on exit
 			return
 
 		case <-timer.C:
+			// Timer fired, continue with connection attempt
 		}
 
 		// Check guards after waking up.
 		if c.reconnectGen.Load() != gen || c.shutdown.Load() {
+			pool.PutTimer(timer) // Ensure timer is returned on exit
 			return
 		}
 
@@ -130,6 +153,8 @@ func (c *Connection) connectLoop(loopCtx context.Context, gen uint64) {
 		// is Closed with the per-connection context cancelled.
 		if c.opState.IsClosed() {
 			if !c.opState.ToOpening() {
+				pool.PutTimer(timer) // Ensure timer is returned on continue
+
 				continue
 			}
 
@@ -142,6 +167,7 @@ func (c *Connection) connectLoop(loopCtx context.Context, gen uint64) {
 			if delay > c.cfg.MaxRetryDelay() {
 				delay = c.cfg.MaxRetryDelay()
 			}
+			pool.PutTimer(timer) // Ensure timer is returned on continue
 
 			continue
 		}
@@ -149,6 +175,7 @@ func (c *Connection) connectLoop(loopCtx context.Context, gen uint64) {
 		// Connected — reset metrics and exit. Future disconnects trigger
 		// NotConnected → closeConn → startConnectLoop for a fresh loop.
 		c.metrics.resetConnRetryGauge()
+		pool.PutTimer(timer) // Ensure timer is returned on exit
 
 		return
 	}
@@ -157,7 +184,9 @@ func (c *Connection) connectLoop(loopCtx context.Context, gen uint64) {
 // tryConnect performs the TCP dial and transitions to NotSelected on success.
 func (c *Connection) tryConnect(ctx context.Context) error {
 	address := net.JoinHostPort(c.cfg.host, strconv.Itoa(c.cfg.port))
-	dialer := &net.Dialer{KeepAlive: 30 * time.Second}
+	dialer := &net.Dialer{
+		Timeout: c.cfg.ConnectRemoteTimeout(),
+	}
 
 	dialCtx, cancel := context.WithTimeout(ctx, c.cfg.ConnectRemoteTimeout())
 	defer cancel()
@@ -169,7 +198,7 @@ func (c *Connection) tryConnect(ctx context.Context) error {
 		return err
 	}
 
-	c.setupTCPConn(conn)
+	c.setupResources(conn)
 
 	if !c.opState.ToOpened() {
 		c.logger.Warn("secs1 active: failed to set state to opened",

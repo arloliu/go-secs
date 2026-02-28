@@ -100,7 +100,7 @@ func (mr *messageReader) ReadMessage(conn net.Conn, lenBuf []byte) (msg hsms.HSM
 
 	rawBody = make([]byte, msgLen)
 
-	if _, err = readFull(conn, rawBody); err != nil {
+	if _, err = readFull(conn, rawBody, mr.t8Timeout); err != nil {
 		return nil, nil, fmt.Errorf("read message payload: %w", err)
 	}
 
@@ -116,14 +116,22 @@ func (mr *messageReader) ReadMessage(conn net.Conn, lenBuf []byte) (msg hsms.HSM
 // readFull reads exactly len(buf) bytes from r into buf.
 // Unlike io.ReadFull, it does not wrap a short-read EOF into
 // io.ErrUnexpectedEOF — it returns the raw error from Read.
-func readFull(r net.Conn, buf []byte) (int, error) {
+func readFull(r net.Conn, buf []byte, deadlineTimeout time.Duration) (int, error) {
 	total := 0
-	for total < len(buf) {
-		n, err := r.Read(buf[total:])
-		total += n
-		if err != nil {
-			return total, err
+	var n int
+	var err error
+	for total < len(buf) && err == nil {
+		if deadlineTimeout > 0 {
+			if errD := r.SetReadDeadline(time.Now().Add(deadlineTimeout)); errD != nil {
+				return total, errD
+			}
 		}
+
+		n, err = r.Read(buf[total:])
+		total += n
+	}
+	if err != nil {
+		return total, err
 	}
 
 	return total, nil

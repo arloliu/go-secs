@@ -146,12 +146,12 @@ func (cs *ConnStateMgr) Stop() {
 		return
 	}
 
-	if cs.shutdowned.Load() {
+	if !cs.shutdowned.CompareAndSwap(false, true) {
 		cs.logger.Debug("conn state manager already shutdowned, ignore stop",
 			"method", "Stop",
 			"curState", cs.State(),
 			"desiredState", cs.DesiredState(),
-			"shutdowned", cs.shutdowned.Load(),
+			"shutdowned", true,
 		)
 
 		return
@@ -163,11 +163,7 @@ func (cs *ConnStateMgr) Stop() {
 	cs.wg.Wait()
 
 	cs.stateMu.Lock()
-	// set shutdowned flag to true to prevent any further state changes
-	// it shoule be set before closing the stateChangeChan to prevent any further channel writes
-	cs.shutdowned.Store(true)
-
-	cs.logger.Debug("close stateChangeChan", "shutdowned", cs.shutdowned.Load())
+	cs.logger.Debug("close stateChangeChan", "shutdowned", true)
 	close(cs.stateChangeChan)
 
 	cs.setState(NotConnectedState)
