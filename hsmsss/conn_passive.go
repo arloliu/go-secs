@@ -41,7 +41,7 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, prevState hsms.C
 		// Start T7 timeout goroutine with context cancellation support to prevent goroutine leaks.
 		// The goroutine will exit early if the connection context is cancelled (e.g., during Close()).
 		go func(ctx context.Context) {
-			waitSelectTimer := pool.GetTimer(c.cfg.t7Timeout)
+			waitSelectTimer := pool.GetTimer(c.cfg.T7Timeout())
 			defer pool.PutTimer(waitSelectTimer)
 
 			select {
@@ -51,11 +51,11 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, prevState hsms.C
 				return
 			case <-waitSelectTimer.C:
 				if c.stateMgr.IsNotSelected() {
-					c.logger.Debug("wait selected state timeout", "method", "passiveConnStateHandler", "timeout", c.cfg.t7Timeout)
+					c.logger.Debug("wait selected state timeout", "method", "passiveConnStateHandler", "timeout", c.cfg.T7Timeout())
 					c.stateMgr.ToNotConnectedAsync()
 				}
 			}
-		}(c.ctx)
+		}(c.getContext())
 
 	case hsms.SelectedState:
 		// do nothing
@@ -73,7 +73,7 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, prevState hsms.C
 			_ = c.closeListener()
 		}
 
-		_ = c.closeConn(c.cfg.closeConnTimeout)
+		_ = c.closeConn(c.cfg.CloseConnTimeout())
 
 		if !isShutdown {
 			c.stateMgr.ToConnectingAsync()
@@ -225,7 +225,7 @@ func (c *Connection) ensureListener() error {
 
 	c.logger.Debug("try to listen", "address", address)
 	var lc net.ListenConfig
-	listener, err := lc.Listen(c.ctx, "tcp", address)
+	listener, err := lc.Listen(c.getContext(), "tcp", address)
 	if err != nil {
 		c.logger.Error("failed to listen", "address", address, "error", err)
 		return err
@@ -249,12 +249,12 @@ func (c *Connection) acceptConnTask() bool {
 	}
 
 	if !c.opState.IsOpening() {
-		c.logger.Warn("acceptConnTask skipped, opState is not opening", "opState", c.opState.String(), "sleep", c.cfg.t5Timeout)
+		c.logger.Warn("acceptConnTask skipped, opState is not opening", "opState", c.opState.String(), "sleep", c.cfg.T5Timeout())
 		// respect the t5 timeout, but remain responsive to context cancellation
 		select {
-		case <-c.ctx.Done():
+		case <-c.getContext().Done():
 			return false
-		case <-time.After(c.cfg.t5Timeout):
+		case <-time.After(c.cfg.T5Timeout()):
 		}
 
 		return true // retry to accept again
@@ -295,8 +295,8 @@ func (c *Connection) handleAcceptError(err error) bool {
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		select {
-		case <-c.ctx.Done():
-			c.logger.Debug("accept canceled by context", "method", "handleAcceptError", "error", err, "ctxError", c.ctx.Err())
+		case <-c.getContext().Done():
+			c.logger.Debug("accept canceled by context", "method", "handleAcceptError", "error", err, "ctxError", c.getContext().Err())
 			return false
 		default:
 			return true // re-accept if context is not done
@@ -314,7 +314,7 @@ func (c *Connection) handleAcceptError(err error) bool {
 
 	// Add a short sleep to prevent spin-looping on persistent errors
 	select {
-	case <-c.ctx.Done():
+	case <-c.getContext().Done():
 		return false
 	case <-time.After(100 * time.Millisecond):
 		return true // re-accept again
@@ -334,7 +334,7 @@ func (c *Connection) getTCPListener() *net.TCPListener {
 		return nil
 	}
 
-	err := tcpListener.SetDeadline(time.Now().Add(c.cfg.acceptConnTimeout))
+	err := tcpListener.SetDeadline(time.Now().Add(c.cfg.AcceptConnTimeout()))
 	if err != nil {
 		c.logger.Error("failed to set deadline for tcp listener", "error", err)
 		return nil

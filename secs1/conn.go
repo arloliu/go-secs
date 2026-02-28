@@ -65,6 +65,7 @@ var (
 // transitions, and the half-duplex ENQ/EOT/ACK/NAK protocol.
 type Connection struct {
 	pctx      context.Context
+	ctxMutex  sync.RWMutex
 	ctx       context.Context
 	ctxCancel context.CancelFunc
 	cfg       *ConnectionConfig
@@ -179,7 +180,7 @@ func (c *Connection) Close() error {
 		c.stateMgr.ToNotConnected()
 	}
 
-	closeTimer := pool.GetTimer(c.cfg.closeTimeout)
+	closeTimer := pool.GetTimer(c.cfg.CloseConnTimeout())
 	defer pool.PutTimer(closeTimer)
 
 	checkTicker := time.NewTicker(closeCheckInterval)
@@ -193,7 +194,7 @@ func (c *Connection) Close() error {
 			}
 
 			c.logger.Error("secs1: close connection timeout",
-				"timeout", c.cfg.closeTimeout,
+				"timeout", c.cfg.CloseConnTimeout(),
 				"opState", c.opState.String())
 
 			return errors.New("secs1: close connection timeout")
@@ -289,7 +290,7 @@ func (c *Connection) doOpen(waitOpened bool) error {
 		}
 
 		if waitOpened {
-			return c.stateMgr.WaitState(c.ctx, hsms.SelectedState)
+			return c.stateMgr.WaitState(c.getContext(), hsms.SelectedState)
 		}
 	} else {
 		if err := c.openPassive(); err != nil {
@@ -307,7 +308,16 @@ func (c *Connection) isClosed() bool {
 }
 
 func (c *Connection) createContext() {
+	c.ctxMutex.Lock()
+	defer c.ctxMutex.Unlock()
 	c.ctx, c.ctxCancel = context.WithCancel(c.pctx)
+}
+
+// getContext returns the per-connection context safely.
+func (c *Connection) getContext() context.Context {
+	c.ctxMutex.RLock()
+	defer c.ctxMutex.RUnlock()
+	return c.ctx
 }
 
 // --- TCP resource management ---
@@ -383,8 +393,12 @@ func (c *Connection) closeConn(timeout time.Duration) error {
 	c.drainSenderMsgChan(closeCtx)
 
 	// Cancel per-connection context.
-	if c.ctxCancel != nil {
-		c.ctxCancel()
+	c.ctxMutex.RLock()
+	cancel := c.ctxCancel
+	c.ctxMutex.RUnlock()
+
+	if cancel != nil {
+		cancel()
 	}
 
 	// Close TCP to unblock the protocol loop.
@@ -467,7 +481,7 @@ func (c *Connection) startProtocolLoop() error {
 func (c *Connection) protocolLoopIteration(bt *blockTransport) bool {
 	// Priority: check for outgoing messages first.
 	select {
-	case <-c.ctx.Done():
+	case <-c.getContext().Done():
 		if c.assembler != nil {
 			c.assembler.close()
 		}
@@ -503,7 +517,7 @@ func (c *Connection) handleOutgoingMessage(bt *blockTransport, req *sendRequest)
 	blocks := SplitMessage(msg, c.cfg.deviceID, c.cfg.isEquip)
 
 	for _, block := range blocks {
-		if err := bt.sendBlock(c.ctx, block); err != nil {
+		if err := bt.sendBlock(c.getContext(), block); err != nil {
 			c.logger.Error("secs1: block send failed",
 				"stream", msg.StreamCode(),
 				"function", msg.FunctionCode(),
@@ -573,7 +587,7 @@ func (c *Connection) pollForIncoming(bt *blockTransport) bool {
 		return false
 	}
 
-	block, err := bt.receiveBlock(c.ctx)
+	block, err := bt.receiveBlock(c.getContext())
 	if err != nil {
 		c.logger.Debug("secs1: failed to receive block", "error", err)
 		// Receive failure is not fatal to the connection; the sender will retry.
@@ -678,7 +692,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 
 	// Phase 1: Wait for all blocks to be sent (ACK'd) by the protocol loop.
 	select {
-	case <-c.ctx.Done():
+	case <-c.getContext().Done():
 		c.removeReplyExpectedMsg(id)
 
 		return nil, ErrConnClosed
@@ -698,7 +712,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	c.metrics.incDataMsgInflightCount()
 
 	select {
-	case <-c.ctx.Done():
+	case <-c.getContext().Done():
 		c.removeReplyExpectedMsg(id)
 		c.metrics.decDataMsgInflightCount()
 
@@ -759,7 +773,7 @@ func (c *Connection) queueSendRequest(req *sendRequest) error {
 	defer pool.PutTimer(timer)
 
 	select {
-	case <-c.ctx.Done():
+	case <-c.getContext().Done():
 		return ErrConnClosed
 	case <-timer.C:
 		return ErrSendMsgTimeout
@@ -834,7 +848,7 @@ func (c *Connection) replyToSender(msg *hsms.DataMessage) {
 	defer pool.PutTimer(timer)
 
 	select {
-	case <-c.ctx.Done():
+	case <-c.getContext().Done():
 		c.replyMsgChans.Delete(msg.ID())
 
 	case <-timer.C:
@@ -860,7 +874,7 @@ func (c *Connection) replyErrToSender(msg *hsms.DataMessage, err error) {
 		c.replyErrs.Store(id, err)
 
 		select {
-		case <-c.ctx.Done():
+		case <-c.getContext().Done():
 		case replyChan <- nil:
 		}
 

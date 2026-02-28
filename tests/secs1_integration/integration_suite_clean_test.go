@@ -41,7 +41,7 @@ func newEndpoint(
 		secs1.WithT3Timeout(secs1.MinT3Timeout),
 		secs1.WithT4Timeout(secs1.MinT4Timeout),
 		secs1.WithRetryLimit(2),
-		secs1.WithConnectTimeout(300 * time.Millisecond),
+		secs1.WithConnectRemoteTimeout(300 * time.Millisecond),
 		secs1.WithSendTimeout(500 * time.Millisecond),
 	}
 

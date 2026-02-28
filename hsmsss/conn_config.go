@@ -97,6 +97,10 @@ type ConnectionConfig struct {
 	// Defaults to 3 seconds.
 	closeConnTimeout time.Duration
 
+	// initialRetryDelay defines the initial backoff delay before retrying a connection in active mode.
+	// Defaults to 100 milliseconds.
+	initialRetryDelay time.Duration
+
 	// sendTimeout defines the timeout for sending messages to the remote HSMS device.
 	// It should be between 1 and 30 seconds.
 	//
@@ -180,6 +184,7 @@ func NewConnectionConfig(host string, port int, opts ...ConnOption) (*Connection
 		connectRemoteTimeout: 3 * time.Second,
 		acceptConnTimeout:    1 * time.Second,
 		closeConnTimeout:     3 * time.Second,
+		initialRetryDelay:    100 * time.Millisecond,
 		sendTimeout:          1 * time.Second,
 		keepAlivePeriod:      30 * time.Second,
 		idleReadTimeout:      10 * time.Second,
@@ -287,6 +292,38 @@ func (cfg *ConnectionConfig) IdleReadTimeout() time.Duration {
 	defer cfg.mu.RUnlock()
 
 	return cfg.idleReadTimeout
+}
+
+// InitialRetryDelay returns the initial retry delay for active connections.
+func (cfg *ConnectionConfig) InitialRetryDelay() time.Duration {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	return cfg.initialRetryDelay
+}
+
+// ConnectRemoteTimeout returns the TCP dial timeout for active mode.
+func (cfg *ConnectionConfig) ConnectRemoteTimeout() time.Duration {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	return cfg.connectRemoteTimeout
+}
+
+// AcceptConnTimeout returns the timeout for each iteration of accepting a connection in passive mode.
+func (cfg *ConnectionConfig) AcceptConnTimeout() time.Duration {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	return cfg.acceptConnTimeout
+}
+
+// CloseConnTimeout returns the timeout for closing a connection.
+func (cfg *ConnectionConfig) CloseConnTimeout() time.Duration {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	return cfg.closeConnTimeout
 }
 
 // ConnOption represents a functional option for configuring a ConnectionConfig.
@@ -540,6 +577,32 @@ func WithT5Timeout(val time.Duration) ConnOption {
 
 		cfg.mu.Lock()
 		cfg.t5Timeout = val
+		cfg.mu.Unlock()
+
+		return nil
+	})
+}
+
+// WithInitialRetryDelay sets the initial delay before the first connection retry in active mode.
+// It returns a ConnOption that validates the timeout value and updates the configuration.
+// An error is returned if the timeout is outside the valid range (10ms-240 seconds).
+// If the value is larger than the T5 connect separation time, it will be capped to T5 during execution.
+//
+// The default value is 100 milliseconds.
+//
+// This option can be changed at runtime.
+func WithInitialRetryDelay(val time.Duration) ConnOption {
+	return newConnOptFunc("WithInitialRetryDelay", true, func(cfg *ConnectionConfig) error {
+		if cfg == nil {
+			return hsms.ErrConnConfigNil
+		}
+
+		if val < 10*time.Millisecond || val > 240*time.Second {
+			return errors.New("initial retry delay out of range [0.01, 240]")
+		}
+
+		cfg.mu.Lock()
+		cfg.initialRetryDelay = val
 		cfg.mu.Unlock()
 
 		return nil

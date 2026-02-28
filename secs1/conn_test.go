@@ -757,8 +757,6 @@ func TestConnection_Constants(t *testing.T) {
 	r.Equal(50*time.Millisecond, pollTimeout)
 	r.Equal(time.Second, replyChannelTimeout)
 	r.Equal(5*time.Millisecond, closeCheckInterval)
-	r.Equal(100*time.Millisecond, initialRetryDelay)
-	r.Equal(30*time.Second, maxRetryDelay)
 }
 
 func TestConnection_ValidateDataMessage_S9F1(t *testing.T) {

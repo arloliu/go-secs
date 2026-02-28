@@ -1132,9 +1132,6 @@ func TestConnection_ActiveBackoffDoesNotBlockClose(t *testing.T) {
 	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
 	require.NoError(eqpComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
 
-	// Set a large retry delay; the test ensures Close() isn't delayed by it.
-	hostComm.conn.retryDelay = 5 * time.Second
-
 	// Drop the equipment side without setting host shutdown.
 	require.NoError(eqpComm.abnormalClose())
 

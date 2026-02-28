@@ -11,47 +11,20 @@ import (
 )
 
 const (
-	initialRetryDelay = 100 * time.Millisecond
-	retryDelayFactor  = 2
+	retryDelayFactor = 2
 )
 
-func (c *Connection) scheduleActiveReconnect(delay time.Duration) bool {
-	if delay <= 0 {
-		delay = initialRetryDelay
-	}
-	if c.shutdown.Load() {
-		return false
-	}
-	if !c.reconnectScheduled.CompareAndSwap(false, true) {
-		return false
+// startConnectLoop launches the background connect-retry goroutine.
+// Only one loop runs at a time (guarded by connectLoopRunning CAS).
+func (c *Connection) startConnectLoop() {
+	if !c.connectLoopRunning.CompareAndSwap(false, true) {
+		return
 	}
 
 	gen := c.reconnectGen.Load()
+	loopCtx := c.loopCtx
 
-	// Never block the connection state manager handler.
-	// NOTE: Do NOT use c.ctx here. c.ctx is canceled by closeConn() on disconnect,
-	// but we still want reconnect scheduling to work after disconnects.
-	go func(ctx context.Context, d time.Duration, g uint64) {
-		defer c.reconnectScheduled.Store(false)
-
-		timer := time.NewTimer(d)
-		defer timer.Stop()
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-			if c.reconnectGen.Load() != g {
-				return
-			}
-			if c.shutdown.Load() {
-				return
-			}
-			c.stateMgr.ToConnectingAsync()
-		}
-	}(c.pctx, delay, gen)
-
-	return true
+	go c.connectLoop(loopCtx, gen)
 }
 
 func (c *Connection) activeConnStateHandler(_ hsms.Connection, prevState hsms.ConnState, curState hsms.ConnState) {
@@ -81,7 +54,7 @@ func (c *Connection) activeConnStateHandler(_ hsms.Connection, prevState hsms.Co
 		// Start T7 timeout goroutine per §9.2.2 — disconnect if NOT SELECTED persists.
 		// This provides defense-in-depth alongside the T6 timeout on selectSession().
 		go func(ctx context.Context) {
-			waitSelectTimer := pool.GetTimer(c.cfg.t7Timeout)
+			waitSelectTimer := pool.GetTimer(c.cfg.T7Timeout())
 			defer pool.PutTimer(waitSelectTimer)
 
 			select {
@@ -90,20 +63,26 @@ func (c *Connection) activeConnStateHandler(_ hsms.Connection, prevState hsms.Co
 				return
 			case <-waitSelectTimer.C:
 				if c.stateMgr.IsNotSelected() {
-					c.logger.Debug("T7 timeout in active mode, still not selected", "method", "activeConnStateHandler", "timeout", c.cfg.t7Timeout)
+					c.logger.Debug("T7 timeout in active mode, still not selected", "method", "activeConnStateHandler", "timeout", c.cfg.T7Timeout())
 					c.stateMgr.ToNotConnectedAsync()
 				}
 			}
-		}(c.ctx)
+		}(c.getContext())
 
-		err := c.session.selectSession()
-		if err != nil {
-			c.logger.Debug("failed to select session, switch to not-connected", "error", err)
-			c.stateMgr.ToNotConnectedAsync()
-		} else {
-			c.logger.Debug("session selected, switch to selected state")
-			c.stateMgr.ToSelectedAsync()
-		}
+		// Execute selectSession asynchronously because it is a blocking handshake bound
+		// by the T6 timeout. If the socket abruptly drops during this handshake, the
+		// StateManager must remain unblocked to instantly process the NotConnected event,
+		// cancel the connection context, and interrupt this handshake immediately.
+		go func() {
+			err := c.session.selectSession()
+			if err != nil {
+				c.logger.Debug("failed to select session, switch to not-connected", "error", err)
+				c.stateMgr.ToNotConnectedAsync()
+			} else {
+				c.logger.Debug("session selected, switch to selected state")
+				c.stateMgr.ToSelectedAsync()
+			}
+		}()
 
 	case hsms.NotConnectedState:
 		if c.opState.IsOpened() && !c.deselected.Load() {
@@ -111,30 +90,18 @@ func (c *Connection) activeConnStateHandler(_ hsms.Connection, prevState hsms.Co
 		}
 		c.deselected.Store(false)
 
-		_ = c.closeConn(c.cfg.closeConnTimeout)
+		_ = c.closeConn(c.cfg.CloseConnTimeout())
 
 		c.logger.Debug("closeConn in connection state handler", "shutdown", c.shutdown.Load())
 		if !c.shutdown.Load() {
-			delay := c.retryDelay
-			c.logger.Debug("not-connected state, schedule retry connection", "delay", delay)
-
-			if c.scheduleActiveReconnect(delay) {
-				// exponential backoff with a maximum delay of T5 timeout
-				nextDelay := delay * retryDelayFactor
-				if nextDelay > c.cfg.t5Timeout {
-					nextDelay = c.cfg.t5Timeout
-				}
-				c.retryDelay = nextDelay
-			}
+			c.logger.Debug("not-connected state, schedule retry connection")
+			c.startConnectLoop()
 		}
 
 	case hsms.ConnectingState:
-		c.logger.Debug("connecting state, try to connect to remote")
-		_ = c.doOpen(false)
+		// The connect loop handles reconnection; nothing to do here.
 
 	case hsms.SelectedState:
-		// reset retry delay upon successful connection
-		c.retryDelay = initialRetryDelay
 		// do nothing
 	}
 }
@@ -248,24 +215,91 @@ func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 	}
 }
 
-func (c *Connection) openActive() bool {
-	c.logger.Debug("start openActive")
-
-	// terminate interval tasks when connect success
-	if err := c.tryConnect(c.ctx); err == nil {
-		c.metrics.resetConnRetryGauge()
-		return false
+// openActive initiates the TCP connection for active mode.
+//
+// It tries a synchronous dial first so that callers using waitOpened=true
+// can immediately block on WaitState. On failure, it starts the background
+// connect loop for retries.
+func (c *Connection) openActive() error {
+	if err := c.tryConnect(c.getContext()); err == nil {
+		return nil // connected on first attempt
 	}
 
 	if c.shutdown.Load() {
-		c.logger.Debug("openActive: shutdown, skip connect")
 		c.stateMgr.ToNotConnectedAsync()
-		return false
+
+		return nil
 	}
 
-	c.metrics.incConnRetryGauge()
+	// Start the background connect loop for retries.
+	c.startConnectLoop()
 
-	return true
+	return nil
+}
+
+// connectLoop is the core retry loop for active mode. It exits when:
+//   - loopCtx is cancelled (Close() was called),
+//   - the parent context is cancelled,
+//   - shutdown is set, or
+//   - reconnectGen changes (Close() was called).
+//
+// Per SEMI E37 §9.2.1.1, the Entity should not initiate another active
+// connect procedure until the T5 Connect Separation Time has elapsed
+// after ANY termination (success or failure).
+//
+// But typically T5 is 10s, which is too long for quick recovery.
+// Thus, any entry into this loop waits for configured initialRetryDelay
+// with exponential backoff up to T5Timeout before attempting a dial.
+func (c *Connection) connectLoop(loopCtx context.Context, gen uint64) {
+	defer c.connectLoopRunning.Store(false)
+
+	delay := min(c.cfg.InitialRetryDelay(), c.cfg.T5Timeout())
+
+	for {
+		c.metrics.incConnRetryGauge()
+
+		timer := time.NewTimer(delay)
+
+		select {
+		case <-loopCtx.Done():
+			timer.Stop()
+
+			return
+
+		case <-timer.C:
+		}
+
+		// Check guards after waking up.
+		if c.reconnectGen.Load() != gen || c.shutdown.Load() {
+			return
+		}
+
+		// Prepare opState for the dial attempt. After closeConn the state
+		// is Closed with the per-connection context cancelled.
+		if c.opState.IsClosed() {
+			if !c.opState.ToOpening() {
+				continue
+			}
+
+			c.createContext()
+		}
+
+		if err := c.tryConnect(c.getContext()); err != nil {
+			// Exponential backoff.
+			delay *= retryDelayFactor
+			if delay > c.cfg.T5Timeout() {
+				delay = c.cfg.T5Timeout()
+			}
+
+			continue
+		}
+
+		// Connected — reset metrics and exit. Future disconnects trigger
+		// NotConnected → closeConn → startConnectLoop for a fresh loop.
+		c.metrics.resetConnRetryGauge()
+
+		return
+	}
 }
 
 func (c *Connection) tryConnect(ctx context.Context) error {
@@ -274,7 +308,7 @@ func (c *Connection) tryConnect(ctx context.Context) error {
 	// configured keepAlivePeriod uniformly for both active and passive modes.
 	dialer := &net.Dialer{}
 
-	dialCtx, cancel := context.WithTimeout(ctx, c.cfg.connectRemoteTimeout)
+	dialCtx, cancel := context.WithTimeout(ctx, c.cfg.ConnectRemoteTimeout())
 	defer cancel()
 
 	conn, err := dialer.DialContext(dialCtx, "tcp", address)

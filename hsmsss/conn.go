@@ -34,11 +34,14 @@ const (
 // It manages the communication with a remote HSMS device, handling message exchange, connection state
 // transitions, and various HSMS-specific functionalities.
 type Connection struct {
-	pctx      context.Context
-	ctx       context.Context
-	ctxCancel context.CancelFunc
-	cfg       *ConnectionConfig
-	logger    logger.Logger
+	pctx       context.Context
+	ctxMutex   sync.RWMutex
+	ctx        context.Context
+	ctxCancel  context.CancelFunc
+	loopCtx    context.Context    // context for the background connect loop
+	loopCancel context.CancelFunc // cancels loopCtx
+	cfg        *ConnectionConfig
+	logger     logger.Logger
 
 	listener      net.Listener       // listener is for passive mode only
 	listenerMutex sync.Mutex         // mutex for listener
@@ -55,9 +58,9 @@ type Connection struct {
 	shutdown   atomic.Bool // indicates if has entered shutdown mode
 	deselected atomic.Bool // indicates if disconnect was triggered by remote deselect
 
-	// reconnectScheduled prevents overlapping reconnect timers in active mode.
-	// It is intentionally independent from c.ctx (which is canceled on disconnect).
-	reconnectScheduled atomic.Bool
+	// connectLoopRunning prevents multiple overlapping background reconnect loops.
+	// It is checked and set atomically when starting the connect loop.
+	connectLoopRunning atomic.Bool
 
 	// reconnectGen invalidates reconnect timers across Close/Open cycles.
 	// Incremented on Close() so timers scheduled before Close() cannot fire after a later Open().
@@ -67,8 +70,6 @@ type Connection struct {
 	senderMsgChan chan *sendRequest // channel for sending messages to the senderTask, the lifetime is the same as this connection object
 	replyMsgChans *xsync.MapOf[uint32, chan hsms.HSMSMessage]
 	replyErrs     *xsync.MapOf[uint32, error]
-
-	retryDelay time.Duration // delay between connection retries for active mode
 
 	metrics ConnectionMetrics // connection metrics
 }
@@ -105,7 +106,6 @@ func NewConnection(ctx context.Context, cfg *ConnectionConfig) (*Connection, err
 		replyErrs:     xsync.NewMapOf[uint32, error](),
 		replyMsgChans: xsync.NewMapOf[uint32, chan hsms.HSMSMessage](),
 		taskMgr:       hsms.NewTaskManager(ctx, cfg.logger),
-		retryDelay:    initialRetryDelay,
 	}
 	// create sender message channel at beginning and not close it.
 	conn.senderMsgChan = make(chan *sendRequest, cfg.senderQueueSize)
@@ -130,7 +130,6 @@ func (c *Connection) UpdateConfigOptions(opts ...ConnOption) error {
 	// Store original values that might trigger actions
 	origAutoLinktest := c.cfg.AutoLinktest()
 	origLinktestInterval := c.cfg.LinktestInterval()
-	origT5Timeout := c.cfg.T5Timeout()
 
 	// apply all options
 	for _, opt := range opts {
@@ -159,11 +158,6 @@ func (c *Connection) UpdateConfigOptions(opts ...ConnOption) error {
 	} else if curAutoLinktest && curLinktestInterval != origLinktestInterval {
 		// only interval changed while autoLinktest is enabled
 		c.tickers.resetLinktestTicker(curLinktestInterval)
-	}
-
-	// handle T5 timeout changes (for active connections)
-	if c.cfg.T5Timeout() != origT5Timeout {
-		c.tickers.resetActiveConnectTicker(c.cfg.T5Timeout())
 	}
 
 	return nil
@@ -200,10 +194,17 @@ func (c *Connection) IsGeneralSession() bool { return false }
 // IsSECS1 returns false, indicating that this is not a SECS-I connection.
 func (c *Connection) IsSECS1() bool { return false }
 
-// open establishes the HSMS-SS connection.
+// Open establishes the HSMS-SS connection.
 // If waitOpened is true, it blocks until the connection is fully established (Selected state)
 // or an error occurs.
 // If waitOpened is false, it initiates the connection process and returns immediately.
+//
+// Note on active connections: While SEMI E37 §9.2.1.1 describes a T5 separation
+// between active connect attempts, a strict T5 delay (often 10s) can be too long
+// for fast recovery from transient network drops. To optimize recovery while still
+// avoiding network flooding, the active connect loop uses an exponential backoff.
+// Reconnects start with an initial delay (default 100ms) and double until reaching
+// the configured T5 timeout.
 func (c *Connection) Open(waitOpened bool) error {
 	// reset shutdown flag to false when user call Open() again
 	c.shutdown.Store(false)
@@ -227,18 +228,16 @@ func (c *Connection) doOpen(waitOpened bool) error {
 	c.logger.Debug("start to open connection", "method", "Open", "opState", c.opState.String())
 
 	c.createContext()
+	c.loopCtx, c.loopCancel = context.WithCancel(c.pctx)
 
 	if c.cfg.isActive {
-		ticker, err := c.taskMgr.StartInterval("openActive", c.openActive, c.cfg.t5Timeout, true)
+		err := c.openActive()
 		if err != nil {
-			c.logger.Error("failed to start active connection ticker", "error", err, "method", "Open")
-			return fmt.Errorf("failed to start active connection ticker: %w", err)
+			return err
 		}
 
-		c.tickers.setActiveConnectTicker(ticker)
-
 		if waitOpened {
-			return c.stateMgr.WaitState(c.ctx, hsms.SelectedState)
+			return c.stateMgr.WaitState(c.getContext(), hsms.SelectedState)
 		}
 	} else { // passive mode
 		err := c.openPassive()
@@ -255,7 +254,7 @@ func (c *Connection) doOpen(waitOpened bool) error {
 func (c *Connection) Close() error {
 	// Invalidate any pending reconnect timers from a previous lifecycle.
 	c.reconnectGen.Add(1)
-	c.reconnectScheduled.Store(false)
+	c.connectLoopRunning.Store(false)
 
 	c.shutdown.Store(true)
 	c.logger.Debug("start to close connection", "method", "Close", "opState", c.opState.String())
@@ -273,7 +272,7 @@ func (c *Connection) Close() error {
 		c.stateMgr.ToNotConnected()
 	}
 
-	closeTimer := pool.GetTimer(c.cfg.closeConnTimeout)
+	closeTimer := pool.GetTimer(c.cfg.CloseConnTimeout())
 	defer pool.PutTimer(closeTimer)
 
 	// Use a ticker instead of busy loop with sleep for better CPU efficiency
@@ -285,12 +284,12 @@ func (c *Connection) Close() error {
 		select {
 		case <-closeTimer.C:
 			if c.isClosed() {
-				c.logger.Debug("wait for connection closed success at timeout", "timeout", c.cfg.closeConnTimeout, "opState", c.opState.String())
+				c.logger.Debug("wait for connection closed success at timeout", "timeout", c.cfg.CloseConnTimeout(), "opState", c.opState.String())
 				return nil
 			}
 
 			c.logger.Error("close connection timeout",
-				"timeout", c.cfg.closeConnTimeout,
+				"timeout", c.cfg.CloseConnTimeout(),
 				"opState", c.opState.String(),
 				"curState", c.stateMgr.State().String(),
 				"desiredState", c.stateMgr.DesiredState().String(),
@@ -444,9 +443,13 @@ func (c *Connection) closeConn(timeout time.Duration) error {
 	c.drainSenderMsgChan(closeCtx)
 
 	// 4. cancel per-connection context created by createContext method
-	if c.ctxCancel != nil {
+	c.ctxMutex.RLock()
+	cancel := c.ctxCancel
+	c.ctxMutex.RUnlock()
+
+	if cancel != nil {
 		c.logger.Debug("trigger context cancel function", "method", "closeConn")
-		c.ctxCancel()
+		cancel()
 	}
 
 	// 5. try to close TCP connection with timeout FIRST to unblock receiver/sender tasks
@@ -493,7 +496,18 @@ func (c *Connection) closeConn(timeout time.Duration) error {
 
 // createContext creates a new context for the connection, derived from the parent context.
 func (c *Connection) createContext() {
+	c.ctxMutex.Lock()
+	defer c.ctxMutex.Unlock()
+
 	c.ctx, c.ctxCancel = context.WithCancel(c.pctx)
+}
+
+// getContext returns the per-connection context safely.
+func (c *Connection) getContext() context.Context {
+	c.ctxMutex.RLock()
+	defer c.ctxMutex.RUnlock()
+
+	return c.ctx
 }
 
 // sendControlMsg sends an HSMS control message and waits for a reply.
@@ -560,7 +574,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 
 	// Phase 1: Wait for the senderTask to confirm the message is on the wire.
 	select {
-	case <-c.ctx.Done():
+	case <-c.getContext().Done():
 		c.removeReplyExpectedMsg(id)
 
 		return nil, hsms.ErrConnClosed
@@ -574,9 +588,9 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	}
 
 	// Phase 2: Message is on the wire — start T3 or T6 timer.
-	timeout := c.cfg.t3Timeout
+	timeout := c.cfg.T3Timeout()
 	if msg.IsControlMessage() {
-		timeout = c.cfg.t6Timeout
+		timeout = c.cfg.T6Timeout()
 	}
 
 	sendMsgTimer := pool.GetTimer(timeout)
@@ -585,7 +599,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	c.metrics.incDataMsgInflightCount()
 
 	select {
-	case <-c.ctx.Done():
+	case <-c.getContext().Done():
 		c.removeReplyExpectedMsg(id)
 		c.metrics.decDataMsgInflightCount()
 
@@ -707,7 +721,7 @@ func (c *Connection) queueSendRequest(req *sendRequest) error {
 	defer pool.PutTimer(timer)
 
 	select {
-	case <-c.ctx.Done():
+	case <-c.getContext().Done():
 		return hsms.ErrConnClosed
 	case <-timer.C:
 		return hsms.ErrSendMsgTimeout
@@ -754,7 +768,7 @@ func (c *Connection) cancelSenderTask() {
 // It returns false to stop the task on fatal errors.
 func (c *Connection) senderLoop() bool {
 	select {
-	case <-c.ctx.Done():
+	case <-c.getContext().Done():
 		return false
 
 	case req, ok := <-c.senderMsgChan:
@@ -912,7 +926,7 @@ func (c *Connection) replyToSender(msg hsms.HSMSMessage) {
 	defer pool.PutTimer(timer)
 
 	select {
-	case <-c.ctx.Done(): // the connection context done, drop the message and exit
+	case <-c.getContext().Done(): // the connection context done, drop the message and exit
 		c.replyMsgChans.Delete(msg.ID())
 		return
 
@@ -943,7 +957,7 @@ func (c *Connection) replyErrToSender(msg hsms.HSMSMessage, err error) {
 		c.replyErrs.Store(id, err)
 
 		select {
-		case <-c.ctx.Done(): // the connection context done, exit without block the process.
+		case <-c.getContext().Done(): // the connection context done, exit without block the process.
 			return
 		case replyChan <- nil:
 			return
@@ -1039,9 +1053,8 @@ func (c *Connection) validateMsg(msg hsms.HSMSMessage) error {
 
 // tickerCtl is a helper struct for managing interval tasks interval.
 type tickerCtl struct {
-	mu                  sync.RWMutex
-	linktestTicker      *time.Ticker
-	activeConnectTicker *time.Ticker
+	mu             sync.RWMutex
+	linktestTicker *time.Ticker
 }
 
 func (l *tickerCtl) setLinktestTicker(ticker *time.Ticker) {
@@ -1066,22 +1079,6 @@ func (l *tickerCtl) resetLinktestTicker(d time.Duration) {
 
 	if l.linktestTicker != nil && d > 0 {
 		l.linktestTicker.Reset(d)
-	}
-}
-
-func (l *tickerCtl) setActiveConnectTicker(ticker *time.Ticker) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	l.activeConnectTicker = ticker
-}
-
-func (l *tickerCtl) resetActiveConnectTicker(d time.Duration) {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-
-	if l.activeConnectTicker != nil && d > 0 {
-		l.activeConnectTicker.Reset(d)
 	}
 }
 

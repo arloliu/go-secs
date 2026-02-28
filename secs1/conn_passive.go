@@ -54,7 +54,7 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, _ hsms.ConnState
 			_ = c.closeListener()
 		}
 
-		_ = c.closeConn(c.cfg.closeTimeout)
+		_ = c.closeConn(c.cfg.CloseConnTimeout())
 
 		if !isShutdown {
 			c.stateMgr.ToConnectingAsync()
@@ -88,7 +88,7 @@ func (c *Connection) ensureListener() error {
 
 	var lc net.ListenConfig
 
-	listener, err := lc.Listen(c.ctx, "tcp", address)
+	listener, err := lc.Listen(c.getContext(), "tcp", address)
 	if err != nil {
 		c.logger.Error("secs1 passive: failed to listen", "address", address, "error", err)
 
@@ -150,7 +150,7 @@ func (c *Connection) handleAcceptError(err error) bool {
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		select {
-		case <-c.ctx.Done():
+		case <-c.getContext().Done():
 			return false
 		default:
 			return true
@@ -169,7 +169,7 @@ func (c *Connection) handleAcceptError(err error) bool {
 
 	// Add a short sleep to prevent spin-looping on persistent errors
 	select {
-	case <-c.ctx.Done():
+	case <-c.getContext().Done():
 		return false
 	case <-time.After(100 * time.Millisecond):
 		return true // re-accept again
@@ -190,7 +190,7 @@ func (c *Connection) getTCPListener() *net.TCPListener {
 		return nil
 	}
 
-	if err := tcpListener.SetDeadline(time.Now().Add(c.cfg.acceptTimeout)); err != nil {
+	if err := tcpListener.SetDeadline(time.Now().Add(c.cfg.AcceptConnTimeout())); err != nil {
 		c.logger.Error("secs1 passive: failed to set accept deadline", "error", err)
 
 		return nil

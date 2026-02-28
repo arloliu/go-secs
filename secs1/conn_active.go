@@ -10,9 +10,7 @@ import (
 )
 
 const (
-	initialRetryDelay = 100 * time.Millisecond
-	retryDelayFactor  = 2
-	maxRetryDelay     = 30 * time.Second
+	retryDelayFactor = 2
 )
 
 // activeConnStateHandler handles connection state transitions for active
@@ -51,7 +49,7 @@ func (c *Connection) activeConnStateHandler(_ hsms.Connection, _ hsms.ConnState,
 		// Ready for communication.
 
 	case hsms.NotConnectedState:
-		_ = c.closeConn(c.cfg.closeTimeout)
+		_ = c.closeConn(c.cfg.CloseConnTimeout())
 
 		// Restart the connect loop for auto-reconnect.
 		if !c.shutdown.Load() {
@@ -69,7 +67,7 @@ func (c *Connection) activeConnStateHandler(_ hsms.Connection, _ hsms.ConnState,
 // can immediately block on WaitState. On failure, it starts the background
 // connect loop for retries.
 func (c *Connection) openActive() error {
-	if err := c.tryConnect(c.ctx); err == nil {
+	if err := c.tryConnect(c.getContext()); err == nil {
 		return nil // connected on first attempt
 	}
 
@@ -107,7 +105,7 @@ func (c *Connection) startConnectLoop() {
 func (c *Connection) connectLoop(loopCtx context.Context, gen uint64) {
 	defer c.connectLoopRunning.Store(false)
 
-	delay := initialRetryDelay
+	delay := min(c.cfg.InitialRetryDelay(), c.cfg.MaxRetryDelay())
 
 	for {
 		c.metrics.incConnRetryGauge()
@@ -138,14 +136,11 @@ func (c *Connection) connectLoop(loopCtx context.Context, gen uint64) {
 			c.createContext()
 		}
 
-		if err := c.tryConnect(c.ctx); err != nil {
-			// Revert so the next iteration can transition Closed → Opening.
-			c.opState.Set(hsms.ClosedState)
-
+		if err := c.tryConnect(c.getContext()); err != nil {
 			// Exponential backoff.
 			delay *= retryDelayFactor
-			if delay > maxRetryDelay {
-				delay = maxRetryDelay
+			if delay > c.cfg.MaxRetryDelay() {
+				delay = c.cfg.MaxRetryDelay()
 			}
 
 			continue
@@ -164,7 +159,7 @@ func (c *Connection) tryConnect(ctx context.Context) error {
 	address := net.JoinHostPort(c.cfg.host, strconv.Itoa(c.cfg.port))
 	dialer := &net.Dialer{KeepAlive: 30 * time.Second}
 
-	dialCtx, cancel := context.WithTimeout(ctx, c.cfg.connectTimeout)
+	dialCtx, cancel := context.WithTimeout(ctx, c.cfg.ConnectRemoteTimeout())
 	defer cancel()
 
 	conn, err := dialer.DialContext(dialCtx, "tcp", address)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -80,10 +81,13 @@ type ConnectionConfig struct {
 	retryLimit atomic.Int64
 
 	// TCP-level timeouts.
-	connectTimeout time.Duration
-	acceptTimeout  time.Duration
-	closeTimeout   time.Duration
-	sendTimeout    atomic.Int64
+	mu                   sync.RWMutex
+	connectRemoteTimeout time.Duration
+	acceptConnTimeout    time.Duration
+	closeConnTimeout     time.Duration
+	initialRetryDelay    time.Duration
+	maxRetryDelay        time.Duration
+	sendTimeout          atomic.Int64
 
 	// Feature toggles.
 	duplicateDetection  atomic.Bool
@@ -102,14 +106,16 @@ type ConnectionConfig struct {
 // opts are functional options applied in order; see With* functions.
 func NewConnectionConfig(host string, port int, opts ...ConnOption) (*ConnectionConfig, error) {
 	cfg := &ConnectionConfig{
-		isActive:         true,
-		isEquip:          false, // default: Host role (= Slave per SEMI E4 §7.5)
-		connectTimeout:   DefaultConnectTimeout,
-		acceptTimeout:    DefaultAcceptTimeout,
-		closeTimeout:     DefaultCloseTimeout,
-		senderQueueSize:  DefaultSenderQueueSize,
-		dataMsgQueueSize: DefaultDataMsgQueueSize,
-		logger:           logger.GetLogger(),
+		isActive:             true,
+		isEquip:              false, // default: Host role (= Slave per SEMI E4 §7.5)
+		connectRemoteTimeout: DefaultConnectTimeout,
+		acceptConnTimeout:    DefaultAcceptTimeout,
+		closeConnTimeout:     DefaultCloseTimeout,
+		initialRetryDelay:    100 * time.Millisecond,
+		maxRetryDelay:        10 * time.Second,
+		senderQueueSize:      DefaultSenderQueueSize,
+		dataMsgQueueSize:     DefaultDataMsgQueueSize,
+		logger:               logger.GetLogger(),
 	}
 
 	cfg.t1Timeout.Store(int64(DefaultT1Timeout))
@@ -244,6 +250,41 @@ func (cfg *ConnectionConfig) SendTimeout() time.Duration {
 
 // GetLogger returns the configured logger.
 func (cfg *ConnectionConfig) GetLogger() logger.Logger { return cfg.logger }
+
+// ConnectRemoteTimeout returns the TCP dial timeout for active mode.
+func (cfg *ConnectionConfig) ConnectRemoteTimeout() time.Duration {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+	return cfg.connectRemoteTimeout
+}
+
+// AcceptConnTimeout returns the timeout for each iteration of accepting a connection in passive mode.
+func (cfg *ConnectionConfig) AcceptConnTimeout() time.Duration {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+	return cfg.acceptConnTimeout
+}
+
+// CloseConnTimeout returns the timeout for closing a connection.
+func (cfg *ConnectionConfig) CloseConnTimeout() time.Duration {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+	return cfg.closeConnTimeout
+}
+
+// InitialRetryDelay returns the initial delay before the first connection retry in active mode.
+func (cfg *ConnectionConfig) InitialRetryDelay() time.Duration {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+	return cfg.initialRetryDelay
+}
+
+// MaxRetryDelay returns the maximum delay between connection retries in active mode.
+func (cfg *ConnectionConfig) MaxRetryDelay() time.Duration {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+	return cfg.maxRetryDelay
+}
 
 // --- ConnOption ---
 
@@ -408,12 +449,120 @@ func WithValidateDataMessage(enabled bool) ConnOption {
 }
 
 // WithConnectTimeout sets the TCP dial timeout for active mode.
+//
+// Deprecated: Use WithConnectRemoteTimeout instead to align with hsmsss.
 func WithConnectTimeout(d time.Duration) ConnOption {
 	return newConnOptFunc("WithConnectTimeout", false, func(cfg *ConnectionConfig) error {
 		if d <= 0 {
 			return errors.New("secs1: connect timeout must be positive")
 		}
-		cfg.connectTimeout = d
+		cfg.connectRemoteTimeout = d
+
+		return nil
+	})
+}
+
+// WithConnectRemoteTimeout sets the timeout for establishing a connection in active mode.
+// It returns a ConnOption that validates the timeout value and updates the configuration.
+// An error is returned if the timeout is outside the valid range (100ms-30 seconds).
+//
+// The default value is 1 second.
+//
+// This option can be changed at runtime.
+func WithConnectRemoteTimeout(val time.Duration) ConnOption {
+	return newConnOptFunc("WithConnectRemoteTimeout", true, func(cfg *ConnectionConfig) error {
+		if val < 100*time.Millisecond || val > 30*time.Second {
+			return fmt.Errorf("secs1: connect remote timeout %v out of range [100ms, 30s]", val)
+		}
+
+		cfg.mu.Lock()
+		cfg.connectRemoteTimeout = val
+		cfg.mu.Unlock()
+
+		return nil
+	})
+}
+
+// WithAcceptConnTimeout sets the timeout for each iteration of accepting a connection in passive mode.
+// It returns a ConnOption that validates the timeout value and updates the configuration.
+// An error is returned if the timeout is outside the valid range (1-2 seconds).
+//
+// The default value is 1 second.
+//
+// This option can be changed at runtime.
+func WithAcceptConnTimeout(val time.Duration) ConnOption {
+	return newConnOptFunc("WithAcceptConnTimeout", true, func(cfg *ConnectionConfig) error {
+		if val < 1*time.Second || val > 2*time.Second {
+			return fmt.Errorf("secs1: accept connection timeout %v out of range [1s, 2s]", val)
+		}
+
+		cfg.mu.Lock()
+		cfg.acceptConnTimeout = val
+		cfg.mu.Unlock()
+
+		return nil
+	})
+}
+
+// WithCloseConnTimeout sets the timeout for closing a connection in active or passive mode.
+// It returns a ConnOption that validates the timeout value and updates the configuration.
+// An error is returned if the timeout is outside the valid range (1-30 seconds).
+//
+// The default value is 3 seconds.
+//
+// This option can be changed at runtime.
+func WithCloseConnTimeout(val time.Duration) ConnOption {
+	return newConnOptFunc("WithCloseConnTimeout", true, func(cfg *ConnectionConfig) error {
+		if val < 1*time.Second || val > 30*time.Second {
+			return fmt.Errorf("secs1: close connection timeout %v out of range [1s, 30s]", val)
+		}
+
+		cfg.mu.Lock()
+		cfg.closeConnTimeout = val
+		cfg.mu.Unlock()
+
+		return nil
+	})
+}
+
+// WithMaxRetryDelay sets the maximum delay between connection retries in active mode (similar to T5 in HSMS).
+// It returns a ConnOption that validates the timeout value and updates the configuration.
+// An error is returned if the timeout is outside the valid range (1-600 seconds).
+//
+// The default value is 10 seconds.
+//
+// This option can be changed at runtime.
+func WithMaxRetryDelay(val time.Duration) ConnOption {
+	return newConnOptFunc("WithMaxRetryDelay", true, func(cfg *ConnectionConfig) error {
+		if val < 1*time.Second || val > 600*time.Second {
+			return fmt.Errorf("secs1: max retry delay %v out of range [1s, 600s]", val)
+		}
+
+		cfg.mu.Lock()
+		cfg.maxRetryDelay = val
+		cfg.mu.Unlock()
+
+		return nil
+	})
+}
+
+// WithInitialRetryDelay sets the initial delay before the first connection retry in active mode.
+// It returns a ConnOption that validates the timeout value and updates the configuration.
+// An error is returned if the timeout is outside the valid range (10ms-600 seconds).
+// If the value is larger than the max retry delay, it will be capped to max retry delay during execution.
+//
+// The default value is 100 milliseconds.
+//
+// This option can be changed at runtime.
+func WithInitialRetryDelay(val time.Duration) ConnOption {
+	return newConnOptFunc("WithInitialRetryDelay", true, func(cfg *ConnectionConfig) error {
+		if val < 10*time.Millisecond || val > 600*time.Second {
+			return fmt.Errorf("secs1: initial retry delay %v out of range [10ms, 600s]", val)
+		}
+
+		cfg.mu.Lock()
+		cfg.initialRetryDelay = val
+		cfg.mu.Unlock()
 
 		return nil
 	})
