@@ -621,11 +621,16 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	// --- W-bit set: register reply channel and use 2-phase send ---
 
 	id := msg.ID()
+	isDataMsg := msg.IsDataMessage()
+	msgInfoForLog := hsms.MsgInfo(msg, "method", "sendMsg")
 	replyMsgChan := c.addReplyExpectedMsg(id)
 
 	sentChan := make(chan error, 1)
 	req := &sendRequest{msg: msg, sentChan: sentChan}
 
+	// After queueing, msg ownership transfers to processSendRequest which
+	// calls msg.Free(). Do not access msg beyond this point; use the
+	// pre-captured isDataMsg / msgInfoForLog instead.
 	if err := c.queueSendRequest(req); err != nil {
 		c.removeReplyExpectedMsg(id)
 
@@ -649,7 +654,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 
 	// Phase 2: Message is on the wire — start T3 or T6 timer.
 	timeout := c.cfg.T3Timeout()
-	if msg.IsControlMessage() {
+	if !isDataMsg {
 		timeout = c.cfg.T6Timeout()
 	}
 
@@ -669,8 +674,8 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 		c.removeReplyExpectedMsg(id)
 		c.metrics.decDataMsgInflightCount()
 
-		c.logger.Warn("send message timeout", hsms.MsgInfo(msg, "method", "sendMsg", "timeout", timeout)...)
-		if msg.IsDataMessage() {
+		c.logger.Warn("send message timeout", append(msgInfoForLog, "timeout", timeout)...)
+		if isDataMsg {
 			// If entity is equipment, send SECS-II S9F9 when t3/t6 timeout.
 			if c.cfg.isEquip {
 				_, _ = c.session.SendSECS2Message(gem.S9F9())
@@ -713,9 +718,6 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 // sendMsgSync sends an HSMS message synchronously over the TCP connection.
 // It sets a write deadline based on the T8 timeout and handles potential errors during writing.
 func (c *Connection) sendMsgSync(msg hsms.HSMSMessage) error {
-	// free message after it sent
-	defer msg.Free()
-
 	if msg.Type() == hsms.DataMsgType && !c.stateMgr.IsSelected() {
 		c.logger.Error("failed to send hsms data message, not selected state",
 			hsms.MsgInfo(msg, "method", "sendMsgSync", "state", c.stateMgr.State().String())...,
@@ -771,6 +773,8 @@ func (c *Connection) sendMsgSync(msg hsms.HSMSMessage) error {
 
 // sendMsgAsync sends an HSMS message asynchronously by sending it to the senderMsgChan.
 // This is the fire-and-forget path: the caller does not wait for send completion.
+//
+// Ownership of msg transfers to the sender loop; processSendRequest will call msg.Free().
 func (c *Connection) sendMsgAsync(msg hsms.HSMSMessage) error {
 	return c.queueSendRequest(&sendRequest{msg: msg})
 }
@@ -856,6 +860,7 @@ func (c *Connection) senderLoop() bool {
 // and signals the optional sentChan with the result.
 func (c *Connection) processSendRequest(req *sendRequest) bool {
 	msg := req.msg
+	defer msg.Free()
 
 	c.metrics.incDataMsgSendCount()
 

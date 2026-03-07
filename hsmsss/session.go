@@ -65,6 +65,7 @@ func (s *Session) SendMessageAsync(msg hsms.HSMSMessage) error {
 // SendMessageSync sends an HSMS message through the associated HSMS-SS connection synchronously.
 // It sends the message and blocks until it's sent to the connection's underlying transport layer.
 func (s *Session) SendMessageSync(msg hsms.HSMSMessage) error {
+	defer msg.Free()
 	return s.hsmsConn.sendMsgSync(msg)
 }
 
@@ -170,8 +171,8 @@ func (s *Session) separateSession() {
 		return
 	}
 
-	// send separate.req message, in HSMS-SS, the session ID is always 0xffff
 	msg := hsms.NewSeparateReq(0xffff, hsms.GenerateMsgSystemBytes())
+	defer msg.Free()
 	s.logger.Debug("send separate.req message and wait it to be sent", "method", "separateSession", "id", msg.ID())
 	err := s.hsmsConn.sendMsgSync(msg)
 	if err != nil {

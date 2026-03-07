@@ -542,6 +542,8 @@ func (c *Connection) protocolLoopIteration(bt *blockTransport) bool {
 // replyErrToSender (fire-and-forget path).
 func (c *Connection) handleOutgoingMessage(bt *blockTransport, req *sendRequest) bool {
 	msg := req.msg
+	defer msg.Free()
+
 	blocks := SplitMessage(msg, c.cfg.deviceID, c.cfg.isEquip)
 
 	for _, block := range blocks {
@@ -708,11 +710,16 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 
 	// W-bit set: register reply channel and queue with send-completion notification.
 	id := msg.ID()
+	stream := msg.StreamCode()
+	function := msg.FunctionCode()
 	replyChan := c.addReplyExpectedMsg(id)
 
 	sentChan := make(chan error, 1)
 	req := &sendRequest{msg: dataMsg, sentChan: sentChan}
 
+	// After queueing, msg ownership transfers to handleOutgoingMessage which
+	// calls msg.Free(). Do not access msg beyond this point; use the
+	// pre-captured stream / function instead.
 	if err := c.queueSendRequest(req); err != nil {
 		c.removeReplyExpectedMsg(id)
 
@@ -752,8 +759,8 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 		c.metrics.decDataMsgInflightCount()
 
 		c.logger.Warn("secs1: T3 reply timeout",
-			"stream", msg.StreamCode(),
-			"function", msg.FunctionCode(),
+			"stream", stream,
+			"function", function,
 			"timeout", c.cfg.T3Timeout())
 
 		// If equipment, send S9F9 on T3 timeout.
@@ -792,6 +799,8 @@ type sendRequest struct {
 
 // sendMsgAsync queues a DataMessage for transmission by the protocol loop.
 // This is a fire-and-forget path: the caller does not wait for send completion.
+//
+// Ownership of msg transfers to the protocol loop; handleOutgoingMessage will call msg.Free().
 func (c *Connection) sendMsgAsync(msg *hsms.DataMessage) error {
 	return c.queueSendRequest(&sendRequest{msg: msg})
 }
