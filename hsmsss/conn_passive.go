@@ -103,6 +103,8 @@ func (c *Connection) recvMsgPassive(msg hsms.HSMSMessage) {
 			replyMsg := hsms.NewRejectReq(msg, hsms.RejectNotSelected)
 			_, _ = c.sendMsg(replyMsg)
 
+			msg.Free() // Free the rejected DataMessage to prevent pool leak.
+
 			break
 		}
 
@@ -111,6 +113,8 @@ func (c *Connection) recvMsgPassive(msg hsms.HSMSMessage) {
 			c.logger.Debug("passive: invalid message received",
 				hsms.MsgInfo(msg, "method", "recvMsgPassive", "error", err)...,
 			)
+
+			msg.Free() // Free the invalid DataMessage to prevent pool leak.
 
 			break
 		}

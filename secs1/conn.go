@@ -469,9 +469,18 @@ func (c *Connection) drainSenderMsgChan(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case _, ok := <-c.senderMsgChan:
+		case req, ok := <-c.senderMsgChan:
 			if !ok {
 				return
+			}
+
+			if req != nil {
+				if req.sentChan != nil {
+					req.sentChan <- ErrConnClosed
+				}
+				if req.msg != nil {
+					req.msg.Free()
+				}
 			}
 		default:
 			return
@@ -674,6 +683,8 @@ func (c *Connection) handleCompleteMessage(blocks []*Block) {
 		// Primary message — deliver to application handlers.
 		if c.session != nil {
 			c.session.recvDataMsg(msg)
+		} else {
+			msg.Free()
 		}
 	} else {
 		// Secondary (reply) message — match to waiting sender.
@@ -692,6 +703,8 @@ func (c *Connection) handleCompleteMessage(blocks []*Block) {
 // block of the message has been successfully sent (ACK'd).
 func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	if !c.stateMgr.IsSelected() {
+		msg.Free()
+
 		return nil, ErrNotSelectedState
 	}
 
@@ -722,6 +735,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	// pre-captured stream / function instead.
 	if err := c.queueSendRequest(req); err != nil {
 		c.removeReplyExpectedMsg(id)
+		dataMsg.Free()
 
 		return nil, err
 	}
@@ -802,7 +816,13 @@ type sendRequest struct {
 //
 // Ownership of msg transfers to the protocol loop; handleOutgoingMessage will call msg.Free().
 func (c *Connection) sendMsgAsync(msg *hsms.DataMessage) error {
-	return c.queueSendRequest(&sendRequest{msg: msg})
+	if err := c.queueSendRequest(&sendRequest{msg: msg}); err != nil {
+		msg.Free()
+
+		return err
+	}
+
+	return nil
 }
 
 // queueSendRequest puts a sendRequest onto the protocol loop's channel.
@@ -852,6 +872,12 @@ func (c *Connection) dropAllReplyMsgs() {
 	c.replyMsgChans.Range(func(id uint32, ch chan *hsms.DataMessage) bool {
 		if ch != nil {
 			close(ch)
+			// Drain and free any buffered messages that were never consumed.
+			for msg := range ch {
+				if msg != nil {
+					msg.Free()
+				}
+			}
 		}
 
 		return true
@@ -877,6 +903,8 @@ func (c *Connection) replyToSender(msg *hsms.DataMessage) {
 
 		if c.session != nil {
 			c.session.recvDataMsg(msg)
+		} else {
+			msg.Free()
 		}
 
 		return
@@ -888,11 +916,13 @@ func (c *Connection) replyToSender(msg *hsms.DataMessage) {
 	select {
 	case <-c.getContext().Done():
 		c.replyMsgChans.Delete(msg.ID())
+		msg.Free()
 
 	case <-timer.C:
 		c.logger.Warn("secs1: reply channel send timeout, dropping message",
 			"msgID", msg.ID())
 		c.replyMsgChans.Delete(msg.ID())
+		msg.Free()
 
 	case replyChan <- msg:
 		// Successfully delivered.
@@ -930,6 +960,8 @@ func (c *Connection) replyErrToSender(msg *hsms.DataMessage, err error) {
 
 	if c.session != nil {
 		c.session.recvDataMsg(errMsg)
+	} else {
+		errMsg.Free()
 	}
 }
 

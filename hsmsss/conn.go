@@ -348,8 +348,13 @@ func (c *Connection) drainSenderMsgChan(ctx context.Context) {
 				return
 			}
 
-			if req != nil && req.sentChan != nil {
-				req.sentChan <- hsms.ErrConnClosed
+			if req != nil {
+				if req.sentChan != nil {
+					req.sentChan <- hsms.ErrConnClosed
+				}
+				if req.msg != nil {
+					req.msg.Free()
+				}
 			}
 		default:
 			return
@@ -606,6 +611,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 		c.logger.Warn("failed to send message, not selected state",
 			hsms.MsgInfo(msg, "method", "sendMsg", "state", c.stateMgr.State())...,
 		)
+		msg.Free()
 
 		return nil, hsms.ErrNotSelectedState
 	}
@@ -633,6 +639,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	// pre-captured isDataMsg / msgInfoForLog instead.
 	if err := c.queueSendRequest(req); err != nil {
 		c.removeReplyExpectedMsg(id)
+		msg.Free()
 
 		return nil, err
 	}
@@ -776,7 +783,13 @@ func (c *Connection) sendMsgSync(msg hsms.HSMSMessage) error {
 //
 // Ownership of msg transfers to the sender loop; processSendRequest will call msg.Free().
 func (c *Connection) sendMsgAsync(msg hsms.HSMSMessage) error {
-	return c.queueSendRequest(&sendRequest{msg: msg})
+	if err := c.queueSendRequest(&sendRequest{msg: msg}); err != nil {
+		msg.Free()
+
+		return err
+	}
+
+	return nil
 }
 
 // queueSendRequest puts a sendRequest onto the senderTask's channel.
@@ -812,10 +825,16 @@ func (c *Connection) removeReplyExpectedMsg(id uint32) {
 
 // dropAllReplyMsgs closes all reply channels in the replyMsgChans map, effectively dropping any pending replies.
 func (c *Connection) dropAllReplyMsgs() {
-	// close all reply channels
+	// close all reply channels and free any buffered messages
 	c.replyMsgChans.Range(func(id uint32, ch chan hsms.HSMSMessage) bool {
 		if ch != nil {
 			close(ch)
+			// Drain and free any buffered messages that were never consumed.
+			for msg := range ch {
+				if msg != nil {
+					msg.Free()
+				}
+			}
 		}
 
 		return true
@@ -976,6 +995,7 @@ func (c *Connection) replyToSender(msg hsms.HSMSMessage) {
 				c.session.recvDataMsg(dataMsg)
 			} else {
 				c.logger.Warn("session is nil, cannot handle data message", "msgID", msg.ID())
+				msg.Free()
 			}
 		}
 
@@ -993,11 +1013,15 @@ func (c *Connection) replyToSender(msg hsms.HSMSMessage) {
 	select {
 	case <-c.getContext().Done(): // the connection context done, drop the message and exit
 		c.replyMsgChans.Delete(msg.ID())
+		msg.Free()
+
 		return
 
 	case <-timer.C: // reply channel send timeout, drop the message and exit
 		c.logger.Warn("reply channel send timeout, drop the message", "msgID", msg.ID())
 		c.replyMsgChans.Delete(msg.ID())
+		msg.Free()
+
 		return
 
 	case replyChan <- msg:
@@ -1043,6 +1067,7 @@ func (c *Connection) replyErrToSender(msg hsms.HSMSMessage, err error) {
 		c.session.recvDataMsg(errMsg)
 	} else {
 		c.logger.Warn("session is nil, cannot handle error data message", "msgID", msg.ID(), "error", err)
+		errMsg.Free()
 	}
 }
 

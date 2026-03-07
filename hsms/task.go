@@ -192,7 +192,17 @@ func (mgr *TaskManager) StartRecvDataMsg(name string, taskFunc DataMessageHandle
 			ctx := mgr.getContext()
 			select {
 			case <-ctx.Done():
-				return
+				// Drain and free any remaining buffered messages to prevent pool leaks.
+				for {
+					select {
+					case msg := <-inputChan:
+						if msg != nil {
+							msg.Free()
+						}
+					default:
+						return
+					}
+				}
 			case msg, ok := <-inputChan:
 				if !ok {
 					mgr.logger.Debug("data message channel closed", "name", name)

@@ -138,28 +138,46 @@ func (s *Session) recvDataMsg(msg *hsms.DataMessage) {
 	copy(chans, s.dataMsgChans)
 	s.mu.RUnlock()
 
-	for i, ch := range chans {
-		deliverMsg := msg
-		if i > 0 {
-			cloned, ok := msg.Clone().(*hsms.DataMessage)
-			if !ok {
-				s.logger.Warn("failed to clone data message for handler", "id", s.id, "msg_id", msg.ID())
-				continue
-			}
+	if len(chans) == 0 {
+		msg.Free()
+		return
+	}
 
-			deliverMsg = cloned
+	// Pre-clone for all additional handlers before sending any, to avoid a data
+	// race where handler[0] calls msg.Free() while we are still cloning the original.
+	deliverMsgs := make([]*hsms.DataMessage, len(chans))
+	deliverMsgs[0] = msg
+
+	for i := 1; i < len(chans); i++ {
+		cloned, ok := msg.Clone().(*hsms.DataMessage)
+		if !ok {
+			s.logger.Warn("failed to clone data message for handler", "id", s.id, "msg_id", msg.ID())
+
+			continue
+		}
+
+		deliverMsgs[i] = cloned
+	}
+
+	// Deliver all messages to their respective handler channels.
+	for i, ch := range chans {
+		if deliverMsgs[i] == nil {
+			continue // clone failed for this handler
 		}
 
 		select {
 		case <-s.conn.ctx.Done():
 			s.logger.Debug("context done, stop receiving data message",
 				"id", s.id, "msg_id", msg.ID())
-			if i > 0 {
-				deliverMsg.Free()
+			// Free all undelivered messages (including the original if not yet sent).
+			for j := i; j < len(deliverMsgs); j++ {
+				if deliverMsgs[j] != nil {
+					deliverMsgs[j].Free()
+				}
 			}
 
 			return
-		case ch <- deliverMsg:
+		case ch <- deliverMsgs[i]:
 		}
 	}
 }
