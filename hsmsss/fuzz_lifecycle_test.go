@@ -10,6 +10,63 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// fuzzState holds mutable state shared between the fuzz harness and its
+// operation dispatcher.  Keeping the dispatch logic in a method reduces the
+// cyclomatic complexity of the outer FuzzConnectionLifecycle function.
+type fuzzState struct {
+	hostConn *Connection
+	eqpConn  *Connection
+	session  hsms.Session
+	ctx      context.Context //nolint:containedctx // kept for brevity in test code
+	hostOpen bool
+	eqpOpen  bool
+}
+
+func (fs *fuzzState) dispatch(op byte) {
+	switch op >> 5 {
+	case 0: // Open (only if closed)
+		if !fs.hostOpen {
+			_ = fs.hostConn.Open(false)
+			fs.hostOpen = true
+		}
+		if !fs.eqpOpen {
+			_ = fs.eqpConn.Open(false)
+			fs.eqpOpen = true
+		}
+	case 1: // Close
+		if fs.hostOpen {
+			_ = fs.hostConn.Close()
+			fs.hostOpen = false
+		}
+		if fs.eqpOpen {
+			_ = fs.eqpConn.Close()
+			fs.eqpOpen = false
+		}
+	case 2: // Send async (best-effort)
+		_ = fs.session.SendDataMessageAsync(1, 1, false, secs2.A("fuzz"))
+	case 3: // UpdateConfig
+		_ = fs.hostConn.UpdateConfigOptions(
+			WithAutoLinktest(op&0x01 == 1),
+			WithLinktestInterval(time.Duration(100+int(op&0x1F))*time.Millisecond),
+		)
+	case 4: // Send sync (best-effort, ignore errors)
+		_, _ = fs.session.SendDataMessage(1, 1, true, secs2.A("fuzz-sync"))
+	case 5: // Enable linktest
+		_ = fs.hostConn.UpdateConfigOptions(
+			WithAutoLinktest(true),
+			WithLinktestInterval(50*time.Millisecond),
+		)
+	case 6: // Disable linktest
+		_ = fs.hostConn.UpdateConfigOptions(WithAutoLinktest(false))
+	case 7: // WaitState (brief, non-blocking check)
+		waitCtx, waitCancel := context.WithTimeout(fs.ctx, 20*time.Millisecond)
+		_ = fs.hostConn.stateMgr.WaitState(waitCtx, hsms.SelectedState)
+		waitCancel()
+	default:
+		// unreachable: op>>5 is always 0..7 for a 3-bit value
+	}
+}
+
 // FuzzConnectionLifecycle fuzzes the Open/Close/Send state machine by
 // interpreting a byte slice as a sequence of operations with random timing.
 //
@@ -19,14 +76,18 @@ import (
 //	go test -fuzz=FuzzConnectionLifecycle -race -fuzztime=60s ./hsmsss/
 func FuzzConnectionLifecycle(f *testing.F) {
 	// Seed corpus: representative operation sequences.
-	// Each byte encodes: bits[7:6] = operation, bits[5:0] = delay (0..63 ms).
-	// Operations: 0=open, 1=close, 2=send, 3=updateConfig
-	f.Add([]byte{0x00, 0x80, 0x40, 0xC0})             // open, send, close, updateConfig
-	f.Add([]byte{0x00, 0x80, 0x80, 0x40, 0x00, 0x40}) // open, send×2, close, open, close
-	f.Add([]byte{0x40, 0x00, 0x80, 0x40})             // close-before-open, open, send, close
-	f.Add([]byte{0x00, 0x40, 0x00, 0x80, 0x40})       // open, close, open, send, close
-	f.Add([]byte{0x00, 0x80, 0x80, 0x80, 0x80, 0x40}) // open, burst sends, close
-	f.Add([]byte{0xC0, 0x00, 0xC0, 0x40})             // updateConfig, open, updateConfig, close
+	// Each byte encodes: bits[7:5] = operation (0..7), bits[4:0] = delay (0..31 ms).
+	// Operations: 0=open, 1=close, 2=sendAsync, 3=updateConfig,
+	//             4=sendSync(best-effort), 5=enableLinktest, 6=disableLinktest, 7=waitState
+	f.Add([]byte{0x00, 0x40, 0x20, 0x60})             // open, send, close, updateConfig
+	f.Add([]byte{0x00, 0x40, 0x40, 0x20, 0x00, 0x20}) // open, send×2, close, open, close
+	f.Add([]byte{0x20, 0x00, 0x40, 0x20})             // close-before-open, open, send, close
+	f.Add([]byte{0x00, 0x20, 0x00, 0x40, 0x20})       // open, close, open, send, close
+	f.Add([]byte{0x00, 0x40, 0x40, 0x40, 0x40, 0x20}) // open, burst sends, close
+	f.Add([]byte{0x60, 0x00, 0x60, 0x20})             // updateConfig, open, updateConfig, close
+	f.Add([]byte{0x00, 0xA0, 0x40, 0xC0, 0x20})       // open, enableLinktest, send, disableLinktest, close
+	f.Add([]byte{0x00, 0x80, 0x80, 0xE0, 0x20})       // open, sendSync×2, waitState, close
+	f.Add([]byte{0x00, 0xA0, 0xC0, 0xA0, 0xC0, 0x20}) // open, toggle linktest rapidly, close
 
 	f.Fuzz(func(t *testing.T, ops []byte) {
 		if len(ops) == 0 {
@@ -87,8 +148,12 @@ func FuzzConnectionLifecycle(f *testing.F) {
 
 		// Track open/closed state to avoid calling Open twice without Close
 		// (which is an API contract violation, not a timing bug).
-		hostOpen := false
-		eqpOpen := false
+		fs := &fuzzState{
+			hostConn: hostConn,
+			eqpConn:  eqpConn,
+			session:  session,
+			ctx:      ctx,
+		}
 
 		done := make(chan struct{})
 		go func() {
@@ -103,40 +168,12 @@ func FuzzConnectionLifecycle(f *testing.F) {
 			}()
 
 			for _, op := range ops {
-				delay := time.Duration(op&0x3F) * time.Millisecond
+				delay := time.Duration(op&0x1F) * time.Millisecond
 				if delay > 0 {
 					time.Sleep(delay)
 				}
 
-				switch op >> 6 {
-				case 0: // Open (only if closed)
-					if !hostOpen {
-						_ = hostConn.Open(false)
-						hostOpen = true
-					}
-					if !eqpOpen {
-						_ = eqpConn.Open(false)
-						eqpOpen = true
-					}
-				case 1: // Close
-					if hostOpen {
-						_ = hostConn.Close()
-						hostOpen = false
-					}
-					if eqpOpen {
-						_ = eqpConn.Close()
-						eqpOpen = false
-					}
-				case 2: // Send (async, best-effort)
-					_ = session.SendDataMessageAsync(1, 1, false, secs2.A("fuzz"))
-				case 3: // UpdateConfig
-					_ = hostConn.UpdateConfigOptions(
-						WithAutoLinktest(op&0x01 == 1),
-						WithLinktestInterval(time.Duration(100+int(op&0x3F))*time.Millisecond),
-					)
-				default:
-					// unreachable: op>>6 is always 0..3 for a 2-bit value
-				}
+				fs.dispatch(op)
 			}
 		}()
 

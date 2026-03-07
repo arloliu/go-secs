@@ -1171,8 +1171,8 @@ func (l *tickerCtl) setLinktestTicker(ticker *time.Ticker) {
 }
 
 func (l *tickerCtl) stopLinktestTicker() {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
+	l.mu.Lock()
+	defer l.mu.Unlock()
 
 	if l.linktestTicker != nil {
 		l.linktestTicker.Stop()
@@ -1180,8 +1180,8 @@ func (l *tickerCtl) stopLinktestTicker() {
 }
 
 func (l *tickerCtl) resetLinktestTicker(d time.Duration) {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
+	l.mu.Lock()
+	defer l.mu.Unlock()
 
 	if l.linktestTicker != nil && d > 0 {
 		l.linktestTicker.Reset(d)
