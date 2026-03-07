@@ -14,6 +14,9 @@ define NEWLINE
 endef
 
 TEST_TIMEOUT := 5m
+STRESS_TIMEOUT := 30m
+STRESS_COUNT ?= 50
+FUZZ_TIME ?= 30s
 GO_TEST_P ?= $(shell nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 8)
 
 ALL_SRC         := $(shell find . -name "*.go")
@@ -83,6 +86,44 @@ check: lint vet
 lint: update-tools
 	@printf "Run linter...\n"
 	@go tool -modfile=.linter.go.mod golangci-lint run
+
+# Stress tests: run tests many times under different scheduler conditions to
+# surface timing-sensitive flakes.  Override STRESS_COUNT (default 50) to tune.
+stress-test: clean
+	@printf "=== Stress test: GOMAXPROCS=1, count=$(STRESS_COUNT) (maximises goroutine contention) ===\n"
+	@GOMAXPROCS=1 CGO_ENABLED=1 go test ./hsmsss/... -count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p 1 || exit 1
+	@GOMAXPROCS=1 CGO_ENABLED=1 go test ./hsms/... -count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p 1 || exit 1
+	@GOMAXPROCS=1 CGO_ENABLED=1 go test ./secs1/... -count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p 1 || exit 1
+	@GOMAXPROCS=1 CGO_ENABLED=1 go test ./tests/... -count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p 1 || exit 1
+	@printf "=== Stress test: default GOMAXPROCS, count=$(STRESS_COUNT), parallel=$(GO_TEST_P) ===\n"
+	@CGO_ENABLED=1 go test ./hsmsss/... -count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p $(GO_TEST_P) || exit 1
+	@CGO_ENABLED=1 go test ./hsms/... -count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p $(GO_TEST_P) || exit 1
+	@CGO_ENABLED=1 go test ./secs1/... -count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p $(GO_TEST_P) || exit 1
+	@CGO_ENABLED=1 go test ./tests/... -count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p $(GO_TEST_P) || exit 1
+	@printf "=== All stress tests passed ($(STRESS_COUNT) iterations × 2 GOMAXPROCS modes) ===\n"
+
+# Quick stress: runs only the most timing-sensitive tests for fast iteration.
+stress-quick: clean
+	@printf "=== Quick stress: flake-prone tests, count=$(STRESS_COUNT) ===\n"
+	@GOMAXPROCS=1 CGO_ENABLED=1 go test ./hsmsss/... -run "TestConnection_Linktest|TestDrainMessage|TestSendRequestDrain|TestLinktestFail" \
+		-count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p 1 || exit 1
+	@CGO_ENABLED=1 go test ./tests/hsmsss_integration/... -run "TestConcurrentClose|TestActiveExponentialBackoff" \
+		-count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p 1 || exit 1
+	@printf "=== Quick stress passed ===\n"
+
+# Fuzz tests: run all fuzz targets for FUZZ_TIME each (default 30s).
+# Override FUZZ_TIME to tune, e.g.  make fuzz-test FUZZ_TIME=5m
+fuzz-test:
+	@printf "%s\n" "=== Fuzz tests (each target for $(FUZZ_TIME)) ==="
+	@printf "%s\n" "-- FuzzDecodeMessage (hsms) --"
+	@CGO_ENABLED=1 go test ./hsms/... -run=^$$ -fuzz=FuzzDecodeMessage -race -fuzztime=$(FUZZ_TIME)
+	@printf "%s\n" "-- FuzzDecodeHSMSMessage (hsms) --"
+	@CGO_ENABLED=1 go test ./hsms/... -run=^$$ -fuzz=FuzzDecodeHSMSMessage -race -fuzztime=$(FUZZ_TIME)
+	@printf "%s\n" "-- FuzzMessageReader_ReadMessage (hsmsss) --"
+	@CGO_ENABLED=1 go test ./hsmsss/... -run=^$$ -fuzz=FuzzMessageReader_ReadMessage -race -fuzztime=$(FUZZ_TIME)
+	@printf "%s\n" "-- FuzzConnectionLifecycle (hsmsss) --"
+	@CGO_ENABLED=1 go test ./hsmsss/... -run=^$$ -fuzz=FuzzConnectionLifecycle -race -fuzztime=$(FUZZ_TIME)
+	@printf "%s\n" "=== All fuzz tests completed ==="
 
 # Misc
 update-gomod: gomod-tidy gomod-vendor

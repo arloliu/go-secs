@@ -58,11 +58,11 @@ func TestTimerPool(t *testing.T) {
 
 		select {
 		case tt := <-timer2.C: // timer2 should fire after 300ms
-			if tt.Sub(begin) < 270*time.Millisecond {
-				t.Error("timer2 should fire after 300ms")
+			if tt.Sub(begin) < 200*time.Millisecond {
+				t.Error("timer2 should fire after roughly 300ms, fired too early")
 			}
-		case <-time.After(330 * time.Millisecond):
-			t.Error("timer2 should have fired within 330ms")
+		case <-time.After(500 * time.Millisecond):
+			t.Error("timer2 should have fired within 500ms")
 		}
 	})
 

@@ -3,7 +3,6 @@ package secs1integration
 import (
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/arloliu/go-secs/logger"
 	"github.com/arloliu/go-secs/secs1"
@@ -32,12 +31,12 @@ func TestConcurrentClose(t *testing.T) {
 	secs1Conn.AddSession(testSessionID)
 
 	// Open connection in background, which will start the connectLoop
+	openStarted := make(chan struct{})
 	go func() {
+		close(openStarted) // signal that Open is about to run
 		_ = secs1Conn.Open(false)
 	}()
-
-	// Let openActive run
-	time.Sleep(50 * time.Millisecond)
+	<-openStarted // wait for goroutine to be scheduled
 
 	var wg sync.WaitGroup
 	// Fire 10 concurrent Close() calls

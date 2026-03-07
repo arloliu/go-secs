@@ -120,6 +120,15 @@ func (cs *ConnStateMgr) Start() {
 	cs.stateMu.Lock()
 	defer cs.stateMu.Unlock()
 
+	// Already running — nothing to do. This prevents a data race when
+	// Open() is called twice without an intervening Close(): the second
+	// call would otherwise overwrite ctx/cancel/stateChangeChan while the
+	// first asyncStateChangeTask goroutine is still running.
+	if cs.ctx != nil && !cs.shutdowned.Load() {
+		cs.logger.Debug("connection state manager already started, skipping")
+		return
+	}
+
 	cs.logger.Debug("start connection state manager")
 
 	cctx, cancel := context.WithCancel(cs.pctx)
@@ -413,6 +422,21 @@ func (cs *ConnStateMgr) changeStateAsync(state ConnState) {
 	cs.stateMu.Lock()
 	defer cs.stateMu.Unlock()
 
+	// After Stop() closes stateChangeChan, a concurrent goroutine (e.g.
+	// tryConnect → ToNotSelectedAsync) could still reach this point.
+	// The shutdowned check is race-free here because Stop() sets the flag
+	// before closing the channel, and both Stop() and this method serialise
+	// on stateMu for the channel close / channel send.
+	if cs.shutdowned.Load() {
+		cs.logger.Debug("state manager shutdowned, ignoring async state change",
+			"method", "changeStateAsync",
+			"curState", cs.State(),
+			"desiredState", state,
+		)
+
+		return
+	}
+
 	if cs.State() == state {
 		return
 	}
@@ -424,7 +448,18 @@ func (cs *ConnStateMgr) changeStateAsync(state ConnState) {
 		"shutdowned", cs.shutdowned.Load(),
 	)
 
-	cs.stateChangeChan <- state
+	// Use select with ctx.Done() to avoid blocking indefinitely on a full
+	// channel when the asyncStateChangeTask goroutine has already exited
+	// (between cancel() and the channel close in Stop()).
+	select {
+	case cs.stateChangeChan <- state:
+	case <-cs.ctx.Done():
+		cs.logger.Debug("context canceled, dropping async state change",
+			"method", "changeStateAsync",
+			"curState", cs.State(),
+			"desiredState", state,
+		)
+	}
 }
 
 // asyncStateChangeTask handles state changing in the background.
@@ -507,7 +542,13 @@ func (cs *ConnStateMgr) processAsyncStateChange(desiredState ConnState, shutdown
 				"method", "asyncStateChangeTask",
 				"prevState", prevState, "curState", cs.State(), "desiredState", desiredState,
 			)
-			cs.stateChangeChan <- NotConnectedState
+			// Use select to avoid blocking when the channel buffer is full.
+			// This goroutine is the sole reader of the channel, so a
+			// blocking send here would deadlock.
+			select {
+			case cs.stateChangeChan <- NotConnectedState:
+			case <-cs.ctx.Done():
+			}
 		}
 	}
 

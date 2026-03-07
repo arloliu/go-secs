@@ -254,6 +254,105 @@ func TestWaitConnState(t *testing.T) {
 	require.WithinDuration(begin.Add(100*time.Millisecond), time.Now(), 20*time.Millisecond)
 }
 
+// TestConnStateMgr_DoubleStart verifies that calling Start() twice without
+// an intervening Stop() is idempotent and does not leak goroutines or
+// overwrite the channel/context from the first Start().
+func TestConnStateMgr_DoubleStart(t *testing.T) {
+	require := require.New(t)
+
+	ctx := context.Background()
+	cs := NewConnStateMgr(ctx, nil)
+
+	cs.Start()
+
+	// Transition to NotSelected so we can observe the state is preserved.
+	require.NoError(cs.ToNotSelected())
+	require.Equal(NotSelectedState, cs.State())
+
+	// Second Start() should be a no-op.
+	cs.Start()
+
+	// State should still be NotSelected (not reset to NotConnected).
+	require.Equal(NotSelectedState, cs.State())
+
+	// Async transitions should still work (channel not replaced).
+	cs.ToNotConnectedAsync()
+	require.Eventually(func() bool {
+		return cs.IsNotConnected()
+	}, time.Second, time.Millisecond)
+
+	cs.Stop()
+}
+
+// TestConnStateMgr_DoubleStartAfterStop verifies the Start→Stop→Start cycle
+// works correctly, creating a fresh goroutine and channel.
+func TestConnStateMgr_DoubleStartAfterStop(t *testing.T) {
+	require := require.New(t)
+
+	ctx := context.Background()
+	cs := NewConnStateMgr(ctx, nil)
+
+	// First lifecycle.
+	cs.Start()
+	require.NoError(cs.ToNotSelected())
+	cs.Stop()
+	require.Equal(NotConnectedState, cs.State())
+
+	// Second lifecycle — must not panic or hang.
+	cs.Start()
+	require.NoError(cs.ToNotSelected())
+	cs.ToSelectedAsync()
+	require.Eventually(func() bool {
+		return cs.IsSelected()
+	}, time.Second, time.Millisecond)
+	cs.Stop()
+	require.Equal(NotConnectedState, cs.State())
+}
+
+// TestConnStateMgr_AsyncAfterStop verifies that calling an async state change
+// after Stop() does not panic (send on closed channel).
+func TestConnStateMgr_AsyncAfterStop(t *testing.T) {
+	ctx := context.Background()
+	cs := NewConnStateMgr(ctx, nil)
+
+	cs.Start()
+	require.NoError(t, cs.ToNotSelected())
+	cs.Stop()
+
+	// These must not panic.
+	cs.ToNotConnectedAsync()
+	cs.ToNotSelectedAsync()
+	cs.ToSelectedAsync()
+	cs.ToConnectingAsync()
+}
+
+// TestConnStateMgr_ConcurrentAsyncAndStop verifies that concurrent async
+// state changes and Stop() do not cause panics or data races.
+func TestConnStateMgr_ConcurrentAsyncAndStop(t *testing.T) {
+	ctx := context.Background()
+
+	for range 100 {
+		cs := NewConnStateMgr(ctx, nil)
+		cs.Start()
+		_ = cs.ToNotSelected()
+
+		// Fire many async transitions concurrently with Stop.
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			for range 20 {
+				cs.ToNotConnectedAsync()
+				cs.ToNotSelectedAsync()
+				cs.ToSelectedAsync()
+			}
+		}()
+
+		// Stop while the goroutine is firing.
+		cs.Stop()
+		<-done
+	}
+}
+
 type ssConn struct{}
 
 var _ Connection = (*ssConn)(nil)

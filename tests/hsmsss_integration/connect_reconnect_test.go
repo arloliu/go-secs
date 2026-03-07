@@ -362,11 +362,12 @@ func TestConcurrentClose(t *testing.T) {
 	require.NoError(err)
 	hsmsConn.AddSession(testSessionID)
 
+	openStarted := make(chan struct{})
 	go func() {
+		close(openStarted) // signal that Open is about to run
 		_ = hsmsConn.Open(false)
 	}()
-
-	time.Sleep(50 * time.Millisecond)
+	<-openStarted // wait for goroutine to be scheduled
 
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
