@@ -470,6 +470,253 @@ func TestConnection_Linktest(t *testing.T) {
 		"After 250ms idle, expecting 5 more linktests")
 }
 
+// selectOnlyPeer starts a raw TCP server that speaks just enough HSMS to complete
+// the select.req/rsp handshake, then silently discards all subsequent messages
+// (including linktest.req). This causes the host's periodic linktest requests to
+// T6 timeout while the TCP connection stays alive.
+//
+// Returns a cleanup function that closes the listener and connection.
+func selectOnlyPeer(t *testing.T, port int) func() {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", net.JoinHostPort(testIP, strconv.Itoa(port)))
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+
+		buf := make([]byte, 4096)
+		for {
+			select {
+			case <-done:
+				_ = conn.Close()
+				return
+			default:
+			}
+
+			_ = conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+			n, err := conn.Read(buf)
+			if err != nil {
+				continue
+			}
+			if n < 14 {
+				continue
+			}
+
+			// Parse HSMS: 4-byte length + 10-byte header.
+			// SType is at offset 9 (buf[9]).
+			sType := buf[9]
+			if sType == hsms.SelectReqType {
+				// Build select.rsp: copy the header and change SType to SelectRspType.
+				rsp := make([]byte, 14)
+				copy(rsp, buf[:14])
+				rsp[9] = hsms.SelectRspType // SType = select.rsp
+				rsp[6] = 0                  // SelectStatus = success
+
+				_, _ = conn.Write(rsp)
+			}
+			// All other messages (linktest.req, etc.) are silently discarded.
+		}
+	}()
+
+	return func() {
+		close(done)
+		_ = listener.Close()
+	}
+}
+
+// TestConnection_LinktestFailThreshold_Default verifies that with the default threshold (1),
+// a single linktest T6 timeout triggers an immediate transition to NotConnected.
+func TestConnection_LinktestFailThreshold_Default(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	// Start a select-only peer: completes select handshake but ignores linktest.
+	cleanup := selectOnlyPeer(t, port)
+	defer cleanup()
+
+	// Host: active, auto-linktest enabled, short T6 + linktest interval.
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithAutoLinktest(true),
+		WithLinktestInterval(100*time.Millisecond),
+		WithT6Timeout(1*time.Second),
+		WithT7Timeout(240*time.Second),
+		WithConnectRemoteTimeout(1*time.Second),
+		WithCloseConnTimeout(3*time.Second),
+		// default threshold is 1
+	)
+
+	require.NoError(hostComm.open(false))
+
+	// Wait for the host to reach Selected (select.rsp comes from the peer)
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+	t.Log("Host reached Selected state")
+
+	// Verify threshold is 1
+	require.Equal(1, hostComm.conn.cfg.LinktestFailThreshold())
+
+	// With threshold=1, the first linktest T6 timeout should disconnect.
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.NotConnectedState))
+	t.Log("Host transitioned to NotConnected after 1 linktest T6 timeout (threshold=1)")
+
+	// Verify metrics: at least 1 linktest error
+	hostMetrics := hostComm.conn.GetMetrics()
+	require.GreaterOrEqual(hostMetrics.LinktestErrCount.Load(), uint64(1),
+		"expected at least 1 linktest error")
+
+	require.NoError(hostComm.close())
+}
+
+// TestConnection_LinktestFailThreshold_Multiple verifies that with threshold=3,
+// the connection tolerates 2 consecutive T6 timeouts and only disconnects on the 3rd.
+func TestConnection_LinktestFailThreshold_Multiple(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	// Start a select-only peer: completes select handshake but ignores linktest.
+	cleanup := selectOnlyPeer(t, port)
+	defer cleanup()
+
+	// Host: active, threshold=3, short T6 + linktest interval.
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithAutoLinktest(true),
+		WithLinktestInterval(100*time.Millisecond),
+		WithT6Timeout(1*time.Second),
+		WithT7Timeout(240*time.Second),
+		WithLinktestFailThreshold(3),
+		WithConnectRemoteTimeout(1*time.Second),
+		WithCloseConnTimeout(3*time.Second),
+	)
+
+	require.NoError(hostComm.open(false))
+
+	// Wait for the host to reach Selected
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+	t.Log("Host reached Selected state")
+
+	// Verify threshold is 3
+	require.Equal(3, hostComm.conn.cfg.LinktestFailThreshold())
+
+	// With threshold=3:
+	// - 1st linktest fires at ~100ms, T6 timeout at ~1.1s → failCount=1
+	// - 2nd linktest fires at ~1.2s, T6 timeout at ~2.2s → failCount=2
+	// - 3rd linktest fires at ~2.3s, T6 timeout at ~3.3s → disconnect
+	// After 1.5s we should have failCount >= 1 but not yet disconnected.
+	time.Sleep(1500 * time.Millisecond)
+
+	failCount := hostComm.conn.linktestFailCount.Load()
+	t.Logf("After 1.5s: failCount=%d, state=%s", failCount, hostComm.conn.stateMgr.State())
+	require.GreaterOrEqual(int(failCount), 1,
+		"expected at least 1 failure recorded")
+	require.False(hostComm.conn.stateMgr.State().IsNotConnected(),
+		"expected host to NOT be NotConnected yet with threshold=3, state=%s",
+		hostComm.conn.stateMgr.State())
+
+	// Now wait for the threshold to be reached and disconnect
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.NotConnectedState))
+	t.Log("Host transitioned to NotConnected after reaching threshold=3")
+
+	// Verify metrics show at least 3 linktest errors
+	hostMetrics := hostComm.conn.GetMetrics()
+	require.GreaterOrEqual(hostMetrics.LinktestErrCount.Load(), uint64(3),
+		"expected at least 3 linktest errors")
+
+	require.NoError(hostComm.close())
+}
+
+// TestConnection_LinktestFailThreshold_ResetOnSuccess verifies that the consecutive failure
+// counter resets to zero when a successful linktest response is received.
+func TestConnection_LinktestFailThreshold_ResetOnSuccess(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	// threshold=3, with a real equipment peer that responds to linktests
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithAutoLinktest(true),
+		WithLinktestInterval(100*time.Millisecond),
+		WithT6Timeout(1*time.Second),
+		WithLinktestFailThreshold(3),
+		WithConnectRemoteTimeout(500*time.Millisecond),
+		WithCloseConnTimeout(1*time.Second),
+	)
+	eqpComm := newTestComm(ctx, t, port, false, false,
+		WithAutoLinktest(false),
+		WithCloseConnTimeout(1*time.Second),
+	)
+
+	require.NoError(eqpComm.open(false))
+	require.NoError(hostComm.open(false))
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+	require.NoError(eqpComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+	// Let a few successful linktests go through
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify counter is zero after successful linktests
+	require.Equal(int32(0), hostComm.conn.linktestFailCount.Load(),
+		"fail counter should be zero after successful linktests")
+
+	// Also verify we're still connected
+	require.True(hostComm.conn.stateMgr.State().IsSelected(),
+		"expected host to be in Selected state")
+
+	require.NoError(hostComm.close())
+	require.NoError(eqpComm.close())
+}
+
+// TestConnection_LinktestFailThreshold_HotReload verifies that changing the threshold
+// at runtime via UpdateConfigOptions takes effect on the next linktest cycle.
+func TestConnection_LinktestFailThreshold_HotReload(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	// Start a select-only peer: completes select handshake but ignores linktest.
+	cleanup := selectOnlyPeer(t, port)
+	defer cleanup()
+
+	// Start with threshold=3 so the host survives the first linktest failures
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithAutoLinktest(true),
+		WithLinktestInterval(100*time.Millisecond),
+		WithT6Timeout(1*time.Second),
+		WithT7Timeout(240*time.Second),
+		WithLinktestFailThreshold(3),
+		WithConnectRemoteTimeout(1*time.Second),
+		WithCloseConnTimeout(3*time.Second),
+	)
+
+	require.NoError(hostComm.open(false))
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+	t.Log("Host reached Selected state")
+
+	// Hot-reload: lower threshold to 2
+	require.NoError(hostComm.conn.UpdateConfigOptions(WithLinktestFailThreshold(2)))
+	require.Equal(2, hostComm.conn.cfg.LinktestFailThreshold())
+	t.Log("Hot-reloaded threshold from 3 to 2")
+
+	// Should disconnect after 2 T6 timeouts (not 3).
+	// 1st timeout at ~1.1s → failCount=1, tolerated
+	// 2nd timeout at ~2.2s → failCount=2 >= threshold(2) → disconnect
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.NotConnectedState))
+	t.Log("Host transitioned to NotConnected with hot-reloaded threshold=2")
+
+	// Verify metrics show at least 2 linktest errors
+	hostMetrics := hostComm.conn.GetMetrics()
+	require.GreaterOrEqual(hostMetrics.LinktestErrCount.Load(), uint64(2),
+		"expected at least 2 linktest errors")
+
+	require.NoError(hostComm.close())
+}
+
 func TestSendMessageFail(t *testing.T) {
 	require := require.New(t)
 	ctx := t.Context()

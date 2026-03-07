@@ -38,6 +38,20 @@ type ConnectionConfig struct {
 	// Defaults to 10 seconds.
 	linktestInterval time.Duration
 
+	// linktestFailThreshold defines the number of consecutive linktest T6 timeout failures
+	// allowed before the connection transitions to the NotConnected state.
+	// This helps tolerate temporarily slow equipment that responds to linktests with delay.
+	//
+	// The consecutive failure counter is reset to zero when:
+	//   - A successful linktest response is received.
+	//   - The connection enters the Selected state (i.e., on a fresh connection).
+	//
+	// When set to 1 (default), a single T6 timeout causes an immediate disconnect,
+	// preserving the original fail-fast behavior.
+	//
+	// Defaults to 1.
+	linktestFailThreshold int
+
 	// t3Timeout defines the reply timeout (T3) for HSMS messages. It should be between 1 and 600 seconds.
 	// It defines the maximum time to wait for a reply after sending a primary message that requires a reply.
 	//
@@ -172,27 +186,28 @@ type ConnectionConfig struct {
 // Returns a pointer to the initialized ConnectionConfig and an error if any occurred during the configuration process.
 func NewConnectionConfig(host string, port int, opts ...ConnOption) (*ConnectionConfig, error) {
 	cfg := &ConnectionConfig{
-		isEquip:              false,
-		isActive:             true,
-		autoLinktest:         true,
-		linktestInterval:     10 * time.Second,
-		t3Timeout:            45 * time.Second,
-		t5Timeout:            10 * time.Second,
-		t6Timeout:            5 * time.Second,
-		t7Timeout:            10 * time.Second,
-		t8Timeout:            5 * time.Second,
-		connectRemoteTimeout: 3 * time.Second,
-		acceptConnTimeout:    1 * time.Second,
-		closeConnTimeout:     3 * time.Second,
-		initialRetryDelay:    100 * time.Millisecond,
-		sendTimeout:          1 * time.Second,
-		keepAlivePeriod:      30 * time.Second,
-		idleReadTimeout:      10 * time.Second,
-		senderQueueSize:      10,
-		dataMsgQueueSize:     10,
-		validateDataMessage:  true,
-		traceTraffic:         false,
-		logger:               logger.GetLogger(),
+		isEquip:               false,
+		isActive:              true,
+		autoLinktest:          true,
+		linktestInterval:      10 * time.Second,
+		linktestFailThreshold: 1,
+		t3Timeout:             45 * time.Second,
+		t5Timeout:             10 * time.Second,
+		t6Timeout:             5 * time.Second,
+		t7Timeout:             10 * time.Second,
+		t8Timeout:             5 * time.Second,
+		connectRemoteTimeout:  3 * time.Second,
+		acceptConnTimeout:     1 * time.Second,
+		closeConnTimeout:      3 * time.Second,
+		initialRetryDelay:     100 * time.Millisecond,
+		sendTimeout:           1 * time.Second,
+		keepAlivePeriod:       30 * time.Second,
+		idleReadTimeout:       10 * time.Second,
+		senderQueueSize:       10,
+		dataMsgQueueSize:      10,
+		validateDataMessage:   true,
+		traceTraffic:          false,
+		logger:                logger.GetLogger(),
 	}
 
 	if err := withRemoteHost(host).apply(cfg); err != nil {
@@ -226,6 +241,15 @@ func (cfg *ConnectionConfig) LinktestInterval() time.Duration {
 	defer cfg.mu.RUnlock()
 
 	return cfg.linktestInterval
+}
+
+// LinktestFailThreshold returns the number of consecutive linktest T6 timeout failures
+// allowed before the connection transitions to the NotConnected state.
+func (cfg *ConnectionConfig) LinktestFailThreshold() int {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	return cfg.linktestFailThreshold
 }
 
 // T3Timeout returns the reply timeout (T3) for HSMS messages.
@@ -527,6 +551,41 @@ func WithLinktestInterval(interval time.Duration) ConnOption {
 
 		cfg.mu.Lock()
 		cfg.linktestInterval = interval
+		cfg.mu.Unlock()
+
+		return nil
+	})
+}
+
+// WithLinktestFailThreshold sets the number of consecutive linktest T6 timeout failures
+// allowed before the connection transitions to the NotConnected state.
+//
+// This option helps tolerate temporarily slow equipment that works but responds to
+// linktest requests with delay. By setting a threshold greater than 1, the connection
+// will tolerate up to (n-1) consecutive T6 timeouts before disconnecting.
+//
+// The consecutive failure counter is reset to zero when:
+//   - A successful linktest response is received.
+//   - The connection enters the Selected state (i.e., on a fresh connection).
+//
+// The threshold must be at least 1.
+// An error is returned if the threshold is less than 1 or if the configuration is nil.
+//
+// The default value is 1 (fail-fast, preserving original behavior).
+//
+// This option can be changed at runtime.
+func WithLinktestFailThreshold(n int) ConnOption {
+	return newConnOptFunc("WithLinktestFailThreshold", true, func(cfg *ConnectionConfig) error {
+		if cfg == nil {
+			return hsms.ErrConnConfigNil
+		}
+
+		if n < 1 {
+			return errors.New("linktest fail threshold must be at least 1")
+		}
+
+		cfg.mu.Lock()
+		cfg.linktestFailThreshold = n
 		cfg.mu.Unlock()
 
 		return nil

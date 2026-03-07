@@ -169,4 +169,30 @@ func TestNewConnectionConfig(t *testing.T) {
 		require.Error(err)
 		require.ErrorIs(hsms.ErrConnConfigNil, err)
 	})
+
+	t.Run("Default LinktestFailThreshold", func(t *testing.T) {
+		cfg, err := NewConnectionConfig("192.168.1.1", 5000)
+		require.NoError(err)
+		require.Equal(1, cfg.LinktestFailThreshold())
+	})
+
+	t.Run("Valid LinktestFailThreshold", func(t *testing.T) {
+		cfg, err := NewConnectionConfig("192.168.1.1", 5000, WithLinktestFailThreshold(3))
+		require.NoError(err)
+		require.Equal(3, cfg.LinktestFailThreshold())
+	})
+
+	t.Run("Invalid LinktestFailThreshold", func(t *testing.T) {
+		_, err := NewConnectionConfig("192.168.1.1", 5000, WithLinktestFailThreshold(0))
+		require.Error(err)
+		require.EqualError(err, "linktest fail threshold must be at least 1")
+
+		_, err = NewConnectionConfig("192.168.1.1", 5000, WithLinktestFailThreshold(-1))
+		require.Error(err)
+		require.EqualError(err, "linktest fail threshold must be at least 1")
+
+		err = WithLinktestFailThreshold(1).apply(nil)
+		require.Error(err)
+		require.ErrorIs(hsms.ErrConnConfigNil, err)
+	})
 }

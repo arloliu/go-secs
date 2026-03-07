@@ -85,6 +85,11 @@ type Connection struct {
 	reconnectGen atomic.Uint64
 	tickers      tickerCtl // linktest control
 
+	// linktestFailCount tracks consecutive linktest T6 timeout failures.
+	// It is compared against cfg.linktestFailThreshold to decide when to disconnect.
+	// Reset to zero on successful linktest response or when entering Selected state.
+	linktestFailCount atomic.Int32
+
 	senderMsgChan chan *sendRequest // channel for sending messages to the senderTask, the lifetime is the same as this connection object
 	replyMsgChans *xsync.MapOf[uint32, chan hsms.HSMSMessage]
 	replyErrs     *xsync.MapOf[uint32, error]
@@ -1039,6 +1044,9 @@ func (c *Connection) replyErrToSender(msg hsms.HSMSMessage, err error) {
 func (c *Connection) linktestConnStateHandler(_ hsms.Connection, _ hsms.ConnState, curState hsms.ConnState) {
 	// HSMS-SS limits the use of linktest is only selected mode
 	if curState.IsSelected() {
+		// reset consecutive failure counter on fresh connection
+		c.linktestFailCount.Store(0)
+
 		ticker, err := c.taskMgr.StartInterval("autoLinktestTask", c.autoLinktestTask, c.cfg.linktestInterval, false)
 		if err != nil {
 			c.logger.Error("failed to start linktest ticker", "error", err)
@@ -1067,10 +1075,21 @@ func (c *Connection) autoLinktestTask() bool {
 
 	if errors.Is(err, hsms.ErrT6Timeout) {
 		c.metrics.incLinktestErrCount()
-		c.logger.Error("linktest T6 timeout")
-		c.stateMgr.ToNotConnectedAsync()
 
-		return false
+		failCount := int(c.linktestFailCount.Add(1))
+		threshold := c.cfg.LinktestFailThreshold()
+
+		if failCount >= threshold {
+			c.logger.Error("linktest T6 timeout, threshold reached", "failCount", failCount, "threshold", threshold)
+			c.linktestFailCount.Store(0)
+			c.stateMgr.ToNotConnectedAsync()
+
+			return false
+		}
+
+		c.logger.Warn("linktest T6 timeout, tolerating failure", "failCount", failCount, "threshold", threshold)
+
+		return true
 	}
 
 	// if connection closed, stop linktest task and doesn't need to increase error count
@@ -1085,6 +1104,8 @@ func (c *Connection) autoLinktestTask() bool {
 		return true
 	}
 
+	// successful linktest response, reset consecutive failure counter
+	c.linktestFailCount.Store(0)
 	c.metrics.incLinktestRecvCount()
 
 	return true
