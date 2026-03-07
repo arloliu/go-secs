@@ -163,6 +163,7 @@ func TestDecode_DataMessage(t *testing.T) {
 	assert := assert.New(t)
 
 	UseStreamFunctionNoQuote()
+	defer UseStreamFunctionSingleQuote()
 	for i, test := range tests {
 		t.Logf("Test #%d: %s", i, test.description)
 		msgLen := decodeMessageLength(test.input)

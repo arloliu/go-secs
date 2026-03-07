@@ -50,14 +50,26 @@ const (
 // It manages the communication with a remote HSMS device, handling message exchange, connection state
 // transitions, and various HSMS-specific functionalities.
 type Connection struct {
-	pctx       context.Context
-	ctxMutex   sync.RWMutex
-	ctx        context.Context
-	ctxCancel  context.CancelFunc
-	loopCtx    context.Context    // context for the background connect loop
-	loopCancel context.CancelFunc // cancels loopCtx
-	cfg        *ConnectionConfig
-	logger     logger.Logger
+	pctx context.Context
+
+	// connCtxVal stores the current per-connection context.Context.
+	// Written once per Open/reconnect cycle; read lock-free via connCtx().
+	connCtxVal atomic.Pointer[ctxHolder]
+
+	// connCancelFn stores the CancelFunc for the per-connection context.
+	// Written once per Open/reconnect cycle; called in closeConn.
+	connCancelFn atomic.Pointer[cancelHolder]
+
+	// loopCtxVal stores the current background reconnect-loop context.Context.
+	// Written once per Open cycle; read lock-free by startConnectLoop.
+	loopCtxVal atomic.Pointer[ctxHolder]
+
+	// loopCancelFn stores the CancelFunc for the background reconnect-loop context.
+	// Written once per Open cycle; called in Close to stop the loop.
+	loopCancelFn atomic.Pointer[cancelHolder]
+
+	cfg    *ConnectionConfig
+	logger logger.Logger
 
 	listener      net.Listener       // listener is for passive mode only
 	listenerMutex sync.Mutex         // mutex for listener
@@ -97,6 +109,13 @@ type Connection struct {
 	metrics ConnectionMetrics // connection metrics
 }
 
+// ctxHolder wraps a context.Context so that atomic.Pointer[ctxHolder]
+// always stores a concrete pointer type, avoiding interface-type inconsistency panics.
+type ctxHolder struct{ ctx context.Context }
+
+// cancelHolder wraps a context.CancelFunc for the same reason.
+type cancelHolder struct{ cancel context.CancelFunc }
+
 type connectionResources struct {
 	conn   net.Conn
 	writer *bufio.Writer
@@ -135,7 +154,8 @@ func NewConnection(ctx context.Context, cfg *ConnectionConfig) (*Connection, err
 
 	conn.opState.Set(hsms.ClosedState)
 
-	conn.createContexts()
+	// connCtxVal starts as nil; connCtx() returns context.Background() for nil.
+	// The real context is set in doOpen() before any goroutines are started.
 
 	if cfg.isActive {
 		conn.stateMgr = hsms.NewConnStateMgr(ctx, conn, conn.activeConnStateHandler)
@@ -250,16 +270,35 @@ func (c *Connection) doOpen(waitOpened bool) error {
 
 	c.logger.Debug("start to open connection", "method", "Open", "opState", c.opState.String())
 
-	c.createContexts()
+	// Cancel any previously-active per-connection context before creating new ones.
+	// This also signals a dying background connect loop to exit, then we wait for it.
+	if h := c.connCancelFn.Load(); h != nil {
+		h.cancel()
+	}
+	if h := c.loopCancelFn.Load(); h != nil {
+		h.cancel()
+	}
+
+	// Wait for any dying background reconnect loop to exit safely before creating
+	// a fresh context, so we are never racing with a dying loop over connCtxVal.
+	c.connectLoopWg.Wait()
+
+	// Create fresh per-connection and loop contexts for this lifecycle.
+	connCtx, connCancel := context.WithCancel(c.pctx)
+	loopCtx, loopCancel := context.WithCancel(c.pctx)
+	c.connCtxVal.Store(&ctxHolder{ctx: connCtx})
+	c.connCancelFn.Store(&cancelHolder{cancel: connCancel})
+	c.loopCtxVal.Store(&ctxHolder{ctx: loopCtx})
+	c.loopCancelFn.Store(&cancelHolder{cancel: loopCancel})
 
 	if c.cfg.isActive {
-		c.openActive()
+		c.openActive(connCtx, loopCtx)
 
 		if waitOpened {
-			return c.stateMgr.WaitState(c.getContext(), hsms.SelectedState)
+			return c.stateMgr.WaitState(connCtx, hsms.SelectedState)
 		}
 	} else { // passive mode
-		err := c.openPassive()
+		err := c.openPassive(connCtx)
 		if err != nil {
 			return err
 		}
@@ -275,11 +314,8 @@ func (c *Connection) Close() error {
 	c.reconnectGen.Add(1)
 
 	// ensure any background connect loop is cancelled
-	c.ctxMutex.RLock()
-	loopCancel := c.loopCancel
-	c.ctxMutex.RUnlock()
-	if loopCancel != nil {
-		loopCancel()
+	if h := c.loopCancelFn.Load(); h != nil {
+		h.cancel()
 	}
 
 	c.shutdown.Store(true)
@@ -473,14 +509,10 @@ func (c *Connection) closeConn(timeout time.Duration) error {
 	// 3. drain sender message channel
 	c.drainSenderMsgChan(closeCtx)
 
-	// 4. cancel per-connection context created by createContext method
-	c.ctxMutex.RLock()
-	cancel := c.ctxCancel
-	c.ctxMutex.RUnlock()
-
-	if cancel != nil {
+	// 4. cancel per-connection context to unblock any goroutines waiting on it
+	if h := c.connCancelFn.Load(); h != nil {
 		c.logger.Debug("trigger context cancel function", "method", "closeConn")
-		cancel()
+		h.cancel()
 	}
 
 	// 5. try to close TCP connection with timeout FIRST to unblock receiver/sender tasks
@@ -525,54 +557,36 @@ func (c *Connection) closeConn(timeout time.Duration) error {
 	return closeErr
 }
 
-// createContexts creates a new connection context and a new loop context, derived from the parent context.
-func (c *Connection) createContexts() {
-	c.ctxMutex.Lock()
-	if c.ctxCancel != nil {
-		c.ctxCancel()
-	}
-	if c.loopCancel != nil {
-		c.loopCancel()
-	}
-	c.ctxMutex.Unlock()
-
-	// Wait for any dying background reconnect loops to exit safely.
-	c.connectLoopWg.Wait()
-
-	c.ctxMutex.Lock()
-	defer c.ctxMutex.Unlock()
-
-	c.ctx, c.ctxCancel = context.WithCancel(c.pctx)
-	c.loopCtx, c.loopCancel = context.WithCancel(c.pctx)
-}
-
-// renewConnContext derives a new per-connection context from the parent context.
-// It is used by the background reconnect loop, which does not want to cancel its own loopCtx.
-func (c *Connection) renewConnContext() {
-	c.ctxMutex.Lock()
-	defer c.ctxMutex.Unlock()
-
-	if c.ctxCancel != nil {
-		c.ctxCancel()
+// connCtx returns the current per-connection context via a lock-free atomic load.
+// Returns context.Background() before the first Open() call.
+func (c *Connection) connCtx() context.Context {
+	if h := c.connCtxVal.Load(); h != nil {
+		return h.ctx
 	}
 
-	c.ctx, c.ctxCancel = context.WithCancel(c.pctx)
+	return context.Background()
 }
 
-// getContext returns the per-connection context safely.
-func (c *Connection) getContext() context.Context {
-	c.ctxMutex.RLock()
-	defer c.ctxMutex.RUnlock()
+// loadLoopCtx returns the current background reconnect-loop context via a lock-free atomic load.
+func (c *Connection) loadLoopCtx() context.Context {
+	if h := c.loopCtxVal.Load(); h != nil {
+		return h.ctx
+	}
 
-	return c.ctx
+	return context.Background()
 }
 
-// getLoopContext returns the per-connection background loop context safely.
-func (c *Connection) getLoopContext() context.Context {
-	c.ctxMutex.RLock()
-	defer c.ctxMutex.RUnlock()
+// renewConnCtx cancels the current per-connection context and stores a fresh one.
+// Called by the background reconnect loop after each TCP close, which must not
+// cancel the loop's own loopCtx.
+func (c *Connection) renewConnCtx() {
+	if h := c.connCancelFn.Load(); h != nil {
+		h.cancel()
+	}
 
-	return c.loopCtx
+	connCtx, connCancel := context.WithCancel(c.pctx)
+	c.connCtxVal.Store(&ctxHolder{ctx: connCtx})
+	c.connCancelFn.Store(&cancelHolder{cancel: connCancel})
 }
 
 // sendControlMsg sends an HSMS control message and waits for a reply.
@@ -646,7 +660,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 
 	// Phase 1: Wait for the senderTask to confirm the message is on the wire.
 	select {
-	case <-c.getContext().Done():
+	case <-c.connCtx().Done():
 		c.removeReplyExpectedMsg(id)
 
 		return nil, hsms.ErrConnClosed
@@ -671,7 +685,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	c.metrics.incDataMsgInflightCount()
 
 	select {
-	case <-c.getContext().Done():
+	case <-c.connCtx().Done():
 		c.removeReplyExpectedMsg(id)
 		c.metrics.decDataMsgInflightCount()
 
@@ -798,7 +812,7 @@ func (c *Connection) queueSendRequest(req *sendRequest) error {
 	defer pool.PutTimer(timer)
 
 	select {
-	case <-c.getContext().Done():
+	case <-c.connCtx().Done():
 		return hsms.ErrConnClosed
 	case <-timer.C:
 		return hsms.ErrSendMsgTimeout
@@ -851,7 +865,7 @@ func (c *Connection) cancelSenderTask() {
 // It returns false to stop the task on fatal errors.
 func (c *Connection) senderLoop() bool {
 	select {
-	case <-c.getContext().Done():
+	case <-c.connCtx().Done():
 		return false
 
 	case req, ok := <-c.senderMsgChan:
@@ -1011,7 +1025,7 @@ func (c *Connection) replyToSender(msg hsms.HSMSMessage) {
 	defer pool.PutTimer(timer)
 
 	select {
-	case <-c.getContext().Done(): // the connection context done, drop the message and exit
+	case <-c.connCtx().Done(): // the connection context done, drop the message and exit
 		c.replyMsgChans.Delete(msg.ID())
 		msg.Free()
 
@@ -1046,7 +1060,7 @@ func (c *Connection) replyErrToSender(msg hsms.HSMSMessage, err error) {
 		c.replyErrs.Store(id, err)
 
 		select {
-		case <-c.getContext().Done(): // the connection context done, exit without block the process.
+		case <-c.connCtx().Done(): // the connection context done, exit without block the process.
 			return
 		case replyChan <- nil:
 			return

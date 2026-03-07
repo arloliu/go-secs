@@ -182,7 +182,7 @@ func (s *Session) recvDataMsg(msg *hsms.DataMessage) {
 		}
 
 		select {
-		case <-s.hsmsConn.getContext().Done():
+		case <-s.hsmsConn.connCtx().Done():
 			s.logger.Debug("context done, stop receiving data message", "id", s.id, "msg_id", msg.ID())
 			// Free all undelivered messages (including the original if not yet sent).
 			for j := i; j < len(deliverMsgs); j++ {

@@ -55,7 +55,7 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, prevState hsms.C
 					c.stateMgr.ToNotConnectedAsync()
 				}
 			}
-		}(c.getContext())
+		}(c.connCtx())
 
 	case hsms.SelectedState:
 		// do nothing
@@ -206,10 +206,10 @@ func (c *Connection) recvMsgPassive(msg hsms.HSMSMessage) {
 	}
 }
 
-func (c *Connection) openPassive() error {
+func (c *Connection) openPassive(connCtx context.Context) error {
 	c.connCount.Store(0)
 
-	if err := c.ensureListener(); err != nil {
+	if err := c.ensureListener(connCtx); err != nil {
 		return err
 	}
 
@@ -218,7 +218,7 @@ func (c *Connection) openPassive() error {
 	return c.taskMgr.Start("acceptConn", c.acceptConnTask)
 }
 
-func (c *Connection) ensureListener() error {
+func (c *Connection) ensureListener(ctx context.Context) error {
 	c.listenerMutex.Lock()
 	defer c.listenerMutex.Unlock()
 
@@ -230,7 +230,7 @@ func (c *Connection) ensureListener() error {
 
 	c.logger.Debug("try to listen", "address", address)
 	var lc net.ListenConfig
-	listener, err := lc.Listen(c.getContext(), "tcp", address)
+	listener, err := lc.Listen(ctx, "tcp", address)
 	if err != nil {
 		c.logger.Error("failed to listen", "address", address, "error", err)
 		return err
@@ -259,7 +259,7 @@ func (c *Connection) acceptConnTask() bool {
 		t5Timer := pool.GetTimer(c.cfg.T5Timeout())
 
 		select {
-		case <-c.getContext().Done():
+		case <-c.connCtx().Done():
 			pool.PutTimer(t5Timer)
 			return false
 		case <-t5Timer.C:
@@ -304,8 +304,8 @@ func (c *Connection) handleAcceptError(err error) bool {
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		select {
-		case <-c.getContext().Done():
-			c.logger.Debug("accept canceled by context", "method", "handleAcceptError", "error", err, "ctxError", c.getContext().Err())
+		case <-c.connCtx().Done():
+			c.logger.Debug("accept canceled by context", "method", "handleAcceptError", "error", err, "ctxError", c.connCtx().Err())
 			return false
 		default:
 			return true // re-accept if context is not done
@@ -325,7 +325,7 @@ func (c *Connection) handleAcceptError(err error) bool {
 	// Use pool timer instead of time.After to prevent leaks on short spins
 	spinTimer := pool.GetTimer(100 * time.Millisecond)
 	select {
-	case <-c.getContext().Done():
+	case <-c.connCtx().Done():
 		pool.PutTimer(spinTimer)
 		return false
 	case <-spinTimer.C:

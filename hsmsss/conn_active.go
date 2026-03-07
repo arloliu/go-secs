@@ -15,7 +15,7 @@ const (
 
 // startConnectLoop launches the background connect-retry goroutine.
 // Only one loop runs at a time (guarded by connectLoopRunning CAS).
-func (c *Connection) startConnectLoop() {
+func (c *Connection) startConnectLoop(loopCtx context.Context) {
 	if !c.connectLoopRunning.CompareAndSwap(false, true) { // capture the current generation and loop context atomically
 		return
 	}
@@ -23,7 +23,6 @@ func (c *Connection) startConnectLoop() {
 	c.connectLoopWg.Add(1)
 
 	gen := c.reconnectGen.Load()
-	loopCtx := c.getLoopContext()
 
 	if loopCtx == nil || loopCtx.Err() != nil {
 		c.connectLoopWg.Done()
@@ -74,7 +73,7 @@ func (c *Connection) activeConnStateHandler(_ hsms.Connection, prevState hsms.Co
 					c.stateMgr.ToNotConnectedAsync()
 				}
 			}
-		}(c.getContext())
+		}(c.connCtx())
 
 		// Execute selectSession asynchronously because it is a blocking handshake bound
 		// by the T6 timeout. If the socket abruptly drops during this handshake, the
@@ -102,7 +101,9 @@ func (c *Connection) activeConnStateHandler(_ hsms.Connection, prevState hsms.Co
 		c.logger.Debug("closeConn in connection state handler", "shutdown", c.shutdown.Load())
 		if !c.shutdown.Load() {
 			c.logger.Debug("not-connected state, schedule retry connection")
-			c.startConnectLoop()
+			// loopCtx is unaffected by closeConn (which only cancels connCtx),
+			// so it is safe to load and pass here.
+			c.startConnectLoop(c.loadLoopCtx())
 		}
 
 	case hsms.ConnectingState, hsms.SelectedState:
@@ -219,8 +220,8 @@ func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 
 // openActive establishes the HSMS connection in active mode.
 // It initiates the background connect loop which handles retries and exponential backoff.
-func (c *Connection) openActive() {
-	if err := c.tryConnect(c.getContext()); err == nil {
+func (c *Connection) openActive(connCtx, loopCtx context.Context) {
+	if err := c.tryConnect(connCtx); err == nil {
 		return // connected on first attempt
 	}
 
@@ -231,7 +232,7 @@ func (c *Connection) openActive() {
 	}
 
 	// Start the background connect loop for retries.
-	c.startConnectLoop()
+	c.startConnectLoop(loopCtx)
 }
 
 // connectLoop is the core retry loop for active mode. It exits when:
@@ -279,10 +280,10 @@ func (c *Connection) connectLoop(loopCtx context.Context, gen uint64) {
 				continue
 			}
 
-			c.renewConnContext()
+			c.renewConnCtx()
 		}
 
-		if err := c.tryConnect(c.getContext()); err != nil {
+		if err := c.tryConnect(c.connCtx()); err != nil {
 			// Exponential backoff.
 			delay *= retryDelayFactor
 			if delay > c.cfg.T5Timeout() {

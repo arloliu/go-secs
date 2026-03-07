@@ -194,7 +194,7 @@ func TestConnection_ActiveHost_SingleConnectLoop(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			conn.startConnectLoop()
+			conn.startConnectLoop(conn.loadLoopCtx())
 		}()
 	}
 	wg.Wait()
