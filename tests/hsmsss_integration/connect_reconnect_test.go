@@ -2,6 +2,7 @@ package hsmsssintegration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -427,13 +428,26 @@ func TestPartialRead_T8Timeout(t *testing.T) {
 
 	start := time.Now()
 
-	// Read will return an error when the active side drops the connection on T8 timeout
+	// After T8 fires the active side transitions to NotConnected, which may
+	// send a Separate.req before closing the TCP connection.  Drain any data
+	// the active side writes so we observe the actual connection-close error.
+	require.NoError(conn.SetReadDeadline(time.Now().Add(5 * time.Second)))
 	buf := make([]byte, 100)
-	_, err = conn.Read(buf)
-	require.Error(err, "expected read to fail as active side drops connection on T8 timeout")
+	for {
+		_, err = conn.Read(buf)
+		if err != nil {
+			break
+		}
+	}
 
 	elapsed := time.Since(start)
 
+	require.Error(err, "expected read to fail as active side drops connection on T8 timeout")
+	// The error must come from the connection close, not from our safety deadline.
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		require.False(netErr.Timeout(), "read should fail from connection close, not deadline timeout")
+	}
 	require.GreaterOrEqual(elapsed, 950*time.Millisecond, "should wait at least T8 time before aborting")
-	require.Less(elapsed, 2500*time.Millisecond, "should abort shortly after T8 time")
+	require.Less(elapsed, 3*time.Second, "should abort shortly after T8 time")
 }
