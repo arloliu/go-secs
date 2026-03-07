@@ -644,7 +644,12 @@ func TestConnection_Metrics(t *testing.T) {
 
 	// Equipment received 3 primary messages and sent 3 replies.
 	r.GreaterOrEqual(eqpMetrics.BlockRecvCount.Load(), uint64(3))
-	r.GreaterOrEqual(eqpMetrics.BlockSendCount.Load(), uint64(3))
+
+	// The equipment's BlockSendCount may not be updated immediately since the reply
+	// is sent in a separate goroutine, so wait for it to be updated.
+	r.Eventually(func() bool {
+		return eqpMetrics.BlockSendCount.Load() >= 3
+	}, 500*time.Millisecond, time.Millisecond, "equipment BlockSendCount not updated in time")
 	r.GreaterOrEqual(eqpMetrics.DataMsgRecvCount.Load(), uint64(3))
 }
 
