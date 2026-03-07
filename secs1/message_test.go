@@ -359,9 +359,8 @@ func TestCompositeKeyFromBlock(t *testing.T) {
 func newAssemblerConfig(t *testing.T, opts ...ConnOption) *ConnectionConfig {
 	t.Helper()
 
-	defaults := []ConnOption{
-		WithDuplicateDetection(true),
-	}
+	defaults := make([]ConnOption, 0, 1+len(opts))
+	defaults = append(defaults, WithDuplicateDetection(true))
 	defaults = append(defaults, opts...)
 
 	cfg, err := NewConnectionConfig("127.0.0.1", 5000, defaults...)

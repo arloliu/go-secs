@@ -197,14 +197,14 @@ func (item *BinaryItem) ToSML() string {
 	// Estimate capacity based on average binary representation length (around 11 characters per byte)
 	sb.Grow(len(item.values)*11 + 6)
 
-	sb.WriteString(fmt.Sprintf("<B[%d] ", item.Size()))
+	fmt.Fprintf(&sb, "<B[%d] ", item.Size())
 
 	if hexLiteral {
 		for i, v := range item.values {
 			if i > 0 {
 				sb.WriteByte(' ') // Add space separator between values
 			}
-			sb.WriteString(fmt.Sprintf("0x%02X", v))
+			fmt.Fprintf(&sb, "0x%02X", v)
 		}
 	} else {
 		// Reuse a buffer for strconv.AppendInt to avoid allocations

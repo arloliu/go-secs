@@ -105,14 +105,14 @@ func (c *Connection) activeConnStateHandler(_ hsms.Connection, prevState hsms.Co
 			c.startConnectLoop()
 		}
 
-	case hsms.ConnectingState:
-		// The connect loop handles reconnection; nothing to do here.
-
-	case hsms.SelectedState:
+	case hsms.ConnectingState, hsms.SelectedState:
 		// do nothing
+	default:
+		c.logger.Error("unknown connection state", "state", curState)
 	}
 }
 
+//nolint:cyclop
 func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 	switch msg.Type() {
 	case hsms.DataMsgType:
@@ -189,13 +189,9 @@ func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 			_, _ = c.sendMsg(replyMsg)
 		}
 
-	// reply to sender when linktest or selected response received.
-	case hsms.SelectRspType:
-		c.logger.Debug("select.rsp received", hsms.MsgInfo(msg, "method", "recvMsgActive")...)
-		c.replyToSender(msg)
-
-	case hsms.LinkTestRspType:
-		c.logger.Debug("linktest.rsp received", hsms.MsgInfo(msg, "method", "recvMsgActive")...)
+	// reply to sender when linktest, deselect, or selected response received.
+	case hsms.SelectRspType, hsms.LinkTestRspType, hsms.DeselectRspType:
+		c.logger.Debug("active: response received", hsms.MsgInfo(msg, "method", "recvMsgActive")...)
 		c.replyToSender(msg)
 
 	case hsms.LinkTestReqType:
@@ -215,10 +211,7 @@ func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 			c.logger.Debug("active: ignoring separate.req in non-selected state", "state", c.stateMgr.State())
 		}
 
-	// route deselect response to the sender waiting for reply
-	case hsms.DeselectRspType:
-		c.logger.Debug("deselect.rsp received", hsms.MsgInfo(msg, "method", "recvMsgActive")...)
-		c.replyToSender(msg)
+	default:
 	}
 }
 

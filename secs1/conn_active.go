@@ -45,9 +45,6 @@ func (c *Connection) activeConnStateHandler(_ hsms.Connection, _ hsms.ConnState,
 
 		c.stateMgr.ToSelectedAsync()
 
-	case hsms.SelectedState:
-		// Ready for communication.
-
 	case hsms.NotConnectedState:
 		_ = c.closeConn(c.cfg.CloseConnTimeout())
 
@@ -56,8 +53,10 @@ func (c *Connection) activeConnStateHandler(_ hsms.Connection, _ hsms.ConnState,
 			c.startConnectLoop()
 		}
 
-	case hsms.ConnectingState:
-		// The connect loop handles reconnection; nothing to do here.
+	case hsms.ConnectingState, hsms.SelectedState:
+		// do nothing
+	default:
+		c.logger.Error("unknown connection state", "state", curState)
 	}
 }
 

@@ -82,9 +82,12 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, prevState hsms.C
 	case hsms.ConnectingState:
 		c.logger.Debug("passive: start to try to open and listen")
 		_ = c.doOpen(false)
+	default:
+		c.logger.Error("unknown connection state", "state", curState)
 	}
 }
 
+//nolint:cyclop
 func (c *Connection) recvMsgPassive(msg hsms.HSMSMessage) {
 	switch msg.Type() {
 	case hsms.DataMsgType:
@@ -152,11 +155,6 @@ func (c *Connection) recvMsgPassive(msg hsms.HSMSMessage) {
 			_, _ = c.sendMsg(replyMsg)
 		}
 
-	// route deselect response to the sender waiting for reply
-	case hsms.DeselectRspType:
-		c.logger.Debug("passive: deselect.rsp received", hsms.MsgInfo(msg, "method", "recvMsgPassive")...)
-		c.replyToSender(msg)
-
 	case hsms.LinkTestReqType:
 		c.logger.Debug("linktest request received", hsms.MsgInfo(msg, "method", "recvMsgPassive")...)
 		replyMsg, _ := hsms.NewLinktestRsp(msg)
@@ -164,11 +162,6 @@ func (c *Connection) recvMsgPassive(msg hsms.HSMSMessage) {
 		if err != nil {
 			c.logger.Error("failed to send linktest response", "error", err)
 		}
-
-	// reply to sender when linktest response received.
-	case hsms.LinkTestRspType:
-		c.logger.Debug("linktest response received", hsms.MsgInfo(msg, "method", "recvMsgPassive")...)
-		c.replyToSender(msg)
 
 	case hsms.SeparateReqType:
 		c.logger.Debug("separate request received", hsms.MsgInfo(msg, "method", "recvMsgPassive")...)
@@ -198,6 +191,14 @@ func (c *Connection) recvMsgPassive(msg hsms.HSMSMessage) {
 		)
 
 		c.replyErrToSender(msg, rejectReasonErr(rejectReason))
+
+	// route deselect response and linktest response to the sender waiting for reply
+	case hsms.DeselectRspType, hsms.LinkTestRspType:
+		c.logger.Debug("passive: response received", hsms.MsgInfo(msg, "method", "recvMsgPassive")...)
+		c.replyToSender(msg)
+
+	default:
+		c.logger.Debug("passive: unhandled message type", hsms.MsgInfo(msg, "method", "recvMsgPassive")...)
 	}
 }
 

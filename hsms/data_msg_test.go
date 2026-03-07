@@ -2,7 +2,6 @@ package hsms
 
 import (
 	"errors"
-	"os"
 	"testing"
 
 	"github.com/arloliu/go-secs/secs2"
@@ -11,7 +10,7 @@ import (
 
 func TestMain(m *testing.M) {
 	UseStreamFunctionSingleQuote()
-	os.Exit(m.Run())
+	m.Run()
 }
 
 func TestDataMessage_EmptyItem(t *testing.T) {

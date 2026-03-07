@@ -94,7 +94,7 @@ func mustWrite(t *testing.T, w io.Writer, data []byte) {
 }
 
 // newPipeConn creates a net.Pipe pair and registers cleanup.
-func newPipeConn(t *testing.T) (net.Conn, net.Conn) {
+func newPipeConn(t *testing.T) (c1 net.Conn, c2 net.Conn) {
 	t.Helper()
 
 	local, remote := net.Pipe()

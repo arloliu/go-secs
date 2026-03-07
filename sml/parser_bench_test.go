@@ -89,6 +89,7 @@ func BenchmarkParseHSMS_AllTypes(b *testing.B) {
 			items = append(items, secs2.F4(1.2345678))
 		case 12:
 			items = append(items, secs2.F8(1.2345678))
+		default:
 		}
 	}
 	listItems := []secs2.Item{}

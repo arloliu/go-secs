@@ -168,11 +168,7 @@ func genFixedBool(length int) []bool {
 
 	b := make([]bool, length)
 	for i := range b {
-		if i%2 == 0 {
-			b[i] = true
-		} else {
-			b[i] = false
-		}
+		b[i] = i%2 == 0
 	}
 
 	return b

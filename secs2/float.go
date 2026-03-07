@@ -208,7 +208,7 @@ func (item *FloatItem) ToSML() string {
 	var sb strings.Builder
 	sb.Grow(len(item.values)*(item.byteSize*2+3) + 10)
 
-	sb.WriteString(fmt.Sprintf("<F%d[%d] ", item.byteSize, item.Size()))
+	fmt.Fprintf(&sb, "<F%d[%d] ", item.byteSize, item.Size())
 
 	// Use a buffer for FormatFloat to avoid allocations in the loop
 	var buf [64]byte // Adjust size if needed for very large float values
@@ -274,6 +274,7 @@ func (item *FloatItem) combineFloatValues(values ...any) error {
 				capacity = len(v)
 			case []string:
 				capacity = len(v)
+			default:
 			}
 		}
 		item.values = make([]float64, 0, capacity)

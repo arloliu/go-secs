@@ -65,7 +65,7 @@ func main() {
 	opts := []secs1.ConnOption{
 		secs1.WithT3Timeout(10 * time.Second),
 		secs1.WithT4Timeout(10 * time.Second),
-		secs1.WithConnectTimeout(2 * time.Second),
+		secs1.WithConnectRemoteTimeout(2 * time.Second),
 		secs1.WithSendTimeout(2 * time.Second),
 	}
 

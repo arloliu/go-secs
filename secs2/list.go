@@ -238,8 +238,8 @@ func (item *ListItem) Clone() Item {
 
 func (item *ListItem) Error() error {
 	var errs error
-	if item.baseItem.itemErr != nil {
-		errs = errors.Join(errs, item.baseItem.itemErr)
+	if item.itemErr != nil {
+		errs = errors.Join(errs, item.itemErr)
 	}
 
 	for _, v := range item.values {

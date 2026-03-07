@@ -491,6 +491,8 @@ func (cs *ConnStateMgr) processAsyncStateChange(desiredState ConnState, shutdown
 		err = cs.ToNotSelected()
 	case SelectedState:
 		err = cs.ToSelected()
+	default:
+		// No-op for unexpected states
 	}
 
 	if err != nil {

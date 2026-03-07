@@ -261,8 +261,8 @@ func (msg *ControlMessage) Clone() HSMSMessage {
 // systemBytes should have length of 4.
 func NewSelectReq(sessionID uint16, systemBytes []byte) *ControlMessage {
 	header := make([]byte, 10)
-	header[0] = byte(sessionID >> 8)
-	header[1] = byte(sessionID)
+	header[0] = byte((sessionID >> 8) & 0xFF)
+	header[1] = byte(sessionID & 0xFF)
 	header[5] = SelectReqType
 	header[6] = systemBytes[0]
 	header[7] = systemBytes[1]
@@ -329,8 +329,8 @@ func NewSelectRsp(selectReq HSMSMessage, selectStatus byte) (*ControlMessage, er
 // systemBytes should have length of 4.
 func NewDeselectReq(sessionID uint16, systemBytes []byte) *ControlMessage {
 	header := make([]byte, 10)
-	header[0] = byte(sessionID >> 8)
-	header[1] = byte(sessionID)
+	header[0] = byte((sessionID >> 8) & 0xFF)
+	header[1] = byte(sessionID & 0xFF)
 	header[5] = DeselectReqType
 	header[6] = systemBytes[0]
 	header[7] = systemBytes[1]
@@ -420,8 +420,8 @@ func NewRejectReq(recvMsg HSMSMessage, reasonCode byte) *ControlMessage {
 	header := make([]byte, 10)
 	if recvMsg.Type() == DataMsgType {
 		msg, _ := recvMsg.ToDataMessage()
-		header[0] = byte(msg.sessionID >> 8)
-		header[1] = byte(msg.sessionID)
+		header[0] = byte((msg.sessionID >> 8) & 0xFF)
+		header[1] = byte(msg.sessionID & 0xFF)
 		header[2] = 0 // the sType and pType of data message is always zero
 		copy(header[6:10], msg.systemBytes)
 	} else {
@@ -474,8 +474,8 @@ func GetRejectReasonCode(recvMsg HSMSMessage) (int, error) {
 //   - 5-255 are reserved reason codes.
 func NewRejectReqRaw(sessionID uint16, pType, sType byte, systemBytes []byte, reasonCode byte) *ControlMessage {
 	header := make([]byte, 10)
-	header[0] = byte(sessionID >> 8)
-	header[1] = byte(sessionID)
+	header[0] = byte((sessionID >> 8) & 0xFF)
+	header[1] = byte(sessionID & 0xFF)
 	if reasonCode == 2 {
 		header[2] = pType
 	} else {
@@ -495,8 +495,8 @@ func NewRejectReqRaw(sessionID uint16, pType, sType byte, systemBytes []byte, re
 // systemBytes should have length of 4.
 func NewSeparateReq(sessionID uint16, systemBytes []byte) *ControlMessage {
 	header := make([]byte, 10)
-	header[0] = byte(sessionID >> 8)
-	header[1] = byte(sessionID)
+	header[0] = byte((sessionID >> 8) & 0xFF)
+	header[1] = byte(sessionID & 0xFF)
 	header[5] = SeparateReqType
 	header[6] = systemBytes[0]
 	header[7] = systemBytes[1]

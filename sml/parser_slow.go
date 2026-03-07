@@ -181,14 +181,16 @@ func (p *parser) parseStreamFunctionCode() (stream uint8, function uint8, ok boo
 	f := 0
 	e := len(t.val)
 	for i, ch := range t.val {
-		if ch == 'S' {
+		switch ch {
+		case 'S':
 			s = i + 1
-		} else if ch == 'F' {
+		case 'F':
 			f = i
-		} else if ch == '\'' || ch == '"' {
+		case '\'', '"':
 			if s > 0 {
 				e = i
 			}
+		default:
 		}
 	}
 
@@ -196,7 +198,7 @@ func (p *parser) parseStreamFunctionCode() (stream uint8, function uint8, ok boo
 
 	streamVal, _ := strconv.Atoi(t.val[s:f])
 	functionVal, _ := strconv.Atoi(t.val[f+1 : e])
-	if !(0 <= streamVal && streamVal < 128) {
+	if streamVal < 0 || streamVal >= 128 {
 		p.errorf("stream code range overflow, should be in range of [0, 128)")
 		stream = 0
 		ok = false
@@ -204,12 +206,12 @@ func (p *parser) parseStreamFunctionCode() (stream uint8, function uint8, ok boo
 		stream = uint8(streamVal)
 	}
 
-	if !(0 <= functionVal && functionVal < 256) {
+	if functionVal < 0 || functionVal >= 256 {
 		p.errorf("function code range overflow, should be in range of [0, 256)")
 		function = 0
 		ok = false
 	} else {
-		function = uint8(functionVal) //nolint:gosec
+		function = uint8(functionVal)
 	}
 
 	return stream, function, ok
@@ -356,7 +358,7 @@ func (p *parser) checkItemSizeError(size, lowerLimit, upperLimit int) {
 		if lowerLimit > size {
 			p.errorf("data item size overflow, got size of %d", size)
 		}
-	} else if !(lowerLimit <= size && size <= upperLimit) {
+	} else if size < lowerLimit || size > upperLimit {
 		p.errorf("data item size overflow, got size of %d", size)
 	}
 }
@@ -498,7 +500,7 @@ func (p *parser) parseBinary(size int) (item secs2.Item, ok bool) {
 			return secs2.NewEmptyItem(), false
 		}
 
-		if !(0 <= val && val < 256) {
+		if val < 0 || val >= 256 {
 			p.errorf("binary value overflow, should be in range of [0, 256)")
 			return secs2.NewEmptyItem(), false
 		}

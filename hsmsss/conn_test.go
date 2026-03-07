@@ -34,8 +34,6 @@ func TestMain(m *testing.M) {
 	switch logLevel {
 	case "debug":
 		level = logger.DebugLevel
-	case "info":
-		level = logger.InfoLevel
 	case "warn":
 		level = logger.WarnLevel
 	case "error":
@@ -48,7 +46,7 @@ func TestMain(m *testing.M) {
 
 	logger.SetLevel(level)
 
-	os.Exit(m.Run())
+	m.Run()
 }
 
 func TestConnection_ActiveHost_PassiveEQP(t *testing.T) {

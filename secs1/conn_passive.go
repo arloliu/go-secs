@@ -45,9 +45,6 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, _ hsms.ConnState
 
 		c.stateMgr.ToSelectedAsync()
 
-	case hsms.SelectedState:
-		// Ready for communication.
-
 	case hsms.NotConnectedState:
 		isShutdown := c.shutdown.Load()
 
@@ -60,6 +57,11 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, _ hsms.ConnState
 		if !isShutdown {
 			c.stateMgr.ToConnectingAsync()
 		}
+
+	case hsms.SelectedState:
+		// do nothing
+	default:
+		c.logger.Error("unknown connection state", "state", curState)
 	}
 }
 

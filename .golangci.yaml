@@ -1,295 +1,242 @@
-run:
-  # Timeout for analysis, e.g. 30s, 5m.
-  # Default: 1m
-  timeout: 1m
-
-# This file contains only configs which differ from defaults.
-# All possible options can be found here https://github.com/golangci/golangci-lint/blob/master/.golangci.reference.yml
-linters-settings:
-  staticcheck:
-    checks: ["all"]
-  gocyclo:
-    # Minimal code complexity to report.
-    # Default: 30 (but we recommend 10-20)
-    min-complexity: 30
-
-  cyclop:
-    # The maximal code complexity to report.
-    # Default: 10
-    max-complexity: 22
-    # The maximal average package complexity.
-    # If it's higher than 0.0 (float) the check is enabled
-    # Default: 0.0
-    package-average: 15.0
-
-  errcheck:
-    # Report about not checking of errors in type assertions: `a := b.(MyStruct)`.
-    # Such cases aren't reported by default.
-    # Default: false
-    check-type-assertions: true
-    exclude-functions:
-      - require.Equal
-      - assert.Equal
-
-  exhaustive:
-    # Program elements to check for exhaustiveness.
-    # Default: [ switch ]
-    check:
-      - switch
-      - map
-
-  exhaustruct:
-    # List of regular expressions to exclude struct packages and names from check.
-    # Default: []
-    exclude:
-      # std libs
-      - "^net/http.Client$"
-      - "^net/http.Cookie$"
-      - "^net/http.Request$"
-      - "^net/http.Response$"
-      - "^net/http.Server$"
-      - "^net/http.Transport$"
-      - "^net/url.URL$"
-      - "^os/exec.Cmd$"
-      - "^reflect.StructField$"
-      # public libs
-      - "^github.com/spf13/cobra.Command$"
-      - "^github.com/spf13/cobra.CompletionOptions$"
-      - "^github.com/stretchr/testify/mock.Mock$"
-      - "^gopkg.in/yaml.v3.Node$"
-
-  gocritic:
-    # Settings passed to gocritic.
-    # The settings key is the name of a supported gocritic checker.
-    # The list of supported checkers can be find in https://go-critic.github.io/overview.
-    settings:
-      ifElseChain:
-        minThreshold: 3
-      captLocal:
-        # Whether to restrict checker to params only.
-        # Default: true
-        paramsOnly: true
-      underef:
-        # Whether to skip (*x).method() calls where x is a pointer receiver.
-        # Default: true
-        skipRecvDeref: false
-
-  gomodguard:
-    blocked:
-      # List of blocked modules.
-      # Default: []
-      modules:
-        - github.com/golang/protobuf:
-            recommendations:
-              - google.golang.org/protobuf
-            reason: "see https://developers.google.com/protocol-buffers/docs/reference/go/faq#modules"
-        - github.com/satori/go.uuid:
-            recommendations:
-              - github.com/google/uuid
-            reason: "satori's package is not maintained"
-        - github.com/gofrs/uuid:
-            recommendations:
-              - github.com/google/uuid
-            reason: "gofrs' package is not go module"
-
-  govet:
-    # Enable all analyzers.
-    # Default: false
-    enable-all: true
-    # Disable analyzers by name.
-    # Run `go tool vet help` to see all analyzers.
-    # Default: []
-    disable:
-      - fieldalignment # too strict
-      - shadow
-
-  nakedret:
-    # Make an issue if func has more lines of code than this setting, and it has naked returns.
-    # Default: 30
-    max-func-lines: 40
-
-  nlreturn:
-    # Size of the block (including return statement that is still "OK")
-    # so no return split required.
-    # Default: 1
-    block-size: 3
-
-  nolintlint:
-    # Enable to require an explanation of nonzero length after each nolint directive.
-    # Default: false
-    require-explanation: false
-    # Enable to require nolint directives to mention the specific linter being suppressed.
-    # Default: false
-    require-specific: true
-
-  rowserrcheck:
-    # database/sql is always checked
-    # Default: []
-    packages:
-      - github.com/jmoiron/sqlx
-
-  tenv:
-    # The option `all` will run against whole test files (`_test.go`) regardless of method/function signatures.
-    # Otherwise, only methods that take `*testing.T`, `*testing.B`, and `testing.TB` as arguments are checked.
-    # Default: false
-    all: false
-
-  revive:
-    enable-all-rules: true
-    rules:
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#add-constant
-      - name: add-constant
-        disabled: true
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#cyclomatic
-      - name: cyclomatic
-        disabled: true
-      - name: cognitive-complexity
-        disabled: true
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#context-as-argument
-      - name: context-as-argument
-        severity: warning
-        disabled: false
-        exclude: ["**/*_test.go"]
-       # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#comment-spacings
-      - name: comment-spacings
-        severity: warning
-        disabled: false
-        exclude: [""]
-        arguments:
-          - nolint
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#exported
-      - name: exported
-        severity: warning
-        disabled: false
-        exclude: [""]
-        arguments:
-          - "disableStutteringCheck"
-          - "checkPrivateReceivers"
-          - "sayRepetitiveInsteadOfStutters"
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#flag-parameter
-      - name: flag-parameter
-        disabled: true
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#function-length
-      - name: function-length
-        severity: warning
-        disabled: false
-        arguments: [100, 0]
-        exclude: ["**/*_test.go"]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#import-shadowing
-      - name: import-shadowing
-        severity: warning
-        disabled: false
-        exclude: ["**/*_test.go"]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#line-length-limit
-      - name: line-length-limit
-        disabled: true
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#max-public-structs
-      - name: max-public-structs
-        disabled: true
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#unused-parameter
-      - name: unused-parameter
-        disabled: true
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#unused-receiver
-      - name: unused-receiver
-        disabled: true
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#unchecked-type-assertion
-      - name: unchecked-type-assertion
-        severity: warning
-        disabled: false
-        exclude: ["**/*_test.go"]
-        arguments:
-          - acceptIgnoredAssertionResult: true
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#unhandled-error
-      - name: unhandled-error
-        severity: warning
-        disabled: false
-        exclude: [""]
-        arguments:
-          - "fmt.Errorf"
-          - "fmt.Printf"
-          - "strings.Builder.*"
-          - "bytes.Buffer.*"
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#receiver-naming
-      - name: receiver-naming
-        disabled: false
-        exclude: ["**/*_test.go"]
-      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#var-declaration
-      - name: var-declaration
-        disabled: true
+version: "2"
 linters:
-  disable-all: true
+  default: none
   enable:
-    ## enabled by default
-    - errcheck # checking for unchecked errors, these unchecked errors can be critical bugs in some cases
-    - gosimple # specializes in simplifying a code
-    - govet # reports suspicious constructs, such as Printf calls whose arguments do not align with the format string
-    - ineffassign # detects when assignments to existing variables are not used
-    - staticcheck # is a go vet on steroids, applying a ton of static analysis checks
-    - typecheck # like the front-end of a Go compiler, parses and type-checks Go code
-    - unused # checks for unused constants, variables, functions and types
-    ## disabled by default
-    - asasalint # checks for pass []any as any in variadic func(...any)
-    - asciicheck # checks that your code does not contain non-ASCII identifiers
-    - bidichk # checks for dangerous unicode character sequences
-    - bodyclose # checks whether HTTP response body is closed successfully
-    - copyloopvar # checks for pointers to enclosing loop variables
-    - cyclop # checks function and package cyclomatic complexity
-    - decorder # checks declaration order and count of types, constants, variables and functions.
-    - dupl # tool for code clone detection
-    - durationcheck # checks for two durations multiplied together
-    - errname # checks that sentinel errors are prefixed with the Err and error types are suffixed with the Error
-    - errorlint # finds code that will cause problems with the error wrapping scheme introduced in Go 1.13
-    - exhaustive # checks exhaustiveness of enum switch statements
-    - fatcontext # detects nested contexts in loops and function literals.
-    - gocheckcompilerdirectives # validates go compiler directive comments (//go:)
-    - gocritic # provides diagnostics that check for bugs, performance and style issues
-    - gocyclo # computes and checks the cyclomatic complexity of functions
-    - goimports # in addition to fixing imports, goimports also formats your code in the same style as gofmt
-    - gomoddirectives # manages the use of 'replace', 'retract', and 'excludes' directives in go.mod
-    - gomodguard # allow and block lists linter for direct Go module dependencies. This is different from depguard where there are different block types for example version constraints and module recommendations
-    - goprintffuncname # checks that printf-like functions are named with f at the end
-    - gosec # inspects source code for security problems
-    - loggercheck # checks key value pairs for common logger libraries (kitlog,klog,logr,zap)
-    - makezero # finds slice declarations with non-zero initial length
-    - misspell # finds commonly misspelled English words.
-    - musttag # enforces field tags in (un)marshaled structs
-    - nakedret # finds naked returns in functions greater than a specified function length
-    - nilnil # checks that there is no simultaneous return of nil error and an invalid value.
-    - nlreturn # checks for a new line before return and branch statements to increase code clarity.
-    - noctx # finds sending http request without context.Context
-    - nolintlint # reports ill-formed or insufficient nolint directives
-    - nosprintfhostport # checks for misuse of Sprintf to construct a host with port in a URL
-    - prealloc # [premature optimization, but can be used in some cases] finds slice declarations that could potentially be preallocated
-    - predeclared # finds code that shadows one of Go's predeclared identifiers
-    - reassign # checks that package variables are not reassigned
-    - revive # fast, configurable, extensible, flexible, and beautiful linter for Go. Drop-in replacement of golint.
-    - rowserrcheck # checks whether Err of rows is checked successfully
-    - sqlclosecheck # checks that sql.Rows and sql.Stmt are closed
-    - tenv # detects using os.Setenv instead of t.Setenv since Go1.17
-    - testableexamples # checks if examples are testable (have an expected output)
-    - tparallel # detects inappropriate usage of t.Parallel() method in your Go test codes
-    - unconvert # removes unnecessary type conversions
-    - unparam # reports unused function parameters
-    - usestdlibvars # detects the possibility to use variables/constants from the Go standard library
-    - wastedassign # finds wasted assignment statements
-    - whitespace # detects leading and trailing whitespace
-
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - copyloopvar
+    - cyclop
+    - decorder
+    - dupl
+    - durationcheck
+    - errcheck
+    - errname
+    - errorlint
+    - exhaustive
+    - fatcontext
+    - gocheckcompilerdirectives
+    - gocritic
+    - gocyclo
+    - gomoddirectives
+    - gomodguard
+    - goprintffuncname
+    - gosec
+    - govet
+    - ineffassign
+    - loggercheck
+    - makezero
+    - misspell
+    - musttag
+    - nakedret
+    - nilnil
+    - nlreturn
+    - nosprintfhostport
+    - prealloc
+    - predeclared
+    - reassign
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - staticcheck
+    - testableexamples
+    - tparallel
+    - unconvert
+    - unparam
+    - unused
+    - usestdlibvars
+    - wastedassign
+    - whitespace
+  settings:
+    cyclop:
+      max-complexity: 22
+      package-average: 15
+    errcheck:
+      check-type-assertions: true
+      exclude-functions:
+        - require.Equal
+        - assert.Equal
+    exhaustive:
+      check:
+        - switch
+        - map
+    exhaustruct:
+      exclude:
+        - ^net/http.Client$
+        - ^net/http.Cookie$
+        - ^net/http.Request$
+        - ^net/http.Response$
+        - ^net/http.Server$
+        - ^net/http.Transport$
+        - ^net/url.URL$
+        - ^os/exec.Cmd$
+        - ^reflect.StructField$
+        - ^github.com/spf13/cobra.Command$
+        - ^github.com/spf13/cobra.CompletionOptions$
+        - ^github.com/stretchr/testify/mock.Mock$
+        - ^gopkg.in/yaml.v3.Node$
+    gocritic:
+      settings:
+        captLocal:
+          paramsOnly: true
+        ifElseChain:
+          minThreshold: 3
+        underef:
+          skipRecvDeref: false
+    gocyclo:
+      min-complexity: 30
+    gomodguard:
+      blocked:
+        modules:
+          - github.com/golang/protobuf:
+              recommendations:
+                - google.golang.org/protobuf
+              reason: see https://developers.google.com/protocol-buffers/docs/reference/go/faq#modules
+          - github.com/satori/go.uuid:
+              recommendations:
+                - github.com/google/uuid
+              reason: satori's package is not maintained
+          - github.com/gofrs/uuid:
+              recommendations:
+                - github.com/google/uuid
+              reason: gofrs' package is not go module
+    govet:
+      disable:
+        - fieldalignment
+        - shadow
+      enable-all: true
+    nakedret:
+      max-func-lines: 40
+    nlreturn:
+      block-size: 3
+    nolintlint:
+      require-explanation: false
+      require-specific: true
+    revive:
+      enable-all-rules: true
+      rules:
+        - name: add-constant
+          disabled: true
+        - name: cyclomatic
+          disabled: true
+        - name: cognitive-complexity
+          disabled: true
+        - name: context-as-argument
+          severity: warning
+          disabled: false
+          exclude:
+            - '**/*_test.go'
+        - name: comment-spacings
+          arguments:
+            - nolint
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: exported
+          arguments:
+            - disableStutteringCheck
+            - checkPrivateReceivers
+            - sayRepetitiveInsteadOfStutters
+          severity: warning
+          disabled: false
+          exclude:
+            - ""
+        - name: flag-parameter
+          disabled: true
+        - name: function-length
+          arguments:
+            - 100
+            - 0
+          severity: warning
+          disabled: false
+          exclude:
+            - '**/*_test.go'
+        - name: import-shadowing
+          severity: warning
+          disabled: false
+          exclude:
+            - '**/*_test.go'
+        - name: line-length-limit
+          disabled: true
+        - name: max-public-structs
+          disabled: true
+        - name: unused-parameter
+          disabled: true
+        - name: unused-receiver
+          disabled: true
+        - name: unchecked-type-assertion
+          arguments:
+            - acceptIgnoredAssertionResult: true
+          severity: warning
+          disabled: false
+          exclude:
+            - '**/*_test.go'
+        - name: unhandled-error
+          arguments:
+            - fmt.Errorf
+            - fmt.Printf
+            - strings.Builder.*
+            - bytes.Buffer.*
+          severity: warning
+          disabled: true
+        - name: receiver-naming
+          disabled: false
+        - name: confusing-results
+          disabled: true
+        - name: package-naming
+          disabled: true
+        - name: unnecessary-if
+          disabled: true
+        - name: var-declaration
+          disabled: true
+        - name: unnecessary-format
+          disabled: true
+        - name: use-errors-new
+          disabled: true
+    rowserrcheck:
+      packages:
+        - github.com/jmoiron/sqlx
+    staticcheck:
+      checks:
+        - all
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - godot
+        source: (noinspection|TODO)
+      - linters:
+          - gocritic
+        source: //noinspection
+      - linters:
+          - bodyclose
+          - dupl
+          - goconst
+          - gosec
+          - wrapcheck
+        path: _test\.go
+      - linters:
+          - gosec
+        text: "G115|G118"
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  # Maximum count of issues with the same text.
-  # Set to 0 to disable.
-  # Default: 3
   max-same-issues: 50
-
-  exclude-rules:
-    - source: "(noinspection|TODO)"
-      linters: [ godot ]
-    - source: "//noinspection"
-      linters: [ gocritic ]
-    - path: "_test\\.go"
-      linters:
-        - bodyclose
-        - dupl
-        - goconst
-        - gosec
-        - noctx
-        - wrapcheck
+formatters:
+  enable:
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

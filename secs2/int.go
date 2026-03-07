@@ -171,6 +171,7 @@ func (item *IntItem) ToBytes() []byte {
 		for _, value := range item.values {
 			result = binary.BigEndian.AppendUint64(result, uint64(value)) //nolint:gosec
 		}
+	default:
 	}
 
 	return result
@@ -197,7 +198,7 @@ func (item *IntItem) ToSML() string {
 	// Estimate capacity based on average decimal representation length and other components
 	sb.Grow(len(item.values)*10 + 10) // Adjust 10 based on typical int64 values
 
-	sb.WriteString(fmt.Sprintf("<I%d[%d] ", item.byteSize, item.Size()))
+	fmt.Fprintf(&sb, "<I%d[%d] ", item.byteSize, item.Size())
 
 	// Reuse a buffer for strconv.AppendInt to avoid allocations
 	var intBuf [20]byte // Enough for the largest possible int64
@@ -281,6 +282,7 @@ func (item *IntItem) combineIntValues(values ...any) error { //nolint:cyclop
 				capacity = len(v)
 			case []string:
 				capacity = len(v)
+			default:
 			}
 		}
 		item.values = make([]int64, 0, capacity)

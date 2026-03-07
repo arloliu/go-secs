@@ -182,7 +182,7 @@ func (b *Block) Checksum() uint16 {
 		sum += uint32(v)
 	}
 
-	return uint16(sum & 0xFFFF) //nolint:gosec // intentional truncation per SEMI E4 §7.6
+	return uint16(sum & 0xFFFF)
 }
 
 // --- Wire encoding ---

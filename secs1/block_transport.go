@@ -275,6 +275,7 @@ func (bt *blockTransport) sendBlock(ctx context.Context, block *Block) error {
 
 		case sendAbort:
 			return err
+		default:
 		}
 	}
 

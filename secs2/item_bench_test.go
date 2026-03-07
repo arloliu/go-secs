@@ -36,6 +36,7 @@ func BenchmarkToSML_AllTypes(b *testing.B) {
 			items = append(items, F4(1.2345678))
 		case 12:
 			items = append(items, F8(1.2345678))
+		default:
 		}
 	}
 	listItems := []Item{}

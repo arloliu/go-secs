@@ -29,7 +29,7 @@ SUMMARY_COVER_PROFILE      := $(COVER_ROOT)/summary.out
 # Tools
 update-tools:
 	@printf "Install/update linter tool...\n"
-	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.62.0
+	@go mod download -modfile=.linter.go.mod
 
 # Tests
 clean:
@@ -82,7 +82,7 @@ check: lint vet
 
 lint: update-tools
 	@printf "Run linter...\n"
-	@golangci-lint run
+	@go tool -modfile=.linter.go.mod golangci-lint run
 
 # Misc
 update-gomod: gomod-tidy gomod-vendor

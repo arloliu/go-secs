@@ -64,7 +64,8 @@ func FuzzDecodeMessage(f *testing.F) {
 	f.Add(uint32(len(nestedList)), nestedList)
 
 	// Seed: deeply nested empty lists (stress recursion depth check)
-	deepList := []byte{0x00, 0x01, 0x81, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06}
+	deepList := make([]byte, 10, 10+(70*3))
+	copy(deepList, []byte{0x00, 0x01, 0x81, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06})
 	for range 70 { // 70 levels of L[1] exceeds MaxListDepth(64)
 		deepList = append(deepList, 0x01, 0x01, 0x01)
 	}

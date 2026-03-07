@@ -180,10 +180,7 @@ func (d *hsmsDecoder) decodeMessage() (HSMSMessage, error) {
 
 		return msg, nil
 
-	case SelectReqType, DeselectReqType, LinkTestReqType:
-		return NewControlMessage(header, false), nil
-
-	case SelectRspType, DeselectRspType, LinkTestRspType, RejectReqType, SeparateReqType:
+	case SelectReqType, DeselectReqType, LinkTestReqType, SelectRspType, DeselectRspType, LinkTestRspType, RejectReqType, SeparateReqType:
 		return NewControlMessage(header, false), nil
 
 	default:
@@ -228,6 +225,7 @@ func (d *hsmsDecoder) decodeMessageText() (secs2.Item, error) { //nolint:cyclop,
 		length = int(lenBytes[1]) | int(lenBytes[0])<<8
 	case 3:
 		length = int(lenBytes[2]) | int(lenBytes[1])<<8 | int(lenBytes[0])<<16
+	default:
 	}
 
 	// decode data to SECS-II item
@@ -354,6 +352,7 @@ func (d *hsmsDecoder) decodeIntItem(byteSize int, length int) (secs2.Item, error
 			d.intBuf = append(d.intBuf, int64(int32(binary.BigEndian.Uint32(d.input[start:])))) //nolint:gosec
 		case 8:
 			d.intBuf = append(d.intBuf, int64(binary.BigEndian.Uint64(d.input[start:]))) //nolint:gosec
+		default:
 		}
 	}
 	d.pos += length
@@ -389,6 +388,7 @@ func (d *hsmsDecoder) decodeUintItem(byteSize int, length int) (secs2.Item, erro
 			d.uintBuf = append(d.uintBuf, uint64(binary.BigEndian.Uint32(d.input[start:])))
 		case 8:
 			d.uintBuf = append(d.uintBuf, binary.BigEndian.Uint64(d.input[start:]))
+		default:
 		}
 	}
 	d.pos += length

@@ -35,14 +35,14 @@ func dataMsgHandler(msg *hsms.DataMessage, session hsms.Session) {
 		"waitBit", msg.WaitBit(),
 		"item", msg.Item().ToSML(),
 	)
-	switch msg.StreamCode() { //nolint:gocritic
-	case 99:
+	if msg.StreamCode() == 99 { //nolint:gocritic
 		switch msg.FunctionCode() {
 		case 1, 3, 5:
 			err := session.ReplyDataMessage(msg, msg.Item())
 			if err != nil {
 				log.Error("failed to reply message", "id", msg.ID())
 			}
+		default:
 		}
 	}
 }

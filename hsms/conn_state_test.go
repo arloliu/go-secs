@@ -258,40 +258,40 @@ type ssConn struct{}
 
 var _ Connection = (*ssConn)(nil)
 
-func (_ *ssConn) Open(waitOpened bool) error          { return nil }
-func (_ *ssConn) Close() error                        { return nil }
-func (_ *ssConn) AddSession(sessionID uint16) Session { return nil }
-func (_ *ssConn) IsSingleSession() bool               { return true }
-func (_ *ssConn) IsGeneralSession() bool              { return false }
-func (_ *ssConn) IsSECS1() bool                       { return false }
-func (_ *ssConn) GetLogger() logger.Logger            { return &mockLogger{} }
-func (_ *ssConn) ConnState() ConnState                { return NotConnectedState }
-func (_ *ssConn) OpState() OpState                    { return ClosedState }
+func (c *ssConn) Open(waitOpened bool) error          { return nil }
+func (c *ssConn) Close() error                        { return nil }
+func (c *ssConn) AddSession(sessionID uint16) Session { return nil }
+func (c *ssConn) IsSingleSession() bool               { return true }
+func (c *ssConn) IsGeneralSession() bool              { return false }
+func (c *ssConn) IsSECS1() bool                       { return false }
+func (c *ssConn) GetLogger() logger.Logger            { return &mockLogger{} }
+func (c *ssConn) ConnState() ConnState                { return NotConnectedState }
+func (c *ssConn) OpState() OpState                    { return ClosedState }
 
 type gsConn struct{}
 
 var _ Connection = (*gsConn)(nil)
 
-func (_ *gsConn) Open(waitOpened bool) error          { return nil }
-func (_ *gsConn) Close() error                        { return nil }
-func (_ *gsConn) AddSession(sessionID uint16) Session { return nil }
-func (_ *gsConn) IsSingleSession() bool               { return false }
-func (_ *gsConn) IsGeneralSession() bool              { return true }
-func (_ *gsConn) IsSECS1() bool                       { return false }
-func (_ *gsConn) GetLogger() logger.Logger            { return &mockLogger{} }
-func (_ *gsConn) ConnState() ConnState                { return NotConnectedState }
-func (_ *gsConn) OpState() OpState                    { return ClosedState }
+func (c *gsConn) Open(waitOpened bool) error          { return nil }
+func (c *gsConn) Close() error                        { return nil }
+func (c *gsConn) AddSession(sessionID uint16) Session { return nil }
+func (c *gsConn) IsSingleSession() bool               { return false }
+func (c *gsConn) IsGeneralSession() bool              { return true }
+func (c *gsConn) IsSECS1() bool                       { return false }
+func (c *gsConn) GetLogger() logger.Logger            { return &mockLogger{} }
+func (c *gsConn) ConnState() ConnState                { return NotConnectedState }
+func (c *gsConn) OpState() OpState                    { return ClosedState }
 
 type mockLogger struct{}
 
 var _ logger.Logger = (*mockLogger)(nil)
 
-func (_ *mockLogger) Debug(msg string, keysAndValues ...any) {}
-func (_ *mockLogger) Info(msg string, keysAndValues ...any)  {}
-func (_ *mockLogger) Warn(msg string, keysAndValues ...any)  {}
-func (_ *mockLogger) Error(msg string, keysAndValues ...any) {}
-func (_ *mockLogger) Fatal(msg string, keysAndValues ...any) {}
-func (_ *mockLogger) With(keyValues ...any) logger.Logger    { return &mockLogger{} }
-func (_ *mockLogger) Level() logger.LogLevel                 { return logger.InfoLevel }
-func (_ *mockLogger) SetLevel(level logger.LogLevel)         {}
-func (_ *mockLogger) SetOutput(output io.Writer)             {}
+func (l *mockLogger) Debug(msg string, keysAndValues ...any) {}
+func (l *mockLogger) Info(msg string, keysAndValues ...any)  {}
+func (l *mockLogger) Warn(msg string, keysAndValues ...any)  {}
+func (l *mockLogger) Error(msg string, keysAndValues ...any) {}
+func (l *mockLogger) Fatal(msg string, keysAndValues ...any) {}
+func (l *mockLogger) With(keyValues ...any) logger.Logger    { return &mockLogger{} }
+func (l *mockLogger) Level() logger.LogLevel                 { return logger.InfoLevel }
+func (l *mockLogger) SetLevel(level logger.LogLevel)         {}
+func (l *mockLogger) SetOutput(output io.Writer)             {}
