@@ -138,14 +138,28 @@ func (s *Session) recvDataMsg(msg *hsms.DataMessage) {
 	copy(chans, s.dataMsgChans)
 	s.mu.RUnlock()
 
-	for _, ch := range chans {
+	for i, ch := range chans {
+		deliverMsg := msg
+		if i > 0 {
+			cloned, ok := msg.Clone().(*hsms.DataMessage)
+			if !ok {
+				s.logger.Warn("failed to clone data message for handler", "id", s.id, "msg_id", msg.ID())
+				continue
+			}
+
+			deliverMsg = cloned
+		}
+
 		select {
 		case <-s.conn.ctx.Done():
 			s.logger.Debug("context done, stop receiving data message",
 				"id", s.id, "msg_id", msg.ID())
+			if i > 0 {
+				deliverMsg.Free()
+			}
 
 			return
-		case ch <- msg:
+		case ch <- deliverMsg:
 		}
 	}
 }

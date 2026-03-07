@@ -154,29 +154,53 @@ func (s *Session) recvDataMsg(msg *hsms.DataMessage) {
 	copy(dataMsgChans, s.dataMsgChans)
 	s.mu.RUnlock()
 
-	for _, dataMsgChan := range dataMsgChans {
+	for i, dataMsgChan := range dataMsgChans {
+		deliverMsg := msg
+		if i > 0 {
+			cloned, ok := msg.Clone().(*hsms.DataMessage)
+			if !ok {
+				s.logger.Warn("failed to clone data message for handler", "id", s.id, "msg_id", msg.ID())
+				continue
+			}
+
+			deliverMsg = cloned
+		}
+
 		select {
 		case <-s.hsmsConn.ctx.Done():
 			s.logger.Debug("context done, stop receiving data message and close dataMsgChan channel", "id", s.id, "msg_id", msg.ID())
+			if i > 0 {
+				deliverMsg.Free()
+			}
 			return
-		case dataMsgChan <- msg:
+		case dataMsgChan <- deliverMsg:
 		}
 	}
 }
 
 func (s *Session) separateSession() {
 	// Per §7.9, Separate requires the connection to be in SELECTED state.
-	if !s.hsmsConn.stateMgr.IsSelected() {
-		s.logger.Debug("skip separate.req, not in selected state", "method", "separateSession", "state", s.hsmsConn.stateMgr.State())
-		return
-	}
-
+	// But we still send SeparateReq even if the state is not SELECTED, because:
+	//
+	// Reason 1: if the state is not SELECTED, the connection will be closed soon, and sending
+	// SeparateReq can help to release resources on the peer side more quickly.
+	//
+	// Reason 2: if the state is not SELECTED, it may be caused by network issues or peer issues,
+	// and sending SeparateReq can help to trigger the connection's reconnection logic more quickly.
+	//
+	// Note: if the connection is already closed or the state is not SELECTED, sending SeparateReq will fail,
+	// but we can ignore the error because the connection is already closed and resources are already released.
 	msg := hsms.NewSeparateReq(0xffff, hsms.GenerateMsgSystemBytes())
 	defer msg.Free()
 	s.logger.Debug("send separate.req message and wait it to be sent", "method", "separateSession", "id", msg.ID())
 	err := s.hsmsConn.sendMsgSync(msg)
 	if err != nil {
-		s.logger.Warn("failed to send separate control message", "method", "separateSession", "id", msg.ID(), "error", err)
+		s.logger.Warn("failed to send separate control message",
+			"method", "separateSession",
+			"id", msg.ID(),
+			"state", s.hsmsConn.stateMgr.State().String(),
+			"error", err,
+		)
 	}
 }
 
