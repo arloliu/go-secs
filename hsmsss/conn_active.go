@@ -20,10 +20,14 @@ func (c *Connection) startConnectLoop() {
 		return
 	}
 
+	c.connectLoopWg.Add(1)
+
 	gen := c.reconnectGen.Load()
 	loopCtx := c.getLoopContext()
 
 	if loopCtx == nil || loopCtx.Err() != nil {
+		c.connectLoopWg.Done()
+		c.connectLoopRunning.Store(false)
 		return
 	}
 
@@ -249,6 +253,7 @@ func (c *Connection) openActive() {
 // Thus, any entry into this loop waits for configured initialRetryDelay
 // with exponential backoff up to T5Timeout before attempting a dial.
 func (c *Connection) connectLoop(loopCtx context.Context, gen uint64) {
+	defer c.connectLoopWg.Done()
 	defer c.connectLoopRunning.Store(false)
 
 	delay := min(c.cfg.InitialRetryDelay(), c.cfg.T5Timeout())
@@ -279,7 +284,7 @@ func (c *Connection) connectLoop(loopCtx context.Context, gen uint64) {
 				continue
 			}
 
-			c.createContext()
+			c.renewConnContext()
 		}
 
 		if err := c.tryConnect(c.getContext()); err != nil {

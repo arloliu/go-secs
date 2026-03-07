@@ -77,6 +77,8 @@ type Connection struct {
 	// connectLoopRunning prevents multiple overlapping background reconnect loops.
 	// It is checked and set atomically when starting the connect loop.
 	connectLoopRunning atomic.Bool
+	// connectLoopWg waits for the background loop to safely exit.
+	connectLoopWg sync.WaitGroup
 
 	// reconnectGen invalidates reconnect timers across Close/Open cycles.
 	// Incremented on Close() so timers scheduled before Close() cannot fire after a later Open().
@@ -128,7 +130,7 @@ func NewConnection(ctx context.Context, cfg *ConnectionConfig) (*Connection, err
 
 	conn.opState.Set(hsms.ClosedState)
 
-	conn.createContext()
+	conn.createContexts()
 
 	if cfg.isActive {
 		conn.stateMgr = hsms.NewConnStateMgr(ctx, conn, conn.activeConnStateHandler)
@@ -243,7 +245,7 @@ func (c *Connection) doOpen(waitOpened bool) error {
 
 	c.logger.Debug("start to open connection", "method", "Open", "opState", c.opState.String())
 
-	c.createContext()
+	c.createContexts()
 
 	if c.cfg.isActive {
 		c.openActive()
@@ -513,13 +515,38 @@ func (c *Connection) closeConn(timeout time.Duration) error {
 	return closeErr
 }
 
-// createContext creates a new context for the connection, derived from the parent context.
-func (c *Connection) createContext() {
+// createContexts creates a new connection context and a new loop context, derived from the parent context.
+func (c *Connection) createContexts() {
+	c.ctxMutex.Lock()
+	if c.ctxCancel != nil {
+		c.ctxCancel()
+	}
+	if c.loopCancel != nil {
+		c.loopCancel()
+	}
+	c.ctxMutex.Unlock()
+
+	// Wait for any dying background reconnect loops to exit safely.
+	c.connectLoopWg.Wait()
+
 	c.ctxMutex.Lock()
 	defer c.ctxMutex.Unlock()
 
 	c.ctx, c.ctxCancel = context.WithCancel(c.pctx)
 	c.loopCtx, c.loopCancel = context.WithCancel(c.pctx)
+}
+
+// renewConnContext derives a new per-connection context from the parent context.
+// It is used by the background reconnect loop, which does not want to cancel its own loopCtx.
+func (c *Connection) renewConnContext() {
+	c.ctxMutex.Lock()
+	defer c.ctxMutex.Unlock()
+
+	if c.ctxCancel != nil {
+		c.ctxCancel()
+	}
+
+	c.ctx, c.ctxCancel = context.WithCancel(c.pctx)
 }
 
 // getContext returns the per-connection context safely.

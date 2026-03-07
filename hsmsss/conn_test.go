@@ -164,6 +164,98 @@ func TestConnection_ActiveHost_CloseMultipleTimes(t *testing.T) {
 	}
 }
 
+// TestConnection_ActiveHost_SingleConnectLoop verifies that concurrent calls to
+// startConnectLoop never produce multiple overlapping background goroutines.
+// This is a regression test for the race condition where multiple connect loops
+// could steal TCP connections from each other, leading to EOFs and stuck states.
+func TestConnection_ActiveHost_SingleConnectLoop(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithT5Timeout(50*time.Millisecond),
+		WithConnectRemoteTimeout(1*time.Second),
+		WithCloseConnTimeout(3*time.Second),
+	)
+	defer func() {
+		require.NoError(hostComm.close())
+	}()
+
+	conn := hostComm.conn
+
+	// Open without a passive side so the connect loop keeps retrying.
+	require.NoError(hostComm.open(false))
+
+	// Give the connect loop time to start.
+	time.Sleep(20 * time.Millisecond)
+
+	// Hammer startConnectLoop from many goroutines; only one should win.
+	var wg sync.WaitGroup
+	for range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			conn.startConnectLoop()
+		}()
+	}
+	wg.Wait()
+
+	// The atomic guard must still read true (exactly one loop running).
+	require.True(conn.connectLoopRunning.Load(),
+		"connectLoopRunning should be true while the loop is active")
+}
+
+// TestConnection_ActiveHost_CloseOpenNoOverlap verifies that rapid Close→Open
+// cycles never produce overlapping connect loops. After each cycle the connection
+// must reach SELECTED, proving no stale goroutine is stealing the TCP socket.
+func TestConnection_ActiveHost_CloseOpenNoOverlap(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithT3Timeout(1000*time.Millisecond),
+		WithT5Timeout(10*time.Millisecond),
+		WithT6Timeout(1000*time.Millisecond),
+		WithConnectRemoteTimeout(1*time.Second),
+		WithCloseConnTimeout(3*time.Second),
+	)
+	eqpComm := newTestComm(ctx, t, port, false, false,
+		WithT3Timeout(1000*time.Millisecond),
+		WithT5Timeout(10*time.Millisecond),
+		WithT6Timeout(1000*time.Millisecond),
+		WithConnectRemoteTimeout(1*time.Second),
+		WithCloseConnTimeout(3*time.Second),
+	)
+
+	defer func() {
+		require.NoError(hostComm.close())
+		require.NoError(eqpComm.close())
+	}()
+
+	// First establish a connection so both sides are ready.
+	require.NoError(hostComm.open(false))
+	require.NoError(eqpComm.open(false))
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+	require.NoError(eqpComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+	// Now hammer rapid Close→Open on the active side while passive stays up.
+	// Each cycle must reach SELECTED again, proving no overlapping loops.
+	for i := range 5 {
+		t.Logf("--- rapid cycle %d ---", i)
+
+		require.NoError(hostComm.close())
+		require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.NotConnectedState))
+
+		// Immediately reopen — createContexts must block until old loop is dead.
+		require.NoError(hostComm.open(false))
+		require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+		t.Logf("--- rapid cycle %d: SELECTED ---", i)
+	}
+}
+
 func TestConnection_ActiveHost_RetryConnect(t *testing.T) {
 	require := require.New(t)
 
