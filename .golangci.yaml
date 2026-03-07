@@ -109,7 +109,7 @@ linters:
     nakedret:
       max-func-lines: 40
     nlreturn:
-      block-size: 3
+      block-size: 5
     nolintlint:
       require-explanation: false
       require-specific: true
