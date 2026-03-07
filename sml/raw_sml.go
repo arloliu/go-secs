@@ -155,6 +155,26 @@ func (item *RawSMLItem) ToJIS8() (string, error) {
 	return item.item.ToJIS8()
 }
 
+// ToLocalizedStr retrieves the localized string if the item is a LocalizedStrItem.
+// It returns an error if the item is not a localized string item.
+func (item *RawSMLItem) ToLocalizedStr() (string, error) {
+	if err := item.parse(); err != nil {
+		return "", err
+	}
+
+	return item.item.ToLocalizedStr()
+}
+
+// ToLocalizedStrHeader retrieves the localized string header if the item is a LocalizedStrItem.
+// It returns an error if the item is not a localized string item.
+func (item *RawSMLItem) ToLocalizedStrHeader() (uint16, error) {
+	if err := item.parse(); err != nil {
+		return 0, err
+	}
+
+	return item.item.ToLocalizedStrHeader()
+}
+
 // ToInt retrieves the signed integer values as int64 if the item is an IntItem.
 // It returns an error if the item is not an integer item.
 func (item *RawSMLItem) ToInt() ([]int64, error) {
@@ -272,6 +292,14 @@ func (item *RawSMLItem) IsJIS8() bool {
 	}
 
 	return item.item.IsJIS8()
+}
+
+func (item *RawSMLItem) IsLocalizedStr() bool {
+	if err := item.parse(); err != nil {
+		return false
+	}
+
+	return item.item.IsLocalizedStr()
 }
 
 func (item *RawSMLItem) IsInt8() bool {

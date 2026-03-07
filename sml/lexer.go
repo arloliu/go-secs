@@ -47,7 +47,7 @@ const (
 	// Message text
 	tokenTypeLeftAngleBracket  // '<'
 	tokenTypeRightAngleBracket // '>'
-	tokenTypeItemType          // 'L', 'B', 'BOOLEAN', 'A', 'F4', 'F8', 'I1', 'I2', 'I4', 'I8', 'U1', 'U2', 'U4', 'U8', case insensitive
+	tokenTypeItemType          // 'L', 'B', 'BOOLEAN', 'A', 'J', 'W', 'F4', 'F8', 'I1', 'I2', 'I4', 'I8', 'U1', 'U2', 'U4', 'U8', case insensitive
 	tokenTypeItemSize          // '[' [0-9]+ ('..' [0-9]+)? ']'
 	tokenTypeNumber            // decimal, hexadecimal, octal, binary, floating-point number including scientific notation, case insensitive
 	tokenTypeBool              // 'T', 'F', case insensitive
@@ -407,7 +407,7 @@ func lexDataItemSize(l *lexer) stateFn {
 			l.acceptRun(" \t\r\n")
 		}
 	}
-	if !(l.accept("]") && numberFound) {
+	if !l.accept("]") || !numberFound {
 		return l.errorf("invalid data item size")
 	}
 	l.emitSpaceRemoved(tokenTypeItemSize)

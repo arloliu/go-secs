@@ -360,6 +360,74 @@ func TestParseHSMS_parseItem_ASCII(t *testing.T) {
 	}
 }
 
+func TestParseHSMS_parseItem_LocalizedStr(t *testing.T) {
+	secs2.UseASCIISingleQuote()
+	WithStrictMode(false)
+
+	testcases := []struct {
+		description    string
+		strictMode     bool
+		sml            string
+		expectedStr    string
+		expectedErrStr string
+	}{
+		{
+			description: "LocalizedStr empty string with quote",
+			strictMode:  false,
+			sml:         "<W ''>",
+			expectedStr: "",
+		},
+		{
+			description: "LocalizedStr normal string",
+			strictMode:  false,
+			sml:         "<W 'text'>",
+			expectedStr: "text",
+		},
+		{
+			description: "LocalizedStr unicode string",
+			strictMode:  false,
+			sml:         "<W '你好'>",
+			expectedStr: "你好",
+		},
+		{
+			description: "LocalizedStr '> in quote string",
+			strictMode:  false,
+			sml:         "<W 'ab'>c'>",
+			expectedStr: "ab",
+		},
+		{
+			description:    "invalid LocalizedStr quote",
+			strictMode:     false,
+			sml:            "<W[1] abcd'>",
+			expectedErrStr: "invalid quote for Localized string",
+		},
+	}
+
+	require := require.New(t)
+
+	for i, tt := range testcases {
+		t.Logf("Test #%d: %s", i, tt.description)
+		parser := NewHSMSParser()
+		parser.WithStrictMode(tt.strictMode)
+		parser.input = tt.sml
+		parser.data = tt.sml
+		parser.len = len(tt.sml)
+		parser.pos = 0
+
+		item, err := parser.parseItem()
+		if len(tt.expectedErrStr) > 0 {
+			require.Nil(item)
+			require.ErrorContains(err, tt.expectedErrStr)
+		} else {
+			require.NoError(err)
+			require.NotNil(item)
+			str, err := item.ToLocalizedStr()
+			require.NoError(err)
+			require.Equal(tt.expectedStr, str)
+		}
+	}
+}
+
 func commonTestCases() []testCase {
 	return []testCase{
 		{

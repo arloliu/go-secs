@@ -8,24 +8,25 @@ import (
 // MaxByteSize defines the maximum allowed size (in bytes) for an Item's data.
 const MaxByteSize = 1<<24 - 1
 
-// Type contants defines SECS-II data item type strings.
+// Type constants defines SECS-II data item type strings.
 const (
-	EmptyType   = "empty"
-	ListType    = "list"
-	BinaryType  = "binary"
-	BooleanType = "boolean"
-	ASCIIType   = "ascii"
-	JIS8Type    = "jis8"
-	Int8Type    = "i1"
-	Int16Type   = "i2"
-	Int32Type   = "i4"
-	Int64Type   = "i8"
-	Uint8Type   = "u1"
-	Uint16Type  = "u2"
-	Uint32Type  = "u4"
-	Uint64Type  = "u8"
-	Float32Type = "f4"
-	Float64Type = "f8"
+	EmptyType        = "empty"
+	ListType         = "list"
+	BinaryType       = "binary"
+	BooleanType      = "boolean"
+	ASCIIType        = "ascii"
+	JIS8Type         = "jis8"
+	LocalizedStrType = "localized_str"
+	Int8Type         = "i1"
+	Int16Type        = "i2"
+	Int32Type        = "i4"
+	Int64Type        = "i8"
+	Uint8Type        = "u1"
+	Uint16Type       = "u2"
+	Uint32Type       = "u4"
+	Uint64Type       = "u8"
+	Float32Type      = "f4"
+	Float64Type      = "f8"
 )
 
 // FormatCode defines constants representing data item format codes.
@@ -33,21 +34,22 @@ type FormatCode = int
 
 // Format constants defines format codes of SECS-II data items
 const (
-	ListFormatCode    FormatCode = 0o00
-	BinaryFormatCode  FormatCode = 0o10
-	BooleanFormatCode FormatCode = 0o11
-	ASCIIFormatCode   FormatCode = 0o20
-	JIS8FormatCode    FormatCode = 0o21
-	Int64FormatCode   FormatCode = 0o30
-	Int8FormatCode    FormatCode = 0o31
-	Int16FormatCode   FormatCode = 0o32
-	Int32FormatCode   FormatCode = 0o34
-	Float64FormatCode FormatCode = 0o40
-	Float32FormatCode FormatCode = 0o44
-	Uint64FormatCode  FormatCode = 0o50
-	Uint8FormatCode   FormatCode = 0o51
-	Uint16FormatCode  FormatCode = 0o52
-	Uint32FormatCode  FormatCode = 0o54
+	ListFormatCode         FormatCode = 0o00
+	BinaryFormatCode       FormatCode = 0o10
+	BooleanFormatCode      FormatCode = 0o11
+	ASCIIFormatCode        FormatCode = 0o20
+	JIS8FormatCode         FormatCode = 0o21
+	LocalizedStrFormatCode FormatCode = 0o22
+	Int64FormatCode        FormatCode = 0o30
+	Int8FormatCode         FormatCode = 0o31
+	Int16FormatCode        FormatCode = 0o32
+	Int32FormatCode        FormatCode = 0o34
+	Float64FormatCode      FormatCode = 0o40
+	Float32FormatCode      FormatCode = 0o44
+	Uint64FormatCode       FormatCode = 0o50
+	Uint8FormatCode        FormatCode = 0o51
+	Uint16FormatCode       FormatCode = 0o52
+	Uint32FormatCode       FormatCode = 0o54
 )
 
 type itemType struct {
@@ -56,21 +58,22 @@ type itemType struct {
 }
 
 var itemTypeMap = map[string]*itemType{
-	ListType:    {FormatCode: ListFormatCode, Size: 1},
-	BinaryType:  {FormatCode: BinaryFormatCode, Size: 1},
-	BooleanType: {FormatCode: BooleanFormatCode, Size: 1},
-	ASCIIType:   {FormatCode: ASCIIFormatCode, Size: 1},
-	JIS8Type:    {FormatCode: JIS8FormatCode, Size: 1},
-	Int64Type:   {FormatCode: Int64FormatCode, Size: 8},
-	Int8Type:    {FormatCode: Int8FormatCode, Size: 1},
-	Int16Type:   {FormatCode: Int16FormatCode, Size: 2},
-	Int32Type:   {FormatCode: Int32FormatCode, Size: 4},
-	Float64Type: {FormatCode: Float64FormatCode, Size: 8},
-	Float32Type: {FormatCode: Float32FormatCode, Size: 4},
-	Uint64Type:  {FormatCode: Uint64FormatCode, Size: 8},
-	Uint8Type:   {FormatCode: Uint8FormatCode, Size: 1},
-	Uint16Type:  {FormatCode: Uint16FormatCode, Size: 2},
-	Uint32Type:  {FormatCode: Uint32FormatCode, Size: 4},
+	ListType:         {FormatCode: ListFormatCode, Size: 1},
+	BinaryType:       {FormatCode: BinaryFormatCode, Size: 1},
+	BooleanType:      {FormatCode: BooleanFormatCode, Size: 1},
+	ASCIIType:        {FormatCode: ASCIIFormatCode, Size: 1},
+	JIS8Type:         {FormatCode: JIS8FormatCode, Size: 1},
+	LocalizedStrType: {FormatCode: LocalizedStrFormatCode, Size: 1},
+	Int64Type:        {FormatCode: Int64FormatCode, Size: 8},
+	Int8Type:         {FormatCode: Int8FormatCode, Size: 1},
+	Int16Type:        {FormatCode: Int16FormatCode, Size: 2},
+	Int32Type:        {FormatCode: Int32FormatCode, Size: 4},
+	Float64Type:      {FormatCode: Float64FormatCode, Size: 8},
+	Float32Type:      {FormatCode: Float32FormatCode, Size: 4},
+	Uint64Type:       {FormatCode: Uint64FormatCode, Size: 8},
+	Uint8Type:        {FormatCode: Uint8FormatCode, Size: 1},
+	Uint16Type:       {FormatCode: Uint16FormatCode, Size: 2},
+	Uint32Type:       {FormatCode: Uint32FormatCode, Size: 4},
 }
 
 // Item represents an immutable data item in a SECS-II message.
@@ -129,6 +132,14 @@ type Item interface {
 	// ToJIS8 retrieves the JIS-8 string if the item is an JIS8Item.
 	// It returns an error if the item is not an JIS-8 item.
 	ToJIS8() (string, error)
+
+	// ToLocalizedStr retrieves the localized string if the item is a LocalizedStrItem.
+	// It returns an error if the item is not a localized string item.
+	ToLocalizedStr() (string, error)
+
+	// ToLocalizedStrHeader retrieves the localized string header code if the item is a LocalizedStrItem.
+	// It returns an error if the item is not a localized string item.
+	ToLocalizedStrHeader() (uint16, error)
 
 	// ToInt retrieves the signed integer values as int64 if the item is an IntItem.
 	// It returns an error if the item is not an integer item.
@@ -191,6 +202,9 @@ type Item interface {
 
 	// IsJIS8 returns true if the item is an JIS8Item, false otherwise.
 	IsJIS8() bool
+
+	// IsLocalizedStr returns true if the item is a LocalizedStrItem, false otherwise.
+	IsLocalizedStr() bool
 
 	// IsInt8 returns true if the item is an Int8Item, false otherwise.
 	IsInt8() bool
@@ -368,6 +382,20 @@ func (item *baseItem) ToJIS8() (string, error) {
 	return "", err
 }
 
+func (item *baseItem) ToLocalizedStr() (string, error) {
+	err := NewItemErrorWithMsg("method ToLocalizedStr not implemented")
+	item.setError(err)
+
+	return "", err
+}
+
+func (item *baseItem) ToLocalizedStrHeader() (uint16, error) {
+	err := NewItemErrorWithMsg("method ToLocalizedStrHeader not implemented")
+	item.setError(err)
+
+	return 0, err
+}
+
 func (item *baseItem) ToInt() ([]int64, error) {
 	err := NewItemErrorWithMsg("method ToInt not implemented")
 	item.setError(err)
@@ -396,22 +424,23 @@ func (item *baseItem) Error() error {
 func (item *baseItem) Free() {
 }
 
-func (item *baseItem) IsEmpty() bool   { return false }
-func (item *baseItem) IsList() bool    { return false }
-func (item *baseItem) IsBinary() bool  { return false }
-func (item *baseItem) IsBoolean() bool { return false }
-func (item *baseItem) IsASCII() bool   { return false }
-func (item *baseItem) IsJIS8() bool    { return false }
-func (item *baseItem) IsInt8() bool    { return false }
-func (item *baseItem) IsInt16() bool   { return false }
-func (item *baseItem) IsInt32() bool   { return false }
-func (item *baseItem) IsInt64() bool   { return false }
-func (item *baseItem) IsUint8() bool   { return false }
-func (item *baseItem) IsUint16() bool  { return false }
-func (item *baseItem) IsUint32() bool  { return false }
-func (item *baseItem) IsUint64() bool  { return false }
-func (item *baseItem) IsFloat32() bool { return false }
-func (item *baseItem) IsFloat64() bool { return false }
+func (item *baseItem) IsEmpty() bool        { return false }
+func (item *baseItem) IsList() bool         { return false }
+func (item *baseItem) IsBinary() bool       { return false }
+func (item *baseItem) IsBoolean() bool      { return false }
+func (item *baseItem) IsASCII() bool        { return false }
+func (item *baseItem) IsJIS8() bool         { return false }
+func (item *baseItem) IsLocalizedStr() bool { return false }
+func (item *baseItem) IsInt8() bool         { return false }
+func (item *baseItem) IsInt16() bool        { return false }
+func (item *baseItem) IsInt32() bool        { return false }
+func (item *baseItem) IsInt64() bool        { return false }
+func (item *baseItem) IsUint8() bool        { return false }
+func (item *baseItem) IsUint16() bool       { return false }
+func (item *baseItem) IsUint32() bool       { return false }
+func (item *baseItem) IsUint64() bool       { return false }
+func (item *baseItem) IsFloat32() bool      { return false }
+func (item *baseItem) IsFloat64() bool      { return false }
 
 func (item *baseItem) resetError() {
 	item.itemErr = nil

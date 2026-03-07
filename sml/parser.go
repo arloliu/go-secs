@@ -322,6 +322,7 @@ func (p *HSMSParser) parseText() (secs2.Item, error) {
 	return item, nil
 }
 
+//nolint:cyclop
 func (p *HSMSParser) parseItem() (secs2.Item, error) {
 	ch := p.nextNonSpaceRune()
 	if ch != '<' {
@@ -352,6 +353,8 @@ func (p *HSMSParser) parseItem() (secs2.Item, error) {
 		}
 	case secs2.JIS8FormatCode:
 		item, err = p.parseJIS8()
+	case secs2.LocalizedStrFormatCode:
+		item, err = p.parseLocalizedStr()
 	case secs2.BooleanFormatCode:
 		item, err = p.parseBoolean(maxSize)
 	case secs2.BinaryFormatCode:
@@ -376,6 +379,7 @@ func (p *HSMSParser) parseItem() (secs2.Item, error) {
 		item, err = p.parseUint(4, maxSize)
 	case secs2.Uint64FormatCode:
 		item, err = p.parseUint(8, maxSize)
+	default:
 	}
 
 	if err != nil {
@@ -632,6 +636,48 @@ func (p *HSMSParser) parseJIS8() (secs2.Item, error) {
 	return nil, errors.New("unclosed quote string for JIS-8 item")
 }
 
+// parseLocalizedStr parses a Localized Character String data item from the input string.
+//
+// It returns the parsed LocalizedStr item as a secs2.Item and an error if any occurred during parsing.
+func (p *HSMSParser) parseLocalizedStr() (secs2.Item, error) {
+	// consume first quote
+	ch := p.nextNonSpaceRune()
+
+	if ch == '>' { // empty string
+		return secs2.NewUTF8StrItem(""), nil
+	}
+
+	if ch != '\'' && ch != '"' {
+		return nil, errors.New("invalid quote for Localized string")
+	}
+
+	quoteCh := ch
+	quoteCount := 0
+	lastQuotePos := 0
+
+	for i, ch := range p.data {
+		switch ch {
+		case quoteCh:
+			quoteCount++
+			lastQuotePos = i
+
+		case '>':
+			// check if the pattern is "'>"
+			if lastQuotePos < i-1 {
+				continue
+			}
+
+			data := p.data[:lastQuotePos]
+			p.forward(i + 1)
+
+			return secs2.NewUTF8StrItem(data), nil
+		default:
+		}
+	}
+
+	return nil, errors.New("unclosed quote string for Localized string item")
+}
+
 func (p *HSMSParser) parseBoolean(size int) (secs2.Item, error) {
 	items := make([]bool, 0, size)
 	values := p.getItemValueStrings()
@@ -660,7 +706,7 @@ func (p *HSMSParser) parseBinary(size int) (secs2.Item, error) {
 			return nil, fmt.Errorf("expect binary value, found %s", val)
 		}
 
-		if !(0 <= item && item < 256) {
+		if item < 0 || item >= 256 {
 			return nil, errors.New("binary value overflow, should be in range of [0, 256)")
 		}
 
@@ -678,7 +724,7 @@ func (p *HSMSParser) parseFloat(byteSize int, size int) (secs2.Item, error) {
 		item, err := strconv.ParseFloat(val, byteSize*8)
 		if err != nil {
 			if errors.Is(err, strconv.ErrRange) {
-				return nil, fmt.Errorf("F%d overflow", byteSize)
+				return nil, fmt.Errorf("f%d overflow", byteSize)
 			}
 
 			return nil, fmt.Errorf("expect float, found %s", val)
@@ -698,7 +744,7 @@ func (p *HSMSParser) parseInt(byteSize int, size int) (secs2.Item, error) {
 		item, err := strconv.ParseInt(val, 0, byteSize*8)
 		if err != nil {
 			if errors.Is(err, strconv.ErrRange) {
-				return nil, fmt.Errorf("I%d range overflow", byteSize)
+				return nil, fmt.Errorf("i%d range overflow", byteSize)
 			}
 
 			return nil, fmt.Errorf("expect signed integer, found %s", val)
@@ -718,7 +764,7 @@ func (p *HSMSParser) parseUint(byteSize int, size int) (secs2.Item, error) {
 		item, err := strconv.ParseUint(val, 0, byteSize*8)
 		if err != nil {
 			if errors.Is(err, strconv.ErrRange) {
-				return nil, fmt.Errorf("U%d range overflow", byteSize)
+				return nil, fmt.Errorf("u%d range overflow", byteSize)
 			}
 
 			return nil, fmt.Errorf("expect unsigned integer, found %s", val)
@@ -787,6 +833,7 @@ func (p *HSMSParser) parseItemSize() (minSize, maxSize int, err error) {
 	return minSize, maxSize, nil
 }
 
+//nolint:cyclop
 func (p *HSMSParser) parseItemType() (secs2.FormatCode, bool) {
 	p.skipSpace()
 	if len(p.data) < 1 {
@@ -814,6 +861,10 @@ func (p *HSMSParser) parseItemType() (secs2.FormatCode, bool) {
 	case 'J':
 		p.forward(1)
 		return secs2.JIS8FormatCode, true
+
+	case 'W':
+		p.forward(1)
+		return secs2.LocalizedStrFormatCode, true
 
 	case 'B':
 		if hasSecondChar {
@@ -846,6 +897,8 @@ func (p *HSMSParser) parseItemType() (secs2.FormatCode, bool) {
 		case '8':
 			p.forward(2)
 			return secs2.Float64FormatCode, true
+		default:
+			return -1, false
 		}
 	case 'I', 'U':
 		if !hasSecondChar {
@@ -859,13 +912,14 @@ func (p *HSMSParser) parseItemType() (secs2.FormatCode, bool) {
 		p.forward(2)
 
 		return formatCode, true
+	default:
+		return -1, false
 	}
-
-	return -1, false
 }
 
 func getIntFormatCode(signed rune, byteSize rune) int {
-	if signed == 'I' {
+	switch signed {
+	case 'I':
 		switch byteSize {
 		case '1':
 			return secs2.Int8FormatCode
@@ -878,7 +932,7 @@ func getIntFormatCode(signed rune, byteSize rune) int {
 		default:
 			return -1
 		}
-	} else if signed == 'U' {
+	case 'U':
 		switch byteSize {
 		case '1':
 			return secs2.Uint8FormatCode
@@ -891,9 +945,9 @@ func getIntFormatCode(signed rune, byteSize rune) int {
 		default:
 			return -1
 		}
+	default:
+		return -1
 	}
-
-	return -1
 }
 
 func (p *HSMSParser) forward(n int) bool {
