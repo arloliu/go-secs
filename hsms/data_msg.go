@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 
 	"github.com/arloliu/go-secs/internal/util"
 	"github.com/arloliu/go-secs/secs2"
@@ -19,17 +20,25 @@ const (
 // MaxStreamCode is the maximum valid stream code value (0-127).
 const MaxStreamCode = 127
 
+// waitBitMask is the bitmask for the wait bit stored in the MSB of the stream field,
+// matching the HSMS wire format for header byte 2.
+const waitBitMask = 0x80
+
 // DataMessage represents a HSMS data message.
 //
 // It implements the HSMSMessage and secs2.SECS2Message interfaces.
+//
+// The struct is laid out to fit in a single 64-byte CPU cache line.
+// The stream field packs the wait bit in its MSB (bit 7), matching the HSMS
+// wire format for header byte 2. Use the StreamCode/WaitBit accessors.
 type DataMessage struct {
 	dataItem    secs2.Item
 	systemBytes []byte
 	err         error
 	sessionID   uint16
-	stream      byte
+	stream      byte // MSB = waitBit, low 7 bits = stream code
 	function    byte
-	waitBit     uint8
+	freed       uint32 // accessed via sync/atomic; 0 = not freed, 1 = freed
 }
 
 // ensure DataMessage implements hsms.HSMSMessage and secs2.SECS2Message interfaces.
@@ -59,6 +68,10 @@ var (
 //
 // dataItem is the contents of this message.
 func NewDataMessage(stream byte, function byte, replyExpected bool, sessionID uint16, systemBytes []byte, dataItem secs2.Item) (*DataMessage, error) {
+	if stream > MaxStreamCode {
+		return nil, ErrInvalidStreamCode
+	}
+
 	msg := getDataMessage(stream, function, replyExpected, sessionID, systemBytes, dataItem)
 	if err := msg.sanityCheck(); err != nil {
 		putDataMessage(msg)
@@ -95,7 +108,7 @@ func NewErrorDataMessage(stream byte, function byte, sessionID uint16, systemByt
 	msg.err = err
 
 	// set the wait bit to false for error messages
-	msg.waitBit = WaitBitFalse
+	msg.stream &^= waitBitMask
 
 	return msg
 }
@@ -213,10 +226,9 @@ func (msg *DataMessage) SetHeader(header []byte) error {
 	}
 
 	msg.sessionID = binary.BigEndian.Uint16(header[:2])
-	msg.stream = header[2] & 0x7F
+	msg.stream = header[2] // already packed: MSB = waitBit, low 7 = stream
 	msg.function = header[3]
 	msg.systemBytes = util.CloneSlice(header[6:], 4)
-	msg.waitBit = header[2] >> 7
 
 	return nil
 }
@@ -230,7 +242,7 @@ func (msg *DataMessage) SetStreamCode(stream uint8) error {
 		return ErrInvalidStreamCode
 	}
 
-	msg.stream = stream & 0x7F
+	msg.stream = (msg.stream & waitBitMask) | (stream & 0x7F)
 
 	return nil
 }
@@ -239,7 +251,7 @@ func (msg *DataMessage) SetStreamCode(stream uint8) error {
 //
 // It implements the StreamCode method of the secs2.SECS2Message interface.
 func (msg *DataMessage) StreamCode() uint8 {
-	return msg.stream
+	return msg.stream & 0x7F
 }
 
 // SetFunctionCode sets the function code of the data message.
@@ -261,9 +273,9 @@ func (msg *DataMessage) FunctionCode() uint8 {
 // Added in v1.12.0
 func (msg *DataMessage) SetWaitBit(wait bool) {
 	if wait {
-		msg.waitBit = WaitBitTrue
+		msg.stream |= waitBitMask
 	} else {
-		msg.waitBit = WaitBitFalse
+		msg.stream &^= waitBitMask
 	}
 }
 
@@ -271,7 +283,7 @@ func (msg *DataMessage) SetWaitBit(wait bool) {
 //
 // It implements the WaitBit method of the secs2.SECS2Message interface.
 func (msg *DataMessage) WaitBit() bool {
-	return msg.waitBit == WaitBitTrue
+	return msg.stream&waitBitMask != 0
 }
 
 // Item returnes the SECS-II data item in data message.
@@ -286,9 +298,9 @@ func (msg *DataMessage) Item() secs2.Item {
 // This method only exists on DataMessage, and it is used to generate the SML header
 func (msg *DataMessage) SMLHeader() string {
 	quote := StreamFunctionQuote()
-	header := fmt.Sprintf("%sS%dF%d%s", quote, msg.stream, msg.function, quote)
+	header := fmt.Sprintf("%sS%dF%d%s", quote, msg.StreamCode(), msg.function, quote)
 
-	if msg.waitBit == WaitBitTrue {
+	if msg.WaitBit() {
 		header += " W"
 	}
 
@@ -409,6 +421,9 @@ func (msg *DataMessage) ToSML() string {
 // It implements the Free method of the HSMSMessage interface.
 func (msg *DataMessage) Free() {
 	if usePool {
+		if !atomic.CompareAndSwapUint32(&msg.freed, 0, 1) {
+			return
+		}
 		item := msg.Item()
 		if item != nil {
 			item.Free()
@@ -424,7 +439,6 @@ func (msg *DataMessage) Clone() HSMSMessage {
 	cloned := &DataMessage{
 		stream:      msg.stream,
 		function:    msg.function,
-		waitBit:     msg.waitBit,
 		sessionID:   msg.sessionID,
 		systemBytes: util.CloneSlice(msg.systemBytes, 4),
 	}
@@ -443,11 +457,8 @@ func (msg *DataMessage) generateHeader(header []byte) {
 	header[0] = byte(msg.sessionID >> 8)
 	header[1] = byte(msg.sessionID)
 
-	// Header byte 2-3: wait bit + stream code, function code
+	// Header byte 2-3: wait bit + stream code (already packed in stream field), function code
 	header[2] = msg.stream
-	if msg.WaitBit() {
-		header[2] += 0b_1000_0000
-	}
 	header[3] = msg.function
 
 	// Header byte 4-5: PType, SType, should set to zero for data message
@@ -464,16 +475,8 @@ func (msg *DataMessage) sanityCheck() error {
 		}
 	}
 
-	if msg.stream > MaxStreamCode {
-		return ErrInvalidStreamCode
-	}
-
-	if msg.waitBit == WaitBitTrue && msg.function%2 == 0 {
+	if msg.WaitBit() && msg.function%2 == 0 {
 		return ErrInvalidRspMsg
-	}
-
-	if msg.waitBit > 1 {
-		return ErrInvalidWaitBit
 	}
 
 	if len(msg.systemBytes) != 4 {

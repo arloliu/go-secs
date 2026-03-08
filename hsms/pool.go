@@ -2,6 +2,7 @@ package hsms
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/arloliu/go-secs/internal/util"
 	"github.com/arloliu/go-secs/secs2"
@@ -29,9 +30,8 @@ func getDataMessage(stream byte, function byte, replyExpected bool, sessionID ui
 		msg = &DataMessage{}
 	}
 
-	msg.stream = stream
+	msg.stream = stream & 0x7F
 	msg.function = function
-	msg.waitBit = WaitBitFalse
 	msg.dataItem = dataItem
 	msg.sessionID = sessionID
 	msg.systemBytes = util.CloneSlice(systemBytes, 4)
@@ -41,7 +41,7 @@ func getDataMessage(stream byte, function byte, replyExpected bool, sessionID ui
 	}
 
 	if replyExpected {
-		msg.waitBit = WaitBitTrue
+		msg.stream |= waitBitMask
 	}
 
 	return msg
@@ -52,6 +52,7 @@ func getDataMessage(stream byte, function byte, replyExpected bool, sessionID ui
 func putDataMessage(msg *DataMessage) {
 	if usePool {
 		msg.dataItem = nil
+		atomic.StoreUint32(&msg.freed, 0)
 		dataMsgPool.Put(msg)
 	}
 }
