@@ -33,6 +33,10 @@ var (
 
 	// ErrInvalidWaitBit indicates that an invalid wait bit value was provided.
 	// The wait bit should be either 0 or 1.
+	//
+	// Deprecated: Since v1.15.0, the wait bit is packed into the stream byte
+	// of DataMessage and this error is no longer returned by any internal code.
+	// It is kept for backward compatibility with external consumers.
 	ErrInvalidWaitBit = errors.New("invalid wait bit, should be 0 or 1")
 
 	// ErrInvalidSystemBytes indicates that invalid system bytes were provided.

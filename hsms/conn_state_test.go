@@ -3,6 +3,8 @@ package hsms
 import (
 	"context"
 	"io"
+	"math/rand/v2"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -350,6 +352,300 @@ func TestConnStateMgr_ConcurrentAsyncAndStop(t *testing.T) {
 		// Stop while the goroutine is firing.
 		cs.Stop()
 		<-done
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Chaos / deadlock-focused tests for ConnStateMgr lifecycle
+//
+// Each test targets a specific deadlock or race vector:
+//   - Stop vs changeStateAsync holding stateMu (the original deadlock)
+//   - Concurrent Open/Close (Start/Stop) from multiple goroutines
+//   - Rapid Start→Stop→Start cycling
+//   - Async transitions interleaved with handler-triggered async transitions
+//   - Stop racing with a channel-full condition (backpressure)
+// ---------------------------------------------------------------------------
+
+// TestConnStateMgr_Chaos_StopVsAsyncFlood is the most direct regression test
+// for the original deadlock: Stop() must never block indefinitely when
+// changeStateAsync() goroutines are in-flight holding stateMu while waiting
+// on a full channel or ctx.Done().
+//
+// The test enforces a hard 5-second deadline per iteration; any deadlock
+// makes it fail immediately rather than hanging for the full test timeout.
+func TestConnStateMgr_Chaos_StopVsAsyncFlood(t *testing.T) {
+	const iterations = 200
+	const asyncGoroutines = 8
+	const opsPerGoroutine = 50
+
+	ctx := context.Background()
+
+	for i := range iterations {
+		func() {
+			deadline := time.AfterFunc(5*time.Second, func() {
+				// If we get here, we are deadlocked.
+				panic("TestConnStateMgr_Chaos_StopVsAsyncFlood: deadlock detected on iteration " + string(rune('0'+i%10)))
+			})
+			defer deadline.Stop()
+
+			cs := NewConnStateMgr(ctx, nil)
+			cs.Start()
+			// Put into NotSelected so all 4 async transitions are reachable.
+			_ = cs.ToNotSelected()
+
+			var wg sync.WaitGroup
+
+			// Flood with async state changes from multiple goroutines.
+			for range asyncGoroutines {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for range opsPerGoroutine {
+						switch rand.IntN(4) {
+						case 0:
+							cs.ToNotConnectedAsync()
+						case 1:
+							cs.ToConnectingAsync()
+						case 2:
+							cs.ToNotSelectedAsync()
+						case 3:
+							cs.ToSelectedAsync()
+						default:
+						}
+					}
+				}()
+			}
+
+			// Race Stop against the flood.
+			cs.Stop()
+			wg.Wait()
+		}()
+	}
+}
+
+// TestConnStateMgr_Chaos_ConcurrentStartStop tests concurrent Stop() calls
+// after a single Start(). Multiple goroutines race to Stop the same manager
+// while others fire async transitions — this is the pattern that occurs when
+// multiple error paths trigger close simultaneously. Only ONE Stop must win
+// the CAS; the rest must be no-ops.
+func TestConnStateMgr_Chaos_ConcurrentStartStop(t *testing.T) {
+	const iterations = 200
+	const stoppers = 10
+
+	ctx := context.Background()
+
+	for range iterations {
+		func() {
+			deadline := time.AfterFunc(5*time.Second, func() {
+				panic("TestConnStateMgr_Chaos_ConcurrentStartStop: deadlock detected")
+			})
+			defer deadline.Stop()
+
+			cs := NewConnStateMgr(ctx, nil)
+			cs.Start()
+			_ = cs.ToNotSelected()
+
+			var wg sync.WaitGroup
+			// Half the goroutines try Stop, half fire async transitions.
+			for range stoppers {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					cs.ToNotConnectedAsync()
+					cs.Stop()
+				}()
+			}
+			wg.Wait()
+
+			if !cs.IsNotConnected() {
+				t.Fatalf("expected NotConnected after Stop, got %v", cs.State())
+			}
+		}()
+	}
+}
+
+// TestConnStateMgr_Chaos_RapidLifecycle rapidly cycles Start→Stop many times
+// on a single goroutine, interleaving async transitions at each step. This
+// catches use-after-close on the channel and ctx, and ensures wg.Wait()
+// never hangs.
+func TestConnStateMgr_Chaos_RapidLifecycle(t *testing.T) {
+	ctx := context.Background()
+	cs := NewConnStateMgr(ctx, nil)
+
+	for range 500 {
+		cs.Start()
+		_ = cs.ToNotSelected()
+
+		// Fire async transitions that the asyncStateChangeTask must
+		// either process or drain before Stop returns.
+		cs.ToSelectedAsync()
+		cs.ToNotConnectedAsync()
+		cs.ToNotSelectedAsync()
+
+		cs.Stop()
+
+		// Post-Stop invariants.
+		if cs.State() != NotConnectedState {
+			t.Fatalf("state after Stop = %v, want NotConnected", cs.State())
+		}
+	}
+}
+
+// TestConnStateMgr_Chaos_ChannelBackpressure fills the stateChangeChan to
+// capacity and then calls Stop(). This is the exact scenario that caused the
+// original deadlock: the async reader (processAsyncStateChange) enqueues a
+// recovery NotConnectedState, the channel is full, and it blocks — while
+// changeStateAsync on another goroutine also blocks holding stateMu, and
+// Stop() needs stateMu to proceed.
+func TestConnStateMgr_Chaos_ChannelBackpressure(t *testing.T) {
+	const iterations = 300
+
+	ctx := context.Background()
+
+	for range iterations {
+		func() {
+			deadline := time.AfterFunc(5*time.Second, func() {
+				panic("TestConnStateMgr_Chaos_ChannelBackpressure: deadlock detected")
+			})
+			defer deadline.Stop()
+
+			cs := NewConnStateMgr(ctx, nil)
+			cs.Start()
+			_ = cs.ToNotSelected()
+
+			// Saturate the channel (capacity 10) from the test goroutine
+			// before any reader can drain it.
+			for range 20 {
+				cs.ToSelectedAsync()
+				cs.ToNotConnectedAsync()
+			}
+
+			// Stop must return even though the channel may be full and
+			// processAsyncStateChange may be blocked on a recovery enqueue.
+			cs.Stop()
+		}()
+	}
+}
+
+// TestConnStateMgr_Chaos_HandlerTriggersAsync verifies that a state change
+// handler calling an async transition during Stop's drain phase does not
+// deadlock. This tests the mu ↔ stateMu ordering when handlers invoke
+// changeStateAsync indirectly.
+func TestConnStateMgr_Chaos_HandlerTriggersAsync(t *testing.T) {
+	const iterations = 200
+
+	ctx := context.Background()
+
+	for range iterations {
+		func() {
+			deadline := time.AfterFunc(5*time.Second, func() {
+				panic("TestConnStateMgr_Chaos_HandlerTriggersAsync: deadlock detected")
+			})
+			defer deadline.Stop()
+
+			cs := NewConnStateMgr(ctx, nil)
+			cs.AddHandler(func(_ Connection, _ ConnState, newState ConnState) {
+				// When we transition to NotSelected, immediately ask
+				// to go to Selected (simulating a select.req response).
+				if newState == NotSelectedState {
+					cs.ToSelectedAsync()
+				}
+				// When we transition to Selected, bounce back.
+				if newState == SelectedState {
+					cs.ToNotConnectedAsync()
+				}
+			})
+
+			cs.Start()
+			_ = cs.ToNotSelected()
+			// Let the handler chain bounce a few times.
+			time.Sleep(time.Millisecond)
+			cs.Stop()
+		}()
+	}
+}
+
+// TestConnStateMgr_Chaos_StopBeforeStart verifies that Stop() on a
+// never-started manager is a safe no-op (shutdowned starts true).
+func TestConnStateMgr_Chaos_StopBeforeStart(t *testing.T) {
+	ctx := context.Background()
+
+	for range 100 {
+		cs := NewConnStateMgr(ctx, nil)
+		// Must not panic or hang.
+		cs.Stop()
+		cs.Stop()
+		// Async calls must not panic.
+		cs.ToNotSelectedAsync()
+		cs.ToSelectedAsync()
+	}
+}
+
+// TestConnStateMgr_Chaos_FuzzOps randomly interleaves all public operations
+// from multiple goroutines after a single Start(). This is the broadest net
+// — it catches any unforeseen lock ordering, nil pointer, or channel state
+// issue. Start() is NOT included because concurrent Start() calls race on
+// ctx/cancel/channel fields (Start/Stop form a lifecycle pair and are only
+// called from a single connection goroutine in production).
+func TestConnStateMgr_Chaos_FuzzOps(t *testing.T) {
+	const goroutines = 6
+	const opsPerGoroutine = 200
+
+	ctx := context.Background()
+
+	for range 50 {
+		func() {
+			deadline := time.AfterFunc(10*time.Second, func() {
+				panic("TestConnStateMgr_Chaos_FuzzOps: deadlock detected")
+			})
+			defer deadline.Stop()
+
+			cs := NewConnStateMgr(ctx, &ssConn{})
+			cs.Start()
+			_ = cs.ToNotSelected() // put it in a useful starting state
+
+			var wg sync.WaitGroup
+			for range goroutines {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for range opsPerGoroutine {
+						switch rand.IntN(11) {
+						case 0:
+							cs.Stop()
+						case 1:
+							_ = cs.ToConnecting()
+						case 2:
+							_ = cs.ToNotSelected()
+						case 3:
+							_ = cs.ToSelected()
+						case 4:
+							cs.ToNotConnected()
+						case 5:
+							cs.ToNotConnectedAsync()
+						case 6:
+							cs.ToConnectingAsync()
+						case 7:
+							cs.ToNotSelectedAsync()
+						case 8:
+							cs.ToSelectedAsync()
+						case 9:
+							_ = cs.State()
+							_ = cs.DesiredState()
+						case 10:
+							tctx, cancel := context.WithTimeout(ctx, time.Millisecond)
+							_ = cs.WaitState(tctx, ConnState(rand.IntN(4)))
+							cancel()
+						default:
+						}
+					}
+				}()
+			}
+			wg.Wait()
+
+			// Ensure we can cleanly stop regardless of what state we're in.
+			cs.Stop()
+		}()
 	}
 }
 

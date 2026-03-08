@@ -111,6 +111,7 @@ func NewConnStateMgr(ctx context.Context, conn Connection, handlers ...ConnState
 	}
 
 	cs.state.Store(uint32(NotConnectedState))
+	cs.shutdowned.Store(true)
 	cs.cond = sync.NewCond(&cs.mu)
 
 	return cs
@@ -144,8 +145,8 @@ func (cs *ConnStateMgr) Start() {
 }
 
 func (cs *ConnStateMgr) Stop() {
-	if cs.ctx == nil {
-		cs.logger.Debug("conn state manager not started, ignore stop",
+	if !cs.shutdowned.CompareAndSwap(false, true) {
+		cs.logger.Debug("conn state manager already shutdowned or not started, ignore stop",
 			"method", "Stop",
 			"curState", cs.State(),
 			"desiredState", cs.DesiredState(),
@@ -155,19 +156,16 @@ func (cs *ConnStateMgr) Stop() {
 		return
 	}
 
-	if !cs.shutdowned.CompareAndSwap(false, true) {
-		cs.logger.Debug("conn state manager already shutdowned, ignore stop",
-			"method", "Stop",
-			"curState", cs.State(),
-			"desiredState", cs.DesiredState(),
-			"shutdowned", true,
-		)
-
-		return
-	}
-
 	cs.logger.Debug("stop connection state manager")
-	cs.cancel()
+
+	// Snapshot cancel under stateMu so we don't race with Start() writing it.
+	// Release stateMu BEFORE calling cancel — holding it across cancel()+wg.Wait()
+	// would deadlock with changeStateAsync, which locks stateMu to send on the channel.
+	cs.stateMu.Lock()
+	cancel := cs.cancel
+	cs.stateMu.Unlock()
+
+	cancel()
 
 	cs.wg.Wait()
 
@@ -542,12 +540,12 @@ func (cs *ConnStateMgr) processAsyncStateChange(desiredState ConnState, shutdown
 				"method", "asyncStateChangeTask",
 				"prevState", prevState, "curState", cs.State(), "desiredState", desiredState,
 			)
-			// Use select to avoid blocking when the channel buffer is full.
-			// This goroutine is the sole reader of the channel, so a
-			// blocking send here would deadlock.
+			// Use select with default to avoid blocking when the channel buffer
+			// is full. This goroutine is the sole reader of the channel, so a
+			// blocking send here would self-deadlock.
 			select {
 			case cs.stateChangeChan <- NotConnectedState:
-			case <-cs.ctx.Done():
+			default:
 			}
 		}
 	}

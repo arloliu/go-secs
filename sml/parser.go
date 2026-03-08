@@ -652,13 +652,11 @@ func (p *HSMSParser) parseLocalizedStr() (secs2.Item, error) {
 	}
 
 	quoteCh := ch
-	quoteCount := 0
 	lastQuotePos := 0
 
 	for i, ch := range p.data {
 		switch ch {
 		case quoteCh:
-			quoteCount++
 			lastQuotePos = i
 
 		case '>':

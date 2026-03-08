@@ -12,6 +12,10 @@ var A = NewASCIIItem
 // It's equivalent to calling NewJIS8Item.
 var J = NewJIS8Item
 
+// W is a shorthand function for creating a new LocalizedStrItem with UTF-8 encoding.
+// It's equivalent to calling NewUTF8StrItem.
+var W = NewUTF8StrItem
+
 // B is a shorthand function for creating a new BinaryItem.
 // It's equivalent to calling NewBinaryItem.
 var B = NewBinaryItem

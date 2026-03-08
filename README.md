@@ -17,7 +17,7 @@ This project is a library that implements [SECS-II](https://en.wikipedia.org/wik
 
 ### SECS-II Operations
 
-* **Comprehensive Data Item Support:** Provides a wide range of data structures to represent various SECS-II data item types, including integers, floating-point numbers, booleans, lists, and ASCII strings.
+* **Comprehensive Data Item Support:** Provides a wide range of data structures to represent various SECS-II data item types, including integers, floating-point numbers, booleans, lists, ASCII strings, JIS-8, and Localized Character Strings (FormatCode 0o22) with configurable encoding (UTF-8, UCS-2, Shift-JIS, etc.).
 * **Message Formatting:** Handles the formatting of SECS-II messages, including the header and data item encoding.
 * **Serialization:**  Serializes HSMS messages into their byte representation for transmission using the `ToBytes` method.
 * **SML Generation:** Generates SML (SECS Message Language) representations of SECS-II messages using the `ToSML` method. Supports various SML formats, including single or double quotes, and handles non-printable ASCII characters.
@@ -38,7 +38,7 @@ This project is a library that implements [SECS-II](https://en.wikipedia.org/wik
 * **Data Message Handling:**  Supports registering handlers for processing received data messages.
 * **Error Handling:** Provides robust error handling and reporting mechanisms.
 * **Concurrent Operations:** Utilizes goroutines and channels for efficient concurrent message sending and receiving.
-* **Customization:** Offers configurable options for various HSMS parameters, such as timeouts, linktest behavior, and connection settings.
+* **Customization:** Offers configurable options for various HSMS parameters, such as timeouts, linktest behavior (including configurable failure threshold for tolerating transient T6 timeouts), and connection settings.
 
 ### SECS-I over TCP/IP Communication
 
@@ -79,7 +79,7 @@ The `go-secs` library provides a structured object representation of HSMS/SECS-I
 
 * **`hsms.DataMessage` and `hsms.ControlMessage`:** These structs are concrete implementations of the `hsms.HSMSMessage` interface. `hsms.DataMessage` represents SECS-II data messages used for exchanging information, while `hsms.ControlMessage` represents control messages used for managing the HSMS connection.
 
-* **`secs2.Item` Interface:** This interface provides a unified representation of SECS-II data items. All SECS-II data types (ASCII, Binary, Boolean, Float, Int, Uint, List) implement this interface.
+* **`secs2.Item` Interface:** This interface provides a unified representation of SECS-II data items. All SECS-II data types (ASCII, Binary, Boolean, Float, Int, Uint, List, JIS-8, Localized String) implement this interface.
 
 **Object Hierarchy**
 ```text
