@@ -1146,16 +1146,43 @@ func (c *testComm) testMsgSuccess(stream byte, function byte, dataItem secs2.Ite
 func (c *testComm) testAsyncMsgSuccess(stream byte, function byte, dataItem secs2.Item, expectedSML string) {
 	c.t.Helper()
 
+	// Drain any stale replies that may have leaked from a previous sync
+	// SendDataMessage whose T3/T6 timer fired before the reply arrived,
+	// causing the late reply to be dispatched to the handler instead of
+	// the sync waiter.
+	c.drainRecvReplyChan()
+
 	err := c.session.SendDataMessageAsync(stream, function, true, dataItem)
 	c.require.NoError(err)
 
-	select {
-	case <-time.After(10 * time.Second):
-		c.t.Fatalf("timeout waiting for reply for S%dF%d", stream, function)
-	case reply := <-c.recvReplyChan:
-		c.require.Equal(stream, reply.StreamCode())
-		c.require.Equal(function+1, reply.FunctionCode())
-		c.require.Equal(expectedSML, reply.Item().ToSML())
+	timeout := time.After(10 * time.Second)
+	for {
+		select {
+		case <-timeout:
+			c.t.Fatalf("timeout waiting for reply for S%dF%d", stream, function)
+		case reply := <-c.recvReplyChan:
+			if reply.StreamCode() == stream && reply.FunctionCode() == function+1 &&
+				reply.Item().ToSML() == expectedSML {
+				return // matched the expected reply
+			}
+			// Discard unexpected/stale reply and keep waiting.
+			c.t.Logf("discarding stale reply S%dF%d item=%s (expected S%dF%d item=%s)",
+				reply.StreamCode(), reply.FunctionCode(), reply.Item().ToSML(),
+				stream, function+1, expectedSML)
+		}
+	}
+}
+
+// drainRecvReplyChan discards any buffered messages in recvReplyChan.
+func (c *testComm) drainRecvReplyChan() {
+	for {
+		select {
+		case stale := <-c.recvReplyChan:
+			c.t.Logf("drained stale reply S%dF%d item=%s from recvReplyChan",
+				stale.StreamCode(), stale.FunctionCode(), stale.Item().ToSML())
+		default:
+			return
+		}
 	}
 }
 
