@@ -985,6 +985,5 @@ func isDisconnectError(err error) bool {
 
 	s := err.Error()
 
-	return strings.Contains(s, "connection reset by peer") ||
-		strings.Contains(s, "broken pipe")
+	return strings.Contains(s, "connection reset by peer") || strings.Contains(s, "broken pipe")
 }

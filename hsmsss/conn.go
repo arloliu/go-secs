@@ -910,6 +910,8 @@ func (c *Connection) processSendRequest(req *sendRequest) bool {
 
 		if !isNetOpError(err) {
 			c.logger.Error("failed to send message", "method", "senderTask", "error", err)
+		} else {
+			c.logger.Error("network error sending message", "method", "senderTask", "error", err)
 		}
 
 		return false
@@ -963,7 +965,7 @@ func (c *Connection) receiverTask(msgLenBuf []byte) bool {
 		case !isNetError(err):
 			c.logger.Error("failed to read HSMS message", "method", "receiverTask", "error", err)
 		default:
-			c.logger.Debug("network error reading HSMS message", "method", "receiverTask", "error", err)
+			c.logger.Error("network error reading HSMS message", "method", "receiverTask", "error", err)
 		}
 
 		c.metrics.incDataMsgErrCount()
@@ -1213,15 +1215,8 @@ func isConnTimedOutError(err error) bool {
 	}
 
 	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
-		return true
-	}
 
-	if strings.Contains(err.Error(), "i/o timeout") {
-		return true
-	}
-
-	return false
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 func isConnClosedError(err error) bool {
@@ -1229,7 +1224,8 @@ func isConnClosedError(err error) bool {
 }
 
 func isConnResetError(err error) bool {
-	return strings.Contains(err.Error(), "connection reset by peer")
+	s := err.Error()
+	return strings.Contains(s, "connection reset by peer") || strings.Contains(s, "broken pipe")
 }
 
 func isNetError(err error) bool {
@@ -1238,6 +1234,7 @@ func isNetError(err error) bool {
 	}
 
 	if errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) ||
 		isNetOpError(err) ||
 		isConnClosedError(err) ||
 		isConnTimedOutError(err) ||
