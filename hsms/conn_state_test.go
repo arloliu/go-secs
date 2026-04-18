@@ -649,6 +649,130 @@ func TestConnStateMgr_Chaos_FuzzOps(t *testing.T) {
 	}
 }
 
+// TestAsyncHandler_EveryTransitionDelivered verifies that every state
+// transition through the full lifecycle is delivered to an AddAsyncHandler,
+// preserving FIFO order of the (prev, new) pairs the dispatcher publishes.
+func TestAsyncHandler_EveryTransitionDelivered(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+
+	cs := NewConnStateMgr(ctx, &ssConn{})
+
+	type ev struct{ prev, next ConnState }
+	events := make(chan ev, 16)
+	cs.AddAsyncHandler(func(_ Connection, prev ConnState, next ConnState) {
+		events <- ev{prev, next}
+	})
+
+	cs.Start()
+	defer cs.Stop()
+
+	require.NoError(cs.ToConnecting())
+	require.NoError(cs.ToNotSelected())
+	require.NoError(cs.ToSelected())
+	cs.ToNotConnected()
+
+	want := []ev{
+		{NotConnectedState, ConnectingState},
+		{ConnectingState, NotSelectedState},
+		{NotSelectedState, SelectedState},
+		{SelectedState, NotConnectedState},
+	}
+
+	got := make([]ev, 0, len(want))
+	deadline := time.After(2 * time.Second)
+	for len(got) < len(want) {
+		select {
+		case e := <-events:
+			got = append(got, e)
+		case <-deadline:
+			t.Fatalf("timed out waiting for async events; got %d/%d: %+v", len(got), len(want), got)
+		}
+	}
+
+	require.Equal(want, got, "async handler must observe every transition in FIFO order")
+}
+
+// TestAsyncHandler_RegistrationOrder verifies that multiple async handlers
+// registered on the same ConnStateMgr are invoked in registration order for
+// each transition, matching the documented contract.
+func TestAsyncHandler_RegistrationOrder(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+
+	cs := NewConnStateMgr(ctx, &ssConn{})
+
+	var mu sync.Mutex
+	observed := make([]int, 0, 6)
+	mkHandler := func(id int) ConnStateChangeHandler {
+		return func(_ Connection, _, _ ConnState) {
+			mu.Lock()
+			observed = append(observed, id)
+			mu.Unlock()
+		}
+	}
+	cs.AddAsyncHandler(mkHandler(1))
+	cs.AddAsyncHandler(mkHandler(2))
+	cs.AddAsyncHandler(mkHandler(3))
+
+	cs.Start()
+	defer cs.Stop()
+
+	require.NoError(cs.ToConnecting())
+	require.NoError(cs.ToNotSelected())
+
+	// Each transition must invoke all three handlers in order (1, 2, 3).
+	require.Eventually(func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(observed) >= 6
+	}, time.Second, 5*time.Millisecond, "handlers did not run")
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal([]int{1, 2, 3, 1, 2, 3}, observed,
+		"handlers must run in registration order for each transition")
+}
+
+// TestAsyncHandler_CanCallSyncToX verifies that an async handler may call a
+// synchronous state-change method without deadlocking — the capability the
+// async-dispatch redesign enables. Before it, such a call re-entered cs.mu
+// on the transition goroutine and deadlocked.
+func TestAsyncHandler_CanCallSyncToX(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+
+	cs := NewConnStateMgr(ctx, &ssConn{})
+
+	done := make(chan struct{})
+	cs.AddAsyncHandler(func(_ Connection, _, newState ConnState) {
+		if newState == SelectedState {
+			// Synchronous ToX from inside the handler. If it deadlocks,
+			// the test times out.
+			cs.ToNotConnected()
+			close(done)
+		}
+	})
+
+	cs.Start()
+	defer cs.Stop()
+
+	require.NoError(cs.ToConnecting())
+	require.NoError(cs.ToNotSelected())
+	require.NoError(cs.ToSelected())
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("async handler calling ToNotConnected deadlocked")
+	}
+
+	// The handler's ToNotConnected should have pushed state to NotConnected.
+	tctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	require.NoError(cs.WaitState(tctx, NotConnectedState))
+}
+
 type ssConn struct{}
 
 var _ Connection = (*ssConn)(nil)
