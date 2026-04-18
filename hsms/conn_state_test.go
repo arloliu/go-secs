@@ -773,6 +773,111 @@ func TestAsyncHandler_CanCallSyncToX(t *testing.T) {
 	require.NoError(cs.WaitState(tctx, NotConnectedState))
 }
 
+// TestAsyncHandler_OverflowDoesNotBlock verifies that when an async handler
+// stalls and the dispatcher channel fills to capacity, the publish side
+// (invoked inline under cs.mu from every ToX) never blocks the state machine.
+// Excess events must be silently dropped — the currently documented
+// drop-newest policy — and the dispatcher must still drain surviving events
+// and shut down cleanly once the handler unblocks.
+func TestAsyncHandler_OverflowDoesNotBlock(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+
+	cs := NewConnStateMgr(ctx, &ssConn{})
+
+	type ev struct{ prev, next ConnState }
+	var (
+		mu        sync.Mutex
+		received  []ev
+		release   = make(chan struct{})
+		started   = make(chan struct{})
+		startOnce sync.Once
+	)
+
+	cs.AddAsyncHandler(func(_ Connection, prev, next ConnState) {
+		startOnce.Do(func() { close(started) })
+		<-release
+		mu.Lock()
+		received = append(received, ev{prev, next})
+		mu.Unlock()
+	})
+
+	cs.Start()
+
+	// First transition: the dispatcher picks it up and the handler blocks
+	// on <-release, so every subsequent publish accumulates in the channel
+	// buffer until it is saturated.
+	require.NoError(cs.ToConnecting())
+	<-started
+
+	// Four valid transitions per cycle, each publishing one event:
+	//   Connecting → NotSelected → Selected → NotConnected → Connecting
+	// asyncHandlerChanBuffer cycles overflow the 64-slot buffer many times.
+	const cycles = asyncHandlerChanBuffer
+	fired := 1 // the initial ToConnecting above
+
+	floodDone := make(chan struct{})
+	go func() {
+		defer close(floodDone)
+		for range cycles {
+			require.NoError(cs.ToNotSelected())
+			require.NoError(cs.ToSelected())
+			cs.ToNotConnected()
+			require.NoError(cs.ToConnecting())
+			fired += 4
+		}
+	}()
+
+	// Publish must be non-blocking: the entire flood completes even though
+	// the dispatcher is parked inside the first handler invocation.
+	select {
+	case <-floodDone:
+	case <-time.After(5 * time.Second):
+		close(release) // unwedge the dispatcher so Stop below can return
+		t.Fatal("ToX calls blocked during overflow — publish must be non-blocking")
+	}
+
+	// Unblock the handler; the dispatcher drains buffered survivors.
+	close(release)
+
+	// Surviving events = 1 in-flight + at most asyncHandlerChanBuffer buffered.
+	const wantSurvivors = 1 + asyncHandlerChanBuffer
+	require.Eventually(func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return len(received) >= wantSurvivors
+	}, 2*time.Second, 1*time.Millisecond, "dispatcher did not drain buffered events after release")
+
+	// Stop must return promptly with events already drained.
+	stopDone := make(chan struct{})
+	go func() {
+		cs.Stop()
+		close(stopDone)
+	}()
+	select {
+	case <-stopDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop() did not return after handler released")
+	}
+
+	mu.Lock()
+	got := append([]ev(nil), received...)
+	mu.Unlock()
+
+	require.Less(len(got), fired,
+		"expected overflow drops: got %d events, fired %d", len(got), fired)
+	require.Equal(wantSurvivors, len(got),
+		"drop-newest should preserve 1 in-flight + buffer-capacity events")
+
+	require.Equal(ev{NotConnectedState, ConnectingState}, got[0],
+		"first surviving event must be the initial ToConnecting transition")
+	for i := 1; i < len(got); i++ {
+		require.Equal(got[i-1].next, got[i].prev,
+			"surviving events must form a contiguous transition chain at index %d", i)
+	}
+}
+
 type ssConn struct{}
 
 var _ Connection = (*ssConn)(nil)
