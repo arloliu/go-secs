@@ -2,7 +2,9 @@ package hsmsss
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
+	"io"
 	"math/rand"
 	"net"
 	"os"
@@ -1825,6 +1827,242 @@ func TestPassiveSelectReqCommitsStateImmediate(t *testing.T) {
 	require.True(conn.stateMgr.IsSelected(),
 		"passive must be in SelectedState immediately after handling SelectReq; "+
 			"if this fails, ToSelectedAsync() (the bug) was used instead of ToSelected()")
+}
+
+// TestActiveSelectReqCommitsStateImmediate verifies the active-side symmetric
+// fix for the §7.4.3 simultaneous-select race. After recvMsgActive handles a
+// Select.req, the connection must be in SelectedState synchronously — before
+// any asyncStateChangeTask goroutine can run — so that a data message from
+// the remote peer that reacts to our Select.rsp is not rejected by the
+// strict IsSelected() check on the active's DataMsgType path.
+//
+// The setup deliberately does NOT start the async state-change goroutine
+// (stateMgr.Start() is not called), so ToSelectedAsync() would be a no-op.
+// Only a synchronous ToSelected() call can satisfy the assertion below.
+func TestActiveSelectReqCommitsStateImmediate(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+
+	conn := newConn(ctx, require, getPort(), true, true,
+		WithAutoLinktest(false),
+		WithT7Timeout(30*time.Second),
+		WithCloseConnTimeout(1*time.Second),
+	)
+	_ = conn.AddSession(testSessionID)
+
+	// Provide a real TCP channel so the senderTask can write SelectRsp without
+	// blocking. A goroutine drains the server end.
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	conn.setupResources(client)
+
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			if _, err := server.Read(buf); err != nil {
+				return
+			}
+		}
+	}()
+
+	// Wire up a per-connection context so senderTask-style goroutines can be
+	// cleanly cancelled at the end of the test instead of leaking.
+	connCtx, connCancel := context.WithCancel(ctx)
+	conn.connCtxVal.Store(&ctxHolder{ctx: connCtx})
+	conn.connCancelFn.Store(&cancelHolder{cancel: connCancel})
+
+	t.Cleanup(func() {
+		connCancel()
+		conn.taskMgr.Stop()
+		_ = client.Close()
+		conn.taskMgr.Wait()
+	})
+
+	// Synchronously advance to NotSelectedState. stateMgr.Start() is
+	// deliberately NOT called so the asyncStateChangeTask never runs.
+	require.NoError(conn.stateMgr.ToNotSelected())
+
+	// Process a Select.req through the active dispatch path, simulating
+	// §7.4.3 simultaneous select.
+	selectReq := hsms.NewSelectReq(testSessionID, []byte{0, 0, 0, 1})
+	conn.recvMsgActive(selectReq)
+
+	// Without the fix: ToSelectedAsync() is a no-op → state stays NotSelected
+	// → FAIL. With the fix: ToSelected() committed synchronously before
+	// SelectRsp was queued → state is Selected → PASS.
+	require.True(conn.stateMgr.IsSelected(),
+		"active must be in SelectedState immediately after handling simultaneous SelectReq; "+
+			"if this fails, ToSelectedAsync() (the bug) was used instead of ToSelected()")
+}
+
+// readNextControlFrame reads one 14-byte HSMS control frame (4-byte length +
+// 10-byte header) from r and returns the 10-byte header. Fails the test on
+// short read or on a non-control frame length.
+func readNextControlFrame(t *testing.T, r net.Conn) []byte {
+	t.Helper()
+	require.NoError(t, r.SetReadDeadline(time.Now().Add(2*time.Second)))
+	lenBuf := make([]byte, 4)
+	_, err := io.ReadFull(r, lenBuf)
+	require.NoError(t, err, "failed to read length prefix")
+	msgLen := binary.BigEndian.Uint32(lenBuf)
+	require.Equal(t, uint32(hsms.HeaderSize), msgLen,
+		"expected 10-byte control-message frame, got length=%d", msgLen)
+	header := make([]byte, hsms.HeaderSize)
+	_, err = io.ReadFull(r, header)
+	require.NoError(t, err, "failed to read header")
+
+	return header
+}
+
+// readFirstSelectRsp drains control frames from r until it finds one with
+// SType = SelectRspType (or the read deadline elapses). The active-side
+// tests need this because the active state handler spawns a goroutine that
+// sends its own Select.req on the wire, interleaving with the Select.rsp
+// emitted by recvMsgActive.
+func readFirstSelectRsp(t *testing.T, r net.Conn) []byte {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		require.NoError(t, r.SetReadDeadline(deadline))
+		header := readNextControlFrame(t, r)
+		if header[5] == hsms.SelectRspType {
+			return header
+		}
+	}
+}
+
+// TestActiveSelectReqReplyOnSuccess verifies the wire-level contract of the
+// Select.rsp written after a successful simultaneous-select commit: the
+// frame is a 10-byte control message with SType=SelectRspType, status byte
+// 3 = SelectStatusSuccess, and the request's session ID + system bytes
+// echoed back. Guards against regressions that silently stop replying or
+// send the wrong status code — the invariant test above only reads state.
+func TestActiveSelectReqReplyOnSuccess(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+
+	conn := newConn(ctx, require, getPort(), true, true,
+		WithAutoLinktest(false),
+		WithT7Timeout(30*time.Second),
+		WithCloseConnTimeout(1*time.Second),
+	)
+	_ = conn.AddSession(testSessionID)
+
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	conn.setupResources(client)
+
+	connCtx, connCancel := context.WithCancel(ctx)
+	conn.connCtxVal.Store(&ctxHolder{ctx: connCtx})
+	conn.connCancelFn.Store(&cancelHolder{cancel: connCancel})
+
+	t.Cleanup(func() {
+		connCancel()
+		conn.taskMgr.Stop()
+		_ = client.Close()
+		conn.taskMgr.Wait()
+	})
+
+	// Transition to NotSelected — the active state handler starts senderTask
+	// so that sendMsg's queued frame is actually flushed to the pipe.
+	require.NoError(conn.stateMgr.ToNotSelected())
+
+	sysBytes := []byte{0xDE, 0xAD, 0xBE, 0xEF}
+	selectReq := hsms.NewSelectReq(testSessionID, sysBytes)
+
+	// recvMsgActive queues the Select.rsp via sendMsg; read it back from the
+	// server end of the pipe in a goroutine so the synchronous pipe write
+	// doesn't deadlock the receiver thread.
+	frameChan := make(chan []byte, 1)
+	go func() {
+		frameChan <- readFirstSelectRsp(t, server)
+	}()
+
+	conn.recvMsgActive(selectReq)
+
+	select {
+	case header := <-frameChan:
+		require.Equal(byte(hsms.SelectStatusSuccess), header[3],
+			"status byte must be SelectStatusSuccess (0), got %d", header[3])
+		require.Equal(uint16(testSessionID), binary.BigEndian.Uint16(header[0:2]),
+			"session ID must be echoed from the request")
+		require.Equal(sysBytes, header[6:10], "system bytes must be echoed from the request")
+	case <-time.After(3 * time.Second):
+		t.Fatal("no Select.rsp frame received on the wire — regression: handler stopped replying")
+	}
+}
+
+// TestActiveSelectReqReplyNotReadyOnFailedTransition forces the new failure
+// arm introduced by the simultaneous-select fix: when ToSelected() returns
+// ErrInvalidTransition (state is neither NotSelected nor Selected), the
+// handler must reply with SelectStatusNotReady instead of misreporting
+// success. The setup leaves stateMgr at its default NotConnectedState and
+// starts senderTask manually (bypassing the state handler) so that the
+// NotReady frame is actually flushed to the wire for inspection.
+func TestActiveSelectReqReplyNotReadyOnFailedTransition(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+
+	conn := newConn(ctx, require, getPort(), true, true,
+		WithAutoLinktest(false),
+		WithT7Timeout(30*time.Second),
+		WithCloseConnTimeout(1*time.Second),
+	)
+	_ = conn.AddSession(testSessionID)
+
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	conn.setupResources(client)
+
+	connCtx, connCancel := context.WithCancel(ctx)
+	conn.connCtxVal.Store(&ctxHolder{ctx: connCtx})
+	conn.connCancelFn.Store(&cancelHolder{cancel: connCancel})
+
+	t.Cleanup(func() {
+		connCancel()
+		conn.taskMgr.Stop()
+		_ = client.Close()
+		conn.taskMgr.Wait()
+	})
+
+	// Do NOT transition to NotSelected: state stays at the default
+	// NotConnectedState so ToSelected() will fail with ErrInvalidTransition.
+	// Sanity-check the precondition.
+	require.True(conn.stateMgr.IsNotConnected(),
+		"precondition: stateMgr must start at NotConnectedState to exercise the failure arm")
+
+	// Start senderTask directly — the state handler path that normally starts
+	// it would push us out of NotConnectedState and defeat the setup.
+	require.NoError(conn.taskMgr.Start("senderTask", conn.senderLoop))
+
+	sysBytes := []byte{0x01, 0x02, 0x03, 0x04}
+	selectReq := hsms.NewSelectReq(testSessionID, sysBytes)
+
+	frameChan := make(chan []byte, 1)
+	go func() {
+		frameChan <- readFirstSelectRsp(t, server)
+	}()
+
+	conn.recvMsgActive(selectReq)
+
+	select {
+	case header := <-frameChan:
+		require.Equal(byte(hsms.SelectStatusNotReady), header[3],
+			"status byte must be SelectStatusNotReady (2) when ToSelected() fails; got %d", header[3])
+		require.Equal(uint16(testSessionID), binary.BigEndian.Uint16(header[0:2]),
+			"session ID must be echoed from the request")
+		require.Equal(sysBytes, header[6:10], "system bytes must be echoed from the request")
+	case <-time.After(3 * time.Second):
+		t.Fatal("no Select.rsp frame received on the wire — failure arm skipped the reply")
+	}
+
+	// State must remain NotConnected — the failed transition should not have
+	// leaked us into SelectedState.
+	require.False(conn.stateMgr.IsSelected(),
+		"state must not be Selected after a failed ToSelected() transition")
 }
 
 // TestPassiveReplyRaceAfterSelect is an integration smoke test verifying that

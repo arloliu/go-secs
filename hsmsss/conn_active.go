@@ -169,13 +169,26 @@ func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 			// Already in SELECTED state — reply with "communication already active"
 			replyMsg, _ := hsms.NewSelectRsp(msg, hsms.SelectStatusActived)
 			_, _ = c.sendMsg(replyMsg)
-		} else {
-			// Not yet selected — this is a simultaneous select scenario (§7.4.3).
-			// Accept the remote's select request and transition to SELECTED.
-			replyMsg, _ := hsms.NewSelectRsp(msg, hsms.SelectStatusSuccess)
-			_, _ = c.sendMsg(replyMsg)
-			c.stateMgr.ToSelectedAsync()
+			break
 		}
+
+		// Simultaneous select (§7.4.3): commit to SelectedState synchronously
+		// BEFORE sending Select.rsp. This closes the race window where the
+		// remote peer reacts to Select.rsp and immediately sends a data
+		// message while our async state transition is still in flight,
+		// causing recvMsgActive's strict IsSelected() check to reject it.
+		if err := c.stateMgr.ToSelected(); err != nil {
+			c.logger.Error("active: failed to transition to selected state on simultaneous select.req",
+				hsms.MsgInfo(msg, "method", "recvMsgActive", "error", err)...,
+			)
+			replyMsg, _ := hsms.NewSelectRsp(msg, hsms.SelectStatusNotReady)
+			_, _ = c.sendMsg(replyMsg)
+
+			break
+		}
+
+		replyMsg, _ := hsms.NewSelectRsp(msg, hsms.SelectStatusSuccess)
+		_, _ = c.sendMsg(replyMsg)
 
 	// handle deselect request from remote per SEMI E37 §7.7
 	case hsms.DeselectReqType:
