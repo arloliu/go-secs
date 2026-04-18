@@ -10,3 +10,5 @@ tmp/
 *.cov
 *.html
 *.pprof
+
+.tools-stamp

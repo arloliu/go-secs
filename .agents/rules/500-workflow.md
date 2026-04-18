@@ -28,15 +28,30 @@
 ## Make targets
 
 ```bash
-# Lint & tests
-make lint update-tools
-make test build-tests
+# First-time setup (or after .linter.go.mod changes)
+make update-tools
+
+# Lint, format, vet
+make lint                # pinned golangci-lint run
+make fmt                 # pinned golangci-lint fmt (goimports etc.)
+make vet
+make check               # lint + vet
+
+# Tests
+make test build-tests    # -short suite; compile-only
+make test-all            # full suite (no -short)
+make bench
 make stress-test stress-quick
 make fuzz-test           # FUZZ_TIME=30s default
 make coverage coverage-report
-make clean
+make clean clean-coverage
 
 # Module hygiene
-make gomod-tidy gomod-vendor update-gomod
+make gomod-tidy gomod-vendor update-gomod mod-verify
 make update-pkg-cache
+
+# CI entry point
+make ci                  # check + test
 ```
+
+Run `make` with no target for a categorized help list.

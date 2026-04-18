@@ -40,11 +40,16 @@ Single case: plain function.
 ## Running
 
 ```bash
-make test          # all packages, race, -short, logs to test.log
-make build-tests   # compile tests without running
-make coverage      # per-dir coverage profile
-make stress-test   # repeat timing-sensitive packages (STRESS_COUNT, default 50)
-make stress-quick  # narrow set of flake-prone tests
-make fuzz-test     # all fuzz targets for FUZZ_TIME (default 30s)
-make clean         # rm test.log + clear test cache
+make test           # all packages, race, -short, streams to stdout + test.log
+make test-all       # full suite without -short (integration tests included)
+make build-tests    # compile tests without running
+make bench          # run benchmarks across all packages
+make coverage       # per-dir coverage profile
+make stress-test    # repeat timing-sensitive packages (STRESS_COUNT, default 50)
+make stress-quick   # narrow set of flake-prone tests
+make fuzz-test      # every Fuzz* auto-discovered, run for FUZZ_TIME (default 30s)
+make clean          # rm test.log + clear test cache
+make clean-coverage # rm ./.coverage
 ```
+
+`make` with no target prints a categorized help list.
