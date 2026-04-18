@@ -2065,6 +2065,132 @@ func TestActiveSelectReqReplyNotReadyOnFailedTransition(t *testing.T) {
 		"state must not be Selected after a failed ToSelected() transition")
 }
 
+// TestActiveSelectReqAlreadySelectedRepliesActived covers the §7.4.2
+// "communication already active" branch: when a Select.req arrives while the
+// active side is already in SelectedState, the reply must carry
+// SelectStatusActived and the state must remain Selected (no double-commit,
+// no accidental drop to NotSelected).
+func TestActiveSelectReqAlreadySelectedRepliesActived(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+
+	conn := newConn(ctx, require, getPort(), true, true,
+		WithAutoLinktest(false),
+		WithT7Timeout(30*time.Second),
+		WithCloseConnTimeout(1*time.Second),
+	)
+	_ = conn.AddSession(testSessionID)
+
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	conn.setupResources(client)
+
+	connCtx, connCancel := context.WithCancel(ctx)
+	conn.connCtxVal.Store(&ctxHolder{ctx: connCtx})
+	conn.connCancelFn.Store(&cancelHolder{cancel: connCancel})
+
+	t.Cleanup(func() {
+		connCancel()
+		conn.taskMgr.Stop()
+		_ = client.Close()
+		conn.taskMgr.Wait()
+	})
+
+	// Advance to NotSelected (starts senderTask via state handler), then to
+	// Selected so the IsSelected() branch of recvMsgActive is exercised.
+	require.NoError(conn.stateMgr.ToNotSelected())
+	require.NoError(conn.stateMgr.ToSelected())
+	require.True(conn.stateMgr.IsSelected(), "precondition: state must be Selected before SelectReq")
+
+	sysBytes := []byte{0xCA, 0xFE, 0xBA, 0xBE}
+	selectReq := hsms.NewSelectReq(testSessionID, sysBytes)
+
+	// The active-state handler spawned a selectSession goroutine that emits
+	// its own Select.req onto the wire; filter for the Select.rsp.
+	frameChan := make(chan []byte, 1)
+	go func() {
+		frameChan <- readFirstSelectRsp(t, server)
+	}()
+
+	conn.recvMsgActive(selectReq)
+
+	select {
+	case header := <-frameChan:
+		require.Equal(byte(hsms.SelectStatusActived), header[3],
+			"status must be SelectStatusActived (1) when already selected; got %d", header[3])
+		require.Equal(uint16(testSessionID), binary.BigEndian.Uint16(header[0:2]),
+			"session ID must be echoed from the request")
+		require.Equal(sysBytes, header[6:10], "system bytes must be echoed from the request")
+	case <-time.After(3 * time.Second):
+		t.Fatal("no Select.rsp frame received — already-selected branch stopped replying")
+	}
+
+	require.True(conn.stateMgr.IsSelected(),
+		"state must remain Selected after handling a redundant SelectReq")
+}
+
+// TestPassiveSelectReqAlreadySelectedRepliesActived is the passive-side
+// counterpart: a Select.req arriving while already Selected must be answered
+// with SelectStatusActived and leave the state unchanged. No selectSession
+// goroutine runs on this path, so frame ordering is deterministic.
+func TestPassiveSelectReqAlreadySelectedRepliesActived(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+
+	conn := newConn(ctx, require, getPort(), false, false,
+		WithAutoLinktest(false),
+		WithT7Timeout(30*time.Second),
+		WithCloseConnTimeout(1*time.Second),
+	)
+	_ = conn.AddSession(testSessionID)
+
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	conn.setupResources(client)
+
+	connCtx, connCancel := context.WithCancel(ctx)
+	conn.connCtxVal.Store(&ctxHolder{ctx: connCtx})
+	conn.connCancelFn.Store(&cancelHolder{cancel: connCancel})
+
+	t.Cleanup(func() {
+		connCancel()
+		conn.taskMgr.Stop()
+		_ = client.Close()
+		conn.taskMgr.Wait()
+	})
+
+	require.NoError(conn.stateMgr.ToNotSelected())
+	require.NoError(conn.stateMgr.ToSelected())
+	require.True(conn.stateMgr.IsSelected(), "precondition: state must be Selected before SelectReq")
+
+	sysBytes := []byte{0x11, 0x22, 0x33, 0x44}
+	selectReq := hsms.NewSelectReq(testSessionID, sysBytes)
+
+	frameChan := make(chan []byte, 1)
+	go func() {
+		frameChan <- readNextControlFrame(t, server)
+	}()
+
+	conn.recvMsgPassive(selectReq)
+
+	select {
+	case header := <-frameChan:
+		require.Equal(byte(hsms.SelectRspType), header[5], "SType must be SelectRspType")
+		require.Equal(byte(hsms.SelectStatusActived), header[3],
+			"status must be SelectStatusActived (1) when already selected; got %d", header[3])
+		require.Equal(uint16(testSessionID), binary.BigEndian.Uint16(header[0:2]),
+			"session ID must be echoed from the request")
+		require.Equal(sysBytes, header[6:10], "system bytes must be echoed from the request")
+	case <-time.After(3 * time.Second):
+		t.Fatal("no Select.rsp frame received — already-selected branch stopped replying")
+	}
+
+	require.True(conn.stateMgr.IsSelected(),
+		"state must remain Selected after handling a redundant SelectReq")
+}
+
 // TestPassiveReplyRaceAfterSelect is an integration smoke test verifying that
 // the passive's data-message handler can reply to the first message sent by the
 // active immediately after Select. This exercises the path that was broken by
