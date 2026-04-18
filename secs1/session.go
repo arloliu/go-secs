@@ -85,13 +85,18 @@ func (s *Session) SendMessageSync(msg hsms.HSMSMessage) error {
 // AddConnStateChangeHandler adds one or more ConnStateChangeHandler functions
 // to be invoked when the connection state changes.
 //
-// Handlers should be registered before Open() is called. They are invoked in
-// registration order, run synchronously under the state manager's mutex, and
-// must be short and non-blocking. Handlers must not call synchronous
-// state-change methods (these re-enter the mutex and deadlock); use the
-// *Async variants. See [hsms.ConnStateChangeHandler] for the full contract.
+// Handlers are dispatched asynchronously on a dedicated goroutine after each
+// transition, so they may perform blocking work (including sending messages
+// and waiting for replies) without deadlocking.
+//
+// Ordering: handlers are invoked in FIFO order with respect to transitions
+// and in registration order with respect to each other. The connection's
+// live state may have moved past the (prev, new) pair by the time a handler
+// runs; act on the arguments, not on the live state.
+//
+// See [hsms.ConnStateChangeHandler] for the full contract.
 func (s *Session) AddConnStateChangeHandler(handlers ...hsms.ConnStateChangeHandler) {
-	s.conn.stateMgr.AddHandler(handlers...)
+	s.conn.stateMgr.AddAsyncHandler(handlers...)
 }
 
 // AddDataMessageHandler adds one or more DataMessageHandler functions to be

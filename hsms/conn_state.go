@@ -62,44 +62,62 @@ const (
 // ConnStateChangeHandler is a function type that represents a handler for connection state changes.
 // It is invoked when the state of an HSMS connection changes.
 //
-// Invocation contract — important:
-//   - Handlers run synchronously while the connection state manager holds its
-//     internal mutex. They block every other state transition until they return,
-//     so they must be short and non-blocking.
-//   - Handlers MUST NOT call any synchronous state-change method
-//     (ToNotConnected, ToConnecting, ToNotSelected, ToSelected) — doing so
-//     re-enters the same mutex and deadlocks. Use the *Async variants instead.
-//   - For HSMS-SS passive connections, the SelectedState transition is committed
-//     synchronously on the receiver goroutine (so that the peer cannot observe
-//     Select.rsp before the local state is Selected). A handler for
-//     SelectedState on the passive side therefore runs on the receiver
-//     goroutine, and must not perform any operation that depends on the
-//     receiver being able to dispatch further messages — in particular,
-//     SendDataMessage/ReplyDataMessage with W-bit set (reply expected) will
-//     deadlock because the reply can never be read.
+// Two invocation models exist:
+//
+//   - Synchronous handlers, registered via [ConnStateMgr.AddHandler], run inline
+//     under the state manager's mutex as part of the transition. They are used
+//     by the library internally for invariant-preserving bookkeeping (e.g.
+//     starting the sender/receiver tasks on NotSelected, closing the connection
+//     on NotConnected) and must be short, non-blocking, and must not call any
+//     synchronous state-change method (doing so re-enters the mutex and
+//     deadlocks).
+//
+//   - Asynchronous handlers, registered via [ConnStateMgr.AddAsyncHandler] and
+//     exposed to library users through Session.AddConnStateChangeHandler, are
+//     dispatched on a dedicated goroutine after the transition is complete.
+//     They may perform blocking work — including SendDataMessage with W-bit
+//     set — without deadlocking, and may call any state-change method. The
+//     trade-off is that the connection state observed via cs.State() may have
+//     moved past the (prevState, newState) the handler was notified of by the
+//     time it runs; handlers should act on the arguments they receive rather
+//     than on the current live state.
 //
 // The handler function receives the connection and the previous/new states.
 type ConnStateChangeHandler func(conn Connection, prevState ConnState, newState ConnState)
+
+// asyncStateChangeEvent is a (prev, new) pair published to asyncHandlerChan and
+// consumed by the asyncHandlerDispatcher goroutine.
+type asyncStateChangeEvent struct {
+	prev ConnState
+	next ConnState
+}
+
+// asyncHandlerChanBuffer is the buffer size of the channel feeding the
+// asynchronous user-handler dispatcher. State changes are infrequent in
+// practice; this buffer absorbs any realistic burst.
+const asyncHandlerChanBuffer = 64
 
 // ConnStateMgr manages the connection state of an HSMS connection.
 //
 // It provides methods for managing state transitions and notifying listeners of state changes.
 // The state transitions are thread safety in concurrent environments.
 type ConnStateMgr struct {
-	mu              sync.Mutex
-	stateMu         sync.Mutex
-	pctx            context.Context
-	ctx             context.Context
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
-	shutdowned      atomic.Bool
-	cond            *sync.Cond
-	state           atomic.Uint32
-	desiredState    atomic.Uint32
-	conn            Connection
-	logger          logger.Logger
-	stateChangeChan chan ConnState
-	handlers        []ConnStateChangeHandler
+	mu               sync.Mutex
+	stateMu          sync.Mutex
+	pctx             context.Context
+	ctx              context.Context
+	cancel           context.CancelFunc
+	wg               sync.WaitGroup
+	shutdowned       atomic.Bool
+	cond             *sync.Cond
+	state            atomic.Uint32
+	desiredState     atomic.Uint32
+	conn             Connection
+	logger           logger.Logger
+	stateChangeChan  chan ConnState
+	handlers         []ConnStateChangeHandler // synchronous: invoked inline under mu
+	asyncHandlers    []ConnStateChangeHandler // asynchronous: dispatched on asyncHandlerDispatcher
+	asyncHandlerChan chan asyncStateChangeEvent
 }
 
 // NewConnStateMgr creates a new ConnStateMgr instance, initializing it to the NotConnectedState.
@@ -148,12 +166,14 @@ func (cs *ConnStateMgr) Start() {
 	cs.ctx = cctx
 	cs.cancel = cancel
 	cs.stateChangeChan = make(chan ConnState, 10)
+	cs.asyncHandlerChan = make(chan asyncStateChangeEvent, asyncHandlerChanBuffer)
 
 	cs.logger.Debug("set shutdowned flag to false")
 	cs.shutdowned.Store(false)
 
-	cs.wg.Add(1)
+	cs.wg.Add(2)
 	go cs.asyncStateChangeTask()
+	go cs.asyncHandlerDispatcher()
 }
 
 func (cs *ConnStateMgr) Stop() {
@@ -184,6 +204,10 @@ func (cs *ConnStateMgr) Stop() {
 	cs.stateMu.Lock()
 	cs.logger.Debug("close stateChangeChan", "shutdowned", true)
 	close(cs.stateChangeChan)
+	// asyncHandlerChan is NOT closed here: late invokeHandlers calls (e.g. the
+	// fallback ToNotConnected() in Close()) still use publishAsyncEvent, which
+	// checks shutdowned and becomes a no-op. Closing the channel would force a
+	// send-on-closed panic on those paths.
 
 	cs.setState(NotConnectedState)
 	cs.logger.Debug("stop connection state manager finished", "state", cs.State().String())
@@ -199,23 +223,49 @@ func (cs *ConnStateMgr) DesiredState() ConnState {
 	return ConnState(cs.desiredState.Load())
 }
 
-// AddHandler adds one or more ConnStateChangeHandler functions to be invoked on state changes.
+// AddHandler adds one or more synchronous ConnStateChangeHandler functions to
+// be invoked on state changes.
 //
-// Handlers run synchronously under the state manager's mutex. See the
-// [ConnStateChangeHandler] documentation for the full invocation contract,
-// including the HSMS-SS passive SelectedState case where the handler runs on
-// the receiver goroutine.
+// Handlers registered here run inline under the state manager's mutex as part
+// of the transition, before the transition method returns. This invocation
+// model is intended for library-internal, invariant-preserving bookkeeping
+// (starting goroutines on NotSelected, closing the connection on
+// NotConnected, etc.). Library users should prefer [ConnStateMgr.AddAsyncHandler]
+// or the session-level AddConnStateChangeHandler, which are safer.
 //
 // Guidelines:
-//   - Keep handlers light and non-blocking.
-//   - Only call the *Async state-change methods (ToNotConnectedAsync,
-//     ToConnectingAsync, ToNotSelectedAsync, ToSelectedAsync); the synchronous
-//     variants re-enter the same mutex and deadlock.
+//   - Keep handlers short and non-blocking.
+//   - Never call the synchronous state-change methods (ToX); they re-enter the
+//     same mutex and deadlock. Use the *Async variants.
 func (cs *ConnStateMgr) AddHandler(handlers ...ConnStateChangeHandler) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
 	cs.handlers = append(cs.handlers, handlers...)
+}
+
+// AddAsyncHandler adds one or more asynchronous ConnStateChangeHandler
+// functions. Handlers registered here are dispatched on a dedicated goroutine
+// after the transition is complete, so they may perform blocking work (I/O,
+// SendDataMessage with the W-bit set, synchronous state-change calls) without
+// deadlocking the state machine or the receive path.
+//
+// Ordering: handlers are invoked in FIFO order relative to transitions, and in
+// registration order relative to each other.
+//
+// Trade-off: the value returned by cs.State() may have moved past the
+// (prev, new) pair the handler was notified of by the time the handler runs.
+// Handlers should act on the arguments they receive rather than inspect the
+// live state.
+//
+// Delivery: the dispatcher uses a buffered channel. In the extremely unlikely
+// case of overflow (a slow handler and a burst of transitions), the newest
+// event is dropped with a warning log.
+func (cs *ConnStateMgr) AddAsyncHandler(handlers ...ConnStateChangeHandler) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	cs.asyncHandlers = append(cs.asyncHandlers, handlers...)
 }
 
 // WaitState waits for the connection state to reach the specified state or until the context is done.
@@ -421,11 +471,88 @@ func (cs *ConnStateMgr) setDesiredState(newState ConnState) {
 	cs.desiredState.Store(uint32(newState))
 }
 
-// invokeHandlers invokes all registered ConnStateChangeHandler functions with the previous and new states.
+// invokeHandlers runs the synchronous handler list inline and publishes the
+// transition to the async dispatcher. Must be called with cs.mu held.
 func (cs *ConnStateMgr) invokeHandlers(prevState ConnState, newState ConnState) {
 	for _, handler := range cs.handlers {
 		if handler != nil {
 			handler(cs.conn, prevState, newState)
+		}
+	}
+
+	cs.publishAsyncEvent(prevState, newState)
+}
+
+// publishAsyncEvent hands a (prev, new) transition to the async dispatcher via
+// a buffered channel using a non-blocking send. Overflow drops the newest
+// event with a warning log rather than back-pressuring the state machine.
+// Becomes a no-op once the state manager has been stopped.
+func (cs *ConnStateMgr) publishAsyncEvent(prevState ConnState, newState ConnState) {
+	if cs.shutdowned.Load() {
+		return
+	}
+
+	if cs.asyncHandlerChan == nil {
+		return
+	}
+
+	select {
+	case cs.asyncHandlerChan <- asyncStateChangeEvent{prev: prevState, next: newState}:
+	default:
+		cs.logger.Warn("async state-change event channel full, dropping event",
+			"prevState", prevState, "newState", newState,
+		)
+	}
+}
+
+// asyncHandlerDispatcher consumes transitions published by publishAsyncEvent
+// and invokes registered async handlers serially, preserving FIFO ordering
+// across transitions and registration order across handlers.
+//
+// On context cancel the dispatcher drains any remaining buffered events so
+// that transitions published just before Stop() — e.g. the final
+// ToNotConnected() synthesized by Close() — are still delivered to user
+// handlers before Stop() returns.
+func (cs *ConnStateMgr) asyncHandlerDispatcher() {
+	defer func() {
+		cs.logger.Debug("asyncHandlerDispatcher finished")
+		cs.wg.Done()
+	}()
+
+loop:
+	for {
+		select {
+		case <-cs.ctx.Done():
+			break loop
+		case ev := <-cs.asyncHandlerChan:
+			cs.dispatchAsyncEvent(ev)
+		}
+	}
+
+	// Drain remaining events with a non-blocking read. No new events can be
+	// published after shutdowned is set, so this loop terminates.
+	for {
+		select {
+		case ev := <-cs.asyncHandlerChan:
+			cs.dispatchAsyncEvent(ev)
+		default:
+			return
+		}
+	}
+}
+
+// dispatchAsyncEvent snapshots the async handler slice and invokes each one
+// without holding cs.mu, so handlers are free to call back into the state
+// manager (including synchronous ToX methods) without re-entering the mutex.
+func (cs *ConnStateMgr) dispatchAsyncEvent(ev asyncStateChangeEvent) {
+	cs.mu.Lock()
+	handlers := make([]ConnStateChangeHandler, len(cs.asyncHandlers))
+	copy(handlers, cs.asyncHandlers)
+	cs.mu.Unlock()
+
+	for _, handler := range handlers {
+		if handler != nil {
+			handler(cs.conn, ev.prev, ev.next)
 		}
 	}
 }

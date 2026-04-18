@@ -321,11 +321,11 @@ func (c *Connection) Close() error {
 	c.shutdown.Store(true)
 	c.logger.Debug("start to close connection", "method", "Close", "opState", c.opState.String())
 
-	// stop state manager first
-	c.stateMgr.Stop()
-
-	// force to set state to not connected state if not already
-	// this is to ensure that the connection is closed even if the state manager is not in a connected state
+	// Force the transition to NotConnected BEFORE stopping the state manager.
+	// Running ToNotConnected() here — while the async handler dispatcher is
+	// still alive — ensures user-registered ConnStateChangeHandlers observe
+	// the final transition. If we stopped first, the dispatcher would have
+	// already exited and the event would be dropped.
 	if !c.isClosed() {
 		c.logger.Debug("force to set connection desired state to not-connected", "method", "Close",
 			"curDesiredState", c.stateMgr.DesiredState().String(),
@@ -333,6 +333,11 @@ func (c *Connection) Close() error {
 		)
 		c.stateMgr.ToNotConnected()
 	}
+
+	// Stop the state manager. wg.Wait inside Stop() blocks until the async
+	// dispatcher has drained any event published by the ToNotConnected call
+	// above, so user handlers run before Stop() returns.
+	c.stateMgr.Stop()
 
 	closeTimer := pool.GetTimer(c.cfg.CloseConnTimeout())
 	defer pool.PutTimer(closeTimer)

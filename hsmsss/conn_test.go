@@ -1887,3 +1887,78 @@ func TestPassiveReplyRaceAfterSelect(t *testing.T) {
 		}
 	}
 }
+
+// TestPassiveSelectedHandlerDoesNotBlockReceiver verifies that a
+// ConnStateChangeHandler registered on a passive session runs on the async
+// dispatcher goroutine, not on the receiver goroutine. Concretely: if the
+// handler blocks for a noticeable duration, an incoming W-bit request from
+// the active peer must still be dispatched and replied to while the handler
+// is still blocked.
+//
+// Before the async-dispatch change this would deadlock: the receiver was the
+// goroutine running the SelectedState handler, so it could not read the next
+// incoming message until the handler returned, and any W-bit send from the
+// active side would T3-timeout.
+func TestPassiveSelectedHandlerDoesNotBlockReceiver(t *testing.T) {
+	ctx := t.Context()
+	port := getPort()
+
+	handlerRunning := make(chan struct{})
+	handlerRelease := make(chan struct{})
+
+	// Equipment (passive): echo every primary message. Its SelectedState
+	// handler blocks until the test releases it, simulating a long on-connect
+	// initialization (the canonical S1F1/S1F13/S6F23 handshake pattern).
+	eqpComm := doNewTestComm(ctx, t, port, false, false,
+		WithT3Timeout(1*time.Second),
+		WithT6Timeout(1*time.Second),
+		WithCloseConnTimeout(2*time.Second),
+		WithAutoLinktest(false),
+	)
+	eqpComm.session.AddDataMessageHandler(func(msg *hsms.DataMessage, s hsms.Session) {
+		if msg.WaitBit() {
+			_ = s.ReplyDataMessage(msg, msg.Item())
+		}
+	})
+	eqpComm.session.AddConnStateChangeHandler(func(_ hsms.Connection, _, cur hsms.ConnState) {
+		if cur != hsms.SelectedState {
+			return
+		}
+		close(handlerRunning)
+		<-handlerRelease // block the handler; receiver must remain unblocked.
+	})
+
+	// Host (active): waits for Selected then sends S1F1 with W-bit.
+	hostComm := doNewTestComm(ctx, t, port, true, true,
+		WithT3Timeout(2*time.Second),
+		WithT6Timeout(2*time.Second),
+		WithCloseConnTimeout(2*time.Second),
+		WithAutoLinktest(false),
+	)
+
+	require.NoError(t, eqpComm.open(false))
+	require.NoError(t, hostComm.open(true)) // wait for Selected on the active side.
+
+	defer func() {
+		close(handlerRelease)
+		_ = hostComm.close()
+		_ = eqpComm.close()
+	}()
+
+	// Wait until the passive handler is running (and blocked).
+	select {
+	case <-handlerRunning:
+	case <-time.After(3 * time.Second):
+		t.Fatal("passive SelectedState handler never fired")
+	}
+
+	// With the passive handler blocked on the dispatcher goroutine, send S1F1
+	// from the active and expect a reply within T3 — proves the receiver is
+	// free to read the request and dispatch it to the data-message handler.
+	reply, err := hostComm.session.SendDataMessage(1, 1, true, nil)
+	if reply != nil {
+		reply.Free()
+	}
+	require.NoError(t, err,
+		"active S1F1 was not replied within T3 — receiver blocked by passive SelectedState handler (deadlock regression)")
+}

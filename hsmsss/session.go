@@ -69,42 +69,39 @@ func (s *Session) SendMessageSync(msg hsms.HSMSMessage) error {
 	return s.hsmsConn.sendMsgSync(msg)
 }
 
-// AddConnStateChangeHandler adds one or more ConnStateChangeHandler functions to be invoked when the connection state changes.
+// AddConnStateChangeHandler adds one or more ConnStateChangeHandler functions
+// to be invoked when the connection state changes.
 //
-// Notes:
-//   - Register handlers before Open() is called; they are invoked in registration order.
-//   - Handlers run synchronously under the state manager's mutex and must be
-//     short and non-blocking.
-//   - Handlers MUST NOT call synchronous state-change methods on the state
-//     manager (these re-enter the mutex and deadlock). Use the *Async variants.
+// Handlers are dispatched asynchronously on a dedicated goroutine after each
+// transition, so they may perform blocking work safely:
 //
-// Passive SelectedState — important:
-// For passive connections, the Select.req → Selected transition is committed
-// synchronously on the receiver goroutine so that the peer cannot observe
-// Select.rsp before the local state is Selected. As a consequence, any
-// SelectedState handler registered on a passive session runs on the receiver
-// goroutine and must not perform any operation that requires the receiver to
-// dispatch additional messages. In particular:
+//   - SendDataMessage / ReplyDataMessage with the W-bit set (reply expected)
+//     is safe from any state handler, including passive SelectedState.
+//   - Synchronous state-change calls on the connection are safe.
+//   - Long-running initialization (e.g. on-Selected S1F1/S1F13/S6F23 exchanges)
+//     is safe and is the expected pattern for equipment/host on-connect setup.
 //
-//   - Calling [Session.SendDataMessage] or [Session.ReplyDataMessage] with the
-//     W-bit set (reply expected) from a passive SelectedState handler will
-//     deadlock: the reply can never be read, because the receiver is blocked
-//     in the handler.
-//   - [Session.SendDataMessageAsync] and W-bit=false sends are safe but still
-//     block further message processing until the handler returns; keep them brief.
+// Ordering: handlers are invoked in FIFO order with respect to state
+// transitions, and in registration order with respect to each other.
+//
+// Caveat: by the time a handler runs, the connection's live state may have
+// moved past the (prev, new) pair the handler was notified of (e.g. the
+// connection may already have dropped). Handlers should act on the arguments
+// they receive rather than inspect the live state.
 //
 // Example:
 //
 //	session.AddConnStateChangeHandler(func(_ hsms.Connection, _, cur hsms.ConnState) {
 //		switch cur {
 //		case hsms.SelectedState:
-//			// safe: light work, or async dispatch to another goroutine
+//			// safe: perform on-connect setup, including W-bit sends
+//			_, _ = session.SendDataMessage(1, 1, true, nil) // S1F1 "Are You There"
 //		case hsms.NotConnectedState:
 //			// handle disconnect
 //		}
 //	})
 func (s *Session) AddConnStateChangeHandler(handlers ...hsms.ConnStateChangeHandler) {
-	s.hsmsConn.stateMgr.AddHandler(handlers...)
+	s.hsmsConn.stateMgr.AddAsyncHandler(handlers...)
 }
 
 // AddDataMessageHandler adds one or more DataMessageHandler functions to be invoked when a data message is received.
