@@ -62,11 +62,23 @@ const (
 // ConnStateChangeHandler is a function type that represents a handler for connection state changes.
 // It is invoked when the state of an HSMS connection changes.
 //
-// Note: the handler will be invoked in a blocking mode. Take care with long-running implementations.
+// Invocation contract — important:
+//   - Handlers run synchronously while the connection state manager holds its
+//     internal mutex. They block every other state transition until they return,
+//     so they must be short and non-blocking.
+//   - Handlers MUST NOT call any synchronous state-change method
+//     (ToNotConnected, ToConnecting, ToNotSelected, ToSelected) — doing so
+//     re-enters the same mutex and deadlocks. Use the *Async variants instead.
+//   - For HSMS-SS passive connections, the SelectedState transition is committed
+//     synchronously on the receiver goroutine (so that the peer cannot observe
+//     Select.rsp before the local state is Selected). A handler for
+//     SelectedState on the passive side therefore runs on the receiver
+//     goroutine, and must not perform any operation that depends on the
+//     receiver being able to dispatch further messages — in particular,
+//     SendDataMessage/ReplyDataMessage with W-bit set (reply expected) will
+//     deadlock because the reply can never be read.
 //
-// The handler function receives two arguments:
-//   - prevState: The previous connection state.
-//   - newState: The current connection state.
+// The handler function receives the connection and the previous/new states.
 type ConnStateChangeHandler func(conn Connection, prevState ConnState, newState ConnState)
 
 // ConnStateMgr manages the connection state of an HSMS connection.
@@ -189,9 +201,16 @@ func (cs *ConnStateMgr) DesiredState() ConnState {
 
 // AddHandler adds one or more ConnStateChangeHandler functions to be invoked on state changes.
 //
-// The handler is responsible for processing the state change and taking appropriate action.
-//   - Ths handler should keep as light as possible to avoid blocking the channel.
-//   - The handler should only call async state change methods to avoid deadlock.
+// Handlers run synchronously under the state manager's mutex. See the
+// [ConnStateChangeHandler] documentation for the full invocation contract,
+// including the HSMS-SS passive SelectedState case where the handler runs on
+// the receiver goroutine.
+//
+// Guidelines:
+//   - Keep handlers light and non-blocking.
+//   - Only call the *Async state-change methods (ToNotConnectedAsync,
+//     ToConnectingAsync, ToNotSelectedAsync, ToSelectedAsync); the synchronous
+//     variants re-enter the same mutex and deadlock.
 func (cs *ConnStateMgr) AddHandler(handlers ...ConnStateChangeHandler) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()

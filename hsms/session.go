@@ -73,7 +73,13 @@ type Session interface {
 	// It is a wrapper method to reply data message with the corresponding function code of primary message.
 	ReplyDataMessage(primaryMsg *DataMessage, dataItem secs2.Item) error
 
-	// AddConnStateChangeHandler adds one or more ConnStateChangeHandler functions to be invoked when the connection state changes.
+	// AddConnStateChangeHandler adds one or more ConnStateChangeHandler functions
+	// to be invoked when the connection state changes.
+	//
+	// Handlers are invoked synchronously under the state manager's mutex and must
+	// be short and non-blocking. See [ConnStateChangeHandler] for the full
+	// invocation contract, including the HSMS-SS passive SelectedState case where
+	// the handler runs on the receiver goroutine.
 	AddConnStateChangeHandler(handlers ...ConnStateChangeHandler)
 
 	// AddDataMessageHandler adds one or more DataMessageHandler functions to be invoked when a data message is received.

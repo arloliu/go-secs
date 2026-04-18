@@ -86,7 +86,10 @@ func (s *Session) SendMessageSync(msg hsms.HSMSMessage) error {
 // to be invoked when the connection state changes.
 //
 // Handlers should be registered before Open() is called. They are invoked in
-// registration order and must not block.
+// registration order, run synchronously under the state manager's mutex, and
+// must be short and non-blocking. Handlers must not call synchronous
+// state-change methods (these re-enter the mutex and deadlock); use the
+// *Async variants. See [hsms.ConnStateChangeHandler] for the full contract.
 func (s *Session) AddConnStateChangeHandler(handlers ...hsms.ConnStateChangeHandler) {
 	s.conn.stateMgr.AddHandler(handlers...)
 }

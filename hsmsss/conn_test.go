@@ -1757,3 +1757,133 @@ func TestConnection_Passive_CloseWhileAccepting(t *testing.T) {
 	conn.listenerMutex.Unlock()
 	require.Nil(t, listener, "Listener should be nil after Close")
 }
+
+// TestPassiveSelectReqCommitsStateImmediate verifies that after recvMsgPassive
+// handles a Select.req, the connection is in SelectedState immediately — before
+// any asyncStateChangeTask goroutine can run. This is the invariant the fix
+// enforces: ToSelected() is called synchronously, not ToSelectedAsync().
+//
+// The setup runs without starting the async state-change goroutine
+// (stateMgr.Start() is intentionally not called) so that ToSelectedAsync()
+// — which is a no-op when shutdowned==true — cannot commit the state. Only
+// a synchronous ToSelected() call can satisfy the assertion below.
+func TestPassiveSelectReqCommitsStateImmediate(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+
+	conn := newConn(ctx, require, getPort(), false, false,
+		WithAutoLinktest(false),
+		WithT7Timeout(30*time.Second),
+		WithCloseConnTimeout(1*time.Second),
+	)
+	_ = conn.AddSession(testSessionID)
+
+	// Provide a real TCP channel so the senderTask can write SelectRsp without
+	// blocking. A goroutine drains the server end.
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	conn.setupResources(client)
+
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			if _, err := server.Read(buf); err != nil {
+				return
+			}
+		}
+	}()
+
+	// Wire up a per-connection context so T7 and senderTask goroutines can be
+	// cleanly cancelled at the end of the test instead of leaking.
+	connCtx, connCancel := context.WithCancel(ctx)
+	conn.connCtxVal.Store(&ctxHolder{ctx: connCtx})
+	conn.connCancelFn.Store(&cancelHolder{cancel: connCancel})
+
+	// Cleanup: cancel context → stop taskMgr → close client (unblocks receiverTask) → wait.
+	// The order matters: Stop signals goroutines, Close unblocks the blocked TCP read,
+	// then Wait confirms all goroutines have exited.
+	t.Cleanup(func() {
+		connCancel()
+		conn.taskMgr.Stop()
+		_ = client.Close()
+		conn.taskMgr.Wait()
+	})
+
+	// Synchronously advance to NotSelectedState (starts senderTask/receiverTask).
+	// stateMgr.Start() is deliberately NOT called — so the asyncStateChangeTask
+	// goroutine never runs and ToSelectedAsync() is a guaranteed no-op.
+	require.NoError(conn.stateMgr.ToNotSelected())
+
+	// Process a Select.req through the passive dispatch path.
+	selectReq := hsms.NewSelectReq(testSessionID, []byte{0, 0, 0, 1})
+	conn.recvMsgPassive(selectReq)
+
+	// Without the fix: ToSelectedAsync() was a no-op → state stays NotSelected → FAIL.
+	// With the fix:    ToSelected() committed synchronously before SelectRsp was
+	//                  queued → state is Selected → PASS.
+	require.True(conn.stateMgr.IsSelected(),
+		"passive must be in SelectedState immediately after handling SelectReq; "+
+			"if this fails, ToSelectedAsync() (the bug) was used instead of ToSelected()")
+}
+
+// TestPassiveReplyRaceAfterSelect is an integration smoke test verifying that
+// the passive's data-message handler can reply to the first message sent by the
+// active immediately after Select. This exercises the path that was broken by
+// the Select.req → Selected race (see TestPassiveSelectReqCommitsStateImmediate
+// for the deterministic regression test that directly catches the bug).
+func TestPassiveReplyRaceAfterSelect(t *testing.T) {
+	ctx := t.Context()
+
+	for i := range 30 {
+		port := getPort()
+
+		// Equipment (passive): echo every primary message back as a reply.
+		eqpComm := doNewTestComm(ctx, t, port, false, false,
+			WithT3Timeout(1*time.Second),
+			WithT6Timeout(1*time.Second),
+			WithCloseConnTimeout(2*time.Second),
+			WithAutoLinktest(false),
+		)
+		eqpComm.session.AddDataMessageHandler(func(msg *hsms.DataMessage, s hsms.Session) {
+			if msg.WaitBit() {
+				_ = s.ReplyDataMessage(msg, msg.Item())
+			}
+		})
+
+		// Host (active): the moment SelectedState fires, send S1F1 directly
+		// (not in a goroutine) so the message is queued and on the wire before
+		// the active's asyncStateChangeTask finishes. This maximises the chance
+		// that S1F1 arrives at the passive while its state is still uncommitted.
+		replyChan := make(chan error, 1)
+		hostComm := doNewTestComm(ctx, t, port, true, true,
+			WithT3Timeout(1*time.Second),
+			WithT6Timeout(1*time.Second),
+			WithCloseConnTimeout(2*time.Second),
+			WithAutoLinktest(false),
+		)
+		hostComm.session.AddConnStateChangeHandler(func(_ hsms.Connection, _, cur hsms.ConnState) {
+			if cur == hsms.SelectedState {
+				reply, err := hostComm.session.SendDataMessage(1, 1, true, nil)
+				if reply != nil {
+					reply.Free()
+				}
+				replyChan <- err
+			}
+		})
+
+		require.NoError(t, eqpComm.open(false))
+		require.NoError(t, hostComm.open(false))
+
+		select {
+		case <-time.After(2 * time.Second):
+			_ = hostComm.close()
+			_ = eqpComm.close()
+			t.Fatalf("iter %d: S1F1 goroutine never signaled — something is stuck", i)
+		case err := <-replyChan:
+			_ = hostComm.close()
+			_ = eqpComm.close()
+			require.NoErrorf(t, err, "iter %d: S1F1 failed — passive dropped reply during Select transition (race bug)", i)
+		}
+	}
+}

@@ -72,20 +72,35 @@ func (s *Session) SendMessageSync(msg hsms.HSMSMessage) error {
 // AddConnStateChangeHandler adds one or more ConnStateChangeHandler functions to be invoked when the connection state changes.
 //
 // Notes:
-//   - The handler is responsible for processing the state change and taking appropriate action.
-//   - The handler should not block the channel to prevent message loss.
-//   - The handler should be registered before the session is opened.
-//   - The handlers are invoked in the order they are added.
-//   - The session will broadcast state information to all handlers' channels.
+//   - Register handlers before Open() is called; they are invoked in registration order.
+//   - Handlers run synchronously under the state manager's mutex and must be
+//     short and non-blocking.
+//   - Handlers MUST NOT call synchronous state-change methods on the state
+//     manager (these re-enter the mutex and deadlock). Use the *Async variants.
+//
+// Passive SelectedState — important:
+// For passive connections, the Select.req → Selected transition is committed
+// synchronously on the receiver goroutine so that the peer cannot observe
+// Select.rsp before the local state is Selected. As a consequence, any
+// SelectedState handler registered on a passive session runs on the receiver
+// goroutine and must not perform any operation that requires the receiver to
+// dispatch additional messages. In particular:
+//
+//   - Calling [Session.SendDataMessage] or [Session.ReplyDataMessage] with the
+//     W-bit set (reply expected) from a passive SelectedState handler will
+//     deadlock: the reply can never be read, because the receiver is blocked
+//     in the handler.
+//   - [Session.SendDataMessageAsync] and W-bit=false sends are safe but still
+//     block further message processing until the handler returns; keep them brief.
 //
 // Example:
 //
-//	session.AddConnStateChangeHandler(func(state hsms.ConnState) {
-//		switch state {
-//		case hsms.ConnStateConnected:
-//			// handle connected state
-//			case hsms.ConnStateDisconnected:
-//			// handle disconnected state
+//	session.AddConnStateChangeHandler(func(_ hsms.Connection, _, cur hsms.ConnState) {
+//		switch cur {
+//		case hsms.SelectedState:
+//			// safe: light work, or async dispatch to another goroutine
+//		case hsms.NotConnectedState:
+//			// handle disconnect
 //		}
 //	})
 func (s *Session) AddConnStateChangeHandler(handlers ...hsms.ConnStateChangeHandler) {

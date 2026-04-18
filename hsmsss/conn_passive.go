@@ -136,9 +136,20 @@ func (c *Connection) recvMsgPassive(msg hsms.HSMSMessage) {
 			break
 		}
 
-		// transite to selected state
-		c.logger.Debug("passive: to selected state after select.req received", "state", c.stateMgr.State())
-		c.stateMgr.ToSelectedAsync()
+		// Commit to SelectedState synchronously BEFORE sending Select.rsp. This
+		// closes the race window where the remote can react to Select.rsp and
+		// immediately send a data message while our async state transition is
+		// still in flight, causing sendMsg to reject the handler's reply.
+		c.logger.Debug("passive: transitioning to selected state after select.req", "state", c.stateMgr.State())
+		if err := c.stateMgr.ToSelected(); err != nil {
+			c.logger.Error("passive: failed to transition to selected state on select.req",
+				hsms.MsgInfo(msg, "method", "recvMsgPassive", "error", err)...,
+			)
+			replyMsg, _ := hsms.NewSelectRsp(msg, hsms.SelectStatusNotReady)
+			_, _ = c.sendMsg(replyMsg)
+
+			break
+		}
 
 		// reply select request
 		replyMsg, _ := hsms.NewSelectRsp(msg, hsms.SelectStatusSuccess)
