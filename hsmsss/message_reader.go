@@ -118,6 +118,15 @@ func (mr *messageReader) ReadMessage(conn net.Conn, lenBuf []byte) (msg hsms.HSM
 	rawBody = make([]byte, msgLen)
 
 	if _, err = readFull(conn, rawBody, mr.t8Timeout); err != nil {
+		// A deadline-driven failure here means the inter-character (T8) timer
+		// expired mid-message. Wrap with both ErrT8Timeout (for errors.Is
+		// classification) and the original net.Error (preserved for callers
+		// that inspect net.Error.Timeout()).
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			return nil, nil, fmt.Errorf("read message payload: %w: %w", hsms.ErrT8Timeout, err)
+		}
+
 		return nil, nil, fmt.Errorf("read message payload: %w", err)
 	}
 
