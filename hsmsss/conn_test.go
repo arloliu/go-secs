@@ -2429,3 +2429,39 @@ func TestConnection_CloseSurfacesTeardownTimeout(t *testing.T) {
 	close(block) // release the stuck task so its goroutine exits cleanly
 	_ = eqpComm.close()
 }
+
+// TestConnection_DataMsgInflightCountBalanced verifies the in-flight gauge
+// returns to zero after a successful W-bit request/reply. Before the fix it
+// reached -1 because replyToSender and sendMsg both decremented it.
+func TestConnection_DataMsgInflightCountBalanced(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	// AutoLinktest off: linktest.req is also a W-bit send and would
+	// concurrently touch the same gauge, making the assertion flaky.
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithCloseConnTimeout(2*time.Second), WithAutoLinktest(false))
+	eqpComm := newTestComm(ctx, t, port, false, false,
+		WithCloseConnTimeout(2*time.Second), WithAutoLinktest(false))
+
+	require.NoError(eqpComm.open(true))
+	require.NoError(hostComm.open(true))
+	defer func() {
+		require.NoError(hostComm.close())
+		require.NoError(eqpComm.close())
+	}()
+
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+	require.NoError(eqpComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+	reply, err := hostComm.session.SendDataMessage(1, 1, true, secs2.A("ping"))
+	require.NoError(err)
+	require.NotNil(reply)
+	if reply != nil {
+		reply.Free()
+	}
+
+	require.Equal(int64(0), hostComm.conn.GetMetrics().DataMsgInflightCount.Load(),
+		"DataMsgInflightCount must be 0 after one successful W-bit exchange")
+}
