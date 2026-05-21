@@ -2430,6 +2430,54 @@ func TestConnection_CloseSurfacesTeardownTimeout(t *testing.T) {
 	_ = eqpComm.close()
 }
 
+// TestConnection_ConcurrentCloseSurfacesTeardownTimeout verifies that when
+// multiple goroutines call Close() concurrently and task teardown times out,
+// every caller observes the timeout error — none gets a spurious nil. This is
+// a regression test for a logical race where a second Close()'s entry reset
+// could clobber the recorded teardown error (the race is invisible to -race
+// because every operation on closeErr is atomic).
+func TestConnection_ConcurrentCloseSurfacesTeardownTimeout(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	hostComm := newTestComm(ctx, t, port, true, true, WithCloseConnTimeout(1*time.Second))
+	eqpComm := newTestComm(ctx, t, port, false, false, WithCloseConnTimeout(2*time.Second))
+
+	require.NoError(eqpComm.open(true))
+	require.NoError(hostComm.open(true))
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+	// Inject a task that ignores cancellation so taskMgr.Wait() cannot finish
+	// within CloseConnTimeout.
+	block := make(chan struct{})
+	require.NoError(hostComm.conn.taskMgr.Start("stuckTask", func() bool {
+		<-block
+		return false
+	}))
+
+	const n = 4
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = hostComm.conn.Close()
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		require.Error(err, "concurrent Close caller %d must observe the teardown timeout", i)
+		require.Contains(err.Error(), "timeout",
+			"concurrent Close caller %d must observe the teardown timeout", i)
+	}
+
+	close(block) // release the stuck task so its goroutine exits cleanly
+	_ = eqpComm.close()
+}
+
 // TestConnection_DataMsgInflightCountBalanced verifies the in-flight gauge
 // returns to zero after a successful W-bit request/reply. Before the fix it
 // reached -1 because replyToSender and sendMsg both decremented it.

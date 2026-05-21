@@ -108,11 +108,13 @@ type Connection struct {
 
 	metrics ConnectionMetrics // connection metrics
 
-	// closeErr holds the first non-nil teardown error observed since the
-	// current Close() cycle began, so the public Close method can surface a
-	// teardown timeout to the caller. Close() resets it to nil on entry;
-	// closeConn records into it with CompareAndSwap-from-nil so a later no-op
-	// closeConn cannot overwrite a real error. Holds *error.
+	// closeErr holds the teardown result of the most recent closeConn cycle,
+	// so the public Close method can surface a teardown timeout to the caller.
+	// The closeConn call that owns the opState teardown resets this slot at the
+	// start of the cycle and records the final result before the connection
+	// reaches the closed state, so every Close() caller — including concurrent
+	// ones — observes a consistent result. Holds *error; a stored nil error or
+	// an absent pointer both mean "closed cleanly".
 	closeErr atomic.Pointer[error]
 }
 
@@ -340,7 +342,6 @@ func (c *Connection) Close() error {
 	}
 
 	c.shutdown.Store(true)
-	c.closeErr.Store(nil) // clear any error from a previous lifecycle
 	c.logger.Debug("start to close connection", "method", "Close", "opState", c.opState.String())
 
 	// Force the transition to NotConnected BEFORE stopping the state manager.
@@ -525,20 +526,7 @@ func (c *Connection) closeTCP(timeout time.Duration) string {
 // closeConn performs the actual connection closing process with a timeout.
 // It cancels the context, stops the task manager, closes the TCP connection, and waits for
 // all goroutines to terminate.
-func (c *Connection) closeConn(timeout time.Duration) (retErr error) {
-	// Record the first non-nil teardown error of this Close cycle so Close()
-	// can surface it. CompareAndSwap-from-nil means a concurrent or later
-	// no-op closeConn (which returns nil, or an early "already closing"
-	// error) cannot clobber a real timeout already captured by the teardown
-	// that actually owns the opState transition. Close() resets the slot to
-	// nil on entry.
-	defer func() {
-		if retErr != nil {
-			err := retErr
-			c.closeErr.CompareAndSwap(nil, &err)
-		}
-	}()
-
+func (c *Connection) closeConn(timeout time.Duration) error {
 	// 1. try to transition the connection state to closing
 	if !c.opState.ToClosing() {
 		if c.opState.IsClosed() {
@@ -549,6 +537,12 @@ func (c *Connection) closeConn(timeout time.Duration) (retErr error) {
 
 		return fmt.Errorf("failed to set connection to closing state, current state: %s", c.opState.String())
 	}
+
+	// We own this teardown cycle (the ToClosing CAS above admitted exactly one
+	// caller). Reset the recorded error so a previous cycle's or a reconnect's
+	// result cannot leak into this Close. No Close() caller resets this slot,
+	// which makes the teardown-error contract safe under concurrent Close().
+	c.closeErr.Store(nil)
 
 	c.logger.Debug("start to close connection", "method", "closeConn", "opState", c.opState.String())
 
@@ -595,6 +589,12 @@ func (c *Connection) closeConn(timeout time.Duration) (retErr error) {
 
 	// 9. cleanup reply channels and queue
 	c.dropAllReplyMsgs()
+
+	// Record the teardown result BEFORE the opState transition to Closed.
+	// A concurrent Close() spins on isClosed() (which requires opState Closed);
+	// storing closeErr first guarantees such a caller observes this result.
+	recordedErr := closeErr
+	c.closeErr.Store(&recordedErr)
 
 	// 10. final transition to closed state
 	if !c.opState.ToClosed() {
