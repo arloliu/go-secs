@@ -2398,3 +2398,34 @@ func TestConnection_RuntimeConfigRace(t *testing.T) {
 	close(stop)
 	wg.Wait()
 }
+
+// TestConnection_CloseSurfacesTeardownTimeout verifies that when task teardown
+// cannot finish within CloseConnTimeout, Close() returns the timeout error
+// instead of nil.
+func TestConnection_CloseSurfacesTeardownTimeout(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	hostComm := newTestComm(ctx, t, port, true, true, WithCloseConnTimeout(1*time.Second))
+	eqpComm := newTestComm(ctx, t, port, false, false, WithCloseConnTimeout(2*time.Second))
+
+	require.NoError(eqpComm.open(true))
+	require.NoError(hostComm.open(true))
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+	// Inject a task that ignores cancellation so taskMgr.Wait() cannot finish
+	// within CloseConnTimeout.
+	block := make(chan struct{})
+	require.NoError(hostComm.conn.taskMgr.Start("stuckTask", func() bool {
+		<-block
+		return false
+	}))
+
+	err := hostComm.close()
+	require.Error(err, "Close must surface the closeConn teardown timeout")
+	require.Contains(err.Error(), "timeout")
+
+	close(block) // release the stuck task so its goroutine exits cleanly
+	_ = eqpComm.close()
+}

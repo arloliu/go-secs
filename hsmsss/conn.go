@@ -107,6 +107,13 @@ type Connection struct {
 	replyErrs     *xsync.MapOf[uint32, error]
 
 	metrics ConnectionMetrics // connection metrics
+
+	// closeErr holds the first non-nil teardown error observed since the
+	// current Close() cycle began, so the public Close method can surface a
+	// teardown timeout to the caller. Close() resets it to nil on entry;
+	// closeConn records into it with CompareAndSwap-from-nil so a later no-op
+	// closeConn cannot overwrite a real error. Holds *error.
+	closeErr atomic.Pointer[error]
 }
 
 // ctxHolder wraps a context.Context so that atomic.Pointer[ctxHolder]
@@ -317,6 +324,12 @@ func (c *Connection) doOpen(waitOpened bool) error {
 
 // Close closes the HSMS-SS connection gracefully.
 // It terminates all running tasks, closes the TCP connection, and resets the connection state.
+//
+// Returns:
+//   - nil: the connection closed cleanly within CloseConnTimeout.
+//   - non-nil wrapping a deadline/timeout error: the connection reached the closed state, but
+//     task teardown exceeded CloseConnTimeout; the caller may treat this as a warning.
+//   - non-nil otherwise: the connection did not reach the closed state before CloseConnTimeout elapsed.
 func (c *Connection) Close() error {
 	// Invalidate any pending reconnect timers from a previous lifecycle.
 	c.reconnectGen.Add(1)
@@ -327,6 +340,7 @@ func (c *Connection) Close() error {
 	}
 
 	c.shutdown.Store(true)
+	c.closeErr.Store(nil) // clear any error from a previous lifecycle
 	c.logger.Debug("start to close connection", "method", "Close", "opState", c.opState.String())
 
 	// Force the transition to NotConnected BEFORE stopping the state manager.
@@ -360,7 +374,7 @@ func (c *Connection) Close() error {
 		case <-closeTimer.C:
 			if c.isClosed() {
 				c.logger.Debug("wait for connection closed success at timeout", "timeout", c.cfg.CloseConnTimeout(), "opState", c.opState.String())
-				return nil
+				return c.loadCloseErr()
 			}
 
 			c.logger.Error("close connection timeout",
@@ -374,7 +388,7 @@ func (c *Connection) Close() error {
 		case <-checkTicker.C:
 			if c.isClosed() {
 				c.logger.Debug("wait for connection closed success")
-				return nil
+				return c.loadCloseErr()
 			}
 		}
 	}
@@ -382,6 +396,16 @@ func (c *Connection) Close() error {
 
 func (c *Connection) isClosed() bool {
 	return c.opState.IsClosed() && c.stateMgr.State() == hsms.NotConnectedState && c.stateMgr.DesiredState() == hsms.NotConnectedState
+}
+
+// loadCloseErr returns the error recorded by the most recent closeConn call,
+// or nil if the connection closed cleanly.
+func (c *Connection) loadCloseErr() error {
+	if h := c.closeErr.Load(); h != nil {
+		return *h
+	}
+
+	return nil
 }
 
 // drainSenderMsgChan drains pending sendRequests from the channel.
@@ -501,7 +525,20 @@ func (c *Connection) closeTCP(timeout time.Duration) string {
 // closeConn performs the actual connection closing process with a timeout.
 // It cancels the context, stops the task manager, closes the TCP connection, and waits for
 // all goroutines to terminate.
-func (c *Connection) closeConn(timeout time.Duration) error {
+func (c *Connection) closeConn(timeout time.Duration) (retErr error) {
+	// Record the first non-nil teardown error of this Close cycle so Close()
+	// can surface it. CompareAndSwap-from-nil means a concurrent or later
+	// no-op closeConn (which returns nil, or an early "already closing"
+	// error) cannot clobber a real timeout already captured by the teardown
+	// that actually owns the opState transition. Close() resets the slot to
+	// nil on entry.
+	defer func() {
+		if retErr != nil {
+			err := retErr
+			c.closeErr.CompareAndSwap(nil, &err)
+		}
+	}()
+
 	// 1. try to transition the connection state to closing
 	if !c.opState.ToClosing() {
 		if c.opState.IsClosed() {
