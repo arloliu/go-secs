@@ -999,6 +999,28 @@ func (c *Connection) receiverTask(msgLenBuf []byte) bool {
 
 	msg, rawBody, err := reader.ReadMessage(conn, msgLenBuf)
 	if err != nil {
+		var hdrReject *headerRejectError
+		if errors.As(err, &hdrReject) {
+			// SEMI E37 §7.10.3 requires a Reject.req for an unsupported
+			// PType/SType. Send it and keep the connection (the spec is
+			// silent on lifecycle; see Task 4 notes).
+			rejectMsg := hsms.NewRejectReqRaw(
+				hdrReject.sessionID, hdrReject.pType, hdrReject.sType,
+				hdrReject.systemBytes[:], hdrReject.reasonCode,
+			)
+			c.logger.Warn("received unsupported HSMS header, sending reject.req",
+				"method", "receiverTask",
+				"pType", hdrReject.pType, "sType", hdrReject.sType, "reason", hdrReject.reasonCode,
+			)
+			c.metrics.incDataMsgErrCount()
+			if _, sendErr := c.sendMsg(rejectMsg); sendErr != nil {
+				c.logger.Error("failed to send reject.req", "method", "receiverTask", "error", sendErr)
+				return false
+			}
+
+			return true
+		}
+
 		// Exactly one log per error, at the appropriate level.
 		// rawBody non-nil indicates a decode failure (payload was read successfully
 		// but could not be decoded). Note: msg is nil on decode failure, so we must

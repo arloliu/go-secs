@@ -146,6 +146,21 @@ func StreamFunctionQuote() string {
 	return sfQuote
 }
 
+// IsValidSType reports whether b is an SType defined by SEMI E37.
+//
+// Defined STypes are 0 (data message) and 1-7, 9 (control messages).
+// SType 8 and 10-255 are undefined and, per SEMI E37 §7.10.3, must be
+// answered with a Reject.req.
+func IsValidSType(b byte) bool {
+	switch int(b) {
+	case DataMsgType, SelectReqType, SelectRspType, DeselectReqType,
+		DeselectRspType, LinkTestReqType, LinkTestRspType, RejectReqType, SeparateReqType:
+		return true
+	default:
+		return false
+	}
+}
+
 // MsgInfo returns a structued message information without SML string.
 func MsgInfo(msg HSMSMessage, keyValues ...any) []any {
 	return msgInfo(msg, false, keyValues...)

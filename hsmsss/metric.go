@@ -18,7 +18,9 @@ type ConnectionMetrics struct {
 	DataMsgSendCount atomic.Uint64
 	// DataMsgRecvCount indicates the number of data messages received.
 	DataMsgRecvCount atomic.Uint64
-	// DataMsgErrCount indicates the number of data message errors.
+	// DataMsgErrCount indicates the number of data message errors, including
+	// decode/read failures and frames rejected due to an unsupported PType or
+	// SType (answered with a Reject.req while the connection remains open).
 	DataMsgErrCount atomic.Uint64
 	// DataMsgInflightCount indicates the number of data messages in flight.
 	DataMsgInflightCount atomic.Int64

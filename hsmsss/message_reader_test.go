@@ -311,6 +311,71 @@ func TestMessageReader_IdleTimeout_Partial(t *testing.T) {
 	require.Len(rawBody, 10)
 }
 
+// buildBadHeaderFrame builds a 14-byte HSMS frame (4-byte length + 10-byte
+// header) with the given PType and SType and a fixed session ID / system bytes.
+func buildBadHeaderFrame(pType, sType byte) []byte {
+	header := [10]byte{
+		0x25, 0x37, // session ID = 9527
+		0x00, 0x00, // stream / function
+		pType,
+		sType,
+		0x00, 0x00, 0x00, 0x2A, // system bytes = 42
+	}
+	frame := make([]byte, 4+len(header))
+	binary.BigEndian.PutUint32(frame[:4], uint32(len(header)))
+	copy(frame[4:], header[:])
+
+	return frame
+}
+
+// TestMessageReader_UnsupportedPType verifies that a frame with a non-zero
+// PType yields a headerRejectError carrying reject reason 2.
+func TestMessageReader_UnsupportedPType(t *testing.T) {
+	require := require.New(t)
+
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	reader := &messageReader{t8Timeout: 5 * time.Second, idleReadTimeout: 10 * time.Second}
+
+	go func() { _, _ = server.Write(buildBadHeaderFrame(0x01, hsms.LinkTestReqType)) }()
+
+	msg, _, err := reader.ReadMessage(client, make([]byte, 4))
+	require.Error(err)
+	require.Nil(msg)
+
+	var hre *headerRejectError
+	require.ErrorAs(err, &hre)
+	require.Equal(byte(hsms.RejectPTypeNotSupported), hre.reasonCode)
+	require.Equal(byte(0x01), hre.pType)
+	require.Equal(uint16(9527), hre.sessionID)
+	require.Equal([4]byte{0x00, 0x00, 0x00, 0x2A}, hre.systemBytes)
+}
+
+// TestMessageReader_UnsupportedSType verifies that a frame with an undefined
+// SType (8) yields a headerRejectError carrying reject reason 1.
+func TestMessageReader_UnsupportedSType(t *testing.T) {
+	require := require.New(t)
+
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	reader := &messageReader{t8Timeout: 5 * time.Second, idleReadTimeout: 10 * time.Second}
+
+	go func() { _, _ = server.Write(buildBadHeaderFrame(0x00, 0x08)) }()
+
+	msg, _, err := reader.ReadMessage(client, make([]byte, 4))
+	require.Error(err)
+	require.Nil(msg)
+
+	var hre *headerRejectError
+	require.ErrorAs(err, &hre)
+	require.Equal(byte(hsms.RejectSTypeNotSupported), hre.reasonCode)
+	require.Equal(byte(0x08), hre.sType)
+}
+
 // TestMessageReader_ConnCloseDuringIdleRead verifies that closing the connection
 // while the reader is looping on idle timeouts immediately unblocks and returns an error.
 func TestMessageReader_ConnCloseDuringIdleRead(t *testing.T) {

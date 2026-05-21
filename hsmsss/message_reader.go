@@ -11,6 +11,23 @@ import (
 	"github.com/arloliu/go-secs/secs2"
 )
 
+// headerRejectError signals that an HSMS frame was received with an unsupported
+// PType or SType. SEMI E37 §7.10.3 requires answering such a frame with a
+// Reject.req; receiverTask peels this error off with errors.As, builds the
+// Reject.req from its fields, and keeps the connection open.
+type headerRejectError struct {
+	sessionID   uint16
+	pType       byte
+	sType       byte
+	systemBytes [4]byte
+	reasonCode  byte
+}
+
+func (e *headerRejectError) Error() string {
+	return fmt.Sprintf("unsupported HSMS header: pType=%d sType=%d (reject reason %d)",
+		e.pType, e.sType, e.reasonCode)
+}
+
 // messageReader reads and decodes individual HSMS messages from a net.Conn.
 //
 // It implements the HSMS message framing protocol (SEMI E37 §7):
@@ -102,6 +119,30 @@ func (mr *messageReader) ReadMessage(conn net.Conn, lenBuf []byte) (msg hsms.HSM
 
 	if _, err = readFull(conn, rawBody, mr.t8Timeout); err != nil {
 		return nil, nil, fmt.Errorf("read message payload: %w", err)
+	}
+
+	// Phase 3.5: detect unsupported PType/SType. Per SEMI E37 §7.10.3 these
+	// must be answered with a Reject.req, not treated as a fatal decode error.
+	// A frame shorter than the 10-byte header has no usable header and falls
+	// through to DecodeMessage, which rejects it as a decode error.
+	if len(rawBody) >= hsms.HeaderSize {
+		pType := rawBody[4]
+		sType := rawBody[5]
+		if pType != 0 || !hsms.IsValidSType(sType) {
+			reason := byte(hsms.RejectSTypeNotSupported)
+			if pType != 0 {
+				reason = hsms.RejectPTypeNotSupported
+			}
+			hre := &headerRejectError{
+				sessionID:  binary.BigEndian.Uint16(rawBody[0:2]),
+				pType:      pType,
+				sType:      sType,
+				reasonCode: reason,
+			}
+			copy(hre.systemBytes[:], rawBody[6:10])
+
+			return nil, rawBody, hre
+		}
 	}
 
 	// Phase 4: decode.
