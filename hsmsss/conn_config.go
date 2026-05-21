@@ -350,6 +350,46 @@ func (cfg *ConnectionConfig) CloseConnTimeout() time.Duration {
 	return cfg.closeConnTimeout
 }
 
+// IsActive reports whether the connection operates in active mode.
+func (cfg *ConnectionConfig) IsActive() bool {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	return cfg.isActive
+}
+
+// IsEquip reports whether the connection is in the equipment role.
+func (cfg *ConnectionConfig) IsEquip() bool {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	return cfg.isEquip
+}
+
+// SendTimeout returns the timeout for sending messages to the remote device.
+func (cfg *ConnectionConfig) SendTimeout() time.Duration {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	return cfg.sendTimeout
+}
+
+// TraceTraffic reports whether network-traffic tracing is enabled.
+func (cfg *ConnectionConfig) TraceTraffic() bool {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	return cfg.traceTraffic
+}
+
+// ValidateDataMessage reports whether inbound data-message validation is enabled.
+func (cfg *ConnectionConfig) ValidateDataMessage() bool {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	return cfg.validateDataMessage
+}
+
 // ConnOption represents a functional option for configuring a ConnectionConfig.
 type ConnOption interface {
 	apply(*ConnectionConfig) error

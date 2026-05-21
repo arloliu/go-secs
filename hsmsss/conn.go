@@ -157,7 +157,7 @@ func NewConnection(ctx context.Context, cfg *ConnectionConfig) (*Connection, err
 	// connCtxVal starts as nil; connCtx() returns context.Background() for nil.
 	// The real context is set in doOpen() before any goroutines are started.
 
-	if cfg.isActive {
+	if cfg.IsActive() {
 		conn.stateMgr = hsms.NewConnStateMgr(ctx, conn, conn.activeConnStateHandler)
 	} else {
 		conn.stateMgr = hsms.NewConnStateMgr(ctx, conn, conn.passiveConnStateHandler)
@@ -176,8 +176,16 @@ func (c *Connection) UpdateConfigOptions(opts ...ConnOption) error {
 
 	// apply all options
 	for _, opt := range opts {
-		if _, ok := opt.(*connOptFunc); !ok {
+		fnOpt, ok := opt.(*connOptFunc)
+		if !ok {
 			return errors.New("invalid ConnOption type")
+		}
+
+		// Reject options that cannot be changed after construction. Applying
+		// e.g. WithPassive/WithActive at runtime would desync the state-manager
+		// handler (chosen once in NewConnection) from receiver dispatch.
+		if !fnOpt.runtime {
+			return fmt.Errorf("option %q cannot be changed at runtime", fnOpt.name)
 		}
 
 		if err := opt.apply(c.cfg); err != nil {
@@ -291,7 +299,7 @@ func (c *Connection) doOpen(waitOpened bool) error {
 	c.loopCtxVal.Store(&ctxHolder{ctx: loopCtx})
 	c.loopCancelFn.Store(&cancelHolder{cancel: loopCancel})
 
-	if c.cfg.isActive {
+	if c.cfg.IsActive() {
 		c.openActive(connCtx, loopCtx)
 
 		if waitOpened {
@@ -479,7 +487,7 @@ func (c *Connection) closeTCP(timeout time.Duration) string {
 		}
 	}
 
-	if !c.cfg.isActive {
+	if !c.cfg.IsActive() {
 		c.connCount.Add(-1)
 	}
 
@@ -703,7 +711,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 		c.logger.Warn("send message timeout", append(msgInfoForLog, "timeout", timeout)...)
 		if isDataMsg {
 			// If entity is equipment, send SECS-II S9F9 when t3/t6 timeout.
-			if c.cfg.isEquip {
+			if c.cfg.IsEquip() {
 				_, _ = c.session.SendSECS2Message(gem.S9F9())
 			}
 
@@ -754,7 +762,7 @@ func (c *Connection) sendMsgSync(msg hsms.HSMSMessage) error {
 
 	buf := msg.ToBytes()
 
-	if c.cfg.traceTraffic {
+	if c.cfg.TraceTraffic() {
 		c.logger.Info("trace: send message", hsms.MsgInfo(msg, "raw", hsms.MsgHexString(buf))...)
 	}
 
@@ -767,14 +775,14 @@ func (c *Connection) sendMsgSync(msg hsms.HSMSMessage) error {
 			return hsms.ErrConnClosed
 		}
 
-		err := conn.SetWriteDeadline(time.Now().Add(c.cfg.sendTimeout))
+		err := conn.SetWriteDeadline(time.Now().Add(c.cfg.SendTimeout()))
 		if err != nil {
 			return err
 		}
 
 		isDebugLevel := c.logger.Level() == logger.DebugLevel
 		if isDebugLevel {
-			c.logger.Debug("try to send message to remote", hsms.MsgInfo(msg, "method", "sendMsgSync", "timeout", c.cfg.sendTimeout)...)
+			c.logger.Debug("try to send message to remote", hsms.MsgInfo(msg, "method", "sendMsgSync", "timeout", c.cfg.SendTimeout())...)
 		}
 
 		// write to buffered writer
@@ -813,7 +821,7 @@ func (c *Connection) sendMsgAsync(msg hsms.HSMSMessage) error {
 
 // queueSendRequest puts a sendRequest onto the senderTask's channel.
 func (c *Connection) queueSendRequest(req *sendRequest) error {
-	timer := pool.GetTimer(c.cfg.sendTimeout)
+	timer := pool.GetTimer(c.cfg.SendTimeout())
 	defer pool.PutTimer(timer)
 
 	select {
@@ -959,7 +967,7 @@ func (c *Connection) receiverTask(msgLenBuf []byte) bool {
 		// but could not be decoded). Note: msg is nil on decode failure, so we must
 		// NOT pass it to hsms.MsgInfo which would panic on nil.
 		switch {
-		case rawBody != nil && c.cfg.traceTraffic:
+		case rawBody != nil && c.cfg.TraceTraffic():
 			c.logger.Error("failed to decode HSMS message",
 				"method", "receiverTask",
 				"error", err,
@@ -978,13 +986,13 @@ func (c *Connection) receiverTask(msgLenBuf []byte) bool {
 		return false
 	}
 
-	if c.cfg.traceTraffic {
+	if c.cfg.TraceTraffic() {
 		c.logger.Info("trace: received message", hsms.MsgInfo(msg, "raw", hsms.MsgHexString(msgLenBuf, rawBody))...)
 	}
 
 	c.metrics.incDataMsgRecvCount()
 
-	if c.cfg.isActive {
+	if c.cfg.IsActive() {
 		c.recvMsgActive(msg)
 	} else {
 		c.recvMsgPassive(msg)
@@ -1098,7 +1106,7 @@ func (c *Connection) linktestConnStateHandler(_ hsms.Connection, _ hsms.ConnStat
 		// reset consecutive failure counter on fresh connection
 		c.linktestFailCount.Store(0)
 
-		ticker, err := c.taskMgr.StartInterval("autoLinktestTask", c.autoLinktestTask, c.cfg.linktestInterval, false)
+		ticker, err := c.taskMgr.StartInterval("autoLinktestTask", c.autoLinktestTask, c.cfg.LinktestInterval(), false)
 		if err != nil {
 			c.logger.Error("failed to start linktest ticker", "error", err)
 			return
@@ -1163,7 +1171,7 @@ func (c *Connection) autoLinktestTask() bool {
 }
 
 func (c *Connection) validateMsg(msg hsms.HSMSMessage) error {
-	if !c.cfg.validateDataMessage {
+	if !c.cfg.ValidateDataMessage() {
 		return nil // skip validation if not enabled
 	}
 

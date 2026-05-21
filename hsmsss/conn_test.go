@@ -2326,3 +2326,75 @@ func TestPassiveSelectedHandlerDoesNotBlockReceiver(t *testing.T) {
 	require.NoError(t, err,
 		"active S1F1 was not replied within T3 — receiver blocked by passive SelectedState handler (deadlock regression)")
 }
+
+// TestUpdateConfigOptions_RejectsNonRuntimeOption verifies that options marked
+// non-runtime (mode/role/queue sizes/logger) are rejected by UpdateConfigOptions,
+// since applying them after construction desyncs the state-manager handler.
+func TestUpdateConfigOptions_RejectsNonRuntimeOption(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+
+	conn := newConn(ctx, require, getPort(), true, true)
+	_ = conn.AddSession(testSessionID)
+
+	// WithPassive is a non-runtime option — must be rejected.
+	err := conn.UpdateConfigOptions(WithPassive())
+	require.Error(err)
+	require.Contains(err.Error(), "runtime")
+
+	// Runtime options must still be accepted.
+	require.NoError(conn.UpdateConfigOptions(WithTraceTraffic(true)))
+}
+
+// TestConnection_RuntimeConfigRace toggles runtime-mutable options while data
+// messages are in flight. Before the fix, sendMsg/sendMsgSync/validateMsg read
+// sendTimeout/traceTraffic/validateDataMessage as raw fields while the WithXxx
+// setters write them under cfg.mu — `go test -race` flags this.
+func TestConnection_RuntimeConfigRace(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	hostComm := newTestComm(ctx, t, port, true, true, WithCloseConnTimeout(2*time.Second))
+	eqpComm := newTestComm(ctx, t, port, false, false, WithCloseConnTimeout(2*time.Second))
+
+	require.NoError(eqpComm.open(true))
+	require.NoError(hostComm.open(true))
+	defer func() {
+		require.NoError(hostComm.close())
+		require.NoError(eqpComm.close())
+	}()
+
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+	require.NoError(eqpComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		on := false
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			on = !on
+			_ = hostComm.conn.UpdateConfigOptions(
+				WithTraceTraffic(on),
+				WithValidateDataMessage(on),
+				WithSendTimeout(time.Duration(1+rand.Intn(5))*time.Second),
+				WithLinktestInterval(time.Duration(1+rand.Intn(10))*time.Second),
+			)
+		}
+	}()
+
+	for range 50 {
+		_, _ = hostComm.session.SendDataMessage(1, 1, true, secs2.A("race"))
+	}
+
+	close(stop)
+	wg.Wait()
+}
