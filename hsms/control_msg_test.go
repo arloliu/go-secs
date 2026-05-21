@@ -81,6 +81,17 @@ func TestControlMessage_Set(t *testing.T) {
 	require.Equal(msg.SystemBytes(), clonedDataMsg.SystemBytes())
 }
 
+// TestIsValidSType covers the SType values defined by SEMI E37: 0 (data) and
+// 1-7, 9 (control). 8 and 10+ are undefined.
+func TestIsValidSType(t *testing.T) {
+	for _, b := range []byte{0, 1, 2, 3, 4, 5, 6, 7, 9} {
+		require.True(t, IsValidSType(b), "SType %d must be valid", b)
+	}
+	for _, b := range []byte{8, 10, 11, 100, 255} {
+		require.False(t, IsValidSType(b), "SType %d must be invalid", b)
+	}
+}
+
 func TestControlMessage_Marshal_Unmarshal(t *testing.T) {
 	require := require.New(t)
 	systemBytes := []byte{0x12, 0x34, 0x56, 0x78}

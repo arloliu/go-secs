@@ -2465,3 +2465,80 @@ func TestConnection_DataMsgInflightCountBalanced(t *testing.T) {
 	require.Equal(int64(0), hostComm.conn.GetMetrics().DataMsgInflightCount.Load(),
 		"DataMsgInflightCount must be 0 after one successful W-bit exchange")
 }
+
+// TestReceiverTask_UnsupportedHeaderSendsReject verifies that a frame with an
+// unsupported PType or SType makes receiverTask send a Reject.req carrying the
+// correct reason code and header byte 2 (SEMI E37 §8.3.21.2) and KEEP the
+// connection — receiverTask must return true, not drop the link.
+func TestReceiverTask_UnsupportedHeaderSendsReject(t *testing.T) {
+	tests := []struct {
+		name       string
+		pType      byte
+		sType      byte
+		wantReason byte
+		wantByte2  byte // Reject.req header[2] per §8.3.21.2
+	}{
+		{"unsupported PType", 0x01, hsms.LinkTestReqType, hsms.RejectPTypeNotSupported, 0x01},
+		{"unsupported SType", 0x00, 0x08, hsms.RejectSTypeNotSupported, 0x08},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctx := t.Context()
+
+			conn := newConn(ctx, require, getPort(), false, false,
+				WithAutoLinktest(false),
+				WithT7Timeout(30*time.Second),
+				WithCloseConnTimeout(1*time.Second),
+			)
+			_ = conn.AddSession(testSessionID)
+
+			client, server := net.Pipe()
+			defer client.Close()
+			defer server.Close()
+			conn.setupResources(client)
+
+			connCtx, connCancel := context.WithCancel(ctx)
+			conn.connCtxVal.Store(&ctxHolder{ctx: connCtx})
+			conn.connCancelFn.Store(&cancelHolder{cancel: connCancel})
+
+			// Start only the senderTask so the Reject.req can reach the wire.
+			require.NoError(conn.taskMgr.Start("senderTask", conn.senderLoop))
+			t.Cleanup(func() {
+				connCancel()
+				conn.taskMgr.Stop()
+				_ = client.Close()
+				conn.taskMgr.Wait()
+			})
+
+			// Feed a frame with the unsupported header from the peer.
+			go func() {
+				header := []byte{
+					0x25, 0x37, // session ID = 9527
+					0x00, 0x00,
+					tc.pType,
+					tc.sType,
+					0x00, 0x00, 0x00, 0x2A, // system bytes = 42
+				}
+				frame := make([]byte, 4+len(header))
+				binary.BigEndian.PutUint32(frame[:4], uint32(len(header)))
+				copy(frame[4:], header)
+				_, _ = server.Write(frame)
+			}()
+
+			// One receiver iteration: must NOT drop the connection.
+			cont := conn.receiverTask(make([]byte, 4))
+			require.True(cont, "receiverTask must return true for an unsupported-header frame")
+
+			// The peer must receive a Reject.req with the expected reason.
+			reject := readNextControlFrame(t, server)
+			require.Equal(byte(hsms.RejectReqType), reject[5], "expected Reject.req SType")
+			require.Equal(tc.wantReason, reject[3], "unexpected reject reason code")
+			require.Equal(tc.wantByte2, reject[2],
+				"Reject.req header byte 2 must echo PType/SType per SEMI E37 §8.3.21.2")
+			require.Equal([]byte{0x00, 0x00, 0x00, 0x2A}, reject[6:10],
+				"system bytes must echo the rejected message per §8.3.21.4")
+		})
+	}
+}
