@@ -158,6 +158,9 @@ func TestMessageReader_T8Timeout(t *testing.T) {
 	var netErr net.Error
 	require.ErrorAs(err, &netErr)
 	require.True(netErr.Timeout())
+
+	// The error must also be classifiable as a T8 timeout.
+	require.ErrorIs(err, hsms.ErrT8Timeout)
 }
 
 // TestMessageReader_DecodeError verifies that a payload that cannot be decoded
