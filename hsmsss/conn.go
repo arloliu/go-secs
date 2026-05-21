@@ -1068,9 +1068,6 @@ func (c *Connection) replyToSender(msg hsms.HSMSMessage) {
 		return
 	}
 
-	// decrement inflight count when a reply message is matched to a waiting sender
-	c.metrics.decDataMsgInflightCount()
-
 	// set timeout for reply channel to avoid blocking forever
 	// if the reply channel is full, it means the senderTask is not ready to receive the reply message.
 	timer := pool.GetTimer(replyChannelTimeout)
