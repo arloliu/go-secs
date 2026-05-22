@@ -585,6 +585,27 @@ func (c *Connection) closeConn(timeout time.Duration) error {
 		closeErr = fmt.Errorf("close timeout: %w", closeCtx.Err())
 	} else {
 		c.logger.Debug("context closed", "method", "closeConn")
+
+		// taskMgr.Wait() completed before the close timeout (closeCtx was
+		// cancelled, not deadline-exceeded), so every producer task — the
+		// receiver included — has exited and nothing can enqueue onto
+		// senderMsgChan anymore. Drain it a final time: a receiver-originated
+		// send can win queueSendRequest in the window between the step-3 drain
+		// and the connCtx cancellation (step 4), and senderMsgChan persists for
+		// the Connection's lifetime, so without this drain such a frame would be
+		// flushed onto the next connection with stale system bytes and session
+		// ID.
+		//
+		// This runs on the closeConn goroutine, before the opState transition
+		// to Closed (step 10), so the connection cannot have been reopened and
+		// the drain can never touch a later connection's sends. It is
+		// deliberately skipped on the timeout branch above, where producer
+		// tasks may still be alive and a drain would race them.
+		//
+		// context.Background() is required, not closeCtx: drainSenderMsgChan
+		// selects on ctx.Done(), and the already-cancelled closeCtx would let
+		// it return before the channel is empty.
+		c.drainSenderMsgChan(context.Background())
 	}
 
 	// 9. cleanup reply channels and queue

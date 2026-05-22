@@ -1750,6 +1750,82 @@ func TestConnection_SendRequestDrainOnClose(t *testing.T) {
 	wg.Wait()
 }
 
+// TestConnection_CloseDrainsStrandedSenderFrame verifies that a sendRequest
+// enqueued onto senderMsgChan during the closeConn teardown window — after the
+// step-3 drain but before connCtx is cancelled at step 4 — is reclaimed by the
+// post-Wait final drain and is never carried into a later connection.
+//
+// senderMsgChan persists for the Connection's lifetime; without the post-Wait
+// drain a frame stranded in this window survives teardown. The receiver task
+// reaches queueSendRequest for every control reply, so the window is genuinely
+// reachable in production.
+//
+// The window is a few instructions wide, so the test races a continuously
+// hammering injector against many open/close cycles. The injector is registered
+// as a taskMgr task: closeConn's taskMgr.Stop() signals it and taskMgr.Wait()
+// joins it before the final drain runs, so the drain provably executes after the
+// injector has stopped — there are no stragglers, and the assertion is exact.
+// CloseConnTimeout is generous (5s) so close always takes the non-timeout
+// branch that performs the drain, even under -race with the injector loaded.
+func TestConnection_CloseDrainsStrandedSenderFrame(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+
+	const iterations = 50
+
+	for i := range iterations {
+		// Each iteration runs in its own closure so the deferred connection
+		// cleanup fires at iteration end — and still fires if any require in
+		// the iteration body trips, instead of leaking both connections.
+		func() {
+			port := getPort()
+			hostComm := newTestComm(ctx, t, port, true, true,
+				WithSenderQueueSize(100),
+				WithCloseConnTimeout(5*time.Second),
+			)
+			eqpComm := newTestComm(ctx, t, port, false, false)
+			// Connection.Close() is idempotent (closeConn returns nil once
+			// opState.IsClosed()), so a deferred close after the explicit
+			// close-under-test below is a harmless no-op on the success path.
+			defer eqpComm.close()
+			defer hostComm.close()
+
+			require.NoError(eqpComm.open(true))
+			require.NoError(hostComm.open(true))
+			require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+			c := hostComm.conn
+
+			// Injector: stand in for a receiver-originated send. Registered as a
+			// taskMgr task so closeConn joins it via taskMgr.Wait() before the
+			// final drain runs. Each invocation hammers the production enqueue
+			// path once; it stops only when connCtx cancellation rejects the send.
+			require.NoError(c.taskMgr.Start("test-injector", func() bool {
+				req := &sendRequest{msg: hsms.NewLinktestReq(hsms.ToSystemBytes(1))}
+				if err := c.queueSendRequest(req); err != nil {
+					req.msg.Free()
+					if errors.Is(err, hsms.ErrConnClosed) {
+						return false // connCtx cancelled — stop
+					}
+
+					return true // ErrSendMsgTimeout — channel full, keep trying
+				}
+
+				return true
+			}))
+
+			require.NoError(hostComm.close())
+
+			// hostComm.close() has returned: every task (the injector included)
+			// has exited and the post-Wait drain has run. senderMsgChan must be
+			// empty.
+			require.Equal(0, len(c.senderMsgChan),
+				"iteration %d: senderMsgChan must be empty after close — a "+
+					"stranded frame would be flushed onto the next connection", i)
+		}()
+	}
+}
+
 // TestConnection_ReceiverTask_DecodeErrorNoPanic verifies that receiverTask
 // does not panic on decode errors when traceTraffic is enabled.
 //
