@@ -163,6 +163,45 @@ func TestMessageReader_T8Timeout(t *testing.T) {
 	require.ErrorIs(err, hsms.ErrT8Timeout)
 }
 
+// TestMessageReader_PartialHeader_T8Timeout verifies that once reception of a
+// message has begun, a stall mid-way through the 4-byte length header is a
+// communications failure governed by T8 — SEMI E37 §4.1.32 / §9.2.3.1 — not an
+// idle wait. The reader must fail within ~T8, classifiable as hsms.ErrT8Timeout.
+func TestMessageReader_PartialHeader_T8Timeout(t *testing.T) {
+	require := require.New(t)
+
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	// idleReadTimeout is deliberately far larger than t8Timeout so that a fast
+	// return proves T8 — not the idle timeout — fired.
+	reader := &messageReader{t8Timeout: 50 * time.Millisecond, idleReadTimeout: 10 * time.Second}
+
+	// Write 2 of the 4 length-header bytes, then stall forever.
+	go func() {
+		_, _ = server.Write([]byte{0x00, 0x00})
+	}()
+
+	lenBuf := make([]byte, 4)
+	var err error
+	done := make(chan struct{})
+	go func() {
+		_, _, err = reader.ReadMessage(client, lenBuf)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("ReadMessage did not fail within T8 on a stalled partial length header")
+	}
+
+	require.Error(err)
+	require.ErrorIs(err, hsms.ErrT8Timeout)
+	require.Contains(err.Error(), "read message length")
+}
+
 // TestMessageReader_DecodeError verifies that a payload that cannot be decoded
 // returns an error along with the raw body bytes for diagnostics.
 func TestMessageReader_DecodeError(t *testing.T) {
@@ -267,9 +306,11 @@ func TestMessageReader_IdleTimeout_Clean(t *testing.T) {
 	require.Len(rawBody, 10)
 }
 
-// TestMessageReader_IdleTimeout_Partial verifies that when a timeout occurs mid-header,
-// the reader correctly queues the remaining bytes in the next iteration.
-func TestMessageReader_IdleTimeout_Partial(t *testing.T) {
+// TestMessageReader_PartialHeader_WithinT8 verifies that a partial length header
+// followed by a gap shorter than T8 completes successfully: once reception has
+// begun, T8 (not the idle timeout) governs the inter-byte gap, and a 50 ms gap
+// is well within the 5 s T8 configured here.
+func TestMessageReader_PartialHeader_WithinT8(t *testing.T) {
 	require := require.New(t)
 
 	client, server := net.Pipe()

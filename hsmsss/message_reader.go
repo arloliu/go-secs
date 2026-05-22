@@ -31,7 +31,7 @@ func (e *headerRejectError) Error() string {
 // messageReader reads and decodes individual HSMS messages from a net.Conn.
 //
 // It implements the HSMS message framing protocol (SEMI E37 §7):
-//  1. Read 4-byte big-endian message length (periodic deadline to avoid infinite blocking)
+//  1. Read 4-byte big-endian message length (idle timeout before the first byte; T8 once a partial header exists, per SEMI E37 §9.2.3.1)
 //  2. Validate length (non-zero, ≤ secs2.MaxByteSize)
 //  3. Set T8 timeout and read the message payload
 //  4. Decode into an HSMSMessage via hsms.DecodeMessage
@@ -57,15 +57,20 @@ type messageReader struct {
 // the appropriate log level. When decoding fails, rawBody is still returned
 // to allow hex-dump logging of the malformed payload.
 func (mr *messageReader) ReadMessage(conn net.Conn, lenBuf []byte) (msg hsms.HSMSMessage, rawBody []byte, err error) {
-	// Phase 1: read the 4-byte length header with periodic deadline.
+	// Phase 1: read the 4-byte length header.
 	//
 	// Uses raw conn.Read with manual offset tracking instead of io.ReadFull
 	// to correctly handle partial reads across deadline expirations.
 	//
-	// On each iteration a fresh deadline is set. If the deadline fires:
-	//   - With 0 bytes read in that iteration → idle timeout, safe to loop
-	//     (this lets runTaskLoop's ctx.Done() check fire between iterations).
-	//   - With >0 bytes read → partial data arrived, continue reading remainder.
+	// Two deadlines govern this loop:
+	//   - Before the first byte (totalRead == 0): the idle timeout. A timeout
+	//     with 0 bytes read is a clean idle wait — loop, letting the receiver
+	//     observe a closed connection between iterations. No message is in
+	//     progress, so nothing has failed.
+	//   - After the first byte (totalRead > 0): T8. SEMI E37 §4.1.32 / §9.2.3.1
+	//     make T8 the limit between any two successive bytes of a partial
+	//     message — the length header included. A T8 expiry with no further
+	//     byte is a communications failure, not an idle wait.
 	// Any non-timeout error (EOF, connection reset, etc.) is fatal.
 	idleTimeout := mr.idleReadTimeout
 	if idleTimeout <= 0 {
@@ -74,7 +79,14 @@ func (mr *messageReader) ReadMessage(conn net.Conn, lenBuf []byte) (msg hsms.HSM
 
 	totalRead := 0
 	for totalRead < 4 {
-		if err = conn.SetReadDeadline(time.Now().Add(idleTimeout)); err != nil {
+		deadline := idleTimeout
+		if totalRead > 0 {
+			// A partial length header has arrived; T8 governs the gap to the
+			// next byte (SEMI E37 §4.1.32 / §9.2.3.1).
+			deadline = mr.t8Timeout
+		}
+
+		if err = conn.SetReadDeadline(time.Now().Add(deadline)); err != nil {
 			return nil, nil, fmt.Errorf("set read deadline: %w", err)
 		}
 
@@ -88,9 +100,16 @@ func (mr *messageReader) ReadMessage(conn net.Conn, lenBuf []byte) (msg hsms.HSM
 
 			var netErr net.Error
 			if errors.As(readErr, &netErr) && netErr.Timeout() {
-				// Timeout — if some data arrived (n > 0), keep looping to read
-				// remaining header bytes. If no data arrived (n == 0), this is a
-				// clean idle timeout; loop to allow ctx.Done() check.
+				if totalRead > 0 && n == 0 {
+					// Reception of a message has begun but no further byte
+					// arrived within T8 — a communications failure per
+					// SEMI E37 §9.2.3.1.
+					return nil, nil, fmt.Errorf("read message length: %w: %w", hsms.ErrT8Timeout, readErr)
+				}
+
+				// totalRead == 0: clean idle timeout, loop to let the receiver
+				// observe a closed connection. n > 0: a byte arrived, reset T8
+				// for the next inter-byte gap.
 				continue
 			}
 
