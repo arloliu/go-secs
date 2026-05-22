@@ -1765,8 +1765,8 @@ func TestConnection_SendRequestDrainOnClose(t *testing.T) {
 // as a taskMgr task: closeConn's taskMgr.Stop() signals it and taskMgr.Wait()
 // joins it before the final drain runs, so the drain provably executes after the
 // injector has stopped — there are no stragglers, and the assertion is exact.
-// CloseConnTimeout is generous (5s) so close always takes the non-timeout
-// branch that performs the drain, even under -race with the injector loaded.
+// CloseConnTimeout is generous (5s) so close completes well within the timeout
+// even under -race with the injector loaded.
 func TestConnection_CloseDrainsStrandedSenderFrame(t *testing.T) {
 	require := require.New(t)
 	ctx := t.Context()
@@ -1824,6 +1824,53 @@ func TestConnection_CloseDrainsStrandedSenderFrame(t *testing.T) {
 					"stranded frame would be flushed onto the next connection", i)
 		}()
 	}
+}
+
+// TestConnection_CloseGateRefusesSendsAfterClose verifies the send gate: once
+// closeConn has run, queueSendRequest deterministically refuses every enqueue
+// with ErrConnClosed, so no frame — from a taskMgr task or an external sendMsg
+// caller alike — can be stranded in the persistent senderMsgChan for the next
+// connection to flush.
+//
+// This is deterministic in both -race and non-race modes: it issues the sends
+// strictly after close() returns, so it depends on no teardown timing window.
+// Without the gate, queueSendRequest's select races connCtx.Done() against the
+// buffered-channel send and pseudo-randomly enqueues roughly half of these
+// post-close calls; with the gate every post-close call is refused.
+func TestConnection_CloseGateRefusesSendsAfterClose(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithSenderQueueSize(100),
+		WithCloseConnTimeout(5*time.Second),
+	)
+	eqpComm := newTestComm(ctx, t, port, false, false)
+	defer eqpComm.close()
+
+	require.NoError(eqpComm.open(true))
+	require.NoError(hostComm.open(true))
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+	c := hostComm.conn
+
+	// Close the host connection. After close() returns, the send gate is shut.
+	require.NoError(hostComm.close())
+
+	// Every queueSendRequest after close must be refused with ErrConnClosed and
+	// must NOT enqueue. Without the gate, the racy select would enqueue roughly
+	// half of these, stranding frames in the persistent senderMsgChan.
+	for j := range 100 {
+		req := &sendRequest{msg: hsms.NewLinktestReq(hsms.ToSystemBytes(1))}
+		err := c.queueSendRequest(req)
+		req.msg.Free()
+		require.ErrorIs(err, hsms.ErrConnClosed,
+			"call %d: queueSendRequest must refuse every send after close", j)
+	}
+
+	require.Equal(0, len(c.senderMsgChan),
+		"no frame may be enqueued into senderMsgChan after close")
 }
 
 // TestConnection_ReceiverTask_DecodeErrorNoPanic verifies that receiverTask
