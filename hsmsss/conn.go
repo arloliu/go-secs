@@ -893,7 +893,9 @@ func (c *Connection) removeReplyExpectedMsg(id uint32) {
 	c.replyMsgChans.Delete(id)
 }
 
-// dropAllReplyMsgs closes all reply channels in the replyMsgChans map, effectively dropping any pending replies.
+// dropAllReplyMsgs closes every reply channel in replyMsgChans and clears the
+// replyErrs map, dropping any pending replies and discarding any transaction
+// errors stranded by a connCtx-done race in replyErrToSender.
 func (c *Connection) dropAllReplyMsgs() {
 	// close all reply channels and free any buffered messages
 	c.replyMsgChans.Range(func(id uint32, ch chan hsms.HSMSMessage) bool {
@@ -911,6 +913,12 @@ func (c *Connection) dropAllReplyMsgs() {
 	})
 
 	c.replyMsgChans.Clear()
+
+	// replyErrs is transaction-scoped; clear it alongside replyMsgChans so an
+	// error stranded by a connCtx-done race in replyErrToSender cannot outlive
+	// the connection. dropAllReplyMsgs runs after connCtx is cancelled and the
+	// senders have woken, so this is definitive.
+	c.replyErrs.Clear()
 }
 
 func (c *Connection) cancelSenderTask() {
