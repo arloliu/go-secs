@@ -79,16 +79,25 @@ func (c *Connection) activeConnStateHandler(_ hsms.Connection, prevState hsms.Co
 		// by the T6 timeout. If the socket abruptly drops during this handshake, the
 		// StateManager must remain unblocked to instantly process the NotConnected event,
 		// cancel the connection context, and interrupt this handshake immediately.
-		go func() {
-			err := c.session.selectSession()
-			if err != nil {
+		//
+		// Registered as a one-shot taskMgr task (not a raw `go func()`) so closeConn's
+		// taskMgr.Wait() joins it before the post-Wait senderMsgChan drain — the
+		// handshake calls queueSendRequest for the Select.req, so without joining it
+		// here the drain's "every producer has exited" invariant would have a hole.
+		if err := c.taskMgr.Start("selectSessionTask", func() bool {
+			if err := c.session.selectSession(); err != nil {
 				c.logger.Debug("failed to select session, switch to not-connected", "error", err)
 				c.stateMgr.ToNotConnectedAsync()
 			} else {
 				c.logger.Debug("session selected, switch to selected state")
 				c.stateMgr.ToSelectedAsync()
 			}
-		}()
+
+			return false // one-shot — the handshake is not a loop
+		}); err != nil {
+			c.logger.Error("failed to start selectSession task", "error", err)
+			c.stateMgr.ToNotConnectedAsync()
+		}
 
 	case hsms.NotConnectedState:
 		if c.opState.IsOpened() && !c.deselected.Load() {
