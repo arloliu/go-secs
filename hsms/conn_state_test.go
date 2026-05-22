@@ -693,6 +693,53 @@ func TestAsyncHandler_EveryTransitionDelivered(t *testing.T) {
 	require.Equal(want, got, "async handler must observe every transition in FIFO order")
 }
 
+// TestAsyncHandler_IdempotentToNotConnectedNotDelivered verifies that an
+// idempotent ToNotConnected() call — invoked while already in
+// NotConnectedState — is suppressed on the async path, so user-facing async
+// handlers never observe a prev==next pair. The synchronous handler list must
+// still run, preserving the forced-cleanup contract ToNotConnected relies on.
+func TestAsyncHandler_IdempotentToNotConnectedNotDelivered(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+
+	cs := NewConnStateMgr(ctx, &ssConn{})
+
+	var syncCount atomic.Int32
+	cs.AddHandler(func(_ Connection, _, _ ConnState) {
+		syncCount.Add(1)
+	})
+
+	type ev struct{ prev, next ConnState }
+	events := make(chan ev, 8)
+	cs.AddAsyncHandler(func(_ Connection, prev, next ConnState) {
+		events <- ev{prev, next}
+	})
+
+	cs.Start()
+	defer cs.Stop()
+
+	// State starts at NotConnectedState, so this call is idempotent.
+	require.Equal(NotConnectedState, cs.State())
+	cs.ToNotConnected()
+
+	// A real transition follows. Its async event must arrive first — proving
+	// the idempotent call published nothing, without a sleep-based negative.
+	require.NoError(cs.ToConnecting())
+
+	select {
+	case e := <-events:
+		require.Equal(ev{NotConnectedState, ConnectingState}, e,
+			"first async event must be the real transition, not the idempotent prev==next pair")
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for async event")
+	}
+
+	// The synchronous handler must still fire for both calls: the idempotent
+	// ToNotConnected (forced-cleanup contract) and the real ToConnecting.
+	require.Equal(int32(2), syncCount.Load(),
+		"sync handler must fire on idempotent ToNotConnected and on ToConnecting")
+}
+
 // TestAsyncHandler_RegistrationOrder verifies that multiple async handlers
 // registered on the same ConnStateMgr are invoked in registration order for
 // each transition, matching the documented contract.
