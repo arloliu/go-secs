@@ -762,6 +762,12 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 		c.metrics.decDataMsgInflightCount()
 
 		if replyMsg == nil {
+			// The transaction is terminating (peer Reject.req or send
+			// failure); drop the reply channel so it does not leak while the
+			// connection stays up — every other terminal path of sendMsg
+			// already does this.
+			c.removeReplyExpectedMsg(id)
+
 			// check if error existed
 			if err, ok := c.replyErrs.LoadAndDelete(id); ok {
 				return nil, err

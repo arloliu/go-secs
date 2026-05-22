@@ -1624,6 +1624,81 @@ func TestConnection_TwoPhase_SentChan(t *testing.T) {
 	}
 }
 
+// TestConnection_SendMsg_PeerReject_NoReplyChanLeak verifies that when a W-bit
+// transaction is terminated by a peer Reject.req (sendMsg's replyMsg == nil
+// branch), the transaction's reply channel is removed from replyMsgChans.
+// Without the fix the entry leaks while the connection stays up.
+func TestConnection_SendMsg_PeerReject_NoReplyChanLeak(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+
+	cfg, err := NewConnectionConfig("localhost", 6666, WithHostRole())
+	require.NoError(err)
+	conn, err := NewConnection(ctx, cfg)
+	require.NoError(err)
+
+	// A Linktest.req carries the W-bit and is not a data message, so sendMsg
+	// takes the 2-phase path without needing the connection to be Selected.
+	const id = uint32(7)
+	req := hsms.NewLinktestReq(hsms.ToSystemBytes(id))
+	require.True(req.WaitBit(), "linktest.req must carry the W-bit")
+
+	var sendErr error
+	sendDone := make(chan struct{})
+	go func() {
+		_, sendErr = conn.sendMsg(req)
+		close(sendDone)
+	}()
+
+	// Stand in for the senderTask: pull the queued request and confirm Phase 1.
+	var sr *sendRequest
+	select {
+	case sr = <-conn.senderMsgChan:
+	case <-time.After(time.Second):
+		t.Fatal("sendMsg never queued the request")
+	}
+	require.NotNil(sr.sentChan, "W-bit send must carry a sentChan")
+	sr.sentChan <- nil // Phase 1: message is "on the wire"
+	sr.msg.Free()      // we took ownership as the fake senderTask
+
+	// sendMsg is now in Phase 2 waiting on its reply channel. Deliver a peer
+	// Reject.req for this transaction (replyErrToSender keys off msg.ID()).
+	sentinel := errors.New("peer reject for test")
+	conn.replyErrToSender(hsms.NewLinktestReq(hsms.ToSystemBytes(id)), sentinel)
+
+	select {
+	case <-sendDone:
+	case <-time.After(time.Second):
+		t.Fatal("sendMsg did not return after the peer reject")
+	}
+
+	require.ErrorIs(sendErr, sentinel)
+	require.Equal(0, conn.replyMsgChans.Size(),
+		"replyMsgChans must not leak the reply channel after a peer reject")
+}
+
+// TestConnection_DropAllReplyMsgs_ClearsReplyErrs verifies that dropAllReplyMsgs
+// clears the replyErrs map. replyErrs is transaction-scoped: an entry stranded
+// by a connCtx-done race in replyErrToSender must not outlive the connection.
+func TestConnection_DropAllReplyMsgs_ClearsReplyErrs(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+
+	cfg, err := NewConnectionConfig("localhost", 6666, WithHostRole())
+	require.NoError(err)
+	conn, err := NewConnection(ctx, cfg)
+	require.NoError(err)
+
+	// Simulate an entry orphaned by the connCtx-done race in replyErrToSender.
+	conn.replyErrs.Store(uint32(11), hsms.ErrConnClosed)
+	require.Equal(1, conn.replyErrs.Size())
+
+	conn.dropAllReplyMsgs()
+
+	require.Equal(0, conn.replyErrs.Size(),
+		"dropAllReplyMsgs must clear replyErrs so transaction errors do not outlive the connection")
+}
+
 // TestConnection_SendRequestDrainOnClose verifies that pending sendRequests
 // are properly drained and their sentChans signaled with ErrConnClosed
 // when the connection is closed, preventing goroutine leaks.
