@@ -102,7 +102,19 @@ type Connection struct {
 	// Reset to zero on successful linktest response or when entering Selected state.
 	linktestFailCount atomic.Int32
 
-	senderMsgChan chan *sendRequest // channel for sending messages to the senderTask, the lifetime is the same as this connection object
+	// senderMsgChan carries sendRequests to the senderTask. It is created once
+	// in NewConnection and lives for the Connection's lifetime; queueSendRequest
+	// is gated by sendClosed (see sendMu) so a closing connection cannot accept
+	// new enqueues and a stranded frame cannot cross into the next connection.
+	senderMsgChan chan *sendRequest
+
+	// sendMu guards sendClosed. queueSendRequest holds it for reading across its
+	// enqueue; closeConn takes it for writing to set sendClosed, which — because
+	// the Lock waits for in-flight readers — makes the subsequent senderMsgChan
+	// drain final. Open and renewConnCtx reset sendClosed for each new
+	// connection generation.
+	sendMu        sync.RWMutex
+	sendClosed    bool
 	replyMsgChans *xsync.MapOf[uint32, chan hsms.HSMSMessage]
 	replyErrs     *xsync.MapOf[uint32, error]
 
@@ -307,6 +319,12 @@ func (c *Connection) doOpen(waitOpened bool) error {
 	c.connCancelFn.Store(&cancelHolder{cancel: connCancel})
 	c.loopCtxVal.Store(&ctxHolder{ctx: loopCtx})
 	c.loopCancelFn.Store(&cancelHolder{cancel: loopCancel})
+
+	// Re-open the send gate for this new connection generation; the previous
+	// closeConn closed it during teardown.
+	c.sendMu.Lock()
+	c.sendClosed = false
+	c.sendMu.Unlock()
 
 	if c.cfg.IsActive() {
 		c.openActive(connCtx, loopCtx)
@@ -585,30 +603,37 @@ func (c *Connection) closeConn(timeout time.Duration) error {
 		closeErr = fmt.Errorf("close timeout: %w", closeCtx.Err())
 	} else {
 		c.logger.Debug("context closed", "method", "closeConn")
-
-		// taskMgr.Wait() completed before the close timeout (closeCtx was
-		// cancelled, not deadline-exceeded), so every producer task — the
-		// receiver included — has exited and nothing can enqueue onto
-		// senderMsgChan anymore. Drain it a final time: a receiver-originated
-		// send can win queueSendRequest in the window between the step-3 drain
-		// and the connCtx cancellation (step 4), and senderMsgChan persists for
-		// the Connection's lifetime, so without this drain such a frame would be
-		// flushed onto the next connection with stale system bytes and session
-		// ID.
-		//
-		// This runs on the closeConn goroutine, before the opState transition
-		// to Closed (step 10), so the connection cannot have been reopened and
-		// the drain can never touch a later connection's sends. It is
-		// deliberately skipped on the timeout branch above, where producer
-		// tasks may still be alive and a drain would race them.
-		//
-		// context.Background() is required, not closeCtx: drainSenderMsgChan
-		// selects on ctx.Done(), and the already-cancelled closeCtx would let
-		// it return before the channel is empty.
-		c.drainSenderMsgChan(context.Background())
 	}
 
-	// 9. cleanup reply channels and queue
+	// 9. Close the send gate, then drain senderMsgChan a final time.
+	//
+	// Setting sendClosed under c.sendMu's write lock blocks every future
+	// enqueue: a queueSendRequest already past its sendClosed check holds the
+	// read lock, so this Lock waits for it to finish its send; any later
+	// queueSendRequest observes sendClosed and returns ErrConnClosed without
+	// enqueuing. Once the gate is closed, no goroutine — a taskMgr-joined task
+	// or an external sendMsg caller alike — can put a frame into senderMsgChan,
+	// so the drain that follows is definitive.
+	//
+	// This is unconditional: it runs on both the normal and the close-timeout
+	// path. The gate is what makes the drain safe on the timeout path, where
+	// taskMgr tasks may still be alive — they too are now blocked from
+	// enqueuing, and draining only races consumers (harmless: a channel may
+	// have many receivers). It runs before the opState transition to Closed
+	// (step 11), so the connection cannot have been reopened, and senderMsgChan
+	// persists for the Connection's lifetime, so without this drain a frame
+	// stranded by a queueSendRequest racing teardown would be flushed onto the
+	// next connection with stale system bytes and session ID.
+	//
+	// context.Background() is required, not closeCtx: drainSenderMsgChan selects
+	// on ctx.Done(), and the already-cancelled closeCtx would let it return
+	// before the channel is empty.
+	c.sendMu.Lock()
+	c.sendClosed = true
+	c.sendMu.Unlock()
+	c.drainSenderMsgChan(context.Background())
+
+	// 10. cleanup reply channels and queue
 	c.dropAllReplyMsgs()
 
 	// Record the teardown result BEFORE the opState transition to Closed.
@@ -617,7 +642,7 @@ func (c *Connection) closeConn(timeout time.Duration) error {
 	recordedErr := closeErr
 	c.closeErr.Store(&recordedErr)
 
-	// 10. final transition to closed state
+	// 11. final transition to closed state
 	if !c.opState.ToClosed() {
 		c.logger.Warn("failed to set connection to closed state", "method", "closeConn", "opState", c.opState.String())
 		return fmt.Errorf("failed to set connection to closed state, current state: %s", c.opState.String())
@@ -658,6 +683,12 @@ func (c *Connection) renewConnCtx() {
 	connCtx, connCancel := context.WithCancel(c.pctx)
 	c.connCtxVal.Store(&ctxHolder{ctx: connCtx})
 	c.connCancelFn.Store(&cancelHolder{cancel: connCancel})
+
+	// Re-open the send gate for the new connection generation; the preceding
+	// closeConn closed it during teardown.
+	c.sendMu.Lock()
+	c.sendClosed = false
+	c.sendMu.Unlock()
 }
 
 // sendControlMsg sends an HSMS control message and waits for a reply.
@@ -884,7 +915,29 @@ func (c *Connection) sendMsgAsync(msg hsms.HSMSMessage) error {
 }
 
 // queueSendRequest puts a sendRequest onto the senderTask's channel.
+//
+// It holds c.sendMu for reading across the enqueue. Once closeConn has taken
+// c.sendMu for writing and set sendClosed, no queueSendRequest can enqueue: a
+// caller already past the sendClosed check is holding the read lock, so
+// closeConn's Lock waits for it to finish its send; a caller that arrives later
+// observes sendClosed and returns ErrConnClosed without enqueuing. That ordering
+// makes closeConn's final senderMsgChan drain definitive — no frame, from a
+// taskMgr task or an external sendMsg caller alike, can be stranded past
+// teardown.
+//
+// Holding the read lock across the select is safe: by the time closeConn wants
+// the write lock, connCtx has been cancelled (closeConn step 4, before the
+// gate-close), so any in-flight select exits promptly via its connCtx.Done()
+// case. closeConn's Lock waits only that brief moment for in-flight senders to
+// return — never the full SendTimeout.
 func (c *Connection) queueSendRequest(req *sendRequest) error {
+	c.sendMu.RLock()
+	defer c.sendMu.RUnlock()
+
+	if c.sendClosed {
+		return hsms.ErrConnClosed
+	}
+
 	timer := pool.GetTimer(c.cfg.SendTimeout())
 	defer pool.PutTimer(timer)
 
