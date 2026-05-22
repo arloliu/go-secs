@@ -487,7 +487,15 @@ func (cs *ConnStateMgr) invokeHandlers(prevState ConnState, newState ConnState) 
 // a buffered channel using a non-blocking send. Overflow drops the newest
 // event with a warning log rather than back-pressuring the state machine.
 // Becomes a no-op once the state manager has been stopped.
+//
+// Idempotent ToX calls (e.g. ToNotConnected invoked while already in
+// NotConnectedState) are suppressed here so user-facing async handlers never
+// observe a prev==next pair.
 func (cs *ConnStateMgr) publishAsyncEvent(prevState ConnState, newState ConnState) {
+	if prevState == newState {
+		return
+	}
+
 	if cs.shutdowned.Load() {
 		return
 	}
