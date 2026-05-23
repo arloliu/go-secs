@@ -19,15 +19,9 @@ import (
 //  1. Opens a passive Equipment endpoint with ValidateDataMessage=true.
 //  2. Runs a custom raw-TCP peer (host role) that sends a malformed block sequence.
 //  3. Asserts the equipment sends S9F7 (Illegal Data) back for block-number
-//     violations.
+//     violations and header-field mismatches.
 //  4. Sends a clean S1F1 immediately after and asserts normal delivery —
 //     proving the assembler recovered cleanly.
-//
-// Note: ErrHeaderMismatch (W-bit / stream / function mismatch on continuation
-// blocks) is produced by the assembler (message.go:302) but is NOT mapped to
-// S9F7 in handleReceivedBlock (conn.go:656-664) — it falls through the default
-// case.  Those sub-cases are therefore not included here; see the "Real bugs
-// found" section of the test implementation report.
 func TestSECS1_MultiBlockErrors(t *testing.T) {
 	t.Parallel()
 
@@ -53,6 +47,36 @@ func TestSECS1_MultiBlockErrors(t *testing.T) {
 			specs: []blockSpec{
 				{stream: 1, function: 1, wBit: true, deviceID: 10, sysbytes: 0x00000022, blockNum: 1, eBit: false},
 				{stream: 1, function: 1, wBit: true, deviceID: 10, sysbytes: 0x00000022, blockNum: 3, eBit: false},
+			},
+			wantS9F7: true,
+		},
+		{
+			name: "HeaderMismatch_Wbit",
+			// Block 1 has W=1; block 2 has W=0 → ErrHeaderMismatch → S9F7.
+			specs: []blockSpec{
+				{stream: 1, function: 1, wBit: true, deviceID: 10, sysbytes: 0x00000033, blockNum: 1, eBit: false},
+				{stream: 1, function: 1, wBit: true, deviceID: 10, sysbytes: 0x00000033, blockNum: 2, eBit: true,
+					forceWBit: false, forceWBitSet: true},
+			},
+			wantS9F7: true,
+		},
+		{
+			name: "HeaderMismatch_Stream",
+			// Block 1 is S1F1; block 2 has stream byte 2 → ErrHeaderMismatch → S9F7.
+			specs: []blockSpec{
+				{stream: 1, function: 1, wBit: true, deviceID: 10, sysbytes: 0x00000044, blockNum: 1, eBit: false},
+				{stream: 1, function: 1, wBit: true, deviceID: 10, sysbytes: 0x00000044, blockNum: 2, eBit: true,
+					forceStream: 2},
+			},
+			wantS9F7: true,
+		},
+		{
+			name: "HeaderMismatch_Function",
+			// Block 1 is S1F1; block 2 has function code 3 → ErrHeaderMismatch → S9F7.
+			specs: []blockSpec{
+				{stream: 1, function: 1, wBit: true, deviceID: 10, sysbytes: 0x00000055, blockNum: 1, eBit: false},
+				{stream: 1, function: 1, wBit: true, deviceID: 10, sysbytes: 0x00000055, blockNum: 2, eBit: true,
+					forceFunction: 3},
 			},
 			wantS9F7: true,
 		},
