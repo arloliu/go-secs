@@ -295,6 +295,73 @@ func (cfg *ConnectionConfig) KeepAlivePeriod() time.Duration {
 	return cfg.keepAlivePeriod
 }
 
+// snapshot returns a deep copy of cfg suitable for use as a scratch config in
+// UpdateConfigOptions. Atomic fields are copied by value via Load/Store so the
+// returned struct is independent of the live config.
+//
+// The caller must not hold cfg.mu when calling this method.
+func (cfg *ConnectionConfig) snapshot() *ConnectionConfig {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	s := &ConnectionConfig{
+		host:             cfg.host,
+		port:             cfg.port,
+		deviceID:         cfg.deviceID,
+		isActive:         cfg.isActive,
+		isEquip:          cfg.isEquip,
+		senderQueueSize:  cfg.senderQueueSize,
+		dataMsgQueueSize: cfg.dataMsgQueueSize,
+		// mu-guarded plain fields
+		connectRemoteTimeout: cfg.connectRemoteTimeout,
+		acceptConnTimeout:    cfg.acceptConnTimeout,
+		closeConnTimeout:     cfg.closeConnTimeout,
+		initialRetryDelay:    cfg.initialRetryDelay,
+		maxRetryDelay:        cfg.maxRetryDelay,
+		keepAlivePeriod:      cfg.keepAlivePeriod,
+		logger:               cfg.logger,
+	}
+
+	// Atomic fields must be copied via Load/Store, not struct assignment.
+	s.t1Timeout.Store(cfg.t1Timeout.Load())
+	s.t2Timeout.Store(cfg.t2Timeout.Load())
+	s.t3Timeout.Store(cfg.t3Timeout.Load())
+	s.t4Timeout.Store(cfg.t4Timeout.Load())
+	s.retryLimit.Store(cfg.retryLimit.Load())
+	s.sendTimeout.Store(cfg.sendTimeout.Load())
+	s.duplicateDetection.Store(cfg.duplicateDetection.Load())
+	s.validateDataMessage.Store(cfg.validateDataMessage.Load())
+
+	return s
+}
+
+// commitRuntime atomically writes all runtime-mutable fields from scratch into
+// cfg. Non-runtime fields (host, port, deviceID, isActive, isEquip, queue
+// sizes, logger) are intentionally excluded — they are fixed at construction.
+//
+// The caller must hold cfgUpdateMu when calling this method.
+func (cfg *ConnectionConfig) commitRuntime(scratch *ConnectionConfig) {
+	// Atomic fields: store directly.
+	cfg.t1Timeout.Store(scratch.t1Timeout.Load())
+	cfg.t2Timeout.Store(scratch.t2Timeout.Load())
+	cfg.t3Timeout.Store(scratch.t3Timeout.Load())
+	cfg.t4Timeout.Store(scratch.t4Timeout.Load())
+	cfg.retryLimit.Store(scratch.retryLimit.Load())
+	cfg.sendTimeout.Store(scratch.sendTimeout.Load())
+	cfg.duplicateDetection.Store(scratch.duplicateDetection.Load())
+	cfg.validateDataMessage.Store(scratch.validateDataMessage.Load())
+
+	// mu-guarded plain fields.
+	cfg.mu.Lock()
+	cfg.connectRemoteTimeout = scratch.connectRemoteTimeout
+	cfg.acceptConnTimeout = scratch.acceptConnTimeout
+	cfg.closeConnTimeout = scratch.closeConnTimeout
+	cfg.initialRetryDelay = scratch.initialRetryDelay
+	cfg.maxRetryDelay = scratch.maxRetryDelay
+	cfg.keepAlivePeriod = scratch.keepAlivePeriod
+	cfg.mu.Unlock()
+}
+
 // --- ConnOption ---
 
 // ConnOption is a functional option for configuring a ConnectionConfig.

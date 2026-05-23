@@ -1183,7 +1183,12 @@ func TestUpdateConfigOptions_ValidationStillApplied(t *testing.T) {
 	r.Equal(DefaultRetryLimit, cfg.RetryLimit())
 }
 
-func TestUpdateConfigOptions_PartialFailureRollback(t *testing.T) {
+// TestUpdateConfigOptions_TransactionalRollback replaces the old
+// TestUpdateConfigOptions_PartialFailureRollback test.
+//
+// Old behavior: T1 was mutated before T2 failed (partial apply).
+// New behavior: entire batch is rejected — live config unchanged.
+func TestUpdateConfigOptions_TransactionalRollback(t *testing.T) {
 	r := require.New(t)
 
 	cfg, err := NewConnectionConfig("127.0.0.1", 5000)
@@ -1192,17 +1197,126 @@ func TestUpdateConfigOptions_PartialFailureRollback(t *testing.T) {
 	conn, err := NewConnection(context.Background(), cfg)
 	r.NoError(err)
 
-	// First option succeeds, second fails — first change persists (no rollback).
+	// First option is valid, second is invalid — under transactional semantics
+	// neither change must reach the live config.
 	err = conn.UpdateConfigOptions(
 		WithT1Timeout(1*time.Second),
 		WithT2Timeout(100*time.Millisecond), // invalid: below minimum
 	)
 	r.Error(err)
 
-	// T1 was applied before T2 failed.
+	// Both values must remain at their defaults — no partial apply.
+	r.Equal(DefaultT1Timeout, cfg.T1Timeout(), "T1 must be rolled back")
+	r.Equal(DefaultT2Timeout, cfg.T2Timeout(), "T2 must remain at default")
+}
+
+// TestUpdateConfigOptions_AllValidCommitsTogether asserts that multiple valid
+// options in a single call are all committed atomically.
+func TestUpdateConfigOptions_AllValidCommitsTogether(t *testing.T) {
+	r := require.New(t)
+
+	cfg, err := NewConnectionConfig("127.0.0.1", 5000)
+	r.NoError(err)
+
+	conn, err := NewConnection(context.Background(), cfg)
+	r.NoError(err)
+
+	err = conn.UpdateConfigOptions(
+		WithT1Timeout(1*time.Second),
+		WithT2Timeout(5*time.Second),
+		WithRetryLimit(5),
+	)
+	r.NoError(err)
+
 	r.Equal(1*time.Second, cfg.T1Timeout())
-	// T2 remains at default.
-	r.Equal(DefaultT2Timeout, cfg.T2Timeout())
+	r.Equal(5*time.Second, cfg.T2Timeout())
+	r.Equal(5, cfg.RetryLimit())
+}
+
+// TestUpdateConfigOptions_NonRuntimeInBatchRejectsAll asserts that a
+// non-runtime option anywhere in the batch causes the entire update to be
+// rejected, leaving all timers unchanged.
+func TestUpdateConfigOptions_NonRuntimeInBatchRejectsAll(t *testing.T) {
+	r := require.New(t)
+
+	cfg, err := NewConnectionConfig("127.0.0.1", 5000)
+	r.NoError(err)
+
+	conn, err := NewConnection(context.Background(), cfg)
+	r.NoError(err)
+
+	origT1 := cfg.T1Timeout()
+	origRetry := cfg.RetryLimit()
+
+	err = conn.UpdateConfigOptions(
+		WithT1Timeout(1*time.Second), // valid runtime
+		WithEquipRole(),              // non-runtime — must poison the batch
+		WithRetryLimit(5),            // valid runtime
+	)
+	r.Error(err)
+	r.Contains(err.Error(), "cannot be changed at runtime")
+
+	// No field must have changed.
+	r.Equal(origT1, cfg.T1Timeout(), "T1 must be unchanged")
+	r.Equal(origRetry, cfg.RetryLimit(), "RetryLimit must be unchanged")
+}
+
+// TestUpdateConfigOptions_AggregatedErrorContainsAllFailures asserts that
+// errors from multiple invalid options are all present in the returned error,
+// not just the first.
+func TestUpdateConfigOptions_AggregatedErrorContainsAllFailures(t *testing.T) {
+	r := require.New(t)
+
+	cfg, err := NewConnectionConfig("127.0.0.1", 5000)
+	r.NoError(err)
+
+	conn, err := NewConnection(context.Background(), cfg)
+	r.NoError(err)
+
+	err = conn.UpdateConfigOptions(
+		WithT1Timeout(50*time.Millisecond),  // invalid: below min
+		WithT2Timeout(100*time.Millisecond), // invalid: below min
+		WithPassive(),                       // non-runtime
+	)
+	r.Error(err)
+	errText := err.Error()
+	r.Contains(errText, `option "WithT1Timeout"`)
+	r.Contains(errText, `option "WithT2Timeout"`)
+	r.Contains(errText, `option "WithPassive" cannot be changed at runtime`)
+}
+
+// TestUpdateConfigOptions_ConcurrentCallsSerialized asserts that concurrent
+// UpdateConfigOptions calls do not produce torn state.
+func TestUpdateConfigOptions_ConcurrentCallsSerialized(t *testing.T) {
+	r := require.New(t)
+
+	cfg, err := NewConnectionConfig("127.0.0.1", 5000)
+	r.NoError(err)
+
+	conn, err := NewConnection(context.Background(), cfg)
+	r.NoError(err)
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, 50)
+	for range 25 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			errCh <- conn.UpdateConfigOptions(WithT1Timeout(1 * time.Second))
+		}()
+		go func() {
+			defer wg.Done()
+			errCh <- conn.UpdateConfigOptions(WithT2Timeout(5 * time.Second))
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for e := range errCh {
+		r.NoError(e)
+	}
+
+	r.Equal(1*time.Second, cfg.T1Timeout())
+	r.Equal(5*time.Second, cfg.T2Timeout())
 }
 
 // --- SendTimeout getter test ---

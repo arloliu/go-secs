@@ -144,6 +144,12 @@ type Connection struct {
 	replyMsgChans *xsync.MapOf[uint32, chan *hsms.DataMessage]
 	replyErrs     *xsync.MapOf[uint32, error]
 
+	// cfgUpdateMu serializes concurrent UpdateConfigOptions calls so that
+	// snapshot → validate → commit is an atomic unit from the caller's
+	// perspective. It is separate from cfg.mu to avoid holding a write lock
+	// for the full duration of validation.
+	cfgUpdateMu sync.Mutex
+
 	metrics ConnectionMetrics
 }
 
@@ -272,29 +278,54 @@ func (c *Connection) GetMetrics() *ConnectionMetrics {
 
 // UpdateConfigOptions updates the connection configuration options at runtime.
 //
+// All options are validated against a scratch copy of the current config before
+// any change is committed to the live config. If any option fails validation,
+// the live config is left unchanged and an aggregated error (via [errors.Join])
+// containing every failure is returned.
+//
 // Only runtime-updatable options can be applied: T1–T4 timeouts, retry limit,
-// send timeout, duplicate detection, and validate data message.
+// send timeout, duplicate detection, validate data message, and TCP-level
+// timeouts (connect, accept, close, retry delays, keep-alive).
 // Options that affect the connection structure (host, port, active/passive mode,
 // equip/host role, device ID, queue sizes, logger) cannot be changed at runtime
 // and will return an error.
 //
+// Concurrent calls are serialized; no torn state is possible.
+//
 // The updated values take effect for subsequent operations; in-flight operations
 // use the values that were read before the update.
 func (c *Connection) UpdateConfigOptions(opts ...ConnOption) error {
+	c.cfgUpdateMu.Lock()
+	defer c.cfgUpdateMu.Unlock()
+
+	var errs error
+
+	fnOpts := make([]*connOptFunc, 0, len(opts))
 	for _, opt := range opts {
-		optFunc, ok := opt.(*connOptFunc)
+		fnOpt, ok := opt.(*connOptFunc)
 		if !ok {
-			return errors.New("secs1: invalid ConnOption type")
+			errs = errors.Join(errs, errors.New("secs1: invalid ConnOption type"))
+			continue
 		}
+		fnOpts = append(fnOpts, fnOpt)
+	}
 
-		if !optFunc.runtime {
-			return fmt.Errorf("secs1: option %q cannot be changed at runtime", optFunc.name)
+	scratch := c.cfg.snapshot()
+	for _, fn := range fnOpts {
+		if !fn.runtime {
+			errs = errors.Join(errs, fmt.Errorf("secs1: option %q cannot be changed at runtime", fn.name))
+			continue
 		}
-
-		if err := optFunc.applyFunc(c.cfg); err != nil {
-			return err
+		if err := fn.applyFunc(scratch); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("secs1: option %q: %w", fn.name, err))
 		}
 	}
+
+	if errs != nil {
+		return errs
+	}
+
+	c.cfg.commitRuntime(scratch)
 
 	return nil
 }
