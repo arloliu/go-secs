@@ -734,13 +734,19 @@ func (c *Connection) handleReceivedBlock(block *Block) {
 		c.logger.Debug("secs1: assembler rejected block", "error", err)
 
 		// Send S9Fx error messages (equipment → host only).
+		// Per SEMI E5: ErrDeviceIDMismatch → S9F1 (Unknown Device ID).
+		// ErrBlockNumberMismatch and ErrHeaderMismatch both map to S9F7
+		// (Illegal Data): the continuation block's block number or header
+		// fields (W-bit, stream, function) diverge from the first block,
+		// making the multi-block message undecodeable.
 		if c.cfg.isEquip && c.cfg.ValidateDataMessage() && c.session != nil {
 			switch {
 			case errors.Is(err, ErrDeviceIDMismatch):
 				_, _ = c.session.SendSECS2Message(gem.S9F1())
 			case errors.Is(err, ErrBlockNumberMismatch):
 				_, _ = c.session.SendSECS2Message(gem.S9F7())
-			default:
+			case errors.Is(err, ErrHeaderMismatch):
+				_, _ = c.session.SendSECS2Message(gem.S9F7())
 			}
 		}
 	}
