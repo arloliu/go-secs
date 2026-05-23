@@ -220,11 +220,20 @@ func (c *Connection) Close() error {
 
 	c.logger.Debug("secs1: start to close connection", "opState", c.opState.String())
 
-	c.stateMgr.Stop()
-
+	// Force the transition to NotConnected BEFORE stopping the state manager.
+	// Running ToNotConnected() here — while the async handler dispatcher is
+	// still alive — ensures user-registered ConnStateChangeHandlers observe
+	// the final Selected→NotConnected transition. If we stopped first, the
+	// dispatcher would have already exited and the event would be dropped.
+	// Mirrors the ordering in hsmsss/conn.go Close().
 	if !c.isClosed() {
 		c.stateMgr.ToNotConnected()
 	}
+
+	// Stop the state manager. wg.Wait inside Stop() blocks until the async
+	// dispatcher has drained any event published by the ToNotConnected call
+	// above, so user handlers run before Stop() returns.
+	c.stateMgr.Stop()
 
 	closeTimer := pool.GetTimer(c.cfg.CloseConnTimeout())
 	defer pool.PutTimer(closeTimer)
