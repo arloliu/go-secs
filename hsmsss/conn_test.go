@@ -26,6 +26,12 @@ const (
 	testSessionID = 9527
 )
 
+type badConnOption struct{}
+
+func (badConnOption) apply(*ConnectionConfig) error {
+	panic("badConnOption.apply must not be called")
+}
+
 func TestMain(m *testing.M) {
 	logLevel := os.Getenv("LOG_LEVEL")
 	if logLevel == "" {
@@ -1185,6 +1191,36 @@ func (c *testComm) drainRecvReplyChan() {
 		default:
 			return
 		}
+	}
+}
+
+func drainTicker(ch <-chan time.Time) {
+	for {
+		select {
+		case <-ch:
+		default:
+			return
+		}
+	}
+}
+
+func requireTick(t *testing.T, ch <-chan time.Time, timeout time.Duration) {
+	t.Helper()
+
+	select {
+	case <-ch:
+	case <-time.After(timeout):
+		t.Fatal("expected ticker to tick")
+	}
+}
+
+func requireNoTick(t *testing.T, ch <-chan time.Time, timeout time.Duration) {
+	t.Helper()
+
+	select {
+	case <-ch:
+		t.Fatal("expected ticker not to tick")
+	case <-time.After(timeout):
 	}
 }
 
@@ -2542,6 +2578,173 @@ func TestUpdateConfigOptions_RejectsNonRuntimeOption(t *testing.T) {
 
 	// Runtime options must still be accepted.
 	require.NoError(conn.UpdateConfigOptions(WithTraceTraffic(true)))
+}
+
+func TestUpdateConfigOptions_EmptyOptsNoOp(t *testing.T) {
+	require := require.New(t)
+	conn := newConn(t.Context(), require, getPort(), true, true)
+	_ = conn.AddSession(testSessionID)
+
+	before := conn.cfg.snapshot()
+	require.NoError(conn.UpdateConfigOptions())
+	require.Equal(before.nonRuntimeFields(), conn.cfg.nonRuntimeFields())
+	require.Equal(before.T3Timeout(), conn.cfg.T3Timeout())
+	require.Equal(before.TraceTraffic(), conn.cfg.TraceTraffic())
+}
+
+func TestUpdateConfigOptions_RollbackMixedRuntimeOptions(t *testing.T) {
+	require := require.New(t)
+	conn := newConn(t.Context(), require, getPort(), true, true)
+	_ = conn.AddSession(testSessionID)
+
+	origTrace := conn.cfg.TraceTraffic()
+	origT3 := conn.cfg.T3Timeout()
+	err := conn.UpdateConfigOptions(
+		WithTraceTraffic(!origTrace),
+		WithT3Timeout(0),
+	)
+
+	require.Error(err)
+	require.Contains(err.Error(), `option "WithT3Timeout"`)
+	require.Equal(origTrace, conn.cfg.TraceTraffic())
+	require.Equal(origT3, conn.cfg.T3Timeout())
+}
+
+func TestUpdateConfigOptions_JoinsMultipleErrors(t *testing.T) {
+	require := require.New(t)
+	conn := newConn(t.Context(), require, getPort(), true, true)
+	_ = conn.AddSession(testSessionID)
+
+	err := conn.UpdateConfigOptions(
+		WithT3Timeout(0),
+		WithT6Timeout(500*time.Millisecond),
+		WithPassive(),
+	)
+
+	require.Error(err)
+	errText := err.Error()
+	require.Contains(errText, `option "WithT3Timeout"`)
+	require.Contains(errText, `option "WithT6Timeout"`)
+	require.Contains(errText, `option "WithPassive" cannot be changed at runtime`)
+}
+
+func TestUpdateConfigOptions_IdempotentNonRuntimeOptionAccepted(t *testing.T) {
+	require := require.New(t)
+	conn := newConn(t.Context(), require, getPort(), true, true)
+	_ = conn.AddSession(testSessionID)
+
+	before := conn.cfg.nonRuntimeFields()
+	require.NoError(conn.UpdateConfigOptions(WithActive()))
+	require.Equal(before, conn.cfg.nonRuntimeFields())
+}
+
+func TestUpdateConfigOptions_ContradictoryNonRuntimePairJoined(t *testing.T) {
+	require := require.New(t)
+	conn := newConn(t.Context(), require, getPort(), true, true)
+	_ = conn.AddSession(testSessionID)
+
+	err := conn.UpdateConfigOptions(WithPassive(), WithActive())
+
+	require.Error(err)
+	errText := err.Error()
+	require.Contains(errText, `option "WithPassive" cannot be changed at runtime`)
+	require.Contains(errText, `option "WithActive" cannot be changed at runtime`)
+	require.True(conn.cfg.IsActive())
+}
+
+func TestUpdateConfigOptions_LinktestTickerSideEffectsCommitOnly(t *testing.T) {
+	require := require.New(t)
+	conn := newConn(t.Context(), require, getPort(), true, true)
+	_ = conn.AddSession(testSessionID)
+
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	conn.tickers.setLinktestTicker(ticker)
+
+	require.NoError(conn.UpdateConfigOptions(WithLinktestInterval(10 * time.Millisecond)))
+	requireTick(t, ticker.C, 250*time.Millisecond)
+
+	drainTicker(ticker.C)
+	require.NoError(conn.UpdateConfigOptions(WithAutoLinktest(false)))
+	requireNoTick(t, ticker.C, 50*time.Millisecond)
+}
+
+func TestUpdateConfigOptions_LinktestTickerUntouchedOnRollback(t *testing.T) {
+	require := require.New(t)
+	conn := newConn(t.Context(), require, getPort(), true, true)
+	_ = conn.AddSession(testSessionID)
+
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	conn.tickers.setLinktestTicker(ticker)
+
+	err := conn.UpdateConfigOptions(
+		WithLinktestInterval(10*time.Millisecond),
+		WithT3Timeout(0),
+	)
+
+	require.Error(err)
+	require.Equal(500*time.Millisecond, conn.cfg.LinktestInterval())
+	requireNoTick(t, ticker.C, 50*time.Millisecond)
+}
+
+func TestUpdateConfigOptions_ConcurrentCallsSerialized(t *testing.T) {
+	require := require.New(t)
+	conn := newConn(t.Context(), require, getPort(), true, true)
+	_ = conn.AddSession(testSessionID)
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, 50)
+	for range 25 {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			errCh <- conn.UpdateConfigOptions(WithT3Timeout(2 * time.Second))
+		}()
+		go func() {
+			defer wg.Done()
+			errCh <- conn.UpdateConfigOptions(WithT6Timeout(4 * time.Second))
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		require.NoError(err)
+	}
+
+	require.Equal(2*time.Second, conn.cfg.T3Timeout())
+	require.Equal(4*time.Second, conn.cfg.T6Timeout())
+}
+
+func TestUpdateConfigOptions_WithLoggerSameInstanceOnly(t *testing.T) {
+	require := require.New(t)
+	sameLogger := logger.GetLogger().With("role", "same")
+	cfg, err := NewConnectionConfig(testIP, getPort(), WithLogger(sameLogger))
+	require.NoError(err)
+	conn, err := NewConnection(t.Context(), cfg)
+	require.NoError(err)
+
+	require.NoError(conn.UpdateConfigOptions(WithLogger(sameLogger)))
+
+	err = conn.UpdateConfigOptions(WithLogger(logger.GetLogger().With("role", "different")))
+	require.Error(err)
+	require.Contains(err.Error(), `option "WithLogger" cannot be changed at runtime`)
+	require.True(loggerSameInstance(sameLogger, conn.cfg.logger))
+}
+
+func TestUpdateConfigOptions_TypeErrorDoesNotMutateLiveConfig(t *testing.T) {
+	require := require.New(t)
+	conn := newConn(t.Context(), require, getPort(), true, true)
+	_ = conn.AddSession(testSessionID)
+
+	before := conn.cfg.snapshot()
+	err := conn.UpdateConfigOptions(badConnOption{}, WithTraceTraffic(true))
+
+	require.Error(err)
+	require.Contains(err.Error(), "invalid ConnOption type")
+	require.Equal(before.TraceTraffic(), conn.cfg.TraceTraffic())
+	require.Equal(before.T3Timeout(), conn.cfg.T3Timeout())
+	require.Equal(before.nonRuntimeFields(), conn.cfg.nonRuntimeFields())
 }
 
 // TestConnection_RuntimeConfigRace toggles runtime-mutable options while data
