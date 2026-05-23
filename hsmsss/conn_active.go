@@ -217,7 +217,21 @@ func (c *Connection) recvMsgActive(msg hsms.HSMSMessage) {
 	// reply to sender when linktest, deselect, or selected response received.
 	case hsms.SelectRspType, hsms.LinkTestRspType, hsms.DeselectRspType:
 		c.logger.Debug("active: response received", hsms.MsgInfo(msg, "method", "recvMsgActive")...)
+		// On a successful host-initiated Deselect, complete the teardown:
+		// mark deselected (so activeConnStateHandler does not also send a
+		// stray Separate.req when TCP eventually closes) and transition to
+		// NotConnected. This mirrors the inbound DeselectReq handling above
+		// (lines 209-211). Without this, an active-initiated graceful
+		// Deselect leaves the connection in Selected until peer closes,
+		// then sends Separate.req — violating SEMI E37 §7.7 intent.
+		// Note: the path is currently unreachable from user code because
+		// sendControlMsg is unexported, but the completion is defensive
+		// for any future public API exposure.
 		c.replyToSender(msg)
+		if msg.Type() == hsms.DeselectRspType {
+			c.deselected.Store(true)
+			c.stateMgr.ToNotConnectedAsync()
+		}
 
 	case hsms.LinkTestReqType:
 		c.logger.Debug("linktest request received", hsms.MsgInfo(msg, "method", "recvMsgActive")...)
