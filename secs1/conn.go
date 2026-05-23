@@ -105,9 +105,15 @@ type Connection struct {
 
 	// Reconnect (active mode).
 	connectLoopRunning atomic.Bool
-	reconnectGen       atomic.Uint64
-	loopCtx            context.Context    // cancelled on Close to wake the connect loop
-	loopCancel         context.CancelFunc // cancels loopCtx
+	// connectLoopWg waits for the background loop to safely exit before
+	// installing fresh contexts in Open. This prevents a rapid Close→Open
+	// from racing the goroutine's deferred Store(false): without it the new
+	// Open's CAS sees the old goroutine still running (connectLoopRunning=true)
+	// and skips starting a replacement loop, stalling reconnect indefinitely.
+	connectLoopWg sync.WaitGroup
+	reconnectGen  atomic.Uint64
+	loopCtx       context.Context    // cancelled on Close to wake the connect loop
+	loopCancel    context.CancelFunc // cancels loopCtx
 
 	// Message assembler for multi-block message assembly.
 	// Created when the protocol loop starts, closed when it stops.
@@ -361,6 +367,20 @@ func (c *Connection) doOpen(waitOpened bool) error {
 
 		return nil
 	}
+
+	// Cancel any previously-active loop context before creating new ones.
+	// This signals a dying background connect loop to exit, then we wait for it.
+	c.ctxMutex.RLock()
+	oldLoopCancel := c.loopCancel
+	c.ctxMutex.RUnlock()
+
+	if oldLoopCancel != nil {
+		oldLoopCancel()
+	}
+
+	// Wait for any dying background reconnect loop to exit safely before creating
+	// a fresh context, so we are never racing with a dying loop over loopCtx.
+	c.connectLoopWg.Wait()
 
 	c.createContext()
 
