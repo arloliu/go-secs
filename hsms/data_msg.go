@@ -424,6 +424,7 @@ func (msg *DataMessage) Free() {
 		if !atomic.CompareAndSwapUint32(&msg.freed, 0, 1) {
 			return
 		}
+		debugLogFree(msg)
 		item := msg.Item()
 		if item != nil {
 			item.Free()
