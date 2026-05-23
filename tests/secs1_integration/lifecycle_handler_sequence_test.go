@@ -160,6 +160,14 @@ func TestSECS1_UserHandlerReceivesLifecycleTransitionsOnce(t *testing.T) {
 	require.Equalf(cycles, seenCycles,
 		"active: expected %d observed cycles, got %d (full sequence: %+v)",
 		cycles, seenCycles, activeObs.events)
+
+	// Invariant 3: total event count must equal cycles × anchors.
+	// The SECS-I active side does not emit a Connecting event during normal
+	// open/close cycles (SECS-I has no select handshake; tryConnect goes
+	// directly to NotSelected). Any extra event here signals a regression.
+	require.Equalf(cycles*len(anchors), len(activeObs.events),
+		"active: expected exactly %d events (%d cycles × %d anchors), got %d (full sequence: %+v)",
+		cycles*len(anchors), cycles, len(anchors), len(activeObs.events), activeObs.events)
 }
 
 // drainSecs1StateCh empties the endpoint's selected-signal channel so the
