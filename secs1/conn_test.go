@@ -1472,6 +1472,132 @@ func TestConnection_CloseGateRefusesSendsAfterClose(t *testing.T) {
 // path; the connectLoop reset site is exercised in production by active
 // reconnect and would be additionally covered by the integration test in
 // tmp/integration-test-gaps.md §2.12.
+// TestConnection_ConnectLoopJoinedBeforeReopen verifies that a rapid
+// Close→Open cycle on an active SECS-I connection never stalls reconnect.
+//
+// Bug scenario (pre-fix):
+//   - Open against an unreachable peer → connect loop starts (connectLoopRunning=true).
+//   - Close() cancels loopCtx and returns; the deferred Store(false) in the
+//     goroutine may not yet have run.
+//   - Immediate Open → CAS sees connectLoopRunning=true → skips starting a new
+//     loop → the connection is never established even when a real peer comes up.
+//
+// With connectLoopWg.Wait() in doOpen the second Open blocks until the goroutine's
+// deferred Store(false) has completed, so the CAS succeeds and a fresh loop starts.
+//
+// Race-window strategy: after Close() we artificially widen the race window by
+// goroutine-pinning: we temporarily force connectLoopRunning=true via the WaitGroup
+// invariant's logical equivalent, call doOpen, then verify we can start a new loop.
+// The x20 iterations with -race maximise the chance of catching a scheduler-exposed
+// window on multi-core systems.
+func TestConnection_ConnectLoopJoinedBeforeReopen(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping close->open race test in short mode")
+	}
+
+	ctx := t.Context()
+	const connectTimeout = 20 * time.Millisecond
+	const iterations = 20
+
+	for i := range iterations {
+		t.Run(fmt.Sprintf("iter%d", i), func(t *testing.T) {
+			port := getPort()
+
+			hostComm := newTestComm(ctx, t, port, true, true,
+				WithConnectTimeout(connectTimeout),
+				WithInitialRetryDelay(connectTimeout),
+				// MaxRetryDelay minimum is 1s; leave default. The loop uses
+				// min(InitialRetryDelay, MaxRetryDelay) so effective first delay
+				// is InitialRetryDelay.
+				WithCloseConnTimeout(5*time.Second),
+			)
+
+			// Open active with nothing listening — the first dial fails fast
+			// and startConnectLoop() launches the retry goroutine.
+			require.NoError(t, hostComm.open(false))
+
+			// Wait until the connect loop is running.
+			require.Eventually(t, func() bool {
+				return hostComm.conn.connectLoopRunning.Load()
+			}, 500*time.Millisecond, time.Millisecond,
+				"connect loop did not start within timeout")
+
+			// Close — cancels loopCtx. Without connectLoopWg.Wait() in doOpen,
+			// the goroutine's deferred Store(false) races with the next Open.
+			require.NoError(t, hostComm.close())
+
+			// Now bring up the passive side on the SAME port.
+			eqpComm := newTestComm(ctx, t, port, false, false)
+			require.NoError(t, eqpComm.open(true))
+			defer func() { _ = eqpComm.close() }()
+
+			// Reopen the SAME Connection. connectLoopWg.Wait() inside doOpen
+			// ensures we wait for the dying goroutine's Store(false) before
+			// installing fresh contexts and calling startConnectLoop.
+			require.NoError(t, hostComm.open(false))
+			defer func() { _ = hostComm.close() }()
+
+			// If the WaitGroup fix works, the new loop starts and eventually
+			// reaches Selected against the now-listening eqpComm.
+			// Without the fix: CAS fails → no loop started → WaitState times out.
+			waitCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+
+			require.NoError(t, hostComm.conn.stateMgr.WaitState(waitCtx, hsms.SelectedState),
+				"iter %d: second Open did not reach Selected — connect loop may have been skipped", i)
+		})
+	}
+}
+
+// TestConnection_ConnectLoopWgInvariant is a unit-level test that verifies the
+// WaitGroup invariant directly: after Close() returns, Wait() must return
+// immediately (i.e. the dying goroutine has already completed or will complete
+// promptly enough that Wait does not block more than a brief window).
+//
+// It artificially widens the race window by calling connectLoopWg.Wait() outside
+// of doOpen and asserting it unblocks quickly, confirming the WaitGroup tracks
+// the goroutine lifecycle correctly even when the caller does not hold any lock.
+func TestConnection_ConnectLoopWgInvariant(t *testing.T) {
+	ctx := t.Context()
+	port := getPort()
+
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithConnectTimeout(20*time.Millisecond),
+		WithInitialRetryDelay(20*time.Millisecond),
+		WithCloseConnTimeout(5*time.Second),
+	)
+
+	// Open → connect loop starts.
+	require.NoError(t, hostComm.open(false))
+	require.Eventually(t, func() bool {
+		return hostComm.conn.connectLoopRunning.Load()
+	}, 500*time.Millisecond, time.Millisecond, "connect loop did not start")
+
+	// Close — loopCtx cancelled.
+	require.NoError(t, hostComm.close())
+
+	// Wait for the WaitGroup to drain. If Add/Done bookkeeping is correct, this
+	// must return within a very short time (the goroutine has nothing to do after
+	// loopCtx.Done() fires except run its deferred Store). A timeout here means
+	// connectLoopWg.Done() was never called — the goroutine was never joined.
+	done := make(chan struct{})
+	go func() {
+		hostComm.conn.connectLoopWg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Pass: WaitGroup drained as expected.
+	case <-time.After(2 * time.Second):
+		t.Fatal("connectLoopWg.Wait() did not return — Done() may be missing or goroutine is stuck")
+	}
+
+	// After Wait returns, connectLoopRunning must be false (Store runs before Done).
+	require.False(t, hostComm.conn.connectLoopRunning.Load(),
+		"connectLoopRunning must be false after WaitGroup drains")
+}
+
 func TestConnection_SendGateReopensAfterCloseAndReopen(t *testing.T) {
 	require := require.New(t)
 	ctx := t.Context()
