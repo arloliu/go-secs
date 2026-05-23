@@ -747,6 +747,7 @@ func (c *Connection) handleReceivedBlock(block *Block) {
 				_, _ = c.session.SendSECS2Message(gem.S9F7())
 			case errors.Is(err, ErrHeaderMismatch):
 				_, _ = c.session.SendSECS2Message(gem.S9F7())
+			default:
 			}
 		}
 	}
