@@ -105,10 +105,13 @@ func (c *Connection) startConnectLoop() {
 		return
 	}
 
+	c.connectLoopWg.Add(1)
+
 	gen := c.reconnectGen.Load()
 	loopCtx := c.getLoopContext()
 
 	if loopCtx == nil || loopCtx.Err() != nil {
+		c.connectLoopWg.Done()
 		c.connectLoopRunning.Store(false)
 
 		return
@@ -124,6 +127,7 @@ func (c *Connection) startConnectLoop() {
 //   - shutdown is set, or
 //   - reconnectGen changes (Close() was called).
 func (c *Connection) connectLoop(loopCtx context.Context, gen uint64) {
+	defer c.connectLoopWg.Done()
 	defer c.connectLoopRunning.Store(false)
 
 	delay := min(c.cfg.InitialRetryDelay(), c.cfg.MaxRetryDelay())
