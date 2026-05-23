@@ -173,6 +173,15 @@ type ConnectionConfig struct {
 	logger logger.Logger
 }
 
+type nonRuntimeFingerprint struct {
+	isActive         bool
+	isEquip          bool
+	host             string
+	port             int
+	senderQueueSize  int
+	dataMsgQueueSize int
+}
+
 // NewConnectionConfig creates a new HSMS-SS connection configuration with the given host, port number, and optional functional options.
 //
 // It initializes a ConnectionConfig struct with default values and then applies the provided options to customize the configuration.
@@ -409,6 +418,93 @@ func newConnOptFunc(name string, runtime bool, f func(*ConnectionConfig) error) 
 		runtime:   runtime,
 		applyFunc: f,
 	}
+}
+
+func loggerSameInstance(a, b logger.Logger) (same bool) {
+	defer func() {
+		if recover() != nil {
+			same = false
+		}
+	}()
+
+	return a == b
+}
+
+// nonRuntimeFields returns the fields that are owned by construction-time
+// resources. It performs unlocked reads and is safe only on scratch configs or
+// while the caller serializes access with the outer config-update mutex.
+func (cfg *ConnectionConfig) nonRuntimeFields() nonRuntimeFingerprint {
+	return nonRuntimeFingerprint{
+		isActive:         cfg.isActive,
+		isEquip:          cfg.isEquip,
+		host:             cfg.host,
+		port:             cfg.port,
+		senderQueueSize:  cfg.senderQueueSize,
+		dataMsgQueueSize: cfg.dataMsgQueueSize,
+	}
+}
+
+func (cfg *ConnectionConfig) snapshot() *ConnectionConfig {
+	cfg.mu.RLock()
+	defer cfg.mu.RUnlock()
+
+	return &ConnectionConfig{
+		host:                  cfg.host,
+		port:                  cfg.port,
+		isEquip:               cfg.isEquip,
+		isActive:              cfg.isActive,
+		autoLinktest:          cfg.autoLinktest,
+		linktestInterval:      cfg.linktestInterval,
+		linktestFailThreshold: cfg.linktestFailThreshold,
+		t3Timeout:             cfg.t3Timeout,
+		t5Timeout:             cfg.t5Timeout,
+		t6Timeout:             cfg.t6Timeout,
+		t7Timeout:             cfg.t7Timeout,
+		t8Timeout:             cfg.t8Timeout,
+		connectRemoteTimeout:  cfg.connectRemoteTimeout,
+		acceptConnTimeout:     cfg.acceptConnTimeout,
+		closeConnTimeout:      cfg.closeConnTimeout,
+		initialRetryDelay:     cfg.initialRetryDelay,
+		sendTimeout:           cfg.sendTimeout,
+		keepAlivePeriod:       cfg.keepAlivePeriod,
+		idleReadTimeout:       cfg.idleReadTimeout,
+		senderQueueSize:       cfg.senderQueueSize,
+		dataMsgQueueSize:      cfg.dataMsgQueueSize,
+		validateDataMessage:   cfg.validateDataMessage,
+		traceTraffic:          cfg.traceTraffic,
+		logger:                cfg.logger,
+	}
+}
+
+func (cfg *ConnectionConfig) commitRuntime(scratch *ConnectionConfig) {
+	cfg.mu.Lock()
+	defer cfg.mu.Unlock()
+
+	cfg.autoLinktest = scratch.autoLinktest
+	cfg.linktestInterval = scratch.linktestInterval
+	cfg.linktestFailThreshold = scratch.linktestFailThreshold
+	cfg.t3Timeout = scratch.t3Timeout
+	cfg.t5Timeout = scratch.t5Timeout
+	cfg.t6Timeout = scratch.t6Timeout
+	cfg.t7Timeout = scratch.t7Timeout
+	cfg.t8Timeout = scratch.t8Timeout
+	cfg.connectRemoteTimeout = scratch.connectRemoteTimeout
+	cfg.acceptConnTimeout = scratch.acceptConnTimeout
+	cfg.closeConnTimeout = scratch.closeConnTimeout
+	cfg.initialRetryDelay = scratch.initialRetryDelay
+	cfg.sendTimeout = scratch.sendTimeout
+	cfg.keepAlivePeriod = scratch.keepAlivePeriod
+	cfg.idleReadTimeout = scratch.idleReadTimeout
+	cfg.validateDataMessage = scratch.validateDataMessage
+	cfg.traceTraffic = scratch.traceTraffic
+
+	// Non-runtime fields are intentionally excluded:
+	// - logger is aliased into Connection, TaskManager, and Session at construction.
+	// - isActive selects active/passive lifecycle handlers and receive dispatch.
+	// - isEquip controls protocol role behavior chosen for the existing connection.
+	// - host and port are construction/listener/dial identity, not runtime state.
+	// - senderQueueSize sizes the lifetime senderMsgChan created in NewConnection.
+	// - dataMsgQueueSize sizes handler channels created from the Session.
 }
 
 // withRemoteHost sets the host for the HSMS-SS connection.
@@ -1039,6 +1135,9 @@ func WithTraceTraffic(value bool) ConnOption {
 // The default logger is the global logger instance.
 //
 // This option can't be changed at runtime.
+// UpdateConfigOptions accepts only same-instance logger replacement; different
+// logger instances are rejected because the logger is aliased into Connection,
+// TaskManager, and Session at construction time.
 func WithLogger(l logger.Logger) ConnOption {
 	return newConnOptFunc("WithLogger", false, func(cfg *ConnectionConfig) error {
 		if cfg == nil {

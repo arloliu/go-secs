@@ -96,6 +96,7 @@ type Connection struct {
 	// Incremented on Close() so timers scheduled before Close() cannot fire after a later Open().
 	reconnectGen atomic.Uint64
 	tickers      tickerCtl // linktest control
+	cfgUpdateMu  sync.Mutex
 
 	// linktestFailCount tracks consecutive linktest T6 timeout failures.
 	// It is compared against cfg.linktestFailThreshold to decide when to disconnect.
@@ -190,45 +191,59 @@ func NewConnection(ctx context.Context, cfg *ConnectionConfig) (*Connection, err
 }
 
 // UpdateConfigOptions updates the connection configuration options.
+//
+// Rollback guarantees no live config mutation; it does not guarantee zero
+// external side effects produced by individual option apply funcs (e.g., DNS
+// lookup in WithRemoteHost).
 func (c *Connection) UpdateConfigOptions(opts ...ConnOption) error {
-	// Store original values that might trigger actions
+	c.cfgUpdateMu.Lock()
+	defer c.cfgUpdateMu.Unlock()
+
 	origAutoLinktest := c.cfg.AutoLinktest()
 	origLinktestInterval := c.cfg.LinktestInterval()
 
-	// apply all options
+	var errs error
+	fnOpts := make([]*connOptFunc, 0, len(opts))
 	for _, opt := range opts {
 		fnOpt, ok := opt.(*connOptFunc)
 		if !ok {
-			return errors.New("invalid ConnOption type")
+			errs = errors.Join(errs, errors.New("invalid ConnOption type"))
+			continue
 		}
 
-		// Reject options that cannot be changed after construction. Applying
-		// e.g. WithPassive/WithActive at runtime would desync the state-manager
-		// handler (chosen once in NewConnection) from receiver dispatch.
-		if !fnOpt.runtime {
-			return fmt.Errorf("option %q cannot be changed at runtime", fnOpt.name)
-		}
+		fnOpts = append(fnOpts, fnOpt)
+	}
 
-		if err := opt.apply(c.cfg); err != nil {
-			return err
+	scratch := c.cfg.snapshot()
+	for _, fn := range fnOpts {
+		before := scratch.nonRuntimeFields()
+		beforeLogger := scratch.logger
+
+		if err := fn.apply(scratch); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("option %q: %w", fn.name, err))
+			continue
+		}
+		if !fn.runtime && (scratch.nonRuntimeFields() != before || !loggerSameInstance(scratch.logger, beforeLogger)) {
+			errs = errors.Join(errs, fmt.Errorf("option %q cannot be changed at runtime", fn.name))
 		}
 	}
 
-	// store linktest configuration changes
+	if errs != nil {
+		return errs
+	}
+
+	c.cfg.commitRuntime(scratch)
+
 	curAutoLinktest := c.cfg.AutoLinktest()
 	curLinktestInterval := c.cfg.LinktestInterval()
 
-	// check if autoLinktest setting changed
 	if curAutoLinktest != origAutoLinktest {
 		if curAutoLinktest {
-			// autoLinktest was enabled
 			c.tickers.resetLinktestTicker(curLinktestInterval)
 		} else {
-			// autoLinktest was disabled
 			c.tickers.stopLinktestTicker()
 		}
 	} else if curAutoLinktest && curLinktestInterval != origLinktestInterval {
-		// only interval changed while autoLinktest is enabled
 		c.tickers.resetLinktestTicker(curLinktestInterval)
 	}
 
