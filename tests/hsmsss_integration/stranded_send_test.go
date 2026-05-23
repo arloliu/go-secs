@@ -4,15 +4,21 @@ package hsmsssintegration
 // stranded-send-across-connection-generations bug fixed by commits f604180,
 // f76f23a, and b1d9cb4.
 //
-// Regression: a SendDataMessageAsync racing Close could place a frame in
-// senderMsgChan after the drain inside closeConn; that frame would then become
-// the very first bytes the protocol loop sent on the next Open(), appearing
-// before the mandatory Select.req and violating SEMI E37 §7.4.
+// Regression: a message (data or control) racing the Close path could land in
+// senderMsgChan after drainSenderMsgChan #1 had already run but before the
+// sendMu WLock gated the channel for good. Without the final drain (#2), that
+// frame survives in senderMsgChan and the new generation's senderTask picks it
+// up before selectSession has a chance to send Select.req — a SEMI E37 §7.4
+// violation.
 //
 // Observable: when the same *Connection object is reopened against a fresh raw
-// listener, the first HSMS frame that listener receives MUST be a Select.req.
-// Any other SType (data message, stale control frame) indicates the regression
-// is present.
+// listener, the first HSMS frame that listener receives MUST be a Select.req
+// (SType=1). Any other SType (data message SType=0, stale Separate.req SType=9,
+// etc.) indicates the regression is present.
+//
+// Verification: with the final drain disabled in conn.go closeConn(), this test
+// reliably fails (observed SType=9 crossing at gen-44 in a 50-iteration run).
+// With the fix in place, all 50 × 3 repetitions pass.
 
 import (
 	"context"
