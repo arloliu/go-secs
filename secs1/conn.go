@@ -117,8 +117,30 @@ type Connection struct {
 	//
 	// senderMsgChan is read by the protocol loop; producers write
 	// sendRequests into it via queueSendRequest. It is created once in
-	// NewConnection and never closed.
+	// NewConnection and lives for the Connection's lifetime; queueSendRequest
+	// is gated by sendClosed (see sendMu) so a closing connection cannot accept
+	// new enqueues and a stranded frame cannot cross into the next connection.
 	senderMsgChan chan *sendRequest
+
+	// sendMu guards sendClosed. queueSendRequest holds it for reading across its
+	// enqueue; closeConn takes it for writing to set sendClosed, which — because
+	// the Lock waits for in-flight readers — makes the subsequent senderMsgChan
+	// drain final. doOpen and connectLoop reset sendClosed for each new
+	// connection generation.
+	//
+	// Lock-order rule (do not violate):
+	//   sendMu  >  ctxMutex
+	// That is: a goroutine holding sendMu (read or write) MAY take ctxMutex,
+	// but a goroutine holding ctxMutex MUST NOT take sendMu. The send path
+	// acquires sendMu.RLock then calls getContext() which takes ctxMutex.RLock,
+	// establishing the order. Consequently, the sendClosed gate-reset in
+	// doOpen and connectLoop is performed OUTSIDE createContext() (which holds
+	// ctxMutex.Lock) — taking sendMu.Lock while ctxMutex is held would deadlock
+	// against any concurrent queueSendRequest. Future contributors: keep the
+	// gate-reset before/after createContext, never inside.
+	sendMu     sync.RWMutex
+	sendClosed bool
+
 	replyMsgChans *xsync.MapOf[uint32, chan *hsms.DataMessage]
 	replyErrs     *xsync.MapOf[uint32, error]
 
@@ -302,6 +324,12 @@ func (c *Connection) doOpen(waitOpened bool) error {
 
 	c.createContext()
 
+	// Re-open the send gate for this new connection generation; the previous
+	// closeConn closed it during teardown.
+	c.sendMu.Lock()
+	c.sendClosed = false
+	c.sendMu.Unlock()
+
 	if c.cfg.isActive {
 		if err := c.openActive(); err != nil {
 			return err
@@ -448,6 +476,28 @@ func (c *Connection) closeConn(timeout time.Duration) error {
 		c.logger.Error("secs1: close timeout", "error", closeCtx.Err(), "timeout", timeout)
 		closeErr = fmt.Errorf("secs1: close timeout: %w", closeCtx.Err())
 	}
+
+	// Close the send gate, then drain senderMsgChan a final time.
+	//
+	// Setting sendClosed under c.sendMu's write lock blocks every future
+	// enqueue: a queueSendRequest already past its sendClosed check holds the
+	// read lock, so this Lock waits for it to finish its send; any later
+	// queueSendRequest observes sendClosed and returns ErrConnClosed without
+	// enqueuing. Once the gate is closed, no goroutine — a taskMgr-joined task
+	// or an external sendMsg caller alike — can put a frame into senderMsgChan,
+	// so the drain that follows is definitive.
+	//
+	// This is unconditional: it runs on both the normal and the close-timeout
+	// path. Without this drain a frame stranded by a queueSendRequest racing
+	// teardown would be flushed onto the next connection with stale system bytes.
+	//
+	// context.Background() is required, not closeCtx: drainSenderMsgChan selects
+	// on ctx.Done(), and the already-cancelled closeCtx would let it return
+	// before the channel is empty.
+	c.sendMu.Lock()
+	c.sendClosed = true
+	c.sendMu.Unlock()
+	c.drainSenderMsgChan(context.Background())
 
 	// Cleanup reply channels.
 	c.dropAllReplyMsgs()
@@ -826,7 +876,28 @@ func (c *Connection) sendMsgAsync(msg *hsms.DataMessage) error {
 }
 
 // queueSendRequest puts a sendRequest onto the protocol loop's channel.
+//
+// It holds c.sendMu for reading across the enqueue. Once closeConn has taken
+// c.sendMu for writing and set sendClosed, no queueSendRequest can enqueue: a
+// caller already past the sendClosed check is holding the read lock, so
+// closeConn's Lock waits for it to finish its send; a caller that arrives later
+// observes sendClosed and returns ErrConnClosed without enqueuing. That ordering
+// makes closeConn's final senderMsgChan drain definitive — no frame can be
+// stranded past teardown.
+//
+// Holding the read lock across the select is safe: by the time closeConn wants
+// the write lock, the per-connection context has been cancelled (closeConn step
+// before the gate-close), so any in-flight select exits promptly via its
+// ctx.Done() case. closeConn's Lock waits only that brief moment for in-flight
+// senders to return — never the full SendTimeout.
 func (c *Connection) queueSendRequest(req *sendRequest) error {
+	c.sendMu.RLock()
+	defer c.sendMu.RUnlock()
+
+	if c.sendClosed {
+		return ErrConnClosed
+	}
+
 	timer := pool.GetTimer(c.cfg.SendTimeout())
 	defer pool.PutTimer(timer)
 

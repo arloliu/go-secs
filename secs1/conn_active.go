@@ -158,6 +158,12 @@ func (c *Connection) connectLoop(loopCtx context.Context, gen uint64) {
 			}
 
 			c.createContext()
+
+			// Re-open the send gate for the new connection generation; the
+			// preceding closeConn closed it during teardown.
+			c.sendMu.Lock()
+			c.sendClosed = false
+			c.sendMu.Unlock()
 		}
 
 		if err := c.tryConnect(c.getContext()); err != nil {
