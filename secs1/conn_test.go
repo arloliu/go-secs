@@ -45,6 +45,9 @@ func TestMain(m *testing.M) {
 	logger.SetLevel(level)
 
 	m.Run()
+	// No-op under the default build; under `-tags debugfree` this writes
+	// /tmp/hsms-pool-debug.log for the pool double-Free investigation.
+	hsms.DumpDebugLog()
 }
 
 // --- Port allocation ---
@@ -1634,11 +1637,17 @@ func TestConnection_SendGateReopensAfterCloseAndReopen(t *testing.T) {
 
 	// Behavioral check: a fresh queueSendRequest must not be rejected by the
 	// gate. Any other error (e.g., send timeout) is unrelated to this regression.
+	//
+	// Ownership contract: on queueSendRequest success the protocol loop's
+	// handleOutgoingMessage defer-Frees msg; the caller must NOT Free in that
+	// case. Mirror sendMsgAsync (conn.go:935-938): Free only on error.
 	msg, err := hsms.NewDataMessage(1, 1, false, testSessionID, hsms.GenerateMsgSystemBytes(), nil)
 	require.NoError(err)
 	req := &sendRequest{msg: msg}
 	sendErr := c.queueSendRequest(req)
-	msg.Free()
+	if sendErr != nil {
+		msg.Free()
+	}
 	require.NotErrorIs(sendErr, ErrConnClosed,
 		"queueSendRequest must not be refused by the gate after reopen")
 }

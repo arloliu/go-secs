@@ -44,6 +44,8 @@ func getDataMessage(stream byte, function byte, replyExpected bool, sessionID ui
 		msg.stream |= waitBitMask
 	}
 
+	debugLogGet(msg)
+
 	return msg
 }
 
@@ -51,6 +53,7 @@ func getDataMessage(stream byte, function byte, replyExpected bool, sessionID ui
 // It resets the dataItem field to nil before putting the message back into the pool.
 func putDataMessage(msg *DataMessage) {
 	if usePool {
+		debugLogPut(msg)
 		msg.dataItem = nil
 		atomic.StoreUint32(&msg.freed, 0)
 		dataMsgPool.Put(msg)

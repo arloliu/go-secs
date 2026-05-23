@@ -18,7 +18,6 @@ func newNoHandlerTestComm(
 	port int,
 	isHost bool,
 	isActive bool,
-	extraOpts ...ConnOption,
 ) *testComm {
 	t.Helper()
 
@@ -46,8 +45,6 @@ func newNoHandlerTestComm(
 		l := logger.GetLogger().With("role", "PASSIVE")
 		opts = append(opts, WithPassive(), WithLogger(l))
 	}
-
-	opts = append(opts, extraOpts...)
 
 	connCfg, err := NewConnectionConfig(testIP, port, opts...)
 	r.NoError(err)
