@@ -1214,3 +1214,191 @@ func TestSendTimeout_Getter(t *testing.T) {
 	r.NoError(err)
 	r.Equal(5*time.Second, cfg.SendTimeout())
 }
+
+// --- Send-gate tests ---
+
+// TestConnection_CloseDrainsStrandedSenderFrame verifies that a sendRequest
+// enqueued onto senderMsgChan during the closeConn teardown window — after the
+// pre-cancel drain but before the per-connection context is cancelled — is
+// reclaimed by the post-Wait final drain and is never carried into a later
+// connection.
+//
+// senderMsgChan persists for the Connection's lifetime; without the post-Wait
+// drain a frame stranded in this window survives teardown and is transmitted
+// as the first frame of the next TCP session instead of the expected
+// protocol-initialization exchange.
+//
+// The window is a few instructions wide, so the test races a continuously
+// hammering injector against many open/close cycles. The injector is registered
+// as a taskMgr task: closeConn's taskMgr.Stop() signals it and taskMgr.Wait()
+// joins it before the final drain runs, so the drain provably executes after
+// the injector has stopped — there are no stragglers, and the assertion is exact.
+// CloseConnTimeout is generous (5 s) so close completes well within the timeout
+// even under -race with the injector loaded.
+func TestConnection_CloseDrainsStrandedSenderFrame(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+
+	const iterations = 50
+
+	for i := range iterations {
+		// Each iteration runs in its own closure so the deferred connection
+		// cleanup fires at iteration end, even if any require in the body trips.
+		func() {
+			port := getPort()
+			hostComm := newTestComm(ctx, t, port, true, true,
+				WithSenderQueueSize(100),
+				WithCloseConnTimeout(5*time.Second),
+			)
+			eqpComm := newTestComm(ctx, t, port, false, false)
+			// Connection.Close() is idempotent, so a deferred close after the
+			// explicit close-under-test below is a harmless no-op on the success path.
+			defer eqpComm.close()
+			defer hostComm.close()
+
+			require.NoError(eqpComm.open(true))
+			require.NoError(hostComm.open(true))
+			require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+			c := hostComm.conn
+
+			// Injector: stands in for a caller racing teardown. Registered as a
+			// taskMgr task so closeConn joins it via taskMgr.Wait() before the
+			// final drain runs. Each invocation hammers the production enqueue
+			// path; it stops only when the send gate or connCtx cancellation
+			// rejects the send.
+			require.NoError(c.taskMgr.Start("test-injector", func() bool {
+				msg, err := hsms.NewDataMessage(1, 1, false, testSessionID, hsms.GenerateMsgSystemBytes(), nil)
+				if err != nil {
+					return false
+				}
+				req := &sendRequest{msg: msg}
+				if err := c.queueSendRequest(req); err != nil {
+					req.msg.Free()
+					if errors.Is(err, ErrConnClosed) {
+						return false // gate closed or ctx cancelled — stop
+					}
+
+					return true // ErrSendMsgTimeout — channel full, keep trying
+				}
+
+				return true
+			}))
+
+			require.NoError(hostComm.close())
+
+			// hostComm.close() has returned: every task (the injector included)
+			// has exited and the post-Wait drain has run. senderMsgChan must be
+			// empty.
+			require.Equal(0, len(c.senderMsgChan),
+				"iteration %d: senderMsgChan must be empty after close — a "+
+					"stranded frame would be flushed onto the next connection", i)
+		}()
+	}
+}
+
+// TestConnection_CloseGateRefusesSendsAfterClose verifies the send gate: once
+// closeConn has run, queueSendRequest deterministically refuses every enqueue
+// with ErrConnClosed, so no frame can be stranded in the persistent senderMsgChan
+// for the next connection to flush.
+//
+// This is deterministic in both -race and non-race modes: it issues the sends
+// strictly after close() returns, so it depends on no teardown timing window.
+// Without the gate, queueSendRequest's select races connCtx.Done() against the
+// buffered-channel send and pseudo-randomly enqueues roughly half of these
+// post-close calls; with the gate every post-close call is refused.
+func TestConnection_CloseGateRefusesSendsAfterClose(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithSenderQueueSize(100),
+		WithCloseConnTimeout(5*time.Second),
+	)
+	eqpComm := newTestComm(ctx, t, port, false, false)
+	defer eqpComm.close()
+
+	require.NoError(eqpComm.open(true))
+	require.NoError(hostComm.open(true))
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+	c := hostComm.conn
+
+	// Close the host connection. After close() returns, the send gate is shut.
+	require.NoError(hostComm.close())
+
+	// Every queueSendRequest after close must be refused with ErrConnClosed and
+	// must NOT enqueue. Without the gate, the racy select would enqueue roughly
+	// half of these, stranding frames in the persistent senderMsgChan.
+	for j := range 100 {
+		msg, err := hsms.NewDataMessage(1, 1, false, testSessionID, hsms.GenerateMsgSystemBytes(), nil)
+		require.NoError(err)
+		req := &sendRequest{msg: msg}
+		sendErr := c.queueSendRequest(req)
+		req.msg.Free()
+		require.ErrorIs(sendErr, ErrConnClosed,
+			"call %d: queueSendRequest must refuse every send after close", j)
+	}
+
+	require.Equal(0, len(c.senderMsgChan),
+		"no frame may be enqueued into senderMsgChan after close")
+}
+
+// TestConnection_SendGateReopensAfterCloseAndReopen verifies the send gate is
+// reset to open by doOpen() when the same Connection object is reopened after
+// Close(). Without this reset, a reopened Connection would silently reject every
+// send with ErrConnClosed even though stateMgr reports Selected. See the
+// gate-reset sites at secs1/conn.go (doOpen) and secs1/conn_active.go
+// (connectLoop reconnect path).
+//
+// Per Codex review of fix/secs1-send-gate: the original 295ec99 tests only
+// asserted post-close refusal and never proved the gate reopens for the next
+// connection generation. This test closes that loop for the Open-after-Close
+// path; the connectLoop reset site is exercised in production by active
+// reconnect and would be additionally covered by the integration test in
+// tmp/integration-test-gaps.md §2.12.
+func TestConnection_SendGateReopensAfterCloseAndReopen(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	hostComm := newTestComm(ctx, t, port, true, true,
+		WithSenderQueueSize(100),
+		WithCloseConnTimeout(5*time.Second),
+	)
+	eqpComm := newTestComm(ctx, t, port, false, false)
+	defer eqpComm.close()
+
+	require.NoError(eqpComm.open(true))
+	require.NoError(hostComm.open(true))
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+
+	c := hostComm.conn
+
+	// Phase 1: close shuts the gate.
+	require.NoError(hostComm.close())
+	c.sendMu.RLock()
+	require.True(c.sendClosed, "sendClosed must be true after Close()")
+	c.sendMu.RUnlock()
+
+	// Phase 2: reopen the same Connection. doOpen() must reset the gate; any
+	// subsequent queueSendRequest must not be refused with ErrConnClosed.
+	require.NoError(hostComm.open(true))
+	require.NoError(hostComm.conn.stateMgr.WaitState(ctx, hsms.SelectedState))
+	defer hostComm.close()
+
+	c.sendMu.RLock()
+	require.False(c.sendClosed, "sendClosed must be false after Open() following Close()")
+	c.sendMu.RUnlock()
+
+	// Behavioral check: a fresh queueSendRequest must not be rejected by the
+	// gate. Any other error (e.g., send timeout) is unrelated to this regression.
+	msg, err := hsms.NewDataMessage(1, 1, false, testSessionID, hsms.GenerateMsgSystemBytes(), nil)
+	require.NoError(err)
+	req := &sendRequest{msg: msg}
+	sendErr := c.queueSendRequest(req)
+	msg.Free()
+	require.NotErrorIs(sendErr, ErrConnClosed,
+		"queueSendRequest must not be refused by the gate after reopen")
+}
