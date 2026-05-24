@@ -61,8 +61,8 @@ func recordDebugEvent(kind debugKind, msg *DataMessage) {
 	e.pcsN = int32(runtime.Callers(3, e.pcs[:]))
 }
 
-func debugLogGet(msg *DataMessage)  { recordDebugEvent(debugKindGet, msg) }
-func debugLogPut(msg *DataMessage)  { recordDebugEvent(debugKindPut, msg) }
+func debugLogGet(msg *DataMessage) { recordDebugEvent(debugKindGet, msg) }
+func debugLogPut(msg *DataMessage) { recordDebugEvent(debugKindPut, msg) }
 func debugLogFree(msg *DataMessage) {
 	// True stale-Free detector: getDataMessage always sets dataItem to a
 	// non-nil value (secs2.NewEmptyItem() at minimum). Only putDataMessage
