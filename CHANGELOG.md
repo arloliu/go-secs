@@ -207,6 +207,14 @@ No public API additions; behavior changes are noted under **Changed**.
   than failing the test; the package-internal counter gate above is
   authoritative, this layer is defense-in-depth against scheduler /
   fd noise.
+- `tests/hsmsss_integration`: `ByteChaosProxy` parallel to the
+  existing `ChaosProxy` for faults the filter-driven pump cannot
+  express — partial length-header writes, partial payload writes,
+  `payload[4]` (PType) / `payload[5]` (SType) substitution, and
+  length-header override. Five scenarios drive the matching SEMI-E37
+  conformance fixes above (per-byte T8, unsupported-PType/SType
+  Reject.req, length-too-large rejection) end-to-end through the
+  live wire.
 
 ## [1.16.0] - 2026-04-18
 
