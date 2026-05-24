@@ -119,8 +119,12 @@ func (s *Session) AddConnStateChangeHandler(handlers ...hsms.ConnStateChangeHand
 //
 //	session.AddDataMessageHandler(func(msg *hsms.DataMessage, session hsms.Session) {
 //	    if msg.FunctionCode()%2 == 1 {
-//	        // handle request message
-//	        err := session.ReplyDataMessage(msg, msg.Item())
+//	        // handle request message — Clone the item because the library
+//	        // takes ownership of the reply's item and will Free it; sharing
+//	        // msg.Item() across primary and reply would Free what msg still
+//	        // points at. See [hsms.Session.ReplyDataMessage] for the
+//	        // ownership contract.
+//	        err := session.ReplyDataMessage(msg, msg.Item().Clone())
 //	        if err != nil {
 //	            // handle reply error
 //	        }

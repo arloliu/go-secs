@@ -46,7 +46,7 @@ func dataMsgHandler(msg *hsms.DataMessage, session hsms.Session) {
 
 	// Echo reply for primary messages (odd function code) that are not stream 9.
 	if msg.FunctionCode()%2 == 1 && msg.StreamCode() != 9 {
-		if err := session.ReplyDataMessage(msg, msg.Item()); err != nil {
+		if err := session.ReplyDataMessage(msg, msg.Item().Clone()); err != nil {
 			log.Error("failed to reply message", "id", msg.ID(), "error", err)
 		}
 	}

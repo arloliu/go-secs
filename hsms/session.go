@@ -44,12 +44,19 @@ type Session interface {
 	// SendSECS2Message sends a SECS-II message and waits for its reply.
 	//
 	// It returns the received reply message (as a DataMessage) and an error if any occurred during sending or receiving.
+	//
+	// Item ownership: implementations take ownership of msg.Item() and will
+	// Free it. Callers must not retain a reference to msg.Item() after this
+	// call or Free it themselves. Clone before each call if you need to
+	// reuse the same item.
 	SendSECS2Message(msg secs2.SECS2Message) (*DataMessage, error)
 
 	// SendSECS2MessageAsync sends a SECS-II message asynchronously.
 	//
 	// It sends the message and returns immediately after sending,
 	// and let user specified data message handler to receive reply if any.
+	//
+	// Item ownership: same contract as [Session.SendSECS2Message].
 	SendSECS2MessageAsync(msg secs2.SECS2Message) error
 
 	// SendDataMessage sends an HSMS data message with the specified stream, function, and data item.
@@ -57,12 +64,24 @@ type Session interface {
 	// It waits for a reply if replyExpected is true.
 	// It returns the received reply DataMessage if replyExpected is true, nil otherwise,
 	// and and an error if any occurred during sending or receiving.
+	//
+	// Item ownership: implementations take ownership of dataItem and will
+	// Free it (on success or on internal send failure). Callers must not
+	// retain the reference and must not Free dataItem themselves, regardless
+	// of whether the call succeeds or returns an error. If you need to
+	// retry with the same logical item, call dataItem.Clone() before each
+	// attempt: passing the original would reuse a pointer the library has
+	// already returned to the SECS-II item pool and could race with
+	// concurrent decoders. The returned reply DataMessage (on success with
+	// replyExpected) is owned by the caller; Free it after use.
 	SendDataMessage(stream byte, function byte, replyExpected bool, dataItem secs2.Item) (*DataMessage, error)
 
 	// SendDataMessageAsync sends an HSMS data message asynchronously.
 	//
 	// It sends the message and returns immediately after sending,
 	// and let user specified data message handler to receive reply if any.
+	//
+	// Item ownership: same contract as [Session.SendDataMessage].
 	SendDataMessageAsync(stream byte, function byte, replyExpected bool, dataItem secs2.Item) error
 
 	// ReplyDataMessage sends a reply to a previously received data message.
@@ -71,6 +90,14 @@ type Session interface {
 	// It returns an error if any occurred during sending the reply.
 	//
 	// It is a wrapper method to reply data message with the corresponding function code of primary message.
+	//
+	// Item ownership: implementations take ownership of dataItem. Passing
+	// primaryMsg.Item() shares the pointer between primaryMsg and the
+	// reply — the library will Free that shared pointer when the reply is
+	// sent, so any later access to primaryMsg.Item() (including another
+	// ReplyDataMessage or Free'ing primaryMsg) is use-after-free. Pass
+	// primaryMsg.Item().Clone() if you intend to keep primaryMsg usable
+	// after this call.
 	ReplyDataMessage(primaryMsg *DataMessage, dataItem secs2.Item) error
 
 	// AddConnStateChangeHandler adds one or more ConnStateChangeHandler

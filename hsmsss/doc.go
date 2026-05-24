@@ -32,7 +32,10 @@
 // Usage Example:
 //
 //	func echoHandler(msg *hsms.DataMessage, session hsms.Session) {
-//	    err := session.ReplyDataMessage(msg, msg.Item())
+//	    // Clone msg.Item(): the library takes ownership of the reply's item
+//	    // and will Free it. Passing msg.Item() directly would Free what msg
+//	    // still references — see hsms.Session.ReplyDataMessage godoc.
+//	    err := session.ReplyDataMessage(msg, msg.Item().Clone())
 //	    // ... handle error ...
 //	}
 //
