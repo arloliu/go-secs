@@ -552,6 +552,12 @@ loop:
 // dispatchAsyncEvent snapshots the async handler slice and invokes each one
 // without holding cs.mu, so handlers are free to call back into the state
 // manager (including synchronous ToX methods) without re-entering the mutex.
+//
+// Each handler invocation is wrapped in invokeAsyncHandlerSafely so that a
+// panic from one user-supplied handler does not crash the dispatcher
+// goroutine or stop subsequent events from being delivered to sibling
+// handlers — the dispatcher is a shared resource that must survive misuse
+// of any individual handler.
 func (cs *ConnStateMgr) dispatchAsyncEvent(ev asyncStateChangeEvent) {
 	cs.mu.Lock()
 	handlers := make([]ConnStateChangeHandler, len(cs.asyncHandlers))
@@ -560,9 +566,26 @@ func (cs *ConnStateMgr) dispatchAsyncEvent(ev asyncStateChangeEvent) {
 
 	for _, handler := range handlers {
 		if handler != nil {
-			handler(cs.conn, ev.prev, ev.next)
+			cs.invokeAsyncHandlerSafely(handler, ev)
 		}
 	}
+}
+
+// invokeAsyncHandlerSafely runs a single async handler under a recover guard.
+// A panicking handler is logged at error level with the (prev, next) pair
+// that triggered it; the dispatcher then continues with the next handler.
+func (cs *ConnStateMgr) invokeAsyncHandlerSafely(handler ConnStateChangeHandler, ev asyncStateChangeEvent) {
+	defer func() {
+		if r := recover(); r != nil {
+			cs.logger.Error("async connection state handler panic",
+				"prev", ev.prev,
+				"next", ev.next,
+				"recovered", r,
+			)
+		}
+	}()
+
+	handler(cs.conn, ev.prev, ev.next)
 }
 
 // changeStateAsync transitions the desired connection state asynchronously.
