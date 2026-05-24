@@ -156,6 +156,15 @@ type sendRequest struct {
 // ensure Connection implements hsms.Connection interface.
 var _ hsms.Connection = &Connection{}
 
+// Test-only seams used by hsmsss/reply_close_race_test.go to deterministically
+// reproduce the close-race interleavings between dropAllReplyMsgs and the
+// receiverTask-driven reply routers. Production code leaves these nil; tests
+// set and restore them within a single t.Run, never under concurrent tests.
+var (
+	replyToSenderPreSendHook     func()
+	replyErrToSenderPreStoreHook func()
+)
+
 // NewConnection creates a new HSMS-SS Connection with the given context and configuration.
 // It initializes the connection state, task manager, and other necessary components.
 // Returns an error if the configuration is invalid or if initialization fails.
@@ -768,6 +777,19 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	function := msg.FunctionCode()
 	replyMsgChan := c.addReplyExpectedMsg(id)
 
+	// Terminal-branch orphan defense (post-impl review item 1 of 2): any of
+	// the terminal branches below (Phase 1 ctx.Done / sendErr, Phase 2
+	// ctx.Done / T3-T6 timer) returns without consuming replyMsgChan. If a
+	// replyToSender or replyErrToSender goroutine successfully delivered into
+	// the cap-1 buffer after its post-send Load saw the channel as still
+	// registered but before this defer runs, the message (or nil err
+	// sentinel) would be stranded in an orphan buffer. Drain non-blockingly
+	// to Free the orphan and, for a nil sentinel, Delete the matching
+	// replyErrs entry — see drainOrphanReply for the full rationale. No-op
+	// on the reply success case because that branch consumes the buffer
+	// first.
+	defer c.drainOrphanReply(id, replyMsgChan)
+
 	sentChan := make(chan error, 1)
 	req := &sendRequest{msg: msg, sentChan: sentChan}
 
@@ -1004,19 +1026,76 @@ func (c *Connection) removeReplyExpectedMsg(id uint32) {
 	c.replyMsgChans.Delete(id)
 }
 
-// dropAllReplyMsgs closes every reply channel in replyMsgChans and clears the
-// replyErrs map, dropping any pending replies and discarding any transaction
-// errors stranded by a connCtx-done race in replyErrToSender.
+// drainOrphanReply is sendMsg's defer-time cleanup. It non-blockingly
+// receives any value left in replyMsgChan after a sendMsg terminal branch
+// (Phase 1 ctx.Done / sendErr, Phase 2 ctx.Done / T3-T6 timer) fired
+// without consuming the reply, and ensures the pool / replyErrs stay
+// balanced:
+//
+//   - A non-nil DataMessage was delivered by replyToSender — Free it so
+//     the pool sees the return.
+//   - A nil sentinel was delivered by replyErrToSender (or by
+//     dropAllReplyMsgs) — Delete the matching replyErrs entry, if any.
+//     replyErrToSender's own post-send identity check only fires when the
+//     map already lost the channel; the path where the identity check
+//     observes the channel as still registered (because removal happens in
+//     OUR terminal branch AFTER the check) lands here and would otherwise
+//     strand replyErrs[id]. dropAllReplyMsgs separately Clears replyErrs,
+//     so a nil from that origin makes the Delete a no-op — safe either way.
+//
+// The reply success case in sendMsg consumes the buffer before this defer
+// runs, so the function is a no-op on that path.
+func (c *Connection) drainOrphanReply(id uint32, replyMsgChan <-chan hsms.HSMSMessage) {
+	select {
+	case orphan := <-replyMsgChan:
+		if orphan != nil {
+			orphan.Free()
+		} else {
+			// Stranded replyErrs[id] from a Store-then-send by
+			// replyErrToSender whose post-send identity check saw the
+			// channel as still registered. Delete on a non-existent key
+			// is a no-op, so this is safe when the nil came from any
+			// other source.
+			c.replyErrs.Delete(id)
+		}
+	default:
+	}
+}
+
+// dropAllReplyMsgs drains every reply channel in replyMsgChans, delivers an
+// explicit nil sentinel (which sendMsg treats identically to a closed-channel
+// receive — see the replyMsg == nil branch at conn.go:840-852), then clears
+// the map alongside replyErrs.
+//
+// We deliberately do NOT close(ch): receiverTask-driven replyToSender and
+// replyErrToSender may hold a previously-loaded replyChan and attempt a send
+// after this function runs; close(ch) would turn that send into a panic. The
+// drain-then-nil-send pattern preserves the wake-up semantic for sendMsg
+// without ever closing the channel, and the orphan-defense guards in
+// replyToSender / replyErrToSender handle late sends that race past the Clear.
+//
+// Drain-then-nil ordering matters: drain first frees any buffered reply that
+// would otherwise leak into the soon-orphaned channel buffer; the
+// non-blocking nil-send then delivers the termination signal. Nil-first
+// would land in an empty channel and be eaten by our own drain.
 func (c *Connection) dropAllReplyMsgs() {
-	// close all reply channels and free any buffered messages
 	c.replyMsgChans.Range(func(id uint32, ch chan hsms.HSMSMessage) bool {
 		if ch != nil {
-			close(ch)
-			// Drain and free any buffered messages that were never consumed.
-			for msg := range ch {
+			// Drain any buffered reply so its DataMessage returns to the
+			// pool (cap is 1; one read is sufficient).
+			select {
+			case msg := <-ch:
 				if msg != nil {
 					msg.Free()
 				}
+			default:
+			}
+			// Deliver the termination signal. Non-blocking: a sendMsg that
+			// already exited via connCtx.Done() never receives, and the
+			// leftover nil sits in the soon-orphaned buffer harmlessly.
+			select {
+			case ch <- nil:
+			default:
 			}
 		}
 
@@ -1027,8 +1106,8 @@ func (c *Connection) dropAllReplyMsgs() {
 
 	// replyErrs is transaction-scoped; clear it alongside replyMsgChans so an
 	// error stranded by a connCtx-done race in replyErrToSender cannot outlive
-	// the connection. dropAllReplyMsgs runs after connCtx is cancelled and the
-	// senders have woken, so this is definitive.
+	// the connection. The orphan-defense in replyErrToSender's ctx.Done branch
+	// covers the post-Clear interleaving where Store lands after Clear.
 	c.replyErrs.Clear()
 }
 
@@ -1215,20 +1294,24 @@ func (c *Connection) replyToSender(msg hsms.HSMSMessage) {
 		return
 	}
 
-	// set timeout for reply channel to avoid blocking forever
-	// if the reply channel is full, it means the senderTask is not ready to receive the reply message.
-	//
-	// Do NOT add a non-blocking-first send before this select: closeConn step 8
-	// (conn.go:613) can fall through with receiver tasks still alive on the
-	// close-timeout path, and step 10 (conn.go:652) then calls dropAllReplyMsgs
-	// which closes reply channels before draining (conn.go:1014). A receiver
-	// here that has already loaded replyChan can race that close and panic on
-	// 'send on closed channel'. The 3-case select below tolerates the race only
-	// partially (connCtx.Done arms simultaneously and may be picked instead of
-	// the send case) — a clean lifecycle fix is owed but until then the
-	// connCtx.Done arm must remain present on every send attempt.
+	// Slow-path-only: the 3-case select preserves ctx-done responsiveness
+	// during teardown. A non-blocking fast-path send before this select would
+	// still need to handle the post-Clear orphan case below — replyToSender
+	// already re-checks the map after a successful send to free orphan
+	// messages, but a fast path doubles the surfaces that need that guard.
+	// If a future perf pass justifies the fast path (Tier A4 in
+	// tmp/hsmsss-hotpath-perf-analysis-revised.md), extend the same orphan
+	// check there. For now, the slow-path-only shape is simpler and the
+	// per-reply timer-pool cost is small.
 	timer := pool.GetTimer(replyChannelTimeout)
 	defer pool.PutTimer(timer)
+
+	// Test seam: when set, fires after the Load above and before the send
+	// select below. Used by reply_close_race_test.go to deterministically
+	// reproduce the post-Clear orphan interleaving. nil in production.
+	if hook := replyToSenderPreSendHook; hook != nil {
+		hook()
+	}
 
 	select {
 	case <-c.connCtx().Done(): // the connection context done, drop the message and exit
@@ -1245,6 +1328,21 @@ func (c *Connection) replyToSender(msg hsms.HSMSMessage) {
 		return
 
 	case replyChan <- msg:
+		// Defend against a successful send into an orphaned channel: if
+		// dropAllReplyMsgs cleared the map between our Load (above) and our
+		// send, the waiting sendMsg has already exited (or never registered)
+		// and our msg is stuck in the cap-1 buffer where nothing else will
+		// Free it. Re-check the map; if the channel is no longer the
+		// registered one for this id, drain our send and Free the orphan.
+		if current, stillRegistered := c.replyMsgChans.Load(msg.ID()); !stillRegistered || current != replyChan {
+			select {
+			case stale := <-replyChan:
+				if stale != nil {
+					stale.Free()
+				}
+			default:
+			}
+		}
 		// successfully sent the reply message to the reply channel
 		// let consumer to remove the reply channel from replyMsgChans map
 	}
@@ -1263,12 +1361,40 @@ func (c *Connection) replyErrToSender(msg hsms.HSMSMessage, err error) {
 	id := msg.ID()
 	replyChan, ok := c.replyMsgChans.Load(id)
 	if ok {
+		// Test seam: when set, fires between the Load above and the Store
+		// below. Used by reply_close_race_test.go to deterministically
+		// reproduce the post-Clear orphan-replyErrs interleaving. nil in
+		// production.
+		if hook := replyErrToSenderPreStoreHook; hook != nil {
+			hook()
+		}
+
 		c.replyErrs.Store(id, err)
 
 		select {
 		case <-c.connCtx().Done(): // the connection context done, exit without block the process.
+			// If dropAllReplyMsgs.Clear() ran between our Load and our
+			// Store, the err we just stored is stranded in replyErrs. Drop
+			// it so the clean-shutdown invariant (replyErrs.Size() == 0
+			// after close) holds. Delete on a non-existent key is a no-op.
+			c.replyErrs.Delete(id)
+
 			return
 		case replyChan <- nil:
+			// Post-impl review item 2 of 2: if dropAllReplyMsgs.Clear()
+			// ran between our Load (above) and the Store just before this
+			// select, the replyErrs entry we just stored is stranded. The
+			// send-branch winning means sendMsg either already consumed
+			// drop's nil and exited (and our nil now lands in an orphan
+			// buffer that nothing will read), or the post-Clear/post-drain
+			// window left the buffer empty so we landed in an orphan. In
+			// both cases the err is stranded; re-check the map identity
+			// to detect the race and Delete our entry so the clean-shutdown
+			// invariant (replyErrs.Size() == 0 after close) holds.
+			if current, stillRegistered := c.replyMsgChans.Load(id); !stillRegistered || current != replyChan {
+				c.replyErrs.Delete(id)
+			}
+
 			return
 		}
 	}
