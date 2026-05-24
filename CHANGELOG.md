@@ -20,6 +20,14 @@ propagation bug that's now recovered.
 
 No public API additions; behavior changes are noted under **Changed**.
 
+### Build
+
+- `Makefile`: `stress-test` skips Fuzz targets and the per-package
+  timeout is bumped to 45 m. The skip works around a Go-runtime cgo
+  DNS pile-up that hangs `FuzzConnectionLifecycle` at high count;
+  fuzz coverage stays in `make fuzz-test`. The timeout bump absorbs
+  ~7 m of new chaos-test runtime in `tests/hsmsss_integration`.
+
 ### Changed
 
 - `hsmsss`, `secs1`: `Connection.UpdateConfigOptions` is now a single

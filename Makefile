@@ -9,7 +9,15 @@ endif
 
 # Variables
 TEST_TIMEOUT   := 5m
-STRESS_TIMEOUT := 30m
+# STRESS_TIMEOUT is the per-package timeout for `make stress-test`. Bumped from
+# 30m → 45m on 2026-05-24 after the P0.2 byte-level chaos suite landed: the
+# hsmsss_integration package's count=50 race runtime grew from ~27m to ~34m
+# (broad + new P0.2 scenarios), exceeding the prior 30m budget by ~3-4m. The
+# 45m budget restores ~10m headroom and aligns with the secs1 package's
+# observed ~23m runtime under the same conditions. See stress-test-fuzz-flake
+# memory for the unrelated FuzzConnectionLifecycle hang that requires
+# -skip '^Fuzz'.
+STRESS_TIMEOUT := 45m
 STRESS_COUNT   ?= 50
 FUZZ_TIME      ?= 30s
 GO_TEST_P      ?= $(shell nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 8)
@@ -101,14 +109,19 @@ bench: ## Run benchmarks across all packages (-benchmem, no unit tests)
 
 # Stress tests: run tests many times under different scheduler conditions to
 # surface timing-sensitive flakes.  Override STRESS_COUNT (default 50) to tune.
+# Fuzz targets are excluded from stress because the hsmsss FuzzConnectionLifecycle
+# target hangs reliably under -count=50 due to a Go cgo DNS-resolver
+# singleflight pile-up (net.Listen on 127.0.0.1:0 goes through the resolver
+# under load). Fuzz coverage is provided by `make fuzz-test` instead, which
+# runs each Fuzz target once for a bounded time and does not exhibit the flake.
 stress-test: clean ## Stress STRESS_DIRS under GOMAXPROCS=1 and default scheduler
 	@printf "=== Stress test: GOMAXPROCS=1, count=$(STRESS_COUNT) (maximises goroutine contention) ===\n"
 	@set -e; for d in $(STRESS_DIRS); do \
-		GOMAXPROCS=1 CGO_ENABLED=1 go test $$d -count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p 1 $(VERBOSE_TAG); \
+		GOMAXPROCS=1 CGO_ENABLED=1 go test $$d -count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p 1 -skip '^Fuzz' $(VERBOSE_TAG); \
 	done
 	@printf "=== Stress test: default GOMAXPROCS, count=$(STRESS_COUNT), parallel=$(GO_TEST_P) ===\n"
 	@set -e; for d in $(STRESS_DIRS); do \
-		CGO_ENABLED=1 go test $$d -count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p $(GO_TEST_P) $(VERBOSE_TAG); \
+		CGO_ENABLED=1 go test $$d -count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p $(GO_TEST_P) -skip '^Fuzz' $(VERBOSE_TAG); \
 	done
 	@printf "=== All stress tests passed ($(STRESS_COUNT) iterations × 2 GOMAXPROCS modes) ===\n"
 
