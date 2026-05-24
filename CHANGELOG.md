@@ -194,6 +194,19 @@ No public API additions; behavior changes are noted under **Changed**.
   `//go:build stress`. Fills the gap of previously reaching the
   dispatcher only indirectly through `hsmsss` / `secs1` integration
   tests.
+- `hsmsss`: `assertCleanShutdown(t, conn)` polls the five
+  authoritative post-close internals (`replyMsgChans`, `replyErrs`,
+  `DataMsgInflightCount`, `taskMgr.TaskCount`, `senderMsgChan`) in
+  one shot, so chaos / lifecycle tests gate on one line instead of
+  five. Teeth verified via a temporary in-tree revert of the
+  duplicate-`decDataMsgInflightCount` fix, which made the smoke test
+  fail with `DataMsgInflight=-2` as expected.
+- `tests/hsmsss_integration`: advisory `snapshotLeaks` /
+  `assertSettled` helper for coarse goroutine + (Linux-only) fd
+  comparison via `t.Cleanup`. Drift logs `t.Logf` warnings rather
+  than failing the test; the package-internal counter gate above is
+  authoritative, this layer is defense-in-depth against scheduler /
+  fd noise.
 
 ## [1.16.0] - 2026-04-18
 
