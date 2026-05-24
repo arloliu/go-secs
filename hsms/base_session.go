@@ -39,7 +39,7 @@ func (s *BaseSession) SendDataMessage(stream byte, function byte, replyExpected 
 		return nil, ErrInvalidReqMsg
 	}
 
-	msg, err := NewDataMessage(stream, function, replyExpected, s.idFunc(), GenerateMsgSystemBytes(), dataItem)
+	msg, err := newDataMessageWithID(stream, function, replyExpected, s.idFunc(), GenerateMsgID(), dataItem)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func (s *BaseSession) SendDataMessageAsync(stream byte, function byte, replyExpe
 		return ErrInvalidReqMsg
 	}
 
-	msg, err := NewDataMessage(stream, function, replyExpected, s.idFunc(), GenerateMsgSystemBytes(), dataItem)
+	msg, err := newDataMessageWithID(stream, function, replyExpected, s.idFunc(), GenerateMsgID(), dataItem)
 	if err != nil {
 		return err
 	}
@@ -95,7 +95,7 @@ func (s *BaseSession) SendSECS2Message(msg secs2.SECS2Message) (*DataMessage, er
 		return nil, ErrInvalidReqMsg
 	}
 
-	dataMsg, err := NewDataMessage(msg.StreamCode(), msg.FunctionCode(), msg.WaitBit(), s.idFunc(), GenerateMsgSystemBytes(), msg.Item())
+	dataMsg, err := newDataMessageWithID(msg.StreamCode(), msg.FunctionCode(), msg.WaitBit(), s.idFunc(), GenerateMsgID(), msg.Item())
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +125,7 @@ func (s *BaseSession) SendSECS2MessageAsync(msg secs2.SECS2Message) error {
 		return ErrInvalidReqMsg
 	}
 
-	dataMsg, err := NewDataMessage(msg.StreamCode(), msg.FunctionCode(), msg.WaitBit(), s.idFunc(), GenerateMsgSystemBytes(), msg.Item())
+	dataMsg, err := newDataMessageWithID(msg.StreamCode(), msg.FunctionCode(), msg.WaitBit(), s.idFunc(), GenerateMsgID(), msg.Item())
 	if err != nil {
 		return err
 	}
