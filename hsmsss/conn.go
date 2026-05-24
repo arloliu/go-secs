@@ -759,7 +759,13 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 
 	id := msg.ID()
 	isDataMsg := msg.IsDataMessage()
-	msgInfoForLog := hsms.MsgInfo(msg, "method", "sendMsg")
+	// Capture primitives for slow-path logging before msg ownership transfers
+	// to processSendRequest (which may Free it). Building the structured log
+	// slice up front would allocate on every successful send; we defer the
+	// alloc into the timeout / error branches below.
+	msgType := msg.Type()
+	stream := msg.StreamCode()
+	function := msg.FunctionCode()
 	replyMsgChan := c.addReplyExpectedMsg(id)
 
 	sentChan := make(chan error, 1)
@@ -767,7 +773,8 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 
 	// After queueing, msg ownership transfers to processSendRequest which
 	// calls msg.Free(). Do not access msg beyond this point; use the
-	// pre-captured isDataMsg / msgInfoForLog instead.
+	// pre-captured primitives (isDataMsg / msgType / id / stream / function)
+	// instead.
 	if err := c.queueSendRequest(req); err != nil {
 		c.removeReplyExpectedMsg(id)
 		msg.Free()
@@ -812,7 +819,9 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 		c.removeReplyExpectedMsg(id)
 		c.metrics.decDataMsgInflightCount()
 
-		c.logger.Warn("send message timeout", append(msgInfoForLog, "timeout", timeout)...)
+		c.logger.Warn("send message timeout",
+			hsms.MsgInfoFromFields(msgType, id, stream, function, "method", "sendMsg", "timeout", timeout)...,
+		)
 		if isDataMsg {
 			// If entity is equipment, send SECS-II S9F9 when t3/t6 timeout.
 			if c.cfg.IsEquip() {
@@ -953,6 +962,19 @@ func (c *Connection) queueSendRequest(req *sendRequest) error {
 		return hsms.ErrConnClosed
 	}
 
+	// Fast path: the sender channel is buffered to cfg.senderQueueSize; under
+	// normal load it has room and we enqueue without touching the timer pool.
+	// Safety: sendMu.RLock + the sendClosed check above hold the same teardown
+	// invariants as the slow-path select; drainSenderMsgChan will pick up any
+	// request stranded by a closeConn racing this enqueue.
+	select {
+	case c.senderMsgChan <- req:
+		return nil
+	default:
+	}
+
+	// Slow path: buffer full, fall back to a timer-bound select so we can
+	// observe SendTimeout and connection cancellation while waiting for room.
 	timer := pool.GetTimer(c.cfg.SendTimeout())
 	defer pool.PutTimer(timer)
 
@@ -1195,6 +1217,16 @@ func (c *Connection) replyToSender(msg hsms.HSMSMessage) {
 
 	// set timeout for reply channel to avoid blocking forever
 	// if the reply channel is full, it means the senderTask is not ready to receive the reply message.
+	//
+	// Do NOT add a non-blocking-first send before this select: closeConn step 8
+	// (conn.go:613) can fall through with receiver tasks still alive on the
+	// close-timeout path, and step 10 (conn.go:652) then calls dropAllReplyMsgs
+	// which closes reply channels before draining (conn.go:1014). A receiver
+	// here that has already loaded replyChan can race that close and panic on
+	// 'send on closed channel'. The 3-case select below tolerates the race only
+	// partially (connCtx.Done arms simultaneously and may be picked instead of
+	// the send case) — a clean lifecycle fix is owed but until then the
+	// connCtx.Done arm must remain present on every send attempt.
 	timer := pool.GetTimer(replyChannelTimeout)
 	defer pool.PutTimer(timer)
 

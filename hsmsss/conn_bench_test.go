@@ -16,16 +16,21 @@ func Benchmark_ActiveHost_PassiveEQP_SmallItem(b *testing.B) {
 
 	logger.SetLevel(logger.ErrorLevel)
 
-	item := secs2.L(
-		secs2.A("test"),
-		secs2.F8(1, 2, 3, 4),
-		secs2.BOOLEAN(true, false, false),
-	)
+	// Construct a fresh item per iteration. SendDataMessage takes ownership of
+	// the passed-in item (processSendRequest's defer msg.Free() eventually
+	// returns the item to its sync.Pool with cleared values). Sharing one item
+	// across iterations meant the second and subsequent iterations were
+	// sending a pool-resident, value-cleared (empty list) item — silently
+	// measuring a different workload than the test name advertises.
+	mkItem := func() secs2.Item {
+		return secs2.L(
+			secs2.A("test"),
+			secs2.F8(1, 2, 3, 4),
+			secs2.BOOLEAN(true, false, false),
+		)
+	}
 
-	// byteData := item.ToBytes()
-	// b.Logf("benchmark data byte size: %d", len(byteData))
-
-	benchConnection(b, ctx, item, true)
+	benchConnection(b, ctx, mkItem, true)
 }
 
 func Benchmark_ActiveHost_PassiveEQP_LargeItem(b *testing.B) {
@@ -33,16 +38,19 @@ func Benchmark_ActiveHost_PassiveEQP_LargeItem(b *testing.B) {
 
 	logger.SetLevel(logger.ErrorLevel)
 
-	data := make([]secs2.Item, 100000)
-	for i := 0; i < 100000; i++ {
-		data[i] = secs2.I8(int64(i))
-	}
-	item := secs2.L(data...)
+	mkItem := func() secs2.Item {
+		data := make([]secs2.Item, 100000)
+		for i := 0; i < 100000; i++ {
+			data[i] = secs2.I8(int64(i))
+		}
 
-	benchConnection(b, ctx, item, true)
+		return secs2.L(data...)
+	}
+
+	benchConnection(b, ctx, mkItem, true)
 }
 
-func benchConnection(b *testing.B, ctx context.Context, item secs2.Item, hostIsActive bool) {
+func benchConnection(b *testing.B, ctx context.Context, mkItem func() secs2.Item, hostIsActive bool) {
 	hostComm, err := newBenchConn(ctx, true, hostIsActive)
 	if err != nil {
 		b.FailNow()
@@ -67,13 +75,19 @@ func benchConnection(b *testing.B, ctx context.Context, item secs2.Item, hostIsA
 	}
 
 	b.ResetTimer()
-	for i := 0; i <= b.N; i++ {
+	for i := 0; i < b.N; i++ {
+		item := mkItem()
 		replyMsg, err := hostSession.SendDataMessage(1, 1, true, item)
 		if err != nil {
 			fmt.Printf("err: %v\n", err)
 			b.FailNow()
 		}
-		_ = replyMsg
+		// SendDataMessage returns ownership of the reply to us; free it so the
+		// per-iteration count reflects real steady-state work, not message-pool
+		// growth driven by leaked replies.
+		if replyMsg != nil {
+			replyMsg.Free()
+		}
 	}
 	b.StopTimer()
 

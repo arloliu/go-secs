@@ -195,6 +195,36 @@ func msgInfo(msg HSMSMessage, sml bool, keyValues ...any) []any { //nolint:reviv
 	return result
 }
 
+// MsgInfoFromFields builds the same key/value slice as MsgInfo but accepts
+// primitive fields directly instead of an HSMSMessage. It is intended for hot
+// paths that have transferred message ownership to another goroutine (so the
+// HSMSMessage value can no longer be safely accessed) but still want to emit a
+// structured log line on a slow / error path without paying the slice
+// allocation on every successful call.
+//
+// Typical use: capture id / type / stream / function as locals before handing
+// ownership off, then call MsgInfoFromFields only inside the error or timeout
+// branch.
+func MsgInfoFromFields(msgType int, id uint32, stream, function byte, keyValues ...any) []any {
+	typeName, ok := hsmsMsgTypeMap[msgType]
+	if !ok {
+		typeName = "undefined"
+	}
+
+	info := [...]any{
+		"id", id,
+		"type", typeName,
+		"s", stream,
+		"f", function,
+	}
+
+	result := make([]any, 0, len(keyValues)+len(info))
+	result = append(result, keyValues...)
+	result = append(result, info[:]...)
+
+	return result
+}
+
 // MsgHexString returns a hex string representation of the provided byte slices.
 // It outputs byte by byte in hex format, separated by a space.
 func MsgHexString(datas ...[]byte) string {

@@ -162,14 +162,39 @@ func (s *Session) startDataMsgTasks() error {
 // recvDataMsg broadcast message to all data message handlers' channel
 func (s *Session) recvDataMsg(msg *hsms.DataMessage) {
 	s.mu.RLock()
-	dataMsgChans := make([]chan *hsms.DataMessage, len(s.dataMsgChans))
-	copy(dataMsgChans, s.dataMsgChans)
-	s.mu.RUnlock()
+	n := len(s.dataMsgChans)
 
-	if len(dataMsgChans) == 0 {
+	// No handlers — drop the message.
+	if n == 0 {
+		s.mu.RUnlock()
 		msg.Free()
 		return
 	}
+
+	// Fast path: a single handler is the overwhelmingly common case (one
+	// SECS-II consumer per session). Skip the snapshot and deliver-slice
+	// allocations and hand the original message directly to the handler's
+	// channel. We still release the lock before sending so a slow handler
+	// cannot serialize add/remove of other handlers behind us.
+	if n == 1 {
+		ch := s.dataMsgChans[0]
+		s.mu.RUnlock()
+
+		select {
+		case <-s.hsmsConn.connCtx().Done():
+			s.logger.Debug("context done, stop receiving data message", "id", s.id, "msg_id", msg.ID())
+			msg.Free()
+		case ch <- msg:
+		}
+
+		return
+	}
+
+	// Multi-handler slow path: snapshot the handler channels so we can release
+	// the lock before the (potentially blocking) channel sends.
+	dataMsgChans := make([]chan *hsms.DataMessage, n)
+	copy(dataMsgChans, s.dataMsgChans)
+	s.mu.RUnlock()
 
 	// Pre-clone for all additional handlers before sending any, to avoid a data
 	// race where handler[0] calls msg.Free() while we are still cloning the original.
