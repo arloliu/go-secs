@@ -60,7 +60,7 @@ func DecodeSECS2Item(data []byte) (secs2.Item, error) {
 	decoder.depth = 0
 
 	item, err := decoder.decodeMessageText()
-	decoderPool.Put(decoder)
+	releaseDecoder(decoder)
 
 	return item, err
 }
@@ -80,9 +80,24 @@ func DecodeMessage(msgLen uint32, input []byte) (HSMSMessage, error) {
 	decoder.depth = 0
 
 	msg, err := decoder.decodeMessage()
-	decoderPool.Put(decoder)
+	releaseDecoder(decoder)
 
 	return msg, err
+}
+
+// releaseDecoder clears references owned by a pooled hsmsDecoder and returns
+// it to decoderPool. Without this, a pooled decoder pins the most recently
+// decoded message buffer (via .input) and any decoded scratch contents
+// (boolBuf/intBuf/uintBuf/floatBuf) in memory until the same pool slot is
+// next reused, inflating the heap floor under spiky load. Scratch-slice
+// capacity is intentionally retained for warm reuse on the next decode.
+func releaseDecoder(decoder *hsmsDecoder) {
+	decoder.input = nil
+	decoder.boolBuf = decoder.boolBuf[:0]
+	decoder.intBuf = decoder.intBuf[:0]
+	decoder.uintBuf = decoder.uintBuf[:0]
+	decoder.floatBuf = decoder.floatBuf[:0]
+	decoderPool.Put(decoder)
 }
 
 // hsmsDecoder is a helper struct for decoding HSMS messages.

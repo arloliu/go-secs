@@ -330,11 +330,28 @@ func (item *ASCIIItem) Type() string { return ASCIIType }
 func (item *ASCIIItem) IsASCII() bool { return true }
 
 // StringToBytes converts a string to a byte slice without memory allocation.
+//
+// SAFETY: The returned slice shares its backing array with the source string.
+// Mutating the slice violates Go's string-immutability invariant and produces
+// undefined behavior. It can also corrupt unrelated data: when the source string
+// is a view into a decoded HSMS message buffer (see BytesToString and the decoder
+// at hsms/decode.go), writing through the returned slice will silently corrupt
+// the original message bytes and any sibling SECS-II items that reference the
+// same buffer. Use the result for read-only operations only; copy first if you
+// need to mutate.
 func StringToBytes(s string) []byte {
 	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
 
 // BytesToString converts a byte slice to a string without memory allocation.
+//
+// SAFETY: The returned string shares its backing array with the source slice.
+// Strings are required to be immutable; the caller must guarantee that the
+// source slice is not mutated for the lifetime of any reference to the returned
+// string. The HSMS decoder uses this to expose decoded ASCII items as zero-copy
+// views into the inbound message buffer; it is safe there because that buffer
+// is freshly allocated per message and never written to after decode. Do not
+// use on a buffer you intend to reuse, pool, or otherwise modify.
 func BytesToString(bs []byte) string {
 	return unsafe.String(unsafe.SliceData(bs), len(bs))
 }
