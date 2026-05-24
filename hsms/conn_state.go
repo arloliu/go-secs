@@ -210,6 +210,16 @@ func (cs *ConnStateMgr) Stop() {
 	// send-on-closed panic on those paths.
 
 	cs.setState(NotConnectedState)
+	// Also reset desiredState. The async dispatcher's processAsyncStateChange
+	// sets desiredState before invoking handlers; a Connecting event that
+	// raced Connection.Close() can have committed desiredState=Connecting
+	// before shutdowned was observed. Without this reset, Close()'s
+	// isClosed() polling loop (which requires desiredState=NotConnected)
+	// would time out at CloseConnTimeout even though the connection is
+	// otherwise fully torn down. Observed as TestConnection_CloseTCPIdempotent
+	// flake at ~0.4% under -count=2000 -race -p $(nproc), paired with the
+	// hsmsss/secs1 passive ConnectingState handler's shutdown guard.
+	cs.setDesiredState(NotConnectedState)
 	cs.logger.Debug("stop connection state manager finished", "state", cs.State().String())
 	cs.stateMu.Unlock()
 }

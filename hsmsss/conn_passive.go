@@ -80,6 +80,19 @@ func (c *Connection) passiveConnStateHandler(_ hsms.Connection, prevState hsms.C
 		}
 
 	case hsms.ConnectingState:
+		// Guard against late-arriving Connecting events that the async
+		// dispatcher picked up after Close() set c.shutdown. The NotConnected
+		// handler above only enqueues ToConnectingAsync when !isShutdown at
+		// handler-time, but if Close() runs between handler-time and the
+		// dispatcher's consumption of the queued Connecting event, doOpen
+		// would race teardown and leave opState=Opening (manifests as a
+		// 1-second timeout in Connection.Close()'s isClosed() polling loop).
+		// See TestConnection_CloseTCPIdempotent flake fixed alongside this
+		// change.
+		if c.shutdown.Load() {
+			c.logger.Debug("passive: shutdown set, skip reconnect attempt", "method", "passiveConnStateHandler")
+			return
+		}
 		c.logger.Debug("passive: start to try to open and listen")
 		_ = c.doOpen(false)
 	default:
