@@ -73,6 +73,15 @@ type HSMSMessage interface {
 	SetID(id uint32)
 
 	// SystemBytes returns the 4-byte system bytes (message ID).
+	//
+	// Lifetime: implementations are permitted (and DataMessage in particular
+	// does) to return a slice that aliases the message's internal storage.
+	// The returned slice remains valid only while the message itself is
+	// alive. Do NOT retain it past Free(), and do NOT hand it to a goroutine
+	// whose lifetime exceeds the message's: after Free, a pooled message can
+	// be re-issued and a subsequent ID write will silently overwrite the
+	// cached bytes. If you need a stable copy, allocate one with
+	// append([]byte(nil), msg.SystemBytes()...) or use ID() and re-encode.
 	SystemBytes() []byte
 
 	// SetSystemBytes sets the system bytes (message ID) for the HSMS message.

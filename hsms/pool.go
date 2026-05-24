@@ -1,10 +1,10 @@
 package hsms
 
 import (
+	"encoding/binary"
 	"sync"
 	"sync/atomic"
 
-	"github.com/arloliu/go-secs/internal/util"
 	"github.com/arloliu/go-secs/secs2"
 )
 
@@ -34,7 +34,45 @@ func getDataMessage(stream byte, function byte, replyExpected bool, sessionID ui
 	msg.function = function
 	msg.dataItem = dataItem
 	msg.sessionID = sessionID
-	msg.systemBytes = util.CloneSlice(systemBytes, 4)
+	// Zero first so nil/short systemBytes input still yields the zeroed array
+	// expected by SML parsers (sml/parser.go:186,192,210; parser_slow.go:159)
+	// and the empty-input test at data_msg_test.go.
+	clear(msg.systemBytes[:])
+	copy(msg.systemBytes[:], systemBytes)
+
+	if msg.dataItem == nil {
+		msg.dataItem = secs2.NewEmptyItem()
+	}
+
+	if replyExpected {
+		msg.stream |= waitBitMask
+	}
+
+	debugLogGet(msg)
+
+	return msg
+}
+
+// getDataMessageWithID is like getDataMessage but takes the ID as a uint32 and
+// writes it directly into the inline systemBytes array, skipping the 4-byte
+// slice the caller would otherwise have to allocate via GenerateMsgSystemBytes.
+func getDataMessageWithID(stream byte, function byte, replyExpected bool, sessionID uint16, id uint32, dataItem secs2.Item) *DataMessage {
+	var msg *DataMessage
+	if usePool {
+		msg, _ = dataMsgPool.Get().(*DataMessage)
+	} else {
+		msg = &DataMessage{}
+	}
+
+	if msg == nil {
+		msg = &DataMessage{}
+	}
+
+	msg.stream = stream & 0x7F
+	msg.function = function
+	msg.dataItem = dataItem
+	msg.sessionID = sessionID
+	binary.BigEndian.PutUint32(msg.systemBytes[:], id)
 
 	if msg.dataItem == nil {
 		msg.dataItem = secs2.NewEmptyItem()

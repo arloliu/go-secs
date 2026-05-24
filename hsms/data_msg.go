@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/arloliu/go-secs/internal/util"
 	"github.com/arloliu/go-secs/secs2"
 )
 
@@ -28,12 +27,15 @@ const waitBitMask = 0x80
 //
 // It implements the HSMSMessage and secs2.SECS2Message interfaces.
 //
-// The struct is laid out to fit in a single 64-byte CPU cache line.
+// The struct is laid out to fit in a single 64-byte CPU cache line. Storing
+// systemBytes inline as a [4]byte array (instead of a 24-byte slice header)
+// removes a per-message heap allocation and shrinks the struct further while
+// still fitting in one cache line.
 // The stream field packs the wait bit in its MSB (bit 7), matching the HSMS
 // wire format for header byte 2. Use the StreamCode/WaitBit accessors.
 type DataMessage struct {
 	dataItem    secs2.Item
-	systemBytes []byte
+	systemBytes [4]byte
 	err         error
 	sessionID   uint16
 	stream      byte // MSB = waitBit, low 7 bits = stream code
@@ -113,6 +115,26 @@ func NewErrorDataMessage(stream byte, function byte, sessionID uint16, systemByt
 	return msg
 }
 
+// newDataMessageWithID is like NewDataMessage but takes the message ID as a
+// uint32, skipping the intermediate 4-byte slice allocation that the public
+// NewDataMessage + GenerateMsgSystemBytes pair would otherwise materialize.
+//
+// Package-internal: callers that already have the ID as a primitive (the hot
+// send path in BaseSession) use this to avoid the per-send heap alloc.
+func newDataMessageWithID(stream byte, function byte, replyExpected bool, sessionID uint16, id uint32, dataItem secs2.Item) (*DataMessage, error) {
+	if stream > MaxStreamCode {
+		return nil, ErrInvalidStreamCode
+	}
+
+	msg := getDataMessageWithID(stream, function, replyExpected, sessionID, id, dataItem)
+	if err := msg.sanityCheck(); err != nil {
+		putDataMessage(msg)
+		return nil, err
+	}
+
+	return msg, nil
+}
+
 // Type returns the message type of the data message.
 //
 // It implements the Type method of the HSMSMessage interface.
@@ -139,27 +161,30 @@ func (msg *DataMessage) SetSessionID(sessionID uint16) {
 //
 // It implements the ID method of the HSMSMessage interface.
 func (msg *DataMessage) ID() uint32 {
-	return binary.BigEndian.Uint32(msg.systemBytes)
+	return binary.BigEndian.Uint32(msg.systemBytes[:])
 }
 
 // SetID sets the system bytes of the data message.
 //
 // It implements the SetID method of the HSMSMessage interface.
 func (msg *DataMessage) SetID(id uint32) {
-	msg.systemBytes = make([]byte, 4)
-	binary.BigEndian.PutUint32(msg.systemBytes, id)
+	binary.BigEndian.PutUint32(msg.systemBytes[:], id)
 }
 
 // SystemBytes returns the system bytes of the data message.
 // If the system bytes was not set, it will return []byte{0, 0, 0, 0}.
 //
 // It implements the SystemBytes method of the HSMSMessage interface.
+//
+// Lifetime: the returned slice is a view into the message's internal [4]byte
+// field. It remains valid only while the DataMessage itself is alive. Do NOT
+// retain the slice past msg.Free(), and do NOT hand it off to a goroutine
+// whose lifetime exceeds the message's: after Free, the underlying message
+// can be re-issued from the sync.Pool and a subsequent ID write will silently
+// overwrite the bytes you cached. If you need a stable copy, allocate one
+// with append([]byte(nil), msg.SystemBytes()...) or call ID() and re-encode.
 func (msg *DataMessage) SystemBytes() []byte {
-	if len(msg.systemBytes) < 4 {
-		return []byte{0, 0, 0, 0}
-	}
-
-	return msg.systemBytes[:4]
+	return msg.systemBytes[:]
 }
 
 // SetSystemBytes sets system bytes to the data message.
@@ -171,7 +196,11 @@ func (msg *DataMessage) SetSystemBytes(systemBytes []byte) error {
 		return ErrInvalidSystemBytes
 	}
 
-	msg.systemBytes = util.CloneSlice(systemBytes, 4)
+	// Zero first so behavior is identical to the prior CloneSlice(_, 4) when
+	// input is nil or short — even though len==4 is enforced above today,
+	// preserving the zero-then-copy idiom keeps the contract obvious.
+	clear(msg.systemBytes[:])
+	copy(msg.systemBytes[:], systemBytes)
 
 	return nil
 }
@@ -228,7 +257,8 @@ func (msg *DataMessage) SetHeader(header []byte) error {
 	msg.sessionID = binary.BigEndian.Uint16(header[:2])
 	msg.stream = header[2] // already packed: MSB = waitBit, low 7 = stream
 	msg.function = header[3]
-	msg.systemBytes = util.CloneSlice(header[6:], 4)
+	clear(msg.systemBytes[:])
+	copy(msg.systemBytes[:], header[6:10])
 
 	return nil
 }
@@ -441,7 +471,7 @@ func (msg *DataMessage) Clone() HSMSMessage {
 		stream:      msg.stream,
 		function:    msg.function,
 		sessionID:   msg.sessionID,
-		systemBytes: util.CloneSlice(msg.systemBytes, 4),
+		systemBytes: msg.systemBytes, // array value-copy: no shared backing
 	}
 
 	if msg.dataItem == nil {
@@ -478,10 +508,6 @@ func (msg *DataMessage) sanityCheck() error {
 
 	if msg.WaitBit() && msg.function%2 == 0 {
 		return ErrInvalidRspMsg
-	}
-
-	if len(msg.systemBytes) != 4 {
-		return ErrInvalidSystemBytes
 	}
 
 	return nil

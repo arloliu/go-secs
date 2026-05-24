@@ -423,7 +423,7 @@ func NewRejectReq(recvMsg HSMSMessage, reasonCode byte) *ControlMessage {
 		header[0] = byte((msg.sessionID >> 8) & 0xFF)
 		header[1] = byte(msg.sessionID & 0xFF)
 		header[2] = 0 // the sType and pType of data message is always zero
-		copy(header[6:10], msg.systemBytes)
+		copy(header[6:10], msg.systemBytes[:])
 	} else {
 		msg, _ := recvMsg.ToControlMessage()
 		header[0] = msg.header[0]

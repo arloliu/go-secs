@@ -315,6 +315,37 @@ func TestDecode_ListItemWithBytes(t *testing.T) {
 	)
 }
 
+// TestDecode_SystemBytesOwnership ensures the decoded DataMessage's systemBytes
+// do not alias the caller's rawBody buffer. With the [4]byte inline storage,
+// getDataMessage copies the 4 header bytes into the struct's own array, so
+// mutating the original input after decode must not be observable through
+// msg.SystemBytes().
+func TestDecode_SystemBytesOwnership(t *testing.T) {
+	require := require.New(t)
+
+	// Build a fresh, mutable input buffer for an S1F1 message with system bytes
+	// 0xDEADBEEF in the header.
+	input := []byte{
+		0, 0, 0, 23, 0, 1, 129, 1, 0, 0, 0xDE, 0xAD, 0xBE, 0xEF,
+		0x41, 11, 'l', 'o', 'r', 'e', 'm', ' ', 'i', 'p', 's', 'u', 'm',
+	}
+
+	msgLen := decodeMessageLength(input)
+	msg, err := DecodeMessage(msgLen, input[4:])
+	require.NoError(err)
+
+	dMsg, ok := msg.(*DataMessage)
+	require.True(ok)
+	require.Equal([]byte{0xDE, 0xAD, 0xBE, 0xEF}, dMsg.SystemBytes())
+
+	// Mutate the original buffer's system-bytes region; msg must be unaffected.
+	for i := 10; i < 14; i++ {
+		input[i] = 0
+	}
+	require.Equal([]byte{0xDE, 0xAD, 0xBE, 0xEF}, dMsg.SystemBytes())
+	require.Equal(uint32(0xDEADBEEF), dMsg.ID())
+}
+
 // decodeMessageLength decodes the message length from the first 4 bytes of an HSMS message.
 // The message length is encoded as a 32-bit unsigned integer in big-endian order.
 func decodeMessageLength(input []byte) uint32 {

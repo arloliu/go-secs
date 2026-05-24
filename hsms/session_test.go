@@ -176,7 +176,7 @@ func TestReplyDataMessage(t *testing.T) {
 			primaryMsg: &DataMessage{
 				stream:      9,
 				function:    1,
-				systemBytes: []byte{0x01, 0x02, 0x03, 0x04},
+				systemBytes: [4]byte{0x01, 0x02, 0x03, 0x04},
 			},
 			dataItem:    secs2.L(),
 			sendMessage: nil,
@@ -187,7 +187,7 @@ func TestReplyDataMessage(t *testing.T) {
 			primaryMsg: &DataMessage{
 				stream:      1,
 				function:    1,
-				systemBytes: []byte{0x01, 0x02, 0x03, 0x04},
+				systemBytes: [4]byte{0x01, 0x02, 0x03, 0x04},
 			},
 			dataItem: secs2.L(),
 			sendMessage: func(msg HSMSMessage) (HSMSMessage, error) {
@@ -200,7 +200,7 @@ func TestReplyDataMessage(t *testing.T) {
 			primaryMsg: &DataMessage{
 				stream:      1,
 				function:    1,
-				systemBytes: []byte{0x01, 0x02, 0x03, 0x04},
+				systemBytes: [4]byte{0x01, 0x02, 0x03, 0x04},
 			},
 			dataItem: secs2.L(),
 			sendMessage: func(msg HSMSMessage) (HSMSMessage, error) {

@@ -210,6 +210,89 @@ func TestDataMessage_Set(t *testing.T) {
 	require.Equal(msg.SystemBytes(), clonedDataMsg.SystemBytes())
 }
 
+func TestDataMessage_NilSystemBytes(t *testing.T) {
+	require := require.New(t)
+
+	// nil systemBytes (the SML parser path passes nil) must yield 4 zero bytes.
+	msg, err := NewDataMessage(0, 1, true, 123, nil, secs2.NewEmptyItem())
+	require.NoError(err)
+	require.Equal([]byte{0, 0, 0, 0}, msg.SystemBytes())
+	require.Equal(uint32(0), msg.ID())
+}
+
+func TestDataMessage_ShortSystemBytes(t *testing.T) {
+	require := require.New(t)
+
+	// Short systemBytes via NewDataMessage path: zero-then-copy should leave
+	// the unfilled suffix as zero (matching the prior util.CloneSlice behavior).
+	msg, err := NewDataMessage(0, 1, true, 0, []byte{0xAA, 0xBB}, secs2.NewEmptyItem())
+	require.NoError(err)
+	require.Equal([]byte{0xAA, 0xBB, 0, 0}, msg.SystemBytes())
+}
+
+func TestDataMessage_CloneMutationIndependence(t *testing.T) {
+	require := require.New(t)
+
+	msg, err := NewDataMessage(1, 1, true, 42, []byte{0x12, 0x34, 0x56, 0x78}, secs2.A("hello"))
+	require.NoError(err)
+
+	cloned, ok := msg.Clone().(*DataMessage)
+	require.True(ok)
+	require.Equal(msg.SystemBytes(), cloned.SystemBytes())
+
+	// Mutate the clone's ID; the original must be untouched (proves no shared
+	// backing storage on systemBytes).
+	cloned.SetID(0xDEADBEEF)
+	require.Equal(uint32(0xDEADBEEF), cloned.ID())
+	require.Equal(uint32(0x12345678), msg.ID())
+	require.Equal([]byte{0x12, 0x34, 0x56, 0x78}, msg.SystemBytes())
+
+	// Symmetric: mutating original must not move the clone.
+	msg.SetID(0xCAFEBABE)
+	require.Equal(uint32(0xDEADBEEF), cloned.ID())
+}
+
+func TestDataMessage_MarshalUnmarshalRoundTrip(t *testing.T) {
+	require := require.New(t)
+
+	orig, err := NewDataMessage(1, 1, true, 0x1234, []byte{0xAA, 0xBB, 0xCC, 0xDD}, secs2.A("round-trip"))
+	require.NoError(err)
+
+	wire, err := orig.MarshalBinary()
+	require.NoError(err)
+
+	var dst DataMessage
+	require.NoError(dst.UnmarshalBinary(wire))
+
+	require.Equal(orig.SessionID(), dst.SessionID())
+	require.Equal(orig.StreamCode(), dst.StreamCode())
+	require.Equal(orig.FunctionCode(), dst.FunctionCode())
+	require.Equal(orig.WaitBit(), dst.WaitBit())
+	require.Equal([]byte{0xAA, 0xBB, 0xCC, 0xDD}, dst.SystemBytes())
+	require.Equal(uint32(0xAABBCCDD), dst.ID())
+}
+
+func TestNewDataMessageWithID(t *testing.T) {
+	require := require.New(t)
+
+	msg, err := newDataMessageWithID(1, 1, true, 7, 0x01020304, secs2.A("x"))
+	require.NoError(err)
+	require.Equal(uint32(0x01020304), msg.ID())
+	require.Equal([]byte{0x01, 0x02, 0x03, 0x04}, msg.SystemBytes())
+	require.Equal(uint16(7), msg.SessionID())
+	require.Equal(uint8(1), msg.StreamCode())
+	require.Equal(uint8(1), msg.FunctionCode())
+	require.True(msg.WaitBit())
+
+	// Invalid stream still rejected.
+	_, err = newDataMessageWithID(128, 1, true, 0, 1, secs2.NewEmptyItem())
+	require.ErrorIs(err, ErrInvalidStreamCode)
+
+	// Reply-message constraint preserved.
+	_, err = newDataMessageWithID(1, 2, true, 0, 1, secs2.NewEmptyItem())
+	require.ErrorIs(err, ErrInvalidRspMsg)
+}
+
 func TestDataMessage_SanityCheck(t *testing.T) {
 	require := require.New(t)
 
