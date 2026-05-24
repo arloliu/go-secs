@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.16.1] - 2026-05-23
+## [1.16.1] - 2026-05-24
 
 Stability release focused on connection-lifecycle correctness in HSMS-SS and
 back-porting the same fixes to SECS-I. The dominant themes are: closing the
@@ -14,6 +14,9 @@ making `UpdateConfigOptions` transactional, tightening SEMI-E37 conformance
 on the wire (Reject.req for unsupported PType/SType, T8 across the length
 header, S9F7 for malformed continuation blocks), and stopping a handful of
 goroutine / channel / pool leaks that accumulated across reconnect cycles.
+Adds direct chaos coverage for the `hsms` dispatcher and a post-close
+leak-detection harness; the dispatcher work surfaced a latent panic-
+propagation bug that's now recovered.
 
 No public API additions; behavior changes are noted under **Changed**.
 
@@ -40,6 +43,16 @@ No public API additions; behavior changes are noted under **Changed**.
   preserved.
 
 ### Fixed
+
+#### hsms — async dispatcher robustness
+
+- `ConnStateMgr.dispatchAsyncEvent` now wraps each handler call in
+  `recover()`. Previously, a panicking user-supplied handler
+  (registered via `AddAsyncHandler` or `Session.AddConnStateChangeHandler`)
+  crashed the dispatcher goroutine and silently stopped all future
+  state-event delivery. Panics are now logged with the `(prev, next)`
+  pair and the dispatcher continues with sibling handlers / follow-up
+  transitions.
 
 #### hsmsss — connection close & teardown
 
@@ -174,6 +187,13 @@ No public API additions; behavior changes are noted under **Changed**.
   depends on. The detector is zero-cost in default builds and is
   retained as a tool for future hard-to-reproduce pool double-Free
   investigations.
+- `hsms`: direct chaos coverage for `ConnStateMgr`
+  (`connstate_chaos_test.go`) — handler panic survival, `Stop` while
+  a handler is mid-execution, and concurrent handler registration
+  during dispatch. A randomized property variant is gated behind
+  `//go:build stress`. Fills the gap of previously reaching the
+  dispatcher only indirectly through `hsmsss` / `secs1` integration
+  tests.
 
 ## [1.16.0] - 2026-04-18
 
