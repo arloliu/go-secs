@@ -1132,7 +1132,16 @@ func (c *testComm) testMsgSuccess(stream byte, function byte, dataItem secs2.Ite
 	var reply *hsms.DataMessage
 	var err error
 	for range 3 {
-		reply, err = c.session.SendDataMessage(stream, function, true, dataItem)
+		// Clone per attempt: SendDataMessage's current contract Frees dataItem
+		// on early-rejection branches (e.g. ErrNotSelectedState at conn.go:754),
+		// so reusing the same pointer across retries would race with whatever
+		// goroutine pulled the item back out of the pool. Tracked separately as
+		// a library ownership-contract bug (see [[secs2-ascii-pool-cross-conn-race]]).
+		itemArg := dataItem
+		if itemArg != nil {
+			itemArg = itemArg.Clone()
+		}
+		reply, err = c.session.SendDataMessage(stream, function, true, itemArg)
 		if err == nil {
 			break
 		}
