@@ -131,12 +131,15 @@ func main() {
 				if err != nil {
 					log.Error("failed to send S99F1 message", "error", err)
 				} else {
-					replyMsg.Free()
+					// Log BEFORE Free: replyMsg goes back to the pool on Free
+					// and any access (including StreamCode/FunctionCode/ToSML)
+					// after that is use-after-free on a pooled struct.
 					log.Info("reply received, sleep 1 sec",
 						"streamCode", replyMsg.StreamCode(),
 						"functionCode", replyMsg.FunctionCode(),
 						"sml", replyMsg.ToSML(),
 					)
+					replyMsg.Free()
 				}
 				time.Sleep(1000 * time.Millisecond)
 			}

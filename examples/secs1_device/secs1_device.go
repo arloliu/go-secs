@@ -141,6 +141,10 @@ func main() {
 						"functionCode", replyMsg.FunctionCode(),
 						"sml", replyMsg.ToSML(),
 					)
+					// Caller owns the reply DataMessage on the success path;
+					// Free returns it to the pool. Missing this leaks one
+					// DataMessage per second indefinitely.
+					replyMsg.Free()
 				}
 				time.Sleep(time.Second)
 			}

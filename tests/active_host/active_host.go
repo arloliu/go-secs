@@ -86,9 +86,11 @@ func main() {
 				if err != nil {
 					log.Error("failed to send S1F3 message", "error", err)
 				} else {
-					replyMsg.Free()
-					replyMsg.Free()
+					// Log BEFORE Free: replyMsg goes back to the pool on Free
+					// and any access (including ToSML) after that is use-after-
+					// free on a pooled struct.
 					log.Info("S1F3 reply received, sleep 1 sec", "sml", replyMsg.ToSML())
+					replyMsg.Free()
 				}
 				time.Sleep(1000 * time.Millisecond)
 			}
