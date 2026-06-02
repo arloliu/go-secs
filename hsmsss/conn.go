@@ -951,6 +951,21 @@ func (c *Connection) sendMsgSync(msg hsms.HSMSMessage) error {
 //
 // Ownership of msg transfers to the sender loop; processSendRequest will call msg.Free().
 func (c *Connection) sendMsgAsync(msg hsms.HSMSMessage) error {
+	// Mirror sendMsg (data-message guard above) and sendMsgSync: a data message
+	// cannot be sent while not Selected. Gating here — rather than only at
+	// dequeue in the sender loop — keeps senderMsgChan from filling with
+	// undeliverable data messages while NotSelected, which would both choke the
+	// sender task and starve the Select.req enqueue, producing a
+	// NotSelected→NotConnected reconnect loop. Control messages (Select.req,
+	// Linktest, …) are intentionally NOT gated: the Select handshake depends on
+	// them being sendable while NotSelected.
+	if msg.Type() == hsms.DataMsgType && !c.stateMgr.IsSelected() {
+		c.metrics.incDataMsgDropNotSelectedCount()
+		msg.Free()
+
+		return hsms.ErrNotSelectedState
+	}
+
 	if err := c.queueSendRequest(&sendRequest{msg: msg}); err != nil {
 		msg.Free()
 
@@ -1153,14 +1168,32 @@ func (c *Connection) processSendRequest(req *sendRequest) bool {
 
 	err := c.sendMsgSync(msg)
 	if err != nil {
-		c.metrics.incDataMsgErrCount()
-
 		// Signal the caller that send failed.
 		if req.sentChan != nil {
 			req.sentChan <- err
 		} else {
 			c.replyErrToSender(msg, err)
 		}
+
+		// Defense-in-depth: a queued data message that becomes un-sendable
+		// because the link left Selected between enqueue and dequeue (the
+		// residual check-then-enqueue race the sendMsgAsync gate cannot fully
+		// close) yields ErrNotSelectedState here. That is expected backpressure,
+		// not a fault — count it as a drop, keep the sender task alive, and do
+		// NOT escalate to teardown (return false → cancelSenderTask →
+		// NotConnected), which is what produced the NotSelected→NotConnected
+		// reconnect loop. All other errors (real network/connection failures)
+		// remain fatal below and are counted as data-message errors.
+		if errors.Is(err, hsms.ErrNotSelectedState) {
+			c.metrics.incDataMsgDropNotSelectedCount()
+			c.logger.Debug("dropping queued message: not selected",
+				hsms.MsgInfo(msg, "method", "senderTask")...,
+			)
+
+			return true
+		}
+
+		c.metrics.incDataMsgErrCount()
 
 		if !isNetOpError(err) {
 			c.logger.Error("failed to send message", "method", "senderTask", "error", err)

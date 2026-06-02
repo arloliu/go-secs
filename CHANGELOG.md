@@ -5,6 +5,39 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`hsmsss` / `secs1`: async sends are now gated on the Selected state.**
+  `sendMsgAsync` (used by `SendMessageAsync`, and by `SendDataMessageAsync` /
+  response sends) previously enqueued data messages regardless of connection
+  state, unlike the already-gated `sendMsg` / `sendMsgSync`. While the link was
+  not Selected this let undeliverable data pile into the sender queue and choke
+  the sender task / starve the `Select.req` enqueue, producing a
+  `NotSelected → NotConnected` reconnect loop that never reached Selected. Async
+  data sends while not Selected now return `ErrNotSelectedState` without
+  enqueuing. As defense-in-depth, the `hsmsss` sender task no longer treats
+  `ErrNotSelectedState` on an already-queued message (the residual
+  check-then-enqueue race) as fatal — it drops the message and stays alive
+  instead of tearing the connection down.
+
+### Added
+
+- **`ConnectionMetrics.DataMsgDropNotSelectedCount`** (`hsmsss` and `secs1`):
+  counts outbound data messages dropped because the connection was not Selected
+  (expected backpressure, e.g. an application that keeps sending across a
+  disconnect). These drops are intentionally **not** counted under
+  `DataMsgErrCount`, which remains a clean protocol / I-O fault signal.
+
+### Changed
+
+- Behavior change: `SendMessageAsync` (and the async / response send paths) now
+  return `ErrNotSelectedState` when invoked while the connection is not Selected,
+  matching the long-standing contract of the synchronous send paths. Callers that
+  relied on the previous silent enqueue should handle this error (retry once
+  Selected, buffer, or drop).
+
 ## [1.16.2] - 2026-05-24
 
 Follow-up to v1.16.1 closing residual flakes that surfaced under

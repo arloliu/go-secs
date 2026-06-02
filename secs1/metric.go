@@ -18,8 +18,15 @@ type ConnectionMetrics struct {
 	DataMsgSendCount atomic.Uint64
 	// DataMsgRecvCount indicates the number of data messages received.
 	DataMsgRecvCount atomic.Uint64
-	// DataMsgErrCount indicates the number of data message errors.
+	// DataMsgErrCount indicates the number of data message errors. It does NOT
+	// include data messages dropped because the connection is not Selected —
+	// those are counted by DataMsgDropNotSelectedCount instead.
 	DataMsgErrCount atomic.Uint64
+	// DataMsgDropNotSelectedCount indicates the number of outbound data messages
+	// rejected because the connection was not in the Selected state (expected
+	// backpressure, e.g. the application kept sending across a disconnect — not a
+	// protocol or I/O error).
+	DataMsgDropNotSelectedCount atomic.Uint64
 	// DataMsgInflightCount indicates the number of data messages in flight (waiting for reply).
 	DataMsgInflightCount atomic.Int64
 
@@ -49,6 +56,10 @@ func (m *ConnectionMetrics) incDataMsgRecvCount() {
 
 func (m *ConnectionMetrics) incDataMsgErrCount() {
 	m.DataMsgErrCount.Add(1)
+}
+
+func (m *ConnectionMetrics) incDataMsgDropNotSelectedCount() {
+	m.DataMsgDropNotSelectedCount.Add(1)
 }
 
 func (m *ConnectionMetrics) incDataMsgInflightCount() {

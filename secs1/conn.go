@@ -933,6 +933,18 @@ type sendRequest struct {
 //
 // Ownership of msg transfers to the protocol loop; handleOutgoingMessage will call msg.Free().
 func (c *Connection) sendMsgAsync(msg *hsms.DataMessage) error {
+	// Mirror sendMsg and sendMsgSync: a data message cannot be sent while not
+	// Selected. Gating here keeps the protocol loop's queue from filling with
+	// undeliverable messages while not Selected — sendMsgAsync was the only
+	// secs1 send path missing this guard (parity with the hsmsss fix for the
+	// NotSelected→NotConnected reconnect loop).
+	if !c.stateMgr.IsSelected() {
+		c.metrics.incDataMsgDropNotSelectedCount()
+		msg.Free()
+
+		return ErrNotSelectedState
+	}
+
 	if err := c.queueSendRequest(&sendRequest{msg: msg}); err != nil {
 		msg.Free()
 
