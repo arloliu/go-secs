@@ -5,6 +5,190 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.2] - 2026-05-24
+
+Follow-up to v1.16.1 closing residual flakes that surfaced under
+post-merge stress runs and adding a focused performance pass on the
+HSMS `DataMessage` hot path. The dominant **Fixed** item is a
+`send on closed channel` panic window plus five orphan-leak defects in
+`hsmsss`'s reply-channel teardown (`replyMsgChans` / `replyErrs`),
+followed by a ~0.4% close-timeout flake that required coupled fixes in
+both the passive-side reconnect guard (`hsmsss`, `secs1`) and
+`hsms.ConnStateMgr.Stop`'s desired-state reset. On the **Changed**
+side, `hsms.DataMessage.systemBytes` is now an inline `[4]byte`,
+removing one heap allocation per message on both the send-construction
+and decode paths while keeping the struct in one 64-byte cache line;
+`BaseSession`'s four send constructors take the ID as `uint32` via a
+new package-internal `newDataMessageWithID`. The pooled `hsmsDecoder`
+is now scrubbed before return so spiky load no longer pins the
+most-recently-decoded body in memory. The item-ownership contract on
+`Session`'s send methods is documented explicitly in Godoc.
+
+No public API additions. The only observable behavior change is the
+`ConnStateMgr.Stop` desired-state reset; existing callers that follow
+the (now-explicit) ownership contract are unaffected by the
+`systemBytes` representation change.
+
+### Changed
+
+- `hsms`: `DataMessage.systemBytes` is now an inline `[4]byte` instead
+  of a heap-allocated `[]byte`. `SystemBytes()` returns a slice that
+  aliases the struct's array — callers must not retain it past `Free`
+  (the new Godoc lifetime note makes this explicit). All public
+  constructors and `Clone` preserve prior nil/short-input zero-fill
+  semantics; one heap allocation per message is removed on both send
+  and decode.
+- `hsms`: new package-internal `newDataMessageWithID(stream, function,
+  wbit, id, item)` writes the ID directly into the inline array via
+  `binary.BigEndian.PutUint32`, skipping the 4-byte slice that
+  `GenerateMsgSystemBytes` would otherwise materialize. `BaseSession`'s
+  `SendDataMessage`, `SendDataMessageAsync`, `SendSECS2Message`, and
+  `SendSECS2MessageAsync` now use it. `NewDataMessage` and
+  `GenerateMsgSystemBytes` remain for back-compat.
+- `hsmsss`: data-message send hot path — `queueSendRequest` attempts a
+  non-blocking enqueue first and only acquires the `SendTimeout`
+  pooled timer when `senderMsgChan` is full; `sendMsg`'s W-bit branch
+  defers the `hsms.MsgInfo` `[]any` allocation to the T3/T6 timeout
+  branch (built via the new `hsms.MsgInfoFromFields` from primitives
+  captured before ownership transfer); `recvDataMsg` adds a
+  single-handler fast path that skips the snapshot + clone loop for
+  the overwhelmingly common N==1 case. The analogous
+  `replyToSender` fast path is deferred — see *Known follow-ups* at
+  the end of this entry.
+- `hsms`: the pooled `hsmsDecoder` is now scrubbed before return —
+  `decoder.input` is cleared and the bool/int/uint/float scratch
+  buffers are resliced to `:0` — so a pooled slot no longer pins the
+  most-recently-decoded body and scratch contents in memory. Scratch
+  capacity is retained for warm reuse.
+- `hsms`: `Session.SendDataMessage`, `SendDataMessageAsync`,
+  `SendSECS2Message`, `SendSECS2MessageAsync`, and `ReplyDataMessage`
+  now document the item-ownership contract explicitly in Godoc — the
+  caller transfers ownership of `dataItem` on call and must not retain
+  or `Free` the item, regardless of the returned error. The behavior
+  has always been this way; the docs make it unambiguous so callers do
+  not invent retry idioms that race the library. The `hsmsss/doc.go`
+  echo example and `hsmsss/session.go` `AddDataMessageHandler` example
+  now `Clone` `msg.Item()` before passing to `ReplyDataMessage`, and
+  the same fix is applied to `examples/device` and
+  `examples/secs1_device` echo handlers.
+- `secs2`: `StringToBytes` and `BytesToString` now carry SAFETY
+  documentation describing the zero-copy invariants the decoder
+  depends on — the decoder uses `BytesToString` to expose decoded
+  ASCII items as views into the inbound message buffer, which is safe
+  today because that buffer is freshly allocated per message and never
+  written after decode. Documented so future buffer-pooling work does
+  not silently break it.
+
+### Fixed
+
+#### hsmsss — reply-channel teardown panic & orphan leaks
+
+- Replace `close(replyChan)` in `dropAllReplyMsgs` with a
+  drain-then-`nil`-send pattern. The previous close raced with
+  `replyToSender` / `replyErrToSender`, which Load the channel before
+  the send: a Clear-Close interleave produced a `send on closed
+  channel` panic. `sendMsg` already treats a `nil` receive as terminal
+  (`conn.go:840-852`), so the wake-up semantic is preserved.
+- Close five orphan-leak vectors uncovered by the same investigation,
+  each independently regression-tested in `reply_close_race_test.go`:
+  (1) `replyToSender` post-send: identity-compare against
+  `replyMsgChans[id]` after a successful send, drain the orphan and
+  `Free` it if `dropAllReplyMsgs.Clear()` interleaved between Load and
+  send. (2)/(3) `replyErrToSender`: `Delete(id)` from `replyErrs` in
+  both the `ctx.Done` and send-branch wins paths if the Store landed
+  in a cleared map. (4) `sendMsg` terminal-branch TOCTOU: a new
+  package-internal `drainOrphanReply` helper, deferred at the top of
+  `sendMsg` right after `addReplyExpectedMsg`, catches the orphan on
+  every terminal exit (`ctx.Done` / `sendErr` / T3-T6 / dropped) and
+  is a no-op on the reply-success path. (5) `drainOrphanReply`
+  additionally `Delete`s `replyErrs[id]` when it consumes a `nil`
+  sentinel, eliminating the symmetric strand where `replyErrToSender`
+  stored an err that `sendMsg`'s terminal branch ate before the
+  reply-case fired.
+
+#### hsms, hsmsss, secs1 — close-timeout flake under -race
+
+- `TestConnection_CloseTCPIdempotent` was failing ~0.4% of the time
+  under `-race -p $(nproc)` with `desiredState=connecting` observed
+  after `Close`. Two coupled defects, both fixed:
+  - `hsmsss/conn_passive.go`, `secs1/conn_passive.go`: the passive
+    `ConnectingState` handler called `doOpen()` unconditionally. The
+    `NotConnected` handler only enqueues `ToConnectingAsync` when
+    `!c.shutdown` at handler-time, but a `Close()` arriving between
+    handler-time and the dispatcher consuming the queued event let
+    `doOpen` flip `opState` back to `Opening` during teardown. Fixed
+    by re-checking `c.shutdown.Load()` in the `ConnectingState`
+    handler.
+  - `hsms/conn_state.go`: `processAsyncStateChange` sets
+    `desiredState=Connecting` before `invokeHandlers`, so the racing
+    event leaves `desiredState=Connecting` even after the handler
+    skips. `Close()`'s polling loop requires
+    `desiredState=NotConnected`, stranding the close for the full
+    `CloseConnTimeout`. Fixed by having `ConnStateMgr.Stop()` reset
+    `desiredState=NotConnected` (it already resets `state`).
+  - Both fixes verified with isolated teeth-checks (reverting each
+    individually reproduces the flake at the original rate) and a
+    `-count=2000 -race -p $(nproc)` clean run.
+
+#### examples, tests — use-after-free / leak in reply handling
+
+- `tests/active_host`, `tests/passive_host`: the reply-message
+  handler called `replyMsg.Free()` twice and then read
+  `replyMsg.ToSML()`. The first `Free` returns the `DataMessage` to
+  its pool; `Free` itself is idempotent under CAS, but the post-`Free`
+  `ToSML` is a use-after-free on a struct that another goroutine may
+  have recycled.
+- `examples/device`: same shape — `Free` called before logging
+  `StreamCode` / `FunctionCode` / `ToSML`.
+- `examples/secs1_device`: `replyMsg` was never `Free`'d at all —
+  a pure leak of one `DataMessage` per second for the lifetime of the
+  example.
+- All four sites reordered so logging runs while `replyMsg` is still
+  caller-owned, with `Free` last. Non-library code paths; no
+  behavior impact on `hsms` / `hsmsss` / `secs1` / `secs2`.
+
+### Tests
+
+- `hsmsss`: `reply_close_race_test.go` adds six deterministic
+  regression tests gated on package-internal hook seams
+  (`replyToSenderPreSendHook`, `replyErrToSenderPreStoreHook`,
+  `nil` in production, installed via `t.Cleanup` in tests) so the
+  reply-channel teardown defects can be reproduced without
+  `t.Parallel` hazards. Teeth verified per defect.
+- `hsmsss`: `testMsgSuccess` now `Clone`s `dataItem` per retry. The
+  library `Free`s `dataItem` on early-rejection branches (e.g.
+  `ErrNotSelectedState`), so reusing the same item across retry
+  attempts wrapped a stale pointer that had already been returned to
+  `secs2.asciiItemPool`; under `-race`, a peer-side
+  `NewASCIIItemWithBytes` could then race the retry's later `Free`.
+  Stopgap until the library-side contract can be made symmetric — see
+  the Codex post-impl note referenced in 19985b6's commit message.
+- `hsms`: `data_msg_lifetime_test.go` (build-tagged `debugfree`)
+  documents by example why callers must not retain `SystemBytes()`
+  past `Free` — the slice aliases the struct's `[4]byte` field, so
+  `SetID` after capture is observable through the cached slice. The
+  best-effort pool-reuse leg logs-and-skips when `sync.Pool` does not
+  hand back the same pointer.
+- `hsmsss`: corrected `Benchmark_ActiveHost_PassiveEQP_SmallItem` so
+  the payload is built fresh per iteration. The prior version shared
+  one `secs2.Item` across iterations; `processSendRequest`'s
+  `defer msg.Free()` returned that item to its `sync.Pool` with
+  cleared values, so iterations 2..N were silently sending an empty
+  list rather than the list-of-three the test name advertised. Also
+  frees the returned reply per iteration and fixes the
+  off-by-one loop bound (`i <= b.N` → `i < b.N`). Numbers from before
+  this fix should not be referenced.
+
+### Known follow-ups
+
+- The non-blocking-first optimization in `queueSendRequest` was
+  considered and deferred for `replyToSender`. `closeConn` step 10
+  calls `dropAllReplyMsgs` which can close reply channels while
+  receiver tasks are still alive (intentional on the
+  close-timeout path), so a fast-path send there would race the
+  teardown. A clean lifecycle fix is owed before the optimization can
+  apply symmetrically.
+
 ## [1.16.1] - 2026-05-24
 
 Stability release focused on connection-lifecycle correctness in HSMS-SS and
@@ -369,6 +553,8 @@ release's fuzz work were closed out.
   Deselect.req / Deselect.rsp / Separate.req are now honoured end-to-end
   and take the session through the documented state transitions.
 
+[1.16.2]: https://github.com/arloliu/go-secs/releases/tag/v1.16.2
+[1.16.1]: https://github.com/arloliu/go-secs/releases/tag/v1.16.1
 [1.16.0]: https://github.com/arloliu/go-secs/releases/tag/v1.16.0
 [1.15.1]: https://github.com/arloliu/go-secs/releases/tag/v1.15.1
 [1.15.0]: https://github.com/arloliu/go-secs/releases/tag/v1.15.0
