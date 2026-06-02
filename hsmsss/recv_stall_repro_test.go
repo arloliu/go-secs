@@ -612,6 +612,100 @@ func TestRecvStall_QueuedDataNotSelectedIsNonFatal(t *testing.T) {
 	_ = host.close()
 }
 
+// TestRecvStall_QueuedDataNotSelectedFireAndForgetRoutesError is the regression
+// guard for the fire-and-forget (sentChan==nil) sub-path of the defense-in-depth
+// backstop in processSendRequest. When a data message is dequeued after the link
+// left Selected and sentChan is nil (i.e. the message was submitted via
+// SendMessageAsync without a reply channel), replyErrToSender constructs a
+// synthetic ErrorDataMessage and delivers it to the session's data-message handler.
+// This test verifies that:
+//   - processSendRequest still returns true (non-fatal to senderTask)
+//   - the drop is counted as DataMsgDropNotSelectedCount, not DataMsgErrCount
+//   - the handler receives the synthetic message wrapping ErrNotSelectedState with
+//     the correct StreamCode and FunctionCode
+//
+// This complements TestRecvStall_QueuedDataNotSelectedIsNonFatal which covers the
+// W-bit synchronous send sub-path (sentChan!=nil).
+func TestRecvStall_QueuedDataNotSelectedFireAndForgetRoutesError(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+	port := getPort()
+
+	peer := newDeafSelectPeer(t, port)
+	defer peer.stop()
+
+	host := doNewTestComm(ctx, t, port, true, true,
+		WithAutoLinktest(false),
+		WithT6Timeout(20*time.Second),
+		WithT7Timeout(20*time.Second),
+		WithConnectRemoteTimeout(1*time.Second),
+		WithCloseConnTimeout(2*time.Second),
+	)
+
+	// Capturing handler: records the error, stream code, and function code from
+	// the delivered synthetic ErrorDataMessage before freeing it. Uses a buffered
+	// channel so the handler never blocks the goroutine that delivers the message.
+	type capturedMsg struct {
+		err          error
+		streamCode   uint8
+		functionCode uint8
+	}
+	captured := make(chan capturedMsg, 1)
+	host.session.AddDataMessageHandler(func(msg *hsms.DataMessage, _ hsms.Session) {
+		// Capture fields before Free — handler owns the delivered message.
+		c := capturedMsg{
+			err:          msg.Error(),
+			streamCode:   msg.StreamCode(),
+			functionCode: msg.FunctionCode(),
+		}
+		msg.Free()
+		captured <- c
+	})
+
+	require.NoError(host.open(false))
+	require.NoError(host.conn.stateMgr.WaitState(ctx, hsms.NotSelectedState))
+	time.Sleep(100 * time.Millisecond)
+	require.True(host.conn.stateMgr.State().IsNotSelected())
+
+	// Build a non-W-bit data message (fire-and-forget path: sentChan left nil),
+	// modeling a message that was queued while Selected and dequeued while
+	// NotSelected — the residual check-then-enqueue race the async gate cannot
+	// fully close.
+	m, err := hsms.NewDataMessage(1, 1, false, testSessionID, hsms.GenerateMsgSystemBytes(), secs2.A("x"))
+	require.NoError(err)
+	errBefore := host.conn.metrics.DataMsgErrCount.Load()
+	dropBefore := host.conn.metrics.DataMsgDropNotSelectedCount.Load()
+
+	// Drive the fire-and-forget path: sentChan is nil, so replyErrToSender routes
+	// the error to the data-message handler as a synthetic ErrorDataMessage.
+	keepGoing := host.conn.processSendRequest(&sendRequest{msg: m})
+
+	require.True(keepGoing,
+		"a fire-and-forget queued data message that is NotSelected at dequeue must NOT be fatal to senderTask")
+
+	// Counted as a not-Selected drop, not as a data-message error.
+	require.Equal(dropBefore+1, host.conn.metrics.DataMsgDropNotSelectedCount.Load(),
+		"the dropped fire-and-forget message must increment DataMsgDropNotSelectedCount")
+	require.Equal(errBefore, host.conn.metrics.DataMsgErrCount.Load(),
+		"the dropped fire-and-forget message must NOT increment DataMsgErrCount")
+
+	// The handler must receive the synthetic ErrorDataMessage with the correct
+	// error and original stream/function codes.
+	select {
+	case got := <-captured:
+		require.ErrorIs(got.err, hsms.ErrNotSelectedState,
+			"synthetic error message must wrap ErrNotSelectedState")
+		require.Equal(uint8(1), got.streamCode,
+			"synthetic error message must carry the original stream code")
+		require.Equal(uint8(1), got.functionCode,
+			"synthetic error message must carry the original function code")
+	case <-time.After(2 * time.Second):
+		t.Fatal("data-message handler did not receive the synthetic ErrorDataMessage within 2s")
+	}
+
+	_ = host.close()
+}
+
 // TestRecvStall_ParkedReceiverDelaysDisconnectDetection demonstrates a distinct
 // defect: a receiver parked in recvDataMsg never reads the socket, so a GRACEFUL
 // peer close (FIN) — which a healthy receiver detects within ~250ms, verified by
