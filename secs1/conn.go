@@ -994,6 +994,11 @@ func (c *Connection) queueSendRequest(req *sendRequest) error {
 // for the protocol loop to pick it up.
 func (c *Connection) sendMsgSync(msg hsms.HSMSMessage) error {
 	if !c.stateMgr.IsSelected() {
+		// Free on this pre-transfer rejection, mirroring sendMsg's gate:
+		// sendMsgSync owns msg until it is handed to sendMsgAsync below, so the
+		// early return must release it to avoid leaking the item back to the pool.
+		msg.Free()
+
 		return ErrNotSelectedState
 	}
 

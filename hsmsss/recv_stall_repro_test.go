@@ -1,54 +1,36 @@
 package hsmsss
 
-// Reproduction tests for the reported failure: with an hsmsss session, while the
-// target equipment is disconnected the application keeps sending; the connection
-// then loops "not-selected -> not-connected" repeatedly and never reaches Selected.
+// Tests around the reported failure: with an hsmsss session, while the target
+// peer is disconnected the application keeps sending; the connection then loops
+// "not-selected -> not-connected" repeatedly and never reaches Selected.
 //
-// CONFIRMED ROOT CAUSE (TestRecvStall_AsyncDataSendDuringNotSelectedKillsConn):
-// the application (eqp-hub doSendToTarget) sends non-wait-bit / response messages
-// via session.SendMessageAsync. Two coupled library defects:
+// ROOT CAUSE (now FIXED): the application sends non-wait-bit / response messages
+// via session.SendMessageAsync. Two coupled library defects, both now fixed:
 //
-//	(1) sendMsgAsync has NO IsSelected gate. sendMsg (conn.go:750) and sendMsgSync
-//	    (conn.go:896) both reject data messages while !IsSelected; sendMsgAsync
-//	    enqueues them regardless of connection state.
-//	(2) When senderTask later dequeues such a data message while NotSelected,
-//	    sendMsgSync returns ErrNotSelectedState, and processSendRequest treats any
-//	    send error as fatal -> cancelSenderTask -> ToNotConnected.
+//	(1) sendMsgAsync had NO IsSelected gate, unlike sendMsg and sendMsgSync, so it
+//	    enqueued data messages regardless of connection state. FIXED: sendMsgAsync
+//	    now rejects data while !IsSelected (returns ErrNotSelectedState, no enqueue).
+//	(2) When senderTask dequeued such a queued data message while NotSelected,
+//	    sendMsgSync returned ErrNotSelectedState and processSendRequest treated it
+//	    as fatal -> cancelSenderTask -> ToNotConnected. FIXED: that case is now a
+//	    non-fatal drop (defense-in-depth for the residual check-then-enqueue race).
 //
-// Result: one ungated async data send while NotSelected drops the connection;
-// continuous app sends re-choke the senderTask on every reconnect -> the reported
-// loop. Likely fix direction: gate sendMsgAsync like the other two paths, and/or
-// stop treating ErrNotSelectedState as a fatal senderTask error. (Check the secs1
-// sibling for the same asymmetry — see [[hsmsss-secs1-parity-pattern]].)
+// REGRESSION GUARDS for the fix (assert the FIXED behavior):
+//   - TestRecvStall_AsyncDataSendGatedWhileNotSelected — the async gate.
+//   - TestRecvStall_QueuedDataNotSelectedIsNonFatal — the sender-task backstop.
+//   - TestRecvStall_AsyncFloodDoesNotStarveSelect — end-to-end: an async flood
+//     across connect no longer starves the Select handshake.
 //
-// The two tests below additionally characterize related stall modes uncovered
-// during the investigation:
-//
-//	A (inbound stall):  the SINGLE receiver goroutine blocks in Session.recvDataMsg
-//	                    when the application's inbound data channel (cap =
-//	                    dataMsgQueueSize) is full because the consumer is slow or
-//	                    stuck. While parked it reads nothing off the socket, so it
-//	                    cannot process ANY control traffic — Select.rsp, Linktest,
-//	                    etc. The Select handshake therefore cannot complete and a
-//	                    dropped socket is never observed.
-//
-//	B (outbound stall): during a half-open window (TCP dropped but not yet
-//	                    detected, state still Selected) application data sends pass
-//	                    the IsSelected gate, enqueue, and stall senderTask on
-//	                    dead-socket writes until the cap-senderQueueSize channel
-//	                    fills and queueSendRequest returns ErrSendMsgTimeout.
-//
-// These two are REPRODUCED deterministically but are NOT the user's incident;
-// they are kept as characterization of adjacent failure modes:
-//   - Candidate A: TestRecvStall_ControlBlockedByFullDataChannel — needs a slow
-//     consumer (the user's handler is non-blocking, so this is not their case).
-//   - Candidate B: TestRecvStall_OutboundQueueFullOnHalfOpen — a send returning
-//     ErrSendMsgTimeout with the outbound queue at capacity during a half-open
-//     window. Distinct from the confirmed root cause above (which fails via the
-//     ungated-enqueue + fatal-senderTask path, not via queue-full backpressure).
-//
-// NOTE: these tests assert the CURRENT (buggy) behavior to lock in a
-// reproduction. They must be revisited when the behavior is fixed.
+// CHARACTERIZATION of adjacent, still-open stall modes (NOT the reported incident;
+// these assert current behavior and are not addressed by the async-gate fix):
+//   - TestRecvStall_ControlBlockedByFullDataChannel (Candidate A, inbound stall):
+//     a slow/stuck data-message consumer fills the inbound channel and parks the
+//     single receiver goroutine, stalling all control-message processing.
+//   - TestRecvStall_OutboundQueueFullOnHalfOpen (Candidate B, outbound stall):
+//     during a half-open window (still Selected), data sends fill the sender queue
+//     and a send returns ErrSendMsgTimeout.
+//   - TestRecvStall_ParkedReceiverDelaysDisconnectDetection: a parked receiver
+//     misses a graceful FIN.
 
 import (
 	"context"

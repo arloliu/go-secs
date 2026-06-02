@@ -925,7 +925,9 @@ func TestConnection_SendMsgNotSelected(t *testing.T) {
 	r.True(ok)
 
 	// Connection is not opened — state is NotConnected.
-	// sendMsg should return ErrNotSelectedState.
+	// sendMsg should return ErrNotSelectedState. Each send path Frees the
+	// message on its not-Selected gate, so use a fresh message per call to
+	// avoid a double-free of a pooled item.
 	msg, err := hsms.NewDataMessage(1, 1, true, testSessionID, hsms.GenerateMsgSystemBytes(), secs2.A("test"))
 	r.NoError(err)
 
@@ -934,8 +936,11 @@ func TestConnection_SendMsgNotSelected(t *testing.T) {
 	r.ErrorIs(sendErr, ErrNotSelectedState)
 	r.Nil(reply)
 
-	// sendMsgSync should also fail.
-	syncErr := conn.sendMsgSync(msg)
+	// sendMsgSync should also fail (and likewise Free its own message).
+	msg2, err := hsms.NewDataMessage(1, 1, true, testSessionID, hsms.GenerateMsgSystemBytes(), secs2.A("test"))
+	r.NoError(err)
+
+	syncErr := conn.sendMsgSync(msg2)
 	r.Error(syncErr)
 	r.ErrorIs(syncErr, ErrNotSelectedState)
 

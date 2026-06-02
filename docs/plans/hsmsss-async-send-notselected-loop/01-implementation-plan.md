@@ -150,14 +150,24 @@ if the synthesized error proves noisy in practice.
   importing the hsmsss data-only shape).
 - Investigate whether secs1's send-side error handling has the same
   "escalate `ErrNotSelectedState` to teardown" behavior as hsmsss
-  `processSendRequest`. secs1 uses a different (SECS-I block) protocol loop, so
-  the Defect-2 backstop may be unnecessary or located elsewhere. If an
-  equivalent escalation exists, apply the same non-fatal handling; otherwise
-  document that the gate alone suffices for secs1.
+  `processSendRequest`. **Resolved (as-built):** it does NOT. secs1's protocol
+  loop (`handleOutgoingMessage`) only calls `ToNotConnectedAsync` for
+  `isDisconnectError(err)`; `ErrNotSelectedState` is not a disconnect error, so
+  there is no Defect-2 escalation in secs1 and no backstop is needed — the gate
+  alone suffices.
 - secs1 lock-order rule applies — see [[secs1-lock-order-rule]]: the
   `IsSelected()` read must not be taken inside `createContext()` or violate
-  `sendMu > ctxMutex`. Verify the guard sits before any such acquisition (it
-  mirrors the existing sync-path guards, which already satisfy this).
+  `sendMu > ctxMutex`. The guard sits at the top of `sendMsgAsync`, before
+  `queueSendRequest` (which acquires `sendMu.RLock`), mirroring the existing
+  sync-path guards — satisfied.
+- **Adjacent leak fixed (as-built):** `secs1.sendMsgSync`'s not-Selected
+  early return previously did not `Free()` the message (unlike `sendMsg`),
+  leaking the pooled item. Now it Frees on its own pre-transfer gate, mirroring
+  `sendMsg`. This surfaced a latent double-free in
+  `TestConnection_SendMsgNotSelected`, which reused one message across both
+  `sendMsg` and `sendMsgSync` (both now Free their own); the test now uses a
+  fresh message per call. Verified clean under the `debugfree` double-free
+  detector.
 
 ## 6. Test plan
 
@@ -198,8 +208,20 @@ reverted (temporarily remove the gate / restore the fatal return and re-run).
 
 ### 6.4 secs1
 
-Add the parity equivalents of tests 1 and 2 to the secs1 suite (adjusting for
-SECS-I connection setup). Check the [[hsmsss-secs1-parity-pattern]] note.
+- **Test 1 (async gate) — added:** `secs1/async_send_gate_test.go`
+  `TestSendMessageAsync_GatedWhileNotSelected` asserts a NotSelected async data
+  send returns `ErrNotSelectedState` and increments `DataMsgDropNotSelectedCount`
+  (not `DataMsgErrCount`). Teeth confirmed (RED before the secs1 gate).
+- **Test 2 (no-starvation flood) — intentionally NOT added (would be teethless).**
+  The hsmsss flood test guards the `NotSelected→NotConnected` loop, which is
+  driven by (a) the sender-task choke and (b) Select.req queue-starvation. secs1
+  has **neither**: its protocol loop does not escalate `ErrNotSelectedState` to
+  teardown (see §5), and SECS-I has no HSMS-style Select.req-via-queue handshake
+  to starve. A secs1 flood test would therefore pass with or without the gate —
+  no teeth — so it is omitted by design. The existing paired secs1 tests already
+  cover reaching Selected and sending under normal load.
+- `TestConnection_SendMsgNotSelected` updated for the `sendMsgSync` Free fix
+  (separate messages per send path). Check [[hsmsss-secs1-parity-pattern]].
 
 ## 7. Validation steps
 
