@@ -5,7 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.17.0] - 2026-06-02
+
+Fixes a `NotSelected → NotConnected` reconnect loop in active HSMS-SS sessions,
+with the same gate gap back-ported to SECS-I. The async send path
+(`SendMessageAsync`, and `SendDataMessageAsync` / response sends) enqueued data
+messages regardless of connection state, unlike the already-gated synchronous
+paths; while not Selected this filled the sender queue with undeliverable data,
+choking the sender task and starving the `Select.req` enqueue so the link could
+never re-Select. Async data sends while not Selected now return
+`ErrNotSelectedState` without enqueuing, with a defense-in-depth backstop in the
+`hsmsss` sender task. Adds a dedicated `DataMsgDropNotSelectedCount` metric kept
+out of `DataMsgErrCount`. One observable behavior change: `SendMessageAsync` now
+returns `ErrNotSelectedState` while not Selected (see **Changed**).
 
 ### Fixed
 
@@ -21,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ErrNotSelectedState` on an already-queued message (the residual
   check-then-enqueue race) as fatal — it drops the message and stays alive
   instead of tearing the connection down.
+- **`secs1`: `sendMsgSync` now frees the message on its not-Selected gate**,
+  mirroring `sendMsg`, fixing a pooled-item leak when sending while not Selected.
 
 ### Added
 
@@ -586,6 +600,7 @@ release's fuzz work were closed out.
   Deselect.req / Deselect.rsp / Separate.req are now honoured end-to-end
   and take the session through the documented state transitions.
 
+[1.17.0]: https://github.com/arloliu/go-secs/releases/tag/v1.17.0
 [1.16.2]: https://github.com/arloliu/go-secs/releases/tag/v1.16.2
 [1.16.1]: https://github.com/arloliu/go-secs/releases/tag/v1.16.1
 [1.16.0]: https://github.com/arloliu/go-secs/releases/tag/v1.16.0
