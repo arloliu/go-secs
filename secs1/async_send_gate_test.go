@@ -81,6 +81,8 @@ func TestSendGates_FreeMessageWhileNotSelected(t *testing.T) {
 		r.Nil(reply)
 		// putDataMessage (hsms/pool.go:95) sets dataItem = nil; Item() exposes that field.
 		r.Nil(msg.Item(), "sendMsg gate must Free the message (putDataMessage nils dataItem)")
+		// dropNotSelected is the single counting chokepoint: exactly one drop so far.
+		r.Equal(uint64(1), conn.metrics.DataMsgDropNotSelectedCount.Load(), "sendMsg (non-W-bit) must count once")
 	})
 
 	t.Run("sendMsg_WBit", func(t *testing.T) {
@@ -95,6 +97,7 @@ func TestSendGates_FreeMessageWhileNotSelected(t *testing.T) {
 		r.Nil(reply)
 		// putDataMessage (hsms/pool.go:95) sets dataItem = nil; Item() exposes that field.
 		r.Nil(msg.Item(), "sendMsg gate must Free the message (putDataMessage nils dataItem)")
+		r.Equal(uint64(2), conn.metrics.DataMsgDropNotSelectedCount.Load(), "sendMsg (W-bit) must count once")
 	})
 
 	t.Run("sendMsgSync", func(t *testing.T) {
@@ -109,6 +112,7 @@ func TestSendGates_FreeMessageWhileNotSelected(t *testing.T) {
 		// This is the v1.17.0 fix path (secs1/conn.go ~line 1000).
 		// putDataMessage (hsms/pool.go:95) sets dataItem = nil; Item() exposes that field.
 		r.Nil(msg.Item(), "sendMsgSync gate must Free the message (v1.17.0 fix; putDataMessage nils dataItem)")
+		r.Equal(uint64(3), conn.metrics.DataMsgDropNotSelectedCount.Load(), "sendMsgSync must count once")
 	})
 
 	t.Run("sendMsgAsync", func(t *testing.T) {
@@ -122,5 +126,13 @@ func TestSendGates_FreeMessageWhileNotSelected(t *testing.T) {
 		r.ErrorIs(asyncErr, ErrNotSelectedState)
 		// putDataMessage (hsms/pool.go:95) sets dataItem = nil; Item() exposes that field.
 		r.Nil(msg.Item(), "sendMsgAsync gate must Free the message (putDataMessage nils dataItem)")
+		r.Equal(uint64(4), conn.metrics.DataMsgDropNotSelectedCount.Load(), "sendMsgAsync must count once")
 	})
+
+	// All four gate calls dropped a data message; the chokepoint counted each
+	// exactly once (4 total) and never as a data-message error.
+	require.Equal(t, uint64(4), conn.metrics.DataMsgDropNotSelectedCount.Load(),
+		"every not-Selected drop must be counted exactly once")
+	require.Equal(t, uint64(0), conn.metrics.DataMsgErrCount.Load(),
+		"not-Selected drops must NOT increment DataMsgErrCount")
 }

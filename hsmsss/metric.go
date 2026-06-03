@@ -27,11 +27,11 @@ type ConnectionMetrics struct {
 	// DataMsgDropNotSelectedCount instead.
 	DataMsgErrCount atomic.Uint64
 	// DataMsgDropNotSelectedCount indicates the number of outbound data messages
-	// dropped because the connection was not in the Selected state — either
-	// rejected at send time (sendMsgAsync) or dropped by the sender task when the
-	// link left Selected between enqueue and dequeue. This is expected
-	// backpressure (e.g. the application kept sending across a disconnect), not a
-	// protocol or I/O error.
+	// dropped because the connection was not in the Selected state — whether
+	// rejected up front at a send entry point or dropped at the write boundary
+	// when the link left Selected between enqueue and dequeue. Each dropped
+	// message is counted exactly once. This is expected backpressure (e.g. the
+	// application kept sending across a disconnect), not a protocol or I/O error.
 	DataMsgDropNotSelectedCount atomic.Uint64
 	// DataMsgInflightCount indicates the number of data messages in flight.
 	DataMsgInflightCount atomic.Int64

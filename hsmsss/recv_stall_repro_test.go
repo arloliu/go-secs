@@ -764,3 +764,57 @@ func TestRecvStall_ParkedReceiverDelaysDisconnectDetection(t *testing.T) {
 	releaseFn()
 	_ = host.close()
 }
+
+// TestSendGates_CountNotSelectedDropsExactlyOnce is the teeth check for the
+// single-chokepoint refactor: every public send path (SendMessage → sendMsg,
+// SendMessageSync → sendMsgSync, SendMessageAsync → sendMsgAsync) must increment
+// DataMsgDropNotSelectedCount by EXACTLY one per rejected data message while not
+// Selected — never zero (forgot to count) and never two (double count). All three
+// route through dropNotSelected, the only site that increments the metric.
+//
+// A never-opened connection is deterministically not Selected, so each gate fires
+// at its entry check before any TCP I/O. SendMessageSync is included specifically
+// because it is reachable directly (bypassing processSendRequest), the path the
+// pre-refactor code left uncounted.
+func TestSendGates_CountNotSelectedDropsExactlyOnce(t *testing.T) {
+	require := require.New(t)
+	ctx := t.Context()
+
+	cfg, err := NewConnectionConfig("localhost", 6666, WithHostRole())
+	require.NoError(err)
+	conn, err := NewConnection(ctx, cfg)
+	require.NoError(err)
+	session := conn.AddSession(testSessionID)
+
+	require.False(conn.stateMgr.IsSelected(), "never-opened connection must not be Selected")
+
+	newMsg := func(wbit bool) hsms.HSMSMessage {
+		m, mErr := hsms.NewDataMessage(1, 1, wbit, testSessionID, hsms.GenerateMsgSystemBytes(), secs2.A("x"))
+		require.NoError(mErr)
+
+		return m
+	}
+
+	// SendMessage (sendMsg gate) — exercise both W-bit variants; the gate fires
+	// before the WaitBit branch, so each must count once.
+	_, err = session.SendMessage(newMsg(false))
+	require.ErrorIs(err, hsms.ErrNotSelectedState)
+	require.Equal(uint64(1), conn.metrics.DataMsgDropNotSelectedCount.Load(), "sendMsg (non-W-bit) must count once")
+
+	_, err = session.SendMessage(newMsg(true))
+	require.ErrorIs(err, hsms.ErrNotSelectedState)
+	require.Equal(uint64(2), conn.metrics.DataMsgDropNotSelectedCount.Load(), "sendMsg (W-bit) must count once")
+
+	// SendMessageSync (sendMsgSync gate) — the direct-caller path that was
+	// previously uncounted.
+	require.ErrorIs(session.SendMessageSync(newMsg(false)), hsms.ErrNotSelectedState)
+	require.Equal(uint64(3), conn.metrics.DataMsgDropNotSelectedCount.Load(), "sendMsgSync must count once")
+
+	// SendMessageAsync (sendMsgAsync gate).
+	require.ErrorIs(session.SendMessageAsync(newMsg(false)), hsms.ErrNotSelectedState)
+	require.Equal(uint64(4), conn.metrics.DataMsgDropNotSelectedCount.Load(), "sendMsgAsync must count once")
+
+	// Drops are expected backpressure, never data-message errors.
+	require.Equal(uint64(0), conn.metrics.DataMsgErrCount.Load(),
+		"not-Selected drops must NOT increment DataMsgErrCount")
+}

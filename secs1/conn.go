@@ -811,6 +811,21 @@ func (c *Connection) handleCompleteMessage(blocks []*Block) {
 
 // --- Message sending ---
 
+// dropNotSelected records a not-Selected data-message drop and returns the
+// ErrNotSelectedState sentinel. It is the single place that increments
+// DataMsgDropNotSelectedCount: every send gate that rejects a message because
+// the link is not Selected returns through here, so the count can neither be
+// forgotten nor double-applied. msg.Free() stays at the call site, which owns it.
+//
+// Exactly-once holds structurally: each send entry point (sendMsg, sendMsgSync)
+// gates and returns before delegating to sendMsgAsync, so a single send call
+// reaches at most one of these gates — never two.
+func (c *Connection) dropNotSelected() error {
+	c.metrics.incDataMsgDropNotSelectedCount()
+
+	return ErrNotSelectedState
+}
+
 // sendMsg sends a DataMessage and optionally waits for its reply (if W-bit is set).
 //
 // This is the main entry point for the Session to send messages. It queues the
@@ -822,7 +837,7 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	if !c.stateMgr.IsSelected() {
 		msg.Free()
 
-		return nil, ErrNotSelectedState
+		return nil, c.dropNotSelected()
 	}
 
 	dataMsg, ok := msg.ToDataMessage()
@@ -939,10 +954,9 @@ func (c *Connection) sendMsgAsync(msg *hsms.DataMessage) error {
 	// secs1 send path missing this guard (parity with the hsmsss fix for the
 	// NotSelected→NotConnected reconnect loop).
 	if !c.stateMgr.IsSelected() {
-		c.metrics.incDataMsgDropNotSelectedCount()
 		msg.Free()
 
-		return ErrNotSelectedState
+		return c.dropNotSelected()
 	}
 
 	if err := c.queueSendRequest(&sendRequest{msg: msg}); err != nil {
@@ -997,9 +1011,11 @@ func (c *Connection) sendMsgSync(msg hsms.HSMSMessage) error {
 		// Free on this pre-transfer rejection, mirroring sendMsg's gate:
 		// sendMsgSync owns msg until it is handed to sendMsgAsync below, so the
 		// early return must release it to avoid leaking the item back to the pool.
+		// dropNotSelected counts here (not in the delegated sendMsgAsync): this
+		// gate returns before delegating, so the two are mutually exclusive.
 		msg.Free()
 
-		return ErrNotSelectedState
+		return c.dropNotSelected()
 	}
 
 	dataMsg, ok := msg.ToDataMessage()
