@@ -5,6 +5,50 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.1] - 2026-06-03
+
+Patch follow-up to v1.17.0 that makes the `DataMsgDropNotSelectedCount`
+accounting introduced there exact across every send gate, rate-limits the
+not-Selected drop log so a send flood across a disconnect cannot spam it, and
+tightens a `secs1` non-data input edge case. No public API additions.
+
+### Fixed
+
+- **`hsmsss` / `secs1`: `DataMsgDropNotSelectedCount` is now incremented exactly
+  once on every not-Selected data drop.** v1.17.0 counted the drop at some send
+  gates but not others — the `hsmsss` `sendMsg` entry gate and the `secs1`
+  `sendMsg` / `sendMsgSync` entry gates dropped data without counting, and the
+  `hsmsss` increment lived in the sender task so direct `SendMessageSync` callers
+  were uncounted. All not-Selected data drops now route through a single
+  per-connection chokepoint, so the metric can neither under- nor double-count
+  regardless of which path (sync, async, or the sender-task write boundary)
+  rejects the message.
+- **`secs1`: a non-data message passed to `SendMessage` / `SendMessageSync` while
+  not Selected is now rejected as `ErrNotDataMsg` and no longer increments
+  `DataMsgDropNotSelectedCount`.** The message type is validated before the
+  Selected-state gate, so an invalid (non-data) input is not counted as a dropped
+  data message. Metric-accuracy only — the previously missing `Free` on that path
+  was a no-op, since control messages are not pooled.
+
+### Changed
+
+- **`hsmsss` / `secs1`: the not-Selected data-drop log is rate-limited.** A flood
+  of sends across a disconnect previously emitted one log line per dropped message,
+  at inconsistent severities. Drops are now logged at `Warn` at most once per 5s
+  window — the first drop logs immediately, with a periodic heartbeat during a
+  sustained outage — while `DataMsgDropNotSelectedCount` still counts every drop
+  exactly. `secs1`, which previously logged nothing on these drops, now emits the
+  same throttled `Warn`.
+
+### Tests
+
+- Exact-count, teeth-checked regression tests for the single counting chokepoint
+  in both packages (every send gate counts exactly once; `DataMsgErrCount` stays
+  clean), the `secs1` non-data-before-gate behavior, and the log throttle (a flood
+  emits exactly one `Warn` while the metric counts all drops). Adds an internal
+  `throttle` helper with unit tests, including a concurrent-burst
+  permit-exactly-once check.
+
 ## [1.17.0] - 2026-06-02
 
 Fixes a `NotSelected → NotConnected` reconnect loop in active HSMS-SS sessions,
@@ -600,6 +644,7 @@ release's fuzz work were closed out.
   Deselect.req / Deselect.rsp / Separate.req are now honoured end-to-end
   and take the session through the documented state transitions.
 
+[1.17.1]: https://github.com/arloliu/go-secs/releases/tag/v1.17.1
 [1.17.0]: https://github.com/arloliu/go-secs/releases/tag/v1.17.0
 [1.16.2]: https://github.com/arloliu/go-secs/releases/tag/v1.16.2
 [1.16.1]: https://github.com/arloliu/go-secs/releases/tag/v1.16.1
