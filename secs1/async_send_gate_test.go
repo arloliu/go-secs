@@ -136,3 +136,46 @@ func TestSendGates_FreeMessageWhileNotSelected(t *testing.T) {
 	require.Equal(t, uint64(0), conn.metrics.DataMsgErrCount.Load(),
 		"not-Selected drops must NOT increment DataMsgErrCount")
 }
+
+// TestSendGates_NonDataMessageNotCountedAsDrop guards the type-before-state-gate
+// ordering in sendMsg / sendMsgSync: a non-data (control) message rejected while
+// not Selected must return ErrNotDataMsg and must NOT tick
+// DataMsgDropNotSelectedCount — that counter is for dropped *data* messages only.
+// Before the reorder, the not-Selected gate ran first and counted an invalid
+// non-data input as a data drop.
+func TestSendGates_NonDataMessageNotCountedAsDrop(t *testing.T) {
+	ctx := t.Context()
+
+	cfg, err := NewConnectionConfig(testIP, 5000, WithHostRole())
+	require.NoError(t, err)
+
+	conn, err := NewConnection(ctx, cfg)
+	require.NoError(t, err)
+
+	_ = conn.AddSession(testSessionID)
+	require.False(t, conn.stateMgr.IsSelected(), "never-opened connection must not be Selected")
+
+	t.Run("sendMsg", func(t *testing.T) {
+		r := require.New(t)
+		ctrl := hsms.NewSeparateReq(testSessionID, hsms.GenerateMsgSystemBytes())
+
+		reply, sendErr := conn.sendMsg(ctrl)
+		r.ErrorIs(sendErr, hsms.ErrNotDataMsg, "non-data input must be rejected as ErrNotDataMsg, not ErrNotSelectedState")
+		r.Nil(reply)
+		r.Equal(uint64(0), conn.metrics.DataMsgDropNotSelectedCount.Load(),
+			"a non-data message must NOT tick the data-drop counter")
+	})
+
+	t.Run("sendMsgSync", func(t *testing.T) {
+		r := require.New(t)
+		ctrl := hsms.NewSeparateReq(testSessionID, hsms.GenerateMsgSystemBytes())
+
+		syncErr := conn.sendMsgSync(ctrl)
+		r.ErrorIs(syncErr, hsms.ErrNotDataMsg, "non-data input must be rejected as ErrNotDataMsg, not ErrNotSelectedState")
+		r.Equal(uint64(0), conn.metrics.DataMsgDropNotSelectedCount.Load(),
+			"a non-data message must NOT tick the data-drop counter")
+	})
+
+	require.Equal(t, uint64(0), conn.metrics.DataMsgErrCount.Load(),
+		"rejecting a non-data input is not a data-message error")
+}

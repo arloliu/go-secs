@@ -4,7 +4,7 @@
 
 **go-secs** (`github.com/arloliu/go-secs`) is a Go library implementing SECS-II (SEMI E5), HSMS / HSMS-SS (SEMI E37 / E37.1), and SECS-I over TCP/IP (SEMI E4) for semiconductor-equipment communication. Consumed as a dependency; no binary.
 
-Public packages: `hsms`, `hsmsss`, `secs1`, `secs2`, `sml`, `gem`, `logger`. Private: `internal/{pool,queue,util}` — never expose in public signatures, Godoc, or READMEs.
+Public packages: `hsms`, `hsmsss`, `secs1`, `secs2`, `sml`, `gem`, `logger`. Private: `internal/{pool,queue,throttle,util}` — never expose in public signatures, Godoc, or READMEs.
 
 ## Working Principles
 

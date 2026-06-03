@@ -15,6 +15,7 @@ import (
 	"github.com/arloliu/go-secs/gem"
 	"github.com/arloliu/go-secs/hsms"
 	"github.com/arloliu/go-secs/internal/pool"
+	"github.com/arloliu/go-secs/internal/throttle"
 	"github.com/arloliu/go-secs/logger"
 	"github.com/puzpuzpuz/xsync/v3"
 )
@@ -28,6 +29,11 @@ const (
 
 	// closeCheckInterval is the interval for checking close status in Close() method.
 	closeCheckInterval = 5 * time.Millisecond
+
+	// dropLogInterval bounds how often the not-Selected data-drop Warn is emitted.
+	// Every drop is still counted in DataMsgDropNotSelectedCount; only the log is
+	// throttled so a send flood across a disconnect cannot spam the log.
+	dropLogInterval = 5 * time.Second
 )
 
 // Connection represents an HSMS-SS (Single Session) connection, implementing the hsms.Connection interface.
@@ -121,6 +127,10 @@ type Connection struct {
 
 	metrics ConnectionMetrics // connection metrics
 
+	// dropLogThrottle rate-limits the not-Selected data-drop Warn log (the drop
+	// itself is always counted in metrics). Lives for the Connection's lifetime.
+	dropLogThrottle *throttle.Throttle
+
 	// closeErr holds the teardown result of the most recent closeConn cycle,
 	// so the public Close method can surface a teardown timeout to the caller.
 	// The closeConn call that owns the opState teardown resets this slot at the
@@ -179,6 +189,8 @@ func NewConnection(ctx context.Context, cfg *ConnectionConfig) (*Connection, err
 		replyErrs:     xsync.NewMapOf[uint32, error](),
 		replyMsgChans: xsync.NewMapOf[uint32, chan hsms.HSMSMessage](),
 		taskMgr:       hsms.NewTaskManager(ctx, cfg.logger),
+
+		dropLogThrottle: throttle.New(dropLogInterval),
 	}
 	// create sender message channel at beginning and not close it.
 	conn.senderMsgChan = make(chan *sendRequest, cfg.senderQueueSize)
@@ -732,19 +744,33 @@ func (c *Connection) sendControlMsg(msg *hsms.ControlMessage) (*hsms.ControlMess
 }
 
 // dropNotSelected records a not-Selected data-message drop and returns the
-// ErrNotSelectedState sentinel. It is the single place that increments
-// DataMsgDropNotSelectedCount: every send gate that rejects a data message
-// because the link is not Selected returns through here, so the count can
-// neither be forgotten nor double-applied. Logging and msg.Free() stay at the
-// call site because they differ by gate — log level varies, and the entry gates
-// own the Free while the write-boundary gate (driven by processSendRequest /
+// ErrNotSelectedState sentinel. It is the single place that both increments
+// DataMsgDropNotSelectedCount and logs the drop, so the count can neither be
+// forgotten nor double-applied, and the log severity stays uniform. msg.Free()
+// stays at the call site because it differs by gate — the entry gates own the
+// Free while the write-boundary gate (driven by processSendRequest /
 // Session.SendMessageSync) does not.
 //
-// Exactly-once holds structurally: the entry gates (sendMsg, sendMsgAsync) are
-// terminal and return before queueing, so a single send call can reach at most
-// one of them or the write-boundary gate in sendMsgSync — never two.
-func (c *Connection) dropNotSelected() error {
+// The Warn log is rate-limited via dropLogThrottle so a send flood across a
+// disconnect cannot spam the log; the metric still counts every drop. The log
+// is therefore a throttled heads-up, not a per-message record.
+//
+// Exactly-once counting holds structurally: the entry gates (sendMsg,
+// sendMsgAsync) are terminal and return before queueing, so a single send call
+// can reach at most one of them or the write-boundary gate in sendMsgSync —
+// never two.
+func (c *Connection) dropNotSelected(msg hsms.HSMSMessage, method string) error {
 	c.metrics.incDataMsgDropNotSelectedCount()
+
+	if c.dropLogThrottle.Allow() {
+		c.logger.Warn("data send dropped: not selected",
+			hsms.MsgInfo(msg,
+				"method", method,
+				"state", c.stateMgr.State(),
+				"drop_total", c.metrics.DataMsgDropNotSelectedCount.Load(),
+			)...,
+		)
+	}
 
 	return hsms.ErrNotSelectedState
 }
@@ -766,12 +792,10 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 	}
 
 	if msg.Type() == hsms.DataMsgType && !c.stateMgr.IsSelected() {
-		c.logger.Warn("failed to send message, not selected state",
-			hsms.MsgInfo(msg, "method", "sendMsg", "state", c.stateMgr.State())...,
-		)
+		err := c.dropNotSelected(msg, "sendMsg")
 		msg.Free()
 
-		return nil, c.dropNotSelected()
+		return nil, err
 	}
 
 	if !msg.WaitBit() {
@@ -912,17 +936,13 @@ func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
 // It sets a write deadline based on the T8 timeout and handles potential errors during writing.
 func (c *Connection) sendMsgSync(msg hsms.HSMSMessage) error {
 	if msg.Type() == hsms.DataMsgType && !c.stateMgr.IsSelected() {
-		// sendMsgSync is the write-boundary gate: it serves both the sender-task
-		// dequeue path (processSendRequest, where a queued message can find the
-		// link left Selected between enqueue and dequeue) and direct
-		// Session.SendMessageSync callers. dropNotSelected counts the drop once
-		// for both. msg.Free() is owned by the caller here (processSendRequest's
-		// defer, or Session.SendMessageSync's defer), so this gate does not Free.
-		c.logger.Error("failed to send hsms data message, not selected state",
-			hsms.MsgInfo(msg, "method", "sendMsgSync", "state", c.stateMgr.State().String())...,
-		)
-
-		return c.dropNotSelected()
+		// Write-boundary gate: serves both the sender-task dequeue path
+		// (processSendRequest, where a queued message can find the link left
+		// Selected between enqueue and dequeue) and direct Session.SendMessageSync
+		// callers. dropNotSelected counts and logs (throttled) the drop. msg.Free()
+		// is owned by the caller here (processSendRequest's defer, or
+		// Session.SendMessageSync's defer), so this gate does not Free.
+		return c.dropNotSelected(msg, "sendMsgSync")
 	}
 
 	buf := msg.ToBytes()
@@ -984,9 +1004,10 @@ func (c *Connection) sendMsgAsync(msg hsms.HSMSMessage) error {
 	// Linktest, …) are intentionally NOT gated: the Select handshake depends on
 	// them being sendable while NotSelected.
 	if msg.Type() == hsms.DataMsgType && !c.stateMgr.IsSelected() {
+		err := c.dropNotSelected(msg, "sendMsgAsync")
 		msg.Free()
 
-		return c.dropNotSelected()
+		return err
 	}
 
 	if err := c.queueSendRequest(&sendRequest{msg: msg}); err != nil {
@@ -1208,14 +1229,11 @@ func (c *Connection) processSendRequest(req *sendRequest) bool {
 		// reconnect loop. All other errors (real network/connection failures)
 		// remain fatal below and are counted as data-message errors.
 		//
-		// The drop is counted at the write boundary in sendMsgSync (the single
-		// chokepoint), not here, to avoid double-counting and to cover direct
-		// Session.SendMessageSync callers uniformly.
+		// The drop is both counted and logged (Warn) at the write boundary in
+		// sendMsgSync (the single chokepoint), which sendMsgSync just executed for
+		// this message — so this branch only keeps the sender task alive
+		// (non-fatal). Logging again here would double-log the same drop.
 		if errors.Is(err, hsms.ErrNotSelectedState) {
-			c.logger.Debug("dropping queued message: not selected",
-				hsms.MsgInfo(msg, "method", "senderTask")...,
-			)
-
 			return true
 		}
 

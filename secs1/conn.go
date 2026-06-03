@@ -14,6 +14,7 @@ import (
 	"github.com/arloliu/go-secs/gem"
 	"github.com/arloliu/go-secs/hsms"
 	"github.com/arloliu/go-secs/internal/pool"
+	"github.com/arloliu/go-secs/internal/throttle"
 	"github.com/arloliu/go-secs/logger"
 	"github.com/puzpuzpuz/xsync/v3"
 )
@@ -29,6 +30,11 @@ const (
 
 	// closeCheckInterval is the interval for checking close status in Close().
 	closeCheckInterval = 5 * time.Millisecond
+
+	// dropLogInterval bounds how often the not-Selected data-drop Warn is emitted.
+	// Every drop is still counted in DataMsgDropNotSelectedCount; only the log is
+	// throttled so a send flood across a disconnect cannot spam the log.
+	dropLogInterval = 5 * time.Second
 )
 
 // Sentinel errors for the SECS-I protocol.
@@ -157,6 +163,10 @@ type Connection struct {
 	cfgUpdateMu sync.Mutex
 
 	metrics ConnectionMetrics
+
+	// dropLogThrottle rate-limits the not-Selected data-drop Warn log (the drop
+	// itself is always counted in metrics). Lives for the Connection's lifetime.
+	dropLogThrottle *throttle.Throttle
 }
 
 // Compile-time check: Connection implements hsms.Connection.
@@ -178,6 +188,8 @@ func NewConnection(ctx context.Context, cfg *ConnectionConfig) (*Connection, err
 		replyMsgChans: xsync.NewMapOf[uint32, chan *hsms.DataMessage](),
 		replyErrs:     xsync.NewMapOf[uint32, error](),
 		taskMgr:       hsms.NewTaskManager(ctx, cfg.logger),
+
+		dropLogThrottle: throttle.New(dropLogInterval),
 	}
 
 	c.senderMsgChan = make(chan *sendRequest, cfg.senderQueueSize)
@@ -812,16 +824,29 @@ func (c *Connection) handleCompleteMessage(blocks []*Block) {
 // --- Message sending ---
 
 // dropNotSelected records a not-Selected data-message drop and returns the
-// ErrNotSelectedState sentinel. It is the single place that increments
-// DataMsgDropNotSelectedCount: every send gate that rejects a message because
-// the link is not Selected returns through here, so the count can neither be
+// ErrNotSelectedState sentinel. It is the single place that both increments
+// DataMsgDropNotSelectedCount and logs the drop, so the count can neither be
 // forgotten nor double-applied. msg.Free() stays at the call site, which owns it.
 //
-// Exactly-once holds structurally: each send entry point (sendMsg, sendMsgSync)
-// gates and returns before delegating to sendMsgAsync, so a single send call
-// reaches at most one of these gates — never two.
-func (c *Connection) dropNotSelected() error {
+// The Warn log is rate-limited via dropLogThrottle so a send flood across a
+// disconnect cannot spam the log; the metric still counts every drop. The log
+// is therefore a throttled heads-up, not a per-message record.
+//
+// Exactly-once counting holds structurally: each send entry point (sendMsg,
+// sendMsgSync) gates and returns before delegating to sendMsgAsync, so a single
+// send call reaches at most one of these gates — never two.
+func (c *Connection) dropNotSelected(msg hsms.HSMSMessage, method string) error {
 	c.metrics.incDataMsgDropNotSelectedCount()
+
+	if c.dropLogThrottle.Allow() {
+		c.logger.Warn("data send dropped: not selected",
+			hsms.MsgInfo(msg,
+				"method", method,
+				"state", c.stateMgr.State(),
+				"drop_total", c.metrics.DataMsgDropNotSelectedCount.Load(),
+			)...,
+		)
+	}
 
 	return ErrNotSelectedState
 }
@@ -834,15 +859,24 @@ func (c *Connection) dropNotSelected() error {
 // Per SEMI E4 §9.3.1, the reply timer (T3) is started only after the last
 // block of the message has been successfully sent (ACK'd).
 func (c *Connection) sendMsg(msg hsms.HSMSMessage) (hsms.HSMSMessage, error) {
-	if !c.stateMgr.IsSelected() {
-		msg.Free()
-
-		return nil, c.dropNotSelected()
-	}
-
+	// Validate type before the state gate so an invalid non-data input is not
+	// counted as a not-Selected data drop (metric purity): gating first would tick
+	// DataMsgDropNotSelectedCount for a message that was never a data message.
+	// msg.Free() is a no-op for control messages (the only non-data inputs today),
+	// kept only to preserve the uniform "release on every pre-transfer return".
 	dataMsg, ok := msg.ToDataMessage()
 	if !ok {
+		msg.Free()
+
 		return nil, hsms.ErrNotDataMsg
+	}
+
+	if !c.stateMgr.IsSelected() {
+		// msg is a pooled data message here — Free releases it back to the pool.
+		err := c.dropNotSelected(msg, "sendMsg")
+		msg.Free()
+
+		return nil, err
 	}
 
 	if !msg.WaitBit() {
@@ -954,9 +988,10 @@ func (c *Connection) sendMsgAsync(msg *hsms.DataMessage) error {
 	// secs1 send path missing this guard (parity with the hsmsss fix for the
 	// NotSelected→NotConnected reconnect loop).
 	if !c.stateMgr.IsSelected() {
+		err := c.dropNotSelected(msg, "sendMsgAsync")
 		msg.Free()
 
-		return c.dropNotSelected()
+		return err
 	}
 
 	if err := c.queueSendRequest(&sendRequest{msg: msg}); err != nil {
@@ -1007,20 +1042,25 @@ func (c *Connection) queueSendRequest(req *sendRequest) error {
 // sendMsgSync sends a DataMessage synchronously by queuing and waiting
 // for the protocol loop to pick it up.
 func (c *Connection) sendMsgSync(msg hsms.HSMSMessage) error {
-	if !c.stateMgr.IsSelected() {
-		// Free on this pre-transfer rejection, mirroring sendMsg's gate:
-		// sendMsgSync owns msg until it is handed to sendMsgAsync below, so the
-		// early return must release it to avoid leaking the item back to the pool.
-		// dropNotSelected counts here (not in the delegated sendMsgAsync): this
-		// gate returns before delegating, so the two are mutually exclusive.
-		msg.Free()
-
-		return c.dropNotSelected()
-	}
-
+	// Validate type before the state gate (see sendMsg) so a non-data input is not
+	// counted as a not-Selected data drop. Free is a no-op for control messages but
+	// keeps the pre-transfer release uniform.
 	dataMsg, ok := msg.ToDataMessage()
 	if !ok {
+		msg.Free()
+
 		return hsms.ErrNotDataMsg
+	}
+
+	if !c.stateMgr.IsSelected() {
+		// msg is a pooled data message here — release it to avoid leaking the item
+		// back to the pool. dropNotSelected counts here (not in the delegated
+		// sendMsgAsync): this gate returns before delegating, so the two are
+		// mutually exclusive.
+		err := c.dropNotSelected(msg, "sendMsgSync")
+		msg.Free()
+
+		return err
 	}
 
 	return c.sendMsgAsync(dataMsg)
