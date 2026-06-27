@@ -5,6 +5,53 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Adds `DataMessage.CloneCodec` and fixes a data race in `secs2.ListItem.Clone`
+exposed on the concurrent fan-out (multi-handler / broadcast) path, closing the
+related `ASCIIItem` aliasing hazard.
+
+### Added
+
+- **`hsms`: `DataMessage.CloneCodec`** — returns an independent deep copy of the
+  message typed only as the `encoding.BinaryMarshaler`/`BinaryUnmarshaler` pair.
+  This lets external code obtain a fan-out-safe deep copy through a capability
+  interface it declares itself, without importing this package or depending on
+  the concrete `*DataMessage` type. Thin wrapper over `Clone`.
+- **`hsms`: `DataMessage.SnapshotForRelay`** — opt-in, relay-optimized snapshot
+  that serializes the message once and serves those bytes from `ToBytes` without
+  re-encoding, decoding the item structure lazily only if a structural method
+  (e.g. `Item`, `ToDataMessage`) is called on the result. For the
+  serialize-and-forward (relay / broadcast / shadow) path it is markedly cheaper
+  than `Clone` (measured ~4.6× faster for a single large-leaf payload; ~110–200×
+  faster for multi-item / nested lists; 2–5 allocations vs 12–2024). It is a
+  trade-off, not a free win: if the consumer accesses items, `SnapshotForRelay`
+  is *slower* than `Clone` (serialize-at-clone plus lazy-decode-at-access), so
+  `Clone` remains the right choice for structural consumers (including the
+  in-process handler fan-out path). `Clone`/`CloneCodec` are unchanged
+  (structural deep copy). `Item()` on the returned message yields a
+  lazily-decoded item — use the `secs2.Item` interface, not concrete-type
+  assertions, to remain compatible with future implementations.
+
+### Fixed
+
+- **`hsms`: decode JIS8 and localized-string items.** `DecodeSECS2Item` /
+  `DecodeHSMSMessage` previously returned "invalid format" for JIS8 (0o21) and
+  localized-string (0o22) payloads; both are now decoded correctly.
+- **`secs2`: `ListItem.Clone` now performs a recursive deep copy.** Previously it
+  shared child items with the original, which caused a data race when a cloned
+  message and its source were serialized concurrently (the fan-out / multi-handler
+  path). Clones are now fully independent.
+- **`secs2`: `ASCIIItem.SetValues` no longer retains a caller-supplied `[]byte`
+  (it now copies the input).** Combined with the deep `ListItem.Clone`, ASCII
+  leaves can safely share their now-owned/immutable backing, so common payloads
+  (including large ASCII recipes built from strings) still clone without copying
+  the data.
+- **`secs2`: `SetValues` now invalidates the cached serialization.** Calling
+  `SetValues` on an item that had already been serialized via `ToBytes` left the
+  stale `rawBytes` cache in place, so the next `ToBytes` returned the previous
+  value's bytes. Affects `ASCIIItem`, `BinaryItem`, `BooleanItem`, and `ListItem`.
+
 ## [1.17.1] - 2026-06-03
 
 Patch follow-up to v1.17.0 that makes the `DataMsgDropNotSelectedCount`
