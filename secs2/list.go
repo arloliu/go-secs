@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/arloliu/go-secs/internal/util"
 )
 
 // ListItem is a immutable data type that represents a list data in a SECS-II message.
@@ -162,6 +160,7 @@ func (item *ListItem) Values() any {
 // the error is returned and also stored within the item for later retrieval.
 func (item *ListItem) SetValues(values ...any) error {
 	item.resetError()
+	item.rawBytes = nil // invalidate cached serialization
 
 	dataBytes, _ := getDataByteLength(ListType, len(values))
 	if dataBytes > MaxByteSize {
@@ -226,14 +225,24 @@ func (item *ListItem) ToSML() string {
 	return item.formatSML(0)
 }
 
-// Clone creates a shadow copy of the ListItem.
+// Clone creates a deep copy of the ListItem.
 //
-// This method implements the Item.Clone() interface. It returns a new
-// ListItem with a shadow copy of the items.
-//
-// Note: It's unsafe to use the new cloned data for immutable operations.
+// This method implements the Item.Clone() interface. It allocates a new,
+// pre-sized values slice and recursively clones every child, so the returned
+// ListItem shares no mutable state with the original. This makes a cloned list
+// safe to serialize concurrently with its source (e.g. fan-out to multiple
+// DataMessageHandler goroutines): each clone owns its own child Items and hence
+// its own lazily-populated rawBytes cache, so concurrent ToBytes calls touch
+// disjoint memory.
 func (item *ListItem) Clone() Item {
-	return &ListItem{values: util.CloneSlice(item.values, 0)}
+	cloned := make([]Item, len(item.values))
+	for i, child := range item.values {
+		if child != nil {
+			cloned[i] = child.Clone()
+		}
+	}
+
+	return &ListItem{values: cloned}
 }
 
 func (item *ListItem) Error() error {

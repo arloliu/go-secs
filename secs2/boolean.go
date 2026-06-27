@@ -115,6 +115,7 @@ func (item *BooleanItem) Values() any {
 // the error is returned and also stored within the item for later retrieval.
 func (item *BooleanItem) SetValues(values ...any) error {
 	item.resetError()
+	item.rawBytes = nil // invalidate cached serialization
 
 	item.values = item.values[:0]
 

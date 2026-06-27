@@ -51,7 +51,10 @@ func WithASCIIStrictMode(enable bool) {
 // can only store a single string value.
 type ASCIIItem struct {
 	baseItem
-	value    []byte // The ASCII byte literal
+	value []byte // ASCII byte literal. Always item-owned or an immutable
+	// string alias (SetValues copies caller []byte, aliases strings); never
+	// aliases a caller-mutable buffer, never mutated in place. This ownership
+	// invariant is what makes ASCIIItem.Clone's value-share safe.
 	rawBytes []byte // Raw bytes for the item, if needed
 }
 
@@ -135,14 +138,18 @@ func (item *ASCIIItem) Values() any {
 // and also stored within the item for later retrieval.
 func (item *ASCIIItem) SetValues(values ...any) error {
 	item.resetError()
+	item.rawBytes = nil // invalidate cached serialization
 
 	var itemValue []byte
-	if len(values) == 1 { // avoid memory allocation if there is only one value
+	if len(values) == 1 {
 		switch val := values[0].(type) {
 		case string:
+			// StringToBytes aliases the immutable string backing; safe to share.
 			itemValue = StringToBytes(val)
 		case []byte:
-			itemValue = val
+			// Copy caller-owned bytes so value never aliases a buffer the caller
+			// may later mutate; this is what makes Clone's value-share safe.
+			itemValue = append([]byte(nil), val...)
 		default:
 			err := NewItemErrorWithMsg("the value is not a string or []byte")
 			item.setError(err)
@@ -313,12 +320,13 @@ func (item *ASCIIItem) toSMLFast() string {
 
 // Clone creates a deep copy of the ASCIIItem.
 //
-// This method implements the Item.Clone() interface. It returns a new ASCIIItem
-// with the same ASCII string value as the original item. Since strings are immutable in Go,
-// a simple copy of the `value` field is sufficient to create a deep copy.
-//
-// The `SetValues` method is assumed to create a new string when modifying the item's value,
-// ensuring that the cloned item remains independent of any future changes to the original.
+// This method implements the Item.Clone() interface. The value byte slice is
+// shared with the original, which is both safe and intentionally
+// zero-allocation: value is always item-owned or an immutable string alias
+// (SetValues copies caller-supplied []byte and aliases strings), is never
+// mutated in place, and is only ever replaced wholesale. Mutating either item
+// via SetValues swaps that item's own slice header and leaves the other
+// untouched, so original and clone are independent.
 func (item *ASCIIItem) Clone() Item {
 	return &ASCIIItem{value: item.value}
 }
