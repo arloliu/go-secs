@@ -252,6 +252,37 @@ func TestDataMessage_CloneMutationIndependence(t *testing.T) {
 	require.Equal(uint32(0xDEADBEEF), cloned.ID())
 }
 
+func TestDataMessage_CloneCodec(t *testing.T) {
+	require := require.New(t)
+
+	msg, err := NewDataMessage(1, 1, true, 42, []byte{0x12, 0x34, 0x56, 0x78}, secs2.A("hello"))
+	require.NoError(err)
+
+	// The returned value satisfies the standard binary codec contract without the
+	// caller knowing the concrete *DataMessage type.
+	codec := msg.CloneCodec()
+
+	// It is an independent instance, not the original.
+	cloned, ok := codec.(*DataMessage)
+	require.True(ok)
+	require.NotSame(msg, cloned)
+
+	// Serializing through the codec interface yields the same wire bytes as the
+	// original, and round-trips back into a fresh DataMessage.
+	wire, err := codec.MarshalBinary()
+	require.NoError(err)
+	require.Equal(msg.ToBytes(), wire)
+
+	var dst DataMessage
+	require.NoError(dst.UnmarshalBinary(wire))
+	require.Equal(msg.SystemBytes(), dst.SystemBytes())
+
+	// Mutating the clone leaves the original untouched (independent deep copy).
+	cloned.SetID(0xDEADBEEF)
+	require.Equal(uint32(0xDEADBEEF), cloned.ID())
+	require.Equal(uint32(0x12345678), msg.ID())
+}
+
 func TestDataMessage_MarshalUnmarshalRoundTrip(t *testing.T) {
 	require := require.New(t)
 
