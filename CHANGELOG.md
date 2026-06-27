@@ -5,11 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.18.0] - 2026-06-27
 
-Adds `DataMessage.CloneCodec` and fixes a data race in `secs2.ListItem.Clone`
-exposed on the concurrent fan-out (multi-handler / broadcast) path, closing the
-related `ASCIIItem` aliasing hazard.
+Adds `DataMessage.CloneCodec` and `DataMessage.SnapshotForRelay` (an opt-in,
+relay-optimized snapshot clone), and fixes a data race in `secs2.ListItem.Clone`
+exposed on the concurrent fan-out (multi-handler / broadcast) path — closing the
+related `ASCIIItem` aliasing hazard and a stale serialization-cache bug. Also
+decodes JIS8 and localized-string items, which previously failed to decode.
 
 ### Added
 
