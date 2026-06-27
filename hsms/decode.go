@@ -334,6 +334,25 @@ func (d *hsmsDecoder) decodeMessageText() (secs2.Item, error) { //nolint:cyclop,
 	case secs2.Float64FormatCode:
 		return d.decodeFloatItem(8, length)
 
+	case secs2.JIS8FormatCode:
+		value, err := d.readString(length)
+		if err != nil {
+			return nil, err
+		}
+		return secs2.NewJIS8Item(value), nil
+
+	case secs2.LocalizedStrFormatCode:
+		if length < 2 {
+			return nil, fmt.Errorf("localized string body too short: %d", length)
+		}
+		body, err := d.read(length)
+		if err != nil {
+			return nil, err
+		}
+		lsh := uint16(body[0])<<8 | uint16(body[1])
+
+		return secs2.NewLocalizedStrItem(lsh, secs2.BytesToString(body[2:])), nil
+
 	default:
 		return nil, errors.New("invalid format")
 	}

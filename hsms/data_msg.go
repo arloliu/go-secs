@@ -1,6 +1,7 @@
 package hsms
 
 import (
+	"encoding"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -463,9 +464,22 @@ func (msg *DataMessage) Free() {
 	}
 }
 
-// Clone returns a duplicated Message
+// Clone returns an independent deep copy of the message.
+//
+// The clone shares no mutable state with the original: the system bytes are
+// value-copied (no shared backing array) and the data item is deep-cloned via
+// secs2.Item.Clone. A nil data item becomes an empty item in the clone. This
+// makes the result safe to hand to a concurrent consumer (for example a fan-out
+// or broadcast path) and to mutate independently of the source.
+//
+// The clone is a fresh instance, not drawn from the message pool, with its freed
+// state reset; calling Free on it returns it (and its item) to the pool. The
+// source message's error (see SetError) is not propagated to the clone.
 //
 // It implements the Clone method of the HSMSMessage interface.
+//
+// Returns:
+//   - HSMSMessage: a new *DataMessage independent of the receiver.
 func (msg *DataMessage) Clone() HSMSMessage {
 	cloned := &DataMessage{
 		stream:      msg.stream,
@@ -481,6 +495,63 @@ func (msg *DataMessage) Clone() HSMSMessage {
 	}
 
 	return cloned
+}
+
+// CloneCodec returns an independent deep copy of the message typed only as a
+// binary codec (encoding.BinaryMarshaler + encoding.BinaryUnmarshaler).
+//
+// It is a thin wrapper over [DataMessage.Clone]; the deep-copy and concurrency
+// guarantees documented there apply unchanged. Its sole purpose is the return
+// type: a caller that knows only the codec contract — not the concrete
+// *DataMessage type — can obtain an independent copy without importing this
+// package, which lets external code declare a matching capability interface and
+// satisfy it covariantly.
+//
+// Because the copy is deep (the data item, and hence its lazily populated
+// serialized-bytes cache, is cloned), serializing the result is safe to do
+// concurrently with serializing the original; neither observes the other's
+// cache writes.
+//
+// Returns:
+//   - a new *DataMessage, independent of the receiver, exposed as the codec pair.
+func (msg *DataMessage) CloneCodec() interface {
+	encoding.BinaryMarshaler
+	encoding.BinaryUnmarshaler
+} {
+	return msg.Clone()
+}
+
+// SnapshotForRelay returns an independent, relay-optimized snapshot of the
+// message. It serializes the message once via ToBytes and serves those bytes
+// from the returned message's ToBytes without re-encoding; the item structure is
+// decoded lazily only if a structural method (Item, ToDataMessage, …) is called
+// on the result.
+//
+// Use it only for the relay / broadcast / shadow path — clone then
+// serialize-and-forward, without inspecting the item structure. For that pattern
+// it is dramatically cheaper than Clone (no structural deep copy, no re-encode).
+// Use Clone for a structural deep copy: if the consumer accesses items,
+// SnapshotForRelay is slower than Clone, because it pays serialize-at-clone plus
+// lazy-decode-at-access where Clone simply deep-copies the live item tree.
+//
+// Item() on the returned message yields a lazily-decoded item — use the
+// secs2.Item interface, not concrete-type assertions, to remain compatible with
+// future implementations.
+//
+// Returns an HSMSMessage backed by an internal snapshot type. The dynamic type
+// is not *DataMessage: a consumer that needs a concrete *DataMessage (for
+// example the in-process handler fan-out path, whose channels carry
+// *DataMessage) must call ToDataMessage, which is more expensive than Clone.
+//
+// The returned message is intended for a single consumer; create one snapshot
+// per concurrent recipient.
+//
+// Lifetime: unlike DataMessage.ToBytes (which allocates a fresh buffer each
+// call), the returned message's ToBytes may return its internal frame buffer
+// directly until structure is accessed. Treat the ToBytes result as read-only
+// and do not retain it for mutation.
+func (msg *DataMessage) SnapshotForRelay() HSMSMessage {
+	return &snapshotMessage{frame: msg.ToBytes()} // ToBytes returns a fresh owned buffer
 }
 
 func (msg *DataMessage) generateHeader(header []byte) {
