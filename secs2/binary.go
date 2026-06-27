@@ -137,6 +137,7 @@ func (item *BinaryItem) Values() any {
 // the error is returned and also stored within the item for later retrieval.
 func (item *BinaryItem) SetValues(values ...any) error {
 	item.resetError()
+	item.rawBytes = nil // invalidate cached serialization
 
 	item.values = item.values[:0]
 
