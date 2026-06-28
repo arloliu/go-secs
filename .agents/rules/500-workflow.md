@@ -10,9 +10,7 @@
 
 ## Commits
 
-- Branches: `feat/`, `fix/`, `docs/`, `chore/`, `test/`, with optional package scope (`feat/hsmsss/linktest-threshold`).
-- Conventional format, present tense, first line < 50 chars, package scope in parens: `fix(hsms): ConnStateMgr race`.
-- No `Co-Authored-By` or other attribution trailers.
+See `550-git-conventions.md` for branch, commit-message, and pull-request conventions.
 
 ## Review checklist
 
