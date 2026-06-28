@@ -8,7 +8,7 @@ import (
 func BenchmarkToSML_AllTypes(b *testing.B) {
 	items := []Item{}
 
-	for i := 0; i < 39; i++ {
+	for i := range 39 {
 		switch i % 13 {
 		case 0:
 			items = append(items, B(127))
@@ -39,8 +39,8 @@ func BenchmarkToSML_AllTypes(b *testing.B) {
 		default:
 		}
 	}
-	listItems := []Item{}
-	for i := 0; i < 100; i++ {
+	listItems := make([]Item, 0, 100)
+	for range 100 {
 		listItems = append(listItems, L(items...))
 	}
 

@@ -105,7 +105,7 @@ func (item *JIS8Item) Values() any {
 func (item *JIS8Item) SetValues(values ...any) error {
 	item.resetError()
 
-	var itemValue string
+	var itemValue strings.Builder
 	for _, value := range values {
 		strVal, ok := value.(string)
 		if !ok {
@@ -114,23 +114,23 @@ func (item *JIS8Item) SetValues(values ...any) error {
 			return err
 		}
 
-		itemValue += strVal
+		itemValue.WriteString(strVal)
 	}
 
-	dataBytes, _ := getDataByteLength(JIS8Type, len(itemValue))
+	dataBytes, _ := getDataByteLength(JIS8Type, len(itemValue.String()))
 	if dataBytes > MaxByteSize {
 		item.setErrorMsg("string length limit exceeded")
 		return item.Error()
 	}
 
-	for _, ch := range itemValue {
+	for _, ch := range itemValue.String() {
 		if !utf8.ValidRune(ch) {
 			item.setErrorMsg("encountered invalid UTF-8 character")
 			return item.Error()
 		}
 	}
 
-	item.value = itemValue
+	item.value = itemValue.String()
 
 	return nil
 }

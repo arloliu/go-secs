@@ -357,10 +357,7 @@ func (bp *ByteChaosProxy) applyFault(dst net.Conn, lenBuf, payload []byte, spec 
 }
 
 func (bp *ByteChaosProxy) applyPartialLength(dst net.Conn, lenBuf []byte, spec *byteFaultSpec) bool {
-	n := spec.PrefixBytes
-	if n < 1 {
-		n = 1
-	}
+	n := max(spec.PrefixBytes, 1)
 	if n > 4 {
 		n = 4
 	}
@@ -374,10 +371,7 @@ func (bp *ByteChaosProxy) applyPartialPayload(dst net.Conn, lenBuf, payload []by
 	if _, err := dst.Write(lenBuf); err != nil {
 		return false
 	}
-	n := spec.PrefixBytes
-	if n > len(payload) {
-		n = len(payload)
-	}
+	n := min(spec.PrefixBytes, len(payload))
 	if n < 0 {
 		n = 0
 	}

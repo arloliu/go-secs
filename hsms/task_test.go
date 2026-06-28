@@ -32,8 +32,7 @@ func createTestDataMessage(t *testing.T, stream byte, function byte, sessionID u
 
 func TestTaskManager_Start(t *testing.T) {
 	t.Run("successful start", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -83,8 +82,7 @@ func TestTaskManager_Start(t *testing.T) {
 	})
 
 	t.Run("start after stop fails", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -98,8 +96,7 @@ func TestTaskManager_Start(t *testing.T) {
 	})
 
 	t.Run("task function returns false stops task", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -123,8 +120,7 @@ func TestTaskManager_Start(t *testing.T) {
 
 func TestTaskManager_StartReceiver(t *testing.T) {
 	t.Run("successful receiver", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -152,8 +148,7 @@ func TestTaskManager_StartReceiver(t *testing.T) {
 	})
 
 	t.Run("nil cancel func is ok", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -194,8 +189,7 @@ func TestTaskManager_StartReceiver(t *testing.T) {
 
 func TestTaskManager_StartSender(t *testing.T) {
 	t.Run("successful sender", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -231,8 +225,7 @@ func TestTaskManager_StartSender(t *testing.T) {
 	})
 
 	t.Run("nil input channel", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -245,8 +238,7 @@ func TestTaskManager_StartSender(t *testing.T) {
 	})
 
 	t.Run("task func returns false", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -293,8 +285,7 @@ func TestTaskManager_StartSender(t *testing.T) {
 
 func TestTaskManager_StartRecvDataMsg(t *testing.T) {
 	t.Run("successful data message receiver", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -335,8 +326,7 @@ func TestTaskManager_StartRecvDataMsg(t *testing.T) {
 	})
 
 	t.Run("nil input channel", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -349,8 +339,7 @@ func TestTaskManager_StartRecvDataMsg(t *testing.T) {
 	})
 
 	t.Run("nil session", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -364,8 +353,7 @@ func TestTaskManager_StartRecvDataMsg(t *testing.T) {
 	})
 
 	t.Run("panic in handler is recovered", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -399,8 +387,7 @@ func TestTaskManager_StartRecvDataMsg(t *testing.T) {
 
 func TestTaskManager_StartInterval(t *testing.T) {
 	t.Run("successful interval task", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -425,8 +412,7 @@ func TestTaskManager_StartInterval(t *testing.T) {
 	})
 
 	t.Run("run now option", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -451,8 +437,7 @@ func TestTaskManager_StartInterval(t *testing.T) {
 	})
 
 	t.Run("invalid interval", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -466,8 +451,7 @@ func TestTaskManager_StartInterval(t *testing.T) {
 	})
 
 	t.Run("duplicate interval task", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -487,8 +471,7 @@ func TestTaskManager_StartInterval(t *testing.T) {
 	})
 
 	t.Run("runNow returns false", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -510,8 +493,7 @@ func TestTaskManager_StartInterval(t *testing.T) {
 	})
 
 	t.Run("panic in interval task", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -543,8 +525,7 @@ func TestTaskManager_StartInterval(t *testing.T) {
 
 func TestTaskManager_StopInterval(t *testing.T) {
 	t.Run("stop existing interval", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -566,8 +547,7 @@ func TestTaskManager_StopInterval(t *testing.T) {
 	})
 
 	t.Run("stop non-existent interval", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -581,8 +561,7 @@ func TestTaskManager_StopInterval(t *testing.T) {
 }
 
 func TestTaskManager_Wait(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	mockLogger := logger.NewMockLogger()
 	mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -605,8 +584,7 @@ func TestTaskManager_Wait(t *testing.T) {
 }
 
 func TestTaskManager_Stop(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	mockLogger := logger.NewMockLogger()
 	mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -633,8 +611,7 @@ func TestTaskManager_Stop(t *testing.T) {
 }
 
 func TestTaskManager_ConcurrentOperations(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	mockLogger := logger.NewMockLogger()
 	mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -645,7 +622,7 @@ func TestTaskManager_ConcurrentOperations(t *testing.T) {
 	errors := make([]error, 10)
 
 	// Start multiple tasks concurrently
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
@@ -671,8 +648,7 @@ func TestTaskManager_ConcurrentOperations(t *testing.T) {
 
 func TestTaskManager_PanicRecovery(t *testing.T) {
 	t.Run("panic during startup", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -703,8 +679,7 @@ func TestTaskManager_PanicRecovery(t *testing.T) {
 	})
 
 	t.Run("panic in task function", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -723,8 +698,7 @@ func TestTaskManager_PanicRecovery(t *testing.T) {
 	})
 
 	t.Run("panic after successful startup", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -754,8 +728,7 @@ func TestTaskManager_PanicRecovery(t *testing.T) {
 	})
 
 	t.Run("panic in runNow for interval", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -797,8 +770,7 @@ func TestTaskManager_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("wait after stop", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -813,8 +785,7 @@ func TestTaskManager_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("multiple stops", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -830,8 +801,7 @@ func TestTaskManager_EdgeCases(t *testing.T) {
 
 func TestTaskManager_ContextDataRace(t *testing.T) { //nolint:cyclop
 	t.Run("concurrent stop and start", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -895,8 +865,7 @@ func TestTaskManager_ContextDataRace(t *testing.T) { //nolint:cyclop
 	})
 
 	t.Run("wait recreates context during active tasks", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -987,8 +956,7 @@ func TestTaskManager_ContextDataRace(t *testing.T) { //nolint:cyclop
 	})
 
 	t.Run("channel operations during context switch", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -1020,7 +988,7 @@ func TestTaskManager_ContextDataRace(t *testing.T) { //nolint:cyclop
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for i := 0; i < 20; i++ {
+			for range 20 {
 				select {
 				case msgChan <- createTestDataMessage(t, 1, 1, 1):
 				case dataChan <- createTestDataMessage(t, 2, 2, 1):
@@ -1035,7 +1003,7 @@ func TestTaskManager_ContextDataRace(t *testing.T) { //nolint:cyclop
 			defer wg.Done()
 			time.Sleep(10 * time.Millisecond)
 
-			for i := 0; i < 3; i++ {
+			for range 3 {
 				taskMgr.Stop()
 				taskMgr.Wait()
 
@@ -1065,8 +1033,7 @@ func TestTaskManager_ContextDataRace(t *testing.T) { //nolint:cyclop
 	})
 
 	t.Run("interval task during context recreation", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockLogger := logger.NewMockLogger()
 		mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -1089,7 +1056,7 @@ func TestTaskManager_ContextDataRace(t *testing.T) { //nolint:cyclop
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for i := 0; i < 5; i++ {
+			for range 5 {
 				time.Sleep(10 * time.Millisecond)
 				taskMgr.Stop()
 				taskMgr.Wait()
@@ -1100,7 +1067,7 @@ func TestTaskManager_ContextDataRace(t *testing.T) { //nolint:cyclop
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for i := 0; i < 50; i++ {
+			for range 50 {
 				ctx := taskMgr.getContext()
 				select {
 				case <-ctx.Done():
@@ -1114,7 +1081,7 @@ func TestTaskManager_ContextDataRace(t *testing.T) { //nolint:cyclop
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for i := 0; i < 10; i++ {
+			for i := range 10 {
 				time.Sleep(5 * time.Millisecond)
 				_, _ = taskMgr.StartInterval(fmt.Sprintf("ticker%d", i), func() bool {
 					return false
@@ -1131,8 +1098,7 @@ func TestTaskManager_ContextDataRace(t *testing.T) { //nolint:cyclop
 // Run with: go test -race -run TestTaskManager_ContextDataRace
 func TestTaskManager_ContextDataRaceWithRaceDetector(t *testing.T) {
 	// This test specifically targets the Wait() context recreation
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	mockLogger := logger.NewMockLogger()
 	mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -1180,8 +1146,7 @@ func TestTaskManager_ContextDataRaceWithRaceDetector(t *testing.T) {
 
 // Benchmark tests
 func BenchmarkTaskManager_Start(b *testing.B) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := b.Context()
 
 	mockLogger := logger.NewMockLogger()
 	mockLogger.On("Debug", mock.Anything, mock.Anything).Return()
@@ -1199,8 +1164,7 @@ func BenchmarkTaskManager_Start(b *testing.B) {
 }
 
 func BenchmarkTaskManager_ConcurrentStart(b *testing.B) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := b.Context()
 
 	mockLogger := logger.NewMockLogger()
 	mockLogger.On("Debug", mock.Anything, mock.Anything).Return()

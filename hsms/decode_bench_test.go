@@ -40,7 +40,7 @@ func BenchmarkDecodeMessage_DataMessage_1000_NoPool(b *testing.B) {
 func BenchmarkDecodeMessage_DataMessage_AllTypes(b *testing.B) {
 	items := []secs2.Item{}
 
-	for i := 0; i < 39; i++ {
+	for i := range 39 {
 		switch i % 13 {
 		case 0:
 			items = append(items, secs2.B(127))
@@ -71,8 +71,8 @@ func BenchmarkDecodeMessage_DataMessage_AllTypes(b *testing.B) {
 		default:
 		}
 	}
-	listItems := []secs2.Item{}
-	for i := 0; i < 100; i++ {
+	listItems := make([]secs2.Item, 0, 100)
+	for range 100 {
 		listItems = append(listItems, secs2.L(items...))
 	}
 
@@ -157,12 +157,12 @@ func BenchmarkDecodeMessage_WaferMap(b *testing.B) {
 
 func benchmarkDecodeDataMessage(b *testing.B, testSize int) {
 	intItems := make([]secs2.Item, 0, testSize)
-	for i := 0; i < testSize; i++ {
+	for i := range testSize {
 		intItems = append(intItems, secs2.I8(int64(i)))
 	}
 
 	floatItems := make([]secs2.Item, 0, testSize)
-	for i := 0; i < testSize; i++ {
+	for i := range testSize {
 		floatItems = append(floatItems, secs2.F8(i))
 	}
 

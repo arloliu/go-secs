@@ -89,7 +89,7 @@ func TestDataMessage_StabilityBidirectional(t *testing.T) {
 	var errCount atomic.Int32
 
 	send := func(ep *endpoint, base byte) {
-		for i := 0; i < rounds; i++ {
+		for i := range rounds {
 			go func(i int) {
 				defer wg.Done()
 				sys := [4]byte{base, byte(i >> 8), byte(i), 0}

@@ -268,7 +268,7 @@ func TestSECS1_LargeMultiBlockStability(t *testing.T) {
 	var errCount atomic.Int32
 
 	send := func(ep *endpoint, tag string) {
-		for i := 0; i < rounds; i++ {
+		for i := range rounds {
 			go func(i int) {
 				defer wg.Done()
 				reply, err := ep.session.SendDataMessage(6, 1, true, secs2.NewBinaryItem(payload))

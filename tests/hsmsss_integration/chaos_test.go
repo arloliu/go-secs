@@ -1,7 +1,6 @@
 package hsmsssintegration
 
 import (
-	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -181,8 +180,7 @@ func (cp *ChaosProxy) pump(src, dst net.Conn, isClientToTarget bool) {
 }
 
 func TestChaos_DroppedSelectRsp(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	equipPort := getFreePort(t)
 	equip := newEndpoint(t, ctx, equipPort, true, false, nil)
@@ -217,8 +215,7 @@ func TestChaos_DroppedSelectRsp(t *testing.T) {
 }
 
 func TestChaos_TruncatedDataMessage_T8Timeout(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	equipPort := getFreePort(t)
 	equip := newEndpoint(t, ctx, equipPort, true, false, nil)
@@ -259,8 +256,7 @@ func TestChaos_TruncatedDataMessage_T8Timeout(t *testing.T) {
 }
 
 func TestChaos_DelayedT3Reply(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	equipPort := getFreePort(t)
 	equip := newEndpoint(t, ctx, equipPort, true, false, nil, echoHandler)
@@ -310,8 +306,7 @@ func TestChaos_DelayedT3Reply(t *testing.T) {
 }
 
 func TestChaos_DroppedLinktestRsp(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	equipPort := getFreePort(t)
 	equip := newEndpoint(t, ctx, equipPort, true, false, nil)
@@ -345,8 +340,7 @@ func TestChaos_DroppedLinktestRsp(t *testing.T) {
 }
 
 func TestChaos_AbruptClose(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	equipPort := getFreePort(t)
 	equip := newEndpoint(t, ctx, equipPort, true, false, nil)

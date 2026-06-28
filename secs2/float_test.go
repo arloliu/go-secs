@@ -200,7 +200,7 @@ func genRandomFloat(length int, byteSize int) []float64 {
 		maxVal = math.MaxFloat64 / 2
 	}
 
-	for i := 0; i < length; i++ {
+	for i := range length {
 		// Generate a random float64 between -max and max
 		result[i] = rand.Float64()*(maxVal-minVal) + minVal
 	}
@@ -218,7 +218,7 @@ func genFixedFloat(length int, byteSize int) []float64 {
 		maxVal = math.MaxFloat64
 	}
 
-	for i := 0; i < length; i++ {
+	for i := range length {
 		result[i] = float64(i) / float64(length) * maxVal
 	}
 

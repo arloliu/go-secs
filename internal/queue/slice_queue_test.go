@@ -74,7 +74,7 @@ func TestSliceQueue(t *testing.T) {
 		q := NewSliceQueue(1)
 
 		var wg sync.WaitGroup
-		for i := 0; i < 1000; i++ {
+		for i := range 1000 {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
@@ -88,7 +88,7 @@ func TestSliceQueue(t *testing.T) {
 		assert.Equal(1000, q.Length())
 
 		wg.Add(1000)
-		for i := 0; i < 1000; i++ {
+		for range 1000 {
 			go func() {
 				defer wg.Done()
 				mu.Lock()
@@ -111,11 +111,11 @@ func benchSliceQueue(b *testing.B, iterCount int) {
 	q := NewSliceQueue(iterCount)
 
 	// warm up queue
-	for i := 0; i < iterCount; i++ {
+	for i := range iterCount {
 		q.Enqueue(i)
 	}
 
-	for i := 0; i < iterCount; i++ {
+	for range iterCount {
 		_ = q.Dequeue()
 	}
 
@@ -149,7 +149,7 @@ func benchSliceQueue(b *testing.B, iterCount int) {
 			}
 		}(ctx, q)
 
-		for i := 0; i < iterCount; i++ {
+		for i := range iterCount {
 			mu.Lock()
 			q.Enqueue(i + 1)
 			mu.Unlock()

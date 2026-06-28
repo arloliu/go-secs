@@ -42,10 +42,7 @@ func SplitMessage(msg *hsms.DataMessage, deviceID uint16, isEquip bool) []*Block
 	blockNum := uint16(1)
 
 	for offset := 0; offset < len(body); offset += MaxBlockBodySize {
-		end := offset + MaxBlockBodySize
-		if end > len(body) {
-			end = len(body)
-		}
+		end := min(offset+MaxBlockBodySize, len(body))
 
 		isLast := end == len(body)
 		chunk := make([]byte, end-offset)

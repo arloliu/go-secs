@@ -40,7 +40,7 @@ func Benchmark_ActiveHost_PassiveEQP_LargeItem(b *testing.B) {
 
 	mkItem := func() secs2.Item {
 		data := make([]secs2.Item, 100000)
-		for i := 0; i < 100000; i++ {
+		for i := range 100000 {
 			data[i] = secs2.I8(int64(i))
 		}
 

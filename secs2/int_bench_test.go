@@ -6,7 +6,7 @@ import (
 
 func BenchmarkIntItem_Create_FastPath(b *testing.B) {
 	values := make([]int64, 1000)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		values[i] = int64(i)
 	}
 
@@ -31,7 +31,7 @@ func BenchmarkIntItem_Create_Mixed(b *testing.B) {
 
 func BenchmarkIntItem_Create_String(b *testing.B) {
 	values := make([]string, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		values[i] = "12345"
 	}
 

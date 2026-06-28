@@ -1,7 +1,6 @@
 package hsmsssintegration
 
 import (
-	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -27,8 +26,7 @@ import (
 // The test must complete without panics, goroutine leaks, or data races.
 // ---------------------------------------------------------------------------
 func TestChaos_BurstDisconnectReconnect(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	equipPort := getFreePort(t)
 	equip := newEndpoint(t, ctx, equipPort, true, false, nil, echoHandler)
@@ -88,8 +86,7 @@ func TestChaos_BurstDisconnectReconnect(t *testing.T) {
 // Must not panic with "send on closed channel" or deadlock.
 // ---------------------------------------------------------------------------
 func TestChaos_ConcurrentSendDuringClose(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	equipPort := getFreePort(t)
 	equip := newEndpoint(t, ctx, equipPort, true, false, nil, echoHandler)
@@ -143,8 +140,7 @@ func TestChaos_ConcurrentSendDuringClose(t *testing.T) {
 // The host must gracefully time out and transition to NotConnected.
 // ---------------------------------------------------------------------------
 func TestChaos_BlackHoleProxy(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	equipPort := getFreePort(t)
 	equip := newEndpoint(t, ctx, equipPort, true, false, nil)
@@ -205,8 +201,7 @@ func TestChaos_BlackHoleProxy(t *testing.T) {
 //
 // ---------------------------------------------------------------------------
 func TestChaos_MidWriteTCPReset(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	equipPort := getFreePort(t)
 	equip := newEndpoint(t, ctx, equipPort, true, false, nil, echoHandler)
@@ -264,8 +259,7 @@ func TestChaos_MidWriteTCPReset(t *testing.T) {
 // Must not race or panic.
 // ---------------------------------------------------------------------------
 func TestChaos_RapidLinktestToggle(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	equipPort := getFreePort(t)
 	equip := newEndpoint(t, ctx, equipPort, true, false, nil, echoHandler)
@@ -330,8 +324,7 @@ func TestChaos_RapidLinktestToggle(t *testing.T) {
 // Must not panic with "send on closed channel".
 // ---------------------------------------------------------------------------
 func TestChaos_ReplyDuringClose(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	equipPort := getFreePort(t)
 	equip := newEndpoint(t, ctx, equipPort, true, false, nil, echoHandler)

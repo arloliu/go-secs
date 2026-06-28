@@ -119,7 +119,7 @@ func TestJIS8Item_Create(t *testing.T) {
 	item := NewJIS8Item(string(data))
 	require.Error(item.Error())
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		item := NewJIS8Item(generateRandomUTF8String(i + 1))
 		require.NoError(item.Error())
 	}

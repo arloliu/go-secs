@@ -375,7 +375,7 @@ func BenchmarkIntItem_ToSML(b *testing.B) {
 func genRandomInt(length int, intSize int) []int64 {
 	result := make([]int64, length)
 
-	for i := 0; i < length; i++ {
+	for i := range length {
 		// Calculate the maximum and minimum values based on intSize
 		maxVal := big.NewInt(1)
 		maxVal.Lsh(maxVal, uint(intSize*8-1))
@@ -401,7 +401,7 @@ func genRandomInt(length int, intSize int) []int64 {
 func genFixedInt(length int) []int64 {
 	result := make([]int64, length)
 
-	for i := 0; i < length; i++ {
+	for i := range length {
 		result[i] = int64(i % math.MaxInt64)
 	}
 

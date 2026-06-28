@@ -77,7 +77,7 @@ func TestLockFreeQueue(t *testing.T) {
 		q := NewLockFreeQueue()
 
 		var wg sync.WaitGroup
-		for i := 0; i < 1000; i++ {
+		for i := range 1000 {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
@@ -89,7 +89,7 @@ func TestLockFreeQueue(t *testing.T) {
 		assert.Equal(1000, q.Length())
 
 		wg.Add(1000)
-		for i := 0; i < 1000; i++ {
+		for range 1000 {
 			go func() {
 				defer wg.Done()
 				q.Dequeue()
@@ -118,11 +118,11 @@ func benchLockFreeQueue(b *testing.B, iterCount int) {
 	q := NewLockFreeQueue()
 
 	// warm up queue
-	for i := 0; i < iterCount; i++ {
+	for i := range iterCount {
 		q.Enqueue(i)
 	}
 
-	for i := 0; i < iterCount; i++ {
+	for range iterCount {
 		_ = q.Dequeue()
 	}
 
@@ -153,7 +153,7 @@ func benchLockFreeQueue(b *testing.B, iterCount int) {
 			}
 		}(ctx, q)
 
-		for i := 0; i < iterCount; i++ {
+		for i := range iterCount {
 			q.Enqueue(i + 1)
 		}
 		<-stopCh
@@ -186,7 +186,7 @@ func benchChannel(b *testing.B, iterCount int, buffered bool) {
 			}
 		}(ctx, input)
 
-		for i := 0; i < iterCount; i++ {
+		for i := range iterCount {
 			input <- (i + 1)
 		}
 		<-stopCh

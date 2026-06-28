@@ -1,7 +1,7 @@
 package hsmsssintegration
 
 import (
-	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -23,8 +23,7 @@ import (
 // timeout and the connection hangs — this test would then fail by timing
 // out on the NotConnected state event.
 func TestChaos_PartialLengthHeader_T8(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	equipPort := getFreePort(t)
 	equip := newEndpoint(t, ctx, equipPort, true, false, nil, echoHandler)
@@ -67,8 +66,7 @@ func TestChaos_PartialLengthHeader_T8(t *testing.T) {
 // thin parity test so the byte-level proxy itself is exercised on this
 // pathway and any future divergence between the two proxies is caught.
 func TestChaos_PartialPayload_T8_ByteProxy(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	equipPort := getFreePort(t)
 	equip := newEndpoint(t, ctx, equipPort, true, false, nil, echoHandler)
@@ -107,8 +105,7 @@ func TestChaos_PartialPayload_T8_ByteProxy(t *testing.T) {
 // a fatal decode error and the connection drops — at which point the
 // follow-up SendDataMessage fails / the state goes NotConnected.
 func TestChaos_UnsupportedPType_RejectAndContinue(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	equipPort := getFreePort(t)
 	equip := newEndpoint(t, ctx, equipPort, true, false, nil, echoHandler)
@@ -152,13 +149,7 @@ func TestChaos_UnsupportedPType_RejectAndContinue(t *testing.T) {
 
 	// Host must have emitted a Reject.req(reason=2) in the client→target direction.
 	require.Eventually(t, func() bool {
-		for _, reason := range proxy.ObservedRejects(false) {
-			if reason == byte(hsms.RejectPTypeNotSupported) {
-				return true
-			}
-		}
-
-		return false
+		return slices.Contains(proxy.ObservedRejects(false), byte(hsms.RejectPTypeNotSupported))
 	}, 2*time.Second, 10*time.Millisecond,
 		"host did not emit Reject.req(reason=PTypeNotSupported); observed=%v",
 		proxy.ObservedRejects(false))
@@ -168,8 +159,7 @@ func TestChaos_UnsupportedPType_RejectAndContinue(t *testing.T) {
 // the defined SType set) in an inbound frame; verify Reject.req(reason=1)
 // and connection survival. Reverting `f110c68` breaks this too.
 func TestChaos_UndefinedSType_RejectAndContinue(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	equipPort := getFreePort(t)
 	equip := newEndpoint(t, ctx, equipPort, true, false, nil, echoHandler)
@@ -204,13 +194,7 @@ func TestChaos_UndefinedSType_RejectAndContinue(t *testing.T) {
 	}
 
 	require.Eventually(t, func() bool {
-		for _, reason := range proxy.ObservedRejects(false) {
-			if reason == byte(hsms.RejectSTypeNotSupported) {
-				return true
-			}
-		}
-
-		return false
+		return slices.Contains(proxy.ObservedRejects(false), byte(hsms.RejectSTypeNotSupported))
 	}, 2*time.Second, 10*time.Millisecond,
 		"host did not emit Reject.req(reason=STypeNotSupported); observed=%v",
 		proxy.ObservedRejects(false))
@@ -222,8 +206,7 @@ func TestChaos_UndefinedSType_RejectAndContinue(t *testing.T) {
 // `08a64b3` (the payload-size classification / length validation) would
 // allow the receiver to attempt to allocate the absurd buffer.
 func TestChaos_MalformedLength_TooLarge(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	equipPort := getFreePort(t)
 	equip := newEndpoint(t, ctx, equipPort, true, false, nil, echoHandler)

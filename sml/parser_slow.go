@@ -19,10 +19,7 @@ import (
 //
 // If any errors are encountered during parsing, no messages will be returned to ensure data integrity.
 func ParseHSMSSlow(input string) (messages []*hsms.DataMessage, errs []error) {
-	queueSize := len(input) / 4
-	if queueSize < 10 {
-		queueSize = 10
-	}
+	queueSize := max(len(input)/4, 10)
 
 	p := &parser{
 		lexer:      getLexer(input),
@@ -428,7 +425,7 @@ func (p *parser) getItemValueStrings(size int) []string {
 }
 
 func (p *parser) parseASCII() (item secs2.Item, ok bool) {
-	var literal string
+	var literal strings.Builder
 
 	tokens := p.getItemValueTokens(0)
 	defer func() {
@@ -449,7 +446,7 @@ func (p *parser) parseASCII() (item secs2.Item, ok bool) {
 					break
 				}
 			}
-			literal += val
+			literal.WriteString(val)
 
 		case tokenTypeNumber:
 			val, err := strconv.ParseUint(t.val, 0, 8)
@@ -462,7 +459,7 @@ func (p *parser) parseASCII() (item secs2.Item, ok bool) {
 				val = 0
 				p.errorf("overflows ASCII range, found %q", t.val)
 			}
-			literal += string(byte(val))
+			literal.WriteString(string(byte(val)))
 
 		case tokenTypeError:
 			p.errorf("syntax error: %s", t.val)
@@ -474,7 +471,7 @@ func (p *parser) parseASCII() (item secs2.Item, ok bool) {
 		}
 	}
 
-	return secs2.NewASCIIItem(literal), true
+	return secs2.NewASCIIItem(literal.String()), true
 }
 
 // func unquoteString(str string) (string, bool) {

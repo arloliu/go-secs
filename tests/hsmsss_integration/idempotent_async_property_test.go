@@ -262,7 +262,7 @@ func logPerCycleDistribution(t *testing.T, phase, side string, obs *asyncObserve
 		byCycle[ev.cycle] = append(byCycle[ev.cycle], ev)
 	}
 
-	for c := 0; c < 50; c++ {
+	for c := range 50 {
 		evts, ok := byCycle[c]
 		if !ok {
 			continue

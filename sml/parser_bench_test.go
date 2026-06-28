@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/arloliu/go-secs/hsms"
@@ -61,7 +62,7 @@ func BenchmarkParseHSMS_ASCII_Large(b *testing.B) {
 func BenchmarkParseHSMS_AllTypes(b *testing.B) {
 	items := []secs2.Item{}
 
-	for i := 0; i < 39; i++ {
+	for i := range 39 {
 		switch i % 13 {
 		case 0:
 			items = append(items, secs2.B(127))
@@ -92,8 +93,8 @@ func BenchmarkParseHSMS_AllTypes(b *testing.B) {
 		default:
 		}
 	}
-	listItems := []secs2.Item{}
-	for i := 0; i < 100; i++ {
+	listItems := make([]secs2.Item, 0, 100)
+	for range 100 {
 		listItems = append(listItems, secs2.L(items...))
 	}
 
@@ -158,7 +159,7 @@ func genIntSML(count int) string {
 	intItems := make([]secs2.Item, count/100)
 	for i := 0; i < count/100; i++ {
 		items := make([]any, 100)
-		for j := 0; j < 100; j++ {
+		for j := range 100 {
 			items[j] = int64(j)
 		}
 		intItems[i] = secs2.I8(items...)
@@ -175,11 +176,11 @@ func genIntSML(count int) string {
 func genASCIISML(count int) string {
 	strItem := make([]secs2.Item, count/100)
 	for i := 0; i < count/100; i++ {
-		str := ""
-		for j := 0; j < 100; j++ {
-			str += fmt.Sprint(j)
+		var str strings.Builder
+		for j := range 100 {
+			fmt.Fprint(&str, j)
 		}
-		strItem[i] = secs2.A(str)
+		strItem[i] = secs2.A(str.String())
 	}
 	listItem := secs2.L(strItem...)
 	msg, err := hsms.NewDataMessage(0, 0, false, 1234, nil, listItem)

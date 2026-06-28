@@ -337,7 +337,7 @@ func runRetryPeer(host string, port int) error {
 	defer conn.Close()
 
 	reader := bufio.NewReader(conn)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
 			return err
 		}

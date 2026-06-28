@@ -414,7 +414,7 @@ func TestSendBlock_RetryExhaustion(t *testing.T) {
 
 	go func() {
 		// Read 3 ENQs (initial + 2 retries), never respond.
-		for i := 0; i < 3; i++ {
+		for range 3 {
 			b := readOneByte(t, remote)
 			assert.Equal(t, ENQ, b)
 		}
@@ -826,7 +826,7 @@ func TestSendBlock_ExactRetryCount(t *testing.T) {
 	var enqCount atomic.Int32
 
 	go func() {
-		for i := 0; i < 3; i++ {
+		for range 3 {
 			readOneByte(t, remote) // ENQ
 			enqCount.Add(1)
 			// No response → T2 timeout.

@@ -261,7 +261,7 @@ func TestDecodeMessage_LargeData(t *testing.T) {
 
 	expectedSize := 1 << 16
 	bigValues := make([]secs2.Item, 0, expectedSize)
-	for i := 0; i < expectedSize; i++ {
+	for i := range expectedSize {
 		bigValues = append(bigValues, secs2.NewASCIIItem(fmt.Sprintf("%d", i)))
 	}
 	msg, err := NewDataMessage(1, 1, true, 1234, GenerateMsgSystemBytes(), secs2.L(bigValues...))
@@ -467,7 +467,7 @@ func TestDecode_MaxListDepth(t *testing.T) {
 		nestedBytes := make([]byte, 0, 10+(MaxListDepth+2)*2)
 		nestedBytes = append(nestedBytes, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) // header
 
-		for i := 0; i < MaxListDepth+2; i++ {
+		for range MaxListDepth + 2 {
 			nestedBytes = append(nestedBytes, 0x01, 0x01) // List with 1 item
 		}
 		// Add an empty ASCII item at the bottom
@@ -483,7 +483,7 @@ func TestDecode_MaxListDepth(t *testing.T) {
 		nestedBytes := make([]byte, 0, 10+MaxListDepth*2+2)
 		nestedBytes = append(nestedBytes, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) // header
 
-		for i := 0; i < MaxListDepth; i++ {
+		for range MaxListDepth {
 			nestedBytes = append(nestedBytes, 0x01, 0x01) // List with 1 item
 		}
 		// Add an empty ASCII item at the bottom

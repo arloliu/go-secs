@@ -431,7 +431,7 @@ func genRandomUint(length int, byteSize int) []uint64 {
 	maxVal := big.NewInt(0).Lsh(big.NewInt(1), uint(byteSize*8))
 	maxVal.Sub(maxVal, big.NewInt(1))
 
-	for i := 0; i < length; i++ {
+	for i := range length {
 		// Generate a random big integer within the range [0, max]
 		n, _ := rand.Int(rand.Reader, maxVal)
 
@@ -445,7 +445,7 @@ func genRandomUint(length int, byteSize int) []uint64 {
 func genFixedUint(length int) []uint64 {
 	result := make([]uint64, length)
 
-	for i := 0; i < length; i++ {
+	for i := range length {
 		result[i] = uint64(i)
 	}
 

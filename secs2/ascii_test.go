@@ -120,7 +120,7 @@ func TestASCIIItem_Create_StrictMode(t *testing.T) {
 	item := NewASCIIItem(string(data))
 	require.Error(item.Error())
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		item := NewASCIIItem(genRandomASCIIString(i+1, true))
 		require.NoError(item.Error())
 	}
@@ -247,7 +247,7 @@ func TestASCIIItem_Create_NonStrictMode(t *testing.T) {
 	item := NewASCIIItem(string(data))
 	require.Error(item.Error())
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		item := NewASCIIItem(genRandomASCIIString(i+1, false))
 		require.NoError(item.Error())
 	}

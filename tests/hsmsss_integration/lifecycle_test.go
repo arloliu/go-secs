@@ -191,7 +191,7 @@ func TestLifecycle_LinktestAutoAndT6Failure(t *testing.T) {
 	waitState(t, active, hsms.SelectedState)
 
 	// Reply to the first 2 Linktest.req messages
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		require.NoError(rawConn.SetReadDeadline(time.Now().Add(3 * time.Second)))
 		frame, rErr := readFrame(rawConn)
 		require.NoError(rErr)
