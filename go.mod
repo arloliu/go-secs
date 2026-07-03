@@ -1,6 +1,6 @@
-module github.com/arloliu/go-secs
+module github.com/arloliu/go-secs/v2
 
-go 1.24.1
+go 1.26.0
 
 require (
 	github.com/phsym/console-slog v0.3.1

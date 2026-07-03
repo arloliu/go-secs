@@ -29,11 +29,11 @@ LATEST_GIT_TAG := $(shell git describe --tags --abbrev=0 2>/dev/null)
 
 # Packages with timing-sensitive tests exercised by stress-test.
 # Add new packages here when they start producing flakes under contention.
-STRESS_DIRS := ./hsmsss/... ./hsms/... ./secs1/... ./tests/...
+STRESS_DIRS := ./hsmsss/... ./hsms/... ./secs1/... ./integration/...
 
 # Packages that contain Fuzz* targets. fuzz-test auto-discovers the targets
 # inside each package, so new fuzzers are picked up automatically.
-FUZZ_PKGS := ./hsms ./hsmsss
+FUZZ_PKGS := ./hsms ./hsmsss ./integration
 
 # Coverage outputs.
 COVER_ROOT            := ./.coverage
@@ -128,9 +128,9 @@ stress-test: clean ## Stress STRESS_DIRS under GOMAXPROCS=1 and default schedule
 # Quick stress: runs only the most timing-sensitive tests for fast iteration.
 stress-quick: clean ## Narrow stress run: only the known flake-prone tests
 	@printf "=== Quick stress: flake-prone tests, count=$(STRESS_COUNT) ===\n"
-	@GOMAXPROCS=1 CGO_ENABLED=1 go test ./hsmsss/... -run "TestConnection_Linktest|TestDrainMessage|TestSendRequestDrain|TestLinktestFail" \
+	@GOMAXPROCS=1 CGO_ENABLED=1 go test ./hsmsss/... -run "TestLinktest_ThresholdDisconnect|TestLinktest_AutoFiresWhileSelected|TestHSMS_LinktestFailThreshold_ResetsOnSuccess|TestHSMS_StrandedSend_PostCloseGateAndReopenHealthCheck|TestChaos_DroppedLinktestRsp|TestChaos_RapidLinktestToggle" \
 		-count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p 1 $(VERBOSE_TAG)
-	@CGO_ENABLED=1 go test ./tests/hsmsss_integration/... -run "TestConcurrentClose|TestActiveExponentialBackoff" \
+	@CGO_ENABLED=1 go test ./hsmsss/... -run "TestConcurrentClose|TestHSMS_CloseRace_BoundedCleanShutdown|TestHSMS_SelectCloseRace_NoPanicNoZombie|TestActiveReconnectCadence_FlatT5" \
 		-count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p 1 $(VERBOSE_TAG)
 	@printf "=== Quick stress passed ===\n"
 
