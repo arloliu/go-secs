@@ -19,7 +19,11 @@ type slogLogger struct {
 	output io.Writer
 }
 
-// NewSlog create a slog instance
+// NewSlog creates a Logger backed by log/slog that writes to os.Stdout.
+// When the ENV environment variable is set to "development", a human-readable
+// console handler is used and addSource is ignored (source location is always
+// included). Otherwise a JSON handler is used and addSource controls whether
+// each log record includes its source file and line number.
 func NewSlog(level LogLevel, addSource bool) Logger {
 	inst := &slogLogger{
 		output: os.Stdout,
@@ -115,6 +119,8 @@ func (l *slogLogger) Level() LogLevel {
 }
 
 // SetLevel sets the minimum enabled level for this logger.
+// Child loggers created with With share the same log-level state as their
+// parent; only key-value fields are isolated per child.
 func (l *slogLogger) SetLevel(level LogLevel) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -148,6 +154,7 @@ func toSlogLevel(level LogLevel) slog.Level {
 		InfoLevel:  slog.LevelInfo,
 		WarnLevel:  slog.LevelWarn,
 		ErrorLevel: slog.LevelError,
+		FatalLevel: slog.LevelError,
 	}
 	if slogLevel, ok := levelMap[level]; ok {
 		return slogLevel

@@ -35,6 +35,8 @@ func Fatal(msg string, keysAndValues ...any) {
 }
 
 // SetLevel sets the minimum enabled level for the default logger.
+// Child loggers created with With share the same level state as the parent;
+// only key-value fields are isolated per child.
 func SetLevel(level LogLevel) {
 	defLogger.SetLevel(level)
 }
@@ -44,8 +46,8 @@ func Level() LogLevel {
 	return defLogger.Level()
 }
 
-// GetLogger retrieves the default logger of go-secs.
-func GetLogger() Logger {
+// Default returns the default logger used by go-secs.
+func Default() Logger {
 	return defLogger
 }
 

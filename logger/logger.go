@@ -13,8 +13,28 @@
 //   - FatalLevel:  Critical errors that cause program termination.
 package logger
 
+import "strconv"
+
 // LogLevel indicates the logging severity level.
-type LogLevel = int8
+type LogLevel int8
+
+// String returns the name of the log level (e.g. "Debug", "Info").
+func (l LogLevel) String() string {
+	switch l {
+	case DebugLevel:
+		return "Debug"
+	case InfoLevel:
+		return "Info"
+	case WarnLevel:
+		return "Warn"
+	case ErrorLevel:
+		return "Error"
+	case FatalLevel:
+		return "Fatal"
+	default:
+		return "LogLevel(" + strconv.Itoa(int(l)) + ")"
+	}
+}
 
 const (
 	// DebugLevel logs are typically voluminous, and are usually disabled in production.
