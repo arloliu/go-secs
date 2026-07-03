@@ -1,509 +1,437 @@
-//nolint:errcheck
+// Package hsms — in-package tests for decode.go.
+//
+// Using package hsms (not hsms_test) gives access to unexported identifiers:
+// decodeOwnedFrame, DataMessage.body, and newRawFrameDataMessage, so the
+// zero-copy alias proof can verify that the decoded body slice aliases the
+// owned buffer directly without an exported Body accessor.
 package hsms
 
 import (
-	"encoding/binary"
-	"fmt"
+	"errors"
+	"sync"
 	"testing"
 
-	"github.com/arloliu/go-secs/secs2"
+	"github.com/arloliu/go-secs/v2/secs2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestDecode_DataMessage(t *testing.T) {
+// bodyRef returns the underlying raw body slice for a DataMessage by going
+// through the Body.Buffers() bridge. For rawFrameBody (decode path) this is
+// the zero-copy reference; no copy is made. For treeBody (constructed path)
+// this returns the memoized encoded bytes (distinct backing array).
+func bodyRef(msg *DataMessage) []byte {
+	bufs := msg.body.Buffers()
+	if len(bufs) == 0 {
+		return nil
+	}
+
+	return bufs[0]
+}
+
+// ────────────────────────────────────────────────────────────────
+// Round-trip: data messages
+// ────────────────────────────────────────────────────────────────
+
+func TestDecodeHSMSMessage_DataRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	item := secs2.NewASCIIItem("hello SECS")
+	orig, err := NewDataMessage(1, 1, true, 0x0001, [4]byte{0, 0, 0, 1}, item)
+	require.NoError(t, err)
+
+	data := orig.ToBytes()
+	decoded, err := DecodeHSMSMessage(data)
+	require.NoError(t, err)
+
+	dm, ok := decoded.(*DataMessage)
+	require.True(t, ok, "decoded message should be *DataMessage")
+
+	// Header bytes must match exactly.
+	assert.Equal(t, orig.HeaderBytes(), dm.HeaderBytes())
+
+	// Body bytes must match (wire-level equality).
+	assert.Equal(t, orig.AppendBodyTo(nil), dm.AppendBodyTo(nil))
+
+	// Item() must be wire-level equal (decoded value matches the original encoding).
+	origItem, origErr := orig.Item()
+	require.NoError(t, origErr)
+	decItem, decErr := dm.Item()
+	require.NoError(t, decErr)
+	assert.Equal(t, origItem.ToBytes(), decItem.ToBytes())
+}
+
+func TestDecodeHSMSMessage_DataRoundTrip_Binary(t *testing.T) {
+	t.Parallel()
+
+	item := secs2.NewBinaryItem([]byte{0x01, 0x02, 0x03, 0xAB, 0xCD})
+	orig, err := NewDataMessage(2, 3, false, 0xFFFF, [4]byte{1, 2, 3, 4}, item)
+	require.NoError(t, err)
+
+	data := orig.ToBytes()
+	decoded, err := DecodeHSMSMessage(data)
+	require.NoError(t, err)
+
+	dm, ok := decoded.(*DataMessage)
+	require.True(t, ok)
+	assert.Equal(t, orig.HeaderBytes(), dm.HeaderBytes())
+	assert.Equal(t, orig.AppendBodyTo(nil), dm.AppendBodyTo(nil))
+}
+
+// ────────────────────────────────────────────────────────────────
+// Round-trip: empty data message body
+// ────────────────────────────────────────────────────────────────
+
+func TestDecodeHSMSMessage_EmptyBody(t *testing.T) {
+	t.Parallel()
+
+	orig, err := NewDataMessage(1, 2, false, 0x0001, [4]byte{}, secs2.NewEmptyItem())
+	require.NoError(t, err)
+
+	data := orig.ToBytes()
+	decoded, err := DecodeHSMSMessage(data)
+	require.NoError(t, err)
+
+	dm, ok := decoded.(*DataMessage)
+	require.True(t, ok)
+	assert.Equal(t, orig.HeaderBytes(), dm.HeaderBytes())
+	assert.Equal(t, 0, dm.BodyLen())
+
+	decItem, decErr := dm.Item()
+	require.NoError(t, decErr)
+	assert.True(t, decItem.IsEmpty(), "empty body should decode to EmptyItem")
+}
+
+// ────────────────────────────────────────────────────────────────
+// Round-trip: every control SType
+// ────────────────────────────────────────────────────────────────
+
+func TestDecodeHSMSMessage_ControlRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	sb := [4]byte{0xDE, 0xAD, 0xBE, 0xEF}
+
 	tests := []struct {
-		description          string // test case description
-		input                []byte // input
-		expectedType         int
-		expectedStreamCode   uint8
-		expectedFunctionCode uint8
-		expectedWaitBit      bool
-		expectedSessionID    uint16
-		expectedSystemBytes  []byte
-		expectedToSML        string
+		name string
+		msg  *ControlMessage
+	}{
+		{"SelectReq", NewSelectReq(0x0001, sb)},
+		{"SelectRsp", func() *ControlMessage {
+			req := NewSelectReq(0x0001, sb)
+			rsp, _ := NewSelectRsp(req, SelectStatusSuccess)
+
+			return rsp
+		}()},
+		{"DeselectReq", NewDeselectReq(0x0002, sb)},
+		{"DeselectRsp", func() *ControlMessage {
+			req := NewDeselectReq(0x0002, sb)
+			rsp, _ := NewDeselectRsp(req, DeselectStatusSuccess)
+
+			return rsp
+		}()},
+		{"LinktestReq", NewLinktestReq(sb)},
+		{"LinktestRsp", func() *ControlMessage {
+			req := NewLinktestReq(sb)
+			rsp, _ := NewLinktestRsp(req)
+
+			return rsp
+		}()},
+		{"RejectReq", NewRejectReqRaw(0x0003, 0, byte(SeparateReqType), sb, RejectSTypeNotSupported)},
+		{"SeparateReq", NewSeparateReq(0x0004, sb)},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			data := tc.msg.ToBytes()
+			decoded, err := DecodeHSMSMessage(data)
+			require.NoError(t, err)
+
+			cm, ok := decoded.(*ControlMessage)
+			require.True(t, ok, "decoded control message should be *ControlMessage")
+			assert.Equal(t, tc.msg.HeaderBytes(), cm.HeaderBytes(),
+				"header bytes must round-trip exactly")
+			assert.Equal(t, tc.msg.Type(), cm.Type(),
+				"SType must match")
+		})
+	}
+}
+
+// ────────────────────────────────────────────────────────────────
+// Lazy decode-once: concurrent Item() calls must not race
+// ────────────────────────────────────────────────────────────────
+
+func TestDecodeHSMSMessage_LazyDecodeOnce(t *testing.T) {
+	t.Parallel()
+
+	item := secs2.NewASCIIItem("race-test")
+	orig, err := NewDataMessage(1, 1, true, 0x0001, [4]byte{}, item)
+	require.NoError(t, err)
+
+	data := orig.ToBytes()
+	decoded, err := DecodeHSMSMessage(data)
+	require.NoError(t, err)
+
+	dm, ok := decoded.(*DataMessage)
+	require.True(t, ok)
+
+	const n = 200
+	var wg sync.WaitGroup
+	wg.Add(n)
+
+	for range n {
+		go func() {
+			defer wg.Done()
+			it, err := dm.Item()
+			assert.NoError(t, err)
+			assert.NotNil(t, it)
+		}()
+	}
+
+	wg.Wait()
+}
+
+// ────────────────────────────────────────────────────────────────
+// Malformed input: error cases
+// ────────────────────────────────────────────────────────────────
+
+func TestDecodeHSMSMessage_Errors(t *testing.T) {
+	t.Parallel()
+
+	// validFrame builds a minimal 14-byte valid data-message frame (empty body).
+	validFrame := func() []byte {
+		msg, _ := NewDataMessage(1, 2, false, 0x0001, [4]byte{}, secs2.NewEmptyItem())
+
+		return msg.ToBytes()
+	}
+
+	// patchHeader returns a copy of a valid frame with header byte i set to v.
+	patchHeader := func(i int, v byte) []byte {
+		frame := validFrame()
+		out := append([]byte(nil), frame...)
+		out[4+i] = v // skip 4-byte length prefix
+
+		return out
+	}
+
+	tests := []struct {
+		name string
+		data []byte
 	}{
 		{
-			description:          "S0F0 empty data item",
-			input:                []byte{0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-			expectedType:         DataMsgType,
-			expectedStreamCode:   0,
-			expectedFunctionCode: 0,
-			expectedWaitBit:      false,
-			expectedSessionID:    0,
-			expectedSystemBytes:  []byte{0, 0, 0, 0},
-			expectedToSML:        "S0F0\n.",
+			name: "too short (< 14 bytes)",
+			data: []byte{0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 		},
 		{
-			description: `S1F1 W <A[11] "lorem ipsum">`,
-			input: []byte{
-				0, 0, 0, 23, 0, 1, 129, 1, 0, 0, 0, 0, 0, 1,
-				0x41, 11, 0x6C, 0x6F, 0x72, 0x65, 0x6D, 0x20, 0x69, 0x70, 0x73, 0x75, 0x6D,
-			},
-			expectedType:         DataMsgType,
-			expectedStreamCode:   1,
-			expectedFunctionCode: 1,
-			expectedWaitBit:      true,
-			expectedSessionID:    1,
-			expectedSystemBytes:  []byte{0, 0, 0, 1},
-			expectedToSML:        "S1F1 W\n<A[11] \"lorem ipsum\">\n.",
+			name: "msgLen below minimum (< 10)",
+			data: func() []byte {
+				// 4-byte length = 9; total data = 13 bytes but msgLen < 10
+				d := make([]byte, 13)
+				d[0], d[1], d[2], d[3] = 0, 0, 0, 9
+
+				return d
+			}(),
 		},
 		{
-			description: `S50F50 <B[0]>`,
-			input: []byte{
-				0, 0, 0, 12, 0, 2, 50, 50, 0, 0, 0, 0, 0, 2,
-				33, 0,
-			},
-			expectedType:         DataMsgType,
-			expectedStreamCode:   50,
-			expectedFunctionCode: 50,
-			expectedWaitBit:      false,
-			expectedSessionID:    2,
-			expectedSystemBytes:  []byte{0, 0, 0, 2},
-			expectedToSML:        "S50F50\n<B[0]>\n.",
+			name: "msgLen above maximum",
+			data: func() []byte {
+				tooLarge := uint32(secs2.MaxByteSize + 1)
+				d := make([]byte, 4+10)
+				d[0] = byte(tooLarge >> 24)
+				d[1] = byte(tooLarge >> 16)
+				d[2] = byte(tooLarge >> 8)
+				d[3] = byte(tooLarge)
+
+				return d
+			}(),
 		},
 		{
-			description: `S126F254 <BOOLEAN[2] True False>`,
-			input: []byte{
-				0, 0, 0, 14, 0xFE, 0xFE, 126, 254, 0, 0, 0xFE, 0xFE, 0xFE, 0xFE,
-				37, 2, 1, 0,
-			},
-			expectedType:         DataMsgType,
-			expectedStreamCode:   126,
-			expectedFunctionCode: 254,
-			expectedWaitBit:      false,
-			expectedSessionID:    65278,
-			expectedSystemBytes:  []byte{0xFE, 0xFE, 0xFE, 0xFE},
-			expectedToSML:        "S126F254\n<BOOLEAN[2] True False>\n.",
+			name: "length mismatch (data longer than declared)",
+			data: func() []byte {
+				frame := validFrame()      // 14 bytes, msgLen=10
+				return append(frame, 0xFF) // one extra byte
+			}(),
 		},
 		{
-			description: `S127F255 W <F4[3] -1.0 0.0 3.141592>`,
-			input: []byte{
-				0, 0, 0, 24, 0xFF, 0xFE, 255, 255, 0, 0, 0xFF, 0xFF, 0xFF, 0xFE,
-				0x91, 12,
-				0xBF, 0x80, 0x00, 0x00,
-				0x00, 0x00, 0x00, 0x00,
-				0x40, 0x49, 0x0F, 0xD8,
-			},
-			expectedType:         DataMsgType,
-			expectedStreamCode:   127,
-			expectedFunctionCode: 255,
-			expectedWaitBit:      true,
-			expectedSessionID:    65534,
-			expectedSystemBytes:  []byte{0xFF, 0xFF, 0xFF, 0xFE},
-			expectedToSML:        "S127F255 W\n<F4[3] -1 0 3.14159203>\n.",
+			name: "length mismatch (data shorter than declared)",
+			data: func() []byte {
+				frame := validFrame() // 14 bytes, msgLen=10
+				return frame[:13]     // truncate one byte
+			}(),
 		},
 		{
-			description: `S0F0 <F8[3] -1 0 1>`,
-			input: []byte{
-				0, 0, 0, 36, 0xFF, 0xFF, 0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF,
-				0x81, 24,
-				0xBF, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-				0x3F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-			},
-			expectedType:         DataMsgType,
-			expectedStreamCode:   0,
-			expectedFunctionCode: 0,
-			expectedWaitBit:      false,
-			expectedSessionID:    65535,
-			expectedSystemBytes:  []byte{0xFF, 0xFF, 0xFF, 0xFF},
-			expectedToSML:        "S0F0\n<F8[3] -1 0 1>\n.",
+			name: "PType != 0",
+			data: patchHeader(4, 0x01),
 		},
 		{
-			description: `S0F0, nested list`,
-			input: []byte{
-				0, 0, 0, 88, 0xFF, 0xFF, 0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF,
-				0x01, 3, // L[3]
-				0x01, 0, //   L[0]
-				0x01, 4, //   L[4]
-				0x65, 0,
-				0x69, 2, 0x80, 0x00,
-				0x71, 8,
-				0xFF, 0xFF, 0xFF, 0xFF,
-				0, 0, 0, 0,
-				0x61, 32,
-				0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE,
-				0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-				0, 0, 0, 0, 0, 0, 0, 0,
-				0, 0, 0, 0, 0, 0, 0, 0x2A,
-				0x01, 4, //   L[4]
-				0xA5, 4, 0, 1, 0xFE, 0xFF,
-				0xA9, 4, 0, 0, 0xFF, 0xFF,
-				0xB1, 4, 0, 0, 0, 0x2A,
-				0xA1, 0,
-			},
-			expectedType:         DataMsgType,
-			expectedStreamCode:   0,
-			expectedFunctionCode: 0,
-			expectedWaitBit:      false,
-			expectedSessionID:    65535,
-			expectedSystemBytes:  []byte{0xFF, 0xFF, 0xFF, 0xFF},
-			expectedToSML: `S0F0
-<L[3]
-  <L[0]>
-  <L[4]
-    <I1[0]>
-    <I2[1] -32768>
-    <I4[2] -1 0>
-    <I8[4] -2 -1 0 42>
-  >
-  <L[4]
-    <U1[4] 0 1 254 255>
-    <U2[2] 0 65535>
-    <U4[1] 42>
-    <U8[0]>
-  >
->
-.`,
+			name: "undefined SType 8",
+			data: patchHeader(5, 8),
+		},
+		{
+			name: "undefined SType 10",
+			data: patchHeader(5, 10),
+		},
+		{
+			name: "undefined SType 255",
+			data: patchHeader(5, 255),
 		},
 	}
 
-	require := require.New(t)
-	assert := assert.New(t)
-
-	UseStreamFunctionNoQuote()
-	defer UseStreamFunctionSingleQuote()
-	for i, test := range tests {
-		t.Logf("Test #%d: %s", i, test.description)
-		msgLen := decodeMessageLength(test.input)
-		msg, err := DecodeMessage(msgLen, test.input[4:])
-		require.NoError(err)
-		assert.Equal(test.expectedType, msg.Type())
-		assert.Equal(test.input, msg.ToBytes())
-		assert.Equal(test.expectedStreamCode, msg.(*DataMessage).StreamCode())
-		assert.Equal(test.expectedFunctionCode, msg.(*DataMessage).FunctionCode())
-		assert.Equal(test.expectedWaitBit, msg.(*DataMessage).WaitBit())
-		assert.Equal(test.expectedSessionID, msg.(*DataMessage).SessionID())
-		assert.Equal(test.expectedSystemBytes, msg.(*DataMessage).SystemBytes())
-		assert.Equal(test.expectedToSML, msg.(*DataMessage).ToSML())
-
-		msg2, err := DecodeHSMSMessage(msg.ToBytes())
-		require.NoError(err)
-		assert.Equal(test.expectedType, msg2.Type())
-		assert.Equal(test.input, msg2.ToBytes())
-		assert.Equal(test.expectedStreamCode, msg2.(*DataMessage).StreamCode())
-		assert.Equal(test.expectedFunctionCode, msg2.(*DataMessage).FunctionCode())
-		assert.Equal(test.expectedWaitBit, msg2.(*DataMessage).WaitBit())
-		assert.Equal(test.expectedSessionID, msg2.(*DataMessage).SessionID())
-		assert.Equal(test.expectedSystemBytes, msg2.(*DataMessage).SystemBytes())
-		assert.Equal(test.expectedToSML, msg2.(*DataMessage).ToSML())
-
-		item, err := DecodeSECS2Item(msg.Item().ToBytes())
-		require.NoError(err)
-		assert.Equal(msg.Item().ToSML(), item.ToSML())
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			msg, err := DecodeHSMSMessage(tc.data)
+			assert.Error(t, err, "expected an error for malformed input")
+			assert.Nil(t, msg)
+		})
 	}
 }
 
-func TestDecode_ControlMessage(t *testing.T) {
+// TestDecodeHSMSMessage_ErrorsWrapSentinels verifies that DecodeHSMSMessage wraps
+// its reachable failure paths with the exported sentinel errors so errors.Is works.
+//
+// Structurally-impossible cases carry no sentinel because they cannot occur: a data
+// message never has a non-zero SType (SType 0 is data by dispatch), and system bytes
+// are a fixed [4]byte, so no "wrong length" or "wrong data SType" error can be produced.
+func TestDecodeHSMSMessage_ErrorsWrapSentinels(t *testing.T) {
+	t.Parallel()
+
+	validFrame := func() []byte {
+		msg, _ := NewDataMessage(1, 2, false, 0x0001, [4]byte{}, secs2.NewEmptyItem())
+
+		return msg.ToBytes()
+	}
+	patchHeader := func(i int, v byte) []byte {
+		out := append([]byte(nil), validFrame()...)
+		out[4+i] = v // skip 4-byte length prefix
+
+		return out
+	}
+
 	tests := []struct {
-		input        []byte // input to the parser
-		expectedType int    // expected message type
+		name    string
+		data    []byte
+		wantErr error
 	}{
 		{
-			input:        []byte{0, 0, 0, 10, 0xba, 0xd3, 0, 0, 0, 1, 0, 0, 0, 0},
-			expectedType: SelectReqType,
+			name:    "too short",
+			data:    []byte{0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			wantErr: ErrInvalidHeaderLength,
 		},
 		{
-			input:        []byte{0, 0, 0, 10, 0x0d, 0xd9, 0, 1, 0, 2, 0, 0, 0, 1},
-			expectedType: SelectRspType,
+			name: "msgLen below minimum",
+			data: func() []byte {
+				d := make([]byte, 13)
+				d[3] = 9
+
+				return d
+			}(),
+			wantErr: ErrInvalidHeaderLength,
 		},
 		{
-			input:        []byte{0, 0, 0, 10, 1, 0, 0, 0, 0, 3, 3, 2, 1, 0},
-			expectedType: DeselectReqType,
+			name:    "length mismatch",
+			data:    append(validFrame(), 0xFF),
+			wantErr: ErrInvalidHeaderLength,
 		},
 		{
-			input:        []byte{0, 0, 0, 10, 0x03, 0x04, 0, 2, 0, 4, 0x01, 0xfd, 0xca, 0xff},
-			expectedType: DeselectRspType,
+			name:    "PType != 0",
+			data:    patchHeader(4, 0x01),
+			wantErr: ErrInvalidPType,
 		},
 		{
-			input:        []byte{0, 0, 0, 10, 0xa1, 0xc2, 0, 0, 0, 5, 0xff, 0xd9, 0xff, 0x8f},
-			expectedType: LinkTestReqType,
-		},
-		{
-			input:        []byte{0, 0, 0, 10, 0xff, 0xff, 0, 0, 0, 6, 0xff, 0xff, 0xff, 0xff},
-			expectedType: LinkTestRspType,
-		},
-		{
-			input:        []byte{0, 0, 0, 10, 0x12, 0x34, 9, 3, 0, 7, 0xfc, 0xfd, 0xfe, 0x75},
-			expectedType: RejectReqType,
-		},
-		{
-			input:        []byte{0, 0, 0, 10, 0xfe, 0xfe, 0, 0, 0, 9, 0xfe, 0xd9, 0x8f, 0xfe},
-			expectedType: SeparateReqType,
+			name:    "undefined SType",
+			data:    patchHeader(5, 8),
+			wantErr: ErrInvalidControlMsgSType,
 		},
 	}
 
-	require := require.New(t)
-	assert := assert.New(t)
-
-	for _, test := range tests {
-		msgLen := decodeMessageLength(test.input)
-		msg, err := DecodeMessage(msgLen, test.input[4:])
-		require.NoError(err)
-		assert.Equal(test.expectedType, msg.Type())
-		assert.Equal(test.input, msg.ToBytes())
-
-		msg2, err := DecodeHSMSMessage(msg.ToBytes())
-		require.NoError(err)
-		assert.Equal(test.expectedType, msg2.Type())
-		assert.Equal(test.input, msg2.ToBytes())
-
-		item, err := DecodeSECS2Item(msg.Item().ToBytes())
-		require.NoError(err)
-		assert.True(item.IsEmpty())
-		assert.Equal(msg.Item().ToSML(), item.ToSML())
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			msg, err := DecodeHSMSMessage(tc.data)
+			require.Error(t, err)
+			assert.Nil(t, msg)
+			assert.True(t, errors.Is(err, tc.wantErr), "error %q must wrap %q", err, tc.wantErr)
+		})
 	}
 }
 
-func TestDecodeMessage_LargeData(t *testing.T) {
-	require := require.New(t)
+// ────────────────────────────────────────────────────────────────
+// Zero-copy alias proof (in-package: accesses DataMessage.body)
+// ────────────────────────────────────────────────────────────────
 
-	expectedSize := 1 << 16
-	bigValues := make([]secs2.Item, 0, expectedSize)
-	for i := range expectedSize {
-		bigValues = append(bigValues, secs2.NewASCIIItem(fmt.Sprintf("%d", i)))
-	}
-	msg, err := NewDataMessage(1, 1, true, 1234, GenerateMsgSystemBytes(), secs2.L(bigValues...))
-	require.NoError(err)
-	require.NotNil(msg)
+// TestDecodeOwnedFrame_ZeroCopyAlias verifies that decodeOwnedFrame does NOT
+// copy the body bytes: the decoded DataMessage's body backing array must be
+// the exact same memory as ownedBuf[10:].
+func TestDecodeOwnedFrame_ZeroCopyAlias(t *testing.T) {
+	t.Parallel()
 
-	input := msg.ToBytes()[4:]
-	decodedMsg, err := DecodeMessage(uint32(len(input)), input)
-	require.NoError(err)
-	require.NotNil(decodedMsg)
+	// Build a DataMessage with a non-empty body so that &slice[0] is valid.
+	item := secs2.NewASCIIItem("zero-copy-proof")
+	orig, err := NewDataMessage(1, 1, true, 0x0042, [4]byte{0, 0, 0, 1}, item)
+	require.NoError(t, err)
 
-	listItem := decodedMsg.Item()
-	require.Equal(expectedSize, listItem.Size())
+	raw := orig.ToBytes() // [4-byte len | 10-byte header | body…]
+	require.True(t, len(raw) > 14, "need a non-empty body for a valid pointer check")
 
-	items, err := listItem.ToList()
-	require.NoError(err)
-	require.NotNil(items)
-	require.Equal(expectedSize, len(items))
+	// ownedBuf is [header || body] — the input decodeOwnedFrame expects.
+	ownedBuf := append([]byte(nil), raw[4:]...)
 
-	for i, item := range items {
-		str, err := item.ToASCII()
-		require.NoError(err)
-		require.Equal(fmt.Sprintf("%d", i), str)
-	}
+	decoded, err := decodeOwnedFrame(ownedBuf)
+	require.NoError(t, err)
+
+	dm, ok := decoded.(*DataMessage)
+	require.True(t, ok)
+
+	ref := bodyRef(dm)
+	require.True(t, len(ref) > 0, "body must be non-empty for pointer comparison")
+
+	// The first byte of the body must live at the same address as ownedBuf[10].
+	// This proves rawFrameBody retains owned[10:] zero-copy.
+	assert.True(t, &ref[0] == &ownedBuf[10],
+		"decoded body must alias ownedBuf[10:] (zero-copy)")
 }
 
-func TestDecode_ListItemWithBytes(t *testing.T) {
-	require := require.New(t)
-	msg, err := NewDataMessage(1, 1, true, 1234, GenerateMsgSystemBytes(),
-		secs2.L(
-			secs2.I8(1),
-			secs2.B([]byte{0x01, 0x02, 0x03}),
-			secs2.L(
-				secs2.I4(10),
-				secs2.B([]byte{0x04, 0x05, 0x06}),
-			),
-		),
-	)
-	require.NoError(err)
-	require.NotNil(msg)
+// ────────────────────────────────────────────────────────────────
+// Public-copy proof: caller may reuse/mutate data after decode
+// ────────────────────────────────────────────────────────────────
 
-	input := msg.ToBytes()[4:]
-	decodedMsg, err := DecodeMessage(uint32(len(input)), input)
-	require.NoError(err)
-	require.NotNil(decodedMsg)
+// TestDecodeHSMSMessage_PublicCopyProof verifies that DecodeHSMSMessage copies
+// its input: mutating data after the call must leave the decoded message unchanged.
+func TestDecodeHSMSMessage_PublicCopyProof(t *testing.T) {
+	t.Parallel()
 
-	listItem := decodedMsg.Item()
-	require.Equal(
-		input[10:],
-		listItem.ToBytes(),
-	)
-}
+	item := secs2.NewASCIIItem("copy-proof")
+	orig, err := NewDataMessage(1, 1, true, 0x0001, [4]byte{0, 0, 0, 2}, item)
+	require.NoError(t, err)
 
-// TestDecode_SystemBytesOwnership ensures the decoded DataMessage's systemBytes
-// do not alias the caller's rawBody buffer. With the [4]byte inline storage,
-// getDataMessage copies the 4 header bytes into the struct's own array, so
-// mutating the original input after decode must not be observable through
-// msg.SystemBytes().
-func TestDecode_SystemBytesOwnership(t *testing.T) {
-	require := require.New(t)
+	// Work on a mutable copy.
+	data := append([]byte(nil), orig.ToBytes()...)
 
-	// Build a fresh, mutable input buffer for an S1F1 message with system bytes
-	// 0xDEADBEEF in the header.
-	input := []byte{
-		0, 0, 0, 23, 0, 1, 129, 1, 0, 0, 0xDE, 0xAD, 0xBE, 0xEF,
-		0x41, 11, 'l', 'o', 'r', 'e', 'm', ' ', 'i', 'p', 's', 'u', 'm',
+	decoded, err := DecodeHSMSMessage(data)
+	require.NoError(t, err)
+
+	// Capture the original header and body before mutation.
+	wantHeader := decoded.HeaderBytes()
+	dm, ok := decoded.(*DataMessage)
+	require.True(t, ok)
+	wantBody := dm.AppendBodyTo(nil)
+
+	// Poison every byte of the input buffer.
+	for i := range data {
+		data[i] = 0xFF
 	}
 
-	msgLen := decodeMessageLength(input)
-	msg, err := DecodeMessage(msgLen, input[4:])
-	require.NoError(err)
+	// The decoded message must be unchanged.
+	assert.Equal(t, wantHeader, decoded.HeaderBytes(),
+		"header must not be affected by mutation of input buffer")
+	assert.Equal(t, wantBody, dm.AppendBodyTo(nil),
+		"body must not be affected by mutation of input buffer")
 
-	dMsg, ok := msg.(*DataMessage)
-	require.True(ok)
-	require.Equal([]byte{0xDE, 0xAD, 0xBE, 0xEF}, dMsg.SystemBytes())
-
-	// Mutate the original buffer's system-bytes region; msg must be unaffected.
-	for i := 10; i < 14; i++ {
-		input[i] = 0
-	}
-	require.Equal([]byte{0xDE, 0xAD, 0xBE, 0xEF}, dMsg.SystemBytes())
-	require.Equal(uint32(0xDEADBEEF), dMsg.ID())
-}
-
-// decodeMessageLength decodes the message length from the first 4 bytes of an HSMS message.
-// The message length is encoded as a 32-bit unsigned integer in big-endian order.
-func decodeMessageLength(input []byte) uint32 {
-	return binary.BigEndian.Uint32(input[:4])
-}
-
-func TestDecode_Errors(t *testing.T) {
-	t.Run("MessageTooShort", func(t *testing.T) {
-		// Less than MinHSMSSize (14 bytes)
-		_, err := DecodeHSMSMessage([]byte{0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid hsms message length")
-	})
-
-	t.Run("MessageLengthMismatch", func(t *testing.T) {
-		// msgLen says 20 but only 10 bytes provided
-		_, err := DecodeMessage(20, []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "length mismatch")
-	})
-
-	t.Run("InvalidPType", func(t *testing.T) {
-		// PType (byte 4) is 1 instead of 0
-		_, err := DecodeMessage(10, []byte{0, 0, 0, 0, 1, 0, 0, 0, 0, 0})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid PType")
-	})
-
-	t.Run("InvalidSType", func(t *testing.T) {
-		// SType (byte 5) is 99 (undefined)
-		_, err := DecodeMessage(10, []byte{0, 0, 0, 0, 0, 99, 0, 0, 0, 0})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "undefined SType")
-	})
-
-	t.Run("TruncatedASCIIItem", func(t *testing.T) {
-		// ASCII item header claims 10 bytes but only 5 provided
-		// Format byte: 0x41 (ASCII, 1 length byte), length: 10, data: only 5 bytes
-		input := []byte{
-			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // header
-			0x41, 10, 'h', 'e', 'l', 'l', 'o', // truncated
-		}
-		_, err := DecodeMessage(uint32(len(input)), input)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "unexpected end of message")
-	})
-
-	t.Run("TruncatedIntItem", func(t *testing.T) {
-		// I4 item claims 8 bytes (2 integers) but only 4 provided
-		// Format byte: 0x71 (I4, 1 length byte), length: 8, data: only 4 bytes
-		input := []byte{
-			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // header
-			0x71, 8, 0, 0, 0, 1, // truncated - only 4 bytes instead of 8
-		}
-		_, err := DecodeMessage(uint32(len(input)), input)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "unexpected end of message")
-	})
-
-	t.Run("TruncatedListItem", func(t *testing.T) {
-		// List claims 5 items but only 1 item's worth of data
-		// Format byte: 0x01 (List, 1 length byte), length: 5
-		input := []byte{
-			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // header
-			0x01, 5, // list with 5 items
-			0x41, 1, 'a', // only 1 ASCII item
-		}
-		_, err := DecodeMessage(uint32(len(input)), input)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "list claims")
-	})
-
-	t.Run("ZeroLengthBytes", func(t *testing.T) {
-		// Format byte with 0 length bytes (invalid)
-		input := []byte{
-			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // header
-			0x40, // ASCII format but 0 length bytes (lower 2 bits = 0)
-		}
-		_, err := DecodeMessage(uint32(len(input)), input)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "length bytes count is zero")
-	})
-
-	t.Run("InvalidFormatCode", func(t *testing.T) {
-		// Format code 0x3F (format code 15, invalid)
-		input := []byte{
-			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // header
-			0x3D, 0, // format code 15, 1 length byte, length 0
-		}
-		_, err := DecodeMessage(uint32(len(input)), input)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid format")
-	})
-
-	t.Run("InvalidIntItemLength", func(t *testing.T) {
-		// I4 item with length 5 (not divisible by 4)
-		input := []byte{
-			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // header
-			0x71, 5, 0, 0, 0, 1, 0, // 5 bytes, not divisible by 4
-		}
-		_, err := DecodeMessage(uint32(len(input)), input)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid message length")
-	})
-
-	t.Run("DecodeSECS2Item_Truncated", func(t *testing.T) {
-		// ASCII item with insufficient data
-		input := []byte{0x41, 10, 'h', 'e', 'l', 'l', 'o'} // claims 10, has 5
-		_, err := DecodeSECS2Item(input)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "unexpected end of message")
-	})
-}
-
-func TestDecode_MaxListDepth(t *testing.T) {
-	t.Run("ExceedsMaxDepth", func(t *testing.T) {
-		// Build a deeply nested list structure that exceeds MaxListDepth
-		// Each nested list: 0x01 (List, 1 length byte), 0x01 (1 item)
-		nestedBytes := make([]byte, 0, 10+(MaxListDepth+2)*2)
-		nestedBytes = append(nestedBytes, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) // header
-
-		for range MaxListDepth + 2 {
-			nestedBytes = append(nestedBytes, 0x01, 0x01) // List with 1 item
-		}
-		// Add an empty ASCII item at the bottom
-		nestedBytes = append(nestedBytes, 0x41, 0x00) // Empty ASCII
-
-		_, err := DecodeMessage(uint32(len(nestedBytes)), nestedBytes)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "nesting depth exceeds maximum")
-	})
-
-	t.Run("AtMaxDepth_Succeeds", func(t *testing.T) {
-		// Build a list structure exactly at MaxListDepth - should succeed
-		nestedBytes := make([]byte, 0, 10+MaxListDepth*2+2)
-		nestedBytes = append(nestedBytes, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) // header
-
-		for range MaxListDepth {
-			nestedBytes = append(nestedBytes, 0x01, 0x01) // List with 1 item
-		}
-		// Add an empty ASCII item at the bottom
-		nestedBytes = append(nestedBytes, 0x41, 0x00) // Empty ASCII
-
-		_, err := DecodeMessage(uint32(len(nestedBytes)), nestedBytes)
-		require.NoError(t, err)
-	})
-}
-
-func TestDecode_ListAllocationCheck(t *testing.T) {
-	t.Run("ListClaimsMoreItemsThanBytes", func(t *testing.T) {
-		// List claims 1000 items but has very few bytes remaining
-		input := []byte{
-			0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // header
-			0x01, 0x02, 0x03, 0xe8, // List with 3-byte length = 1000 items
-			0x41, 0x00, // only one empty ASCII item
-		}
-		_, err := DecodeMessage(uint32(len(input)), input)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "list claims")
-	})
+	// Item() must still decode correctly.
+	decItem, decErr := dm.Item()
+	require.NoError(t, decErr)
+	origItem, _ := orig.Item()
+	assert.Equal(t, origItem.ToBytes(), decItem.ToBytes())
 }

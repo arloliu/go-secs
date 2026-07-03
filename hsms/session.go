@@ -1,117 +1,224 @@
 package hsms
 
 import (
-	"github.com/arloliu/go-secs/secs2"
+	"context"
+	"sync"
+	"sync/atomic"
+
+	"github.com/arloliu/go-secs/v2/secs2"
 )
 
-// Session defines the interface of an HSMS session within an HSMS connection.
-// It provides methods for sending and receiving messages, handling data messages, and managing
-// connection state change handlers.
-type Session interface {
-	// RegisterIDFunc registers a function to generate a unique ID for this session.
-	RegisterIDFunc(f func() uint16)
+// Compile-time assertion that *session implements SECS2Endpoint.
+var _ SECS2Endpoint = (*session)(nil)
 
-	// RegisterSendMessageFunc registers a function to send an HSMS message and wait for its reply.
-	RegisterSendMessageFunc(f func(msg HSMSMessage) (HSMSMessage, error))
+// session is the unexported concrete implementation of [SECS2Endpoint].
+// One session exists per HSMS-SS connection (single-session per E37.1).
+//
+// # Fan-out approach
+//
+// [session.recvDataMsg] delivers messages synchronously on the calling goroutine
+// (the epoch-joined recv loop, G3) to both func handlers and channel handlers:
+//
+//   - Func handlers ([DataMessageHandler]) are called directly; no goroutine is spawned.
+//   - Channel handlers (chan *[DataMessage]) are delivered via
+//     select { case ch <- msg: case <-rt.Done(): return }
+//     so a stalled receiver can never block the fan-out past connection teardown (J5).
+//
+// Because both paths are synchronous, no goroutines are spawned and no separate join
+// is needed (G3 is satisfied by the recv-loop epoch join, built in Task 19).
+//
+// # AddConnStateChangeHandler
+//
+// Spec §5.1 places state-change handlers on the Connection (atomic.Pointer[[]StateChangeHandler])
+// so they persist across Open/Close cycles while the supervisor is recreated per Open.
+// The session holds connHandlers, a pointer to the Connection's field. If connHandlers
+// is nil (pre-Task-13 wiring), the call is a documented no-op; Task 13 sets the real
+// pointer after constructing the session.
+type session struct {
+	id     uint16
+	rt     TransportRuntime
+	sysGen *sysBytesGen
 
-	// RegisterSendMessageAsyncFunc registers a function to send an HSMS message asynchronously.
-	RegisterSendMessageAsyncFunc(f func(msg HSMSMessage) error)
+	mu       sync.RWMutex
+	handlers []DataMessageHandler
+	chans    []chan *DataMessage
 
-	// ID returns the session ID for this session.
-	ID() uint16
+	// connHandlers points to the Connection's persistent state-change handler slice.
+	// nil until Task 13 wires it; AddConnStateChangeHandler is a no-op until then.
+	connHandlers *atomic.Pointer[[]StateChangeHandler]
+}
 
-	// SendMessage sends an HSMSMessage and waits for its reply.
-	//
-	// It returns the received reply message and an error if any occurred during sending or receiving.
-	SendMessage(msg HSMSMessage) (HSMSMessage, error)
+// newSession creates a session for the given id, backed by rt and sysGen.
+// connHandlers is deliberately not a constructor parameter; Task 13 sets
+// s.connHandlers = &connection.handlers after calling newSession.
+func newSession(id uint16, rt TransportRuntime, sysGen *sysBytesGen) *session {
+	return &session{
+		id:     id,
+		rt:     rt,
+		sysGen: sysGen,
+	}
+}
 
-	// SendMessageAsync sends an HSMSMessage asynchronously.
-	//
-	// It sends the message  and returns immediately after sending,
-	// and let user specified data message handler to receive reply if any.
-	SendMessageAsync(msg HSMSMessage) error
+// SessionID returns the HSMS session ID. Never blocks.
+func (s *session) SessionID() uint16 { return s.id }
 
-	// SendMessageSync sends an HSMSMessage synchronously.
-	//
-	// It sends the message and blocks until it's sent to the connection's underlying transport layer.
-	// It returns an error if any occurred during sending.
-	//
-	// Note: it does not wait for a reply.
-	//
-	// Added in v1.8.0
-	SendMessageSync(msg HSMSMessage) error
+// SendDataMessage builds a primary data message and delegates to rt.WriteMessage.
+// When replyExpected is true, WriteMessage waits for the T3-bounded reply; the B1
+// IsSelected gate, I1 inflight accounting, and T3 timer enforcement are all owned
+// by the engine (Task 12) inside WriteMessage — not here.
+func (s *session) SendDataMessage(ctx context.Context, stream, function byte, replyExpected bool, item secs2.Item) (*DataMessage, error) {
+	msg, err := NewDataMessage(stream, function, replyExpected, s.rt.SessionID(), s.sysGen.next(), item)
+	if err != nil {
+		return nil, err
+	}
 
-	// SendSECS2Message sends a SECS-II message and waits for its reply.
-	//
-	// It returns the received reply message (as a DataMessage) and an error if any occurred during sending or receiving.
-	//
-	// Item ownership: implementations take ownership of msg.Item() and will
-	// Free it. Callers must not retain a reference to msg.Item() after this
-	// call or Free it themselves. Clone before each call if you need to
-	// reuse the same item.
-	SendSECS2Message(msg secs2.SECS2Message) (*DataMessage, error)
+	reply, err := s.rt.WriteMessage(ctx, msg)
+	if err != nil {
+		return nil, err
+	}
 
-	// SendSECS2MessageAsync sends a SECS-II message asynchronously.
-	//
-	// It sends the message and returns immediately after sending,
-	// and let user specified data message handler to receive reply if any.
-	//
-	// Item ownership: same contract as [Session.SendSECS2Message].
-	SendSECS2MessageAsync(msg secs2.SECS2Message) error
+	// nil interface → (nil, false); typed-nil is returned as nil.
+	dm, _ := reply.(*DataMessage)
 
-	// SendDataMessage sends an HSMS data message with the specified stream, function, and data item.
-	//
-	// It waits for a reply if replyExpected is true.
-	// It returns the received reply DataMessage if replyExpected is true, nil otherwise,
-	// and and an error if any occurred during sending or receiving.
-	//
-	// Item ownership: implementations take ownership of dataItem and will
-	// Free it (on success or on internal send failure). Callers must not
-	// retain the reference and must not Free dataItem themselves, regardless
-	// of whether the call succeeds or returns an error. If you need to
-	// retry with the same logical item, call dataItem.Clone() before each
-	// attempt: passing the original would reuse a pointer the library has
-	// already returned to the SECS-II item pool and could race with
-	// concurrent decoders. The returned reply DataMessage (on success with
-	// replyExpected) is owned by the caller; Free it after use.
-	SendDataMessage(stream byte, function byte, replyExpected bool, dataItem secs2.Item) (*DataMessage, error)
+	return dm, nil
+}
 
-	// SendDataMessageAsync sends an HSMS data message asynchronously.
-	//
-	// It sends the message and returns immediately after sending,
-	// and let user specified data message handler to receive reply if any.
-	//
-	// Item ownership: same contract as [Session.SendDataMessage].
-	SendDataMessageAsync(stream byte, function byte, replyExpected bool, dataItem secs2.Item) error
+// SendDataMessageAsync builds a data message and enqueues it on the per-generation
+// async send channel via rt.SendAsync. No reply is awaited.
+func (s *session) SendDataMessageAsync(ctx context.Context, stream, function byte, replyExpected bool, item secs2.Item) error {
+	msg, err := NewDataMessage(stream, function, replyExpected, s.rt.SessionID(), s.sysGen.next(), item)
+	if err != nil {
+		return err
+	}
 
-	// ReplyDataMessage sends a reply to a previously received data message.
-	//
-	// It takes the original primary DataMessage and the data item for the reply as arguments.
-	// It returns an error if any occurred during sending the reply.
-	//
-	// It is a wrapper method to reply data message with the corresponding function code of primary message.
-	//
-	// Item ownership: implementations take ownership of dataItem. Passing
-	// primaryMsg.Item() shares the pointer between primaryMsg and the
-	// reply — the library will Free that shared pointer when the reply is
-	// sent, so any later access to primaryMsg.Item() (including another
-	// ReplyDataMessage or Free'ing primaryMsg) is use-after-free. Pass
-	// primaryMsg.Item().Clone() if you intend to keep primaryMsg usable
-	// after this call.
-	ReplyDataMessage(primaryMsg *DataMessage, dataItem secs2.Item) error
+	return s.rt.SendAsync(ctx, msg)
+}
 
-	// AddConnStateChangeHandler adds one or more ConnStateChangeHandler
-	// functions to be invoked when the connection state changes.
-	//
-	// Implementations dispatch handlers asynchronously on a dedicated
-	// goroutine, so handlers may perform blocking work (including sending
-	// messages with the W-bit set). See [ConnStateChangeHandler] for the
-	// full contract.
-	AddConnStateChangeHandler(handlers ...ConnStateChangeHandler)
+// SendSECS2Message builds an HSMS DataMessage from a [secs2.SECS2Message] (stream,
+// function, W-bit, item) and delegates to rt.WriteMessage. Returns the reply DataMessage
+// when the W-bit is set.
+func (s *session) SendSECS2Message(ctx context.Context, msg secs2.SECS2Message) (*DataMessage, error) {
+	dm, err := NewDataMessage(
+		msg.StreamCode(), msg.FunctionCode(), msg.WaitBit(),
+		s.rt.SessionID(), s.sysGen.next(), msg.Item(),
+	)
+	if err != nil {
+		return nil, err
+	}
 
-	// AddDataMessageHandler adds one or more DataMessageHandler functions to be invoked when a data message is received.
-	//
-	// It is used to handle data messages asynchronously.
-	// The handlers are invoked in the order they are added.
-	AddDataMessageHandler(handlers ...DataMessageHandler)
+	reply, err := s.rt.WriteMessage(ctx, dm)
+	if err != nil {
+		return nil, err
+	}
+
+	dataReply, _ := reply.(*DataMessage)
+
+	return dataReply, nil
+}
+
+// ReplyDataMessage sends a secondary data message in reply to primary. The reply function
+// is primary.Function()+1 (SECS-II secondary-function convention: primary is odd, reply is
+// even), replyExpected is false, and system bytes are taken verbatim from primary
+// (E37 §8.2.6.9 — system bytes must match). The message is enqueued via rt.SendAsync
+// (no W-bit, no reply correlation needed).
+func (s *session) ReplyDataMessage(ctx context.Context, primary *DataMessage, item secs2.Item) error {
+	dm, err := NewDataMessage(
+		primary.Stream(),
+		primary.Function()+1, // SECS-II secondary function = primary function + 1
+		false,                // no W-bit on reply messages
+		s.rt.SessionID(),
+		primary.SystemBytes(), // verbatim primary system bytes (E37 §8.2.6.9)
+		item,
+	)
+	if err != nil {
+		return err
+	}
+
+	return s.rt.SendAsync(ctx, dm)
+}
+
+// AddDataMessageHandler appends one or more inbound data-message handlers under mu.Lock.
+// recvDataMsg snapshots the slice header under RLock, so concurrent registration and
+// delivery are race-free.
+func (s *session) AddDataMessageHandler(handlers ...DataMessageHandler) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.handlers = append(s.handlers, handlers...)
+}
+
+// addChanHandler adds a channel-based data-message handler (unexported). The session
+// delivers each inbound message to ch via a select that includes rt.Done() (J5),
+// so a full channel can never block the fan-out past connection teardown. Called by
+// the connection engine and in tests.
+func (s *session) addChanHandler(ch chan *DataMessage) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.chans = append(s.chans, ch)
+}
+
+// AddConnStateChangeHandler registers state-change handlers on the Connection's
+// persistent handler slice (spec §5.1). Uses a lock-free CAS loop to append atomically
+// to the atomic.Pointer[[]StateChangeHandler] held by connHandlers.
+//
+// If connHandlers is nil (pre-Task-13 wiring), this call is a no-op; Task 13 wires the
+// real pointer after session construction so subsequent calls reach the Connection's
+// persistent storage.
+func (s *session) AddConnStateChangeHandler(handlers ...StateChangeHandler) {
+	if s.connHandlers == nil || len(handlers) == 0 {
+		return
+	}
+
+	for {
+		old := s.connHandlers.Load()
+		var newSlice []StateChangeHandler
+
+		if old != nil {
+			newSlice = make([]StateChangeHandler, len(*old)+len(handlers))
+			copy(newSlice, *old)
+			copy(newSlice[len(*old):], handlers)
+		} else {
+			newSlice = make([]StateChangeHandler, len(handlers))
+			copy(newSlice, handlers)
+		}
+
+		if s.connHandlers.CompareAndSwap(old, &newSlice) {
+			return
+		}
+	}
+}
+
+// recvDataMsg delivers msg to every registered handler synchronously (§5.4, J5/G3).
+// The same immutable *DataMessage pointer is passed to every handler — no Clone (D7).
+//
+// Fan-out order:
+//  1. Func handlers ([DataMessageHandler]) are called directly (no goroutine spawned).
+//  2. Channel handlers are delivered via
+//     select { case ch <- msg: case <-s.rt.Done(): return }
+//     so a full/stalled channel never blocks the fan-out past connection teardown (J5).
+//
+// Returns immediately if there are no handlers or if the generation is already torn down.
+func (s *session) recvDataMsg(msg *DataMessage) {
+	// Fast-path exit if the generation is already torn down.
+	select {
+	case <-s.rt.Done():
+		return
+	default:
+	}
+
+	s.mu.RLock()
+	handlers := s.handlers
+	chans := s.chans
+	s.mu.RUnlock()
+
+	for _, h := range handlers {
+		h(msg, s)
+	}
+
+	for _, ch := range chans {
+		select {
+		case ch <- msg:
+		case <-s.rt.Done():
+			return
+		}
+	}
 }

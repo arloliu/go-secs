@@ -3,335 +3,200 @@ package hsms
 import (
 	"encoding/binary"
 	"errors"
-
-	"github.com/arloliu/go-secs/internal/util"
-	"github.com/arloliu/go-secs/secs2"
 )
 
-// ControlMessage represents a HSMS control message.
+// ControlMessage is an immutable HSMS control message.
 //
-// It implements the HSMSMessage and secs2.SECS2Message interfaces.
+// The header is stored as a [10]byte value — not a slice — so every copy of
+// the struct owns its own header bytes. WithSessionID / WithSystemBytes return
+// a new *ControlMessage; no method mutates the receiver.
 type ControlMessage struct {
-	header        []byte
-	err           error
+	header        [10]byte
 	replyExpected bool
 }
 
-// ensure ControlMessage implements hsms.HSMSMessage and secs2.SECS2Message interfaces.
-var (
-	_ HSMSMessage        = (*ControlMessage)(nil)
-	_ secs2.SECS2Message = (*ControlMessage)(nil)
-)
+// Ensure *ControlMessage satisfies the Message interface.
+var _ Message = (*ControlMessage)(nil)
 
-// NewControlMessage creates HSMS control message from header bytes.
-// The header should have appropriate values as specified in HSMS specification.
-func NewControlMessage(header []byte, replyExpected bool) HSMSMessage {
-	return &ControlMessage{header: util.CloneSlice(header, 10), replyExpected: replyExpected}
-}
+// ────────────────────────────────────────────────────────────────
+// Message interface implementation
+// ────────────────────────────────────────────────────────────────
 
-// Type returns the message type of the control message.
-//
-// It implements the Type method of the HSMSMessage interface.
-func (msg *ControlMessage) Type() int {
-	stype := int(msg.header[5])
-	_, ok := hsmsMsgTypeMap[stype]
-	if !ok {
-		return UndefiniedMsgType
+// Type returns the HSMS SType for this control message (header byte 5).
+// Returns UndefinedMsgType if the SType byte is not a defined SEMI E37 value.
+func (msg *ControlMessage) Type() MsgType {
+	s := msg.header[5]
+	if !IsValidSType(s) {
+		return UndefinedMsgType
 	}
 
-	return stype
+	return MsgType(s)
 }
 
-// ID returns a numeric representation of the system bytes (message ID).
-//
-// It implements the ID method of the HSMSMessage interface.
-func (msg *ControlMessage) ID() uint32 {
-	return binary.BigEndian.Uint32(msg.header[6:10])
-}
-
-// SetID sets the system bytes (message ID) of the control message.
-// It will convert the id to 4-byte big-endian representation and set it in the header.
-//
-// It implements the SetID method of the HSMSMessage interface.
-func (msg *ControlMessage) SetID(id uint32) {
-	systemBytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(systemBytes, id)
-	copy(msg.header[6:10], systemBytes)
-}
-
-// SessionID returns the session id of the control message.
-//
-// It implements the SessionID() method of the HSMSMessage interface.
+// SessionID returns the session ID encoded in header bytes 0–1 (big-endian).
 func (msg *ControlMessage) SessionID() uint16 {
-	return binary.BigEndian.Uint16(msg.header[:2])
+	return binary.BigEndian.Uint16(msg.header[0:2])
 }
 
-// SetSessionID sets the session id of the control message.
-// It will convert the sessionID to 2-byte big-endian representation and set it in the header.
-//
-// It implements the SetSessionID method of the HSMSMessage interface.
-func (msg *ControlMessage) SetSessionID(sessionID uint16) {
-	binary.BigEndian.PutUint16(msg.header[:2], sessionID)
+// SystemBytes returns a copy of header bytes 6–9 as a [4]byte value.
+func (msg *ControlMessage) SystemBytes() [4]byte {
+	var sb [4]byte
+	copy(sb[:], msg.header[6:10])
+
+	return sb
 }
 
-// SystemBytes returns the 4-byte system bytes (message ID).
-//
-// It implements the SystemBytes method of the HSMSMessage interface.
-func (msg *ControlMessage) SystemBytes() []byte {
-	return msg.header[6:10]
-}
-
-// SetSystemBytes sets system bytes to the control message.
-// It will return error if the systemBytes is not 4 bytes.
-//
-// It implements the SetSystemBytes method of the HSMSMessage interface.
-func (msg *ControlMessage) SetSystemBytes(systemBytes []byte) error {
-	if len(systemBytes) != 4 {
-		return ErrInvalidSystemBytes
-	}
-
-	copy(msg.header[6:10], systemBytes)
-
-	return nil
-}
-
-// Error returns the error associated with the control message.
-//
-// It implements the Error method of the HSMSMessage interface.
-func (msg *ControlMessage) Error() error {
-	if msg == nil {
-		return nil
-	}
-
-	return msg.err
-}
-
-// SetError sets the error of the control message.
-// It is used to indicate an error condition in the message.
-//
-// It implements the SetError method of the HSMSMessage interface.
-func (msg *ControlMessage) SetError(err error) {
-	if msg == nil {
-		return
-	}
-
-	msg.err = err
-}
-
-// Header returns the 10-byte control message header
-//
-// It implements the Header method of the HSMSMessage interface.
-func (msg *ControlMessage) Header() []byte {
+// HeaderBytes returns a copy of the full 10-byte HSMS header as a value.
+func (msg *ControlMessage) HeaderBytes() [10]byte {
 	return msg.header
 }
 
-// SetHeader sets the header of the control message.
-// It will return error if the header is invalid.
-//
-// It implements the SetHeader method of the HSMSMessage interface.
-func (msg *ControlMessage) SetHeader(header []byte) error {
-	if len(header) != 10 {
-		return ErrInvalidHeaderLength
-	}
-
-	if header[4] != 0 {
-		return ErrInvalidPType
-	}
-
-	if header[5] < 1 || header[5] > 9 {
-		return ErrInvalidControlMsgSType
-	}
-
-	msg.header = util.CloneSlice(header, 10)
-
-	return nil
-}
-
-// ToBytes returns the HSMS byte representation of the control message.
-//
-// It implements the ToBytes method of the HSMSMessage interface.
+// ToBytes serializes the control message to its on-wire representation:
+// a 4-byte length prefix (always 0x00_00_00_0A = 10) followed by the
+// 10-byte header. The returned slice is always exactly 14 bytes.
 func (msg *ControlMessage) ToBytes() []byte {
-	result := make([]byte, 0, 14)
-	result = append(result, 0, 0, 0, 10)        // 4 bytes: message length, MSB first.
-	result = append(result, msg.header[:10]...) // 10 bytes: message header
+	out := make([]byte, 14)
+	out[0] = 0x00
+	out[1] = 0x00
+	out[2] = 0x00
+	out[3] = 0x0A // body length = 10 (the header itself; control has no payload)
+	copy(out[4:], msg.header[:])
 
-	return result
+	return out
 }
 
-// MarshalBinary serializes the control message into its byte representation for transmission.
-//
-// It implements the MarshalBinary method of the encoding.BinaryMarshaler interface.
-func (msg *ControlMessage) MarshalBinary() ([]byte, error) {
-	return msg.ToBytes(), nil
-}
+// ────────────────────────────────────────────────────────────────
+// Additional accessors
+// ────────────────────────────────────────────────────────────────
 
-// UnmarshalBinary deserializes the byte data into the HSMS control message.
-//
-// It implements the UnmarshalBinary method of encoding.BinaryUnmarshaler interface.
-func (msg *ControlMessage) UnmarshalBinary(data []byte) error {
-	m, err := DecodeHSMSMessage(data)
-	if err != nil {
-		return err
-	}
-
-	cMsg, ok := m.ToControlMessage()
-	if !ok {
-		return errors.New("expected control message")
-	}
-
-	*msg = *cMsg
-
-	return nil
-}
-
-// StreamCode returns the stream code for the control message.
-//
-// It implements the StreamCode method of the secs2.SECS2Message interface.
-func (msg *ControlMessage) StreamCode() uint8 {
-	return msg.header[2]
-}
-
-// FunctionCode returns the header[3] for the control message, it's defined by different control message type.
-//
-// It implements the FunctionCode method of the secs2.SECS2Message interface.
-func (msg *ControlMessage) FunctionCode() uint8 {
-	return msg.header[3]
-}
-
-// WaitBit returnes the boolean representation to indicates WBit is set
-//
-// It implements the WaitBit method of the secs2.SECS2Message interface.
+// WaitBit reports whether the reply-expected flag is set for this message.
 func (msg *ControlMessage) WaitBit() bool {
 	return msg.replyExpected
 }
 
-// Item returns empty SECS-II data item for control message.
-//
-// It implements the Item method of the secs2.SECS2Message interface.
-func (msg *ControlMessage) Item() secs2.Item {
-	return secs2.NewEmptyItem()
+// RejectReasonCode returns the reject reason code from a Reject.req message.
+// It delegates to GetRejectReasonCode and is provided as a convenience method.
+// The returned code matches [RejectError.Reason] (a byte).
+func (msg *ControlMessage) RejectReasonCode() (byte, error) {
+	return GetRejectReasonCode(msg)
 }
 
-// IsControlMessage returns true, indicating that the message is a control message.
-//
-// It implements the IsControlMessage method of the HSMSMessage interface.
-func (msg *ControlMessage) IsControlMessage() bool {
-	return true
+// ────────────────────────────────────────────────────────────────
+// Immutable mutators — return a new *ControlMessage
+// ────────────────────────────────────────────────────────────────
+
+// WithSessionID returns a new *ControlMessage identical to msg except that
+// the session ID in header bytes 0–1 is replaced by id.
+func (msg *ControlMessage) WithSessionID(id uint16) *ControlMessage {
+	n := *msg // copy header value + replyExpected
+	binary.BigEndian.PutUint16(n.header[0:2], id)
+
+	return &n
 }
 
-// ToControlMessage converts the message to an control message.
-// Since the message is already a ControlMessage, it returns a pointer to itself and true.
-//
-// It implements the ToControlMessage method of the HSMSMessage interface.
-func (msg *ControlMessage) ToControlMessage() (*ControlMessage, bool) {
-	return msg, true
+// WithSystemBytes returns a new *ControlMessage identical to msg except that
+// header bytes 6–9 are replaced by b.
+func (msg *ControlMessage) WithSystemBytes(b [4]byte) *ControlMessage {
+	n := *msg
+	n.header[6] = b[0]
+	n.header[7] = b[1]
+	n.header[8] = b[2]
+	n.header[9] = b[3]
+
+	return &n
 }
 
-// IsDataMessage returns false, indicating that the message is not a data message.
-//
-// It implements the IsDataMessage() method of the HSMSMessage interface.
-func (msg *ControlMessage) IsDataMessage() bool {
-	return false
-}
-
-// ToDataMessage attempts to convert the message to an data message.
-// Since a ControlMessage cannot be converted to a DataMessage, it always returns nil and false.
-//
-// It implements the ToDataMessage method of the HSMSMessage interface.
-func (msg *ControlMessage) ToDataMessage() (*DataMessage, bool) {
-	return nil, false
-}
-
-// Free takes no action for control message.
-// It is a no-op method, as control messages do not require resource cleanup like data messages do.
-//
-// It implements the Free() method of the HSMSMessage interface.
-func (msg *ControlMessage) Free() {}
-
-// Clone creates a deep copy of the message, allowing modifications to the clone without affecting the original message.
-//
-// It implements the Clone method of the HSMSMessage interface.
-func (msg *ControlMessage) Clone() HSMSMessage {
-	cloned := &ControlMessage{header: make([]byte, 10), replyExpected: msg.replyExpected}
-	copy(cloned.header, msg.header)
-	return cloned
-}
-
-// NewSelectReq creates HSMS Select.req control message.
-// systemBytes should have length of 4.
-func NewSelectReq(sessionID uint16, systemBytes []byte) *ControlMessage {
-	header := make([]byte, 10)
-	header[0] = byte((sessionID >> 8) & 0xFF)
-	header[1] = byte(sessionID & 0xFF)
-	header[5] = SelectReqType
-	header[6] = systemBytes[0]
-	header[7] = systemBytes[1]
-	header[8] = systemBytes[2]
-	header[9] = systemBytes[3]
-
-	return &ControlMessage{header: header, replyExpected: true}
-}
+// ────────────────────────────────────────────────────────────────
+// Status constants
+// ────────────────────────────────────────────────────────────────
 
 const (
 	// SelectStatusSuccess indicates that communication is successfully established.
 	SelectStatusSuccess = 0
-	// SelectStatusActived indicates that communication is already actived.
-	SelectStatusActived = 1
+	// SelectStatusAlreadyActive indicates that communication is already active.
+	SelectStatusAlreadyActive = 1
 	// SelectStatusNotReady indicates that communication is not ready.
 	SelectStatusNotReady = 2
-	// SelectStatusAlreadyUsed indicates that TCP/IP port is exhausted, another connection already established.
+	// SelectStatusAlreadyUsed indicates that the TCP/IP port is exhausted;
+	// another connection is already established.
 	SelectStatusAlreadyUsed = 3
-
-	// SelectStatusEntityUnknown indicates that entity(session) is not supported.
-	// this status only relevant for HSMS-GS.
+	// SelectStatusEntityUnknown indicates that the entity (session) is not supported.
+	// This status is only relevant for HSMS-GS.
 	SelectStatusEntityUnknown = 4
-	// SelectStatusEntityAlreadyUsed indicates that entity(session) is already used by others.
+	// SelectStatusEntityAlreadyUsed indicates that the entity (session) is already used by others.
 	SelectStatusEntityAlreadyUsed = 5
-	// SelectStatusEntitActived indicates that entity(session) is already actived.
-	SelectStatusEntitActived = 6
+	// SelectStatusEntityAlreadyActive indicates that the entity (session) is already active.
+	SelectStatusEntityAlreadyActive = 6
 
 	// DeselectStatusSuccess indicates that communication is successfully ended.
 	DeselectStatusSuccess = 0
 	// DeselectStatusNotEstablished indicates that HSMS communication has not yet been
-	// established with a select, or has already been ended with a previous deselect.
+	// established with a Select, or has already been ended with a previous Deselect.
 	DeselectStatusNotEstablished = 1
-	// DeselectStatusBusy indicates that the session is still in use by the responding entity
-	// and so it cannot yet relinquish it gracefully.
+	// DeselectStatusBusy indicates that the session is still in use and cannot
+	// yet be relinquished gracefully.
 	DeselectStatusBusy = 2
 )
 
-// NewSelectRsp creates HSMS Select.rsp control message from Select.req message.
-// selectStatus 0 means that communication is successfully established,
-// 1 means that communication is already actived,
-// 2 means that communication is not ready,
-// 3 means that connection that TCP/IP port is exhausted (for HSMS-SS passive mode),
-// 4-255 are reserved failure reason codes.
-func NewSelectRsp(selectReq HSMSMessage, selectStatus byte) (*ControlMessage, error) {
-	if selectReq.Type() != SelectReqType {
+// Reject reason code constants for Reject.req control messages (SEMI E37 §7.9).
+const (
+	// RejectSTypeNotSupported indicates the received message's SType is not supported.
+	RejectSTypeNotSupported = 1
+	// RejectPTypeNotSupported indicates the received message's PType is not supported.
+	RejectPTypeNotSupported = 2
+	// RejectTransactionNotOpen indicates the transaction is not open (response received without request).
+	RejectTransactionNotOpen = 3
+	// RejectNotSelected indicates a data message was received in non-selected state.
+	RejectNotSelected = 4
+)
+
+// ────────────────────────────────────────────────────────────────
+// Factories
+// ────────────────────────────────────────────────────────────────
+
+// NewSelectReq creates an HSMS Select.req control message.
+func NewSelectReq(sessionID uint16, systemBytes [4]byte) *ControlMessage {
+	var header [10]byte
+	binary.BigEndian.PutUint16(header[0:2], sessionID)
+	header[5] = byte(SelectReqType)
+	header[6] = systemBytes[0]
+	header[7] = systemBytes[1]
+	header[8] = systemBytes[2]
+	header[9] = systemBytes[3]
+
+	return &ControlMessage{header: header, replyExpected: true}
+}
+
+// NewSelectRsp creates an HSMS Select.rsp control message from a Select.req.
+//
+// req must be non-nil.
+//
+// selectStatus 0 = communication successfully established;
+// 1 = already active; 2 = not ready; 3 = TCP/IP port exhausted;
+// 4–255 = reserved failure codes.
+func NewSelectRsp(req *ControlMessage, selectStatus byte) (*ControlMessage, error) {
+	if req.Type() != SelectReqType {
 		return nil, errors.New("expected select.req message")
 	}
 
-	header := make([]byte, 10)
-	msg, _ := selectReq.(*ControlMessage)
-	header[0] = msg.header[0]
-	header[1] = msg.header[1]
+	var header [10]byte
+	header[0] = req.header[0]
+	header[1] = req.header[1]
 	header[3] = selectStatus
-	header[5] = SelectRspType
-	header[6] = msg.header[6]
-	header[7] = msg.header[7]
-	header[8] = msg.header[8]
-	header[9] = msg.header[9]
+	header[5] = byte(SelectRspType)
+	header[6] = req.header[6]
+	header[7] = req.header[7]
+	header[8] = req.header[8]
+	header[9] = req.header[9]
 
 	return &ControlMessage{header: header, replyExpected: false}, nil
 }
 
-// NewDeselectReq creates HSMS Deselect.req control message.
-// systemBytes should have length of 4.
-func NewDeselectReq(sessionID uint16, systemBytes []byte) *ControlMessage {
-	header := make([]byte, 10)
-	header[0] = byte((sessionID >> 8) & 0xFF)
-	header[1] = byte(sessionID & 0xFF)
-	header[5] = DeselectReqType
+// NewDeselectReq creates an HSMS Deselect.req control message.
+func NewDeselectReq(sessionID uint16, systemBytes [4]byte) *ControlMessage {
+	var header [10]byte
+	binary.BigEndian.PutUint16(header[0:2], sessionID)
+	header[5] = byte(DeselectReqType)
 	header[6] = systemBytes[0]
 	header[7] = systemBytes[1]
 	header[8] = systemBytes[2]
@@ -340,37 +205,39 @@ func NewDeselectReq(sessionID uint16, systemBytes []byte) *ControlMessage {
 	return &ControlMessage{header: header, replyExpected: true}
 }
 
-// NewDeselectRsp creates HSMS Deselect.rsp control message from Deselect.req message.
-// deselectStatus 0 means that the connection is successfully ended,
-// 1 means that communication is not yet established,
-// 2 means that communication is busy and cannot yet be relinquished,
-// 3-255 are reserved failure reason codes.
-func NewDeselectRsp(deselectReq HSMSMessage, deselectStatus byte) (*ControlMessage, error) {
-	if deselectReq.Type() != DeselectReqType {
+// NewDeselectRsp creates an HSMS Deselect.rsp control message from a Deselect.req.
+//
+// req must be non-nil.
+//
+// deselectStatus 0 = connection successfully ended;
+// 1 = communication not yet established;
+// 2 = busy, cannot yet relinquish;
+// 3–255 = reserved failure codes.
+func NewDeselectRsp(req *ControlMessage, deselectStatus byte) (*ControlMessage, error) {
+	if req.Type() != DeselectReqType {
 		return nil, errors.New("expected deselect.req message")
 	}
 
-	header := make([]byte, 10)
-	msg, _ := deselectReq.(*ControlMessage)
-	header[0] = msg.header[0]
-	header[1] = msg.header[1]
+	var header [10]byte
+	header[0] = req.header[0]
+	header[1] = req.header[1]
 	header[3] = deselectStatus
-	header[5] = DeselectRspType
-	header[6] = msg.header[6]
-	header[7] = msg.header[7]
-	header[8] = msg.header[8]
-	header[9] = msg.header[9]
+	header[5] = byte(DeselectRspType)
+	header[6] = req.header[6]
+	header[7] = req.header[7]
+	header[8] = req.header[8]
+	header[9] = req.header[9]
 
 	return &ControlMessage{header: header, replyExpected: false}, nil
 }
 
-// NewLinktestReq creates HSMS Linktest.req control message.
-// systemBytes should have length of 4.
-func NewLinktestReq(systemBytes []byte) *ControlMessage {
-	header := make([]byte, 10)
+// NewLinktestReq creates an HSMS Linktest.req control message.
+// Per SEMI E37, the session ID for Linktest messages is always 0xFFFF.
+func NewLinktestReq(systemBytes [4]byte) *ControlMessage {
+	var header [10]byte
 	header[0] = 0xFF
 	header[1] = 0xFF
-	header[5] = LinkTestReqType
+	header[5] = byte(LinktestReqType)
 	header[6] = systemBytes[0]
 	header[7] = systemBytes[1]
 	header[8] = systemBytes[2]
@@ -379,129 +246,111 @@ func NewLinktestReq(systemBytes []byte) *ControlMessage {
 	return &ControlMessage{header: header, replyExpected: true}
 }
 
-// NewLinktestRsp creates HSMS Linktest.rsp control message from Linktest.req message.
-func NewLinktestRsp(linktestReq HSMSMessage) (*ControlMessage, error) {
-	if linktestReq.Type() != LinkTestReqType {
+// NewLinktestRsp creates an HSMS Linktest.rsp control message from a Linktest.req.
+// req must be non-nil.
+func NewLinktestRsp(req *ControlMessage) (*ControlMessage, error) {
+	if req.Type() != LinktestReqType {
 		return nil, errors.New("expected linktest.req message")
 	}
 
-	header := make([]byte, 10)
-	msg, _ := linktestReq.(*ControlMessage)
+	var header [10]byte
 	header[0] = 0xFF
 	header[1] = 0xFF
-	header[5] = LinkTestRspType
-	header[6] = msg.header[6]
-	header[7] = msg.header[7]
-	header[8] = msg.header[8]
-	header[9] = msg.header[9]
+	header[5] = byte(LinktestRspType)
+	header[6] = req.header[6]
+	header[7] = req.header[7]
+	header[8] = req.header[8]
+	header[9] = req.header[9]
 
 	return &ControlMessage{header: header, replyExpected: false}, nil
 }
 
-// Reject code contstants defining reason codes of Reject.req control message.
-const (
-	RejectSTypeNotSupported  = 1 // received message's sType is not supported,
-	RejectPTypeNotSupported  = 2 // received message's pType is not supported,
-	RejectTransactionNotOpen = 3 // transaction is not open, i.e. response message was received without request,
-	RejectNotSelected        = 4 // data message is received in non-selected state,
-)
-
-// NewRejectReq creates HSMS Reject.req control message.
-//
-// recvMsg should be the HSMS message being rejected.
-//
-// reasonCode should be non-zero,
-//   - 1 means that received message's sType is not supported,
-//   - 2 means that received message's pType is not supported,
-//   - 3 means that transaction is not open, i.e. response message was received without request,
-//   - 4 means that data message is received in non-selected state,
-//   - 5-255 are reserved reason codes.
-func NewRejectReq(recvMsg HSMSMessage, reasonCode byte) *ControlMessage {
-	header := make([]byte, 10)
-	if recvMsg.Type() == DataMsgType {
-		msg, _ := recvMsg.ToDataMessage()
-		header[0] = byte((msg.sessionID >> 8) & 0xFF)
-		header[1] = byte(msg.sessionID & 0xFF)
-		header[2] = 0 // the sType and pType of data message is always zero
-		copy(header[6:10], msg.systemBytes[:])
-	} else {
-		msg, _ := recvMsg.ToControlMessage()
-		header[0] = msg.header[0]
-		header[1] = msg.header[1]
-		if reasonCode == RejectPTypeNotSupported {
-			header[2] = msg.header[4]
-		} else {
-			header[2] = msg.header[5]
-		}
-		copy(header[6:10], msg.header[6:10])
-	}
-
-	header[3] = reasonCode
-	header[5] = RejectReqType
+// NewSeparateReq creates an HSMS Separate.req control message.
+func NewSeparateReq(sessionID uint16, systemBytes [4]byte) *ControlMessage {
+	var header [10]byte
+	binary.BigEndian.PutUint16(header[0:2], sessionID)
+	header[5] = byte(SeparateReqType)
+	header[6] = systemBytes[0]
+	header[7] = systemBytes[1]
+	header[8] = systemBytes[2]
+	header[9] = systemBytes[3]
 
 	return &ControlMessage{header: header, replyExpected: false}
 }
 
-// GetRejectReasonCode extracts the reason code from a Reject.req message.
-func GetRejectReasonCode(recvMsg HSMSMessage) (int, error) {
-	if recvMsg.Type() != RejectReqType {
+// NewRejectReq creates an HSMS Reject.req control message for a received message.
+//
+// rejected must be non-nil; it is the message being rejected. reasonCode values:
+//   - 1 (RejectSTypeNotSupported): SType not supported; header[2] = sType of rejected.
+//   - 2 (RejectPTypeNotSupported): PType not supported; header[2] = pType of rejected.
+//   - 3 (RejectTransactionNotOpen): transaction not open.
+//   - 4 (RejectNotSelected): data message received in non-selected state.
+func NewRejectReq(rejected Message, reasonCode byte) *ControlMessage {
+	var header [10]byte
+	binary.BigEndian.PutUint16(header[0:2], rejected.SessionID())
+
+	if rejected.Type() == DataMsgType {
+		// pType and sType are always 0 for data messages
+		header[2] = 0
+	} else {
+		hdr := rejected.HeaderBytes()
+		if reasonCode == RejectPTypeNotSupported {
+			header[2] = hdr[4] // pType
+		} else {
+			header[2] = hdr[5] // sType
+		}
+	}
+
+	header[3] = reasonCode
+	header[5] = byte(RejectReqType)
+	sb := rejected.SystemBytes()
+	header[6] = sb[0]
+	header[7] = sb[1]
+	header[8] = sb[2]
+	header[9] = sb[3]
+
+	return &ControlMessage{header: header, replyExpected: false}
+}
+
+// NewRejectReqRaw creates an HSMS Reject.req control message from raw field values.
+//
+// sessionID, pType, sType, and systemBytes should be copied from the rejected message.
+// reasonCode values: 1–4 as for NewRejectReq; 5–255 are reserved.
+func NewRejectReqRaw(sessionID uint16, pType, sType byte, systemBytes [4]byte, reasonCode byte) *ControlMessage {
+	var header [10]byte
+	binary.BigEndian.PutUint16(header[0:2], sessionID)
+
+	if reasonCode == RejectPTypeNotSupported {
+		header[2] = pType
+	} else {
+		header[2] = sType
+	}
+
+	header[3] = reasonCode
+	header[5] = byte(RejectReqType)
+	header[6] = systemBytes[0]
+	header[7] = systemBytes[1]
+	header[8] = systemBytes[2]
+	header[9] = systemBytes[3]
+
+	return &ControlMessage{header: header, replyExpected: false}
+}
+
+// GetRejectReasonCode extracts and validates the reason code from a Reject.req message.
+// Returns ErrInvalidRejectMsg if msg is not a Reject.req, or ErrInvalidRejectReason
+// if the reason code is outside [1, 4]. The returned code is a byte, matching
+// [RejectError.Reason].
+func GetRejectReasonCode(msg Message) (byte, error) {
+	if msg.Type() != RejectReqType {
 		return 0, ErrInvalidRejectMsg
 	}
 
-	msg, _ := recvMsg.ToControlMessage()
-	if len(msg.header) < 10 {
-		return 0, ErrInvalidHeaderLength
-	}
+	hdr := msg.HeaderBytes()
+	reasonCode := hdr[3]
 
-	reasonCode := int(msg.header[3])
 	if reasonCode < RejectSTypeNotSupported || reasonCode > RejectNotSelected {
 		return 0, ErrInvalidRejectReason
 	}
 
 	return reasonCode, nil
-}
-
-// NewRejectReqRaw creates HSMS Reject.req control message.
-//
-// sessionID, pType, sType, and systemBytes should be same as the HSMS message being rejected.
-// systemBytes should have length of 4.
-//
-// reasonCode should be non-zero,
-//   - 1 means that received message's sType is not supported,
-//   - 2 means that received message's pType is not supported,
-//   - 3 means that transaction is not open, i.e. response message was received without request,
-//   - 4 means that data message is received in non-selected state,
-//   - 5-255 are reserved reason codes.
-func NewRejectReqRaw(sessionID uint16, pType, sType byte, systemBytes []byte, reasonCode byte) *ControlMessage {
-	header := make([]byte, 10)
-	header[0] = byte((sessionID >> 8) & 0xFF)
-	header[1] = byte(sessionID & 0xFF)
-	if reasonCode == 2 {
-		header[2] = pType
-	} else {
-		header[2] = sType
-	}
-	header[3] = reasonCode
-	header[5] = RejectReqType
-	header[6] = systemBytes[0]
-	header[7] = systemBytes[1]
-	header[8] = systemBytes[2]
-	header[9] = systemBytes[3]
-
-	return &ControlMessage{header: header, replyExpected: false}
-}
-
-// NewSeparateReq creates HSMS Separate.req control message.
-// systemBytes should have length of 4.
-func NewSeparateReq(sessionID uint16, systemBytes []byte) *ControlMessage {
-	header := make([]byte, 10)
-	header[0] = byte((sessionID >> 8) & 0xFF)
-	header[1] = byte(sessionID & 0xFF)
-	header[5] = SeparateReqType
-	header[6] = systemBytes[0]
-	header[7] = systemBytes[1]
-	header[8] = systemBytes[2]
-	header[9] = systemBytes[3]
-
-	return &ControlMessage{header: header, replyExpected: false}
 }

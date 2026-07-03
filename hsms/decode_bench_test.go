@@ -1,199 +1,114 @@
 package hsms
 
 import (
-	"math"
 	"testing"
 
-	"github.com/arloliu/go-secs/secs2"
+	"github.com/arloliu/go-secs/v2/secs2"
 )
 
-func BenchmarkDecodeMessage_DataMessage_10_UsePool(b *testing.B) {
-	UsePool(true)
-	benchmarkDecodeDataMessage(b, 10)
+// Fixed shapes used across all hsms benchmarks.
+// Item: L{A[8], U4[4]} inside a data message on stream 1, function 1.
+var (
+	dataMsgWireFrame  []byte          // complete on-wire HSMS frame for a data message
+	dataMsgOwnedFrame []byte          // the [header||body] owned frame (no 4-byte length prefix)
+	benchDataMsg      *DataMessage    // tree-path DataMessage (for ToBytes benchmark)
+	benchControlMsg   *ControlMessage // linktest.req (for ToBytes benchmark)
+
+	// byteSink prevents the compiler from dead-code-eliminating ToBytes calls whose
+	// result would otherwise be discarded by the blank identifier.
+	byteSink []byte
+)
+
+func init() {
+	item := secs2.L(secs2.A("abcdefgh"), secs2.U4(uint(1), uint(2), uint(3), uint(4)))
+	var sb [4]byte
+	sb[0], sb[1], sb[2], sb[3] = 0x01, 0x02, 0x03, 0x04
+
+	msg, err := NewDataMessage(1, 1, true, 0x0001, sb, item)
+	if err != nil {
+		panic("hsms bench init: " + err.Error())
+	}
+	benchDataMsg = msg
+	dataMsgWireFrame = msg.ToBytes()
+	dataMsgOwnedFrame = append([]byte(nil), dataMsgWireFrame[4:]...) // strip the 4-byte length prefix
+
+	benchControlMsg = NewLinktestReq(sb)
 }
 
-func BenchmarkDecodeMessage_DataMessage_10_NoPool(b *testing.B) {
-	UsePool(false)
-	benchmarkDecodeDataMessage(b, 10)
+// BenchmarkDecodeHSMSMessage measures DecodeHSMSMessage for a small data-message
+// frame. Each call copies the frame into an owned buffer (one alloc) and wraps the
+// body zero-copy. The SECS-II body is NOT decoded here — that is lazy (first Item()
+// call). The allocation is inherent: the owned frame buffer escapes inside the
+// returned *DataMessage.
+func BenchmarkDecodeHSMSMessage(b *testing.B) {
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		_, _ = DecodeHSMSMessage(dataMsgWireFrame)
+	}
 }
 
-func BenchmarkDecodeMessage_DataMessage_100_UsePool(b *testing.B) {
-	UsePool(true)
-	benchmarkDecodeDataMessage(b, 100)
+// BenchmarkDataMessage_ToBytes measures the cost of serialising a tree-path
+// DataMessage to its on-wire form. The treeBody memoises the SECS-II encoding on
+// the first call (the ToBytes inside init), so the once fires only once; subsequent
+// calls copy the memoised bytes into a new []byte. One alloc per call (the result
+// buffer escapes to the caller). byteSink prevents the compiler from eliminating
+// the call via DCE.
+func BenchmarkDataMessage_ToBytes(b *testing.B) {
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		byteSink = benchDataMsg.ToBytes()
+	}
 }
 
-func BenchmarkDecodeMessage_DataMessage_100_NoPool(b *testing.B) {
-	UsePool(false)
-	benchmarkDecodeDataMessage(b, 100)
+// BenchmarkControlMessage_ToBytes measures ControlMessage.ToBytes, which allocates
+// exactly one 14-byte slice per call (the result escapes to the caller).
+// byteSink prevents the compiler from eliminating the call via DCE.
+func BenchmarkControlMessage_ToBytes(b *testing.B) {
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		byteSink = benchControlMsg.ToBytes()
+	}
 }
 
-func BenchmarkDecodeMessage_DataMessage_1000_UsePool(b *testing.B) {
-	UsePool(true)
-	benchmarkDecodeDataMessage(b, 1000)
-}
-
-func BenchmarkDecodeMessage_DataMessage_1000_NoPool(b *testing.B) {
-	UsePool(false)
-	benchmarkDecodeDataMessage(b, 1000)
-}
-
-func BenchmarkDecodeMessage_DataMessage_AllTypes(b *testing.B) {
-	items := []secs2.Item{}
-
-	for i := range 39 {
-		switch i % 13 {
-		case 0:
-			items = append(items, secs2.B(127))
-		case 1:
-			items = append(items, secs2.BOOLEAN(true))
-		case 2:
-			items = append(items, secs2.A("test message"))
-		case 3:
-			items = append(items, secs2.I1(math.MaxInt8))
-		case 4:
-			items = append(items, secs2.I2(math.MaxInt16))
-		case 5:
-			items = append(items, secs2.I4(math.MaxInt32))
-		case 6:
-			items = append(items, secs2.I8(math.MaxInt64))
-		case 7:
-			items = append(items, secs2.U1(math.MaxUint8))
-		case 8:
-			items = append(items, secs2.U2(math.MaxUint16))
-		case 9:
-			items = append(items, secs2.U4(math.MaxUint32))
-		case 10:
-			items = append(items, secs2.U8(uint64(math.MaxUint64)))
-		case 11:
-			items = append(items, secs2.F4(1.2345678))
-		case 12:
-			items = append(items, secs2.F8(1.2345678))
-		default:
+// BenchmarkDataMessage_Item_RawFrame measures the exported lazy raw-frame decode path:
+// DecodeHSMSMessage (copy the frame into an owned buffer) followed by the first Item() call.
+// Sub-project 5 wired the zero-copy decode-owned entry (data_msg.go decode → secs2.DecodeOwned),
+// so Item() no longer does the old AppendTo(nil) + bytes.Clone double copy that sub-project 2a
+// documented. The remaining allocations are the one DecodeHSMSMessage frame copy plus the item
+// tree itself; the SP4 baseline (173.7 ns, 512 B/op, 12 allocs/op) dropped accordingly. Not pooled.
+func BenchmarkDataMessage_Item_RawFrame(b *testing.B) {
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		msg, _ := DecodeHSMSMessage(dataMsgWireFrame)
+		dm, ok := msg.(*DataMessage)
+		if !ok {
+			b.Fatal("unexpected message type")
 		}
+		_, _ = dm.Item()
 	}
-	listItems := make([]secs2.Item, 0, 100)
-	for range 100 {
-		listItems = append(listItems, secs2.L(items...))
-	}
+}
 
-	item := secs2.L(listItems...)
-
-	msg, err := NewDataMessage(1, 1, true, 1234, GenerateMsgSystemBytes(), item)
-	if err != nil {
-		b.Logf("error:%v", err)
-		b.FailNow()
-	}
-
-	input := msg.ToBytes()[4:]
-
-	decodedMsg, err := DecodeMessage(uint32(len(input)), input)
-	if err != nil {
-		b.FailNow()
-	}
-	decodedMsg.Free()
-
-	b.SetBytes(int64(len(input)))
+// BenchmarkDataMessage_Item_DecodeOwned measures the PRODUCTION recv decode path:
+// decodeOwnedFrame over an already-owned [header||body] frame (no DecodeHSMSMessage copy,
+// because the recv loop already owns a freshly read GC-owned frame) followed by the first
+// Item() call, which decodes the SECS-II body zero-copy via secs2.DecodeOwned (leaf items alias
+// the frame; no AppendTo(nil), no bytes.Clone). This isolates the decode-owned win from the
+// exported entry's frame copy — its alloc count is below BenchmarkDataMessage_Item_RawFrame,
+// which pays that extra copy. Frame reuse across iterations is safe: each iteration builds a
+// fresh *DataMessage whose decode fires once, and the result is discarded.
+func BenchmarkDataMessage_Item_DecodeOwned(b *testing.B) {
+	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i <= b.N; i++ {
-		msg, err := DecodeMessage(uint32(len(input)), input)
-		if err != nil {
-			b.FailNow()
+	for range b.N {
+		msg, _ := decodeOwnedFrame(dataMsgOwnedFrame)
+		dm, ok := msg.(*DataMessage)
+		if !ok {
+			b.Fatal("unexpected message type")
 		}
-		_ = msg
-		msg.Free()
+		_, _ = dm.Item()
 	}
-	b.StopTimer()
-}
-
-// Benchmark typical recipe transfer (large ASCII data)
-func BenchmarkDecodeMessage_LargeRecipe(b *testing.B) {
-	// simulate a 1MB recipe
-	recipeData := make([]byte, 1024*1024)
-	for i := range recipeData {
-		recipeData[i] = byte('A' + (i % 26))
-	}
-
-	msg, _ := NewDataMessage(1, 1, true, 1234, GenerateMsgSystemBytes(),
-		secs2.L(
-			secs2.A("RECIPE_NAME"),
-			secs2.A(string(recipeData)),
-		),
-	)
-
-	input := msg.ToBytes()[4:]
-	b.SetBytes(int64(len(input)))
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		decodedMsg, _ := DecodeMessage(uint32(len(input)), input)
-		decodedMsg.Free()
-	}
-}
-
-// Benchmark typical wafer map (binary data)
-func BenchmarkDecodeMessage_WaferMap(b *testing.B) {
-	// simulate 300mm wafer with 100k die
-	waferData := make([]byte, 100000)
-	for i := range waferData {
-		waferData[i] = byte(i % 4) // 0-3 for bin codes
-	}
-
-	msg, _ := NewDataMessage(1, 1, true, 1234, GenerateMsgSystemBytes(),
-		secs2.L(
-			secs2.U4(300), // wafer size
-			secs2.B(waferData),
-		),
-	)
-
-	input := msg.ToBytes()[4:]
-	b.SetBytes(int64(len(input)))
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		decodedMsg, _ := DecodeMessage(uint32(len(input)), input)
-		decodedMsg.Free()
-	}
-}
-
-func benchmarkDecodeDataMessage(b *testing.B, testSize int) {
-	intItems := make([]secs2.Item, 0, testSize)
-	for i := range testSize {
-		intItems = append(intItems, secs2.I8(int64(i)))
-	}
-
-	floatItems := make([]secs2.Item, 0, testSize)
-	for i := range testSize {
-		floatItems = append(floatItems, secs2.F8(i))
-	}
-
-	item := secs2.L(
-		secs2.L(intItems...),
-		secs2.L(floatItems...),
-	)
-	msg, err := NewDataMessage(1, 1, true, 1234, GenerateMsgSystemBytes(), item)
-	if err != nil {
-		b.Logf("error:%v", err)
-		b.FailNow()
-	}
-
-	input := msg.ToBytes()[4:]
-
-	decodedMsg, err := DecodeMessage(uint32(len(input)), input)
-	if err != nil {
-		b.FailNow()
-	}
-	decodedMsg.Free()
-
-	b.SetBytes(int64(len(input)))
-	b.ResetTimer()
-
-	for i := 0; i <= b.N; i++ {
-		msg, err := DecodeMessage(uint32(len(input)), input)
-		if err != nil {
-			b.FailNow()
-		}
-		_ = msg
-		msg.Free()
-	}
-	b.StopTimer()
 }

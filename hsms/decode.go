@@ -2,462 +2,105 @@ package hsms
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
-	"math"
-	"sync"
 
-	"github.com/arloliu/go-secs/secs2"
+	"github.com/arloliu/go-secs/v2/internal/wire"
+	"github.com/arloliu/go-secs/v2/secs2"
 )
 
-const (
-	// HeaderSize is the size of the HSMS message header in bytes.
-	HeaderSize = 10
-	// LengthFieldSize is the size of the message length field in bytes.
-	LengthFieldSize = 4
-	// MinHSMSSize is the minimum size of an HSMS message (length field + header).
-	MinHSMSSize = LengthFieldSize + HeaderSize
-	// MaxListDepth is the maximum allowed nesting depth for SECS-II list items.
-	MaxListDepth = 64
-)
-
-// HSMS decoder pool
-var decoderPool = sync.Pool{New: func() any { return new(hsmsDecoder) }}
-
-// DecodeHSMSMessage decodes an HSMS message from the given byte slice.
+// maxHSMSMsgLen is the upper bound on the HSMS message-length field: a whole-frame DoS cap
+// (10-byte header + body), NOT a per-item bound. It reuses secs2.MaxByteSize (the max SECS-II
+// single-item payload, SEMI E5 §9.2) as a convenient, generous ceiling — a value chosen to
+// reject an attacker-controlled length before allocating the frame buffer, not to bound the
+// SECS-II tree.
 //
-// data is the byte array containing the encoded HSMS message including the message length, header, and data.
+// Consequence (M6): a LEGITIMATE deeply-nested message whose total on-wire length exceeds this
+// cap is rejected at the framing layer (the link is dropped, not answered with a Reject) rather
+// than decoded — HSMS has no "message too long" Reject reason, and a frame this large is treated
+// as hostile. In practice single-item bodies dominate and stay well under the cap; the header's
+// 10 bytes are counted within the cap (the bound is compared against the full msgLen field).
+const maxHSMSMsgLen = secs2.MaxByteSize
+
+// DecodeHSMSMessage decodes a complete on-wire HSMS frame from data.
 //
-// It returns the decoded HSMSMessage and an error if any occurred during decoding.
-func DecodeHSMSMessage(data []byte) (HSMSMessage, error) {
-	if len(data) < MinHSMSSize {
-		return nil, fmt.Errorf("invalid hsms message length: %d", len(data))
-	}
-
-	msgLen := binary.BigEndian.Uint32(data)
-	if msgLen > secs2.MaxByteSize-MinHSMSSize {
-		return nil, fmt.Errorf("hsms message length exceeds maximum allowed size: %d", msgLen)
-	}
-
-	msg, err := DecodeMessage(msgLen, data[LengthFieldSize:])
-	if err != nil {
-		return nil, err
-	}
-
-	return msg, nil
-}
-
-// DecodeSECS2Item decodes an SECS-II item from the given byte slice.
+// data must contain a 4-byte big-endian length prefix followed by exactly
+// msgLen bytes (10-byte header + optional SECS-II body). All length fields are
+// validated before any slice operation to prevent panics on malformed input.
 //
-// data is the byte array containing the encoded SECS-II item.
+// DecodeHSMSMessage copies the payload into an owned buffer so the caller may
+// reuse or free data immediately after this call returns.
+func DecodeHSMSMessage(data []byte) (Message, error) {
+	const minFrame = 4 + 10 // length prefix + header
+
+	if len(data) < minFrame {
+		return nil, fmt.Errorf("hsms message too short: %d bytes (minimum %d): %w", len(data), minFrame, ErrInvalidHeaderLength)
+	}
+
+	msgLen := binary.BigEndian.Uint32(data[0:4])
+
+	if msgLen < 10 {
+		return nil, fmt.Errorf("hsms message length field too small: %d (minimum 10): %w", msgLen, ErrInvalidHeaderLength)
+	}
+
+	if uint64(msgLen) > uint64(maxHSMSMsgLen) {
+		return nil, fmt.Errorf("hsms message length exceeds maximum: %d > %d", msgLen, maxHSMSMsgLen)
+	}
+
+	if len(data) != 4+int(msgLen) {
+		return nil, fmt.Errorf("hsms message length mismatch, expected: %d, actual: %d: %w", msgLen, len(data)-4, ErrInvalidHeaderLength)
+	}
+
+	// Copy data[4:] into an owned buffer so decodeOwnedFrame may retain it
+	// zero-copy and the caller's buffer is never aliased.
+	owned := append([]byte(nil), data[4:4+msgLen]...)
+
+	return decodeOwnedFrame(owned)
+}
+
+// decodeOwnedFrame decodes a Message from an owned, immutable [header || body]
+// buffer. owned must be at least 10 bytes (the header); owned[10:] is the body.
 //
-// It returns the decoded SECS-II item and an error if any occurred during decoding.
-func DecodeSECS2Item(data []byte) (secs2.Item, error) {
-	decoder, _ := decoderPool.Get().(*hsmsDecoder)
-	decoder.msgLen = uint32(HeaderSize + len(data)) //nolint: gosec
-	decoder.input = data
-	decoder.pos = 0
-	decoder.depth = 0
-
-	item, err := decoder.decodeMessageText()
-	releaseDecoder(decoder)
-
-	return item, err
-}
-
-// DecodeMessage decodes an HSMS message from the given byte slice.
+// For DataMsgType the body slice owned[10:] is stored inside the returned
+// *DataMessage zero-copy — no allocation is made for the body bytes and the
+// backing array of owned is kept alive by the sub-slice reference.
 //
-// msgLen specifies the total length of the message in bytes, including the header and data.
-// input is the byte array containing the encoded HSMS message.
-//
-// It returns the decoded HSMSMessage and an error if any occurred during decoding.
-// This function uses a sync.Pool to reuse hsmsDecoder objects for efficiency.
-func DecodeMessage(msgLen uint32, input []byte) (HSMSMessage, error) {
-	decoder, _ := decoderPool.Get().(*hsmsDecoder)
-	decoder.msgLen = msgLen
-	decoder.input = input
-	decoder.pos = 0
-	decoder.depth = 0
-
-	msg, err := decoder.decodeMessage()
-	releaseDecoder(decoder)
-
-	return msg, err
-}
-
-// releaseDecoder clears references owned by a pooled hsmsDecoder and returns
-// it to decoderPool. Without this, a pooled decoder pins the most recently
-// decoded message buffer (via .input) and any decoded scratch contents
-// (boolBuf/intBuf/uintBuf/floatBuf) in memory until the same pool slot is
-// next reused, inflating the heap floor under spiky load. Scratch-slice
-// capacity is intentionally retained for warm reuse on the next decode.
-func releaseDecoder(decoder *hsmsDecoder) {
-	decoder.input = nil
-	decoder.boolBuf = decoder.boolBuf[:0]
-	decoder.intBuf = decoder.intBuf[:0]
-	decoder.uintBuf = decoder.uintBuf[:0]
-	decoder.floatBuf = decoder.floatBuf[:0]
-	decoderPool.Put(decoder)
-}
-
-// hsmsDecoder is a helper struct for decoding HSMS messages.
-// It maintains the current position in the input byte array and provides methods for
-// decoding various data types.
-type hsmsDecoder struct {
-	input    []byte
-	boolBuf  []bool
-	intBuf   []int64
-	uintBuf  []uint64
-	floatBuf []float64
-	pos      int
-	depth    int
-	msgLen   uint32
-}
-
-// remaining returns the number of bytes remaining in the input buffer.
-func (d *hsmsDecoder) remaining() int {
-	return len(d.input) - d.pos
-}
-
-// read reads a specified number of bytes from the input and advances the current position.
-// Returns an error if there are not enough bytes remaining.
-func (d *hsmsDecoder) read(length int) ([]byte, error) {
-	if d.pos+length > len(d.input) {
-		return nil, fmt.Errorf("unexpected end of message: need %d bytes, have %d", length, d.remaining())
-	}
-	result := d.input[d.pos : d.pos+length]
-	d.pos += length
-
-	return result, nil
-}
-
-// readByte reads a single byte from the input and advances the current position.
-// Returns an error if there are no bytes remaining.
-func (d *hsmsDecoder) readByte() (byte, error) {
-	if d.pos >= len(d.input) {
-		return 0, errors.New("unexpected end of message: need 1 byte")
-	}
-	result := d.input[d.pos]
-	d.pos++
-
-	return result, nil
-}
-
-// readString reads a string of the specified length from the input and advances the current position.
-// Returns an error if there are not enough bytes remaining.
-func (d *hsmsDecoder) readString(length int) (string, error) {
-	if d.pos+length > len(d.input) {
-		return "", fmt.Errorf("unexpected end of message: need %d bytes, have %d", length, d.remaining())
-	}
-	result := d.input[d.pos : d.pos+length]
-	d.pos += length
-
-	return secs2.BytesToString(result), nil
-}
-
-// decodeMessage decodes the HSMS message from the input byte array.
-// It first decodes the header to determine the message type and then decodes the
-// corresponding data item.
-func (d *hsmsDecoder) decodeMessage() (HSMSMessage, error) {
-	if len(d.input) != int(d.msgLen) {
-		return nil, fmt.Errorf("hsms message length mismatch, expected: %d, actual: %d", int(d.msgLen), len(d.input))
+// This function is unexported. The recv path and in-package tests call it
+// directly to avoid the copy in DecodeHSMSMessage.
+func decodeOwnedFrame(owned []byte) (Message, error) {
+	if len(owned) < 10 {
+		return nil, fmt.Errorf("hsms frame too short: %d bytes (minimum 10): %w", len(owned), ErrInvalidHeaderLength)
 	}
 
-	header, err := d.read(HeaderSize)
-	if err != nil {
-		return nil, err
+	var h [10]byte
+	copy(h[:], owned[0:10])
+
+	if h[4] != 0 {
+		return nil, fmt.Errorf("invalid PType: %d: %w", h[4], ErrInvalidPType)
 	}
 
-	if header[4] != 0 { // PType is not a SECS-II message
-		return nil, fmt.Errorf("invalid PType: %d", header[4])
-	}
-
-	switch header[5] { // SType
+	switch MsgType(h[5]) { //nolint:exhaustive // UndefinedMsgType (255) is a sentinel, not a wire value; handled by default
 	case DataMsgType:
-		sessionID := binary.BigEndian.Uint16(header[:2])
-		stream := header[2] & 0x7F
-		function := header[3]
-		systemBytes := header[6:10]
-		replyExpected := false
-		if (header[2] >> 7) != WaitBitFalse {
-			replyExpected = true
-		}
+		return newRawFrameDataMessage(h, owned[10:]), nil
 
-		dataItem, err := d.decodeMessageText()
-		if err != nil {
-			return nil, err
-		}
-
-		msg, err := NewDataMessage(stream, function, replyExpected, sessionID, systemBytes, dataItem)
-		if err != nil {
-			return nil, err
-		}
-
-		return msg, nil
-
-	case SelectReqType, DeselectReqType, LinkTestReqType, SelectRspType, DeselectRspType, LinkTestRspType, RejectReqType, SeparateReqType:
-		return NewControlMessage(header, false), nil
+	case SelectReqType, SelectRspType, DeselectReqType, DeselectRspType,
+		LinktestReqType, LinktestRspType, RejectReqType, SeparateReqType:
+		return &ControlMessage{header: h, replyExpected: false}, nil
 
 	default:
-		// undefined SType
-		return nil, fmt.Errorf("undefined SType: %d", header[5])
+		return nil, fmt.Errorf("undefined SType: %d: %w", h[5], ErrInvalidControlMsgSType)
 	}
 }
 
-// decodeMessageText decodes the SECS-II data item from the input byte array.
-// It handles various data types (list, ASCII, binary, boolean, integer, float) and
-// recursively decodes nested items if necessary.
-func (d *hsmsDecoder) decodeMessageText() (secs2.Item, error) { //nolint:cyclop,gocyclo
-	if d.msgLen == HeaderSize {
-		return secs2.NewEmptyItem(), nil
+// newRawFrameDataMessage constructs a raw-frame *DataMessage from an already-parsed
+// 10-byte header value and the body sub-slice of an owned buffer.
+//
+// The body slice is wrapped with wire.AdoptBody — no copy is made.
+// The decodeState.once is left unfired so that DataMessage.Item fires it exactly
+// once on the first call, running secs2.Decode on the body bytes.
+func newRawFrameDataMessage(h [10]byte, body []byte) *DataMessage {
+	return &DataMessage{
+		header: h,
+		body:   wire.AdoptBody(body),
+		dec:    &decodeState{},
 	}
-
-	startPos := d.pos
-
-	// decode format code and no. of length bytes
-	formatByte, err := d.readByte()
-	if err != nil {
-		return nil, err
-	}
-	formatCode := formatByte >> 2
-
-	lenBytesCount := int(formatByte & 0x3)
-	if lenBytesCount == 0 {
-		return nil, fmt.Errorf("length bytes count is zero")
-	}
-
-	// decode length bytes to length
-	length := 0
-	lenBytes, err := d.read(lenBytesCount)
-	if err != nil {
-		return nil, err
-	}
-
-	switch lenBytesCount {
-	case 1:
-		length = int(lenBytes[0])
-	case 2:
-		length = int(lenBytes[1]) | int(lenBytes[0])<<8
-	case 3:
-		length = int(lenBytes[2]) | int(lenBytes[1])<<8 | int(lenBytes[0])<<16
-	default:
-	}
-
-	// decode data to SECS-II item
-	switch secs2.FormatCode(formatCode) {
-	case secs2.ListFormatCode:
-		// Check recursion depth limit
-		d.depth++
-		if d.depth > MaxListDepth {
-			return nil, fmt.Errorf("list nesting depth exceeds maximum allowed: %d", MaxListDepth)
-		}
-
-		// Validate that we have at least enough bytes for the list items
-		// Each item needs at least 2 bytes (1 format byte + 1 length byte)
-		if d.remaining() < length*2 {
-			return nil, fmt.Errorf("list claims %d items but only %d bytes remaining", length, d.remaining())
-		}
-
-		values := make([]secs2.Item, length) // the length indicates the number of items in the list
-		for i := 0; i < length; i++ {
-			var err error
-			values[i], err = d.decodeMessageText()
-			if err != nil {
-				return nil, err
-			}
-		}
-		d.depth--
-		item := secs2.NewListItemWithBytes(d.input[startPos:d.pos], values...)
-		values = nil //nolint:ineffassign,wastedassign
-
-		return item, nil
-
-	case secs2.ASCIIFormatCode:
-		value, err := d.readString(length)
-		if err != nil {
-			return nil, err
-		}
-		item := secs2.NewASCIIItemWithBytes(d.input[startPos:d.pos], value)
-
-		return item, nil
-
-	case secs2.BinaryFormatCode:
-		value, err := d.read(length)
-		if err != nil {
-			return nil, err
-		}
-		item := secs2.NewBinaryItemWithBytes(d.input[startPos:d.pos], value)
-
-		return item, nil
-
-	case secs2.BooleanFormatCode:
-		if cap(d.boolBuf) < length {
-			d.boolBuf = make([]bool, 0, length)
-		} else {
-			d.boolBuf = d.boolBuf[:0]
-		}
-
-		data, err := d.read(length)
-		if err != nil {
-			return nil, err
-		}
-		for _, v := range data {
-			if v == 0 {
-				d.boolBuf = append(d.boolBuf, false)
-			} else {
-				d.boolBuf = append(d.boolBuf, true)
-			}
-		}
-
-		return secs2.NewBooleanItemWithBytes(d.input[startPos:d.pos], d.boolBuf), nil
-
-	case secs2.Int8FormatCode:
-		return d.decodeIntItem(1, length)
-	case secs2.Int16FormatCode:
-		return d.decodeIntItem(2, length)
-	case secs2.Int32FormatCode:
-		return d.decodeIntItem(4, length)
-	case secs2.Int64FormatCode:
-		return d.decodeIntItem(8, length)
-
-	case secs2.Uint8FormatCode:
-		return d.decodeUintItem(1, length)
-	case secs2.Uint16FormatCode:
-		return d.decodeUintItem(2, length)
-	case secs2.Uint32FormatCode:
-		return d.decodeUintItem(4, length)
-	case secs2.Uint64FormatCode:
-		return d.decodeUintItem(8, length)
-
-	case secs2.Float32FormatCode:
-		return d.decodeFloatItem(4, length)
-	case secs2.Float64FormatCode:
-		return d.decodeFloatItem(8, length)
-
-	case secs2.JIS8FormatCode:
-		value, err := d.readString(length)
-		if err != nil {
-			return nil, err
-		}
-		return secs2.NewJIS8Item(value), nil
-
-	case secs2.LocalizedStrFormatCode:
-		if length < 2 {
-			return nil, fmt.Errorf("localized string body too short: %d", length)
-		}
-		body, err := d.read(length)
-		if err != nil {
-			return nil, err
-		}
-		lsh := uint16(body[0])<<8 | uint16(body[1])
-
-		return secs2.NewLocalizedStrItem(lsh, secs2.BytesToString(body[2:])), nil
-
-	default:
-		return nil, errors.New("invalid format")
-	}
-}
-
-func (d *hsmsDecoder) decodeIntItem(byteSize int, length int) (secs2.Item, error) {
-	if length%byteSize != 0 {
-		return nil, fmt.Errorf("invalid message length:%d for I%d item", length, byteSize)
-	}
-
-	if d.remaining() < length {
-		return nil, fmt.Errorf("unexpected end of message: need %d bytes, have %d", length, d.remaining())
-	}
-
-	count := length / byteSize
-
-	if cap(d.intBuf) < count {
-		d.intBuf = make([]int64, 0, count)
-	} else {
-		d.intBuf = d.intBuf[:0]
-	}
-
-	for i := range count {
-		start := d.pos + byteSize*i
-		switch byteSize {
-		case 1:
-			d.intBuf = append(d.intBuf, int64(int8(d.input[d.pos+i])))
-		case 2:
-			d.intBuf = append(d.intBuf, int64(int16(binary.BigEndian.Uint16(d.input[start:])))) //nolint:gosec
-		case 4:
-			d.intBuf = append(d.intBuf, int64(int32(binary.BigEndian.Uint32(d.input[start:])))) //nolint:gosec
-		case 8:
-			d.intBuf = append(d.intBuf, int64(binary.BigEndian.Uint64(d.input[start:]))) //nolint:gosec
-		default:
-		}
-	}
-	d.pos += length
-
-	return secs2.NewIntItem(byteSize, d.intBuf), nil
-}
-
-func (d *hsmsDecoder) decodeUintItem(byteSize int, length int) (secs2.Item, error) {
-	if length%byteSize != 0 {
-		return nil, fmt.Errorf("invalid message length:%d for U%d item", length, byteSize)
-	}
-
-	if d.remaining() < length {
-		return nil, fmt.Errorf("unexpected end of message: need %d bytes, have %d", length, d.remaining())
-	}
-
-	count := length / byteSize
-
-	if cap(d.uintBuf) < count {
-		d.uintBuf = make([]uint64, 0, count)
-	} else {
-		d.uintBuf = d.uintBuf[:0]
-	}
-
-	for i := range count {
-		start := d.pos + byteSize*i
-		switch byteSize {
-		case 1:
-			d.uintBuf = append(d.uintBuf, uint64(d.input[d.pos+i]))
-		case 2:
-			d.uintBuf = append(d.uintBuf, uint64(binary.BigEndian.Uint16(d.input[start:])))
-		case 4:
-			d.uintBuf = append(d.uintBuf, uint64(binary.BigEndian.Uint32(d.input[start:])))
-		case 8:
-			d.uintBuf = append(d.uintBuf, binary.BigEndian.Uint64(d.input[start:]))
-		default:
-		}
-	}
-	d.pos += length
-
-	return secs2.NewUintItem(byteSize, d.uintBuf), nil
-}
-
-func (d *hsmsDecoder) decodeFloatItem(byteSize int, length int) (secs2.Item, error) {
-	if length%byteSize != 0 {
-		return nil, fmt.Errorf("invalid message length:%d for F%d item", length, byteSize)
-	}
-
-	if d.remaining() < length {
-		return nil, fmt.Errorf("unexpected end of message: need %d bytes, have %d", length, d.remaining())
-	}
-
-	count := length / byteSize
-
-	if cap(d.floatBuf) < count {
-		d.floatBuf = make([]float64, 0, count)
-	} else {
-		d.floatBuf = d.floatBuf[:0]
-	}
-
-	for i := range count {
-		start := d.pos + byteSize*i
-		if byteSize == 4 {
-			value := binary.BigEndian.Uint32(d.input[start:])
-			d.floatBuf = append(d.floatBuf, float64(math.Float32frombits(value)))
-		} else {
-			value := binary.BigEndian.Uint64(d.input[start:])
-			d.floatBuf = append(d.floatBuf, math.Float64frombits(value))
-		}
-	}
-	d.pos += length
-
-	return secs2.NewFloatItem(byteSize, d.floatBuf), nil
 }

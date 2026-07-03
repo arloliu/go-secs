@@ -1,0 +1,117 @@
+package hsms
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestConnectionConfig_Defaults(t *testing.T) {
+	c := DefaultConnectionConfig()
+	require.Positive(t, c.timers.T3)
+	require.Positive(t, c.timers.T6)
+	require.Equal(t, uint16(0xFFFF), c.sessionID) // control SessionID default for HSMS-SS
+}
+
+func TestConnectionConfig_Apply_AllOrNothing(t *testing.T) {
+	c := DefaultConnectionConfig()
+	origT3 := c.timers.T3
+	// One valid + one invalid option: NOTHING must commit (transactional, landmine D).
+	err := c.apply(WithT3(2*time.Second), WithT6(-1))
+	require.Error(t, err)
+	require.Equal(t, origT3, c.timers.T3, "valid option must NOT commit when a sibling option fails")
+}
+
+func TestConnectionConfig_Apply_CommitsWhenAllValid(t *testing.T) {
+	c := DefaultConnectionConfig()
+	require.NoError(t, c.apply(WithT3(2*time.Second), WithSessionID(7)))
+	require.Equal(t, 2*time.Second, c.timers.T3)
+	require.Equal(t, uint16(7), c.sessionID)
+}
+
+func TestConnectionConfig_WithT5(t *testing.T) {
+	c := DefaultConnectionConfig()
+	require.NoError(t, c.apply(WithT5(20*time.Second)))
+	require.Equal(t, 20*time.Second, c.timers.T5)
+
+	err := c.apply(WithT5(-1))
+	require.Error(t, err)
+}
+
+func TestConnectionConfig_WithT7(t *testing.T) {
+	c := DefaultConnectionConfig()
+	require.NoError(t, c.apply(WithT7(15*time.Second)))
+	require.Equal(t, 15*time.Second, c.timers.T7)
+
+	err := c.apply(WithT7(0))
+	require.Error(t, err)
+}
+
+func TestConnectionConfig_WithT8(t *testing.T) {
+	c := DefaultConnectionConfig()
+	require.NoError(t, c.apply(WithT8(3*time.Second)))
+	require.Equal(t, 3*time.Second, c.timers.T8)
+
+	err := c.apply(WithT8(-5 * time.Second))
+	require.Error(t, err)
+}
+
+func TestConnectionConfig_WithLinktestInterval(t *testing.T) {
+	c := DefaultConnectionConfig()
+	// 0 is valid (disables linktest)
+	require.NoError(t, c.apply(WithLinktestInterval(0)))
+	require.Equal(t, time.Duration(0), c.linktestInterval)
+
+	require.NoError(t, c.apply(WithLinktestInterval(30*time.Second)))
+	require.Equal(t, 30*time.Second, c.linktestInterval)
+
+	err := c.apply(WithLinktestInterval(-1))
+	require.Error(t, err)
+}
+
+func TestConnectionConfig_WithLinktestFailThreshold(t *testing.T) {
+	c := DefaultConnectionConfig()
+	require.NoError(t, c.apply(WithLinktestFailThreshold(5)))
+	require.Equal(t, 5, c.linktestFailThreshold)
+
+	err := c.apply(WithLinktestFailThreshold(0))
+	require.Error(t, err)
+}
+
+func TestConnectionConfig_WithSenderQueueSize(t *testing.T) {
+	c := DefaultConnectionConfig()
+	require.NoError(t, c.apply(WithSenderQueueSize(128)))
+	require.Equal(t, 128, c.senderQueueSize)
+
+	err := c.apply(WithSenderQueueSize(0))
+	require.Error(t, err)
+}
+
+func TestConnectionConfig_WithCloseTimeout(t *testing.T) {
+	c := DefaultConnectionConfig()
+	require.NoError(t, c.apply(WithCloseTimeout(5*time.Second)))
+	require.Equal(t, 5*time.Second, c.closeTimeout)
+
+	err := c.apply(WithCloseTimeout(0))
+	require.Error(t, err)
+}
+
+func TestConnectionConfig_WithLogger(t *testing.T) {
+	c := DefaultConnectionConfig()
+	require.NotNil(t, c.logger)
+
+	err := c.apply(WithLogger(nil))
+	require.Error(t, err)
+}
+
+func TestConnectionConfig_Apply_MultipleErrors(t *testing.T) {
+	c := DefaultConnectionConfig()
+	origT3 := c.timers.T3
+	origT5 := c.timers.T5
+	// Two invalid options: both errors returned, nothing commits.
+	err := c.apply(WithT3(-1), WithT5(-2))
+	require.Error(t, err)
+	require.Equal(t, origT3, c.timers.T3)
+	require.Equal(t, origT5, c.timers.T5)
+}
