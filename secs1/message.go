@@ -1,467 +1,151 @@
 package secs1
 
 import (
-	"encoding/binary"
 	"fmt"
-	"sync"
-	"time"
+	"iter"
 
-	"github.com/arloliu/go-secs/hsms"
-	"github.com/arloliu/go-secs/internal/pool"
-	"github.com/arloliu/go-secs/logger"
-	"github.com/arloliu/go-secs/secs2"
+	"github.com/arloliu/go-secs/v2/internal/wire"
 )
 
-// ===========================================================================
-// Message splitting — split a DataMessage into SECS-I blocks for sending.
-// ===========================================================================
-
-// SplitMessage splits a DataMessage into one or more SECS-I blocks.
+// splitBody partitions body into SECS-I blocks of at most 244 body bytes each, assigning block
+// numbers 1..N and setting the E-bit (last-block flag) on the final block (SEMI E4 §8). An empty
+// body yields exactly one header-only block (block number 1, E-bit set). The yielded blocks hold
+// zero-copy wire.Chunk sub-views of body — no per-block copy.
 //
-// Per SEMI E4 §9.2.2, message data is divided into blocks of at most
-// MaxBlockBodySize (244) bytes. The first block has BlockNumber = 1,
-// incrementing by 1 for each subsequent block. The last block has E-bit = 1.
-// For a header-only message (no SECS-II body), a single block with
-// BlockNumber = 0 and E-bit = 1 is produced.
-//
-// isEquip determines the R-bit direction per §8.2:
-//   - true  (Equipment sending to Host): R-bit = 1, DeviceID = source
-//   - false (Host sending to Equipment): R-bit = 0, DeviceID = destination
-func SplitMessage(msg *hsms.DataMessage, deviceID uint16, isEquip bool) []*Block {
-	body := marshalItem(msg.Item())
-	systemBytes := msg.SystemBytes()
-
-	if len(body) == 0 {
-		blk := newBlockFromMessage(msg, deviceID, isEquip, systemBytes, nil, 0, true)
-
-		return []*Block{blk}
+// It returns an error (and a nil iterator) up front if h.deviceID > 0x7FFF, h.stream > 0x7F, or
+// body.Len() exceeds the maximum SECS-I message size (244 * 32767).
+func splitBody(body wire.Body, h messageHeader) (iter.Seq[block], error) {
+	if h.deviceID > 0x7FFF {
+		return nil, fmt.Errorf("%w: deviceID %d > 0x7FFF", ErrInvalidHeader, h.deviceID)
+	}
+	if h.stream > 0x7F {
+		return nil, fmt.Errorf("%w: stream %d > 127", ErrInvalidHeader, h.stream)
+	}
+	total := body.Len()
+	if total > maxBlockBodySize*maxBlockNumber {
+		return nil, fmt.Errorf("%w: %d bytes", ErrMessageTooLarge, total)
 	}
 
-	var blocks []*Block
-
-	blockNum := uint16(1)
-
-	for offset := 0; offset < len(body); offset += MaxBlockBodySize {
-		end := min(offset+MaxBlockBodySize, len(body))
-
-		isLast := end == len(body)
-		chunk := make([]byte, end-offset)
-		copy(chunk, body[offset:end])
-
-		blocks = append(blocks, newBlockFromMessage(msg, deviceID, isEquip, systemBytes, chunk, blockNum, isLast))
-		blockNum++
-	}
-
-	return blocks
+	return func(yield func(block) bool) {
+		if total == 0 {
+			yield(block{header: buildHeader(h, 1, true)}) // header-only block 1, E-bit set
+			return
+		}
+		blockNumber := uint16(1)
+		for off := 0; off < total; off += maxBlockBodySize {
+			n := min(maxBlockBodySize, total-off)
+			last := off+n == total
+			if !yield(block{header: buildHeader(h, blockNumber, last), body: body.Chunk(off, n)}) {
+				return
+			}
+			blockNumber++
+		}
+	}, nil
 }
 
-// ===========================================================================
-// Message assembly — reassemble blocks received from the wire.
-// ===========================================================================
-
-// AssembleMessage reassembles a complete DataMessage from its constituent blocks.
+// assembleBlocks reassembles an ordered slice of received blocks into the message body. It is
+// stateless: it validates that block numbers are the contiguous sequence 1..len(blocks), that the
+// E-bit is set exactly on the last block, and that the block-invariant header fields are identical
+// across all blocks; then it concatenates the block bodies into one freshly-owned buffer and
+// returns it as a wire.Body (via wire.AdoptBody) for lazy secs2.Decode by the caller.
 //
-// The blocks must be in order (by BlockNumber). Header information (Stream,
-// Function, W-bit, DeviceID, SystemBytes) is taken from the first block.
-// Body data is concatenated from all blocks.
-//
-// If the body is non-empty, it is decoded as a SECS-II item. If decoding
-// fails, the raw data is wrapped in a BinaryItem to preserve it.
-func AssembleMessage(blocks []*Block) (*hsms.DataMessage, error) {
+// The returned body is independent of the input block buffers (the concatenation copies), so the
+// per-block buffers may be reused or freed once assembleBlocks returns.
+func assembleBlocks(blocks []block) (messageHeader, wire.Body, error) {
 	if len(blocks) == 0 {
-		return nil, fmt.Errorf("secs1: cannot assemble message from zero blocks")
+		return messageHeader{}, nil, ErrEmptyBlocks
 	}
-
-	first := blocks[0]
-
-	// Concatenate bodies with preallocation.
-	totalLen := 0
-	for _, b := range blocks {
-		totalLen += len(b.Body)
-	}
-
-	body := make([]byte, 0, totalLen)
-	for _, b := range blocks {
-		body = append(body, b.Body...)
-	}
-
-	// Parse SECS-II item from body bytes.
-	var item secs2.Item
-	if len(body) > 0 {
-		var err error
-		item, err = hsms.DecodeSECS2Item(body)
-		if err != nil {
-			return nil, fmt.Errorf("secs1: decode SECS-II body: %w", err)
+	first := blocks[0].messageHeader()
+	total := 0
+	for i, b := range blocks {
+		if int(b.blockNumber()) != i+1 {
+			return messageHeader{}, nil, fmt.Errorf("%w: position %d has block number %d", ErrBlockNumberMismatch, i+1, b.blockNumber())
 		}
-	}
-
-	msg, err := hsms.NewDataMessage(
-		first.StreamCode(),
-		first.FunctionCode(),
-		first.WBit(),
-		first.DeviceID(),
-		first.SystemBytes(),
-		item,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("secs1: assemble message: %w", err)
-	}
-
-	return msg, nil
-}
-
-// ===========================================================================
-// Message assembler — stateful multi-block reassembly with T4 timers.
-// ===========================================================================
-
-// messageHandler is a callback for completed messages assembled from blocks.
-type messageHandler func(blocks []*Block)
-
-// messageAssembler implements the SEMI E4 §9.4 message receive algorithm.
-//
-// It collects blocks, detects duplicates, manages T4 inter-block timers,
-// and delivers completed messages through a callback.
-//
-// All methods are safe for concurrent use.
-type messageAssembler struct {
-	cfg    *ConnectionConfig
-	logger logger.Logger
-	onMsg  messageHandler
-
-	mu              sync.Mutex
-	openMessages    map[uint64]*openMessage // key: compositeKey
-	lastAcceptedHdr [blockHeaderSize]byte   // for duplicate detection (Section 9.4.2)
-	hasPrevHeader   bool
-}
-
-// openMessage tracks the state of a multi-block message being assembled.
-type openMessage struct {
-	blocks      []*Block
-	nextBlockNo uint16
-	key         uint64
-	t4Timer     *time.Timer
-	t4Cancel    chan struct{} // closed to signal the T4 goroutine to exit
-
-	// Header invariants from the first block, validated on continuation
-	// blocks per SEMI E4 §9.4.4.6.
-	wBit         bool
-	streamCode   byte
-	functionCode byte
-}
-
-// newMessageAssembler creates a new assembler.
-func newMessageAssembler(cfg *ConnectionConfig, onMsg messageHandler) *messageAssembler {
-	return &messageAssembler{
-		cfg:          cfg,
-		logger:       cfg.logger,
-		onMsg:        onMsg,
-		openMessages: make(map[uint64]*openMessage),
-	}
-}
-
-// processBlock implements the message receive algorithm of SEMI E4 Section 9.4.4.
-//
-// It is called once for each block successfully received by the block-transfer
-// layer. Blocks are buffered until a complete message is assembled, at which
-// point the messageHandler callback is invoked.
-//
-// Returns an error for routing or protocol violations; the caller may
-// choose to send S9Fx error messages in response.
-func (a *messageAssembler) processBlock(block *Block) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	// Step 1: Routing check (Section 9.4.1).
-	if block.DeviceID() != a.cfg.deviceID {
-		a.logger.Debug("assembler: routing error, deviceID mismatch",
-			"got", block.DeviceID(), "want", a.cfg.deviceID)
-
-		return fmt.Errorf("%w: got %d, want %d",
-			ErrDeviceIDMismatch, block.DeviceID(), a.cfg.deviceID)
-	}
-
-	// Step 2: Duplicate detection (Section 9.4.2).
-	if a.cfg.DuplicateDetection() && a.isDuplicate(block) {
-		a.logger.Debug("assembler: duplicate block discarded")
-
-		return ErrDuplicateBlock
-	}
-
-	a.updateLastHeader(block)
-
-	// Step 3: Expected block matching (Section 9.4.4).
-	key := compositeKeyFromBlock(block)
-	om, exists := a.openMessages[key]
-
-	if !exists {
-		return a.handleNewBlock(block, key)
-	}
-
-	return a.handleExpectedBlock(block, om)
-}
-
-// Close cancels all open T4 timers and clears state.
-func (a *messageAssembler) close() {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	for key, om := range a.openMessages {
-		a.cancelT4(om)
-		delete(a.openMessages, key)
-	}
-}
-
-// --- duplicate detection (Section 9.4.2) ---
-
-func (a *messageAssembler) isDuplicate(block *Block) bool {
-	if !a.hasPrevHeader {
-		return false
-	}
-
-	return block.Header == a.lastAcceptedHdr
-}
-
-func (a *messageAssembler) updateLastHeader(block *Block) {
-	a.lastAcceptedHdr = block.Header
-	a.hasPrevHeader = true
-}
-
-// --- new block handling (Section 9.4.4.2) ---
-
-// handleNewBlock processes a block that is NOT one of the expected blocks.
-// Per Section 9.4.4.2, it must be the first block of a message (either
-// primary or secondary). Secondary (reply) blocks are accepted because
-// reply messages received over TCP also go through the assembler.
-// Caller must hold a.mu.
-func (a *messageAssembler) handleNewBlock(block *Block, key uint64) error {
-	// Block number must be 0 (single block) or 1 (start of multi-block).
-	bn := block.BlockNumber()
-	if bn > 1 {
-		a.logger.Debug("assembler: unexpected block number for new message",
-			"blockNumber", bn)
-
-		return fmt.Errorf("%w: expected 0 or 1 for new message, got %d",
-			ErrBlockNumberMismatch, bn)
-	}
-
-	if block.EBit() {
-		// Single-block message — deliver immediately.
-		a.deliverComplete([]*Block{block})
-
-		return nil
-	}
-
-	// Start of multi-block message.
-	om := &openMessage{
-		blocks:       []*Block{block},
-		nextBlockNo:  bn + 1,
-		key:          key,
-		wBit:         block.WBit(),
-		streamCode:   block.StreamCode(),
-		functionCode: block.FunctionCode(),
-	}
-	a.openMessages[key] = om
-	a.startT4(om)
-
-	return nil
-}
-
-// --- expected block handling (Section 9.4.4.3 — 9.4.4.6) ---
-
-// handleExpectedBlock processes a block that matches an open message.
-// Caller must hold a.mu.
-func (a *messageAssembler) handleExpectedBlock(block *Block, om *openMessage) error {
-	// Validate block number.
-	if block.BlockNumber() != om.nextBlockNo {
-		a.logger.Debug("assembler: block number mismatch, aborting message",
-			"expected", om.nextBlockNo, "got", block.BlockNumber())
-
-		a.abortOpenMessage(om)
-
-		return fmt.Errorf("%w: expected %d, got %d",
-			ErrBlockNumberMismatch, om.nextBlockNo, block.BlockNumber())
-	}
-
-	// Validate header invariants per §9.4.4.6: continuation blocks must
-	// have the same W-bit, stream (upper message ID), and function
-	// (lower message ID) as the first block.
-	if block.WBit() != om.wBit ||
-		block.StreamCode() != om.streamCode ||
-		block.FunctionCode() != om.functionCode {
-		a.logger.Debug("assembler: header mismatch in continuation block",
-			"expectedW", om.wBit, "gotW", block.WBit(),
-			"expectedStream", om.streamCode, "gotStream", block.StreamCode(),
-			"expectedFunction", om.functionCode, "gotFunction", block.FunctionCode())
-
-		a.abortOpenMessage(om)
-
-		return fmt.Errorf("%w: W-bit/stream/function do not match first block",
-			ErrHeaderMismatch)
-	}
-
-	// Cancel the current T4 timer (block arrived in time).
-	a.cancelT4(om)
-
-	om.blocks = append(om.blocks, block)
-
-	if block.EBit() {
-		// Last block — message complete (Section 9.4.4.5).
-		delete(a.openMessages, om.key)
-		a.deliverComplete(om.blocks)
-
-		return nil
-	}
-
-	// More blocks expected (Section 9.4.4.6).
-	om.nextBlockNo = block.BlockNumber() + 1
-	a.startT4(om)
-
-	return nil
-}
-
-// --- T4 timer management ---
-
-func (a *messageAssembler) startT4(om *openMessage) {
-	om.t4Timer = pool.GetTimer(a.cfg.T4Timeout())
-	om.t4Cancel = make(chan struct{})
-
-	go func(key uint64, timer *time.Timer, cancel <-chan struct{}) {
-		select {
-		case <-timer.C:
-			a.handleT4Expiry(key)
-		case <-cancel:
-			// T4 was cancelled (block arrived in time or message aborted).
+		if b.eBit() != (i == len(blocks)-1) {
+			return messageHeader{}, nil, fmt.Errorf("%w: position %d", ErrEBitPlacement, i+1)
 		}
-	}(om.key, om.t4Timer, om.t4Cancel)
-}
-
-func (a *messageAssembler) cancelT4(om *openMessage) {
-	if om.t4Cancel != nil {
-		close(om.t4Cancel)
-		om.t4Cancel = nil
+		if b.messageHeader() != first {
+			return messageHeader{}, nil, fmt.Errorf("%w: position %d", ErrHeaderMismatch, i+1)
+		}
+		total += b.body.Len()
 	}
 
-	if om.t4Timer != nil {
-		pool.PutTimer(om.t4Timer)
-		om.t4Timer = nil
-	}
-}
-
-// handleT4Expiry is called when T4 fires for an open message.
-func (a *messageAssembler) handleT4Expiry(key uint64) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	om, exists := a.openMessages[key]
-	if !exists {
-		return // already completed or aborted
+	buf := make([]byte, 0, total)
+	for _, b := range blocks {
+		buf = b.body.AppendTo(buf)
 	}
 
-	a.logger.Warn("assembler: T4 inter-block timeout, aborting message",
-		"key", key, "blocksReceived", len(om.blocks))
-
-	delete(a.openMessages, key)
+	return first, wire.AdoptBody(buf), nil
 }
 
-// abortOpenMessage removes an open message and cancels its T4 timer.
-// Caller must hold a.mu.
-func (a *messageAssembler) abortOpenMessage(om *openMessage) {
-	a.cancelT4(om)
-	delete(a.openMessages, om.key)
-}
+// hsmsHeaderLen is the fixed 10-byte HSMS message header (SEMI E37 §6.2) that assembleFrame writes
+// ahead of the reassembled body. It equals the SECS-I block header size by coincidence.
+const hsmsHeaderLen = 10
 
-// --- delivery ---
-
-// deliverComplete invokes the message handler outside the lock.
-func (a *messageAssembler) deliverComplete(blocks []*Block) {
-	if a.onMsg == nil {
-		return
-	}
-
-	// Release the lock before calling the handler to avoid deadlock.
-	a.mu.Unlock()
-	a.onMsg(blocks)
-	a.mu.Lock()
-}
-
-// ===========================================================================
-// Helpers
-// ===========================================================================
-
-// newBlockFromMessage creates a single Block from DataMessage header info.
-func newBlockFromMessage(
-	msg *hsms.DataMessage,
-	deviceID uint16,
-	isEquip bool,
-	systemBytes []byte,
-	body []byte,
-	blockNum uint16,
-	isLast bool,
-) *Block {
-	blk := &Block{}
-
-	// R-bit + DeviceID (bytes 0-1).
-	// Per SEMI E4 §8.2: R=0 Host→Equipment, R=1 Equipment→Host.
-	blk.SetDeviceID(deviceID)
-	blk.SetRBit(isEquip)
-
-	// W-bit + Stream (byte 2).
-	blk.SetWBit(msg.WaitBit())
-	blk.SetStreamCode(msg.StreamCode())
-
-	// Function (byte 3).
-	blk.SetFunctionCode(msg.FunctionCode())
-
-	// E-bit + BlockNumber (bytes 4-5).
-	blk.SetBlockNumber(blockNum)
-	blk.SetEBit(isLast)
-
-	// System Bytes (bytes 6-9).
-	if len(systemBytes) == 4 {
-		copy(blk.Header[6:10], systemBytes)
-	}
-
-	// Body.
-	blk.Body = body
-
-	return blk
-}
-
-// marshalItem serializes a SECS-II item to bytes. Returns nil for nil/empty items.
-func marshalItem(item secs2.Item) []byte {
-	if item == nil {
-		return nil
-	}
-
-	data := item.ToBytes()
-	if len(data) == 0 {
-		return nil
-	}
-
-	return data
-}
-
-// compositeKey creates a unique map key from system bytes + device ID + R-bit.
+// assembleFrame reassembles an ordered slice of received blocks into a synthesized HSMS frame: a
+// contiguous OWNED [10-byte HSMS header || body] buffer, safe to hand to the core's
+// DeliverOwnedFrame (which takes ownership). The 10 header bytes are reserved up front and written
+// in place so the body appends after them with no extra copy (the P2 optimization).
 //
-// Layout (64-bit):
+// Validation mirrors [assembleBlocks] — the E-bit set exactly on the last block and the
+// block-invariant SECS-I header (deviceID/R-bit/stream/function/W-bit/system-bytes) identical across
+// every block — but is LENIENT on the first block number per D5b-12: a lone single block may be
+// numbered 0 or 1, while a multi-block message must be numbered 1..N.
 //
-//	[63]    = R-bit
-//	[47:32] = DeviceID (15-bit)
-//	[31:0]  = SystemBytes (32-bit)
-func compositeKey(systemBytes uint32, deviceID uint16, rBit bool) uint64 {
-	key := uint64(systemBytes) | (uint64(deviceID) << 32)
-	if rBit {
-		key |= 1 << 63
+// The block-invariant SECS-I header maps onto the HSMS header (SEMI E37 §6.2 / SEMI E4 §8) as:
+//   - bytes 0-1 = deviceID (big-endian) — the device ID carried in the received blocks, surfaced as
+//     the HSMS session ID so an inbound message reports its wire device ID through SessionID()
+//   - byte 2    = (W-bit 0x80) | (stream 0x7F)
+//   - byte 3    = function
+//   - bytes 4-5 = 0 — PType 0, SType 0 (a data message)
+//   - bytes 6-9 = system bytes
+//
+// The body is the ordered concatenation of the block bodies. The returned buffer is freshly owned
+// and independent of the input block buffers (the body concatenation copies).
+func assembleFrame(blocks []block) ([]byte, error) {
+	if len(blocks) == 0 {
+		return nil, ErrEmptyBlocks
+	}
+	first := blocks[0].messageHeader()
+	// D5b-12 interop leniency: a lone block numbered 0 is a valid single-block message.
+	singleBlockZero := len(blocks) == 1 && blocks[0].blockNumber() == 0
+
+	total := 0
+	for i, b := range blocks {
+		wantNum := i + 1
+		if singleBlockZero {
+			wantNum = 0
+		}
+		if int(b.blockNumber()) != wantNum {
+			return nil, fmt.Errorf("%w: position %d has block number %d", ErrBlockNumberMismatch, i+1, b.blockNumber())
+		}
+		if b.eBit() != (i == len(blocks)-1) {
+			return nil, fmt.Errorf("%w: position %d", ErrEBitPlacement, i+1)
+		}
+		if b.messageHeader() != first {
+			return nil, fmt.Errorf("%w: position %d", ErrHeaderMismatch, i+1)
+		}
+		total += b.body.Len()
 	}
 
-	return key
-}
+	// Reserve the 10 HSMS header bytes so the body appends in place (the P2 no-extra-copy path).
+	buf := make([]byte, hsmsHeaderLen, hsmsHeaderLen+total)
+	// Stamp the session-id field with the device ID carried in the received blocks (big-endian,
+	// matching the outbound splitFrame encoding) so an inbound message's SessionID() reports the
+	// wire device ID.
+	buf[0] = byte(first.deviceID >> 8)
+	buf[1] = byte(first.deviceID)
+	buf[2] = first.stream & 0x7F
+	if first.waitBit {
+		buf[2] |= 0x80
+	}
+	buf[3] = first.function
+	// buf[4], buf[5] remain 0 — PType 0, SType 0 (a data message).
+	copy(buf[6:hsmsHeaderLen], first.systemBytes[:])
 
-// compositeKeyFromBlock extracts the composite key from a block's header.
-func compositeKeyFromBlock(b *Block) uint64 {
-	return compositeKey(
-		binary.BigEndian.Uint32(b.Header[6:10]),
-		b.DeviceID(),
-		b.RBit(),
-	)
+	for _, b := range blocks {
+		buf = b.body.AppendTo(buf)
+	}
+
+	return buf, nil
 }

@@ -1,433 +1,149 @@
 package secs1
 
 import (
-	"encoding/binary"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/arloliu/go-secs/v2/internal/wire"
 	"github.com/stretchr/testify/require"
 )
 
-// --- Header accessor tests ---
-
-func TestBlock_RBit(t *testing.T) {
-	var b Block
-	assert.False(t, b.RBit(), "default R-bit should be false")
-
-	b.SetRBit(true)
-	assert.True(t, b.RBit())
-	assert.Equal(t, byte(0x80), b.Header[0]&0x80, "R-bit should be bit 7 of byte 0")
-
-	b.SetRBit(false)
-	assert.False(t, b.RBit())
-}
-
-func TestBlock_DeviceID(t *testing.T) {
-	var b Block
-	assert.Equal(t, uint16(0), b.DeviceID())
-
-	b.SetDeviceID(1000)
-	assert.Equal(t, uint16(1000), b.DeviceID())
-
-	// Verify R-bit is preserved when setting device ID.
-	b.SetRBit(true)
-	b.SetDeviceID(2000)
-	assert.Equal(t, uint16(2000), b.DeviceID())
-	assert.True(t, b.RBit(), "R-bit must be preserved after SetDeviceID")
-
-	// Max 15-bit value: 32767
-	b.SetDeviceID(32767)
-	assert.Equal(t, uint16(32767), b.DeviceID())
-	assert.True(t, b.RBit())
-
-	// Values above 15 bits are masked.
-	b.SetDeviceID(0xFFFF) // only lower 15 bits kept
-	assert.Equal(t, uint16(0x7FFF), b.DeviceID())
-}
-
-func TestBlock_WBit(t *testing.T) {
-	var b Block
-	assert.False(t, b.WBit())
-
-	b.SetWBit(true)
-	assert.True(t, b.WBit())
-	assert.Equal(t, byte(0x80), b.Header[2]&0x80)
-
-	b.SetWBit(false)
-	assert.False(t, b.WBit())
-}
-
-func TestBlock_StreamCode(t *testing.T) {
-	var b Block
-	assert.Equal(t, byte(0), b.StreamCode())
-
-	b.SetStreamCode(1)
-	assert.Equal(t, byte(1), b.StreamCode())
-
-	b.SetStreamCode(127)
-	assert.Equal(t, byte(127), b.StreamCode())
-
-	// Verify W-bit is preserved.
-	b.SetWBit(true)
-	b.SetStreamCode(42)
-	assert.Equal(t, byte(42), b.StreamCode())
-	assert.True(t, b.WBit(), "W-bit must be preserved after SetStreamCode")
-
-	// Values above 7 bits are masked.
-	b.SetStreamCode(0xFF)
-	assert.Equal(t, byte(0x7F), b.StreamCode())
-}
-
-func TestBlock_FunctionCode(t *testing.T) {
-	var b Block
-	assert.Equal(t, byte(0), b.FunctionCode())
-
-	b.SetFunctionCode(1)
-	assert.Equal(t, byte(1), b.FunctionCode())
-
-	b.SetFunctionCode(255)
-	assert.Equal(t, byte(255), b.FunctionCode())
-}
-
-func TestBlock_EBit(t *testing.T) {
-	var b Block
-	assert.False(t, b.EBit())
-
-	b.SetEBit(true)
-	assert.True(t, b.EBit())
-	assert.Equal(t, byte(0x80), b.Header[4]&0x80)
-
-	b.SetEBit(false)
-	assert.False(t, b.EBit())
-}
-
-func TestBlock_BlockNumber(t *testing.T) {
-	var b Block
-	assert.Equal(t, uint16(0), b.BlockNumber())
-
-	b.SetBlockNumber(1)
-	assert.Equal(t, uint16(1), b.BlockNumber())
-
-	b.SetBlockNumber(32767) // max 15-bit
-	assert.Equal(t, uint16(32767), b.BlockNumber())
-
-	// Verify E-bit is preserved.
-	b.SetEBit(true)
-	b.SetBlockNumber(100)
-	assert.Equal(t, uint16(100), b.BlockNumber())
-	assert.True(t, b.EBit(), "E-bit must be preserved after SetBlockNumber")
-}
-
-func TestBlock_SystemBytes(t *testing.T) {
-	var b Block
-	sb := b.SystemBytes()
-	assert.Equal(t, []byte{0, 0, 0, 0}, sb)
-
-	b.SetSystemBytes([]byte{0xDE, 0xAD, 0xBE, 0xEF})
-	assert.Equal(t, []byte{0xDE, 0xAD, 0xBE, 0xEF}, b.SystemBytes())
-	assert.Equal(t, uint32(0xDEADBEEF), b.SystemBytesUint32())
-
-	// Returned slice is a copy — mutating it doesn't affect the block.
-	sb = b.SystemBytes()
-	sb[0] = 0x00
-	assert.Equal(t, []byte{0xDE, 0xAD, 0xBE, 0xEF}, b.SystemBytes())
-}
-
-func TestBlock_SetSystemBytesUint32(t *testing.T) {
-	var b Block
-	b.SetSystemBytesUint32(0x12345678)
-	assert.Equal(t, uint32(0x12345678), b.SystemBytesUint32())
-	assert.Equal(t, []byte{0x12, 0x34, 0x56, 0x78}, b.SystemBytes())
-}
-
-func TestBlock_SetSystemBytes_Panics(t *testing.T) {
-	var b Block
-	assert.Panics(t, func() { b.SetSystemBytes([]byte{1, 2, 3}) }, "should panic on len != 4")
-	assert.Panics(t, func() { b.SetSystemBytes([]byte{1, 2, 3, 4, 5}) }, "should panic on len != 4")
-}
-
-// --- Length and checksum tests ---
-
-func TestBlock_Length(t *testing.T) {
+func TestBuildHeader_RoundTrip(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
-		name    string
-		bodyLen int
-		wantLen byte
+		name string
+		h    messageHeader
+		bn   uint16
+		last bool
 	}{
-		{"header only", 0, 10},
-		{"1-byte body", 1, 11},
-		{"max body", MaxBlockBodySize, MaxBlockLength},
+		{name: "max fields", h: messageHeader{deviceID: 0x7FFF, rBit: true, stream: 127, function: 255, waitBit: true, systemBytes: [4]byte{0xDE, 0xAD, 0xBE, 0xEF}}, bn: 0x7FFF, last: true},
+		{name: "zero fields", h: messageHeader{}, bn: 1, last: false},
+		{name: "mixed", h: messageHeader{deviceID: 0x1234, rBit: false, stream: 6, function: 12, waitBit: false, systemBytes: [4]byte{1, 2, 3, 4}}, bn: 7, last: true},
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			b := Block{Body: make([]byte, tt.bodyLen)}
-			assert.Equal(t, tt.wantLen, b.Length())
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			b := block{header: buildHeader(tc.h, tc.bn, tc.last)}
+			require.Equal(t, tc.h.deviceID, b.deviceID())
+			require.Equal(t, tc.h.rBit, b.rBit())
+			require.Equal(t, tc.h.stream, b.stream())
+			require.Equal(t, tc.h.function, b.function())
+			require.Equal(t, tc.h.waitBit, b.waitBit())
+			require.Equal(t, tc.bn, b.blockNumber())
+			require.Equal(t, tc.last, b.eBit())
+			require.Equal(t, tc.h.systemBytes, b.systemBytes())
+			require.Equal(t, tc.h, b.messageHeader())
 		})
 	}
 }
 
-func TestBlock_Checksum(t *testing.T) {
-	// All zeros → checksum 0.
-	var b Block
-	assert.Equal(t, uint16(0), b.Checksum())
-
-	// Known value: header all 0xFF, no body → 10 * 0xFF = 2550.
-	for i := range b.Header {
-		b.Header[i] = 0xFF
-	}
-	assert.Equal(t, uint16(2550), b.Checksum())
-
-	// With body bytes added.
-	b.Body = []byte{0x01, 0x02, 0x03}
-	assert.Equal(t, uint16(2550+1+2+3), b.Checksum())
+// TestBuildHeader_GoldenVector pins the SEMI E4 §8 bit layout with an INDEPENDENT hand-computed
+// expected [10]byte (not a round-trip through the accessors), so a wrong bit position fails here.
+func TestBuildHeader_GoldenVector(t *testing.T) {
+	t.Parallel()
+	h := messageHeader{deviceID: 0x1234, rBit: true, stream: 6, function: 0x11, waitBit: true, systemBytes: [4]byte{0xAA, 0xBB, 0xCC, 0xDD}}
+	got := buildHeader(h, 0x0203, true)
+	// byte0 = 0x12|0x80(R)=0x92; byte1=0x34; byte2=6|0x80(W)=0x86; byte3=0x11;
+	// byte4=0x02|0x80(E)=0x82; byte5=0x03; bytes6-9 = system bytes.
+	want := [10]byte{0x92, 0x34, 0x86, 0x11, 0x82, 0x03, 0xAA, 0xBB, 0xCC, 0xDD}
+	require.Equal(t, want, got)
 }
 
-func TestBlock_Checksum_Overflow(t *testing.T) {
-	// Large values that exceed 16 bits — should wrap.
-	var b Block
-	for i := range b.Header {
-		b.Header[i] = 0xFF
-	}
-	b.Body = make([]byte, MaxBlockBodySize)
-	for i := range b.Body {
-		b.Body[i] = 0xFF
-	}
-	// (10 + 244) * 255 = 254 * 255 = 64770 → fits in uint16
-	assert.Equal(t, uint16(64770), b.Checksum())
+// TestBlock_AppendTo_GoldenFrame pins the full wire frame incl. the hand-computed checksum
+// (sum of header+body, length byte excluded): 1264 (header) + 131 ('A'+'B') = 1395 = 0x0573.
+func TestBlock_AppendTo_GoldenFrame(t *testing.T) {
+	t.Parallel()
+	h := messageHeader{deviceID: 0x1234, rBit: true, stream: 6, function: 0x11, waitBit: true, systemBytes: [4]byte{0xAA, 0xBB, 0xCC, 0xDD}}
+	blk := block{header: buildHeader(h, 0x0203, true), body: wire.AdoptBody([]byte{0x41, 0x42}).Chunk(0, 2)}
+	want := []byte{0x0C, 0x92, 0x34, 0x86, 0x11, 0x82, 0x03, 0xAA, 0xBB, 0xCC, 0xDD, 0x41, 0x42, 0x05, 0x73}
+	require.Equal(t, want, blk.appendTo(nil))
 }
 
-// --- Pack / ParseBlock round-trip tests ---
-
-func TestBlock_PackAndParse_HeaderOnly(t *testing.T) {
-	b := &Block{}
-	b.SetDeviceID(1000)
-	b.SetRBit(true)
-	b.SetWBit(true)
-	b.SetStreamCode(1)
-	b.SetFunctionCode(1)
-	b.SetEBit(true)
-	b.SetBlockNumber(1)
-	b.SetSystemBytesUint32(0x00000001)
-
-	wire := b.Pack()
-
-	// Wire format: [length(1)][header(10)][checksum(2)] = 13 bytes
-	require.Len(t, wire, 13)
-	assert.Equal(t, byte(10), wire[0], "length byte should be 10 for header-only")
-
-	// Round-trip parse.
-	parsed, err := ParseBlock(wire[0], wire[1:])
+// TestParseBlock_GoldenFrame parses a hard-coded frame (not produced by appendTo) through the
+// accessors — independent of the encode path.
+func TestParseBlock_GoldenFrame(t *testing.T) {
+	t.Parallel()
+	frame := []byte{0x0C, 0x92, 0x34, 0x86, 0x11, 0x82, 0x03, 0xAA, 0xBB, 0xCC, 0xDD, 0x41, 0x42, 0x05, 0x73}
+	got, err := parseBlock(frame[0], frame[1:])
 	require.NoError(t, err)
-
-	assert.Equal(t, b.Header, parsed.Header)
-	assert.Empty(t, parsed.Body)
-	assert.True(t, parsed.RBit())
-	assert.Equal(t, uint16(1000), parsed.DeviceID())
-	assert.True(t, parsed.WBit())
-	assert.Equal(t, byte(1), parsed.StreamCode())
-	assert.Equal(t, byte(1), parsed.FunctionCode())
-	assert.True(t, parsed.EBit())
-	assert.Equal(t, uint16(1), parsed.BlockNumber())
-	assert.Equal(t, uint32(1), parsed.SystemBytesUint32())
+	require.Equal(t, uint16(0x1234), got.deviceID())
+	require.True(t, got.rBit())
+	require.Equal(t, uint8(6), got.stream())
+	require.True(t, got.waitBit())
+	require.Equal(t, uint8(0x11), got.function())
+	require.Equal(t, uint16(0x0203), got.blockNumber())
+	require.True(t, got.eBit())
+	require.Equal(t, [4]byte{0xAA, 0xBB, 0xCC, 0xDD}, got.systemBytes())
+	require.Equal(t, []byte{0x41, 0x42}, got.body.AppendTo(nil))
 }
 
-func TestBlock_PackAndParse_WithBody(t *testing.T) {
-	body := make([]byte, 100)
-	for i := range body {
-		body[i] = byte(i)
-	}
+func TestBlock_AppendParseRoundTrip(t *testing.T) {
+	t.Parallel()
+	h := messageHeader{deviceID: 0x1234, rBit: true, stream: 6, function: 11, waitBit: true, systemBytes: [4]byte{1, 2, 3, 4}}
+	body := wire.AdoptBody([]byte("hello"))
+	orig := block{header: buildHeader(h, 1, true), body: body.Chunk(0, 5)}
 
-	b := &Block{Body: body}
-	b.SetDeviceID(500)
-	b.SetStreamCode(6)
-	b.SetFunctionCode(11)
-	b.SetEBit(false)
-	b.SetBlockNumber(3)
-	b.SetSystemBytesUint32(0xAABBCCDD)
+	frame := orig.appendTo(nil)
+	require.Equal(t, byte(blockHeaderSize+5), frame[0]) // length byte = 15
 
-	wire := b.Pack()
-
-	// Wire: [1 + 110 + 2] = 113
-	require.Len(t, wire, 113)
-	assert.Equal(t, byte(110), wire[0])
-
-	parsed, err := ParseBlock(wire[0], wire[1:])
+	got, err := parseBlock(frame[0], frame[1:])
 	require.NoError(t, err)
-
-	assert.Equal(t, b.Header, parsed.Header)
-	assert.Equal(t, body, parsed.Body)
-	assert.Equal(t, uint16(500), parsed.DeviceID())
-	assert.Equal(t, byte(6), parsed.StreamCode())
-	assert.Equal(t, byte(11), parsed.FunctionCode())
-	assert.False(t, parsed.EBit())
-	assert.Equal(t, uint16(3), parsed.BlockNumber())
-	assert.Equal(t, uint32(0xAABBCCDD), parsed.SystemBytesUint32())
-}
-
-func TestBlock_PackAndParse_MaxBody(t *testing.T) {
-	body := make([]byte, MaxBlockBodySize)
-	for i := range body {
-		body[i] = 0xAB
-	}
-
-	b := &Block{Body: body}
-	b.SetDeviceID(32767)
-	b.SetRBit(true)
-	b.SetWBit(true)
-	b.SetStreamCode(127)
-	b.SetFunctionCode(255)
-	b.SetEBit(true)
-	b.SetBlockNumber(32767)
-	b.SetSystemBytesUint32(0xFFFFFFFF)
-
-	wire := b.Pack()
-	require.Len(t, wire, 1+MaxBlockLength+checksumSize) // 1 + 254 + 2 = 257
-
-	parsed, err := ParseBlock(wire[0], wire[1:])
-	require.NoError(t, err)
-
-	assert.Equal(t, b.Header, parsed.Header)
-	assert.Equal(t, body, parsed.Body)
-}
-
-// --- ParseBlock error cases ---
-
-func TestParseBlock_InvalidLength_TooSmall(t *testing.T) {
-	_, err := ParseBlock(9, make([]byte, 9+checksumSize))
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrInvalidLength)
-}
-
-func TestParseBlock_InvalidLength_TooLarge(t *testing.T) {
-	_, err := ParseBlock(255, make([]byte, 255+checksumSize))
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrInvalidLength)
-}
-
-func TestParseBlock_DataLengthMismatch(t *testing.T) {
-	_, err := ParseBlock(10, make([]byte, 15)) // expects 12 bytes, got 15
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "data length mismatch")
+	require.Equal(t, orig.header, got.header)
+	require.Equal(t, []byte("hello"), got.body.AppendTo(nil))
+	require.Equal(t, h, got.messageHeader())
 }
 
 func TestParseBlock_ChecksumMismatch(t *testing.T) {
-	b := &Block{}
-	b.SetStreamCode(1)
-	b.SetFunctionCode(1)
-
-	wire := b.Pack()
-	// Corrupt the checksum.
-	wire[len(wire)-1] ^= 0xFF
-
-	_, err := ParseBlock(wire[0], wire[1:])
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrChecksumMismatch)
+	t.Parallel()
+	body := wire.AdoptBody([]byte("hi"))
+	frame := block{header: buildHeader(messageHeader{}, 1, true), body: body.Chunk(0, 2)}.appendTo(nil)
+	frame[len(frame)-1] ^= 0xFF // corrupt the checksum low byte
+	_, err := parseBlock(frame[0], frame[1:])
+	require.ErrorIs(t, err, ErrChecksumMismatch)
 }
 
-func TestParseBlock_CorruptedBody(t *testing.T) {
-	b := &Block{Body: []byte{0x01, 0x02, 0x03}}
-	b.SetStreamCode(1)
-	b.SetFunctionCode(1)
-	b.SetEBit(true)
-	b.SetBlockNumber(1)
-
-	wire := b.Pack()
-	// Corrupt a body byte (the checksum is now wrong).
-	wire[12] ^= 0xFF
-
-	_, err := ParseBlock(wire[0], wire[1:])
-	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrChecksumMismatch)
-}
-
-// --- Header field interaction tests ---
-
-func TestBlock_RBitPreservedBySetDeviceID(t *testing.T) {
-	var b Block
-	b.SetRBit(true)
-	b.SetDeviceID(0)
-	assert.True(t, b.RBit())
-	assert.Equal(t, uint16(0), b.DeviceID())
-
-	b.SetRBit(false)
-	b.SetDeviceID(32767)
-	assert.False(t, b.RBit())
-	assert.Equal(t, uint16(32767), b.DeviceID())
-}
-
-func TestBlock_WBitPreservedBySetStreamCode(t *testing.T) {
-	var b Block
-	b.SetWBit(true)
-	b.SetStreamCode(0)
-	assert.True(t, b.WBit())
-	assert.Equal(t, byte(0), b.StreamCode())
-}
-
-func TestBlock_EBitPreservedBySetBlockNumber(t *testing.T) {
-	var b Block
-	b.SetEBit(true)
-	b.SetBlockNumber(0)
-	assert.True(t, b.EBit())
-	assert.Equal(t, uint16(0), b.BlockNumber())
-}
-
-// --- Typical S1F1 (Are You There) block test ---
-
-func TestBlock_S1F1_AreYouThere(t *testing.T) {
-	// S1F1 W from host (R=0) to equipment device 1, single block.
-	b := &Block{}
-	b.SetRBit(false) // Host → Equipment
-	b.SetDeviceID(1)
-	b.SetWBit(true)
-	b.SetStreamCode(1)
-	b.SetFunctionCode(1)
-	b.SetEBit(true) // single-block message
-	b.SetBlockNumber(1)
-	b.SetSystemBytesUint32(0x00000001)
-
-	wire := b.Pack()
-
-	// Verify header bytes directly.
-	// Byte 0: R=0, DevID upper = 0x00 → 0x00
-	assert.Equal(t, byte(0x00), wire[1])
-	// Byte 1: DevID lower = 0x01
-	assert.Equal(t, byte(0x01), wire[2])
-	// Byte 2: W=1, Stream=1 → 0x81
-	assert.Equal(t, byte(0x81), wire[3])
-	// Byte 3: Function=1 → 0x01
-	assert.Equal(t, byte(0x01), wire[4])
-	// Byte 4: E=1, BlockNo upper = 0x00 → 0x80
-	assert.Equal(t, byte(0x80), wire[5])
-	// Byte 5: BlockNo lower = 0x01
-	assert.Equal(t, byte(0x01), wire[6])
-
-	// Round-trip.
-	parsed, err := ParseBlock(wire[0], wire[1:])
+func TestParseBlock_BodyAliasesRest(t *testing.T) {
+	t.Parallel()
+	// parseBlock is zero-copy: the block body aliases rest (= frame[1:]); body[0] sits at
+	// frame[1+blockHeaderSize]. Mutating it is observed through the parsed block (no copy).
+	body := wire.AdoptBody([]byte("hello"))
+	frame := block{header: buildHeader(messageHeader{}, 1, true), body: body.Chunk(0, 5)}.appendTo(nil)
+	got, err := parseBlock(frame[0], frame[1:])
 	require.NoError(t, err)
-	assert.False(t, parsed.RBit())
-	assert.Equal(t, uint16(1), parsed.DeviceID())
-	assert.True(t, parsed.WBit())
-	assert.Equal(t, byte(1), parsed.StreamCode())
-	assert.Equal(t, byte(1), parsed.FunctionCode())
-	assert.True(t, parsed.EBit())
-	assert.Equal(t, uint16(1), parsed.BlockNumber())
+	frame[1+blockHeaderSize] = 'J' // 'h' -> 'J'
+	require.Equal(t, []byte("Jello"), got.body.AppendTo(nil))
 }
 
-// --- Checksum endianness test ---
+func TestParseBlock_LengthBoundaryAndErrors(t *testing.T) {
+	t.Parallel()
+	// Max length 254 must not wrap (lengthByte is a byte; 254+2 = 256 wraps to 0).
+	body := wire.AdoptBody(make([]byte, maxBlockBodySize)) // 244
+	frame := block{header: buildHeader(messageHeader{}, 1, true), body: body.Chunk(0, maxBlockBodySize)}.appendTo(nil)
+	require.Equal(t, byte(maxBlockLength), frame[0]) // 254
+	got, err := parseBlock(frame[0], frame[1:])
+	require.NoError(t, err)
+	require.Equal(t, maxBlockBodySize, got.body.Len())
 
-func TestBlock_Checksum_WireOrder(t *testing.T) {
-	// Verify that checksum is written big-endian in Pack().
-	b := &Block{}
-	for i := range b.Header {
-		b.Header[i] = 0xFF
-	}
-	// Checksum = 10 * 255 = 2550 = 0x09F6
+	// Out-of-range length byte (< 10).
+	_, err = parseBlock(9, make([]byte, 11))
+	require.ErrorIs(t, err, ErrInvalidLength)
 
-	wire := b.Pack()
-	// Checksum is the last 2 bytes.
-	csHi := wire[len(wire)-2]
-	csLo := wire[len(wire)-1]
-	gotCS := binary.BigEndian.Uint16([]byte{csHi, csLo})
-	assert.Equal(t, uint16(2550), gotCS)
+	// Out-of-range length byte (255 > 254 max — the only byte value above the max).
+	_, err = parseBlock(255, make([]byte, 255+checksumSize))
+	require.ErrorIs(t, err, ErrInvalidLength)
+
+	// Length/data-length mismatch.
+	_, err = parseBlock(20, make([]byte, 5))
+	require.ErrorIs(t, err, ErrInvalidLength)
+}
+
+func TestBlock_AppendTo_AllocFreeChecksum(t *testing.T) {
+	// Note: t.Parallel() is intentionally absent — testing.AllocsPerRun panics in parallel tests.
+	body := wire.AdoptBody(make([]byte, maxBlockBodySize))
+	blk := block{header: buildHeader(messageHeader{}, 1, true), body: body.Chunk(0, maxBlockBodySize)}
+	dst := make([]byte, 0, maxBlockLength+1+checksumSize)
+	_ = blk.appendTo(dst[:0]) // warm-up
+	allocs := testing.AllocsPerRun(100, func() {
+		_ = blk.appendTo(dst[:0])
+	})
+	require.Equal(t, float64(0), allocs, "appendTo into a pre-sized dst must not allocate (no AppendTo(nil) checksum copy)")
 }
