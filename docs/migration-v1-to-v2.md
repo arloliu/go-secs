@@ -819,7 +819,8 @@ them, drop the dependency (the behavior is now internal to the connection engine
 | `hsms.ConnStateMgr`, `hsms.NewConnStateMgr` | `conn_state.go` | The FSM is internal; observe via `AddConnStateChangeHandler` and `conn.State()`. |
 | `hsms.TaskManager` (+ `TaskFunc`, `TaskRecvFunc`, `TaskMsgFunc`, `TaskDataMsgFunc`, `TaskCancelFunc`) | `task.go` | Internal goroutine management; no public equivalent. |
 | `hsms.OpState`, `hsms.AtomicOpState` (+ `ClosedState`…`OpenedState`) | `op_state.go` | Internal; use `conn.State()` (`hsms.ConnState`). |
-| `hsms.GenerateMsgID`, `hsms.GenerateMsgSystemBytes`, `hsms.ToSystemBytes` | `id_gen.go` | System bytes are assigned by the transport; no public generator. |
+| `hsms.GenerateMsgID`, `hsms.ToSystemBytes` | `id_gen.go` | Retained. `ToSystemBytes` now returns `[4]byte` (was `[]byte`). |
+| `hsms.GenerateMsgSystemBytes` | `id_gen.go` | Removed; use `hsms.ToSystemBytes(hsms.GenerateMsgID())`. |
 | `hsms.UsePool`, `hsms.IsUsePool`, `hsms.GetMessageBuffer`, `hsms.PutMessageBuffer`, `hsms.DefaultMessageBufferSize` | `pool.go` | No pool; messages are GC-owned. |
 | `hsms.DataMessage.SnapshotForRelay`, `hsms.DataMessage.CloneCodec` | `data_msg.go` | Share the immutable `*DataMessage` directly. |
 | `hsms.NewControlMessage`, `NewDataMessageFromRawItem`, `NewErrorDataMessage` | `data_msg.go`, `control_msg.go` | Use the typed factories / `NewDataMessage` / `secs2.Decode`. |
@@ -908,7 +909,8 @@ names a replacement or states "no equivalent".
 | `Session.ReplyDataMessage(primary,item)` | `SECS2Endpoint.ReplyDataMessage(ctx,primary,item)` | changed | Context-first. |
 | `Session.ID() uint16` | `SECS2Endpoint.SessionID() uint16` | renamed | Unified identity term. |
 | `ConnStateMgr`, `NewConnStateMgr`, `OpState`, `AtomicOpState`, `TaskManager`, `Task*` funcs | — | removed | Internal engine; no equivalent. |
-| `GenerateMsgID`, `GenerateMsgSystemBytes`, `ToSystemBytes` | — | removed | Assigned by the transport. |
+| `GenerateMsgID`, `ToSystemBytes` | `GenerateMsgID`, `ToSystemBytes` | retained | `ToSystemBytes` returns `[4]byte`. |
+| `GenerateMsgSystemBytes` | — | removed | Use `ToSystemBytes(GenerateMsgID())`. |
 | `UsePool`, `IsUsePool`, `GetMessageBuffer`, `PutMessageBuffer`, `DefaultMessageBufferSize` | — | removed | No pool. |
 | `MsgInfo`, `MsgInfoSML`, `MsgInfoFromFields`, `MsgHexString` | — | removed | No equivalent. |
 | `UseStreamFunctionNoQuote/SingleQuote/DoubleQuote`, `StreamFunctionQuote` | — | removed | Per-`sml.Encoder` `WithSFQuote`. |
