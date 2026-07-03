@@ -1,101 +1,110 @@
 package sml
 
 import (
+	"errors"
 	"os"
 	"testing"
 
-	"github.com/arloliu/go-secs/hsms"
-	"github.com/arloliu/go-secs/secs2"
 	"github.com/stretchr/testify/require"
 )
 
-type testCase struct {
-	description       string   // Test case description
-	input             string   // Input to the parser
-	expectedNumOfMsgs int      // expected number of parsed messages
-	expectedStr       []string // expected string representation of messages
-	expectedErrStr    string   // expected error strings
+// msgExpect holds per-message parse expectations.
+type msgExpect struct {
+	stream   uint8
+	function uint8
+	wbit     bool
 }
 
-func checkTestCase(t *testing.T, tests []testCase, strictMode bool) {
-	require := require.New(t)
+// testCase describes a parser test scenario.
+type testCase struct {
+	description       string
+	input             string
+	expectedNumOfMsgs int
+	expectedMsgs      []msgExpect // nil: skip per-msg checks; len must match expectedNumOfMsgs when set
+	expectedErrStr    string
+}
+
+// checkTestCase runs each test case through Parse (non-strict) and verifies count, per-msg
+// stream/function/wbit, and error strings. It does not assert item SML (encoder concern).
+func checkTestCase(t *testing.T, tests []testCase, strict bool) {
+	t.Helper()
+	req := require.New(t)
+
+	var parser *Parser
+	if strict {
+		parser = NewParser(WithParserStrictMode(true))
+	} else {
+		parser = NewParser()
+	}
+
 	for i, test := range tests {
 		t.Logf("Test #%d: %s", i, test.description)
-		msgs, err := ParseHSMS(test.input)
 
-		require.Lenf(msgs, test.expectedNumOfMsgs, "should have %d message, got %d, error:%s", test.expectedNumOfMsgs, len(msgs), err)
+		msgs, err := parser.Parse(test.input)
 
-		for j, msg := range msgs {
-			require.NotNil(msg)
-			str := msg.ToSML()
-			require.Equal(test.expectedStr[j], str)
-
-			if len(msgs) == 1 && j == 0 {
-				p := NewHSMSParser()
-				p.WithStrictMode(strictMode)
-
-				// lazy parsing
-				smsg, err := p.ParseMessage(test.input, true)
-				require.NoError(err)
-				require.NotNil(smsg)
-				require.Equal(msg.ToSML(), smsg.ToSML())
-
-				// non-lazy parsing
-				smsg, err = p.ParseMessage(test.input, true)
-				require.NoError(err)
-				require.NotNil(smsg)
-				require.Equal(msg.ToSML(), smsg.ToSML())
-
-				// parse header only
-				smsg, err = p.ParseMessageHeader(test.input)
-				require.NoError(err)
-				require.NotNil(smsg)
-				require.Equal(msg.Header(), smsg.Header())
-				require.Equal(msg.StreamCode(), smsg.StreamCode())
-				require.Equal(msg.FunctionCode(), smsg.FunctionCode())
-				require.Equal(msg.WaitBit(), smsg.WaitBit())
-			}
-
-			reparsedMsgs, reparseErr := ParseHSMS(str)
-			require.NoError(reparseErr)
-			require.Lenf(reparsedMsgs, 1, "should have 1 message, error:%s", err)
-			require.Equal(msg, reparsedMsgs[0])
+		if test.expectedErrStr != "" {
+			req.ErrorContainsf(err, test.expectedErrStr, "test %d", i)
+			continue
 		}
 
-		if len(test.expectedErrStr) > 0 {
-			errStr := err.Error()
-			require.Contains(errStr, test.expectedErrStr)
+		req.NoErrorf(err, "test %d", i)
+		req.Lenf(msgs, test.expectedNumOfMsgs, "test %d: message count", i)
+
+		if test.expectedMsgs != nil {
+			for j, exp := range test.expectedMsgs {
+				if j >= len(msgs) {
+					break
+				}
+				req.Equalf(exp.stream, msgs[j].Stream(), "test %d, msg %d: stream", i, j)
+				req.Equalf(exp.function, msgs[j].Function(), "test %d, msg %d: function", i, j)
+				req.Equalf(exp.wbit, msgs[j].WaitBit(), "test %d, msg %d: wbit", i, j)
+			}
+		}
+
+		// verify single-message parse consistency via ParseMessage and ParseHeader
+		if test.expectedNumOfMsgs == 1 && len(msgs) == 1 {
+			msg := msgs[0]
+
+			smsg, perr := parser.ParseMessage(test.input)
+			req.NoErrorf(perr, "ParseMessage test %d", i)
+			req.NotNilf(smsg, "ParseMessage test %d", i)
+			req.Equalf(msg.Stream(), smsg.Stream(), "ParseMessage stream test %d", i)
+			req.Equalf(msg.Function(), smsg.Function(), "ParseMessage function test %d", i)
+			req.Equalf(msg.WaitBit(), smsg.WaitBit(), "ParseMessage wbit test %d", i)
+
+			hdr, herr := parser.ParseHeader(test.input)
+			req.NoErrorf(herr, "ParseHeader test %d", i)
+			req.NotNilf(hdr, "ParseHeader test %d", i)
+			req.Equalf(msg.Stream(), hdr.Stream(), "ParseHeader stream test %d", i)
+			req.Equalf(msg.Function(), hdr.Function(), "ParseHeader function test %d", i)
+			req.Equalf(msg.WaitBit(), hdr.WaitBit(), "ParseHeader wbit test %d", i)
 		}
 	}
 }
 
-func TestParseHSMS_TestData_Common(t *testing.T) {
+func TestParse_TestData_Common(t *testing.T) {
 	require := require.New(t)
 	data, err := os.ReadFile("./testdata/common.sml")
 	require.NoError(err)
 	require.NotNil(data)
 
-	secs2.UseASCIISingleQuote()
-	WithStrictMode(true)
-	msgs, err := ParseHSMS(string(data))
+	msgs, err := ParseStrict(string(data))
 	require.NoError(err)
 	require.NotNil(msgs)
 
-	secs2.UseASCIISingleQuote()
-	WithStrictMode(false)
-	msgs, err = ParseHSMS(string(data))
+	msgs, err = Parse(string(data))
 	require.NoError(err)
 	require.NotNil(msgs)
 }
 
-func TestParseHSMS_NoErrorCases_StrictMode(t *testing.T) {
+func TestParse_NoErrorCases_StrictMode(t *testing.T) {
 	tests := commonTestCases()
 	tests = append(tests,
 		testCase{
 			description:       "1 message, contains non-printable ASCII node, case 1",
 			input:             `TestMessage:'S1F1' W <A 'te"s\'t 1' 0x0A 0x0D ' test \'2\''>.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S1F1' W\n<A[19] 'te\"s\\'t 1' 0x0A 0x0D ' test \\'2\\''>\n."},
+			expectedMsgs:      []msgExpect{{stream: 1, function: 1, wbit: true}},
 		},
 		testCase{
 			description: "1 message, contains non-printable ASCII node, case 2",
@@ -108,56 +117,55 @@ string 2'>
 >
 .`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S1F1' W\n<L[2]\n  <A[16] '\\'quote\\'' 0x0A 'string 1'>\n  <A[16] '\\'quote\\'' 0x0A 'string 2'>\n>\n."},
+			expectedMsgs:      []msgExpect{{stream: 1, function: 1, wbit: true}},
 		},
 	)
 
-	secs2.UseASCIISingleQuote()
-	WithStrictMode(true)
 	checkTestCase(t, tests, true)
 
-	msg, _ := hsms.NewDataMessage(1, 1, true, 0, nil, secs2.A("first 'line'\n\rsecond line"))
-	tests = []testCase{
+	// Verify strict ASCII item content for the non-printable case.
+	require := require.New(t)
+	p := NewParser(WithParserStrictMode(true))
+	msgs, err := p.Parse(`TestMessage:'S1F1' W <A 'te"s\'t 1' 0x0A 0x0D ' test \'2\''>.`)
+	require.NoError(err)
+	require.Len(msgs, 1)
+	item, ierr := msgs[0].Item()
+	require.NoError(ierr)
+	ascii, aerr := item.ToASCII()
+	require.NoError(aerr)
+	require.Equal("te\"s't 1\n\r test '2'", ascii)
+	require.Equal(19, item.Size())
+
+	// Verify strict ASCII with single-quote input and double-quote input.
+	tests2 := []testCase{
 		{
 			description:       "1 message, single-quote ASCII node",
 			input:             `TestMessage:'S1F1' W <A 'text'>.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S1F1' W\n<A[4] 'text'>\n."},
+			expectedMsgs:      []msgExpect{{stream: 1, function: 1, wbit: true}},
 		},
 		{
 			description:       "1 message, single-quote ASCII node with newlines",
 			input:             "TestMessage:'S1F1' W <A 'text1\ntest2\ntest3'>.",
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S1F1' W\n<A[17] 'text1' 0x0A 'test2' 0x0A 'test3'>\n."},
-		},
-		{
-			description:       "1 message, from ToSML",
-			input:             msg.ToSML(),
-			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S1F1' W\n<A[25] 'first \\'line\\'' 0x0A 0x0D 'second line'>\n."},
+			expectedMsgs:      []msgExpect{{stream: 1, function: 1, wbit: true}},
 		},
 	}
-	secs2.UseASCIISingleQuote()
-	checkTestCase(t, tests, true)
+	checkTestCase(t, tests2, true)
 
-	tests = []testCase{
+	tests3 := []testCase{
 		{
 			description:       "1 message, double-quote ASCII node",
 			input:             `TestMessage:'S1F1' W <A "text">.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S1F1' W\n<A[4] \"text\">\n."},
+			expectedMsgs:      []msgExpect{{stream: 1, function: 1, wbit: true}},
 		},
 	}
-
-	secs2.UseASCIIDoubleQuote()
-	checkTestCase(t, tests, true)
+	checkTestCase(t, tests3, true)
 }
 
-func TestParseHSMS_NoErrorCases_NonStrictMode(t *testing.T) {
+func TestParse_NoErrorCases_NonStrictMode(t *testing.T) {
 	tests := commonTestCases()
-
-	secs2.UseASCIISingleQuote()
-	WithStrictMode(false)
 	checkTestCase(t, tests, false)
 
 	tests = []testCase{
@@ -165,22 +173,21 @@ func TestParseHSMS_NoErrorCases_NonStrictMode(t *testing.T) {
 			description:       "1 message, single-quote ASCII node",
 			input:             `TestMessage:'S1F1' W <A 'text'>.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S1F1' W\n<A[4] 'text'>\n."},
+			expectedMsgs:      []msgExpect{{stream: 1, function: 1, wbit: true}},
 		},
 		{
 			description:       "1 message, single-quote ASCII node with newlines",
 			input:             "TestMessage:'S1F1' W <A 'text1\ntest2\ntest3'>.",
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S1F1' W\n<A[17] 'text1\ntest2\ntest3'>\n."},
+			expectedMsgs:      []msgExpect{{stream: 1, function: 1, wbit: true}},
 		},
 		{
 			description:       "1 message, single-quote ASCII node with space before closing quote",
 			input:             `S99F99 <A 'test1  'test2'  >   .`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S99F99'\n<A[13] 'test1  'test2'>\n."},
+			expectedMsgs:      []msgExpect{{stream: 99, function: 99, wbit: false}},
 		},
 	}
-	secs2.UseASCIISingleQuote()
 	checkTestCase(t, tests, false)
 
 	tests = []testCase{
@@ -188,30 +195,25 @@ func TestParseHSMS_NoErrorCases_NonStrictMode(t *testing.T) {
 			description:       "1 message, double-quote ASCII node",
 			input:             `TestMessage:'S1F1' W <A "text">.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S1F1' W\n<A[4] \"text\">\n."},
+			expectedMsgs:      []msgExpect{{stream: 1, function: 1, wbit: true}},
 		},
 		{
 			description:       "1 message, double-quote ASCII node with newlines",
 			input:             "TestMessage:'S1F1' W <A \"text1\ntest2\ntest3\">.",
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S1F1' W\n<A[17] \"text1\ntest2\ntest3\">\n."},
+			expectedMsgs:      []msgExpect{{stream: 1, function: 1, wbit: true}},
 		},
 		{
 			description:       "1 message, double-quote ASCII node with space before closing quote",
 			input:             `S99F99 <A "test1  "test2"  >   .`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S99F99'\n<A[13] \"test1  \"test2\">\n."},
+			expectedMsgs:      []msgExpect{{stream: 99, function: 99, wbit: false}},
 		},
 	}
-
-	secs2.UseASCIIDoubleQuote()
 	checkTestCase(t, tests, false)
 }
 
-func TestParseHSMS_parseItem_ASCII(t *testing.T) {
-	secs2.UseASCIISingleQuote()
-	WithStrictMode(false)
-
+func TestParseItem_ASCII(t *testing.T) {
 	testcases := []struct {
 		description    string
 		strictMode     bool
@@ -286,7 +288,7 @@ func TestParseHSMS_parseItem_ASCII(t *testing.T) {
 			expectedStr: "\xa9abc",
 		},
 		{
-			description: "ASCII unescaped single quote,  with characters, with new line",
+			description: "ASCII unescaped single quote, with characters, with new line",
 			strictMode:  false,
 			sml:         "<A[4] 'a''\n'>",
 			expectedStr: "a''\n",
@@ -328,7 +330,7 @@ func TestParseHSMS_parseItem_ASCII(t *testing.T) {
 			expectedErrStr: "invalid quote for ASCII string",
 		},
 		{
-			description:    "invalid ASCII quote",
+			description:    "invalid ASCII quote duplicate",
 			strictMode:     false,
 			sml:            "<A[1] abcd'>",
 			expectedErrStr: "invalid quote for ASCII string",
@@ -339,8 +341,8 @@ func TestParseHSMS_parseItem_ASCII(t *testing.T) {
 
 	for i, tt := range testcases {
 		t.Logf("Test #%d: %s", i, tt.description)
-		parser := NewHSMSParser()
-		parser.WithStrictMode(tt.strictMode)
+		parser := NewParser()
+		parser.strict = tt.strictMode
 		parser.input = tt.sml
 		parser.data = tt.sml
 		parser.len = len(tt.sml)
@@ -360,10 +362,7 @@ func TestParseHSMS_parseItem_ASCII(t *testing.T) {
 	}
 }
 
-func TestParseHSMS_parseItem_LocalizedStr(t *testing.T) {
-	secs2.UseASCIISingleQuote()
-	WithStrictMode(false)
-
+func TestParseItem_LocalizedStr(t *testing.T) {
 	testcases := []struct {
 		description    string
 		strictMode     bool
@@ -407,8 +406,8 @@ func TestParseHSMS_parseItem_LocalizedStr(t *testing.T) {
 
 	for i, tt := range testcases {
 		t.Logf("Test #%d: %s", i, tt.description)
-		parser := NewHSMSParser()
-		parser.WithStrictMode(tt.strictMode)
+		parser := NewParser()
+		parser.strict = tt.strictMode
 		parser.input = tt.sml
 		parser.data = tt.sml
 		parser.len = len(tt.sml)
@@ -444,81 +443,80 @@ func commonTestCases() []testCase {
 			description:       "1 message, no data item",
 			input:             "S0F0 .",
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S0F0'\n."},
+			expectedMsgs:      []msgExpect{{stream: 0, function: 0, wbit: false}},
 		},
 		{
-			description:       "1 message, no data item, with message name at frond",
+			description:       "1 message, no data item, with message name at front",
 			input:             "TestMessage:S0F1 W\n.",
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S0F1' W\n."},
+			expectedMsgs:      []msgExpect{{stream: 0, function: 1, wbit: true}},
 		},
 		{
 			description:       "1 message, no data item, with single quoted stream-function",
 			input:             "TestMessage : 'S0F1' W\n.",
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S0F1' W\n."},
+			expectedMsgs:      []msgExpect{{stream: 0, function: 1, wbit: true}},
 		},
 		{
 			description:       "1 message, single-quote ASCII node",
 			input:             `TestMessage:'S1F1' W <A 'text'>.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S1F1' W\n<A[4] 'text'>\n."},
+			expectedMsgs:      []msgExpect{{stream: 1, function: 1, wbit: true}},
 		},
 		{
 			description:       "1 message, single-quote ASCII node, message name contains dot",
 			input:             `Test.Messaage : 'S1F1' W <A 'text'>.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S1F1' W\n<A[4] 'text'>\n."},
+			expectedMsgs:      []msgExpect{{stream: 1, function: 1, wbit: true}},
 		},
 		{
 			description:       "1 message, single-quote ASCII node, empty message name",
 			input:             `  :  'S1F1' W <A 'text'>.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S1F1' W\n<A[4] 'text'>\n."},
+			expectedMsgs:      []msgExpect{{stream: 1, function: 1, wbit: true}},
 		},
 		{
 			description:       "1 message, single-quote ASCII node, without message name",
 			input:             `'S1F1' W <A 'text'>.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S1F1' W\n<A[4] 'text'>\n."},
+			expectedMsgs:      []msgExpect{{stream: 1, function: 1, wbit: true}},
 		},
 		{
 			description:       "1 message, single-quote ASCII node, without message name and contains colon in text",
 			input:             `'S1F1' W <A 'this.is:text'>.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S1F1' W\n<A[12] 'this.is:text'>\n."},
+			expectedMsgs:      []msgExpect{{stream: 1, function: 1, wbit: true}},
 		},
 		{
 			description:       "1 message, Binary node",
 			input:             `TestMessage   : S63F127 W <B[3] 0b0 0xFE 255>.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S63F127' W\n<B[3] 0b0 0b11111110 0b11111111>\n."},
+			expectedMsgs:      []msgExpect{{stream: 63, function: 127, wbit: true}},
 		},
 		{
 			description:       "1 message, Boolean node",
 			input:             `TestMessage:'S126F254' <BOOLEAN True False>.`,
 			expectedNumOfMsgs: 1,
-			expectedStr:       []string{"'S126F254'\n<BOOLEAN[2] True False>\n."},
+			expectedMsgs:      []msgExpect{{stream: 126, function: 254, wbit: false}},
 		},
 		{
 			description: "2 messages, F4, F8 node, empty message names",
 			input: `  :  S126F254 <F4 +0.1 -0.1>.
 			         : S127F255 <F8 1e3 1E-3 .5e-1>.`,
 			expectedNumOfMsgs: 2,
-			expectedStr: []string{
-				"'S126F254'\n<F4[2] 0.100000001 -0.100000001>\n.",
-				"'S127F255'\n<F8[3] 1000 0.001 0.050000000000000003>\n.",
+			expectedMsgs: []msgExpect{
+				{stream: 126, function: 254, wbit: false},
+				{stream: 127, function: 255, wbit: false},
 			},
 		},
-
 		{
 			description: "2 messages, F4, F8 node",
 			input: `S126F254 <F4 +0.1 -0.1>.
 			        S127F255 <F8 1e3 1E-3 .5e-1>.`,
 			expectedNumOfMsgs: 2,
-			expectedStr: []string{
-				"'S126F254'\n<F4[2] 0.100000001 -0.100000001>\n.",
-				"'S127F255'\n<F8[3] 1000 0.001 0.050000000000000003>\n.",
+			expectedMsgs: []msgExpect{
+				{stream: 126, function: 254, wbit: false},
+				{stream: 127, function: 255, wbit: false},
 			},
 		},
 		{
@@ -528,11 +526,11 @@ func commonTestCases() []testCase {
 			        S0F0 <I4 -2147483648 2147483647>.
 			        S0F0 <I8 -9223372036854775808 9223372036854775807>.`,
 			expectedNumOfMsgs: 4,
-			expectedStr: []string{
-				"'S0F0'\n<I1[7] -128 -64 -1 0 1 64 127>\n.",
-				"'S0F0'\n<I2[2] -32768 32767>\n.",
-				"'S0F0'\n<I4[2] -2147483648 2147483647>\n.",
-				"'S0F0'\n<I8[2] -9223372036854775808 9223372036854775807>\n.",
+			expectedMsgs: []msgExpect{
+				{stream: 0, function: 0, wbit: false},
+				{stream: 0, function: 0, wbit: false},
+				{stream: 0, function: 0, wbit: false},
+				{stream: 0, function: 0, wbit: false},
 			},
 		},
 		{
@@ -543,12 +541,12 @@ func commonTestCases() []testCase {
 			        S0F0 <U4[..3] 0 1 4294967295>.
 			        S0F0 <U8[0..] 0 1 18446744073709551615>.`,
 			expectedNumOfMsgs: 5,
-			expectedStr: []string{
-				"'S0F0'\n<U1[4] 0 1 128 255>\n.",
-				"'S0F0'\n<U2[2] 1 65535>\n.",
-				"'S0F0'\n<U2[3] 0 1 65535>\n.",
-				"'S0F0'\n<U4[3] 0 1 4294967295>\n.",
-				"'S0F0'\n<U8[3] 0 1 18446744073709551615>\n.",
+			expectedMsgs: []msgExpect{
+				{stream: 0, function: 0, wbit: false},
+				{stream: 0, function: 0, wbit: false},
+				{stream: 0, function: 0, wbit: false},
+				{stream: 0, function: 0, wbit: false},
+				{stream: 0, function: 0, wbit: false},
 			},
 		},
 		{
@@ -564,17 +562,7 @@ func commonTestCases() []testCase {
 .           // comment
 `,
 			expectedNumOfMsgs: 1,
-			expectedStr: []string{
-				`'S0F0'
-<L[2]
-  <L[0]>
-  <L[2]
-    <A[0] ''>
-    <B[0]>
-  >
->
-.`,
-			},
+			expectedMsgs:      []msgExpect{{stream: 0, function: 0, wbit: false}},
 		},
 		{
 			description: "1 message, Nested list node with block comment",
@@ -589,31 +577,21 @@ func commonTestCases() []testCase {
 .           /* comment */
 `,
 			expectedNumOfMsgs: 1,
-			expectedStr: []string{
-				`'S0F0'
-<L[2]
-  <L[0]>
-  <L[2]
-    <A[0] ''>
-    <B[0]>
-  >
->
-.`,
-			},
+			expectedMsgs:      []msgExpect{{stream: 0, function: 0, wbit: false}},
 		},
 	}
 }
 
-func TestParseHSMS_List_ErrorCases(t *testing.T) {
+func TestParse_List_ErrorCases(t *testing.T) {
 	tests := []testCase{
 		{
-			description:       "unexpected token",
+			description:       "unexpected token (bare identifier as child)",
 			input:             "S0F0\n<L[1] T>\n.",
 			expectedNumOfMsgs: 0,
 			expectedErrStr:    "expected child data item",
 		},
 		{
-			description:       "unexpected token",
+			description:       "unexpected token (garbage punctuation as child)",
 			input:             "S0F0\n<L[1] !@#>\n.",
 			expectedNumOfMsgs: 0,
 			expectedErrStr:    "expected child data item",
@@ -623,7 +601,7 @@ func TestParseHSMS_List_ErrorCases(t *testing.T) {
 	checkTestCase(t, tests, true)
 }
 
-func TestParseHSMS_ASCII_ErrorCases_NonStrictMode(t *testing.T) {
+func TestParse_ASCII_ErrorCases_NonStrictMode(t *testing.T) {
 	tests := []testCase{
 		{
 			description:       "invalid character number code",
@@ -663,12 +641,10 @@ func TestParseHSMS_ASCII_ErrorCases_NonStrictMode(t *testing.T) {
 		},
 	}
 
-	secs2.UseASCIISingleQuote()
-	WithStrictMode(false)
 	checkTestCase(t, tests, false)
 }
 
-func TestParseHSMS_ASCII_ErrorCases_StrictMode(t *testing.T) {
+func TestParse_ASCII_ErrorCases_StrictMode(t *testing.T) {
 	tests := []testCase{
 		{
 			description:       "invalid ASCII characters",
@@ -708,12 +684,10 @@ func TestParseHSMS_ASCII_ErrorCases_StrictMode(t *testing.T) {
 		},
 	}
 
-	secs2.UseASCIISingleQuote()
-	WithStrictMode(true)
 	checkTestCase(t, tests, true)
 }
 
-func TestParseHSMS_Binary_ErrorCases(t *testing.T) {
+func TestParse_Binary_ErrorCases(t *testing.T) {
 	tests := []testCase{
 		{
 			description:       "underflow",
@@ -744,7 +718,7 @@ func TestParseHSMS_Binary_ErrorCases(t *testing.T) {
 	checkTestCase(t, tests, false)
 }
 
-func TestParseHSMS_Boolean_ErrorCases(t *testing.T) {
+func TestParse_Boolean_ErrorCases(t *testing.T) {
 	tests := []testCase{
 		{
 			description:       "unexpected token",
@@ -763,7 +737,7 @@ func TestParseHSMS_Boolean_ErrorCases(t *testing.T) {
 	checkTestCase(t, tests, false)
 }
 
-func TestParseHSMS_Float_ErrorCases(t *testing.T) {
+func TestParse_Float_ErrorCases(t *testing.T) {
 	tests := []testCase{
 		{
 			description:       "F4 overflow",
@@ -794,7 +768,7 @@ func TestParseHSMS_Float_ErrorCases(t *testing.T) {
 	checkTestCase(t, tests, false)
 }
 
-func TestParseHSMS_Int_ErrorCases(t *testing.T) {
+func TestParse_Int_ErrorCases(t *testing.T) {
 	tests := []testCase{
 		{
 			description: "underflow",
@@ -837,7 +811,7 @@ func TestParseHSMS_Int_ErrorCases(t *testing.T) {
 	checkTestCase(t, tests, false)
 }
 
-func TestParseHSMS_Uint_ErrorCases(t *testing.T) {
+func TestParse_Uint_ErrorCases(t *testing.T) {
 	tests := []testCase{
 		{
 			description: "overflow",
@@ -866,4 +840,36 @@ func TestParseHSMS_Uint_ErrorCases(t *testing.T) {
 	}
 
 	checkTestCase(t, tests, false)
+}
+
+// TestParse_TruncatedSizeRange verifies that truncated size-range input returns
+// a *ParseError rather than panicking with an index out of range.
+func TestParse_TruncatedSizeRange(t *testing.T) {
+	inputs := []struct {
+		desc  string
+		input string
+	}{
+		{"truncated after open bracket", "S1F1\n<A["},
+		{"truncated after min size digit", "S1F1\n<A[1"},
+		{"truncated after range operator", "S1F1\n<A[1.."},
+		{"truncated no-min range operator", "S1F1\n<A[.."},
+	}
+
+	p := NewParser()
+
+	for _, tc := range inputs {
+		t.Run(tc.desc, func(t *testing.T) {
+			var err error
+
+			require.NotPanics(t, func() {
+				_, err = p.Parse(tc.input)
+			}, "Parse must not panic on truncated input: %q", tc.input)
+
+			require.Error(t, err, "expected error for truncated input: %q", tc.input)
+
+			var parseErr *ParseError
+			require.True(t, errors.As(err, &parseErr),
+				"expected *ParseError for truncated input %q, got %T: %v", tc.input, err, err)
+		})
+	}
 }

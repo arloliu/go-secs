@@ -6,102 +6,66 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"unicode"
-	"unicode/utf8"
 
-	"github.com/arloliu/go-secs/hsms"
-	"github.com/arloliu/go-secs/secs2"
+	"github.com/arloliu/go-secs/v2/hsms"
+	"github.com/arloliu/go-secs/v2/secs2"
 )
 
 const eof rune = -1
 
-// HSMSParser is a parser for HSMS data messages in SML (SECS Message Language) format.
+// Parser is a parser for HSMS data messages in SML (SECS Message Language) format.
 // It provides methods for parsing SML strings to HSMS data messages.
-type HSMSParser struct {
-	pos        int
-	len        int
-	input      string
-	data       string
-	stream     uint8
-	function   uint8
-	wbit       bool
-	strictMode atomic.Bool
+// A Parser's configuration is immutable after construction; create a new Parser
+// via NewParser to change options.
+type Parser struct {
+	pos      int
+	len      int
+	input    string
+	data     string
+	stream   uint8
+	function uint8
+	wbit     bool
+	strict   bool // immutable after NewParser
 }
 
-// NewHSMSParser creates a new SML HSMS parser.
-func NewHSMSParser() *HSMSParser {
-	return &HSMSParser{}
-}
-
-// ParseHSMS parses the input string using a new HSMSParser instanace with the default strict mode setting.
-// It returns a slice of parsed HSMS data messages and an error if any occurred during parsing.
-//
-// The input string should be a valid UTF-8 encoded representation of one or more HSMS data messages.
-//
-// If any errors are encountered during parsing, no messages will be returned to ensure data integrity.
-func ParseHSMS(input string) ([]*hsms.DataMessage, error) {
-	if len(input) == 0 {
-		return []*hsms.DataMessage{}, nil
+// NewParser returns a Parser configured by opts (default: non-strict).
+func NewParser(opts ...ParserOption) *Parser {
+	p := &Parser{}
+	for _, opt := range opts {
+		opt(p)
 	}
 
-	p := NewHSMSParser()
-	p.WithStrictMode(defStrictMode.Load())
-
-	return p.Parse(input)
+	return p
 }
 
-var defStrictMode atomic.Bool
-
-// WithStrictMode configures the default setting to use strict mode for parsing ASCII characters.
-// It affects when calling ParseHSMS function.
-//
-// In strict mode, the parser adheres to the ASCII printable characters (character codes 32 to 126) and
-// supports parsing non-printable ASCII characters represented by their decimal values
-// (e.g., 0x0A for newline).
-//
-// In non-strict mode, the parser optimizes for performance by making certain assumptions about the input:
-//   - It assumes that the ASCII string does not contain the same quote character as the one used
-//     to enclose the ASCII item.
-//   - It does not handle escape sequences.
-//
-// The strict mode setting of SECS-II ASCII items can be configured by secs2.WithStrictMode.
-func WithStrictMode(enable bool) {
-	defStrictMode.Store(enable)
+// Parse parses one or more SML messages from input, fail-fast (first error wins).
+// Returns all successfully parsed messages, or nil and an error on the first failure.
+// An empty or whitespace-only input is not an error: it returns an empty slice and a nil error.
+func Parse(input string) ([]*hsms.DataMessage, error) {
+	return NewParser().Parse(input)
 }
 
-// WithStrictMode configures the parser to use strict mode for parsing ASCII characters.
-//
-// In strict mode, the parser adheres to the ASCII printable characters (character codes 32 to 126) and
-// supports parsing non-printable ASCII characters represented by their decimal values
-// (e.g., 0x0A for newline).
-//
-// In non-strict mode, the parser optimizes for performance by making certain assumptions about the input:
-//   - It assumes that the ASCII string does not contain the same quote character as the one used
-//     to enclose the ASCII item.
-//   - It does not handle escape sequences.
-//
-// The strict mode setting of SECS-II ASCII items can be configured by secs2.WithStrictMode.
-func (p *HSMSParser) WithStrictMode(enable bool) {
-	p.strictMode.Store(enable)
-	secs2.WithASCIIStrictMode(enable)
+// ParseStrict is Parse with strict ASCII parsing enabled.
+func ParseStrict(input string) ([]*hsms.DataMessage, error) {
+	return NewParser(WithParserStrictMode(true)).Parse(input)
 }
 
-// Parse parses the input SML string and returns a slice of parsed HSMS data messages and an error
-// if any occurred during parsing.
+// Parse parses the input SML string and returns a slice of parsed HSMS data messages
+// and an error if any occurred during parsing.
 //
 // This method is similar to ParseMessage, but it parses multiple HSMS data messages from the input string.
 //
 // The parser will attempt to extract and validate individual HSMS data messages from the input string.
 // If any errors are encountered during parsing, an error will be returned, and no messages will be
 // returned to ensure data integrity.
-func (p *HSMSParser) Parse(input string) ([]*hsms.DataMessage, error) {
+func (p *Parser) Parse(input string) ([]*hsms.DataMessage, error) {
 	p.initInput(input)
 
 	messages := make([]*hsms.DataMessage, 0, 1)
 
 	for {
-		msg, err := p.parseMsg(false, false)
+		msg, err := p.parseMsg(false)
 		if err != nil {
 			return nil, err
 		}
@@ -117,55 +81,66 @@ func (p *HSMSParser) Parse(input string) ([]*hsms.DataMessage, error) {
 	return messages, nil
 }
 
-// ParseMessage parses a single HSMS data message from the input string, returns the parsed message
-// and an error if any occurred during parsing.
+// ParseMessage parses a single HSMS data message from the input string and returns the parsed
+// message and an error if any occurred during parsing.
 //
-// The parser will attempt to extract and validate individual HSMS data messages from the input string.
-// If any errors are encountered during parsing, an error will be returned, and no messages will be
-// returned to ensure data integrity.
-//
-// The lazy flag can be set to true to skip parsing the message body immediately. This is useful when
-// the message body is not required for further processing.
-func (p *HSMSParser) ParseMessage(input string, lazy bool) (*hsms.DataMessage, error) {
+// If the input is empty or contains only whitespace and comments (no message), ParseMessage
+// returns nil and [ErrNoMessage]. Syntax errors are returned as *[ParseError].
+func (p *Parser) ParseMessage(input string) (*hsms.DataMessage, error) {
 	p.initInput(input)
 
-	msg, err := p.parseMsg(false, lazy)
+	msg, err := p.parseMsg(false)
 	if err != nil {
 		return nil, err
 	}
 
 	if msg == nil {
-		return nil, errors.New("no message parsed")
+		return nil, ErrNoMessage
 	}
 
 	return msg, nil
 }
 
-// ParseMessageHeader parses the header of a single HSMS data message from the input string and returns
+// ParseHeader parses the header of a single HSMS data message from the input string and returns
 // the parsed message with header information but without the message body.
-func (p *HSMSParser) ParseMessageHeader(input string) (*hsms.DataMessage, error) {
+//
+// If the input is empty or contains only whitespace and comments (no message), ParseHeader
+// returns nil and [ErrNoMessage]. Syntax errors are returned as *[ParseError].
+func (p *Parser) ParseHeader(input string) (*hsms.DataMessage, error) {
 	p.initInput(input)
 
-	msg, err := p.parseMsg(true, true)
+	msg, err := p.parseMsg(true)
 	if err != nil {
 		return nil, err
 	}
 
 	if msg == nil {
-		return nil, errors.New("no message parsed")
+		return nil, ErrNoMessage
 	}
 
 	return msg, nil
 }
 
-func (p *HSMSParser) initInput(input string) {
+func (p *Parser) initInput(input string) {
 	p.input = input
 	p.data = input
 	p.len = len(input)
 	p.pos = 0
 }
 
-func (p *HSMSParser) parseMsg(headerOnly bool, lazy bool) (*hsms.DataMessage, error) {
+// errf builds a *ParseError at the parser's current offset.
+func (p *Parser) errf(format string, args ...any) *ParseError {
+	return p.errfAt(p.pos, format, args...)
+}
+
+// errfAt builds a *ParseError at a specific byte offset. Value parsers use this
+// because getItemValueStrings advances p.pos PAST the item before a value error
+// fires, so p.pos would otherwise point after (not at) the offending item.
+func (p *Parser) errfAt(offset int, format string, args ...any) *ParseError {
+	return newParseError(p.input, offset, fmt.Sprintf(format, args...))
+}
+
+func (p *Parser) parseMsg(headerOnly bool) (*hsms.DataMessage, error) {
 	p.stream = 0
 	p.function = 0
 	p.wbit = false
@@ -183,15 +158,9 @@ func (p *HSMSParser) parseMsg(headerOnly bool, lazy bool) (*hsms.DataMessage, er
 	}
 
 	if headerOnly {
-		return hsms.NewDataMessage(p.stream, p.function, p.wbit, 0, nil, nil)
-	}
-
-	// skip body parsing if lazy flag is set
-	if lazy {
-		rawSMLItem := NewRawSMLItem([]byte(p.data), p.strictMode.Load())
-		msg, err := hsms.NewDataMessage(p.stream, p.function, p.wbit, 0, nil, rawSMLItem)
+		msg, err := hsms.NewDataMessage(p.stream, p.function, p.wbit, 0, [4]byte{}, secs2.NewEmptyItem())
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("sml: %w", err)
 		}
 
 		return msg, nil
@@ -204,18 +173,18 @@ func (p *HSMSParser) parseMsg(headerOnly bool, lazy bool) (*hsms.DataMessage, er
 	}
 
 	if ch := p.nextNonSpaceRune(); ch != '.' {
-		return nil, fmt.Errorf("expect dot in the end of message, got %c", ch)
+		return nil, p.errf("expect dot in the end of message, got %c", ch)
 	}
 
-	msg, err := hsms.NewDataMessage(p.stream, p.function, p.wbit, 0, nil, item)
+	msg, err := hsms.NewDataMessage(p.stream, p.function, p.wbit, 0, [4]byte{}, item)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("sml: %w", err)
 	}
 
 	return msg, nil
 }
 
-func (p *HSMSParser) parseHSMSHeader() error {
+func (p *Parser) parseHSMSHeader() error {
 	// find if the first dot or newline character is present in the data.
 	//
 	// ths header SML message should be terminated by a dot or newline character.
@@ -226,7 +195,7 @@ func (p *HSMSParser) parseHSMSHeader() error {
 	// 3. the output does not contain any dot symbol, it means the firstTerm is not accurate,
 	firstTerm := strings.IndexAny(p.data, "\n.")
 	if firstTerm < 0 {
-		return errors.New("invalid SML message without dot symbol or newline")
+		return p.errf("invalid SML message without dot symbol or newline")
 	}
 
 	// try to find if the first item bracket '<' is present in the data, and choose the maximum index
@@ -240,7 +209,7 @@ func (p *HSMSParser) parseHSMSHeader() error {
 	firstItemBracket := strings.IndexByte(p.data, byte('<'))
 	i := max(firstTerm, firstItemBracket)
 	if i < 0 {
-		return errors.New("invalid SML message without item bracket '<' and dot symbol")
+		return p.errf("invalid SML message without item bracket '<' and dot symbol")
 	}
 
 	// get optional message name
@@ -261,7 +230,7 @@ func (p *HSMSParser) parseHSMSHeader() error {
 
 	// parse stream code for stream-function
 	if p.nextRune() != 'S' {
-		return errors.New("failed to parse stream code")
+		return p.errf("failed to parse stream code")
 	}
 
 	streamVal, err := p.nextCode()
@@ -270,14 +239,14 @@ func (p *HSMSParser) parseHSMSHeader() error {
 	}
 
 	if streamVal > 127 {
-		return errors.New("stream code range overflow, should be in range of [0, 128)")
+		return p.errf("stream code range overflow, should be in range of [0, 128)")
 	}
 
 	p.stream = streamVal
 
 	// parse function code
 	if p.nextRune() != 'F' {
-		return errors.New("failed to parse function code")
+		return p.errf("failed to parse function code")
 	}
 
 	funcVal, err := p.nextCode()
@@ -302,7 +271,7 @@ func (p *HSMSParser) parseHSMSHeader() error {
 	return nil
 }
 
-func (p *HSMSParser) parseText() (secs2.Item, error) {
+func (p *Parser) parseText() (secs2.Item, error) {
 	p.skipComment()
 
 	ch := p.peekNonSpaceRune()
@@ -323,15 +292,15 @@ func (p *HSMSParser) parseText() (secs2.Item, error) {
 }
 
 //nolint:cyclop
-func (p *HSMSParser) parseItem() (secs2.Item, error) {
+func (p *Parser) parseItem() (secs2.Item, error) {
 	ch := p.nextNonSpaceRune()
 	if ch != '<' {
-		return nil, errors.New("expected '<'")
+		return nil, p.errf("expected '<'")
 	}
 
 	itemType, ok := p.parseItemType()
 	if !ok {
-		return nil, errors.New("failed to parse item type")
+		return nil, p.errf("failed to parse item type")
 	}
 	_, maxSize, err := p.parseItemSize()
 	if err != nil {
@@ -346,7 +315,7 @@ func (p *HSMSParser) parseItem() (secs2.Item, error) {
 	case secs2.ListFormatCode:
 		item, err = p.parseList(maxSize)
 	case secs2.ASCIIFormatCode:
-		if p.strictMode.Load() {
+		if p.strict {
 			item, err = p.parseASCIIStrict(maxSize)
 		} else {
 			item, err = p.parseASCIIFast(maxSize)
@@ -391,7 +360,7 @@ func (p *HSMSParser) parseItem() (secs2.Item, error) {
 	return item, nil
 }
 
-func (p *HSMSParser) parseList(size int) (secs2.Item, error) {
+func (p *Parser) parseList(size int) (secs2.Item, error) {
 	childItems := make([]secs2.Item, 0, size)
 
 	for {
@@ -411,10 +380,10 @@ func (p *HSMSParser) parseList(size int) (secs2.Item, error) {
 			return item, nil
 
 		case eof:
-			return nil, errors.New("should not got eof")
+			return nil, p.errf("should not got eof")
 
 		default:
-			return nil, fmt.Errorf("expected child data item or '<', '>', found %q", ch)
+			return nil, p.errf("expected child data item or '<', '>', found %q", ch)
 		}
 	}
 }
@@ -428,9 +397,24 @@ func (p *HSMSParser) parseList(size int) (secs2.Item, error) {
 // This method is typically used when parsing SML generated with strict mode for SECS-II ASCII items.
 //
 // It returns the parsed ASCII item as a secs2.Item and an error if any occurred during parsing.
-func (p *HSMSParser) parseASCIIStrict(size int) (secs2.Item, error) {
+//
+//nolint:cyclop
+func (p *Parser) parseASCIIStrict(size int) (secs2.Item, error) {
 	var numStr string
-	quoteChar := secs2.ASCIIQuote()
+
+	// Determine quoteChar from input: scan for the first ' or " before the closing >.
+	// Default to '"' when the item contains only numeric tokens (no quoted run).
+	quoteChar := '"'
+	for _, ch := range p.data {
+		if ch == '>' {
+			break
+		}
+		if ch == '\'' || ch == '"' {
+			quoteChar = ch
+			break
+		}
+	}
+
 	isQuoteStr := false
 	isNumStr := false
 	isEscapedCh := false
@@ -462,7 +446,7 @@ func (p *HSMSParser) parseASCIIStrict(size int) (secs2.Item, error) {
 			// found >
 			case '>':
 				if !isEscapedCh {
-					return nil, errors.New("unclosed quote string, no closing quote found")
+					return nil, p.errf("unclosed quote string, no closing quote found")
 				}
 				sb.WriteRune(ch)
 				isEscapedCh = false
@@ -475,17 +459,30 @@ func (p *HSMSParser) parseASCIIStrict(size int) (secs2.Item, error) {
 		// is a number string
 		case isNumStr:
 			switch ch {
-			case ' ', '>':
+			case ' ':
 				isNumStr = false
 				val, err := strconv.ParseUint(numStr, 0, 0)
 				if err != nil {
-					return nil, err
+					return nil, p.errf("invalid ASCII numeric byte: %v", err)
 				}
 				if val > unicode.MaxLatin1 {
-					return nil, fmt.Errorf("non-printable char out of latin-1 range, got %d", val)
+					return nil, p.errf("non-printable char out of latin-1 range, got %d", val)
 				}
 				sb.WriteByte(byte(val))
 				numStr = ""
+			case '>':
+				// trailing numeric token: append the byte, forward past '>', and return.
+				val, err := strconv.ParseUint(numStr, 0, 0)
+				if err != nil {
+					return nil, p.errf("invalid ASCII numeric byte: %v", err)
+				}
+				if val > unicode.MaxLatin1 {
+					return nil, p.errf("non-printable char out of latin-1 range, got %d", val)
+				}
+				sb.WriteByte(byte(val))
+				p.forward(i + 1)
+
+				return secs2.NewASCIIItem(sb.String()), nil
 			default:
 				numStr += string(ch)
 			}
@@ -511,7 +508,7 @@ func (p *HSMSParser) parseASCIIStrict(size int) (secs2.Item, error) {
 		}
 	}
 
-	return nil, errors.New("invalid ASCII item, got EOF before item end")
+	return nil, p.errf("invalid ASCII item, got EOF before item end")
 }
 
 // parseASCIIFast parses an ASCII data item from the input string in fast mode.
@@ -522,10 +519,10 @@ func (p *HSMSParser) parseASCIIStrict(size int) (secs2.Item, error) {
 //
 // Note: The detection of the same quote character in fast mode is not exhaustive. There might be cases where
 // the fast mode fails to identify these characters correctly, leading to inaccurate parsing. In such scenarios,
-// it's recommended to use strict mode (WithStrictMode(true)) for more reliable parsing.
+// it's recommended to use strict mode (WithParserStrictMode(true)) for more reliable parsing.
 //
 // It returns the parsed ASCII item as a secs2.Item and an error if any occurred during parsing.
-func (p *HSMSParser) parseASCIIFast(maxSize int) (secs2.Item, error) {
+func (p *Parser) parseASCIIFast(maxSize int) (secs2.Item, error) {
 	// consume first quote
 	ch := p.nextNonSpaceRune()
 
@@ -535,7 +532,7 @@ func (p *HSMSParser) parseASCIIFast(maxSize int) (secs2.Item, error) {
 
 	// check if the first quote is valid
 	if ch != '\'' && ch != '"' {
-		return nil, errors.New("invalid quote for ASCII string")
+		return nil, p.errf("invalid quote for ASCII string")
 	}
 
 	quoteCh := byte(ch)
@@ -545,7 +542,7 @@ func (p *HSMSParser) parseASCIIFast(maxSize int) (secs2.Item, error) {
 	if maxSize > 0 {
 		// the data length should be >= maxSize + 2 (quote + right angle bracket)
 		if len(p.data) < maxSize+2 {
-			return nil, fmt.Errorf("ASCII item size overflow, expect (%d+2), got %d", maxSize, len(p.data))
+			return nil, p.errf("ASCII item size overflow, expect (%d+2), got %d", maxSize, len(p.data))
 		}
 
 		// check if the pattern is "'>" at the end, if so, return the ASCII item without further parsing.
@@ -567,10 +564,10 @@ func (p *HSMSParser) parseASCIIFast(maxSize int) (secs2.Item, error) {
 		}
 	}
 
-	return nil, errors.New("unclosed quote string for ASCII item")
+	return nil, p.errf("unclosed quote string for ASCII item")
 }
 
-func (p *HSMSParser) checkASCIICloseQuote(idx int, quoteCh byte) (bool, int) {
+func (p *Parser) checkASCIICloseQuote(idx int, quoteCh byte) (bool, int) {
 	if idx+1 >= p.len || idx >= p.len || p.data[idx] != quoteCh {
 		return false, 0
 	}
@@ -590,10 +587,10 @@ func (p *HSMSParser) checkASCIICloseQuote(idx int, quoteCh byte) (bool, int) {
 	return false, 0
 }
 
-// paseJIS8 parses a JIS-8 data item from the input string.
+// parseJIS8 parses a JIS-8 data item from the input string.
 //
 // It returns the parsed JIS-8 item as a secs2.Item and an error if any occurred during parsing.
-func (p *HSMSParser) parseJIS8() (secs2.Item, error) {
+func (p *Parser) parseJIS8() (secs2.Item, error) {
 	// consume first quote
 	ch := p.nextNonSpaceRune()
 
@@ -602,17 +599,15 @@ func (p *HSMSParser) parseJIS8() (secs2.Item, error) {
 	}
 
 	if ch != '\'' && ch != '"' {
-		return nil, errors.New("invalid quote for JIS-8 string")
+		return nil, p.errf("invalid quote for JIS-8 string")
 	}
 
 	quoteCh := ch
-	quoteCount := 0
 	lastQuotePos := 0
 
 	for i, ch := range p.data {
 		switch ch {
 		case quoteCh:
-			quoteCount++
 			lastQuotePos = i
 
 		case '>':
@@ -627,19 +622,17 @@ func (p *HSMSParser) parseJIS8() (secs2.Item, error) {
 			return secs2.NewJIS8Item(data), nil
 
 		default:
-			if utf8.ValidRune(ch) {
-				return nil, fmt.Errorf("out of utf-8 range, got %d", ch)
-			}
+			// collect all characters between the quotes; no utf8 validity check
 		}
 	}
 
-	return nil, errors.New("unclosed quote string for JIS-8 item")
+	return nil, p.errf("unclosed quote string for JIS-8 item")
 }
 
 // parseLocalizedStr parses a Localized Character String data item from the input string.
 //
 // It returns the parsed LocalizedStr item as a secs2.Item and an error if any occurred during parsing.
-func (p *HSMSParser) parseLocalizedStr() (secs2.Item, error) {
+func (p *Parser) parseLocalizedStr() (secs2.Item, error) {
 	// consume first quote
 	ch := p.nextNonSpaceRune()
 
@@ -648,7 +641,7 @@ func (p *HSMSParser) parseLocalizedStr() (secs2.Item, error) {
 	}
 
 	if ch != '\'' && ch != '"' {
-		return nil, errors.New("invalid quote for Localized string")
+		return nil, p.errf("invalid quote for Localized string")
 	}
 
 	quoteCh := ch
@@ -673,11 +666,12 @@ func (p *HSMSParser) parseLocalizedStr() (secs2.Item, error) {
 		}
 	}
 
-	return nil, errors.New("unclosed quote string for Localized string item")
+	return nil, p.errf("unclosed quote string for Localized string item")
 }
 
-func (p *HSMSParser) parseBoolean(size int) (secs2.Item, error) {
+func (p *Parser) parseBoolean(size int) (secs2.Item, error) {
 	items := make([]bool, 0, size)
+	start := p.pos
 	values := p.getItemValueStrings()
 
 	for _, val := range values {
@@ -687,25 +681,26 @@ func (p *HSMSParser) parseBoolean(size int) (secs2.Item, error) {
 		case "FALSE", "F":
 			items = append(items, false)
 		default:
-			return nil, fmt.Errorf("expect boolean, found %s", val)
+			return nil, p.errfAt(start, "expect boolean, found %s", val)
 		}
 	}
 
 	return secs2.NewBooleanItem(items), nil
 }
 
-func (p *HSMSParser) parseBinary(size int) (secs2.Item, error) {
+func (p *Parser) parseBinary(size int) (secs2.Item, error) {
 	items := make([]byte, 0, size)
+	start := p.pos
 	values := p.getItemValueStrings()
 
 	for _, val := range values {
 		item, err := strconv.ParseInt(val, 0, 0)
 		if err != nil {
-			return nil, fmt.Errorf("expect binary value, found %s", val)
+			return nil, p.errfAt(start, "expect binary value, found %s", val)
 		}
 
 		if item < 0 || item >= 256 {
-			return nil, errors.New("binary value overflow, should be in range of [0, 256)")
+			return nil, p.errfAt(start, "binary value overflow, should be in range of [0, 256)")
 		}
 
 		items = append(items, byte(item))
@@ -714,18 +709,19 @@ func (p *HSMSParser) parseBinary(size int) (secs2.Item, error) {
 	return secs2.NewBinaryItem(items), nil
 }
 
-func (p *HSMSParser) parseFloat(byteSize int, size int) (secs2.Item, error) {
+func (p *Parser) parseFloat(byteSize int, size int) (secs2.Item, error) {
 	items := make([]float64, 0, size)
+	start := p.pos
 	values := p.getItemValueStrings()
 
 	for _, val := range values {
 		item, err := strconv.ParseFloat(val, byteSize*8)
 		if err != nil {
 			if errors.Is(err, strconv.ErrRange) {
-				return nil, fmt.Errorf("f%d overflow", byteSize)
+				return nil, p.errfAt(start, "f%d overflow", byteSize)
 			}
 
-			return nil, fmt.Errorf("expect float, found %s", val)
+			return nil, p.errfAt(start, "expect float, found %s", val)
 		}
 
 		items = append(items, item)
@@ -734,18 +730,19 @@ func (p *HSMSParser) parseFloat(byteSize int, size int) (secs2.Item, error) {
 	return secs2.NewFloatItem(byteSize, items), nil
 }
 
-func (p *HSMSParser) parseInt(byteSize int, size int) (secs2.Item, error) {
+func (p *Parser) parseInt(byteSize int, size int) (secs2.Item, error) {
 	items := make([]int64, 0, size)
+	start := p.pos
 	values := p.getItemValueStrings()
 
 	for _, val := range values {
 		item, err := strconv.ParseInt(val, 0, byteSize*8)
 		if err != nil {
 			if errors.Is(err, strconv.ErrRange) {
-				return nil, fmt.Errorf("i%d range overflow", byteSize)
+				return nil, p.errfAt(start, "i%d range overflow", byteSize)
 			}
 
-			return nil, fmt.Errorf("expect signed integer, found %s", val)
+			return nil, p.errfAt(start, "expect signed integer, found %s", val)
 		}
 
 		items = append(items, item)
@@ -754,18 +751,19 @@ func (p *HSMSParser) parseInt(byteSize int, size int) (secs2.Item, error) {
 	return secs2.NewIntItem(byteSize, items), nil
 }
 
-func (p *HSMSParser) parseUint(byteSize int, size int) (secs2.Item, error) {
+func (p *Parser) parseUint(byteSize int, size int) (secs2.Item, error) {
 	items := make([]uint64, 0, size)
+	start := p.pos
 	values := p.getItemValueStrings()
 
 	for _, val := range values {
 		item, err := strconv.ParseUint(val, 0, byteSize*8)
 		if err != nil {
 			if errors.Is(err, strconv.ErrRange) {
-				return nil, fmt.Errorf("u%d range overflow", byteSize)
+				return nil, p.errfAt(start, "u%d range overflow", byteSize)
 			}
 
-			return nil, fmt.Errorf("expect unsigned integer, found %s", val)
+			return nil, p.errfAt(start, "expect unsigned integer, found %s", val)
 		}
 
 		items = append(items, item)
@@ -774,7 +772,7 @@ func (p *HSMSParser) parseUint(byteSize int, size int) (secs2.Item, error) {
 	return secs2.NewUintItem(byteSize, items), nil
 }
 
-func (p *HSMSParser) getItemValueStrings() []string {
+func (p *Parser) getItemValueStrings() []string {
 	rabIdx := strings.IndexByte(p.data, '>')
 	if rabIdx == -1 {
 		return []string{""}
@@ -786,7 +784,7 @@ func (p *HSMSParser) getItemValueStrings() []string {
 	return items
 }
 
-func (p *HSMSParser) parseItemSize() (minSize, maxSize int, err error) {
+func (p *Parser) parseItemSize() (minSize, maxSize int, err error) {
 	if p.nextNonSpaceRune() != '[' {
 		p.backward(1)
 		return 0, 0, nil
@@ -797,12 +795,12 @@ func (p *HSMSParser) parseItemSize() (minSize, maxSize int, err error) {
 		p.forward(2)
 		maxSize, err = p.nextItemSize()
 		if err != nil {
-			return 0, 0, fmt.Errorf("invalid maxSize: %w", err)
+			return 0, 0, err
 		}
 	} else { // has minSize
 		minSize, err = p.nextItemSize()
 		if err != nil {
-			return 0, 0, fmt.Errorf("invalid minSize: %w", err)
+			return 0, 0, err
 		}
 
 		if p.peekNonSpaceRune() == '.' { // might has maxSize
@@ -812,7 +810,7 @@ func (p *HSMSParser) parseItemSize() (minSize, maxSize int, err error) {
 			} else {
 				maxSize, err = p.nextItemSize()
 				if err != nil {
-					return 0, 0, fmt.Errorf("invalid maxSize: %w", err)
+					return 0, 0, err
 				}
 			}
 		} else { // no maxSize
@@ -821,21 +819,21 @@ func (p *HSMSParser) parseItemSize() (minSize, maxSize int, err error) {
 	}
 
 	if p.nextNonSpaceRune() != ']' {
-		return 0, 0, errors.New("invalid item size")
+		return 0, 0, p.errf("invalid item size")
 	}
 
 	if minSize > maxSize {
-		return minSize, maxSize, fmt.Errorf("minSize:%d > maxSize:%d", minSize, maxSize)
+		return minSize, maxSize, p.errf("minSize:%d > maxSize:%d", minSize, maxSize)
 	}
 
 	return minSize, maxSize, nil
 }
 
 //nolint:cyclop
-func (p *HSMSParser) parseItemType() (secs2.FormatCode, bool) {
+func (p *Parser) parseItemType() (secs2.FormatCode, bool) {
 	p.skipSpace()
 	if len(p.data) < 1 {
-		return -1, false
+		return 0, false
 	}
 
 	firstChar := toUpperRune(p.peekRune())
@@ -876,7 +874,7 @@ func (p *HSMSParser) parseItemType() (secs2.FormatCode, bool) {
 				p.forward(1)
 				return secs2.BinaryFormatCode, true
 			default:
-				return -1, false
+				return 0, false
 			}
 		}
 		p.forward(1)
@@ -885,7 +883,7 @@ func (p *HSMSParser) parseItemType() (secs2.FormatCode, bool) {
 
 	case 'F':
 		if !hasSecondChar {
-			return -1, false
+			return 0, false
 		}
 
 		switch secondChar {
@@ -896,59 +894,59 @@ func (p *HSMSParser) parseItemType() (secs2.FormatCode, bool) {
 			p.forward(2)
 			return secs2.Float64FormatCode, true
 		default:
-			return -1, false
+			return 0, false
 		}
 	case 'I', 'U':
 		if !hasSecondChar {
-			return -1, false
+			return 0, false
 		}
 
-		formatCode := getIntFormatCode(firstChar, secondChar)
-		if formatCode < 0 {
-			return -1, false
+		formatCode, ok := getIntFormatCode(firstChar, secondChar)
+		if !ok {
+			return 0, false
 		}
 		p.forward(2)
 
 		return formatCode, true
 	default:
-		return -1, false
+		return 0, false
 	}
 }
 
-func getIntFormatCode(signed rune, byteSize rune) int {
+func getIntFormatCode(signed rune, byteSize rune) (secs2.FormatCode, bool) {
 	switch signed {
 	case 'I':
 		switch byteSize {
 		case '1':
-			return secs2.Int8FormatCode
+			return secs2.Int8FormatCode, true
 		case '2':
-			return secs2.Int16FormatCode
+			return secs2.Int16FormatCode, true
 		case '4':
-			return secs2.Int32FormatCode
+			return secs2.Int32FormatCode, true
 		case '8':
-			return secs2.Int64FormatCode
+			return secs2.Int64FormatCode, true
 		default:
-			return -1
+			return 0, false
 		}
 	case 'U':
 		switch byteSize {
 		case '1':
-			return secs2.Uint8FormatCode
+			return secs2.Uint8FormatCode, true
 		case '2':
-			return secs2.Uint16FormatCode
+			return secs2.Uint16FormatCode, true
 		case '4':
-			return secs2.Uint32FormatCode
+			return secs2.Uint32FormatCode, true
 		case '8':
-			return secs2.Uint64FormatCode
+			return secs2.Uint64FormatCode, true
 		default:
-			return -1
+			return 0, false
 		}
 	default:
-		return -1
+		return 0, false
 	}
 }
 
-func (p *HSMSParser) forward(n int) bool {
+func (p *Parser) forward(n int) bool {
 	if p.pos+n <= p.len {
 		p.pos += n
 		p.data = p.input[p.pos:]
@@ -958,14 +956,14 @@ func (p *HSMSParser) forward(n int) bool {
 	return false
 }
 
-func (p *HSMSParser) backward(n int) {
+func (p *Parser) backward(n int) {
 	if p.pos-n >= 0 {
 		p.pos -= n
 		p.data = p.input[p.pos:]
 	}
 }
 
-func (p *HSMSParser) skipSpace() bool {
+func (p *Parser) skipSpace() bool {
 	for i := 0; i < len(p.data); i++ {
 		switch p.data[i] {
 		case ' ', '\t', '\r', '\n':
@@ -978,7 +976,7 @@ func (p *HSMSParser) skipSpace() bool {
 	return false
 }
 
-func (p *HSMSParser) skipComment() {
+func (p *Parser) skipComment() {
 	if !p.skipSpace() {
 		return
 	}
@@ -1003,11 +1001,15 @@ func (p *HSMSParser) skipComment() {
 	}
 }
 
-func (p *HSMSParser) peekRune() rune {
+func (p *Parser) peekRune() rune {
+	if len(p.data) == 0 {
+		return eof
+	}
+
 	return rune(p.data[0])
 }
 
-func (p *HSMSParser) peekNonSpaceRune() rune {
+func (p *Parser) peekNonSpaceRune() rune {
 	if !p.skipSpace() {
 		return eof
 	}
@@ -1015,7 +1017,7 @@ func (p *HSMSParser) peekNonSpaceRune() rune {
 	return p.peekRune()
 }
 
-func (p *HSMSParser) nextRune() rune {
+func (p *Parser) nextRune() rune {
 	if p.pos >= p.len {
 		return eof
 	}
@@ -1028,7 +1030,7 @@ func (p *HSMSParser) nextRune() rune {
 	return r
 }
 
-func (p *HSMSParser) nextNonSpaceRune() rune {
+func (p *Parser) nextNonSpaceRune() rune {
 	if !p.skipSpace() {
 		return eof
 	}
@@ -1036,16 +1038,16 @@ func (p *HSMSParser) nextNonSpaceRune() rune {
 	return p.nextRune()
 }
 
-func (p *HSMSParser) nextCode() (uint8, error) {
+func (p *Parser) nextCode() (uint8, error) {
 	if p.pos >= p.len {
-		return 0, errors.New("invalid sml code")
+		return 0, p.errf("invalid sml code")
 	}
 
 	for i, ch := range p.data {
 		if ch < '0' || ch > '9' {
 			code, err := strconv.ParseUint(p.data[:i], 10, 8)
 			if err != nil {
-				return 0, err
+				return 0, p.errf("invalid sml code: %v", err)
 			}
 			p.forward(i)
 
@@ -1053,23 +1055,23 @@ func (p *HSMSParser) nextCode() (uint8, error) {
 		}
 	}
 
-	return 0, errors.New("invalid sml code")
+	return 0, p.errf("invalid sml code")
 }
 
-func (p *HSMSParser) nextItemSize() (int, error) {
+func (p *Parser) nextItemSize() (int, error) {
 	if p.pos >= p.len {
-		return 0, errors.New("invalid item size")
+		return 0, p.errf("invalid item size")
 	}
 
 	for i, ch := range p.data {
 		if ch < '0' || ch > '9' {
 			size, err := strconv.ParseUint(p.data[:i], 10, 32)
 			if err != nil {
-				return 0, err
+				return 0, p.errf("invalid item size: %v", err)
 			}
 
 			if size > math.MaxInt32 {
-				return 0, errors.New("parsed size exceeds maximum int value")
+				return 0, p.errf("parsed size exceeds maximum int value")
 			}
 
 			p.forward(i)
@@ -1078,7 +1080,7 @@ func (p *HSMSParser) nextItemSize() (int, error) {
 		}
 	}
 
-	return 0, errors.New("invalid item size")
+	return 0, p.errf("invalid item size")
 }
 
 func toUpperRune(ch rune) rune {

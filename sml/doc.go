@@ -1,37 +1,54 @@
-// Package sml provides functions for parsing SML (SECS Message Language)
-// representations of SECS-II messages, primarily used in the context of HSMS (High-Speed SECS Message Services).
+// Package sml provides SML (SECS Message Language) parsing and encoding for
+// HSMS data messages (SEMI E5/E37).
 //
-// SML is a human-readable text-based format for representing SECS-II messages, which are used for
-// communication between host systems and semiconductor manufacturing equipment.
+// # Parsing
 //
-// It supports various SECS-II data item types and provides options for handling different
-// ASCII parsing modes:
+// [Parse] and [ParseStrict] are the zero-config package-level entry points.
+// Each allocates a fresh [Parser] internally and is safe for concurrent use:
 //
-// Strict Mode: Adheres to the ASCII printable characters (character codes 32 to 126) and
-// supports parsing non-printable ASCII characters represented by their decimal values (e.g., 0x0A for newline).
-//
-// This is useful when parsing SML generated with strict mode for SECS-II ASCII items (e.g., using secs2.WithASCIIStrictMode(true)).
-//
-// Non-Strict Mode (default): Optimizes for performance by making certain assumptions about the input:
-//
-//   - It assumes that the ASCII string does not contain the same quote character as the one used to enclose the ASCII item.
-//
-//   - It does not handle escape sequences.
-//
-// Usage Example:
-//
-//	// Use strict mode
-//	sml.WithASCIIStrictMode(true)
-//	// Parse an SML string
-//	messages, err := sml.ParseHSMS(`
-//	    MessageName: 'S1F1' W
-//	    <L[1]
+//	msgs, err := sml.Parse(`
+//	    S1F1 W
+//	    <L[2]
 //	        <A[4] 'test'>
+//	        <U4[1] 42>
 //	    >
 //	    .
 //	`)
-//	if err != nil {
-//	    // Handle error
-//	}
-//	// Process the parsed HSMS data messages
+//
+// For repeated use or custom options, construct a [Parser] via [NewParser].
+// A *Parser holds mutable scan state and is NOT safe for concurrent use;
+// allocate one per goroutine.
+//
+//	p := sml.NewParser(sml.WithParserStrictMode(true))
+//	msg, err := p.ParseMessage(input)
+//
+// # Encoding
+//
+// [Encode] renders a secs2.Item to its canonical SML text — identical to
+// item.ToSML(). [NewEncoder] provides a configurable form:
+//
+//	enc := sml.NewEncoder(
+//	    sml.WithASCIIQuote(sml.QuoteSingle),
+//	    sml.WithSFQuote(sml.QuoteSingle),
+//	    sml.WithIndent("    "),
+//	)
+//	text, err := enc.EncodeMessage(msg)
+//
+// A *Encoder is immutable after construction and safe for concurrent use.
+//
+// # Strict mode
+//
+// Parser: [WithParserStrictMode](true) decodes non-printable ASCII bytes
+// encoded as 0xHH numeric tokens (e.g. 0x0A for newline).
+// Encoder: [WithEncoderStrictMode](true) emits non-printable bytes as 0xHH
+// tokens, producing output that a strict-mode parser can round-trip exactly.
+//
+// # Error model
+//
+// Syntax errors return a [*ParseError] carrying the byte [ParseError.Offset],
+// 1-based [ParseError.Line], 1-based [ParseError.Col], and a description
+// [ParseError.Msg]. Construction and validation errors (e.g. W-bit on an even
+// function, item validation via [secs2.Item.Error]) are returned as wrapped
+// errors — compatible with [errors.Is] and [errors.As], but NOT [*ParseError].
+// Parsing is fail-fast: the first error stops parsing.
 package sml

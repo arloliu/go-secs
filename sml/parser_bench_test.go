@@ -3,63 +3,37 @@ package sml
 import (
 	"fmt"
 	"math"
-	"os"
 	"strings"
 	"testing"
 
-	"github.com/arloliu/go-secs/hsms"
-	"github.com/arloliu/go-secs/secs2"
+	"github.com/arloliu/go-secs/v2/secs2"
 )
 
-func BenchmarkParseHSMS_Int_Small(b *testing.B) {
-	if os.Getenv("PARSER") == "fast" {
-		benchParseHSMSFast(b, genIntSML(100))
-	} else {
-		benchParseHSMSSlow(b, genIntSML(100))
-	}
+func BenchmarkParse_Int_Small(b *testing.B) {
+	benchParse(b, genIntSML(100))
 }
 
-func BenchmarkParseHSMS_Int_Medium(b *testing.B) {
-	if os.Getenv("PARSER") == "fast" {
-		benchParseHSMSFast(b, genIntSML(1000))
-	} else {
-		benchParseHSMSSlow(b, genIntSML(1000))
-	}
+func BenchmarkParse_Int_Medium(b *testing.B) {
+	benchParse(b, genIntSML(1000))
 }
 
-func BenchmarkParseHSMS_Int_Large(b *testing.B) {
-	if os.Getenv("PARSER") == "fast" {
-		benchParseHSMSFast(b, genIntSML(10000))
-	} else {
-		benchParseHSMSSlow(b, genIntSML(10000))
-	}
+func BenchmarkParse_Int_Large(b *testing.B) {
+	benchParse(b, genIntSML(10000))
 }
 
-func BenchmarkParseHSMS_ASCII_Small(b *testing.B) {
-	if os.Getenv("PARSER") == "fast" {
-		benchParseHSMSFast(b, genASCIISML(100))
-	} else {
-		benchParseHSMSSlow(b, genASCIISML(100))
-	}
+func BenchmarkParse_ASCII_Small(b *testing.B) {
+	benchParse(b, genASCIISML(100))
 }
 
-func BenchmarkParseHSMS_ASCII_Medium(b *testing.B) {
-	if os.Getenv("PARSER") == "fast" {
-		benchParseHSMSFast(b, genASCIISML(1000))
-	} else {
-		benchParseHSMSSlow(b, genASCIISML(1000))
-	}
+func BenchmarkParse_ASCII_Medium(b *testing.B) {
+	benchParse(b, genASCIISML(1000))
 }
 
-func BenchmarkParseHSMS_ASCII_Large(b *testing.B) {
-	if os.Getenv("PARSER") == "fast" {
-		benchParseHSMSFast(b, genASCIISML(10000))
-	} else {
-		benchParseHSMSSlow(b, genASCIISML(10000))
-	}
+func BenchmarkParse_ASCII_Large(b *testing.B) {
+	benchParse(b, genASCIISML(10000))
 }
 
-func BenchmarkParseHSMS_AllTypes(b *testing.B) {
+func BenchmarkParse_AllTypes(b *testing.B) {
 	items := []secs2.Item{}
 
 	for i := range 39 {
@@ -98,42 +72,14 @@ func BenchmarkParseHSMS_AllTypes(b *testing.B) {
 		listItems = append(listItems, secs2.L(items...))
 	}
 
-	msg, _ := hsms.NewDataMessage(1, 1, true, 0, nil, secs2.L(listItems...))
-	sml := msg.ToSML()
-
-	if os.Getenv("PARSER") == "fast" {
-		benchParseHSMSFast(b, sml)
-	} else {
-		benchParseHSMSSlow(b, sml)
-	}
+	smlStr := itemToMsgSML(1, 1, true, secs2.L(listItems...))
+	benchParse(b, smlStr)
 }
 
-func benchParseHSMSSlow(b *testing.B, sml string) {
-	msgs, errs := ParseHSMSSlow(sml)
-	_ = msgs
-	if len(errs) > 0 {
-		b.Log(errs)
-		b.FailNow()
-	}
+func benchParse(b *testing.B, sml string) {
+	b.Helper()
 
-	b.ResetTimer()
-	for i := 0; i <= b.N; i++ {
-		msgs, errs := ParseHSMSSlow(sml)
-		_ = msgs
-		if len(errs) > 0 {
-			b.Log(errs)
-			b.FailNow()
-		}
-		for _, msg := range msgs {
-			msg.Free()
-		}
-	}
-	b.StopTimer()
-}
-
-func benchParseHSMSFast(b *testing.B, sml string) {
-	WithStrictMode(false)
-	msgs, err := ParseHSMS(sml)
+	msgs, err := Parse(sml)
 	_ = msgs
 	if err != nil {
 		b.Log(err)
@@ -141,18 +87,29 @@ func benchParseHSMSFast(b *testing.B, sml string) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i <= b.N; i++ {
-		msgs, err := ParseHSMS(sml)
+	for range b.N {
+		msgs, err := Parse(sml)
 		_ = msgs
 		if err != nil {
 			b.Log(err)
 			b.FailNow()
 		}
-		for _, msg := range msgs {
-			msg.Free()
-		}
 	}
 	b.StopTimer()
+}
+
+// itemToMsgSML constructs a minimal SML message string from item.ToSML() output.
+func itemToMsgSML(stream, function uint8, wbit bool, item secs2.Item) string {
+	wbitStr := ""
+	if wbit {
+		wbitStr = " W"
+	}
+	itemSML := item.ToSML()
+	if itemSML == "" {
+		return fmt.Sprintf("S%dF%d%s\n.", stream, function, wbitStr)
+	}
+
+	return fmt.Sprintf("S%dF%d%s\n%s\n.", stream, function, wbitStr, itemSML)
 }
 
 func genIntSML(count int) string {
@@ -165,12 +122,8 @@ func genIntSML(count int) string {
 		intItems[i] = secs2.I8(items...)
 	}
 	listItem := secs2.L(intItems...)
-	msg, err := hsms.NewDataMessage(0, 0, false, 1234, nil, listItem)
-	if err != nil {
-		return ""
-	}
 
-	return msg.ToSML()
+	return itemToMsgSML(0, 0, false, listItem)
 }
 
 func genASCIISML(count int) string {
@@ -183,10 +136,6 @@ func genASCIISML(count int) string {
 		strItem[i] = secs2.A(str.String())
 	}
 	listItem := secs2.L(strItem...)
-	msg, err := hsms.NewDataMessage(0, 0, false, 1234, nil, listItem)
-	if err != nil {
-		return ""
-	}
 
-	return msg.ToSML()
+	return itemToMsgSML(0, 0, false, listItem)
 }
