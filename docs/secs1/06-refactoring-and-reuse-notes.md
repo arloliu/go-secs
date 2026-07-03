@@ -2,6 +2,12 @@
 
 > This document identifies what needs to be refactored or extracted from the existing `hsms` / `hsmsss` packages to support the `secs1` package cleanly.
 
+> **Historical (v1-era) note.** The code snippets below capture the pre-v2 API shape as it stood
+> when the SECS-I refactor was planned. Some names shown here were renamed or removed in the v2
+> API freeze — e.g. `GetLogger()` is now `logger.Default()`, and `secs1.Session.ID()` is now
+> `SessionID()` on the connection. Treat the snippets as a record of the original design, not the
+> current public surface; see `docs/migration-v1-to-v2.md` for the authoritative v2 API.
+
 ---
 
 ## 1. Minimal Changes to Existing Packages
