@@ -75,13 +75,11 @@ func TestSliceQueue(t *testing.T) {
 
 		var wg sync.WaitGroup
 		for i := range 1000 {
-			wg.Add(1)
-			go func(i int) {
-				defer wg.Done()
+			wg.Go(func() {
 				mu.Lock()
 				q.Enqueue(&msgItem{strconv.Itoa(i)})
 				mu.Unlock()
-			}(i)
+			})
 		}
 		wg.Wait()
 

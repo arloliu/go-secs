@@ -69,13 +69,11 @@ func TestTimerPool(t *testing.T) {
 	t.Run("Concurrency", func(t *testing.T) {
 		var wg sync.WaitGroup
 		for range 100 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				timer := GetTimer(10 * time.Millisecond)
 				defer PutTimer(timer)
 				<-timer.C
-			}()
+			})
 		}
 		wg.Wait()
 	})
