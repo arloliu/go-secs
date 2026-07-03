@@ -1,33 +1,85 @@
-// Package secs2 provides data structures and functions for working with SECS-II messages,
-// the communication protocol used in the semiconductor manufacturing industry.
-// It's designed to be used in conjunction with the HSMS (High-Speed SECS Message Services) protocol,
-// which defines the transport layer for SECS-II messages.
+// Package secs2 implements deeply immutable SECS-II (SEMI E5 §9) data items.
+// All Item values are safe for concurrent use; no method exposes mutable internal storage.
 //
-// Key Features:
-//   - Data Item Representation: Provides a comprehensive set of data structures to represent
-//     various SECS-II data item types (e.g., integers, floating-point numbers, booleans, lists, ASCII strings).
-//   - Message Formatting:  Handles the formatting of SECS-II messages, including the header and data item encoding.
-//   - SML Support:  Includes functions for generating SML (SECS Message Language), a
-//     human-readable text representation of SECS-II messages.
-//   - Strict Mode for ASCII item: Offers an option to enable strict mode for parsing and generating ASCII data items,
-//     ensuring adherence to the ASCII standard.
+// # Immutability contract
 //
-// Usage Example:
+// Every Item is fully initialised at construction time and never mutated afterward.
+// Accessors that return slices always return a freshly allocated copy of the internal data.
+// Iterators yield values directly from internal storage without copying.
+// Individual-element accessors return values by value, never by pointer or reference to
+// internal state. AppendBinaryTo appends raw bytes into a caller-supplied buffer and never
+// returns an internal slice.
 //
-//	// Create a list item
-//	listItem := secs2.NewListItem(
-//	    secs2.NewIntItem(4, 1, 2, 3),
-//	    secs2.NewASCIIItem("hello"),
-//	)
+// # Accessor families
 //
-//	// Create a S1F1 data message
-//	dataMsg, _ := hsms.NewDataMessage(1, 1, true, 10, []byte{1, 2, 3, 4}, listItem)
+// Three families of accessors cover different performance and convenience trade-offs:
 //
-//	// Encode the message to bytes
-//	encodedMsg := dataMsg.ToBytes()
+//   - Copy accessors (ToList, ToBinary, ToBoolean, ToInt, ToUint, ToFloat, ToASCII, ToJIS8,
+//     ToLocalizedStr, ToLocalizedStrHeader) return a fresh, caller-owned copy of the data.
 //
-//	// ... send the encoded message over an HSMS connection .
+//   - Zero-copy iterators (Items, Bools, Ints, Uints, Floats) return an iter.Seq that yields
+//     values directly from internal storage; the sequence is safe to call concurrently.
+//     Iterating allocates nothing when called on the concrete item type; calling through the
+//     Item interface costs a few allocations from interface dispatch (still cheaper than
+//     copying a large slice via the copy accessors).
 //
-//	// Get SML representation of list item
-//	sml := listItem.ToSML()
+//   - Indexed accessors (ItemAt, ByteAt, BoolAt, IntAt, UintAt, FloatAt) return a single
+//     value by value at the given index.
+//
+// # Wire encoding
+//
+// AppendTo(dst []byte) appends the complete SECS-II wire encoding (header + payload) into dst
+// and returns the extended slice. No allocation occurs when dst already has sufficient capacity.
+//
+// ToBytes() is a convenience wrapper equivalent to AppendTo(make([]byte, 0, EncodedLen())).
+//
+// EncodedLen() returns the exact total byte count, enabling callers to pre-size a buffer before
+// calling AppendTo to avoid any allocation during encoding.
+//
+// # Construction
+//
+// Short-form constructors are provided for each type:
+//
+//	L(children...)         // ListItem
+//	A(s)                   // ASCIIItem
+//	J(s)                   // JIS8Item
+//	W(s)                   // LocalizedStrItem (UTF-8 encoding)
+//	B(values...)           // BinaryItem
+//	BOOLEAN(values...)     // BooleanItem
+//	I1(values...)          // IntItem — 1-byte signed integers
+//	I2(values...)          // IntItem — 2-byte signed integers
+//	I4(values...)          // IntItem — 4-byte signed integers
+//	I8(values...)          // IntItem — 8-byte signed integers
+//	U1(values...)          // UintItem — 1-byte unsigned integers
+//	U2(values...)          // UintItem — 2-byte unsigned integers
+//	U4(values...)          // UintItem — 4-byte unsigned integers
+//	U8(values...)          // UintItem — 8-byte unsigned integers
+//	F4(values...)          // FloatItem — 4-byte (single-precision) floats
+//	F8(values...)          // FloatItem — 8-byte (double-precision) floats
+//
+// Full constructors (NewListItem, NewASCIIItem, NewBinaryItem, NewBooleanItem, NewIntItem,
+// NewUintItem, NewFloatItem, NewJIS8Item, NewLocalizedStrItem, NewUTF8StrItem, NewEmptyItem)
+// are also available.
+//
+// Constructors never panic. Out-of-range or invalid arguments store a deferred error on the
+// returned item; callers should check Error() before use:
+//
+//	item := I4(1, 2, 3)
+//	if err := item.Error(); err != nil {
+//	    // handle construction error
+//	}
+//
+// Out-of-range numeric values are clamped to the representable range for the target type;
+// unsupported argument types store a deferred error instead.
+//
+// # Decoding
+//
+// Decode parses a single SECS-II item from its wire bytes:
+//
+//	item, err := secs2.Decode(wireBytes)
+//
+// Decode copies the input bytes (the caller may reuse or free the buffer immediately after the
+// call returns). Empty input yields NewEmptyItem(). List nesting is capped at MaxListDepth to
+// prevent stack exhaustion on adversarial input. An error is returned for any malformed input
+// (unknown format code, truncated header or payload, etc.).
 package secs2

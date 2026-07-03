@@ -1,24 +1,27 @@
-//nolint:errcheck
 package secs2
 
 import (
-	"fmt"
 	"math"
-	"math/rand"
+	"slices"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
+// TestFloatItem covers round-trip construction, exact wire bytes, and SML output.
+// Vectors are ported from git show main:secs2/float_test.go.
 func TestFloatItem(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
-		description     string    // Test case description
-		input           []any     // Input
-		byteSize        int       // The byte size of FloatItem
-		expectedSize    int       // Expected result from Size()
-		expectedValues  []float64 // Expected result from Values()
-		expectedToBytes []byte    // Expected result from ToBytes()
-		expectedToSML   string    // Expected result from ToSML()
+		description     string
+		input           []any
+		byteSize        int
+		expectedSize    int
+		expectedValues  []float64
+		expectedToBytes []byte
+		expectedToSML   string
 	}{
 		{
 			description:     "Byte size: 4, data size: 0",
@@ -26,7 +29,7 @@ func TestFloatItem(t *testing.T) {
 			byteSize:        4,
 			expectedSize:    0,
 			expectedValues:  []float64{},
-			expectedToBytes: []byte{0x91, 0x0}, // 's' for 4-byte float (single-precision)
+			expectedToBytes: []byte{0x91, 0x0},
 			expectedToSML:   "<F4[0]>",
 		},
 		{
@@ -53,7 +56,7 @@ func TestFloatItem(t *testing.T) {
 			expectedToSML: "<F8[3] -1.7976931348623157E+308 0 1.7976931348623157E+308>",
 		},
 		{
-			description:    "Byte size: 8, float bounary",
+			description:    "Byte size: 8, float boundary",
 			input:          []any{-math.SmallestNonzeroFloat64, -2.0, -math.MaxFloat64},
 			byteSize:       8,
 			expectedSize:   3,
@@ -64,7 +67,6 @@ func TestFloatItem(t *testing.T) {
 				0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 				0xFF, 0xEF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 			},
-
 			expectedToSML: "<F8[3] -4.9406564584124654E-324 -2 -1.7976931348623157E+308>",
 		},
 		{
@@ -85,281 +87,510 @@ func TestFloatItem(t *testing.T) {
 		},
 	}
 
-	require := require.New(t)
+	for _, test := range tests {
+		t.Run(test.description, func(t *testing.T) {
+			t.Parallel()
 
-	for i, test := range tests {
-		t.Logf("Test #%d: %s", i, test.description)
-		item := NewFloatItem(test.byteSize, test.input...)
-		require.NoError(item.Error())
-		require.Equal(test.expectedToBytes, item.ToBytes())
-		require.Equal(test.expectedSize, item.Size())
-		require.Equal(test.expectedToSML, item.ToSML())
-		require.Equal(test.expectedValues, item.Values().([]float64))
+			require := require.New(t)
 
-		val, err := item.ToFloat()
-		require.NoError(err)
-		require.Equal(test.expectedValues, val)
+			item := NewFloatItem(test.byteSize, test.input...)
+			require.NoError(item.Error())
+			require.Equal(test.expectedSize, item.Size())
+			require.Equal(test.expectedToBytes, item.ToBytes())
+			require.Equal(test.expectedToSML, item.ToSML())
 
-		nestedItem, err := item.Get()
-		require.NoError(err)
-		require.Equal(test.expectedValues, nestedItem.Values().([]float64))
-
-		nestedItem, err = item.Get(0)
-		require.Nil(nestedItem)
-		require.ErrorContains(err, fmt.Sprintf("item is not a list, item is %s", item.ToSML()))
-
-		// create a empty item and call SetVariables
-		emptyItem := NewFloatItem(test.byteSize)
-		err = emptyItem.SetValues(test.input...)
-		require.NoError(err)
-		require.Equal(test.expectedSize, emptyItem.Size())
-		require.Equal(test.expectedToBytes, emptyItem.ToBytes())
-		require.Equal(test.expectedToSML, emptyItem.ToSML())
-		require.Equal(test.expectedValues, emptyItem.Values().([]float64))
-
-		// clone a item, it should contains the same content as original item.
-		clonedItem := item.Clone()
-		require.Equal(test.expectedSize, clonedItem.Size())
-		require.Equal(test.expectedToBytes, clonedItem.ToBytes())
-		require.Equal(test.expectedToSML, clonedItem.ToSML())
-		require.Equal(test.expectedValues, clonedItem.Values().([]float64))
-
-		// set a random string to cloned item
-		randVal := genRandomFloat(test.expectedSize, test.byteSize)
-		err = clonedItem.SetValues(randVal)
-		require.NoError(err)
-		require.Equal(test.expectedSize, clonedItem.Size())
-		require.Equal(randVal, clonedItem.Values().([]float64)) // Compare float slices
-
-		// the original item should not be modified
-		require.Equal(test.expectedValues, item.Values().([]float64))
+			vals, err := item.ToFloat()
+			require.NoError(err)
+			require.Equal(test.expectedValues, vals)
+		})
 	}
 }
 
+// TestFloatItem_Errors verifies deferred-error behaviour for invalid byte sizes and invalid value types.
 func TestFloatItem_Errors(t *testing.T) {
+	t.Parallel()
+
 	require := require.New(t)
 
 	itemErr := &ItemError{}
 
-	var item Item
-	item = NewFloatItem(3) // Invalid byteSize
+	// Invalid byteSize must set a deferred error.
+	item := NewFloatItem(3)
 	require.ErrorAs(item.Error(), &itemErr)
 
-	item = NewFloatItem(4)
-	require.NoError(item.Error())
-	result, err := item.Get(0)
-	require.Nil(result)
-	require.ErrorAs(err, &itemErr)
+	// bool is not a supported value type.
+	item = NewFloatItem(4, true)
 	require.ErrorAs(item.Error(), &itemErr)
-	require.EqualError(err, item.Error().Error())
+	require.ErrorContains(item.Error(), "invalid type")
+
+	// Non-numeric string must set a deferred error.
+	item = NewFloatItem(8, "not_a_float")
+	require.ErrorAs(item.Error(), &itemErr)
 }
 
-func BenchmarkFloatItem_Create(b *testing.B) {
-	values := genFixedFloat(1000, 8)
+// TestFloatItem_AppendTo verifies that AppendTo(prefix) == prefix + exact wire bytes.
+// The expected bytes are computed independently of ToBytes() to avoid circular dependency.
+//
+// NewFloatItem(4, 1.0, 2.5):
+//
+//	F4 format byte 0x91, length 0x08 (2 values × 4 bytes),
+//	1.0 as IEEE-754 float32 big-endian = 0x3F800000,
+//	2.5 as IEEE-754 float32 big-endian = 0x40200000.
+func TestFloatItem_AppendTo(t *testing.T) {
+	t.Parallel()
 
-	b.ResetTimer()
-	for i := 0; i <= b.N; i++ {
-		_, _ = NewFloatItem(8, values).(*FloatItem)
-	}
-	b.StopTimer()
-}
-
-func BenchmarkFloatItem_ToBytes(b *testing.B) {
-	values := genFixedFloat(1000, 8)
-
-	item, _ := NewFloatItem(8, values).(*FloatItem)
-
-	b.ResetTimer()
-	for i := 0; i <= b.N; i++ {
-		_ = item.ToBytes()
-	}
-	b.StopTimer()
-}
-
-func BenchmarkFloatItem_ToSML(b *testing.B) {
-	values := genFixedFloat(1000, 8)
-	item := NewFloatItem(8, values)
-
-	b.ResetTimer()
-	for i := 0; i <= b.N; i++ {
-		_ = item.ToSML()
-	}
-	b.StopTimer()
-}
-
-func genRandomFloat(length int, byteSize int) []float64 {
-	result := make([]float64, length)
-
-	var minVal float64
-	var maxVal float64
-	if byteSize == 4 {
-		minVal = -math.MaxFloat32 / 2
-		maxVal = math.MaxFloat32 / 2
-	} else {
-		minVal = -math.MaxFloat64 / 2
-		maxVal = math.MaxFloat64 / 2
-	}
-
-	for i := range length {
-		// Generate a random float64 between -max and max
-		result[i] = rand.Float64()*(maxVal-minVal) + minVal
-	}
-
-	return result
-}
-
-func genFixedFloat(length int, byteSize int) []float64 {
-	result := make([]float64, length)
-
-	var maxVal float64
-	if byteSize == 4 {
-		maxVal = math.MaxFloat32
-	} else {
-		maxVal = math.MaxFloat64
-	}
-
-	for i := range length {
-		result[i] = float64(i) / float64(length) * maxVal
-	}
-
-	return result
-}
-
-func TestFloatItem_Refactor(t *testing.T) {
 	require := require.New(t)
 
-	t.Run("Accept NaN and Inf", func(t *testing.T) {
-		// Test F4
-		item := NewFloatItem(4, float32(math.NaN()), float32(math.Inf(1)), float32(math.Inf(-1)))
-		require.NoError(item.Error())
-		values := item.Values().([]float64)
-		require.Equal(3, len(values))
-		require.True(math.IsNaN(values[0]))
-		require.True(math.IsInf(values[1], 1))
-		require.True(math.IsInf(values[2], -1))
+	item := NewFloatItem(4, 1.0, 2.5)
+	prefix := []byte{0xDE, 0xAD}
+	itemBytes := []byte{
+		0x91, 0x08,
+		0x3F, 0x80, 0x00, 0x00,
+		0x40, 0x20, 0x00, 0x00,
+	}
 
-		// Test F8
-		item = NewFloatItem(8, math.NaN(), math.Inf(1), math.Inf(-1))
-		require.NoError(item.Error())
-		values = item.Values().([]float64)
-		require.Equal(3, len(values))
-		require.True(math.IsNaN(values[0]))
-		require.True(math.IsInf(values[1], 1))
-		require.True(math.IsInf(values[2], -1))
+	expected := append(slices.Clone(prefix), itemBytes...)
+	result := item.AppendTo(slices.Clone(prefix))
+	require.Equal(expected, result)
+
+	// Also test F8 independently:
+	// NewFloatItem(8, 1.0, -1.5):
+	//   F8 format byte 0x81, length 0x10 (2 values × 8 bytes),
+	//   1.0 as float64 big-endian = 0x3FF0000000000000,
+	//   -1.5 as float64 big-endian = 0xBFF8000000000000.
+	item8 := NewFloatItem(8, 1.0, -1.5)
+	prefix8 := []byte{0xBE, 0xEF}
+	itemBytes8 := []byte{
+		0x81, 0x10,
+		0x3F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0xBF, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	}
+
+	expected8 := append(slices.Clone(prefix8), itemBytes8...)
+	result8 := item8.AppendTo(slices.Clone(prefix8))
+	require.Equal(expected8, result8)
+}
+
+// TestFloatItem_TypeAccessors verifies Type(), IsFloat32/64.
+func TestFloatItem_TypeAccessors(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	tests := []struct {
+		byteSize  int
+		wantType  string
+		isFloat32 bool
+		isFloat64 bool
+	}{
+		{4, Float32Type, true, false},
+		{8, Float64Type, false, true},
+	}
+
+	for _, test := range tests {
+		item := NewFloatItem(test.byteSize)
+		require.Equal(test.wantType, item.Type())
+		require.Equal(test.isFloat32, item.IsFloat32())
+		require.Equal(test.isFloat64, item.IsFloat64())
+	}
+}
+
+// TestFloatItem_NoLeak (teeth test) confirms that mutating the slice returned by ToFloat does not
+// affect the item's internal state — wire encoding and subsequent ToFloat calls are unchanged.
+func TestFloatItem_NoLeak(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	item := NewFloatItem(8, 42.0)
+	origBytes := item.ToBytes()
+
+	xs, err := item.ToFloat()
+	require.NoError(err)
+	xs[0] = 999.0 // mutate the returned copy
+
+	// Internal state must be unchanged.
+	xs2, err := item.ToFloat()
+	require.NoError(err)
+	require.Equal([]float64{42.0}, xs2)
+	require.Equal(origBytes, item.ToBytes())
+}
+
+// TestFloatItem_Iterator verifies Floats() and FloatAt().
+func TestFloatItem_Iterator(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	values := []float64{-1.0, 0.0, 1.0, 2.5}
+	item := NewFloatItem(8, values)
+
+	// Floats() must yield all values in order.
+	got := slices.Collect(item.Floats())
+	require.Equal(values, got)
+
+	// FloatAt valid indices.
+	for i, v := range values {
+		gotV, err := item.FloatAt(i)
+		require.NoError(err)
+		require.Equal(v, gotV)
+	}
+
+	// FloatAt out-of-range indices must return an error.
+	_, err := item.FloatAt(-1)
+	require.Error(err)
+
+	_, err = item.FloatAt(len(values))
+	require.Error(err)
+
+	// Error item: Floats() yields nothing and FloatAt returns an error.
+	errItem := NewFloatItem(3)
+	require.Error(errItem.Error())
+	require.Empty(slices.Collect(errItem.Floats()))
+
+	_, err = errItem.FloatAt(0)
+	require.Error(err)
+
+	// ToFloat on error item must return error.
+	_, err = errItem.ToFloat()
+	require.Error(err)
+}
+
+// TestFloatItem_WrongType verifies that wrong-type accessors and Get return errors on a FloatItem.
+func TestFloatItem_WrongType(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	item := NewFloatItem(4, 1.0, 2.0)
+	require.NoError(item.Error())
+
+	// String accessor must error.
+	_, err := item.ToASCII()
+	require.Error(err)
+
+	// Int accessor must error.
+	_, err = item.ToInt()
+	require.Error(err)
+
+	// Bool iterator must yield nothing (baseItem default).
+	bools := slices.Collect(item.Bools())
+	require.Empty(bools)
+
+	// Get is list-only in v2 — any call on a scalar item must error.
+	got, err := item.Get()
+	require.Nil(got)
+	require.Error(err)
+
+	got, err = item.Get(0)
+	require.Nil(got)
+	require.Error(err)
+}
+
+// TestFloatItem_Concurrency exercises concurrent ToBytes / AppendTo / Floats reads under -race.
+func TestFloatItem_Concurrency(t *testing.T) {
+	t.Parallel()
+
+	item := NewFloatItem(8, 1.0, 2.0, 3.0)
+
+	const goroutines = 50
+
+	var wg sync.WaitGroup
+
+	wg.Add(goroutines)
+
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+
+			_ = item.ToBytes()
+
+			buf := make([]byte, 0, item.EncodedLen())
+			_ = item.AppendTo(buf)
+
+			_ = slices.Collect(item.Floats())
+		}()
+	}
+
+	wg.Wait()
+}
+
+// TestFloatItem_Allocs asserts allocation counts for the hot encoding and accessor paths.
+func TestFloatItem_Allocs(t *testing.T) {
+	item := NewFloatItem(8, 1.0, 2.0, 3.0)
+
+	// AppendTo into a pre-sized buffer must not allocate.
+	buf := make([]byte, 0, item.EncodedLen())
+
+	allocs := testing.AllocsPerRun(100, func() {
+		buf = buf[:0]
+		buf = item.AppendTo(buf)
 	})
 
-	t.Run("Int Precision Checks", func(t *testing.T) {
-		// Valid int64 (2^53)
+	if allocs > 0 {
+		t.Errorf("AppendTo into pre-sized buffer: got %v allocs, want 0", allocs)
+	}
+
+	// ToBytes must allocate exactly once (the output slice).
+	allocs = testing.AllocsPerRun(100, func() {
+		_ = item.ToBytes()
+	})
+
+	if allocs != 1 {
+		t.Errorf("ToBytes: got %v allocs, want 1", allocs)
+	}
+
+	// ToFloat must allocate exactly once (slices.Clone).
+	allocs = testing.AllocsPerRun(100, func() {
+		_, _ = item.ToFloat()
+	})
+
+	if allocs != 1 {
+		t.Errorf("ToFloat: got %v allocs, want 1", allocs)
+	}
+}
+
+// TestFloatItem_EncodedLen verifies that EncodedLen() == len(ToBytes()) for all valid configurations.
+func TestFloatItem_EncodedLen(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	cases := []struct {
+		byteSize int
+		values   []any
+	}{
+		{4, nil},
+		{4, []any{1.0, 2.5, -1.5}},
+		{8, []any{-math.MaxFloat64, 0.0, math.MaxFloat64}},
+		{8, []any{1.0, 2.0}},
+	}
+
+	for _, c := range cases {
+		var item Item
+		if c.values == nil {
+			item = NewFloatItem(c.byteSize)
+		} else {
+			item = NewFloatItem(c.byteSize, c.values...)
+		}
+
+		require.NoError(item.Error())
+		require.Equal(item.EncodedLen(), len(item.ToBytes()))
+	}
+
+	// Error item: both EncodedLen() and len(ToBytes()) must be 0.
+	errItem := NewFloatItem(3)
+	require.Error(errItem.Error())
+	require.Equal(0, errItem.EncodedLen())
+	require.Equal(errItem.EncodedLen(), len(errItem.ToBytes()))
+}
+
+// TestCombineFloatValues exercises the full type matrix for combineFloatValues, including
+// NaN/Inf passthrough, int precision errors, F4 clamping, and string parsing.
+func TestCombineFloatValues(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Accept NaN and Inf for F4", func(t *testing.T) {
+		t.Parallel()
+
+		item := NewFloatItem(4, float32(math.NaN()), float32(math.Inf(1)), float32(math.Inf(-1)))
+		require.NoError(t, item.Error())
+
+		vals, err := item.ToFloat()
+		require.NoError(t, err)
+		require.Equal(t, 3, len(vals))
+		require.True(t, math.IsNaN(vals[0]))
+		require.True(t, math.IsInf(vals[1], 1))
+		require.True(t, math.IsInf(vals[2], -1))
+	})
+
+	t.Run("Accept NaN and Inf for F8", func(t *testing.T) {
+		t.Parallel()
+
+		item := NewFloatItem(8, math.NaN(), math.Inf(1), math.Inf(-1))
+		require.NoError(t, item.Error())
+
+		vals, err := item.ToFloat()
+		require.NoError(t, err)
+		require.Equal(t, 3, len(vals))
+		require.True(t, math.IsNaN(vals[0]))
+		require.True(t, math.IsInf(vals[1], 1))
+		require.True(t, math.IsInf(vals[2], -1))
+	})
+
+	t.Run("Int64 precision boundary", func(t *testing.T) {
+		t.Parallel()
+
+		// 2^53 is exactly representable.
 		val := int64(1) << 53
 		item := NewFloatItem(8, val)
-		require.NoError(item.Error())
-		require.Equal(float64(val), item.Values().([]float64)[0])
+		require.NoError(t, item.Error())
+		vals, err := item.ToFloat()
+		require.NoError(t, err)
+		require.Equal(t, float64(val), vals[0])
 
-		// Invalid int64 (2^53 + 1) - should fail
-		val = (int64(1) << 53) + 1
-		item = NewFloatItem(8, val)
-		require.Error(item.Error())
-		require.Contains(item.Error().Error(), "value overflow")
-
-		// Valid int (2^53)
-		valInt := int(1) << 53
-		item = NewFloatItem(8, valInt)
-		require.NoError(item.Error())
-
-		// Invalid int (2^53 + 1) - should fail
-		valInt = (int(1) << 53) + 1
-		item = NewFloatItem(8, valInt)
-		require.Error(item.Error())
-		require.Contains(item.Error().Error(), "value overflow")
+		// 2^53 + 1 overflows float64 precision.
+		overflowVal := (int64(1) << 53) + 1
+		item = NewFloatItem(8, overflowVal)
+		require.Error(t, item.Error())
+		require.ErrorContains(t, item.Error(), "value overflow")
 	})
 
-	t.Run("Uint Precision Checks", func(t *testing.T) {
-		// Valid uint64 (2^53)
+	t.Run("Int precision boundary", func(t *testing.T) {
+		t.Parallel()
+
+		valInt := int(1) << 53
+		item := NewFloatItem(8, valInt)
+		require.NoError(t, item.Error())
+
+		overflowValInt := (int(1) << 53) + 1
+		item = NewFloatItem(8, overflowValInt)
+		require.Error(t, item.Error())
+		require.ErrorContains(t, item.Error(), "value overflow")
+	})
+
+	t.Run("Uint64 precision boundary", func(t *testing.T) {
+		t.Parallel()
+
 		val := uint64(1) << 53
 		item := NewFloatItem(8, val)
-		require.NoError(item.Error())
-		require.Equal(float64(val), item.Values().([]float64)[0])
+		require.NoError(t, item.Error())
+		vals, err := item.ToFloat()
+		require.NoError(t, err)
+		require.Equal(t, float64(val), vals[0])
 
-		// Invalid uint64 (2^53 + 1) - should fail
-		val = (uint64(1) << 53) + 1
-		item = NewFloatItem(8, val)
-		require.Error(item.Error())
-		require.Contains(item.Error().Error(), "value overflow")
-
-		// Valid uint (2^53)
-		valUint := uint(1) << 53
-		item = NewFloatItem(8, valUint)
-		require.NoError(item.Error())
-
-		// Invalid uint (2^53 + 1) - should fail
-		valUint = (uint(1) << 53) + 1
-		item = NewFloatItem(8, valUint)
-		require.Error(item.Error())
-		require.Contains(item.Error().Error(), "value overflow")
+		overflowVal := (uint64(1) << 53) + 1
+		item = NewFloatItem(8, overflowVal)
+		require.Error(t, item.Error())
+		require.ErrorContains(t, item.Error(), "value overflow")
 	})
 
-	t.Run("F4 Range Checks", func(t *testing.T) {
+	t.Run("Uint precision boundary", func(t *testing.T) {
+		t.Parallel()
+
+		valUint := uint(1) << 53
+		item := NewFloatItem(8, valUint)
+		require.NoError(t, item.Error())
+
+		overflowValUint := (uint(1) << 53) + 1
+		item = NewFloatItem(8, overflowValUint)
+		require.Error(t, item.Error())
+		require.ErrorContains(t, item.Error(), "value overflow")
+	})
+
+	t.Run("F4 float64 overflow clamped", func(t *testing.T) {
+		t.Parallel()
+
 		maxF32 := float64(math.MaxFloat32)
 
-		// Valid float64 within float32 range
 		item := NewFloatItem(4, maxF32)
-		require.NoError(item.Error())
+		require.NoError(t, item.Error())
 
-		// Invalid float64 > max float32 - should be clamped
+		// Over-range float64 is clamped (not an error).
 		item = NewFloatItem(4, maxF32*1.1)
-		require.NoError(item.Error())
-		require.Equal(maxF32, item.Values().([]float64)[0])
+		require.NoError(t, item.Error())
+		vals, err := item.ToFloat()
+		require.NoError(t, err)
+		require.Equal(t, maxF32, vals[0])
 
-		// Invalid float64 < -max float32 - should be clamped
 		item = NewFloatItem(4, -maxF32*1.1)
-		require.NoError(item.Error())
-		require.Equal(-maxF32, item.Values().([]float64)[0])
+		require.NoError(t, item.Error())
+		vals, err = item.ToFloat()
+		require.NoError(t, err)
+		require.Equal(t, -maxF32, vals[0])
+	})
 
-		// Valid string within float32 range
-		item = NewFloatItem(4, "3.4e38")
-		require.NoError(item.Error())
+	t.Run("F4 string overflow clamped", func(t *testing.T) {
+		t.Parallel()
 
-		// Invalid string > max float32 - should be clamped
+		maxF32 := float64(math.MaxFloat32)
+
+		item := NewFloatItem(4, "3.4e38")
+		require.NoError(t, item.Error())
+
 		item = NewFloatItem(4, "3.5e38")
-		require.NoError(item.Error())
-		require.Equal(maxF32, item.Values().([]float64)[0])
+		require.NoError(t, item.Error())
+		vals, err := item.ToFloat()
+		require.NoError(t, err)
+		require.Equal(t, maxF32, vals[0])
 	})
 
-	t.Run("F4 Always Accepts Float32", func(t *testing.T) {
-		// Even if we pass a float32, it should be accepted for F4
+	t.Run("F4 always accepts float32", func(t *testing.T) {
+		t.Parallel()
+
 		item := NewFloatItem(4, float32(math.MaxFloat32))
-		require.NoError(item.Error())
+		require.NoError(t, item.Error())
 	})
 
-	t.Run("F8 Accepts Large Values", func(t *testing.T) {
-		// F8 should accept values larger than MaxFloat32
+	t.Run("F8 accepts large values", func(t *testing.T) {
+		t.Parallel()
+
 		val := float64(math.MaxFloat32) * 2
 		item := NewFloatItem(8, val)
-		require.NoError(item.Error())
-		require.Equal(val, item.Values().([]float64)[0])
+		require.NoError(t, item.Error())
+		vals, err := item.ToFloat()
+		require.NoError(t, err)
+		require.Equal(t, val, vals[0])
 	})
 
-	t.Run("Invalid Types", func(t *testing.T) {
-		item := NewFloatItem(4, true) // bool is invalid
-		require.Error(item.Error())
-		require.Contains(item.Error().Error(), "invalid type")
-	})
+	t.Run("Slice inputs", func(t *testing.T) {
+		t.Parallel()
 
-	t.Run("Slice Inputs", func(t *testing.T) {
-		// []int64 with overflow
-		vals := []int64{1, (1 << 53) + 1}
-		item := NewFloatItem(8, vals)
-		require.Error(item.Error())
+		// []int8, []int16, []int32 accepted.
+		item := NewFloatItem(8,
+			int8(-10), []int8{20, -30},
+			int16(-70), []int16{80, -90},
+			int32(-100), []int32{110, -120},
+		)
+		require.NoError(t, item.Error())
+		vals, err := item.ToFloat()
+		require.NoError(t, err)
+		require.Equal(t, []float64{-10, 20, -30, -70, 80, -90, -100, 110, -120}, vals)
 
-		// []float64 with overflow for F4 - should be clamped
+		// []uint8, []uint16, []uint32 accepted.
+		item = NewFloatItem(8,
+			uint8(4), []uint8{5, 6},
+			uint16(7), []uint16{8, 9},
+			uint32(10), []uint32{11, 12},
+		)
+		require.NoError(t, item.Error())
+		vals, err = item.ToFloat()
+		require.NoError(t, err)
+		require.Equal(t, []float64{4, 5, 6, 7, 8, 9, 10, 11, 12}, vals)
+
+		// []int64 with overflow must error.
+		vals64 := []int64{1, (1 << 53) + 1}
+		item = NewFloatItem(8, vals64)
+		require.Error(t, item.Error())
+
+		// []float64 over-range for F4 — should be clamped.
 		fVals := []float64{1.0, float64(math.MaxFloat32) * 2}
 		item = NewFloatItem(4, fVals)
-		require.NoError(item.Error())
-		require.Equal(float64(math.MaxFloat32), item.Values().([]float64)[1])
+		require.NoError(t, item.Error())
+		vals, err = item.ToFloat()
+		require.NoError(t, err)
+		require.Equal(t, float64(math.MaxFloat32), vals[1])
+	})
 
-		// []float64 valid for F4
-		fVals = []float64{1.0, 2.0}
-		item = NewFloatItem(4, fVals)
-		require.NoError(item.Error())
+	t.Run("String inputs", func(t *testing.T) {
+		t.Parallel()
+
+		item := NewFloatItem(8, "3.14159", []string{"1.0", "2.0"})
+		require.NoError(t, item.Error())
+		vals, err := item.ToFloat()
+		require.NoError(t, err)
+		require.Equal(t, []float64{3.14159, 1.0, 2.0}, vals)
+
+		// Invalid string must error.
+		item = NewFloatItem(8, "not_a_float")
+		require.Error(t, item.Error())
+	})
+
+	t.Run("Invalid type", func(t *testing.T) {
+		t.Parallel()
+
+		item := NewFloatItem(4, true)
+		require.Error(t, item.Error())
+		require.ErrorContains(t, item.Error(), "invalid type")
 	})
 }

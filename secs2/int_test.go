@@ -1,26 +1,27 @@
-//nolint:errcheck
 package secs2
 
 import (
-	"crypto/rand"
-	"fmt"
 	"math"
-	"math/big"
-	"reflect"
+	"slices"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
+// TestIntItem covers round-trip construction, exact wire bytes, and SML output for all four
+// byte sizes. Vectors are ported from git show main:secs2/int_test.go.
 func TestIntItem(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
-		description     string  // Test case description
-		input           []any   // Input
-		byteSize        int     // the byte size of IntItem
-		expectedSize    int     // expected result from Size()
-		expectedValues  []int64 // expected result from Values()
-		expectedToBytes []byte  // expected result from ToBytes()
-		expectedToSML   string  // expected result from String()
+		description     string
+		input           []any
+		byteSize        int
+		expectedSize    int
+		expectedValues  []int64
+		expectedToBytes []byte
+		expectedToSML   string
 	}{
 		{
 			description:     "Byte size: 1, data size: 0",
@@ -73,7 +74,7 @@ func TestIntItem(t *testing.T) {
 			expectedToSML: "<I8[3] -9223372036854775808 0 9223372036854775807>",
 		},
 		{
-			description:     "Byte size: 2, integer string",
+			description:     "Byte size: 2, integer strings",
 			input:           []any{"-255", "0", "255"},
 			byteSize:        2,
 			expectedSize:    3,
@@ -83,214 +84,373 @@ func TestIntItem(t *testing.T) {
 		},
 	}
 
-	require := require.New(t)
+	for _, test := range tests {
+		t.Run(test.description, func(t *testing.T) {
+			t.Parallel()
 
-	for i, test := range tests {
-		t.Logf("Test #%d: %s", i, test.description)
-		item := NewIntItem(test.byteSize, test.input...)
-		require.NoError(item.Error())
-		require.Equal(test.expectedToBytes, item.ToBytes())
-		require.Equal(test.expectedSize, item.Size())
-		require.Equal(test.expectedToSML, item.ToSML())
-		require.Equal(test.expectedValues, item.Values().([]int64))
+			require := require.New(t)
 
-		val, err := item.ToInt()
-		require.NoError(err)
-		require.Equal(test.expectedValues, val)
+			item := NewIntItem(test.byteSize, test.input...)
+			require.NoError(item.Error())
+			require.Equal(test.expectedSize, item.Size())
+			require.Equal(test.expectedToBytes, item.ToBytes())
+			require.Equal(test.expectedToSML, item.ToSML())
 
-		nestedItem, err := item.Get()
-		require.NoError(err)
-		require.Equal(test.expectedValues, nestedItem.Values().([]int64))
-
-		nestedItem, err = item.Get(0)
-		require.Nil(nestedItem)
-		require.ErrorContains(err, fmt.Sprintf("item is not a list, item is %s", item.ToSML()))
-
-		// create a empty item and call SetVariables
-		emptyItem := NewIntItem(test.byteSize)
-		err = emptyItem.SetValues(test.input...)
-		require.NoError(err)
-		require.Equal(test.expectedSize, emptyItem.Size())
-		require.Equal(test.expectedToBytes, emptyItem.ToBytes())
-		require.Equal(test.expectedToSML, emptyItem.ToSML())
-		require.Equal(test.expectedValues, emptyItem.Values().([]int64))
-
-		// clone a item, it should contains the same content as original item.
-		clonedItem := item.Clone()
-		require.Equal(test.expectedSize, clonedItem.Size())
-		require.Equal(test.expectedToBytes, clonedItem.ToBytes())
-		require.Equal(test.expectedToSML, clonedItem.ToSML())
-		require.Equal(test.expectedValues, clonedItem.Values().([]int64))
-
-		// set a random string to cloned item
-		randVal := genRandomInt(test.expectedSize, test.byteSize)
-		err = clonedItem.SetValues(randVal)
-		require.NoError(err)
-		require.Equal(test.expectedSize, clonedItem.Size())
-		require.Equal(randVal, clonedItem.Values().([]int64))
-
-		// the original item should not be modified
-		require.Equal(test.expectedValues, item.Values().([]int64))
+			vals, err := item.ToInt()
+			require.NoError(err)
+			require.Equal(test.expectedValues, vals)
+		})
 	}
 }
 
-func TestIntItem_SetValues(t *testing.T) {
-	tests := []struct {
-		description     string  // Test case description
-		input           []any   // Input
-		byteSize        int     // the byte size of IntItem
-		setValues       []any   // The argument of SetValues method
-		expectedValues  []int64 // expected result from Values() and ToInt()
-		expectedToBytes []byte  // expected result from ToBytes()
-		expectedToSML   string  // expected result from SML()
-	}{
-		{
-			description:     "Empty input, Set integers",
-			input:           []any{},
-			byteSize:        1,
-			setValues:       []any{1, 2, 3},
-			expectedValues:  []int64{1, 2, 3},
-			expectedToBytes: []byte{0x65, 0x3, 0x1, 0x2, 0x3},
-			expectedToSML:   `<I1[3] 1 2 3>`,
-		},
-		{
-			description:     "Empty input, Set integer slice and integers",
-			input:           []any{},
-			byteSize:        1,
-			setValues:       []any{1, []int8{2, 3}, 4},
-			expectedValues:  []int64{1, 2, 3, 4},
-			expectedToBytes: []byte{0x65, 0x4, 0x1, 0x2, 0x3, 0x4},
-			expectedToSML:   `<I1[4] 1 2 3 4>`,
-		},
-	}
-
-	require := require.New(t)
-
-	for i, test := range tests {
-		t.Logf("Test #%d: %s", i, test.description)
-		item := NewIntItem(test.byteSize, test.input...)
-		err := item.SetValues(test.setValues...)
-		require.NoError(err)
-
-		result, err := item.ToInt()
-		require.NoError(err)
-		require.Equal(test.expectedValues, result)
-		require.Equal(test.expectedValues, item.Values().([]int64))
-		require.Equal(test.expectedToBytes, item.ToBytes())
-		require.Equal(test.expectedToSML, item.ToSML())
-	}
-}
-
+// TestIntItem_Clamping verifies that values outside the byte-size range are clamped to the min/max.
+// Vectors ported from git show main:secs2/int_test.go TestIntItem_Clamping.
 func TestIntItem_Clamping(t *testing.T) {
-	require := require.New(t)
+	t.Parallel()
 
 	tests := []struct {
+		name          string
 		byteSize      int
 		inputValue    any
 		expectedValue int64
 	}{
-		{byteSize: 1, inputValue: int(128), expectedValue: 127},
-		{byteSize: 1, inputValue: int(-129), expectedValue: -128},
-		{byteSize: 2, inputValue: int(32768), expectedValue: 32767},
-		{byteSize: 2, inputValue: int(-32769), expectedValue: -32768},
-		{byteSize: 4, inputValue: int64(math.MaxInt32 + 1), expectedValue: math.MaxInt32},
-		{byteSize: 4, inputValue: int64(math.MinInt32 - 1), expectedValue: math.MinInt32},
-		{byteSize: 8, inputValue: uint64(math.MaxInt64) + 1, expectedValue: math.MaxInt64}, // uint64 > MaxInt64 -> MaxInt64
+		{name: "I1 max overflow clamps to 127", byteSize: 1, inputValue: int(128), expectedValue: 127},
+		{name: "I1 min overflow clamps to -128", byteSize: 1, inputValue: int(-129), expectedValue: -128},
+		{name: "I2 max overflow clamps to 32767", byteSize: 2, inputValue: int(32768), expectedValue: 32767},
+		{name: "I2 min overflow clamps to -32768", byteSize: 2, inputValue: int(-32769), expectedValue: -32768},
+		{name: "I4 max overflow clamps to MaxInt32", byteSize: 4, inputValue: int64(math.MaxInt32 + 1), expectedValue: math.MaxInt32},
+		{name: "I4 min overflow clamps to MinInt32", byteSize: 4, inputValue: int64(math.MinInt32 - 1), expectedValue: math.MinInt32},
+		{name: "I8 uint64 overflow clamps to MaxInt64", byteSize: 8, inputValue: uint64(math.MaxInt64) + 1, expectedValue: math.MaxInt64},
 	}
 
-	for i, test := range tests {
-		t.Logf("Test #%d: ByteSize: %d, Input: %v", i, test.byteSize, test.inputValue)
-		item := NewIntItem(test.byteSize, test.inputValue)
-		require.NoError(item.Error())
-		val, err := item.ToInt()
-		require.NoError(err)
-		require.Equal([]int64{test.expectedValue}, val)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			require := require.New(t)
+
+			item := NewIntItem(test.byteSize, test.inputValue)
+			require.NoError(item.Error())
+
+			val, err := item.ToInt()
+			require.NoError(err)
+			require.Equal([]int64{test.expectedValue}, val)
+		})
 	}
 }
 
+// TestIntItem_Errors verifies deferred-error behaviour for invalid byte sizes and invalid value types.
 func TestIntItem_Errors(t *testing.T) {
+	t.Parallel()
+
 	require := require.New(t)
 
 	itemErr := &ItemError{}
 
-	var item Item
-	item = NewIntItem(3)
+	// Invalid byteSize must set a deferred error.
+	item := NewIntItem(3)
 	require.ErrorAs(item.Error(), &itemErr)
 
+	// float64 is not a supported value type.
+	item = NewIntItem(8, 3.14159)
+	require.ErrorAs(item.Error(), &itemErr)
+
+	// Non-numeric string must set a deferred error.
 	item = NewIntItem(8, "invalid_int")
 	require.ErrorAs(item.Error(), &itemErr)
-
-	item = NewIntItem(8)
-	err := item.SetValues("invalid_int")
-	require.ErrorAs(err, &itemErr)
-	require.ErrorAs(item.Error(), &itemErr)
-
-	item = NewIntItem(1)
-	require.NoError(item.Error())
-	result, err := item.Get(0)
-	require.Nil(result)
-	require.ErrorAs(err, &itemErr)
-	require.ErrorAs(item.Error(), &itemErr)
-	require.EqualError(err, item.Error().Error())
 }
 
-func TestCombineIntValues(t *testing.T) {
+// TestIntItem_AppendTo verifies that AppendTo(prefix) == prefix + <exact wire bytes>.
+// The expected bytes are computed independently of ToBytes() to avoid a circular dependency.
+// NewIntItem(4, 1, 2, 3): format byte 0x71 (I4, 1 length byte), length 0x0C (12 data bytes),
+// then three big-endian int32 values 1, 2, 3 — verified against the I4 vector in TestIntItem.
+func TestIntItem_AppendTo(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	item := NewIntItem(4, 1, 2, 3)
+	prefix := []byte{0xDE, 0xAD}
+	itemBytes := []byte{
+		0x71, 0x0C,
+		0x00, 0x00, 0x00, 0x01,
+		0x00, 0x00, 0x00, 0x02,
+		0x00, 0x00, 0x00, 0x03,
+	}
+
+	expected := append(slices.Clone(prefix), itemBytes...)
+	result := item.AppendTo(slices.Clone(prefix))
+	require.Equal(expected, result)
+}
+
+// TestIntItem_TypeAccessors verifies Type(), IsInt8/16/32/64.
+func TestIntItem_TypeAccessors(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	tests := []struct {
+		byteSize int
+		wantType string
+		isInt8   bool
+		isInt16  bool
+		isInt32  bool
+		isInt64  bool
+	}{
+		{1, Int8Type, true, false, false, false},
+		{2, Int16Type, false, true, false, false},
+		{4, Int32Type, false, false, true, false},
+		{8, Int64Type, false, false, false, true},
+	}
+
+	for _, test := range tests {
+		item := NewIntItem(test.byteSize)
+		require.Equal(test.wantType, item.Type())
+		require.Equal(test.isInt8, item.IsInt8())
+		require.Equal(test.isInt16, item.IsInt16())
+		require.Equal(test.isInt32, item.IsInt32())
+		require.Equal(test.isInt64, item.IsInt64())
+	}
+}
+
+// TestIntItem_NoLeak (teeth test) confirms that mutating the slice returned by ToInt does not
+// affect the item's internal state — wire encoding and subsequent ToInt calls are unchanged.
+func TestIntItem_NoLeak(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	item := NewIntItem(8, int64(42))
+	origBytes := item.ToBytes()
+
+	xs, err := item.ToInt()
+	require.NoError(err)
+	xs[0]++ // mutate the returned copy
+
+	// Internal state must be unchanged.
+	xs2, err := item.ToInt()
+	require.NoError(err)
+	require.Equal([]int64{42}, xs2)
+	require.Equal(origBytes, item.ToBytes())
+}
+
+// TestIntItem_Iterator verifies Ints() and IntAt().
+func TestIntItem_Iterator(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	// Pass a []int64 slice as a single any — combineIntValues handles []int64 in the fast path.
+	values := []int64{-100, 0, 100, math.MaxInt32}
+	item := NewIntItem(4, values)
+
+	// Ints() must yield all values in order.
+	got := slices.Collect(item.Ints())
+	require.Equal(values, got)
+
+	// IntAt valid indices.
+	for i, v := range values {
+		gotV, err := item.IntAt(i)
+		require.NoError(err)
+		require.Equal(v, gotV)
+	}
+
+	// IntAt out-of-range indices must return an error.
+	_, err := item.IntAt(-1)
+	require.Error(err)
+
+	_, err = item.IntAt(len(values))
+	require.Error(err)
+
+	// Error item: Ints() yields nothing and IntAt returns an error.
+	errItem := NewIntItem(3)
+	require.Error(errItem.Error())
+	require.Empty(slices.Collect(errItem.Ints()))
+
+	_, err = errItem.IntAt(0)
+	require.Error(err)
+}
+
+// TestIntItem_WrongType verifies that wrong-type accessors and Get return errors on an IntItem.
+func TestIntItem_WrongType(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	item := NewIntItem(4, 1, 2, 3)
+	require.NoError(item.Error())
+
+	// String accessor must error.
+	_, err := item.ToASCII()
+	require.Error(err)
+
+	// Bool iterator must yield nothing (baseItem default).
+	bools := slices.Collect(item.Bools())
+	require.Empty(bools)
+
+	// Get is list-only in v2 — any call on a scalar item must error.
+	got, err := item.Get()
+	require.Nil(got)
+	require.Error(err)
+
+	got, err = item.Get(0)
+	require.Nil(got)
+	require.Error(err)
+}
+
+// TestIntItem_Concurrency exercises concurrent ToBytes / AppendTo / Ints reads under -race.
+func TestIntItem_Concurrency(t *testing.T) {
+	t.Parallel()
+
+	item := NewIntItem(8, int64(1), int64(2), int64(3))
+
+	const goroutines = 50
+
+	var wg sync.WaitGroup
+
+	wg.Add(goroutines)
+
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+
+			_ = item.ToBytes()
+
+			buf := make([]byte, 0, item.EncodedLen())
+			_ = item.AppendTo(buf)
+
+			_ = slices.Collect(item.Ints())
+		}()
+	}
+
+	wg.Wait()
+}
+
+// TestIntItem_Allocs asserts allocation counts for the hot encoding and accessor paths.
+func TestIntItem_Allocs(t *testing.T) {
+	item := NewIntItem(8, int64(1), int64(2), int64(3))
+
+	// AppendTo into a pre-sized buffer must not allocate.
+	buf := make([]byte, 0, item.EncodedLen())
+
+	allocs := testing.AllocsPerRun(100, func() {
+		buf = buf[:0]
+		buf = item.AppendTo(buf)
+	})
+
+	if allocs > 0 {
+		t.Errorf("AppendTo into pre-sized buffer: got %v allocs, want 0", allocs)
+	}
+
+	// ToBytes must allocate exactly once (the output slice).
+	allocs = testing.AllocsPerRun(100, func() {
+		_ = item.ToBytes()
+	})
+
+	if allocs != 1 {
+		t.Errorf("ToBytes: got %v allocs, want 1", allocs)
+	}
+
+	// ToInt must allocate exactly once (slices.Clone).
+	allocs = testing.AllocsPerRun(100, func() {
+		_, _ = item.ToInt()
+	})
+
+	if allocs != 1 {
+		t.Errorf("ToInt: got %v allocs, want 1", allocs)
+	}
+}
+
+// TestIntItem_EncodedLen verifies that EncodedLen() == len(ToBytes()) for all valid configurations.
+func TestIntItem_EncodedLen(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	cases := []struct {
+		byteSize int
+		values   []any
+	}{
+		{1, nil},
+		{1, []any{1, 2, 3}},
+		{2, []any{math.MinInt16, 0, math.MaxInt16}},
+		{4, []any{math.MinInt32, math.MaxInt32}},
+		{8, []any{math.MinInt64, 0, math.MaxInt64}},
+	}
+
+	for _, c := range cases {
+		var item Item
+		if c.values == nil {
+			item = NewIntItem(c.byteSize)
+		} else {
+			item = NewIntItem(c.byteSize, c.values...)
+		}
+
+		require.NoError(item.Error())
+		require.Equal(item.EncodedLen(), len(item.ToBytes()))
+	}
+
+	// Error item: the itemErr short-circuit path must satisfy the same invariant.
+	// byteSize 3 is invalid, so NewIntItem(3) sets a deferred error.
+	// Both EncodedLen() and len(ToBytes()) must be 0.
+	errItem := NewIntItem(3)
+	require.Error(errItem.Error())
+	require.Equal(0, errItem.EncodedLen())
+	require.Equal(errItem.EncodedLen(), len(errItem.ToBytes()))
+}
+
+// TestCombineIntValues exercises the full type matrix that combineIntValues must handle,
+// ported from git show main:secs2/int_test.go TestCombineIntValues. Tested via NewIntItem
+// to avoid internal type assertions.
+func TestCombineIntValues(t *testing.T) { //nolint:cyclop
+	t.Parallel()
+
 	tests := []struct {
 		name      string
 		byteSize  int
 		values    []any
 		want      []int64
 		wantErr   bool
-		errorText string
+		errSubstr string
 	}{
 		{
 			name:     "Signed Integers",
 			byteSize: 8,
 			values: []any{
-				int(-10),
-				[]int{20, -30},
-				int8(-40),
-				[]int8{50, -60},
-				int16(-70),
-				[]int16{80, -90},
-				int32(-100),
-				[]int32{110, -120},
-				int64(-130),
-				[]int64{140, -150},
+				int(-10), []int{20, -30},
+				int8(-40), []int8{50, -60},
+				int16(-70), []int16{80, -90},
+				int32(-100), []int32{110, -120},
+				int64(-130), []int64{140, -150},
 			},
 			want: []int64{-10, 20, -30, -40, 50, -60, -70, 80, -90, -100, 110, -120, -130, 140, -150},
 		},
 		{
-			name:     "Unsigned Integers (within int64 range)",
+			name:     "Unsigned Integers (within range)",
 			byteSize: 4,
 			values: []any{
-				uint(1),
-				[]uint{2, 3},
-				uint8(4),
-				[]uint8{5, 6},
-				uint16(7),
-				[]uint16{8, 9},
-				uint32(10),
-				[]uint32{11, 12},
-				uint64(13),       // Within int64 range
-				[]uint64{14, 15}, // Within int64 range
+				uint(1), []uint{2, 3},
+				uint8(4), []uint8{5, 6},
+				uint16(7), []uint16{8, 9},
+				uint32(10), []uint32{11, 12},
+				uint64(13), []uint64{14, 15},
 			},
 			want: []int64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
 		},
 		{
-			name:     "Overflow Uint (exceeds int64 range)",
+			name:     "Overflow uint64 clamps to I4 max",
 			byteSize: 4,
 			values:   []any{uint64(math.MaxUint64)},
 			want:     []int64{math.MaxInt32},
 		},
 		{
-			name:     "Overflow Int",
+			name:     "Overflow int clamps to I1 max",
 			byteSize: 1,
 			values:   []any{int(128)},
 			want:     []int64{127},
 		},
 		{
-			name:     "Overflow Int in Slice",
+			name:     "Overflow int32 slice clamps to I2 max",
 			byteSize: 2,
 			values:   []any{[]int32{32768}},
 			want:     []int64{32767},
@@ -306,170 +466,35 @@ func TestCombineIntValues(t *testing.T) {
 			byteSize:  2,
 			values:    []any{"abc"},
 			wantErr:   true,
-			errorText: `strconv.ParseInt: parsing "abc": invalid syntax`,
+			errSubstr: `strconv.ParseInt: parsing "abc": invalid syntax`,
 		},
 		{
 			name:      "Unsupported Type",
 			byteSize:  1,
 			values:    []any{3.14159},
 			wantErr:   true,
-			errorText: "input argument contains invalid type for IntItem",
+			errSubstr: "input argument contains invalid type for IntItem",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			item, _ := NewIntItem(test.byteSize).(*IntItem)
-			err := item.combineIntValues(test.values...)
-			if (err != nil) != test.wantErr {
-				t.Errorf("combineIntValues() error = %v, wantErr %v", err, test.wantErr)
+			t.Parallel()
+
+			item := NewIntItem(test.byteSize, test.values...)
+
+			if test.wantErr {
+				require.Error(t, item.Error())
+				require.ErrorContains(t, item.Error(), test.errSubstr)
+
 				return
 			}
 
-			if test.wantErr && err.Error() != test.errorText {
-				t.Errorf("combineIntValues() error text = %v, wantErrorText %v", err.Error(), test.errorText)
-				return
-			}
-			got, _ := item.ToInt()
+			require.NoError(t, item.Error())
 
-			if !test.wantErr && !reflect.DeepEqual(got, test.want) {
-				t.Errorf("combineIntValues() = %v, want %v", got, test.want)
-			}
+			got, err := item.ToInt()
+			require.NoError(t, err)
+			require.Equal(t, test.want, got)
 		})
 	}
-}
-
-func BenchmarkIntItem_Create(b *testing.B) {
-	values := genFixedInt(1000)
-
-	b.ResetTimer()
-	for i := 0; i <= b.N; i++ {
-		_, _ = NewIntItem(8, values).(*IntItem)
-	}
-	b.StopTimer()
-}
-
-func BenchmarkIntItem_ToBytes(b *testing.B) {
-	values := genFixedInt(1000)
-
-	item, _ := NewIntItem(8, values).(*IntItem)
-
-	b.ResetTimer()
-	for i := 0; i <= b.N; i++ {
-		_ = item.ToBytes()
-	}
-	b.StopTimer()
-}
-
-func BenchmarkIntItem_ToSML(b *testing.B) {
-	values := genFixedInt(1000)
-	item := NewIntItem(8, values)
-
-	b.ResetTimer()
-	for i := 0; i <= b.N; i++ {
-		_ = item.ToSML()
-	}
-	b.StopTimer()
-}
-
-func genRandomInt(length int, intSize int) []int64 {
-	result := make([]int64, length)
-
-	for i := range length {
-		// Calculate the maximum and minimum values based on intSize
-		maxVal := big.NewInt(1)
-		maxVal.Lsh(maxVal, uint(intSize*8-1))
-		maxVal.Sub(maxVal, big.NewInt(1))
-
-		minVal := big.NewInt(0)
-		minVal.Sub(maxVal, big.NewInt(1))
-		minVal.Neg(minVal)
-
-		// Generate a random big integer within the range
-		n, _ := rand.Int(rand.Reader, maxVal)
-
-		// Adjust to include negative values
-		n.Add(n, minVal)
-
-		// Convert to int64 and store in the slice
-		result[i] = n.Int64()
-	}
-
-	return result
-}
-
-func genFixedInt(length int) []int64 {
-	result := make([]int64, length)
-
-	for i := range length {
-		result[i] = int64(i % math.MaxInt64)
-	}
-
-	return result
-}
-
-func TestIntItem_Refactor(t *testing.T) {
-	require := require.New(t)
-
-	t.Run("Fast Path []int64", func(t *testing.T) {
-		input := []int64{math.MinInt64, 0, math.MaxInt64}
-		item := NewIntItem(8, input)
-		require.NoError(item.Error())
-		val, err := item.ToInt()
-		require.NoError(err)
-		require.Equal(input, val)
-	})
-
-	t.Run("Fast Path []int", func(t *testing.T) {
-		input := []int{-100, 0, 100}
-		item := NewIntItem(4, input)
-		require.NoError(item.Error())
-		val, err := item.ToInt()
-		require.NoError(err)
-		expected := []int64{-100, 0, 100}
-		require.Equal(expected, val)
-	})
-
-	t.Run("Clamping I1", func(t *testing.T) {
-		// I1 range: -128 to 127
-		input := []int{128, -129, 100}
-		item := NewIntItem(1, input)
-		require.NoError(item.Error())
-		val, err := item.ToInt()
-		require.NoError(err)
-		expected := []int64{127, -128, 100}
-		require.Equal(expected, val)
-	})
-
-	t.Run("Clamping I2", func(t *testing.T) {
-		// I2 range: -32768 to 32767
-		input := []int{32768, -32769, 0}
-		item := NewIntItem(2, input)
-		require.NoError(item.Error())
-		val, err := item.ToInt()
-		require.NoError(err)
-		expected := []int64{32767, -32768, 0}
-		require.Equal(expected, val)
-	})
-
-	t.Run("Clamping Uint to I4", func(t *testing.T) {
-		// I4 max: 2147483647
-		input := []uint{2147483648, 0}
-		item := NewIntItem(4, input)
-		require.NoError(item.Error())
-		val, err := item.ToInt()
-		require.NoError(err)
-		expected := []int64{2147483647, 0}
-		require.Equal(expected, val)
-	})
-
-	t.Run("Slow Path Mixed", func(t *testing.T) {
-		input := []any{int(1), "2", []int{3}}
-		item := NewIntItem(4, input...)
-		require.NoError(item.Error())
-		val, err := item.ToInt()
-		require.NoError(err)
-		expected := []int64{1, 2, 3}
-		require.Equal(expected, val)
-	})
 }

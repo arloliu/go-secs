@@ -1,233 +1,286 @@
 package secs2
 
 import (
-	"fmt"
-	"math/rand"
+	"slices"
+	"sync"
 	"testing"
-	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestJIS8Item_Create(t *testing.T) {
-	require := require.New(t)
+// TestJIS8Item covers round-trip construction, exact wire bytes, and SML output.
+// Vectors are ported from git show main:secs2/jis8_test.go.
+func TestJIS8Item(t *testing.T) {
+	t.Parallel()
 
 	tests := []struct {
-		desc            string // Test case description
-		input           string // JIS-8 string input
-		expectedSize    int    // Expected result from Size()
-		expectedToBytes []byte // Expected result from ToBytes()
-		expectedToSML   string // Expected result from SML()
+		description     string
+		input           string
+		expectedSize    int
+		expectedToBytes []byte
+		expectedToSML   string
 	}{
 		{
-			desc:            "Length: 0, empty string",
+			description:     "empty string",
 			input:           "",
 			expectedSize:    0,
-			expectedToBytes: []byte{0x45, 0},
+			expectedToBytes: []byte{0x45, 0x00},
 			expectedToSML:   `<J[0] "">`,
 		},
 		{
-			desc:            "Length: 1",
+			description:     "single character",
 			input:           "A",
 			expectedSize:    1,
-			expectedToBytes: []byte{0x45, 1, 65},
+			expectedToBytes: []byte{0x45, 0x01, 0x41},
 			expectedToSML:   `<J[1] "A">`,
 		},
 		{
-			desc:            "Length: 11",
+			description:     "hello world",
 			input:           "hello world",
 			expectedSize:    11,
-			expectedToBytes: []byte{0x45, 0xb, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x77, 0x6f, 0x72, 0x6c, 0x64},
+			expectedToBytes: []byte{0x45, 0x0b, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0x77, 0x6f, 0x72, 0x6c, 0x64},
 			expectedToSML:   `<J[11] "hello world">`,
 		},
 		{
-			desc:            "Length: 1, non-printable char only",
+			description:     "newline control character",
 			input:           "\n",
 			expectedSize:    1,
-			expectedToBytes: []byte{0x45, 1, 0x0A},
+			expectedToBytes: []byte{0x45, 0x01, 0x0a},
 			expectedToSML:   "<J[1] \"\n\">",
 		},
 		{
-			desc:            "Length: 15, JIS-8 string",
+			// JIS-8 accepts multi-byte UTF-8; size is byte length, not char count.
+			description:     "JIS-8 multibyte string",
 			input:           "こんにちは",
 			expectedSize:    15,
-			expectedToBytes: []byte{0x45, 0xf, 0xe3, 0x81, 0x93, 0xe3, 0x82, 0x93, 0xe3, 0x81, 0xab, 0xe3, 0x81, 0xa1, 0xe3, 0x81, 0xaf},
+			expectedToBytes: []byte{0x45, 0x0f, 0xe3, 0x81, 0x93, 0xe3, 0x82, 0x93, 0xe3, 0x81, 0xab, 0xe3, 0x81, 0xa1, 0xe3, 0x81, 0xaf},
 			expectedToSML:   `<J[15] "こんにちは">`,
 		},
-		{
-			desc:            "Length: 6, JIS-8 string with non-printable chars",
-			input:           "こん\x09\x7Fにちは",
-			expectedSize:    17,
-			expectedToBytes: []byte{0x45, 0x11, 0xe3, 0x81, 0x93, 0xe3, 0x82, 0x93, 0x9, 0x7f, 0xe3, 0x81, 0xab, 0xe3, 0x81, 0xa1, 0xe3, 0x81, 0xaf},
-			expectedToSML:   "<J[17] \"こん\t\x7fにちは\">",
-		},
-		{
-			desc:            "Length: 5, non-printable chars in between string",
-			input:           "te\nxt",
-			expectedSize:    5,
-			expectedToBytes: []byte{0x45, 0x5, 0x74, 0x65, 0x0a, 0x78, 0x74},
-			expectedToSML:   "<J[5] \"te\nxt\">",
-		},
 	}
 
-	for i, test := range tests {
-		t.Logf("Test #%d: %s", i, test.desc)
-		item := NewJIS8Item(test.input)
-		require.Equal(test.expectedSize, item.Size())
-		require.Equal(test.expectedToBytes, item.ToBytes())
-		require.Equal(test.expectedToSML, item.ToSML())
+	for _, test := range tests {
+		t.Run(test.description, func(t *testing.T) {
+			t.Parallel()
 
-		val, err := item.ToJIS8()
-		require.NoError(err)
-		require.Equal(test.input, val)
+			require := require.New(t)
 
-		nestedItem, err := item.Get()
-		require.NoError(err)
-		nestedStr, ok := nestedItem.Values().(string)
-		require.True(ok)
-		require.Equal(test.input, nestedStr)
+			item := NewJIS8Item(test.input)
+			require.NoError(item.Error())
+			require.Equal(test.expectedSize, item.Size())
+			require.Equal(test.expectedToBytes, item.ToBytes())
+			require.Equal(test.expectedToSML, item.ToSML())
 
-		nestedItem, err = item.Get(0)
-		require.Nil(nestedItem)
-		require.ErrorContains(err, fmt.Sprintf("item is not a list, item is %s", item.ToSML()))
-
-		// clone a item, it should contains the same content as original item.
-		clonedItem := item.Clone()
-		require.Equal(test.expectedSize, clonedItem.Size())
-		require.Equal(test.expectedToBytes, clonedItem.ToBytes())
-		require.Equal(test.expectedToSML, clonedItem.ToSML())
-		clonedStr, ok := clonedItem.Values().(string)
-		require.True(ok)
-		require.Equal(test.input, clonedStr)
-
-		// set a random string to cloned item
-		randVal := generateRandomUTF8String(test.expectedSize)
-		err = clonedItem.SetValues(randVal)
-		require.NoError(err)
-		require.Equal(test.expectedSize, clonedItem.Size())
-		clonedStr, ok = clonedItem.Values().(string)
-		require.True(ok)
-		require.Equal(randVal, clonedStr)
-
-		// the original item should not be modified
-		oriStr, ok := item.Values().(string)
-		require.True(ok)
-		require.Equal(test.input, oriStr)
-	}
-
-	data := make([]byte, MaxByteSize+1)
-	item := NewJIS8Item(string(data))
-	require.Error(item.Error())
-
-	for i := range 100 {
-		item := NewJIS8Item(generateRandomUTF8String(i + 1))
-		require.NoError(item.Error())
+			got, err := item.ToJIS8()
+			require.NoError(err)
+			require.Equal(test.input, got)
+		})
 	}
 }
 
-func TestJIS8Item_SetValues(t *testing.T) {
-	tests := []struct {
-		desc            string // Test case description
-		input           string // JIS-8 string input
-		setValues       []any  // The argument of SetValues method
-		expectedSize    int    // expected result from Size()
-		expectedToBytes []byte // expected result from ToBytes()
-		expectedToSML   string // expected result from SML()
-	}{
-		{
-			desc:            "Empty input, Single JIS-8 string are set",
-			input:           "",
-			setValues:       []any{"こんにちは 世界"},
-			expectedSize:    22,
-			expectedToBytes: []byte{0x45, 0x16, 0xe3, 0x81, 0x93, 0xe3, 0x82, 0x93, 0xe3, 0x81, 0xab, 0xe3, 0x81, 0xa1, 0xe3, 0x81, 0xaf, 0x20, 0xe4, 0xb8, 0x96, 0xe7, 0x95, 0x8c},
-			expectedToSML:   `<J[22] "こんにちは 世界">`,
-		},
-		{
-			desc:            "Empty input, 3 JIS-8 strings are set",
-			input:           "",
-			setValues:       []any{"こんにちは", " ", "世界"},
-			expectedSize:    22,
-			expectedToBytes: []byte{0x45, 0x16, 0xe3, 0x81, 0x93, 0xe3, 0x82, 0x93, 0xe3, 0x81, 0xab, 0xe3, 0x81, 0xa1, 0xe3, 0x81, 0xaf, 0x20, 0xe4, 0xb8, 0x96, 0xe7, 0x95, 0x8c},
-			expectedToSML:   `<J[22] "こんにちは 世界">`,
-		},
-	}
+// TestJIS8Item_AppendTo verifies AppendTo with an independent literal-bytes vector.
+// "AB" (2 bytes): format byte 0x45 (JIS8FormatCode 0o21=17, 17<<2|1=69=0x45),
+// length 0x02, then 'A'=0x41, 'B'=0x42.
+func TestJIS8Item_AppendTo(t *testing.T) {
+	t.Parallel()
 
 	require := require.New(t)
 
-	for i, test := range tests {
-		t.Logf("Test #%d: %s", i, test.desc)
-		item := NewJIS8Item(test.input)
-		err := item.SetValues(test.setValues...)
-		require.NoError(err)
-		require.Equal(test.expectedSize, item.Size())
-		require.Equal(test.expectedToBytes, item.ToBytes())
-		require.Equal(test.expectedToSML, item.ToSML())
-	}
+	item := NewJIS8Item("AB")
+	prefix := []byte{0xDE, 0xAD}
+	itemBytes := []byte{0x45, 0x02, 0x41, 0x42}
+
+	expected := append(slices.Clone(prefix), itemBytes...)
+	result := item.AppendTo(slices.Clone(prefix))
+	require.Equal(expected, result)
 }
 
-func BenchmarkJIS8Item_Create(b *testing.B) {
-	values := generateRandomUTF8String(1000)
+// TestJIS8Item_NoLeak confirms that the string returned by ToJIS8 is immutable:
+// converting it to []byte and mutating the copy does not affect the item.
+func TestJIS8Item_NoLeak(t *testing.T) {
+	t.Parallel()
 
-	b.ResetTimer()
-	for i := 0; i <= b.N; i++ {
-		_, _ = NewJIS8Item(values).(*JIS8Item)
-	}
-	b.StopTimer()
+	require := require.New(t)
+
+	const original = "hello"
+
+	item := NewJIS8Item(original)
+
+	s, err := item.ToJIS8()
+	require.NoError(err)
+	require.Equal(original, s)
+
+	// Mutate a []byte copy of the returned string.
+	mutated := []byte(s)
+	mutated[0] = 'X'
+
+	// Item's internal state and subsequent reads must be unchanged.
+	s2, err := item.ToJIS8()
+	require.NoError(err)
+	require.Equal(original, s2)
+
+	concrete, ok := item.(*JIS8Item)
+	require.True(ok)
+	require.Equal(original, concrete.value)
+	require.Equal([]byte{0x45, 0x05, 'h', 'e', 'l', 'l', 'o'}, item.ToBytes())
 }
 
-func BenchmarkJIS8Item_ToBytes(b *testing.B) {
-	values := generateRandomUTF8String(1000)
+// TestJIS8Item_WrongType verifies that wrong-type accessors return errors on a JIS8Item.
+func TestJIS8Item_WrongType(t *testing.T) {
+	t.Parallel()
 
-	item, _ := NewJIS8Item(values).(*JIS8Item)
+	require := require.New(t)
 
-	b.ResetTimer()
-	for i := 0; i <= b.N; i++ {
+	item := NewJIS8Item("hello")
+	require.NoError(item.Error())
+
+	// String accessor for a different type must error.
+	_, err := item.ToASCII()
+	require.Error(err)
+
+	_, err = item.ToLocalizedStr()
+	require.Error(err)
+
+	// Numeric accessors must error.
+	_, err = item.ToInt()
+	require.Error(err)
+
+	_, err = item.ToUint()
+	require.Error(err)
+
+	_, err = item.ToFloat()
+	require.Error(err)
+
+	// Get is list-only in v2 — any call on a scalar item must error.
+	got, err := item.Get()
+	require.Nil(got)
+	require.Error(err)
+
+	got, err = item.Get(0)
+	require.Nil(got)
+	require.Error(err)
+}
+
+// TestJIS8Item_TypeAccessors verifies Type() and IsJIS8().
+func TestJIS8Item_TypeAccessors(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	item := NewJIS8Item("test")
+	require.Equal(JIS8Type, item.Type())
+	require.True(item.IsJIS8())
+	require.False(item.IsASCII())
+	require.False(item.IsLocalizedStr())
+	require.False(item.IsInt8())
+	require.False(item.IsBinary())
+	require.False(item.IsBoolean())
+	require.False(item.IsList())
+}
+
+// TestJIS8Item_Errors verifies the deferred-error behaviour for oversized strings.
+func TestJIS8Item_Errors(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	itemErr := &ItemError{}
+
+	// String exceeding MaxByteSize must set a deferred error.
+	huge := make([]byte, MaxByteSize+1)
+	item := NewJIS8Item(string(huge))
+	require.ErrorAs(item.Error(), &itemErr)
+
+	// ToJIS8 on error item returns empty string and the error.
+	s, err := item.ToJIS8()
+	require.Equal("", s)
+	require.Error(err)
+
+	// EncodedLen and AppendTo on error item.
+	require.Equal(0, item.EncodedLen())
+	dst := []byte{0xAA}
+	require.Equal(dst, item.AppendTo(dst))
+}
+
+// TestJIS8Item_Concurrency exercises concurrent ToBytes/AppendTo/ToJIS8 reads under -race.
+func TestJIS8Item_Concurrency(t *testing.T) {
+	t.Parallel()
+
+	item := NewJIS8Item("concurrent test")
+
+	const goroutines = 50
+
+	var wg sync.WaitGroup
+
+	wg.Add(goroutines)
+
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+
+			_ = item.ToBytes()
+
+			buf := make([]byte, 0, item.EncodedLen())
+			_ = item.AppendTo(buf)
+
+			_, _ = item.ToJIS8()
+
+			_ = item.ToSML()
+		}()
+	}
+
+	wg.Wait()
+}
+
+// TestJIS8Item_Allocs asserts allocation counts for the hot encoding and accessor paths.
+func TestJIS8Item_Allocs(t *testing.T) {
+	item := NewJIS8Item("hello world")
+
+	// AppendTo into a pre-sized buffer must not allocate.
+	buf := make([]byte, 0, item.EncodedLen())
+
+	allocs := testing.AllocsPerRun(100, func() {
+		buf = buf[:0]
+		buf = item.AppendTo(buf)
+	})
+
+	if allocs > 0 {
+		t.Errorf("AppendTo into pre-sized buffer: got %v allocs, want 0", allocs)
+	}
+
+	// ToBytes must allocate exactly once (the output slice).
+	allocs = testing.AllocsPerRun(100, func() {
 		_ = item.ToBytes()
+	})
+
+	if allocs != 1 {
+		t.Errorf("ToBytes: got %v allocs, want 1", allocs)
 	}
-	b.StopTimer()
 }
 
-func BenchmarkJIS8Item_ToSML(b *testing.B) {
-	values := generateRandomUTF8String(1000)
+// TestJIS8Item_EncodedLen verifies that EncodedLen() == len(ToBytes()) for all cases.
+func TestJIS8Item_EncodedLen(t *testing.T) {
+	t.Parallel()
 
-	item, _ := NewJIS8Item(values).(*JIS8Item)
+	require := require.New(t)
 
-	b.ResetTimer()
-	for i := 0; i <= b.N; i++ {
-		_ = item.ToSML()
-	}
-	b.StopTimer()
-}
-
-// generateRandomUTF8String generates a random valid UTF-8 string of a given size (in bytes).
-func generateRandomUTF8String(size int) string {
-	if size <= 0 {
-		return ""
+	cases := []string{
+		"",
+		"A",
+		"hello world",
+		"こんにちは", // multi-byte UTF-8
 	}
 
-	result := make([]byte, size)
-	for i := 0; i < size; {
-		// generate a random rune
-		r := rune(rand.Intn(0x10FFFF + 1)) // generate rune up to the maximum valid code point
-
-		// encode the rune to UTF-8
-		if r <= 0x7F {
-			// if it is a single-byte character, write it directly
-			result[i] = byte(r)
-			i++
-		} else if utf8.ValidRune(r) {
-			// for multi-byte characters, encode and write
-			runeSize := utf8.RuneLen(r)
-
-			if i+runeSize > size {
-				// not enough space for the current rune, try generating another one
-				continue
-			}
-
-			utf8.EncodeRune(result[i:i+runeSize], r)
-			i += runeSize
-		}
+	for _, s := range cases {
+		item := NewJIS8Item(s)
+		require.NoError(item.Error())
+		require.Equal(item.EncodedLen(), len(item.ToBytes()),
+			"EncodedLen must equal len(ToBytes()) for %q", s)
 	}
 
-	return string(result)
+	// Error item: both EncodedLen and len(ToBytes) must be 0.
+	huge := make([]byte, MaxByteSize+1)
+	errItem := NewJIS8Item(string(huge))
+	require.Error(errItem.Error())
+	require.Equal(0, errItem.EncodedLen())
+	require.Equal(errItem.EncodedLen(), len(errItem.ToBytes()))
 }

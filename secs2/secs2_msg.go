@@ -1,18 +1,14 @@
 package secs2
 
-// SECS2Message represents a SECS-II message, defining a common interface for various SECS-II and HSMS
-// message types.
+// SECS2Message is the transport-agnostic view of a SECS-II message (SEMI E5). It exposes only the
+// attributes intrinsic to the message itself and leaves any transport framing to the concrete
+// message types that carry it.
 //
-// It provides methods for accessing essential attributes of a SECS-II message, including:
-//   - Session ID: A 16-bit unsigned integer identifying the SECS-II session.
-//   - Stream and Function Codes: 8-bit unsigned integers specifying the message category and function.
-//   - Wait Bit: A boolean value indicating whether a reply is expected.
-//   - System Bytes: A 4-byte array serving as the message ID.
-//   - Header: The 10-byte header of the SECS-II message.
-//   - Item: The SECS-II data item carried by the message.
-//
-// It also includes a `ToBytes` method to serialize the message into its raw byte representation for
-// transmission.
+// The interface consists of:
+//   - StreamCode: the 8-bit stream code identifying the message category.
+//   - FunctionCode: the 8-bit function code identifying the function within the stream.
+//   - WaitBit: whether a reply is expected (the W-bit).
+//   - Item: the SECS-II data item carried by the message.
 type SECS2Message interface {
 	// StreamCode returns the stream code for the SECS-II message.
 	StreamCode() uint8

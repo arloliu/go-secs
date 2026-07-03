@@ -1,246 +1,159 @@
 package secs2
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"iter"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
-
-	"github.com/arloliu/go-secs/internal/util"
 )
 
-// FloatItem represents a list of floating-point data items in a SECS-II message.
+// FloatItem represents an immutable list of IEEE-754 floating-point values in a SECS-II message.
 //
-// It implements the Item interface, providing methods to interact with and manipulate the floating-point data.
-//
-// Note: This implementation stores all floating-point values as float64, regardless of whether the
-// byteSize is 4 (F4) or 8 (F8). This simplifies the implementation but results in higher memory
-// usage for F4 items (8 bytes per value instead of 4).
-//
-// For immutable operations, use the `Clone()` method to create a new, independent copy of the item.
+// It implements the Item interface. byteSize must be 4 (F4, single-precision) or 8 (F8,
+// double-precision). All values are stored internally as float64 regardless of byteSize; F4 items
+// apply float32 precision only during wire encoding and SML rendering. All methods are safe for
+// concurrent use and no method exposes mutable internal storage.
 type FloatItem struct {
 	baseItem
-	byteSize int       // Byte size of the floats; should be either 4 or 8
-	values   []float64 // Array of floats
+	byteSize int
+	values   []float64
 }
 
-// NewFloatItem creates a new FloatItem representing floating-point data in a SECS-II message.
+var _ Item = (*FloatItem)(nil)
+
+// NewFloatItem creates a new FloatItem representing IEEE-754 floating-point data in a SECS-II
+// message.
 //
-// This function implements the Item interface.
+// byteSize must be 4 (F4, single-precision) or 8 (F8, double-precision). Each value can be a
+// float32, float64, a signed or unsigned integer (int, int8, int16, int32, int64, uint, uint8,
+// uint16, uint32, uint64), a slice of any of those types, or a string containing a decimal
+// floating-point literal.
 //
-// It accepts two types of arguments:
+// For byteSize 4, float64 values whose magnitude exceeds math.MaxFloat32 are clamped to
+// ±math.MaxFloat32. NaN and ±Inf pass through unclamped. Signed and unsigned integer values
+// whose magnitude exceeds 2^53 produce a deferred error, as they cannot be represented exactly in
+// float64.
 //
-// byteSize (int): The size of each float value in bytes (4 or 8).
-//
-// values (...any): One or more values to be stored in the FloatItem. Each value can be one of the following types:
-//
-//   - float32 or float64: A floating-point number.
-//   - []float32 or []float64: A slice of floating-point numbers.
-//   - string: A string that will be parsed as a floating-point number.
-//   - []string: A slice of strings that will be parsed as floating-point numbers.
-//   - int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64: An integer that will be converted to its floating-point representation.
-//   - A slice of any of the above-mentioned integer types
-//
-// All provided values are combined into a single slice stored within the new item.
-//
-// If the `byteSize` is invalid or any of the input values cannot be converted to a valid float64
-// (or are outside the representable range for the given byteSize), an error is set on the item.
-//
-// The newly created FloatItem is returned, potentially with an error attached.
+// If byteSize is invalid or a value cannot be converted, a deferred error is stored on the
+// returned item; call Error() to inspect it.
 func NewFloatItem(byteSize int, values ...any) Item {
-	item := getFloatItem()
-	// item := &FloatItem{}
+	item := &FloatItem{byteSize: byteSize}
+
 	if byteSize != 4 && byteSize != 8 {
 		item.setErrorMsg("invalid byte size")
+
 		return item
 	}
 
-	item.byteSize = byteSize
+	if err := item.combineFloatValues(values...); err != nil {
+		item.setError(err)
 
-	_ = item.SetValues(values...)
+		return item
+	}
+
+	if n, _ := getDataByteLength(item.dataType(), len(item.values)); n > MaxByteSize {
+		item.setErrorMsg("item size limit exceeded")
+	}
 
 	return item
 }
 
-// Free releases the FloatItem back to the pool for reuse.
-//
-// After calling Free, the FloatItem should not be accessed or used again, as its underlying memory
-// might be reused for other FloatItem objects.
-//
-// This method is essential for efficient memory management when working with a large number of FloatItem objects.
-func (item *FloatItem) Free() {
-	putFloatItem(item)
-}
-
-// Get retrieves the current FloatItem.
-//
-// This method implements the Item.Get() interface.
-// It does not accept any index arguments as FloatItem represents a single item, not a list.
-//
-// If any indices are provided, an error is returned indicating that the item is not a list.
-func (item *FloatItem) Get(indices ...int) (Item, error) {
-	if len(indices) != 0 {
-		err := NewItemError(fmt.Errorf("item is not a list, item is %s, indices is %v", item.ToSML(), indices))
-		item.setError(err)
-		return nil, err
-	}
-
-	return item, nil
-}
-
-// ToFloat retrieves the float data stored within the item.
-//
-// This method implements a specialized version of Item.Get() for float data retrieval.
-// It returns the float64 slice containing the float data.
+// ToFloat returns a fresh copy of the float64-widened values. Returns an error if the item
+// carries a deferred construction error.
 func (item *FloatItem) ToFloat() ([]float64, error) {
-	return item.values, nil
-}
-
-// Size implements Item.Size().
-func (item *FloatItem) Size() int {
-	return len(item.values)
-}
-
-// Values retrieves the float values stored in the item as a float64 slice.
-//
-// This method implements the Item.Values() interface. It returns a direct
-// reference to the underlying float64 slice, allowing for potential modification.
-//
-// Caution: Modifying the returned slice will directly affect the data within the item.
-// For immutable access, consider using `Clone()` to obtain a deep copy of the item first.
-func (item *FloatItem) Values() any {
-	return item.values
-}
-
-// SetValues sets the float64 values within the FloatItem.
-//
-// This method implements the Item.SetValues() interface. It accepts one or more values, each of which can be one of the following types:
-//
-//   - float32 or float64: A floating-point number.
-//   - []float32 or []float64: A slice of floating-point numbers.
-//   - string: A string that will be parsed as a floating-point number.
-//   - []string: A slice of strings that will be parsed as floating-point numbers.
-//   - int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64: An integer that will be converted to its floating-point representation.
-//   - A slice of any of the above-mentioned integer types
-//
-// All provided values are combined into a single slice stored within the new item.
-//
-// If an error occurs during the combination process (e.g., due to incompatible types or values outside the representable range),
-// the error is returned and also stored within the item for later retrieval.
-func (item *FloatItem) SetValues(values ...any) error {
-	item.resetError()
-
-	item.values = item.values[:0]
-
-	err := item.combineFloatValues(values...)
-	if err != nil {
-		item.setError(err)
-		return item.Error()
+	if item.itemErr != nil {
+		return nil, item.itemErr
 	}
 
-	dataType := Float32Type
-	if item.byteSize == 8 {
-		dataType = Float64Type
-	}
-
-	dataBytes, _ := getDataByteLength(dataType, len(item.values))
-	if dataBytes > MaxByteSize {
-		item.setErrorMsg("item size limit exceeded")
-		return item.Error()
-	}
-
-	return nil
+	return slices.Clone(item.values), nil
 }
 
-// ToBytes serializes the FloatItem into a byte slice conforming to the SECS-II data format.
-//
-// This method implements the Item.ToBytes() interface.
-//
-// If an error occurs during header generation, an empty byte slice is returned,
-// and the error is stored within the item for later retrieval.
-func (item *FloatItem) ToBytes() []byte {
-	itemSize := item.Size()
-	result, _ := getHeaderBytes(fmt.Sprintf("f%d", item.byteSize), itemSize, itemSize*item.byteSize)
+// FloatAt returns the value at index i. Returns an error if the item carries a deferred error or
+// i is out of range.
+func (item *FloatItem) FloatAt(i int) (float64, error) {
+	if item.itemErr != nil {
+		return 0, item.itemErr
+	}
+
+	if i < 0 || i >= len(item.values) {
+		return 0, NewItemErrorWithMsg("index out of range")
+	}
+
+	return item.values[i], nil
+}
+
+// Floats returns an iterator over the float64-widened values. Yields nothing if the item carries
+// a deferred error.
+func (item *FloatItem) Floats() iter.Seq[float64] {
+	return func(yield func(float64) bool) {
+		if item.itemErr != nil {
+			return
+		}
+
+		for _, v := range item.values {
+			if !yield(v) {
+				return
+			}
+		}
+	}
+}
+
+// Size returns the number of floating-point values in this item.
+func (item *FloatItem) Size() int { return len(item.values) }
+
+// EncodedLen returns the total SECS-II wire byte length (header + payload).
+// Returns 0 for items with deferred errors.
+func (item *FloatItem) EncodedLen() int {
+	if item.itemErr != nil {
+		return 0
+	}
+
+	if item.raw != nil {
+		return len(item.raw)
+	}
+
+	n := len(item.values) * item.byteSize
+
+	return headerLen(n) + n
+}
+
+// AppendTo appends the SECS-II wire encoding of this item into dst and returns the result.
+// Returns dst unchanged for items with deferred errors.
+func (item *FloatItem) AppendTo(dst []byte) []byte {
+	if item.itemErr != nil {
+		return dst
+	}
+
+	if item.raw != nil {
+		return append(dst, item.raw...)
+	}
+
+	dst, _ = appendHeaderBytes(dst, item.dataType(), len(item.values)) //nolint:errcheck
 
 	if item.byteSize == 4 {
-		for _, value := range item.values {
-			bits := math.Float32bits(float32(value))
-			result = append(result, byte(bits>>24))
-			result = append(result, byte(bits>>16))
-			result = append(result, byte(bits>>8))
-			result = append(result, byte(bits))
+		for _, v := range item.values {
+			dst = binary.BigEndian.AppendUint32(dst, math.Float32bits(float32(v)))
 		}
 	} else {
-		for _, value := range item.values {
-			bits := math.Float64bits(value)
-			result = append(result, byte(bits>>56))
-			result = append(result, byte(bits>>48))
-			result = append(result, byte(bits>>40))
-			result = append(result, byte(bits>>32))
-			result = append(result, byte(bits>>24))
-			result = append(result, byte(bits>>16))
-			result = append(result, byte(bits>>8))
-			result = append(result, byte(bits))
+		for _, v := range item.values {
+			dst = binary.BigEndian.AppendUint64(dst, math.Float64bits(v))
 		}
 	}
 
-	return result
+	return dst
 }
 
-// ToSML converts the FloatItem into its SML representation.
-//
-// This method implements the Item.ToSML() interface. It generates an SML string
-// that represents the floating-point data stored in the item.
-//
-// The format is as follows:
-//   - If the item's data is empty, it's represented as `<FbyteSize[0]>`.
-//   - Otherwise:
-//   - `<FbyteSize[size] value1 value2 ...>`
-//   - `byteSize`: The size of each float in bytes (4 or 8).
-//   - `size`: The number of floats in the list.
-//   - `value1`, `value2`, ...: Each float is represented in decimal format.
-func (item *FloatItem) ToSML() string {
-	if item.Size() == 0 {
-		return fmt.Sprintf("<F%d[0]>", item.byteSize)
-	}
-
-	var sb strings.Builder
-	sb.Grow(len(item.values)*(item.byteSize*2+3) + 10)
-
-	fmt.Fprintf(&sb, "<F%d[%d] ", item.byteSize, item.Size())
-
-	// Use a buffer for FormatFloat to avoid allocations in the loop
-	var buf [64]byte // Adjust size if needed for very large float values
-	for i, v := range item.values {
-		if i > 0 {
-			sb.WriteByte(' ')
-		}
-
-		// fixed precision G9 for float32, G17 for float64
-		prec := 9
-		if item.byteSize == 8 {
-			prec = 17
-		}
-
-		sb.Write(strconv.AppendFloat(buf[:0], v, 'G', prec, item.byteSize*8))
-	}
-
-	sb.WriteByte('>')
-
-	return sb.String()
+// ToBytes allocates a single buffer and returns the SECS-II wire encoding.
+// Equivalent to AppendTo(make([]byte, 0, EncodedLen())).
+func (item *FloatItem) ToBytes() []byte {
+	return item.AppendTo(make([]byte, 0, item.EncodedLen()))
 }
 
-// Clone creates a deep copy of the FloatItem.
-//
-// This method implements the Item.Clone() interface. It returns a new
-// FloatItem with a completely independent copy of the float data.
-func (item *FloatItem) Clone() Item {
-	clonedValues := util.CloneSlice(item.values, 0)
-	return &FloatItem{byteSize: item.byteSize, values: clonedValues}
-}
-
-// Type returns "f4" or "f8" string depends on the byte size.
+// Type returns the type-string constant for this item: "f4" or "f8".
 func (item *FloatItem) Type() string {
 	switch item.byteSize {
 	case 4:
@@ -252,33 +165,94 @@ func (item *FloatItem) Type() string {
 	}
 }
 
-// IsFloat32 returns true, indicating that FloatItem is a 32-bit float data item.
+// IsFloat32 returns true if this is a 32-bit float item (byteSize == 4).
 func (item *FloatItem) IsFloat32() bool { return item.byteSize == 4 }
 
-// IsFloat64 returns true, indicating that FloatItem is a 64-bit float data item.
+// IsFloat64 returns true if this is a 64-bit float item (byteSize == 8).
 func (item *FloatItem) IsFloat64() bool { return item.byteSize == 8 }
 
-func (item *FloatItem) combineFloatValues(values ...any) error {
-	if cap(item.values) < len(values) {
-		capacity := len(values)
-		// Optimization: if a single slice is passed, use its length for pre-allocation
-		if len(values) == 1 {
-			switch v := values[0].(type) {
-			case []float64:
-				capacity = len(v)
-			case []float32:
-				capacity = len(v)
-			case []int:
-				capacity = len(v)
-			case []int64:
-				capacity = len(v)
-			case []string:
-				capacity = len(v)
-			default:
-			}
-		}
-		item.values = make([]float64, 0, capacity)
+// ToSML returns the SML (SECS Message Language) text representation of this item.
+//
+// Empty items are rendered as <FbyteSize[0]>. Values are formatted using G9 for F4 (matching
+// float32 round-trip precision) and G17 for F8 (matching float64 round-trip precision).
+func (item *FloatItem) ToSML() string {
+	if item.Size() == 0 {
+		return fmt.Sprintf("<F%d[0]>", item.byteSize)
 	}
+
+	var sb strings.Builder
+
+	sb.Grow(len(item.values)*(item.byteSize*2+3) + 10) //nolint:mnd
+
+	fmt.Fprintf(&sb, "<F%d[%d] ", item.byteSize, item.Size())
+
+	prec := 9
+	if item.byteSize == 8 {
+		prec = 17
+	}
+
+	var buf [64]byte
+
+	for i, v := range item.values {
+		if i > 0 {
+			sb.WriteByte(' ')
+		}
+
+		sb.Write(strconv.AppendFloat(buf[:0], v, 'G', prec, item.byteSize*8))
+	}
+
+	sb.WriteByte('>')
+
+	return sb.String()
+}
+
+// dataType returns the SECS-II type-string for the current byteSize.
+// Callers are responsible for ensuring byteSize is in {4, 8} before calling.
+func (item *FloatItem) dataType() string {
+	dataTypeStr := [9]string{"", "", "", "", "f4", "", "", "", "f8"}
+
+	return dataTypeStr[item.byteSize]
+}
+
+// combineFloatValues converts the variadic values into float64 and appends them to item.values.
+// The fast path handles float32, float64, []float32, and []float64. All other types fall through
+// to combineFloatValuesSlow.
+func (item *FloatItem) combineFloatValues(values ...any) error { //nolint:cyclop
+	capacity := len(values)
+	if len(values) == 1 {
+		switch v := values[0].(type) {
+		case []float32:
+			capacity = len(v)
+		case []float64:
+			capacity = len(v)
+		case []int:
+			capacity = len(v)
+		case []int8:
+			capacity = len(v)
+		case []int16:
+			capacity = len(v)
+		case []int32:
+			capacity = len(v)
+		case []int64:
+			capacity = len(v)
+		case []uint:
+			capacity = len(v)
+		case []uint8:
+			capacity = len(v)
+		case []uint16:
+			capacity = len(v)
+		case []uint32:
+			capacity = len(v)
+		case []uint64:
+			capacity = len(v)
+		case []string:
+			capacity = len(v)
+		default:
+			_ = v
+		}
+	}
+
+	item.values = make([]float64, 0, capacity)
 
 	checkOverflow := item.byteSize == 4
 
@@ -292,14 +266,16 @@ func (item *FloatItem) combineFloatValues(values ...any) error {
 			}
 			item.values = append(item.values, value)
 		case []float32:
-			item.values = util.AppendFloat64Slice(item.values, value)
+			for _, v := range value {
+				item.values = append(item.values, float64(v))
+			}
 		case []float64:
 			if checkOverflow {
 				for _, v := range value {
 					item.values = append(item.values, clampF4(v))
 				}
 			} else {
-				item.values = util.AppendFloat64Slice(item.values, value)
+				item.values = append(item.values, value...)
 			}
 		default:
 			if err := item.combineFloatValuesSlow(value); err != nil {
@@ -311,7 +287,10 @@ func (item *FloatItem) combineFloatValues(values ...any) error {
 	return nil
 }
 
+// combineFloatValuesSlow handles integer types and string parsing for combineFloatValues.
 func (item *FloatItem) combineFloatValuesSlow(value any) error { //nolint:gocyclo,cyclop
+	checkOverflow := item.byteSize == 4
+
 	switch value := value.(type) {
 	case int:
 		if int64(value) > 1<<53 || int64(value) < -(1<<53) {
@@ -329,17 +308,23 @@ func (item *FloatItem) combineFloatValuesSlow(value any) error { //nolint:gocycl
 	case int8:
 		item.values = append(item.values, float64(value))
 	case []int8:
-		item.values = util.AppendFloat64Slice(item.values, value)
+		for _, v := range value {
+			item.values = append(item.values, float64(v))
+		}
 
 	case int16:
 		item.values = append(item.values, float64(value))
 	case []int16:
-		item.values = util.AppendFloat64Slice(item.values, value)
+		for _, v := range value {
+			item.values = append(item.values, float64(v))
+		}
 
 	case int32:
 		item.values = append(item.values, float64(value))
 	case []int32:
-		item.values = util.AppendFloat64Slice(item.values, value)
+		for _, v := range value {
+			item.values = append(item.values, float64(v))
+		}
 
 	case int64:
 		if value > 1<<53 || value < -(1<<53) {
@@ -357,17 +342,23 @@ func (item *FloatItem) combineFloatValuesSlow(value any) error { //nolint:gocycl
 	case uint8:
 		item.values = append(item.values, float64(value))
 	case []uint8:
-		item.values = util.AppendFloat64Slice(item.values, value)
+		for _, v := range value {
+			item.values = append(item.values, float64(v))
+		}
 
 	case uint16:
 		item.values = append(item.values, float64(value))
 	case []uint16:
-		item.values = util.AppendFloat64Slice(item.values, value)
+		for _, v := range value {
+			item.values = append(item.values, float64(v))
+		}
 
 	case uint32:
 		item.values = append(item.values, float64(value))
 	case []uint32:
-		item.values = util.AppendFloat64Slice(item.values, value)
+		for _, v := range value {
+			item.values = append(item.values, float64(v))
+		}
 
 	case uint:
 		if uint64(value) > 1<<53 {
@@ -381,6 +372,7 @@ func (item *FloatItem) combineFloatValuesSlow(value any) error { //nolint:gocycl
 			}
 			item.values = append(item.values, float64(v))
 		}
+
 	case uint64:
 		if value > 1<<53 {
 			return errors.New("value overflow")
@@ -399,10 +391,9 @@ func (item *FloatItem) combineFloatValuesSlow(value any) error { //nolint:gocycl
 		if err != nil {
 			return err
 		}
-		if item.byteSize == 4 {
+		if checkOverflow {
 			floatVal = clampF4(floatVal)
 		}
-
 		item.values = append(item.values, floatVal)
 	case []string:
 		for _, v := range value {
@@ -410,7 +401,7 @@ func (item *FloatItem) combineFloatValuesSlow(value any) error { //nolint:gocycl
 			if err != nil {
 				return err
 			}
-			if item.byteSize == 4 {
+			if checkOverflow {
 				floatVal = clampF4(floatVal)
 			}
 			item.values = append(item.values, floatVal)
@@ -423,6 +414,8 @@ func (item *FloatItem) combineFloatValuesSlow(value any) error { //nolint:gocycl
 	return nil
 }
 
+// clampF4 clamps v to the representable float32 magnitude range [−MaxFloat32, +MaxFloat32].
+// NaN and ±Inf pass through unchanged.
 func clampF4(v float64) float64 {
 	if math.IsInf(v, 0) || math.IsNaN(v) {
 		return v

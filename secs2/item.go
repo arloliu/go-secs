@@ -3,12 +3,13 @@ package secs2
 import (
 	"errors"
 	"fmt"
+	"iter"
 )
 
-// MaxByteSize defines the maximum allowed size (in bytes) for an Item's data.
+// MaxByteSize defines the maximum allowed size (in bytes) for a SECS-II item's data payload.
 const MaxByteSize = 1<<24 - 1
 
-// Type constants defines SECS-II data item type strings.
+// Type constants define SECS-II data item type strings.
 const (
 	EmptyType        = "empty"
 	ListType         = "list"
@@ -29,10 +30,11 @@ const (
 	Float64Type      = "f8"
 )
 
-// FormatCode defines constants representing data item format codes.
-type FormatCode = int
+// FormatCode is a SECS-II item format code (SEMI E5 §9.2). Format codes are 6-bit values in the
+// range [0, 63]; there is no negative or out-of-band sentinel value.
+type FormatCode uint8
 
-// Format constants defines format codes of SECS-II data items
+// Format constants define the SECS-II item format codes.
 const (
 	ListFormatCode         FormatCode = 0o00
 	BinaryFormatCode       FormatCode = 0o10
@@ -52,11 +54,54 @@ const (
 	Uint32FormatCode       FormatCode = 0o54
 )
 
-type itemType struct {
-	FormatCode FormatCode
-	Size       int
+// String returns the SECS-II item-type name for the format code (for example "list", "ascii",
+// "i4"). Codes outside the SEMI E5 set render as "unknown(<value>)".
+func (fc FormatCode) String() string {
+	switch fc {
+	case ListFormatCode:
+		return ListType
+	case BinaryFormatCode:
+		return BinaryType
+	case BooleanFormatCode:
+		return BooleanType
+	case ASCIIFormatCode:
+		return ASCIIType
+	case JIS8FormatCode:
+		return JIS8Type
+	case LocalizedStrFormatCode:
+		return LocalizedStrType
+	case Int8FormatCode:
+		return Int8Type
+	case Int16FormatCode:
+		return Int16Type
+	case Int32FormatCode:
+		return Int32Type
+	case Int64FormatCode:
+		return Int64Type
+	case Uint8FormatCode:
+		return Uint8Type
+	case Uint16FormatCode:
+		return Uint16Type
+	case Uint32FormatCode:
+		return Uint32Type
+	case Uint64FormatCode:
+		return Uint64Type
+	case Float32FormatCode:
+		return Float32Type
+	case Float64FormatCode:
+		return Float64Type
+	default:
+		return fmt.Sprintf("unknown(%d)", uint8(fc))
+	}
 }
 
+// itemType holds encoding metadata for one SECS-II data type.
+type itemType struct {
+	FormatCode FormatCode
+	Size       int // bytes per element
+}
+
+// itemTypeMap maps type-string constants to their encoding metadata.
 var itemTypeMap = map[string]*itemType{
 	ListType:         {FormatCode: ListFormatCode, Size: 1},
 	BinaryType:       {FormatCode: BinaryFormatCode, Size: 1},
@@ -76,182 +121,20 @@ var itemTypeMap = map[string]*itemType{
 	Uint32Type:       {FormatCode: Uint32FormatCode, Size: 4},
 }
 
-// Item represents an immutable data item in a SECS-II message.
-//
-// It defines a common interface for various SECS-II data item types, including:
-//   - List: A collection of other Items.
-//   - Binary: A sequence of bytes.
-//   - Boolean: A boolean value (true or false).
-//   - ASCII: An ASCII string.
-//   - Integer: Signed integers (I1, I2, I4, I8) with different byte sizes.
-//   - Unsigned Integer: Unsigned integers (U1, U2, U4, U8) with different byte sizes.
-//   - Float: Floating-point numbers (F4, F8) with different byte sizes.
-//
-// Immutability:
-// Items are designed to be immutable. For operations that might modify the data, use the `Clone()` method
-// to create a new, independent copy of the item before performing the operation.
-//
-// Size Limit:
-// There's a limit on the total size of data an Item can contain, as defined by the SEMI standard:
-//
-//	n * b <= 16,777,215 (3 bytes)
-//	where:
-//	  - n: number of data values within the Item (and its nested children)
-//	  - b: byte size to represent each individual data value (varies by Item type)
-//
-// This interface provides methods for:
-//   - Accessing nested items: `Get(indices ...int)`
-//   - Converting to specific data types: `ToList()`, `ToBinary()`, `ToBoolean()`, etc.
-//   - Getting and setting values: `Values()`, `SetValues(...)`
-//   - Serializing to bytes and SML: `ToBytes()`, `ToSML()`
-//   - Cloning: `Clone()`
-//   - Error handling: `Error()`
-//   - Resource management: `Free()`
-//   - Type checking: `Type()`, `IsEmpty()`, `IsList()`, `IsBinary()`, etc.
-type Item interface {
-	// Get retrieves a nested Item at the specified indices.
-	// It returns an error if the item is not a list or if the indices are invalid.
-	Get(indices ...int) (Item, error)
-
-	// ToList retrieves the list of items if the item is a ListItem.
-	// It returns an error if the item is not a list.
-	ToList() ([]Item, error)
-
-	// ToBinary retrieves the byte slice if the item is a BinaryItem.
-	// It returns an error if the item is not a binary item.
-	ToBinary() ([]byte, error)
-
-	// ToBoolean retrieves the boolean values if the item is a BooleanItem.
-	// It returns an error if the item is not a boolean item.
-	ToBoolean() ([]bool, error)
-
-	// ToASCII retrieves the ASCII string if the item is an ASCIIItem.
-	// It returns an error if the item is not an ASCII item.
-	ToASCII() (string, error)
-
-	// ToJIS8 retrieves the JIS-8 string if the item is an JIS8Item.
-	// It returns an error if the item is not an JIS-8 item.
-	ToJIS8() (string, error)
-
-	// ToLocalizedStr retrieves the localized string if the item is a LocalizedStrItem.
-	// It returns an error if the item is not a localized string item.
-	ToLocalizedStr() (string, error)
-
-	// ToLocalizedStrHeader retrieves the localized string header code if the item is a LocalizedStrItem.
-	// It returns an error if the item is not a localized string item.
-	ToLocalizedStrHeader() (uint16, error)
-
-	// ToInt retrieves the signed integer values as int64 if the item is an IntItem.
-	// It returns an error if the item is not an integer item.
-	ToInt() ([]int64, error)
-
-	// ToUint retrieves the unsigned integer values as uint64 if the item is a UintItem.
-	// It returns an error if the item is not an unsigned integer item.
-	ToUint() ([]uint64, error)
-
-	// ToFloat retrieves the floating-point values as float64 if the item is a FloatItem.
-	// It returns an error if the item is not a float item.
-	ToFloat() ([]float64, error)
-
-	// Values returns the value(s) held by the Item.
-	// The return type is any, and the actual type depends on the specific Item implementation.
-	// Refer to the documentation of the specific item type for details on the returned value's type.
-	Values() any
-
-	// SetValues sets the value(s) within the Item.
-	// The accepted value types and behavior depend on the specific Item implementation.
-	// It may return an error if the provided values are invalid.
-	SetValues(values ...any) error
-
-	// Size returns the number of data values within the Item.
-	Size() int
-
-	// ToBytes serializes the Item into its byte representation for SECS-II message transmission.
-	ToBytes() []byte
-
-	// ToSML converts the Item into its SML (SECS Message Language) representation.
-	ToSML() string
-
-	// Clone creates a deep copy of the Item.
-	Clone() Item
-
-	// Error returns any error that occurred during the creation or manipulation of the Item.
-	Error() error
-
-	// Free releases the Item back to the pool for reuse.
-	// After calling Free, the item should not be accessed or used again.
-	Free()
-
-	// Type returns the item type name.
-	Type() string
-
-	// IsEmpty returns true if the item is empty, false otherwise.
-	IsEmpty() bool
-
-	// IsList returns true if the item is a ListItem, false otherwise.
-	IsList() bool
-
-	// IsBinary returns true if the item is a BinaryItem, false otherwise.
-	IsBinary() bool
-
-	// IsBoolean returns true if the item is a BooleanItem, false otherwise.
-	IsBoolean() bool
-
-	// IsASCII returns true if the item is an ASCIIItem, false otherwise.
-	IsASCII() bool
-
-	// IsJIS8 returns true if the item is an JIS8Item, false otherwise.
-	IsJIS8() bool
-
-	// IsLocalizedStr returns true if the item is a LocalizedStrItem, false otherwise.
-	IsLocalizedStr() bool
-
-	// IsInt8 returns true if the item is an Int8Item, false otherwise.
-	IsInt8() bool
-
-	// IsInt16 returns true if the item is an Int16Item, false otherwise.
-	IsInt16() bool
-
-	// IsInt32 returns true if the item is an Int32Item, false otherwise.
-	IsInt32() bool
-
-	// IsInt64 returns true if the item is an Int64Item, false otherwise.
-	IsInt64() bool
-
-	// IsUint8 returns true if the item is a Uint8Item, false otherwise.
-	IsUint8() bool
-
-	// IsUint16 returns true if the item is a Uint16Item, false otherwise.
-	IsUint16() bool
-
-	// IsUint32 returns true if the item is a Uint32Item, false otherwise.
-	IsUint32() bool
-
-	// IsUint64 returns true if the item is a Uint64Item, false otherwise.
-	IsUint64() bool
-
-	// IsFloat32 returns true if the item is a Float32Item, false otherwise.
-	IsFloat32() bool
-
-	// IsFloat64 returns true if the item is a Float64Item, false otherwise.
-	IsFloat64() bool
-}
-
-// A ItemError records a failed item creation.
+// ItemError records a failed item construction or type mismatch.
 type ItemError struct {
 	err error
 }
 
-// newItemErrorWithMsg creates a new ItemError with the given error message.
+// NewItemErrorWithMsg creates a new ItemError with the given message.
 func NewItemErrorWithMsg(errMsg string) *ItemError {
 	return &ItemError{err: errors.New(errMsg)}
 }
 
-// newItemError creates a new ItemError from the given error.
-// If the provided error is already an ItemError, it unwraps the underlying error to avoid nested ItemErrors.
+// NewItemError wraps err as an ItemError.
+// If err is already an ItemError, the inner error is unwrapped to avoid double-wrapping.
 func NewItemError(err error) *ItemError {
 	itemErr := &ItemError{}
-
 	if errors.As(err, &itemErr) {
 		return &ItemError{err: errors.Unwrap(err)}
 	}
@@ -259,257 +142,316 @@ func NewItemError(err error) *ItemError {
 	return &ItemError{err: err}
 }
 
-// Error returns the string representation of the underlying error.
-func (e *ItemError) Error() string {
-	return e.err.Error()
-}
+// Error implements the error interface.
+func (e *ItemError) Error() string { return e.err.Error() }
 
 // Unwrap returns the underlying error.
-func (e *ItemError) Unwrap() error {
-	return e.err
+func (e *ItemError) Unwrap() error { return e.err }
+
+// Item is a deeply immutable SECS-II data item (SEMI E5 §9). All methods are safe for concurrent
+// use, and no method exposes mutable internal storage.
+type Item interface {
+	// Type returns the type-string constant for this item (e.g., "ascii", "i4", "list").
+	Type() string
+
+	// Size returns the number of elements in this item (bytes for binary/string, values for numeric,
+	// sub-items for list).
+	Size() int
+
+	// Error returns any deferred construction error stored on the item.
+	Error() error
+
+	// IsEmpty returns true if the item carries no data and no type (EmptyItem).
+	IsEmpty() bool
+
+	// IsList returns true if the item is a list (ListItem).
+	IsList() bool
+
+	// IsBinary returns true if the item is a binary item (BinaryItem).
+	IsBinary() bool
+
+	// IsBoolean returns true if the item is a boolean item (BooleanItem).
+	IsBoolean() bool
+
+	// IsASCII returns true if the item is an ASCII string item (ASCIIItem).
+	IsASCII() bool
+
+	// IsJIS8 returns true if the item is a JIS-8 string item (JIS8Item).
+	IsJIS8() bool
+
+	// IsLocalizedStr returns true if the item is a localized-string item (LocalizedStrItem).
+	IsLocalizedStr() bool
+
+	// IsInt8 returns true if the item is a signed 8-bit integer item (IntItem with byteSize 1).
+	IsInt8() bool
+
+	// IsInt16 returns true if the item is a signed 16-bit integer item (IntItem with byteSize 2).
+	IsInt16() bool
+
+	// IsInt32 returns true if the item is a signed 32-bit integer item (IntItem with byteSize 4).
+	IsInt32() bool
+
+	// IsInt64 returns true if the item is a signed 64-bit integer item (IntItem with byteSize 8).
+	IsInt64() bool
+
+	// IsUint8 returns true if the item is an unsigned 8-bit integer item (UintItem with byteSize 1).
+	IsUint8() bool
+
+	// IsUint16 returns true if the item is an unsigned 16-bit integer item (UintItem with byteSize 2).
+	IsUint16() bool
+
+	// IsUint32 returns true if the item is an unsigned 32-bit integer item (UintItem with byteSize 4).
+	IsUint32() bool
+
+	// IsUint64 returns true if the item is an unsigned 64-bit integer item (UintItem with byteSize 8).
+	IsUint64() bool
+
+	// IsFloat32 returns true if the item is a 32-bit floating-point item (FloatItem with byteSize 4).
+	IsFloat32() bool
+
+	// IsFloat64 returns true if the item is a 64-bit floating-point item (FloatItem with byteSize 8).
+	IsFloat64() bool
+
+	// Get navigates a path of list indices and returns the item at that position.
+	// With no indices it returns the receiver itself.
+	Get(indices ...int) (Item, error)
+
+	// ToList returns the sub-items of a list item.
+	ToList() ([]Item, error)
+
+	// ToBinary returns the bytes of a binary item.
+	ToBinary() ([]byte, error)
+
+	// ToBoolean returns the boolean values of a boolean item.
+	ToBoolean() ([]bool, error)
+
+	// ToASCII returns the string value of an ASCII item.
+	ToASCII() (string, error)
+
+	// ToJIS8 returns the string value of a JIS-8 item.
+	ToJIS8() (string, error)
+
+	// ToLocalizedStr returns the string value of a localized-string item.
+	ToLocalizedStr() (string, error)
+
+	// ToLocalizedStrHeader returns the language/character-set header of a localized-string item.
+	ToLocalizedStrHeader() (uint16, error)
+
+	// ToInt returns the int64-widened values of a signed integer item.
+	ToInt() ([]int64, error)
+
+	// ToUint returns the uint64-widened values of an unsigned integer item.
+	ToUint() ([]uint64, error)
+
+	// ToFloat returns the float64-widened values of a floating-point item.
+	ToFloat() ([]float64, error)
+
+	// ItemAt returns the sub-item at index i of a list item.
+	ItemAt(i int) (Item, error)
+
+	// ByteAt returns the byte at index i of a binary item.
+	ByteAt(i int) (byte, error)
+
+	// BoolAt returns the boolean at index i of a boolean item.
+	BoolAt(i int) (bool, error)
+
+	// IntAt returns the int64-widened value at index i of a signed integer item.
+	IntAt(i int) (int64, error)
+
+	// UintAt returns the uint64-widened value at index i of an unsigned integer item.
+	UintAt(i int) (uint64, error)
+
+	// FloatAt returns the float64-widened value at index i of a floating-point item.
+	FloatAt(i int) (float64, error)
+
+	// Items returns an iterator over the sub-items of a list item. It yields nothing on any
+	// non-list item, whether the mismatch is a plain type mismatch or a deferred error.
+	Items() iter.Seq[Item]
+
+	// Bools returns an iterator over the boolean values of a boolean item. It yields nothing on any
+	// non-boolean item, whether the mismatch is a plain type mismatch or a deferred error.
+	Bools() iter.Seq[bool]
+
+	// Ints returns an iterator over the int64-widened values of a signed integer item. It yields
+	// nothing on any non-signed-integer item, whether the mismatch is a plain type mismatch or a
+	// deferred error.
+	Ints() iter.Seq[int64]
+
+	// Uints returns an iterator over the uint64-widened values of an unsigned integer item. It
+	// yields nothing on any non-unsigned-integer item, whether the mismatch is a plain type
+	// mismatch or a deferred error.
+	Uints() iter.Seq[uint64]
+
+	// Floats returns an iterator over the float64-widened values of a floating-point item. It
+	// yields nothing on any non-floating-point item, whether the mismatch is a plain type mismatch
+	// or a deferred error.
+	Floats() iter.Seq[float64]
+
+	// AppendBinaryTo appends the raw bytes of a binary item into dst without allocating. On any
+	// non-binary item it returns dst unchanged.
+	AppendBinaryTo(dst []byte) []byte
+
+	// EncodedLen returns the total SECS-II wire byte length (header + payload, recursive for lists).
+	EncodedLen() int
+
+	// AppendTo appends the SECS-II wire encoding of this item into dst and returns the result.
+	// No internal storage is exposed.
+	AppendTo(dst []byte) []byte
+
+	// ToBytes allocates exactly one buffer and returns the SECS-II wire encoding of this item.
+	// Equivalent to AppendTo(make([]byte, 0, EncodedLen())).
+	ToBytes() []byte
+
+	// ToSML returns the SML (SECS Message Language) text representation of this item.
+	// When Error() is non-nil the returned text is unspecified; such items are rejected at
+	// message construction and are never serialized.
+	ToSML() string
 }
 
-// EmptyItem represents an empty data item in a SECS-II message.
-// It is often used as a placeholder or in error cases where a valid data item cannot be provided.
-//
-// EmptyItem implements the Item interface, providing default implementations for the interface methods
-// that are appropriate for an empty item.
-type EmptyItem struct {
-	baseItem
+// baseItem is the shared, immutable base for all concrete items: the deferred-error field, the
+// decoder-owned raw bytes (nil for constructed items), and default accessors that report a type
+// mismatch (or yield nothing) for accessors a concrete type does not support. All defaults are
+// read-only — they never mutate the item.
+type baseItem struct {
+	itemErr error
+	raw     []byte //nolint:unused // decoder-owned wire bytes (nil unless produced by Decode); populated by later tasks
 }
 
-// NewEmptyItem creates a new empty data item item.
-func NewEmptyItem() Item {
-	return &EmptyItem{}
+func (b *baseItem) Error() error { return b.itemErr }
+
+func (b *baseItem) setError(err error) { //nolint:unused // called by concrete-type constructors added in later tasks
+	b.itemErr = errors.Join(b.itemErr, NewItemError(err))
 }
 
-// Get retrieves a nested Item at the specified indices.
-// Since EmptyItem represents an empty item, it returns itself if no indices are provided.
-// If indices are provided, it returns an error indicating that the item is not a list.
+func (b *baseItem) setErrorMsg(msg string) { //nolint:unused // called by concrete-type constructors added in later tasks
+	b.itemErr = errors.Join(b.itemErr, NewItemErrorWithMsg(msg))
+}
+
+func (b *baseItem) typeErr(method string) error {
+	if b.itemErr != nil {
+		return b.itemErr
+	}
+
+	return NewItemErrorWithMsg("method " + method + " not supported by this item type")
+}
+
+func (b *baseItem) Get(...int) (Item, error)        { return nil, b.typeErr("Get") }
+func (b *baseItem) ToList() ([]Item, error)         { return nil, b.typeErr("ToList") }
+func (b *baseItem) ToBinary() ([]byte, error)       { return nil, b.typeErr("ToBinary") }
+func (b *baseItem) ToBoolean() ([]bool, error)      { return nil, b.typeErr("ToBoolean") }
+func (b *baseItem) ToASCII() (string, error)        { return "", b.typeErr("ToASCII") }
+func (b *baseItem) ToJIS8() (string, error)         { return "", b.typeErr("ToJIS8") }
+func (b *baseItem) ToLocalizedStr() (string, error) { return "", b.typeErr("ToLocalizedStr") }
+func (b *baseItem) ToLocalizedStrHeader() (uint16, error) {
+	return 0, b.typeErr("ToLocalizedStrHeader")
+}
+func (b *baseItem) ToInt() ([]int64, error)     { return nil, b.typeErr("ToInt") }
+func (b *baseItem) ToUint() ([]uint64, error)   { return nil, b.typeErr("ToUint") }
+func (b *baseItem) ToFloat() ([]float64, error) { return nil, b.typeErr("ToFloat") }
+
+func (b *baseItem) ItemAt(int) (Item, error)     { return nil, b.typeErr("ItemAt") }
+func (b *baseItem) ByteAt(int) (byte, error)     { return 0, b.typeErr("ByteAt") }
+func (b *baseItem) BoolAt(int) (bool, error)     { return false, b.typeErr("BoolAt") }
+func (b *baseItem) IntAt(int) (int64, error)     { return 0, b.typeErr("IntAt") }
+func (b *baseItem) UintAt(int) (uint64, error)   { return 0, b.typeErr("UintAt") }
+func (b *baseItem) FloatAt(int) (float64, error) { return 0, b.typeErr("FloatAt") }
+
+func (b *baseItem) Items() iter.Seq[Item]            { return func(func(Item) bool) {} }
+func (b *baseItem) Bools() iter.Seq[bool]            { return func(func(bool) bool) {} }
+func (b *baseItem) Ints() iter.Seq[int64]            { return func(func(int64) bool) {} }
+func (b *baseItem) Uints() iter.Seq[uint64]          { return func(func(uint64) bool) {} }
+func (b *baseItem) Floats() iter.Seq[float64]        { return func(func(float64) bool) {} }
+func (b *baseItem) AppendBinaryTo(dst []byte) []byte { return dst }
+
+func (b *baseItem) IsEmpty() bool        { return false }
+func (b *baseItem) IsList() bool         { return false }
+func (b *baseItem) IsBinary() bool       { return false }
+func (b *baseItem) IsBoolean() bool      { return false }
+func (b *baseItem) IsASCII() bool        { return false }
+func (b *baseItem) IsJIS8() bool         { return false }
+func (b *baseItem) IsLocalizedStr() bool { return false }
+func (b *baseItem) IsInt8() bool         { return false }
+func (b *baseItem) IsInt16() bool        { return false }
+func (b *baseItem) IsInt32() bool        { return false }
+func (b *baseItem) IsInt64() bool        { return false }
+func (b *baseItem) IsUint8() bool        { return false }
+func (b *baseItem) IsUint16() bool       { return false }
+func (b *baseItem) IsUint32() bool       { return false }
+func (b *baseItem) IsUint64() bool       { return false }
+func (b *baseItem) IsFloat32() bool      { return false }
+func (b *baseItem) IsFloat64() bool      { return false }
+
+// EmptyItem represents an empty SECS-II data item that carries no type or payload.
+// It is used as a zero value and as a sentinel for absent items.
+type EmptyItem struct{ baseItem }
+
+// NewEmptyItem returns a new EmptyItem as an Item interface value.
+func NewEmptyItem() Item { return &EmptyItem{} }
+
+// Get returns the item itself when called with no indices, or an error if indices are provided
+// (an empty item is not a list).
 func (item *EmptyItem) Get(indices ...int) (Item, error) {
 	if len(indices) != 0 {
-		err := NewItemError(fmt.Errorf("item is not a list, item is %s, indices is %v", item.ToSML(), indices))
-		item.setError(err)
-		return nil, err
+		return nil, NewItemError(fmt.Errorf("item is not a list, item is empty, indices is %v", indices))
 	}
 
 	return item, nil
 }
 
-// Size returns 0, as an EmptyItem has no size.
-func (item *EmptyItem) Size() int {
-	return 0
-}
+// Size returns 0; an empty item has no elements.
+func (item *EmptyItem) Size() int { return 0 }
 
-// Values returns an empty string slice, as an EmptyItem holds no values.
-func (item *EmptyItem) Values() any {
-	return []string{}
-}
+// EncodedLen returns 0; an empty item produces no wire bytes.
+func (item *EmptyItem) EncodedLen() int { return 0 }
 
-// SetValues does nothing and returns nil, as an EmptyItem cannot hold any values.
-func (item *EmptyItem) SetValues(_ ...any) error {
-	return nil
-}
+// AppendTo returns dst unchanged; an empty item has no wire encoding.
+func (item *EmptyItem) AppendTo(dst []byte) []byte { return dst }
 
-// ToBytes returns an empty byte slice, as an EmptyItem has no byte representation.
-func (item *EmptyItem) ToBytes() []byte {
-	return []byte{}
-}
+// ToBytes returns an empty byte slice.
+func (item *EmptyItem) ToBytes() []byte { return []byte{} }
 
-// ToSML returns an empty string, as an EmptyItem has no SML representation.
-func (item *EmptyItem) ToSML() string {
-	return ""
-}
+// ToSML returns an empty string; an empty item has no SML representation.
+func (item *EmptyItem) ToSML() string { return "" }
 
-// Clone creates a new EmptyItem, effectively returning a copy of itself.
-func (item *EmptyItem) Clone() Item {
-	return &EmptyItem{}
-}
+// Type returns EmptyType ("empty").
+func (item *EmptyItem) Type() string { return EmptyType }
 
-// Type returns "empty" string, indicating the type of a empty data item.
-func (item *EmptyItem) Type() string {
-	return EmptyType
-}
-
-// IsEmpty returns true, as an EmptyItem is always empty.
+// IsEmpty returns true.
 func (item *EmptyItem) IsEmpty() bool { return true }
 
-// baseItem provides a partial implementation of the Item interface,
-// focusing on optional methods and error handling.
-//
-// This struct serves as a convenient base for other Item implementations,
-// allowing them to inherit default behavior for certain methods and centralizing
-// error management.
-//
-// Note that baseItem does not implement all required Item methods.
-// Concrete implementations must provide their own logic for the remaining methods.
-type baseItem struct {
-	itemErr error // Stores any error that occurred during item creation or manipulation
-}
+var _ Item = (*EmptyItem)(nil)
 
-func (item *baseItem) ToList() ([]Item, error) {
-	err := NewItemErrorWithMsg("method ToList not implemented")
-	item.setError(err)
-
-	return nil, err
-}
-
-func (item *baseItem) ToBinary() ([]byte, error) {
-	err := NewItemErrorWithMsg("method ToBinary not implemented")
-	item.setError(err)
-
-	return nil, err
-}
-
-func (item *baseItem) ToBoolean() ([]bool, error) {
-	err := NewItemErrorWithMsg("method ToBoolean not implemented")
-	item.setError(err)
-
-	return nil, err
-}
-
-func (item *baseItem) ToASCII() (string, error) {
-	err := NewItemErrorWithMsg("method ToASCII not implemented")
-	item.setError(err)
-
-	return "", err
-}
-
-func (item *baseItem) ToJIS8() (string, error) {
-	err := NewItemErrorWithMsg("method ToJIS8 not implemented")
-	item.setError(err)
-
-	return "", err
-}
-
-func (item *baseItem) ToLocalizedStr() (string, error) {
-	err := NewItemErrorWithMsg("method ToLocalizedStr not implemented")
-	item.setError(err)
-
-	return "", err
-}
-
-func (item *baseItem) ToLocalizedStrHeader() (uint16, error) {
-	err := NewItemErrorWithMsg("method ToLocalizedStrHeader not implemented")
-	item.setError(err)
-
-	return 0, err
-}
-
-func (item *baseItem) ToInt() ([]int64, error) {
-	err := NewItemErrorWithMsg("method ToInt not implemented")
-	item.setError(err)
-
-	return nil, err
-}
-
-func (item *baseItem) ToUint() ([]uint64, error) {
-	err := NewItemErrorWithMsg("method ToUint not implemented")
-	item.setError(err)
-
-	return nil, err
-}
-
-func (item *baseItem) ToFloat() ([]float64, error) {
-	err := NewItemErrorWithMsg("method ToFloat not implemented")
-	item.setError(err)
-
-	return nil, err
-}
-
-func (item *baseItem) Error() error {
-	return item.itemErr
-}
-
-func (item *baseItem) Free() {
-}
-
-func (item *baseItem) IsEmpty() bool        { return false }
-func (item *baseItem) IsList() bool         { return false }
-func (item *baseItem) IsBinary() bool       { return false }
-func (item *baseItem) IsBoolean() bool      { return false }
-func (item *baseItem) IsASCII() bool        { return false }
-func (item *baseItem) IsJIS8() bool         { return false }
-func (item *baseItem) IsLocalizedStr() bool { return false }
-func (item *baseItem) IsInt8() bool         { return false }
-func (item *baseItem) IsInt16() bool        { return false }
-func (item *baseItem) IsInt32() bool        { return false }
-func (item *baseItem) IsInt64() bool        { return false }
-func (item *baseItem) IsUint8() bool        { return false }
-func (item *baseItem) IsUint16() bool       { return false }
-func (item *baseItem) IsUint32() bool       { return false }
-func (item *baseItem) IsUint64() bool       { return false }
-func (item *baseItem) IsFloat32() bool      { return false }
-func (item *baseItem) IsFloat64() bool      { return false }
-
-func (item *baseItem) resetError() {
-	item.itemErr = nil
-}
-
-func (item *baseItem) setError(err error) {
-	item.itemErr = errors.Join(item.itemErr, &ItemError{err: err})
-}
-
-func (item *baseItem) setErrorMsg(errMsg string) {
-	item.itemErr = errors.Join(item.itemErr, NewItemErrorWithMsg(errMsg))
-}
-
-// getDataByteLength calculates the total number of bytes needed to represent data of a given type and size.
-//
-// Parameters:
-//   - dataType: The type of data. Valid values include:
-//   - "list": Represents a list.
-//   - "binary": Represents binary data.
-//   - "boolean": Represents boolean data.
-//   - "ascii": Represents ASCII string data.
-//   - "i1", "i2", "i4", "i8": Represents signed integers of various byte sizes.
-//   - "u1", "u2", "u4", "u8": Represents unsigned integers of various byte sizes.
-//   - "f4", "f8": Represents floating-point numbers of various byte sizes.
-//   - size: The number of data values (or elements) in the item item.
-//
-// Returns:
-//   - The total number of bytes required to represent the data.
-//   - An error if the `dataType` is invalid.
+// getDataByteLength returns the total payload byte length for the given type string and element count.
 func getDataByteLength(dataType string, size int) (int, error) {
-	itemType, ok := itemTypeMap[dataType]
+	it, ok := itemTypeMap[dataType]
 	if !ok {
 		return 0, fmt.Errorf("invalid item type %s", dataType)
 	}
 
-	return size * itemType.Size, nil
+	return size * it.Size, nil
 }
 
-// getHeaderBytes returns the header bytes, which consist of the format byte
-// and the length bytes, of a SECS-II data item.
-//
-// The input argument dataType should be one of "list", "binary", "boolean", "ascii",
-// "i8", "i1", "i2", "i4", "f8", "f4", "u8", "u1", "u2", or "u4".
-// The input argument size means the number of values in a item item.
-// An error is returned when the header bytes cannot be created.
-func getHeaderBytes(dataType string, size int, preAlloc int) ([]byte, error) {
-	itemType, ok := itemTypeMap[dataType]
+// appendHeaderBytes appends the SECS-II item header (format byte + 1..3 length bytes) for the given
+// data type and element count into dst, returning the extended slice. It appends into dst rather
+// than allocating a fresh buffer.
+func appendHeaderBytes(dst []byte, dataType string, size int) ([]byte, error) {
+	it, ok := itemTypeMap[dataType]
 	if !ok {
-		return []byte{}, fmt.Errorf("invalid item type: %s", dataType)
+		return dst, fmt.Errorf("invalid item type: %s", dataType)
 	}
-	formatCode := itemType.FormatCode
 
 	dataByteLength, err := getDataByteLength(dataType, size)
 	if err != nil {
-		return []byte{}, err
+		return dst, err
 	}
 
 	if dataByteLength > MaxByteSize {
-		return []byte{}, errors.New("size limit exceeded")
+		return dst, errors.New("size limit exceeded")
 	}
 
-	lenBytes := []byte{
-		byte(dataByteLength >> 16),
-		byte(dataByteLength >> 8),
-		byte(dataByteLength),
-	}
-
-	// determine the number of length bytes needed
+	lenBytes := [3]byte{byte(dataByteLength >> 16), byte(dataByteLength >> 8), byte(dataByteLength)}
 	lenByteCount := 3
+
 	if lenBytes[0] == 0 {
 		lenByteCount--
 		if lenBytes[1] == 0 {
@@ -517,9 +459,30 @@ func getHeaderBytes(dataType string, size int, preAlloc int) ([]byte, error) {
 		}
 	}
 
-	result := make([]byte, 0, 1+lenByteCount+preAlloc)
-	result = append(result, byte(formatCode<<2+lenByteCount))
-	result = append(result, lenBytes[3-lenByteCount:]...)
+	dst = append(dst, byte(it.FormatCode)<<2+byte(lenByteCount))
+	dst = append(dst, lenBytes[3-lenByteCount:]...)
 
-	return result, nil
+	return dst, nil
+}
+
+// getHeaderBytes returns a standalone header slice backed by a fresh buffer, for callers and tests
+// that need a slice without an existing buffer to append into.
+func getHeaderBytes(dataType string, size int, preAlloc int) ([]byte, error) {
+	return appendHeaderBytes(make([]byte, 0, 4+preAlloc), dataType, size)
+}
+
+// headerLen returns the byte count of the SECS-II item header (format byte + 1..3 length bytes)
+// for a payload of dataByteLength bytes. Used by concrete types' EncodedLen so ToBytes can
+// pre-allocate exactly.
+//
+//nolint:unused // called by concrete types added in later tasks
+func headerLen(dataByteLength int) int {
+	switch {
+	case dataByteLength > 0xFFFF:
+		return 4 // format byte + 3 length bytes
+	case dataByteLength > 0xFF:
+		return 3 // format byte + 2 length bytes
+	default:
+		return 2 // format byte + 1 length byte (covers the 0-length case too)
+	}
 }

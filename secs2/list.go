@@ -3,250 +3,133 @@ package secs2
 import (
 	"errors"
 	"fmt"
+	"iter"
+	"slices"
 	"strings"
 )
 
-// ListItem is a immutable data type that represents a list data in a SECS-II message.
+// ListItem represents an immutable recursive list container in a SECS-II message (SEMI E5 §9.2).
 //
-// It implements the Item interface, providing methods to interact with and manipulate items in the list.
-//
-// It contains other item, and the size of ListItem is equal to the number
-// of items it contains, counted *non-recursively*.
-//
-// The size of the ListItem in it's string representation, will be only specified when the size is deterministic,
-// which means there is no ellipsis and Item variable.
+// It implements the Item interface. All methods are safe for concurrent use; no method
+// exposes mutable internal storage. Children are shared by reference — this is safe because
+// every Item implementation in this package is deeply immutable after construction.
 type ListItem struct {
 	baseItem
-	values   []Item // Array of Items that this ListItem contains
-	rawBytes []byte // Raw bytes of the ListItem, if available
-	// The ListItem struct aligns to 64 bytes of CPU cache line size
+	values []Item
 }
 
 var _ Item = (*ListItem)(nil)
 
-// NewListItem creates a new ListItem representing an ordered set of elemments in a SECS-II message.
+// NewListItem creates a new ListItem containing the given child items.
 //
-// This function implements the Item interface.
-//
-// values: One or more values to be stored in the ListItem. Each value can be:
-//   - ASCIIItem
-//   - BinaryItem
-//   - BooleanItem
-//   - ListItem, UListItem
-//   - FloatItem
-//
-// If the `byteSize` is invalid or any of the input values cannot be converted to a valid signed int64
-// (or are outside the representable range for the given byteSize), an error is set on the item.
-//
-// The newly created ListItem is returned, potentially with an error attached.
+// nil children are silently skipped. If the total
+// child count exceeds MaxByteSize, a deferred error is stored on the returned
+// item; call Error() to inspect it.
 func NewListItem(values ...Item) Item {
-	return newListItem(values...)
-}
-
-func newListItem(values ...Item) *ListItem { //nolint:revive
-	item := getListItem()
+	item := &ListItem{}
 
 	dataBytes, _ := getDataByteLength(ListType, len(values))
 	if dataBytes > MaxByteSize {
 		item.setErrorMsg("item size limit exceeded")
+
 		return item
 	}
 
-	if cap(item.values) < len(values) {
-		item.values = make([]Item, 0, len(values))
-	} else {
-		item.values = item.values[:0]
-	}
+	item.values = make([]Item, 0, len(values))
 
-	for _, value := range values {
-		if value == nil {
+	for _, v := range values {
+		if v == nil {
 			continue
 		}
-		item.values = append(item.values, value)
+
+		item.values = append(item.values, v)
 	}
 
 	return item
 }
 
-// NewListItemWithBytes creates a new ListItem with the specified raw bytes and values.
-//
-// This function is useful when decoding a SECS-II message and you have the raw byte representation of the ListItem.
-//
-// Note: This function does not validate the raw bytes, so it should only be used when you are sure that the
-// raw bytes conform to the SECS-II data format for a ListItem.
-//
-// Added in v1.10.0
-func NewListItemWithBytes(rawBytes []byte, values ...Item) Item {
-	item := newListItem(values...)
-	item.rawBytes = rawBytes
-	return item
-}
-
-// Free releases the ListItem back to the pool for reuse.
-//
-// After calling Free, the ListItem should not be accessed or used again, as its underlying memory
-// might be reused for other ListItem objects.
-//
-// This method is essential for efficient memory management when working with a large number of ListItem objects.
-func (item *ListItem) Free() {
-	for _, val := range item.values {
-		if val != nil {
-			val.Free()
-		}
-	}
-	item.values = []Item{}
-	putListItem(item)
-}
-
-// Get retrieves the current ListItem.
-//
-// This method implements the Item.Get() interface.
+// Get navigates a path of list indices and returns the item at that position.
+// With no indices it returns the list itself. Returns an error if any intermediate
+// item is not a list or if an index is out of range.
 func (item *ListItem) Get(indices ...int) (Item, error) {
 	if len(indices) == 0 {
 		return item, nil
 	}
 
-	var dataItem Item = item
+	var cur Item = item
+
 	for _, idx := range indices {
-		if !dataItem.IsList() {
+		if !cur.IsList() {
 			return nil, errors.New("failed to get nested item")
 		}
 
-		listItem, _ := dataItem.(*ListItem)
-		if idx < 0 || idx >= listItem.Size() {
+		li, _ := cur.(*ListItem)
+
+		if idx < 0 || idx >= li.Size() {
 			return nil, errors.New("failed to get nested item")
 		}
-		dataItem = listItem.values[idx]
+
+		cur = li.values[idx]
 	}
 
-	return dataItem, nil
+	return cur, nil
 }
 
-// ToList retrieves list of items stored within the item.
-//
-// This method implements a specialized version of Item.Get() for items retrieval.
-// It returns the Item slice containing items in the list.
+// ToList returns a fresh shallow clone of the child item slice. Children are immutable
+// so shallow cloning is concurrency-safe. Returns an error if the item carries a
+// deferred construction error.
 func (item *ListItem) ToList() ([]Item, error) {
-	return item.values, nil
-}
-
-// Size implements Item.Size().
-func (item *ListItem) Size() int {
-	return len(item.values)
-}
-
-// Values retrieves the items stored in the item as a Item slice.
-//
-// This method implements the Item.Values() interface. It returns a direct
-// reference to the underlying byte slice, allowing for potential modification.
-//
-// Caution: Modifying the returned slice will directly affect the data within the item.
-//
-// The returned value can be type-asserted to a `[]Item`.
-func (item *ListItem) Values() any {
-	return item.values
-}
-
-// SetValues sets the item values within the ListItem.
-//
-// This method implements the Item.SetValues() interface. It accepts one or more values, each of which can be:
-//   - ASCIIItem
-//   - BinaryItem
-//   - BooleanItem
-//   - ListItem, UListItem
-//   - FloatItem
-//
-// If an error occurs during the combination process (e.g., due to incompatible types),
-// the error is returned and also stored within the item for later retrieval.
-func (item *ListItem) SetValues(values ...any) error {
-	item.resetError()
-	item.rawBytes = nil // invalidate cached serialization
-
-	dataBytes, _ := getDataByteLength(ListType, len(values))
-	if dataBytes > MaxByteSize {
-		item.setErrorMsg("item size limit exceeded")
-		return item.Error()
+	if item.itemErr != nil {
+		return nil, item.itemErr
 	}
 
-	if cap(item.values) < len(values) {
-		item.values = make([]Item, 0, len(values))
-	} else {
-		item.values = item.values[:0]
-	}
-
-	for _, value := range values {
-		v, ok := value.(Item)
-		if !ok {
-			item.setErrorMsg("invalid item type")
-			return item.Error()
-		}
-		item.values = append(item.values, v)
-	}
-
-	return nil
+	return slices.Clone(item.values), nil
 }
 
-// ToBytes serializes the ListItem into a byte slice conforming to the SECS-II data format.
-//
-// This method implements the Item.ToBytes() interface.
-//
-// If an error occurs during header generation, an empty byte slice is returned,
-// and the error is stored within the item for later retrieval.
-func (item *ListItem) ToBytes() []byte {
-	if item.rawBytes != nil {
-		return item.rawBytes
+// ItemAt returns the child item at index i. Returns an error if the item carries a
+// deferred error or i is out of range.
+func (item *ListItem) ItemAt(i int) (Item, error) {
+	if item.itemErr != nil {
+		return nil, item.itemErr
 	}
 
-	result, _ := getHeaderBytes(ListType, len(item.values), 0)
+	if i < 0 || i >= len(item.values) {
+		return nil, NewItemErrorWithMsg("index out of range")
+	}
 
-	for _, value := range item.values {
-		if value == nil {
-			continue
-		}
-		// invoke ToBytes() of child item recursively
-		nestedResult := value.ToBytes()
-		if len(nestedResult) == 0 {
-			return []byte{}
+	return item.values[i], nil
+}
+
+// Items returns an iterator over the child items in order. Yields nothing if the
+// item carries a deferred construction error.
+func (item *ListItem) Items() iter.Seq[Item] {
+	return func(yield func(Item) bool) {
+		if item.itemErr != nil {
+			return
 		}
 
-		result = append(result, nestedResult...)
-	}
-
-	item.rawBytes = result
-
-	return result
-}
-
-// ToSML converts the ListItem into its SML representation.
-//
-// This method implements the Item.ToSML() interface. It generates an SML string
-// that represents items and its nested items stored in the list .
-func (item *ListItem) ToSML() string {
-	return item.formatSML(0)
-}
-
-// Clone creates a deep copy of the ListItem.
-//
-// This method implements the Item.Clone() interface. It allocates a new,
-// pre-sized values slice and recursively clones every child, so the returned
-// ListItem shares no mutable state with the original. This makes a cloned list
-// safe to serialize concurrently with its source (e.g. fan-out to multiple
-// DataMessageHandler goroutines): each clone owns its own child Items and hence
-// its own lazily-populated rawBytes cache, so concurrent ToBytes calls touch
-// disjoint memory.
-func (item *ListItem) Clone() Item {
-	cloned := make([]Item, len(item.values))
-	for i, child := range item.values {
-		if child != nil {
-			cloned[i] = child.Clone()
+		for _, v := range item.values {
+			if !yield(v) {
+				return
+			}
 		}
 	}
-
-	return &ListItem{values: cloned}
 }
 
+// Size returns the number of direct children (non-recursive).
+func (item *ListItem) Size() int { return len(item.values) }
+
+// Type returns "list".
+func (item *ListItem) Type() string { return ListType }
+
+// IsList returns true.
+func (item *ListItem) IsList() bool { return true }
+
+// Error aggregates the item's own deferred error with each child's Error() via errors.Join.
+// A list that contains an invalid child reports a non-nil Error.
 func (item *ListItem) Error() error {
 	var errs error
+
 	if item.itemErr != nil {
 		errs = errors.Join(errs, item.itemErr)
 	}
@@ -260,31 +143,79 @@ func (item *ListItem) Error() error {
 	return errs
 }
 
-// Type returns "list" string.
-func (item *ListItem) Type() string { return ListType }
+// EncodedLen returns the total SECS-II wire byte length: the list header (whose data-length
+// field encodes the child count) plus the sum of each child's EncodedLen. Returns 0 for
+// items with a deferred construction error.
+func (item *ListItem) EncodedLen() int {
+	if item.itemErr != nil {
+		return 0
+	}
 
-// IsList returns true, indicating that ListItem is a list data item.
-func (item *ListItem) IsList() bool { return true }
+	if item.raw != nil {
+		return len(item.raw)
+	}
 
-// formatSML returns the indented string representation of this list node.
-// Each indent level adds 2 spaces as prefix to each line.
-// The indent level should be non-negative.
+	n := headerLen(len(item.values))
+
+	for _, child := range item.values {
+		n += child.EncodedLen()
+	}
+
+	return n
+}
+
+// AppendTo appends the SECS-II wire encoding of this list (header + recursively encoded
+// children) into dst and returns the extended slice. Returns dst unchanged for items with
+// a deferred construction error.
+func (item *ListItem) AppendTo(dst []byte) []byte {
+	if item.itemErr != nil {
+		return dst
+	}
+
+	if item.raw != nil {
+		return append(dst, item.raw...)
+	}
+
+	dst, _ = appendHeaderBytes(dst, ListType, len(item.values)) //nolint:errcheck
+
+	for _, child := range item.values {
+		dst = child.AppendTo(dst)
+	}
+
+	return dst
+}
+
+// ToBytes allocates a single buffer and returns the SECS-II wire encoding.
+// Equivalent to AppendTo(make([]byte, 0, EncodedLen())).
+func (item *ListItem) ToBytes() []byte {
+	return item.AppendTo(make([]byte, 0, item.EncodedLen()))
+}
+
+// ToSML returns the SML (SECS Message Language) text representation of this list,
+// with nested items indented by two spaces per level.
+func (item *ListItem) ToSML() string {
+	return item.formatSML(0)
+}
+
+// formatSML returns the indented SML representation of this list at the given indent level.
+// Each level adds 2 spaces of prefix to child lines. itemErr is intentionally not guarded
+// here (template pattern): an error list with no children renders as <L[0]>.
 func (item *ListItem) formatSML(level int) string {
 	indentStr := strings.Repeat("  ", level)
+
 	if item.Size() == 0 {
 		return indentStr + "<L[0]>"
 	}
 
 	var sb strings.Builder
-	sb.Grow(len(item.values) * 20)
+
+	sb.Grow(len(item.values) * 20) //nolint:mnd
 
 	for _, value := range item.values {
 		if v, ok := value.(*ListItem); ok {
-			// Nested ListItem
 			sb.WriteString(v.formatSML(level + 1))
 			sb.WriteByte('\n')
 		} else {
-			// Child Item - Format and append
 			sb.WriteString(indentStr)
 			sb.WriteString("  ")
 			sb.WriteString(value.ToSML())

@@ -2,7 +2,8 @@ package secs2
 
 import "fmt"
 
-// LSH Constants corresponding to Table 2 encoding schemes
+// LSH constants define the Localized String Header encoding scheme identifiers
+// as specified in SEMI E5 Table 2.
 const (
 	LSHNone                    uint16 = 0
 	LSHUCS2                    uint16 = 1
@@ -21,110 +22,123 @@ const (
 	LSHTraditionalChineseEUCTW uint16 = 14 // Traditional Chinese EUC-TW
 )
 
-// LocalizedStrItem represents a Localized Character String data item in a SECS-II message.
-// It includes a 16-bit Localized String Header (LSH) indicating the encoding scheme.
+// LocalizedStrItem represents an immutable Localized Character String data item in a SECS-II
+// message. It includes a 16-bit Localized String Header (LSH) indicating the encoding scheme.
+//
+// It implements the Item interface. All methods are safe for concurrent use. The backing
+// fields are an immutable uint16 LSH and an immutable Go string, so reads require no copy
+// and never expose mutable internal state.
+//
+// Wire layout: [format_byte][len_byte(s)][lsh_hi][lsh_lo][string_bytes...]
+// The length field encodes len(value)+2 — the +2 accounts for the two LSH header bytes.
 type LocalizedStrItem struct {
 	baseItem
 	lsh   uint16
 	value string
 }
 
+var _ Item = (*LocalizedStrItem)(nil)
+
 // NewLocalizedStrItem creates a new LocalizedStrItem with the given LSH and string value.
+//
+// If len(value)+2 exceeds MaxByteSize, a deferred error is stored on the returned item;
+// call Error() to inspect it.
 func NewLocalizedStrItem(lsh uint16, value string) Item {
-	size := len(value) + 2
-	if size > MaxByteSize {
-		return &LocalizedStrItem{
-			baseItem: baseItem{itemErr: NewItemErrorWithMsg(fmt.Sprintf("Item string is too long: %d > %d", size, MaxByteSize))},
-		}
+	item := &LocalizedStrItem{}
+
+	if len(value)+2 > MaxByteSize {
+		item.setErrorMsg(fmt.Sprintf("item string is too long: %d > %d", len(value)+2, MaxByteSize))
+
+		return item
 	}
 
-	return &LocalizedStrItem{lsh: lsh, value: value}
+	item.lsh = lsh
+	item.value = value
+
+	return item
 }
 
-// NewUTF8StrItem is a convenience function that creates a new LocalizedStrItem using UTF-8 encoding (LSH = 2).
+// NewUTF8StrItem is a convenience constructor that creates a LocalizedStrItem using the UTF-8
+// encoding scheme (LSH = LSHUTF8 = 2).
 func NewUTF8StrItem(value string) Item {
 	return NewLocalizedStrItem(LSHUTF8, value)
 }
 
-func (item *LocalizedStrItem) Get(indices ...int) (Item, error) {
-	if len(indices) != 0 {
-		err := NewItemError(fmt.Errorf("item is not a list, item is %s, indices is %v", item.ToSML(), indices))
-		item.setError(err)
-		return nil, err
+// ToLocalizedStr returns the string value stored in this item. Returns an error if the item
+// carries a deferred construction error.
+func (item *LocalizedStrItem) ToLocalizedStr() (string, error) {
+	if item.itemErr != nil {
+		return "", item.itemErr
 	}
 
-	return item, nil
-}
-
-func (item *LocalizedStrItem) ToLocalizedStr() (string, error) {
 	return item.value, nil
 }
 
+// ToLocalizedStrHeader returns the LSH (Localized String Header) value. Returns an error if
+// the item carries a deferred construction error.
 func (item *LocalizedStrItem) ToLocalizedStrHeader() (uint16, error) {
+	if item.itemErr != nil {
+		return 0, item.itemErr
+	}
+
 	return item.lsh, nil
 }
 
-func (item *LocalizedStrItem) Values() any {
-	return []string{item.value}
-}
+// Size returns the total byte count of the wire payload: len(value)+2 (the +2 for the LSH).
+func (item *LocalizedStrItem) Size() int { return len(item.value) + 2 }
 
-func (item *LocalizedStrItem) SetValues(values ...any) error {
-	if len(values) == 0 {
-		return nil
+// Type returns "localized_str".
+func (item *LocalizedStrItem) Type() string { return LocalizedStrType }
+
+// IsLocalizedStr returns true.
+func (item *LocalizedStrItem) IsLocalizedStr() bool { return true }
+
+// EncodedLen returns the total SECS-II wire byte length (header + payload).
+// Returns 0 for items with deferred errors.
+func (item *LocalizedStrItem) EncodedLen() int {
+	if item.itemErr != nil {
+		return 0
 	}
-	if len(values) > 1 {
-		return fmt.Errorf("LocalizedStrItem can only hold one string, got %d", len(values))
+
+	if item.raw != nil {
+		return len(item.raw)
 	}
 
-	val, ok := values[0].(string)
-	if !ok {
-		return fmt.Errorf("invalid type for LocalizedStrItem value: expected string, got %T", values[0])
+	n := len(item.value) + 2
+
+	return headerLen(n) + n
+}
+
+// AppendTo appends the SECS-II wire encoding of this item into dst and returns the result.
+// Wire layout: [format_byte][len_byte(s)][lsh_hi][lsh_lo][string_bytes...]
+// Returns dst unchanged for items with deferred errors.
+func (item *LocalizedStrItem) AppendTo(dst []byte) []byte {
+	if item.itemErr != nil {
+		return dst
 	}
-	item.value = val
 
-	return nil
+	if item.raw != nil {
+		return append(dst, item.raw...)
+	}
+
+	// The length field covers both the 2-byte LSH and the string bytes.
+	n := len(item.value) + 2
+	dst, _ = appendHeaderBytes(dst, LocalizedStrType, n) //nolint:errcheck
+	dst = append(dst, byte(item.lsh>>8), byte(item.lsh))
+
+	return append(dst, item.value...)
 }
 
-// SetLSH sets the Localized String Header value for the item.
-func (item *LocalizedStrItem) SetLSH(lsh uint16) {
-	item.lsh = lsh
-}
-
-func (item *LocalizedStrItem) Size() int {
-	return len(item.value) + 2 // include 2 bytes for the LSH
-}
-
+// ToBytes allocates a single buffer and returns the SECS-II wire encoding.
+// Equivalent to AppendTo(make([]byte, 0, EncodedLen())).
 func (item *LocalizedStrItem) ToBytes() []byte {
-	size := item.Size()
-
-	headerBytes, err := getHeaderBytes(LocalizedStrType, size, size)
-	if err != nil {
-		item.setError(fmt.Errorf("failed to get header bytes: %w", err))
-		return nil
-	}
-
-	headerBytes = append(headerBytes, byte(item.lsh>>8), byte(item.lsh))
-	headerBytes = append(headerBytes, []byte(item.value)...)
-
-	return headerBytes
+	return item.AppendTo(make([]byte, 0, item.EncodedLen()))
 }
 
+// ToSML returns the SML (SECS Message Language) text representation of this item.
+//
+// Format: <W "value">. The LSH is not reflected in the SML representation.
+// Special characters in value are escaped using Go's %q quoting.
 func (item *LocalizedStrItem) ToSML() string {
-	// Generating <W "value">. The LSH is implicitly defaulted (typically UTF-8).
-	// When parsing SML it will default back to LSH=2 unless a specific format requires it.
 	return fmt.Sprintf("<W %q>", item.value)
 }
-
-func (item *LocalizedStrItem) Clone() Item {
-	return &LocalizedStrItem{
-		baseItem: baseItem{itemErr: item.itemErr},
-		lsh:      item.lsh,
-		value:    item.value,
-	}
-}
-
-func (item *LocalizedStrItem) Type() string {
-	return LocalizedStrType
-}
-
-func (item *LocalizedStrItem) IsLocalizedStr() bool { return true }

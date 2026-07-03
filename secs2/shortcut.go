@@ -2,27 +2,27 @@ package secs2
 
 // L is a shorthand function for creating a new ListItem.
 // It's equivalent to calling NewListItem.
-var L = NewListItem
+func L(values ...Item) Item { return NewListItem(values...) }
 
 // A is a shorthand function for creating a new ASCIIItem.
 // It's equivalent to calling NewASCIIItem.
-var A = NewASCIIItem
+func A(value string) Item { return NewASCIIItem(value) }
 
 // J is a shorthand function for creating a new JIS8Item.
 // It's equivalent to calling NewJIS8Item.
-var J = NewJIS8Item
+func J(value string) Item { return NewJIS8Item(value) }
 
 // W is a shorthand function for creating a new LocalizedStrItem with UTF-8 encoding.
 // It's equivalent to calling NewUTF8StrItem.
-var W = NewUTF8StrItem
+func W(value string) Item { return NewUTF8StrItem(value) }
 
 // B is a shorthand function for creating a new BinaryItem.
 // It's equivalent to calling NewBinaryItem.
-var B = NewBinaryItem
+func B(values ...any) Item { return NewBinaryItem(values...) }
 
 // BOOLEAN is a shorthand function for creating a new BooleanItem.
 // It's equivalent to calling NewBooleanItem.
-var BOOLEAN = NewBooleanItem
+func BOOLEAN(values ...any) Item { return NewBooleanItem(values...) }
 
 // I1 is a shorthand function for creating a new IntItem (1-byte signed integer).
 // It's equivalent to calling NewIntItem(1, values...)

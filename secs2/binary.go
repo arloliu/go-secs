@@ -3,245 +3,171 @@ package secs2
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
-
-	"github.com/arloliu/go-secs/internal/util"
 )
 
-var hexLiteral = false
-
-// UseUseHexLiteral sets the literal format for binary SML item to hexadecimal(0xHH).
-func UseHexLiteral() {
-	hexLiteral = true
-}
-
-// UseBinaryLiteral sets the literal format for binary SML item to binary(0bBBBBBBBB).
-func UseBinaryLiteral() {
-	hexLiteral = false
-}
-
-// BinaryItem represents a list of boolean items in a SECS-II message.
+// BinaryItem represents an immutable list of binary (byte) values in a SECS-II message.
 //
-// It implements the Item interface, providing methods to interact with and manipulate the boolean data.
+// It implements the Item interface. All methods are safe for concurrent use and no method
+// exposes mutable internal storage.
 //
-// For immutable operations (i.e., those that should not modify the original item), use the `Clone()` method to create a new, independent copy of the item.
+// Construct via NewBinaryItem. Accepted value types: byte, []byte, int (0–255), and string
+// numeric literals (decimal, hex, octal, binary) in the range [0, 255].
 type BinaryItem struct {
 	baseItem
-	values   []byte // Array of binary values
-	rawBytes []byte // Raw bytes for the item, if needed
+	values []byte
 }
 
-// NewBinaryItem creates a new BinaryItem representing binary data.
+var _ Item = (*BinaryItem)(nil)
+
+// NewBinaryItem creates a new BinaryItem from the given values.
 //
-// This function implements the Item interface.
+// Each argument can be:
+//   - A byte (uint8).
+//   - A []byte slice (all bytes are appended).
+//   - An int in the range [0, 255].
+//   - A string containing a numeric literal (decimal, hex, octal, binary) in the range [0, 255].
 //
-// It accepts one or more arguments, each of which can be:
-//   - A single byte (`byte`)
-//   - A byte slice (`[]byte`)
-//   - A string representing a binary value between 0 and 255
-//     (e.g., "0b1101", "0x2F", "0o0073").
-//   - A integer representing a binary value between 0 and 255
-//     (e.g., 1, 13, 255).
-//
-// All provided values are combined into a single byte slice stored within the new item.
-//
-// If the combined data exceeds the maximum allowed byte size, an error is set on the item.
-// Similarly, if there's an error combining the input values, an error is set on the item.
-//
-// The newly created BinaryItem is returned, potentially with an error attached.
+// If any argument is out of range or of an unsupported type, a deferred error is stored on the
+// returned item; call Error() to inspect it. The deferred-error model means this function never
+// panics.
 func NewBinaryItem(values ...any) Item {
-	item := getBinaryItem()
-	_ = item.SetValues(values...)
+	item := &BinaryItem{}
 
-	return item
-}
-
-// NewBinaryItemWithBytes creates a new BinaryItem with the provided raw bytes.
-//
-// This function is useful when you already have the binary data in a byte slice
-// and want to create a BinaryItem without needing to convert it from other types.
-//
-// Note: This function does not validate the raw bytes, so it should only be used when you are sure that the
-// raw bytes conform to the SECS-II data format for a BinaryItem.
-//
-// Added in v1.10.0
-func NewBinaryItemWithBytes(rawBytes []byte, values ...any) Item {
-	item := getBinaryItem()
-	_ = item.SetValues(values...)
-	item.rawBytes = rawBytes
-
-	return item
-}
-
-// Free releases the BinaryItem back to the pool for reuse.
-//
-// After calling Free, the BinaryItem should not be accessed or used again, as its underlying memory
-// might be reused for other BinaryItem objects.
-//
-// This method is essential for efficient memory management when working with a large number of BinaryItem objects.
-func (item *BinaryItem) Free() {
-	putBinaryItem(item)
-}
-
-// Get retrieves the current BinaryItem.
-//
-// This method implements the Item.Get() interface.
-// It does not accept any index arguments as BinaryItem represents a single item, not a list.
-//
-// If any indices are provided, an error is returned indicating that the item is not a list.
-func (item *BinaryItem) Get(indices ...int) (Item, error) {
-	if len(indices) != 0 {
-		err := fmt.Errorf("item is not a list, item is %s, indices is %v", item.ToSML(), indices)
+	if err := item.combineBinaryValues(values...); err != nil {
 		item.setError(err)
-		return nil, err
+
+		return item
 	}
 
-	return item, nil
-}
-
-// ToBinary retrieves the binary data stored within the item.
-//
-// This method implements a specialized version of Item.Get() for binary data retrieval.
-// It returns the byte slice containing the binary data.
-func (item *BinaryItem) ToBinary() ([]byte, error) {
-	return item.values, nil
-}
-
-// Values retrieves the binary value stored in the item as a byte slice.
-//
-// This method implements the Item.Values() interface. It returns a direct
-// reference to the underlying byte slice, allowing for potential modification.
-//
-// Caution: Modifying the returned slice will directly affect the data within the item.
-// For immutable access, consider using `Clone()` to obtain a deep copy of the item first.
-//
-// The returned value can be type-asserted to a `[]byte`.
-func (item *BinaryItem) Values() any {
-	return item.values
-}
-
-// SetValues implements Item.SetValues().
-//
-// It accepts one or more arguments, each of which can be:
-//   - A single byte (`byte`)
-//   - A byte slice (`[]byte`)
-//   - A string representing a binary value between 0 and 255
-//     (e.g., "0b1101", "0x2F", "0o0073").
-//   - A integer representing a binary value between 0 and 255
-//     (e.g., 1, 13, 255).
-//
-// All provided values are combined into a single byte slice and stored within the item.
-//
-// If an error occurs during the combination process (e.g., due to incompatible types),
-// the error is returned and also stored within the item for later retrieval.
-func (item *BinaryItem) SetValues(values ...any) error {
-	item.resetError()
-	item.rawBytes = nil // invalidate cached serialization
-
-	item.values = item.values[:0]
-
-	err := item.combineByteValues(values)
-	if err != nil {
-		item.setError(err)
-		return item.Error()
-	}
-	dataBytes, _ := getDataByteLength(BinaryType, len(item.values))
-	if dataBytes > MaxByteSize {
+	if n, _ := getDataByteLength(BinaryType, len(item.values)); n > MaxByteSize {
 		item.setErrorMsg("item size limit exceeded")
-		return item.Error()
 	}
 
-	return nil
+	return item
 }
 
-// Size implements Item.Size().
-func (item *BinaryItem) Size() int {
-	return len(item.values)
+// ToBinary returns a fresh copy of the binary data. Returns an error if the item carries a
+// deferred construction error.
+func (item *BinaryItem) ToBinary() ([]byte, error) {
+	if item.itemErr != nil {
+		return nil, item.itemErr
+	}
+
+	return slices.Clone(item.values), nil
 }
 
-// ToBytes serializes the BinaryItem into a byte slice conforming to the SECS-II data format.
-//
-// This method implements the Item.ToBytes() interface.
-//
-// If an error occurs during header generation, an empty byte slice is returned,
-// and the error is stored within the item for later retrieval.
+// ByteAt returns the byte at index i. Returns an error if the item carries a deferred error or
+// i is out of range.
+func (item *BinaryItem) ByteAt(i int) (byte, error) {
+	if item.itemErr != nil {
+		return 0, item.itemErr
+	}
+
+	if i < 0 || i >= len(item.values) {
+		return 0, NewItemErrorWithMsg("index out of range")
+	}
+
+	return item.values[i], nil
+}
+
+// AppendBinaryTo appends the item's byte values into dst and returns the result. Returns dst
+// unchanged if the item carries a deferred error.
+func (item *BinaryItem) AppendBinaryTo(dst []byte) []byte {
+	if item.itemErr != nil {
+		return dst
+	}
+
+	return append(dst, item.values...)
+}
+
+// Size returns the number of bytes stored in this item.
+func (item *BinaryItem) Size() int { return len(item.values) }
+
+// EncodedLen returns the total SECS-II wire byte length (header + payload).
+// Returns 0 for items with deferred errors.
+func (item *BinaryItem) EncodedLen() int {
+	if item.itemErr != nil {
+		return 0
+	}
+
+	if item.raw != nil {
+		return len(item.raw)
+	}
+
+	return headerLen(len(item.values)) + len(item.values)
+}
+
+// AppendTo appends the SECS-II wire encoding of this item into dst and returns the result.
+// Returns dst unchanged for items with deferred errors.
+func (item *BinaryItem) AppendTo(dst []byte) []byte {
+	if item.itemErr != nil {
+		return dst
+	}
+
+	if item.raw != nil {
+		return append(dst, item.raw...)
+	}
+
+	dst, _ = appendHeaderBytes(dst, BinaryType, len(item.values)) //nolint:errcheck
+
+	return append(dst, item.values...)
+}
+
+// ToBytes allocates a single buffer and returns the SECS-II wire encoding.
+// Equivalent to AppendTo(make([]byte, 0, EncodedLen())).
 func (item *BinaryItem) ToBytes() []byte {
-	if item.rawBytes != nil {
-		return item.rawBytes
-	}
-
-	result, _ := getHeaderBytes(BinaryType, item.Size(), len(item.values))
-	result = append(result, item.values...)
-	item.rawBytes = result
-
-	return result
+	return item.AppendTo(make([]byte, 0, item.EncodedLen()))
 }
 
-// ToSML converts the BinaryItem into its SML representation.
-//
-// This method implements the Item.ToSML() interface. It generates an SML string
-// that represents the binary data stored in the item.
-//
-// The format is as follows:
-//   - If the item's data is empty, it's represented as `<B[0]>`.
-//   - Otherwise:
-//   - `<B[size] value1 value2 ...>`
-//   - `size`: The number of bytes in the binary data.
-//   - `value1`, `value2`, ...: Each byte is represented in binary format (e.g., 0b10101010).
+// ToSML returns the SML (SECS Message Language) text representation of this item.
+// Binary values are rendered in binary literal format (e.g. 0b10101010).
 func (item *BinaryItem) ToSML() string {
 	if item.Size() == 0 {
 		return "<B[0]>"
 	}
 
 	var sb strings.Builder
-	// Estimate capacity based on average binary representation length (around 11 characters per byte)
-	sb.Grow(len(item.values)*11 + 6)
+
+	sb.Grow(len(item.values)*11 + 6) //nolint:mnd
 
 	fmt.Fprintf(&sb, "<B[%d] ", item.Size())
 
-	if hexLiteral {
-		for i, v := range item.values {
-			if i > 0 {
-				sb.WriteByte(' ') // Add space separator between values
-			}
-			fmt.Fprintf(&sb, "0x%02X", v)
+	var binBuf [8]byte
+
+	for i, v := range item.values {
+		if i > 0 {
+			sb.WriteByte(' ')
 		}
-	} else {
-		// Reuse a buffer for strconv.AppendInt to avoid allocations
-		var binBuf [8]byte
-		for i, v := range item.values {
-			if i > 0 {
-				sb.WriteByte(' ') // Add space separator between values
-			}
-			sb.WriteString("0b")
-			sb.Write(strconv.AppendInt(binBuf[:0], int64(v), 2))
-		}
+
+		sb.WriteString("0b")
+		sb.Write(strconv.AppendInt(binBuf[:0], int64(v), 2))
 	}
 
-	sb.WriteByte('>') // Close the SML tag
+	sb.WriteByte('>')
 
 	return sb.String()
 }
 
-// Clone creates a deep copy of the BinaryItem.
-//
-// This method implements the Item.Clone() interface. It returns a new
-// BinaryItem with a completely independent copy of the binary data.
-func (item *BinaryItem) Clone() Item {
-	return &BinaryItem{values: util.CloneSlice(item.values, 0)}
-}
-
-// Type returns "binary" string.
+// Type returns "binary".
 func (item *BinaryItem) Type() string { return BinaryType }
 
-// IsBinary returns true, indicating that BinaryItem is a binary data item.
+// IsBinary returns true.
 func (item *BinaryItem) IsBinary() bool { return true }
 
-func (item *BinaryItem) combineByteValues(values []any) error {
-	if cap(item.values) < len(values) {
-		item.values = make([]byte, 0, len(values))
+// combineBinaryValues parses the variadic inputs and appends their byte values into item.values.
+// Accepted types: byte (uint8), []byte, int (0–255), and string numeric literals (0–255).
+func (item *BinaryItem) combineBinaryValues(values ...any) error {
+	capacity := len(values)
+	if len(values) == 1 {
+		if v, ok := values[0].([]byte); ok {
+			capacity = len(v)
+		}
 	}
+
+	item.values = make([]byte, 0, capacity)
 
 	for _, value := range values {
 		switch v := value.(type) {
@@ -249,8 +175,9 @@ func (item *BinaryItem) combineByteValues(values []any) error {
 			if v < 0 || v > 255 {
 				return fmt.Errorf("the value %d out of range, must between [0, 255]", v)
 			}
-			item.values = append(item.values, byte(v))
-		case byte:
+
+			item.values = append(item.values, byte(v)) //nolint:gosec
+		case byte: // uint8 alias
 			item.values = append(item.values, v)
 		case []byte:
 			item.values = append(item.values, v...)
@@ -259,13 +186,14 @@ func (item *BinaryItem) combineByteValues(values []any) error {
 			if err != nil {
 				return err
 			}
+
 			if intVal < 0 || intVal > 255 {
 				return fmt.Errorf("the value %d out of range, must between [0, 255]", intVal)
 			}
-			item.values = append(item.values, byte(intVal))
+
+			item.values = append(item.values, byte(intVal)) //nolint:gosec
 		default:
-			item.values = []byte{}
-			return errors.New("the type of value needs to be byte, []byte, or string")
+			return errors.New("input argument contains invalid type for BinaryItem")
 		}
 	}
 
