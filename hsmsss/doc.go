@@ -1,72 +1,64 @@
-// Package hsmsss provides an implementation of HSMS-SS (High-Speed SECS Message Services - Single Session)
-// for communication with semiconductor manufacturing equipment according to the SEMI E37 standard.
-// It builds upon the core HSMS functionalities provided by the hsms package and offers a simplified
-// interface for managing single-session HSMS connections.
+// Package hsmsss implements the HSMS-SS (HSMS Single Session) transport for
+// semiconductor-equipment communication per SEMI E37.1, layered over the shared connection
+// engine and immutable message model in the sibling package hsms.
 //
-// Key Features:
-//   - HSMS-SS Connection Management: Establishes and manages a single-session HSMS connection with a remote device.
-//   - Message Handling: Sends and receives HSMS messages, including data messages and control messages.
-//   - State Management: Tracks the connection state and handles state transitions.
-//   - Error Handling: Provides robust error handling and reporting.
-//   - Concurrent Operations: Utilizes goroutines and channels for concurrent message sending and receiving.
-//   - Customization: Offers configuration options for various HSMS parameters like timeouts and linktest behavior.
+// HSMS-SS is the single-session profile of HSMS (SEMI E37): one selected session per TCP
+// connection, with the Select/Deselect/Linktest/Separate control handshake and SECS-II data
+// exchange. This package provides the concrete TCP transport — dial (active) or listen
+// (passive), the framed reader/writer, and the E37.1 state procedures — and returns the
+// app-facing [github.com/arloliu/go-secs/v2/hsms.Connection] that the hsms core drives.
 //
-// Connection Establishment:
-//   - Create a ConnectionConfig struct with desired configuration parameters using `NewConnectionConfig()`.
-//   - Use the `NewConnection` function to create a new HSMS-SS connection.
-//   - Call the `Open` method to establish the connection.
+// # Entry point
 //
-// Message Sending:
-//   - Add a session to the connection using `conn.AddSession(sessionID)`.
-//   - Use the `SendMessage`, `SendSECS2Message`, or `SendDataMessage` methods of the Session to send messages
-//     to the remote device.
+// Build a configuration, then construct a connection:
 //
-// Message Receiving:
-//   - Use the `AddDataMessageHandler` method in Session to register a data message handler for processing received data messages.
-//
-// Connection Termination:
-//   - Call the `Close` method to gracefully close the connection.
-//   - The `closeConn` method handles the shutdown process, including canceling the context, stopping tasks,
-//     and closing the TCP connection.
-//
-// Usage Example:
-//
-//	func echoHandler(msg *hsms.DataMessage, session hsms.Session) {
-//	    // Clone msg.Item(): the library takes ownership of the reply's item
-//	    // and will Free it. Passing msg.Item() directly would Free what msg
-//	    // still references — see hsms.Session.ReplyDataMessage godoc.
-//	    err := session.ReplyDataMessage(msg, msg.Item().Clone())
-//	    // ... handle error ...
+//	cfg, err := hsmsss.NewConfig("127.0.0.1", 5000,
+//	    hsmsss.WithActive(),                              // or hsmsss.WithPassive()
+//	    hsmsss.WithConnectionOption(hsms.WithT3(45*time.Second)),
+//	    hsmsss.WithConnectionOption(hsms.WithLinktestInterval(30*time.Second)),
+//	)
+//	if err != nil {
+//	    return err
 //	}
 //
-//	func main() {
-//	    // ...
-//	    // Create a new HSMS-SS connection
-//	    connCfg := hsmsss.NewConnectionConfig("127.0.0.1", 5000,
-//	        WithActive(), // active mode
-//	        WithHostRole(), // host role
-//	        WithT3Timeout(30*time.Second),
-//	        // other options...
-//	    )
-//	    conn, err := hsmsss.NewConnection(ctx, connCfg)
-//	    // ... handle error ...
-//	    defer conn.Close()
-//
-//	    // Add a session with session id 1000 before open connection
-//	    session := conn.AddSession(1000)
-//
-//	    // Add a data message handler
-//	    session.AddDataMessageHandler(echoHandler)
-//
-//	    // Open connection and wait it to selected state
-//	    err = conn.Open(true)
-//	    // ... handle error ...
-//
-//	    // Send an S1F1 message
-//	    reply, err := session.SendDataMessage(1, 1, true, secs2.NewASCIIItem("test"))
-//	    // ... handle error ...
-//	    // Process the reply
-//
-//	    // ... other HSMS-SS operations ...
+//	conn, err := hsmsss.New(cfg) // returns hsms.Connection
+//	if err != nil {
+//	    return err
 //	}
+//
+// [NewConfig] takes the peer host and port plus functional [Option] values. [WithActive] and
+// [WithPassive] select the connection role (active dials, passive listens). Protocol timers and
+// other engine knobs are set through [WithConnectionOption], which wraps an
+// [github.com/arloliu/go-secs/v2/hsms.ConnOption] (for example hsms.WithT3, hsms.WithT6,
+// hsms.WithT8, hsms.WithLinktestInterval). [New] returns the shared hsms.Connection interface.
+//
+// # Lifecycle and messaging
+//
+// Open the connection with a mode:
+//
+//	// Block until the session is Selected (or ctx expires):
+//	err := conn.Open(ctx, hsms.OpenWaitSelected)
+//	// Or kick off the lifecycle in the background (passive typically uses this):
+//	err := conn.Open(ctx, hsms.OpenBackground)
+//
+// Once Selected, send SECS-II data messages through the
+// [github.com/arloliu/go-secs/v2/hsms.SECS2Endpoint] surface embedded in the Connection —
+// SendDataMessage (blocking, waits for the W-bit reply), SendDataMessageAsync (fire-and-forget),
+// SendSECS2Message, and ReplyDataMessage. Register inbound handlers with AddDataMessageHandler
+// and lifecycle observers with AddConnStateChangeHandler. UpdateConfigOptions retunes live
+// timers, and Close tears the connection down (idempotent).
+//
+// This package is single-session by design: there is NO AddSession call — the Connection IS its
+// own SECS-II endpoint. There is also no Free or pooling API: messages are GC-owned immutable
+// values (see the hsms package doc), so handlers may retain and share received messages across
+// goroutines without reference counting.
+//
+// # Dissolved v1 landmines
+//
+// The HSMS-SS transport runs over the shared hsms connection engine and message model and
+// therefore inherits its dissolved-landmine guarantees — the send-gate lock-order inversion,
+// stale-frame-across-generations, Free/aliasing, and reply-channel close asymmetry hazards are
+// structurally gone; see the "Dissolved v1 landmines" section of the hsms package doc for the
+// per-hazard details. The SECS-I half-duplex I/O-ownership sense of the reply-channel hazard
+// does not apply to HSMS-SS and is out of scope for this package.
 package hsmsss
