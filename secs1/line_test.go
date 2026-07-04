@@ -57,7 +57,7 @@ func newLinePair(t *testing.T, cfg Config) (*lineIO, net.Conn) {
 	require.NoError(t, a.err)
 	t.Cleanup(func() { _ = a.conn.Close() })
 
-	return newLineIO(local, cfg), a.conn
+	return newLineIO(local, cfg, cfg.Timers), a.conn
 }
 
 // peerWrite writes b to the scripted peer, flagging (not aborting) on error so it is safe to call

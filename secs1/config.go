@@ -11,11 +11,11 @@ import (
 )
 
 // Config holds the full configuration for a SECS-I (SEMI E4) connection over TCP/IP.
-// It embeds [hsms.ConnectionConfig] so the shared core knobs it reuses (T3 reply timeout,
+// It embeds [hsms.ConnectionConfig] so the shared core knobs it reuses (T1/T2/T3/T4 timers,
 // session/device wiring, logger, close/queue policy) are promoted directly onto Config and read
 // via the same accessors. SECS-I-specific settings — the TCP endpoint, active/passive role,
-// keep-alive, the E4 T1/T2/T4 timers, the RTY retry limit, and the equipment/host role and device
-// ID — are separate unexported fields set through [Option] values.
+// keep-alive, the RTY retry limit, and the equipment/host role and device ID — are separate
+// unexported fields set through [Option] values.
 //
 // Note two SECS-I invariants Config enforces at construction (see [NewConfig]):
 //   - The embedded core write timeout is forced to 0 so a core write deadline can never preempt a
@@ -30,11 +30,10 @@ type Config struct {
 	active       bool          // true = active (dials); false = passive (listens). Default active.
 	tcpKeepAlive time.Duration // 0 = OS default
 
-	t1, t2, t4 time.Duration // SECS-I inter-character (T1), reply/protocol (T2), inter-block (T4) timers
-	retryLimit int           // RTY: block-send retry count, 0..31 (SEMI E4)
-	isEquip    bool          // true = equipment (master); false = host (slave)
-	deviceID   uint16        // SECS-I device ID, 0..0x7FFF
-	dial       DialFunc      // active-mode dialer; default (&net.Dialer{}).DialContext
+	retryLimit int      // RTY: block-send retry count, 0..31 (SEMI E4)
+	isEquip    bool     // true = equipment (master); false = host (slave)
+	deviceID   uint16   // SECS-I device ID, 0..0x7FFF
+	dial       DialFunc // active-mode dialer; default (&net.Dialer{}).DialContext
 }
 
 // Option is a functional option that mutates a [Config]. It returns an error if the provided value
@@ -72,12 +71,7 @@ func NewConfig(host string, port int, opts ...Option) (Config, error) {
 		host:             host,
 		port:             port,
 		active:           true, // default: active role (dials outbound)
-
-		// SEMI E4 recommended SECS-I timer / retry defaults.
-		t1:         500 * time.Millisecond,
-		t2:         10 * time.Second,
-		t4:         45 * time.Second,
-		retryLimit: 3,
+		retryLimit:       3,    // SEMI E4 recommended default
 
 		dial: (&net.Dialer{}).DialContext,
 	}
@@ -156,13 +150,7 @@ func WithPassive() Option {
 // WithT1 sets the SECS-I T1 inter-character timeout (max time between bytes of a block). Must be > 0.
 func WithT1(d time.Duration) Option {
 	return func(c *Config) error {
-		if d <= 0 {
-			return errors.New("WithT1: duration must be > 0")
-		}
-
-		c.t1 = d
-
-		return nil
+		return hsms.WithT1(d)(&c.ConnectionConfig)
 	}
 }
 
@@ -170,13 +158,7 @@ func WithT1(d time.Duration) Option {
 // EOT or the reply block). Must be > 0.
 func WithT2(d time.Duration) Option {
 	return func(c *Config) error {
-		if d <= 0 {
-			return errors.New("WithT2: duration must be > 0")
-		}
-
-		c.t2 = d
-
-		return nil
+		return hsms.WithT2(d)(&c.ConnectionConfig)
 	}
 }
 
@@ -184,13 +166,7 @@ func WithT2(d time.Duration) Option {
 // multi-block message). Must be > 0.
 func WithT4(d time.Duration) Option {
 	return func(c *Config) error {
-		if d <= 0 {
-			return errors.New("WithT4: duration must be > 0")
-		}
-
-		c.t4 = d
-
-		return nil
+		return hsms.WithT4(d)(&c.ConnectionConfig)
 	}
 }
 
@@ -276,7 +252,10 @@ func WithTCPKeepAlive(d time.Duration) Option {
 // core knobs that SECS-I reuses, without a separate re-export per option.
 //
 // Knobs that take effect for SECS-I:
+//   - [hsms.WithT1] — E4 inter-character timeout (default 500 ms).
+//   - [hsms.WithT2] — E4 protocol/reply timeout (default 10 s).
 //   - [hsms.WithT3] — S-II reply timeout (default 45 s); the most commonly tuned knob.
+//   - [hsms.WithT4] — E4 inter-block timeout (default 45 s).
 //   - [hsms.WithT5] — reconnect wait interval; governs how long the active side pauses between
 //     successive connect attempts after a TCP disconnect.
 //   - [hsms.WithSenderQueueSize] — maximum number of messages that may be queued ahead of the
@@ -284,6 +263,10 @@ func WithTCPKeepAlive(d time.Duration) Option {
 //   - [hsms.WithCloseTimeout] — maximum time [hsms.Connection.Close] waits for a clean teardown
 //     before forcing the transport down.
 //   - [hsms.WithLogger] — replaces the default no-op logger.
+//
+// [secs1.WithT1]/[secs1.WithT2]/[secs1.WithT4] remain the preferred spelling for build-time config;
+// this wrapper form exists so the SAME options also work with [hsms.Connection.UpdateConfigOptions]
+// at runtime (SECS-I's [Connection] exposes only [hsms.ConnOption] there, not [secs1.Option]).
 //
 // Knobs that are inert or overridden for SECS-I (do not use):
 //   - [hsms.WithWriteTimeout] — [NewConfig] forces writeTimeout to 0 as its last construction
@@ -321,13 +304,13 @@ func (c Config) Active() bool { return c.active }
 func (c Config) TCPKeepAlive() time.Duration { return c.tcpKeepAlive }
 
 // T1 returns the SECS-I T1 inter-character timeout.
-func (c Config) T1() time.Duration { return c.t1 }
+func (c Config) T1() time.Duration { return c.ConnectionConfig.Timers().T1 }
 
 // T2 returns the SECS-I T2 protocol/reply timeout.
-func (c Config) T2() time.Duration { return c.t2 }
+func (c Config) T2() time.Duration { return c.ConnectionConfig.Timers().T2 }
 
 // T4 returns the SECS-I T4 inter-block timeout.
-func (c Config) T4() time.Duration { return c.t4 }
+func (c Config) T4() time.Duration { return c.ConnectionConfig.Timers().T4 }
 
 // RetryLimit returns the SECS-I RTY block-send retry limit.
 func (c Config) RetryLimit() int { return c.retryLimit }

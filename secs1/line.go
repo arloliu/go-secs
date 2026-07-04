@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"time"
+
+	"github.com/arloliu/go-secs/v2/hsms"
 )
 
 // SECS-I line-control characters (SEMI E4 §7.8). These single-byte handshake characters coordinate
@@ -30,22 +32,24 @@ const (
 // lineIO is NOT goroutine-safe; the single-goroutine ownership above is what makes it correct.
 type lineIO struct {
 	conn    net.Conn
-	reader  *bufio.Reader    // THE sole reader for this conn/generation (see G-A invariant)
-	now     func() time.Time // injectable clock for the T1/T2 conn read deadlines (default time.Now)
-	t1, t2  time.Duration    // E4 inter-character (T1) and protocol (T2) timers
-	isEquip bool             // true = equipment (master); false = host (slave)
+	reader  *bufio.Reader           // THE sole reader for this conn/generation (see G-A invariant)
+	now     func() time.Time        // injectable clock for the T1/T2 conn read deadlines (default time.Now)
+	timers  func() hsms.TimerConfig // LIVE T1/T2 source; re-read on every use so UpdateConfigOptions(WithT1/WithT2) reaches the line engine
+	isEquip bool                    // true = equipment (master); false = host (slave)
 }
 
-// newLineIO builds a lineIO over conn using cfg's T1/T2 timers and equipment/host role. The bufio
+// newLineIO builds a lineIO over conn using timers' T1/T2 and cfg's equipment/host role. The bufio
 // reader created here is the ONE reader for this conn (G-A invariant). The clock defaults to
-// time.Now; tests inject l.now to drive the T1/T2 read deadlines deterministically.
-func newLineIO(conn net.Conn, cfg Config) *lineIO {
+// time.Now; tests inject l.now to drive the T1/T2 read deadlines deterministically. timers is called
+// fresh on every I/O operation (never cached), so a live hsms.Connection.UpdateConfigOptions(WithT1(...))
+// / WithT2(...)) takes effect on the NEXT block transaction of this generation, mirroring how
+// hsmsss's readFrame reads T8 live via rt.Timers().
+func newLineIO(conn net.Conn, cfg Config, timers func() hsms.TimerConfig) *lineIO {
 	return &lineIO{
 		conn:    conn,
 		reader:  bufio.NewReader(conn),
 		now:     time.Now,
-		t1:      cfg.T1(),
-		t2:      cfg.T2(),
+		timers:  timers,
 		isEquip: cfg.IsEquip(),
 	}
 }
@@ -67,7 +71,7 @@ func (l *lineIO) readByte(timeout time.Duration) (byte, error) {
 // read chunk (the timer restarts after each chunk), not per individual byte.
 func (l *lineIO) readFull(buf []byte) error {
 	for read := 0; read < len(buf); {
-		if err := l.conn.SetReadDeadline(l.now().Add(l.t1)); err != nil {
+		if err := l.conn.SetReadDeadline(l.now().Add(l.timers().T1)); err != nil {
 			return err
 		}
 
@@ -109,7 +113,7 @@ func (l *lineIO) writeAll(data []byte) error {
 func (l *lineIO) drainUntilSilence() {
 	buf := make([]byte, 256)
 	for {
-		_ = l.conn.SetReadDeadline(l.now().Add(l.t1))
+		_ = l.conn.SetReadDeadline(l.now().Add(l.timers().T1))
 		if _, err := l.reader.Read(buf); err != nil {
 			return // T1 elapsed with no data — the line is silent
 		}
@@ -140,7 +144,7 @@ func (l *lineIO) receiveBlock(ctx context.Context) (block, error) {
 
 	// Step 1: length byte with T2 (§7.8.5: "If T2 is exceeded while waiting for the length
 	// character ... an NAK is sent").
-	lengthByte, err := l.readByte(l.t2)
+	lengthByte, err := l.readByte(l.timers().T2)
 	if err != nil {
 		_ = l.writeByte(nak)
 
@@ -226,7 +230,7 @@ func (l *lineIO) sendBlockOnce(ctx context.Context, blk block) (sendResult, erro
 	}
 
 	// Step 2: wait for the response within T2, looping past ignored bytes (§7.8.2.1).
-	deadline := l.now().Add(l.t2)
+	deadline := l.now().Add(l.timers().T2)
 	for {
 		select {
 		case <-ctx.Done():
@@ -273,7 +277,7 @@ func (l *lineIO) sendBlockData(blk block) (sendResult, error) {
 		return sendAbort, fmt.Errorf("secs1: send block data: %w", err)
 	}
 
-	b, err := l.readByte(l.t2)
+	b, err := l.readByte(l.timers().T2)
 	if err != nil {
 		return sendRetry, fmt.Errorf("%w: waiting for ACK: %w", ErrT2Timeout, err)
 	}

@@ -157,7 +157,7 @@ func newTransport(cfg Config) *transport {
 	// CALLED in lineEngine AFTER t.rt is bound (on the first Start), so t.rt is non-nil at call time.
 	// t.cfg is available immediately.
 	t.newSink = func() func(block) error {
-		return newAssembler(t.cfg, t.rt.DeliverOwnedFrame).accept
+		return newAssembler(t.cfg, t.rt.DeliverOwnedFrame, t.rt.Timers).accept
 	}
 
 	return t
@@ -417,7 +417,7 @@ func (t *transport) lineEngine(engineCtx context.Context, g *genWG, conn net.Con
 
 	// ONE lineIO / bufio.Reader for this generation — the G-A single-reader invariant. This goroutine
 	// is the only code that ever reads or writes conn bytes.
-	line := newLineIO(conn, t.cfg)
+	line := newLineIO(conn, t.cfg, t.rt.Timers)
 
 	// Build THIS generation's inbound sink once (the per-generation isolation point): the multi-block
 	// assembler holds partial-message state, so each engine accumulates in its own instance. A

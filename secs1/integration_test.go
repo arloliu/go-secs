@@ -17,6 +17,8 @@ package secs1
 
 import (
 	"context"
+	"io"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -375,4 +377,65 @@ func TestSECS1_HandlerSyncSendViaGoroutine(t *testing.T) {
 	case <-time.After(15 * time.Second):
 		t.Fatal("handler-initiated synchronous send (in a separate goroutine) never completed")
 	}
+}
+
+// ---------------------------------------------------------------------------
+// TestSECS1_LiveT2Update
+//
+// Proves T2 is live-updatable end to end: a raw peer that never grants the line (drains everything,
+// never sends EOT/ACK — the same misbehaving-peer pattern TestSECS1_D5b10_RetryExhaustionReconnects
+// uses) forces every SendDataMessage attempt to RTY-exhaust on the T2 EOT-wait. The connection starts
+// with the LONG default T2 (10s) and default RetryLimit (3) — if T2 were cached at construction rather
+// than read live, the send below would take upwards of (RetryLimit+1)*10s = 40s+. Instead, T2 is
+// shrunk live via UpdateConfigOptions AFTER reaching Selected, so the send should fail in roughly
+// (RetryLimit+1)*50ms = ~200ms, comfortably inside the 2s bound.
+// ---------------------------------------------------------------------------
+
+func TestSECS1_LiveT2Update(t *testing.T) {
+	t.Parallel()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+	tcpAddr, ok := ln.Addr().(*net.TCPAddr)
+	require.True(t, ok)
+	port := tcpAddr.Port
+
+	go func() {
+		for {
+			c, aerr := ln.Accept()
+			if aerr != nil {
+				return
+			}
+			go func(c net.Conn) {
+				_, _ = io.Copy(io.Discard, c) // drain everything; never grant EOT
+				_ = c.Close()
+			}(c)
+		}
+	}()
+
+	// Long default T2 (10s) and default RetryLimit (3) — if T2 were NOT live-updatable, the send
+	// below would take far longer than this test's bound.
+	cfg, err := NewConfig("127.0.0.1", port, WithActive(), WithHost())
+	require.NoError(t, err)
+
+	active, err := New(cfg)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, active.Close()) }()
+
+	require.NoError(t, active.Open(t.Context(), hsms.OpenBackground))
+	require.Eventually(t, func() bool {
+		return active.State() == hsms.SelectedState
+	}, 10*time.Second, 5*time.Millisecond, "active must reach Selected on TCP connect")
+
+	// Shrink T2 live, well below the default, via the shared hsms.ConnOption path.
+	require.NoError(t, active.UpdateConfigOptions(hsms.WithT2(50*time.Millisecond)))
+
+	start := time.Now()
+	reply, err := active.SendDataMessage(t.Context(), 1, 1, true, secs2.A("x"))
+	elapsed := time.Since(start)
+
+	require.Error(t, err, "an RTY-exhausted send with no line grant must fail")
+	require.Nil(t, reply)
+	require.Less(t, elapsed, 2*time.Second, "must fail near the NEW 50ms T2 (times RetryLimit+1), not the original 10s default")
 }

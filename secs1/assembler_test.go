@@ -50,7 +50,7 @@ func newCaptureAssembler(t *testing.T, cfg Config) (*assembler, *[][]byte) {
 		*frames = append(*frames, append([]byte(nil), f...))
 
 		return nil
-	})
+	}, cfg.Timers)
 
 	return a, frames
 }
@@ -167,6 +167,39 @@ func TestAssembler_T4InterBlockGapDiscardsPartial(t *testing.T) {
 	require.NoError(t, a.accept(asmBlock(mh, 2, true, []byte("part2"))))
 	require.Empty(t, *frames, "a T4 inter-block gap must discard the partial — no frame delivered")
 	require.False(t, a.open, "the stale partial (and the orphaned block 2) must leave no open message")
+}
+
+// TestAssembler_T4LiveUpdate proves accept's T4 discard check reads T4 live: a gap of 200ms doesn't
+// trip the ORIGINAL 5s T4 but DOES trip a live-updated 100ms T4 — this only passes if the mutation to
+// `current` (not a value snapshotted at construction) is actually what accept reads.
+func TestAssembler_T4LiveUpdate(t *testing.T) {
+	cfg := newLineTestConfig(t)
+
+	current := hsms.TimerConfig{T4: 5 * time.Second}
+	timers := func() hsms.TimerConfig { return current }
+
+	frames := &[][]byte{}
+	a := newAssembler(cfg, func(f []byte) error {
+		*frames = append(*frames, append([]byte(nil), f...))
+
+		return nil
+	}, timers) // 3-arg Task-3 signature — Task 9 has not landed yet at this point in the task order
+
+	fakeNow := time.Unix(0, 0)
+	a.now = func() time.Time { return fakeNow }
+
+	mh := asmHeader(true)
+	require.NoError(t, a.accept(asmBlock(mh, 1, false, []byte("part1"))))
+	require.True(t, a.open, "block 1 must open a partial message")
+
+	// Shrink T4 live, then advance the clock by a gap that is ABOVE the new 100ms T4 but WELL BELOW
+	// the original 5s T4.
+	current.T4 = 100 * time.Millisecond
+	fakeNow = fakeNow.Add(200 * time.Millisecond)
+
+	require.NoError(t, a.accept(asmBlock(mh, 2, true, []byte("part2"))))
+	require.Empty(t, *frames, "a 200ms gap must trip the LIVE 100ms T4, not the stale 5s value")
+	require.False(t, a.open, "the stale partial must be discarded under the live T4")
 }
 
 // --- (d) duplicate block ---

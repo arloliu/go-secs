@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/arloliu/go-secs/v2/hsms"
 	"github.com/arloliu/go-secs/v2/logger"
 )
 
@@ -17,10 +18,10 @@ import (
 // abandoned by a bounded Stop never shares accumulation state with a successor generation. It is
 // driven exclusively from the SINGLE line-engine goroutine (the G-A invariant), so it holds no locks.
 type assembler struct {
-	isEquip      bool               // our role, for inbound R-bit direction validation (SP5b §6f / E4 §8.2)
-	deliverFrame func([]byte) error // = rt.DeliverOwnedFrame; takes ownership of the delivered frame buffer
-	now          func() time.Time   // injectable clock for the T4 inter-block deadline (default time.Now)
-	t4           time.Duration      // T4 inter-block deadline (cfg.T4())
+	isEquip      bool                    // our role, for inbound R-bit direction validation (SP5b §6f / E4 §8.2)
+	deliverFrame func([]byte) error      // = rt.DeliverOwnedFrame; takes ownership of the delivered frame buffer
+	now          func() time.Time        // injectable clock for the T4 inter-block deadline (default time.Now)
+	timers       func() hsms.TimerConfig // LIVE T4 source; re-read on every accept() call
 
 	// Partial-message accumulation state (single-goroutine; no locks).
 	open          bool          // a partial (not yet terminated) message is in progress
@@ -38,14 +39,16 @@ type assembler struct {
 }
 
 // newAssembler builds a fresh inbound assembler for cfg that delivers reassembled frames to
-// deliverFrame (the core's rt.DeliverOwnedFrame). The clock defaults to time.Now; tests inject a.now
-// to drive the T4 inter-block deadline deterministically.
-func newAssembler(cfg Config, deliverFrame func([]byte) error) *assembler {
+// deliverFrame (the core's rt.DeliverOwnedFrame). timers is called fresh on every accept() (never
+// cached), so a live hsms.Connection.UpdateConfigOptions(WithT4(...)) takes effect on the current
+// generation's next inbound block, not just the next reconnect. The clock defaults to time.Now;
+// tests inject a.now to drive the T4 inter-block deadline deterministically.
+func newAssembler(cfg Config, deliverFrame func([]byte) error, timers func() hsms.TimerConfig) *assembler {
 	return &assembler{
 		isEquip:      cfg.IsEquip(),
 		deliverFrame: deliverFrame,
 		now:          time.Now,
-		t4:           cfg.T4(),
+		timers:       timers,
 	}
 }
 
@@ -82,7 +85,7 @@ func (a *assembler) accept(blk block) error {
 
 	// Step 2: lazy T4 inter-block deadline (E4 §9.4.3). Checked on the next block's arrival — no real
 	// timer is armed (the generation tears down on disconnect regardless).
-	if a.open && a.now().Sub(a.lastBlockTime) > a.t4 {
+	if a.open && a.now().Sub(a.lastBlockTime) > a.timers().T4 {
 		logger.Debug("secs1: inbound partial message discarded — T4 inter-block timeout",
 			"stream", a.header.stream, "function", a.header.function, "expected", a.expected)
 		a.reset()

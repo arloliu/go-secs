@@ -115,3 +115,40 @@ func TestConnectionConfig_Apply_MultipleErrors(t *testing.T) {
 	require.Equal(t, origT3, c.timers.T3)
 	require.Equal(t, origT5, c.timers.T5)
 }
+
+func TestConnectionConfig_WithT1(t *testing.T) {
+	c := DefaultConnectionConfig()
+	require.NoError(t, c.apply(WithT1(200*time.Millisecond)))
+	require.Equal(t, 200*time.Millisecond, c.timers.T1)
+
+	err := c.apply(WithT1(-1))
+	require.Error(t, err)
+
+	err = c.apply(WithT1(0))
+	require.Error(t, err)
+}
+
+func TestConnectionConfig_WithT2(t *testing.T) {
+	c := DefaultConnectionConfig()
+	require.NoError(t, c.apply(WithT2(5*time.Second)))
+	require.Equal(t, 5*time.Second, c.timers.T2)
+
+	err := c.apply(WithT2(-1))
+	require.Error(t, err)
+}
+
+func TestConnectionConfig_WithT4(t *testing.T) {
+	c := DefaultConnectionConfig()
+	require.NoError(t, c.apply(WithT4(30*time.Second)))
+	require.Equal(t, 30*time.Second, c.timers.T4)
+
+	err := c.apply(WithT4(-1))
+	require.Error(t, err)
+}
+
+func TestDefaultConnectionConfig_SECS1Timers(t *testing.T) {
+	c := DefaultConnectionConfig()
+	require.Equal(t, 500*time.Millisecond, c.timers.T1)
+	require.Equal(t, 10*time.Second, c.timers.T2)
+	require.Equal(t, 45*time.Second, c.timers.T4)
+}

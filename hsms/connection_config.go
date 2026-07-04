@@ -7,15 +7,28 @@ import (
 	"github.com/arloliu/go-secs/v2/logger"
 )
 
-// TimerConfig holds the HSMS protocol timer durations.
+// TimerConfig holds the HSMS and SECS-I protocol timer durations.
+//
+// T1: SECS-I inter-character timeout (max time between bytes of a block; SEMI E4 §7.3.1).
+// T2: SECS-I protocol/reply timeout (max time to wait for a handshake reply such as EOT or ACK;
+//
+//	SEMI E4 §7.8).
 //
 // T3: reply timeout (host waits for equipment response).
+// T4: SECS-I inter-block timeout (max time to wait for the next block of a multi-block message;
+//
+//	SEMI E4 §9.4.3).
+//
 // T5: connection separation timeout (time between connect attempts).
 // T6: control transaction timeout (time to receive response to a control message).
 // T7: NOT SELECTED timeout (time to wait for SELECT.req after TCP connect).
 // T8: network inter-character timeout (max time between bytes in a message).
+//
+// T1/T2/T4 are SECS-I (SEMI E4) concepts; they are unused by HSMS-SS. T5/T6/T7/T8 are HSMS (SEMI
+// E37) concepts; they are unused by SECS-I. Both sets live in one struct so every timer rides the
+// same live-update rail (see [ConnectionConfig] / [Connection.UpdateConfigOptions]).
 type TimerConfig struct {
-	T3, T5, T6, T7, T8 time.Duration
+	T1, T2, T3, T4, T5, T6, T7, T8 time.Duration
 }
 
 // ConnectionConfig holds the configuration for an HSMS connection.
@@ -35,12 +48,14 @@ type ConnectionConfig struct {
 	logger                logger.Logger
 }
 
-// DefaultConnectionConfig returns a ConnectionConfig populated with
-// SEMI E37-recommended default timer values and conservative operational defaults.
+// DefaultConnectionConfig returns a ConnectionConfig populated with SEMI E37 (HSMS) and SEMI E4 (SECS-I)-recommended default timer values and conservative operational defaults.
 func DefaultConnectionConfig() *ConnectionConfig {
 	return &ConnectionConfig{
 		timers: TimerConfig{
+			T1: 500 * time.Millisecond,
+			T2: 10 * time.Second,
 			T3: 45 * time.Second,
+			T4: 45 * time.Second,
 			T5: 10 * time.Second,
 			T6: 5 * time.Second,
 			T7: 10 * time.Second,
@@ -143,6 +158,45 @@ func WithT8(d time.Duration) ConnOption {
 		}
 
 		c.timers.T8 = d
+
+		return nil
+	}
+}
+
+// WithT1 sets the SECS-I T1 (inter-character timeout) timer. Must be > 0. Unused by HSMS-SS.
+func WithT1(d time.Duration) ConnOption {
+	return func(c *ConnectionConfig) error {
+		if d <= 0 {
+			return errors.New("WithT1: duration must be > 0")
+		}
+
+		c.timers.T1 = d
+
+		return nil
+	}
+}
+
+// WithT2 sets the SECS-I T2 (protocol/reply timeout) timer. Must be > 0. Unused by HSMS-SS.
+func WithT2(d time.Duration) ConnOption {
+	return func(c *ConnectionConfig) error {
+		if d <= 0 {
+			return errors.New("WithT2: duration must be > 0")
+		}
+
+		c.timers.T2 = d
+
+		return nil
+	}
+}
+
+// WithT4 sets the SECS-I T4 (inter-block timeout) timer. Must be > 0. Unused by HSMS-SS.
+func WithT4(d time.Duration) ConnOption {
+	return func(c *ConnectionConfig) error {
+		if d <= 0 {
+			return errors.New("WithT4: duration must be > 0")
+		}
+
+		c.timers.T4 = d
 
 		return nil
 	}

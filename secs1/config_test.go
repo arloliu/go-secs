@@ -178,3 +178,19 @@ func TestNew_NilDialerGuard(t *testing.T) {
 	require.Error(t, err, "New with an active Config and nil dialer must return an error")
 	require.Contains(t, err.Error(), "NewConfig", "error message must mention NewConfig")
 }
+
+// TestConfig_WithConnectionOption_T1T2T4 verifies that T1/T2/T4 timers can be set via the runtime
+// WithConnectionOption wrapper form, not just build-time WithT1/WithT2/WithT4.
+func TestConfig_WithConnectionOption_T1T2T4(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := NewConfig("127.0.0.1", 5000,
+		WithConnectionOption(hsms.WithT1(750*time.Millisecond)),
+		WithConnectionOption(hsms.WithT2(15*time.Second)),
+		WithConnectionOption(hsms.WithT4(60*time.Second)),
+	)
+	require.NoError(t, err)
+	require.Equal(t, 750*time.Millisecond, cfg.T1())
+	require.Equal(t, 15*time.Second, cfg.T2())
+	require.Equal(t, 60*time.Second, cfg.T4())
+}
