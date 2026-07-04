@@ -6,9 +6,14 @@ import "sync/atomic"
 // layer beneath the shared hsms data-message counters (see hsms.ConnectionMetrics, reached via
 // Connection's embedded hsms.Connection.Metrics()). All reads and writes are atomic; safe to read
 // concurrently with the line-engine goroutine. Reach an instance via Connection.BlockMetrics().
+type paddedUint64 struct {
+	atomic.Uint64
+	_ [56]byte // pad to 64 bytes (cache line size) to prevent false sharing
+}
+
 type ConnectionMetrics struct {
-	blockSend       atomic.Uint64 // blocks successfully sent and ACK'd
-	blockRecv       atomic.Uint64 // blocks received (and ACK'd) from the peer
+	blockSend       paddedUint64  // blocks successfully sent and ACK'd
+	blockRecv       paddedUint64  // blocks received (and ACK'd) from the peer
 	blockRetry      atomic.Uint64 // block-send retries (NAK, T2 timeout, or a failed contention-yield receive)
 	blockSendFailed atomic.Uint64 // RTY retry limit exhausted without an ACK (E4 §7.8.6) — a link-teardown-triggering event
 	blockNAKSent    atomic.Uint64 // NAKs we sent for an inbound block (length error, checksum error, T1 or T2 timeout)
