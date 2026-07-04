@@ -48,6 +48,22 @@ func WithSFQuote(q QuoteStyle) EncoderOption {
 	return func(e *Encoder) { e.sfQuote = q }
 }
 
+// BinaryStyle selects how binary (B) item bytes are rendered in SML text.
+type BinaryStyle int
+
+const (
+	// BinaryHex renders binary item bytes as hex (e.g. 0xAB). This is the default.
+	BinaryHex BinaryStyle = iota
+	// BinaryLiteral renders binary item bytes as unpadded base-2 literals (e.g. 0b10101011).
+	BinaryLiteral
+)
+
+// WithBinaryStyle selects hex (0xAB, the default) or binary-literal (0b..) rendering for
+// binary items. The parser reads both forms regardless of this option.
+func WithBinaryStyle(s BinaryStyle) EncoderOption {
+	return func(e *Encoder) { e.binaryStyle = s }
+}
+
 // WithIndent sets the per-level indentation unit used for list nesting (default "  ").
 func WithIndent(unit string) EncoderOption {
 	return func(e *Encoder) { e.indent = unit }

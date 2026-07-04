@@ -17,6 +17,23 @@ func TestEncoder_Options(t *testing.T) {
 	require.Contains(t, NewEncoder(WithIndent("\t")).Encode(list), "\t<A[1]")
 }
 
+func TestEncoder_WithBinaryStyle(t *testing.T) {
+	it := secs2.B(0x03, 0x04)
+
+	require.Equal(t, "<B[2] 0x03 0x04>", NewEncoder().Encode(it), "default must be hex")
+	require.Equal(t, "<B[2] 0x03 0x04>", NewEncoder(WithBinaryStyle(BinaryHex)).Encode(it))
+	require.Equal(t, "<B[2] 0b11 0b100>", NewEncoder(WithBinaryStyle(BinaryLiteral)).Encode(it))
+
+	// The parser reads both forms regardless of the encoder's chosen style.
+	for _, sml := range []string{"S1F1\n<B[2] 0x03 0x04>\n.", "S1F1\n<B[2] 0b11 0b100>\n."} {
+		msgs, err := Parse(sml)
+		require.NoError(t, err)
+		item, err := msgs[0].Item()
+		require.NoError(t, err)
+		require.True(t, secs2.Equal(it, item), "parser must read %q as the same logical value", sml)
+	}
+}
+
 // EncodeMessage has no secs2 ToSML to pin against (DataMessage has no SML method
 // on v2), so golden-test the canonical header forms explicitly per SF quote style.
 func TestEncodeMessage_HeaderGolden(t *testing.T) {

@@ -13,16 +13,17 @@ import (
 // defaults (set in NewEncoder) reproduce secs2.Item.ToSML() byte-for-byte.
 // An Encoder is immutable after construction and safe for concurrent use.
 type Encoder struct {
-	strict     bool
-	asciiQuote QuoteStyle // QuoteDouble | QuoteSingle
-	sfQuote    QuoteStyle
-	indent     string
+	strict      bool
+	asciiQuote  QuoteStyle // QuoteDouble | QuoteSingle
+	sfQuote     QuoteStyle
+	binaryStyle BinaryStyle
+	indent      string
 }
 
 // NewEncoder returns an Encoder; with no options Encode(item) equals item.ToSML(),
 // and EncodeMessage uses an UNQUOTED canonical S/F header (e.g. "S1F1 W").
 func NewEncoder(opts ...EncoderOption) *Encoder {
-	e := &Encoder{asciiQuote: QuoteDouble, sfQuote: QuoteNone, indent: "  "}
+	e := &Encoder{asciiQuote: QuoteDouble, sfQuote: QuoteNone, binaryStyle: BinaryHex, indent: "  "}
 	for _, opt := range opts {
 		opt(e)
 	}
@@ -108,9 +109,13 @@ func (e *Encoder) encodeBinary(sb *strings.Builder, it secs2.Item) {
 	sb.WriteByte(']')
 	for i := range n {
 		b, _ := it.ByteAt(i)
-		// secs2 ToSML emits UNPADDED base-2 (e.g. 0b1, 0b10, 0b11111111).
-		sb.WriteString(" 0b")
-		sb.WriteString(strconv.FormatInt(int64(b), 2))
+		if e.binaryStyle == BinaryLiteral {
+			// UNPADDED base-2 (e.g. 0b1, 0b10, 0b11111111), matching secs2 ToSML's opt-in form.
+			sb.WriteString(" 0b")
+			sb.WriteString(strconv.FormatInt(int64(b), 2))
+		} else {
+			fmt.Fprintf(sb, " 0x%02X", b)
+		}
 	}
 	sb.WriteByte('>')
 }

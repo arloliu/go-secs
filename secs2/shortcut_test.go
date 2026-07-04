@@ -34,7 +34,7 @@ func TestShortcuts(t *testing.T) {
   <A[4] "test">
   <J[21] "こんにちは世界">
   <BOOLEAN[2] True False>
-  <B[2] 0b11 0b100>
+  <B[2] 0x03 0x04>
   <I1[1] 1>
   <I2[1] 1>
   <I4[1] 1>

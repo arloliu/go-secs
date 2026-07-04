@@ -129,7 +129,7 @@ func (item *BinaryItem) ToBytes() []byte {
 }
 
 // ToSML returns the SML (SECS Message Language) text representation of this item.
-// Binary values are rendered in binary literal format (e.g. 0b10101010).
+// Binary values are rendered as upper-case, zero-padded hex literals (e.g. 0x2F).
 func (item *BinaryItem) ToSML() string {
 	if item.Size() == 0 {
 		return "<B[0]>"
@@ -137,19 +137,16 @@ func (item *BinaryItem) ToSML() string {
 
 	var sb strings.Builder
 
-	sb.Grow(len(item.values)*11 + 6) //nolint:mnd
+	sb.Grow(len(item.values)*5 + 6) //nolint:mnd
 
 	fmt.Fprintf(&sb, "<B[%d] ", item.Size())
-
-	var binBuf [8]byte
 
 	for i, v := range item.values {
 		if i > 0 {
 			sb.WriteByte(' ')
 		}
 
-		sb.WriteString("0b")
-		sb.Write(strconv.AppendInt(binBuf[:0], int64(v), 2))
+		fmt.Fprintf(&sb, "0x%02X", v)
 	}
 
 	sb.WriteByte('>')

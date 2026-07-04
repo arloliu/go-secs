@@ -106,6 +106,7 @@ The default `NewEncoder()` (no options) produces the same output as
 | `WithSFQuote(QuoteStyle)` | `QuoteDouble`, `QuoteSingle`, `QuoteNone` | `QuoteNone` | Quote character for the S/F header in `EncodeMessage` |
 | `WithIndent(string)` | any string | `"  "` (two spaces) | Per-level indentation for list nesting |
 | `WithEncoderStrictMode(bool)` | `true`/`false` | `false` | Hex-escape non-printable ASCII bytes |
+| `WithBinaryStyle(BinaryStyle)` | `BinaryHex`, `BinaryLiteral` | `BinaryHex` | Rendering for binary (`B`) item bytes: hex (`0xAB`) or binary-literal (`0b10101011`); the parser reads both regardless of this option |
 
 `QuoteStyle` constants:
 

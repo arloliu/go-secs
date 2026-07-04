@@ -9,7 +9,7 @@ import (
 )
 
 // TestBinaryItem covers round-trip construction, exact wire bytes, and SML output. Vectors are
-// ported from git show main:secs2/binary_test.go (binary-literal default format only).
+// ported from git show main:secs2/binary_test.go, updated to hex-literal default format.
 func TestBinaryItem(t *testing.T) {
 	t.Parallel()
 
@@ -35,7 +35,7 @@ func TestBinaryItem(t *testing.T) {
 			expectedSize:    1,
 			expectedValues:  []byte{0},
 			expectedToBytes: []byte{33, 1, 0},
-			expectedToSML:   "<B[1] 0b0>",
+			expectedToSML:   "<B[1] 0x00>",
 		},
 		{
 			description:     "three bytes (byte input)",
@@ -43,7 +43,7 @@ func TestBinaryItem(t *testing.T) {
 			expectedSize:    3,
 			expectedValues:  []byte{1, 2, 255},
 			expectedToBytes: []byte{33, 3, 1, 2, 255},
-			expectedToSML:   "<B[3] 0b1 0b10 0b11111111>",
+			expectedToSML:   "<B[3] 0x01 0x02 0xFF>",
 		},
 		{
 			description:     "three bytes ([]byte input)",
@@ -51,7 +51,7 @@ func TestBinaryItem(t *testing.T) {
 			expectedSize:    3,
 			expectedValues:  []byte{1, 2, 255},
 			expectedToBytes: []byte{33, 3, 1, 2, 255},
-			expectedToSML:   "<B[3] 0b1 0b10 0b11111111>",
+			expectedToSML:   "<B[3] 0x01 0x02 0xFF>",
 		},
 		{
 			description:     "three bytes (int input)",
@@ -59,7 +59,7 @@ func TestBinaryItem(t *testing.T) {
 			expectedSize:    3,
 			expectedValues:  []byte{1, 2, 255},
 			expectedToBytes: []byte{33, 3, 1, 2, 255},
-			expectedToSML:   "<B[3] 0b1 0b10 0b11111111>",
+			expectedToSML:   "<B[3] 0x01 0x02 0xFF>",
 		},
 		{
 			description:     "three bytes (binary string input)",
@@ -67,7 +67,7 @@ func TestBinaryItem(t *testing.T) {
 			expectedSize:    3,
 			expectedValues:  []byte{0, 1, 255},
 			expectedToBytes: []byte{33, 3, 0, 1, 255},
-			expectedToSML:   "<B[3] 0b0 0b1 0b11111111>",
+			expectedToSML:   "<B[3] 0x00 0x01 0xFF>",
 		},
 		{
 			description:     "seven bytes (mixed int, byte, string, []byte)",
@@ -75,7 +75,7 @@ func TestBinaryItem(t *testing.T) {
 			expectedSize:    7,
 			expectedValues:  []byte{1, 2, 15, 10, 55, 255, 42},
 			expectedToBytes: []byte{33, 7, 1, 2, 15, 10, 55, 255, 42},
-			expectedToSML:   "<B[7] 0b1 0b10 0b1111 0b1010 0b110111 0b11111111 0b101010>",
+			expectedToSML:   "<B[7] 0x01 0x02 0x0F 0x0A 0x37 0xFF 0x2A>",
 		},
 	}
 
