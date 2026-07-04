@@ -11,11 +11,14 @@
 //
 // # Connection
 //
-// [New] builds the SECS-I transport and returns the consumer-facing hsms.Connection, exactly as
-// hsmsss.New does for HSMS-SS; [Config] configures it with transactional functional options that
-// mirror that package (embedded core knobs plus SECS-I-specific settings): the active/passive TCP
-// role, the T1 (inter-character), T2 (protocol), and T4 (inter-block) timers, the RTY retry limit,
-// and the equipment/host role and device ID. The core reply timeout is the embedded T3.
+// [New] builds the SECS-I transport and returns the consumer-facing [Connection] — which embeds
+// hsms.Connection (every shared HSMS-II send/reply/handler operation is available unchanged) and
+// adds BlockMetrics, the SECS-I block/line-level counters (see "Metrics" below) — mirroring how
+// hsmsss.New returns hsmsss.Connection for HSMS-SS. [Config] configures it with transactional
+// functional options that mirror that package (embedded core knobs plus SECS-I-specific settings):
+// the active/passive TCP role, the T1 (inter-character), T2 (protocol), and T4 (inter-block)
+// timers, the RTY retry limit, and the equipment/host role and device ID. The core reply timeout
+// is the embedded T3.
 //
 // [New] forces the core write timeout to 0 (disabled): a SECS-I line transaction self-bounds via
 // T2×(RTY+1), so a core write deadline is redundant and would spuriously preempt a legitimately
@@ -58,6 +61,9 @@
 // A SECS-I connection reports the shared core data-message counters via hsms.Connection.Metrics():
 // DataMsgSendCount (a message whose last block was ACK'd on the wire), DataMsgRecvCount (a reassembled
 // inbound message delivered to the core), and DataMsgErrCount (e.g. a W-bit send whose reply times out
-// at T3). SECS-I-specific counters (per-block retry, contention) are not currently exposed; the core
-// send/receive/error counters provide the send/recv/error observability.
+// at T3). Beneath that, Connection.BlockMetrics() exposes the SECS-I-specific block/line-level
+// counters in [ConnectionMetrics]: block send/recv counts, block-send retries (NAK, T2 timeout, or a
+// failed contention-yield receive), RTY-exhaustion failures, NAKs sent for inbound blocks, slave
+// contention yields, duplicate-block drops, T4 partial-message timeouts, and wrong-direction block
+// drops.
 package secs1

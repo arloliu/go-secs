@@ -6,7 +6,8 @@
 // connection, with the Select/Deselect/Linktest/Separate control handshake and SECS-II data
 // exchange. This package provides the concrete TCP transport — dial (active) or listen
 // (passive), the framed reader/writer, and the E37.1 state procedures — and returns the
-// app-facing [github.com/arloliu/go-secs/v2/hsms.Connection] that the hsms core drives.
+// app-facing [Connection] (embedding [github.com/arloliu/go-secs/v2/hsms.Connection], which the
+// hsms core drives) plus HSMS-SS control-plane metrics.
 //
 // # Entry point
 //
@@ -21,7 +22,7 @@
 //	    return err
 //	}
 //
-//	conn, err := hsmsss.New(cfg) // returns hsms.Connection
+//	conn, err := hsmsss.New(cfg) // returns hsmsss.Connection
 //	if err != nil {
 //	    return err
 //	}
@@ -30,7 +31,10 @@
 // [WithPassive] select the connection role (active dials, passive listens). Protocol timers and
 // other engine knobs are set through [WithConnectionOption], which wraps an
 // [github.com/arloliu/go-secs/v2/hsms.ConnOption] (for example hsms.WithT3, hsms.WithT6,
-// hsms.WithT8, hsms.WithLinktestInterval). [New] returns the shared hsms.Connection interface.
+// hsms.WithT8, hsms.WithLinktestInterval). [New] returns the consumer-facing [Connection], which
+// embeds hsms.Connection (every shared HSMS-II send/reply/handler operation is available unchanged)
+// and adds ControlMetrics, the HSMS-SS control-plane counters: linktest sent/received/errored,
+// Select established, Separate received, Reject sent/received, and inbound linktest answered.
 //
 // # Lifecycle and messaging
 //

@@ -22,7 +22,8 @@ v2 rebuilds the library around three ideas:
   use-after-free / double-free / retain-past-`Free` bugs is structurally impossible.
 - **Connection-centric transport.** There is no separate `Session` object and no `AddSession`. The
   `hsms.Connection` *is* the SECS-II endpoint: you send, reply, and register handlers directly on it.
-  HSMS-SS and SECS-I both return the same `hsms.Connection`, so application code is transport-agnostic.
+  `hsmsss.New` returns `hsmsss.Connection` and `secs1.New` returns `secs1.Connection`; both embed
+  `hsms.Connection`, so application code that only needs the shared surface stays transport-agnostic.
 
 ### What breaks at a glance
 
@@ -40,7 +41,7 @@ v2 rebuilds the library around three ideas:
 | SECS-II item value | `item.Values()` | typed accessors: `ToASCII()`, `ToInt()`, `IntAt(i)`, `Ints()` … |
 | Item shortcuts | `secs2.A`, `secs2.L` are variables | `secs2.A(...)`, `secs2.L(...)` are functions |
 | SML parse | `sml.ParseHSMS(text)` | `sml.Parse(text)` |
-| Metrics | `conn.GetMetrics()` (atomic fields) | `conn.Metrics()` (accessor methods) |
+| Metrics | `conn.GetMetrics()` (atomic fields) | `conn.Metrics()` (shared hsms.ConnectionMetrics) + `ControlMetrics()`/`BlockMetrics()` on transport-specific connections |
 | Test logger | `logger.MockLogger` | `logger/loggertest.MockLogger` |
 
 Everything else is covered below.
@@ -378,7 +379,7 @@ func buildSECS1() (hsms.Connection, error) {
 
 Config knobs with no v2 equivalent (removed; the behavior is either automatic now or handled by the
 core): `WithConnectRemoteTimeout`, `WithAcceptConnTimeout`, `WithInitialRetryDelay`,
-`WithIdleReadTimeout`, `WithDataMsgQueueSize`, `WithValidateDataMessage`, `WithTraceTraffic`,
+`WithIdleReadTimeout`, `WithDataMsgQueueSize`, `WithTraceTraffic`,
 `WithAutoLinktest` (linktest is controlled by the interval and fail-threshold), and the SECS-I
 `WithDuplicateDetection` (duplicate blocks are always detected).
 
@@ -771,40 +772,76 @@ If you built S-type messages by hand in v1 with `gem.NewMessage`, switch those c
 
 ## 11. Metrics
 
-The accessor is renamed and the shape changed from exported atomic fields to reader methods.
+v2 relocates and expands the metrics taxonomy across `hsms`, `hsmsss`, and `secs1`. The accessor is renamed from `GetMetrics()` to `Metrics()`, and the shape changed from exported atomic fields to reader methods. Transport-specific metrics now live on package-specific `ConnectionMetrics` types, accessed via package-specific methods on the returned connection.
 
-| v1 | v2 |
-|----|----|
-| `conn.GetMetrics()` | `conn.Metrics()` (on `hsms.Connection`) |
-| `m.DataMsgSendCount.Load()` (atomic field) | `m.DataMsgSendCount()` (method) |
-| `m.ConnRetryGauge.Load()` | `m.ConnRetryCount()` |
+| v1 | v2 | Status | Note |
+|----|----|--------|------|
+| `hsmsss.ConnectionMetrics.{DataMsgSendCount,DataMsgRecvCount,DataMsgErrCount}` | `hsms.ConnectionMetrics.{DataMsgSendCount,DataMsgRecvCount,DataMsgErrCount}` (via `Connection.Metrics()`) | retained | Same names, now on the shared type used by both transports. |
+| `hsmsss.ConnectionMetrics.{LinktestSendCount,LinktestRecvCount,LinktestErrCount}` | `hsmsss.ConnectionMetrics.{LinktestSendCount,LinktestRecvCount,LinktestErrCount}` (via `hsmsss.Connection.ControlMetrics()`) | changed | Same names, still HSMS-SS-owned — but `hsmsss.New` now returns `hsmsss.Connection` (an `hsms.Connection` plus `ControlMetrics()`) instead of bare `hsms.Connection`, so reaching these from a value typed `hsms.Connection` needs `conn.(hsmsss.Connection).ControlMetrics()`. |
+| — | `hsmsss.ConnectionMetrics.{SelectEstablishedCount,SeparateRecvCount,RejectSentCount,RejectRecvCount,LinktestReqRecvCount}` | new | HSMS-SS control-plane counters with no v1 equivalent. |
+| `hsmsss.ConnectionMetrics.ConnRetryGauge` | `hsms.ConnectionMetrics.Reconnecting()` (renamed from `ConnRetryCount`) | changed | Same 0/1 gauge; renamed because "Count" implied cumulative. Pair with the new `Reconnects()` for the cumulative count. |
+| — | `hsms.ConnectionMetrics.Reconnects()` | new | Cumulative count of successful re-establishments; there was no v1 equivalent to this specific cumulative metric. |
+| `secs1.ConnectionMetrics.{BlockSendCount,BlockRecvCount,BlockRetryCount}` | `secs1.ConnectionMetrics.{BlockSendCount,BlockRecvCount,BlockRetryCount}` (via `secs1.Connection.BlockMetrics()`) | changed | Same names, still secs1-owned — but `secs1.New` now returns `secs1.Connection` instead of bare `hsms.Connection`, so reaching these needs `conn.(secs1.Connection).BlockMetrics()`. |
+| — | `secs1.ConnectionMetrics.{BlockSendFailedCount,BlockNAKSentCount,ContentionYieldCount,BlockDupDropCount,PartialTimeoutCount,BlockDirDropCount}` | new | SECS-I line-level counters with no v1 equivalent. |
+
+### Reading metrics in v2
 
 ```go
 package migcheck
 
-import "github.com/arloliu/go-secs/v2/hsms"
+import (
+    "github.com/arloliu/go-secs/v2/hsms"
+    "github.com/arloliu/go-secs/v2/hsmsss"
+    "github.com/arloliu/go-secs/v2/secs1"
+)
 
-func readMetrics(conn hsms.Connection) {
-    m := conn.Metrics() // *hsms.ConnectionMetrics
+// HSMS-SS: shared data metrics + HSMS-specific control metrics
+func readHSMSSMetrics(conn hsms.Connection) {
+    m := conn.Metrics() // *hsms.ConnectionMetrics (shared)
     _ = m.DataMsgSendCount()
     _ = m.DataMsgRecvCount()
     _ = m.DataMsgErrCount()
-    _ = m.LinktestSendCount()
-    _ = m.ConnRetryCount()
+    _ = m.Reconnecting()  // 0 or 1
+    _ = m.Reconnects()    // cumulative
+
+    // For HSMS-SS control metrics, type-assert to hsmsss.Connection:
+    if hsmsConn, ok := conn.(hsmsss.Connection); ok {
+        ctrl := hsmsConn.ControlMetrics()
+        _ = ctrl.LinktestSendCount()
+        _ = ctrl.LinktestRecvCount()
+        _ = ctrl.LinktestErrCount()
+        _ = ctrl.SelectEstablishedCount()
+        _ = ctrl.SeparateRecvCount()
+        _ = ctrl.RejectSentCount()
+        _ = ctrl.RejectRecvCount()
+        _ = ctrl.LinktestReqRecvCount()
+    }
+}
+
+// SECS-I: shared data metrics + SECS-I-specific block metrics
+func readSECS1Metrics(conn hsms.Connection) {
+    m := conn.Metrics() // *hsms.ConnectionMetrics (shared)
+    _ = m.DataMsgSendCount()
+    _ = m.DataMsgRecvCount()
+    _ = m.DataMsgErrCount()
+    _ = m.Reconnecting()
+    _ = m.Reconnects()
+
+    // For SECS-I block metrics, type-assert to secs1.Connection:
+    if s1Conn, ok := conn.(secs1.Connection); ok {
+        block := s1Conn.BlockMetrics()
+        _ = block.BlockSendCount()
+        _ = block.BlockRecvCount()
+        _ = block.BlockRetryCount()
+        _ = block.BlockSendFailedCount()
+        _ = block.BlockNAKSentCount()
+        _ = block.ContentionYieldCount()
+        _ = block.BlockDupDropCount()
+        _ = block.PartialTimeoutCount()
+        _ = block.BlockDirDropCount()
+    }
 }
 ```
-
-**HSMS vs SECS-I validity caveat.** Both transports return the same `*hsms.ConnectionMetrics`, but
-not every counter is meaningful for both:
-
-- The **data-message counters** (`DataMsgSendCount`, `DataMsgRecvCount`, `DataMsgErrCount`) are valid
-  for both HSMS-SS and SECS-I.
-- The **linktest counters** (`LinktestSendCount`, `LinktestRecvCount`, `LinktestErrCount`) and the
-  select-based `ConnState` are HSMS-SS concepts; on a SECS-I connection they stay zero (SECS-I has no
-  HSMS linktest or Select handshake).
-- The SECS-I per-block / contention counters that v1 exposed on `secs1.ConnectionMetrics`
-  (`BlockSendCount`, `BlockRecvCount`, `BlockRetryCount`) are **not** surfaced in v2; use the shared
-  data-message counters for send/receive/error observability.
 
 ---
 
@@ -924,7 +961,7 @@ names a replacement or states "no equivalent".
 | v1 symbol | v2 symbol | kind | migration action |
 |-----------|-----------|------|------------------|
 | `NewConnectionConfig(...) (*ConnectionConfig, error)` | `NewConfig(...) (Config, error)` | renamed | Value config. |
-| `NewConnection(ctx, cfg) (*Connection, error)` | `New(cfg) (hsms.Connection, error)` | renamed | Drops `ctx`; returns the interface. |
+| `NewConnection(ctx, cfg) (*Connection, error)` | `New(cfg) (hsmsss.Connection, error)` | renamed | Drops `ctx`; returns an interface embedding `hsms.Connection`. |
 | `WithT3Timeout`…`WithT8Timeout` | `WithConnectionOption(hsms.WithT3)`…`WithT8` | renamed | Core options; suffix dropped. |
 | `WithLinktestInterval/WithLinktestFailThreshold/WithSenderQueueSize/WithLogger` | `WithConnectionOption(hsms.With…)` | renamed | Core options. |
 | `WithCloseConnTimeout` | `WithConnectionOption(hsms.WithCloseTimeout)` | renamed | — |
@@ -932,24 +969,26 @@ names a replacement or states "no equivalent".
 | `WithKeepAlivePeriod` | `WithTCPKeepAlive` | renamed | — |
 | `WithEquipRole/WithHostRole` | — | removed | HSMS role is `WithActive`/`WithPassive`. |
 | `WithAutoLinktest(bool)` | — | removed | Controlled by interval + fail-threshold. |
-| `WithConnectRemoteTimeout/WithAcceptConnTimeout/WithInitialRetryDelay/WithIdleReadTimeout/WithDataMsgQueueSize/WithValidateDataMessage/WithTraceTraffic` | — | removed | No equivalent (automatic now). |
+| `WithValidateDataMessage` | `hsms.WithSessionIDValidation` | changed | v1 enabled inbound SessionID-mismatch rejection (auto-S9F1 + drop) BY DEFAULT; v2 ships with it OFF and no equivalent at all until `WithSessionIDValidation` was added back as an explicit opt-in (default still off, to avoid a silent behavior change for anyone already on v2). If your v1 code called `WithValidateDataMessage(false)` to tolerate non-compliant equipment, no action is needed — v2's default already matches that. If you relied on the v1 default (`true`), call `hsms.WithSessionIDValidation(true)` to restore it. |
+| `WithConnectRemoteTimeout/WithAcceptConnTimeout/WithInitialRetryDelay/WithIdleReadTimeout/WithDataMsgQueueSize/WithTraceTraffic` | — | removed | No equivalent (automatic now / no direct replacement). |
 | — | `WithDialer(DialFunc)` | new | Inject a custom dialer. |
 | `Connection.GetMetrics() *hsmsss.ConnectionMetrics` | `Connection.Metrics() *hsms.ConnectionMetrics` | renamed | Reader methods; see section 11. |
 | `Connection.AddSession(id)` | — | removed | Send on the Connection. |
 | `Session`, `NewSession` | — | removed | No session type. |
-| `ConnectionMetrics` (exported atomic fields) | `hsms.ConnectionMetrics` (reader methods) | changed | `m.Field.Load()` → `m.Field()`; `ConnRetryGauge` → `ConnRetryCount()`. |
+| `ConnectionMetrics` (exported atomic fields) | `hsms.ConnectionMetrics` (reader methods) + `hsmsss.ConnectionMetrics` (via `ControlMetrics()`) | changed | Data-message counters on shared `hsms.ConnectionMetrics` via `Metrics()`; linktest counters on HSMS-SS-specific `hsmsss.ConnectionMetrics` via `Connection.ControlMetrics()` (type-assert to `hsmsss.Connection`). See section 11 for full details. |
 
 ### secs1
 
 | v1 symbol | v2 symbol | kind | migration action |
 |-----------|-----------|------|------------------|
 | `NewConnectionConfig(...) (*ConnectionConfig, error)` | `NewConfig(...) (Config, error)` | renamed | Value config. |
-| `NewConnection(ctx, cfg) (*Connection, error)` | `New(cfg) (hsms.Connection, error)` | renamed | Drops `ctx`; returns the interface. |
+| `NewConnection(ctx, cfg) (*Connection, error)` | `New(cfg) (secs1.Connection, error)` | renamed | Drops `ctx`; returns an interface embedding `hsms.Connection`. |
 | `WithEquipRole()/WithHostRole()` | `WithEquipment()/WithHost()` | renamed | Same roles. |
-| `WithT1Timeout/WithT2Timeout/WithT4Timeout` | `WithT1/WithT2/WithT4` | renamed | Suffix dropped. |
+| `secs1.WithT1/WithT2/WithT4` (build-time) | `secs1.WithT1/WithT2/WithT4` (build-time, unchanged) or `secs1.WithConnectionOption(hsms.WithT1(...))` via `Connection.UpdateConfigOptions` (NEW: now live-updatable) | changed | v1 had no live-update path for T1/T2/T4; v2 promotes them into the shared `hsms.TimerConfig`, so they now ride the same live-update rail as T3/T5-T8. |
 | `WithT3Timeout` | `WithConnectionOption(hsms.WithT3)` | renamed | Reply timeout is core. |
 | `WithDeviceID/WithRetryLimit` | same | unchanged | — |
-| `WithConnectTimeout` (deprecated) / `WithConnectRemoteTimeout/WithAcceptConnTimeout/WithCloseConnTimeout/WithSendTimeout/WithMaxRetryDelay/WithInitialRetryDelay/WithDuplicateDetection/WithValidateDataMessage/WithSenderQueueSize/WithDataMsgQueueSize` | — | removed | No equivalent, or `hsms.WithCloseTimeout`/`hsms.WithWriteTimeout` via `WithConnectionOption`. |
+| `WithValidateDataMessage` | `hsms.WithSessionIDValidation` | changed | v1 enabled inbound SessionID-mismatch rejection (auto-S9F1 + drop) BY DEFAULT; v2 ships with it OFF and no equivalent at all until `WithSessionIDValidation` was added back as an explicit opt-in (default still off, to avoid a silent behavior change for anyone already on v2). If your v1 code called `WithValidateDataMessage(false)` to tolerate non-compliant equipment, no action is needed — v2's default already matches that. If you relied on the v1 default (`true`), call `hsms.WithSessionIDValidation(true)` to restore it. |
+| `WithConnectTimeout` (deprecated) / `WithConnectRemoteTimeout/WithAcceptConnTimeout/WithCloseConnTimeout/WithSendTimeout/WithMaxRetryDelay/WithInitialRetryDelay/WithDuplicateDetection/WithSenderQueueSize/WithDataMsgQueueSize` | — | removed | No equivalent, or `hsms.WithCloseTimeout`/`hsms.WithWriteTimeout` via `WithConnectionOption`. |
 | `WithLogger(l)` | `WithConnectionOption(hsms.WithLogger(l))` | renamed | Core option. |
 | `WithKeepAlivePeriod` | `WithTCPKeepAlive` | renamed | — |
 | — | `WithDialer(DialFunc)` | new | Custom dialer. |
@@ -957,7 +996,7 @@ names a replacement or states "no equivalent".
 | `Connection.AddSession(id) hsms.Session` | — | removed | Connection is the endpoint. |
 | `Session.ID() uint16` | `Connection.SessionID() uint16` | renamed | Reports the wire device ID. |
 | `Session.SendMessage/SendMessageAsync/SendMessageSync` | — | removed | Context-first `SendDataMessage`/`SendSECS2Message`. |
-| `Connection.GetMetrics() *secs1.ConnectionMetrics` | `Connection.Metrics() *hsms.ConnectionMetrics` | renamed | Block counters not surfaced; see section 11. |
+| `Connection.GetMetrics() *secs1.ConnectionMetrics` | `Connection.Metrics() *hsms.ConnectionMetrics` (shared) + `secs1.ConnectionMetrics` (via `BlockMetrics()` after type-assert to `secs1.Connection`) | changed | Block counters are surfaced but require type-asserting the connection to `secs1.Connection` and calling `BlockMetrics()`. See section 11. |
 | `Block`, `ParseBlock`, `SplitMessage`, `AssembleMessage`, block/control-byte consts | — | removed | Framing is internal; work at `hsms.DataMessage`. |
 | `Connection.GetLogger/IsSingleSession/IsGeneralSession/IsSECS1` | — | removed | No equivalent. |
 
