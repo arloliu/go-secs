@@ -485,6 +485,22 @@ func TestDecode_MultiByteLength(t *testing.T) {
 	})
 }
 
+// TestDecode_NeverClamps documents the invariant that wire decode never clamps a value: a valid
+// SECS-II byte stream cannot carry an out-of-range fixed-width integer, so decodeIntItem/
+// decodeUintItem never need clampInt64/clampUint64. This is a regression marker, not a behavior
+// under threat — see the item-8 integer clamp audit.
+func TestDecode_NeverClamps(t *testing.T) {
+	t.Parallel()
+
+	data := []byte{0xA5, 0x01, 0xFF} // U1[1], format 0xA5 (u1, 1 length byte), value 0xFF
+	got, err := Decode(data)
+	require.NoError(t, err)
+
+	vals, err := got.ToUint()
+	require.NoError(t, err)
+	assert.Equal(t, []uint64{255}, vals)
+}
+
 // TestDecode_Errors checks that malformed wire bytes return errors with non-nil errors.
 func TestDecode_Errors(t *testing.T) {
 	t.Parallel()

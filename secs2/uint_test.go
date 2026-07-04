@@ -118,6 +118,9 @@ func TestUintItem_Clamping(t *testing.T) {
 		{name: "U2 max overflow clamps to 65535", byteSize: 2, inputValue: uint(65536), expectedValue: 65535},
 		{name: "U4 max overflow clamps to MaxUint32", byteSize: 4, inputValue: uint64(math.MaxUint32 + 1), expectedValue: math.MaxUint32},
 		{name: "U1 positive int overflow clamps to 255", byteSize: 1, inputValue: int(300), expectedValue: 255},
+		{name: "U1 string overflow clamps to 255", byteSize: 1, inputValue: "256", expectedValue: 255},
+		{name: "U2 string overflow clamps to 65535", byteSize: 2, inputValue: "65536", expectedValue: 65535},
+		{name: "U8 string uint64 overflow clamps to MaxUint64", byteSize: 8, inputValue: "18446744073709551616", expectedValue: math.MaxUint64},
 	}
 
 	for _, test := range tests {

@@ -121,6 +121,10 @@ func TestIntItem_Clamping(t *testing.T) {
 		{name: "I4 max overflow clamps to MaxInt32", byteSize: 4, inputValue: int64(math.MaxInt32 + 1), expectedValue: math.MaxInt32},
 		{name: "I4 min overflow clamps to MinInt32", byteSize: 4, inputValue: int64(math.MinInt32 - 1), expectedValue: math.MinInt32},
 		{name: "I8 uint64 overflow clamps to MaxInt64", byteSize: 8, inputValue: uint64(math.MaxInt64) + 1, expectedValue: math.MaxInt64},
+		{name: "I1 string max overflow clamps to 127", byteSize: 1, inputValue: "128", expectedValue: 127},
+		{name: "I1 string min overflow clamps to -128", byteSize: 1, inputValue: "-129", expectedValue: -128},
+		{name: "I4 string max overflow clamps to MaxInt32", byteSize: 4, inputValue: "2147483648", expectedValue: math.MaxInt32},
+		{name: "I8 string int64 overflow clamps to MaxInt64", byteSize: 8, inputValue: "9223372036854775808", expectedValue: math.MaxInt64},
 	}
 
 	for _, test := range tests {
