@@ -65,6 +65,13 @@ func ToSystemBytes(id uint32) [4]byte {
 	return b
 }
 
+// FromSystemBytes decodes HSMS System Bytes (header bytes 6-9, big-endian) into a
+// message ID uint32. It is the inverse of [ToSystemBytes]:
+// FromSystemBytes(ToSystemBytes(id)) == id for all id.
+func FromSystemBytes(b [4]byte) uint32 {
+	return binary.BigEndian.Uint32(b[:])
+}
+
 func (m *msgIDGenerator) genID() uint32 {
 	return m.id.Add(1)
 }

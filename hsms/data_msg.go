@@ -105,6 +105,20 @@ func (msg *DataMessage) Function() uint8 { return msg.header[3] }
 // indicating that a reply is expected.
 func (msg *DataMessage) WaitBit() bool { return msg.header[2]>>7 != 0 }
 
+// ID returns the message's System Bytes decoded as a uint32 (big-endian), the
+// application-level message identifier. Equivalent to
+// FromSystemBytes(msg.SystemBytes()).
+func (msg *DataMessage) ID() uint32 { return FromSystemBytes(msg.SystemBytes()) }
+
+// NewEmptyDataMessage returns a zero-value DataMessage: stream 0, function 0, no wait bit,
+// session ID 0, zero System Bytes, and an empty SECS-II body. It never returns an error and
+// exists so tests can construct a baseline message without the six-argument NewDataMessage call
+// (DataMessage's fields are unexported, so &DataMessage{} does not compile outside this package).
+func NewEmptyDataMessage() *DataMessage {
+	msg, _ := NewDataMessage(0, 0, false, 0, [4]byte{}, nil) //nolint:errcheck // arguments are statically valid
+	return msg
+}
+
 // Item returns the SECS-II item body of this message.
 //
 // For tree-path (constructed) messages the item is returned directly from the

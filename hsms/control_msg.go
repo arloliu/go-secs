@@ -74,6 +74,11 @@ func (msg *ControlMessage) WaitBit() bool {
 	return msg.replyExpected
 }
 
+// ID returns the control message's System Bytes decoded as a uint32 (big-endian).
+// For Linktest/Select/Deselect/Reject req/rsp pairs this is the transaction
+// correlation key. Equivalent to FromSystemBytes(msg.SystemBytes()).
+func (msg *ControlMessage) ID() uint32 { return FromSystemBytes(msg.SystemBytes()) }
+
 // RejectReasonCode returns the reject reason code from a Reject.req message.
 // It delegates to GetRejectReasonCode and is provided as a convenience method.
 // The returned code matches [RejectError.Reason] (a byte).

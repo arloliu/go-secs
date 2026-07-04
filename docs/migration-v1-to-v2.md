@@ -413,7 +413,7 @@ interface. Both `*hsms.DataMessage` and `*hsms.ControlMessage` satisfy it.
 | `msg.SessionID() uint16` | `msg.SessionID() uint16` | Unchanged. |
 | `msg.SystemBytes() []byte` | `msg.SystemBytes() [4]byte` | Value type; no internal aliasing. |
 | `msg.Header() []byte` | `msg.HeaderBytes() [10]byte` | Value type. |
-| `msg.ID() uint32` / `SetID(id)` | — | No numeric message-ID accessor; use `SystemBytes() [4]byte`. |
+| `msg.ID() uint32` / `SetID(id)` | `msg.ID() uint32` | No setter (messages are immutable); `ID()` decodes `SystemBytes()` as a big-endian uint32. See `hsms.FromSystemBytes`. |
 | `msg.Error()` / `SetError()` | — (removed) | See the error-model note below. |
 | `msg.IsDataMessage()` / `ToDataMessage()` | type-assert `*hsms.DataMessage` | Or switch on `msg.Type()`. |
 | `msg.IsControlMessage()` / `ToControlMessage()` | type-assert `*hsms.ControlMessage` | Same. |
@@ -930,7 +930,7 @@ names a replacement or states "no equivalent".
 | `HSMSMessage` (interface) | `Message` | renamed | Read-only interface; drop setters/`Free`/`Clone`. |
 | `Message.Type() int` | `Message.Type() MsgType` | changed | Defined type; compare to `hsms.*MsgType`. |
 | `HSMSMessage.SetSessionID/SetID/SetSystemBytes/SetHeader/SetError` | — | removed | Immutable; use `WithSessionID`/`WithSystemBytes` or `Derive().Build()`. |
-| `HSMSMessage.ID()/SetID() uint32` | — | removed | No numeric ID; use `SystemBytes() [4]byte`. |
+| `HSMSMessage.ID()/SetID() uint32` | `DataMessage.ID()` / `ControlMessage.ID() uint32` | changed | No setter (immutable); `ID()` decodes `SystemBytes()` as a big-endian uint32 (`hsms.FromSystemBytes` is the free-function form). |
 | `HSMSMessage.Error()/SetError()` | — | removed | Body error via `DataMessage.Item()`/`DecodeErr()`; reject via `*RejectError`. |
 | `HSMSMessage.Header() []byte` | `Message.HeaderBytes() [10]byte` | changed | Value type. |
 | `HSMSMessage.SystemBytes() []byte` | `Message.SystemBytes() [4]byte` | changed | Value type (no aliasing). |

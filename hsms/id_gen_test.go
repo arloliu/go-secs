@@ -1,6 +1,7 @@
 package hsms
 
 import (
+	"math"
 	"sync"
 	"testing"
 )
@@ -62,5 +63,36 @@ func TestToSystemBytesRoundTrip(t *testing.T) {
 	}
 	if got := msg.SystemBytes(); got != ToSystemBytes(id) {
 		t.Errorf("message System Bytes = %v, want %v", got, ToSystemBytes(id))
+	}
+}
+
+func TestFromSystemBytes(t *testing.T) {
+	tests := []struct {
+		name string
+		b    [4]byte
+		want uint32
+	}{
+		{name: "zero", b: [4]byte{0, 0, 0, 0}, want: 0},
+		{name: "one, big-endian", b: [4]byte{0, 0, 0, 1}, want: 1},
+		{name: "max", b: [4]byte{0xFF, 0xFF, 0xFF, 0xFF}, want: math.MaxUint32},
+		{name: "123456", b: [4]byte{0x00, 0x01, 0xe2, 0x40}, want: 123456},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := FromSystemBytes(test.b); got != test.want {
+				t.Errorf("FromSystemBytes(%v) = %d, want %d", test.b, got, test.want)
+			}
+		})
+	}
+}
+
+func TestFromSystemBytesRoundTrip(t *testing.T) {
+	ids := []uint32{0, 1, math.MaxUint32, GenerateMsgID(), GenerateMsgID()}
+
+	for _, id := range ids {
+		if got := FromSystemBytes(ToSystemBytes(id)); got != id {
+			t.Errorf("FromSystemBytes(ToSystemBytes(%d)) = %d, want %d", id, got, id)
+		}
 	}
 }

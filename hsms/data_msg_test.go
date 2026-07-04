@@ -539,3 +539,35 @@ func TestDataMessage_With_BodyNotCopied(t *testing.T) {
 	assert.LessOrEqual(t, allocsSB, float64(1), "WithSystemBytes must not allocate proportional to body size")
 	assert.Equal(t, msg.AppendBodyTo(nil), sink)
 }
+
+// TestDataMessage_ID verifies ID() decodes the message's System Bytes as a
+// big-endian uint32, matching FromSystemBytes(msg.SystemBytes()).
+func TestDataMessage_ID(t *testing.T) {
+	sysBytes := hsms.ToSystemBytes(123456)
+	msg, err := hsms.NewDataMessage(1, 1, false, 0, sysBytes, secs2.NewEmptyItem())
+	require.NoError(t, err)
+
+	assert.Equal(t, uint32(123456), msg.ID())
+	assert.Equal(t, hsms.FromSystemBytes(sysBytes), msg.ID())
+}
+
+// TestNewEmptyDataMessage verifies the zero-value shape: stream 0, function 0,
+// no wait bit, session ID 0, zero System Bytes, and an empty SECS-II body.
+func TestNewEmptyDataMessage(t *testing.T) {
+	msg := hsms.NewEmptyDataMessage()
+
+	assert.Equal(t, uint8(0), msg.Stream())
+	assert.Equal(t, uint8(0), msg.Function())
+	assert.False(t, msg.WaitBit())
+	assert.Equal(t, uint16(0), msg.SessionID())
+	assert.Equal(t, [4]byte{}, msg.SystemBytes())
+	assert.Equal(t, 0, msg.BodyLen())
+
+	item, err := msg.Item()
+	require.NoError(t, err)
+	assert.True(t, item.IsEmpty())
+
+	// Two independent calls produce equal messages.
+	other := hsms.NewEmptyDataMessage()
+	assert.True(t, msg.Equal(other))
+}

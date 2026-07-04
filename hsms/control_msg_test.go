@@ -396,3 +396,12 @@ func TestToBytes_AlwaysFourteenBytes(t *testing.T) {
 		assert.Equal(t, []byte{0x00, 0x00, 0x00, 0x0A}, msg.ToBytes()[:4])
 	}
 }
+
+// TestControlMessage_ID verifies ID() decodes the message's System Bytes as a
+// big-endian uint32, matching FromSystemBytes(msg.SystemBytes()).
+func TestControlMessage_ID(t *testing.T) {
+	msg := hsms.NewLinktestReq(testSystemBytes)
+
+	assert.Equal(t, uint32(0x01020304), msg.ID())
+	assert.Equal(t, hsms.FromSystemBytes(testSystemBytes), msg.ID())
+}
