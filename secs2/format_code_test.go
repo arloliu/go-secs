@@ -14,7 +14,7 @@ func TestFormatCodeDefinedType(t *testing.T) {
 
 	require := require.New(t)
 
-	rt := reflect.TypeOf(ListFormatCode)
+	rt := reflect.TypeFor[FormatCode]()
 	require.Equal(reflect.Uint8, rt.Kind())
 	require.Equal("FormatCode", rt.Name())
 	require.Contains(rt.PkgPath(), "secs2")

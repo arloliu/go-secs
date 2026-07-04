@@ -538,10 +538,7 @@ func secs1SplitReply(h secs1Header, body []byte) [][]byte {
 	var frames [][]byte
 	blockNumber := uint16(1)
 	for off := 0; off < len(body); off += secs1MaxBodySize {
-		end := off + secs1MaxBodySize
-		if end > len(body) {
-			end = len(body)
-		}
+		end := min(off+secs1MaxBodySize, len(body))
 		last := end == len(body)
 		frames = append(frames, secs1PackBlock(secs1BuildHeader(h, blockNumber, last), body[off:end]))
 		blockNumber++

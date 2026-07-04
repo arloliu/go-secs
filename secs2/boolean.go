@@ -29,6 +29,12 @@ var _ Item = (*BooleanItem)(nil)
 //
 // If any argument is of an unsupported type, a deferred error is stored on the returned item;
 // call Error() to inspect it. The deferred-error model means this function never panics.
+//
+// Parameters:
+//   - values: the input arguments representing boolean values.
+//
+// Returns:
+//   - Item: the created BooleanItem.
 func NewBooleanItem(values ...any) Item {
 	item := &BooleanItem{}
 

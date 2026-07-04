@@ -43,6 +43,13 @@ var _ Item = (*LocalizedStrItem)(nil)
 //
 // If len(value)+2 exceeds MaxByteSize, a deferred error is stored on the returned item;
 // call Error() to inspect it.
+//
+// Parameters:
+//   - lsh: the language/character-set header value.
+//   - value: the input Go string.
+//
+// Returns:
+//   - Item: the created LocalizedStrItem.
 func NewLocalizedStrItem(lsh uint16, value string) Item {
 	item := &LocalizedStrItem{}
 
@@ -60,6 +67,12 @@ func NewLocalizedStrItem(lsh uint16, value string) Item {
 
 // NewUTF8StrItem is a convenience constructor that creates a LocalizedStrItem using the UTF-8
 // encoding scheme (LSH = LSHUTF8 = 2).
+//
+// Parameters:
+//   - value: the input Go string.
+//
+// Returns:
+//   - Item: the created LocalizedStrItem using UTF-8 encoding.
 func NewUTF8StrItem(value string) Item {
 	return NewLocalizedStrItem(LSHUTF8, value)
 }

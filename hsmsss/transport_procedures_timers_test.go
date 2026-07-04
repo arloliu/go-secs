@@ -81,8 +81,7 @@ func TestT7_CancelledWhenSelectCompletes(t *testing.T) {
 	rt.setState(hsms.NotSelectedState)
 	rt.setTimers(hsms.TimerConfig{T7: 80 * time.Millisecond})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	tr := newLinktestTransport(t, rt, ctx)
 
@@ -106,8 +105,7 @@ func TestT7_DeselectReArms(t *testing.T) {
 	rt.setState(hsms.SelectedState)
 	rt.setTimers(hsms.TimerConfig{T6: time.Second, T7: 30 * time.Millisecond})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	tr := newLinktestTransport(t, rt, ctx)
 
@@ -136,8 +134,7 @@ func TestT7_NoGoroutineOutlivesStop(t *testing.T) {
 	rt.setState(hsms.NotSelectedState)
 	rt.setTimers(hsms.TimerConfig{T7: 10 * time.Second}) // long: only Stop's cancel can end it in time
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	tr := newLinktestTransport(t, rt, ctx)
 	tr.armT7(tr.wg)
@@ -156,8 +153,7 @@ func TestT7_DisabledWhenZero(t *testing.T) {
 	rt.setState(hsms.NotSelectedState)
 	rt.setTimers(hsms.TimerConfig{T7: 0}) // disabled
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	tr := newLinktestTransport(t, rt, ctx)
 	tr.armT7(tr.wg)

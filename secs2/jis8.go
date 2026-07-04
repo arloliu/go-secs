@@ -22,6 +22,12 @@ var _ Item = (*JIS8Item)(nil)
 // Any string is accepted; strict-mode JIS-8 validation is not currently enforced. If the
 // string's byte length exceeds MaxByteSize, a deferred error is stored on the returned item;
 // call Error() to inspect it.
+//
+// Parameters:
+//   - value: the input Go string.
+//
+// Returns:
+//   - Item: the created JIS8Item.
 func NewJIS8Item(value string) Item {
 	item := &JIS8Item{}
 

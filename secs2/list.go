@@ -25,6 +25,12 @@ var _ Item = (*ListItem)(nil)
 // nil children are silently skipped. If the total
 // child count exceeds MaxByteSize, a deferred error is stored on the returned
 // item; call Error() to inspect it.
+//
+// Parameters:
+//   - values: the child items to include in the list.
+//
+// Returns:
+//   - Item: the created ListItem.
 func NewListItem(values ...Item) Item {
 	item := &ListItem{}
 

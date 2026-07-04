@@ -106,7 +106,7 @@ func (e *Encoder) encodeBinary(sb *strings.Builder, it secs2.Item) {
 	sb.WriteString("<B[")
 	sb.WriteString(strconv.Itoa(n))
 	sb.WriteByte(']')
-	for i := 0; i < n; i++ {
+	for i := range n {
 		b, _ := it.ByteAt(i)
 		// secs2 ToSML emits UNPADDED base-2 (e.g. 0b1, 0b10, 0b11111111).
 		sb.WriteString(" 0b")

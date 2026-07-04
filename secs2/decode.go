@@ -13,9 +13,18 @@ import (
 // MaxListDepth caps nested-list recursion to guard against stack exhaustion on malicious input.
 const MaxListDepth = 64
 
-// Decode parses a single SECS-II data item from its wire bytes (SEMI E5 §9). It is the inverse of
-// Item.AppendTo/ToBytes. Empty input yields NewEmptyItem(). Returns an error on malformed
-// input (bad format code, truncated length/payload, or nesting deeper than MaxListDepth).
+// Decode parses a single SECS-II data item from its wire bytes (SEMI E5 §9).
+//
+// It is the inverse of Item.AppendTo/ToBytes. Empty input yields NewEmptyItem().
+// Returns an error on malformed input (bad format code, truncated length/payload,
+// or nesting deeper than MaxListDepth).
+//
+// Parameters:
+//   - data: the wire bytes to parse.
+//
+// Returns:
+//   - Item: the parsed SECS-II data item.
+//   - error: syntax or boundary error if parsing fails.
 func Decode(data []byte) (Item, error) {
 	if len(data) == 0 {
 		return NewEmptyItem(), nil
@@ -27,16 +36,24 @@ func Decode(data []byte) (Item, error) {
 	return item, err
 }
 
-// DecodeOwned is an internal-transport-only entry point. It parses a single SECS-II item from a
-// body the library already owns, WITHOUT copying (no bytes.Clone): the returned item tree's leaf
-// raw fields alias body.Bytes(), so the caller MUST keep that buffer alive for as long as the
-// item is retained.
+// DecodeOwned is an internal-transport-only entry point.
+//
+// It parses a single SECS-II item from a body the library already owns, WITHOUT copying
+// (no bytes.Clone): the returned item tree's leaf raw fields alias body.Bytes(), so the
+// caller MUST keep that buffer alive for as long as the item is retained.
 //
 // Its argument is a capability token whose type lives in an internal package, so external code
 // cannot construct one and therefore cannot call this function at all. External callers must use
 // Decode, which copies its input and is safe with caller-owned buffers. This no-copy path exists
 // solely for the in-repo transport layer that frames SECS-II message bodies; secs2.Decode([]byte)
 // stays copy-only.
+//
+// Parameters:
+//   - body: the capability token wrapping the owned SECS-II wire bytes.
+//
+// Returns:
+//   - Item: the parsed SECS-II data item.
+//   - error: syntax or boundary error if parsing fails.
 func DecodeOwned(body framecodec.OwnedSECS2Body) (Item, error) {
 	raw := body.Bytes()
 	if len(raw) == 0 {

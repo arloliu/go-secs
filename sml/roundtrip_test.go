@@ -106,7 +106,7 @@ func TestEncoder_ConcurrentSafe(t *testing.T) {
 	it := secs2.L(secs2.A("x"), secs2.I4(1, 2, 3))
 	want := it.ToSML()
 	var wg sync.WaitGroup
-	for i := 0; i < 32; i++ {
+	for range 32 {
 		wg.Go(func() { require.Equal(t, want, enc.Encode(it)) })
 	}
 	wg.Wait()
@@ -119,7 +119,7 @@ func TestParse_NoGlobalState(t *testing.T) {
 	// two must not leak strictness between instances (proves per-instance, not
 	// package-global, strict state).
 	strictSrc := "S1F1\n<A[3] \"a\" 0x0A \"b\">\n."
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		// Strict parse: 0x0A is decoded as a byte, producing "a\nb".
 		ms, err := ParseStrict(strictSrc)
 		require.NoError(t, err)

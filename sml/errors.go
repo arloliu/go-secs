@@ -21,6 +21,7 @@ type ParseError struct {
 	Msg    string // human-readable description of the syntax error
 }
 
+// Error returns the formatted string representation of the ParseError.
 func (e *ParseError) Error() string {
 	return fmt.Sprintf("sml: line %d col %d (offset %d): %s", e.Line, e.Col, e.Offset, e.Msg)
 }

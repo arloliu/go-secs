@@ -34,6 +34,13 @@ var _ Item = (*UintItem)(nil)
 // Negative signed integer values produce a deferred error. If byteSize is invalid or a value
 // cannot be converted (e.g., an unsupported type or non-numeric string), a deferred error is
 // stored on the returned item; call Error() to inspect it.
+//
+// Parameters:
+//   - byteSize: the size in bytes of each unsigned integer (1, 2, 4, or 8).
+//   - values: the input arguments representing unsigned integer values.
+//
+// Returns:
+//   - Item: the created UintItem.
 func NewUintItem(byteSize int, values ...any) Item {
 	item := &UintItem{byteSize: byteSize}
 

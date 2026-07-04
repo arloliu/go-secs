@@ -22,6 +22,12 @@ var _ Item = (*ASCIIItem)(nil)
 // Any string is accepted, including strings that contain non-ASCII bytes; strict-mode
 // ASCII validation is not currently enforced. If the string's byte length exceeds
 // MaxByteSize, a deferred error is stored on the returned item; call Error() to inspect it.
+//
+// Parameters:
+//   - value: the input Go string.
+//
+// Returns:
+//   - Item: the created ASCIIItem.
 func NewASCIIItem(value string) Item {
 	item := &ASCIIItem{}
 

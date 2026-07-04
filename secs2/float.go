@@ -40,6 +40,13 @@ var _ Item = (*FloatItem)(nil)
 //
 // If byteSize is invalid or a value cannot be converted, a deferred error is stored on the
 // returned item; call Error() to inspect it.
+//
+// Parameters:
+//   - byteSize: the size in bytes of each float (4 or 8).
+//   - values: the input arguments representing floating-point values.
+//
+// Returns:
+//   - Item: the created FloatItem.
 func NewFloatItem(byteSize int, values ...any) Item {
 	item := &FloatItem{byteSize: byteSize}
 

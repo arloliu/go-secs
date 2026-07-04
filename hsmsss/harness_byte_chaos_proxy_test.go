@@ -206,11 +206,8 @@ func (bp *ByteChaosProxy) ObservedRejects(toClient bool) []byte {
 // Start begins accepting connections in a background goroutine.
 func (bp *ByteChaosProxy) Start(t *testing.T) {
 	t.Helper()
-	bp.wg.Add(1)
 
-	go func() {
-		defer bp.wg.Done()
-
+	bp.wg.Go(func() {
 		for {
 			clientConn, err := bp.listener.Accept()
 			if err != nil {
@@ -237,7 +234,7 @@ func (bp *ByteChaosProxy) Start(t *testing.T) {
 			go bp.pump(clientConn, targetConn, false) // client → target
 			go bp.pump(targetConn, clientConn, true)  // target → client
 		}
-	}()
+	})
 }
 
 // Stop closes the listener and all active connections, then waits for all
@@ -381,10 +378,7 @@ func (bp *ByteChaosProxy) applyFault(dst net.Conn, lenBuf, payload []byte, spec 
 }
 
 func (bp *ByteChaosProxy) applyPartialLength(dst net.Conn, lenBuf []byte, spec *byteFaultSpec) bool {
-	n := max(spec.PrefixBytes, 1)
-	if n > 4 {
-		n = 4
-	}
+	n := min(max(spec.PrefixBytes, 1), 4)
 
 	_, _ = dst.Write(lenBuf[:n])
 	time.Sleep(spec.Hold)
@@ -397,10 +391,7 @@ func (bp *ByteChaosProxy) applyPartialPayload(dst net.Conn, lenBuf, payload []by
 		return false
 	}
 
-	n := min(spec.PrefixBytes, len(payload))
-	if n < 0 {
-		n = 0
-	}
+	n := max(min(spec.PrefixBytes, len(payload)), 0)
 
 	_, _ = dst.Write(payload[:n])
 	time.Sleep(spec.Hold)

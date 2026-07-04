@@ -103,11 +103,8 @@ func (cp *ChaosProxy) SetFilter(f ProxyFilter) {
 // (one per direction).
 func (cp *ChaosProxy) Start(t *testing.T) {
 	t.Helper()
-	cp.wg.Add(1)
 
-	go func() {
-		defer cp.wg.Done()
-
+	cp.wg.Go(func() {
 		for {
 			clientConn, err := cp.listener.Accept()
 			if err != nil {
@@ -134,7 +131,7 @@ func (cp *ChaosProxy) Start(t *testing.T) {
 			go cp.pump(clientConn, targetConn, true)
 			go cp.pump(targetConn, clientConn, false)
 		}
-	}()
+	})
 }
 
 // Stop closes the listener and all active proxy connections, then waits for

@@ -32,6 +32,13 @@ var _ Item = (*IntItem)(nil)
 // Out-of-range values are clamped to the representable range for the given byteSize. If byteSize
 // is invalid or a value cannot be converted (e.g., an unsupported type or non-numeric string), a
 // deferred error is stored on the returned item; call Error() to inspect it.
+//
+// Parameters:
+//   - byteSize: the size in bytes of each integer (1, 2, 4, or 8).
+//   - values: the input arguments representing integer values.
+//
+// Returns:
+//   - Item: the created IntItem.
 func NewIntItem(byteSize int, values ...any) Item {
 	item := &IntItem{byteSize: byteSize}
 

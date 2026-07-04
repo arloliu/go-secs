@@ -33,6 +33,12 @@ var _ Item = (*BinaryItem)(nil)
 // If any argument is out of range or of an unsupported type, a deferred error is stored on the
 // returned item; call Error() to inspect it. The deferred-error model means this function never
 // panics.
+//
+// Parameters:
+//   - values: the input arguments representing binary bytes.
+//
+// Returns:
+//   - Item: the created BinaryItem.
 func NewBinaryItem(values ...any) Item {
 	item := &BinaryItem{}
 

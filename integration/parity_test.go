@@ -318,7 +318,7 @@ func TestParity_MetricsMoveIdentically(t *testing.T) {
 
 			before := snapshotDataMetrics(conn.Metrics())
 
-			for i := 0; i < metricsRoundtrips; i++ {
+			for range metricsRoundtrips {
 				reply, err := conn.SendDataMessage(context.Background(), 1, 1, true, secs2.NewASCIIItem("metric-roundtrip"))
 				require.NoError(t, err)
 				requireASCIIReply(t, reply, "metric-roundtrip")
@@ -423,7 +423,7 @@ func TestParity_GenerationIsolationAcrossReopen(t *testing.T) {
 			var wg sync.WaitGroup
 			release := make(chan struct{})
 
-			for i := 0; i < burst; i++ {
+			for range burst {
 				wg.Go(func() {
 					<-release
 					// A fresh item per send: never share a pooled item across concurrent sends.

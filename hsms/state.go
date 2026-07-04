@@ -22,6 +22,7 @@ const (
 	SelectedState
 )
 
+// String returns the string representation of the ConnState.
 func (s ConnState) String() string {
 	switch s {
 	case NotConnectedState:

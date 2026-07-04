@@ -73,8 +73,7 @@ func TestLinktest_AutoFiresWhileSelected(t *testing.T) {
 		return msg, nil // linktest transaction succeeds
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	tr := newLinktestTransport(t, rt, ctx)
 	tr.startLinktest(tr.wg)
@@ -107,8 +106,7 @@ func TestLinktest_ThresholdDisconnect(t *testing.T) {
 		return nil, context.DeadlineExceeded // every linktest times out (T6)
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	tr := newLinktestTransport(t, rt, ctx)
 	tr.startLinktest(tr.wg)
@@ -154,8 +152,7 @@ func TestLinktest_SuccessResetsFailCounter(t *testing.T) {
 		return nil, context.DeadlineExceeded
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	tr := newLinktestTransport(t, rt, ctx)
 	tr.startLinktest(tr.wg)
@@ -233,8 +230,7 @@ func TestSeparate_IgnoredWhileNotSelected(t *testing.T) {
 	rt := newRecRT()
 	rt.setState(hsms.NotSelectedState)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	tr := newLinktestTransport(t, rt, ctx)
 
 	keepReading := tr.handleSeparateReq()
@@ -256,8 +252,7 @@ func TestDeselect_WhileSelectedRepliesSuccessAndTransitions(t *testing.T) {
 		return msg, nil
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	tr := newLinktestTransport(t, rt, ctx)
 
 	// Start the auto-linktest so we can prove the Deselect responder stops it.
@@ -286,8 +281,7 @@ func TestDeselect_WhileNotSelectedRepliesFailureNoTransition(t *testing.T) {
 	rt := newRecRT()
 	rt.setState(hsms.NotSelectedState)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	tr := newLinktestTransport(t, rt, ctx)
 
 	req := hsms.NewDeselectReq(0xFFFF, rt.NextSystemBytes())
@@ -313,8 +307,7 @@ func TestSelect_DuplicateWhileSelectedRepliesAlreadyActive(t *testing.T) {
 	rt := newRecRT() // CommitSelected() returns false → the already-Selected duplicate case
 	rt.setState(hsms.SelectedState)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	tr := newLinktestTransport(t, rt, ctx)
 
 	req := hsms.NewSelectReq(0xFFFF, rt.NextSystemBytes())
@@ -366,8 +359,7 @@ func TestActive_SelectRspStatusHandling(t *testing.T) {
 				return rsp, nil
 			})
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 			tr := newLinktestTransport(t, rt, ctx)
 
 			tr.runSelectProcedure(ctx)
@@ -384,8 +376,7 @@ func TestLinktest_InboundReqAnswered(t *testing.T) {
 
 	rt := newRecRT()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	tr := newLinktestTransport(t, rt, ctx)
 
 	req := hsms.NewLinktestReq(rt.NextSystemBytes())
