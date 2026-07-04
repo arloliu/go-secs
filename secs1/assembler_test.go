@@ -50,7 +50,7 @@ func newCaptureAssembler(t *testing.T, cfg Config) (*assembler, *[][]byte) {
 		*frames = append(*frames, append([]byte(nil), f...))
 
 		return nil
-	}, cfg.Timers)
+	}, cfg.Timers, &ConnectionMetrics{})
 
 	return a, frames
 }
@@ -167,6 +167,8 @@ func TestAssembler_T4InterBlockGapDiscardsPartial(t *testing.T) {
 	require.NoError(t, a.accept(asmBlock(mh, 2, true, []byte("part2"))))
 	require.Empty(t, *frames, "a T4 inter-block gap must discard the partial — no frame delivered")
 	require.False(t, a.open, "the stale partial (and the orphaned block 2) must leave no open message")
+	require.Equal(t, uint64(1), a.metrics.PartialTimeoutCount(),
+		"the T4 inter-block discard must be counted exactly once")
 }
 
 // TestAssembler_T4LiveUpdate proves accept's T4 discard check reads T4 live: a gap of 200ms doesn't
@@ -183,7 +185,7 @@ func TestAssembler_T4LiveUpdate(t *testing.T) {
 		*frames = append(*frames, append([]byte(nil), f...))
 
 		return nil
-	}, timers) // 3-arg Task-3 signature — Task 9 has not landed yet at this point in the task order
+	}, timers, &ConnectionMetrics{})
 
 	fakeNow := time.Unix(0, 0)
 	a.now = func() time.Time { return fakeNow }
@@ -222,6 +224,8 @@ func TestAssembler_DuplicateMiddleBlockAssemblesOnce(t *testing.T) {
 
 	require.Len(t, *frames, 1, "a duplicate middle block must not break assembly — exactly one frame")
 	require.Equal(t, []byte("ABC"), (*frames)[0][10:], "the duplicate block must not be double-appended")
+	require.Equal(t, uint64(1), a.metrics.BlockDupDropCount(),
+		"the single retransmitted middle block must be counted as one dropped duplicate")
 }
 
 // --- (e) wrong-direction R-bit → dropped ---
@@ -243,6 +247,8 @@ func TestAssembler_WrongDirectionBlockDropped(t *testing.T) {
 	require.NoError(t, err, "a wrong-direction block is a protocol violation, not a link teardown")
 	require.Empty(t, *frames, "a wrong-direction block must NOT be delivered")
 	require.False(t, a.open, "a wrong-direction block must NOT open a partial message")
+	require.Equal(t, uint64(1), a.metrics.BlockDirDropCount(),
+		"the wrong-direction drop must be counted exactly once")
 }
 
 // withHSMSLengthPrefix prepends the 4-byte big-endian HSMS length prefix to a synthesized frame so it

@@ -35,6 +35,7 @@ type lineIO struct {
 	reader  *bufio.Reader           // THE sole reader for this conn/generation (see G-A invariant)
 	now     func() time.Time        // injectable clock for the T1/T2 conn read deadlines (default time.Now)
 	timers  func() hsms.TimerConfig // LIVE T1/T2 source; re-read on every use so UpdateConfigOptions(WithT1/WithT2) reaches the line engine
+	metrics *ConnectionMetrics      // block-level counters (secs1's own type — see secs1/metrics.go)
 	isEquip bool                    // true = equipment (master); false = host (slave)
 }
 
@@ -44,12 +45,13 @@ type lineIO struct {
 // fresh on every I/O operation (never cached), so a live hsms.Connection.UpdateConfigOptions(WithT1(...))
 // / WithT2(...)) takes effect on the NEXT block transaction of this generation, mirroring how
 // hsmsss's readFrame reads T8 live via rt.Timers().
-func newLineIO(conn net.Conn, cfg Config, timers func() hsms.TimerConfig) *lineIO {
+func newLineIO(conn net.Conn, cfg Config, timers func() hsms.TimerConfig, metrics *ConnectionMetrics) *lineIO {
 	return &lineIO{
 		conn:    conn,
 		reader:  bufio.NewReader(conn),
 		now:     time.Now,
 		timers:  timers,
+		metrics: metrics,
 		isEquip: cfg.IsEquip(),
 	}
 }
@@ -147,6 +149,7 @@ func (l *lineIO) receiveBlock(ctx context.Context) (block, error) {
 	lengthByte, err := l.readByte(l.timers().T2)
 	if err != nil {
 		_ = l.writeByte(nak)
+		l.metrics.incBlockNAKSentCount()
 
 		return block{}, fmt.Errorf("%w: waiting for length byte: %w", ErrT2Timeout, err)
 	}
@@ -157,6 +160,7 @@ func (l *lineIO) receiveBlock(ctx context.Context) (block, error) {
 	if n < minBlockLength || n > maxBlockLength {
 		l.drainUntilSilence()
 		_ = l.writeByte(nak)
+		l.metrics.incBlockNAKSentCount()
 
 		return block{}, fmt.Errorf("%w: length byte %d out of [%d, %d]", ErrInvalidLength, n, minBlockLength, maxBlockLength)
 	}
@@ -166,6 +170,7 @@ func (l *lineIO) receiveBlock(ctx context.Context) (block, error) {
 	buf := make([]byte, n+checksumSize)
 	if err := l.readFull(buf); err != nil {
 		_ = l.writeByte(nak)
+		l.metrics.incBlockNAKSentCount()
 
 		return block{}, fmt.Errorf("%w: reading block data: %w", ErrT1Timeout, err)
 	}
@@ -176,6 +181,7 @@ func (l *lineIO) receiveBlock(ctx context.Context) (block, error) {
 	if err != nil {
 		l.drainUntilSilence()
 		_ = l.writeByte(nak)
+		l.metrics.incBlockNAKSentCount()
 
 		return block{}, err
 	}
@@ -184,6 +190,8 @@ func (l *lineIO) receiveBlock(ctx context.Context) (block, error) {
 	if err := l.writeByte(ack); err != nil {
 		return blk, fmt.Errorf("secs1: failed to send ACK: %w", err)
 	}
+
+	l.metrics.incBlockRecvCount()
 
 	return blk, nil
 }
@@ -323,11 +331,17 @@ func (l *lineIO) sendBlock(ctx context.Context, blk block, retryLimit int, deliv
 		result, err := l.sendBlockOnce(ctx, blk)
 		switch result {
 		case sendOK:
+			l.metrics.incBlockSendCount()
+
 			return nil
 
 		case sendContention:
 			// Slave-yield ACTION (§7.8.2.1): sendBlockOnce DETECTED the master's contending ENQ
-			// but did not act. Grant the master line control with EOT, then take its block.
+			// but did not act. The yield itself has now happened — count it once here, regardless of
+			// whether the subsequent receive succeeds or fails. Grant the master line control with
+			// EOT, then take its block.
+			l.metrics.incContentionYieldCount()
+
 			if werr := l.writeByte(eot); werr != nil {
 				return fmt.Errorf("secs1: send EOT (contention yield): %w", werr)
 			}
@@ -336,6 +350,7 @@ func (l *lineIO) sendBlock(ctx context.Context, blk block, retryLimit int, deliv
 			if rerr != nil {
 				// Anti-starvation (§7.8.2.1): a failed receive of the master's block is a normal
 				// retry — do NOT reset the counter and do NOT deliver.
+				l.metrics.incBlockRetryCount()
 				retry++
 
 				continue
@@ -353,6 +368,7 @@ func (l *lineIO) sendBlock(ctx context.Context, blk block, retryLimit int, deliv
 			continue
 
 		case sendRetry:
+			l.metrics.incBlockRetryCount()
 			retry++
 
 			continue
@@ -364,6 +380,8 @@ func (l *lineIO) sendBlock(ctx context.Context, blk block, retryLimit int, deliv
 			// Unreachable: sendResult is a closed enum fully handled above.
 		}
 	}
+
+	l.metrics.incBlockSendFailedCount()
 
 	return ErrSendFailed
 }

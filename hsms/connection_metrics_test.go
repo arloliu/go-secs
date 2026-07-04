@@ -52,36 +52,18 @@ func TestConnectionMetrics_DataMsgCounters(t *testing.T) {
 	require.Equal(t, uint64(2), m.DataMsgErrCount())
 }
 
-func TestConnectionMetrics_LinktestCounters(t *testing.T) {
-	var m ConnectionMetrics
+func TestConnectionMetrics_ReconnectsAndReconnecting(t *testing.T) {
+	m := &ConnectionMetrics{}
 
-	require.Equal(t, uint64(0), m.LinktestSendCount())
-	require.Equal(t, uint64(0), m.LinktestRecvCount())
-	require.Equal(t, uint64(0), m.LinktestErrCount())
+	require.Equal(t, uint64(0), m.Reconnects())
+	require.Equal(t, int64(0), m.Reconnecting())
 
-	m.incLinktestSend()
-	require.Equal(t, uint64(1), m.LinktestSendCount())
-
-	m.incLinktestRecv()
-	m.incLinktestRecv()
-	require.Equal(t, uint64(2), m.LinktestRecvCount())
-
-	m.incLinktestErr()
-	require.Equal(t, uint64(1), m.LinktestErrCount())
-}
-
-func TestConnectionMetrics_ConnRetry(t *testing.T) {
-	var m ConnectionMetrics
-
-	require.Equal(t, int64(0), m.ConnRetryCount())
-
+	m.incReconnects()
 	m.incConnRetry()
-	m.incConnRetry()
-	require.Equal(t, int64(2), m.ConnRetryCount())
+
+	require.Equal(t, uint64(1), m.Reconnects())
+	require.Equal(t, int64(1), m.Reconnecting())
 
 	m.decConnRetry()
-	require.Equal(t, int64(1), m.ConnRetryCount())
-
-	m.decConnRetry()
-	require.Equal(t, int64(0), m.ConnRetryCount())
+	require.Equal(t, int64(0), m.Reconnecting())
 }

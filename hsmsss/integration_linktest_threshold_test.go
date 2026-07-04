@@ -96,7 +96,7 @@ func TestHSMS_LinktestFailThreshold_ResetsOnSuccess(t *testing.T) {
 	// Clear the Select-handshake transitions so a later NotConnected event is unambiguously a fault.
 	drainStateCh(active.states)
 
-	m := active.conn.Metrics()
+	m := controlMetrics(t, active)
 
 	// Phase 0 (sanity): the auto-linktest is running — at least one Linktest.req reached the wire.
 	require.Eventually(t, func() bool {

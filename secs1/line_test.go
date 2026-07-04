@@ -57,7 +57,7 @@ func newLinePair(t *testing.T, cfg Config) (*lineIO, net.Conn) {
 	require.NoError(t, a.err)
 	t.Cleanup(func() { _ = a.conn.Close() })
 
-	return newLineIO(local, cfg, cfg.Timers), a.conn
+	return newLineIO(local, cfg, cfg.Timers, &ConnectionMetrics{}), a.conn
 }
 
 // peerWrite writes b to the scripted peer, flagging (not aborting) on error so it is safe to call
@@ -159,6 +159,7 @@ func TestLineReceiveBlock_BadChecksum(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrChecksumMismatch)
 	require.Equal(t, []byte{nak}, <-nakCh, "receiver must NAK a checksum mismatch")
+	require.Equal(t, uint64(1), line.metrics.BlockNAKSentCount(), "a NAK'd inbound block must be counted")
 }
 
 func TestLineReceiveBlock_InvalidLength(t *testing.T) {

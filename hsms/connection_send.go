@@ -163,17 +163,9 @@ func (c *connection) writeFrame(ctx context.Context, e *epoch, msg Message) erro
 	// On-wire send counters — the single "committed to the wire" chokepoint, mirroring
 	// incDataMsgRecv in DeliverOwnedFrame on the receive side. Counted exactly once per frame
 	// that reached the transport: v2 never retries a send, and a B1/B2-dropped data message
-	// returns above without reaching here. Data frames (including secondary/reply sends) bump
-	// DataMsgSendCount; a Linktest.req — which only the initiator's runLinktest emits, via the
-	// synchronous send path — bumps LinktestSendCount. All other control frames are intentionally
-	// uncounted. Both are lock-free atomic adds cheap enough for the hot send path.
-	switch {
-	case isData:
+	// returns above without reaching here.
+	if isData {
 		c.metrics.incDataMsgSend()
-	case msg.Type() == LinktestReqType:
-		c.metrics.incLinktestSend()
-	default:
-		// all other control frames are intentionally uncounted
 	}
 
 	return nil
@@ -216,11 +208,6 @@ func (c *connection) sendWaitReply(callerCtx context.Context, msg Message) (Mess
 	// rsp (dm == nil here) and are never short-circuited.
 	fireAndForget := dm != nil && !dm.WaitBit()
 
-	// Only the initiator's runLinktest emits a Linktest.req, and only via this synchronous
-	// send path, so a Linktest.req observed here identifies an INITIATOR linktest round-trip.
-	// Evaluated only for non-data frames so the hot data-send path never calls Type().
-	isLinktestReq := !isData && msg.Type() == LinktestReqType
-
 	// B1 gate (data only) — refuse before any register/write while not Selected (B3 chokepoint).
 	if isData && !c.IsSelected() {
 		c.dropNotSelected()
@@ -245,9 +232,6 @@ func (c *connection) sendWaitReply(callerCtx context.Context, msg Message) (Mess
 		// error; a genuine transport write failure does.
 		if isData && isCountedSendErr(err) {
 			c.metrics.incDataMsgErr()
-		}
-		if isLinktestReq && isCountedLinktestErr(err) {
-			c.metrics.incLinktestErr()
 		}
 
 		return nil, err
@@ -282,37 +266,19 @@ func (c *connection) sendWaitReply(callerCtx context.Context, msg Message) (Mess
 
 	select {
 	case res := <-ch:
-		// A correlated result arrived: either a reply (res.msg, res.err == nil) or a peer
-		// Reject.req routed as res.err (*RejectError, Fix A). An initiator linktest counts a
-		// completed round-trip only on a genuine reply, never on a Reject.
-		if isLinktestReq && res.err == nil {
-			c.metrics.incLinktestRecv()
-		}
-
 		return res.msg, res.err
 	case <-timer.C:
-		// Protocol timeout: T3 (data) or T6 (control/linktest) — a transaction failure.
+		// Protocol timeout: T3 (data) — a transaction failure.
 		if isData {
 			c.metrics.incDataMsgErr()
-		}
-		if isLinktestReq {
-			c.metrics.incLinktestErr()
 		}
 
 		return nil, timeoutErr
 	case <-e.ctx.Done():
-		// Connection teardown/drop — a lifecycle event, NOT a data/linktest transaction error,
-		// so a normal Close mid-transaction never inflates either cumulative error counter.
+		// Connection teardown/drop — a lifecycle event, NOT a data transaction error, so a
+		// normal Close mid-transaction never inflates the cumulative error counter.
 		return nil, ErrConnClosed
 	case <-callerCtx.Done():
-		// Caller cancellation (D5a-7: cancelling the wait is a legitimate caller action, not a
-		// transaction failure). runLinktest wraps its send in a T6 deadline, so a
-		// DeadlineExceeded here IS the linktest T6 timeout and counts as a linktest error; a
-		// plain Cancel (teardown) does not. A data caller-cancel is never a data error.
-		if isLinktestReq && errors.Is(callerCtx.Err(), context.DeadlineExceeded) {
-			c.metrics.incLinktestErr()
-		}
-
 		return nil, callerCtx.Err()
 	}
 }
@@ -326,14 +292,6 @@ func isCountedSendErr(err error) bool {
 		!errors.Is(err, ErrConnClosed) &&
 		!errors.Is(err, context.Canceled) &&
 		!errors.Is(err, context.DeadlineExceeded)
-}
-
-// isCountedLinktestErr reports whether a writeFrame error on a Linktest.req send counts as a
-// linktest error (LinktestErrCount). Teardown (ErrConnClosed) and caller cancellation
-// (context.Canceled) are excluded; a genuine transport write failure counts. (Control sends are
-// never NotSelected-gated, so ErrNotSelectedState cannot occur here.)
-func isCountedLinktestErr(err error) bool {
-	return !errors.Is(err, ErrConnClosed) && !errors.Is(err, context.Canceled)
 }
 
 // drainSendCh is the per-generation async sender goroutine (spec §5.5, D5a-1 / J3). Spawned in

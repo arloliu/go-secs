@@ -18,7 +18,7 @@ package hsmsss
 //     (no reconnect loop spins on a never-available port — startActive dials synchronously). So the
 //     backoff test establishes a live TCP generation first, then drops it, so the reconnect loop
 //     re-dials a now-closed port on the T5 cadence. The dial-attempt cadence is observed white-box
-//     via the "reconnect dial failed" debug log (v2's ConnRetryCount is a GAUGE held at 1 for the
+//     via the "reconnect dial failed" debug log (v2's Reconnecting is a GAUGE held at 1 for the
 //     lifetime of a single reconnect loop, so it does not climb per dial attempt).
 //
 // The file is package hsmsss (white-box) so it reuses the shared harness (newEndpoint /
@@ -207,9 +207,9 @@ func TestActiveReconnectCadence_FlatT5(t *testing.T) {
 		return len(fails) >= 5
 	}, 15*time.Second, 10*time.Millisecond, "expected repeated reconnect dial failures on the T5 cadence")
 
-	// The reconnect loop must be live while it retries (v2 ConnRetryCount is a gauge held at 1 for the
+	// The reconnect loop must be live while it retries (v2 Reconnecting is a gauge held at 1 for the
 	// loop's lifetime — it does not climb per attempt).
-	require.Positive(t, active.conn.Metrics().ConnRetryCount(), "reconnect loop must be live while retrying")
+	require.Positive(t, active.conn.Metrics().Reconnecting(), "reconnect loop must be live while retrying")
 
 	mu.Lock()
 	times := append([]time.Time(nil), fails...)

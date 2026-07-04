@@ -218,6 +218,8 @@ func TestLineSendBlock_SlaveContentionResetAndDeliver(t *testing.T) {
 	require.NoError(t, err, "the retry reset after a contention yield must let the send ultimately ACK")
 	require.Len(t, delivered, 1, "the master's contention block must be delivered exactly once (P1)")
 	require.Equal(t, masterWire, delivered[0].appendTo(nil), "the delivered block must be the master's block, not our own")
+	require.Equal(t, uint64(1), line.metrics.ContentionYieldCount(),
+		"the single slave-contention yield must be counted exactly once")
 }
 
 // TestLineSendBlock_ContentionYieldDeliverErrorNonFatal proves a deliver error during a slave

@@ -10,7 +10,7 @@ package hsmsss
 //
 // THE RACE (pre-fix): the proxy CUTS the active's Select handshake, so every connection drops while
 // NotSelected and — with shutdown still false — the active's reconnect loop perpetually publishes +
-// tr.Start's successor generations on the shared, REUSED *transport (ConnRetryCount() stays > 0). A
+// tr.Start's successor generations on the shared, REUSED *transport (Reconnecting() stays > 0). A
 // voluntary Close fired while that reconnect is in flight is not atomic w.r.t. the loop's
 // fence+publish, so it pins the OLD generation and leaves a successor ORPHANED. The reopen on the
 // next iteration then reuses the shared *transport while the orphaned generation's recv loop /
@@ -89,12 +89,12 @@ func TestHSMS_CloseDuringReconnect_NoTransportRace(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = active.Close() })
 
-	// waitReconnecting blocks until the active's reconnect loop is live (ConnRetryCount gauge > 0),
+	// waitReconnecting blocks until the active's reconnect loop is live (Reconnecting() gauge > 0),
 	// so the subsequent Close is guaranteed to race an in-flight reconnect (publish + tr.Start) —
 	// the I1 window — rather than beating the involuntary-drop reaction to the shutdown fence.
 	waitReconnecting := func(iter int) {
 		require.Eventuallyf(t, func() bool {
-			return active.Metrics().ConnRetryCount() > 0
+			return active.Metrics().Reconnecting() > 0
 		}, 10*time.Second, 200*time.Microsecond, "iter %d: active reconnect loop never became live", iter)
 	}
 

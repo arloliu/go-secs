@@ -17,7 +17,7 @@ var errPeerSeparate = errors.New("hsmsss: peer sent Separate.req while selected"
 // handleControlReq dispatches an inbound control request (Select.req, Deselect.req,
 // Linktest.req) to the responder procedures. It runs on the recv goroutine.
 //
-// The Select responder (H2 §7.D), the Linktest responder (§7.6), and the responder-only Deselect
+// The Select responder (H2 §7.D), the Linktest responder (§7.8), and the responder-only Deselect
 // (D5a-4, §7.7) all land here. HSMS-SS never initiates a Deselect (Separate is used for teardown),
 // so only the Deselect.req responder path exists.
 func (t *transport) handleControlReq(g *genWG, msg hsms.Message) {
@@ -55,6 +55,7 @@ func (t *transport) handleSelectReq(g *genWG, req hsms.Message) {
 	// returns false and must NOT cancel/spawn again, and answers status 1 below.
 	status := byte(hsms.SelectStatusSuccess)
 	if t.rt.CommitSelected() {
+		t.metrics.incSelectEstablished()
 		t.cancelT7()
 		t.startLinktest(g)
 	} else {
@@ -84,6 +85,7 @@ func (t *transport) handleSelectReq(g *genWG, req hsms.Message) {
 // (no state to tear down; no Separate is sent back) and it returns true to keep reading.
 func (t *transport) handleSeparateReq() bool {
 	if t.rt.State() == hsms.SelectedState {
+		t.metrics.incSeparateRecv()
 		t.rt.TCPDown(errPeerSeparate)
 		return false
 	}
@@ -131,6 +133,7 @@ func (t *transport) sendReject(frame []byte, pType, sType byte) {
 
 	// Fire-and-forget: enqueue on the core's sendCh → drainSendCh → writeFrame under writeMu.
 	// Control messages are NOT B1-gated, so this always enqueues while the generation is live.
+	t.metrics.incRejectSent()
 	_ = t.rt.SendAsync(context.Background(), reject)
 }
 
@@ -148,6 +151,7 @@ func (t *transport) sendRejectNotSelected(frame []byte) {
 
 	reject := hsms.NewRejectReqRaw(sessionID, 0, 0, systemBytes, hsms.RejectNotSelected)
 
+	t.metrics.incRejectSent()
 	_ = t.rt.SendAsync(context.Background(), reject)
 }
 
@@ -168,10 +172,11 @@ func (t *transport) sendRejectTransactionNotOpen(frame []byte) {
 
 	reject := hsms.NewRejectReqRaw(sessionID, 0, sType, systemBytes, hsms.RejectTransactionNotOpen)
 
+	t.metrics.incRejectSent()
 	_ = t.rt.SendAsync(context.Background(), reject)
 }
 
-// handleLinktestReq answers an inbound Linktest.req with a Linktest.rsp (E37 §7.6), keeping the link
+// handleLinktestReq answers an inbound Linktest.req with a Linktest.rsp (E37 §7.8), keeping the link
 // up. It runs on the recv goroutine and routes the rsp through the core's serialized async send path
 // (same single-writer rationale as sendReject).
 func (t *transport) handleLinktestReq(msg hsms.Message) {
@@ -185,6 +190,7 @@ func (t *transport) handleLinktestReq(msg hsms.Message) {
 		return // unreachable: dispatchFrame guarantees a well-formed Linktest.req
 	}
 
+	t.metrics.incLinktestReqRecv()
 	_ = t.rt.SendAsync(context.Background(), rsp)
 }
 

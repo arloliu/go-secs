@@ -419,6 +419,8 @@ func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{})
 			continue
 		}
 
+		c.metrics.incReconnects()
+
 		return
 	}
 }

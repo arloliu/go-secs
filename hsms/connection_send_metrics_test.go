@@ -1,11 +1,15 @@
 package hsms
 
 // send_metrics_test.go — white-box wiring tests for the send-path ConnectionMetrics counters
-// (DataMsgSendCount / DataMsgErrCount / LinktestSendCount / LinktestRecvCount / LinktestErrCount).
-// The pure atomic getters/inc helpers are covered in connection_metrics_test.go; these tests prove
-// the increments fire at the intended call sites (writeFrame for on-wire sends, sendWaitReply for
-// transaction outcomes) with the correct semantics, reusing the send-path harness (newTestSendConn /
-// mustSendData / mustSendReply / mockTransport) from send_test.go.
+// (DataMsgSendCount / DataMsgErrCount). The pure atomic getters/inc helpers are covered in
+// connection_metrics_test.go; these tests prove the increments fire at the intended call sites
+// (writeFrame for on-wire sends, sendWaitReply for transaction outcomes) with the correct
+// semantics, reusing the send-path harness (newTestSendConn / mustSendData / mustSendReply /
+// mockTransport) from send_test.go.
+//
+// Linktest-specific coverage (LinktestSendCount/LinktestRecvCount/LinktestErrCount) moved to
+// hsmsss.ConnectionMetrics — see hsmsss/integration_metrics_test.go for the equivalent end-to-end
+// linktest send/recv/err coverage.
 
 import (
 	"context"
@@ -28,10 +32,9 @@ func TestSendMetrics_DataMsgSend_OnWireOnlyForData(t *testing.T) {
 	require.NoError(t, c.writeFrame(t.Context(), e, mustSendData(t, [4]byte{0, 0, 0, 1}, true)))
 	require.Equal(t, uint64(1), c.metrics.DataMsgSendCount())
 
-	// Control frame (Select.req) → NOT counted, and not a linktest send either.
+	// Control frame (Select.req) → NOT counted.
 	require.NoError(t, c.writeFrame(t.Context(), e, NewSelectReq(0xFFFF, [4]byte{0, 0, 0, 2})))
 	require.Equal(t, uint64(1), c.metrics.DataMsgSendCount(), "control frames must not bump DataMsgSendCount")
-	require.Equal(t, uint64(0), c.metrics.LinktestSendCount(), "Select.req is not a linktest send")
 
 	// Secondary (reply) data frame → counted too.
 	require.NoError(t, c.writeFrame(t.Context(), e, mustSendReply(t, [4]byte{0, 0, 0, 3})))
@@ -162,89 +165,6 @@ func TestSendMetrics_DataMsgErr_NotOnSuccessOrCancelOrDrop(t *testing.T) {
 	})
 }
 
-// TestSendMetrics_Linktest_SuccessRoundTrip proves an initiator Linktest.req that receives its
-// correlated Linktest.rsp bumps LinktestSendCount and LinktestRecvCount once each, LinktestErrCount 0.
-func TestSendMetrics_Linktest_SuccessRoundTrip(t *testing.T) {
-	c, _ := newTestSendConn(t, SelectedState)
-	sb := [4]byte{0, 0, 0, 1}
-	req := NewLinktestReq(sb)
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := c.sendWaitReply(t.Context(), req)
-		done <- err
-	}()
-
-	require.Eventually(t, func() bool { return c.metrics.LinktestSendCount() == 1 }, 2*time.Second, time.Millisecond,
-		"the Linktest.req must be counted on the wire")
-
-	rsp, err := NewLinktestRsp(req)
-	require.NoError(t, err)
-	require.True(t, c.RouteReply(rsp), "the Linktest.rsp must correlate to the waiting initiator")
-
-	require.NoError(t, <-done)
-	require.Equal(t, uint64(1), c.metrics.LinktestRecvCount(), "a completed round-trip counts one linktest recv")
-	require.Equal(t, uint64(0), c.metrics.LinktestErrCount(), "a successful linktest is not an error")
-}
-
-// TestSendMetrics_Linktest_Err_OnT6Timeout proves a Linktest.req with no reply bumps LinktestErrCount
-// (cumulative) via the internal T6 timer, while LinktestRecvCount stays 0.
-func TestSendMetrics_Linktest_Err_OnT6Timeout(t *testing.T) {
-	c, _ := newTestSendConn(t, SelectedState)
-	c.cfg.Load().timers.T6 = 30 * time.Millisecond
-
-	_, err := c.sendWaitReply(t.Context(), NewLinktestReq([4]byte{0, 0, 0, 1}))
-	require.ErrorIs(t, err, ErrT6Timeout)
-	require.Equal(t, uint64(1), c.metrics.LinktestSendCount())
-	require.Equal(t, uint64(1), c.metrics.LinktestErrCount(), "a T6 linktest timeout is a linktest error")
-	require.Equal(t, uint64(0), c.metrics.LinktestRecvCount())
-}
-
-// TestSendMetrics_Linktest_Err_OnDeadlineExceeded proves the caller-side T6 deadline path (the
-// context.WithTimeout wrapper runLinktest uses) counts as a linktest error.
-func TestSendMetrics_Linktest_Err_OnDeadlineExceeded(t *testing.T) {
-	c, _ := newTestSendConn(t, SelectedState)
-	c.cfg.Load().timers.T6 = 5 * time.Second // internal timer must NOT fire first
-
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
-	defer cancel()
-
-	_, err := c.sendWaitReply(ctx, NewLinktestReq([4]byte{0, 0, 0, 1}))
-	require.ErrorIs(t, err, context.DeadlineExceeded)
-	require.Equal(t, uint64(1), c.metrics.LinktestErrCount(), "an lctx T6 deadline is the linktest timeout and counts")
-}
-
-// TestSendMetrics_Linktest_TeardownNotCounted proves neither a connection drop nor a plain caller
-// cancellation counts as a linktest error (they are lifecycle/caller events).
-func TestSendMetrics_Linktest_TeardownNotCounted(t *testing.T) {
-	t.Run("conn-drop", func(t *testing.T) {
-		c, _ := newTestSendConn(t, SelectedState)
-		e := c.cur.Load()
-
-		done := make(chan error, 1)
-		go func() {
-			_, err := c.sendWaitReply(t.Context(), NewLinktestReq([4]byte{0, 0, 0, 1}))
-			done <- err
-		}()
-		require.Eventually(t, func() bool { return c.metrics.LinktestSendCount() == 1 }, 2*time.Second, time.Millisecond)
-		e.teardown(2 * time.Second)
-		require.ErrorIs(t, <-done, ErrConnClosed)
-		require.Equal(t, uint64(0), c.metrics.LinktestErrCount(), "a teardown is not a linktest error")
-	})
-
-	t.Run("caller-cancel", func(t *testing.T) {
-		c, _ := newTestSendConn(t, SelectedState)
-		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
-
-		done := make(chan error, 1)
-		go func() {
-			_, err := c.sendWaitReply(ctx, NewLinktestReq([4]byte{0, 0, 0, 2}))
-			done <- err
-		}()
-		require.Eventually(t, func() bool { return c.metrics.LinktestSendCount() == 1 }, 2*time.Second, time.Millisecond)
-		cancel()
-		require.ErrorIs(t, <-done, context.Canceled)
-		require.Equal(t, uint64(0), c.metrics.LinktestErrCount(), "a plain caller cancel is not a linktest error")
-	})
-}
+// Linktest-specific tests (success round-trip, T6 timeout, caller-side deadline, and
+// teardown/cancel non-counting) moved to hsmsss.ConnectionMetrics coverage — see
+// hsmsss/integration_metrics_test.go.

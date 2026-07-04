@@ -478,7 +478,7 @@ func TestSend_InboundReject_SurfacesRejectError(t *testing.T) {
 	})
 
 	t.Run("linktest-rsp-still-delivers-as-message", func(t *testing.T) {
-		c, _ := newTestSendConn(t, SelectedState)
+		c, tr := newTestSendConn(t, SelectedState)
 		sb := [4]byte{0, 0, 0, 2}
 		req := NewLinktestReq(sb)
 
@@ -492,7 +492,8 @@ func TestSend_InboundReject_SurfacesRejectError(t *testing.T) {
 			done <- outcome{msg: m, err: err}
 		}()
 
-		require.Eventually(t, func() bool { return c.metrics.LinktestSendCount() == 1 }, 2*time.Second, time.Millisecond)
+		require.Eventually(t, func() bool { return tr.writeCount() == 1 }, 2*time.Second, time.Millisecond,
+			"the Linktest.req (a stand-in control primary) must reach the wire before the reply is routed")
 
 		rsp, err := NewLinktestRsp(req)
 		require.NoError(t, err)

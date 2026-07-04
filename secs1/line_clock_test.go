@@ -85,7 +85,7 @@ func newRecordedLinePair(t *testing.T, cfg Config) (*lineIO, *deadlineRecorder, 
 
 	rec := &deadlineRecorder{Conn: local}
 
-	return newLineIO(rec, cfg, cfg.Timers), rec, a.conn
+	return newLineIO(rec, cfg, cfg.Timers, &ConnectionMetrics{}), rec, a.conn
 }
 
 // newRecordedLinePairWithTimers is identical to newRecordedLinePair except it passes the caller's
@@ -119,7 +119,7 @@ func newRecordedLinePairWithTimers(t *testing.T, cfg Config, timers func() hsms.
 
 	rec := &deadlineRecorder{Conn: local}
 
-	return newLineIO(rec, cfg, timers), rec, a.conn
+	return newLineIO(rec, cfg, timers, &ConnectionMetrics{}), rec, a.conn
 }
 
 // TestLineIO_T1LiveUpdate proves readFull arms T1 from whatever the LIVE timers source currently

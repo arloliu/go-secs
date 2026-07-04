@@ -125,6 +125,10 @@ func TestLinktest_ThresholdDisconnect(t *testing.T) {
 	waitLinktestExit(t, tr)
 	require.Equal(t, threshold, rt.writtenCount(),
 		"TCPDown must fire on exactly the Nth consecutive failure, not before")
+	// Every T6-timeout round-trip ran with the parent ctx ALIVE (ctx.Err()==nil), so each counts as a
+	// linktest error — the increment side of the runLinktest guard (see NotCountedOnParentCancel below).
+	require.Equal(t, uint64(threshold), tr.metrics.LinktestErrCount(),
+		"each T6-timeout linktest round-trip (parent ctx alive) must increment LinktestErrCount")
 }
 
 // TestLinktest_SuccessResetsFailCounter — a single successful linktest between failures resets
@@ -166,6 +170,57 @@ func TestLinktest_SuccessResetsFailCounter(t *testing.T) {
 	waitLinktestExit(t, tr)
 	require.Equal(t, 6, rt.writtenCount(),
 		"a single success must reset the fail counter (no disconnect at the 3rd attempt)")
+	// The CUMULATIVE error metric counts all 5 failures and does NOT reset on the mid-sequence success,
+	// which is instead recorded as the single successful round-trip (recv). This is the observational
+	// counter being deliberately distinct from the internal consecutive-failure counter that drives the
+	// disconnect (the load-bearing property integration_linktest_threshold_test.go proves end-to-end).
+	require.Equal(t, uint64(5), tr.metrics.LinktestErrCount(),
+		"the cumulative error metric counts all 5 failures and never resets on the mid-sequence success")
+	require.Equal(t, uint64(1), tr.metrics.LinktestRecvCount(),
+		"the one successful round-trip is counted as a linktest recv")
+}
+
+// TestLinktest_ErrCount_NotCountedOnParentCancel mirrors the deleted hsms-level white-box
+// "teardown-not-counted" / "caller-context-deadline-exceeded" tests (relocated here with the linktest
+// counters): a linktest write that fails because the PARENT ctx was cancelled — teardown / Deselect /
+// drop, or a caller deadline — must NOT be counted as a linktest error. runLinktest returns via
+// `if ctx.Err() != nil { return }` BEFORE reaching incLinktestErr.
+//
+// It is deterministic, not timing-raced: the write fn cancels the generation ctx (from which
+// startLinktest derives the linktest ctx) and THEN returns an error, so by the time the post-write
+// guard runs, ctx.Err() is already non-nil — no race with any protocol timer. TEETH: delete the
+// `if ctx.Err() != nil { return }` guard and LinktestErrCount becomes 1.
+func TestLinktest_ErrCount_NotCountedOnParentCancel(t *testing.T) {
+	t.Parallel()
+
+	rt := newRecRT()
+	rt.setState(hsms.SelectedState)
+	rt.setLinktest(5*time.Millisecond, 3)
+	rt.setTimers(hsms.TimerConfig{T6: time.Second})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tr := newLinktestTransport(t, rt, ctx)
+
+	rt.setWriteMsgFn(func(_ context.Context, _ hsms.Message) (hsms.Message, error) {
+		// Simulate a teardown / caller-cancel racing the in-flight linktest write: cancel the
+		// generation ctx (the linktest ctx is derived from it) BEFORE the write returns, so the
+		// post-write `if ctx.Err() != nil` guard fires and the failure is excluded.
+		cancel()
+
+		return nil, context.Canceled
+	})
+
+	tr.startLinktest(tr.wg)
+	waitLinktestExit(t, tr)
+
+	require.Equal(t, uint64(1), tr.metrics.LinktestSendCount(),
+		"the send was attempted (incLinktestSend precedes the write)")
+	require.Equal(t, uint64(0), tr.metrics.LinktestErrCount(),
+		"a parent-ctx cancel (teardown/Deselect/drop/caller-deadline) must NOT count as a linktest error")
+	require.Equal(t, uint64(0), tr.metrics.LinktestRecvCount(),
+		"a cancelled write is neither a success nor a counted error")
 }
 
 // TestSeparate_IgnoredWhileNotSelected — the load-bearing teeth-test (§7.9.2): a Separate.req
@@ -339,4 +394,5 @@ func TestLinktest_InboundReqAnswered(t *testing.T) {
 	got := rt.lastSent()
 	require.NotNil(t, got)
 	require.Equal(t, hsms.LinktestRspType, got.Type(), "Linktest.req must be answered with a Linktest.rsp")
+	require.Equal(t, uint64(1), tr.metrics.LinktestReqRecvCount(), "inbound Linktest.req must be counted")
 }

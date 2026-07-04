@@ -126,6 +126,15 @@ func (t *transport) dispatchFrame(g *genWG, frame []byte) bool {
 			break
 		}
 
+		// Count an inbound Reject.req (SType 7) BEFORE routing: the peer rejected one of our sends.
+		// Gated on the actual type because this response-routing case also handles Select/Deselect/
+		// Linktest.rsp — only the Reject variant is a peer-emitted Reject of our traffic. An orphan
+		// Reject (a RouteReply miss) is still counted here since it was genuinely received, even
+		// though it is then silently dropped rather than re-rejected (§8.3.20).
+		if msg.Type() == hsms.RejectReqType {
+			t.metrics.incRejectRecv()
+		}
+
 		if t.rt.RouteReply(msg) {
 			// HIT. H2 initiator commit (§7.D): a routed Select.rsp with select-status 0 completes
 			// our active Select. Commit to Selected SYNCHRONOUSLY on THIS recv goroutine — after

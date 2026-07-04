@@ -67,6 +67,11 @@ type transport struct {
 	// value written before any reader existed, so there is no cross-generation data race on t.rt.
 	rt hsms.TransportRuntime
 
+	// metrics holds the HSMS-SS-only control-plane counters (linktest, Select/Separate/Reject).
+	// It is allocated once in newTransport and never re-stored, so it is safe to read from any
+	// goroutine without synchronization; ConnectionMetrics itself is atomic-backed.
+	metrics *ConnectionMetrics
+
 	connMu sync.Mutex
 	// conn is the current generation's socket; nil before the first successful Start or after Stop
 	// clears it. It is typically a *net.TCPConn (the writev fast path in Write, and the target of
@@ -128,7 +133,7 @@ type transport struct {
 // Called by hsmsss.New. ArmStart swaps in a fresh bundle before each subsequent generation. The
 // clock defaults to time.Now; tests inject t.now to drive the T8 read deadline deterministically.
 func newTransport(cfg Config) *transport {
-	return &transport{cfg: cfg, wg: &genWG{}, allocFrame: makeFrame, now: time.Now}
+	return &transport{cfg: cfg, metrics: &ConnectionMetrics{}, wg: &genWG{}, allocFrame: makeFrame, now: time.Now}
 }
 
 // clock returns the transport's injectable clock, defaulting to time.Now when now is unset. It is

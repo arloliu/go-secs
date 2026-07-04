@@ -22,6 +22,7 @@ type assembler struct {
 	deliverFrame func([]byte) error      // = rt.DeliverOwnedFrame; takes ownership of the delivered frame buffer
 	now          func() time.Time        // injectable clock for the T4 inter-block deadline (default time.Now)
 	timers       func() hsms.TimerConfig // LIVE T4 source; re-read on every accept() call
+	metrics      *ConnectionMetrics      // block-level counters (secs1's own type — see secs1/metrics.go)
 
 	// Partial-message accumulation state (single-goroutine; no locks).
 	open          bool          // a partial (not yet terminated) message is in progress
@@ -43,12 +44,13 @@ type assembler struct {
 // cached), so a live hsms.Connection.UpdateConfigOptions(WithT4(...)) takes effect on the current
 // generation's next inbound block, not just the next reconnect. The clock defaults to time.Now;
 // tests inject a.now to drive the T4 inter-block deadline deterministically.
-func newAssembler(cfg Config, deliverFrame func([]byte) error, timers func() hsms.TimerConfig) *assembler {
+func newAssembler(cfg Config, deliverFrame func([]byte) error, timers func() hsms.TimerConfig, metrics *ConnectionMetrics) *assembler {
 	return &assembler{
 		isEquip:      cfg.IsEquip(),
 		deliverFrame: deliverFrame,
 		now:          time.Now,
 		timers:       timers,
+		metrics:      metrics,
 	}
 }
 
@@ -79,6 +81,7 @@ func (a *assembler) accept(blk block) error {
 	if blk.rBit() == a.isEquip {
 		logger.Debug("secs1: inbound block dropped — wrong R-bit direction",
 			"isEquip", a.isEquip, "rBit", blk.rBit(), "stream", blk.stream(), "function", blk.function())
+		a.metrics.incBlockDirDropCount()
 
 		return nil
 	}
@@ -88,11 +91,14 @@ func (a *assembler) accept(blk block) error {
 	if a.open && a.now().Sub(a.lastBlockTime) > a.timers().T4 {
 		logger.Debug("secs1: inbound partial message discarded — T4 inter-block timeout",
 			"stream", a.header.stream, "function", a.header.function, "expected", a.expected)
+		a.metrics.incPartialTimeoutCount()
 		a.reset()
 	}
 
 	// Step 3: duplicate-block detection (E4 §9.4.2). The line layer already re-ACK'd the retransmit.
 	if a.haveLast && blk.header == a.lastHeader {
+		a.metrics.incBlockDupDropCount()
+
 		return nil
 	}
 

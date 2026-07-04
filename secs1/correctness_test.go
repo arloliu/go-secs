@@ -113,6 +113,12 @@ func TestSECS1_D5b10_RetryExhaustionReconnects(t *testing.T) {
 	require.Error(t, err, "an RTY-exhausted send with no line grant must fail")
 	require.Nil(t, reply, "a failed send returns no reply")
 
+	// The line engine increments BlockSendFailedCount right before returning ErrSendFailed, and that
+	// error flows back through Write into the error observed above (channel happens-before), so the
+	// counter is already 1 here. No further send is issued after the reconnect, so it stays at 1.
+	require.Equal(t, uint64(1), active.BlockMetrics().BlockSendFailedCount(),
+		"RTY exhaustion must be counted")
+
 	// (6) TEARDOWN: the core turned the Write error into a line failure and drove TCPDown — the link
 	// must leave Selected.
 	require.Eventually(t, func() bool {

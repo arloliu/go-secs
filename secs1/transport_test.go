@@ -411,7 +411,9 @@ func TestTransport_DefaultSinkAssemblesInboundFrame(t *testing.T) {
 	b1 := asmBlock(mh, 1, false, []byte("multi-")).appendTo(nil)
 	b2 := asmBlock(mh, 2, true, []byte("block")).appendTo(nil)
 
+	peerDone := make(chan struct{})
 	go func() {
+		defer close(peerDone)
 		// Block 1 transaction.
 		peerWrite(t, peer, []byte{enq})
 		peerReadN(t, peer, 1) // EOT
@@ -430,6 +432,12 @@ func TestTransport_DefaultSinkAssemblesInboundFrame(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the default assembler sink never delivered the inbound frame to the runtime")
 	}
+
+	// Join the peer goroutine before the deferred t.Cleanup closes its socket: the block-2 frame is
+	// delivered right after receiveBlock writes the ACK, so the main goroutine can otherwise race ahead
+	// to the test's Cleanup (closing peer) before the peer goroutine's final ACK read runs — surfacing
+	// a spurious "use of closed network connection" on that read.
+	<-peerDone
 
 	msg, err := hsms.DecodeHSMSMessage(withHSMSLengthPrefix(frame))
 	require.NoError(t, err)

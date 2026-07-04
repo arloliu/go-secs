@@ -1,13 +1,13 @@
 package secs1
 
-// metrics_test.go — SP5b T8 metrics verification. The SECS-I transport rides the shared hsms core,
+// metrics_test.go — SECS-I metrics verification. The SECS-I transport rides the shared hsms core,
 // so the core's DataMsg counters (hsms.ConnectionMetrics) are driven automatically by the engine —
 // incDataMsgSend at the writeFrame on-wire chokepoint (after secs1.Write ACKs the last block),
 // incDataMsgRecv at the DeliverOwnedFrame chokepoint (the secs1 assembler's delivery), and
-// incDataMsgErr on a dropped W-bit reply (T3 timeout). No secs1-specific metric type is added:
-// SECS-I-only counters (retry, contention) are deferred (spec §T8 default) — the core send/recv/err
-// counters already give the send/recv/error observability. These tests prove that flow end-to-end
-// over the public API, reusing the T6 harness (newSECS1Passive / newSECS1Active / secs1EchoHandler).
+// incDataMsgErr on a dropped W-bit reply (T3 timeout). On top of those, secs1 exposes its own
+// block/line-level counters (secs1.ConnectionMetrics, reached via Connection.BlockMetrics()) for the
+// wire-framing layer beneath the shared engine. These tests prove both flows end-to-end over the
+// public API, reusing the T6 harness (newSECS1Passive / newSECS1Active / secs1EchoHandler).
 
 import (
 	"testing"
@@ -62,9 +62,6 @@ func TestSECS1Metrics_DataMsgSendRecv(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return passive.conn.Metrics().DataMsgSendCount() == uint64(n)
 	}, 3*time.Second, 10*time.Millisecond, "passive must count exactly its N reply sends")
-
-	// SECS-I arms no linktest (O1) — the linktest counters stay untouched.
-	require.Equal(t, uint64(0), active.conn.Metrics().LinktestSendCount(), "SECS-I arms no linktest — no linktest sends")
 }
 
 // TestSECS1Metrics_DataMsgErr_T3Timeout proves a dropped W-bit reply increments the core
@@ -97,4 +94,55 @@ func TestSECS1Metrics_DataMsgErr_T3Timeout(t *testing.T) {
 	require.Equal(t, uint64(1), active.conn.Metrics().DataMsgErrCount(), "a dropped W-bit reply must count as a data-message error")
 	require.Equal(t, uint64(1), active.conn.Metrics().DataMsgSendCount(), "the primary reached the wire (ACK'd) before T3 fired")
 	require.Equal(t, hsms.SelectedState, active.conn.State(), "a T3 timeout must not tear down the SECS-I link")
+}
+
+// TestSECS1Metrics_BlockCounters proves the SECS-I block/line-level counters (secs1.ConnectionMetrics,
+// reached via Connection.BlockMetrics()) fire on the clean single-block round-trip path. A W-bit
+// exchange sends the active's primary (one block, ACK'd) and returns the passive's reply (one block,
+// ACK'd), so after one round-trip: the active counts exactly one block SENT (the primary — the reply
+// is received, not sent) with zero retries and zero send-failures, and the passive counts exactly one
+// block RECEIVED (the primary). The passive's receive is driven asynchronously by its line engine, so
+// its counter is awaited via require.Eventually, mirroring TestSECS1Metrics_DataMsgSendRecv.
+func TestSECS1Metrics_BlockCounters(t *testing.T) {
+	t.Parallel()
+
+	port := freePort(t)
+	ctx := t.Context()
+
+	passive := newSECS1Passive(t, port, secs1EchoHandler)
+	active := newSECS1Active(t, port)
+	defer closeSECS1Endpoint(t, active)
+	defer closeSECS1Endpoint(t, passive)
+
+	require.NoError(t, passive.conn.Open(ctx, hsms.OpenBackground))
+	require.NoError(t, active.conn.Open(ctx, hsms.OpenBackground))
+	waitSECS1Selected(t, passive)
+	waitSECS1Selected(t, active)
+
+	activeConn, ok := active.conn.(Connection)
+	require.True(t, ok, "secs1.New must return a secs1.Connection")
+	passiveConn, ok := passive.conn.(Connection)
+	require.True(t, ok, "secs1.New must return a secs1.Connection")
+	activeMetrics := activeConn.BlockMetrics()
+	passiveMetrics := passiveConn.BlockMetrics()
+
+	// Bringing the link to Selected touches no line block on either side (no HSMS handshake).
+	require.Equal(t, uint64(0), activeMetrics.BlockSendCount(), "no blocks sent before the first data message")
+	require.Equal(t, uint64(0), passiveMetrics.BlockRecvCount(), "no blocks received before the first primary")
+
+	reply, err := active.conn.SendDataMessage(ctx, 1, 1, true /* W-bit */, secs2.A("ping"))
+	require.NoError(t, err, "the single-block round-trip must succeed")
+	require.NotNil(t, reply)
+
+	// Active: SendDataMessage returns only once the reply (received) has arrived, so its send counter
+	// is exact immediately — exactly one block sent (the primary).
+	require.Equal(t, uint64(1), activeMetrics.BlockSendCount(), "active must count exactly one block sent")
+
+	// Passive: its receive of the primary is driven by its own line engine — let it settle.
+	require.Eventually(t, func() bool {
+		return passiveMetrics.BlockRecvCount() == uint64(1)
+	}, 3*time.Second, 10*time.Millisecond, "passive must count exactly one block received")
+
+	require.Equal(t, uint64(0), activeMetrics.BlockRetryCount(), "no retries on a clean single-block send")
+	require.Equal(t, uint64(0), activeMetrics.BlockSendFailedCount(), "no RTY exhaustion on a clean send")
 }

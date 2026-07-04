@@ -78,6 +78,7 @@ func (t *transport) runLinktest(ctx context.Context, g *genWG, interval time.Dur
 
 		t6 := t.rt.Timers().T6
 		lctx, cancel := context.WithTimeout(ctx, t6)
+		t.metrics.incLinktestSend()
 		_, err := t.rt.WriteMessage(lctx, hsms.NewLinktestReq(t.rt.NextSystemBytes()))
 		cancel()
 
@@ -86,12 +87,14 @@ func (t *transport) runLinktest(ctx context.Context, g *genWG, interval time.Dur
 			if ctx.Err() != nil {
 				return
 			}
+			t.metrics.incLinktestErr()
 			fails++
 			if fails >= threshold {
 				t.rt.TCPDown(errLinktestFailed)
 				return
 			}
 		} else {
+			t.metrics.incLinktestRecv()
 			fails = 0
 		}
 

@@ -104,6 +104,13 @@ type transport struct {
 	// engine reads the FACTORY without synchronization (the write happens-before the engine spawn); the
 	// per-generation isolation comes from CALLING it once per engine, not from swapping the field.
 	newSink func() func(block) error
+
+	// metrics holds the SECS-I block/line-level counters (secs1.ConnectionMetrics). It is created once
+	// in newTransport and SHARED across every generation's line engine and assembler (unlike newSink's
+	// per-generation instances): the counters are a cumulative, connection-lifetime record, and their
+	// atomic Add/Load make cross-generation sharing safe. secs1.New hands the same pointer to the
+	// consumer via connection.BlockMetrics().
+	metrics *ConnectionMetrics
 }
 
 // genState bundles ONE generation's live socket and its send/teardown plumbing so Write loads a
@@ -150,6 +157,7 @@ func newTransport(cfg Config) *transport {
 		wg:        &genWG{},
 		sendReqCh: make(chan *sendReq), // UNBUFFERED: Write blocks until the engine takes the hand-off
 		genDone:   make(chan struct{}),
+		metrics:   &ConnectionMetrics{},
 	}
 
 	// Production default: each generation's engine builds a FRESH assembler that synthesizes HSMS
@@ -157,7 +165,7 @@ func newTransport(cfg Config) *transport {
 	// CALLED in lineEngine AFTER t.rt is bound (on the first Start), so t.rt is non-nil at call time.
 	// t.cfg is available immediately.
 	t.newSink = func() func(block) error {
-		return newAssembler(t.cfg, t.rt.DeliverOwnedFrame, t.rt.Timers).accept
+		return newAssembler(t.cfg, t.rt.DeliverOwnedFrame, t.rt.Timers, t.metrics).accept
 	}
 
 	return t
@@ -417,7 +425,7 @@ func (t *transport) lineEngine(engineCtx context.Context, g *genWG, conn net.Con
 
 	// ONE lineIO / bufio.Reader for this generation — the G-A single-reader invariant. This goroutine
 	// is the only code that ever reads or writes conn bytes.
-	line := newLineIO(conn, t.cfg, t.rt.Timers)
+	line := newLineIO(conn, t.cfg, t.rt.Timers, t.metrics)
 
 	// Build THIS generation's inbound sink once (the per-generation isolation point): the multi-block
 	// assembler holds partial-message state, so each engine accumulates in its own instance. A

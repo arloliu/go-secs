@@ -2,18 +2,21 @@ package hsms
 
 import "sync/atomic"
 
-// ConnectionMetrics holds lock-free connection counters. All reads and writes
-// are atomic; safe to read concurrently with the protocol goroutines.
+// ConnectionMetrics holds lock-free connection counters shared by every transport (HSMS-SS and
+// SECS-I). All reads and writes are atomic; safe to read concurrently with the protocol goroutines.
+//
+// Transport-specific observability lives in the owning transport package instead of here:
+// HSMS-SS-only counters (linktest, Select/Separate/Reject) are in hsmsss.ConnectionMetrics, reached
+// via hsmsss.Connection.ControlMetrics(); SECS-I-only counters (block send/recv/retry/etc.) are in
+// secs1.ConnectionMetrics, reached via secs1.Connection.BlockMetrics().
 type ConnectionMetrics struct {
-	linktestSend           atomic.Uint64
-	linktestRecv           atomic.Uint64
-	linktestErr            atomic.Uint64
 	dataMsgSend            atomic.Uint64
 	dataMsgRecv            atomic.Uint64
 	dataMsgErr             atomic.Uint64
 	dataMsgDropNotSelected atomic.Uint64 // B3 chokepoint: dropped because not SELECTED
 	dataMsgInflight        atomic.Int64  // I1 gauge (data W-bit messages in flight)
-	connRetry              atomic.Int64  // reconnect attempt gauge
+	connRetry              atomic.Int64  // gauge: 1 while a reconnect loop is actively retrying, else 0
+	reconnects             atomic.Uint64 // cumulative count of successful re-establishments after an involuntary drop
 }
 
 // DataMsgInflightCount returns the current number of data messages in flight.
@@ -30,7 +33,9 @@ func (m *ConnectionMetrics) DataMsgDropNotSelectedCount() uint64 {
 // DataMsgSendCount returns the total number of data messages committed to the wire (the writev
 // succeeded), counted once per frame at the single on-wire chokepoint. A message refused by the
 // not-Selected gate (see DataMsgDropNotSelectedCount) never reaches the wire and is NOT
-// counted here; neither is an async (fire-and-forget) send that fails before the wire.
+// counted here; neither is an async (fire-and-forget) send that fails before the wire. Note this
+// counts both primaries and replies — "send" here means "a data frame reached the wire," not
+// "a primary transaction was initiated."
 func (m *ConnectionMetrics) DataMsgSendCount() uint64 {
 	return m.dataMsgSend.Load()
 }
@@ -50,40 +55,19 @@ func (m *ConnectionMetrics) DataMsgErrCount() uint64 {
 	return m.dataMsgErr.Load()
 }
 
-// LinktestSendCount returns the total number of linktest messages sent.
-//
-// Linktest is an HSMS-SS mechanism; a SECS-I connection performs no HSMS linktest,
-// so this counter reads zero for a SECS-I connection.
-func (m *ConnectionMetrics) LinktestSendCount() uint64 {
-	return m.linktestSend.Load()
-}
-
-// LinktestRecvCount returns the total number of linktest responses received.
-//
-// Linktest is an HSMS-SS mechanism; a SECS-I connection performs no HSMS linktest,
-// so this counter reads zero for a SECS-I connection.
-func (m *ConnectionMetrics) LinktestRecvCount() uint64 {
-	return m.linktestRecv.Load()
-}
-
-// LinktestErrCount returns the cumulative number of failed initiator linktest attempts (a T6
-// timeout or write error on a linktest transaction we sent). It only ever grows. It is DISTINCT
-// from the internal consecutive-failure counter that drives the linktest-fail-threshold disconnect
-// (that counter resets on any success); a teardown-race may bump this cumulative count without
-// advancing the internal one. Purely observational — it never influences the disconnect decision.
-//
-// Linktest is an HSMS-SS mechanism; a SECS-I connection performs no HSMS linktest,
-// so this counter reads zero for a SECS-I connection.
-func (m *ConnectionMetrics) LinktestErrCount() uint64 {
-	return m.linktestErr.Load()
-}
-
-// ConnRetryCount returns the reconnect-activity GAUGE: the number of reconnect loops currently
-// running (0 when idle/connected, 1 while the single-session engine is retrying dials). Like
-// DataMsgInflightCount it is a gauge, not a cumulative counter — it goes up when a reconnect loop
-// starts and back down when it exits; it does NOT accumulate one-per-dial-attempt.
-func (m *ConnectionMetrics) ConnRetryCount() int64 {
+// Reconnecting reports whether a reconnect loop is currently actively retrying: 1 while retrying,
+// 0 when idle/connected. This is a GAUGE, not a cumulative counter — it goes up when a reconnect
+// loop starts and back down when it exits, regardless of how many dial attempts happen inside. See
+// Reconnects for the cumulative count of successful re-establishments.
+func (m *ConnectionMetrics) Reconnecting() int64 {
 	return m.connRetry.Load()
+}
+
+// Reconnects returns the cumulative number of times this connection successfully re-established
+// after an involuntary drop (once per successful re-establishment, never per failed dial attempt,
+// never for the very first Open()).
+func (m *ConnectionMetrics) Reconnects() uint64 {
+	return m.reconnects.Load()
 }
 
 // Unexported increment/decrement helpers used by the protocol engine.
@@ -112,22 +96,14 @@ func (m *ConnectionMetrics) incDataMsgErr() {
 	m.dataMsgErr.Add(1)
 }
 
-func (m *ConnectionMetrics) incLinktestSend() {
-	m.linktestSend.Add(1)
-}
-
-func (m *ConnectionMetrics) incLinktestRecv() {
-	m.linktestRecv.Add(1)
-}
-
-func (m *ConnectionMetrics) incLinktestErr() {
-	m.linktestErr.Add(1)
-}
-
 func (m *ConnectionMetrics) incConnRetry() {
 	m.connRetry.Add(1)
 }
 
 func (m *ConnectionMetrics) decConnRetry() {
 	m.connRetry.Add(-1)
+}
+
+func (m *ConnectionMetrics) incReconnects() {
+	m.reconnects.Add(1)
 }

@@ -45,6 +45,10 @@ func buildRejectFrame(rejectedSTypeOrPType byte, reason byte, sb [4]byte) []byte
 // an UNSOLICITED control response (a control frame with no matching open transaction), which the
 // existing selectRspFrame helper cannot express because that helper derives its System Bytes from
 // a real Select.req header. header[4] (PType) is 0 and the session ID is 0xFFFF (E37.1 §3).
+// header3 is kept explicit for caller documentation (a Select.rsp select-status / Deselect.rsp status)
+// even though every current call site passes 0 (SelectStatusSuccess / an unused status byte).
+//
+//nolint:unparam // header3 kept explicit for caller documentation; all current call sites pass 0.
 func buildControlFrame(sType byte, header3 byte, sb [4]byte) []byte {
 	h := make([]byte, 10)
 	binary.BigEndian.PutUint16(h[0:2], 0xFFFF)
