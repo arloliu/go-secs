@@ -5,6 +5,107 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-07-04
+
+Major version. **v2 is a ground-up redesign around immutable messages and items**,
+published at a new module path (`github.com/arloliu/go-secs/v2`) so v1
+(`github.com/arloliu/go-secs`) keeps working unchanged for existing consumers — this
+is not an in-place upgrade, it's a new major-version module you opt into. See
+[`docs/migration-v1-to-v2.md`](docs/migration-v1-to-v2.md) for the full
+symbol-by-symbol migration guide and worked examples; the highlights:
+
+### Changed
+
+- **Every `hsms.Message` / `secs2.Item` is immutable and GC-owned.** No mutation
+  after construction, safe to share across goroutines without locking, cloning, or
+  reference counting. Structural changes go through a validating builder:
+  `msg.Derive().WithStream(s).WithFunction(f).WithWaitBit(w).Build() (msg, error)`.
+  Envelope-only restamps (`WithSessionID`, `WithSystemBytes`) return a new message
+  that shares the original body at zero re-encode cost.
+- **`hsms.Connection` is the SECS-II endpoint** — no more `Session` /
+  `AddSession`. `hsmsss.New` / `secs1.New` return `hsmsss.Connection` /
+  `secs1.Connection`, both embedding `hsms.Connection`. Send/reply methods are
+  context-first (`conn.SendDataMessage(ctx, ...)`); `Open(ctx,
+  hsms.OpenWaitSelected|hsms.OpenBackground)`; handlers are
+  `func(*hsms.DataMessage, hsms.SECS2Endpoint)`.
+- **Identity renamed `ID()` → `SessionID()`** across `hsms`/`hsmsss`/`secs1`;
+  `secs1.Connection.SessionID()` now reports the wire device ID.
+- **SECS-II item access is typed**, not `Values() any` — `ToASCII()`, `ToInt()`,
+  `IntAt(i)`, `Ints()`, and friends. Item shortcuts (`secs2.A`, `secs2.L`, `secs2.J`,
+  `secs2.W`, `secs2.B`, `secs2.BOOLEAN`) are now functions, not package variables.
+- **Metrics taxonomy split by ownership.** `conn.Metrics()` returns the shared
+  `hsms.ConnectionMetrics`; HSMS-SS-only counters (linktest, Select/Separate/Reject)
+  moved to `hsmsss.ConnectionMetrics` via `conn.ControlMetrics()`; SECS-I block-level
+  counters are new, via `conn.BlockMetrics()` on `secs1.ConnectionMetrics`.
+- **SECS-I T1/T2/T4 timers unified into the shared `hsms.TimerConfig`**, so they're
+  live-updatable through the same config-swap path as T3/T5–T8.
+- Go floor raised to `1.26.0`; `sml.Parse`/`ParseStrict` replace `sml.ParseHSMS`;
+  `logger.MockLogger` moved to `logger/loggertest.MockLogger`; `logger.GetLogger()`
+  → `logger.Default()`; `secs1.WithIsEquip` → `secs1.WithEquipment()` /
+  `secs1.WithHost()`.
+- **Binary (`B`) items render as hex by default in SML**, matching v1's exact
+  `0x%02X` format (`secs2.BinaryItem.ToSML()` and `sml.Encoder`'s default). The
+  previous binary-literal (`0b...`) form is opt-in via `sml.WithBinaryStyle(sml.BinaryLiteral)`.
+  The parser reads both forms regardless of the encoder's chosen style.
+
+### Added
+
+- **`secs2.DecodeOwned`** — public zero-copy decode for callers that already own
+  the input buffer and won't mutate it after the call.
+- **`hsms.FromSystemBytes(b [4]byte) uint32`** (the inverse of `ToSystemBytes`) and
+  **`DataMessage.ID()` / `ControlMessage.ID() uint32`** — a numeric message-ID
+  accessor decoding System Bytes, restoring v1's `msg.ID()` ergonomics.
+- **`hsms.NewEmptyDataMessage()`** — a zero-value baseline `*DataMessage` (stream
+  0, function 0, no wait bit, session ID 0, empty body) for tests that don't need
+  the full `NewDataMessage` argument list.
+- **`secs2.Equal(a, b Item) bool`** — semantic SECS-II item equality: same
+  declared type/width and decoded logical value, immune to internal wire-encoding
+  differences (non-canonical length fields, F4/F8 storage precision) that make
+  `reflect.DeepEqual`/`ToBytes()` comparison unsafe.
+- **`(*hsms.DataMessage).Equal(other *DataMessage) bool`** — header + semantic
+  body equality (via `secs2.Equal`), immune to the lazy-decode `sync.Once`
+  ordering hazard that makes `reflect.DeepEqual` on two `*DataMessage` unsafe.
+- **`hsms.DecodeHSMSPayload` / `DecodeOwnedHSMSPayload`** — decode a `[header ||
+  body]` payload with no 4-byte length prefix (copying and zero-copy variants,
+  mirroring `secs2.Decode`/`DecodeOwned`), and **`hsms.NewDataMessageFromHeader`**
+  — build a `*DataMessage` from an already-formed 10-byte header plus a decoded
+  item.
+- **`sml.EncodeMessage` / `sml.MustEncodeMessage`** — package-level shortcuts for
+  `NewEncoder().EncodeMessage(msg)`; `MustEncodeMessage` returns a
+  `"<!sml encode error: ...>"` diagnostic string on error instead of panicking, so
+  it's always safe to embed in a log line.
+- **`hsms/hsmstest` package** — `FakeEndpoint`, an in-memory `hsms.SECS2Endpoint`
+  for tests (records sends, scripts replies, delivers inbound messages to
+  registered handlers, no TCP connection), plus `RequireDataMessageEqual` /
+  `IgnoreSystemBytes` / `IgnoreSessionID` / `BodyOnly` assertion helpers built on
+  `DataMessage.Equal`. Import only in test code, like `logger/loggertest`.
+- **`hsms.WithSessionIDValidation`** (default off) — opt-in inbound SessionID
+  mismatch check at the connection's chokepoint, replying `S9F1` and dropping the
+  frame on mismatch.
+- **`gem` package expanded** to a bounded SEMI E30/E5 builder set returning
+  `secs2.SECS2Message`: `S1F1/2` (+ host forms), `S1F13/14` (+ host forms),
+  `S2F17/18`, `S2F31/32`, `S2F37/38`, `S5F1/2`, `S6F11/12`, and a `Report` helper.
+  `S9Fx` error-report builders are now E5-faithful (carry the offending message
+  header / system bytes).
+- **`hsmsss`/`secs1`: `WithDialer(DialFunc)`** for a custom active-side dialer
+  (e.g. routing through a test proxy or a non-default network).
+- A deterministic, network-free integration test suite (`integration/`) driving
+  real HSMS-SS and SECS-I clients over `net.Pipe`, and a standalone `benchmarks/`
+  module comparing v1 against v2 (headline: every full-connection round trip is
+  15%–61% faster in v2).
+- Top-level `README.md` rewritten for the v2 API, with every code example
+  compile-checked against the module.
+
+### Removed
+
+- **The entire v1 pooling API**: `Free`, `UsePool`/`IsUsePool`,
+  `GetMessageBuffer`/`PutMessageBuffer`, `Clone`, `CloneCodec`, `SnapshotForRelay`.
+  Messages and items are ordinary GC-owned values — the whole class of
+  use-after-free / double-free / retain-past-`Free` bugs this history kept
+  surfacing (see the 1.15.0–1.18.0 entries below) is now structurally impossible.
+- `Session` / `AddSession` and the mutable `Set*` methods on messages and items
+  (`SetSessionID`, `SetStreamCode`, `item.SetValues`, ...).
+
 ## [1.18.0] - 2026-06-27
 
 Adds `DataMessage.CloneCodec` and `DataMessage.SnapshotForRelay` (an opt-in,
@@ -693,6 +794,7 @@ release's fuzz work were closed out.
   Deselect.req / Deselect.rsp / Separate.req are now honoured end-to-end
   and take the session through the documented state transitions.
 
+[2.0.0]: https://github.com/arloliu/go-secs/releases/tag/v2.0.0
 [1.17.1]: https://github.com/arloliu/go-secs/releases/tag/v1.17.1
 [1.17.0]: https://github.com/arloliu/go-secs/releases/tag/v1.17.0
 [1.16.2]: https://github.com/arloliu/go-secs/releases/tag/v1.16.2
