@@ -9,12 +9,22 @@ import "sync/atomic"
 // HSMS-SS-only counters (linktest, Select/Separate/Reject) are in hsmsss.ConnectionMetrics, reached
 // via hsmsss.Connection.ControlMetrics(); SECS-I-only counters (block send/recv/retry/etc.) are in
 // secs1.ConnectionMetrics, reached via secs1.Connection.BlockMetrics().
+type paddedUint64 struct {
+	atomic.Uint64
+	_ [56]byte // pad to 64 bytes (cache line size) to prevent false sharing
+}
+
+type paddedInt64 struct {
+	atomic.Int64
+	_ [56]byte // pad to 64 bytes (cache line size) to prevent false sharing
+}
+
 type ConnectionMetrics struct {
-	dataMsgSend            atomic.Uint64
-	dataMsgRecv            atomic.Uint64
+	dataMsgSend            paddedUint64
+	dataMsgRecv            paddedUint64
+	dataMsgInflight        paddedInt64
 	dataMsgErr             atomic.Uint64
 	dataMsgDropNotSelected atomic.Uint64 // B3 chokepoint: dropped because not SELECTED
-	dataMsgInflight        atomic.Int64  // I1 gauge (data W-bit messages in flight)
 	connRetry              atomic.Int64  // gauge: 1 while a reconnect loop is actively retrying, else 0
 	reconnects             atomic.Uint64 // cumulative count of successful re-establishments after an involuntary drop
 }
