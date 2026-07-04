@@ -2,6 +2,7 @@ package secs2
 
 import (
 	"bytes"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -299,6 +300,83 @@ func TestDecode_OwnsBytesBinary(t *testing.T) {
 	assert.Equal(t, []byte{0x01, 0x02, 0x03}, b)
 }
 
+// TestDecode_OwnsBytesText specifically tests that ASCII/JIS8/LocalizedStr decoded values are
+// not aliased to the caller's buffer, despite decodeItem using unsafe.String internally over
+// its own private bytes.Clone (see ownedString in decode.go). If Decode's clone were ever
+// skipped or reused, this test would catch it via a mismatched decoded value after mutation.
+func TestDecode_OwnsBytesText(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		item Item
+		want string
+	}{
+		{"ASCII", NewASCIIItem("hello world"), "hello world"},
+		{"JIS8", NewJIS8Item("hello"), "hello"},
+		{"LocalizedStr", NewUTF8StrItem("hello"), "hello"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			data := tt.item.ToBytes()
+
+			got, err := Decode(data)
+			require.NoError(t, err)
+
+			// Mutate the caller's input buffer after Decode returns.
+			for i := range data {
+				data[i] ^= 0xFF
+			}
+
+			switch v := got.(type) {
+			case *ASCIIItem:
+				assert.Equal(t, tt.want, v.value, "decoded ASCII value was not isolated from caller's buffer mutation")
+			case *JIS8Item:
+				assert.Equal(t, tt.want, v.value, "decoded JIS8 value was not isolated from caller's buffer mutation")
+			case *LocalizedStrItem:
+				assert.Equal(t, tt.want, v.value, "decoded LocalizedStr value was not isolated from caller's buffer mutation")
+			default:
+				t.Fatalf("unexpected item type %T", got)
+			}
+		})
+	}
+}
+
+// TestDecode_ConcurrentReadsText guards the ownedString (unsafe.String) path added to
+// decodeItem's ASCII/JIS8/LocalizedStr leaves: concurrent readers of a Decode'd text item
+// must never race, since decodeItem never mutates its private clone after construction.
+func TestDecode_ConcurrentReadsText(t *testing.T) {
+	t.Parallel()
+
+	data := NewASCIIItem("concurrent decode test").ToBytes()
+	item, err := Decode(data)
+	require.NoError(t, err)
+
+	ascii, ok := item.(*ASCIIItem)
+	require.True(t, ok)
+
+	const goroutines = 50
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+
+			_ = item.ToBytes()
+			s, err := ascii.ToASCII()
+			assert.NoError(t, err)
+			assert.Equal(t, "concurrent decode test", s)
+		}()
+	}
+
+	wg.Wait()
+}
+
 // TestDecode_SeededIdentity verifies that a decoded item's ToBytes() equals the
 // input slice it was decoded from (byte-for-byte).
 func TestDecode_SeededIdentity(t *testing.T) {
@@ -458,4 +536,34 @@ func TestDecode_Errors(t *testing.T) {
 			assert.Error(t, err, "expected error for case %q", tt.name)
 		})
 	}
+}
+
+// FuzzDecode_OwnsBytes is the general-purpose regression guard for Decode's isolation
+// invariant across every item format, not just the ASCII/JIS8/LocalizedStr cases
+// TestDecode_OwnsBytesText hand-picks: whatever Decode returns must never change after the
+// caller mutates its input, and Decode must never panic on malformed input.
+func FuzzDecode_OwnsBytes(f *testing.F) {
+	f.Add(NewASCIIItem("hello world").ToBytes())
+	f.Add(NewJIS8Item("hello").ToBytes())
+	f.Add(NewUTF8StrItem("hello").ToBytes())
+	f.Add(NewBinaryItem([]byte{0x01, 0x02, 0x03}).ToBytes())
+	f.Add(NewIntItem(4, int32(-12345)).ToBytes())
+	f.Add(NewBooleanItem(true, false, true).ToBytes())
+	f.Add(NewListItem(NewUintItem(1, 1, 2, 3), NewASCIIItem("hi")).ToBytes())
+	f.Add([]byte{0x40}) // malformed: zero length-byte count
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		got, err := Decode(data)
+		if err != nil {
+			return
+		}
+
+		before := got.ToBytes()
+
+		for i := range data {
+			data[i] ^= 0xFF
+		}
+
+		assert.Equal(t, before, got.ToBytes(), "decoded item was not isolated from caller's buffer mutation")
+	})
 }

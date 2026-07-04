@@ -91,6 +91,44 @@ func BenchmarkItemDecode_WaferMap(b *testing.B) {
 	}
 }
 
+// BenchmarkItemDecodeOwned_WaferMap measures decoding a 100k-die wafer map via
+// secs2.DecodeOwned (see BenchmarkItemDecodeOwned_NestedList for methodology).
+func BenchmarkItemDecodeOwned_WaferMap(b *testing.B) {
+	item := waferMapItem()
+	wire := item.ToBytes()
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(wire)))
+	for b.Loop() {
+		b.StopTimer()
+		owned := append([]byte(nil), wire...)
+		b.StartTimer()
+		if _, err := secs2.DecodeOwned(owned); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkItemDecodeOwned_NestedList measures decoding the nested-list wire
+// bytes via secs2.DecodeOwned, the zero-copy variant for a buffer the caller
+// already owns. The clone into an "owned" buffer happens outside the timed
+// section (real callers already have such a buffer, e.g. a socket read).
+func BenchmarkItemDecodeOwned_NestedList(b *testing.B) {
+	item := nestedListItem()
+	wire := item.ToBytes()
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(wire)))
+	for b.Loop() {
+		b.StopTimer()
+		owned := append([]byte(nil), wire...)
+		b.StartTimer()
+		if _, err := secs2.DecodeOwned(owned); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 // BenchmarkItemEncode_Recipe measures a cold ToBytes() call on a fresh 1 MiB
 // recipe transfer per iteration (see BenchmarkItemEncode_NestedList).
 func BenchmarkItemEncode_Recipe(b *testing.B) {
@@ -114,6 +152,24 @@ func BenchmarkItemDecode_Recipe(b *testing.B) {
 	b.SetBytes(int64(len(wire)))
 	for b.Loop() {
 		if _, err := secs2.Decode(wire); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkItemDecodeOwned_Recipe measures decoding a 1 MiB recipe transfer via
+// secs2.DecodeOwned (see BenchmarkItemDecodeOwned_NestedList for methodology).
+func BenchmarkItemDecodeOwned_Recipe(b *testing.B) {
+	item := recipeItem()
+	wire := item.ToBytes()
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(wire)))
+	for b.Loop() {
+		b.StopTimer()
+		owned := append([]byte(nil), wire...)
+		b.StartTimer()
+		if _, err := secs2.DecodeOwned(owned); err != nil {
 			b.Fatal(err)
 		}
 	}

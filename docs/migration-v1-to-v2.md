@@ -44,6 +44,17 @@ v2 rebuilds the library around three ideas:
 | Metrics | `conn.GetMetrics()` (atomic fields) | `conn.Metrics()` (shared hsms.ConnectionMetrics) + `ControlMetrics()`/`BlockMetrics()` on transport-specific connections |
 | Test logger | `logger.MockLogger` | `logger/loggertest.MockLogger` |
 
+### Performance
+
+A standalone benchmark module ([`benchmarks/`](../benchmarks/)) compares v2 against the latest v1
+release: a real active/passive HSMS-SS connection over loopback TCP, plus `secs2.Item`
+construct/encode/decode microbenchmarks. Headline result: **every full-connection round trip is
+15% to 61% faster than v1**, since v2 has no pooling/`Free()` bookkeeping on the hot path. The one
+place v1 has an edge is raw `secs2.Decode`, which always copies its input for immutability where
+v1 aliased it — see the `secs2.DecodeOwned` notes in section 9 for the zero-copy alternative when
+you already own the buffer. Reproduce the numbers yourself with
+`cd benchmarks && make bench-v1 bench-v2 compare`.
+
 Everything else is covered below.
 
 ---
@@ -648,6 +659,15 @@ func decodeItem(wire []byte) (secs2.Item, error) {
     return secs2.Decode(wire) // copies wire; empty input yields NewEmptyItem()
 }
 ```
+
+`hsms.DecodeSECS2Item` in v1 aliased its input buffer (near-zero-alloc). `secs2.Decode`
+always copies instead, since v2 items are immutable and must not have a lifetime dependency
+on a caller-owned buffer — this shows up as a real cost decoding large binary/ASCII payloads.
+If you're decoding a buffer you already own outright (e.g. one you just read from a file, with
+no other referents), `secs2.DecodeOwned(wire)` skips that top-level copy and transfers
+ownership of `wire` to the returned `Item`, so you must not mutate or reuse `wire` afterward.
+This restores v1-level performance: Binary, ASCII, JIS-8, and localized-string payloads all
+alias `wire` directly with no further copy.
 
 ### `secs2.NewMessage` — the transport-agnostic base builder
 

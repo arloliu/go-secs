@@ -85,6 +85,20 @@ and SECS-I over TCP/IP (SEMI E4), together with an SML (SECS Message Language) p
 * **gem** — helpers for constructing common GEM (SEMI E30) messages.
 * **logger** — a small logging façade for integrating your own logging framework.
 
+## Performance
+
+`v2` is benchmarked against the latest `v1` release with a standalone module (see
+[`benchmarks/`](benchmarks/)): a real active/passive HSMS-SS connection over loopback TCP, plus
+`secs2.Item` construct/encode/decode microbenchmarks.
+
+* **Every full-connection round trip is faster than v1** — 15% to 61% less time, since v2 avoids
+  v1's pooling/`Free()` bookkeeping on the hot path.
+* **`secs2.Decode` always copies its input** (v1 aliased it), so the returned `Item` never depends
+  on the caller's buffer. For a buffer the caller already owns outright (e.g. one just read from a
+  socket or a file), `secs2.DecodeOwned` skips that copy and matches v1's decode performance —
+  including for ASCII/JIS-8/localized-string payloads, not just binary.
+* Reproduce it yourself: `cd benchmarks && make bench-v1 bench-v2 compare`.
+
 ## Message and Item Object Model
 
 * **`secs2.SECS2Message`** defines the core of a SECS-II message: stream code, function code, W-bit,

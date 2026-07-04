@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"unsafe"
 
 	"github.com/arloliu/go-secs/v2/internal/framecodec"
 )
@@ -17,7 +18,9 @@ const MaxListDepth = 64
 //
 // It is the inverse of Item.AppendTo/ToBytes. Empty input yields NewEmptyItem().
 // Returns an error on malformed input (bad format code, truncated length/payload,
-// or nesting deeper than MaxListDepth).
+// or nesting deeper than MaxListDepth). Decode copies data, so the returned Item
+// has no lifetime dependency on the caller's buffer; see [DecodeOwned] for a
+// zero-copy variant when the caller already owns data outright.
 //
 // Parameters:
 //   - data: the wire bytes to parse.
@@ -36,7 +39,35 @@ func Decode(data []byte) (Item, error) {
 	return item, err
 }
 
-// DecodeOwned is an internal-transport-only entry point.
+// DecodeOwned parses a single SECS-II data item from data, skipping the whole-input
+// defensive copy that [Decode] always performs.
+//
+// Calling DecodeOwned transfers ownership of data's backing array to the returned Item, so
+// the caller MUST NOT mutate or reuse data after this call, and must keep it alive for as
+// long as the item is retained — the same ownership-transfer idiom as
+// [encoding/json.RawMessage]. Binary, ASCII, JIS-8, and localized-string items alias data
+// directly (no further copy); numeric and boolean items always build a typed value slice,
+// since their values are a different representation than the wire bytes. Use this only for
+// a buffer the caller already owns outright (e.g. a freshly-read file or a buffer with no
+// other referents); otherwise use [Decode], which copies its input and is always safe.
+//
+// Parameters:
+//   - data: the wire bytes to parse; ownership transfers to the returned Item on success.
+//
+// Returns:
+//   - Item: the parsed SECS-II data item, aliasing data.
+//   - error: syntax or boundary error if parsing fails.
+func DecodeOwned(data []byte) (Item, error) {
+	if len(data) == 0 {
+		return NewEmptyItem(), nil
+	}
+
+	item, _, err := decodeItem(data, 0, 0)
+
+	return item, err
+}
+
+// DecodeOwnedFrame is an internal-transport-only entry point.
 //
 // It parses a single SECS-II item from a body the library already owns, WITHOUT copying
 // (no bytes.Clone): the returned item tree's leaf raw fields alias body.Bytes(), so the
@@ -44,9 +75,8 @@ func Decode(data []byte) (Item, error) {
 //
 // Its argument is a capability token whose type lives in an internal package, so external code
 // cannot construct one and therefore cannot call this function at all. External callers must use
-// Decode, which copies its input and is safe with caller-owned buffers. This no-copy path exists
-// solely for the in-repo transport layer that frames SECS-II message bodies; secs2.Decode([]byte)
-// stays copy-only.
+// Decode (always copies) or DecodeOwned (zero-copy over a caller-owned []byte). This path exists
+// solely for the in-repo transport layer that frames SECS-II message bodies.
 //
 // Parameters:
 //   - body: the capability token wrapping the owned SECS-II wire bytes.
@@ -54,15 +84,25 @@ func Decode(data []byte) (Item, error) {
 // Returns:
 //   - Item: the parsed SECS-II data item.
 //   - error: syntax or boundary error if parsing fails.
-func DecodeOwned(body framecodec.OwnedSECS2Body) (Item, error) {
-	raw := body.Bytes()
-	if len(raw) == 0 {
-		return NewEmptyItem(), nil
+func DecodeOwnedFrame(body framecodec.OwnedSECS2Body) (Item, error) {
+	return DecodeOwned(body.Bytes())
+}
+
+// ownedString reinterprets b as a string without copying, via unsafe.String. It exists only
+// for decodeItem's ASCII/JIS8/LocalizedStr leaves, where b is always a sub-slice of the
+// exclusively-owned buffer Decode or DecodeOwned handed to decodeItem: Decode's bytes.Clone is
+// never referenced by anything outside this call tree, and DecodeOwned's caller has
+// contractually transferred ownership and promised not to mutate or reuse it. decodeItem never
+// retains or hands out a second, independent reference to b — the string this returns is the
+// ONLY view of that memory the returned Item exposes — so no public accessor can observe a
+// mutation through it as long as those two contracts hold. b must not be mutated for as long
+// as the returned string is reachable.
+func ownedString(b []byte) string {
+	if len(b) == 0 {
+		return ""
 	}
 
-	item, _, err := decodeItem(raw, 0, 0)
-
-	return item, err
+	return unsafe.String(unsafe.SliceData(b), len(b))
 }
 
 // decodeItem parses one SECS-II item from owned[pos:] and returns the item, the new byte
@@ -137,7 +177,7 @@ func decodeItem(owned []byte, pos, depth int) (Item, int, error) { //nolint:cycl
 			return nil, pos, fmt.Errorf("unexpected end of data: ASCII needs %d bytes, have %d", length, len(owned)-pos)
 		}
 
-		s := string(owned[pos : pos+length])
+		s := ownedString(owned[pos : pos+length])
 		pos += length
 		it := &ASCIIItem{value: s}
 		it.raw = owned[startPos:pos]
@@ -149,7 +189,7 @@ func decodeItem(owned []byte, pos, depth int) (Item, int, error) { //nolint:cycl
 			return nil, pos, fmt.Errorf("unexpected end of data: JIS8 needs %d bytes, have %d", length, len(owned)-pos)
 		}
 
-		s := string(owned[pos : pos+length])
+		s := ownedString(owned[pos : pos+length])
 		pos += length
 		it := &JIS8Item{value: s}
 		it.raw = owned[startPos:pos]
@@ -195,7 +235,7 @@ func decodeItem(owned []byte, pos, depth int) (Item, int, error) { //nolint:cycl
 		}
 
 		lsh := uint16(owned[pos])<<8 | uint16(owned[pos+1])
-		s := string(owned[pos+2 : pos+length])
+		s := ownedString(owned[pos+2 : pos+length])
 		pos += length
 		it := &LocalizedStrItem{lsh: lsh, value: s}
 		it.raw = owned[startPos:pos]

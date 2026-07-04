@@ -318,7 +318,7 @@ func (msg *DataMessage) decode() {
 	if raw, ok := wire.OwnedBytes(msg.body); ok {
 		// Raw-frame path: decode in place over the owned frame body — leaf items
 		// alias the frame (kept alive by msg.body), no extra copy (§5.B).
-		msg.dec.item, msg.dec.err = secs2.DecodeOwned(framecodec.AdoptSECS2Body(raw))
+		msg.dec.item, msg.dec.err = secs2.DecodeOwnedFrame(framecodec.AdoptSECS2Body(raw))
 
 		return
 	}

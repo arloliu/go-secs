@@ -82,4 +82,10 @@
 // call returns). Empty input yields NewEmptyItem(). List nesting is capped at MaxListDepth to
 // prevent stack exhaustion on adversarial input. An error is returned for any malformed input
 // (unknown format code, truncated header or payload, etc.).
+//
+// DecodeOwned is an alternative for a buffer the caller already owns outright: it skips
+// Decode's whole-input defensive copy but transfers ownership of the buffer to the returned
+// Item, so the caller must not mutate or reuse it afterward. Binary, ASCII, JIS-8, and
+// localized-string items then alias the buffer directly with no further copy; numeric and
+// boolean items always build a typed value slice regardless.
 package secs2
