@@ -40,6 +40,14 @@ var (
 	ErrT3Timeout        = errors.New("hsms: T3 reply timeout")
 	ErrT6Timeout        = errors.New("hsms: T6 control timeout")
 	ErrCloseTimeout     = errors.New("hsms: close timeout (tasks still live)")
+
+	// ErrUnrecognizedSessionID indicates a NON-S9F1 inbound data message's SessionID did not match
+	// this connection's configured SessionID. Only returned/observable when session-ID validation
+	// is enabled via WithSessionIDValidation; the message is dropped and answered with an S9F1,
+	// rather than delivered to the registered DataMessageHandlers. An inbound S9F1 is exempted from
+	// this check entirely — it is delivered normally regardless of its own SessionID, and this
+	// error is never returned for it (see WithSessionIDValidation for why).
+	ErrUnrecognizedSessionID = errors.New("hsms: unrecognized session ID")
 )
 
 // RejectError is returned by a synchronous send whose transaction the peer answered with an

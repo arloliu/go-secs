@@ -1,6 +1,11 @@
 package hsms
 
-import "errors"
+import (
+	"context"
+	"errors"
+
+	"github.com/arloliu/go-secs/v2/gem"
+)
 
 // RouteData delivers an inbound data message to the session fan-out (TransportRuntime).
 // The session synchronously fans out to registered handlers (§5.4); it never errors here,
@@ -61,6 +66,12 @@ func (c *connection) DeliverOwnedFrame(frame []byte) error {
 
 	c.metrics.incDataMsgRecv() // the single data-receive chokepoint (DataMsgRecvCount)
 
+	if c.cfg.Load().validateSessionID {
+		if err := c.checkSessionID(dm); err != nil {
+			return nil // dropped — not a decode error, so the recv loop keeps reading
+		}
+	}
+
 	// Reply correlation applies ONLY to a SECONDARY (reply). A reply reuses the primary's System
 	// Bytes (E37 §8.2.6.9) and, per SECS-II, carries an even function with the W-bit clear (including
 	// SxF0, the transaction-abort secondary — E5 §7.2/§10.4.1).
@@ -76,6 +87,37 @@ func (c *connection) DeliverOwnedFrame(frame []byte) error {
 	}
 
 	return c.RouteData(dm)
+}
+
+// checkSessionID validates dm's SessionID against this connection's own configured SessionID (see
+// WithSessionIDValidation). On a mismatch it sends an S9F1 from this connection's own SessionID
+// (fire-and-forget — a failure to send the S9F1 does not change the outcome) and returns
+// ErrUnrecognizedSessionID so the caller drops dm without routing it. An inbound S9F1 is exempted
+// from the check entirely (regardless of its own SessionID): checkSessionID returns nil immediately,
+// so the caller proceeds to route dm normally (delivered to DataMessageHandlers, or reply-correlated
+// if it matches a pending transaction) — it is NOT dropped. This both avoids an S9F1-answers-S9F1
+// notification loop and preserves visibility into a diagnostic message the peer sent us.
+//
+// Per SEMI E5 §10.13, S9F1's body is MHEAD — the 10-byte header of the OFFENDING message (dm), not
+// an empty item. gem.S9F1(dm.HeaderBytes()) builds the correctly-shaped SECS2Message; this
+// re-stamps it as a DataMessage carrying THIS connection's own SessionID and a fresh System Bytes
+// (S9F1 is a notification, not a reply to dm, so it must not reuse dm's System Bytes).
+func (c *connection) checkSessionID(dm *DataMessage) error {
+	isS9F1 := dm.Stream() == 9 && dm.Function() == 1
+	if isS9F1 || dm.SessionID() == c.SessionID() {
+		return nil
+	}
+
+	s9 := gem.S9F1(dm.HeaderBytes())
+	reject, err := NewDataMessage(
+		s9.StreamCode(), s9.FunctionCode(), s9.WaitBit(),
+		c.SessionID(), c.NextSystemBytes(), s9.Item(),
+	)
+	if err == nil {
+		_ = c.SendAsync(context.Background(), reject)
+	}
+
+	return ErrUnrecognizedSessionID
 }
 
 // isSecondaryReply reports whether dm is a SECS-II secondary (reply): an even function code with

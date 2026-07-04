@@ -46,6 +46,7 @@ type ConnectionConfig struct {
 	closeTimeout          time.Duration
 	writeTimeout          time.Duration
 	logger                logger.Logger
+	validateSessionID     bool
 }
 
 // DefaultConnectionConfig returns a ConnectionConfig populated with SEMI E37 (HSMS) and SEMI E4 (SECS-I)-recommended default timer values and conservative operational defaults.
@@ -307,6 +308,34 @@ func WithLogger(l logger.Logger) ConnOption {
 		}
 
 		c.logger = l
+
+		return nil
+	}
+}
+
+// WithSessionIDValidation enables or disables inbound SessionID validation. When enabled, any
+// inbound data message whose SessionID does not match this connection's configured SessionID is
+// dropped (never delivered to a DataMessageHandler) and answered with an S9F1 sent from this
+// connection's own SessionID — EXCEPT an inbound message that is itself S9F1 (SEMI E5's own
+// "unrecognized device ID" notification), which is exempted from the check entirely: it is
+// delivered to DataMessageHandlers normally, regardless of its own SessionID, and never triggers an
+// outbound S9F1 in response. This exemption exists for two reasons: (1) it avoids an S9F1-answers-S9F1
+// notification loop, and (2) an inbound S9F1 is itself diagnostic information about a protocol
+// problem the PEER detected — silently dropping it would hide exactly the kind of signal an
+// application wants visibility into (this mirrors how S9Fx messages are typically handled: logged
+// and counted, not discarded).
+//
+// Disabled (the default, matching v2's shipped behavior prior to this option's introduction) means
+// every inbound data message is delivered regardless of its SessionID; the application is fully
+// responsible for any session-ID cross-checking it needs. Enable this for compliant HSMS/SECS-I
+// peers where a SessionID mismatch signals a real protocol problem (e.g. a cross-wired connection)
+// worth rejecting automatically. Leave it disabled when talking to equipment whose SessionID
+// encoding does not follow the SEMI convention exactly (for example a peer that overlays a direction
+// bit on the SessionID) — such a peer's legitimate traffic would otherwise be misclassified as
+// mismatched and dropped.
+func WithSessionIDValidation(enabled bool) ConnOption {
+	return func(c *ConnectionConfig) error {
+		c.validateSessionID = enabled
 
 		return nil
 	}

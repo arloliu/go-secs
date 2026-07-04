@@ -3,6 +3,7 @@ package hsms
 import (
 	"testing"
 
+	"github.com/arloliu/go-secs/v2/secs2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -161,4 +162,135 @@ func TestIsSecondaryReply(t *testing.T) {
 			require.Equal(t, tt.want, isSecondaryReply(dm))
 		})
 	}
+}
+
+// TestDeliverOwnedFrame_SessionIDValidation_DefaultOff proves v2's shipped behavior is unchanged:
+// with WithSessionIDValidation NOT called (default false), a data message whose SessionID does not
+// match this connection's configured SessionID is still delivered to the handler.
+func TestDeliverOwnedFrame_SessionIDValidation_DefaultOff(t *testing.T) {
+	c, _ := newTestSendConn(t, SelectedState)
+
+	handlerCh := make(chan *DataMessage, 1)
+	c.AddDataMessageHandler(func(msg *DataMessage, _ SECS2Endpoint) {
+		handlerCh <- msg
+	})
+
+	// Connection's configured SessionID is 0xFFFF; this inbound message carries 0x0001 (a mismatch).
+	mismatched, err := NewDataMessage(1, 1, false, 0x0001, [4]byte{0, 0, 0, 1}, secs2.NewASCIIItem("PING"))
+	require.NoError(t, err)
+	require.NoError(t, c.DeliverOwnedFrame(ownedFrame(t, mismatched)))
+
+	select {
+	case got := <-handlerCh:
+		require.Equal(t, uint16(0x0001), got.SessionID(), "validation off delivers regardless of SessionID")
+	default:
+		t.Fatal("with validation off, a mismatched-SessionID message must still be delivered")
+	}
+
+	require.Empty(t, c.cur.Load().sendCh, "validation off must never emit an S9F1")
+}
+
+// TestDeliverOwnedFrame_SessionIDValidation_EnabledMismatchDropped proves that, with validation on,
+// a NON-S9F1 message whose SessionID does not match is dropped (never delivered) AND answered with
+// an S9F1 whose body is the offending message's 10-byte MHEAD (SEMI E5 §10.13), sent from this
+// connection's own SessionID.
+func TestDeliverOwnedFrame_SessionIDValidation_EnabledMismatchDropped(t *testing.T) {
+	c, _ := newTestSendConn(t, SelectedState)
+	require.NoError(t, c.UpdateConfigOptions(WithSessionIDValidation(true)))
+
+	handlerCh := make(chan *DataMessage, 1)
+	c.AddDataMessageHandler(func(msg *DataMessage, _ SECS2Endpoint) {
+		handlerCh <- msg
+	})
+
+	mismatched, err := NewDataMessage(1, 1, false, 0x0001, [4]byte{0, 0, 0, 7}, secs2.NewASCIIItem("PING"))
+	require.NoError(t, err)
+	require.NoError(t, c.DeliverOwnedFrame(ownedFrame(t, mismatched)))
+
+	// Dropped: the handler must NOT fire.
+	select {
+	case <-handlerCh:
+		t.Fatal("a mismatched-SessionID message must be dropped, not delivered to the handler")
+	default:
+	}
+
+	// Answered with exactly one S9F1 (enqueued on the async send channel; no drainer runs in this
+	// unit harness, so the enqueued frame stays inspectable).
+	e := c.cur.Load()
+	require.Len(t, e.sendCh, 1, "a mismatched-SessionID message must be answered with exactly one S9F1")
+	req := <-e.sendCh
+	reply, ok := req.msg.(*DataMessage)
+	require.True(t, ok, "the auto-reply is a DataMessage")
+	require.Equal(t, uint8(9), reply.Stream(), "auto-reply stream is 9")
+	require.Equal(t, uint8(1), reply.Function(), "auto-reply function is 1 (S9F1)")
+	require.Equal(t, c.SessionID(), reply.SessionID(), "S9F1 is sent from this connection's own SessionID")
+
+	// SEMI E5 §10.13: the S9F1 BODY is the 10-byte binary MHEAD of the offending message — asserted
+	// explicitly so an empty-body S9F1 would fail (a weaker S=9/F=1-only check would not catch that).
+	item, err := reply.Item()
+	require.NoError(t, err)
+	body, err := item.ToBinary()
+	require.NoError(t, err)
+	mhead := mismatched.HeaderBytes()
+	require.Equal(t, mhead[:], body, "S9F1 body must equal the offending message's 10-byte MHEAD")
+}
+
+// TestDeliverOwnedFrame_SessionIDValidation_EnabledMatchDelivered proves that, with validation on, a
+// message whose SessionID DOES match is delivered normally and triggers no S9F1.
+func TestDeliverOwnedFrame_SessionIDValidation_EnabledMatchDelivered(t *testing.T) {
+	c, _ := newTestSendConn(t, SelectedState)
+	require.NoError(t, c.UpdateConfigOptions(WithSessionIDValidation(true)))
+
+	handlerCh := make(chan *DataMessage, 1)
+	c.AddDataMessageHandler(func(msg *DataMessage, _ SECS2Endpoint) {
+		handlerCh <- msg
+	})
+
+	matched, err := NewDataMessage(1, 1, false, c.SessionID(), [4]byte{0, 0, 0, 5}, secs2.NewASCIIItem("PING"))
+	require.NoError(t, err)
+	require.NoError(t, c.DeliverOwnedFrame(ownedFrame(t, matched)))
+
+	select {
+	case got := <-handlerCh:
+		require.Equal(t, c.SessionID(), got.SessionID(), "a matching-SessionID message is delivered verbatim")
+	default:
+		t.Fatal("a matching-SessionID message must be delivered to the handler")
+	}
+
+	require.Empty(t, c.cur.Load().sendCh, "a matching-SessionID message triggers no S9F1")
+}
+
+// TestDeliverOwnedFrame_SessionIDValidation_S9F1Exempted pins the exemption's exact behavior: with
+// validation on, an inbound S9F1 with a MISMATCHED SessionID is (a) delivered to the handler
+// normally, and (b) does NOT trigger an outbound S9F1 in response (no notification loop). Both
+// assertions are required — this is the one place that fixes "delivered, no auto-reply" as the
+// intended outcome (matching WithSessionIDValidation's and checkSessionID's doc comments).
+func TestDeliverOwnedFrame_SessionIDValidation_S9F1Exempted(t *testing.T) {
+	c, _ := newTestSendConn(t, SelectedState)
+	require.NoError(t, c.UpdateConfigOptions(WithSessionIDValidation(true)))
+
+	handlerCh := make(chan *DataMessage, 1)
+	c.AddDataMessageHandler(func(msg *DataMessage, _ SECS2Endpoint) {
+		handlerCh <- msg
+	})
+
+	// An inbound S9F1 whose own SessionID (0x0001) mismatches the connection's (0xFFFF). Its body is
+	// a 10-byte MHEAD per SEMI E5 §10.13.
+	var offendingHeader [10]byte
+	inboundS9F1, err := NewDataMessage(9, 1, false, 0x0001, [4]byte{0, 0, 0, 9}, secs2.B(offendingHeader[:]))
+	require.NoError(t, err)
+	require.NoError(t, c.DeliverOwnedFrame(ownedFrame(t, inboundS9F1)))
+
+	// (a) Delivered to the handler normally, mismatched SessionID and all.
+	select {
+	case got := <-handlerCh:
+		require.Equal(t, uint8(9), got.Stream(), "delivered message is S9")
+		require.Equal(t, uint8(1), got.Function(), "delivered message is S9F1")
+		require.Equal(t, uint16(0x0001), got.SessionID(), "inbound S9F1 delivered verbatim despite mismatched SessionID")
+	default:
+		t.Fatal("an inbound S9F1 must be delivered to the handler, not dropped")
+	}
+
+	// (b) No outbound S9F1 in response — the exemption prevents an S9F1-answers-S9F1 loop.
+	require.Empty(t, c.cur.Load().sendCh, "an inbound S9F1 must not trigger an outbound S9F1 reply")
 }
