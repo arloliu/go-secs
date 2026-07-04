@@ -145,14 +145,12 @@ func benchConnection(b *testing.B, mkItem func() secs2.Item) {
 	}()
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		item := mkItem()
 		if _, err := activeConn.SendDataMessage(ctx, 1, 1, true, item); err != nil {
 			b.Fatal(err)
 		}
 	}
-	b.StopTimer()
 }
 
 func BenchmarkConnection_SmallItem_RoundTrip(b *testing.B) {

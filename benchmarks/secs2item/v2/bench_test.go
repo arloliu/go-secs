@@ -18,8 +18,7 @@ func BenchmarkItemConstruct_IntList1000(b *testing.B) {
 	values := intListValues()
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_ = secs2.I8(values...)
 	}
 }
@@ -27,8 +26,7 @@ func BenchmarkItemConstruct_IntList1000(b *testing.B) {
 // BenchmarkItemConstruct_NestedList builds the 100x13 nested-list shape.
 func BenchmarkItemConstruct_NestedList(b *testing.B) {
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_ = nestedListItem()
 	}
 }
@@ -39,13 +37,14 @@ func BenchmarkItemConstruct_NestedList(b *testing.B) {
 // the methodology identical to secs2item/v1 (whose ListItem.ToBytes DOES
 // cache its result on the item — see that file).
 func BenchmarkItemEncode_NestedList(b *testing.B) {
-	b.StopTimer()
 	b.ReportAllocs()
-	for range b.N {
+	for b.Loop() {
+		b.StopTimer()
 		item := nestedListItem()
 		b.StartTimer()
 		_ = item.ToBytes()
 		b.StopTimer()
+		b.StartTimer()
 	}
 }
 
@@ -57,8 +56,7 @@ func BenchmarkItemDecode_NestedList(b *testing.B) {
 
 	b.ReportAllocs()
 	b.SetBytes(int64(len(wire)))
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		if _, err := secs2.Decode(wire); err != nil {
 			b.Fatal(err)
 		}
@@ -68,13 +66,14 @@ func BenchmarkItemDecode_NestedList(b *testing.B) {
 // BenchmarkItemEncode_WaferMap measures a cold ToBytes() call on a fresh
 // 100k-die wafer map per iteration (see BenchmarkItemEncode_NestedList).
 func BenchmarkItemEncode_WaferMap(b *testing.B) {
-	b.StopTimer()
 	b.ReportAllocs()
-	for range b.N {
+	for b.Loop() {
+		b.StopTimer()
 		item := waferMapItem()
 		b.StartTimer()
 		_ = item.ToBytes()
 		b.StopTimer()
+		b.StartTimer()
 	}
 }
 
@@ -85,8 +84,7 @@ func BenchmarkItemDecode_WaferMap(b *testing.B) {
 
 	b.ReportAllocs()
 	b.SetBytes(int64(len(wire)))
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		if _, err := secs2.Decode(wire); err != nil {
 			b.Fatal(err)
 		}
@@ -96,13 +94,14 @@ func BenchmarkItemDecode_WaferMap(b *testing.B) {
 // BenchmarkItemEncode_Recipe measures a cold ToBytes() call on a fresh 1 MiB
 // recipe transfer per iteration (see BenchmarkItemEncode_NestedList).
 func BenchmarkItemEncode_Recipe(b *testing.B) {
-	b.StopTimer()
 	b.ReportAllocs()
-	for range b.N {
+	for b.Loop() {
+		b.StopTimer()
 		item := recipeItem()
 		b.StartTimer()
 		_ = item.ToBytes()
 		b.StopTimer()
+		b.StartTimer()
 	}
 }
 
@@ -113,8 +112,7 @@ func BenchmarkItemDecode_Recipe(b *testing.B) {
 
 	b.ReportAllocs()
 	b.SetBytes(int64(len(wire)))
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		if _, err := secs2.Decode(wire); err != nil {
 			b.Fatal(err)
 		}

@@ -124,8 +124,7 @@ func benchLockFreeQueue(b *testing.B, iterCount int) {
 		_ = q.Dequeue()
 	}
 
-	b.ResetTimer()
-	for i := 0; i <= b.N; i++ {
+	for b.Loop() {
 		stopCh := make(chan struct{})
 		go func(ctx context.Context, q Queue) {
 			for {
@@ -156,7 +155,6 @@ func benchLockFreeQueue(b *testing.B, iterCount int) {
 		}
 		<-stopCh
 	}
-	b.StopTimer()
 }
 
 func benchChannel(b *testing.B, iterCount int, buffered bool) {
@@ -167,8 +165,7 @@ func benchChannel(b *testing.B, iterCount int, buffered bool) {
 	} else {
 		input = make(chan int)
 	}
-	b.ResetTimer()
-	for i := 0; i <= b.N; i++ {
+	for b.Loop() {
 		stopCh := make(chan struct{})
 		go func(ctx context.Context, input chan int) {
 			for {
@@ -189,5 +186,4 @@ func benchChannel(b *testing.B, iterCount int, buffered bool) {
 		}
 		<-stopCh
 	}
-	b.StopTimer()
 }

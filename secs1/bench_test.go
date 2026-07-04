@@ -79,8 +79,7 @@ func init() {
 func BenchmarkSplitBody(b *testing.B) {
 	body := wire.AdoptBody(benchBodyPayload)
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		seq, _ := splitBody(body, benchHeader)
 		var n int
 		for range seq {
@@ -96,8 +95,7 @@ func BenchmarkSplitBody(b *testing.B) {
 // poolable: the result is caller-owned.
 func BenchmarkAssembleBlocks(b *testing.B) {
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_, _, _ = assembleBlocks(benchBlocks)
 	}
 }
@@ -110,8 +108,7 @@ func BenchmarkBlockAppendTo(b *testing.B) {
 	// Pre-size dst for one full block: 1 (length byte) + 254 (max body frame) + 2 (checksum).
 	dst := make([]byte, 0, 1+maxBlockLength+checksumSize)
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		dst = benchSingleBlock.appendTo(dst[:0])
 	}
 	_ = dst

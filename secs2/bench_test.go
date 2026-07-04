@@ -37,22 +37,19 @@ func init() {
 func BenchmarkDecode(b *testing.B) {
 	b.Run("U4x4", func(b *testing.B) {
 		b.ReportAllocs()
-		b.ResetTimer()
-		for range b.N {
+		for b.Loop() {
 			_, _ = Decode(wireU4)
 		}
 	})
 	b.Run("ASCII32", func(b *testing.B) {
 		b.ReportAllocs()
-		b.ResetTimer()
-		for range b.N {
+		for b.Loop() {
 			_, _ = Decode(wireASC)
 		}
 	})
 	b.Run("NestedL", func(b *testing.B) {
 		b.ReportAllocs()
-		b.ResetTimer()
-		for range b.N {
+		for b.Loop() {
 			_, _ = Decode(wireNest)
 		}
 	})
@@ -62,8 +59,7 @@ func BenchmarkDecode(b *testing.B) {
 // buffer per call (escapes to the caller — not poolable).
 func BenchmarkToBytes(b *testing.B) {
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_ = benchItem.ToBytes()
 	}
 }
@@ -75,8 +71,7 @@ func BenchmarkToBytes(b *testing.B) {
 func BenchmarkAppendTo_ReusedBuffer(b *testing.B) {
 	buf := make([]byte, 0, benchItem.EncodedLen())
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		buf = benchItem.AppendTo(buf[:0])
 	}
 	_ = buf

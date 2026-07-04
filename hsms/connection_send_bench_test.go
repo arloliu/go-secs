@@ -41,8 +41,7 @@ func BenchmarkBuildFrameBuffers(b *testing.B) {
 
 		b.Run(fmt.Sprintf("body=%d", n), func(b *testing.B) {
 			b.ReportAllocs()
-			b.ResetTimer()
-			for range b.N {
+			for b.Loop() {
 				bufsSink = buildFrameBuffers(msg)
 			}
 		})
@@ -78,8 +77,7 @@ func BenchmarkBuildFrameBuffers_ListLeaves(b *testing.B) {
 
 		b.Run(fmt.Sprintf("leaves=%d", leaves), func(b *testing.B) {
 			b.ReportAllocs()
-			b.ResetTimer()
-			for range b.N {
+			for b.Loop() {
 				bufsSink = buildFrameBuffers(msg)
 			}
 		})

@@ -25,8 +25,7 @@ func BenchmarkReadBuf_OwnedPerMessage(b *testing.B) {
 		b.Run(fmt.Sprintf("size=%d", n), func(b *testing.B) {
 			b.ReportAllocs()
 			b.SetBytes(int64(n))
-			b.ResetTimer()
-			for range b.N {
+			for b.Loop() {
 				frame := make([]byte, n) // option (b): fresh GC-owned frame
 				copy(frame, src)         // the read fills it
 				frameSink = frame
@@ -50,8 +49,7 @@ func BenchmarkReadBuf_PooledScratch(b *testing.B) {
 		b.Run(fmt.Sprintf("size=%d", n), func(b *testing.B) {
 			b.ReportAllocs()
 			b.SetBytes(int64(n))
-			b.ResetTimer()
-			for range b.N {
+			for b.Loop() {
 				bp, _ := pool.Get().(*[]byte) // New always returns *[]byte
 				scratch := *bp
 				if cap(scratch) < n {

@@ -86,8 +86,7 @@ func benchParse(b *testing.B, sml string) {
 		b.FailNow()
 	}
 
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		msgs, err := Parse(sml)
 		_ = msgs
 		if err != nil {
@@ -95,7 +94,6 @@ func benchParse(b *testing.B, sml string) {
 			b.FailNow()
 		}
 	}
-	b.StopTimer()
 }
 
 // itemToMsgSML constructs a minimal SML message string from item.ToSML() output.

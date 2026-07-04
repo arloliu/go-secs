@@ -118,8 +118,7 @@ func benchSliceQueue(b *testing.B, iterCount int) {
 	}
 
 	var mu sync.Mutex
-	b.ResetTimer()
-	for i := 0; i <= b.N; i++ {
+	for b.Loop() {
 		stopCh := make(chan struct{})
 		go func(ctx context.Context, q Queue) {
 			for {
@@ -154,5 +153,4 @@ func benchSliceQueue(b *testing.B, iterCount int) {
 		}
 		<-stopCh
 	}
-	b.StopTimer()
 }

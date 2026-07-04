@@ -42,8 +42,7 @@ func init() {
 // returned *DataMessage.
 func BenchmarkDecodeHSMSMessage(b *testing.B) {
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		_, _ = DecodeHSMSMessage(dataMsgWireFrame)
 	}
 }
@@ -56,8 +55,7 @@ func BenchmarkDecodeHSMSMessage(b *testing.B) {
 // the call via DCE.
 func BenchmarkDataMessage_ToBytes(b *testing.B) {
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		byteSink = benchDataMsg.ToBytes()
 	}
 }
@@ -67,8 +65,7 @@ func BenchmarkDataMessage_ToBytes(b *testing.B) {
 // byteSink prevents the compiler from eliminating the call via DCE.
 func BenchmarkControlMessage_ToBytes(b *testing.B) {
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		byteSink = benchControlMsg.ToBytes()
 	}
 }
@@ -81,8 +78,7 @@ func BenchmarkControlMessage_ToBytes(b *testing.B) {
 // tree itself; the SP4 baseline (173.7 ns, 512 B/op, 12 allocs/op) dropped accordingly. Not pooled.
 func BenchmarkDataMessage_Item_RawFrame(b *testing.B) {
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		msg, _ := DecodeHSMSMessage(dataMsgWireFrame)
 		dm, ok := msg.(*DataMessage)
 		if !ok {
@@ -102,8 +98,7 @@ func BenchmarkDataMessage_Item_RawFrame(b *testing.B) {
 // fresh *DataMessage whose decode fires once, and the result is discarded.
 func BenchmarkDataMessage_Item_DecodeOwned(b *testing.B) {
 	b.ReportAllocs()
-	b.ResetTimer()
-	for range b.N {
+	for b.Loop() {
 		msg, _ := decodeOwnedFrame(dataMsgOwnedFrame)
 		dm, ok := msg.(*DataMessage)
 		if !ok {
