@@ -435,3 +435,163 @@ func TestDecodeHSMSMessage_PublicCopyProof(t *testing.T) {
 	origItem, _ := orig.Item()
 	assert.Equal(t, origItem.ToBytes(), decItem.ToBytes())
 }
+
+// ────────────────────────────────────────────────────────────────
+// DecodeHSMSPayload / DecodeOwnedHSMSPayload / NewDataMessageFromHeader (item 4)
+// ────────────────────────────────────────────────────────────────
+
+// TestDecodeHSMSPayload_RoundTrip verifies that DecodeHSMSPayload decodes a
+// [header || body] payload (no length prefix) back to an Equal message.
+func TestDecodeHSMSPayload_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	item := secs2.NewASCIIItem("payload-round-trip")
+	orig, err := NewDataMessage(1, 1, true, 0x0001, [4]byte{0, 0, 0, 9}, item)
+	require.NoError(t, err)
+
+	payload := orig.ToBytes()[4:] // strip the 4-byte length prefix
+
+	decoded, err := DecodeHSMSPayload(payload)
+	require.NoError(t, err)
+
+	dm, ok := decoded.(*DataMessage)
+	require.True(t, ok)
+	assert.True(t, orig.Equal(dm))
+}
+
+func TestDecodeHSMSPayload_ControlMessage(t *testing.T) {
+	t.Parallel()
+
+	orig := NewLinktestReq([4]byte{0, 0, 0, 1})
+	payload := orig.ToBytes()[4:]
+
+	decoded, err := DecodeHSMSPayload(payload)
+	require.NoError(t, err)
+
+	cm, ok := decoded.(*ControlMessage)
+	require.True(t, ok)
+	assert.Equal(t, orig.HeaderBytes(), cm.HeaderBytes())
+}
+
+func TestDecodeHSMSPayload_TooShort(t *testing.T) {
+	t.Parallel()
+
+	_, err := DecodeHSMSPayload(make([]byte, 9))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidHeaderLength)
+}
+
+func TestDecodeHSMSPayload_ExceedsMax(t *testing.T) {
+	t.Parallel()
+
+	_, err := DecodeHSMSPayload(make([]byte, maxHSMSMsgLen+1))
+	require.Error(t, err)
+}
+
+func TestDecodeHSMSPayload_AtMax(t *testing.T) {
+	t.Parallel()
+
+	// Exactly maxHSMSMsgLen bytes: a valid data-message header followed by padding that
+	// decodes to an item error (irrelevant — only the length-cap boundary is under test).
+	payload := make([]byte, maxHSMSMsgLen)
+	// header[4], header[5] left 0 (PType/SType = data message); body is empty-ish garbage
+	// but the length cap check must not reject a payload exactly at the boundary.
+	_, err := DecodeHSMSPayload(payload)
+	require.NoError(t, err, "a payload of exactly maxHSMSMsgLen bytes must not be rejected by the length cap")
+}
+
+// TestDecodeOwnedHSMSPayload_ZeroCopyAlias verifies DecodeOwnedHSMSPayload transfers
+// ownership without copying: the decoded body aliases the input buffer directly.
+func TestDecodeOwnedHSMSPayload_ZeroCopyAlias(t *testing.T) {
+	t.Parallel()
+
+	item := secs2.NewASCIIItem("owned-payload-zero-copy")
+	orig, err := NewDataMessage(1, 1, true, 0x0042, [4]byte{0, 0, 0, 1}, item)
+	require.NoError(t, err)
+
+	payload := append([]byte(nil), orig.ToBytes()[4:]...)
+	require.True(t, len(payload) > 10, "need a non-empty body for a valid pointer check")
+
+	decoded, err := DecodeOwnedHSMSPayload(payload)
+	require.NoError(t, err)
+
+	dm, ok := decoded.(*DataMessage)
+	require.True(t, ok)
+
+	ref := bodyRef(dm)
+	require.True(t, len(ref) > 0, "body must be non-empty for pointer comparison")
+	assert.True(t, &ref[0] == &payload[10], "decoded body must alias payload[10:] (zero-copy)")
+}
+
+func TestDecodeOwnedHSMSPayload_TooShort(t *testing.T) {
+	t.Parallel()
+
+	_, err := DecodeOwnedHSMSPayload(make([]byte, 9))
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidHeaderLength)
+}
+
+func TestDecodeOwnedHSMSPayload_ExceedsMax(t *testing.T) {
+	t.Parallel()
+
+	_, err := DecodeOwnedHSMSPayload(make([]byte, maxHSMSMsgLen+1))
+	require.Error(t, err)
+}
+
+func TestDecodeOwnedHSMSPayload_AtMax(t *testing.T) {
+	t.Parallel()
+
+	payload := make([]byte, maxHSMSMsgLen)
+	_, err := DecodeOwnedHSMSPayload(payload)
+	require.NoError(t, err, "a payload of exactly maxHSMSMsgLen bytes must not be rejected by the length cap")
+}
+
+// ────────────────────────────────────────────────────────────────
+// NewDataMessageFromHeader (item 4)
+// ────────────────────────────────────────────────────────────────
+
+func TestNewDataMessageFromHeader_Valid(t *testing.T) {
+	t.Parallel()
+
+	built, err := NewDataMessage(5, 3, true, 0x1234, [4]byte{0, 0, 0, 42}, secs2.A("from-header"))
+	require.NoError(t, err)
+
+	fromHeader, err := NewDataMessageFromHeader(built.HeaderBytes(), secs2.A("from-header"))
+	require.NoError(t, err)
+
+	assert.True(t, built.Equal(fromHeader))
+}
+
+func TestNewDataMessageFromHeader_InvalidPType(t *testing.T) {
+	t.Parallel()
+
+	var header [10]byte
+	header[4] = 1 // non-zero PType
+
+	_, err := NewDataMessageFromHeader(header, secs2.NewEmptyItem())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidPType)
+}
+
+func TestNewDataMessageFromHeader_InvalidSType(t *testing.T) {
+	t.Parallel()
+
+	var header [10]byte
+	header[5] = 1 // non-zero SType (not a data message)
+
+	_, err := NewDataMessageFromHeader(header, secs2.NewEmptyItem())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidControlMsgSType)
+}
+
+func TestNewDataMessageFromHeader_WBitOnEvenFunction(t *testing.T) {
+	t.Parallel()
+
+	var header [10]byte
+	header[2] = 0x80 // W-bit set, stream 0
+	header[3] = 2    // even function
+
+	_, err := NewDataMessageFromHeader(header, secs2.NewEmptyItem())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidRspMsg)
+}

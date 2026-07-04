@@ -57,6 +57,37 @@ func DecodeHSMSMessage(data []byte) (Message, error) {
 	return decodeOwnedFrame(owned)
 }
 
+// DecodeHSMSPayload decodes an HSMS message from a payload that is a 10-byte header followed by
+// the optional SECS-II body, with NO 4-byte length prefix (unlike DecodeHSMSMessage). It copies
+// payload into an owned buffer, so the caller may reuse or free payload immediately after return.
+func DecodeHSMSPayload(payload []byte) (Message, error) {
+	if len(payload) < 10 {
+		return nil, fmt.Errorf("hsms payload too short: %d bytes (minimum 10): %w", len(payload), ErrInvalidHeaderLength)
+	}
+	if len(payload) > maxHSMSMsgLen {
+		return nil, fmt.Errorf("hsms payload exceeds maximum: %d > %d", len(payload), maxHSMSMsgLen)
+	}
+
+	owned := append([]byte(nil), payload...)
+
+	return decodeOwnedFrame(owned)
+}
+
+// DecodeOwnedHSMSPayload is DecodeHSMSPayload without the defensive copy: it transfers ownership
+// of payload to the returned message (for a data message the body aliases payload zero-copy), so
+// the caller MUST NOT mutate or reuse payload and must keep it alive while the message is retained
+// — the same ownership-transfer contract as secs2.DecodeOwned.
+func DecodeOwnedHSMSPayload(payload []byte) (Message, error) {
+	if len(payload) < 10 {
+		return nil, fmt.Errorf("hsms payload too short: %d bytes (minimum 10): %w", len(payload), ErrInvalidHeaderLength)
+	}
+	if len(payload) > maxHSMSMsgLen {
+		return nil, fmt.Errorf("hsms payload exceeds maximum: %d > %d", len(payload), maxHSMSMsgLen)
+	}
+
+	return decodeOwnedFrame(payload)
+}
+
 // decodeOwnedFrame decodes a Message from an owned, immutable [header || body]
 // buffer. owned must be at least 10 bytes (the header); owned[10:] is the body.
 //

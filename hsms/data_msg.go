@@ -2,6 +2,7 @@ package hsms
 
 import (
 	"encoding/binary"
+	"fmt"
 	"sync"
 
 	"github.com/arloliu/go-secs/v2/internal/framecodec"
@@ -312,6 +313,32 @@ func NewDataMessage(stream, function uint8, replyExpected bool, sessionID uint16
 		body:   wire.FromItem(item),
 		dec:    dec,
 	}, nil
+}
+
+// NewDataMessageFromHeader builds a DataMessage from an already-formed 10-byte HSMS header and a
+// separately-decoded SECS-II item, for callers that have a validated header and want to attach a
+// body without re-deriving stream/function/session/System Bytes by hand. The header's PType (byte 4)
+// and SType (byte 5) must both be 0 (a SECS-II data message); the stream, function, wait bit,
+// session ID, and System Bytes are read from the header and revalidated via the same Q3 rules as
+// NewDataMessage. This differs from the raw-frame decode path (decodeOwnedFrame), which does not
+// run Q3 validation because it trusts the wire.
+func NewDataMessageFromHeader(header [10]byte, item secs2.Item) (*DataMessage, error) {
+	if header[4] != 0 {
+		return nil, fmt.Errorf("invalid PType: %d: %w", header[4], ErrInvalidPType)
+	}
+	if header[5] != 0 {
+		return nil, fmt.Errorf("expected data message SType 0, got %d: %w", header[5], ErrInvalidControlMsgSType)
+	}
+
+	stream := header[2] & 0x7F
+	replyExpected := header[2]>>7 != 0
+	function := header[3]
+	sessionID := binary.BigEndian.Uint16(header[0:2])
+
+	var sb [4]byte
+	copy(sb[:], header[6:10])
+
+	return NewDataMessage(stream, function, replyExpected, sessionID, sb, item)
 }
 
 // ────────────────────────────────────────────────────────────────
