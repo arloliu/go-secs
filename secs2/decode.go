@@ -168,7 +168,7 @@ func decodeItem(owned []byte, pos, depth int) (Item, int, error) { //nolint:cycl
 		}
 
 		it := &ListItem{values: children}
-		it.raw = owned[startPos:pos]
+		it.setRaw(owned[startPos:pos])
 
 		return it, pos, nil
 
@@ -180,7 +180,7 @@ func decodeItem(owned []byte, pos, depth int) (Item, int, error) { //nolint:cycl
 		s := ownedString(owned[pos : pos+length])
 		pos += length
 		it := &ASCIIItem{value: s}
-		it.raw = owned[startPos:pos]
+		it.setRaw(owned[startPos:pos])
 
 		return it, pos, nil
 
@@ -192,7 +192,7 @@ func decodeItem(owned []byte, pos, depth int) (Item, int, error) { //nolint:cycl
 		s := ownedString(owned[pos : pos+length])
 		pos += length
 		it := &JIS8Item{value: s}
-		it.raw = owned[startPos:pos]
+		it.setRaw(owned[startPos:pos])
 
 		return it, pos, nil
 
@@ -204,13 +204,22 @@ func decodeItem(owned []byte, pos, depth int) (Item, int, error) { //nolint:cycl
 		payload := owned[pos : pos+length]
 		pos += length
 		it := &BinaryItem{values: payload}
-		it.raw = owned[startPos:pos]
+		it.setRaw(owned[startPos:pos])
 
 		return it, pos, nil
 
 	case BooleanFormatCode:
 		if pos+length > len(owned) {
 			return nil, pos, fmt.Errorf("unexpected end of data: boolean needs %d bytes, have %d", length, len(owned)-pos)
+		}
+
+		if length == 1 {
+			val := owned[pos] != 0
+			pos++
+			it := &BooleanItem{size: 1, scalar: val}
+			it.setRaw(owned[startPos:pos])
+
+			return it, pos, nil
 		}
 
 		bools := make([]bool, length)
@@ -220,8 +229,8 @@ func decodeItem(owned []byte, pos, depth int) (Item, int, error) { //nolint:cycl
 		}
 
 		pos += length
-		it := &BooleanItem{values: bools}
-		it.raw = owned[startPos:pos]
+		it := &BooleanItem{size: int32(length), values: bools}
+		it.setRaw(owned[startPos:pos])
 
 		return it, pos, nil
 
@@ -238,7 +247,7 @@ func decodeItem(owned []byte, pos, depth int) (Item, int, error) { //nolint:cycl
 		s := ownedString(owned[pos+2 : pos+length])
 		pos += length
 		it := &LocalizedStrItem{lsh: lsh, value: s}
-		it.raw = owned[startPos:pos]
+		it.setRaw(owned[startPos:pos])
 
 		return it, pos, nil
 
@@ -282,6 +291,27 @@ func decodeIntItem(owned []byte, startPos, pos, byteSize, length int) (Item, int
 	}
 
 	count := length / byteSize
+	if count == 1 {
+		var val int64
+		switch byteSize {
+		case 1:
+			val = int64(int8(owned[pos]))
+		case 2:
+			val = int64(int16(binary.BigEndian.Uint16(owned[pos:]))) //nolint:gosec
+		case 4:
+			val = int64(int32(binary.BigEndian.Uint32(owned[pos:]))) //nolint:gosec
+		case 8:
+			val = int64(binary.BigEndian.Uint64(owned[pos:])) //nolint:gosec
+		default:
+			// unreachable: byteSize is 1, 2, 4, or 8.
+		}
+		pos += length
+		it := &IntItem{byteSize: uint32(byteSize), size: 1, scalar: val}
+		it.setRaw(owned[startPos:pos])
+
+		return it, pos, nil
+	}
+
 	vals := make([]int64, count)
 
 	for i := range count {
@@ -302,8 +332,8 @@ func decodeIntItem(owned []byte, startPos, pos, byteSize, length int) (Item, int
 	}
 
 	pos += length
-	it := &IntItem{byteSize: byteSize, values: vals}
-	it.raw = owned[startPos:pos]
+	it := &IntItem{byteSize: uint32(byteSize), size: int32(count), values: vals}
+	it.setRaw(owned[startPos:pos])
 
 	return it, pos, nil
 }
@@ -320,6 +350,27 @@ func decodeUintItem(owned []byte, startPos, pos, byteSize, length int) (Item, in
 	}
 
 	count := length / byteSize
+	if count == 1 {
+		var val uint64
+		switch byteSize {
+		case 1:
+			val = uint64(owned[pos])
+		case 2:
+			val = uint64(binary.BigEndian.Uint16(owned[pos:]))
+		case 4:
+			val = uint64(binary.BigEndian.Uint32(owned[pos:]))
+		case 8:
+			val = binary.BigEndian.Uint64(owned[pos:])
+		default:
+			// unreachable: byteSize is 1, 2, 4, or 8.
+		}
+		pos += length
+		it := &UintItem{byteSize: uint32(byteSize), size: 1, scalar: val}
+		it.setRaw(owned[startPos:pos])
+
+		return it, pos, nil
+	}
+
 	vals := make([]uint64, count)
 
 	for i := range count {
@@ -340,8 +391,8 @@ func decodeUintItem(owned []byte, startPos, pos, byteSize, length int) (Item, in
 	}
 
 	pos += length
-	it := &UintItem{byteSize: byteSize, values: vals}
-	it.raw = owned[startPos:pos]
+	it := &UintItem{byteSize: uint32(byteSize), size: int32(count), values: vals}
+	it.setRaw(owned[startPos:pos])
 
 	return it, pos, nil
 }
@@ -358,6 +409,20 @@ func decodeFloatItem(owned []byte, startPos, pos, byteSize, length int) (Item, i
 	}
 
 	count := length / byteSize
+	if count == 1 {
+		var val float64
+		if byteSize == 4 {
+			val = float64(math.Float32frombits(binary.BigEndian.Uint32(owned[pos:])))
+		} else {
+			val = math.Float64frombits(binary.BigEndian.Uint64(owned[pos:]))
+		}
+		pos += length
+		it := &FloatItem{byteSize: uint32(byteSize), size: 1, scalar: val}
+		it.setRaw(owned[startPos:pos])
+
+		return it, pos, nil
+	}
+
 	vals := make([]float64, count)
 
 	for i := range count {
@@ -371,8 +436,8 @@ func decodeFloatItem(owned []byte, startPos, pos, byteSize, length int) (Item, i
 	}
 
 	pos += length
-	it := &FloatItem{byteSize: byteSize, values: vals}
-	it.raw = owned[startPos:pos]
+	it := &FloatItem{byteSize: uint32(byteSize), size: int32(count), values: vals}
+	it.setRaw(owned[startPos:pos])
 
 	return it, pos, nil
 }

@@ -18,9 +18,11 @@ import (
 // apply float32 precision only during wire encoding and SML rendering. All methods are safe for
 // concurrent use and no method exposes mutable internal storage.
 type FloatItem struct {
+	size     int32
+	byteSize uint32
+	scalar   float64
 	baseItem
-	byteSize int
-	values   []float64
+	values []float64
 }
 
 var _ Item = (*FloatItem)(nil)
@@ -48,7 +50,7 @@ var _ Item = (*FloatItem)(nil)
 // Returns:
 //   - Item: the created FloatItem.
 func NewFloatItem(byteSize int, values ...any) Item {
-	item := &FloatItem{byteSize: byteSize}
+	item := &FloatItem{byteSize: uint32(byteSize)}
 
 	if byteSize != 4 && byteSize != 8 {
 		item.setErrorMsg("invalid byte size")
@@ -62,7 +64,13 @@ func NewFloatItem(byteSize int, values ...any) Item {
 		return item
 	}
 
-	if n, _ := getDataByteLength(item.dataType(), len(item.values)); n > MaxByteSize {
+	item.size = int32(len(item.values))
+	if item.size == 1 {
+		item.scalar = item.values[0]
+		item.values = nil
+	}
+
+	if n, _ := getDataByteLength(item.dataType(), int(item.size)); n > MaxByteSize {
 		item.setErrorMsg("item size limit exceeded")
 	}
 
@@ -76,6 +84,13 @@ func (item *FloatItem) ToFloat() ([]float64, error) {
 		return nil, item.itemErr
 	}
 
+	if item.size == 0 {
+		return []float64{}, nil
+	}
+	if item.size == 1 {
+		return []float64{item.scalar}, nil
+	}
+
 	return slices.Clone(item.values), nil
 }
 
@@ -86,8 +101,12 @@ func (item *FloatItem) FloatAt(i int) (float64, error) {
 		return 0, item.itemErr
 	}
 
-	if i < 0 || i >= len(item.values) {
+	if i < 0 || i >= int(item.size) {
 		return 0, NewItemErrorWithMsg("index out of range")
+	}
+
+	if item.size == 1 {
+		return item.scalar, nil
 	}
 
 	return item.values[i], nil
@@ -101,6 +120,11 @@ func (item *FloatItem) Floats() iter.Seq[float64] {
 			return
 		}
 
+		if item.size == 1 {
+			_ = yield(item.scalar)
+			return
+		}
+
 		for _, v := range item.values {
 			if !yield(v) {
 				return
@@ -110,7 +134,7 @@ func (item *FloatItem) Floats() iter.Seq[float64] {
 }
 
 // Size returns the number of floating-point values in this item.
-func (item *FloatItem) Size() int { return len(item.values) }
+func (item *FloatItem) Size() int { return int(item.size) }
 
 // EncodedLen returns the total SECS-II wire byte length (header + payload).
 // Returns 0 for items with deferred errors.
@@ -119,11 +143,11 @@ func (item *FloatItem) EncodedLen() int {
 		return 0
 	}
 
-	if item.raw != nil {
-		return len(item.raw)
+	if item.rawPtr != nil {
+		return item.rawLen
 	}
 
-	n := len(item.values) * item.byteSize
+	n := int(item.size) * int(item.byteSize)
 
 	return headerLen(n) + n
 }
@@ -135,11 +159,25 @@ func (item *FloatItem) AppendTo(dst []byte) []byte {
 		return dst
 	}
 
-	if item.raw != nil {
-		return append(dst, item.raw...)
+	if item.rawPtr != nil {
+		return append(dst, item.raw()...)
 	}
 
-	dst, _ = appendHeaderBytes(dst, item.dataType(), len(item.values)) //nolint:errcheck
+	dst, _ = appendHeaderBytes(dst, item.dataType(), int(item.size)) //nolint:errcheck
+
+	if item.size == 0 {
+		return dst
+	}
+
+	if item.size == 1 {
+		if item.byteSize == 4 {
+			dst = binary.BigEndian.AppendUint32(dst, math.Float32bits(float32(item.scalar)))
+		} else {
+			dst = binary.BigEndian.AppendUint64(dst, math.Float64bits(item.scalar))
+		}
+
+		return dst
+	}
 
 	if item.byteSize == 4 {
 		for _, v := range item.values {
@@ -183,15 +221,15 @@ func (item *FloatItem) IsFloat64() bool { return item.byteSize == 8 }
 // Empty items are rendered as <FbyteSize[0]>. Values are formatted using G9 for F4 (matching
 // float32 round-trip precision) and G17 for F8 (matching float64 round-trip precision).
 func (item *FloatItem) ToSML() string {
-	if item.Size() == 0 {
+	if item.size == 0 {
 		return fmt.Sprintf("<F%d[0]>", item.byteSize)
 	}
 
 	var sb strings.Builder
 
-	sb.Grow(len(item.values)*(item.byteSize*2+3) + 10) //nolint:mnd
+	sb.Grow(int(item.size)*(int(item.byteSize)*2+3) + 10) //nolint:mnd
 
-	fmt.Fprintf(&sb, "<F%d[%d] ", item.byteSize, item.Size())
+	fmt.Fprintf(&sb, "<F%d[%d] ", item.byteSize, item.size)
 
 	prec := 9
 	if item.byteSize == 8 {
@@ -200,12 +238,16 @@ func (item *FloatItem) ToSML() string {
 
 	var buf [64]byte
 
-	for i, v := range item.values {
-		if i > 0 {
-			sb.WriteByte(' ')
-		}
+	if item.size == 1 {
+		sb.Write(strconv.AppendFloat(buf[:0], item.scalar, 'G', prec, int(item.byteSize)*8))
+	} else {
+		for i, v := range item.values {
+			if i > 0 {
+				sb.WriteByte(' ')
+			}
 
-		sb.Write(strconv.AppendFloat(buf[:0], v, 'G', prec, item.byteSize*8))
+			sb.Write(strconv.AppendFloat(buf[:0], v, 'G', prec, int(item.byteSize)*8))
+		}
 	}
 
 	sb.WriteByte('>')

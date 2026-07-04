@@ -15,6 +15,8 @@ import (
 //
 // Construct via NewBooleanItem. Accepted value types: bool and []bool.
 type BooleanItem struct {
+	size   int32
+	scalar bool
 	baseItem
 	values []bool
 }
@@ -44,7 +46,13 @@ func NewBooleanItem(values ...any) Item {
 		return item
 	}
 
-	if n, _ := getDataByteLength(BooleanType, len(item.values)); n > MaxByteSize {
+	item.size = int32(len(item.values))
+	if item.size == 1 {
+		item.scalar = item.values[0]
+		item.values = nil
+	}
+
+	if n, _ := getDataByteLength(BooleanType, int(item.size)); n > MaxByteSize {
 		item.setErrorMsg("item size limit exceeded")
 	}
 
@@ -58,6 +66,13 @@ func (item *BooleanItem) ToBoolean() ([]bool, error) {
 		return nil, item.itemErr
 	}
 
+	if item.size == 0 {
+		return []bool{}, nil
+	}
+	if item.size == 1 {
+		return []bool{item.scalar}, nil
+	}
+
 	return slices.Clone(item.values), nil
 }
 
@@ -68,8 +83,12 @@ func (item *BooleanItem) BoolAt(i int) (bool, error) {
 		return false, item.itemErr
 	}
 
-	if i < 0 || i >= len(item.values) {
+	if i < 0 || i >= int(item.size) {
 		return false, NewItemErrorWithMsg("index out of range")
+	}
+
+	if item.size == 1 {
+		return item.scalar, nil
 	}
 
 	return item.values[i], nil
@@ -83,6 +102,11 @@ func (item *BooleanItem) Bools() iter.Seq[bool] {
 			return
 		}
 
+		if item.size == 1 {
+			_ = yield(item.scalar)
+			return
+		}
+
 		for _, v := range item.values {
 			if !yield(v) {
 				return
@@ -92,7 +116,7 @@ func (item *BooleanItem) Bools() iter.Seq[bool] {
 }
 
 // Size returns the number of boolean values in this item.
-func (item *BooleanItem) Size() int { return len(item.values) }
+func (item *BooleanItem) Size() int { return int(item.size) }
 
 // EncodedLen returns the total SECS-II wire byte length (header + payload).
 // Returns 0 for items with deferred errors.
@@ -101,11 +125,11 @@ func (item *BooleanItem) EncodedLen() int {
 		return 0
 	}
 
-	if item.raw != nil {
-		return len(item.raw)
+	if item.rawPtr != nil {
+		return item.rawLen
 	}
 
-	return headerLen(len(item.values)) + len(item.values)
+	return headerLen(int(item.size)) + int(item.size)
 }
 
 // AppendTo appends the SECS-II wire encoding of this item into dst and returns the result.
@@ -115,11 +139,25 @@ func (item *BooleanItem) AppendTo(dst []byte) []byte {
 		return dst
 	}
 
-	if item.raw != nil {
-		return append(dst, item.raw...)
+	if item.rawPtr != nil {
+		return append(dst, item.raw()...)
 	}
 
-	dst, _ = appendHeaderBytes(dst, BooleanType, len(item.values)) //nolint:errcheck
+	dst, _ = appendHeaderBytes(dst, BooleanType, int(item.size)) //nolint:errcheck
+
+	if item.size == 0 {
+		return dst
+	}
+
+	if item.size == 1 {
+		if item.scalar {
+			dst = append(dst, 1)
+		} else {
+			dst = append(dst, 0)
+		}
+
+		return dst
+	}
 
 	for _, v := range item.values {
 		if v {
@@ -147,27 +185,35 @@ func (item *BooleanItem) IsBoolean() bool { return true }
 // ToSML returns the SML (SECS Message Language) text representation of this item.
 // Boolean values are rendered as "True" or "False". An empty item is rendered as "<BOOLEAN[0]>".
 func (item *BooleanItem) ToSML() string {
-	if item.Size() == 0 {
+	if item.size == 0 {
 		return "<BOOLEAN[0]>"
 	}
 
 	var sb strings.Builder
 
-	sb.Grow(len(item.values)*6 + 12) //nolint:mnd
+	sb.Grow(int(item.size)*6 + 12) //nolint:mnd
 
 	sb.WriteString("<BOOLEAN[")
-	sb.WriteString(strconv.Itoa(item.Size()))
+	sb.WriteString(strconv.Itoa(int(item.size)))
 	sb.WriteString("] ")
 
-	for i, v := range item.values {
-		if i > 0 {
-			sb.WriteByte(' ')
-		}
-
-		if v {
+	if item.size == 1 {
+		if item.scalar {
 			sb.WriteString("True")
 		} else {
 			sb.WriteString("False")
+		}
+	} else {
+		for i, v := range item.values {
+			if i > 0 {
+				sb.WriteByte(' ')
+			}
+
+			if v {
+				sb.WriteString("True")
+			} else {
+				sb.WriteString("False")
+			}
 		}
 	}
 

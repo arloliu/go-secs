@@ -99,8 +99,8 @@ func (item *BinaryItem) EncodedLen() int {
 		return 0
 	}
 
-	if item.raw != nil {
-		return len(item.raw)
+	if item.rawPtr != nil {
+		return item.rawLen
 	}
 
 	return headerLen(len(item.values)) + len(item.values)
@@ -113,8 +113,8 @@ func (item *BinaryItem) AppendTo(dst []byte) []byte {
 		return dst
 	}
 
-	if item.raw != nil {
-		return append(dst, item.raw...)
+	if item.rawPtr != nil {
+		return append(dst, item.raw()...)
 	}
 
 	dst, _ = appendHeaderBytes(dst, BinaryType, len(item.values)) //nolint:errcheck

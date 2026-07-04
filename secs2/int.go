@@ -16,9 +16,11 @@ import (
 // It implements the Item interface. All methods are safe for concurrent use and no method
 // exposes mutable internal storage.
 type IntItem struct {
+	size     int32
+	byteSize uint32
+	scalar   int64
 	baseItem
-	byteSize int
-	values   []int64
+	values []int64
 }
 
 var _ Item = (*IntItem)(nil)
@@ -40,7 +42,7 @@ var _ Item = (*IntItem)(nil)
 // Returns:
 //   - Item: the created IntItem.
 func NewIntItem(byteSize int, values ...any) Item {
-	item := &IntItem{byteSize: byteSize}
+	item := &IntItem{byteSize: uint32(byteSize)}
 
 	if byteSize != 1 && byteSize != 2 && byteSize != 4 && byteSize != 8 {
 		item.setErrorMsg("invalid byte size")
@@ -54,7 +56,13 @@ func NewIntItem(byteSize int, values ...any) Item {
 		return item
 	}
 
-	if n, _ := getDataByteLength(item.dataType(), len(item.values)); n > MaxByteSize {
+	item.size = int32(len(item.values))
+	if item.size == 1 {
+		item.scalar = item.values[0]
+		item.values = nil
+	}
+
+	if n, _ := getDataByteLength(item.dataType(), int(item.size)); n > MaxByteSize {
 		item.setErrorMsg("item size limit exceeded")
 	}
 
@@ -68,6 +76,13 @@ func (item *IntItem) ToInt() ([]int64, error) {
 		return nil, item.itemErr
 	}
 
+	if item.size == 0 {
+		return []int64{}, nil
+	}
+	if item.size == 1 {
+		return []int64{item.scalar}, nil
+	}
+
 	return slices.Clone(item.values), nil
 }
 
@@ -78,8 +93,12 @@ func (item *IntItem) IntAt(i int) (int64, error) {
 		return 0, item.itemErr
 	}
 
-	if i < 0 || i >= len(item.values) {
+	if i < 0 || i >= int(item.size) {
 		return 0, NewItemErrorWithMsg("index out of range")
+	}
+
+	if item.size == 1 {
+		return item.scalar, nil
 	}
 
 	return item.values[i], nil
@@ -93,6 +112,11 @@ func (item *IntItem) Ints() iter.Seq[int64] {
 			return
 		}
 
+		if item.size == 1 {
+			_ = yield(item.scalar)
+			return
+		}
+
 		for _, v := range item.values {
 			if !yield(v) {
 				return
@@ -102,7 +126,7 @@ func (item *IntItem) Ints() iter.Seq[int64] {
 }
 
 // Size returns the number of integer values in this item.
-func (item *IntItem) Size() int { return len(item.values) }
+func (item *IntItem) Size() int { return int(item.size) }
 
 // EncodedLen returns the total SECS-II wire byte length (header + payload).
 // Returns 0 for items with deferred errors.
@@ -111,11 +135,11 @@ func (item *IntItem) EncodedLen() int {
 		return 0
 	}
 
-	if item.raw != nil {
-		return len(item.raw)
+	if item.rawPtr != nil {
+		return item.rawLen
 	}
 
-	n := len(item.values) * item.byteSize
+	n := int(item.size) * int(item.byteSize)
 
 	return headerLen(n) + n
 }
@@ -127,11 +151,32 @@ func (item *IntItem) AppendTo(dst []byte) []byte {
 		return dst
 	}
 
-	if item.raw != nil {
-		return append(dst, item.raw...)
+	if item.rawPtr != nil {
+		return append(dst, item.raw()...)
 	}
 
-	dst, _ = appendHeaderBytes(dst, item.dataType(), len(item.values)) //nolint:errcheck
+	dst, _ = appendHeaderBytes(dst, item.dataType(), int(item.size)) //nolint:errcheck
+
+	if item.size == 0 {
+		return dst
+	}
+
+	if item.size == 1 {
+		switch item.byteSize {
+		case 1:
+			dst = append(dst, byte(item.scalar)) //nolint:gosec
+		case 2:
+			dst = binary.BigEndian.AppendUint16(dst, uint16(item.scalar)) //nolint:gosec
+		case 4:
+			dst = binary.BigEndian.AppendUint32(dst, uint32(item.scalar)) //nolint:gosec
+		case 8:
+			dst = binary.BigEndian.AppendUint64(dst, uint64(item.scalar)) //nolint:gosec
+		default:
+			// unreachable
+		}
+
+		return dst
+	}
 
 	switch item.byteSize {
 	case 1:
@@ -193,24 +238,28 @@ func (item *IntItem) IsInt64() bool { return item.byteSize == 8 }
 
 // ToSML returns the SML (SECS Message Language) text representation of this item.
 func (item *IntItem) ToSML() string {
-	if item.Size() == 0 {
+	if item.size == 0 {
 		return fmt.Sprintf("<I%d[0]>", item.byteSize)
 	}
 
 	var sb strings.Builder
 
-	sb.Grow(len(item.values)*10 + 10) //nolint:mnd
+	sb.Grow(int(item.size)*10 + 10) //nolint:mnd
 
-	fmt.Fprintf(&sb, "<I%d[%d] ", item.byteSize, item.Size())
+	fmt.Fprintf(&sb, "<I%d[%d] ", item.byteSize, item.size)
 
 	var intBuf [20]byte
 
-	for i, v := range item.values {
-		if i > 0 {
-			sb.WriteByte(' ')
-		}
+	if item.size == 1 {
+		sb.Write(strconv.AppendInt(intBuf[:0], item.scalar, 10))
+	} else {
+		for i, v := range item.values {
+			if i > 0 {
+				sb.WriteByte(' ')
+			}
 
-		sb.Write(strconv.AppendInt(intBuf[:0], v, 10))
+			sb.Write(strconv.AppendInt(intBuf[:0], v, 10))
+		}
 	}
 
 	sb.WriteByte('>')

@@ -113,8 +113,8 @@ func (item *LocalizedStrItem) EncodedLen() int {
 		return 0
 	}
 
-	if item.raw != nil {
-		return len(item.raw)
+	if item.rawPtr != nil {
+		return item.rawLen
 	}
 
 	n := len(item.value) + 2
@@ -130,8 +130,8 @@ func (item *LocalizedStrItem) AppendTo(dst []byte) []byte {
 		return dst
 	}
 
-	if item.raw != nil {
-		return append(dst, item.raw...)
+	if item.rawPtr != nil {
+		return append(dst, item.raw()...)
 	}
 
 	// The length field covers both the 2-byte LSH and the string bytes.

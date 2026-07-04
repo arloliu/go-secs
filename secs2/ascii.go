@@ -68,8 +68,8 @@ func (item *ASCIIItem) EncodedLen() int {
 		return 0
 	}
 
-	if item.raw != nil {
-		return len(item.raw)
+	if item.rawPtr != nil {
+		return item.rawLen
 	}
 
 	n := len(item.value)
@@ -84,8 +84,8 @@ func (item *ASCIIItem) AppendTo(dst []byte) []byte {
 		return dst
 	}
 
-	if item.raw != nil {
-		return append(dst, item.raw...)
+	if item.rawPtr != nil {
+		return append(dst, item.raw()...)
 	}
 
 	dst, _ = appendHeaderBytes(dst, ASCIIType, len(item.value)) //nolint:errcheck

@@ -68,8 +68,8 @@ func (item *JIS8Item) EncodedLen() int {
 		return 0
 	}
 
-	if item.raw != nil {
-		return len(item.raw)
+	if item.rawPtr != nil {
+		return item.rawLen
 	}
 
 	n := len(item.value)
@@ -84,8 +84,8 @@ func (item *JIS8Item) AppendTo(dst []byte) []byte {
 		return dst
 	}
 
-	if item.raw != nil {
-		return append(dst, item.raw...)
+	if item.rawPtr != nil {
+		return append(dst, item.raw()...)
 	}
 
 	dst, _ = appendHeaderBytes(dst, JIS8Type, len(item.value)) //nolint:errcheck

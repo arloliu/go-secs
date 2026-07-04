@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"unsafe"
 )
 
 // MaxByteSize defines the maximum allowed size (in bytes) for a SECS-II item's data payload.
@@ -314,7 +315,28 @@ type Item interface {
 // read-only — they never mutate the item.
 type baseItem struct {
 	itemErr error
-	raw     []byte //nolint:unused // decoder-owned wire bytes (nil unless produced by Decode); populated by later tasks
+	rawPtr  *byte
+	rawLen  int
+}
+
+func (b *baseItem) raw() []byte {
+	if b.rawPtr == nil {
+		return nil
+	}
+
+	return unsafe.Slice(b.rawPtr, b.rawLen)
+}
+
+func (b *baseItem) setRaw(raw []byte) {
+	if len(raw) == 0 {
+		b.rawPtr = nil
+		b.rawLen = 0
+
+		return
+	}
+
+	b.rawPtr = unsafe.SliceData(raw)
+	b.rawLen = len(raw)
 }
 
 func (b *baseItem) Error() error { return b.itemErr }
