@@ -73,6 +73,15 @@ text := sml.Encode(item)
 text := sml.EncodeStrict(item)
 ```
 
+`EncodeMessage` renders a full `*hsms.DataMessage` (header line + body); `MustEncodeMessage` is the
+same but returns a `"<!sml encode error: ...>"` diagnostic string instead of an error, safe to embed
+directly in a log line:
+
+```go
+text, err := sml.EncodeMessage(msg)
+logLine := sml.MustEncodeMessage(msg) // never panics
+```
+
 ### Custom encoder
 
 `NewEncoder` provides configurable encoding. A `*Encoder` is immutable after

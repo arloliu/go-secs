@@ -264,6 +264,27 @@ func EncodeStrict(it secs2.Item) string {
 	return NewEncoder(WithEncoderStrictMode(true)).Encode(it)
 }
 
+// EncodeMessage renders msg to SML text using an encoder configured by opts (default: hex binary,
+// double-quoted ASCII, unquoted S/F header). It mirrors the item-level Encode shortcut. The body is
+// decoded lazily via msg.Item(); a decode error is returned, not swallowed.
+func EncodeMessage(msg *hsms.DataMessage, opts ...EncoderOption) (string, error) {
+	return NewEncoder(opts...).EncodeMessage(msg)
+}
+
+// MustEncodeMessage is EncodeMessage for logging/tests where a body-decode error is not actionable;
+// on error it returns a diagnostic string of the form "<!sml encode error: ...>" rather than
+// panicking, so it is always safe to embed in a log line. This deliberately deviates from Go's usual
+// Must* convention (panic-on-error): the whole point of this function is that a single malformed
+// inbound message must never be able to crash the process trying to log it.
+func MustEncodeMessage(msg *hsms.DataMessage, opts ...EncoderOption) string {
+	s, err := EncodeMessage(msg, opts...)
+	if err != nil {
+		return fmt.Sprintf("<!sml encode error: %v>", err)
+	}
+
+	return s
+}
+
 // writeStrictASCII renders s as printable runs quoted with `quote` and
 // non-printable bytes as 0xHH numeric tokens, space-separated — the exact form
 // parseASCIIStrict reads back. Empty string renders as an empty quoted run.
