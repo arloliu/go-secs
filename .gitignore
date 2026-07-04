@@ -1,4 +1,5 @@
 tmp/
+.worktrees/
 
 .vscode/settings.json
 .vscode
