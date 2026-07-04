@@ -266,6 +266,14 @@ conn.AddDataMessageHandler(onMessage)
 conn.AddConnStateChangeHandler(onState)
 ```
 
+Testing code that depends on `hsms.SECS2Endpoint` no longer needs a hand-rolled fake or a
+`mockery`-generated mock (`SECS2Endpoint`'s seven methods are straightforward to mock, but recording
+sends and scripting replies by hand is repetitive): `hsms/hsmstest.FakeEndpoint` is a ready-made
+in-memory implementation that records every send/reply, returns scripted replies, and can `Deliver`
+an inbound message to registered handlers — all with no TCP connection. `hsmstest.RequireDataMessageEqual`
+pairs with it for assertions immune to `DataMessage`'s lazy-decode ordering hazard. Import
+`hsms/hsmstest` only in test code; like `logger/loggertest`, it pulls in `testify`.
+
 ---
 
 ## 6. Config construction renames
