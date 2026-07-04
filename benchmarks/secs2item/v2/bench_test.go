@@ -100,10 +100,7 @@ func BenchmarkItemDecodeOwned_WaferMap(b *testing.B) {
 	b.ReportAllocs()
 	b.SetBytes(int64(len(wire)))
 	for b.Loop() {
-		b.StopTimer()
-		owned := append([]byte(nil), wire...)
-		b.StartTimer()
-		if _, err := secs2.DecodeOwned(owned); err != nil {
+		if _, err := secs2.DecodeOwned(wire); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -120,10 +117,7 @@ func BenchmarkItemDecodeOwned_NestedList(b *testing.B) {
 	b.ReportAllocs()
 	b.SetBytes(int64(len(wire)))
 	for b.Loop() {
-		b.StopTimer()
-		owned := append([]byte(nil), wire...)
-		b.StartTimer()
-		if _, err := secs2.DecodeOwned(owned); err != nil {
+		if _, err := secs2.DecodeOwned(wire); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -166,10 +160,7 @@ func BenchmarkItemDecodeOwned_Recipe(b *testing.B) {
 	b.ReportAllocs()
 	b.SetBytes(int64(len(wire)))
 	for b.Loop() {
-		b.StopTimer()
-		owned := append([]byte(nil), wire...)
-		b.StartTimer()
-		if _, err := secs2.DecodeOwned(owned); err != nil {
+		if _, err := secs2.DecodeOwned(wire); err != nil {
 			b.Fatal(err)
 		}
 	}
