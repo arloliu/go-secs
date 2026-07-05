@@ -8,7 +8,6 @@ package secs1
 
 import (
 	"encoding/binary"
-	"errors"
 	"testing"
 	"time"
 
@@ -289,7 +288,13 @@ func withHSMSLengthPrefix(frame []byte) []byte {
 
 // TestAssembler_UnexpectedBlockNumberNotifiesAndCounts proves a block that continues an OPEN message
 // with the wrong block number aborts the partial, increments BlockNumberMismatchCount, and reports
-// ErrBlockNumberMismatch to the notify callback.
+// ErrBlockNumberMismatch to the notify callback EXACTLY ONCE.
+//
+// Teeth-check (regression guard): before the fix, the abort branch reported ErrBlockNumberMismatch AND
+// fell through to beginMessage, which (block 3 is neither number 1 nor a lone E-bit block 0) ALSO
+// reported ErrInvalidFirstBlock and ALSO incremented InvalidFirstBlockCount — one malformed block
+// produced TWO notifications and TWO separate counter increments. Reintroducing that double-report
+// makes require.Len(t, notified, 1) fail with len 2.
 func TestAssembler_UnexpectedBlockNumberNotifiesAndCounts(t *testing.T) {
 	cfg := newLineTestConfig(t)
 	var notified []error
@@ -298,20 +303,44 @@ func TestAssembler_UnexpectedBlockNumberNotifiesAndCounts(t *testing.T) {
 
 	mh := asmHeader(true)
 	require.NoError(t, a.accept(asmBlock(mh, 1, false, []byte("a"))))
-	// Block 3 while block 2 was expected — wrong number, but still a plausible fresh block (num > 1
-	// so it's not even a valid new-message start either; it is simply dropped as re-evaluated first
-	// block that fails validFirst, OR aborts-then-re-evaluated depending on which check fires first
-	// per the code path in accept()). Assert on the counter/notify contract, not on re-delivery.
+	// Block 3 while block 2 was expected — wrong number, and also not a valid fresh first block
+	// (num > 1), so it fails BOTH the "expected" check (abort) and the re-evaluated validFirst check.
 	require.NoError(t, a.accept(asmBlock(mh, 3, true, []byte("b"))))
 
-	require.NotEmpty(t, notified, "an unexpected block number must report a violation")
-	found := false
-	for _, err := range notified {
-		if errors.Is(err, ErrBlockNumberMismatch) || errors.Is(err, ErrInvalidFirstBlock) {
-			found = true
-		}
-	}
-	require.True(t, found, "notify must report either ErrBlockNumberMismatch (abort-open) or ErrInvalidFirstBlock (failed re-evaluation), got %v", notified)
+	require.Len(t, notified, 1, "a single malformed block must report exactly ONE violation, got %v", notified)
+	require.ErrorIs(t, notified[0], ErrBlockNumberMismatch,
+		"the abort branch's violation must be the one reported; the re-evaluation's ErrInvalidFirstBlock must be suppressed")
+	require.Equal(t, uint64(1), a.metrics.BlockNumberMismatchCount())
+	require.Equal(t, uint64(0), a.metrics.InvalidFirstBlockCount(),
+		"the suppressed re-evaluation must not double-count InvalidFirstBlockCount")
+}
+
+// TestAssembler_AbortFallthroughValidFirstBlockNoViolation proves the OTHER half of the
+// abort-fallthrough contract: when the block that aborts an open partial IS itself a valid fresh
+// first block (number 1), starting the new message from it is the CORRECT outcome, not a second
+// violation — so notify must fire exactly the ONE time for the abort itself, and the new message must
+// still be accepted (delivered, since this fresh block also carries the E-bit).
+func TestAssembler_AbortFallthroughValidFirstBlockNoViolation(t *testing.T) {
+	cfg := newLineTestConfig(t)
+	var notified []error
+	a, frames := newCaptureAssembler(t, cfg)
+	a.notify = func(err error, _ [10]byte) { notified = append(notified, err) }
+
+	mh := asmHeader(true)
+	require.NoError(t, a.accept(asmBlock(mh, 1, false, []byte("a"))))
+	require.True(t, a.open)
+
+	// Block 1 (E-bit set) arrives instead of the expected block 2: the open partial is aborted (one
+	// violation reported for THAT), and this block is re-evaluated as a fresh first block — which it
+	// validly is, so NO second violation fires and the fresh single-block message is delivered.
+	require.NoError(t, a.accept(asmBlock(mh, 1, true, []byte("fresh"))))
+
+	require.Len(t, notified, 1, "only the abort itself is a violation; restarting on a valid fresh first block must not add a second")
+	require.ErrorIs(t, notified[0], ErrBlockNumberMismatch)
+	require.Equal(t, uint64(0), a.metrics.InvalidFirstBlockCount(),
+		"a genuinely valid fresh first block must never increment InvalidFirstBlockCount")
+	require.Len(t, *frames, 1, "the fresh first block (E-bit set) must complete and deliver a new message")
+	require.Equal(t, []byte("fresh"), (*frames)[0][10:])
 }
 
 // TestAssembler_InvalidFirstBlockNotifiesAndCounts proves a block that is neither number 1 nor a lone

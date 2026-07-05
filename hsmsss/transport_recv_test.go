@@ -602,20 +602,29 @@ func TestReader_ControlFrameLenNot10Rejected(t *testing.T) {
 // TestDispatchFrame_TraceTraffic_LogsControlFrame proves that with WithTraceTraffic enabled, an
 // inbound control frame (here Linktest.req) logs a Debug line via dispatchFrame's control-only
 // trace hook (data frames are traced separately in hsms.DeliverOwnedFrame, so this hook excludes
-// them to avoid a double log).
+// them to avoid a double log) — and that the logged keysAndValues carry the real stype and hex-dump
+// payload (matching the pattern in hsms/connection_send_test.go's
+// TestWriteFrame_TraceTraffic_LogsSentFrame), not just that SOME Debug call happened.
 //
 // The Debug call happens on the recv goroutine while this test goroutine observes it, so
 // completion is signalled via a channel closed from testify's Run callback (mirroring recRT's
 // tcpDownCh/t7ExpiredCh pattern) rather than polling mockLog.Calls directly — reading that field
-// without the mock's internal lock would race with MethodCalled's concurrent append (-race).
+// without the mock's internal lock would race with MethodCalled's concurrent append (-race). The
+// callback itself runs synchronously on the recv goroutine inside MethodCalled, so capturing its
+// Arguments into a test-goroutine-owned variable here is safe (no concurrent access to it until
+// after loggedCh is observed to have fired).
 func TestDispatchFrame_TraceTraffic_LogsControlFrame(t *testing.T) {
 	t.Parallel()
 
 	loggedCh := make(chan struct{})
 	var loggedOnce sync.Once
+	var keyvals []any
 
 	mockLog := loggertest.NewMockLogger()
-	mockLog.On("Debug", mock.Anything, mock.Anything).Run(func(mock.Arguments) {
+	mockLog.On("Debug", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		kv, ok := args[1].([]any)
+		require.True(t, ok, "Debug's variadic keysAndValues must be forwarded as a []any slice")
+		keyvals = kv
 		loggedOnce.Do(func() { close(loggedCh) })
 	}).Return()
 
@@ -635,6 +644,11 @@ func TestDispatchFrame_TraceTraffic_LogsControlFrame(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("a traced inbound control frame must log at Debug level")
 	}
+
+	require.Contains(t, keyvals, byte(hsms.LinktestReqType),
+		"the logged keysAndValues must carry the frame's real stype")
+	require.Contains(t, keyvals, hexDumpFrame(header),
+		"the logged keysAndValues must carry the exact frame hex dump")
 }
 
 // TestReader_UnsupportedSTypeRejectsKeepsLink (J3, §7.10.3) — an undefined SType is answered

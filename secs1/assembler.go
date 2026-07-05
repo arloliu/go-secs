@@ -141,6 +141,11 @@ func (a *assembler) accept(blk block) error {
 		}
 		a.report(violation, blk.header)
 		a.reset()
+
+		// This same block is now re-evaluated as a potential fresh first block. A violation for it
+		// was already reported above, so suppress a second one if it also fails validFirst — a
+		// single malformed block must produce exactly one notification/counter increment, not two.
+		return a.startMessage(blk, false)
 	}
 
 	return a.beginMessage(blk)
@@ -148,16 +153,28 @@ func (a *assembler) accept(blk block) error {
 
 // beginMessage starts (or, for a single-block message, completes) a new inbound message from blk,
 // which must be a valid FIRST block: number 1, or number 0 with the E-bit set (a lone single-block-0,
-// D5b-12 interop leniency). A block that is neither is discarded (E4 §9.4.4.2 — sent in error).
+// D5b-12 interop leniency). A block that is neither is discarded (E4 §9.4.4.2 — sent in error) and
+// reported as ErrInvalidFirstBlock.
 func (a *assembler) beginMessage(blk block) error {
+	return a.startMessage(blk, true)
+}
+
+// startMessage is beginMessage's implementation, with notifyOnInvalid controlling whether an invalid
+// first block is counted/reported. accept's abort-fallthrough path (a prior block-number/header-
+// mismatch violation was already reported for this SAME block) passes false so a single malformed
+// block never produces two violations against the peer; a genuinely fresh invalid block (the other
+// call site, via beginMessage) still notifies, since that IS its own single violation.
+func (a *assembler) startMessage(blk block, notifyOnInvalid bool) error {
 	num := blk.blockNumber()
 	// A valid first block is number 1, or number 0 with the E-bit set (a lone single-block-0, D5b-12).
 	validFirst := num == 1 || (num == 0 && blk.eBit())
 	if !validFirst {
 		logger.Debug("secs1: inbound block dropped — not a valid first block",
 			"blockNumber", num, "eBit", blk.eBit(), "stream", blk.stream(), "function", blk.function())
-		a.metrics.incInvalidFirstBlockCount()
-		a.report(ErrInvalidFirstBlock, blk.header)
+		if notifyOnInvalid {
+			a.metrics.incInvalidFirstBlockCount()
+			a.report(ErrInvalidFirstBlock, blk.header)
+		}
 
 		return nil
 	}
