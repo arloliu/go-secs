@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/arloliu/go-secs/v2/logger/loggertest"
 	"github.com/arloliu/go-secs/v2/secs2"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -574,4 +576,26 @@ func TestSendWaitReply_AutoS9F9_ControlTimeoutNeverSends(t *testing.T) {
 	_, err := c.sendWaitReply(t.Context(), NewSelectReq(0xFFFF, [4]byte{0, 0, 0, 11}))
 	require.ErrorIs(t, err, ErrT6Timeout)
 	require.Empty(t, c.cur.Load().sendCh, "a control T6 timeout must never enqueue an S9F9")
+}
+
+// TestWriteFrame_TraceTraffic_LogsSentFrame proves that with WithTraceTraffic enabled, a
+// successful writeFrame logs a Debug line carrying the frame's hex dump. Uses loggertest.MockLogger
+// (the package's existing testify-mock Logger double, already used by hsms/supervisor_test.go).
+func TestWriteFrame_TraceTraffic_LogsSentFrame(t *testing.T) {
+	c, _ := newTestSendConn(t, SelectedState)
+	mockLog := loggertest.NewMockLogger()
+	mockLog.On("Debug", mock.Anything, mock.Anything).Return()
+	c.cfg.Load().logger = mockLog
+	c.cfg.Load().traceTraffic = true
+
+	msg := mustSendData(t, [4]byte{0, 0, 0, 20}, false)
+	require.NoError(t, c.writeFrame(t.Context(), c.cur.Load(), msg))
+
+	require.Len(t, mockLog.Calls, 1)
+	call := mockLog.Calls[0]
+	require.Equal(t, "Debug", call.Method)
+	keyvals, ok := call.Arguments[1].([]any)
+	require.True(t, ok, "Debug's variadic keysAndValues must be forwarded as a []any slice")
+	require.Contains(t, keyvals, hexDump(msg.ToBytes()),
+		"the logged payload must carry the exact frame hex dump")
 }

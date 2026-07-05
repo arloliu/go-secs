@@ -105,6 +105,11 @@ func TestConnectionConfig_WithLogger(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestConnectionConfig_Logger(t *testing.T) {
+	cfg := DefaultConnectionConfig()
+	require.NotNil(t, cfg.Logger(), "default config has a non-nil logger")
+}
+
 func TestConnectionConfig_Apply_MultipleErrors(t *testing.T) {
 	c := DefaultConnectionConfig()
 	origT3 := c.timers.T3
@@ -162,4 +167,12 @@ func TestConnectionConfig_WithAutoS9F9(t *testing.T) {
 
 	require.NoError(t, cfg.apply(WithAutoS9F9(false)))
 	require.False(t, cfg.AutoS9F9())
+}
+
+func TestConnectionConfig_WithTraceTraffic(t *testing.T) {
+	cfg := DefaultConnectionConfig()
+	require.False(t, cfg.TraceTraffic(), "default is disabled")
+
+	require.NoError(t, cfg.apply(WithTraceTraffic(true)))
+	require.True(t, cfg.TraceTraffic())
 }

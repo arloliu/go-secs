@@ -55,6 +55,11 @@ func (c *connection) T7Expired() {
 func (c *connection) DeliverOwnedFrame(frame []byte) error {
 	msg, err := decodeOwnedFrame(frame)
 	if err != nil {
+		if cfg := c.cfg.Load(); cfg.traceTraffic {
+			cfg.logger.Debug("hsms: trace: inbound frame decode failed",
+				"error", err, "raw", hexDump(frame))
+		}
+
 		return err
 	}
 
@@ -65,6 +70,11 @@ func (c *connection) DeliverOwnedFrame(frame []byte) error {
 	}
 
 	c.metrics.incDataMsgRecv() // the single data-receive chokepoint (DataMsgRecvCount)
+
+	if cfg := c.cfg.Load(); cfg.traceTraffic {
+		cfg.logger.Debug("hsms: trace: received data message",
+			"session_id", dm.SessionID(), "system_bytes", dm.SystemBytes(), "raw", hexDump(dm.ToBytes()))
+	}
 
 	if c.cfg.Load().validateSessionID {
 		if err := c.checkSessionID(dm); err != nil {

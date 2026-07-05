@@ -169,6 +169,11 @@ func (c *connection) writeFrame(ctx context.Context, e *epoch, msg Message) erro
 		c.metrics.incDataMsgSend()
 	}
 
+	if cfg := c.cfg.Load(); cfg.traceTraffic {
+		cfg.logger.Debug("hsms: trace: sent frame",
+			"session_id", msg.SessionID(), "system_bytes", msg.SystemBytes(), "raw", hexDump(msg.ToBytes()))
+	}
+
 	return nil
 }
 

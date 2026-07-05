@@ -3,7 +3,9 @@ package hsms
 import (
 	"testing"
 
+	"github.com/arloliu/go-secs/v2/logger/loggertest"
 	"github.com/arloliu/go-secs/v2/secs2"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -293,4 +295,53 @@ func TestDeliverOwnedFrame_SessionIDValidation_S9F1Exempted(t *testing.T) {
 
 	// (b) No outbound S9F1 in response — the exemption prevents an S9F1-answers-S9F1 loop.
 	require.Empty(t, c.cur.Load().sendCh, "an inbound S9F1 must not trigger an outbound S9F1 reply")
+}
+
+// TestDeliverOwnedFrame_TraceTraffic_LogsReceivedMessage proves that with WithTraceTraffic
+// enabled, a successfully decoded inbound data message logs a Debug line carrying the message's
+// SessionID, System Bytes, and hex dump. Mirrors TestWriteFrame_TraceTraffic_LogsSentFrame's
+// assertion style (hsms/connection_send_test.go): assert on the actual logged payload, not just
+// that some Debug call happened.
+func TestDeliverOwnedFrame_TraceTraffic_LogsReceivedMessage(t *testing.T) {
+	c, _ := newTestSendConn(t, SelectedState)
+	mockLog := loggertest.NewMockLogger()
+	mockLog.On("Debug", mock.Anything, mock.Anything).Return()
+	c.cfg.Load().logger = mockLog
+	c.cfg.Load().traceTraffic = true
+
+	msg, err := NewDataMessage(1, 1, false, c.SessionID(), [4]byte{0, 0, 0, 30}, secs2.NewASCIIItem("PING"))
+	require.NoError(t, err)
+	require.NoError(t, c.DeliverOwnedFrame(ownedFrame(t, msg)))
+
+	require.Len(t, mockLog.Calls, 1)
+	call := mockLog.Calls[0]
+	require.Equal(t, "Debug", call.Method)
+	keyvals, ok := call.Arguments[1].([]any)
+	require.True(t, ok, "Debug's variadic keysAndValues must be forwarded as a []any slice")
+	require.Contains(t, keyvals, c.SessionID(), "the logged payload must carry the message's SessionID")
+	require.Contains(t, keyvals, msg.SystemBytes(), "the logged payload must carry the message's System Bytes")
+	require.Contains(t, keyvals, hexDump(msg.ToBytes()), "the logged payload must carry the exact frame hex dump")
+}
+
+// TestDeliverOwnedFrame_TraceTraffic_LogsDecodeFailure proves that with WithTraceTraffic
+// enabled, an inbound frame that fails to decode logs a Debug line carrying the decode error and
+// the raw frame's hex dump.
+func TestDeliverOwnedFrame_TraceTraffic_LogsDecodeFailure(t *testing.T) {
+	c, _ := newTestSendConn(t, SelectedState)
+	mockLog := loggertest.NewMockLogger()
+	mockLog.On("Debug", mock.Anything, mock.Anything).Return()
+	c.cfg.Load().logger = mockLog
+	c.cfg.Load().traceTraffic = true
+
+	garbage := []byte{0x01, 0x02, 0x03} // too short to decode
+	err := c.DeliverOwnedFrame(garbage)
+	require.Error(t, err)
+
+	require.Len(t, mockLog.Calls, 1)
+	call := mockLog.Calls[0]
+	require.Equal(t, "Debug", call.Method)
+	keyvals, ok := call.Arguments[1].([]any)
+	require.True(t, ok, "Debug's variadic keysAndValues must be forwarded as a []any slice")
+	require.Contains(t, keyvals, err, "the logged payload must carry the exact decode error")
+	require.Contains(t, keyvals, hexDump(garbage), "the logged payload must carry the raw frame hex dump")
 }

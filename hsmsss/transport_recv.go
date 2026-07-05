@@ -2,6 +2,7 @@ package hsmsss
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -100,6 +101,11 @@ func (t *transport) dispatchFrame(g *genWG, frame []byte) bool {
 	if msgType != hsms.DataMsgType && len(frame) != 10 {
 		t.sendReject(frame, pType, sType)
 		return true
+	}
+
+	if msgType != hsms.DataMsgType && t.cfg.TraceTraffic() {
+		t.cfg.Logger().Debug("hsmsss: trace: received control frame",
+			"stype", sType, "raw", hexDumpFrame(frame))
 	}
 
 	switch msgType { //nolint:exhaustive // UndefinedMsgType is filtered by IsValidSType above; default is unreachable.
@@ -277,4 +283,9 @@ func decodeControlFrame(frame []byte) (hsms.Message, error) {
 	copy(full[4:], frame)
 
 	return hsms.DecodeHSMSMessage(full)
+}
+
+// hexDumpFrame renders frame as a lowercase hex string for WithTraceTraffic's control-frame dumps.
+func hexDumpFrame(frame []byte) string {
+	return hex.EncodeToString(frame)
 }

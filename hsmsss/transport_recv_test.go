@@ -21,7 +21,9 @@ import (
 	"time"
 
 	"github.com/arloliu/go-secs/v2/hsms"
+	"github.com/arloliu/go-secs/v2/logger/loggertest"
 	"github.com/arloliu/go-secs/v2/secs2"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -574,6 +576,44 @@ func TestReader_ControlFrameLenNot10Rejected(t *testing.T) {
 	require.Equal(t, 0, rt.deliveredCount(), "a malformed control frame must not be delivered")
 	require.Equal(t, 0, rt.routedCount(), "a malformed control frame must not be routed")
 	require.False(t, rt.tcpDownDidFire(), "a Reject must keep the link (no TCPDown)")
+}
+
+// TestDispatchFrame_TraceTraffic_LogsControlFrame proves that with WithTraceTraffic enabled, an
+// inbound control frame (here Linktest.req) logs a Debug line via dispatchFrame's control-only
+// trace hook (data frames are traced separately in hsms.DeliverOwnedFrame, so this hook excludes
+// them to avoid a double log).
+//
+// The Debug call happens on the recv goroutine while this test goroutine observes it, so
+// completion is signalled via a channel closed from testify's Run callback (mirroring recRT's
+// tcpDownCh/t7ExpiredCh pattern) rather than polling mockLog.Calls directly — reading that field
+// without the mock's internal lock would race with MethodCalled's concurrent append (-race).
+func TestDispatchFrame_TraceTraffic_LogsControlFrame(t *testing.T) {
+	t.Parallel()
+
+	loggedCh := make(chan struct{})
+	var loggedOnce sync.Once
+
+	mockLog := loggertest.NewMockLogger()
+	mockLog.On("Debug", mock.Anything, mock.Anything).Run(func(mock.Arguments) {
+		loggedOnce.Do(func() { close(loggedCh) })
+	}).Return()
+
+	rt := newRecRT()
+	peer := startReader(t, rt, []Option{
+		WithConnectionOption(hsms.WithTraceTraffic(true)),
+		WithConnectionOption(hsms.WithLogger(mockLog)),
+	})
+
+	header := header10(0, byte(hsms.LinktestReqType))
+	wire := frameBytes(10, header, nil)
+	_, err := peer.Write(wire)
+	require.NoError(t, err)
+
+	select {
+	case <-loggedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a traced inbound control frame must log at Debug level")
+	}
 }
 
 // TestReader_UnsupportedSTypeRejectsKeepsLink (J3, §7.10.3) — an undefined SType is answered

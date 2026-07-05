@@ -48,6 +48,7 @@ type ConnectionConfig struct {
 	logger                logger.Logger
 	validateSessionID     bool
 	autoS9F9              bool
+	traceTraffic          bool
 }
 
 // DefaultConnectionConfig returns a ConnectionConfig populated with SEMI E37 (HSMS) and SEMI E4 (SECS-I)-recommended default timer values and conservative operational defaults.
@@ -301,6 +302,11 @@ func (c *ConnectionConfig) WriteTimeout() time.Duration {
 	return c.writeTimeout
 }
 
+// Logger returns the configured logger.
+func (c *ConnectionConfig) Logger() logger.Logger {
+	return c.logger
+}
+
 // WithLogger sets the logger used by the connection. Must not be nil.
 func WithLogger(l logger.Logger) ConnOption {
 	return func(c *ConnectionConfig) error {
@@ -362,4 +368,21 @@ func WithAutoS9F9(enabled bool) ConnOption {
 // AutoS9F9 reports whether automatic S9F9-on-T3-timeout notification is enabled (see WithAutoS9F9).
 func (c *ConnectionConfig) AutoS9F9() bool {
 	return c.autoS9F9
+}
+
+// WithTraceTraffic enables per-frame wire-level tracing: every frame sent or received is logged
+// (Debug level, via the connection's configured Logger) with a hex dump of its raw bytes, including
+// frames that fail to decode. Off by default; expensive (every frame is hex-encoded even when no
+// Debug sink consumes it) — intended for interactive debugging only, not production use.
+func WithTraceTraffic(enabled bool) ConnOption {
+	return func(c *ConnectionConfig) error {
+		c.traceTraffic = enabled
+
+		return nil
+	}
+}
+
+// TraceTraffic reports whether per-frame wire tracing is enabled (see WithTraceTraffic).
+func (c *ConnectionConfig) TraceTraffic() bool {
+	return c.traceTraffic
 }
