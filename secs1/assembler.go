@@ -18,11 +18,13 @@ import (
 // abandoned by a bounded Stop never shares accumulation state with a successor generation. It is
 // driven exclusively from the SINGLE line-engine goroutine (the G-A invariant), so it holds no locks.
 type assembler struct {
-	isEquip      bool                    // our role, for inbound R-bit direction validation (SP5b §6f / E4 §8.2)
-	deliverFrame func([]byte) error      // = rt.DeliverOwnedFrame; takes ownership of the delivered frame buffer
-	now          func() time.Time        // injectable clock for the T4 inter-block deadline (default time.Now)
-	timers       func() hsms.TimerConfig // LIVE T4 source; re-read on every accept() call
-	metrics      *ConnectionMetrics      // block-level counters (secs1's own type — see secs1/metrics.go)
+	isEquip      bool                             // our role, for inbound R-bit direction validation (SP5b §6f / E4 §8.2)
+	deviceID     uint16                           // our configured device ID, for inbound routing validation (E4 §9.4.1)
+	deliverFrame func([]byte) error               // = rt.DeliverOwnedFrame; takes ownership of the delivered frame buffer
+	now          func() time.Time                 // injectable clock for the T4 inter-block deadline (default time.Now)
+	timers       func() hsms.TimerConfig          // LIVE T4 source; re-read on every accept() call
+	metrics      *ConnectionMetrics               // block-level counters (secs1's own type — see secs1/metrics.go)
+	notify       func(err error, header [10]byte) // reports a malformed-block violation; may be nil in tests that don't care
 
 	// Partial-message accumulation state (single-goroutine; no locks).
 	open          bool          // a partial (not yet terminated) message is in progress
@@ -44,13 +46,23 @@ type assembler struct {
 // cached), so a live hsms.Connection.UpdateConfigOptions(WithT4(...)) takes effect on the current
 // generation's next inbound block, not just the next reconnect. The clock defaults to time.Now;
 // tests inject a.now to drive the T4 inter-block deadline deterministically.
-func newAssembler(cfg Config, deliverFrame func([]byte) error, timers func() hsms.TimerConfig, metrics *ConnectionMetrics) *assembler {
+func newAssembler(cfg Config, deliverFrame func([]byte) error, timers func() hsms.TimerConfig, metrics *ConnectionMetrics, notify func(err error, header [10]byte)) *assembler {
 	return &assembler{
 		isEquip:      cfg.IsEquip(),
+		deviceID:     cfg.DeviceID(),
 		deliverFrame: deliverFrame,
 		now:          time.Now,
 		timers:       timers,
 		metrics:      metrics,
+		notify:       notify,
+	}
+}
+
+// report invokes a.notify if set (nil-safe — several unit tests construct an assembler with no
+// notify callback because they only care about accumulation, not notification).
+func (a *assembler) report(violation error, header [10]byte) {
+	if a.notify != nil {
+		a.notify(violation, header)
 	}
 }
 
@@ -75,6 +87,16 @@ func newAssembler(cfg Config, deliverFrame func([]byte) error, timers func() hsm
 // only a deliverFrame error on a completed message propagates (the engine treats inbound
 // decode/route errors as non-fatal — the link stays up).
 func (a *assembler) accept(blk block) error {
+	// Step 0: device-ID routing (E4 §9.4.1): a block for a different device is not ours to process.
+	if blk.deviceID() != a.deviceID {
+		logger.Debug("secs1: inbound block dropped — device ID mismatch",
+			"got", blk.deviceID(), "want", a.deviceID)
+		a.metrics.incDeviceIDMismatchCount()
+		a.report(ErrDeviceIDMismatch, blk.header)
+
+		return nil
+	}
+
 	// Step 1: R-bit direction (E4 §8.2: R=0 → to equipment, R=1 → to host). Accept only blocks
 	// directed TO US: equipment accepts R=0, host accepts R=1 — i.e. blk.rBit() != a.isEquip. A
 	// wrong-direction block is dropped without disturbing the link.
@@ -111,6 +133,13 @@ func (a *assembler) accept(blk block) error {
 		// this block as a potential fresh first block.
 		logger.Debug("secs1: inbound partial message discarded — unexpected block",
 			"expected", a.expected, "got", blk.blockNumber())
+		a.metrics.incBlockNumberMismatchCount()
+
+		violation := ErrHeaderMismatch
+		if blk.blockNumber() != a.expected {
+			violation = ErrBlockNumberMismatch
+		}
+		a.report(violation, blk.header)
 		a.reset()
 	}
 
@@ -127,6 +156,8 @@ func (a *assembler) beginMessage(blk block) error {
 	if !validFirst {
 		logger.Debug("secs1: inbound block dropped — not a valid first block",
 			"blockNumber", num, "eBit", blk.eBit(), "stream", blk.stream(), "function", blk.function())
+		a.metrics.incInvalidFirstBlockCount()
+		a.report(ErrInvalidFirstBlock, blk.header)
 
 		return nil
 	}

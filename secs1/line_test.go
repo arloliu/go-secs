@@ -22,7 +22,7 @@ import (
 // -race -count. Later options win, so a caller may override the defaults.
 func newLineTestConfig(t *testing.T, opts ...Option) Config {
 	t.Helper()
-	base := []Option{WithT1(50 * time.Millisecond), WithT2(150 * time.Millisecond)}
+	base := []Option{WithT1(50 * time.Millisecond), WithT2(150 * time.Millisecond), WithDeviceID(0x1234)}
 	cfg, err := NewConfig("127.0.0.1", 5000, append(base, opts...)...)
 	require.NoError(t, err)
 

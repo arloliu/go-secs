@@ -14,16 +14,20 @@ type paddedUint64 struct {
 }
 
 type ConnectionMetrics struct {
-	_               [64]byte      // isolate blockSend from whatever precedes this struct in memory
-	blockSend       paddedUint64  // blocks successfully sent and ACK'd
-	blockRecv       paddedUint64  // blocks received (and ACK'd) from the peer
-	blockRetry      atomic.Uint64 // block-send retries (NAK, T2 timeout, or a failed contention-yield receive)
-	blockSendFailed atomic.Uint64 // RTY retry limit exhausted without an ACK (E4 §7.8.6) — a link-teardown-triggering event
-	blockNAKSent    atomic.Uint64 // NAKs we sent for an inbound block (length error, checksum error, T1 or T2 timeout)
-	contentionYield atomic.Uint64 // this end (as slave) yielded to a contending master (E4 §7.8.2.1)
-	blockDupDrop    atomic.Uint64 // duplicate-block detected and dropped (E4 §9.4.2 — the peer missed our ACK)
-	partialTimeout  atomic.Uint64 // a stale partial multi-block message was discarded (E4 §9.4.3, T4 elapsed)
-	blockDirDrop    atomic.Uint64 // an inbound block was dropped for the wrong R-bit direction (E4 §8.2)
+	_                [64]byte      // isolate blockSend from whatever precedes this struct in memory
+	blockSend        paddedUint64  // blocks successfully sent and ACK'd
+	blockRecv        paddedUint64  // blocks received (and ACK'd) from the peer
+	blockRetry       atomic.Uint64 // block-send retries (NAK, T2 timeout, or a failed contention-yield receive)
+	blockSendFailed  atomic.Uint64 // RTY retry limit exhausted without an ACK (E4 §7.8.6) — a link-teardown-triggering event
+	blockNAKSent     atomic.Uint64 // NAKs we sent for an inbound block (length error, checksum error, T1 or T2 timeout)
+	contentionYield  atomic.Uint64 // this end (as slave) yielded to a contending master (E4 §7.8.2.1)
+	blockDupDrop     atomic.Uint64 // duplicate-block detected and dropped (E4 §9.4.2 — the peer missed our ACK)
+	partialTimeout   atomic.Uint64 // a stale partial multi-block message was discarded (E4 §9.4.3, T4 elapsed)
+	blockDirDrop     atomic.Uint64 // an inbound block was dropped for the wrong R-bit direction (E4 §8.2)
+	deviceIDMismatch atomic.Uint64 // inbound block dropped for the wrong device ID (E4 §9.4.1 routing check)
+
+	blockNumberMismatch atomic.Uint64 // inbound block continuing an open message had the wrong number/header (E4 §9.4.4.2)
+	invalidFirstBlock   atomic.Uint64 // inbound block starting a new message was not a valid first block (E4 §9.4.4.2)
 }
 
 // BlockSendCount returns the total number of SECS-I blocks successfully sent and ACK'd.
@@ -64,16 +68,33 @@ func (m *ConnectionMetrics) PartialTimeoutCount() uint64 { return m.partialTimeo
 // mismatch), near-zero in steady state.
 func (m *ConnectionMetrics) BlockDirDropCount() uint64 { return m.blockDirDrop.Load() }
 
+// DeviceIDMismatchCount returns the total number of inbound blocks dropped for carrying a device ID
+// that does not match this connection's configured device ID (SEMI E4 §9.4.1 routing check).
+func (m *ConnectionMetrics) DeviceIDMismatchCount() uint64 { return m.deviceIDMismatch.Load() }
+
+// BlockNumberMismatchCount returns the total number of inbound blocks that aborted an open partial
+// message because they carried the wrong block number or a mismatched block-invariant header (SEMI
+// E4 §9.4.4.2).
+func (m *ConnectionMetrics) BlockNumberMismatchCount() uint64 { return m.blockNumberMismatch.Load() }
+
+// InvalidFirstBlockCount returns the total number of inbound blocks dropped for being neither block
+// number 1 nor a lone block 0 with the E-bit set when starting a new message (SEMI E4 §9.4.4.2).
+func (m *ConnectionMetrics) InvalidFirstBlockCount() uint64 { return m.invalidFirstBlock.Load() }
+
 // Unexported increment helpers used by the line engine (secs1/line.go, secs1/assembler.go). Kept
 // private so ConnectionMetrics can only ever reflect real protocol events, never application-code
 // manipulation — the same encapsulation hsms.ConnectionMetrics itself uses.
 
-func (m *ConnectionMetrics) incBlockSendCount()       { m.blockSend.Add(1) }
-func (m *ConnectionMetrics) incBlockRecvCount()       { m.blockRecv.Add(1) }
-func (m *ConnectionMetrics) incBlockRetryCount()      { m.blockRetry.Add(1) }
-func (m *ConnectionMetrics) incBlockSendFailedCount() { m.blockSendFailed.Add(1) }
-func (m *ConnectionMetrics) incBlockNAKSentCount()    { m.blockNAKSent.Add(1) }
-func (m *ConnectionMetrics) incContentionYieldCount() { m.contentionYield.Add(1) }
-func (m *ConnectionMetrics) incBlockDupDropCount()    { m.blockDupDrop.Add(1) }
-func (m *ConnectionMetrics) incPartialTimeoutCount()  { m.partialTimeout.Add(1) }
-func (m *ConnectionMetrics) incBlockDirDropCount()    { m.blockDirDrop.Add(1) }
+func (m *ConnectionMetrics) incBlockSendCount()        { m.blockSend.Add(1) }
+func (m *ConnectionMetrics) incBlockRecvCount()        { m.blockRecv.Add(1) }
+func (m *ConnectionMetrics) incBlockRetryCount()       { m.blockRetry.Add(1) }
+func (m *ConnectionMetrics) incBlockSendFailedCount()  { m.blockSendFailed.Add(1) }
+func (m *ConnectionMetrics) incBlockNAKSentCount()     { m.blockNAKSent.Add(1) }
+func (m *ConnectionMetrics) incContentionYieldCount()  { m.contentionYield.Add(1) }
+func (m *ConnectionMetrics) incBlockDupDropCount()     { m.blockDupDrop.Add(1) }
+func (m *ConnectionMetrics) incPartialTimeoutCount()   { m.partialTimeout.Add(1) }
+func (m *ConnectionMetrics) incBlockDirDropCount()     { m.blockDirDrop.Add(1) }
+func (m *ConnectionMetrics) incDeviceIDMismatchCount() { m.deviceIDMismatch.Add(1) }
+
+func (m *ConnectionMetrics) incBlockNumberMismatchCount() { m.blockNumberMismatch.Add(1) }
+func (m *ConnectionMetrics) incInvalidFirstBlockCount()   { m.invalidFirstBlock.Add(1) }

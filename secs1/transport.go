@@ -9,7 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/arloliu/go-secs/v2/gem"
 	"github.com/arloliu/go-secs/v2/hsms"
+	"github.com/arloliu/go-secs/v2/secs2"
 )
 
 // errStartSealed is returned by Start when the transport's Add-vs-Wait guard is sealed (a Stop is
@@ -165,10 +167,41 @@ func newTransport(cfg Config) *transport {
 	// CALLED in lineEngine AFTER t.rt is bound (on the first Start), so t.rt is non-nil at call time.
 	// t.cfg is available immediately.
 	t.newSink = func() func(block) error {
-		return newAssembler(t.cfg, t.rt.DeliverOwnedFrame, t.rt.Timers, t.metrics).accept
+		return newAssembler(t.cfg, t.rt.DeliverOwnedFrame, t.rt.Timers, t.metrics, t.notifyAssemblerViolation).accept
 	}
 
 	return t
+}
+
+// notifyAssemblerViolation answers a malformed inbound block with the SEMI E5 §10.13 S9Fx
+// notification, restoring v1's equipment-role assembler behavior. It is wired as the inbound
+// assembler's notify callback (see newTransport). ErrDeviceIDMismatch maps to S9F1 (Unrecognized
+// Device ID); ErrBlockNumberMismatch, ErrHeaderMismatch, and ErrInvalidFirstBlock all map to S9F7
+// (Illegal Data). Host role (t.cfg.IsEquip() == false) sends nothing — matching v1's
+// equipment-only gating. Fire-and-forget: a SendAsync failure is not surfaced, mirroring
+// hsms.checkSessionID's S9F1 auto-reply pattern.
+func (t *transport) notifyAssemblerViolation(violation error, header [10]byte) {
+	if !t.cfg.IsEquip() {
+		return
+	}
+
+	var s9 secs2.SECS2Message
+	switch {
+	case errors.Is(violation, ErrDeviceIDMismatch):
+		s9 = gem.S9F1(header)
+	case errors.Is(violation, ErrBlockNumberMismatch), errors.Is(violation, ErrHeaderMismatch), errors.Is(violation, ErrInvalidFirstBlock):
+		s9 = gem.S9F7(header)
+	default:
+		return
+	}
+
+	notice, err := hsms.NewDataMessage(
+		s9.StreamCode(), s9.FunctionCode(), s9.WaitBit(),
+		t.rt.SessionID(), t.rt.NextSystemBytes(), s9.Item(),
+	)
+	if err == nil {
+		_ = t.rt.SendAsync(context.Background(), notice)
+	}
 }
 
 // Start binds the transport runtime write-once, derives THIS generation's engine ctx, and dials

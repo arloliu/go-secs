@@ -10,6 +10,12 @@ var (
 	// ErrChecksumMismatch is returned by parseBlock when the trailing checksum does not match the
 	// computed 16-bit sum of the header and body.
 	ErrChecksumMismatch = errors.New("secs1: block checksum mismatch")
+	// ErrDeviceIDMismatch is returned by the inbound assembler when a received block's device ID
+	// does not match this connection's configured device ID (SEMI E4 §9.4.1 routing check).
+	ErrDeviceIDMismatch = errors.New("secs1: block device ID mismatch")
+	// ErrInvalidFirstBlock is returned by the inbound assembler when a block that would start a new
+	// message is neither block number 1 nor a lone block 0 with the E-bit set (SEMI E4 §9.4.4.2).
+	ErrInvalidFirstBlock = errors.New("secs1: invalid first block")
 	// ErrEmptyBlocks is returned by assembleBlocks when given no blocks.
 	ErrEmptyBlocks = errors.New("secs1: no blocks to assemble")
 	// ErrBlockNumberMismatch is returned by assembleBlocks when block numbers are not the

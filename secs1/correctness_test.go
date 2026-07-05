@@ -251,6 +251,7 @@ func TestSECS1_O3_ReceiveGoldenReplay(t *testing.T) {
 	// block bodies concatenate to the golden message body; asmHeader pins S6F17 (W-bit) as the golden
 	// stream/function.
 	mh := asmHeader(false)
+	mh.deviceID = 0 // explicitly match newSECS1Passive's hardcoded WithDeviceID(0)
 	block1Wire := asmBlock(mh, 1, false, []byte("golden-")).appendTo(nil)
 	block2Wire := asmBlock(mh, 2, true, []byte("payload")).appendTo(nil)
 

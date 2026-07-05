@@ -46,6 +46,9 @@ type mockRuntime struct {
 
 	sysGen atomic.Uint32
 	timers hsms.TimerConfig
+
+	sentMu sync.Mutex
+	sent   []hsms.Message // every msg handed to SendAsync
 }
 
 // mockRuntime must satisfy the exported hsms.TransportRuntime seam (an external package CAN name and
@@ -122,7 +125,11 @@ func (m *mockRuntime) captureFrames() chan []byte {
 
 func (m *mockRuntime) RouteReply(_ hsms.Message) bool      { return false }
 func (m *mockRuntime) RouteData(_ *hsms.DataMessage) error { return nil }
-func (m *mockRuntime) SendAsync(_ context.Context, _ hsms.Message) error {
+func (m *mockRuntime) SendAsync(_ context.Context, msg hsms.Message) error {
+	m.sentMu.Lock()
+	m.sent = append(m.sent, msg)
+	m.sentMu.Unlock()
+
 	return nil
 }
 func (m *mockRuntime) State() hsms.ConnState           { return hsms.ConnState(m.state.Load()) }
@@ -173,7 +180,7 @@ func (m *mockRuntime) tcpDownFired() bool {
 // resolve fast under -race -count. Later options win, so a caller may override the defaults.
 func transportTestConfig(t *testing.T, port int, opts ...Option) Config {
 	t.Helper()
-	base := []Option{WithT1(50 * time.Millisecond), WithT2(150 * time.Millisecond)}
+	base := []Option{WithT1(50 * time.Millisecond), WithT2(150 * time.Millisecond), WithDeviceID(0x1234)}
 	cfg, err := NewConfig("127.0.0.1", port, append(base, opts...)...)
 	require.NoError(t, err)
 
@@ -488,4 +495,55 @@ func dialPeer(t *testing.T, port int) net.Conn {
 	t.Cleanup(func() { _ = peer.Close() })
 
 	return peer
+}
+
+func TestNotifyAssemblerViolation_EquipRoleSendsS9F1(t *testing.T) {
+	cfg, err := NewConfig("127.0.0.1", 5000, WithEquipment(), WithDeviceID(0x1234))
+	require.NoError(t, err)
+	tr := newTransport(cfg)
+	rt := newMockRuntime()
+	tr.rt = rt
+
+	var offending [10]byte
+	offending[0], offending[1] = 0x12, 0x34
+	tr.notifyAssemblerViolation(ErrDeviceIDMismatch, offending)
+
+	require.Len(t, rt.sent, 1, "equipment role must auto-send exactly one S9Fx notification")
+	msg, ok := rt.sent[0].(*hsms.DataMessage)
+	require.True(t, ok)
+	require.Equal(t, uint8(9), msg.Stream())
+	require.Equal(t, uint8(1), msg.Function(), "ErrDeviceIDMismatch maps to S9F1")
+	item, err := msg.Item()
+	require.NoError(t, err)
+	body, err := item.ToBinary()
+	require.NoError(t, err)
+	require.Equal(t, offending[:], body)
+}
+
+func TestNotifyAssemblerViolation_MapsBlockErrorsToS9F7(t *testing.T) {
+	cfg, err := NewConfig("127.0.0.1", 5000, WithEquipment(), WithDeviceID(0x1234))
+	require.NoError(t, err)
+
+	for _, violation := range []error{ErrBlockNumberMismatch, ErrHeaderMismatch, ErrInvalidFirstBlock} {
+		tr := newTransport(cfg)
+		rt := newMockRuntime()
+		tr.rt = rt
+
+		tr.notifyAssemblerViolation(violation, [10]byte{})
+		require.Len(t, rt.sent, 1, "violation %v must send exactly one S9F7", violation)
+		msg, ok := rt.sent[0].(*hsms.DataMessage)
+		require.True(t, ok)
+		require.Equal(t, uint8(7), msg.Function(), "violation %v must map to S9F7", violation)
+	}
+}
+
+func TestNotifyAssemblerViolation_HostRoleSendsNothing(t *testing.T) {
+	cfg, err := NewConfig("127.0.0.1", 5000, WithHost(), WithDeviceID(0x1234))
+	require.NoError(t, err)
+	tr := newTransport(cfg)
+	rt := newMockRuntime()
+	tr.rt = rt
+
+	tr.notifyAssemblerViolation(ErrDeviceIDMismatch, [10]byte{})
+	require.Empty(t, rt.sent, "host role must never auto-send an S9Fx notification")
 }
