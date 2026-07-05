@@ -9,6 +9,8 @@ import "sync/atomic"
 // HSMS-SS-only counters (linktest, Select/Separate/Reject) are in hsmsss.ConnectionMetrics, reached
 // via hsmsss.Connection.ControlMetrics(); SECS-I-only counters (block send/recv/retry/etc.) are in
 // secs1.ConnectionMetrics, reached via secs1.Connection.BlockMetrics().
+// Padding assumes a 64-byte cache line (x86-64, arm64); it's a no-op rather than a correctness bug
+// on architectures with larger lines (e.g. some ppc64/s390x variants).
 type paddedUint64 struct {
 	atomic.Uint64
 	_ [56]byte // pad to 64 bytes (cache line size) to prevent false sharing
@@ -20,6 +22,7 @@ type paddedInt64 struct {
 }
 
 type ConnectionMetrics struct {
+	_                      [64]byte // isolate dataMsgSend from whatever precedes this struct in memory
 	dataMsgSend            paddedUint64
 	dataMsgRecv            paddedUint64
 	dataMsgInflight        paddedInt64

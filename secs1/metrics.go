@@ -6,12 +6,15 @@ import "sync/atomic"
 // layer beneath the shared hsms data-message counters (see hsms.ConnectionMetrics, reached via
 // Connection's embedded hsms.Connection.Metrics()). All reads and writes are atomic; safe to read
 // concurrently with the line-engine goroutine. Reach an instance via Connection.BlockMetrics().
+// Padding assumes a 64-byte cache line (x86-64, arm64); it's a no-op rather than a correctness bug
+// on architectures with larger lines (e.g. some ppc64/s390x variants).
 type paddedUint64 struct {
 	atomic.Uint64
 	_ [56]byte // pad to 64 bytes (cache line size) to prevent false sharing
 }
 
 type ConnectionMetrics struct {
+	_               [64]byte      // isolate blockSend from whatever precedes this struct in memory
 	blockSend       paddedUint64  // blocks successfully sent and ACK'd
 	blockRecv       paddedUint64  // blocks received (and ACK'd) from the peer
 	blockRetry      atomic.Uint64 // block-send retries (NAK, T2 timeout, or a failed contention-yield receive)
