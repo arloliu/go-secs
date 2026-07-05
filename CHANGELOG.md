@@ -5,9 +5,10 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.0] - 2026-07-04
+## [2.0.0-rc1] - 2026-07-05
 
-Major version. **v2 is a ground-up redesign around immutable messages and items**,
+First release candidate of the v2 major version. **v2 is a ground-up redesign
+around immutable messages and items**,
 published at a new module path (`github.com/arloliu/go-secs/v2`) so v1
 (`github.com/arloliu/go-secs`) keeps working unchanged for existing consumers — this
 is not an in-place upgrade, it's a new major-version module you opt into. See
@@ -88,6 +89,13 @@ symbol-by-symbol migration guide and worked examples; the highlights:
 - **`hsms.WithSessionIDValidation`** (default off) — opt-in inbound SessionID
   mismatch check at the connection's chokepoint, replying `S9F1` and dropping the
   frame on mismatch.
+- **`hsms.SECS2Endpoint`: `ForwardDataMessage` / `ForwardDataMessageAsync`** — send
+  an already-built `*DataMessage` verbatim (System Bytes, W-bit, session ID, and
+  stream/function preserved) without registering a reply expectation, so the
+  correlated secondary is delivered to the registered `DataMessageHandler`s instead
+  of being consumed by the send. For routers/proxies that forward messages carrying
+  externally-assigned System Bytes and own reply correlation themselves; ordinary
+  request/reply code keeps using `SendDataMessage`.
 - **`gem` package expanded** to a bounded SEMI E30/E5 builder set returning
   `secs2.SECS2Message`: `S1F1/2` (+ host forms), `S1F13/14` (+ host forms),
   `S2F17/18`, `S2F31/32`, `S2F37/38`, `S5F1/2`, `S6F11/12`, and a `Report` helper.
@@ -800,7 +808,7 @@ release's fuzz work were closed out.
   Deselect.req / Deselect.rsp / Separate.req are now honoured end-to-end
   and take the session through the documented state transitions.
 
-[2.0.0]: https://github.com/arloliu/go-secs/releases/tag/v2.0.0
+[2.0.0-rc1]: https://github.com/arloliu/go-secs/releases/tag/v2.0.0-rc1
 [1.17.1]: https://github.com/arloliu/go-secs/releases/tag/v1.17.1
 [1.17.0]: https://github.com/arloliu/go-secs/releases/tag/v1.17.0
 [1.16.2]: https://github.com/arloliu/go-secs/releases/tag/v1.16.2
