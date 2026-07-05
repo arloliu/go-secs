@@ -164,13 +164,13 @@ func (item *IntItem) AppendTo(dst []byte) []byte {
 	if item.size == 1 {
 		switch item.byteSize {
 		case 1:
-			dst = append(dst, byte(item.scalar)) //nolint:gosec
+			dst = append(dst, byte(item.scalar)) //nolint:gosec // truncation to the item's declared byte width is intentional
 		case 2:
-			dst = binary.BigEndian.AppendUint16(dst, uint16(item.scalar)) //nolint:gosec
+			dst = binary.BigEndian.AppendUint16(dst, uint16(item.scalar)) //nolint:gosec // truncation to the item's declared byte width is intentional
 		case 4:
-			dst = binary.BigEndian.AppendUint32(dst, uint32(item.scalar)) //nolint:gosec
+			dst = binary.BigEndian.AppendUint32(dst, uint32(item.scalar)) //nolint:gosec // truncation to the item's declared byte width is intentional
 		case 8:
-			dst = binary.BigEndian.AppendUint64(dst, uint64(item.scalar)) //nolint:gosec
+			dst = binary.BigEndian.AppendUint64(dst, uint64(item.scalar)) //nolint:gosec // truncation to the item's declared byte width is intentional
 		default:
 			// unreachable
 		}

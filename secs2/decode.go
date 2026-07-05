@@ -297,11 +297,11 @@ func decodeIntItem(owned []byte, startPos, pos, byteSize, length int) (Item, int
 		case 1:
 			val = int64(int8(owned[pos]))
 		case 2:
-			val = int64(int16(binary.BigEndian.Uint16(owned[pos:]))) //nolint:gosec
+			val = int64(int16(binary.BigEndian.Uint16(owned[pos:]))) //nolint:gosec // sign-extending a fixed-width wire value into int64 is intentional
 		case 4:
-			val = int64(int32(binary.BigEndian.Uint32(owned[pos:]))) //nolint:gosec
+			val = int64(int32(binary.BigEndian.Uint32(owned[pos:]))) //nolint:gosec // sign-extending a fixed-width wire value into int64 is intentional
 		case 8:
-			val = int64(binary.BigEndian.Uint64(owned[pos:])) //nolint:gosec
+			val = int64(binary.BigEndian.Uint64(owned[pos:])) //nolint:gosec // reinterpreting the wire's 8 bytes as int64 is intentional
 		default:
 			// unreachable: byteSize is 1, 2, 4, or 8.
 		}
