@@ -513,6 +513,27 @@ func TestReader_LenBelow10ProtocolError(t *testing.T) {
 	require.Equal(t, 0, rt.deliveredCount(), "a sub-10 length must not be delivered as data")
 }
 
+// TestRecvLoop_ReadErrCount proves a frame-length error in recvLoop's readFrame (the same
+// stimulus as TestReader_LenBelow10ProtocolError) increments ReadErrCount exactly once.
+func TestRecvLoop_ReadErrCount(t *testing.T) {
+	t.Parallel()
+
+	rt := newRecRT()
+	var tr *transport
+	peer := startReader(t, rt, nil, func(t2 *transport) { tr = t2 })
+
+	_, err := peer.Write(frameBytes(5, nil, nil)) // msgLen=5, below the 10-byte minimum (J2)
+	require.NoError(t, err)
+
+	select {
+	case <-rt.tcpDownCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("length < 10 must end the generation via TCPDown")
+	}
+
+	require.Equal(t, uint64(1), tr.metrics.ReadErrCount())
+}
+
 // TestReader_OversizedLengthRejectedBeforeAlloc (J2) — an attacker-controlled length beyond
 // secs2.MaxByteSize is rejected BEFORE make([]byte, msgLen). The allocFrame seam records
 // any oversized allocation attempt; it must never fire.

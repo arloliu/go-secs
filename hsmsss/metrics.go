@@ -16,6 +16,7 @@ type ConnectionMetrics struct {
 	rejectSent        atomic.Uint64 // Reject.req WE emit (peer sent us a malformed/unexpected frame)
 	rejectRecv        atomic.Uint64 // inbound Reject.req received (peer rejected one of our sends)
 	linktestReqRecv   atomic.Uint64 // inbound Linktest.req answered (peer probing us)
+	readErr           atomic.Uint64 // socket read / frame-length error in recvLoop
 }
 
 // LinktestSendCount returns the total number of Linktest.req messages sent by this connection's own
@@ -67,6 +68,14 @@ func (m *ConnectionMetrics) LinktestReqRecvCount() uint64 {
 	return m.linktestReqRecv.Load()
 }
 
+// ReadErrCount returns the total number of socket read or frame-length errors encountered in the
+// receive loop (recvLoop's readFrame error branch) — a plain transport-level read failure, distinct
+// from hsms.ConnectionMetrics.DecodeErrCount (a frame that WAS read successfully but failed to
+// decode).
+func (m *ConnectionMetrics) ReadErrCount() uint64 {
+	return m.readErr.Load()
+}
+
 // Unexported increment helpers used by the transport (see transport_procedures.go and
 // transport_control.go). Kept private so ConnectionMetrics can only ever reflect real protocol
 // events, never application-code manipulation — the same encapsulation hsms.ConnectionMetrics uses.
@@ -101,4 +110,8 @@ func (m *ConnectionMetrics) incRejectRecv() {
 
 func (m *ConnectionMetrics) incLinktestReqRecv() {
 	m.linktestReqRecv.Add(1)
+}
+
+func (m *ConnectionMetrics) incReadErrCount() {
+	m.readErr.Add(1)
 }

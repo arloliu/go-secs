@@ -55,6 +55,8 @@ func (c *connection) T7Expired() {
 func (c *connection) DeliverOwnedFrame(frame []byte) error {
 	msg, err := decodeOwnedFrame(frame)
 	if err != nil {
+		c.metrics.incDecodeErr()
+
 		if cfg := c.cfg.Load(); cfg.traceTraffic {
 			cfg.logger.Debug("hsms: trace: inbound frame decode failed",
 				"error", err, "raw", hexDump(frame))

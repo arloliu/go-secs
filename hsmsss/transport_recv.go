@@ -56,6 +56,8 @@ func (t *transport) recvLoop(g *genWG) {
 	for {
 		frame, err := t.readFrame(conn)
 		if err != nil {
+			t.metrics.incReadErrCount()
+
 			// C1 straggler guard: drive TCPDown only for a LIVE generation. The epoch ctx (genCtx)
 			// is rooted at context.Background() and cancelled ONLY by this generation's teardown, so
 			// a non-nil Err means teardown already began — either a voluntary Close (which owns the

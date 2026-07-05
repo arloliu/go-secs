@@ -28,6 +28,7 @@ type ConnectionMetrics struct {
 	dataMsgInflight        paddedInt64
 	dataMsgErr             atomic.Uint64
 	dataMsgDropNotSelected atomic.Uint64 // B3 chokepoint: dropped because not SELECTED
+	decodeErr              atomic.Uint64 // inbound frame read successfully but failed to decode/route
 	connRetry              atomic.Int64  // gauge: 1 while a reconnect loop is actively retrying, else 0
 	reconnects             atomic.Uint64 // cumulative count of successful re-establishments after an involuntary drop
 }
@@ -41,6 +42,13 @@ func (m *ConnectionMetrics) DataMsgInflightCount() int64 {
 // because the connection was not in SELECTED state.
 func (m *ConnectionMetrics) DataMsgDropNotSelectedCount() uint64 {
 	return m.dataMsgDropNotSelected.Load()
+}
+
+// DecodeErrCount returns the total number of inbound data frames that were read successfully off
+// the wire but failed to decode or route (DeliverOwnedFrame's decode-error path). This is disjoint
+// from DataMsgRecvCount: a decode failure never reaches the receive chokepoint.
+func (m *ConnectionMetrics) DecodeErrCount() uint64 {
+	return m.decodeErr.Load()
 }
 
 // DataMsgSendCount returns the total number of data messages committed to the wire (the writev
@@ -95,6 +103,10 @@ func (m *ConnectionMetrics) decDataMsgInflight() {
 
 func (m *ConnectionMetrics) incDataMsgDropNotSelected() {
 	m.dataMsgDropNotSelected.Add(1)
+}
+
+func (m *ConnectionMetrics) incDecodeErr() {
+	m.decodeErr.Add(1)
 }
 
 func (m *ConnectionMetrics) incDataMsgSend() {
