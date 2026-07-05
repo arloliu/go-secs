@@ -129,6 +129,12 @@ func (m *mockRT) SendAsync(_ context.Context, _ hsms.Message) error {
 	return nil
 }
 
+// WriteMessageNoReply returns nil; like WriteMessage it is never reached on the mockRT path
+// (State is always NotConnected), and the forward/no-reply path never blocks on a reply.
+func (m *mockRT) WriteMessageNoReply(_ context.Context, _ hsms.Message) error {
+	return nil
+}
+
 // waitTCPUp waits up to 5 s for TCPUp to fire, returning the conn it was called with.
 func (m *mockRT) waitTCPUp(t *testing.T) net.Conn {
 	t.Helper()

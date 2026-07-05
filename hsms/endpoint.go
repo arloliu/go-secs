@@ -39,6 +39,43 @@ type SECS2Endpoint interface {
 	// reply when the W-bit is set. Returns the reply DataMessage on success.
 	SendSECS2Message(ctx context.Context, msg secs2.SECS2Message) (*DataMessage, error)
 
+	// ForwardDataMessage writes a pre-built data message verbatim on the caller's
+	// goroutine — preserving its System Bytes, W-bit, session ID, and
+	// stream/function — and returns once the frame is on the wire. Unlike
+	// SendDataMessage it does NOT register a reply expectation: any secondary the
+	// peer sends misses the reply registry and is delivered to the registered
+	// DataMessageHandlers instead of being returned here. Use this when YOU own
+	// reply correlation — a router or proxy bridging transports that matches a
+	// reply to an upstream request by System Bytes. Ordinary request/reply code
+	// should use SendDataMessage. A W-bit-set msg keeps its W-bit on the wire (the
+	// peer is still asked to reply); only the LOCAL reply-wait is skipped. Returns
+	// ErrNilMessage if msg is nil.
+	//
+	// The caller owns System Bytes: they are sent verbatim and are NOT drawn from
+	// the connection's monotonic generator, so they may collide with an in-flight
+	// SendDataMessage/SendSECS2Message transaction OR another forwarded message on
+	// the same connection. On a collision the peer's reply is routed to whichever
+	// waiter/handler the registry resolves — reply theft. Keep forwarded System
+	// Bytes disjoint from the library-generated space (which starts at 1 and
+	// increments).
+	//
+	// The message's session ID is sent verbatim on HSMS-SS. If the connection
+	// enables WithSessionIDValidation, a forwarded session ID that differs from the
+	// connection's makes the peer's reply fail inbound validation and be dropped
+	// (and answered with an S9F1), so it never reaches your handlers — forward with
+	// the connection's own session ID, or leave validation disabled. On SECS-I the
+	// block-header device ID is always the configured device ID regardless of msg's
+	// session ID (only System Bytes / stream / function / W-bit go on the wire
+	// verbatim).
+	ForwardDataMessage(ctx context.Context, msg *DataMessage) error
+
+	// ForwardDataMessageAsync is ForwardDataMessage but enqueues msg on the
+	// per-generation async send channel instead of writing on the caller's
+	// goroutine; a write failure is best-effort (surfaced only at the enqueue
+	// boundary, not the wire). The System Bytes / session-ID caveats on
+	// ForwardDataMessage apply here too. Returns ErrNilMessage if msg is nil.
+	ForwardDataMessageAsync(ctx context.Context, msg *DataMessage) error
+
 	// ReplyDataMessage sends a secondary data message in reply to primary. The
 	// reply reuses primary's System Bytes verbatim (E37 §8.2.6.9) and carries no
 	// W-bit.

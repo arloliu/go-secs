@@ -116,6 +116,30 @@ func (s *session) SendSECS2Message(ctx context.Context, msg secs2.SECS2Message) 
 	return dataReply, nil
 }
 
+// ForwardDataMessage writes a pre-built data message verbatim (preserving its System Bytes, W-bit,
+// session ID, and stream/function) via rt.WriteMessageNoReply and returns once the frame is on the
+// wire. No reply is registered or consumed here — a secondary the peer sends is delivered to the
+// registered DataMessageHandlers, so the caller owns reply correlation. See the
+// SECS2Endpoint.ForwardDataMessage contract. Returns ErrNilMessage if msg is nil.
+func (s *session) ForwardDataMessage(ctx context.Context, msg *DataMessage) error {
+	if msg == nil {
+		return ErrNilMessage
+	}
+
+	return s.rt.WriteMessageNoReply(ctx, msg)
+}
+
+// ForwardDataMessageAsync enqueues a pre-built data message verbatim on the per-generation async
+// send channel via rt.SendAsync, preserving its full envelope. No reply is registered or consumed
+// here (see ForwardDataMessage). Returns ErrNilMessage if msg is nil.
+func (s *session) ForwardDataMessageAsync(ctx context.Context, msg *DataMessage) error {
+	if msg == nil {
+		return ErrNilMessage
+	}
+
+	return s.rt.SendAsync(ctx, msg)
+}
+
 // ReplyDataMessage sends a secondary data message in reply to primary. The reply function
 // is primary.Function()+1 (SECS-II secondary-function convention: primary is odd, reply is
 // even), replyExpected is false, and system bytes are taken verbatim from primary

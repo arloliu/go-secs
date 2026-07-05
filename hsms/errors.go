@@ -40,6 +40,7 @@ var (
 	ErrT3Timeout        = errors.New("hsms: T3 reply timeout")
 	ErrT6Timeout        = errors.New("hsms: T6 control timeout")
 	ErrCloseTimeout     = errors.New("hsms: close timeout (tasks still live)")
+	ErrNilMessage       = errors.New("hsms: nil data message")
 
 	// ErrUnrecognizedSessionID indicates a NON-S9F1 inbound data message's SessionID did not match
 	// this connection's configured SessionID. Only returned/observable when session-ID validation

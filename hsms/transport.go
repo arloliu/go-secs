@@ -118,6 +118,16 @@ type TransportRuntime interface {
 	// System-Bytes accounting) and any write error.
 	WriteMessage(ctx context.Context, msg Message) (Message, error)
 
+	// WriteMessageNoReply performs a synchronous framed write of msg over the
+	// current epoch's TCP connection WITHOUT registering a reply expectation. The
+	// B1 pre-write gate and the B2 write-boundary re-check still apply, but no
+	// reply channel is created and no protocol timer is armed, so a secondary the
+	// peer later sends against msg's System Bytes misses the reply registry and is
+	// delivered to the session's DataMessageHandlers (RouteData). Backs
+	// SECS2Endpoint.ForwardDataMessage. Returns the write error, or nil once the
+	// frame is on the wire.
+	WriteMessageNoReply(ctx context.Context, msg Message) error
+
 	// SendAsync enqueues msg on the per-generation async send channel. Used for
 	// fire-and-forget sends (Reject, Separate, S9Fx, async data) where the caller
 	// must not block on a wedged peer.

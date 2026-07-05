@@ -21,8 +21,8 @@ var ErrNoScriptedReply = errors.New("hsmstest: no scripted reply queued")
 
 // SentMessage records one outbound call made through FakeEndpoint.
 type SentMessage struct {
-	Method  string            // "SendDataMessage" | "SendDataMessageAsync" | "SendSECS2Message" | "ReplyDataMessage"
-	Message *hsms.DataMessage // the message as the fake reconstructed it
+	Method  string            // "SendDataMessage" | "SendDataMessageAsync" | "SendSECS2Message" | "ReplyDataMessage" | "ForwardDataMessage" | "ForwardDataMessageAsync"
+	Message *hsms.DataMessage // the message as the fake reconstructed it (Forward* record it verbatim)
 	Primary *hsms.DataMessage // ReplyDataMessage only: the primary being replied to
 }
 
@@ -216,4 +216,33 @@ func (f *FakeEndpoint) SendSECS2Message(_ context.Context, msg secs2.SECS2Messag
 // synchronous send awaiting a response).
 func (f *FakeEndpoint) ReplyDataMessage(_ context.Context, primary *hsms.DataMessage, item secs2.Item) error {
 	return f.recordReply(primary, item)
+}
+
+// ForwardDataMessage records a verbatim forward send, preserving msg exactly (System Bytes and
+// all). It never consults the reply script: the real engine routes any reply to the registered
+// handlers (use Deliver to simulate it), not back as a return value. Returns hsms.ErrNilMessage
+// if msg is nil, matching the real session.
+func (f *FakeEndpoint) ForwardDataMessage(_ context.Context, msg *hsms.DataMessage) error {
+	return f.recordForward("ForwardDataMessage", msg)
+}
+
+// ForwardDataMessageAsync records a verbatim forward send (see ForwardDataMessage). Returns
+// hsms.ErrNilMessage if msg is nil.
+func (f *FakeEndpoint) ForwardDataMessageAsync(_ context.Context, msg *hsms.DataMessage) error {
+	return f.recordForward("ForwardDataMessageAsync", msg)
+}
+
+// recordForward records a pre-built message verbatim (unlike record, which constructs a fresh
+// message with generated System Bytes). It returns hsms.ErrNilMessage BEFORE any side effect when
+// msg is nil, mirroring the real session's nil guard.
+func (f *FakeEndpoint) recordForward(method string, msg *hsms.DataMessage) error {
+	if msg == nil {
+		return hsms.ErrNilMessage
+	}
+
+	f.mu.Lock()
+	f.sent = append(f.sent, SentMessage{Method: method, Message: msg})
+	f.mu.Unlock()
+
+	return nil
 }

@@ -240,6 +240,16 @@ func (m *recRT) WriteMessage(ctx context.Context, msg hsms.Message) (hsms.Messag
 	return nil, ctx.Err()
 }
 
+// WriteMessageNoReply records the call synchronously and returns nil (the forward/no-reply path
+// never blocks on a reply). It is unexercised on the current recv-path tests.
+func (m *recRT) WriteMessageNoReply(_ context.Context, msg hsms.Message) error {
+	m.mu.Lock()
+	m.written = append(m.written, msg)
+	m.mu.Unlock()
+
+	return nil
+}
+
 func (m *recRT) SendAsync(_ context.Context, msg hsms.Message) error {
 	m.mu.Lock()
 	m.sent = append(m.sent, msg)

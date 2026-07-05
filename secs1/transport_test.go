@@ -138,6 +138,12 @@ func (m *mockRuntime) WriteMessage(_ context.Context, _ hsms.Message) (hsms.Mess
 	return nil, hsms.ErrNotOpen
 }
 
+// WriteMessageNoReply is never exercised on the T3 line-engine path (SECS-I has no core-driven
+// control send), so it returns a sentinel rather than a bare nil.
+func (m *mockRuntime) WriteMessageNoReply(_ context.Context, _ hsms.Message) error {
+	return hsms.ErrNotOpen
+}
+
 func (m *mockRuntime) NextSystemBytes() [4]byte {
 	var b [4]byte
 	binary.BigEndian.PutUint32(b[:], m.sysGen.Add(1))

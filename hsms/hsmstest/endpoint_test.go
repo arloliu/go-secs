@@ -324,3 +324,38 @@ func TestFakeEndpoint_ReplyDataMessage_InvalidConstruction(t *testing.T) {
 	require.Error(t, err)
 	assert.Empty(t, ep.Sent())
 }
+
+func TestFakeEndpoint_ForwardDataMessage_RecordsVerbatim(t *testing.T) {
+	t.Parallel()
+
+	ep := hsmstest.NewFakeEndpoint(hsmstest.WithSessionID(7))
+
+	// Pre-built message with caller-chosen System Bytes — the forward contract preserves them.
+	sb := [4]byte{0xDE, 0xAD, 0xBE, 0xEF}
+	msg, err := hsms.NewDataMessage(1, 1, true, 42, sb, secs2.A("ping"))
+	require.NoError(t, err)
+
+	require.NoError(t, ep.ForwardDataMessage(context.Background(), msg))
+	require.NoError(t, ep.ForwardDataMessageAsync(context.Background(), msg))
+
+	sent := ep.Sent()
+	require.Len(t, sent, 2)
+
+	assert.Equal(t, "ForwardDataMessage", sent[0].Method)
+	assert.Same(t, msg, sent[0].Message, "the fake must record the pre-built message verbatim, not a rebuilt copy")
+	assert.Equal(t, sb, sent[0].Message.SystemBytes(), "forwarded System Bytes are preserved, not regenerated")
+	assert.Equal(t, uint16(42), sent[0].Message.SessionID(), "forwarded session ID is preserved verbatim")
+
+	assert.Equal(t, "ForwardDataMessageAsync", sent[1].Method)
+	assert.Same(t, msg, sent[1].Message)
+}
+
+func TestFakeEndpoint_ForwardDataMessage_NilMessage(t *testing.T) {
+	t.Parallel()
+
+	ep := hsmstest.NewFakeEndpoint()
+
+	require.ErrorIs(t, ep.ForwardDataMessage(context.Background(), nil), hsms.ErrNilMessage)
+	require.ErrorIs(t, ep.ForwardDataMessageAsync(context.Background(), nil), hsms.ErrNilMessage)
+	assert.Empty(t, ep.Sent(), "a nil forward records nothing")
+}

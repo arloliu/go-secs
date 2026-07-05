@@ -294,6 +294,42 @@ func isCountedSendErr(err error) bool {
 		!errors.Is(err, context.DeadlineExceeded)
 }
 
+// sendNoReply is the SYNCHRONOUS write path that does NOT correlate a reply — the forward/relay
+// path behind SECS2Endpoint.ForwardDataMessage. It frames and writes msg on the caller's goroutine
+// (the write returning IS "on the wire", §9.4.1.2), enforcing the SAME B1 pre-write gate and B2
+// write-boundary re-check as sendWaitReply, but it registers NO reply channel and arms NO protocol
+// timer. Because nothing is registered in the per-generation reply registry, a secondary the peer
+// later sends against msg's System Bytes misses RouteReply and is delivered to the session's
+// DataMessageHandlers (RouteData) — the caller owns reply correlation. A W-bit-set msg is written
+// with its W-bit intact (the peer is still asked for a reply); only the LOCAL reply-wait is skipped.
+func (c *connection) sendNoReply(callerCtx context.Context, msg Message) error {
+	e := c.cur.Load()
+	if e == nil {
+		return ErrNotOpen
+	}
+
+	_, isData := msg.(*DataMessage)
+
+	// B1 gate (data only) — refuse before any write while not Selected (B3 chokepoint).
+	if isData && !c.IsSelected() {
+		c.dropNotSelected()
+		return ErrNotSelectedState
+	}
+
+	// Synchronous writev == on-wire (§9.4.1.2). writeFrame runs the B2 write-boundary re-check
+	// under writeMu; ErrNotSelectedState from B2 is counted, non-fatal. No reply channel is
+	// registered, so the reply (if any) routes to the session handlers, not back to a waiting sender.
+	if err := c.writeFrame(callerCtx, e, msg); err != nil {
+		if isData && isCountedSendErr(err) {
+			c.metrics.incDataMsgErr()
+		}
+
+		return err
+	}
+
+	return nil
+}
+
 // drainSendCh is the per-generation async sender goroutine (spec §5.5, D5a-1 / J3). Spawned in
 // Open via epoch.spawn (which passes e.ctx as ctx), it drains e.sendCh and writes each queued
 // frame so the receiver never blocks on a wedged peer. It exits when the generation ctx is
@@ -318,6 +354,15 @@ func (c *connection) drainSendCh(ctx context.Context, e *epoch) {
 // four-outcome reply correlation (reply / T3|T6 / conn-drop / caller-ctx).
 func (c *connection) WriteMessage(ctx context.Context, msg Message) (Message, error) {
 	return c.sendWaitReply(ctx, msg)
+}
+
+// WriteMessageNoReply performs a synchronous framed write WITHOUT reply correlation
+// (TransportRuntime, spec §5.5). It delegates to sendNoReply, which enforces the B1 gate and the
+// synchronous writev under epoch.writeMu but registers no reply channel and arms no protocol timer,
+// so any reply routes to the session's DataMessageHandlers rather than back to the caller. Backs
+// SECS2Endpoint.ForwardDataMessage.
+func (c *connection) WriteMessageNoReply(ctx context.Context, msg Message) error {
+	return c.sendNoReply(ctx, msg)
 }
 
 // SendAsync enqueues a fire-and-forget message on the per-generation async send channel

@@ -78,6 +78,17 @@ func (m *mockRuntime) WriteMessage(_ context.Context, msg Message) (Message, err
 	return m.writeReply, m.writeErr
 }
 
+// WriteMessageNoReply records the call and returns the configured canned write error (no reply
+// is ever awaited on this path).
+func (m *mockRuntime) WriteMessageNoReply(_ context.Context, msg Message) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.writeCalled = true
+	m.writeMsg = msg
+
+	return m.writeErr
+}
+
 // SendAsync records the call and returns the configured canned error.
 func (m *mockRuntime) SendAsync(_ context.Context, msg Message) error {
 	m.mu.Lock()
