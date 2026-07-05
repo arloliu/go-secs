@@ -65,6 +65,9 @@ func (msg *ControlMessage) ToBytes() []byte {
 	return out
 }
 
+// ToDataMessage returns (nil, false): a *ControlMessage is never a data message.
+func (msg *ControlMessage) ToDataMessage() (*DataMessage, bool) { return nil, false }
+
 // ────────────────────────────────────────────────────────────────
 // Additional accessors
 // ────────────────────────────────────────────────────────────────

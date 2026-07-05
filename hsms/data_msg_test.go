@@ -551,6 +551,17 @@ func TestDataMessage_ID(t *testing.T) {
 	assert.Equal(t, hsms.FromSystemBytes(sysBytes), msg.ID())
 }
 
+// TestDataMessage_ToDataMessage verifies that *DataMessage.ToDataMessage returns
+// itself and true, since a DataMessage is already a data message.
+func TestDataMessage_ToDataMessage(t *testing.T) {
+	msg, err := hsms.NewDataMessage(1, 1, false, 0, testSystemBytes, secs2.NewEmptyItem())
+	require.NoError(t, err)
+
+	dm, ok := msg.ToDataMessage()
+	assert.True(t, ok)
+	assert.Same(t, msg, dm)
+}
+
 // TestNewEmptyDataMessage verifies the zero-value shape: stream 0, function 0,
 // no wait bit, session ID 0, zero System Bytes, and an empty SECS-II body.
 func TestNewEmptyDataMessage(t *testing.T) {

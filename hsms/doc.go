@@ -22,6 +22,8 @@
 //     all returned as value types so callers may retain them without aliasing risk.
 //   - [Message.ToBytes]: full on-wire frame: 4-byte big-endian length, 10-byte header,
 //     and the optional SECS-II body.
+//   - [Message.ToDataMessage]: narrows to a [*DataMessage], or (nil, false) for a
+//     [*ControlMessage].
 //
 // The Reject.req reason code is read from a Reject.req message via
 // [ControlMessage.RejectReasonCode]; a peer's rejection of a synchronous send is

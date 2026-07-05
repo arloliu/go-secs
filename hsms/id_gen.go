@@ -55,6 +55,13 @@ func GenerateMsgID() uint32 {
 	return getMsgIDGenerator().genID()
 }
 
+// GenerateMsgSystemBytes returns unique HSMS System Bytes, generated from a
+// fresh [GenerateMsgID] value. It is a convenience for callers that need
+// System Bytes directly and have no other use for the intermediate ID.
+func GenerateMsgSystemBytes() [4]byte {
+	return ToSystemBytes(GenerateMsgID())
+}
+
 // ToSystemBytes converts a message ID into HSMS System Bytes: a 4-byte
 // big-endian array suitable for [NewDataMessage] and the control-message
 // constructors.

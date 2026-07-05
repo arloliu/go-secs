@@ -92,6 +92,9 @@ func (msg *DataMessage) ToBytes() []byte {
 	return msg.body.AppendTo(dst)
 }
 
+// ToDataMessage returns (msg, true): msg is already a *DataMessage.
+func (msg *DataMessage) ToDataMessage() (*DataMessage, bool) { return msg, true }
+
 // ────────────────────────────────────────────────────────────────
 // DataMessage-specific accessors
 // ────────────────────────────────────────────────────────────────

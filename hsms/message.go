@@ -67,4 +67,9 @@ type Message interface {
 	// (4-byte length prefix followed by the 10-byte header and, for data messages,
 	// the encoded SECS-II item body).
 	ToBytes() []byte
+
+	// ToDataMessage narrows msg to a *DataMessage.
+	// It returns (msg, true) when msg is already a *DataMessage, or (nil, false)
+	// when msg is a *ControlMessage.
+	ToDataMessage() (*DataMessage, bool)
 }

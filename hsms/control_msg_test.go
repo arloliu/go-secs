@@ -405,3 +405,13 @@ func TestControlMessage_ID(t *testing.T) {
 	assert.Equal(t, uint32(0x01020304), msg.ID())
 	assert.Equal(t, hsms.FromSystemBytes(testSystemBytes), msg.ID())
 }
+
+// TestControlMessage_ToDataMessage verifies that *ControlMessage.ToDataMessage
+// always returns (nil, false), since a control message is never a data message.
+func TestControlMessage_ToDataMessage(t *testing.T) {
+	msg := hsms.NewLinktestReq(testSystemBytes)
+
+	dm, ok := msg.ToDataMessage()
+	assert.False(t, ok)
+	assert.Nil(t, dm)
+}

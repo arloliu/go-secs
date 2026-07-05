@@ -423,8 +423,9 @@ interface. Both `*hsms.DataMessage` and `*hsms.ControlMessage` satisfy it.
 | `msg.Header() []byte` | `msg.HeaderBytes() [10]byte` | Value type. |
 | `msg.ID() uint32` / `SetID(id)` | `msg.ID() uint32` | No setter (messages are immutable); `ID()` decodes `SystemBytes()` as a big-endian uint32. See `hsms.FromSystemBytes`. |
 | `msg.Error()` / `SetError()` | — (removed) | See the error-model note below. |
-| `msg.IsDataMessage()` / `ToDataMessage()` | type-assert `*hsms.DataMessage` | Or switch on `msg.Type()`. |
-| `msg.IsControlMessage()` / `ToControlMessage()` | type-assert `*hsms.ControlMessage` | Same. |
+| `msg.IsDataMessage()` | type-assert `*hsms.DataMessage`, or switch on `msg.Type()` | `IsDataMessage()` itself has no v2 equivalent. |
+| `msg.ToDataMessage()` | `msg.ToDataMessage()` | Unchanged: `(*hsms.DataMessage, bool)`. |
+| `msg.IsControlMessage()` / `ToControlMessage()` | type-assert `*hsms.ControlMessage` | No `ToControlMessage` equivalent. |
 
 ### Reading a data message (v2)
 
@@ -885,7 +886,7 @@ them, drop the dependency (the behavior is now internal to the connection engine
 | `hsms.TaskManager` (+ `TaskFunc`, `TaskRecvFunc`, `TaskMsgFunc`, `TaskDataMsgFunc`, `TaskCancelFunc`) | `task.go` | Internal goroutine management; no public equivalent. |
 | `hsms.OpState`, `hsms.AtomicOpState` (+ `ClosedState`…`OpenedState`) | `op_state.go` | Internal; use `conn.State()` (`hsms.ConnState`). |
 | `hsms.GenerateMsgID`, `hsms.ToSystemBytes` | `id_gen.go` | Retained. `ToSystemBytes` now returns `[4]byte` (was `[]byte`). |
-| `hsms.GenerateMsgSystemBytes` | `id_gen.go` | Removed; use `hsms.ToSystemBytes(hsms.GenerateMsgID())`. |
+| `hsms.GenerateMsgSystemBytes` | `id_gen.go` | Retained. Now returns `[4]byte` (was `[]byte`); equivalent to `hsms.ToSystemBytes(hsms.GenerateMsgID())`. |
 | `hsms.UsePool`, `hsms.IsUsePool`, `hsms.GetMessageBuffer`, `hsms.PutMessageBuffer`, `hsms.DefaultMessageBufferSize` | `pool.go` | No pool; messages are GC-owned. |
 | `hsms.DataMessage.SnapshotForRelay`, `hsms.DataMessage.CloneCodec` | `data_msg.go` | Share the immutable `*DataMessage` directly. |
 | `hsms.NewControlMessage`, `NewDataMessageFromRawItem`, `NewErrorDataMessage` | `data_msg.go`, `control_msg.go` | Use the typed factories / `NewDataMessage` / `secs2.Decode`. |
@@ -944,7 +945,8 @@ names a replacement or states "no equivalent".
 | `HSMSMessage.SystemBytes() []byte` | `Message.SystemBytes() [4]byte` | changed | Value type (no aliasing). |
 | `HSMSMessage.Free()` | — | removed | No pool; GC-owned. |
 | `HSMSMessage.Clone()` | — | removed | Share the immutable value. |
-| `HSMSMessage.IsDataMessage/ToDataMessage/IsControlMessage/ToControlMessage` | — | removed | Type-assert `*DataMessage`/`*ControlMessage`, or switch on `Type()`. |
+| `HSMSMessage.IsDataMessage/IsControlMessage/ToControlMessage` | — | removed | Type-assert `*DataMessage`/`*ControlMessage`, or switch on `Type()`. |
+| `HSMSMessage.ToDataMessage()` | `Message.ToDataMessage() (*DataMessage, bool)` | retained | Unchanged signature and behavior. |
 | `DataMessage.StreamCode()/FunctionCode()` | `DataMessage.Stream()/Function()` | renamed | — |
 | `DataMessage.Item() secs2.Item` | `DataMessage.Item() (secs2.Item, error)` | changed | Handle the decode error. |
 | `DataMessage.SetStreamCode/SetFunctionCode/SetWaitBit` | `Derive().WithStream/WithFunction/WithWaitBit().Build()` | renamed | Through the validating builder. |
@@ -975,7 +977,7 @@ names a replacement or states "no equivalent".
 | `Session.ID() uint16` | `SECS2Endpoint.SessionID() uint16` | renamed | Unified identity term. |
 | `ConnStateMgr`, `NewConnStateMgr`, `OpState`, `AtomicOpState`, `TaskManager`, `Task*` funcs | — | removed | Internal engine; no equivalent. |
 | `GenerateMsgID`, `ToSystemBytes` | `GenerateMsgID`, `ToSystemBytes` | retained | `ToSystemBytes` returns `[4]byte`. |
-| `GenerateMsgSystemBytes` | — | removed | Use `ToSystemBytes(GenerateMsgID())`. |
+| `GenerateMsgSystemBytes` | `GenerateMsgSystemBytes` | retained | Returns `[4]byte`; equivalent to `ToSystemBytes(GenerateMsgID())`. |
 | `UsePool`, `IsUsePool`, `GetMessageBuffer`, `PutMessageBuffer`, `DefaultMessageBufferSize` | — | removed | No pool. |
 | `MsgInfo`, `MsgInfoSML`, `MsgInfoFromFields`, `MsgHexString` | — | removed | No equivalent. |
 | `UseStreamFunctionNoQuote/SingleQuote/DoubleQuote`, `StreamFunctionQuote` | — | removed | Per-`sml.Encoder` `WithSFQuote`. |

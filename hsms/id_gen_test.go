@@ -44,6 +44,18 @@ func TestGenerateMsgIDConcurrent(t *testing.T) {
 	}
 }
 
+func TestGenerateMsgSystemBytes(t *testing.T) {
+	sb1 := GenerateMsgSystemBytes()
+	sb2 := GenerateMsgSystemBytes()
+
+	if sb1 == sb2 {
+		t.Errorf("expected different System Bytes, got %v and %v", sb1, sb2)
+	}
+	if FromSystemBytes(sb2) != FromSystemBytes(sb1)+1 {
+		t.Errorf("expected consecutive System Bytes, got %v then %v", sb1, sb2)
+	}
+}
+
 func TestToSystemBytes(t *testing.T) {
 	id := uint32(123456)
 	want := [4]byte{0x00, 0x01, 0xe2, 0x40}
