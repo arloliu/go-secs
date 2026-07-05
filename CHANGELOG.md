@@ -47,6 +47,12 @@ symbol-by-symbol migration guide and worked examples; the highlights:
   `0x%02X` format (`secs2.BinaryItem.ToSML()` and `sml.Encoder`'s default). The
   previous binary-literal (`0b...`) form is opt-in via `sml.WithBinaryStyle(sml.BinaryLiteral)`.
   The parser reads both forms regardless of the encoder's chosen style.
+- **Single-value `IntItem`/`UintItem`/`FloatItem`/`BooleanItem` decode without allocating a backing
+  slice.** A scalar fast path in `secs2.Decode`/`DecodeOwned` stores the lone value inline instead of
+  building a one-element `[]T`: ~18-20% faster and one fewer allocation per scalar item, up to ~42%
+  fewer allocations on payloads dominated by single-value items. No API change. Hot atomic counters
+  in `hsms.ConnectionMetrics`/`secs1.ConnectionMetrics` are also cache-line padded to prevent false
+  sharing under concurrent access.
 
 ### Added
 

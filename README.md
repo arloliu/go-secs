@@ -97,7 +97,14 @@ and SECS-I over TCP/IP (SEMI E4), together with an SML (SECS Message Language) p
   on the caller's buffer. For a buffer the caller already owns outright (e.g. one just read from a
   socket or a file), `secs2.DecodeOwned` skips that copy and matches v1's decode performance —
   including for ASCII/JIS-8/localized-string payloads, not just binary.
-* Reproduce it yourself: `cd benchmarks && make bench-v1 bench-v2 compare`.
+* **Single-value `IntItem`/`UintItem`/`FloatItem`/`BooleanItem` decode without allocating a backing
+  slice** — a scalar fast path in `secs2.Decode`/`DecodeOwned` stores the lone value inline instead.
+  Roughly 18-20% faster and one fewer allocation per scalar item decoded, up to ~42% fewer
+  allocations on payloads dominated by single-value items (e.g. a mixed-type record).
+* Hot atomic counters in `hsms.ConnectionMetrics` / `secs1.ConnectionMetrics` are cache-line padded
+  to prevent false sharing between counters under concurrent access.
+* Reproduce it yourself: `cd benchmarks && make bench-v1 bench-v2 compare`, or
+  `go test ./secs2item/v2/... -bench . -benchmem` against a prior commit for a focused before/after.
 
 ## Message and Item Object Model
 
