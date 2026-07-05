@@ -136,6 +136,24 @@ func WithTCPKeepAlive(d time.Duration) Option {
 	}
 }
 
+// WithEquipRole sets the connection role to equipment: a synchronous data-message send whose reply
+// times out (T3) automatically notifies the peer with an S9F9 (Transaction Timeout, SEMI E5 §10.13)
+// before the timeout error is returned to the caller. Host (the default) sends no such notification.
+// Equipment and host are mutually exclusive — whichever of WithEquipRole/WithHostRole appears last in
+// a NewConfig call wins.
+func WithEquipRole() Option {
+	return func(c *Config) error {
+		return hsms.WithAutoS9F9(true)(&c.ConnectionConfig)
+	}
+}
+
+// WithHostRole sets the connection role to host (the default). See WithEquipRole.
+func WithHostRole() Option {
+	return func(c *Config) error {
+		return hsms.WithAutoS9F9(false)(&c.ConnectionConfig)
+	}
+}
+
 // Host returns the TCP host that this Config targets (active) or binds to
 // (passive).
 func (c Config) Host() string { return c.host }
@@ -151,6 +169,12 @@ func (c Config) Active() bool { return c.active }
 // TCPKeepAlive returns the configured TCP keep-alive probe interval.
 // Zero means use the OS default.
 func (c Config) TCPKeepAlive() time.Duration { return c.tcpKeepAlive }
+
+// IsEquip reports whether this connection is configured as equipment role (see WithEquipRole). A
+// false return means host (the default).
+func (c Config) IsEquip() bool {
+	return c.AutoS9F9()
+}
 
 // ApplyOptions applies the supplied options to the Config transactionally
 // (all-or-nothing: see [NewConfig]).  This is the public counterpart to the

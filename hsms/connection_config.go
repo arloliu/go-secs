@@ -47,6 +47,7 @@ type ConnectionConfig struct {
 	writeTimeout          time.Duration
 	logger                logger.Logger
 	validateSessionID     bool
+	autoS9F9              bool
 }
 
 // DefaultConnectionConfig returns a ConnectionConfig populated with SEMI E37 (HSMS) and SEMI E4 (SECS-I)-recommended default timer values and conservative operational defaults.
@@ -339,4 +340,26 @@ func WithSessionIDValidation(enabled bool) ConnOption {
 
 		return nil
 	}
+}
+
+// WithAutoS9F9 enables automatic S9F9 (Transaction Timeout, SEMI E5 §10.13) notification: when a
+// synchronous data-message send's reply wait times out (T3), an S9F9 whose body is the timed-out
+// message's 10-byte SHEAD is sent to the peer before the timeout error is returned to the caller
+// (fire-and-forget — a failure to send it does not change the returned error). Disabled by default.
+//
+// Most callers should not call this directly: it is the shared primitive behind
+// hsmsss.WithEquipRole / hsmsss.WithHostRole and secs1.WithEquipment / secs1.WithHost, which express
+// the concept applications actually configure (equipment vs. host role) and keep this and the
+// transport's own role-specific state (e.g. secs1's line-contention role) in sync.
+func WithAutoS9F9(enabled bool) ConnOption {
+	return func(c *ConnectionConfig) error {
+		c.autoS9F9 = enabled
+
+		return nil
+	}
+}
+
+// AutoS9F9 reports whether automatic S9F9-on-T3-timeout notification is enabled (see WithAutoS9F9).
+func (c *ConnectionConfig) AutoS9F9() bool {
+	return c.autoS9F9
 }

@@ -241,3 +241,34 @@ func TestApplyOptions_Transactional(t *testing.T) {
 			cfg.TCPKeepAlive(), origKeepAlive)
 	}
 }
+
+// TestNewConfig_WithEquipRole verifies that WithEquipRole sets the equipment role.
+func TestNewConfig_WithEquipRole(t *testing.T) {
+	cfg, err := hsmsss.NewConfig("127.0.0.1", 5000, hsmsss.WithEquipRole())
+	if err != nil {
+		t.Fatalf("NewConfig returned unexpected error: %v", err)
+	}
+	if !cfg.IsEquip() {
+		t.Error("IsEquip() = false, want true after WithEquipRole()")
+	}
+}
+
+// TestNewConfig_WithHostRole_Default verifies that the default role is host,
+// and that WithHostRole can override WithEquipRole.
+func TestNewConfig_WithHostRole_Default(t *testing.T) {
+	cfg, err := hsmsss.NewConfig("127.0.0.1", 5000)
+	if err != nil {
+		t.Fatalf("NewConfig returned unexpected error: %v", err)
+	}
+	if cfg.IsEquip() {
+		t.Error("IsEquip() = true, want false (host is the default role)")
+	}
+
+	cfg, err = hsmsss.NewConfig("127.0.0.1", 5000, hsmsss.WithEquipRole(), hsmsss.WithHostRole())
+	if err != nil {
+		t.Fatalf("NewConfig returned unexpected error: %v", err)
+	}
+	if cfg.IsEquip() {
+		t.Error("IsEquip() = true, want false (whichever of WithEquipRole/WithHostRole is last wins)")
+	}
+}

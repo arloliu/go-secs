@@ -152,3 +152,14 @@ func TestDefaultConnectionConfig_SECS1Timers(t *testing.T) {
 	require.Equal(t, 10*time.Second, c.timers.T2)
 	require.Equal(t, 45*time.Second, c.timers.T4)
 }
+
+func TestConnectionConfig_WithAutoS9F9(t *testing.T) {
+	cfg := DefaultConnectionConfig()
+	require.False(t, cfg.AutoS9F9(), "default is disabled")
+
+	require.NoError(t, cfg.apply(WithAutoS9F9(true)))
+	require.True(t, cfg.AutoS9F9())
+
+	require.NoError(t, cfg.apply(WithAutoS9F9(false)))
+	require.False(t, cfg.AutoS9F9())
+}

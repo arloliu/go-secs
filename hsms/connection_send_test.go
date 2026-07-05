@@ -522,3 +522,56 @@ func TestSend_FireAndForget_ShortCircuits(t *testing.T) {
 	require.Equal(t, uint64(1), c.metrics.DataMsgSendCount(), "the !W frame reached the wire")
 	require.Equal(t, int64(0), c.metrics.DataMsgInflightCount(), "a !W send never touches the inflight gauge")
 }
+
+// TestSendWaitReply_AutoS9F9_EnabledOnTimeout proves that with WithAutoS9F9 enabled, a data
+// message's T3 timeout enqueues an S9F9 notification (SEMI E5 §10.13) carrying the timed-out
+// message's own header as SHEAD, sent from this connection's own SessionID.
+func TestSendWaitReply_AutoS9F9_EnabledOnTimeout(t *testing.T) {
+	c, _ := newTestSendConn(t, SelectedState)
+	c.cfg.Load().timers.T3 = 30 * time.Millisecond
+	c.cfg.Load().autoS9F9 = true
+
+	primary := mustSendData(t, [4]byte{0, 0, 0, 9}, true)
+	_, err := c.sendWaitReply(t.Context(), primary)
+	require.ErrorIs(t, err, ErrT3Timeout)
+
+	e := c.cur.Load()
+	require.Len(t, e.sendCh, 1, "a T3 timeout with AutoS9F9 enabled must enqueue exactly one S9F9")
+	req := <-e.sendCh
+	reply, ok := req.msg.(*DataMessage)
+	require.True(t, ok, "the auto-notification is a DataMessage")
+	require.Equal(t, uint8(9), reply.Stream())
+	require.Equal(t, uint8(9), reply.Function())
+	require.Equal(t, c.SessionID(), reply.SessionID(), "S9F9 is sent from this connection's own SessionID")
+
+	item, err := reply.Item()
+	require.NoError(t, err)
+	body, err := item.ToBinary()
+	require.NoError(t, err)
+	shead := primary.HeaderBytes()
+	require.Equal(t, shead[:], body, "S9F9 body must equal the timed-out message's 10-byte SHEAD")
+}
+
+// TestSendWaitReply_AutoS9F9_DisabledByDefault proves the default (AutoS9F9 not enabled) sends
+// nothing extra on a T3 timeout — v2's pre-existing shipped behavior is unchanged.
+func TestSendWaitReply_AutoS9F9_DisabledByDefault(t *testing.T) {
+	c, _ := newTestSendConn(t, SelectedState)
+	c.cfg.Load().timers.T3 = 30 * time.Millisecond
+
+	_, err := c.sendWaitReply(t.Context(), mustSendData(t, [4]byte{0, 0, 0, 10}, true))
+	require.ErrorIs(t, err, ErrT3Timeout)
+	require.Empty(t, c.cur.Load().sendCh, "AutoS9F9 disabled must never enqueue an S9F9")
+}
+
+// TestSendWaitReply_AutoS9F9_ControlTimeoutNeverSends proves a CONTROL (T6) timeout never sends
+// S9F9 even with AutoS9F9 enabled — S9F9 is a SECS-II (data-message) notification only (matches
+// v1's isDataMsg-gated behavior).
+func TestSendWaitReply_AutoS9F9_ControlTimeoutNeverSends(t *testing.T) {
+	c, _ := newTestSendConn(t, SelectedState)
+	c.cfg.Load().timers.T6 = 30 * time.Millisecond
+	c.cfg.Load().autoS9F9 = true
+
+	_, err := c.sendWaitReply(t.Context(), NewSelectReq(0xFFFF, [4]byte{0, 0, 0, 11}))
+	require.ErrorIs(t, err, ErrT6Timeout)
+	require.Empty(t, c.cur.Load().sendCh, "a control T6 timeout must never enqueue an S9F9")
+}

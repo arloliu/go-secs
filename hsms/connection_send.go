@@ -7,6 +7,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/arloliu/go-secs/v2/gem"
 	"github.com/arloliu/go-secs/v2/internal/pool"
 )
 
@@ -271,6 +272,10 @@ func (c *connection) sendWaitReply(callerCtx context.Context, msg Message) (Mess
 		// Protocol timeout: T3 (data) — a transaction failure.
 		if isData {
 			c.metrics.incDataMsgErr()
+
+			if c.cfg.Load().autoS9F9 {
+				c.sendAutoS9F9(msg)
+			}
 		}
 
 		return nil, timeoutErr
@@ -292,6 +297,23 @@ func isCountedSendErr(err error) bool {
 		!errors.Is(err, ErrConnClosed) &&
 		!errors.Is(err, context.Canceled) &&
 		!errors.Is(err, context.DeadlineExceeded)
+}
+
+// sendAutoS9F9 fire-and-forget sends an S9F9 (Transaction Timeout, SEMI E5 §10.13) notification to
+// the peer after a data message's T3 reply-wait timed out, restoring v1's equipment-role behavior
+// via WithAutoS9F9 (see hsmsss.WithEquipRole / secs1.WithEquipment). Per §10.13 the body is SHEAD —
+// the 10-byte header of the timed-out message — obtained via msg.HeaderBytes(). Mirrors
+// checkSessionID's S9F1 auto-reply construction exactly: a failure to send is not surfaced, since
+// the caller already has the timeout error to report.
+func (c *connection) sendAutoS9F9(msg Message) {
+	s9 := gem.S9F9(msg.HeaderBytes())
+	notice, err := NewDataMessage(
+		s9.StreamCode(), s9.FunctionCode(), s9.WaitBit(),
+		c.SessionID(), c.NextSystemBytes(), s9.Item(),
+	)
+	if err == nil {
+		_ = c.SendAsync(context.Background(), notice)
+	}
 }
 
 // sendNoReply is the SYNCHRONOUS write path that does NOT correlate a reply — the forward/relay

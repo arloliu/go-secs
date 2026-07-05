@@ -194,3 +194,17 @@ func TestConfig_WithConnectionOption_T1T2T4(t *testing.T) {
 	require.Equal(t, 15*time.Second, cfg.T2())
 	require.Equal(t, 60*time.Second, cfg.T4())
 }
+
+func TestWithEquipment_AlsoEnablesAutoS9F9(t *testing.T) {
+	cfg, err := NewConfig("127.0.0.1", 5000, WithEquipment())
+	require.NoError(t, err)
+	require.True(t, cfg.IsEquip())
+	require.True(t, cfg.AutoS9F9(), "WithEquipment must also enable the shared AutoS9F9 primitive")
+}
+
+func TestWithHost_AlsoDisablesAutoS9F9(t *testing.T) {
+	cfg, err := NewConfig("127.0.0.1", 5000, WithEquipment(), WithHost())
+	require.NoError(t, err)
+	require.False(t, cfg.IsEquip())
+	require.False(t, cfg.AutoS9F9(), "WithHost must also disable the shared AutoS9F9 primitive")
+}
