@@ -953,6 +953,7 @@ names a replacement or states "no equivalent".
 | — | `DataMessage.Derive() *DataMessageBuilder` | new | Builder for structural derivation. |
 | — | `DataMessage.WithSessionID/WithSystemBytes` | new | O(header) restamp; shares body. |
 | — | `DataMessage.DecodeErr()/BodyLen()/AppendBodyTo()` | new | — |
+| — | `DataMessageCodec` | new | Wraps a `*DataMessage` to satisfy `encoding.BinaryMarshaler`/`encoding.BinaryUnmarshaler` for storage layers; immutable design means no mutating methods on `DataMessage` itself. |
 | `NewDataMessage(…, systemBytes []byte, …)` | `NewDataMessage(…, systemBytes [4]byte, …)` | changed | Pass `[4]byte`; nil item allowed (empty body). |
 | `NewDataMessageFromRawItem` | — | removed | `secs2.Decode` then `NewDataMessage`. |
 | `NewErrorDataMessage` | — | removed | No error-carrying messages. |
