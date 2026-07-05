@@ -5,6 +5,38 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Restores six behavioral capabilities identified as gaps between v1.17.1 and 2.0.0-rc1 during
+a downstream migration, closing out the rc1 → rc2 gap list:
+
+### Added
+
+- **Equipment-role auto-notification on reply timeout.** `hsmsss.WithEquipRole()` /
+  `hsmsss.WithHostRole()` (mirroring `secs1.WithEquipment()` / `secs1.WithHost()`, which now
+  also enable/disable this) restore v1's behavior: a synchronous data-message send whose reply
+  times out (T3) on an equipment-role connection automatically notifies the peer with an S9F9
+  (SEMI E5 §10.13), on both transports. Backed by the new shared primitive
+  `hsms.WithAutoS9F9(bool)`.
+- **SECS-I inbound assembler protocol-violation notifications.** The multi-block reassembler now
+  validates the inbound block's device ID against the connection's configured device ID (SEMI E4
+  §9.4.1) and, on an equipment-role connection, answers a device-ID mismatch with S9F1 and a
+  block-number/header-mismatch or invalid-first-block violation with S9F7. New metrics:
+  `secs1.ConnectionMetrics.DeviceIDMismatchCount()`, `BlockNumberMismatchCount()`,
+  `InvalidFirstBlockCount()`.
+- **`hsms.WithTraceTraffic(bool)`** enables per-frame wire-level tracing (hex dump, Debug level)
+  for both outbound sends and inbound receives, including decode failures — usable by both
+  transports (HSMS-SS additionally traces inbound control frames).
+- **`hsms.ConnectionMetrics.DecodeErrCount()`** counts inbound frames that were read successfully
+  but failed to decode. **`hsmsss.ConnectionMetrics.ReadErrCount()`** counts socket read /
+  frame-length errors in the HSMS-SS receive loop.
+- **`hsms.DataMessageCodec`** implements `encoding.BinaryMarshaler` / `encoding.BinaryUnmarshaler`
+  by wrapping a `*hsms.DataMessage`, for storage layers whose contract requires those interfaces
+  (v1's `*DataMessage` satisfied them directly; v2's `DataMessage` stays fully immutable, so this
+  is a separate wrapper rather than new mutating methods).
+- **`hsms.GenerateMsgSystemBytes()`** and **`hsms.Message.ToDataMessage()`**, both dropped in the
+  rc1 rewrite, are restored (same semantics as v1; `GenerateMsgSystemBytes` now returns `[4]byte`).
+
 ## [2.0.0-rc1] - 2026-07-05
 
 First release candidate of the v2 major version. **v2 is a ground-up redesign
