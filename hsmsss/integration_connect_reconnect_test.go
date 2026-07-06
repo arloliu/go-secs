@@ -227,6 +227,46 @@ func TestActiveReconnectCadence_ExponentialBackoff(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// 3b. TestActiveOpenBackground_ColdPeerConnectsWhenPeerAppears
+//
+// Proves Gap 1 end-to-end over real TCP (rc3): an active endpoint's Open(ctx, OpenBackground) against
+// a port nothing is listening on yet must return nil immediately (not the dial error) and keep
+// retrying in the background; once a real passive peer starts listening on that port, the active
+// endpoint must connect and select. Every other reconnect test in this cluster establishes a live
+// link FIRST and then drops it — this is the only one that exercises a cold initial dial.
+// ---------------------------------------------------------------------------
+func TestActiveOpenBackground_ColdPeerConnectsWhenPeerAppears(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	port := freeLoopbackPort(t) // nothing listens on this port yet
+
+	active := newEndpoint(t, port, true, nil)
+	t.Cleanup(func() { closeEndpoint(t, active) })
+
+	openDone := make(chan error, 1)
+	go func() { openDone <- active.conn.Open(ctx, hsms.OpenBackground) }()
+
+	select {
+	case err := <-openDone:
+		require.NoError(t, err, "Open on a cold peer under OpenBackground must return nil, not the dial error")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Open must return promptly even though the peer is not listening yet")
+	}
+
+	// The peer "appears": start a real passive endpoint on the same port.
+	passive := newEndpoint(t, port, false, nil)
+	require.NoError(t, passive.conn.Open(ctx, hsms.OpenBackground))
+	defer closeEndpoint(t, passive)
+
+	waitSelected(t, active)
+	waitSelected(t, passive)
+
+	require.Equal(t, uint64(0), active.conn.Metrics().Reconnects(),
+		"the initial cold-connect retry must NOT count as a reconnect (Reconnects() excludes the very first Open)")
+}
+
+// ---------------------------------------------------------------------------
 // 4. TestT7Timeout_PassiveWaitSelect
 //
 // A raw client connects to a passive endpoint (TCP up → NotSelected) but never sends Select.req.

@@ -261,6 +261,50 @@ func TestOpen_ActiveWaitSelectedColdPeerStillFails(t *testing.T) {
 		"OpenWaitSelected must not trigger a background retry")
 }
 
+// TestOpen_ActiveBackgroundColdPeerCloseDuringRetryIsBounded: a Close() while the Gap-1 cold-connect
+// retry loop is paused mid-backoff must terminate promptly. The cold-connect path reuses the exact
+// same connectLoop/reconnectCancel/reconnectGen machinery TestReconnect_GenFenceAfterClose already
+// proves bounded for the post-drop case — this test proves it holds for the cold-connect path too,
+// not just assumed via code-sharing.
+func TestOpen_ActiveBackgroundColdPeerCloseDuringRetryIsBounded(t *testing.T) {
+	dialErr := errors.New("simulated connection refused")
+	// A large failCount: this test closes the connection before the loop would ever succeed.
+	c, _ := newLifeConn(t, withMockTransportDialFailsThenConnects(1000, dialErr))
+	require.NoError(t, c.UpdateConfigOptions(WithT5(time.Millisecond)))
+
+	reached := make(chan struct{})
+	proceed := make(chan struct{})
+	var hookOnce sync.Once
+	c.testHookConnectLoop = func() {
+		hookOnce.Do(func() {
+			close(reached)
+			<-proceed
+		})
+	}
+
+	err := c.Open(t.Context(), OpenBackground)
+	require.NoError(t, err, "Open on a cold active peer under OpenBackground must return nil")
+
+	<-reached // the cold-connect retry loop is past its first backoff, paused at the fence
+
+	closeErr := make(chan error, 1)
+	go func() { closeErr <- c.Close() }()
+
+	require.Eventually(t, func() bool { return c.shutdown.Load() }, time.Second, time.Millisecond,
+		"Close must set shutdown before the loop resumes")
+
+	close(proceed) // resume the loop -> its fence sees shutdown -> abandons
+
+	select {
+	case err := <-closeErr:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close hung during a cold-connect retry — the reconnectCancel/reconnectGen fencing must bound it, same as the post-drop case")
+	}
+
+	require.Equal(t, NotConnectedState, c.State())
+}
+
 // captureDialFailLogger records the timestamp of every "reconnect dial failed" Debug log so a
 // test can measure the reconnect backoff cadence without a fixed Sleep (mirrors
 // hsmsss/integration_connect_reconnect_test.go's dialFailLogger, which measures the same signal

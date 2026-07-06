@@ -12,9 +12,12 @@ package secs1
 //     (assembler.go step 4 else) — the one accept() branch no existing test hits directly.
 //   - Task 3 (TestSECS1_O3_ReceiveGoldenReplay): a raw host peer replays a hand-authored 2-block
 //     SECS-I wire trace into a PASSIVE secs1 endpoint; the decoded message must match a golden S/F/body.
+//   - Task 4 (TestActiveOpenBackground_ColdPeerConnectsWhenPeerAppears): an active secs1 connection
+//     opened against a port nothing is listening on yet returns nil and retries in the background,
+//     then reaches Selected once a peer starts listening.
 //
 // No time.Sleep for synchronization — require.Eventually / bounded channel receives only. Scope: the
-// public secs1 API (Task 1/3) and the white-box assembler (Task 2).
+// public secs1 API (Task 1/3/4) and the white-box assembler (Task 2).
 
 import (
 	"fmt"
@@ -315,4 +318,72 @@ func TestSECS1_O3_ReceiveGoldenReplay(t *testing.T) {
 		t.Fatal("timed out waiting for the replayed 2-block message to be delivered")
 	}
 	<-scriptDone // the block-2 ACK precedes delivery, so the script has finished by now
+}
+
+// ---------------------------------------------------------------------------
+// Task 4 — Gap 1 (rc3) cold-connect retry, SECS-I flavor
+// ---------------------------------------------------------------------------
+
+// TestActiveOpenBackground_ColdPeerConnectsWhenPeerAppears proves Gap 1 (rc3) for SECS-I: an active
+// secs1 connection's Open(ctx, OpenBackground) against a port nothing is listening on yet returns nil
+// immediately and retries in the background; once a peer starts listening, it connects and reaches
+// Selected. Unlike the hsmsss version of this test, the peer side here is a bare net.Listen/Accept —
+// secs1 auto-commits Selected on TCP connect (no Select.req/rsp handshake), per the D5b-10 test above
+// — so no scripted HSMS-SS peer is needed.
+func TestActiveOpenBackground_ColdPeerConnectsWhenPeerAppears(t *testing.T) {
+	t.Parallel()
+
+	// Reserve then release a port so nothing is listening on it yet.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	tcpAddr, ok := ln.Addr().(*net.TCPAddr)
+	require.True(t, ok)
+	port := tcpAddr.Port
+	require.NoError(t, ln.Close())
+
+	cfg, err := NewConfig("127.0.0.1", port,
+		WithActive(),
+		WithConnectionOption(hsms.WithT5(150*time.Millisecond)),
+	)
+	require.NoError(t, err)
+
+	conn, err := New(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	openDone := make(chan error, 1)
+	go func() { openDone <- conn.Open(t.Context(), hsms.OpenBackground) }()
+
+	select {
+	case err := <-openDone:
+		require.NoError(t, err, "Open on a cold peer under OpenBackground must return nil, not the dial error")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Open must return promptly even though the peer is not listening yet")
+	}
+
+	// The peer "appears": listen on the SAME port and accept once.
+	ln2, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln2.Close() })
+
+	acceptedCh := make(chan net.Conn, 1)
+	go func() {
+		c, aerr := ln2.Accept()
+		if aerr == nil {
+			acceptedCh <- c
+		}
+	}()
+
+	require.Eventually(t, func() bool { return conn.State() == hsms.SelectedState }, 5*time.Second, 5*time.Millisecond,
+		"secs1 must reach Selected once the peer's listener appears (TCP-connect auto-select)")
+
+	require.Equal(t, uint64(0), conn.Metrics().Reconnects(),
+		"the initial cold-connect retry must NOT count as a reconnect")
+
+	select {
+	case c := <-acceptedCh:
+		t.Cleanup(func() { _ = c.Close() })
+	case <-time.After(2 * time.Second):
+		t.Fatal("accepted connection was never received on acceptedCh")
+	}
 }
