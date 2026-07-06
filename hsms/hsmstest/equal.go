@@ -13,6 +13,7 @@ type equalOpts struct {
 	ignoreSessionID  bool
 	ignoreSystemByte bool
 	bodyOnly         bool
+	headerOnly       bool
 }
 
 // EqualOption tunes which fields RequireDataMessageEqual compares.
@@ -32,6 +33,14 @@ func IgnoreSessionID() EqualOption {
 // wait bit, session ID, and System Bytes).
 func BodyOnly() EqualOption {
 	return func(o *equalOpts) { o.bodyOnly = true }
+}
+
+// HeaderOnly compares only the header (stream, function, wait bit, session ID unless separately
+// ignored, and System Bytes unless separately ignored), ignoring the decoded SECS-II item
+// entirely. The mirror image of BodyOnly. Combining HeaderOnly with BodyOnly skips both
+// comparisons and vacuously passes — don't combine them.
+func HeaderOnly() EqualOption {
+	return func(o *equalOpts) { o.headerOnly = true }
 }
 
 // RequireDataMessageEqual fails t (via testify require) unless want and got are equal under opts.
@@ -65,6 +74,10 @@ func RequireDataMessageEqual(t *testing.T, want, got *hsms.DataMessage, opts ...
 		if !o.ignoreSystemByte {
 			require.Equal(t, want.SystemBytes(), got.SystemBytes(), "SystemBytes mismatch")
 		}
+	}
+
+	if o.headerOnly {
+		return
 	}
 
 	wantItem, wantErr := want.Item()

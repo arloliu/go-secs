@@ -44,6 +44,42 @@ func TestRequireDataMessageEqual_BodyOnly(t *testing.T) {
 	hsmstest.RequireDataMessageEqual(t, a, b, hsmstest.BodyOnly())
 }
 
+func TestRequireDataMessageEqual_HeaderOnly(t *testing.T) {
+	t.Parallel()
+
+	a, err := hsms.NewDataMessage(1, 1, true, 5, [4]byte{0, 0, 0, 1}, secs2.A("hi"))
+	require.NoError(t, err)
+	b, err := hsms.NewDataMessage(1, 1, true, 5, [4]byte{0, 0, 0, 1}, secs2.A("DIFFERENT"))
+	require.NoError(t, err)
+
+	hsmstest.RequireDataMessageEqual(t, a, b, hsmstest.HeaderOnly())
+}
+
+// TestRequireDataMessageEqual_HeaderOnly_FailsOnHeaderMismatch verifies HeaderOnly genuinely
+// fails when headers differ, not just when bodies differ. It uses the subprocess pattern to
+// observe the test failure.
+func TestRequireDataMessageEqual_HeaderOnly_FailsOnHeaderMismatch(t *testing.T) {
+	t.Parallel()
+
+	if os.Getenv("HSMSTEST_INDUCE_FAILURE_HEADER") == "1" {
+		a, err := hsms.NewDataMessage(1, 1, true, 5, [4]byte{0, 0, 0, 1}, secs2.A("hi"))
+		require.NoError(t, err)
+		b, err := hsms.NewDataMessage(2, 1, true, 5, [4]byte{0, 0, 0, 1}, secs2.A("hi"))
+		require.NoError(t, err)
+
+		hsmstest.RequireDataMessageEqual(t, a, b, hsmstest.HeaderOnly()) // expected to fail: proves HeaderOnly checks the header
+
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestRequireDataMessageEqual_HeaderOnly_FailsOnHeaderMismatch$", "-test.v")
+	cmd.Env = append(os.Environ(), "HSMSTEST_INDUCE_FAILURE_HEADER=1")
+	out, err := cmd.CombinedOutput()
+
+	require.Error(t, err, "the induced header mismatch must make the subprocess test fail")
+	require.Contains(t, string(out), "Stream mismatch", "failure output must contain the header mismatch message")
+}
+
 // TestRequireDataMessageEqual_FailingAssertionMessage verifies a mismatch produces a failing,
 // readable assertion. RequireDataMessageEqual takes a concrete *testing.T (per its documented
 // signature), so the only way to observe its failure without failing this test binary is to
