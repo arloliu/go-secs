@@ -52,6 +52,16 @@ func TestConnectionMetrics_DataMsgCounters(t *testing.T) {
 	require.Equal(t, uint64(2), m.DataMsgErrCount())
 }
 
+func TestConnectionMetrics_AsyncSendErr(t *testing.T) {
+	var m ConnectionMetrics
+
+	require.Equal(t, uint64(0), m.AsyncSendErrCount())
+
+	m.incAsyncSendErr()
+	m.incAsyncSendErr()
+	require.Equal(t, uint64(2), m.AsyncSendErrCount())
+}
+
 func TestConnectionMetrics_ReconnectsAndReconnecting(t *testing.T) {
 	m := &ConnectionMetrics{}
 

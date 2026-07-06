@@ -29,6 +29,7 @@ type ConnectionMetrics struct {
 	dataMsgErr             atomic.Uint64
 	dataMsgDropNotSelected atomic.Uint64 // B3 chokepoint: dropped because not SELECTED
 	decodeErr              atomic.Uint64 // inbound frame read successfully but failed to decode/route
+	asyncSendErr           atomic.Uint64 // write failures on the fire-and-forget async send path
 	connRetry              atomic.Int64  // gauge: 1 while a reconnect loop is actively retrying, else 0
 	reconnects             atomic.Uint64 // cumulative count of successful re-establishments after an involuntary drop
 }
@@ -49,6 +50,15 @@ func (m *ConnectionMetrics) DataMsgDropNotSelectedCount() uint64 {
 // from DataMsgRecvCount: a decode failure never reaches the receive chokepoint.
 func (m *ConnectionMetrics) DecodeErrCount() uint64 {
 	return m.decodeErr.Load()
+}
+
+// AsyncSendErrCount returns the total number of fire-and-forget async sends (SendAsync /
+// ForwardDataMessageAsync, plus internal control-message async sends such as Reject/Select.rsp)
+// whose transport write failed. These are otherwise silent: SendAsync itself only reports
+// enqueue-boundary errors, never a later write failure, so this is the only signal for "an
+// async frame never reached the wire." See WithAsyncSendErrorHandler for a per-message callback.
+func (m *ConnectionMetrics) AsyncSendErrCount() uint64 {
+	return m.asyncSendErr.Load()
 }
 
 // DataMsgSendCount returns the total number of data messages committed to the wire (the writev
@@ -107,6 +117,10 @@ func (m *ConnectionMetrics) incDataMsgDropNotSelected() {
 
 func (m *ConnectionMetrics) incDecodeErr() {
 	m.decodeErr.Add(1)
+}
+
+func (m *ConnectionMetrics) incAsyncSendErr() {
+	m.asyncSendErr.Add(1)
 }
 
 func (m *ConnectionMetrics) incDataMsgSend() {

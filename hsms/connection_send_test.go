@@ -3,6 +3,7 @@ package hsms
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,10 +17,11 @@ import (
 // pinned to state and a live epoch published on c.cur — the minimum to exercise the Task-12
 // send/reply engine in isolation (Open/recv loop are later tasks). State is set directly on the
 // supervisor's lock-free atomic (white-box), which is what the send path reads via IsSelected().
-func newTestSendConn(t *testing.T, state ConnState) (*connection, *mockTransport) {
+func newTestSendConn(t *testing.T, state ConnState, opts ...ConnOption) (*connection, *mockTransport) {
 	t.Helper()
 
 	cfg := DefaultConnectionConfig()
+	require.NoError(t, cfg.apply(opts...))
 	tr := &mockTransport{}
 
 	conn, err := NewConnection(cfg, tr)
@@ -450,6 +452,61 @@ func TestSend_DrainSendChWritesQueuedFrames(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("drainSendCh must return when the generation ctx is cancelled")
 	}
+}
+
+// TestSend_DrainSendChRecordsAsyncSendErr proves a write failure on the async fire-and-forget
+// path (Gap 4) is counted at AsyncSendErrCount, where SendAsync's own return value cannot
+// surface it (SendAsync only reports enqueue-boundary errors).
+func TestSend_DrainSendChRecordsAsyncSendErr(t *testing.T) {
+	c, tr := newTestSendConn(t, SelectedState)
+	e := c.cur.Load()
+	tr.setWriteErr(errors.New("simulated wedged-peer write failure"))
+
+	require.NoError(t, c.SendAsync(t.Context(), mustSendData(t, [4]byte{0, 0, 0, 9}, false)))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go c.drainSendCh(ctx, e)
+
+	require.Eventually(t, func() bool { return c.Metrics().AsyncSendErrCount() == 1 },
+		2*time.Second, time.Millisecond, "a failed async write must be counted exactly once")
+}
+
+// TestSend_AsyncSendErrorHandlerInvoked proves WithAsyncSendErrorHandler receives the failed
+// message and error, and that a panicking handler does not kill the sender goroutine (later
+// queued frames still drain).
+func TestSend_AsyncSendErrorHandlerInvoked(t *testing.T) {
+	var mu sync.Mutex
+	var got []error
+	panicked := false
+
+	c, tr := newTestSendConn(t, SelectedState,
+		WithAsyncSendErrorHandler(func(msg Message, err error) {
+			mu.Lock()
+			defer mu.Unlock()
+			if !panicked {
+				panicked = true
+				panic("boom") //nolint:forbidigo // proving panic isolation
+			}
+			got = append(got, err)
+		}),
+	)
+	e := c.cur.Load()
+	tr.setWriteErr(errors.New("simulated write failure"))
+
+	require.NoError(t, c.SendAsync(t.Context(), mustSendData(t, [4]byte{0, 0, 0, 10}, false)))
+	require.NoError(t, c.SendAsync(t.Context(), mustSendData(t, [4]byte{0, 0, 0, 11}, false)))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go c.drainSendCh(ctx, e)
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(got) == 1
+	}, 2*time.Second, time.Millisecond,
+		"the second failure must still be delivered after the first handler call panicked")
 }
 
 // TestSend_InboundReject_SurfacesRejectError proves Fix A: a peer Reject.req correlated by System

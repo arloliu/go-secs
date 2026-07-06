@@ -367,12 +367,33 @@ func (c *connection) drainSendCh(ctx context.Context, e *epoch) {
 	for {
 		select {
 		case req := <-e.sendCh:
-			// A write error on the async path is non-fatal (best-effort fire-and-forget).
-			_ = c.writeFrame(ctx, e, req.msg)
+			// A write error on the async path is non-fatal (best-effort fire-and-forget) but no
+			// longer silent: it is counted and, if a handler is installed, reported (Gap 4).
+			if err := c.writeFrame(ctx, e, req.msg); err != nil {
+				c.metrics.incAsyncSendErr()
+				c.callAsyncSendErrorHandler(req.msg, err)
+			}
 		case <-ctx.Done():
 			return
 		}
 	}
+}
+
+// callAsyncSendErrorHandler invokes the configured WithAsyncSendErrorHandler callback (if any)
+// under a recover guard (mirrors supervisor.callHandler's panic isolation for
+// StateChangeHandler): one panicking handler must not kill the per-generation async sender
+// goroutine, which would silently stop draining e.sendCh for the rest of this generation.
+func (c *connection) callAsyncSendErrorHandler(msg Message, err error) {
+	h := c.cfg.Load().asyncSendErrHandler
+	if h == nil {
+		return
+	}
+
+	defer func() {
+		_ = recover()
+	}()
+
+	h(msg, err)
 }
 
 // WriteMessage performs a synchronous framed write and awaits the protocol-bounded reply

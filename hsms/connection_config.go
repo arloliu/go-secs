@@ -49,6 +49,7 @@ type ConnectionConfig struct {
 	validateSessionID     bool
 	autoS9F9              bool
 	traceTraffic          bool
+	asyncSendErrHandler   func(msg Message, err error)
 }
 
 // DefaultConnectionConfig returns a ConnectionConfig populated with SEMI E37 (HSMS) and SEMI E4 (SECS-I)-recommended default timer values and conservative operational defaults.
@@ -385,4 +386,22 @@ func WithTraceTraffic(enabled bool) ConnOption {
 // TraceTraffic reports whether per-frame wire tracing is enabled (see WithTraceTraffic).
 func (c *ConnectionConfig) TraceTraffic() bool {
 	return c.traceTraffic
+}
+
+// WithAsyncSendErrorHandler installs a callback invoked whenever a fire-and-forget async send
+// (SendAsync / ForwardDataMessageAsync, and internal control-message async sends such as
+// Reject/Select.rsp/S9Fx) fails its transport write. msg is the message that failed to reach the
+// wire and err is the write error. This is the ONLY way to observe such a failure per-message:
+// SendAsync/ForwardDataMessageAsync themselves report only enqueue-boundary errors (see
+// AsyncSendErrCount for the always-on counter form). fn runs SYNCHRONOUSLY, panic-isolated, on
+// the per-generation async-sender goroutine — a slow fn delays every other queued async send on
+// that generation, so keep it fast (increment a counter, log, push to a buffered channel) rather
+// than doing blocking I/O. Nil (the default) disables the callback. Passing nil is valid and
+// simply clears any previously installed handler.
+func WithAsyncSendErrorHandler(fn func(msg Message, err error)) ConnOption {
+	return func(c *ConnectionConfig) error {
+		c.asyncSendErrHandler = fn
+
+		return nil
+	}
 }
