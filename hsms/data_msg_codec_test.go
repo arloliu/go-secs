@@ -48,3 +48,23 @@ func TestDataMessageCodec_UnmarshalBinary_BadData(t *testing.T) {
 	var codec hsms.DataMessageCodec
 	require.Error(t, codec.UnmarshalBinary([]byte{0x01}))
 }
+
+func TestDataMessage_Codec(t *testing.T) {
+	msg, err := hsms.NewDataMessage(1, 1, false, 0x1234, [4]byte{0, 0, 0, 42}, secs2.NewASCIIItem("PING"))
+	require.NoError(t, err)
+
+	codec := msg.Codec()
+	require.Same(t, msg, codec.Message, "Codec must wrap the exact message, not a copy")
+
+	data, err := codec.MarshalBinary()
+	require.NoError(t, err)
+	require.Equal(t, msg.ToBytes(), data)
+}
+
+func TestDataMessage_Codec_NilReceiver(t *testing.T) {
+	var msg *hsms.DataMessage
+
+	codec := msg.Codec()
+	_, err := codec.MarshalBinary()
+	require.ErrorIs(t, err, hsms.ErrNilMessage, "a nil *DataMessage must still wrap safely and fail at MarshalBinary, not panic in Codec")
+}
