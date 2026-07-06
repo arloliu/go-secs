@@ -78,7 +78,7 @@ type transport struct {
 	// applyKeepAlive), but a custom dialer supplied via WithDialer may provide any net.Conn (e.g. an
 	// in-memory pipe), so the stored type is generalized to net.Conn.
 	conn     net.Conn
-	listener *net.TCPListener // passive only; nil for active; nil after AcceptTCP completes
+	listener net.Listener // passive only; nil for active; nil after Accept completes
 
 	// procCancel cancels the active Select-procedure goroutine's generation-scoped ctx. It is
 	// set (active only) by startActive under connMu and called by Stop so the pending Select
@@ -175,7 +175,7 @@ func (t *transport) Start(ctx context.Context, rt hsms.TransportRuntime) error {
 		return t.startActive(ctx)
 	}
 
-	return t.startPassive()
+	return t.startPassive(ctx)
 }
 
 // IsActive reports whether this transport is configured for the active (dialing) role.
@@ -250,7 +250,7 @@ func (t *transport) Stop(ctx context.Context) error {
 		procCancel()
 	}
 
-	// Close the listener first to unblock a parked AcceptTCP in the passive accept + refuse loops
+	// Close the listener first to unblock a parked Accept in the passive accept + refuse loops
 	// (passive.go) so the accept goroutine returns and g.accept.Wait below can join it.
 	if ln != nil {
 		_ = ln.Close()

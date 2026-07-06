@@ -17,35 +17,36 @@ package hsmsss
 // accept/refuse goroutine outlives the generation (Codex round-7 join discipline).
 
 import (
+	"context"
 	"fmt"
 	"net"
 )
 
 // startPassive listens on the configured host:port and spawns the accept goroutine, then returns
-// (it never blocks Open on AcceptTCP — see the ASYNC-START CONTRACT above). The listener is created
+// (it never blocks Open on Accept — see the ASYNC-START CONTRACT above). The listener is created
 // synchronously so a listen failure (e.g. port in use) surfaces to the engine's reconnect loop for
 // a retry (exponential backoff capped at T5), symmetric with an active DialTCP failure. The
 // listener is stored under connMu before the accept goroutine is spawned so Stop can close it to
-// unblock a parked AcceptTCP.
-func (t *transport) startPassive() error {
+// unblock a parked Accept.
+func (t *transport) startPassive(ctx context.Context) error {
 	addr := fmt.Sprintf("%s:%d", t.cfg.Host(), t.cfg.Port())
 
-	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("hsmsss: resolve %s: %w", addr, err)
-	}
-
-	// net.ListenTCP sets SO_REUSEADDR, so re-listening on the same fixed port across reconnect
-	// generations succeeds once the prior generation's listener is closed by Stop. The reconnect
-	// loop e.wait()s the prior epoch (whose teardown ran tr.Stop → listener closed + accept
-	// goroutine joined) BEFORE this next Start, so there is never an "address already in use" race.
-	ln, err := net.ListenTCP("tcp", tcpAddr)
+	// t.cfg.listen owns address resolution the same way t.cfg.dial already does for the active
+	// side. The DEFAULT ListenFunc ((&net.ListenConfig{}).Listen) sets SO_REUSEADDR, so
+	// re-listening on the same fixed port across reconnect generations succeeds once the prior
+	// generation's listener is closed by Stop. The reconnect loop e.wait()s the prior epoch
+	// (whose teardown ran tr.Stop → listener closed + accept goroutine joined) BEFORE this next
+	// Start, so there is never an "address already in use" race for the default listener. A
+	// custom ListenFunc supplied via WithListener is responsible for its own re-listen semantics
+	// if it needs real-port reuse across generations — an in-memory/pipe-backed listener used in
+	// tests does not hit this concern at all.
+	ln, err := t.cfg.listen(ctx, "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("hsmsss: listen %s: %w", addr, err)
 	}
 
 	// Store the listener before spawning the accept goroutine so Stop can close it to interrupt a
-	// parked AcceptTCP (both the first accept and the refuse loop below).
+	// parked Accept (both the first accept and the refuse loop below).
 	t.connMu.Lock()
 	t.listener = ln
 	t.connMu.Unlock()
@@ -82,16 +83,16 @@ func (t *transport) startPassive() error {
 // goroutine spawned by startPassive and is joined by Stop via g.accept.
 //
 // It NEVER initiates Select — a passive side only responds to an inbound Select.req (the shared H2
-// responder handleSelectReq, driven by the recv loop's dispatchFrame). Any AcceptTCP error means the
+// responder handleSelectReq, driven by the recv loop's dispatchFrame). Any Accept error means the
 // listener was closed by Stop (the sole closer of ln) — the loop exits cleanly WITHOUT rt.TCPDown:
 // a first-accept error is a teardown signal, not a comms failure. Reconnect after an ESTABLISHED
 // link drops is driven by the recv loop's rt.TCPDown (as in the active role), not by this loop; a
 // listen failure (never reaching here) is retried synchronously by the reconnect loop via startPassive.
-func (t *transport) acceptLoop(g *genWG, ln *net.TCPListener) {
+func (t *transport) acceptLoop(g *genWG, ln net.Listener) {
 	defer g.accept.Done()
 
 	// Accept the FIRST connection — the single live session for this generation.
-	conn, err := ln.AcceptTCP()
+	conn, err := ln.Accept()
 	if err != nil {
 		// Listener closed by Stop (teardown / Close / reconnect) before a peer connected. No peer
 		// was adopted and no recv loop was spawned; exit cleanly so g.accept.Wait unblocks.
@@ -121,9 +122,9 @@ func (t *transport) acceptLoop(g *genWG, ln *net.TCPListener) {
 
 	// Refuse subsequent connections while the accepted one is live: accept-then-immediately-close
 	// each 2nd+ dialer so only ONE session exists at a time, WITHOUT disturbing the live link
-	// (E37.1 single-session). The loop ends when Stop closes ln (AcceptTCP errors).
+	// (E37.1 single-session). The loop ends when Stop closes ln (Accept errors).
 	for {
-		extra, err := ln.AcceptTCP()
+		extra, err := ln.Accept()
 		if err != nil {
 			return // listener closed by Stop — the generation is tearing down
 		}

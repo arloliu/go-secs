@@ -1,7 +1,6 @@
 package hsmsss
 
 import (
-	"context"
 	"errors"
 	"net"
 	"time"
@@ -26,16 +25,20 @@ type Config struct {
 	active       bool
 	tcpKeepAlive time.Duration
 	dial         DialFunc
+	listen       ListenFunc
 }
 
 // Option is a functional option that mutates a [Config].
 // It returns an error if the provided value is invalid.
 type Option func(*Config) error
 
-// DialFunc establishes the active-mode connection to the remote host. Its signature matches
-// [net.Dialer.DialContext], so the standard dialer is a valid DialFunc as-is. The network is
-// always "tcp" and the address is the configured "host:port"; ctx bounds the dial attempt.
-type DialFunc func(ctx context.Context, network, address string) (net.Conn, error)
+// DialFunc is an alias of [hsms.DialFunc] — see its doc for the contract. Kept as a named type
+// in this package so existing signatures (WithDialer) don't need touching, and so callers can
+// keep writing hsmsss.DialFunc without importing hsms for this alone.
+type DialFunc = hsms.DialFunc
+
+// ListenFunc is an alias of [hsms.ListenFunc] — see its doc for the contract.
+type ListenFunc = hsms.ListenFunc
 
 // NewConfig constructs a Config for the given TCP host and port, applying the
 // supplied options transactionally (all-or-nothing: every option is validated
@@ -53,6 +56,7 @@ func NewConfig(host string, port int, opts ...Option) (Config, error) {
 		port:             port,
 		active:           true, // default: active role (dials outbound)
 		dial:             (&net.Dialer{}).DialContext,
+		listen:           (&net.ListenConfig{}).Listen,
 	}
 
 	if err := cfg.apply(opts...); err != nil {
@@ -116,6 +120,25 @@ func WithDialer(dial DialFunc) Option {
 		}
 
 		c.dial = dial
+
+		return nil
+	}
+}
+
+// WithListener overrides how the passive connection listens for an inbound peer. The default
+// uses [net.ListenConfig.Listen] over TCP. Supply a custom [ListenFunc] to layer the listener on
+// a different transport — for example an in-memory pipe-backed listener for tests. Unlike
+// WithDialer's single active dial, a passive connection re-listens on every reconnect
+// generation, so listen is a FACTORY called fresh each time, never a single reused net.Listener.
+// Passing nil is a configuration error. This option affects the passive (listening) role only;
+// the active role always dials the configured TCP endpoint via WithDialer.
+func WithListener(listen ListenFunc) Option {
+	return func(c *Config) error {
+		if listen == nil {
+			return errors.New("WithListener: listen must not be nil")
+		}
+
+		c.listen = listen
 
 		return nil
 	}

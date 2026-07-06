@@ -62,8 +62,8 @@ type transport struct {
 	rt hsms.TransportRuntime
 
 	connMu   sync.Mutex
-	conn     net.Conn         // nil before first successful Start or after Stop clears it
-	listener *net.TCPListener // passive only; nil for active; guarded by connMu
+	conn     net.Conn     // nil before first successful Start or after Stop clears it
+	listener net.Listener // passive only; nil for active; guarded by connMu
 
 	// engineCancel cancels THIS generation's engine ctx. Set (active: in startActive; passive: in
 	// startPassive) under connMu and called by Stop (C1) so a Stop-initiated socket close does NOT
@@ -301,24 +301,21 @@ func (t *transport) startActive(engineCtx context.Context, engineCancel context.
 }
 
 // startPassive listens on the configured host:port and spawns the accept goroutine, then returns (it
-// never blocks Open on AcceptTCP). engineCancel is stored under connMu BEFORE the accept goroutine is
+// never blocks Open on Accept). engineCancel is stored under connMu BEFORE the accept goroutine is
 // spawned so Stop can always cancel this generation's engine ctx — including in the late-peer race
 // where the accept goroutine adopts a peer just as Stop closes the listener (Stop's engineCancel then
 // guarantees that late engine's C1 guard suppresses a spurious TCPDown).
 func (t *transport) startPassive(engineCtx context.Context, engineCancel context.CancelFunc) error {
 	addr := fmt.Sprintf("%s:%d", t.cfg.Host(), t.cfg.Port())
 
-	tcpAddr, err := net.ResolveTCPAddr("tcp", addr)
-	if err != nil {
-		engineCancel()
-
-		return fmt.Errorf("secs1: resolve %s: %w", addr, err)
-	}
-
-	// net.ListenTCP sets SO_REUSEADDR, so re-listening on the same fixed port across reconnect
-	// generations succeeds once the prior generation's listener is closed by Stop. The LISTEN is
-	// outside the I1 guard (never hold startGate across it).
-	ln, err := net.ListenTCP("tcp", tcpAddr)
+	// t.cfg.listen owns address resolution the same way t.cfg.dial already does for the active side.
+	// The DEFAULT ListenFunc ((&net.ListenConfig{}).Listen) sets SO_REUSEADDR, so re-listening on the
+	// same fixed port across reconnect generations succeeds once the prior generation's listener is
+	// closed by Stop. The LISTEN is outside the I1 guard (never hold startGate across it). A custom
+	// ListenFunc supplied via WithListener is responsible for its own re-listen semantics if it needs
+	// real-port reuse across generations — an in-memory/pipe-backed listener used in tests does not
+	// hit this concern at all.
+	ln, err := t.cfg.listen(engineCtx, "tcp", addr)
 	if err != nil {
 		engineCancel()
 
@@ -326,7 +323,7 @@ func (t *transport) startPassive(engineCtx context.Context, engineCancel context
 	}
 
 	// Store the listener AND engineCancel before spawning the accept goroutine so Stop can close the
-	// listener (to unblock a parked AcceptTCP) and cancel the engine ctx regardless of whether a peer
+	// listener (to unblock a parked Accept) and cancel the engine ctx regardless of whether a peer
 	// is ever adopted. Storing engineCancel here (not in acceptLoop) means Stop's single connMu read
 	// always finds it — closing the late-peer TCPDown window described in the doc above.
 	t.connMu.Lock()
@@ -367,14 +364,14 @@ func (t *transport) startPassive(engineCtx context.Context, engineCancel context
 // FURTHER connection to REFUSE a 2nd peer while one is live (SECS-I is a single point-to-point line).
 // It runs on the accept goroutine spawned by startPassive and is joined by Stop via g.accept.
 //
-// Any AcceptTCP error means the listener was closed by Stop (the sole closer) — the loop exits
+// Any Accept error means the listener was closed by Stop (the sole closer) — the loop exits
 // cleanly WITHOUT rt.TCPDown: a first-accept error is a teardown signal, not a comms failure.
 // Reconnect after an ESTABLISHED line drops is driven by the line engine's rt.TCPDown, not here.
-func (t *transport) acceptLoop(engineCtx context.Context, g *genWG, ln *net.TCPListener, sendReqCh chan *sendReq, genDone chan struct{}) {
+func (t *transport) acceptLoop(engineCtx context.Context, g *genWG, ln net.Listener, sendReqCh chan *sendReq, genDone chan struct{}) {
 	defer g.accept.Done()
 
 	// Accept the FIRST connection — the single live session for this generation.
-	conn, err := ln.AcceptTCP()
+	conn, err := ln.Accept()
 	if err != nil {
 		// Listener closed by Stop before a peer connected. No peer adopted, no engine spawned; exit
 		// cleanly so g.accept.Wait unblocks. (engineCancel was stored by startPassive and is called by
@@ -385,7 +382,7 @@ func (t *transport) acceptLoop(engineCtx context.Context, g *genWG, ln *net.TCPL
 	t.applyKeepAlive(conn)
 
 	// Late-accept seal guard (I1 / C1): a peer can be accepted CONCURRENTLY with a Stop that has
-	// already sealed this generation — AcceptTCP may dequeue a queued peer even as Stop closes the
+	// already sealed this generation — Accept may dequeue a queued peer even as Stop closes the
 	// listener. Re-check the seal under startGate.RLock BEFORE driving ANY runtime callback. The core's
 	// CommitConnected/CommitSelected flip the FSM state atomic with an UNGUARDED CAS (only the
 	// reaction/notify inject is a no-op after the supervisor stops — hsms/supervisor.go:188/205), so a
@@ -426,9 +423,9 @@ func (t *transport) acceptLoop(engineCtx context.Context, g *genWG, ln *net.TCPL
 
 	// Refuse subsequent connections while the accepted one is live: accept-then-immediately-close each
 	// 2nd+ dialer so only ONE session exists at a time, WITHOUT disturbing the live line. The loop
-	// ends when Stop closes ln (AcceptTCP errors).
+	// ends when Stop closes ln (Accept errors).
 	for {
-		extra, err := ln.AcceptTCP()
+		extra, err := ln.Accept()
 		if err != nil {
 			return // listener closed by Stop — the generation is tearing down
 		}
@@ -608,7 +605,7 @@ func (t *transport) Stop(ctx context.Context) error {
 		close(genDone)
 	}
 
-	// Close the listener first (passive) to unblock a parked AcceptTCP in the accept + refuse loops,
+	// Close the listener first (passive) to unblock a parked Accept in the accept + refuse loops,
 	// then the conn (J5) to unblock the engine's parked poll/receive read. Both idempotent.
 	if ln != nil {
 		_ = ln.Close()
@@ -764,7 +761,7 @@ func (t *transport) SetWriteDeadline(conn net.Conn, deadline time.Time) error {
 }
 
 // applyKeepAlive enables TCP keep-alive probes on conn when TCPKeepAlive > 0 in the config. conn is
-// typically a *net.TCPConn (the passive AcceptTCP result or the default dialer's socket); a custom
+// typically a *net.TCPConn (the passive Accept result or the default dialer's socket); a custom
 // dialer supplied via WithDialer may provide any net.Conn (e.g. an in-memory pipe), for which
 // keep-alive does not apply and is silently skipped.
 func (t *transport) applyKeepAlive(conn net.Conn) {
