@@ -362,7 +362,7 @@ func (t *transport) SetWriteDeadline(conn net.Conn, deadline time.Time) error {
 }
 
 // applyKeepAlive enables TCP keep-alive probes on conn when TCPKeepAlive > 0 in the config. conn is
-// typically a *net.TCPConn (the passive AcceptTCP result or the default dialer's socket); a custom
+// typically a *net.TCPConn (the passive Accept result or the default dialer's socket); a custom
 // dialer supplied via WithDialer may provide any net.Conn (e.g. an in-memory pipe), for which
 // keep-alive does not apply and is silently skipped.
 func (t *transport) applyKeepAlive(conn net.Conn) {

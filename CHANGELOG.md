@@ -5,6 +5,35 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0-rc4] - 2026-07-06
+
+Fourth release candidate of the v2 major version. A correctness fix for SECS-I live config
+updates, plus small API symmetry additions found during downstream migration.
+
+### Fixed
+
+- **`secs1.UpdateConfigOptions` now re-forces `WriteTimeout=0` on every live update**, matching
+  what `NewConfig` already forces at construction. Previously, a runtime
+  `WithConnectionOption(hsms.WithWriteTimeout(d))` could arm a nonzero write deadline that fires
+  mid-transaction, since SECS-I's own T1/T2/T4 timers — not the socket write deadline — are meant
+  to govern block-transfer pacing.
+
+### Added
+
+- **`hsmsss.WithListener(ListenFunc)`** / **`secs1.WithListener(ListenFunc)`**, symmetric to the
+  existing `WithDialer(DialFunc)` — override how a passive-role connection listens for inbound
+  connections (e.g. routing through a test proxy or a non-default network), the listener-side
+  counterpart to the dialer override.
+- **`(*hsms.DataMessageBuilder).WithSessionID`/`WithSystemBytes`** — restamp the session ID or
+  system bytes on a message mid-derivation, before `Build()`, without a separate restamp call on
+  the built result.
+- **`hsms/hsmstest.RequireBuild(t, builder)`** — calls a `*DataMessageBuilder`'s `Build()`, fails
+  the test via `require` on error, and returns the built `*DataMessage`, for tests that don't need
+  to handle the build error themselves.
+- **`hsms/hsmstest.HeaderOnly()`** — `RequireDataMessageEqual` option comparing only the header
+  (stream, function, wait bit, session ID, System Bytes) and skipping the body entirely; the mirror
+  image of the existing `BodyOnly()`.
+
 ## [2.0.0-rc3] - 2026-07-06
 
 Third release candidate of the v2 major version. Closes four more gaps identified during a

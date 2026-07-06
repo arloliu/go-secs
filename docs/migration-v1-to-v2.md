@@ -981,6 +981,7 @@ names a replacement or states "no equivalent".
 | `DataMessage.SetStreamCode/SetFunctionCode/SetWaitBit` | `Derive().WithStream/WithFunction/WithWaitBit().Build()` | renamed | Through the validating builder. |
 | — | `DataMessage.Derive() *DataMessageBuilder` | new | Builder for structural derivation. |
 | — | `DataMessage.WithSessionID/WithSystemBytes` | new | O(header) restamp; shares body. |
+| — | `DataMessageBuilder.WithSessionID/WithSystemBytes` | new | Same restamp, chainable mid-derivation before `Build()`. |
 | — | `DataMessage.DecodeErr()/BodyLen()/AppendBodyTo()` | new | — |
 | — | `DataMessageCodec` | new | Wraps a `*DataMessage` to satisfy `encoding.BinaryMarshaler`/`encoding.BinaryUnmarshaler` for storage layers; immutable design means no mutating methods on `DataMessage` itself. |
 | `NewDataMessage(…, systemBytes []byte, …)` | `NewDataMessage(…, systemBytes [4]byte, …)` | changed | Pass `[4]byte`; nil item allowed (empty body). |
@@ -1033,6 +1034,7 @@ names a replacement or states "no equivalent".
 | `WithTraceTraffic` | `hsms.WithTraceTraffic` | changed | Moved to the shared `hsms` package (`WithConnectionOption(hsms.WithTraceTraffic(true))`) so both transports get per-frame wire-level hex-dump tracing; v1 had it for HSMS-SS only. |
 | `WithConnectRemoteTimeout/WithAcceptConnTimeout/WithInitialRetryDelay/WithIdleReadTimeout/WithDataMsgQueueSize` | — | removed | No equivalent (automatic now / no direct replacement). |
 | — | `WithDialer(DialFunc)` | new | Inject a custom dialer. |
+| — | `WithListener(ListenFunc)` | new | Inject a custom listener for the passive role; symmetric to `WithDialer`. |
 | `Connection.GetMetrics() *hsmsss.ConnectionMetrics` | `Connection.Metrics() *hsms.ConnectionMetrics` | renamed | Reader methods; see section 11. |
 | `Connection.AddSession(id)` | — | removed | Send on the Connection. |
 | `Session`, `NewSession` | — | removed | No session type. |
@@ -1053,6 +1055,7 @@ names a replacement or states "no equivalent".
 | `WithLogger(l)` | `WithConnectionOption(hsms.WithLogger(l))` | renamed | Core option. |
 | `WithKeepAlivePeriod` | `WithTCPKeepAlive` | renamed | — |
 | — | `WithDialer(DialFunc)` | new | Custom dialer. |
+| — | `WithListener(ListenFunc)` | new | Custom listener for the passive role; symmetric to `WithDialer`. |
 | `Connection.Open(waitOpened bool)` | `Connection.Open(ctx, OpenMode)` | changed | Via `hsms.Connection`. |
 | `Connection.AddSession(id) hsms.Session` | — | removed | Connection is the endpoint. |
 | `Session.ID() uint16` | `Connection.SessionID() uint16` | renamed | Reports the wire device ID. |
