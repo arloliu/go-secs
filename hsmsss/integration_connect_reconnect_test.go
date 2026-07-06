@@ -4,7 +4,8 @@ package hsmsss
 // tests/hsmsss_integration/connect_reconnect_test.go), re-pointed onto the v2 public surface
 // (New / Open(ctx, mode) / hsms.Connection / SendDataMessage(ctx, ...)). It exercises the
 // I1-fixed reconnect/Close lifecycle on a race-free core: recover-from-abrupt-drop (active &
-// passive), the T5-floored reconnect cadence, and the T6/T7 control-timeout teardowns.
+// passive), the reconnect cadence (exponential backoff capped at T5), and the T6/T7
+// control-timeout teardowns.
 //
 // v2 ADAPTATIONS (documented per the shared prime directive):
 //   - v1 host/equip roles are DROPPED (v2 has only the transport role); active/passive is kept.

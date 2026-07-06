@@ -73,7 +73,7 @@ against the §-citations embedded in the v1 code (no spec copy is in the repo); 
   TCP up → `NotSelected`; Select completes → `Selected`; TCP broken / Separate / T7 expiry / fatal comms →
   `NotConnected`. Illegal transitions are rejected (guarded FSM).
 - **Procedures + SType:** 0=Data, 1/2=Select.req/rsp, 3/4=Deselect.req/rsp, 5/6=Linktest.req/rsp, 7=Reject.req,
-  9=Separate.req. Required: Connect (active T5-floored / passive accept, refuse 2nd conn); Select
+  9=Separate.req. Required: Connect (active exponential-backoff-capped-at-T5 / passive accept, refuse 2nd conn); Select
   (req/rsp, SessionID `0xFFFF`, bounded by T6) → `Selected`; Data (primary; if W-bit, reply matched by
   System Bytes, bounded by **T3 started only after the primary is fully on the wire**, §9.4.1.2); Separate
   (SType9, no response, ignored if receiver not `Selected`, §7.9.2) → `NotConnected`; Linktest (T6);
@@ -687,7 +687,7 @@ release-gate benchmark (restamp + `net.Buffers` is O(14), not O(body); body not 
 
 ### 6.3 Procedures, roles, timers
 
-- **Active/passive roles** stay static config (not negotiated). Active dials (T5-floored backoff), runs the
+- **Active/passive roles** stay static config (not negotiated). Active dials (exponential backoff capped at T5), runs the
   Select procedure (Select.req, SessionID `0xFFFF`, T6-bound) on reaching NotSelected, and reconnects.
   Passive listens/accepts (refuse a 2nd connection), does not initiate Select, reconnects through the FSM.
 - **Procedures:** Select / Linktest (auto-linktest on a configurable interval while Selected, D5a-5) /

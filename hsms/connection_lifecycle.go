@@ -45,10 +45,10 @@ const selectPollInterval = 2 * time.Millisecond
 // left NotConnectedState (TCPUp was never driven), the failure is instead a cold/unreachable peer:
 // Open tears the failed attempt down, starts the background reconnect loop, and returns nil (Gap
 // 1, rc3) — v1 parity ("start the device; it connects whenever the equipment appears"). The
-// T5-floored reconnect loop otherwise takes over only AFTER a generation has been established and
-// later drops. A caller on OpenWaitSelected that wants to keep retrying an initially-unreachable
-// active peer should retry Open. (A passive Open never blocks on a peer regardless of mode: it
-// returns after ListenTCP + spawning the accept goroutine.)
+// reconnect loop (exponential backoff capped at T5) otherwise takes over only AFTER a generation
+// has been established and later drops. A caller on OpenWaitSelected that wants to keep retrying
+// an initially-unreachable active peer should retry Open. (A passive Open never blocks on a peer
+// regardless of mode: it returns after ListenTCP + spawning the accept goroutine.)
 //
 // OpenWaitSelected wait-failure (I7): if the wait fails AFTER the generation was established — the
 // caller ctx expired, or a first-generation select rejection tripped the always-on reconnect loop —

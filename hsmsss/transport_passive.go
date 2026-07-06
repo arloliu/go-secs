@@ -24,8 +24,9 @@ import (
 // startPassive listens on the configured host:port and spawns the accept goroutine, then returns
 // (it never blocks Open on AcceptTCP — see the ASYNC-START CONTRACT above). The listener is created
 // synchronously so a listen failure (e.g. port in use) surfaces to the engine's reconnect loop for
-// a T5-floored retry, symmetric with an active DialTCP failure. The listener is stored under connMu
-// before the accept goroutine is spawned so Stop can close it to unblock a parked AcceptTCP.
+// a retry (exponential backoff capped at T5), symmetric with an active DialTCP failure. The
+// listener is stored under connMu before the accept goroutine is spawned so Stop can close it to
+// unblock a parked AcceptTCP.
 func (t *transport) startPassive() error {
 	addr := fmt.Sprintf("%s:%d", t.cfg.Host(), t.cfg.Port())
 

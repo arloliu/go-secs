@@ -5,6 +5,37 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0-rc3] - 2026-07-06
+
+Third release candidate of the v2 major version. Closes four more gaps identified during a
+downstream migration, plus a small API convenience addition.
+
+### Added
+
+- **`hsms.WithReconnectBackoff(initial, multiplier)`** configures the reconnect loop's per-attempt
+  backoff curve (initial delay and growth multiplier); attempts still ramp up to no more than the
+  `T5` ceiling.
+- **`secs1.WithT5`**, for symmetry with `WithT1`/`WithT2`/`WithT4` — SECS-I now has a build-time
+  option for the reconnect-backoff ceiling; previously only the runtime-wrapper form
+  `WithConnectionOption(hsms.WithT5(d))` was available.
+- **`hsms.WithAsyncSendErrorHandler`** and **`hsms.ConnectionMetrics.AsyncSendErrCount()`** surface
+  transport write failures on the fire-and-forget async send path (`SendAsync` /
+  `ForwardDataMessageAsync`, plus internal control-message async sends such as Reject/Select.rsp),
+  which were previously silent.
+- **`(*hsms.DataMessage).Codec()`** wraps a message in a `*hsms.DataMessageCodec`, for storage
+  layers requiring `encoding.BinaryMarshaler`/`BinaryUnmarshaler` — avoids every consumer
+  hand-rolling `&hsms.DataMessageCodec{Message: msg}`.
+
+### Changed
+
+- **An active connection's `Open(ctx, hsms.OpenBackground)` no longer fails when the peer is
+  unreachable at Open time** (TCP never came up) — it now retries in the background instead,
+  matching v1 behavior. `OpenWaitSelected` is unaffected: a first-dial failure is still returned
+  synchronously.
+- **The reconnect loop's per-attempt wait is now an exponential backoff capped at `T5`**, not a
+  flat `T5` sleep, so recovery after a brief drop starts sooner while the long-run retry cadence
+  still respects the configured `T5` ceiling.
+
 ## [2.0.0-rc2] - 2026-07-05
 
 Second release candidate of the v2 major version. Restores six behavioral capabilities

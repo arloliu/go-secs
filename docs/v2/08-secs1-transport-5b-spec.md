@@ -153,7 +153,7 @@ but not reverse a locked user decision without re-consulting.
 | Concern | Provided by the core |
 |---|---|
 | Per-generation **epoch** (ctx/conn/writeMu/reply-registry), socket publish, bounded teardown+join | `epoch`, `connection_lifecycle.go` Open/reconnect |
-| **Reconnect**: T5-floored Close-interruptible backoff, generation serialization (`prev.wait()`), publishMu/reconnectGen/shutdown fences, ArmStart/Stop-seal | `connectLoop`, `startConnectLoop`, `reconnectSleep` |
+| **Reconnect**: exponential Close-interruptible backoff capped at T5, generation serialization (`prev.wait()`), publishMu/reconnectGen/shutdown fences, ArmStart/Stop-seal | `connectLoop`, `startConnectLoop`, `reconnectSleep` |
 | **Send/reply correlation registry** (sender-owned per-transaction channel, §5.5) | core registry + `RouteReply` seam |
 | **Config container** + live-update discipline (`UpdateConfigOptions`, transactional) | `hsms.ConnectionConfig` (SP5b embeds it) |
 | **Metrics** counters | `ConnectionMetrics` |
@@ -199,7 +199,7 @@ assertion (`hsmsss/transport.go` pattern). **Six methods:**
 
 | Method | `secs1` obligation |
 |---|---|
-| `Start(ctx, rt TransportRuntime) error` | Dial (active) / listen+accept (passive); bind `rt` **write-once** (F7); spawn the per-generation recv/line-control loop; **must not block on a peer** (Open calls Start synchronously — passive accept runs on a goroutine, `OpenBackground`). Dial/listen failure → return err → core reconnect retries (T5-floored). |
+| `Start(ctx, rt TransportRuntime) error` | Dial (active) / listen+accept (passive); bind `rt` **write-once** (F7); spawn the per-generation recv/line-control loop; **must not block on a peer** (Open calls Start synchronously — passive accept runs on a goroutine, `OpenBackground`). Dial/listen failure → return err → core reconnect retries (exponential backoff capped at T5). |
 | `Stop(ctx) error` | Seal the Add-vs-Wait guard, close the socket (J5 — unblocks a wedged reader), then bounded-join the per-generation goroutines; `ctx` expiry → `ErrCloseTimeout` + abandon straggler. Mirror `hsmsss` `Stop` (per-generation `genWG` bundle, NEW-1). |
 | `ArmStart()` | Clear the Stop-seal + install a **fresh** per-generation join bundle. Called by the core *before* it publishes each generation. |
 | `Write(ctx, conn net.Conn, bufs net.Buffers) error` | Receives an **HSMS frame** from the core; runs the §4a send adapter (drops control frames; splits a data frame into SECS-I blocks) then hands off to the line engine (§9), which runs the full ENQ/EOT/ACK/RTY/contention transaction on the epoch `conn` (never re-resolve — I1). Returns `nil` only on ACK of the LAST block; error on RTY-exhaustion / line failure (→ core `TCPDown`, D5b-10). |

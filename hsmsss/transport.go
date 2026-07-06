@@ -150,9 +150,9 @@ func (t *transport) clock() func() time.Time {
 // and spawns the per-generation recv loop tracked by g.recv. rt is the TransportRuntime
 // back-channel the recv loop uses to deliver TCP-lifecycle events to the connection core.
 //
-// On dial/listen failure Start returns the error immediately; the engine's reconnect loop
-// handles the T5-floored backoff retry (spec §6.3). Start does NOT block waiting for a peer in
-// either role: active returns after DialTCP + spawning the recv loop / Select procedure; passive
+// On dial/listen failure Start returns the error immediately; the engine's reconnect loop handles
+// the retry (exponential backoff capped at T5; spec §6.3). Start does NOT block waiting for a peer
+// in either role: active returns after DialTCP + spawning the recv loop / Select procedure; passive
 // returns after ListenTCP + spawning the accept goroutine (§6.3 — passive REQUIRES OpenBackground,
 // so Start must return before a peer connects). The passive accept + rt.TCPUp happen on the
 // accept goroutine (tracked by g.accept, joined by Stop); see startPassive in passive.go.

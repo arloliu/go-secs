@@ -184,6 +184,20 @@ v1's `Open(waitOpened bool)` becomes `Open(ctx, mode)`, where `mode` is an `hsms
 With `OpenWaitSelected`, `ctx` bounds the synchronous wait for the link to reach the Selected state.
 `Close()` remains context-free and is idempotent.
 
+### rc3: v1 parity restored for cold-peer Open and reconnect cadence
+
+Two behaviors that shipped differently in earlier v2 release candidates now match v1 again:
+
+- **An active connection's background `Open` retries a cold peer instead of failing.** Under
+  `hsms.OpenBackground`, if the peer is unreachable at `Open` time (TCP never comes up), `Open`
+  no longer returns that dial error — it tears down the failed attempt, starts retrying in the
+  background, and returns `nil`, exactly like v1 ("start the device; it connects whenever the
+  equipment appears"). `OpenWaitSelected` is unaffected: a first-dial failure is still returned
+  synchronously there.
+- **The reconnect backoff is now exponential, capped at `T5`**, instead of a flat `T5` wait
+  between every attempt. Recovery after a brief drop starts sooner; tune the curve with
+  `hsms.WithReconnectBackoff(initial, multiplier)`.
+
 ---
 
 ## 5. Connection-centric model
@@ -313,6 +327,10 @@ gone:
 For SECS-I, T1/T2/T4 stay on the `secs1` package but also drop the suffix
 (`secs1.WithT1Timeout` → `secs1.WithT1`), and T3 (the reply timeout, shared with the core) is set via
 `secs1.WithConnectionOption(hsms.WithT3(d))`.
+
+`secs1.WithT5` is new in v2 (no v1 equivalent needed: v1's `T5Timeout` was documented but ignored
+for SECS-I). It sets the reconnect-backoff ceiling — before this option, tuning it for SECS-I meant
+falling back to the `secs1.WithConnectionOption(hsms.WithT5(d))` wrapper form.
 
 The session identity term is unified to **`SessionID`** everywhere (see section 7); configure it with
 `hsms.WithSessionID(id)` for HSMS-SS and `secs1.WithDeviceID(id)` for SECS-I.
@@ -818,6 +836,11 @@ v2 relocates and expands the metrics taxonomy across `hsms`, `hsmsss`, and `secs
 | — | `hsms.ConnectionMetrics.Reconnects()` | new | Cumulative count of successful re-establishments; there was no v1 equivalent to this specific cumulative metric. |
 | `secs1.ConnectionMetrics.{BlockSendCount,BlockRecvCount,BlockRetryCount}` | `secs1.ConnectionMetrics.{BlockSendCount,BlockRecvCount,BlockRetryCount}` (via `secs1.Connection.BlockMetrics()`) | changed | Same names, still secs1-owned — but `secs1.New` now returns `secs1.Connection` instead of bare `hsms.Connection`, so reaching these needs `conn.(secs1.Connection).BlockMetrics()`. |
 | — | `secs1.ConnectionMetrics.{BlockSendFailedCount,BlockNAKSentCount,ContentionYieldCount,BlockDupDropCount,PartialTimeoutCount,BlockDirDropCount}` | new | SECS-I line-level counters with no v1 equivalent. |
+
+> **rc3:** an active connection's initial cold-connect retry under `OpenBackground` (the peer is
+> unreachable at `Open` time) also holds `Reconnecting()` at 1 while it retries, but does not
+> increment `Reconnects()` — consistent with `Reconnects()`'s existing rule of "never for the very
+> first `Open()`".
 
 ### Reading metrics in v2
 
