@@ -426,6 +426,23 @@ func TestDataMessageBuilder_Build_Q3_ItemError(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// TestDataMessageBuilder_WithSessionID verifies that WithSessionID sets the session ID.
+func TestDataMessageBuilder_WithSessionID(t *testing.T) {
+	msg := hsms.NewEmptyDataMessage()
+	derived, err := msg.Derive().WithSessionID(0x1234).Build()
+	require.NoError(t, err)
+	require.Equal(t, uint16(0x1234), derived.SessionID())
+}
+
+// TestDataMessageBuilder_WithSystemBytes verifies that WithSystemBytes sets the system bytes.
+func TestDataMessageBuilder_WithSystemBytes(t *testing.T) {
+	msg := hsms.NewEmptyDataMessage()
+	sb := [4]byte{1, 2, 3, 4}
+	derived, err := msg.Derive().WithSystemBytes(sb).Build()
+	require.NoError(t, err)
+	require.Equal(t, sb, derived.SystemBytes())
+}
+
 // ────────────────────────────────────────────────────────────────
 // Fan-out concurrency (-race)
 // ────────────────────────────────────────────────────────────────

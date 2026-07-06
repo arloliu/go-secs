@@ -247,6 +247,20 @@ func (b *DataMessageBuilder) WithItem(item secs2.Item) *DataMessageBuilder {
 	return b
 }
 
+// WithSessionID sets the session ID for the derived message.
+func (b *DataMessageBuilder) WithSessionID(id uint16) *DataMessageBuilder {
+	b.sessionID = id
+
+	return b
+}
+
+// WithSystemBytes sets the system bytes for the derived message.
+func (b *DataMessageBuilder) WithSystemBytes(sysBytes [4]byte) *DataMessageBuilder {
+	b.systemBytes = sysBytes
+
+	return b
+}
+
 // Build constructs and validates a new [DataMessage] using the builder's current
 // field values. It runs the full Q3 validation (item error, W-bit vs even function,
 // stream range).
