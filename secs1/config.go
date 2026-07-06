@@ -11,7 +11,7 @@ import (
 )
 
 // Config holds the full configuration for a SECS-I (SEMI E4) connection over TCP/IP.
-// It embeds [hsms.ConnectionConfig] so the shared core knobs it reuses (T1/T2/T3/T4 timers,
+// It embeds [hsms.ConnectionConfig] so the shared core knobs it reuses (T1/T2/T3/T4/T5 timers,
 // session/device wiring, logger, close/queue policy) are promoted directly onto Config and read
 // via the same accessors. SECS-I-specific settings — the TCP endpoint, active/passive role,
 // keep-alive, the RTY retry limit, and the equipment/host role and device ID — are separate
@@ -170,6 +170,19 @@ func WithT4(d time.Duration) Option {
 	}
 }
 
+// WithT5 sets the T5 reconnect-backoff ceiling: the exponential backoff between successive
+// connect attempts after a TCP disconnect ramps up to at most this duration (see
+// hsms.WithReconnectBackoff for the growth curve itself). SEMI E4 does not define a T5 timer;
+// go-secs reuses the shared hsms T5 slot as the reconnect-cadence knob for BOTH transports, so
+// this exists for parity with WithT1/WithT2/WithT4 — before this option, the only way to tune
+// SECS-I's reconnect cadence was the WithConnectionOption(hsms.WithT5(...)) wrapper form, and
+// omitting it silently left every SECS-I connection on the hard-coded default. Must be > 0.
+func WithT5(d time.Duration) Option {
+	return func(c *Config) error {
+		return hsms.WithT5(d)(&c.ConnectionConfig)
+	}
+}
+
 // WithRetryLimit sets the SECS-I RTY block-send retry limit. Must be in the range 0..31 (SEMI E4).
 func WithRetryLimit(n int) Option {
 	return func(c *Config) error {
@@ -261,17 +274,18 @@ func WithTCPKeepAlive(d time.Duration) Option {
 //   - [hsms.WithT2] — E4 protocol/reply timeout (default 10 s).
 //   - [hsms.WithT3] — S-II reply timeout (default 45 s); the most commonly tuned knob.
 //   - [hsms.WithT4] — E4 inter-block timeout (default 45 s).
-//   - [hsms.WithT5] — reconnect wait interval; governs how long the active side pauses between
-//     successive connect attempts after a TCP disconnect.
+//   - [hsms.WithT5] — reconnect backoff ceiling; the exponential backoff between successive
+//     connect attempts after a TCP disconnect ramps up to at most this duration.
 //   - [hsms.WithSenderQueueSize] — maximum number of messages that may be queued ahead of the
 //     line engine before SendDataMessage blocks.
 //   - [hsms.WithCloseTimeout] — maximum time [hsms.Connection.Close] waits for a clean teardown
 //     before forcing the transport down.
 //   - [hsms.WithLogger] — replaces the default no-op logger.
 //
-// [secs1.WithT1]/[secs1.WithT2]/[secs1.WithT4] remain the preferred spelling for build-time config;
-// this wrapper form exists so the SAME options also work with [hsms.Connection.UpdateConfigOptions]
-// at runtime (SECS-I's [Connection] exposes only [hsms.ConnOption] there, not [secs1.Option]).
+// [secs1.WithT1]/[secs1.WithT2]/[secs1.WithT4]/[secs1.WithT5] remain the preferred spelling for
+// build-time config; this wrapper form exists so the SAME options also work with
+// [hsms.Connection.UpdateConfigOptions] at runtime (SECS-I's [Connection] exposes only
+// [hsms.ConnOption] there, not [secs1.Option]).
 //
 // Knobs that are inert or overridden for SECS-I (do not use):
 //   - [hsms.WithWriteTimeout] — [NewConfig] forces writeTimeout to 0 as its last construction

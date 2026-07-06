@@ -78,6 +78,7 @@ func TestNewConfig_Accessors(t *testing.T) {
 		WithT1(200*time.Millisecond),
 		WithT2(3*time.Second),
 		WithT4(20*time.Second),
+		WithT5(2*time.Second),
 		WithRetryLimit(5),
 		WithTCPKeepAlive(15*time.Second),
 	)
@@ -91,6 +92,7 @@ func TestNewConfig_Accessors(t *testing.T) {
 	require.Equal(t, 200*time.Millisecond, cfg.T1())
 	require.Equal(t, 3*time.Second, cfg.T2())
 	require.Equal(t, 20*time.Second, cfg.T4())
+	require.Equal(t, 2*time.Second, cfg.Timers().T5)
 	require.Equal(t, 5, cfg.RetryLimit())
 	require.Equal(t, 15*time.Second, cfg.TCPKeepAlive())
 }
@@ -109,6 +111,7 @@ func TestNewConfig_Validation(t *testing.T) {
 		{"T1 zero", WithT1(0)},
 		{"T2 zero", WithT2(0)},
 		{"T4 zero", WithT4(0)},
+		{"T5 zero", WithT5(0)},
 		{"T1 negative", WithT1(-1 * time.Second)},
 		{"keepAlive negative", WithTCPKeepAlive(-1 * time.Second)},
 	}
@@ -193,6 +196,21 @@ func TestConfig_WithConnectionOption_T1T2T4(t *testing.T) {
 	require.Equal(t, 750*time.Millisecond, cfg.T1())
 	require.Equal(t, 15*time.Second, cfg.T2())
 	require.Equal(t, 60*time.Second, cfg.T4())
+}
+
+// TestWithT5_BuildTimeAndConnectionOption verifies that T5 can be set both via the build-time
+// secs1.WithT5 option and via the runtime WithConnectionOption(hsms.WithT5(...)) wrapper form,
+// and that both spellings set the same shared timer.
+func TestWithT5_BuildTimeAndConnectionOption(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := NewConfig("127.0.0.1", 5000, WithT5(7*time.Second))
+	require.NoError(t, err)
+	require.Equal(t, 7*time.Second, cfg.Timers().T5, "secs1.WithT5 must set the shared T5 timer")
+
+	cfg2, err := NewConfig("127.0.0.1", 5000, WithConnectionOption(hsms.WithT5(9*time.Second)))
+	require.NoError(t, err)
+	require.Equal(t, 9*time.Second, cfg2.Timers().T5, "the WithConnectionOption(hsms.WithT5(...)) wrapper form must keep working")
 }
 
 func TestWithEquipment_AlsoEnablesAutoS9F9(t *testing.T) {
