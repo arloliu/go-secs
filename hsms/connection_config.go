@@ -57,7 +57,10 @@ type ConnectionConfig struct {
 	reconnectBackoffMultiplier float64
 }
 
-// DefaultConnectionConfig returns a ConnectionConfig populated with SEMI E37 (HSMS) and SEMI E4 (SECS-I)-recommended default timer values and conservative operational defaults.
+// DefaultConnectionConfig returns a ConnectionConfig populated with defaults.
+//
+// The defaults include SEMI E37 (HSMS) and SEMI E4 (SECS-I)-recommended timer
+// values and conservative operational defaults.
 func DefaultConnectionConfig() *ConnectionConfig {
 	return &ConnectionConfig{
 		timers: TimerConfig{
@@ -135,14 +138,24 @@ func WithT5(d time.Duration) ConnOption {
 	}
 }
 
-// WithReconnectBackoff configures the exponential backoff between reconnect dial attempts
-// (spec §5.2/§6.3). The first attempt after a drop (or, for an active connection, the first
-// background retry of a cold-peer initial connect — see OpenBackground) waits initial; each
-// subsequent failed attempt multiplies the previous wait by multiplier, capped at the
-// configured T5 (WithT5) — T5 is the backoff CEILING, not the per-attempt delay. initial must
-// be > 0; multiplier must be >= 1.0 (1.0 disables growth, giving a flat wait at initial capped
-// by T5 — pass WithReconnectBackoff(t5, 1.0) for the pre-rc3 flat-T5 behavior). The default
-// (100ms, 2.0) approximates v1's SECS-I reconnect curve.
+// WithReconnectBackoff configures the exponential backoff between reconnect dial attempts.
+//
+// The configuration applies to dial retries per SEMI E37 §5.2 and §6.3.
+//
+// The first attempt after a drop waits for the duration specified by initial.
+// For an active connection, this also applies to the first background retry of a
+// cold-peer initial connect (see OpenBackground).
+//
+// Each subsequent failed attempt multiplies the previous wait by multiplier, capped at the
+// configured T5 (see WithT5).
+// T5 functions as the backoff CEILING, not the flat per-attempt delay.
+//
+// The initial duration must be > 0.
+// The multiplier must be >= 1.0.
+// A multiplier of 1.0 disables growth, giving a flat wait at initial capped by T5
+// (e.g. pass WithReconnectBackoff(t5, 1.0) for the flat-T5 behavior).
+//
+// The default of (100ms, 2.0) approximates the SECS-I reconnect curve.
 func WithReconnectBackoff(initial time.Duration, multiplier float64) ConnOption {
 	return func(c *ConnectionConfig) error {
 		if initial <= 0 {
@@ -198,7 +211,10 @@ func WithT8(d time.Duration) ConnOption {
 	}
 }
 
-// WithT1 sets the SECS-I T1 (inter-character timeout) timer. Must be > 0. Unused by HSMS-SS.
+// WithT1 sets the SECS-I T1 (inter-character timeout) timer.
+//
+// The duration must be > 0.
+// Unused by HSMS-SS.
 func WithT1(d time.Duration) ConnOption {
 	return func(c *ConnectionConfig) error {
 		if d <= 0 {
@@ -211,7 +227,10 @@ func WithT1(d time.Duration) ConnOption {
 	}
 }
 
-// WithT2 sets the SECS-I T2 (protocol/reply timeout) timer. Must be > 0. Unused by HSMS-SS.
+// WithT2 sets the SECS-I T2 (protocol/reply timeout) timer.
+//
+// The duration must be > 0.
+// Unused by HSMS-SS.
 func WithT2(d time.Duration) ConnOption {
 	return func(c *ConnectionConfig) error {
 		if d <= 0 {
@@ -224,7 +243,10 @@ func WithT2(d time.Duration) ConnOption {
 	}
 }
 
-// WithT4 sets the SECS-I T4 (inter-block timeout) timer. Must be > 0. Unused by HSMS-SS.
+// WithT4 sets the SECS-I T4 (inter-block timeout) timer.
+//
+// The duration must be > 0.
+// Unused by HSMS-SS.
 func WithT4(d time.Duration) ConnOption {
 	return func(c *ConnectionConfig) error {
 		if d <= 0 {
@@ -247,7 +269,9 @@ func WithSessionID(id uint16) ConnOption {
 }
 
 // WithLinktestInterval sets the interval between automatic linktest messages.
-// A value of 0 disables automatic linktests. Must be >= 0.
+//
+// A value of 0 disables automatic linktests.
+// The duration must be >= 0.
 func WithLinktestInterval(d time.Duration) ConnOption {
 	return func(c *ConnectionConfig) error {
 		if d < 0 {
@@ -261,7 +285,9 @@ func WithLinktestInterval(d time.Duration) ConnOption {
 }
 
 // WithLinktestFailThreshold sets the number of consecutive linktest failures
-// before the connection is considered broken. Must be >= 1.
+// before the connection is considered broken.
+//
+// The threshold must be >= 1.
 func WithLinktestFailThreshold(n int) ConnOption {
 	return func(c *ConnectionConfig) error {
 		if n < 1 {
@@ -274,7 +300,9 @@ func WithLinktestFailThreshold(n int) ConnOption {
 	}
 }
 
-// WithSenderQueueSize sets the size of the outbound message queue. Must be >= 1.
+// WithSenderQueueSize sets the size of the outbound message queue.
+//
+// The size must be >= 1.
 func WithSenderQueueSize(n int) ConnOption {
 	return func(c *ConnectionConfig) error {
 		if n < 1 {
@@ -288,7 +316,9 @@ func WithSenderQueueSize(n int) ConnOption {
 }
 
 // WithCloseTimeout sets the maximum time to wait for in-flight goroutines to
-// finish during connection shutdown. Must be > 0.
+// finish during connection shutdown.
+//
+// The duration must be > 0.
 func WithCloseTimeout(d time.Duration) ConnOption {
 	return func(c *ConnectionConfig) error {
 		if d <= 0 {
@@ -301,12 +331,18 @@ func WithCloseTimeout(d time.Duration) ConnOption {
 	}
 }
 
-// WithWriteTimeout bounds each on-wire frame write (the writev). Without it, a wedged or
-// zero-window peer that stops reading can stall the connection's sole writer — and the auto-linktest
-// that shares the send path — indefinitely, so the failure the linktest exists to detect goes
-// undetected. On expiry the write fails and the generation is torn down (an involuntary drop); the
-// always-on reconnect loop then re-establishes the link. The default is 30s. A value of 0 disables
-// the bound (a write may block indefinitely on a wedged peer). Negative values are rejected.
+// WithWriteTimeout bounds each on-wire frame write (the writev).
+//
+// Without it, a wedged or zero-window peer that stops reading can stall the connection's
+// sole writer — and the auto-linktest that shares the send path — indefinitely, so the
+// failure the linktest exists to detect goes undetected.
+//
+// On expiry the write fails and the generation is torn down (an involuntary drop).
+// The always-on reconnect loop then re-establishes the link.
+//
+// The default is 30s.
+// A value of 0 disables the bound (a write may block indefinitely on a wedged peer).
+// Negative values are rejected.
 func WithWriteTimeout(d time.Duration) ConnOption {
 	return func(c *ConnectionConfig) error {
 		if d < 0 {
@@ -352,26 +388,38 @@ func WithLogger(l logger.Logger) ConnOption {
 	}
 }
 
-// WithSessionIDValidation enables or disables inbound SessionID validation. When enabled, any
-// inbound data message whose SessionID does not match this connection's configured SessionID is
-// dropped (never delivered to a DataMessageHandler) and answered with an S9F1 sent from this
-// connection's own SessionID — EXCEPT an inbound message that is itself S9F1 (SEMI E5's own
-// "unrecognized device ID" notification), which is exempted from the check entirely: it is
-// delivered to DataMessageHandlers normally, regardless of its own SessionID, and never triggers an
-// outbound S9F1 in response. This exemption exists for two reasons: (1) it avoids an S9F1-answers-S9F1
-// notification loop, and (2) an inbound S9F1 is itself diagnostic information about a protocol
-// problem the PEER detected — silently dropping it would hide exactly the kind of signal an
-// application wants visibility into (this mirrors how S9Fx messages are typically handled: logged
-// and counted, not discarded).
+// WithSessionIDValidation enables or disables inbound SessionID validation.
 //
-// Disabled (the default, matching v2's shipped behavior prior to this option's introduction) means
-// every inbound data message is delivered regardless of its SessionID; the application is fully
-// responsible for any session-ID cross-checking it needs. Enable this for compliant HSMS/SECS-I
-// peers where a SessionID mismatch signals a real protocol problem (e.g. a cross-wired connection)
-// worth rejecting automatically. Leave it disabled when talking to equipment whose SessionID
-// encoding does not follow the SEMI convention exactly (for example a peer that overlays a direction
-// bit on the SessionID) — such a peer's legitimate traffic would otherwise be misclassified as
-// mismatched and dropped.
+// When enabled, any inbound data message whose SessionID does not match this
+// connection's configured SessionID is dropped (never delivered to a
+// DataMessageHandler) and answered with an S9F1 sent from this connection's own
+// SessionID.
+//
+// An inbound message that is itself S9F1 (SEMI E5's own "unrecognized device ID"
+// notification) is exempted from the check entirely: it is delivered to
+// DataMessageHandlers normally, regardless of its own SessionID, and never
+// triggers an outbound S9F1 in response.
+//
+// This exemption exists for two reasons:
+//  1. It avoids an S9F1-answers-S9F1 notification loop.
+//  2. An inbound S9F1 is itself diagnostic information about a protocol problem
+//     the PEER detected — silently dropping it would hide exactly the kind of
+//     signal an application wants visibility into (this mirrors how S9Fx messages
+//     are typically handled: logged and counted, not discarded).
+//
+// Disabled (the default, matching v2's shipped behavior prior to this option's
+// introduction) means every inbound data message is delivered regardless of its
+// SessionID. The application is fully responsible for any session-ID
+// cross-checking it needs.
+//
+// Enable this for compliant HSMS/SECS-I peers where a SessionID mismatch signals
+// a real protocol problem (e.g. a cross-wired connection) worth rejecting
+// automatically.
+//
+// Leave it disabled when talking to equipment whose SessionID encoding does not
+// follow the SEMI convention exactly (for example a peer that overlays a
+// direction bit on the SessionID) — such a peer's legitimate traffic would
+// otherwise be misclassified as mismatched and dropped.
 func WithSessionIDValidation(enabled bool) ConnOption {
 	return func(c *ConnectionConfig) error {
 		c.validateSessionID = enabled
@@ -380,15 +428,20 @@ func WithSessionIDValidation(enabled bool) ConnOption {
 	}
 }
 
-// WithAutoS9F9 enables automatic S9F9 (Transaction Timeout, SEMI E5 §10.13) notification: when a
-// synchronous data-message send's reply wait times out (T3), an S9F9 whose body is the timed-out
-// message's 10-byte SHEAD is sent to the peer before the timeout error is returned to the caller
-// (fire-and-forget — a failure to send it does not change the returned error). Disabled by default.
+// WithAutoS9F9 enables automatic S9F9 (Transaction Timeout, SEMI E5 §10.13) notification.
+//
+// When a synchronous data-message send's reply wait times out (T3), an S9F9 whose body
+// is the timed-out message's 10-byte SHEAD is sent to the peer before the timeout error
+// is returned to the caller (fire-and-forget — a failure to send it does not change the
+// returned error).
+//
+// Disabled by default.
 //
 // Most callers should not call this directly: it is the shared primitive behind
-// hsmsss.WithEquipRole / hsmsss.WithHostRole and secs1.WithEquipment / secs1.WithHost, which express
-// the concept applications actually configure (equipment vs. host role) and keep this and the
-// transport's own role-specific state (e.g. secs1's line-contention role) in sync.
+// hsmsss.WithEquipRole / hsmsss.WithHostRole and secs1.WithEquipment / secs1.WithHost,
+// which express the concept applications actually configure (equipment vs. host role) and
+// keep this and the transport's own role-specific state (e.g. secs1's line-contention role)
+// in sync.
 func WithAutoS9F9(enabled bool) ConnOption {
 	return func(c *ConnectionConfig) error {
 		c.autoS9F9 = enabled
@@ -402,10 +455,14 @@ func (c *ConnectionConfig) AutoS9F9() bool {
 	return c.autoS9F9
 }
 
-// WithTraceTraffic enables per-frame wire-level tracing: every frame sent or received is logged
-// (Debug level, via the connection's configured Logger) with a hex dump of its raw bytes, including
-// frames that fail to decode. Off by default; expensive (every frame is hex-encoded even when no
-// Debug sink consumes it) — intended for interactive debugging only, not production use.
+// WithTraceTraffic enables per-frame wire-level tracing.
+//
+// Every frame sent or received is logged (Debug level, via the connection's configured Logger)
+// with a hex dump of its raw bytes, including frames that fail to decode.
+//
+// Off by default.
+// Expensive (every frame is hex-encoded even when no Debug sink consumes it) — intended
+// for interactive debugging only, not production use.
 func WithTraceTraffic(enabled bool) ConnOption {
 	return func(c *ConnectionConfig) error {
 		c.traceTraffic = enabled
@@ -419,16 +476,21 @@ func (c *ConnectionConfig) TraceTraffic() bool {
 	return c.traceTraffic
 }
 
-// WithAsyncSendErrorHandler installs a callback invoked whenever a fire-and-forget async send
-// (SendAsync / ForwardDataMessageAsync, and internal control-message async sends such as
-// Reject/Select.rsp/S9Fx) fails its transport write. msg is the message that failed to reach the
-// wire and err is the write error. This is the ONLY way to observe such a failure per-message:
-// SendAsync/ForwardDataMessageAsync themselves report only enqueue-boundary errors (see
-// AsyncSendErrCount for the always-on counter form). fn runs SYNCHRONOUSLY, panic-isolated, on
-// the per-generation async-sender goroutine — a slow fn delays every other queued async send on
-// that generation, so keep it fast (increment a counter, log, push to a buffered channel) rather
-// than doing blocking I/O. Nil (the default) disables the callback. Passing nil is valid and
-// simply clears any previously installed handler.
+// WithAsyncSendErrorHandler installs a callback invoked whenever a fire-and-forget async send fails.
+//
+// The callback is invoked when SendAsync, ForwardDataMessageAsync, and internal control-message
+// async sends (such as Reject, Select.rsp, S9Fx) fail their transport write.
+// The msg is the message that failed to reach the wire and err is the write error.
+// This is the ONLY way to observe such a failure per-message: SendAsync/ForwardDataMessageAsync
+// themselves report only enqueue-boundary errors (see AsyncSendErrCount for the always-on
+// counter form).
+//
+// The fn callback runs SYNCHRONOUSLY, panic-isolated, on the per-generation async-sender
+// goroutine.
+// A slow fn delays every other queued async send on that generation, so keep it fast
+// (increment a counter, log, push to a buffered channel) rather than doing blocking I/O.
+//
+// Passing nil (the default) disables the callback.
 func WithAsyncSendErrorHandler(fn func(msg Message, err error)) ConnOption {
 	return func(c *ConnectionConfig) error {
 		c.asyncSendErrHandler = fn

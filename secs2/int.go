@@ -69,8 +69,9 @@ func NewIntItem(byteSize int, values ...any) Item {
 	return item
 }
 
-// ToInt returns a fresh copy of the int64-widened values. Returns an error if the item carries a
-// deferred construction error.
+// ToInt returns a fresh copy of the int64-widened values.
+//
+// Returns an error if the item carries a deferred construction error.
 func (item *IntItem) ToInt() ([]int64, error) {
 	if item.itemErr != nil {
 		return nil, item.itemErr
@@ -86,8 +87,9 @@ func (item *IntItem) ToInt() ([]int64, error) {
 	return slices.Clone(item.values), nil
 }
 
-// IntAt returns the int64-widened value at index i. Returns an error if the item carries a
-// deferred error or i is out of range.
+// IntAt returns the int64-widened value at index i.
+//
+// Returns an error if the item carries a deferred error or i is out of range.
 func (item *IntItem) IntAt(i int) (int64, error) {
 	if item.itemErr != nil {
 		return 0, item.itemErr
@@ -104,8 +106,9 @@ func (item *IntItem) IntAt(i int) (int64, error) {
 	return item.values[i], nil
 }
 
-// Ints returns an iterator over the int64-widened values. Yields nothing if the item carries a
-// deferred error.
+// Ints returns an iterator over the int64-widened values.
+//
+// Yields nothing if the item carries a deferred error.
 func (item *IntItem) Ints() iter.Seq[int64] {
 	return func(yield func(int64) bool) {
 		if item.itemErr != nil {

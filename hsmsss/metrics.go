@@ -2,11 +2,14 @@ package hsmsss
 
 import "sync/atomic"
 
-// ConnectionMetrics holds lock-free HSMS-SS (SEMI E37.1) control-plane counters: linktest and the
-// Select/Separate/Reject handshake — a control layer with no SECS-I analogue at all (SECS-I has no
-// session/select concept, and its own line-level counters live in secs1.ConnectionMetrics instead).
-// All reads and writes are atomic; safe to read concurrently with the transport goroutines. Reach an
-// instance via Connection.ControlMetrics().
+// ConnectionMetrics holds lock-free HSMS-SS (SEMI E37.1) control-plane counters.
+//
+// These include linktest and the Select/Separate/Reject handshake — a control
+// layer with no SECS-I analogue (SECS-I has no session/select concept, and its own
+// line-level counters live in secs1.ConnectionMetrics instead).
+//
+// All reads and writes are atomic; safe to read concurrently with the transport goroutines.
+// Reach an instance via Connection.ControlMetrics().
 type ConnectionMetrics struct {
 	linktestSend      atomic.Uint64 // Linktest.req sent by our own auto-linktest
 	linktestRecv      atomic.Uint64 // Linktest.rsp received (successful round-trip)
@@ -31,8 +34,10 @@ func (m *ConnectionMetrics) LinktestRecvCount() uint64 {
 	return m.linktestRecv.Load()
 }
 
-// LinktestErrCount returns the cumulative number of failed initiator linktest attempts (a T6 timeout
-// or write error). It only ever grows and is purely observational — it never influences the
+// LinktestErrCount returns the cumulative number of failed initiator linktest attempts.
+//
+// A failure is defined as a T6 timeout or write error.
+// It only ever grows and is purely observational — it never influences the
 // linktest-fail-threshold disconnect decision.
 func (m *ConnectionMetrics) LinktestErrCount() uint64 {
 	return m.linktestErr.Load()
@@ -68,10 +73,13 @@ func (m *ConnectionMetrics) LinktestReqRecvCount() uint64 {
 	return m.linktestReqRecv.Load()
 }
 
-// ReadErrCount returns the total number of socket read or frame-length errors encountered in the
-// receive loop (recvLoop's readFrame error branch) — a plain transport-level read failure, distinct
-// from hsms.ConnectionMetrics.DecodeErrCount (a frame that WAS read successfully but failed to
-// decode).
+// ReadErrCount returns the total number of socket read or frame-length errors.
+//
+// These are errors encountered in the receive loop (recvLoop's readFrame error branch).
+//
+// It represents a plain transport-level read failure, distinct from
+// hsms.ConnectionMetrics.DecodeErrCount (a frame that WAS read successfully but
+// failed to decode).
 func (m *ConnectionMetrics) ReadErrCount() uint64 {
 	return m.readErr.Load()
 }

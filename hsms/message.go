@@ -44,12 +44,14 @@ func IsValidSType(b byte) bool {
 }
 
 // Message is the read-only interface implemented by all immutable HSMS messages.
+//
 // Both ControlMessage and DataMessage satisfy this interface.
 //
 // All methods return value types (not slices) to guarantee immutability: callers
 // may retain the returned values indefinitely without risk of aliasing.
 type Message interface {
 	// Type returns the HSMS SType for this message.
+	//
 	// Returns UndefinedMsgType if the SType byte is not a defined SEMI E37 value.
 	Type() MsgType
 
@@ -57,19 +59,22 @@ type Message interface {
 	SessionID() uint16
 
 	// SystemBytes returns the four system bytes (header bytes 6–9) as a value.
+	//
 	// The returned array is an independent copy; callers may retain it freely.
 	SystemBytes() [4]byte
 
 	// HeaderBytes returns a copy of the full 10-byte HSMS message header as a value.
 	HeaderBytes() [10]byte
 
-	// ToBytes serializes the message to its on-wire byte representation
-	// (4-byte length prefix followed by the 10-byte header and, for data messages,
-	// the encoded SECS-II item body).
+	// ToBytes serializes the message to its on-wire byte representation.
+	//
+	// The representation is a 4-byte length prefix followed by the 10-byte header
+	// and, for data messages, the encoded SECS-II item body.
 	ToBytes() []byte
 
-	// ToDataMessage narrows msg to a *DataMessage.
-	// It returns (msg, true) when msg is already a *DataMessage, or (nil, false)
-	// when msg is a *ControlMessage.
+	// ToDataMessage narrows the message to a DataMessage.
+	//
+	// It returns (msg, true) when msg is already a DataMessage, or (nil, false)
+	// when msg is a ControlMessage.
 	ToDataMessage() (*DataMessage, bool)
 }

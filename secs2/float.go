@@ -77,8 +77,9 @@ func NewFloatItem(byteSize int, values ...any) Item {
 	return item
 }
 
-// ToFloat returns a fresh copy of the float64-widened values. Returns an error if the item
-// carries a deferred construction error.
+// ToFloat returns a fresh copy of the float64-widened values.
+//
+// Returns an error if the item carries a deferred construction error.
 func (item *FloatItem) ToFloat() ([]float64, error) {
 	if item.itemErr != nil {
 		return nil, item.itemErr
@@ -94,8 +95,9 @@ func (item *FloatItem) ToFloat() ([]float64, error) {
 	return slices.Clone(item.values), nil
 }
 
-// FloatAt returns the value at index i. Returns an error if the item carries a deferred error or
-// i is out of range.
+// FloatAt returns the value at index i.
+//
+// Returns an error if the item carries a deferred error or i is out of range.
 func (item *FloatItem) FloatAt(i int) (float64, error) {
 	if item.itemErr != nil {
 		return 0, item.itemErr
@@ -112,8 +114,9 @@ func (item *FloatItem) FloatAt(i int) (float64, error) {
 	return item.values[i], nil
 }
 
-// Floats returns an iterator over the float64-widened values. Yields nothing if the item carries
-// a deferred error.
+// Floats returns an iterator over the float64-widened values.
+//
+// Yields nothing if the item carries a deferred error.
 func (item *FloatItem) Floats() iter.Seq[float64] {
 	return func(yield func(float64) bool) {
 		if item.itemErr != nil {

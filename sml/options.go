@@ -29,8 +29,9 @@ func WithEncoderStrictMode(strict bool) EncoderOption {
 	return func(e *Encoder) { e.strict = strict }
 }
 
-// WithASCIIQuote selects the quote for ASCII/JIS-8 string values. QuoteNone is
-// invalid for string data and is treated as QuoteDouble.
+// WithASCIIQuote selects the quote for ASCII/JIS-8 string values.
+//
+// QuoteNone is invalid for string data and is treated as QuoteDouble.
 //
 // Note: Localized (W) items are always rendered with Go-style double-quoting
 // (strconv.Quote) regardless of this option.
@@ -58,8 +59,10 @@ const (
 	BinaryLiteral
 )
 
-// WithBinaryStyle selects hex (0xAB, the default) or binary-literal (0b..) rendering for
-// binary items. The parser reads both forms regardless of this option.
+// WithBinaryStyle selects hex (0xAB, the default) or binary-literal (0b..) rendering
+// for binary items.
+//
+// The parser reads both forms regardless of this option.
 func WithBinaryStyle(s BinaryStyle) EncoderOption {
 	return func(e *Encoder) { e.binaryStyle = s }
 }

@@ -10,10 +10,13 @@ type paddedUint64 struct {
 	_ [56]byte // pad to 64 bytes (cache line size) to prevent false sharing
 }
 
-// ConnectionMetrics holds lock-free SECS-I (SEMI E4) block/line-level counters: the wire-framing
-// layer beneath the shared hsms data-message counters (see hsms.ConnectionMetrics, reached via
-// Connection's embedded hsms.Connection.Metrics()). All reads and writes are atomic; safe to read
-// concurrently with the line-engine goroutine. Reach an instance via Connection.BlockMetrics().
+// ConnectionMetrics holds lock-free SECS-I (SEMI E4) block/line-level counters.
+//
+// These represent the wire-framing layer beneath the shared hsms data-message counters
+// (see hsms.ConnectionMetrics, reached via Connection's embedded hsms.Connection.Metrics()).
+//
+// All reads and writes are atomic; safe to read concurrently with the line-engine goroutine.
+// Reach an instance via Connection.BlockMetrics().
 type ConnectionMetrics struct {
 	_                [64]byte      // isolate blockSend from whatever precedes this struct in memory
 	blockSend        paddedUint64  // blocks successfully sent and ACK'd
@@ -37,49 +40,58 @@ func (m *ConnectionMetrics) BlockSendCount() uint64 { return m.blockSend.Load() 
 // BlockRecvCount returns the total number of SECS-I blocks received (and ACK'd) from the peer.
 func (m *ConnectionMetrics) BlockRecvCount() uint64 { return m.blockRecv.Load() }
 
-// BlockRetryCount returns the total number of SECS-I block-send retries (a NAK, a T2 timeout, or a
-// failed receive during a slave-contention yield — SEMI E4 §7.8.2).
+// BlockRetryCount returns the total number of SECS-I block-send retries.
+//
+// A retry is triggered by a NAK, a T2 timeout, or a failed receive during a
+// slave-contention yield (SEMI E4 §7.8.2).
 func (m *ConnectionMetrics) BlockRetryCount() uint64 { return m.blockRetry.Load() }
 
-// BlockSendFailedCount returns the total number of times the RTY retry limit was exhausted without
-// an ACK (SEMI E4 §7.8.6). Unlike BlockRetryCount (routine, expected under a noisy line), this is a
-// link-failure signal worth alerting on.
+// BlockSendFailedCount returns the total number of times the RTY retry limit was exhausted without an ACK.
+//
+// Unlike BlockRetryCount (routine, expected under a noisy line), this represents a
+// link-failure signal worth alerting on (SEMI E4 §7.8.6).
 func (m *ConnectionMetrics) BlockSendFailedCount() uint64 { return m.blockSendFailed.Load() }
 
-// BlockNAKSentCount returns the total number of NAKs this connection sent for an inbound block
-// (aggregating a length error, a checksum/parse error, a T1 timeout reading the body, or a T2
-// timeout waiting for the length byte). A nonzero, growing count diagnoses a misframing or noisy
-// peer.
+// BlockNAKSentCount returns the total number of NAKs this connection sent for an inbound block.
+//
+// This aggregates length errors, checksum/parse errors, T1 timeouts reading the body, or T2
+// timeouts waiting for the length byte.
+// A nonzero, growing count diagnoses a misframing or noisy peer.
 func (m *ConnectionMetrics) BlockNAKSentCount() uint64 { return m.blockNAKSent.Load() }
 
 // ContentionYieldCount returns the total number of times this connection, acting as slave, yielded
 // line control to a contending master (SEMI E4 §7.8.2.1) — a pure half-duplex contention signal.
 func (m *ConnectionMetrics) ContentionYieldCount() uint64 { return m.contentionYield.Load() }
 
-// BlockDupDropCount returns the total number of duplicate blocks detected and dropped (SEMI E4
-// §9.4.2). A nonzero count means an ACK this connection sent was lost in transit.
+// BlockDupDropCount returns the total number of duplicate blocks detected and dropped (SEMI E4 §9.4.2).
+//
+// A nonzero count means an ACK this connection sent was lost in transit.
 func (m *ConnectionMetrics) BlockDupDropCount() uint64 { return m.blockDupDrop.Load() }
 
 // PartialTimeoutCount returns the total number of stale partial multi-block messages discarded
 // after the T4 inter-block deadline elapsed (SEMI E4 §9.4.3).
 func (m *ConnectionMetrics) PartialTimeoutCount() uint64 { return m.partialTimeout.Load() }
 
-// BlockDirDropCount returns the total number of inbound blocks dropped for carrying the wrong R-bit
-// direction (SEMI E4 §8.2) — typically a bring-up configuration mistake (host/equipment role
-// mismatch), near-zero in steady state.
+// BlockDirDropCount returns the total number of inbound blocks dropped for carrying the wrong R-bit direction.
+//
+// This is typically a bring-up configuration mistake (host/equipment role mismatch per SEMI E4 §8.2),
+// and is near-zero in steady state.
 func (m *ConnectionMetrics) BlockDirDropCount() uint64 { return m.blockDirDrop.Load() }
 
 // DeviceIDMismatchCount returns the total number of inbound blocks dropped for carrying a device ID
 // that does not match this connection's configured device ID (SEMI E4 §9.4.1 routing check).
 func (m *ConnectionMetrics) DeviceIDMismatchCount() uint64 { return m.deviceIDMismatch.Load() }
 
-// BlockNumberMismatchCount returns the total number of inbound blocks that aborted an open partial
-// message because they carried the wrong block number or a mismatched block-invariant header (SEMI
-// E4 §9.4.4.2).
+// BlockNumberMismatchCount returns the total number of inbound blocks that aborted an open partial message.
+//
+// An abort occurs if blocks carry the wrong block number or a mismatched block-invariant
+// header (SEMI E4 §9.4.4.2).
 func (m *ConnectionMetrics) BlockNumberMismatchCount() uint64 { return m.blockNumberMismatch.Load() }
 
-// InvalidFirstBlockCount returns the total number of inbound blocks dropped for being neither block
-// number 1 nor a lone block 0 with the E-bit set when starting a new message (SEMI E4 §9.4.4.2).
+// InvalidFirstBlockCount returns the total number of inbound blocks dropped when starting a new message.
+//
+// Dropping occurs if the block is neither block number 1 nor a lone block 0 with the E-bit
+// set (SEMI E4 §9.4.4.2).
 func (m *ConnectionMetrics) InvalidFirstBlockCount() uint64 { return m.invalidFirstBlock.Load() }
 
 // Unexported increment helpers used by the line engine (secs1/line.go, secs1/assembler.go). Kept

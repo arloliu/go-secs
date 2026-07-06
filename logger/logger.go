@@ -39,30 +39,44 @@ const (
 )
 
 // Logger defines a common interface for logging.
+//
 // This interface is used throughout the go-secs packages, enabling integration with various logging frameworks.
 type Logger interface {
 	// Debug logs a message at DebugLevel.
+	//
 	// The message includes any fields passed at the log site, as well as any fields accumulated on the logger.
 	Debug(msg string, keysAndValues ...any)
+
 	// Info logs a message at InfoLevel.
+	//
 	// The message includes any fields passed at the log site, as well as any fields accumulated on the logger.
 	Info(msg string, keysAndValues ...any)
+
 	// Warn logs a message at WarnLevel.
+	//
 	// The message includes any fields passed at the log site, as well as any fields accumulated on the logger.
 	Warn(msg string, keysAndValues ...any)
-	// Error logs a message at ErrorLevel
+
+	// Error logs a message at ErrorLevel.
+	//
 	// The message includes any fields passed at the log site, as well as any fields accumulated on the logger.
 	Error(msg string, keysAndValues ...any)
-	// Fatal logs a message at FatalLevel
+
+	// Fatal logs a message at FatalLevel.
+	//
 	// The message includes any fields passed at the log site, as well as any fields accumulated on the logger.
 	//
 	// The logger then calls os.Exit(1), even if logging at FatalLevel is disabled.
 	Fatal(msg string, keysAndValues ...any)
+
 	// With creates a child logger and adds structured context to it.
+	//
 	// Key-values added to the child don't affect the parent, and vice versa.
 	With(keyValues ...any) Logger
+
 	// Level returns the minimum enabled level for this logger.
 	Level() LogLevel
+
 	// SetLevel sets the minimum enabled level for this logger.
 	SetLevel(level LogLevel)
 }

@@ -36,21 +36,27 @@ type Config struct {
 	listen     ListenFunc // passive-mode listener; default (&net.ListenConfig{}).Listen
 }
 
-// Option is a functional option that mutates a [Config]. It returns an error if the provided value
-// is invalid; NewConfig applies the whole option set transactionally (all-or-nothing).
+// Option is a functional option that mutates a [Config].
+//
+// It returns an error if the provided value is invalid.
+// NewConfig applies the whole option set transactionally (all-or-nothing).
 type Option func(*Config) error
 
-// DialFunc is an alias of [hsms.DialFunc] — see its doc for the contract. Kept as a named type
-// in this package so existing signatures (WithDialer) don't need touching, and so callers can
-// keep writing secs1.DialFunc without importing hsms for this alone.
+// DialFunc is an alias of [hsms.DialFunc] — see its doc for the contract.
+//
+// It is kept as a named type in this package so existing signatures (WithDialer)
+// don't need touching, and so callers can keep writing secs1.DialFunc without
+// importing hsms for this alone.
 type DialFunc = hsms.DialFunc
 
 // ListenFunc is an alias of [hsms.ListenFunc] — see its doc for the contract.
 type ListenFunc = hsms.ListenFunc
 
 // NewConfig constructs a Config for the given TCP host and port, applying the supplied options
-// transactionally (all-or-nothing: every option is validated on a scratch copy; if any option
-// returns an error the original is discarded and the joined set of errors is returned).
+// transactionally.
+//
+// The application is all-or-nothing: every option is validated on a scratch copy; if any option
+// returns an error the original is discarded and the joined set of errors is returned.
 //
 // The embedded [hsms.ConnectionConfig] is initialised to the core defaults (T3=45 s reply timeout,
 // sessionID=0xFFFF, logger set). The SECS-I timers default to the SEMI E4 recommendations:
@@ -124,10 +130,12 @@ func (c *Config) apply(opts ...Option) error {
 	return nil
 }
 
-// ApplyOptions applies the supplied options to the Config transactionally (all-or-nothing: see
-// [NewConfig]). This is the public counterpart to the unexported apply method. It does NOT re-apply
-// the writeTimeout=0 override, so callers adjusting settings after construction must not
-// re-arm writeTimeout through it.
+// ApplyOptions applies the supplied options to the Config transactionally.
+//
+// This is the public counterpart to the unexported apply method (all-or-nothing: see [NewConfig]).
+//
+// It does NOT re-apply the writeTimeout=0 override, so callers adjusting settings
+// after construction must not re-arm writeTimeout through it.
 func (c *Config) ApplyOptions(opts ...Option) error {
 	return c.apply(opts...)
 }
@@ -141,9 +149,11 @@ func WithActive() Option {
 	}
 }
 
-// WithPassive sets the connection role to passive (listens for inbound connections). Passive and
-// active are mutually exclusive; calling [WithActive] and [WithPassive] in the same [NewConfig]
-// call results in whichever option appears last winning, since both simply assign the field.
+// WithPassive sets the connection role to passive (listens for inbound connections).
+//
+// Passive and active are mutually exclusive.
+// Calling [WithActive] and [WithPassive] in the same [NewConfig] call results in
+// whichever option appears last winning, since both simply assign the field.
 func WithPassive() Option {
 	return func(c *Config) error {
 		c.active = false
@@ -151,43 +161,57 @@ func WithPassive() Option {
 	}
 }
 
-// WithT1 sets the SECS-I T1 inter-character timeout (max time between bytes of a block). Must be > 0.
+// WithT1 sets the SECS-I T1 inter-character timeout (max time between bytes of a block).
+//
+// The duration must be > 0.
 func WithT1(d time.Duration) Option {
 	return func(c *Config) error {
 		return hsms.WithT1(d)(&c.ConnectionConfig)
 	}
 }
 
-// WithT2 sets the SECS-I T2 protocol/reply timeout (max time to wait for a handshake reply such as
-// EOT or the reply block). Must be > 0.
+// WithT2 sets the SECS-I T2 protocol/reply timeout (max time to wait for a handshake reply).
+//
+// This bounds the wait for EOT or the reply block.
+// The duration must be > 0.
 func WithT2(d time.Duration) Option {
 	return func(c *Config) error {
 		return hsms.WithT2(d)(&c.ConnectionConfig)
 	}
 }
 
-// WithT4 sets the SECS-I T4 inter-block timeout (max time to wait for the next block of a
-// multi-block message). Must be > 0.
+// WithT4 sets the SECS-I T4 inter-block timeout.
+//
+// This bounds the max time to wait for the next block of a multi-block message.
+// The duration must be > 0.
 func WithT4(d time.Duration) Option {
 	return func(c *Config) error {
 		return hsms.WithT4(d)(&c.ConnectionConfig)
 	}
 }
 
-// WithT5 sets the T5 reconnect-backoff ceiling: the exponential backoff between successive
-// connect attempts after a TCP disconnect ramps up to at most this duration (see
-// hsms.WithReconnectBackoff for the growth curve itself). SEMI E4 does not define a T5 timer;
-// go-secs reuses the shared hsms T5 slot as the reconnect-cadence knob for BOTH transports, so
-// this exists for parity with WithT1/WithT2/WithT4 — before this option, the only way to tune
-// SECS-I's reconnect cadence was the WithConnectionOption(hsms.WithT5(...)) wrapper form, and
-// omitting it silently left every SECS-I connection on the hard-coded default. Must be > 0.
+// WithT5 sets the T5 reconnect-backoff ceiling.
+//
+// The exponential backoff between successive connect attempts after a TCP disconnect
+// ramps up to at most this duration (see hsms.WithReconnectBackoff for the growth curve).
+//
+// SEMI E4 does not define a T5 timer; go-secs reuses the shared hsms T5 slot as the
+// reconnect-cadence knob for BOTH transports, so this exists for parity with
+// WithT1/WithT2/WithT4.
+// Prior to this option, the only way to tune SECS-I's reconnect cadence was the
+// WithConnectionOption(hsms.WithT5(...)) wrapper form, which left connections on the
+// default value if omitted.
+//
+// The duration must be > 0.
 func WithT5(d time.Duration) Option {
 	return func(c *Config) error {
 		return hsms.WithT5(d)(&c.ConnectionConfig)
 	}
 }
 
-// WithRetryLimit sets the SECS-I RTY block-send retry limit. Must be in the range 0..31 (SEMI E4).
+// WithRetryLimit sets the SECS-I RTY block-send retry limit.
+//
+// The limit must be in the range 0..31 per SEMI E4.
 func WithRetryLimit(n int) Option {
 	return func(c *Config) error {
 		if n < 0 || n > 31 {
@@ -200,12 +224,16 @@ func WithRetryLimit(n int) Option {
 	}
 }
 
-// WithEquipment sets the SECS-I role to equipment (master, controls line contention). Equipment is
-// the master role: it initiates ENQ and ignores inbound ENQ during an active send. It also enables
-// the shared hsms.WithAutoS9F9 behavior: a synchronous data-message send whose reply times out (T3)
-// automatically notifies the peer with an S9F9 (SEMI E5 §10.13) before the timeout error is returned.
-// The default role is host; use this option to override it. Equipment and host are mutually
-// exclusive — whichever option appears last in a [NewConfig] call wins.
+// WithEquipment sets the SECS-I role to equipment (master, controls line contention).
+//
+// Equipment is the master role: it initiates ENQ and ignores inbound ENQ during an active send.
+// It also enables the shared hsms.WithAutoS9F9 behavior: a synchronous data-message
+// send whose reply times out (T3) automatically notifies the peer with an S9F9
+// (SEMI E5 §10.13) before the timeout error is returned.
+//
+// The default role is host; use this option to override it.
+// Equipment and host are mutually exclusive — whichever option appears last in a
+// [NewConfig] call wins.
 func WithEquipment() Option {
 	return func(c *Config) error {
 		c.isEquip = true
@@ -214,10 +242,13 @@ func WithEquipment() Option {
 	}
 }
 
-// WithHost sets the SECS-I role to host (slave), and disables the shared AutoS9F9 T3-timeout
-// notification (see WithEquipment). The host is the default role; this option is provided for
-// explicit clarity or to override a preceding [WithEquipment] call. Equipment and host are mutually
-// exclusive — whichever option appears last in a [NewConfig] call wins.
+// WithHost sets the SECS-I role to host (slave), and disables the shared AutoS9F9 T3-timeout notification.
+//
+// The host is the default role.
+// This option is provided for explicit clarity or to override a preceding [WithEquipment] call.
+//
+// Equipment and host are mutually exclusive — whichever option appears last in a
+// [NewConfig] call wins (see WithEquipment).
 func WithHost() Option {
 	return func(c *Config) error {
 		c.isEquip = false
@@ -226,7 +257,9 @@ func WithHost() Option {
 	}
 }
 
-// WithDeviceID sets the SECS-I device ID. Must be in the range 0..0x7FFF (15-bit, SEMI E4).
+// WithDeviceID sets the SECS-I device ID.
+//
+// The ID must be in the range 0..0x7FFF (15-bit, per SEMI E4).
 func WithDeviceID(id uint16) Option {
 	return func(c *Config) error {
 		if id > 0x7FFF {
@@ -239,11 +272,15 @@ func WithDeviceID(id uint16) Option {
 	}
 }
 
-// WithDialer overrides how the active connection is established. The default dials with
-// [net.Dialer.DialContext] over TCP. Supply a custom [DialFunc] to layer the connection on a
-// different transport — for example a TLS or proxy dialer, or an in-memory connection for tests.
-// Passing nil is a configuration error. This option affects the active (dialing) role only; the
-// passive role always listens on the configured TCP endpoint.
+// WithDialer overrides how the active connection is established.
+//
+// The default dials with [net.Dialer.DialContext] over TCP.
+// Supply a custom [DialFunc] to layer the connection on a different transport — for
+// example a TLS or proxy dialer, or an in-memory connection for tests.
+//
+// Passing nil is a configuration error.
+// This option affects the active (dialing) role only; the passive role always listens
+// on the configured TCP endpoint.
 func WithDialer(dial DialFunc) Option {
 	return func(c *Config) error {
 		if dial == nil {
@@ -256,13 +293,18 @@ func WithDialer(dial DialFunc) Option {
 	}
 }
 
-// WithListener overrides how the passive connection listens for an inbound peer. The default
-// listens with [net.ListenConfig.Listen] over TCP. Supply a custom [ListenFunc] to layer the
-// listener on a different transport — for example an in-memory pipe-backed listener for tests.
+// WithListener overrides how the passive connection listens for an inbound peer.
+//
+// The default listens with [net.ListenConfig.Listen] over TCP.
+// Supply a custom [ListenFunc] to layer the listener on a different transport — for
+// example an in-memory pipe-backed listener for tests.
+//
 // Unlike WithDialer's single active dial, a passive connection re-listens on every reconnect
 // generation, so listen is a FACTORY called fresh each time, never a single reused net.Listener.
-// Passing nil is a configuration error. This option affects the passive (listening) role only;
-// the active role always dials the configured TCP endpoint via [WithDialer].
+//
+// Passing nil is a configuration error.
+// This option affects the passive (listening) role only; the active role always dials
+// the configured TCP endpoint via [WithDialer].
 func WithListener(listen ListenFunc) Option {
 	return func(c *Config) error {
 		if listen == nil {
@@ -275,8 +317,10 @@ func WithListener(listen ListenFunc) Option {
 	}
 }
 
-// WithTCPKeepAlive sets the TCP keep-alive probe interval for the underlying socket. A value of 0
-// uses the OS default. Must be >= 0.
+// WithTCPKeepAlive sets the TCP keep-alive probe interval for the underlying socket.
+//
+// A value of 0 uses the OS default.
+// The duration must be >= 0.
 func WithTCPKeepAlive(d time.Duration) Option {
 	return func(c *Config) error {
 		if d < 0 {
@@ -289,8 +333,10 @@ func WithTCPKeepAlive(d time.Duration) Option {
 	}
 }
 
-// WithConnectionOption wraps an [hsms.ConnOption] as an [Option] so callers can tune the shared
-// core knobs that SECS-I reuses, without a separate re-export per option.
+// WithConnectionOption wraps an [hsms.ConnOption] as an [Option].
+//
+// This allows callers to tune the shared core knobs that SECS-I reuses, without a
+// separate re-export per option.
 //
 // Knobs that take effect for SECS-I:
 //   - [hsms.WithT1] — E4 inter-character timeout (default 500 ms).
@@ -338,8 +384,9 @@ func (c Config) Host() string { return c.host }
 // Port returns the TCP port that this Config targets (active) or listens on (passive).
 func (c Config) Port() int { return c.port }
 
-// Active reports whether the connection role is active (dials outbound). A false return means the
-// role is passive (listens for inbound connections).
+// Active reports whether the connection role is active (dials outbound).
+//
+// A false return means the role is passive (listens for inbound connections).
 func (c Config) Active() bool { return c.active }
 
 // TCPKeepAlive returns the configured TCP keep-alive probe interval. Zero means use the OS default.
@@ -357,7 +404,9 @@ func (c Config) T4() time.Duration { return c.ConnectionConfig.Timers().T4 }
 // RetryLimit returns the SECS-I RTY block-send retry limit.
 func (c Config) RetryLimit() int { return c.retryLimit }
 
-// IsEquip reports whether the SECS-I role is equipment (master). A false return means host (slave).
+// IsEquip reports whether the SECS-I role is equipment (master).
+//
+// A false return means host (slave).
 func (c Config) IsEquip() bool { return c.isEquip }
 
 // DeviceID returns the configured SECS-I device ID (0..0x7FFF).

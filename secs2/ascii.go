@@ -42,8 +42,9 @@ func NewASCIIItem(value string) Item {
 	return item
 }
 
-// ToASCII returns the string value stored in this item. Returns an error if the item carries
-// a deferred construction error.
+// ToASCII returns the string value stored in this item.
+//
+// Returns an error if the item carries a deferred construction error.
 func (item *ASCIIItem) ToASCII() (string, error) {
 	if item.itemErr != nil {
 		return "", item.itemErr

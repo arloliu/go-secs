@@ -6,16 +6,21 @@ import (
 	"github.com/arloliu/go-secs/v2/hsms"
 )
 
-// Connection is the SECS-I consumer-facing connection handle. It embeds hsms.Connection (every
-// shared HSMS-II send/reply/handler operation is available unchanged) and adds BlockMetrics, the
-// SECS-I (SEMI E4) block-level counters — a wire-framing layer below the shared hsms engine, so it
-// is not part of hsms.ConnectionMetrics.
+// Connection is the SECS-I consumer-facing connection handle.
 //
-// New returns this interface. Existing code that only needs hsms.Connection is unaffected —
-// Connection satisfies hsms.Connection automatically (interface widening), so a variable/parameter/
-// return typed hsms.Connection accepts a secs1.Connection value with no change. Code that wants
-// SECS-I block metrics either declares its variable as secs1.Connection directly, or type-asserts an
-// existing hsms.Connection value it obtained from New: conn.(secs1.Connection).
+// It embeds hsms.Connection (every shared HSMS-II send/reply/handler operation is
+// available unchanged) and adds BlockMetrics, the SECS-I (SEMI E4) block-level
+// counters — a wire-framing layer below the shared hsms engine, so it is not part of
+// hsms.ConnectionMetrics.
+//
+// New returns this interface.
+// Existing code that only needs hsms.Connection is unaffected — Connection satisfies
+// hsms.Connection automatically (interface widening), so a variable/parameter/return
+// typed hsms.Connection accepts a secs1.Connection value with no change.
+//
+// Code that wants SECS-I block metrics either declares its variable as secs1.Connection
+// directly, or type-asserts an existing hsms.Connection value it obtained from New:
+// conn.(secs1.Connection).
 type Connection interface {
 	hsms.Connection
 
@@ -23,17 +28,26 @@ type Connection interface {
 	BlockMetrics() *ConnectionMetrics
 }
 
-// New builds a SECS-I (SEMI E4) connection from cfg and returns the consumer-facing
-// secs1.Connection (which is also a valid hsms.Connection — see the Connection doc). It constructs
-// the secs1 transport and hands it to the shared hsms engine via hsms.NewConnection; the
-// active/passive role, host:port, T1–T4 / RTY line policy, device ID, and equipment/host role all
-// come from cfg. This is THE consumer entry point for the SECS-I transport (the sealed package
-// boundary: the engine lives once in hsms, the app holds only the Connection/hsms.Connection
-// interface).
+// New builds a SECS-I (SEMI E4) connection from the provided configuration.
 //
-// cfg MUST originate from [NewConfig], which seeds the default TCP dialer. Passing a hand-built
-// [Config] literal leaves the dialer nil and will cause New to return a clear error for the active
-// role, or a nil-pointer panic on the passive accept path. Always use [NewConfig].
+// It returns the consumer-facing secs1.Connection (which is also a valid hsms.Connection —
+// see the Connection doc).
+//
+// It constructs the secs1 transport and hands it to the shared hsms engine via
+// hsms.NewConnection.
+// The active/passive role, host:port, T1–T4 / RTY line policy, device ID, and
+// equipment/host role all come from cfg.
+//
+// This is THE consumer entry point for the SECS-I transport: the sealed package
+// boundary is established here where the engine lives once in hsms and the app holds
+// only the Connection/hsms.Connection interface.
+//
+// cfg MUST originate from [NewConfig], which seeds the default TCP dialer.
+// Passing a hand-built [Config] literal leaves the dialer nil and will cause New to
+// return a clear error for the active role, or a nil-pointer panic on the passive
+// accept path.
+//
+// Always use [NewConfig].
 func New(cfg Config) (Connection, error) {
 	if cfg.active && cfg.dial == nil {
 		return nil, errors.New("secs1: active Config has a nil dialer; always construct Config via NewConfig")

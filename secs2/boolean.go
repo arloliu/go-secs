@@ -59,8 +59,9 @@ func NewBooleanItem(values ...any) Item {
 	return item
 }
 
-// ToBoolean returns a fresh copy of the boolean values. Returns an error if the item carries a
-// deferred construction error.
+// ToBoolean returns a fresh copy of the boolean values.
+//
+// Returns an error if the item carries a deferred construction error.
 func (item *BooleanItem) ToBoolean() ([]bool, error) {
 	if item.itemErr != nil {
 		return nil, item.itemErr
@@ -76,8 +77,9 @@ func (item *BooleanItem) ToBoolean() ([]bool, error) {
 	return slices.Clone(item.values), nil
 }
 
-// BoolAt returns the boolean value at index i. Returns an error if the item carries a deferred
-// error or i is out of range.
+// BoolAt returns the boolean value at index i.
+//
+// Returns an error if the item carries a deferred error or i is out of range.
 func (item *BooleanItem) BoolAt(i int) (bool, error) {
 	if item.itemErr != nil {
 		return false, item.itemErr
@@ -94,8 +96,9 @@ func (item *BooleanItem) BoolAt(i int) (bool, error) {
 	return item.values[i], nil
 }
 
-// Bools returns an iterator over the boolean values. Yields nothing if the item carries a
-// deferred error.
+// Bools returns an iterator over the boolean values.
+//
+// Yields nothing if the item carries a deferred error.
 func (item *BooleanItem) Bools() iter.Seq[bool] {
 	return func(yield func(bool) bool) {
 		if item.itemErr != nil {

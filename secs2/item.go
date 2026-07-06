@@ -149,14 +149,16 @@ func (e *ItemError) Error() string { return e.err.Error() }
 // Unwrap returns the underlying error.
 func (e *ItemError) Unwrap() error { return e.err }
 
-// Item is a deeply immutable SECS-II data item (SEMI E5 §9). All methods are safe for concurrent
-// use, and no method exposes mutable internal storage.
+// Item is a deeply immutable SECS-II data item (SEMI E5 §9).
+//
+// All methods are safe for concurrent use, and no method exposes mutable internal storage.
 type Item interface {
 	// Type returns the type-string constant for this item (e.g., "ascii", "i4", "list").
 	Type() string
 
-	// Size returns the number of elements in this item (bytes for binary/string, values for numeric,
-	// sub-items for list).
+	// Size returns the number of elements in this item.
+	//
+	// It returns bytes for binary/string, values for numeric, and sub-items for lists.
 	Size() int
 
 	// Error returns any deferred construction error stored on the item.
@@ -214,6 +216,7 @@ type Item interface {
 	IsFloat64() bool
 
 	// Get navigates a path of list indices and returns the item at that position.
+	//
 	// With no indices it returns the receiver itself.
 	Get(indices ...int) (Item, error)
 
@@ -265,45 +268,56 @@ type Item interface {
 	// FloatAt returns the float64-widened value at index i of a floating-point item.
 	FloatAt(i int) (float64, error)
 
-	// Items returns an iterator over the sub-items of a list item. It yields nothing on any
-	// non-list item, whether the mismatch is a plain type mismatch or a deferred error.
+	// Items returns an iterator over the sub-items of a list item.
+	//
+	// It yields nothing on any non-list item, whether the mismatch is a plain
+	// type mismatch or a deferred error.
 	Items() iter.Seq[Item]
 
-	// Bools returns an iterator over the boolean values of a boolean item. It yields nothing on any
-	// non-boolean item, whether the mismatch is a plain type mismatch or a deferred error.
+	// Bools returns an iterator over the boolean values of a boolean item.
+	//
+	// It yields nothing on any non-boolean item, whether the mismatch is a plain
+	// type mismatch or a deferred error.
 	Bools() iter.Seq[bool]
 
-	// Ints returns an iterator over the int64-widened values of a signed integer item. It yields
-	// nothing on any non-signed-integer item, whether the mismatch is a plain type mismatch or a
-	// deferred error.
+	// Ints returns an iterator over the int64-widened values of a signed integer item.
+	//
+	// It yields nothing on any non-signed-integer item, whether the mismatch is a plain
+	// type mismatch or a deferred error.
 	Ints() iter.Seq[int64]
 
-	// Uints returns an iterator over the uint64-widened values of an unsigned integer item. It
-	// yields nothing on any non-unsigned-integer item, whether the mismatch is a plain type
-	// mismatch or a deferred error.
+	// Uints returns an iterator over the uint64-widened values of an unsigned integer item.
+	//
+	// It yields nothing on any non-unsigned-integer item, whether the mismatch is a plain
+	// type mismatch or a deferred error.
 	Uints() iter.Seq[uint64]
 
-	// Floats returns an iterator over the float64-widened values of a floating-point item. It
-	// yields nothing on any non-floating-point item, whether the mismatch is a plain type mismatch
-	// or a deferred error.
+	// Floats returns an iterator over the float64-widened values of a floating-point item.
+	//
+	// It yields nothing on any non-floating-point item, whether the mismatch is a plain
+	// type mismatch or a deferred error.
 	Floats() iter.Seq[float64]
 
-	// AppendBinaryTo appends the raw bytes of a binary item into dst without allocating. On any
-	// non-binary item it returns dst unchanged.
+	// AppendBinaryTo appends the raw bytes of a binary item into dst without allocating.
+	//
+	// On any non-binary item it returns dst unchanged.
 	AppendBinaryTo(dst []byte) []byte
 
 	// EncodedLen returns the total SECS-II wire byte length (header + payload, recursive for lists).
 	EncodedLen() int
 
 	// AppendTo appends the SECS-II wire encoding of this item into dst and returns the result.
+	//
 	// No internal storage is exposed.
 	AppendTo(dst []byte) []byte
 
 	// ToBytes allocates exactly one buffer and returns the SECS-II wire encoding of this item.
+	//
 	// Equivalent to AppendTo(make([]byte, 0, EncodedLen())).
 	ToBytes() []byte
 
 	// ToSML returns the SML (SECS Message Language) text representation of this item.
+	//
 	// When Error() is non-nil the returned text is unspecified; such items are rejected at
 	// message construction and are never serialized.
 	ToSML() string

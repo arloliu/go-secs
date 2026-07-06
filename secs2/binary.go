@@ -55,8 +55,9 @@ func NewBinaryItem(values ...any) Item {
 	return item
 }
 
-// ToBinary returns a fresh copy of the binary data. Returns an error if the item carries a
-// deferred construction error.
+// ToBinary returns a fresh copy of the binary data.
+//
+// Returns an error if the item carries a deferred construction error.
 func (item *BinaryItem) ToBinary() ([]byte, error) {
 	if item.itemErr != nil {
 		return nil, item.itemErr
@@ -65,8 +66,9 @@ func (item *BinaryItem) ToBinary() ([]byte, error) {
 	return slices.Clone(item.values), nil
 }
 
-// ByteAt returns the byte at index i. Returns an error if the item carries a deferred error or
-// i is out of range.
+// ByteAt returns the byte at index i.
+//
+// Returns an error if the item carries a deferred error or i is out of range.
 func (item *BinaryItem) ByteAt(i int) (byte, error) {
 	if item.itemErr != nil {
 		return 0, item.itemErr
@@ -79,8 +81,9 @@ func (item *BinaryItem) ByteAt(i int) (byte, error) {
 	return item.values[i], nil
 }
 
-// AppendBinaryTo appends the item's byte values into dst and returns the result. Returns dst
-// unchanged if the item carries a deferred error.
+// AppendBinaryTo appends the item's byte values into dst and returns the result.
+//
+// Returns dst unchanged if the item carries a deferred error.
 func (item *BinaryItem) AppendBinaryTo(dst []byte) []byte {
 	if item.itemErr != nil {
 		return dst
