@@ -1,12 +1,14 @@
 package hsms
 
 import (
+	"context"
 	"errors"
 	"io"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/arloliu/go-secs/v2/logger"
 	"github.com/stretchr/testify/require"
 )
 
@@ -199,4 +201,149 @@ func TestOpen_StartFailureNoSpuriousReconnect(t *testing.T) {
 	require.Never(t, func() bool { return mt.startCalls() > 1 }, 300*time.Millisecond, 10*time.Millisecond,
 		"a tr.Start failure after evTCPUp must NOT trigger a spurious reconnect (reconciliation #2)")
 	require.Equal(t, NotConnectedState, c.State())
+}
+
+// TestOpen_ActiveBackgroundColdPeerRetriesInBackground proves Gap 1: an ACTIVE connection's
+// OpenBackground on a peer that is down at Open time (dial refused, TCPUp never fires) returns
+// nil immediately and keeps retrying in the background until the peer comes up — v1 parity.
+func TestOpen_ActiveBackgroundColdPeerRetriesInBackground(t *testing.T) {
+	dialErr := errors.New("simulated connection refused")
+	c, mt := newLifeConn(t, withMockTransportDialFailsThenConnects(2, dialErr))
+	require.NoError(t, c.UpdateConfigOptions(WithT5(50*time.Millisecond)))
+
+	openDone := make(chan error, 1)
+	go func() { openDone <- c.Open(t.Context(), OpenBackground) }()
+
+	select {
+	case err := <-openDone:
+		require.NoError(t, err, "Open on a cold active peer under OpenBackground must return nil, not the dial error")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Open must return promptly even though the first dial failed")
+	}
+
+	require.Eventually(t, func() bool { return c.State() == SelectedState }, 5*time.Second, time.Millisecond,
+		"the background retry loop must eventually connect and select once the peer 'comes up'")
+	require.GreaterOrEqual(t, mt.startCalls(), 3, "expected 2 failed dials + 1 successful dial")
+
+	require.Equal(t, uint64(0), c.Metrics().Reconnects(),
+		"the initial cold-connect retry must NOT count as a reconnect (never for the very first Open)")
+
+	require.NoError(t, c.Close())
+}
+
+// TestOpen_PassiveBackgroundFirstFailureStaysFatal proves Gap 1 is scoped to the active role: a
+// passive tr.Start failure (a real listen/bind error) stays fatal under OpenBackground exactly
+// as before — it must never be retried.
+func TestOpen_PassiveBackgroundFirstFailureStaysFatal(t *testing.T) {
+	dialErr := errors.New("simulated listen failure")
+	c, mt := newLifeConn(t, withMockTransportDialFails(dialErr))
+	mt.setPassiveRole()
+
+	err := c.Open(t.Context(), OpenBackground)
+	require.ErrorIs(t, err, dialErr, "a passive Start failure must be returned, never retried")
+
+	require.Never(t, func() bool { return mt.startCalls() > 1 }, 300*time.Millisecond, 10*time.Millisecond,
+		"a passive listen failure must not trigger a background retry")
+	require.Equal(t, NotConnectedState, c.State())
+}
+
+// TestOpen_ActiveWaitSelectedColdPeerStillFails proves Gap 1 is scoped to OpenBackground:
+// OpenWaitSelected on a cold active peer still fails fast (it never even reaches the new
+// branch, since the mode check gates on OpenBackground).
+func TestOpen_ActiveWaitSelectedColdPeerStillFails(t *testing.T) {
+	dialErr := errors.New("simulated connection refused")
+	c, mt := newLifeConn(t, withMockTransportDialFails(dialErr))
+
+	err := c.Open(t.Context(), OpenWaitSelected)
+	require.ErrorIs(t, err, dialErr, "OpenWaitSelected must still fail fast on a cold peer")
+
+	require.Never(t, func() bool { return mt.startCalls() > 1 }, 300*time.Millisecond, 10*time.Millisecond,
+		"OpenWaitSelected must not trigger a background retry")
+}
+
+// captureDialFailLogger records the timestamp of every "reconnect dial failed" Debug log so a
+// test can measure the reconnect backoff cadence without a fixed Sleep (mirrors
+// hsmsss/integration_connect_reconnect_test.go's dialFailLogger, which measures the same signal
+// end-to-end over real TCP).
+type captureDialFailLogger struct {
+	logger.Logger
+	mu    sync.Mutex
+	times []time.Time
+}
+
+func (l *captureDialFailLogger) Debug(msg string, keysAndValues ...any) {
+	if msg == "hsms: reconnect dial failed, retrying" {
+		l.mu.Lock()
+		l.times = append(l.times, time.Now())
+		l.mu.Unlock()
+	}
+
+	l.Logger.Debug(msg, keysAndValues...)
+}
+
+func (l *captureDialFailLogger) With(_ ...any) logger.Logger { return l }
+
+func (l *captureDialFailLogger) snapshot() []time.Time {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return append([]time.Time(nil), l.times...)
+}
+
+// withMockTransportFailsAfterFirstConnect connects+selects on the FIRST Start call (so the
+// initial Open/Select succeeds), fails the next failCount Start calls (simulating a peer that
+// stays down across several reconnect attempts) without ever calling TCPUp, then connects+
+// selects again on every later call.
+func withMockTransportFailsAfterFirstConnect(failCount int, dialErr error) mockScript {
+	calls := 0
+
+	return func(ctx context.Context, rt TransportRuntime) error {
+		calls++
+		if calls == 1 || calls > failCount+1 {
+			go func() {
+				rt.TCPUp(fakeConn{})
+				driveSelect(ctx, rt)
+			}()
+
+			return nil
+		}
+
+		return dialErr
+	}
+}
+
+// TestReconnect_ExponentialBackoffGrowsToT5Ceiling proves Gap 2: the reconnect loop's dial-retry
+// gaps grow (not flat) and never exceed the configured T5 ceiling. Loose bounds throughout —
+// tolerant of CI scheduling jitter, mirroring the style of the hsmsss integration cadence test.
+func TestReconnect_ExponentialBackoffGrowsToT5Ceiling(t *testing.T) {
+	const t5 = 400 * time.Millisecond
+	dialErr := errors.New("simulated refused reconnect dial")
+	capLog := &captureDialFailLogger{Logger: DefaultConnectionConfig().Logger()}
+
+	c, mt := newLifeConn(t, withMockTransportFailsAfterFirstConnect(4, dialErr))
+	require.NoError(t, c.UpdateConfigOptions(WithT5(t5), WithLogger(capLog)))
+
+	require.NoError(t, c.Open(t.Context(), OpenBackground))
+	requireSelected(t, c)
+
+	mt.simulateReadError(io.EOF) // involuntary drop → 4 failed re-dials, then success
+
+	require.Eventually(t, func() bool { return c.State() == SelectedState }, 10*time.Second, time.Millisecond,
+		"the reconnect loop must eventually recover once dial failures stop")
+
+	times := capLog.snapshot()
+	require.GreaterOrEqual(t, len(times), 4, "expected at least 4 recorded dial-failure retries")
+
+	var gaps []time.Duration
+	for i := 1; i < len(times); i++ {
+		gaps = append(gaps, times[i].Sub(times[i-1]))
+	}
+	for i, g := range gaps {
+		t.Logf("reconnect gap %d: %v", i, g)
+	}
+
+	require.Less(t, gaps[0], t5, "the first reconnect retry gap must be well under the T5 ceiling (fast first retry)")
+	require.Less(t, gaps[len(gaps)-1], t5+100*time.Millisecond, "no gap may exceed the T5 ceiling (with jitter slack)")
+
+	require.NoError(t, c.Close())
 }

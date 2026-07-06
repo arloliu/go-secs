@@ -27,6 +27,11 @@ type mockTransport struct {
 	stopped    bool
 	startCount int // number of Start calls (gen 1, gen 2, ... across reconnects)
 
+	// passiveRole, when true, makes IsActive report false. Defaults to false (IsActive() ==
+	// true), matching the active-dialer scenario most lifecycle tests model; a test that needs a
+	// passive mock calls setPassiveRole before Open.
+	passiveRole bool
+
 	// holdableRecv, when true, makes the FIRST Start arm a "held recv loop" for the round-7
 	// stale-recv-loop reconnect test: a goroutine parked on holdRelease that fires exactly one
 	// (stale) rt.TCPDown when released. Stop releases + JOINS it — mirroring teardown's tr.Stop
@@ -118,6 +123,22 @@ func (m *mockTransport) Stop(ctx context.Context) error {
 // mock does not model the shared-WaitGroup Add-vs-Wait guard (it has no real per-generation
 // recv/proc goroutines on reused WaitGroups), so there is no seal to clear.
 func (m *mockTransport) ArmStart() {}
+
+// IsActive reports whether the mock models an active-role transport (see passiveRole).
+func (m *mockTransport) IsActive() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return !m.passiveRole
+}
+
+// setPassiveRole marks the mock as passive-role (IsActive() returns false) — used by the Gap-1
+// teeth test proving a passive tr.Start failure stays fatal under OpenBackground.
+func (m *mockTransport) setPassiveRole() {
+	m.mu.Lock()
+	m.passiveRole = true
+	m.mu.Unlock()
+}
 
 // releaseHeld closes holdRelease exactly once (idempotent), firing the held stale TCPDown.
 func (m *mockTransport) releaseHeld() {
@@ -376,6 +397,36 @@ func withMockTransportTCPUpThenStartError(startErr error) mockScript {
 		rt.TCPUp(fakeConn{})
 
 		return startErr
+	}
+}
+
+// withMockTransportDialFails returns dialErr from EVERY Start call without ever calling TCPUp —
+// simulating a cold/refused active peer that never comes up (Gap 1's fatal-passive / stays-down
+// teeth tests).
+func withMockTransportDialFails(dialErr error) mockScript {
+	return func(_ context.Context, _ TransportRuntime) error {
+		return dialErr
+	}
+}
+
+// withMockTransportDialFailsThenConnects fails the first failCount Start calls with dialErr
+// (never calling TCPUp), then connects+selects on every later Start call — used to prove Gap 1's
+// background cold-connect retry loop eventually succeeds.
+func withMockTransportDialFailsThenConnects(failCount int, dialErr error) mockScript {
+	calls := 0
+
+	return func(ctx context.Context, rt TransportRuntime) error {
+		calls++
+		if calls <= failCount {
+			return dialErr
+		}
+
+		go func() {
+			rt.TCPUp(fakeConn{})
+			driveSelect(ctx, rt)
+		}()
+
+		return nil
 	}
 }
 

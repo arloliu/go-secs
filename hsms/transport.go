@@ -18,6 +18,12 @@ type transport interface {
 	// report TCP lifecycle, deliver frames, and route messages.
 	Start(ctx context.Context, rt TransportRuntime) error
 
+	// IsActive reports whether this transport is configured for the active (dialing) role, as
+	// opposed to passive (listening). Open uses it to decide whether a first-dial failure under
+	// OpenBackground is a retryable cold-peer condition (active) or a fatal local/listen error
+	// (passive) — see the Active first-connect contract doc on (*connection).Open.
+	IsActive() bool
+
 	// Stop joins the per-generation recv loop and releases transport resources. It is
 	// invoked by epoch teardown (Codex round-7) after the socket has already been closed,
 	// so a parked recv Read is already unblocked (J5). Stop seals the transport's

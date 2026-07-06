@@ -88,15 +88,18 @@ func (m *ConnectionMetrics) DataMsgErrCount() uint64 {
 
 // Reconnecting reports whether a reconnect loop is currently actively retrying: 1 while retrying,
 // 0 when idle/connected. This is a GAUGE, not a cumulative counter — it goes up when a reconnect
-// loop starts and back down when it exits, regardless of how many dial attempts happen inside. See
-// Reconnects for the cumulative count of successful re-establishments.
+// loop starts and back down when it exits, regardless of how many dial attempts happen inside. The
+// gauge is also held at 1 while an active connection's OpenBackground initial-connect retry is in
+// flight (Gap 1, rc3) — it is the same underlying loop. See Reconnects for the cumulative count of
+// successful re-establishments.
 func (m *ConnectionMetrics) Reconnecting() int64 {
 	return m.connRetry.Load()
 }
 
 // Reconnects returns the cumulative number of times this connection successfully re-established
 // after an involuntary drop (once per successful re-establishment, never per failed dial attempt,
-// never for the very first Open()).
+// never for the very first Open() — including when that first connect had to retry a cold peer in
+// the background (Gap 1); see countReconnect in connectLoop).
 func (m *ConnectionMetrics) Reconnects() uint64 {
 	return m.reconnects.Load()
 }

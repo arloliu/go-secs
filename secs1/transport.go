@@ -233,6 +233,9 @@ func (t *transport) Start(ctx context.Context, rt hsms.TransportRuntime) error {
 	return t.startPassive(engineCtx, engineCancel)
 }
 
+// IsActive reports whether this transport is configured for the active (dialing) role.
+func (t *transport) IsActive() bool { return t.cfg.Active() }
+
 // startActive dials the configured host:port, applies keep-alive, publishes the conn, auto-commits
 // the FSM to Selected, and spawns the single line engine. engineCtx/engineCancel scope this
 // generation's engine (teardown cancels engineCtx via Stop's engineCancel).

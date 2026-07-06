@@ -20,10 +20,11 @@ package hsmsss
 // NotConnected" scenario therefore asserts the NotConnected TRANSITION via waitNotConnectedEvent (which
 // reads the endpoint's state-change observer channel) rather than the instantaneous conn.State(): a one-shot
 // fault is recovered by the reconnect loop, so State() could flip back to Selected before a poll
-// observes it, but the transition event is still captured. The reconnect backoff is T5-floored
-// (newEndpoint's base sets T5=200ms), so NotConnected always dwells long enough for the event to fire,
-// and reconnect churn under a persistent fault (dropped Select.rsp / linktest.rsp / black hole) is
-// expected — the tests never assert "stays NotConnected forever".
+// observes it, but the transition event is still captured. The reconnect backoff is capped at T5
+// (see hsms.WithReconnectBackoff); NotConnected dwells at least long enough for the event-driven wait
+// below to observe it regardless of the exact backoff delay, and reconnect churn under a persistent
+// fault (dropped Select.rsp / linktest.rsp / black hole) is expected — the tests never assert "stays
+// NotConnected forever".
 //
 // The file is package hsmsss (white-box) so it reuses the shared harness (newEndpoint / waitSelected /
 // waitState / closeEndpoint / drainStateCh / echoHandler from integration_helpers_test.go,

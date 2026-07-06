@@ -19,7 +19,10 @@ import (
 //
 //	SEMI E4 §9.4.3).
 //
-// T5: connection separation timeout (time between connect attempts).
+// T5: connection separation timeout — the CEILING an exponential reconnect backoff ramps up to
+//
+//	and never exceeds (see WithReconnectBackoff); time between connect attempts.
+//
 // T6: control transaction timeout (time to receive response to a control message).
 // T7: NOT SELECTED timeout (time to wait for SELECT.req after TCP connect).
 // T8: network inter-character timeout (max time between bytes in a message).
@@ -38,18 +41,20 @@ type TimerConfig struct {
 // [ConnectionConfig.SessionID], and [ConnectionConfig.WriteTimeout]. The remaining
 // fields are set via With* options and have no read accessor.
 type ConnectionConfig struct {
-	timers                TimerConfig
-	sessionID             uint16
-	linktestInterval      time.Duration
-	linktestFailThreshold int
-	senderQueueSize       int
-	closeTimeout          time.Duration
-	writeTimeout          time.Duration
-	logger                logger.Logger
-	validateSessionID     bool
-	autoS9F9              bool
-	traceTraffic          bool
-	asyncSendErrHandler   func(msg Message, err error)
+	timers                     TimerConfig
+	sessionID                  uint16
+	linktestInterval           time.Duration
+	linktestFailThreshold      int
+	senderQueueSize            int
+	closeTimeout               time.Duration
+	writeTimeout               time.Duration
+	logger                     logger.Logger
+	validateSessionID          bool
+	autoS9F9                   bool
+	traceTraffic               bool
+	asyncSendErrHandler        func(msg Message, err error)
+	reconnectBackoffInitial    time.Duration
+	reconnectBackoffMultiplier float64
 }
 
 // DefaultConnectionConfig returns a ConnectionConfig populated with SEMI E37 (HSMS) and SEMI E4 (SECS-I)-recommended default timer values and conservative operational defaults.
@@ -65,13 +70,15 @@ func DefaultConnectionConfig() *ConnectionConfig {
 			T7: 10 * time.Second,
 			T8: 5 * time.Second,
 		},
-		sessionID:             0xFFFF,
-		linktestInterval:      0, // 0 = disabled
-		linktestFailThreshold: 3,
-		senderQueueSize:       64,
-		closeTimeout:          10 * time.Second,
-		writeTimeout:          30 * time.Second,
-		logger:                logger.Default(),
+		sessionID:                  0xFFFF,
+		linktestInterval:           0, // 0 = disabled
+		linktestFailThreshold:      3,
+		senderQueueSize:            64,
+		closeTimeout:               10 * time.Second,
+		writeTimeout:               30 * time.Second,
+		logger:                     logger.Default(),
+		reconnectBackoffInitial:    100 * time.Millisecond,
+		reconnectBackoffMultiplier: 2.0,
 	}
 }
 
@@ -123,6 +130,30 @@ func WithT5(d time.Duration) ConnOption {
 		}
 
 		c.timers.T5 = d
+
+		return nil
+	}
+}
+
+// WithReconnectBackoff configures the exponential backoff between reconnect dial attempts
+// (spec §5.2/§6.3). The first attempt after a drop (or, for an active connection, the first
+// background retry of a cold-peer initial connect — see OpenBackground) waits initial; each
+// subsequent failed attempt multiplies the previous wait by multiplier, capped at the
+// configured T5 (WithT5) — T5 is the backoff CEILING, not the per-attempt delay. initial must
+// be > 0; multiplier must be >= 1.0 (1.0 disables growth, giving a flat wait at initial capped
+// by T5 — pass WithReconnectBackoff(t5, 1.0) for the pre-rc3 flat-T5 behavior). The default
+// (100ms, 2.0) approximates v1's SECS-I reconnect curve.
+func WithReconnectBackoff(initial time.Duration, multiplier float64) ConnOption {
+	return func(c *ConnectionConfig) error {
+		if initial <= 0 {
+			return errors.New("WithReconnectBackoff: initial must be > 0")
+		}
+		if multiplier < 1.0 {
+			return errors.New("WithReconnectBackoff: multiplier must be >= 1.0")
+		}
+
+		c.reconnectBackoffInitial = initial
+		c.reconnectBackoffMultiplier = multiplier
 
 		return nil
 	}

@@ -178,6 +178,9 @@ func (t *transport) Start(ctx context.Context, rt hsms.TransportRuntime) error {
 	return t.startPassive()
 }
 
+// IsActive reports whether this transport is configured for the active (dialing) role.
+func (t *transport) IsActive() bool { return t.cfg.Active() }
+
 // ArmStart clears the Stop-seal (I1) AND installs a fresh per-generation WaitGroup bundle (NEW-1)
 // so this generation's Start may register its goroutines on a bundle no prior generation touches.
 // The core calls it immediately before it publishes a fresh generation and calls Start (under the

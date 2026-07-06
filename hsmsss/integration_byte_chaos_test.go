@@ -28,7 +28,8 @@ package hsmsss
 // v2 adaptation (same as chaos_scenarios_test.go): auto-reconnect is ALWAYS ON, so every "->
 // NotConnected" scenario asserts the NotConnected TRANSITION via waitNotConnectedEvent (from
 // chaos_scenarios_test.go) rather than an instantaneous conn.State() poll. The reconnect backoff is
-// T5-floored (newEndpoint base T5=200ms), so NotConnected dwells long enough for the event to fire.
+// capped at T5 (see hsms.WithReconnectBackoff); NotConnected dwells at least long enough for the
+// event-driven wait below to observe it regardless of the exact backoff delay.
 //
 // The file is package hsmsss (white-box) so it reuses the shared harness (newEndpoint / waitSelected /
 // closeEndpoint / drainStateCh / echoHandler / waitNotConnectedEvent) plus ByteChaosProxy. All

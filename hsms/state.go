@@ -48,7 +48,9 @@ const (
 	// connect error occurs.
 	OpenWaitSelected OpenMode = iota
 	// OpenBackground makes Open start the lifecycle and return immediately;
-	// connect, select, and reconnect run in the background.
+	// connect, select, and reconnect run in the background; for an ACTIVE
+	// connection this now includes retrying a cold/unreachable peer's initial
+	// connect (Gap 1, rc3) instead of failing Open.
 	OpenBackground
 )
 

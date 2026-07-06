@@ -39,6 +39,18 @@ func TestConnectionConfig_WithT5(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestWithReconnectBackoff_Validation(t *testing.T) {
+	cfg := DefaultConnectionConfig()
+
+	require.NoError(t, cfg.apply(WithReconnectBackoff(50*time.Millisecond, 1.5)))
+
+	require.Error(t, cfg.apply(WithReconnectBackoff(0, 2.0)), "initial must be > 0")
+	require.Error(t, cfg.apply(WithReconnectBackoff(-time.Second, 2.0)), "initial must be > 0")
+	require.Error(t, cfg.apply(WithReconnectBackoff(time.Second, 0.5)), "multiplier must be >= 1.0")
+
+	require.NoError(t, cfg.apply(WithReconnectBackoff(time.Second, 1.0)), "multiplier == 1.0 is valid (flat)")
+}
+
 func TestConnectionConfig_WithT7(t *testing.T) {
 	c := DefaultConnectionConfig()
 	require.NoError(t, c.apply(WithT7(15*time.Second)))

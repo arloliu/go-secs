@@ -38,12 +38,17 @@ const selectPollInterval = 2 * time.Millisecond
 // OpenBackground returns after kickoff (passive HSMS-SS in particular needs background open).
 //
 // Active first-connect contract: an active transport dials SYNCHRONOUSLY during Open (via
-// transport.Start), so a failure of the very FIRST dial (e.g. connection refused) is returned by
-// Open itself under BOTH modes — auto-reconnect is not engaged for the initial connect. The
-// T5-floored reconnect loop takes over only AFTER a generation has been established and later
-// drops. A caller that wants to keep retrying an initially-unreachable active peer should retry
-// Open. (A passive Open never blocks on a peer regardless of mode: it returns after ListenTCP +
-// spawning the accept goroutine.)
+// transport.Start), so a failure of the very FIRST dial (e.g. connection refused) is handled
+// differently depending on mode. Under OpenWaitSelected (or for an inactive/passive transport
+// under either mode) it is still returned synchronously by Open itself — auto-reconnect is not
+// engaged for that initial connect. Under OpenBackground, for an active transport whose FSM never
+// left NotConnectedState (TCPUp was never driven), the failure is instead a cold/unreachable peer:
+// Open tears the failed attempt down, starts the background reconnect loop, and returns nil (Gap
+// 1, rc3) — v1 parity ("start the device; it connects whenever the equipment appears"). The
+// T5-floored reconnect loop otherwise takes over only AFTER a generation has been established and
+// later drops. A caller on OpenWaitSelected that wants to keep retrying an initially-unreachable
+// active peer should retry Open. (A passive Open never blocks on a peer regardless of mode: it
+// returns after ListenTCP + spawning the accept goroutine.)
 //
 // OpenWaitSelected wait-failure (I7): if the wait fails AFTER the generation was established — the
 // caller ctx expired, or a first-generation select rejection tripped the always-on reconnect loop —
@@ -126,6 +131,34 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	// Dial (active) or listen (passive) + spawn the recv loop, driving rt (TCPUp/CommitSelected/
 	// TCPDown). The recv loop is generation-scoped (e.ctx) and joined by teardown via tr.Stop.
 	if err := c.tr.Start(e.ctx, c); err != nil {
+		// Gap 1 (rc3): an ACTIVE connection under OpenBackground whose FIRST dial fails while the
+		// FSM never left NotConnectedState (TCPUp was never driven) is a cold peer, not a fatal
+		// error — v1 parity ("start the device; it connects whenever the equipment appears"). Tear
+		// this failed epoch down WITHOUT s.requestClose/evClose: step()'s evClose handler
+		// unconditionally latches s.closed=true, and that latch would permanently stop this SAME
+		// persistent supervisor from ever processing another evTCPUp/evSelectAccepted — but the
+		// reconnect loop needs this exact supervisor alive for every future generation (round-6:
+		// the supervisor spans reconnect generations). e.teardown() is the same direct,
+		// non-latching teardown call connectLoop's own dial-failure-retry branch already uses.
+		//
+		// This does NOT apply to the "TCPUp already fired, then Start errored" case below (E2
+		// reconciliation #2) — that stays fatal exactly as before; s.State() reads NotSelected (or
+		// further) there, not NotConnectedState, so this branch's condition is false and control
+		// falls through to the existing fatal path.
+		if mode == OpenBackground && c.tr.IsActive() && s.State() == NotConnectedState {
+			c.cfg.Load().logger.Debug("hsms: initial connect failed, retrying in background", "error", err)
+
+			e.teardown(c.cfg.Load().closeTimeout)
+			_ = e.wait()
+
+			// false: this is the initial connect, not a post-Selected reconnect — it must NOT
+			// increment the cumulative Reconnects() metric (see its doc: "never for the very
+			// first Open()").
+			c.startConnectLoop(e, false)
+
+			return nil
+		}
+
 		// E2 reconciliation #2: fence reconnect BEFORE the rollback teardown. A tr.Start that
 		// failed AFTER driving evTCPUp leaves the FSM at NotSelected, so requestClose(e) drives
 		// NotSelected->NotConnected and FIRES the reaction; with shutdown still false that
@@ -276,7 +309,7 @@ func (c *connection) react(prev, next ConnState) {
 	// §7.C). The spawned loop's first act is e.wait() on the epoch torn down just below, so it
 	// never races teardown.
 	if !c.shutdown.Load() {
-		c.startConnectLoop(e)
+		c.startConnectLoop(e, true) // a post-Selected involuntary drop always counts as a reconnect
 	}
 
 	// (3) Non-blocking teardown initiator (idempotent closeOnce — the supervisor's evClose
@@ -320,23 +353,28 @@ func (c *connection) writeFarewellSeparate(e *epoch) {
 // would deadlock). The connectLoopWg.Add(1) is issued HERE, synchronously on the supervisor
 // goroutine and BEFORE react initiates the prev-epoch teardown, so the Add happens-before
 // prev.done closes (WaitGroup discipline versus the Open/Close joins that gate on done).
-func (c *connection) startConnectLoop(prev *epoch) {
+//
+// countReconnect selects whether a successful dial at the end of this loop increments the
+// cumulative Reconnects() metric — true for a post-Selected involuntary drop, false for Task 4's
+// initial-cold-connect retry (which must NOT count as a "reconnect": see
+// ConnectionMetrics.Reconnects doc, "never for the very first Open()").
+func (c *connection) startConnectLoop(prev *epoch, countReconnect bool) {
 	gen := c.reconnectGen.Load()       // the generation THIS retry is scheduled at (the G2 fence base)
 	cancel := c.reconnectCancel.Load() // this cycle's cancel channel (closed by Close to interrupt backoff)
 
 	c.connectLoopWg.Go(func() {
-		c.connectLoop(prev, gen, cancel)
+		c.connectLoop(prev, gen, cancel, countReconnect)
 	})
 }
 
 // connectLoop is the reconnect state machine (spec §5.2). It reconnects after a single involuntary
 // drop: it first waits for the prior generation to be FULLY torn down (generation-serialization),
-// then dials with a T5-floored backoff, re-checking shutdown/reconnectGen on every attempt (F3)
-// and once more via the atomics-only G2 fence immediately before publishing the fresh generation.
-// The supervisor is NOT recreated here (round-6) — only a fresh epoch per generation; the loop
-// hands each generation to the persistent supervisor via tr.Start (which drives evTCPUp ->
-// CommitSelected -> Selected).
-func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{}) {
+// then dials with an exponential backoff (WithReconnectBackoff) capped at T5, re-checking
+// shutdown/reconnectGen on every attempt (F3) and once more via the atomics-only G2 fence
+// immediately before publishing the fresh generation. The supervisor is NOT recreated here
+// (round-6) — only a fresh epoch per generation; the loop hands each generation to the persistent
+// supervisor via tr.Start (which drives evTCPUp -> CommitSelected -> Selected).
+func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{}, countReconnect bool) {
 	c.metrics.incConnRetry()
 	defer c.metrics.decConnRetry()
 
@@ -352,7 +390,7 @@ func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{})
 		_ = prev.wait()
 	}
 
-	// stop is closed by Close (reconnectCancel) — it lets a T5 backoff be interrupted promptly so
+	// stop is closed by Close (reconnectCancel) — it lets a backoff be interrupted promptly so
 	// a Close during reconnect does not wait out the whole backoff. It is NOT the supervisor
 	// stopCh: the failed-Open rollback stops the supervisor but must not cancel reconnect here.
 	var stop <-chan struct{}
@@ -360,14 +398,24 @@ func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{})
 		stop = *cancel
 	}
 
-	cfg := c.cfg.Load()
+	delay := c.cfg.Load().reconnectBackoffInitial
 
 	for {
-		// T5-floored connect separation between attempts (active dial; a passive re-listen is
-		// the same tr.Start call). Interruptible by a Close via the reconnectCancel channel.
-		if !c.reconnectSleep(cfg.timers.T5, stop) {
+		cfg := c.cfg.Load()
+
+		sleepFor := delay
+		if ceil := cfg.timers.T5; sleepFor > ceil {
+			sleepFor = ceil
+		}
+
+		// Exponential-backoff connect separation between attempts (active dial; a passive
+		// re-listen is the same tr.Start call), capped at T5. Interruptible by a Close via the
+		// reconnectCancel channel.
+		if !c.reconnectSleep(sleepFor, stop) {
 			return
 		}
+
+		delay = nextBackoffDelay(delay, cfg.reconnectBackoffMultiplier, cfg.timers.T5)
 
 		// Optional test hook (nil in production, zero cost). The gen-fence / no-deadlock teeth
 		// tests use it to pause the loop between the backoff and the fence.
@@ -419,16 +467,33 @@ func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{})
 			continue
 		}
 
-		c.metrics.incReconnects()
+		if countReconnect {
+			c.metrics.incReconnects()
+		}
 
 		return
 	}
 }
 
-// reconnectSleep waits d (the T5 connect-separation floor) before the next dial attempt. It
-// returns true when the wait elapsed and false when it was interrupted by stop (a Close). A
-// non-positive d still honors stop without blocking. It never time.Sleep-polls state — it is a
-// single timer selected against the stop channel.
+// nextBackoffDelay advances the exponential reconnect backoff: cur scaled by multiplier, capped
+// at ceil (T5). The next<=0 check is what makes this safe against float64 overflow/anomalies
+// (Inf/NaN convert to a huge or zero/negative time.Duration; a huge value already fails the
+// next>ceil check, and a non-positive one is caught explicitly) — WithReconnectBackoff's own
+// validation (multiplier >= 1.0) keeps this out of reach in practice, but this clamp is the
+// actual safety net, not the option validation alone.
+func nextBackoffDelay(cur time.Duration, multiplier float64, ceil time.Duration) time.Duration {
+	next := time.Duration(float64(cur) * multiplier)
+	if next <= 0 || next > ceil {
+		return ceil
+	}
+
+	return next
+}
+
+// reconnectSleep waits d (the current backoff delay, already capped at the T5 ceiling by the
+// caller) before the next dial attempt. It returns true when the wait elapsed and false when it
+// was interrupted by stop (a Close). A non-positive d still honors stop without blocking. It
+// never time.Sleep-polls state — it is a single timer selected against the stop channel.
 func (c *connection) reconnectSleep(d time.Duration, stop <-chan struct{}) bool {
 	if d <= 0 {
 		select {

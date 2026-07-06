@@ -11,15 +11,13 @@ package hsmsss
 //   - v2 auto-reconnect is ALWAYS ON. Every "→ NotConnected" is asserted via the TRANSITION event
 //     (waitNotConnectedEvent) rather than an instantaneous conn.State() poll, because the reconnect
 //     loop can recover a transient NotConnected before a poll observes it.
-//   - v2's reconnect separation is a FLAT T5 floor (reconnectSleep waits exactly T5 each attempt),
-//     NOT the v1 "exponential" growth; TestActiveReconnectCadence_FlatT5 asserts that flat T5 cadence
-//     (the v1 test NAME is retained per the port map).
-//   - In v2 an ACTIVE dial that fails on the FIRST attempt makes Open return the error immediately
-//     (no reconnect loop spins on a never-available port — startActive dials synchronously). So the
-//     backoff test establishes a live TCP generation first, then drops it, so the reconnect loop
-//     re-dials a now-closed port on the T5 cadence. The dial-attempt cadence is observed white-box
-//     via the "reconnect dial failed" debug log (v2's Reconnecting is a GAUGE held at 1 for the
-//     lifetime of a single reconnect loop, so it does not climb per dial attempt).
+//   - rc3 restored both v1-equivalent reconnect behaviors: the reconnect loop's dial cadence now
+//     grows exponentially, capped at the T5 ceiling (instead of a flat T5 floor), and an ACTIVE
+//     OpenBackground cold-dial that fails on the first attempt now retries in the background instead
+//     of making Open return the error immediately. See hsms/connection_lifecycle.go's connectLoop and
+//     Open docs for the exact mechanics. The dial-attempt cadence is observed white-box via the
+//     "reconnect dial failed" debug log (v2's Reconnecting is a GAUGE held at 1 for the lifetime of a
+//     single reconnect loop, so it does not climb per dial attempt).
 //
 // The file is package hsmsss (white-box) so it reuses the shared harness (newEndpoint /
 // newEndpointPair / waitState / waitSelected / closeEndpoint / drainStateCh / echoHandler from
@@ -158,19 +156,26 @@ func TestPassiveRecoverFromAbruptDrop(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// 3. TestActiveReconnectCadence_FlatT5
+// 3. TestActiveReconnectCadence_ExponentialBackoff
 //
-// The reconnect dial cadence respects the T5 floor. v2 uses a FLAT T5 separation between reconnect
-// dial attempts (not exponential growth — see the file header). Because an active dial that fails on
-// the FIRST attempt makes Open return immediately, we first establish a live TCP generation (accept
-// the initial dial), then drop it so the reconnect loop re-dials a now-closed port and its dial
-// failures cadence at ~T5. The cadence is measured from the engine's "reconnect dial failed" debug
-// logs; assertions are ordering + loose bounds only (tolerant of CI scheduling jitter).
+// The reconnect dial cadence grows exponentially, capped at the T5 ceiling (rc3 restored the v1
+// behavior — see the file header). We first establish a live TCP generation (accept the initial
+// dial) then drop it, so the reconnect loop re-dials a now-closed port and its dial failures cadence
+// on the growing-then-capped backoff. This is still a valid way to exercise reconnect-after-drop
+// cadence even though an active cold-dial failure on the first attempt no longer makes Open return
+// immediately (OpenBackground now retries a cold dial in the background too). The cadence is
+// measured from the engine's "reconnect dial failed" debug logs; assertions are ordering + loose
+// bounds only (tolerant of CI scheduling jitter).
 // ---------------------------------------------------------------------------
-func TestActiveReconnectCadence_FlatT5(t *testing.T) {
+func TestActiveReconnectCadence_ExponentialBackoff(t *testing.T) {
 	t.Parallel()
 
-	const t5 = 200 * time.Millisecond
+	// t5 is 400ms (not the file's usual 200ms) so the default backoff (100ms initial, 2x
+	// multiplier — see hsms.WithReconnectBackoff) takes multiple steps (100 -> 200 -> 400-capped)
+	// before hitting the ceiling, giving the gap sequence room to visibly grow before it plateaus.
+	// A 200ms T5 would double-and-cap in a single step, collapsing every observable gap to the
+	// ceiling and making the "well under T5" assertion below spuriously fail.
+	const t5 = 400 * time.Millisecond
 	ctx := t.Context()
 
 	ln, port := listenLoopback(t)
@@ -183,51 +188,41 @@ func TestActiveReconnectCadence_FlatT5(t *testing.T) {
 
 	active := newEndpoint(t, port, true, []Option{
 		WithConnectionOption(hsms.WithT5(t5)),
-		WithConnectionOption(hsms.WithT6(500 * time.Millisecond)),
+		WithConnectionOption(hsms.WithT6(1 * time.Second)),
 		WithConnectionOption(hsms.WithLogger(capLog)),
 	})
 	t.Cleanup(func() { closeEndpoint(t, active) })
 
-	// Accept the FIRST dial so Open succeeds and a TCP generation goes live (v2 startActive dials
-	// synchronously — an initial dial failure would abort Open instead of starting the loop).
 	peerCh := acceptOneAsync(ln)
 	require.NoError(t, active.conn.Open(ctx, hsms.OpenBackground))
 	peer := waitPeer(t, peerCh)
 
-	// Drop the link and remove the listener so every reconnect dial is refused → the loop re-dials on
-	// the T5 cadence, logging a dial failure each attempt.
 	require.NoError(t, ln.Close())
 	require.NoError(t, peer.Close())
 
-	// Collect enough dial-failure timestamps to measure the cadence.
 	require.Eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
 
 		return len(fails) >= 5
-	}, 15*time.Second, 10*time.Millisecond, "expected repeated reconnect dial failures on the T5 cadence")
+	}, 15*time.Second, 10*time.Millisecond, "expected repeated reconnect dial failures")
 
-	// The reconnect loop must be live while it retries (v2 Reconnecting is a gauge held at 1 for the
-	// loop's lifetime — it does not climb per attempt).
 	require.Positive(t, active.conn.Metrics().Reconnecting(), "reconnect loop must be live while retrying")
 
 	mu.Lock()
 	times := append([]time.Time(nil), fails...)
 	mu.Unlock()
 
-	// Cadence: no runaway growth (each gap far below a generous multiple of T5) and at least one gap
-	// reflects the T5 floor (proves it is not a hot-spin). Loose bounds only.
-	sawFloor := false
+	// Cadence: gaps must grow (not flat) and never exceed the T5 ceiling. Loose bounds only.
+	var gaps []time.Duration
 	for i := 1; i < len(times); i++ {
 		delta := times[i].Sub(times[i-1])
 		t.Logf("reconnect dial-fail gap %d→%d: %v", i-1, i, delta)
-		require.Less(t, delta, 10*t5, "reconnect cadence must stay near the T5 floor (no runaway backoff)")
-
-		if delta >= t5/2 {
-			sawFloor = true
-		}
+		require.Less(t, delta, t5+100*time.Millisecond, "reconnect cadence must not exceed the T5 ceiling")
+		gaps = append(gaps, delta)
 	}
-	require.True(t, sawFloor, "at least one reconnect gap must reflect the T5 floor (no busy-spin)")
+
+	require.Less(t, gaps[0], t5, "the first retry gap must be well under the T5 ceiling (fast first retry)")
 }
 
 // ---------------------------------------------------------------------------

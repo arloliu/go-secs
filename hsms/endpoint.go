@@ -101,7 +101,11 @@ type Connection interface {
 
 	// Open starts the connection lifecycle (dial/listen + FSM). mode selects
 	// blocking (OpenWaitSelected) or background (OpenBackground) behavior.
-	// ctx bounds the synchronous wait when mode is OpenWaitSelected.
+	// ctx bounds the synchronous wait when mode is OpenWaitSelected. For an
+	// active connection under OpenBackground, a peer that is not yet reachable
+	// at Open time is not an error: Open returns nil and the connection retries
+	// the initial connect in the background (see the (*connection).Open doc for
+	// the exact NotConnectedState-only scoping).
 	Open(ctx context.Context, mode OpenMode) error
 
 	// Close tears down the connection and all per-generation resources. Close is
