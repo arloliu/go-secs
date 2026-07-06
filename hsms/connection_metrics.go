@@ -2,6 +2,20 @@ package hsms
 
 import "sync/atomic"
 
+// paddedUint64 pads an atomic.Uint64 to a 64-byte cache line to prevent false sharing. Padding
+// assumes a 64-byte cache line (x86-64, arm64); it's a no-op rather than a correctness bug on
+// architectures with larger lines (e.g. some ppc64/s390x variants).
+type paddedUint64 struct {
+	atomic.Uint64
+	_ [56]byte // pad to 64 bytes (cache line size) to prevent false sharing
+}
+
+// paddedInt64 is paddedUint64's signed counterpart, for the same false-sharing reason.
+type paddedInt64 struct {
+	atomic.Int64
+	_ [56]byte // pad to 64 bytes (cache line size) to prevent false sharing
+}
+
 // ConnectionMetrics holds lock-free connection counters shared by every transport (HSMS-SS and
 // SECS-I). All reads and writes are atomic; safe to read concurrently with the protocol goroutines.
 //
@@ -9,18 +23,6 @@ import "sync/atomic"
 // HSMS-SS-only counters (linktest, Select/Separate/Reject) are in hsmsss.ConnectionMetrics, reached
 // via hsmsss.Connection.ControlMetrics(); SECS-I-only counters (block send/recv/retry/etc.) are in
 // secs1.ConnectionMetrics, reached via secs1.Connection.BlockMetrics().
-// Padding assumes a 64-byte cache line (x86-64, arm64); it's a no-op rather than a correctness bug
-// on architectures with larger lines (e.g. some ppc64/s390x variants).
-type paddedUint64 struct {
-	atomic.Uint64
-	_ [56]byte // pad to 64 bytes (cache line size) to prevent false sharing
-}
-
-type paddedInt64 struct {
-	atomic.Int64
-	_ [56]byte // pad to 64 bytes (cache line size) to prevent false sharing
-}
-
 type ConnectionMetrics struct {
 	_                      [64]byte // isolate dataMsgSend from whatever precedes this struct in memory
 	dataMsgSend            paddedUint64

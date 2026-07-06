@@ -1,16 +1,3 @@
-// Package logger provides a standardized way for different logging frameworks to be integrated into go-secs,
-// allowing users to choose their preferred logging implementation.
-//
-// The Logger interface defines methods for logging messages at various severity levels (Debug, Info, Warn, Error, Fatal)
-// and supports structured logging with key-value pairs.
-//
-// Log Levels:
-//
-//   - DebugLevel:  Detailed debug information, typically disabled in production.
-//   - InfoLevel:  General informational messages.
-//   - WarnLevel:  Warnings about potential issues.
-//   - ErrorLevel:  Errors that require attention.
-//   - FatalLevel:  Critical errors that cause program termination.
 package logger
 
 import "strconv"
