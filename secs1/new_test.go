@@ -57,3 +57,20 @@ func TestUpdateConfigOptions_SessionIDStaysDeviceID(t *testing.T) {
 	require.NoError(t, conn.UpdateConfigOptions(hsms.WithT3(30*time.Second)))
 	require.Equal(t, deviceID, conn.SessionID(), "unrelated live update preserves the device ID")
 }
+
+// TestUpdateConfigOptions_WriteTimeoutStaysZero_DoesNotBreakOtherInvariants is a narrow
+// compile/no-error check that a live WithWriteTimeout call composes cleanly with the existing
+// SessionID re-force; see TestUpdateConfigOptions_WriteTimeoutDoesNotArmDeadline (a different
+// file) for the actual behavioral proof that the timeout itself stays inert.
+func TestUpdateConfigOptions_WriteTimeoutStaysZero_DoesNotBreakOtherInvariants(t *testing.T) {
+	t.Parallel()
+
+	const deviceID uint16 = 0x1234
+	cfg, err := NewConfig("127.0.0.1", 5000, WithDeviceID(deviceID))
+	require.NoError(t, err)
+	conn, err := New(cfg)
+	require.NoError(t, err)
+
+	require.NoError(t, conn.UpdateConfigOptions(hsms.WithWriteTimeout(5*time.Second)))
+	require.Equal(t, deviceID, conn.SessionID(), "unrelated live update preserves the device ID")
+}

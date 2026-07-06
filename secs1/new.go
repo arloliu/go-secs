@@ -67,15 +67,18 @@ func (c *connection) BlockMetrics() *ConnectionMetrics {
 	return c.metrics
 }
 
-// UpdateConfigOptions applies the caller's options and then re-forces the core session ID to the
-// SECS-I device ID as the last option, so a caller's hsms.WithSessionID cannot divert SessionID()
-// from the wire device ID at runtime. This mirrors the last-step override NewConfig applies at
-// construction. The underlying update is still transactional (validate-all, then commit atomically):
-// a failed caller option rejects the whole set and leaves the live config untouched.
+// UpdateConfigOptions applies the caller's options and then re-forces the two invariants
+// NewConfig establishes at construction, as the last two options: the core session ID stays the
+// SECS-I device ID (so a caller's hsms.WithSessionID cannot divert SessionID() from the wire
+// device ID at runtime), and the core write timeout stays 0 (so a caller's hsms.WithWriteTimeout
+// cannot re-arm a deadline that would fire mid-transaction inside the line engine's own
+// T2 x (RetryLimit+1) budget and desync the line — see NewConfig's D5b-11 comment). The
+// underlying update is still transactional (validate-all, then commit atomically): a failed
+// caller option rejects the whole set and leaves the live config untouched.
 func (c *connection) UpdateConfigOptions(opts ...hsms.ConnOption) error {
-	all := make([]hsms.ConnOption, 0, len(opts)+1)
+	all := make([]hsms.ConnOption, 0, len(opts)+2)
 	all = append(all, opts...)
-	all = append(all, hsms.WithSessionID(c.deviceID))
+	all = append(all, hsms.WithSessionID(c.deviceID), hsms.WithWriteTimeout(0))
 
 	return c.Connection.UpdateConfigOptions(all...)
 }
