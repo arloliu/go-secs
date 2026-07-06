@@ -26,6 +26,7 @@ ALL_SRC        := $(shell find . -name "*.go")
 ALL_SRC        += go.mod
 TEST_DIRS      := $(sort $(dir $(filter %_test.go,$(ALL_SRC))))
 LATEST_GIT_TAG := $(shell git describe --tags --abbrev=0 2>/dev/null)
+MODULE_PATH    := $(shell go list -m 2>/dev/null)
 
 # Packages with timing-sensitive tests exercised by stress-test.
 # Add new packages here when they start producing flakes under contention.
@@ -130,7 +131,7 @@ stress-quick: clean ## Narrow stress run: only the known flake-prone tests
 	@printf "=== Quick stress: flake-prone tests, count=$(STRESS_COUNT) ===\n"
 	@GOMAXPROCS=1 CGO_ENABLED=1 go test ./hsmsss/... -run "TestLinktest_ThresholdDisconnect|TestLinktest_AutoFiresWhileSelected|TestHSMS_LinktestFailThreshold_ResetsOnSuccess|TestHSMS_StrandedSend_PostCloseGateAndReopenHealthCheck|TestChaos_DroppedLinktestRsp|TestChaos_RapidLinktestToggle" \
 		-count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p 1 $(VERBOSE_TAG)
-	@CGO_ENABLED=1 go test ./hsmsss/... -run "TestConcurrentClose|TestHSMS_CloseRace_BoundedCleanShutdown|TestHSMS_SelectCloseRace_NoPanicNoZombie|TestActiveReconnectCadence_FlatT5" \
+	@CGO_ENABLED=1 go test ./hsmsss/... -run "TestConcurrentClose|TestHSMS_CloseRace_BoundedCleanShutdown|TestHSMS_SelectCloseRace_NoPanicNoZombie|TestActiveReconnectCadence_ExponentialBackoff" \
 		-count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p 1 $(VERBOSE_TAG)
 	@printf "=== Quick stress passed ===\n"
 
@@ -190,9 +191,11 @@ mod-verify: ## Verify module checksums (go mod verify)
 	@printf "go mod verify...\n"
 	@go mod verify
 
-update-pkg-cache: ## Prime pkg.go.dev with the latest git tag
-	@printf "Update package cache with latest git tag: $(LATEST_GIT_TAG)\n"
-	@curl -s https://proxy.golang.org/github.com/arloliu/go-secs/@v/$(LATEST_GIT_TAG).info > /dev/null
+##@ Release
+
+update-pkg-cache: ## Prime the Go module proxy (and transitively pkg.go.dev) with the latest git tag
+	@printf "Priming module proxy cache for $(MODULE_PATH)@$(LATEST_GIT_TAG)...\n"
+	@curl -s https://proxy.golang.org/$(MODULE_PATH)/@v/$(LATEST_GIT_TAG).info > /dev/null
 
 ##@ Composite
 
