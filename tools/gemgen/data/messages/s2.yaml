@@ -1,0 +1,423 @@
+stream: 2
+messages:
+  - function: 1
+    name: Service Program Load Inquire
+    mnemonic: SPI
+    direction: bidirectional
+    description: Either the host or equipment wants to send the specified service program.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: SPID}, {item: LENGTH}]}
+
+  - function: 2
+    name: Service Program Load Grant
+    mnemonic: SPG
+    direction: bidirectional
+    description: Provides permission to load.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: GRANT}
+
+  - function: 3
+    name: Service Program Send
+    mnemonic: SPS
+    direction: bidirectional
+    description: >-
+      The data associated with the S2F1 inquire is sent. If S2F3 is multi-block, it must be preceded
+      by the S2F1/S2F2 Inquire/Grant transaction.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: SPD}
+
+  - function: 4
+    name: Service Program Send Acknowledge
+    mnemonic: SPA
+    direction: bidirectional
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: SPAACK}
+
+  - function: 5
+    name: Service Program Load Request
+    mnemonic: SPR
+    direction: bidirectional
+    description: A service program is requested.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: SPID}
+
+  - function: 6
+    name: Service Program Load Data
+    mnemonic: SPD
+    direction: bidirectional
+    description: A service program is sent.
+    exception: A zero-length item means that the requested program cannot be returned.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: SPD}
+
+  - function: 7
+    name: Service Program Run Send
+    mnemonic: CSS
+    direction: host-to-equipment
+    description: Start the requested program.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: SPID}
+
+  - function: 8
+    name: Service Program Run Acknowledge
+    mnemonic: CSA
+    direction: equipment-to-host
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: CSAACK}
+
+  - function: 9
+    name: Service Program Results Request
+    mnemonic: SRR
+    direction: host-to-equipment
+    description: Ask for results of service program.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: SPID}
+
+  - function: 10
+    name: Service Program Results Data
+    mnemonic: SRD
+    direction: equipment-to-host
+    description: Get the results back.
+    exception: A zero-length item means SPR does not exist.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: SPR}
+
+  - function: 11
+    name: Service Program Directory Request
+    mnemonic: SDR
+    direction: bidirectional
+    description: There may be more than one service program.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: null
+
+  - function: 12
+    name: Service Program Directory Data
+    mnemonic: SDD
+    direction: bidirectional
+    description: A list of service program names.
+    exception: If n = 0, there are no service programs.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, repeat: spids, of: {item: SPID}}
+
+  # E5 also documents a legacy packed alternative (<ECID1,...,ECIDn>) "for compatibility with previous
+  # implementations" and usable only for format 3()/5() items. Per the phase constraint, only the
+  # approved list form is generated here (see the same exclusion for S2F23's SVID sub-list).
+  - function: 13
+    name: Equipment Constant Request
+    mnemonic: ECR
+    direction: host-to-equipment
+    description: >-
+      Constants such as for calibration, servo gain, alarm limits, data collection mode, and other
+      values that are changed infrequently can be obtained using this message.
+    exception: A zero-length list means report all ECVs according to a predefined order.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, repeat: ecids, of: {item: ECID}}
+
+  - function: 14
+    name: Equipment Constant Data
+    mnemonic: ECD
+    direction: equipment-to-host
+    description: Data response to S2F13 in the order requested.
+    exception: >-
+      A zero-length list item for ECVi means that ECIDi does not exist. The list format for this data
+      item is not allowed, except in this case.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, repeat: ecvs, of: {item: ECV}}
+
+  - function: 15
+    name: New Equipment Constant Send
+    mnemonic: ECS
+    direction: host-to-equipment
+    description: Change one or more equipment constants.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          repeat: constants
+          of: {type: list, items: [{item: ECID}, {item: ECV}]}
+
+  - function: 16
+    name: New Equipment Constant Acknowledge
+    mnemonic: ECA
+    direction: equipment-to-host
+    description: >-
+      Acknowledge or error. If EAC contains a non-zero error code, the equipment does not change any
+      of the ECIDs specified in S2F15.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: EAC}
+
+  - function: 17
+    name: Date and Time Request
+    mnemonic: DTR
+    direction: bidirectional
+    description: Useful to check equipment time base or for equipment to synchronize with the host time base.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: null
+
+  - function: 18
+    name: Date and Time Data
+    mnemonic: DTD
+    direction: bidirectional
+    description: Actual time data.
+    exception: A zero-length item means no time exists.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: TIME}
+
+  - function: 19
+    name: Reset/Initialize Send
+    mnemonic: RIS
+    direction: host-to-equipment
+    description: Causes equipment to reach one of several predetermined initialized conditions.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: RIC}
+
+  - function: 20
+    name: Reset Acknowledge
+    mnemonic: RIA
+    direction: equipment-to-host
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: RAC}
+
+  - function: 21
+    name: Remote Command Send
+    mnemonic: RCS
+    direction: host-to-equipment
+    description: >-
+      Similar to pressing buttons on the front panel or causes some equipment activity to commence or
+      to cease.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: RCMD}
+
+  - function: 22
+    name: Remote Command Acknowledge
+    mnemonic: RCA
+    direction: equipment-to-host
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: CMDA}
+
+  # E5 also documents a legacy packed alternative for the SVID sub-list (<SVID1,...,SVIDn>) "for
+  # compatibility with previous implementations" and usable only for format 3()/5() items. Per the
+  # phase constraint, only the approved L,n repeat form of the SVID sub-list is generated here.
+  - function: 23
+    name: Trace Initialize Send
+    mnemonic: TIS
+    direction: host-to-equipment
+    description: >-
+      Status variables exist at all times. This function provides a way to sample a subset of those
+      status variables as a function of time. The trace data is returned on S6F1 and is related to the
+      original request by the TRID. If equipment receives S2F23 with the same TRID as a trace function
+      currently in progress, the equipment should terminate the old trace and then initiate the new
+      trace. A trace currently in progress may be terminated by S2F23 with that TRID and TOTSMP = 0. If
+      S2F23 is multi-block, it must be preceded by the S2F39/S2F40 Inquire/Grant transaction.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: TRID}
+            - {item: DSPER}
+            - {item: TOTSMP}
+            - {item: REPGSZ}
+            - {type: list, repeat: svids, of: {item: SVID}}
+
+  - function: 24
+    name: Trace Initialize Acknowledge
+    mnemonic: TIA
+    direction: equipment-to-host
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: TIAACK}
+
+  - function: 25
+    name: Loopback Diagnostic Request
+    mnemonic: LDR
+    direction: bidirectional
+    description: >-
+      A diagnostic message for checkout of protocol and communication circuits. The binary string sent
+      is echoed back.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: ABS}
+
+  - function: 26
+    name: Loopback Diagnostic Data
+    mnemonic: LDD
+    direction: bidirectional
+    description: The echoed binary string.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ABS}
+
+  - function: 27
+    name: Initiate Processing Request
+    mnemonic: IPR
+    direction: host-to-equipment
+    description: >-
+      Host requests equipment to initiate processing of the identified material at the specified
+      location in the machine using the specified process program.
+    exception: >-
+      A zero-length PPID indicates no process program is being specified and the equipment is to take
+      whatever action is appropriate for it to determine the proper program to use. A zero-length MID
+      list indicates no MID is to be associated with the material to be processed.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: LOC}
+            - {item: PPID}
+            - {type: list, repeat: mids, of: {item: MID}}
+
+  - function: 28
+    name: Initiate Processing Acknowledge
+    mnemonic: IPA
+    direction: equipment-to-host
+    description: >-
+      Response by equipment to Initiate Processing Request. Returned status indicates whether or not
+      the request was honored by the equipment.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: CMDA}
+
+  - function: 29
+    name: Equipment Constant Namelist Request
+    mnemonic: ECNR
+    direction: host-to-equipment
+    description: >-
+      This function allows the host to retrieve basic information about what equipment constants are
+      available in the equipment.
+    exception: A zero-length list means send information for all ECIDs.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, repeat: ecids, of: {item: ECID}}
+
+  - function: 30
+    name: Equipment Constant Namelist
+    mnemonic: ECN
+    direction: equipment-to-host
+    description: Data response.
+    exception: >-
+      Zero-length ASCII items for ECNAMEi, ECMINi, ECMAXi, ECDEFi, and UNITSi indicate that the ECID
+      does not exist.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          repeat: constants
+          of:
+            type: list
+            items:
+              - {item: ECID}
+              - {item: ECNAME}
+              - {item: ECMIN}
+              - {item: ECMAX}
+              - {item: ECDEF}
+              - {item: UNITS}
