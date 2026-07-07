@@ -2,6 +2,7 @@ package hsms
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -90,6 +91,38 @@ func TestSession_J5_BlockedChannelDoesNotWedgeFanOut(t *testing.T) {
 	}
 }
 
+// TestAddDecodeErrorHandler_registrationAndDispatch verifies that decode-error handlers
+// register under the session lock and that dispatchDecodeError delivers the exact
+// (msg, err) pair to every registered handler, passing the session as the endpoint.
+func TestAddDecodeErrorHandler_registrationAndDispatch(t *testing.T) {
+	s := newSession(1, nil, &sysBytesGen{}) // rt nil is fine; we only test registration+dispatch
+
+	if s.hasDecodeErrorHandlers() {
+		t.Fatal("hasDecodeErrorHandlers() = true before any registration")
+	}
+
+	var gotErr error
+	var gotMsg *DataMessage
+	s.AddDecodeErrorHandler(func(msg *DataMessage, err error, _ SECS2Endpoint) {
+		gotMsg, gotErr = msg, err
+	})
+
+	if !s.hasDecodeErrorHandlers() {
+		t.Fatal("hasDecodeErrorHandlers() = false after registration")
+	}
+
+	want := errors.New("boom")
+	dm := &DataMessage{}
+	s.dispatchDecodeError(dm, want)
+
+	if !errors.Is(gotErr, want) {
+		t.Errorf("handler err = %v, want %v", gotErr, want)
+	}
+	if gotMsg != dm {
+		t.Error("handler received the wrong message pointer")
+	}
+}
+
 // TestSession_SendDataMessage_DelegatesToWriteMessage is a smoke test confirming that
 // SendDataMessage builds a DataMessage and calls rt.WriteMessage with it.
 func TestSession_SendDataMessage_DelegatesToWriteMessage(t *testing.T) {
@@ -118,4 +151,77 @@ func TestSession_SendDataMessage_DelegatesToWriteMessage(t *testing.T) {
 	require.Equal(t, uint8(1), dm.Function())
 	require.True(t, dm.WaitBit())
 	require.Equal(t, replyMsg, reply, "SendDataMessage must return the reply from WriteMessage")
+}
+
+// malformedDataMsg builds a *DataMessage whose HSMS framing is valid (header accessors
+// succeed) but whose SECS-II body fails to decode lazily: DecodeErr() != nil. It replicates
+// the hsmstest.MalformedDataMessage trick here because a white-box package hsms test cannot
+// import hsmstest (which imports hsms) without an import cycle.
+func malformedDataMsg(t *testing.T, stream, function uint8, waitBit bool) *DataMessage {
+	t.Helper()
+
+	good, err := NewDataMessage(stream, function, waitBit, 0, [4]byte{0, 0, 0, 1}, secs2.NewBinaryItem([]byte{0x00}))
+	require.NoError(t, err)
+
+	raw := good.ToBytes() // length-prefixed HSMS frame: [4]len | [10]header | body
+
+	const bodyLenByteOffset = 4 + 10 + 1 // len prefix + header + format byte
+	require.Greater(t, len(raw), bodyLenByteOffset, "base frame shorter than expected")
+	raw[bodyLenByteOffset] = 0xFF // claim a 255-byte item where only 1 byte follows
+
+	msg, decErr := DecodeHSMSMessage(raw)
+	require.NoError(t, decErr, "HSMS framing must decode; only the body is malformed")
+
+	dm, ok := msg.ToDataMessage()
+	require.True(t, ok, "decoded message must be a data message")
+	require.Error(t, dm.DecodeErr(), "body must fail to decode")
+
+	return dm
+}
+
+// TestSession_SendDataMessage_malformedReplyReturnsErrAndMsg verifies that when the reply's
+// SECS-II body fails to decode, SendDataMessage surfaces the decode error but still returns the
+// reply message alongside it (non-destructive: the header stays available to the caller).
+func TestSession_SendDataMessage_malformedReplyReturnsErrAndMsg(t *testing.T) {
+	rt := newMockRuntime(t)
+	s := newSession(0xFFFF, rt, &sysBytesGen{})
+
+	rt.writeReply = malformedDataMsg(t, 1, 14, false)
+
+	dm, err := s.SendDataMessage(context.Background(), 1, 13, true, secs2.NewEmptyItem())
+	require.Error(t, err, "SendDataMessage must not return a nil error for an undecodable reply")
+	require.NotNil(t, dm, "SendDataMessage must return the reply alongside the error")
+	require.Equal(t, uint8(1), dm.Stream())
+	require.Equal(t, uint8(14), dm.Function())
+}
+
+// TestSession_SendSECS2Message_malformedReplyReturnsErrAndMsg mirrors the reply-path decode
+// check for the SendSECS2Message wrapper.
+func TestSession_SendSECS2Message_malformedReplyReturnsErrAndMsg(t *testing.T) {
+	rt := newMockRuntime(t)
+	s := newSession(0xFFFF, rt, &sysBytesGen{})
+
+	rt.writeReply = malformedDataMsg(t, 1, 14, false)
+
+	primary := secs2.NewMessage(1, 13, true, secs2.NewEmptyItem())
+	dm, err := s.SendSECS2Message(context.Background(), primary)
+	require.Error(t, err, "SendSECS2Message must not return a nil error for an undecodable reply")
+	require.NotNil(t, dm, "SendSECS2Message must return the reply alongside the error")
+	require.Equal(t, uint8(1), dm.Stream())
+	require.Equal(t, uint8(14), dm.Function())
+}
+
+// TestSession_SendDataMessage_wellFormedReplyReturnsNilErr proves the reply-path decode check
+// does not disturb the happy path: a well-formed reply is returned as (dm, nil).
+func TestSession_SendDataMessage_wellFormedReplyReturnsNilErr(t *testing.T) {
+	rt := newMockRuntime(t)
+	s := newSession(0xFFFF, rt, &sysBytesGen{})
+
+	replyMsg, err := NewDataMessage(1, 14, false, 0xFFFF, [4]byte{0, 0, 0, 1}, secs2.NewEmptyItem())
+	require.NoError(t, err)
+	rt.writeReply = replyMsg
+
+	dm, err := s.SendDataMessage(context.Background(), 1, 13, true, secs2.NewEmptyItem())
+	require.NoError(t, err, "well-formed reply must return a nil error")
+	require.Same(t, replyMsg, dm)
 }

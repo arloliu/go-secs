@@ -44,6 +44,8 @@ type FakeEndpoint struct {
 	replies       []reply
 	dataHandlers  []hsms.DataMessageHandler
 	stateHandlers []hsms.StateChangeHandler
+
+	decodeErrHandlers []hsms.DecodeErrorHandler
 }
 
 var _ hsms.SECS2Endpoint = (*FakeEndpoint)(nil)
@@ -118,6 +120,27 @@ func (f *FakeEndpoint) AddDataMessageHandler(handlers ...hsms.DataMessageHandler
 	f.dataHandlers = append(f.dataHandlers, handlers...)
 }
 
+// AddDecodeErrorHandler records decode-error handlers so FakeEndpoint satisfies the
+// hsms.SECS2Endpoint interface. DeliverDecodeError invokes them.
+func (f *FakeEndpoint) AddDecodeErrorHandler(handlers ...hsms.DecodeErrorHandler) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.decodeErrHandlers = append(f.decodeErrHandlers, handlers...)
+}
+
+// DeliverDecodeError invokes every registered DecodeErrorHandler with (msg, err, f),
+// as if an undecodable message had arrived on the wire. Handlers are snapshotted under
+// the lock and invoked with it released, matching Deliver's contract.
+func (f *FakeEndpoint) DeliverDecodeError(msg *hsms.DataMessage, err error) {
+	f.mu.Lock()
+	handlers := slices.Clone(f.decodeErrHandlers)
+	f.mu.Unlock()
+
+	for _, h := range handlers {
+		h(msg, err, f)
+	}
+}
+
 // AddConnStateChangeHandler appends one or more connection state-change handlers.
 func (f *FakeEndpoint) AddConnStateChangeHandler(handlers ...hsms.StateChangeHandler) {
 	f.mu.Lock()
@@ -176,6 +199,18 @@ func (f *FakeEndpoint) popScriptedReply() (*hsms.DataMessage, error) {
 
 	r := f.replies[0]
 	f.replies = f.replies[1:]
+
+	// Mirror the real session's reply-path decode check (hsms.session.SendDataMessage /
+	// SendSECS2Message): a scripted reply that framed but whose SECS-II body fails to decode
+	// is surfaced as (msg, decodeErr) — not a clean success — so a test exercising a malformed
+	// reply behaves identically against the fake and a live endpoint. Only applied on the
+	// success path (r.err == nil), matching the real code, which checks DecodeErr only after
+	// WriteMessage returns no error.
+	if r.err == nil && r.msg != nil {
+		if derr := r.msg.DecodeErr(); derr != nil {
+			return r.msg, derr
+		}
+	}
 
 	return r.msg, r.err
 }

@@ -18,6 +18,21 @@ import (
 // blocked). Offload slow work to your own goroutine.
 type DataMessageHandler func(msg *DataMessage, ep SECS2Endpoint)
 
+// DecodeErrorHandler is the callback for an inbound data message whose SECS-II body
+// failed to decode. The header accessors (Stream/Function/WaitBit/SessionID/ID) are
+// valid; the body is not — do NOT call msg.Item() expecting success. err is the
+// deferred decode error (equal to msg.DecodeErr()).
+//
+// A DecodeErrorHandler is invoked only for PRIMARY messages (and orphan secondaries
+// that miss the reply registry). A malformed reply to a synchronous SendDataMessage /
+// SendSECS2Message is surfaced to that call's error return instead.
+//
+// Like DataMessageHandler, a DecodeErrorHandler is invoked INLINE on the connection's
+// single receive goroutine and MUST NOT BLOCK: while it runs, the receive loop cannot
+// read the next frame and Close cannot complete until it returns. Offload slow work to
+// your own goroutine.
+type DecodeErrorHandler func(msg *DataMessage, err error, ep SECS2Endpoint)
+
 // SECS2Endpoint provides the capability surface exposed to message handlers.
 //
 // It covers all blocking SECS-II send/reply operations plus handler registration.
@@ -109,6 +124,15 @@ type SECS2Endpoint interface {
 	//
 	// Registration is not blocking I/O and does not take a context.
 	AddDataMessageHandler(handlers ...DataMessageHandler)
+
+	// AddDecodeErrorHandler appends one or more handlers for inbound data messages
+	// whose SECS-II body fails to decode. When at least one is registered, an
+	// undecodable primary is delivered to these handlers instead of the normal
+	// DataMessageHandlers/channel handlers. With none registered, decoding stays lazy
+	// and the message routes normally (today's behavior).
+	//
+	// Registration is not blocking I/O and does not take a context.
+	AddDecodeErrorHandler(handlers ...DecodeErrorHandler)
 
 	// AddConnStateChangeHandler appends one or more connection state-change handlers.
 	//

@@ -33,6 +33,7 @@ type ConnectionMetrics struct {
 	dataMsgErr             atomic.Uint64
 	dataMsgDropNotSelected atomic.Uint64 // B3 chokepoint: dropped because not SELECTED
 	decodeErr              atomic.Uint64 // inbound frame read successfully but failed to decode/route
+	bodyDecodeErr          atomic.Uint64 // frame framed OK + counted as received, but its lazy SECS-II body failed to decode and was diverted to a decode-error handler
 	asyncSendErr           atomic.Uint64 // write failures on the fire-and-forget async send path
 	connRetry              atomic.Int64  // gauge: 1 while a reconnect loop is actively retrying, else 0
 	reconnects             atomic.Uint64 // cumulative count of successful re-establishments after an involuntary drop
@@ -57,6 +58,18 @@ func (m *ConnectionMetrics) DataMsgDropNotSelectedCount() uint64 {
 // This is disjoint from DataMsgRecvCount: a decode failure never reaches the receive chokepoint.
 func (m *ConnectionMetrics) DecodeErrCount() uint64 {
 	return m.decodeErr.Load()
+}
+
+// BodyDecodeErrCount returns the number of inbound data messages that framed
+// successfully and were counted by DataMsgRecvCount, but whose lazy SECS-II body
+// failed to decode and were diverted to a registered DecodeErrorHandler instead of
+// the normal handlers.
+//
+// Unlike DecodeErrCount (frame-level failures that never reach the receive
+// chokepoint), a body-decode failure is counted AFTER DataMsgRecvCount — the two are
+// intentionally distinct so neither double-counts the other.
+func (m *ConnectionMetrics) BodyDecodeErrCount() uint64 {
+	return m.bodyDecodeErr.Load()
 }
 
 // AsyncSendErrCount returns the total number of fire-and-forget async sends whose transport write failed.
@@ -148,6 +161,10 @@ func (m *ConnectionMetrics) incDataMsgDropNotSelected() {
 
 func (m *ConnectionMetrics) incDecodeErr() {
 	m.decodeErr.Add(1)
+}
+
+func (m *ConnectionMetrics) incBodyDecodeErr() {
+	m.bodyDecodeErr.Add(1)
 }
 
 func (m *ConnectionMetrics) incAsyncSendErr() {

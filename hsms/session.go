@@ -39,9 +39,10 @@ type session struct {
 	rt     TransportRuntime
 	sysGen *sysBytesGen
 
-	mu       sync.RWMutex
-	handlers []DataMessageHandler
-	chans    []chan *DataMessage
+	mu                sync.RWMutex
+	handlers          []DataMessageHandler
+	chans             []chan *DataMessage
+	decodeErrHandlers []DecodeErrorHandler
 
 	// connHandlers points to the Connection's persistent state-change handler slice.
 	// nil until Task 13 wires it; AddConnStateChangeHandler is a no-op until then.
@@ -80,6 +81,16 @@ func (s *session) SendDataMessage(ctx context.Context, stream, function byte, re
 	// nil interface → (nil, false); typed-nil is returned as nil.
 	dm, _ := reply.(*DataMessage)
 
+	// A reply whose body fails to decode must not unblock the caller as a clean success.
+	// Surface the decode error, but return the message alongside it (non-destructive: the
+	// header stays available to the caller). A nil reply (timeout, or a control-message
+	// reply) skips the check.
+	if dm != nil {
+		if derr := dm.DecodeErr(); derr != nil {
+			return dm, derr
+		}
+	}
+
 	return dm, nil
 }
 
@@ -112,6 +123,14 @@ func (s *session) SendSECS2Message(ctx context.Context, msg secs2.SECS2Message) 
 	}
 
 	dataReply, _ := reply.(*DataMessage)
+
+	// See SendDataMessage: an undecodable reply surfaces its decode error, but the message
+	// is still returned alongside the error so the caller keeps the header.
+	if dataReply != nil {
+		if derr := dataReply.DecodeErr(); derr != nil {
+			return dataReply, derr
+		}
+	}
 
 	return dataReply, nil
 }
@@ -168,6 +187,40 @@ func (s *session) AddDataMessageHandler(handlers ...DataMessageHandler) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.handlers = append(s.handlers, handlers...)
+}
+
+// AddDecodeErrorHandler appends one or more inbound decode-error handlers under mu.Lock.
+// dispatchDecodeError snapshots the slice header under RLock, so concurrent registration
+// and delivery are race-free.
+func (s *session) AddDecodeErrorHandler(handlers ...DecodeErrorHandler) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.decodeErrHandlers = append(s.decodeErrHandlers, handlers...)
+}
+
+// hasDecodeErrorHandlers reports whether at least one decode-error handler is
+// registered. Read under RLock.
+func (s *session) hasDecodeErrorHandlers() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.decodeErrHandlers) > 0
+}
+
+// dispatchDecodeError delivers (msg, err) to every registered decode-error handler.
+// Handlers are snapshotted under RLock and invoked with the lock released, matching
+// recvDataMsg's fan-out discipline. The snapshot is safe because AddDecodeErrorHandler
+// only ever appends and never mutates existing elements (a growing append writes only at
+// indices >= the snapshot's length, into spare capacity or a fresh backing array), and
+// the header read/write is mutex-synchronized — so ranging the aliased header after
+// RUnlock cannot race a concurrent registration.
+func (s *session) dispatchDecodeError(msg *DataMessage, err error) {
+	s.mu.RLock()
+	handlers := s.decodeErrHandlers
+	s.mu.RUnlock()
+
+	for _, h := range handlers {
+		h(msg, err, s)
+	}
 }
 
 // addChanHandler adds a channel-based data-message handler (unexported). The session

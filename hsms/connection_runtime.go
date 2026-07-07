@@ -10,7 +10,22 @@ import (
 // RouteData delivers an inbound data message to the session fan-out (TransportRuntime).
 // The session synchronously fans out to registered handlers (§5.4); it never errors here,
 // so RouteData always returns nil.
+//
+// When at least one decode-error handler is registered, RouteData forces the lazy SECS-II
+// body decode here (where the metrics are in scope). An undecodable primary is counted and
+// diverted to the decode-error handlers instead of the normal data-message fan-out; a message
+// whose body decodes cleanly, and every message when no decode-error handler is registered,
+// routes normally with decoding left lazy.
 func (c *connection) RouteData(msg *DataMessage) error {
+	if c.hasDecodeErrorHandlers() {
+		if derr := msg.DecodeErr(); derr != nil { // forces the lazy body decode and caches the result
+			c.metrics.incBodyDecodeErr()
+			c.dispatchDecodeError(msg, derr)
+
+			return nil // diverted — do NOT fan out to the normal data-message/channel handlers
+		}
+	}
+
 	c.recvDataMsg(msg) // promoted from the embedded session
 
 	return nil

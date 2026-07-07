@@ -62,6 +62,16 @@ func TestConnectionMetrics_AsyncSendErr(t *testing.T) {
 	require.Equal(t, uint64(2), m.AsyncSendErrCount())
 }
 
+func TestConnectionMetrics_BodyDecodeErr(t *testing.T) {
+	var m ConnectionMetrics
+
+	require.Equal(t, uint64(0), m.BodyDecodeErrCount())
+
+	m.incBodyDecodeErr()
+	m.incBodyDecodeErr()
+	require.Equal(t, uint64(2), m.BodyDecodeErrCount())
+}
+
 func TestConnectionMetrics_ReconnectsAndReconnecting(t *testing.T) {
 	m := &ConnectionMetrics{}
 

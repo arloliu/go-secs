@@ -359,3 +359,37 @@ func TestFakeEndpoint_ForwardDataMessage_NilMessage(t *testing.T) {
 	require.ErrorIs(t, ep.ForwardDataMessageAsync(context.Background(), nil), hsms.ErrNilMessage)
 	assert.Empty(t, ep.Sent(), "a nil forward records nothing")
 }
+
+// TestFakeEndpoint_ScriptReply_MalformedReplyMirrorsRealDecodeError guards that the fake mirrors
+// the real session's reply-path decode check: a scripted reply that frames but whose SECS-II body
+// fails to decode is surfaced as (msg, decodeErr), not a clean (msg, nil). Without this a consumer
+// test scripting a malformed reply would see the fake diverge from a live endpoint.
+func TestFakeEndpoint_ScriptReply_MalformedReplyMirrorsRealDecodeError(t *testing.T) {
+	t.Parallel()
+
+	ep := hsmstest.NewFakeEndpoint()
+	bad := hsmstest.MalformedDataMessage(1, 14, false) // valid framing, undecodable body
+	ep.ScriptReply(bad, nil)                           // scripted as a clean success
+
+	got, err := ep.SendDataMessage(context.Background(), 1, 13, true, secs2.A("req"))
+	require.Error(t, err, "an undecodable scripted reply must surface its decode error")
+	require.ErrorIs(t, err, bad.DecodeErr())
+	require.NotNil(t, got, "the reply must be returned alongside the error")
+	assert.Equal(t, uint8(1), got.Stream())
+	assert.Equal(t, uint8(14), got.Function())
+}
+
+// TestFakeEndpoint_ScriptReply_WellFormedReplyReturnsNilErr guards the happy path: a scripted reply
+// whose body decodes cleanly still returns (msg, nil) — the decode check is a no-op false-positive check.
+func TestFakeEndpoint_ScriptReply_WellFormedReplyReturnsNilErr(t *testing.T) {
+	t.Parallel()
+
+	ep := hsmstest.NewFakeEndpoint()
+	good, err := hsms.NewDataMessage(1, 14, false, 0, [4]byte{}, secs2.A("ok"))
+	require.NoError(t, err)
+	ep.ScriptReply(good, nil)
+
+	got, sendErr := ep.SendDataMessage(context.Background(), 1, 13, true, secs2.A("req"))
+	require.NoError(t, sendErr, "a well-formed scripted reply must return a nil error")
+	assert.Same(t, good, got)
+}
