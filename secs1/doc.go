@@ -22,10 +22,10 @@
 //
 // [New] forces the core write timeout to 0 (disabled): a SECS-I line transaction self-bounds via
 // T2×(RTY+1), so a core write deadline is redundant and would spuriously preempt a legitimately
-// retrying send. Do NOT re-arm it — a non-zero hsms.WithWriteTimeout passed through Config
-// options is overridden, but applying one at runtime via hsms.Connection.UpdateConfigOptions is NOT
-// intercepted and can cause spurious teardown/reconnect churn on sends that would have succeeded
-// after retries.
+// retrying send. The override is enforced both at construction — [NewConfig] applies it as the LAST
+// option, after all caller-supplied options — and at runtime: Connection.UpdateConfigOptions
+// re-appends hsms.WithWriteTimeout(0) after the caller's options, so a WithWriteTimeout supplied at
+// runtime is intercepted and neutralized rather than taking effect.
 //
 // # Half-duplex line engine
 //
@@ -64,6 +64,20 @@
 // at T3). Beneath that, Connection.BlockMetrics() exposes the SECS-I-specific block/line-level
 // counters in [ConnectionMetrics]: block send/recv counts, block-send retries (NAK, T2 timeout, or a
 // failed contention-yield receive), RTY-exhaustion failures, NAKs sent for inbound blocks, slave
-// contention yields, duplicate-block drops, T4 partial-message timeouts, and wrong-direction block
-// drops.
+// contention yields, duplicate-block drops, T4 partial-message timeouts, wrong-direction block drops,
+// and three inbound-assembler violation counters: DeviceIDMismatchCount (a block carrying a device ID
+// that does not match this connection's configured device ID), BlockNumberMismatchCount (a block that
+// aborted an open multi-block partial by arriving out of sequence or with a mismatched block-invariant
+// header), and InvalidFirstBlockCount (a block starting a new message that was neither block 1 nor a
+// lone single-block-0). See "Assembler violations" below for how these interact with the equipment
+// role's auto-notification.
+//
+// # Assembler violations
+//
+// Assembler-violation notifications are sent for the EQUIPMENT role only (IsEquip() == true) and are
+// not separately configurable — there is no ValidateDataMessage-style toggle in v2, unlike v1. A
+// device-ID mismatch (DeviceIDMismatchCount) auto-replies S9F1 (Unrecognized Device ID); a block-
+// number mismatch, header mismatch, or invalid first block (BlockNumberMismatchCount or
+// InvalidFirstBlockCount) auto-replies S9F7 (Illegal Data), per SEMI E5 §10.13. The host role sends
+// nothing for either case.
 package secs1
