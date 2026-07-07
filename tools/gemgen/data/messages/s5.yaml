@@ -1,0 +1,278 @@
+stream: 5
+messages:
+  - function: 1
+    name: Alarm Report Send
+    mnemonic: ARS
+    direction: equipment-to-host
+    description: >-
+      This message reports a change in or presence of an alarm condition. One message is issued
+      when the alarm is set and one message is issued when the alarm is cleared. Irrecoverable
+      errors and attention flags may not have a corresponding clear message.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: ALCD}, {item: ALID}, {item: ALTX}]}
+
+  - function: 2
+    name: Alarm Report Acknowledge
+    mnemonic: ARA
+    direction: host-to-equipment
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC5}
+
+  - function: 3
+    name: Enable/Disable Alarm Send
+    mnemonic: EAS
+    direction: host-to-equipment
+    description: >-
+      This message changes the state of the enable bit in the equipment. The enable bit determines
+      if the alarm will be sent to the host. Alarms which are not controllable in this way are
+      unaffected by this message.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: A zero-length item for ALID means all alarms.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: ALED}, {item: ALID}]}
+
+  - function: 4
+    name: Enable/Disable Alarm Acknowledge
+    mnemonic: EAA
+    direction: equipment-to-host
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC5}
+
+  - function: 5
+    name: List Alarms Request
+    mnemonic: LAR
+    direction: host-to-equipment
+    description: This message requests the equipment to send binary and analog alarm information to the host.
+    exception: A zero-length item means send all possible alarms regardless of the state of ALED.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, repeat: alids, of: {item: ALID}}
+
+  - function: 6
+    name: List Alarm Data
+    mnemonic: LAD
+    direction: equipment-to-host
+    description: This message contains the alarm data known to the equipment. There are "m" alarms in the list.
+    exception: >-
+      If m = 0, no response can be made. A zero-length item returned for an ALCD or ALTX means that
+      value does not exist.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          repeat: alarms
+          of: {type: list, items: [{item: ALCD}, {item: ALID}, {item: ALTX}]}
+
+  - function: 7
+    name: List Enabled Alarm Request
+    mnemonic: LEAR
+    direction: host-to-equipment
+    description: List alarms which are enabled.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: null
+
+  - function: 8
+    name: List Enabled Alarm Data
+    mnemonic: LEAD
+    direction: equipment-to-host
+    description: This message is similar to S5F6 except that it lists only alarms which are enabled.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          repeat: alarms
+          of: {type: list, items: [{item: ALCD}, {item: ALID}, {item: ALTX}]}
+
+  - function: 9
+    name: Exception Post Notify
+    mnemonic: EXPN
+    direction: equipment-to-host
+    description: >-
+      This message provides the means to inform a host system that an exception condition is set.
+      Optionally, recovery actions for the exception may be sent.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: A zero-length recovery-action list (n = 0) is sent when there are no possible recovery actions.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: TIMESTAMP}
+            - {item: EXID}
+            - {item: EXTYPE}
+            - {item: EXMESSAGE}
+            - {type: list, repeat: recovery_actions, of: {item: EXRECVRA}}
+
+  - function: 10
+    name: Exception Post Confirm
+    mnemonic: EXPC
+    direction: host-to-equipment
+    description: Host confirms receipt of the S5F9 message from the equipment.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: null
+
+  - function: 11
+    name: Exception Clear Notify
+    mnemonic: EXCN
+    direction: equipment-to-host
+    description: >-
+      This message provides the means to inform a host system that an exception/alarm condition is
+      no longer active (set).
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: EXMESSAGE can be used to provide the reason that the exception cleared.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: TIMESTAMP}
+            - {item: EXID}
+            - {item: EXTYPE}
+            - {item: EXMESSAGE}
+
+  - function: 12
+    name: Exception Clear Confirm
+    mnemonic: EXCC
+    direction: host-to-equipment
+    description: Host confirms receipt of the S5F11 message from the equipment.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: null
+
+  - function: 13
+    name: Exception Recover Request
+    mnemonic: EXRR
+    direction: host-to-equipment
+    description: Request that the entity which is experiencing an error execute a recovery action.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: EXID}, {item: EXRECVRA}]}
+
+  - function: 14
+    name: Exception Recover Acknowledge
+    mnemonic: EXRA
+    direction: equipment-to-host
+    description: The entity indicates a response to the recovery request.
+    exception: The inner list may be zero length if the recovery request was accepted.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: EXID}
+            - type: list
+              items:
+                - {item: ACKA}
+                - {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+
+  - function: 15
+    name: Exception Recovery Complete Notify
+    mnemonic: EXRCN
+    direction: equipment-to-host
+    description: >-
+      Allows the service provider to inform the controller/host that the recovery operation
+      completed on a specific exception, together with an error code if the recovery terminated
+      abnormally.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: The inner list may be zero length if the recovery was successful.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: TIMESTAMP}
+            - {item: EXID}
+            - type: list
+              items:
+                - {item: ACKA}
+                - {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+
+  - function: 16
+    name: Exception Recovery Complete Confirm
+    mnemonic: EXRCC
+    direction: host-to-equipment
+    description: Host confirms receipt of the S5F15 message from the equipment.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: null
+
+  - function: 17
+    name: Exception Recovery Abort Request
+    mnemonic: EXRAR
+    direction: host-to-equipment
+    description: Stop the recovery procedure on a specific exception.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: EXID}
+
+  - function: 18
+    name: Exception Recovery Abort Acknowledge
+    mnemonic: EXRAA
+    direction: equipment-to-host
+    description: Indicate the success of the request for Recovery Abort.
+    exception: The inner list may be zero length if the abort was successful.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: EXID}
+            - type: list
+              items:
+                - {item: ACKA}
+                - {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}

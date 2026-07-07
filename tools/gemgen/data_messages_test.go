@@ -76,6 +76,64 @@ func TestDataMessagesS1YAML(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestDataMessagesS5YAML loads the real data/items.yaml catalog together with
+// the authored data/messages/s5.yaml and asserts the Stream 5 Exception
+// Handling schema parses, validates, and renders cleanly. It guards the content
+// deliverable: exactly 18 functions (S5F1-S5F18, no F0 gap), with F15
+// (Exception Recovery Complete Notify) genuinely present in E5 (not a dropped
+// "Not Used"), every {item: X} reference resolving against the real Data Item
+// Dictionary, and the four sender-optional notifies (F1, F3, F9, F11) plus the
+// mandatory-reply requests (F5, F13, F17) and F15 carrying replyExpected: true.
+func TestDataMessagesS5YAML(t *testing.T) {
+	itemsData, err := os.ReadFile("data/items.yaml")
+	require.NoError(t, err)
+
+	items, err := LoadItems(itemsData)
+	require.NoError(t, err)
+	require.NoError(t, ValidateItems(items))
+
+	msgData, err := os.ReadFile("data/messages/s5.yaml")
+	require.NoError(t, err)
+
+	mf, err := LoadMessageFile(msgData)
+	require.NoError(t, err)
+	require.Equal(t, 5, mf.Stream)
+
+	// Exactly 18 functions, cross-referenced against the real items.yaml so
+	// every item reference at any structure depth actually resolves.
+	require.Len(t, mf.Messages, 18)
+	require.NoError(t, ValidateMessages([]MessageFile{mf}, items))
+
+	// Function numbers are a contiguous F1-F18 with no F0 and no gap. In
+	// particular F15 (Exception Recovery Complete Notify) is present: E5 gives it
+	// a full Description and Structure, so it is authored, not skipped.
+	byFunc := map[int]Message{}
+	for _, m := range mf.Messages {
+		byFunc[m.Function] = m
+	}
+	for f := 1; f <= 18; f++ {
+		_, ok := byFunc[f]
+		require.Truef(t, ok, "expected S5F%d to be present", f)
+	}
+	_, hasF0 := byFunc[0]
+	require.False(t, hasF0, "S5F0 must not be authored")
+
+	// Every message carries exactly one body (no sender-dependent structure in
+	// Stream 5), and reply expectation matches E5's W-bit markers: the primary
+	// notifies/requests expect a reply; every acknowledge/confirm/data reply does
+	// not.
+	replyExpected := map[int]bool{1: true, 3: true, 5: true, 7: true, 9: true, 11: true, 13: true, 15: true, 17: true}
+	for _, m := range mf.Messages {
+		require.Lenf(t, m.Bodies, 1, "S5F%d must have a single body", m.Function)
+		require.Equalf(t, replyExpected[m.Function], m.Bodies[0].ReplyExpected,
+			"S5F%d replyExpected mismatch", m.Function)
+	}
+
+	// The whole file renders without error (exercises the template end-to-end).
+	_, err = renderMessages(mf, items)
+	require.NoError(t, err)
+}
+
 // TestDataMessagesS9YAML loads the real data/items.yaml catalog together with
 // the authored data/messages/s9.yaml and asserts the Stream 9 System Errors
 // schema parses, validates, and renders cleanly. It guards the content
