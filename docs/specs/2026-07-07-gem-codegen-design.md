@@ -33,10 +33,12 @@ not available locally or freely online. Decision: cover **all of S1–S21**, but
 track provenance per message:
 
 - **S1–S10**: sourced from the local E5 spec (`source: e5`, high confidence).
-- **S12–S21**: sourced from hume.com (`source: hume`), since there is no other
-  available reference; flagged as lower confidence for later spot-checking
-  against real equipment traffic or purchased standards. This does not block
-  authoring or generation.
+- **S12–S21**: each stream's owning standard is cited when we have verified
+  text (`source: e39`, `e40`, `e42`, `e87`, `e90`, `e94`, `e116`); where we
+  don't have the actual standard locally and reconstructed structure from a
+  third-party reference instead, `source: external` flags it as lower
+  confidence for later spot-checking against real equipment traffic or a
+  purchased standard. This does not block authoring or generation.
 
 **Item catalog exception:** E5's Table 3 Data Item Dictionary (lines 398–966
 of the local markdown) cross-references items used by S12–S21 messages too
@@ -73,10 +75,10 @@ Reply") genuinely exists: Table 3 cross-references it for both `SVNAME` and
 `UNITS` (`e005-00-0813.md:862,927`), and it follows the exact same
 request/reply-namelist pattern as S1F21/22 and S1F23/24. Its structure
 (`L,n{ L,3{ SVID SVNAME UNITS } }`, equipment-only, no reply) is reconstructed
-from hume.com and entered with `source: hume` plus an inline comment noting
-*why* — this is a gap in our local copy, not a genuine hume-vs-E5
-discrepancy, and should be re-verified against a complete E5 copy if one
-becomes available.
+from a third-party reference and entered with `source: external` plus an
+inline comment noting *why* — this is a gap in our local copy, not a genuine
+discrepancy with the standard, and should be re-verified against a complete
+E5 copy if one becomes available.
 5. Generate `gem/s1.go`, `gem/s1_test.go`, `gem/items.go`, replacing the
    hand-written `s1.go` / `s1_test.go`.
 6. Acceptance: `make lint` and `make test` pass; a sample of generated godoc
@@ -122,8 +124,9 @@ repeat" construct — a list's `items:` array can itself hold nested `list`/
 
 **Phase 2** (separate future design/plan, not detailed here): author
 `messages/s2.yaml` … `s21.yaml` stream by stream and regenerate/replace the
-rest of `gem/`. S1–S10 content comes from E5 §10; S12–S21 comes from
-hume.com, tagged `source: hume`.
+rest of `gem/`. S1–S10 content comes from E5 §10; S12–S21 comes from each
+stream's owning GEM300 standard where verified, or is tagged
+`source: external` where reconstructed from a third-party reference instead.
 
 Existing hand-written function signatures are **not** preserved as a
 constraint — the v2 branch is pre-1.0 (rc phase), so the generator is free to
@@ -227,9 +230,13 @@ Fields:
 - `direction`: for godoc only; derived from E5's Direction column
   (`S,H<->E` → `bidirectional`, `S,H->E,reply` → `host-to-equipment`, etc.).
 - `description`, `exception`: short prose, copied/condensed from E5's
-  *Description* / *Exception* sections (or hume.com for S12–S21).
-- `source`: `e5` or `hume`. `hume`-sourced messages get an extra
-  `confidence: low` field and generated godoc carries a disclaimer line.
+  *Description* / *Exception* sections (or a third-party reference for
+  S12–S21 where the owning standard isn't available locally).
+- `source`: the owning standard code when verified against real standard
+  text (`e5`, `e39`, `e40`, `e42`, `e87`, `e90`, `e94`, `e116`), or
+  `external` when reconstructed from a non-standard reference instead.
+  `external`-sourced messages get an extra `confidence: low` field and
+  generated godoc carries a disclaimer line.
 - `bodies`: one entry per distinct wire shape. `actor: both` when sender
   doesn't change the structure (the common case). Two entries
   (`equipment` + `host`) when E5 defines a per-sender difference (S1F2,
@@ -301,15 +308,22 @@ minimal" rule (100-overview.md) stays intact.
 ## Godoc format
 
 Matches `.agents/rules/400-documentation.md` (name-first summary line, short
-sentences), extended with a body/exception line and — for `hume`-sourced
-entries only — a source disclaimer:
+sentences), extended with a body line and an exception line — each its own
+paragraph — and, for `external`-sourced entries only, a source disclaimer.
+The first line states only the message name and direction; it does not cite
+a section number (S12–S21 messages may not have one to cite, and Phase 1
+keeps the citation out of the first line for every stream for consistency).
+Every paragraph break is a genuine blank `//` line — without it, godoc
+renderers join adjacent comment lines into one paragraph, which would merge
+Body and Exception into a single run-on line:
 
 ```go
-// S1F2 creates an S1F2 (On Line Data) message for equipment (SEMI E5 §10, direction: H<->E).
+// S1F2 creates an S1F2 (On Line Data) message for equipment, direction: bidirectional.
 //
 // Data signifying that the equipment is alive.
 //
 // Body: L[2]{ A[mdln] A[softrev] }.
+//
 // Exception: the host sends a zero-length list to the equipment.
 func S1F2(mdln, softrev string) secs2.SECS2Message { ... }
 ```
@@ -318,10 +332,12 @@ The `Body: L[2]{...}` line is informal human-readable shorthand for the
 generated godoc comment — not a formal grammar the generator parses or
 validates. It's derived directly from the `structure:` tree for display only.
 
-For a `source: hume` message (Phase 2 only), an additional trailing line:
+For a `source: external` message, an additional trailing paragraph:
 
 ```go
-// Source: hume.com structure dump, not verified against the purchased SEMI standard.
+//
+// Source: reconstructed from an external reference, not verified against
+// the purchased SEMI standard.
 ```
 
 ## Testing strategy
@@ -345,7 +361,7 @@ unchanged; no new test category is introduced (`.agents/rules/300-testing.md`).
 - `tools/gemgen` (its own Go module) builds and runs via `go generate ./...`.
 - `tools/gemgen/data/items.yaml` fully populated (336 items) from E5 Table 3.
 - `tools/gemgen/data/messages/s1.yaml` authored (24 stream-specific
-  functions: F1–F24) from E5 §10, with F12 sourced from hume.com per the
+  functions: F1–F24) from E5 §10, with F12 tagged `source: external` per the
   provenance exception above.
 - The generator correctly renders at least one message of each: header-only
   (S1F1), per-actor variant (S1F2/S1F2Host), enum-valued item (via COMMACK
@@ -362,8 +378,8 @@ unchanged; no new test category is introduced (`.agents/rules/300-testing.md`).
 - Authoring message content for S2–S21 (Phase 2).
 - Preserving today's hand-written function signatures as a compatibility
   constraint.
-- Resolving every hume.com vs. E5 discrepancy — only flagging confidence per
-  message.
+- Resolving every third-party-reference vs. E5 discrepancy — only flagging
+  confidence per message.
 - Representing E5's deprecated/legacy compatibility structure variants (e.g.
   S1F3's and S1F10's packed-single-item alternate forms) — the generator
   targets only the structure E5 recommends for new implementations.
