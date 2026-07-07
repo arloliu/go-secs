@@ -51,12 +51,20 @@ ACKC5:
   goType: byte
   description: "Acknowledge code, 1 byte."
   source: e5
+  # E5 Table 3: 0 = Accepted; >0 = Error, not accepted (1-63 reserved, no
+  # individually named codes).
+  values:
+    - {name: Accepted, value: 0}
 ACKC6:
   formats: [B]
   binding: fixed
   goType: byte
   description: "Acknowledge code, 1 byte."
   source: e5
+  # E5 Table 3: 0 = Accepted; >0 = Error, not accepted (1-63 reserved, no
+  # individually named codes).
+  values:
+    - {name: Accepted, value: 0}
 ACKC7:
   formats: [B]
   binding: fixed
@@ -275,6 +283,11 @@ CPACK:
   goType: byte
   description: "Command Parameter Acknowledge Code, 1 byte."
   source: e5
+  # E5 Table 3 enumerates codes starting at 1 (no 0 defined); 4-63 reserved.
+  values:
+    - {name: CPNAMEDoesNotExist, value: 1}
+    - {name: IllegalValue, value: 2}
+    - {name: IllegalFormat, value: 3}
 CPNAME:
   formats: [A, I1, I2, I4, I8, U1, U2, U4, U8]
   binding: open
@@ -291,6 +304,11 @@ CSAACK:
   goType: byte
   description: "Equipment Acknowledgement code, 1 byte."
   source: e5
+  values:
+    - {name: EverythingCorrect, value: 0}
+    - {name: Busy, value: 1}
+    - {name: InvalidSPID, value: 2}
+    - {name: InvalidData, value: 3}
 CTLJOBCMD:
   formats: [U1]
   binding: fixed
@@ -361,6 +379,12 @@ DRACK:
   goType: byte
   description: "Define Report Acknowledge Code, 1 byte."
   source: e5
+  values:
+    - {name: Accept, value: 0}
+    - {name: DeniedInsufficientSpace, value: 1}
+    - {name: DeniedInvalidFormat, value: 2}
+    - {name: DeniedRPTIDAlreadyDefined, value: 3}
+    - {name: DeniedVIDDoesNotExist, value: 4}
 DSID:
   formats: [A, I1, I2, I4, I8, U1, U2, U4, U8]
   binding: open
@@ -406,6 +430,11 @@ EAC:
   goType: byte
   description: "Equipment acknowledge code, 1 byte."
   source: e5
+  values:
+    - {name: Acknowledge, value: 0}
+    - {name: DeniedConstantDoesNotExist, value: 1}
+    - {name: DeniedBusy, value: 2}
+    - {name: DeniedConstantOutOfRange, value: 3}
 ECDEF:
   formats: [B, BOOLEAN, A, J, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
   binding: open
@@ -464,6 +493,9 @@ ERACK:
   goType: byte
   description: "Enable/Disable Event Report. Acknowledge Code, 1 byte."
   source: e5
+  values:
+    - {name: Accepted, value: 0}
+    - {name: DeniedCEIDDoesNotExist, value: 1}
 ERRCODE:
   formats: [U1, U2, U4, U8]
   binding: open
@@ -551,6 +583,11 @@ GRANT:
   goType: byte
   description: "Grant code, 1 byte."
   source: e5
+  values:
+    - {name: PermissionGranted, value: 0}
+    - {name: BusyTryAgain, value: 1}
+    - {name: NoSpaceAvailable, value: 2}
+    - {name: DuplicateDATAID, value: 3}
 GRANT6:
   formats: [B]
   binding: fixed
@@ -574,6 +611,14 @@ HCACK:
   goType: byte
   description: "Host Command Parameter Acknowledge Code, 1 byte."
   source: e5
+  values:
+    - {name: AcknowledgeCommandPerformed, value: 0}
+    - {name: CommandDoesNotExist, value: 1}
+    - {name: CannotPerformNow, value: 2}
+    - {name: ParameterInvalid, value: 3}
+    - {name: AcknowledgeCompletionLater, value: 4}
+    - {name: RejectedAlreadyInDesiredCondition, value: 5}
+    - {name: NoSuchObjectExists, value: 6}
 HOACK:
   formats: [BOOLEAN]
   binding: fixed
@@ -636,6 +681,15 @@ LIMITACK:
   goType: byte
   description: "Acknowledgment code for variable limit attribute set, 1 byte."
   source: e5
+  # E5 Table 3 enumerates codes starting at 1 (no 0 defined); 8-63 reserved.
+  values:
+    - {name: LIMITIDDoesNotExist, value: 1}
+    - {name: UpperdbGreaterThanLimitmax, value: 2}
+    - {name: LowerdbLessThanLimitmin, value: 3}
+    - {name: UpperdbLessThanLowerdb, value: 4}
+    - {name: IllegalFormat, value: 5}
+    - {name: ASCIICannotBeTranslated, value: 6}
+    - {name: DuplicateLimitDefinition, value: 7}
 LIMITID:
   formats: [B]
   binding: fixed
@@ -686,12 +740,25 @@ LRACK:
   goType: byte
   description: "Link Report Acknowledge Code, 1 byte."
   source: e5
+  values:
+    - {name: Accepted, value: 0}
+    - {name: DeniedInsufficientSpace, value: 1}
+    - {name: DeniedInvalidFormat, value: 2}
+    - {name: DeniedCEIDLinkAlreadyDefined, value: 3}
+    - {name: DeniedCEIDDoesNotExist, value: 4}
+    - {name: DeniedRPTIDDoesNotExist, value: 5}
 LVACK:
   formats: [B]
   binding: fixed
   goType: byte
   description: "Variable limit definition acknowledge code, 1 byte. Defines the error with the limit attributes for the referenceVID."
   source: e5
+  # E5 Table 3 enumerates codes starting at 1 (no 0 defined); 5-63 reserved.
+  values:
+    - {name: VariableDoesNotExist, value: 1}
+    - {name: VariableHasNoLimitsCapability, value: 2}
+    - {name: VariableRepeatedInMessage, value: 3}
+    - {name: LimitValueError, value: 4}
 MAPER:
   formats: [B]
   binding: fixed
@@ -1236,6 +1303,12 @@ RMACK:
   goType: uint8
   description: "Conveys whether a requested action was successfully completed, denied, completed with errors, or will be completed with notification to the requestor."
   source: e5
+  values:
+    - {name: SuccessfulCompletion, value: 0}
+    - {name: CannotPerformAction, value: 1}
+    - {name: CompletedWithErrors, value: 2}
+    - {name: ActionWillBeCompleted, value: 3}
+    - {name: NoRequestExists, value: 4}
 RMCHGSTAT:
   formats: [U1, U2, U4, U8]
   binding: open
@@ -1368,6 +1441,10 @@ RSDA:
   goType: byte
   description: Request Spool Data Acknowledge.
   source: e5
+  values:
+    - {name: OK, value: 0}
+    - {name: DeniedBusyTryLater, value: 1}
+    - {name: DeniedSpooledDataDoesNotExist, value: 2}
 RSDC:
   formats: [U1]
   binding: fixed
@@ -1385,6 +1462,9 @@ RSPACK:
   goType: byte
   description: Reset Spooling Acknowledge.
   source: e5
+  values:
+    - {name: SpoolingSetupAccepted, value: 0}
+    - {name: SpoolingSetupRejected, value: 1}
 RTSRSPSTAT:
   formats: [U1]
   binding: fixed
@@ -1460,6 +1540,9 @@ SPAACK:
   goType: byte
   description: "Equipment acknowledgement code, 1 byte."
   source: e5
+  values:
+    - {name: EverythingCorrect, value: 0}
+    - {name: InvalidData, value: 1}
 SPD:
   formats: [B]
   binding: fixed
@@ -1534,6 +1617,15 @@ STRACK:
   binding: fixed
   goType: byte
   source: e5
+  # E5 Table 3's row for STRACK is malformed in the local markdown: the
+  # Description cell ("Spool Stream Acknowledge.") leaked into the Values cell,
+  # so this item carries no description. The enumeration itself is intact and
+  # starts at 1 (no 0 defined).
+  values:
+    - {name: SpoolingNotAllowedForStream, value: 1}
+    - {name: StreamUnknown, value: 2}
+    - {name: UnknownFunction, value: 3}
+    - {name: SecondaryFunction, value: 4}
 STRID:
   formats: [U1]
   binding: fixed
@@ -1637,12 +1729,22 @@ TIAACK:
   goType: byte
   description: "Equipment acknowledgement code, 1 byte."
   source: e5
+  values:
+    - {name: EverythingCorrect, value: 0}
+    - {name: TooManySVIDs, value: 1}
+    - {name: NoMoreTracesAllowed, value: 2}
+    - {name: InvalidPeriod, value: 3}
+    - {name: UnknownSVID, value: 4}
+    - {name: InvalidREPGSZ, value: 5}
 TIACK:
   formats: [B]
   binding: fixed
   goType: byte
   description: "Time Acknowledge Code, 1 byte."
   source: e5
+  values:
+    - {name: OK, value: 0}
+    - {name: ErrorNotDone, value: 1}
 TID:
   formats: [B]
   binding: fixed
@@ -1874,6 +1976,10 @@ VLAACK:
   goType: byte
   description: "Variable Limit Attribute Acknowledge Code, 1 byte."
   source: e5
+  values:
+    - {name: AcknowledgeCommandWillBePerformed, value: 0}
+    - {name: LimitAttributeDefinitionError, value: 1}
+    - {name: CannotPerformNow, value: 2}
 XDIES:
   formats: [F4, F8, U1, U2, U4, U8]
   binding: open
