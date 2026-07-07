@@ -247,7 +247,21 @@ func (t *transport) startActive(engineCtx context.Context, engineCancel context.
 	// promptly. The DIAL is deliberately OUTSIDE the I1 guard below (never hold startGate across a
 	// dial). A custom dialer may return any net.Conn (e.g. an in-memory pipe); keep-alive is applied
 	// only to a *net.TCPConn.
-	conn, err := t.cfg.dial(engineCtx, "tcp", addr)
+	//
+	// WithConnectTimeout additionally bounds THIS attempt: when configured (>0) it derives a
+	// per-attempt deadline off engineCtx so an unreachable/black-holed peer fails fast rather than
+	// riding out the OS connect timeout. startActive is called fresh per generation (never in an
+	// inner retry loop — the core's reconnect loop re-invokes Start for each attempt), so a single
+	// deferred cancel here is leak-free: it fires when this call returns, never accumulating across
+	// attempts.
+	dialCtx := engineCtx
+	if t.cfg.connectTimeout > 0 {
+		var cancel context.CancelFunc
+		dialCtx, cancel = context.WithTimeout(engineCtx, t.cfg.connectTimeout)
+		defer cancel()
+	}
+
+	conn, err := t.cfg.dial(dialCtx, "tcp", addr)
 	if err != nil {
 		engineCancel()
 

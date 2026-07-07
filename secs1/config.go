@@ -34,6 +34,8 @@ type Config struct {
 	deviceID   uint16     // SECS-I device ID, 0..0x7FFF
 	dial       DialFunc   // active-mode dialer; default (&net.Dialer{}).DialContext
 	listen     ListenFunc // passive-mode listener; default (&net.ListenConfig{}).Listen
+
+	connectTimeout time.Duration // 0 = unbounded (OS default); >0 bounds each active dial attempt
 }
 
 // Option is a functional option that mutates a [Config].
@@ -293,6 +295,25 @@ func WithDialer(dial DialFunc) Option {
 	}
 }
 
+// WithConnectTimeout bounds each active-role dial attempt to d. The default (0) leaves the dial
+// unbounded, so a dial to an unreachable peer blocks for the OS connect timeout (~2 minutes). A
+// positive d wraps every dial attempt — including background reconnect attempts — in a
+// per-attempt deadline.
+//
+// This affects the active (dialing) role only. It composes with WithDialer: the deadline wraps
+// whatever DialFunc is configured. A negative d is a configuration error.
+func WithConnectTimeout(d time.Duration) Option {
+	return func(c *Config) error {
+		if d < 0 {
+			return errors.New("WithConnectTimeout: timeout must not be negative")
+		}
+
+		c.connectTimeout = d
+
+		return nil
+	}
+}
+
 // WithListener overrides how the passive connection listens for an inbound peer.
 //
 // The default listens with [net.ListenConfig.Listen] over TCP.
@@ -391,6 +412,10 @@ func (c Config) Active() bool { return c.active }
 
 // TCPKeepAlive returns the configured TCP keep-alive probe interval. Zero means use the OS default.
 func (c Config) TCPKeepAlive() time.Duration { return c.tcpKeepAlive }
+
+// ConnectTimeout returns the configured per-attempt active dial timeout.
+// Zero means the dial is unbounded (see [WithConnectTimeout]).
+func (c Config) ConnectTimeout() time.Duration { return c.connectTimeout }
 
 // T1 returns the SECS-I T1 inter-character timeout.
 func (c Config) T1() time.Duration { return c.ConnectionConfig.Timers().T1 }

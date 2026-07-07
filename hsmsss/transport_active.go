@@ -106,7 +106,20 @@ func (t *transport) startActive(ctx context.Context) error {
 	// the reconnect loop's connectLoopWg.Wait for up to the OS connect timeout (~2 min) behind a dial
 	// to an unreachable peer. The default dialer resolves the address internally. A custom dialer may
 	// return any net.Conn (e.g. an in-memory pipe); keep-alive is applied only to a *net.TCPConn.
-	conn, err := t.cfg.dial(ctx, "tcp", addr)
+	//
+	// WithConnectTimeout (Gap 2) additionally bounds THIS attempt: when configured (>0) it derives a
+	// per-attempt deadline off ctx so an unreachable/black-holed peer fails fast rather than riding out
+	// the OS connect timeout. startActive is called fresh per generation (never in an inner retry loop
+	// — the engine's reconnect loop re-invokes Start for each attempt), so a single deferred cancel
+	// here is leak-free: it fires when this call returns, never accumulating across attempts.
+	dialCtx := ctx
+	if t.cfg.connectTimeout > 0 {
+		var cancel context.CancelFunc
+		dialCtx, cancel = context.WithTimeout(ctx, t.cfg.connectTimeout)
+		defer cancel()
+	}
+
+	conn, err := t.cfg.dial(dialCtx, "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("hsmsss: dial %s: %w", addr, err)
 	}

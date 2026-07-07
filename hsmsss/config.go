@@ -20,12 +20,13 @@ import (
 type Config struct {
 	hsms.ConnectionConfig
 
-	host         string
-	port         int
-	active       bool
-	tcpKeepAlive time.Duration
-	dial         DialFunc
-	listen       ListenFunc
+	host           string
+	port           int
+	active         bool
+	tcpKeepAlive   time.Duration
+	dial           DialFunc
+	listen         ListenFunc
+	connectTimeout time.Duration // 0 = unbounded (OS default); >0 bounds each active dial attempt
 }
 
 // Option is a functional option that mutates a [Config].
@@ -134,6 +135,25 @@ func WithDialer(dial DialFunc) Option {
 	}
 }
 
+// WithConnectTimeout bounds each active-role dial attempt to d. The default (0) leaves
+// the dial unbounded, so a dial to an unreachable peer blocks for the OS connect
+// timeout (~2 minutes). A positive d wraps every dial attempt — including background
+// reconnect attempts — in a per-attempt deadline.
+//
+// This affects the active (dialing) role only. It composes with WithDialer: the
+// deadline wraps whatever DialFunc is configured. A negative d is a configuration error.
+func WithConnectTimeout(d time.Duration) Option {
+	return func(c *Config) error {
+		if d < 0 {
+			return errors.New("WithConnectTimeout: timeout must not be negative")
+		}
+
+		c.connectTimeout = d
+
+		return nil
+	}
+}
+
 // WithListener overrides how the passive connection listens for an inbound peer.
 //
 // The default uses [net.ListenConfig.Listen] over TCP.
@@ -212,6 +232,10 @@ func (c Config) Active() bool { return c.active }
 // TCPKeepAlive returns the configured TCP keep-alive probe interval.
 // Zero means use the OS default.
 func (c Config) TCPKeepAlive() time.Duration { return c.tcpKeepAlive }
+
+// ConnectTimeout returns the configured per-attempt active dial timeout.
+// Zero means the dial is unbounded (see [WithConnectTimeout]).
+func (c Config) ConnectTimeout() time.Duration { return c.connectTimeout }
 
 // IsEquip reports whether this connection is configured as equipment role (see WithEquipRole).
 //

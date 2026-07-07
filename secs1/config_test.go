@@ -226,3 +226,36 @@ func TestWithHost_AlsoDisablesAutoS9F9(t *testing.T) {
 	require.False(t, cfg.IsEquip())
 	require.False(t, cfg.AutoS9F9(), "WithHost must also disable the shared AutoS9F9 primitive")
 }
+
+// TestWithConnectTimeout verifies the option stores a non-negative duration and rejects a negative
+// one as a configuration error.
+func TestWithConnectTimeout(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := NewConfig("127.0.0.1", 5000)
+	require.NoError(t, err)
+
+	if err := WithConnectTimeout(3 * time.Second)(&cfg); err != nil {
+		t.Fatalf("WithConnectTimeout(3s): unexpected error: %v", err)
+	}
+
+	if cfg.connectTimeout != 3*time.Second {
+		t.Errorf("connectTimeout = %v, want 3s", cfg.connectTimeout)
+	}
+	require.Equal(t, 3*time.Second, cfg.ConnectTimeout(), "ConnectTimeout accessor must reflect the stored value")
+
+	if err := WithConnectTimeout(-1)(&cfg); err == nil {
+		t.Error("negative timeout must be rejected")
+	}
+}
+
+// TestWithConnectTimeout_ZeroIsUnbounded verifies the default (zero value, never applying the
+// option) leaves connectTimeout at zero — i.e. unbounded, today's behavior.
+func TestWithConnectTimeout_ZeroIsUnbounded(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := NewConfig("127.0.0.1", 5000)
+	require.NoError(t, err)
+
+	require.Zero(t, cfg.ConnectTimeout(), "connectTimeout must be 0 (unbounded) by default")
+}

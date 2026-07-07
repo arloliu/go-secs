@@ -126,6 +126,44 @@ func TestWithDialer_PipeAcceptance(t *testing.T) {
 	require.NoError(t, conn.Close(), "clean Close over net.Pipe")
 }
 
+// TestStartActive_ConnectTimeoutBoundsDial verifies WithConnectTimeout wraps the dial site with a
+// per-attempt deadline: a dialer that blocks until its ctx is done (simulating a black-holed peer
+// that never completes the TCP handshake) is forced to return within the configured timeout rather
+// than riding out the OS connect timeout (~2 min) or hanging on the unbounded engine ctx.
+func TestStartActive_ConnectTimeoutBoundsDial(t *testing.T) {
+	t.Parallel()
+
+	// blockingDial never returns on its own; it only unblocks when its ctx is cancelled/expires. If
+	// WithConnectTimeout did not wrap the dial ctx with a deadline, this call would hang on the
+	// unbounded background ctx passed to Start, and the test would time out instead of failing fast.
+	blockingDial := func(ctx context.Context, _, _ string) (net.Conn, error) {
+		<-ctx.Done()
+
+		return nil, ctx.Err()
+	}
+
+	cfg, err := NewConfig("127.0.0.1", 5000,
+		WithActive(),
+		WithDialer(blockingDial),
+		WithConnectTimeout(50*time.Millisecond),
+	)
+	require.NoError(t, err)
+
+	tr := newTransport(cfg)
+	tr.ArmStart()
+
+	done := make(chan error, 1)
+	go func() { done <- tr.Start(context.Background(), newMockRuntime()) }()
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.DeadlineExceeded,
+			"Start error must wrap context.DeadlineExceeded")
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Start did not return within 500ms — connectTimeout was not honored at the dial site")
+	}
+}
+
 // drainAndClose reads and discards everything the peer end receives until the pipe closes at
 // teardown, then closes it. It keeps the unbuffered net.Pipe from wedging if the connection ever
 // writes, and exits on the first read error (the connection's Close closing the other end).
