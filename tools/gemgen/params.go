@@ -88,12 +88,19 @@ func BodyExpr(n *StructureNode, items map[string]Item) string {
 		it := items[n.Item]
 		if it.Binding == BindingFixed {
 			arg := lower(n.Item)
-			if len(it.Values) > 0 {
+			switch {
+			case len(it.Values) > 0:
 				// Enum item: the parameter is the named type (e.g. COMMACK), but the secs2
 				// constructor combiners type-switch on the exact primitive (case byte:), which a
 				// named type does not satisfy. Convert back to goType at the call site so the
 				// value encodes instead of becoming a deferred-error item.
 				arg = fmt.Sprintf("%s(%s)", it.GoType, arg) // e.g. byte(commack)
+			case byteArrayGoTypeRE.MatchString(it.GoType):
+				// Fixed-size byte array: secs2.B takes ...any, and a [N]byte does not satisfy its
+				// []byte type-switch case directly -- slice it. NEVER add a "..." spread here too;
+				// spreading a []byte into ...any is a Go compile error (constraint 14).
+				arg += "[:]"
+			default:
 			}
 
 			return fmt.Sprintf("secs2.%s(%s)", it.Formats[0], arg)

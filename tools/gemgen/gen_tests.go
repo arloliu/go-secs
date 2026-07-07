@@ -65,6 +65,70 @@ func byteSample(name string) byte {
 	return byte(sum) ^ byte(sum>>8) ^ byte(sum>>16) ^ byte(sum>>24)
 }
 
+// byteSliceSampleLen is the fixed number of bytes sampled for a variable-
+// length "[]byte" leaf: the type imposes no length, so any positive count
+// exercises the whole-sequence encode/decode round-trip; a small value keeps
+// the generated literal readable.
+const byteSliceSampleLen = 4
+
+// byteArraySampleLen reports how many bytes to sample for a byte-array/byte-
+// slice goType: the N of a fixed-size "[N]byte", or byteSliceSampleLen for the
+// variable-length "[]byte". It reports false for any other goType, so scalar
+// and non-binary types fall through to the fixedSamples table instead.
+func byteArraySampleLen(gt string) (int, bool) {
+	if gt == "[]byte" {
+		return byteSliceSampleLen, true
+	}
+	if !byteArrayGoTypeRE.MatchString(gt) {
+		return 0, false
+	}
+
+	n, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(gt, "["), "]byte"))
+	if err != nil {
+		return 0, false
+	}
+
+	return n, true
+}
+
+// blobSample derives a deterministic n-byte sample sequence from name,
+// reusing byteSample's per-byte FNV derivation seeded by each index so two
+// blob-typed siblings (or two bytes within one sample) stay distinguishable.
+func blobSample(name string, n int) []byte {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = byteSample(name + strconv.Itoa(i))
+	}
+
+	return b
+}
+
+// byteBodyLiteral renders a byte sequence as the comma-separated body of a Go
+// composite literal, e.g. "0x39, 0xe3", for use inside an [N]byte{...} call
+// argument or a []byte{...} decode comparand.
+func byteBodyLiteral(b []byte) string {
+	parts := make([]string, len(b))
+	for i, x := range b {
+		parts[i] = fmt.Sprintf("0x%02x", x)
+	}
+
+	return strings.Join(parts, ", ")
+}
+
+// byteArraySampleExpr renders the call-site sample for a byte-array/byte-slice
+// leaf: an "[N]byte{...}" or "[]byte{...}" composite literal matching the
+// parameter's own type, filled with name's deterministic sample bytes. It
+// reports false for any non-binary goType. The decode-side comparand is built
+// from the same blobSample so the two always agree.
+func byteArraySampleExpr(gt, name string) (string, bool) {
+	n, ok := byteArraySampleLen(gt)
+	if !ok {
+		return "", false
+	}
+
+	return fmt.Sprintf("%s{%s}", gt, byteBodyLiteral(blobSample(name, n))), true
+}
+
 // funcTestView is the per-test-function view model the tests template
 // renders.
 type funcTestView struct {
@@ -212,6 +276,13 @@ func SampleExprs(n *StructureNode, items map[string]Item) ([]string, error) {
 				return
 			}
 
+			if expr, ok := byteArraySampleExpr(it.GoType, name); ok {
+				// Byte-array/byte-slice leaf: the parameter is an [N]byte or []byte, so its
+				// sample is a composite literal of that same type -- not a fixedSamples entry.
+				out = append(out, expr)
+				return
+			}
+
 			fs, ok := fixedSamples[it.GoType]
 			if !ok {
 				walkErr = fmt.Errorf("item %s: no deterministic sample for goType %q", n.Item, it.GoType)
@@ -304,6 +375,12 @@ func (c *testCtx) assertList(expr string, wantLen int) string {
 // assertFixed emits the decode-and-compare check for a fixed-binding leaf
 // found at expr, using its GoType's deterministic sample and accessor.
 func (c *testCtx) assertFixed(expr, name string, it Item) error {
+	if n, ok := byteArraySampleLen(it.GoType); ok {
+		c.assertBlob(expr, name, n)
+
+		return nil
+	}
+
 	fs, ok := fixedSamples[it.GoType]
 	if !ok {
 		return fmt.Errorf("no deterministic sample for goType %q", it.GoType)
@@ -336,6 +413,27 @@ func (c *testCtx) assertFixed(expr, name string, it Item) error {
 	)
 
 	return nil
+}
+
+// assertBlob emits the decode-and-compare check for a byte-array/byte-slice
+// leaf found at expr: it decodes the binary item and compares the *entire*
+// decoded byte sequence against name's deterministic n-byte sample via
+// bytes.Equal -- not the single-element check assertFixed uses for a scalar
+// byte, which would inspect only the first byte of a multi-byte blob.
+func (c *testCtx) assertBlob(expr, name string, n int) {
+	v := fmt.Sprintf("v%d", c.nextID())
+	want := fmt.Sprintf("[]byte{%s}", byteBodyLiteral(blobSample(name, n)))
+
+	c.emit(
+		fmt.Sprintf("%s, err := %s.ToBinary()", v, expr),
+		"if err != nil {",
+		fmt.Sprintf("t.Fatalf(%q, err)", expr+".ToBinary: %v"),
+		"}",
+		fmt.Sprintf("if !bytes.Equal(%s, %s) {", v, want),
+		fmt.Sprintf("t.Errorf(%q, %s, %s)", name+": got %x, want %x", v, want),
+		"}",
+	)
+	c.usesBytes = true
 }
 
 // assertSample emits the decode-and-compare check for a caller-supplied

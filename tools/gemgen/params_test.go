@@ -195,6 +195,18 @@ func TestBodyExpr(t *testing.T) {
 	}
 }
 
+func TestBodyExpr_FixedByteArray(t *testing.T) {
+	items := map[string]Item{"MHEAD": {Formats: []string{"B"}, Binding: BindingFixed, GoType: "[10]byte"}}
+	got := BodyExpr(&StructureNode{Item: "MHEAD"}, items)
+	require.Equal(t, "secs2.B(mhead[:])", got)
+}
+
+func TestBodyExpr_ByteSlice(t *testing.T) {
+	items := map[string]Item{"ABS": {Formats: []string{"B"}, Binding: BindingFixed, GoType: "[]byte"}}
+	got := BodyExpr(&StructureNode{Item: "ABS"}, items)
+	require.Equal(t, "secs2.B(abs)", got)
+}
+
 func TestBodyDoc(t *testing.T) {
 	items := paramsItems()
 

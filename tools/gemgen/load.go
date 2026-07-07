@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 
 	"gopkg.in/yaml.v3"
 )
@@ -15,6 +16,9 @@ var singleFormatGoType = map[string]string{
 	"U1": "uint8", "U2": "uint16", "U4": "uint32", "U8": "uint64",
 	"F4": "float32", "F8": "float64",
 }
+
+// byteArrayGoTypeRE matches a fixed-size byte-array Go type, e.g. "[10]byte".
+var byteArrayGoTypeRE = regexp.MustCompile(`^\[[0-9]+\]byte$`)
 
 // deriveBinding derives whether an item with the given SECS-II format-code
 // shortcuts should be treated as fixed or open. An item is fixed only when it
@@ -37,6 +41,15 @@ func deriveGoType(formats []string) (string, bool) {
 		return "", false
 	}
 	return singleFormatGoType[formats[0]], true
+}
+
+// isByteArrayGoType reports whether gt is a valid byte-array/byte-slice
+// alternative to the scalar "byte" goType, allowed only on a format-B item:
+// E5 format code 10 covers both a single accept/deny byte and a multi-byte
+// binary string (e.g. MHEAD/SHEAD's 10-byte header, ABS's variable-length
+// blob), and the DSL needs a way to say which.
+func isByteArrayGoType(gt string) bool {
+	return gt == "[]byte" || byteArrayGoTypeRE.MatchString(gt)
 }
 
 // LoadItems parses the items.yaml DSL content into a name-keyed map of Item.
@@ -71,8 +84,8 @@ func ValidateItems(items map[string]Item) error {
 			if it.GoType == "" {
 				return fmt.Errorf("item %s: fixed binding needs goType", name)
 			}
-			if it.GoType != gt {
-				return fmt.Errorf("item %s: goType %q, want %q", name, it.GoType, gt)
+			if it.GoType != gt && (it.Formats[0] != "B" || !isByteArrayGoType(it.GoType)) {
+				return fmt.Errorf("item %s: goType %q, want %q (or a byte-array/byte-slice variant for format B)", name, it.GoType, gt)
 			}
 		}
 

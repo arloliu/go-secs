@@ -29,6 +29,18 @@ func TestLoadItemsValid(t *testing.T) {
 	require.Equal(t, BindingOpen, items["CEID"].Binding)
 }
 
+func TestValidateItems_ByteArrayGoType(t *testing.T) {
+	items := map[string]Item{
+		"MHEAD": {Formats: []string{"B"}, Binding: BindingFixed, GoType: "[10]byte"},
+		"ABS":   {Formats: []string{"B"}, Binding: BindingFixed, GoType: "[]byte"},
+		"BAD":   {Formats: []string{"A"}, Binding: BindingFixed, GoType: "[10]byte"}, // format A may NOT use this
+	}
+	require.NoError(t, ValidateItems(map[string]Item{"MHEAD": items["MHEAD"]}))
+	require.NoError(t, ValidateItems(map[string]Item{"ABS": items["ABS"]}))
+	err := ValidateItems(map[string]Item{"BAD": items["BAD"]})
+	require.Error(t, err)
+}
+
 func TestValidateItemsRejectsBadFixed(t *testing.T) {
 	cases := map[string]string{
 		"fixed multi format":  "X:\n  formats: [A, B]\n  binding: fixed\n  goType: string\n  source: e5\n",

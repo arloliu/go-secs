@@ -319,6 +319,53 @@ func TestRenderTestsFixedBooleanLeaf(t *testing.T) {
 	require.Contains(t, src, "decoded.ToBoolean()")
 }
 
+// TestRenderTestsByteArrayLeaf proves the byte-array/byte-slice leaf body
+// path (S9 header items / S2F25 ABS shape): a fixed [N]byte leaf is sampled
+// as an [N]byte{...} composite literal at the call site and asserted against
+// the *entire* decoded byte sequence via bytes.Equal (not a single-element
+// check, which only fits a scalar byte), and a []byte leaf is sampled as a
+// []byte{...} literal and asserted the same way.
+func TestRenderTestsByteArrayLeaf(t *testing.T) {
+	items := map[string]Item{
+		"MHEAD": {Formats: []string{"B"}, Binding: BindingFixed, GoType: "[10]byte"},
+		"ABS":   {Formats: []string{"B"}, Binding: BindingFixed, GoType: "[]byte"},
+	}
+	mf := MessageFile{Stream: 9, Messages: []Message{
+		{
+			Function: 1, Name: "Unrecognized Device ID", Mnemonic: "UDN",
+			Bodies: []Body{{Actor: "equipment", ReplyExpected: false, Structure: &StructureNode{Item: "MHEAD"}}},
+		},
+		{
+			Function: 2, Name: "Unrecognized Stream Type", Mnemonic: "UST",
+			Bodies: []Body{{Actor: "equipment", ReplyExpected: false, Structure: &StructureNode{Item: "ABS"}}},
+		},
+	}}
+
+	out, err := renderTests(mf, items)
+	require.NoError(t, err)
+	parseGoSource(t, out)
+
+	src := string(out)
+
+	// Fixed [10]byte leaf: call-site sample is a 10-element [10]byte{...}
+	// composite literal, decoded via ToBinary, compared as a whole sequence.
+	require.Contains(t, src, "func TestS9F1(t *testing.T) {")
+	require.Contains(t, src, "gem.S9F1([10]byte{")
+	require.Contains(t, src, ".ToBinary()")
+	require.Contains(t, src, "bytes.Equal(")
+	require.Contains(t, src, `"bytes"`, "a blob comparison must pull in the bytes import")
+
+	// []byte leaf: call-site sample is a []byte{...} literal passed straight
+	// through (no [:] slice, that is a body-expression concern, not a sample).
+	require.Contains(t, src, "func TestS9F2(t *testing.T) {")
+	require.Contains(t, src, "gem.S9F2([]byte{")
+
+	// The whole-sequence comparison must NOT degrade into the single-element
+	// scalar-byte check (`len(v) != 1 || v[0] != ...`), which would only ever
+	// inspect the first byte of a multi-byte blob.
+	require.NotContains(t, src, "|| v1[0] !=")
+}
+
 // TestRenderTestsUnsupportedFixedGoType proves renderTests fails loudly
 // (rather than emitting broken output) for a fixed-binding goType with no
 // known deterministic sample, so the generator never silently renders an

@@ -1,7 +1,7 @@
 ABS:
   formats: [B]
   binding: fixed
-  goType: byte
+  goType: "[]byte"
   description: Any binary string.
   source: e5
 ACCESSMODE:
@@ -735,7 +735,7 @@ MF:
 MHEAD:
   formats: [B]
   binding: fixed
-  goType: byte
+  goType: "[10]byte"
   description: SECS message block header associated with message block in error.
   source: e5
 MID:
@@ -1434,7 +1434,7 @@ SFCD:
 SHEAD:
   formats: [B]
   binding: fixed
-  goType: byte
+  goType: "[10]byte"
   description: Stored header related to the transaction timer.
   source: e5
 SLOTID:
