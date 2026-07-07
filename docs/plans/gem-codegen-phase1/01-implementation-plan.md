@@ -110,6 +110,20 @@ Copy these into every implementer's context. They are non-negotiable acceptance 
 10. **Git:** never add `Co-Authored-By` or any attribution trailer. Do not commit the plan file.
 11. **Deprecated E5 forms are out of scope.** Do not represent S1F3/S1F10 packed-single-item legacy
     variants; target only the list form E5 recommends for new implementations.
+12. **Enum items get a named Go type + a call-site conversion.** An item with a non-empty `values:`
+    table (only COMMACK in Phase 1; always `binding: fixed`) generates a named defined type
+    `type <ITEM> <goType>` (e.g. `type COMMACK byte`) plus its constants, and the generated function
+    parameter for that item takes the named type (`commack COMMACK`), NOT the bare primitive
+    (`commack byte`). Because `secs2.B`, `secs2.I1`–`secs2.I8`, and `secs2.U1`–`secs2.U8` accept
+    `...any` but their internal value combiners (`secs2/binary.go` `combineBinaryValues`,
+    `secs2/int.go` `combineIntValues`/`combineIntValuesSlow`) type-switch on the *exact* primitive
+    type (`case byte:`, `case uint8:`, …), a named type like `COMMACK` does NOT match `case byte:`
+    even though its underlying type is `byte` — it falls through to the combiner's `default:` and the
+    constructor returns a silent deferred-error item, not a working encoded value. So the generated
+    body expression for an enum-typed parameter MUST convert back to the underlying primitive at the
+    constructor call site: `secs2.B(byte(commack))`, NEVER `secs2.B(commack)`. The generator inserts
+    this `<goType>(...)` conversion automatically; callers never write it. Items without a `values:`
+    table keep the bare primitive parameter type and take no conversion, unchanged.
 
 ## 5. Format-code → constructor / goType mapping (source of truth)
 
@@ -149,7 +163,8 @@ out of scope here.
 | Node | YAML | Params contributed | Body expression | Body godoc shorthand |
 |------|------|--------------------|-----------------|----------------------|
 | header-only | `structure: null` | none | `secs2.NewEmptyItem()` | `Header only.` |
-| fixed leaf | `{item: X}`, X fixed | `x <goType>` | `secs2.<Ctor>(x)` | `<Ctor>[x]` |
+| fixed leaf (no `values:`) | `{item: X}`, X fixed | `x <goType>` | `secs2.<Ctor>(x)` | `<Ctor>[x]` |
+| fixed enum leaf (has `values:`) | `{item: X}`, X fixed + `values:` | `x <X>` (named type) | `secs2.<Ctor>(<goType>(x))` | `<Ctor>[x]` |
 | open leaf | `{item: X}`, X open | `x secs2.Item` | `x` | `<x>` |
 | opaque | `{type: opaque}` | `body secs2.Item` | `body` | `form-dependent (see description)` |
 | list (items) | `{type: list, items: [...]}` | children in order | `secs2.L(c1, c2, ...)` | `L[k]{ ... }` |
@@ -167,6 +182,14 @@ Rules:
   it comes from a `repeat` node. All earlier repeat params are `[]secs2.Item`.
 - Parameter name = lowercased item name for leaves (`MDLN`→`mdln`), the `repeat:` name for repeats,
   `body` for opaque.
+- A **fixed leaf whose item carries a non-empty `values:` table** is the enum case: its parameter
+  type is the item's own name used as a Go type identifier (`COMMACK`, not `byte`) and its body
+  expression wraps the parameter in a conversion back to the underlying `goType` —
+  `secs2.<Ctor>(<goType>(x))`, e.g. `secs2.B(byte(commack))`. This conversion is mandatory (see §4
+  constraint 12): the named type does not satisfy the exact-type switch inside the `secs2`
+  constructor combiners, so `secs2.B(commack)` would silently produce a deferred-error item.
+  Item names in Table 3 are already valid Go identifiers, so no name sanitization is needed. A fixed
+  leaf with no `values:` table is unaffected: bare `goType` parameter, `secs2.<Ctor>(x)` body.
 
 ## 7. Generated function signatures for S1 (the full target set)
 
@@ -189,8 +212,8 @@ S1F11(svids ...secs2.Item)                            // L[n]{<SVID>...}, W=1
 S1F12(svids ...secs2.Item)                            // L[n]{ L[3]{<SVID> A A} ... }, W=0  (source: external)
 S1F13(mdln string, softrev string)                    // L[2]{A A}, W=1     (actor: equipment)
 S1F13Host()                                           // L[0], W=1          (actor: host)
-S1F14(commack byte, mdln string, softrev string)      // L[2]{B L[2]{A A}}, W=0 (actor: equipment)
-S1F14Host(commack byte)                               // L[2]{B L[0]}, W=0  (actor: host)
+S1F14(commack COMMACK, mdln string, softrev string)   // L[2]{B L[2]{A A}}, W=0 (actor: equipment)
+S1F14Host(commack COMMACK)                            // L[2]{B L[0]}, W=0  (actor: host)
 S1F15()                                              // header-only, W=1
 S1F16(oflack byte)                                    // B[oflack], W=0
 S1F17()                                              // header-only, W=1
@@ -204,7 +227,8 @@ S1F24(ceids ...secs2.Item)                            // L[n]{ L[3]{<CEID> A L{<
 ```
 
 Coverage against acceptance criteria: header-only (F1/F9/F15/F17), per-actor variant
-(F2/F2Host, F13/F13Host, F14/F14Host), enum-valued item (COMMACK in F14 → `gem/items.go` const),
+(F2/F2Host, F13/F13Host, F14/F14Host), enum-valued item (COMMACK in F14 → named type `COMMACK` +
+consts in `gem/items.go`; F14 param is `commack COMMACK`, body converts via `secs2.B(byte(commack))`),
 open-binding item (SVID/SV/VID/CEID/OBJTYPE/ATTRID/…), opaque body (F6/F8), nested list (F14),
 sibling repeat (F10, F19, F20), nested repeat/repeat-of-list (F12, F20, F22, F24). Bounded-arity list
 is NOT in S1 — covered by a generator unit test only (Task 15).
@@ -405,6 +429,12 @@ Steps:
 4. GREEN: `go test ./...` passes.
 5. Commit: `feat(gemgen): DSL schema structs`.
 
+> **No new field for the named-type signal.** The existing `Values []ItemValue` is the sole signal
+> for "this item generates a named Go type" (§4 constraint 12): a fixed-binding item with
+> `len(Values) > 0` gets a named type + typed parameter + call-site conversion. Do NOT add a
+> redundant boolean — Tasks 4, 6, and 11 all derive the enum case from `len(it.Values) > 0` (and
+> `it.Binding == BindingFixed`) directly.
+
 #### Task 3 — Format-code derivation maps in `load.go`
 
 **Model/Effort:** sonnet / medium — lookup-table logic, but feeds correctness for all 336 items.
@@ -496,6 +526,11 @@ Validation rules (design "Validation" list, item portion):
 - `binding: fixed` with missing `goType` → error.
 - stored `binding` must equal `deriveBinding(formats)` (cross-checks the Python extraction).
 - if fixed, stored `goType` must equal the derived goType.
+- non-empty `values:` on a non-`fixed` (i.e. `open`) item → error. The `values:` table generates a
+  named defined type over the item's `goType` (§4 constraint 12); an `open` item has no concrete
+  `goType` to define the type over, so an enum table on it is nonsensical. Failing here (the earliest
+  gate) rather than only in `renderItems` (Task 11) surfaces the mistake at validation time. (The
+  design states `values:` is "only valid on `binding: fixed` items".)
 
 Steps:
 1. Failing `tools/gemgen/load_items_test.go`:
@@ -537,6 +572,7 @@ Steps:
            "fixed no goType":     "X:\n  formats: [A]\n  binding: fixed\n  source: e5\n",
            "binding mismatch":    "X:\n  formats: [A]\n  binding: open\n  source: e5\n",
            "goType mismatch":     "X:\n  formats: [A]\n  binding: fixed\n  goType: int8\n  source: e5\n",
+           "values on open item": "X:\n  formats: [A, B]\n  binding: open\n  source: e5\n  values:\n    - {name: Foo, value: 0}\n",
        }
        for name, yml := range cases {
            t.Run(name, func(t *testing.T) {
@@ -575,6 +611,9 @@ Steps:
                if it.GoType != gt {
                    return fmt.Errorf("item %s: goType %q, want %q", name, it.GoType, gt)
                }
+           }
+           if len(it.Values) > 0 && it.Binding != BindingFixed {
+               return fmt.Errorf("item %s: values table requires binding fixed (a named enum type needs a concrete goType)", name)
            }
        }
        return nil
@@ -701,7 +740,8 @@ map[string]Item) string`; `BodyDoc(*StructureNode, map[string]Item) string`.
 
 Steps:
 1. Failing `tools/gemgen/params_test.go` — one table covering **every** §6 row. Key expectations
-   (items map supplies MDLN=fixed string, COMMACK=fixed byte, SFCD=fixed byte, SVID/SV/OBJTYPE/
+   (items map supplies MDLN=fixed string, COMMACK=fixed byte **with a non-empty `values:` table**
+   (so it generates the named type `COMMACK`), SFCD=fixed byte (no `values:`), SVID/SV/OBJTYPE/
    OBJID/ATTRID/ATTRDATA/ERRCODE/ERRTEXT/VID/CEID/DVVALNAME/UNITS/CENAME/TSIP/TSOP as needed):
    Param literal shorthand below is `{name, type, repeat, variadic}` (matching the four-field
    `Param` struct in step 3): `repeat` is true for any param originating from a `repeat` node,
@@ -715,10 +755,10 @@ Steps:
    node = {list, items:[{item:MDLN},{item:SOFTREV}]}
    BuildParams(node)  -> [{mdln,string,false,false},{softrev,string,false,false}]
    BodyExpr(node)     -> "secs2.L(secs2.A(mdln), secs2.A(softrev))"
-   // nested list + enum leaf (S1F14)
+   // nested list + enum leaf (S1F14): COMMACK has a values: table -> named type + byte() conversion
    node = {list, items:[{item:COMMACK},{list, items:[{item:MDLN},{item:SOFTREV}]}]}
-   BuildParams -> [{commack,byte,false,false},{mdln,string,false,false},{softrev,string,false,false}]
-   BodyExpr    -> "secs2.L(secs2.B(commack), secs2.L(secs2.A(mdln), secs2.A(softrev)))"
+   BuildParams -> [{commack,COMMACK,false,false},{mdln,string,false,false},{softrev,string,false,false}]
+   BodyExpr    -> "secs2.L(secs2.B(byte(commack)), secs2.L(secs2.A(mdln), secs2.A(softrev)))"
    // bare fixed leaf (S1F5)
    BuildParams({item:SFCD}) -> [{sfcd,byte,false,false}]
    BodyExpr({item:SFCD})    -> "secs2.B(sfcd)"
@@ -786,6 +826,9 @@ Steps:
                typ := "secs2.Item"
                if it.Binding == BindingFixed {
                    typ = it.GoType
+                   if len(it.Values) > 0 {
+                       typ = n.Item // enum item: named defined type, e.g. COMMACK (over goType byte)
+                   }
                }
                out = append(out, Param{Name: lower(n.Item), Type: typ})
            case "opaque":
@@ -815,7 +858,15 @@ Steps:
        case "leaf":
            it := items[n.Item]
            if it.Binding == BindingFixed {
-               return fmt.Sprintf("secs2.%s(%s)", it.Formats[0], lower(n.Item))
+               arg := lower(n.Item)
+               if len(it.Values) > 0 {
+                   // Enum item: the parameter is the named type (e.g. COMMACK), but the secs2
+                   // constructor combiners type-switch on the exact primitive (case byte:), which a
+                   // named type does not satisfy. Convert back to goType at the call site so the
+                   // value encodes instead of becoming a deferred-error item (§4 constraint 12).
+                   arg = fmt.Sprintf("%s(%s)", it.GoType, arg) // e.g. byte(commack)
+               }
+               return fmt.Sprintf("secs2.%s(%s)", it.Formats[0], arg)
            }
            return lower(n.Item)
        case "opaque":
@@ -1007,37 +1058,58 @@ Steps:
        out, err := renderItems(items)
        require.NoError(t, err)
        src := string(out)
-       require.Contains(t, src, "COMMACKAccepted byte = 0")
-       require.Contains(t, src, "COMMACKDenied byte = 1")
+       require.Contains(t, src, "type COMMACK byte")
+       require.Contains(t, src, "COMMACKAccepted COMMACK = 0")
+       require.Contains(t, src, "COMMACKDenied COMMACK = 1")
    }
    ```
 2. RED.
-3. `renderItems`: only items with non-empty `Values` emit consts (must be `fixed`, so a concrete
-   type exists — enforce: if an item has `Values` but is `open`, return an error, since there is no
-   Go type for the constant). Const name = `<ITEM><ValueName>`, type = item goType, value =
-   decimal. Emit in item-name then value order inside one `const (...)` block. `format.Source` the
-   result. Template `templates/items.go.tmpl`:
+3. `renderItems`: only items with non-empty `Values` emit output (must be `fixed`, so a concrete
+   `goType` exists — enforce: if an item has `Values` but is `open`, return an error, since there is
+   no Go type to define the named type over; `ValidateItems` (Task 4) already rejects this earlier,
+   but keep the guard here as defense-in-depth). For each such item emit, in item-name order:
+   - a **named defined type declaration** `type <ITEM> <goType>` (e.g. `type COMMACK byte`), then
+   - a `const (...)` block of its values: const name = `<ITEM><ValueName>`, **type = the named type
+     `<ITEM>` itself (NOT the bare `goType`)**, value = decimal, in value order.
+
+   So COMMACK yields `type COMMACK byte` plus `COMMACKAccepted COMMACK = 0` /
+   `COMMACKDenied COMMACK = 1`. Typing the consts as `<ITEM>` (not `byte`) is what makes them
+   assignable to the generated `commack COMMACK` parameter without a cast. `format.Source` the result.
+   The view model carries per-item `{Name, GoType string; Consts []constView}` where each `constView`
+   is `{Name string; Value int64}`. Template `templates/items.go.tmpl` (Types section before the
+   Constants section per decorder — the type decls precede the const block, both grouped by item):
    ```
    // Code generated by gemgen; DO NOT EDIT.
 
    package gem
-   {{if .Consts}}
+   {{range .Types}}
+   // {{.Name}} enumerates the defined values of the {{.Name}} item.
+   type {{.Name}} {{.GoType}}
+
    const (
-   {{range .Consts}}    {{.Name}} {{.Type}} = {{.Value}}
+   {{$typeName := .Name}}{{range .Consts}}    {{.Name}} {{$typeName}} = {{.Value}}
    {{end}})
    {{end}}
    ```
+   (Render each item's type+const pair together; `{{$typeName}}` on the const line is the item's
+   named type. If decorder requires *all* type decls before *any* const block across items, group all
+   `type` decls first, then all `const` blocks — but for Phase 1 only COMMACK exists, so a single
+   type+const pair is emitted and the grouping question is moot; note it for Phase 2.)
 4. Wire `renderItems` into `run` (replace the Task 8 stub). GREEN.
 5. Add S1F14 golden to `gen_messages_test.go`: assert
    ```
-   func S1F14(commack byte, mdln string, softrev string) secs2.SECS2Message {
-       return secs2.NewMessage(1, 14, false, secs2.L(secs2.B(commack), secs2.L(secs2.A(mdln), secs2.A(softrev))))
+   func S1F14(commack COMMACK, mdln string, softrev string) secs2.SECS2Message {
+       return secs2.NewMessage(1, 14, false, secs2.L(secs2.B(byte(commack)), secs2.L(secs2.A(mdln), secs2.A(softrev))))
    }
-   func S1F14Host(commack byte) secs2.SECS2Message {
-       return secs2.NewMessage(1, 14, false, secs2.L(secs2.B(commack), secs2.L()))
+   func S1F14Host(commack COMMACK) secs2.SECS2Message {
+       return secs2.NewMessage(1, 14, false, secs2.L(secs2.B(byte(commack)), secs2.L()))
    }
    ```
-   RED→GREEN.
+   This golden locks the enum behavior end-to-end: the parameter is the named type `COMMACK` (not
+   `byte`) and the body wraps it in `byte(commack)` before `secs2.B` (§4 constraint 12). Together
+   with `TestRenderItemsEnum` (step 1, which asserts `type COMMACK byte` in `items.go`), the two
+   assertions cover both halves of the mechanism: the type declaration/consts in `items.go` and the
+   typed-param + call-site conversion in `s1.go`. RED→GREEN.
 6. Commit: `feat(gemgen): item enum consts + nested-list golden`.
 
 #### Task 12 — opaque body (S1F6 / S1F8)
@@ -1072,7 +1144,10 @@ body that (a) builds the message with deterministic sample inputs, (b) asserts s
 bit, (c) decodes the body and walks the `structure` tree asserting each node's secs2 type and value.
 
 Sample-input rule (deterministic, so golden text is stable): fixed `string` → `"X"`; fixed `byte` →
-`0x01`; open leaf / repeat element / opaque → `secs2.A("v")`. The walk compares against these.
+`0x01`; open leaf / repeat element / opaque → `secs2.A("v")`. The walk compares against these. An
+enum-typed fixed leaf (e.g. COMMACK) uses the same primitive sample — an untyped constant `0x01` is
+assignable to the named parameter type `COMMACK`, so the generated call `gem.S1F14(0x01, "X", "X")`
+needs no cast — and the decode assertion still compares the decoded binary value against `0x01`.
 
 Steps:
 1. Failing `tools/gemgen/gen_tests_test.go`: render the S1F2 message, assert the output contains
@@ -1835,8 +1910,15 @@ Steps:
   drops the F11→F13 page during PDF→markdown conversion; Table 3 confirms F12 is real. Re-verify
   against a complete E5 copy if one becomes available.
 - **`gem/s2.go`, `report.go`, `doc.go`** are untouched; Phase 2 replaces them. No collisions:
-  `items.go` holds only consts; generated `s1.go` occupies the same symbols the hand-written file
-  did.
+  `items.go` holds only the enum named-type declarations plus their consts (just `COMMACK` in
+  Phase 1); generated `s1.go` occupies the same symbols the hand-written file did.
+- **Enum named type + call-site conversion** (§4 constraint 12; Tasks 4, 6, 11): an item with a
+  `values:` table generates `type <ITEM> <goType>` and a typed parameter, and the generated body
+  MUST wrap the parameter in `<goType>(...)` (e.g. `secs2.B(byte(commack))`) because the `secs2`
+  constructor combiners type-switch on the exact primitive type. Verified against `secs2/binary.go`
+  (`combineBinaryValues`) and `secs2/int.go` (`combineIntValues`/`combineIntValuesSlow`): a named
+  type falls through to the `default:` "invalid type" branch, so omitting the conversion would
+  silently yield a deferred-error item. `ValidateItems` rejects a `values:` table on an `open` item.
 
 ## 10. Self-review (performed on this plan)
 
@@ -1844,13 +1926,17 @@ Steps:
   generate → Tasks 1, 19; items.yaml 336 → Task 16; s1.yaml 24 functions → Task 18; every node
   type → Tasks 7-15 (+ §7 coverage map); generated s1.go/items.go/s1_test.go replacing hand-written
   → Task 20; make lint + make test → Tasks 21-22; godoc sample → Task 23. All mapped.
-- **Node-type coverage**: header-only, fixed leaf, open leaf, opaque, list(items), bounded list,
-  repeat — all appear in the §6 table, the params_test (Task 6), and are exercised by a concrete S1
-  function (or, for bounded-arity, the Task 15 unit test). No node type is defined but untested.
+- **Node-type coverage**: header-only, fixed leaf (no `values:`), fixed enum leaf (has `values:`),
+  open leaf, opaque, list(items), bounded list, repeat — all appear in the §6 table, the params_test
+  (Task 6), and are exercised by a concrete S1 function (fixed enum leaf via COMMACK in S1F14; or,
+  for bounded-arity, the Task 15 unit test). No node type is defined but untested.
 - **Type/function-name consistency** (checked across tasks): `StructureNode` fields (Task 2) are
   consumed unchanged by `walkNode` (Task 5), `BuildParams`/`BodyExpr`/`BodyDoc` (Task 6),
   `funcView` (Task 7). `Item.Binding`/`GoType`/`Formats`/`Values` (Task 2) used consistently in
-  Tasks 3-6, 11. `Param{Name,Type,Repeat,Variadic}` (Task 6) consumed by the `params` template
+  Tasks 3-6, 11 — `len(Values) > 0` on a fixed item is the sole named-type signal (no redundant
+  field), driving the `COMMACK`-typed parameter (Task 6 `BuildParams`), the `byte(commack)`
+  conversion (Task 6 `BodyExpr`, §7/Task 11 goldens), and the `type COMMACK byte` + typed consts
+  (Task 11 `renderItems`). `Param{Name,Type,Repeat,Variadic}` (Task 6) consumed by the `params` template
   helper (Task 7), whose three-way branch renders non-final repeats as `[]secs2.Item`, the final
   repeat as `...secs2.Item`, and everything else as `name <Type>`. `deriveBinding`/`deriveGoType`
   (Task 3) reused by `ValidateItems` (Task 4). Actor→name
@@ -1867,4 +1953,8 @@ Steps:
   added the explicit gemgen-lint decision (Task 22) since `make lint` does not cross module
   boundaries; added the S1F12 provenance-exception note so its `source: external` inclusion is deliberate;
   made `ValidateItems` cross-check the Python extraction's binding/goType (gives the extraction teeth
-  via the Go loader).
+  via the Go loader); made enum items (`values:` table) generate a named Go type (`type COMMACK
+  byte`) with a typed parameter, and required the generated body to convert back to the primitive at
+  the constructor call site (`secs2.B(byte(commack))`) — verified against the `secs2` combiners'
+  exact-type switch, so an un-converted named type would silently produce a deferred-error item; also
+  added a `ValidateItems` rule rejecting a `values:` table on an `open`-binding item.
