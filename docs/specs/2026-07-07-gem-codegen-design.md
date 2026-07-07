@@ -456,3 +456,21 @@ unchanged; no new test category is introduced (`.agents/rules/300-testing.md`).
   item's value (e.g. S2F49/S2F50's parameter-type-dependent shape). This is
   a real gap the S2 stream will require; it's called out here as an
   explicit Phase 2 schema-design task, not silently deferred.
+- **Unifying `tools/gemgen`'s three parallel structure-tree walkers**
+  (`params.go`'s `BuildParams`/`BodyExpr`/`BodyDoc`, `gen_tests.go`'s
+  `SampleExprs`/`assertNode`) into one shared visitor. Flagged by the final
+  Phase 1 whole-branch review as real tech debt, not accepted permanently:
+  when the `packed` node kind was added mid-Phase-1, it was correctly
+  applied to `params.go`/`gen_messages.go` but initially missed in
+  `gen_tests.go` (caught only by an end-to-end CLI run against real data,
+  not by any unit test) — direct evidence that duplicated traversal logic
+  drifts. Not fixed in Phase 1 (freshly-verified code carries its own risk
+  to refactor immediately), but recommended as an explicit Phase 2 task
+  *before* S2–S21 content authoring begins, since miss-risk scales with
+  node kinds × walkers and Phase 2 multiplies both.
+- **A Go-reserved-word guard on item-name-derived Go identifiers**
+  (`lower()` in `params.go`/`gen_tests.go` has none). Verified zero
+  collisions across all 335 Phase 1 item names, but this is a latent risk
+  for Phase 2 if a future GEM300/E39-E116 item happens to be named e.g.
+  `TYPE` or `RANGE`. Cheap to add (a static keyword-set check); deferred
+  since Phase 1 has no instance of the problem to test against.
