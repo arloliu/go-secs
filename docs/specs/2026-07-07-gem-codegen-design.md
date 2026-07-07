@@ -303,7 +303,18 @@ Fields:
     S1F10's real structure (`L,2{ <tsip1,,tsipn> <tsop1,,tsopn> }`) is
     genuinely packed, not a list — TSIP/TSOP share one item header per
     group, format `B` (binary), so the correct body expression is
-    `secs2.B(tsips...)`, NOT `secs2.L(tsips...)`. `of.item` must reference a
+    `secs2.B(tsips)`, NOT `secs2.L(tsips...)`. **No `...` spread on the
+    packed argument**: `tsips`/`tsops` are `[]byte` inside the function body
+    (Go represents both a slice-typed and a variadic-typed parameter as a
+    slice internally), and `secs2.B` takes `values ...any` — spreading a
+    `[]byte` into a `...any` parameter is a Go compile error (`[]byte` is
+    not assignable to `[]any`). Passing the slice as a single argument
+    works because `secs2`'s own value combiners (`combineBinaryValues` et
+    al.) have a `case []byte:` branch that unpacks a single slice argument's
+    values — this was caught by an actual `go build` of the generated code
+    against the real `secs2` package, after two earlier verification passes
+    that only checked generated-source syntax validity (`gofmt`/`go/parser`)
+    missed it. `of.item` must reference a
     `binding: fixed` leaf (packing requires one shared format for all
     values; an `open`-binding item has no single format to pack under, so
     this is a validation error). Codegen parameter follows the same
