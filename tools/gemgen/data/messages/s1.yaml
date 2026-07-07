@@ -1,0 +1,346 @@
+stream: 1
+messages:
+  - function: 1
+    name: Are You There Request
+    mnemonic: R
+    direction: bidirectional
+    description: Establishes if the equipment is on-line.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: null
+
+  - function: 2
+    name: On Line Data
+    mnemonic: D
+    direction: bidirectional
+    description: Data signifying that the equipment is alive.
+    exception: The host sends a zero-length list to the equipment.
+    source: e5
+    bodies:
+      - actor: equipment
+        replyExpected: false
+        structure: {type: list, items: [{item: MDLN}, {item: SOFTREV}]}
+      - actor: host
+        replyExpected: false
+        structure: {type: list, items: []}
+
+  - function: 3
+    name: Selected Equipment Status Request
+    mnemonic: SSR
+    direction: host-to-equipment
+    description: A request to the equipment to report selected values of its status.
+    exception: A zero-length list means report all SVIDs.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, repeat: svids, of: {item: SVID}}
+
+  - function: 4
+    name: Selected Equipment Status Data
+    mnemonic: SSD
+    direction: equipment-to-host
+    description: The equipment reports the value of each SVID requested, in the order requested.
+    exception: A zero-length list item for an SV means the corresponding SVID does not exist.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, repeat: svs, of: {item: SV}}
+
+  - function: 5
+    name: Formatted Status Request
+    mnemonic: FSR
+    direction: host-to-equipment
+    description: A request for the equipment to report status according to a predefined fixed format.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: SFCD}
+
+  - function: 6
+    name: Formatted Status Data
+    mnemonic: FSD
+    direction: equipment-to-host
+    description: The equipment reports the value of status variables according to the SFCD.
+    exception: A zero-length item means that no report can be made.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: opaque}
+
+  - function: 7
+    name: Fixed Form Request
+    mnemonic: FFR
+    direction: host-to-equipment
+    description: A request for the form used in S1F6.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: SFCD}
+
+  - function: 8
+    name: Fixed Form Data
+    mnemonic: FFD
+    direction: equipment-to-host
+    description: The equipment returns the fixed form specified for S1F6.
+    exception: A zero-length item means the form is unavailable.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: opaque}
+
+  - function: 9
+    name: Material Transfer Status Request
+    mnemonic: TSR
+    direction: host-to-equipment
+    description: A request to report the status of all material ports to the host.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: null
+
+  - function: 10
+    name: Material Transfer Status Data
+    mnemonic: TSD
+    direction: equipment-to-host
+    description: The equipment reports the transfer status of all material ports.
+    exception: >-
+      A zero-length input or output port list means there are no such ports.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            # TSIP/TSOP are E5's packed multi-value single item (<tsip1,,tsipn>), NOT a list of
+            # separate items -- packed, not repeat. See design doc's S1F10 correction and §4.13.
+            - {type: list, packed: tsips, of: {item: TSIP}}
+            - {type: list, packed: tsops, of: {item: TSOP}}
+
+  - function: 11
+    name: Status Variable Namelist Request
+    mnemonic: SVNR
+    direction: host-to-equipment
+    description: A request to the equipment to identify certain status variables.
+    exception: A zero-length list means report all SVIDs.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, repeat: svids, of: {item: SVID}}
+
+  # S1F12 is reconstructed from an external reference, NOT our local E5 markdown, whose §10
+  # Message Detail section drops the page between F11 and F13 during PDF-to-markdown conversion.
+  # Table 3 in the same local copy still cross-references S1F12 for SVNAME (e005-00-0813.md:862)
+  # and UNITS (:927), confirming the function is real: this is a local-copy gap, not a genuine
+  # discrepancy with the standard. Re-verify against a complete E5 copy if one becomes available.
+  - function: 12
+    name: Status Variable Namelist Reply
+    mnemonic: SVN
+    direction: equipment-to-host
+    description: The equipment reports the name and units for each status variable requested in S1F11.
+    exception: Zero-length SVNAME and UNITS items indicate that the SVID does not exist.
+    source: external
+    confidence: low
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          repeat: svids
+          of: {type: list, items: [{item: SVID}, {item: SVNAME}, {item: UNITS}]}
+
+  - function: 13
+    name: Establish Communications Request
+    mnemonic: CR
+    direction: bidirectional
+    description: Provides a formal means of initializing communications at the application level.
+    exception: The host sends a zero-length list to the equipment.
+    source: e5
+    bodies:
+      - actor: equipment
+        replyExpected: true
+        structure: {type: list, items: [{item: MDLN}, {item: SOFTREV}]}
+      - actor: host
+        replyExpected: true
+        structure: {type: list, items: []}
+
+  - function: 14
+    name: Establish Communications Request Acknowledge
+    mnemonic: CRA
+    direction: bidirectional
+    description: Accepts or denies an Establish Communications Request. MDLN and SOFTREV are valid only if COMMACK is 0.
+    exception: The host sends a zero-length list for the second item to the equipment.
+    source: e5
+    bodies:
+      - actor: equipment
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: COMMACK}
+            - {type: list, items: [{item: MDLN}, {item: SOFTREV}]}
+      - actor: host
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: COMMACK}
+            - {type: list, items: []}
+
+  - function: 15
+    name: Request OFF-LINE
+    mnemonic: ROFL
+    direction: host-to-equipment
+    description: The host requests that the equipment transition to the OFF-LINE state.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: null
+
+  - function: 16
+    name: OFF-LINE Acknowledge
+    mnemonic: OFLA
+    direction: equipment-to-host
+    description: Acknowledge or error for the OFF-LINE request.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: OFLACK}
+
+  - function: 17
+    name: Request ON-LINE
+    mnemonic: RONL
+    direction: host-to-equipment
+    description: The host requests that the equipment transition to the ON-LINE state.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: null
+
+  - function: 18
+    name: ON-LINE Acknowledge
+    mnemonic: ONLA
+    direction: equipment-to-host
+    description: Acknowledge or error for the ON-LINE request.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ONLACK}
+
+  - function: 19
+    name: Get Attribute
+    mnemonic: GA
+    direction: bidirectional
+    description: Request for attribute data relating to the specified object or entity within the equipment.
+    exception: >-
+      A zero-length object list (m = 0) requests all objects of the type.
+      A zero-length attribute list (n = 0) requests all attributes.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: OBJTYPE}
+            - {type: list, repeat: objids, of: {item: OBJID}}
+            - {type: list, repeat: attrids, of: {item: ATTRID}}
+
+  - function: 20
+    name: Attribute Data
+    mnemonic: AD
+    direction: bidirectional
+    description: Transfers the requested set of object attributes, in request order.
+    exception: >-
+      m = 0 means the OBJTYPE is unknown. n = 0 means the object was not found.
+      A zero-length ATTRDATA means the attribute does not exist. p = 0 means no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {type: list, repeat: objects, of: {type: list, repeat: attrs, of: {item: ATTRDATA}}}
+            - {type: list, repeat: errors, of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}}
+
+  - function: 21
+    name: Data Variable Namelist Request
+    mnemonic: DVNR
+    direction: host-to-equipment
+    description: Allows the host to request basic information about the data variables available in the equipment.
+    exception: A zero-length list means send information for all data variables.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, repeat: vids, of: {item: VID}}
+
+  - function: 22
+    name: Data Variable Namelist
+    mnemonic: DVN
+    direction: equipment-to-host
+    description: The equipment reports the information for the VIDs requested in S1F21.
+    exception: Zero-length DVVALNAME and UNITS items indicate that the VID does not exist or is not a DVVAL-class variable.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          repeat: vids
+          of: {type: list, items: [{item: VID}, {item: DVVALNAME}, {item: UNITS}]}
+
+  - function: 23
+    name: Collection Event Namelist Request
+    mnemonic: CENR
+    direction: host-to-equipment
+    description: Allows the host to retrieve which collection event IDs are available and which DVVALs are valid for each.
+    exception: A zero-length list means send information for all CEIDs.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, repeat: ceids, of: {item: CEID}}
+
+  - function: 24
+    name: Collection Event Namelist
+    mnemonic: CEN
+    direction: equipment-to-host
+    description: The equipment reports the collection events and associated VIDs for the CEIDs requested in S1F23.
+    exception: Zero-length CENAME and associated-VID list indicate that the CEID does not exist.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          repeat: ceids
+          of:
+            type: list
+            items:
+              - {item: CEID}
+              - {item: CENAME}
+              - {type: list, repeat: vids, of: {item: VID}}
