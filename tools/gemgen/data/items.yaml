@@ -1,0 +1,1891 @@
+ABS:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Any binary string.
+  source: e5
+ACCESSMODE:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: "Load Port Access Mode. Possible values are:"
+  source: e5
+ACDS:
+  formats: [I2, U2]
+  binding: open
+  description: After Command Codes.
+  source: e5
+ACKA:
+  formats: [BOOLEAN]
+  binding: fixed
+  goType: bool
+  description: "Indicates success of a request:"
+  source: e5
+ACKC10:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Acknowledge Code, 1 byte."
+  source: e5
+ACKC13:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Return code for secondary messages 1 byte.
+  source: e5
+ACKC15:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Return code for secondary messages, 1 byte."
+  source: e5
+ACKC3:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Acknowledge code, 1 byte."
+  source: e5
+ACKC5:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Acknowledge code, 1 byte."
+  source: e5
+ACKC6:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Acknowledge code, 1 byte."
+  source: e5
+ACKC7:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Acknowledge code, 1 byte."
+  source: e5
+ACKC7A:
+  formats: [I1, U1]
+  binding: open
+  description: "Acknowledge Code, 1 byte."
+  source: e5
+AGENT:
+  formats: [A]
+  binding: fixed
+  goType: string
+  source: e5
+ALCD:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Alarm code byte.
+  source: e5
+ALED:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Alarm enable/disable code, 1 byte."
+  source: e5
+ALID:
+  formats: [I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Alarm identification.
+  source: e5
+ALTX:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Alarm text limited to 120 characters.
+  source: e5
+ATTRDATA:
+  formats: [L, B, A, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8, BOOLEAN]
+  binding: open
+  description: Contains a specific attribute value for a specific object.
+  source: e5
+ATTRID:
+  formats: [A, U1, U2, U4, U8]
+  binding: open
+  description: Identifier for an attribute for a specific type of object.
+  source: e5
+ATTRRELN:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: "The relationship that a specified qualifying value has to the value of an attribute of an object instance (the value of interest):"
+  source: e5
+BCDS:
+  formats: [I2, U2]
+  binding: open
+  description: Before Command Codes.
+  source: e5
+BCEQU:
+  formats: [A, U1]
+  binding: open
+  description: Bin code equivalents.
+  source: e5
+BINLT:
+  formats: [A, U1]
+  binding: open
+  description: The Bin List.
+  source: e5
+BLKDEF:
+  formats: [I1, U1]
+  binding: open
+  description: Block Definition.
+  source: e5
+BPD:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Boot program Data.
+  source: e5
+BYTMAX:
+  formats: [I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Byte Maximum.
+  source: e5
+CAACK:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: "Carrier Action Acknowledge Code, 1 byte."
+  source: e5
+CARRIERACTION:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Specifies the action requested for a carrier.
+  source: e5
+CARRIERID:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: The identifier of a carrier.
+  source: e5
+CARRIERSPEC:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: The object specifier for a carrier. Conforms to OBJSPEC.
+  source: e5
+CATTRDATA:
+  formats: [L, B, A, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8, BOOLEAN]
+  binding: open
+  description: The value of a carrier attribute.
+  source: e5
+CATTRID:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: The name of a carrier attribute.
+  source: e5
+CCODE:
+  formats: [A, I2, I4, U2, U4]
+  binding: open
+  description: Command Code.
+  source: e5
+CEED:
+  formats: [BOOLEAN]
+  binding: fixed
+  goType: bool
+  description: "Collection event or trace enable/disable code, 1 byte."
+  source: e5
+CEID:
+  formats: [A, I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Collected event ID.
+  source: e5
+CENAME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Collection event name.
+  source: e5
+CEPACK:
+  formats: [L, U1]
+  binding: open
+  description: "Command Enhanced Parameter Acknowledge. If a specific value of CPNAME is defined to have a CEPVAL that is a LIST, then CEPACK shall have the same structure as the corresponding list format of CEPVAL as used in S2,F49. Otherwise CEPACK will be a 1 byte integer. Enumerated:"
+  source: e5
+CEPVAL:
+  formats: [L, B, BOOLEAN, A, J, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: "Command Enhanced Parameter Value. A specific application of CEPVAL shall always be identified with a specific value of CPNAME. A CEPVAL has the following forms: a single (non-list) value (e.g., CPVAL), a list of single items of identical format and type, or a list of items of the form."
+  source: e5
+CKPNT:
+  formats: [U4]
+  binding: fixed
+  goType: uint32
+  description: Checkpoint as defined by the sending system.
+  source: e5
+CMDA:
+  formats: [I1, U1]
+  binding: open
+  description: Command acknowledge code.
+  source: e5
+CMDMAX:
+  formats: [I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Command Maximum.
+  source: e5
+CNAME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Command Name = 16 characters.
+  source: e5
+COLCT:
+  formats: [U1, U2, U4, U8]
+  binding: open
+  description: Column count in die increments.
+  source: e5
+COLHDR:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Text description of contents of TBLELT. 1–20 characters.
+  source: e5
+COMMACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Establish Communications Acknowledge Code, 1 byte."
+  source: e5
+  values:
+    - {name: Accepted, value: 0}
+    - {name: Denied, value: 1}
+COMPARISONOPERATOR:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: "Choice of available operators that compare the supplied value to the current attribute value. Evaluated as 'Current value XX supplied value' where XX is one of the enumerated values (e.g., 'GT')."
+  source: e5
+CONDITION:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Provides condition information for a subsystem component. Used in the data item in the CONDITIONLIST.
+  source: e5
+CONDITIONLIST:
+  formats: [L]
+  binding: open
+  description: "A list of CONDITION data sent in a fixed order. CONDITIONLIST has the following form:"
+  source: e5
+CPACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Command Parameter Acknowledge Code, 1 byte."
+  source: e5
+CPNAME:
+  formats: [A, I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Command Parameter Name.
+  source: e5
+CPVAL:
+  formats: [B, BOOLEAN, A, J, I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Command Parameter Value.
+  source: e5
+CSAACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Equipment Acknowledgement code, 1 byte."
+  source: e5
+CTLJOBCMD:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: "Control Job command codes are assigned as follows:"
+  source: e5
+CTLJOBID:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Identifier for Control Job. Conforms to OBJID.
+  source: e5
+DATA:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: A vector or string of unformatted data.
+  source: e5
+DATAACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Acknowledge code for data.
+  source: e5
+DATAID:
+  formats: [A, I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Data ID.
+  source: e5
+DATALENGTH:
+  formats: [I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Total bytes to be sent.
+  source: e5
+DATASEG:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Used to identify the data requested.
+  source: e5
+DATASRC:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Object type for Data Source Objects.
+  source: e5
+DATLC:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Data location.
+  source: e5
+DELRSPSTAT:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Status response for the Delete PDE request.
+  source: e5
+DIRRSPSTAT:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Status response for the GET PDE Directory request.
+  source: e5
+DRACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Define Report Acknowledge Code, 1 byte."
+  source: e5
+DSID:
+  formats: [A, I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Data set ID.
+  source: e5
+DSNAME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: The name of the Data Set.
+  source: e5
+DSPER:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: "Data sample period. DSPER has two allowable formats:"
+  source: e5
+DUTMS:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Die Units of Measure.
+  source: e5
+DVNAME:
+  formats: [I1, I2, I4, I8, A, U1, U2, U4, U8]
+  binding: open
+  description: Data value name.
+  source: e5
+DVVAL:
+  formats: [L, B, BOOLEAN, A, J, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: Data value.
+  source: e5
+DVVALNAME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: A descriptive name for the data variable.
+  source: e5
+EAC:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Equipment acknowledge code, 1 byte."
+  source: e5
+ECDEF:
+  formats: [B, BOOLEAN, A, J, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: Equipment constant default value.
+  source: e5
+ECID:
+  formats: [I1, I2, I4, I8, A, U1, U2, U4, U8]
+  binding: open
+  description: Equipment Constant ID.
+  source: e5
+ECMAX:
+  formats: [B, BOOLEAN, A, J, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: Equipment constant maximum value.
+  source: e5
+ECMIN:
+  formats: [B, BOOLEAN, A, J, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: Equipment constant minimum value.
+  source: e5
+ECNAME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Equipment constant name.
+  source: e5
+ECV:
+  formats: [B, BOOLEAN, A, J, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: Equipment Constant Value.
+  source: e5
+EDID:
+  formats: [B, A, I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  source: e5
+EMID:
+  formats: [B, A]
+  binding: open
+  description: Equivalent material ID (16 bytes maximum).
+  source: e5
+EPD:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Executive program data.
+  source: e5
+EQNAME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: A unique ASCII equipment identifier assigned by the factory to the equipment. Limited to a maximum of 80 characters.
+  source: e5
+ERACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Enable/Disable Event Report. Acknowledge Code, 1 byte."
+  source: e5
+ERRCODE:
+  formats: [U1, U2, U4, U8]
+  binding: open
+  description: Code identifying an error.
+  source: e5
+ERRTEXT:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Text string describing the error noted in the corresponding ERRCODE. Limited to 120 characters maximum.
+  source: e5
+ERRW7:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Text string describing error found in process program.
+  source: e5
+EVNTSRC:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Object type for Event Source Objects.
+  source: e5
+EXID:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Unique identifier for the exception. Maximum length of 20 characters.
+  source: e5
+EXMESSAGE:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Text which describes the nature of the exception.
+  source: e5
+EXRECVRA:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Text which specifies a recovery action for an exception. Maximum length of 40 bytes.
+  source: e5
+EXTYPE:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Text which identifies the type of an exception. It is usually a single word of text.
+  source: e5
+FCNID:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Function Identification.
+  source: e5
+FFROT:
+  formats: [U2]
+  binding: fixed
+  goType: uint16
+  description: Film Frame Rotation.
+  source: e5
+FILDAT:
+  formats: [B, A]
+  binding: open
+  description: Data from the Data Set.
+  source: e5
+FNLOC:
+  formats: [U2]
+  binding: fixed
+  goType: uint16
+  description: Flat/Notch Location.
+  source: e5
+FRMLEN:
+  formats: [I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Formatted Process Program Length.
+  source: e5
+GETRSPSTAT:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Status response for the Get PDE and Get PDEheader requests.
+  source: e5
+GRANT:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Grant code, 1 byte."
+  source: e5
+GRANT6:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Permission to send, 1 byte."
+  source: e5
+GRNT1:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Grant code, 1 byte."
+  source: e5
+HANDLE:
+  formats: [I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Logical unit or channel.
+  source: e5
+HCACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Host Command Parameter Acknowledge Code, 1 byte."
+  source: e5
+HOACK:
+  formats: [BOOLEAN]
+  binding: fixed
+  goType: bool
+  description: Conveys whether the corresponding handoff activity succeeded (= True) or failed (= False).
+  source: e5
+HOCANCELACK:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Tells whether the cancel ready message was accepted or rejected.
+  source: e5
+HOCMDNAME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Identifier for the handoff command to be executed.
+  source: e5
+HOHALTACK:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Tells whether the halt command was accepted or rejected.
+  source: e5
+IACDS:
+  formats: [I2, U2]
+  binding: open
+  description: Immediately After Command Codes.
+  source: e5
+IBCDS:
+  formats: [I2, U2]
+  binding: open
+  description: Immediately Before Command Codes.
+  source: e5
+IDTYP:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Id type.
+  source: e5
+INPTN:
+  formats: [B, U1]
+  binding: open
+  description: A specialized version of PTN indicating the InputPort.
+  source: e5
+JOBACTION:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Specifies the action for a ReticleTransferJob.
+  source: e5
+LENGTH:
+  formats: [I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Length of the service program or process program in bytes.
+  source: e5
+LIMITACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Acknowledgment code for variable limit attribute set, 1 byte."
+  source: e5
+LIMITID:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "The identifier of a specific limit in the set of limits (as defined by UPPERDB and LOWERDB) for a variable to which the corresponding limit attributes refer, 1 byte."
+  source: e5
+LIMITMAX:
+  formats: [BOOLEAN, A, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: "The maximum allowed value for the limit values of a specific variable. The equipment manufacturer should specify this value, which would typically coincide with the maximum value of the variable being monitored. The format must match that of the referenced variable."
+  source: e5
+LIMITMIN:
+  formats: [BOOLEAN, A, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: "The minimum allowed value for the limit values of a specific variable. The equipment manufacturer should specify this value, which would typically coincide with the minimum value of the variable being monitored. The format must match that of the referenced variable."
+  source: e5
+LINKID:
+  formats: [U4]
+  binding: fixed
+  goType: uint32
+  description: "Used to link a completion message with a request that an operation be performed. LINKID is set to the value of RMOPID in the initial request except for the last completion message to be sent, where it is set to zero."
+  source: e5
+LLIM:
+  formats: [I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: Lower limit for numeric value.
+  source: e5
+LOC:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Machine material location code, 1 byte."
+  source: e5
+LOCID:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: The logical identifier of a material location.
+  source: e5
+LOWERDB:
+  formats: [BOOLEAN, A, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: "A variable limit attribute which defines the lower boundary of the deadband of a limit. The value applies to a single limit (LIMITID) for a specified VID. Thus, UPPERDB and LOWERDB as a pair define a limit."
+  source: e5
+LRACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Link Report Acknowledge Code, 1 byte."
+  source: e5
+LVACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Variable limit definition acknowledge code, 1 byte. Defines the error with the limit attributes for the referenceVID."
+  source: e5
+MAPER:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Map Error.
+  source: e5
+MAPFT:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Map data format type.
+  source: e5
+MCINDEX:
+  formats: [U1, U2, U4, U8]
+  binding: open
+  description: Identifier used to link a handoff command message with its eventual completion message. Corresponding messages carry the same value for this data item.
+  source: e5
+MDACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Map data acknowledge.
+  source: e5
+MDLN:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: "Equipment Model Type, 20 bytes max."
+  source: e5
+MEXP:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Message expected in the form SxxFyy where x is stream and y is function.
+  source: e5
+MF:
+  formats: [B, A]
+  binding: open
+  description: Material format code 1 byte by Format 10.
+  source: e5
+MHEAD:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: SECS message block header associated with message block in error.
+  source: e5
+MID:
+  formats: [B, A]
+  binding: open
+  description: Material ID.
+  source: e5
+MIDAC:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Material ID Acknowledge Code, 1 byte."
+  source: e5
+MIDRA:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Material ID Acknowledge Code, 1 byte."
+  source: e5
+MLCL:
+  formats: [U1, U2, U4, U8]
+  binding: open
+  description: Message length.
+  source: e5
+MMODE:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Matrix mode select, 1 byte."
+  source: e5
+NACDS:
+  formats: [I2, U2]
+  binding: open
+  description: Not After Command Codes.
+  source: e5
+NBCDS:
+  formats: [I2, U2]
+  binding: open
+  description: Not Before Command Codes.
+  source: e5
+NULBC:
+  formats: [A, U1]
+  binding: open
+  description: Null bin code value.
+  source: e5
+OBJACK:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: "Acknowledge code:"
+  source: e5
+OBJCMD:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: "Specifies an action to be performed by an object:"
+  source: e5
+OBJID:
+  formats: [A, U1, U2, U4, U8]
+  binding: open
+  description: Identifier for an object.
+  source: e5
+OBJSPEC:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: "A text string that has an internal format and that is used to point to a specific object instance. The string is formed out of a sequence of formatted substrings, each specifying an object's type and identifier. The substring format has the following four fields: object type, colon character ':', object identifier, greater-than symbol '>' where the colon character ':' is used to terminate an object type and the \"greater than\" symbol '>' is used to terminate an identifier field. The object type field may be omitted where it may be otherwise determined. The final '>' is optional."
+  source: e5
+OBJTOKEN:
+  formats: [U4]
+  binding: fixed
+  goType: uint32
+  description: Token used for authorization.
+  source: e5
+OBJTYPE:
+  formats: [A, U1, U2, U4, U8]
+  binding: open
+  description: Identifier for a group or class of objects. All objects of the same type must have the same set of attributes available.
+  source: e5
+OFLACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Acknowledge code for OFF LINE request.
+  source: e5
+ONLACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Acknowledge code for ON LINE request.
+  source: e5
+OPID:
+  formats: [U1, U2, U4, U8]
+  binding: open
+  description: "Operation ID. A unique integer generated by the requestor of an operation, used where multiple completion confirmations may occur."
+  source: e5
+ORLOC:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Origin Location.
+  source: e5
+OUTPTN:
+  formats: [B, U1]
+  binding: open
+  description: A specialized version of PTN indicating the OutPutPort.
+  source: e5
+PARAMNAME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: The name of a parameter in a request.
+  source: e5
+PARAMVAL:
+  formats: [L, B, BOOLEAN, A, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: The value of the parameter named in PARAMNAME. Values that are lists are restricted to lists of single items of the same format type.
+  source: e5
+PDEATTRIBUTE:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Selection from available PDE attributes whose values could be reported.
+  source: e5
+PDEATTRIBUTENAME:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Selection from available PDE attributes that can be used to filter the PDE directory report.
+  source: e5
+PDEATTRIBUTEVALUE:
+  formats: [L, BOOLEAN, A, J, U1]
+  binding: open
+  description: Contains the value of the corresponding PDEATTRIBUTE in the appropriate format.
+  source: e5
+PDEREF:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Contains the unique identifier of a PDE (uid) or of a PDE group (gid).
+  source: e5
+PDFLT:
+  formats: [BOOLEAN, A, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: Parameter Default Value.
+  source: e5
+PFCD:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Predefined form code, 1 byte."
+  source: e5
+PGRPACTION:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: The action to be performed on a port group.
+  source: e5
+PMAX:
+  formats: [I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  source: e5
+PNAME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Parameter Name ≤16 characters.
+  source: e5
+PORTACTION:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: The action to be performed on a port.
+  source: e5
+PORTGRPNAME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: The identifier of a group of ports.
+  source: e5
+PPARM:
+  formats: [BOOLEAN, A, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: Process Parameter.
+  source: e5
+PPBODY:
+  formats: [B, A, I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Process program body.
+  source: e5
+PPGNT:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Process program grant status, 1 byte."
+  source: e5
+PPID:
+  formats: [B, A]
+  binding: open
+  description: Process program ID.
+  source: e5
+PRAXI:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Process axis.
+  source: e5
+PRCMDNAME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: "Commands sent to a process job:"
+  source: e5
+PRDCT:
+  formats: [U1, U2, U4, U8]
+  binding: open
+  description: Process Die Count.
+  source: e5
+PREVENTID:
+  formats: [U1, U2, U4, U8]
+  binding: open
+  description: "Processing related event identification:"
+  source: e5
+PRJOBID:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Text string which uniquely identifies a process job.
+  source: e5
+PRJOBMILESTONE:
+  formats: [U1, U2, U4, U8]
+  binding: open
+  description: "Notification of Processing status shall have one of the following values:"
+  source: e5
+PRJOBSPACE:
+  formats: [U2]
+  binding: fixed
+  goType: uint16
+  description: The number of process jobs that can be created.
+  source: e5
+PRMTRLORDER:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: "Defines the order by which material in the process jobs material list will be processed. Possible values are assigned as follows:"
+  source: e5
+PRPAUSEEVENT:
+  formats: [L]
+  binding: open
+  description: "The list of event identifiers, which may be sent as an attribute value to a process job. When a process job encounters one of these events it will pause, until it receives the PRJobCommand RESUME."
+  source: e5
+PRPROCESSSTART:
+  formats: [BOOLEAN]
+  binding: fixed
+  goType: bool
+  description: "Indicates that the process resource start processing immediately when ready:"
+  source: e5
+PRRECIPEMETHOD:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: "Indicates the recipe specification type, whether tuning is applied and which method is used:"
+  source: e5
+PRSTATE:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: "Enumerated value, 1 byte."
+  source: e5
+PTN:
+  formats: [B, U1]
+  binding: open
+  description: "Material Port number, 1 byte."
+  source: e5
+QUA:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Quantity in format, 1 byte."
+  source: e5
+RAC:
+  formats: [I1, U1]
+  binding: open
+  description: "Reset acknowledge, 1 byte."
+  source: e5
+RCMD:
+  formats: [A, I1, U1]
+  binding: open
+  description: Remote command code or string.
+  source: e5
+RCPATTRDATA:
+  formats: [L, B, BOOLEAN, A, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: The contents (value) of a recipe attribute.
+  source: e5
+RCPATTRID:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: The name (identifier) of a non-identifier recipe attribute.
+  source: e5
+RCPBODY:
+  formats: [B, A, I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Recipe body.
+  source: e5
+RCPCLASS:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Recipe class.
+  source: e5
+RCPCMD:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Indicates an action to be performed on a recipe.
+  source: e5
+RCPDEL:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  source: e5
+RCPDESCLTH:
+  formats: [U1, U2, U4, U8]
+  binding: open
+  description: The length in bytes of a recipe section.
+  source: e5
+RCPDESCNM:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: "Identifies a type of descriptor of a recipe: 'ASDesc', 'BodyDesc', 'GenDesc.'"
+  source: e5
+RCPDESCTIME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: "The timestamp of a recipe section, in the format 'YYYYMMDDhhmmsscc.'"
+  source: e5
+RCPID:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Recipe identifier. Formatted text conforming to the requirements of OBJSPEC.
+  source: e5
+RCPNAME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Recipe name.
+  source: e5
+RCPNEWID:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: The new recipe identifier assigned as the result of a copy or rename operation.
+  source: e5
+RCPOWCODE:
+  formats: [BOOLEAN]
+  binding: fixed
+  goType: bool
+  description: Indicates whether any pre existing recipe is to be overwritten (= TRUE) or not (= FALSE) on download.
+  source: e5
+RCPPARNM:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: The name of a recipe variable parameter. Maximum length of 256 characters.
+  source: e5
+RCPPARRULE:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: The restrictions applied to a recipe variable parameter setting. Maximum length of 80 characters.
+  source: e5
+RCPPARVAL:
+  formats: [L, B, BOOLEAN, A, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: The initial setting assigned to a recipe variable parameter. Text form restricted to maximum of 80 characters.
+  source: e5
+RCPRENAME:
+  formats: [BOOLEAN]
+  binding: fixed
+  goType: bool
+  description: Indicates whether a recipe is to be renamed (= TRUE) or copied (= FALSE).
+  source: e5
+RCPSECCODE:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Indicates the sections of a recipe requested for transfer or being transferred:"
+  source: e5
+RCPSECNM:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: "Recipe section name: 'Generic', 'Body', or 'ASDS.'"
+  source: e5
+RCPSPEC:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Recipe specifier. The object specifier of a recipe.
+  source: e5
+RCPSTAT:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: The status of a managed recipe.
+  source: e5
+RCPUPDT:
+  formats: [BOOLEAN]
+  binding: fixed
+  goType: bool
+  description: Indicates if an existing recipe is to be updated (= True) or a new recipe is to be created (= False).
+  source: e5
+RCPVERS:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Recipe version.
+  source: e5
+READLN:
+  formats: [I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Maximum length to read.
+  source: e5
+RECLEN:
+  formats: [I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Maximum length of a Discrete record.
+  source: e5
+REFP:
+  formats: [I1, I2, I4, I8]
+  binding: open
+  description: Reference Point.
+  source: e5
+REPGSZ:
+  formats: [A, I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Reporting group size.
+  source: e5
+RESC:
+  formats: [I1, U1]
+  binding: open
+  description: Resolution code for numeric data.
+  source: e5
+RESOLUTION:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Contains the unique identifier of a PDE (uid).
+  source: e5
+RESPDESTAT:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: "Status response for the Resolve PDE request. If more than one of these conditions applies, the first value on the list that applies should be returned."
+  source: e5
+RESPEC:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Object specifier for the recipe executor.
+  source: e5
+RESV:
+  formats: [I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: Resolution value for numeric data.
+  source: e5
+RETICLEID:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: The object identifier for a reticle. Conforms to OBJSPEC.
+  source: e5
+RETPLACEINSTR:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: "Instructions to indicate which pod slots will have reticles placed. Possible values for Reticle PlacementInstruction are:"
+  source: e5
+RETREMOVEINSTR:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Instructions to indicate which pod slots will have reticles removed.
+  source: e5
+RIC:
+  formats: [I1, U1]
+  binding: open
+  description: "Reset code, 1 byte."
+  source: e5
+RMACK:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: "Conveys whether a requested action was successfully completed, denied, completed with errors, or will be completed with notification to the requestor."
+  source: e5
+RMCHGSTAT:
+  formats: [U1, U2, U4, U8]
+  binding: open
+  description: Indicates the change that occurred for an object.
+  source: e5
+RMCHGTYPE:
+  formats: [U1, U2, U4, U8]
+  binding: open
+  description: Indicates the type of change for a recipe.
+  source: e5
+RMDATASIZE:
+  formats: [U1, U2, U4, U8]
+  binding: open
+  description: "The maximum total length, in bytes, of a multi-block message, used by the receiver to determine if the anticipated message exceeds the receiver's capacity."
+  source: e5
+RMGRNT:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Grant code, used to grant or deny a request. 1 byte."
+  source: e5
+RMNEWNS:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: New name (identifier) assigned to a recipe namespace.
+  source: e5
+RMNSCMD:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Action to be performed on a recipe namespace.
+  source: e5
+RMNSSPEC:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: The object specifier of a recipe namespace.
+  source: e5
+RMRECSPEC:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: The object specifier of a distributed recipe namespace recorder.
+  source: e5
+RMREQUESTOR:
+  formats: [BOOLEAN]
+  binding: fixed
+  goType: bool
+  description: Set to TRUE if initiator of change request was an attached segment. Set to FALSE otherwise.
+  source: e5
+RMSEGSPEC:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: The object specifier of a distributed recipe namespace segment.
+  source: e5
+RMSPACE:
+  formats: [U1, U2, U4, U8]
+  binding: open
+  description: "The amount of storage available for at least one recipe in a recipe namespace, in bytes."
+  source: e5
+ROWCT:
+  formats: [U1, U2, U4, U8]
+  binding: open
+  description: Row count in die increments.
+  source: e5
+RPMACK:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Reticle Pod management service acknowledge code. 1 byte.
+  source: e5
+RPMDESTLOC:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: The LocationID towards which a reticle must be moved. Conforms to OBJID.
+  source: e5
+RPMSOURLOC:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: The LocationID of the location from which to pick up a reticle for moving it to another location. Conforms to OBJID.
+  source: e5
+RPSEL:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Reference Point Select.
+  source: e5
+RPTID:
+  formats: [A, I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Report ID.
+  source: e5
+RPTOC:
+  formats: [BOOLEAN]
+  binding: fixed
+  goType: bool
+  description: "A Trace Object attribute for a flag which, if set TRUE, causes only variables which have changed during the sample period to be included in a report."
+  source: e5
+RQCMD:
+  formats: [BOOLEAN]
+  binding: fixed
+  goType: bool
+  description: Required Command.
+  source: e5
+RQPAR:
+  formats: [BOOLEAN]
+  binding: fixed
+  goType: bool
+  description: Required Parameter.
+  source: e5
+RRACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Request to Receive Acknowledge code, 1 byte."
+  source: e5
+RSACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Ready to Send Acknowledge code, 1 byte."
+  source: e5
+RSDA:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Request Spool Data Acknowledge.
+  source: e5
+RSDC:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Request Spool Data Code.
+  source: e5
+RSINF:
+  formats: [I1, I2, I4, I8]
+  binding: open
+  description: "Starting location for row or column. This item consists of 3 values (x,y,direction). If direction value is negative, it equals decreasing direction. If the value is positive, it equals increasing direction. Direction must be a non-zero value."
+  source: e5
+RSPACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Reset Spooling Acknowledge.
+  source: e5
+RTSRSPSTAT:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Status response for the Ready To Send request.
+  source: e5
+RTYPE:
+  formats: [I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Type of record.
+  source: e5
+SDACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Map set-up data acknowledge.
+  source: e5
+SDBIN:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Send bin information flag.
+  source: e5
+SENDRESULT:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Reports overall success or failure of the sendPDE() request.
+  source: e5
+SENDRSPSTAT:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Status response for the Send PDE request.
+  source: e5
+SEQNUM:
+  formats: [I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Command Number.
+  source: e5
+SFCD:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Status form code, 1 byte."
+  source: e5
+SHEAD:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Stored header related to the transaction timer.
+  source: e5
+SLOTID:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Used to reference material by slot (a position that holds material/substrates) in a carrier. This item may be implemented as an array in some messages.
+  source: e5
+SMPLN:
+  formats: [I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Sample number
+  source: e5
+SOFTREV:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Software revision code 20 bytes maximum.
+  source: e5
+SPAACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Equipment acknowledgement code, 1 byte."
+  source: e5
+SPD:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Service program data.
+  source: e5
+SPID:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: "Service program ID, 6 characters."
+  source: e5
+SPNAME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: "Service parameter name defined in specific standard. If service parameter is defined as an object attribute, this is completely the same as ATTRID except format restrictions above."
+  source: e5
+SPR:
+  formats: []
+  binding: open
+  description: Service program results.
+  source: e5
+SPVAL:
+  formats: [L, B, BOOLEAN, A, J, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: "Service parameter value, corresponding to SPNAME. If service parameter is defined as an object attribute, this is completely the same as ATTRDATA except format restrictions for the attribute."
+  source: e5
+SSACK:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Indicates the success or failure of a requested action. Two characters.
+  source: e5
+SSCMD:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Indicates an action to be performed by the subsystem.
+  source: e5
+STATUS:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Provides status information for a subsystem component. Used in the data item STATUSLIST.
+  source: e5
+STATUSLIST:
+  formats: [L]
+  binding: open
+  description: "A list of STATUS data sent in a fixed order. STATUSLIST has the following form:"
+  source: e5
+STATUSTXT:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Text string describing the corresponding status response. Maximum length of 80 characters.
+  source: e5
+STEMP:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: String template. ASCII text string acceptable to equipment as a parameter value. A data string matches a template string if the data string is at least as long as the template and each character of the data string matches the corresponding character of the template. A null list indicates all user data is acceptable to the machine.
+  source: e5
+STIME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: "Sample time, 12, 16 bytes, or Extended format as specified by the TimeFormat equipment constant value setting."
+  source: e5
+STRACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  source: e5
+STRID:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Stream Identification.
+  source: e5
+STRP:
+  formats: [I1, I2, I4, I8]
+  binding: open
+  description: "Starting position in die coordinate position. Must be in (X,Y) order."
+  source: e5
+SV:
+  formats: [L, B, BOOLEAN, A, J, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: Status variable value.
+  source: e5
+SVCACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Service acceptance acknowledge code, 1 byte."
+  source: e5
+SVCNAME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Service name provided on specified object asking by the host.
+  source: e5
+SVID:
+  formats: [A, I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Status variable ID.
+  source: e5
+SVNAME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Status Variable Name.
+  source: e5
+TARGETID:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: "Identifies where a request for action or data is to be applied. If text, conforms to OBJSPEC."
+  source: e5
+TARGETPDE:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Contains the unique identifier (uid) of the PDE that is the starting point for the verification process.
+  source: e5
+TARGETSPEC:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Object specifier of target object.
+  source: e5
+TBLACK:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Indicates success or failure.
+  source: e5
+TBLCMD:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: "Provides information about the table or parts of the table being transferred or requested. Enumerated:"
+  source: e5
+TBLELT:
+  formats: [L, B, BOOLEAN, A, J, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: Table element. The first table element in a row is used to identify the row.
+  source: e5
+TBLID:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Table identifier. Text conforming to the requirements of OBJSPEC.
+  source: e5
+TBLTYP:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: A reserved text string to denote the format and application of the table. Text conforming to the requirements of OBJSPEC.
+  source: e5
+TCID:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: TCID is the identifier of the TransferContainer.
+  source: e5
+TEXT:
+  formats: [B, A, W, I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: A single line of characters.
+  source: e5
+TIAACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Equipment acknowledgement code, 1 byte."
+  source: e5
+TIACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Time Acknowledge Code, 1 byte."
+  source: e5
+TID:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Terminal number, 1 byte."
+  source: e5
+TIME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: "Time of day, 12, 16 bytes, or Extended format as specified by the TimeFormat equipment constant value setting."
+  source: e5
+TIMESTAMP:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: "Timestamp in 12, 16 bytes, or Extended format indicating the time of an event, which encodes time as specified by the TimeFormat equipment constant value setting."
+  source: e5
+TOTSMP:
+  formats: [A, I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Total samples to be made.
+  source: e5
+TRACK:
+  formats: [BOOLEAN]
+  binding: fixed
+  goType: bool
+  description: Tells whether the related transfer activity was successful (= True) or unsuccessful (= False).
+  source: e5
+TRANSFERSIZE:
+  formats: [U8]
+  binding: fixed
+  goType: uint64
+  description: "Size, in bytes, of the TransferContainer proposed for transfer."
+  source: e5
+TRATOMICID:
+  formats: [U1, U2, U4, U8]
+  binding: open
+  description: Equipment assigned identifier for an atomic transfer.
+  source: e5
+TRAUTOD:
+  formats: [BOOLEAN]
+  binding: fixed
+  goType: bool
+  description: "A Trace Object attribute for a control flag which, if set TRUE, causes the Trace Object to delete itself when it has completed a report."
+  source: e5
+TRAUTOSTART:
+  formats: [BOOLEAN]
+  binding: fixed
+  goType: bool
+  description: "For each atomic transfer, this data item tells the equipment if it should automatically start the handoff when ready (= TRUE) or await the host's 'StartHandoff' command (= FALSE) following setup. This data item only affects the primary transfer partner."
+  source: e5
+TRCMDNAME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: "Identifier of the transfer job related command to be executed. Possible values:"
+  source: e5
+TRDIR:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Direction of handoff.
+  source: e5
+TRID:
+  formats: [A, I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Trace request ID.
+  source: e5
+TRJOBID:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: Equipment assigned identifier for the transfer job.
+  source: e5
+TRJOBMS:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: "Milestone for a transfer job (e.g., started or complete)."
+  source: e5
+TRJOBNAME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Host assigned identifier for the transfer job. Limited to a maximum of 80 characters.
+  source: e5
+TRLINK:
+  formats: [U1, U2, U4, U8]
+  binding: open
+  description: Common identifier for the atomic transfer used by the transfer partners to confirm that they are working on the same host-defined task.
+  source: e5
+TRLOCATION:
+  formats: [U1, U2, U4, U8]
+  binding: open
+  description: "Identifier of the material location involved with the transfer. For one transfer partner, this will represent the designated source location for the material to be sent. For the other transfer partner, it will represent the designated destination location for the material to be received."
+  source: e5
+TROBJNAME:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Identifier for the material (transfer object) to be transferred.
+  source: e5
+TROBJTYPE:
+  formats: [U1, U2, U4, U8]
+  binding: open
+  description: Type of object to be transferred.
+  source: e5
+TRPORT:
+  formats: [U1, U2, U4, U8]
+  binding: open
+  description: Identifier of the equipment port to be used for the handoff.
+  source: e5
+TRPTNR:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Name of the equipment which will serve as the other transfer partner for this atomic transfer. This corresponds to EQNAME.
+  source: e5
+TRPTPORT:
+  formats: [U1, U2, U4, U8]
+  binding: open
+  description: "Identifier of the transfer partner's port to be used for the transfer."
+  source: e5
+TRRCP:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Name of the transfer recipe for this handoff. Limited to a maximum of 80 characters.
+  source: e5
+TRROLE:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Tells whether the equipment is to be the primary or secondary transfer partner.
+  source: e5
+TRSPER:
+  formats: [F4, F8]
+  binding: open
+  description: A Trace Object attribute which holds the value for sampling interval time.
+  source: e5
+TRTYPE:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Tells whether the equipment is to be an active or passive participant in the transfer.
+  source: e5
+TSIP:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Transfer status of input port, 1 byte."
+  source: e5
+TSOP:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Transfer status of output port, 1 byte."
+  source: e5
+TTC:
+  formats: [I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Time to completion.
+  source: e5
+UID:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Contains a unique identifier for a PDE.
+  source: e5
+ULIM:
+  formats: [I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: Upper limit for numeric value.
+  source: e5
+UNFLEN:
+  formats: [I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Unformatted Process Program Length.
+  source: e5
+UNITS:
+  formats: [A]
+  binding: fixed
+  goType: string
+  description: Units Identifier.
+  source: e5
+UPPERDB:
+  formats: [BOOLEAN, A, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: "A variable limit attribute which defines the upper boundary of the deadband of a limit. The value applies to a single limit (LIMITID) for a specified VID. Thus, UPPERDB and LOWERDB as a pair define a limit."
+  source: e5
+V:
+  formats: [L, B, BOOLEAN, A, J, I1, I2, I4, I8, F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: Variable data.
+  source: e5
+VERIFYDEPTH:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Selects whether to check only the target PDE or all associated PDEs within a multi-part recipe.
+  source: e5
+VERIFYRSPSTAT:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Verification result.
+  source: e5
+VERIFYSUCCESS:
+  formats: [BOOLEAN]
+  binding: fixed
+  goType: bool
+  description: Boolean.
+  source: e5
+VERIFYTYPE:
+  formats: [U1]
+  binding: fixed
+  goType: uint8
+  description: Choice of the type of verification to perform.
+  source: e5
+VID:
+  formats: [A, I1, I2, I4, I8, U1, U2, U4, U8]
+  binding: open
+  description: Variable ID.
+  source: e5
+VLAACK:
+  formats: [B]
+  binding: fixed
+  goType: byte
+  description: "Variable Limit Attribute Acknowledge Code, 1 byte."
+  source: e5
+XDIES:
+  formats: [F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: X-axis die size (index).
+  source: e5
+XYPOS:
+  formats: [I1, I2, I4, I8]
+  binding: open
+  description: "X and Y Coordinate Position. Must be in (X,Y) order."
+  source: e5
+YDIES:
+  formats: [F4, F8, U1, U2, U4, U8]
+  binding: open
+  description: Y-axis die size (index).
+  source: e5
