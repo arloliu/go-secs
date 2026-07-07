@@ -2,10 +2,205 @@
 
 package gem
 
+// ACKC5 enumerates the defined values of the ACKC5 item.
+type ACKC5 byte
+
+const (
+	ACKC5Accepted ACKC5 = 0
+)
+
+// ACKC6 enumerates the defined values of the ACKC6 item.
+type ACKC6 byte
+
+const (
+	ACKC6Accepted ACKC6 = 0
+)
+
 // COMMACK enumerates the defined values of the COMMACK item.
 type COMMACK byte
 
 const (
 	COMMACKAccepted COMMACK = 0
 	COMMACKDenied   COMMACK = 1
+)
+
+// CPACK enumerates the defined values of the CPACK item.
+type CPACK byte
+
+const (
+	CPACKCPNAMEDoesNotExist CPACK = 1
+	CPACKIllegalValue       CPACK = 2
+	CPACKIllegalFormat      CPACK = 3
+)
+
+// CSAACK enumerates the defined values of the CSAACK item.
+type CSAACK byte
+
+const (
+	CSAACKEverythingCorrect CSAACK = 0
+	CSAACKBusy              CSAACK = 1
+	CSAACKInvalidSPID       CSAACK = 2
+	CSAACKInvalidData       CSAACK = 3
+)
+
+// DRACK enumerates the defined values of the DRACK item.
+type DRACK byte
+
+const (
+	DRACKAccept                    DRACK = 0
+	DRACKDeniedInsufficientSpace   DRACK = 1
+	DRACKDeniedInvalidFormat       DRACK = 2
+	DRACKDeniedRPTIDAlreadyDefined DRACK = 3
+	DRACKDeniedVIDDoesNotExist     DRACK = 4
+)
+
+// EAC enumerates the defined values of the EAC item.
+type EAC byte
+
+const (
+	EACAcknowledge                EAC = 0
+	EACDeniedConstantDoesNotExist EAC = 1
+	EACDeniedBusy                 EAC = 2
+	EACDeniedConstantOutOfRange   EAC = 3
+)
+
+// ERACK enumerates the defined values of the ERACK item.
+type ERACK byte
+
+const (
+	ERACKAccepted               ERACK = 0
+	ERACKDeniedCEIDDoesNotExist ERACK = 1
+)
+
+// GRANT enumerates the defined values of the GRANT item.
+type GRANT byte
+
+const (
+	GRANTPermissionGranted GRANT = 0
+	GRANTBusyTryAgain      GRANT = 1
+	GRANTNoSpaceAvailable  GRANT = 2
+	GRANTDuplicateDATAID   GRANT = 3
+)
+
+// HCACK enumerates the defined values of the HCACK item.
+type HCACK byte
+
+const (
+	HCACKAcknowledgeCommandPerformed       HCACK = 0
+	HCACKCommandDoesNotExist               HCACK = 1
+	HCACKCannotPerformNow                  HCACK = 2
+	HCACKParameterInvalid                  HCACK = 3
+	HCACKAcknowledgeCompletionLater        HCACK = 4
+	HCACKRejectedAlreadyInDesiredCondition HCACK = 5
+	HCACKNoSuchObjectExists                HCACK = 6
+)
+
+// LIMITACK enumerates the defined values of the LIMITACK item.
+type LIMITACK byte
+
+const (
+	LIMITACKLIMITIDDoesNotExist        LIMITACK = 1
+	LIMITACKUpperdbGreaterThanLimitmax LIMITACK = 2
+	LIMITACKLowerdbLessThanLimitmin    LIMITACK = 3
+	LIMITACKUpperdbLessThanLowerdb     LIMITACK = 4
+	LIMITACKIllegalFormat              LIMITACK = 5
+	LIMITACKASCIICannotBeTranslated    LIMITACK = 6
+	LIMITACKDuplicateLimitDefinition   LIMITACK = 7
+)
+
+// LRACK enumerates the defined values of the LRACK item.
+type LRACK byte
+
+const (
+	LRACKAccepted                     LRACK = 0
+	LRACKDeniedInsufficientSpace      LRACK = 1
+	LRACKDeniedInvalidFormat          LRACK = 2
+	LRACKDeniedCEIDLinkAlreadyDefined LRACK = 3
+	LRACKDeniedCEIDDoesNotExist       LRACK = 4
+	LRACKDeniedRPTIDDoesNotExist      LRACK = 5
+)
+
+// LVACK enumerates the defined values of the LVACK item.
+type LVACK byte
+
+const (
+	LVACKVariableDoesNotExist          LVACK = 1
+	LVACKVariableHasNoLimitsCapability LVACK = 2
+	LVACKVariableRepeatedInMessage     LVACK = 3
+	LVACKLimitValueError               LVACK = 4
+)
+
+// RMACK enumerates the defined values of the RMACK item.
+type RMACK uint8
+
+const (
+	RMACKSuccessfulCompletion  RMACK = 0
+	RMACKCannotPerformAction   RMACK = 1
+	RMACKCompletedWithErrors   RMACK = 2
+	RMACKActionWillBeCompleted RMACK = 3
+	RMACKNoRequestExists       RMACK = 4
+)
+
+// RSDA enumerates the defined values of the RSDA item.
+type RSDA byte
+
+const (
+	RSDAOK                            RSDA = 0
+	RSDADeniedBusyTryLater            RSDA = 1
+	RSDADeniedSpooledDataDoesNotExist RSDA = 2
+)
+
+// RSPACK enumerates the defined values of the RSPACK item.
+type RSPACK byte
+
+const (
+	RSPACKSpoolingSetupAccepted RSPACK = 0
+	RSPACKSpoolingSetupRejected RSPACK = 1
+)
+
+// SPAACK enumerates the defined values of the SPAACK item.
+type SPAACK byte
+
+const (
+	SPAACKEverythingCorrect SPAACK = 0
+	SPAACKInvalidData       SPAACK = 1
+)
+
+// STRACK enumerates the defined values of the STRACK item.
+type STRACK byte
+
+const (
+	STRACKSpoolingNotAllowedForStream STRACK = 1
+	STRACKStreamUnknown               STRACK = 2
+	STRACKUnknownFunction             STRACK = 3
+	STRACKSecondaryFunction           STRACK = 4
+)
+
+// TIAACK enumerates the defined values of the TIAACK item.
+type TIAACK byte
+
+const (
+	TIAACKEverythingCorrect   TIAACK = 0
+	TIAACKTooManySVIDs        TIAACK = 1
+	TIAACKNoMoreTracesAllowed TIAACK = 2
+	TIAACKInvalidPeriod       TIAACK = 3
+	TIAACKUnknownSVID         TIAACK = 4
+	TIAACKInvalidREPGSZ       TIAACK = 5
+)
+
+// TIACK enumerates the defined values of the TIACK item.
+type TIACK byte
+
+const (
+	TIACKOK           TIACK = 0
+	TIACKErrorNotDone TIACK = 1
+)
+
+// VLAACK enumerates the defined values of the VLAACK item.
+type VLAACK byte
+
+const (
+	VLAACKAcknowledgeCommandWillBePerformed VLAACK = 0
+	VLAACKLimitAttributeDefinitionError     VLAACK = 1
+	VLAACKCannotPerformNow                  VLAACK = 2
 )
