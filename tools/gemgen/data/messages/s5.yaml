@@ -120,7 +120,10 @@ messages:
       This message provides the means to inform a host system that an exception condition is set.
       Optionally, recovery actions for the exception may be sent.
       Callers that require a no-reply variant should use [secs2.NewMessage] directly.
-    exception: A zero-length recovery-action list (n = 0) is sent when there are no possible recovery actions.
+    exception: >-
+      A zero-length recovery-action list (n = 0) is sent when there are no possible recovery actions.
+      This is a single-block message, so the text of each EXRECVRA may need to be restricted in length
+      to satisfy the single-block requirement.
     source: e5
     bodies:
       - actor: both
@@ -208,7 +211,7 @@ messages:
             - type: list
               items:
                 - {item: ACKA}
-                - {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+                - {type: list, minItems: 0, maxItems: 2, items: [{item: ERRCODE}, {item: ERRTEXT}]}
 
   - function: 15
     name: Exception Recovery Complete Notify
@@ -232,7 +235,7 @@ messages:
             - type: list
               items:
                 - {item: ACKA}
-                - {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+                - {type: list, minItems: 0, maxItems: 2, items: [{item: ERRCODE}, {item: ERRTEXT}]}
 
   - function: 16
     name: Exception Recovery Complete Confirm
@@ -275,4 +278,4 @@ messages:
             - type: list
               items:
                 - {item: ACKA}
-                - {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+                - {type: list, minItems: 0, maxItems: 2, items: [{item: ERRCODE}, {item: ERRTEXT}]}
