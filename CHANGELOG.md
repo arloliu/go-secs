@@ -5,6 +5,73 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0-rc5] - 2026-07-08
+
+Fifth release candidate of the v2 major version. Introduces a generated GEM (SEMI E30) message
+builder surface produced by a new code generator, and closes six gaps plus documentation drift
+identified during a downstream migration: signalling for undecodable inbound messages, a bounded
+active-connect timeout, codec read-duality, deferred-error ergonomics on `secs2` accessors, and
+SECS-I documentation corrections.
+
+### Added
+
+- **Generated GEM message builders (package `gem`).** Over 130 pure value builders covering SEMI
+  E30 role messages for Streams 1, 2, 5, 6, and 9 (e.g. `gem.S1F1()`, `gem.S2F31(...)`,
+  `gem.S6F11(...)`), each returning a `secs2.SECS2Message` sendable via
+  `Connection.SendSECS2Message` on either transport. Equipment-defined identifiers are passed as
+  `secs2.Item` values so callers control the SECS-II type. The builders are generated from an
+  E5 data dictionary and a message DSL by the new **`tools/gemgen`** generator (its own Go module,
+  wired into `go:generate`, lint, test, and CI).
+- **`hsms.DecodeErrorHandler`** and **`SECS2Endpoint.AddDecodeErrorHandler(...)`** — opt-in
+  handling for an inbound data message whose SECS-II body fails to decode. When at least one
+  handler is registered, an undecodable primary is diverted to it (and counted, see below) instead
+  of silently reaching the normal `DataMessageHandler`s; with none registered, body decoding stays
+  lazy and routing is unchanged. The handler runs inline on the receive goroutine and must not
+  block, matching the `DataMessageHandler` contract.
+- **`hsms.ConnectionMetrics.BodyDecodeErrCount()`** — counts inbound data messages that framed and
+  were received but whose lazy SECS-II body failed to decode and were diverted to a
+  `DecodeErrorHandler`. Intentionally disjoint from `DecodeErrCount` (frame-level failures), so
+  neither double-counts the other.
+- **`hsmsss.WithConnectTimeout(d)`** / **`secs1.WithConnectTimeout(d)`** — bound each active-role
+  dial attempt with a per-attempt deadline, including background reconnect attempts. The default
+  (`0`) leaves the dial unbounded (prior behavior); the option composes with `WithDialer`.
+- **`*hsms.DataMessageCodec` read delegators** — `Stream`, `Function`, `WaitBit`, `SessionID`,
+  `ID`, `SystemBytes`, `HeaderBytes`, `ToBytes`, `Type`, `DecodeErr`, `Item`, plus a nil-safe
+  `ToDataMessage()`, so a codec can be inspected without unwrapping `.Message`. Scalar/byte reads
+  on a nil `Message` return the zero value (panic-free); `Item()`/`DecodeErr()` return
+  `ErrNilMessage` rather than a misleading nil.
+- **`hsms/hsmstest.MalformedDataMessage(stream, function, waitBit)`** — a test helper producing a
+  `*hsms.DataMessage` with valid HSMS framing but an undecodable body, for exercising decode-error
+  handling without hand-forging wire bytes.
+
+### Changed
+
+- **`SendDataMessage` / `SendSECS2Message` now surface an undecodable reply.** When the reply
+  frames but its SECS-II body fails to decode, they return `(reply, decodeErr)` — the message
+  alongside the error — instead of `(nil, nil)`, so a malformed reply no longer unblocks the
+  caller as a clean success. A timeout or control-message reply is unaffected, and a well-formed
+  reply still returns `(reply, nil)`. `hsms/hsmstest.FakeEndpoint`'s scripted-reply path mirrors
+  this behavior.
+- **The exported `hsms.SECS2Endpoint` interface gained `AddDecodeErrorHandler`.** Code that merely
+  consumes a `SECS2Endpoint`/`Connection` is unaffected; any external type that *implements* the
+  interface must add the method.
+
+### Fixed
+
+- **`secs1` package documentation** corrected: the `WriteTimeout` paragraph now states that
+  `UpdateConfigOptions` re-forces `WithWriteTimeout(0)` on every live update (matching what
+  `NewConfig` forces at construction), rather than claiming it is not intercepted. The
+  block-assembly mismatch metrics are now documented, and the note clarifies that the
+  assembler-violation notifications (S9F1 for a device-ID mismatch, S9F7 for block/header/
+  first-block violations) are sent for the equipment role only.
+
+### Documentation
+
+- **`secs2` typed accessors and predicates** (`To*` / `Is*`) now warn in their Godoc that they do
+  not surface an item's deferred error: `Is*` reflects the declared type only, and a passing
+  predicate does not imply a usable item. Callers should gate value extraction on `Error()` (or the
+  `To*` accessor's returned error). A runnable example demonstrates the safe pattern.
+
 ## [2.0.0-rc4] - 2026-07-06
 
 Fourth release candidate of the v2 major version. A correctness fix for SECS-I live config
