@@ -1,7 +1,8 @@
 # GEM Message Code Generation — Design
 
 Date: 2026-07-07
-Status: Phase 1 design (approved for write-up; pending external review)
+Status: Phase 1 design, revision 2 (incorporates Opus + Copilot review findings,
+independently fact-checked against the local E5 spec)
 
 ## Goal
 
@@ -37,12 +38,14 @@ track provenance per message:
   against real equipment traffic or purchased standards. This does not block
   authoring or generation.
 
-**Item catalog exception:** E5's Table 3 Data Item Dictionary cross-references
-items used by S12–S21 messages too (verified: Table 3 contains 93 distinct
-S12–S21 message references in its "Where Used" column), even though the
-*message structures* for those streams live elsewhere. So the full 376-item
-catalog is E5-sourced regardless of stream — only message-level structure /
-description / exception for S12–S21 carries the lower-confidence tag.
+**Item catalog exception:** E5's Table 3 Data Item Dictionary (lines 398–966
+of the local markdown) cross-references items used by S12–S21 messages too
+(verified: 93 distinct S12–S21 message references appear in its "Where Used"
+column), even though the *message structures* for those streams live
+elsewhere. So the full 336-item catalog (336 unique entries, verified by
+row count minus repeated page-break header rows) is E5-sourced regardless of
+stream — only message-level structure / description / exception for S12–S21
+carries the lower-confidence tag.
 
 ## Phasing
 
@@ -50,17 +53,60 @@ This document specifies **Phase 1** only:
 
 1. Design and implement the DSL schema (items + messages).
 2. Build `tools/gemgen`, a Go code generator invoked via `go generate`.
-3. Bulk-extract the **full item catalog** (376 items) from E5 Table 3 into
+3. Bulk-extract the **full item catalog** (336 items) from E5 Table 3 into
    `items.yaml` — mechanical, scriptable, fully E5-grounded regardless of
    phase.
-4. Author `messages/s1.yaml` (24 messages) as the pilot stream — chosen
-   because it exercises every DSL construct: header-only body, per-actor body
-   variants (S1F2, S1F14), enum-valued items (COMMACK), and open-binding
-   (equipment-defined) items.
+4. Author `messages/s1.yaml` (23 stream-specific functions: F1–F11, F13–F24 —
+   E5 also defines the universal `S,F0` abort, but that's handled generically
+   at the protocol layer, not per-stream, so it's out of scope for `gem/`)
+   as the pilot stream — chosen because it exercises the broadest set of DSL
+   constructs found anywhere in E5: header-only body (S1F1), per-actor body
+   variants (S1F2, S1F14), enum-valued items (COMMACK), open-binding
+   (equipment-defined) items, an opaque/form-dependent body (S1F6, S1F8 —
+   see `structure: opaque` below), and nested + sibling repeating groups
+   (S1F20, S1F24 — see worked example below).
 5. Generate `gem/s1.go`, `gem/s1_test.go`, `gem/items.go`, replacing the
    hand-written `s1.go` / `s1_test.go`.
 6. Acceptance: `make lint` and `make test` pass; a sample of generated godoc
    is manually reviewed for readability.
+
+**Non-goal within Phase 1:** E5 defines legacy compatibility structure
+variants for a few S1 functions — e.g. S1F3 and S1F10 allow an alternate
+"packed single item" form (`<svid1,,svidn>`) for formats `3()`/`5()`,
+explicitly retained "for compatibility with previous implementations." E5
+itself states new implementations should use the list form
+(`L,n{<svid1>...<svidn>}`). The DSL and generator target only the
+approved/current structure; the deprecated packed-item form is not
+represented and is not a target for codegen.
+
+**Worked example — sibling + nested repeats (S1F20):** proves the `structure`
+tree (below) handles E5's hardest S1 shape without a dedicated "sibling
+repeat" construct — a list's `items:` array can itself hold nested `list`/
+`repeat` nodes alongside plain `item` refs:
+
+```yaml
+- function: 20
+  name: Attribute Data
+  mnemonic: AD
+  direction: equipment-to-host
+  description: Transfers the requested set of object attributes, in request order.
+  exception: >-
+    m = 0 means the OBJTYPE is unknown. n = 0 means the object wasn't found.
+    A zero-length ATTRDATA means the attribute doesn't exist. p = 0 means no errors.
+  source: e5
+  bodies:
+    - actor: both
+      replyExpected: false
+      structure:
+        type: list
+        items:
+          - type: list                     # objects: L,m { L,n { ATTRDATA... } }
+            repeat: objects
+            of: {type: list, repeat: attrs, of: {item: ATTRDATA}}
+          - type: list                     # errors: L,p { L,2 { ERRCODE ERRTEXT } }
+            repeat: errors
+            of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+```
 
 **Phase 2** (separate future design/plan, not detailed here): author
 `messages/s2.yaml` … `s21.yaml` stream by stream and regenerate/replace the
@@ -104,16 +150,23 @@ CEID:
 
 Fields:
 
-- `formats`: list of secs2 shortcut constructors (`A`, `B`, `BOOLEAN`, `I1`,
-  `I2`, `I4`, `I8`, `U1`, `U2`, `U4`, `U8`, `F4`, `F8`) this item's format code
-  (E5 Table 1) maps to. Multiple entries mean the standard allows more than
-  one representation.
-- `binding`: `fixed` when E5 mandates one exact format (generated function
-  parameter gets a concrete Go type per `goType`); `open` when E5 leaves the
-  format equipment-defined or wildcarded (`3()`, `4()`, `5()`, or `0` for
-  list) — generated parameter stays `secs2.Item` (or `...secs2.Item` when
-  repeated), matching the existing hand-written convention for CEID, RPTID,
-  ALID, V, etc.
+- `formats`: list of secs2 shortcut constructors (`A`, `J`, `W`, `B`,
+  `BOOLEAN`, `I1`, `I2`, `I4`, `I8`, `U1`, `U2`, `U4`, `U8`, `F4`, `F8`) this
+  item's format code (E5 Table 1) maps to (`J` = JIS-8 string, format code
+  21; `W` = UTF-8 localized string, format code 22 — see
+  `secs2/shortcut.go:11-17`). Multiple entries mean the standard allows more
+  than one representation.
+- `binding`: `fixed` when E5 mandates exactly one concrete format
+  (`len(formats) == 1`, no wildcard) — generated function parameter gets a
+  concrete Go type per `goType`. `open` for every other case: format is
+  equipment-defined, wildcarded (`3()`, `4()`, `5()`, or `0` for list), *or*
+  the standard allows more than one concrete format with no single canonical
+  choice. `open` items always get a `secs2.Item` parameter (or
+  `...secs2.Item` when repeated), matching the existing hand-written
+  convention for CEID, RPTID, ALID, V, etc. Every item referenced by a
+  message's `structure` must have an entry in `items.yaml` regardless of
+  binding — `binding` only controls the generated parameter type, not
+  whether validation requires the item to be defined.
 - `goType`: required iff `binding: fixed`.
 - `values`: optional enum table. When present, codegen emits named Go
   constants (e.g. `ALEDDisable byte = 0`, `ALEDEnable byte = 128`).
@@ -173,11 +226,28 @@ Fields:
   current naming.
 - `structure`: `null` for header-only bodies, otherwise a tree of:
   - `{item: NAME}` — a leaf item reference (must exist in `items.yaml`).
-  - `{type: list, items: [...]}` — a fixed-shape nested list.
+  - `{type: list, items: [...]}` — a nested list. Each element of `items` is
+    itself a structure node — a leaf `item` ref, another nested `list`, or a
+    `repeat` node — so sibling repeating groups at the same list level (e.g.
+    S1F20's parallel attribute-data and error lists) fall out naturally
+    without a dedicated construct. See the S1F20 example above.
+  - `{type: list, minItems: N, maxItems: M, items: [...]}` — a bounded-arity
+    list where the standard allows a small fixed set of lengths rather than
+    a single fixed count or an unbounded repeat (e.g. S2F48's `L,p {p = 0,4}`
+    sub-list). Phase 1 ships this node type in the schema and generator even
+    though the S1 pilot has no message that needs it, since it's a small,
+    self-contained addition and closes a known Phase 2 (S2) blocker before
+    Phase 2 starts.
   - `{type: list, repeat: <name>, of: <node>}` — a variable-length list of
     repeated shape; codegen emits a variadic parameter named `<name>...`
     (generalizes the existing hand-written `gem.Report()` helper for
     S6F11-style repeating groups, planned for Phase 2).
+  - `{type: opaque}` — a body whose shape E5 declares as form-/context-
+    dependent rather than statically specifiable (e.g. S1F6 "Depends upon
+    the structure specified by the status form," S1F8 "Depends upon the
+    form being specified"). Codegen emits a single `secs2.Item` parameter,
+    e.g. `func S1F6(body secs2.Item) secs2.SECS2Message`, and the caller
+    assembles the form-specific structure manually via `secs2` primitives.
 
 ## Generator architecture
 
@@ -188,7 +258,7 @@ tools/gemgen/
   load.go          # parse + validate
   gen_messages.go  # renders gem/sN.go per stream via text/template
   gen_items.go     # renders gem/items.go: Go types + enum consts for items with `values:`
-  gen_tests.go     # renders gem/sN_test.go: smoke test per function
+  gen_tests.go     # renders gem/sN_test.go: header + full body-tree assertion per function
   templates/*.tmpl # go:embed'd templates
 
 tools/gemgen/data/
@@ -200,16 +270,21 @@ tools/gemgen/data/
 
 Validation (fail generation, no partial/silent output, on any of):
 
-- a `{item: X}` reference where `X` is not in `items.yaml`
+- a `{item: X}` reference (any node type, any binding) where `X` is not in
+  `items.yaml`
 - duplicate `(stream, function)` pair across the loaded message files
-- `binding: fixed` item missing `goType`
+- `binding: fixed` item with `len(formats) != 1`, or missing `goType`
 - a `bodies` entry with an unrecognized `actor` value
+- a `list` node with both `repeat` and `minItems`/`maxItems` set (mutually
+  exclusive — unbounded-repeat vs. bounded-arity are different node shapes)
 
 Wired into the `gem` package via a generate directive (e.g. `gem/generate.go`
 containing `//go:generate go run ../tools/gemgen ...`), so `go generate
-./...` regenerates everything. `gopkg.in/yaml.v3` is already an indirect
-module dependency (pulled in transitively); Phase 1 promotes it to a direct
-dependency for `tools/gemgen`.
+./...` regenerates everything. `tools/gemgen` is its own Go module (its own
+`go.mod`, per the sibling `.linter.go.mod` pattern already used for the
+linter toolchain) so its `gopkg.in/yaml.v3` dependency never enters the
+`gem`-consuming module graph — the root `go.mod`'s "runtime deps intentionally
+minimal" rule (100-overview.md) stays intact.
 
 ## Godoc format
 
@@ -227,6 +302,10 @@ entries only — a source disclaimer:
 func S1F2(mdln, softrev string) secs2.SECS2Message { ... }
 ```
 
+The `Body: L[2]{...}` line is informal human-readable shorthand for the
+generated godoc comment — not a formal grammar the generator parses or
+validates. It's derived directly from the `structure:` tree for display only.
+
 For a `source: hume` message (Phase 2 only), an additional trailing line:
 
 ```go
@@ -237,17 +316,29 @@ For a `source: hume` message (Phase 2 only), an additional trailing line:
 
 One generated `<stream>_test.go` per stream, table-driven, generalizing the
 existing hand-written `assertS1Header` helper: for every function, assert
-stream code, function code, wait bit, and body shape (item type + child
-count/format). This gives smoke coverage across the full generated surface
-without hand-authoring per-message tests. Existing repo-wide gates
-(`make lint`, `make test`) apply unchanged; no new test category is
-introduced (`.agents/rules/300-testing.md`).
+stream code, function code, wait bit, and a full recursive walk of the body
+tree comparing each node's secs2 type *and* value against the value the test
+passed into the builder — not just item count. For example, calling
+`S1F2("MODEL-X", "2.3.1")` asserts the returned message is
+`ListItem[ASCIIItem("MODEL-X"), ASCIIItem("2.3.1")]` in that exact order.
+Because the assertion walks the same `structure:` tree the generator used to
+build the function, it's fully mechanical (no hand-authored expectations)
+while still catching authoring mistakes a type/count-only check would miss —
+e.g. two same-typed sibling items swapped, or an item bound to the wrong
+DSL entry. Existing repo-wide gates (`make lint`, `make test`) apply
+unchanged; no new test category is introduced (`.agents/rules/300-testing.md`).
 
 ## Phase 1 acceptance criteria
 
-- `tools/gemgen` builds and runs via `go generate ./...`.
-- `tools/gemgen/data/items.yaml` fully populated (376 items) from E5 Table 3.
-- `tools/gemgen/data/messages/s1.yaml` authored (24 messages) from E5 §10.
+- `tools/gemgen` (its own Go module) builds and runs via `go generate ./...`.
+- `tools/gemgen/data/items.yaml` fully populated (336 items) from E5 Table 3.
+- `tools/gemgen/data/messages/s1.yaml` authored (23 stream-specific
+  functions: F1–F11, F13–F24) from E5 §10.
+- The generator correctly renders at least one message of each: header-only
+  (S1F1), per-actor variant (S1F2/S1F2Host), enum-valued item (via COMMACK
+  in S1F14), open-binding item, opaque body (S1F6, S1F8), and sibling+nested
+  repeat (S1F20 or S1F24) — i.e. every `structure` node type is exercised by
+  at least one generated function.
 - `gem/s1.go`, `gem/s1_test.go`, `gem/items.go` generated, replacing the
   hand-written `s1.go` / `s1_test.go`.
 - `make lint` and `make test` pass.
@@ -260,3 +351,10 @@ introduced (`.agents/rules/300-testing.md`).
   constraint.
 - Resolving every hume.com vs. E5 discrepancy — only flagging confidence per
   message.
+- Representing E5's deprecated/legacy compatibility structure variants (e.g.
+  S1F3's and S1F10's packed-single-item alternate forms) — the generator
+  targets only the structure E5 recommends for new implementations.
+- Discriminated/conditional structure where a value depends on a sibling
+  item's value (e.g. S2F49/S2F50's parameter-type-dependent shape). This is
+  a real gap the S2 stream will require; it's called out here as an
+  explicit Phase 2 schema-design task, not silently deferred.
