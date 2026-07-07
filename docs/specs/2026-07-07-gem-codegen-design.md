@@ -1,8 +1,9 @@
 # GEM Message Code Generation — Design
 
 Date: 2026-07-07
-Status: Phase 1 design, revision 2 (incorporates Opus + Copilot review findings,
-independently fact-checked against the local E5 spec)
+Status: Phase 1 shipped (v2.0.0-rc, Stream 1). Phase 2 design addendum added
+2026-07-07 (S2/S5/S6/S9), independently fact-checked against the local E5
+spec.
 
 ## Goal
 
@@ -137,15 +138,137 @@ repeat" construct — a list's `items:` array can itself hold nested `list`/
             of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
 ```
 
-**Phase 2** (separate future design/plan, not detailed here): author
-`messages/s2.yaml` … `s21.yaml` stream by stream and regenerate/replace the
-rest of `gem/`. S1–S10 content comes from E5 §10; S12–S21 comes from each
-stream's owning GEM300 standard where verified, or is tagged
-`source: external` where reconstructed from a third-party reference instead.
+**Phase 2** covers S2, S5, S6, S9 — see the addendum immediately below.
+Streams S3, S4, S7, S8, S10 remain hand-written for a later phase; S12–S21
+(GEM300 standards) remain a phase after that, per-stream tagged
+`source: e39`/`e40`/… where verified or `source: external` where
+reconstructed from a third-party reference instead.
 
 Existing hand-written function signatures are **not** preserved as a
 constraint — the v2 branch is pre-1.0 (rc phase), so the generator is free to
 pick whatever signature is most consistent across the full generated set.
+
+## Phase 2 design addendum (S2, S5, S6, S9)
+
+Corrected message counts, verified directly against the local E5 markdown
+(`/home/arlo/semi_standards/markdowns/e005-00-0813/e005-00-0813.md`) rather
+than assumed from the stream's highest-numbered function:
+
+- **S2** (Equipment Control & Diagnostics): F1–F50, all 50 present and
+  documented — no `Not Used` markers anywhere in the range (an earlier
+  scoping guess incorrectly assumed F45 didn't exist; it does, with a full
+  Structure section).
+- **S5** (Exception Handling): F1–F18, all 18 present (same correction —
+  F15 exists too).
+- **S6** (Data Collection): F1–F30, 29 present with full text; **F13 is a
+  genuine content dropout** (below), reconstructed the same way S1F12 was
+  in Phase 1.
+- **S9** (System Errors): F1, F3, F5, F7, F9, F11, F13 — 7 messages (F0 and
+  every even function are explicitly marked `Not Used` in the text;
+  confirmed correct).
+
+Total: **105 new generated functions** (~4.4× Phase 1's 24).
+
+**Item catalog: no changes needed.** Cross-referencing every item name these
+105 messages reference against the 335-item `items.yaml` extracted in
+Phase 1 found zero gaps — the bulk extraction already covered every item
+S2/S5/S6/S9 need.
+
+**One schema/generator extension required — fixed-format-`B` byte-array
+items.** `items.yaml`'s format-`B` items are currently always `goType: byte`
+(a scalar). `MHEAD`/`SHEAD` (S9's entire payload, also used by S2F25/26's
+`ABS`) are documented in E5 as multi-byte binary blobs, not single bytes —
+confirmed against the existing hand-written `gem/s9.go`, which already takes
+`mhead [10]byte`. Phase 2 extends the DSL:
+
+- `items.yaml` may set `goType: [10]byte` (fixed-size array) or
+  `goType: []byte` (variable-length) on a format-`B` item, in addition to the
+  existing scalar `byte`.
+- `ValidateItems` (`tools/gemgen/load.go`) accepts these two additional
+  GoType shapes for format `B` only; every other format keeps its current
+  exact-match-to-derived-type check unchanged.
+- `BodyExpr`'s leaf case (`tools/gemgen/params.go`) slices a fixed-size array
+  parameter before passing it to the item's constructor —
+  `secs2.B(mhead[:])`, matching the existing hand-written pattern exactly —
+  and passes a `[]byte`-typed parameter through unchanged (`secs2.B(abs)`).
+- `gen_tests.go`'s independent `fixedSamples` map needs a matching entry for
+  both new GoType shapes so test-sample generation doesn't silently fall
+  through. Per the Phase 1 lesson (a new goType/kind that only one of the
+  two parallel tree-walkers handles fails at `go build` time, not at
+  `go vet`/unit-test time), this task is not done until a real `go build`
+  compile check exercises every new-goType message — extending
+  `packed_compile_integration_test.go`'s pattern, not just green unit tests.
+
+**Resolved via existing Phase 1 precedent — no further schema changes:**
+
+- **S2F49/S2F50** (`Enhanced Remote Command` / its acknowledge): `CEPVAL`'s
+  shape is chosen by its value at runtime — scalar, list of scalars, or a
+  recursively nested list of `CPNAME`/`CEPVAL` pairs — which no static
+  `structure` tree can express. Modeled as `{type: opaque}`, same as
+  S1F6/S1F8's form-dependent bodies; `CEPACK` on the acknowledge side follows
+  the same treatment.
+- **S2F13** (`Equipment Constant Request`) and **S2F23** (`Trace Initialize
+  Send`): each documents the same approved-list-vs-legacy-packed-form
+  duality as S1F3. Per the existing Phase 1 non-goal, only the approved list
+  form is represented; the deprecated packed alternative is excluded from
+  codegen for both.
+- **S6F13** (`Annotated Event Report Send`): the local E5 copy drops this
+  message's body entirely between F12 and F14 — the same PDF-conversion
+  page-drop pattern as S1F12. Cross-references establish it beyond
+  reasonable doubt: S6F16 ("Event Report Data") states its structure
+  "Identical to structure of S6,F11"; S6F18 ("Annotated Event Report Data")
+  states "Same as S6,F13" — naming F13 directly; and S6F14 ("Annotated Event
+  Report Acknowledge") needs a paired primary message, which can only be
+  F13. Reconstructed as F11's shape with the innermost `V` replaced by
+  `L,2{VID, V}` (matching the substitution already visible in S6F22's
+  `Annotated Individual Report Data`), entered with `source: external`,
+  `confidence: low`, and an inline comment recording the cross-reference
+  chain — same convention as S1F12.
+- **Optional-reply (`[reply]`) messages** (S5F1/F3/F9/F11,
+  S6F1/F3/F9/F11/F25/F27): E5 marks these primaries as allowing the sender
+  to choose the W-bit at send time, a distinction S1 never needed (its
+  bodies were always unconditionally `replyExpected: true` or `false`).
+  Phase 2 generates these with `replyExpected: true` and a godoc note that
+  the reply is caller-optional — matching the convention the existing
+  hand-written `S2F37`/`S5F1`/`S6F11` already use (each documents "Callers
+  that require a no-reply variant should use `secs2.NewMessage` directly").
+- **Named enum backfill:** E5 documents named enumerations for many
+  S2/S5/S6 accept/deny and status-code items that Phase 1 left as bare
+  `byte` (only `COMMACK`/`ALED`-style items got `values:` tables in
+  Phase 1). Phase 2 backfills `values:` tables in `items.yaml` for every
+  ack/status-code item S2/S5/S6/S9 reference that E5 documents an
+  enumeration for (e.g. `GRANT`, `EAC`, `ACKC5`, `ACKC6`, `RAC`, `CMDA`,
+  `DRACK`, `LRACK`, `ERACK`, `HCACK`, `VLAACK`, `RSPACK`, `TIAACK`, `TIACK`,
+  `RMACK`, `CPACK`, `SPAACK`, `CSAACK`, and others discovered during
+  authoring) — same named-defined-type mechanism as `COMMACK`.
+
+**Table-mangling caution (not a content gap):** S6F27 and S6F30's raw
+markdown tables are visibly reflowed by the PDF→markdown conversion
+(numbered sub-items scattered across cells out of order). Authoring these
+two must cross-check the reconstructed structure's cardinality and item
+order against the accompanying Exception/Description prose, not trust the
+raw table layout at face value.
+
+**Phase 2 deliverables:**
+
+1. The format-`B` byte-array/byte-slice schema extension above (`load.go`,
+   `params.go`, `gen_tests.go`, plus `items.yaml`'s `MHEAD`/`SHEAD`/`ABS`
+   entries).
+2. Enum `values:` backfill in `items.yaml` for the ack/status-code items
+   S2/S5/S6/S9 reference.
+3. `messages/s2.yaml` (50 functions), `messages/s5.yaml` (18),
+   `messages/s6.yaml` (30, including the reconstructed F13),
+   `messages/s9.yaml` (7).
+4. Regenerate `gem/s2.go`, `gem/s5.go`, `gem/s6.go`, `gem/s9.go` (and their
+   `_test.go` siblings) via `go generate`, replacing the hand-written
+   versions; extend `gem/generate.go`'s directive comment.
+5. Acceptance: `make ci` green (lint + test + gemgen lint/test/integration),
+   same bar as Phase 1.
+
+**Non-goals within Phase 2:** `gem/report.go`'s hand-written `Report()`
+helper (used by `S6F11`/`S6F16`'s `reports` parameter) is unaffected — it
+stays hand-written; Phase 2 only replaces the four listed stream files.
+Streams S3, S4, S7, S8, S10 and S12–S21 remain out of scope for this phase.
 
 ## DSL schema
 
