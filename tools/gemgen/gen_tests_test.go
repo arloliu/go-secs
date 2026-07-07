@@ -4,6 +4,7 @@ import (
 	"go/parser"
 	"go/token"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -369,13 +370,97 @@ func TestRenderTestsByteArrayLeaf(t *testing.T) {
 	require.NotRegexp(t, singleElemCheck, src, "a blob comparison must not degrade into a single-element scalar-byte check")
 }
 
+// TestRenderTestsFixedUnsignedLeaf proves a plain numeric fixed leaf with no
+// enum table (the real S6F23/RSDC case: binding fixed, goType uint8) is sampled
+// as a bare untyped-integer literal at the call site and asserted via the
+// unified ToUint accessor -- there is no per-width ToUint8; ToUint returns
+// []uint64 for every unsigned width, so the assertion is the slice form
+// (len == 1 && v[0] == literal).
+func TestRenderTestsFixedUnsignedLeaf(t *testing.T) {
+	items := map[string]Item{
+		"RSDC": {Formats: []string{"U1"}, Binding: BindingFixed, GoType: "uint8"},
+	}
+	mf := MessageFile{Stream: 6, Messages: []Message{{
+		Function: 23, Name: "Request or Send Spool Data", Mnemonic: "RSD",
+		Bodies: []Body{{Actor: "host", ReplyExpected: true, Structure: &StructureNode{Item: "RSDC"}}},
+	}}}
+
+	out, err := renderTests(mf, items)
+	require.NoError(t, err)
+	parseGoSource(t, out)
+
+	src := string(out)
+	require.Contains(t, src, "func TestS6F23Host(t *testing.T) {")
+	require.Contains(t, src, "decoded.ToUint()")
+	// The sample must be a bare untyped-integer literal (no cast), and the
+	// assertion the scalar-slice form -- never ToUint8/UintAt.
+	require.NotContains(t, src, "uint8(")
+	require.NotContains(t, src, "ToUint8")
+	// Extract the sample literal from the call and confirm it is a plain integer.
+	m := regexp.MustCompile(`gem\.S6F23Host\((\d+)\)`).FindStringSubmatch(src)
+	require.Len(t, m, 2, "expected gem.S6F23Host(<int>) call")
+}
+
+// TestRenderTestsFixedSignedLeaf proves a signed-integer fixed leaf (goType
+// int16 here) routes through the unified ToInt accessor ([]int64 for every
+// signed width) and that two same-goType siblings still render distinguishable
+// name-derived samples, so a swapped-order bug is caught.
+func TestRenderTestsFixedSignedLeaf(t *testing.T) {
+	items := map[string]Item{
+		"XVAL": {Formats: []string{"I2"}, Binding: BindingFixed, GoType: "int16"},
+		"YVAL": {Formats: []string{"I2"}, Binding: BindingFixed, GoType: "int16"},
+	}
+	mf := MessageFile{Stream: 2, Messages: []Message{{
+		Function: 41, Name: "Signed Pair", Mnemonic: "SP",
+		Bodies: []Body{{
+			Actor: "host", ReplyExpected: true,
+			Structure: &StructureNode{Type: "list", Items: []StructureNode{{Item: "XVAL"}, {Item: "YVAL"}}},
+		}},
+	}}}
+
+	out, err := renderTests(mf, items)
+	require.NoError(t, err)
+	parseGoSource(t, out)
+
+	src := string(out)
+	require.Contains(t, src, ".ToInt()")
+	m := regexp.MustCompile(`gem\.S2F41Host\((-?\d+), (-?\d+)\)`).FindStringSubmatch(src)
+	require.Len(t, m, 3, "expected gem.S2F41Host(<int>, <int>) call")
+	require.NotEqual(t, m[1], m[2], "two int16 siblings must render distinguishable samples")
+}
+
+// TestRenderTestsFixedFloatLeaf proves a float fixed leaf (goType float32)
+// routes through the unified ToFloat accessor ([]float64 for every float
+// width) and that the sample literal is exactly representable in float32 (a
+// half-integer like N.5), so the float32 -> float64 decode round-trip compares
+// equal without rounding drift.
+func TestRenderTestsFixedFloatLeaf(t *testing.T) {
+	items := map[string]Item{
+		"FVAL": {Formats: []string{"F4"}, Binding: BindingFixed, GoType: "float32"},
+	}
+	mf := MessageFile{Stream: 2, Messages: []Message{{
+		Function: 43, Name: "Float Value", Mnemonic: "FV",
+		Bodies: []Body{{Actor: "host", ReplyExpected: true, Structure: &StructureNode{Item: "FVAL"}}},
+	}}}
+
+	out, err := renderTests(mf, items)
+	require.NoError(t, err)
+	parseGoSource(t, out)
+
+	src := string(out)
+	require.Contains(t, src, "decoded.ToFloat()")
+	m := regexp.MustCompile(`gem\.S2F43Host\((\d+\.\d+)\)`).FindStringSubmatch(src)
+	require.Len(t, m, 2, "expected gem.S2F43Host(<float>) call with a decimal literal")
+	require.True(t, strings.HasSuffix(m[1], ".5"), "float sample must be a half-integer, exactly float32-representable")
+}
+
 // TestRenderTestsUnsupportedFixedGoType proves renderTests fails loudly
 // (rather than emitting broken output) for a fixed-binding goType with no
 // known deterministic sample, so the generator never silently renders an
 // invalid test.
 func TestRenderTestsUnsupportedFixedGoType(t *testing.T) {
 	items := map[string]Item{
-		"WEIRD": {Formats: []string{"F4"}, Binding: BindingFixed, GoType: "float32"},
+		"WEIRD": {Formats: []string{"X"}, Binding: BindingFixed, GoType: "complex128"},
 	}
 	mf := MessageFile{Stream: 9, Messages: []Message{{
 		Function: 1, Name: "Weird", Mnemonic: "W",

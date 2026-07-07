@@ -16,10 +16,16 @@ var testsTemplate string
 
 // fixedSample describes how a fixed-binding item's concrete Go type is
 // sampled at the generated call site and re-checked against the decoded
-// item. These are the only three goTypes the GEM item dictionary actually
-// uses for a fixed (non-open) leaf: fixed ASCII (string), fixed single-byte
-// (byte — including enum items like COMMACK, whose named parameter type
-// still accepts the bare literal with no cast), and fixed BOOLEAN (bool).
+// item. Besides the three string/byte/bool goTypes, this also covers every
+// plain numeric goType a fixed (non-open, non-enum) leaf can declare: the
+// signed widths (int8..int64), the unsigned widths (uint8..uint64), and the
+// float widths (float32/float64). Width matters only for encode-time range
+// validation, not the decode accessor: a signed leaf of any width decodes
+// through ToInt ([]int64), any unsigned width through ToUint ([]uint64), and
+// any float width through ToFloat ([]float64) — so the ten widths collapse to
+// just three accessors, each reused across the widths that map to it. An
+// enum item like COMMACK keeps its named byte parameter type, which still
+// accepts the bare literal with no cast.
 //
 // literal is derived from the item's own (already-lowercased) name rather
 // than a single value shared by every item of that GoType: two sibling items
@@ -45,6 +51,26 @@ var fixedSamples = map[string]fixedSample{
 	"string": {literal: func(name string) string { return fmt.Sprintf("%q", name) }, method: "ToASCII", scalar: true},
 	"byte":   {literal: func(name string) string { return fmt.Sprintf("0x%02x", byteSample(name)) }, method: "ToBinary", scalar: false},
 	"bool":   {literal: func(string) string { return "true" }, method: "ToBoolean", scalar: false},
+
+	// Plain signed integers of every width decode through the single ToInt
+	// ([]int64) accessor; the untyped-integer sample fits the narrowest int8.
+	"int8":  {literal: intLiteral, method: "ToInt", scalar: false},
+	"int16": {literal: intLiteral, method: "ToInt", scalar: false},
+	"int32": {literal: intLiteral, method: "ToInt", scalar: false},
+	"int64": {literal: intLiteral, method: "ToInt", scalar: false},
+
+	// Plain unsigned integers of every width decode through the single ToUint
+	// ([]uint64) accessor; the same non-negative sample fits the narrowest uint8.
+	"uint8":  {literal: intLiteral, method: "ToUint", scalar: false},
+	"uint16": {literal: intLiteral, method: "ToUint", scalar: false},
+	"uint32": {literal: intLiteral, method: "ToUint", scalar: false},
+	"uint64": {literal: intLiteral, method: "ToUint", scalar: false},
+
+	// Floats of either width decode through the single ToFloat ([]float64)
+	// accessor; the half-integer sample is exactly representable in float32, so
+	// the float32 -> float64 decode round-trip compares equal with no drift.
+	"float32": {literal: floatLiteral, method: "ToFloat", scalar: false},
+	"float64": {literal: floatLiteral, method: "ToFloat", scalar: false},
 }
 
 // byteSample derives a deterministic sample byte from an item's (already-
@@ -63,6 +89,35 @@ func byteSample(name string) byte {
 	sum := h.Sum32()
 
 	return byte(sum) ^ byte(sum>>8) ^ byte(sum>>16) ^ byte(sum>>24)
+}
+
+// numericSample derives a deterministic small non-negative magnitude (0..99)
+// from an item's (already-lowercased) name by reducing byteSample's FNV fold
+// modulo 100. The range is chosen so the resulting untyped-integer literal
+// converts safely to the narrowest supported width at the call site (int8's
+// max is 127, uint8's 255) while remaining trivially convertible to the wide
+// int64/uint64/float64 comparison type at the assertion site. It shares
+// byteSample's name derivation for the same reason: two same-goType siblings
+// in one generated body must get distinguishable samples, or a swapped-order
+// regression would render identical output and pass undetected.
+func numericSample(name string) int {
+	return int(byteSample(name)) % 100
+}
+
+// intLiteral renders numericSample as a bare untyped-integer Go literal, used
+// as both the call argument (assignable to any int8..int64 / uint8..uint64
+// parameter) and the ToInt/ToUint decode comparand (an untyped constant
+// compares against the int64/uint64 slice element).
+func intLiteral(name string) string {
+	return strconv.Itoa(numericSample(name))
+}
+
+// floatLiteral renders numericSample as a half-integer Go float literal
+// (e.g. "42.5"). The .5 fraction is exactly representable in float32, so a
+// float32 leaf's encode-decode round-trip (which widens to float64 via
+// ToFloat) compares equal with no rounding drift.
+func floatLiteral(name string) string {
+	return strconv.Itoa(numericSample(name)) + ".5"
 }
 
 // byteSliceSampleLen is the fixed number of bytes sampled for a variable-
