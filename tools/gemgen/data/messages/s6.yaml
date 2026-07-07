@@ -1,0 +1,564 @@
+stream: 6
+messages:
+  - function: 1
+    name: Trace Data Send
+    mnemonic: TDS
+    direction: equipment-to-host
+    description: >-
+      This function sends samples to the host according to the trace setup done by S2F23. Trace is a
+      time-driven form of equipment status. Even if S6F1 is multi-block, it is not preceded by an
+      Inquire/Grant transaction, because the host S2F23 is an implicit grant.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: >-
+      A zero-length STIME means no value is given and the time is to be derived from SMPLN along with
+      knowledge of the request.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: TRID}
+            - {item: SMPLN}
+            - {item: STIME}
+            - {type: list, repeat: samples, of: {item: SV}}
+
+  - function: 2
+    name: Trace Data Acknowledge
+    mnemonic: TDA
+    direction: host-to-equipment
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC6}
+
+  - function: 3
+    name: Discrete Variable Data Send
+    mnemonic: DVS
+    direction: equipment-to-host
+    description: >-
+      Any data report initiated by an event, such as the completion of a measurement, rather than by
+      the passage of time is called a discrete variable. S2F15 selects the desired reporting events.
+      Reports requiring only one block of data may report directly to the host with this message. If
+      S6F3 is multi-block, it must be preceded by the S6F5/S6F6 Inquire/Grant transaction.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: CEID}
+            - type: list
+              repeat: reports
+              of:
+                type: list
+                items:
+                  - {item: DSID}
+                  - type: list
+                    repeat: values
+                    of: {type: list, items: [{item: DVNAME}, {item: DVVAL}]}
+
+  - function: 4
+    name: Discrete Variable Data Acknowledge
+    mnemonic: DVA
+    direction: host-to-equipment
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC6}
+
+  - function: 5
+    name: Multi-block Data Send Inquire
+    mnemonic: MBI
+    direction: equipment-to-host
+    description: >-
+      If the discrete data report S6F3, S6F9, S6F11, or S6F13 can involve more than one block, this
+      transaction must precede the transmission.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: DATAID}, {item: DATALENGTH}]}
+
+  - function: 6
+    name: Multi-block Grant
+    mnemonic: MBG
+    direction: host-to-equipment
+    description: Grant permission to send.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: GRANT6}
+
+  - function: 7
+    name: Data Transfer Request
+    mnemonic: DTR
+    direction: host-to-equipment
+    description: The host may initiate a data transfer of specified data stored in the equipment with this function.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: DATAID}
+
+  - function: 8
+    name: Data Transfer Data
+    mnemonic: DTD
+    direction: equipment-to-host
+    description: Equipment sends data to the host. The structure is the same as S6F3.
+    exception: A zero-length item returned means the requested data cannot be sent.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: CEID}
+            - type: list
+              repeat: reports
+              of:
+                type: list
+                items:
+                  - {item: DSID}
+                  - type: list
+                    repeat: values
+                    of: {type: list, items: [{item: DVNAME}, {item: DVVAL}]}
+
+  - function: 9
+    name: Formatted Variable Send
+    mnemonic: FVS
+    direction: equipment-to-host
+    description: >-
+      The same function as S6F3 except that the DVNAMEs are supplied from a predefined form known to
+      the host, so the data are more compact. If S6F9 is multi-block, it must be preceded by the
+      S6F5/S6F6 Inquire/Grant transaction.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: PFCD}
+            - {item: DATAID}
+            - {item: CEID}
+            - type: list
+              repeat: reports
+              of:
+                type: list
+                items:
+                  - {item: DSID}
+                  - {type: list, repeat: values, of: {item: DVVAL}}
+
+  - function: 10
+    name: Formatted Variable Acknowledge
+    mnemonic: FVA
+    direction: host-to-equipment
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC6}
+
+  - function: 11
+    name: Event Report Send
+    mnemonic: ERS
+    direction: equipment-to-host
+    description: >-
+      The purpose of this message is for the equipment to send a defined, linked, and enabled group
+      of reports to the host upon the occurrence of an event (CEID). If S6F11 is multi-block, it must
+      be preceded by the S6F5/S6F6 Inquire/Grant transaction.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: >-
+      If there are no reports linked to the event a 'null' report is assumed. A zero-length list for
+      the report count means there are no reports linked to the given CEID.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: CEID}
+            - type: list
+              repeat: reports
+              of:
+                type: list
+                items:
+                  - {item: RPTID}
+                  - {type: list, repeat: values, of: {item: V}}
+
+  - function: 12
+    name: Event Report Acknowledge
+    mnemonic: ERA
+    direction: host-to-equipment
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC6}
+
+  # S6F13 is reconstructed from cross-references, NOT our local E5 markdown, whose §10 Message Detail
+  # section drops F13's entire body text between F12 (ends e005-00-0813.md:4041) and F14 (:4042) during
+  # PDF-to-markdown conversion -- unlike S9's genuinely "Not Used" functions, which are always labeled.
+  # The function is confirmed real by three surviving cross-references in the same local copy: S6F16
+  # ("Event Report Data", :4068) states its structure is "Identical to structure of S6,F11"; S6F18
+  # ("Annotated Event Report Data", :4088) states "Same as S6,F13"; and S6F14 ("Annotated Event Report
+  # Acknowledge", :4042) needs F13 as its paired primary. The structure is derived as S6F11's shape
+  # (:4008) with the innermost V replaced by L,2{VID, V} -- the same substitution visible in S6F22
+  # (:4127, the annotated form of S6F20), and corroborated by the stray surviving fragment ". c. L,2
+  # 1. <VID,> 2. <V,>" at :4038. Re-verify against a complete E5 copy if one becomes available.
+  - function: 13
+    name: Annotated Event Report Send
+    mnemonic: AERS
+    direction: equipment-to-host
+    description: >-
+      The purpose of this message is for the equipment to send a defined, linked, and enabled group
+      of reports to the host upon the occurrence of an event (CEID), with each variable value
+      annotated by its VID. This is the annotated form of S6F11.
+    exception: >-
+      If there are no reports linked to the event a 'null' report is assumed. A zero-length list for
+      the report count means there are no reports linked to the given CEID.
+    source: external
+    confidence: low
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: CEID}
+            - type: list
+              repeat: reports
+              of:
+                type: list
+                items:
+                  - {item: RPTID}
+                  - type: list
+                    repeat: values
+                    of: {type: list, items: [{item: VID}, {item: V}]}
+
+  - function: 14
+    name: Annotated Event Report Acknowledge
+    mnemonic: AERA
+    direction: host-to-equipment
+    description: Acknowledge or error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC6}
+
+  - function: 15
+    name: Event Report Request
+    mnemonic: ERR
+    direction: host-to-equipment
+    description: The purpose of this message is for the host to demand a given report group from the equipment.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: CEID}
+
+  - function: 16
+    name: Event Report Data
+    mnemonic: ERD
+    direction: equipment-to-host
+    description: Equipment sends the reports linked to the given CEID to the host. The structure is identical to S6F11.
+    exception: A zero-length item means there are no reports linked to the given CEID.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: CEID}
+            - type: list
+              repeat: reports
+              of:
+                type: list
+                items:
+                  - {item: RPTID}
+                  - {type: list, repeat: values, of: {item: V}}
+
+  - function: 17
+    name: Annotated Event Report Request
+    mnemonic: AERR
+    direction: host-to-equipment
+    description: Same as S6F15, but requests annotated reports.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: CEID}
+
+  - function: 18
+    name: Annotated Event Report Data
+    mnemonic: AERD
+    direction: equipment-to-host
+    description: Equipment sends the annotated reports linked to the given CEID. The structure is the same as S6F13.
+    exception: A zero-length item means there are no reports linked to the given CEID.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: CEID}
+            - type: list
+              repeat: reports
+              of:
+                type: list
+                items:
+                  - {item: RPTID}
+                  - type: list
+                    repeat: values
+                    of: {type: list, items: [{item: VID}, {item: V}]}
+
+  - function: 19
+    name: Individual Report Request
+    mnemonic: IRR
+    direction: host-to-equipment
+    description: The purpose of this message is for the host to request a defined report from the equipment.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: RPTID}
+
+  - function: 20
+    name: Individual Report Data
+    mnemonic: IRD
+    direction: equipment-to-host
+    description: Equipment sends the variable data defined for the given RPTID to the host.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, repeat: values, of: {item: V}}
+
+  - function: 21
+    name: Annotated Individual Report Request
+    mnemonic: AIRR
+    direction: host-to-equipment
+    description: The purpose of this message is for the host to request an annotated defined report from the equipment.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: RPTID}
+
+  - function: 22
+    name: Annotated Individual Report Data
+    mnemonic: AIRD
+    direction: equipment-to-host
+    description: Equipment sends the annotated variable data defined for the given RPTID to the host.
+    exception: A zero-length list for the variable-data-item count means the RPTID is not defined.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          repeat: values
+          of: {type: list, items: [{item: VID}, {item: V}]}
+
+  - function: 23
+    name: Request Spooled Data
+    mnemonic: RSD
+    direction: host-to-equipment
+    description: >-
+      The purpose of this message is for the host to request transmission or deletion of the messages
+      currently spooled by the equipment.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: RSDC}
+
+  - function: 24
+    name: Request Spooled Data Acknowledgement Send
+    mnemonic: RSDAS
+    direction: equipment-to-host
+    description: >-
+      The purpose of this message is to acknowledge the receipt of the Request Spooled Data (S6F23)
+      and to respond with an appropriate acknowledge code.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: RSDA}
+
+  - function: 25
+    name: Notification Report Send
+    mnemonic: NRS
+    direction: bidirectional
+    description: >-
+      This message is used for change notifications or confirmation reports. A change notification is
+      a report of an internal action not associated with a prior host request. A confirmation report
+      is always associated with an earlier request for action and is sent to the initial requestor of
+      a delayed action at the time the action completes. OPID contains the value of OPID in the initial
+      request. LINKID is set to a non-zero value if and only if additional completion reports with the
+      same OPID will be sent. If S6F25 is multi-block, it must be preceded by the S6F5/S6F6 Inquire/Grant
+      transaction.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: >-
+      OPID and LINKID are zero-length items when and only when S6F25 is sent as a change notification
+      rather than as a confirmation report. p = 0 if and only if RMACK indicates no errors.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: OPID}
+            - {item: LINKID}
+            - {item: RCPSPEC}
+            - {item: RMCHGSTAT}
+            - type: list
+              repeat: attributes
+              of: {type: list, items: [{item: RCPATTRID}, {item: RCPATTRDATA}]}
+            - type: list
+              items:
+                - {item: RMACK}
+                - type: list
+                  repeat: errors
+                  of: {type: list, items: [{item: ERRCODE}, {item: ERRTEXT}]}
+
+  - function: 26
+    name: Notification Report Send Acknowledge
+    mnemonic: NRA
+    direction: bidirectional
+    description: >-
+      This message is used to acknowledge the confirmation report. It is defined for completeness and
+      as an aid to the user in identifying problems.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ACKC6}
+
+  - function: 27
+    name: Trace Report Send
+    mnemonic: TRS
+    direction: equipment-to-host
+    description: >-
+      The equipment sends a completed Trace Report to the host. The outer list carries up to the trace
+      group size specified by S2F53 samples; each sample carries one entry per report, and each report
+      pairs its RPTID with the list of variable values for that report.
+      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+    exception: >-
+      The list of variables associated with each unique RPTID is itself unique; this structure
+      illustrates the form of the message only, so in general V1 for one RPTID and V1 for another do
+      not reference the same variable.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - {item: TRID}
+            - type: list
+              repeat: samples
+              of:
+                type: list
+                repeat: reports
+                of:
+                  type: list
+                  items:
+                    - {item: RPTID}
+                    - {type: list, repeat: values, of: {item: V}}
+
+  - function: 28
+    name: Trace Report Send Acknowledge
+    mnemonic: TRSA
+    direction: host-to-equipment
+    description: The host acknowledges receipt of the Trace Report.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: TRID}
+
+  - function: 29
+    name: Trace Report Request
+    mnemonic: TRR
+    direction: host-to-equipment
+    description: >-
+      Request that the data reports assigned to the trace report be sampled and returned to the host.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: TRID}
+
+  - function: 30
+    name: Trace Report Data
+    mnemonic: TRD
+    direction: equipment-to-host
+    description: >-
+      Message containing the requested data reports associated with the TRID of a trace data report
+      definition.
+    exception: >-
+      If TRID is unknown, a zero-length list (n = 0) is sent. ERRCODE is set to zero length when there
+      is no error.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: TRID}
+            - type: list
+              repeat: reports
+              of:
+                type: list
+                items:
+                  - {item: RPTID}
+                  - {type: list, repeat: values, of: {item: V}}
+            - {item: ERRCODE}

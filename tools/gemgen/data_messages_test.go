@@ -134,6 +134,94 @@ func TestDataMessagesS5YAML(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestDataMessagesS6YAML loads the real data/items.yaml catalog together with
+// the authored data/messages/s6.yaml and asserts the Stream 6 Data Collection
+// schema parses, validates, and renders cleanly. It guards the largest content
+// deliverable: exactly 30 functions (S6F1-S6F30, no F0 gap), with F13
+// (Annotated Event Report Send) reconstructed from cross-references and carrying
+// source: external/confidence: low, every {item: X} reference resolving against
+// the real Data Item Dictionary, and the reply expectation of each primary
+// matching E5's W-bit markers.
+func TestDataMessagesS6YAML(t *testing.T) {
+	itemsData, err := os.ReadFile("data/items.yaml")
+	require.NoError(t, err)
+
+	items, err := LoadItems(itemsData)
+	require.NoError(t, err)
+	require.NoError(t, ValidateItems(items))
+
+	msgData, err := os.ReadFile("data/messages/s6.yaml")
+	require.NoError(t, err)
+
+	mf, err := LoadMessageFile(msgData)
+	require.NoError(t, err)
+	require.Equal(t, 6, mf.Stream)
+
+	// Exactly 30 functions, cross-referenced against the real items.yaml so
+	// every item reference at any structure depth actually resolves.
+	require.Len(t, mf.Messages, 30)
+	require.NoError(t, ValidateMessages([]MessageFile{mf}, items))
+
+	// Function numbers are a contiguous F1-F30 with no F0 and no gap. In
+	// particular F13 (Annotated Event Report Send) is present: its body text was
+	// dropped from the local E5 copy, so it is reconstructed, not skipped.
+	byFunc := map[int]Message{}
+	for _, m := range mf.Messages {
+		byFunc[m.Function] = m
+	}
+	for f := 1; f <= 30; f++ {
+		_, ok := byFunc[f]
+		require.Truef(t, ok, "expected S6F%d to be present", f)
+	}
+	_, hasF0 := byFunc[0]
+	require.False(t, hasF0, "S6F0 must not be authored")
+
+	// S6F13 carries its external-provenance metadata; no e5-sourced function does.
+	f13 := byFunc[13]
+	require.Equal(t, "external", f13.Source, "S6F13 must be source: external")
+	require.Equal(t, "low", f13.Confidence, "S6F13 must be confidence: low")
+	for _, m := range mf.Messages {
+		if m.Function != 13 {
+			require.NotEqualf(t, "external", m.Source,
+				"S6F%d must not be source: external", m.Function)
+		}
+	}
+
+	// Reply expectation matches E5's W-bit markers: every primary marked reply or
+	// [reply] expects a reply; every acknowledge/data reply (and F29, which E5
+	// leaves unmarked) does not.
+	replyExpected := map[int]bool{
+		1: true, 3: true, 5: true, 7: true, 9: true, 11: true, 13: true,
+		15: true, 17: true, 19: true, 21: true, 23: true, 25: true, 27: true,
+	}
+	for _, m := range mf.Messages {
+		require.Lenf(t, m.Bodies, 1, "S6F%d must have a single body", m.Function)
+		require.Equalf(t, replyExpected[m.Function], m.Bodies[0].ReplyExpected,
+			"S6F%d replyExpected mismatch", m.Function)
+	}
+
+	// The external-source disclaimer must survive into the generated S6F13 godoc,
+	// and no other (e5-sourced) function's godoc may contain it.
+	for _, m := range mf.Messages {
+		for _, b := range m.Bodies {
+			fv := newFuncView(mf.Stream, m, b, items)
+			doc := strings.Join(fv.Doc, "\n")
+			if m.Function == 13 {
+				require.Containsf(t, doc, externalSourceDisclaimer,
+					"S6F13 godoc must contain the external-source disclaimer")
+			} else {
+				require.NotContainsf(t, doc, externalSourceDisclaimer,
+					"S6F%d (source %q) godoc must not contain the external-source disclaimer",
+					m.Function, m.Source)
+			}
+		}
+	}
+
+	// The whole file renders without error (exercises the template end-to-end).
+	_, err = renderMessages(mf, items)
+	require.NoError(t, err)
+}
+
 // TestDataMessagesS9YAML loads the real data/items.yaml catalog together with
 // the authored data/messages/s9.yaml and asserts the Stream 9 System Errors
 // schema parses, validates, and renders cleanly. It guards the content
