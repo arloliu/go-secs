@@ -1,0 +1,91 @@
+stream: 9
+messages:
+  - function: 1
+    name: Unrecognized Device ID
+    mnemonic: UDN
+    direction: equipment-to-host
+    description: The device ID in the message block header did not correspond to any known device ID in the node detecting the error.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: MHEAD}
+
+  - function: 3
+    name: Unrecognized Stream Type
+    mnemonic: USN
+    direction: equipment-to-host
+    description: The equipment does not recognize the stream type in the message block header.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: MHEAD}
+
+  - function: 5
+    name: Unrecognized Function Type
+    mnemonic: UFN
+    direction: equipment-to-host
+    description: The function in the message ID is not recognized by the receiver.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: MHEAD}
+
+  - function: 7
+    name: Illegal Data
+    mnemonic: IDN
+    direction: equipment-to-host
+    description: >-
+      The stream and function were recognized, but the message format was incorrect.
+      May indicate the message did not comply with its Message Definition or used a
+      data format or type the receiver does not support.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: MHEAD}
+
+  - function: 9
+    name: Transaction Timer Timeout
+    mnemonic: TTN
+    direction: equipment-to-host
+    description: >-
+      A transaction (receive) timer has timed out and the corresponding transaction
+      has been aborted. The host must respond appropriately to keep the system
+      operational.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: SHEAD}
+
+  - function: 11
+    name: Data Too Long
+    mnemonic: DLN
+    direction: equipment-to-host
+    description: The equipment has been sent more data than it can handle.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: MHEAD}
+
+  - function: 13
+    name: Conversation Timeout
+    mnemonic: CTN
+    direction: equipment-to-host
+    description: Data were expected but none were received within a reasonable length of time. Resources have been cleared.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: list, items: [{item: MEXP}, {item: EDID}]}
