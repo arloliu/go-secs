@@ -45,6 +45,10 @@ func NewASCIIItem(value string) Item {
 // ToASCII returns the string value stored in this item.
 //
 // Returns an error if the item carries a deferred construction error.
+//
+// It returns the item's deferred error (see Error) when the item was constructed with
+// one — a passing Is* predicate does NOT imply a nil error here. Always check the
+// returned error; do not discard it via `v, _ := item.ToASCII()`.
 func (item *ASCIIItem) ToASCII() (string, error) {
 	if item.itemErr != nil {
 		return "", item.itemErr
@@ -60,6 +64,10 @@ func (item *ASCIIItem) Size() int { return len(item.value) }
 func (item *ASCIIItem) Type() string { return ASCIIType }
 
 // IsASCII returns true.
+//
+// It reflects the DECLARED type only and does not consult the item's deferred error:
+// a true result does not imply the item is usable. Gate value extraction on Error()
+// (or the To* accessor's returned error), not on Is* alone.
 func (item *ASCIIItem) IsASCII() bool { return true }
 
 // EncodedLen returns the total SECS-II wire byte length (header + payload).

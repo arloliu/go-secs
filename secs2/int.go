@@ -72,6 +72,10 @@ func NewIntItem(byteSize int, values ...any) Item {
 // ToInt returns a fresh copy of the int64-widened values.
 //
 // Returns an error if the item carries a deferred construction error.
+//
+// It returns the item's deferred error (see Error) when the item was constructed with
+// one — a passing Is* predicate does NOT imply a nil error here. Always check the
+// returned error; do not discard it via `v, _ := item.ToInt()`.
 func (item *IntItem) ToInt() ([]int64, error) {
 	if item.itemErr != nil {
 		return nil, item.itemErr
@@ -228,15 +232,31 @@ func (item *IntItem) Type() string {
 }
 
 // IsInt8 returns true if this is an 8-bit signed integer item (byteSize == 1).
+//
+// It reflects the DECLARED type only and does not consult the item's deferred error:
+// a true result does not imply the item is usable. Gate value extraction on Error()
+// (or the To* accessor's returned error), not on Is* alone.
 func (item *IntItem) IsInt8() bool { return item.byteSize == 1 }
 
 // IsInt16 returns true if this is a 16-bit signed integer item (byteSize == 2).
+//
+// It reflects the DECLARED type only and does not consult the item's deferred error:
+// a true result does not imply the item is usable. Gate value extraction on Error()
+// (or the To* accessor's returned error), not on Is* alone.
 func (item *IntItem) IsInt16() bool { return item.byteSize == 2 }
 
 // IsInt32 returns true if this is a 32-bit signed integer item (byteSize == 4).
+//
+// It reflects the DECLARED type only and does not consult the item's deferred error:
+// a true result does not imply the item is usable. Gate value extraction on Error()
+// (or the To* accessor's returned error), not on Is* alone.
 func (item *IntItem) IsInt32() bool { return item.byteSize == 4 }
 
 // IsInt64 returns true if this is a 64-bit signed integer item (byteSize == 8).
+//
+// It reflects the DECLARED type only and does not consult the item's deferred error:
+// a true result does not imply the item is usable. Gate value extraction on Error()
+// (or the To* accessor's returned error), not on Is* alone.
 func (item *IntItem) IsInt64() bool { return item.byteSize == 8 }
 
 // ToSML returns the SML (SECS Message Language) text representation of this item.

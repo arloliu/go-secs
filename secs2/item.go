@@ -453,6 +453,10 @@ func (item *EmptyItem) ToSML() string { return "" }
 func (item *EmptyItem) Type() string { return EmptyType }
 
 // IsEmpty returns true.
+//
+// It reflects the DECLARED type only and does not consult the item's deferred error:
+// a true result does not imply the item is usable. Gate value extraction on Error()
+// (or the To* accessor's returned error), not on Is* alone.
 func (item *EmptyItem) IsEmpty() bool { return true }
 
 var _ Item = (*EmptyItem)(nil)

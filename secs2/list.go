@@ -84,6 +84,12 @@ func (item *ListItem) Get(indices ...int) (Item, error) {
 // ToList returns a fresh shallow clone of the child item slice. Children are immutable
 // so shallow cloning is concurrency-safe. Returns an error if the item carries a
 // deferred construction error.
+//
+// It returns the item's own deferred error (see Error) when the item was constructed with
+// one — a passing Is* predicate does NOT imply a nil error here. Always check the returned
+// error; do not discard it via `v, _ := item.ToList()`. Note that a nil error here does not
+// mean every child is error-free: call Error() to check the item's own error joined with
+// every child's deferred error.
 func (item *ListItem) ToList() ([]Item, error) {
 	if item.itemErr != nil {
 		return nil, item.itemErr
@@ -129,6 +135,10 @@ func (item *ListItem) Size() int { return len(item.values) }
 func (item *ListItem) Type() string { return ListType }
 
 // IsList returns true.
+//
+// It reflects the DECLARED type only and does not consult the item's deferred error or any
+// child's deferred error: a true result does not imply the item (or its children) is usable.
+// Gate value extraction on Error(), which aggregates child errors for lists, not on Is* alone.
 func (item *ListItem) IsList() bool { return true }
 
 // Error aggregates the item's own deferred error with each child's Error() via errors.Join.

@@ -74,6 +74,10 @@ func NewUintItem(byteSize int, values ...any) Item {
 // ToUint returns a fresh copy of the uint64-widened values.
 //
 // Returns an error if the item carries a deferred construction error.
+//
+// It returns the item's deferred error (see Error) when the item was constructed with
+// one — a passing Is* predicate does NOT imply a nil error here. Always check the
+// returned error; do not discard it via `v, _ := item.ToUint()`.
 func (item *UintItem) ToUint() ([]uint64, error) {
 	if item.itemErr != nil {
 		return nil, item.itemErr
@@ -230,15 +234,31 @@ func (item *UintItem) Type() string {
 }
 
 // IsUint8 returns true if this is an 8-bit unsigned integer item (byteSize == 1).
+//
+// It reflects the DECLARED type only and does not consult the item's deferred error:
+// a true result does not imply the item is usable. Gate value extraction on Error()
+// (or the To* accessor's returned error), not on Is* alone.
 func (item *UintItem) IsUint8() bool { return item.byteSize == 1 }
 
 // IsUint16 returns true if this is a 16-bit unsigned integer item (byteSize == 2).
+//
+// It reflects the DECLARED type only and does not consult the item's deferred error:
+// a true result does not imply the item is usable. Gate value extraction on Error()
+// (or the To* accessor's returned error), not on Is* alone.
 func (item *UintItem) IsUint16() bool { return item.byteSize == 2 }
 
 // IsUint32 returns true if this is a 32-bit unsigned integer item (byteSize == 4).
+//
+// It reflects the DECLARED type only and does not consult the item's deferred error:
+// a true result does not imply the item is usable. Gate value extraction on Error()
+// (or the To* accessor's returned error), not on Is* alone.
 func (item *UintItem) IsUint32() bool { return item.byteSize == 4 }
 
 // IsUint64 returns true if this is a 64-bit unsigned integer item (byteSize == 8).
+//
+// It reflects the DECLARED type only and does not consult the item's deferred error:
+// a true result does not imply the item is usable. Gate value extraction on Error()
+// (or the To* accessor's returned error), not on Is* alone.
 func (item *UintItem) IsUint64() bool { return item.byteSize == 8 }
 
 // ToSML returns the SML (SECS Message Language) text representation of this item.
