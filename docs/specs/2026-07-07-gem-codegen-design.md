@@ -44,10 +44,13 @@ track provenance per message:
 of the local markdown) cross-references items used by S12–S21 messages too
 (verified: 93 distinct S12–S21 message references appear in its "Where Used"
 column), even though the *message structures* for those streams live
-elsewhere. So the full 336-item catalog (336 unique entries, verified by
-row count minus repeated page-break header rows) is E5-sourced regardless of
-stream — only message-level structure / description / exception for S12–S21
-carries the lower-confidence tag.
+elsewhere. So the full **335-item** catalog (verified by row count minus
+repeated page-break header rows, with `ERRCODE`'s split-across-page-break
+`ERRCODE (cont.)` continuation rows merged into the single `ERRCODE` entry
+they continue — an earlier count of 336 miscounted this exact merge and is
+corrected here) is E5-sourced regardless of stream — only message-level
+structure / description / exception for S12–S21 carries the lower-confidence
+tag.
 
 ## Phasing
 
@@ -55,7 +58,7 @@ This document specifies **Phase 1** only:
 
 1. Design and implement the DSL schema (items + messages).
 2. Build `tools/gemgen`, a Go code generator invoked via `go generate`.
-3. Bulk-extract the **full item catalog** (336 items) from E5 Table 3 into
+3. Bulk-extract the **full item catalog** (335 items) from E5 Table 3 into
    `items.yaml` — mechanical, scriptable, fully E5-grounded regardless of
    phase.
 4. Author `messages/s1.yaml` (24 stream-specific functions: F1–F24 —
@@ -378,7 +381,7 @@ unchanged; no new test category is introduced (`.agents/rules/300-testing.md`).
 ## Phase 1 acceptance criteria
 
 - `tools/gemgen` (its own Go module) builds and runs via `go generate ./...`.
-- `tools/gemgen/data/items.yaml` fully populated (336 items) from E5 Table 3.
+- `tools/gemgen/data/items.yaml` fully populated (335 items) from E5 Table 3.
 - `tools/gemgen/data/messages/s1.yaml` authored (24 stream-specific
   functions: F1–F24) from E5 §10, with F12 tagged `source: external` per the
   provenance exception above.
