@@ -101,6 +101,8 @@ func BodyExpr(n *StructureNode, items map[string]Item) string {
 				// spreading a []byte into ...any is a Go compile error (constraint 14).
 				arg += "[:]"
 			default:
+				// Empty on purpose: exists solely to satisfy golangci-lint's revive
+				// enforce-switch-style rule, which requires a default clause.
 			}
 
 			return fmt.Sprintf("secs2.%s(%s)", it.Formats[0], arg)

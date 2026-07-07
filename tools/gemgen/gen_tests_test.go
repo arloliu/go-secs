@@ -362,8 +362,11 @@ func TestRenderTestsByteArrayLeaf(t *testing.T) {
 
 	// The whole-sequence comparison must NOT degrade into the single-element
 	// scalar-byte check (`len(v) != 1 || v[0] != ...`), which would only ever
-	// inspect the first byte of a multi-byte blob.
-	require.NotContains(t, src, "|| v1[0] !=")
+	// inspect the first byte of a multi-byte blob. Match the pattern by regex
+	// rather than a hardcoded variable name so it survives a change in
+	// variable-ID assignment order.
+	singleElemCheck := regexp.MustCompile(`\bv\d+\[0\] !=`)
+	require.NotRegexp(t, singleElemCheck, src, "a blob comparison must not degrade into a single-element scalar-byte check")
 }
 
 // TestRenderTestsUnsupportedFixedGoType proves renderTests fails loudly

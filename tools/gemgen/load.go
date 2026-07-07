@@ -182,6 +182,9 @@ func walkNode(n *StructureNode, items map[string]Item, s, fn int) error {
 			if it.Binding != BindingFixed {
 				return fmt.Errorf("S%dF%d: packed %q's item %q must be binding: fixed (packing needs one shared format)", s, fn, n.Packed, n.Of.Item)
 			}
+			if isByteArrayGoType(it.GoType) {
+				return fmt.Errorf("S%dF%d: packed %q's item %q must not be a byte-array/byte-slice goType (packing multiple binary blobs under one header is not supported)", s, fn, n.Packed, n.Of.Item)
+			}
 		}
 
 		for i := range n.Items {

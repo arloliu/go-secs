@@ -31,6 +31,7 @@ func testItems() map[string]Item {
 		"SOFTREV": {Formats: []string{"A"}, Binding: BindingFixed, GoType: "string"},
 		"SVID":    {Formats: []string{"U1", "U2", "U4", "U8"}, Binding: BindingOpen},
 		"TSIP":    {Formats: []string{"B"}, Binding: BindingFixed, GoType: "byte"},
+		"MHEAD":   {Formats: []string{"B"}, Binding: BindingFixed, GoType: "[10]byte"},
 	}
 }
 
@@ -143,6 +144,26 @@ messages:
     bodies:
       - actor: both
         structure: {type: list, packed: svids, of: {item: SVID}}
+`
+	mf, err := LoadMessageFile([]byte(yml))
+	require.NoError(t, err)
+	require.Error(t, ValidateMessages([]MessageFile{mf}, testItems()))
+}
+
+// TestValidateMessagesRejectsPackedByteArrayItem proves a packed node whose
+// of.item carries a byte-array/byte-slice goType is rejected: packing multiple
+// binary blobs under one header is not a shape this generator supports (nor
+// does any known SEMI E5 message need it -- packed groups hold arrays of
+// scalar values, not arrays of binary blobs).
+func TestValidateMessagesRejectsPackedByteArrayItem(t *testing.T) {
+	const yml = `
+stream: 1
+messages:
+  - function: 10
+    name: Port Transfer Status Data
+    bodies:
+      - actor: both
+        structure: {type: list, packed: mheads, of: {item: MHEAD}}
 `
 	mf, err := LoadMessageFile([]byte(yml))
 	require.NoError(t, err)
