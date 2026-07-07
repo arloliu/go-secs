@@ -87,14 +87,26 @@ E5 copy if one becomes available.
 6. Acceptance: `make lint` and `make test` pass; a sample of generated godoc
    is manually reviewed for readability.
 
-**Non-goal within Phase 1:** E5 defines legacy compatibility structure
-variants for a few S1 functions — e.g. S1F3 and S1F10 allow an alternate
+**Non-goal within Phase 1:** E5 defines a genuine legacy-compatibility
+structure variant for a few S1 functions — e.g. S1F3 allows an alternate
 "packed single item" form (`<svid1,,svidn>`) for formats `3()`/`5()`,
-explicitly retained "for compatibility with previous implementations." E5
-itself states new implementations should use the list form
+explicitly retained "for compatibility with previous implementations,"
+alongside a separate list form E5 itself says new implementations should use
 (`L,n{<svid1>...<svidn>}`). The DSL and generator target only the
-approved/current structure; the deprecated packed-item form is not
-represented and is not a target for codegen.
+approved/current list structure for these; the deprecated packed-item
+alternative is not represented and is not a target for codegen.
+
+**Correction (found during Phase 1 content authoring):** an earlier revision
+of this non-goal incorrectly grouped S1F10 with S1F3 as having this same
+deprecated-packed-vs-approved-list duality. Re-verified against E5 directly:
+S1F10's structure (`L,2{ <tsip1,,tsipn> <tsop1,,tsopn> }`) is **the only
+structure E5 documents for it** — there is no separate "approved for new
+implementations" list-form alternative anywhere in the text, unlike S1F3.
+So S1F10's packed form is not legacy/deprecated at all; it is simply what the
+message is, and representing it as a list (as an early draft of `s1.yaml`
+did, before this was caught) would generate the wrong wire encoding. This is
+why the `packed` structure-node kind exists (see DSL schema above) — S1F10 is
+its only Phase 1 consumer.
 
 **Worked example — sibling + nested repeats (S1F20):** proves the `structure`
 tree (below) handles E5's hardest S1 shape without a dedicated "sibling
@@ -280,9 +292,27 @@ Fields:
     self-contained addition and closes a known Phase 2 (S2) blocker before
     Phase 2 starts.
   - `{type: list, repeat: <name>, of: <node>}` — a variable-length list of
-    repeated shape; codegen emits a variadic parameter named `<name>...`
-    (generalizes the existing hand-written `gem.Report()` helper for
-    S6F11-style repeating groups, planned for Phase 2).
+    repeated shape; codegen emits a variadic parameter named `<name>...`,
+    body expression `secs2.L(<name>...)` (generalizes the existing
+    hand-written `gem.Report()` helper for S6F11-style repeating groups,
+    planned for Phase 2).
+  - `{type: list, packed: <name>, of: {item: NAME}}` — E5's **packed
+    multi-value single item** notation (`<v1,,vn>`): one item header holding
+    several values of the same fixed format, as distinct from `repeat`'s
+    list-of-separate-items encoding. Discovered during Phase 1 authoring:
+    S1F10's real structure (`L,2{ <tsip1,,tsipn> <tsop1,,tsopn> }`) is
+    genuinely packed, not a list — TSIP/TSOP share one item header per
+    group, format `B` (binary), so the correct body expression is
+    `secs2.B(tsips...)`, NOT `secs2.L(tsips...)`. `of.item` must reference a
+    `binding: fixed` leaf (packing requires one shared format for all
+    values; an `open`-binding item has no single format to pack under, so
+    this is a validation error). Codegen parameter follows the same
+    slice-vs-variadic position rule as `repeat` (non-final → `[]<goType>`,
+    final → `...<goType>`), but typed as the item's concrete `goType` (e.g.
+    `[]byte`/`...byte`), not `secs2.Item` — the caller supplies raw values
+    of the right primitive type, not pre-built `secs2.Item`s, since packing
+    is a single-item concern the generator owns completely. `packed` and
+    `repeat` (and `minItems`/`maxItems`) are mutually exclusive on one node.
   - `{type: opaque}` — a body whose shape E5 declares as form-/context-
     dependent rather than statically specifiable (e.g. S1F6 "Depends upon
     the structure specified by the status form," S1F8 "Depends upon the
@@ -316,8 +346,11 @@ Validation (fail generation, no partial/silent output, on any of):
 - duplicate `(stream, function)` pair across the loaded message files
 - `binding: fixed` item with `len(formats) != 1`, or missing `goType`
 - a `bodies` entry with an unrecognized `actor` value
-- a `list` node with both `repeat` and `minItems`/`maxItems` set (mutually
-  exclusive — unbounded-repeat vs. bounded-arity are different node shapes)
+- a `list` node with more than one of `repeat`, `packed`, `minItems`/`maxItems`
+  set (mutually exclusive — unbounded-repeat, packed-single-item, and
+  bounded-arity are different node shapes)
+- a `packed` node whose `of.item` resolves to an `open`-binding item (packing
+  requires one shared fixed format for every value under the item header)
 
 Wired into the `gem` package via a generate directive (e.g. `gem/generate.go`
 containing `//go:generate go run ../tools/gemgen ...`), so `go generate
@@ -387,9 +420,9 @@ unchanged; no new test category is introduced (`.agents/rules/300-testing.md`).
   provenance exception above.
 - The generator correctly renders at least one message of each: header-only
   (S1F1), per-actor variant (S1F2/S1F2Host), enum-valued item (via COMMACK
-  in S1F14), open-binding item, opaque body (S1F6, S1F8), and sibling+nested
-  repeat (S1F20 or S1F24) — i.e. every `structure` node type is exercised by
-  at least one generated function.
+  in S1F14), open-binding item, opaque body (S1F6, S1F8), sibling+nested
+  repeat (S1F20 or S1F24), and packed multi-value item (S1F10) — i.e. every
+  `structure` node type is exercised by at least one generated function.
 - `gem/s1.go`, `gem/s1_test.go`, `gem/items.go` generated, replacing the
   hand-written `s1.go` / `s1_test.go`.
 - `make lint` and `make test` pass.
@@ -402,9 +435,12 @@ unchanged; no new test category is introduced (`.agents/rules/300-testing.md`).
   constraint.
 - Resolving every third-party-reference vs. E5 discrepancy — only flagging
   confidence per message.
-- Representing E5's deprecated/legacy compatibility structure variants (e.g.
-  S1F3's and S1F10's packed-single-item alternate forms) — the generator
-  targets only the structure E5 recommends for new implementations.
+- Representing E5's deprecated/legacy compatibility structure variants where
+  a genuine modern alternative exists (e.g. S1F3's packed-single-item
+  alternate form) — the generator targets only the structure E5 recommends
+  for new implementations. (S1F10's packed form is a different case — it is
+  E5's *only* documented structure for that message, not a deprecated
+  alternative, and is now correctly represented via the `packed` node kind.)
 - Discriminated/conditional structure where a value depends on a sibling
   item's value (e.g. S2F49/S2F50's parameter-type-dependent shape). This is
   a real gap the S2 stream will require; it's called out here as an
