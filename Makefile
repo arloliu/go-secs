@@ -83,6 +83,27 @@ vet: ## Run go vet across all packages
 
 check: lint vet ## Run lint + vet (no file modifications)
 
+##@ Generator (tools/gemgen)
+
+# tools/gemgen is its own Go module (see docs/specs/2026-07-07-gem-codegen-design.md)
+# so root `lint`/`test`/`ci` never reach it -- `go test ./...`/`golangci-lint run`
+# only traverse the current module. These targets are the only way to exercise it.
+GEMGEN_DIR        := tools/gemgen
+GEMGEN_LINTER_MOD := ../../$(LINTER_MOD)
+
+lint-gemgen: $(LINTER_STAMP) ## Run the pinned linter against tools/gemgen (default + integration build tag)
+	@printf "Run gemgen linter...\n"
+	@cd $(GEMGEN_DIR) && go tool -modfile=$(GEMGEN_LINTER_MOD) golangci-lint run --config ../../.golangci.yaml ./...
+	@cd $(GEMGEN_DIR) && go tool -modfile=$(GEMGEN_LINTER_MOD) golangci-lint run --config ../../.golangci.yaml --build-tags integration ./...
+
+test-gemgen: ## Run tools/gemgen's own unit tests (schema, load/validate, params, render)
+	@printf "Run gemgen tests...\n"
+	@cd $(GEMGEN_DIR) && go test ./... -race
+
+test-gemgen-integration: ## Run gemgen's real-compile guard (shells out to `go build` against secs2; NOT covered by test-gemgen)
+	@printf "Run gemgen integration tests...\n"
+	@cd $(GEMGEN_DIR) && go test -tags integration ./... -race
+
 ##@ Tests
 
 clean: ## Remove test.log and clear test cache
@@ -100,7 +121,7 @@ test: clean ## Run tests with -short, -race; streams output to stdout and test.l
 	@printf "Run tests with V=$(V), timeout=$(TEST_TIMEOUT), parallelism=$(GO_TEST_P)...\n"
 	@set -o pipefail; CGO_ENABLED=1 go test ./... -short -timeout=$(TEST_TIMEOUT) $(VERBOSE_TAG) -race -p $(GO_TEST_P) 2>&1 | tee test.log
 
-test-all: clean ## Run full test suite (no -short; enables integration-style tests)
+test-all: clean test-gemgen test-gemgen-integration ## Run full test suite (no -short; enables integration-style tests in the root module) plus the gemgen module's own tests and its build-tagged compile guard
 	@printf "Run full tests with V=$(V), timeout=$(TEST_TIMEOUT), parallelism=$(GO_TEST_P)...\n"
 	@set -o pipefail; CGO_ENABLED=1 go test ./... -timeout=$(TEST_TIMEOUT) $(VERBOSE_TAG) -race -p $(GO_TEST_P) 2>&1 | tee test.log
 
@@ -199,9 +220,10 @@ update-pkg-cache: ## Prime the Go module proxy (and transitively pkg.go.dev) wit
 
 ##@ Composite
 
-ci: check test ## Single entry point for CI (lint + vet + -short tests)
+ci: check test test-gemgen test-gemgen-integration lint-gemgen ## Single entry point for CI (lint + vet + -short tests + gemgen module gates)
 
 .PHONY: help update-tools lint fmt vet check \
+        lint-gemgen test-gemgen test-gemgen-integration \
         clean clean-coverage build-tests test test-all bench \
         stress-test stress-quick fuzz-test \
         coverage coverage-report \

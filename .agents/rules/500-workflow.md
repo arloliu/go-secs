@@ -48,8 +48,13 @@ make clean clean-coverage
 make gomod-tidy gomod-vendor update-gomod mod-verify
 make update-pkg-cache
 
+# tools/gemgen (separate Go module -- root lint/test/ci never reach it on their own)
+make lint-gemgen          # pinned linter, default + integration build tag
+make test-gemgen          # gemgen's own unit tests
+make test-gemgen-integration  # real-compile guard against secs2 (build tag: integration)
+
 # CI entry point
-make ci                  # check + test
+make ci                  # check + test + gemgen lint/test/integration
 ```
 
 Run `make` with no target for a categorized help list.
