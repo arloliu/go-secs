@@ -116,7 +116,7 @@ func S6F10(ackc6 ACKC6) secs2.SECS2Message {
 
 // S6F11 creates the S6F11 (Event Report Send) message, direction: equipment-to-host.
 //
-// The purpose of this message is for the equipment to send a defined, linked, and enabled group of reports to the host upon the occurrence of an event (CEID). If S6F11 is multi-block, it must be preceded by the S6F5/S6F6 Inquire/Grant transaction. Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+// The purpose of this message is for the equipment to send a defined, linked, and enabled group of reports to the host upon the occurrence of an event (CEID). If S6F11 is multi-block, it must be preceded by the S6F5/S6F6 Inquire/Grant transaction.
 //
 // Body: L[3]{ <dataid> <ceid> L[n]{ <reports>... } }.
 //

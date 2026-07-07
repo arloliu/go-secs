@@ -135,7 +135,7 @@ messages:
             - {item: EXID}
             - {item: EXTYPE}
             - {item: EXMESSAGE}
-            - {type: list, repeat: recovery_actions, of: {item: EXRECVRA}}
+            - {type: list, repeat: recoveryActions, of: {item: EXRECVRA}}
 
   - function: 10
     name: Exception Post Confirm

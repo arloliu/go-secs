@@ -210,7 +210,7 @@ func TestS5F8(t *testing.T) {
 }
 
 func TestS5F9(t *testing.T) {
-	msg := gem.S5F9("timestamp", "exid", "extype", "exmessage", secs2.A("recovery_actions"))
+	msg := gem.S5F9("timestamp", "exid", "extype", "exmessage", secs2.A("recoveryActions"))
 
 	assertS5Header(t, msg, 9, true)
 
@@ -261,9 +261,9 @@ func TestS5F9(t *testing.T) {
 		t.Fatalf("list length: got %d, want 1", len(list6))
 	}
 	got7 := list6[0].ToBytes()
-	want7 := secs2.A("recovery_actions").ToBytes()
+	want7 := secs2.A("recoveryActions").ToBytes()
 	if !bytes.Equal(got7, want7) {
-		t.Errorf("recovery_actions: got %x, want %x", got7, want7)
+		t.Errorf("recoveryActions: got %x, want %x", got7, want7)
 	}
 }
 

@@ -189,7 +189,6 @@ messages:
       The purpose of this message is for the equipment to send a defined, linked, and enabled group
       of reports to the host upon the occurrence of an event (CEID). If S6F11 is multi-block, it must
       be preceded by the S6F5/S6F6 Inquire/Grant transaction.
-      Callers that require a no-reply variant should use [secs2.NewMessage] directly.
     exception: >-
       If there are no reports linked to the event a 'null' report is assumed. A zero-length list for
       the report count means there are no reports linked to the given CEID.

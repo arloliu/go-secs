@@ -96,11 +96,11 @@ func S5F8(alarms ...secs2.Item) secs2.SECS2Message {
 //
 // This message provides the means to inform a host system that an exception condition is set. Optionally, recovery actions for the exception may be sent. Callers that require a no-reply variant should use [secs2.NewMessage] directly.
 //
-// Body: L[5]{ A[timestamp] A[exid] A[extype] A[exmessage] L[n]{ <recovery_actions>... } }.
+// Body: L[5]{ A[timestamp] A[exid] A[extype] A[exmessage] L[n]{ <recoveryActions>... } }.
 //
 // Exception: A zero-length recovery-action list (n = 0) is sent when there are no possible recovery actions. This is a single-block message, so the text of each EXRECVRA may need to be restricted in length to satisfy the single-block requirement.
-func S5F9(timestamp string, exid string, extype string, exmessage string, recovery_actions ...secs2.Item) secs2.SECS2Message {
-	return secs2.NewMessage(5, 9, true, secs2.L(secs2.A(timestamp), secs2.A(exid), secs2.A(extype), secs2.A(exmessage), secs2.L(recovery_actions...)))
+func S5F9(timestamp string, exid string, extype string, exmessage string, recoveryActions ...secs2.Item) secs2.SECS2Message {
+	return secs2.NewMessage(5, 9, true, secs2.L(secs2.A(timestamp), secs2.A(exid), secs2.A(extype), secs2.A(exmessage), secs2.L(recoveryActions...)))
 }
 
 // S5F10 creates the S5F10 (Exception Post Confirm) message, direction: host-to-equipment.
