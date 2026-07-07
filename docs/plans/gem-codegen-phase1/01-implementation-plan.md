@@ -83,11 +83,14 @@ Copy these into every implementer's context. They are non-negotiable acceptance 
 4. **Godoc template** (`.agents/rules/400-documentation.md`): first line starts with the symbol
    name and is a one-sentence summary; do not wrap by hard character count; never put two
    independent sentences on one line; break long sentences at syntactic boundaries. Generated godoc
-   for each message: name-first summary line citing SEMI E5 and direction; blank line; description;
-   `Body:` shorthand line; `Exception:` line. For any message with `source: hume`, append one
-   further trailing line — the design's source disclaimer (design "Godoc format"):
-   `Source: hume.com structure dump, not verified against the purchased SEMI standard.` No internal
-   jargon in godoc (memory: `godoc-no-internal-jargon`).
+   for each message: name-first summary line stating the message name and direction (NO section
+   citation on the first line); blank `//` line; description; blank `//` line; `Body:` shorthand
+   line; blank `//` line; `Exception:` line. Every paragraph is separated by a genuine blank `//`
+   line — without it, godoc renderers join adjacent comment lines into one run-on paragraph (Body
+   and Exception would merge). For any message with `source: external`, append one further trailing
+   paragraph (blank `//` line then the disclaimer) — the design's source disclaimer (design "Godoc
+   format"): `Source: reconstructed from an external reference, not verified against the purchased
+   SEMI standard.` No internal jargon in godoc (memory: `godoc-no-internal-jargon`).
 5. **No internal codes in godoc.** Never emit `D5b`/`SP5`/`§4a`-style internal identifiers. Public
    SEMI/SECS/HSMS references (e.g. "SEMI E5") are allowed.
 6. **Repeated groups always take `secs2.Item` elements.** A `repeat` node produces a parameter of
@@ -183,7 +186,7 @@ S1F8(body secs2.Item)                                 // opaque, W=0
 S1F9()                                               // header-only, W=1
 S1F10(tsips []secs2.Item, tsops ...secs2.Item)        // L[2]{ L{<TSIP>...} L{<TSOP>...} }, W=0
 S1F11(svids ...secs2.Item)                            // L[n]{<SVID>...}, W=1
-S1F12(svids ...secs2.Item)                            // L[n]{ L[3]{<SVID> A A} ... }, W=0  (source: hume)
+S1F12(svids ...secs2.Item)                            // L[n]{ L[3]{<SVID> A A} ... }, W=0  (source: external)
 S1F13(mdln string, softrev string)                    // L[2]{A A}, W=1     (actor: equipment)
 S1F13Host()                                           // L[0], W=1          (actor: host)
 S1F14(commack byte, mdln string, softrev string)      // L[2]{B L[2]{A A}}, W=0 (actor: equipment)
@@ -212,10 +215,10 @@ is NOT in S1 — covered by a generator unit test only (Task 15).
 > Table 3 in the same local copy cross-references it for both `SVNAME` and `UNITS`
 > (`e005-00-0813.md:862,927`; `SVID` "Where Used: S1F3, F11, F12"), and it follows the exact
 > request/reply-namelist pattern as S1F21/22 and S1F23/24. Its structure (`L,n{ L,3{ SVID SVNAME
-> UNITS } }`, equipment-only, no reply) is reconstructed from hume.com and entered in `s1.yaml` with
-> `source: hume` plus an inline comment noting *why* — this is a gap in our local copy, not a genuine
-> hume-vs-E5 discrepancy, and should be re-verified against a complete E5 copy if one becomes
-> available. The authoritative design's Phase-1 scope is **24** functions = F1-F24 (design
+> UNITS } }`, equipment-only, no reply) is reconstructed from an external reference and entered in
+> `s1.yaml` with `source: external` plus an inline comment noting *why* — this is a gap in our local
+> copy, not a genuine discrepancy with the standard, and should be re-verified against a complete E5
+> copy if one becomes available. The authoritative design's Phase-1 scope is **24** functions = F1-F24 (design
 > `docs/specs/2026-07-07-gem-codegen-design.md`, "S1F12 provenance exception").
 
 ---
@@ -908,14 +911,21 @@ Steps:
 4. Write `gen_messages.go`: `//go:embed templates/messages.go.tmpl`, parse with the FuncMap, build
    `[]funcView` from the file, execute into a buffer, then `format.Source` the result before
    returning (gofmt normalization so golden text is stable). Godoc lines from a `messageDoc(m,
-   body)` helper producing the §4 shape: name-first summary, blank line, description, `Body:` line,
-   `Exception:` line. `messageDoc` also inspects `m.Source`: when it equals `"hume"`, it appends one
-   trailing disclaimer line —
-   `Source: hume.com structure dump, not verified against the purchased SEMI standard.` — so the
+   body)` helper producing the §4 shape as a `[]string` of comment lines (without the leading
+   `// `): name-first summary line (message name + direction, NO section citation), an empty-string
+   entry, description, an empty-string entry, `Body:` line, an empty-string entry, `Exception:`
+   line. Each empty-string entry becomes a blank `//` line when the template renders it (see the
+   `{{range .Doc}}// {{.}}` loop), which is what makes godoc render description, Body, and Exception
+   as three distinct paragraphs rather than one merged run-on — do NOT concatenate the sections with
+   a single `\n`; a genuine blank comment line must sit between them. `messageDoc` also inspects
+   `m.Source`: when it equals `"external"`, it appends an empty-string entry then one trailing
+   disclaimer line —
+   `Source: reconstructed from an external reference, not verified against the purchased SEMI standard.` — so the
    provenance travels into the generated godoc (design "Godoc format"; the S1F12 exception is the
    only Phase 1 message that triggers it). Add a `messageDoc` unit test here that feeds a synthetic
-   `source: hume` message and asserts the disclaimer line is present, and a non-hume message and
-   asserts it is absent; the full S1F12 render assertion lives in Task 18's data test.
+   `source: external` message and asserts the disclaimer line is present (and that a blank `//` line
+   separates Body from Exception), and a non-external message and asserts the disclaimer is absent;
+   the full S1F12 render assertion lives in Task 18's data test.
 5. GREEN.
 6. Commit: `feat(gemgen): render header-only messages`.
 
@@ -1445,18 +1455,18 @@ Steps:
            replyExpected: true
            structure: {type: list, repeat: svids, of: {item: SVID}}
 
-     # S1F12 is sourced from hume.com, NOT our local E5 markdown, whose §10 Message Detail section
-     # drops the page between F11 and F13 during PDF-to-markdown conversion. Table 3 in the same
-     # local copy still cross-references S1F12 for SVNAME (e005-00-0813.md:862) and UNITS (:927),
-     # confirming the function is real: this is a local-copy gap, not a genuine hume-vs-E5
-     # discrepancy. Re-verify against a complete E5 copy if one becomes available.
+     # S1F12 is reconstructed from an external reference, NOT our local E5 markdown, whose §10
+     # Message Detail section drops the page between F11 and F13 during PDF-to-markdown conversion.
+     # Table 3 in the same local copy still cross-references S1F12 for SVNAME (e005-00-0813.md:862)
+     # and UNITS (:927), confirming the function is real: this is a local-copy gap, not a genuine
+     # discrepancy with the standard. Re-verify against a complete E5 copy if one becomes available.
      - function: 12
        name: Status Variable Namelist Reply
        mnemonic: SVN
        direction: equipment-to-host
        description: The equipment reports the name and units for each status variable requested in S1F11.
        exception: Zero-length SVNAME and UNITS items indicate that the SVID does not exist.
-       source: hume
+       source: external
        confidence: low
        bodies:
          - actor: both
@@ -1655,11 +1665,11 @@ Steps:
    the Task 16 extraction captures it automatically.)
 3. Add a permanent test `tools/gemgen/data_messages_test.go` that loads `data/items.yaml` +
    `data/messages/s1.yaml`, runs `ValidateMessages`, and asserts 24 messages and no error. In the
-   same test, assert the S1F12 entry carries both `source: hume` and `confidence: low`, then
+   same test, assert the S1F12 entry carries both `source: external` and `confidence: low`, then
    `renderMessages` the file and assert the generated S1F12 godoc contains the exact disclaimer line
-   `Source: hume.com structure dump, not verified against the purchased SEMI standard.` and that no
+   `Source: reconstructed from an external reference, not verified against the purchased SEMI standard.` and that no
    other (e5-sourced) function's godoc contains it. This is the "render S1F12 specifically" gate for
-   the hume-provenance disclaimer.
+   the external-provenance disclaimer.
 4. RED (if any item name is wrong or count != 24) → fix → GREEN.
 5. Commit: `feat(gemgen): author S1 message schema (24 functions)`.
 
@@ -1770,15 +1780,17 @@ Steps:
 
 Steps:
 1. `cd gem && go doc S1F1 S1F2 S1F6 S1F14 S1F20` (or `go doc ./... | less`). Manually confirm a
-   sample reads well: name-first summary line cites SEMI E5 + direction; description present;
-   `Body:` shorthand present; `Exception:` line present; no internal jargon; no two sentences on one
-   line. Expected sample for S1F2 (equipment body):
+   sample reads well: name-first summary line states the message name + direction (NO section
+   citation); description present; `Body:` shorthand present; `Exception:` line present; a blank
+   `//` line separates every paragraph (summary / description / Body / Exception) so none merge; no
+   internal jargon; no two sentences on one line. Expected sample for S1F2 (equipment body):
    ```
-   // S1F2 creates an S1F2 (On Line Data) message for equipment (SEMI E5 §10, direction: bidirectional).
+   // S1F2 creates an S1F2 (On Line Data) message for equipment, direction: bidirectional.
    //
    // Data signifying that the equipment is alive.
    //
    // Body: L[2]{ A[mdln] A[softrev] }.
+   //
    // Exception: the host sends a zero-length list to the equipment.
    func S1F2(mdln string, softrev string) secs2.SECS2Message
    ```
@@ -1790,8 +1802,8 @@ Steps:
 3. Final acceptance checklist (all must be true):
    - [ ] `tools/gemgen` builds and runs via `go generate ./...`.
    - [ ] `items.yaml` populated (exactly 336 items) from E5 Table 3; permanent load test passes.
-   - [ ] `s1.yaml` authored (24 functions F1-F24, F12 with `source: hume` + `confidence: low`);
-         permanent validate test asserts 24, and the S1F12 godoc carries the hume source disclaimer.
+   - [ ] `s1.yaml` authored (24 functions F1-F24, F12 with `source: external` + `confidence: low`);
+         permanent validate test asserts 24, and the S1F12 godoc carries the external source disclaimer.
    - [ ] Each node type exercised by ≥1 generated S1 function (header-only, per-actor, enum
          (COMMACK), open, opaque, sibling+nested repeat), bounded-arity covered by generator unit
          test.
@@ -1819,9 +1831,9 @@ Steps:
   nudge `START`/`END` until the number lands on 336, and never edit `items.yaml` by hand.
 - **Enum extraction is deliberately manual** (Task 17): only COMMACK is curated in Phase 1. Other
   items' `values:` are a Phase-2 enhancement; do not auto-parse the messy E5 Values column now.
-- **S1F12 provenance** (§7 note): included with `source: hume` because our local E5 markdown drops
-  the F11→F13 page during PDF→markdown conversion; Table 3 confirms F12 is real. Re-verify against a
-  complete E5 copy if one becomes available.
+- **S1F12 provenance** (§7 note): included with `source: external` because our local E5 markdown
+  drops the F11→F13 page during PDF→markdown conversion; Table 3 confirms F12 is real. Re-verify
+  against a complete E5 copy if one becomes available.
 - **`gem/s2.go`, `report.go`, `doc.go`** are untouched; Phase 2 replaces them. No collisions:
   `items.go` holds only consts; generated `s1.go` occupies the same symbols the hand-written file
   did.
@@ -1853,6 +1865,6 @@ Steps:
   `[]byte` idea for TSIP/TSOP that would have needed per-type conversion helpers and diverged from
   gem's existing `...secs2.Item` convention); added `params.go` to the file map with justification;
   added the explicit gemgen-lint decision (Task 22) since `make lint` does not cross module
-  boundaries; added the S1F12 provenance-exception note so its `source: hume` inclusion is deliberate;
+  boundaries; added the S1F12 provenance-exception note so its `source: external` inclusion is deliberate;
   made `ValidateItems` cross-check the Python extraction's binding/goType (gives the extraction teeth
   via the Go loader).
