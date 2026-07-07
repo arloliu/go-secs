@@ -76,6 +76,76 @@ func TestDataMessagesS1YAML(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestDataMessagesS2YAML loads the real data/items.yaml catalog together with
+// the authored data/messages/s2.yaml and asserts the Stream 2 Equipment Control
+// and Diagnostics schema parses, validates, and renders cleanly. It guards the
+// largest content deliverable in Phase 2: exactly 50 functions (S2F1-S2F50, no
+// F0 gap), every {item: X} reference at any nesting depth resolving against the
+// real Data Item Dictionary, and the two value-dependent Enhanced Remote Command
+// messages (F49/F50) being modelled as opaque bodies since no static structure
+// can express CEPVAL/CEPACK's recursive, runtime-chosen shape.
+func TestDataMessagesS2YAML(t *testing.T) {
+	itemsData, err := os.ReadFile("data/items.yaml")
+	require.NoError(t, err)
+
+	items, err := LoadItems(itemsData)
+	require.NoError(t, err)
+	require.NoError(t, ValidateItems(items))
+
+	msgData, err := os.ReadFile("data/messages/s2.yaml")
+	require.NoError(t, err)
+
+	mf, err := LoadMessageFile(msgData)
+	require.NoError(t, err)
+	require.Equal(t, 2, mf.Stream)
+
+	// Exactly 50 functions, cross-referenced against the real items.yaml so
+	// every item reference at any structure depth actually resolves.
+	require.Len(t, mf.Messages, 50)
+	require.NoError(t, ValidateMessages([]MessageFile{mf}, items))
+
+	// Function numbers are a contiguous F1-F50 with no F0 and no gap.
+	byFunc := map[int]Message{}
+	for _, m := range mf.Messages {
+		byFunc[m.Function] = m
+	}
+	for f := 1; f <= 50; f++ {
+		_, ok := byFunc[f]
+		require.Truef(t, ok, "expected S2F%d to be present", f)
+	}
+	_, hasF0 := byFunc[0]
+	require.False(t, hasF0, "S2F0 must not be authored")
+
+	// F49/F50 (Enhanced Remote Command / Acknowledge) are opaque: their
+	// CEPVAL/CEPACK shape is value-dependent and recursive, so no static
+	// structure tree can express it and the body is a single secs2.Item.
+	for _, f := range []int{49, 50} {
+		m := byFunc[f]
+		require.Lenf(t, m.Bodies, 1, "S2F%d must have a single body", f)
+		require.NotNilf(t, m.Bodies[0].Structure, "S2F%d body must be opaque, not header-only", f)
+		require.Equalf(t, "opaque", m.Bodies[0].Structure.Kind(),
+			"S2F%d must be modelled as an opaque body", f)
+	}
+
+	// No other function is opaque: every F1-F48 body is either a leaf, a list,
+	// or a header-only (nil) structure.
+	for _, m := range mf.Messages {
+		if m.Function == 49 || m.Function == 50 {
+			continue
+		}
+		for _, b := range m.Bodies {
+			if b.Structure != nil {
+				require.NotEqualf(t, "opaque", b.Structure.Kind(),
+					"S2F%d must not be opaque", m.Function)
+			}
+		}
+	}
+
+	// The whole file renders without error (exercises the template end-to-end).
+	_, err = renderMessages(mf, items)
+	require.NoError(t, err)
+}
+
 // TestDataMessagesS5YAML loads the real data/items.yaml catalog together with
 // the authored data/messages/s5.yaml and asserts the Stream 5 Exception
 // Handling schema parses, validates, and renders cleanly. It guards the content

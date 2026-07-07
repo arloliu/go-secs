@@ -421,3 +421,414 @@ messages:
               - {item: ECMAX}
               - {item: ECDEF}
               - {item: UNITS}
+
+  - function: 31
+    name: Date and Time Set Request
+    mnemonic: DTS
+    direction: host-to-equipment
+    description: Useful to synchronize the equipment time with the host time base.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {item: TIME}
+
+  - function: 32
+    name: Date and Time Set Acknowledge
+    mnemonic: DTA
+    direction: equipment-to-host
+    description: Acknowledge the receipt of time and date.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: TIACK}
+
+  - function: 33
+    name: Define Report
+    mnemonic: DR
+    direction: host-to-equipment
+    description: >-
+      The host defines a group of reports for the equipment. The type of report is designated by a
+      Boolean equipment constant: a value of False means an Event Report (S6F11) will be sent, and a
+      value of True means an Annotated Event Report (S6F13) will be sent. If S2F33 is multi-block, it
+      must be preceded by the S2F39/S2F40 Inquire/Grant transaction.
+    exception: >-
+      A list of zero length following DATAID deletes all report definitions and associated links (see
+      S2F35). A list of zero length following a RPTID deletes that report type; all CEID links to that
+      RPTID are also deleted.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - type: list
+              repeat: reports
+              of:
+                type: list
+                items:
+                  - {item: RPTID}
+                  - {type: list, repeat: vids, of: {item: VID}}
+
+  - function: 34
+    name: Define Report Acknowledge
+    mnemonic: DRA
+    direction: equipment-to-host
+    description: >-
+      Acknowledge or error. If an error condition is detected the entire message is rejected (i.e.,
+      partial changes are not allowed).
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: DRACK}
+
+  - function: 35
+    name: Link Event Report
+    mnemonic: LER
+    direction: host-to-equipment
+    description: >-
+      The host links n reports to an event (CEID). These linked event reports default to disabled upon
+      linking; the occurrence of an event does not cause the report to be sent until enabled (see
+      S2F37). If S2F35 is multi-block, it must be preceded by the S2F39/S2F40 Inquire/Grant
+      transaction.
+    exception: A list of zero length following a CEID deletes all report links to that event.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - type: list
+              repeat: events
+              of:
+                type: list
+                items:
+                  - {item: CEID}
+                  - {type: list, repeat: rptids, of: {item: RPTID}}
+
+  - function: 36
+    name: Link Event Report Acknowledge
+    mnemonic: LERA
+    direction: equipment-to-host
+    description: >-
+      Acknowledge or error. If an error condition is detected the entire message is rejected (i.e.,
+      partial changes are not allowed).
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: LRACK}
+
+  - function: 37
+    name: Enable/Disable Event Report
+    mnemonic: EDER
+    direction: host-to-equipment
+    description: >-
+      The host enables or disables reporting for a group of events (CEIDs). When n is not zero, this
+      message enables or disables reporting for the listed CEIDs; reporting for unlisted CEIDs is not
+      affected.
+    exception: A list of zero length following CEED means all CEIDs.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: CEED}
+            - {type: list, repeat: ceids, of: {item: CEID}}
+
+  - function: 38
+    name: Enable/Disable Event Report Acknowledge
+    mnemonic: EERA
+    direction: equipment-to-host
+    description: >-
+      Acknowledge or error. If an error condition is detected the entire message is rejected (i.e.,
+      partial changes are not allowed).
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: ERACK}
+
+  - function: 39
+    name: Multi-block Inquire
+    mnemonic: DMBI
+    direction: host-to-equipment
+    description: >-
+      If an S2F23, S2F33, S2F35, S2F45, or S2F49 message is more than one block, this transaction must
+      precede the message.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, items: [{item: DATAID}, {item: DATALENGTH}]}
+
+  - function: 40
+    name: Multi-block Grant
+    mnemonic: DMBG
+    direction: equipment-to-host
+    description: Grant permission to send a multi-block message.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {item: GRANT}
+
+  - function: 41
+    name: Host Command Send
+    mnemonic: HCS
+    direction: host-to-equipment
+    description: >-
+      The host requests the equipment perform the specified remote command with the associated
+      parameters.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: RCMD}
+            - type: list
+              repeat: params
+              of: {type: list, items: [{item: CPNAME}, {item: CPVAL}]}
+
+  - function: 42
+    name: Host Command Acknowledge
+    mnemonic: HCA
+    direction: equipment-to-host
+    description: >-
+      Acknowledge host command or error. If the command is not accepted due to one or more invalid
+      parameters (i.e., HCACK = 3), a list of invalid parameters is returned containing the parameter
+      name and reason for being invalid.
+    exception: If there are no invalid parameters, a list of zero length is sent for the second item.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: HCACK}
+            - type: list
+              repeat: params
+              of: {type: list, items: [{item: CPNAME}, {item: CPACK}]}
+
+  - function: 43
+    name: Reset Spooling Streams and Functions
+    mnemonic: RSSF
+    direction: host-to-equipment
+    description: >-
+      The host selects specific streams and functions to be spooled whenever spooling is active. A
+      defined list of functions for a stream replaces any previously selected functions. Spooling for
+      Stream 1 is not allowed.
+    exception: >-
+      A zero-length list, m = 0, turns off spooling for all streams and functions. A zero-length list,
+      n = 0, turns on spooling for all functions for the associated stream.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          repeat: streams
+          of:
+            type: list
+            items:
+              - {item: STRID}
+              - {type: list, repeat: fcnids, of: {item: FCNID}}
+
+  - function: 44
+    name: Reset Spooling Acknowledge
+    mnemonic: RSA
+    direction: equipment-to-host
+    description: Acknowledge or error.
+    exception: >-
+      If RSPACK = 0, a zero-length list, m = 0, is given, indicating no streams or functions in error.
+      A zero-length list, n = 0, indicates no functions in error for the specified stream.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: RSPACK}
+            - type: list
+              repeat: streams
+              of:
+                type: list
+                items:
+                  - {item: STRID}
+                  - {item: STRACK}
+                  - {type: list, repeat: fcnids, of: {item: FCNID}}
+
+  - function: 45
+    name: Define Variable Limit Attributes
+    mnemonic: DVLA
+    direction: host-to-equipment
+    description: >-
+      The host defines or changes the limit attributes for a group of variables. Each limit carries an
+      upper and lower deadband pair. If S2F45 is multi-block, it must be preceded by the S2F39/S2F40
+      Inquire/Grant transaction.
+    exception: >-
+      A zero-length list, m = 0, sets all limit values for all monitored VIDs to undefined. A
+      zero-length list, n = 0, sets all limit values for that VID to undefined. A zero-length list,
+      p = 0, sets that limit to undefined.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure:
+          type: list
+          items:
+            - {item: DATAID}
+            - type: list
+              repeat: variables
+              of:
+                type: list
+                items:
+                  - {item: VID}
+                  - type: list
+                    repeat: limits
+                    of:
+                      type: list
+                      items:
+                        - {item: LIMITID}
+                        - type: list
+                          minItems: 0
+                          maxItems: 2
+                          items: [{item: UPPERDB}, {item: LOWERDB}]
+
+  - function: 46
+    name: Variable Limit Attribute Acknowledge
+    mnemonic: VLAA
+    direction: equipment-to-host
+    description: >-
+      Acknowledge definition of variable limit attributes or report error. If the definition is not
+      accepted due to one or more invalid parameters (e.g., LIMITACK = 3), a list of invalid parameters
+      is returned containing the variable limit attribute and reason for rejection. If an error
+      condition is detected, the entire message is rejected (i.e., partial changes are not allowed).
+    exception: >-
+      A zero-length list, m = 0, indicates no invalid variable limit attributes. A zero-length list,
+      n = 0, indicates no invalid limit values for that VID.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          items:
+            - {item: VLAACK}
+            - type: list
+              repeat: variables
+              of:
+                type: list
+                items:
+                  - {item: VID}
+                  - {item: LVACK}
+                  - type: list
+                    minItems: 0
+                    maxItems: 2
+                    items: [{item: LIMITID}, {item: LIMITACK}]
+
+  - function: 47
+    name: Variable Limit Attribute Request
+    mnemonic: VLAR
+    direction: host-to-equipment
+    description: The host queries the equipment for current variable limit attribute definitions.
+    exception: >-
+      A zero-length list, m = 0, requests a list of all VID values that can have variable limit
+      attributes.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: true
+        structure: {type: list, repeat: vids, of: {item: VID}}
+
+  - function: 48
+    name: Variable Limit Attributes Send
+    mnemonic: VLAS
+    direction: equipment-to-host
+    description: >-
+      Equipment sends the values of the requested variable limit attribute definitions in the order
+      requested.
+    exception: >-
+      A zero-length list, p = 0, indicates that limits are not supported for the VID. A zero-length
+      list, n = 0, means no limits are currently defined for the specified variable.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure:
+          type: list
+          repeat: variables
+          of:
+            type: list
+            items:
+              - {item: VID}
+              - type: list
+                minItems: 0
+                maxItems: 4
+                items:
+                  - {item: UNITS}
+                  - {item: LIMITMIN}
+                  - {item: LIMITMAX}
+                  - type: list
+                    repeat: limits
+                    of:
+                      type: list
+                      items: [{item: LIMITID}, {item: UPPERDB}, {item: LOWERDB}]
+
+  - function: 49
+    name: Enhanced Remote Command
+    mnemonic: ""
+    direction: host-to-equipment
+    description: >-
+      The host requests an object to perform the specified remote command with its associated
+      parameters (DATAID, OBJSPEC, RCMD, and a list of CPNAME/CEPVAL parameter groups). If multi-block,
+      it must be preceded by the S2F39/S2F40 Multi-block Inquire/Grant transaction. The body is opaque
+      because each CEPVAL's shape is chosen at the value level and cannot be described by a static
+      structure: a given CEPVAL may be a single scalar, a list of same-format items, or a recursively
+      nested list of CPNAME/CEPVAL pairs. The caller assembles the body manually via secs2 primitives.
+    exception: >-
+      A zero-length list, m = 0, indicates that no parameter groups are sent with the command. OBJSPEC
+      may be a null-length item.
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: opaque}
+
+  - function: 50
+    name: Enhanced Remote Command Acknowledge
+    mnemonic: ""
+    direction: equipment-to-host
+    description: >-
+      The equipment acknowledges an Enhanced Remote Command (S2F49) or reports any errors. If the
+      command is not accepted due to one or more invalid parameters (i.e., HCACK = 3), a list of
+      invalid parameters is returned containing the parameter name (CPNAME) and reason for being
+      invalid (CEPACK). The body is opaque because each CEPACK mirrors the value-dependent, possibly
+      recursively nested shape of the corresponding CEPVAL in S2F49, which cannot be described by a
+      static structure. The caller assembles the body manually via secs2 primitives.
+    exception: None
+    source: e5
+    bodies:
+      - actor: both
+        replyExpected: false
+        structure: {type: opaque}
