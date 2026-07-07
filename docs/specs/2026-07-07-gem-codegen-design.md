@@ -56,7 +56,7 @@ This document specifies **Phase 1** only:
 3. Bulk-extract the **full item catalog** (336 items) from E5 Table 3 into
    `items.yaml` — mechanical, scriptable, fully E5-grounded regardless of
    phase.
-4. Author `messages/s1.yaml` (23 stream-specific functions: F1–F11, F13–F24 —
+4. Author `messages/s1.yaml` (24 stream-specific functions: F1–F24 —
    E5 also defines the universal `S,F0` abort, but that's handled generically
    at the protocol layer, not per-stream, so it's out of scope for `gem/`)
    as the pilot stream — chosen because it exercises the broadest set of DSL
@@ -65,6 +65,18 @@ This document specifies **Phase 1** only:
    (equipment-defined) items, an opaque/form-dependent body (S1F6, S1F8 —
    see `structure: opaque` below), and nested + sibling repeating groups
    (S1F20, S1F24 — see worked example below).
+
+**S1F12 provenance exception:** our local E5 markdown's §10 Message Detail
+section skips from F11 to F13 — a page was dropped during PDF→markdown
+conversion, not the standard omitting F12. F12 ("Status Variable Namelist
+Reply") genuinely exists: Table 3 cross-references it for both `SVNAME` and
+`UNITS` (`e005-00-0813.md:862,927`), and it follows the exact same
+request/reply-namelist pattern as S1F21/22 and S1F23/24. Its structure
+(`L,n{ L,3{ SVID SVNAME UNITS } }`, equipment-only, no reply) is reconstructed
+from hume.com and entered with `source: hume` plus an inline comment noting
+*why* — this is a gap in our local copy, not a genuine hume-vs-E5
+discrepancy, and should be re-verified against a complete E5 copy if one
+becomes available.
 5. Generate `gem/s1.go`, `gem/s1_test.go`, `gem/items.go`, replacing the
    hand-written `s1.go` / `s1_test.go`.
 6. Acceptance: `make lint` and `make test` pass; a sample of generated godoc
@@ -332,8 +344,9 @@ unchanged; no new test category is introduced (`.agents/rules/300-testing.md`).
 
 - `tools/gemgen` (its own Go module) builds and runs via `go generate ./...`.
 - `tools/gemgen/data/items.yaml` fully populated (336 items) from E5 Table 3.
-- `tools/gemgen/data/messages/s1.yaml` authored (23 stream-specific
-  functions: F1–F11, F13–F24) from E5 §10.
+- `tools/gemgen/data/messages/s1.yaml` authored (24 stream-specific
+  functions: F1–F24) from E5 §10, with F12 sourced from hume.com per the
+  provenance exception above.
 - The generator correctly renders at least one message of each: header-only
   (S1F1), per-actor variant (S1F2/S1F2Host), enum-valued item (via COMMACK
   in S1F14), open-binding item, opaque body (S1F6, S1F8), and sibling+nested
