@@ -183,8 +183,27 @@ Fields:
   binding — `binding` only controls the generated parameter type, not
   whether validation requires the item to be defined.
 - `goType`: required iff `binding: fixed`.
-- `values`: optional enum table. When present, codegen emits named Go
-  constants (e.g. `ALEDDisable byte = 0`, `ALEDEnable byte = 128`).
+- `values`: optional enum table. When present (only valid on `binding: fixed`
+  items), codegen emits a **named defined type** on top of `goType`, not bare
+  constants on the primitive: `type ALED byte` plus
+  `const (ALEDDisable ALED = 0; ALEDEnable ALED = 128)`. The generated
+  function's parameter for that item takes the named type (e.g.
+  `func S5F3(alid ALID, aled ALED) secs2.SECS2Message`), giving autocomplete
+  grouping and a mild type-safety boundary exactly where a real enumeration
+  exists — items without `values:` keep the bare primitive (`byte`, `string`,
+  …) as their parameter type, unchanged.
+
+  **Constructor-call implication (verified against `secs2`):** `secs2.B`,
+  `secs2.I1`–`secs2.I8`, and `secs2.U1`–`secs2.U8` accept `...any` but their
+  internal value combiners (`secs2/binary.go`'s `combineBinaryValues`,
+  `secs2/int.go`'s `combineIntValues`/`combineIntValuesSlow`) type-switch on
+  the *exact* primitive type (`case byte:`, `case uint8:`, …) — a named type
+  like `ALED` does not match `case byte:` in a Go type switch even though its
+  underlying type is `byte`, and falls through to the "invalid type" deferred
+  error. So the generated body expression for an enum-typed parameter must
+  convert back to the underlying primitive at the call site:
+  `secs2.B(byte(aled))`, not `secs2.B(aled)`. This conversion is generated
+  automatically — callers never write it themselves.
 - `source`: `e5` for every entry in Phase 1 (all items come from Table 3).
 - "Used by" cross-references are **not** hand-authored — they're derived at
   doc-generation time from which messages actually reference the item, to
