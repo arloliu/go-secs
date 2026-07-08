@@ -95,9 +95,8 @@ func (fs *lifecycleFuzzState) dispatch(op byte) {
 //
 //	go test -run='^$' -fuzz=FuzzConnectionLifecycle -race -fuzztime=60s ./hsmsss/
 //
-// NOTE (memory: stress-test-fuzz-flake): under very high -count this fuzzer can pile up on the
-// cgo DNS singleflight in net.Listen; the Makefile excludes ^Fuzz from stress-test for that
-// reason. Use -skip '^Fuzz' for any high-count regression run.
+// Each iteration is bounded by the 5s watchdog below (iterCtx) and listens/dials on literal
+// 127.0.0.1 (no DNS resolver), so it is safe under high -count; stress-test includes it.
 func FuzzConnectionLifecycle(f *testing.F) {
 	// v1 seed: Open, sync-send, waitState, disable-linktest.
 	f.Add([]byte{0x00, 0x80, 0xf2, 0xc0})
