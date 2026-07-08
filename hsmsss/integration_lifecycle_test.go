@@ -241,6 +241,19 @@ func TestLifecycle_UserHandlerReceivesAllTransitions(t *testing.T) {
 		}
 	}
 
+	countEntering := func(o *observer, state hsms.ConnState) int {
+		o.mu.Lock()
+		defer o.mu.Unlock()
+		n := 0
+		for _, e := range o.events {
+			if e.next == state {
+				n++
+			}
+		}
+
+		return n
+	}
+
 	passive := newEndpoint(t, port, false, nil, echoHandler)
 	active := newEndpoint(t, port, true, nil)
 	passive.conn.AddConnStateChangeHandler(record(passiveObs))
@@ -260,22 +273,24 @@ func TestLifecycle_UserHandlerReceivesAllTransitions(t *testing.T) {
 		require.NoErrorf(t, active.conn.Close(), "cycle %d: active close", i)
 		require.NoErrorf(t, passive.conn.Close(), "cycle %d: passive close", i)
 
-		// Wait for THIS cycle's 3 anchor transitions to be delivered to BOTH observers before
-		// proceeding. Bounding delivery per-cycle prevents notifier lag under heavy concurrent load
-		// (full package + -count + -race) from accumulating into a flaky global count check after the
-		// loop; a transition genuinely dropped by the engine still fails deterministically here, in the
-		// exact cycle that dropped it, rather than as a vague end-of-test shortfall.
-		want := (i + 1) * 3
+		// Wait for THIS cycle's terminal transition (entering NotConnected) to reach BOTH observers
+		// before proceeding. Bounding delivery per-cycle prevents notifier lag under heavy concurrent
+		// load from accumulating into a flaky global check after the loop.
+		//
+		// We count entering-NotConnected terminals, NOT a fixed 3-per-cycle total, because the
+		// intermediate NotSelected is a BEST-EFFORT notification the engine may coalesce: when a fast
+		// Select pre-commits Selected (CommitSelected) before the supervisor reacts to TCP-up, the
+		// entering-NotSelected reaction is skipped and the observer sees NotConnected->Selected directly
+		// (the chain stays continuous; only the intermediate state is dropped — the documented
+		// drop-OLDEST/coalescing contract). The terminal, by contrast, is reliably delivered (emitted
+		// before teardown and drained when the notifier is joined on Close), so it is the sound anchor
+		// to wait on.
+		wantTerminals := i + 1
 		require.Eventuallyf(t, func() bool {
-			activeObs.mu.Lock()
-			a := len(activeObs.events)
-			activeObs.mu.Unlock()
-			passiveObs.mu.Lock()
-			p := len(passiveObs.events)
-			passiveObs.mu.Unlock()
-
-			return a >= want && p >= want
-		}, 5*time.Second, 2*time.Millisecond, "cycle %d: transitions not fully observed (want >= %d each)", i, want)
+			return countEntering(activeObs, hsms.NotConnectedState) >= wantTerminals &&
+				countEntering(passiveObs, hsms.NotConnectedState) >= wantTerminals
+		}, 5*time.Second, 2*time.Millisecond,
+			"cycle %d: terminal NotConnected not observed on both sides (want >= %d each)", i, wantTerminals)
 
 		// Drain the best-effort observer channels so the next cycle's waits start from empty.
 		drainStateCh(active.states)
@@ -283,49 +298,61 @@ func TestLifecycle_UserHandlerReceivesAllTransitions(t *testing.T) {
 	}
 
 	assertCycleTransitions := func(name string, o *observer) {
-		// All transitions are delivered synchronously by the time Close returns (the notifier is
-		// joined), but wait defensively for the full anchor count before scanning.
+		// Each cycle reliably delivers at least entering-Selected and its terminal entering-NotConnected
+		// (2 transitions); the intermediate entering-NotSelected is best-effort and may coalesce, so the
+		// guaranteed floor is cycles*2, not cycles*3.
 		require.Eventuallyf(t, func() bool {
 			o.mu.Lock()
 			defer o.mu.Unlock()
 
-			return len(o.events) >= cycles*3
-		}, 5*time.Second, 5*time.Millisecond, "%s: expected at least %d transitions", name, cycles*3)
+			return len(o.events) >= cycles*2
+		}, 5*time.Second, 5*time.Millisecond, "%s: expected at least %d transitions", name, cycles*2)
 
 		o.mu.Lock()
 		defer o.mu.Unlock()
+		ev := o.events
 
-		// Anchors per cycle, in order: *→NotSelected, NotSelected→Selected, Selected→NotConnected.
-		anchors := []hsms.ConnState{hsms.NotSelectedState, hsms.SelectedState, hsms.NotConnectedState}
+		// Continuity + idempotency: even when an intermediate state coalesces, the observer must see an
+		// UNBROKEN, non-self-looping state chain (emit reports prev = the last state actually delivered,
+		// so ev[k].prev must equal ev[k-1].next). This catches genuinely dropped/duplicated/reordered
+		// notifications, which coalescing does not produce.
+		for k := range ev {
+			require.NotEqualf(t, ev[k].prev, ev[k].next,
+				"%s: self-loop transition at index %d (events: %+v)", name, k, ev)
+			if k > 0 {
+				require.Equalf(t, ev[k-1].next, ev[k].prev,
+					"%s: discontinuous chain at index %d — prior next=%s, this prev=%s (events: %+v)",
+					name, k, ev[k-1].next, ev[k].prev, ev)
+			}
+		}
 
+		// Segment into cycles. Per cycle, in order: an OPTIONAL entering-NotSelected (coalesced away when
+		// a fast Select pre-commits Selected before the supervisor reacts to TCP-up), a required
+		// entering-Selected, then a required terminal entering-NotConnected.
 		seenCycles := 0
 		i := 0
-		for i < len(o.events) {
-			// Scan forward to an event ENTERING NotSelected (the cycle's rising edge).
-			for i < len(o.events) && o.events[i].next != hsms.NotSelectedState {
-				i++
-			}
-			if i >= len(o.events) {
-				break
+		for i < len(ev) {
+			if ev[i].next == hsms.NotSelectedState {
+				i++ // consume the optional intermediate NotSelected
 			}
 
-			// The next three anchor transitions must appear consecutively, in order.
-			for ai, expected := range anchors {
-				if i >= len(o.events) {
-					t.Fatalf("%s: cycle %d truncated — missing transition to %s (events: %+v)",
-						name, seenCycles, expected, o.events)
-				}
-				if o.events[i].next != expected {
-					t.Fatalf("%s: cycle %d anchor %d: expected next=%s, got %s (events: %+v)",
-						name, seenCycles, ai, expected, o.events[i].next, o.events)
-				}
-				i++
-			}
+			require.Lessf(t, i, len(ev),
+				"%s: cycle %d truncated before entering Selected (events: %+v)", name, seenCycles, ev)
+			require.Equalf(t, hsms.SelectedState, ev[i].next,
+				"%s: cycle %d: expected entering Selected, got %s (events: %+v)", name, seenCycles, ev[i].next, ev)
+			i++
+
+			require.Lessf(t, i, len(ev),
+				"%s: cycle %d truncated before terminal NotConnected (events: %+v)", name, seenCycles, ev)
+			require.Equalf(t, hsms.NotConnectedState, ev[i].next,
+				"%s: cycle %d: expected terminal NotConnected, got %s (events: %+v)", name, seenCycles, ev[i].next, ev)
+			i++
+
 			seenCycles++
 		}
 
 		require.Equalf(t, cycles, seenCycles,
-			"%s: expected %d observed cycles, got %d (events: %+v)", name, cycles, seenCycles, o.events)
+			"%s: expected %d observed cycles, got %d (events: %+v)", name, cycles, seenCycles, ev)
 	}
 
 	assertCycleTransitions("active", activeObs)
