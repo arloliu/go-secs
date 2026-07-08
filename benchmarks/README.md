@@ -15,6 +15,7 @@ published v1 release, side by side.
 secs2item/{v1,v2}/     secs2.Item construct / encode / decode, no I/O
 hsmsssdata/{v1,v2}/    full active/passive HSMS-SS pair over real loopback
                        TCP, send+reply round trips
+compat/                real v1<->v2 HSMS-SS and SECS-I compatibility tests
 ```
 
 Each `v1`/`v2` pair defines **identically named** benchmarks over identical
@@ -32,6 +33,7 @@ comments in each `bench_test.go`.
 ```sh
 make bench-v1       # secs2item + hsmsssdata, v1, -> results/v1.txt
 make bench-v2       # secs2item + hsmsssdata, v2, -> results/v2.txt
+make test-compat    # real v1<->v2 HSMS-SS and SECS-I compatibility tests
 make compare        # benchstat results/v1.txt results/v2.txt
 ```
 
