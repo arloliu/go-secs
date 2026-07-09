@@ -5,6 +5,37 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0-rc6] - 2026-07-09
+
+Sixth release candidate of the v2 major version. A small ergonomics round surfaced by a second,
+independent downstream migration of the same device: one additive builder method plus a canonical
+dispatch reference. There are no library behavior changes; the remaining commits since rc5 are
+test/CI hardening.
+
+### Added
+
+- **`(*hsms.DataMessage).WithID(id uint32)`** and **`(*hsms.DataMessageBuilder).WithID(id uint32)`** —
+  the immutable-wither counterpart to the `ID()` accessor (exactly
+  `WithSystemBytes(ToSystemBytes(id))`), completing the wither surface alongside `WithSessionID` and
+  `WithSystemBytes`. This is the immutable replacement for v1's removed `(*DataMessage).SetID`: the
+  message's System Bytes are set from `id` (big-endian), sharing the body with no re-encode.
+
+### Documentation
+
+- **`secs2.ExampleItem_typeDispatch`** — a canonical, exhaustive `Is*`/`To*` type-dispatch example for
+  turning an arbitrary `secs2.Item` into a concrete Go value. Every branch reads through the typed
+  `To*` accessor and propagates that accessor's deferred error (never discards it), and every string
+  family — ASCII, JIS8, and LocalizedStr — is covered, giving hand-rolled dispatch code an
+  authoritative reference to diff against.
+
+### Changed
+
+- Internal test/CI hardening only, with no library-behavior change: a lifecycle state-notification
+  test was relaxed to match the engine's documented best-effort (drop-OLDEST coalescing) contract for
+  intermediate state changes; `make stress-test` again includes the Fuzz seed corpora (the stale
+  `-skip '^Fuzz'` was removed after confirming the current harness cannot hang); and v1↔v2 benchmark
+  compatibility tests were added.
+
 ## [2.0.0-rc5] - 2026-07-08
 
 Fifth release candidate of the v2 major version. Introduces a generated GEM (SEMI E30) message
