@@ -181,6 +181,15 @@ func (msg *DataMessage) WithSystemBytes(b [4]byte) *DataMessage {
 	return n
 }
 
+// WithID returns a new *DataMessage identical to msg except that its System Bytes
+// (header bytes 6–9) are replaced by id, big-endian. It is the immutable-wither
+// counterpart to the ID accessor: WithID(id) is exactly
+// WithSystemBytes(ToSystemBytes(id)). The body and decodeState pointer are shared;
+// no body copy or re-encode is performed.
+func (msg *DataMessage) WithID(id uint32) *DataMessage {
+	return msg.WithSystemBytes(ToSystemBytes(id))
+}
+
 // ────────────────────────────────────────────────────────────────
 // Builder
 // ────────────────────────────────────────────────────────────────
@@ -257,6 +266,14 @@ func (b *DataMessageBuilder) WithSessionID(id uint16) *DataMessageBuilder {
 // WithSystemBytes sets the system bytes for the derived message.
 func (b *DataMessageBuilder) WithSystemBytes(sysBytes [4]byte) *DataMessageBuilder {
 	b.systemBytes = sysBytes
+
+	return b
+}
+
+// WithID sets the derived message's System Bytes from id (big-endian), the wither
+// counterpart to the ID accessor. Equivalent to WithSystemBytes(ToSystemBytes(id)).
+func (b *DataMessageBuilder) WithID(id uint32) *DataMessageBuilder {
+	b.systemBytes = ToSystemBytes(id)
 
 	return b
 }

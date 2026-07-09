@@ -276,6 +276,25 @@ func TestDataMessage_WithSystemBytes(t *testing.T) {
 	assert.Equal(t, orig.AppendBodyTo(nil), stamped.AppendBodyTo(nil))
 }
 
+func TestDataMessage_WithID(t *testing.T) {
+	origSB := [4]byte{0x10, 0x20, 0x30, 0x40}
+	item := secs2.A("hi")
+	orig, err := hsms.NewDataMessage(1, 3, true, 5, origSB, item)
+	require.NoError(t, err)
+
+	const id uint32 = 0xAABBCCDD
+	stamped := orig.WithID(id)
+
+	// WithID sets System Bytes from id and round-trips through the ID accessor.
+	assert.Equal(t, id, stamped.ID())
+	assert.Equal(t, hsms.ToSystemBytes(id), stamped.SystemBytes())
+	// Exactly equivalent to WithSystemBytes(ToSystemBytes(id)).
+	assert.Equal(t, orig.WithSystemBytes(hsms.ToSystemBytes(id)).SystemBytes(), stamped.SystemBytes())
+	// Immutable: original unchanged; body shared.
+	assert.Equal(t, origSB, orig.SystemBytes())
+	assert.Equal(t, orig.AppendBodyTo(nil), stamped.AppendBodyTo(nil))
+}
+
 // ────────────────────────────────────────────────────────────────
 // Q3 validation
 // ────────────────────────────────────────────────────────────────
@@ -441,6 +460,14 @@ func TestDataMessageBuilder_WithSystemBytes(t *testing.T) {
 	derived, err := msg.Derive().WithSystemBytes(sb).Build()
 	require.NoError(t, err)
 	require.Equal(t, sb, derived.SystemBytes())
+}
+
+func TestDataMessageBuilder_WithID(t *testing.T) {
+	const id uint32 = 0x01020304
+	derived, err := hsms.NewEmptyDataMessage().Derive().WithID(id).Build()
+	require.NoError(t, err)
+	require.Equal(t, id, derived.ID())
+	require.Equal(t, hsms.ToSystemBytes(id), derived.SystemBytes())
 }
 
 // ────────────────────────────────────────────────────────────────
