@@ -5,6 +5,31 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-07-09
+
+First stable release of the **v2 major version** — a ground-up redesign around immutable messages
+and items, published at a new module path (`github.com/arloliu/go-secs/v2`) so v1
+(`github.com/arloliu/go-secs`) keeps working unchanged. This is not an in-place upgrade; it is a
+new major-version module you opt into. See
+[`docs/migration-v1-to-v2.md`](docs/migration-v1-to-v2.md) for the full symbol-by-symbol migration
+guide and worked examples.
+
+This GA is identical in library behavior to `2.0.0-rc6`; it promotes the release candidate line to a
+stable, semver-guaranteed public API. The complete set of changes that make up v2 is recorded in the
+release-candidate entries below:
+
+- **[2.0.0-rc1]** — the redesign itself: immutable/GC-owned messages and items, connection-centric
+  API (`hsms.Connection` as the SECS-II endpoint, no `Session`/`AddSession`), context-first sends,
+  typed item access, `ID()` → `SessionID()`, and the split metrics taxonomy.
+- **[2.0.0-rc2]–[2.0.0-rc5]** — gap-closure from downstream migrations: restored v1-parity helpers,
+  cold-peer active-connect retry and a bounded active-connect timeout, undecodable-inbound signalling
+  (`hsms.DecodeErrorHandler`), codec read-duality, `secs2` deferred-error ergonomics, and the
+  generated GEM (SEMI E30) builder surface (package `gem`, `tools/gemgen`).
+- **[2.0.0-rc6]** — final ergonomics round: `(*hsms.DataMessage).WithID` / `WithID` builder wither,
+  a canonical `Is*`/`To*` type-dispatch example, and test/CI hardening.
+
+There are no library changes since rc6.
+
 ## [2.0.0-rc6] - 2026-07-09
 
 Sixth release candidate of the v2 major version. A small ergonomics round surfaced by a second,
