@@ -7,7 +7,7 @@
 // A SECS-II message body is split into blocks of at most 244 body bytes, numbered 1..N with the
 // last-block (E-bit) flag set on the final block; received blocks are reassembled in order back into
 // the body for lazy decoding. Blocks are immutable value types holding a 10-byte SEMI E4 header and a
-// zero-copy view of the shared message body (internal/wire) — the split is allocation-free per block.
+// zero-copy view of the shared message body — the split is allocation-free per block.
 //
 // # Connection
 //
