@@ -27,17 +27,39 @@ import (
 // freeLoopbackPort binds 127.0.0.1:0, records the OS-chosen port, and closes the listener so a
 // passive connection can bind that concrete port. Go listeners set SO_REUSEADDR, so the rebind
 // (here and across reconnect generations) succeeds despite the brief close.
+//
+// Under make stress-test's default-GOMAXPROCS -p 32 pass, many goroutines call this helper
+// concurrently, so a just-freed ephemeral port is disproportionately likely to be reissued to
+// another freeLoopbackPort call before this one's caller gets to bind it for real — a TOCTOU
+// race observed as "bind: address already in use". An immediate re-bind-and-close right before
+// returning catches that dominant case (loses the race here, not downstream in the caller) and
+// retries with a fresh port; it narrows but cannot fully eliminate the window against a caller
+// that races much later.
 func freeLoopbackPort(t *testing.T) int {
 	t.Helper()
 
-	ln, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
-	require.NoError(t, err)
+	const maxAttempts = 5
 
-	addr, ok := ln.Addr().(*net.TCPAddr)
-	require.True(t, ok, "listener addr must be *net.TCPAddr")
-	require.NoError(t, ln.Close())
+	for range maxAttempts {
+		ln, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+		require.NoError(t, err)
 
-	return addr.Port
+		addr, ok := ln.Addr().(*net.TCPAddr)
+		require.True(t, ok, "listener addr must be *net.TCPAddr")
+		require.NoError(t, ln.Close())
+
+		confirm, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: addr.Port})
+		if err != nil {
+			continue // lost the race to a concurrent freeLoopbackPort caller; retry with a fresh port
+		}
+		require.NoError(t, confirm.Close())
+
+		return addr.Port
+	}
+
+	t.Fatalf("freeLoopbackPort: failed to acquire a stable free port after %d attempts", maxAttempts)
+
+	return 0
 }
 
 // newPassiveConn builds a full passive-role HSMS-SS connection listening on 127.0.0.1:port,

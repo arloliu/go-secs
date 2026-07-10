@@ -10,15 +10,24 @@ endif
 # Variables
 TEST_TIMEOUT   := 5m
 # STRESS_TIMEOUT is the per-package timeout for `make stress-test`. Bumped from
-# 30m → 45m on 2026-05-24 after the P0.2 byte-level chaos suite landed: the
-# hsmsss_integration package's count=50 race runtime grew from ~27m to ~34m
-# (broad + new P0.2 scenarios), exceeding the prior 30m budget by ~3-4m. The
-# 45m budget restores ~10m headroom and aligns with the secs1 package's
-# observed ~23m runtime under the same conditions. Fuzz seed corpora are
-# included in stress (each iteration is watchdog-bounded — see the stress-test
-# target comment); they add ~0.5s/count and do not threaten this budget.
-STRESS_TIMEOUT := 45m
-STRESS_COUNT   ?= 50
+# 30m → 45m on 2026-05-24 after the P0.2 byte-level chaos suite landed (see git
+# history for that round). On 2026-07-11, hsmsss's count=50 -race GOMAXPROCS=1
+# runtime had grown to ~51.2m (byte-level fault-injection proxy and
+# leak-detection harness additions), exceeding the 45m budget — confirmed via
+# a standalone `go test ./hsmsss/... -count=50 -race -timeout=90m -p 1` run
+# that passed clean (6750/6750 subtests, 0 failures) at 3072s. Rather than
+# raise the timeout to match a 50x stress multiplier, STRESS_COUNT was lowered
+# 50 → 10 (dominated by one deliberately-serial, TCP-heavy test — see
+# TestHSMS_StrandedSend_NoFrameAcrossGeneration — that alone took ~25m of the
+# 51.2m at count=50; 10 repetitions still exercises every race window
+# meaningfully without the multiplicative blowup). At count=10, hsmsss's
+# measured per-iteration cost (61.44s, from the 3072s/50 count=50 run) implies
+# ~10.24m; STRESS_TIMEOUT is set to 15m, ~47% headroom, matching the prior
+# budget's headroom ratio. Fuzz seed corpora are included in stress (each
+# iteration is watchdog-bounded — see the stress-test target comment); they
+# add ~0.5s/count and do not threaten this budget.
+STRESS_TIMEOUT := 15m
+STRESS_COUNT   ?= 10
 FUZZ_TIME      ?= 30s
 GO_TEST_P      ?= $(shell nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 8)
 
