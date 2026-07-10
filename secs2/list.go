@@ -16,6 +16,12 @@ import (
 type ListItem struct {
 	baseItem
 	values []Item
+	// clean caches whether every child (recursively) is a known-clean built-in item with no
+	// deferred error, so Error() can return nil in O(1) instead of re-walking the tree. It is
+	// computed once in NewListItem (and set directly by the decoder, which never produces an
+	// errored tree) and is never recomputed, matching the immutable-after-construction contract
+	// of all built-in items.
+	clean bool
 }
 
 var _ Item = (*ListItem)(nil)
@@ -43,15 +49,57 @@ func NewListItem(values ...Item) Item {
 
 	item.values = make([]Item, 0, len(values))
 
+	clean := true
+
 	for _, v := range values {
 		if v == nil {
 			continue
 		}
 
 		item.values = append(item.values, v)
+
+		if !childClean(v) {
+			clean = false
+		}
 	}
 
+	item.clean = clean
+
 	return item
+}
+
+// childClean reports whether v is a known-clean built-in item: a non-nil built-in pointer
+// carrying no deferred error, and — for a *ListItem child — itself already known-clean.
+//
+// It never calls the public Error() method, so it cannot trigger an external implementation's
+// side effects or observe a typed-nil built-in pointer's panic. A typed-nil built-in pointer or
+// any dynamic type outside this package is reported not clean, which routes ListItem.Error()
+// through its full recursive walk instead of the O(1) fast path.
+func childClean(v Item) bool { //nolint:cyclop // one type-switch arm per built-in concrete type; irreducible enumeration, not accidental complexity
+	switch t := v.(type) {
+	case *IntItem:
+		return t != nil && t.itemErr == nil
+	case *UintItem:
+		return t != nil && t.itemErr == nil
+	case *FloatItem:
+		return t != nil && t.itemErr == nil
+	case *ASCIIItem:
+		return t != nil && t.itemErr == nil
+	case *JIS8Item:
+		return t != nil && t.itemErr == nil
+	case *BinaryItem:
+		return t != nil && t.itemErr == nil
+	case *BooleanItem:
+		return t != nil && t.itemErr == nil
+	case *LocalizedStrItem:
+		return t != nil && t.itemErr == nil
+	case *EmptyItem:
+		return t != nil && t.itemErr == nil
+	case *ListItem:
+		return t != nil && t.itemErr == nil && t.clean
+	default:
+		return false
+	}
 }
 
 // Get navigates a path of list indices and returns the item at that position.
@@ -144,6 +192,10 @@ func (item *ListItem) IsList() bool { return true }
 // Error aggregates the item's own deferred error with each child's Error() via errors.Join.
 // A list that contains an invalid child reports a non-nil Error.
 func (item *ListItem) Error() error {
+	if item.clean {
+		return nil
+	}
+
 	var errs error
 
 	if item.itemErr != nil {

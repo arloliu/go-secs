@@ -2,6 +2,8 @@ package secs2
 
 import (
 	"math"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -392,4 +394,254 @@ func TestListItem_Allocs(t *testing.T) {
 	if toBytesAllocs != 1 {
 		t.Errorf("ToBytes: want 1 alloc, got %v", toBytesAllocs)
 	}
+}
+
+// TestListItem_Error_RepeatedCallIdentity pins the pre-existing (v2.0.0) relationship between
+// two Error() calls on the same not-clean list: errors.Join allocates a fresh wrapper on every
+// call, so repeated calls never return the identical error value, even though the content is
+// structurally equal. The known-clean fast path must not change this for not-clean trees, since
+// it always falls through to the unmodified walk below.
+func TestListItem_Error_RepeatedCallIdentity(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	list := NewListItem(NewASCIIItem("ok"), NewIntItem(3), NewASCIIItem("also ok"))
+
+	err1 := list.Error()
+	err2 := list.Error()
+	require.Error(err1)
+	require.Error(err2)
+
+	require.NotSame(err1, err2, "each Error() call allocates a fresh errors.Join wrapper")
+	require.Equal(err1, err2, "repeated calls remain structurally equal in content")
+	require.Equal(err1.Error(), err2.Error())
+}
+
+// errorTopology renders the recursive errors.Join / Unwrap() []error shape of err into a
+// deterministic string, so tests can pin the exact nesting produced by ListItem.Error() instead
+// of only checking the flattened leaf messages.
+func errorTopology(err error) string {
+	if err == nil {
+		return "nil"
+	}
+
+	if u, ok := err.(interface{ Unwrap() []error }); ok {
+		parts := make([]string, 0, len(u.Unwrap()))
+		for _, e := range u.Unwrap() {
+			parts = append(parts, errorTopology(e))
+		}
+
+		return "Join[" + strings.Join(parts, ",") + "]"
+	}
+
+	return "Leaf(" + err.Error() + ")"
+}
+
+// TestListItem_Error_UnwrapTopology pins the exact recursive errors.Join nesting produced by
+// Error() for several not-clean shapes: a single invalid child among valid siblings, multiple
+// invalid children, an invalid nested grandchild, and a list's own itemErr from the size-limit
+// early return. These strings were captured against unmodified v2.0.0 behavior and must survive
+// the known-clean fast path unchanged, since none of these trees are clean.
+func TestListItem_Error_UnwrapTopology(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	oneInvalidChild := NewListItem(NewASCIIItem("ok"), NewIntItem(3), NewASCIIItem("also ok"))
+	require.Equal("Join[Join[Join[Leaf(invalid byte size)]]]", errorTopology(oneInvalidChild.Error()))
+
+	multipleInvalidChildren := NewListItem(NewIntItem(3), NewASCIIItem("ok"), NewIntItem(1, "notanumber"))
+	require.Equal(
+		`Join[Join[Join[Join[Leaf(invalid byte size)]]],Join[Leaf(strconv.ParseInt: parsing "notanumber": invalid syntax)]]`,
+		errorTopology(multipleInvalidChildren.Error()),
+	)
+
+	invalidNestedGrandchild := NewListItem(NewListItem(NewASCIIItem("ok"), NewListItem(NewIntItem(3))))
+	require.Equal("Join[Join[Join[Join[Leaf(invalid byte size)]]]]", errorTopology(invalidNestedGrandchild.Error()))
+
+	// Own itemErr size-limit early return: len(values) alone (before nil-skip) exceeds MaxByteSize.
+	ownItemErr := NewListItem(make([]Item, MaxByteSize+10)...)
+	require.Equal("Join[Join[Leaf(item size limit exceeded)]]", errorTopology(ownItemErr.Error()))
+}
+
+// builtinTypeChild is one row of the "every built-in concrete type" table used by
+// TestListItem_AllBuiltinTypes_Clean and TestListItem_TypedNilBuiltinChild.
+type builtinTypeChild struct {
+	name  string
+	valid Item // a validly-constructed instance of the type
+	nilv  Item // a typed-nil pointer of the same concrete type, wrapped as Item
+}
+
+// builtinTypeChildren enumerates every built-in concrete Item type, pairing a valid instance
+// with a typed-nil pointer of the same type.
+func builtinTypeChildren() []builtinTypeChild {
+	return []builtinTypeChild{
+		{"IntItem", NewIntItem(1, 5), (*IntItem)(nil)},
+		{"UintItem", NewUintItem(1, 5), (*UintItem)(nil)},
+		{"FloatItem", NewFloatItem(4, 1.5), (*FloatItem)(nil)},
+		{"ASCIIItem", NewASCIIItem("x"), (*ASCIIItem)(nil)},
+		{"JIS8Item", NewJIS8Item("x"), (*JIS8Item)(nil)},
+		{"BinaryItem", NewBinaryItem(byte(1)), (*BinaryItem)(nil)},
+		{"BooleanItem", NewBooleanItem(true), (*BooleanItem)(nil)},
+		{"LocalizedStrItem", NewUTF8StrItem("x"), (*LocalizedStrItem)(nil)},
+		{"ListItem", NewListItem(NewASCIIItem("inner")), (*ListItem)(nil)},
+		{"EmptyItem", NewEmptyItem(), (*EmptyItem)(nil)},
+	}
+}
+
+// TestListItem_AllBuiltinTypes_Clean drives every built-in concrete type through NewListItem as
+// a single valid child and verifies the resulting list is known-clean: Error() returns nil, and
+// the internal clean flag is set (the O(1) fast path condition this task adds).
+func TestListItem_AllBuiltinTypes_Clean(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range builtinTypeChildren() {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require := require.New(t)
+
+			list := NewListItem(tt.valid)
+			require.NoError(list.Error())
+
+			li, ok := list.(*ListItem)
+			require.True(ok)
+			require.True(li.clean, "list containing a single valid %s child must be known-clean", tt.name)
+		})
+	}
+}
+
+// TestListItem_Clean_EmptyNilSkipDecoded verifies Error() == nil for an empty list, a list whose
+// only children were nil (and thus skipped), and trees produced by Decode / DecodeOwned.
+func TestListItem_Clean_EmptyNilSkipDecoded(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty list", func(t *testing.T) {
+		t.Parallel()
+
+		require := require.New(t)
+
+		list := NewListItem()
+		require.NoError(list.Error())
+
+		li, ok := list.(*ListItem)
+		require.True(ok)
+		require.True(li.clean)
+	})
+
+	t.Run("nil children skipped", func(t *testing.T) {
+		t.Parallel()
+
+		require := require.New(t)
+
+		list := NewListItem(NewASCIIItem("a"), nil, NewASCIIItem("b"))
+		require.NoError(list.Error())
+
+		li, ok := list.(*ListItem)
+		require.True(ok)
+		require.True(li.clean)
+	})
+
+	wire := NewListItem(
+		NewASCIIItem("hi"),
+		NewIntItem(1, 1, 2),
+		NewListItem(NewFloatItem(4, 3.14)),
+	).ToBytes()
+
+	t.Run("decoded via Decode", func(t *testing.T) {
+		t.Parallel()
+
+		require := require.New(t)
+
+		decoded, err := Decode(wire)
+		require.NoError(err)
+		require.NoError(decoded.Error())
+	})
+
+	t.Run("decoded via DecodeOwned", func(t *testing.T) {
+		t.Parallel()
+
+		require := require.New(t)
+
+		decoded, err := DecodeOwned(slices.Clone(wire))
+		require.NoError(err)
+		require.NoError(decoded.Error())
+	})
+}
+
+// TestListItem_TypedNilBuiltinChild verifies that a typed-nil built-in pointer, wrapped as an
+// Item, is never silently skipped or mistaken for known-clean: NewListItem must not panic when
+// storing it (each type-switch arm in childClean nil-checks before reading itemErr), but
+// Error() must still panic when it reaches the typed nil, exactly as it did before this task —
+// only the known-clean fast path is new; the not-clean walk that dereferences the nil pointer
+// is untouched.
+func TestListItem_TypedNilBuiltinChild(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range builtinTypeChildren() {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require := require.New(t)
+
+			var list Item
+
+			require.NotPanics(func() {
+				list = NewListItem(NewASCIIItem("ok"), tt.nilv)
+			})
+			require.Equal(2, list.Size(), "typed-nil child must be stored, not skipped")
+
+			li, ok := list.(*ListItem)
+			require.True(ok)
+			require.False(li.clean, "a typed-nil built-in child must never be known-clean")
+
+			require.Panics(func() {
+				_ = list.Error()
+			}, "Error() must still panic on a typed-nil built-in child, unchanged from before this task")
+		})
+	}
+}
+
+// countingErrorItem is a minimal external Item implementation used to verify that the
+// known-clean fast path never calls Error() on a non-built-in dynamic type: it delegates every
+// method to an embedded Item but counts Error() calls itself, so it is never mistaken for one of
+// the built-in concrete types childClean recognizes.
+type countingErrorItem struct {
+	Item
+	calls *int
+}
+
+func (c *countingErrorItem) Error() error {
+	*c.calls++
+
+	return c.Item.Error()
+}
+
+var _ Item = (*countingErrorItem)(nil)
+
+// TestListItem_ExternalItem_NotFastPathed verifies that NewListItem never calls Error() on an
+// external Item implementation (the fast-path computation must not invoke the public Error()
+// method on any child), and that ListItem.Error() continues to invoke it exactly once per call,
+// same as before this task.
+func TestListItem_ExternalItem_NotFastPathed(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	calls := 0
+	external := &countingErrorItem{Item: NewASCIIItem("wrapped"), calls: &calls}
+
+	list := NewListItem(NewASCIIItem("ok"), external)
+	require.Equal(0, calls, "NewListItem must not call an external child's Error()")
+
+	li, ok := list.(*ListItem)
+	require.True(ok)
+	require.False(li.clean, "a non-built-in dynamic type must never be known-clean")
+
+	require.NoError(list.Error())
+	require.Equal(1, calls)
+
+	require.NoError(list.Error())
+	require.Equal(2, calls, "each Error() call must re-invoke the external child, same as before this task")
 }

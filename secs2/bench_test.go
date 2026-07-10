@@ -76,3 +76,39 @@ func BenchmarkAppendTo_ReusedBuffer(b *testing.B) {
 	}
 	_ = buf
 }
+
+// flat100kChildren builds 100K valid ASCII leaf children, shared by the ListItem.Error and
+// NewListItem construction benchmarks below.
+func flat100kChildren() []Item {
+	const n = 100_000
+
+	children := make([]Item, n)
+	for i := range children {
+		children[i] = NewASCIIItem("x")
+	}
+
+	return children
+}
+
+// BenchmarkListItemError_Flat100k measures ListItem.Error() on a pre-built, known-clean 100K-leaf
+// list. This is the O(1) fast path this task adds: expect a handful of nanoseconds and 0
+// allocs/op, regardless of child count, since a clean list never re-walks its children.
+func BenchmarkListItemError_Flat100k(b *testing.B) {
+	list := NewListItem(flat100kChildren()...)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = list.Error()
+	}
+}
+
+// BenchmarkNewListItem_Flat100k measures constructing the same 100K-leaf list, quantifying the
+// per-child type-switch cost that now runs once at construction instead of on every Error() call.
+func BenchmarkNewListItem_Flat100k(b *testing.B) {
+	children := flat100kChildren()
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = NewListItem(children...)
+	}
+}

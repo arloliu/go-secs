@@ -167,7 +167,7 @@ func decodeItem(owned []byte, pos, depth int) (Item, int, error) { //nolint:cycl
 			children = append(children, child)
 		}
 
-		it := &ListItem{values: children}
+		it := &ListItem{values: children, clean: true}
 		it.setRaw(owned[startPos:pos])
 
 		return it, pos, nil
