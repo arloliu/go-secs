@@ -88,3 +88,65 @@ func TestDataMessage_RawFrame_Item_NoBodyDoubleCopy(t *testing.T) {
 
 	_ = dm
 }
+
+// buildOwnedNumericDataFrameForTest builds a [header||body] owned buffer whose body is a list
+// containing one scalar Int, one scalar Uint, and one scalar Float item — unlike the ASCII-only
+// fixture above, this shape reaches secs2's decode-side scalar numeric slab.
+func buildOwnedNumericDataFrameForTest(t *testing.T) []byte {
+	t.Helper()
+
+	body := secs2.NewListItem(
+		secs2.I8(int64(-42)),
+		secs2.U8(uint64(42)),
+		secs2.F8(3.5),
+	).ToBytes()
+	frame := make([]byte, 10+len(body))
+
+	frame[0] = 0x00
+	frame[1] = 0x01
+	frame[2] = 0x01
+	frame[3] = 0x01
+	frame[4] = 0x00
+	frame[5] = 0x00
+	frame[6] = 0x00
+	frame[7] = 0x00
+	frame[8] = 0x00
+	frame[9] = 0x01
+
+	copy(frame[10:], body)
+
+	return frame
+}
+
+// TestDataMessage_RawFrame_Item_ScalarNumeric decodes a raw frame whose body contains scalar
+// Int/Uint/Float leaves via DataMessage.Item(), exercising secs2's decode-side scalar slab on
+// the production raw-frame path.
+func TestDataMessage_RawFrame_Item_ScalarNumeric(t *testing.T) {
+	frame := buildOwnedNumericDataFrameForTest(t)
+
+	msg, err := decodeOwnedFrame(frame)
+	require.NoError(t, err)
+
+	dm, ok := msg.(*DataMessage)
+	require.True(t, ok, "expected *DataMessage from decodeOwnedFrame")
+
+	item, err := dm.Item()
+	require.NoError(t, err)
+	require.NoError(t, item.Error())
+
+	children, err := item.ToList()
+	require.NoError(t, err)
+	require.Len(t, children, 3)
+
+	intVal, err := children[0].IntAt(0)
+	require.NoError(t, err)
+	require.Equal(t, int64(-42), intVal)
+
+	uintVal, err := children[1].UintAt(0)
+	require.NoError(t, err)
+	require.Equal(t, uint64(42), uintVal)
+
+	floatVal, err := children[2].FloatAt(0)
+	require.NoError(t, err)
+	require.InDelta(t, 3.5, floatVal, 1e-9)
+}

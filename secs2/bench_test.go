@@ -112,3 +112,39 @@ func BenchmarkNewListItem_Flat100k(b *testing.B) {
 		_ = NewListItem(children...)
 	}
 }
+
+// One-scalar-leaf wire encodings, used by BenchmarkDecodeScalar* below. Each is the shape that
+// hits the count==1 branch of decodeIntItem/decodeUintItem/decodeFloatItem, i.e. the shape the
+// decode-side slab carves structs for.
+var (
+	wireScalarI8 = I8(int64(-42)).ToBytes()
+	wireScalarU8 = U8(uint64(42)).ToBytes()
+	wireScalarF8 = F8(3.5).ToBytes()
+)
+
+// BenchmarkDecodeScalarInt measures Decode on a single scalar I8 item — the shape that
+// allocates from the IntItem slab chunk instead of one heap allocation per item.
+func BenchmarkDecodeScalarInt(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = Decode(wireScalarI8)
+	}
+}
+
+// BenchmarkDecodeScalarUint measures Decode on a single scalar U8 item — the shape that
+// allocates from the UintItem slab chunk instead of one heap allocation per item.
+func BenchmarkDecodeScalarUint(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = Decode(wireScalarU8)
+	}
+}
+
+// BenchmarkDecodeScalarFloat measures Decode on a single scalar F8 item — the shape that
+// allocates from the FloatItem slab chunk instead of one heap allocation per item.
+func BenchmarkDecodeScalarFloat(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = Decode(wireScalarF8)
+	}
+}

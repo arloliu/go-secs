@@ -34,7 +34,8 @@ func Decode(data []byte) (Item, error) {
 	}
 
 	owned := bytes.Clone(data)
-	item, _, err := decodeItem(owned, 0, 0)
+	slab := &decodeSlab{}
+	item, _, err := decodeItem(owned, 0, 0, slab)
 
 	return item, err
 }
@@ -62,7 +63,8 @@ func DecodeOwned(data []byte) (Item, error) {
 		return NewEmptyItem(), nil
 	}
 
-	item, _, err := decodeItem(data, 0, 0)
+	slab := &decodeSlab{}
+	item, _, err := decodeItem(data, 0, 0, slab)
 
 	return item, err
 }
@@ -107,8 +109,9 @@ func ownedString(b []byte) string {
 
 // decodeItem parses one SECS-II item from owned[pos:] and returns the item, the new byte
 // position, and any error. owned is the buffer cloned from the caller's input at Decode entry;
-// each decoded item's raw field is set to a sub-slice of owned.
-func decodeItem(owned []byte, pos, depth int) (Item, int, error) { //nolint:cyclop,gocyclo
+// each decoded item's raw field is set to a sub-slice of owned. slab carves the count==1
+// numeric leaves for this call's whole recursion; see decodeSlab.
+func decodeItem(owned []byte, pos, depth int, slab *decodeSlab) (Item, int, error) { //nolint:cyclop,gocyclo
 	startPos := pos
 
 	if pos >= len(owned) {
@@ -158,7 +161,7 @@ func decodeItem(owned []byte, pos, depth int) (Item, int, error) { //nolint:cycl
 		children := make([]Item, 0, length)
 
 		for range length {
-			child, newPos, err := decodeItem(owned, pos, depth)
+			child, newPos, err := decodeItem(owned, pos, depth, slab)
 			if err != nil {
 				return nil, pos, err
 			}
@@ -252,27 +255,27 @@ func decodeItem(owned []byte, pos, depth int) (Item, int, error) { //nolint:cycl
 		return it, pos, nil
 
 	case Int8FormatCode:
-		return decodeIntItem(owned, startPos, pos, 1, length)
+		return decodeIntItem(owned, startPos, pos, 1, length, slab)
 	case Int16FormatCode:
-		return decodeIntItem(owned, startPos, pos, 2, length)
+		return decodeIntItem(owned, startPos, pos, 2, length, slab)
 	case Int32FormatCode:
-		return decodeIntItem(owned, startPos, pos, 4, length)
+		return decodeIntItem(owned, startPos, pos, 4, length, slab)
 	case Int64FormatCode:
-		return decodeIntItem(owned, startPos, pos, 8, length)
+		return decodeIntItem(owned, startPos, pos, 8, length, slab)
 
 	case Uint8FormatCode:
-		return decodeUintItem(owned, startPos, pos, 1, length)
+		return decodeUintItem(owned, startPos, pos, 1, length, slab)
 	case Uint16FormatCode:
-		return decodeUintItem(owned, startPos, pos, 2, length)
+		return decodeUintItem(owned, startPos, pos, 2, length, slab)
 	case Uint32FormatCode:
-		return decodeUintItem(owned, startPos, pos, 4, length)
+		return decodeUintItem(owned, startPos, pos, 4, length, slab)
 	case Uint64FormatCode:
-		return decodeUintItem(owned, startPos, pos, 8, length)
+		return decodeUintItem(owned, startPos, pos, 8, length, slab)
 
 	case Float32FormatCode:
-		return decodeFloatItem(owned, startPos, pos, 4, length)
+		return decodeFloatItem(owned, startPos, pos, 4, length, slab)
 	case Float64FormatCode:
-		return decodeFloatItem(owned, startPos, pos, 8, length)
+		return decodeFloatItem(owned, startPos, pos, 8, length, slab)
 
 	default:
 		return nil, pos, fmt.Errorf("unknown format code: %d", formatCode)
@@ -280,8 +283,9 @@ func decodeItem(owned []byte, pos, depth int) (Item, int, error) { //nolint:cycl
 }
 
 // decodeIntItem parses byteSize-wide signed integers from owned[pos:pos+length], builds
-// an IntItem with the result, and sets its raw field to owned[startPos:pos+length].
-func decodeIntItem(owned []byte, startPos, pos, byteSize, length int) (Item, int, error) {
+// an IntItem with the result, and sets its raw field to owned[startPos:pos+length]. The
+// count==1 branch carves its struct from slab instead of allocating individually.
+func decodeIntItem(owned []byte, startPos, pos, byteSize, length int, slab *decodeSlab) (Item, int, error) {
 	if length%byteSize != 0 {
 		return nil, pos, fmt.Errorf("invalid payload length %d for I%d item: not a multiple of %d", length, byteSize*8, byteSize)
 	}
@@ -306,7 +310,10 @@ func decodeIntItem(owned []byte, startPos, pos, byteSize, length int) (Item, int
 			// unreachable: byteSize is 1, 2, 4, or 8.
 		}
 		pos += length
-		it := &IntItem{byteSize: uint32(byteSize), size: 1, scalar: val}
+		it := slab.nextInt()
+		it.byteSize = uint32(byteSize)
+		it.size = 1
+		it.scalar = val
 		it.setRaw(owned[startPos:pos])
 
 		return it, pos, nil
@@ -339,8 +346,9 @@ func decodeIntItem(owned []byte, startPos, pos, byteSize, length int) (Item, int
 }
 
 // decodeUintItem parses byteSize-wide unsigned integers from owned[pos:pos+length], builds
-// a UintItem with the result, and sets its raw field to owned[startPos:pos+length].
-func decodeUintItem(owned []byte, startPos, pos, byteSize, length int) (Item, int, error) { //nolint:dupl
+// a UintItem with the result, and sets its raw field to owned[startPos:pos+length]. The
+// count==1 branch carves its struct from slab instead of allocating individually.
+func decodeUintItem(owned []byte, startPos, pos, byteSize, length int, slab *decodeSlab) (Item, int, error) { //nolint:dupl
 	if length%byteSize != 0 {
 		return nil, pos, fmt.Errorf("invalid payload length %d for U%d item: not a multiple of %d", length, byteSize*8, byteSize)
 	}
@@ -365,7 +373,10 @@ func decodeUintItem(owned []byte, startPos, pos, byteSize, length int) (Item, in
 			// unreachable: byteSize is 1, 2, 4, or 8.
 		}
 		pos += length
-		it := &UintItem{byteSize: uint32(byteSize), size: 1, scalar: val}
+		it := slab.nextUint()
+		it.byteSize = uint32(byteSize)
+		it.size = 1
+		it.scalar = val
 		it.setRaw(owned[startPos:pos])
 
 		return it, pos, nil
@@ -398,8 +409,9 @@ func decodeUintItem(owned []byte, startPos, pos, byteSize, length int) (Item, in
 }
 
 // decodeFloatItem parses byteSize-wide IEEE-754 floats from owned[pos:pos+length], builds
-// a FloatItem with the result, and sets its raw field to owned[startPos:pos+length].
-func decodeFloatItem(owned []byte, startPos, pos, byteSize, length int) (Item, int, error) {
+// a FloatItem with the result, and sets its raw field to owned[startPos:pos+length]. The
+// count==1 branch carves its struct from slab instead of allocating individually.
+func decodeFloatItem(owned []byte, startPos, pos, byteSize, length int, slab *decodeSlab) (Item, int, error) {
 	if length%byteSize != 0 {
 		return nil, pos, fmt.Errorf("invalid payload length %d for F%d item: not a multiple of %d", length, byteSize*8, byteSize)
 	}
@@ -417,7 +429,10 @@ func decodeFloatItem(owned []byte, startPos, pos, byteSize, length int) (Item, i
 			val = math.Float64frombits(binary.BigEndian.Uint64(owned[pos:]))
 		}
 		pos += length
-		it := &FloatItem{byteSize: uint32(byteSize), size: 1, scalar: val}
+		it := slab.nextFloat()
+		it.byteSize = uint32(byteSize)
+		it.size = 1
+		it.scalar = val
 		it.setRaw(owned[startPos:pos])
 
 		return it, pos, nil

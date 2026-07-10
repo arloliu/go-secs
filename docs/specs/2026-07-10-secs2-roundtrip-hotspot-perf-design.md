@@ -240,8 +240,12 @@ independently from Parts 1–2.
     existing `secs2` `BenchmarkDecode` small cases and
     `benchmarks/hsmsssdata/v2` small-item round trip as non-slab controls.
     Protocol: fixed `-count` (≥10) before and after into named files,
-    compared with `benchstat`; gate is zero allocs/op or B/op increase and
-    no statistically significant ns/op regression.
+    compared with `benchstat`; gate is zero allocs/op or B/op increase
+    anywhere and no statistically significant ns/op regression on the e2e
+    small-item control. Bare-decoder micro-benchmark ns/op is evidence, not
+    a gate: the fixed ~1ns per-call slab-threading cost (+2–5% on synthetic
+    single-item decodes, invisible at e2e scale) was accepted as a
+    trade-off by the project owner (2026-07-10).
 - Lint: `make lint` clean.
 
 ## Compatibility
