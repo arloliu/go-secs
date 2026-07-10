@@ -60,3 +60,33 @@ on every calibration call Go's testing harness makes, so prefer a fixed
 time predictable.
 
 `results/` is git-ignored scratch output, not checked in.
+
+## Profiling v2
+
+`make profile-v2` runs `BenchmarkConnectionPool_ConcurrentRoundTrip`
+(4 active/passive HSMS-SS connection pairs, 8 concurrent workers each,
+`structuredListItem` payload) and captures CPU, memory, and contention
+(block/mutex) profiles, plus a text summary, instead of a
+benchstat-comparable result:
+
+```sh
+make profile-v2                       # results/{cpu,mem,block,mutex}_v2.prof, results/profile_v2.txt
+make profile-v2 PROFILE_ITERS=4096    # override the -benchtime=Nx count (default 2048; keep it a multiple of 32)
+```
+
+Inspect the profiles with `go tool pprof`:
+
+```sh
+go tool pprof -top results/cpu_v2.prof
+go tool pprof -http=:0 results/mem_v2.prof     # browsable flame graph / graph view
+go tool pprof -top results/block_v2.prof       # goroutine blocking (e.g. writeMu contention)
+go tool pprof -top results/mutex_v2.prof       # contended-mutex stacks
+```
+
+`results/profile_v2.txt` keeps the benchmark's `ns/op`/`B/op`/`allocs/op`
+line for manual comparison across runs taken at different times.
+
+This is standalone profiling tooling for v2 — there is no v1 counterpart
+(the `bench-v2`/`compare` targets deliberately exclude it, see the
+`bench-v2` target's `-bench=BenchmarkConnection_` scoping) and no automated
+summary; `results/*.prof` are raw pprof output, read interactively.
