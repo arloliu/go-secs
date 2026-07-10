@@ -23,3 +23,17 @@ Skills (invoke by name):
 | `/doc-sync [scope]` | Sync `README.md`, `sml/README.md`, and `doc.go` comments against source |
 
 Default scope for all skills: the top-level public packages. Narrow with an argument (`hsmsss`, `secs1`, `sml`, …).
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (github.com/arloliu/go-secs), via the `gh` CLI; external PRs are not pulled into the triage queue. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) — no existing repo label convention to map against. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root (neither exists yet — created lazily by `/domain-modeling`). See `docs/agents/domain.md`.
