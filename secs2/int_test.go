@@ -502,3 +502,128 @@ func TestCombineIntValues(t *testing.T) { //nolint:cyclop
 		})
 	}
 }
+
+// TestIntItem_ScalarFastPath_Equivalence verifies that NewIntItem's single-plain-integer fast
+// path (intScalarFastPath) produces byte-identical results — ToInt, Size, Error, ToBytes — to a
+// slice-shaped call carrying the same value, which always takes the slow combineIntValues path.
+// It covers all ten scalar types the fast path recognizes, an in-range case for each, and every
+// applicable clamp case. int8 has no applicable clamp case: byteSize 1 (the smallest valid
+// byteSize) already matches its native range, so no byteSize can overflow it. uint8 does clamp
+// at byteSize 1 (its 0-255 range exceeds signed byteSize-1's -128..127), exercised below.
+func TestIntItem_ScalarFastPath_Equivalence(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		byteSize   int
+		value      any
+		sliceValue any
+	}{
+		{"int in-range", 8, int(42), []int{42}},
+		{"int low clamp", 1, int(-200), []int{-200}},
+		{"int high clamp", 1, int(200), []int{200}},
+
+		{"int8 in-range", 8, int8(100), []int8{100}},
+
+		{"int16 in-range", 8, int16(1000), []int16{1000}},
+		{"int16 low clamp", 1, int16(-32768), []int16{-32768}},
+		{"int16 high clamp", 1, int16(32767), []int16{32767}},
+
+		{"int32 in-range", 8, int32(1000), []int32{1000}},
+		{"int32 low clamp", 2, int32(math.MinInt32), []int32{math.MinInt32}},
+		{"int32 high clamp", 2, int32(math.MaxInt32), []int32{math.MaxInt32}},
+
+		{"int64 in-range", 8, int64(1000), []int64{1000}},
+		{"int64 low clamp", 4, int64(math.MinInt64), []int64{math.MinInt64}},
+		{"int64 high clamp", 4, int64(math.MaxInt64), []int64{math.MaxInt64}},
+
+		{"uint in-range", 8, uint(42), []uint{42}},
+		{"uint high clamp (byteSize=1)", 1, uint(200), []uint{200}},
+		{"uint high clamp (>MaxInt64, compared before conversion)", 8, uint(math.MaxUint64), []uint{math.MaxUint64}},
+
+		{"uint8 in-range", 8, uint8(200), []uint8{200}},
+		{"uint8 high clamp", 1, uint8(200), []uint8{200}},
+
+		{"uint16 in-range", 8, uint16(40000), []uint16{40000}},
+		{"uint16 high clamp", 2, uint16(40000), []uint16{40000}},
+
+		{"uint32 in-range", 8, uint32(1000), []uint32{1000}},
+		{"uint32 high clamp", 4, uint32(math.MaxUint32), []uint32{math.MaxUint32}},
+
+		{"uint64 in-range", 8, uint64(1000), []uint64{1000}},
+		{"uint64 high clamp (compared before conversion)", 8, uint64(math.MaxUint64), []uint64{math.MaxUint64}},
+		{"uint64 high clamp (byteSize=4)", 4, uint64(math.MaxUint32) + 1, []uint64{uint64(math.MaxUint32) + 1}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			require := require.New(t)
+
+			fast := NewIntItem(test.byteSize, test.value)
+			slow := NewIntItem(test.byteSize, test.sliceValue)
+
+			require.Equal(slow.Error(), fast.Error())
+
+			fastVal, fastErr := fast.ToInt()
+			slowVal, slowErr := slow.ToInt()
+			require.Equal(slowErr, fastErr)
+			require.Equal(slowVal, fastVal)
+
+			require.Equal(slow.Size(), fast.Size())
+			require.Equal(slow.ToBytes(), fast.ToBytes())
+		})
+	}
+}
+
+// TestIntItem_ScalarFastPath_Negative verifies that call shapes the fast path must not intercept
+// — a slice, a string, multiple arguments, uintptr, a user-defined integer type, and every
+// invalid byte size — still take the slow combineIntValues path and produce the pre-existing
+// behavior.
+func TestIntItem_ScalarFastPath_Negative(t *testing.T) {
+	t.Parallel()
+
+	type myInt int
+
+	require := require.New(t)
+
+	// Slice: the fast path only matches len(values)==1 with a plain scalar type, not a slice.
+	sliceItem := NewIntItem(8, []int64{1, 2, 3})
+	require.NoError(sliceItem.Error())
+	got, err := sliceItem.ToInt()
+	require.NoError(err)
+	require.Equal([]int64{1, 2, 3}, got)
+
+	// String: parsed through combineIntValuesSlow, not the fast path's type switch.
+	strItem := NewIntItem(8, "42")
+	require.NoError(strItem.Error())
+	got, err = strItem.ToInt()
+	require.NoError(err)
+	require.Equal([]int64{42}, got)
+
+	// Multi-argument: len(values) != 1 disqualifies the fast path outright.
+	multiItem := NewIntItem(8, int64(1), int64(2))
+	require.NoError(multiItem.Error())
+	got, err = multiItem.ToInt()
+	require.NoError(err)
+	require.Equal([]int64{1, 2}, got)
+
+	// uintptr: not one of the ten recognized types; combineIntValuesSlow rejects it.
+	uintptrItem := NewIntItem(8, uintptr(1))
+	require.Error(uintptrItem.Error())
+	require.ErrorContains(uintptrItem.Error(), "input argument contains invalid type for IntItem")
+
+	// User-defined integer type: not recognized by identity, even though its underlying type is int.
+	myIntItem := NewIntItem(8, myInt(5))
+	require.Error(myIntItem.Error())
+	require.ErrorContains(myIntItem.Error(), "input argument contains invalid type for IntItem")
+
+	// Every invalid byte size must still hit the pre-fast-path validation early return, even when
+	// paired with an otherwise-fast-path-eligible scalar argument.
+	for _, byteSize := range []int{0, 3, 5, 7, 9} {
+		item := NewIntItem(byteSize, int64(1))
+		require.Error(item.Error())
+		require.ErrorContains(item.Error(), "invalid byte size")
+	}
+}

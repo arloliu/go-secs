@@ -148,3 +148,37 @@ func BenchmarkDecodeScalarFloat(b *testing.B) {
 		_, _ = Decode(wireScalarF8)
 	}
 }
+
+// BenchmarkNewIntItem measures NewIntItem across the call shapes exercised by callers: a single
+// plain integer (the common I8(v) construction pattern), a single unsigned integer, a single
+// numeric string, and a multi-value slice. The scalar shapes are the ones a fast path can skip
+// the temporary values slice for; the slice and string shapes must keep allocating through
+// combineIntValues unchanged.
+func BenchmarkNewIntItem(b *testing.B) {
+	b.Run("ScalarInt", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = NewIntItem(8, int64(-42))
+		}
+	})
+	b.Run("ScalarUint", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = NewIntItem(8, uint64(42))
+		}
+	})
+	b.Run("ScalarString", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = NewIntItem(8, "42")
+		}
+	})
+	b.Run("Slice", func(b *testing.B) {
+		values := []int64{1, 2, 3, 4}
+
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = NewIntItem(8, values)
+		}
+	})
+}

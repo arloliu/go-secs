@@ -50,16 +50,21 @@ func NewIntItem(byteSize int, values ...any) Item {
 		return item
 	}
 
-	if err := item.combineIntValues(values...); err != nil {
-		item.setError(err)
+	if v, ok := intScalarFastPath(item.byteSize, values); ok {
+		item.scalar = v
+		item.size = 1
+	} else {
+		if err := item.combineIntValues(values...); err != nil {
+			item.setError(err)
 
-		return item
-	}
+			return item
+		}
 
-	item.size = int32(len(item.values))
-	if item.size == 1 {
-		item.scalar = item.values[0]
-		item.values = nil
+		item.size = int32(len(item.values))
+		if item.size == 1 {
+			item.scalar = item.values[0]
+			item.values = nil
+		}
 	}
 
 	if n, _ := getDataByteLength(item.dataType(), int(item.size)); n > MaxByteSize {
@@ -296,6 +301,67 @@ func (item *IntItem) dataType() string {
 	dataTypeStr := [9]string{"", "i1", "i2", "", "i4", "", "", "", "i8"}
 
 	return dataTypeStr[item.byteSize]
+}
+
+// intScalarFastPath handles the single-plain-integer NewIntItem call shape (len(values) == 1)
+// without allocating the temporary item.values slice combineIntValues builds. It recognizes the
+// exact ten scalar types combineIntValues/combineIntValuesSlow accept: int, int8, int16, int32,
+// int64, uint, uint8, uint16, uint32, uint64. Any other dynamic type — slices, strings, uintptr,
+// user-defined integer types, or a call with zero or more than one argument — returns ok=false so
+// the caller falls back to combineIntValues. Clamping matches combineIntValuesSlow exactly,
+// including comparing high uint/uint64 values before conversion.
+func intScalarFastPath(byteSize uint32, values []any) (clamped int64, ok bool) {
+	if len(values) != 1 {
+		return 0, false
+	}
+
+	var maxVal, minVal int64
+
+	if byteSize == 8 {
+		minVal = math.MinInt64
+		maxVal = math.MaxInt64
+	} else {
+		shift := byteSize*8 - 1
+		maxVal = (1 << shift) - 1
+		minVal = -1 << shift
+	}
+
+	switch v := values[0].(type) {
+	case int:
+		return clampInt64(int64(v), minVal, maxVal), true
+	case int8:
+		return clampInt64(int64(v), minVal, maxVal), true
+	case int16:
+		return clampInt64(int64(v), minVal, maxVal), true
+	case int32:
+		return clampInt64(int64(v), minVal, maxVal), true
+	case int64:
+		return clampInt64(v, minVal, maxVal), true
+	case uint8:
+		return clampInt64(int64(v), minVal, maxVal), true
+	case uint16:
+		return clampInt64(int64(v), minVal, maxVal), true
+	case uint32:
+		return clampInt64(int64(v), minVal, maxVal), true
+	case uint:
+		//nolint:gosec // maxVal is always non-negative; the comparison is safe
+		if uint64(v) > uint64(maxVal) {
+			return maxVal, true
+		}
+
+		//nolint:gosec // v ≤ maxVal, which is a valid int64
+		return int64(v), true
+	case uint64:
+		//nolint:gosec // maxVal is always non-negative; the comparison is safe
+		if v > uint64(maxVal) {
+			return maxVal, true
+		}
+
+		//nolint:gosec // v ≤ maxVal, which is a valid int64
+		return int64(v), true
+	default:
+		return 0, false
+	}
 }
 
 // combineIntValues converts the variadic values into int64 and appends them to item.values,
