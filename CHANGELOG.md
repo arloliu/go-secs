@@ -5,6 +5,33 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-07-11
+
+Performance-only patch release. No public API changes; behavior is
+byte-identical to `2.0.0` across SECS-II wire encoding, error semantics, and
+item construction — every change in this release is validated against a
+parity oracle or an existing behavior-preservation test suite.
+
+### Changed
+
+- `secs2`: `ListItem.Error()` is now O(1) for valid built-in item trees via a
+  known-clean flag computed at construction, replacing a per-call recursive
+  walk.
+- `secs2`: decoded scalar numeric items (`IntItem`/`UintItem`/`FloatItem`,
+  single-value) and decoded `ASCIIItem`/`JIS8Item`/`LocalizedStrItem`/
+  `BinaryItem`/scalar `BooleanItem` are now carved from geometrically-sized
+  slab chunks instead of individually heap-allocated, cutting decode-side
+  allocation count substantially on large item trees.
+- `secs2`: `NewIntItem` gained a scalar fast path that skips an intermediate
+  slice allocation for single-value construction.
+- `secs2`: the SECS-II item header encoder no longer looks up a string-keyed
+  type map on the encode and construction hot paths, removing a measurable
+  CPU cost on large item trees.
+
+On a profiled 32-way concurrent HSMS-SS round trip with a 100,000-leaf
+payload, this release's combined changes measured -33.7% ns/op and -74.6%
+allocs/op against `2.0.0`, with no regression on small-message benchmarks.
+
 ## [2.0.0] - 2026-07-09
 
 First stable release of the **v2 major version** — a ground-up redesign around immutable messages
