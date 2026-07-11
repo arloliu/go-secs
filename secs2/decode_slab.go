@@ -1,6 +1,6 @@
 package secs2
 
-// slabChunkSizes is the geometric chunk-size schedule shared by every scalar numeric slab: the
+// slabChunkSizes is the geometric chunk-size schedule used by all item slabs: the
 // first chunk holds 1 struct, then chunks grow 4, 16, 64, and cap at 128 thereafter. Cumulative
 // capacities are 1, 5, 21, 85, 213, 341, ...
 var slabChunkSizes = [...]int{1, 4, 16, 64, 128}
@@ -10,7 +10,7 @@ var slabChunkSizes = [...]int{1, 4, 16, 64, 128}
 // instead of heap-allocating one struct per decoded leaf. It exists purely to cut per-leaf
 // allocation count on the decode hot path; item semantics are unaffected.
 //
-// Retention model: none of the eight slabbed types adds a pointer-bearing field that
+// Retention model: none of the slabbed item types adds a pointer-bearing field that
 // references a separately-allocated object on the branch that carves from the slab. Scalar
 // numerics and scalar Boolean carry no values/itemErr — only rawPtr is set, pointing into the
 // owned wire buffer the surrounding item tree already keeps alive. ASCII, JIS8, and
