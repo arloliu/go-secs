@@ -64,7 +64,7 @@ func NewUintItem(byteSize int, values ...any) Item {
 		item.values = nil
 	}
 
-	if n, _ := getDataByteLength(item.dataType(), int(item.size)); n > MaxByteSize {
+	if n := int(item.size) * int(item.byteSize); n > MaxByteSize {
 		item.setErrorMsg("item size limit exceeded")
 	}
 
@@ -164,7 +164,12 @@ func (item *UintItem) AppendTo(dst []byte) []byte {
 		return append(dst, item.raw()...)
 	}
 
-	dst, _ = appendHeaderBytes(dst, item.dataType(), int(item.size)) //nolint:errcheck
+	fc, ok := item.formatCode()
+	if !ok {
+		return dst
+	}
+
+	dst, _ = appendHeaderBytesFC(dst, fc, int(item.size)*int(item.byteSize)) //nolint:errcheck
 
 	if item.size == 0 {
 		return dst
@@ -292,12 +297,24 @@ func (item *UintItem) ToSML() string {
 	return sb.String()
 }
 
-// dataType returns the SECS-II type-string for the current byteSize.
-// Callers are responsible for ensuring byteSize is in {1, 2, 4, 8} before calling.
-func (item *UintItem) dataType() string {
-	dataTypeStr := [9]string{"", "u1", "u2", "", "u4", "", "", "", "u8"}
-
-	return dataTypeStr[item.byteSize]
+// formatCode returns the SECS-II format code for the item's byteSize, and false if byteSize is
+// outside the valid set {1, 2, 4, 8}. A zero-value UintItem{} (byteSize 0, as can be constructed
+// directly since UintItem is exported) is the primary case this guards: FormatCode has no invalid
+// sentinel and the zero FormatCode is the valid List code, so callers must check ok before using
+// the returned code.
+func (item *UintItem) formatCode() (FormatCode, bool) {
+	switch item.byteSize {
+	case 1:
+		return Uint8FormatCode, true
+	case 2:
+		return Uint16FormatCode, true
+	case 4:
+		return Uint32FormatCode, true
+	case 8:
+		return Uint64FormatCode, true
+	default:
+		return 0, false
+	}
 }
 
 // combineUintValues converts the variadic values into uint64 and appends them to item.values,

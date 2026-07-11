@@ -70,7 +70,7 @@ func NewFloatItem(byteSize int, values ...any) Item {
 		item.values = nil
 	}
 
-	if n, _ := getDataByteLength(item.dataType(), int(item.size)); n > MaxByteSize {
+	if n := int(item.size) * int(item.byteSize); n > MaxByteSize {
 		item.setErrorMsg("item size limit exceeded")
 	}
 
@@ -170,7 +170,12 @@ func (item *FloatItem) AppendTo(dst []byte) []byte {
 		return append(dst, item.raw()...)
 	}
 
-	dst, _ = appendHeaderBytes(dst, item.dataType(), int(item.size)) //nolint:errcheck
+	fc, ok := item.formatCode()
+	if !ok {
+		return dst
+	}
+
+	dst, _ = appendHeaderBytesFC(dst, fc, int(item.size)*int(item.byteSize)) //nolint:errcheck
 
 	if item.size == 0 {
 		return dst
@@ -270,12 +275,20 @@ func (item *FloatItem) ToSML() string {
 	return sb.String()
 }
 
-// dataType returns the SECS-II type-string for the current byteSize.
-// Callers are responsible for ensuring byteSize is in {4, 8} before calling.
-func (item *FloatItem) dataType() string {
-	dataTypeStr := [9]string{"", "", "", "", "f4", "", "", "", "f8"}
-
-	return dataTypeStr[item.byteSize]
+// formatCode returns the SECS-II format code for the item's byteSize, and false if byteSize is
+// outside the valid set {4, 8}. A zero-value FloatItem{} (byteSize 0, as can be constructed
+// directly since FloatItem is exported) is the primary case this guards: FormatCode has no
+// invalid sentinel and the zero FormatCode is the valid List code, so callers must check ok
+// before using the returned code.
+func (item *FloatItem) formatCode() (FormatCode, bool) {
+	switch item.byteSize {
+	case 4:
+		return Float32FormatCode, true
+	case 8:
+		return Float64FormatCode, true
+	default:
+		return 0, false
+	}
 }
 
 // combineFloatValues converts the variadic values into float64 and appends them to item.values.

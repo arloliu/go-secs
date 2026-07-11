@@ -40,8 +40,7 @@ var _ Item = (*ListItem)(nil)
 func NewListItem(values ...Item) Item {
 	item := &ListItem{}
 
-	dataBytes, _ := getDataByteLength(ListType, len(values))
-	if dataBytes > MaxByteSize {
+	if dataBytes := len(values); dataBytes > MaxByteSize {
 		item.setErrorMsg("item size limit exceeded")
 
 		return item
@@ -244,7 +243,7 @@ func (item *ListItem) AppendTo(dst []byte) []byte {
 		return append(dst, item.raw()...)
 	}
 
-	dst, _ = appendHeaderBytes(dst, ListType, len(item.values)) //nolint:errcheck
+	dst, _ = appendHeaderBytesFC(dst, ListFormatCode, len(item.values)) //nolint:errcheck
 
 	for _, child := range item.values {
 		dst = child.AppendTo(dst)

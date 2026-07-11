@@ -52,7 +52,7 @@ func NewBooleanItem(values ...any) Item {
 		item.values = nil
 	}
 
-	if n, _ := getDataByteLength(BooleanType, int(item.size)); n > MaxByteSize {
+	if n := int(item.size); n > MaxByteSize {
 		item.setErrorMsg("item size limit exceeded")
 	}
 
@@ -150,7 +150,7 @@ func (item *BooleanItem) AppendTo(dst []byte) []byte {
 		return append(dst, item.raw()...)
 	}
 
-	dst, _ = appendHeaderBytes(dst, BooleanType, int(item.size)) //nolint:errcheck
+	dst, _ = appendHeaderBytesFC(dst, BooleanFormatCode, int(item.size)) //nolint:errcheck
 
 	if item.size == 0 {
 		return dst

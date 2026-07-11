@@ -97,7 +97,7 @@ func (item *ASCIIItem) AppendTo(dst []byte) []byte {
 		return append(dst, item.raw()...)
 	}
 
-	dst, _ = appendHeaderBytes(dst, ASCIIType, len(item.value)) //nolint:errcheck
+	dst, _ = appendHeaderBytesFC(dst, ASCIIFormatCode, len(item.value)) //nolint:errcheck
 
 	return append(dst, item.value...)
 }

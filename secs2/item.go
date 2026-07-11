@@ -96,32 +96,6 @@ func (fc FormatCode) String() string {
 	}
 }
 
-// itemType holds encoding metadata for one SECS-II data type.
-type itemType struct {
-	FormatCode FormatCode
-	Size       int // bytes per element
-}
-
-// itemTypeMap maps type-string constants to their encoding metadata.
-var itemTypeMap = map[string]*itemType{
-	ListType:         {FormatCode: ListFormatCode, Size: 1},
-	BinaryType:       {FormatCode: BinaryFormatCode, Size: 1},
-	BooleanType:      {FormatCode: BooleanFormatCode, Size: 1},
-	ASCIIType:        {FormatCode: ASCIIFormatCode, Size: 1},
-	JIS8Type:         {FormatCode: JIS8FormatCode, Size: 1},
-	LocalizedStrType: {FormatCode: LocalizedStrFormatCode, Size: 1},
-	Int64Type:        {FormatCode: Int64FormatCode, Size: 8},
-	Int8Type:         {FormatCode: Int8FormatCode, Size: 1},
-	Int16Type:        {FormatCode: Int16FormatCode, Size: 2},
-	Int32Type:        {FormatCode: Int32FormatCode, Size: 4},
-	Float64Type:      {FormatCode: Float64FormatCode, Size: 8},
-	Float32Type:      {FormatCode: Float32FormatCode, Size: 4},
-	Uint64Type:       {FormatCode: Uint64FormatCode, Size: 8},
-	Uint8Type:        {FormatCode: Uint8FormatCode, Size: 1},
-	Uint16Type:       {FormatCode: Uint16FormatCode, Size: 2},
-	Uint32Type:       {FormatCode: Uint32FormatCode, Size: 4},
-}
-
 // ItemError records a failed item construction or type mismatch.
 type ItemError struct {
 	err error
@@ -461,35 +435,17 @@ func (item *EmptyItem) IsEmpty() bool { return true }
 
 var _ Item = (*EmptyItem)(nil)
 
-// getDataByteLength returns the total payload byte length for the given type string and element count.
-func getDataByteLength(dataType string, size int) (int, error) {
-	it, ok := itemTypeMap[dataType]
-	if !ok {
-		return 0, fmt.Errorf("invalid item type %s", dataType)
-	}
-
-	return size * it.Size, nil
-}
-
-// appendHeaderBytes appends the SECS-II item header (format byte + 1..3 length bytes) for the given
-// data type and element count into dst, returning the extended slice. It appends into dst rather
-// than allocating a fresh buffer.
-func appendHeaderBytes(dst []byte, dataType string, size int) ([]byte, error) {
-	it, ok := itemTypeMap[dataType]
-	if !ok {
-		return dst, fmt.Errorf("invalid item type: %s", dataType)
-	}
-
-	dataByteLength, err := getDataByteLength(dataType, size)
-	if err != nil {
-		return dst, err
-	}
-
-	if dataByteLength > MaxByteSize {
+// appendHeaderBytesFC appends the SECS-II item header (format byte + 1..3 length bytes) for the
+// given format code and length-field value into dst, returning the extended slice. lengthField is
+// the SECS-II length field: total payload bytes for leaf types (element count × bytes per
+// element, computed by the caller), or the direct-child count for lists — it is NOT the
+// recursively-encoded byte length. It appends into dst rather than allocating a fresh buffer.
+func appendHeaderBytesFC(dst []byte, fc FormatCode, lengthField int) ([]byte, error) {
+	if lengthField > MaxByteSize {
 		return dst, errors.New("size limit exceeded")
 	}
 
-	lenBytes := [3]byte{byte(dataByteLength >> 16), byte(dataByteLength >> 8), byte(dataByteLength)}
+	lenBytes := [3]byte{byte(lengthField >> 16), byte(lengthField >> 8), byte(lengthField)}
 	lenByteCount := 3
 
 	if lenBytes[0] == 0 {
@@ -499,7 +455,7 @@ func appendHeaderBytes(dst []byte, dataType string, size int) ([]byte, error) {
 		}
 	}
 
-	dst = append(dst, byte(it.FormatCode)<<2+byte(lenByteCount))
+	dst = append(dst, byte(fc)<<2+byte(lenByteCount))
 	dst = append(dst, lenBytes[3-lenByteCount:]...)
 
 	return dst, nil
@@ -507,8 +463,8 @@ func appendHeaderBytes(dst []byte, dataType string, size int) ([]byte, error) {
 
 // getHeaderBytes returns a standalone header slice backed by a fresh buffer, for callers and tests
 // that need a slice without an existing buffer to append into.
-func getHeaderBytes(dataType string, size int, preAlloc int) ([]byte, error) {
-	return appendHeaderBytes(make([]byte, 0, 4+preAlloc), dataType, size)
+func getHeaderBytes(fc FormatCode, lengthField int, preAlloc int) ([]byte, error) {
+	return appendHeaderBytesFC(make([]byte, 0, 4+preAlloc), fc, lengthField)
 }
 
 // headerLen returns the byte count of the SECS-II item header (format byte + 1..3 length bytes)

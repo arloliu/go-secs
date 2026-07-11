@@ -148,7 +148,7 @@ func (item *LocalizedStrItem) AppendTo(dst []byte) []byte {
 
 	// The length field covers both the 2-byte LSH and the string bytes.
 	n := len(item.value) + 2
-	dst, _ = appendHeaderBytes(dst, LocalizedStrType, n) //nolint:errcheck
+	dst, _ = appendHeaderBytesFC(dst, LocalizedStrFormatCode, n) //nolint:errcheck
 	dst = append(dst, byte(item.lsh>>8), byte(item.lsh))
 
 	return append(dst, item.value...)

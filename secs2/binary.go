@@ -48,7 +48,7 @@ func NewBinaryItem(values ...any) Item {
 		return item
 	}
 
-	if n, _ := getDataByteLength(BinaryType, len(item.values)); n > MaxByteSize {
+	if n := len(item.values); n > MaxByteSize {
 		item.setErrorMsg("item size limit exceeded")
 	}
 
@@ -124,7 +124,7 @@ func (item *BinaryItem) AppendTo(dst []byte) []byte {
 		return append(dst, item.raw()...)
 	}
 
-	dst, _ = appendHeaderBytes(dst, BinaryType, len(item.values)) //nolint:errcheck
+	dst, _ = appendHeaderBytesFC(dst, BinaryFormatCode, len(item.values)) //nolint:errcheck
 
 	return append(dst, item.values...)
 }

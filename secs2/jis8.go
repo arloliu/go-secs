@@ -96,7 +96,7 @@ func (item *JIS8Item) AppendTo(dst []byte) []byte {
 		return append(dst, item.raw()...)
 	}
 
-	dst, _ = appendHeaderBytes(dst, JIS8Type, len(item.value)) //nolint:errcheck
+	dst, _ = appendHeaderBytesFC(dst, JIS8FormatCode, len(item.value)) //nolint:errcheck
 
 	return append(dst, item.value...)
 }
