@@ -149,6 +149,70 @@ func BenchmarkDecodeScalarFloat(b *testing.B) {
 	}
 }
 
+// Flat 64-leaf same-type list wire encodings, used by BenchmarkDecodeSlabTypes below. Each is
+// the shape that reaches the decode-side item slab for its type: ASCII/JIS8/LocalizedStr/Binary
+// carve unconditionally, and Boolean carves on its scalar (length==1) branch. 64 leaves is
+// chosen so the geometric chunk schedule (1, 4, 16, 64, 128) needs exactly 4 chunk allocations
+// (1+4+16+64 = 85 >= 64) in place of 64 individual struct allocations — see
+// TestDecode_SlabTypesChunkBoundaries and the decodeSlab comment for the retention argument.
+var (
+	wireSlab64ASCII = buildSlab64Wire(func(i int) Item { return A("abcdefgh") })
+	wireSlab64JIS8  = buildSlab64Wire(func(i int) Item { return J("abcdefgh") })
+	wireSlab64LStr  = buildSlab64Wire(func(i int) Item { return W("abcdefgh") })
+	wireSlab64Bin   = buildSlab64Wire(func(i int) Item { return B([]byte{1, 2, 3, 4}) })
+	wireSlab64Bool  = buildSlab64Wire(func(i int) Item { return BOOLEAN(true) })
+)
+
+// buildSlab64Wire builds a flat outer list of 64 same-type leaves via build and returns its
+// wire encoding.
+func buildSlab64Wire(build func(i int) Item) []byte {
+	const n = 64
+
+	children := make([]Item, n)
+	for i := range children {
+		children[i] = build(i)
+	}
+
+	return NewListItem(children...).ToBytes()
+}
+
+// BenchmarkDecodeSlabTypes measures Decode on a flat list of 64 same-type leaves, one subcase
+// per decode-side-slabbed type (ASCII, JIS8, LocalizedStr, Binary, and scalar Boolean). Each
+// subcase is bound to exactly one type's slab so the teeth check (reverting one type's carve
+// call to a heap literal) can be detected in isolation without perturbing the others.
+func BenchmarkDecodeSlabTypes(b *testing.B) {
+	b.Run("ASCII", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_, _ = Decode(wireSlab64ASCII)
+		}
+	})
+	b.Run("JIS8", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_, _ = Decode(wireSlab64JIS8)
+		}
+	})
+	b.Run("LocalizedStr", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_, _ = Decode(wireSlab64LStr)
+		}
+	})
+	b.Run("Binary", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_, _ = Decode(wireSlab64Bin)
+		}
+	})
+	b.Run("Boolean", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			_, _ = Decode(wireSlab64Bool)
+		}
+	})
+}
+
 // BenchmarkNewIntItem measures NewIntItem across the call shapes exercised by callers: a single
 // plain integer (the common I8(v) construction pattern), a single unsigned integer, a single
 // numeric string, and a multi-value slice. The scalar shapes are the ones a fast path can skip
