@@ -150,3 +150,80 @@ func TestDataMessage_RawFrame_Item_ScalarNumeric(t *testing.T) {
 	require.NoError(t, err)
 	require.InDelta(t, 3.5, floatVal, 1e-9)
 }
+
+// buildOwnedSlabTypesDataFrameForTest builds a [header||body] owned buffer whose body is a
+// mixed list containing one leaf of each of the five decode-side-slabbed non-numeric types —
+// ASCII, JIS8, LocalizedStr, Binary, and scalar Boolean — exercising secs2's decode-side item
+// slab for all five on the production raw-frame path.
+func buildOwnedSlabTypesDataFrameForTest(t *testing.T) []byte {
+	t.Helper()
+
+	body := secs2.NewListItem(
+		secs2.NewASCIIItem("hello"),
+		secs2.NewJIS8Item("world"),
+		secs2.NewUTF8StrItem("localized"),
+		secs2.NewBinaryItem([]byte{0x01, 0x02, 0x03}),
+		secs2.NewBooleanItem(true),
+	).ToBytes()
+	frame := make([]byte, 10+len(body))
+
+	frame[0] = 0x00
+	frame[1] = 0x01
+	frame[2] = 0x01
+	frame[3] = 0x01
+	frame[4] = 0x00
+	frame[5] = 0x00
+	frame[6] = 0x00
+	frame[7] = 0x00
+	frame[8] = 0x00
+	frame[9] = 0x01
+
+	copy(frame[10:], body)
+
+	return frame
+}
+
+// TestDataMessage_RawFrame_Item_SlabTypes decodes a raw frame whose body contains one leaf of
+// each decode-side-slabbed non-numeric type (ASCII, JIS8, LocalizedStr, Binary, scalar Boolean)
+// via DataMessage.Item(), exercising secs2's decode-side item slab extension on the production
+// raw-frame path, and asserts the exact body bytes round-trip.
+func TestDataMessage_RawFrame_Item_SlabTypes(t *testing.T) {
+	frame := buildOwnedSlabTypesDataFrameForTest(t)
+	wantBody := append([]byte(nil), frame[10:]...)
+
+	msg, err := decodeOwnedFrame(frame)
+	require.NoError(t, err)
+
+	dm, ok := msg.(*DataMessage)
+	require.True(t, ok, "expected *DataMessage from decodeOwnedFrame")
+
+	item, err := dm.Item()
+	require.NoError(t, err)
+	require.NoError(t, item.Error())
+
+	children, err := item.ToList()
+	require.NoError(t, err)
+	require.Len(t, children, 5)
+
+	ascii, err := children[0].ToASCII()
+	require.NoError(t, err)
+	require.Equal(t, "hello", ascii)
+
+	jis8, err := children[1].ToJIS8()
+	require.NoError(t, err)
+	require.Equal(t, "world", jis8)
+
+	lstr, err := children[2].ToLocalizedStr()
+	require.NoError(t, err)
+	require.Equal(t, "localized", lstr)
+
+	bin, err := children[3].ToBinary()
+	require.NoError(t, err)
+	require.Equal(t, []byte{0x01, 0x02, 0x03}, bin)
+
+	boolVal, err := children[4].BoolAt(0)
+	require.NoError(t, err)
+	require.True(t, boolVal)
+
+	require.Equal(t, wantBody, item.ToBytes(), "raw-frame decode must round-trip the exact body bytes")
+}

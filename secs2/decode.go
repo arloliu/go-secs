@@ -110,7 +110,8 @@ func ownedString(b []byte) string {
 // decodeItem parses one SECS-II item from owned[pos:] and returns the item, the new byte
 // position, and any error. owned is the buffer cloned from the caller's input at Decode entry;
 // each decoded item's raw field is set to a sub-slice of owned. slab carves the count==1
-// numeric leaves for this call's whole recursion; see decodeSlab.
+// numeric leaves, ASCII/JIS8/LocalizedStr/Binary leaves, and scalar Boolean leaves for this
+// call's whole recursion; see decodeSlab.
 func decodeItem(owned []byte, pos, depth int, slab *decodeSlab) (Item, int, error) { //nolint:cyclop,gocyclo
 	startPos := pos
 
@@ -182,7 +183,8 @@ func decodeItem(owned []byte, pos, depth int, slab *decodeSlab) (Item, int, erro
 
 		s := ownedString(owned[pos : pos+length])
 		pos += length
-		it := &ASCIIItem{value: s}
+		it := slab.nextASCII()
+		it.value = s
 		it.setRaw(owned[startPos:pos])
 
 		return it, pos, nil
@@ -194,7 +196,8 @@ func decodeItem(owned []byte, pos, depth int, slab *decodeSlab) (Item, int, erro
 
 		s := ownedString(owned[pos : pos+length])
 		pos += length
-		it := &JIS8Item{value: s}
+		it := slab.nextJIS8()
+		it.value = s
 		it.setRaw(owned[startPos:pos])
 
 		return it, pos, nil
@@ -206,7 +209,8 @@ func decodeItem(owned []byte, pos, depth int, slab *decodeSlab) (Item, int, erro
 
 		payload := owned[pos : pos+length]
 		pos += length
-		it := &BinaryItem{values: payload}
+		it := slab.nextBinary()
+		it.values = payload
 		it.setRaw(owned[startPos:pos])
 
 		return it, pos, nil
@@ -219,7 +223,9 @@ func decodeItem(owned []byte, pos, depth int, slab *decodeSlab) (Item, int, erro
 		if length == 1 {
 			val := owned[pos] != 0
 			pos++
-			it := &BooleanItem{size: 1, scalar: val}
+			it := slab.nextBoolean()
+			it.size = 1
+			it.scalar = val
 			it.setRaw(owned[startPos:pos])
 
 			return it, pos, nil
@@ -249,7 +255,9 @@ func decodeItem(owned []byte, pos, depth int, slab *decodeSlab) (Item, int, erro
 		lsh := uint16(owned[pos])<<8 | uint16(owned[pos+1])
 		s := ownedString(owned[pos+2 : pos+length])
 		pos += length
-		it := &LocalizedStrItem{lsh: lsh, value: s}
+		it := slab.nextLocalizedStr()
+		it.lsh = lsh
+		it.value = s
 		it.setRaw(owned[startPos:pos])
 
 		return it, pos, nil
