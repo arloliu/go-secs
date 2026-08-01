@@ -11,6 +11,10 @@ and SECS-I over TCP/IP (SEMI E4), together with an SML (SECS Message Language) p
 
 > This is the **v2** module (`github.com/arloliu/go-secs/v2`), built around an immutable-message
 > model. Every message and data item is immutable and safe to share across goroutines.
+>
+> Need v1 (`github.com/arloliu/go-secs`, no `/v2` suffix)? It's in maintenance mode — see the
+> [v1 branch](https://github.com/arloliu/go-secs/tree/v1) or
+> [pkg.go.dev/github.com/arloliu/go-secs](https://pkg.go.dev/github.com/arloliu/go-secs).
 
 ## Supports
 
