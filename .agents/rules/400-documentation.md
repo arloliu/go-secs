@@ -100,6 +100,9 @@ Do not rewrap stable text either.
 Reflow only the paragraph or comment block whose content you are already changing, never the rest of the file.
 A pure rewrap produces a large, unreviewable diff that changes nothing but whitespace.
 
+The single exception is a deliberate migration pass the user asks for, run through the `doc-sync` skill in reflow mode.
+It lands in its own commit that changes line breaks and nothing else, which is what keeps a diff that large reviewable.
+
 ### Scope
 
 Go comments, Godoc and internal alike, and markdown prose: `README.md`, `CHANGELOG.md`, `docs/`, specs, and the rule files in `.agents/rules/`.
