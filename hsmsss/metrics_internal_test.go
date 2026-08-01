@@ -37,3 +37,17 @@ func TestConnectionMetrics_ControlCounters(t *testing.T) {
 	require.Equal(t, uint64(1), m.RejectRecvCount())
 	require.Equal(t, uint64(1), m.LinktestReqRecvCount())
 }
+
+func TestConnectionMetrics_LinktestSuppressionCounters(t *testing.T) {
+	var m ConnectionMetrics
+
+	require.Zero(t, m.LinktestSuppressedCount())
+	require.Zero(t, m.LinktestCreditedCount())
+
+	m.incLinktestSuppressed()
+	m.incLinktestSuppressed()
+	m.incLinktestCredited()
+
+	require.Equal(t, uint64(2), m.LinktestSuppressedCount())
+	require.Equal(t, uint64(1), m.LinktestCreditedCount())
+}

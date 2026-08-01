@@ -71,6 +71,8 @@ func (t *transport) recvLoop(g *genWG) {
 			return
 		}
 
+		t.lastRecvStamp.Store(t.monoNanos()) // any complete inbound frame is proof of link liveness
+
 		if !t.dispatchFrame(g, frame) {
 			// dispatchFrame already drove teardown (a peer Separate while Selected called
 			// rt.TCPDown). Do not call TCPDown again; just end the loop so Stop can join it.

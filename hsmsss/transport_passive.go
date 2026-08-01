@@ -107,6 +107,7 @@ func (t *transport) acceptLoop(g *genWG, ln net.Listener) {
 	// Wait — the §7.B Add-vs-Wait guarantee for this generation's recv loop.
 	t.connMu.Lock()
 	t.conn = conn
+	t.resetActivityStamps()
 	t.connMu.Unlock()
 
 	t.rt.TCPUp(conn)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/arloliu/go-secs/v2/hsms"
@@ -127,13 +128,31 @@ type transport struct {
 	// deterministically. Read via clock(), which is nil-safe so a bare transport{} literal
 	// (used in some tests/fuzz) keeps working without setting now.
 	now func() time.Time
+
+	// clockBase is the immutable monotonic reference for the activity stamps below; set once in
+	// newTransport, never re-stored, so monoNanos() is race-free and wall-clock-jump immune.
+	clockBase time.Time
+
+	// lastSendStamp / lastRecvStamp hold monoNanos() at the last successful frame write /
+	// frame read. They feed the activity-based linktest suppression in runLinktest: the
+	// send stamp is written under the core's write serialization (single writer), the recv
+	// stamp by the recv goroutine (single reader) — both read lock-free by the linktest
+	// goroutine, so plain atomics suffice. Start re-baselines both (resetActivityStamps)
+	// when it publishes a new generation's conn; a torn-down generation's straggler can
+	// stamp at most once after that, which delays/credits at most one probe (bounded,
+	// documented in the plan's accepted-races note).
+	lastSendStamp atomic.Int64
+	lastRecvStamp atomic.Int64
 }
 
 // newTransport constructs a transport for cfg with an initial per-generation WaitGroup bundle.
 // Called by hsmsss.New. ArmStart swaps in a fresh bundle before each subsequent generation. The
 // clock defaults to time.Now; tests inject t.now to drive the T8 read deadline deterministically.
 func newTransport(cfg Config) *transport {
-	return &transport{cfg: cfg, metrics: &ConnectionMetrics{}, wg: &genWG{}, allocFrame: makeFrame, now: time.Now}
+	return &transport{
+		cfg: cfg, metrics: &ConnectionMetrics{}, wg: &genWG{}, allocFrame: makeFrame, now: time.Now,
+		clockBase: time.Now(),
+	}
 }
 
 // clock returns the transport's injectable clock, defaulting to time.Now when now is unset. It is
@@ -334,8 +353,34 @@ func (t *transport) Write(_ context.Context, conn net.Conn, bufs net.Buffers) er
 	}
 
 	_, err := bufs.WriteTo(conn)
+	if err == nil {
+		t.lastSendStamp.Store(t.monoNanos())
+	}
 
 	return err
+}
+
+// monoNanos returns nanoseconds elapsed since this transport's immutable clockBase.
+// time.Since uses the monotonic clock, so stamps never move backward on wall-clock changes.
+func (t *transport) monoNanos() int64 {
+	return int64(time.Since(t.clockBase))
+}
+
+// sinceLastActivity returns how long the line has been silent: elapsed time since the most
+// recent successful frame write or read. With no stamps yet it is the age of the transport,
+// which correctly reads as "long idle".
+func (t *transport) sinceLastActivity() time.Duration {
+	last := max(t.lastSendStamp.Load(), t.lastRecvStamp.Load())
+	return time.Duration(t.monoNanos() - last)
+}
+
+// resetActivityStamps re-baselines both activity stamps to "now". Start calls it when it
+// publishes a fresh generation's conn, so suppression decisions never consult a prior
+// generation's traffic.
+func (t *transport) resetActivityStamps() {
+	now := t.monoNanos()
+	t.lastSendStamp.Store(now)
+	t.lastRecvStamp.Store(now)
 }
 
 // SetReadDeadline sets the read deadline on conn — the epoch's socket, passed explicitly for

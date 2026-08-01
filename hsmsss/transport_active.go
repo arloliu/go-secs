@@ -156,6 +156,7 @@ func (t *transport) startActive(ctx context.Context) error {
 	t.connMu.Lock()
 	t.conn = conn
 	t.procCancel = procCancel
+	t.resetActivityStamps()
 	t.connMu.Unlock()
 
 	t.rt.TCPUp(conn)

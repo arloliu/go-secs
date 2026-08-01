@@ -11,15 +11,17 @@ import "sync/atomic"
 // All reads and writes are atomic; safe to read concurrently with the transport goroutines.
 // Reach an instance via Connection.ControlMetrics().
 type ConnectionMetrics struct {
-	linktestSend      atomic.Uint64 // Linktest.req sent by our own auto-linktest
-	linktestRecv      atomic.Uint64 // Linktest.rsp received (successful round-trip)
-	linktestErr       atomic.Uint64 // our own linktest round-trip failed (T6 timeout or write error)
-	selectEstablished atomic.Uint64 // Select responder committed NotSelected -> Selected (E37 §9.2.2)
-	separateRecv      atomic.Uint64 // peer Separate.req received while Selected (peer-initiated teardown)
-	rejectSent        atomic.Uint64 // Reject.req WE emit (peer sent us a malformed/unexpected frame)
-	rejectRecv        atomic.Uint64 // inbound Reject.req received (peer rejected one of our sends)
-	linktestReqRecv   atomic.Uint64 // inbound Linktest.req answered (peer probing us)
-	readErr           atomic.Uint64 // socket read / frame-length error in recvLoop
+	linktestSend       atomic.Uint64 // Linktest.req sent by our own auto-linktest
+	linktestRecv       atomic.Uint64 // Linktest.rsp received (successful round-trip)
+	linktestErr        atomic.Uint64 // our own linktest round-trip failed (T6 timeout or write error)
+	selectEstablished  atomic.Uint64 // Select responder committed NotSelected -> Selected (E37 §9.2.2)
+	separateRecv       atomic.Uint64 // peer Separate.req received while Selected (peer-initiated teardown)
+	rejectSent         atomic.Uint64 // Reject.req WE emit (peer sent us a malformed/unexpected frame)
+	rejectRecv         atomic.Uint64 // inbound Reject.req received (peer rejected one of our sends)
+	linktestReqRecv    atomic.Uint64 // inbound Linktest.req answered (peer probing us)
+	readErr            atomic.Uint64 // socket read / frame-length error in recvLoop
+	linktestSuppressed atomic.Uint64 // auto-linktest fire skipped: line active or a data reply outstanding
+	linktestCredited   atomic.Uint64 // linktest failure forgiven: the link showed life (frame after the probe, or a reply outstanding)
 }
 
 // LinktestSendCount returns the total number of Linktest.req messages sent by this connection's own
@@ -84,6 +86,25 @@ func (m *ConnectionMetrics) ReadErrCount() uint64 {
 	return m.readErr.Load()
 }
 
+// LinktestSuppressedCount returns the number of auto-linktest timer fires skipped by
+// activity-based suppression (see hsms.WithLinktestSuppression): the line had traffic within
+// the last linktest interval, or a sent data message was still awaiting its reply. The
+// activity-based partial re-arm can skip more than one fire inside a single interval, so this
+// counts timer fires, not distinct probe opportunities. It only ever grows; a steadily climbing
+// value on a busy connection is expected and healthy.
+func (m *ConnectionMetrics) LinktestSuppressedCount() uint64 {
+	return m.linktestSuppressed.Load()
+}
+
+// LinktestCreditedCount returns the number of failed linktest round-trips that were NOT
+// counted toward the linktest-failure disconnect threshold because the link showed other
+// signs of life — a frame arrived after the Linktest.req went out, or a data reply was
+// still outstanding when the probe timed out (see hsms.WithLinktestSuppression).
+// LinktestErrCount still counts these failures.
+func (m *ConnectionMetrics) LinktestCreditedCount() uint64 {
+	return m.linktestCredited.Load()
+}
+
 // Unexported increment helpers used by the transport (see transport_procedures.go and
 // transport_control.go). Kept private so ConnectionMetrics can only ever reflect real protocol
 // events, never application-code manipulation — the same encapsulation hsms.ConnectionMetrics uses.
@@ -122,4 +143,12 @@ func (m *ConnectionMetrics) incLinktestReqRecv() {
 
 func (m *ConnectionMetrics) incReadErrCount() {
 	m.readErr.Add(1)
+}
+
+func (m *ConnectionMetrics) incLinktestSuppressed() {
+	m.linktestSuppressed.Add(1)
+}
+
+func (m *ConnectionMetrics) incLinktestCredited() {
+	m.linktestCredited.Add(1)
 }
