@@ -45,6 +45,7 @@ type ConnectionConfig struct {
 	sessionID                  uint16
 	linktestInterval           time.Duration
 	linktestFailThreshold      int
+	linktestSuppression        bool
 	senderQueueSize            int
 	closeTimeout               time.Duration
 	writeTimeout               time.Duration
@@ -76,6 +77,7 @@ func DefaultConnectionConfig() *ConnectionConfig {
 		sessionID:                  0xFFFF,
 		linktestInterval:           0, // 0 = disabled
 		linktestFailThreshold:      3,
+		linktestSuppression:        true,
 		senderQueueSize:            64,
 		closeTimeout:               10 * time.Second,
 		writeTimeout:               30 * time.Second,
@@ -296,6 +298,55 @@ func WithLinktestFailThreshold(n int) ConnOption {
 
 		c.linktestFailThreshold = n
 
+		return nil
+	}
+}
+
+// WithLinktestSuppression enables or disables activity-based suppression of the
+// automatic linktest (enabled by default).
+//
+// When enabled, the auto-linktest (see [WithLinktestInterval]) only probes a link
+// that is actually idle:
+//
+//   - A Linktest.req is sent only after a full linktest interval with no HSMS
+//     frame sent or received on the connection. A line carrying traffic is in
+//     active use, so probing it adds redundant load — some older equipment is
+//     slow to answer Linktest.req while busy. Note the asymmetry: outbound
+//     traffic suppresses probing, but only received frames or an outstanding
+//     reply count as proof of peer liveness for the failure rules below (a
+//     successful write proves local buffering, not the peer).
+//   - No Linktest.req is sent while a sent data message is awaiting its reply.
+//     During that window the T3 reply timeout already bounds failure detection,
+//     and probing equipment that is busy processing a long-running command
+//     (a recipe transfer can take minutes) risks a spurious T6 timeout.
+//   - A linktest failure (T6 timeout) is not counted toward the
+//     linktest-failure disconnect threshold (see [WithLinktestFailThreshold])
+//     while the link shows other signs of life: a frame arrived after the
+//     Linktest.req went out, a data reply is still outstanding, or a frame
+//     arrived since the previous counted failure. Only consecutive failures on
+//     a silent link accumulate toward the disconnect.
+//
+// A truly dead link is still detected: a silent link with nothing outstanding is
+// probed every interval exactly as before, so it is dropped within roughly
+// threshold x (interval + T6) of its last sign of life; an unanswered reply is
+// bounded by T3 first. Two rare races can extend that bound: a frame that races
+// the probe's own wire write can earn false credit, pushing detection out by up
+// to one extra probe cycle (interval + T6); and immediately after a reconnect, a
+// late frame from the torn-down session can restart the failure run once,
+// making the post-reconnect worst case roughly 2 x threshold x (interval + T6).
+// Use a linktest failure threshold of at least 2 (the default is 3): a single
+// probe timeout that races a lone received frame is then absorbed instead of
+// disconnecting, and the disconnect decision re-checks for signs of life
+// (received frames, or a reply still outstanding) immediately before dropping
+// the link — though life arriving in the final instants of that decision can
+// still be missed. With a threshold of 1, any single counted probe timeout —
+// one with no observed sign of life — disconnects, with or without suppression.
+// Disable suppression to restore unconditional periodic linktests — for example
+// when the application streams fire-and-forget messages continuously (the line
+// is never silent, so a suppressed linktest would never run).
+func WithLinktestSuppression(enabled bool) ConnOption {
+	return func(c *ConnectionConfig) error {
+		c.linktestSuppression = enabled
 		return nil
 	}
 }

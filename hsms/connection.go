@@ -203,6 +203,24 @@ func (c *connection) LinktestFailThreshold() int {
 	return c.cfg.Load().linktestFailThreshold
 }
 
+// LinktestSuppression reports whether activity-based linktest suppression is
+// enabled (see WithLinktestSuppression). Lock-free atomic read: the transport
+// reads it once per entry to Selected, so a reconfig applies on the NEXT
+// Selected-entry, never mid-session. Reached by the hsmsss transport through a
+// package-local capability interface, deliberately NOT via TransportRuntime
+// (widening that exported interface would break external implementers).
+func (c *connection) LinktestSuppression() bool {
+	return c.cfg.Load().linktestSuppression
+}
+
+// DataMsgInflight returns the current number of sent data messages still
+// awaiting a reply — the same gauge as ConnectionMetrics.DataMsgInflightCount.
+// Reached by the hsmsss transport through the same capability interface as
+// LinktestSuppression, for the linktest inflight-skip and liveness-credit rules.
+func (c *connection) DataMsgInflight() int64 {
+	return c.metrics.DataMsgInflightCount()
+}
+
 // NextSystemBytes returns the next System Bytes value from the connection's per-connection
 // generator (TransportRuntime). It is the single source of unique System Bytes for outbound
 // control requests the transport initiates (Select.req, Linktest.req, Separate.req), so those

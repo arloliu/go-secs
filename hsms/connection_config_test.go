@@ -117,6 +117,35 @@ func TestConnectionConfig_WithLogger(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestConnectionConfig_LinktestSuppressionDefault(t *testing.T) {
+	cfg := DefaultConnectionConfig()
+	require.True(t, cfg.linktestSuppression, "linktest suppression must default to enabled")
+}
+
+func TestWithLinktestSuppression(t *testing.T) {
+	cfg := DefaultConnectionConfig()
+
+	require.NoError(t, cfg.apply(WithLinktestSuppression(false)))
+	require.False(t, cfg.linktestSuppression)
+
+	require.NoError(t, cfg.apply(WithLinktestSuppression(true)))
+	require.True(t, cfg.linktestSuppression)
+}
+
+// TestConnection_UpdateConfigOptions_LinktestSuppression proves WithLinktestSuppression
+// follows the same live-update rail as every other reconfig option (T4 apply): a mid-session
+// UpdateConfigOptions(WithLinktestSuppression(false)) flips the value the NEXT Selected-entry
+// transport read observes (LinktestSuppression(), the capability-interface getter), mirroring
+// TestConnection_UpdateConfigOptions_Transactional's newTestConn/UpdateConfigOptions pattern
+// in connection_test.go.
+func TestConnection_UpdateConfigOptions_LinktestSuppression(t *testing.T) {
+	conn, c := newTestConn(t)
+	require.True(t, c.LinktestSuppression(), "suppression defaults to enabled")
+
+	require.NoError(t, conn.UpdateConfigOptions(WithLinktestSuppression(false)))
+	require.False(t, c.LinktestSuppression(), "UpdateConfigOptions must flip the live config value")
+}
+
 func TestConnectionConfig_Logger(t *testing.T) {
 	cfg := DefaultConnectionConfig()
 	require.NotNil(t, cfg.Logger(), "default config has a non-nil logger")
