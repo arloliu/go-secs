@@ -6,6 +6,11 @@ This project is a library that implements [SECS-II](https://en.wikipedia.org/wik
 [![Go Reference](https://pkg.go.dev/badge/github.com/arloliu/go-secs.svg)](https://pkg.go.dev/github.com/arloliu/go-secs)
 [![Go Report Card](https://goreportcard.com/badge/github.com/arloliu/go-secs)](https://goreportcard.com/report/github.com/arloliu/go-secs)
 
+> **v2 is available and recommended for new projects.** `github.com/arloliu/go-secs/v2` is built
+> around an immutable-message model with better performance. This `v1` branch is now in
+> maintenance mode (bug fixes only) — see the [v2 README](https://pkg.go.dev/github.com/arloliu/go-secs/v2)
+> or `go get github.com/arloliu/go-secs/v2` to get started.
+
 ## Supports
 
 * SECS-I over TCP/IP (SEMI-E4)
