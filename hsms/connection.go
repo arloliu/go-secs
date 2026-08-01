@@ -105,14 +105,13 @@ type connection struct {
 	*session // embedded: promotes the SECS2Endpoint surface onto the Connection value
 }
 
-// NewConnection builds the shared HSMS engine and wires it to tr. It is the
-// in-module wiring seam that hsmsss.New / secs1.New call with their concrete transport
-// value; it is NOT a documented app-level extension API. cfg must be non-nil.
+// NewConnection builds the shared HSMS engine and wires it to tr. It is the in-module wiring seam
+// that hsmsss.New / secs1.New call with their concrete transport value; it is NOT a documented app-level extension API. cfg must be non-nil.
 //
-// The returned engine implements TransportRuntime, so it is handed to the session as its
-// back-channel (the circular pointer is intentional and safe). The session's persistent
-// state-change handler pointer is wired to the connection's handlers field so
-// AddConnStateChangeHandler reaches storage that survives Open/Close cycles.
+// The returned engine implements TransportRuntime, so it is handed to the session as its back-channel (the circular pointer is intentional
+// and safe).
+// The session's persistent state-change handler pointer is wired to the connection's handlers field
+// so AddConnStateChangeHandler reaches storage that survives Open/Close cycles.
 func NewConnection(cfg *ConnectionConfig, tr transport) (Connection, error) {
 	if cfg == nil {
 		return nil, errors.New("hsms: NewConnection requires a non-nil ConnectionConfig")
@@ -143,9 +142,10 @@ func NewConnection(cfg *ConnectionConfig, tr transport) (Connection, error) {
 	return c, nil
 }
 
-// State returns the current logical E37 state. It nil-guards the supervisor (round-7):
-// before the first Open (and after Close, when sup is stopped but still set) it reports
-// NotConnectedState and never nil-derefs.
+// State returns the current logical E37 state.
+//
+// It nil-guards the supervisor (round-7): before the first Open (and after Close, when sup is stopped
+// but still set) it reports NotConnectedState and never nil-derefs.
 func (c *connection) State() ConnState {
 	if s := c.sup.Load(); s != nil {
 		return s.State()
@@ -159,13 +159,13 @@ func (c *connection) Metrics() *ConnectionMetrics {
 	return &c.metrics
 }
 
-// UpdateConfigOptions applies functional options to the live configuration
-// transactionally (validate-all, then commit atomically — T4 apply). It copies the current
-// config into a scratch, applies the options to the SCRATCH (validate-all-or-nothing), and
-// on success atomically Stores the fresh pointer — it never mutates the live struct in place,
-// so concurrent lock-free readers (Timers/SessionID/Open) can never observe a torn or
-// half-applied config. The cfgMu lock serializes concurrent writers so a read-modify-write
-// cannot lose a competing update.
+// UpdateConfigOptions applies functional options to the live configuration transactionally (validate-all, then commit atomically —
+// T4 apply).
+//
+// It copies the current config into a scratch, applies the options to the SCRATCH (validate-all-or-nothing),
+// and on success atomically Stores the fresh pointer — it never mutates the live struct in place,
+// so concurrent lock-free readers (Timers/SessionID/Open) can never observe a torn or half-applied config.
+// The cfgMu lock serializes concurrent writers so a read-modify-write cannot lose a competing update.
 func (c *connection) UpdateConfigOptions(opts ...ConnOption) error {
 	c.cfgMu.Lock()
 	defer c.cfgMu.Unlock()
@@ -179,62 +179,68 @@ func (c *connection) UpdateConfigOptions(opts ...ConnOption) error {
 	return nil
 }
 
-// Timers returns the configured protocol timer set (TransportRuntime). Lock-free atomic read.
+// Timers returns the configured protocol timer set (TransportRuntime).
+//
+// Lock-free atomic read.
 func (c *connection) Timers() TimerConfig {
 	return c.cfg.Load().timers
 }
 
-// SessionID returns the configured HSMS session ID (0xFFFF for HSMS-SS control frames,
-// TransportRuntime). Lock-free atomic read.
+// SessionID returns the configured HSMS session ID (0xFFFF for HSMS-SS control frames, TransportRuntime).
+//
+// Lock-free atomic read.
 func (c *connection) SessionID() uint16 {
 	return c.cfg.Load().sessionID
 }
 
 // LinktestInterval returns the live auto-linktest interval (0 = disabled, TransportRuntime).
-// Lock-free atomic read: the transport reads it once per entry to Selected, so a reconfig
-// applies on the NEXT Selected-entry (D5a-5), never mid-session.
+//
+// Lock-free atomic read: the transport reads it once per entry to Selected, so a reconfig applies on the NEXT Selected-entry (D5a-5), never mid-session.
 func (c *connection) LinktestInterval() time.Duration {
 	return c.cfg.Load().linktestInterval
 }
 
-// LinktestFailThreshold returns the live consecutive-timeout count that triggers a
-// linktest-failure disconnect (TransportRuntime). Lock-free atomic read.
+// LinktestFailThreshold returns the live consecutive-timeout count that triggers a linktest-failure disconnect (TransportRuntime).
+//
+// Lock-free atomic read.
 func (c *connection) LinktestFailThreshold() int {
 	return c.cfg.Load().linktestFailThreshold
 }
 
-// LinktestSuppression reports whether activity-based linktest suppression is
-// enabled (see WithLinktestSuppression). Lock-free atomic read: the transport
-// reads it once per entry to Selected, so a reconfig applies on the NEXT
-// Selected-entry, never mid-session. Reached by the hsmsss transport through a
-// package-local capability interface, deliberately NOT via TransportRuntime
-// (widening that exported interface would break external implementers).
+// LinktestSuppression reports whether activity-based linktest suppression is enabled (see WithLinktestSuppression).
+//
+// Lock-free atomic read: the transport reads it once per entry to Selected, so a reconfig applies on the NEXT Selected-entry, never mid-session.
+// Reached by the hsmsss transport through a package-local capability interface, deliberately NOT via TransportRuntime (widening
+// that exported interface would break external implementers).
 func (c *connection) LinktestSuppression() bool {
 	return c.cfg.Load().linktestSuppression
 }
 
-// DataMsgInflight returns the current number of sent data messages still
-// awaiting a reply — the same gauge as ConnectionMetrics.DataMsgInflightCount.
-// Reached by the hsmsss transport through the same capability interface as
-// LinktestSuppression, for the linktest inflight-skip and liveness-credit rules.
+// DataMsgInflight returns the current number of sent data messages still awaiting a reply —
+// the same gauge as ConnectionMetrics.DataMsgInflightCount.
+//
+// Reached by the hsmsss transport through the same capability interface as LinktestSuppression, for the linktest inflight-skip
+// and liveness-credit rules.
 func (c *connection) DataMsgInflight() int64 {
 	return c.metrics.DataMsgInflightCount()
 }
 
-// NextSystemBytes returns the next System Bytes value from the connection's per-connection
-// generator (TransportRuntime). It is the single source of unique System Bytes for outbound
-// control requests the transport initiates (Select.req, Linktest.req, Separate.req), so those
-// draw from the SAME monotonic space as data-message sends (§5.5 / §8.2.6.8). Concurrency-safe.
+// NextSystemBytes returns the next System Bytes value from the connection's per-connection generator (TransportRuntime).
+//
+// It is the single source of unique System Bytes for outbound control requests the transport initiates (Select.req, Linktest.req, Separate.req),
+// so those draw from the SAME monotonic space as data-message sends (§5.5 / §8.2.6.8).
+// Concurrency-safe.
 func (c *connection) NextSystemBytes() [4]byte {
 	return c.sysGen.next()
 }
 
-// Done returns the current generation's teardown-START signal (TransportRuntime, SELECT-ONLY — J5):
-// e.ctx.Done(), which closes the instant teardown begins (epoch.cancel), NOT when the bounded join
-// completes (e.done). The session data-handler fan-out selects on it so a handler blocked on a full
-// channel unblocks as soon as teardown starts. Returning e.done here would be a CIRCULAR wait: e.done
-// closes only after the join, and the join waits (via tr.Stop → recvWg) for this very fan-out to
-// return (C1). When no live epoch exists it returns a pre-closed channel so a select never nil-blocks.
+// Done returns the current generation's teardown-START signal (TransportRuntime, SELECT-ONLY — J5): e.ctx.Done(),
+// which closes the instant teardown begins (epoch.cancel), NOT when the bounded join completes (e.done).
+//
+// The session data-handler fan-out selects on it so a handler blocked on a full channel unblocks as soon as teardown starts.
+// Returning e.done here would be a CIRCULAR wait: e.done closes only after the join,
+// and the join waits (via tr.Stop → recvWg) for this very fan-out to return (C1).
+// When no live epoch exists it returns a pre-closed channel so a select never nil-blocks.
 func (c *connection) Done() <-chan struct{} {
 	if e := c.cur.Load(); e != nil {
 		return e.ctx.Done()

@@ -6,7 +6,10 @@ import "github.com/arloliu/go-secs/v2/secs2"
 
 // S5F1 creates the S5F1 (Alarm Report Send) message, direction: equipment-to-host.
 //
-// This message reports a change in or presence of an alarm condition. One message is issued when the alarm is set and one message is issued when the alarm is cleared. Irrecoverable errors and attention flags may not have a corresponding clear message. Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+// This message reports a change in or presence of an alarm condition.
+// One message is issued when the alarm is set and one message is issued when the alarm is cleared.
+// Irrecoverable errors and attention flags may not have a corresponding clear message.
+// Callers that require a no-reply variant should use [secs2.NewMessage] directly.
 //
 // Body: L[3]{ B[alcd] <alid> A[altx] }.
 //
@@ -28,7 +31,10 @@ func S5F2(ackc5 ACKC5) secs2.SECS2Message {
 
 // S5F3 creates the S5F3 (Enable/Disable Alarm Send) message, direction: host-to-equipment.
 //
-// This message changes the state of the enable bit in the equipment. The enable bit determines if the alarm will be sent to the host. Alarms which are not controllable in this way are unaffected by this message. Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+// This message changes the state of the enable bit in the equipment.
+// The enable bit determines if the alarm will be sent to the host.
+// Alarms which are not controllable in this way are unaffected by this message.
+// Callers that require a no-reply variant should use [secs2.NewMessage] directly.
 //
 // Body: L[2]{ B[aled] <alid> }.
 //
@@ -61,11 +67,13 @@ func S5F5(alids ...secs2.Item) secs2.SECS2Message {
 
 // S5F6 creates the S5F6 (List Alarm Data) message, direction: equipment-to-host.
 //
-// This message contains the alarm data known to the equipment. There are "m" alarms in the list.
+// This message contains the alarm data known to the equipment.
+// There are "m" alarms in the list.
 //
 // Body: L[n]{ <alarms>... }.
 //
-// Exception: If m = 0, no response can be made. A zero-length item returned for an ALCD or ALTX means that value does not exist.
+// Exception: If m = 0, no response can be made.
+// A zero-length item returned for an ALCD or ALTX means that value does not exist.
 func S5F6(alarms ...secs2.Item) secs2.SECS2Message {
 	return secs2.NewMessage(5, 6, false, secs2.L(alarms...))
 }
@@ -94,11 +102,13 @@ func S5F8(alarms ...secs2.Item) secs2.SECS2Message {
 
 // S5F9 creates the S5F9 (Exception Post Notify) message, direction: equipment-to-host.
 //
-// This message provides the means to inform a host system that an exception condition is set. Optionally, recovery actions for the exception may be sent. Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+// This message provides the means to inform a host system that an exception condition is set. Optionally, recovery actions for the exception may be sent.
+// Callers that require a no-reply variant should use [secs2.NewMessage] directly.
 //
 // Body: L[5]{ A[timestamp] A[exid] A[extype] A[exmessage] L[n]{ <recoveryActions>... } }.
 //
-// Exception: A zero-length recovery-action list (n = 0) is sent when there are no possible recovery actions. This is a single-block message, so the text of each EXRECVRA may need to be restricted in length to satisfy the single-block requirement.
+// Exception: A zero-length recovery-action list (n = 0) is sent when there are no possible recovery actions.
+// This is a single-block message, so the text of each EXRECVRA may need to be restricted in length to satisfy the single-block requirement.
 func S5F9(timestamp string, exid string, extype string, exmessage string, recoveryActions ...secs2.Item) secs2.SECS2Message {
 	return secs2.NewMessage(5, 9, true, secs2.L(secs2.A(timestamp), secs2.A(exid), secs2.A(extype), secs2.A(exmessage), secs2.L(recoveryActions...)))
 }
@@ -116,7 +126,8 @@ func S5F10() secs2.SECS2Message {
 
 // S5F11 creates the S5F11 (Exception Clear Notify) message, direction: equipment-to-host.
 //
-// This message provides the means to inform a host system that an exception/alarm condition is no longer active (set). Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+// This message provides the means to inform a host system that an exception/alarm condition is no longer active (set).
+// Callers that require a no-reply variant should use [secs2.NewMessage] directly.
 //
 // Body: L[4]{ A[timestamp] A[exid] A[extype] A[exmessage] }.
 //
@@ -160,7 +171,8 @@ func S5F14(exid string, acka bool, errcode secs2.Item, errtext string) secs2.SEC
 
 // S5F15 creates the S5F15 (Exception Recovery Complete Notify) message, direction: equipment-to-host.
 //
-// Allows the service provider to inform the controller/host that the recovery operation completed on a specific exception, together with an error code if the recovery terminated abnormally. Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+// Allows the service provider to inform the controller/host that the recovery operation completed on a specific exception, together with an error code if the recovery terminated abnormally.
+// Callers that require a no-reply variant should use [secs2.NewMessage] directly.
 //
 // Body: L[3]{ A[timestamp] A[exid] L[2]{ BOOLEAN[acka] L[0,2]{ <errcode> A[errtext] } } }.
 //

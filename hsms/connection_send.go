@@ -22,9 +22,10 @@ type sendRequest struct {
 	msg Message
 }
 
-// IsSelected reports whether the logical E37 FSM is currently in the Selected state — the B1
-// data-send gate (spec §5.5). It reads the supervisor's lock-free atomic state via State(),
-// so it is safe on the hot send path and nil-guards a not-yet-created supervisor.
+// IsSelected reports whether the logical E37 FSM is currently in the Selected state — the B1 data-send gate (spec §5.5).
+//
+// It reads the supervisor's lock-free atomic state via State(), so it is safe on the hot send path
+// and nil-guards a not-yet-created supervisor.
 func (c *connection) IsSelected() bool {
 	return c.State() == SelectedState
 }
@@ -396,29 +397,28 @@ func (c *connection) callAsyncSendErrorHandler(msg Message, err error) {
 	h(msg, err)
 }
 
-// WriteMessage performs a synchronous framed write and awaits the protocol-bounded reply
-// (TransportRuntime, spec §5.5/§6.2). It delegates to sendWaitReply, which enforces the B1
-// gate, the synchronous writev under epoch.writeMu, I1 inflight accounting, and the
-// four-outcome reply correlation (reply / T3|T6 / conn-drop / caller-ctx).
+// WriteMessage performs a synchronous framed write and awaits the protocol-bounded reply (TransportRuntime, spec §5.5/§6.2).
+//
+// It delegates to sendWaitReply, which enforces the B1 gate, the synchronous writev under epoch.writeMu, I1 inflight accounting,
+// and the four-outcome reply correlation (reply / T3|T6 / conn-drop / caller-ctx).
 func (c *connection) WriteMessage(ctx context.Context, msg Message) (Message, error) {
 	return c.sendWaitReply(ctx, msg)
 }
 
-// WriteMessageNoReply performs a synchronous framed write WITHOUT reply correlation
-// (TransportRuntime, spec §5.5). It delegates to sendNoReply, which enforces the B1 gate and the
-// synchronous writev under epoch.writeMu but registers no reply channel and arms no protocol timer,
-// so any reply routes to the session's DataMessageHandlers rather than back to the caller. Backs
-// SECS2Endpoint.ForwardDataMessage.
+// WriteMessageNoReply performs a synchronous framed write WITHOUT reply correlation (TransportRuntime, spec §5.5).
+//
+// It delegates to sendNoReply, which enforces the B1 gate and the synchronous writev under epoch.writeMu but registers no reply channel
+// and arms no protocol timer, so any reply routes to the session's DataMessageHandlers rather than back to the caller.
+// Backs SECS2Endpoint.ForwardDataMessage.
 func (c *connection) WriteMessageNoReply(ctx context.Context, msg Message) error {
 	return c.sendNoReply(ctx, msg)
 }
 
-// SendAsync enqueues a fire-and-forget message on the per-generation async send channel
-// (TransportRuntime, spec §5.5, J3). It applies the B1 IsSelected gate to data messages
-// BEFORE enqueuing (data refused while not Selected yields a counted, non-fatal
-// ErrNotSelectedState at the B3 chokepoint — never enqueued), then performs a bounded enqueue
-// onto epoch.sendCh: the send is released only by the queue, the generation ctx (ErrConnClosed),
-// or the caller's ctx (ctx.Err()), so it never blocks forever on a wedged peer.
+// SendAsync enqueues a fire-and-forget message on the per-generation async send channel (TransportRuntime, spec §5.5, J3).
+//
+// It applies the B1 IsSelected gate to data messages BEFORE enqueuing (data refused while not Selected yields a counted, non-fatal ErrNotSelectedState at the B3 chokepoint —
+// never enqueued), then performs a bounded enqueue onto epoch.sendCh: the send is released only by the queue, the generation ctx (ErrConnClosed), or the caller's ctx (ctx.Err()),
+// so it never blocks forever on a wedged peer.
 func (c *connection) SendAsync(ctx context.Context, msg Message) error {
 	e := c.cur.Load()
 	if e == nil {

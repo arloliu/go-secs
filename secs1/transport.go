@@ -204,14 +204,14 @@ func (t *transport) notifyAssemblerViolation(violation error, header [10]byte) {
 	}
 }
 
-// Start binds the transport runtime write-once, derives THIS generation's engine ctx, and dials
-// (active) or listens (passive), spawning the single SECS-I line engine on success. rt is the
-// TransportRuntime back-channel the engine uses to report TCP lifecycle and deliver blocks.
+// Start binds the transport runtime write-once, derives THIS generation's engine ctx,
+// and dials (active) or listens (passive), spawning the single SECS-I line engine on success. rt is the TransportRuntime back-channel the engine uses to report TCP lifecycle
+// and deliver blocks.
 //
 // On dial/listen failure Start returns the error immediately (the core's reconnect loop retries).
-// Start does NOT block waiting for a peer: active returns after DialContext + auto-commit + spawning
-// the engine; passive returns after ListenTCP + spawning the accept goroutine (the passive peer
-// adoption + auto-commit + engine spawn happen on that goroutine).
+// Start does NOT block waiting for a peer: active returns after DialContext + auto-commit + spawning the engine;
+// passive returns after ListenTCP + spawning the accept goroutine (the passive peer adoption + auto-commit + engine spawn happen on
+// that goroutine).
 func (t *transport) Start(ctx context.Context, rt hsms.TransportRuntime) error {
 	// Bind rt ONCE, on the first Start, before any line-engine goroutine exists (F7). The core passes
 	// the same connection singleton to every generation's Start, so a reconnect Start only re-presents
@@ -571,14 +571,13 @@ func isTimeout(err error) bool {
 	return errors.As(err, &ne) && ne.Timeout()
 }
 
-// Stop seals the Add-vs-Wait guard, cancels the engine ctx, broadcasts genDone, closes the socket (and
-// any pending listener) to unblock the engine's parked poll/receive read, then joins the current
-// generation's goroutines BOUNDED by ctx. Normally the engine exits promptly and Stop returns nil; if
-// a blocking inbound handler wedges the engine past the deadline, Stop returns ErrCloseTimeout and
-// ABANDONS that straggler (engineCancel already fired, so its C1 guard cannot drive a stale TCPDown
-// into a later generation). Idempotent for the nil-conn case (Start never connected). Stop is called
-// at most once per generation (the core's epoch teardown is closeOnce-guarded), and ArmStart installs
-// a fresh genDone before the next generation — so close(genDone) below runs exactly once per channel.
+// Stop seals the Add-vs-Wait guard, cancels the engine ctx, broadcasts genDone, closes the socket (and any pending listener) to unblock the engine's parked poll/receive read, then joins the current generation's goroutines BOUNDED by ctx. Normally the engine exits promptly
+// and Stop returns nil; if a blocking inbound handler wedges the engine past the deadline, Stop returns ErrCloseTimeout
+// and ABANDONS that straggler (engineCancel already fired, so its C1 guard cannot drive a stale TCPDown into a later generation).
+//
+// Idempotent for the nil-conn case (Start never connected).
+// Stop is called at most once per generation (the core's epoch teardown is closeOnce-guarded),
+// and ArmStart installs a fresh genDone before the next generation — so close(genDone) below runs exactly once per channel.
 func (t *transport) Stop(ctx context.Context) error {
 	// I1 Add-vs-Wait guard: seal the transport BEFORE any Wait below. Taking startGate.Lock waits out
 	// any in-flight Start RLock section (its WaitGroup Add), so once it returns no 0->1 Add is in
@@ -670,13 +669,13 @@ func (t *transport) Stop(ctx context.Context) error {
 	}
 }
 
-// ArmStart clears the Stop-seal (I1) AND installs a FRESH per-generation WaitGroup bundle and
-// send-handoff/teardown channels (NEW-1 / G-C) so this generation's Start registers its engine on a
-// bundle — and hands off / broadcasts on channels — no prior generation (nor a straggler a bounded
-// Stop abandoned) touches. The core calls it immediately before it publishes a fresh generation and
-// calls Start, so a live Stop's seal is never undone by a stale arm. The bundle + channel swaps
-// happen under the SAME Lock as the seal clear, so a Stop that captured the OLD values still tears
-// that generation down while this generation gets clean ones.
+// ArmStart clears the Stop-seal (I1) AND installs a FRESH per-generation WaitGroup bundle and send-handoff/teardown channels (NEW-1 / G-C)
+// so this generation's Start registers its engine on a bundle — and hands off / broadcasts on channels —
+// no prior generation (nor a straggler a bounded Stop abandoned) touches.
+//
+// The core calls it immediately before it publishes a fresh generation and calls Start,
+// so a live Stop's seal is never undone by a stale arm. The bundle + channel swaps happen under the SAME Lock as the seal clear,
+// so a Stop that captured the OLD values still tears that generation down while this generation gets clean ones.
 func (t *transport) ArmStart() {
 	t.startGate.Lock()
 	t.stopping = false
@@ -686,28 +685,27 @@ func (t *transport) ArmStart() {
 	t.startGate.Unlock()
 }
 
-// Write is the SECS-I send half of the §4a seam: it converts one core-framed HSMS DATA frame into
-// SECS-I blocks, hands them to THIS generation's line engine, and blocks until the engine reports the
-// line-transaction result (or teardown releases it). It is the SOLE producer on sendReqCh.
+// Write is the SECS-I send half of the §4a seam: it converts one core-framed HSMS DATA frame into SECS-I blocks, hands them to THIS generation's line engine,
+// and blocks until the engine reports the line-transaction result (or teardown releases it).
 //
-// ctx is intentionally NOT selected on. secs1 forces writeTimeout=0 (D5b-11), so the core arms no
-// write deadline: a SECS-I Write may legitimately block for a whole line transaction
-// (T2 x (RetryLimit+1)). The engine bounds that transaction, and teardown (genDone) is the release
-// for a parked Write — ctx cancellation is not a SECS-I line-abort signal.
+// It is the SOLE producer on sendReqCh.
 //
-// Shape + control guard (P0-2): the core supplies bufs whose bufs[0] is a 14-byte prefix
-// ([4-byte length][10-byte HSMS header]) and whose bufs[1:] are the body sub-slices. If the HSMS SType
-// byte (header[5]) is NON-ZERO the frame is an HSMS control frame (Select/Deselect/Linktest/Separate/
-// Reject) — SECS-I has NO control frames, so it is DROPPED with no wire I/O and no hand-off. This is
-// what neutralizes the core's graceful writeFarewellSeparate and keeps a v1 SECS-I peer from ever
-// seeing HSMS control bytes.
+// ctx is intentionally NOT selected on. secs1 forces writeTimeout=0 (D5b-11), so the core arms no write deadline:
+// a SECS-I Write may legitimately block for a whole line transaction (T2 x (RetryLimit+1)).
+// The engine bounds that transaction, and teardown (genDone) is the release for a parked Write —
+// ctx cancellation is not a SECS-I line-abort signal.
 //
-// I1 epoch binding + G-C hand-off: t.gen.Load() yields a self-consistent (conn, sendReqCh, genDone)
-// snapshot in ONE lock-free atomic read. If it is nil (no live generation) or its conn is not the
-// caller's conn (a stale sender pinned to a superseded generation), the write is refused with
-// ErrConnClosed — NEVER handed onto a successor generation's channel. Otherwise the blocks are handed
-// off and awaited, with genDone releasing BOTH the hand-off and the result wait at teardown
-// (sendReqCh is never closed — a send on a closed channel would panic).
+// Shape + control guard (P0-2): the core supplies bufs whose bufs[0] is a 14-byte prefix ([4-byte length][10-byte HSMS header])
+// and whose bufs[1:] are the body sub-slices.
+// If the HSMS SType byte (header[5]) is NON-ZERO the frame is an HSMS control frame (Select/Deselect/Linktest/Separate/ Reject) —
+// SECS-I has NO control frames, so it is DROPPED with no wire I/O and no hand-off. This is what neutralizes the core's graceful writeFarewellSeparate
+// and keeps a v1 SECS-I peer from ever seeing HSMS control bytes.
+//
+// I1 epoch binding + G-C hand-off: t.gen.Load() yields a self-consistent (conn, sendReqCh, genDone) snapshot in ONE lock-free atomic read.
+// If it is nil (no live generation) or its conn is not the caller's conn (a stale sender pinned to a superseded generation), the write is refused with ErrConnClosed —
+// NEVER handed onto a successor generation's channel.
+// Otherwise the blocks are handed off and awaited, with genDone releasing BOTH the hand-off
+// and the result wait at teardown (sendReqCh is never closed — a send on a closed channel would panic).
 func (t *transport) Write(_ context.Context, conn net.Conn, bufs net.Buffers) error {
 	// Defensive shape guard (never trust the seam): the core always supplies a >=14-byte prefix.
 	if len(bufs) == 0 || len(bufs[0]) < 14 {
@@ -753,9 +751,10 @@ func (t *transport) Write(_ context.Context, conn net.Conn, bufs net.Buffers) er
 	}
 }
 
-// SetReadDeadline sets the read deadline on conn — the epoch's socket, passed explicitly (never
-// re-resolve t.conn). Conn-bound no-op today: the line engine arms its own read deadlines on its
-// captured conn (linePollInterval poll, T1/T2 in receiveBlock), so no core caller drives this.
+// SetReadDeadline sets the read deadline on conn — the epoch's socket, passed explicitly (never re-resolve t.conn).
+//
+// Conn-bound no-op today: the line engine arms its own read deadlines on its captured conn (linePollInterval poll, T1/T2 in receiveBlock),
+// so no core caller drives this.
 func (t *transport) SetReadDeadline(conn net.Conn, deadline time.Time) error {
 	if conn == nil {
 		return nil
@@ -764,8 +763,9 @@ func (t *transport) SetReadDeadline(conn net.Conn, deadline time.Time) error {
 	return conn.SetReadDeadline(deadline)
 }
 
-// SetWriteDeadline sets the write deadline on conn — the same epoch socket handed to Write. Conn-bound
-// no-op today: the line engine owns all writes on its captured conn.
+// SetWriteDeadline sets the write deadline on conn — the same epoch socket handed to Write.
+//
+// Conn-bound no-op today: the line engine owns all writes on its captured conn.
 func (t *transport) SetWriteDeadline(conn net.Conn, deadline time.Time) error {
 	if conn == nil {
 		return nil

@@ -48,23 +48,21 @@ func getMsgIDGenerator() *msgIDGenerator {
 
 // GenerateMsgID returns a process-wide unique message ID as a uint32.
 //
-// The first call seeds the generator from a cryptographically-secure random
-// source; subsequent calls increment atomically and are safe for concurrent use.
-// Pass the result to [ToSystemBytes] to obtain the System Bytes for a message.
+// The first call seeds the generator from a cryptographically-secure random source; subsequent calls increment atomically
+// and are safe for concurrent use. Pass the result to [ToSystemBytes] to obtain the System Bytes for a message.
 func GenerateMsgID() uint32 {
 	return getMsgIDGenerator().genID()
 }
 
-// GenerateMsgSystemBytes returns unique HSMS System Bytes, generated from a
-// fresh [GenerateMsgID] value. It is a convenience for callers that need
-// System Bytes directly and have no other use for the intermediate ID.
+// GenerateMsgSystemBytes returns unique HSMS System Bytes, generated from a fresh [GenerateMsgID] value.
+//
+// It is a convenience for callers that need System Bytes directly and have no other use for the intermediate ID.
 func GenerateMsgSystemBytes() [4]byte {
 	return ToSystemBytes(GenerateMsgID())
 }
 
-// ToSystemBytes converts a message ID into HSMS System Bytes: a 4-byte
-// big-endian array suitable for [NewDataMessage] and the control-message
-// constructors.
+// ToSystemBytes converts a message ID into HSMS System Bytes: a 4-byte big-endian array suitable for [NewDataMessage]
+// and the control-message constructors.
 func ToSystemBytes(id uint32) [4]byte {
 	var b [4]byte
 	binary.BigEndian.PutUint32(b[:], id)
@@ -72,9 +70,9 @@ func ToSystemBytes(id uint32) [4]byte {
 	return b
 }
 
-// FromSystemBytes decodes HSMS System Bytes (header bytes 6-9, big-endian) into a
-// message ID uint32. It is the inverse of [ToSystemBytes]:
-// FromSystemBytes(ToSystemBytes(id)) == id for all id.
+// FromSystemBytes decodes HSMS System Bytes (header bytes 6-9, big-endian) into a message ID uint32.
+//
+// It is the inverse of [ToSystemBytes]: FromSystemBytes(ToSystemBytes(id)) == id for all id.
 func FromSystemBytes(b [4]byte) uint32 {
 	return binary.BigEndian.Uint32(b[:])
 }

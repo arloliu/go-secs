@@ -6,18 +6,15 @@ import (
 	"slices"
 )
 
-// Equal reports whether a and b are the same SECS-II item: same declared type/width (per Type())
-// and the same decoded logical value — NOT the same wire encoding. Two items built by different
-// paths that carry the same logical value compare equal even when their wire bytes differ, e.g.
-// a value decoded with a non-canonical (larger-than-necessary) SECS-II length field versus the
-// same value freshly constructed (which always canonicalizes to the shortest length field):
+// Equal reports whether a and b are the same SECS-II item: same declared type/width (per Type()) and the same decoded logical value —
+// NOT the same wire encoding.
+//
+// Two items built by different paths that carry the same logical value compare equal even when their wire bytes differ, e.g. a value decoded with a non-canonical (larger-than-necessary) SECS-II length field versus the same value freshly constructed (which always canonicalizes to the shortest length field):
 // decoding a non-canonical U1[1] body and secs2.U1(5) compare Equal even though ToBytes() differs.
 //
-// Items of different declared widths are not equal even at the same numeric value
-// (I2[1]{5} != I4[1]{5}), because Type() differs.
+// Items of different declared widths are not equal even at the same numeric value (I2[1]{5} != I4[1]{5}), because Type() differs.
 //
-// An item carrying a deferred construction error (Error() != nil) is never equal to any item,
-// including another errored item, because its logical value is unspecified.
+// An item carrying a deferred construction error (Error() != nil) is never equal to any item, including another errored item, because its logical value is unspecified.
 //
 // Two nil items are equal; a nil item is not equal to a non-nil item.
 //

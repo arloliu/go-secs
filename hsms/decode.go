@@ -23,12 +23,10 @@ const maxHSMSMsgLen = secs2.MaxByteSize
 
 // DecodeHSMSMessage decodes a complete on-wire HSMS frame from data.
 //
-// data must contain a 4-byte big-endian length prefix followed by exactly
-// msgLen bytes (10-byte header + optional SECS-II body). All length fields are
-// validated before any slice operation to prevent panics on malformed input.
+// data must contain a 4-byte big-endian length prefix followed by exactly msgLen bytes (10-byte header + optional SECS-II body).
+// All length fields are validated before any slice operation to prevent panics on malformed input.
 //
-// DecodeHSMSMessage copies the payload into an owned buffer so the caller may
-// reuse or free data immediately after this call returns.
+// DecodeHSMSMessage copies the payload into an owned buffer so the caller may reuse or free data immediately after this call returns.
 func DecodeHSMSMessage(data []byte) (Message, error) {
 	const minFrame = 4 + 10 // length prefix + header
 
@@ -57,9 +55,9 @@ func DecodeHSMSMessage(data []byte) (Message, error) {
 	return decodeOwnedFrame(owned)
 }
 
-// DecodeHSMSPayload decodes an HSMS message from a payload that is a 10-byte header followed by
-// the optional SECS-II body, with NO 4-byte length prefix (unlike DecodeHSMSMessage). It copies
-// payload into an owned buffer, so the caller may reuse or free payload immediately after return.
+// DecodeHSMSPayload decodes an HSMS message from a payload that is a 10-byte header followed by the optional SECS-II body, with NO 4-byte length prefix (unlike DecodeHSMSMessage).
+//
+// It copies payload into an owned buffer, so the caller may reuse or free payload immediately after return.
 func DecodeHSMSPayload(payload []byte) (Message, error) {
 	if len(payload) < 10 {
 		return nil, fmt.Errorf("hsms payload too short: %d bytes (minimum 10): %w", len(payload), ErrInvalidHeaderLength)
@@ -73,10 +71,9 @@ func DecodeHSMSPayload(payload []byte) (Message, error) {
 	return decodeOwnedFrame(owned)
 }
 
-// DecodeOwnedHSMSPayload is DecodeHSMSPayload without the defensive copy: it transfers ownership
-// of payload to the returned message (for a data message the body aliases payload zero-copy), so
-// the caller MUST NOT mutate or reuse payload and must keep it alive while the message is retained
-// — the same ownership-transfer contract as secs2.DecodeOwned.
+// DecodeOwnedHSMSPayload is DecodeHSMSPayload without the defensive copy: it transfers ownership of payload to the returned message (for a data message the body aliases payload zero-copy),
+// so the caller MUST NOT mutate or reuse payload and must keep it alive while the message is retained —
+// the same ownership-transfer contract as secs2.DecodeOwned.
 func DecodeOwnedHSMSPayload(payload []byte) (Message, error) {
 	if len(payload) < 10 {
 		return nil, fmt.Errorf("hsms payload too short: %d bytes (minimum 10): %w", len(payload), ErrInvalidHeaderLength)

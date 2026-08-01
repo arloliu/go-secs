@@ -10,11 +10,11 @@ import (
 
 // BinaryItem represents an immutable list of binary (byte) values in a SECS-II message.
 //
-// It implements the Item interface. All methods are safe for concurrent use and no method
-// exposes mutable internal storage.
+// It implements the Item interface.
+// All methods are safe for concurrent use and no method exposes mutable internal storage.
 //
-// Construct via NewBinaryItem. Accepted value types: byte, []byte, int (0–255), and string
-// numeric literals (decimal, hex, octal, binary) in the range [0, 255].
+// Construct via NewBinaryItem.
+// Accepted value types: byte, []byte, int (0–255), and string numeric literals (decimal, hex, octal, binary) in the range [0, 255].
 type BinaryItem struct {
 	baseItem
 	values []byte
@@ -30,9 +30,8 @@ var _ Item = (*BinaryItem)(nil)
 //   - An int in the range [0, 255].
 //   - A string containing a numeric literal (decimal, hex, octal, binary) in the range [0, 255].
 //
-// If any argument is out of range or of an unsupported type, a deferred error is stored on the
-// returned item; call Error() to inspect it. The deferred-error model means this function never
-// panics.
+// If any argument is out of range or of an unsupported type, a deferred error is stored on the returned item;
+// call Error() to inspect it. The deferred-error model means this function never panics.
 //
 // Parameters:
 //   - values: the input arguments representing binary bytes.
@@ -59,9 +58,9 @@ func NewBinaryItem(values ...any) Item {
 //
 // Returns an error if the item carries a deferred construction error.
 //
-// It returns the item's deferred error (see Error) when the item was constructed with
-// one — a passing Is* predicate does NOT imply a nil error here. Always check the
-// returned error; do not discard it via `v, _ := item.ToBinary()`.
+// It returns the item's deferred error (see Error) when the item was constructed with one —
+// a passing Is* predicate does NOT imply a nil error here.
+// Always check the returned error; do not discard it via `v, _ := item.ToBinary()`.
 func (item *BinaryItem) ToBinary() ([]byte, error) {
 	if item.itemErr != nil {
 		return nil, item.itemErr
@@ -100,6 +99,7 @@ func (item *BinaryItem) AppendBinaryTo(dst []byte) []byte {
 func (item *BinaryItem) Size() int { return len(item.values) }
 
 // EncodedLen returns the total SECS-II wire byte length (header + payload).
+//
 // Returns 0 for items with deferred errors.
 func (item *BinaryItem) EncodedLen() int {
 	if item.itemErr != nil {
@@ -114,6 +114,7 @@ func (item *BinaryItem) EncodedLen() int {
 }
 
 // AppendTo appends the SECS-II wire encoding of this item into dst and returns the result.
+//
 // Returns dst unchanged for items with deferred errors.
 func (item *BinaryItem) AppendTo(dst []byte) []byte {
 	if item.itemErr != nil {
@@ -130,12 +131,14 @@ func (item *BinaryItem) AppendTo(dst []byte) []byte {
 }
 
 // ToBytes allocates a single buffer and returns the SECS-II wire encoding.
+//
 // Equivalent to AppendTo(make([]byte, 0, EncodedLen())).
 func (item *BinaryItem) ToBytes() []byte {
 	return item.AppendTo(make([]byte, 0, item.EncodedLen()))
 }
 
 // ToSML returns the SML (SECS Message Language) text representation of this item.
+//
 // Binary values are rendered as upper-case, zero-padded hex literals (e.g. 0x2F).
 func (item *BinaryItem) ToSML() string {
 	if item.Size() == 0 {
@@ -167,8 +170,8 @@ func (item *BinaryItem) Type() string { return BinaryType }
 // IsBinary returns true.
 //
 // It reflects the DECLARED type only and does not consult the item's deferred error:
-// a true result does not imply the item is usable. Gate value extraction on Error()
-// (or the To* accessor's returned error), not on Is* alone.
+// a true result does not imply the item is usable.
+// Gate value extraction on Error() (or the To* accessor's returned error), not on Is* alone.
 func (item *BinaryItem) IsBinary() bool { return true }
 
 // combineBinaryValues parses the variadic inputs and appends their byte values into item.values.

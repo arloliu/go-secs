@@ -16,11 +16,11 @@ const MaxListDepth = 64
 
 // Decode parses a single SECS-II data item from its wire bytes (SEMI E5 §9).
 //
-// It is the inverse of Item.AppendTo/ToBytes. Empty input yields NewEmptyItem().
-// Returns an error on malformed input (bad format code, truncated length/payload,
-// or nesting deeper than MaxListDepth). Decode copies data, so the returned Item
-// has no lifetime dependency on the caller's buffer; see [DecodeOwned] for a
-// zero-copy variant when the caller already owns data outright.
+// It is the inverse of Item.AppendTo/ToBytes.
+// Empty input yields NewEmptyItem().
+// Returns an error on malformed input (bad format code, truncated length/payload, or nesting deeper than MaxListDepth).
+// Decode copies data, so the returned Item has no lifetime dependency on the caller's buffer;
+// see [DecodeOwned] for a zero-copy variant when the caller already owns data outright.
 //
 // Parameters:
 //   - data: the wire bytes to parse.
@@ -40,17 +40,15 @@ func Decode(data []byte) (Item, error) {
 	return item, err
 }
 
-// DecodeOwned parses a single SECS-II data item from data, skipping the whole-input
-// defensive copy that [Decode] always performs.
+// DecodeOwned parses a single SECS-II data item from data, skipping the whole-input defensive copy
+// that [Decode] always performs.
 //
-// Calling DecodeOwned transfers ownership of data's backing array to the returned Item, so
-// the caller MUST NOT mutate or reuse data after this call, and must keep it alive for as
-// long as the item is retained — the same ownership-transfer idiom as
-// [encoding/json.RawMessage]. Binary, ASCII, JIS-8, and localized-string items alias data
-// directly (no further copy); numeric and boolean items always build a typed value slice,
-// since their values are a different representation than the wire bytes. Use this only for
-// a buffer the caller already owns outright (e.g. a freshly-read file or a buffer with no
-// other referents); otherwise use [Decode], which copies its input and is always safe.
+// Calling DecodeOwned transfers ownership of data's backing array to the returned Item, so the caller MUST NOT mutate or reuse data after this call,
+// and must keep it alive for as long as the item is retained — the same ownership-transfer idiom as [encoding/json.RawMessage].
+// Binary, ASCII, JIS-8, and localized-string items alias data directly (no further copy); numeric
+// and boolean items always build a typed value slice, since their values are a different representation than the wire bytes.
+// Use this only for a buffer the caller already owns outright (e.g. a freshly-read file or a buffer with no other referents);
+// otherwise use [Decode], which copies its input and is always safe.
 //
 // Parameters:
 //   - data: the wire bytes to parse; ownership transfers to the returned Item on success.
@@ -71,14 +69,13 @@ func DecodeOwned(data []byte) (Item, error) {
 
 // DecodeOwnedFrame is an internal-transport-only entry point.
 //
-// It parses a single SECS-II item from a body the library already owns, WITHOUT copying
-// (no bytes.Clone): the returned item tree's leaf raw fields alias body.Bytes(), so the
-// caller MUST keep that buffer alive for as long as the item is retained.
+// It parses a single SECS-II item from a body the library already owns, WITHOUT copying (no bytes.Clone):
+// the returned item tree's leaf raw fields alias body.Bytes(), so the caller MUST keep
+// that buffer alive for as long as the item is retained.
 //
-// Its argument is a capability token whose type lives in an internal package, so external code
-// cannot construct one and therefore cannot call this function at all. External callers must use
-// Decode (always copies) or DecodeOwned (zero-copy over a caller-owned []byte). This path exists
-// solely for the in-repo transport layer that frames SECS-II message bodies.
+// Its argument is a capability token whose type lives in an internal package, so external code cannot construct one
+// and therefore cannot call this function at all. External callers must use Decode (always copies) or DecodeOwned (zero-copy over a caller-owned []byte).
+// This path exists solely for the in-repo transport layer that frames SECS-II message bodies.
 //
 // Parameters:
 //   - body: the capability token wrapping the owned SECS-II wire bytes.

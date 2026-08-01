@@ -2,21 +2,17 @@ package hsms
 
 import "strconv"
 
-// ConnState is the HSMS connection state (SEMI E37 §5.4–§5.6): the only three
-// logical states the FSM exposes.
+// ConnState is the HSMS connection state (SEMI E37 §5.4–§5.6): the only three logical states the FSM exposes.
 //
 // The three-state FSM carries HSMS-SS semantics (the Select/Deselect handshake).
-// A SECS-I connection has no HSMS select handshake, so its lifecycle does not move
-// through NotSelectedState as an HSMS-SS link does; treat these transitions as
-// HSMS-SS-specific when consuming state for a SECS-I connection.
+// A SECS-I connection has no HSMS select handshake, so its lifecycle does not move through NotSelectedState as an HSMS-SS link does;
+// treat these transitions as HSMS-SS-specific when consuming state for a SECS-I connection.
 type ConnState uint32
 
 const (
-	// NotConnectedState is the state while TCP is down (active dialing or passive
-	// listening happen here).
+	// NotConnectedState is the state while TCP is down (active dialing or passive listening happen here).
 	NotConnectedState ConnState = iota
-	// NotSelectedState is the state after TCP is up but before the session is
-	// selected (the HSMS-SS T7 dwell applies here).
+	// NotSelectedState is the state after TCP is up but before the session is selected (the HSMS-SS T7 dwell applies here).
 	NotSelectedState
 	// SelectedState is the state in which the link is selected and data flows.
 	SelectedState
@@ -36,21 +32,19 @@ func (s ConnState) String() string {
 	}
 }
 
-// StateChangeHandler observes a logical state transition. Handlers run only on
-// the notifier goroutine, never inline on a protocol goroutine.
+// StateChangeHandler observes a logical state transition.
+//
+// Handlers run only on the notifier goroutine, never inline on a protocol goroutine.
 type StateChangeHandler func(prev, next ConnState)
 
 // OpenMode selects Open's blocking behavior.
 type OpenMode uint8
 
 const (
-	// OpenWaitSelected makes Open block until the link is Selected or a fatal
-	// connect error occurs.
+	// OpenWaitSelected makes Open block until the link is Selected or a fatal connect error occurs.
 	OpenWaitSelected OpenMode = iota
-	// OpenBackground makes Open start the lifecycle and return immediately;
-	// connect, select, and reconnect run in the background; for an ACTIVE
-	// connection this includes retrying a cold/unreachable peer's initial
-	// connect instead of failing Open.
+	// OpenBackground makes Open start the lifecycle and return immediately; connect, select, and reconnect run in the background;
+	// for an ACTIVE connection this includes retrying a cold/unreachable peer's initial connect instead of failing Open.
 	OpenBackground
 )
 

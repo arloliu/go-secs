@@ -173,7 +173,8 @@ func S1F13Host() secs2.SECS2Message {
 
 // S1F14 creates the S1F14 (Establish Communications Request Acknowledge) message for equipment, direction: bidirectional.
 //
-// Accepts or denies an Establish Communications Request. MDLN and SOFTREV are valid only if COMMACK is 0.
+// Accepts or denies an Establish Communications Request.
+// MDLN and SOFTREV are valid only if COMMACK is 0.
 //
 // Body: L[2]{ B[commack] L[2]{ A[mdln] A[softrev] } }.
 //
@@ -184,7 +185,8 @@ func S1F14(commack COMMACK, mdln string, softrev string) secs2.SECS2Message {
 
 // S1F14Host creates the S1F14 (Establish Communications Request Acknowledge) message for host, direction: bidirectional.
 //
-// Accepts or denies an Establish Communications Request. MDLN and SOFTREV are valid only if COMMACK is 0.
+// Accepts or denies an Establish Communications Request.
+// MDLN and SOFTREV are valid only if COMMACK is 0.
 //
 // Body: L[2]{ B[commack] L[0]{  } }.
 //
@@ -243,7 +245,8 @@ func S1F18(onlack byte) secs2.SECS2Message {
 //
 // Body: L[3]{ <objtype> L[n]{ <objids>... } L[n]{ <attrids>... } }.
 //
-// Exception: A zero-length object list (m = 0) requests all objects of the type. A zero-length attribute list (n = 0) requests all attributes.
+// Exception: A zero-length object list (m = 0) requests all objects of the type.
+// A zero-length attribute list (n = 0) requests all attributes.
 func S1F19(objtype secs2.Item, objids []secs2.Item, attrids ...secs2.Item) secs2.SECS2Message {
 	return secs2.NewMessage(1, 19, true, secs2.L(objtype, secs2.L(objids...), secs2.L(attrids...)))
 }
@@ -254,7 +257,8 @@ func S1F19(objtype secs2.Item, objids []secs2.Item, attrids ...secs2.Item) secs2
 //
 // Body: L[2]{ L[n]{ <objects>... } L[n]{ <errors>... } }.
 //
-// Exception: m = 0 means the OBJTYPE is unknown. n = 0 means the object was not found. A zero-length ATTRDATA means the attribute does not exist. p = 0 means no errors.
+// Exception: m = 0 means the OBJTYPE is unknown. n = 0 means the object was not found.
+// A zero-length ATTRDATA means the attribute does not exist. p = 0 means no errors.
 func S1F20(objects []secs2.Item, errors ...secs2.Item) secs2.SECS2Message {
 	return secs2.NewMessage(1, 20, false, secs2.L(secs2.L(objects...), secs2.L(errors...)))
 }

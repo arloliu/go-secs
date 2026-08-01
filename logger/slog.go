@@ -20,10 +20,11 @@ type slogLogger struct {
 }
 
 // NewSlog creates a Logger backed by log/slog that writes to os.Stdout.
-// When the ENV environment variable is set to "development", a human-readable
-// console handler is used and addSource is ignored (source location is always
-// included). Otherwise a JSON handler is used and addSource controls whether
-// each log record includes its source file and line number.
+//
+// When the ENV environment variable is set to "development", a human-readable console handler is used
+// and addSource is ignored (source location is always included).
+// Otherwise a JSON handler is used and addSource controls whether each log record includes its source file
+// and line number.
 func NewSlog(level LogLevel, addSource bool) Logger {
 	inst := &slogLogger{
 		output: os.Stdout,
@@ -58,32 +59,27 @@ func NewSlog(level LogLevel, addSource bool) Logger {
 	return inst
 }
 
-// Debug logs a message at DebugLevel
-// The message includes any fields passed at the log site, as well as any fields accumulated on the logger.
+// Debug logs a message at DebugLevel The message includes any fields passed at the log site, as well as any fields accumulated on the logger.
 func (l *slogLogger) Debug(msg string, keysAndValues ...any) {
 	l.log(context.Background(), slog.LevelDebug, msg, keysAndValues...)
 }
 
-// Info logs a message at InfoLevel
-// The message includes any fields passed at the log site, as well as any fields accumulated on the logger.
+// Info logs a message at InfoLevel The message includes any fields passed at the log site, as well as any fields accumulated on the logger.
 func (l *slogLogger) Info(msg string, keysAndValues ...any) {
 	l.log(context.Background(), slog.LevelInfo, msg, keysAndValues...)
 }
 
-// Warn logs a message at WarnLevel
-// The message includes any fields passed at the log site, as well as any fields accumulated on the logger.
+// Warn logs a message at WarnLevel The message includes any fields passed at the log site, as well as any fields accumulated on the logger.
 func (l *slogLogger) Warn(msg string, keysAndValues ...any) {
 	l.log(context.Background(), slog.LevelWarn, msg, keysAndValues...)
 }
 
-// Error logs a message at ErrorLevel
-// The message includes any fields passed at the log site, as well as any fields accumulated on the logger.
+// Error logs a message at ErrorLevel The message includes any fields passed at the log site, as well as any fields accumulated on the logger.
 func (l *slogLogger) Error(msg string, keysAndValues ...any) {
 	l.log(context.Background(), slog.LevelError, msg, keysAndValues...)
 }
 
-// Fatal logs a message at FatalLevel
-// The message includes any fields passed at the log site, as well as any fields accumulated on the logger.
+// Fatal logs a message at FatalLevel The message includes any fields passed at the log site, as well as any fields accumulated on the logger.
 //
 // The logger then calls os.Exit(1), even if logging at FatalLevel is disabled.
 func (l *slogLogger) Fatal(msg string, keysAndValues ...any) {
@@ -91,8 +87,8 @@ func (l *slogLogger) Fatal(msg string, keysAndValues ...any) {
 	os.Exit(1) //nolint:revive
 }
 
-// With creates a child logger and adds structured context to it.
-// Key-values added to the child don't affect the parent, and vice versa.
+// With creates a child logger and adds structured context to it. Key-values added to the child don't affect the parent,
+// and vice versa.
 func (l *slogLogger) With(keyValues ...any) Logger {
 	newLog := l.logger.With(keyValues...)
 
@@ -119,8 +115,8 @@ func (l *slogLogger) Level() LogLevel {
 }
 
 // SetLevel sets the minimum enabled level for this logger.
-// Child loggers created with With share the same log-level state as their
-// parent; only key-value fields are isolated per child.
+//
+// Child loggers created with With share the same log-level state as their parent; only key-value fields are isolated per child.
 func (l *slogLogger) SetLevel(level LogLevel) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

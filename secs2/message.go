@@ -1,9 +1,10 @@
 package secs2
 
-// Message is the minimal concrete implementation of SECS2Message: a stream/function code pair, a
-// wait bit, and a SECS-II data item. It carries no transport state (no session, system bytes, or
-// header); those belong to the transport message types that wrap it. Once constructed it is
-// immutable and safe for concurrent use.
+// Message is the minimal concrete implementation of SECS2Message: a stream/function code pair, a wait bit,
+// and a SECS-II data item.
+//
+// It carries no transport state (no session, system bytes, or header); those belong to the transport message types
+// that wrap it. Once constructed it is immutable and safe for concurrent use.
 type Message struct {
 	item     Item
 	stream   uint8
@@ -14,12 +15,10 @@ type Message struct {
 // ensure Message implements the SECS2Message interface.
 var _ SECS2Message = (*Message)(nil)
 
-// NewMessage creates a SECS2Message from the given stream and function codes, wait bit, and data
-// item.
+// NewMessage creates a SECS2Message from the given stream and function codes, wait bit, and data item.
 //
-// When replyExpected is true the message's wait bit (W-bit) is set, indicating that a reply is
-// expected from the receiver. If item is nil it is replaced with NewEmptyItem, so the returned
-// message always carries a valid, empty-bodied item.
+// When replyExpected is true the message's wait bit (W-bit) is set, indicating that a reply is expected from the receiver.
+// If item is nil it is replaced with NewEmptyItem, so the returned message always carries a valid, empty-bodied item.
 //
 // Parameters:
 //   - stream: the SECS-II stream code.
@@ -37,8 +36,9 @@ func NewMessage(stream, function byte, replyExpected bool, item Item) SECS2Messa
 	return &Message{stream: stream, function: function, w: replyExpected, item: item}
 }
 
-// StreamCode returns the stream code for the SECS-II message. The high bit, which the SECS-II
-// header reuses for the reverse-bit flag, is masked off.
+// StreamCode returns the stream code for the SECS-II message.
+//
+// The high bit, which the SECS-II header reuses for the reverse-bit flag, is masked off.
 func (msg *Message) StreamCode() uint8 { return msg.stream & 0x7F }
 
 // FunctionCode returns the function code for the SECS-II message.

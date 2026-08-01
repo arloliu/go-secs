@@ -13,10 +13,10 @@ import (
 
 // FloatItem represents an immutable list of IEEE-754 floating-point values in a SECS-II message.
 //
-// It implements the Item interface. byteSize must be 4 (F4, single-precision) or 8 (F8,
-// double-precision). All values are stored internally as float64 regardless of byteSize; F4 items
-// apply float32 precision only during wire encoding and SML rendering. All methods are safe for
-// concurrent use and no method exposes mutable internal storage.
+// It implements the Item interface. byteSize must be 4 (F4, single-precision) or 8 (F8, double-precision).
+// All values are stored internally as float64 regardless of byteSize; F4 items apply float32 precision only during wire encoding
+// and SML rendering.
+// All methods are safe for concurrent use and no method exposes mutable internal storage.
 type FloatItem struct {
 	size     int32
 	byteSize uint32
@@ -27,21 +27,17 @@ type FloatItem struct {
 
 var _ Item = (*FloatItem)(nil)
 
-// NewFloatItem creates a new FloatItem representing IEEE-754 floating-point data in a SECS-II
-// message.
+// NewFloatItem creates a new FloatItem representing IEEE-754 floating-point data in a SECS-II message.
 //
-// byteSize must be 4 (F4, single-precision) or 8 (F8, double-precision). Each value can be a
-// float32, float64, a signed or unsigned integer (int, int8, int16, int32, int64, uint, uint8,
-// uint16, uint32, uint64), a slice of any of those types, or a string containing a decimal
-// floating-point literal.
+// byteSize must be 4 (F4, single-precision) or 8 (F8, double-precision).
+// Each value can be a float32, float64, a signed or unsigned integer (int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64), a slice of any of those types, or a string containing a decimal floating-point literal.
 //
-// For byteSize 4, float64 values whose magnitude exceeds math.MaxFloat32 are clamped to
-// ±math.MaxFloat32. NaN and ±Inf pass through unclamped. Signed and unsigned integer values
-// whose magnitude exceeds 2^53 produce a deferred error, as they cannot be represented exactly in
-// float64.
+// For byteSize 4, float64 values whose magnitude exceeds math.MaxFloat32 are clamped to ±math.MaxFloat32.
+// NaN and ±Inf pass through unclamped.
+// Signed and unsigned integer values whose magnitude exceeds 2^53 produce a deferred error, as they cannot be represented exactly in float64.
 //
-// If byteSize is invalid or a value cannot be converted, a deferred error is stored on the
-// returned item; call Error() to inspect it.
+// If byteSize is invalid or a value cannot be converted, a deferred error is stored on the returned item;
+// call Error() to inspect it.
 //
 // Parameters:
 //   - byteSize: the size in bytes of each float (4 or 8).
@@ -81,9 +77,9 @@ func NewFloatItem(byteSize int, values ...any) Item {
 //
 // Returns an error if the item carries a deferred construction error.
 //
-// It returns the item's deferred error (see Error) when the item was constructed with
-// one — a passing Is* predicate does NOT imply a nil error here. Always check the
-// returned error; do not discard it via `v, _ := item.ToFloat()`.
+// It returns the item's deferred error (see Error) when the item was constructed with one —
+// a passing Is* predicate does NOT imply a nil error here.
+// Always check the returned error; do not discard it via `v, _ := item.ToFloat()`.
 func (item *FloatItem) ToFloat() ([]float64, error) {
 	if item.itemErr != nil {
 		return nil, item.itemErr
@@ -144,6 +140,7 @@ func (item *FloatItem) Floats() iter.Seq[float64] {
 func (item *FloatItem) Size() int { return int(item.size) }
 
 // EncodedLen returns the total SECS-II wire byte length (header + payload).
+//
 // Returns 0 for items with deferred errors.
 func (item *FloatItem) EncodedLen() int {
 	if item.itemErr != nil {
@@ -160,6 +157,7 @@ func (item *FloatItem) EncodedLen() int {
 }
 
 // AppendTo appends the SECS-II wire encoding of this item into dst and returns the result.
+//
 // Returns dst unchanged for items with deferred errors.
 func (item *FloatItem) AppendTo(dst []byte) []byte {
 	if item.itemErr != nil {
@@ -205,6 +203,7 @@ func (item *FloatItem) AppendTo(dst []byte) []byte {
 }
 
 // ToBytes allocates a single buffer and returns the SECS-II wire encoding.
+//
 // Equivalent to AppendTo(make([]byte, 0, EncodedLen())).
 func (item *FloatItem) ToBytes() []byte {
 	return item.AppendTo(make([]byte, 0, item.EncodedLen()))
@@ -225,21 +224,21 @@ func (item *FloatItem) Type() string {
 // IsFloat32 returns true if this is a 32-bit float item (byteSize == 4).
 //
 // It reflects the DECLARED type only and does not consult the item's deferred error:
-// a true result does not imply the item is usable. Gate value extraction on Error()
-// (or the To* accessor's returned error), not on Is* alone.
+// a true result does not imply the item is usable.
+// Gate value extraction on Error() (or the To* accessor's returned error), not on Is* alone.
 func (item *FloatItem) IsFloat32() bool { return item.byteSize == 4 }
 
 // IsFloat64 returns true if this is a 64-bit float item (byteSize == 8).
 //
 // It reflects the DECLARED type only and does not consult the item's deferred error:
-// a true result does not imply the item is usable. Gate value extraction on Error()
-// (or the To* accessor's returned error), not on Is* alone.
+// a true result does not imply the item is usable.
+// Gate value extraction on Error() (or the To* accessor's returned error), not on Is* alone.
 func (item *FloatItem) IsFloat64() bool { return item.byteSize == 8 }
 
 // ToSML returns the SML (SECS Message Language) text representation of this item.
 //
-// Empty items are rendered as <FbyteSize[0]>. Values are formatted using G9 for F4 (matching
-// float32 round-trip precision) and G17 for F8 (matching float64 round-trip precision).
+// Empty items are rendered as <FbyteSize[0]>.
+// Values are formatted using G9 for F4 (matching float32 round-trip precision) and G17 for F8 (matching float64 round-trip precision).
 func (item *FloatItem) ToSML() string {
 	if item.size == 0 {
 		return fmt.Sprintf("<F%d[0]>", item.byteSize)

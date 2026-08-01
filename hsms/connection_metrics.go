@@ -21,10 +21,8 @@ type paddedInt64 struct {
 // All reads and writes are atomic; safe to read concurrently with the protocol goroutines.
 //
 // Transport-specific observability lives in the owning transport package instead of here:
-//   - HSMS-SS-only counters (linktest, Select/Separate/Reject) are in hsmsss.ConnectionMetrics,
-//     reached via hsmsss.Connection.ControlMetrics().
-//   - SECS-I-only counters (block send/recv/retry/etc.) are in secs1.ConnectionMetrics,
-//     reached via secs1.Connection.BlockMetrics().
+//   - HSMS-SS-only counters (linktest, Select/Separate/Reject) are in hsmsss.ConnectionMetrics, reached via hsmsss.Connection.ControlMetrics().
+//   - SECS-I-only counters (block send/recv/retry/etc.) are in secs1.ConnectionMetrics, reached via secs1.Connection.BlockMetrics().
 type ConnectionMetrics struct {
 	_                      [64]byte // isolate dataMsgSend from whatever precedes this struct in memory
 	dataMsgSend            paddedUint64
@@ -44,41 +42,35 @@ func (m *ConnectionMetrics) DataMsgInflightCount() int64 {
 	return m.dataMsgInflight.Load()
 }
 
-// DataMsgDropNotSelectedCount returns the total number of data messages dropped
-// because the connection was not in SELECTED state.
+// DataMsgDropNotSelectedCount returns the total number of data messages dropped because the connection was not in SELECTED state.
 func (m *ConnectionMetrics) DataMsgDropNotSelectedCount() uint64 {
 	return m.dataMsgDropNotSelected.Load()
 }
 
 // DecodeErrCount returns the total number of inbound data frames that were read successfully.
 //
-// These are frames read off the wire but failed to decode or route (DeliverOwnedFrame's
-// decode-error path).
+// These are frames read off the wire but failed to decode or route (DeliverOwnedFrame's decode-error path).
 //
 // This is disjoint from DataMsgRecvCount: a decode failure never reaches the receive chokepoint.
 func (m *ConnectionMetrics) DecodeErrCount() uint64 {
 	return m.decodeErr.Load()
 }
 
-// BodyDecodeErrCount returns the number of inbound data messages that framed
-// successfully and were counted by DataMsgRecvCount, but whose lazy SECS-II body
-// failed to decode and were diverted to a registered DecodeErrorHandler instead of
-// the normal handlers.
+// BodyDecodeErrCount returns the number of inbound data messages that framed successfully and were counted by DataMsgRecvCount,
+// but whose lazy SECS-II body failed to decode and were diverted to a registered DecodeErrorHandler instead of the normal handlers.
 //
-// Unlike DecodeErrCount (frame-level failures that never reach the receive
-// chokepoint), a body-decode failure is counted AFTER DataMsgRecvCount — the two are
-// intentionally distinct so neither double-counts the other.
+// Unlike DecodeErrCount (frame-level failures that never reach the receive chokepoint), a body-decode failure is counted AFTER DataMsgRecvCount —
+// the two are intentionally distinct so neither double-counts the other.
 func (m *ConnectionMetrics) BodyDecodeErrCount() uint64 {
 	return m.bodyDecodeErr.Load()
 }
 
 // AsyncSendErrCount returns the total number of fire-and-forget async sends whose transport write failed.
 //
-// This counts SendAsync, ForwardDataMessageAsync, and internal control-message async sends
-// (such as Reject, Select.rsp) that failed on the transport write.
+// This counts SendAsync, ForwardDataMessageAsync, and internal control-message async sends (such as Reject, Select.rsp)
+// that failed on the transport write.
 //
-// These are otherwise silent: SendAsync itself only reports enqueue-boundary errors, never a
-// later write failure.
+// These are otherwise silent: SendAsync itself only reports enqueue-boundary errors, never a later write failure.
 // This is the only signal for "an async frame never reached the wire."
 //
 // See WithAsyncSendErrorHandler for a per-message callback.
@@ -88,15 +80,13 @@ func (m *ConnectionMetrics) AsyncSendErrCount() uint64 {
 
 // DataMsgSendCount returns the total number of data messages committed to the wire.
 //
-// The message is counted once per frame at the single on-wire chokepoint when the writev
-// succeeded.
+// The message is counted once per frame at the single on-wire chokepoint when the writev succeeded.
 //
-// A message refused by the not-Selected gate (see DataMsgDropNotSelectedCount) never reaches
-// the wire and is NOT counted here.
+// A message refused by the not-Selected gate (see DataMsgDropNotSelectedCount) never reaches the wire
+// and is NOT counted here.
 // Neither is an async (fire-and-forget) send that fails before the wire.
 //
-// Note this counts both primaries and replies — "send" here means "a data frame reached
-// the wire," not "a primary transaction was initiated."
+// Note this counts both primaries and replies — "send" here means "a data frame reached the wire," not "a primary transaction was initiated."
 func (m *ConnectionMetrics) DataMsgSendCount() uint64 {
 	return m.dataMsgSend.Load()
 }
@@ -112,8 +102,7 @@ func (m *ConnectionMetrics) DataMsgRecvCount() uint64 {
 // It counts only the synchronous send path (sendWaitReply).
 //
 // Deliberately NOT counted here:
-//   - A peer Reject of our transaction (surfaced as *RejectError — a peer-signalled outcome, not
-//     a local send error).
+//   - A peer Reject of our transaction (surfaced as *RejectError — a peer-signalled outcome, not a local send error).
 //   - A fire-and-forget (non-W-bit) send, which returns before any reply wait.
 //   - An async-path (SendAsync/ReplyDataMessage) failure.
 //
@@ -128,8 +117,7 @@ func (m *ConnectionMetrics) DataMsgErrCount() uint64 {
 // This is a GAUGE, not a cumulative counter — it goes up when a reconnect loop starts
 // and back down when it exits, regardless of how many dial attempts happen inside.
 //
-// The gauge is also held at 1 while an active connection's OpenBackground initial-connect
-// retry is in flight (it is the same underlying loop).
+// The gauge is also held at 1 while an active connection's OpenBackground initial-connect retry is in flight (it is the same underlying loop).
 //
 // See Reconnects for the cumulative count of successful re-establishments.
 func (m *ConnectionMetrics) Reconnecting() int64 {

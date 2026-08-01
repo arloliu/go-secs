@@ -9,8 +9,9 @@ import (
 	"github.com/arloliu/go-secs/v2/secs2"
 )
 
-// Encoder renders secs2 Items / hsms messages to SML text. Its zero-value
-// defaults (set in NewEncoder) reproduce secs2.Item.ToSML() byte-for-byte.
+// Encoder renders secs2 Items / hsms messages to SML text.
+//
+// Its zero-value defaults (set in NewEncoder) reproduce secs2.Item.ToSML() byte-for-byte.
 // An Encoder is immutable after construction and safe for concurrent use.
 type Encoder struct {
 	strict      bool
@@ -215,10 +216,11 @@ func (e *Encoder) encodeList(sb *strings.Builder, it secs2.Item, level int) {
 	sb.WriteByte('>')
 }
 
-// EncodeMessage renders the message header line then its body. The body is
-// obtained via msg.Item(), which for a decoded (raw-frame) message decodes
-// lazily and may return an error — propagated, not swallowed. A message with an
-// empty body renders as just the header line followed by the terminating ".".
+// EncodeMessage renders the message header line then its body.
+//
+// The body is obtained via msg.Item(), which for a decoded (raw-frame) message decodes lazily and may return an error —
+// propagated, not swallowed.
+// A message with an empty body renders as just the header line followed by the terminating ".".
 func (e *Encoder) EncodeMessage(msg *hsms.DataMessage) (string, error) {
 	item, err := msg.Item()
 	if err != nil {
@@ -264,18 +266,21 @@ func EncodeStrict(it secs2.Item) string {
 	return NewEncoder(WithEncoderStrictMode(true)).Encode(it)
 }
 
-// EncodeMessage renders msg to SML text using an encoder configured by opts (default: hex binary,
-// double-quoted ASCII, unquoted S/F header). It mirrors the item-level Encode shortcut. The body is
-// decoded lazily via msg.Item(); a decode error is returned, not swallowed.
+// EncodeMessage renders msg to SML text using an encoder configured by opts (default:
+// hex binary, double-quoted ASCII, unquoted S/F header).
+//
+// It mirrors the item-level Encode shortcut.
+// The body is decoded lazily via msg.Item(); a decode error is returned, not swallowed.
 func EncodeMessage(msg *hsms.DataMessage, opts ...EncoderOption) (string, error) {
 	return NewEncoder(opts...).EncodeMessage(msg)
 }
 
 // MustEncodeMessage is EncodeMessage for logging/tests where a body-decode error is not actionable;
-// on error it returns a diagnostic string of the form "<!sml encode error: ...>" rather than
-// panicking, so it is always safe to embed in a log line. This deliberately deviates from Go's usual
-// Must* convention (panic-on-error): the whole point of this function is that a single malformed
-// inbound message must never be able to crash the process trying to log it.
+// on error it returns a diagnostic string of the form "<!sml encode error: ...>" rather than panicking,
+// so it is always safe to embed in a log line.
+//
+// This deliberately deviates from Go's usual Must* convention (panic-on-error): the whole point of this function is
+// that a single malformed inbound message must never be able to crash the process trying to log it.
 func MustEncodeMessage(msg *hsms.DataMessage, opts ...EncoderOption) string {
 	s, err := EncodeMessage(msg, opts...)
 	if err != nil {

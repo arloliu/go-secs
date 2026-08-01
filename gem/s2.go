@@ -28,7 +28,8 @@ func S2F2(grant GRANT) secs2.SECS2Message {
 
 // S2F3 creates the S2F3 (Service Program Send) message, direction: bidirectional.
 //
-// The data associated with the S2F1 inquire is sent. If S2F3 is multi-block, it must be preceded by the S2F1/S2F2 Inquire/Grant transaction.
+// The data associated with the S2F1 inquire is sent.
+// If S2F3 is multi-block, it must be preceded by the S2F1/S2F2 Inquire/Grant transaction.
 //
 // Body: B[spd].
 //
@@ -138,7 +139,8 @@ func S2F12(spids ...secs2.Item) secs2.SECS2Message {
 
 // S2F13 creates the S2F13 (Equipment Constant Request) message, direction: host-to-equipment.
 //
-// Constants such as for calibration, servo gain, alarm limits, data collection mode, and other values that are changed infrequently can be obtained using this message.
+// Constants such as for calibration, servo gain, alarm limits, data collection mode, and other values
+// that are changed infrequently can be obtained using this message.
 //
 // Body: L[n]{ <ecids>... }.
 //
@@ -153,7 +155,8 @@ func S2F13(ecids ...secs2.Item) secs2.SECS2Message {
 //
 // Body: L[n]{ <ecvs>... }.
 //
-// Exception: A zero-length list item for ECVi means that ECIDi does not exist. The list format for this data item is not allowed, except in this case.
+// Exception: A zero-length list item for ECVi means that ECIDi does not exist.
+// The list format for this data item is not allowed, except in this case.
 func S2F14(ecvs ...secs2.Item) secs2.SECS2Message {
 	return secs2.NewMessage(2, 14, false, secs2.L(ecvs...))
 }
@@ -171,7 +174,8 @@ func S2F15(constants ...secs2.Item) secs2.SECS2Message {
 
 // S2F16 creates the S2F16 (New Equipment Constant Acknowledge) message, direction: equipment-to-host.
 //
-// Acknowledge or error. If EAC contains a non-zero error code, the equipment does not change any of the ECIDs specified in S2F15.
+// Acknowledge or error.
+// If EAC contains a non-zero error code, the equipment does not change any of the ECIDs specified in S2F15.
 //
 // Body: B[eac].
 //
@@ -226,7 +230,8 @@ func S2F20(rac secs2.Item) secs2.SECS2Message {
 
 // S2F21 creates the S2F21 (Remote Command Send) message, direction: host-to-equipment.
 //
-// Similar to pressing buttons on the front panel or causes some equipment activity to commence or to cease. Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+// Similar to pressing buttons on the front panel or causes some equipment activity to commence or to cease.
+// Callers that require a no-reply variant should use [secs2.NewMessage] directly.
 //
 // Body: <rcmd>.
 //
@@ -248,7 +253,13 @@ func S2F22(cmda secs2.Item) secs2.SECS2Message {
 
 // S2F23 creates the S2F23 (Trace Initialize Send) message, direction: host-to-equipment.
 //
-// Status variables exist at all times. This function provides a way to sample a subset of those status variables as a function of time. The trace data is returned on S6F1 and is related to the original request by the TRID. If equipment receives S2F23 with the same TRID as a trace function currently in progress, the equipment should terminate the old trace and then initiate the new trace. A trace currently in progress may be terminated by S2F23 with that TRID and TOTSMP = 0. If S2F23 is multi-block, it must be preceded by the S2F39/S2F40 Inquire/Grant transaction.
+// Status variables exist at all times.
+// This function provides a way to sample a subset of those status variables as a function of time.
+// The trace data is returned on S6F1 and is related to the original request by the TRID.
+// If equipment receives S2F23 with the same TRID as a trace function currently in progress, the equipment should terminate the old trace
+// and then initiate the new trace.
+// A trace currently in progress may be terminated by S2F23 with that TRID and TOTSMP = 0.
+// If S2F23 is multi-block, it must be preceded by the S2F39/S2F40 Inquire/Grant transaction.
 //
 // Body: L[5]{ <trid> A[dsper] <totsmp> <repgsz> L[n]{ <svids>... } }.
 //
@@ -270,7 +281,8 @@ func S2F24(tiaack TIAACK) secs2.SECS2Message {
 
 // S2F25 creates the S2F25 (Loopback Diagnostic Request) message, direction: bidirectional.
 //
-// A diagnostic message for checkout of protocol and communication circuits. The binary string sent is echoed back.
+// A diagnostic message for checkout of protocol and communication circuits.
+// The binary string sent is echoed back.
 //
 // Body: B[abs].
 //
@@ -303,7 +315,8 @@ func S2F27(loc byte, ppid secs2.Item, mids ...secs2.Item) secs2.SECS2Message {
 
 // S2F28 creates the S2F28 (Initiate Processing Acknowledge) message, direction: equipment-to-host.
 //
-// Response by equipment to Initiate Processing Request. Returned status indicates whether or not the request was honored by the equipment.
+// Response by equipment to Initiate Processing Request.
+// Returned status indicates whether or not the request was honored by the equipment.
 //
 // Body: <cmda>.
 //
@@ -329,7 +342,8 @@ func S2F29(ecids ...secs2.Item) secs2.SECS2Message {
 //
 // Body: L[n]{ <constants>... }.
 //
-// Exception: Zero-length ASCII items for ECNAMEi, ECMINi, ECMAXi, ECDEFi, and UNITSi indicate that the ECID does not exist.
+// Exception: Zero-length ASCII items for ECNAMEi, ECMINi, ECMAXi, ECDEFi, and UNITSi indicate
+// that the ECID does not exist.
 func S2F30(constants ...secs2.Item) secs2.SECS2Message {
 	return secs2.NewMessage(2, 30, false, secs2.L(constants...))
 }
@@ -358,18 +372,23 @@ func S2F32(tiack TIACK) secs2.SECS2Message {
 
 // S2F33 creates the S2F33 (Define Report) message, direction: host-to-equipment.
 //
-// The host defines a group of reports for the equipment. The type of report is designated by a Boolean equipment constant: a value of False means an Event Report (S6F11) will be sent, and a value of True means an Annotated Event Report (S6F13) will be sent. If S2F33 is multi-block, it must be preceded by the S2F39/S2F40 Inquire/Grant transaction.
+// The host defines a group of reports for the equipment.
+// The type of report is designated by a Boolean equipment constant: a value of False means an Event Report (S6F11) will be sent,
+// and a value of True means an Annotated Event Report (S6F13) will be sent.
+// If S2F33 is multi-block, it must be preceded by the S2F39/S2F40 Inquire/Grant transaction.
 //
 // Body: L[2]{ <dataid> L[n]{ <reports>... } }.
 //
-// Exception: A list of zero length following DATAID deletes all report definitions and associated links (see S2F35). A list of zero length following a RPTID deletes that report type; all CEID links to that RPTID are also deleted.
+// Exception: A list of zero length following DATAID deletes all report definitions and associated links (see S2F35).
+// A list of zero length following a RPTID deletes that report type; all CEID links to that RPTID are also deleted.
 func S2F33(dataid secs2.Item, reports ...secs2.Item) secs2.SECS2Message {
 	return secs2.NewMessage(2, 33, true, secs2.L(dataid, secs2.L(reports...)))
 }
 
 // S2F34 creates the S2F34 (Define Report Acknowledge) message, direction: equipment-to-host.
 //
-// Acknowledge or error. If an error condition is detected the entire message is rejected (i.e., partial changes are not allowed).
+// Acknowledge or error.
+// If an error condition is detected the entire message is rejected (i.e., partial changes are not allowed).
 //
 // Body: B[drack].
 //
@@ -380,7 +399,9 @@ func S2F34(drack DRACK) secs2.SECS2Message {
 
 // S2F35 creates the S2F35 (Link Event Report) message, direction: host-to-equipment.
 //
-// The host links n reports to an event (CEID). These linked event reports default to disabled upon linking; the occurrence of an event does not cause the report to be sent until enabled (see S2F37). If S2F35 is multi-block, it must be preceded by the S2F39/S2F40 Inquire/Grant transaction.
+// The host links n reports to an event (CEID).
+// These linked event reports default to disabled upon linking; the occurrence of an event does not cause the report to be sent until enabled (see S2F37).
+// If S2F35 is multi-block, it must be preceded by the S2F39/S2F40 Inquire/Grant transaction.
 //
 // Body: L[2]{ <dataid> L[n]{ <events>... } }.
 //
@@ -391,7 +412,8 @@ func S2F35(dataid secs2.Item, events ...secs2.Item) secs2.SECS2Message {
 
 // S2F36 creates the S2F36 (Link Event Report Acknowledge) message, direction: equipment-to-host.
 //
-// Acknowledge or error. If an error condition is detected the entire message is rejected (i.e., partial changes are not allowed).
+// Acknowledge or error.
+// If an error condition is detected the entire message is rejected (i.e., partial changes are not allowed).
 //
 // Body: B[lrack].
 //
@@ -402,7 +424,9 @@ func S2F36(lrack LRACK) secs2.SECS2Message {
 
 // S2F37 creates the S2F37 (Enable/Disable Event Report) message, direction: host-to-equipment.
 //
-// The host enables or disables reporting for a group of events (CEIDs). When n is not zero, this message enables or disables reporting for the listed CEIDs; reporting for unlisted CEIDs is not affected.
+// The host enables or disables reporting for a group of events (CEIDs).
+// When n is not zero, this message enables or disables reporting for the listed CEIDs;
+// reporting for unlisted CEIDs is not affected.
 //
 // Body: L[2]{ BOOLEAN[ceed] L[n]{ <ceids>... } }.
 //
@@ -413,7 +437,8 @@ func S2F37(ceed bool, ceids ...secs2.Item) secs2.SECS2Message {
 
 // S2F38 creates the S2F38 (Enable/Disable Event Report Acknowledge) message, direction: equipment-to-host.
 //
-// Acknowledge or error. If an error condition is detected the entire message is rejected (i.e., partial changes are not allowed).
+// Acknowledge or error.
+// If an error condition is detected the entire message is rejected (i.e., partial changes are not allowed).
 //
 // Body: B[erack].
 //
@@ -457,7 +482,9 @@ func S2F41(rcmd secs2.Item, params ...secs2.Item) secs2.SECS2Message {
 
 // S2F42 creates the S2F42 (Host Command Acknowledge) message, direction: equipment-to-host.
 //
-// Acknowledge host command or error. If the command is not accepted due to one or more invalid parameters (i.e., HCACK = 3), a list of invalid parameters is returned containing the parameter name and reason for being invalid.
+// Acknowledge host command or error.
+// If the command is not accepted due to one or more invalid parameters (i.e., HCACK = 3), a list of invalid parameters is returned containing the parameter name
+// and reason for being invalid.
 //
 // Body: L[2]{ B[hcack] L[n]{ <params>... } }.
 //
@@ -468,11 +495,14 @@ func S2F42(hcack HCACK, params ...secs2.Item) secs2.SECS2Message {
 
 // S2F43 creates the S2F43 (Reset Spooling Streams and Functions) message, direction: host-to-equipment.
 //
-// The host selects specific streams and functions to be spooled whenever spooling is active. A defined list of functions for a stream replaces any previously selected functions. Spooling for Stream 1 is not allowed.
+// The host selects specific streams and functions to be spooled whenever spooling is active.
+// A defined list of functions for a stream replaces any previously selected functions.
+// Spooling for Stream 1 is not allowed.
 //
 // Body: L[n]{ <streams>... }.
 //
-// Exception: A zero-length list, m = 0, turns off spooling for all streams and functions. A zero-length list, n = 0, turns on spooling for all functions for the associated stream.
+// Exception: A zero-length list, m = 0, turns off spooling for all streams and functions.
+// A zero-length list, n = 0, turns on spooling for all functions for the associated stream.
 func S2F43(streams ...secs2.Item) secs2.SECS2Message {
 	return secs2.NewMessage(2, 43, true, secs2.L(streams...))
 }
@@ -483,29 +513,38 @@ func S2F43(streams ...secs2.Item) secs2.SECS2Message {
 //
 // Body: L[2]{ B[rspack] L[n]{ <streams>... } }.
 //
-// Exception: If RSPACK = 0, a zero-length list, m = 0, is given, indicating no streams or functions in error. A zero-length list, n = 0, indicates no functions in error for the specified stream.
+// Exception: If RSPACK = 0, a zero-length list, m = 0, is given, indicating no streams or functions in error.
+// A zero-length list, n = 0, indicates no functions in error for the specified stream.
 func S2F44(rspack RSPACK, streams ...secs2.Item) secs2.SECS2Message {
 	return secs2.NewMessage(2, 44, false, secs2.L(secs2.B(byte(rspack)), secs2.L(streams...)))
 }
 
 // S2F45 creates the S2F45 (Define Variable Limit Attributes) message, direction: host-to-equipment.
 //
-// The host defines or changes the limit attributes for a group of variables. Each limit carries an upper and lower deadband pair. If S2F45 is multi-block, it must be preceded by the S2F39/S2F40 Inquire/Grant transaction.
+// The host defines or changes the limit attributes for a group of variables.
+// Each limit carries an upper and lower deadband pair.
+// If S2F45 is multi-block, it must be preceded by the S2F39/S2F40 Inquire/Grant transaction.
 //
 // Body: L[2]{ <dataid> L[n]{ <variables>... } }.
 //
-// Exception: A zero-length list, m = 0, sets all limit values for all monitored VIDs to undefined. A zero-length list, n = 0, sets all limit values for that VID to undefined. A zero-length list, p = 0, sets that limit to undefined.
+// Exception: A zero-length list, m = 0, sets all limit values for all monitored VIDs to undefined.
+// A zero-length list, n = 0, sets all limit values for that VID to undefined.
+// A zero-length list, p = 0, sets that limit to undefined.
 func S2F45(dataid secs2.Item, variables ...secs2.Item) secs2.SECS2Message {
 	return secs2.NewMessage(2, 45, true, secs2.L(dataid, secs2.L(variables...)))
 }
 
 // S2F46 creates the S2F46 (Variable Limit Attribute Acknowledge) message, direction: equipment-to-host.
 //
-// Acknowledge definition of variable limit attributes or report error. If the definition is not accepted due to one or more invalid parameters (e.g., LIMITACK = 3), a list of invalid parameters is returned containing the variable limit attribute and reason for rejection. If an error condition is detected, the entire message is rejected (i.e., partial changes are not allowed).
+// Acknowledge definition of variable limit attributes or report error.
+// If the definition is not accepted due to one or more invalid parameters (e.g., LIMITACK = 3), a list of invalid parameters is returned containing the variable limit attribute
+// and reason for rejection.
+// If an error condition is detected, the entire message is rejected (i.e., partial changes are not allowed).
 //
 // Body: L[2]{ B[vlaack] L[n]{ <variables>... } }.
 //
-// Exception: A zero-length list, m = 0, indicates no invalid variable limit attributes. A zero-length list, n = 0, indicates no invalid limit values for that VID.
+// Exception: A zero-length list, m = 0, indicates no invalid variable limit attributes.
+// A zero-length list, n = 0, indicates no invalid limit values for that VID.
 func S2F46(vlaack VLAACK, variables ...secs2.Item) secs2.SECS2Message {
 	return secs2.NewMessage(2, 46, false, secs2.L(secs2.B(byte(vlaack)), secs2.L(variables...)))
 }
@@ -527,25 +566,37 @@ func S2F47(vids ...secs2.Item) secs2.SECS2Message {
 //
 // Body: L[n]{ <variables>... }.
 //
-// Exception: A zero-length list, p = 0, indicates that limits are not supported for the VID. A zero-length list, n = 0, means no limits are currently defined for the specified variable.
+// Exception: A zero-length list, p = 0, indicates that limits are not supported for the VID.
+// A zero-length list, n = 0, means no limits are currently defined for the specified variable.
 func S2F48(variables ...secs2.Item) secs2.SECS2Message {
 	return secs2.NewMessage(2, 48, false, secs2.L(variables...))
 }
 
 // S2F49 creates the S2F49 (Enhanced Remote Command) message, direction: host-to-equipment.
 //
-// The host requests an object to perform the specified remote command with its associated parameters (DATAID, OBJSPEC, RCMD, and a list of CPNAME/CEPVAL parameter groups). If multi-block, it must be preceded by the S2F39/S2F40 Multi-block Inquire/Grant transaction. The body is opaque because each CEPVAL's shape is chosen at the value level and cannot be described by a static structure: a given CEPVAL may be a single scalar, a list of same-format items, or a recursively nested list of CPNAME/CEPVAL pairs. The caller assembles the body manually via secs2 primitives.
+// The host requests an object to perform the specified remote command with its associated parameters (DATAID, OBJSPEC, RCMD,
+// and a list of CPNAME/CEPVAL parameter groups).
+// If multi-block, it must be preceded by the S2F39/S2F40 Multi-block Inquire/Grant transaction.
+// The body is opaque because each CEPVAL's shape is chosen at the value level and cannot be described by a static structure:
+// a given CEPVAL may be a single scalar, a list of same-format items, or a recursively nested list of CPNAME/CEPVAL pairs.
+// The caller assembles the body manually via secs2 primitives.
 //
 // Body: form-dependent (see description).
 //
-// Exception: A zero-length list, m = 0, indicates that no parameter groups are sent with the command. OBJSPEC may be a null-length item.
+// Exception: A zero-length list, m = 0, indicates that no parameter groups are sent with the command.
+// OBJSPEC may be a null-length item.
 func S2F49(body secs2.Item) secs2.SECS2Message {
 	return secs2.NewMessage(2, 49, false, body)
 }
 
 // S2F50 creates the S2F50 (Enhanced Remote Command Acknowledge) message, direction: equipment-to-host.
 //
-// The equipment acknowledges an Enhanced Remote Command (S2F49) or reports any errors. If the command is not accepted due to one or more invalid parameters (i.e., HCACK = 3), a list of invalid parameters is returned containing the parameter name (CPNAME) and reason for being invalid (CEPACK). The body is opaque because each CEPACK mirrors the value-dependent, possibly recursively nested shape of the corresponding CEPVAL in S2F49, which cannot be described by a static structure. The caller assembles the body manually via secs2 primitives.
+// The equipment acknowledges an Enhanced Remote Command (S2F49) or reports any errors.
+// If the command is not accepted due to one or more invalid parameters (i.e., HCACK = 3), a list of invalid parameters is returned containing the parameter name (CPNAME)
+// and reason for being invalid (CEPACK).
+// The body is opaque because each CEPACK mirrors the value-dependent, possibly recursively nested shape of the corresponding CEPVAL in S2F49,
+// which cannot be described by a static structure.
+// The caller assembles the body manually via secs2 primitives.
 //
 // Body: form-dependent (see description).
 //

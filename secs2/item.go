@@ -31,8 +31,9 @@ const (
 	Float64Type      = "f8"
 )
 
-// FormatCode is a SECS-II item format code (SEMI E5 §9.2). Format codes are 6-bit values in the
-// range [0, 63]; there is no negative or out-of-band sentinel value.
+// FormatCode is a SECS-II item format code (SEMI E5 §9.2).
+//
+// Format codes are 6-bit values in the range [0, 63]; there is no negative or out-of-band sentinel value.
 type FormatCode uint8
 
 // Format constants define the SECS-II item format codes.
@@ -55,8 +56,9 @@ const (
 	Uint32FormatCode       FormatCode = 0o54
 )
 
-// String returns the SECS-II item-type name for the format code (for example "list", "ascii",
-// "i4"). Codes outside the SEMI E5 set render as "unknown(<value>)".
+// String returns the SECS-II item-type name for the format code (for example "list", "ascii", "i4").
+//
+// Codes outside the SEMI E5 set render as "unknown(<value>)".
 func (fc FormatCode) String() string {
 	switch fc {
 	case ListFormatCode:
@@ -107,6 +109,7 @@ func NewItemErrorWithMsg(errMsg string) *ItemError {
 }
 
 // NewItemError wraps err as an ItemError.
+//
 // If err is already an ItemError, the inner error is unwrapped to avoid double-wrapping.
 func NewItemError(err error) *ItemError {
 	itemErr := &ItemError{}
@@ -244,32 +247,27 @@ type Item interface {
 
 	// Items returns an iterator over the sub-items of a list item.
 	//
-	// It yields nothing on any non-list item, whether the mismatch is a plain
-	// type mismatch or a deferred error.
+	// It yields nothing on any non-list item, whether the mismatch is a plain type mismatch or a deferred error.
 	Items() iter.Seq[Item]
 
 	// Bools returns an iterator over the boolean values of a boolean item.
 	//
-	// It yields nothing on any non-boolean item, whether the mismatch is a plain
-	// type mismatch or a deferred error.
+	// It yields nothing on any non-boolean item, whether the mismatch is a plain type mismatch or a deferred error.
 	Bools() iter.Seq[bool]
 
 	// Ints returns an iterator over the int64-widened values of a signed integer item.
 	//
-	// It yields nothing on any non-signed-integer item, whether the mismatch is a plain
-	// type mismatch or a deferred error.
+	// It yields nothing on any non-signed-integer item, whether the mismatch is a plain type mismatch or a deferred error.
 	Ints() iter.Seq[int64]
 
 	// Uints returns an iterator over the uint64-widened values of an unsigned integer item.
 	//
-	// It yields nothing on any non-unsigned-integer item, whether the mismatch is a plain
-	// type mismatch or a deferred error.
+	// It yields nothing on any non-unsigned-integer item, whether the mismatch is a plain type mismatch or a deferred error.
 	Uints() iter.Seq[uint64]
 
 	// Floats returns an iterator over the float64-widened values of a floating-point item.
 	//
-	// It yields nothing on any non-floating-point item, whether the mismatch is a plain
-	// type mismatch or a deferred error.
+	// It yields nothing on any non-floating-point item, whether the mismatch is a plain type mismatch or a deferred error.
 	Floats() iter.Seq[float64]
 
 	// AppendBinaryTo appends the raw bytes of a binary item into dst without allocating.
@@ -292,8 +290,8 @@ type Item interface {
 
 	// ToSML returns the SML (SECS Message Language) text representation of this item.
 	//
-	// When Error() is non-nil the returned text is unspecified; such items are rejected at
-	// message construction and are never serialized.
+	// When Error() is non-nil the returned text is unspecified; such items are rejected at message construction
+	// and are never serialized.
 	ToSML() string
 }
 
@@ -392,14 +390,14 @@ func (b *baseItem) IsFloat32() bool      { return false }
 func (b *baseItem) IsFloat64() bool      { return false }
 
 // EmptyItem represents an empty SECS-II data item that carries no type or payload.
+//
 // It is used as a zero value and as a sentinel for absent items.
 type EmptyItem struct{ baseItem }
 
 // NewEmptyItem returns a new EmptyItem as an Item interface value.
 func NewEmptyItem() Item { return &EmptyItem{} }
 
-// Get returns the item itself when called with no indices, or an error if indices are provided
-// (an empty item is not a list).
+// Get returns the item itself when called with no indices, or an error if indices are provided (an empty item is not a list).
 func (item *EmptyItem) Get(indices ...int) (Item, error) {
 	if len(indices) != 0 {
 		return nil, NewItemError(fmt.Errorf("item is not a list, item is empty, indices is %v", indices))
@@ -429,8 +427,8 @@ func (item *EmptyItem) Type() string { return EmptyType }
 // IsEmpty returns true.
 //
 // It reflects the DECLARED type only and does not consult the item's deferred error:
-// a true result does not imply the item is usable. Gate value extraction on Error()
-// (or the To* accessor's returned error), not on Is* alone.
+// a true result does not imply the item is usable.
+// Gate value extraction on Error() (or the To* accessor's returned error), not on Is* alone.
 func (item *EmptyItem) IsEmpty() bool { return true }
 
 var _ Item = (*EmptyItem)(nil)

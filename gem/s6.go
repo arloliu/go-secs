@@ -6,7 +6,10 @@ import "github.com/arloliu/go-secs/v2/secs2"
 
 // S6F1 creates the S6F1 (Trace Data Send) message, direction: equipment-to-host.
 //
-// This function sends samples to the host according to the trace setup done by S2F23. Trace is a time-driven form of equipment status. Even if S6F1 is multi-block, it is not preceded by an Inquire/Grant transaction, because the host S2F23 is an implicit grant. Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+// This function sends samples to the host according to the trace setup done by S2F23.
+// Trace is a time-driven form of equipment status.
+// Even if S6F1 is multi-block, it is not preceded by an Inquire/Grant transaction, because the host S2F23 is an implicit grant.
+// Callers that require a no-reply variant should use [secs2.NewMessage] directly.
 //
 // Body: L[4]{ <trid> <smpln> A[stime] L[n]{ <samples>... } }.
 //
@@ -28,7 +31,11 @@ func S6F2(ackc6 ACKC6) secs2.SECS2Message {
 
 // S6F3 creates the S6F3 (Discrete Variable Data Send) message, direction: equipment-to-host.
 //
-// Any data report initiated by an event, such as the completion of a measurement, rather than by the passage of time is called a discrete variable. S2F15 selects the desired reporting events. Reports requiring only one block of data may report directly to the host with this message. If S6F3 is multi-block, it must be preceded by the S6F5/S6F6 Inquire/Grant transaction. Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+// Any data report initiated by an event, such as the completion of a measurement, rather than by the passage of time is called a discrete variable.
+// S2F15 selects the desired reporting events.
+// Reports requiring only one block of data may report directly to the host with this message.
+// If S6F3 is multi-block, it must be preceded by the S6F5/S6F6 Inquire/Grant transaction.
+// Callers that require a no-reply variant should use [secs2.NewMessage] directly.
 //
 // Body: L[3]{ <dataid> <ceid> L[n]{ <reports>... } }.
 //
@@ -83,7 +90,8 @@ func S6F7(dataid secs2.Item) secs2.SECS2Message {
 
 // S6F8 creates the S6F8 (Data Transfer Data) message, direction: equipment-to-host.
 //
-// Equipment sends data to the host. The structure is the same as S6F3.
+// Equipment sends data to the host.
+// The structure is the same as S6F3.
 //
 // Body: L[3]{ <dataid> <ceid> L[n]{ <reports>... } }.
 //
@@ -94,7 +102,10 @@ func S6F8(dataid secs2.Item, ceid secs2.Item, reports ...secs2.Item) secs2.SECS2
 
 // S6F9 creates the S6F9 (Formatted Variable Send) message, direction: equipment-to-host.
 //
-// The same function as S6F3 except that the DVNAMEs are supplied from a predefined form known to the host, so the data are more compact. If S6F9 is multi-block, it must be preceded by the S6F5/S6F6 Inquire/Grant transaction. Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+// The same function as S6F3 except that the DVNAMEs are supplied from a predefined form known to the host,
+// so the data are more compact.
+// If S6F9 is multi-block, it must be preceded by the S6F5/S6F6 Inquire/Grant transaction.
+// Callers that require a no-reply variant should use [secs2.NewMessage] directly.
 //
 // Body: L[4]{ B[pfcd] <dataid> <ceid> L[n]{ <reports>... } }.
 //
@@ -116,11 +127,13 @@ func S6F10(ackc6 ACKC6) secs2.SECS2Message {
 
 // S6F11 creates the S6F11 (Event Report Send) message, direction: equipment-to-host.
 //
-// The purpose of this message is for the equipment to send a defined, linked, and enabled group of reports to the host upon the occurrence of an event (CEID). If S6F11 is multi-block, it must be preceded by the S6F5/S6F6 Inquire/Grant transaction.
+// The purpose of this message is for the equipment to send a defined, linked, and enabled group of reports to the host upon the occurrence of an event (CEID).
+// If S6F11 is multi-block, it must be preceded by the S6F5/S6F6 Inquire/Grant transaction.
 //
 // Body: L[3]{ <dataid> <ceid> L[n]{ <reports>... } }.
 //
-// Exception: If there are no reports linked to the event a 'null' report is assumed. A zero-length list for the report count means there are no reports linked to the given CEID.
+// Exception: If there are no reports linked to the event a 'null' report is assumed.
+// A zero-length list for the report count means there are no reports linked to the given CEID.
 func S6F11(dataid secs2.Item, ceid secs2.Item, reports ...secs2.Item) secs2.SECS2Message {
 	return secs2.NewMessage(6, 11, true, secs2.L(dataid, ceid, secs2.L(reports...)))
 }
@@ -138,11 +151,13 @@ func S6F12(ackc6 ACKC6) secs2.SECS2Message {
 
 // S6F13 creates the S6F13 (Annotated Event Report Send) message, direction: equipment-to-host.
 //
-// The purpose of this message is for the equipment to send a defined, linked, and enabled group of reports to the host upon the occurrence of an event (CEID), with each variable value annotated by its VID. This is the annotated form of S6F11.
+// The purpose of this message is for the equipment to send a defined, linked, and enabled group of reports to the host upon the occurrence of an event (CEID), with each variable value annotated by its VID.
+// This is the annotated form of S6F11.
 //
 // Body: L[3]{ <dataid> <ceid> L[n]{ <reports>... } }.
 //
-// Exception: If there are no reports linked to the event a 'null' report is assumed. A zero-length list for the report count means there are no reports linked to the given CEID.
+// Exception: If there are no reports linked to the event a 'null' report is assumed.
+// A zero-length list for the report count means there are no reports linked to the given CEID.
 //
 // Source: reconstructed from an external reference, not verified against the purchased SEMI standard.
 func S6F13(dataid secs2.Item, ceid secs2.Item, reports ...secs2.Item) secs2.SECS2Message {
@@ -173,7 +188,8 @@ func S6F15(ceid secs2.Item) secs2.SECS2Message {
 
 // S6F16 creates the S6F16 (Event Report Data) message, direction: equipment-to-host.
 //
-// Equipment sends the reports linked to the given CEID to the host. The structure is identical to S6F11.
+// Equipment sends the reports linked to the given CEID to the host.
+// The structure is identical to S6F11.
 //
 // Body: L[3]{ <dataid> <ceid> L[n]{ <reports>... } }.
 //
@@ -195,7 +211,8 @@ func S6F17(ceid secs2.Item) secs2.SECS2Message {
 
 // S6F18 creates the S6F18 (Annotated Event Report Data) message, direction: equipment-to-host.
 //
-// Equipment sends the annotated reports linked to the given CEID. The structure is the same as S6F13.
+// Equipment sends the annotated reports linked to the given CEID.
+// The structure is the same as S6F13.
 //
 // Body: L[3]{ <dataid> <ceid> L[n]{ <reports>... } }.
 //
@@ -261,7 +278,8 @@ func S6F23(rsdc uint8) secs2.SECS2Message {
 
 // S6F24 creates the S6F24 (Request Spooled Data Acknowledgement Send) message, direction: equipment-to-host.
 //
-// The purpose of this message is to acknowledge the receipt of the Request Spooled Data (S6F23) and to respond with an appropriate acknowledge code.
+// The purpose of this message is to acknowledge the receipt of the Request Spooled Data (S6F23)
+// and to respond with an appropriate acknowledge code.
 //
 // Body: B[rsda].
 //
@@ -272,18 +290,26 @@ func S6F24(rsda RSDA) secs2.SECS2Message {
 
 // S6F25 creates the S6F25 (Notification Report Send) message, direction: bidirectional.
 //
-// This message is used for change notifications or confirmation reports. A change notification is a report of an internal action not associated with a prior host request. A confirmation report is always associated with an earlier request for action and is sent to the initial requestor of a delayed action at the time the action completes. OPID contains the value of OPID in the initial request. LINKID is set to a non-zero value if and only if additional completion reports with the same OPID will be sent. If S6F25 is multi-block, it must be preceded by the S6F5/S6F6 Inquire/Grant transaction. Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+// This message is used for change notifications or confirmation reports.
+// A change notification is a report of an internal action not associated with a prior host request.
+// A confirmation report is always associated with an earlier request for action and is sent to the initial requestor of a delayed action at the time the action completes.
+// OPID contains the value of OPID in the initial request.
+// LINKID is set to a non-zero value if and only if additional completion reports with the same OPID will be sent.
+// If S6F25 is multi-block, it must be preceded by the S6F5/S6F6 Inquire/Grant transaction.
+// Callers that require a no-reply variant should use [secs2.NewMessage] directly.
 //
 // Body: L[7]{ <dataid> <opid> U4[linkid] A[rcpspec] <rmchgstat> L[n]{ <attributes>... } L[2]{ U1[rmack] L[n]{ <errors>... } } }.
 //
-// Exception: OPID and LINKID are zero-length items when and only when S6F25 is sent as a change notification rather than as a confirmation report. p = 0 if and only if RMACK indicates no errors.
+// Exception: OPID and LINKID are zero-length items when and only when S6F25 is sent as a change notification rather than as a confirmation report. p = 0 if
+// and only if RMACK indicates no errors.
 func S6F25(dataid secs2.Item, opid secs2.Item, linkid uint32, rcpspec string, rmchgstat secs2.Item, attributes []secs2.Item, rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
 	return secs2.NewMessage(6, 25, true, secs2.L(dataid, opid, secs2.U4(linkid), secs2.A(rcpspec), rmchgstat, secs2.L(attributes...), secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...))))
 }
 
 // S6F26 creates the S6F26 (Notification Report Send Acknowledge) message, direction: bidirectional.
 //
-// This message is used to acknowledge the confirmation report. It is defined for completeness and as an aid to the user in identifying problems.
+// This message is used to acknowledge the confirmation report.
+// It is defined for completeness and as an aid to the user in identifying problems.
 //
 // Body: B[ackc6].
 //
@@ -294,11 +320,15 @@ func S6F26(ackc6 ACKC6) secs2.SECS2Message {
 
 // S6F27 creates the S6F27 (Trace Report Send) message, direction: equipment-to-host.
 //
-// The equipment sends a completed Trace Report to the host. The outer list carries up to the trace group size specified by S2F53 samples; each sample carries one entry per report, and each report pairs its RPTID with the list of variable values for that report. Callers that require a no-reply variant should use [secs2.NewMessage] directly.
+// The equipment sends a completed Trace Report to the host.
+// The outer list carries up to the trace group size specified by S2F53 samples; each sample carries one entry per report,
+// and each report pairs its RPTID with the list of variable values for that report.
+// Callers that require a no-reply variant should use [secs2.NewMessage] directly.
 //
 // Body: L[3]{ <dataid> <trid> L[n]{ <samples>... } }.
 //
-// Exception: The list of variables associated with each unique RPTID is itself unique; this structure illustrates the form of the message only, so in general V1 for one RPTID and V1 for another do not reference the same variable.
+// Exception: The list of variables associated with each unique RPTID is itself unique; this structure illustrates the form of the message only,
+// so in general V1 for one RPTID and V1 for another do not reference the same variable.
 func S6F27(dataid secs2.Item, trid secs2.Item, samples ...secs2.Item) secs2.SECS2Message {
 	return secs2.NewMessage(6, 27, true, secs2.L(dataid, trid, secs2.L(samples...)))
 }
@@ -331,7 +361,8 @@ func S6F29(trid secs2.Item) secs2.SECS2Message {
 //
 // Body: L[3]{ <trid> L[n]{ <reports>... } <errcode> }.
 //
-// Exception: If TRID is unknown, a zero-length list (n = 0) is sent. ERRCODE is set to zero length when there is no error.
+// Exception: If TRID is unknown, a zero-length list (n = 0) is sent.
+// ERRCODE is set to zero length when there is no error.
 func S6F30(trid secs2.Item, reports []secs2.Item, errcode secs2.Item) secs2.SECS2Message {
 	return secs2.NewMessage(6, 30, false, secs2.L(trid, secs2.L(reports...), errcode))
 }

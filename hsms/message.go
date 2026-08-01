@@ -1,6 +1,7 @@
 package hsms
 
 // MsgType identifies the HSMS SType field (header byte 5).
+//
 // Defined values correspond to SEMI E37 §7.10.3.
 type MsgType uint8
 
@@ -23,16 +24,14 @@ const (
 	RejectReqType MsgType = 7
 	// SeparateReqType is the SType for a Separate.req control message (SType = 9).
 	SeparateReqType MsgType = 9
-	// UndefinedMsgType is the sentinel value returned when the SType byte does not
-	// correspond to any defined SEMI E37 message type.
+	// UndefinedMsgType is the sentinel value returned when the SType byte does not correspond to any defined SEMI E37 message type.
 	UndefinedMsgType MsgType = 255
 )
 
 // IsValidSType reports whether b is an SType defined by SEMI E37.
 //
 // Defined STypes are 0 (data message) and 1–7, 9 (control messages).
-// SType 8 and 10–255 are undefined and, per SEMI E37 §7.10.3, must be
-// answered with a Reject.req.
+// SType 8 and 10–255 are undefined and, per SEMI E37 §7.10.3, must be answered with a Reject.req.
 func IsValidSType(b byte) bool {
 	switch MsgType(b) { //nolint:exhaustive // UndefinedMsgType (255) is intentionally excluded via default
 	case DataMsgType, SelectReqType, SelectRspType, DeselectReqType,
@@ -47,8 +46,7 @@ func IsValidSType(b byte) bool {
 //
 // Both ControlMessage and DataMessage satisfy this interface.
 //
-// All methods return value types (not slices) to guarantee immutability: callers
-// may retain the returned values indefinitely without risk of aliasing.
+// All methods return value types (not slices) to guarantee immutability: callers may retain the returned values indefinitely without risk of aliasing.
 type Message interface {
 	// Type returns the HSMS SType for this message.
 	//
@@ -68,13 +66,11 @@ type Message interface {
 
 	// ToBytes serializes the message to its on-wire byte representation.
 	//
-	// The representation is a 4-byte length prefix followed by the 10-byte header
-	// and, for data messages, the encoded SECS-II item body.
+	// The representation is a 4-byte length prefix followed by the 10-byte header and, for data messages, the encoded SECS-II item body.
 	ToBytes() []byte
 
 	// ToDataMessage narrows the message to a DataMessage.
 	//
-	// It returns (msg, true) when msg is already a DataMessage, or (nil, false)
-	// when msg is a ControlMessage.
+	// It returns (msg, true) when msg is already a DataMessage, or (nil, false) when msg is a ControlMessage.
 	ToDataMessage() (*DataMessage, bool)
 }

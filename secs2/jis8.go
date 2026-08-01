@@ -7,9 +7,9 @@ import (
 
 // JIS8Item represents an immutable JIS-8 string in a SECS-II message.
 //
-// It implements the Item interface. All methods are safe for concurrent use. The backing
-// field is an immutable Go string, so reads from ToJIS8 require no copy and never expose
-// mutable internal state.
+// It implements the Item interface.
+// All methods are safe for concurrent use. The backing field is an immutable Go string, so reads from ToJIS8 require no copy
+// and never expose mutable internal state.
 type JIS8Item struct {
 	baseItem
 	value string
@@ -19,8 +19,8 @@ var _ Item = (*JIS8Item)(nil)
 
 // NewJIS8Item creates a new JIS8Item containing the given string.
 //
-// Any string is accepted; strict-mode JIS-8 validation is not currently enforced. If the
-// string's byte length exceeds MaxByteSize, a deferred error is stored on the returned item;
+// Any string is accepted; strict-mode JIS-8 validation is not currently enforced.
+// If the string's byte length exceeds MaxByteSize, a deferred error is stored on the returned item;
 // call Error() to inspect it.
 //
 // Parameters:
@@ -42,12 +42,13 @@ func NewJIS8Item(value string) Item {
 	return item
 }
 
-// ToJIS8 returns the string value stored in this item. Returns an error if the item carries
-// a deferred construction error.
+// ToJIS8 returns the string value stored in this item.
 //
-// It returns the item's deferred error (see Error) when the item was constructed with
-// one — a passing Is* predicate does NOT imply a nil error here. Always check the
-// returned error; do not discard it via `v, _ := item.ToJIS8()`.
+// Returns an error if the item carries a deferred construction error.
+//
+// It returns the item's deferred error (see Error) when the item was constructed with one —
+// a passing Is* predicate does NOT imply a nil error here.
+// Always check the returned error; do not discard it via `v, _ := item.ToJIS8()`.
 func (item *JIS8Item) ToJIS8() (string, error) {
 	if item.itemErr != nil {
 		return "", item.itemErr
@@ -65,11 +66,12 @@ func (item *JIS8Item) Type() string { return JIS8Type }
 // IsJIS8 returns true.
 //
 // It reflects the DECLARED type only and does not consult the item's deferred error:
-// a true result does not imply the item is usable. Gate value extraction on Error()
-// (or the To* accessor's returned error), not on Is* alone.
+// a true result does not imply the item is usable.
+// Gate value extraction on Error() (or the To* accessor's returned error), not on Is* alone.
 func (item *JIS8Item) IsJIS8() bool { return true }
 
 // EncodedLen returns the total SECS-II wire byte length (header + payload).
+//
 // Returns 0 for items with deferred errors.
 func (item *JIS8Item) EncodedLen() int {
 	if item.itemErr != nil {
@@ -86,6 +88,7 @@ func (item *JIS8Item) EncodedLen() int {
 }
 
 // AppendTo appends the SECS-II wire encoding of this item into dst and returns the result.
+//
 // Returns dst unchanged for items with deferred errors.
 func (item *JIS8Item) AppendTo(dst []byte) []byte {
 	if item.itemErr != nil {
@@ -102,6 +105,7 @@ func (item *JIS8Item) AppendTo(dst []byte) []byte {
 }
 
 // ToBytes allocates a single buffer and returns the SECS-II wire encoding.
+//
 // Equivalent to AppendTo(make([]byte, 0, EncodedLen())).
 func (item *JIS8Item) ToBytes() []byte {
 	return item.AppendTo(make([]byte, 0, item.EncodedLen()))
@@ -109,8 +113,9 @@ func (item *JIS8Item) ToBytes() []byte {
 
 // ToSML returns the SML (SECS Message Language) text representation of this item.
 //
-// Uses the default non-strict format. Empty strings are rendered as <J[0] "">;
-// non-empty strings as <J[N] "value">. The default quote character is a double quote.
+// Uses the default non-strict format.
+// Empty strings are rendered as <J[0] "">; non-empty strings as <J[N] "value">.
+// The default quote character is a double quote.
 func (item *JIS8Item) ToSML() string {
 	if len(item.value) == 0 {
 		return `<J[0] "">`

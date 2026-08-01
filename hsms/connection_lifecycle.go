@@ -19,42 +19,39 @@ const farewellWriteTimeout = 500 * time.Millisecond
 // torn down (a connect-fatal drop closes e.done), so it never spins unbounded.
 const selectPollInterval = 2 * time.Millisecond
 
-// Open starts the connection lifecycle (spec §5.2). It is serialized with Close by lifeMu (one
-// opener), and it creates a fresh per-generation epoch plus a FRESH per-Open supervisor.
+// Open starts the connection lifecycle (spec §5.2).
+//
+// It is serialized with Close by lifeMu (one opener), and it creates a fresh per-generation epoch plus a FRESH per-Open supervisor.
 //
 // Invariants (spec §5.2):
 //   - tr must be non-nil (a connection built without a transport cannot open).
-//   - Double-open H6: if the supervisor is alive and shutdown==false (connection logically open,
-//     including during the reconnect inter-generation window) return ErrAlreadyOpen as a no-op.
-//     If shutdown==true (prior Close completed, supWg drained) the connection is legally reopened.
-//   - G1: connectLoopWg.Wait() (join a dying reconnect loop) runs BEFORE creating fresh
-//     contexts, so a stale reconnect loop cannot publish over the new generation.
-//   - The supervisor's run()/notifier() are CONNECTION-owned goroutines joined by supWg (NOT
-//     epoch.spawn) so the supervisor OUTLIVES any single epoch (Codex round-6) — an involuntary
-//     disconnect cancels the epoch ctx but must not kill the supervisor (reconnect needs it).
+//   - Double-open H6: if the supervisor is alive and shutdown==false (connection logically open, including during the reconnect inter-generation window) return ErrAlreadyOpen as a no-op. If shutdown==true (prior Close completed, supWg drained) the connection is legally reopened.
+//   - G1: connectLoopWg.Wait() (join a dying reconnect loop) runs BEFORE creating fresh contexts,
+//     so a stale reconnect loop cannot publish over the new generation.
+//   - The supervisor's run()/notifier() are CONNECTION-owned goroutines joined by supWg (NOT epoch.spawn)
+//     so the supervisor OUTLIVES any single epoch (Codex round-6) — an involuntary disconnect cancels the epoch ctx
+//     but must not kill the supervisor (reconnect needs it).
 //   - The async sender is a PER-GENERATION goroutine via epoch.spawn (dies with the epoch).
 //
 // mode selects the return behavior: OpenWaitSelected blocks on {Selected | conn-drop | ctx};
 // OpenBackground returns after kickoff (passive HSMS-SS in particular needs background open).
 //
-// Active first-connect contract: an active transport dials SYNCHRONOUSLY during Open (via
-// transport.Start), so a failure of the very FIRST dial (e.g. connection refused) is handled
-// differently depending on mode. Under OpenWaitSelected (or for an inactive/passive transport
-// under either mode) it is still returned synchronously by Open itself — auto-reconnect is not
-// engaged for that initial connect. Under OpenBackground, for an active transport whose FSM never
-// left NotConnectedState (TCPUp was never driven), the failure is instead a cold/unreachable peer:
-// Open tears the failed attempt down, starts the background reconnect loop, and returns nil (Gap
-// 1, rc3) — v1 parity ("start the device; it connects whenever the equipment appears"). The
-// reconnect loop (exponential backoff capped at T5) otherwise takes over only AFTER a generation
-// has been established and later drops. A caller on OpenWaitSelected that wants to keep retrying
-// an initially-unreachable active peer should retry Open. (A passive Open never blocks on a peer
-// regardless of mode: it returns after ListenTCP + spawning the accept goroutine.)
+// Active first-connect contract: an active transport dials SYNCHRONOUSLY during Open (via transport.Start),
+// so a failure of the very FIRST dial (e.g. connection refused) is handled differently depending on mode.
+// Under OpenWaitSelected (or for an inactive/passive transport under either mode) it is still returned synchronously by Open itself —
+// auto-reconnect is not engaged for that initial connect.
+// Under OpenBackground, for an active transport whose FSM never left NotConnectedState (TCPUp was never driven), the failure is instead a cold/unreachable peer:
+// Open tears the failed attempt down, starts the background reconnect loop, and returns nil (Gap 1, rc3) —
+// v1 parity ("start the device; it connects whenever the equipment appears").
+// The reconnect loop (exponential backoff capped at T5) otherwise takes over only AFTER a generation has been established
+// and later drops.
+// A caller on OpenWaitSelected that wants to keep retrying an initially-unreachable active peer should retry Open. (A passive Open never blocks on a peer regardless of mode:
+// it returns after ListenTCP + spawning the accept goroutine.)
 //
-// OpenWaitSelected wait-failure (I7): if the wait fails AFTER the generation was established — the
-// caller ctx expired, or a first-generation select rejection tripped the always-on reconnect loop —
-// Open returns an error but the connection lifecycle KEEPS RUNNING (goroutines, socket, reconnect
-// loop); only a tr.Start failure rolls back. A caller that gets a wait error must Close() to release
-// the lifecycle — a bare retry-Open returns ErrAlreadyOpen.
+// OpenWaitSelected wait-failure (I7): if the wait fails AFTER the generation was established —
+// the caller ctx expired, or a first-generation select rejection tripped the always-on reconnect loop — Open returns an error
+// but the connection lifecycle KEEPS RUNNING (goroutines, socket, reconnect loop); only a tr.Start failure rolls back.
+// A caller that gets a wait error must Close() to release the lifecycle — a bare retry-Open returns ErrAlreadyOpen.
 func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	c.lifeMu.Lock()
 	defer c.lifeMu.Unlock()
@@ -207,19 +204,18 @@ func (c *connection) waitSelected(ctx context.Context, e *epoch, s *supervisor) 
 	}
 }
 
-// Close tears down the connection (spec §5.2, ctx-free — D5a-7). It is serialized with Open by
-// lifeMu. Ordering is binding: requestClose(e) (pin + inject evClose) -> e.wait() (the pinned
-// epoch's teardown completes while the supervisor is still alive and draining events) ->
-// sup.stop() (only NOW tear down the supervisor). The supervisor outlives the epoch, never the
-// reverse (round-6).
+// Close tears down the connection (spec §5.2, ctx-free — D5a-7).
+//
+// It is serialized with Open by lifeMu.
+// Ordering is binding: requestClose(e) (pin + inject evClose) -> e.wait() (the pinned epoch's teardown completes while the supervisor is still alive
+// and draining events) -> sup.stop() (only NOW tear down the supervisor).
+// The supervisor outlives the epoch, never the reverse (round-6).
 //
 // Entry guards (round-7/8):
 //   - NEVER-OPENED: cur == nil => ErrNotOpen (no requestClose/e.wait on a nil epoch/supervisor).
-//   - IDEMPOTENT RE-CLOSE: cur is NOT cleared on Close, so a re-Close sees a non-nil but
-//     torn-down epoch. If the supervisor already stopped (runDone closed) it returns the
-//     retained closeErr WITHOUT a second requestClose (which would deadlock on the now-unread
-//     events channel — inject's runDone select is the backstop, but short-circuiting is the
-//     primary guard).
+//   - IDEMPOTENT RE-CLOSE: cur is NOT cleared on Close, so a re-Close sees a non-nil but torn-down epoch.
+//     If the supervisor already stopped (runDone closed) it returns the retained closeErr WITHOUT a second requestClose (which would deadlock on the now-unread events channel —
+//     inject's runDone select is the backstop, but short-circuiting is the primary guard).
 func (c *connection) Close() error {
 	c.lifeMu.Lock()
 	defer c.lifeMu.Unlock()
@@ -515,11 +511,11 @@ func (c *connection) reconnectSleep(d time.Duration, stop <-chan struct{}) bool 
 	}
 }
 
-// TCPUp is called by the transport when a TCP connection is established (TransportRuntime). It
-// publishes the socket on the current epoch and then advances the FSM NotConnected -> NotSelected
-// SYNCHRONOUSLY via a guarded CAS (CommitConnected, symmetric with CommitSelected), which also
-// enqueues evTCPUp for the deduped entering-NotSelected reaction/notify. The socket is published
-// BEFORE the supervisor call so it is visible before State() flips to NotSelected.
+// TCPUp is called by the transport when a TCP connection is established (TransportRuntime).
+//
+// It publishes the socket on the current epoch and then advances the FSM NotConnected -> NotSelected SYNCHRONOUSLY via a guarded CAS (CommitConnected, symmetric with CommitSelected),
+// which also enqueues evTCPUp for the deduped entering-NotSelected reaction/notify.
+// The socket is published BEFORE the supervisor call so it is visible before State() flips to NotSelected.
 func (c *connection) TCPUp(conn net.Conn) {
 	if e := c.cur.Load(); e != nil {
 		e.setConn(conn)
@@ -530,11 +526,11 @@ func (c *connection) TCPUp(conn net.Conn) {
 	}
 }
 
-// TCPDown is called by the transport when the TCP connection is lost (TransportRuntime). Any
-// TCPDown is an INVOLUNTARY drop, so it marks the current generation commsFailure=true (the
-// NotConnected reaction then sends NO farewell Separate — §9.1.1) and injects evDisconnect. A
-// graceful voluntary Close never routes through TCPDown; it funnels through evClose and leaves
-// commsFailure false.
+// TCPDown is called by the transport when the TCP connection is lost (TransportRuntime).
+//
+// Any TCPDown is an INVOLUNTARY drop, so it marks the current generation commsFailure=true (the NotConnected reaction then sends NO farewell Separate —
+// §9.1.1) and injects evDisconnect.
+// A graceful voluntary Close never routes through TCPDown; it funnels through evClose and leaves commsFailure false.
 func (c *connection) TCPDown(cause error) {
 	if e := c.cur.Load(); e != nil {
 		e.commsFailure.Store(true)

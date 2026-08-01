@@ -39,7 +39,8 @@ func S9F5(mhead [10]byte) secs2.SECS2Message {
 
 // S9F7 creates the S9F7 (Illegal Data) message, direction: equipment-to-host.
 //
-// The stream and function were recognized, but the message format was incorrect. May indicate the message did not comply with its Message Definition or used a data format or type the receiver does not support.
+// The stream and function were recognized, but the message format was incorrect.
+// May indicate the message did not comply with its Message Definition or used a data format or type the receiver does not support.
 //
 // Body: B[mhead].
 //
@@ -50,7 +51,8 @@ func S9F7(mhead [10]byte) secs2.SECS2Message {
 
 // S9F9 creates the S9F9 (Transaction Timer Timeout) message, direction: equipment-to-host.
 //
-// A transaction (receive) timer has timed out and the corresponding transaction has been aborted. The host must respond appropriately to keep the system operational.
+// A transaction (receive) timer has timed out and the corresponding transaction has been aborted.
+// The host must respond appropriately to keep the system operational.
 //
 // Body: B[shead].
 //
@@ -72,7 +74,8 @@ func S9F11(mhead [10]byte) secs2.SECS2Message {
 
 // S9F13 creates the S9F13 (Conversation Timeout) message, direction: equipment-to-host.
 //
-// Data were expected but none were received within a reasonable length of time. Resources have been cleared.
+// Data were expected but none were received within a reasonable length of time.
+// Resources have been cleared.
 //
 // Body: L[2]{ A[mexp] <edid> }.
 //

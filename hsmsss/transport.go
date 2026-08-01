@@ -166,15 +166,15 @@ func (t *transport) clock() func() time.Time {
 }
 
 // Start dials (active) or accepts (passive) a TCP connection, calls rt.TCPUp on success,
-// and spawns the per-generation recv loop tracked by g.recv. rt is the TransportRuntime
-// back-channel the recv loop uses to deliver TCP-lifecycle events to the connection core.
+// and spawns the per-generation recv loop tracked by g.recv. rt is the TransportRuntime back-channel the recv loop uses to deliver TCP-lifecycle events to the connection core.
 //
-// On dial/listen failure Start returns the error immediately; the engine's reconnect loop handles
-// the retry (exponential backoff capped at T5; spec §6.3). Start does NOT block waiting for a peer
-// in either role: active returns after DialTCP + spawning the recv loop / Select procedure; passive
-// returns after ListenTCP + spawning the accept goroutine (§6.3 — passive REQUIRES OpenBackground,
-// so Start must return before a peer connects). The passive accept + rt.TCPUp happen on the
-// accept goroutine (tracked by g.accept, joined by Stop); see startPassive in passive.go.
+// On dial/listen failure Start returns the error immediately; the engine's reconnect loop handles the retry (exponential backoff capped at T5;
+// spec §6.3).
+// Start does NOT block waiting for a peer in either role: active returns after DialTCP + spawning the recv loop / Select procedure;
+// passive returns after ListenTCP + spawning the accept goroutine (§6.3 — passive REQUIRES OpenBackground,
+// so Start must return before a peer connects).
+// The passive accept + rt.TCPUp happen on the accept goroutine (tracked by g.accept, joined by Stop);
+// see startPassive in passive.go.
 func (t *transport) Start(ctx context.Context, rt hsms.TransportRuntime) error {
 	// Bind rt ONCE, on the first Start, before any recv loop is spawned (F7). The core passes the
 	// same connection singleton to every generation's Start, so a reconnect Start only re-presents
@@ -202,13 +202,12 @@ func (t *transport) IsActive() bool { return t.cfg.Active() }
 
 // ArmStart clears the Stop-seal (I1) AND installs a fresh per-generation WaitGroup bundle (NEW-1)
 // so this generation's Start may register its goroutines on a bundle no prior generation touches.
-// The core calls it immediately before it publishes a fresh generation and calls Start (under the
-// core's publishMu in the reconnect loop, under lifeMu in Open). Ordering it before the publish
-// guarantees it happens-before any voluntary Close that could seal that same generation, so a live
-// Stop's seal is never undone by a stale arm. The bundle swap happens under the SAME Lock as the
-// seal clear, so a Stop that captured the OLD bundle (under Lock, before this ArmStart) still Waits
-// on that OLD bundle — where any abandoned straggler decrements — while this generation gets a
-// clean bundle (see genWG for why cross-generation sharing would panic / inflate teardown latency).
+//
+// The core calls it immediately before it publishes a fresh generation and calls Start (under the core's publishMu in the reconnect loop, under lifeMu in Open).
+// Ordering it before the publish guarantees it happens-before any voluntary Close that could seal that same generation,
+// so a live Stop's seal is never undone by a stale arm. The bundle swap happens under the SAME Lock as the seal clear,
+// so a Stop that captured the OLD bundle (under Lock, before this ArmStart) still Waits on that OLD bundle —
+// where any abandoned straggler decrements — while this generation gets a clean bundle (see genWG for why cross-generation sharing would panic / inflate teardown latency).
 func (t *transport) ArmStart() {
 	t.startGate.Lock()
 	t.stopping = false
@@ -216,16 +215,17 @@ func (t *transport) ArmStart() {
 	t.startGate.Unlock()
 }
 
-// Stop closes the TCP connection (and any pending listener) to unblock the recv loop's parked Read,
-// then joins the per-generation goroutines. The recv/proc/linktest/T7 joins are BOUNDED by ctx (the
-// close-timeout deadline epoch.join passes): normally no goroutine outlives Stop (round-7), but if a
-// data handler wedges the recv goroutine past the deadline, Stop returns ErrCloseTimeout and ABANDONS
-// that straggler (fenced by recvLoop's captured-genCtx guard so it cannot drive a stale TCPDown into a
-// later generation — C1). Idempotent: safe when Start never connected (nil conn) or Stop already ran.
+// Stop closes the TCP connection (and any pending listener) to unblock the recv loop's parked Read, then joins the per-generation goroutines.
 //
-// The engine's epoch teardown calls tr.Stop after closeSocket has already closed the conn
-// (J5), so the recv loop's parked Read is unblocked before this join. Stop's own Close
-// calls below are the idempotent belt-and-suspenders guard for the transport-level contract.
+// The recv/proc/linktest/T7 joins are BOUNDED by ctx (the close-timeout deadline epoch.join passes):
+// normally no goroutine outlives Stop (round-7), but if a data handler wedges the recv goroutine past the deadline, Stop returns ErrCloseTimeout
+// and ABANDONS that straggler (fenced by recvLoop's captured-genCtx guard so it cannot drive a stale TCPDown into a later generation —
+// C1).
+// Idempotent: safe when Start never connected (nil conn) or Stop already ran.
+//
+// The engine's epoch teardown calls tr.Stop after closeSocket has already closed the conn (J5),
+// so the recv loop's parked Read is unblocked before this join.
+// Stop's own Close calls below are the idempotent belt-and-suspenders guard for the transport-level contract.
 func (t *transport) Stop(ctx context.Context) error {
 	// I1 Add-vs-Wait guard: seal the transport BEFORE any Wait below. Taking startGate.Lock waits
 	// out any in-flight Start RLock section (its WaitGroup Adds), so once it returns no 0->1 Add is
@@ -334,19 +334,20 @@ func (t *transport) Stop(ctx context.Context) error {
 	}
 }
 
-// Write performs a writev of the pre-framed buffers over conn (spec §6.2). conn is the EPOCH's
-// socket, captured and passed by the core (I1 full-fix): the transport writes onto exactly this
-// conn and does NOT re-resolve its own current t.conn, so a stale sender pinned to an old
-// generation writes that generation's (closed) socket — never a successor's. conn is typically a
+// Write performs a writev of the pre-framed buffers over conn (spec §6.2). conn is the EPOCH's socket, captured
+// and passed by the core (I1 full-fix): the transport writes onto exactly this conn and does NOT re-resolve its own current t.conn,
+// so a stale sender pinned to an old generation writes that generation's (closed) socket —
+// never a successor's. conn is typically a
 // *net.TCPConn, so bufs.WriteTo(conn) hits the writev system-call fast path — a bufio.Writer
-// wrapper would defeat this and must NOT be added. A custom dialer supplied via WithDialer may
-// provide any net.Conn (e.g. an in-memory pipe), in which case the write is a plain WriteTo
-// (correct, just not vectored). The connection core serializes Write calls under epoch.writeMu so
-// no additional lock is needed here.
+// wrapper would defeat this and must NOT be added.
 //
-// The write deadline is deliberately NOT derived from ctx: a cancelled ctx must not truncate
-// a partial frame in flight, which would desync the HSMS stream (E1 review carry). Use
-// SetWriteDeadline (on the same conn) for bounded writes.
+// A custom dialer supplied via WithDialer may provide any net.Conn (e.g. an in-memory pipe), in
+// which case the write is a plain WriteTo (correct, just not vectored).
+// The connection core serializes Write calls under epoch.writeMu so no additional lock is needed here.
+//
+// The write deadline is deliberately NOT derived from ctx: a cancelled ctx must not truncate a partial frame in flight,
+// which would desync the HSMS stream (E1 review carry).
+// Use SetWriteDeadline (on the same conn) for bounded writes.
 func (t *transport) Write(_ context.Context, conn net.Conn, bufs net.Buffers) error {
 	if conn == nil {
 		return errors.New("hsmsss: Write: not connected")
@@ -383,9 +384,9 @@ func (t *transport) resetActivityStamps() {
 	t.lastRecvStamp.Store(now)
 }
 
-// SetReadDeadline sets the read deadline on conn — the epoch's socket, passed explicitly for
-// the same I1 reason as Write/SetWriteDeadline (never re-resolve t.conn). No core caller today
-// (the recv loop arms its read deadline on its own captured conn); conn-bound for symmetry.
+// SetReadDeadline sets the read deadline on conn — the epoch's socket, passed explicitly for the same I1 reason as Write/SetWriteDeadline (never re-resolve t.conn).
+//
+// No core caller today (the recv loop arms its read deadline on its own captured conn); conn-bound for symmetry.
 // No-op when conn is nil.
 func (t *transport) SetReadDeadline(conn net.Conn, deadline time.Time) error {
 	if conn == nil {
@@ -395,9 +396,10 @@ func (t *transport) SetReadDeadline(conn net.Conn, deadline time.Time) error {
 	return conn.SetReadDeadline(deadline)
 }
 
-// SetWriteDeadline sets the write deadline on conn — the SAME epoch socket the core hands to Write
-// (I1 full-fix), so the bounded-write deadline is armed on the exact conn the frame is written to,
-// never a successor generation's socket. No-op when conn is nil.
+// SetWriteDeadline sets the write deadline on conn — the SAME epoch socket the core hands to Write (I1 full-fix),
+// so the bounded-write deadline is armed on the exact conn the frame is written to, never a successor generation's socket.
+//
+// No-op when conn is nil.
 func (t *transport) SetWriteDeadline(conn net.Conn, deadline time.Time) error {
 	if conn == nil {
 		return nil

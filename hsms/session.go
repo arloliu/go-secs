@@ -60,13 +60,15 @@ func newSession(id uint16, rt TransportRuntime, sysGen *sysBytesGen) *session {
 	}
 }
 
-// SessionID returns the HSMS session ID. Never blocks.
+// SessionID returns the HSMS session ID.
+//
+// Never blocks.
 func (s *session) SessionID() uint16 { return s.id }
 
 // SendDataMessage builds a primary data message and delegates to rt.WriteMessage.
-// When replyExpected is true, WriteMessage waits for the T3-bounded reply; the B1
-// IsSelected gate, I1 inflight accounting, and T3 timer enforcement are all owned
-// by the engine (Task 12) inside WriteMessage — not here.
+//
+// When replyExpected is true, WriteMessage waits for the T3-bounded reply; the B1 IsSelected gate, I1 inflight accounting,
+// and T3 timer enforcement are all owned by the engine (Task 12) inside WriteMessage — not here.
 func (s *session) SendDataMessage(ctx context.Context, stream, function byte, replyExpected bool, item secs2.Item) (*DataMessage, error) {
 	msg, err := NewDataMessage(stream, function, replyExpected, s.rt.SessionID(), s.sysGen.next(), item)
 	if err != nil {
@@ -94,8 +96,9 @@ func (s *session) SendDataMessage(ctx context.Context, stream, function byte, re
 	return dm, nil
 }
 
-// SendDataMessageAsync builds a data message and enqueues it on the per-generation
-// async send channel via rt.SendAsync. No reply is awaited.
+// SendDataMessageAsync builds a data message and enqueues it on the per-generation async send channel via rt.SendAsync.
+//
+// No reply is awaited.
 func (s *session) SendDataMessageAsync(ctx context.Context, stream, function byte, replyExpected bool, item secs2.Item) error {
 	msg, err := NewDataMessage(stream, function, replyExpected, s.rt.SessionID(), s.sysGen.next(), item)
 	if err != nil {
@@ -105,9 +108,10 @@ func (s *session) SendDataMessageAsync(ctx context.Context, stream, function byt
 	return s.rt.SendAsync(ctx, msg)
 }
 
-// SendSECS2Message builds an HSMS DataMessage from a [secs2.SECS2Message] (stream,
-// function, W-bit, item) and delegates to rt.WriteMessage. Returns the reply DataMessage
-// when the W-bit is set.
+// SendSECS2Message builds an HSMS DataMessage from a [secs2.SECS2Message] (stream, function, W-bit, item)
+// and delegates to rt.WriteMessage.
+//
+// Returns the reply DataMessage when the W-bit is set.
 func (s *session) SendSECS2Message(ctx context.Context, msg secs2.SECS2Message) (*DataMessage, error) {
 	dm, err := NewDataMessage(
 		msg.StreamCode(), msg.FunctionCode(), msg.WaitBit(),
@@ -135,11 +139,13 @@ func (s *session) SendSECS2Message(ctx context.Context, msg secs2.SECS2Message) 
 	return dataReply, nil
 }
 
-// ForwardDataMessage writes a pre-built data message verbatim (preserving its System Bytes, W-bit,
-// session ID, and stream/function) via rt.WriteMessageNoReply and returns once the frame is on the
-// wire. No reply is registered or consumed here — a secondary the peer sends is delivered to the
-// registered DataMessageHandlers, so the caller owns reply correlation. See the
-// SECS2Endpoint.ForwardDataMessage contract. Returns ErrNilMessage if msg is nil.
+// ForwardDataMessage writes a pre-built data message verbatim (preserving its System Bytes, W-bit, session ID,
+// and stream/function) via rt.WriteMessageNoReply and returns once the frame is on the wire.
+//
+// No reply is registered or consumed here — a secondary the peer sends is delivered to the registered DataMessageHandlers,
+// so the caller owns reply correlation.
+// See the SECS2Endpoint.ForwardDataMessage contract.
+// Returns ErrNilMessage if msg is nil.
 func (s *session) ForwardDataMessage(ctx context.Context, msg *DataMessage) error {
 	if msg == nil {
 		return ErrNilMessage
@@ -148,9 +154,10 @@ func (s *session) ForwardDataMessage(ctx context.Context, msg *DataMessage) erro
 	return s.rt.WriteMessageNoReply(ctx, msg)
 }
 
-// ForwardDataMessageAsync enqueues a pre-built data message verbatim on the per-generation async
-// send channel via rt.SendAsync, preserving its full envelope. No reply is registered or consumed
-// here (see ForwardDataMessage). Returns ErrNilMessage if msg is nil.
+// ForwardDataMessageAsync enqueues a pre-built data message verbatim on the per-generation async send channel via rt.SendAsync, preserving its full envelope.
+//
+// No reply is registered or consumed here (see ForwardDataMessage).
+// Returns ErrNilMessage if msg is nil.
 func (s *session) ForwardDataMessageAsync(ctx context.Context, msg *DataMessage) error {
 	if msg == nil {
 		return ErrNilMessage
@@ -159,11 +166,11 @@ func (s *session) ForwardDataMessageAsync(ctx context.Context, msg *DataMessage)
 	return s.rt.SendAsync(ctx, msg)
 }
 
-// ReplyDataMessage sends a secondary data message in reply to primary. The reply function
-// is primary.Function()+1 (SECS-II secondary-function convention: primary is odd, reply is
-// even), replyExpected is false, and system bytes are taken verbatim from primary
-// (E37 §8.2.6.9 — system bytes must match). The message is enqueued via rt.SendAsync
-// (no W-bit, no reply correlation needed).
+// ReplyDataMessage sends a secondary data message in reply to primary.
+//
+// The reply function is primary.Function()+1 (SECS-II secondary-function convention: primary is odd, reply is even), replyExpected is false,
+// and system bytes are taken verbatim from primary (E37 §8.2.6.9 — system bytes must match).
+// The message is enqueued via rt.SendAsync (no W-bit, no reply correlation needed).
 func (s *session) ReplyDataMessage(ctx context.Context, primary *DataMessage, item secs2.Item) error {
 	dm, err := NewDataMessage(
 		primary.Stream(),
@@ -180,18 +187,16 @@ func (s *session) ReplyDataMessage(ctx context.Context, primary *DataMessage, it
 	return s.rt.SendAsync(ctx, dm)
 }
 
-// AddDataMessageHandler appends one or more inbound data-message handlers under mu.Lock.
-// recvDataMsg snapshots the slice header under RLock, so concurrent registration and
-// delivery are race-free.
+// AddDataMessageHandler appends one or more inbound data-message handlers under mu.Lock. recvDataMsg snapshots the slice header under RLock,
+// so concurrent registration and delivery are race-free.
 func (s *session) AddDataMessageHandler(handlers ...DataMessageHandler) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.handlers = append(s.handlers, handlers...)
 }
 
-// AddDecodeErrorHandler appends one or more inbound decode-error handlers under mu.Lock.
-// dispatchDecodeError snapshots the slice header under RLock, so concurrent registration
-// and delivery are race-free.
+// AddDecodeErrorHandler appends one or more inbound decode-error handlers under mu.Lock. dispatchDecodeError snapshots the slice header under RLock,
+// so concurrent registration and delivery are race-free.
 func (s *session) AddDecodeErrorHandler(handlers ...DecodeErrorHandler) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -233,13 +238,12 @@ func (s *session) addChanHandler(ch chan *DataMessage) {
 	s.chans = append(s.chans, ch)
 }
 
-// AddConnStateChangeHandler registers state-change handlers on the Connection's
-// persistent handler slice (spec §5.1). Uses a lock-free CAS loop to append atomically
-// to the atomic.Pointer[[]StateChangeHandler] held by connHandlers.
+// AddConnStateChangeHandler registers state-change handlers on the Connection's persistent handler slice (spec §5.1).
 //
-// If connHandlers is nil (pre-Task-13 wiring), this call is a no-op; Task 13 wires the
-// real pointer after session construction so subsequent calls reach the Connection's
-// persistent storage.
+// Uses a lock-free CAS loop to append atomically to the atomic.Pointer[[]StateChangeHandler] held by connHandlers.
+//
+// If connHandlers is nil (pre-Task-13 wiring), this call is a no-op; Task 13 wires the real pointer after session construction
+// so subsequent calls reach the Connection's persistent storage.
 func (s *session) AddConnStateChangeHandler(handlers ...StateChangeHandler) {
 	if s.connHandlers == nil || len(handlers) == 0 {
 		return

@@ -8,14 +8,12 @@ import (
 )
 
 // RouteData delivers an inbound data message to the session fan-out (TransportRuntime).
-// The session synchronously fans out to registered handlers (§5.4); it never errors here,
-// so RouteData always returns nil.
 //
-// When at least one decode-error handler is registered, RouteData forces the lazy SECS-II
-// body decode here (where the metrics are in scope). An undecodable primary is counted and
-// diverted to the decode-error handlers instead of the normal data-message fan-out; a message
-// whose body decodes cleanly, and every message when no decode-error handler is registered,
-// routes normally with decoding left lazy.
+// The session synchronously fans out to registered handlers (§5.4); it never errors here, so RouteData always returns nil.
+//
+// When at least one decode-error handler is registered, RouteData forces the lazy SECS-II body decode here (where the metrics are in scope).
+// An undecodable primary is counted and diverted to the decode-error handlers instead of the normal data-message fan-out;
+// a message whose body decodes cleanly, and every message when no decode-error handler is registered, routes normally with decoding left lazy.
 func (c *connection) RouteData(msg *DataMessage) error {
 	if c.hasDecodeErrorHandlers() {
 		if derr := msg.DecodeErr(); derr != nil { // forces the lazy body decode and caches the result
@@ -31,9 +29,9 @@ func (c *connection) RouteData(msg *DataMessage) error {
 	return nil
 }
 
-// CommitSelected performs the H2 §7.D synchronous responder commit via the supervisor
-// (TransportRuntime). It nil-guards the supervisor: with no live supervisor it reports
-// false (no commit happened).
+// CommitSelected performs the H2 §7.D synchronous responder commit via the supervisor (TransportRuntime).
+//
+// It nil-guards the supervisor: with no live supervisor it reports false (no commit happened).
 func (c *connection) CommitSelected() bool {
 	if s := c.sup.Load(); s != nil {
 		return s.CommitSelected()
@@ -42,15 +40,18 @@ func (c *connection) CommitSelected() bool {
 	return false
 }
 
-// SelectLost injects evSelectLost into the supervisor (Selected -> NotSelected,
-// TransportRuntime). It nil-guards the supervisor: with no live supervisor it is a no-op.
+// SelectLost injects evSelectLost into the supervisor (Selected -> NotSelected, TransportRuntime).
+//
+// It nil-guards the supervisor: with no live supervisor it is a no-op.
 func (c *connection) SelectLost() {
 	if s := c.sup.Load(); s != nil {
 		s.CommitSelectLost() // synchronous guarded CAS Selected->NotSelected, then enqueue evSelectLost (I3)
 	}
 }
 
-// T7Expired injects evT7Timeout (NOT-SELECTED dwell expiry) — TransportRuntime. See the interface doc.
+// T7Expired injects evT7Timeout (NOT-SELECTED dwell expiry) — TransportRuntime.
+//
+// See the interface doc.
 func (c *connection) T7Expired() {
 	if s := c.sup.Load(); s != nil {
 		s.inject(evT7Timeout)
@@ -58,15 +59,15 @@ func (c *connection) T7Expired() {
 }
 
 // DeliverOwnedFrame decodes an owned (zero-copy) DATA frame and routes it (TransportRuntime, spec §6.1).
-// The recv loop calls this ONLY for a DataMsgType frame received while Selected. Reply correlation is
-// offered ONLY for a SECONDARY (a reply: even non-zero function, W-bit clear), which reuses the primary's
-// System Bytes (E37 §8.2.6.9); on a registry hit it satisfies the waiting W-bit sender. A PRIMARY (odd
-// function, or W-bit set) is NEVER offered to the registry — it always goes to the session handlers via
-// RouteData — so a peer's primary is never mis-consumed as a local sender's reply when their System Bytes
-// collide (both peers' generators start at 1). An orphan secondary that misses the registry also falls
-// through to RouteData (delivered as unsolicited). A decode error is returned (the recv loop treats it as
-// a protocol error and keeps reading); it is effectively unreachable because readFrame + dispatchFrame
-// already validated length/PType/SType.
+//
+// The recv loop calls this ONLY for a DataMsgType frame received while Selected.
+// Reply correlation is offered ONLY for a SECONDARY (a reply: even non-zero function, W-bit clear),
+// which reuses the primary's System Bytes (E37 §8.2.6.9); on a registry hit it satisfies the waiting W-bit sender.
+// A PRIMARY (odd function, or W-bit set) is NEVER offered to the registry — it always goes to the session handlers via RouteData —
+// so a peer's primary is never mis-consumed as a local sender's reply when their System Bytes collide (both peers' generators start at 1).
+// An orphan secondary that misses the registry also falls through to RouteData (delivered as unsolicited).
+// A decode error is returned (the recv loop treats it as a protocol error and keeps reading);
+// it is effectively unreachable because readFrame + dispatchFrame already validated length/PType/SType.
 func (c *connection) DeliverOwnedFrame(frame []byte) error {
 	msg, err := decodeOwnedFrame(frame)
 	if err != nil {
@@ -159,25 +160,26 @@ func isSecondaryReply(dm *DataMessage) bool {
 	return !dm.WaitBit() && dm.Function()%2 == 0
 }
 
-// RouteReply looks up the System Bytes of msg in the per-generation sender-owned reply
-// registry and non-blocking-delivers the reply to the waiting sender (TransportRuntime, spec
-// §5.5). It returns true on a registry hit (a sender received the reply), false on a miss (the
-// reply is unsolicited — the caller routes it as a secondary or drops it). It never touches the
-// inflight gauge. With no live epoch it reports a miss.
+// RouteReply looks up the System Bytes of msg in the per-generation sender-owned reply registry
+// and non-blocking-delivers the reply to the waiting sender (TransportRuntime, spec §5.5).
 //
-// A peer Reject.req (SType 7, E37 §7.9) correlates to our in-flight transaction by System Bytes
-// but is a REJECTION, not a reply: it is delivered to the waiting sender as a *RejectError
-// (carrying the E37 reason code, header byte 3), so SendDataMessage/SendSECS2Message return
-// (nil, *RejectError) rather than silently swallowing the reject as an un-assertable
+// It returns true on a registry hit (a sender received the reply), false on a miss (the reply is unsolicited —
+// the caller routes it as a secondary or drops it).
+// It never touches the inflight gauge.
+// With no live epoch it reports a miss.
+//
+// A peer Reject.req (SType 7, E37 §7.9) correlates to our in-flight transaction by System Bytes but is a REJECTION, not a reply:
+// it is delivered to the waiting sender as a *RejectError (carrying the E37 reason code, header byte 3),
+// so SendDataMessage/SendSECS2Message return (nil, *RejectError) rather than silently swallowing the reject as an un-assertable
 // *ControlMessage. Legitimate control responses (Select.rsp / Deselect.rsp / Linktest.rsp) are
 // still delivered as the routed message, because their responder procedures read the routed rsp.
 //
-// A miss means the reply is unsolicited (no open transaction). Per E37 §8.3.20 the caller must
-// answer an orphan control RESPONSE (Select/Deselect/Linktest.rsp — even SType) with
-// Reject(TransactionNotOpen, reason 3), keeping the link; the HSMS-SS recv loop does so on a miss
-// (see transport.dispatchFrame → sendRejectTransactionNotOpen). An orphan inbound Reject.req
-// (SType 7, not a response) is dropped rather than re-rejected; an orphan data secondary that
-// misses falls through to the session as unsolicited.
+// A miss means the reply is unsolicited (no open transaction).
+// Per E37 §8.3.20 the caller must answer an orphan control RESPONSE (Select/Deselect/Linktest.rsp —
+// even SType) with Reject(TransactionNotOpen, reason 3), keeping the link; the HSMS-SS recv loop does
+// so on a miss (see transport.dispatchFrame → sendRejectTransactionNotOpen).
+// An orphan inbound Reject.req (SType 7, not a response) is dropped rather than re-rejected; an orphan data secondary
+// that misses falls through to the session as unsolicited.
 func (c *connection) RouteReply(msg Message) bool {
 	e := c.cur.Load()
 	if e == nil {

@@ -5,15 +5,17 @@ import (
 	"fmt"
 )
 
-// ErrNoMessage is returned by [Parser.ParseMessage] and [Parser.ParseHeader] when the input is
-// empty or contains only whitespace and comments. Test for it with errors.Is.
+// ErrNoMessage is returned by [Parser.ParseMessage] and [Parser.ParseHeader] when the input is empty or contains only whitespace
+// and comments.
+//
+// Test for it with errors.Is.
 var ErrNoMessage = errors.New("sml: no message parsed")
 
 // ParseError is a syntax error with the position in the input where it occurred.
-// Only syntax errors during parsing are reported as *ParseError. Empty-input
-// errors are returned as [ErrNoMessage]; construction or validation failures from
-// hsms or secs2 are wrapped plain errors. Use errors.As to test for *ParseError
-// and errors.Is for sentinel values such as [ErrNoMessage].
+//
+// Only syntax errors during parsing are reported as *ParseError.
+// Empty-input errors are returned as [ErrNoMessage]; construction or validation failures from hsms or secs2 are wrapped plain errors.
+// Use errors.As to test for *ParseError and errors.Is for sentinel values such as [ErrNoMessage].
 type ParseError struct {
 	Offset int    // 0-based byte offset into the input
 	Line   int    // 1-based

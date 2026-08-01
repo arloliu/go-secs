@@ -179,14 +179,13 @@ func (s *supervisor) State() ConnState {
 }
 
 // CommitConnected performs the synchronous TCP-up commit (symmetric with CommitSelected / §7.D):
-// a guarded CAS NotConnected -> NotSelected directly on state, making State()==NotSelected
-// immediately (before the recv loop / active Select procedure runs) so a Select.req dispatched
-// right after TCP-up finds NotSelected and CommitSelected's CAS succeeds — with NO async poll-fence.
-// On a successful commit it enqueues evTCPUp so the supervisor fires the entering-NotSelected
-// reaction/notify EXACTLY ONCE (deduped on lastReacted, tolerating the pre-committed state via the
-// evTCPUp-from-NotSelected table entry). It returns whether THIS call performed the commit; a call
-// when not NotConnected is a no-op returning false (TCPUp is driven once per generation, and the
-// only transition out of NotConnected is evTCPUp itself, so the CAS always succeeds in practice).
+// a guarded CAS NotConnected -> NotSelected directly on state, making State()==NotSelected immediately (before the recv loop / active Select procedure runs)
+// so a Select.req dispatched right after TCP-up finds NotSelected and CommitSelected's CAS succeeds —
+// with NO async poll-fence.
+//
+// On a successful commit it enqueues evTCPUp so the supervisor fires the entering-NotSelected reaction/notify EXACTLY ONCE (deduped on lastReacted, tolerating the pre-committed state via the evTCPUp-from-NotSelected table entry).
+// It returns whether THIS call performed the commit; a call when not NotConnected is a no-op returning false (TCPUp is driven once per generation,
+// and the only transition out of NotConnected is evTCPUp itself, so the CAS always succeeds in practice).
 func (s *supervisor) CommitConnected() (committed bool) {
 	if s.state.CompareAndSwap(uint32(NotConnectedState), uint32(NotSelectedState)) {
 		s.inject(evTCPUp)
@@ -197,13 +196,11 @@ func (s *supervisor) CommitConnected() (committed bool) {
 	return false
 }
 
-// CommitSelected performs the H2 §7.D synchronous responder commit: a guarded CAS
-// NotSelected -> Selected directly on state, making IsSelected() true immediately (before
-// the responder writes Select.rsp) so data pipelined right after Select.rsp is not spuriously
-// Rejected. On a successful commit it enqueues evSelectAccepted so the supervisor fires the
-// entering-Selected reaction/notify EXACTLY ONCE (deduped on lastReacted, tolerating the
-// pre-committed state). It returns whether THIS call performed the commit; a call when already
-// Selected is a no-op returning false.
+// CommitSelected performs the H2 §7.D synchronous responder commit: a guarded CAS NotSelected -> Selected directly on state, making IsSelected() true immediately (before the responder writes Select.rsp)
+// so data pipelined right after Select.rsp is not spuriously Rejected.
+//
+// On a successful commit it enqueues evSelectAccepted so the supervisor fires the entering-Selected reaction/notify EXACTLY ONCE (deduped on lastReacted, tolerating the pre-committed state).
+// It returns whether THIS call performed the commit; a call when already Selected is a no-op returning false.
 func (s *supervisor) CommitSelected() (committed bool) {
 	if s.state.CompareAndSwap(uint32(NotSelectedState), uint32(SelectedState)) {
 		s.inject(evSelectAccepted)
@@ -214,16 +211,15 @@ func (s *supervisor) CommitSelected() (committed bool) {
 	return false
 }
 
-// CommitSelectLost performs the synchronous Selected -> NotSelected commit (symmetric with
-// CommitSelected / §7.D): a guarded CAS Selected -> NotSelected directly on state, making
-// State()==NotSelected IMMEDIATELY. Without it, SelectLost was an async inject: after a Deselect.req
-// the state stayed Selected until run() processed the event, so a peer that pipelined a re-Select.req
-// had its CommitSelected CAS fail (still Selected) yet was still answered Select.rsp status-0 — told
-// "selected" without a real commit (I3, the efb220b class via the Deselect door). Committing here on
-// the recv goroutine closes that window. On a successful commit it enqueues evSelectLost so the
-// supervisor fires the entering-NotSelected reaction/notify EXACTLY ONCE (deduped on lastReacted,
-// tolerating the pre-committed state via the evSelectLost-from-NotSelected table entry). It returns
-// whether THIS call performed the commit; a call when not Selected is a no-op returning false.
+// CommitSelectLost performs the synchronous Selected -> NotSelected commit (symmetric with CommitSelected / §7.D):
+// a guarded CAS Selected -> NotSelected directly on state, making State()==NotSelected IMMEDIATELY.
+//
+// Without it, SelectLost was an async inject: after a Deselect.req the state stayed Selected until run() processed the event,
+// so a peer that pipelined a re-Select.req had its CommitSelected CAS fail (still Selected) yet was still answered Select.rsp status-0 —
+// told "selected" without a real commit (I3, the efb220b class via the Deselect door).
+// Committing here on the recv goroutine closes that window.
+// On a successful commit it enqueues evSelectLost so the supervisor fires the entering-NotSelected reaction/notify EXACTLY ONCE (deduped on lastReacted, tolerating the pre-committed state via the evSelectLost-from-NotSelected table entry).
+// It returns whether THIS call performed the commit; a call when not Selected is a no-op returning false.
 func (s *supervisor) CommitSelectLost() (committed bool) {
 	if s.state.CompareAndSwap(uint32(SelectedState), uint32(NotSelectedState)) {
 		s.inject(evSelectLost)

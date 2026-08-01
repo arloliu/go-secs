@@ -69,33 +69,28 @@ type transport interface {
 
 // TransportRuntime is the back-channel from a transport implementation into the shared connection core.
 //
-// The transport calls these methods to report TCP lifecycle
-// events, deliver owned frames, and route inbound messages.
+// The transport calls these methods to report TCP lifecycle events, deliver owned frames, and route inbound messages.
 //
-// TransportRuntime is exported so that the hsmsss and secs1 transport packages can name it in
-// their Start signatures, but it is effectively sealed: DeliverOwnedFrame accepts
-// an owned []byte that only the in-module recv loop produces, and
-// WriteMessage/SendAsync take [Message] whose body uses the unexported wire.Body
-// interface — an external type can name TransportRuntime but cannot usefully
-// implement or drive it.
+// TransportRuntime is exported so that the hsmsss and secs1 transport packages can name it in their Start signatures,
+// but it is effectively sealed: DeliverOwnedFrame accepts an owned []byte that only the in-module recv loop produces,
+// and WriteMessage/SendAsync take [Message] whose body uses the unexported wire.Body interface — an external type can name TransportRuntime
+// but cannot usefully implement or drive it.
 type TransportRuntime interface {
 	// TCPUp is called by the transport when a TCP connection is established.
 	//
-	// It advances the FSM NotConnected -> NotSelected SYNCHRONOUSLY via a guarded
-	// CAS (CommitConnected) before returning — so State() reads NotSelected the
-	// instant TCPUp returns — and enqueues evTCPUp for the deduped reaction/notify.
+	// It advances the FSM NotConnected -> NotSelected SYNCHRONOUSLY via a guarded CAS (CommitConnected) before returning —
+	// so State() reads NotSelected the instant TCPUp returns — and enqueues evTCPUp for the deduped reaction/notify.
 	TCPUp(conn net.Conn)
 
 	// TCPDown is called by the transport when the TCP connection is lost.
 	//
-	// The cause classifies the failure (graceful vs comms-failure) for the teardown
-	// farewell decision (E37 §9.1.1).
+	// The cause classifies the failure (graceful vs comms-failure) for the teardown farewell decision (E37 §9.1.1).
 	TCPDown(cause error)
 
 	// CommitSelected atomically advances the FSM to Selected before the transport emits Select.rsp.
 	//
-	// It returns true if the CAS succeeded (this caller committed the transition), or false if the
-	// state was already Selected (idempotent — the simultaneous case, E37 §7.4.3).
+	// It returns true if the CAS succeeded (this caller committed the transition), or false if the state was already Selected (idempotent —
+	// the simultaneous case, E37 §7.4.3).
 	CommitSelected() (committed bool)
 
 	// SelectLost is called when the Selected state is lost due to a peer Separate or Deselect.
@@ -106,8 +101,7 @@ type TransportRuntime interface {
 	// T7Expired is called by the transport's T7 (NOT-SELECTED dwell) timer on expiry.
 	//
 	// It injects evT7Timeout, which the supervisor evaluates SERIALLY: NotSelected -> NotConnected (reconnect),
-	// but a NO-OP if the session has since reached Selected or NotConnected — so a validly-Selected
-	// session is NEVER torn down by a stale T7 (E37 §9.2.2).
+	// but a NO-OP if the session has since reached Selected or NotConnected — so a validly-Selected session is NEVER torn down by a stale T7 (E37 §9.2.2).
 	T7Expired()
 
 	// DeliverOwnedFrame passes a freshly-read, GC-owned frame buffer to the core for decode and routing.
@@ -117,8 +111,7 @@ type TransportRuntime interface {
 
 	// RouteReply looks up the System Bytes of msg in the per-generation reply registry.
 	//
-	// It returns true if a waiting sender received the reply, false if the reply was unsolicited
-	// (routed as unsolicited or dropped).
+	// It returns true if a waiting sender received the reply, false if the reply was unsolicited (routed as unsolicited or dropped).
 	RouteReply(msg Message) bool
 
 	// RouteData delivers an inbound data message to the session fan-out.
@@ -136,10 +129,10 @@ type TransportRuntime interface {
 	//
 	// The write is over the current epoch's TCP connection.
 	//
-	// The B1 pre-write gate and the B2 write-boundary re-check still apply, but no reply
-	// channel is created and no protocol timer is armed.
-	// Therefore, a secondary the peer later sends against msg's System Bytes misses the
-	// reply registry and is delivered to the session's DataMessageHandlers (RouteData).
+	// The B1 pre-write gate and the B2 write-boundary re-check still apply, but no reply channel is created
+	// and no protocol timer is armed.
+	// Therefore, a secondary the peer later sends against msg's System Bytes misses the reply registry
+	// and is delivered to the session's DataMessageHandlers (RouteData).
 	//
 	// Backs SECS2Endpoint.ForwardDataMessage.
 	//
@@ -148,8 +141,7 @@ type TransportRuntime interface {
 
 	// SendAsync enqueues msg on the per-generation async send channel.
 	//
-	// Used for fire-and-forget sends (Reject, Separate, S9Fx, async data) where the caller must not
-	// block on a wedged peer.
+	// Used for fire-and-forget sends (Reject, Separate, S9Fx, async data) where the caller must not block on a wedged peer.
 	SendAsync(ctx context.Context, msg Message) error
 
 	// State returns the current FSM ConnState (lock-free atomic read).
@@ -157,7 +149,8 @@ type TransportRuntime interface {
 
 	// Done returns the per-generation cancellation channel.
 	//
-	// Closed when the current epoch is torn down. SELECT-ONLY — not a blocking call.
+	// Closed when the current epoch is torn down.
+	// SELECT-ONLY — not a blocking call.
 	Done() <-chan struct{}
 
 	// Timers returns the protocol timer configuration for the current connection.
@@ -170,8 +163,8 @@ type TransportRuntime interface {
 
 	// LinktestInterval returns the LIVE auto-linktest interval (0 = disabled).
 	//
-	// The auto-linktest goroutine reads it once per entry to Selected (a reconfig applies on
-	// the next Selected-entry, never mid-session — no live ticker.Reset).
+	// The auto-linktest goroutine reads it once per entry to Selected (a reconfig applies on the next Selected-entry, never mid-session —
+	// no live ticker.Reset).
 	LinktestInterval() time.Duration
 
 	// LinktestFailThreshold returns the LIVE consecutive-T6-timeout count that triggers a linktest-failure disconnect.
@@ -183,8 +176,8 @@ type TransportRuntime interface {
 	//
 	// The request is initiated by the transport itself (such as Select.req, Linktest.req, or Separate.req).
 	//
-	// Uniqueness is centralized on the connection's per-connection generator
-	// (E37 §5.5 / §8.2.6.8) so control and data sends draw from one monotonic space.
+	// Uniqueness is centralized on the connection's per-connection generator (E37 §5.5 / §8.2.6.8) so control
+	// and data sends draw from one monotonic space.
 	//
 	// It is safe for concurrent use.
 	NextSystemBytes() [4]byte

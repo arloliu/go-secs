@@ -10,10 +10,11 @@ import (
 
 // BooleanItem represents an immutable list of boolean values in a SECS-II message.
 //
-// It implements the Item interface. All methods are safe for concurrent use and no method
-// exposes mutable internal storage.
+// It implements the Item interface.
+// All methods are safe for concurrent use and no method exposes mutable internal storage.
 //
-// Construct via NewBooleanItem. Accepted value types: bool and []bool.
+// Construct via NewBooleanItem.
+// Accepted value types: bool and []bool.
 type BooleanItem struct {
 	size   int32
 	scalar bool
@@ -63,9 +64,9 @@ func NewBooleanItem(values ...any) Item {
 //
 // Returns an error if the item carries a deferred construction error.
 //
-// It returns the item's deferred error (see Error) when the item was constructed with
-// one — a passing Is* predicate does NOT imply a nil error here. Always check the
-// returned error; do not discard it via `v, _ := item.ToBoolean()`.
+// It returns the item's deferred error (see Error) when the item was constructed with one —
+// a passing Is* predicate does NOT imply a nil error here.
+// Always check the returned error; do not discard it via `v, _ := item.ToBoolean()`.
 func (item *BooleanItem) ToBoolean() ([]bool, error) {
 	if item.itemErr != nil {
 		return nil, item.itemErr
@@ -126,6 +127,7 @@ func (item *BooleanItem) Bools() iter.Seq[bool] {
 func (item *BooleanItem) Size() int { return int(item.size) }
 
 // EncodedLen returns the total SECS-II wire byte length (header + payload).
+//
 // Returns 0 for items with deferred errors.
 func (item *BooleanItem) EncodedLen() int {
 	if item.itemErr != nil {
@@ -140,6 +142,7 @@ func (item *BooleanItem) EncodedLen() int {
 }
 
 // AppendTo appends the SECS-II wire encoding of this item into dst and returns the result.
+//
 // Returns dst unchanged for items with deferred errors.
 func (item *BooleanItem) AppendTo(dst []byte) []byte {
 	if item.itemErr != nil {
@@ -178,6 +181,7 @@ func (item *BooleanItem) AppendTo(dst []byte) []byte {
 }
 
 // ToBytes allocates a single buffer and returns the SECS-II wire encoding.
+//
 // Equivalent to AppendTo(make([]byte, 0, EncodedLen())).
 func (item *BooleanItem) ToBytes() []byte {
 	return item.AppendTo(make([]byte, 0, item.EncodedLen()))
@@ -189,12 +193,14 @@ func (item *BooleanItem) Type() string { return BooleanType }
 // IsBoolean returns true.
 //
 // It reflects the DECLARED type only and does not consult the item's deferred error:
-// a true result does not imply the item is usable. Gate value extraction on Error()
-// (or the To* accessor's returned error), not on Is* alone.
+// a true result does not imply the item is usable.
+// Gate value extraction on Error() (or the To* accessor's returned error), not on Is* alone.
 func (item *BooleanItem) IsBoolean() bool { return true }
 
 // ToSML returns the SML (SECS Message Language) text representation of this item.
-// Boolean values are rendered as "True" or "False". An empty item is rendered as "<BOOLEAN[0]>".
+//
+// Boolean values are rendered as "True" or "False".
+// An empty item is rendered as "<BOOLEAN[0]>".
 func (item *BooleanItem) ToSML() string {
 	if item.size == 0 {
 		return "<BOOLEAN[0]>"

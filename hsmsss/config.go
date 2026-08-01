@@ -9,14 +9,13 @@ import (
 )
 
 // Config holds the full configuration for an HSMS-SS connection.
-// It embeds [hsms.ConnectionConfig] so all shared timer and policy knobs
-// are promoted directly onto Config and can be read via the promoted accessors:
-// [hsms.ConnectionConfig.Timers], [hsms.ConnectionConfig.SessionID], and
-// [hsms.ConnectionConfig.WriteTimeout]. Other knobs (linktest interval/threshold,
-// close timeout, logger, queue size) are write-only via [WithConnectionOption] and
-// have no read accessor.
-// Transport-specific settings (TCP endpoint, role, keep-alive) are
-// separate unexported fields set through [Option] values.
+//
+// It embeds [hsms.ConnectionConfig] so all shared timer and policy knobs are promoted directly onto Config
+// and can be read via the promoted accessors: [hsms.ConnectionConfig.Timers], [hsms.ConnectionConfig.SessionID],
+// and [hsms.ConnectionConfig.WriteTimeout].
+// Other knobs (linktest interval/threshold, close timeout, logger, queue size) are write-only via [WithConnectionOption]
+// and have no read accessor.
+// Transport-specific settings (TCP endpoint, role, keep-alive) are separate unexported fields set through [Option] values.
 type Config struct {
 	hsms.ConnectionConfig
 
@@ -30,28 +29,25 @@ type Config struct {
 }
 
 // Option is a functional option that mutates a [Config].
+//
 // It returns an error if the provided value is invalid.
 type Option func(*Config) error
 
 // DialFunc is an alias of [hsms.DialFunc] — see its doc for the contract.
 //
-// It is kept as a named type in this package so existing signatures (WithDialer)
-// don't need touching, and so callers can keep writing hsmsss.DialFunc without
-// importing hsms for this alone.
+// It is kept as a named type in this package so existing signatures (WithDialer) don't need touching, and
+// so callers can keep writing hsmsss.DialFunc without importing hsms for this alone.
 type DialFunc = hsms.DialFunc
 
 // ListenFunc is an alias of [hsms.ListenFunc] — see its doc for the contract.
 type ListenFunc = hsms.ListenFunc
 
-// NewConfig constructs a Config for the given TCP host and port, applying the
-// supplied options transactionally.
+// NewConfig constructs a Config for the given TCP host and port, applying the supplied options transactionally.
 //
-// The application is all-or-nothing: every option is validated on a scratch
-// copy; if any option returns an error the original is untouched and the joined
-// set of errors is returned.
+// The application is all-or-nothing: every option is validated on a scratch copy; if any option returns an error the original is untouched
+// and the joined set of errors is returned.
 //
-// The embedded [hsms.ConnectionConfig] is initialised to the E37-recommended
-// defaults (T3=45 s, T5=10 s, T6=5 s, T7=10 s, T8=5 s, sessionID=0xFFFF).
+// The embedded [hsms.ConnectionConfig] is initialised to the E37-recommended defaults (T3=45 s, T5=10 s, T6=5 s, T7=10 s, T8=5 s, sessionID=0xFFFF).
 // The default role is active (dials outbound); pass [WithPassive] to listen.
 func NewConfig(host string, port int, opts ...Option) (Config, error) {
 	base := hsms.DefaultConnectionConfig()
@@ -94,6 +90,7 @@ func (c *Config) apply(opts ...Option) error {
 }
 
 // WithActive sets the connection role to active (dials outbound).
+//
 // Active is the default role; this option is provided for explicit clarity.
 func WithActive() Option {
 	return func(c *Config) error {
@@ -105,8 +102,7 @@ func WithActive() Option {
 // WithPassive sets the connection role to passive (listens for inbound connections).
 //
 // Passive and active are mutually exclusive.
-// Calling [WithActive] and [WithPassive] in the same [NewConfig] call results in
-// whichever option appears last winning, since both simply assign the field.
+// Calling [WithActive] and [WithPassive] in the same [NewConfig] call results in whichever option appears last winning, since both simply assign the field.
 func WithPassive() Option {
 	return func(c *Config) error {
 		c.active = false
@@ -117,12 +113,10 @@ func WithPassive() Option {
 // WithDialer overrides how the active connection is established.
 //
 // The default dials with [net.Dialer.DialContext] over TCP.
-// Supply a custom [DialFunc] to layer the connection on a different transport — for
-// example a TLS or proxy dialer, or an in-memory connection for tests.
+// Supply a custom [DialFunc] to layer the connection on a different transport — for example a TLS or proxy dialer, or an in-memory connection for tests.
 //
 // Passing nil is a configuration error.
-// This option affects the active (dialing) role only; the passive role always listens
-// on the configured TCP endpoint.
+// This option affects the active (dialing) role only; the passive role always listens on the configured TCP endpoint.
 func WithDialer(dial DialFunc) Option {
 	return func(c *Config) error {
 		if dial == nil {
@@ -135,13 +129,14 @@ func WithDialer(dial DialFunc) Option {
 	}
 }
 
-// WithConnectTimeout bounds each active-role dial attempt to d. The default (0) leaves
-// the dial unbounded, so a dial to an unreachable peer blocks for the OS connect
-// timeout (~2 minutes). A positive d wraps every dial attempt — including background
-// reconnect attempts — in a per-attempt deadline.
+// WithConnectTimeout bounds each active-role dial attempt to d. The default (0) leaves the dial unbounded,
+// so a dial to an unreachable peer blocks for the OS connect timeout (~2 minutes).
 //
-// This affects the active (dialing) role only. It composes with WithDialer: the
-// deadline wraps whatever DialFunc is configured. A negative d is a configuration error.
+// A positive d wraps every dial attempt — including background reconnect attempts — in a per-attempt deadline.
+//
+// This affects the active (dialing) role only.
+// It composes with WithDialer: the deadline wraps whatever DialFunc is configured.
+// A negative d is a configuration error.
 func WithConnectTimeout(d time.Duration) Option {
 	return func(c *Config) error {
 		if d < 0 {
@@ -157,16 +152,13 @@ func WithConnectTimeout(d time.Duration) Option {
 // WithListener overrides how the passive connection listens for an inbound peer.
 //
 // The default uses [net.ListenConfig.Listen] over TCP.
-// Supply a custom [ListenFunc] to layer the listener on a different transport — for
-// example an in-memory pipe-backed listener for tests.
+// Supply a custom [ListenFunc] to layer the listener on a different transport — for example an in-memory pipe-backed listener for tests.
 //
-// Unlike WithDialer's single active dial, a passive connection re-listens on every
-// reconnect generation, so listen is a FACTORY called fresh each time, never a
-// single reused net.Listener.
+// Unlike WithDialer's single active dial, a passive connection re-listens on every reconnect generation,
+// so listen is a FACTORY called fresh each time, never a single reused net.Listener.
 //
 // Passing nil is a configuration error.
-// This option affects the passive (listening) role only; the active role always dials
-// the configured TCP endpoint via WithDialer.
+// This option affects the passive (listening) role only; the active role always dials the configured TCP endpoint via WithDialer.
 func WithListener(listen ListenFunc) Option {
 	return func(c *Config) error {
 		if listen == nil {
@@ -197,43 +189,43 @@ func WithTCPKeepAlive(d time.Duration) Option {
 
 // WithEquipRole sets the connection role to equipment.
 //
-// A synchronous data-message send whose reply times out (T3) automatically notifies the
-// peer with an S9F9 (Transaction Timeout, SEMI E5 §10.13) before the timeout error is
-// returned to the caller.
+// A synchronous data-message send whose reply times out (T3) automatically notifies the peer with an S9F9 (Transaction Timeout, SEMI E5 §10.13) before the timeout error is returned to the caller.
 // Host (the default) sends no such notification.
 //
-// Equipment and host are mutually exclusive — whichever of WithEquipRole/WithHostRole
-// appears last in a NewConfig call wins.
+// Equipment and host are mutually exclusive — whichever of WithEquipRole/WithHostRole appears last in a NewConfig call wins.
 func WithEquipRole() Option {
 	return func(c *Config) error {
 		return hsms.WithAutoS9F9(true)(&c.ConnectionConfig)
 	}
 }
 
-// WithHostRole sets the connection role to host (the default). See WithEquipRole.
+// WithHostRole sets the connection role to host (the default).
+//
+// See WithEquipRole.
 func WithHostRole() Option {
 	return func(c *Config) error {
 		return hsms.WithAutoS9F9(false)(&c.ConnectionConfig)
 	}
 }
 
-// Host returns the TCP host that this Config targets (active) or binds to
-// (passive).
+// Host returns the TCP host that this Config targets (active) or binds to (passive).
 func (c Config) Host() string { return c.host }
 
-// Port returns the TCP port that this Config targets (active) or listens on
-// (passive).
+// Port returns the TCP port that this Config targets (active) or listens on (passive).
 func (c Config) Port() int { return c.port }
 
 // Active reports whether the connection role is active (dials outbound).
+//
 // A false return means the role is passive (listens for inbound connections).
 func (c Config) Active() bool { return c.active }
 
 // TCPKeepAlive returns the configured TCP keep-alive probe interval.
+//
 // Zero means use the OS default.
 func (c Config) TCPKeepAlive() time.Duration { return c.tcpKeepAlive }
 
 // ConnectTimeout returns the configured per-attempt active dial timeout.
+//
 // Zero means the dial is unbounded (see [WithConnectTimeout]).
 func (c Config) ConnectTimeout() time.Duration { return c.connectTimeout }
 
@@ -246,18 +238,15 @@ func (c Config) IsEquip() bool {
 
 // ApplyOptions applies the supplied options to the Config transactionally.
 //
-// This is the public counterpart to the unexported apply method and is used by
-// UpdateConfigOptions-style callers that adjust settings after initial construction
-// (all-or-nothing: see [NewConfig]).
+// This is the public counterpart to the unexported apply method and is used by UpdateConfigOptions-style callers
+// that adjust settings after initial construction (all-or-nothing: see [NewConfig]).
 func (c *Config) ApplyOptions(opts ...Option) error {
 	return c.apply(opts...)
 }
 
 // WithConnectionOption wraps an [hsms.ConnOption] as an [Option].
 //
-// This allows callers to set any shared knob (T3–T8, sessionID, linktest, close
-// timeout, logger, queue size) through the same [NewConfig] call without needing a
-// separate re-export for every shared option.
+// This allows callers to set any shared knob (T3–T8, sessionID, linktest, close timeout, logger, queue size) through the same [NewConfig] call without needing a separate re-export for every shared option.
 //
 // Example:
 //

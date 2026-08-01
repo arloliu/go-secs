@@ -15,9 +15,9 @@ import (
 const eof rune = -1
 
 // Parser is a parser for HSMS data messages in SML (SECS Message Language) format.
+//
 // It provides methods for parsing SML strings to HSMS data messages.
-// A Parser's configuration is immutable after construction; create a new Parser
-// via NewParser to change options.
+// A Parser's configuration is immutable after construction; create a new Parser via NewParser to change options.
 type Parser struct {
 	pos      int
 	len      int
@@ -40,6 +40,7 @@ func NewParser(opts ...ParserOption) *Parser {
 }
 
 // Parse parses one or more SML messages from input, fail-fast (first error wins).
+//
 // Returns all successfully parsed messages, or nil and an error on the first failure.
 // An empty or whitespace-only input is not an error: it returns an empty slice and a nil error.
 func Parse(input string) ([]*hsms.DataMessage, error) {
@@ -57,8 +58,7 @@ func ParseStrict(input string) ([]*hsms.DataMessage, error) {
 // This method is similar to ParseMessage, but it parses multiple HSMS data messages from the input string.
 //
 // The parser will attempt to extract and validate individual HSMS data messages from the input string.
-// If any errors are encountered during parsing, an error will be returned, and no messages will be
-// returned to ensure data integrity.
+// If any errors are encountered during parsing, an error will be returned, and no messages will be returned to ensure data integrity.
 func (p *Parser) Parse(input string) ([]*hsms.DataMessage, error) {
 	p.initInput(input)
 
@@ -81,11 +81,12 @@ func (p *Parser) Parse(input string) ([]*hsms.DataMessage, error) {
 	return messages, nil
 }
 
-// ParseMessage parses a single HSMS data message from the input string and returns the parsed
-// message and an error if any occurred during parsing.
+// ParseMessage parses a single HSMS data message from the input string and returns the parsed message
+// and an error if any occurred during parsing.
 //
-// If the input is empty or contains only whitespace and comments (no message), ParseMessage
-// returns nil and [ErrNoMessage]. Syntax errors are returned as *[ParseError].
+// If the input is empty or contains only whitespace and comments (no message), ParseMessage returns nil
+// and [ErrNoMessage].
+// Syntax errors are returned as *[ParseError].
 func (p *Parser) ParseMessage(input string) (*hsms.DataMessage, error) {
 	p.initInput(input)
 
@@ -101,11 +102,11 @@ func (p *Parser) ParseMessage(input string) (*hsms.DataMessage, error) {
 	return msg, nil
 }
 
-// ParseHeader parses the header of a single HSMS data message from the input string and returns
-// the parsed message with header information but without the message body.
+// ParseHeader parses the header of a single HSMS data message from the input string and returns the parsed message with header information
+// but without the message body.
 //
-// If the input is empty or contains only whitespace and comments (no message), ParseHeader
-// returns nil and [ErrNoMessage]. Syntax errors are returned as *[ParseError].
+// If the input is empty or contains only whitespace and comments (no message), ParseHeader returns nil and [ErrNoMessage].
+// Syntax errors are returned as *[ParseError].
 func (p *Parser) ParseHeader(input string) (*hsms.DataMessage, error) {
 	p.initInput(input)
 

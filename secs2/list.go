@@ -10,9 +10,9 @@ import (
 
 // ListItem represents an immutable recursive list container in a SECS-II message (SEMI E5 §9.2).
 //
-// It implements the Item interface. All methods are safe for concurrent use; no method
-// exposes mutable internal storage. Children are shared by reference — this is safe because
-// every Item implementation in this package is deeply immutable after construction.
+// It implements the Item interface.
+// All methods are safe for concurrent use; no method exposes mutable internal storage.
+// Children are shared by reference — this is safe because every Item implementation in this package is deeply immutable after construction.
 type ListItem struct {
 	baseItem
 	values []Item
@@ -28,9 +28,9 @@ var _ Item = (*ListItem)(nil)
 
 // NewListItem creates a new ListItem containing the given child items.
 //
-// nil children are silently skipped. If the total
-// child count exceeds MaxByteSize, a deferred error is stored on the returned
-// item; call Error() to inspect it.
+// nil children are silently skipped.
+// If the total child count exceeds MaxByteSize, a deferred error is stored on the returned item;
+// call Error() to inspect it.
 //
 // Parameters:
 //   - values: the child items to include in the list.
@@ -102,8 +102,9 @@ func childClean(v Item) bool { //nolint:cyclop // one type-switch arm per built-
 }
 
 // Get navigates a path of list indices and returns the item at that position.
-// With no indices it returns the list itself. Returns an error if any intermediate
-// item is not a list or if an index is out of range.
+//
+// With no indices it returns the list itself.
+// Returns an error if any intermediate item is not a list or if an index is out of range.
 func (item *ListItem) Get(indices ...int) (Item, error) {
 	if len(indices) == 0 {
 		return item, nil
@@ -128,15 +129,15 @@ func (item *ListItem) Get(indices ...int) (Item, error) {
 	return cur, nil
 }
 
-// ToList returns a fresh shallow clone of the child item slice. Children are immutable
-// so shallow cloning is concurrency-safe. Returns an error if the item carries a
-// deferred construction error.
+// ToList returns a fresh shallow clone of the child item slice.
 //
-// It returns the item's own deferred error (see Error) when the item was constructed with
-// one — a passing Is* predicate does NOT imply a nil error here. Always check the returned
-// error; do not discard it via `v, _ := item.ToList()`. Note that a nil error here does not
-// mean every child is error-free: call Error() to check the item's own error joined with
-// every child's deferred error.
+// Children are immutable so shallow cloning is concurrency-safe.
+// Returns an error if the item carries a deferred construction error.
+//
+// It returns the item's own deferred error (see Error) when the item was constructed with one —
+// a passing Is* predicate does NOT imply a nil error here.
+// Always check the returned error; do not discard it via `v, _ := item.ToList()`.
+// Note that a nil error here does not mean every child is error-free: call Error() to check the item's own error joined with every child's deferred error.
 func (item *ListItem) ToList() ([]Item, error) {
 	if item.itemErr != nil {
 		return nil, item.itemErr
@@ -145,8 +146,7 @@ func (item *ListItem) ToList() ([]Item, error) {
 	return slices.Clone(item.values), nil
 }
 
-// ItemAt returns the child item at index i. Returns an error if the item carries a
-// deferred error or i is out of range.
+// ItemAt returns the child item at index i. Returns an error if the item carries a deferred error or i is out of range.
 func (item *ListItem) ItemAt(i int) (Item, error) {
 	if item.itemErr != nil {
 		return nil, item.itemErr
@@ -159,8 +159,9 @@ func (item *ListItem) ItemAt(i int) (Item, error) {
 	return item.values[i], nil
 }
 
-// Items returns an iterator over the child items in order. Yields nothing if the
-// item carries a deferred construction error.
+// Items returns an iterator over the child items in order.
+//
+// Yields nothing if the item carries a deferred construction error.
 func (item *ListItem) Items() iter.Seq[Item] {
 	return func(yield func(Item) bool) {
 		if item.itemErr != nil {
@@ -183,12 +184,13 @@ func (item *ListItem) Type() string { return ListType }
 
 // IsList returns true.
 //
-// It reflects the DECLARED type only and does not consult the item's deferred error or any
-// child's deferred error: a true result does not imply the item (or its children) is usable.
+// It reflects the DECLARED type only and does not consult the item's deferred error or any child's deferred error:
+// a true result does not imply the item (or its children) is usable.
 // Gate value extraction on Error(), which aggregates child errors for lists, not on Is* alone.
 func (item *ListItem) IsList() bool { return true }
 
 // Error aggregates the item's own deferred error with each child's Error() via errors.Join.
+//
 // A list that contains an invalid child reports a non-nil Error.
 func (item *ListItem) Error() error {
 	if item.clean {
@@ -210,9 +212,9 @@ func (item *ListItem) Error() error {
 	return errs
 }
 
-// EncodedLen returns the total SECS-II wire byte length: the list header (whose data-length
-// field encodes the child count) plus the sum of each child's EncodedLen. Returns 0 for
-// items with a deferred construction error.
+// EncodedLen returns the total SECS-II wire byte length: the list header (whose data-length field encodes the child count) plus the sum of each child's EncodedLen.
+//
+// Returns 0 for items with a deferred construction error.
 func (item *ListItem) EncodedLen() int {
 	if item.itemErr != nil {
 		return 0
@@ -231,9 +233,10 @@ func (item *ListItem) EncodedLen() int {
 	return n
 }
 
-// AppendTo appends the SECS-II wire encoding of this list (header + recursively encoded
-// children) into dst and returns the extended slice. Returns dst unchanged for items with
-// a deferred construction error.
+// AppendTo appends the SECS-II wire encoding of this list (header + recursively encoded children) into dst
+// and returns the extended slice.
+//
+// Returns dst unchanged for items with a deferred construction error.
 func (item *ListItem) AppendTo(dst []byte) []byte {
 	if item.itemErr != nil {
 		return dst
@@ -253,13 +256,13 @@ func (item *ListItem) AppendTo(dst []byte) []byte {
 }
 
 // ToBytes allocates a single buffer and returns the SECS-II wire encoding.
+//
 // Equivalent to AppendTo(make([]byte, 0, EncodedLen())).
 func (item *ListItem) ToBytes() []byte {
 	return item.AppendTo(make([]byte, 0, item.EncodedLen()))
 }
 
-// ToSML returns the SML (SECS Message Language) text representation of this list,
-// with nested items indented by two spaces per level.
+// ToSML returns the SML (SECS Message Language) text representation of this list, with nested items indented by two spaces per level.
 func (item *ListItem) ToSML() string {
 	return item.formatSML(0)
 }

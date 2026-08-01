@@ -7,9 +7,9 @@ import (
 
 // ASCIIItem represents an immutable ASCII string in a SECS-II message.
 //
-// It implements the Item interface. All methods are safe for concurrent use. The backing
-// field is an immutable Go string, so reads from ToASCII require no copy and never expose
-// mutable internal state.
+// It implements the Item interface.
+// All methods are safe for concurrent use. The backing field is an immutable Go string, so reads from ToASCII require no copy
+// and never expose mutable internal state.
 type ASCIIItem struct {
 	baseItem
 	value string
@@ -19,9 +19,9 @@ var _ Item = (*ASCIIItem)(nil)
 
 // NewASCIIItem creates a new ASCIIItem containing the given string.
 //
-// Any string is accepted, including strings that contain non-ASCII bytes; strict-mode
-// ASCII validation is not currently enforced. If the string's byte length exceeds
-// MaxByteSize, a deferred error is stored on the returned item; call Error() to inspect it.
+// Any string is accepted, including strings that contain non-ASCII bytes; strict-mode ASCII validation is not currently enforced.
+// If the string's byte length exceeds MaxByteSize, a deferred error is stored on the returned item;
+// call Error() to inspect it.
 //
 // Parameters:
 //   - value: the input Go string.
@@ -46,9 +46,9 @@ func NewASCIIItem(value string) Item {
 //
 // Returns an error if the item carries a deferred construction error.
 //
-// It returns the item's deferred error (see Error) when the item was constructed with
-// one — a passing Is* predicate does NOT imply a nil error here. Always check the
-// returned error; do not discard it via `v, _ := item.ToASCII()`.
+// It returns the item's deferred error (see Error) when the item was constructed with one —
+// a passing Is* predicate does NOT imply a nil error here.
+// Always check the returned error; do not discard it via `v, _ := item.ToASCII()`.
 func (item *ASCIIItem) ToASCII() (string, error) {
 	if item.itemErr != nil {
 		return "", item.itemErr
@@ -66,11 +66,12 @@ func (item *ASCIIItem) Type() string { return ASCIIType }
 // IsASCII returns true.
 //
 // It reflects the DECLARED type only and does not consult the item's deferred error:
-// a true result does not imply the item is usable. Gate value extraction on Error()
-// (or the To* accessor's returned error), not on Is* alone.
+// a true result does not imply the item is usable.
+// Gate value extraction on Error() (or the To* accessor's returned error), not on Is* alone.
 func (item *ASCIIItem) IsASCII() bool { return true }
 
 // EncodedLen returns the total SECS-II wire byte length (header + payload).
+//
 // Returns 0 for items with deferred errors.
 func (item *ASCIIItem) EncodedLen() int {
 	if item.itemErr != nil {
@@ -87,6 +88,7 @@ func (item *ASCIIItem) EncodedLen() int {
 }
 
 // AppendTo appends the SECS-II wire encoding of this item into dst and returns the result.
+//
 // Returns dst unchanged for items with deferred errors.
 func (item *ASCIIItem) AppendTo(dst []byte) []byte {
 	if item.itemErr != nil {
@@ -103,6 +105,7 @@ func (item *ASCIIItem) AppendTo(dst []byte) []byte {
 }
 
 // ToBytes allocates a single buffer and returns the SECS-II wire encoding.
+//
 // Equivalent to AppendTo(make([]byte, 0, EncodedLen())).
 func (item *ASCIIItem) ToBytes() []byte {
 	return item.AppendTo(make([]byte, 0, item.EncodedLen()))
@@ -110,8 +113,9 @@ func (item *ASCIIItem) ToBytes() []byte {
 
 // ToSML returns the SML (SECS Message Language) text representation of this item.
 //
-// Uses the default non-strict format. Empty strings are rendered as <A[0] "">;
-// non-empty strings as <A[N] "value">. The default quote character is a double quote.
+// Uses the default non-strict format.
+// Empty strings are rendered as <A[0] "">; non-empty strings as <A[N] "value">.
+// The default quote character is a double quote.
 func (item *ASCIIItem) ToSML() string {
 	if len(item.value) == 0 {
 		return `<A[0] "">`

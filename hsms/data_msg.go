@@ -31,11 +31,9 @@ type decodeState struct {
 
 // DataMessage is an immutable HSMS data message carrying a SECS-II item body.
 //
-// The header is stored as a [10]byte value and the body is referenced via a
-// [wire.Body] interface; [DataMessage.WithSessionID] and [DataMessage.WithSystemBytes]
-// return a new *DataMessage that shares the same body and [decodeState] pointer —
-// the body is never copied and the SECS-II item is decoded at most once across all
-// derived copies.
+// The header is stored as a [10]byte value and the body is referenced via a [wire.Body] interface; [DataMessage.WithSessionID]
+// and [DataMessage.WithSystemBytes] return a new *DataMessage that shares the same body and [decodeState] pointer —
+// the body is never copied and the SECS-II item is decoded at most once across all derived copies.
 //
 // DataMessage is safe for concurrent use after construction.
 type DataMessage struct {
@@ -60,6 +58,7 @@ func (msg *DataMessage) SessionID() uint16 {
 }
 
 // SystemBytes returns a copy of header bytes 6–9 as a [4]byte value.
+//
 // The returned array is an independent copy; callers may retain it freely.
 func (msg *DataMessage) SystemBytes() [4]byte {
 	var sb [4]byte
@@ -69,14 +68,16 @@ func (msg *DataMessage) SystemBytes() [4]byte {
 }
 
 // HeaderBytes returns a copy of the full 10-byte HSMS header as a value.
+//
 // The returned array is an independent copy; callers may retain it freely.
 func (msg *DataMessage) HeaderBytes() [10]byte {
 	return msg.header
 }
 
-// ToBytes serializes the message to its on-wire representation:
-// a 4-byte big-endian length prefix (= 10 + body length) followed by the
-// 10-byte header and the encoded SECS-II body. Performs exactly one allocation.
+// ToBytes serializes the message to its on-wire representation: a 4-byte big-endian length prefix (= 10 + body length) followed by the 10-byte header
+// and the encoded SECS-II body.
+//
+// Performs exactly one allocation.
 func (msg *DataMessage) ToBytes() []byte {
 	n := msg.body.Len()
 	dst := make([]byte, 0, 4+10+n)
@@ -105,19 +106,19 @@ func (msg *DataMessage) Stream() uint8 { return msg.header[2] & 0x7F }
 // Function returns the function code stored in header byte 3.
 func (msg *DataMessage) Function() uint8 { return msg.header[3] }
 
-// WaitBit reports whether the wait bit (MSB of header byte 2) is set,
-// indicating that a reply is expected.
+// WaitBit reports whether the wait bit (MSB of header byte 2) is set, indicating that a reply is expected.
 func (msg *DataMessage) WaitBit() bool { return msg.header[2]>>7 != 0 }
 
-// ID returns the message's System Bytes decoded as a uint32 (big-endian), the
-// application-level message identifier. Equivalent to
-// FromSystemBytes(msg.SystemBytes()).
+// ID returns the message's System Bytes decoded as a uint32 (big-endian), the application-level message identifier.
+//
+// Equivalent to FromSystemBytes(msg.SystemBytes()).
 func (msg *DataMessage) ID() uint32 { return FromSystemBytes(msg.SystemBytes()) }
 
-// NewEmptyDataMessage returns a zero-value DataMessage: stream 0, function 0, no wait bit,
-// session ID 0, zero System Bytes, and an empty SECS-II body. It never returns an error and
-// exists so tests can construct a baseline message without the six-argument NewDataMessage call
-// (DataMessage's fields are unexported, so &DataMessage{} does not compile outside this package).
+// NewEmptyDataMessage returns a zero-value DataMessage: stream 0, function 0, no wait bit, session ID 0, zero System Bytes,
+// and an empty SECS-II body.
+//
+// It never returns an error and exists so tests can construct a baseline message without the six-argument NewDataMessage call (DataMessage's fields are unexported,
+// so &DataMessage{} does not compile outside this package).
 func NewEmptyDataMessage() *DataMessage {
 	msg, _ := NewDataMessage(0, 0, false, 0, [4]byte{}, nil) //nolint:errcheck // arguments are statically valid
 	return msg
@@ -125,10 +126,9 @@ func NewEmptyDataMessage() *DataMessage {
 
 // Item returns the SECS-II item body of this message.
 //
-// For tree-path (constructed) messages the item is returned directly from the
-// pre-seeded [decodeState] without any re-encoding. For raw-frame (wire-decoded)
-// messages the body bytes are decoded from wire on the first call; subsequent
-// calls return the cached result.
+// For tree-path (constructed) messages the item is returned directly from the pre-seeded [decodeState] without any re-encoding.
+// For raw-frame (wire-decoded) messages the body bytes are decoded from wire on the first call;
+// subsequent calls return the cached result.
 //
 // An empty body (zero length) returns ([secs2.NewEmptyItem], nil).
 func (msg *DataMessage) Item() (secs2.Item, error) {
@@ -138,9 +138,9 @@ func (msg *DataMessage) Item() (secs2.Item, error) {
 }
 
 // DecodeErr returns any error produced during the lazy body decode.
-// It fires the decode once if it has not already run.
-// Returns nil for tree-path messages (item is pre-seeded) and for raw-frame
-// messages whose body decodes without error.
+//
+// It fires the decode once if it has not already run. Returns nil for tree-path messages (item is pre-seeded)
+// and for raw-frame messages whose body decodes without error.
 func (msg *DataMessage) DecodeErr() error {
 	msg.dec.once.Do(msg.decode)
 
@@ -151,6 +151,7 @@ func (msg *DataMessage) DecodeErr() error {
 func (msg *DataMessage) BodyLen() int { return msg.body.Len() }
 
 // AppendBodyTo appends the encoded body bytes into dst and returns the extended slice.
+//
 // No allocation is made when dst has sufficient capacity.
 func (msg *DataMessage) AppendBodyTo(dst []byte) []byte { return msg.body.AppendTo(dst) }
 
@@ -158,9 +159,9 @@ func (msg *DataMessage) AppendBodyTo(dst []byte) []byte { return msg.body.Append
 // Immutable mutators
 // ────────────────────────────────────────────────────────────────
 
-// WithSessionID returns a new *DataMessage identical to msg except that
-// header bytes 0–1 are replaced by id (big-endian). The body and decodeState
-// pointer are shared; no body copy or re-encode is performed.
+// WithSessionID returns a new *DataMessage identical to msg except that header bytes 0–1 are replaced by id (big-endian).
+//
+// The body and decodeState pointer are shared; no body copy or re-encode is performed.
 func (msg *DataMessage) WithSessionID(id uint16) *DataMessage {
 	n := &DataMessage{header: msg.header, body: msg.body, dec: msg.dec}
 	binary.BigEndian.PutUint16(n.header[0:2], id)
@@ -168,9 +169,8 @@ func (msg *DataMessage) WithSessionID(id uint16) *DataMessage {
 	return n
 }
 
-// WithSystemBytes returns a new *DataMessage identical to msg except that
-// header bytes 6–9 are replaced by b. The body and decodeState pointer are
-// shared; no body copy or re-encode is performed.
+// WithSystemBytes returns a new *DataMessage identical to msg except that header bytes 6–9 are replaced by b. The body
+// and decodeState pointer are shared; no body copy or re-encode is performed.
 func (msg *DataMessage) WithSystemBytes(b [4]byte) *DataMessage {
 	n := &DataMessage{header: msg.header, body: msg.body, dec: msg.dec}
 	n.header[6] = b[0]
@@ -181,11 +181,10 @@ func (msg *DataMessage) WithSystemBytes(b [4]byte) *DataMessage {
 	return n
 }
 
-// WithID returns a new *DataMessage identical to msg except that its System Bytes
-// (header bytes 6–9) are replaced by id, big-endian. It is the immutable-wither
-// counterpart to the ID accessor: WithID(id) is exactly
-// WithSystemBytes(ToSystemBytes(id)). The body and decodeState pointer are shared;
-// no body copy or re-encode is performed.
+// WithID returns a new *DataMessage identical to msg except that its System Bytes (header bytes 6–9) are replaced by id, big-endian.
+//
+// It is the immutable-wither counterpart to the ID accessor: WithID(id) is exactly WithSystemBytes(ToSystemBytes(id)).
+// The body and decodeState pointer are shared; no body copy or re-encode is performed.
 func (msg *DataMessage) WithID(id uint32) *DataMessage {
 	return msg.WithSystemBytes(ToSystemBytes(id))
 }
@@ -194,9 +193,8 @@ func (msg *DataMessage) WithID(id uint32) *DataMessage {
 // Builder
 // ────────────────────────────────────────────────────────────────
 
-// DataMessageBuilder is a mutable builder for deriving a new [DataMessage] from
-// an existing one. Obtain it via [DataMessage.Derive]; call [DataMessageBuilder.Build]
-// to produce the derived message after applying overrides.
+// DataMessageBuilder is a mutable builder for deriving a new [DataMessage] from an existing one. Obtain it via [DataMessage.Derive];
+// call [DataMessageBuilder.Build] to produce the derived message after applying overrides.
 type DataMessageBuilder struct {
 	sessionID   uint16
 	systemBytes [4]byte
@@ -206,8 +204,8 @@ type DataMessageBuilder struct {
 	item        secs2.Item
 }
 
-// Derive returns a new [DataMessageBuilder] seeded with the stream, function,
-// wait-bit, item, session ID, and system bytes of msg.
+// Derive returns a new [DataMessageBuilder] seeded with the stream, function, wait-bit, item, session ID,
+// and system bytes of msg.
 func (msg *DataMessage) Derive() *DataMessageBuilder {
 	// Fire dec.once to obtain the item. For tree-path messages the once is
 	// pre-fired and item is never nil. For raw-frame messages with a malformed
@@ -270,17 +268,18 @@ func (b *DataMessageBuilder) WithSystemBytes(sysBytes [4]byte) *DataMessageBuild
 	return b
 }
 
-// WithID sets the derived message's System Bytes from id (big-endian), the wither
-// counterpart to the ID accessor. Equivalent to WithSystemBytes(ToSystemBytes(id)).
+// WithID sets the derived message's System Bytes from id (big-endian), the wither counterpart to the ID accessor.
+//
+// Equivalent to WithSystemBytes(ToSystemBytes(id)).
 func (b *DataMessageBuilder) WithID(id uint32) *DataMessageBuilder {
 	b.systemBytes = ToSystemBytes(id)
 
 	return b
 }
 
-// Build constructs and validates a new [DataMessage] using the builder's current
-// field values. It runs the full Q3 validation (item error, W-bit vs even function,
-// stream range).
+// Build constructs and validates a new [DataMessage] using the builder's current field values.
+//
+// It runs the full Q3 validation (item error, W-bit vs even function, stream range).
 func (b *DataMessageBuilder) Build() (*DataMessage, error) {
 	return NewDataMessage(b.stream, b.function, b.waitBit, b.sessionID, b.systemBytes, b.item)
 }
@@ -291,14 +290,13 @@ func (b *DataMessageBuilder) Build() (*DataMessage, error) {
 
 // NewDataMessage creates an immutable HSMS data message.
 //
-// A nil item is treated as an empty body ([secs2.NewEmptyItem]), consistent with
-// the decode path where a zero-length body is legal.
+// A nil item is treated as an empty body ([secs2.NewEmptyItem]), consistent with the decode path
+// where a zero-length body is legal.
 //
 // Q3 validation (SEMI E37 §8.3.3.3) is performed before construction:
 //
 //   - item.Error() must be nil, including recursive aggregate errors from list children.
-//   - replyExpected may not be true when function is even (W=1 on a reply
-//     function is rejected with [ErrInvalidRspMsg]).
+//   - replyExpected may not be true when function is even (W=1 on a reply function is rejected with [ErrInvalidRspMsg]).
 //   - stream must be in [0, 127]; values > 127 return [ErrInvalidStreamCode].
 //
 // On success the returned DataMessage is immutable and safe for concurrent use.
@@ -349,13 +347,12 @@ func NewDataMessage(stream, function uint8, replyExpected bool, sessionID uint16
 	}, nil
 }
 
-// NewDataMessageFromHeader builds a DataMessage from an already-formed 10-byte HSMS header and a
-// separately-decoded SECS-II item, for callers that have a validated header and want to attach a
-// body without re-deriving stream/function/session/System Bytes by hand. The header's PType (byte 4)
-// and SType (byte 5) must both be 0 (a SECS-II data message); the stream, function, wait bit,
-// session ID, and System Bytes are read from the header and revalidated via the same Q3 rules as
-// NewDataMessage. This differs from the raw-frame decode path (decodeOwnedFrame), which does not
-// run Q3 validation because it trusts the wire.
+// NewDataMessageFromHeader builds a DataMessage from an already-formed 10-byte HSMS header and a separately-decoded SECS-II item, for callers
+// that have a validated header and want to attach a body without re-deriving stream/function/session/System Bytes by hand.
+//
+// The header's PType (byte 4) and SType (byte 5) must both be 0 (a SECS-II data message); the stream, function, wait bit, session ID,
+// and System Bytes are read from the header and revalidated via the same Q3 rules as NewDataMessage.
+// This differs from the raw-frame decode path (decodeOwnedFrame), which does not run Q3 validation because it trusts the wire.
 func NewDataMessageFromHeader(header [10]byte, item secs2.Item) (*DataMessage, error) {
 	if header[4] != 0 {
 		return nil, fmt.Errorf("invalid PType: %d: %w", header[4], ErrInvalidPType)

@@ -13,8 +13,8 @@ import (
 
 // UintItem represents an immutable list of unsigned integer values in a SECS-II message.
 //
-// It implements the Item interface. All methods are safe for concurrent use and no method
-// exposes mutable internal storage.
+// It implements the Item interface.
+// All methods are safe for concurrent use and no method exposes mutable internal storage.
 type UintItem struct {
 	size     int32
 	byteSize uint32
@@ -27,15 +27,13 @@ var _ Item = (*UintItem)(nil)
 
 // NewUintItem creates a new UintItem representing unsigned integer data in a SECS-II message.
 //
-// byteSize must be 1, 2, 4, or 8. Each value can be an unsigned integer (uint, uint8, uint16,
-// uint32, uint64), a slice of any of those types, a non-negative signed integer (int, int8,
-// int16, int32, int64), a slice of any of those non-negative signed types, or a string
-// containing a decimal/hex/octal unsigned integer literal.
+// byteSize must be 1, 2, 4, or 8.
+// Each value can be an unsigned integer (uint, uint8, uint16, uint32, uint64), a slice of any of those types, a non-negative signed integer (int, int8, int16, int32, int64), a slice of any of those non-negative signed types, or a string containing a decimal/hex/octal unsigned integer literal.
 //
 // Out-of-range unsigned values are clamped to the representable maximum for the given byteSize.
-// Negative signed integer values produce a deferred error. If byteSize is invalid or a value
-// cannot be converted (e.g., an unsupported type or non-numeric string), a deferred error is
-// stored on the returned item; call Error() to inspect it.
+// Negative signed integer values produce a deferred error.
+// If byteSize is invalid or a value cannot be converted (e.g., an unsupported type or non-numeric string), a deferred error is stored on the returned item;
+// call Error() to inspect it.
 //
 // Parameters:
 //   - byteSize: the size in bytes of each unsigned integer (1, 2, 4, or 8).
@@ -75,9 +73,9 @@ func NewUintItem(byteSize int, values ...any) Item {
 //
 // Returns an error if the item carries a deferred construction error.
 //
-// It returns the item's deferred error (see Error) when the item was constructed with
-// one — a passing Is* predicate does NOT imply a nil error here. Always check the
-// returned error; do not discard it via `v, _ := item.ToUint()`.
+// It returns the item's deferred error (see Error) when the item was constructed with one —
+// a passing Is* predicate does NOT imply a nil error here.
+// Always check the returned error; do not discard it via `v, _ := item.ToUint()`.
 func (item *UintItem) ToUint() ([]uint64, error) {
 	if item.itemErr != nil {
 		return nil, item.itemErr
@@ -138,6 +136,7 @@ func (item *UintItem) Uints() iter.Seq[uint64] {
 func (item *UintItem) Size() int { return int(item.size) }
 
 // EncodedLen returns the total SECS-II wire byte length (header + payload).
+//
 // Returns 0 for items with deferred errors.
 func (item *UintItem) EncodedLen() int {
 	if item.itemErr != nil {
@@ -154,6 +153,7 @@ func (item *UintItem) EncodedLen() int {
 }
 
 // AppendTo appends the SECS-II wire encoding of this item into dst and returns the result.
+//
 // Returns dst unchanged for items with deferred errors.
 func (item *UintItem) AppendTo(dst []byte) []byte {
 	if item.itemErr != nil {
@@ -217,6 +217,7 @@ func (item *UintItem) AppendTo(dst []byte) []byte {
 }
 
 // ToBytes allocates a single buffer and returns the SECS-II wire encoding.
+//
 // Equivalent to AppendTo(make([]byte, 0, EncodedLen())).
 func (item *UintItem) ToBytes() []byte {
 	return item.AppendTo(make([]byte, 0, item.EncodedLen()))
@@ -241,29 +242,29 @@ func (item *UintItem) Type() string {
 // IsUint8 returns true if this is an 8-bit unsigned integer item (byteSize == 1).
 //
 // It reflects the DECLARED type only and does not consult the item's deferred error:
-// a true result does not imply the item is usable. Gate value extraction on Error()
-// (or the To* accessor's returned error), not on Is* alone.
+// a true result does not imply the item is usable.
+// Gate value extraction on Error() (or the To* accessor's returned error), not on Is* alone.
 func (item *UintItem) IsUint8() bool { return item.byteSize == 1 }
 
 // IsUint16 returns true if this is a 16-bit unsigned integer item (byteSize == 2).
 //
 // It reflects the DECLARED type only and does not consult the item's deferred error:
-// a true result does not imply the item is usable. Gate value extraction on Error()
-// (or the To* accessor's returned error), not on Is* alone.
+// a true result does not imply the item is usable.
+// Gate value extraction on Error() (or the To* accessor's returned error), not on Is* alone.
 func (item *UintItem) IsUint16() bool { return item.byteSize == 2 }
 
 // IsUint32 returns true if this is a 32-bit unsigned integer item (byteSize == 4).
 //
 // It reflects the DECLARED type only and does not consult the item's deferred error:
-// a true result does not imply the item is usable. Gate value extraction on Error()
-// (or the To* accessor's returned error), not on Is* alone.
+// a true result does not imply the item is usable.
+// Gate value extraction on Error() (or the To* accessor's returned error), not on Is* alone.
 func (item *UintItem) IsUint32() bool { return item.byteSize == 4 }
 
 // IsUint64 returns true if this is a 64-bit unsigned integer item (byteSize == 8).
 //
 // It reflects the DECLARED type only and does not consult the item's deferred error:
-// a true result does not imply the item is usable. Gate value extraction on Error()
-// (or the To* accessor's returned error), not on Is* alone.
+// a true result does not imply the item is usable.
+// Gate value extraction on Error() (or the To* accessor's returned error), not on Is* alone.
 func (item *UintItem) IsUint64() bool { return item.byteSize == 8 }
 
 // ToSML returns the SML (SECS Message Language) text representation of this item.
