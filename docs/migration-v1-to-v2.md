@@ -419,12 +419,17 @@ func buildSECS1() (hsms.Connection, error) {
 
 Config knobs with no v2 equivalent (removed; the behavior is either automatic now or handled by the
 core): `WithConnectRemoteTimeout`, `WithAcceptConnTimeout`, `WithInitialRetryDelay`,
-`WithIdleReadTimeout`, `WithDataMsgQueueSize`,
-`WithAutoLinktest` (linktest is controlled by the interval and fail-threshold), and the SECS-I
-`WithDuplicateDetection` (duplicate blocks are always detected).
+`WithIdleReadTimeout`, `WithDataMsgQueueSize`, and the SECS-I `WithDuplicateDetection` (duplicate
+blocks are always detected).
 
 `WithTraceTraffic` is retained as `hsms.WithTraceTraffic(bool)` — moved to the shared `hsms`
 package so both transports get per-frame wire-level hex-dump tracing (v1 had it for HSMS-SS only).
+
+`WithAutoLinktest` has no direct v2 equivalent (linktest is controlled by the interval and
+fail-threshold), but v1's send/receive-activity linktest suppression is restored in v2 as
+`hsms.WithLinktestSuppression` (default on), extended with an outstanding-reply skip and a
+liveness-credit rule for linktest failures — see the `WithLinktestSuppression` godoc for the exact
+behavior.
 
 ---
 
@@ -1029,7 +1034,7 @@ names a replacement or states "no equivalent".
 | `WithSendTimeout` | `WithConnectionOption(hsms.WithWriteTimeout)` | renamed | — |
 | `WithKeepAlivePeriod` | `WithTCPKeepAlive` | renamed | — |
 | `WithEquipRole/WithHostRole` | `WithEquipRole/WithHostRole` | retained | Gates the shared `hsms.WithAutoS9F9`: equipment role auto-sends S9F9 on a data-message T3 timeout, matching v1. Read back via `Config.IsEquip()`. |
-| `WithAutoLinktest(bool)` | — | removed | Controlled by interval + fail-threshold. |
+| `WithAutoLinktest(bool)` | — | removed | v1's master on/off switch for auto-linktest has no direct v2 equivalent; to disable probing entirely use `hsms.WithLinktestInterval(0)`. Separately, v1's send/receive-activity suppression is restored in v2 as `hsms.WithLinktestSuppression` (default on) and extended with an outstanding-reply skip and a liveness-credit rule for linktest failures — this only tunes when an already-enabled probe cadence gets skipped; it is not a way to turn probing off. |
 | `WithValidateDataMessage` | `hsms.WithSessionIDValidation` | changed | v1 enabled inbound SessionID-mismatch rejection (auto-S9F1 + drop) BY DEFAULT; v2 ships with it OFF and no equivalent at all until `WithSessionIDValidation` was added back as an explicit opt-in (default still off, to avoid a silent behavior change for anyone already on v2). If your v1 code called `WithValidateDataMessage(false)` to tolerate non-compliant equipment, no action is needed — v2's default already matches that. If you relied on the v1 default (`true`), call `hsms.WithSessionIDValidation(true)` to restore it. |
 | `WithTraceTraffic` | `hsms.WithTraceTraffic` | changed | Moved to the shared `hsms` package (`WithConnectionOption(hsms.WithTraceTraffic(true))`) so both transports get per-frame wire-level hex-dump tracing; v1 had it for HSMS-SS only. |
 | `WithConnectRemoteTimeout/WithAcceptConnTimeout/WithInitialRetryDelay/WithIdleReadTimeout/WithDataMsgQueueSize` | — | removed | No equivalent (automatic now / no direct replacement). |

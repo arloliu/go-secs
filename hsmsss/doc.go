@@ -34,7 +34,9 @@
 // hsms.WithT8, hsms.WithLinktestInterval). [New] returns the consumer-facing [Connection], which
 // embeds hsms.Connection (every shared HSMS-II send/reply/handler operation is available unchanged)
 // and adds ControlMetrics, the HSMS-SS control-plane counters: linktest sent/received/errored,
-// Select established, Separate received, Reject sent/received, and inbound linktest answered.
+// Select established, Separate received, Reject sent/received, inbound linktest answered, and
+// (per [github.com/arloliu/go-secs/v2/hsms.WithLinktestSuppression]) the suppressed/credited
+// linktest counts.
 //
 // # Lifecycle and messaging
 //

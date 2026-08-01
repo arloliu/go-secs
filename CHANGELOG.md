@@ -5,6 +5,30 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-08-01
+
+### Added
+
+- `hsms`: `WithLinktestSuppression` (default enabled) — activity-based suppression of the
+  automatic linktest. Each probe opportunity is skipped when it observes recent line traffic or
+  an outstanding data reply, and a probe timeout is not counted toward the linktest fail
+  threshold when the failure evaluation observes signs of life (liveness credit). This restores
+  and extends v1's linktest suppression (v1 commit `77262a6`). See the `WithLinktestSuppression`
+  godoc for the precise guarantees and bounds.
+- `hsmsss`: `ConnectionMetrics` gains `LinktestSuppressedCount` and `LinktestCreditedCount` to
+  observe suppression and credit activity.
+
+### Changed
+
+- Behavior (on by default): on busy connections, `LinktestSendCount`/`LinktestRecvCount` stop
+  climbing (probes are suppressed while traffic flows), and `LinktestErrCount` can grow without a
+  disconnect when failures are credited. Dashboards or alerts built on the old always-probing
+  cadence must account for this or set `WithLinktestSuppression(false)`.
+- Detection bound: a silent dead link is still dropped within approximately
+  `threshold × (interval + T6)` of its last sign of life; with a data-message reply outstanding,
+  T3 applies first. Rare races can extend this: up to one extra probe cycle, and up to double
+  immediately after a reconnect — see the `WithLinktestSuppression` godoc for the precise bounds.
+
 ## [2.0.1] - 2026-07-11
 
 Performance-only patch release. No public API changes; behavior is

@@ -48,7 +48,13 @@ and SECS-I over TCP/IP (SEMI E4), together with an SML (SECS Message Language) p
 * **Connection-state management:** an explicit state machine (`hsms.ConnState`) with registrable
   state-change handlers.
 * **Resilience:** automatic reconnection, and an auto-linktest with a configurable failure threshold
-  for tolerating transient T6 timeouts.
+  for tolerating transient T6 timeouts. Activity-based linktest suppression (on by default) probes
+  only idle links and does not count a probe timeout toward the disconnect threshold when the
+  failure evaluation observes signs of life — protecting slow, aged equipment busy with a long command from probe-induced
+  disconnects, while a silent dead link is still dropped within a bounded time. See the
+  [linktest suppression guide](docs/guides/linktest-suppression.md) for the behavior contract,
+  tuning, trade-offs, and precise detection bounds; disable with
+  `hsms.WithLinktestSuppression(false)`.
 * **Metrics:** live atomic counters (sent/received/error data messages, linktests, retries) via
   `Connection.Metrics()`.
 * **Error handling:** a peer `Reject.req` is surfaced to the caller as an `*hsms.RejectError`.
