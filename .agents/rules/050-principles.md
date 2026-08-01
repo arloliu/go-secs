@@ -17,6 +17,10 @@ When uncertain about behavior (API semantics, concurrency, edge cases), write a 
 ## Surface Conflicts — Don't Blend Them
 When two patterns contradict, pick one explicitly and explain why; prefer the more recent, more tested, or more local convention. Don't merge conflicting patterns into a compromise that matches neither. Follow existing conventions even when you disagree — if one looks harmful, surface it instead of silently forking.
 
+One standing exception: much of the existing Godoc is column-wrapped mid-sentence.
+That predates the semantic linefeeds rule in `400-documentation.md` and is not a convention to copy.
+Write new prose by meaning, one sentence per line, and leave the old wrapping alone.
+
 ## Tests Encode Intent
 A test must capture why a behavior matters, not just that it currently happens. A test that cannot fail when the business logic changes is worthless. (Mechanics and async rules live in `300-testing.md`.)
 

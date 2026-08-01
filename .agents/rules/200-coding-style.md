@@ -8,6 +8,16 @@
 - Use `context.Context` for cancellation / request scope.
 - Prefer `sync/atomic` for simple counters and flags.
 
+## Comments
+
+- Prefer `//` line comments.
+  Reserve block comments (`/* */`) for generated headers or long usage text.
+- A comment states the invariant, the *why*, or a non-obvious constraint — not what the code already says.
+- Break comment lines by meaning, not by column.
+  Default to one sentence per line, and break long sentences at clause boundaries.
+  No linter checks line length here, so there is nothing to wrap defensively against.
+  See [400-documentation.md](400-documentation.md#line-breaking-semantic-linefeeds) for the full rule.
+
 ## Errors
 
 - Static: `errors.New`.

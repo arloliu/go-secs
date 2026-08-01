@@ -22,6 +22,7 @@ See `550-git-conventions.md` for branch, commit-message, and pull-request conven
 - [ ] No unnecessary allocs on encode / decode / per-message paths
 - [ ] Fuzz targets extended for new decoder entry points
 - [ ] Docs updated for exported API changes
+- [ ] New comments and prose use semantic linefeeds; no stable text rewrapped (`400-documentation.md`)
 
 ## Make targets
 

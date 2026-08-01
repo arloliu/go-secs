@@ -8,7 +8,7 @@ Rules are in `.agents/rules/`. Read any file whose topic matches the task before
 | `100-overview.md` | Package layout, architecture, prime directives |
 | `200-coding-style.md` | Go idioms, error handling, file layout |
 | `300-testing.md` | Test organization, async rules, make targets |
-| `400-documentation.md` | Godoc format |
+| `400-documentation.md` | Godoc format, comment & prose line breaking (semantic linefeeds) |
 | `500-workflow.md` | Pre-commit checks, make targets |
 | `550-git-conventions.md` | Branch, commit-message, and pull-request conventions |
 | `600-perf-sec.md` | Hot paths, allocations, decode boundaries |
