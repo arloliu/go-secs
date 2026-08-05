@@ -7,6 +7,7 @@ status: stable
 generated: {by: "claude/opus-5", at: 2026-08-05T12:08:31Z}
 verified:
   - {by: "claude/opus-5", at: 2026-08-05T13:05:00Z}
+  - {by: "codex/cli", at: 2026-08-05T13:50:00Z}
 sources:
   - {resource: secs2/decode_slab.go, digest: sha256:77b6508240e72230, revision: bc97919}
   - {resource: secs2/decode.go, digest: sha256:eafd8c77fa6b76da, revision: bc97919}

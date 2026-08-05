@@ -7,6 +7,7 @@ status: stable
 generated: {by: "claude/opus-5", at: 2026-08-05T13:20:00Z}
 verified:
   - {by: "claude/opus-5", at: 2026-08-05T13:22:00Z}
+  - {by: "codex/cli", at: 2026-08-05T13:50:00Z}
 sources:
   - {resource: hsms/connection_send.go, digest: sha256:e534fecb0a49c465, revision: bc97919}
   - {resource: hsms/epoch.go, digest: sha256:ae43d006ecec624d, revision: bc97919}
