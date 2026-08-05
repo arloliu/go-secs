@@ -1,0 +1,31 @@
+---
+type: Unit
+title: hsms
+description: Immutable HSMS message model (SEMI E37) plus the shared connection engine both transports run on.
+---
+
+# Responsibility
+
+Owns the message layer — `ControlMessage`, `DataMessage`, construction with Q3 validation, encode/decode, lazy body decode — and the connection engine every transport reuses: generations, reply routing, protocol timers, the send path, and connection metrics.
+
+# Boundary
+
+Owns no sockets and no wire framing. `hsmsss` and `secs1` supply the transport and must both keep satisfying `hsms.Connection` / `hsms.Session` (prime directive 4). Item semantics belong to `secs2`.
+
+# Entries
+
+* [The B1/B2 Selected gates on the send path](/hsms/selected-gates.md) - what stops a data send when not Selected, and why one check is not enough.
+* [Send error accounting — which outcomes count](/hsms/send-error-accounting.md) - why a normal Close mid-transaction does not inflate the error counter.
+* [The W-bit inflight gauge](/hsms/inflight-gauge.md) - when a message counts as in flight, and why a leak here disables liveness probing.
+* [The I1 stale-epoch write guard](/hsms/stale-epoch-write-guard.md) - how a sender stalled across a reconnect is kept off the successor's socket.
+
+# Entry points
+
+- frame decode: `hsms/` → `DecodeHSMSMessage`
+- construction: `hsms/` → `NewDataMessage`, `NewSelectReq`, `NewLinktestReq`, `DataMessage.Derive`
+- consumer surface: `hsms/` → `Connection`, `Session`, `SECS2Endpoint`
+- engine knobs: `hsms/connection_config.go` → `ConnOption` constructors
+
+# Read first
+
+`hsms/doc.go` is exceptionally thorough — message model, the two error channels, immutability and fan-out, and a "Dissolved v1 landmines" section explaining why four v1 hazards are now structurally impossible. Read it before any entry here, and do not write an entry that restates it.

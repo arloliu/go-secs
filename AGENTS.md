@@ -6,6 +6,7 @@ Rules are in `.agents/rules/`. Read any file whose topic matches the task before
 |------|-------|
 | `050-principles.md` | Working principles |
 | `100-overview.md` | Package layout, architecture, prime directives |
+| `150-memex.md` | `.knowledges/` knowledge bundle — read before exploring a package |
 | `200-coding-style.md` | Go idioms, error handling, file layout |
 | `300-testing.md` | Test organization, async rules, make targets |
 | `400-documentation.md` | Godoc format, comment & prose line breaking (semantic linefeeds) |
