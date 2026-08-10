@@ -1,6 +1,7 @@
 package hsmsss
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -73,9 +74,13 @@ func (t *transport) recvLoop(g *genWG) {
 
 		t.lastRecvStamp.Store(t.monoNanos()) // any complete inbound frame is proof of link liveness
 
-		if !t.dispatchFrame(g, frame) {
-			// dispatchFrame already drove teardown (a peer Separate while Selected called
-			// rt.TCPDown). Do not call TCPDown again; just end the loop so Stop can join it.
+		// genCtx is threaded in for the SAME C1 straggler guard the read-error branch applies above.
+		// A peer Separate is the one dispatch path that injects TCPDown,
+		// so it must not fire from a generation whose teardown already began (see handleSeparateReq).
+		if !t.dispatchFrame(genCtx, g, frame) {
+			// dispatchFrame already drove teardown (a peer Separate called rt.TCPDown),
+			// or the generation is already tearing down.
+			// Either way do not call TCPDown again; just end the loop so Stop can join it.
 			return
 		}
 	}
@@ -86,7 +91,10 @@ func (t *transport) recvLoop(g *genWG) {
 // keep reading and false when it has itself driven teardown (peer Separate while Selected).
 // g is the recv goroutine's captured generation bundle (NEW-1), threaded onward to any
 // responder path that registers a linktest / T7 goroutine so it lands on this generation's bundle.
-func (t *transport) dispatchFrame(g *genWG, frame []byte) bool {
+// genCtx is the recv goroutine's captured generation ctx.
+// It is forwarded to the one path that injects TCPDown (the peer-Separate responder),
+// so that path applies the same C1 straggler guard as recvLoop's read-error branch.
+func (t *transport) dispatchFrame(genCtx context.Context, g *genWG, frame []byte) bool {
 	pType := frame[4]
 	sType := frame[5]
 
@@ -180,8 +188,8 @@ func (t *transport) dispatchFrame(g *genWG, frame []byte) bool {
 		}
 
 	case hsms.SeparateReqType:
-		// Peer leaving (E37 §7.9.2): tear down if Selected, otherwise ignore.
-		return t.handleSeparateReq()
+		// Peer leaving (E37.1 §7.6): tear down in any connected substate, NotSelected included.
+		return t.handleSeparateReq(genCtx)
 
 	default:
 		// Unreachable: IsValidSType already rejected every undefined SType above.

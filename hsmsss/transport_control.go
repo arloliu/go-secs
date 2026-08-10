@@ -7,11 +7,10 @@ import (
 	"github.com/arloliu/go-secs/v2/hsms"
 )
 
-// errPeerSeparate is the TCPDown cause used when a peer Separate.req (SType 9) arrives while
-// the link is Selected (E37 §7.9.2). Routing the teardown through TCPDown marks the current
-// generation commsFailure=true, which suppresses OUR farewell Separate — the peer already
-// signalled it is leaving, so answering with a Separate is neither required nor correct.
-var errPeerSeparate = errors.New("hsmsss: peer sent Separate.req while selected")
+// errPeerSeparate is the TCPDown cause used when a peer Separate.req (SType 9) arrives on a live generation (E37.1 §7.6).
+// Routing the teardown through TCPDown marks the current generation commsFailure=true, which suppresses OUR farewell Separate —
+// the peer already signalled it is leaving, so answering with a Separate is neither required nor correct.
+var errPeerSeparate = errors.New("hsmsss: peer sent Separate.req")
 
 // handleControlReq dispatches an inbound control request (Select.req, Deselect.req,
 // Linktest.req) to the responder procedures. It runs on the recv goroutine.
@@ -76,20 +75,50 @@ func (t *transport) handleSelectReq(g *genWG, req hsms.Message) {
 	_ = t.rt.SendAsync(context.Background(), rsp)
 }
 
-// handleSeparateReq processes an inbound Separate.req (SType 9, E37 §7.9.2). While Selected
-// the peer is closing the session: drive an involuntary disconnect via rt.TCPDown, whose
-// commsFailure marking suppresses OUR farewell Separate (§9.1.1) and whose evDisconnect
-// injection funnels teardown through the single NotConnected reaction. It returns false so
-// the recv loop ends without a redundant TCPDown. While NOT Selected the Separate is ignored
-// (no state to tear down; no Separate is sent back) and it returns true to keep reading.
-func (t *transport) handleSeparateReq() bool {
-	if t.rt.State() == hsms.SelectedState {
-		t.metrics.incSeparateRecv()
-		t.rt.TCPDown(errPeerSeparate)
+// handleSeparateReq processes an inbound Separate.req (SType 9).
+// The peer is leaving: drive an involuntary disconnect via rt.TCPDown,
+// whose commsFailure marking suppresses OUR farewell Separate (§9.1.1)
+// and whose evDisconnect injection funnels teardown through the single NotConnected reaction.
+// It returns false so the recv loop ends without a redundant TCPDown.
+//
+// The teardown is UNCONDITIONAL — NotSelected included — because E37.1 §7.6 overrides E37 generic here.
+// The generic standard (§7.9.2.3) says "If the responding entity is not in the SELECTED state, the Separate.req is ignored",
+// but E37.1 §7.6 narrows it:
+// "the Separate.req is valid only in the TCP/IP CONNECTED state and its substates.
+// After either initiating or receiving a Separate.req message,
+// the entity shall immediately close the TCP/IP connection and transit to the TCP/IP NOT CONNECTED state."
+// NOT SELECTED is such a substate, and the clause attaches no state qualifier to "receiving".
+// Ignoring it left a peer that announced its exit but held the socket open to be reaped by the T7 dwell instead of at once.
+//
+// §7.6's "TCP/IP CONNECTED state and its substates" precondition needs no FSM check:
+// this runs on the recv loop, which only exists for a generation whose socket is up.
+//
+// The genCtx check is the C1 straggler guard, byte-for-byte the same one recvLoop applies to read errors.
+// TCPDown resolves the CURRENT epoch and supervisor at call time (see connection.TCPDown),
+// so a Separate read by a generation whose teardown already began — a voluntary Close,
+// or a straggler that outlived a bounded Stop — would otherwise inject evDisconnect into a SUCCESSOR generation
+// and knock it out of NotSelected.
+// Honoring §7.6 in every substate is what made this reachable at all:
+// before, only a Selected-state Separate reached TCPDown.
+//
+// Be precise about what this buys, because an earlier revision of this comment over-claimed it.
+// The check NARROWS the window; it is not an epoch barrier.
+// Cancellation can still land between the check and the TCPDown call,
+// so a sufficiently descheduled straggler can still inject into a successor.
+// Closing that hole needs the queued FSM event to carry epoch identity and be revalidated at PROCESSING time,
+// the pattern supervisor.requestClose already uses via closeEpoch.
+// That is a core change affecting all seven TCPDown/T7Expired producers, not just this one.
+// It is recorded as pre-existing architecture debt in docs/specs/e37-1-hsms-ss-conformance-audit.md, Gap 2.
+func (t *transport) handleSeparateReq(genCtx context.Context) bool {
+	t.metrics.incSeparateRecv()
+
+	if genCtx != nil && genCtx.Err() != nil {
 		return false
 	}
 
-	return true
+	t.rt.TCPDown(errPeerSeparate)
+
+	return false
 }
 
 // sendReject builds a typed Reject.req for a frame with an unsupported PType/SType or a

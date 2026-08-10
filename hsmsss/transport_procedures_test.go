@@ -2,7 +2,7 @@ package hsmsss
 
 // procedures_test.go — control-procedure tests for the hsmsss transport (spec §6.3):
 // the auto-linktest initiator (D5a-5), the Linktest responder, the responder-only Deselect
-// (D5a-4), and the §7.9.2 Separate ignore-if-not-Selected guard.
+// (D5a-4), and the E37.1 §7.6 Separate tear-down-in-any-connected-substate guard.
 //
 // The file lives in package hsmsss (not hsmsss_test) because transport is unexported;
 // only in-package tests can construct *transport values and drive the responder helpers
@@ -220,11 +220,13 @@ func TestLinktest_ErrCount_NotCountedOnParentCancel(t *testing.T) {
 		"a cancelled write is neither a success nor a counted error")
 }
 
-// TestSeparate_IgnoredWhileNotSelected — the load-bearing teeth-test (§7.9.2): a Separate.req
-// received while NOT Selected is ignored (handleSeparateReq returns true, keep reading) and
-// does NOT tear the link down. TEETH: temporarily make handleSeparateReq always TCPDown and
-// this test fails.
-func TestSeparate_IgnoredWhileNotSelected(t *testing.T) {
+// TestSeparate_TearsDownWhileNotSelected — the load-bearing teeth-test for E37.1 §7.6:
+// a Separate.req received while NOT Selected still tears the link down.
+// E37 generic §7.9.2.3 would ignore it; §7.6 narrows that away
+// ("After either initiating or receiving a Separate.req message, the entity shall immediately close the TCP/IP connection"),
+// and NOT SELECTED is a substate of TCP/IP CONNECTED.
+// TEETH: restore the `if t.rt.State() == hsms.SelectedState` guard in handleSeparateReq and this test fails.
+func TestSeparate_TearsDownWhileNotSelected(t *testing.T) {
 	t.Parallel()
 
 	rt := newRecRT()
@@ -233,10 +235,50 @@ func TestSeparate_IgnoredWhileNotSelected(t *testing.T) {
 	ctx := t.Context()
 	tr := newLinktestTransport(t, rt, ctx)
 
-	keepReading := tr.handleSeparateReq()
+	keepReading := tr.handleSeparateReq(ctx)
 
-	require.True(t, keepReading, "Separate while NotSelected must keep the recv loop reading")
-	require.False(t, rt.tcpDownDidFire(), "Separate while NotSelected must NOT tear the link down (§7.9.2)")
+	require.False(t, keepReading, "Separate must end the recv loop — the caller already drove TCPDown")
+	require.True(t, rt.tcpDownDidFire(), "Separate while NotSelected must tear the link down (E37.1 §7.6)")
+	require.ErrorIs(t, rt.tcpDownCause(), errPeerSeparate)
+	require.Equal(t, uint64(1), tr.metrics.SeparateRecvCount(),
+		"a Separate received while NotSelected is still a received Separate")
+}
+
+// TestSeparate_CancelledGenerationSkipsTCPDown — the C1 straggler guard on the Separate path.
+// TCPDown resolves the CURRENT epoch/supervisor at call time,
+// so a Separate read by a generation whose teardown already began must NOT inject evDisconnect —
+// it would land on the successor generation and knock it out of NotSelected.
+// A cancelled generation ctx is the signal that teardown owns the disconnect.
+//
+// SCOPE — read this before trusting the name.
+// This proves only that an ALREADY-cancelled generation skips the injection.
+// It does NOT prove cross-generation safety, and the guard does not provide it:
+// cancellation landing BETWEEN the check and the TCPDown call still reaches a successor.
+// A deterministic test for that would need to interleave the check with a real teardown and
+// successor publication, which the recording runtime here cannot model.
+// See handleSeparateReq's comment and the audit's Gap 2 for why closing the hole is a core change.
+//
+// TEETH: drop the genCtx.Err() check in handleSeparateReq and this test fails.
+func TestSeparate_CancelledGenerationSkipsTCPDown(t *testing.T) {
+	t.Parallel()
+
+	rt := newRecRT()
+	rt.setState(hsms.SelectedState) // the state that DID tear down before the guard existed
+
+	ctx := t.Context()
+	tr := newLinktestTransport(t, rt, ctx)
+
+	// Cancel this generation's ctx: teardown has begun and owns the disconnect.
+	genCtx, cancel := context.WithCancel(ctx)
+	cancel()
+
+	keepReading := tr.handleSeparateReq(genCtx)
+
+	require.False(t, keepReading, "the loop must still end — the generation is going away regardless")
+	require.False(t, rt.tcpDownDidFire(),
+		"a Separate on a torn-down generation must NOT inject TCPDown (it would hit the successor)")
+	require.Equal(t, uint64(1), tr.metrics.SeparateRecvCount(),
+		"the frame was still received, so it is still counted")
 }
 
 // TestDeselect_WhileSelectedRepliesSuccessAndTransitions — a Deselect.req while Selected is

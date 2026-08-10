@@ -840,11 +840,12 @@ func TestReader_RecvLoopUsesLiveT8NotFrozenCfg(t *testing.T) {
 	require.Error(t, rt.tcpDownCause())
 }
 
-// TestReader_PeerSeparateWhileSelected — a Separate.req (SType 9) received while Selected
-// tears the link down (TCPDown, comms-failure cause) and the reader sends NO farewell
-// Separate back (§7.9.2). While NOT Selected the Separate is ignored and the loop keeps
-// reading.
-func TestReader_PeerSeparateWhileSelected(t *testing.T) {
+// TestReader_PeerSeparate — a Separate.req (SType 9) tears the link down (TCPDown, comms-failure cause)
+// and the reader sends NO farewell Separate back (§9.1.1).
+// This holds in NotSelected as well as Selected:
+// E37.1 §7.6 requires an immediate close on receiving a Separate.req in any TCP/IP CONNECTED substate,
+// overriding E37 generic §7.9.2.3's ignore-if-not-Selected.
+func TestReader_PeerSeparate(t *testing.T) {
 	t.Parallel()
 
 	t.Run("while_selected_disconnects_no_farewell", func(t *testing.T) {
@@ -865,11 +866,11 @@ func TestReader_PeerSeparateWhileSelected(t *testing.T) {
 		require.ErrorIs(t, rt.tcpDownCause(), errPeerSeparate)
 		require.Equal(t, 0, rt.deliveredCount(), "a Separate must not be delivered as data")
 
-		// The reader must NOT answer with a farewell Separate (§7.9.2).
+		// The reader must NOT answer with a farewell Separate (§9.1.1).
 		expectNoPeerBytes(t, peer, 200*time.Millisecond)
 	})
 
-	t.Run("while_not_selected_ignored", func(t *testing.T) {
+	t.Run("while_not_selected_disconnects_no_farewell", func(t *testing.T) {
 		t.Parallel()
 
 		rt := newRecRT()
@@ -879,24 +880,16 @@ func TestReader_PeerSeparateWhileSelected(t *testing.T) {
 		_, err := peer.Write(frameBytes(10, header10(0, byte(hsms.SeparateReqType)), nil))
 		require.NoError(t, err)
 
-		// The loop must keep reading after ignoring the Separate. Probe with a data frame:
-		// while NotSelected, a data message is refused with Reject(reason 4) and the link is
-		// kept (§7.10.3 / §6.3), so seeing the Reject proves the loop read the frame — and the
-		// data is NOT delivered as a body.
-		body := []byte{0x07}
-		dh := header10(0, byte(hsms.DataMsgType))
-		_, err = peer.Write(frameBytes(uint32(len(dh)+len(body)), dh, body))
-		require.NoError(t, err)
+		select {
+		case <-rt.tcpDownCh:
+		case <-time.After(2 * time.Second):
+			t.Fatal("peer Separate while NotSelected must drive TCPDown (E37.1 §7.6)")
+		}
+		require.ErrorIs(t, rt.tcpDownCause(), errPeerSeparate)
+		require.Equal(t, 0, rt.deliveredCount(), "a Separate must not be delivered as data")
 
-		require.Eventually(t, func() bool { return rt.sentCount() == 1 },
-			5*time.Second, 10*time.Millisecond, "data while NotSelected must be Rejected (loop kept reading)")
-
-		got := rt.lastSent()
-		require.NotNil(t, got)
-		h := got.HeaderBytes()
-		require.Equal(t, byte(hsms.RejectReqType), h[5], "data while NotSelected must be Rejected")
-		require.Equal(t, byte(hsms.RejectNotSelected), h[3], "reason must be NotSelected (4)")
-		require.Equal(t, 0, rt.deliveredCount(), "data while NotSelected must not be delivered as a body")
-		require.False(t, rt.tcpDownDidFire(), "a NotSelected Separate/data must not tear down")
+		// No farewell Separate back, and no Reject either — the peer announced its exit.
+		expectNoPeerBytes(t, peer, 200*time.Millisecond)
+		require.Equal(t, 0, rt.sentCount(), "a peer Separate is never answered")
 	})
 }

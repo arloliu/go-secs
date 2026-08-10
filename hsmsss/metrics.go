@@ -14,7 +14,7 @@ type ConnectionMetrics struct {
 	linktestRecv       atomic.Uint64 // Linktest.rsp received (successful round-trip)
 	linktestErr        atomic.Uint64 // our own linktest round-trip failed (T6 timeout or write error)
 	selectEstablished  atomic.Uint64 // Select responder committed NotSelected -> Selected (E37 §9.2.2)
-	separateRecv       atomic.Uint64 // peer Separate.req received while Selected (peer-initiated teardown)
+	separateRecv       atomic.Uint64 // peer Separate.req received in any connected substate (peer-initiated teardown, E37.1 §7.6)
 	rejectSent         atomic.Uint64 // Reject.req WE emit (peer sent us a malformed/unexpected frame)
 	rejectRecv         atomic.Uint64 // inbound Reject.req received (peer rejected one of our sends)
 	linktestReqRecv    atomic.Uint64 // inbound Linktest.req answered (peer probing us)
@@ -46,8 +46,11 @@ func (m *ConnectionMetrics) SelectEstablishedCount() uint64 {
 	return m.selectEstablished.Load()
 }
 
-// SeparateRecvCount returns the total number of inbound Separate.req messages received while Selected (each one tears down the connection —
-// a peer-initiated disconnect, E37 §7.9.2).
+// SeparateRecvCount returns the total number of inbound Separate.req messages received (each one tears down the connection —
+// a peer-initiated disconnect, E37.1 §7.6).
+//
+// Every Selected or NotSelected substate counts;
+// E37.1 §7.6 requires an immediate close on receiving a Separate.req regardless of the selection state.
 func (m *ConnectionMetrics) SeparateRecvCount() uint64 {
 	return m.separateRecv.Load()
 }
