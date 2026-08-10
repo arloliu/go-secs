@@ -10,7 +10,7 @@ import (
 	"github.com/arloliu/go-secs/v2/secs2"
 )
 
-// MaxStreamCode is the maximum valid HSMS stream code (SEMI E37 §7.5).
+// MaxStreamCode is the maximum valid HSMS stream code (SEMI E37 §8.3.3.3).
 const MaxStreamCode = uint8(127)
 
 // decodeState holds the lazily-decoded SECS-II item and any decode error for a DataMessage.

@@ -78,8 +78,9 @@ func assembleBlocks(blocks []block) (messageHeader, wire.Body, error) {
 	return first, wire.AdoptBody(buf), nil
 }
 
-// hsmsHeaderLen is the fixed 10-byte HSMS message header (SEMI E37 §6.2) that assembleFrame writes
-// ahead of the reassembled body. It equals the SECS-I block header size by coincidence.
+// hsmsHeaderLen is the fixed 10-byte HSMS message header (SEMI E37 §8.2.5)
+// that assembleFrame writes ahead of the reassembled body.
+// It equals the SECS-I block header size by coincidence.
 const hsmsHeaderLen = 10
 
 // assembleFrame reassembles an ordered slice of received blocks into a synthesized HSMS frame: a
@@ -92,7 +93,7 @@ const hsmsHeaderLen = 10
 // every block — but is LENIENT on the first block number per D5b-12: a lone single block may be
 // numbered 0 or 1, while a multi-block message must be numbered 1..N.
 //
-// The block-invariant SECS-I header maps onto the HSMS header (SEMI E37 §6.2 / SEMI E4 §8) as:
+// The block-invariant SECS-I header maps onto the HSMS header (SEMI E37 §8.2.5 / SEMI E4 §8) as:
 //   - bytes 0-1 = deviceID (big-endian) — the device ID carried in the received blocks, surfaced as
 //     the HSMS session ID so an inbound message reports its wire device ID through SessionID()
 //   - byte 2    = (W-bit 0x80) | (stream 0x7F)

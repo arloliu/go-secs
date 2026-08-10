@@ -2,7 +2,7 @@ package hsms
 
 // MsgType identifies the HSMS SType field (header byte 5).
 //
-// Defined values correspond to SEMI E37 §7.10.3.
+// Defined values correspond to SEMI E37 §8.2.6.6 and Table 5.
 type MsgType uint8
 
 const (

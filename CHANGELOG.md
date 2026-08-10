@@ -30,7 +30,7 @@ read the `Reject.req` and `Separate.req` entries before upgrading.
   E37.1 §8.1 admits no exception for HSMS-SS: every control message carries `0xFFFF`.
   This is wire-visible.
   A peer that correlated our Rejects by session ID will now see `0xFFFF` rather than its own device ID.
-  Correlation by System Bytes is unchanged: they are still echoed verbatim (§8.3.21.3),
+  Correlation by System Bytes is unchanged: they are still echoed verbatim (§8.3.21.4),
   as is the offending PType/SType in header byte 2 (§8.3.21.2).
 - **`hsmsss`: a peer `Separate.req` on an already-cancelled generation no longer injects a disconnect.**
   `connection.TCPDown` resolves the current epoch and supervisor at call time,

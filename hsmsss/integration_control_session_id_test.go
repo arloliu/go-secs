@@ -228,7 +228,7 @@ func TestReject_UsesControlSessionID(t *testing.T) {
 			require.NotEqual(t, offendingDeviceID, frameSessionID(t, rejPayload),
 				"echoing the rejected frame's session ID is the E37-generic rule that E37.1 §8.1 overrides")
 
-			// Correlation is preserved by System Bytes (E37 §8.3.21.3).
+			// Correlation is preserved by System Bytes (E37 §8.3.21.4).
 			// That is what makes dropping the echoed session ID harmless.
 			require.Equal(t, sb[:], rejPayload[6:10], "Reject.req must echo the rejected frame's System Bytes")
 		})

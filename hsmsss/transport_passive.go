@@ -1,6 +1,6 @@
 package hsmsss
 
-// passive.go — the passive-role connect procedure (spec §6.3, SEMI E37 §7.5 / E37.1). The passive
+// passive.go — the passive-role connect procedure (spec §6.3, SEMI E37 §6.3.4 / E37.1). The passive
 // side LISTENS and ACCEPTS a TCP connection, REFUSES a 2nd connection while one is live (HSMS-SS is
 // single-session, §3 / §7.4.3), and does NOT initiate Select — it only RESPONDS to an inbound
 // Select.req via the shared H2 responder (handleSelectReq / dispatchFrame in transport.go, §7.D).

@@ -180,7 +180,7 @@ func (t *transport) sendReject(frame []byte, pType, sType byte) {
 // and Reject was the last site still following the generic rule.
 //
 // The cost is that a Reject no longer carries the rejected message's device ID.
-// Correlation is unaffected: System Bytes are echoed verbatim (§8.3.21.3) and are what RouteReply matches on,
+// Correlation is unaffected: System Bytes are echoed verbatim (§8.3.21.4) and are what RouteReply matches on,
 // and header byte 2 still echoes the offending PType/SType (§8.3.21.2).
 //
 // The generic constructors hsms.NewRejectReq / NewRejectReqRaw deliberately keep taking an arbitrary

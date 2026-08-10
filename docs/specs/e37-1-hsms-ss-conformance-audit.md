@@ -75,7 +75,7 @@ and `Reject.req`'s session ID is **not** marked, while `Deselect.req` and `Separ
 That is genuine evidence E37 did not anticipate a subsidiary override here.
 E37.1 §8.1 nonetheless admits no exception, and the subsidiary standard governs the profile:
 "In HSMS-SS Control Messages, Session ID will always assume the special value 0xFFFF".
-Nothing is lost: correlation rides on System Bytes (§8.3.21.3), which are still echoed verbatim,
+Nothing is lost: correlation rides on System Bytes (§8.3.21.4), which are still echoed verbatim,
 and header byte 2 still carries the offending PType/SType (§8.3.21.2).
 
 The remaining control frames were already correct, for a different reason at each site:

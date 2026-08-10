@@ -11,10 +11,12 @@ import (
 // (§4a). It is the send adapter Write uses after the shape + control guard has already accepted the
 // frame as a data frame (SType 0).
 //
-// header is the 10-byte HSMS header (bufs[0][4:14]); bufs[1:] are the body's zero-copy sub-slices
-// after the 14-byte prefix. The block-invariant SECS-I header takes the deviceID and R-bit direction
-// from config (send-side only — T5 owns inbound R-bit validation) and the stream / function / W-bit /
-// system-bytes from the HSMS header. Byte map (SEMI E37 §6.2 / SEMI E4 §8):
+// header is the 10-byte HSMS header (bufs[0][4:14]);
+// bufs[1:] are the body's zero-copy sub-slices after the 14-byte prefix.
+// The block-invariant SECS-I header takes the deviceID and R-bit direction from config
+// (send-side only — T5 owns inbound R-bit validation)
+// and the stream / function / W-bit / system-bytes from the HSMS header.
+// Byte map (SEMI E37 §8.2.5 / SEMI E4 §8):
 //
 //	header[2] = (W-bit 0x80) | (stream 0x7F)
 //	header[3] = function
