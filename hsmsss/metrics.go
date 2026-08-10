@@ -13,7 +13,7 @@ type ConnectionMetrics struct {
 	linktestSend       atomic.Uint64 // Linktest.req sent by our own auto-linktest
 	linktestRecv       atomic.Uint64 // Linktest.rsp received (successful round-trip)
 	linktestErr        atomic.Uint64 // our own linktest round-trip failed (T6 timeout or write error)
-	selectEstablished  atomic.Uint64 // Select responder committed NotSelected -> Selected (E37 §9.2.2)
+	selectEstablished  atomic.Uint64 // Select responder committed NotSelected -> Selected (E37 §7.4)
 	separateRecv       atomic.Uint64 // peer Separate.req received in any connected substate (peer-initiated teardown, E37.1 §7.6)
 	rejectSent         atomic.Uint64 // Reject.req WE emit (peer sent us a malformed/unexpected frame)
 	rejectRecv         atomic.Uint64 // inbound Reject.req received (peer rejected one of our sends)
@@ -41,7 +41,7 @@ func (m *ConnectionMetrics) LinktestErrCount() uint64 {
 	return m.linktestErr.Load()
 }
 
-// SelectEstablishedCount returns the total number of times this connection's Select responder committed NotSelected -> Selected (E37 §9.2.2's "communications established").
+// SelectEstablishedCount returns the total number of times this connection's Select responder committed NotSelected -> Selected (E37 §7.4; select-status 0 is "Communication Established", Table 7).
 func (m *ConnectionMetrics) SelectEstablishedCount() uint64 {
 	return m.selectEstablished.Load()
 }
@@ -55,7 +55,7 @@ func (m *ConnectionMetrics) SeparateRecvCount() uint64 {
 	return m.separateRecv.Load()
 }
 
-// RejectSentCount returns the total number of Reject.req messages this connection emitted in response to a malformed or unexpected inbound frame (E37 §7.9).
+// RejectSentCount returns the total number of Reject.req messages this connection emitted in response to a malformed or unexpected inbound frame (E37 §7.10).
 func (m *ConnectionMetrics) RejectSentCount() uint64 {
 	return m.rejectSent.Load()
 }
@@ -66,6 +66,11 @@ func (m *ConnectionMetrics) RejectRecvCount() uint64 {
 }
 
 // LinktestReqRecvCount returns the total number of inbound Linktest.req messages answered (the peer probing this connection).
+//
+// Probes answered in any TCP-connected substate are counted, NotSelected included.
+// SEMI E37.1 §7.4 limits Linktest to the SELECTED state,
+// but this connection answers an out-of-state probe rather than dropping the link;
+// see the handleLinktestReq comment for why.
 func (m *ConnectionMetrics) LinktestReqRecvCount() uint64 {
 	return m.linktestReqRecv.Load()
 }

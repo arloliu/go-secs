@@ -429,3 +429,34 @@ func TestLinktest_InboundReqAnswered(t *testing.T) {
 	require.Equal(t, hsms.LinktestRspType, got.Type(), "Linktest.req must be answered with a Linktest.rsp")
 	require.Equal(t, uint64(1), tr.metrics.LinktestReqRecvCount(), "inbound Linktest.req must be counted")
 }
+
+// TestLinktest_InboundReqAnsweredWhileNotSelected — the deliberate E37.1 §7.4 deviation (audit Gap 3).
+// §7.4 limits the use of Linktest to SELECTED and §7.7 classes a violation as a communications failure,
+// but E37 §7.8.2's responder procedure is unconditional
+// and E37 §9.1.1's remedy is that the entity "should" — not "shall" — terminate.
+// We therefore answer the probe and keep the connection, rather than punishing a peer written against E37 generic §7.8.
+//
+// This pins all three properties the deviation depends on:
+// the rsp goes out, the link is NOT torn down, and the probe is still counted.
+// It is the guard the plain-Selected test above does not provide,
+// since that one exercises recRT's default state.
+func TestLinktest_InboundReqAnsweredWhileNotSelected(t *testing.T) {
+	t.Parallel()
+
+	rt := newRecRT()
+	rt.setState(hsms.NotSelectedState)
+
+	ctx := t.Context()
+	tr := newLinktestTransport(t, rt, ctx)
+
+	req := hsms.NewLinktestReq(rt.NextSystemBytes())
+	tr.handleLinktestReq(req)
+
+	got := rt.lastSent()
+	require.NotNil(t, got, "a Linktest.req while NotSelected must still be answered")
+	require.Equal(t, hsms.LinktestRspType, got.Type(), "the answer must be a Linktest.rsp")
+	require.False(t, rt.tcpDownDidFire(),
+		"answering is deliberate: an out-of-state probe must NOT be treated as a link-dropping failure")
+	require.Equal(t, uint64(1), tr.metrics.LinktestReqRecvCount(),
+		"an out-of-state Linktest.req is still a received Linktest.req")
+}

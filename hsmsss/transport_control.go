@@ -139,13 +139,15 @@ func (t *transport) handleSeparateReq(genCtx context.Context) bool {
 //  3. t.Write is synchronous and deadline-less, so on a wedged peer it stalls the recv loop
 //     indefinitely; rt.SendAsync enqueues and returns immediately, bounded by sendCh/genctx.
 //
-// A non-zero PType is reported as PType-not-supported; otherwise the reason is
-// SType-not-supported (the E37 reason set, §7.9, has no dedicated "malformed control length"
-// code, so a valid-SType-but-wrong-length frame maps here too).
+// A non-zero PType is reported as PType-not-supported; otherwise the reason is SType-not-supported.
+// The E37 reason set (§7.10, Table 9) has no dedicated "malformed control length" code,
+// so a valid-SType-but-wrong-length frame maps here too.
 //
-// The returned error (ErrNotOpen / ErrConnClosed) is intentionally ignored: both mean the
-// generation is already tearing down and the Reject is irrelevant. The recv loop must not
-// block on it.
+// The returned error (ErrNotOpen / ErrConnClosed) is intentionally ignored:
+// both mean the generation is already tearing down and the Reject is irrelevant.
+// The recv loop must not block on it.
+//
+// SessionID is hsms.ControlSessionID, NOT the rejected frame's — see the Reject SessionID note below.
 func (t *transport) sendReject(frame []byte, pType, sType byte) {
 	var systemBytes [4]byte
 	copy(systemBytes[:], frame[6:10])
@@ -185,12 +187,12 @@ func (t *transport) sendReject(frame []byte, pType, sType byte) {
 // SessionID — they implement E37, not the HSMS-SS profile, so the profile value is applied here at the
 // HSMS-SS call sites rather than baked into the shared message layer.
 
-// sendRejectNotSelected answers a DATA frame received while the link is not Selected with a
-// Reject.req carrying reason 4 (RejectNotSelected, E37 §7.10.3 / spec §6.3), keeping the link
-// UP. Like sendReject it routes through rt.SendAsync (the serialized core send path) rather
-// than a direct recv-path Write. The System Bytes are echoed from the offending frame; PType /
-// SType are 0 for a data message. The returned error is intentionally ignored (a tearing-down
-// generation makes the Reject irrelevant; the recv loop must not block on it).
+// sendRejectNotSelected answers a DATA frame received while the link is not Selected with a Reject.req carrying reason 4,
+// keeping the link UP (RejectNotSelected, E37 §7.10.3 / spec §6.3).
+// Like sendReject it routes through rt.SendAsync (the serialized core send path) rather than a direct recv-path Write.
+// The System Bytes are echoed from the offending frame; PType / SType are 0 for a data message.
+// The returned error is intentionally ignored
+// (a tearing-down generation makes the Reject irrelevant; the recv loop must not block on it).
 func (t *transport) sendRejectNotSelected(frame []byte) {
 	var systemBytes [4]byte
 	copy(systemBytes[:], frame[6:10])
@@ -221,9 +223,29 @@ func (t *transport) sendRejectTransactionNotOpen(frame []byte) {
 	_ = t.rt.SendAsync(context.Background(), reject)
 }
 
-// handleLinktestReq answers an inbound Linktest.req with a Linktest.rsp (E37 §7.8), keeping the link
-// up. It runs on the recv goroutine and routes the rsp through the core's serialized async send path
+// handleLinktestReq answers an inbound Linktest.req with a Linktest.rsp (E37 §7.8.2), keeping the link up.
+// It runs on the recv goroutine and routes the rsp through the core's serialized async send path
 // (same single-writer rationale as sendReject).
+//
+// The answer is UNCONDITIONAL — NotSelected included — and that is a deliberate interoperability policy, not an oversight.
+// E37.1 §7.4 restricts the use of Linktest to the SELECTED state (Table 3 scopes the whole transaction, not just the request),
+// and §7.7 says a violation of a §7 restriction is a communications failure.
+// Our INITIATOR side honors that:
+// startLinktest / stopLinktest bracket the Selected window, so we never probe outside it.
+//
+// What we decline to do is punish the PEER for it.
+// Two things make the lenient response defensible.
+// E37 §7.8.2's responder procedure is unconditional ("receives the Linktest.req … sends a Linktest.rsp").
+// And E37 §9.1.1's remedy for a communications failure is that the entity "should terminate the TCP/IP connection" — should, not shall.
+// So §7.7 governs how the request is CLASSIFIED, and leaves the consequence to the implementation.
+//
+// Answering costs a response and has no FSM effect:
+// nothing here transitions state, and T7 keeps running,
+// so a peer cannot hold an unselected session open by probing — it must still complete Select before the dwell expires.
+// Refusing instead (the strict reading) would drop a live TCP connection whenever a peer probes during the NotSelected window,
+// and a peer implemented against E37 generic §7.8 — which permits probing anytime in CONNECTED — legitimately does.
+// That trade is what this comment records; do not "fix" it into a disconnect.
+// See docs/specs/e37-1-hsms-ss-conformance-audit.md, Gap 3, and TestLinktest_InboundReqAnsweredWhileNotSelected.
 func (t *transport) handleLinktestReq(msg hsms.Message) {
 	cm, ok := msg.(*hsms.ControlMessage)
 	if !ok {

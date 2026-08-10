@@ -5,6 +5,56 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`hsmsss`: HSMS-SS control messages now always carry SessionID `0xFFFF`.**
+  The active-role `Select.req` and the graceful-close farewell `Separate.req` were both sent with the configured session ID (`hsms.WithSessionID`).
+  SEMI E37.1 §7.1.1, §7.6, and §8.1 require `0xFFFF` for *every* HSMS-SS control message;
+  the configured session ID is the **device ID** and belongs in data messages only (§7.2).
+  Equipment that enforces the rule rejected the `Select.req` and closed the socket whenever the configured session ID was not `0xFFFF` (e.g. a host using device ID `0`),
+  producing an endless `NotSelected` → `NotConnected` reconnect loop.
+  This was a regression from v1.17.1, which hard-coded `0xFFFF` at both sites.
+  Data messages, `Select.rsp` (which echoes the request's session ID per E37 §8.3.7.1), and `Linktest.req` were never affected.
+  `Reject.req` was affected too, and is covered by its own entry below.
+
+- **`hsmsss`: `Reject.req` now carries SessionID `0xFFFF` instead of the rejected message's.**
+  All three reject paths echoed the offending frame's session ID, per SEMI E37 generic §8.3.21.1
+  (unsupported PType/SType, data-while-not-Selected, and orphan control response).
+  E37.1 §8.1 admits no exception for HSMS-SS: every control message carries `0xFFFF`.
+  This is wire-visible.
+  A peer that correlated our Rejects by session ID will now see `0xFFFF` rather than its own device ID.
+  Correlation by System Bytes is unchanged: they are still echoed verbatim (§8.3.21.3),
+  as is the offending PType/SType in header byte 2 (§8.3.21.2).
+- **`hsmsss`: a peer `Separate.req` on an already-cancelled generation no longer injects a disconnect.**
+  `connection.TCPDown` resolves the current epoch and supervisor at call time,
+  so a Separate read by a generation whose teardown had already begun could inject `evDisconnect` into the *next* generation
+  and knock it out of `NotSelected`.
+  The receive loop already guarded read errors this way; the dispatch path did not.
+  Honoring E37.1 §7.6 in every substate is what made it reachable.
+  **This narrows the window; it does not close it.**
+  The guard checks the generation context and then calls `TCPDown` as two separate steps,
+  so a cancellation landing between them can still reach a successor.
+  Closing that requires queued FSM events to carry epoch identity and be revalidated when the supervisor processes them.
+  That affects every `TCPDown`/`T7Expired` producer and is tracked as separate work;
+  the same check-then-call shape has always been the receive loop's read-error guard.
+  See `docs/specs/e37-1-hsms-ss-conformance-audit.md`, Gap 2.
+- **`hsmsss`: a `Separate.req` received while NotSelected now closes the connection.**
+  It was ignored, following SEMI E37 generic §7.9.2.3 ("If the responding entity is not in the SELECTED state, the Separate.req is ignored").
+  E37.1 §7.6 overrides that for HSMS-SS:
+  the Separate.req is valid in the TCP/IP CONNECTED state *and its substates*,
+  and after receiving one the entity "shall immediately close the TCP/IP connection".
+  NOT SELECTED is such a substate.
+  In practice the peer usually closed its socket right after, so the link dropped on EOF anyway;
+  a peer that sent Separate and held the socket open was previously reaped only by the T7 dwell.
+  `ConnectionMetrics.SeparateRecvCount` now counts a Separate received in any substate, not only while Selected.
+
+### Added
+
+- **`hsms.ControlSessionID`** — the `0xFFFF` session ID that SEMI E37.1 §8.1 mandates for HSMS-SS control messages.
+  Exported so callers constructing control messages directly do not have to repeat the literal.
+
 ## [2.1.0] - 2026-08-01
 
 ### Added
