@@ -15,6 +15,7 @@ Owns no message types, reply routing, or T3 — those are `hsms`. Single-session
 # Entries
 
 * [Activity stamps — the state behind linktest suppression](/hsmsss/activity-stamps.md) - where "the line is alive" is stored, what writes it, when it resets.
+* [Where the HSMS-SS profile overrides the generic core](/hsmsss/e37-1-narrows-e37-generic.md) - the four sites whose value or state check comes from E37.1, not E37, and what silently breaks if one is "simplified" back.
 
 # Entry points
 
