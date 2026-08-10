@@ -5,7 +5,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.2.0] - 2026-08-11
+
+Conformance release.
+HSMS-SS control-message handling is brought in line with SEMI E37.1, the subsidiary standard,
+after a field report that the active Select.req carried the wrong session ID.
+Two of the changes are visible on the wire;
+read the `Reject.req` and `Separate.req` entries before upgrading.
 
 ### Fixed
 
@@ -18,7 +24,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   This was a regression from v1.17.1, which hard-coded `0xFFFF` at both sites.
   Data messages, `Select.rsp` (which echoes the request's session ID per E37 §8.3.7.1), and `Linktest.req` were never affected.
   `Reject.req` was affected too, and is covered by its own entry below.
-
 - **`hsmsss`: `Reject.req` now carries SessionID `0xFFFF` instead of the rejected message's.**
   All three reject paths echoed the offending frame's session ID, per SEMI E37 generic §8.3.21.1
   (unsupported PType/SType, data-while-not-Selected, and orphan control response).
