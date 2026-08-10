@@ -1,10 +1,11 @@
 package hsmsss
 
-// active.go — the active-role Select procedure (spec §6.3, SEMI E37 §7.4). The active side,
-// once its dial has advanced the FSM to NotSelected, sends a Select.req (carrying the configured
-// SessionID — see the SessionID note at the WriteMessage call below; bounded by T6) over the core
-// send path and reaches Selected when the peer answers Select.rsp with select-status 0. On any
-// Select failure it drives the FSM back to NotConnected so the engine's reconnect loop re-selects.
+// active.go — the active-role Select procedure (spec §6.3, SEMI E37 §7.4).
+// The active side, once its dial has advanced the FSM to NotSelected, sends a Select.req over the core send path,
+// and reaches Selected when the peer answers Select.rsp with select-status 0.
+// That Select.req carries the HSMS-SS control session ID 0xFFFF (E37.1 §7.1.1) and is bounded by T6;
+// see the SessionID note at the WriteMessage call below.
+// On any Select failure it drives the FSM back to NotConnected so the engine's reconnect loop re-selects.
 //
 // H2 note (§7.D): the FSM commit to Selected for the initiator path happens on the RECV
 // LOOP the instant it routes the status-0 Select.rsp (see dispatchFrame), NOT here on the
@@ -39,14 +40,20 @@ func (t *transport) runSelectProcedure(ctx context.Context) {
 	// status-0 Select.rsp commit (CAS NotSelected -> Selected) finds NotSelected when the peer's
 	// reply arrives. A teardown that cancels ctx before/while WriteMessage runs is still handled by
 	// the ctx.Err() branch below.
-	// SessionID for Select.req: E37 §8.2.6.1 makes the Session ID an association BY REFERENCE between
-	// the Select/Deselect control messages and subsequent DATA messages, and §8.3.7.1 / §8.3.22 have
-	// Select.rsp / Separate.req carry that same session id — so Select.req carries the CONFIGURED
-	// SessionID (WithSessionID; default 0xFFFF), NOT a hard-coded 0xFFFF. Only Linktest.req/.rsp are
-	// fixed at 0xFFFF (§8.3.14–19), which NewLinktestReq encodes. HSMS-SS being single-session, the
-	// default 0xFFFF is the usual on-wire value; a device that sets WithSessionID selects with it.
+	// SessionID for Select.req: ALWAYS hsms.ControlSessionID (0xFFFF), never the configured one.
+	// E37 §8.2.6.1 makes the Session ID an association by reference between the Select/Deselect control messages and subsequent data messages,
+	// but §8.3.4.3 (Select.req) explicitly defers the value to the subsidiary standard.
+	// E37.1 §7.1.1 fixes it:
+	// "It uses a SessionID value of 0xFFFF and implies that all device IDs are available for communication."
+	// §8.1 generalizes that to EVERY HSMS-SS control message.
+	// The configured SessionID (WithSessionID) is the DEVICE ID and belongs in data messages only (E37.1 §7.2 / §8.1).
+	//
+	// Regression note: v2.0.1 sent t.rt.SessionID() here, reading E37 generic without E37.1.
+	// Equipment that (correctly) requires 0xFFFF rejected the Select.req and closed the socket whenever the host configured a device ID other than 0xFFFF,
+	// producing an endless NotSelected -> NotConnected reconnect loop.
+	// v1 hard-coded 0xFFFF; see TestActive_SelectAndSeparateUseControlSessionID.
 	sb := t.rt.NextSystemBytes()
-	rsp, err := t.rt.WriteMessage(ctx, hsms.NewSelectReq(t.rt.SessionID(), sb))
+	rsp, err := t.rt.WriteMessage(ctx, hsms.NewSelectReq(hsms.ControlSessionID, sb))
 	if err != nil {
 		// A cancelled generation ctx (teardown / involuntary drop) is NOT a Select failure — the
 		// recv loop already reported the drop via TCPDown; just exit so Stop can join us.
@@ -74,7 +81,7 @@ func (t *transport) runSelectProcedure(ctx context.Context) {
 	// success, NOT a rejection: it means the peer already considers the link established. This is
 	// reachable in a simultaneous-select race where the peer's Select.req arrived on OUR recv loop
 	// first — we committed Selected via the responder path (H2, M5) and our own later Select.req is
-	// then answered status 1. Tearing down here would drop a validly-Selected link; per E37 §9.4 a
+	// then answered status 1. Tearing down here would drop a validly-Selected link; per E37 §7.4.1.3 a
 	// non-zero status yields no state transition, and we are already Selected. Any OTHER non-zero
 	// status (2 Not Ready, 3 Exhaust, 4+ reserved) IS a genuine Select failure → drop + reconnect.
 	if s := selectStatus(rsp); s != hsms.SelectStatusSuccess && s != hsms.SelectStatusAlreadyActive {

@@ -90,7 +90,7 @@ func peerReadSelectReqHeader(t *testing.T, conn net.Conn) []byte {
 }
 
 // selectReqFrame builds a peer-originated Select.req frame with the given System Bytes. HSMS-SS
-// control frames always carry SessionID 0xFFFF (E37.1 single-session, §3), so the session ID is
+// control frames always carry SessionID 0xFFFF (E37.1 §8.1), so the session ID is
 // fixed rather than a parameter.
 func selectReqFrame(sb [4]byte) []byte {
 	h := make([]byte, 10)

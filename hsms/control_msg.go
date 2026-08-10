@@ -5,6 +5,23 @@ import (
 	"errors"
 )
 
+// ControlSessionID is the session ID carried by every HSMS-SS control message.
+//
+// SEMI E37.1 §8.1 states that in HSMS-SS control messages the session ID always assumes the special value 0xFFFF (all one bits);
+// §7.1.1 repeats it for Select.req and §7.6 for Separate.req.
+//
+// SEMI E37 (generic services) leaves the value to the subsidiary standard:
+// §8.3.4.3 for Select.req, §8.3.10.1 for Deselect.req, and the "*" entries of the §8.3 summary table.
+// So this constant, not the connection's configured session ID, is what an HSMS-SS control frame must carry.
+//
+// The connection's configured session ID (see [WithSessionID]) is the DEVICE ID and belongs in DATA messages only (E37.1 §8.1, §7.2).
+//
+// This value is the HSMS-SS (E37.1) profile rule, not a generic E37 one.
+// It lives here because the shared connection core needs it.
+// The constructors below deliberately keep accepting an arbitrary session ID:
+// they implement generic E37, so a profile that specifies a different value must pass its own rather than inherit this.
+const ControlSessionID uint16 = 0xFFFF
+
 // ControlMessage is an immutable HSMS control message.
 //
 // The header is stored as a [10]byte value — not a slice — so every copy of the struct owns its own header bytes.
@@ -143,7 +160,7 @@ const (
 	DeselectStatusBusy = 2
 )
 
-// Reject reason code constants for Reject.req control messages (SEMI E37 §7.9).
+// Reject reason code constants for Reject.req control messages (SEMI E37 §7.10, Table 9).
 const (
 	// RejectSTypeNotSupported indicates the received message's SType is not supported.
 	RejectSTypeNotSupported = 1

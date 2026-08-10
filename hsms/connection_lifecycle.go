@@ -333,8 +333,18 @@ func (c *connection) writeFarewellSeparate(e *epoch) {
 		return
 	}
 
-	cfg := c.cfg.Load()
-	sep := NewSeparateReq(cfg.sessionID, c.sysGen.next())
+	// Separate.req carries ControlSessionID (0xFFFF), NOT cfg.sessionID:
+	// E37.1 §7.6 — "Separate shall always use SessionID 0xFFFF (binary, all ones)".
+	// cfg.sessionID is the device ID and belongs in data messages only (E37.1 §8.1).
+	//
+	// This core is shared: BOTH hsmsss and secs1 build on it, and secs1 DOES reach this function.
+	// secs1.New wraps NewConnection, its transport commits the FSM to Selected,
+	// and a graceful Close from Selected lands here.
+	// No HSMS frame reaches a SECS-I peer only because secs1's Write drops every non-zero SType before the wire,
+	// so the value below is inert there rather than correct there.
+	// The profile constant is therefore hard-coded for the HSMS-SS case it actually serves.
+	// A future HSMS-GS transport, or any profile needing a different value, must make this transport-supplied rather than inherit it.
+	sep := NewSeparateReq(ControlSessionID, c.sysGen.next())
 	bufs := buildFrameBuffers(sep)
 
 	_ = c.tr.SetWriteDeadline(conn, time.Now().Add(farewellWriteTimeout))

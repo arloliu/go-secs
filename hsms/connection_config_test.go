@@ -11,7 +11,7 @@ func TestConnectionConfig_Defaults(t *testing.T) {
 	c := DefaultConnectionConfig()
 	require.Positive(t, c.timers.T3)
 	require.Positive(t, c.timers.T6)
-	require.Equal(t, uint16(0xFFFF), c.sessionID) // control SessionID default for HSMS-SS
+	require.Equal(t, uint16(0xFFFF), c.sessionID) // default DEVICE ID; control frames use ControlSessionID regardless
 }
 
 func TestConnectionConfig_Apply_AllOrNothing(t *testing.T) {

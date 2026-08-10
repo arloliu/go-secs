@@ -168,7 +168,7 @@ func isSecondaryReply(dm *DataMessage) bool {
 // It never touches the inflight gauge.
 // With no live epoch it reports a miss.
 //
-// A peer Reject.req (SType 7, E37 §7.9) correlates to our in-flight transaction by System Bytes but is a REJECTION, not a reply:
+// A peer Reject.req (SType 7, E37 §7.10) correlates to our in-flight transaction by System Bytes but is a REJECTION, not a reply:
 // it is delivered to the waiting sender as a *RejectError (carrying the E37 reason code, header byte 3),
 // so SendDataMessage/SendSECS2Message return (nil, *RejectError) rather than silently swallowing the reject as an un-assertable
 // *ControlMessage. Legitimate control responses (Select.rsp / Deselect.rsp / Linktest.rsp) are

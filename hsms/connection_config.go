@@ -270,9 +270,13 @@ func WithT4(d time.Duration) ConnOption {
 	}
 }
 
-// WithSessionID sets the HSMS session ID.
+// WithSessionID sets the HSMS session ID — the device ID stamped into outbound DATA messages (SEMI E37.1 §8.1).
+//
+// It does NOT affect control messages:
+// Select.req, Separate.req, and Linktest.req always go out with [ControlSessionID] (0xFFFF), as HSMS-SS requires.
 //
 // Any uint16 value is valid.
+// The default is 0xFFFF.
 func WithSessionID(id uint16) ConnOption {
 	return func(c *ConnectionConfig) error {
 		c.sessionID = id
@@ -402,7 +406,7 @@ func (c *ConnectionConfig) Timers() TimerConfig {
 	return c.timers
 }
 
-// SessionID returns the configured HSMS session ID.
+// SessionID returns the configured HSMS session ID (the device ID for data messages; see [WithSessionID]).
 func (c *ConnectionConfig) SessionID() uint16 {
 	return c.sessionID
 }

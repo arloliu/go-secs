@@ -56,7 +56,7 @@ var (
 	ErrUnrecognizedSessionID = errors.New("hsms: unrecognized session ID")
 )
 
-// RejectError is returned by a synchronous send whose transaction the peer answered with an HSMS Reject.req (SEMI E37 §7.9) instead of the expected reply.
+// RejectError is returned by a synchronous send whose transaction the peer answered with an HSMS Reject.req (SEMI E37 §7.10) instead of the expected reply.
 //
 // Reason is the E37 reject reason code (see RejectSTypeNotSupported..RejectNotSelected).
 //

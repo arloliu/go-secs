@@ -2,7 +2,6 @@ package hsmsss
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 
 	"github.com/arloliu/go-secs/v2/hsms"
@@ -119,8 +118,6 @@ func (t *transport) handleSeparateReq() bool {
 // generation is already tearing down and the Reject is irrelevant. The recv loop must not
 // block on it.
 func (t *transport) sendReject(frame []byte, pType, sType byte) {
-	sessionID := binary.BigEndian.Uint16(frame[0:2])
-
 	var systemBytes [4]byte
 	copy(systemBytes[:], frame[6:10])
 
@@ -129,13 +126,35 @@ func (t *transport) sendReject(frame []byte, pType, sType byte) {
 		reason = hsms.RejectPTypeNotSupported
 	}
 
-	reject := hsms.NewRejectReqRaw(sessionID, pType, sType, systemBytes, reason)
+	reject := hsms.NewRejectReqRaw(hsms.ControlSessionID, pType, sType, systemBytes, reason)
 
 	// Fire-and-forget: enqueue on the core's sendCh → drainSendCh → writeFrame under writeMu.
 	// Control messages are NOT B1-gated, so this always enqueues while the generation is live.
 	t.metrics.incRejectSent()
 	_ = t.rt.SendAsync(context.Background(), reject)
 }
+
+// Reject SessionID (E37.1 §8.1 vs E37 §8.3.21.1) — why all three senders pass hsms.ControlSessionID.
+//
+// E37 generic §8.3.21.1 says a Reject.req's SessionID is "Equal to the value of the Session ID in the message being rejected",
+// and E37's §8.3 summary table does NOT mark that field with the "*" it uses elsewhere to flag values a subsidiary standard may further specify.
+// (Deselect.req and Separate.req ARE so marked.)
+// Read alone, that says echo the offending frame's ID.
+//
+// E37.1 §8.1 overrides it for HSMS-SS, without exception or carve-out:
+// "In HSMS-SS Control Messages, Session ID will always assume the special value 0xFFFF (all one bits)."
+// A Reject.req is a control message, so it takes 0xFFFF like every other one.
+// The subsidiary standard governs where the two disagree.
+// That is the entire lesson of this package's E37.1 audit (docs/specs/e37-1-hsms-ss-conformance-audit.md),
+// and Reject was the last site still following the generic rule.
+//
+// The cost is that a Reject no longer carries the rejected message's device ID.
+// Correlation is unaffected: System Bytes are echoed verbatim (§8.3.21.3) and are what RouteReply matches on,
+// and header byte 2 still echoes the offending PType/SType (§8.3.21.2).
+//
+// The generic constructors hsms.NewRejectReq / NewRejectReqRaw deliberately keep taking an arbitrary
+// SessionID — they implement E37, not the HSMS-SS profile, so the profile value is applied here at the
+// HSMS-SS call sites rather than baked into the shared message layer.
 
 // sendRejectNotSelected answers a DATA frame received while the link is not Selected with a
 // Reject.req carrying reason 4 (RejectNotSelected, E37 §7.10.3 / spec §6.3), keeping the link
@@ -144,12 +163,10 @@ func (t *transport) sendReject(frame []byte, pType, sType byte) {
 // SType are 0 for a data message. The returned error is intentionally ignored (a tearing-down
 // generation makes the Reject irrelevant; the recv loop must not block on it).
 func (t *transport) sendRejectNotSelected(frame []byte) {
-	sessionID := binary.BigEndian.Uint16(frame[0:2])
-
 	var systemBytes [4]byte
 	copy(systemBytes[:], frame[6:10])
 
-	reject := hsms.NewRejectReqRaw(sessionID, 0, 0, systemBytes, hsms.RejectNotSelected)
+	reject := hsms.NewRejectReqRaw(hsms.ControlSessionID, 0, 0, systemBytes, hsms.RejectNotSelected)
 
 	t.metrics.incRejectSent()
 	_ = t.rt.SendAsync(context.Background(), reject)
@@ -164,13 +181,12 @@ func (t *transport) sendRejectNotSelected(frame []byte) {
 // serialized core send path and keeps the link UP (a Reject never tears down). An inbound Reject.req
 // (SType 7, odd — itself NOT a response) is never re-rejected; the recv loop drops an orphan Reject.
 func (t *transport) sendRejectTransactionNotOpen(frame []byte) {
-	sessionID := binary.BigEndian.Uint16(frame[0:2])
 	sType := frame[5]
 
 	var systemBytes [4]byte
 	copy(systemBytes[:], frame[6:10])
 
-	reject := hsms.NewRejectReqRaw(sessionID, 0, sType, systemBytes, hsms.RejectTransactionNotOpen)
+	reject := hsms.NewRejectReqRaw(hsms.ControlSessionID, 0, sType, systemBytes, hsms.RejectTransactionNotOpen)
 
 	t.metrics.incRejectSent()
 	_ = t.rt.SendAsync(context.Background(), reject)

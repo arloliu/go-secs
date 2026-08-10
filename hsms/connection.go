@@ -186,7 +186,10 @@ func (c *connection) Timers() TimerConfig {
 	return c.cfg.Load().timers
 }
 
-// SessionID returns the configured HSMS session ID (0xFFFF for HSMS-SS control frames, TransportRuntime).
+// SessionID returns the configured HSMS session ID — the device ID stamped into outbound DATA messages (TransportRuntime).
+//
+// It is NOT the session ID of control frames:
+// HSMS-SS control messages always carry [ControlSessionID] (0xFFFF) regardless of this setting (SEMI E37.1 §8.1).
 //
 // Lock-free atomic read.
 func (c *connection) SessionID() uint16 {

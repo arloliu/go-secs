@@ -156,9 +156,10 @@ type TransportRuntime interface {
 	// Timers returns the protocol timer configuration for the current connection.
 	Timers() TimerConfig
 
-	// SessionID returns the configured HSMS session ID.
+	// SessionID returns the configured HSMS session ID — the device ID for outbound DATA messages.
 	//
-	// Per E37.1, it returns 0xFFFF for HSMS-SS control frames.
+	// A transport must NOT stamp it into control frames:
+	// HSMS-SS control messages always carry ControlSessionID (0xFFFF) per SEMI E37.1 §8.1.
 	SessionID() uint16
 
 	// LinktestInterval returns the LIVE auto-linktest interval (0 = disabled).
