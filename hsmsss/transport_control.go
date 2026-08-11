@@ -157,7 +157,10 @@ func (t *transport) sendReject(frame []byte, pType, sType byte) {
 		reason = hsms.RejectPTypeNotSupported
 	}
 
-	reject := hsms.NewRejectReqRaw(hsms.ControlSessionID, pType, sType, systemBytes, reason)
+	reject, err := hsms.NewRejectReqRaw(hsms.ControlSessionID, pType, sType, systemBytes, reason)
+	if err != nil {
+		return // unreachable: reason is always RejectSTypeNotSupported or RejectPTypeNotSupported, both non-zero
+	}
 
 	// Fire-and-forget: enqueue on the core's sendCh → drainSendCh → writeFrame under writeMu.
 	// Control messages are NOT B1-gated, so this always enqueues while the generation is live.
@@ -197,7 +200,10 @@ func (t *transport) sendRejectNotSelected(frame []byte) {
 	var systemBytes [4]byte
 	copy(systemBytes[:], frame[6:10])
 
-	reject := hsms.NewRejectReqRaw(hsms.ControlSessionID, 0, 0, systemBytes, hsms.RejectNotSelected)
+	reject, err := hsms.NewRejectReqRaw(hsms.ControlSessionID, 0, 0, systemBytes, hsms.RejectNotSelected)
+	if err != nil {
+		return // unreachable: RejectNotSelected is a fixed non-zero constant
+	}
 
 	t.metrics.incRejectSent()
 	_ = t.rt.SendAsync(context.Background(), reject)
@@ -217,7 +223,10 @@ func (t *transport) sendRejectTransactionNotOpen(frame []byte) {
 	var systemBytes [4]byte
 	copy(systemBytes[:], frame[6:10])
 
-	reject := hsms.NewRejectReqRaw(hsms.ControlSessionID, 0, sType, systemBytes, hsms.RejectTransactionNotOpen)
+	reject, err := hsms.NewRejectReqRaw(hsms.ControlSessionID, 0, sType, systemBytes, hsms.RejectTransactionNotOpen)
+	if err != nil {
+		return // unreachable: RejectTransactionNotOpen is a fixed non-zero constant
+	}
 
 	t.metrics.incRejectSent()
 	_ = t.rt.SendAsync(context.Background(), reject)

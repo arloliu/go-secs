@@ -188,8 +188,9 @@ func (c *connection) RouteReply(msg Message) bool {
 
 	if msg.Type() == RejectReqType {
 		// Read header byte 3 (the E37 reject reason) DIRECTLY rather than via GetRejectReasonCode:
-		// we surface whatever reason the peer actually sent, including reserved codes (5..255) that
-		// GetRejectReasonCode would reject — faithful reporting beats validation on this inbound path.
+		// we surface whatever reason the peer actually sent, including reason 0 — a value no SEMI
+		// E37 entity ever assigns, but which GetRejectReasonCode would reject — faithful reporting
+		// beats validation on this inbound path.
 		header := msg.HeaderBytes()
 		return e.replies.route(msg.SystemBytes(), replyResult{err: &RejectError{Reason: header[3]}})
 	}

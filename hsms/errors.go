@@ -25,7 +25,11 @@ var (
 	ErrInvalidRejectMsg = errors.New("hsms: the message is not a reject control message")
 
 	// ErrInvalidRejectReason indicates that an invalid reject reason was provided.
-	ErrInvalidRejectReason = errors.New("hsms: invalid reject reason, should be in range of [1, 4]")
+	//
+	// SEMI E37 Table 9 defines reason codes 1-4, reserves 5-127 for subsidiary standards, and
+	// reserves 128-255 for local entities — so every non-zero byte is a valid reason code, and
+	// only 0 is invalid.
+	ErrInvalidRejectReason = errors.New("hsms: invalid reject reason, should be in range of [1, 255]")
 
 	// ErrInvalidStreamCode indicates that an invalid stream code was provided.
 	//
@@ -66,7 +70,9 @@ var (
 
 // RejectError is returned by a synchronous send whose transaction the peer answered with an HSMS Reject.req (SEMI E37 §7.10) instead of the expected reply.
 //
-// Reason is the E37 reject reason code (see RejectSTypeNotSupported..RejectNotSelected).
+// Reason is the E37 reject reason code the peer sent, verbatim.
+// RejectSTypeNotSupported..RejectNotSelected are the codes this package defines;
+// SEMI E37 Table 9 reserves the rest for subsidiary standards and local entities.
 //
 // A Reject terminates only the one transaction; it is never a link failure.
 // Callers inspect it with errors.As:

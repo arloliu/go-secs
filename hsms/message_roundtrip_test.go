@@ -67,7 +67,8 @@ func TestMessageRoundTrip_AllTypes(t *testing.T) {
 	linktestReq := hsms.NewLinktestReq(sb)
 	linktestRsp, err := hsms.NewLinktestRsp(linktestReq)
 	require.NoError(t, err)
-	rejectReq := hsms.NewRejectReqRaw(0x0003, 0, byte(hsms.SeparateReqType), sb, hsms.RejectSTypeNotSupported)
+	rejectReq, err := hsms.NewRejectReqRaw(0x0003, 0, byte(hsms.SeparateReqType), sb, hsms.RejectSTypeNotSupported)
+	require.NoError(t, err)
 	separateReq := hsms.NewSeparateReq(0x0004, sb)
 
 	controlCases := []struct {

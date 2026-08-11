@@ -136,7 +136,11 @@ func TestDecodeHSMSMessage_ControlRoundTrip(t *testing.T) {
 
 			return rsp
 		}()},
-		{"RejectReq", NewRejectReqRaw(0x0003, 0, byte(SeparateReqType), sb, RejectSTypeNotSupported)},
+		{"RejectReq", func() *ControlMessage {
+			rej, _ := NewRejectReqRaw(0x0003, 0, byte(SeparateReqType), sb, RejectSTypeNotSupported)
+
+			return rej
+		}()},
 		{"SeparateReq", NewSeparateReq(0x0004, sb)},
 	}
 

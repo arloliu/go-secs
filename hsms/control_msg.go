@@ -304,7 +304,14 @@ func NewSeparateReq(sessionID uint16, systemBytes [4]byte) *ControlMessage {
 //   - 2 (RejectPTypeNotSupported): PType not supported; header[2] = pType of rejected.
 //   - 3 (RejectTransactionNotOpen): transaction not open.
 //   - 4 (RejectNotSelected): data message received in non-selected state.
-func NewRejectReq(rejected Message, reasonCode byte) *ControlMessage {
+//   - 5-255: reserved for subsidiary standards (5-127) and local entities (128-255), per SEMI E37 Table 9.
+//
+// Returns ErrInvalidRejectReason if reasonCode is 0.
+func NewRejectReq(rejected Message, reasonCode byte) (*ControlMessage, error) {
+	if reasonCode == 0 {
+		return nil, ErrInvalidRejectReason
+	}
+
 	var header [10]byte
 	binary.BigEndian.PutUint16(header[0:2], rejected.SessionID())
 
@@ -328,14 +335,20 @@ func NewRejectReq(rejected Message, reasonCode byte) *ControlMessage {
 	header[8] = sb[2]
 	header[9] = sb[3]
 
-	return &ControlMessage{header: header, replyExpected: false}
+	return &ControlMessage{header: header, replyExpected: false}, nil
 }
 
 // NewRejectReqRaw creates an HSMS Reject.req control message from raw field values.
 //
 // sessionID, pType, sType, and systemBytes should be copied from the rejected message. reasonCode values: 1–4 as for NewRejectReq;
-// 5–255 are reserved.
-func NewRejectReqRaw(sessionID uint16, pType, sType byte, systemBytes [4]byte, reasonCode byte) *ControlMessage {
+// 5–255 are reserved for subsidiary standards and local entities, per SEMI E37 Table 9.
+//
+// Returns ErrInvalidRejectReason if reasonCode is 0.
+func NewRejectReqRaw(sessionID uint16, pType, sType byte, systemBytes [4]byte, reasonCode byte) (*ControlMessage, error) {
+	if reasonCode == 0 {
+		return nil, ErrInvalidRejectReason
+	}
+
 	var header [10]byte
 	binary.BigEndian.PutUint16(header[0:2], sessionID)
 
@@ -352,12 +365,14 @@ func NewRejectReqRaw(sessionID uint16, pType, sType byte, systemBytes [4]byte, r
 	header[8] = systemBytes[2]
 	header[9] = systemBytes[3]
 
-	return &ControlMessage{header: header, replyExpected: false}
+	return &ControlMessage{header: header, replyExpected: false}, nil
 }
 
 // GetRejectReasonCode extracts and validates the reason code from a Reject.req message.
 //
-// Returns ErrInvalidRejectMsg if msg is not a Reject.req, or ErrInvalidRejectReason if the reason code is outside [1, 4].
+// Returns ErrInvalidRejectMsg if msg is not a Reject.req, or ErrInvalidRejectReason if the reason code is 0.
+// SEMI E37 Table 9 defines reason codes 1-4, reserves 5-127 for subsidiary standards, and reserves
+// 128-255 for local entities, so every non-zero byte is accepted.
 // The returned code is a byte, matching [RejectError.Reason].
 func GetRejectReasonCode(msg Message) (byte, error) {
 	if msg.Type() != RejectReqType {
@@ -367,7 +382,7 @@ func GetRejectReasonCode(msg Message) (byte, error) {
 	hdr := msg.HeaderBytes()
 	reasonCode := hdr[3]
 
-	if reasonCode < RejectSTypeNotSupported || reasonCode > RejectNotSelected {
+	if reasonCode < RejectSTypeNotSupported {
 		return 0, ErrInvalidRejectReason
 	}
 

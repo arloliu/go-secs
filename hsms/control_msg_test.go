@@ -248,7 +248,8 @@ func TestNewSeparateReq_Accessors(t *testing.T) {
 func TestNewRejectReq_STypeNotSupported(t *testing.T) {
 	// rejected is a select.req: header[4]=pType=0x00, header[5]=sType=0x01
 	rejected := hsms.NewSelectReq(0x1234, testSystemBytes)
-	msg := hsms.NewRejectReq(rejected, hsms.RejectSTypeNotSupported)
+	msg, err := hsms.NewRejectReq(rejected, hsms.RejectSTypeNotSupported)
+	require.NoError(t, err)
 
 	// reasonCode != 2 → header[2] = sType of rejected = 0x01
 	want := [10]byte{0x12, 0x34, 0x01, 0x01, 0x00, 0x07, 0x01, 0x02, 0x03, 0x04}
@@ -260,7 +261,8 @@ func TestNewRejectReq_STypeNotSupported(t *testing.T) {
 func TestNewRejectReq_PTypeNotSupported(t *testing.T) {
 	// rejected is a select.req: header[4]=pType=0x00, header[5]=sType=0x01
 	rejected := hsms.NewSelectReq(0x1234, testSystemBytes)
-	msg := hsms.NewRejectReq(rejected, hsms.RejectPTypeNotSupported)
+	msg, err := hsms.NewRejectReq(rejected, hsms.RejectPTypeNotSupported)
+	require.NoError(t, err)
 
 	// reasonCode == 2 → header[2] = pType of rejected = 0x00
 	want := [10]byte{0x12, 0x34, 0x00, 0x02, 0x00, 0x07, 0x01, 0x02, 0x03, 0x04}
@@ -269,10 +271,18 @@ func TestNewRejectReq_PTypeNotSupported(t *testing.T) {
 
 func TestNewRejectReq_ToBytes(t *testing.T) {
 	rejected := hsms.NewSelectReq(0x1234, testSystemBytes)
-	msg := hsms.NewRejectReq(rejected, hsms.RejectSTypeNotSupported)
+	msg, err := hsms.NewRejectReq(rejected, hsms.RejectSTypeNotSupported)
+	require.NoError(t, err)
 
 	want := []byte{0x00, 0x00, 0x00, 0x0A, 0x12, 0x34, 0x01, 0x01, 0x00, 0x07, 0x01, 0x02, 0x03, 0x04}
 	assert.Equal(t, want, msg.ToBytes())
+}
+
+func TestNewRejectReq_ErrorOnZeroReason(t *testing.T) {
+	rejected := hsms.NewSelectReq(0x1234, testSystemBytes)
+	msg, err := hsms.NewRejectReq(rejected, 0)
+	assert.ErrorIs(t, err, hsms.ErrInvalidRejectReason)
+	assert.Nil(t, msg)
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -281,7 +291,8 @@ func TestNewRejectReq_ToBytes(t *testing.T) {
 
 func TestNewRejectReqRaw_STypeReason(t *testing.T) {
 	// reasonCode=1 (not 2) → header[2] = sType
-	msg := hsms.NewRejectReqRaw(0x1234, 0x00, 0x01, testSystemBytes, hsms.RejectSTypeNotSupported)
+	msg, err := hsms.NewRejectReqRaw(0x1234, 0x00, 0x01, testSystemBytes, hsms.RejectSTypeNotSupported)
+	require.NoError(t, err)
 
 	want := [10]byte{0x12, 0x34, 0x01, 0x01, 0x00, 0x07, 0x01, 0x02, 0x03, 0x04}
 	assert.Equal(t, want, msg.HeaderBytes())
@@ -289,11 +300,18 @@ func TestNewRejectReqRaw_STypeReason(t *testing.T) {
 
 func TestNewRejectReqRaw_PTypeReason(t *testing.T) {
 	// reasonCode=2 → header[2] = pType
-	msg := hsms.NewRejectReqRaw(0x1234, 0x01, 0x05, testSystemBytes, hsms.RejectPTypeNotSupported)
+	msg, err := hsms.NewRejectReqRaw(0x1234, 0x01, 0x05, testSystemBytes, hsms.RejectPTypeNotSupported)
+	require.NoError(t, err)
 
 	// header[2] = pType = 0x01
 	want := [10]byte{0x12, 0x34, 0x01, 0x02, 0x00, 0x07, 0x01, 0x02, 0x03, 0x04}
 	assert.Equal(t, want, msg.HeaderBytes())
+}
+
+func TestNewRejectReqRaw_ErrorOnZeroReason(t *testing.T) {
+	msg, err := hsms.NewRejectReqRaw(0x1234, 0x00, 0x01, testSystemBytes, 0)
+	assert.ErrorIs(t, err, hsms.ErrInvalidRejectReason)
+	assert.Nil(t, msg)
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -302,7 +320,8 @@ func TestNewRejectReqRaw_PTypeReason(t *testing.T) {
 
 func TestRejectReasonCode(t *testing.T) {
 	rejected := hsms.NewSelectReq(0x1234, testSystemBytes)
-	msg := hsms.NewRejectReq(rejected, hsms.RejectSTypeNotSupported)
+	msg, err := hsms.NewRejectReq(rejected, hsms.RejectSTypeNotSupported)
+	require.NoError(t, err)
 
 	code, err := msg.RejectReasonCode()
 	require.NoError(t, err)
@@ -311,7 +330,8 @@ func TestRejectReasonCode(t *testing.T) {
 
 func TestGetRejectReasonCode(t *testing.T) {
 	rejected := hsms.NewSelectReq(0x1234, testSystemBytes)
-	msg := hsms.NewRejectReq(rejected, hsms.RejectNotSelected)
+	msg, err := hsms.NewRejectReq(rejected, hsms.RejectNotSelected)
+	require.NoError(t, err)
 
 	code, err := hsms.GetRejectReasonCode(msg)
 	require.NoError(t, err)
@@ -322,6 +342,55 @@ func TestGetRejectReasonCode_ErrorOnNonReject(t *testing.T) {
 	msg := hsms.NewSelectReq(0x1234, testSystemBytes)
 	_, err := hsms.GetRejectReasonCode(msg)
 	assert.Error(t, err)
+}
+
+// TestGetRejectReasonCode_AcceptsSubsidiaryAndLocalEntityRange verifies that reason codes
+// 4-127 (reserved for subsidiary standards) and 128-255 (reserved for local entities) are
+// accepted by GetRejectReasonCode, per SEMI E37 Table 9.
+func TestGetRejectReasonCode_AcceptsSubsidiaryAndLocalEntityRange(t *testing.T) {
+	tests := []struct {
+		name   string
+		reason byte
+	}{
+		{"subsidiary-low", 5},
+		{"subsidiary-high", 127},
+		{"local-entity-low", 128},
+		{"local-entity-high", 255},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg, err := hsms.NewRejectReqRaw(0x1234, 0x00, 0x01, testSystemBytes, tt.reason)
+			require.NoError(t, err)
+
+			code, err := hsms.GetRejectReasonCode(msg)
+			require.NoError(t, err)
+			assert.Equal(t, tt.reason, code)
+		})
+	}
+}
+
+// TestGetRejectReasonCode_RejectsZero verifies that reason code 0 — which SEMI E37 Table 9
+// never assigns to any entity — is still rejected.
+//
+// Reason 0 can only be observed on an inbound frame, since the constructors themselves refuse
+// to build one; decode a hand-built frame to exercise the accessor's own bounds check.
+func TestGetRejectReasonCode_RejectsZero(t *testing.T) {
+	decoded, err := hsms.DecodeHSMSMessage(zeroReasonFrame())
+	require.NoError(t, err)
+
+	_, err = hsms.GetRejectReasonCode(decoded)
+	assert.ErrorIs(t, err, hsms.ErrInvalidRejectReason)
+}
+
+// zeroReasonFrame hand-builds a fully framed Reject.req with reason code 0 (header byte 3),
+// since the public constructors refuse to build one.
+func zeroReasonFrame() []byte {
+	header := [10]byte{0x12, 0x34, 0x01, 0x00, 0x00, 0x07, 0x01, 0x02, 0x03, 0x04}
+	frame := make([]byte, 14)
+	frame[3] = 0x0A // body length = 10
+	copy(frame[4:], header[:])
+
+	return frame
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -383,12 +452,15 @@ func TestHeaderBytes_IsCopy(t *testing.T) {
 // ────────────────────────────────────────────────────────────────
 
 func TestToBytes_AlwaysFourteenBytes(t *testing.T) {
+	rejectReq, err := hsms.NewRejectReq(hsms.NewSelectReq(0x0001, testSystemBytes), hsms.RejectSTypeNotSupported)
+	require.NoError(t, err)
+
 	msgs := []*hsms.ControlMessage{
 		hsms.NewSelectReq(0x0001, testSystemBytes),
 		hsms.NewDeselectReq(0x0001, testSystemBytes),
 		hsms.NewLinktestReq(testSystemBytes),
 		hsms.NewSeparateReq(0x0001, testSystemBytes),
-		hsms.NewRejectReq(hsms.NewSelectReq(0x0001, testSystemBytes), hsms.RejectSTypeNotSupported),
+		rejectReq,
 	}
 	for _, msg := range msgs {
 		assert.Len(t, msg.ToBytes(), 14, "ToBytes for %v must be 14 bytes", msg.Type())

@@ -528,7 +528,9 @@ func TestSend_InboundReject_SurfacesRejectError(t *testing.T) {
 		require.Eventually(t, func() bool { return c.metrics.DataMsgInflightCount() == 1 }, 2*time.Second, time.Millisecond)
 
 		// The peer answers with a Reject.req(reason 4) correlated by System Bytes to the send.
-		require.True(t, c.RouteReply(NewRejectReqRaw(0xFFFF, 0, 0, sb, RejectNotSelected)),
+		reject, err := NewRejectReqRaw(0xFFFF, 0, 0, sb, RejectNotSelected)
+		require.NoError(t, err)
+		require.True(t, c.RouteReply(reject),
 			"the Reject.req must correlate to the waiting sender")
 
 		var re *RejectError
