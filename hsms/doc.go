@@ -24,8 +24,8 @@
 // The Reject.req reason code is read from a Reject.req message via [ControlMessage.RejectReasonCode];
 // a peer's rejection of a synchronous send is surfaced to the caller as a [RejectError].
 //
-// [DataMessage] extends the interface with [DataMessage.Stream], [DataMessage.Function], [DataMessage.WaitBit], [DataMessage.Item], [DataMessage.DecodeErr], [DataMessage.BodyLen],
-// and [DataMessage.AppendBodyTo].
+// [DataMessage] extends the interface with [DataMessage.Stream], [DataMessage.Function], [DataMessage.WaitBit], [DataMessage.Item], [DataMessage.DecodeErr], [DataMessage.TrailingBytes],
+// [DataMessage.BodyLen], and [DataMessage.AppendBodyTo].
 //
 // # Construction
 //

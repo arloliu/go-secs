@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/arloliu/go-secs/v2/hsms"
+	"github.com/arloliu/go-secs/v2/hsms/hsmstest"
 	"github.com/arloliu/go-secs/v2/secs2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -203,6 +204,7 @@ func TestDataMessage_Item_TreePath(t *testing.T) {
 
 	// The returned item should encode identically to the original.
 	assert.Equal(t, item.ToBytes(), got.ToBytes())
+	assert.Equal(t, 0, msg.TrailingBytes(), "a tree-path (constructed) message is always a single item")
 }
 
 // TestDataMessage_Item_EmptyBody verifies that a message with EmptyItem body
@@ -216,6 +218,94 @@ func TestDataMessage_Item_EmptyBody(t *testing.T) {
 	assert.NotNil(t, got)
 	assert.True(t, got.IsEmpty())
 	assert.Equal(t, 0, msg.BodyLen())
+}
+
+// ────────────────────────────────────────────────────────────────
+// TrailingBytes
+// ────────────────────────────────────────────────────────────────
+
+// item1Bytes is the encoded first item PaddedDataMessage always builds its body around
+// (secs2.NewASCIIItem("padded-body")); the tests below compare Item() against it.
+func item1Bytes() []byte {
+	return secs2.NewASCIIItem("padded-body").ToBytes()
+}
+
+// TestDataMessage_TrailingBytes_SecondItem verifies the D3-observation contract: a body carrying
+// a second complete item after the first is still delivered as ONLY the first item — DecodeErr
+// stays nil and Item returns item 1 — with TrailingBytes reporting the second item's byte count.
+// Delivery is the point of the task: a second item must never fail a decode.
+func TestDataMessage_TrailingBytes_SecondItem(t *testing.T) {
+	item2 := secs2.NewUintItem(1, 1, 2, 3)
+
+	dm := hsmstest.PaddedDataMessage(1, 1, false, item2.ToBytes())
+
+	got, decErr := dm.Item()
+	require.NoError(t, decErr)
+	assert.Equal(t, item1Bytes(), got.ToBytes(), "Item() must return only the first item")
+	assert.Nil(t, dm.DecodeErr())
+	assert.Equal(t, len(item2.ToBytes()), dm.TrailingBytes())
+}
+
+// TestDataMessage_TrailingBytes_Garbage verifies the field-realistic case: trailing bytes that are
+// NOT a decodable second item (arbitrary padding) still decode cleanly and report their length —
+// TrailingBytes must never attempt to decode the excess.
+func TestDataMessage_TrailingBytes_Garbage(t *testing.T) {
+	garbage := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+
+	dm := hsmstest.PaddedDataMessage(1, 1, false, garbage)
+
+	got, decErr := dm.Item()
+	require.NoError(t, decErr)
+	assert.Equal(t, item1Bytes(), got.ToBytes())
+	assert.Nil(t, dm.DecodeErr())
+	assert.Equal(t, len(garbage), dm.TrailingBytes())
+}
+
+// TestDataMessage_TrailingBytes_SingleItem verifies the clean-body baseline: no padding means
+// TrailingBytes is 0 and DecodeErr is nil.
+func TestDataMessage_TrailingBytes_SingleItem(t *testing.T) {
+	dm := hsmstest.PaddedDataMessage(1, 1, false, nil)
+
+	assert.Nil(t, dm.DecodeErr())
+	assert.Equal(t, 0, dm.TrailingBytes())
+}
+
+// TestDataMessage_TrailingBytes_EmptyBody verifies an empty body still yields NewEmptyItem with no
+// error and a zero trailing count.
+func TestDataMessage_TrailingBytes_EmptyBody(t *testing.T) {
+	msg, err := hsms.NewDataMessage(1, 1, false, 0, [4]byte{}, secs2.NewEmptyItem())
+	require.NoError(t, err)
+
+	got, decErr := msg.Item()
+	require.NoError(t, decErr)
+	assert.True(t, got.IsEmpty())
+	assert.Equal(t, 0, msg.TrailingBytes())
+}
+
+// TestDataMessage_TrailingBytes_ZeroOnDecodeError verifies the count is meaningful only when
+// DecodeErr is nil: when the first item itself fails to decode, TrailingBytes reports 0 regardless
+// of how many bytes remain in the body.
+func TestDataMessage_TrailingBytes_ZeroOnDecodeError(t *testing.T) {
+	dm := hsmstest.MalformedDataMessage(1, 1, false)
+
+	require.Error(t, dm.DecodeErr())
+	assert.Equal(t, 0, dm.TrailingBytes())
+}
+
+// TestDataMessage_TrailingBytes_ForcesLazyDecode pins the shape shared with DecodeErr: calling
+// TrailingBytes BEFORE Item or DecodeErr must itself force the lazy decode, not report a stale
+// zero from a not-yet-decoded body.
+func TestDataMessage_TrailingBytes_ForcesLazyDecode(t *testing.T) {
+	item2 := secs2.NewUintItem(1, 1, 2, 3)
+	dm := hsmstest.PaddedDataMessage(1, 1, false, item2.ToBytes())
+
+	// TrailingBytes is the first call on this message — no prior Item()/DecodeErr() call primed
+	// the lazy decode.
+	got := dm.TrailingBytes()
+	assert.Equal(t, len(item2.ToBytes()), got)
+
+	// A subsequent DecodeErr must reflect the SAME decode (cached, not re-run).
+	assert.Nil(t, dm.DecodeErr())
 }
 
 // ────────────────────────────────────────────────────────────────

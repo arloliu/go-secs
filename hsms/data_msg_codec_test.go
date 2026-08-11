@@ -90,6 +90,7 @@ func TestDataMessageCodec_ReadDelegators(t *testing.T) {
 	require.NotNil(t, item)
 
 	require.NoError(t, c.DecodeErr())
+	require.Equal(t, 0, c.TrailingBytes())
 
 	got, ok := c.ToDataMessage()
 	require.True(t, ok)
@@ -113,6 +114,7 @@ func TestDataMessageCodec_NilMessageIsSafe(t *testing.T) {
 	require.ErrorIs(t, err, hsms.ErrNilMessage)
 
 	require.ErrorIs(t, c.DecodeErr(), hsms.ErrNilMessage)
+	require.Equal(t, 0, c.TrailingBytes())
 
 	_, ok := c.ToDataMessage()
 	require.False(t, ok)

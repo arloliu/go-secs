@@ -179,6 +179,53 @@ func malformedDataMsg(t *testing.T, stream, function uint8, waitBit bool) *DataM
 	return dm
 }
 
+// paddedDataMsg builds a *DataMessage whose body is a single well-formed SECS-II item followed by
+// padding bytes: the outer HSMS length prefix counts the padding as part of the body,
+// but the padding is not part of the item's own encoding.
+// DecodeErr() stays nil (the first item decodes cleanly) and TrailingBytes() reports len(padding) —
+// the field-realistic shape this task's TrailingBytes diagnostic targets (SEMI E5 §10.3.1.3(2)).
+func paddedDataMsg(t *testing.T, stream, function uint8, waitBit bool, padding []byte) *DataMessage {
+	t.Helper()
+
+	good, err := NewDataMessage(stream, function, waitBit, 0, [4]byte{0, 0, 0, 1}, secs2.NewASCIIItem("padded"))
+	require.NoError(t, err)
+
+	header := good.HeaderBytes()
+	body := append(good.AppendBodyTo(nil), padding...)
+
+	length := uint32(len(header) + len(body)) //nolint:gosec // test-controlled body length, never near uint32 overflow
+	frame := make([]byte, 0, 4+len(header)+len(body))
+	frame = append(frame, byte(length>>24), byte(length>>16), byte(length>>8), byte(length))
+	frame = append(frame, header[:]...)
+	frame = append(frame, body...)
+
+	msg, decErr := DecodeHSMSMessage(frame)
+	require.NoError(t, decErr, "padded frame must decode; only the body carries extra bytes")
+
+	dm, ok := msg.ToDataMessage()
+	require.True(t, ok)
+
+	return dm
+}
+
+// TestSession_SendDataMessage_paddedReplySucceeds is the counter-assertion this task adds:
+// a synchronous SendDataMessage whose reply body carries trailing padding must return SUCCESS
+// (nil error), with the trailing count exposed on the returned message — padding never fails a
+// transaction, only DecodeErr does.
+func TestSession_SendDataMessage_paddedReplySucceeds(t *testing.T) {
+	rt := newMockRuntime(t)
+	s := newSession(0xFFFF, rt, &sysBytesGen{})
+
+	padding := []byte{0xAA, 0xBB, 0xCC}
+	rt.writeReply = paddedDataMsg(t, 1, 14, false, padding)
+
+	dm, err := s.SendDataMessage(context.Background(), 1, 13, true, secs2.NewEmptyItem())
+	require.NoError(t, err, "padding in the reply body must not fail the transaction")
+	require.NotNil(t, dm)
+	require.Nil(t, dm.DecodeErr())
+	require.Equal(t, len(padding), dm.TrailingBytes())
+}
+
 // TestSession_SendDataMessage_malformedReplyReturnsErrAndMsg verifies that when the reply's
 // SECS-II body fails to decode, SendDataMessage surfaces the decode error but still returns the
 // reply message alongside it (non-destructive: the header stays available to the caller).

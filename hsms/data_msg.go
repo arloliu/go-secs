@@ -24,9 +24,10 @@ const MaxStreamCode = uint8(127)
 // re-encoding. For raw-frame messages (added in a later task) the once fires on
 // the first call to [DataMessage.Item].
 type decodeState struct {
-	once sync.Once
-	item secs2.Item
-	err  error
+	once     sync.Once
+	item     secs2.Item
+	err      error
+	trailing int
 }
 
 // DataMessage is an immutable HSMS data message carrying a SECS-II item body.
@@ -139,12 +140,29 @@ func (msg *DataMessage) Item() (secs2.Item, error) {
 
 // DecodeErr returns any error produced during the lazy body decode.
 //
-// It fires the decode once if it has not already run. Returns nil for tree-path messages (item is pre-seeded)
+// It fires the decode once if it has not already run.
+// Returns nil for tree-path messages (item is pre-seeded)
 // and for raw-frame messages whose body decodes without error.
 func (msg *DataMessage) DecodeErr() error {
 	msg.dec.once.Do(msg.decode)
 
 	return msg.dec.err
+}
+
+// TrailingBytes returns the number of bytes that followed the first complete SECS-II item
+// decoded from this message's body — a diagnostic for equipment that pads a frame past its
+// encoded item (e.g. fixed-buffer firmware that frames its message length around the buffer
+// rather than the item). SEMI E5 §10.3.1.3(2) forbids a message body from carrying data items
+// beyond the ones shown in the message definition, but go-secs observes this rather than
+// rejecting it: see [DataMessage.Item].
+//
+// It fires the decode once if it has not already run, the same shape as DecodeErr.
+// The count is meaningful only when DecodeErr returns nil: if the first item itself fails to
+// decode, TrailingBytes returns 0 regardless of how many bytes remain in the body.
+func (msg *DataMessage) TrailingBytes() int {
+	msg.dec.once.Do(msg.decode)
+
+	return msg.dec.trailing
 }
 
 // BodyLen returns the byte length of the encoded message body.
@@ -390,11 +408,15 @@ func (msg *DataMessage) decode() {
 	if raw, ok := wire.OwnedBytes(msg.body); ok {
 		// Raw-frame path: decode in place over the owned frame body — leaf items
 		// alias the frame (kept alive by msg.body), no extra copy (§5.B).
-		msg.dec.item, msg.dec.err = secs2.DecodeOwnedFrame(framecodec.AdoptSECS2Body(raw))
+		msg.dec.item, msg.dec.trailing, msg.dec.err = secs2.DecodeOwnedFrame(framecodec.AdoptSECS2Body(raw))
 
 		return
 	}
 
-	// Fallback (should not occur — tree bodies pre-fire the once): copy-decode.
-	msg.dec.item, msg.dec.err = secs2.Decode(msg.body.AppendTo(nil))
+	// Fallback (should not occur — tree bodies pre-fire the once): copy the body into a
+	// freshly allocated, exclusively owned buffer and route it through the same
+	// DecodeOwnedFrame entry point as the raw-frame path above, so trailing-byte counting
+	// has exactly one implementation covering both body shapes.
+	owned := msg.body.AppendTo(nil)
+	msg.dec.item, msg.dec.trailing, msg.dec.err = secs2.DecodeOwnedFrame(framecodec.AdoptSECS2Body(owned))
 }

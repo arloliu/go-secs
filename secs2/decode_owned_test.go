@@ -14,15 +14,17 @@ func TestDecodeOwnedFrame_MatchesDecode(t *testing.T) {
 	require.NoError(t, err)
 
 	owned := append([]byte(nil), src...) // a buffer the library "owns"
-	got, err := DecodeOwnedFrame(framecodec.AdoptSECS2Body(owned))
+	got, trailing, err := DecodeOwnedFrame(framecodec.AdoptSECS2Body(owned))
 	require.NoError(t, err)
 	require.Equal(t, want.ToBytes(), got.ToBytes())
+	require.Equal(t, 0, trailing, "a single-item body must report zero trailing bytes")
 }
 
 func TestDecodeOwnedFrame_Empty(t *testing.T) {
-	got, err := DecodeOwnedFrame(framecodec.AdoptSECS2Body(nil))
+	got, trailing, err := DecodeOwnedFrame(framecodec.AdoptSECS2Body(nil))
 	require.NoError(t, err)
 	require.Equal(t, 0, got.Size())
+	require.Equal(t, 0, trailing)
 }
 
 func TestDecodeOwnedFrame_NoClone(t *testing.T) {
@@ -30,12 +32,54 @@ func TestDecodeOwnedFrame_NoClone(t *testing.T) {
 	src := NewASCIIItem("ABCDE").ToBytes()
 	owned := append([]byte(nil), src...)
 	allocs := testing.AllocsPerRun(50, func() {
-		_, _ = DecodeOwnedFrame(framecodec.AdoptSECS2Body(owned))
+		_, _, _ = DecodeOwnedFrame(framecodec.AdoptSECS2Body(owned))
 	})
 	plain := testing.AllocsPerRun(50, func() {
 		_, _ = Decode(src)
 	})
 	require.Less(t, allocs, plain, "DecodeOwnedFrame must allocate fewer than Decode (no bytes.Clone)")
+}
+
+// TestDecodeOwnedFrame_TrailingBytes_SecondItem verifies the counter-assertion this task adds:
+// a body carrying a second complete item after the first is still decoded as ONLY the first item
+// (unchanged delivery), and the trailing count reports exactly the second item's encoded length —
+// DecodeOwnedFrame must never attempt to decode the excess.
+func TestDecodeOwnedFrame_TrailingBytes_SecondItem(t *testing.T) {
+	item1 := NewASCIIItem("hi")
+	item2 := NewUintItem(1, 1, 2, 3)
+
+	owned := append(item1.ToBytes(), item2.ToBytes()...)
+	got, trailing, err := DecodeOwnedFrame(framecodec.AdoptSECS2Body(owned))
+	require.NoError(t, err)
+	require.Equal(t, item1.ToBytes(), got.ToBytes(), "must decode only the first item")
+	require.Equal(t, len(item2.ToBytes()), trailing, "trailing count must equal the second item's encoded length")
+}
+
+// TestDecodeOwnedFrame_TrailingBytes_Garbage verifies the padding case: bytes trailing the first
+// item that are NOT a decodable second item still report their length, and decoding never attempts
+// to parse them (a corrupt "item" there must not surface as an error).
+func TestDecodeOwnedFrame_TrailingBytes_Garbage(t *testing.T) {
+	item1 := NewASCIIItem("hi")
+	garbage := []byte{0xFF, 0xFF, 0xFF, 0xFF}
+
+	owned := append(item1.ToBytes(), garbage...)
+	got, trailing, err := DecodeOwnedFrame(framecodec.AdoptSECS2Body(owned))
+	require.NoError(t, err)
+	require.Equal(t, item1.ToBytes(), got.ToBytes())
+	require.Equal(t, len(garbage), trailing)
+}
+
+// TestDecodeOwnedFrame_TrailingBytes_ZeroOnError verifies the count is meaningful only when err is
+// nil: when the first item itself fails to decode, the trailing count is 0, not some partial
+// position-derived value.
+func TestDecodeOwnedFrame_TrailingBytes_ZeroOnError(t *testing.T) {
+	// A binary item (format code 0x08) declaring a 5-byte payload with only 1 byte present.
+	malformed := []byte{0x21, 0x05, 0x00}
+
+	got, trailing, err := DecodeOwnedFrame(framecodec.AdoptSECS2Body(malformed))
+	require.Error(t, err)
+	require.Nil(t, got)
+	require.Equal(t, 0, trailing)
 }
 
 func TestDecodeOwned_MatchesDecode(t *testing.T) {

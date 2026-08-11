@@ -485,6 +485,38 @@ func TestDecode_MultiByteLength(t *testing.T) {
 	})
 }
 
+// TestDecode_AcceptsTrailingBytes is the counter-assertion this task adds: Decode must stay
+// lenient about extra bytes after the first complete item — it is a general-purpose item decoder
+// (E5 §9.2), not a message-definition validator (E5 §10.3.1.3(2)) — so a buffer holding two
+// concatenated items must still decode successfully to the FIRST one, with no error.
+// Strictness belongs at a transport-level seam (see secs2.DecodeOwnedFrame, used by package hsms),
+// never in this general-purpose parser.
+func TestDecode_AcceptsTrailingBytes(t *testing.T) {
+	t.Parallel()
+
+	item1 := NewASCIIItem("first")
+	item2 := NewUintItem(1, 1, 2, 3)
+	data := append(item1.ToBytes(), item2.ToBytes()...)
+
+	got, err := Decode(data)
+	require.NoError(t, err, "Decode must not reject a buffer carrying more than one item")
+	assert.Equal(t, item1.ToBytes(), got.ToBytes(), "Decode must return only the first item")
+}
+
+// TestDecodeOwned_AcceptsTrailingBytes mirrors TestDecode_AcceptsTrailingBytes for DecodeOwned:
+// the zero-copy entry point must be exactly as lenient about trailing bytes as Decode.
+func TestDecodeOwned_AcceptsTrailingBytes(t *testing.T) {
+	t.Parallel()
+
+	item1 := NewASCIIItem("first")
+	item2 := NewUintItem(1, 1, 2, 3)
+	owned := append(item1.ToBytes(), item2.ToBytes()...)
+
+	got, err := DecodeOwned(owned)
+	require.NoError(t, err, "DecodeOwned must not reject a buffer carrying more than one item")
+	assert.Equal(t, item1.ToBytes(), got.ToBytes(), "DecodeOwned must return only the first item")
+}
+
 // TestDecode_NeverClamps documents the invariant that wire decode never clamps a value: a valid
 // SECS-II byte stream cannot carry an out-of-range fixed-width integer, so decodeIntItem/
 // decodeUintItem never need clampInt64/clampUint64. This is a regression marker, not a behavior

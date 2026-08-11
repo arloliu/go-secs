@@ -204,6 +204,55 @@ func TestRouteData_routesNormallyWhenHandlerRegisteredAndBodyDecodes(t *testing.
 	}
 }
 
+// TestRouteData_routesNormallyWhenHandlerRegisteredAndBodyPadded is the counter-assertion this
+// task adds: even with a decode-error handler registered, a PADDED-BUT-DECODABLE primary (a
+// well-formed first item followed by extra bytes, SEMI E5 §10.3.1.3(2)) is not diverted — RouteData
+// forces the eager body decode, sees the first item decode cleanly (DecodeErr nil), and routes to
+// the normal handler exactly like an unpadded message.
+// The decode-error handler exists to divert undecodable bodies, not padded-but-decodable ones.
+func TestRouteData_routesNormallyWhenHandlerRegisteredAndBodyPadded(t *testing.T) {
+	l := buildConn(t)
+
+	normalCh := make(chan *hsms.DataMessage, 1)
+	decodeErrCh := make(chan struct{}, 1)
+	l.recv.AddDataMessageHandler(func(msg *hsms.DataMessage, _ hsms.SECS2Endpoint) {
+		select {
+		case normalCh <- msg:
+		default:
+		}
+	})
+	l.recv.AddDecodeErrorHandler(func(_ *hsms.DataMessage, _ error, _ hsms.SECS2Endpoint) {
+		select {
+		case decodeErrCh <- struct{}{}:
+		default:
+		}
+	})
+
+	padding := []byte{0x01, 0x02, 0x03, 0x04}
+	padded := hsmstest.PaddedDataMessage(6, 11, false, padding)
+	routeInbound(t, l, padded)
+
+	// The padded-but-decodable message must reach the normal handler with its TrailingBytes intact.
+	select {
+	case got := <-normalCh:
+		require.Nil(t, got.DecodeErr())
+		require.Equal(t, len(padding), got.TrailingBytes())
+	case <-time.After(3 * time.Second):
+		t.Fatal("padded-but-decodable message did not reach the normal handler")
+	}
+
+	// The decode-error handler must NOT fire for a message whose first item decodes cleanly.
+	select {
+	case <-decodeErrCh:
+		t.Error("decode-error handler was called for a padded-but-decodable message")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	if got := l.recv.Metrics().BodyDecodeErrCount(); got != 0 {
+		t.Errorf("BodyDecodeErrCount() = %d, want 0", got)
+	}
+}
+
 func TestRouteData_normalRoutingWhenNoDecodeHandler(t *testing.T) {
 	l := buildConn(t)
 

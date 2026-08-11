@@ -22,6 +22,13 @@ const MaxListDepth = 64
 // Decode copies data, so the returned Item has no lifetime dependency on the caller's buffer;
 // see [DecodeOwned] for a zero-copy variant when the caller already owns data outright.
 //
+// If data holds more than one encoded item back to back, Decode returns only the first
+// and silently ignores whatever bytes follow it: this decoder parses one item's own wire encoding (E5 §9.2),
+// and does not enforce that a buffer contains exactly one —
+// that is a message-definition rule (E5 §10.3.1.3(2)) that belongs to a message-aware caller, not to a general-purpose item decoder.
+// Callers that need to know whether trailing bytes were present must use a transport-level entry point that reports them
+// (e.g. the in-repo HSMS body decode; see DataMessage.TrailingBytes in package hsms).
+//
 // Parameters:
 //   - data: the wire bytes to parse.
 //
@@ -29,13 +36,8 @@ const MaxListDepth = 64
 //   - Item: the parsed SECS-II data item.
 //   - error: syntax or boundary error if parsing fails.
 func Decode(data []byte) (Item, error) {
-	if len(data) == 0 {
-		return NewEmptyItem(), nil
-	}
-
 	owned := bytes.Clone(data)
-	slab := &decodeSlab{}
-	item, _, err := decodeItem(owned, 0, 0, slab)
+	item, _, err := decodeFirstItem(owned)
 
 	return item, err
 }
@@ -47,8 +49,12 @@ func Decode(data []byte) (Item, error) {
 // and must keep it alive for as long as the item is retained — the same ownership-transfer idiom as [encoding/json.RawMessage].
 // Binary, ASCII, JIS-8, and localized-string items alias data directly (no further copy); numeric
 // and boolean items always build a typed value slice, since their values are a different representation than the wire bytes.
-// Use this only for a buffer the caller already owns outright (e.g. a freshly-read file or a buffer with no other referents);
+// Use this only for a buffer the caller already owns outright
+// (e.g. a freshly-read file or a buffer with no other referents);
 // otherwise use [Decode], which copies its input and is always safe.
+//
+// Like [Decode], DecodeOwned returns only the first item when data holds more than one back to back,
+// and silently ignores any trailing bytes — see [Decode]'s doc comment for why.
 //
 // Parameters:
 //   - data: the wire bytes to parse; ownership transfers to the returned Item on success.
@@ -57,12 +63,7 @@ func Decode(data []byte) (Item, error) {
 //   - Item: the parsed SECS-II data item, aliasing data.
 //   - error: syntax or boundary error if parsing fails.
 func DecodeOwned(data []byte) (Item, error) {
-	if len(data) == 0 {
-		return NewEmptyItem(), nil
-	}
-
-	slab := &decodeSlab{}
-	item, _, err := decodeItem(data, 0, 0, slab)
+	item, _, err := decodeFirstItem(data)
 
 	return item, err
 }
@@ -73,8 +74,16 @@ func DecodeOwned(data []byte) (Item, error) {
 // the returned item tree's leaf raw fields alias body.Bytes(), so the caller MUST keep
 // that buffer alive for as long as the item is retained.
 //
-// Its argument is a capability token whose type lives in an internal package, so external code cannot construct one
-// and therefore cannot call this function at all. External callers must use Decode (always copies) or DecodeOwned (zero-copy over a caller-owned []byte).
+// Unlike [Decode] and [DecodeOwned], DecodeOwnedFrame also reports how many bytes trailed the first
+// complete item, so the transport layer can surface that count rather than silently drop it.
+// A non-zero count means body carried more than the one item its caller's message definition expects —
+// SEMI E5 §10.3.1.3(2) forbids that, but the field reality is fixed-buffer equipment padding a frame past
+// its encoded item, so this entry point observes the count instead of rejecting the body.
+// The count is 0 whenever err is non-nil, since a failed decode has no stable "first item" to measure past.
+//
+// Its argument is a capability token whose type lives in an internal package,
+// so external code cannot construct one and therefore cannot call this function at all.
+// External callers must use Decode (always copies) or DecodeOwned (zero-copy over a caller-owned []byte).
 // This path exists solely for the in-repo transport layer that frames SECS-II message bodies.
 //
 // Parameters:
@@ -82,9 +91,30 @@ func DecodeOwned(data []byte) (Item, error) {
 //
 // Returns:
 //   - Item: the parsed SECS-II data item.
+//   - int: the number of bytes trailing the first complete item (0 on error).
 //   - error: syntax or boundary error if parsing fails.
-func DecodeOwnedFrame(body framecodec.OwnedSECS2Body) (Item, error) {
-	return DecodeOwned(body.Bytes())
+func DecodeOwnedFrame(body framecodec.OwnedSECS2Body) (Item, int, error) {
+	return decodeFirstItem(body.Bytes())
+}
+
+// decodeFirstItem parses one SECS-II item from data — already the exact buffer the caller wants
+// decodeItem to run over (Decode's clone, or a buffer the caller owns outright) — and returns the
+// item, the count of bytes trailing that first complete item, and any error.
+//
+// The trailing count is always 0 when err is non-nil: decodeItem's returned position on a failed
+// parse is not a reliable "end of the first item" boundary to measure from.
+func decodeFirstItem(data []byte) (Item, int, error) {
+	if len(data) == 0 {
+		return NewEmptyItem(), 0, nil
+	}
+
+	slab := &decodeSlab{}
+	item, endPos, err := decodeItem(data, 0, 0, slab)
+	if err != nil {
+		return item, 0, err
+	}
+
+	return item, len(data) - endPos, nil
 }
 
 // ownedString reinterprets b as a string without copying, via unsafe.String. It exists only

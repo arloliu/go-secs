@@ -148,6 +148,14 @@ func (c *DataMessageCodec) DecodeErr() error {
 	return c.Message.DecodeErr()
 }
 
+// TrailingBytes returns the wrapped message's trailing-byte count, or 0 if Message is nil.
+func (c *DataMessageCodec) TrailingBytes() int {
+	if c.Message == nil {
+		return 0
+	}
+	return c.Message.TrailingBytes()
+}
+
 // Item returns the wrapped message's decoded item, or ErrNilMessage if Message is nil (never (nil, nil),
 // which would hide an absent message).
 func (c *DataMessageCodec) Item() (secs2.Item, error) {
