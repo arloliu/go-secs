@@ -1,0 +1,69 @@
+host: Linux 6.17.0-35-generic x86_64
+cpu: AMD Ryzen 9 9950X3D 16-Core Processor
+go: go version go1.26.1 linux/amd64
+klauspost/compress: v1.19.2
+pierrec/lz4: v4.1.28
+zstd CLI (dict trainer): *** Zstandard CLI (64-bit) v1.5.5, by Yann Collet ***
+
+    bench_test.go:167: dictionary size: 8192 bytes
+
+SAMPLE                          RAW         zstd-fastest         zstd-default                   s2            lz4-block    zstd-fastest+dict    zstd-default+dict
+S1F1_areyouthere                  0         9 (   0.0%)         9 (   0.0%)         1 (   0.0%)         1 (   0.0%)         9 (   0.0%)         9 (   0.0%)
+S1F2_online                      21        34 ( 161.9%)        34 ( 161.9%)        23 ( 109.5%)        23 ( 109.5%)        38 ( 181.0%)        38 ( 181.0%)
+S2F41_hostcmd                    75        88 ( 117.3%)        88 ( 117.3%)        78 ( 104.0%)        77 ( 102.7%)        34 (  45.3%)        34 (  45.3%)
+S1F4_svid_20                    146       159 ( 108.9%)       159 ( 108.9%)       150 ( 102.7%)       148 ( 101.4%)       138 (  94.5%)       130 (  89.0%)
+S1F4_svid_200                  1434       969 (  67.6%)       870 (  60.7%)      1038 (  72.4%)      1172 (  81.7%)       939 (  65.5%)       823 (  57.4%)
+S6F11_event_10                   82        95 ( 115.9%)        95 ( 115.9%)        85 ( 103.7%)        84 ( 102.4%)        65 (  79.3%)        65 (  79.3%)
+S6F11_event_100                 592       474 (  80.1%)       474 (  80.1%)       493 (  83.3%)       529 (  89.4%)       404 (  68.2%)       421 (  71.1%)
+S6F11_trace_1k                 8017      8031 ( 100.2%)      8031 ( 100.2%)      8022 ( 100.1%)      8050 ( 100.4%)      8035 ( 100.2%)      8035 ( 100.2%)
+S6F11_trace_10k               80018     80037 ( 100.0%)     80034 ( 100.0%)     80025 ( 100.0%)     80333 ( 100.4%)     80041 ( 100.0%)     80038 ( 100.0%)
+S6F11_traceQ3_10k             80018     24824 (  31.0%)     25110 (  31.4%)     33683 (  42.1%)     33948 (  42.4%)     24858 (  31.1%)     25100 (  31.4%)
+S6F11_traceQ1_10k             80018      6484 (   8.1%)      6239 (   7.8%)     12853 (  16.1%)     16434 (  20.5%)      6483 (   8.1%)      6229 (   7.8%)
+S6F11_traceF4_10k             40017     40031 ( 100.0%)     40031 ( 100.0%)     40023 ( 100.0%)     40163 ( 100.4%)     40035 ( 100.0%)     40035 ( 100.0%)
+S6F11_traceU2_10k             20017     20031 ( 100.1%)     11335 (  56.6%)     20023 ( 100.0%)     18826 (  94.1%)     20035 ( 100.1%)     11330 (  56.6%)
+S7F3_recipe_20step             2350       629 (  26.8%)       647 (  27.5%)      1084 (  46.1%)      1055 (  44.9%)       622 (  26.5%)       632 (  26.9%)
+S7F3_recipe_500step           56916     11487 (  20.2%)     11677 (  20.5%)     18502 (  32.5%)     17260 (  30.3%)     11458 (  20.1%)     11657 (  20.5%)
+WaferMap_100k                100012      2406 (   2.4%)      2284 (   2.3%)      3818 (   3.8%)      4024 (   4.0%)      2396 (   2.4%)      2277 (   2.3%)
+
+
+HOLDOUT (disjoint seeds), raw total = 36531 bytes across 200 msgs
+  zstd-fastest              33822 bytes ( 92.6% of raw)
+  zstd-default              33563 bytes ( 91.9% of raw)
+  s2                        33407 bytes ( 91.4% of raw)
+  lz4-block                 34317 bytes ( 93.9% of raw)
+  zstd-fastest+dict         27228 bytes ( 74.5% of raw)
+  zstd-default+dict         27519 bytes ( 75.3% of raw)
+
+===== DICT PER-CALL COST =====
+    dictcost_test.go:40: payload = 146 bytes
+BenchmarkDictCost/nodict   	 2509480	       142.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDictCost/dict-1024B(actual-1024B)         	   66561	      5396 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDictCost/dict-4096B(actual-4096B)         	   63204	      5424 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDictCost/dict-8192B(actual-8192B)         	   83304	      4330 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDictCost/dict-32768B(actual-32768B)       	   79107	      4530 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDictCost/dict-112640B(actual-112640B)     	   70236	      5090 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDictCostByPayload/S6F11_10_82B/nodict     	 3219490	       114.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDictCostByPayload/S6F11_10_82B/dict       	   85616	      4263 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDictCostByPayload/S6F11_100_592B/nodict   	   74662	      4755 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDictCostByPayload/S6F11_100_592B/dict     	   50317	      7100 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDictCostByPayload/S6F11_1000_5693B/nodict 	   18878	     19000 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDictCostByPayload/S6F11_1000_5693B/dict   	   16831	     21464 ns/op	       0 B/op	       0 allocs/op
+
+===== DECODE =====
+BenchmarkDecode/S2F41_hostcmd/zstd-fastest         	 3560772	        67.61 ns/op	1109.30 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/S2F41_hostcmd/zstd-default         	 3593349	        67.63 ns/op	1108.98 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/S2F41_hostcmd/s2                   	30740908	         9.409 ns/op	7970.94 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/S2F41_hostcmd/lz4-block            	37624254	         6.480 ns/op	11574.42 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/S2F41_hostcmd/zstd-fastest+dict    	 1719456	       140.0 ns/op	 535.69 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/S2F41_hostcmd/zstd-default+dict    	 1681777	       143.4 ns/op	 522.86 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/WaferMap_100k/zstd-fastest         	    9872	     23632 ns/op	4232.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/WaferMap_100k/zstd-default         	   10000	     23355 ns/op	4282.31 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/WaferMap_100k/s2                   	   32301	      7442 ns/op	13438.83 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/WaferMap_100k/lz4-block            	    6099	     38780 ns/op	2578.95 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/WaferMap_100k/zstd-fastest+dict    	    8256	     29055 ns/op	3442.14 MB/s	       0 B/op	       0 allocs/op
+BenchmarkDecode/WaferMap_100k/zstd-default+dict    	    8812	     26843 ns/op	3725.76 MB/s	       0 B/op	       0 allocs/op
+
+===== ITEM-LEVEL vs WHOLE-BODY =====
+SAMPLE                        RAW     WHOLE-BODY     ITEM-LEVEL      DELTA
+S7F3_recipe_500step         56916     11487 (20.2%)     11470 (20.2%)       -17
+WaferMap_100k              100012      2406 (2.4%)      2405 (2.4%)        -1
