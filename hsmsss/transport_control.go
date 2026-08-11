@@ -270,11 +270,31 @@ func (t *transport) handleLinktestReq(msg hsms.Message) {
 	_ = t.rt.SendAsync(context.Background(), rsp)
 }
 
-// handleDeselectReq is the responder-only Deselect path (D5a-4, §7.7). HSMS-SS uses Separate for
-// teardown; we answer Deselect only far enough not to strand a peer on T6. If currently Selected:
-// reply Deselect.rsp status 0 (success) and transition Selected->NotSelected (rt.SelectLost) + stop
-// the auto-linktest. If NOT Selected: reply a non-zero (NotEstablished) status and do NOT transition.
-// We NEVER initiate an outbound Deselect.req. Runs on the recv goroutine.
+// handleDeselectReq is the responder-only Deselect path (D5a-4, E37.1 §7.3, §7.7).
+// HSMS-SS uses Separate for teardown; we NEVER initiate an outbound Deselect.req.
+// Runs on the recv goroutine.
+//
+// Answering an inbound Deselect.req at all is a deliberate deviation, not an oversight.
+// E37.1 §7.3 states "Deselect shall not be used" for HSMS-SS,
+// and §7.7 makes any violation of a §7 restriction a communications failure —
+// so a peer that sends Deselect is, strictly, in violation.
+//
+// The reason to answer rather than refuse is interoperability, not T6.
+// A peer implemented against E37 generic legitimately sends Deselect —
+// §7.3's prohibition is an HSMS-SS narrowing the peer may not implement —
+// and answering keeps an otherwise-usable peer selected-capable
+// without forcing a TCP teardown and reconnect cycle.
+// This is not a T6-stranding trade: E37 §9.1.1's remedy for a communications failure
+// is that the entity "should terminate the TCP/IP connection" — should, not shall —
+// and that close would release the peer sooner than any dwell timer would.
+// Refusing was never the only way to avoid stranding it; the choice here is purely about
+// keeping a usable link up rather than dropping it over a procedure violation.
+//
+// If currently Selected: reply Deselect.rsp status 0 (success) and transition
+// Selected->NotSelected (rt.SelectLost) + stop the auto-linktest.
+// If NOT Selected: reply a non-zero (NotEstablished) status and do NOT transition.
+// See docs/specs/e37-1-hsms-ss-conformance-audit.md, "Deviations reviewed and accepted", §7.3,
+// and TestDeselect_AnsweredDespiteE371Prohibition.
 func (t *transport) handleDeselectReq(g *genWG, msg hsms.Message) {
 	cm, ok := msg.(*hsms.ControlMessage)
 	if !ok {

@@ -286,6 +286,42 @@ Documented in the `WithSessionID` godoc instead.
 A "should", and an application-layer concern about SECS-I compatibility, not a transport requirement.
 Not enforced; correct to leave to the caller.
 
+**§7.3 — Deselect responder answers a prohibited request.**
+"Deselect shall not be used to end communications between the Host and Equipment.
+The mechanism to terminate an HSMS-SS connection is a Separate."
+§7.7 makes a violation of that prohibition a communications failure.
+
+`handleDeselectReq` is responder-only — HSMS-SS never *initiates* a Deselect,
+teardown always goes through Separate —
+but an inbound `Deselect.req` received while Selected is still answered `Deselect.rsp` status 0
+and transitions Selected -> NotSelected, rather than being refused as a §7.7 violation.
+
+The reason is interoperability, not T6 avoidance:
+E37 §9.1.1's remedy for a communications failure is that the entity "should terminate the TCP/IP connection" —
+should, not shall — and that close would release a stranded peer sooner than any dwell timer would,
+so refusing was never the only way to avoid stranding it.
+A peer implemented against E37 generic legitimately sends Deselect,
+since §7.3's prohibition is an HSMS-SS narrowing that peer may not implement,
+and answering keeps an otherwise-usable peer selected-capable
+without forcing a TCP teardown and reconnect cycle.
+Deliberate, tested (`TestDeselect_AnsweredDespiteE371Prohibition`), keep.
+
+**§8.1 — inbound control Session ID leniency (Select responder).**
+"In HSMS-SS Control Messages, Session ID will always assume the special value 0xFFFF (all one bits)."
+
+A `Select.req` carrying anything other than `0xFFFF` violates this clause,
+and `handleSelectReq` neither validates nor rejects it:
+it commits NotSelected -> Selected exactly as it would for a conformant request,
+and `NewSelectRsp` echoes the nonconformant SessionID back rather than substituting `0xFFFF`.
+
+The two governing clauses cannot both be satisfied once such a request arrives:
+E37 §8.3.7.1 requires `Select.rsp` to mirror the request's SessionID,
+while E37.1 §8.1 requires the request itself to have carried `0xFFFF`.
+We follow E37 generic, which binds the response to the request,
+rather than second-guessing the request's own conformance.
+Deliberate, tested (`TestSelectRsp_EchoesNonConformantSessionID`,
+extending `TestPassive_SelectRspMirrorsRequestSessionID`), keep.
+
 ## Clauses verified conformant
 
 | Clause | Requirement | Where |
@@ -295,7 +331,6 @@ Not enforced; correct to leave to the caller.
 | §5.3.1 | SelectionCounter not required | Not implemented; single-session model |
 | §7.1 | Select initiated only by the active entity; passive must not initiate | `runSelectProcedure` is spawned only from `startActive`; no Select initiation in `transport_passive.go` |
 | §7.2 | Data valid for any SessionID matching a supported Device ID | Single-session equality check, `hsms/connection_runtime.go` (opt-in via `WithSessionIDValidation`) |
-| §7.3 | Deselect shall not be used | Responder-only (`handleDeselectReq`), never initiated — answering rather than failing is deliberate leniency so a peer is not stranded on T6 |
 | §7.5 | Reject optional; unsupported situations are communications failures | Reject implemented, so the fallback does not apply |
 | §7.6 | Separate.req always `0xFFFF` | **Fixed** — see Gap 1 |
 | §7.6 | Close immediately after *initiating* a Separate | `writeFarewellSeparate` runs inside the teardown path; the socket closes unconditionally after |
