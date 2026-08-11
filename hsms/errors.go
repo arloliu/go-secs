@@ -21,6 +21,13 @@ var (
 	// The SType should be in range [1, 9] for control messages.
 	ErrInvalidControlMsgSType = errors.New("hsms: invalid SType for control message, should be in range of [1, 9]")
 
+	// ErrControlFrameWithBody indicates that a control frame carries a message body.
+	//
+	// SEMI E37 §9.3.3.1 specifies that control frames (SType 1–7, 9) must have
+	// a message length of exactly 10 bytes (header only, no body). Data messages
+	// (SType 0) may carry a body.
+	ErrControlFrameWithBody = errors.New("hsms: control frame must not carry a body (E37 §9.3.3.1)")
+
 	// ErrInvalidRejectMsg indicates that the message is not a valid reject control message.
 	ErrInvalidRejectMsg = errors.New("hsms: the message is not a reject control message")
 

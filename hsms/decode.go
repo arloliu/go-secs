@@ -124,6 +124,14 @@ func decodeOwnedFrame(owned []byte) (Message, error) {
 
 	case SelectReqType, SelectRspType, DeselectReqType, DeselectRspType,
 		LinktestReqType, LinktestRspType, RejectReqType, SeparateReqType:
+		// E37 §9.3.3.1: control frames must have message length exactly 10 (header only, no body).
+		// The transport layer in hsmsss/transport_recv.go also checks this and answers with Reject.req
+		// to keep the link alive; the decoder check here provides an additional safety net that covers
+		// all three public entry points (DecodeHSMSMessage, DecodeHSMSPayload, DecodeOwnedHSMSPayload).
+		if len(owned) != 10 {
+			return nil, fmt.Errorf("control frame carries a body: message length %d (expected 10): %w",
+				len(owned), ErrControlFrameWithBody)
+		}
 		return &ControlMessage{header: h, replyExpected: false}, nil
 
 	default:

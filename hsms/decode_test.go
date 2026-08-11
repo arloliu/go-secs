@@ -7,7 +7,9 @@
 package hsms
 
 import (
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -359,6 +361,265 @@ func TestDecodeHSMSMessage_ErrorsWrapSentinels(t *testing.T) {
 			assert.True(t, errors.Is(err, tc.wantErr), "error %q must wrap %q", err, tc.wantErr)
 		})
 	}
+}
+
+// ────────────────────────────────────────────────────────────────
+// Control frame body validation (E37 §9.3.3.1)
+// ────────────────────────────────────────────────────────────────
+
+// TestDecodeHSMSMessage_ControlFrameWithBody verifies that control frames carrying a body
+// are rejected by DecodeHSMSMessage with ErrControlFrameWithBody (all 8 control STypes).
+func TestDecodeHSMSMessage_ControlFrameWithBody(t *testing.T) {
+	t.Parallel()
+
+	// validControlFrame returns a 14-byte prefixed frame (4-byte len + 10-byte header) for a given SType.
+	validControlFrame := func(sType MsgType) []byte {
+		sb := [4]byte{0xDE, 0xAD, 0xBE, 0xEF}
+		var msg *ControlMessage
+		switch sType { //nolint:exhaustive
+		case SelectReqType:
+			msg = NewSelectReq(0x0001, sb)
+		case SelectRspType:
+			req := NewSelectReq(0x0001, sb)
+			rsp, _ := NewSelectRsp(req, SelectStatusSuccess)
+			msg = rsp
+		case DeselectReqType:
+			msg = NewDeselectReq(0x0002, sb)
+		case DeselectRspType:
+			req := NewDeselectReq(0x0002, sb)
+			rsp, _ := NewDeselectRsp(req, DeselectStatusSuccess)
+			msg = rsp
+		case LinktestReqType:
+			msg = NewLinktestReq(sb)
+		case LinktestRspType:
+			req := NewLinktestReq(sb)
+			rsp, _ := NewLinktestRsp(req)
+			msg = rsp
+		case RejectReqType:
+			rej, _ := NewRejectReqRaw(0x0003, 0, byte(SeparateReqType), sb, RejectSTypeNotSupported)
+			msg = rej
+		case SeparateReqType:
+			msg = NewSeparateReq(0x0004, sb)
+		default:
+			t.Fatalf("unsupported SType %d", sType)
+		}
+
+		return msg.ToBytes()
+	}
+
+	// controlSTypes lists all 8 standard control STypes.
+	controlSTypes := []MsgType{
+		SelectReqType, SelectRspType, DeselectReqType, DeselectRspType,
+		LinktestReqType, LinktestRspType, RejectReqType, SeparateReqType,
+	}
+
+	for _, sType := range controlSTypes {
+		t.Run(fmt.Sprintf("SType_%d_with_body", sType), func(t *testing.T) {
+			t.Parallel()
+
+			// Start with a valid control frame (14 bytes: 4 prefix + 10 header).
+			frame := validControlFrame(sType)
+			require.Equal(t, 14, len(frame), "valid control frame must be 14 bytes")
+
+			// Append a body (1 byte) and fix up the length prefix to 11.
+			msgLen := uint32(11) // header (10) + body (1)
+			frame = append([]byte(nil), frame...)
+			binary.BigEndian.PutUint32(frame[0:4], msgLen)
+			frame = append(frame, 0xFF) // append 1 byte of body
+
+			require.Equal(t, 15, len(frame), "frame with body must be 15 bytes")
+
+			// DecodeHSMSMessage must reject it.
+			msg, err := DecodeHSMSMessage(frame)
+			require.Error(t, err, "control frame with body must be rejected")
+			assert.Nil(t, msg)
+			assert.True(t, errors.Is(err, ErrControlFrameWithBody),
+				"error must wrap ErrControlFrameWithBody, got: %v", err)
+		})
+	}
+}
+
+// TestDecodeHSMSPayload_ControlFrameWithBody verifies that control frames carrying a body
+// are rejected by DecodeHSMSPayload with ErrControlFrameWithBody (all 8 control STypes).
+func TestDecodeHSMSPayload_ControlFrameWithBody(t *testing.T) {
+	t.Parallel()
+
+	// validControlPayload returns a 10-byte header (no length prefix) for a given SType.
+	validControlPayload := func(sType MsgType) []byte {
+		sb := [4]byte{0xDE, 0xAD, 0xBE, 0xEF}
+		var msg *ControlMessage
+		switch sType { //nolint:exhaustive
+		case SelectReqType:
+			msg = NewSelectReq(0x0001, sb)
+		case SelectRspType:
+			req := NewSelectReq(0x0001, sb)
+			rsp, _ := NewSelectRsp(req, SelectStatusSuccess)
+			msg = rsp
+		case DeselectReqType:
+			msg = NewDeselectReq(0x0002, sb)
+		case DeselectRspType:
+			req := NewDeselectReq(0x0002, sb)
+			rsp, _ := NewDeselectRsp(req, DeselectStatusSuccess)
+			msg = rsp
+		case LinktestReqType:
+			msg = NewLinktestReq(sb)
+		case LinktestRspType:
+			req := NewLinktestReq(sb)
+			rsp, _ := NewLinktestRsp(req)
+			msg = rsp
+		case RejectReqType:
+			rej, _ := NewRejectReqRaw(0x0003, 0, byte(SeparateReqType), sb, RejectSTypeNotSupported)
+			msg = rej
+		case SeparateReqType:
+			msg = NewSeparateReq(0x0004, sb)
+		default:
+			t.Fatalf("unsupported SType %d", sType)
+		}
+
+		return msg.ToBytes()[4:] // strip the 4-byte length prefix
+	}
+
+	controlSTypes := []MsgType{
+		SelectReqType, SelectRspType, DeselectReqType, DeselectRspType,
+		LinktestReqType, LinktestRspType, RejectReqType, SeparateReqType,
+	}
+
+	for _, sType := range controlSTypes {
+		t.Run(fmt.Sprintf("SType_%d_with_body", sType), func(t *testing.T) {
+			t.Parallel()
+
+			// Start with a valid control payload (10 bytes: header only).
+			payload := validControlPayload(sType)
+			require.Equal(t, 10, len(payload), "valid control payload must be 10 bytes")
+
+			// Append a body.
+			payload = append([]byte(nil), payload...)
+			payload = append(payload, 0xFF)
+
+			require.Equal(t, 11, len(payload), "payload with body must be 11 bytes")
+
+			// DecodeHSMSPayload must reject it.
+			msg, err := DecodeHSMSPayload(payload)
+			require.Error(t, err, "control frame with body must be rejected")
+			assert.Nil(t, msg)
+			assert.True(t, errors.Is(err, ErrControlFrameWithBody),
+				"error must wrap ErrControlFrameWithBody, got: %v", err)
+		})
+	}
+}
+
+// TestDecodeOwnedHSMSPayload_ControlFrameWithBody verifies that control frames carrying a body
+// are rejected by DecodeOwnedHSMSPayload with ErrControlFrameWithBody (all 8 control STypes).
+func TestDecodeOwnedHSMSPayload_ControlFrameWithBody(t *testing.T) {
+	t.Parallel()
+
+	// validControlPayload returns a 10-byte header (no length prefix) for a given SType.
+	validControlPayload := func(sType MsgType) []byte {
+		sb := [4]byte{0xDE, 0xAD, 0xBE, 0xEF}
+		var msg *ControlMessage
+		switch sType { //nolint:exhaustive
+		case SelectReqType:
+			msg = NewSelectReq(0x0001, sb)
+		case SelectRspType:
+			req := NewSelectReq(0x0001, sb)
+			rsp, _ := NewSelectRsp(req, SelectStatusSuccess)
+			msg = rsp
+		case DeselectReqType:
+			msg = NewDeselectReq(0x0002, sb)
+		case DeselectRspType:
+			req := NewDeselectReq(0x0002, sb)
+			rsp, _ := NewDeselectRsp(req, DeselectStatusSuccess)
+			msg = rsp
+		case LinktestReqType:
+			msg = NewLinktestReq(sb)
+		case LinktestRspType:
+			req := NewLinktestReq(sb)
+			rsp, _ := NewLinktestRsp(req)
+			msg = rsp
+		case RejectReqType:
+			rej, _ := NewRejectReqRaw(0x0003, 0, byte(SeparateReqType), sb, RejectSTypeNotSupported)
+			msg = rej
+		case SeparateReqType:
+			msg = NewSeparateReq(0x0004, sb)
+		default:
+			t.Fatalf("unsupported SType %d", sType)
+		}
+
+		return msg.ToBytes()[4:] // strip the 4-byte length prefix
+	}
+
+	controlSTypes := []MsgType{
+		SelectReqType, SelectRspType, DeselectReqType, DeselectRspType,
+		LinktestReqType, LinktestRspType, RejectReqType, SeparateReqType,
+	}
+
+	for _, sType := range controlSTypes {
+		t.Run(fmt.Sprintf("SType_%d_with_body", sType), func(t *testing.T) {
+			t.Parallel()
+
+			// Start with a valid control payload (10 bytes: header only).
+			payload := validControlPayload(sType)
+			require.Equal(t, 10, len(payload), "valid control payload must be 10 bytes")
+
+			// Append a body.
+			payload = append([]byte(nil), payload...)
+			payload = append(payload, 0xFF)
+
+			require.Equal(t, 11, len(payload), "payload with body must be 11 bytes")
+
+			// DecodeOwnedHSMSPayload must reject it.
+			msg, err := DecodeOwnedHSMSPayload(payload)
+			require.Error(t, err, "control frame with body must be rejected")
+			assert.Nil(t, msg)
+			assert.True(t, errors.Is(err, ErrControlFrameWithBody),
+				"error must wrap ErrControlFrameWithBody, got: %v", err)
+		})
+	}
+}
+
+// TestDecodeHSMSMessage_DataMessageWithBody verifies that data messages (SType 0) with bodies
+// still decode successfully through DecodeHSMSMessage (regression test).
+func TestDecodeHSMSMessage_DataMessageWithBody(t *testing.T) {
+	t.Parallel()
+
+	item := secs2.NewASCIIItem("data-with-body")
+	orig, err := NewDataMessage(1, 1, true, 0x0001, [4]byte{}, item)
+	require.NoError(t, err)
+
+	data := orig.ToBytes()
+	decoded, err := DecodeHSMSMessage(data)
+	require.NoError(t, err, "data message with body must decode successfully")
+	assert.NotNil(t, decoded)
+}
+
+// TestDecodeHSMSPayload_DataMessageWithBody verifies that data messages (SType 0) with bodies
+// still decode successfully through DecodeHSMSPayload (regression test).
+func TestDecodeHSMSPayload_DataMessageWithBody(t *testing.T) {
+	t.Parallel()
+
+	item := secs2.NewASCIIItem("payload-data-with-body")
+	orig, err := NewDataMessage(1, 1, true, 0x0001, [4]byte{}, item)
+	require.NoError(t, err)
+
+	payload := orig.ToBytes()[4:] // strip length prefix
+	decoded, err := DecodeHSMSPayload(payload)
+	require.NoError(t, err, "data message with body must decode successfully")
+	assert.NotNil(t, decoded)
+}
+
+// TestDecodeOwnedHSMSPayload_DataMessageWithBody verifies that data messages (SType 0) with bodies
+// still decode successfully through DecodeOwnedHSMSPayload (regression test).
+func TestDecodeOwnedHSMSPayload_DataMessageWithBody(t *testing.T) {
+	t.Parallel()
+
+	item := secs2.NewASCIIItem("owned-payload-data-with-body")
+	orig, err := NewDataMessage(1, 1, true, 0x0001, [4]byte{}, item)
+	require.NoError(t, err)
+
+	payload := orig.ToBytes()[4:] // strip length prefix
+	decoded, err := DecodeOwnedHSMSPayload(payload)
+	require.NoError(t, err, "data message with body must decode successfully")
+	assert.NotNil(t, decoded)
 }
 
 // ────────────────────────────────────────────────────────────────
