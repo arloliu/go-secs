@@ -3,19 +3,18 @@ type: Mechanic
 title: What a decoded item aliases
 description: Which leaves point into the wire buffer and which copy out of it — the part the doc comment gets wrong.
 tags: [secs2, decode, zero-copy, unsafe]
-status: stable
-generated: {by: "claude/opus-5", at: 2026-08-05T12:08:31Z}
-verified:
-  - {by: "claude/opus-5", at: 2026-08-05T13:05:00Z}
-  - {by: "codex/cli", at: 2026-08-05T13:50:00Z}
+status: draft
+generated: {by: "claude/sonnet-5", at: 2026-08-12T00:00:00Z}
 sources:
-  - {resource: secs2/decode.go, digest: sha256:eafd8c77fa6b76da, revision: bc97919}
-  - {resource: secs2/item.go, digest: sha256:39618013ea8f34c1, revision: bc97919}
+  - {resource: secs2/decode.go, digest: sha256:8ca1e530a8d03c4a, revision: 3660aa4}
+  - {resource: secs2/item.go, digest: sha256:39618013ea8f34c1, revision: 3660aa4}
 ---
 
 # What it does
 
-`secs2/doc.go` covers the `Decode` (copies) versus `DecodeOwned` (transfers ownership) contract — read it there. What it does not give correctly is which decoded leaves actually alias the buffer, and it omits the third entry point entirely.
+`secs2/doc.go` covers the `Decode` (copies) versus `DecodeOwned` (transfers ownership) contract — read it there.
+It still frames decoding as that pair; it never names `DecodeOwnedFrame` (the third public entry point) at all, even though it now also names `hsms.DataMessage.TrailingBytes` as the way to observe trailing bytes.
+What `doc.go` does not give correctly, for the pair it does cover, is which decoded leaves actually alias the buffer.
 
 **The doc comment is imprecise on one point.** It says numeric and boolean items "always build a typed value slice regardless". They do not: the split is by *count*, not by type.
 
@@ -25,7 +24,9 @@ A single-value numeric takes the `count == 1` branch, which stores the decoded v
 
 Everything else aliases the one buffer the decode was handed: ASCII, JIS-8 and localized-string leaves hold a string built by `ownedString` (an `unsafe.String` view), and binary leaves alias a sub-slice.
 
-There is also a third entry point, in no package doc: `DecodeOwnedFrame` takes a capability token whose type lives in an internal package. External code cannot construct one, so it cannot call the function at all — the parameter type *is* the access control. It exists for the in-repo transport, which already owns its frame buffers.
+The third entry point, `DecodeOwnedFrame`, aliases exactly like `DecodeOwned` — same leaf-by-leaf rules above — over a buffer wrapped in a capability token whose type lives in an internal package.
+External code cannot construct that token, so it cannot call the function at all — the parameter type *is* the access control.
+It exists for the in-repo transport, which already owns its frame buffers.
 
 # Invariants
 

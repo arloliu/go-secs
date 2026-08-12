@@ -18,6 +18,7 @@ Owns no sockets and no wire framing. `hsmsss` and `secs1` supply the transport a
 * [Send error accounting — which outcomes count](/hsms/send-error-accounting.md) - why a normal Close mid-transaction does not inflate the error counter.
 * [The W-bit inflight gauge](/hsms/inflight-gauge.md) - when a message counts as in flight, and why a leak here disables liveness probing.
 * [The I1 stale-epoch write guard](/hsms/stale-epoch-write-guard.md) - how a sender stalled across a reconnect is kept off the successor's socket.
+* [The reply registry's two-legged control exemption](/hsms/reply-matching-control-exemption.md) - why registration-side isData and result-side *DataMessage are two independent gates, and the v2.0.1 shape breaking both reproduces.
 
 # Entry points
 

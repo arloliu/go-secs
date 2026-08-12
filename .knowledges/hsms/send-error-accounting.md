@@ -3,12 +3,10 @@ type: Mechanic
 title: Send error accounting — which outcomes count
 description: Why a normal Close mid-transaction does not inflate the error counter, and what does.
 tags: [hsms, metrics, send, lifecycle]
-status: stable
-generated: {by: "claude/opus-5", at: 2026-08-05T12:08:31Z}
-verified:
-  - {by: "agy/gemini-3.1-pro-high", at: 2026-08-05T14:10:00Z}
+status: draft
+generated: {by: "claude/sonnet-5", at: 2026-08-12T00:00:00Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:e534fecb0a49c465, revision: bc97919}
+  - {resource: hsms/connection_send.go, digest: sha256:7e589dff2dee86f0, revision: 3660aa4}
 ---
 
 # What it does
@@ -17,7 +15,14 @@ No package doc explains how send outcomes are attributed to counters. The distin
 
 # How it works
 
-`isCountedSendErr` is the whole policy. Three classes of error are excluded from the data-error counter: a NotSelected drop (which has its own dedicated counter), connection teardown, and caller-context cancellation or deadline. Anything else — a genuine transport write failure — counts.
+`isCountedSendErr` is the whole policy.
+Four classes of error are excluded from the data-error counter:
+a NotSelected drop (which has its own dedicated counter), connection teardown, caller-context cancellation or deadline,
+and `ErrMessageTooLarge` — a caller-side message-construction error `buildFrameBuffers` returns
+when a data message's frame would exceed `MaxMessageSize` (SEMI E37 §10.1 item 4).
+`writeFrame` catches it before `writeMu` is even acquired,
+so it never reaches the transport and is never a link failure.
+Anything else — a genuine transport write failure — counts.
 
 Separately, a T3 expiry while waiting for a reply counts, and when the auto-S9F9 knob is on it also sends an S9F9 (Transaction Timeout) notification carrying the timed-out message's 10-byte header as SHEAD. That notification is fire-and-forget and its own failure is deliberately swallowed, because the caller already has the timeout error to report.
 
@@ -32,6 +37,8 @@ The timeout branch is narrower than it looks. Both T3 (data) and T6 (control) re
 - A fire-and-forget (W-bit clear) data send records send+1, error+0 by construction: it returns as soon as the frame is on the wire and can never reach a timeout branch.
 - Only data transactions touch the data-error counter. A control T6 expiry is a protocol event, surfaced to the caller as `ErrT6Timeout` and counted nowhere in this counter — moving the increment outside the `isData` check would make linktest failures look like application errors.
 - The S9F9 notification is best-effort by design; failing to send it must not replace or mask the timeout error the caller receives.
+- `ErrMessageTooLarge` is excluded the same way `ErrNotSelectedState` is: it is a local, caller-side construction error caught before `writeMu` is acquired, never a transport/link event,
+  so it must not inflate a counter that exists to signal protocol/link health.
 
 # Failure modes
 

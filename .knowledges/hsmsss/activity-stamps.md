@@ -3,23 +3,28 @@ type: Mechanic
 title: Activity stamps — the state behind linktest suppression
 description: Where "the line is alive" is stored, what writes it, and when it resets to zero knowledge.
 tags: [hsmsss, linktest, liveness, generations]
-status: stable
-generated: {by: "claude/opus-5", at: 2026-08-05T12:08:31Z}
-verified:
-  - {by: "agy/gemini-3.1-pro-high", at: 2026-08-05T14:10:00Z}
+status: draft
+generated: {by: "claude/sonnet-5", at: 2026-08-12T00:00:00Z}
 sources:
-  - {resource: hsmsss/transport.go, digest: sha256:94cd0ceff5469e98, revision: bc97919}
-  - {resource: hsmsss/transport_procedures.go, digest: sha256:948307999f7f20ec, revision: bc97919}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:d1f64eb54973e988, revision: bc97919}
-  - {resource: hsmsss/transport_active.go, digest: sha256:e673ce2bc5fdeacc, revision: bc97919}
-  - {resource: hsmsss/transport_passive.go, digest: sha256:3918166759198d59, revision: bc97919}
+  - {resource: hsmsss/transport.go, digest: sha256:838e98661f3e89d2, revision: 3660aa4}
+  - {resource: hsmsss/transport_procedures.go, digest: sha256:540e993910b596e2, revision: 3660aa4}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:67343e11cdcaea52, revision: 3660aa4}
+  - {resource: hsmsss/transport_active.go, digest: sha256:642cebd8a000d63d, revision: 3660aa4}
+  - {resource: hsmsss/transport_passive.go, digest: sha256:2dedaa78b1882b8d, revision: 3660aa4}
 ---
 
 # What it does
 
 `docs/guides/linktest-suppression.md` documents the three suppression rules, the detection bounds, and the accepted races — read it for *what* suppression does. This entry covers only what the guide leaves out: the state those rules read, and the two moments it is reset or re-armed.
 
-It also corrects one point of drift: the guide says a probe "that times out (T6)" is subject to liveness credit. The code applies the failure reducer to **any** `WriteMessage` error, testing only that the parent context is still live — it never checks `ErrT6Timeout`. T6 is the common case, not the condition.
+It also corrects one point of drift: the guide says a probe "that times out (T6)" is subject to liveness credit.
+The code applies the failure reducer to **any** `WriteMessage` error that is not filtered out first — it never checks `ErrT6Timeout` specifically, so T6 is the common case, not the condition.
+
+That filter is now two-part, not one.
+`runLinktest` skips the reducer (and the `LinktestErrCount` increment) when `ctx.Err() != nil` OR the error is `hsms.ErrConnClosed`.
+The `ErrConnClosed` half is new: the hsms epoch's own ctx can cancel a pending `WriteMessage` an instant before this goroutine's parent ctx (`t.genCtx`) becomes observably cancelled — two separate cancellation cascades with no ordering guarantee between them —
+so a teardown-aborted write can return `ErrConnClosed` while `ctx.Err()` still reads nil.
+Without that second check an ordinary teardown could count as a linktest failure and feed the consecutive-fail threshold that drives an involuntary disconnect, rather than being absorbed by the disconnect path that already signals the same event.
 
 # How it works
 

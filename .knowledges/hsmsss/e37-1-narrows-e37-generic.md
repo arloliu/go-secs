@@ -6,11 +6,11 @@ tags: [hsmsss, e37-1, select, separate, linktest, reject, session-id]
 status: draft
 generated: {by: "claude/opus-5", at: 2026-08-10T00:00:00Z}
 sources:
-  - {resource: hsmsss/transport_active.go, digest: sha256:642cebd8a000d63d, revision: 1ec0dcd}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:cea1248c74b660ad, revision: 1ec0dcd}
-  - {resource: hsms/control_msg.go, digest: sha256:991d7f96324913d9, revision: 1ec0dcd}
-  - {resource: hsmsss/transport_control.go, digest: sha256:89bb8a874efb2d45, revision: 44e8efe}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:56c36a9bc1b45fa2, revision: f6cd783}
+  - {resource: hsmsss/transport_active.go, digest: sha256:642cebd8a000d63d, revision: 3660aa4}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:c3f5abfffb491404, revision: 3660aa4}
+  - {resource: hsms/control_msg.go, digest: sha256:847dad3406c4d87c, revision: 3660aa4}
+  - {resource: hsmsss/transport_control.go, digest: sha256:d0b89bf94d8c792b, revision: 3660aa4}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:67343e11cdcaea52, revision: 3660aa4}
 ---
 
 # What it does

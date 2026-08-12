@@ -1,6 +1,6 @@
 ---
 okf_version: "0.2"
-swept_at: bc97919
+swept_at: 3660aa4
 ---
 
 # go-secs memex
@@ -16,3 +16,7 @@ Durable notes on how this repo works, one entry per mechanic. Read the unit inde
 * [sml](sml/) - SML parsing and encoding, strict and non-strict.
 * [gem](gem/) - SEMI E30 message builders.
 * [logger](logger/) - Logging interface every package logs through.
+
+# Crosscutting
+
+* [crosscutting](crosscutting/) - Mechanics spanning more than one unit.

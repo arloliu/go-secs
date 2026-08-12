@@ -8,7 +8,7 @@ generated: {by: "claude/opus-5", at: 2026-08-05T12:08:31Z}
 verified:
   - {by: "agy/gemini-3.1-pro-high", at: 2026-08-05T14:10:00Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:e534fecb0a49c465, revision: bc97919}
+  - {resource: hsms/connection_send.go, digest: sha256:7e589dff2dee86f0, revision: 3660aa4}
 ---
 
 # What it does

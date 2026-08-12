@@ -3,14 +3,11 @@ type: Mechanic
 title: Item slab carving and its retention model
 description: What retaining one decoded leaf actually pins in memory, and the property that bounds it.
 tags: [secs2, decode, allocation, memory]
-status: stable
-generated: {by: "claude/opus-5", at: 2026-08-05T12:08:31Z}
-verified:
-  - {by: "claude/opus-5", at: 2026-08-05T13:05:00Z}
-  - {by: "codex/cli", at: 2026-08-05T13:50:00Z}
+status: draft
+generated: {by: "claude/sonnet-5", at: 2026-08-12T00:00:00Z}
 sources:
-  - {resource: secs2/decode_slab.go, digest: sha256:77b6508240e72230, revision: bc97919}
-  - {resource: secs2/decode.go, digest: sha256:eafd8c77fa6b76da, revision: bc97919}
+  - {resource: secs2/decode_slab.go, digest: sha256:77b6508240e72230, revision: 3660aa4}
+  - {resource: secs2/decode.go, digest: sha256:8ca1e530a8d03c4a, revision: 3660aa4}
 ---
 
 # What it does
@@ -40,4 +37,4 @@ Retaining one carved struct therefore pins its whole chunk — at most 128 struc
 - carving, chunk growth, and the size schedule: `secs2/decode_slab.go` → `(*itemSlab[T]).next`, `slabChunkSizes`
 - the retention model, stated at the type: `secs2/decode_slab.go` → `itemSlab`
 - the per-call bundle and its accessors: `secs2/decode_slab.go` → `decodeSlab`
-- where a slab is created and threaded: `secs2/decode.go` → `Decode`, `DecodeOwned`, `decodeItem`
+- where a slab is created and threaded: `secs2/decode.go` → `decodeFirstItem`, `decodeItem` — `Decode` and `DecodeOwned` reach it only by delegating to `decodeFirstItem`, which is where `slab := &decodeSlab{}` actually lives
