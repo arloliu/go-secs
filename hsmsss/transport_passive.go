@@ -143,27 +143,23 @@ func (t *transport) acceptLoop(g *genWG, ln net.Listener) {
 	}
 }
 
-// refuseExtraConn refuses ONE extra dialer while a session is already live, per E37
-// §9.2.4.1.1 option 1 (the standard's OWN "preferred option"): accept, but answer any
-// subsequent Select with Communication Already Active. It is called SERIALLY, once per extra
-// dialer, from acceptLoop's refuse loop above — never as a goroutine per dialer.
-// A goroutine per dialer would be an unbounded resource under a connect flood, each holding a
-// read deadline and each needing its own registration on the generation WaitGroup for Stop to
-// join; serial refusal needs neither.
+// refuseExtraConn refuses ONE extra dialer while a session is already live, per E37 §9.2.4.1.1 option 1 (the standard's OWN "preferred option"):
+// accept, but answer any subsequent Select with Communication Already Active.
+// It is called SERIALLY, once per extra dialer, from acceptLoop's refuse loop above — never as a goroutine per dialer.
+// A goroutine per dialer would be an unbounded resource under a connect flood, each holding a read deadline and each needing its own registration on the generation WaitGroup for Stop to join;
+// serial refusal needs neither.
 //
-// It owns extra's entire lifecycle, including the close, via its own defer: a defer in
-// acceptLoop's loop body would accumulate across iterations instead of closing per iteration.
+// It owns extra's entire lifecycle, including the close, via its own defer:
+// a defer in acceptLoop's loop body would accumulate across iterations instead of closing per iteration.
 //
-// Deliberately NOT readFrame/readN. readN's idle-first-byte policy explicitly CLEARS the read
-// deadline while waiting for the first byte (transport_recv.go's idle-link policy — correct
-// for an adopted LIVE session, wrong here), so an extra dialer that connects and sends nothing
-// would park this serial refusal loop forever.
-// T8 (readN's inter-byte bound) would not save it either: T8 bounds only gaps BETWEEN bytes,
-// not a total connect-to-close budget, so a slow trickle could still hold the socket open
-// indefinitely.
-// A single ABSOLUTE deadline covering the whole one-shot exchange — read and write — is the
-// only bound that actually terminates it: set once, before the first read, and never cleared
-// or extended.
+// Deliberately NOT readFrame/readN.
+// readN's idle-first-byte policy explicitly CLEARS the read deadline while waiting for the first byte (transport_recv.go's idle-link policy — correct for an adopted LIVE session, wrong here),
+// so an extra dialer that connects and sends nothing would park this serial refusal loop forever.
+// T8 (readN's inter-byte bound) would not save it either:
+// T8 bounds only gaps BETWEEN bytes, not a total connect-to-close budget,
+// so a slow trickle could still hold the socket open indefinitely.
+// A single ABSOLUTE deadline covering the whole one-shot exchange — read and write — is the only bound that actually terminates it:
+// set once, before the first read, and never cleared or extended.
 func (t *transport) refuseExtraConn(extra net.Conn) {
 	defer func() { _ = extra.Close() }()
 
@@ -193,12 +189,19 @@ func (t *transport) refuseExtraConn(extra net.Conn) {
 		t.refuseMu.Unlock()
 		return
 	}
+	t.refuseToken++
+	token := t.refuseToken
 	t.refuseConn = extra
 	t.refuseMu.Unlock()
 
+	// Clear the slot by TOKEN, not by "t.refuseConn == extra":
+	// extra's dynamic type comes from WithListener's caller-supplied ListenFunc,
+	// which may be non-comparable (e.g. a struct embedding net.Conn plus a slice field),
+	// and interface equality panics on a non-comparable dynamic type.
+	// See refuseToken's doc comment for why the token still matches under the documented serial-refusal / Stop-joins-acceptLoop-before-ArmStart invariant.
 	defer func() {
 		t.refuseMu.Lock()
-		if t.refuseConn == extra {
+		if t.refuseToken == token {
 			t.refuseConn = nil
 		}
 		t.refuseMu.Unlock()

@@ -52,8 +52,9 @@ type SECS2Endpoint interface {
 	// The caller is not blocked waiting for a reply; errors are surfaced only at the enqueue boundary.
 	//
 	// function must be odd (SEMI E5 §7.2); an even function returns ErrEvenFunctionPrimary without sending anything.
-	// replyExpected must be false: the async path never begins a reply timer (SEMI E37 §9.4.1.2), so a
-	// reply-expecting send returns ErrAsyncReplyExpected without sending anything; use SendDataMessage instead.
+	// replyExpected must be false: the async path never begins a reply timer (SEMI E37 §9.4.1.2),
+	// so a reply-expecting send returns ErrAsyncReplyExpected without sending anything;
+	// use SendDataMessage instead.
 	SendDataMessageAsync(ctx context.Context, stream, function byte, replyExpected bool, item secs2.Item) error
 
 	// SendSECS2Message sends a pre-constructed SECS-II message.

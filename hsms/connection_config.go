@@ -492,29 +492,25 @@ func WithSessionIDValidation(enabled bool) ConnOption {
 
 // WithStrictReplyMatching enables strict SEMI E37 §9.4.1 reply-field validation.
 //
-// §9.4.1 requires a reply to match its primary on SessionID, Stream, Function (primary + 1, or 0
-// — SxF0, the transaction-abort secondary, E5 §7.2/§10.4.1), and System Bytes.
+// §9.4.1 requires a reply to match its primary on SessionID, Stream, Function (primary + 1, or 0 — SxF0, the transaction-abort secondary, E5 §7.2/§10.4.1), and System Bytes.
 // This option covers the stream/function half; System Bytes is always the registry key.
-// SessionID is a separate seam: enable [WithSessionIDValidation] too for full §9.4.1 field
-// enforcement (mirrors how [WithReconnectBackoff](t5, 1.0) composes with [WithT5]).
+// SessionID is a separate seam:
+// enable [WithSessionIDValidation] too for full §9.4.1 field enforcement (mirrors how [WithReconnectBackoff](t5, 1.0) composes with [WithT5]).
 //
-// Disabled (the default) means every candidate reply — a W-clear, even-function *DataMessage
-// secondary hitting an open System-Bytes entry registered for a data primary — is delivered to
-// the waiting sender even when its stream or function diverges from the primary; the divergence
-// is only counted (see [ConnectionMetrics.ReplyMismatchCount]).
-// Control transactions (Select/Deselect/Linktest) and a peer Reject.req are never subject to this
-// check either way — they carry no stream/function to compare.
+// Disabled (the default) means every candidate reply —
+// a W-clear, even-function *DataMessage secondary hitting an open System-Bytes entry registered for a data primary —
+// is delivered to the waiting sender even when its stream or function diverges from the primary;
+// the divergence is only counted (see [ConnectionMetrics.ReplyMismatchCount]).
+// Control transactions (Select/Deselect/Linktest) and a peer Reject.req are never subject to this check either way —
+// they carry no stream/function to compare.
 //
-// Enabled, a field mismatch is a MISS: the message falls through to the session's data handlers as
-// unsolicited instead of satisfying the waiting sender, and the registration is NOT consumed, so a
-// later conforming reply can still complete the transaction.
-// Against a peer that is sloppy about echoing stream or function, this turns a transaction that
-// previously "worked" (by receiving the wrong reply quickly) into a stall that runs to T3 —
+// Enabled, a field mismatch is a MISS: the message falls through to the session's data handlers as unsolicited instead of satisfying the waiting sender,
+// and the registration is NOT consumed, so a later conforming reply can still complete the transaction.
+// Against a peer that is sloppy about echoing stream or function, this turns a transaction that previously "worked" (by receiving the wrong reply quickly) into a stall that runs to T3 —
 // returning ErrT3Timeout — unless a conforming reply follows.
 //
-// Recommended path: soak under the default first and enable this only once
-// [ConnectionMetrics.ReplyMismatchCount] stays at 0, so enforcement is turned on against a peer
-// already known to reply correctly, not discovered against one that does not.
+// Recommended path: soak under the default first and enable this only once [ConnectionMetrics.ReplyMismatchCount] stays at 0,
+// so enforcement is turned on against a peer already known to reply correctly, not discovered against one that does not.
 func WithStrictReplyMatching(enabled bool) ConnOption {
 	return func(c *ConnectionConfig) error {
 		c.strictReplyMatching = enabled
@@ -568,9 +564,11 @@ func (c *ConnectionConfig) TraceTraffic() bool {
 
 // WithAsyncSendErrorHandler installs a callback invoked whenever a fire-and-forget async send fails.
 //
-// The callback is invoked when SendAsync, ForwardDataMessageAsync, and internal control-message async sends (such as Reject, Select.rsp, S9Fx) fail their transport write.
-// The msg is the message that failed to reach the wire and err is the write error.
-// This is the ONLY way to observe such a failure per-message: SendAsync/ForwardDataMessageAsync themselves report only enqueue-boundary errors (see AsyncSendErrCount for the always-on counter form).
+// The callback is invoked when SendAsync, ForwardDataMessageAsync, and internal control-message async sends (such as Reject, Select.rsp, S9Fx) fail during async send processing —
+// either a transport write error, or a frame rejected before the write for exceeding MaxMessageSize (ErrMessageTooLarge).
+// The msg is the message that failed to reach the wire and err is the failure (the write error, or ErrMessageTooLarge).
+// This is the ONLY way to observe such a failure per-message:
+// SendAsync/ForwardDataMessageAsync themselves report only enqueue-boundary errors (see AsyncSendErrCount for the always-on counter form).
 //
 // The fn callback runs SYNCHRONOUSLY, panic-isolated, on the per-generation async-sender goroutine.
 // A slow fn delays every other queued async send on that generation, so keep it fast (increment a counter, log, push to a buffered channel) rather than doing blocking I/O.

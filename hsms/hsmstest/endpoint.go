@@ -215,10 +215,17 @@ func (f *FakeEndpoint) popScriptedReply() (*hsms.DataMessage, error) {
 	return r.msg, r.err
 }
 
-// SendDataMessage records the send. When replyExpected is false it returns (nil, nil) without
-// consulting the reply script (fire-and-forget, matching the real engine's sendWaitReply
-// short-circuit); when true it pops the next scripted reply.
+// SendDataMessage records the send. function must be odd (SEMI E5 §7.2), matching the real
+// session's guard; an even function returns hsms.ErrEvenFunctionPrimary without recording
+// anything.
+// When replyExpected is false it returns (nil, nil) without consulting the reply
+// script (fire-and-forget, matching the real engine's sendWaitReply short-circuit); when true
+// it pops the next scripted reply.
 func (f *FakeEndpoint) SendDataMessage(_ context.Context, stream, function byte, replyExpected bool, item secs2.Item) (*hsms.DataMessage, error) {
+	if function%2 == 0 {
+		return nil, hsms.ErrEvenFunctionPrimary
+	}
+
 	if err := f.record("SendDataMessage", stream, function, replyExpected, item); err != nil {
 		return nil, err
 	}
@@ -230,17 +237,39 @@ func (f *FakeEndpoint) SendDataMessage(_ context.Context, stream, function byte,
 }
 
 // SendDataMessageAsync records the send and always returns nil (no reply is ever awaited).
+// function must be odd (SEMI E5 §7.2), matching the real session's guard; an even function
+// returns hsms.ErrEvenFunctionPrimary without recording anything. replyExpected must be false:
+// the real async path never begins a reply timer (SEMI E37 §9.4.1.2), so a reply-expecting send
+// returns hsms.ErrAsyncReplyExpected without recording anything.
 func (f *FakeEndpoint) SendDataMessageAsync(_ context.Context, stream, function byte, replyExpected bool, item secs2.Item) error {
+	if function%2 == 0 {
+		return hsms.ErrEvenFunctionPrimary
+	}
+	if replyExpected {
+		return hsms.ErrAsyncReplyExpected
+	}
+
 	return f.record("SendDataMessageAsync", stream, function, replyExpected, item)
 }
 
-// SendSECS2Message records the send. When msg.WaitBit() is false it returns (nil, nil) without
-// consulting the reply script; when true it pops the next scripted reply.
+// SendSECS2Message records the send. msg's function must be odd (SEMI E5 §7.2), matching the
+// real session's guard; an even function returns hsms.ErrEvenFunctionPrimary without recording
+// anything.
+// Every accessor is read once into a local before the guard runs and reused for
+// recording, mirroring the real session's TOCTOU-safe snapshot discipline for the externally
+// implementable secs2.SECS2Message interface.
+// When the snapshotted WaitBit is false it returns
+// (nil, nil) without consulting the reply script; when true it pops the next scripted reply.
 func (f *FakeEndpoint) SendSECS2Message(_ context.Context, msg secs2.SECS2Message) (*hsms.DataMessage, error) {
-	if err := f.record("SendSECS2Message", msg.StreamCode(), msg.FunctionCode(), msg.WaitBit(), msg.Item()); err != nil {
+	stream, function, waitBit, item := msg.StreamCode(), msg.FunctionCode(), msg.WaitBit(), msg.Item()
+	if function%2 == 0 {
+		return nil, hsms.ErrEvenFunctionPrimary
+	}
+
+	if err := f.record("SendSECS2Message", stream, function, waitBit, item); err != nil {
 		return nil, err
 	}
-	if !msg.WaitBit() {
+	if !waitBit {
 		return nil, nil //nolint:nilnil // fire-and-forget: matches the real engine's sendWaitReply contract
 	}
 

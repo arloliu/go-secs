@@ -67,12 +67,11 @@ func (s *session) SessionID() uint16 { return s.id }
 
 // SendDataMessage builds a primary data message and delegates to rt.WriteMessage.
 //
-// SendDataMessage always mints fresh System Bytes, so it always opens a new transaction and is
-// always a primary; function must be odd (SEMI E5 §7.2), or this returns ErrEvenFunctionPrimary
-// without sending anything.
+// SendDataMessage always mints fresh System Bytes, so it always opens a new transaction and is always a primary;
+// function must be odd (SEMI E5 §7.2), or this returns ErrEvenFunctionPrimary without sending anything.
 //
-// When replyExpected is true, WriteMessage waits for the T3-bounded reply; the B1 IsSelected gate, I1 inflight accounting,
-// and T3 timer enforcement are all owned by the engine (Task 12) inside WriteMessage — not here.
+// When replyExpected is true, WriteMessage waits for the T3-bounded reply;
+// the B1 IsSelected gate, I1 inflight accounting, and T3 timer enforcement are all owned by the engine (Task 12) inside WriteMessage — not here.
 func (s *session) SendDataMessage(ctx context.Context, stream, function byte, replyExpected bool, item secs2.Item) (*DataMessage, error) {
 	if function%2 == 0 {
 		return nil, ErrEvenFunctionPrimary
@@ -139,13 +138,19 @@ func (s *session) SendDataMessageAsync(ctx context.Context, stream, function byt
 //
 // Returns the reply DataMessage when the W-bit is set.
 func (s *session) SendSECS2Message(ctx context.Context, msg secs2.SECS2Message) (*DataMessage, error) {
-	if msg.FunctionCode()%2 == 0 {
+	// secs2.SECS2Message is externally implementable and carries no immutability
+	// guarantee, so every field is snapshotted once into a local before the guard
+	// runs; the guard and the construction below both read the same snapshot,
+	// closing a TOCTOU window where a call-sensitive implementation could return
+	// an odd function to the guard and an even one to the constructor.
+	stream, function, waitBit, item := msg.StreamCode(), msg.FunctionCode(), msg.WaitBit(), msg.Item()
+	if function%2 == 0 {
 		return nil, ErrEvenFunctionPrimary
 	}
 
 	dm, err := NewDataMessage(
-		msg.StreamCode(), msg.FunctionCode(), msg.WaitBit(),
-		s.rt.SessionID(), s.sysGen.next(), msg.Item(),
+		stream, function, waitBit,
+		s.rt.SessionID(), s.sysGen.next(), item,
 	)
 	if err != nil {
 		return nil, err

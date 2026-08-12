@@ -71,31 +71,33 @@ func (r replyRegistry) deregister(key [4]byte) {
 
 // route delivers res to the waiting sender for key using a non-blocking send (SEMI E37 §9.4.1).
 //
-// It returns (delivered, mismatched). delivered reports whether the result was handed to the
-// sender's channel: true on every registry hit under the default (observe) posture, and true on
-// a strict-mode hit UNLESS the candidate mismatched. mismatched reports whether a compared
-// candidate's stream or function diverged from the registered primary — a combined stream+
-// function mismatch counts once, not twice — regardless of strict.
+// It returns (delivered, mismatched).
+// delivered reports whether the result was handed to the sender's channel:
+// true on every registry hit under the default (observe) posture, and true on a strict-mode hit UNLESS the candidate mismatched.
+// mismatched reports whether a compared candidate's stream or function diverged from the registered primary —
+// a combined stream+function mismatch counts once, not twice —
+// regardless of strict.
 //
-// A candidate is compared ONLY when both legs hold: the entry was registered for a DATA primary
-// (want.isData) AND the routed result itself carries a *DataMessage. This is the E37 §9.4.1
-// control-transaction exemption: Select/Deselect/Linktest responses register with isData false
-// (a *ControlMessage has no Stream()/Function() to compare), and an inbound Reject.req answering
-// a data primary routes as a field-less *RejectError (res.msg == nil), never a *DataMessage — a
-// terminal rejection (E37 §8.3.11), not a reply to validate.
+// A candidate is compared ONLY when both legs hold:
+// the entry was registered for a DATA primary (want.isData) AND the routed result itself carries a *DataMessage.
+// This is the E37 §9.4.1 control-transaction exemption:
+// Select/Deselect/Linktest responses register with isData false (a *ControlMessage has no Stream()/Function() to compare),
+// and an inbound Reject.req answering a data primary routes as a field-less *RejectError (res.msg == nil), never a *DataMessage —
+// a terminal rejection (E37 §8.3.11), not a reply to validate.
 // Both always deliver uncompared.
 //
-// Function matches primary+1 OR 0 — SEMI E5 §7.2/§10.4.1 reserve SxF0 as the transaction-abort
-// secondary, admitted explicitly by E37 §9.4.1. The F0 exception is function-only: a wrong-stream
-// F0 is still a stream mismatch.
+// Function matches primary+1 OR 0 —
+// SEMI E5 §7.2/§10.4.1 reserve SxF0 as the transaction-abort secondary, admitted explicitly by E37 §9.4.1.
+// The F0 exception is function-only: a wrong-stream F0 is still a stream mismatch.
 //
-// strict selects the outcome on mismatch: false (default) still delivers (observe-only); true
-// makes it a miss (delivered stays false) so the message falls through to RouteData as unsolicited
-// — the registration is NOT consumed, so a later conforming reply can still complete the transaction.
+// strict selects the outcome on mismatch:
+// false (default) still delivers (observe-only);
+// true makes it a miss (delivered stays false) so the message falls through to RouteData as unsolicited —
+// the registration is NOT consumed, so a later conforming reply can still complete the transaction.
 //
-// On a true miss (key absent) it returns (false, false). On hit, if the channel is already full
-// (a duplicate reply raced in) the result is silently discarded via the default branch — no
-// block, no panic.
+// On a true miss (key absent) it returns (false, false).
+// On hit, if the channel is already full (a duplicate reply raced in) the result is silently discarded via the default branch —
+// no block, no panic.
 func (r replyRegistry) route(key [4]byte, res replyResult, strict bool) (delivered bool, mismatched bool) {
 	w, ok := r.m.Load(key)
 	if !ok {

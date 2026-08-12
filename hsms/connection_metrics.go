@@ -66,12 +66,12 @@ func (m *ConnectionMetrics) BodyDecodeErrCount() uint64 {
 	return m.bodyDecodeErr.Load()
 }
 
-// AsyncSendErrCount returns the total number of fire-and-forget async sends whose transport write failed.
+// AsyncSendErrCount returns the total number of fire-and-forget async sends that failed during async send processing.
 //
 // This counts SendAsync, ForwardDataMessageAsync, and internal control-message async sends (such as Reject, Select.rsp)
-// that failed on the transport write.
+// that failed on the transport write, or were rejected before the write for exceeding MaxMessageSize (ErrMessageTooLarge).
 //
-// These are otherwise silent: SendAsync itself only reports enqueue-boundary errors, never a later write failure.
+// These are otherwise silent: SendAsync itself only reports enqueue-boundary errors, never a later processing failure.
 // This is the only signal for "an async frame never reached the wire."
 //
 // See WithAsyncSendErrorHandler for a per-message callback.
@@ -114,24 +114,22 @@ func (m *ConnectionMetrics) DataMsgErrCount() uint64 {
 	return m.dataMsgErr.Load()
 }
 
-// ReplyMismatchCount returns the total number of candidate replies whose stream or function
-// diverged from the registered primary (SEMI E37 §9.4.1).
+// ReplyMismatchCount returns the total number of candidate replies whose stream or function diverged from the registered primary (SEMI E37 §9.4.1).
 //
-// A candidate is a W-clear, even-function *DataMessage secondary that hit an open System-Bytes
-// entry registered for a DATA primary; control transactions (Select/Deselect/Linktest) and a peer
-// Reject.req are exempt and never move this counter — see RouteReply.
+// A candidate is a W-clear, even-function *DataMessage secondary that hit an open System-Bytes entry registered for a DATA primary;
+// control transactions (Select/Deselect/Linktest) and a peer Reject.req are exempt and never move this counter — see RouteReply.
 // A combined stream+function mismatch on one candidate counts once, not twice.
-// Function matches primary+1 or 0 (the SxF0 abort secondary, E5 §7.2/§10.4.1); SessionID is never
-// compared here (see WithSessionIDValidation for that seam).
+// Function matches primary+1 or 0 (the SxF0 abort secondary, E5 §7.2/§10.4.1);
+// SessionID is never compared here (see WithSessionIDValidation for that seam).
 //
 // The count means something different depending on WithStrictReplyMatching:
-//   - Disabled (the default): each counted candidate was still delivered to the waiting sender
-//     despite the mismatch — nothing else about delivery changed. A rising count under the default
-//     identifies a sloppy peer without breaking it; SEMI E37 §9.4.1 full field validation is opt-in
-//     (see WithStrictReplyMatching).
-//   - Enabled: each counted candidate was diverted to the data handlers as an unsolicited message
-//     instead of satisfying the waiting sender. The sender's registration is NOT consumed, so it
-//     stalls to T3 (returning ErrT3Timeout) only if no conforming reply arrives before the deadline.
+//   - Disabled (the default): each counted candidate was still delivered to the waiting sender despite the mismatch —
+//     nothing else about delivery changed.
+//     A rising count under the default identifies a sloppy peer without breaking it;
+//     SEMI E37 §9.4.1 full field validation is opt-in (see WithStrictReplyMatching).
+//   - Enabled: each counted candidate was diverted to the data handlers as an unsolicited message instead of satisfying the waiting sender.
+//     The sender's registration is NOT consumed,
+//     so it stalls to T3 (returning ErrT3Timeout) only if no conforming reply arrives before the deadline.
 func (m *ConnectionMetrics) ReplyMismatchCount() uint64 {
 	return m.replyMismatch.Load()
 }

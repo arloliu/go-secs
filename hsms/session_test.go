@@ -219,7 +219,7 @@ func TestSession_SendDataMessage_paddedReplySucceeds(t *testing.T) {
 	padding := []byte{0xAA, 0xBB, 0xCC}
 	rt.writeReply = paddedDataMsg(t, 1, 14, false, padding)
 
-	dm, err := s.SendDataMessage(context.Background(), 1, 13, true, secs2.NewEmptyItem())
+	dm, err := s.SendDataMessage(t.Context(), 1, 13, true, secs2.NewEmptyItem())
 	require.NoError(t, err, "padding in the reply body must not fail the transaction")
 	require.NotNil(t, dm)
 	require.Nil(t, dm.DecodeErr())
@@ -320,6 +320,58 @@ func TestSession_SendSECS2Message_RejectsEvenFunctionPrimary(t *testing.T) {
 	writeCalled := rt.writeCalled
 	rt.mu.Unlock()
 	require.False(t, writeCalled, "a refused send must never reach WriteMessage")
+}
+
+// flipFunctionMessage is a secs2.SECS2Message stub whose FunctionCode() is call-sensitive:
+// it returns an odd value on the first call and an even value on every call after.
+// It reproduces the TOCTOU attack shape: a hostile externally implementable message that hands
+// an odd function to a guard's first read, then an even function to a second read used for
+// frame construction — defeating the odd-function-primary guard on the wire.
+type flipFunctionMessage struct {
+	calls int
+}
+
+func (m *flipFunctionMessage) StreamCode() uint8 { return 1 }
+
+func (m *flipFunctionMessage) FunctionCode() uint8 {
+	m.calls++
+	if m.calls == 1 {
+		return 1 // odd: passes the guard
+	}
+
+	return 2 // even: would poison construction if re-read
+}
+
+func (m *flipFunctionMessage) WaitBit() bool    { return false }
+func (m *flipFunctionMessage) Item() secs2.Item { return secs2.NewEmptyItem() }
+
+// TestSession_SendSECS2Message_SnapshotsFunctionCode proves the TOCTOU fix: SendSECS2Message
+// reads FunctionCode() exactly once and both validates and constructs from that single snapshot.
+// For a stub returning odd on the first call and even on every call after, the guard passes
+// (the snapshot is odd) and the frame sent to WriteMessage must carry that same odd function —
+// never the poisoned even value a second read would produce — and FunctionCode() must be
+// called exactly once.
+func TestSession_SendSECS2Message_SnapshotsFunctionCode(t *testing.T) {
+	rt := newMockRuntime(t)
+	s := newSession(0xFFFF, rt, &sysBytesGen{})
+
+	replyMsg, err := NewDataMessage(1, 2, false, 0xFFFF, [4]byte{0, 0, 0, 1}, secs2.NewEmptyItem())
+	require.NoError(t, err)
+	rt.writeReply = replyMsg
+
+	msg := &flipFunctionMessage{}
+	dm, err := s.SendSECS2Message(t.Context(), msg)
+	require.NoError(t, err, "the first-read snapshot is odd, so the guard must pass and the send must proceed")
+	require.NotNil(t, dm)
+	require.Equal(t, 1, msg.calls, "FunctionCode must be read exactly once, never re-read for construction")
+
+	rt.mu.Lock()
+	writeMsg := rt.writeMsg
+	rt.mu.Unlock()
+
+	sent, ok := writeMsg.(*DataMessage)
+	require.True(t, ok, "message passed to WriteMessage must be a *DataMessage")
+	require.Equal(t, uint8(1), sent.Function(), "the sent frame must use the first-read (odd) snapshot, never a re-read even value")
 }
 
 // TestSession_ReplyDataMessage_AllowsEvenFunction is the counter-assertion: ReplyDataMessage

@@ -362,6 +362,81 @@ func TestPassive_RefuseExtraConn_IdleDialerClosedAtAbsoluteDeadline(t *testing.T
 		"the live 1st session must stay Selected throughout")
 }
 
+// refuseSetDeadlineRecorder wraps a net.Conn and records the argument of every SetDeadline call
+// (refuseExtraConn's absolute-bound primitive, distinct from deadlineRecorder's SetReadDeadline in transport_recv_clock_test.go)
+// so a test can assert exactly how many times it was called and with what value, while still delegating to the wrapped conn.
+type refuseSetDeadlineRecorder struct {
+	net.Conn
+	mu    sync.Mutex
+	calls []time.Time
+}
+
+func (r *refuseSetDeadlineRecorder) SetDeadline(t time.Time) error {
+	r.mu.Lock()
+	r.calls = append(r.calls, t)
+	r.mu.Unlock()
+
+	return r.Conn.SetDeadline(t)
+}
+
+func (r *refuseSetDeadlineRecorder) deadlineCalls() []time.Time {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return append([]time.Time(nil), r.calls...)
+}
+
+// TestPassive_RefuseExtraConn_ArmsExactlyOneAbsoluteT7Deadline is the deterministic teeth-check
+// for the T7 absolute-deadline EXPRESSION itself (clock-now + T7), complementing
+// IdleDialerClosedAtAbsoluteDeadline above, which only proves SOME server-side close happens.
+// That alone would pass for an early close, the wrong timer, or a wrongly computed deadline.
+// A fixed fake clock plus a SetDeadline-recording conn pins the exact armed value and proves it
+// is set exactly once — never cleared or extended by a later call.
+func TestPassive_RefuseExtraConn_ArmsExactlyOneAbsoluteT7Deadline(t *testing.T) {
+	t.Parallel()
+
+	// An hour ahead of the wall clock: clearly distinguishable from real time, giving the
+	// assertion teeth against a bare time.Now() (mirrors transport_recv_clock_test.go's fakeNow).
+	fakeNow := time.Now().Add(time.Hour)
+	const t7 = 250 * time.Millisecond
+
+	rt := newRecRT()
+	rt.setTimers(hsms.TimerConfig{T7: t7})
+	tr := &transport{rt: rt, now: func() time.Time { return fakeNow }}
+
+	server, client := net.Pipe()
+	defer func() { _ = client.Close() }()
+
+	rec := &refuseSetDeadlineRecorder{Conn: server}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		tr.refuseExtraConn(rec) // the idle dialer sends nothing; parks in io.ReadFull
+	}()
+
+	// Deterministically observe the deadline was armed (no sleep): poll the recorder.
+	require.Eventually(t, func() bool {
+		return len(rec.deadlineCalls()) >= 1
+	}, 2*time.Second, time.Millisecond, "refuseExtraConn must arm the absolute deadline before reading")
+
+	// Release the parked read so refuseExtraConn returns and its goroutine does not outlive this
+	// test.
+	require.NoError(t, client.Close())
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("refuseExtraConn did not return")
+	}
+
+	calls := rec.deadlineCalls()
+	require.Len(t, calls, 1, "refuseExtraConn must arm the absolute deadline exactly once — never cleared or extended")
+
+	want := fakeNow.Add(t7)
+	require.True(t, want.Equal(calls[0]), "SetDeadline = %v, want clock-now + T7 = %v", calls[0], want)
+}
+
 // TestPassive_RefuseExtraConn_NonSelectReqClosedWithoutResponse — a 2nd dialer sends a well-formed
 // but non-Select.req control frame (Linktest.req). E37 §9.2.4.1.1 option 1 answers ONLY a Select;
 // refuseExtraConn's mandated shape closes any other frame unanswered rather than routing it
@@ -391,16 +466,16 @@ func TestPassive_RefuseExtraConn_NonSelectReqClosedWithoutResponse(t *testing.T)
 	_, err = client2.Write(frameBytes(10, header10(0, byte(hsms.LinktestReqType)), nil))
 	require.NoError(t, err)
 
-	// No response at all: peerReadFrame must time out (nothing arrives), not decode a frame.
-	_, rerr := peerReadFrame(client2, 500*time.Millisecond)
-	require.Error(t, rerr, "a non-Select.req on the refused 2nd connection must get NO response")
-
-	// The socket is still closed by the helper (its unconditional defer), independent of the read
-	// above timing out first.
+	// No response at all — not even a truncated/partial frame.
+	// A single raw Read (not peerReadFrame's io.ReadFull,
+	// which would also error on a SHORT write and so cannot tell "wrote nothing" apart from "wrote a few bytes then closed")
+	// must return ZERO bytes alongside the closed-socket error:
+	// the mandated shape is close-without-responding, never a partial write.
 	require.NoError(t, client2.SetReadDeadline(time.Now().Add(2*time.Second)))
-	buf := make([]byte, 1)
-	_, rerr = client2.Read(buf)
-	require.Error(t, rerr, "the 2nd connection must be closed after the unanswered non-Select frame")
+	buf := make([]byte, 32)
+	n, rerr := client2.Read(buf)
+	require.Error(t, rerr, "a non-Select.req on the refused 2nd connection must get NO response")
+	require.Equal(t, 0, n, "the refused connection must write ZERO bytes — not even a partial frame — for a non-Select.req")
 
 	require.Equal(t, hsms.SelectedState, conn.State(),
 		"the live 1st session must stay Selected throughout")
@@ -654,6 +729,191 @@ func TestPassive_RefuseExtraConn_SetDeadlineErrorClosesWithoutRead(t *testing.T)
 
 	require.True(t, c.closed.Load(), "must close even when SetDeadline errors")
 	require.False(t, c.readCalled.Load(), "must not read when the absolute deadline could not be armed")
+}
+
+// nonComparableConn wraps a net.Conn plus a slice field, so the struct VALUE (not a pointer to it) is non-comparable:
+// Go rejects "==" on any struct containing a slice field.
+// WithListener (config.go) explicitly permits a custom ListenFunc layering the passive listener on a different transport,
+// so an accepted net.Conn whose dynamic type looks like this — a plain value type, not a pointer — is a valid, in-contract connection.
+// The net.Conn field is embedded so its methods promote automatically; no method bodies are needed here.
+type nonComparableConn struct {
+	net.Conn
+	tag []byte //nolint:unused // present only to make the struct value non-comparable
+}
+
+// TestPassive_RefuseExtraConn_NonComparableConnDoesNotPanic is the P0 regression test, ISOLATED variant:
+// it calls tr.refuseExtraConn directly against a nonComparableConn, bypassing the production Accept path.
+// Before the fix, refuseExtraConn's cleanup compared "t.refuseConn == extra" as net.Conn interface values.
+// Interface equality panics at runtime when the shared dynamic type is non-comparable,
+// and a nonComparableConn VALUE (as opposed to a pointer to one) is exactly such a type —
+// so passing one through the real refusal path must complete the status-1 exchange and close cleanly, never panic.
+// See TestPassive_RefuseExtraConn_WithListenerNonComparableConnDoesNotPanic below for the same proof through the actual WithListener/Accept seam a regression here would escape through.
+func TestPassive_RefuseExtraConn_NonComparableConnDoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	rt := newRecRT()
+	rt.setTimers(hsms.TimerConfig{T7: 2 * time.Second})
+
+	tr := &transport{rt: rt}
+
+	// net.Pipe is a real, synchronous, deadline-capable net.Conn pair — refuseExtraConn's
+	// SetDeadline/Read/Write calls all work against it exactly as they would against a TCP socket.
+	server, client := net.Pipe()
+	defer func() { _ = client.Close() }()
+
+	var wrapped net.Conn = nonComparableConn{Conn: server, tag: []byte("marker")}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		require.NotPanics(t, func() { tr.refuseExtraConn(wrapped) })
+	}()
+
+	sysBytes := [4]byte{0xAA, 0xBB, 0xCC, 0xDD}
+	_, err := client.Write(selectReqFrame(sysBytes))
+	require.NoError(t, err)
+
+	frame, rerr := peerReadFrame(client, 2*time.Second)
+	require.NoError(t, rerr, "the refusal exchange must complete a Select.rsp even for a non-comparable conn")
+	require.GreaterOrEqual(t, len(frame), 10)
+	require.Equal(t, byte(hsms.SelectRspType), frame[5])
+	require.Equal(t, byte(hsms.SelectStatusAlreadyActive), frame[3])
+	require.Equal(t, sysBytes[:], frame[6:10], "Select.rsp must echo this request's System Bytes")
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("refuseExtraConn did not return")
+	}
+
+	// refuseExtraConn's own defer already closed the server-side pipe end by the time done
+	// closed, so the peer-closed Read below returns immediately without needing its own
+	// deadline (net.Pipe's SetReadDeadline errors once the peer end is already closed).
+	buf := make([]byte, 1)
+	_, rerr = client.Read(buf)
+	require.Error(t, rerr, "the socket must be closed after the refusal exchange")
+}
+
+// secondAcceptNonComparableListener wraps a net.Listener and passes the FIRST accepted connection through verbatim (the live session),
+// but wraps every SUBSEQUENT accepted connection in nonComparableConn before returning it.
+// It reproduces a custom WithListener transport (config.go) whose extra-dialer connections are a non-comparable value type on the REAL Accept path —
+// the exported seam the P0 panic would have escaped through, per the c10 v2 re-review.
+type secondAcceptNonComparableListener struct {
+	net.Listener
+	mu    sync.Mutex
+	count int
+}
+
+// Accept satisfies net.Listener: it wraps every accepted connection after the first.
+func (l *secondAcceptNonComparableListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+
+	l.mu.Lock()
+	l.count++
+	n := l.count
+	l.mu.Unlock()
+
+	if n == 1 {
+		return conn, nil
+	}
+
+	return nonComparableConn{Conn: conn, tag: []byte("marker")}, nil
+}
+
+// TestPassive_RefuseExtraConn_WithListenerNonComparableConnDoesNotPanic drives the P0 regression through the REAL production path, complementing the isolated direct-call test above:
+// a pipe-backed net.Listener installed via WithListener (config.go's exported custom-transport seam) wraps its SECOND accepted connection in nonComparableConn,
+// so the extra dialer's socket reaches refuseExtraConn the way production does — via acceptLoop's own ln.Accept() call, inside the unrecovered accept goroutine —
+// rather than via a direct call under require.NotPanics.
+// A regression that reintroduces "t.refuseConn == extra" panics inside that goroutine
+// and crashes this test binary outright, not just fails one assertion.
+func TestPassive_RefuseExtraConn_WithListenerNonComparableConnDoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	fakeLn := newPipeListener()
+	defer func() { _ = fakeLn.Close() }()
+
+	wrappedLn := &secondAcceptNonComparableListener{Listener: fakeLn}
+	listen := func(_ context.Context, _, _ string) (net.Listener, error) {
+		return wrappedLn, nil
+	}
+
+	cfg, err := NewConfig("127.0.0.1", 5000, WithPassive(),
+		WithListener(listen),
+		WithConnectionOption(hsms.WithT6(2*time.Second)),
+		WithConnectionOption(hsms.WithT7(2*time.Second)),
+	)
+	require.NoError(t, err)
+
+	conn, err := New(cfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	// First dialer: the live session, served by the listener's first (unwrapped) Accept.
+	peer1 := fakeLn.dialFresh()
+	t.Cleanup(func() { _ = peer1.Close() })
+
+	go func() {
+		_, werr := peer1.Write(selectReqFrame([4]byte{0x01, 0x02, 0x03, 0x04}))
+		if werr != nil {
+			return
+		}
+
+		for {
+			if _, rerr := peerReadFrame(peer1, 5*time.Second); rerr != nil {
+				return
+			}
+		}
+	}()
+
+	require.NoError(t, conn.Open(t.Context(), hsms.OpenWaitSelected),
+		"passive connection must accept the first (unwrapped) dialer over the fake listener and reach Selected")
+	require.Equal(t, hsms.SelectedState, conn.State())
+
+	// Second dialer: the extra connection. secondAcceptNonComparableListener wraps THIS conn as
+	// nonComparableConn before acceptLoop's refuse loop (and refuseExtraConn) ever see it.
+	peer2 := fakeLn.dialFresh()
+	t.Cleanup(func() { _ = peer2.Close() })
+
+	sysBytes := [4]byte{0x0B, 0x0B, 0x0B, 0x0B}
+	_, err = peer2.Write(selectReqFrame(sysBytes))
+	require.NoError(t, err)
+
+	frame, rerr := peerReadFrame(peer2, 5*time.Second)
+	require.NoError(t, rerr, "the refusal exchange must complete a Select.rsp over the real Accept path even for a non-comparable conn")
+	require.GreaterOrEqual(t, len(frame), 10)
+	require.Equal(t, byte(hsms.SelectRspType), frame[5])
+	require.Equal(t, byte(hsms.SelectStatusAlreadyActive), frame[3])
+	require.Equal(t, sysBytes[:], frame[6:10], "Select.rsp must echo the 2nd dialer's System Bytes")
+
+	// The 2nd (wrapped) connection must be closed by refuseExtraConn's own defer after its one-shot answer —
+	// this proves the PRODUCTION close, not merely this test's t.Cleanup above
+	// (whose deferred Close would mask a regression that left the socket open).
+	// refuseExtraConn's Close races this test's own goroutine (unlike the isolated variant above, there is no "done" channel here proving the close already happened),
+	// and net.Pipe's own SetReadDeadline errors once the PEER end is already closed —
+	// so either SetReadDeadline failing or the subsequent Read failing is equally valid proof of the production close.
+	var n int
+	closeErr := peer2.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if closeErr == nil {
+		buf := make([]byte, 1)
+		n, closeErr = peer2.Read(buf)
+	}
+	require.Error(t, closeErr, "the 2nd (wrapped) connection must be closed after its Select.rsp")
+	require.Zero(t, n, "no bytes should follow the Select.rsp before the close")
+
+	// Reject a timeout so a regression that stops closing the socket cannot pass by coincidence:
+	// a CLOSED connection reads EOF/reset (or refuses a new deadline outright);
+	// a connection merely left open reads a net timeout.
+	var netErr net.Error
+	if errors.As(closeErr, &netErr) {
+		require.False(t, netErr.Timeout(),
+			"the 2nd (wrapped) connection must be CLOSED (EOF/reset), not merely idle — a read timeout means it was not refused")
+	}
+
+	require.Equal(t, hsms.SelectedState, conn.State(),
+		"the live 1st session must stay Selected while the 2nd (wrapped) connection is refused")
 }
 
 // TestPassive_H2NoSpuriousRejectOnPipelinedData — the H2 crux on the passive RESPONDER side (§7.D).

@@ -23,9 +23,8 @@ var (
 
 	// ErrControlFrameWithBody indicates that a control frame carries a message body.
 	//
-	// SEMI E37 §9.3.3.1 specifies that control frames (SType 1–7, 9) must have
-	// a message length of exactly 10 bytes (header only, no body). Data messages
-	// (SType 0) may carry a body.
+	// SEMI E37 §9.3.3.1 specifies that control frames (SType 1–7, 9) must have a message length of exactly 10 bytes (header only, no body).
+	// Data messages (SType 0) may carry a body.
 	ErrControlFrameWithBody = errors.New("hsms: control frame must not carry a body (E37 §9.3.3.1)")
 
 	// ErrInvalidRejectMsg indicates that the message is not a valid reject control message.
@@ -48,11 +47,9 @@ var (
 	// This is returned when the W-bit (reply expected) is set on a reply (even-function) message.
 	ErrInvalidRspMsg = errors.New("hsms: message is not a valid response/secondary message")
 
-	// ErrMessageTooLarge indicates that a data message's on-wire frame size (10-byte header +
-	// body) would exceed MaxMessageSize.
+	// ErrMessageTooLarge indicates that a data message's on-wire frame size (10-byte header + body) would exceed MaxMessageSize.
 	//
-	// Returned by the send path before the frame is written; the message is never put on the
-	// wire.
+	// Returned by the send path before the frame is written; the message is never put on the wire.
 	// A control message can never trigger this — its frame is always the fixed 14 bytes.
 	ErrMessageTooLarge = errors.New("hsms: message exceeds maximum frame size")
 

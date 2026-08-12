@@ -334,7 +334,7 @@ extending `TestPassive_SelectRspMirrorsRequestSessionID`), keep.
 | §7.5 | Reject optional; unsupported situations are communications failures | Reject implemented, so the fallback does not apply |
 | §7.6 | Separate.req always `0xFFFF` | **Fixed** — see Gap 1 |
 | §7.6 | Close immediately after *initiating* a Separate | `writeFarewellSeparate` runs inside the teardown path; the socket closes unconditionally after |
-| §8.1 | Control messages always `0xFFFF` | **Fixed** — see Gap 1 |
+| §8.1 | Control messages this library originates always carry `0xFFFF`; a `Select.rsp` answering an inbound request echoes that request's Session ID without validating it (accepted deviation, see above) | **Fixed for outbound** — see Gap 1; inbound leniency documented above |
 | §8.2 | All HSMS-SS messages are PType 0 | Non-zero PType → `Reject(PTypeNotSupported)`, `dispatchFrame` |
 | §8.3 | Only HSMS-defined STypes; user-defined not permitted | `IsValidSType` → `Reject(STypeNotSupported)`, `dispatchFrame` |
 | §10.1 | Documentation requirements (device IDs, teardown mode, host/equipment) | **Now** covered by the "E37.1 §10.1 implementation documentation" section of `hsmsss/doc.go`. The v1 review correctly found the earlier claim false: `doc.go` documented construction and lifecycle, and the README gives examples, but none of the three required declarations were stated anywhere |

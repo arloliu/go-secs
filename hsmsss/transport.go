@@ -144,24 +144,30 @@ type transport struct {
 	lastSendStamp atomic.Int64
 	lastRecvStamp atomic.Int64
 
-	// refuseMu guards refuseStopped and refuseConn: the two-sided handoff between Stop and an
-	// in-flight refuseExtraConn (passive-only, E37 §9.2.4.1.1 option 1, passive.go). Kept as a
-	// DEDICATED mutex rather than reusing connMu — the refusal exchange is orthogonal to the
-	// live conn/listener state connMu already serializes, and giving it its own mutex keeps the
-	// handoff self-contained in passive.go.
+	// refuseMu guards refuseStopped and refuseConn: the two-sided handoff between Stop and an in-flight refuseExtraConn (passive-only, E37 §9.2.4.1.1 option 1, passive.go).
+	// Kept as a DEDICATED mutex rather than reusing connMu —
+	// the refusal exchange is orthogonal to the live conn/listener state connMu already serializes,
+	// and giving it its own mutex keeps the handoff self-contained in passive.go.
 	refuseMu sync.Mutex
-	// refuseStopped is generation-scoped: Stop sets it (via haltRefusal) so a refuseExtraConn
-	// call that has not yet published its socket closes without reading instead of parking for
-	// the full T7 deadline — the Accept-returned/not-yet-published race a bare field cannot
-	// close.
-	// ArmStart resets it, mirroring the startGate.stopping seal/ArmStart pairing, so a prior
-	// generation's Stop never poisons a later generation's refusal into close-without-response.
+	// refuseStopped is generation-scoped:
+	// Stop sets it (via haltRefusal) so a refuseExtraConn call that has not yet published its socket closes without reading instead of parking for the full T7 deadline —
+	// the Accept-returned/not-yet-published race a bare field cannot close.
+	// ArmStart resets it, mirroring the startGate.stopping seal/ArmStart pairing,
+	// so a prior generation's Stop never poisons a later generation's refusal into close-without-response.
 	refuseStopped bool
-	// refuseConn is the socket owned by an in-flight refuseExtraConn call, published only after
-	// the helper observes !refuseStopped under refuseMu; nil otherwise.
-	// Stop (haltRefusal) closes whatever is here so a parked io.ReadFull unblocks immediately
-	// instead of holding Stop's g.accept.Wait for the full T7 deadline.
+	// refuseConn is the socket owned by an in-flight refuseExtraConn call, published only after the helper observes !refuseStopped under refuseMu; nil otherwise.
+	// Stop (haltRefusal) closes whatever is here so a parked io.ReadFull unblocks immediately instead of holding Stop's g.accept.Wait for the full T7 deadline.
 	refuseConn net.Conn
+	// refuseToken is a monotonically incremented publish counter, guarded by refuseMu.
+	// WithListener permits a custom net.Conn whose dynamic type may be non-comparable,
+	// so refuseExtraConn's own cleanup cannot use "==" against refuseConn to decide whether it still owns the published slot
+	// (that comparison panics for a non-comparable dynamic type).
+	// Each publish increments the counter and captures it locally;
+	// the cleanup clears the slot only if the counter still matches, i.e. no later publish has superseded it.
+	// refuseExtraConn runs serially inside acceptLoop and Stop joins acceptLoop (g.accept.Wait) before ArmStart lets a successor generation publish,
+	// so within one generation at most one token is ever live —
+	// the comparison exists only to make cleanup a no-op if Stop's haltRefusal already cleared the slot.
+	refuseToken uint64
 
 	// refusePrePublishHook is a test-only, nil-by-default seam (style of the injectable clock,
 	// see now/clock()) invoked by refuseExtraConn between Accept returning and publishing the
@@ -247,6 +253,7 @@ func (t *transport) ArmStart() {
 	t.refuseMu.Lock()
 	t.refuseStopped = false
 	t.refuseConn = nil
+	t.refuseToken = 0
 	t.refuseMu.Unlock()
 }
 

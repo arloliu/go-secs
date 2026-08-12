@@ -116,7 +116,8 @@
 //
 // Concretely: the extra socket is given a single absolute deadline —
 // [github.com/arloliu/go-secs/v2/hsms.WithT7]'s configured T7, armed once before the first read and covering the whole read-and-write exchange, never cleared or extended.
-// If the one frame read within that deadline decodes to exactly a bare Select.req (a 10-byte header, no body — HSMS control frames carry none), the socket is answered with a Select.rsp carrying status 1 (Communication Already Active) before it closes.
+// If the one frame read within that deadline decodes to exactly a bare Select.req (a 10-byte header, no body — HSMS control frames carry none),
+// the socket is answered with a Select.rsp carrying status 1 (Communication Already Active) before it closes.
 // Anything else — a different frame, a decode failure, or a read that does not complete before the deadline —
 // closes the socket unanswered, with no reply sent.
 // Extra connections are refused SERIALLY, one dialer at a time;

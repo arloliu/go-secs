@@ -8,16 +8,15 @@ import (
 	"github.com/arloliu/go-secs/v2/secs2"
 )
 
-// MaxMessageSize is the upper bound, in bytes, on one on-wire HSMS message: the 10-byte header
-// plus the SECS-II body (SEMI E37 §10.1 item 4 — the Message Length field limits a message to a
-// system-defined maximum). go-secs uses secs2.MaxByteSize (2^24-1, the ceiling of a single
-// SECS-II item's own 3-byte length field, SEMI E5 §9.2) as that system-defined maximum for both
-// the receive path (decode.go) and the send path (buildFrameBuffers in connection_send.go).
+// MaxMessageSize is the upper bound, in bytes, on one on-wire HSMS message:
+// the 10-byte header plus the SECS-II body (SEMI E37 §10.1 item 4) —
+// the Message Length field limits a message to a system-defined maximum.
+// go-secs uses secs2.MaxByteSize (2^24-1, the ceiling of a single SECS-II item's own 3-byte length field, SEMI E5 §9.2) as that system-defined maximum for both the receive path (decode.go)
+// and the send path (buildFrameBuffers in connection_send.go).
 //
-// A single item's own length field is bounded independently by the same value, so the largest
-// possible single-item message (item header + item payload + the 10-byte HSMS header) does not
-// itself fit inside MaxMessageSize: MaxMessageSize is a whole-frame ceiling, not a guarantee
-// that any maximal single item can be sent standalone.
+// A single item's own length field is bounded independently by the same value,
+// so the largest possible single-item message (item header + item payload + the 10-byte HSMS header) does not itself fit inside MaxMessageSize:
+// MaxMessageSize is a whole-frame ceiling, not a guarantee that any maximal single item can be sent standalone.
 const MaxMessageSize = secs2.MaxByteSize
 
 // maxHSMSMsgLen is the internal name for MaxMessageSize used throughout decode.go and
@@ -125,9 +124,8 @@ func decodeOwnedFrame(owned []byte) (Message, error) {
 	case SelectReqType, SelectRspType, DeselectReqType, DeselectRspType,
 		LinktestReqType, LinktestRspType, RejectReqType, SeparateReqType:
 		// E37 §9.3.3.1: control frames must have message length exactly 10 (header only, no body).
-		// The transport layer in hsmsss/transport_recv.go also checks this and answers with Reject.req
-		// to keep the link alive; the decoder check here provides an additional safety net that covers
-		// all three public entry points (DecodeHSMSMessage, DecodeHSMSPayload, DecodeOwnedHSMSPayload).
+		// The transport layer in hsmsss/transport_recv.go also checks this and answers with Reject.req to keep the link alive;
+		// the decoder check here provides an additional safety net that covers all three public entry points (DecodeHSMSMessage, DecodeHSMSPayload, DecodeOwnedHSMSPayload).
 		if len(owned) != 10 {
 			return nil, fmt.Errorf("control frame carries a body: message length %d (expected 10): %w",
 				len(owned), ErrControlFrameWithBody)

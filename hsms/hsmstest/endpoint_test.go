@@ -27,6 +27,30 @@ func (m fakeStreamSECS2Message) Item() secs2.Item   { return secs2.NewEmptyItem(
 
 var _ secs2.SECS2Message = fakeStreamSECS2Message{}
 
+// flipFunctionSECS2Message is a secs2.SECS2Message stub whose FunctionCode() is call-sensitive:
+// it returns an odd value on the first call and an even value on every call after.
+// It reproduces the TOCTOU attack shape hsms.session.SendSECS2Message defends against, and proves
+// FakeEndpoint.SendSECS2Message mirrors that same single-read discipline.
+type flipFunctionSECS2Message struct {
+	calls int
+}
+
+func (m *flipFunctionSECS2Message) StreamCode() byte { return 1 }
+
+func (m *flipFunctionSECS2Message) FunctionCode() byte {
+	m.calls++
+	if m.calls == 1 {
+		return 1 // odd: passes the guard
+	}
+
+	return 2 // even: would poison construction if re-read
+}
+
+func (m *flipFunctionSECS2Message) WaitBit() bool    { return true }
+func (m *flipFunctionSECS2Message) Item() secs2.Item { return secs2.NewEmptyItem() }
+
+var _ secs2.SECS2Message = (*flipFunctionSECS2Message)(nil)
+
 func erroredItem(t *testing.T) secs2.Item {
 	t.Helper()
 	item := secs2.NewIntItem(3) // invalid byteSize -> deferred error
@@ -206,15 +230,18 @@ func TestFakeEndpoint_SendDataMessage_InvalidConstruction(t *testing.T) {
 		assert.Empty(t, ep.Sent())
 	})
 
-	t.Run("W-bit on even function", func(t *testing.T) {
+	t.Run("even function", func(t *testing.T) {
 		t.Parallel()
 		ep := hsmstest.NewFakeEndpoint()
 		scripted, scriptErr := hsms.NewDataMessage(1, 2, false, 0, [4]byte{}, secs2.NewEmptyItem())
 		require.NoError(t, scriptErr)
 		ep.ScriptReply(scripted, nil)
 
+		// Mirrors the real session's odd-function guard (hsms.session.SendDataMessage): an even
+		// function is refused before NewDataMessage runs, so this predates and supersedes the
+		// old ErrInvalidRspMsg the fake used to surface from construction.
 		_, err := ep.SendDataMessage(context.Background(), 1, 2, true, secs2.NewEmptyItem())
-		require.ErrorIs(t, err, hsms.ErrInvalidRspMsg)
+		require.ErrorIs(t, err, hsms.ErrEvenFunctionPrimary)
 		assert.Empty(t, ep.Sent())
 
 		// The scripted reply must still be available: the invalid call above must not have
@@ -252,11 +279,27 @@ func TestFakeEndpoint_SendDataMessageAsync_InvalidConstruction(t *testing.T) {
 		assert.Empty(t, ep.Sent())
 	})
 
-	t.Run("W-bit on even function", func(t *testing.T) {
+	t.Run("even function", func(t *testing.T) {
 		t.Parallel()
 		ep := hsmstest.NewFakeEndpoint()
+		// Mirrors the real session's odd-function guard (hsms.session.SendDataMessageAsync):
+		// an even function is refused before NewDataMessage runs, so this predates and
+		// supersedes the old ErrInvalidRspMsg the fake used to surface from construction.
+		// replyExpected=true also exercises guard precedence: the odd-function check must win
+		// over the replyExpected check, matching the real session's check order.
 		err := ep.SendDataMessageAsync(context.Background(), 1, 2, true, secs2.NewEmptyItem())
-		require.ErrorIs(t, err, hsms.ErrInvalidRspMsg)
+		require.ErrorIs(t, err, hsms.ErrEvenFunctionPrimary)
+		assert.Empty(t, ep.Sent())
+	})
+
+	t.Run("reply expected on async send", func(t *testing.T) {
+		t.Parallel()
+		ep := hsmstest.NewFakeEndpoint()
+		// Mirrors the real session's replyExpected guard (hsms.session.SendDataMessageAsync,
+		// SEMI E37 §9.4.1.2): the async path never begins a reply timer, so replyExpected=true
+		// is refused before NewDataMessage runs.
+		err := ep.SendDataMessageAsync(t.Context(), 1, 1, true, secs2.NewEmptyItem())
+		require.ErrorIs(t, err, hsms.ErrAsyncReplyExpected)
 		assert.Empty(t, ep.Sent())
 	})
 
@@ -280,15 +323,18 @@ func TestFakeEndpoint_SendSECS2Message_InvalidConstruction(t *testing.T) {
 		assert.Empty(t, ep.Sent())
 	})
 
-	t.Run("W-bit on even function", func(t *testing.T) {
+	t.Run("even function", func(t *testing.T) {
 		t.Parallel()
 		ep := hsmstest.NewFakeEndpoint()
 		scripted, scriptErr := hsms.NewDataMessage(1, 2, false, 0, [4]byte{}, secs2.NewEmptyItem())
 		require.NoError(t, scriptErr)
 		ep.ScriptReply(scripted, nil)
 
+		// Mirrors the real session's odd-function guard (hsms.session.SendSECS2Message): an even
+		// function is refused before NewDataMessage runs, so this predates and supersedes the
+		// old ErrInvalidRspMsg the fake used to surface from construction.
 		_, err := ep.SendSECS2Message(context.Background(), secs2.NewMessage(1, 2, true, secs2.NewEmptyItem()))
-		require.ErrorIs(t, err, hsms.ErrInvalidRspMsg)
+		require.ErrorIs(t, err, hsms.ErrEvenFunctionPrimary)
 		assert.Empty(t, ep.Sent())
 
 		got, err := ep.SendSECS2Message(context.Background(), secs2.NewMessage(1, 1, true, secs2.NewEmptyItem()))
@@ -311,6 +357,31 @@ func TestFakeEndpoint_SendSECS2Message_InvalidConstruction(t *testing.T) {
 		require.NoError(t, err)
 		assert.Same(t, scripted, got)
 	})
+}
+
+// TestFakeEndpoint_SendSECS2Message_SnapshotsFunctionCode proves FakeEndpoint.SendSECS2Message
+// reads FunctionCode() exactly once and both validates and records from that single snapshot,
+// mirroring hsms.session.SendSECS2Message's TOCTOU fix.
+// For a stub returning odd on the first
+// call and even on every call after, the guard passes (the snapshot is odd) and the recorded
+// message must carry that same odd function.
+func TestFakeEndpoint_SendSECS2Message_SnapshotsFunctionCode(t *testing.T) {
+	t.Parallel()
+
+	ep := hsmstest.NewFakeEndpoint()
+	scripted, scriptErr := hsms.NewDataMessage(1, 2, false, 0, [4]byte{}, secs2.NewEmptyItem())
+	require.NoError(t, scriptErr)
+	ep.ScriptReply(scripted, nil)
+
+	msg := &flipFunctionSECS2Message{}
+	got, err := ep.SendSECS2Message(t.Context(), msg)
+	require.NoError(t, err, "the first-read snapshot is odd, so the guard must pass and the send must proceed")
+	require.Same(t, scripted, got)
+	require.Equal(t, 1, msg.calls, "FunctionCode must be read exactly once, never re-read for construction")
+
+	sent := ep.Sent()
+	require.Len(t, sent, 1)
+	require.Equal(t, uint8(1), sent[0].Message.Function(), "the recorded message must use the first-read (odd) snapshot")
 }
 
 func TestFakeEndpoint_ReplyDataMessage_InvalidConstruction(t *testing.T) {

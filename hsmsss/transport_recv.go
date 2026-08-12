@@ -107,14 +107,12 @@ func (t *transport) dispatchFrame(genCtx context.Context, g *genWG, frame []byte
 
 	msgType := hsms.MsgType(sType)
 
-	// Control frames are header-only (E37 §9.3.3.1): a standard control SType MUST have
-	// PType 0 and Message Length EXACTLY 10. Only a data message (SType 0) carries a body
-	// (len >= 10, empty body permitted). A control frame with a body is malformed → Reject.
-	// Note: the decoder also enforces this check (hsms/decode.go, decodeOwnedFrame) to cover
-	// all three public entry points.
+	// Control frames are header-only (E37 §9.3.3.1): a standard control SType MUST have PType 0 and Message Length EXACTLY 10.
+	// Only a data message (SType 0) carries a body (len >= 10, empty body permitted).
+	// A control frame with a body is malformed → Reject.
+	// Note: the decoder also enforces this check (hsms/decode.go, decodeOwnedFrame) to cover all three public entry points.
 	// The transport check here must remain because it answers with Reject.req and keeps the link alive,
-	// which the decoder cannot do (a decode error is a protocol failure that the link supervisor handles
-	// by reading the next frame).
+	// which the decoder cannot do (a decode error is a protocol failure that the link supervisor handles by reading the next frame).
 	if msgType != hsms.DataMsgType && len(frame) != 10 {
 		t.sendReject(frame, pType, sType)
 		return true
