@@ -5,6 +5,63 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] - 2026-08-12
+
+Security and performance patch.
+No public API changes, and one deliberate behavior narrowing: SML input nesting deeper than
+`secs2.MaxListDepth` is now rejected (see Changed).
+
+Everything here came out of a QA review of the v2 packages and the per-commit review loop that
+followed it.
+
+### Security
+
+- `sml`: the parser sized allocations from the declared item-count token (`[n]` / `[n..m]`), which
+  is attacker-controlled and bounded only by `math.MaxInt32`. A 29-byte message could demand
+  multiple gigabytes before a single payload byte was inspected, and strict-mode ASCII reached
+  ~1.9 GB from 25 bytes by growing its string builder the same way. Every such hint is now clamped
+  to the bytes actually left to parse.
+- `sml`: strict mode accumulated each unquoted numeric token one rune at a time. Go strings are
+  immutable, so that copied quadratically — a 195 KB token reached roughly 19 GB before the token
+  was even validated. The token is now sliced from the input at its delimiter, which is linear.
+- `sml`: list parsing recursed once per nesting level with no budget, so nesting in the text mapped
+  onto stack depth. Around two million levels — a 14 MB message — aborted the process with a stack
+  overflow, which Go treats as a fatal error rather than a panic, so callers could not defend
+  themselves with `recover`. Nesting is now bounded.
+
+### Changed
+
+- `sml`: list nesting is capped at `secs2.MaxListDepth` (64), the same ceiling the wire decoder has
+  always enforced, and deeper input returns a `*ParseError` carrying its position. This narrows
+  which inputs parse. Messages nested deeper than 64 could never round-trip — `secs2.Decode`
+  already rejected them — so they were unusable on the wire regardless. Real SECS-II messages nest
+  a handful of levels; nothing in this repository builds deeper than four.
+- `secs1`: block transmission appends into a send buffer owned by the line engine instead of
+  building each block from a nil slice, removing 792 B/op and 4 allocs/op from the hot send path.
+- `secs2`: `Equal` compares the underlying item fields directly instead of going through accessors
+  that clone their value slices only to discard them, removing 160 B/op and 2 allocs/op per
+  comparison on a path `hsms.Equal` uses per message.
+
+### Removed
+
+- `internal/pool`: `GetTimer` no longer guards a channel drain on a condition that could not hold,
+  since timers only enter the pool through `PutTimer`, which stops them first.
+
+### Tests
+
+- `hsms`: fuzz targets for the payload decode entry points, including the zero-copy path that
+  adopts the caller's buffer.
+- `hsmsss`, `secs1`: the sealed-start abort on both HSMS-SS roles and on SECS-I passive start,
+  where a stop racing a start must close the socket it just opened, plus the listen-failure paths.
+- `logger` coverage rose from 31% to 92%, `logger/loggertest` from 9% to 100%, and
+  `hsms/hsmstest` from 74% to 85%.
+
+### Known follow-ups
+
+- A caller that programmatically builds a list tree deeper than 64 can still reach the recursive
+  SML and SECS-II encoders. Untrusted input can no longer produce such a tree, since the parser and
+  the wire decoder both cap at 64, so this is follow-up hardening rather than a live exposure.
+
 ## [2.3.0] - 2026-08-12
 
 Conformance release, widening scope from v2.2.0's HSMS-SS (SEMI E37.1) axis to the shared `hsms` engine
