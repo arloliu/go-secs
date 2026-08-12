@@ -125,8 +125,12 @@ func TestT7_DeselectReArms(t *testing.T) {
 // joins it (the generation's T7 WaitGroup), so Stop returns promptly and no T7 goroutine leaks;
 // T7Expired never fires.
 //
-// Teeth: a long T7 (10s) means that without Stop cancelling the goroutine, waitT7Exit would time
-// out (the goroutine would still be parked on the 10s timer) — proving Stop actually reaps it.
+// Teeth: waitT7Exit's own bound (15s) is wider than this test's 10s T7, so a broken Stop would
+// still let the dwell's own timer expire and drain the WaitGroup naturally within that bound —
+// waitT7Exit alone cannot tell a cancelled dwell from one that simply ran out the clock.
+// The real teeth is the next line's require.Zero(t, rt.t7ExpiredCalls()): a naturally-expired T7
+// sets the count to 1, so only a dwell Stop genuinely cancelled — never one merely outlasted by
+// the wait bound — passes.
 func TestT7_NoGoroutineOutlivesStop(t *testing.T) {
 	t.Parallel()
 
