@@ -68,9 +68,9 @@ its failure mode is a hang, not an error.
   connection.
 - **`hsmsss`: `ConnectionMetrics.LinktestErrCount` no longer counts a linktest aborted by connection
   teardown.**
-  A `Close` (or a Deselect/drop) racing an in-flight auto-linktest could abort its reply wait with the
-  same error a genuine failure produces, before the teardown was observably in progress, and get counted
-  as if the round-trip itself had failed.
+  A `Close` (or a Deselect/drop) racing an in-flight auto-linktest could abort its reply wait before the
+  teardown was observably in progress, and the old classification could not tell that abort apart from a
+  genuine round-trip failure, so it was counted as one.
   Only a genuine round-trip failure — a T6 timeout, or a write error on a still-live link — counts now.
 
 ### Added
