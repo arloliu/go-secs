@@ -14,7 +14,7 @@ Does not own the item model (`secs2`) or message construction rules (`hsms`). Pa
 
 # Entries
 
-None yet — this unit fills on miss via `/memex capture`.
+* [Parser allocation bounds](/sml/prealloc-bound.md) - keeps attacker-controlled text from driving oversized allocations.
 
 # Entry points
 
