@@ -362,7 +362,7 @@ func (p *Parser) parseItem() (secs2.Item, error) {
 }
 
 func (p *Parser) parseList(size int) (secs2.Item, error) {
-	childItems := make([]secs2.Item, 0, size)
+	childItems := make([]secs2.Item, 0, capHint(size, len(p.data)))
 
 	for {
 		switch ch := p.peekNonSpaceRune(); ch {
@@ -401,7 +401,10 @@ func (p *Parser) parseList(size int) (secs2.Item, error) {
 //
 //nolint:cyclop
 func (p *Parser) parseASCIIStrict(size int) (secs2.Item, error) {
-	var numStr string
+	// numStart is where the current unquoted numeric token begins in p.data.
+	// The token is sliced out at its delimiter rather than accumulated rune by rune,
+	// so a long malformed token costs one slice instead of quadratic string copying.
+	numStart := 0
 
 	// Determine quoteChar from input: scan for the first ' or " before the closing >.
 	// Default to '"' when the item contains only numeric tokens (no quoted run).
@@ -420,7 +423,7 @@ func (p *Parser) parseASCIIStrict(size int) (secs2.Item, error) {
 	isNumStr := false
 	isEscapedCh := false
 	var sb strings.Builder
-	sb.Grow(size)
+	sb.Grow(capHint(size, len(p.data)))
 
 	for i, ch := range p.data {
 		switch {
@@ -462,7 +465,7 @@ func (p *Parser) parseASCIIStrict(size int) (secs2.Item, error) {
 			switch ch {
 			case ' ':
 				isNumStr = false
-				val, err := strconv.ParseUint(numStr, 0, 0)
+				val, err := strconv.ParseUint(p.data[numStart:i], 0, 0)
 				if err != nil {
 					return nil, p.errf("invalid ASCII numeric byte: %v", err)
 				}
@@ -470,10 +473,9 @@ func (p *Parser) parseASCIIStrict(size int) (secs2.Item, error) {
 					return nil, p.errf("non-printable char out of latin-1 range, got %d", val)
 				}
 				sb.WriteByte(byte(val))
-				numStr = ""
 			case '>':
 				// trailing numeric token: append the byte, forward past '>', and return.
-				val, err := strconv.ParseUint(numStr, 0, 0)
+				val, err := strconv.ParseUint(p.data[numStart:i], 0, 0)
 				if err != nil {
 					return nil, p.errf("invalid ASCII numeric byte: %v", err)
 				}
@@ -485,7 +487,7 @@ func (p *Parser) parseASCIIStrict(size int) (secs2.Item, error) {
 
 				return secs2.NewASCIIItem(sb.String()), nil
 			default:
-				numStr += string(ch)
+				// Part of the current token; it is sliced out at the delimiter.
 			}
 
 		// not quoted string and number string
@@ -499,12 +501,8 @@ func (p *Parser) parseASCIIStrict(size int) (secs2.Item, error) {
 				p.forward(i + 1)
 				return secs2.NewASCIIItem(sb.String()), nil
 			default:
-				if !isNumStr {
-					numStr = string(ch)
-					isNumStr = true
-				} else {
-					sb.WriteRune(ch)
-				}
+				numStart = i
+				isNumStr = true
 			}
 		}
 	}
@@ -671,7 +669,7 @@ func (p *Parser) parseLocalizedStr() (secs2.Item, error) {
 }
 
 func (p *Parser) parseBoolean(size int) (secs2.Item, error) {
-	items := make([]bool, 0, size)
+	items := make([]bool, 0, capHint(size, len(p.data)))
 	start := p.pos
 	values := p.getItemValueStrings()
 
@@ -690,7 +688,7 @@ func (p *Parser) parseBoolean(size int) (secs2.Item, error) {
 }
 
 func (p *Parser) parseBinary(size int) (secs2.Item, error) {
-	items := make([]byte, 0, size)
+	items := make([]byte, 0, capHint(size, len(p.data)))
 	start := p.pos
 	values := p.getItemValueStrings()
 
@@ -711,7 +709,7 @@ func (p *Parser) parseBinary(size int) (secs2.Item, error) {
 }
 
 func (p *Parser) parseFloat(byteSize int, size int) (secs2.Item, error) {
-	items := make([]float64, 0, size)
+	items := make([]float64, 0, capHint(size, len(p.data)))
 	start := p.pos
 	values := p.getItemValueStrings()
 
@@ -732,7 +730,7 @@ func (p *Parser) parseFloat(byteSize int, size int) (secs2.Item, error) {
 }
 
 func (p *Parser) parseInt(byteSize int, size int) (secs2.Item, error) {
-	items := make([]int64, 0, size)
+	items := make([]int64, 0, capHint(size, len(p.data)))
 	start := p.pos
 	values := p.getItemValueStrings()
 
@@ -753,7 +751,7 @@ func (p *Parser) parseInt(byteSize int, size int) (secs2.Item, error) {
 }
 
 func (p *Parser) parseUint(byteSize int, size int) (secs2.Item, error) {
-	items := make([]uint64, 0, size)
+	items := make([]uint64, 0, capHint(size, len(p.data)))
 	start := p.pos
 	values := p.getItemValueStrings()
 
@@ -1082,6 +1080,19 @@ func (p *Parser) nextItemSize() (int, error) {
 	}
 
 	return 0, p.errf("invalid item size")
+}
+
+// capHint bounds a preallocation hint against the bytes actually left to parse.
+//
+// size comes straight off the SML declared-count token (`[n]` or `[n..m]`).
+// It is attacker-controlled and bounded only by math.MaxInt32, never by the input actually present.
+// Uncapped, it lets `<U1[2000000000] 1 2 3>` demand gigabytes before any payload byte is read.
+//
+// remaining is len(p.data) at the call site.
+// Every element still to be produced consumes at least one input byte, so it bounds what may follow.
+// Counts matching the remaining input are unaffected; the buffer still grows past the hint.
+func capHint(size, remaining int) int {
+	return min(size, remaining)
 }
 
 func toUpperRune(ch rune) rune {
