@@ -105,6 +105,9 @@ func (r replyRegistry) route(key [4]byte, res replyResult, strict bool) (deliver
 	if w.isData {
 		if dm, ok := res.msg.(*DataMessage); ok {
 			streamMismatch := dm.Stream() != w.stream
+			// w.function is uint8, so a primary with function 255 makes w.function+1 wrap to 0 —
+			// this coincides harmlessly with the F0 exception, since F0 is the only legal
+			// secondary for a function-255 primary anyway.
 			functionMismatch := dm.Function() != w.function+1 && dm.Function() != 0
 			if streamMismatch || functionMismatch {
 				mismatched = true

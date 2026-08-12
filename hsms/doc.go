@@ -128,8 +128,12 @@
 // raising the cap to fit one maximum-size item would loosen an inbound DoS bound chosen to reject an attacker-controlled length before allocating a frame buffer.
 //
 // 5. Maximum expected size of messages sent.
-// Every send and forward path — [Connection.SendDataMessage], [Connection.SendDataMessageAsync], [Connection.SendSECS2Message], [Connection.ForwardDataMessage], and [Connection.ForwardDataMessageAsync] — shares one enforcement point at the wire-framing layer:
+// Every send and forward path — [SECS2Endpoint.SendDataMessage], [SECS2Endpoint.SendDataMessageAsync], [SECS2Endpoint.SendSECS2Message], [SECS2Endpoint.ForwardDataMessage], and [SECS2Endpoint.ForwardDataMessageAsync] — shares one enforcement point at the wire-framing layer:
 // an outbound message whose encoded frame would exceed [MaxMessageSize] is rejected with [ErrMessageTooLarge] before it reaches the wire.
+// The synchronous paths (SendDataMessage, SendSECS2Message, ForwardDataMessage) return the error directly;
+// the async paths (SendDataMessageAsync, ForwardDataMessageAsync) enqueue first and hit the same check when the
+// async sender drains the queue, so the rejection surfaces through the async-send error counter and
+// WithAsyncSendErrorHandler rather than through the call's return value.
 // Send and receive share one cap by design, so the same max-item limitation from item 4 applies in both directions.
 //
 // 6. Maximum number of supported concurrent open transactions.

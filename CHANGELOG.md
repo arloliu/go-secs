@@ -5,6 +5,107 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - Unreleased
+
+Conformance release, widening scope from v2.2.0's HSMS-SS (SEMI E37.1) axis to the shared `hsms` engine
+against SEMI E37 generic and `secs2` against SEMI E5.
+Full findings are in `docs/specs/secs2-hsms-conformance-audit.md`.
+
+**This release does not achieve full conformance, and does not claim to.**
+The default reconnect backoff still seeds at 100 ms rather than honoring the T5 connect-separation floor
+SEMI E37 §9.2.1.1 asks for after a terminated active connect.
+That default is unchanged here, deliberately: it is a documented product choice
+(`hsms.WithT5`, `hsms.WithReconnectBackoff` godoc), not an oversight, and
+`WithReconnectBackoff(t5, 1.0)` remains the conformant setting for anyone who wants it today.
+
+**Read this before upgrading if you send or receive HSMS data messages.**
+Several send-side changes reject constructs that used to reach the wire silently — see "Changed" below for the
+exact call that now returns an error.
+Two of those changes break the build, not just the behavior: `NewRejectReq`, `NewRejectReqRaw`, and
+`secs2.DecodeOwnedFrame` all gained a return value.
+Receive-side leniency is intentionally **not** tightened by default:
+the equipment on the other end of most of these connections cannot be patched,
+so this release adds observation (new counters and accessors) while leaving delivery exactly as it was,
+and puts the conformant behavior behind an opt-in.
+Read the `WithStrictReplyMatching` entry under "Added" carefully before turning it on —
+its failure mode is a hang, not an error.
+
+### Fixed
+
+- **`hsms`: an outbound data message that would exceed the maximum on-wire frame size is now rejected
+  instead of transmitted unbounded.**
+  Nothing previously stopped a caller from building a message whose encoded frame exceeded the same
+  16,777,215-byte ceiling (`MaxByteSize`/`MaxMessageSize`) the receive path has always enforced —
+  the send path had no check at all.
+  `SendDataMessage`, `SendSECS2Message`, and `ForwardDataMessage` now return the new
+  `hsms.ErrMessageTooLarge` before an oversized frame reaches the wire.
+  `SendDataMessageAsync` and `ForwardDataMessageAsync` enqueue onto the async send channel and cannot return
+  the error synchronously; the same check runs when the framing layer drains the queue, so an oversized
+  message is still rejected before it reaches the wire, surfaced through the async-send error counter and,
+  if configured, `WithAsyncSendErrorHandler` — not through the call's return value.
+  This was not a v2 regression: v1 had no outbound cap either.
+- **`hsms`: `GetRejectReasonCode` now accepts the full legal SEMI E37 Reject reason-code range, `[1, 255]`,**
+  instead of incorrectly rejecting the standard-reserved and local-entity range `5–255` as if it were undefined.
+  `ControlMessage.RejectReasonCode()` inherits the fix.
+  `ErrInvalidRejectReason`'s message is corrected to match.
+- **`hsms`: primary-send APIs now refuse an even function code.**
+  `SendDataMessage`, `SendDataMessageAsync`, and `SendSECS2Message` return the new
+  `hsms.ErrEvenFunctionPrimary` instead of putting an even-function, W-clear "primary" on the wire.
+  SEMI E5 §7.2 reserves odd function codes for primaries.
+  `ReplyDataMessage` and `ForwardDataMessage` are unaffected — both legitimately carry even functions.
+- **`hsms`: the exported frame decoders now reject a control frame that carries a body.**
+  `DecodeHSMSMessage`, `DecodeHSMSPayload`, and `DecodeOwnedHSMSPayload` return the new
+  `hsms.ErrControlFrameWithBody` for a non-zero-SType frame whose length is not exactly 10, per SEMI E37
+  §9.3.3.1.
+  The live `hsmsss` receive path already rejected this on the wire (with a Reject.req, to keep the link);
+  the gap was in the standalone decode APIs a proxy, log replayer, or test harness would use directly.
+- **`hsmsss`: a second dialer while a session is already live is now refused per SEMI E37 §9.2.4.1.1's
+  preferred option**, instead of being accepted and then silently closed.
+  The extra connection is accepted, given one bounded chance to send a bare `Select.req`, answered
+  `Select.rsp` status 1 (Communication Already Active), and closed.
+  Previously the peer's connect procedure completed successfully and the socket then closed with no Select
+  attempted and no status returned — indistinguishable, from the peer's side, from a random dropped
+  connection.
+
+### Added
+
+- **`hsms.MaxMessageSize`** — the exported name for the on-wire frame-size ceiling
+  (10-byte header + body) that the receive path already enforced and the send path now enforces too.
+- **`ConnectionMetrics.ReplyMismatchCount`** — counts a reply whose Stream or Function does not match its
+  primary's, per SEMI E37 §9.4.1, even though (by default) the reply is still delivered unchanged.
+  A nonzero count means a peer on this connection is not echoing Stream/Function correctly.
+- **`DataMessage.TrailingBytes()` / `DataMessageCodec.TrailingBytes()`** — the number of bytes past the first
+  complete SECS-II item in a message body.
+  Delivery is unchanged: the first item is still decoded and delivered normally.
+  A nonzero count means a peer is sending bodies with more than one item's worth of bytes,
+  which SEMI E5 §10.3.1.3(2) forbids but which this library has never rejected and still does not.
+- **`hsms.WithStrictReplyMatching`** — opt-in enforcement of the SEMI E37 §9.4.1 Stream/Function check that
+  `ReplyMismatchCount` only observes by default.
+  With it enabled, a mismatched candidate is a **miss** rather than a delivered reply: the message falls
+  through to the session's data handlers as unsolicited, and the original transaction keeps waiting for a
+  conforming reply until it hits **T3**.
+  **Enabling this against a peer that is sloppy about Stream/Function turns its previously-working (if wrong)
+  replies into T3 stalls — the first symptom is a hang, not an error.**
+  Soak under the default first and watch `ReplyMismatchCount`; enable strict mode only once it holds at zero.
+  Full SEMI E37 §9.4.1 enforcement is this option plus the existing `WithSessionIDValidation`.
+- **`hsms.ErrMessageTooLarge`, `ErrEvenFunctionPrimary`, `ErrAsyncReplyExpected`, `ErrControlFrameWithBody`**
+  — new error sentinels for the four send/decode rejections above and below.
+
+### Changed
+
+- **`hsms.NewRejectReq` and `hsms.NewRejectReqRaw` now return `(*ControlMessage, error)`** instead of a bare
+  `*ControlMessage` — **a compile-time break**; every call site needs a second return value.
+  Both now reject a zero reason code with `ErrInvalidRejectReason`, since SEMI E37 §8.3.21.3 never permits one.
+- **`secs2.DecodeOwnedFrame` now returns `(Item, int, error)`** instead of `(Item, error)` — **a compile-time
+  break**; the added `int` is the new trailing-byte count described under `TrailingBytes()` above.
+- **`hsms.SendDataMessageAsync` now refuses `replyExpected: true`**, returning the new
+  `hsms.ErrAsyncReplyExpected`.
+  The asynchronous send path never began a T3 reply timer for a W-bit primary, which SEMI E37 §9.4.1.2 requires
+  unconditionally; callers that need a reply-bearing transaction must use `SendDataMessage` instead.
+- **`ConnectionMetrics.DataMsgErrCount` no longer counts a send rejected by the new `MaxMessageSize` check.**
+  An oversized-message rejection never touches the wire — it is a caller-side condition, not a transport
+  failure — so counting it would have inflated a transport/protocol-health signal with an application bug.
+
 ## [2.2.0] - 2026-08-11
 
 Conformance release.

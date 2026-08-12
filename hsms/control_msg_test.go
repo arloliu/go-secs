@@ -345,7 +345,7 @@ func TestGetRejectReasonCode_ErrorOnNonReject(t *testing.T) {
 }
 
 // TestGetRejectReasonCode_AcceptsSubsidiaryAndLocalEntityRange verifies that reason codes
-// 4-127 (reserved for subsidiary standards) and 128-255 (reserved for local entities) are
+// 5-127 (reserved for subsidiary standards) and 128-255 (reserved for local entities) are
 // accepted by GetRejectReasonCode, per SEMI E37 Table 9.
 func TestGetRejectReasonCode_AcceptsSubsidiaryAndLocalEntityRange(t *testing.T) {
 	tests := []struct {
