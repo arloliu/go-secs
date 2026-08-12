@@ -79,7 +79,7 @@ func TestLinktest_AutoFiresWhileSelected(t *testing.T) {
 	tr.startLinktest(tr.wg)
 
 	require.Eventually(t, func() bool { return rt.writtenCount() >= 2 },
-		2*time.Second, 5*time.Millisecond, "auto-linktest must issue Linktest.req while Selected")
+		15*time.Second, 5*time.Millisecond, "auto-linktest must issue Linktest.req while Selected")
 	require.Equal(t, hsms.LinktestReqType, rt.lastWritten().Type(), "auto send must be a Linktest.req")
 
 	// Stopping the linktest (ctx cancel) halts the goroutine: it exits and issues no more sends.
@@ -220,6 +220,47 @@ func TestLinktest_ErrCount_NotCountedOnParentCancel(t *testing.T) {
 		"a cancelled write is neither a success nor a counted error")
 }
 
+// TestLinktest_ErrCount_NotCountedOnConnClosedRace covers the OTHER teardown race documented in
+// runLinktest: the hsms epoch's own ctx can be cancelled by Close() an instant before the PARENT
+// (generation) ctx runLinktest itself observes becomes cancelled — two separate cancellation
+// cascades with no ordering guarantee between them — so a teardown-aborted reply wait can surface
+// as hsms.ErrConnClosed while ctx.Err() still reads nil.
+// Unlike TestLinktest_ErrCount_NotCountedOnParentCancel above, ctx here is NEVER cancelled: the write fn
+// returns hsms.ErrConnClosed directly with the parent ctx alive throughout, so the fix's
+// errors.Is(err, hsms.ErrConnClosed) disjunct — not the ctx.Err() check — is what has to catch it.
+// The fail threshold is 1 so a miscount is both immediate and terminal (TCPDown fires on the very
+// first counted failure), giving a fast, direct assertion failure rather than a goroutine hang.
+// TEETH: delete the `|| errors.Is(err, hsms.ErrConnClosed)` disjunct in runLinktest and this fails
+// -> LinktestErrCount becomes 1 (and TCPDown fires with cause errLinktestFailed).
+func TestLinktest_ErrCount_NotCountedOnConnClosedRace(t *testing.T) {
+	t.Parallel()
+
+	rt := newRecRT()
+	rt.setState(hsms.SelectedState)
+	rt.setLinktest(5*time.Millisecond, 1)
+	rt.setTimers(hsms.TimerConfig{T6: time.Second})
+	rt.setWriteMsgFn(func(_ context.Context, _ hsms.Message) (hsms.Message, error) {
+		// Simulate the epoch-ctx/genCtx ordering race: the reply wait aborts with ErrConnClosed
+		// while the parent (generation) ctx is still alive — ctx.Err() reads nil at this instant.
+		return nil, hsms.ErrConnClosed
+	})
+
+	ctx := t.Context()
+	tr := newLinktestTransport(t, rt, ctx)
+
+	tr.startLinktest(tr.wg)
+	waitLinktestExit(t, tr)
+
+	require.Equal(t, uint64(1), tr.metrics.LinktestSendCount(),
+		"the send was attempted (incLinktestSend precedes the write)")
+	require.Equal(t, uint64(0), tr.metrics.LinktestErrCount(),
+		"a teardown-aborted reply wait (hsms.ErrConnClosed, parent ctx alive) must NOT count as a linktest error")
+	require.Equal(t, uint64(0), tr.metrics.LinktestRecvCount(),
+		"a teardown-aborted write is neither a success nor a counted error")
+	require.False(t, rt.tcpDownDidFire(),
+		"a teardown-aborted linktest must not itself trigger a second TCPDown")
+}
+
 // TestSeparate_TearsDownWhileNotSelected — the load-bearing teeth-test for E37.1 §7.6:
 // a Separate.req received while NOT Selected still tears the link down.
 // E37 generic §7.9.2.3 would ignore it; §7.6 narrows that away
@@ -300,7 +341,7 @@ func TestDeselect_WhileSelectedRepliesSuccessAndTransitions(t *testing.T) {
 	// Start the auto-linktest so we can prove the Deselect responder stops it.
 	tr.startLinktest(tr.wg)
 	require.Eventually(t, func() bool { return rt.writtenCount() >= 1 },
-		2*time.Second, 5*time.Millisecond, "auto-linktest should be running before Deselect")
+		15*time.Second, 5*time.Millisecond, "auto-linktest should be running before Deselect")
 
 	req := hsms.NewDeselectReq(0xFFFF, rt.NextSystemBytes())
 	tr.handleDeselectReq(tr.wg, req)

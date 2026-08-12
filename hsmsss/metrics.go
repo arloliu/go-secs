@@ -35,7 +35,9 @@ func (m *ConnectionMetrics) LinktestRecvCount() uint64 {
 
 // LinktestErrCount returns the cumulative number of failed initiator linktest attempts.
 //
-// A failure is defined as a T6 timeout or write error.
+// A failure is defined as a T6 timeout or a write error on a live link.
+// A linktest aborted by connection teardown (Close, Deselect, drop) is excluded —
+// that outcome is already signaled through the disconnect path, not this counter.
 // It only ever grows and is purely observational — it never influences the linktest-fail-threshold disconnect decision.
 func (m *ConnectionMetrics) LinktestErrCount() uint64 {
 	return m.linktestErr.Load()

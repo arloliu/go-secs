@@ -66,6 +66,12 @@ its failure mode is a hang, not an error.
   Previously the peer's connect procedure completed successfully and the socket then closed with no Select
   attempted and no status returned — indistinguishable, from the peer's side, from a random dropped
   connection.
+- **`hsmsss`: `ConnectionMetrics.LinktestErrCount` no longer counts a linktest aborted by connection
+  teardown.**
+  A `Close` (or a Deselect/drop) racing an in-flight auto-linktest could abort its reply wait with the
+  same error a genuine failure produces, before the teardown was observably in progress, and get counted
+  as if the round-trip itself had failed.
+  Only a genuine round-trip failure — a T6 timeout, or a write error on a still-live link — counts now.
 
 ### Added
 

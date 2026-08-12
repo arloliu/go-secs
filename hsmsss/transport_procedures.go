@@ -172,7 +172,14 @@ func (t *transport) runLinktest(ctx context.Context, g *genWG, interval time.Dur
 
 		if err != nil {
 			// A cancelled PARENT ctx (teardown / Deselect / drop) is not a linktest failure.
-			if ctx.Err() != nil {
+			// Nor is a reply wait aborted via hsms.ErrConnClosed: the hsms epoch's own ctx can be cancelled
+			// by Close() an instant before this goroutine's parent ctx (t.genCtx) becomes observably cancelled
+			// — two separate cancellation cascades with no ordering guarantee between them —
+			// so a teardown-aborted WriteMessage can return before ctx.Err() reads non-nil.
+			// A dead/closing connection is already signaled through the disconnect path.
+			// Counting it here too would double-signal, and worse, feed the consecutive-fail threshold below
+			// during an otherwise orderly teardown.
+			if ctx.Err() != nil || errors.Is(err, hsms.ErrConnClosed) {
 				return
 			}
 			t.metrics.incLinktestErr()
