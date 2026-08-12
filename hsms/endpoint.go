@@ -41,6 +41,8 @@ type SECS2Endpoint interface {
 	//
 	// When replyExpected is true, it waits for the matching secondary reply or a protocol/context timeout.
 	//
+	// function must be odd (SEMI E5 §7.2); an even function returns ErrEvenFunctionPrimary without sending anything.
+	//
 	// Returns the reply DataMessage on success.
 	SendDataMessage(ctx context.Context, stream, function byte, replyExpected bool, item secs2.Item) (*DataMessage, error)
 
@@ -48,11 +50,17 @@ type SECS2Endpoint interface {
 	//
 	// The message is enqueued on the per-generation async send channel.
 	// The caller is not blocked waiting for a reply; errors are surfaced only at the enqueue boundary.
+	//
+	// function must be odd (SEMI E5 §7.2); an even function returns ErrEvenFunctionPrimary without sending anything.
+	// replyExpected must be false: the async path never begins a reply timer (SEMI E37 §9.4.1.2), so a
+	// reply-expecting send returns ErrAsyncReplyExpected without sending anything; use SendDataMessage instead.
 	SendDataMessageAsync(ctx context.Context, stream, function byte, replyExpected bool, item secs2.Item) error
 
 	// SendSECS2Message sends a pre-constructed SECS-II message.
 	//
 	// It waits for the reply when the W-bit is set.
+	//
+	// msg's function must be odd (SEMI E5 §7.2); an even function returns ErrEvenFunctionPrimary without sending anything.
 	//
 	// Returns the reply DataMessage on success.
 	SendSECS2Message(ctx context.Context, msg secs2.SECS2Message) (*DataMessage, error)

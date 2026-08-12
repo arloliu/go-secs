@@ -225,3 +225,146 @@ func TestSession_SendDataMessage_wellFormedReplyReturnsNilErr(t *testing.T) {
 	require.NoError(t, err, "well-formed reply must return a nil error")
 	require.Same(t, replyMsg, dm)
 }
+
+// TestSession_SendDataMessage_RejectsEvenFunctionPrimary verifies that SendDataMessage refuses
+// an even-function send with ErrEvenFunctionPrimary (E5 §7.2): SendDataMessage always mints
+// fresh System Bytes, so it always opens a new transaction and is always a primary.
+func TestSession_SendDataMessage_RejectsEvenFunctionPrimary(t *testing.T) {
+	rt := newMockRuntime(t)
+	s := newSession(0xFFFF, rt, &sysBytesGen{})
+
+	dm, err := s.SendDataMessage(t.Context(), 1, 2, false, secs2.NewEmptyItem())
+	require.ErrorIs(t, err, ErrEvenFunctionPrimary)
+	require.Nil(t, dm)
+
+	rt.mu.Lock()
+	writeCalled := rt.writeCalled
+	rt.mu.Unlock()
+	require.False(t, writeCalled, "a refused send must never reach WriteMessage")
+}
+
+// TestSession_SendDataMessageAsync_RejectsEvenFunctionPrimary mirrors the odd-function guard for
+// the async entry point.
+func TestSession_SendDataMessageAsync_RejectsEvenFunctionPrimary(t *testing.T) {
+	rt := newMockRuntime(t)
+	s := newSession(0xFFFF, rt, &sysBytesGen{})
+
+	err := s.SendDataMessageAsync(t.Context(), 1, 2, false, secs2.NewEmptyItem())
+	require.ErrorIs(t, err, ErrEvenFunctionPrimary)
+
+	rt.mu.Lock()
+	asyncCalled := rt.asyncCalled
+	rt.mu.Unlock()
+	require.False(t, asyncCalled, "a refused send must never reach SendAsync")
+}
+
+// TestSession_SendSECS2Message_RejectsEvenFunctionPrimary mirrors the odd-function guard for the
+// secs2.SECS2Message entry point.
+func TestSession_SendSECS2Message_RejectsEvenFunctionPrimary(t *testing.T) {
+	rt := newMockRuntime(t)
+	s := newSession(0xFFFF, rt, &sysBytesGen{})
+
+	msg := secs2.NewMessage(1, 2, false, secs2.NewEmptyItem())
+	dm, err := s.SendSECS2Message(t.Context(), msg)
+	require.ErrorIs(t, err, ErrEvenFunctionPrimary)
+	require.Nil(t, dm)
+
+	rt.mu.Lock()
+	writeCalled := rt.writeCalled
+	rt.mu.Unlock()
+	require.False(t, writeCalled, "a refused send must never reach WriteMessage")
+}
+
+// TestSession_ReplyDataMessage_AllowsEvenFunction is the counter-assertion: ReplyDataMessage
+// derives an even function (primary.Function()+1) and must keep succeeding.
+// It catches an over-fix that places the odd-function guard in NewDataMessage instead of the
+// three primary entry points.
+func TestSession_ReplyDataMessage_AllowsEvenFunction(t *testing.T) {
+	rt := newMockRuntime(t)
+	s := newSession(0xFFFF, rt, &sysBytesGen{})
+
+	primary, err := NewDataMessage(1, 1, true, 0xFFFF, [4]byte{0, 0, 0, 1}, secs2.NewEmptyItem())
+	require.NoError(t, err)
+
+	err = s.ReplyDataMessage(t.Context(), primary, secs2.NewEmptyItem())
+	require.NoError(t, err)
+
+	rt.mu.Lock()
+	asyncMsg := rt.asyncMsg
+	rt.mu.Unlock()
+
+	dm, ok := asyncMsg.(*DataMessage)
+	require.True(t, ok)
+	require.Equal(t, uint8(2), dm.Function(), "reply function must be primary.Function()+1 (even)")
+}
+
+// TestSession_ForwardDataMessage_AllowsEvenFunction is the counter-assertion for the forward
+// path: ForwardDataMessage bypasses construction entirely and must forward an even-function
+// message verbatim.
+// It catches an over-fix that places the odd-function guard in NewDataMessage instead of the
+// three primary entry points.
+func TestSession_ForwardDataMessage_AllowsEvenFunction(t *testing.T) {
+	rt := newMockRuntime(t)
+	s := newSession(0xFFFF, rt, &sysBytesGen{})
+
+	evenMsg, err := NewDataMessage(1, 2, false, 0xFFFF, [4]byte{0, 0, 0, 1}, secs2.NewEmptyItem())
+	require.NoError(t, err)
+
+	err = s.ForwardDataMessage(t.Context(), evenMsg)
+	require.NoError(t, err)
+
+	rt.mu.Lock()
+	writeMsg := rt.writeMsg
+	rt.mu.Unlock()
+	require.Same(t, evenMsg, writeMsg, "ForwardDataMessage must forward the message verbatim")
+}
+
+// TestSession_SendDataMessageAsync_RejectsReplyExpected verifies that SendDataMessageAsync
+// refuses a send with replyExpected true: SendAsync never begins a reply timer (E37 §9.4.1.2),
+// so a W-bit primary sent through it can never be conformantly answered.
+// Reply-bearing transactions must go through SendDataMessage instead.
+func TestSession_SendDataMessageAsync_RejectsReplyExpected(t *testing.T) {
+	rt := newMockRuntime(t)
+	s := newSession(0xFFFF, rt, &sysBytesGen{})
+
+	err := s.SendDataMessageAsync(t.Context(), 1, 1, true, secs2.NewEmptyItem())
+	require.ErrorIs(t, err, ErrAsyncReplyExpected)
+
+	rt.mu.Lock()
+	asyncCalled := rt.asyncCalled
+	rt.mu.Unlock()
+	require.False(t, asyncCalled, "a refused send must never reach SendAsync")
+}
+
+// TestSession_SendDataMessageAsync_AllowsReplyExpectedFalse proves the replyExpected guard does
+// not disturb the ordinary fire-and-forget path.
+func TestSession_SendDataMessageAsync_AllowsReplyExpectedFalse(t *testing.T) {
+	rt := newMockRuntime(t)
+	s := newSession(0xFFFF, rt, &sysBytesGen{})
+
+	err := s.SendDataMessageAsync(t.Context(), 1, 1, false, secs2.NewEmptyItem())
+	require.NoError(t, err)
+
+	rt.mu.Lock()
+	asyncCalled := rt.asyncCalled
+	rt.mu.Unlock()
+	require.True(t, asyncCalled, "SendDataMessageAsync must still reach SendAsync when replyExpected is false")
+}
+
+// TestSession_SendDataMessageAsync_RejectsEvenFunctionAndReplyExpected covers the guard-order
+// case where both violations are present at once: an even function AND replyExpected true.
+// The even-function check runs first, so ErrEvenFunctionPrimary (not ErrAsyncReplyExpected) is
+// the error returned.
+func TestSession_SendDataMessageAsync_RejectsEvenFunctionAndReplyExpected(t *testing.T) {
+	rt := newMockRuntime(t)
+	s := newSession(0xFFFF, rt, &sysBytesGen{})
+
+	err := s.SendDataMessageAsync(t.Context(), 1, 2, true, secs2.NewEmptyItem())
+	require.ErrorIs(t, err, ErrEvenFunctionPrimary)
+	require.NotErrorIs(t, err, ErrAsyncReplyExpected)
+
+	rt.mu.Lock()
+	asyncCalled := rt.asyncCalled
+	rt.mu.Unlock()
+	require.False(t, asyncCalled, "a refused send must never reach SendAsync")
+}

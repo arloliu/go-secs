@@ -66,6 +66,22 @@ var (
 	// An inbound S9F1 is exempted from this check entirely — it is delivered normally regardless of its own SessionID,
 	// and this error is never returned for it (see WithSessionIDValidation for why).
 	ErrUnrecognizedSessionID = errors.New("hsms: unrecognized session ID")
+
+	// ErrEvenFunctionPrimary indicates a primary send was attempted with an even function code.
+	//
+	// SendDataMessage, SendDataMessageAsync, and SendSECS2Message each mint fresh System Bytes for
+	// every call, so every message sent through them always opens a new transaction and is always a
+	// primary (SEMI E5 §7.2: a primary function must be odd). A reply message must instead go through
+	// ReplyDataMessage, which derives its even function from the primary it answers.
+	ErrEvenFunctionPrimary = errors.New("hsms: primary function code must be odd")
+
+	// ErrAsyncReplyExpected indicates SendDataMessageAsync was called with replyExpected true.
+	//
+	// SendAsync enqueues a message without beginning a reply timer (SEMI E37 §9.4.1.2 requires a
+	// primary that expects a reply to begin one), so a W-bit primary sent through the async path
+	// can never be conformantly answered.
+	// Use SendDataMessage for a reply-bearing transaction.
+	ErrAsyncReplyExpected = errors.New("hsms: async send cannot expect a reply")
 )
 
 // RejectError is returned by a synchronous send whose transaction the peer answered with an HSMS Reject.req (SEMI E37 §7.10) instead of the expected reply.

@@ -112,7 +112,11 @@ func TestHSMS_StrandedSend_NoFrameAcrossGeneration(t *testing.T) {
 			for range strandedWorkers {
 				wg.Go(func() {
 					for !stop.Load() {
-						_ = active.conn.SendDataMessageAsync(ctx, 1, 1, true, secs2.A("race"))
+						// replyExpected is false: SendDataMessageAsync refuses a reply-expecting send
+						// outright (hsms.ErrAsyncReplyExpected, E37 §9.4.1.2 — the async path never
+						// begins a reply timer). The raw listener below never inspects the W-bit, so
+						// this is inert to the frame-isolation invariant under test.
+						_ = active.conn.SendDataMessageAsync(ctx, 1, 1, false, secs2.A("race"))
 						attempts.Add(1)
 					}
 				})
@@ -135,8 +139,9 @@ func TestHSMS_StrandedSend_NoFrameAcrossGeneration(t *testing.T) {
 			_ = rawConn.Close()
 			wg.Wait()
 
-			// Phase D: the post-Close gate must refuse sends.
-			require.Errorf(t, active.conn.SendDataMessageAsync(ctx, 1, 1, true, secs2.A("post-close")),
+			// Phase D: the post-Close gate must refuse sends. replyExpected is false so the assertion
+			// exercises the post-Close gate itself, not the unconditional async-reply-expected refusal.
+			require.Errorf(t, active.conn.SendDataMessageAsync(ctx, 1, 1, false, secs2.A("post-close")),
 				"generation %d: SendDataMessageAsync after Close must return an error", gen)
 
 			// Phase E: reopen for the next generation (the next Accept re-checks the invariant).
@@ -172,9 +177,11 @@ func TestHSMS_StrandedSend_PostCloseGateAndReopenHealthCheck(t *testing.T) {
 	waitSelected(t, passive)
 
 	// --- Gate check: Close, then SendDataMessageAsync must return an error ---
+	// replyExpected is false so the assertion exercises the post-Close gate itself, not the
+	// unconditional async-reply-expected refusal.
 	require.NoError(t, active.conn.Close())
 	require.Eventually(t, func() bool {
-		return active.conn.SendDataMessageAsync(ctx, 1, 1, true, secs2.A("post-close")) != nil
+		return active.conn.SendDataMessageAsync(ctx, 1, 1, false, secs2.A("post-close")) != nil
 	}, 2*time.Second, 5*time.Millisecond, "SendDataMessageAsync must return an error after Close")
 
 	// --- Reopen check: new generation reaches Selected and exchanges S1F1/S1F2 ---

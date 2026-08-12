@@ -67,9 +67,17 @@ func (s *session) SessionID() uint16 { return s.id }
 
 // SendDataMessage builds a primary data message and delegates to rt.WriteMessage.
 //
+// SendDataMessage always mints fresh System Bytes, so it always opens a new transaction and is
+// always a primary; function must be odd (SEMI E5 §7.2), or this returns ErrEvenFunctionPrimary
+// without sending anything.
+//
 // When replyExpected is true, WriteMessage waits for the T3-bounded reply; the B1 IsSelected gate, I1 inflight accounting,
 // and T3 timer enforcement are all owned by the engine (Task 12) inside WriteMessage — not here.
 func (s *session) SendDataMessage(ctx context.Context, stream, function byte, replyExpected bool, item secs2.Item) (*DataMessage, error) {
+	if function%2 == 0 {
+		return nil, ErrEvenFunctionPrimary
+	}
+
 	msg, err := NewDataMessage(stream, function, replyExpected, s.rt.SessionID(), s.sysGen.next(), item)
 	if err != nil {
 		return nil, err
@@ -98,8 +106,22 @@ func (s *session) SendDataMessage(ctx context.Context, stream, function byte, re
 
 // SendDataMessageAsync builds a data message and enqueues it on the per-generation async send channel via rt.SendAsync.
 //
-// No reply is awaited.
+// SendDataMessageAsync always mints fresh System Bytes, so it always opens a new transaction and
+// is always a primary; function must be odd (SEMI E5 §7.2), or this returns
+// ErrEvenFunctionPrimary without sending anything.
+//
+// No reply is awaited: SendAsync enqueues the message without beginning a reply timer, but SEMI
+// E37 §9.4.1.2 requires a primary that expects a reply to begin one.
+// So replyExpected must be false, or this returns ErrAsyncReplyExpected without sending anything;
+// use [SendDataMessage] for a reply-bearing transaction.
 func (s *session) SendDataMessageAsync(ctx context.Context, stream, function byte, replyExpected bool, item secs2.Item) error {
+	if function%2 == 0 {
+		return ErrEvenFunctionPrimary
+	}
+	if replyExpected {
+		return ErrAsyncReplyExpected
+	}
+
 	msg, err := NewDataMessage(stream, function, replyExpected, s.rt.SessionID(), s.sysGen.next(), item)
 	if err != nil {
 		return err
@@ -111,8 +133,16 @@ func (s *session) SendDataMessageAsync(ctx context.Context, stream, function byt
 // SendSECS2Message builds an HSMS DataMessage from a [secs2.SECS2Message] (stream, function, W-bit, item)
 // and delegates to rt.WriteMessage.
 //
+// SendSECS2Message always mints fresh System Bytes, so it always opens a new transaction and is
+// always a primary; msg's function must be odd (SEMI E5 §7.2), or this returns
+// ErrEvenFunctionPrimary without sending anything.
+//
 // Returns the reply DataMessage when the W-bit is set.
 func (s *session) SendSECS2Message(ctx context.Context, msg secs2.SECS2Message) (*DataMessage, error) {
+	if msg.FunctionCode()%2 == 0 {
+		return nil, ErrEvenFunctionPrimary
+	}
+
 	dm, err := NewDataMessage(
 		msg.StreamCode(), msg.FunctionCode(), msg.WaitBit(),
 		s.rt.SessionID(), s.sysGen.next(), msg.Item(),

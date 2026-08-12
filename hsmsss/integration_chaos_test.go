@@ -595,17 +595,24 @@ func TestChaos_RapidLinktestToggle(t *testing.T) {
 // ---------------------------------------------------------------------------
 // 11. TestChaos_ReplyDuringClose
 //
-// The proxy delays every passive->active reply by 500ms; the active fires an async W-bit S1F1, then
+// The proxy delays every passive->active reply by 500ms; the active fires an async S1F1, then
 // Close()s while the reply is still in flight (delayed in the proxy). The property under test is that
 // Close quiesces CLEANLY and WITHOUT panic while a peer reply is in flight — the teardown races the
-// delayed reply. The passive handler signals when it has replied, so Close races an in-flight reply
-// without a time.Sleep-to-sync.
+// delayed reply.
+// The passive handler signals when it has replied, so Close races an in-flight reply without a
+// time.Sleep-to-sync.
+//
+// The primary is sent with replyExpected false: SendDataMessageAsync refuses a reply-expecting send
+// outright (hsms.ErrAsyncReplyExpected, E37 §9.4.1.2 — the async path never begins a reply timer).
+// The passive handler replies unconditionally (it never inspects the primary's W-bit), so the reply
+// still fires and is still delayed by the proxy filter, which keys on the reply direction.
 //
 // Note on coverage: because the send is async (fire-and-forget, no reply waiter registered) and the
 // active socket is torn down within ~ms of Close, the delayed reply is dropped at the proxy/transport
 // boundary and does not actually reach a torn-down reply registry — so this exercises close-race
-// robustness at the transport level, NOT the reply-registry-teardown path specifically. Driving a late
-// reply into a torn-down registry deterministically would need a white-box hsms-package test.
+// robustness at the transport level, NOT the reply-registry-teardown path specifically.
+// Driving a late reply into a torn-down registry deterministically would need a white-box
+// hsms-package test.
 // ---------------------------------------------------------------------------
 func TestChaos_ReplyDuringClose(t *testing.T) {
 	t.Parallel()
@@ -650,9 +657,10 @@ func TestChaos_ReplyDuringClose(t *testing.T) {
 	waitSelected(t, active)
 	waitSelected(t, passive)
 
-	// Fire a W-bit primary (async, no local waiter), wait until the passive has replied (the reply is
-	// now delayed 500ms in the proxy), then Close so the late reply arrives into a torn-down generation.
-	_ = active.conn.SendDataMessageAsync(ctx, 1, 1, true, secs2.A("close-race"))
+	// Fire an async primary (no local waiter; see the ErrAsyncReplyExpected note above), wait until
+	// the passive has replied (the reply is now delayed 500ms in the proxy), then Close so the late
+	// reply arrives into a torn-down generation.
+	_ = active.conn.SendDataMessageAsync(ctx, 1, 1, false, secs2.A("close-race"))
 	<-replied
 
 	require.NoError(t, active.conn.Close(), "Close must be bounded and clean while a reply is in flight")
