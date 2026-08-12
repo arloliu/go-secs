@@ -13,13 +13,12 @@ var timerPool sync.Pool
 func GetTimer(d time.Duration) *time.Timer {
 	if v := timerPool.Get(); v != nil {
 		t, _ := v.(*time.Timer) // Type assertion is safe here since we only put *time.Timer into the pool
-		if t.Reset(d) {
-			// Timer was active, drain the channel to prevent potential leaks
-			select {
-			case <-t.C:
-			default:
-			}
-		}
+
+		// A timer only ever reaches the pool through PutTimer,
+		// which stops it and drains a late tick before handing it to timerPool.Put.
+		// A pooled timer is therefore already inactive,
+		// so Reset cannot report that it was still running and its result is ignored.
+		t.Reset(d)
 
 		return t
 	}

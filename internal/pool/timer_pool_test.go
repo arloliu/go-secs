@@ -66,6 +66,52 @@ func TestTimerPool(t *testing.T) {
 		}
 	})
 
+	// PutTimer owns leaving a timer safe to re-arm.
+	// This asserts that on the exact object handed to PutTimer,
+	// so it holds whether or not sync.Pool chooses to retain it.
+	// The timer is left unread, which is the only case where there can be anything to clean up.
+	t.Run("PutTimer Leaves No Pending Tick On An Unread Timer", func(t *testing.T) {
+		timer := time.NewTimer(time.Millisecond)
+
+		// Injecting the delay is the scenario: the timer expires while nobody reads it.
+		time.Sleep(20 * time.Millisecond)
+
+		PutTimer(timer)
+
+		select {
+		case <-timer.C:
+			t.Error("PutTimer pooled a timer that still had a tick waiting")
+		default:
+		}
+	})
+
+	// GetTimer must hand back an armed timer, which is what re-arming a pooled timer buys.
+	//
+	// A single round trip proves nothing: sync.Pool guarantees no retention, and under -race it
+	// deliberately drops a quarter of the values handed to Put, so one Put/Get pair may never
+	// reach the recycling path at all.
+	// Repeating the round trip makes at least one pool hit a certainty in practice, while every
+	// iteration asserts the same contract, so a GetTimer that stopped re-arming pooled timers
+	// cannot slip through on a lucky miss.
+	//
+	// Stop is the probe because it answers the question directly and without waiting: it reports
+	// true for a timer that is still running, and false for the expired, drained timer that a
+	// re-arm-less GetTimer would return.
+	t.Run("GetTimer Arms The Timer It Returns", func(t *testing.T) {
+		const rounds = 64
+
+		for range rounds {
+			expired := time.NewTimer(time.Millisecond)
+			<-expired.C // fired and drained, exactly the state PutTimer pools
+
+			PutTimer(expired)
+
+			got := GetTimer(time.Hour)
+			assert.NotNil(got)
+			assert.True(got.Stop(), "GetTimer must return an armed timer, not the stopped one it pooled")
+		}
+	})
+
 	t.Run("Concurrency", func(t *testing.T) {
 		var wg sync.WaitGroup
 		for range 100 {
