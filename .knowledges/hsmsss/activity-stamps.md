@@ -3,8 +3,10 @@ type: Mechanic
 title: Activity stamps — the state behind linktest suppression
 description: Where "the line is alive" is stored, what writes it, and when it resets to zero knowledge.
 tags: [hsmsss, linktest, liveness, generations]
-status: draft
+status: stable
 generated: {by: "claude/sonnet-5", at: 2026-08-12T00:00:00Z}
+verified:
+  - {by: "claude/opus-5", at: 2026-08-12T08:33:19Z}
 sources:
   - {resource: hsmsss/transport.go, digest: sha256:838e98661f3e89d2, revision: 3660aa4}
   - {resource: hsmsss/transport_procedures.go, digest: sha256:540e993910b596e2, revision: 3660aa4}

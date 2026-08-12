@@ -3,8 +3,10 @@ type: Mechanic
 title: Trailing-byte counting — where it's measured and how it reaches TrailingBytes()
 description: The shared decodeFirstItem site behind all three secs2 decode entry points, and how hsms's copy-fallback path still routes through it.
 tags: [secs2, hsms, decode, e5]
-status: draft
+status: stable
 generated: {by: "claude/sonnet-5", at: 2026-08-12T00:00:00Z}
+verified:
+  - {by: "claude/opus-5", at: 2026-08-12T08:33:19Z}
 sources:
   - {resource: secs2/decode.go, digest: sha256:8ca1e530a8d03c4a, revision: 3660aa4}
   - {resource: hsms/data_msg.go, digest: sha256:f933e075422d98ed, revision: 3660aa4}

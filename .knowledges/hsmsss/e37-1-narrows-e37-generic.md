@@ -3,8 +3,10 @@ type: Mechanic
 title: Where the HSMS-SS profile overrides the generic core
 description: The four sites whose value or state check comes from E37.1 rather than E37, and what silently breaks if one is "simplified" back.
 tags: [hsmsss, e37-1, select, separate, linktest, reject, session-id]
-status: draft
+status: stable
 generated: {by: "claude/opus-5", at: 2026-08-10T00:00:00Z}
+verified:
+  - {by: "claude/opus-5", at: 2026-08-12T08:33:19Z}
 sources:
   - {resource: hsmsss/transport_active.go, digest: sha256:642cebd8a000d63d, revision: 3660aa4}
   - {resource: hsms/connection_lifecycle.go, digest: sha256:c3f5abfffb491404, revision: 3660aa4}
@@ -41,7 +43,7 @@ No HSMS frame reaches a SECS-I peer only because `secs1`'s writer drops every no
 **`handleLinktestReq` answers regardless of state, on purpose.** The initiator side is bracketed by `startLinktest` / `stopLinktest`; only the responder is lenient.
 See its comment and the audit's Gap 3.
 
-# How it fails
+# Failure modes
 
 A wrong control-frame session ID passes every loopback test and the whole existing suite, because the default device ID *is* `0xFFFF` — it only breaks against equipment that enforces the rule, and only when a device ID was configured.
 The symptom is an endless `NotSelected` → `NotConnect` reconnect loop with no error naming the session ID.
@@ -51,7 +53,7 @@ That is why the guard tests carry counter-assertions rather than single-sided on
 
 Dropping the straggler guard fails differently and far more rarely: a Separate arriving while a bounded `Stop` has abandoned the recv goroutine disconnects the *successor* generation, which presents as a spurious reconnect with no peer-side cause.
 
-# Where it lives
+# Where to look
 
 - profile constant: `hsms/control_msg.go` → `ControlSessionID`
 - Select initiator: `hsmsss/transport_active.go` → `runSelectProcedure`
@@ -59,4 +61,3 @@ Dropping the straggler guard fails differently and far more rarely: a Separate a
 - Reject senders: `hsmsss/transport_control.go` → `sendReject`, `sendRejectNotSelected`, `sendRejectTransactionNotOpen`
 - Separate / Linktest responders: `hsmsss/transport_control.go` → `handleSeparateReq`, `handleLinktestReq`
 - genCtx threading: `hsmsss/transport_recv.go` → `recvLoop`, `dispatchFrame`
-- reasoning and deviations: `docs/specs/e37-1-hsms-ss-conformance-audit.md`

@@ -3,8 +3,10 @@ type: Mechanic
 title: Item slab carving and its retention model
 description: What retaining one decoded leaf actually pins in memory, and the property that bounds it.
 tags: [secs2, decode, allocation, memory]
-status: draft
+status: stable
 generated: {by: "claude/sonnet-5", at: 2026-08-12T00:00:00Z}
+verified:
+  - {by: "claude/opus-5", at: 2026-08-12T08:33:19Z}
 sources:
   - {resource: secs2/decode_slab.go, digest: sha256:77b6508240e72230, revision: 3660aa4}
   - {resource: secs2/decode.go, digest: sha256:8ca1e530a8d03c4a, revision: 3660aa4}

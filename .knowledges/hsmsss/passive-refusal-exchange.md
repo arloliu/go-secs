@@ -3,8 +3,10 @@ type: Mechanic
 title: The passive refusal exchange's absolute deadline and two-sided Stop handoff
 description: Why refuseExtraConn cannot reuse readFrame, and how a token (not a bare field or interface compare) makes the Stop handoff race-free.
 tags: [hsmsss, e37, passive, timers, shutdown]
-status: draft
+status: stable
 generated: {by: "claude/sonnet-5", at: 2026-08-12T00:00:00Z}
+verified:
+  - {by: "claude/opus-5", at: 2026-08-12T08:33:19Z}
 sources:
   - {resource: hsmsss/transport_passive.go, digest: sha256:2dedaa78b1882b8d, revision: 3660aa4}
   - {resource: hsmsss/transport.go, digest: sha256:838e98661f3e89d2, revision: 3660aa4}

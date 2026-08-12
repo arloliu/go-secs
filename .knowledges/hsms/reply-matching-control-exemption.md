@@ -3,10 +3,12 @@ type: Mechanic
 title: The reply registry's two-legged control exemption
 description: Why registration-side isData and result-side *DataMessage assertion are two independent gates, not one, and what breaks when only one survives.
 tags: [hsms, reply-correlation, e37, control]
-status: draft
+status: stable
 generated: {by: "claude/sonnet-5", at: 2026-08-12T00:00:00Z}
+verified:
+  - {by: "claude/opus-5", at: 2026-08-12T08:33:19Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:7e589dff2dee86f0, revision: 3660aa4}
+  - {resource: hsms/connection_send.go, digest: sha256:9b1ccf21a9d24c0d, revision: 038319b}
   - {resource: hsms/reply_registry.go, digest: sha256:2e471a8c9b60839e, revision: 3660aa4}
   - {resource: hsms/connection_runtime.go, digest: sha256:a18a4022d747b1a9, revision: 3660aa4}
 ---

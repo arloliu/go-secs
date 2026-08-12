@@ -3,12 +3,14 @@ type: Mechanic
 title: LinktestErrCount's teardown exclusion is two independent cancellation cascades, not one
 description: Why runLinktest checks both ctx.Err() and errors.Is(err, hsms.ErrConnClosed), and why ErrConnClosed is teardown-exclusive.
 tags: [hsmsss, linktest, metrics, shutdown, race]
-status: draft
+status: stable
 generated: {by: "claude/sonnet-5", at: 2026-08-12T00:00:00Z}
+verified:
+  - {by: "claude/opus-5", at: 2026-08-12T08:33:19Z}
 sources:
   - {resource: hsmsss/transport_procedures.go, digest: sha256:540e993910b596e2, revision: 0965bba}
   - {resource: hsmsss/metrics.go, digest: sha256:cf910bb5649e2dd4, revision: 0965bba}
-  - {resource: hsms/connection_send.go, digest: sha256:7e589dff2dee86f0, revision: 0965bba}
+  - {resource: hsms/connection_send.go, digest: sha256:9b1ccf21a9d24c0d, revision: 038319b}
   - {resource: hsms/errors.go, digest: sha256:ffa4b24a88de6662, revision: 0965bba}
 ---
 

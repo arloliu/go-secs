@@ -3,8 +3,10 @@ type: Mechanic
 title: What a decoded item aliases
 description: Which leaves point into the wire buffer and which copy out of it — the part the doc comment gets wrong.
 tags: [secs2, decode, zero-copy, unsafe]
-status: draft
+status: stable
 generated: {by: "claude/sonnet-5", at: 2026-08-12T00:00:00Z}
+verified:
+  - {by: "claude/opus-5", at: 2026-08-12T08:33:19Z}
 sources:
   - {resource: secs2/decode.go, digest: sha256:8ca1e530a8d03c4a, revision: 3660aa4}
   - {resource: secs2/item.go, digest: sha256:39618013ea8f34c1, revision: 3660aa4}
