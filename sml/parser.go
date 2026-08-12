@@ -19,14 +19,15 @@ const eof rune = -1
 // It provides methods for parsing SML strings to HSMS data messages.
 // A Parser's configuration is immutable after construction; create a new Parser via NewParser to change options.
 type Parser struct {
-	pos      int
-	len      int
-	input    string
-	data     string
-	stream   uint8
-	function uint8
-	wbit     bool
-	strict   bool // immutable after NewParser
+	pos       int
+	len       int
+	input     string
+	data      string
+	listDepth int // nesting level of the list being parsed; unwinds to zero as each list closes
+	stream    uint8
+	function  uint8
+	wbit      bool
+	strict    bool // immutable after NewParser
 }
 
 // NewParser returns a Parser configured by opts (default: non-strict).
@@ -362,6 +363,18 @@ func (p *Parser) parseItem() (secs2.Item, error) {
 }
 
 func (p *Parser) parseList(size int) (secs2.Item, error) {
+	// Bound nesting exactly as the wire decoder does.
+	// Without this, depth in the text maps straight onto stack depth,
+	// and deeply nested input aborts the process with a stack overflow no caller can recover from.
+	// Sharing [secs2.MaxListDepth] also keeps the two directions in agreement,
+	// so a message this parser accepts can still be decoded from its wire form.
+	p.listDepth++
+	defer func() { p.listDepth-- }()
+
+	if p.listDepth > secs2.MaxListDepth {
+		return nil, p.errf("list nesting depth exceeds maximum allowed: %d", secs2.MaxListDepth)
+	}
+
 	childItems := make([]secs2.Item, 0, capHint(size, len(p.data)))
 
 	for {
