@@ -1294,8 +1294,19 @@ release's fuzz work were closed out.
   Deselect.req / Deselect.rsp / Separate.req are now honoured end-to-end
   and take the session through the documented state transitions.
 
+[2.3.1]: https://github.com/arloliu/go-secs/releases/tag/v2.3.1
+[2.3.0]: https://github.com/arloliu/go-secs/releases/tag/v2.3.0
+[2.2.0]: https://github.com/arloliu/go-secs/releases/tag/v2.2.0
+[2.1.0]: https://github.com/arloliu/go-secs/releases/tag/v2.1.0
+[2.0.1]: https://github.com/arloliu/go-secs/releases/tag/v2.0.1
+[2.0.0]: https://github.com/arloliu/go-secs/releases/tag/v2.0.0
+[2.0.0-rc6]: https://github.com/arloliu/go-secs/releases/tag/v2.0.0-rc6
+[2.0.0-rc5]: https://github.com/arloliu/go-secs/releases/tag/v2.0.0-rc5
+[2.0.0-rc4]: https://github.com/arloliu/go-secs/releases/tag/v2.0.0-rc4
+[2.0.0-rc3]: https://github.com/arloliu/go-secs/releases/tag/v2.0.0-rc3
 [2.0.0-rc2]: https://github.com/arloliu/go-secs/releases/tag/v2.0.0-rc2
 [2.0.0-rc1]: https://github.com/arloliu/go-secs/releases/tag/v2.0.0-rc1
+[1.18.0]: https://github.com/arloliu/go-secs/releases/tag/v1.18.0
 [1.17.1]: https://github.com/arloliu/go-secs/releases/tag/v1.17.1
 [1.17.0]: https://github.com/arloliu/go-secs/releases/tag/v1.17.0
 [1.16.2]: https://github.com/arloliu/go-secs/releases/tag/v1.16.2
