@@ -199,6 +199,59 @@ func TestEqual_FloatNaN(t *testing.T) {
 	assert.True(t, Equal(a8, b8), "NaN F8 must compare equal to NaN F8 (bit-pattern comparison)")
 }
 
+// TestEqual_FieldCompareTypes guards the helpers comparing items through their unexported fields.
+// Each type is exercised with multi-value, single-value, unequal-length, and unequal-value pairs,
+// so a helper that ignored either the scalar or the slice would fail.
+func TestEqual_FieldCompareTypes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		a, b  Item
+		equal bool
+	}{
+		{"Int/MultiEqual", I4(1, 2, 3), I4(1, 2, 3), true},
+		{"Int/MultiUnequalValue", I4(1, 2, 3), I4(1, 2, 4), false},
+		{"Int/MultiUnequalLength", I4(1, 2, 3), I4(1, 2), false},
+		{"Int/SingleEqual", I4(42), I4(42), true},
+		{"Int/SingleUnequal", I4(42), I4(43), false},
+		{"Uint/MultiEqual", U4(uint(1), uint(2), uint(3)), U4(uint(1), uint(2), uint(3)), true},
+		{"Uint/MultiUnequalValue", U4(uint(1), uint(2), uint(3)), U4(uint(1), uint(2), uint(4)), false},
+		{"Uint/MultiUnequalLength", U4(uint(1), uint(2), uint(3)), U4(uint(1), uint(2)), false},
+		{"Uint/SingleEqual", U4(uint(42)), U4(uint(42)), true},
+		{"Uint/SingleUnequal", U4(uint(42)), U4(uint(43)), false},
+		{"Boolean/MultiEqual", NewBooleanItem(true, false, true), NewBooleanItem(true, false, true), true},
+		{"Boolean/MultiUnequalValue", NewBooleanItem(true, false, true), NewBooleanItem(true, false, false), false},
+		{"Boolean/MultiUnequalLength", NewBooleanItem(true, false, true), NewBooleanItem(true, false), false},
+		{"Boolean/SingleEqual", NewBooleanItem(true), NewBooleanItem(true), true},
+		{"Boolean/SingleUnequal", NewBooleanItem(true), NewBooleanItem(false), false},
+		{"Binary/MultiEqual", NewBinaryItem([]byte{1, 2, 3}), NewBinaryItem([]byte{1, 2, 3}), true},
+		{"Binary/MultiUnequalValue", NewBinaryItem([]byte{1, 2, 3}), NewBinaryItem([]byte{1, 2, 4}), false},
+		{"Binary/MultiUnequalLength", NewBinaryItem([]byte{1, 2, 3}), NewBinaryItem([]byte{1, 2}), false},
+		{"Binary/SingleEqual", NewBinaryItem([]byte{7}), NewBinaryItem([]byte{7}), true},
+		{"Binary/SingleUnequal", NewBinaryItem([]byte{7}), NewBinaryItem([]byte{8}), false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, test.equal, Equal(test.a, test.b))
+			assert.Equal(t, test.equal, Equal(test.b, test.a), "Equal must be symmetric")
+		})
+	}
+}
+
+// TestEqual_FieldCompareCrossType verifies the four field-compare helpers report not-equal on a
+// type mismatch rather than reading fields off the wrong concrete struct (which would be a type
+// assertion failure the two-result form must catch, not a panic).
+func TestEqual_FieldCompareCrossType(t *testing.T) {
+	t.Parallel()
+
+	assert.False(t, Equal(I4(1, 2, 3), U4(uint(1), uint(2), uint(3))))
+	assert.False(t, Equal(NewBooleanItem(true, false), NewBinaryItem([]byte{1, 0})))
+	assert.False(t, Equal(I4(1), NewBooleanItem(true)))
+}
+
 // TestEqual_PanicSafety verifies Equal never panics when Type()/Size() report a built-in type but
 // the concrete Go type is not the corresponding built-in struct.
 func TestEqual_PanicSafety(t *testing.T) {

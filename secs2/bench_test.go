@@ -213,6 +213,54 @@ func BenchmarkDecodeSlabTypes(b *testing.B) {
 	})
 }
 
+// Multi-value item pairs for the equality benchmarks below.
+// Each pair is two independently constructed items holding the same ten-element value,
+// so Equal compares slices instead of taking the single-value scalar path.
+var (
+	equalIntA    = I4(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+	equalIntB    = I4(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+	equalUintA   = U4(uint(1), uint(2), uint(3), uint(4), uint(5), uint(6), uint(7), uint(8), uint(9), uint(10))
+	equalUintB   = U4(uint(1), uint(2), uint(3), uint(4), uint(5), uint(6), uint(7), uint(8), uint(9), uint(10))
+	equalBoolA   = NewBooleanItem(true, false, true, false, true, false, true, false, true, false)
+	equalBoolB   = NewBooleanItem(true, false, true, false, true, false, true, false, true, false)
+	equalBinaryA = B([]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9})
+	equalBinaryB = B([]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9})
+)
+
+// BenchmarkEqualIntMulti measures secs2.Equal on two 10-element I4 items.
+// Comparing through ToInt() cloned each operand's []int64 only to discard it, costing 2 allocs/op.
+// Reading the unexported fields directly brings that to 0 allocs/op.
+func BenchmarkEqualIntMulti(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = Equal(equalIntA, equalIntB)
+	}
+}
+
+// BenchmarkEqualUintMulti is BenchmarkEqualIntMulti's UintItem counterpart.
+func BenchmarkEqualUintMulti(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = Equal(equalUintA, equalUintB)
+	}
+}
+
+// BenchmarkEqualBooleanMulti is BenchmarkEqualIntMulti's BooleanItem counterpart.
+func BenchmarkEqualBooleanMulti(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = Equal(equalBoolA, equalBoolB)
+	}
+}
+
+// BenchmarkEqualBinaryMulti is BenchmarkEqualIntMulti's BinaryItem counterpart.
+func BenchmarkEqualBinaryMulti(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = Equal(equalBinaryA, equalBinaryB)
+	}
+}
+
 // BenchmarkNewIntItem measures NewIntItem across the call shapes exercised by callers: a single
 // plain integer (the common I8(v) construction pattern), a single unsigned integer, a single
 // numeric string, and a multi-value slice. The scalar shapes are the ones a fast path can skip

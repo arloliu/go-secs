@@ -70,26 +70,36 @@ func Equal(a, b Item) bool {
 	}
 }
 
+// equalInt compares the operands directly off their unexported fields.
+// Going through ToInt() would clone both multi-value slices for a comparison that discards them.
+//
+// Equal gates on av.Size() == bv.Size() before dispatching here, so the two sizes already match.
+// Every constructor and decode site stores a lone value in scalar and leaves values nil.
+// Reading av.size alone to pick the scalar or slice comparison gives the same answer as two ToInt() results.
 func equalInt(av *IntItem, b Item) bool {
 	bv, ok := b.(*IntItem)
 	if !ok {
 		return false
 	}
-	x, _ := av.ToInt()
-	y, _ := bv.ToInt()
+	if av.size == 1 {
+		return av.scalar == bv.scalar
+	}
 
-	return slices.Equal(x, y)
+	return slices.Equal(av.values, bv.values)
 }
 
+// equalUint mirrors equalInt's direct field comparison.
+// See that comment for the invariant making this equivalent to comparing two ToUint() results without either clone.
 func equalUint(av *UintItem, b Item) bool {
 	bv, ok := b.(*UintItem)
 	if !ok {
 		return false
 	}
-	x, _ := av.ToUint()
-	y, _ := bv.ToUint()
+	if av.size == 1 {
+		return av.scalar == bv.scalar
+	}
 
-	return slices.Equal(x, y)
+	return slices.Equal(av.values, bv.values)
 }
 
 // equalFloat compares at the declared wire precision, not raw ToFloat() equality: FloatItem
@@ -124,26 +134,32 @@ func equalFloat(av *FloatItem, b Item) bool {
 	return true
 }
 
+// equalBoolean mirrors equalInt's direct field comparison; see that comment for the invariant.
+// BooleanItem has the same size, scalar, and values split, with no separate byteSize field.
 func equalBoolean(av *BooleanItem, b Item) bool {
 	bv, ok := b.(*BooleanItem)
 	if !ok {
 		return false
 	}
-	x, _ := av.ToBoolean()
-	y, _ := bv.ToBoolean()
+	if av.size == 1 {
+		return av.scalar == bv.scalar
+	}
 
-	return slices.Equal(x, y)
+	return slices.Equal(av.values, bv.values)
 }
 
+// equalBinary compares the bytes directly instead of via ToBinary(),
+// which would clone both sides for a throwaway comparison.
+// BinaryItem has no scalar fast path:
+// Size() is len(values), and every length including one goes through the values slice.
+// There is therefore no size==1 branch to mirror here.
 func equalBinary(av *BinaryItem, b Item) bool {
 	bv, ok := b.(*BinaryItem)
 	if !ok {
 		return false
 	}
-	x, _ := av.ToBinary()
-	y, _ := bv.ToBinary()
 
-	return bytes.Equal(x, y)
+	return bytes.Equal(av.values, bv.values)
 }
 
 func equalASCII(av *ASCIIItem, b Item) bool {
