@@ -3,8 +3,10 @@ type: Mechanic
 title: Send error accounting — which outcomes count
 description: Why a normal Close mid-transaction does not inflate the error counter, and what does.
 tags: [hsms, metrics, send, lifecycle]
-status: draft
+status: stable
 generated: {by: "claude/sonnet-5", at: 2026-08-12T09:35:39Z}
+verified:
+  - {by: "codex/gpt-5.6-terra", at: 2026-08-12}
 sources:
   - {resource: hsms/connection_send.go, digest: sha256:9b1ccf21a9d24c0d, revision: b1bb17b}
   - {resource: hsms/connection_metrics.go, digest: sha256:44481eac3475bc65, revision: b1bb17b}
