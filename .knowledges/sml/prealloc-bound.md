@@ -1,13 +1,15 @@
 ---
 type: Mechanic
-title: Parser allocation bounds
-description: How the SML parser keeps attacker-controlled text from driving oversized allocations.
-tags: [sml, parser, security, allocation]
+title: Parser input bounds
+description: How the SML parser bounds allocation and recursion on attacker-controlled input.
+tags: [sml, parser, security, allocation, recursion]
 status: draft
 generated: {by: "claude/fable-5", at: 2026-08-12T10:45:49Z}
 sources:
-  - {resource: sml/parser.go, digest: sha256:2dea53bde93f34a0, revision: 007ff09}
-  - {resource: sml/parser_dos_test.go, digest: sha256:51c56d2ddbd8b51d, revision: 007ff09}
+  - {resource: sml/parser.go, digest: sha256:d56c5287e7e299b9, revision: 5cf7389}
+  - {resource: sml/parser_depth_test.go, digest: sha256:3230469c3aa4f0fe, revision: 5cf7389}
+  - {resource: secs2/decode.go, digest: sha256:8ca1e530a8d03c4a, revision: 5cf7389}
+  - {resource: sml/parser_dos_test.go, digest: sha256:51c56d2ddbd8b51d, revision: 5cf7389}
 ---
 
 # What it does
@@ -16,7 +18,8 @@ The parser used that count directly to size the buffer it preallocated.
 `sml/doc.go` documents the public contract but says nothing about this.
 The count is read off attacker-controlled text and bounded only by `math.MaxInt32`.
 A 29-byte message like `<U1[2000000000] 1 2 3>` therefore drove a multi-gigabyte allocation before any payload byte was inspected.
-The parser now clamps that preallocation hint.
+The parser now clamps that preallocation hint,
+and bounds list nesting by the same constant the wire decoder uses.
 
 # How it works
 `parseItemSize` / `nextItemSize` parse the size token, bounding it only by `math.MaxInt32`.
@@ -47,6 +50,8 @@ a 195 KB token copied its way to roughly 19 GB before `ParseUint` ever rejected 
 - The clamp is a capacity hint only, and must never change which inputs parse or the values produced.
 - Unbounded attacker text is sliced, never accumulated.
   Building a token with `+=` in a per-rune loop reintroduces quadratic copying no size clamp can catch.
+- The parser's nesting ceiling is `secs2.MaxListDepth`, the same constant the wire decoder enforces.
+  Letting them drift would let the parser accept messages that cannot be decoded from their own wire form.
 
 # Failure modes
 - A path that sizes an allocation from the raw token lets one small untrusted message OOM-kill the process.
@@ -56,16 +61,22 @@ a 195 KB token copied its way to roughly 19 GB before `ParseUint` ever rejected 
   asserting that a huge declared count keeps allocation bounded.
 - `TestParseStrict_LongNumericTokenDoesNotCopyQuadratically` guards the numeric-token path,
   where the cost was quadratic in the token length rather than driven by the size token.
+- `TestParse_ListDepthMatchesWireDecoder` pins the nesting ceiling to the decoder's,
+  covering the boundary, sibling unwinding, and that deep input errors rather than crashing.
 
 # Gotchas
-- Recursion depth is a separate, unbounded concern.
-  `parseList` recurses per child with no depth budget,
-  so deeply nested input still aborts the process with a fatal stack overflow.
-  `capHint` does not address it.
+- Recursion depth is bounded separately from the size token, by `secs2.MaxListDepth`.
+  `parseList` recurses per child, so nesting in the text maps onto stack depth;
+  before the bound, deeply nested input aborted the process with a stack overflow,
+  which is fatal in Go and cannot be recovered by a caller.
+  The parser deliberately shares the decoder's constant rather than picking its own,
+  so it cannot accept a message that its own wire decoder would reject.
 
 # Where to look
 - clamp helper: `sml/parser.go` → `capHint`
 - size token source: `sml/parser.go` → `parseItemSize`, `nextItemSize`
 - clamped slice parsers: `sml/parser.go` → `parseList`, `parseBoolean`, `parseBinary`, `parseFloat`, `parseInt`, `parseUint`
 - clamped builder and sliced numeric token: `sml/parser.go` → `parseASCIIStrict`
+- nesting bound: `sml/parser.go` → `parseList`; the shared constant is `secs2/decode.go` → `MaxListDepth`
 - regression guards: `sml/parser_dos_test.go` → `TestParse_HugeDeclaredSizeDoesNotPrealloc`, `TestParseStrict_LongNumericTokenDoesNotCopyQuadratically`
+- nesting guard: `sml/parser_depth_test.go` → `TestParse_ListDepthMatchesWireDecoder`
