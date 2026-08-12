@@ -113,8 +113,9 @@ and SECS-I over TCP/IP (SEMI E4), together with an SML (SECS Message Language) p
   allocations on payloads dominated by single-value items (e.g. a mixed-type record).
 * Hot atomic counters in `hsms.ConnectionMetrics` / `secs1.ConnectionMetrics` are cache-line padded
   to prevent false sharing between counters under concurrent access.
-* Reproduce it yourself: `cd benchmarks && make bench-v1 bench-v2 compare`, or
-  `go test ./secs2item/v2/... -bench . -benchmem` against a prior commit for a focused before/after.
+* Reproduce it yourself: `cd benchmarks && make bench-v1 bench-v2 compare`, or from that same
+  `benchmarks/` directory, `go test ./secs2item/v2/... -bench . -benchmem` against a prior commit
+  for a focused before/after.
 
 ## Message and Item Object Model
 

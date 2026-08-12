@@ -76,6 +76,9 @@
 // Empty input yields NewEmptyItem().
 // List nesting is capped at MaxListDepth to prevent stack exhaustion on adversarial input.
 // An error is returned for any malformed input (unknown format code, truncated header or payload, etc.).
+// If data holds more than one encoded item back to back, Decode returns only the first and silently ignores
+// whatever bytes follow it; a caller that needs to know whether trailing bytes were present must use a
+// transport-level entry point that reports them (e.g. hsms.DataMessage.TrailingBytes).
 //
 // DecodeOwned is an alternative for a buffer the caller already owns outright: it skips Decode's whole-input defensive copy
 // but transfers ownership of the buffer to the returned Item, so the caller must not mutate or reuse it afterward.
