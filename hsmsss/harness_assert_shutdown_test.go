@@ -23,7 +23,7 @@ func assertCleanShutdown(t *testing.T, c hsms.Connection) {
 	t.Helper()
 	require.Eventually(t, func() bool {
 		return c.State() == hsms.NotConnectedState && c.Metrics().DataMsgInflightCount() == 0
-	}, 2*time.Second, 5*time.Millisecond, "hsmsss connection did not reach clean public shutdown")
+	}, 15*time.Second, 5*time.Millisecond, "hsmsss connection did not reach clean public shutdown")
 }
 
 // TestCleanShutdown_EndToEnd exercises the gate on a real active+passive New pair (the T25

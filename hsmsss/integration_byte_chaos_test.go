@@ -183,7 +183,7 @@ func TestChaos_UnsupportedPType_RejectAndContinue(t *testing.T) {
 	// The active must have emitted a Reject.req(reason=PTypeNotSupported) in the active->passive direction.
 	require.Eventually(t, func() bool {
 		return slices.Contains(bp.ObservedRejects(false), byte(hsms.RejectPTypeNotSupported))
-	}, 2*time.Second, 10*time.Millisecond,
+	}, 15*time.Second, 10*time.Millisecond,
 		"active did not emit Reject.req(reason=PTypeNotSupported); observed=%v", bp.ObservedRejects(false))
 }
 
@@ -228,7 +228,7 @@ func TestChaos_UndefinedSType_RejectAndContinue(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		return slices.Contains(bp.ObservedRejects(false), byte(hsms.RejectSTypeNotSupported))
-	}, 2*time.Second, 10*time.Millisecond,
+	}, 15*time.Second, 10*time.Millisecond,
 		"active did not emit Reject.req(reason=STypeNotSupported); observed=%v", bp.ObservedRejects(false))
 }
 

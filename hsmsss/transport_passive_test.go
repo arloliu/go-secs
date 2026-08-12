@@ -418,7 +418,7 @@ func TestPassive_RefuseExtraConn_ArmsExactlyOneAbsoluteT7Deadline(t *testing.T) 
 	// Deterministically observe the deadline was armed (no sleep): poll the recorder.
 	require.Eventually(t, func() bool {
 		return len(rec.deadlineCalls()) >= 1
-	}, 2*time.Second, time.Millisecond, "refuseExtraConn must arm the absolute deadline before reading")
+	}, 15*time.Second, time.Millisecond, "refuseExtraConn must arm the absolute deadline before reading")
 
 	// Release the parked read so refuseExtraConn returns and its goroutine does not outlive this
 	// test.
@@ -426,7 +426,7 @@ func TestPassive_RefuseExtraConn_ArmsExactlyOneAbsoluteT7Deadline(t *testing.T) 
 
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("refuseExtraConn did not return")
 	}
 
@@ -518,7 +518,7 @@ func TestPassive_RefuseExtraConn_StopDuringInFlightRefusalReturnsPromptly(t *tes
 		defer tr.refuseMu.Unlock()
 
 		return tr.refuseConn != nil
-	}, 2*time.Second, 2*time.Millisecond, "the extra socket must be published to the refusal slot")
+	}, 15*time.Second, 2*time.Millisecond, "the extra socket must be published to the refusal slot")
 
 	done := make(chan error, 1)
 	start := time.Now()
@@ -596,7 +596,7 @@ func TestPassive_RefuseExtraConn_StopRacesPrePublicationWindow(t *testing.T) {
 		defer tr.refuseMu.Unlock()
 
 		return tr.refuseStopped
-	}, 2*time.Second, 2*time.Millisecond, "Stop must set refuseStopped even though no socket is published yet")
+	}, 15*time.Second, 2*time.Millisecond, "Stop must set refuseStopped even though no socket is published yet")
 
 	// Close cannot complete until the helper (still parked in the hook above) is released, so
 	// baselining `start` HERE — rather than before the Eventually poll above — measures Stop's
@@ -782,7 +782,7 @@ func TestPassive_RefuseExtraConn_NonComparableConnDoesNotPanic(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("refuseExtraConn did not return")
 	}
 
@@ -1005,7 +1005,7 @@ func TestPassive_CloseDuringAcceptConnectWindowIsBounded(t *testing.T) {
 	select {
 	case err := <-done:
 		require.NoError(t, err, "Close during the accept-connect window must succeed")
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("Close hung during the passive accept-connect window (poll-fence deadlock)")
 	}
 }

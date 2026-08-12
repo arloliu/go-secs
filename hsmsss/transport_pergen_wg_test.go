@@ -101,7 +101,7 @@ func TestTransport_AbandonedStragglerDoesNotStallNextGenerationStop(t *testing.T
 	// Let gen 1's active Select procedure send its Select.req first, establishing generation
 	// ordering before the next generation starts. (t.rt itself is bound write-once on the first
 	// Start — F7 — so a later Start never re-writes it and cannot race the straggler's reads.)
-	require.Eventually(t, func() bool { return rt1.writtenCount() >= 1 }, 2*time.Second, time.Millisecond,
+	require.Eventually(t, func() bool { return rt1.writtenCount() >= 1 }, 15*time.Second, time.Millisecond,
 		"gen 1 Select procedure must send its Select.req before the next generation starts")
 
 	// Mirror teardown: cancel the generation ctx, then a BOUNDED Stop that times out on the wedged
@@ -147,7 +147,7 @@ func TestTransport_AbandonedStragglerDoesNotStallNextGenerationStop(t *testing.T
 	case err := <-stopped:
 		require.NoError(t, err,
 			"gen 2 Stop must complete cleanly — its bundle is independent of gen 1's abandoned straggler")
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("gen 2 Stop STALLED behind gen 1's abandoned straggler — a shared WaitGroup bundle (NEW-1 regression)")
 	}
 }

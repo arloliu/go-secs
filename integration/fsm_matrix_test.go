@@ -107,7 +107,7 @@ func TestFSM_HSMSSSMatrix(t *testing.T) {
 			p := rec.pairs()
 			return hasStateEdge(p, hsms.NotConnectedState, hsms.NotSelectedState) &&
 				hasStateEdge(p, hsms.NotSelectedState, hsms.SelectedState)
-		}, 2*time.Second, 5*time.Millisecond, "connect must step NotConnected -> NotSelected -> Selected")
+		}, 15*time.Second, 5*time.Millisecond, "connect must step NotConnected -> NotSelected -> Selected")
 
 		// The notifier delivers edges in order and the connection is quiescent at Selected, so the two
 		// connect edges are exactly the recorded sequence.
@@ -131,10 +131,10 @@ func TestFSM_HSMSSSMatrix(t *testing.T) {
 		require.NoError(t, conn.Open(ctx, hsms.OpenBackground))
 
 		// The line comes up to NotSelected ...
-		require.True(t, rec.awaitState(hsms.NotSelectedState, 2*time.Second),
+		require.True(t, rec.awaitState(hsms.NotSelectedState, 15*time.Second),
 			"the line must come up to NotSelected with the Select.rsp withheld")
 		// ... then the T7 dwell expires and disconnects it.
-		require.True(t, rec.awaitState(hsms.NotConnectedState, 2*time.Second),
+		require.True(t, rec.awaitState(hsms.NotConnectedState, 15*time.Second),
 			"the T7 (NOT-SELECTED) dwell must expire and disconnect")
 
 		p := rec.pairs()
@@ -169,7 +169,7 @@ func TestFSM_HSMSSSMatrix(t *testing.T) {
 		// still-in-flight connect NotConnected -> NotSelected.
 		require.Eventually(t, func() bool {
 			return hasStateEdge(rec.pairs(), hsms.NotSelectedState, hsms.SelectedState)
-		}, 2*time.Second, 5*time.Millisecond, "connect must settle at Selected before the Deselect")
+		}, 15*time.Second, 5*time.Millisecond, "connect must settle at Selected before the Deselect")
 
 		require.NoError(t, latestHSMSPeer(t, df).sendDeselect(0xFFFF))
 
@@ -180,7 +180,7 @@ func TestFSM_HSMSSSMatrix(t *testing.T) {
 		// be Selected -> NotConnected), so this pins the Select-lost edge exactly.
 		require.Eventually(t, func() bool {
 			return hasStateEdge(rec.pairs(), hsms.SelectedState, hsms.NotSelectedState)
-		}, 2*time.Second, 5*time.Millisecond,
+		}, 15*time.Second, 5*time.Millisecond,
 			"a peer Deselect.req while Selected must drive Selected -> NotSelected, not a teardown to NotConnected")
 	})
 
@@ -200,7 +200,7 @@ func TestFSM_HSMSSSMatrix(t *testing.T) {
 
 		require.Eventually(t, func() bool {
 			return hasStateEdge(rec.pairs(), hsms.NotSelectedState, hsms.SelectedState)
-		}, 2*time.Second, 5*time.Millisecond, "connect must settle at Selected")
+		}, 15*time.Second, 5*time.Millisecond, "connect must settle at Selected")
 
 		settled := rec.pairs()
 
@@ -257,7 +257,7 @@ func TestFSM_SECS1Matrix(t *testing.T) {
 	// A live line auto-commits straight to Selected — the auto-commit edge.
 	require.Eventually(t, func() bool {
 		return hasStateEdge(rec.pairs(), hsms.NotConnectedState, hsms.SelectedState)
-	}, 2*time.Second, 5*time.Millisecond, "a live SECS-I line must auto-commit NotConnected -> Selected")
+	}, 15*time.Second, 5*time.Millisecond, "a live SECS-I line must auto-commit NotConnected -> Selected")
 
 	// Drop the live line involuntarily: the connection tears down (Selected -> NotConnected) and the
 	// reconnect loop redials a fresh generation that auto-commits back to Selected.

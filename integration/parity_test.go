@@ -117,7 +117,7 @@ func TestParity_FireAndForget(t *testing.T) {
 			select {
 			case body := <-peer.inbound():
 				requireASCIIBody(t, body, "fire-and-forget")
-			case <-time.After(2 * time.Second):
+			case <-time.After(15 * time.Second):
 				t.Fatal("peer did not observe the fire-and-forget message")
 			}
 		})

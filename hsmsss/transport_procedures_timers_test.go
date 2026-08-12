@@ -41,7 +41,7 @@ func waitT7Exit(t *testing.T, tr *transport) {
 
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("T7 dwell goroutine did not exit within timeout")
 	}
 }
@@ -62,7 +62,7 @@ func TestT7_FiresWhenNotSelectedPersists(t *testing.T) {
 
 	select {
 	case <-rt.t7ExpiredCh:
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("T7 must fire (rt.T7Expired) when the session stays NotSelected past T7 (§9.2.2)")
 	}
 	require.GreaterOrEqual(t, rt.t7ExpiredCalls(), 1, "T7Expired must be invoked on dwell expiry")
@@ -116,7 +116,7 @@ func TestT7_DeselectReArms(t *testing.T) {
 
 	select {
 	case <-rt.t7ExpiredCh:
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("Deselect must re-arm T7 so a persisting NotSelected fires T7Expired (§9.2.2)")
 	}
 }

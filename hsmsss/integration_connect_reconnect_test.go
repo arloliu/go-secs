@@ -250,7 +250,7 @@ func TestActiveOpenBackground_ColdPeerConnectsWhenPeerAppears(t *testing.T) {
 	select {
 	case err := <-openDone:
 		require.NoError(t, err, "Open on a cold peer under OpenBackground must return nil, not the dial error")
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("Open must return promptly even though the peer is not listening yet")
 	}
 

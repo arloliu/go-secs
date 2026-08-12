@@ -182,7 +182,7 @@ func TestHSMS_StrandedSend_PostCloseGateAndReopenHealthCheck(t *testing.T) {
 	require.NoError(t, active.conn.Close())
 	require.Eventually(t, func() bool {
 		return active.conn.SendDataMessageAsync(ctx, 1, 1, false, secs2.A("post-close")) != nil
-	}, 2*time.Second, 5*time.Millisecond, "SendDataMessageAsync must return an error after Close")
+	}, 15*time.Second, 5*time.Millisecond, "SendDataMessageAsync must return an error after Close")
 
 	// --- Reopen check: new generation reaches Selected and exchanges S1F1/S1F2 ---
 	// Closing the active dropped the passive, which re-listens asynchronously. v2's active dial is

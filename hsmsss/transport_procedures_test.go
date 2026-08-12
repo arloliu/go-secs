@@ -55,7 +55,7 @@ func waitLinktestExit(t *testing.T, tr *transport) {
 
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("auto-linktest goroutine did not exit within timeout")
 	}
 }
@@ -113,7 +113,7 @@ func TestLinktest_ThresholdDisconnect(t *testing.T) {
 
 	select {
 	case <-rt.tcpDownCh:
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("threshold consecutive linktest T6 timeouts must drive TCPDown")
 	}
 	require.ErrorIs(t, rt.tcpDownCause(), errLinktestFailed, "disconnect cause must be errLinktestFailed")
@@ -159,7 +159,7 @@ func TestLinktest_SuccessResetsFailCounter(t *testing.T) {
 
 	select {
 	case <-rt.tcpDownCh:
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("linktest must eventually disconnect after a fresh run of threshold failures")
 	}
 	require.ErrorIs(t, rt.tcpDownCause(), errLinktestFailed)

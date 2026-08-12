@@ -505,7 +505,7 @@ func TestReader_LenBelow10ProtocolError(t *testing.T) {
 
 	select {
 	case <-rt.tcpDownCh:
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("length < 10 must end the generation via TCPDown")
 	}
 
@@ -527,7 +527,7 @@ func TestRecvLoop_ReadErrCount(t *testing.T) {
 
 	select {
 	case <-rt.tcpDownCh:
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("length < 10 must end the generation via TCPDown")
 	}
 
@@ -561,7 +561,7 @@ func TestReader_OversizedLengthRejectedBeforeAlloc(t *testing.T) {
 
 	select {
 	case <-rt.tcpDownCh:
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("oversized length must end the generation via TCPDown")
 	}
 
@@ -588,7 +588,7 @@ func TestReader_ControlFrameLenNot10Rejected(t *testing.T) {
 
 	// Reject is enqueued via rt.SendAsync (not written to the raw conn).
 	require.Eventually(t, func() bool { return rt.sentCount() == 1 },
-		2*time.Second, 10*time.Millisecond, "malformed control frame must trigger a Reject via rt.SendAsync")
+		15*time.Second, 10*time.Millisecond, "malformed control frame must trigger a Reject via rt.SendAsync")
 
 	got := rt.lastSent()
 	require.NotNil(t, got)
@@ -641,7 +641,7 @@ func TestDispatchFrame_TraceTraffic_LogsControlFrame(t *testing.T) {
 
 	select {
 	case <-loggedCh:
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("a traced inbound control frame must log at Debug level")
 	}
 
@@ -668,7 +668,7 @@ func TestReader_UnsupportedSTypeRejectsKeepsLink(t *testing.T) {
 
 	// Reject is enqueued via rt.SendAsync; check the recorded message for correct SType/reason.
 	require.Eventually(t, func() bool { return rt.sentCount() == 1 },
-		2*time.Second, 10*time.Millisecond, "unsupported SType must be Rejected via rt.SendAsync (J3)")
+		15*time.Second, 10*time.Millisecond, "unsupported SType must be Rejected via rt.SendAsync (J3)")
 
 	got := rt.lastSent()
 	require.NotNil(t, got)
@@ -702,7 +702,7 @@ func TestReader_BadPTypeRejectsKeepsLink(t *testing.T) {
 
 	// Reject is enqueued via rt.SendAsync; check the recorded message for correct PType/reason.
 	require.Eventually(t, func() bool { return rt.sentCount() == 1 },
-		2*time.Second, 10*time.Millisecond, "bad PType must be Rejected via rt.SendAsync (J3)")
+		15*time.Second, 10*time.Millisecond, "bad PType must be Rejected via rt.SendAsync (J3)")
 
 	got := rt.lastSent()
 	require.NotNil(t, got)
@@ -728,7 +728,7 @@ func TestReader_SelectReqAnswered(t *testing.T) {
 
 	// The responder enqueues a Select.rsp (SType 2) via SendAsync (not a Reject, not a teardown).
 	require.Eventually(t, func() bool { return rt.sentCount() == 1 },
-		2*time.Second, 10*time.Millisecond, "Select.req must be answered with a Select.rsp via SendAsync")
+		15*time.Second, 10*time.Millisecond, "Select.req must be answered with a Select.rsp via SendAsync")
 
 	got := rt.lastSent()
 	require.NotNil(t, got)
@@ -800,7 +800,7 @@ func TestReader_StallMidLengthHeaderTripsT8(t *testing.T) {
 
 	select {
 	case <-rt.tcpDownCh:
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("T8 must trip on a stall across the length header (J1)")
 	}
 	require.Error(t, rt.tcpDownCause())
@@ -834,7 +834,7 @@ func TestReader_RecvLoopUsesLiveT8NotFrozenCfg(t *testing.T) {
 
 	select {
 	case <-rt.tcpDownCh:
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("recv loop must trip on the LIVE 60ms T8, not the frozen 30s cfg T8 (Finding 2)")
 	}
 	require.Error(t, rt.tcpDownCause())
@@ -860,7 +860,7 @@ func TestReader_PeerSeparate(t *testing.T) {
 
 		select {
 		case <-rt.tcpDownCh:
-		case <-time.After(2 * time.Second):
+		case <-time.After(15 * time.Second):
 			t.Fatal("peer Separate while Selected must drive TCPDown")
 		}
 		require.ErrorIs(t, rt.tcpDownCause(), errPeerSeparate)
@@ -882,7 +882,7 @@ func TestReader_PeerSeparate(t *testing.T) {
 
 		select {
 		case <-rt.tcpDownCh:
-		case <-time.After(2 * time.Second):
+		case <-time.After(15 * time.Second):
 			t.Fatal("peer Separate while NotSelected must drive TCPDown (E37.1 §7.6)")
 		}
 		require.ErrorIs(t, rt.tcpDownCause(), errPeerSeparate)

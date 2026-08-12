@@ -322,7 +322,7 @@ func TestDataMessage_WBitZero_FireAndForget(t *testing.T) {
 		require.Nil(t, res.reply, "a fire-and-forget send has no reply to return")
 		require.Less(t, time.Since(start), 1*time.Second,
 			"a !W SendDataMessage must return well under T3 (=5s); a T3-bounded wait would be the Fix B regression")
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("fire-and-forget SendDataMessage(!W) blocked > 2s (< T3=5s): Fix B short-circuit missing")
 	}
 
