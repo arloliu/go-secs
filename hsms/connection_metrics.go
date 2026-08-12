@@ -97,14 +97,18 @@ func (m *ConnectionMetrics) DataMsgRecvCount() uint64 {
 	return m.dataMsgRecv.Load()
 }
 
-// DataMsgErrCount returns the total number of synchronous (reply-expected) data sends that failed locally.
+// DataMsgErrCount returns the total number of synchronous data sends that failed locally.
 //
-// This is triggered by a transport write error, or a T3 timeout awaiting the reply.
-// It counts only the synchronous send path (sendWaitReply).
+// This is triggered by a local write failure on any synchronous data send,
+// or by a T3 timeout awaiting the reply.
+// It counts both synchronous send paths: sendWaitReply (whether W-bit-set or fire-and-forget)
+// and sendNoReply (the ForwardDataMessage relay path).
+// Only a W-bit sendWaitReply transaction waits for a reply, so only it can reach the T3 branch;
+// a fire-and-forget (non-W-bit) sendWaitReply and sendNoReply both skip the reply wait,
+// but a write failure on either still counts here.
 //
 // Deliberately NOT counted here:
 //   - A peer Reject of our transaction (surfaced as *RejectError — a peer-signalled outcome, not a local send error).
-//   - A fire-and-forget (non-W-bit) send, which returns before any reply wait.
 //   - An async-path (SendAsync/ReplyDataMessage) failure.
 //   - A message rejected before the wire for exceeding MaxMessageSize (ErrMessageTooLarge) — a
 //     local, caller-side construction error, not a transport/protocol failure.

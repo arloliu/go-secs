@@ -275,10 +275,12 @@ func (c *connection) sendWaitReply(callerCtx context.Context, msg Message) (Mess
 		return nil, err
 	}
 
-	// Fire-and-forget short-circuit: the frame is on the wire (incDataMsgSend already fired in
-	// writeFrame), and no reply is expected. Return immediately — no inflight gauge (I1 is W-bit
-	// only), no timer, no select-block. This is also why a !W send records DataMsgSend+1 with
-	// DataMsgErr+0 (it never reaches a T3 timeout path).
+	// Fire-and-forget short-circuit: the frame is on the wire (incDataMsgSend already fired in writeFrame),
+	// and no reply is expected.
+	// Return immediately — no inflight gauge (I1 is W-bit only), no timer, no select-block.
+	// This is also why a !W send that reached the wire records DataMsgSend+1 with DataMsgErr+0 here:
+	// a write failure would have counted as an error and returned above,
+	// and this path only ever skips the T3 timeout wait.
 	if fireAndForget {
 		return nil, nil //nolint:nilnil // fire-and-forget contract: a !W data send has no reply and no error once on the wire.
 	}
