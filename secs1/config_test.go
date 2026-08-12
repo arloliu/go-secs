@@ -145,6 +145,38 @@ func TestNewConfig_Transactional(t *testing.T) {
 	require.Equal(t, Config{}, cfg, "failed NewConfig returns the zero Config (no partial mutation)")
 }
 
+// TestApplyOptions_Transactional verifies that ApplyOptions (the public, post-construction
+// counterpart to apply) also enforces all-or-nothing: a batch mixing a valid option with an
+// invalid one returns an error and leaves the live Config completely unchanged (the valid
+// option's effect is never committed, since apply validates against a scratch copy and only
+// assigns it back to *c on full success). A batch containing only valid options commits and
+// returns nil.
+func TestApplyOptions_Transactional(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := NewConfig("127.0.0.1", 5000)
+	require.NoError(t, err)
+
+	origKeepAlive := cfg.TCPKeepAlive() // 0 (OS default)
+	origRetryLimit := cfg.RetryLimit()  // 3 (SEMI E4 default)
+
+	err = cfg.ApplyOptions(
+		WithTCPKeepAlive(10*time.Second), // valid
+		WithRetryLimit(99),               // invalid: out of 0..31 range
+	)
+	require.Error(t, err, "a batch mixing a valid and an invalid option must fail as a whole")
+
+	require.Equal(t, origKeepAlive, cfg.TCPKeepAlive(),
+		"TCPKeepAlive must be unchanged: the failed batch must not commit any option's effect")
+	require.Equal(t, origRetryLimit, cfg.RetryLimit(),
+		"RetryLimit must be unchanged after the failed batch")
+
+	// Success path: a batch of only valid options commits and returns nil.
+	err = cfg.ApplyOptions(WithTCPKeepAlive(10 * time.Second))
+	require.NoError(t, err, "a batch of only valid options must commit")
+	require.Equal(t, 10*time.Second, cfg.TCPKeepAlive(), "the committed option's effect must be visible")
+}
+
 // TestWithEquipment_SetsRole verifies WithEquipment() sets the equipment (master) role.
 func TestWithEquipment_SetsRole(t *testing.T) {
 	t.Parallel()

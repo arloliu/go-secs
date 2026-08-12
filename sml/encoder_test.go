@@ -55,6 +55,93 @@ func TestEncoder_DefaultEqualsToSML(t *testing.T) {
 	}
 }
 
+// TestEncode_PackageShortcut verifies the package-level Encode(item) shortcut equals
+// item.ToSML() (the documented byte-for-byte oracle) and, for a representative subset,
+// a hand-written literal SML string — so the test is not purely circular against ToSML.
+func TestEncode_PackageShortcut(t *testing.T) {
+	tests := []struct {
+		name string
+		item secs2.Item
+		want string
+	}{
+		{"ascii", secs2.A("hello"), `<A[5] "hello">`},
+		{"uint4", secs2.U4(1, 2, 3), "<U4[3] 1 2 3>"},
+		{"list", secs2.L(secs2.A("a"), secs2.U4(1, 2), secs2.I1(-1)),
+			"<L[3]\n  <A[1] \"a\">\n  <U4[2] 1 2>\n  <I1[1] -1>\n>"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Encode(tt.item)
+			require.Equal(t, tt.want, got, "hand-written literal SML")
+			require.Equal(t, tt.item.ToSML(), got, "must equal item.ToSML() byte-for-byte")
+		})
+	}
+}
+
+// TestEncodeStrict_PackageShortcut verifies EncodeStrict(item):
+//   - for items with no non-printable bytes, is identical to the non-strict Encode(item)
+//     and to item.ToSML();
+//   - for an ASCII item containing a non-printable byte, escapes it as a 0xHH token
+//     (per WithEncoderStrictMode's doc: "escapes/hex-encodes non-printable ASCII bytes
+//     so the output is valid, round-trippable SML"), diverging from the non-strict form
+//     which embeds the raw byte.
+func TestEncodeStrict_PackageShortcut(t *testing.T) {
+	t.Run("matches non-strict when nothing needs escaping", func(t *testing.T) {
+		item := secs2.L(secs2.A("hello"), secs2.U4(1, 2, 3))
+		require.Equal(t, Encode(item), EncodeStrict(item))
+		require.Equal(t, item.ToSML(), EncodeStrict(item))
+	})
+
+	t.Run("escapes non-printable bytes as 0xHH tokens", func(t *testing.T) {
+		item := secs2.A("a\nb")
+		nonStrict := Encode(item)
+		strict := EncodeStrict(item)
+
+		require.Equal(t, `<A[3] "a`+"\n"+`b">`, nonStrict, "non-strict embeds the raw byte")
+		require.Equal(t, `<A[3] "a" 0x0A "b">`, strict, "strict escapes the non-printable byte")
+		require.NotEqual(t, nonStrict, strict)
+
+		// Strict output must round-trip through ParseStrict back to the original value.
+		msgs, err := ParseStrict("S1F1\n" + strict + "\n.")
+		require.NoError(t, err)
+		require.Len(t, msgs, 1)
+		gotItem, err := msgs[0].Item()
+		require.NoError(t, err)
+		gotStr, err := gotItem.ToASCII()
+		require.NoError(t, err)
+		require.Equal(t, "a\nb", gotStr)
+	})
+}
+
+// TestAppendEncode verifies (*Encoder).AppendEncode appends the item's encoded SML text
+// to dst and returns the grown slice, matching Encode(item)'s bytes, while preserving
+// whatever was already in dst (append semantics, not overwrite).
+func TestAppendEncode(t *testing.T) {
+	enc := NewEncoder()
+	item := secs2.L(secs2.A("a"), secs2.U4(1, 2))
+	want := enc.Encode(item)
+
+	t.Run("empty dst", func(t *testing.T) {
+		got := enc.AppendEncode(nil, item)
+		require.Equal(t, want, string(got))
+	})
+
+	t.Run("preserves existing prefix", func(t *testing.T) {
+		prefix := []byte("PREFIX:")
+		got := enc.AppendEncode(prefix, item)
+		require.Equal(t, "PREFIX:"+want, string(got))
+		// The original prefix bytes must be untouched.
+		require.Equal(t, "PREFIX:", string(prefix))
+	})
+
+	t.Run("strict encoder", func(t *testing.T) {
+		strictEnc := NewEncoder(WithEncoderStrictMode(true))
+		nonPrintable := secs2.A("a\nb")
+		got := strictEnc.AppendEncode([]byte("X"), nonPrintable)
+		require.Equal(t, "X"+strictEnc.Encode(nonPrintable), string(got))
+	})
+}
+
 func TestEncodeMessage_PackageShortcut(t *testing.T) {
 	msg, err := hsms.NewDataMessage(1, 1, false, 0, [4]byte{}, secs2.A("hi"))
 	require.NoError(t, err)
