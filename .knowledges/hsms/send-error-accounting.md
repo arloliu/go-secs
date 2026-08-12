@@ -3,10 +3,8 @@ type: Mechanic
 title: Send error accounting — which outcomes count
 description: Why a normal Close mid-transaction does not inflate the error counter, and what does.
 tags: [hsms, metrics, send, lifecycle]
-status: stable
-generated: {by: "claude/sonnet-5", at: 2026-08-12T08:55:39Z}
-verified:
-  - {by: "codex/gpt-5.6-sol", at: 2026-08-12T09:03:31Z}
+status: draft
+generated: {by: "claude/sonnet-5", at: 2026-08-12T09:35:39Z}
 sources:
   - {resource: hsms/connection_send.go, digest: sha256:9b1ccf21a9d24c0d, revision: b1bb17b}
   - {resource: hsms/connection_metrics.go, digest: sha256:44481eac3475bc65, revision: b1bb17b}
@@ -51,12 +49,14 @@ T3.
 way: it now says a !W send that *reached the wire* (write already succeeded) records send+1/err+0
 *at that point*, not that a !W send is exempt from error counting in general.
 
-No test currently pins a write failure on a !W (fire-and-forget) `sendWaitReply` call.
-`TestSendMetrics_DataMsgErr_OnWriteError` (`hsms/connection_send_metrics_test.go`) sets `tr.writeErr`
-but sends with the W bit set; `TestSendMetrics_FireAndForget_SendPlusOne_ErrZero` sends with the W
-bit clear but leaves `tr.writeErr` unset.
-No test exercises the intersection — a !W send whose write fails — so nothing in the suite would
-catch a regression that made the write-failure increment W-bit-conditional.
+`TestSendMetrics_DataMsgErr_OnWriteError_FireAndForget`
+(`hsms/connection_send_metrics_test.go`) now pins the intersection this entry used to flag as
+uncovered: a !W (fire-and-forget) `sendWaitReply` call whose transport write fails.
+It asserts `DataMsgErrCount` goes to 1 and `DataMsgSendCount` stays 0, the same pairing
+`TestSendMetrics_DataMsgErr_OnWriteError` asserts for the W-bit-set case.
+A teeth-check confirmed it: gating the increment on `!fireAndForget` made only the new test fail,
+with `TestSendMetrics_DataMsgErr_OnWriteError` (W-bit set) still passing, and reverting restored a
+green suite.
 
 # How it works
 

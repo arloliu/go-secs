@@ -92,6 +92,24 @@ func TestSendMetrics_DataMsgErr_OnWriteError(t *testing.T) {
 	require.Equal(t, uint64(0), c.metrics.DataMsgSendCount())
 }
 
+// TestSendMetrics_DataMsgErr_OnWriteError_FireAndForget proves the write-error → DataMsgErrCount
+// increment in sendWaitReply is NOT W-bit-conditional: a fire-and-forget (!W) data send whose
+// transport write fails is counted exactly like a W-bit send that fails the same way — because the
+// increment sits on the writeFrame-failure branch, guarded on isData alone, before fireAndForget's
+// short-circuit is ever reached.
+// A regression that gated the increment on the W bit would let a !W write failure vanish from the
+// counter; this pins the intersection TestSendMetrics_DataMsgErr_OnWriteError (W-bit set) and
+// TestSendMetrics_FireAndForget_SendPlusOne_ErrZero (!W, no write error) each leave uncovered.
+func TestSendMetrics_DataMsgErr_OnWriteError_FireAndForget(t *testing.T) {
+	c, tr := newTestSendConn(t, SelectedState)
+	tr.writeErr = errors.New("boom")
+
+	_, err := c.sendWaitReply(t.Context(), mustSendData(t, [4]byte{0, 0, 0, 1}, false))
+	require.Error(t, err)
+	require.Equal(t, uint64(1), c.metrics.DataMsgErrCount(), "a failed-before-wire !W send is a data-message error too")
+	require.Equal(t, uint64(0), c.metrics.DataMsgSendCount())
+}
+
 // TestSendMetrics_FireAndForget_SendPlusOne_ErrZero proves Fix B: a !W DATA send via the
 // synchronous path records DataMsgSend+1 (the frame reached the wire) and DataMsgErr+0 — it
 // short-circuits after the write, so it never reaches the T3-timeout error path. This resolves the
