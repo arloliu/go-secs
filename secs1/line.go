@@ -36,6 +36,7 @@ type lineIO struct {
 	now     func() time.Time        // injectable clock for the T1/T2 conn read deadlines (default time.Now)
 	timers  func() hsms.TimerConfig // LIVE T1/T2 source; re-read on every use so UpdateConfigOptions(WithT1/WithT2) reaches the line engine
 	metrics *ConnectionMetrics      // block-level counters (secs1's own type — see secs1/metrics.go)
+	sendBuf []byte                  // reused frame buffer for sendBlockData; unlocked only because of the G-A invariant
 	isEquip bool                    // true = equipment (master); false = host (slave)
 }
 
@@ -52,6 +53,10 @@ func newLineIO(conn net.Conn, cfg Config, timers func() hsms.TimerConfig, metric
 		now:     time.Now,
 		timers:  timers,
 		metrics: metrics,
+		// Pre-size for the largest possible wire frame:
+		// one length byte, maxBlockLength (10-byte header + up to 244-byte body), and checksumSize.
+		// Sized this way, appending a block into it never grows or copies on the hot send path.
+		sendBuf: make([]byte, 0, 1+maxBlockLength+checksumSize),
 		isEquip: cfg.IsEquip(),
 	}
 }
@@ -281,7 +286,8 @@ func (l *lineIO) sendBlockOnce(ctx context.Context, blk block) (sendResult, erro
 // A write error is non-retryable (sendAbort). Per §7.8.3, characters received before the last
 // checksum byte are ignored — the caller drained them within the T2 wait for EOT.
 func (l *lineIO) sendBlockData(blk block) (sendResult, error) {
-	if err := l.writeAll(blk.appendTo(nil)); err != nil {
+	l.sendBuf = blk.appendTo(l.sendBuf[:0])
+	if err := l.writeAll(l.sendBuf); err != nil {
 		return sendAbort, fmt.Errorf("secs1: send block data: %w", err)
 	}
 
