@@ -37,6 +37,14 @@ var (
 	// This is returned when the W-bit (reply expected) is set on a reply (even-function) message.
 	ErrInvalidRspMsg = errors.New("hsms: message is not a valid response/secondary message")
 
+	// ErrMessageTooLarge indicates that a data message's on-wire frame size (10-byte header +
+	// body) would exceed MaxMessageSize.
+	//
+	// Returned by the send path before the frame is written; the message is never put on the
+	// wire.
+	// A control message can never trigger this — its frame is always the fixed 14 bytes.
+	ErrMessageTooLarge = errors.New("hsms: message exceeds maximum frame size")
+
 	// Connection state and lifecycle errors.
 	ErrAlreadyOpen      = errors.New("hsms: connection already open")
 	ErrNotOpen          = errors.New("hsms: connection not open")

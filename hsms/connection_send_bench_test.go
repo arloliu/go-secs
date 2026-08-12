@@ -37,12 +37,16 @@ func BenchmarkBuildFrameBuffers(b *testing.B) {
 
 		// Warm the memoized encoding so the timed loop measures only the prefix build + the
 		// zero-copy body-slice references (not the one-time item encode).
-		bufsSink = buildFrameBuffers(msg)
+		var warmErr error
+		bufsSink, warmErr = buildFrameBuffers(msg)
+		if warmErr != nil {
+			b.Fatalf("body=%d: %v", n, warmErr)
+		}
 
 		b.Run(fmt.Sprintf("body=%d", n), func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
-				bufsSink = buildFrameBuffers(msg)
+				bufsSink, _ = buildFrameBuffers(msg)
 			}
 		})
 	}
@@ -73,12 +77,16 @@ func BenchmarkBuildFrameBuffers_ListLeaves(b *testing.B) {
 		}
 
 		// Warm the memoized encoding so the timed loop measures only the buffer assembly.
-		bufsSink = buildFrameBuffers(msg)
+		var warmErr error
+		bufsSink, warmErr = buildFrameBuffers(msg)
+		if warmErr != nil {
+			b.Fatalf("leaves=%d: %v", leaves, warmErr)
+		}
 
 		b.Run(fmt.Sprintf("leaves=%d", leaves), func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
-				bufsSink = buildFrameBuffers(msg)
+				bufsSink, _ = buildFrameBuffers(msg)
 			}
 		})
 	}

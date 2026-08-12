@@ -345,7 +345,15 @@ func (c *connection) writeFarewellSeparate(e *epoch) {
 	// The profile constant is therefore hard-coded for the HSMS-SS case it actually serves.
 	// A future HSMS-GS transport, or any profile needing a different value, must make this transport-supplied rather than inherit it.
 	sep := NewSeparateReq(ControlSessionID, c.sysGen.next())
-	bufs := buildFrameBuffers(sep)
+
+	bufs, err := buildFrameBuffers(sep)
+	if err != nil {
+		// Unreachable in practice: a control frame is always the fixed 14 bytes and never
+		// trips buildFrameBuffers' data-message size cap.
+		// Skip the courtesy Separate rather than write onto a malformed frame — the same
+		// fail-safe posture as the writeMu contention and nil-conn guards above.
+		return
+	}
 
 	_ = c.tr.SetWriteDeadline(conn, time.Now().Add(farewellWriteTimeout))
 	_ = c.tr.Write(e.ctx, conn, bufs)

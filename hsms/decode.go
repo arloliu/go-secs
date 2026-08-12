@@ -8,18 +8,30 @@ import (
 	"github.com/arloliu/go-secs/v2/secs2"
 )
 
-// maxHSMSMsgLen is the upper bound on the HSMS message-length field: a whole-frame DoS cap
-// (10-byte header + body), NOT a per-item bound. It reuses secs2.MaxByteSize (the max SECS-II
-// single-item payload, SEMI E5 §9.2) as a convenient, generous ceiling — a value chosen to
-// reject an attacker-controlled length before allocating the frame buffer, not to bound the
-// SECS-II tree.
+// MaxMessageSize is the upper bound, in bytes, on one on-wire HSMS message: the 10-byte header
+// plus the SECS-II body (SEMI E37 §10.1 item 4 — the Message Length field limits a message to a
+// system-defined maximum). go-secs uses secs2.MaxByteSize (2^24-1, the ceiling of a single
+// SECS-II item's own 3-byte length field, SEMI E5 §9.2) as that system-defined maximum for both
+// the receive path (decode.go) and the send path (buildFrameBuffers in connection_send.go).
+//
+// A single item's own length field is bounded independently by the same value, so the largest
+// possible single-item message (item header + item payload + the 10-byte HSMS header) does not
+// itself fit inside MaxMessageSize: MaxMessageSize is a whole-frame ceiling, not a guarantee
+// that any maximal single item can be sent standalone.
+const MaxMessageSize = secs2.MaxByteSize
+
+// maxHSMSMsgLen is the internal name for MaxMessageSize used throughout decode.go and
+// connection_send.go: a whole-frame DoS cap (10-byte header + body), NOT a per-item bound.
+// It is a convenient, generous ceiling — a value chosen to reject an attacker-controlled length
+// before allocating the frame buffer, not to bound the SECS-II tree.
 //
 // Consequence (M6): a LEGITIMATE deeply-nested message whose total on-wire length exceeds this
 // cap is rejected at the framing layer (the link is dropped, not answered with a Reject) rather
 // than decoded — HSMS has no "message too long" Reject reason, and a frame this large is treated
-// as hostile. In practice single-item bodies dominate and stay well under the cap; the header's
-// 10 bytes are counted within the cap (the bound is compared against the full msgLen field).
-const maxHSMSMsgLen = secs2.MaxByteSize
+// as hostile.
+// In practice single-item bodies dominate and stay well under the cap; the header's 10 bytes are
+// counted within the cap (the bound is compared against the full msgLen field).
+const maxHSMSMsgLen = MaxMessageSize
 
 // DecodeHSMSMessage decodes a complete on-wire HSMS frame from data.
 //

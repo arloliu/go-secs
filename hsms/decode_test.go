@@ -595,3 +595,17 @@ func TestNewDataMessageFromHeader_WBitOnEvenFunction(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrInvalidRspMsg)
 }
+
+// ────────────────────────────────────────────────────────────────
+// MaxMessageSize
+// ────────────────────────────────────────────────────────────────
+
+// TestMaxMessageSize_EqualsSecs2MaxByteSize pins the exported send/receive frame-size ceiling
+// to secs2.MaxByteSize (SEMI E5 §9.2's single-item length-field bound), per the plan's size-cap
+// arithmetic decision: the send cap equals the existing receive cap, so send and receive stay
+// symmetric.
+func TestMaxMessageSize_EqualsSecs2MaxByteSize(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, secs2.MaxByteSize, MaxMessageSize)
+}

@@ -109,7 +109,9 @@ func TestSendMetrics_FireAndForget_SendPlusOne_ErrZero(t *testing.T) {
 }
 
 // TestSendMetrics_DataMsgErr_NotOnSuccessOrCancelOrDrop proves DataMsgErrCount is NOT bumped by a
-// successful reply, a caller cancellation, a connection drop, or a B1 NotSelected drop.
+// successful reply, a caller cancellation, a connection drop, a B1 NotSelected drop, or a
+// caller-side oversized body (ErrMessageTooLarge) — isCountedSendErr excludes it for the same
+// reason it excludes ErrNotSelectedState: a local/caller condition, not a transport failure.
 func TestSendMetrics_DataMsgErr_NotOnSuccessOrCancelOrDrop(t *testing.T) {
 	t.Run("reply-success", func(t *testing.T) {
 		c, _ := newTestSendConn(t, SelectedState)
@@ -162,6 +164,17 @@ func TestSendMetrics_DataMsgErr_NotOnSuccessOrCancelOrDrop(t *testing.T) {
 		_, err := c.sendWaitReply(t.Context(), mustSendData(t, [4]byte{0, 0, 0, 4}, true))
 		require.ErrorIs(t, err, ErrNotSelectedState)
 		require.Equal(t, uint64(0), c.metrics.DataMsgErrCount(), "a B1 NotSelected drop is a drop, not an error")
+	})
+
+	t.Run("oversized-body", func(t *testing.T) {
+		c, _ := newTestSendConn(t, SelectedState)
+		msg := fakeBodyDataMessage(t, maxHSMSMsgLen-10+1)
+
+		_, err := c.sendWaitReply(t.Context(), msg)
+		require.ErrorIs(t, err, ErrMessageTooLarge)
+		require.Equal(t, uint64(0), c.metrics.DataMsgErrCount(),
+			"a caller-side oversized body is a construction error caught before the wire, not a transport/protocol data-message error")
+		require.Equal(t, uint64(0), c.metrics.DataMsgSendCount(), "an oversized body never reaches the wire")
 	})
 }
 

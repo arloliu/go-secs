@@ -105,6 +105,8 @@ func (m *ConnectionMetrics) DataMsgRecvCount() uint64 {
 //   - A peer Reject of our transaction (surfaced as *RejectError — a peer-signalled outcome, not a local send error).
 //   - A fire-and-forget (non-W-bit) send, which returns before any reply wait.
 //   - An async-path (SendAsync/ReplyDataMessage) failure.
+//   - A message rejected before the wire for exceeding MaxMessageSize (ErrMessageTooLarge) — a
+//     local, caller-side construction error, not a transport/protocol failure.
 //
 // See RejectError for peer rejections.
 func (m *ConnectionMetrics) DataMsgErrCount() uint64 {

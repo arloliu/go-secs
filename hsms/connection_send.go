@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"net"
 	"time"
 
@@ -44,15 +45,22 @@ func (c *connection) dropNotSelected() {
 // buildFrameBuffers assembles the FRESH net.Buffers for one on-wire HSMS frame (spec §6.2): a
 // 14-byte prefix (4-byte big-endian length = 10+bodyLen, then the 10-byte header) followed by
 // the body's zero-copy sub-slices for a data message, or the single prefix slice for a control
-// / empty-body message. A fresh slice is returned per call because writev consumes/advances it.
-// The assembled bytes are byte-for-byte equal to msg.ToBytes().
+// / empty-body message.
+// A fresh slice is returned per call because writev consumes/advances it.
+// On success the assembled bytes are byte-for-byte equal to msg.ToBytes().
 //
 // The body length is derived by summing the lengths of the body's Buffers (obtained once, which
 // also memoizes the encoding) rather than calling Body.Len: for a list body Body.Len is a
 // recursive EncodedLen walk that is NOT memoized, so summing the already-materialized buffers
 // avoids re-walking the item tree (the prior code called Body.Len twice, then Buffers a third
 // time).
-func buildFrameBuffers(msg Message) net.Buffers {
+//
+// It returns ErrMessageTooLarge if a data message's frame (10-byte header + body) would exceed
+// MaxMessageSize (SEMI E37 §10.1 item 4) — the send-side counterpart of the same cap decode.go
+// enforces on receive.
+// A control message can never trip this: its frame is always the fixed 14 bytes, so the check
+// only ever runs for a data message's body.
+func buildFrameBuffers(msg Message) (net.Buffers, error) {
 	header := msg.HeaderBytes()
 
 	// A fresh prefix per call (the Buffers slice is consumed/advanced by writev, §6.2).
@@ -67,28 +75,41 @@ func buildFrameBuffers(msg Message) net.Buffers {
 		}
 
 		if n > 0 {
-			binary.BigEndian.PutUint32(prefix[:4], uint32(10+n)) //nolint:gosec // n is a bounded body length
+			if n > maxHSMSMsgLen-10 {
+				return nil, fmt.Errorf("hsms: data message body is %d bytes, exceeds the %d-byte limit (MaxMessageSize=%d): %w",
+					n, maxHSMSMsgLen-10, maxHSMSMsgLen, ErrMessageTooLarge)
+			}
+
+			binary.BigEndian.PutUint32(prefix[:4], uint32(10+n)) // bounded above: n <= maxHSMSMsgLen-10
 			bufs := make(net.Buffers, 0, 1+len(bodyBufs))
 			bufs = append(bufs, prefix)
 			bufs = append(bufs, bodyBufs...)
 
-			return bufs
+			return bufs, nil
 		}
 	}
 
 	// Control messages / empty-body data: header-only, length = 10, single-slice path.
 	binary.BigEndian.PutUint32(prefix[:4], 10)
 
-	return net.Buffers{prefix}
+	return net.Buffers{prefix}, nil
 }
 
 // writeFrame performs the synchronous framed writev of msg over THIS epoch's socket (spec §6.2).
 // It builds the frame buffers (buildFrameBuffers), then hands them to the transport byte sink
-// under e.writeMu so concurrent senders never interleave frames on the wire. The write is bound
-// to the epoch's own conn (the I1 stale-epoch guard below), so a sender pinned to a superseded
-// generation can never writev onto a successor's socket. The bytes written equal msg.ToBytes().
+// under e.writeMu so concurrent senders never interleave frames on the wire.
+// The write is bound to the epoch's own conn (the I1 stale-epoch guard below), so a sender
+// pinned to a superseded generation can never writev onto a successor's socket.
+// The bytes written equal msg.ToBytes().
+//
+// An oversized data message (ErrMessageTooLarge) is rejected here, before e.writeMu is even
+// acquired: it is a caller-side construction error, never a link failure, so it never touches
+// writeMu, never reaches the transport, and never triggers the write-error teardown path below.
 func (c *connection) writeFrame(ctx context.Context, e *epoch, msg Message) error {
-	bufs := buildFrameBuffers(msg)
+	bufs, err := buildFrameBuffers(msg)
+	if err != nil {
+		return err
+	}
 
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
@@ -295,12 +316,19 @@ func (c *connection) sendWaitReply(callerCtx context.Context, msg Message) (Mess
 }
 
 // isCountedSendErr reports whether a writeFrame error on a DATA send counts as a data-message
-// error (DataMsgErrCount). A NotSelected drop (B2) has its own dedicated counter; connection
-// teardown (ErrConnClosed) and caller cancellation (context.Canceled / DeadlineExceeded) are
-// lifecycle/caller events, not send failures. Anything else (a genuine transport write error) does.
+// error (DataMsgErrCount).
+// A NotSelected drop (B2) has its own dedicated counter; connection teardown (ErrConnClosed) and
+// caller cancellation (context.Canceled / DeadlineExceeded) are lifecycle/caller events, not send
+// failures.
+// ErrMessageTooLarge is a local, caller-side message-construction error caught before writeMu is
+// even acquired — never a transport/link event — so it is excluded here too, the same way
+// ErrNotSelectedState is: DataMsgErrCount stays a transport/protocol-health signal (a real write
+// failure or a T3 timeout), not a bucket for application bugs.
+// Anything else (a genuine transport write error) does count.
 func isCountedSendErr(err error) bool {
 	return !errors.Is(err, ErrNotSelectedState) &&
 		!errors.Is(err, ErrConnClosed) &&
+		!errors.Is(err, ErrMessageTooLarge) &&
 		!errors.Is(err, context.Canceled) &&
 		!errors.Is(err, context.DeadlineExceeded)
 }
