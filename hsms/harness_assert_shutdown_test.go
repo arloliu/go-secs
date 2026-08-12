@@ -91,7 +91,7 @@ func TestCleanShutdown_Teeth(t *testing.T) {
 
 	// Simulate a W-bit sender that registered but never deregistered (leaked reply entry).
 	leakedKey := [4]byte{9, 9, 9, 9}
-	_ = e.replies.register(leakedKey)
+	_ = e.replies.register(leakedKey, 1, 1, true)
 
 	// Close tears down the generation (done closes, liveTasks → 0), but the reply registry
 	// is NOT cleared by teardown — the leaked entry persists.

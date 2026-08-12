@@ -52,6 +52,7 @@ type ConnectionConfig struct {
 	writeTimeout               time.Duration
 	logger                     logger.Logger
 	validateSessionID          bool
+	strictReplyMatching        bool
 	autoS9F9                   bool
 	traceTraffic               bool
 	asyncSendErrHandler        func(msg Message, err error)
@@ -463,6 +464,39 @@ func WithLogger(l logger.Logger) ConnOption {
 func WithSessionIDValidation(enabled bool) ConnOption {
 	return func(c *ConnectionConfig) error {
 		c.validateSessionID = enabled
+
+		return nil
+	}
+}
+
+// WithStrictReplyMatching enables strict SEMI E37 §9.4.1 reply-field validation.
+//
+// §9.4.1 requires a reply to match its primary on SessionID, Stream, Function (primary + 1, or 0
+// — SxF0, the transaction-abort secondary, E5 §7.2/§10.4.1), and System Bytes.
+// This option covers the stream/function half; System Bytes is always the registry key.
+// SessionID is a separate seam: enable [WithSessionIDValidation] too for full §9.4.1 field
+// enforcement (mirrors how [WithReconnectBackoff](t5, 1.0) composes with [WithT5]).
+//
+// Disabled (the default) means every candidate reply — a W-clear, even-function *DataMessage
+// secondary hitting an open System-Bytes entry registered for a data primary — is delivered to
+// the waiting sender even when its stream or function diverges from the primary; the divergence
+// is only counted (see [ConnectionMetrics.ReplyMismatchCount]).
+// Control transactions (Select/Deselect/Linktest) and a peer Reject.req are never subject to this
+// check either way — they carry no stream/function to compare.
+//
+// Enabled, a field mismatch is a MISS: the message falls through to the session's data handlers as
+// unsolicited instead of satisfying the waiting sender, and the registration is NOT consumed, so a
+// later conforming reply can still complete the transaction.
+// Against a peer that is sloppy about echoing stream or function, this turns a transaction that
+// previously "worked" (by receiving the wrong reply quickly) into a stall that runs to T3 —
+// returning ErrT3Timeout — unless a conforming reply follows.
+//
+// Recommended path: soak under the default first and enable this only once
+// [ConnectionMetrics.ReplyMismatchCount] stays at 0, so enforcement is turned on against a peer
+// already known to reply correctly, not discovered against one that does not.
+func WithStrictReplyMatching(enabled bool) ConnOption {
+	return func(c *ConnectionConfig) error {
+		c.strictReplyMatching = enabled
 
 		return nil
 	}

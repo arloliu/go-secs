@@ -163,18 +163,27 @@ func isSecondaryReply(dm *DataMessage) bool {
 // RouteReply looks up the System Bytes of msg in the per-generation sender-owned reply registry
 // and non-blocking-delivers the reply to the waiting sender (TransportRuntime, spec §5.5).
 //
-// It returns true on a registry hit (a sender received the reply), false on a miss (the reply is unsolicited —
-// the caller routes it as a secondary or drops it).
+// It returns true on delivery (a sender received the reply), false on a miss — either the registry
+// has no open transaction for these System Bytes, or (WithStrictReplyMatching only) the candidate's
+// stream/function diverged from the registered primary (E37 §9.4.1). Either way the caller routes
+// the message as a secondary or drops it; a strict-mode field mismatch does NOT consume the
+// registration, so a later conforming reply can still complete the transaction.
 // It never touches the inflight gauge.
 // With no live epoch it reports a miss.
 //
-// A peer Reject.req (SType 7, E37 §7.10) correlates to our in-flight transaction by System Bytes but is a REJECTION, not a reply:
+// Every mismatched candidate increments ReplyMismatchCount, regardless of strict — see that
+// counter's godoc for what each reading means.
+// Control responses (Select.rsp/Deselect.rsp/
+// Linktest.rsp) and a peer Reject.req are never compared (replyRegistry.route's control-transaction
+// exemption) and so never move the counter.
+//
+// A peer Reject.req (SType 7, E37 §7.10) correlates to our in-flight transaction by System Bytes
+// but is a REJECTION, not a reply:
 // it is delivered to the waiting sender as a *RejectError (carrying the E37 reason code, header byte 3),
 // so SendDataMessage/SendSECS2Message return (nil, *RejectError) rather than silently swallowing the reject as an un-assertable
 // *ControlMessage. Legitimate control responses (Select.rsp / Deselect.rsp / Linktest.rsp) are
 // still delivered as the routed message, because their responder procedures read the routed rsp.
 //
-// A miss means the reply is unsolicited (no open transaction).
 // Per E37 §8.3.20 the caller must answer an orphan control RESPONSE (Select/Deselect/Linktest.rsp —
 // even SType) with Reject(TransactionNotOpen, reason 3), keeping the link; the HSMS-SS recv loop does
 // so on a miss (see transport.dispatchFrame → sendRejectTransactionNotOpen).
@@ -186,14 +195,23 @@ func (c *connection) RouteReply(msg Message) bool {
 		return false
 	}
 
+	strict := c.cfg.Load().strictReplyMatching
+
+	var delivered, mismatched bool
 	if msg.Type() == RejectReqType {
 		// Read header byte 3 (the E37 reject reason) DIRECTLY rather than via GetRejectReasonCode:
 		// we surface whatever reason the peer actually sent, including reason 0 — a value no SEMI
 		// E37 entity ever assigns, but which GetRejectReasonCode would reject — faithful reporting
 		// beats validation on this inbound path.
 		header := msg.HeaderBytes()
-		return e.replies.route(msg.SystemBytes(), replyResult{err: &RejectError{Reason: header[3]}})
+		delivered, mismatched = e.replies.route(msg.SystemBytes(), replyResult{err: &RejectError{Reason: header[3]}}, strict)
+	} else {
+		delivered, mismatched = e.replies.route(msg.SystemBytes(), replyResult{msg: msg}, strict)
 	}
 
-	return e.replies.route(msg.SystemBytes(), replyResult{msg: msg})
+	if mismatched {
+		c.metrics.incReplyMismatch()
+	}
+
+	return delivered
 }

@@ -248,7 +248,17 @@ func (c *connection) sendWaitReply(callerCtx context.Context, msg Message) (Mess
 	var ch chan replyResult
 	if !fireAndForget {
 		key := msg.SystemBytes()
-		ch = e.replies.register(key)
+
+		// A control primary (dm == nil here) has no stream/function to register; the zero
+		// values are stored but never compared (isData false), same as the E37 §9.4.1
+		// control-transaction exemption route enforces below.
+		var stream, function uint8
+		if dm != nil {
+			stream = dm.Stream()
+			function = dm.Function()
+		}
+
+		ch = e.replies.register(key, stream, function, isData)
 		defer e.replies.deregister(key)
 	}
 

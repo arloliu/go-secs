@@ -35,6 +35,7 @@ type ConnectionMetrics struct {
 	asyncSendErr           atomic.Uint64 // write failures on the fire-and-forget async send path
 	connRetry              atomic.Int64  // gauge: 1 while a reconnect loop is actively retrying, else 0
 	reconnects             atomic.Uint64 // cumulative count of successful re-establishments after an involuntary drop
+	replyMismatch          atomic.Uint64 // E37 §9.4.1: a candidate reply whose stream/function diverged from the registered primary
 }
 
 // DataMsgInflightCount returns the current number of data messages in flight.
@@ -113,6 +114,28 @@ func (m *ConnectionMetrics) DataMsgErrCount() uint64 {
 	return m.dataMsgErr.Load()
 }
 
+// ReplyMismatchCount returns the total number of candidate replies whose stream or function
+// diverged from the registered primary (SEMI E37 §9.4.1).
+//
+// A candidate is a W-clear, even-function *DataMessage secondary that hit an open System-Bytes
+// entry registered for a DATA primary; control transactions (Select/Deselect/Linktest) and a peer
+// Reject.req are exempt and never move this counter — see RouteReply.
+// A combined stream+function mismatch on one candidate counts once, not twice.
+// Function matches primary+1 or 0 (the SxF0 abort secondary, E5 §7.2/§10.4.1); SessionID is never
+// compared here (see WithSessionIDValidation for that seam).
+//
+// The count means something different depending on WithStrictReplyMatching:
+//   - Disabled (the default): each counted candidate was still delivered to the waiting sender
+//     despite the mismatch — nothing else about delivery changed. A rising count under the default
+//     identifies a sloppy peer without breaking it; SEMI E37 §9.4.1 full field validation is opt-in
+//     (see WithStrictReplyMatching).
+//   - Enabled: each counted candidate was diverted to the data handlers as an unsolicited message
+//     instead of satisfying the waiting sender. The sender's registration is NOT consumed, so it
+//     stalls to T3 (returning ErrT3Timeout) only if no conforming reply arrives before the deadline.
+func (m *ConnectionMetrics) ReplyMismatchCount() uint64 {
+	return m.replyMismatch.Load()
+}
+
 // Reconnecting reports whether a reconnect loop is currently actively retrying.
 //
 // It returns 1 while retrying, and 0 when idle or connected.
@@ -183,4 +206,8 @@ func (m *ConnectionMetrics) decConnRetry() {
 
 func (m *ConnectionMetrics) incReconnects() {
 	m.reconnects.Add(1)
+}
+
+func (m *ConnectionMetrics) incReplyMismatch() {
+	m.replyMismatch.Add(1)
 }
