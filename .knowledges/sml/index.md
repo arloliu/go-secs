@@ -14,7 +14,7 @@ Does not own the item model (`secs2`) or message construction rules (`hsms`). Pa
 
 # Entries
 
-* [Parser allocation bounds](/sml/prealloc-bound.md) - keeps attacker-controlled text from driving oversized allocations.
+* [Parser input bounds](/sml/prealloc-bound.md) - bounds allocation and recursion on attacker-controlled input.
 
 # Entry points
 
