@@ -8,6 +8,8 @@
 * **Update**: [What a decoded item aliases](/secs2/decode-aliasing.md) corrected the "in no package doc" claim — `decode.go`'s own doc comment already documents `DecodeOwnedFrame`'s capability-token access control, though `doc.go` itself still never names the function; draft pending re-verification.
 * **Creation**: [The reply registry's two-legged control exemption](/hsms/reply-matching-control-exemption.md) the registration-side isData flag and result-side `*DataMessage` assertion, and the v2.0.1 field-bug shape breaking both reproduces.
 * **Creation**: [The passive refusal exchange's absolute deadline and two-sided Stop handoff](/hsmsss/passive-refusal-exchange.md) why `readFrame` is forbidden, the `refuseToken` non-comparable-`net.Conn` reasoning, and the `ArmStart` generation reset.
+* **Creation**: [LinktestErrCount's teardown exclusion is two independent cancellation cascades, not one](/hsmsss/linktest-teardown-exemption.md) traced every origin of `hsms.ErrConnClosed` in the send path to confirm the guard is teardown-exclusive; approved from the prior sync's Proposed list.
+* **Creation**: [The send-side MaxMessageSize ceiling's enforcement topology](/hsms/max-message-size-ceiling.md) the pre-`writeMu` check, the structural control-frame exemption, and why async accounting has no exclusion list at all; approved from the prior sync's Proposed list.
 * **Creation**: [Trailing-byte counting — where it's measured and how it reaches TrailingBytes()](/crosscutting/trailing-bytes-counting.md) the shared `decodeFirstItem` site and hsms's copy-fallback routing through the same `DecodeOwnedFrame` entry point.
 
 ## 2026-08-05

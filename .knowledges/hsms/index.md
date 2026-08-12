@@ -19,6 +19,7 @@ Owns no sockets and no wire framing. `hsmsss` and `secs1` supply the transport a
 * [The W-bit inflight gauge](/hsms/inflight-gauge.md) - when a message counts as in flight, and why a leak here disables liveness probing.
 * [The I1 stale-epoch write guard](/hsms/stale-epoch-write-guard.md) - how a sender stalled across a reconnect is kept off the successor's socket.
 * [The reply registry's two-legged control exemption](/hsms/reply-matching-control-exemption.md) - why registration-side isData and result-side *DataMessage are two independent gates, and the v2.0.1 shape breaking both reproduces.
+* [The send-side MaxMessageSize ceiling's enforcement topology](/hsms/max-message-size-ceiling.md) - where the check runs relative to writeMu, why control frames are structurally exempt, and why async accounting has no exclusion list at all.
 
 # Entry points
 

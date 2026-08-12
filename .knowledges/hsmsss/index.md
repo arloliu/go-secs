@@ -17,6 +17,7 @@ Owns no message types, reply routing, or T3 — those are `hsms`. Single-session
 * [Activity stamps — the state behind linktest suppression](/hsmsss/activity-stamps.md) - where "the line is alive" is stored, what writes it, when it resets.
 * [Where the HSMS-SS profile overrides the generic core](/hsmsss/e37-1-narrows-e37-generic.md) - the four sites whose value or state check comes from E37.1, not E37, and what silently breaks if one is "simplified" back.
 * [The passive refusal exchange's absolute deadline and two-sided Stop handoff](/hsmsss/passive-refusal-exchange.md) - why refuseExtraConn cannot reuse readFrame, and why the Stop handoff needs a token, not a bare field.
+* [LinktestErrCount's teardown exclusion is two independent cancellation cascades, not one](/hsmsss/linktest-teardown-exemption.md) - why runLinktest checks both ctx.Err() and errors.Is(err, hsms.ErrConnClosed), and why ErrConnClosed is teardown-exclusive.
 
 # Entry points
 
