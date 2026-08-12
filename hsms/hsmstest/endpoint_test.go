@@ -177,6 +177,91 @@ func TestFakeEndpoint_HandlerReplyDuringDeliver_NoDeadlock(t *testing.T) {
 	}
 }
 
+// TestFakeEndpoint_DeliverState proves DeliverState invokes every registered StateChangeHandler
+// with (prev, next), fans out to multiple handlers (the snapshot-iterate contract), and — like
+// Deliver — releases its lock before invoking handlers: a handler calling back into f.Sent()
+// (which itself takes f.mu) must not deadlock.
+// A short timeout fails fast if the lock-ordering contract regresses.
+func TestFakeEndpoint_DeliverState(t *testing.T) {
+	t.Parallel()
+
+	ep := hsmstest.NewFakeEndpoint()
+	var calls []int
+	var mu sync.Mutex
+
+	for i := range 3 {
+		ep.AddConnStateChangeHandler(func(prev, next hsms.ConnState) {
+			_ = ep.Sent() // reentrant call back into the fake; must not deadlock
+
+			mu.Lock()
+			calls = append(calls, i)
+			mu.Unlock()
+
+			assert.Equal(t, hsms.NotSelectedState, prev, "handler must receive the delivered previous state")
+			assert.Equal(t, hsms.SelectedState, next, "handler must receive the delivered next state")
+		})
+	}
+
+	done := make(chan struct{})
+	go func() {
+		ep.DeliverState(hsms.NotSelectedState, hsms.SelectedState)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("DeliverState deadlocked when handler called back into Sent")
+	}
+
+	assert.ElementsMatch(t, []int{0, 1, 2}, calls)
+}
+
+// TestFakeEndpoint_DeliverDecodeError proves DeliverDecodeError invokes every registered
+// DecodeErrorHandler with (msg, err, f), fans out to multiple handlers (the snapshot-iterate
+// contract), and — like Deliver — releases its lock before invoking handlers: a handler calling
+// back into f.Sent() (which itself takes f.mu) must not deadlock.
+// A short timeout fails fast if the lock-ordering contract regresses.
+func TestFakeEndpoint_DeliverDecodeError(t *testing.T) {
+	t.Parallel()
+
+	ep := hsmstest.NewFakeEndpoint()
+	var calls []int
+	var mu sync.Mutex
+
+	bad := hsmstest.MalformedDataMessage(1, 1, false)
+	wantErr := bad.DecodeErr()
+	require.Error(t, wantErr)
+
+	for i := range 3 {
+		ep.AddDecodeErrorHandler(func(msg *hsms.DataMessage, err error, e hsms.SECS2Endpoint) {
+			_ = ep.Sent() // reentrant call back into the fake; must not deadlock
+
+			mu.Lock()
+			calls = append(calls, i)
+			mu.Unlock()
+
+			assert.Same(t, bad, msg, "handler must receive the delivered message")
+			assert.Equal(t, wantErr, err, "handler must receive the delivered error")
+			assert.Same(t, ep, e, "handler must receive the delivering endpoint")
+		})
+	}
+
+	done := make(chan struct{})
+	go func() {
+		ep.DeliverDecodeError(bad, wantErr)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("DeliverDecodeError deadlocked when handler called back into Sent")
+	}
+
+	assert.ElementsMatch(t, []int{0, 1, 2}, calls)
+}
+
 // ────────────────────────────────────────────────────────────────
 // W-bit gating (fire-and-forget vs synchronous)
 // ────────────────────────────────────────────────────────────────

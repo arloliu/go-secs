@@ -432,3 +432,60 @@ func TestBaseItemDefaults(t *testing.T) {
 	collected := slices.Collect(item.Ints())
 	require.Empty(t, collected)
 }
+
+// TestNewItemError covers the errors.Is/errors.As interop surface of ItemError: wrapping a plain
+// error once, and avoiding a second layer of wrapping when the input is already an *ItemError.
+func TestNewItemError(t *testing.T) {
+	t.Parallel()
+
+	sentinel := errors.New("sentinel failure")
+
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "wraps a plain sentinel error once", err: sentinel},
+		{name: "does not double-wrap an already-wrapped ItemError", err: NewItemError(sentinel)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			itemErr := NewItemError(tt.err)
+			require.NotNil(t, itemErr)
+
+			// Exactly one layer of *ItemError: the wrapped error must be the sentinel itself,
+			// not another *ItemError.
+			unwrapped := itemErr.Unwrap()
+			require.Equal(t, sentinel, unwrapped)
+			require.Equal(t, sentinel, errors.Unwrap(itemErr))
+
+			var nested *ItemError
+			require.False(t, errors.As(unwrapped, &nested),
+				"Unwrap() result must not itself be an *ItemError")
+
+			require.ErrorIs(t, itemErr, sentinel)
+			require.Equal(t, sentinel.Error(), itemErr.Error())
+		})
+	}
+}
+
+// TestNewItemError_deferredErrorSurface proves the wrap chain stays errors.Is-transparent all the
+// way from a concrete item's deferred error to the original sentinel, through baseItem.setError's
+// errors.Join + NewItemError path.
+func TestNewItemError_deferredErrorSurface(t *testing.T) {
+	t.Parallel()
+
+	sentinel := errors.New("deferred construction failure")
+
+	b := &baseItem{}
+	b.setError(sentinel)
+
+	require.Error(t, b.Error())
+	require.ErrorIs(t, b.Error(), sentinel)
+
+	var itemErr *ItemError
+	require.ErrorAs(t, b.Error(), &itemErr)
+	require.Equal(t, sentinel, itemErr.Unwrap())
+}

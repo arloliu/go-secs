@@ -33,6 +33,17 @@ func TestRequireDataMessageEqual_IgnoreSystemBytes(t *testing.T) {
 	hsmstest.RequireDataMessageEqual(t, a, b, hsmstest.IgnoreSystemBytes())
 }
 
+func TestRequireDataMessageEqual_IgnoreSessionID(t *testing.T) {
+	t.Parallel()
+
+	a, err := hsms.NewDataMessage(1, 1, true, 5, [4]byte{0, 0, 0, 1}, secs2.A("hi"))
+	require.NoError(t, err)
+	b, err := hsms.NewDataMessage(1, 1, true, 9, [4]byte{0, 0, 0, 1}, secs2.A("hi"))
+	require.NoError(t, err)
+
+	hsmstest.RequireDataMessageEqual(t, a, b, hsmstest.IgnoreSessionID())
+}
+
 func TestRequireDataMessageEqual_BodyOnly(t *testing.T) {
 	t.Parallel()
 
