@@ -57,7 +57,20 @@ and SECS-I over TCP/IP (SEMI E4), together with an SML (SECS Message Language) p
   `hsms.WithLinktestSuppression(false)`.
 * **Metrics:** live atomic counters (sent/received/error data messages, linktests, retries) via
   `Connection.Metrics()`.
+* **Reply matching:** every candidate reply is checked against SEMI E37 §9.4.1's Stream/Function
+  fields, and a mismatch is always counted in `ConnectionMetrics.ReplyMismatchCount()`.
+  Enforcement is opt-in via `hsms.WithStrictReplyMatching(true)`, which turns a mismatched reply
+  into a miss that stalls the transaction to T3 instead of completing it —
+  enable it only once `ReplyMismatchCount` stays at 0 under the default.
+* **Diagnostics:** `DataMessage.TrailingBytes()` reports how many bytes followed the first decoded
+  SECS-II item, for equipment that pads a frame's length around a fixed buffer rather than its
+  actual encoded item.
 * **Error handling:** a peer `Reject.req` is surfaced to the caller as an `*hsms.RejectError`.
+  A send is rejected locally, before it reaches the wire, in three cases: an even-function primary
+  (`ErrEvenFunctionPrimary` — SEMI E5 §7.2 requires an odd primary function);
+  a `SendDataMessageAsync` call with `replyExpected: true` (`ErrAsyncReplyExpected`, since an
+  async send never opens a reply-wait transaction); or a frame that would exceed
+  `hsms.MaxMessageSize` (`ErrMessageTooLarge`).
 
 ### SECS-I over TCP/IP Communication
 
