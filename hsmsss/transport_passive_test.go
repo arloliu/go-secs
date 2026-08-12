@@ -14,7 +14,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -67,6 +70,18 @@ func freeLoopbackPort(t *testing.T) int {
 func newPassiveConn(t *testing.T, port int, opts ...hsms.ConnOption) hsms.Connection {
 	t.Helper()
 
+	conn, _ := newPassiveConnTr(t, port, opts...)
+
+	return conn
+}
+
+// newPassiveConnTr is newPassiveConn but also returns the underlying *transport, so a test can
+// reach transport-only state hsms.Connection does not expose: the passive-refusal handoff
+// fields (refuseMu/refuseStopped/refuseConn) and the test-only refusePrePublishHook seam used to
+// drive the Stop-races-prepublication race deterministically.
+func newPassiveConnTr(t *testing.T, port int, opts ...hsms.ConnOption) (hsms.Connection, *transport) {
+	t.Helper()
+
 	hopts := make([]Option, 0, len(opts)+1)
 	hopts = append(hopts, WithPassive())
 
@@ -77,10 +92,12 @@ func newPassiveConn(t *testing.T, port int, opts ...hsms.ConnOption) hsms.Connec
 	cfg, err := NewConfig("127.0.0.1", port, hopts...)
 	require.NoError(t, err)
 
-	conn, err := hsms.NewConnection(&cfg.ConnectionConfig, newTransport(cfg))
+	tr := newTransport(cfg)
+
+	conn, err := hsms.NewConnection(&cfg.ConnectionConfig, tr)
 	require.NoError(t, err)
 
-	return conn
+	return conn, tr
 }
 
 // dialPassive dials the passive listener at 127.0.0.1:port as a scripted client. It retries
@@ -125,7 +142,9 @@ func expectSelectRsp(t *testing.T, client net.Conn) {
 // expectSelectRspStatus reads one frame from client and asserts it is a Select.rsp carrying the
 // given SelectStatus (0 = Communication Established; 1 = Communication Already Active for a
 // duplicate Select while already Selected, E37 Table 7 / M5).
-func expectSelectRspStatus(t *testing.T, client net.Conn, wantStatus byte) {
+// wantSysBytes, if given, additionally asserts the response echoes those System Bytes (E37
+// §8.3.4.4 — a Select.rsp mirrors the System Bytes of the Select.req it answers).
+func expectSelectRspStatus(t *testing.T, client net.Conn, wantStatus byte, wantSysBytes ...[4]byte) {
 	t.Helper()
 
 	frame, err := peerReadFrame(client, 5*time.Second)
@@ -133,6 +152,10 @@ func expectSelectRspStatus(t *testing.T, client net.Conn, wantStatus byte) {
 	require.GreaterOrEqual(t, len(frame), 10, "control frame must carry a 10-byte header")
 	require.Equal(t, byte(hsms.SelectRspType), frame[5], "passive must answer a Select.req with a Select.rsp")
 	require.Equal(t, wantStatus, frame[3], "passive Select.rsp must carry the expected SelectStatus")
+
+	if len(wantSysBytes) > 0 {
+		require.Equal(t, wantSysBytes[0][:], frame[6:10], "Select.rsp must echo the request's System Bytes")
+	}
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────
@@ -194,15 +217,24 @@ func TestPassive_OpenBackgroundReturnsBeforePeer(t *testing.T) {
 }
 
 // TestPassive_RefusesSecondConnection — one peer connected + selected; a 2nd peer dials while the
-// session is live. HSMS-SS is single-session (§3 / §6.3): the passive ACCEPTS-then-immediately-
-// CLOSES the 2nd connection and does NOT tear down the live 1st session.
+// session is live and sends a Select.req.
+// HSMS-SS is single-session (§3 / §6.3), and E37 §9.2.4.1.1 option 1 (the standard's OWN
+// "preferred option") is: accept, but answer the Select
+// with Communication Already Active. So the 2nd connection must receive a Select.rsp carrying
+// status 1 and then be closed — NOT be silently accepted-then-closed with no response at all
+// (none of E37's three listed procedures) — and the live 1st session must be undisturbed
+// throughout: the counter-assertion that catches a refusal path tearing down the wrong connection.
 func TestPassive_RefusesSecondConnection(t *testing.T) {
 	t.Parallel()
 
 	port := freeLoopbackPort(t)
 
 	conn := newPassiveConn(t, port, hsms.WithT6(2*time.Second))
-	require.NoError(t, conn.Open(context.Background(), hsms.OpenBackground))
+	// t.Context() is safe here: Open's ctx bounds ONLY the OpenWaitSelected wait
+	// (hsms/connection_lifecycle.go's Open — e.ctx, threaded to Start/Close, is rooted at a
+	// bare context.Background(), never the caller's ctx); this test uses OpenBackground, so the
+	// ctx is not retained past this call and its cancellation at cleanup cannot affect Close.
+	require.NoError(t, conn.Open(t.Context(), hsms.OpenBackground))
 	t.Cleanup(func() { _ = conn.Close() })
 
 	// First peer: connect + select → the single live session.
@@ -216,36 +248,412 @@ func TestPassive_RefusesSecondConnection(t *testing.T) {
 	require.Eventually(t, func() bool { return conn.State() == hsms.SelectedState },
 		5*time.Second, 5*time.Millisecond, "first peer must reach Selected")
 
-	// Second peer dials while the first session is live. It must be refused (closed) promptly.
+	// Second peer dials while the first session is live and sends its own Select.req.
 	client2 := dialPassive(t, port)
 	t.Cleanup(func() { _ = client2.Close() })
 
+	client2SysBytes := [4]byte{0x0B, 0x0B, 0x0B, 0x0B}
+	_, err = client2.Write(selectReqFrame(client2SysBytes))
+	require.NoError(t, err)
+
+	// The 2nd connection must receive Select.rsp status 1 (Communication Already Active, E37
+	// §9.2.4.1.1 option 1 / Table 7) directly on ITS OWN socket — not silence, and not routed to
+	// the live 1st session.
+	// It must also echo THIS request's System Bytes, not some other transaction's.
+	expectSelectRspStatus(t, client2, hsms.SelectStatusAlreadyActive, client2SysBytes)
+
+	// The live 1st session must stay Selected throughout: refusing the 2nd connection must never
+	// disturb it.
+	require.Equal(t, hsms.SelectedState, conn.State(),
+		"the live 1st session must stay Selected while the 2nd connection is refused")
+
+	// The 2nd connection is then closed (the helper's defer Close, after its one-shot answer).
 	require.NoError(t, client2.SetReadDeadline(time.Now().Add(3*time.Second)))
 
 	buf := make([]byte, 1)
 	_, rerr := client2.Read(buf)
-	require.Error(t, rerr, "the 2nd connection must be refused (closed) by the passive side (single-session)")
+	require.Error(t, rerr, "the 2nd connection must be closed after its Select.rsp")
 
 	// Teeth: a CLOSED connection reads EOF / reset; a connection merely left open (not refused)
-	// reads a net timeout. Reject a timeout so removing the refuse-close makes this test fail.
+	// reads a net timeout.
+	// Reject a timeout so removing the refuse-close makes this test fail.
 	var netErr net.Error
 	if errors.As(rerr, &netErr) {
 		require.False(t, netErr.Timeout(),
 			"the 2nd connection must be CLOSED (EOF/reset), not merely idle — a read timeout means it was not refused")
 	}
 
-	// The live 1st session must stay Selected AND usable: a duplicate Select.req while already
-	// Selected is answered Select.rsp status 1 (Communication Already Active, E37 Table 7 / M5),
-	// proving the link is intact and still serviced (the responder never Rejects a duplicate).
-	require.Equal(t, hsms.SelectedState, conn.State(),
-		"the live 1st session must stay Selected after refusing the 2nd connection")
-
+	// The live 1st session must still be usable: a duplicate Select.req on the LIVE connection
+	// (routed through the normal H2 responder, not the refusal path) is likewise answered status 1,
+	// proving the link is intact and still serviced.
 	_, err = client1.Write(selectReqFrame([4]byte{0x05, 0x06, 0x07, 0x08}))
 	require.NoError(t, err, "the 1st connection must still be writable after the 2nd was refused")
 	expectSelectRspStatus(t, client1, hsms.SelectStatusAlreadyActive)
 
 	require.Equal(t, hsms.SelectedState, conn.State(),
 		"the 1st session stays Selected after the refused 2nd dial")
+}
+
+// TestPassive_RefuseExtraConn_IdleDialerClosedAtAbsoluteDeadline is the teeth-check against
+// reusing readFrame/readN for the refusal exchange (see refuseExtraConn's doc comment).
+// A 2nd dialer connects and sends NOTHING: readN's idle-first-byte policy would clear the read
+// deadline and block forever, so with the fix reverted this test hangs past its own bound
+// instead of observing a server-side close.
+// With the fix, an ABSOLUTE deadline (armed once, from t.rt.Timers().T7) closes the idle socket
+// without ever reading a byte, and — critically — the accept loop is not stuck: a 3rd dialer
+// right after is still served, proving no goroutine leaked/wedged.
+func TestPassive_RefuseExtraConn_IdleDialerClosedAtAbsoluteDeadline(t *testing.T) {
+	t.Parallel()
+
+	port := freeLoopbackPort(t)
+
+	// T7 doubles as the live session's NOT-SELECTED dwell (armT7 on TCPUp), so it must stay large
+	// enough that client1's near-instant Select doesn't race a T7 expiry under load; ~1s is short
+	// enough to keep the test fast and long enough to avoid that flake.
+	const t7 = time.Second
+
+	conn := newPassiveConn(t, port, hsms.WithT6(2*time.Second), hsms.WithT7(t7))
+	require.NoError(t, conn.Open(t.Context(), hsms.OpenBackground))
+	t.Cleanup(func() { _ = conn.Close() })
+
+	client1 := dialPassive(t, port)
+	t.Cleanup(func() { _ = client1.Close() })
+
+	_, err := client1.Write(selectReqFrame([4]byte{0x01, 0x02, 0x03, 0x04}))
+	require.NoError(t, err)
+	expectSelectRsp(t, client1)
+
+	require.Eventually(t, func() bool { return conn.State() == hsms.SelectedState },
+		5*time.Second, 5*time.Millisecond, "first peer must reach Selected")
+
+	// 2nd dialer: connect, send nothing.
+	client2 := dialPassive(t, port)
+	t.Cleanup(func() { _ = client2.Close() })
+
+	// Give the client-side read a deadline well past t7 (3s vs t7=1s): the discriminating signal
+	// is WHICH side closed the connection, not how fast — a server-side close arrives well before
+	// this client deadline, while the pre-fix readN reuse would hit THIS timeout instead (the
+	// idle-first-byte wait never expires on its own).
+	require.NoError(t, client2.SetReadDeadline(time.Now().Add(3*time.Second)))
+
+	buf := make([]byte, 1)
+	_, rerr := client2.Read(buf)
+	require.Error(t, rerr, "the idle 2nd dialer must be closed once the absolute refusal deadline expires")
+
+	var netErr net.Error
+	if errors.As(rerr, &netErr) {
+		require.False(t, netErr.Timeout(),
+			"must be closed by the server at ~T7, not merely time out client-side "+
+				"(teeth: readN's idle-first-byte deadline-clear would produce exactly this timeout)")
+	}
+
+	// No leaked/wedged goroutine: the SAME serial accept loop must still be alive to serve a 3rd
+	// dialer right after — if refuseExtraConn had gotten stuck on client2, this dial would never
+	// be answered.
+	client3 := dialPassive(t, port)
+	t.Cleanup(func() { _ = client3.Close() })
+
+	client3SysBytes := [4]byte{0x09, 0x0A, 0x0B, 0x0C}
+	_, err = client3.Write(selectReqFrame(client3SysBytes))
+	require.NoError(t, err)
+	expectSelectRspStatus(t, client3, hsms.SelectStatusAlreadyActive, client3SysBytes)
+
+	require.Equal(t, hsms.SelectedState, conn.State(),
+		"the live 1st session must stay Selected throughout")
+}
+
+// TestPassive_RefuseExtraConn_NonSelectReqClosedWithoutResponse — a 2nd dialer sends a well-formed
+// but non-Select.req control frame (Linktest.req). E37 §9.2.4.1.1 option 1 answers ONLY a Select;
+// refuseExtraConn's mandated shape closes any other frame unanswered rather than routing it
+// through the normal responder (which would require treating the refused socket as a real session).
+func TestPassive_RefuseExtraConn_NonSelectReqClosedWithoutResponse(t *testing.T) {
+	t.Parallel()
+
+	port := freeLoopbackPort(t)
+
+	conn := newPassiveConn(t, port, hsms.WithT6(2*time.Second))
+	require.NoError(t, conn.Open(t.Context(), hsms.OpenBackground))
+	t.Cleanup(func() { _ = conn.Close() })
+
+	client1 := dialPassive(t, port)
+	t.Cleanup(func() { _ = client1.Close() })
+
+	_, err := client1.Write(selectReqFrame([4]byte{0x01, 0x02, 0x03, 0x04}))
+	require.NoError(t, err)
+	expectSelectRsp(t, client1)
+
+	require.Eventually(t, func() bool { return conn.State() == hsms.SelectedState },
+		5*time.Second, 5*time.Millisecond, "first peer must reach Selected")
+
+	client2 := dialPassive(t, port)
+	t.Cleanup(func() { _ = client2.Close() })
+
+	_, err = client2.Write(frameBytes(10, header10(0, byte(hsms.LinktestReqType)), nil))
+	require.NoError(t, err)
+
+	// No response at all: peerReadFrame must time out (nothing arrives), not decode a frame.
+	_, rerr := peerReadFrame(client2, 500*time.Millisecond)
+	require.Error(t, rerr, "a non-Select.req on the refused 2nd connection must get NO response")
+
+	// The socket is still closed by the helper (its unconditional defer), independent of the read
+	// above timing out first.
+	require.NoError(t, client2.SetReadDeadline(time.Now().Add(2*time.Second)))
+	buf := make([]byte, 1)
+	_, rerr = client2.Read(buf)
+	require.Error(t, rerr, "the 2nd connection must be closed after the unanswered non-Select frame")
+
+	require.Equal(t, hsms.SelectedState, conn.State(),
+		"the live 1st session must stay Selected throughout")
+}
+
+// TestPassive_RefuseExtraConn_StopDuringInFlightRefusalReturnsPromptly proves Stop does not wait
+// out the refusal deadline when a refusal is already published and parked in its read (the
+// two-sided handoff's Stop side, haltRefusal). T7 is set far longer than the connection's default
+// close-timeout (10s, hsms.WithCloseTimeout's default) so that if haltRefusal's close is dropped,
+// Stop can only return via ErrCloseTimeout at ~10s or hang past this test's bound — either way a
+// clean, unambiguous failure, never a coincidental pass.
+func TestPassive_RefuseExtraConn_StopDuringInFlightRefusalReturnsPromptly(t *testing.T) {
+	t.Parallel()
+
+	port := freeLoopbackPort(t)
+
+	const t7 = 30 * time.Second
+
+	conn, tr := newPassiveConnTr(t, port, hsms.WithT6(2*time.Second), hsms.WithT7(t7))
+	require.NoError(t, conn.Open(t.Context(), hsms.OpenBackground))
+
+	client1 := dialPassive(t, port)
+	defer func() { _ = client1.Close() }()
+
+	_, err := client1.Write(selectReqFrame([4]byte{0x01, 0x02, 0x03, 0x04}))
+	require.NoError(t, err)
+	expectSelectRsp(t, client1)
+
+	require.Eventually(t, func() bool { return conn.State() == hsms.SelectedState },
+		5*time.Second, 5*time.Millisecond, "first peer must reach Selected")
+
+	// 2nd dialer: connect, send nothing — it parks in refuseExtraConn's io.ReadFull once published.
+	client2 := dialPassive(t, port)
+	defer func() { _ = client2.Close() }()
+
+	// Deterministically observe publication (no sleep, no hook needed here): poll the same
+	// refuseMu-guarded slot refuseExtraConn itself publishes into.
+	require.Eventually(t, func() bool {
+		tr.refuseMu.Lock()
+		defer tr.refuseMu.Unlock()
+
+		return tr.refuseConn != nil
+	}, 2*time.Second, 2*time.Millisecond, "the extra socket must be published to the refusal slot")
+
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() { done <- conn.Close() }()
+
+	// No t.Cleanup(conn.Close) registered above (mirrors TestPassive_CloseDuringAcceptConnectWindowIsBounded):
+	// if the fix regresses, a second Close at cleanup would itself block.
+	select {
+	case cerr := <-done:
+		require.NoError(t, cerr, "Close must succeed, not time out, while a refusal is in flight")
+		require.Less(t, time.Since(start), 3*time.Second,
+			"Stop must not wait out the refusal deadline (T7=30s) for an in-flight refusal")
+	case <-time.After(4 * time.Second):
+		t.Fatal("Stop hung on an in-flight refusal — the two-sided handoff's Stop side did not close it")
+	}
+}
+
+// TestPassive_RefuseExtraConn_StopRacesPrePublicationWindow drives the Accept-returned/
+// not-yet-published race deterministically via the test-only refusePrePublishHook: Stop runs
+// (and sets refuseStopped) WHILE the extra socket has been accepted but is still parked before
+// refuseExtraConn's publish.
+// The losing side (refuseExtraConn, once released) must observe the flag and close without ever
+// publishing or reading — proving the handoff has no gap where Stop sees "no in-flight socket"
+// yet the helper still settles in for the full deadline.
+func TestPassive_RefuseExtraConn_StopRacesPrePublicationWindow(t *testing.T) {
+	t.Parallel()
+
+	port := freeLoopbackPort(t)
+
+	const t7 = 30 * time.Second
+
+	conn, tr := newPassiveConnTr(t, port, hsms.WithT6(2*time.Second), hsms.WithT7(t7))
+
+	hookReached := make(chan struct{})
+	var hookOnce sync.Once
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+
+	// Fail-safe: whatever else happens, unwedge a parked hook so no goroutine (test or
+	// production) can leak past this test's return.
+	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+
+	// Set the hook BEFORE Open (same happens-before discipline as now/allocFrame): assigning a
+	// test seam concurrently with the accept goroutine reading it would itself be a data race.
+	tr.refusePrePublishHook = func() {
+		hookOnce.Do(func() { close(hookReached) })
+		<-release // hold the extra socket UNPUBLISHED until the test releases it
+	}
+
+	require.NoError(t, conn.Open(t.Context(), hsms.OpenBackground))
+
+	client1 := dialPassive(t, port)
+	defer func() { _ = client1.Close() }()
+
+	_, err := client1.Write(selectReqFrame([4]byte{0x01, 0x02, 0x03, 0x04}))
+	require.NoError(t, err)
+	expectSelectRsp(t, client1)
+
+	require.Eventually(t, func() bool { return conn.State() == hsms.SelectedState },
+		5*time.Second, 5*time.Millisecond, "first peer must reach Selected")
+
+	client2 := dialPassive(t, port)
+	defer func() { _ = client2.Close() }()
+
+	<-hookReached // Accept has returned; refuseExtraConn is parked BEFORE publishing
+
+	done := make(chan error, 1)
+	go func() { done <- conn.Close() }()
+
+	// Wait for Stop to reach haltRefusal WHILE the helper is still parked in the hook — at this
+	// instant refuseConn is nil (nothing published yet), so this is exactly the race the
+	// two-sided handoff (not a bare field) exists to close.
+	require.Eventually(t, func() bool {
+		tr.refuseMu.Lock()
+		defer tr.refuseMu.Unlock()
+
+		return tr.refuseStopped
+	}, 2*time.Second, 2*time.Millisecond, "Stop must set refuseStopped even though no socket is published yet")
+
+	// Close cannot complete until the helper (still parked in the hook above) is released, so
+	// baselining `start` HERE — rather than before the Eventually poll above — measures Stop's
+	// own promptness after the race is resolved, not this test's own polling latency (test 5's
+	// StopDuringInFlightRefusalReturnsPromptly baselines the same way, with no poll in between).
+	start := time.Now()
+	releaseOnce.Do(func() { close(release) }) // let the helper observe refuseStopped and close
+
+	select {
+	case cerr := <-done:
+		require.NoError(t, cerr, "Close must succeed")
+		require.Less(t, time.Since(start), 3*time.Second,
+			"Stop must not wait on the extra socket at all when it races the pre-publication window")
+	case <-time.After(4 * time.Second):
+		t.Fatal("Stop hung racing the accept-returned/not-yet-published window")
+	}
+
+	// The extra socket must have been closed by the LOSING side (refuseExtraConn observing
+	// refuseStopped and closing via its own defer, without reading).
+	require.NoError(t, client2.SetReadDeadline(time.Now().Add(2*time.Second)))
+	buf := make([]byte, 1)
+	_, rerr := client2.Read(buf)
+	require.Error(t, rerr, "the extra socket must be closed by the losing side of the handoff")
+}
+
+// TestPassive_RefuseExtraConn_ArmStartResetsAcrossReconnect is the reconnect teeth-check for the
+// refusal handoff (E37 §9.2.4.1.1 option 1): a first generation's involuntary drop drives the
+// engine's teardown, which calls tr.Stop — setting refuseStopped — before the reconnect loop
+// calls tr.ArmStart and starts a fresh generation.
+// A THIRD dialer, extra in the fresh generation, must still receive the conformant status-1
+// Select.rsp: if ArmStart did not reset refuseStopped, every later generation's refusal would be
+// silently poisoned into close-without-response.
+func TestPassive_RefuseExtraConn_ArmStartResetsAcrossReconnect(t *testing.T) {
+	t.Parallel()
+
+	port := freeLoopbackPort(t)
+
+	conn := newPassiveConn(t, port, hsms.WithT6(2*time.Second), hsms.WithT5(50*time.Millisecond))
+	require.NoError(t, conn.Open(t.Context(), hsms.OpenBackground))
+	t.Cleanup(func() { _ = conn.Close() })
+
+	// First generation: connect + select.
+	client1 := dialPassive(t, port)
+
+	_, err := client1.Write(selectReqFrame([4]byte{0x11, 0x11, 0x11, 0x11}))
+	require.NoError(t, err)
+	expectSelectRsp(t, client1)
+
+	require.Eventually(t, func() bool { return conn.State() == hsms.SelectedState },
+		5*time.Second, 5*time.Millisecond, "first generation must reach Selected")
+
+	// Drop the link: the passive recv loop sees EOF → TCPDown → tr.Stop tears the generation down
+	// (setting refuseStopped, even though no refusal was in flight) → the reconnect loop's
+	// tr.ArmStart resets it before re-listening.
+	require.NoError(t, client1.Close())
+
+	require.Eventually(t, func() bool { return conn.State() == hsms.NotConnectedState },
+		5*time.Second, 5*time.Millisecond, "the drop must drive the passive back to NotConnected")
+
+	// Second generation: a fresh peer selects again.
+	client2 := dialPassive(t, port)
+	t.Cleanup(func() { _ = client2.Close() })
+
+	_, err = client2.Write(selectReqFrame([4]byte{0x22, 0x22, 0x22, 0x22}))
+	require.NoError(t, err)
+	expectSelectRsp(t, client2)
+
+	require.Eventually(t, func() bool { return conn.State() == hsms.SelectedState },
+		5*time.Second, 5*time.Millisecond, "passive must re-listen and re-select after a drop")
+
+	// A 3rd dialer, extra for THIS generation, must still be refused per option 1 — proving
+	// refuseStopped was reset by ArmStart, not left poisoning this generation from gen 1's Stop.
+	client3 := dialPassive(t, port)
+	t.Cleanup(func() { _ = client3.Close() })
+
+	client3SysBytes := [4]byte{0x33, 0x33, 0x33, 0x33}
+	_, err = client3.Write(selectReqFrame(client3SysBytes))
+	require.NoError(t, err)
+	expectSelectRspStatus(t, client3, hsms.SelectStatusAlreadyActive, client3SysBytes)
+
+	require.NoError(t, client3.SetReadDeadline(time.Now().Add(2*time.Second)))
+	buf := make([]byte, 1)
+	_, rerr := client3.Read(buf)
+	require.Error(t, rerr, "the refused extra socket must be closed after its status-1 rsp")
+
+	require.Equal(t, hsms.SelectedState, conn.State(),
+		"the 2nd generation's live session must stay Selected throughout")
+}
+
+// deadlineErrConn is a minimal fake net.Conn whose SetDeadline always errors — the teeth-check
+// for refuseExtraConn's close-without-read branch (Step 3's mandated "returning immediately
+// (close, no read) if SetDeadline errors" behavior). A real *net.TCPConn essentially never fails
+// SetDeadline outside of an already-closed socket, so this branch is otherwise unreachable from
+// the full-connection loopback tests above; a bare fake conn exercises it directly, mirroring
+// transport_recv_clock_test.go's deadlineRecorder pattern.
+type deadlineErrConn struct {
+	net.Conn
+	closed     atomic.Bool
+	readCalled atomic.Bool
+}
+
+func (c *deadlineErrConn) SetDeadline(time.Time) error { return errors.New("deadlineErrConn: boom") }
+
+func (c *deadlineErrConn) Read(b []byte) (int, error) {
+	c.readCalled.Store(true)
+
+	return 0, io.EOF
+}
+
+func (c *deadlineErrConn) Close() error {
+	c.closed.Store(true)
+
+	return nil
+}
+
+// TestPassive_RefuseExtraConn_SetDeadlineErrorClosesWithoutRead drives refuseExtraConn directly
+// (a bare *transport + recRT double, no full connection) against a conn whose SetDeadline always
+// fails: without an armed absolute deadline the promised bound does not exist, so the helper must
+// close the socket and must NEVER attempt a read.
+func TestPassive_RefuseExtraConn_SetDeadlineErrorClosesWithoutRead(t *testing.T) {
+	t.Parallel()
+
+	rt := newRecRT()
+	rt.setTimers(hsms.TimerConfig{T7: time.Second})
+
+	tr := &transport{rt: rt}
+	c := &deadlineErrConn{}
+
+	tr.refuseExtraConn(c)
+
+	require.True(t, c.closed.Load(), "must close even when SetDeadline errors")
+	require.False(t, c.readCalled.Load(), "must not read when the absolute deadline could not be armed")
 }
 
 // TestPassive_H2NoSpuriousRejectOnPipelinedData — the H2 crux on the passive RESPONDER side (§7.D).

@@ -18,8 +18,12 @@ package hsmsss
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
+
+	"github.com/arloliu/go-secs/v2/hsms"
 )
 
 // startPassive listens on the configured host:port and spawns the accept goroutine, then returns
@@ -78,9 +82,10 @@ func (t *transport) startPassive(ctx context.Context) error {
 }
 
 // acceptLoop accepts the FIRST peer connection (adopting it as the single session and driving
-// rt.TCPUp + the recv loop), then loops accepting-and-immediately-closing any FURTHER connection to
-// REFUSE a 2nd peer while one is live (E37 HSMS-SS single-session, §3 / §6.3). It runs on the accept
-// goroutine spawned by startPassive and is joined by Stop via g.accept.
+// rt.TCPUp + the recv loop), then loops accepting and REFUSING any FURTHER connection — per E37
+// §9.2.4.1.1 option 1, via refuseExtraConn — while one is live (E37 HSMS-SS single-session, §3 /
+// §6.3). It runs on the accept goroutine spawned by startPassive and is joined by Stop via
+// g.accept.
 //
 // It NEVER initiates Select — a passive side only responds to an inbound Select.req (the shared H2
 // responder handleSelectReq, driven by the recv loop's dispatchFrame). Any Accept error means the
@@ -121,17 +126,141 @@ func (t *transport) acceptLoop(g *genWG, ln net.Listener) {
 	g.recv.Add(1)
 	go t.recvLoop(g)
 
-	// Refuse subsequent connections while the accepted one is live: accept-then-immediately-close
-	// each 2nd+ dialer so only ONE session exists at a time, WITHOUT disturbing the live link
-	// (E37.1 single-session). The loop ends when Stop closes ln (Accept errors).
+	// Refuse subsequent connections while the accepted one is live, per E37 §9.2.4.1.1 option 1
+	// (see refuseExtraConn): accept, but answer any Select.req with Communication Already
+	// Active, then close — so only ONE session exists at a time, WITHOUT disturbing the live
+	// link (E37.1 single-session). refuseExtraConn is called SERIALLY (never as a goroutine per
+	// dialer, see its doc comment); a slow dialer delays refusing the next one but that is
+	// acceptable, since only one session is ever served.
+	// The loop ends when Stop closes ln (Accept errors).
 	for {
 		extra, err := ln.Accept()
 		if err != nil {
 			return // listener closed by Stop — the generation is tearing down
 		}
 
-		// A 2nd peer dialed while a session is already up. Refuse it immediately (close its socket)
-		// and keep serving the live connection; never tear the live link down for a late dialer.
-		_ = extra.Close()
+		t.refuseExtraConn(extra)
+	}
+}
+
+// refuseExtraConn refuses ONE extra dialer while a session is already live, per E37
+// §9.2.4.1.1 option 1 (the standard's OWN "preferred option"): accept, but answer any
+// subsequent Select with Communication Already Active. It is called SERIALLY, once per extra
+// dialer, from acceptLoop's refuse loop above — never as a goroutine per dialer.
+// A goroutine per dialer would be an unbounded resource under a connect flood, each holding a
+// read deadline and each needing its own registration on the generation WaitGroup for Stop to
+// join; serial refusal needs neither.
+//
+// It owns extra's entire lifecycle, including the close, via its own defer: a defer in
+// acceptLoop's loop body would accumulate across iterations instead of closing per iteration.
+//
+// Deliberately NOT readFrame/readN. readN's idle-first-byte policy explicitly CLEARS the read
+// deadline while waiting for the first byte (transport_recv.go's idle-link policy — correct
+// for an adopted LIVE session, wrong here), so an extra dialer that connects and sends nothing
+// would park this serial refusal loop forever.
+// T8 (readN's inter-byte bound) would not save it either: T8 bounds only gaps BETWEEN bytes,
+// not a total connect-to-close budget, so a slow trickle could still hold the socket open
+// indefinitely.
+// A single ABSOLUTE deadline covering the whole one-shot exchange — read and write — is the
+// only bound that actually terminates it: set once, before the first read, and never cleared
+// or extended.
+func (t *transport) refuseExtraConn(extra net.Conn) {
+	defer func() { _ = extra.Close() }()
+
+	if err := extra.SetDeadline(t.clock()().Add(t.rt.Timers().T7)); err != nil {
+		// Without an armed absolute deadline the promised bound does not exist: close without
+		// reading rather than risk an unbounded read on this socket.
+		return
+	}
+
+	// Test-only seam (nil in production, style of the injectable clock/clock()): invoked
+	// between Accept returning (acceptLoop's ln.Accept() above) and publishing extra into
+	// refuseConn below.
+	// It exists ONLY so a test can deterministically drive the Stop-races-prepublication race —
+	// Stop closing the listener and setting refuseStopped while THIS extra socket has been
+	// accepted but not yet published.
+	if t.refusePrePublishHook != nil {
+		t.refusePrePublishHook()
+	}
+
+	// Two-sided handoff (not a bare field): publish extra into the slot ONLY after checking
+	// refuseStopped under the SAME mutex Stop's haltRefusal uses.
+	// If Stop already ran, it saw no in-flight socket here and is (or is about to be) parked in
+	// its g.accept.Wait(); closing via the defer above and returning without reading is what
+	// lets that Wait proceed instead of stalling for the full T7 deadline.
+	t.refuseMu.Lock()
+	if t.refuseStopped {
+		t.refuseMu.Unlock()
+		return
+	}
+	t.refuseConn = extra
+	t.refuseMu.Unlock()
+
+	defer func() {
+		t.refuseMu.Lock()
+		if t.refuseConn == extra {
+			t.refuseConn = nil
+		}
+		t.refuseMu.Unlock()
+	}()
+
+	// Never allocate from the untrusted length (the validate-before-allocating discipline of
+	// .agents/rules/600-perf-sec.md and readFrame's own J2 guard): read the 4-byte length
+	// prefix into a fixed buffer first.
+	// A bare Select.req is EXACTLY a 10-byte header with no body (E37 §9.3.3.1 — control frames
+	// are header-only); any other length is a malformed or non-Select first message and is
+	// closed unanswered.
+	var lenBuf [4]byte
+	if _, err := io.ReadFull(extra, lenBuf[:]); err != nil {
+		return
+	}
+
+	if binary.BigEndian.Uint32(lenBuf[:]) != 10 {
+		return
+	}
+
+	var hdr [10]byte
+	if _, err := io.ReadFull(extra, hdr[:]); err != nil {
+		return
+	}
+
+	msg, err := decodeControlFrame(hdr[:]) // hdr is a [10]byte; decodeControlFrame takes []byte and returns hsms.Message
+	cm, ok := msg.(*hsms.ControlMessage)   // the responder pattern of handleSelectReq (transport_control.go)
+	if err != nil || !ok || cm.Type() != hsms.SelectReqType {
+		return // close without a response
+	}
+
+	// Status 1 (SelectStatusAlreadyActive / "Communication Already Active"), deliberately NOT
+	// status 3 ("Connect Exhaust"). E37 §9.2.4.1.1 names "Communication Already Active"
+	// literally as this option's answer, and Table 7 assigns that label to status 1. Status 3's
+	// DESCRIPTION reads like the better fit ("the entity is already servicing a separate
+	// TCP/IP connection and is unable to service more than one at any given time"), but
+	// answering 3 would mean choosing a reasoned alternative instead of implementing option 1
+	// as the standard actually specifies it — do not "improve" this to 3.
+	rsp, err := hsms.NewSelectRsp(cm, hsms.SelectStatusAlreadyActive)
+	if err != nil {
+		return
+	}
+
+	_, _ = extra.Write(rsp.ToBytes()) // one bounded 14-byte write; the deadline is already set
+}
+
+// haltRefusal is the Stop side of the two-sided refusal handoff (E37 §9.2.4.1.1 option 1,
+// refuseExtraConn above): it sets refuseStopped, under the SAME mutex refuseExtraConn checks
+// and publishes under, so a helper that has not yet published closes without reading instead
+// of parking for the full T7 deadline, and it closes whatever socket IS already published.
+// Whichever side "wins" the race, the extra socket gets closed and Stop never waits out the
+// refusal deadline.
+// Called by Stop before g.accept.Wait (transport.go); a no-op (refuseConn nil) when no extra
+// dialer is in flight.
+func (t *transport) haltRefusal() {
+	t.refuseMu.Lock()
+	t.refuseStopped = true
+	conn := t.refuseConn
+	t.refuseConn = nil
+	t.refuseMu.Unlock()
+
+	if conn != nil {
+		_ = conn.Close()
 	}
 }

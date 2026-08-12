@@ -143,6 +143,31 @@ type transport struct {
 	// documented in the plan's accepted-races note).
 	lastSendStamp atomic.Int64
 	lastRecvStamp atomic.Int64
+
+	// refuseMu guards refuseStopped and refuseConn: the two-sided handoff between Stop and an
+	// in-flight refuseExtraConn (passive-only, E37 §9.2.4.1.1 option 1, passive.go). Kept as a
+	// DEDICATED mutex rather than reusing connMu — the refusal exchange is orthogonal to the
+	// live conn/listener state connMu already serializes, and giving it its own mutex keeps the
+	// handoff self-contained in passive.go.
+	refuseMu sync.Mutex
+	// refuseStopped is generation-scoped: Stop sets it (via haltRefusal) so a refuseExtraConn
+	// call that has not yet published its socket closes without reading instead of parking for
+	// the full T7 deadline — the Accept-returned/not-yet-published race a bare field cannot
+	// close.
+	// ArmStart resets it, mirroring the startGate.stopping seal/ArmStart pairing, so a prior
+	// generation's Stop never poisons a later generation's refusal into close-without-response.
+	refuseStopped bool
+	// refuseConn is the socket owned by an in-flight refuseExtraConn call, published only after
+	// the helper observes !refuseStopped under refuseMu; nil otherwise.
+	// Stop (haltRefusal) closes whatever is here so a parked io.ReadFull unblocks immediately
+	// instead of holding Stop's g.accept.Wait for the full T7 deadline.
+	refuseConn net.Conn
+
+	// refusePrePublishHook is a test-only, nil-by-default seam (style of the injectable clock,
+	// see now/clock()) invoked by refuseExtraConn between Accept returning and publishing the
+	// socket into refuseConn. It is the only way to deterministically drive the
+	// Stop-races-prepublication race in tests; production leaves it nil (no-op).
+	refusePrePublishHook func()
 }
 
 // newTransport constructs a transport for cfg with an initial per-generation WaitGroup bundle.
@@ -213,6 +238,16 @@ func (t *transport) ArmStart() {
 	t.stopping = false
 	t.wg = &genWG{}
 	t.startGate.Unlock()
+
+	// Reset the passive-refusal handoff state (generation-scoped, mirrors the seal above) under
+	// its own dedicated mutex: a prior Stop's refuseStopped must not silently poison every later
+	// generation's refusal into close-without-response (E37 §9.2.4.1.1 option 1, passive.go).
+	// refuseConn is already nil by the time Stop returns (haltRefusal clears it), so this reset
+	// is belt-and-suspenders for refuseConn and load-bearing for refuseStopped.
+	t.refuseMu.Lock()
+	t.refuseStopped = false
+	t.refuseConn = nil
+	t.refuseMu.Unlock()
 }
 
 // Stop closes the TCP connection (and any pending listener) to unblock the recv loop's parked Read, then joins the per-generation goroutines.
@@ -281,6 +316,13 @@ func (t *transport) Stop(ctx context.Context) error {
 	if conn != nil {
 		_ = conn.Close()
 	}
+
+	// Halt any in-flight passive refusal exchange (E37 §9.2.4.1.1 option 1, passive.go):
+	// refuseExtraConn's socket is generation-scoped state the serial refuse loop owns
+	// independently of the live conn/listener above, so it needs its own close here.
+	// Without it, g.accept.Wait below would park for the full refusal deadline (T7) instead of
+	// joining promptly — the two-sided handoff this call implements.
+	t.haltRefusal()
 
 	// Join the passive accept goroutine BEFORE g.recv. The accept goroutine issues its
 	// g.recv.Add(1) for the recv loop BEFORE it can return (g.accept.Done fires via defer only
