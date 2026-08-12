@@ -47,4 +47,9 @@
 // Construction and validation errors (e.g. W-bit on an even function, item validation via [secs2.Item.Error]) are returned as wrapped errors —
 // compatible with [errors.Is] and [errors.As], but NOT [*ParseError].
 // Parsing is fail-fast: the first error stops parsing.
+//
+// List nesting is capped at [secs2.MaxListDepth], the same ceiling the wire decoder enforces,
+// so parsing cannot exhaust the stack on adversarial input and cannot produce a message
+// that [secs2.Decode] would reject.
+// Input nested deeper than that returns a [*ParseError].
 package sml
