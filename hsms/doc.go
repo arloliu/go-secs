@@ -103,6 +103,43 @@
 //
 // For fan-out, multiple goroutines may hold and call any method on the same *[DataMessage] concurrently without external locking.
 //
+// # E37 §10.1 implementation documentation
+//
+// SEMI E37 §10.1 requires an HSMS implementation to document six things.
+// Item 1 (method for setting protocol parameters) is the With* option surface on [ConnectionConfig] itself —
+// DefaultConnectionConfig plus WithT3, WithT5, WithT6, WithT7, WithT8, and WithReconnectBackoff.
+// Item 3 (the option used to refuse an incoming connection request in passive mode) is transport-specific and has no meaning in this message-and-timer package;
+// it is documented in the hsmsss package doc, the package that implements passive listen.
+// The remaining four are documented here.
+//
+// 2. Range allowed and resolution for each timer parameter.
+// Every TimerConfig field (see WithT3, WithT5, WithT6, WithT7, WithT8) accepts any positive [time.Duration], giving nanosecond resolution and an effectively unbounded range —
+// a superset of Table 10's per-timer ranges and 1-second resolution.
+// T5 is the one exception worth a caveat:
+// it bounds the reconnect backoff CEILING, not the flat per-attempt separation SEMI E37 §9.2.1.1 specifies;
+// see WithReconnectBackoff for that deviation and its conformant setting.
+//
+// 4. Maximum message size which can be received.
+// [MaxMessageSize] is that ceiling, enforced on the receive path in decode.go.
+// It also exposes a known limitation: the largest legal single SECS-II item does not fit inside it.
+// A maximum-size item encodes to 16,777,219 bytes (its 16,777,215-byte payload ceiling plus a 4-byte item header);
+// adding the 10-byte HSMS header brings the frame to 16,777,229 bytes, which exceeds the 16,777,215-byte cap.
+// This is deliberate, not an oversight:
+// raising the cap to fit one maximum-size item would loosen an inbound DoS bound chosen to reject an attacker-controlled length before allocating a frame buffer.
+//
+// 5. Maximum expected size of messages sent.
+// Every send and forward path — [Connection.SendDataMessage], [Connection.SendDataMessageAsync], [Connection.SendSECS2Message], [Connection.ForwardDataMessage], and [Connection.ForwardDataMessageAsync] — shares one enforcement point at the wire-framing layer:
+// an outbound message whose encoded frame would exceed [MaxMessageSize] is rejected with [ErrMessageTooLarge] before it reaches the wire.
+// Send and receive share one cap by design, so the same max-item limitation from item 4 applies in both directions.
+//
+// 6. Maximum number of supported concurrent open transactions.
+// None.
+// Each synchronous send (SendDataMessage) that sets the W-bit registers its own reply channel and T3 timer, independent of every other open transaction (SEMI E37 §9.4.1.3),
+// so the number of transactions a connection can have open at once is bounded only by the number of caller goroutines making concurrent synchronous sends —
+// not by any fixed limit in this package.
+// That is a separate axis from the outbound send queue (see WithSenderQueueSize),
+// which bounds buffered frames awaiting the wire, not open reply-wait transactions.
+//
 // # Dissolved v1 landmines
 //
 // The v2 redesign did not merely patch four v1 concurrency/memory hazards — it restructured the connection engine

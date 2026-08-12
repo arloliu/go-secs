@@ -135,6 +135,13 @@ func WithT3(d time.Duration) ConnOption {
 // WithT5 sets the T5 (connection separation timeout) timer.
 //
 // Must be > 0.
+// The default is 10s.
+//
+// SEMI E37 §9.2.1.1 specifies T5 as the flat wait between every reconnect attempt, not a ceiling a faster ramp climbs toward.
+// The package's default reconnect backoff (see WithReconnectBackoff) seeds well under T5
+// and grows,
+// so several attempts land inside the first T5 window under the defaults.
+// See WithReconnectBackoff for the deviation and the conformant setting.
 func WithT5(d time.Duration) ConnOption {
 	return func(c *ConnectionConfig) error {
 		if d <= 0 {
@@ -162,6 +169,20 @@ func WithT5(d time.Duration) ConnOption {
 // A multiplier of 1.0 disables growth, giving a flat wait at initial capped by T5 (e.g. pass WithReconnectBackoff(t5, 1.0) for the flat-T5 behavior).
 //
 // The default of (100ms, 2.0) approximates the SECS-I reconnect curve.
+//
+// # Conformance
+//
+// SEMI E37 §9.2.1.1 specifies T5 as a flat separation timeout:
+// every reconnect attempt waits exactly T5, with no faster seed and no ramp.
+// The 100ms default seed is a deliberate deviation from that.
+// With the default T5 of 10s and the default (100ms, 2.0) backoff, six attempts land inside the first T5 window at cumulative offsets of 0.1, 0.3, 0.7, 1.5, 3.1, and 6.3s,
+// where §9.2.1.1 wants none —
+// the seventh attempt, at 12.7s, is the first to fall outside that window.
+// Fast recovery from a transient drop is the deliberate product choice:
+// defaulting the seed to T5 would slow reconnect from roughly 100ms to 10s for every existing deployment.
+//
+// Pass WithReconnectBackoff(t5, 1.0),
+// where t5 is the same duration configured via WithT5, for the conformant flat-T5 behavior.
 func WithReconnectBackoff(initial time.Duration, multiplier float64) ConnOption {
 	return func(c *ConnectionConfig) error {
 		if initial <= 0 {

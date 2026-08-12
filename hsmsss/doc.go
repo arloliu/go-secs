@@ -100,6 +100,28 @@
 // an inbound Linktest.req is answered in any connected substate, where §7.4 limits Linktest to SELECTED.
 // See handleLinktestReq and docs/specs/e37-1-hsms-ss-conformance-audit.md.
 //
+// # E37 §10.1 implementation documentation
+//
+// SEMI E37 (the base standard, distinct from the three-item list above from its E37.1 subsidiary) §10.1 separately requires six documentation items.
+// Item 3 — the option used to refuse an incoming connection request, for an implementation using passive mode for TCP/IP connection establishment —
+// belongs here, since only this package implements passive listen.
+// Items 2, 4, 5, and 6 live in the shared connection engine and are documented in the hsms package doc;
+// item 1 is the With* option surface on [github.com/arloliu/go-secs/v2/hsms.ConnectionConfig].
+//
+// 3. The option used for refusing incoming connection requests, for an implementation using passive mode for TCP/IP connection establishment.
+// The passive transport accepts every TCP connection,
+// but only ONE session is ever live at a time (HSMS-SS single-session, §3 / §6.3).
+// A connection arriving while a session is already live is refused per E37 §9.2.4.1.1 option 1, the standard's own preferred option:
+// accepted, but given exactly one chance to identify itself, and refused rather than served.
+//
+// Concretely: the extra socket is given a single absolute deadline —
+// [github.com/arloliu/go-secs/v2/hsms.WithT7]'s configured T7, armed once before the first read and covering the whole read-and-write exchange, never cleared or extended.
+// If the one frame read within that deadline decodes to exactly a bare Select.req (a 10-byte header, no body — HSMS control frames carry none), the socket is answered with a Select.rsp carrying status 1 (Communication Already Active) before it closes.
+// Anything else — a different frame, a decode failure, or a read that does not complete before the deadline —
+// closes the socket unanswered, with no reply sent.
+// Extra connections are refused SERIALLY, one dialer at a time;
+// a slow or silent dialer delays refusing the next one but never touches the live session's socket, FSM, or open transactions.
+//
 // # Dissolved v1 landmines
 //
 // The HSMS-SS transport runs over the shared hsms connection engine and message model and therefore inherits its dissolved-landmine guarantees —
