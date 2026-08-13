@@ -263,11 +263,19 @@ func (s *session) dispatchDecodeError(msg *DataMessage, err error) {
 	}
 }
 
-// addChanHandler adds a channel-based data-message handler (unexported). The session
-// delivers each inbound message to ch via a select that includes rt.Done() (J5),
-// so a full channel can never block the fan-out past connection teardown. Called by
-// the connection engine and in tests.
-func (s *session) addChanHandler(ch chan *DataMessage) {
+// AddDataMessageChan implements the SECS2Endpoint method of the same name.
+// See that interface method's godoc for the full consumer contract.
+//
+// The session delivers each inbound message to ch via a select that includes rt.Done() (J5),
+// so a full channel can never block the fan-out past connection teardown.
+//
+// Panics if ch is nil: a nil channel would make every delivery select wait only on
+// rt.Done(), wedging the connection from the first inbound message.
+func (s *session) AddDataMessageChan(ch chan *DataMessage) {
+	if ch == nil {
+		panic("hsms: AddDataMessageChan: ch must not be nil")
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.chans = append(s.chans, ch)

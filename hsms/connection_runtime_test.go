@@ -168,6 +168,89 @@ func TestIsSecondaryReply(t *testing.T) {
 	}
 }
 
+// TestDataMessage_IsPrimary_PinnedAgainstIsSecondaryReply pins the exported
+// [DataMessage.IsPrimary] to the exact negation of the unexported isSecondaryReply
+// discriminator on the SAME messages (decision 2 of the channel-delivery plan): both are
+// called on every table entry, and IsPrimary must always disagree with isSecondaryReply.
+// This includes the two cases the plan calls out by name: SxF0 (transaction abort) classifies
+// as a secondary (IsPrimary false), and a spec-violating even-function frame with the W-bit
+// set classifies as a primary (IsPrimary true).
+func TestDataMessage_IsPrimary_PinnedAgainstIsSecondaryReply(t *testing.T) {
+	tests := []struct {
+		name        string
+		function    uint8
+		waitBit     bool
+		wantPrimary bool
+	}{
+		{"S1F1 primary W-bit", 1, true, true},
+		{"S1F1 primary no W-bit", 1, false, true},
+		{"S1F2 secondary", 2, false, false},
+		{"S1F2 with W-bit (spec-violating, classifies as primary)", 2, true, true},
+		{"S1F0 abort (secondary, E5 §7.2/§10.4.1)", 0, false, false},
+		{"S1F0 with W-bit (spec-violating, classifies as primary)", 0, true, true},
+		{"S5F6 secondary", 6, false, false},
+		{"odd high function primary", 63, false, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dm := &DataMessage{}
+			dm.header[3] = tt.function
+			if tt.waitBit {
+				dm.header[2] |= 0x80
+			}
+
+			require.Equal(t, tt.wantPrimary, dm.IsPrimary())
+			require.Equal(t, !tt.wantPrimary, isSecondaryReply(dm), "isSecondaryReply must be the exact negation of IsPrimary")
+			require.Equal(t, dm.IsPrimary(), !isSecondaryReply(dm))
+		})
+	}
+}
+
+// TestDeliverOwnedFrame_ChanReceivesPrimaryAndOrphanSecondaryFIFO proves the channel delivery
+// set matches func-handler parity (design decision 1 of the channel-delivery plan): a channel
+// registered via AddDataMessageChan receives both a primary and an orphan secondary (a
+// secondary whose System Bytes miss the reply registry), in arrival order, and observes the
+// exact same message pointers the func handler does.
+func TestDeliverOwnedFrame_ChanReceivesPrimaryAndOrphanSecondaryFIFO(t *testing.T) {
+	c, _ := newTestSendConn(t, SelectedState)
+
+	ch := make(chan *DataMessage, 4)
+	c.AddDataMessageChan(ch)
+
+	handlerCh := make(chan *DataMessage, 4)
+	c.AddDataMessageHandler(func(m *DataMessage, _ SECS2Endpoint) {
+		handlerCh <- m
+	})
+
+	primary := mustSendData(t, [4]byte{0, 0, 0, 20}, false) // S1F1, odd function: always a primary
+	orphan := mustSendReply(t, [4]byte{0, 0, 0, 21})        // S1F2, no waiting sender: an orphan secondary
+
+	require.NoError(t, c.DeliverOwnedFrame(ownedFrame(t, primary)))
+	require.NoError(t, c.DeliverOwnedFrame(ownedFrame(t, orphan)))
+
+	// Func handler observes both messages, in arrival order.
+	gotHandler1 := <-handlerCh
+	gotHandler2 := <-handlerCh
+	require.Equal(t, primary.SystemBytes(), gotHandler1.SystemBytes())
+	require.Equal(t, orphan.SystemBytes(), gotHandler2.SystemBytes())
+
+	// The channel observes the SAME two messages, in the SAME order.
+	gotChan1 := <-ch
+	require.Equal(t, primary.SystemBytes(), gotChan1.SystemBytes())
+	require.True(t, gotChan1.IsPrimary(), "the first delivered message is a primary")
+
+	gotChan2 := <-ch
+	require.Equal(t, orphan.SystemBytes(), gotChan2.SystemBytes())
+	require.False(t, gotChan2.IsPrimary(), "the second delivered message is an orphan secondary")
+
+	select {
+	case <-ch:
+		t.Fatal("channel must receive exactly two messages")
+	default:
+	}
+}
+
 // TestDeliverOwnedFrame_SessionIDValidation_DefaultOff proves v2's shipped behavior is unchanged:
 // with WithSessionIDValidation NOT called (default false), a data message whose SessionID does not
 // match this connection's configured SessionID is still delivered to the handler.

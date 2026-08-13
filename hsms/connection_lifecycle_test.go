@@ -115,6 +115,34 @@ func TestOpenCloseReopenRestartsSupervisorNoClosedChannelPanic(t *testing.T) {
 	require.Positive(t, count.Load(), "handler persists across Open/Close cycles; no closed-channel panic on reopen")
 }
 
+// TestOpenCloseReopen_DataMessageChanPersists verifies that a channel registered via
+// AddDataMessageChan before the first Open (edge case 8: registration is permanent for the
+// connection's lifetime) still receives inbound messages after a Close/Open cycle, exactly like
+// a registered DataMessageHandler.
+func TestOpenCloseReopen_DataMessageChanPersists(t *testing.T) {
+	c, _ := newLifeConn(t, withMockTransport())
+
+	ch := make(chan *DataMessage, 1)
+	c.AddDataMessageChan(ch) // registered ONCE, before any Open
+
+	for range 3 {
+		require.NoError(t, c.Open(t.Context(), OpenBackground))
+		requireSelected(t, c)
+
+		msg := mustDataMsg(t)
+		c.recvDataMsg(msg) // promoted from the embedded session; exercises the live epoch's Done()
+
+		select {
+		case got := <-ch:
+			require.Same(t, msg, got, "the channel registered before the first Open must keep receiving after reopen")
+		case <-time.After(time.Second):
+			t.Fatal("channel registered before Open did not receive after reopen")
+		}
+
+		require.NoError(t, c.Close())
+	}
+}
+
 // TestOpen_WhileReconnectingReturnsErrAlreadyOpen (H6 guard fix): a second Open in the
 // reconnect inter-generation window — supervisor alive (shutdown==false) but cur points at
 // a done-closed epoch — must return ErrAlreadyOpen, NOT build a second supervisor on supWg.

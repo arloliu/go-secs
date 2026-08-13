@@ -67,7 +67,7 @@ func TestSession_J5_BlockedChannelDoesNotWedgeFanOut(t *testing.T) {
 	// Unbuffered channel with no reader: ch <- msg would block indefinitely without
 	// the <-rt.Done() guard in the select.
 	blockedCh := make(chan *DataMessage)
-	s.addChanHandler(blockedCh)
+	s.AddDataMessageChan(blockedCh)
 
 	msg := mustDataMsg(t)
 
@@ -88,6 +88,77 @@ func TestSession_J5_BlockedChannelDoesNotWedgeFanOut(t *testing.T) {
 		// J5 satisfied: fan-out unblocked when rt.Done() closed.
 	case <-time.After(2 * time.Second):
 		t.Fatal("J5 violated: recvDataMsg did not return after rt.Done() was closed")
+	}
+}
+
+// TestSession_AddDataMessageChan_NilPanics verifies that registering a nil channel panics at
+// registration time (edge case 1): a nil send case would make every delivery select wait only
+// on rt.Done(), wedging the connection from the first inbound message.
+func TestSession_AddDataMessageChan_NilPanics(t *testing.T) {
+	rt := newMockRuntime(t)
+	s := newSession(0xFFFF, rt, &sysBytesGen{})
+
+	require.Panics(t, func() { s.AddDataMessageChan(nil) })
+}
+
+// TestSession_AddDataMessageChan_DuplicateRegistrationDeliversTwice verifies that registering
+// the same channel twice delivers each message once per registration (edge case 6), matching
+// DataMessageHandler's un-deduplicated registration.
+func TestSession_AddDataMessageChan_DuplicateRegistrationDeliversTwice(t *testing.T) {
+	rt := newMockRuntime(t)
+	s := newSession(0xFFFF, rt, &sysBytesGen{})
+
+	ch := make(chan *DataMessage, 2)
+	s.AddDataMessageChan(ch)
+	s.AddDataMessageChan(ch) // same channel, registered a second time
+
+	msg := mustDataMsg(t)
+	s.recvDataMsg(msg)
+
+	require.Same(t, msg, <-ch, "first registration must deliver")
+	require.Same(t, msg, <-ch, "second registration must deliver independently")
+
+	select {
+	case <-ch:
+		t.Fatal("channel must receive exactly twice, once per registration, not deduplicated")
+	default:
+	}
+}
+
+// TestSession_AddDataMessageChan_FIFOWithFuncHandlers verifies that a registered channel
+// receives messages in arrival order (FIFO) and observes the same sequence a func handler does.
+func TestSession_AddDataMessageChan_FIFOWithFuncHandlers(t *testing.T) {
+	rt := newMockRuntime(t)
+	s := newSession(0xFFFF, rt, &sysBytesGen{})
+
+	var mu sync.Mutex
+	var handlerOrder []uint8
+	s.AddDataMessageHandler(func(m *DataMessage, _ SECS2Endpoint) {
+		mu.Lock()
+		handlerOrder = append(handlerOrder, m.Function())
+		mu.Unlock()
+	})
+
+	ch := make(chan *DataMessage, 4)
+	s.AddDataMessageChan(ch)
+
+	msgs := make([]*DataMessage, 0, 3)
+	for _, fn := range []uint8{1, 3, 5} {
+		m, err := NewDataMessage(1, fn, false, 0xFFFF, [4]byte{0, 0, 0, fn}, secs2.NewEmptyItem())
+		require.NoError(t, err)
+		msgs = append(msgs, m)
+	}
+
+	for _, m := range msgs {
+		s.recvDataMsg(m)
+	}
+
+	mu.Lock()
+	require.Equal(t, []uint8{1, 3, 5}, handlerOrder, "func handler must observe arrival order")
+	mu.Unlock()
+
+	for _, want := range msgs {
+		require.Same(t, want, <-ch, "channel must observe the same arrival order")
 	}
 }
 

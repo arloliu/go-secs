@@ -30,6 +30,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   full or their omitted form, and equipment-defined fields are returned as `secs2.Item` unexamined.
   A body that pads or extends the standard shape is served by the manual `secs2.NewCursor` path
   instead.
+- `hsms`: `SECS2Endpoint.AddDataMessageChan(ch chan *DataMessage)` registers a channel to receive every inbound data message a `DataMessageHandler` would: primaries and orphan secondaries.
+  It is an alternative to callback-based registration.
+  Nothing is filtered at registration.
+  Split the stream yourself with the new `DataMessage.IsPrimary()`, the exact negation of the router's primary/secondary classification.
+  A registered channel shares `AddDataMessageHandler`'s delivery, backpressure, and lifetime contract:
+  delivery blocks the receive goroutine on a full channel, duplicate registration delivers once per registration, and registration is permanent for the connection's lifetime.
+  See the method's godoc for the full consumer contract.
+
+### Changed
+
+- **Breaking:** `hsms.SECS2Endpoint` gained a new method, `AddDataMessageChan`.
+  Any hand-rolled implementation of the interface (outside of the session type this package returns) now fails to compile until it adds the method.
+  `hsmstest.FakeEndpoint` already implements it.
+  Embed it in a custom fake instead of implementing `SECS2Endpoint` from scratch to avoid this class of break on future interface growth.
 
 ## [2.3.1] - 2026-08-12
 

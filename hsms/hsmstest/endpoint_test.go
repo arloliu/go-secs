@@ -129,6 +129,76 @@ func TestFakeEndpoint_Deliver_FanOutMultipleHandlers(t *testing.T) {
 	assert.ElementsMatch(t, []int{0, 1, 2}, calls)
 }
 
+// TestFakeEndpoint_AddDataMessageChan_Deliver verifies that FakeEndpoint delivers an injected
+// inbound message to a channel registered via AddDataMessageChan, alongside func handlers, as
+// if it had arrived on the wire.
+func TestFakeEndpoint_AddDataMessageChan_Deliver(t *testing.T) {
+	t.Parallel()
+
+	ep := hsmstest.NewFakeEndpoint()
+	t.Cleanup(ep.Close)
+
+	var handlerGot *hsms.DataMessage
+	ep.AddDataMessageHandler(func(msg *hsms.DataMessage, _ hsms.SECS2Endpoint) {
+		handlerGot = msg
+	})
+
+	ch := make(chan *hsms.DataMessage, 1)
+	ep.AddDataMessageChan(ch)
+
+	msg, err := hsms.NewDataMessage(1, 1, false, 0, [4]byte{}, secs2.NewEmptyItem())
+	require.NoError(t, err)
+	ep.Deliver(msg)
+
+	assert.Same(t, msg, handlerGot, "the func handler must receive the delivered message")
+
+	select {
+	case got := <-ch:
+		assert.Same(t, msg, got, "the registered channel must receive the SAME delivered message")
+	default:
+		t.Fatal("registered channel did not receive the delivered message")
+	}
+}
+
+// TestFakeEndpoint_AddDataMessageChan_NilPanics mirrors the real hsms.SECS2Endpoint contract:
+// registering a nil channel panics at registration time.
+func TestFakeEndpoint_AddDataMessageChan_NilPanics(t *testing.T) {
+	t.Parallel()
+
+	ep := hsmstest.NewFakeEndpoint()
+	assert.Panics(t, func() { ep.AddDataMessageChan(nil) })
+}
+
+// TestFakeEndpoint_AddDataMessageChan_CloseUnblocksStalledDeliver verifies that Close unblocks
+// a Deliver call stalled sending to a full/unread registered channel, mirroring the real
+// connection's teardown-unblocks-fan-out behavior (J5 parity).
+func TestFakeEndpoint_AddDataMessageChan_CloseUnblocksStalledDeliver(t *testing.T) {
+	t.Parallel()
+
+	ep := hsmstest.NewFakeEndpoint()
+
+	blockedCh := make(chan *hsms.DataMessage) // unbuffered, no reader
+	ep.AddDataMessageChan(blockedCh)
+
+	msg, err := hsms.NewDataMessage(1, 1, false, 0, [4]byte{}, secs2.NewEmptyItem())
+	require.NoError(t, err)
+
+	deliverDone := make(chan struct{})
+	go func() {
+		defer close(deliverDone)
+		ep.Deliver(msg)
+	}()
+
+	time.Sleep(20 * time.Millisecond) // let Deliver enter the channel-delivery select
+	ep.Close()
+
+	select {
+	case <-deliverDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Deliver did not return after Close")
+	}
+}
+
 // TestFakeEndpoint_ConcurrentDeliverAndSent exercises Deliver/Sent/AddDataMessageHandler under
 // -race to prove the snapshot-then-unlock-then-invoke locking discipline is race-free.
 func TestFakeEndpoint_ConcurrentDeliverAndSent(t *testing.T) {

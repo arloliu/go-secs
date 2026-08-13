@@ -132,6 +132,48 @@ type SECS2Endpoint interface {
 	// Handlers persist across Open/Close cycles and are never removed.
 	// Registration is not blocking I/O and does not take a context.
 	AddConnStateChangeHandler(handlers ...StateChangeHandler)
+
+	// AddDataMessageChan registers ch to receive every inbound data message this connection
+	// fans out to DataMessageHandlers: primaries, plus orphan secondaries — a late reply that
+	// missed T3's window, and any reply to a message sent with ForwardDataMessage, which does
+	// not register a reply-wait.
+	// Nothing is filtered out at registration; use [DataMessage.IsPrimary] to split the stream
+	// into primaries and secondaries yourself.
+	//
+	// Delivery to ch happens on the connection's receive goroutine, the same goroutine that
+	// invokes DataMessageHandler — see that type's must-not-block contract, which applies here
+	// too.
+	// A full ch stalls the receive loop, including control-frame processing, exactly like a
+	// blocked func handler.
+	// A persistently full ch therefore surfaces as a linktest/T6 failure, which drops the
+	// connection; teardown then unblocks the stalled delivery, and the connection reconnects.
+	// Size ch's buffer for your consumer's burst depth, and keep the consumer loop draining.
+	// Close does not shortcut this: Close under a stalled consumer burns the full close timeout
+	// and returns ErrCloseTimeout, the same outcome a blocked func handler produces.
+	//
+	// Do not send synchronously (SendDataMessage with the wait bit) from the goroutine that
+	// drains ch while ch is full — the reply cannot be routed until the receive loop unblocks,
+	// so the send self-deadlocks until its own T3 timeout expires.
+	//
+	// Do not close ch.
+	// The receive goroutine has no recover around the delivery send, so a send on a closed ch
+	// panics there — the same exposure a panicking func handler has.
+	// End your consumer loop with your own quit signal instead.
+	//
+	// Registering the same channel more than once delivers each message once per registration
+	// (parity with DataMessageHandler; registration is not deduplicated).
+	//
+	// If the connection tears down mid-fan-out, channels later in the registration order can
+	// miss the in-flight message — delivery is at-most-once, with no teardown flush.
+	//
+	// Registration is permanent for the connection's lifetime: there is no removal API, and ch
+	// keeps receiving across Close/Open cycles, exactly like a registered DataMessageHandler.
+	//
+	// Panics if ch is nil — a nil channel would make every delivery select wait only on the
+	// connection's teardown signal, wedging the connection from the first inbound message.
+	//
+	// Registration is not blocking I/O and does not take a context.
+	AddDataMessageChan(ch chan *DataMessage)
 }
 
 // Connection is the app-facing handle for an HSMS connection.

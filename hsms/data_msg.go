@@ -110,6 +110,20 @@ func (msg *DataMessage) Function() uint8 { return msg.header[3] }
 // WaitBit reports whether the wait bit (MSB of header byte 2) is set, indicating that a reply is expected.
 func (msg *DataMessage) WaitBit() bool { return msg.header[2]>>7 != 0 }
 
+// IsPrimary reports whether msg is a SECS-II primary rather than a secondary (reply).
+//
+// A primary has an odd function code (SEMI E5 §7.2), or has the W-bit set — an even function
+// with the W-bit set is a spec-violating frame, but IsPrimary classifies it as a primary rather
+// than as a reply, since a genuine reply never carries a wait bit.
+// Per SEMI E5 §7.2/§10.4.1, SxF0 — the transaction-abort secondary sent in lieu of an expected
+// reply — has an even function (0) and the W-bit clear, so IsPrimary reports false for it.
+//
+// Use IsPrimary to split a channel registered via [SECS2Endpoint.AddDataMessageChan] into
+// primaries and orphan secondaries yourself; the channel delivers both without filtering.
+func (msg *DataMessage) IsPrimary() bool {
+	return msg.WaitBit() || msg.Function()%2 == 1
+}
+
 // ID returns the message's System Bytes decoded as a uint32 (big-endian), the application-level message identifier.
 //
 // Equivalent to FromSystemBytes(msg.SystemBytes()).

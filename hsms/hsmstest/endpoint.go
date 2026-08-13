@@ -43,9 +43,13 @@ type FakeEndpoint struct {
 	sent          []SentMessage
 	replies       []reply
 	dataHandlers  []hsms.DataMessageHandler
+	dataChans     []chan *hsms.DataMessage
 	stateHandlers []hsms.StateChangeHandler
 
 	decodeErrHandlers []hsms.DecodeErrorHandler
+
+	closeOnce sync.Once
+	done      chan struct{}
 }
 
 var _ hsms.SECS2Endpoint = (*FakeEndpoint)(nil)
@@ -60,7 +64,7 @@ func WithSessionID(id uint16) FakeOption {
 
 // NewFakeEndpoint returns a new FakeEndpoint with no recorded sends and an empty reply script.
 func NewFakeEndpoint(opts ...FakeOption) *FakeEndpoint {
-	f := &FakeEndpoint{}
+	f := &FakeEndpoint{done: make(chan struct{})}
 	for _, opt := range opts {
 		opt(f)
 	}
@@ -87,17 +91,39 @@ func (f *FakeEndpoint) Sent() []SentMessage {
 	return slices.Clone(f.sent)
 }
 
-// Deliver invokes every registered DataMessageHandler with (msg, f), as if msg had arrived on
-// the wire. Handlers are snapshotted under the lock and invoked with the lock released, so a
-// handler may call back into f (e.g. f.ReplyDataMessage) without deadlocking.
+// Deliver invokes every registered DataMessageHandler with (msg, f), and delivers msg to every
+// channel registered via AddDataMessageChan, as if msg had arrived on the wire.
+// Handlers and channels are snapshotted under the lock and invoked/sent with the lock released,
+// so a handler may call back into f (e.g. f.ReplyDataMessage) without deadlocking.
+//
+// Channel delivery uses select { case ch <- msg: case <-f.done: return }, mirroring the real
+// hsms.SECS2Endpoint.AddDataMessageChan contract: a full channel blocks Deliver until either the
+// consumer drains it or Close unblocks the send.
 func (f *FakeEndpoint) Deliver(msg *hsms.DataMessage) {
 	f.mu.Lock()
 	handlers := slices.Clone(f.dataHandlers)
+	chans := slices.Clone(f.dataChans)
 	f.mu.Unlock()
 
 	for _, h := range handlers {
 		h(msg, f)
 	}
+
+	for _, ch := range chans {
+		select {
+		case ch <- msg:
+		case <-f.done:
+			return
+		}
+	}
+}
+
+// Close signals teardown to any goroutine blocked delivering to a channel registered via
+// AddDataMessageChan, mirroring the real connection's teardown-unblocks-fan-out behavior.
+// It is idempotent and safe for concurrent use; call it from t.Cleanup in a test that registers
+// channels.
+func (f *FakeEndpoint) Close() {
+	f.closeOnce.Do(func() { close(f.done) })
 }
 
 // DeliverState invokes every registered StateChangeHandler with (prev, next), as if the
@@ -118,6 +144,19 @@ func (f *FakeEndpoint) AddDataMessageHandler(handlers ...hsms.DataMessageHandler
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.dataHandlers = append(f.dataHandlers, handlers...)
+}
+
+// AddDataMessageChan registers ch to receive every inbound data message Deliver fans out,
+// mirroring the real hsms.SECS2Endpoint.AddDataMessageChan contract.
+// Panics if ch is nil.
+func (f *FakeEndpoint) AddDataMessageChan(ch chan *hsms.DataMessage) {
+	if ch == nil {
+		panic("hsmstest: AddDataMessageChan: ch must not be nil")
+	}
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.dataChans = append(f.dataChans, ch)
 }
 
 // AddDecodeErrorHandler records decode-error handlers so FakeEndpoint satisfies the

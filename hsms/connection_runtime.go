@@ -148,16 +148,18 @@ func (c *connection) checkSessionID(dm *DataMessage) error {
 	return ErrUnrecognizedSessionID
 }
 
-// isSecondaryReply reports whether dm is a SECS-II secondary (reply): an even function code with
-// the W-bit clear. This includes function 0 — SEMI E5 §7.2/§10.4.1 reserve SxF0 as the
-// transaction-ABORT secondary, sent in lieu of the expected reply (reusing the primary's System
-// Bytes) so the originator terminates promptly instead of waiting out T3. Primaries (odd function,
-// per §7.2) and any W-bit message are never replies. This is the discriminator that keeps a peer's
-// primary out of the local sender's reply registry (see DeliverOwnedFrame) even when System Bytes
-// collide across the two symmetric peers; F0 is never a primary (it only ever aborts an existing
-// transaction), so admitting it as a secondary is safe for that guard.
+// isSecondaryReply reports whether dm is a SECS-II secondary (reply): the exact negation of
+// [DataMessage.IsPrimary], kept as its own name at this call site for readability.
+// This includes function 0 — SEMI E5 §7.2/§10.4.1 reserve SxF0 as the transaction-ABORT
+// secondary, sent in lieu of the expected reply (reusing the primary's System Bytes) so the
+// originator terminates promptly instead of waiting out T3.
+// Primaries (odd function, per §7.2) and any W-bit message are never replies.
+// This is the discriminator that keeps a peer's primary out of the local sender's reply registry
+// (see DeliverOwnedFrame) even when System Bytes collide across the two symmetric peers; F0 is
+// never a primary (it only ever aborts an existing transaction), so admitting it as a secondary
+// is safe for that guard.
 func isSecondaryReply(dm *DataMessage) bool {
-	return !dm.WaitBit() && dm.Function()%2 == 0
+	return !dm.IsPrimary()
 }
 
 // RouteReply looks up the System Bytes of msg in the per-generation sender-owned reply registry

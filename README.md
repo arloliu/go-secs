@@ -43,8 +43,10 @@ and SECS-I over TCP/IP (SEMI E4), together with an SML (SECS Message Language) p
 * **HSMS-SS (Single Session):** a streamlined implementation of the SEMI E37.1 single-session mode.
 * **Active and passive modes:** connect as a TCP client (active) or listen as a TCP server (passive).
 * **Connection is the endpoint:** `hsms.Connection` embeds `hsms.SECS2Endpoint`, so you send
-  messages, reply, and register handlers directly on the connection. The HSMS session ID is
-  configured per connection.
+  messages, reply, and register handlers directly on the connection.
+  The HSMS session ID is configured per connection.
+  Inbound messages can also be received on a channel via `AddDataMessageChan`, as an alternative
+  to `AddDataMessageHandler`.
 * **Connection-state management:** an explicit state machine (`hsms.ConnState`) with registrable
   state-change handlers.
 * **Resilience:** automatic reconnection, and an auto-linktest with a configurable failure threshold
