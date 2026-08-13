@@ -12,7 +12,7 @@ where the library currently stops and every consumer starts repeating each other
 ## v2.4 — consumer ergonomics & observability
 
 Additive API only; no breaking changes to concrete types.
-One published interface gains a method (see the compatibility note below).
+Two published interfaces gain a method each (see the compatibility note below).
 
 | Feature | Package | Plan |
 |---|---|---|
@@ -29,10 +29,12 @@ channel delivery → (unblocks nothing in v2.4 but is the foundation for the def
 observer, lifecycle, classification in any order.
 
 **Compatibility note.**
-`AddDataMessageChan` is added to the `SECS2Endpoint` interface —
-the first interface addition since v2.0.0 GA.
-This is compile-breaking for hand-rolled `SECS2Endpoint` implementations;
-fakes that embed `hsmstest.FakeEndpoint` (updated in the same commit) are unaffected.
+`AddDataMessageChan` is added to the `SECS2Endpoint` interface, and `SubscribeLifecycle` is added to the `Connection` interface —
+the first interface additions since v2.0.0 GA.
+This is compile-breaking for hand-rolled implementations of either interface;
+fakes that embed `hsmstest.FakeEndpoint` (updated in the same commit) pick up `AddDataMessageChan` for free,
+but `FakeEndpoint` does not implement `Connection`,
+so a hand-rolled `Connection` still needs its own `SubscribeLifecycle` stub.
 The CHANGELOG entry must state this explicitly
 and recommend embedding `hsmstest.FakeEndpoint` to be insulated from future additions.
 

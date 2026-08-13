@@ -48,10 +48,11 @@ var timeoutSentinels = []error{
 // IsTransient reports whether err is safe to retry — the same call may succeed on a later attempt.
 //
 // Classification order:
-//  1. If err's chain contains a value implementing TransientError, its Transient() result is
-//     returned verbatim. This is the extensible path: hsms sentinels documented as transient
-//     already satisfy it internally, secs1 marks its own retryable sentinels the same way, and a
-//     caller-defined error can opt in without this package knowing about it.
+//  1. If err's chain contains a value implementing TransientError, its Transient() result is returned verbatim.
+//     This is the extensible path: secs1 marks its own retryable sentinels this way,
+//     and a caller-defined error can opt in without this package knowing about it.
+//     hsms's own sentinels documented as transient are plain errors.New values, not TransientError implementations;
+//     they are matched by the step-2 sentinel table below instead.
 //  2. Otherwise err is matched against the built-in hsms sentinel table via errors.Is, so a wrapped
 //     (fmt.Errorf("…: %w", …)) or errors.Join'd form still matches.
 //  3. Anything else returns false.
@@ -61,6 +62,9 @@ var timeoutSentinels = []error{
 // errors.Join policy: any matching branch wins.
 // errors.Join(ErrMessageTooLarge, ErrNotSelectedState) reports true, the same as ErrNotSelectedState alone —
 // a permanent branch elsewhere in the tree does NOT veto a transient one.
+// A TransientError marker is the exception to this Join policy:
+// errors.As returns the chain's first match verbatim, so
+// a marker anywhere in the chain takes precedence over the sentinel table, including its false answer.
 // This mirrors how errors.Is itself treats a Join tree (a match anywhere in the tree satisfies the check),
 // so IsTransient stays consistent with ordinary errors.Is usage against the same error.
 // A caller that joins a permanent cause together with a transient one, and needs the permanent cause to veto a retry,

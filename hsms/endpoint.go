@@ -148,8 +148,10 @@ type SECS2Endpoint interface {
 	// A persistently full ch therefore surfaces as a linktest/T6 failure, which drops the
 	// connection; teardown then unblocks the stalled delivery, and the connection reconnects.
 	// Size ch's buffer for your consumer's burst depth, and keep the consumer loop draining.
-	// Close does not shortcut this: Close under a stalled consumer burns the full close timeout
-	// and returns ErrCloseTimeout, the same outcome a blocked func handler produces.
+	// Close's teardown cancels the connection's per-generation ctx immediately, which unblocks a stalled channel delivery —
+	// Close still returns promptly, dropping the in-flight message.
+	// A blocked func handler has no such escape:
+	// it is what actually burns the full close timeout and returns ErrCloseTimeout.
 	//
 	// Do not send synchronously (SendDataMessage with the wait bit) from the goroutine that
 	// drains ch while ch is full — the reply cannot be routed until the receive loop unblocks,
@@ -225,9 +227,10 @@ type Connection interface {
 	// A panic inside fn is isolated and never stops the other subscribers.
 	//
 	// LifecycleEvent.Cause names the event that drove the transition the connection actually reported.
-	// Transitions are deduplicated on the state entered,
-	// so when a second event would land the connection in the state it is already in, nothing is reported for it —
-	// a Close issued on a link that has already dropped reports the drop's cause, not CauseLocalClose.
+	// Transitions are deduplicated on the state entered:
+	// when a second event would land the connection in a state it is already in, nothing is reported for it.
+	// A Close issued on a link that has already dropped therefore reports nothing —
+	// the drop's earlier event already carried the cause, not CauseLocalClose.
 	//
 	// Delivery is best-effort under a subscriber that does not keep up:
 	// intermediate transitions, and their causes, may be coalesced away, but the connection's latest state is always delivered.

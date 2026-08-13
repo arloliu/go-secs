@@ -75,6 +75,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Any hand-rolled implementation of either interface (outside of the connection and session types this package returns) now fails to compile until it adds the methods.
   `hsmstest.FakeEndpoint` already implements `AddDataMessageChan`.
   Embed it in a custom fake instead of implementing `SECS2Endpoint` from scratch to avoid this class of break on future interface growth.
+  `FakeEndpoint` does not implement `Connection`,
+  so a hand-rolled `Connection` still needs its own `SubscribeLifecycle` stub,
+  e.g. `func (...) SubscribeLifecycle(func(hsms.LifecycleEvent)) func() { return func() {} }`.
   `hsmsss` and `secs1` are unaffected: both build on the connection engine this package returns.
 
 ## [2.3.1] - 2026-08-12
@@ -1366,6 +1369,7 @@ release's fuzz work were closed out.
   Deselect.req / Deselect.rsp / Separate.req are now honoured end-to-end
   and take the session through the documented state transitions.
 
+[Unreleased]: https://github.com/arloliu/go-secs/compare/v2.3.1...HEAD
 [2.3.1]: https://github.com/arloliu/go-secs/releases/tag/v2.3.1
 [2.3.0]: https://github.com/arloliu/go-secs/releases/tag/v2.3.0
 [2.2.0]: https://github.com/arloliu/go-secs/releases/tag/v2.2.0

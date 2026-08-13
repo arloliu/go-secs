@@ -18,7 +18,8 @@ const (
 	// A transport that reports a lost link without naming a reason lands here.
 	CauseUnknown TransitionCause = iota
 
-	// CauseLocalOpen means Open — or the automatic reconnect that follows a drop — established the transport link.
+	// CauseLocalOpen means Open — or the automatic reconnect that follows a drop — established the transport link —
+	// whether by dialing out (active) or by accepting the peer we were listening for (passive).
 	CauseLocalOpen
 
 	// CauseLocalClose means a local Close initiated the transition.

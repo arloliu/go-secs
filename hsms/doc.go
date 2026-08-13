@@ -72,6 +72,11 @@
 // Construction and [DataMessageBuilder.Build] errors are returned as (msg, error)
 // and include the item's aggregate Error() gate.
 //
+// [IsTransient] and [IsTimeout] classify an error returned from the connection's send/lifecycle surface —
+// SendDataMessage, SendSECS2Message, Forward*, Reply*, Open, Close —
+// along two independent axes, retry-worthiness and timer-expiry, so
+// a caller does not hand-roll its own errors.Is chain to decide whether a failed call is worth retrying.
+//
 // # Decode
 //
 // [DecodeHSMSMessage] decodes a complete on-wire HSMS frame (4-byte big-endian length prefix + 10-byte header + optional body) into a [Message].
@@ -102,6 +107,10 @@
 // which copy calls [DataMessage.Item] first, and every copy sees the same cached item.
 //
 // For fan-out, multiple goroutines may hold and call any method on the same *[DataMessage] concurrently without external locking.
+//
+// A [DataMessageHandler] and a channel registered via [SECS2Endpoint.AddDataMessageChan] both receive inbound messages.
+// Each receives the exact same *[DataMessage] pointer, never a per-consumer copy —
+// the same no-Clone fan-out this section describes.
 //
 // # E37 §10.1 implementation documentation
 //

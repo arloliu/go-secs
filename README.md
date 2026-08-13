@@ -37,6 +37,9 @@ and SECS-I over TCP/IP (SEMI E4), together with an SML (SECS Message Language) p
 * **Serialization:** encode an item to its SECS-II wire bytes with `ToBytes`, or append into an
   existing buffer with `AppendTo`.
 * **SML generation:** render an item to SML text with `ToSML`.
+* **Typed path access:** `secs2.Cursor` reads a nested item tree with a single chained call —
+  `secs2.NewCursor(item).At(1, 0).ASCII()` — instead of the `Get` / type-assert / `ToXxx` / index dance.
+  A failed hop is remembered rather than panicking, so a multi-hop extraction needs only one error check at the end.
 
 ### HSMS / HSMS-SS Communication
 
@@ -49,6 +52,12 @@ and SECS-I over TCP/IP (SEMI E4), together with an SML (SECS Message Language) p
   to `AddDataMessageHandler`.
 * **Connection-state management:** an explicit state machine (`hsms.ConnState`) with registrable
   state-change handlers.
+  `SubscribeLifecycle` is the cancellable, cause-carrying counterpart:
+  it reports each transition together with the `TransitionCause` that drove it —
+  a local Close, a peer Separate, a T7 expiry, a linktest failure, a dropped socket, and so on.
+* **Transaction observability:** `hsms.WithTransactionObserver` reports a `TxEvent` for every completed synchronous send.
+  The event names the stream, function, duration, and outcome —
+  enough to feed a metrics histogram or trace exporter without hand-instrumenting each call site.
 * **Resilience:** automatic reconnection, and an auto-linktest with a configurable failure threshold
   for tolerating transient T6 timeouts. Activity-based linktest suppression (on by default) probes
   only idle links and does not count a probe timeout toward the disconnect threshold when the
@@ -73,6 +82,8 @@ and SECS-I over TCP/IP (SEMI E4), together with an SML (SECS Message Language) p
   a `SendDataMessageAsync` call with `replyExpected: true` (`ErrAsyncReplyExpected`, since an
   async send never opens a reply-wait transaction); or a frame that would exceed
   `hsms.MaxMessageSize` (`ErrMessageTooLarge`).
+  `hsms.IsTransient` and `hsms.IsTimeout` classify any error returned from the send/lifecycle surface,
+  so a caller can decide whether a failed call is worth retrying without hand-rolling its own `errors.Is` chain.
 
 ### SECS-I over TCP/IP Communication
 
@@ -107,7 +118,8 @@ and SECS-I over TCP/IP (SEMI E4), together with an SML (SECS Message Language) p
   encoding/decoding, and the connection engine.
 * **hsmsss** — HSMS-SS (Single Session) transport per SEMI E37.1.
 * **sml** — the SML parser.
-* **gem** — helpers for constructing common GEM (SEMI E30) messages.
+* **gem** — helpers for constructing common GEM (SEMI E30) messages, plus generated body decoders
+  (`gem.DecodeS1F14`, `gem.DecodeS6F11`, …) that read a received reply back into a typed result struct.
 * **logger** — a small logging façade for integrating your own logging framework.
 
 ## Performance

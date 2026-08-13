@@ -585,7 +585,9 @@ func WithAsyncSendErrorHandler(fn func(msg Message, err error)) ConnOption {
 
 // WithTransactionObserver installs a hook invoked once per completed synchronous send transaction:
 // SendDataMessage, SendSECS2Message, and ForwardDataMessage (SECS2Endpoint).
-// Each call reports exactly one TxEvent describing how its transaction ended.
+// Each call that reaches the send path reports exactly one TxEvent describing how its transaction ended.
+// A call that fails validation before the send path — such as ErrEvenFunctionPrimary or ErrInvalidStreamCode from message construction —
+// returns its error directly and reports no TxEvent.
 //
 // The hook runs SYNCHRONOUSLY on the CALLING goroutine, after the send's own outcome is known and before the call returns to its caller —
 // a slow fn slows that one send call and nothing else;
