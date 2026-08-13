@@ -294,3 +294,25 @@ func BenchmarkNewIntItem(b *testing.B) {
 		}
 	})
 }
+
+// BenchmarkCursor_HappyPath measures the representative Cursor extraction path: two At hops
+// into a nested list, then a scalar Uint read.
+// This is the acceptance benchmark for the zero-allocation contract — it must report 0 allocs/op.
+func BenchmarkCursor_HappyPath(b *testing.B) {
+	item := L(L(U4(uint(1)), U4(uint(2))), L(U4(uint(3)), U4(uint(4))))
+
+	var sink uint64
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		v, err := NewCursor(item).At(0, 1).Uint()
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		sink = v
+	}
+
+	_ = sink
+}

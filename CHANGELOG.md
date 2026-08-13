@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `secs2`: `Cursor`, a typed path-extraction API for reading a value out of a nested item in one
+  chained call — `secs2.NewCursor(item).At(1, 0).ASCII()` — instead of a `Get` / type-assert /
+  `ToXxx` / index dance.
+  Errors accumulate across `At` hops, so a multi-hop extraction needs one error check instead of
+  one per hop, and error messages carry the failing hop's index and depth.
+  Scalar accessors (`Uint`, `Int`, `Float`, `Bool`) read the item's internal scalar storage
+  directly and allocate nothing on the happy path.
+
 ## [2.3.1] - 2026-08-12
 
 Security and performance patch.

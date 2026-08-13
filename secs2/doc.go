@@ -22,6 +22,11 @@
 //
 //   - Indexed accessors (ItemAt, ByteAt, BoolAt, IntAt, UintAt, FloatAt) return a single value by value at the given index.
 //
+// [Cursor] builds on the indexed accessors to read a value out of a nested item in one chained
+// call, accumulating errors across hops instead of requiring a check after each one:
+//
+//	v, err := secs2.NewCursor(item).At(1, 0).ASCII()
+//
 // # Wire encoding
 //
 // AppendTo(dst []byte) appends the complete SECS-II wire encoding (header + payload) into dst
