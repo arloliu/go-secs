@@ -197,13 +197,34 @@ func (t *transport) startActive(ctx context.Context) error {
 	// The core published the generation before calling Start, so this reads THIS generation's identity.
 	g.gen = t.currentGeneration()
 
+	// Report TCP-up BEFORE touching any transport-level bookkeeping
+	// (t.conn, the activity stamps, t.procCancel).
+	// The core can refuse this generation here —
+	// e.ended was already latched by a concurrent teardown that raced this dial to completion,
+	// ahead of that same teardown's tr.Stop call —
+	// and a refusal means no epoch will ever own conn.
+	// Checking first keeps a refused straggler's conn out of t.conn entirely,
+	// so it can never clobber a live successor generation's socket or activity stamps,
+	// and keeps its dead work out of the join set Stop waits on: no recv loop, no Select procedure.
+	// This reordering is safe on the ACCEPTED path too:
+	// nothing between here and the connMu block below ever reads t.conn
+	// (a write only reads e.liveConn(), already set by tcpUp's own publishSocket call),
+	// and no concurrent Stop can race this store either way —
+	// the held startGate.RLock fences one out for as long as this whole function runs.
+	if !t.tcpUp(g.gen, conn) {
+		t.startGate.RUnlock()
+
+		procCancel() // release procCtx; nothing will ever run on it
+		_ = conn.Close()
+
+		return errStartSealed
+	}
+
 	t.connMu.Lock()
 	t.conn = conn
 	t.procCancel = procCancel
 	t.resetActivityStamps()
 	t.connMu.Unlock()
-
-	t.tcpUp(g.gen, conn)
 
 	g.recv.Add(1)
 	go t.recvLoop(g)

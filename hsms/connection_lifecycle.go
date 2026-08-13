@@ -570,7 +570,7 @@ func (c *connection) reconnectSleep(d time.Duration, stop <-chan struct{}) bool 
 // generation-unaware path instead of erroring, so a renamed or dropped method here would disable the barrier quietly.
 type genCapability interface {
 	CurrentGeneration() uint64
-	TCPUpFromGeneration(gen uint64, conn net.Conn)
+	TCPUpFromGeneration(gen uint64, conn net.Conn) bool
 	TCPDownFromGeneration(gen uint64, cause error, transitionCause TransitionCause)
 	CommitSelectedFromGeneration(gen uint64) bool
 	SelectLostFromGeneration(gen uint64)
@@ -584,39 +584,76 @@ var _ genCapability = (*connection)(nil)
 // It publishes the socket on the current epoch and then advances the FSM NotConnected -> NotSelected SYNCHRONOUSLY via a guarded CAS (CommitConnected, symmetric with CommitSelected),
 // which also enqueues evTCPUp for the deduped entering-NotSelected reaction/notify.
 // The socket is published BEFORE the supervisor call so it is visible before State() flips to NotSelected.
+//
+// TCPUp carries no generation identity and so cannot report a refusal —
+// an out-of-module transport reaching this entry point gets the pre-generation behavior unconditionally
+// (conn is published whenever a current epoch exists at all).
+// [connection.TCPUpFromGeneration] is the generation-aware counterpart an in-module transport uses instead,
+// and it DOES report whether conn was accepted.
 func (c *connection) TCPUp(conn net.Conn) {
 	c.commitTCPUp(0, conn)
 }
 
 // TCPUpFromGeneration is TCPUp reported ON BEHALF OF gen, the generation whose socket came up.
 //
-// The passive accept goroutine is the producer this exists for.
-// Its generation's Stop is bounded.
-// A goroutine descheduled between the accept returning and this call can therefore be abandoned,
+// It reports whether conn was accepted onto a live generation.
+// On false, gen has already ended — no epoch will ever take ownership of conn,
+// so the caller owns it and must close it;
+// there is nothing else for the caller to do
+// (no recv loop to spawn, no activity stamps to reset — the generation this socket belonged to is gone).
+//
+// The passive accept goroutine
+// (and, more narrowly, an active dial racing a concurrent teardown to completion)
+// are the producers this exists for.
+// The generation's Stop is bounded.
+// A goroutine descheduled between the accept/dial returning and this call can therefore be abandoned,
 // and resume after the generation it belongs to is over.
 // Reporting the generation keeps such a straggler from publishing a dead socket on a live epoch
 // and from resurrecting NotSelected on a connection that has already gone down or been closed.
 //
-// A gen of 0 skips the match and behaves exactly like TCPUp.
-func (c *connection) TCPUpFromGeneration(gen uint64, conn net.Conn) {
-	c.commitTCPUp(gen, conn)
+// A gen of 0 skips the match and behaves exactly like TCPUp — always accepted, so the return is always true.
+func (c *connection) TCPUpFromGeneration(gen uint64, conn net.Conn) bool {
+	return c.commitTCPUp(gen, conn)
 }
 
 // commitTCPUp is the shared body of the TCP-up back-channel:
 // publish the socket on the generation that owns it, then commit NotConnected -> NotSelected for that generation.
 //
 // The socket is published BEFORE the supervisor call so it is visible before State() flips to NotSelected.
-func (c *connection) commitTCPUp(gen uint64, conn net.Conn) {
-	c.publishSocket(gen, conn)
+//
+// It reports publishSocket's accept/refuse decision,
+// NOT whether the FSM CAS that follows actually flipped the state —
+// those two can diverge
+// (a teardown can land between the two calls and refuse the CAS on a socket publishSocket already accepted),
+// but the divergence is harmless:
+// the epoch already owns conn by then,
+// so that same teardown's own closeSocket
+// (which always runs after markEnded, the same latch the CAS's gate re-checks) closes it.
+// A refusal at publishSocket itself is the only case where no epoch ever takes ownership,
+// which is what the return value exists to let the caller detect.
+//
+// The FSM commit is still attempted UNCONDITIONALLY, even when publishSocket already refused:
+// commitGate applies the identical {id, ended} check on its own RLock section and,
+// finding the same generation already gone, counts it as a stale commit (staleGen) and logs it —
+// the diagnostic this back-channel has always produced for a report naming a dead generation.
+// The commit itself is a guaranteed no-op in that case
+// (once ended latches true it never reverts,
+// so a generation publishSocket already refused can never pass commitGate either),
+// so this costs nothing beyond the accounting.
+func (c *connection) commitTCPUp(gen uint64, conn net.Conn) bool {
+	accepted := c.publishSocket(gen, conn)
 
 	if s := c.sup.Load(); s != nil {
 		// CauseLocalOpen: reaching NotSelected means OUR Open (or the reconnect loop it owns)
 		// established the link, whether by dialing out or by accepting the peer we were listening for.
 		s.CommitConnectedFromGeneration(gen, CauseLocalOpen)
 	}
+
+	return accepted
 }
 
-// publishSocket publishes conn as the socket of the generation that established it.
+// publishSocket publishes conn as the socket of the generation that established it,
+// and reports whether it did.
 //
 // A named generation is resolved by identity and checked for liveness under the generation gate,
 // for the same reason the FSM commit that follows is:
@@ -624,14 +661,17 @@ func (c *connection) commitTCPUp(gen uint64, conn net.Conn) {
 // Holding the gate across the store is what keeps that from slipping through between the check and the store —
 // teardown latches ended before it closes the socket, and it latches it under this same gate.
 //
-// A gen of 0 publishes unconditionally, exactly as this path did before generations were carried.
-func (c *connection) publishSocket(gen uint64, conn net.Conn) {
+// A gen of 0 publishes unconditionally (true whenever a current epoch exists),
+// exactly as this path did before generations were carried.
+func (c *connection) publishSocket(gen uint64, conn net.Conn) bool {
 	if gen == 0 {
 		if e := c.cur.Load(); e != nil {
 			e.setConn(conn)
+
+			return true
 		}
 
-		return
+		return false
 	}
 
 	c.genGate.RLock()
@@ -639,7 +679,11 @@ func (c *connection) publishSocket(gen uint64, conn net.Conn) {
 
 	if e := c.cur.Load(); e != nil && e.id == gen && !e.ended.Load() {
 		e.setConn(conn)
+
+		return true
 	}
+
+	return false
 }
 
 // commitGate fences one generation-guarded synchronous FSM commit against the end of the generation that asked for it.

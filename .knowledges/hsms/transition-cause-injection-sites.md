@@ -8,17 +8,18 @@ generated: {by: "claude/opus-5", at: 2026-08-13T00:00:00Z}
 verified:
   - {by: "claude/opus-5", at: 2026-08-13T00:00:00Z}
   - {by: "claude/opus-5", at: 2026-08-13T13:00:00Z}
+  - {by: "claude/sonnet-5", at: 2026-08-13T23:00:00Z}
 sources:
   - {resource: hsms/lifecycle.go, digest: sha256:65d429d90300b620, revision: 5a0ec1b}
   - {resource: hsms/supervisor.go, digest: sha256:6e184e41a0ff36b7, revision: 6ef4ce7}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:943dff0a83537435, revision: 6ef4ce7}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:ef39ad01716f99ef, revision: 71a7afe}
   - {resource: hsms/connection_runtime.go, digest: sha256:711c3a7e01179640, revision: 6ef4ce7}
   - {resource: hsms/connection.go, digest: sha256:77816cf32d7065e9, revision: 6ef4ce7}
   - {resource: hsms/epoch.go, digest: sha256:2bb2df9485d57850, revision: 6ef4ce7}
-  - {resource: hsmsss/transport.go, digest: sha256:d67a75070e7e5283, revision: 6ef4ce7}
-  - {resource: hsmsss/transport_control.go, digest: sha256:af60b71cd1a65bbc, revision: 6ef4ce7}
-  - {resource: hsmsss/transport_active.go, digest: sha256:e135a99f17f1bf3f, revision: 6ef4ce7}
-  - {resource: hsmsss/transport_passive.go, digest: sha256:5e24b4b4c9235d44, revision: 6ef4ce7}
+  - {resource: hsmsss/transport.go, digest: sha256:af794dd9a6818352, revision: 71a7afe}
+  - {resource: hsmsss/transport_control.go, digest: sha256:2feb21fb4247bb55, revision: 71a7afe}
+  - {resource: hsmsss/transport_active.go, digest: sha256:a9f72c23b1c5827c, revision: 71a7afe}
+  - {resource: hsmsss/transport_passive.go, digest: sha256:f5c2688db6585682, revision: 71a7afe}
   - {resource: hsmsss/transport_recv.go, digest: sha256:466ba864e5586a7a, revision: 6ef4ce7}
 ---
 
@@ -149,6 +150,22 @@ The other two commits CAS out of states a dead generation cannot be in, so for t
 `connection.publishSocket` takes the same gate for the same reason:
 an abandoned accept goroutine must not hang its socket on an epoch whose teardown already closed its own.
 It resolves the epoch by identity and writes to THAT epoch, so a swap can never redirect it to a successor.
+
+**The refusal is not silent: it is a reported bool, all the way out to the transport.**
+`publishSocket`, `commitTCPUp`, and `TCPUpFromGeneration` all return whether the socket was accepted.
+This is the one producer among the five `genCapability` methods whose caller has actual cleanup to do on a
+refusal — the socket itself, not just an event.
+`hsmsss`'s `tcpUp` wrapper forwards that bool, and `startActive` / `acceptLoop`
+(transport_active.go / transport_passive.go) check it:
+on `false` they close the conn themselves —
+no epoch will ever own a refused socket, so nobody else ever will —
+and skip everything a live TCP-up would start
+(the recv loop, the active Select procedure, the transport's own `t.conn` / activity-stamp bookkeeping),
+so a dead generation's socket can never clobber a live successor's.
+`commitTCPUp` still runs the FSM commit unconditionally even on a `publishSocket` refusal, purely so
+`staleGen` keeps counting it — the commit itself is a guaranteed no-op there, since `ended` never reverts.
+The plain `TCPUp` (gen 0, out-of-module) keeps its void signature and unconditional-accept behavior;
+only the generation-named path can name a refusal.
 
 **How the cause crosses the package boundary.**
 `hsmsss` and `secs1` reach `TCPDownWithCause` by type-asserting `t.rt` to a package-local `causeRuntime` interface, then fall back to plain `TCPDown`.

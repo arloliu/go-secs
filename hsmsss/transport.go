@@ -12,12 +12,21 @@ import (
 	"github.com/arloliu/go-secs/v2/hsms"
 )
 
-// errStartSealed is returned by Start when the transport's Add-vs-Wait guard is sealed (a Stop is
-// tearing this generation down, the I1 race): rather than register this generation's goroutines on
-// its WaitGroup bundle concurrently with that generation's Stop Waits, Start rolls back the
-// just-dialed/listened socket and returns this. The reconnect loop treats it exactly like a dial
-// failure — it tears the (already torn-down) epoch down again idempotently and re-checks its F3/G2
-// fence, which observes the concurrent Close's shutdown and returns.
+// errStartSealed is returned by Start
+// when the just-established socket cannot be handed to a live generation.
+// Two distinct races produce it.
+// The transport's own Add-vs-Wait guard can already be sealed
+// (a Stop is tearing this generation down, the I1 race):
+// rather than register this generation's goroutines on its WaitGroup bundle concurrently
+// with that generation's Stop Waits,
+// Start rolls back the just-dialed/listened socket.
+// Or the core's generation gate can have already refused the socket (startActive's tcpUp call):
+// the generation ended — latched by a concurrent teardown — before that same teardown's tr.Stop ran,
+// so the I1 guard above had not sealed yet, but the socket has nowhere live to go regardless.
+// Either way Start rolls back the socket and returns this.
+// The reconnect loop treats it exactly like a dial failure —
+// it tears the (already torn-down) epoch down again idempotently and re-checks its F3/G2 fence,
+// which observes the concurrent Close's shutdown and returns.
 var errStartSealed = errors.New("hsmsss: transport stopping — start aborted (I1 guard)")
 
 // Compile-time assertion that *transport satisfies the unexported hsms.transport seam.

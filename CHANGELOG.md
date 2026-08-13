@@ -119,6 +119,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   teardown, which is what has to happen before any replacement can exist.
   This was not a v2.4 regression; it has been present since v2.0.0.
   `secs1` is unchanged and keeps the previous behavior.
+- **`hsmsss`: a TCP-up reported by a generation that has already ended no longer leaks the socket or
+  parks a goroutine on it.**
+  This closes the one gap the two fixes above left open: `TCPUpFromGeneration` already refused a
+  stale generation's socket at the state-machine level, but reported nothing back, so `startActive`
+  and the passive accept goroutine spawned a recv loop on it regardless.
+  That recv loop then blocked indefinitely on the first byte — nothing was ever going to close the
+  socket or unblock it, since no epoch had taken ownership of it.
+  `TCPUpFromGeneration` now reports whether the socket was accepted; on refusal the caller closes it
+  and spawns nothing.
+  The plain `TCPUp` entry point (used by an out-of-module `TransportRuntime`) is unchanged.
+  This was not a v2.4 regression; it has been present since v2.0.0.
 
 ## [2.3.1] - 2026-08-12
 

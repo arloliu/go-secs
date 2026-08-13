@@ -619,13 +619,27 @@ func TestReconnect_AbandonedGenerationSelectLostCannotDeselectSuccessor(t *testi
 //
 // Teeth: drop the !e.ended.Load() term from connection.commitGate → State() reports NotSelected
 // after Close and the socket assertion fails; keep it and both hold.
+//
+// It also pins TCPUpFromGeneration's own accept/refuse report
+// (the signal [connection.TCPUpFromGeneration]'s hsmsss caller relies on
+// to close the socket itself and skip spawning a recv loop —
+// see hsmsss's TestActive_RefusedTCPUpClosesConnAndSkipsRecvLoop /
+// TestPassive_RefusedTCPUpClosesConnAndSkipsRecvLoop
+// for the transport-level half of that contract):
+// the refusal this test proves at the FSM/socket level
+// must also be visible to the caller as a plain false return,
+// not just inferable after the fact from State()/liveConn().
+//
+// Teeth (return value): make TCPUpFromGeneration always return true → accepted below reads true
+// and this assertion alone fails, even though the FSM/socket assertions still pass.
 func TestReconnect_AbandonedGenerationTCPUpCannotResurrectAfterClose(t *testing.T) {
 	conn := fakeConn{}
 
+	var accepted bool
 	c, mt := staleCommitConn(t,
 		func(_ int64, _ context.Context, _ TransportRuntime) {}, // never connects: the FSM stays NotConnected
 		func(rt TransportRuntime, gen uint64) {
-			mustGenCapability(rt).TCPUpFromGeneration(gen, conn)
+			accepted = mustGenCapability(rt).TCPUpFromGeneration(gen, conn)
 		},
 	)
 
@@ -642,6 +656,7 @@ func TestReconnect_AbandonedGenerationTCPUpCannotResurrectAfterClose(t *testing.
 
 	mt.releaseAbandonedGenAction() // the abandoned accept goroutine reports its socket, after Close
 
+	require.False(t, accepted, "a TCP-up reported by a generation that has ended must be refused, not just silently dropped")
 	require.Equal(t, NotConnectedState, c.State(),
 		"a TCP-up reported by a generation that has ended must not resurrect the FSM")
 	require.Nil(t, e.liveConn(), "a TCP-up reported by a generation that has ended must not republish a socket on it")

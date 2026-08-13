@@ -36,7 +36,7 @@ type causeRuntime interface {
 // reports resolve whatever generation is current when they land.
 type genRuntime interface {
 	CurrentGeneration() uint64
-	TCPUpFromGeneration(gen uint64, conn net.Conn)
+	TCPUpFromGeneration(gen uint64, conn net.Conn) bool
 	TCPDownFromGeneration(gen uint64, cause error, transitionCause hsms.TransitionCause)
 	CommitSelectedFromGeneration(gen uint64) bool
 	SelectLostFromGeneration(gen uint64)
@@ -76,17 +76,28 @@ func (t *transport) tcpDown(gen uint64, cause error, transitionCause hsms.Transi
 	t.rt.TCPDown(cause)
 }
 
-// tcpUp reports an established socket for gen, the generation that established it.
-// The passive accept goroutine can be abandoned by a bounded Stop between the accept and this call,
+// tcpUp reports an established socket for gen, the generation that established it,
+// and reports whether the core accepted it onto a live generation.
+// The passive accept goroutine
+// (and, more narrowly, an active dial racing a concurrent teardown to completion)
+// can be abandoned by a bounded Stop between the accept/dial and this call,
 // so the generation is named for the same reason tcpDown names it.
-func (t *transport) tcpUp(gen uint64, conn net.Conn) {
+//
+// On false the caller owns conn —
+// no epoch will ever take ownership of a refused socket —
+// and must close it itself,
+// skipping everything else a live TCP-up would otherwise start
+// (the recv loop, the active Select procedure, activity-stamp bookkeeping).
+// A runtime without the genRuntime capability offers no way to report a refusal,
+// so this always reports true for it, preserving the pre-generation behavior.
+func (t *transport) tcpUp(gen uint64, conn net.Conn) bool {
 	if gr, ok := t.rt.(genRuntime); ok {
-		gr.TCPUpFromGeneration(gen, conn)
-
-		return
+		return gr.TCPUpFromGeneration(gen, conn)
 	}
 
 	t.rt.TCPUp(conn)
+
+	return true
 }
 
 // commitSelected commits the FSM to Selected for gen, the generation whose recv goroutine completed the handshake.

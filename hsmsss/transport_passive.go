@@ -107,20 +107,36 @@ func (t *transport) acceptLoop(g *genWG, ln net.Listener) {
 
 	t.applyKeepAlive(conn)
 
-	// Publish the socket before rt.TCPUp / spawning the recv loop. The g.recv.Add(1) below is
-	// issued BEFORE this goroutine can return (the refuse loop keeps it alive until Stop closes
-	// ln), so Stop's g.accept.Wait (which precedes g.recv.Wait) makes the Add happen-before that
-	// Wait — the §7.B Add-vs-Wait guarantee for this generation's recv loop.
+	// Report TCP-up BEFORE touching any transport-level bookkeeping (t.conn, the activity stamps).
+	// Reported for THIS generation (g.gen), not whichever is current when the report lands.
+	// Stop's join of this goroutine is bounded,
+	// so an accept that returned just before a teardown can be abandoned and resume after the generation is over —
+	// at which point publishing this dead socket, and committing NotSelected,
+	// would land on a connection that has already gone down or been closed.
+	// The core can refuse it for exactly that reason, and a refusal means no epoch will ever own conn:
+	// close it here and return without touching t.conn or spawning the recv loop,
+	// so a dead generation's socket can never clobber a live successor's bookkeeping or join set.
+	// This reordering is safe on the ACCEPTED path too:
+	// nothing between here and the connMu block below ever reads t.conn
+	// (a write only reads e.liveConn(), already set by tcpUp's own publishSocket call).
+	// A concurrent Stop cannot race this store either way:
+	// its g.accept.Wait() (transport.go) is unbounded and joins THIS goroutine —
+	// refused-and-returned or accepted-and-published — before Stop ever reads t.conn.
+	if !t.tcpUp(g.gen, conn) {
+		_ = conn.Close()
+
+		return
+	}
+
+	// Publish the socket before spawning the recv loop.
+	// The g.recv.Add(1) below is issued BEFORE this goroutine can return
+	// (the refuse loop keeps it alive until Stop closes ln),
+	// so Stop's g.accept.Wait (which precedes g.recv.Wait) makes the Add happen-before that Wait —
+	// the §7.B Add-vs-Wait guarantee for this generation's recv loop.
 	t.connMu.Lock()
 	t.conn = conn
 	t.resetActivityStamps()
 	t.connMu.Unlock()
-
-	// Reported for THIS generation (g.gen), not whichever is current when the report lands.
-	// Stop's join of this goroutine is bounded, so an accept that returned just before a teardown can be abandoned
-	// and resume after the generation is over — at which point publishing this dead socket, and committing
-	// NotSelected, would land on a connection that has already gone down or been closed.
-	t.tcpUp(g.gen, conn)
 
 	// TCPUp commits NotConnected → NotSelected SYNCHRONOUSLY via a guarded CAS (§7.D), so the FSM
 	// is already at NotSelected the instant TCPUp returns. The shared H2 responder's CommitSelected

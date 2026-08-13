@@ -109,6 +109,11 @@ type genRecRT struct {
 	mu          sync.Mutex
 	liveGen     uint64
 	reportedGen []uint64
+	// refuseTCPUp, when true, makes TCPUpFromGeneration report a refusal
+	// (as the real core does for a generation that has already ended) instead of recording the socket —
+	// the refused-TCP-up teeth tests use it to drive startActive/acceptLoop's refusal branch deterministically,
+	// without needing a real generation-gate race.
+	refuseTCPUp bool
 }
 
 func newGenRecRT(liveGen uint64) *genRecRT {
@@ -128,6 +133,12 @@ func (m *genRecRT) setLiveGeneration(gen uint64) {
 	m.mu.Unlock()
 }
 
+func (m *genRecRT) setRefuseTCPUp(refuse bool) {
+	m.mu.Lock()
+	m.refuseTCPUp = refuse
+	m.mu.Unlock()
+}
+
 func (m *genRecRT) TCPDownFromGeneration(gen uint64, cause error, _ hsms.TransitionCause) {
 	m.mu.Lock()
 	m.reportedGen = append(m.reportedGen, gen)
@@ -144,12 +155,19 @@ func (m *genRecRT) T7ExpiredFromGeneration(gen uint64) {
 	m.T7Expired()
 }
 
-func (m *genRecRT) TCPUpFromGeneration(gen uint64, conn net.Conn) {
+func (m *genRecRT) TCPUpFromGeneration(gen uint64, conn net.Conn) bool {
 	m.mu.Lock()
 	m.reportedGen = append(m.reportedGen, gen)
+	refuse := m.refuseTCPUp
 	m.mu.Unlock()
 
+	if refuse {
+		return false
+	}
+
 	m.TCPUp(conn)
+
+	return true
 }
 
 func (m *genRecRT) CommitSelectedFromGeneration(gen uint64) bool {
