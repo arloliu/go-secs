@@ -575,6 +575,8 @@ type genCapability interface {
 	CommitSelectedFromGeneration(gen uint64) bool
 	SelectLostFromGeneration(gen uint64) bool
 	T7ExpiredFromGeneration(gen uint64)
+	SendAsyncFromGeneration(ctx context.Context, gen uint64, msg Message) error
+	WriteMessageFromGeneration(ctx context.Context, gen uint64, msg Message) (Message, error)
 }
 
 var _ genCapability = (*connection)(nil)
@@ -684,6 +686,25 @@ func (c *connection) publishSocket(gen uint64, conn net.Conn) bool {
 	}
 
 	return false
+}
+
+// liveEpoch resolves gen to its epoch, or nil when gen is not the live generation or has already ended.
+//
+// It is the read-only half of commitGate's decision, for a caller that has no CAS to perform under the gate:
+// the generation-bound async send resolves its target epoch here, then enqueues on THAT epoch after the gate is released.
+// Returning the epoch rather than a bool is what makes the release safe —
+// the caller never re-reads c.cur, so a swap after the unlock cannot redirect its work onto a successor.
+//
+// Nothing that can block runs under the gate.
+func (c *connection) liveEpoch(gen uint64) *epoch {
+	c.genGate.RLock()
+	defer c.genGate.RUnlock()
+
+	if e := c.cur.Load(); e != nil && e.id == gen && !e.ended.Load() {
+		return e
+	}
+
+	return nil
 }
 
 // commitGate fences one generation-guarded synchronous FSM commit against the end of the generation that asked for it.

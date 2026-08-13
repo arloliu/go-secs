@@ -865,3 +865,98 @@ func TestCommitGate_FencesTheCASAgainstMarkEnded(t *testing.T) {
 		require.NoError(t, c.Close())
 	})
 }
+
+// TestSendAsyncFromGeneration_DropsASendFromAnEndedGeneration is the send-path half of the generation
+// barrier, and the only one whose damage is on the wire rather than in the FSM.
+//
+// The transport answers a request on the goroutine that read it, and a bounded teardown join can abandon
+// that goroutine. The plain SendAsync resolves the live generation at call time, so a straggler's answer —
+// carrying the System Bytes of a request the successor's peer never sent — would be queued on the
+// successor's socket. Refusing the FSM commit that follows cannot retract it.
+//
+// So the enqueue itself is bound: the generation is resolved under the same gate the commits use, and a
+// send naming a generation that has ended is dropped and counted rather than redirected.
+//
+// Teeth: drop the liveEpoch check (fall through to SendAsync) → the ended generation's send reports nil
+// and nothing is counted, and both assertions here fail.
+func TestSendAsyncFromGeneration_DropsASendFromAnEndedGeneration(t *testing.T) {
+	c, _ := newLifeConn(t, mockScript(func(_ context.Context, _ TransportRuntime) error { return nil }))
+	require.NoError(t, c.Open(t.Context(), OpenBackground))
+
+	e := c.cur.Load()
+	require.NotNil(t, e, "Open must publish a generation")
+
+	msg := NewLinktestReq([4]byte{0x01, 0x02, 0x03, 0x04})
+
+	require.NoError(t, c.SendAsyncFromGeneration(t.Context(), e.id, msg),
+		"the live generation's own send must be enqueued")
+	require.Zero(t, c.staleSend.Load(), "an accepted send is not a dropped one")
+
+	// A generation that has ended is refused, while the unqualified path would still enqueue.
+	e.markEnded()
+
+	require.ErrorIs(t, c.SendAsyncFromGeneration(t.Context(), e.id, msg), ErrConnClosed,
+		"a send named for a generation that has ended must be refused")
+	require.Equal(t, uint64(1), c.staleSend.Load(), "the dropped send must be counted")
+
+	require.NoError(t, c.SendAsync(t.Context(), msg),
+		"the unqualified path is unchanged: it still enqueues on whatever generation is current")
+
+	// A caller that names no generation keeps the unqualified behavior.
+	require.NoError(t, c.SendAsyncFromGeneration(t.Context(), 0, msg),
+		"a gen of 0 must take the plain SendAsync path")
+	require.Equal(t, uint64(1), c.staleSend.Load(), "neither unqualified send may be counted as dropped")
+
+	require.NoError(t, c.Close())
+}
+
+// TestWriteMessageFromGeneration_DropsARequestFromAnEndedGeneration is the synchronous-request half of
+// the send binding, and the one with two things to protect rather than one.
+//
+// A request opens a transaction: it registers a reply channel and then waits on it. The unqualified
+// path resolves the live generation at call time, so a procedure goroutine abandoned by the bounded
+// teardown join would register in the SUCCESSOR's registry and write through the successor's socket —
+// and an answer that beats the caller's cancellation would then route back into a generation that never
+// sent the request. Binding the resolution closes both halves at once, because the epoch owns both.
+//
+// Teeth: resolve with c.cur.Load() instead of liveEpoch(gen) → the ended generation's request is
+// accepted, registers a waiter, and neither assertion below holds.
+func TestWriteMessageFromGeneration_DropsARequestFromAnEndedGeneration(t *testing.T) {
+	c, _ := newLifeConn(t, mockScript(func(_ context.Context, rt TransportRuntime) error {
+		rt.TCPUp(fakeConn{}) // a socket to write through, so the live case reaches its reply wait
+
+		return nil
+	}))
+	require.NoError(t, c.Open(t.Context(), OpenBackground))
+
+	e := c.cur.Load()
+	require.NotNil(t, e, "Open must publish a generation")
+
+	// The live generation's request opens its transaction on ITS OWN epoch: the registration is
+	// visible in that epoch's registry for as long as the caller waits.
+	waitCtx, cancelWait := context.WithCancel(t.Context())
+
+	live := make(chan error, 1)
+	go func() {
+		_, err := c.WriteMessageFromGeneration(waitCtx, e.id, NewLinktestReq([4]byte{0x01, 0x02, 0x03, 0x04}))
+		live <- err
+	}()
+
+	require.Eventually(t, func() bool { return e.replies.len() == 1 }, 5*time.Second, time.Millisecond,
+		"the live generation's transaction must be registered on its own epoch")
+
+	cancelWait()
+	require.ErrorIs(t, <-live, context.Canceled, "cancelling the wait ends the transaction, as it always did")
+	require.Zero(t, c.staleSend.Load(), "an accepted request is not a dropped one")
+	require.Zero(t, e.replies.len(), "the sender deregisters on every return path")
+
+	// A generation that has ended is refused before anything is registered or written.
+	e.markEnded()
+
+	_, err := c.WriteMessageFromGeneration(t.Context(), e.id, NewLinktestReq([4]byte{0x05, 0x06, 0x07, 0x08}))
+	require.ErrorIs(t, err, ErrConnClosed, "a request named for a generation that has ended must be refused")
+	require.Equal(t, uint64(1), c.staleSend.Load(), "the dropped request must be counted")
+	require.Zero(t, e.replies.len(), "a refused request must open no transaction at all")
+
+	require.NoError(t, c.Close())
+}

@@ -10,18 +10,22 @@ verified:
   - {by: "claude/opus-5", at: 2026-08-13T13:00:00Z}
   - {by: "claude/sonnet-5", at: 2026-08-13T23:00:00Z}
   - {by: "claude/opus-5", at: 2026-08-14T02:00:00Z}
+  - {by: "claude/opus-5", at: 2026-08-14T05:00:00Z}
+  - {by: "claude/opus-5", at: 2026-08-14T09:00:00Z}
 sources:
   - {resource: hsms/lifecycle.go, digest: sha256:65d429d90300b620, revision: 5a0ec1b}
   - {resource: hsms/supervisor.go, digest: sha256:6e184e41a0ff36b7, revision: 6ef4ce7}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:bda579830406a535, revision: 0821fe8}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:4fc4923423e1d0e0, revision: 0b40043}
   - {resource: hsms/connection_runtime.go, digest: sha256:21ade095e315d4d8, revision: 0821fe8}
-  - {resource: hsms/connection.go, digest: sha256:d5451e7272ddc026, revision: 18f0495}
+  - {resource: hsms/connection_send.go, digest: sha256:37c6bd273ed11699, revision: 0b40043}
+  - {resource: hsms/connection.go, digest: sha256:8eb744e7cb85d477, revision: 2942595}
   - {resource: hsms/epoch.go, digest: sha256:414fa30bdca8edc5, revision: 18f0495}
   - {resource: hsmsss/transport.go, digest: sha256:af794dd9a6818352, revision: 71a7afe}
-  - {resource: hsmsss/transport_control.go, digest: sha256:cd4194db0746132b, revision: 0821fe8}
-  - {resource: hsmsss/transport_active.go, digest: sha256:a9f72c23b1c5827c, revision: 71a7afe}
+  - {resource: hsmsss/transport_control.go, digest: sha256:d1ce177bbfdfcc10, revision: 0b40043}
+  - {resource: hsmsss/transport_active.go, digest: sha256:e54f48b6b4ec7e8b, revision: 0b40043}
   - {resource: hsmsss/transport_passive.go, digest: sha256:f5c2688db6585682, revision: 71a7afe}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:466ba864e5586a7a, revision: 6ef4ce7}
+  - {resource: hsmsss/transport_procedures.go, digest: sha256:232ee3127c6ae84b, revision: 0b40043}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:1b3b40dfd747daaf, revision: 2942595}
 ---
 
 # What it does
@@ -187,6 +191,59 @@ a Deselect answered while NOT Selected would be told status 0 and handed a `Sele
 
 The remaining two producers stay void.
 A refused `TCPDownFromGeneration` or `T7ExpiredFromGeneration` is a queued event whose caller has nothing to undo.
+
+**A generation-guarded FSM commit does not protect the WIRE, so every answer the recv path writes is bound too.**
+This is a separate rule from the three commits, and the reason is that a frame cannot be retracted.
+`SendAsync` resolves `c.cur` at call time — correct for a caller that speaks for whatever generation is current,
+wrong for one that speaks for a named generation.
+Every response `hsmsss` writes is the second kind:
+`Select.rsp`, `Deselect.rsp`, `Linktest.rsp`, and the three `Reject.req` variants
+(`sendReject`, `sendRejectNotSelected`, `sendRejectTransactionNotOpen`)
+are all built from a request that arrived on ONE generation's socket, and all carry that request's System Bytes back.
+A straggler using the unqualified send therefore hands the SUCCESSOR's peer a response to a transaction it never opened.
+
+`connection.SendAsyncFromGeneration` is the bound entry point,
+and `hsmsss`'s `sendResponse` wrapper is the single site every response goes through
+(`g.gen` reaches it from `dispatchFrame`, which is why the Reject helpers and `handleLinktestReq` take the bundle).
+The rule is enqueue-iff-live: `connection.liveEpoch` applies the same `{id, !ended}` test under the same gate,
+and a send naming a dead generation is DROPPED and counted in `connection.staleSend`, never redirected.
+Dropping is the correct answer rather than a fallback:
+the socket that asked the question is gone, so its answer has no destination.
+
+The gate discipline differs from `commitGate`'s in one way that matters.
+A CAS runs under the RLock; an enqueue cannot,
+because `epoch.sendCh` can be full and nothing that blocks may run under the gate.
+So the gate RESOLVES the epoch and is released,
+and the enqueue targets that resolved epoch object rather than re-reading `c.cur` —
+which is what keeps a swap after the unlock from redirecting the frame.
+A teardown landing in that window is raced rather than excluded, and harmlessly:
+the enqueue unblocks on the resolved epoch's own ctx,
+and anything already queued on a torn-down epoch is stranded with it (`drainSendCh`, C1).
+
+**A REQUEST needs the same binding, and needs it more, because it opens a transaction.**
+`runSelectProcedure`'s `Select.req` and `runLinktest`'s `Linktest.req` go through `WriteMessage`, which is reply-correlated rather than queued.
+The unqualified path resolves `c.cur` at call time and then does everything on that epoch:
+it REGISTERS the reply channel in that epoch's registry and writes through that epoch's socket.
+A straggler therefore opens a transaction on the SUCCESSOR.
+Neither existing guard stops it.
+`writeFrame`'s I1 conn binding protects a sender already PINNED to its own epoch — the stale caller never pinned one, it resolved a fresh one.
+The cancelled generation ctx does not either: `writeFrame` checks the RESOLVED epoch's ctx, which is live, and the hsmsss transport ignores the caller ctx entirely.
+
+The damage is worse than a stray response.
+If the answer beats the caller's cancellation-deregistration, `RouteReply` finds the successor's registration and the transaction SUCCEEDS:
+a status-0 `Select.rsp` then drives the successor's own recv-loop commit to Selected over a handshake that link never ran.
+If cancellation wins instead, the answer is orphaned and the successor answers it with a `Reject.req` (§8.3.20) — a Reject to a peer that did nothing wrong.
+A stale `Linktest.req` can also arrive while the successor is still NotSelected, which E37.1 §7.4 classifies as a communications failure the peer may answer by closing the new link.
+
+`connection.WriteMessageFromGeneration` binds it, and one resolution covers both halves because the epoch owns both the registry and the socket:
+`liveEpoch(gen)` under the gate, then `sendWaitReplyOn(ctx, e, msg)` — the shared body `sendWaitReply` now calls with `c.cur` — so registration, write, and the `ErrConnClosed` wait arm all name the same epoch.
+A refused request is dropped and counted before anything is registered, and reported as `ErrConnClosed`,
+which both procedures ALREADY read as their own generation's death (`runLinktest` had that branch for the teardown race; `runSelectProcedure` gained it).
+That is what makes a refusal exit quietly instead of counting a linktest failure or reporting a TCPDown for a frame that was never sent.
+
+**A refused response is not a sent one, and the public counters follow the send.**
+`RejectSentCount` (Rejects emitted) and `LinktestReqRecvCount` (probes answered) increment only when `sendResponse` returns nil.
+`LinktestSendCount` deliberately does not: it is an ATTEMPT counter, incremented before the write, which its godoc now states outright.
 
 **How the cause crosses the package boundary.**
 `hsmsss` and `secs1` reach `TCPDownWithCause` by type-asserting `t.rt` to a package-local `causeRuntime` interface, then fall back to plain `TCPDown`.

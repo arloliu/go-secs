@@ -230,6 +230,19 @@ func (c *connection) sendWaitReply(callerCtx context.Context, msg Message) (Mess
 		return nil, ErrNotOpen
 	}
 
+	return c.sendWaitReplyOn(callerCtx, e, msg)
+}
+
+// sendWaitReplyOn is sendWaitReply's body, performed on an ALREADY-RESOLVED epoch.
+//
+// Which epoch a synchronous transaction belongs to is the caller's decision, not this function's:
+// [connection.sendWaitReply] resolves whatever generation is current,
+// while [connection.WriteMessageFromGeneration] resolves the generation the caller speaks for and refuses a dead one.
+// Everything downstream — the reply registration, the write, and the ErrConnClosed wait arm — uses e and only e,
+// so the transaction lives entirely inside the generation that opened it.
+//
+//nolint:cyclop // see sendWaitReply: one send path with a fire-and-forget short-circuit plus four DISTINGUISHABLE wait outcomes.
+func (c *connection) sendWaitReplyOn(callerCtx context.Context, e *epoch, msg Message) (Message, error) {
 	dm, isData := msg.(*DataMessage)
 
 	// A DATA message with the W-bit CLEAR is fire-and-forget on this synchronous path: it expects
@@ -542,6 +555,43 @@ func (c *connection) WriteMessage(ctx context.Context, msg Message) (Message, er
 	return reply, err
 }
 
+// WriteMessageFromGeneration is WriteMessage performed ON BEHALF OF gen, the generation whose procedure is sending.
+//
+// The two synchronous REQUESTS this module initiates — the active Select.req and the auto-linktest probe —
+// run on generation-scoped goroutines that a bounded teardown join can abandon,
+// and neither the caller's cancelled context nor writeFrame's own epoch binding can stop a straggler from starting a NEW transaction:
+// the plain path resolves the live generation at call time,
+// so it would register the transaction in the SUCCESSOR's reply registry and write the request through the successor's socket.
+// The peer then sees a Select.req or a Linktest.req on an association that never asked for one —
+// and if the answer beats the caller's cancellation, the successor's own FSM acts on a handshake it never ran.
+//
+// Binding the resolution closes both halves at once, because the epoch owns both the registry and the socket:
+// gen is resolved under the generation gate with the same {id, not ended} test the commits use,
+// and a request from a generation that has ended is DROPPED and counted before anything is registered or written.
+//
+// The refusal is reported as [ErrConnClosed], which both procedures already treat as their own generation's death
+// (exit quietly, count nothing, drop nothing) — the same answer they get when a live generation's epoch ctx fires mid-wait.
+//
+// A gen of 0 takes the plain [connection.WriteMessage] path.
+// This entry point reports no TxEvent: its callers are the in-module transports' control initiators,
+// and WriteMessage does not observe control sends either.
+func (c *connection) WriteMessageFromGeneration(ctx context.Context, gen uint64, msg Message) (Message, error) {
+	if gen == 0 {
+		return c.WriteMessage(ctx, msg)
+	}
+
+	e := c.liveEpoch(gen)
+	if e == nil {
+		c.staleSend.Add(1)
+		c.cfg.Load().logger.Debug("hsms: dropped a synchronous send requested by a generation that is no longer live",
+			"reported_generation", gen, "current_generation", c.CurrentGeneration())
+
+		return nil, ErrConnClosed
+	}
+
+	return c.sendWaitReplyOn(ctx, e, msg)
+}
+
 // WriteMessageNoReply performs a synchronous framed write WITHOUT reply correlation (TransportRuntime, spec §5.5).
 //
 // It delegates to sendNoReply, which enforces the B1 gate and the synchronous writev under epoch.writeMu but registers no reply channel
@@ -580,6 +630,53 @@ func (c *connection) SendAsync(ctx context.Context, msg Message) error {
 		return ErrNotOpen
 	}
 
+	return c.enqueueAsync(ctx, e, msg)
+}
+
+// SendAsyncFromGeneration enqueues msg on the send queue of gen, the generation that asked for it,
+// and only while that generation is still the live one.
+//
+// [connection.SendAsync] resolves the epoch at call time, which is correct for a caller that speaks for
+// whatever generation is current, and wrong for one that speaks for a specific generation.
+// A transport goroutine abandoned by the bounded teardown join is the second kind:
+// it answers a request that arrived on ITS socket, so a plain SendAsync would put that answer —
+// carrying the old request's System Bytes — onto the successor's socket,
+// where the peer never opened the transaction it replies to.
+// The false FSM commit that follows protects the successor's state but cannot retract a queued frame,
+// so the enqueue itself has to be bound to the generation.
+//
+// The binding uses the same {id, not ended} discipline as the synchronous commits, under the same gate.
+// A refused send is DROPPED and counted, never redirected:
+// the socket the request came in on is gone, so its answer is correctly unsendable.
+//
+// The gate is released before the enqueue,
+// and the enqueue targets the epoch the gate RESOLVED rather than re-reading c.cur —
+// the enqueue can block on a full queue, and nothing that blocks may run under the gate.
+// A teardown that starts in between is therefore raced, not excluded, and that is harmless:
+// the enqueue unblocks on the resolved epoch's own ctx,
+// and a frame already queued on an epoch being torn down is stranded with it and never flushed (see drainSendCh).
+//
+// A gen of 0 — secs1, an out-of-module transport, or a caller that names no generation —
+// takes the plain SendAsync path unchanged.
+func (c *connection) SendAsyncFromGeneration(ctx context.Context, gen uint64, msg Message) error {
+	if gen == 0 {
+		return c.SendAsync(ctx, msg)
+	}
+
+	e := c.liveEpoch(gen)
+	if e == nil {
+		c.staleSend.Add(1)
+		c.cfg.Load().logger.Debug("hsms: dropped an async send requested by a generation that is no longer live",
+			"reported_generation", gen, "current_generation", c.CurrentGeneration())
+
+		return ErrConnClosed
+	}
+
+	return c.enqueueAsync(ctx, e, msg)
+}
+
+// enqueueAsync is the shared body of the two async send entry points: the B1 gate, then the bounded enqueue on e.
+func (c *connection) enqueueAsync(ctx context.Context, e *epoch, msg Message) error {
 	// B1 gate (data only) — refuse before enqueue while not Selected (B3 chokepoint).
 	// Uses the same type-assert idiom as sendWaitReply for consistency.
 	if _, isData := msg.(*DataMessage); isData && !c.IsSelected() {

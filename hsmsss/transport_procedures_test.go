@@ -463,7 +463,7 @@ func TestLinktest_InboundReqAnswered(t *testing.T) {
 	tr := newLinktestTransport(t, rt, ctx)
 
 	req := hsms.NewLinktestReq(rt.NextSystemBytes())
-	tr.handleLinktestReq(req)
+	tr.handleLinktestReq(tr.wg, req)
 
 	got := rt.lastSent()
 	require.NotNil(t, got)
@@ -491,7 +491,7 @@ func TestLinktest_InboundReqAnsweredWhileNotSelected(t *testing.T) {
 	tr := newLinktestTransport(t, rt, ctx)
 
 	req := hsms.NewLinktestReq(rt.NextSystemBytes())
-	tr.handleLinktestReq(req)
+	tr.handleLinktestReq(tr.wg, req)
 
 	got := rt.lastSent()
 	require.NotNil(t, got, "a Linktest.req while NotSelected must still be answered")

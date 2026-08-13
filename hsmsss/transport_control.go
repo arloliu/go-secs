@@ -41,6 +41,8 @@ type genRuntime interface {
 	CommitSelectedFromGeneration(gen uint64) bool
 	SelectLostFromGeneration(gen uint64) bool
 	T7ExpiredFromGeneration(gen uint64)
+	SendAsyncFromGeneration(ctx context.Context, gen uint64, msg hsms.Message) error
+	WriteMessageFromGeneration(ctx context.Context, gen uint64, msg hsms.Message) (hsms.Message, error)
 }
 
 // currentGeneration reads the runtime's live generation identity, or 0 when the runtime does not offer one.
@@ -144,6 +146,47 @@ func (t *transport) t7Expired(gen uint64) {
 	t.rt.T7Expired()
 }
 
+// sendResponse enqueues an answer this transport owes the peer — a control response or a Reject.req —
+// on the send queue of gen, the generation whose recv goroutine read the request being answered.
+//
+// Every one of these is written from the recv path, which a bounded Stop can abandon,
+// so the plain SendAsync (which resolves the live generation at call time) would put a straggler's answer,
+// carrying the ORIGINAL request's System Bytes, onto the successor's socket.
+// The peer never opened that transaction on the successor's association,
+// and no later refusal can retract a frame already queued.
+// The core drops such a send instead; see hsms's SendAsyncFromGeneration.
+//
+// The response is deliberately not made conditional on anything ELSE the handler decides.
+// Binding it to the generation is what makes it safe, and it keeps a live generation's answer unconditional,
+// which is what the responder procedures require (§7.8.2, §8.3.20).
+//
+// The error is ignored at every call site, as it was before: ErrNotOpen / ErrConnClosed / a refused generation
+// all mean the answer has nowhere to go, and the recv loop must not block on it.
+// A runtime without the genRuntime capability keeps the unqualified send.
+func (t *transport) sendResponse(gen uint64, msg hsms.Message) error {
+	if gr, ok := t.rt.(genRuntime); ok {
+		return gr.SendAsyncFromGeneration(context.Background(), gen, msg)
+	}
+
+	return t.rt.SendAsync(context.Background(), msg)
+}
+
+// writeMessage issues a synchronous REQUEST this transport initiates — the active Select.req, the auto-linktest probe —
+// on behalf of gen, the generation whose procedure goroutine is sending.
+//
+// Unlike a response, a request opens a transaction: it registers a reply channel and then waits on it.
+// Both halves belong to gen's own epoch, which is what the generation-named core entry point guarantees;
+// the unqualified WriteMessage would open the transaction on whatever generation is current instead.
+// On a refusal it reports hsms.ErrConnClosed, which both procedures already read as their own generation's death.
+// A runtime without the genRuntime capability keeps the unqualified send.
+func (t *transport) writeMessage(ctx context.Context, gen uint64, msg hsms.Message) (hsms.Message, error) {
+	if gr, ok := t.rt.(genRuntime); ok {
+		return gr.WriteMessageFromGeneration(ctx, gen, msg)
+	}
+
+	return t.rt.WriteMessage(ctx, msg)
+}
+
 // handleControlReq dispatches an inbound control request (Select.req, Deselect.req,
 // Linktest.req) to the responder procedures. It runs on the recv goroutine.
 //
@@ -155,7 +198,7 @@ func (t *transport) handleControlReq(g *genWG, msg hsms.Message) {
 	case hsms.SelectReqType:
 		t.handleSelectReq(g, msg)
 	case hsms.LinktestReqType:
-		t.handleLinktestReq(msg)
+		t.handleLinktestReq(g, msg)
 	case hsms.DeselectReqType:
 		t.handleDeselectReq(g, msg)
 	default:
@@ -204,7 +247,8 @@ func (t *transport) handleSelectReq(g *genWG, req hsms.Message) {
 
 	// Serialize the rsp through the core's async send path (same rationale as sendReject): the
 	// core's single-writer writeMu invariant must not be bypassed by a direct recv-path Write.
-	_ = t.rt.SendAsync(context.Background(), rsp)
+	// It is enqueued on THIS generation's queue, so a straggler's answer can never reach the successor's peer.
+	_ = t.sendResponse(g.gen, rsp)
 }
 
 // handleSeparateReq processes an inbound Separate.req (SType 9).
@@ -279,7 +323,7 @@ func (t *transport) handleSeparateReq(genCtx context.Context, g *genWG) bool {
 // The recv loop must not block on it.
 //
 // SessionID is hsms.ControlSessionID, NOT the rejected frame's — see the Reject SessionID note below.
-func (t *transport) sendReject(frame []byte, pType, sType byte) {
+func (t *transport) sendReject(g *genWG, frame []byte, pType, sType byte) {
 	var systemBytes [4]byte
 	copy(systemBytes[:], frame[6:10])
 
@@ -295,8 +339,11 @@ func (t *transport) sendReject(frame []byte, pType, sType byte) {
 
 	// Fire-and-forget: enqueue on the core's sendCh → drainSendCh → writeFrame under writeMu.
 	// Control messages are NOT B1-gated, so this always enqueues while the generation is live.
-	t.metrics.incRejectSent()
-	_ = t.rt.SendAsync(context.Background(), reject)
+	// RejectSentCount is documented as Rejects EMITTED, so a response refused because this generation
+	// has ended is not one: count only what the core accepted.
+	if t.sendResponse(g.gen, reject) == nil {
+		t.metrics.incRejectSent()
+	}
 }
 
 // Reject SessionID (E37.1 §8.1 vs E37 §8.3.21.1) — why all three senders pass hsms.ControlSessionID.
@@ -327,7 +374,7 @@ func (t *transport) sendReject(frame []byte, pType, sType byte) {
 // The System Bytes are echoed from the offending frame; PType / SType are 0 for a data message.
 // The returned error is intentionally ignored
 // (a tearing-down generation makes the Reject irrelevant; the recv loop must not block on it).
-func (t *transport) sendRejectNotSelected(frame []byte) {
+func (t *transport) sendRejectNotSelected(g *genWG, frame []byte) {
 	var systemBytes [4]byte
 	copy(systemBytes[:], frame[6:10])
 
@@ -336,8 +383,9 @@ func (t *transport) sendRejectNotSelected(frame []byte) {
 		return // unreachable: RejectNotSelected is a fixed non-zero constant
 	}
 
-	t.metrics.incRejectSent()
-	_ = t.rt.SendAsync(context.Background(), reject)
+	if t.sendResponse(g.gen, reject) == nil {
+		t.metrics.incRejectSent()
+	}
 }
 
 // sendRejectTransactionNotOpen answers an ORPHAN control RESPONSE — a Select.rsp / Deselect.rsp /
@@ -348,7 +396,7 @@ func (t *transport) sendRejectNotSelected(frame []byte) {
 // (§8.3.21.2) and its System Bytes into bytes 6–9. Like the other Rejects it routes through the
 // serialized core send path and keeps the link UP (a Reject never tears down). An inbound Reject.req
 // (SType 7, odd — itself NOT a response) is never re-rejected; the recv loop drops an orphan Reject.
-func (t *transport) sendRejectTransactionNotOpen(frame []byte) {
+func (t *transport) sendRejectTransactionNotOpen(g *genWG, frame []byte) {
 	sType := frame[5]
 
 	var systemBytes [4]byte
@@ -359,8 +407,9 @@ func (t *transport) sendRejectTransactionNotOpen(frame []byte) {
 		return // unreachable: RejectTransactionNotOpen is a fixed non-zero constant
 	}
 
-	t.metrics.incRejectSent()
-	_ = t.rt.SendAsync(context.Background(), reject)
+	if t.sendResponse(g.gen, reject) == nil {
+		t.metrics.incRejectSent()
+	}
 }
 
 // handleLinktestReq answers an inbound Linktest.req with a Linktest.rsp (E37 §7.8.2), keeping the link up.
@@ -386,7 +435,7 @@ func (t *transport) sendRejectTransactionNotOpen(frame []byte) {
 // and a peer implemented against E37 generic §7.8 — which permits probing anytime in CONNECTED — legitimately does.
 // That trade is what this comment records; do not "fix" it into a disconnect.
 // See docs/specs/e37-1-hsms-ss-conformance-audit.md, Gap 3, and TestLinktest_InboundReqAnsweredWhileNotSelected.
-func (t *transport) handleLinktestReq(msg hsms.Message) {
+func (t *transport) handleLinktestReq(g *genWG, msg hsms.Message) {
 	cm, ok := msg.(*hsms.ControlMessage)
 	if !ok {
 		return // unreachable: decodeControlFrame yields *ControlMessage for control STypes
@@ -397,8 +446,11 @@ func (t *transport) handleLinktestReq(msg hsms.Message) {
 		return // unreachable: dispatchFrame guarantees a well-formed Linktest.req
 	}
 
-	t.metrics.incLinktestReqRecv()
-	_ = t.rt.SendAsync(context.Background(), rsp)
+	// LinktestReqRecvCount is documented as probes ANSWERED, so a rsp the core refused
+	// (this generation has ended) is not one.
+	if t.sendResponse(g.gen, rsp) == nil {
+		t.metrics.incLinktestReqRecv()
+	}
 }
 
 // handleDeselectReq is the responder-only Deselect path (D5a-4, E37.1 §7.3, §7.7).
@@ -459,7 +511,7 @@ func (t *transport) handleDeselectReq(g *genWG, msg hsms.Message) {
 		return // unreachable: dispatchFrame guarantees a well-formed Deselect.req
 	}
 
-	_ = t.rt.SendAsync(context.Background(), rsp)
+	_ = t.sendResponse(g.gen, rsp)
 
 	// Selected -> NotSelected (evSelectLost), isolated to THIS generation.
 	// On a refusal the transition did not happen, so neither may anything downstream of it.

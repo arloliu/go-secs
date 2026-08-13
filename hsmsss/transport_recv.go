@@ -105,7 +105,7 @@ func (t *transport) dispatchFrame(genCtx context.Context, g *genWG, frame []byte
 	// J3 (§7.10.3): an unsupported PType or an undefined SType is answered with a Reject.req
 	// while the link stays UP — never a teardown.
 	if pType != 0 || !hsms.IsValidSType(sType) {
-		t.sendReject(frame, pType, sType)
+		t.sendReject(g, frame, pType, sType)
 		return true
 	}
 
@@ -118,7 +118,7 @@ func (t *transport) dispatchFrame(genCtx context.Context, g *genWG, frame []byte
 	// The transport check here must remain because it answers with Reject.req and keeps the link alive,
 	// which the decoder cannot do (a decode error is a protocol failure that the link supervisor handles by reading the next frame).
 	if msgType != hsms.DataMsgType && len(frame) != 10 {
-		t.sendReject(frame, pType, sType)
+		t.sendReject(g, frame, pType, sType)
 		return true
 	}
 
@@ -134,7 +134,7 @@ func (t *transport) dispatchFrame(genCtx context.Context, g *genWG, frame []byte
 		// initiator, below and in handleSelectReq) is what keeps a peer that pipelines data right
 		// after Select.rsp from being spuriously Rejected here (the efb220b regression).
 		if t.rt.State() != hsms.SelectedState {
-			t.sendRejectNotSelected(frame)
+			t.sendRejectNotSelected(g, frame)
 
 			break
 		}
@@ -185,7 +185,7 @@ func (t *transport) dispatchFrame(genCtx context.Context, g *genWG, frame []byte
 		// keeping the link. An inbound Reject.req (SType 7, odd — not a response) is not re-rejected;
 		// an orphan Reject is simply dropped.
 		if msg.Type() != hsms.RejectReqType {
-			t.sendRejectTransactionNotOpen(frame)
+			t.sendRejectTransactionNotOpen(g, frame)
 		}
 
 	case hsms.SelectReqType, hsms.DeselectReqType, hsms.LinktestReqType:

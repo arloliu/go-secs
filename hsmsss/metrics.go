@@ -10,7 +10,7 @@ import "sync/atomic"
 // All reads and writes are atomic; safe to read concurrently with the transport goroutines.
 // Reach an instance via Connection.ControlMetrics().
 type ConnectionMetrics struct {
-	linktestSend       atomic.Uint64 // Linktest.req sent by our own auto-linktest
+	linktestSend       atomic.Uint64 // Linktest.req ATTEMPTED by our own auto-linktest (counted before the write)
 	linktestRecv       atomic.Uint64 // Linktest.rsp received (successful round-trip)
 	linktestErr        atomic.Uint64 // our own linktest round-trip failed (T6 timeout or write error)
 	selectEstablished  atomic.Uint64 // Select responder committed NotSelected -> Selected (E37 §7.4)
@@ -23,7 +23,13 @@ type ConnectionMetrics struct {
 	linktestCredited   atomic.Uint64 // linktest failure forgiven: the link showed life (frame after the probe, or a reply outstanding)
 }
 
-// LinktestSendCount returns the total number of Linktest.req messages sent by this connection's own auto-linktest.
+// LinktestSendCount returns the total number of Linktest.req probes this connection's own auto-linktest attempted.
+//
+// It is an ATTEMPT counter, incremented when a probe is issued rather than when its frame reaches the wire,
+// so it also counts a probe whose write failed and one refused because its connection generation had already ended.
+// A probe the auto-linktest decided not to issue at all is not counted;
+// see [ConnectionMetrics.LinktestSuppressedCount] for those.
+// Pair it with [ConnectionMetrics.LinktestRecvCount] and [ConnectionMetrics.LinktestErrCount] for the outcomes.
 func (m *ConnectionMetrics) LinktestSendCount() uint64 {
 	return m.linktestSend.Load()
 }

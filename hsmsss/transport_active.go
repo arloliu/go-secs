@@ -58,11 +58,18 @@ func (t *transport) runSelectProcedure(ctx context.Context, g *genWG) {
 	// producing an endless NotSelected -> NotConnected reconnect loop.
 	// v1 hard-coded 0xFFFF; see TestActive_SelectAndSeparateUseControlSessionID.
 	sb := t.rt.NextSystemBytes()
-	rsp, err := t.rt.WriteMessage(ctx, hsms.NewSelectReq(hsms.ControlSessionID, sb))
+	// Named for THIS generation: the transaction is opened on g's own epoch — its reply registry and its socket —
+	// so a procedure goroutine abandoned by a bounded Stop can never open a Select transaction on the successor's link.
+	rsp, err := t.writeMessage(ctx, g.gen, hsms.NewSelectReq(hsms.ControlSessionID, sb))
 	if err != nil {
 		// A cancelled generation ctx (teardown / involuntary drop) is NOT a Select failure — the
 		// recv loop already reported the drop via TCPDown; just exit so Stop can join us.
-		if ctx.Err() != nil {
+		//
+		// hsms.ErrConnClosed is the same thing said by the core rather than by our own ctx:
+		// either this generation's epoch ctx fired mid-wait, or the send was refused because the generation is over
+		// (the two cancellation cascades have no ordering guarantee, so ctx.Err() can still read nil here).
+		// Nothing was sent in the refused case, so there is nothing to report and nothing to drop.
+		if ctx.Err() != nil || errors.Is(err, hsms.ErrConnClosed) {
 			return
 		}
 

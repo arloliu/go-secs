@@ -13,6 +13,7 @@ package hsmsss
 import (
 	"context"
 	"net"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -120,6 +121,9 @@ type genRecRT struct {
 	// and this drives that refusal deterministically,
 	// so the stale-Deselect test can observe what the handler does — and must not do — afterwards.
 	refuseSelectLost bool
+	// droppedSends counts sends this mock refused because the naming generation was not the live one,
+	// mirroring what the core does with a straggler's response.
+	droppedSends int
 }
 
 func newGenRecRT(liveGen uint64) *genRecRT {
@@ -205,6 +209,48 @@ func (m *genRecRT) SelectLostFromGeneration(gen uint64) bool {
 	return true
 }
 
+// SendAsyncFromGeneration mirrors the core's rule rather than merely recording the call:
+// a send named for a generation that is no longer live is DROPPED and counted, never redirected onto the live one.
+// Recording it as an ordinary send instead would hide exactly the behavior the stale-response tests exist to prove.
+func (m *genRecRT) SendAsyncFromGeneration(ctx context.Context, gen uint64, msg hsms.Message) error {
+	m.mu.Lock()
+	stale := gen != 0 && gen != m.liveGen
+	if stale {
+		m.droppedSends++
+	}
+	m.mu.Unlock()
+
+	if stale {
+		return hsms.ErrConnClosed
+	}
+
+	return m.SendAsync(ctx, msg)
+}
+
+// WriteMessageFromGeneration mirrors SendAsyncFromGeneration's rule on the synchronous path:
+// a request named for a generation that is no longer live opens no transaction and writes nothing.
+func (m *genRecRT) WriteMessageFromGeneration(ctx context.Context, gen uint64, msg hsms.Message) (hsms.Message, error) {
+	m.mu.Lock()
+	stale := gen != 0 && gen != m.liveGen
+	if stale {
+		m.droppedSends++
+	}
+	m.mu.Unlock()
+
+	if stale {
+		return nil, hsms.ErrConnClosed
+	}
+
+	return m.WriteMessage(ctx, msg)
+}
+
+func (m *genRecRT) droppedSendCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.droppedSends
+}
+
 // A genRecRT that stops satisfying genRuntime would not fail to compile.
 // The transport reaches the capability by type assertion,
 // so it would silently fall back to the generation-unaware path,
@@ -260,6 +306,12 @@ func TestSeparate_ReportsItsOwnGeneration(t *testing.T) {
 //
 // Teeth: pass t.currentGeneration() (or 0) instead of g.gen at either call site → the reported
 // value follows the live generation and the core loses the only thing it can discriminate on.
+//
+// Both subtests deliberately assert on the reported GENERATION only.
+// Because the bundle is stale in this setup, each handler's response is dropped rather than queued
+// (sendResponse binds the enqueue to the same generation — see
+// TestDeselect_StaleGenerationResponseNeverReachesSuccessorPeer),
+// so there is nothing recorded on the mock's send list here and nothing to assert about one.
 func TestSelectCommits_ReportTheirOwnGeneration(t *testing.T) {
 	t.Parallel()
 
@@ -348,6 +400,11 @@ func TestDeselect_StaleGenerationLeavesSuccessorLinktestArmed(t *testing.T) {
 		"the commit must still be attempted, on behalf of the generation that read the request")
 	require.Zero(t, rt.selectLostCalls(), "the refused commit must not have deselected anything")
 
+	// The response is bound to gen 1 as well, so it is dropped rather than queued on the live generation.
+	// TestDeselect_StaleGenerationResponseNeverReachesSuccessorPeer proves the same thing on a real socket.
+	require.Zero(t, rt.sentCount(), "a stale generation's Deselect.rsp must never be enqueued")
+	require.Equal(t, 1, rt.droppedSendCount(), "the refused response must be counted as dropped")
+
 	tr.connMu.Lock()
 	linktestArmed := tr.linktestCancel != nil
 	t7Armed := tr.t7Cancel != nil
@@ -362,6 +419,275 @@ func TestDeselect_StaleGenerationLeavesSuccessorLinktestArmed(t *testing.T) {
 
 	tr.stopLinktest()
 	waitLinktestExit(t, tr)
+}
+
+// stateEvents is a subscription to a connection's state changes, registered before the action that
+// triggers them.
+// The FSM emits an event per transition, so a test that fences on state SUBSCRIBES rather than polling
+// State() (300-testing.md): polling can miss a transition entirely when two land back to back, and it
+// reads the FSM at an arbitrary later instant rather than at the moment it moved.
+type stateEvents struct {
+	ch chan hsms.ConnState
+}
+
+// watchStates registers the observer. It is non-blocking and drop-on-full so it can never stall the
+// supervisor's notifier goroutine; the buffer is far larger than any bring-up/teardown cycle emits.
+func watchStates(conn hsms.Connection) *stateEvents {
+	ev := &stateEvents{ch: make(chan hsms.ConnState, 64)}
+
+	conn.AddConnStateChangeHandler(func(_, next hsms.ConnState) {
+		select {
+		case ev.ch <- next:
+		default:
+		}
+	})
+
+	return ev
+}
+
+// await consumes events until want is observed, failing after a bounded wait.
+// Intermediate states are skipped rather than asserted, because a bring-up legitimately reports either
+// NotConnected -> NotSelected -> Selected or a single collapsed edge (see the supervisor's dedup).
+func (ev *stateEvents) await(t *testing.T, want hsms.ConnState) {
+	t.Helper()
+
+	deadline := time.After(10 * time.Second)
+
+	for {
+		select {
+		case got := <-ev.ch:
+			if got == want {
+				return
+			}
+		case <-deadline:
+			t.Fatalf("timeout waiting for the %s state event", want)
+		}
+	}
+}
+
+// requireNoFurtherState asserts no state event has arrived since the last await —
+// the event-sourced form of "the successor's link was not disturbed".
+func (ev *stateEvents) requireNoFurtherState(t *testing.T) {
+	t.Helper()
+
+	select {
+	case got := <-ev.ch:
+		t.Fatalf("a straggler must not change the successor's state, but it moved to %s", got)
+	default:
+	}
+}
+
+// supersededGeneration is the fixture supersededPassiveGeneration builds: a live, Selected SUCCESSOR
+// generation plus everything a test needs to drive a straggler from the generation it replaced.
+type supersededGeneration struct {
+	conn   hsms.Connection
+	tr     *transport
+	genN   uint64   // the generation that has ended — the identity a straggler still carries
+	peer   net.Conn // the SUCCESSOR's peer socket, the one nothing stale may reach
+	events *stateEvents
+}
+
+// supersededPassiveGeneration drives a real passive connection through one full generation cycle and
+// leaves the SUCCESSOR live and Selected: generation N connects and selects, drops, and generation N+1
+// connects and selects on the same port with a different peer socket.
+//
+// The state subscription is registered before Open, so no fence here has to poll.
+func supersededPassiveGeneration(t *testing.T) *supersededGeneration {
+	t.Helper()
+
+	port := freeLoopbackPort(t)
+
+	conn, tr := newPassiveConnTr(t, port, hsms.WithT6(2*time.Second), hsms.WithT5(50*time.Millisecond))
+	events := watchStates(conn)
+
+	require.NoError(t, conn.Open(t.Context(), hsms.OpenBackground))
+	t.Cleanup(func() { _ = conn.Close() })
+
+	// Generation N: a peer connects and selects.
+	client1 := dialPassive(t, port)
+
+	_, err := client1.Write(selectReqFrame([4]byte{0x11, 0x11, 0x11, 0x11}))
+	require.NoError(t, err)
+	expectSelectRsp(t, client1)
+	events.await(t, hsms.SelectedState)
+
+	genN := tr.currentGeneration()
+	require.NotZero(t, genN, "a live generation must have an identity")
+
+	// Generation N ends, and the reconnect loop publishes its successor.
+	require.NoError(t, client1.Close())
+	events.await(t, hsms.NotConnectedState)
+	waitNextGeneration(t, tr, genN)
+
+	// Generation N+1: a different peer connects and selects on the same port.
+	client2 := dialPassive(t, port)
+	t.Cleanup(func() { _ = client2.Close() })
+
+	_, err = client2.Write(selectReqFrame([4]byte{0x22, 0x22, 0x22, 0x22}))
+	require.NoError(t, err)
+	expectSelectRsp(t, client2)
+	events.await(t, hsms.SelectedState)
+
+	require.NotEqual(t, genN, tr.currentGeneration(), "generation N+1 must carry a distinct identity")
+
+	return &supersededGeneration{conn: conn, tr: tr, genN: genN, peer: client2, events: events}
+}
+
+// requireSuccessorUndisturbed asserts the straggler left no trace on the successor: not one byte on its
+// socket, and not one state change.
+//
+// Auto-linktest is off by default (hsms.DefaultConnectionConfig), so this generation sends nothing of its
+// own — any frame here crossed from the generation that has ended.
+// The bounded read is a no-frame assertion, not a synchronisation sleep: it must end in a deadline
+// error, never in an arbitrary read failure.
+func (sg *supersededGeneration) requireSuccessorUndisturbed(t *testing.T) {
+	t.Helper()
+
+	frame, rerr := peerReadFrame(sg.peer, 500*time.Millisecond)
+	require.Error(t, rerr, "no frame may reach the successor's peer, got % x", frame)
+	require.ErrorIs(t, rerr, os.ErrDeadlineExceeded,
+		"the successor's socket must simply stay silent, not fail for another reason")
+
+	sg.events.requireNoFurtherState(t)
+	require.Equal(t, hsms.SelectedState, sg.conn.State(),
+		"the successor's link must still be Selected after the straggler resumed")
+}
+
+// TestDeselect_StaleGenerationResponseNeverReachesSuccessorPeer is the WIRE half of the stale-Deselect barrier,
+// and the only test in the suite that watches a real successor socket while a straggler answers an old request.
+//
+// Refusing the FSM commit protects local state, but it cannot retract a frame:
+// the responder writes its answer through the core's async send path,
+// and an unqualified send resolves the live generation at call time.
+// A recv goroutine abandoned by the bounded teardown join would therefore hand the SUCCESSOR's peer
+// a Deselect.rsp carrying the OLD request's System Bytes —
+// a response to a transaction that peer never opened, on an association it never sent a Deselect on.
+//
+// The straggler is driven the same way the core's own generation tests drive theirs:
+// by calling the handler with the dead generation's bundle,
+// which is exactly what an abandoned recv goroutine does once its socket-read has already produced the frame.
+// Everything else here is real — a real core, a real listener, a real reconnect, and two real peer sockets.
+//
+// Teeth: send the response through the unqualified rt.SendAsync again (drop the generation binding in sendResponse) →
+// the Deselect.rsp arrives on client2 and the read below succeeds instead of timing out.
+func TestDeselect_StaleGenerationResponseNeverReachesSuccessorPeer(t *testing.T) {
+	t.Parallel()
+
+	sg := supersededPassiveGeneration(t)
+
+	// Generation N's abandoned recv goroutine finally answers the Deselect.req it read from client1's socket.
+	staleSysBytes := [4]byte{0xDE, 0xAD, 0xBE, 0xEF}
+	sg.tr.handleDeselectReq(&genWG{gen: sg.genN}, hsms.NewDeselectReq(hsms.ControlSessionID, staleSysBytes))
+
+	// Nothing at all may appear on the successor's socket.
+	// Auto-linktest is off by default, so this generation sends nothing of its own —
+	// any frame here is the straggler's answer having crossed generations.
+	sg.requireSuccessorUndisturbed(t)
+}
+
+// TestStaleGeneration_RequestsNeverReachSuccessorPeer covers the two synchronous REQUESTS this package
+// initiates, which the response binding does not touch: the active Select.req and the auto-linktest probe.
+//
+// A request is worse than a response when it goes astray, because it opens a TRANSACTION.
+// The unqualified WriteMessage resolves the live generation at call time, so a procedure goroutine that
+// outlived its own generation would register its reply channel in the SUCCESSOR's registry and write the
+// request through the successor's socket. Two things follow, and both are real damage:
+// an answer that beats the caller's cancellation routes back through that registration, and a status-0
+// Select.rsp then commits Selected on a link that ran no handshake;
+// and a Linktest.req can land on a successor that is still NotSelected, which E37.1 §7.4 makes a
+// communications failure the peer is entitled to answer by dropping a link that did nothing wrong.
+//
+// Both procedures are therefore bound to their own generation, and a refused send reports
+// hsms.ErrConnClosed — which each already reads as its own generation's death: exit quietly, count
+// nothing, drop nothing.
+//
+// Teeth: restore the unqualified t.rt.WriteMessage in either procedure → that procedure's request
+// arrives on client2 and the silence assertion fails, naming the frame it saw.
+func TestStaleGeneration_RequestsNeverReachSuccessorPeer(t *testing.T) {
+	t.Parallel()
+
+	t.Run("active select procedure", func(t *testing.T) {
+		t.Parallel()
+
+		sg := supersededPassiveGeneration(t)
+
+		// Generation N's Select procedure resumes at its WriteMessage, after the reconnect.
+		// It must return quietly: no Select.req on the wire, and no TCPDown reported for a send that
+		// never happened (a TCPDown would show up as a state event below).
+		sg.tr.runSelectProcedure(t.Context(), &genWG{gen: sg.genN})
+
+		sg.requireSuccessorUndisturbed(t)
+	})
+
+	t.Run("auto-linktest probe", func(t *testing.T) {
+		t.Parallel()
+
+		sg := supersededPassiveGeneration(t)
+
+		// Generation N's auto-linktest goroutine resumes and fires one probe.
+		// The successor IS Selected, so runLinktest's own state check does not save us here —
+		// only the generation binding does.
+		g := &genWG{gen: sg.genN}
+		g.linktest.Add(1)
+
+		done := make(chan struct{})
+		go func() {
+			sg.tr.runLinktest(t.Context(), g, 10*time.Millisecond, nil)
+			close(done)
+		}()
+
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatal("a probe refused for a dead generation must end the linktest loop")
+		}
+
+		sg.requireSuccessorUndisturbed(t)
+
+		require.Zero(t, sg.tr.metrics.LinktestErrCount(),
+			"a probe the core refused is not a linktest failure and must not be counted as one")
+	})
+}
+
+// TestStaleGeneration_RefusedResponsesAreNotCounted pins the two PUBLIC counters whose contracts the
+// response binding could otherwise quietly falsify.
+//
+// RejectSentCount is documented as Rejects emitted and LinktestReqRecvCount as probes answered.
+// Both used to increment before the send, which was accurate while every send was attempted on the live
+// generation — and stopped being accurate the moment a stale generation's response became an expected
+// drop. A counter that counts frames the fix deliberately did not send is worse than no counter: it
+// reports link activity that never happened.
+//
+// Teeth: move either increment back above its sendResponse call → the stale half below counts.
+func TestStaleGeneration_RefusedResponsesAreNotCounted(t *testing.T) {
+	t.Parallel()
+
+	rt := newGenRecRT(2) // gen 2 is live; gen 1 is the abandoned recv goroutine's bundle
+	rt.setState(hsms.SelectedState)
+
+	tr := newLinktestTransport(t, rt.recRT, t.Context())
+	tr.rt = rt
+
+	stale := &genWG{gen: 1}
+	frame := dataFrame(hsms.ControlSessionID, 1, 1, [4]byte{0x0A, 0x0B, 0x0C, 0x0D}, nil)
+
+	tr.handleLinktestReq(stale, hsms.NewLinktestReq(rt.NextSystemBytes()))
+	tr.sendReject(stale, frame, 0, 0x63)
+	tr.sendRejectNotSelected(stale, frame)
+	tr.sendRejectTransactionNotOpen(stale, frame)
+
+	require.Equal(t, 4, rt.droppedSendCount(), "every response from the ended generation must be refused")
+	require.Zero(t, tr.metrics.LinktestReqRecvCount(), "a probe whose answer was never sent was not answered")
+	require.Zero(t, tr.metrics.RejectSentCount(), "a Reject whose frame was never sent was not emitted")
+
+	// The live generation still counts exactly as it always did.
+	live := &genWG{gen: 2}
+
+	tr.handleLinktestReq(live, hsms.NewLinktestReq(rt.NextSystemBytes()))
+	tr.sendReject(live, frame, 0, 0x63)
+
+	require.Equal(t, uint64(1), tr.metrics.LinktestReqRecvCount(), "a probe answered on the live generation counts")
+	require.Equal(t, uint64(1), tr.metrics.RejectSentCount(), "a Reject emitted on the live generation counts")
 }
 
 // TestGenRuntime_IsSatisfiedByTheRealCore is the one assertion nothing else in this package makes,

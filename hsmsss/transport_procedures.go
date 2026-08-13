@@ -167,7 +167,11 @@ func (t *transport) runLinktest(ctx context.Context, g *genWG, interval time.Dur
 		t6 := t.rt.Timers().T6
 		lctx, cancel := context.WithTimeout(ctx, t6)
 		t.metrics.incLinktestSend()
-		_, err := t.rt.WriteMessage(lctx, hsms.NewLinktestReq(t.rt.NextSystemBytes()))
+		// Named for THIS generation, for the same reason the active Select.req is:
+		// a probe from a generation that has ended must not open a transaction on the successor's link,
+		// where a Linktest.req can arrive while it is still NotSelected — an E37.1 §7.4 violation
+		// the peer is entitled to answer by dropping a link that did nothing wrong.
+		_, err := t.writeMessage(lctx, g.gen, hsms.NewLinktestReq(t.rt.NextSystemBytes()))
 		cancel()
 
 		if err != nil {

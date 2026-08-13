@@ -140,9 +140,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no probing, so a peer that went silent was no longer detected —
   and with a stale T7 dwell attached to it.
   The responder now skips both when the state machine refuses the transition.
-  A `Deselect.req` answered by the working generation is unaffected, and so is the `Deselect.rsp` itself:
-  the status still reports the state of the link the peer sees.
+  A `Deselect.req` answered by the working generation is unaffected,
+  and so is its status, which still reports the state of the link the peer sees.
   This was not a v2.4 regression; it has been present since v2.0.0.
+- **`hsmsss`: a control response written by a generation that has already ended no longer reaches the successor's peer.**
+  This is the wire half of the entry above, and it applies to every answer the receive path writes:
+  `Select.rsp`, `Deselect.rsp`, `Linktest.rsp`, and all three `Reject.req` variants.
+  A response is built from the request that arrived on its own generation's socket and carries that request's System Bytes,
+  but it was queued through a send that resolved whatever generation was current at the time.
+  A receive goroutine abandoned past `WithCloseTimeout` therefore handed the *new* link's peer an answer to a transaction that peer never opened —
+  and no state-machine refusal can retract a frame already queued.
+  The enqueue is now bound to the generation that owes the answer:
+  it goes to that generation's own send queue, or is dropped if that generation is over.
+  A response owed by the working generation is sent exactly as before.
+  This was not a v2.4 regression; it has been present since v2.0.0.
+- **`hsms`, `hsmsss`: a `Select.req` or auto-linktest probe from a generation that has already ended no longer opens a transaction on the successor's link.**
+  This is the request half of the entry above, and the more damaging one, because a request opens a transaction rather than closing one.
+  The active Select procedure and the auto-linktest each run on their own generation's goroutine, and a send from either resolved whatever generation was current:
+  the reply channel was registered against the *new* link and the request was written through the *new* link's socket.
+  An answer that arrived before the abandoned procedure noticed its own cancellation was then routed back as if the new link had asked —
+  a status-0 `Select.rsp` marking it Selected over a handshake it never ran.
+  A probe could also reach a peer while the new link was still not selected, which SEMI E37.1 §7.4 makes a communications failure that peer is entitled to answer by closing the connection.
+  Both are now issued on behalf of the generation that owns them, and a request from a generation that has ended is dropped before anything is registered or written;
+  the procedure treats that exactly as it already treats its own link going down, and exits quietly.
+  This was not a v2.4 regression; it has been present since v2.0.0.
+- `hsmsss`: `ConnectionMetrics.RejectSentCount` and `ConnectionMetrics.LinktestReqRecvCount` no longer count a response that was not sent.
+  Both are documented as frames emitted and probes answered, and both were incremented before the send.
+  With the generation binding above, a response owed by a generation that has ended is deliberately dropped, so counting it would report link activity that never happened.
+  `LinktestSendCount` keeps counting before the write, and its documentation now says so plainly: it is an attempt counter, not an emitted-frame one.
 
 ## [2.3.1] - 2026-08-12
 

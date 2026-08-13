@@ -78,6 +78,10 @@ type connection struct {
 	// so an id can never repeat across Open/Close cycles and let a straggler from an earlier cycle match a later generation.
 	genSeq atomic.Uint64
 
+	// staleSend counts async sends dropped because the generation that asked for them had already ended.
+	// It is the send-path counterpart of supervisor.staleGen, kept here because a send never reaches the supervisor.
+	staleSend atomic.Uint64
+
 	// genGate fences a generation-guarded SYNCHRONOUS commit against the end of the generation that asked for it.
 	// The three synchronous commits (TCP-up, Select-accepted, Select-lost) are CAS operations on the FSM state,
 	// not events on the supervisor queue, so step's generation match cannot cover them
