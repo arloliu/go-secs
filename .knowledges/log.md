@@ -1,5 +1,8 @@
 # Log
 
+## 2026-08-13
+* **Creation**: [The transaction observer's two chokepoints, its isData gate, and its outcome classifier](/hsms/transaction-observer-chokepoints.md) records why `WithTransactionObserver` instruments two chokepoints (`WriteMessage`/`WriteMessageNoReply`), not one; why `ReplyDataMessage` is structurally excluded (built on the async `SendAsync` enqueue primitive); the teeth-checked finding that deleting the `isData` gate crashes the whole process (nil-pointer panic on Select.req) rather than just leaking noisy events; and how `classifyTxOutcome`'s six-way split relates to `isCountedSendErr`'s binary one; born draft.
+
 ## 2026-08-12
 * **Update**: [Parser input bounds](/sml/prealloc-bound.md) widened from allocation to input bounds generally: `parseList` now caps nesting at `secs2.MaxListDepth`, the decoder's own constant, closing a fatal (unrecoverable) stack overflow at ~2M levels and the asymmetry where the parser accepted messages its own wire decoder rejected; cites `secs2/decode.go` and the new nesting guard, digests refreshed, stays draft.
 * **Creation**: [Parser input bounds](/sml/prealloc-bound.md) records both ways the SML parser keeps attacker text from driving oversized allocations — `capHint` clamping preallocation against the remaining input across the six slice parsers and strict-mode ASCII's `Builder.Grow`, and the strict-mode numeric token being sliced rather than accumulated (which was quadratic) — and notes unbounded list recursion as a separate open concern; born draft.
