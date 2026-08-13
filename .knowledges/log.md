@@ -1,6 +1,7 @@
 # Log
 
 ## 2026-08-13
+* **Creation**: [Where a TransitionCause is chosen, and why one transition can swallow another's cause](/hsms/transition-cause-injection-sites.md) records the full injection-site to cause map behind `SubscribeLifecycle`; why the cause is data on `fsmCommand` rather than a function of the state pair; why the transports name it through a package-local `causeRuntime` capability instead of a widened `TransportRuntime`, so a bare `TCPDown` reports `CauseUnknown` rather than a guess; and the three ways a cause never reaches a subscriber (dedup on the state entered, drop-oldest coalescing, and the bring-up pair collapsing when the select commit outruns the TCP-up event); born draft.
 * **Creation**: [The transaction observer's two chokepoints, its isData gate, and its outcome classifier](/hsms/transaction-observer-chokepoints.md) records why `WithTransactionObserver` instruments two chokepoints (`WriteMessage`/`WriteMessageNoReply`), not one; why `ReplyDataMessage` is structurally excluded (built on the async `SendAsync` enqueue primitive); the teeth-checked finding that deleting the `isData` gate crashes the whole process (nil-pointer panic on Select.req) rather than just leaking noisy events; and how `classifyTxOutcome`'s six-way split relates to `isCountedSendErr`'s binary one; born draft.
 
 ## 2026-08-12
