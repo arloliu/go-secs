@@ -213,7 +213,7 @@ func (t *transport) runLinktest(ctx context.Context, g *genWG, interval time.Dur
 				}
 
 				if linktestDisconnectRecheck(sr != nil, finalInflight, t.lastRecvStamp.Load(), sentAt) {
-					t.tcpDown(errLinktestFailed, hsms.CauseLinktestFail)
+					t.tcpDown(g.gen, errLinktestFailed, hsms.CauseLinktestFail)
 					return
 				}
 
@@ -282,6 +282,6 @@ func (t *transport) runT7(ctx context.Context, g *genWG, d time.Duration) {
 	case <-ctx.Done():
 		return
 	case <-timer.C:
-		t.rt.T7Expired()
+		t.t7Expired(g.gen)
 	}
 }

@@ -74,6 +74,7 @@ func (t *transport) startPassive(ctx context.Context) error {
 	// Capture THIS generation's WaitGroup bundle under the RLock that gates the Add (NEW-1); the
 	// accept goroutine (and the recv loop it spawns) join on this captured bundle, never t.wg.
 	g := t.wg
+	g.gen = t.currentGeneration() // see the identical stamp in startActive
 	g.accept.Add(1)
 	go t.acceptLoop(g, ln)
 	t.startGate.RUnlock()

@@ -41,6 +41,14 @@ type epoch struct {
 	ctx    context.Context    // generation-lifetime ctx only; set once at construction
 	cancel context.CancelFunc // called by teardown ONLY (Task 6), under closeOnce
 
+	// id is this generation's identity token.
+	// It is minted from the connection's monotonic counter before the epoch is published on connection.cur,
+	// and never mutated afterwards.
+	// A transport goroutine carries it,
+	// so an involuntary disconnect it reports is matched against the generation current when the event is PROCESSED (see supervisor.step).
+	// Zero means "no identity" — an epoch built outside a connection, as unit tests do — and disables the match.
+	id uint64
+
 	log logger.Logger // generation logger; used by teardown for close-timeout reporting
 
 	connMu sync.RWMutex // guards conn

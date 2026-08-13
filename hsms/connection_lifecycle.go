@@ -101,6 +101,14 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	// the transport recv loop (Codex round-7).
 	e := newEpoch(context.Background(), cfg.logger, cfg.senderQueueSize)
 	e.stopTransport = c.tr.Stop
+	// Mint the generation identity BEFORE publishing, so no reader can ever observe a live epoch with id 0.
+	// cur is published here and in the reconnect loop, and NOWHERE else;
+	// the loop only ever runs after the FSM entered NotConnected,
+	// so cur advances only after the previous generation ended.
+	// That is what makes the generation match in supervisor.step safe:
+	// a mismatch means the reporting generation is already over,
+	// so its disconnect cannot be the one that ends a live link.
+	e.id = c.genSeq.Add(1)
 	c.cur.Store(e)
 
 	// FRESH per-Open supervisor (no channel reuse — round-5). Its run()/notifier() are
@@ -112,6 +120,10 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	// notify-coalesce Warn (M4).
 	s.closeTimeout = func() time.Duration { return c.cfg.Load().closeTimeout }
 	s.logger = cfg.logger
+	// The live-generation provider behind step's generation match.
+	// It is a single atomic load and takes no locks: step runs on the FSM goroutine,
+	// which an epoch teardown join can be waiting behind, so any lock the teardown path holds would close a cycle here.
+	s.curGen = c.CurrentGeneration
 	c.sup.Store(s)
 	c.supWg.Add(2)
 	go func() { defer c.supWg.Done(); s.run() }()
@@ -449,6 +461,10 @@ func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{},
 		// teardown join this generation's transport recv loop (round-7).
 		e := newEpoch(context.Background(), cfg.logger, cfg.senderQueueSize)
 		e.stopTransport = c.tr.Stop
+		// The second and last cur publisher; see the identity note at the Open site.
+		// This loop is reached only from the entering-NotConnected reaction (or Open's cold-connect retry),
+		// so the generation it replaces has already ended.
+		e.id = c.genSeq.Add(1)
 
 		// G2 fence + publish, LINEARIZED against a voluntary Close under publishMu (I1). Re-check
 		// shutdown + the captured reconnectGen and, if still current, arm the transport for this
@@ -570,12 +586,78 @@ func (c *connection) TCPDown(cause error) {
 //
 // cause is the transport's error for the drop (used for the farewell decision, unchanged);
 // transitionCause is the closed-set classification carried to the lifecycle subscribers.
+//
+// It carries NO generation identity, so it resolves the current generation at call time.
+// A transport that can outlive the generation it belongs to should report through
+// [connection.TCPDownFromGeneration] instead, which is generation-isolated.
 func (c *connection) TCPDownWithCause(cause error, transitionCause TransitionCause) {
+	c.injectDisconnect(0, cause, transitionCause)
+}
+
+// CurrentGeneration returns the identity of the generation that is live right now, or 0 when none is.
+//
+// A transport reads it once per Start and hands the value back with every disconnect it reports,
+// which is how the core tells a report from the LIVE generation apart from one arriving late out of a generation that has already ended.
+// It is reached by type assertion rather than through [TransportRuntime]:
+// widening that exported interface would break external implementers,
+// the same reason TCPDownWithCause is reached that way.
+func (c *connection) CurrentGeneration() uint64 {
 	if e := c.cur.Load(); e != nil {
-		e.commsFailure.Store(true)
+		return e.id
 	}
 
+	return 0
+}
+
+// TCPDownFromGeneration is TCPDownWithCause reported ON BEHALF OF a specific generation —
+// the one the caller belongs to, as returned by [connection.CurrentGeneration] when that generation started.
+//
+// A transport goroutine can outlive its own generation.
+// The shutdown join is bounded,
+// so a goroutine wedged past the close timeout is abandoned and may resume at any later time,
+// by which point a successor generation can already be selected.
+// Because the plain TCPDown entry points resolve the current generation at CALL time,
+// such a straggler would otherwise mark the successor's socket as failed and drop a link it knows nothing about.
+//
+// Reporting the generation makes that impossible in two places.
+// Here, a report whose generation is no longer live is a counted no-op.
+// In particular it does not touch the successor's comms-failure flag,
+// which decides whether that generation still sends a courtesy Separate when it closes.
+// And on the event itself: the generation travels with the queued event and is re-checked when the FSM PROCESSES it,
+// which is what closes the window between this check and the injection (see supervisor.step).
+//
+// A gen of 0 means "unidentified" and skips the match, behaving exactly like TCPDownWithCause.
+func (c *connection) TCPDownFromGeneration(gen uint64, cause error, transitionCause TransitionCause) {
+	c.injectDisconnect(gen, cause, transitionCause)
+}
+
+// injectDisconnect is the shared body of the TCP-down back-channel: mark the generation as a comms failure
+// (so the entering-NotConnected reaction sends no farewell Separate) and inject evDisconnect.
+//
+// gen is the reporting generation's identity, or 0 when the caller did not name one.
+func (c *connection) injectDisconnect(gen uint64, cause error, transitionCause TransitionCause) {
+	e := c.cur.Load()
+	if e == nil {
+		return
+	}
+
+	if gen != 0 && e.id != gen {
+		// The reporting generation is over and a successor is live.
+		// Dropping here is safe because cur advances only after the FSM entered NotConnected,
+		// so this generation's link was already torn down and this report cannot be the one that ends a live link.
+		if s := c.sup.Load(); s != nil {
+			s.staleGen.Add(1)
+		}
+
+		c.cfg.Load().logger.Debug("hsms: dropped a disconnect reported by a generation that has ended",
+			"reported_generation", gen, "current_generation", e.id, "error", cause)
+
+		return
+	}
+
+	e.commsFailure.Store(true)
+
 	if s := c.sup.Load(); s != nil {
-		s.inject(evDisconnect, transitionCause)
+		s.injectFrom(gen, evDisconnect, transitionCause)
 	}
 }

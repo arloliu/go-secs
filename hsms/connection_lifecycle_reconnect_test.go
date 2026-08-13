@@ -391,3 +391,73 @@ func TestReconnect_ExponentialBackoffGrowsToT5Ceiling(t *testing.T) {
 
 	require.NoError(t, c.Close())
 }
+
+// TestReconnect_AbandonedGenerationTCPDownCannotDropSuccessor is the adversarial interleaving the
+// generation-serialization argument does NOT cover.
+// The bounded teardown join gives up on a wedged transport goroutine, so that goroutine can outlive
+// its own generation, the reconnect, and the successor's select — and only then report the
+// disconnect it was holding.
+// Because the plain TCPDown entry points resolve the current generation at call time, such a report
+// used to disconnect the SUCCESSOR and hand its lifecycle subscribers a cause from a link they never
+// had.
+//
+// Here gen N's goroutine is parked across the whole cycle (the mock's Stop deliberately neither
+// releases nor joins it), released only once gen N+1 is Selected, and reports naming gen N.
+// gen N+1 must stay Selected and its subscribers must see no second drop.
+//
+// Teeth: drop the generation match (in connection.injectDisconnect, or in supervisor.step) → the released
+// report disconnects gen N+1, a third generation is dialed, and a second NotConnected event with
+// CauseIOError reaches the subscriber.
+func TestReconnect_AbandonedGenerationTCPDownCannotDropSuccessor(t *testing.T) {
+	c, mt := newLifeConn(t, withMockTransport())
+	mt.abandonedGenRecv = true                                         // arm the gen-N goroutine the bounded join will abandon
+	require.NoError(t, c.UpdateConfigOptions(WithT5(time.Nanosecond))) // near-immediate redial
+
+	var mu sync.Mutex
+	var drops []TransitionCause
+	cancel := c.SubscribeLifecycle(func(ev LifecycleEvent) {
+		if ev.Current != NotConnectedState {
+			return
+		}
+		mu.Lock()
+		drops = append(drops, ev.Cause)
+		mu.Unlock()
+	})
+	defer cancel()
+
+	dropCount := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return len(drops)
+	}
+
+	require.NoError(t, c.Open(t.Context(), OpenBackground))
+	requireSelected(t, c)
+
+	genN := c.CurrentGeneration()
+	require.NotZero(t, genN, "a live generation must have an identity")
+
+	mt.simulateReadError(io.EOF) // gen N drops for real; its abandoned goroutine stays parked
+
+	require.Eventually(t, func() bool { return mt.startCalls() == 2 && c.State() == SelectedState }, 3*time.Second, time.Millisecond,
+		"gen N+1 must reselect (exactly two generations dialed so far)")
+	require.Eventually(t, func() bool { return dropCount() == 1 }, time.Second, time.Millisecond,
+		"the real gen-N drop must have been reported exactly once")
+
+	require.NotEqual(t, genN, c.CurrentGeneration(), "gen N+1 must carry a distinct identity")
+
+	mt.releaseAbandonedGenTCPDown() // gen N reports its disconnect — while gen N+1 owns the link
+
+	// gen N+1 must STAY Selected, no third generation may be dialed, and no second drop may reach a
+	// subscriber. startCalls is monotonic, so it catches a disconnect even if the fast redial would
+	// otherwise hide the brief NotConnected window.
+	require.Never(t, func() bool {
+		return mt.startCalls() > 2 || c.State() != SelectedState || dropCount() > 1
+	}, 500*time.Millisecond, 5*time.Millisecond,
+		"a disconnect reported by a generation that has ended must not drop its successor")
+
+	require.Positive(t, c.sup.Load().staleGen.Load(), "the discarded report must be counted")
+
+	require.NoError(t, c.Close())
+}

@@ -43,6 +43,18 @@ type mockTransport struct {
 	holdExited   chan struct{}
 	holdOnce     sync.Once
 
+	// abandonedGenRecv, when true, makes the FIRST Start park a goroutine.
+	// It models the ONE case generation-serialization does not cover:
+	// a transport goroutine the BOUNDED teardown join gave up on.
+	// Stop deliberately neither releases nor joins it, so it survives its own generation's teardown,
+	// the reconnect, and the successor's select — and only then reports its disconnect,
+	// naming the generation it was started for (exactly as a real recv loop does through genWG.gen).
+	// This is the interleaving holdableRecv above cannot produce, because Stop joins that one while cur is still gen N.
+	abandonedGenRecv    bool
+	abandonedGenRelease chan struct{}
+	abandonedGenExited  chan struct{}
+	abandonedGenOnce    sync.Once
+
 	// heldRouteDataExited, when set via armHeldRouteData, makes Stop JOIN a goroutine parked inside rt.RouteData —
 	// the mock's stand-in for a real recv loop stuck delivering an inbound message to a stalled AddDataMessageChan consumer.
 	// The join is bounded by ctx, exactly like Stop's join of a held recv loop above.
@@ -86,10 +98,23 @@ func (m *mockTransport) Start(ctx context.Context, rt TransportRuntime) error {
 		m.holdExited = make(chan struct{})
 	}
 	release, exited := m.holdRelease, m.holdExited
+	armAbandoned := m.abandonedGenRecv && m.startCount == 1
+	if armAbandoned {
+		m.abandonedGenRelease = make(chan struct{})
+		m.abandonedGenExited = make(chan struct{})
+	}
+	abandonedRelease, abandonedExited := m.abandonedGenRelease, m.abandonedGenExited
 	m.mu.Unlock()
 
 	if armHold {
 		go heldRecvLoop(rt, release, exited)
+	}
+
+	if armAbandoned {
+		// Read the generation identity HERE, on the Start that belongs to it.
+		// That is the same point a real transport stamps genWG.gen,
+		// so the parked goroutine keeps reporting for gen N however long it sleeps.
+		go abandonedGenRecvLoop(rt, currentGenerationOf(rt), abandonedRelease, abandonedExited)
 	}
 
 	if fn != nil {
@@ -106,6 +131,48 @@ func heldRecvLoop(rt TransportRuntime, release, exited chan struct{}) {
 	<-release
 	rt.TCPDown(io.EOF)
 	close(exited)
+}
+
+// currentGenerationOf reads the runtime's live generation identity the way an in-module transport does,
+// returning 0 for a runtime that offers no identity.
+func currentGenerationOf(rt TransportRuntime) uint64 {
+	if gr, ok := rt.(interface{ CurrentGeneration() uint64 }); ok {
+		return gr.CurrentGeneration()
+	}
+
+	return 0
+}
+
+// abandonedGenRecvLoop models a gen-N transport goroutine that the bounded teardown join abandoned:
+// it parks past its own generation's teardown and past the successor's bring-up,
+// then reports the disconnect it was holding, naming gen — the generation it was started for.
+// Nothing releases it but the test, so the report provably lands while a LATER generation is live.
+func abandonedGenRecvLoop(rt TransportRuntime, gen uint64, release, exited chan struct{}) {
+	<-release
+
+	if gr, ok := rt.(interface {
+		TCPDownFromGeneration(gen uint64, cause error, transitionCause TransitionCause)
+	}); ok {
+		gr.TCPDownFromGeneration(gen, io.EOF, CauseIOError)
+	} else {
+		rt.TCPDown(io.EOF)
+	}
+
+	close(exited)
+}
+
+// releaseAbandonedGenTCPDown releases the parked gen-N goroutine and waits for its report to be delivered.
+func (m *mockTransport) releaseAbandonedGenTCPDown() {
+	m.mu.Lock()
+	release, exited := m.abandonedGenRelease, m.abandonedGenExited
+	m.mu.Unlock()
+
+	if release == nil {
+		return
+	}
+
+	m.abandonedGenOnce.Do(func() { close(release) })
+	<-exited
 }
 
 // armHeldRouteData spawns a goroutine that calls rt.RouteData(msg) and records its completion on

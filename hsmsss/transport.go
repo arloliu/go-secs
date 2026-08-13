@@ -45,6 +45,14 @@ var _ = func() {
 // abandoned Stop waiter parks on the OLD bundle (which the straggler eventually drains) while the
 // next generation Adds to and Waits on a bundle no leaked waiter ever touches.
 type genWG struct {
+	// gen is the core's identity for the generation this bundle belongs to.
+	// Start stamps it before it spawns anything, and nothing writes it afterwards.
+	// Every goroutine that reports a disconnect or a dwell expiry passes it back,
+	// so the core can tell a report from the LIVE generation apart from one arriving out of a generation that has ended.
+	// It rides on the bundle because the bundle already reaches every such goroutine.
+	// Zero when the runtime offers no generation identity (an out-of-module runtime, or a mock), which disables the match.
+	gen uint64
+
 	recv     sync.WaitGroup // the one recv-loop goroutine per Start call
 	proc     sync.WaitGroup // the active Select-procedure goroutine (active only) per Start call
 	accept   sync.WaitGroup // the passive accept goroutine (passive only) per Start call

@@ -11,6 +11,7 @@ package hsmsss
 // the same package for the identical reason.
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -96,4 +97,85 @@ func TestSelectRsp_EchoesNonConformantSessionID(t *testing.T) {
 	// substituting 0xFFFF (E37.1 §8.1) or the configured device ID.
 	require.Equal(t, probeSessionID, frameSessionID(t, rspPayload),
 		"Select.rsp must echo the Select.req SessionID even though the request itself violates E37.1 §8.1")
+}
+
+// genRecRT is a recRT that also offers the generation-naming capability, recording the generation
+// each disconnect is reported under.
+// It is how a test observes WHICH generation this package speaks for, without reaching into hsms.
+type genRecRT struct {
+	*recRT
+
+	mu          sync.Mutex
+	liveGen     uint64
+	reportedGen []uint64
+}
+
+func newGenRecRT(liveGen uint64) *genRecRT {
+	return &genRecRT{recRT: newRecRT(), liveGen: liveGen}
+}
+
+func (m *genRecRT) CurrentGeneration() uint64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.liveGen
+}
+
+func (m *genRecRT) setLiveGeneration(gen uint64) {
+	m.mu.Lock()
+	m.liveGen = gen
+	m.mu.Unlock()
+}
+
+func (m *genRecRT) TCPDownFromGeneration(gen uint64, cause error, _ hsms.TransitionCause) {
+	m.mu.Lock()
+	m.reportedGen = append(m.reportedGen, gen)
+	m.mu.Unlock()
+
+	m.TCPDown(cause)
+}
+
+func (m *genRecRT) T7ExpiredFromGeneration(gen uint64) {
+	m.mu.Lock()
+	m.reportedGen = append(m.reportedGen, gen)
+	m.mu.Unlock()
+
+	m.T7Expired()
+}
+
+func (m *genRecRT) reportedGenerations() []uint64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return append([]uint64(nil), m.reportedGen...)
+}
+
+// TestSeparate_ReportsItsOwnGeneration is the hsmsss half of the stale-disconnect barrier: a peer
+// Separate must be reported under the generation of the recv goroutine that READ it, never under
+// whichever generation happens to be live when the report lands.
+//
+// The generation here has already been superseded (the runtime's live generation moved on while the
+// recv goroutine was descheduled) — exactly the state an abandoned straggler resumes in. The
+// transport must still name its own bundle's generation, which is what lets the core discard the
+// report instead of dropping the successor's link.
+//
+// Teeth: report the runtime's current generation (or 0) instead of g.gen → the reported value
+// follows the live generation and the core can no longer tell the two apart.
+func TestSeparate_ReportsItsOwnGeneration(t *testing.T) {
+	t.Parallel()
+
+	rt := newGenRecRT(1)
+	rt.setState(hsms.NotSelectedState)
+
+	ctx := t.Context()
+	tr := newLinktestTransport(t, rt.recRT, ctx)
+	tr.rt = rt // re-bind to the capability-offering runtime
+
+	rt.setLiveGeneration(2) // a successor generation is live; this recv goroutine belongs to gen 1
+
+	keepReading := tr.handleSeparateReq(ctx, &genWG{gen: 1})
+
+	require.False(t, keepReading, "Separate always ends the recv loop")
+	require.Equal(t, []uint64{1}, rt.reportedGenerations(),
+		"the Separate must be reported under the generation that read it, not the live one")
 }

@@ -38,7 +38,7 @@ var errSelectBadResponse = errors.New("hsmsss: peer answered Select.req with a f
 // by startActive (tracked by g.proc so Stop joins it) and receives the generation ctx so a
 // teardown cancels its pending Select wait. It never blocks Start: Open calls Start
 // synchronously, so the handshake must run in the background.
-func (t *transport) runSelectProcedure(ctx context.Context) {
+func (t *transport) runSelectProcedure(ctx context.Context, g *genWG) {
 	// The FSM is already at NotSelected: startActive calls t.rt.TCPUp BEFORE spawning this
 	// goroutine, and TCPUp commits NotConnected -> NotSelected SYNCHRONOUSLY via a guarded CAS
 	// (§7.D), so no wait is needed here. That synchronous commit also guarantees the recv loop's
@@ -70,7 +70,7 @@ func (t *transport) runSelectProcedure(ctx context.Context) {
 		// Drive the FSM to NotConnected so the reconnect loop re-dials and re-selects (§6.3).
 		// T7 (Task 24) is the belt-and-suspenders NotSelected dwell timer; here the failure is explicit.
 		// selectFailureCause splits the outcomes rather than reporting one cause for all of them.
-		t.tcpDown(fmt.Errorf("hsmsss: active Select procedure failed: %w", err), selectFailureCause(err))
+		t.tcpDown(g.gen, fmt.Errorf("hsmsss: active Select procedure failed: %w", err), selectFailureCause(err))
 
 		return
 	}
@@ -83,7 +83,7 @@ func (t *transport) runSelectProcedure(ctx context.Context) {
 	// CauseSelectRejected covers "the peer answered but did not grant the select", which is what a subscriber needs;
 	// the error value distinguishes the two shapes for a reader of the log.
 	if rsp == nil || rsp.Type() != hsms.SelectRspType {
-		t.tcpDown(errSelectBadResponse, hsms.CauseSelectRejected)
+		t.tcpDown(g.gen, errSelectBadResponse, hsms.CauseSelectRejected)
 
 		return
 	}
@@ -96,7 +96,7 @@ func (t *transport) runSelectProcedure(ctx context.Context) {
 	// non-zero status yields no state transition, and we are already Selected. Any OTHER non-zero
 	// status (2 Not Ready, 3 Exhaust, 4+ reserved) IS a genuine Select failure → drop + reconnect.
 	if s := selectStatus(rsp); s != hsms.SelectStatusSuccess && s != hsms.SelectStatusAlreadyActive {
-		t.tcpDown(errSelectRejected, hsms.CauseSelectRejected)
+		t.tcpDown(g.gen, errSelectRejected, hsms.CauseSelectRejected)
 	}
 }
 
@@ -191,6 +191,11 @@ func (t *transport) startActive(ctx context.Context) error {
 	// captured bundle, never t.wg, so a straggler abandoned by a bounded Stop drains g while the
 	// next generation uses a fresh bundle installed by ArmStart.
 	g := t.wg
+	// Stamp this generation's identity before anything is spawned.
+	// Every goroutine below then reports under the generation it belongs to,
+	// rather than whichever is current when it happens to report.
+	// The core published the generation before calling Start, so this reads THIS generation's identity.
+	g.gen = t.currentGeneration()
 
 	t.connMu.Lock()
 	t.conn = conn
@@ -204,7 +209,7 @@ func (t *transport) startActive(ctx context.Context) error {
 	go t.recvLoop(g)
 
 	g.proc.Go(func() {
-		t.runSelectProcedure(procCtx)
+		t.runSelectProcedure(procCtx, g)
 	})
 	t.startGate.RUnlock()
 

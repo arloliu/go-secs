@@ -72,6 +72,12 @@ type connection struct {
 	shutdown     atomic.Bool   // set by Close; re-checked by reconnect reactions (F3/G2)
 	reconnectGen atomic.Uint64 // bumped by Close/Open; the G2 fence compares against it
 
+	// genSeq mints epoch.id, the generation identity a transport carries,
+	// so a disconnect it reports is matched against the live generation when the supervisor processes it.
+	// It is CONNECTION-scoped and never reset — not per Open cycle —
+	// so an id can never repeat across Open/Close cycles and let a straggler from an earlier cycle match a later generation.
+	genSeq atomic.Uint64
+
 	connectLoopWg sync.WaitGroup // SEPARATE reconnect-loop join (§7.C) — NOT epoch.wg
 	supWg         sync.WaitGroup // joins the per-Open supervisor run()+notifier()
 

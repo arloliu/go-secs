@@ -276,7 +276,7 @@ func TestSeparate_TearsDownWhileNotSelected(t *testing.T) {
 	ctx := t.Context()
 	tr := newLinktestTransport(t, rt, ctx)
 
-	keepReading := tr.handleSeparateReq(ctx)
+	keepReading := tr.handleSeparateReq(ctx, &genWG{})
 
 	require.False(t, keepReading, "Separate must end the recv loop — the caller already drove TCPDown")
 	require.True(t, rt.tcpDownDidFire(), "Separate while NotSelected must tear the link down (E37.1 §7.6)")
@@ -313,7 +313,7 @@ func TestSeparate_CancelledGenerationSkipsTCPDown(t *testing.T) {
 	genCtx, cancel := context.WithCancel(ctx)
 	cancel()
 
-	keepReading := tr.handleSeparateReq(genCtx)
+	keepReading := tr.handleSeparateReq(genCtx, &genWG{})
 
 	require.False(t, keepReading, "the loop must still end — the generation is going away regardless")
 	require.False(t, rt.tcpDownDidFire(),
@@ -445,7 +445,7 @@ func TestActive_SelectRspStatusHandling(t *testing.T) {
 			ctx := t.Context()
 			tr := newLinktestTransport(t, rt, ctx)
 
-			tr.runSelectProcedure(ctx)
+			tr.runSelectProcedure(ctx, &genWG{})
 
 			require.Equal(t, tc.wantTearDown, rt.tcpDownDidFire(),
 				"status %d: tear-down expectation", tc.status)

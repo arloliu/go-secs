@@ -43,6 +43,12 @@ const (
 type fsmCommand struct {
 	ev    fsmEvent
 	cause TransitionCause
+	// gen is the identity of the generation on whose behalf the event was injected (epoch.id),
+	// or 0 when the injection site did not name one.
+	// It is never reported to a subscriber.
+	// It exists so an event injected by a generation that has since ended is discarded,
+	// instead of driving a transition on its successor.
+	gen uint64
 }
 
 // stateChange is one logical E37 transition, reported to the notifier as (prev -> next) plus the
@@ -92,6 +98,20 @@ type supervisor struct {
 	// lastLoggedDropped is owned SOLELY by the notifier goroutine (reportDrops); it edge-triggers
 	// the drop Warn so a single stall-burst logs once, not once per coalesced notification.
 	lastLoggedDropped uint64
+
+	// curGen reports the identity of the generation that is live right now (connection.CurrentGeneration).
+	// step compares it against fsmCommand.gen so an event injected by a generation that has since ended is discarded.
+	// It MUST stay lock-free — step calls it on the FSM goroutine, which the epoch teardown join can be waiting behind,
+	// so a lock the teardown path holds would close a cycle.
+	// Nil in unit tests that build a supervisor without a connection,
+	// which SKIPS the match rather than suppressing the event.
+	curGen func() uint64
+
+	// staleGen counts events discarded because the generation that injected them had already ended,
+	// plus the disconnect reports the injection path itself dropped for the same reason (connection.injectDisconnect).
+	// It is a diagnostic: a non-zero value is normal under reconnect churn with a wedged transport goroutine,
+	// and is the signal that the generation match is doing work.
+	staleGen atomic.Uint64
 
 	// testHookAfterStateLoad, when non-nil, is invoked by step() immediately after it loads state and
 	// before the transition/store — a test seam to deterministically interpose a concurrent
@@ -280,7 +300,11 @@ func (s *supervisor) run() {
 	}
 }
 
-// step applies one event: it reads the current state, applies the pure transition (illegal
+// step applies one event.
+// An event that names the generation it was injected for is first matched against the live generation,
+// and discarded if that generation has ended —
+// the barrier that keeps a late transport goroutine from dropping its successor's link.
+// Then it reads the current state, applies the pure transition (illegal
 // pairs are safe no-ops), stores state only when it actually changed (a no-op when
 // CommitSelected already pre-stored — H2), and fires the deduped reaction/notify keyed on
 // lastReacted (H3). Two events are guarded against a concurrent synchronous CommitSelected: the
@@ -307,6 +331,29 @@ func (s *supervisor) step(cmd fsmCommand) {
 	}
 
 	cur := ConnState(s.state.Load())
+
+	// Generation match.
+	// An event carrying a generation (epoch.id) is honored only while THAT generation is still the live one;
+	// otherwise it is discarded and counted.
+	//
+	// The ORDER here is load-bearing and must not be reversed: the state read above happens BEFORE this check.
+	// A state belonging to a successor generation can only have been committed after that generation was published,
+	// so reading such a state guarantees this check observes the successor and discards the event.
+	// Checking first and reading state second would let a successor's freshly committed state be torn down by a predecessor's event.
+	//
+	// This is also why an injection-site check alone is not enough.
+	// Cancellation, or the epoch swap, can land between any pre-check and the injection,
+	// so the only place the answer cannot go stale is the point where the event is applied to the FSM —
+	// here, on the single goroutine that owns transitions.
+	//
+	// It cannot suppress a legitimate disconnect.
+	// cur advances only after the FSM entered NotConnected (see the note at the two connection.cur publish sites),
+	// so a mismatch means the reporting generation's link was already torn down and its event is redundant.
+	if cmd.gen != 0 && s.curGen != nil && s.curGen() != cmd.gen {
+		s.staleGen.Add(1)
+
+		return
+	}
 
 	// Test seam (T24b): lets a test deterministically interpose a concurrent CommitSelected between
 	// the state.Load() above and the evT7Timeout CAS below, exercising the tie the CAS closes. nil in
@@ -424,8 +471,18 @@ func (s *supervisor) resolveCloseTimeout() time.Duration {
 // unread events channel. Drop coalescing applies only to notify, never to events (spec §5.3).
 // cause is carried verbatim to the notifier for whichever transition this event ends up driving.
 func (s *supervisor) inject(ev fsmEvent, cause TransitionCause) {
+	s.injectFrom(0, ev, cause)
+}
+
+// injectFrom is inject for an event reported ON BEHALF OF a generation: gen (epoch.id) rides along on
+// the command and step discards the event if that generation is no longer the live one.
+//
+// A gen of 0 means the injection site named no generation and the event is always processed.
+// That is the behavior every site had before generations were carried,
+// and the behavior an out-of-module transport still gets.
+func (s *supervisor) injectFrom(gen uint64, ev fsmEvent, cause TransitionCause) {
 	select {
-	case s.events <- fsmCommand{ev: ev, cause: cause}:
+	case s.events <- fsmCommand{ev: ev, cause: cause, gen: gen}:
 	case <-s.runDone:
 	}
 }

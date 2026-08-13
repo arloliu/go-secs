@@ -20,10 +20,49 @@ type causeRuntime interface {
 	TCPDownWithCause(cause error, transitionCause hsms.TransitionCause)
 }
 
+// genRuntime is the optional capability a runtime offers to accept the identity of the generation a report belongs to,
+// so a report arriving out of a generation that has already ended is discarded rather than applied to its successor.
+// It is reached by type assertion for the same reason causeRuntime is.
+//
+// A generation's goroutines can outlive the generation itself:
+// the teardown join is bounded, so one wedged past the close timeout is abandoned and may resume long afterwards.
+// Every ctx check in this package narrows that window but cannot close it —
+// cancellation can always land between the check and the call.
+// Naming the generation moves the decision to the point where the event is applied to the FSM,
+// where it cannot go stale.
+//
+// A runtime without the capability keeps the previous behavior:
+// reports resolve whatever generation is current when they land.
+type genRuntime interface {
+	CurrentGeneration() uint64
+	TCPDownFromGeneration(gen uint64, cause error, transitionCause hsms.TransitionCause)
+	T7ExpiredFromGeneration(gen uint64)
+}
+
+// currentGeneration reads the runtime's live generation identity, or 0 when the runtime does not offer one.
+// Start calls it once per generation and stamps the answer on that generation's WaitGroup bundle,
+// which is how every goroutine this transport spawns knows which generation it speaks for.
+func (t *transport) currentGeneration() uint64 {
+	if gr, ok := t.rt.(genRuntime); ok {
+		return gr.CurrentGeneration()
+	}
+
+	return 0
+}
+
 // tcpDown reports an involuntary disconnect, naming its TransitionCause when the runtime accepts one.
 // Every TCPDown producer in this package goes through it,
 // so the cause is chosen at the site that knows why the link is going down.
-func (t *transport) tcpDown(cause error, transitionCause hsms.TransitionCause) {
+//
+// gen is the reporting generation (genWG.gen), so a report from a generation that has already ended is discarded.
+// Pass 0 only where no generation bundle is in scope.
+func (t *transport) tcpDown(gen uint64, cause error, transitionCause hsms.TransitionCause) {
+	if gr, ok := t.rt.(genRuntime); ok {
+		gr.TCPDownFromGeneration(gen, cause, transitionCause)
+
+		return
+	}
+
 	if cr, ok := t.rt.(causeRuntime); ok {
 		cr.TCPDownWithCause(cause, transitionCause)
 
@@ -31,6 +70,19 @@ func (t *transport) tcpDown(cause error, transitionCause hsms.TransitionCause) {
 	}
 
 	t.rt.TCPDown(cause)
+}
+
+// t7Expired reports the NOT-SELECTED dwell expiry for gen, the generation whose dwell it was.
+// A dwell belonging to a generation that has ended must not drop its successor,
+// so it goes through the same generation-naming capability tcpDown uses.
+func (t *transport) t7Expired(gen uint64) {
+	if gr, ok := t.rt.(genRuntime); ok {
+		gr.T7ExpiredFromGeneration(gen)
+
+		return
+	}
+
+	t.rt.T7Expired()
 }
 
 // handleControlReq dispatches an inbound control request (Select.req, Deselect.req,
@@ -114,30 +166,29 @@ func (t *transport) handleSelectReq(g *genWG, req hsms.Message) {
 // §7.6's "TCP/IP CONNECTED state and its substates" precondition needs no FSM check:
 // this runs on the recv loop, which only exists for a generation whose socket is up.
 //
-// The genCtx check is the C1 straggler guard, byte-for-byte the same one recvLoop applies to read errors.
-// TCPDown resolves the CURRENT epoch and supervisor at call time (see connection.TCPDown),
-// so a Separate read by a generation whose teardown already began — a voluntary Close,
-// or a straggler that outlived a bounded Stop — would otherwise inject evDisconnect into a SUCCESSOR generation
-// and knock it out of NotSelected.
-// Honoring §7.6 in every substate is what made this reachable at all:
-// before, only a Selected-state Separate reached TCPDown.
+// Two guards keep this teardown inside the generation that read the Separate.
 //
-// Be precise about what this buys, because an earlier revision of this comment over-claimed it.
-// The check NARROWS the window; it is not an epoch barrier.
-// Cancellation can still land between the check and the TCPDown call,
-// so a sufficiently descheduled straggler can still inject into a successor.
-// Closing that hole needs the queued FSM event to carry epoch identity and be revalidated at PROCESSING time,
-// the pattern supervisor.requestClose already uses via closeEpoch.
-// That is a core change affecting all seven TCPDown/T7Expired producers, not just this one.
-// It is recorded as pre-existing architecture debt in docs/specs/e37-1-hsms-ss-conformance-audit.md, Gap 2.
-func (t *transport) handleSeparateReq(genCtx context.Context) bool {
+// The genCtx check is the straggler guard, byte-for-byte the same one recvLoop applies to read errors:
+// a generation whose teardown already began owns no disconnect — that is a voluntary Close,
+// or a goroutine abandoned by a bounded Stop — so it returns without reporting one.
+// It is an early exit, not a barrier: cancellation can land between the check and the call below.
+//
+// The barrier is g.gen, the identity of the generation this recv goroutine belongs to.
+// It travels with the disconnect all the way to the FSM and is matched against the live generation at the moment the event is APPLIED,
+// so a Separate read by a generation that has since ended can no longer disconnect its successor
+// or report CausePeerSeparate to that successor's lifecycle subscribers.
+// See hsms.connection.TCPDownFromGeneration and hsms.supervisor.step.
+//
+// Honoring §7.6 in every substate is what made the hazard reachable from this site at all:
+// before, only a Selected-state Separate reported a disconnect.
+func (t *transport) handleSeparateReq(genCtx context.Context, g *genWG) bool {
 	t.metrics.incSeparateRecv()
 
 	if genCtx != nil && genCtx.Err() != nil {
 		return false
 	}
 
-	t.tcpDown(errPeerSeparate, hsms.CausePeerSeparate)
+	t.tcpDown(g.gen, errPeerSeparate, hsms.CausePeerSeparate)
 
 	return false
 }

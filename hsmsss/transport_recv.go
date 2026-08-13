@@ -43,7 +43,7 @@ func (t *transport) recvLoop(g *genWG) {
 		// ran (a torn-down generation), so genCtx is cancelled — teardown owns the disconnect and
 		// a stale TCPDown must not be injected (C1 straggler guard). Exit.
 		if genCtx == nil || genCtx.Err() == nil {
-			t.tcpDown(errors.New("hsmsss: recvLoop: not connected"), hsms.CauseIOError)
+			t.tcpDown(g.gen, errors.New("hsmsss: recvLoop: not connected"), hsms.CauseIOError)
 		}
 
 		return
@@ -62,11 +62,15 @@ func (t *transport) recvLoop(g *genWG) {
 			// C1 straggler guard: drive TCPDown only for a LIVE generation. The epoch ctx (genCtx)
 			// is rooted at context.Background() and cancelled ONLY by this generation's teardown, so
 			// a non-nil Err means teardown already began — either a voluntary Close (which owns the
-			// disconnect) or a straggler that outlived a bounded Stop. Injecting TCPDown then could
-			// hit a LATER generation's supervisor. An involuntary peer drop (genCtx not cancelled)
-			// still drives the disconnect that initiates teardown.
+			// disconnect) or a straggler that outlived a bounded Stop. An involuntary peer drop
+			// (genCtx not cancelled) still drives the disconnect that initiates teardown.
+			//
+			// The check is an early exit, not the barrier: cancellation can land between it and the call.
+			// g.gen is the barrier: it names the generation this loop belongs to,
+			// and the core discards the disconnect if that generation is no longer live
+			// when the FSM applies it (see hsms.supervisor.step).
 			if genCtx.Err() == nil {
-				t.tcpDown(err, hsms.CauseIOError)
+				t.tcpDown(g.gen, err, hsms.CauseIOError)
 			}
 
 			return
@@ -192,7 +196,7 @@ func (t *transport) dispatchFrame(genCtx context.Context, g *genWG, frame []byte
 
 	case hsms.SeparateReqType:
 		// Peer leaving (E37.1 §7.6): tear down in any connected substate, NotSelected included.
-		return t.handleSeparateReq(genCtx)
+		return t.handleSeparateReq(genCtx, g)
 
 	default:
 		// Unreachable: IsValidSType already rejected every undefined SType above.

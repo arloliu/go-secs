@@ -58,9 +58,27 @@ func (c *connection) SelectLost() {
 // T7Expired injects evT7Timeout (NOT-SELECTED dwell expiry) — TransportRuntime.
 //
 // See the interface doc.
+// It carries no generation identity;
+// an in-module transport reports through [connection.T7ExpiredFromGeneration] instead.
 func (c *connection) T7Expired() {
+	c.injectT7Expiry(0)
+}
+
+// T7ExpiredFromGeneration is T7Expired reported ON BEHALF OF the generation whose NOT-SELECTED dwell expired.
+//
+// A dwell timer belonging to a generation that has already ended must not drop its successor,
+// which is the same hazard [connection.TCPDownFromGeneration] exists to close and is closed the same way:
+// the generation travels with the queued event and is re-checked when the FSM processes it.
+// A gen of 0 skips the match.
+func (c *connection) T7ExpiredFromGeneration(gen uint64) {
+	c.injectT7Expiry(gen)
+}
+
+// injectT7Expiry is the shared body of the T7 dwell-expiry back-channel.
+func (c *connection) injectT7Expiry(gen uint64) {
 	if s := c.sup.Load(); s != nil {
-		s.inject(evT7Timeout, CauseT7Timeout) // the site IS the T7 dwell expiry; no other event reaches here
+		// The site IS the T7 dwell expiry; no other event reaches here.
+		s.injectFrom(gen, evT7Timeout, CauseT7Timeout)
 	}
 }
 

@@ -164,6 +164,24 @@ its failure mode is a hang, not an error.
 
 ### Fixed
 
+- **`hsms`, `hsmsss`: a transport goroutine that outlives its own connection generation can no longer
+  disconnect the generation that replaced it.**
+  Teardown joins a generation's goroutines under a bounded timeout, so one wedged past
+  `WithCloseTimeout` is abandoned and may resume long afterwards — by which point a reconnect can
+  already have established and selected a new link.
+  Because the disconnect back-channel resolved the current generation at call time, such a goroutine
+  reporting a peer `Separate.req`, a read error, a Select failure, a linktest failure, or a T7 dwell
+  expiry would drop the *new* link and hand `SubscribeLifecycle` subscribers (and
+  `AddConnStateChangeHandler` handlers) a reason belonging to a connection that had already ended.
+  Each generation now carries an identity that travels with the report all the way to the state
+  machine and is re-checked at the moment the transition is applied, so a report from a generation
+  that has ended is discarded instead.
+  A disconnect of the live generation is never affected: a mismatch can only mean that generation's
+  link was already torn down.
+  The same fix stops such a goroutine from marking the new generation as a comms failure, which had
+  suppressed that generation's courtesy farewell `Separate` on a later graceful `Close`.
+  This was not a v2.4 regression; it has been present since v2.0.0.
+  `secs1` is unchanged and keeps the previous behavior.
 - **`hsms`: an outbound data message that would exceed the maximum on-wire frame size is now rejected
   instead of transmitted unbounded.**
   Nothing previously stopped a caller from building a message whose encoded frame exceeded the same

@@ -586,3 +586,55 @@ func TestSupervisor_ResolveCloseTimeoutIsLive(t *testing.T) {
 	live.Store(int64(7 * time.Second)) // a mid-session config change
 	require.Equal(t, 7*time.Second, s.resolveCloseTimeout(), "provider must be read live, not cached")
 }
+
+// TestSupervisor_GenerationMatchAtProcessingTime pins the half of the generation barrier that no
+// injection-site check can provide: the decision is taken when the FSM APPLIES the event, not when
+// the event was queued.
+//
+// The dangerous interleaving is a disconnect that passes every check its injector could make — the
+// generation really was live then — and is only overtaken by the successor's bring-up while it sits
+// in the queue. Here that is modelled directly: the event is queued naming gen 1, the live
+// generation advances to 2, and the successor's Selected state must survive.
+//
+// A gen of 0 (an injection site that named no generation) and a nil provider (a supervisor with no
+// connection) must both still be processed — suppressing those would silently disable involuntary
+// disconnects for out-of-module transports.
+func TestSupervisor_GenerationMatchAtProcessingTime(t *testing.T) {
+	cases := []struct {
+		name    string
+		curGen  func() uint64
+		cmdGen  uint64
+		wantOut ConnState
+	}{
+		{name: "stale generation is discarded", curGen: func() uint64 { return 2 }, cmdGen: 1, wantOut: SelectedState},
+		{name: "live generation is honored", curGen: func() uint64 { return 2 }, cmdGen: 2, wantOut: NotConnectedState},
+		{name: "unnamed generation is honored", curGen: func() uint64 { return 2 }, cmdGen: 0, wantOut: NotConnectedState},
+		{name: "no provider is honored", curGen: nil, cmdGen: 1, wantOut: NotConnectedState},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var reacted atomic.Bool
+			s := newSupervisorWithEventsCap(func(_, next ConnState) {
+				if next == NotConnectedState {
+					reacted.Store(true)
+				}
+			}, newHandlerPtr(), nil, supervisorEventsCap)
+			s.curGen = tc.curGen
+			s.state.Store(uint32(SelectedState))
+			s.lastReacted = SelectedState
+
+			s.step(fsmCommand{ev: evDisconnect, cause: CauseIOError, gen: tc.cmdGen})
+
+			require.Equal(t, tc.wantOut, s.State())
+			require.Equal(t, tc.wantOut == NotConnectedState, reacted.Load(),
+				"the reaction must fire exactly when the event was honored")
+
+			wantStale := uint64(0)
+			if tc.wantOut == SelectedState {
+				wantStale = 1
+			}
+			require.Equal(t, wantStale, s.staleGen.Load(), "a discarded event must be counted")
+		})
+	}
+}
