@@ -35,6 +35,9 @@ type reply struct {
 // FakeEndpoint is an in-memory hsms.SECS2Endpoint for tests: it records every send/reply,
 // returns scripted replies to synchronous sends, and can deliver an inbound message to the
 // registered DataMessageHandlers as if it arrived on the wire — all with no TCP connection.
+// The zero value FakeEndpoint{} is ready to use (embed it directly in a custom fake, no
+// constructor call required).
+// NewFakeEndpoint exists only to apply FakeOptions.
 // FakeEndpoint is safe for concurrent use.
 type FakeEndpoint struct {
 	mu            sync.Mutex
@@ -48,6 +51,11 @@ type FakeEndpoint struct {
 
 	decodeErrHandlers []hsms.DecodeErrorHandler
 
+	// done and closeOnce back Close/Deliver's channel-teardown signal.
+	// done is lazily initialized (see doneChan) rather than set in NewFakeEndpoint.
+	// That keeps a bare FakeEndpoint{} literal — e.g. from embedding FakeEndpoint in a
+	// custom fake, the CHANGELOG's recommended migration for a hand-rolled SECS2Endpoint —
+	// fully usable without requiring NewFakeEndpoint.
 	closeOnce sync.Once
 	done      chan struct{}
 }
@@ -64,7 +72,7 @@ func WithSessionID(id uint16) FakeOption {
 
 // NewFakeEndpoint returns a new FakeEndpoint with no recorded sends and an empty reply script.
 func NewFakeEndpoint(opts ...FakeOption) *FakeEndpoint {
-	f := &FakeEndpoint{done: make(chan struct{})}
+	f := &FakeEndpoint{}
 	for _, opt := range opts {
 		opt(f)
 	}
@@ -91,14 +99,30 @@ func (f *FakeEndpoint) Sent() []SentMessage {
 	return slices.Clone(f.sent)
 }
 
+// doneChan returns f.done, initializing it on first use under f.mu.
+// This lazy init (rather than setting done in NewFakeEndpoint) is what keeps a bare
+// FakeEndpoint{} literal fully usable.
+// Deliver and Close both go through this accessor instead of touching f.done directly, so
+// neither one requires NewFakeEndpoint to have run.
+func (f *FakeEndpoint) doneChan() chan struct{} {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.done == nil {
+		f.done = make(chan struct{})
+	}
+
+	return f.done
+}
+
 // Deliver invokes every registered DataMessageHandler with (msg, f), and delivers msg to every
 // channel registered via AddDataMessageChan, as if msg had arrived on the wire.
 // Handlers and channels are snapshotted under the lock and invoked/sent with the lock released,
 // so a handler may call back into f (e.g. f.ReplyDataMessage) without deadlocking.
 //
-// Channel delivery uses select { case ch <- msg: case <-f.done: return }, mirroring the real
-// hsms.SECS2Endpoint.AddDataMessageChan contract: a full channel blocks Deliver until either the
-// consumer drains it or Close unblocks the send.
+// Channel delivery selects on a per-FakeEndpoint done signal alongside the channel send,
+// mirroring the real hsms.SECS2Endpoint.AddDataMessageChan contract: a full channel blocks
+// Deliver until either the consumer drains it or Close unblocks the send.
 func (f *FakeEndpoint) Deliver(msg *hsms.DataMessage) {
 	f.mu.Lock()
 	handlers := slices.Clone(f.dataHandlers)
@@ -109,10 +133,15 @@ func (f *FakeEndpoint) Deliver(msg *hsms.DataMessage) {
 		h(msg, f)
 	}
 
+	if len(chans) == 0 {
+		return
+	}
+
+	done := f.doneChan()
 	for _, ch := range chans {
 		select {
 		case ch <- msg:
-		case <-f.done:
+		case <-done:
 			return
 		}
 	}
@@ -120,10 +149,15 @@ func (f *FakeEndpoint) Deliver(msg *hsms.DataMessage) {
 
 // Close signals teardown to any goroutine blocked delivering to a channel registered via
 // AddDataMessageChan, mirroring the real connection's teardown-unblocks-fan-out behavior.
-// It is idempotent and safe for concurrent use; call it from t.Cleanup in a test that registers
-// channels.
+// It is idempotent and safe for concurrent use.
+// Call it from t.Cleanup in a test that registers channels.
+//
+// Close is a bare unblock signal only:
+// unlike hsms.Connection.Close, it returns no error, has no timeout, and does not wait for
+// anything — it just closes the done channel Deliver selects on.
 func (f *FakeEndpoint) Close() {
-	f.closeOnce.Do(func() { close(f.done) })
+	done := f.doneChan()
+	f.closeOnce.Do(func() { close(done) })
 }
 
 // DeliverState invokes every registered StateChangeHandler with (prev, next), as if the

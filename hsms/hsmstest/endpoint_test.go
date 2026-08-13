@@ -169,6 +169,59 @@ func TestFakeEndpoint_AddDataMessageChan_NilPanics(t *testing.T) {
 	assert.Panics(t, func() { ep.AddDataMessageChan(nil) })
 }
 
+// customFakeEndpoint embeds FakeEndpoint the way the CHANGELOG's recommended migration path
+// describes: a hand-rolled SECS2Endpoint fake that embeds hsmstest.FakeEndpoint to pick up new
+// interface methods for free.
+// It is built with a bare struct literal, NOT hsmstest.NewFakeEndpoint, so it exercises
+// FakeEndpoint's zero-value contract.
+type customFakeEndpoint struct {
+	hsmstest.FakeEndpoint
+}
+
+// TestFakeEndpoint_ZeroValue_AddDataMessageChanAndDeliverWork is a regression test for the
+// zero-value contract.
+// A FakeEndpoint constructed via a bare struct literal (directly, or via embedding as
+// customFakeEndpoint does) must support AddDataMessageChan, Deliver, and Close exactly like
+// one built with NewFakeEndpoint.
+// Before the done channel was made lazily initialized, a zero-value FakeEndpoint had a nil
+// done.
+// Deliver would block forever on a full registered channel (no rt.Done()-equivalent escape),
+// and Close would panic on close(nil).
+func TestFakeEndpoint_ZeroValue_AddDataMessageChanAndDeliverWork(t *testing.T) {
+	t.Parallel()
+
+	ep := &customFakeEndpoint{} // bare literal, NOT NewFakeEndpoint
+	t.Cleanup(ep.Close)
+
+	ch := make(chan *hsms.DataMessage, 1)
+	ep.AddDataMessageChan(ch)
+
+	msg, err := hsms.NewDataMessage(1, 1, false, 0, [4]byte{}, secs2.NewEmptyItem())
+	require.NoError(t, err)
+	ep.Deliver(msg)
+
+	select {
+	case got := <-ch:
+		assert.Same(t, msg, got, "a zero-value FakeEndpoint must deliver to a registered channel")
+	default:
+		t.Fatal("zero-value FakeEndpoint did not deliver to the registered channel")
+	}
+
+	assert.NotPanics(t, ep.Close, "Close on a zero-value FakeEndpoint must not panic")
+}
+
+// TestFakeEndpoint_ZeroValue_CloseWithoutAnyRegistrationDoesNotPanic covers the even barer case:
+// Close called on a zero-value FakeEndpoint that never registered a channel or called Deliver.
+// done is still nil at this point.
+// Close must lazily initialize it before closing rather than calling close(nil).
+func TestFakeEndpoint_ZeroValue_CloseWithoutAnyRegistrationDoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	ep := &hsmstest.FakeEndpoint{}
+	assert.NotPanics(t, ep.Close)
+	assert.NotPanics(t, ep.Close, "Close must stay idempotent on a second call")
+}
+
 // TestFakeEndpoint_AddDataMessageChan_CloseUnblocksStalledDeliver verifies that Close unblocks
 // a Deliver call stalled sending to a full/unread registered channel, mirroring the real
 // connection's teardown-unblocks-fan-out behavior (J5 parity).
