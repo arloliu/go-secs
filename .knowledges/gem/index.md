@@ -1,12 +1,15 @@
 ---
 type: Unit
 title: gem
-description: SEMI E30 (GEM) role-message builders returning transport-agnostic SECS-II messages.
+description: SEMI E30 (GEM) role-message builders and the matching strict-shape body decoders, both transport-agnostic.
 ---
 
 # Responsibility
 
-Pure value builders for GEM role messages. Every builder returns a `secs2.SECS2Message` sendable over any established connection via `SendSECS2Message`. Equipment-defined identifiers are taken as `secs2.Item` so callers choose the SECS-II type.
+Pure value builders for GEM role messages, plus a decoder per builder that reads a received body back into a result struct.
+Every builder returns a `secs2.SECS2Message` sendable over any established connection via `SendSECS2Message`;
+every decoder takes the body as a `secs2.Item`, never a message, so the package stays free of transport imports.
+Equipment-defined identifiers are taken as `secs2.Item` so callers choose the SECS-II type.
 
 # Boundary
 

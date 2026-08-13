@@ -16,6 +16,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one per hop, and error messages carry the failing hop's index and depth.
   Scalar accessors (`Uint`, `Int`, `Float`, `Bool`) read the item's internal scalar storage
   directly and allocate nothing on the happy path.
+- `gem`: a body decoder for every generated message builder — `DecodeS1F14` fills an `S1F14Reply`,
+  `DecodeS6F11` fills an `S6F11Body`, 122 pairs in all across streams 1, 2, 5, 6, and 9.
+  A decoder takes the message body as a `secs2.Item`, so `gem` stays independent of any transport
+  package, and the result struct's fields mirror the builder's parameters in order under the E5
+  data item names.
+  Messages with no body carry no decoder.
+- `gem`: the decoders are strict about shape by design.
+  A list of the wrong length, an item of the wrong SECS-II type, a value too wide for the E5 data
+  item's declared width, or a missing position returns an error naming the E5 field or the body
+  position that failed — never a zero value with a nil error.
+  Repeated groups accept any element count, groups SEMI E5 marks optional decode in either their
+  full or their omitted form, and equipment-defined fields are returned as `secs2.Item` unexamined.
+  A body that pads or extends the standard shape is served by the manual `secs2.NewCursor` path
+  instead.
 
 ## [2.3.1] - 2026-08-12
 
