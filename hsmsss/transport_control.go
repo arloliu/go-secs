@@ -12,6 +12,27 @@ import (
 // the peer already signalled it is leaving, so answering with a Separate is neither required nor correct.
 var errPeerSeparate = errors.New("hsmsss: peer sent Separate.req")
 
+// causeRuntime is the optional capability a runtime offers to accept the TransitionCause of an involuntary disconnect alongside the error TCPDown already carries.
+// It is reached by type assertion, deliberately NOT through hsms.TransportRuntime:
+// widening that exported interface would break external implementers, the same reason suppressionRuntime exists.
+// A runtime that lacks the capability still gets the plain TCPDown, and its subscribers see hsms.CauseUnknown.
+type causeRuntime interface {
+	TCPDownWithCause(cause error, transitionCause hsms.TransitionCause)
+}
+
+// tcpDown reports an involuntary disconnect, naming its TransitionCause when the runtime accepts one.
+// Every TCPDown producer in this package goes through it,
+// so the cause is chosen at the site that knows why the link is going down.
+func (t *transport) tcpDown(cause error, transitionCause hsms.TransitionCause) {
+	if cr, ok := t.rt.(causeRuntime); ok {
+		cr.TCPDownWithCause(cause, transitionCause)
+
+		return
+	}
+
+	t.rt.TCPDown(cause)
+}
+
 // handleControlReq dispatches an inbound control request (Select.req, Deselect.req,
 // Linktest.req) to the responder procedures. It runs on the recv goroutine.
 //
@@ -116,7 +137,7 @@ func (t *transport) handleSeparateReq(genCtx context.Context) bool {
 		return false
 	}
 
-	t.rt.TCPDown(errPeerSeparate)
+	t.tcpDown(errPeerSeparate, hsms.CausePeerSeparate)
 
 	return false
 }

@@ -43,7 +43,7 @@ func (t *transport) recvLoop(g *genWG) {
 		// ran (a torn-down generation), so genCtx is cancelled — teardown owns the disconnect and
 		// a stale TCPDown must not be injected (C1 straggler guard). Exit.
 		if genCtx == nil || genCtx.Err() == nil {
-			t.rt.TCPDown(errors.New("hsmsss: recvLoop: not connected"))
+			t.tcpDown(errors.New("hsmsss: recvLoop: not connected"), hsms.CauseIOError)
 		}
 
 		return
@@ -66,7 +66,7 @@ func (t *transport) recvLoop(g *genWG) {
 			// hit a LATER generation's supervisor. An involuntary peer drop (genCtx not cancelled)
 			// still drives the disconnect that initiates teardown.
 			if genCtx.Err() == nil {
-				t.rt.TCPDown(err)
+				t.tcpDown(err, hsms.CauseIOError)
 			}
 
 			return

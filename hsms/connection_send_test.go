@@ -30,7 +30,7 @@ func newTestSendConn(t *testing.T, state ConnState, opts ...ConnOption) (*connec
 	c, ok := conn.(*connection)
 	require.True(t, ok, "NewConnection must return the concrete *connection")
 
-	sup := newSupervisor(func(_, _ ConnState) {}, &c.handlers)
+	sup := newSupervisor(func(_, _ ConnState) {}, &c.handlers, &c.lifecycleSubs)
 	sup.state.Store(uint32(state))
 	c.sup.Store(sup)
 

@@ -36,10 +36,21 @@ const (
 	evT7Timeout                      // T7 NOT-SELECTED dwell expired: NotSelected -> NotConnected (no-op otherwise)
 )
 
-// stateChange is one logical E37 transition, reported to the notifier as (prev -> next).
+// fsmCommand is one queued event plus the TransitionCause the INJECTION SITE named for it.
+// The cause rides alongside the event value and is never read by the transition table:
+// the FSM's states and transitions are exactly what they were before causes existed.
+// It exists only so fireTransition can hand the notifier a reason for the transition it reports.
+type fsmCommand struct {
+	ev    fsmEvent
+	cause TransitionCause
+}
+
+// stateChange is one logical E37 transition, reported to the notifier as (prev -> next) plus the
+// cause carried by the event that drove it.
 type stateChange struct {
-	prev ConnState
-	next ConnState
+	prev  ConnState
+	next  ConnState
+	cause TransitionCause
 }
 
 // supervisor is the single E37 logical FSM (SEMI E37 §5.4–§5.6). It is created FRESH per
@@ -60,7 +71,7 @@ type supervisor struct {
 	state         atomic.Uint32              // stores a ConnState; lock-free hot-path reads + State()
 	lastReacted   ConnState                  // run-owned; dedups reactions/notify (H3; tolerates the H2 pre-commit)
 	closed        bool                       // run-owned; LATCHED true once evClose is processed (I2) — later events ignored
-	events        chan fsmEvent              // SOLE reader is run(); GUARANTEED command queue (inject blocks, never drops)
+	events        chan fsmCommand            // SOLE reader is run(); GUARANTEED command queue (inject blocks, never drops)
 	notify        chan stateChange           // SOLE sender is run(); NON-BLOCKING drop-OLDEST coalescing
 	droppedNotify atomic.Uint64              // count of coalesced/dropped notifications; surfaced via a rate-limited Warn (M4)
 	react         func(prev, next ConnState) // for a transition INTO NotConnected: farewell decision + teardown init
@@ -91,17 +102,28 @@ type supervisor struct {
 	// to an immutable slice) so they persist across Open/Close cycles while the supervisor is
 	// recreated per Open. The per-Open supervisor only reads this pointer.
 	handlers *atomic.Pointer[[]StateChangeHandler]
+
+	// subs is the CANCELLABLE lifecycle-subscription slice, held on the Connection for the same reason as handlers and read the same way.
+	// It is deliberately SEPARATE storage from handlers:
+	// the legacy append-only registration path stays untouched, and a cancel only ever rebuilds this slice.
+	// nil in unit tests that construct a supervisor without a connection.
+	subs *atomic.Pointer[[]lifecycleSub]
 }
 
 // newSupervisorWithEventsCap builds a supervisor with an explicit events-queue capacity
 // (used by tests to make the guaranteed-command-queue behavior deterministic); the notify
 // buffer keeps the default capacity. The caller installs the live closeTimeout provider (M7)
 // and logger (M4) as post-construction fields; both are optional (safe defaults / nil-guard).
-func newSupervisorWithEventsCap(react func(prev, next ConnState), handlers *atomic.Pointer[[]StateChangeHandler], eventsCap int) *supervisor {
+func newSupervisorWithEventsCap(
+	react func(prev, next ConnState),
+	handlers *atomic.Pointer[[]StateChangeHandler],
+	subs *atomic.Pointer[[]lifecycleSub],
+	eventsCap int,
+) *supervisor {
 	return &supervisor{
 		state:         atomic.Uint32{},
 		lastReacted:   NotConnectedState,
-		events:        make(chan fsmEvent, eventsCap),
+		events:        make(chan fsmCommand, eventsCap),
 		notify:        make(chan stateChange, supervisorNotifyCap),
 		droppedNotify: atomic.Uint64{},
 		react:         react,
@@ -110,15 +132,20 @@ func newSupervisorWithEventsCap(react func(prev, next ConnState), handlers *atom
 		runDone:       make(chan struct{}),
 		stopOnce:      sync.Once{},
 		handlers:      handlers,
+		subs:          subs,
 	}
 }
 
 // newSupervisor builds a fresh supervisor for one Open/Close cycle. react is invoked for
 // each deduped logical transition (non-blocking — it only SCHEDULES teardown, never Waits);
-// handlers points at the Connection's persistent StateChangeHandler slice. The caller sets the
-// live closeTimeout provider (M7) and logger (M4) on the returned supervisor.
-func newSupervisor(react func(prev, next ConnState), handlers *atomic.Pointer[[]StateChangeHandler]) *supervisor {
-	return newSupervisorWithEventsCap(react, handlers, supervisorEventsCap)
+// handlers points at the Connection's persistent StateChangeHandler slice, and subs at its cancellable lifecycle-subscription slice.
+// The caller sets the live closeTimeout provider (M7) and logger (M4) on the returned supervisor.
+func newSupervisor(
+	react func(prev, next ConnState),
+	handlers *atomic.Pointer[[]StateChangeHandler],
+	subs *atomic.Pointer[[]lifecycleSub],
+) *supervisor {
+	return newSupervisorWithEventsCap(react, handlers, subs, supervisorEventsCap)
 }
 
 // transition is the pure E37 §5.4–§5.6 state table. It returns the next state and whether
@@ -186,9 +213,10 @@ func (s *supervisor) State() ConnState {
 // On a successful commit it enqueues evTCPUp so the supervisor fires the entering-NotSelected reaction/notify EXACTLY ONCE (deduped on lastReacted, tolerating the pre-committed state via the evTCPUp-from-NotSelected table entry).
 // It returns whether THIS call performed the commit; a call when not NotConnected is a no-op returning false (TCPUp is driven once per generation,
 // and the only transition out of NotConnected is evTCPUp itself, so the CAS always succeeds in practice).
-func (s *supervisor) CommitConnected() (committed bool) {
+// cause comes from the caller, so the reason travels with the event from the site that named it.
+func (s *supervisor) CommitConnected(cause TransitionCause) (committed bool) {
 	if s.state.CompareAndSwap(uint32(NotConnectedState), uint32(NotSelectedState)) {
-		s.inject(evTCPUp)
+		s.inject(evTCPUp, cause)
 
 		return true
 	}
@@ -201,9 +229,10 @@ func (s *supervisor) CommitConnected() (committed bool) {
 //
 // On a successful commit it enqueues evSelectAccepted so the supervisor fires the entering-Selected reaction/notify EXACTLY ONCE (deduped on lastReacted, tolerating the pre-committed state).
 // It returns whether THIS call performed the commit; a call when already Selected is a no-op returning false.
-func (s *supervisor) CommitSelected() (committed bool) {
+// cause comes from the caller, so the reason travels with the event from the site that named it.
+func (s *supervisor) CommitSelected(cause TransitionCause) (committed bool) {
 	if s.state.CompareAndSwap(uint32(NotSelectedState), uint32(SelectedState)) {
-		s.inject(evSelectAccepted)
+		s.inject(evSelectAccepted, cause)
 
 		return true
 	}
@@ -220,9 +249,10 @@ func (s *supervisor) CommitSelected() (committed bool) {
 // Committing here on the recv goroutine closes that window.
 // On a successful commit it enqueues evSelectLost so the supervisor fires the entering-NotSelected reaction/notify EXACTLY ONCE (deduped on lastReacted, tolerating the pre-committed state via the evSelectLost-from-NotSelected table entry).
 // It returns whether THIS call performed the commit; a call when not Selected is a no-op returning false.
-func (s *supervisor) CommitSelectLost() (committed bool) {
+// cause comes from the caller, so the reason travels with the event from the site that named it.
+func (s *supervisor) CommitSelectLost(cause TransitionCause) (committed bool) {
 	if s.state.CompareAndSwap(uint32(SelectedState), uint32(NotSelectedState)) {
-		s.inject(evSelectLost)
+		s.inject(evSelectLost, cause)
 
 		return true
 	}
@@ -244,8 +274,8 @@ func (s *supervisor) run() {
 		select {
 		case <-s.stopCh:
 			return
-		case ev := <-s.events:
-			s.step(ev)
+		case cmd := <-s.events:
+			s.step(cmd)
 		}
 	}
 }
@@ -263,7 +293,9 @@ func (s *supervisor) run() {
 // NotConnected — where no transition fires — still initiates teardown and Close's e.wait()
 // cannot hang (spec §5.3). closeEpoch is nil-guarded so a raw evClose (no requestClose) is a
 // safe no-op.
-func (s *supervisor) step(ev fsmEvent) {
+func (s *supervisor) step(cmd fsmCommand) {
+	ev := cmd.ev
+
 	// I2: once evClose has been processed the supervisor is LATCHED closed — every later event is a
 	// no-op. This closes the Close-vs-reconnect-Start race where an evTCPUp queued behind evClose
 	// (NotConnected -> NotSelected is a legal table entry) would resurrect NotSelected AFTER Close,
@@ -314,7 +346,7 @@ func (s *supervisor) step(ev fsmEvent) {
 		}
 
 		if next != s.lastReacted {
-			s.fireTransition(s.lastReacted, next)
+			s.fireTransition(s.lastReacted, next, cmd.cause)
 			s.lastReacted = next
 		}
 	}
@@ -334,16 +366,21 @@ func (s *supervisor) step(ev fsmEvent) {
 // NotConnected transition the notify is EMITTED BEFORE react (the F1 ordering guarantee: the
 // terminal state is enqueued before react may initiate teardown that stops the notifier);
 // for any other transition react runs first, then emit.
-func (s *supervisor) fireTransition(prev, next ConnState) {
+//
+// cause is the one carried by the event that DROVE this deduped transition.
+// Because the dedup key is the state entered,
+// a later event landing on the same state fires nothing and its cause is never reported —
+// a Close on an already-dropped link reports the drop's cause, not the close's (documented on SubscribeLifecycle).
+func (s *supervisor) fireTransition(prev, next ConnState, cause TransitionCause) {
 	if next == NotConnectedState {
-		s.emit(stateChange{prev: prev, next: next})
+		s.emit(stateChange{prev: prev, next: next, cause: cause})
 		s.react(prev, next)
 
 		return
 	}
 
 	s.react(prev, next)
-	s.emit(stateChange{prev: prev, next: next})
+	s.emit(stateChange{prev: prev, next: next, cause: cause})
 }
 
 // emit is a NON-BLOCKING drop-OLDEST send onto notify. The supervisor is the SOLE sender, so
@@ -385,18 +422,20 @@ func (s *supervisor) resolveCloseTimeout() time.Duration {
 // entering-Selected reaction; dropping evClose would hang Close) — and a safe NO-OP once
 // run() has returned (runDone closed), so a re-Close after stop() cannot deadlock on the
 // unread events channel. Drop coalescing applies only to notify, never to events (spec §5.3).
-func (s *supervisor) inject(ev fsmEvent) {
+// cause is carried verbatim to the notifier for whichever transition this event ends up driving.
+func (s *supervisor) inject(ev fsmEvent, cause TransitionCause) {
 	select {
-	case s.events <- ev:
+	case s.events <- fsmCommand{ev: ev, cause: cause}:
 	case <-s.runDone:
 	}
 }
 
 // requestClose pins the exact epoch the supervisor must ensure-tear-down (so Close and the
 // supervisor agree on WHICH generation) and then injects evClose (spec §5.3).
-func (s *supervisor) requestClose(e *epoch) {
+// cause is the reason the caller is closing; every caller today is a locally initiated teardown.
+func (s *supervisor) requestClose(e *epoch, cause TransitionCause) {
 	s.closeEpoch.Store(e)
-	s.inject(evClose)
+	s.inject(evClose, cause)
 }
 
 // stop closes stopCh exactly once (via stopOnce), causing run() to return. Close calls it
@@ -412,6 +451,12 @@ func (s *supervisor) stop() {
 // handler call is individually panic-isolated (H4) so one panicking handler cannot stop the
 // rest or crash the notifier. It exits when run() closes notify. A slow/blocked handler delays
 // delivery but — because every supervisor send is non-blocking — never blocks the supervisor.
+//
+// Cancellable lifecycle subscriptions ride this SAME goroutine, after the legacy handlers and in registration order, with the same panic isolation.
+// One delivery pass, one ordering, no second goroutine.
+// Each pass reads the subscription pointer ONCE and iterates that immutable snapshot,
+// so a cancel racing the pass can still let one already-dispatching event through (documented on SubscribeLifecycle),
+// but can never corrupt the iteration.
 func (s *supervisor) notifier() {
 	for sc := range s.notify {
 		// Surface any notifications coalesced (dropped) since the last pickup. Emitted here, on the
@@ -419,14 +464,31 @@ func (s *supervisor) notifier() {
 		// delay delivery but can never stall the FSM or a concurrent Close (M4/P1-B).
 		s.reportDrops()
 
-		hs := s.handlers.Load()
-		if hs == nil {
-			continue
+		if hs := s.handlers.Load(); hs != nil {
+			for _, h := range *hs {
+				s.callHandler(h, sc)
+			}
 		}
 
-		for _, h := range *hs {
-			s.callHandler(h, sc)
-		}
+		s.notifySubs(sc)
+	}
+}
+
+// notifySubs delivers one transition to every live lifecycle subscription.
+// subs is nil for a supervisor built without a connection (unit tests), which makes this a no-op.
+func (s *supervisor) notifySubs(sc stateChange) {
+	if s.subs == nil {
+		return
+	}
+
+	subs := s.subs.Load()
+	if subs == nil || len(*subs) == 0 {
+		return
+	}
+
+	ev := LifecycleEvent{Previous: sc.prev, Current: sc.next, Cause: sc.cause}
+	for _, sub := range *subs {
+		s.callSub(sub.fn, ev)
 	}
 }
 
@@ -454,4 +516,13 @@ func (s *supervisor) callHandler(h StateChangeHandler, sc stateChange) {
 	}()
 
 	h(sc.prev, sc.next)
+}
+
+// callSub invokes one lifecycle subscription callback under a recover guard, the same panic isolation callHandler gives a StateChangeHandler.
+func (s *supervisor) callSub(fn func(LifecycleEvent), ev LifecycleEvent) {
+	defer func() {
+		_ = recover() // isolate a panicking subscriber; one bad callback must not stop the rest
+	}()
+
+	fn(ev)
 }

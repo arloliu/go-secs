@@ -34,7 +34,10 @@ func (c *connection) RouteData(msg *DataMessage) error {
 // It nil-guards the supervisor: with no live supervisor it reports false (no commit happened).
 func (c *connection) CommitSelected() bool {
 	if s := c.sup.Load(); s != nil {
-		return s.CommitSelected()
+		// CauseSelectAccepted: every caller of this commit is a completed select handshake.
+		// That covers the HSMS-SS responder and initiator paths,
+		// plus secs1's auto-commit, which runs no handshake but reaches Selected for the same reason: the session is now usable.
+		return s.CommitSelected(CauseSelectAccepted)
 	}
 
 	return false
@@ -45,7 +48,10 @@ func (c *connection) CommitSelected() bool {
 // It nil-guards the supervisor: with no live supervisor it is a no-op.
 func (c *connection) SelectLost() {
 	if s := c.sup.Load(); s != nil {
-		s.CommitSelectLost() // synchronous guarded CAS Selected->NotSelected, then enqueue evSelectLost (I3)
+		// CausePeerDeselect: leaving Selected while the transport link stays up has exactly one producer,
+		// the responder answering an inbound Deselect.req (E37 §7.7).
+		// A peer Separate drops the link instead and arrives through TCPDownWithCause, not here.
+		s.CommitSelectLost(CausePeerDeselect) // synchronous guarded CAS Selected->NotSelected, then enqueue evSelectLost (I3)
 	}
 }
 
@@ -54,7 +60,7 @@ func (c *connection) SelectLost() {
 // See the interface doc.
 func (c *connection) T7Expired() {
 	if s := c.sup.Load(); s != nil {
-		s.inject(evT7Timeout)
+		s.inject(evT7Timeout, CauseT7Timeout) // the site IS the T7 dwell expiry; no other event reaches here
 	}
 }
 

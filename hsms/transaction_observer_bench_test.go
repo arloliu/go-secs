@@ -28,7 +28,7 @@ func benchSendConn(b *testing.B, opts ...ConnOption) *connection {
 		b.Fatalf("NewConnection did not return *connection")
 	}
 
-	sup := newSupervisor(func(_, _ ConnState) {}, &c.handlers)
+	sup := newSupervisor(func(_, _ ConnState) {}, &c.handlers, &c.lifecycleSubs)
 	sup.state.Store(uint32(SelectedState))
 	c.sup.Store(sup)
 

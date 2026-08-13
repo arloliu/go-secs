@@ -235,7 +235,7 @@ func TestClose_IdempotentReCloseDoesNotHang(t *testing.T) {
 	s := c.sup.Load()
 	for range cap(s.events) {
 		select {
-		case s.events <- evTCPUp:
+		case s.events <- fsmCommand{ev: evTCPUp}:
 		default:
 		}
 	}

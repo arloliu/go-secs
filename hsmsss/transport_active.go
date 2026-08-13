@@ -64,7 +64,14 @@ func (t *transport) runSelectProcedure(ctx context.Context) {
 		// T6 timeout / write error: the peer never completed the Select transaction. Drive the
 		// FSM to NotConnected so the reconnect loop re-dials and re-selects (§6.3). T7 (Task 24)
 		// is the belt-and-suspenders NotSelected dwell timer; here the failure is explicit.
-		t.rt.TCPDown(fmt.Errorf("hsmsss: active Select procedure failed: %w", err))
+		// Those two failures get two causes rather than one:
+		// a control transaction stranded at T6 and a broken socket are different diagnoses for the same drop.
+		cause := hsms.CauseIOError
+		if errors.Is(err, hsms.ErrT6Timeout) {
+			cause = hsms.CauseT6Timeout
+		}
+
+		t.tcpDown(fmt.Errorf("hsmsss: active Select procedure failed: %w", err), cause)
 
 		return
 	}
@@ -72,7 +79,7 @@ func (t *transport) runSelectProcedure(ctx context.Context) {
 	// A well-formed Select.rsp with select-status 0 is success. The recv loop has ALREADY
 	// committed Selected (H2, see the file header); nothing more to do.
 	if rsp == nil || rsp.Type() != hsms.SelectRspType {
-		t.rt.TCPDown(errSelectRejected)
+		t.tcpDown(errSelectRejected, hsms.CauseSelectRejected)
 
 		return
 	}
@@ -85,7 +92,7 @@ func (t *transport) runSelectProcedure(ctx context.Context) {
 	// non-zero status yields no state transition, and we are already Selected. Any OTHER non-zero
 	// status (2 Not Ready, 3 Exhaust, 4+ reserved) IS a genuine Select failure → drop + reconnect.
 	if s := selectStatus(rsp); s != hsms.SelectStatusSuccess && s != hsms.SelectStatusAlreadyActive {
-		t.rt.TCPDown(errSelectRejected)
+		t.tcpDown(errSelectRejected, hsms.CauseSelectRejected)
 	}
 }
 

@@ -177,7 +177,7 @@ func (c *connection) writeFrame(ctx context.Context, e *epoch, msg Message) erro
 		// it is safe under writeMu. Guarded on e.ctx so an already-tearing-down generation is not
 		// redundantly re-dropped.
 		if e.ctx.Err() == nil {
-			c.TCPDown(err)
+			c.TCPDownWithCause(err, CauseIOError) // a failed writev IS the transport I/O failure
 		}
 
 		return err

@@ -106,7 +106,7 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	// FRESH per-Open supervisor (no channel reuse — round-5). Its run()/notifier() are
 	// connection-owned (supWg), NOT epoch-spawned, so the supervisor spans reconnect
 	// generations (round-6). It reads user handlers from the Connection's persistent pointer.
-	s := newSupervisor(c.react, &c.handlers)
+	s := newSupervisor(c.react, &c.handlers, &c.lifecycleSubs)
 	// Install the LIVE closeTimeout provider (M7 — the evClose teardown reads current config, so a
 	// mid-session UpdateConfigOptions(WithCloseTimeout) is honored) and the logger for the
 	// notify-coalesce Warn (M4).
@@ -165,7 +165,9 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 
 		// Roll back the freshly created generation + supervisor so lifeMu is not released over
 		// a half-open connection (a later Open would then see a torn-down cur and reopen).
-		s.requestClose(e)
+		// CauseLocalClose: this rollback is a locally initiated teardown of a generation this same
+		// Open just built — the same class of transition a user Close drives, reached by a different door.
+		s.requestClose(e, CauseLocalClose)
 		_ = e.wait()
 		s.stop()
 		c.supWg.Wait()
@@ -257,8 +259,8 @@ func (c *connection) Close() error {
 		close(*p)
 	}
 
-	s.requestClose(e) // pins e + injects evClose (initiates teardown of e from EVERY state)
-	err := e.wait()   // <-e.done; return closeErr — no poll, no F2 hang
+	s.requestClose(e, CauseLocalClose) // pins e + injects evClose (initiates teardown of e from EVERY state)
+	err := e.wait()                    // <-e.done; return closeErr — no poll, no F2 hang
 
 	s.stop()       // close stopCh -> run() exits (closing notify/runDone -> notifier exits)
 	c.supWg.Wait() // join run() + notifier()
@@ -540,7 +542,9 @@ func (c *connection) TCPUp(conn net.Conn) {
 	}
 
 	if s := c.sup.Load(); s != nil {
-		s.CommitConnected()
+		// CauseLocalOpen: reaching NotSelected means OUR Open (or the reconnect loop it owns)
+		// established the link, whether by dialing out or by accepting the peer we were listening for.
+		s.CommitConnected(CauseLocalOpen)
 	}
 }
 
@@ -549,12 +553,29 @@ func (c *connection) TCPUp(conn net.Conn) {
 // Any TCPDown is an INVOLUNTARY drop, so it marks the current generation commsFailure=true (the NotConnected reaction then sends NO farewell Separate —
 // §9.1.1) and injects evDisconnect.
 // A graceful voluntary Close never routes through TCPDown; it funnels through evClose and leaves commsFailure false.
+//
+// CauseUnknown, not CauseIOError:
+// this entry point carries no classification, and a transport that reaches it has declined to name one.
+// Guessing "I/O error" here would put a wrong cause on a linktest-failure or select-rejection drop.
+// In-module transports call TCPDownWithCause instead.
 func (c *connection) TCPDown(cause error) {
+	c.TCPDownWithCause(cause, CauseUnknown)
+}
+
+// TCPDownWithCause is TCPDown with the TransitionCause named by the transport.
+//
+// It is the cause-carrying half of the TCP-down back-channel, reached by the in-module transports through a package-local capability
+// interface rather than through [TransportRuntime] — widening that exported interface would break external implementers,
+// the same reason LinktestSuppression is reached that way.
+//
+// cause is the transport's error for the drop (used for the farewell decision, unchanged);
+// transitionCause is the closed-set classification carried to the lifecycle subscribers.
+func (c *connection) TCPDownWithCause(cause error, transitionCause TransitionCause) {
 	if e := c.cur.Load(); e != nil {
 		e.commsFailure.Store(true)
 	}
 
 	if s := c.sup.Load(); s != nil {
-		s.inject(evDisconnect)
+		s.inject(evDisconnect, transitionCause)
 	}
 }

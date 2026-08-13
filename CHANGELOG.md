@@ -37,6 +37,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A registered channel shares `AddDataMessageHandler`'s delivery, backpressure, and lifetime contract:
   delivery blocks the receive goroutine on a full channel, duplicate registration delivers once per registration, and registration is permanent for the connection's lifetime.
   See the method's godoc for the full consumer contract.
+- `hsms`: `Connection.SubscribeLifecycle(fn func(LifecycleEvent)) (cancel func())` observes connection state transitions with the reason each one happened, and can be cancelled.
+  A `LifecycleEvent` carries the previous state, the current state, and a `TransitionCause` from a closed set:
+  `CauseLocalOpen`, `CauseLocalClose`, `CauseSelectAccepted`, `CauseSelectRejected`, `CausePeerSeparate`, `CausePeerDeselect`, `CauseT6Timeout`, `CauseT7Timeout`, `CauseLinktestFail`, `CauseIOError`, and `CauseUnknown` when the transport names no reason.
+  A consumer can now tell a local `Close` from a peer `Separate.req`, a T7 dwell expiry, or a dropped socket without correlating logs after the fact.
+  The cause is an enumerated value rather than a retained error, so observing one never keeps a failed transaction's error alive.
+  Callbacks run on the same notifier goroutine, in the same order, and with the same panic isolation as a handler registered through `AddConnStateChangeHandler`, which is unchanged.
+  A subscription persists across `Open`/`Close` cycles until its `cancel` runs; `cancel` is idempotent and safe to call from inside the callback.
 - `hsms`: `WithTransactionObserver(fn func(TxEvent))` reports one `TxEvent` per completed synchronous send transaction —
   `SendDataMessage`, `SendSECS2Message`, and `ForwardDataMessage` —
   describing how it ended (`TxReplied`, `TxSent`, `TxT3Timeout`, `TxRejected`, `TxCanceled`, or `TxSendError`) and how long it took.
@@ -49,10 +56,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Breaking:** `hsms.SECS2Endpoint` gained a new method, `AddDataMessageChan`.
-  Any hand-rolled implementation of the interface (outside of the session type this package returns) now fails to compile until it adds the method.
-  `hsmstest.FakeEndpoint` already implements it.
+- **Breaking:** `hsms.SECS2Endpoint` gained a new method, `AddDataMessageChan`, and `hsms.Connection` gained `SubscribeLifecycle`.
+  Any hand-rolled implementation of either interface (outside of the connection and session types this package returns) now fails to compile until it adds the methods.
+  `hsmstest.FakeEndpoint` already implements `AddDataMessageChan`.
   Embed it in a custom fake instead of implementing `SECS2Endpoint` from scratch to avoid this class of break on future interface growth.
+  `hsmsss` and `secs1` are unaffected: both build on the connection engine this package returns.
 
 ## [2.3.1] - 2026-08-12
 

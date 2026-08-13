@@ -212,4 +212,33 @@ type Connection interface {
 	//
 	// The options are applied transactionally (validate-all, then commit atomically).
 	UpdateConfigOptions(opts ...ConnOption) error
+
+	// SubscribeLifecycle registers fn to observe every connection state transition together with the cause that drove it,
+	// and returns the function that cancels the subscription.
+	//
+	// This is the cancellable, cause-carrying counterpart to AddConnStateChangeHandler.
+	// Use it when the observer is shorter-lived than the connection,
+	// or when it must tell a local Close from a peer Separate, a T7 expiry, or a dropped socket without correlating logs afterwards.
+	//
+	// fn runs on the connection's notifier goroutine — the same goroutine, in the same order, as a StateChangeHandler —
+	// so it must not block: a slow fn delays delivery to every other subscriber and handler.
+	// A panic inside fn is isolated and never stops the other subscribers.
+	//
+	// LifecycleEvent.Cause names the event that drove the transition the connection actually reported.
+	// Transitions are deduplicated on the state entered,
+	// so when a second event would land the connection in the state it is already in, nothing is reported for it —
+	// a Close issued on a link that has already dropped reports the drop's cause, not CauseLocalClose.
+	//
+	// Delivery is best-effort under a subscriber that does not keep up:
+	// intermediate transitions, and their causes, may be coalesced away, but the connection's latest state is always delivered.
+	//
+	// The subscription persists across Open/Close cycles until cancel is called.
+	// cancel is idempotent and safe to call from any goroutine, including from inside fn.
+	// It is not a delivery barrier:
+	// an event already being dispatched may still reach fn, so keep fn safe to run once more after cancel returns.
+	//
+	// A nil fn registers nothing and returns a cancel that does nothing.
+	//
+	// Registration is not blocking I/O and does not take a context.
+	SubscribeLifecycle(fn func(LifecycleEvent)) (cancel func())
 }

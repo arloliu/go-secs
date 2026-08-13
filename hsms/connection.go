@@ -62,6 +62,13 @@ type connection struct {
 	sup      atomic.Pointer[supervisor]           // the E37 logical FSM; recreated fresh per Open
 	handlers atomic.Pointer[[]StateChangeHandler] // user state-change handlers; persist across Open/Close
 
+	// lifecycleSubs holds the CANCELLABLE subscriptions registered through SubscribeLifecycle,
+	// kept separate from handlers so the legacy append-only path is never rebuilt by a cancel.
+	// Like handlers it lives here, not on the supervisor, so subscriptions survive Open/Close cycles.
+	// lifecycleSeq mints the ids a cancel closure removes by.
+	lifecycleSubs atomic.Pointer[[]lifecycleSub]
+	lifecycleSeq  atomic.Uint64
+
 	shutdown     atomic.Bool   // set by Close; re-checked by reconnect reactions (F3/G2)
 	reconnectGen atomic.Uint64 // bumped by Close/Open; the G2 fence compares against it
 

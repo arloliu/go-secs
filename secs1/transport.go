@@ -21,6 +21,15 @@ import (
 // failure. (Mirrors hsmsss.errStartSealed.)
 var errStartSealed = errors.New("secs1: transport stopping — start aborted (I1 guard)")
 
+// causeRuntime is the optional capability a runtime offers to accept the TransitionCause of an involuntary disconnect alongside the error TCPDown already carries.
+// It is reached by type assertion, deliberately NOT through hsms.TransportRuntime:
+// widening that exported interface would break external implementers.
+// A runtime that lacks the capability still gets the plain TCPDown, and its subscribers see hsms.CauseUnknown.
+// (Mirrors hsmsss.causeRuntime.)
+type causeRuntime interface {
+	TCPDownWithCause(cause error, transitionCause hsms.TransitionCause)
+}
+
 // Compile-time assertion that *transport satisfies the unexported hsms.transport seam. Expressed as
 // a function literal assigned to the blank identifier so the compiler type-checks the body without
 // requiring the function to be called. (hsms.transport is unexported, so the cross-package check
@@ -235,6 +244,19 @@ func (t *transport) Start(ctx context.Context, rt hsms.TransportRuntime) error {
 
 // IsActive reports whether this transport is configured for the active (dialing) role.
 func (t *transport) IsActive() bool { return t.cfg.Active() }
+
+// tcpDown reports an involuntary disconnect, naming its TransitionCause when the runtime accepts one.
+// Every TCPDown producer in this package goes through it,
+// so the cause is chosen at the site that knows why the line is going down.
+func (t *transport) tcpDown(cause error, transitionCause hsms.TransitionCause) {
+	if cr, ok := t.rt.(causeRuntime); ok {
+		cr.TCPDownWithCause(cause, transitionCause)
+
+		return
+	}
+
+	t.rt.TCPDown(cause)
+}
 
 // startActive dials the configured host:port, applies keep-alive, publishes the conn, auto-commits
 // the FSM to Selected, and spawns the single line engine. engineCtx/engineCancel scope this
@@ -512,7 +534,7 @@ func (t *transport) lineEngine(engineCtx context.Context, g *genWG, conn net.Con
 			// closes the socket AFTER calling engineCancel, so a Stop-initiated read error finds
 			// engineCtx cancelled and injects no spurious TCPDown.
 			if engineCtx.Err() == nil {
-				t.rt.TCPDown(fmt.Errorf("secs1: line engine read: %w", err))
+				t.tcpDown(fmt.Errorf("secs1: line engine read: %w", err), hsms.CauseIOError)
 			}
 
 			return
@@ -522,7 +544,7 @@ func (t *transport) lineEngine(engineCtx context.Context, g *genWG, conn net.Con
 		if b == enq {
 			if werr := line.writeByte(eot); werr != nil { // grant the line
 				if engineCtx.Err() == nil {
-					t.rt.TCPDown(fmt.Errorf("secs1: line engine EOT: %w", werr))
+					t.tcpDown(fmt.Errorf("secs1: line engine EOT: %w", werr), hsms.CauseIOError)
 				}
 
 				return
