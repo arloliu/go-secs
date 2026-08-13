@@ -64,6 +64,7 @@ func TestIsTransient_TableDriven(t *testing.T) {
 		{"ErrNotSelectedState", ErrNotSelectedState, true},
 		{"ErrNotSelectedState wrapped", fmt.Errorf("send: %w", ErrNotSelectedState), true},
 		{"ErrNotSelectedState joined", errors.Join(errPlain, ErrNotSelectedState), true},
+		{"errors.Join of a permanent sentinel and a transient one: any-branch-wins, not vetoed", errors.Join(ErrMessageTooLarge, ErrNotSelectedState), true},
 		{"ErrConnClosed", ErrConnClosed, true},
 		{"ErrConnClosed wrapped", fmt.Errorf("write: %w", ErrConnClosed), true},
 		{"ErrT3Timeout", ErrT3Timeout, true},
@@ -104,6 +105,7 @@ func TestIsTimeout_TableDriven(t *testing.T) {
 		{"ErrT3Timeout", ErrT3Timeout, true},
 		{"ErrT3Timeout wrapped", fmt.Errorf("reply: %w", ErrT3Timeout), true},
 		{"ErrT3Timeout joined", errors.Join(errPlain, ErrT3Timeout), true},
+		{"errors.Join of a non-timeout sentinel and a timeout one: any-branch-wins", errors.Join(ErrMessageTooLarge, ErrT3Timeout), true},
 		{"ErrT6Timeout", ErrT6Timeout, true},
 		{"ErrCloseTimeout", ErrCloseTimeout, true},
 		{"ErrCloseTimeout wrapped", fmt.Errorf("close: %w", ErrCloseTimeout), true},
@@ -129,6 +131,25 @@ func TestIsTimeout_TableDriven(t *testing.T) {
 	t.Run("real net.Error timeout wrapped", func(t *testing.T) {
 		require.True(t, IsTimeout(fmt.Errorf("read: %w", realNetTimeout(t))))
 	})
+}
+
+// TestClassify_JoinPolicy_AnyMatchWins pins the errors.Join policy documented on both functions.
+// A matching branch wins even when another branch in the same tree is explicitly permanent (for IsTransient)
+// or explicitly not a timeout (for IsTimeout) —
+// a permanent or non-timeout branch does not veto a match found elsewhere in the tree.
+func TestClassify_JoinPolicy_AnyMatchWins(t *testing.T) {
+	// Sanity check first: the permanent branch alone classifies false/false.
+	// The true results below come from the OTHER branch, not from ErrMessageTooLarge itself.
+	require.False(t, IsTransient(ErrMessageTooLarge))
+	require.False(t, IsTimeout(ErrMessageTooLarge))
+
+	transientJoin := errors.Join(ErrMessageTooLarge, ErrNotSelectedState)
+	require.True(t, IsTransient(transientJoin),
+		"a permanent branch (ErrMessageTooLarge) must not veto a transient one (ErrNotSelectedState) elsewhere in the Join tree")
+
+	timeoutJoin := errors.Join(ErrMessageTooLarge, ErrT3Timeout)
+	require.True(t, IsTimeout(timeoutJoin),
+		"a non-timeout branch (ErrMessageTooLarge) must not veto a timeout one (ErrT3Timeout) elsewhere in the Join tree")
 }
 
 // TestIsTransient_Integration_NotSelectedSend proves the classification end-to-end through the

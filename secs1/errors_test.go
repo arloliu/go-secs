@@ -9,10 +9,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestErrSendFailed_IdentityPreservedAfterRetype is the teeth of the retype:
+// TestErrSendFailed_IdentityPreservedAfterRetype is the teeth of the retype.
 // ErrSendFailed gained a dynamic type (transientError) so it satisfies hsms.TransientError,
 // but the var itself is unchanged.
-// errors.Is comparisons against it — plain, wrapped, or errors.Join'd — must keep working exactly as they did before the marker existed.
+// errors.Is comparisons against it — plain, wrapped, or errors.Join'd —
+// must keep working exactly as they did before the marker existed.
+//
+// The errors.As assertion below is load-bearing, not incidental.
+// Without it, every errors.Is check in this test passes trivially, since ErrSendFailed always equals itself, marked or not.
+// So the test would keep passing even if the marker had landed on a DIFFERENT var than the one errors.Is compares against —
+// for example a retype that introduces a separate marked var instead of retyping ErrSendFailed itself.
+// This was confirmed by deliberately reproducing that exact bug.
+// With ErrSendFailed reverted to plain errors.New and the marker moved to an unused sibling var,
+// every ErrorIs call below still passed.
+// Only this errors.As line, plus the independent TestErrSendFailed_ClassifiesTransient, caught it.
+// See the fix report for the full teeth-check.
 func TestErrSendFailed_IdentityPreservedAfterRetype(t *testing.T) {
 	require.ErrorIs(t, ErrSendFailed, ErrSendFailed)
 	require.ErrorIs(t, fmt.Errorf("send block: %w", ErrSendFailed), ErrSendFailed)
@@ -20,6 +31,11 @@ func TestErrSendFailed_IdentityPreservedAfterRetype(t *testing.T) {
 
 	// The wire text is unchanged by the retype.
 	require.Equal(t, "secs1: block send failed, retries exhausted", ErrSendFailed.Error())
+
+	// The var errors.Is compares against above must be the SAME var the marker landed on.
+	var te hsms.TransientError
+	require.ErrorAs(t, ErrSendFailed, &te, "the marker must be on ErrSendFailed itself, not a separate var")
+	require.True(t, te.Transient())
 }
 
 // TestErrSendFailed_ClassifiesTransient proves the retype actually reaches hsms.IsTransient: a

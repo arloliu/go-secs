@@ -57,6 +57,15 @@ var timeoutSentinels = []error{
 //  3. Anything else returns false.
 //     An error this function does not recognize is treated as permanent:
 //     misclassifying a permanent error as retryable risks a silent retry storm, while the reverse only fails a job early.
+//
+// errors.Join policy: any matching branch wins.
+// errors.Join(ErrMessageTooLarge, ErrNotSelectedState) reports true, the same as ErrNotSelectedState alone —
+// a permanent branch elsewhere in the tree does NOT veto a transient one.
+// This mirrors how errors.Is itself treats a Join tree (a match anywhere in the tree satisfies the check),
+// so IsTransient stays consistent with ordinary errors.Is usage against the same error.
+// A caller that joins a permanent cause together with a transient one, and needs the permanent cause to veto a retry,
+// must inspect the branches itself.
+// IsTransient answers "is there a reason this might succeed," not "will every branch resolve on retry."
 func IsTransient(err error) bool {
 	if err == nil {
 		return false
@@ -87,6 +96,10 @@ func IsTransient(err error) bool {
 //     practice step 1 already catches both cases (their concrete types implement Timeout() bool),
 //     but this step keeps the documented contract explicit rather than relying on that overlap.
 //  4. Anything else returns false.
+//
+// errors.Join policy: any matching branch wins, the same as IsTransient — see its godoc for the full rationale.
+// errors.Join(ErrMessageTooLarge, ErrT3Timeout) reports true, even though ErrMessageTooLarge alone is not a timeout:
+// a timeout happened somewhere in the tree, which is what this function answers.
 func IsTimeout(err error) bool {
 	if err == nil {
 		return false
