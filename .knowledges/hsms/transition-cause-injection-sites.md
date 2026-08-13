@@ -1,17 +1,22 @@
 ---
 type: Mechanic
 title: Where a TransitionCause is chosen, and why one transition can swallow another's cause
-description: The full transition-source to cause map, why the cause is picked at the injection site rather than derived in the FSM, why the transports pass it through a capability interface instead of TransportRuntime, and the two ways a cause never reaches a subscriber.
+description: The full transition-source to cause map, why the cause is picked at the injection site rather than derived in the FSM, why the transports pass both the cause and their generation through a capability interface instead of TransportRuntime, how the generation match keeps a late transport goroutine from dropping its successor's link, and the ways a cause never reaches a subscriber.
 tags: [hsms, lifecycle, supervisor, fsm, observability]
 status: draft
 generated: {by: "claude/opus-5", at: 2026-08-13T00:00:00Z}
+verified:
+  - {by: "claude/opus-5", at: 2026-08-13T00:00:00Z}
 sources:
   - {resource: hsms/lifecycle.go, digest: sha256:65d429d90300b620, revision: 5a0ec1b}
-  - {resource: hsms/supervisor.go, digest: sha256:ce4e1df37ed32013, revision: 590fe16}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:57d569ac8df3b2a0, revision: 590fe16}
-  - {resource: hsms/connection_runtime.go, digest: sha256:85422b08b8884b47, revision: 590fe16}
-  - {resource: hsmsss/transport_control.go, digest: sha256:8220b01d9d017d57, revision: 590fe16}
-  - {resource: hsmsss/transport_active.go, digest: sha256:b67d832db547d0b4, revision: 5a0ec1b}
+  - {resource: hsms/supervisor.go, digest: sha256:f4bebf9fba890c8a, revision: d60cf23}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:1764ee6af13cc087, revision: d60cf23}
+  - {resource: hsms/connection_runtime.go, digest: sha256:0ae9f6c0e8a9bacf, revision: d60cf23}
+  - {resource: hsms/connection.go, digest: sha256:a656a8eaf0fd1cb5, revision: d60cf23}
+  - {resource: hsms/epoch.go, digest: sha256:8a78eb0a67c0ebb2, revision: d60cf23}
+  - {resource: hsmsss/transport.go, digest: sha256:56714b6542a42c29, revision: d60cf23}
+  - {resource: hsmsss/transport_control.go, digest: sha256:7122126538e3ed45, revision: d60cf23}
+  - {resource: hsmsss/transport_active.go, digest: sha256:35c6aae0a4ab6f0b, revision: d60cf23}
 ---
 
 # What it does
@@ -70,8 +75,48 @@ the auto-commit reaches `Selected` for the same reason a handshake does, so the 
 Defaulting it to `CauseIOError` would mislabel every drop an out-of-module transport reports for a non-I/O reason.
 Only the in-module transports name a cause, through `connection.TCPDownWithCause`.
 
+**Every injection site also names the generation it speaks for, and that is a separate axis from the cause.**
+A transport goroutine can outlive the generation that spawned it:
+the teardown join is bounded,
+so one wedged past the close timeout is abandoned and may resume after a reconnect has established and selected a new link.
+Because the plain `TCPDown` entry points resolve `c.cur` and `c.sup` at call time, such a goroutine used to drop the SUCCESSOR and report ITS cause to persistent subscribers.
+Every ctx check in `hsmsss` narrows that window and none of them closes it —
+`recvLoop`'s read-error branch, `handleSeparateReq`, the Select and linktest procedures all share the shape,
+and cancellation can always land between the check and the call.
+
+The identity is `epoch.id`, minted from the connection-scoped `genSeq` before the epoch is published on `cur` and never reset per Open cycle.
+`hsmsss` reads it once per `Start` (`CurrentGeneration`) and stamps it on that generation's `genWG`,
+which already reaches every goroutine it spawns;
+each producer passes `g.gen` back through `TCPDownFromGeneration` / `T7ExpiredFromGeneration`.
+It is checked in TWO places, and both are load-bearing:
+
+- `connection.injectDisconnect` drops a report whose generation has ended.
+  This is what keeps a straggler from setting the SUCCESSOR's `commsFailure`,
+  which would suppress that generation's courtesy farewell Separate on a later graceful Close.
+- `fsmCommand.gen` carries the identity onto the queue,
+  and `step` re-checks it AFTER `state.Load()` and BEFORE the transition.
+  The ordering is the whole barrier:
+  a successor's state can only be committed after that successor was published to `cur`,
+  so reading such a state guarantees the `cur` read that follows observes the successor and discards the event.
+  Reversing the two reverts it to a narrowed window.
+
+The match cannot suppress a legitimate disconnect, and the reason is an invariant elsewhere:
+`cur` is published in exactly two places (`Open`, `connectLoop`) and the loop only runs from the entering-NotConnected reaction,
+so `cur` advances only after the previous generation ended.
+A mismatch therefore means the reporting generation's link was already torn down.
+`s.curGen` must stay a bare atomic load.
+`step` runs on the FSM goroutine, which an epoch teardown join can be waiting behind,
+so a lock the teardown path holds would close a cycle:
+`Stop` holds `startGate`, and `connectLoop` wants `startGate` in `ArmStart` while holding `publishMu`.
+
+`secs1` does NOT name a generation — its line engine runs under a derived ctx and its own bundle —
+so its reports keep the pre-barrier behavior.
+Out-of-module transports likewise pass no identity: a `gen` of 0 skips the match everywhere.
+
 **How the cause crosses the package boundary.**
 `hsmsss` and `secs1` reach `TCPDownWithCause` by type-asserting `t.rt` to a package-local `causeRuntime` interface, then fall back to plain `TCPDown`.
+`hsmsss` additionally asserts a `genRuntime` interface carrying the three generation-aware methods,
+and prefers it when present.
 This is the same pattern `suppressionRuntime` uses for `LinktestSuppression`,
 and for the same documented reason (`hsms/connection.go`):
 widening the exported `TransportRuntime` would break external implementers.
@@ -107,7 +152,12 @@ see `hsmsss.causeLog.waitBringUp`, which tolerates both shapes.
 
 - causes and subscription storage: `hsms/lifecycle.go` →
   `TransitionCause`, `LifecycleEvent`, `connection.SubscribeLifecycle`, `connection.cancelLifecycle`
-- event plumbing: `hsms/supervisor.go` → `fsmCommand`, `inject`, `step`, `fireTransition`, `notifySubs`
-- cause-carrying disconnect: `hsms/connection_lifecycle.go` → `TCPDownWithCause`
-- transport capability: `hsmsss/transport_control.go` → `causeRuntime`, `transport.tcpDown`;
-  `secs1/transport.go` → the same pair
+- event plumbing: `hsms/supervisor.go` → `fsmCommand`, `inject`, `injectFrom`, `step`, `fireTransition`, `notifySubs`
+- cause-carrying disconnect: `hsms/connection_lifecycle.go` → `TCPDownWithCause`, `TCPDownFromGeneration`, `injectDisconnect`
+- generation identity: `hsms/epoch.go` → `epoch.id`;
+  `hsms/connection.go` → `genSeq`;
+  `hsms/connection_lifecycle.go` → `CurrentGeneration` and the two `cur.Store` sites
+- the barrier itself: `hsms/supervisor.go` → `step`'s generation match, `curGen`, `staleGen`
+- transport capability: `hsmsss/transport_control.go` → `causeRuntime`, `genRuntime`, `transport.tcpDown`, `transport.t7Expired`;
+  `secs1/transport.go` → `causeRuntime` only
+- the generation token's carrier: `hsmsss/transport.go` → `genWG.gen`, stamped in `startActive` / `startPassive`

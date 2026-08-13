@@ -158,27 +158,49 @@ before, only a Selected-state Separate reached `TCPDown` at all.
 
 `TestSeparate_CancelledGenerationSkipsTCPDown` pins it, teeth-checked by removing the ctx check.
 
-Be precise about what the guard buys.
+Be precise about what the ctx guard buys.
 An earlier revision of this section over-claimed it, and the v2 review was right to call that out.
-The check NARROWS the window; it is not an epoch barrier.
+The check NARROWS the window; it is not a barrier.
 Cancellation can still land between the check and the `TCPDown` call, on this sequence:
 the handler observes an uncancelled `genCtx` and is descheduled;
 a concurrent T7 expiry or Select failure tears down generation N;
 the bounded join abandons this recv goroutine;
 reconnect publishes N+1;
 the handler then resumes and injects `evDisconnect` into N+1.
-The test proves the early-return branch, not that sequence.
+`TestSeparate_CancelledGenerationSkipsTCPDown` proves the early-return branch, not that sequence.
 
-Closing it properly requires the queued FSM event to carry epoch identity and be revalidated at PROCESSING time,
-the pattern `supervisor.requestClose` already uses via `closeEpoch`.
-That is a core change touching all seven `TCPDown` / `T7Expired` producers, and it belongs on its own branch:
-the identical check-then-call shape has been `recvLoop`'s read-error guard since long before this phase,
-where it is far more reachable than a NotSelected Separate ever is.
+**The barrier (added after this audit, and now the load-bearing guard).**
+It was never specific to `Separate`:
+`handleSeparateReq` runs on the recv goroutine and had exactly the protection the read-error path had —
+the same ctx check,
+plus the reconnect loop's generation-serialization, which joins the recv loop before dialing the successor.
+Both share the one residual hole:
+a bounded `Stop` that times out abandons the recv goroutine, which may then resume at any later time.
+So the fix is generic rather than site-specific.
 
-The broader hazard is pre-existing architecture with six other call sites, and is NOT addressed here:
-`evDisconnect` and `evT7Timeout` carry no epoch identity at all,
-so *any* delayed producer could in principle cross a generation boundary.
-It deserves its own change.
+Each generation now carries an identity (`epoch.id`), read once per `Start` and stamped on the generation's WaitGroup bundle,
+so every goroutine it spawns reports under the generation it belongs to rather than whichever is current when it reports.
+The identity is checked twice.
+`connection.injectDisconnect` drops a report whose generation has ended.
+That also stops a straggler from marking a SUCCESSOR's comms-failure flag,
+which would silently suppress that generation's courtesy `Separate`.
+And the identity rides on the queued FSM command,
+where `supervisor.step` re-checks it AFTER reading state and BEFORE the transition:
+that ordering is what makes it a barrier rather than another narrowed window,
+because a state belonging to a successor can only have been committed after that successor was published,
+so observing such a state guarantees the check observes the successor too.
+
+It cannot suppress a legitimate disconnect: `connection.cur` advances only after the FSM entered `NotConnected`,
+so a generation mismatch means the reporting generation's link was already torn down and its report is redundant.
+
+All seven `TCPDown` / `T7Expired` producers in `hsmsss` report their generation, as does the core's own write-failure path.
+`secs1` still reports without one (its line engine runs under a derived ctx and a different bundle);
+that leaves it exactly where it was, protected by generation-serialization and its own ctx guard.
+
+Pinned by `TestSeparate_ReportsItsOwnGeneration` (this package reports the generation that READ the frame),
+`TestSupervisor_GenerationMatchAtProcessingTime` (the FSM discards an overtaken event),
+and `TestReconnect_AbandonedGenerationTCPDownCannotDropSuccessor`
+(end to end: a goroutine abandoned by the bounded join, released only once the successor is Selected, must not drop it).
 
 Two tests were rewritten from asserting the old behavior to asserting the new one,
 both teeth-checked by restoring the `State() == SelectedState` guard:
