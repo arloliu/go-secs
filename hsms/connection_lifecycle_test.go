@@ -295,10 +295,18 @@ func TestClose_WhileDialingNotConnectedDoesNotHang(t *testing.T) {
 // and the in-flight message delivery is simply dropped (at-most-once), UNLIKE a func handler
 // that blocks forever, which nothing here can preempt.
 //
-// Teeth-check: remove `case <-s.rt.Done()` from the channel-delivery select in session.go
-// (recvDataMsg) — this test then times out waiting for Close.
+// Close's OWN timing is made to depend on this, not just the delivery goroutine's.
+// The delivery goroutine below is joined by mockTransport.Stop (armHeldRouteData), the mock's stand-in for epoch.stopTransport —
+// the SAME hook a real transport's Stop is bound to (connection_lifecycle.go: e.stopTransport = c.tr.Stop).
+// epoch.join calls that hook bounded by the close-timeout deadline.
+// If the delivery never unblocks, Stop blocks until that deadline, epoch.join reports ErrCloseTimeout,
+// and Close itself times out.
+//
+// Teeth-check: remove `case <-s.rt.Done()` from the channel-delivery select in session.go (recvDataMsg).
+// This test then observes Close ITSELF taking the full close timeout and returning ErrCloseTimeout,
+// reproducing the exact (false) behavior the old godoc described.
 func TestClose_UnblocksStalledDataMessageChanConsumer(t *testing.T) {
-	c, _ := newLifeConn(t, withMockTransport())
+	c, mt := newLifeConn(t, withMockTransport())
 	require.NoError(t, c.Open(t.Context(), OpenBackground))
 	requireSelected(t, c)
 
@@ -315,12 +323,11 @@ func TestClose_UnblocksStalledDataMessageChanConsumer(t *testing.T) {
 	handlerRan := make(chan struct{})
 	c.AddDataMessageHandler(func(*DataMessage, SECS2Endpoint) { close(handlerRan) })
 
+	// Drives delivery through the real receive path:
+	// rt.RouteData is exactly what a real recv loop calls per inbound frame (connection_runtime.go).
+	// mockTransport.Stop below joins this goroutine the way epoch teardown joins a real recv loop.
 	msg := mustDataMsg(t)
-	recvDone := make(chan struct{})
-	go func() {
-		defer close(recvDone)
-		c.recvDataMsg(msg) // promoted from the embedded session; models a recv-loop delivery
-	}()
+	mt.armHeldRouteData(mt.runtime(), msg)
 	<-handlerRan // the delivery goroutine is now parked in the channel-delivery select
 
 	start := time.Now()
@@ -331,16 +338,50 @@ func TestClose_UnblocksStalledDataMessageChanConsumer(t *testing.T) {
 	case err := <-closeErr:
 		require.NoError(t, err, "Close must unblock the stalled delivery promptly, not report ErrCloseTimeout")
 		require.Less(t, time.Since(start), 2*time.Second, "Close must return well inside the 3s close timeout, not burn it")
-	case <-time.After(4 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("Close did not return — a stalled channel consumer must not wedge Close")
 	}
+}
+
+// TestClose_BlockedFuncHandlerBurnsCloseTimeout is the other half of the Item 1 contrast in
+// AddDataMessageChan's godoc.
+// Unlike a stalled channel consumer (TestClose_UnblocksStalledDataMessageChanConsumer above),
+// a func handler that blocks forever is NOT preemptible by teardown's ctx cancellation:
+// recvDataMsg's handler loop (for _, h := range handlers { h(msg, s) }) calls each handler
+// directly, with no select on rt.Done() to escape through.
+// Close must therefore burn the full close timeout and report ErrCloseTimeout.
+func TestClose_BlockedFuncHandlerBurnsCloseTimeout(t *testing.T) {
+	c, mt := newLifeConn(t, withMockTransport())
+	require.NoError(t, c.Open(t.Context(), OpenBackground))
+	requireSelected(t, c)
+
+	require.NoError(t, c.UpdateConfigOptions(WithCloseTimeout(200*time.Millisecond)))
+
+	handlerRunning := make(chan struct{})
+	block := make(chan struct{}) // released after the assertion, so the handler goroutine does not leak past this test
+	c.AddDataMessageHandler(func(*DataMessage, SECS2Endpoint) {
+		close(handlerRunning)
+		<-block // nothing in Close's teardown can unblock this
+	})
+
+	msg := mustDataMsg(t)
+	mt.armHeldRouteData(mt.runtime(), msg)
+	<-handlerRunning // the handler is now blocked, mid-delivery
+
+	start := time.Now()
+	closeErr := make(chan error, 1)
+	go func() { closeErr <- c.Close() }()
 
 	select {
-	case <-recvDone:
-		// The stalled delivery unblocked in response to teardown's ctx cancellation (J5).
-	case <-time.After(time.Second):
-		t.Fatal("recvDataMsg did not unblock after Close returned")
+	case err := <-closeErr:
+		require.ErrorIs(t, err, ErrCloseTimeout, "a blocked func handler must burn the full close timeout")
+		require.GreaterOrEqual(t, time.Since(start), 200*time.Millisecond, "Close must not return before the close timeout elapses")
+	case <-time.After(2 * time.Second):
+		close(block)
+		t.Fatal("Close did not return at all — even the burn-the-timeout path must be bounded")
 	}
+
+	close(block)
 }
 
 // ── NotConnected reaction (farewell Separate) ───────────────────────────────────

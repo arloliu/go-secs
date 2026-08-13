@@ -62,11 +62,13 @@ var timeoutSentinels = []error{
 // errors.Join policy: any matching branch wins.
 // errors.Join(ErrMessageTooLarge, ErrNotSelectedState) reports true, the same as ErrNotSelectedState alone —
 // a permanent branch elsewhere in the tree does NOT veto a transient one.
+// This mirrors how errors.Is itself treats a Join tree (a match anywhere in the tree satisfies the check),
+// so IsTransient stays consistent with ordinary errors.Is usage against the same error for the step-2 sentinel-table path.
+//
 // A TransientError marker is the exception to this Join policy:
 // errors.As returns the chain's first match verbatim, so
 // a marker anywhere in the chain takes precedence over the sentinel table, including its false answer.
-// This mirrors how errors.Is itself treats a Join tree (a match anywhere in the tree satisfies the check),
-// so IsTransient stays consistent with ordinary errors.Is usage against the same error.
+//
 // A caller that joins a permanent cause together with a transient one, and needs the permanent cause to veto a retry,
 // must inspect the branches itself.
 // IsTransient answers "is there a reason this might succeed," not "will every branch resolve on retry."

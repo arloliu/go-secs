@@ -2,6 +2,7 @@ package hsms
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -41,6 +42,13 @@ type mockTransport struct {
 	holdRelease  chan struct{}
 	holdExited   chan struct{}
 	holdOnce     sync.Once
+
+	// heldRouteDataExited, when set via armHeldRouteData, makes Stop JOIN a goroutine parked inside rt.RouteData —
+	// the mock's stand-in for a real recv loop stuck delivering an inbound message to a stalled AddDataMessageChan consumer.
+	// The join is bounded by ctx, exactly like Stop's join of a held recv loop above.
+	// This is what causally couples Close's outcome to whether the stalled delivery ever unblocks (Item 1 of the v2.4 final review):
+	// if it never does, Stop blocks until ctx.Done() (the close-timeout deadline) instead of returning early.
+	heldRouteDataExited chan struct{}
 
 	// writeErr, when set, is returned by every Write (to exercise the write-error send path).
 	writeErr error
@@ -100,12 +108,31 @@ func heldRecvLoop(rt TransportRuntime, release, exited chan struct{}) {
 	close(exited)
 }
 
+// armHeldRouteData spawns a goroutine that calls rt.RouteData(msg) and records its completion on
+// heldRouteDataExited.
+// Stop below JOINS that goroutine, bounded by ctx — a real recv loop's own call into RouteData,
+// stuck delivering to a stalled AddDataMessageChan consumer, is joined the same way by a real
+// transport's Stop during epoch teardown.
+func (m *mockTransport) armHeldRouteData(rt TransportRuntime, msg *DataMessage) {
+	exited := make(chan struct{})
+	m.mu.Lock()
+	m.heldRouteDataExited = exited
+	m.mu.Unlock()
+
+	go func() {
+		_ = rt.RouteData(msg)
+		close(exited)
+	}()
+}
+
 // Stop marks the transport stopped and, if a held recv loop is armed, releases + JOINS it (the
 // mock's stand-in for teardown's tr.Stop join of the real recv loop). The join is bounded by ctx.
+// It also joins a held RouteData call armed via armHeldRouteData, the same way.
 func (m *mockTransport) Stop(ctx context.Context) error {
 	m.mu.Lock()
 	m.stopped = true
 	exited := m.holdExited
+	routeDataExited := m.heldRouteDataExited
 	m.mu.Unlock()
 
 	if exited != nil {
@@ -113,6 +140,20 @@ func (m *mockTransport) Stop(ctx context.Context) error {
 		select {
 		case <-exited:
 		case <-ctx.Done():
+		}
+	}
+
+	if routeDataExited != nil {
+		select {
+		case <-routeDataExited:
+			return nil
+		case <-ctx.Done():
+			// Matches the real hsmsss transport's Stop (transport.go: "hsmsss transport teardown join timed out"):
+			// a bounded-Stop timeout must return a non-nil error.
+			// Without it, epoch.join's step (a) never records the timeout, and its step (b) select can then race against
+			// an already-closed joined channel (the epoch has no OTHER live task here, so wg.Wait returns immediately)
+			// and spuriously report a clean close.
+			return fmt.Errorf("%w: mock transport teardown join timed out", ErrCloseTimeout)
 		}
 	}
 
