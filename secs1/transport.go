@@ -595,7 +595,11 @@ func isTimeout(err error) bool {
 
 // Stop seals the Add-vs-Wait guard, cancels the engine ctx, broadcasts genDone, closes the socket (and any pending listener) to unblock the engine's parked poll/receive read, then joins the current generation's goroutines BOUNDED by ctx. Normally the engine exits promptly
 // and Stop returns nil; if a blocking inbound handler wedges the engine past the deadline, Stop returns ErrCloseTimeout
-// and ABANDONS that straggler (engineCancel already fired, so its C1 guard cannot drive a stale TCPDown into a later generation).
+// and ABANDONS that straggler.
+// engineCancel has already fired, so the straggler's C1 guard normally makes it exit without reporting a disconnect —
+// but that guard is an early exit, not a fence, and secs1 reports no generation identity,
+// so the narrow abandoned-straggler window hsmsss closes with a generation match stays open here,
+// unchanged from prior releases.
 //
 // Idempotent for the nil-conn case (Start never connected).
 // Stop is called at most once per generation (the core's epoch teardown is closeOnce-guarded),
@@ -674,7 +678,8 @@ func (t *transport) Stop(ctx context.Context) error {
 	// BOUNDED join of the line engine (§7.A / C1). The engine runs the inbound sink INLINE (T5), so a
 	// handler that blocks would wedge g.line.Wait — and therefore Close — forever. Bound it by ctx
 	// (epoch.join passes a close-timeout deadline). On expiry ABANDON the straggler (it leaks until the
-	// handler returns; engineCancel already fired so it cannot drive a stale TCPDown into a successor)
+	// handler returns; engineCancel already fired, which normally keeps it from reporting a disconnect,
+	// though that guard is an early exit rather than a fence — see the Stop doc)
 	// and return ErrCloseTimeout so Close reports it. (A ctx with no deadline — a unit test passing
 	// Background — degrades to an unbounded join.)
 	joined := make(chan struct{})

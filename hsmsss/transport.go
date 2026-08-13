@@ -269,8 +269,11 @@ func (t *transport) ArmStart() {
 //
 // The recv/proc/linktest/T7 joins are BOUNDED by ctx (the close-timeout deadline epoch.join passes):
 // normally no goroutine outlives Stop (round-7), but if a data handler wedges the recv goroutine past the deadline, Stop returns ErrCloseTimeout
-// and ABANDONS that straggler (fenced by recvLoop's captured-genCtx guard so it cannot drive a stale TCPDown into a later generation —
-// C1).
+// and ABANDONS that straggler.
+// recvLoop's captured-genCtx guard usually stops such a straggler from reporting at all,
+// but it is an early exit rather than a fence — cancellation can land between the check and the call.
+// What keeps an abandoned straggler from disconnecting a LATER generation is the identity it carries (genWG.gen),
+// which the core re-checks when the FSM applies the event (C1).
 // Idempotent: safe when Start never connected (nil conn) or Stop already ran.
 //
 // The engine's epoch teardown calls tr.Stop after closeSocket has already closed the conn (J5),

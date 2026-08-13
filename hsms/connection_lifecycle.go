@@ -412,8 +412,17 @@ func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{},
 	// not overlap: a gen-N recv loop is gone before gen N+1 exists, so a stale gen-N evDisconnect
 	// can never disconnect gen N+1. EXCEPTION (C1): a bounded tr.Stop that hits ErrCloseTimeout — a
 	// data handler wedged the recv goroutine past the close timeout — ABANDONS that straggler, which
-	// may outlive gen N. recvLoop's captured-genCtx guard fences it: the straggler observes its own
-	// cancelled generation ctx and exits WITHOUT driving TCPDown, so it still cannot disconnect gen N+1.
+	// may outlive gen N.
+	//
+	// recvLoop's captured-genCtx guard usually catches that straggler,
+	// which observes its own cancelled generation ctx and exits WITHOUT reporting a disconnect.
+	// But that guard is an EARLY EXIT, not a fence:
+	// cancellation can land between the check and the call,
+	// so a sufficiently descheduled straggler still reaches the report.
+	// What actually stops it from disconnecting gen N+1 is the generation identity it carries (see the e.id note below),
+	// re-checked when the FSM applies the event (supervisor.step).
+	// Serialization keeps generations from overlapping in the normal case;
+	// the generation match is what covers this exception.
 	if prev != nil {
 		_ = prev.wait()
 	}
