@@ -308,7 +308,8 @@ func S2F26(abs []byte) secs2.SECS2Message {
 //
 // Body: L[3]{ B[loc] <ppid> L[n]{ <mids>... } }.
 //
-// Exception: A zero-length PPID indicates no process program is being specified and the equipment is to take whatever action is appropriate for it to determine the proper program to use. A zero-length MID list indicates no MID is to be associated with the material to be processed.
+// Exception: A zero-length PPID indicates no process program is being specified and the equipment is to take whatever action is appropriate for it to determine the proper program to use.
+// A zero-length MID list indicates no MID is to be associated with the material to be processed.
 func S2F27(loc byte, ppid secs2.Item, mids ...secs2.Item) secs2.SECS2Message {
 	return secs2.NewMessage(2, 27, true, secs2.L(secs2.B(loc), ppid, secs2.L(mids...)))
 }
@@ -425,8 +426,7 @@ func S2F36(lrack LRACK) secs2.SECS2Message {
 // S2F37 creates the S2F37 (Enable/Disable Event Report) message, direction: host-to-equipment.
 //
 // The host enables or disables reporting for a group of events (CEIDs).
-// When n is not zero, this message enables or disables reporting for the listed CEIDs;
-// reporting for unlisted CEIDs is not affected.
+// When n is not zero, this message enables or disables reporting for the listed CEIDs; reporting for unlisted CEIDs is not affected.
 //
 // Body: L[2]{ BOOLEAN[ceed] L[n]{ <ceids>... } }.
 //

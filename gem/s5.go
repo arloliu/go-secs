@@ -102,7 +102,8 @@ func S5F8(alarms ...secs2.Item) secs2.SECS2Message {
 
 // S5F9 creates the S5F9 (Exception Post Notify) message, direction: equipment-to-host.
 //
-// This message provides the means to inform a host system that an exception condition is set. Optionally, recovery actions for the exception may be sent.
+// This message provides the means to inform a host system that an exception condition is set.
+// Optionally, recovery actions for the exception may be sent.
 // Callers that require a no-reply variant should use [secs2.NewMessage] directly.
 //
 // Body: L[5]{ A[timestamp] A[exid] A[extype] A[exmessage] L[n]{ <recoveryActions>... } }.

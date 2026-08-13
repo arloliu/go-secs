@@ -257,8 +257,10 @@ func S1F19(objtype secs2.Item, objids []secs2.Item, attrids ...secs2.Item) secs2
 //
 // Body: L[2]{ L[n]{ <objects>... } L[n]{ <errors>... } }.
 //
-// Exception: m = 0 means the OBJTYPE is unknown. n = 0 means the object was not found.
-// A zero-length ATTRDATA means the attribute does not exist. p = 0 means no errors.
+// Exception: m = 0 means the OBJTYPE is unknown.
+// n = 0 means the object was not found.
+// A zero-length ATTRDATA means the attribute does not exist.
+// p = 0 means no errors.
 func S1F20(objects []secs2.Item, errors ...secs2.Item) secs2.SECS2Message {
 	return secs2.NewMessage(1, 20, false, secs2.L(secs2.L(objects...), secs2.L(errors...)))
 }

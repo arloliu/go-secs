@@ -300,8 +300,8 @@ func S6F24(rsda RSDA) secs2.SECS2Message {
 //
 // Body: L[7]{ <dataid> <opid> U4[linkid] A[rcpspec] <rmchgstat> L[n]{ <attributes>... } L[2]{ U1[rmack] L[n]{ <errors>... } } }.
 //
-// Exception: OPID and LINKID are zero-length items when and only when S6F25 is sent as a change notification rather than as a confirmation report. p = 0 if
-// and only if RMACK indicates no errors.
+// Exception: OPID and LINKID are zero-length items when and only when S6F25 is sent as a change notification rather than as a confirmation report.
+// p = 0 if and only if RMACK indicates no errors.
 func S6F25(dataid secs2.Item, opid secs2.Item, linkid uint32, rcpspec string, rmchgstat secs2.Item, attributes []secs2.Item, rmack RMACK, errors ...secs2.Item) secs2.SECS2Message {
 	return secs2.NewMessage(6, 25, true, secs2.L(dataid, opid, secs2.U4(linkid), secs2.A(rcpspec), rmchgstat, secs2.L(attributes...), secs2.L(secs2.U1(uint8(rmack)), secs2.L(errors...))))
 }
