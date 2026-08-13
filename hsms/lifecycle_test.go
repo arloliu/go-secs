@@ -8,6 +8,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// notifierShareWindow bounds the negative assertion in TestSubscribeLifecycle_SharesTheNotifierGoroutine:
+// the window over which NO subscription delivery may occur while the notifier is parked in a legacy handler.
+// It is a fixed wall-clock window for a "must not happen" claim, the same shape as assertStaysSelected in the hsmsss suite,
+// not a sleep standing in for synchronization.
+const notifierShareWindow = 50 * time.Millisecond
+
 // eventLog is a mutex-guarded ordered record of what the notifier delivered.
 // Subscriptions and legacy handlers both append here, tagged,
 // so a single log proves both the per-surface content and the relative ordering of the two surfaces.
@@ -115,9 +121,14 @@ func TestTransitionCause_String(t *testing.T) {
 	}
 }
 
-// A subscription and a legacy AddConnStateChangeHandler must see the SAME transitions in the SAME
-// order across one Open/Close cycle — the new surface must not change what the old one observes —
+// A subscription and a legacy AddConnStateChangeHandler must see the SAME transitions in the SAME order
+// across one Open/Close cycle — the new surface must not change what the old one observes —
 // and the subscription must additionally carry the cause of each transition.
+//
+// The assertion walks the UNFILTERED log, so it pins the interleaving and not just the two streams:
+// each transition must appear as the legacy handler's entry immediately followed by the subscription's entry.
+// Splitting the log per surface before asserting would pass even if subscriptions were dispatched
+// asynchronously on a second goroutine, which is exactly the regression this guards.
 func TestSubscribeLifecycle_MatchesLegacyHandlerAndCarriesCauses(t *testing.T) {
 	c, _ := newLifeConn(t, withMockTransportNeverSelects())
 
@@ -127,14 +138,18 @@ func TestSubscribeLifecycle_MatchesLegacyHandlerAndCarriesCauses(t *testing.T) {
 	})
 	subscribeLog(t, c, log)
 
-	openSelected(t, c, log)
+	// Step the FSM gated on the LEGACY stream, never on the subscription stream:
+	// waiting for each subscription delivery before driving the next transition would serialize the
+	// two surfaces by hand and hide exactly the asynchronous dispatch this test exists to catch.
+	require.NoError(t, c.Open(t.Context(), OpenBackground))
+	log.requireCount(t, "handler", 1) // NotConnected -> NotSelected
+
+	require.True(t, c.CommitSelected(), "the select commit must be this call's CAS")
+	log.requireCount(t, "handler", 2) // NotSelected -> Selected
+
 	require.NoError(t, c.Close())
-
+	log.requireCount(t, "handler", 3) // Selected -> NotConnected
 	log.requireCount(t, "sub", 3)
-	log.requireCount(t, "handler", 3)
-
-	subs := log.filter("sub")
-	handlers := log.filter("handler")
 
 	want := []logEntry{
 		{prev: NotConnectedState, next: NotSelectedState, cause: CauseLocalOpen},
@@ -142,17 +157,70 @@ func TestSubscribeLifecycle_MatchesLegacyHandlerAndCarriesCauses(t *testing.T) {
 		{prev: SelectedState, next: NotConnectedState, cause: CauseLocalClose},
 	}
 
-	require.Len(t, subs, 3)
-	require.Len(t, handlers, 3)
+	got := log.snapshot()
+	require.Len(t, got, 2*len(want), "each transition must produce exactly one handler entry and one subscription entry")
 
 	for i, w := range want {
-		require.Equal(t, w.prev, subs[i].prev, "subscription event %d previous", i)
-		require.Equal(t, w.next, subs[i].next, "subscription event %d current", i)
-		require.Equal(t, w.cause, subs[i].cause, "subscription event %d cause", i)
+		handler, sub := got[2*i], got[2*i+1]
 
-		// The legacy surface sees the same transition, in the same position of its own stream.
-		require.Equal(t, w.prev, handlers[i].prev, "legacy handler event %d previous", i)
-		require.Equal(t, w.next, handlers[i].next, "legacy handler event %d current", i)
+		require.Equal(t, "handler", handler.tag, "transition %d: the legacy handler must run first", i)
+		require.Equal(t, "sub", sub.tag, "transition %d: the subscription must run immediately after the legacy handler", i)
+
+		require.Equal(t, w.prev, handler.prev, "transition %d: legacy handler previous", i)
+		require.Equal(t, w.next, handler.next, "transition %d: legacy handler current", i)
+
+		require.Equal(t, w.prev, sub.prev, "transition %d: subscription previous", i)
+		require.Equal(t, w.next, sub.next, "transition %d: subscription current", i)
+		require.Equal(t, w.cause, sub.cause, "transition %d: subscription cause", i)
+	}
+}
+
+// Subscriptions ride the notifier goroutine ITSELF rather than one of their own.
+// A legacy handler that blocks must therefore hold the subscription's delivery behind it.
+// This is what makes "same goroutine, same ordering as a StateChangeHandler" structural rather than incidental:
+// an asynchronous dispatch would still usually deliver in order, so asserting order alone cannot catch it.
+func TestSubscribeLifecycle_SharesTheNotifierGoroutine(t *testing.T) {
+	c, _ := newLifeConn(t, withMockTransportNeverSelects())
+
+	var once sync.Once
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	releaseOnce := sync.OnceFunc(func() { close(release) })
+
+	// Unparking the notifier is unconditional, including on the failure path:
+	// a t.Fatal with the handler still parked would wedge the notifier and hang the cleanup Close.
+	defer releaseOnce()
+
+	// Only the FIRST transition parks the notifier; every later one passes straight through, so the
+	// cleanup Close can still complete.
+	c.AddConnStateChangeHandler(func(_, _ ConnState) {
+		once.Do(func() {
+			close(entered)
+			<-release
+		})
+	})
+
+	// Buffered: a delivery must never block the notifier, even on the failure path.
+	delivered := make(chan struct{}, 4)
+	t.Cleanup(c.SubscribeLifecycle(func(_ LifecycleEvent) { delivered <- struct{}{} }))
+
+	require.NoError(t, c.Open(t.Context(), OpenBackground))
+
+	<-entered // the notifier is now parked inside the legacy handler for the first transition
+
+	select {
+	case <-delivered:
+		t.Fatal("a subscription was delivered while the notifier was parked in a legacy handler: dispatch left the notifier goroutine")
+	case <-time.After(notifierShareWindow):
+	}
+
+	releaseOnce()
+
+	select {
+	case <-delivered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the subscription was never delivered after the legacy handler returned")
 	}
 }
 
