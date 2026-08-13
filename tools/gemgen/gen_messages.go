@@ -103,18 +103,18 @@ func messageDoc(funcName, code string, m Message, b Body, items map[string]Item)
 
 	summary := fmt.Sprintf("%s creates the %s (%s) message%s, direction: %s.", funcName, code, m.Name, actorClause, m.Direction)
 
-	doc := []string{
-		summary,
-		"",
-		ensurePeriod(m.Description),
-		"",
-		ensurePeriod("Body: " + BodyDoc(b.Structure, items)),
-		"",
-		ensurePeriod("Exception: " + m.Exception),
-	}
+	// summary is a generated fixed-format synopsis, not authored prose,
+	// so it is never wrapped: wrapping it would treat the "direction:" colon as a clause boundary and break a line that was never meant to span more than one.
+	doc := []string{summary, ""}
+	doc = append(doc, wrapParagraph(ensurePeriod(m.Description))...)
+	doc = append(doc, "")
+	doc = append(doc, wrapParagraph(ensurePeriod("Body: "+BodyDoc(b.Structure, items)))...)
+	doc = append(doc, "")
+	doc = append(doc, wrapParagraph(ensurePeriod("Exception: "+m.Exception))...)
 
 	if m.Source == "external" {
-		doc = append(doc, "", externalSourceDisclaimer)
+		doc = append(doc, "")
+		doc = append(doc, wrapParagraph(externalSourceDisclaimer)...)
 	}
 
 	return doc
