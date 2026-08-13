@@ -6,11 +6,12 @@ tags: [hsms, lifecycle, supervisor, fsm, observability]
 status: draft
 generated: {by: "claude/opus-5", at: 2026-08-13T00:00:00Z}
 sources:
-  - {resource: hsms/lifecycle.go, digest: sha256:6b8df9c48442d48f, revision: 590fe16}
+  - {resource: hsms/lifecycle.go, digest: sha256:65d429d90300b620, revision: 5a0ec1b}
   - {resource: hsms/supervisor.go, digest: sha256:ce4e1df37ed32013, revision: 590fe16}
   - {resource: hsms/connection_lifecycle.go, digest: sha256:57d569ac8df3b2a0, revision: 590fe16}
   - {resource: hsms/connection_runtime.go, digest: sha256:85422b08b8884b47, revision: 590fe16}
   - {resource: hsmsss/transport_control.go, digest: sha256:8220b01d9d017d57, revision: 590fe16}
+  - {resource: hsmsss/transport_active.go, digest: sha256:b67d832db547d0b4, revision: 5a0ec1b}
 ---
 
 # What it does
@@ -45,11 +46,21 @@ That is exactly the discrimination the feature exists to provide, and the reason
 | `connection.writeFrame` write failure | `evDisconnect` | `CauseIOError` |
 | `connection.TCPDown` (no cause named) | `evDisconnect` | `CauseUnknown` |
 | `hsmsss.handleSeparateReq` | `evDisconnect` | `CausePeerSeparate` |
-| `hsmsss.runSelectProcedure` write/T6 failure | `evDisconnect` | `CauseT6Timeout` if `errors.Is(err, ErrT6Timeout)`, else `CauseIOError` |
-| `hsmsss.runSelectProcedure` non-zero select-status | `evDisconnect` | `CauseSelectRejected` |
+| `hsmsss.runSelectProcedure` failed transaction | `evDisconnect` | `selectFailureCause`: `CauseSelectRejected` on a `*RejectError`, `CauseT6Timeout` on `ErrT6Timeout`, else `CauseIOError` |
+| `hsmsss.runSelectProcedure` non-zero select-status, or a correlated non-Select.rsp | `evDisconnect` | `CauseSelectRejected` |
 | `hsmsss.runLinktest` threshold reached | `evDisconnect` | `CauseLinktestFail` |
 | `hsmsss.recvLoop` nil conn / read error | `evDisconnect` | `CauseIOError` |
 | `secs1.lineEngine` read / EOT-write error | `evDisconnect` | `CauseIOError` |
+
+**The Select procedure is the only site with a non-constant cause, and the reason is the reply registry.**
+An active Select.req is an ordinary registered transaction, so THREE different things can come back through `WriteMessage`.
+A peer Reject.req correlated to its System Bytes is delivered as a `*hsms.RejectError` (`connection.RouteReply`) — the peer answered and refused, and no read or write failed,
+so classifying it as `CauseIOError` would report a link fault for a protocol answer.
+A T6 expiry returns a bare `ErrT6Timeout` (`connection.writeFrame`'s reply wait), meaning the peer never answered at all.
+Everything else is the transport failing.
+`selectFailureCause` splits those three; a correlated response of the wrong TYPE (a Linktest.rsp, a Deselect.rsp) is handled separately on the success path and also reports `CauseSelectRejected`,
+because the peer answered and the select was not granted — which is what `CauseSelectRejected` is defined to mean.
+The distinction between "refused" and "answered with the wrong frame" survives in the error value (`errSelectRejected` vs `errSelectBadResponse`), not in the cause.
 
 `CommitSelected` names `CauseSelectAccepted` for `secs1` too, which runs no select handshake:
 the auto-commit reaches `Selected` for the same reason a handshake does, so the cause is honest rather than approximate.
