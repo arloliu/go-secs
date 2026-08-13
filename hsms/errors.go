@@ -40,28 +40,88 @@ var (
 	// ErrInvalidStreamCode indicates that an invalid stream code was provided.
 	//
 	// Valid stream codes are in the range of 0 to 127.
+	//
+	// Classification: IsTransient and IsTimeout both report false.
+	// This is a caller-side construction error, and the same stream code fails on every retry.
 	ErrInvalidStreamCode = errors.New("hsms: invalid stream code, should be in range of [0, 127]")
 
 	// ErrInvalidRspMsg indicates that the message is not a valid response/secondary message.
 	//
 	// This is returned when the W-bit (reply expected) is set on a reply (even-function) message.
+	//
+	// Classification: IsTransient and IsTimeout both report false.
+	// This is a caller-side construction error, and the same message fails on every retry.
 	ErrInvalidRspMsg = errors.New("hsms: message is not a valid response/secondary message")
 
 	// ErrMessageTooLarge indicates that a data message's on-wire frame size (10-byte header + body) would exceed MaxMessageSize.
 	//
 	// Returned by the send path before the frame is written; the message is never put on the wire.
 	// A control message can never trigger this — its frame is always the fixed 14 bytes.
+	//
+	// Classification: IsTransient and IsTimeout both report false.
+	// The same payload exceeds the ceiling on every retry.
+	// Only a smaller message or a larger MaxMessageSize changes the outcome.
 	ErrMessageTooLarge = errors.New("hsms: message exceeds maximum frame size")
 
-	// Connection state and lifecycle errors.
-	ErrAlreadyOpen      = errors.New("hsms: connection already open")
-	ErrNotOpen          = errors.New("hsms: connection not open")
+	// ErrAlreadyOpen indicates Open was called on a connection that is already open (spec §5.2, H6).
+	//
+	// Classification: IsTransient and IsTimeout both report false.
+	// The connection is already usable, so retrying Open is never the right response — using the existing connection is.
+	ErrAlreadyOpen = errors.New("hsms: connection already open")
+
+	// ErrNotOpen indicates a call was made before Open,
+	// or after Close on a connection that was never reopened.
+	//
+	// Classification: IsTransient and IsTimeout both report false.
+	// The same call fails until the caller opens the connection.
+	// Retrying without an intervening Open never changes the outcome.
+	ErrNotOpen = errors.New("hsms: connection not open")
+
+	// ErrNotSelectedState indicates a data send was refused because the session is not in the Selected state (spec §5.5, the B1/B2 gates).
+	//
+	// Classification: IsTransient reports true.
+	// A reconnect or Select handshake may be in progress, and the same send can succeed once it completes.
+	// IsTimeout reports false.
 	ErrNotSelectedState = errors.New("hsms: not in selected state")
-	ErrConnClosed       = errors.New("hsms: connection closed")
-	ErrT3Timeout        = errors.New("hsms: T3 reply timeout")
-	ErrT6Timeout        = errors.New("hsms: T6 control timeout")
-	ErrCloseTimeout     = errors.New("hsms: close timeout (tasks still live)")
-	ErrNilMessage       = errors.New("hsms: nil data message")
+
+	// ErrConnClosed indicates the generation backing a send or wait was torn down while the call was in flight (spec §5.2/§5.5):
+	// a voluntary Close, an involuntary drop, or a wait that lost the race against teardown.
+	//
+	// Classification: IsTransient reports true.
+	// After an involuntary drop, the connection's own reconnect loop re-establishes the link.
+	// The same call can succeed once it does.
+	// (After a voluntary Close, the caller must Open again first.)
+	// IsTimeout reports false.
+	ErrConnClosed = errors.New("hsms: connection closed")
+
+	// ErrT3Timeout indicates a data transaction's reply did not arrive within the configured T3 interval (SEMI E37 §9.4.1, the reply-expected timer).
+	//
+	// Classification: IsTransient and IsTimeout both report true.
+	// A T3 expiry is a protocol timer firing, and the peer may answer the next attempt.
+	ErrT3Timeout = errors.New("hsms: T3 reply timeout")
+
+	// ErrT6Timeout indicates a control transaction (Select.req, Linktest.req) did not receive its response within the configured T6 interval
+	// (SEMI E37 §9.4.1, the control-transaction timer).
+	//
+	// Classification: IsTransient and IsTimeout both report true, for the same reason as ErrT3Timeout.
+	// A T6 expiry is a protocol timer firing, and the peer may answer the next attempt.
+	ErrT6Timeout = errors.New("hsms: T6 control timeout")
+
+	// ErrCloseTimeout indicates Close's bounded shutdown join exceeded the configured close timeout with tasks still live (spec §5.2, §7.A);
+	// the straggler is abandoned rather than awaited further.
+	//
+	// Classification: IsTransient reports false.
+	// Close is idempotent, so a second call returns this same cached result rather than re-attempting the join.
+	// Retrying can never produce a different outcome.
+	// IsTimeout reports true: it names a real deadline expiry,
+	// even though — unlike ErrT3Timeout/ErrT6Timeout — that expiry does not make a retry worthwhile.
+	ErrCloseTimeout = errors.New("hsms: close timeout (tasks still live)")
+
+	// ErrNilMessage indicates ForwardDataMessage or ForwardDataMessageAsync was called with a nil message.
+	//
+	// Classification: IsTransient and IsTimeout both report false.
+	// This is a caller-side argument error, and the same nil argument fails on every retry.
+	ErrNilMessage = errors.New("hsms: nil data message")
 
 	// ErrUnrecognizedSessionID indicates a NON-S9F1 inbound data message's SessionID did not match this connection's configured SessionID.
 	//
@@ -77,6 +137,9 @@ var (
 	// every call, so every message sent through them always opens a new transaction and is always a
 	// primary (SEMI E5 §7.2: a primary function must be odd). A reply message must instead go through
 	// ReplyDataMessage, which derives its even function from the primary it answers.
+	//
+	// Classification: IsTransient and IsTimeout both report false.
+	// This is a caller bug, and the same function code fails on every retry.
 	ErrEvenFunctionPrimary = errors.New("hsms: primary function code must be odd")
 
 	// ErrAsyncReplyExpected indicates SendDataMessageAsync was called with replyExpected true.
@@ -85,6 +148,9 @@ var (
 	// primary that expects a reply to begin one), so a W-bit primary sent through the async path
 	// can never be conformantly answered.
 	// Use SendDataMessage for a reply-bearing transaction.
+	//
+	// Classification: IsTransient and IsTimeout both report false.
+	// This is a caller bug, and the same call fails on every retry.
 	ErrAsyncReplyExpected = errors.New("hsms: async send cannot expect a reply")
 )
 
@@ -101,6 +167,11 @@ var (
 //	if errors.As(err, &re) {
 //		// re.Reason is the E37 reject reason code
 //	}
+//
+// Classification: RejectError has no built-in IsTransient/IsTimeout entry.
+// Reason codes span causes that retry differently — a stale transaction vs. a not-yet-Selected peer.
+// It falls through to the conservative default:
+// both report false unless the caller wraps or replaces it with an error implementing TransientError/TimeoutError.
 type RejectError struct {
 	Reason byte
 }

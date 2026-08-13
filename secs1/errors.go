@@ -1,6 +1,10 @@
 package secs1
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/arloliu/go-secs/v2/hsms"
+)
 
 // SECS-I block-framing and line-transfer sentinel errors.
 var (
@@ -22,8 +26,14 @@ var (
 	// ErrHeaderMismatch is returned by assembleBlocks when the block-invariant header fields differ across blocks of the same message.
 	ErrHeaderMismatch = errors.New("secs1: block header fields differ across blocks")
 	// ErrMessageTooLarge is returned by splitBody when the body exceeds the maximum SECS-I message size (244 * 32767 bytes).
+	//
+	// Classification: unmarked, so hsms.IsTransient and hsms.IsTimeout both report false by default.
+	// The same body exceeds the ceiling on every retry — it is never a link failure.
 	ErrMessageTooLarge = errors.New("secs1: message body exceeds maximum SECS-I size")
 	// ErrInvalidHeader is returned by splitBody when deviceID > 0x7FFF or stream > 0x7F.
+	//
+	// Classification: unmarked, so hsms.IsTransient and hsms.IsTimeout both report false by default.
+	// This is a caller-side construction error; the same header fields fail on every retry.
 	ErrInvalidHeader = errors.New("secs1: invalid SECS-I header field")
 	// ErrT1Timeout is returned by the line transfer when the T1 inter-character timeout elapses between bytes of a block (SEMI E4 §7.3.1).
 	ErrT1Timeout = errors.New("secs1: T1 inter-character timeout")
@@ -32,5 +42,24 @@ var (
 	// ErrSendFailed is returned when a block's RTY retry limit is exhausted without an ACK (SEMI E4 §7.8.2).
 	//
 	// The connection treats it as a line failure: it tears the link down and reconnects.
-	ErrSendFailed = errors.New("secs1: block send failed, retries exhausted")
+	//
+	// Classification: implements hsms.TransientError (Transient() reports true), so hsms.IsTransient(err) is true;
+	// the identity is preserved — errors.Is(err, ErrSendFailed) still holds, only the dynamic type gained the marker.
+	// hsms.IsTimeout reports false: RTY exhaustion is a line failure diagnosed by retry count, not by a timer expiring.
+	ErrSendFailed error = transientError{errors.New("secs1: block send failed, retries exhausted")}
 )
+
+// transientError narrows a secs1 sentinel to also satisfy hsms.TransientError,
+// marking it safe to retry without changing the sentinel's own identity or wire text.
+// The sentinel var keeps its name, and errors.Is compares by value, not by dynamic type,
+// so errors.Is(err, ErrSendFailed) still holds for a wrapped or errors.Join'd form —
+// only the var's dynamic type gains a Transient() method.
+type transientError struct {
+	error
+}
+
+var _ hsms.TransientError = transientError{}
+
+// Transient implements hsms.TransientError: a SECS-I line failure may clear on the next attempt
+// (the physical link recovers, or the peer stops NAKing), so the failed send is safe to retry.
+func (transientError) Transient() bool { return true }

@@ -53,6 +53,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are out of scope; `WithAsyncSendErrorHandler` already covers their failure observability.
   Unset (the default) costs one already-necessary atomic config load plus a nil check —
   no allocation, no measurable overhead.
+- `hsms`: `IsTransient(err) bool` and `IsTimeout(err) bool` classify an error returned from the send/lifecycle surface —
+  `SendDataMessage`, `SendSECS2Message`, `Forward*`, `Reply*`, `Open`, `Close` — on both transports,
+  so a consumer no longer hand-rolls its own `errors.Is` chain to decide whether a failed call is worth retrying.
+  A sentinel such as `ErrNotSelectedState`, `ErrConnClosed`, `ErrT3Timeout`, or `ErrT6Timeout` reports `IsTransient` true,
+  since a reconnect or protocol timer may resolve on its own.
+  `ErrMessageTooLarge`, `ErrEvenFunctionPrimary`, and similar caller-side errors report false:
+  the same call fails again on the same input.
+  `ErrCloseTimeout` is the one sentinel where the two axes diverge: it names a real deadline expiry (`IsTimeout` true),
+  but `Close` is idempotent, so retrying never produces a different outcome (`IsTransient` false).
+  An unrecognized error also reports false/false.
+  Misclassifying a permanent failure as retryable risks a silent retry storm, while the reverse only fails a job early.
+  Two marker interfaces, `TransientError` and `TimeoutError` (the latter shape-compatible with `net.Error`),
+  let a caller-defined error, or another transport's sentinel, opt into the same classification;
+  `secs1.ErrSendFailed` is marked this way, and `errors.Is(err, secs1.ErrSendFailed)` keeps working unchanged —
+  only the sentinel's dynamic type gained the marker, not its identity.
 
 ### Changed
 
