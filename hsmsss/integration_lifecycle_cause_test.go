@@ -10,6 +10,7 @@ package hsmsss
 // which TryLocks the write lock and may legitimately be skipped.
 
 import (
+	"fmt"
 	"net"
 	"sync"
 	"testing"
@@ -225,4 +226,82 @@ func TestLifecycleCause_SubscriptionSurvivesReopenAndCancels(t *testing.T) {
 	// The connection really did transition again; the cancelled subscription simply did not see it.
 	waitState(t, ep, hsms.NotConnectedState)
 	require.Len(t, l.snapshot(), before, "a cancelled subscription must receive nothing further")
+}
+
+// The active Select procedure's T6 expiry reports CauseT6Timeout, not CauseIOError.
+// It is the one site whose cause is chosen conditionally on the error, so the branch is covered here rather than asserted.
+func TestLifecycleCause_SelectT6TimeoutOverRealLink(t *testing.T) {
+	t.Parallel()
+
+	ln, port := listenLoopback(t)
+	defer func() { _ = ln.Close() }()
+
+	peerErrCh := make(chan error, 1)
+	peerDone := make(chan struct{})
+	stopPeer := sync.OnceFunc(func() { close(peerDone) })
+
+	defer stopPeer()
+
+	go func() { peerErrCh <- runSelectBlackholePeer(ln, peerDone) }()
+
+	// T6 short enough to fire well inside the test window, and far shorter than the T7 dwell,
+	// so the drop under test is the Select transaction timing out rather than the NOT-SELECTED dwell expiring.
+	ep := newEndpoint(t, port, true, []Option{
+		WithConnectionOption(hsms.WithT6(300 * time.Millisecond)),
+		WithConnectionOption(hsms.WithT7(30 * time.Second)),
+	})
+	defer closeEndpoint(t, ep)
+
+	log := subscribeCauses(t, ep)
+
+	require.NoError(t, ep.conn.Open(t.Context(), hsms.OpenBackground))
+
+	var events []hsms.LifecycleEvent
+
+	require.Eventually(t, func() bool {
+		events = log.snapshot()
+
+		return len(events) >= 2
+	}, 10*time.Second, 2*time.Millisecond, "timeout waiting for the TCP-up and the T6 drop")
+
+	require.Equal(t, hsms.NotSelectedState, events[0].Current)
+	require.Equal(t, hsms.CauseLocalOpen, events[0].Cause)
+
+	require.Equal(t, hsms.NotSelectedState, events[1].Previous)
+	require.Equal(t, hsms.NotConnectedState, events[1].Current)
+	require.Equal(t, hsms.CauseT6Timeout, events[1].Cause)
+
+	stopPeer() // release the peer so its clean return is observable
+
+	select {
+	case err := <-peerErrCh:
+		require.NoError(t, err, "select-blackhole peer completed with error")
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for the select-blackhole peer to finish")
+	}
+}
+
+// runSelectBlackholePeer accepts one connection from an active SUT, reads its Select.req, and never answers.
+// The SUT's Select transaction therefore times out at T6 rather than failing on the socket,
+// which is the only way to reach the CauseT6Timeout branch.
+// It holds the connection open until done closes, so the SUT never sees an EOF that would report CauseIOError instead.
+func runSelectBlackholePeer(ln net.Listener, done <-chan struct{}) error {
+	conn, err := ln.Accept()
+	if err != nil {
+		return fmt.Errorf("accept: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	req, err := peerReadFrame(conn, 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("read select.req: %w", err)
+	}
+
+	if len(req) < 10 || req[5] != byte(hsms.SelectReqType) {
+		return fmt.Errorf("expected select.req, got SType=%d", req[5])
+	}
+
+	<-done // hold the socket open: a close here would surface as CauseIOError, not CauseT6Timeout
+
+	return nil
 }
