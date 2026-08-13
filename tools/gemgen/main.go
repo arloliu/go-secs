@@ -62,6 +62,15 @@ func run(itemsPath, msgsDir, outDir string) error {
 		return fmt.Errorf("write items.go: %w", err)
 	}
 
+	supportSrc, err := renderDecodeSupport()
+	if err != nil {
+		return fmt.Errorf("render decode.go: %w", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(outDir, "decode.go"), supportSrc, 0o600); err != nil {
+		return fmt.Errorf("write decode.go: %w", err)
+	}
+
 	for _, mf := range msgFiles {
 		if err := writeMessageFile(mf, items, outDir); err != nil {
 			return err
@@ -99,7 +108,8 @@ func loadMessageFiles(msgsDir string) ([]MessageFile, error) {
 	return msgFiles, nil
 }
 
-// writeMessageFile renders and writes one stream's sN.go and sN_test.go.
+// writeMessageFile renders and writes one stream's sN.go, sN_test.go, sN_decode.go, and
+// sN_decode_test.go.
 func writeMessageFile(mf MessageFile, items map[string]Item, outDir string) error {
 	msgSrc, err := renderMessages(mf, items)
 	if err != nil {
@@ -119,6 +129,26 @@ func writeMessageFile(mf MessageFile, items map[string]Item, outDir string) erro
 	testPath := filepath.Join(outDir, fmt.Sprintf("s%d_test.go", mf.Stream))
 	if err := os.WriteFile(testPath, testSrc, 0o600); err != nil {
 		return fmt.Errorf("write s%d_test.go: %w", mf.Stream, err)
+	}
+
+	decodeSrc, err := renderDecoders(mf, items)
+	if err != nil {
+		return fmt.Errorf("render s%d_decode.go: %w", mf.Stream, err)
+	}
+
+	decodePath := filepath.Join(outDir, fmt.Sprintf("s%d_decode.go", mf.Stream))
+	if err := os.WriteFile(decodePath, decodeSrc, 0o600); err != nil {
+		return fmt.Errorf("write s%d_decode.go: %w", mf.Stream, err)
+	}
+
+	decodeTestSrc, err := renderDecodeTests(mf, items)
+	if err != nil {
+		return fmt.Errorf("render s%d_decode_test.go: %w", mf.Stream, err)
+	}
+
+	decodeTestPath := filepath.Join(outDir, fmt.Sprintf("s%d_decode_test.go", mf.Stream))
+	if err := os.WriteFile(decodeTestPath, decodeTestSrc, 0o600); err != nil {
+		return fmt.Errorf("write s%d_decode_test.go: %w", mf.Stream, err)
 	}
 
 	return nil
