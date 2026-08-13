@@ -345,6 +345,83 @@ func isCountedSendErr(err error) bool {
 		!errors.Is(err, context.DeadlineExceeded)
 }
 
+// newTxEvent builds the TxEvent for one completed synchronous send (WithTransactionObserver), classifying err with classifyTxOutcome.
+// replyWaited is the W-bit for WriteMessage's own sendWaitReply call
+// (a reply-wait transaction was actually opened for a W-bit-set message, register() runs before every terminal return past the B1/e==nil early exits),
+// and is always false for WriteMessageNoReply's sendNoReply call, which never opens one regardless of msg's own W-bit.
+func newTxEvent(dm *DataMessage, replyWaited bool, start time.Time, err error) TxEvent {
+	return TxEvent{
+		Stream:      dm.Stream(),
+		Function:    dm.Function(),
+		ID:          dm.ID(),
+		ReplyWaited: replyWaited,
+		Duration:    time.Since(start),
+		Outcome:     classifyTxOutcome(replyWaited, err),
+		Err:         err,
+	}
+}
+
+// classifyTxOutcome maps one completed sync send's terminal (replyWaited, err) pair to exactly one TxOutcome.
+// It is the shared classifier for both WriteMessage (sendWaitReply) and WriteMessageNoReply (sendNoReply);
+// TxT3Timeout and TxRejected are reachable only through WriteMessage —
+// sendNoReply arms no T3 timer and registers no reply channel, so it can never produce ErrT3Timeout or a *RejectError.
+//
+// The return-path -> outcome mapping below is exhaustive over every return statement in sendWaitReply and sendNoReply reachable when isData is true
+// (control sends, dm == nil, never reach this classifier —
+// WriteMessage/WriteMessageNoReply gate on isData before calling it).
+// Every branch fires through exactly one of the two call sites (connection_send.go WriteMessage / WriteMessageNoReply),
+// so no return path is double-counted or skipped.
+//
+//	sendWaitReply (dm != nil):
+//	  e == nil                                    -> ErrNotOpen            -> TxSendError
+//	  B1 gate (!IsSelected)                        -> ErrNotSelectedState  -> TxSendError
+//	  writeFrame: buildFrameBuffers too large       -> ErrMessageTooLarge   -> TxSendError
+//	  writeFrame: conn == nil / e.ctx already done -> ErrConnClosed        -> TxCanceled
+//	  writeFrame: B2 gate (!IsSelected)             -> ErrNotSelectedState  -> TxSendError
+//	  writeFrame: tr.Write ctx-cancel/deadline      -> context.Canceled /
+//	                                                   DeadlineExceeded    -> TxCanceled
+//	  writeFrame: tr.Write genuine transport error  -> (wrapped write err) -> TxSendError
+//	  fire-and-forget short-circuit (!W, on wire)   -> nil                 -> TxSent
+//	  wait-select: res.err == nil (reply)           -> nil                 -> TxReplied
+//	  wait-select: res.err is *RejectError           -> *RejectError        -> TxRejected
+//	  wait-select: timer.C (T3)                     -> ErrT3Timeout        -> TxT3Timeout
+//	  wait-select: e.ctx.Done() (teardown)          -> ErrConnClosed        -> TxCanceled
+//	  wait-select: callerCtx.Done()                 -> context.Canceled /
+//	                                                   DeadlineExceeded    -> TxCanceled
+//
+//	sendNoReply (dm != nil):
+//	  e == nil                                    -> ErrNotOpen            -> TxSendError
+//	  B1 gate (!IsSelected)                        -> ErrNotSelectedState  -> TxSendError
+//	  writeFrame: same sub-cases as above           -> (same as above)      -> (same as above)
+//	  success (on wire, no local reply awaited)     -> nil                 -> TxSent
+//
+// ReplyDataMessage is deliberately NOT in this table: session.ReplyDataMessage enqueues via
+// rt.SendAsync (the async fire-and-forget primitive shared with SendDataMessageAsync and
+// ForwardDataMessageAsync), not sendWaitReply/sendNoReply, so it never reaches this classifier —
+// see WithTransactionObserver's godoc.
+func classifyTxOutcome(replyWaited bool, err error) TxOutcome {
+	if err == nil {
+		if replyWaited {
+			return TxReplied
+		}
+
+		return TxSent
+	}
+
+	var rejectErr *RejectError
+
+	switch {
+	case errors.As(err, &rejectErr):
+		return TxRejected
+	case errors.Is(err, ErrT3Timeout):
+		return TxT3Timeout
+	case errors.Is(err, ErrConnClosed), errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return TxCanceled
+	default:
+		return TxSendError
+	}
+}
+
 // sendAutoS9F9 fire-and-forget sends an S9F9 (Transaction Timeout, SEMI E5 §10.13) notification to
 // the peer after a data message's T3 reply-wait timed out, restoring v1's equipment-role behavior
 // via WithAutoS9F9 (see hsmsss.WithEquipRole / secs1.WithEquipment). Per §10.13 the body is SHEAD —
@@ -441,8 +518,26 @@ func (c *connection) callAsyncSendErrorHandler(msg Message, err error) {
 //
 // It delegates to sendWaitReply, which enforces the B1 gate, the synchronous writev under epoch.writeMu, I1 inflight accounting,
 // and the four-outcome reply correlation (reply / T3|T6 / conn-drop / caller-ctx).
+//
+// When WithTransactionObserver is configured and msg is a *DataMessage,
+// it reports exactly one TxEvent here, timed around the sendWaitReply call, on this call's own goroutine.
+// A control send (dm == nil — Select.req, Linktest.req) never reports one.
 func (c *connection) WriteMessage(ctx context.Context, msg Message) (Message, error) {
-	return c.sendWaitReply(ctx, msg)
+	obs := c.cfg.Load().txObserver
+	if obs == nil {
+		return c.sendWaitReply(ctx, msg)
+	}
+
+	dm, isData := msg.(*DataMessage)
+	if !isData {
+		return c.sendWaitReply(ctx, msg)
+	}
+
+	start := time.Now()
+	reply, err := c.sendWaitReply(ctx, msg)
+	obs(newTxEvent(dm, dm.WaitBit(), start, err))
+
+	return reply, err
 }
 
 // WriteMessageNoReply performs a synchronous framed write WITHOUT reply correlation (TransportRuntime, spec §5.5).
@@ -450,8 +545,26 @@ func (c *connection) WriteMessage(ctx context.Context, msg Message) (Message, er
 // It delegates to sendNoReply, which enforces the B1 gate and the synchronous writev under epoch.writeMu but registers no reply channel
 // and arms no protocol timer, so any reply routes to the session's DataMessageHandlers rather than back to the caller.
 // Backs SECS2Endpoint.ForwardDataMessage.
+//
+// When WithTransactionObserver is configured,
+// it reports exactly one TxEvent, timed around the sendNoReply call, always with ReplyWaited false —
+// this path never opens a reply-wait transaction, regardless of msg's own W-bit.
 func (c *connection) WriteMessageNoReply(ctx context.Context, msg Message) error {
-	return c.sendNoReply(ctx, msg)
+	obs := c.cfg.Load().txObserver
+	if obs == nil {
+		return c.sendNoReply(ctx, msg)
+	}
+
+	dm, isData := msg.(*DataMessage)
+	if !isData {
+		return c.sendNoReply(ctx, msg)
+	}
+
+	start := time.Now()
+	err := c.sendNoReply(ctx, msg)
+	obs(newTxEvent(dm, false, start, err))
+
+	return err
 }
 
 // SendAsync enqueues a fire-and-forget message on the per-generation async send channel (TransportRuntime, spec §5.5, J3).

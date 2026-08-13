@@ -37,6 +37,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A registered channel shares `AddDataMessageHandler`'s delivery, backpressure, and lifetime contract:
   delivery blocks the receive goroutine on a full channel, duplicate registration delivers once per registration, and registration is permanent for the connection's lifetime.
   See the method's godoc for the full consumer contract.
+- `hsms`: `WithTransactionObserver(fn func(TxEvent))` reports one `TxEvent` per completed synchronous send transaction —
+  `SendDataMessage`, `SendSECS2Message`, and `ForwardDataMessage` —
+  describing how it ended (`TxReplied`, `TxSent`, `TxT3Timeout`, `TxRejected`, `TxCanceled`, or `TxSendError`) and how long it took.
+  The hook runs synchronously on the caller's own goroutine, right after the send's own outcome is known,
+  so it can bridge to a metrics backend such as Prometheus without the library importing one.
+  Async sends (`SendDataMessageAsync`, `ForwardDataMessageAsync`, `SendAsync`, and `ReplyDataMessage`, which is itself async)
+  are out of scope; `WithAsyncSendErrorHandler` already covers their failure observability.
+  Unset (the default) costs one already-necessary atomic config load plus a nil check —
+  no allocation, no measurable overhead.
 
 ### Changed
 

@@ -56,6 +56,7 @@ type ConnectionConfig struct {
 	autoS9F9                   bool
 	traceTraffic               bool
 	asyncSendErrHandler        func(msg Message, err error)
+	txObserver                 func(TxEvent)
 	reconnectBackoffInitial    time.Duration
 	reconnectBackoffMultiplier float64
 }
@@ -577,6 +578,50 @@ func (c *ConnectionConfig) TraceTraffic() bool {
 func WithAsyncSendErrorHandler(fn func(msg Message, err error)) ConnOption {
 	return func(c *ConnectionConfig) error {
 		c.asyncSendErrHandler = fn
+
+		return nil
+	}
+}
+
+// WithTransactionObserver installs a hook invoked once per completed synchronous send transaction:
+// SendDataMessage, SendSECS2Message, and ForwardDataMessage (SECS2Endpoint).
+// Each call reports exactly one TxEvent describing how its transaction ended.
+//
+// The hook runs SYNCHRONOUSLY on the CALLING goroutine, after the send's own outcome is known and before the call returns to its caller —
+// a slow fn slows that one send call and nothing else;
+// it never runs on a protocol goroutine.
+// Async sends are out of scope for this hook:
+// SendDataMessageAsync, ForwardDataMessageAsync, SendAsync, and ReplyDataMessage
+// (which is itself built on SendAsync, not a synchronous write)
+// never report a TxEvent — see WithAsyncSendErrorHandler for their failure observability.
+// A control transaction — the Select.req / Linktest.req sends a transport issues internally — never reports one either;
+// only a caller-issued DATA message send does.
+//
+// A panic inside fn is NOT recovered:
+// it propagates to the caller of the send exactly as if fn's body ran inline in that call,
+// so a panicking observer surfaces immediately instead of being silently swallowed.
+// Keep fn panic-free, or add your own recover if that risk matters to you.
+//
+// Passing nil (the default) disables the hook.
+// Reading it costs one atomic pointer load already paid by the send path, plus one nil check —
+// no allocation and no observable cost when unset.
+//
+// Example — a Prometheus histogram keyed by stream/function/outcome:
+//
+//	hist := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+//		Name: "hsms_transaction_duration_seconds",
+//	}, []string{"stream", "function", "outcome"})
+//
+//	opt := hsms.WithTransactionObserver(func(ev hsms.TxEvent) {
+//		hist.WithLabelValues(
+//			strconv.Itoa(int(ev.Stream)),
+//			strconv.Itoa(int(ev.Function)),
+//			ev.Outcome.String(),
+//		).Observe(ev.Duration.Seconds())
+//	})
+func WithTransactionObserver(fn func(TxEvent)) ConnOption {
+	return func(c *ConnectionConfig) error {
+		c.txObserver = fn
 
 		return nil
 	}
