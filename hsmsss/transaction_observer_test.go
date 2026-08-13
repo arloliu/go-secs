@@ -331,3 +331,45 @@ func TestTransactionObserver_PanicPropagates(t *testing.T) {
 	// so the connection itself is unaffected: it must still be Selected and able to complete a normal send.
 	require.Equal(t, hsms.SelectedState, active.conn.State())
 }
+
+// TestTransactionObserver_ControlTransaction_NoEvent proves the isData gate in WriteMessage:
+// the internal Select.req / Linktest.req control sends a transport issues never reach the
+// classifier, so they never report a TxEvent — only a caller-issued DATA message send does.
+//
+// Teeth-checked by deleting the gate (dm, _ := msg.(*DataMessage), no isData short-circuit):
+// every test in this file that Opens a connection with an observer configured — not just this one —
+// immediately crashes with a nil-pointer panic in newTxEvent's dm.WaitBit() call,
+// because the internal Select.req handshake (dm == nil) reaches the classifier first.
+// Restoring the gate restores a clean suite.
+// That crash is real teeth, but it is a blunt, whole-process signal that stops at the first control send;
+// this test adds a targeted, non-crashing assertion specifically on auto-linktest traffic
+// (several completed Linktest.req/.rsp round trips, zero events observed),
+// so a narrower future regression — Select.req made nil-safe but Linktest.req left reaching the classifier —
+// still fails a clean assertion here instead of going unnoticed.
+func TestTransactionObserver_ControlTransaction_NoEvent(t *testing.T) {
+	t.Parallel()
+
+	const linktestInterval = 100 * time.Millisecond
+
+	rec := &txEventRecorder{}
+	passive, active := newEndpointPair(t,
+		WithConnectionOption(hsms.WithTransactionObserver(rec.observe)),
+		WithConnectionOption(hsms.WithLinktestInterval(linktestInterval)),
+	)
+	defer closeEndpoint(t, passive)
+	defer closeEndpoint(t, active)
+
+	require.NoError(t, passive.conn.Open(context.Background(), hsms.OpenBackground))
+	require.NoError(t, active.conn.Open(context.Background(), hsms.OpenBackground))
+	waitSelected(t, passive)
+	waitSelected(t, active)
+
+	// Wait for several completed auto-linktest round trips on each side — both sides configured
+	// WithLinktestInterval and WithTransactionObserver, so this exercises the gate on both the
+	// active and passive connection's own WriteMessage(Linktest.req) calls.
+	require.Eventually(t, func() bool {
+		return controlMetrics(t, active).LinktestRecvCount() >= 3 && controlMetrics(t, passive).LinktestRecvCount() >= 3
+	}, 20*linktestInterval, 5*time.Millisecond, "expected several completed auto-linktest round trips on both sides")
+
+	require.Empty(t, rec.snapshot(), "a control transaction (Linktest.req/.rsp) must never report a TxEvent")
+}
