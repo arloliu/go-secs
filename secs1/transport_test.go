@@ -474,17 +474,70 @@ func TestTransport_DefaultSinkAssemblesInboundFrame(t *testing.T) {
 	require.False(t, rt.tcpDownFired(), "a clean Stop must not fire TCPDown (C1 guard)")
 }
 
+// reservedPorts is the package-level allocator freePort serializes against.
+// A port is reserved the instant a caller decides to hand it out
+// and released only at that caller's own test cleanup,
+// so two t.Parallel() callers can never both believe they own the same just-freed ephemeral port —
+// see freeLoopbackPort's doc in hsmsss/transport_passive_test.go, which this mirrors verbatim
+// (this package hit the identical bind: address already in use flake under full-suite load).
+var (
+	reservedPortsMu sync.Mutex
+	reservedPorts   = make(map[int]struct{})
+)
+
 // freePort returns a currently-free loopback TCP port (a throwaway listener is opened then closed).
 // net.ListenTCP sets SO_REUSEADDR so a passive transport can immediately re-bind it.
+//
+// The pick-close-confirm-reserve sequence below is atomic under reservedPortsMu,
+// and the reservation is held until the CALLER's test ends (t.Cleanup), not merely until this function returns,
+// so a concurrent freePort caller can never be handed the same port while the first caller is still setting up (or mid-test).
+// A collision is therefore never fatal — it just retries.
 func freePort(t *testing.T) int {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	tcpAddr, ok := l.Addr().(*net.TCPAddr)
-	require.True(t, ok)
-	require.NoError(t, l.Close())
 
-	return tcpAddr.Port
+	const maxAttempts = 50
+
+	for range maxAttempts {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		tcpAddr, ok := l.Addr().(*net.TCPAddr)
+		require.True(t, ok)
+		require.NoError(t, l.Close())
+
+		reservedPortsMu.Lock()
+		if _, taken := reservedPorts[tcpAddr.Port]; taken {
+			reservedPortsMu.Unlock()
+
+			continue // another in-flight (or still-running) test already owns this port; retry
+		}
+		reservedPorts[tcpAddr.Port] = struct{}{}
+		reservedPortsMu.Unlock()
+
+		// Confirm the port is actually rebindable right now
+		// (guards against an OS-level reuse delay unrelated to this package's own callers,
+		// e.g. a lingering TIME_WAIT edge case).
+		confirm, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", tcpAddr.Port))
+		if err != nil {
+			reservedPortsMu.Lock()
+			delete(reservedPorts, tcpAddr.Port)
+			reservedPortsMu.Unlock()
+
+			continue
+		}
+		require.NoError(t, confirm.Close())
+
+		t.Cleanup(func() {
+			reservedPortsMu.Lock()
+			delete(reservedPorts, tcpAddr.Port)
+			reservedPortsMu.Unlock()
+		})
+
+		return tcpAddr.Port
+	}
+
+	t.Fatalf("freePort: failed to acquire a free, unreserved port after %d attempts", maxAttempts)
+
+	return 0
 }
 
 // dialPeer dials the passive transport's listener and returns the peer end.

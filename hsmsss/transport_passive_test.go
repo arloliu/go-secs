@@ -27,21 +27,38 @@ import (
 
 // ── harness ─────────────────────────────────────────────────────────────────────
 
-// freeLoopbackPort binds 127.0.0.1:0, records the OS-chosen port, and closes the listener so a
-// passive connection can bind that concrete port. Go listeners set SO_REUSEADDR, so the rebind
-// (here and across reconnect generations) succeeds despite the brief close.
+// reservedLoopbackPorts is the package-level allocator freeLoopbackPort serializes against.
+// A port is added the instant a caller decides to hand it out
+// and removed only at that caller's own test cleanup,
+// so the "reserve" side of freeLoopbackPort's reserve-then-release window is never left unguarded:
+// a concurrent caller racing the OS for the same just-closed ephemeral port always loses the reservation check below
+// and retries with a fresh port instead of colliding downstream in net.ListenTCP
+// (e.g. inside a passive transport's real re-listen, far from this helper and much harder to diagnose).
+var (
+	reservedLoopbackPortsMu sync.Mutex
+	reservedLoopbackPorts   = make(map[int]struct{})
+)
+
+// freeLoopbackPort binds 127.0.0.1:0, records the OS-chosen port, and closes the listener
+// so a passive connection can bind that concrete port.
+// Go listeners set SO_REUSEADDR,
+// so the rebind (here and across reconnect generations) succeeds despite the brief close.
 //
-// Under make stress-test's default-GOMAXPROCS -p 32 pass, many goroutines call this helper
-// concurrently, so a just-freed ephemeral port is disproportionately likely to be reissued to
-// another freeLoopbackPort call before this one's caller gets to bind it for real — a TOCTOU
-// race observed as "bind: address already in use". An immediate re-bind-and-close right before
-// returning catches that dominant case (loses the race here, not downstream in the caller) and
-// retries with a fresh port; it narrows but cannot fully eliminate the window against a caller
-// that races much later.
+// Under make stress-test's default-GOMAXPROCS -p 32 pass,
+// many goroutines call this helper concurrently,
+// so a just-freed ephemeral port is disproportionately likely to be reissued to another freeLoopbackPort call
+// before this one's caller gets to bind it for real —
+// a TOCTOU race observed as "bind: address already in use".
+// A per-process reservation set (above) closes that window structurally:
+// the pick-confirm-reserve sequence below is atomic under reservedLoopbackPortsMu,
+// so at most one freeLoopbackPort call ever holds a given port at a time,
+// and the reservation is held until the CALLER's test ends (t.Cleanup), not merely until this function returns —
+// so the port cannot be handed to a second caller while the first is still setting up (or mid-test).
+// A collision is therefore never fatal: it just means retry with the next OS-assigned port.
 func freeLoopbackPort(t *testing.T) int {
 	t.Helper()
 
-	const maxAttempts = 5
+	const maxAttempts = 50
 
 	for range maxAttempts {
 		ln, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
@@ -51,16 +68,38 @@ func freeLoopbackPort(t *testing.T) int {
 		require.True(t, ok, "listener addr must be *net.TCPAddr")
 		require.NoError(t, ln.Close())
 
+		reservedLoopbackPortsMu.Lock()
+		if _, taken := reservedLoopbackPorts[addr.Port]; taken {
+			reservedLoopbackPortsMu.Unlock()
+
+			continue // another in-flight (or still-running) test already owns this port; retry
+		}
+		reservedLoopbackPorts[addr.Port] = struct{}{}
+		reservedLoopbackPortsMu.Unlock()
+
+		// Confirm the port is actually rebindable right now (guards against an OS-level reuse
+		// delay unrelated to this package's own callers, e.g. a lingering TIME_WAIT edge case).
+		// A failure here releases the reservation and retries rather than failing the test.
 		confirm, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: addr.Port})
 		if err != nil {
-			continue // lost the race to a concurrent freeLoopbackPort caller; retry with a fresh port
+			reservedLoopbackPortsMu.Lock()
+			delete(reservedLoopbackPorts, addr.Port)
+			reservedLoopbackPortsMu.Unlock()
+
+			continue
 		}
 		require.NoError(t, confirm.Close())
+
+		t.Cleanup(func() {
+			reservedLoopbackPortsMu.Lock()
+			delete(reservedLoopbackPorts, addr.Port)
+			reservedLoopbackPortsMu.Unlock()
+		})
 
 		return addr.Port
 	}
 
-	t.Fatalf("freeLoopbackPort: failed to acquire a stable free port after %d attempts", maxAttempts)
+	t.Fatalf("freeLoopbackPort: failed to acquire a free, unreserved port after %d attempts", maxAttempts)
 
 	return 0
 }
@@ -129,6 +168,33 @@ func dialPassive(t *testing.T, port int) *net.TCPConn {
 	}, 5*time.Second, 20*time.Millisecond, "client must be able to dial the passive listener at %s", addr)
 
 	return tcpConn
+}
+
+// waitNextGeneration blocks until tr's current generation differs from prevGen —
+// i.e. until the reconnect loop has published a fresh generation for the transport to use.
+//
+// This is the correct fence for a test that must dial again after a passive drop.
+// The reconnect loop's connectLoop (hsms/connection_lifecycle.go) publishes the new generation
+// (c.cur.Store, which is what CurrentGeneration surfaces) only AFTER prev.wait() —
+// the prior epoch's FULL teardown, including the transport Stop that closes the prior generation's listener
+// and joins its accept goroutine (see transport_passive.go's startPassive doc and hsms/epoch.go's join).
+// So by the time this returns, the OLD listener is guaranteed closed.
+//
+// conn.State()==NotConnectedState alone is NOT that fence:
+// it fires as soon as the FSM processes TCPDown, which happens BEFORE react runs
+// (react is what actually kicks the async tr.Stop that closes the old listener).
+// A dial that races that window can land on the dying OLD listener's backlog
+// and be treated as an EXTRA connection of the ending generation (refused with SelectStatusAlreadyActive)
+// instead of reaching the fresh generation's real Select responder — the passive-reconnect flake this helper closes.
+func waitNextGeneration(t *testing.T, tr *transport, prevGen uint64) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		g := tr.currentGeneration()
+
+		return g != 0 && g != prevGen
+	}, 5*time.Second, time.Millisecond,
+		"the reconnect loop must publish a fresh generation (old listener fully closed) before dialing again")
 }
 
 // expectSelectRsp reads one frame from client and asserts it is a success Select.rsp — the passive
@@ -634,7 +700,7 @@ func TestPassive_RefuseExtraConn_ArmStartResetsAcrossReconnect(t *testing.T) {
 
 	port := freeLoopbackPort(t)
 
-	conn := newPassiveConn(t, port, hsms.WithT6(2*time.Second), hsms.WithT5(50*time.Millisecond))
+	conn, tr := newPassiveConnTr(t, port, hsms.WithT6(2*time.Second), hsms.WithT5(50*time.Millisecond))
 	require.NoError(t, conn.Open(t.Context(), hsms.OpenBackground))
 	t.Cleanup(func() { _ = conn.Close() })
 
@@ -648,6 +714,8 @@ func TestPassive_RefuseExtraConn_ArmStartResetsAcrossReconnect(t *testing.T) {
 	require.Eventually(t, func() bool { return conn.State() == hsms.SelectedState },
 		5*time.Second, 5*time.Millisecond, "first generation must reach Selected")
 
+	genN := tr.currentGeneration()
+
 	// Drop the link: the passive recv loop sees EOF → TCPDown → tr.Stop tears the generation down
 	// (setting refuseStopped, even though no refusal was in flight) → the reconnect loop's
 	// tr.ArmStart resets it before re-listening.
@@ -655,6 +723,10 @@ func TestPassive_RefuseExtraConn_ArmStartResetsAcrossReconnect(t *testing.T) {
 
 	require.Eventually(t, func() bool { return conn.State() == hsms.NotConnectedState },
 		5*time.Second, 5*time.Millisecond, "the drop must drive the passive back to NotConnected")
+
+	// Do not dial on NotConnectedState alone — see waitNextGeneration's doc for why that races the OLD listener's close.
+	// Wait for the reconnect loop to actually publish the fresh generation.
+	waitNextGeneration(t, tr, genN)
 
 	// Second generation: a fresh peer selects again.
 	client2 := dialPassive(t, port)
@@ -1018,7 +1090,7 @@ func TestPassive_ReconnectsAfterDrop(t *testing.T) {
 
 	port := freeLoopbackPort(t)
 
-	conn := newPassiveConn(t, port, hsms.WithT6(2*time.Second), hsms.WithT5(50*time.Millisecond))
+	conn, tr := newPassiveConnTr(t, port, hsms.WithT6(2*time.Second), hsms.WithT5(50*time.Millisecond))
 	require.NoError(t, conn.Open(context.Background(), hsms.OpenBackground))
 	t.Cleanup(func() { _ = conn.Close() })
 
@@ -1032,12 +1104,17 @@ func TestPassive_ReconnectsAfterDrop(t *testing.T) {
 	require.Eventually(t, func() bool { return conn.State() == hsms.SelectedState },
 		5*time.Second, 5*time.Millisecond, "first generation must reach Selected")
 
+	genN := tr.currentGeneration()
+
 	// Drop the link: the passive recv loop sees EOF → TCPDown → NotConnected → the engine's
 	// reconnect loop re-listens on the same port (through the FSM).
 	require.NoError(t, client1.Close())
 
 	require.Eventually(t, func() bool { return conn.State() == hsms.NotConnectedState },
 		5*time.Second, 5*time.Millisecond, "the drop must drive the passive back to NotConnected")
+
+	// Do not dial on NotConnectedState alone — see waitNextGeneration's doc for why that races the OLD listener's close.
+	waitNextGeneration(t, tr, genN)
 
 	// Second generation: a fresh peer dials the re-listened port and selects again.
 	client2 := dialPassive(t, port)

@@ -29,6 +29,7 @@ package hsmsss
 // event- or State()-driven (never time.Sleep-to-sync) and run under -race.
 
 import (
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -146,14 +147,64 @@ func TestPassiveRecoverFromAbruptDrop(t *testing.T) {
 	require.NoError(t, client1.Close())
 	waitNotConnectedEvent(t, passive)
 
-	// Second generation: a fresh raw client dials the re-listened port and selects again. dialPassive
-	// retries, so it tolerates the brief re-listen window.
-	client2 := dialPassive(t, port)
+	// Second generation: a fresh raw client dials the re-listened port and selects again.
+	// dialAndSelectAcrossReconnect retries the WHOLE handshake (not just dialPassive's TCP connect),
+	// so it tolerates landing on gen N's dying listener during the re-listen window — see its doc.
+	client2 := dialAndSelectAcrossReconnect(t, port, [4]byte{0x22, 0x22, 0x22, 0x22})
 	t.Cleanup(func() { _ = client2.Close() })
-	_, err = client2.Write(selectReqFrame([4]byte{0x22, 0x22, 0x22, 0x22}))
-	require.NoError(t, err)
-	expectSelectRsp(t, client2)
 	waitSelected(t, passive)
+}
+
+// dialAndSelectAcrossReconnect dials the passive listener at port and completes a Select handshake,
+// retrying the WHOLE handshake — a fresh TCP connect AND a fresh Select.req —
+// up to a bounded deadline, not just the TCP connect dialPassive already retries.
+//
+// Right after a passive generation drops,
+// a fresh dial can SUCCEED against the OLD (dying) generation's listener before its Stop actually closes it
+// (transport_passive.go's startPassive ASYNC-START / reconnect doc),
+// landing in that generation's refuse-extra-connection loop
+// and getting back a SelectStatusAlreadyActive Select.rsp instead of reaching the fresh generation's real Select responder.
+// A production client hitting that same window would need to retry exactly this way,
+// so this helper matches real reconnect behavior
+// instead of adding test-only synchronization against unexported transport state —
+// this file's harness (newEndpoint) does not expose the underlying *transport
+// the way transport_passive_test.go's newPassiveConnTr does,
+// so it cannot use that file's waitNextGeneration fence.
+func dialAndSelectAcrossReconnect(t *testing.T, port int, sysBytes [4]byte) net.Conn {
+	t.Helper()
+
+	deadline := time.Now().Add(10 * time.Second)
+
+	// Recorded so a deadline failure can tell "kept landing on a dying/refusing generation" (last
+	// status non-zero, non-Success — the flake window this helper exists to absorb) apart from
+	// "the fresh generation's responder itself never answers" (lastErr set instead, a real bug).
+	var lastStatus byte
+	var lastErr error
+
+	for {
+		client := dialPassive(t, port)
+
+		_, err := client.Write(selectReqFrame(sysBytes))
+		require.NoError(t, err)
+
+		frame, rerr := peerReadFrame(client, 2*time.Second)
+		if rerr == nil && len(frame) >= 10 && frame[5] == byte(hsms.SelectRspType) && frame[3] == byte(hsms.SelectStatusSuccess) {
+			return client
+		}
+
+		lastErr = rerr
+		lastStatus = 0
+		if rerr == nil && len(frame) >= 10 {
+			lastStatus = frame[3]
+		}
+
+		_ = client.Close()
+
+		if time.Now().After(deadline) {
+			t.Fatalf("dialAndSelectAcrossReconnect: never reached a fresh generation's Select responder on port %d "+
+				"within the deadline (last Select.rsp status=%d, last read error=%v)", port, lastStatus, lastErr)
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------

@@ -15,6 +15,7 @@ package hsms_test
 import (
 	"context"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,18 +33,62 @@ type link struct {
 	send hsms.Connection
 }
 
+// reservedDivertPorts is the package-level allocator freeDivertPort serializes against,
+// mirroring hsmsss/transport_passive_test.go's freeLoopbackPort (see its doc for the full rationale):
+// a port is reserved from pick time until the caller's own t.Cleanup,
+// so a collision between two callers of this helper is structurally impossible rather than merely unlikely.
+// None of this file's own tests currently run under t.Parallel(),
+// but the guard costs nothing and removes the dependency on that staying true.
+var (
+	reservedDivertPortsMu sync.Mutex
+	reservedDivertPorts   = make(map[int]struct{})
+)
+
 // freeDivertPort reserves and immediately releases a loopback TCP port for the pair to share.
 func freeDivertPort(t *testing.T) int {
 	t.Helper()
 
-	ln, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
-	require.NoError(t, err)
+	const maxAttempts = 50
 
-	addr, ok := ln.Addr().(*net.TCPAddr)
-	require.True(t, ok, "listener addr must be *net.TCPAddr")
-	require.NoError(t, ln.Close())
+	for range maxAttempts {
+		ln, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+		require.NoError(t, err)
 
-	return addr.Port
+		addr, ok := ln.Addr().(*net.TCPAddr)
+		require.True(t, ok, "listener addr must be *net.TCPAddr")
+		require.NoError(t, ln.Close())
+
+		reservedDivertPortsMu.Lock()
+		if _, taken := reservedDivertPorts[addr.Port]; taken {
+			reservedDivertPortsMu.Unlock()
+
+			continue
+		}
+		reservedDivertPorts[addr.Port] = struct{}{}
+		reservedDivertPortsMu.Unlock()
+
+		confirm, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: addr.Port})
+		if err != nil {
+			reservedDivertPortsMu.Lock()
+			delete(reservedDivertPorts, addr.Port)
+			reservedDivertPortsMu.Unlock()
+
+			continue
+		}
+		require.NoError(t, confirm.Close())
+
+		t.Cleanup(func() {
+			reservedDivertPortsMu.Lock()
+			delete(reservedDivertPorts, addr.Port)
+			reservedDivertPortsMu.Unlock()
+		})
+
+		return addr.Port
+	}
+
+	t.Fatalf("freeDivertPort: failed to acquire a free, unreserved port after %d attempts", maxAttempts)
+
+	return 0
 }
 
 // newDivertEndpoint builds one side of an HSMS-SS loopback pair with short integration timers and

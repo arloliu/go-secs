@@ -80,6 +80,10 @@ func assertAbandonedGenerationTCPDownCannotDropSuccessor(t *testing.T, cause err
 
 	require.NoError(t, raw1.Close()) // a real EOF drop: gen N tears down for real; reconnect starts
 
+	// Do not dial as soon as raw1 drops — see waitNextGeneration's doc (transport_passive_test.go) for why
+	// that races gen N's listener close and can land raw2 on gen N's refuse-extra-connection loop instead of gen N+1.
+	waitNextGeneration(t, tr, genN)
+
 	raw2 := dialPassive(t, port) // tolerant of the re-listen window (dialPassive retries)
 	_, err = raw2.Write(selectReqFrame([4]byte{0, 0, 0, 2}))
 	require.NoError(t, err)
