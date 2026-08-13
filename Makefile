@@ -22,11 +22,17 @@ TEST_TIMEOUT   := 5m
 # 51.2m at count=50; 10 repetitions still exercises every race window
 # meaningfully without the multiplicative blowup). At count=10, hsmsss's
 # measured per-iteration cost (61.44s, from the 3072s/50 count=50 run) implies
-# ~10.24m; STRESS_TIMEOUT is set to 15m, ~47% headroom, matching the prior
+# ~10.24m; STRESS_TIMEOUT was set to 15m, ~47% headroom, matching the prior
 # budget's headroom ratio. Fuzz seed corpora are included in stress (each
 # iteration is watchdog-bounded — see the stress-test target comment); they
 # add ~0.5s/count and do not threaten this budget.
-STRESS_TIMEOUT := 15m
+# On 2026-08-14 the generation-isolation hardening round (stale-generation
+# barrier/binding tests, refused-TCP-up tests, port-reservation flocks, wire
+# silence windows) grew hsmsss's count=10 GOMAXPROCS=1 runtime to 899.959s
+# (~15.0m, measured standalone with -timeout=30m, passing clean) — exactly at
+# the 15m budget, which a full-run build contention then tipped over. Same
+# ~47% headroom ratio on the new measurement gives 22m.
+STRESS_TIMEOUT := 22m
 STRESS_COUNT   ?= 10
 FUZZ_TIME      ?= 30s
 GO_TEST_P      ?= $(shell nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 8)
