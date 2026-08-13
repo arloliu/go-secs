@@ -573,14 +573,26 @@ func TestReconnect_AbandonedGenerationCommitSelectedCannotSelectSuccessor(t *tes
 //
 // Teeth: drop the generation check → the released SelectLost CASes Selected -> NotSelected and the
 // successor is deselected.
+//
+// It also pins SelectLostFromGeneration's own applied/refused report,
+// which is the signal its hsmsss caller relies on to skip the successor-affecting work
+// a real Selected -> NotSelected transition owns
+// (stopping the auto-linktest, arming the T7 dwell) —
+// see hsmsss's TestDeselect_StaleGenerationLeavesSuccessorLinktestArmed for the transport-level half.
+// The refusal has to be visible to the caller as a plain false return,
+// not merely inferable after the fact from State().
+//
+// Teeth (return value): make SelectLostFromGeneration always return true → deselected below reads true
+// and this assertion alone fails, even though the FSM assertion still passes.
 func TestReconnect_AbandonedGenerationSelectLostCannotDeselectSuccessor(t *testing.T) {
+	var deselected bool
 	c, mt := staleCommitConn(t,
 		func(_ int64, ctx context.Context, rt TransportRuntime) {
 			rt.TCPUp(fakeConn{})
 			driveSelect(ctx, rt) // BOTH generations select
 		},
 		func(rt TransportRuntime, gen uint64) {
-			mustGenCapability(rt).SelectLostFromGeneration(gen)
+			deselected = mustGenCapability(rt).SelectLostFromGeneration(gen)
 		},
 	)
 
@@ -597,6 +609,9 @@ func TestReconnect_AbandonedGenerationSelectLostCannotDeselectSuccessor(t *testi
 	require.NotEqual(t, genN, c.CurrentGeneration(), "gen N+1 must carry a distinct identity")
 
 	mt.releaseAbandonedGenAction() // gen N reports its Deselect — while gen N+1 owns the link
+
+	require.False(t, deselected,
+		"a Deselect answered by a generation that has ended must be refused, not just silently dropped")
 
 	require.Never(t, func() bool { return c.State() != SelectedState }, 500*time.Millisecond, 5*time.Millisecond,
 		"a Deselect answered by a generation that has ended must not deselect its successor")
@@ -743,4 +758,110 @@ func TestReconnect_AbandonedGenerationT7TimeoutCannotDropSuccessor(t *testing.T)
 	require.Positive(t, c.sup.Load().staleGen.Load(), "the stale T7 expiry must be counted")
 
 	require.NoError(t, c.Close())
+}
+
+// TestCommitGate_FencesTheCASAgainstMarkEnded tests the RWMutex ordering itself, which is the whole
+// safety property of the generation-guarded synchronous commits and the one thing every other test
+// in this file takes on trust.
+//
+// The end-to-end tests above release their stale commit only after the successor is already
+// published, so they exercise an already-stale IDENTITY check.
+// TestSupervisor_CommitFromGenerationHonorsTheGate replaces the gate with a fixed-answer closure,
+// so it cannot see the ordering either.
+// Neither would notice a gate that checks liveness under the RLock, releases it, and then runs the
+// CAS: every one of their assertions still holds, while the ABA window the gate exists to close
+// reopens — teardown can latch ended, complete its join, and let a successor be published, all
+// between the check and a CAS that then lands on that successor.
+//
+// So this drives the real connection.commitGate with a CAS that parks inside the gate, and proves
+// the two halves of the fence directly:
+// a teardown latching ended cannot complete while a commit is mid-CAS,
+// and a commit arriving after that latch is refused without its CAS ever running.
+//
+// Teeth: move the CAS out of the RLock section in connection.commitGate (RUnlock right after the
+// liveness check) → markEnded completes while the CAS is still parked and the first subtest fails.
+func TestCommitGate_FencesTheCASAgainstMarkEnded(t *testing.T) {
+	// A generation that comes up and parks: the gate cares only about identity and the ended latch,
+	// so the CAS below is supplied by the test rather than driven through the FSM.
+	openParkedGeneration := func(t *testing.T) (*connection, *epoch) {
+		t.Helper()
+
+		c, _ := newLifeConn(t, mockScript(func(_ context.Context, _ TransportRuntime) error { return nil }))
+		require.NoError(t, c.Open(t.Context(), OpenBackground))
+
+		e := c.cur.Load()
+		require.NotNil(t, e, "Open must publish a generation")
+		require.NotZero(t, e.id, "a published generation must carry an identity")
+
+		return c, e
+	}
+
+	t.Run("markEnded waits for a CAS already inside the gate", func(t *testing.T) {
+		c, e := openParkedGeneration(t)
+
+		inCAS := make(chan struct{})   // closed once the CAS is running inside the gate
+		release := make(chan struct{}) // the test releases the parked CAS
+		gateDone := make(chan struct{})
+
+		var committed, live bool
+		go func() {
+			committed, live = c.commitGate(e.id, func() bool {
+				close(inCAS)
+				<-release
+
+				return true
+			})
+			close(gateDone)
+		}()
+
+		<-inCAS
+
+		ended := make(chan struct{})
+		go func() {
+			e.markEnded()
+			close(ended)
+		}()
+
+		endedReturned := func() bool {
+			select {
+			case <-ended:
+				return true
+			default:
+				return false
+			}
+		}
+
+		require.Never(t, endedReturned, 200*time.Millisecond, 5*time.Millisecond,
+			"a generation must not be able to end while a commit it admitted is still inside its CAS")
+		require.False(t, e.ended.Load(), "the latch itself must still be unset, not merely unobserved")
+
+		close(release)
+		<-gateDone
+		<-ended
+
+		require.True(t, live, "the generation was live when the gate admitted the commit")
+		require.True(t, committed, "the CAS ran and reported success")
+		require.True(t, e.ended.Load(), "markEnded completes once the gate is released")
+
+		require.NoError(t, c.Close())
+	})
+
+	t.Run("a commit after the latch is refused without running its CAS", func(t *testing.T) {
+		c, e := openParkedGeneration(t)
+
+		e.markEnded() // teardown wins the gate first
+
+		var casRan bool
+		committed, live := c.commitGate(e.id, func() bool {
+			casRan = true
+
+			return true
+		})
+
+		require.False(t, live, "a generation whose teardown latched ended is no longer live")
+		require.False(t, committed, "a refused commit reports no commit")
+		require.False(t, casRan, "the CAS must never run for a refused commit")
+
+		require.NoError(t, c.Close())
+	})
 }

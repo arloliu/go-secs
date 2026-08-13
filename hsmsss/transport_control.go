@@ -39,7 +39,7 @@ type genRuntime interface {
 	TCPUpFromGeneration(gen uint64, conn net.Conn) bool
 	TCPDownFromGeneration(gen uint64, cause error, transitionCause hsms.TransitionCause)
 	CommitSelectedFromGeneration(gen uint64) bool
-	SelectLostFromGeneration(gen uint64)
+	SelectLostFromGeneration(gen uint64) bool
 	T7ExpiredFromGeneration(gen uint64)
 }
 
@@ -111,16 +111,24 @@ func (t *transport) commitSelected(gen uint64) bool {
 	return t.rt.CommitSelected()
 }
 
-// selectLost reports the loss of Selected for gen, the generation whose recv goroutine answered the Deselect.req.
+// selectLost reports the loss of Selected for gen, the generation whose recv goroutine answered the Deselect.req,
+// and reports whether the core applied the transition.
 // It names the generation for the same reason commitSelected does, and from the same goroutine.
-func (t *transport) selectLost(gen uint64) {
+//
+// On false the deselect did NOT happen — gen has already ended, or the link was not Selected —
+// and the caller must skip everything that belongs to a real Selected -> NotSelected transition
+// (stopping the auto-linktest, arming the T7 dwell),
+// because those act on whatever generation is CURRENT, not on gen.
+// A runtime without the genRuntime capability offers no way to report a refusal,
+// so this reports true for it, preserving the pre-generation behavior — the same fallback tcpUp makes.
+func (t *transport) selectLost(gen uint64) bool {
 	if gr, ok := t.rt.(genRuntime); ok {
-		gr.SelectLostFromGeneration(gen)
-
-		return
+		return gr.SelectLostFromGeneration(gen)
 	}
 
 	t.rt.SelectLost()
+
+	return true
 }
 
 // t7Expired reports the NOT-SELECTED dwell expiry for gen, the generation whose dwell it was.
@@ -418,6 +426,23 @@ func (t *transport) handleLinktestReq(msg hsms.Message) {
 // If NOT Selected: reply a non-zero (NotEstablished) status and do NOT transition.
 // See docs/specs/e37-1-hsms-ss-conformance-audit.md, "Deviations reviewed and accepted", §7.3,
 // and TestDeselect_AnsweredDespiteE371Prohibition.
+//
+// The transition's SIDE EFFECTS are gated on the commit actually being applied, not on the status alone.
+// stopLinktest and armT7 both act on whatever generation is current —
+// they cancel t.linktestCancel and derive a T7 ctx from t.genCtx —
+// so a recv goroutine that outlived its own generation would cancel the SUCCESSOR's auto-linktest
+// and hang a stale dwell on it, leaving a link that is still logically Selected with no liveness probing at all.
+// selectLost reports the core's refusal precisely so that work can be skipped.
+//
+// The response is still enqueued BEFORE the commit, and that ordering is deliberate.
+// The §7.D/I3 invariant is satisfied by the commit being SYNCHRONOUS on the recv goroutine,
+// not by its position relative to the rsp:
+// this loop reads frames sequentially, so the CAS lands before any re-Select.req the peer pipelines is ever dispatched,
+// and SendAsync only enqueues the rsp anyway.
+// Deriving the status from the commit instead would also break the runtimes that cannot report a refusal:
+// on the plain SelectLost path selectLost always reports true,
+// so a Deselect answered while NOT Selected would be told status 0 and handed a SelectLost it never asked for.
+// The status therefore stays a statement about the link the peer sees, which is what State() answers.
 func (t *transport) handleDeselectReq(g *genWG, msg hsms.Message) {
 	cm, ok := msg.(*hsms.ControlMessage)
 	if !ok {
@@ -436,8 +461,9 @@ func (t *transport) handleDeselectReq(g *genWG, msg hsms.Message) {
 
 	_ = t.rt.SendAsync(context.Background(), rsp)
 
-	if status == hsms.DeselectStatusSuccess {
-		t.selectLost(g.gen) // Selected -> NotSelected (evSelectLost), isolated to THIS generation
+	// Selected -> NotSelected (evSelectLost), isolated to THIS generation.
+	// On a refusal the transition did not happen, so neither may anything downstream of it.
+	if status == hsms.DeselectStatusSuccess && t.selectLost(g.gen) {
 		t.stopLinktest()
 		// Back in NotSelected on the SAME TCP connection: the T7 dwell re-applies (§9.2.2), so
 		// re-arm it on this generation's bundle g (NEW-1) — if no re-Select follows, T7 expiry

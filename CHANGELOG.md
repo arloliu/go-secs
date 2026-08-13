@@ -130,6 +130,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and spawns nothing.
   The plain `TCPUp` entry point (used by an out-of-module `TransportRuntime`) is unchanged.
   This was not a v2.4 regression; it has been present since v2.0.0.
+- **`hsms`, `hsmsss`: a `Deselect.req` answered by a generation that has already ended no longer disarms the generation that replaced it.**
+  This is the Deselect counterpart of the socket gap above, and the last one of its kind.
+  The state machine already refused the stale generation's loss-of-Select,
+  but the refusal was not reported back to the responder,
+  which went on to stop the auto-linktest and arm a T7 dwell unconditionally.
+  Neither of those is generation-scoped: they act on whatever generation is current.
+  A link that had legitimately reselected was therefore left in `SelectedState` with no auto-linktest at all —
+  no probing, so a peer that went silent was no longer detected —
+  and with a stale T7 dwell attached to it.
+  The responder now skips both when the state machine refuses the transition.
+  A `Deselect.req` answered by the working generation is unaffected, and so is the `Deselect.rsp` itself:
+  the status still reports the state of the link the peer sees.
+  This was not a v2.4 regression; it has been present since v2.0.0.
 
 ## [2.3.1] - 2026-08-12
 

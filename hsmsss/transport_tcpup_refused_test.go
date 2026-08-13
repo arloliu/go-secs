@@ -76,7 +76,8 @@ func waitWaitGroupDone(t *testing.T, name string, wait func()) {
 // and spawn neither the recv loop nor the Select procedure.
 //
 // Teeth: revert the fix (call rt.TCPUp unconditionally and proceed to spawn regardless of the
-// return) — tracked.closed stays false and this test fails on that assertion.
+// return) — the close count stays 0 and this test fails on that assertion;
+// close the conn twice on the refusal path and the same assertion fails from the other side.
 func TestActive_RefusedTCPUpClosesConnAndSkipsRecvLoop(t *testing.T) {
 	t.Parallel()
 
@@ -100,7 +101,8 @@ func TestActive_RefusedTCPUpClosesConnAndSkipsRecvLoop(t *testing.T) {
 	err = tr.startActive(t.Context())
 	require.ErrorIs(t, err, errStartSealed, "a refused TCP-up must abort Start with errStartSealed")
 
-	require.True(t, tracked.closed.Load(), "the refused conn must be closed")
+	require.Equal(t, int64(1), tracked.closes.Load(),
+		"the refused conn must be closed EXACTLY once — a second close can land on a reused fd")
 
 	tr.connMu.Lock()
 	conn := tr.conn
@@ -127,7 +129,8 @@ func TestActive_RefusedTCPUpClosesConnAndSkipsRecvLoop(t *testing.T) {
 // so no background goroutine or real listener is needed to observe the outcome.
 //
 // Teeth: revert the fix (call rt.TCPUp unconditionally and proceed to spawn regardless of the
-// return) — tracked.closed stays false and this test fails on that assertion.
+// return) — the close count stays 0 and this test fails on that assertion;
+// close the conn twice on the refusal path and the same assertion fails from the other side.
 func TestPassive_RefusedTCPUpClosesConnAndSkipsRecvLoop(t *testing.T) {
 	t.Parallel()
 
@@ -151,7 +154,8 @@ func TestPassive_RefusedTCPUpClosesConnAndSkipsRecvLoop(t *testing.T) {
 
 	tr.acceptLoop(g, ln)
 
-	require.True(t, tracked.closed.Load(), "the refused conn must be closed")
+	require.Equal(t, int64(1), tracked.closes.Load(),
+		"the refused conn must be closed EXACTLY once — a second close can land on a reused fd")
 
 	tr.connMu.Lock()
 	conn := tr.conn

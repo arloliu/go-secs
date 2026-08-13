@@ -178,18 +178,26 @@ func dialAndSelectAcrossReconnect(t *testing.T, port int, sysBytes [4]byte) net.
 	// Recorded so a deadline failure can tell "kept landing on a dying/refusing generation" (last
 	// status non-zero, non-Success — the flake window this helper exists to absorb) apart from
 	// "the fresh generation's responder itself never answers" (lastErr set instead, a real bug).
+	// lastErr holds whichever half of the exchange failed, the Select.req write or the Select.rsp read.
 	var lastStatus byte
 	var lastErr error
 
 	for {
 		client := dialPassive(t, port)
 
-		_, err := client.Write(selectReqFrame(sysBytes))
-		require.NoError(t, err)
+		// A write error is the SAME flake as a read error, and is retried the same way:
+		// a dying generation that accepted this dial can reset the socket before — or during — our Select.req,
+		// which surfaces here as EPIPE/ECONNRESET rather than as a failed read.
+		// Failing the test on it would abort inside the very window this helper exists to ride out.
+		_, werr := client.Write(selectReqFrame(sysBytes))
 
-		frame, rerr := peerReadFrame(client, 2*time.Second)
-		if rerr == nil && len(frame) >= 10 && frame[5] == byte(hsms.SelectRspType) && frame[3] == byte(hsms.SelectStatusSuccess) {
-			return client
+		var frame []byte
+		rerr := werr
+		if werr == nil {
+			frame, rerr = peerReadFrame(client, 2*time.Second)
+			if rerr == nil && len(frame) >= 10 && frame[5] == byte(hsms.SelectRspType) && frame[3] == byte(hsms.SelectStatusSuccess) {
+				return client
+			}
 		}
 
 		lastErr = rerr
@@ -202,7 +210,7 @@ func dialAndSelectAcrossReconnect(t *testing.T, port int, sysBytes [4]byte) net.
 
 		if time.Now().After(deadline) {
 			t.Fatalf("dialAndSelectAcrossReconnect: never reached a fresh generation's Select responder on port %d "+
-				"within the deadline (last Select.rsp status=%d, last read error=%v)", port, lastStatus, lastErr)
+				"within the deadline (last Select.rsp status=%d, last I/O error=%v)", port, lastStatus, lastErr)
 		}
 	}
 }

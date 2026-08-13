@@ -23,17 +23,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// sealCloseTrackingConn wraps a net.Conn and records whether Close was called, so a test can
+// sealCloseTrackingConn wraps a net.Conn and COUNTS Close calls, so a test can
 // assert the just-dialed socket was rolled back by the sealed-start branch (mirrors the
 // deadlineErrConn / refuseSetDeadlineRecorder wrap-and-record pattern already used in
 // transport_passive_test.go).
+//
+// A count rather than a flag: the rollback contract is close EXACTLY once,
+// and a second close is a real defect — the fd may have been reused by then,
+// so the extra Close lands on an unrelated socket.
+// A boolean cannot tell that apart from the correct behavior.
 type sealCloseTrackingConn struct {
 	net.Conn
-	closed atomic.Bool
+	closes atomic.Int64
 }
 
 func (c *sealCloseTrackingConn) Close() error {
-	c.closed.Store(true)
+	c.closes.Add(1)
 
 	return c.Conn.Close()
 }
@@ -42,11 +47,11 @@ func (c *sealCloseTrackingConn) Close() error {
 // the passive test to assert the just-listened socket was rolled back.
 type sealCloseTrackingListener struct {
 	net.Listener
-	closed atomic.Bool
+	closes atomic.Int64
 }
 
 func (l *sealCloseTrackingListener) Close() error {
-	l.closed.Store(true)
+	l.closes.Add(1)
 
 	return l.Listener.Close()
 }
@@ -92,8 +97,8 @@ func TestActive_StartAbortsWhenSealed(t *testing.T) {
 	err = tr.startActive(t.Context())
 	require.ErrorIs(t, err, errStartSealed, "a sealed transport must abort Start with errStartSealed")
 
-	require.True(t, tracked.closed.Load(),
-		"the just-dialed conn must be closed when Start aborts on a sealed transport")
+	require.Equal(t, int64(1), tracked.closes.Load(),
+		"the just-dialed conn must be closed exactly once when Start aborts on a sealed transport")
 
 	tr.connMu.Lock()
 	conn := tr.conn
@@ -128,8 +133,8 @@ func TestPassive_StartAbortsWhenSealed(t *testing.T) {
 	err = tr.startPassive(t.Context())
 	require.ErrorIs(t, err, errStartSealed, "a sealed transport must abort Start with errStartSealed")
 
-	require.True(t, tracked.closed.Load(),
-		"the just-created listener must be closed when Start aborts on a sealed transport")
+	require.Equal(t, int64(1), tracked.closes.Load(),
+		"the just-created listener must be closed exactly once when Start aborts on a sealed transport")
 
 	tr.connMu.Lock()
 	ln := tr.listener

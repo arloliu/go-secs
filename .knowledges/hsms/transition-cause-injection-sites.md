@@ -9,15 +9,16 @@ verified:
   - {by: "claude/opus-5", at: 2026-08-13T00:00:00Z}
   - {by: "claude/opus-5", at: 2026-08-13T13:00:00Z}
   - {by: "claude/sonnet-5", at: 2026-08-13T23:00:00Z}
+  - {by: "claude/opus-5", at: 2026-08-14T02:00:00Z}
 sources:
   - {resource: hsms/lifecycle.go, digest: sha256:65d429d90300b620, revision: 5a0ec1b}
   - {resource: hsms/supervisor.go, digest: sha256:6e184e41a0ff36b7, revision: 6ef4ce7}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:ef39ad01716f99ef, revision: 71a7afe}
-  - {resource: hsms/connection_runtime.go, digest: sha256:711c3a7e01179640, revision: 6ef4ce7}
-  - {resource: hsms/connection.go, digest: sha256:77816cf32d7065e9, revision: 6ef4ce7}
-  - {resource: hsms/epoch.go, digest: sha256:2bb2df9485d57850, revision: 6ef4ce7}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:bda579830406a535, revision: 0821fe8}
+  - {resource: hsms/connection_runtime.go, digest: sha256:21ade095e315d4d8, revision: 0821fe8}
+  - {resource: hsms/connection.go, digest: sha256:d5451e7272ddc026, revision: 18f0495}
+  - {resource: hsms/epoch.go, digest: sha256:414fa30bdca8edc5, revision: 18f0495}
   - {resource: hsmsss/transport.go, digest: sha256:af794dd9a6818352, revision: 71a7afe}
-  - {resource: hsmsss/transport_control.go, digest: sha256:2feb21fb4247bb55, revision: 71a7afe}
+  - {resource: hsmsss/transport_control.go, digest: sha256:cd4194db0746132b, revision: 0821fe8}
   - {resource: hsmsss/transport_active.go, digest: sha256:a9f72c23b1c5827c, revision: 71a7afe}
   - {resource: hsmsss/transport_passive.go, digest: sha256:f5c2688db6585682, revision: 71a7afe}
   - {resource: hsmsss/transport_recv.go, digest: sha256:466ba864e5586a7a, revision: 6ef4ce7}
@@ -153,8 +154,8 @@ It resolves the epoch by identity and writes to THAT epoch, so a swap can never 
 
 **The refusal is not silent: it is a reported bool, all the way out to the transport.**
 `publishSocket`, `commitTCPUp`, and `TCPUpFromGeneration` all return whether the socket was accepted.
-This is the one producer among the five `genCapability` methods whose caller has actual cleanup to do on a
-refusal — the socket itself, not just an event.
+It is one of the two producers among the five `genCapability` methods whose caller has real cleanup to do on a
+refusal — here the socket itself, not just an event.
 `hsmsss`'s `tcpUp` wrapper forwards that bool, and `startActive` / `acceptLoop`
 (transport_active.go / transport_passive.go) check it:
 on `false` they close the conn themselves —
@@ -166,6 +167,26 @@ so a dead generation's socket can never clobber a live successor's.
 `staleGen` keeps counting it — the commit itself is a guaranteed no-op there, since `ended` never reverts.
 The plain `TCPUp` (gen 0, out-of-module) keeps its void signature and unconditional-accept behavior;
 only the generation-named path can name a refusal.
+
+**Select-lost is the other reported refusal, and what it protects is not a socket.**
+`SelectLostFromGeneration` returns whether the CAS was applied,
+and `hsmsss`'s `selectLost` wrapper forwards that to `handleDeselectReq`.
+The work skipped on a refusal is the pair of calls that belong to a real `Selected -> NotSelected` transition, `stopLinktest` and `armT7`.
+Neither is generation-scoped:
+`stopLinktest` cancels whatever `t.linktestCancel` currently holds,
+and `armT7` derives its dwell ctx from the current `t.genCtx` while registering the goroutine on the STALE generation's bundle.
+Run after a refused commit, they leave the successor logically Selected with its auto-linktest cancelled and a stale dwell attached —
+a link that reports itself healthy while nothing probes it.
+The FSM cannot catch this downstream: `State()` still says Selected, because the successor legitimately is.
+
+The `Deselect.rsp` is still enqueued BEFORE the commit, and that ordering is deliberate.
+The §7.D/I3 invariant rests on the commit being synchronous on the sequential recv goroutine, not on its position relative to the rsp —
+the CAS lands before any pipelined re-`Select.req` is dispatched, and `SendAsync` only enqueues.
+Deriving the status from the commit instead would break the gen-0 fallback, which always reports true:
+a Deselect answered while NOT Selected would be told status 0 and handed a `SelectLost` it never asked for.
+
+The remaining two producers stay void.
+A refused `TCPDownFromGeneration` or `T7ExpiredFromGeneration` is a queued event whose caller has nothing to undo.
 
 **How the cause crosses the package boundary.**
 `hsmsss` and `secs1` reach `TCPDownWithCause` by type-asserting `t.rt` to a package-local `causeRuntime` interface, then fall back to plain `TCPDown`.

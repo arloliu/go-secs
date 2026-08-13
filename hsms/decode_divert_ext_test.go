@@ -15,7 +15,11 @@ package hsms_test
 import (
 	"context"
 	"net"
+	"os"
+	"path/filepath"
+	"strconv"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -33,18 +37,45 @@ type link struct {
 	send hsms.Connection
 }
 
-// reservedDivertPorts is the package-level allocator freeDivertPort serializes against,
-// mirroring hsmsss/transport_passive_test.go's freeLoopbackPort (see its doc for the full rationale):
-// a port is reserved from pick time until the caller's own t.Cleanup,
-// so a collision between two callers of this helper is structurally impossible rather than merely unlikely.
-// None of this file's own tests currently run under t.Parallel(),
-// but the guard costs nothing and removes the dependency on that staying true.
-var (
-	reservedDivertPortsMu sync.Mutex
-	reservedDivertPorts   = make(map[int]struct{})
-)
+// portLockDir is where the cross-process port reservations this file takes live.
+// It is under os.TempDir, not t.TempDir, because the reservation has to be a rendezvous
+// SHARED by every test binary `go test ./... -p N` runs concurrently — see reserveTestPort.
+var portLockDir = filepath.Join(os.TempDir(), "go-secs-test-ports")
+
+// reserveTestPort takes an exclusive, OS-HELD reservation on port and reports whether it got one.
+// The returned release is idempotent and frees the reservation.
+//
+// It mirrors hsmsss/transport_passive_test.go's helper of the same name verbatim (see its doc for the full rationale):
+// a package-level map only ever excluded callers inside ONE test binary,
+// while the CI gate runs the hsms, hsmsss and secs1 binaries at once against the same ephemeral port range,
+// so only an OS-held reservation can keep two of them from picking the same port.
+// A lock file left behind by a killed run poisons nothing — the kernel drops the flock with the process.
+func reserveTestPort(t *testing.T, port int) (release func(), ok bool) {
+	t.Helper()
+
+	if err := os.MkdirAll(portLockDir, 0o700); err != nil {
+		return nil, false
+	}
+
+	//nolint:gosec // a test-only path under os.TempDir, built from an int port number.
+	f, err := os.OpenFile(filepath.Join(portLockDir, strconv.Itoa(port)+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, false
+	}
+
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = f.Close()
+
+		return nil, false
+	}
+
+	// Closing the descriptor releases the flock, so one idempotent close is the whole release.
+	return sync.OnceFunc(func() { _ = f.Close() }), true
+}
 
 // freeDivertPort reserves and immediately releases a loopback TCP port for the pair to share.
+// The reservation is held from pick time until the caller's own t.Cleanup,
+// so a collision with any other caller — in this binary or another test binary — is structurally impossible.
 func freeDivertPort(t *testing.T) int {
 	t.Helper()
 
@@ -58,30 +89,20 @@ func freeDivertPort(t *testing.T) int {
 		require.True(t, ok, "listener addr must be *net.TCPAddr")
 		require.NoError(t, ln.Close())
 
-		reservedDivertPortsMu.Lock()
-		if _, taken := reservedDivertPorts[addr.Port]; taken {
-			reservedDivertPortsMu.Unlock()
-
+		release, reserved := reserveTestPort(t, addr.Port)
+		if !reserved {
 			continue
 		}
-		reservedDivertPorts[addr.Port] = struct{}{}
-		reservedDivertPortsMu.Unlock()
 
 		confirm, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: addr.Port})
 		if err != nil {
-			reservedDivertPortsMu.Lock()
-			delete(reservedDivertPorts, addr.Port)
-			reservedDivertPortsMu.Unlock()
+			release()
 
 			continue
 		}
 		require.NoError(t, confirm.Close())
 
-		t.Cleanup(func() {
-			reservedDivertPortsMu.Lock()
-			delete(reservedDivertPorts, addr.Port)
-			reservedDivertPortsMu.Unlock()
-		})
+		t.Cleanup(release)
 
 		return addr.Port
 	}

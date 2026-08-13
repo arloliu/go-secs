@@ -75,19 +75,29 @@ func (c *connection) SelectLost() {
 // It closes the same hazard as [connection.CommitSelectedFromGeneration], from the same goroutine:
 // a Deselect answered after the generation ended must not deselect the successor's live link.
 // A gen of 0 skips the match.
-func (c *connection) SelectLostFromGeneration(gen uint64) {
-	c.commitSelectLost(gen)
+//
+// It reports whether the commit was applied, for the same reason [connection.TCPUpFromGeneration] reports its refusal:
+// the caller has work of its own that belongs to the deselected link
+// (stopping that link's auto-linktest, arming its T7 dwell)
+// and must skip all of it when the commit was refused,
+// or a generation that has ended silently disarms its successor.
+// A refusal here means either that gen is over or that the link was not Selected to begin with;
+// neither is a state the caller may act on.
+func (c *connection) SelectLostFromGeneration(gen uint64) bool {
+	return c.commitSelectLost(gen)
 }
 
-// commitSelectLost is the shared body of the Select-lost commit.
-func (c *connection) commitSelectLost(gen uint64) {
+// commitSelectLost is the shared body of the Select-lost commit, reporting whether the CAS committed.
+func (c *connection) commitSelectLost(gen uint64) bool {
 	if s := c.sup.Load(); s != nil {
 		// CausePeerDeselect: leaving Selected while the transport link stays up has exactly one producer,
 		// the responder answering an inbound Deselect.req (E37 §7.7).
 		// A peer Separate drops the link instead and arrives through TCPDownWithCause, not here.
 		// Synchronous guarded CAS Selected->NotSelected, then enqueue evSelectLost (I3).
-		s.CommitSelectLostFromGeneration(gen, CausePeerDeselect)
+		return s.CommitSelectLostFromGeneration(gen, CausePeerDeselect)
 	}
+
+	return false
 }
 
 // T7Expired injects evT7Timeout (NOT-SELECTED dwell expiry) — TransportRuntime.

@@ -11,6 +11,7 @@ package hsmsss
 // the same package for the identical reason.
 
 import (
+	"context"
 	"net"
 	"sync"
 	"testing"
@@ -114,6 +115,11 @@ type genRecRT struct {
 	// the refused-TCP-up teeth tests use it to drive startActive/acceptLoop's refusal branch deterministically,
 	// without needing a real generation-gate race.
 	refuseTCPUp bool
+	// refuseSelectLost is the SelectLost counterpart of refuseTCPUp:
+	// the core refuses a Select-lost commit from a generation that has ended (connection.commitGate),
+	// and this drives that refusal deterministically,
+	// so the stale-Deselect test can observe what the handler does — and must not do — afterwards.
+	refuseSelectLost bool
 }
 
 func newGenRecRT(liveGen uint64) *genRecRT {
@@ -136,6 +142,12 @@ func (m *genRecRT) setLiveGeneration(gen uint64) {
 func (m *genRecRT) setRefuseTCPUp(refuse bool) {
 	m.mu.Lock()
 	m.refuseTCPUp = refuse
+	m.mu.Unlock()
+}
+
+func (m *genRecRT) setRefuseSelectLost(refuse bool) {
+	m.mu.Lock()
+	m.refuseSelectLost = refuse
 	m.mu.Unlock()
 }
 
@@ -178,12 +190,19 @@ func (m *genRecRT) CommitSelectedFromGeneration(gen uint64) bool {
 	return m.CommitSelected()
 }
 
-func (m *genRecRT) SelectLostFromGeneration(gen uint64) {
+func (m *genRecRT) SelectLostFromGeneration(gen uint64) bool {
 	m.mu.Lock()
 	m.reportedGen = append(m.reportedGen, gen)
+	refuse := m.refuseSelectLost
 	m.mu.Unlock()
 
+	if refuse {
+		return false
+	}
+
 	m.SelectLost()
+
+	return true
 }
 
 // A genRecRT that stops satisfying genRuntime would not fail to compile.
@@ -277,6 +296,72 @@ func TestSelectCommits_ReportTheirOwnGeneration(t *testing.T) {
 		require.Equal(t, []uint64{1}, rt.reportedGenerations(),
 			"the Select-lost commit must be made on behalf of the generation that read the request")
 	})
+}
+
+// TestDeselect_StaleGenerationLeavesSuccessorLinktestArmed covers what handleDeselectReq does AFTER its commit,
+// which naming the generation alone does not protect.
+//
+// The core refuses a Select-lost commit from a generation that has ended
+// (hsms's TestReconnect_AbandonedGenerationSelectLostCannotDeselectSuccessor pins that half),
+// but the two calls the responder makes on a successful transition are not generation-scoped at all:
+// stopLinktest cancels whatever t.linktestCancel currently holds,
+// and armT7 derives its dwell from the CURRENT t.genCtx.
+// Run unconditionally by a straggler, they leave the SUCCESSOR logically Selected with its auto-linktest silently cancelled —
+// no liveness probing on a link that reports itself healthy —
+// and a stale dwell registered on the dead generation's bundle.
+//
+// So this drives the refusal deterministically (setRefuseSelectLost, the SelectLost twin of setRefuseTCPUp)
+// against a transport whose live generation is mid-session,
+// and asserts the successor's session behaviorally: its probes keep arriving after the stale Deselect returns.
+//
+// Teeth: drop the selectLost() guard in handleDeselectReq so stopLinktest/armT7 run unconditionally again —
+// linktestCancel is cleared, the probes stop, and t7Cancel becomes non-nil; all three assertions fail.
+func TestDeselect_StaleGenerationLeavesSuccessorLinktestArmed(t *testing.T) {
+	t.Parallel()
+
+	rt := newGenRecRT(2) // gen 2 is live; the Deselect below is answered by gen 1's abandoned recv goroutine
+	rt.setState(hsms.SelectedState)
+	rt.setLinktest(10*time.Millisecond, 3)
+	// T7 must be POSITIVE here: armT7 returns early on a non-positive dwell,
+	// which would make the t7Cancel assertion below pass without the handler having skipped anything.
+	rt.setTimers(hsms.TimerConfig{T6: time.Second, T7: 10 * time.Second})
+	rt.setWriteMsgFn(func(_ context.Context, msg hsms.Message) (hsms.Message, error) {
+		return msg, nil // every linktest probe succeeds
+	})
+
+	tr := newLinktestTransport(t, rt.recRT, t.Context())
+	tr.rt = rt // re-bind to the capability-offering runtime
+
+	// gen 2's own Selected session — the auto-linktest the stale Deselect must leave alone.
+	live := tr.wg
+	live.gen = 2
+	tr.startLinktest(live)
+
+	require.Eventually(t, func() bool { return rt.writtenCount() >= 1 }, 15*time.Second, 5*time.Millisecond,
+		"the live generation's auto-linktest must be probing before the stale Deselect arrives")
+
+	rt.setRefuseSelectLost(true) // the core refuses a commit from a generation that has ended
+
+	tr.handleDeselectReq(&genWG{gen: 1}, hsms.NewDeselectReq(hsms.ControlSessionID, rt.NextSystemBytes()))
+
+	require.Equal(t, []uint64{1}, rt.reportedGenerations(),
+		"the commit must still be attempted, on behalf of the generation that read the request")
+	require.Zero(t, rt.selectLostCalls(), "the refused commit must not have deselected anything")
+
+	tr.connMu.Lock()
+	linktestArmed := tr.linktestCancel != nil
+	t7Armed := tr.t7Cancel != nil
+	tr.connMu.Unlock()
+
+	require.True(t, linktestArmed, "a refused Deselect must not cancel the successor's auto-linktest")
+	require.False(t, t7Armed, "a refused Deselect must not arm a T7 dwell over the successor's Selected link")
+
+	probes := rt.writtenCount()
+	require.Eventually(t, func() bool { return rt.writtenCount() > probes }, 15*time.Second, 5*time.Millisecond,
+		"the successor's auto-linktest must still be firing after the stale Deselect")
+
+	tr.stopLinktest()
+	waitLinktestExit(t, tr)
 }
 
 // TestGenRuntime_IsSatisfiedByTheRealCore is the one assertion nothing else in this package makes,

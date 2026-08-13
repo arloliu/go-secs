@@ -573,7 +573,7 @@ type genCapability interface {
 	TCPUpFromGeneration(gen uint64, conn net.Conn) bool
 	TCPDownFromGeneration(gen uint64, cause error, transitionCause TransitionCause)
 	CommitSelectedFromGeneration(gen uint64) bool
-	SelectLostFromGeneration(gen uint64)
+	SelectLostFromGeneration(gen uint64) bool
 	T7ExpiredFromGeneration(gen uint64)
 }
 

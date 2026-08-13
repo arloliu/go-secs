@@ -11,8 +11,12 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
+	"strconv"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -474,23 +478,51 @@ func TestTransport_DefaultSinkAssemblesInboundFrame(t *testing.T) {
 	require.False(t, rt.tcpDownFired(), "a clean Stop must not fire TCPDown (C1 guard)")
 }
 
-// reservedPorts is the package-level allocator freePort serializes against.
-// A port is reserved the instant a caller decides to hand it out
-// and released only at that caller's own test cleanup,
-// so two t.Parallel() callers can never both believe they own the same just-freed ephemeral port —
-// see freeLoopbackPort's doc in hsmsss/transport_passive_test.go, which this mirrors verbatim
-// (this package hit the identical bind: address already in use flake under full-suite load).
-var (
-	reservedPortsMu sync.Mutex
-	reservedPorts   = make(map[int]struct{})
-)
+// portLockDir is where the cross-process port reservations this file takes live.
+// It is under os.TempDir, not t.TempDir, because the reservation has to be a rendezvous
+// SHARED by every test binary `go test ./... -p N` runs concurrently — see reserveTestPort.
+var portLockDir = filepath.Join(os.TempDir(), "go-secs-test-ports")
+
+// reserveTestPort takes an exclusive, OS-HELD reservation on port and reports whether it got one.
+// The returned release is idempotent and frees the reservation.
+//
+// It mirrors hsmsss/transport_passive_test.go's helper of the same name verbatim
+// (this package hit the identical "bind: address already in use" flake under full-suite load),
+// and the lock is an flock on a per-port file for the reason recorded there:
+// a package-level map only ever excluded callers inside ONE test binary,
+// while the CI gate runs several of them at once against the same ephemeral port range.
+// flock excludes goroutines in this process too, so it subsumes the mutex-and-map guard it replaces,
+// and a lock file left behind by a killed run poisons nothing — the kernel drops the flock with the process.
+func reserveTestPort(t *testing.T, port int) (release func(), ok bool) {
+	t.Helper()
+
+	if err := os.MkdirAll(portLockDir, 0o700); err != nil {
+		return nil, false
+	}
+
+	//nolint:gosec // a test-only path under os.TempDir, built from an int port number.
+	f, err := os.OpenFile(filepath.Join(portLockDir, strconv.Itoa(port)+".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, false
+	}
+
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = f.Close()
+
+		return nil, false
+	}
+
+	// Closing the descriptor releases the flock, so one idempotent close is the whole release.
+	return sync.OnceFunc(func() { _ = f.Close() }), true
+}
 
 // freePort returns a currently-free loopback TCP port (a throwaway listener is opened then closed).
 // net.ListenTCP sets SO_REUSEADDR so a passive transport can immediately re-bind it.
 //
-// The pick-close-confirm-reserve sequence below is atomic under reservedPortsMu,
-// and the reservation is held until the CALLER's test ends (t.Cleanup), not merely until this function returns,
-// so a concurrent freePort caller can never be handed the same port while the first caller is still setting up (or mid-test).
+// The reservation is taken before the confirming bind and held until the CALLER's test ends (t.Cleanup),
+// not merely until this function returns,
+// so a concurrent caller — in this binary or another one — can never be handed the same port
+// while the first caller is still setting up (or mid-test).
 // A collision is therefore never fatal — it just retries.
 func freePort(t *testing.T) int {
 	t.Helper()
@@ -504,33 +536,23 @@ func freePort(t *testing.T) int {
 		require.True(t, ok)
 		require.NoError(t, l.Close())
 
-		reservedPortsMu.Lock()
-		if _, taken := reservedPorts[tcpAddr.Port]; taken {
-			reservedPortsMu.Unlock()
-
+		release, reserved := reserveTestPort(t, tcpAddr.Port)
+		if !reserved {
 			continue // another in-flight (or still-running) test already owns this port; retry
 		}
-		reservedPorts[tcpAddr.Port] = struct{}{}
-		reservedPortsMu.Unlock()
 
 		// Confirm the port is actually rebindable right now
 		// (guards against an OS-level reuse delay unrelated to this package's own callers,
 		// e.g. a lingering TIME_WAIT edge case).
 		confirm, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", tcpAddr.Port))
 		if err != nil {
-			reservedPortsMu.Lock()
-			delete(reservedPorts, tcpAddr.Port)
-			reservedPortsMu.Unlock()
+			release()
 
 			continue
 		}
 		require.NoError(t, confirm.Close())
 
-		t.Cleanup(func() {
-			reservedPortsMu.Lock()
-			delete(reservedPorts, tcpAddr.Port)
-			reservedPortsMu.Unlock()
-		})
+		t.Cleanup(release)
 
 		return tcpAddr.Port
 	}
