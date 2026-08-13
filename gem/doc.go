@@ -24,10 +24,15 @@
 // A list of the wrong length, an item of the wrong SECS-II type, a value too wide for the E5 data item's declared width, or a missing position all return an error naming the E5 field or the body position that failed.
 // A mismatch is never reported as a zero value with a nil error.
 //
-// Two shapes are deliberately permissive, because SEMI E5 declares them so:
+// Three shapes are deliberately permissive:
 //
 //   - A repeated group (an SVID list, a report list) accepts any number of elements, including none.
-//   - A group the standard marks optional — an error code and its text, a set of limit attributes — decodes in either its full or its omitted form, and the omitted fields keep their zero value.
+//   - A group SEMI E5 marks optional — an error code and its text, a set of limit attributes — decodes in either its full or its omitted form,
+//     and the omitted fields keep their zero value.
+//   - A numeric field accepts any width of its own family:
+//     a U8 item decodes into a field the standard declares U4, an I1 into an I4, an F4 into an F8.
+//     The value must still fit the declared width, so nothing is ever truncated —
+//     a U8 item carrying more than a uint32 can hold is an error, not a wrapped value.
 //
 // Fields whose SECS-II type is equipment-defined stay [secs2.Item]:
 // the decoder returns them unexamined rather than guessing a type the standard leaves open.
