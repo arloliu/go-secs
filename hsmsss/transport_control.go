@@ -3,6 +3,7 @@ package hsmsss
 import (
 	"context"
 	"errors"
+	"net"
 
 	"github.com/arloliu/go-secs/v2/hsms"
 )
@@ -35,7 +36,10 @@ type causeRuntime interface {
 // reports resolve whatever generation is current when they land.
 type genRuntime interface {
 	CurrentGeneration() uint64
+	TCPUpFromGeneration(gen uint64, conn net.Conn)
 	TCPDownFromGeneration(gen uint64, cause error, transitionCause hsms.TransitionCause)
+	CommitSelectedFromGeneration(gen uint64) bool
+	SelectLostFromGeneration(gen uint64)
 	T7ExpiredFromGeneration(gen uint64)
 }
 
@@ -70,6 +74,42 @@ func (t *transport) tcpDown(gen uint64, cause error, transitionCause hsms.Transi
 	}
 
 	t.rt.TCPDown(cause)
+}
+
+// tcpUp reports an established socket for gen, the generation that established it.
+// The passive accept goroutine can be abandoned by a bounded Stop between the accept and this call,
+// so the generation is named for the same reason tcpDown names it.
+func (t *transport) tcpUp(gen uint64, conn net.Conn) {
+	if gr, ok := t.rt.(genRuntime); ok {
+		gr.TCPUpFromGeneration(gen, conn)
+
+		return
+	}
+
+	t.rt.TCPUp(conn)
+}
+
+// commitSelected commits the FSM to Selected for gen, the generation whose recv goroutine completed the handshake.
+// A recv goroutine abandoned by a bounded Stop can process a Select frame long after its own generation ended,
+// so naming the generation is what keeps that commit off the successor's FSM.
+func (t *transport) commitSelected(gen uint64) bool {
+	if gr, ok := t.rt.(genRuntime); ok {
+		return gr.CommitSelectedFromGeneration(gen)
+	}
+
+	return t.rt.CommitSelected()
+}
+
+// selectLost reports the loss of Selected for gen, the generation whose recv goroutine answered the Deselect.req.
+// It names the generation for the same reason commitSelected does, and from the same goroutine.
+func (t *transport) selectLost(gen uint64) {
+	if gr, ok := t.rt.(genRuntime); ok {
+		gr.SelectLostFromGeneration(gen)
+
+		return
+	}
+
+	t.rt.SelectLost()
 }
 
 // t7Expired reports the NOT-SELECTED dwell expiry for gen, the generation whose dwell it was.
@@ -125,7 +165,7 @@ func (t *transport) handleSelectReq(g *genWG, req hsms.Message) {
 	// auto-linktest (D5a-5, on this generation's bundle g — NEW-1); an already-Selected duplicate
 	// returns false and must NOT cancel/spawn again, and answers status 1 below.
 	status := byte(hsms.SelectStatusSuccess)
-	if t.rt.CommitSelected() {
+	if t.commitSelected(g.gen) {
 		t.metrics.incSelectEstablished()
 		t.cancelT7()
 		t.startLinktest(g)
@@ -386,7 +426,7 @@ func (t *transport) handleDeselectReq(g *genWG, msg hsms.Message) {
 	_ = t.rt.SendAsync(context.Background(), rsp)
 
 	if status == hsms.DeselectStatusSuccess {
-		t.rt.SelectLost() // Selected -> NotSelected (evSelectLost)
+		t.selectLost(g.gen) // Selected -> NotSelected (evSelectLost), isolated to THIS generation
 		t.stopLinktest()
 		// Back in NotSelected on the SAME TCP connection: the T7 dwell re-applies (§9.2.2), so
 		// re-arm it on this generation's bundle g (NEW-1) — if no re-Select follows, T7 expiry

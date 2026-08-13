@@ -101,6 +101,9 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	// the transport recv loop (Codex round-7).
 	e := newEpoch(context.Background(), cfg.logger, cfg.senderQueueSize)
 	e.stopTransport = c.tr.Stop
+	// The gate teardown latches e.ended under,
+	// so a generation-guarded synchronous commit cannot straddle the end of its own generation.
+	e.genGate = &c.genGate
 	// Mint the generation identity BEFORE publishing, so no reader can ever observe a live epoch with id 0.
 	// cur is published here and in the reconnect loop, and NOWHERE else;
 	// the loop only ever runs after the FSM entered NotConnected,
@@ -124,6 +127,8 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	// It is a single atomic load and takes no locks: step runs on the FSM goroutine,
 	// which an epoch teardown join can be waiting behind, so any lock the teardown path holds would close a cycle here.
 	s.curGen = c.CurrentGeneration
+	// The fence behind the three synchronous commits, which never reach step and so are not covered by its match.
+	s.commitGate = c.commitGate
 	c.sup.Store(s)
 	c.supWg.Add(2)
 	go func() { defer c.supWg.Done(); s.run() }()
@@ -470,6 +475,7 @@ func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{},
 		// teardown join this generation's transport recv loop (round-7).
 		e := newEpoch(context.Background(), cfg.logger, cfg.senderQueueSize)
 		e.stopTransport = c.tr.Stop
+		e.genGate = &c.genGate // see the note at the Open site
 		// The second and last cur publisher; see the identity note at the Open site.
 		// This loop is reached only from the entering-NotConnected reaction (or Open's cold-connect retry),
 		// so the generation it replaces has already ended.
@@ -556,21 +562,123 @@ func (c *connection) reconnectSleep(d time.Duration, stop <-chan struct{}) bool 
 	}
 }
 
+// genCapability is the complete set of generation-aware back-channel methods,
+// which an in-module transport reaches by type assertion rather than through [TransportRuntime].
+//
+// The assertion below is the only build-time protection there is:
+// the type assertion on the hsmsss side fails at RUN time, and a failed assertion silently falls back to the
+// generation-unaware path instead of erroring, so a renamed or dropped method here would disable the barrier quietly.
+type genCapability interface {
+	CurrentGeneration() uint64
+	TCPUpFromGeneration(gen uint64, conn net.Conn)
+	TCPDownFromGeneration(gen uint64, cause error, transitionCause TransitionCause)
+	CommitSelectedFromGeneration(gen uint64) bool
+	SelectLostFromGeneration(gen uint64)
+	T7ExpiredFromGeneration(gen uint64)
+}
+
+var _ genCapability = (*connection)(nil)
+
 // TCPUp is called by the transport when a TCP connection is established (TransportRuntime).
 //
 // It publishes the socket on the current epoch and then advances the FSM NotConnected -> NotSelected SYNCHRONOUSLY via a guarded CAS (CommitConnected, symmetric with CommitSelected),
 // which also enqueues evTCPUp for the deduped entering-NotSelected reaction/notify.
 // The socket is published BEFORE the supervisor call so it is visible before State() flips to NotSelected.
 func (c *connection) TCPUp(conn net.Conn) {
-	if e := c.cur.Load(); e != nil {
-		e.setConn(conn)
-	}
+	c.commitTCPUp(0, conn)
+}
+
+// TCPUpFromGeneration is TCPUp reported ON BEHALF OF gen, the generation whose socket came up.
+//
+// The passive accept goroutine is the producer this exists for.
+// Its generation's Stop is bounded.
+// A goroutine descheduled between the accept returning and this call can therefore be abandoned,
+// and resume after the generation it belongs to is over.
+// Reporting the generation keeps such a straggler from publishing a dead socket on a live epoch
+// and from resurrecting NotSelected on a connection that has already gone down or been closed.
+//
+// A gen of 0 skips the match and behaves exactly like TCPUp.
+func (c *connection) TCPUpFromGeneration(gen uint64, conn net.Conn) {
+	c.commitTCPUp(gen, conn)
+}
+
+// commitTCPUp is the shared body of the TCP-up back-channel:
+// publish the socket on the generation that owns it, then commit NotConnected -> NotSelected for that generation.
+//
+// The socket is published BEFORE the supervisor call so it is visible before State() flips to NotSelected.
+func (c *connection) commitTCPUp(gen uint64, conn net.Conn) {
+	c.publishSocket(gen, conn)
 
 	if s := c.sup.Load(); s != nil {
 		// CauseLocalOpen: reaching NotSelected means OUR Open (or the reconnect loop it owns)
 		// established the link, whether by dialing out or by accepting the peer we were listening for.
-		s.CommitConnected(CauseLocalOpen)
+		s.CommitConnectedFromGeneration(gen, CauseLocalOpen)
 	}
+}
+
+// publishSocket publishes conn as the socket of the generation that established it.
+//
+// A named generation is resolved by identity and checked for liveness under the generation gate,
+// for the same reason the FSM commit that follows is:
+// an abandoned accept goroutine must not hang a dead socket on an epoch whose teardown already closed its own.
+// Holding the gate across the store is what keeps that from slipping through between the check and the store —
+// teardown latches ended before it closes the socket, and it latches it under this same gate.
+//
+// A gen of 0 publishes unconditionally, exactly as this path did before generations were carried.
+func (c *connection) publishSocket(gen uint64, conn net.Conn) {
+	if gen == 0 {
+		if e := c.cur.Load(); e != nil {
+			e.setConn(conn)
+		}
+
+		return
+	}
+
+	c.genGate.RLock()
+	defer c.genGate.RUnlock()
+
+	if e := c.cur.Load(); e != nil && e.id == gen && !e.ended.Load() {
+		e.setConn(conn)
+	}
+}
+
+// commitGate fences one generation-guarded synchronous FSM commit against the end of the generation that asked for it.
+//
+// It reports whether the CAS committed, and whether gen was live at all.
+// The caller needs the two apart:
+// "already in the target state" and "your generation is over" are different answers,
+// and only the second one is a discarded commit.
+//
+// The RLock spans the whole decision: resolve the live generation, verify it is gen and that gen has not ended,
+// and run the CAS.
+// epoch.markEnded takes the same gate for writing at the top of teardown,
+// so this section is ordered wholly before or wholly after the end of any generation.
+// Observing ended false therefore means the CAS lands while gen is still the working generation —
+// no successor can exist yet, because every successor publish is downstream of a teardown that has already latched ended.
+//
+// Nothing that can block runs under the gate: the log below is deliberately emitted after the unlock.
+func (c *connection) commitGate(gen uint64, cas func() bool) (committed, live bool) {
+	c.genGate.RLock()
+
+	e := c.cur.Load()
+	live = e != nil && e.id == gen && !e.ended.Load()
+	if live {
+		committed = cas()
+	}
+
+	c.genGate.RUnlock()
+
+	if !live {
+		var current uint64
+		if e != nil {
+			current = e.id
+		}
+
+		c.cfg.Load().logger.Debug("hsms: dropped a state commit requested by a generation that is no longer live",
+			"reported_generation", gen, "current_generation", current)
+	}
+
+	return committed, live
 }
 
 // TCPDown is called by the transport when the TCP connection is lost (TransportRuntime).

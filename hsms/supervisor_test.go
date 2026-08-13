@@ -638,3 +638,58 @@ func TestSupervisor_GenerationMatchAtProcessingTime(t *testing.T) {
 		})
 	}
 }
+
+// TestSupervisor_CommitFromGenerationHonorsTheGate pins the contract commitFrom relies on, which no
+// end-to-end test can state directly: the three SYNCHRONOUS commits are CAS operations applied by
+// the caller's own goroutine, so they never reach step and step's generation match cannot cover
+// them. Their barrier is the gate, and this is what the gate must do with each answer.
+//
+// The rows that must still COMMIT are as load-bearing as the ones that must not: a gen of 0 is
+// every out-of-module transport and secs1, and a nil gate is a supervisor built without a
+// connection — suppressing either would silently disable Select for them.
+func TestSupervisor_CommitFromGenerationHonorsTheGate(t *testing.T) {
+	const liveGen = uint64(7)
+
+	cases := []struct {
+		name        string
+		installGate bool
+		cmdGen      uint64
+		wantCommit  bool
+		wantState   ConnState
+		wantStale   uint64
+	}{
+		{name: "live generation commits", installGate: true, cmdGen: liveGen, wantCommit: true, wantState: SelectedState},
+		{name: "ended generation is refused", installGate: true, cmdGen: liveGen - 1, wantState: NotSelectedState, wantStale: 1},
+		{name: "unnamed generation bypasses the gate", installGate: true, cmdGen: 0, wantCommit: true, wantState: SelectedState},
+		{name: "no gate installed commits", installGate: false, cmdGen: liveGen, wantCommit: true, wantState: SelectedState},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newSupervisorWithEventsCap(func(_, _ ConnState) {}, newHandlerPtr(), nil, supervisorEventsCap)
+			if tc.installGate {
+				// The production gate resolves the live generation under connection.genGate; here the
+				// answer is fixed, which is all commitFrom's contract depends on.
+				s.commitGate = func(gen uint64, cas func() bool) (committed, live bool) {
+					if gen != liveGen {
+						return false, false
+					}
+
+					return cas(), true
+				}
+			}
+			s.state.Store(uint32(NotSelectedState))
+
+			require.Equal(t, tc.wantCommit, s.CommitSelectedFromGeneration(tc.cmdGen, CauseSelectAccepted))
+			require.Equal(t, tc.wantState, s.State(), "the CAS must run exactly when the gate admitted it")
+			require.Equal(t, tc.wantStale, s.staleGen.Load(), "a refused commit must be counted")
+
+			if tc.wantCommit {
+				// The follow-up event carries the generation onward, so step's own match applies to it too.
+				require.Equal(t, fsmCommand{ev: evSelectAccepted, cause: CauseSelectAccepted, gen: tc.cmdGen}, <-s.events)
+			} else {
+				require.Empty(t, s.events, "a refused commit must enqueue nothing")
+			}
+		})
+	}
+}

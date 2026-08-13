@@ -78,6 +78,25 @@ type connection struct {
 	// so an id can never repeat across Open/Close cycles and let a straggler from an earlier cycle match a later generation.
 	genSeq atomic.Uint64
 
+	// genGate fences a generation-guarded SYNCHRONOUS commit against the end of the generation that asked for it.
+	// The three synchronous commits (TCP-up, Select-accepted, Select-lost) are CAS operations on the FSM state,
+	// not events on the supervisor queue, so step's generation match cannot cover them
+	// and a plain check-then-CAS would leave a window a straggler could fall through.
+	// A commit takes RLock across {resolve the generation, verify it is live, CAS};
+	// epoch.teardown takes Lock to latch epoch.ended.
+	// Because teardown latches ended BEFORE the join whose completion the reconnect loop waits for,
+	// a commit that observes its own generation un-ended is ordered strictly before any successor exists.
+	// The invariant that keeps it out of every cycle is that NOTHING under RLock may block,
+	// and neither may anything holding a lock acquired under RLock.
+	// The write side runs on the FSM goroutine:
+	// epoch.teardown reaches markEnded from react and from step's evClose branch,
+	// and the bounded teardown join can be waiting behind that goroutine,
+	// so an RLock holder that blocked would stall a generation's end for as long as it blocked.
+	// Concretely: no log call, no channel send, and no Wait under RLock,
+	// and exactly ONE nested lock is permitted, epoch.connMu (publishSocket's setConn),
+	// which is a leaf held only across a field assignment or a socket close and never across a blocking call.
+	genGate sync.RWMutex
+
 	connectLoopWg sync.WaitGroup // SEPARATE reconnect-loop join (§7.C) — NOT epoch.wg
 	supWg         sync.WaitGroup // joins the per-Open supervisor run()+notifier()
 

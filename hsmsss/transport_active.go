@@ -203,7 +203,7 @@ func (t *transport) startActive(ctx context.Context) error {
 	t.resetActivityStamps()
 	t.connMu.Unlock()
 
-	t.rt.TCPUp(conn)
+	t.tcpUp(g.gen, conn)
 
 	g.recv.Add(1)
 	go t.recvLoop(g)

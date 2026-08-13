@@ -107,8 +107,17 @@ type supervisor struct {
 	// which SKIPS the match rather than suppressing the event.
 	curGen func() uint64
 
+	// commitGate fences a generation-guarded SYNCHRONOUS commit (connection.commitGate).
+	// The three synchronous commits are CAS operations on state rather than events on the queue,
+	// so step's generation match never sees them and they need a barrier of their own.
+	// The gate runs the supplied CAS only while gen is still the live, un-torn-down generation,
+	// and reports both whether the CAS committed and whether the generation was live at all.
+	// Nil in unit tests that build a supervisor without a connection, which SKIPS the fence.
+	commitGate func(gen uint64, cas func() bool) (committed, live bool)
+
 	// staleGen counts events discarded because the generation that injected them had already ended,
-	// plus the disconnect reports the injection path itself dropped for the same reason (connection.injectDisconnect).
+	// plus the disconnect reports the injection path itself dropped for the same reason (connection.injectDisconnect),
+	// plus the synchronous commits the generation gate refused for the same reason.
 	// It is a diagnostic: a non-zero value is normal under reconnect churn with a wedged transport goroutine,
 	// and is the signal that the generation match is doing work.
 	staleGen atomic.Uint64
@@ -235,13 +244,16 @@ func (s *supervisor) State() ConnState {
 // and the only transition out of NotConnected is evTCPUp itself, so the CAS always succeeds in practice).
 // cause comes from the caller, so the reason travels with the event from the site that named it.
 func (s *supervisor) CommitConnected(cause TransitionCause) (committed bool) {
-	if s.state.CompareAndSwap(uint32(NotConnectedState), uint32(NotSelectedState)) {
-		s.inject(evTCPUp, cause)
+	return s.commitFrom(0, NotConnectedState, NotSelectedState, evTCPUp, cause)
+}
 
-		return true
-	}
-
-	return false
+// CommitConnectedFromGeneration is CommitConnected performed ON BEHALF OF gen, the generation whose socket came up.
+//
+// NotConnected — the state this commit CASes out of — is also the state a generation leaves behind when it ends,
+// so identity alone cannot tell a live TCP-up from one an abandoned goroutine is replaying onto a dead generation.
+// The generation gate supplies that distinction; see commitFrom.
+func (s *supervisor) CommitConnectedFromGeneration(gen uint64, cause TransitionCause) (committed bool) {
+	return s.commitFrom(gen, NotConnectedState, NotSelectedState, evTCPUp, cause)
 }
 
 // CommitSelected performs the H2 §7.D synchronous responder commit: a guarded CAS NotSelected -> Selected directly on state, making IsSelected() true immediately (before the responder writes Select.rsp)
@@ -251,13 +263,18 @@ func (s *supervisor) CommitConnected(cause TransitionCause) (committed bool) {
 // It returns whether THIS call performed the commit; a call when already Selected is a no-op returning false.
 // cause comes from the caller, so the reason travels with the event from the site that named it.
 func (s *supervisor) CommitSelected(cause TransitionCause) (committed bool) {
-	if s.state.CompareAndSwap(uint32(NotSelectedState), uint32(SelectedState)) {
-		s.inject(evSelectAccepted, cause)
+	return s.commitFrom(0, NotSelectedState, SelectedState, evSelectAccepted, cause)
+}
 
-		return true
-	}
-
-	return false
+// CommitSelectedFromGeneration is CommitSelected performed ON BEHALF OF gen, the generation that ran the handshake.
+//
+// A correlated Select.rsp, or an inbound Select.req, can be processed by a recv goroutine the bounded teardown join abandoned.
+// Committing it at that point would flip the SUCCESSOR generation's FSM to Selected without any handshake on that link,
+// and would then make the successor's own commit a no-op —
+// so it would never cancel its T7 dwell nor start its auto-linktest, and its bring-up would go unreported.
+// The generation gate refuses such a commit; see commitFrom.
+func (s *supervisor) CommitSelectedFromGeneration(gen uint64, cause TransitionCause) (committed bool) {
+	return s.commitFrom(gen, NotSelectedState, SelectedState, evSelectAccepted, cause)
 }
 
 // CommitSelectLost performs the synchronous Selected -> NotSelected commit (symmetric with CommitSelected / §7.D):
@@ -271,13 +288,74 @@ func (s *supervisor) CommitSelected(cause TransitionCause) (committed bool) {
 // It returns whether THIS call performed the commit; a call when not Selected is a no-op returning false.
 // cause comes from the caller, so the reason travels with the event from the site that named it.
 func (s *supervisor) CommitSelectLost(cause TransitionCause) (committed bool) {
-	if s.state.CompareAndSwap(uint32(SelectedState), uint32(NotSelectedState)) {
-		s.inject(evSelectLost, cause)
+	return s.commitFrom(0, SelectedState, NotSelectedState, evSelectLost, cause)
+}
 
-		return true
+// CommitSelectLostFromGeneration is CommitSelectLost performed ON BEHALF OF gen, the generation that answered the Deselect.
+//
+// A recv goroutine that outlived its own generation would otherwise answer a Deselect.req by deselecting the SUCCESSOR's legitimately selected link.
+// The generation gate refuses it; see commitFrom.
+func (s *supervisor) CommitSelectLostFromGeneration(gen uint64, cause TransitionCause) (committed bool) {
+	return s.commitFrom(gen, SelectedState, NotSelectedState, evSelectLost, cause)
+}
+
+// commitFrom is the shared body of the three synchronous §7.D commits:
+// a guarded CAS from -> to directly on state,
+// followed by ev's injection for the deduped reaction/notify.
+//
+// gen is the generation the commit is made on behalf of, or 0 when the caller named none.
+// A gen of 0 — secs1, an out-of-module transport, or a runtime without the generation capability —
+// takes the bare CAS, exactly the behavior every commit had before generations were carried.
+//
+// A named generation runs the CAS inside the connection's generation gate,
+// which admits it only while that generation is still the live one AND its teardown has not begun.
+// Both halves are needed:
+// identity alone cannot reject a commit replayed onto a generation that has ENDED but is still published,
+// because connection.cur keeps pointing at it for the whole reconnect backoff that follows.
+//
+// The fence has to cover the CAS itself, not just a check before it.
+// Unlike an event on the queue, this commit is applied by the caller's own goroutine,
+// so there is no later point where the answer can be re-taken.
+// A bare check-then-CAS would leave the whole gap between them open,
+// and the FSM state cannot close it either:
+// NotConnected -> NotSelected -> ... -> NotConnected is a real cycle,
+// so the state a stale CAS expects can legitimately reappear underneath it.
+//
+// It cannot refuse a legitimate commit.
+// A generation runs its handshake between its own publish and its own teardown,
+// and no successor can be published until this generation's teardown has both begun
+// (which latches epoch.ended, under the same gate)
+// and completed its join (which is what the reconnect loop waits for).
+// So a commit issued by the working generation always finds itself live.
+//
+// The injection is deliberately issued AFTER the gate is released:
+// inject can block on a full event queue, and the gate must never be held across anything that blocks.
+// It carries gen onward so step's own generation match applies to the follow-up event as well.
+func (s *supervisor) commitFrom(gen uint64, from, to ConnState, ev fsmEvent, cause TransitionCause) (committed bool) {
+	cas := func() bool { return s.state.CompareAndSwap(uint32(from), uint32(to)) }
+
+	if gen == 0 || s.commitGate == nil {
+		if cas() {
+			s.injectFrom(gen, ev, cause)
+
+			return true
+		}
+
+		return false
 	}
 
-	return false
+	committed, live := s.commitGate(gen, cas)
+	if !live {
+		s.staleGen.Add(1)
+
+		return false
+	}
+
+	if committed {
+		s.injectFrom(gen, ev, cause)
+	}
+
+	return committed
 }
 
 // run is the single writer for async transitions. Its lifetime is the whole Open/Close cycle

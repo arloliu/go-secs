@@ -11,6 +11,7 @@ package hsmsss
 // the same package for the identical reason.
 
 import (
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -143,6 +144,37 @@ func (m *genRecRT) T7ExpiredFromGeneration(gen uint64) {
 	m.T7Expired()
 }
 
+func (m *genRecRT) TCPUpFromGeneration(gen uint64, conn net.Conn) {
+	m.mu.Lock()
+	m.reportedGen = append(m.reportedGen, gen)
+	m.mu.Unlock()
+
+	m.TCPUp(conn)
+}
+
+func (m *genRecRT) CommitSelectedFromGeneration(gen uint64) bool {
+	m.mu.Lock()
+	m.reportedGen = append(m.reportedGen, gen)
+	m.mu.Unlock()
+
+	return m.CommitSelected()
+}
+
+func (m *genRecRT) SelectLostFromGeneration(gen uint64) {
+	m.mu.Lock()
+	m.reportedGen = append(m.reportedGen, gen)
+	m.mu.Unlock()
+
+	m.SelectLost()
+}
+
+// A genRecRT that stops satisfying genRuntime would not fail to compile.
+// The transport reaches the capability by type assertion,
+// so it would silently fall back to the generation-unaware path,
+// and every generation assertion below would keep passing while testing nothing.
+// This assertion is what turns that into a build failure.
+var _ genRuntime = (*genRecRT)(nil)
+
 func (m *genRecRT) reportedGenerations() []uint64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -178,4 +210,96 @@ func TestSeparate_ReportsItsOwnGeneration(t *testing.T) {
 	require.False(t, keepReading, "Separate always ends the recv loop")
 	require.Equal(t, []uint64{1}, rt.reportedGenerations(),
 		"the Separate must be reported under the generation that read it, not the live one")
+}
+
+// TestSelectCommits_ReportTheirOwnGeneration is the hsmsss half of the synchronous-commit barrier,
+// and the mirror of TestSeparate_ReportsItsOwnGeneration for the two commits that change the FSM
+// without going through the disconnect path.
+//
+// Both run on the recv goroutine, which a bounded Stop can abandon, so each must name the
+// generation of the bundle it was spawned for — never whichever generation the runtime reports as
+// live when the frame is finally processed. Here the runtime's live generation has already moved on
+// to 2, exactly as it has for a straggler, while the bundle still says 1.
+//
+// Teeth: pass t.currentGeneration() (or 0) instead of g.gen at either call site → the reported
+// value follows the live generation and the core loses the only thing it can discriminate on.
+func TestSelectCommits_ReportTheirOwnGeneration(t *testing.T) {
+	t.Parallel()
+
+	t.Run("select responder", func(t *testing.T) {
+		t.Parallel()
+
+		rt := newGenRecRT(1)
+		rt.setState(hsms.NotSelectedState)
+
+		tr := newLinktestTransport(t, rt.recRT, t.Context())
+		tr.rt = rt // re-bind to the capability-offering runtime
+
+		rt.setLiveGeneration(2)
+
+		tr.handleSelectReq(&genWG{gen: 1}, hsms.NewSelectReq(hsms.ControlSessionID, rt.NextSystemBytes()))
+
+		require.Equal(t, []uint64{1}, rt.reportedGenerations(),
+			"the Select commit must be made on behalf of the generation that read the request")
+	})
+
+	t.Run("deselect responder", func(t *testing.T) {
+		t.Parallel()
+
+		rt := newGenRecRT(1)
+		rt.setState(hsms.SelectedState)
+
+		tr := newLinktestTransport(t, rt.recRT, t.Context())
+		tr.rt = rt
+
+		rt.setLiveGeneration(2)
+
+		tr.handleDeselectReq(&genWG{gen: 1}, hsms.NewDeselectReq(hsms.ControlSessionID, rt.NextSystemBytes()))
+
+		require.Equal(t, []uint64{1}, rt.reportedGenerations(),
+			"the Select-lost commit must be made on behalf of the generation that read the request")
+	})
+}
+
+// TestGenRuntime_IsSatisfiedByTheRealCore is the one assertion nothing else in this package makes,
+// and the whole generation barrier — the disconnect half as much as the commit half — rests on it.
+//
+// The capability is reached by a RUNTIME type assertion on t.rt, and a failed assertion does not
+// error: it falls back to the generation-unaware path. So if the real core ever stops satisfying
+// genRuntime — a renamed method, a signature drift, one more method added to the interface here but
+// not there — every producer in this package silently reports gen 0, the core skips every match, and
+// the entire suite still passes. The mock-driven tests above cannot see that: they assert against
+// genRecRT, which satisfies the interface by construction.
+//
+// So this drives the REAL core, built exactly as New builds it, and checks both halves: that the
+// core satisfies the interface at all, and that a live generation actually reports a non-zero
+// identity through it (which additionally covers t.rt being bound and cur being published before
+// Start reads it).
+//
+// Teeth: add a method to genRuntime that *hsms.connection does not have → this fails while
+// everything else stays green.
+func TestGenRuntime_IsSatisfiedByTheRealCore(t *testing.T) {
+	t.Parallel()
+
+	conn, tr := newPassiveConnTr(t, freeLoopbackPort(t))
+
+	_, ok := conn.(genRuntime)
+	require.True(t, ok, "the real hsms core must satisfy genRuntime, or every generation guard silently turns off")
+
+	require.NoError(t, conn.Open(t.Context(), hsms.OpenBackground))
+	t.Cleanup(func() { _ = conn.Close() })
+
+	require.NotZero(t, tr.currentGeneration(),
+		"a live generation must report a non-zero identity through the capability")
+
+	// t.wg is read and written ONLY under startGate (ArmStart installs, Start captures, Stop captures),
+	// so read it the same way rather than reaching straight for the field:
+	// unsynchronized it is safe only by accident of the current spawn order,
+	// and one behavior change away from a race report.
+	tr.startGate.RLock()
+	stamped := tr.wg.gen
+	tr.startGate.RUnlock()
+
+	require.Equal(t, tr.currentGeneration(), stamped,
+		"Start must stamp that identity on the bundle every goroutine of this generation carries")
 }

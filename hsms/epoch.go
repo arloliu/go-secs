@@ -49,6 +49,18 @@ type epoch struct {
 	// Zero means "no identity" — an epoch built outside a connection, as unit tests do — and disables the match.
 	id uint64
 
+	// ended latches true the moment this generation's teardown begins, and is never cleared.
+	// It separates a generation that is still published on connection.cur but already over from one that is genuinely live.
+	// The identity alone cannot make that distinction,
+	// because cur keeps pointing at a dead generation for the whole reconnect backoff that follows it.
+	// A generation-guarded synchronous commit reads it, and teardown writes it, under connection.genGate.
+	ended atomic.Bool
+
+	// genGate is the connection's generation gate, borrowed so teardown can latch ended under it.
+	// Nil for an epoch built outside a connection, as unit tests do; markEnded then latches unfenced,
+	// which is correct because such an epoch has no id and so is never generation-matched.
+	genGate *sync.RWMutex
+
 	log logger.Logger // generation logger; used by teardown for close-timeout reporting
 
 	connMu sync.RWMutex // guards conn
@@ -105,6 +117,27 @@ func (e *epoch) liveConn() net.Conn {
 	defer e.connMu.RUnlock()
 
 	return e.conn
+}
+
+// markEnded latches this generation as over, under the connection's generation gate.
+//
+// Taking the gate is what makes the latch a barrier rather than a flag:
+// a generation-guarded commit reads ended and performs its CAS inside one RLock section,
+// so that section is ordered wholly before or wholly after this Lock section.
+// A commit that observed ended false therefore completed its CAS before this generation ended,
+// which is before any successor generation could be published.
+//
+// The gate is held for a single atomic store, so it can never be the inner lock of a cycle.
+func (e *epoch) markEnded() {
+	if e.genGate == nil {
+		e.ended.Store(true)
+
+		return
+	}
+
+	e.genGate.Lock()
+	e.ended.Store(true)
+	e.genGate.Unlock()
 }
 
 // setConn publishes the socket for this generation under connMu.Lock.
@@ -182,6 +215,15 @@ func (e *epoch) spawn(log logger.Logger, name string, fn func(ctx context.Contex
 // runs join(timeout) and closes done.
 func (e *epoch) teardown(timeout time.Duration) {
 	e.closeOnce.Do(func() {
+		// Latch the generation as over.
+		// The binding constraint is ONLY that this runs before `go e.join(timeout)` below, not that it runs first:
+		// everything that publishes a successor generation waits on the join's completion,
+		// so latching anywhere ahead of the join puts "this generation ended" strictly before "a successor exists"
+		// for every generation-guarded synchronous commit (see connection.commitGate).
+		// It sits first because there is no reason to widen the interval in which a straggler's commit is still admitted,
+		// but moving it later — ahead of the join — would not break the ordering argument.
+		e.markEnded()
+
 		// Single-owner (F4): cancel the generation ctx so ctx-aware tasks unwind.
 		e.cancel()
 

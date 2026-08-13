@@ -202,6 +202,45 @@ Pinned by `TestSeparate_ReportsItsOwnGeneration` (this package reports the gener
 and `TestReconnect_AbandonedGenerationTCPDownCannotDropSuccessor`
 (end to end: a goroutine abandoned by the bounded join, released only once the successor is Selected, must not drop it).
 
+**The other half: the three synchronous commits.**
+The barrier above covers what the transport REPORTS.
+It does not cover what the transport APPLIES.
+TCP-up, Select-accepted, and Select-lost are compare-and-swaps performed directly on the FSM state by the
+transport's own goroutine — that synchrony is the §7.D invariant, and the reason the state is already
+`Selected` before the responder writes its `Select.rsp` — so they never enter the queue `supervisor.step` guards.
+
+The same abandoned goroutine reaches all three.
+A delayed correlated `Select.rsp`, or a late inbound `Select.req`, selected the SUCCESSOR over a link that ran no handshake.
+That left the successor's own commit a no-op:
+no T7 cancel, no auto-linktest, and no entering-Selected event for its subscribers.
+A `Deselect.req` read as late deselected the successor's live link.
+An abandoned passive accept goroutine hung its dead socket on a live epoch.
+
+Each commit now names its generation and runs its CAS inside a connection-scoped gate.
+The gate is what makes this a barrier rather than a check:
+the commit is applied by the caller's own goroutine, so unlike a queued event there is no later point at
+which the answer can be re-taken, and the FSM state cannot supply one either —
+`NotConnected -> NotSelected -> ... -> NotConnected` is a real cycle,
+so the state a stale CAS expects can legitimately reappear underneath it.
+
+Identity alone is also not sufficient, and TCP-up is where that shows.
+`CommitConnected` CASes out of `NotConnected` — the state a generation that ended leaves behind —
+and `connection.cur` keeps pointing at a dead generation until a successor is published,
+which after a `Close` never happens.
+So `epoch.teardown` latches `epoch.ended` under the same gate, before anything else it does.
+Every successor publish is downstream of the join that teardown starts,
+so a commit that observes its own generation un-ended knows its CAS lands before any successor exists.
+
+It cannot refuse a legitimate commit: a generation runs its handshake between its own publish and its own teardown.
+
+Pinned by `TestSelectCommits_ReportTheirOwnGeneration` (this package commits under the generation that read the frame),
+`TestSupervisor_CommitFromGenerationHonorsTheGate` (the gate's four answers, including the two that must still commit),
+and three end-to-end tests that release an abandoned goroutine only once its generation is over:
+`TestReconnect_AbandonedGenerationCommitSelectedCannotSelectSuccessor`,
+`TestReconnect_AbandonedGenerationSelectLostCannotDeselectSuccessor`,
+and `TestReconnect_AbandonedGenerationTCPUpCannotResurrectAfterClose` — the last of which fails if the
+`ended` latch is removed but the identity match is kept, which is what makes the latch's own necessity a test result.
+
 Two tests were rewritten from asserting the old behavior to asserting the new one,
 both teeth-checked by restoring the `State() == SelectedState` guard:
 `TestSeparate_TearsDownWhileNotSelected` (unit, was `TestSeparate_IgnoredWhileNotSelected`)

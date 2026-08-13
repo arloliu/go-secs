@@ -55,6 +55,16 @@ type mockTransport struct {
 	abandonedGenExited  chan struct{}
 	abandonedGenOnce    sync.Once
 
+	// abandonedGenAction generalizes abandonedGenRecv from reporting a disconnect to running any generation-named injection.
+	// When non-nil, the FIRST Start parks a goroutine holding it, exactly as abandonedGenRecv does,
+	// and nothing but releaseAbandonedGenAction ever releases it —
+	// so the injection provably lands after the generation it names is over.
+	// It is what gives the three synchronous commits the same adversarial interleaving the disconnect barrier gets.
+	abandonedGenAction     func(rt TransportRuntime, gen uint64)
+	abandonedActionRelease chan struct{}
+	abandonedActionExited  chan struct{}
+	abandonedActionOnce    sync.Once
+
 	// heldRouteDataExited, when set via armHeldRouteData, makes Stop JOIN a goroutine parked inside rt.RouteData —
 	// the mock's stand-in for a real recv loop stuck delivering an inbound message to a stalled AddDataMessageChan consumer.
 	// The join is bounded by ctx, exactly like Stop's join of a held recv loop above.
@@ -104,6 +114,12 @@ func (m *mockTransport) Start(ctx context.Context, rt TransportRuntime) error {
 		m.abandonedGenExited = make(chan struct{})
 	}
 	abandonedRelease, abandonedExited := m.abandonedGenRelease, m.abandonedGenExited
+	armAction := m.abandonedGenAction != nil && m.startCount == 1
+	if armAction {
+		m.abandonedActionRelease = make(chan struct{})
+		m.abandonedActionExited = make(chan struct{})
+	}
+	action, actionRelease, actionExited := m.abandonedGenAction, m.abandonedActionRelease, m.abandonedActionExited
 	m.mu.Unlock()
 
 	if armHold {
@@ -115,6 +131,17 @@ func (m *mockTransport) Start(ctx context.Context, rt TransportRuntime) error {
 		// That is the same point a real transport stamps genWG.gen,
 		// so the parked goroutine keeps reporting for gen N however long it sleeps.
 		go abandonedGenRecvLoop(rt, currentGenerationOf(rt), abandonedRelease, abandonedExited)
+	}
+
+	if armAction {
+		// Same discipline as the abandoned recv loop above: read the identity on the Start it
+		// belongs to, so the parked goroutine keeps speaking for gen N however long it sleeps.
+		gen := currentGenerationOf(rt)
+		go func() {
+			<-actionRelease
+			action(rt, gen)
+			close(actionExited)
+		}()
 	}
 
 	if fn != nil {
@@ -172,6 +199,20 @@ func (m *mockTransport) releaseAbandonedGenTCPDown() {
 	}
 
 	m.abandonedGenOnce.Do(func() { close(release) })
+	<-exited
+}
+
+// releaseAbandonedGenAction releases the parked gen-N goroutine and waits for its injection to be delivered.
+func (m *mockTransport) releaseAbandonedGenAction() {
+	m.mu.Lock()
+	release, exited := m.abandonedActionRelease, m.abandonedActionExited
+	m.mu.Unlock()
+
+	if release == nil {
+		return
+	}
+
+	m.abandonedActionOnce.Do(func() { close(release) })
 	<-exited
 }
 

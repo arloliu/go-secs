@@ -1,22 +1,25 @@
 ---
 type: Mechanic
 title: Where a TransitionCause is chosen, and why one transition can swallow another's cause
-description: The full transition-source to cause map, why the cause is picked at the injection site rather than derived in the FSM, why the transports pass both the cause and their generation through a capability interface instead of TransportRuntime, how the generation match keeps a late transport goroutine from dropping its successor's link, and the ways a cause never reaches a subscriber.
+description: The full transition-source to cause map, why the cause is picked at the injection site rather than derived in the FSM, why the transports pass both the cause and their generation through a capability interface instead of TransportRuntime, how the generation match keeps a late transport goroutine from dropping its successor's link, why the three synchronous commits need a lock-fenced gate instead of that match, and the ways a cause never reaches a subscriber.
 tags: [hsms, lifecycle, supervisor, fsm, observability]
 status: draft
 generated: {by: "claude/opus-5", at: 2026-08-13T00:00:00Z}
 verified:
   - {by: "claude/opus-5", at: 2026-08-13T00:00:00Z}
+  - {by: "claude/opus-5", at: 2026-08-13T13:00:00Z}
 sources:
   - {resource: hsms/lifecycle.go, digest: sha256:65d429d90300b620, revision: 5a0ec1b}
-  - {resource: hsms/supervisor.go, digest: sha256:f4bebf9fba890c8a, revision: d60cf23}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:1764ee6af13cc087, revision: d60cf23}
-  - {resource: hsms/connection_runtime.go, digest: sha256:0ae9f6c0e8a9bacf, revision: d60cf23}
-  - {resource: hsms/connection.go, digest: sha256:a656a8eaf0fd1cb5, revision: d60cf23}
-  - {resource: hsms/epoch.go, digest: sha256:8a78eb0a67c0ebb2, revision: d60cf23}
-  - {resource: hsmsss/transport.go, digest: sha256:56714b6542a42c29, revision: d60cf23}
-  - {resource: hsmsss/transport_control.go, digest: sha256:7122126538e3ed45, revision: d60cf23}
-  - {resource: hsmsss/transport_active.go, digest: sha256:35c6aae0a4ab6f0b, revision: d60cf23}
+  - {resource: hsms/supervisor.go, digest: sha256:6e184e41a0ff36b7, revision: 6ef4ce7}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:943dff0a83537435, revision: 6ef4ce7}
+  - {resource: hsms/connection_runtime.go, digest: sha256:711c3a7e01179640, revision: 6ef4ce7}
+  - {resource: hsms/connection.go, digest: sha256:77816cf32d7065e9, revision: 6ef4ce7}
+  - {resource: hsms/epoch.go, digest: sha256:2bb2df9485d57850, revision: 6ef4ce7}
+  - {resource: hsmsss/transport.go, digest: sha256:d67a75070e7e5283, revision: 6ef4ce7}
+  - {resource: hsmsss/transport_control.go, digest: sha256:af60b71cd1a65bbc, revision: 6ef4ce7}
+  - {resource: hsmsss/transport_active.go, digest: sha256:e135a99f17f1bf3f, revision: 6ef4ce7}
+  - {resource: hsmsss/transport_passive.go, digest: sha256:5e24b4b4c9235d44, revision: 6ef4ce7}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:466ba864e5586a7a, revision: 6ef4ce7}
 ---
 
 # What it does
@@ -45,6 +48,7 @@ That is exactly the discrimination the feature exists to provide, and the reason
 | `connection.TCPUp` → `supervisor.CommitConnected` | `evTCPUp` | `CauseLocalOpen` |
 | `connection.CommitSelected` → `supervisor.CommitSelected` | `evSelectAccepted` | `CauseSelectAccepted` |
 | `connection.SelectLost` → `supervisor.CommitSelectLost` | `evSelectLost` | `CausePeerDeselect` |
+| (the three above, generation-named: `*FromGeneration` → `supervisor.commitFrom` under `connection.commitGate`) | same | same |
 | `connection.T7Expired` | `evT7Timeout` | `CauseT7Timeout` |
 | `connection.Close` → `requestClose` | `evClose` | `CauseLocalClose` |
 | `connection.Open` rollback → `requestClose` | `evClose` | `CauseLocalClose` |
@@ -113,6 +117,39 @@ so a lock the teardown path holds would close a cycle:
 so its reports keep the pre-barrier behavior.
 Out-of-module transports likewise pass no identity: a `gen` of 0 skips the match everywhere.
 
+**The three SYNCHRONOUS commits are not events, so `step`'s match does not cover them, and they need a lock.**
+`CommitConnected`, `CommitSelected`, and `CommitSelectLost` compare-and-swap `supervisor.state` directly on the
+transport's own goroutine and only THEN enqueue their event.
+That synchrony is the §7.D invariant — `IsSelected()` must be true before the responder writes `Select.rsp` —
+so it cannot be moved onto the queue.
+It also means there is no later point at which the generation answer can be re-taken:
+whatever check the caller makes, the CAS follows it on the same goroutine.
+
+The FSM state cannot supply the missing ordering either, which is why the trick `step` uses does not transfer.
+`step` reads state BEFORE it checks the generation, and a successor's state implies a successor was published.
+A commit's "state read" is fused into its CAS, so the check can only come first —
+and `NotConnected -> NotSelected -> ... -> NotConnected` is a real cycle,
+so the state a stale CAS expects can legitimately reappear underneath it (plain ABA).
+
+The fence is `connection.genGate`, a `sync.RWMutex`:
+`connection.commitGate` takes RLock across {resolve `cur`, verify the identity and that `epoch.ended` is false, CAS},
+and `epoch.markEnded` takes Lock for a single atomic store at the top of `epoch.teardown`.
+The two are therefore mutually exclusive, and every successor publish is downstream of the join teardown starts,
+so a commit that observed its generation un-ended completed its CAS before any successor could exist.
+The gate is held across atomic operations and `epoch.connMu` only — never a log call, a channel send, or a Wait —
+so it cannot close a cycle against the bounded teardown join.
+`supervisor.commitFrom` issues the follow-up `injectFrom` AFTER the gate is released, because `inject` can block on a full queue.
+
+`epoch.ended` is a SEPARATE axis from `epoch.id`, and TCP-up is where the difference shows.
+`CommitConnected` CASes out of `NotConnected`, the state a generation that ended leaves behind,
+and `cur` keeps pointing at a dead generation for the whole reconnect backoff — after a `Close`, forever.
+So the identity of a straggler's TCP-up still MATCHES, and only `ended` rejects it.
+The other two commits CAS out of states a dead generation cannot be in, so for them `ended` is redundant but harmless.
+
+`connection.publishSocket` takes the same gate for the same reason:
+an abandoned accept goroutine must not hang its socket on an epoch whose teardown already closed its own.
+It resolves the epoch by identity and writes to THAT epoch, so a swap can never redirect it to a successor.
+
 **How the cause crosses the package boundary.**
 `hsmsss` and `secs1` reach `TCPDownWithCause` by type-asserting `t.rt` to a package-local `causeRuntime` interface, then fall back to plain `TCPDown`.
 `hsmsss` additionally asserts a `genRuntime` interface carrying the three generation-aware methods,
@@ -158,6 +195,12 @@ see `hsmsss.causeLog.waitBringUp`, which tolerates both shapes.
   `hsms/connection.go` → `genSeq`;
   `hsms/connection_lifecycle.go` → `CurrentGeneration` and the two `cur.Store` sites
 - the barrier itself: `hsms/supervisor.go` → `step`'s generation match, `curGen`, `staleGen`
-- transport capability: `hsmsss/transport_control.go` → `causeRuntime`, `genRuntime`, `transport.tcpDown`, `transport.t7Expired`;
+- the synchronous-commit fence: `hsms/connection.go` → `genGate`;
+  `hsms/connection_lifecycle.go` → `commitGate`, `publishSocket`, `commitTCPUp`, `genCapability`;
+  `hsms/epoch.go` → `epoch.ended`, `epoch.markEnded`;
+  `hsms/supervisor.go` → `commitFrom` and the three `Commit*FromGeneration` methods;
+  `hsms/connection_runtime.go` → `commitSelectAccepted`, `commitSelectLost`
+- transport capability: `hsmsss/transport_control.go` → `causeRuntime`, `genRuntime`,
+  `transport.tcpDown`, `transport.t7Expired`, `transport.tcpUp`, `transport.commitSelected`, `transport.selectLost`;
   `secs1/transport.go` → `causeRuntime` only
 - the generation token's carrier: `hsmsss/transport.go` → `genWG.gen`, stamped in `startActive` / `startPassive`

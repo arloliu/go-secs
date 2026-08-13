@@ -116,7 +116,11 @@ func (t *transport) acceptLoop(g *genWG, ln net.Listener) {
 	t.resetActivityStamps()
 	t.connMu.Unlock()
 
-	t.rt.TCPUp(conn)
+	// Reported for THIS generation (g.gen), not whichever is current when the report lands.
+	// Stop's join of this goroutine is bounded, so an accept that returned just before a teardown can be abandoned
+	// and resume after the generation is over — at which point publishing this dead socket, and committing
+	// NotSelected, would land on a connection that has already gone down or been closed.
+	t.tcpUp(g.gen, conn)
 
 	// TCPUp commits NotConnected → NotSelected SYNCHRONOUSLY via a guarded CAS (§7.D), so the FSM
 	// is already at NotSelected the instant TCPUp returns. The shared H2 responder's CommitSelected

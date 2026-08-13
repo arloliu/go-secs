@@ -100,6 +100,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   suppressed that generation's courtesy farewell `Separate` on a later graceful `Close`.
   This was not a v2.4 regression; it has been present since v2.0.0.
   `secs1` is unchanged and keeps the previous behavior.
+- **`hsms`, `hsmsss`: the same goroutine can no longer select, deselect, or reconnect the generation
+  that replaced it.**
+  This is the other half of the fix above, for the three state changes the transport applies
+  directly rather than reporting: the Select commit, the Deselect responder's loss of Select, and
+  the TCP-up commit.
+  A recv goroutine abandoned past `WithCloseTimeout`, processing a delayed `Select.rsp` or a late
+  `Select.req`, marked the *new* link Selected without any handshake having run on it — and because
+  that link was then already Selected, its own Select commit did nothing: its T7 dwell was never
+  cancelled, its auto-linktest never started, and its `SubscribeLifecycle` subscribers never saw it
+  reach `SelectedState`.
+  A `Deselect.req` read equally late dropped the new link out of `SelectedState`, and a passive
+  accept goroutine abandoned the same way attached its dead socket to the new generation.
+  Each of these now names the generation it belongs to and is applied only while that generation is
+  both current and not yet tearing down, so one arriving out of a generation that has ended is
+  discarded.
+  A commit by the working generation is never affected: it always runs before that generation's own
+  teardown, which is what has to happen before any replacement can exist.
+  This was not a v2.4 regression; it has been present since v2.0.0.
+  `secs1` is unchanged and keeps the previous behavior.
 
 ## [2.3.1] - 2026-08-12
 

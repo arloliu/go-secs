@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -460,4 +461,189 @@ func TestReconnect_AbandonedGenerationTCPDownCannotDropSuccessor(t *testing.T) {
 	require.Positive(t, c.sup.Load().staleGen.Load(), "the discarded report must be counted")
 
 	require.NoError(t, c.Close())
+}
+
+// mustGenCapability reaches the generation-named back-channel the way an in-module transport does:
+// by type assertion on the runtime, never through TransportRuntime.
+// It panics rather than comma-ok'ing quietly, because a parked goroutine that skipped its injection
+// would leave every assertion in these tests passing while nothing was ever injected.
+// The assertion cannot actually fail — connection_lifecycle.go asserts it at compile time.
+func mustGenCapability(rt TransportRuntime) genCapability {
+	gc, ok := rt.(genCapability)
+	if !ok {
+		panic("hsms: the test runtime must offer the generation-named back-channel")
+	}
+
+	return gc
+}
+
+// staleCommitConn opens a connection whose FIRST generation parks a goroutine the bounded teardown
+// join will abandon, and whose per-generation bring-up is scripted by bringUp.
+// bringUp receives the 1-based Start number so a test can give the successor a different bring-up
+// than the generation that will be abandoned.
+// The parked goroutine runs inject with the generation identity read on the Start that spawned it —
+// the same value a real transport stamps on genWG.gen — and only when the test releases it.
+func staleCommitConn(t *testing.T, bringUp func(n int64, ctx context.Context, rt TransportRuntime), inject func(rt TransportRuntime, gen uint64)) (*connection, *mockTransport) {
+	t.Helper()
+
+	var starts atomic.Int64
+
+	script := mockScript(func(ctx context.Context, rt TransportRuntime) error {
+		n := starts.Add(1)
+		go bringUp(n, ctx, rt)
+
+		return nil
+	})
+
+	c, mt := newLifeConn(t, script)
+	mt.abandonedGenAction = inject
+	require.NoError(t, c.UpdateConfigOptions(WithT5(time.Nanosecond))) // near-immediate redial
+
+	return c, mt
+}
+
+// TestReconnect_AbandonedGenerationCommitSelectedCannotSelectSuccessor is the Select half of the
+// generation barrier, and the sharpest of the three synchronous commits.
+//
+// CommitSelected is NOT an event on the supervisor queue — it is a CAS applied directly to the FSM
+// state by the caller's own goroutine — so step's generation match never sees it. A delayed
+// correlated Select.rsp (or an inbound Select.req) processed by a recv goroutine the bounded
+// teardown join abandoned would therefore flip the SUCCESSOR to Selected over a link that ran no
+// handshake at all, and would leave the successor's own commit a no-op: no T7 cancel, no
+// auto-linktest, and no entering-Selected event for its subscribers.
+//
+// Here gen N is parked across the whole cycle, gen N+1 is brought up to NotSelected only (its
+// script deliberately does not select), and the parked goroutine then commits naming gen N.
+// gen N+1 must stay NotSelected and no Selected event may reach a subscriber.
+//
+// Teeth: drop the generation check in connection.commitGate (or make commitFrom ignore it) → the
+// released commit CASes NotSelected -> Selected and both assertions below fail.
+func TestReconnect_AbandonedGenerationCommitSelectedCannotSelectSuccessor(t *testing.T) {
+	c, mt := staleCommitConn(t,
+		func(n int64, ctx context.Context, rt TransportRuntime) {
+			rt.TCPUp(fakeConn{})
+			if n == 1 {
+				driveSelect(ctx, rt) // only gen N selects; gen N+1 parks at NotSelected
+			}
+		},
+		func(rt TransportRuntime, gen uint64) {
+			_ = mustGenCapability(rt).CommitSelectedFromGeneration(gen)
+		},
+	)
+
+	var selects atomic.Int64
+	cancel := c.SubscribeLifecycle(func(ev LifecycleEvent) {
+		if ev.Current == SelectedState {
+			selects.Add(1)
+		}
+	})
+	defer cancel()
+
+	require.NoError(t, c.Open(t.Context(), OpenBackground))
+	requireSelected(t, c)
+
+	genN := c.CurrentGeneration()
+	require.NotZero(t, genN, "a live generation must have an identity")
+	require.Equal(t, int64(1), selects.Load(), "gen N's own select must have been reported once")
+
+	mt.simulateReadError(io.EOF) // gen N drops for real; its abandoned goroutine stays parked
+
+	require.Eventually(t, func() bool { return mt.startCalls() == 2 && c.State() == NotSelectedState }, 3*time.Second, time.Millisecond,
+		"gen N+1 must come up and park at NotSelected")
+	require.NotEqual(t, genN, c.CurrentGeneration(), "gen N+1 must carry a distinct identity")
+
+	mt.releaseAbandonedGenAction() // gen N commits its Select — while gen N+1 owns the link
+
+	require.Never(t, func() bool {
+		return c.State() != NotSelectedState || selects.Load() != 1
+	}, 500*time.Millisecond, 5*time.Millisecond,
+		"a Select committed by a generation that has ended must not select its successor")
+
+	require.Positive(t, c.sup.Load().staleGen.Load(), "the refused commit must be counted")
+
+	require.NoError(t, c.Close())
+}
+
+// TestReconnect_AbandonedGenerationSelectLostCannotDeselectSuccessor is the Deselect-responder half.
+//
+// CommitSelectLost is the same shape as CommitSelected — a direct CAS, not a queued event — so a
+// Deselect.req answered by a recv goroutine that outlived its own generation would deselect the
+// SUCCESSOR's legitimately selected link, and the successor would sit at NotSelected until its T7
+// dwell dropped it.
+//
+// Teeth: drop the generation check → the released SelectLost CASes Selected -> NotSelected and the
+// successor is deselected.
+func TestReconnect_AbandonedGenerationSelectLostCannotDeselectSuccessor(t *testing.T) {
+	c, mt := staleCommitConn(t,
+		func(_ int64, ctx context.Context, rt TransportRuntime) {
+			rt.TCPUp(fakeConn{})
+			driveSelect(ctx, rt) // BOTH generations select
+		},
+		func(rt TransportRuntime, gen uint64) {
+			mustGenCapability(rt).SelectLostFromGeneration(gen)
+		},
+	)
+
+	require.NoError(t, c.Open(t.Context(), OpenBackground))
+	requireSelected(t, c)
+
+	genN := c.CurrentGeneration()
+	require.NotZero(t, genN, "a live generation must have an identity")
+
+	mt.simulateReadError(io.EOF)
+
+	require.Eventually(t, func() bool { return mt.startCalls() == 2 && c.State() == SelectedState }, 3*time.Second, time.Millisecond,
+		"gen N+1 must reselect")
+	require.NotEqual(t, genN, c.CurrentGeneration(), "gen N+1 must carry a distinct identity")
+
+	mt.releaseAbandonedGenAction() // gen N reports its Deselect — while gen N+1 owns the link
+
+	require.Never(t, func() bool { return c.State() != SelectedState }, 500*time.Millisecond, 5*time.Millisecond,
+		"a Deselect answered by a generation that has ended must not deselect its successor")
+
+	require.Positive(t, c.sup.Load().staleGen.Load(), "the refused commit must be counted")
+
+	require.NoError(t, c.Close())
+}
+
+// TestReconnect_AbandonedGenerationTCPUpCannotResurrectAfterClose is the TCP-up half, and it is the
+// one case the generation IDENTITY alone cannot decide.
+//
+// CommitConnected CASes out of NotConnected — the very state a generation that has ended leaves
+// behind — and connection.cur keeps pointing at that dead generation until a successor is
+// published, which after a Close never happens. So a passive accept goroutine abandoned by the
+// bounded teardown join, resuming after Close, still matches the live generation id, and its direct
+// CAS would republish a dead socket on the closed epoch and resurrect NotSelected on a connection
+// the user closed. Only epoch.ended — latched at the top of teardown, under the same gate the
+// commit takes — rejects it.
+//
+// Teeth: drop the !e.ended.Load() term from connection.commitGate → State() reports NotSelected
+// after Close and the socket assertion fails; keep it and both hold.
+func TestReconnect_AbandonedGenerationTCPUpCannotResurrectAfterClose(t *testing.T) {
+	conn := fakeConn{}
+
+	c, mt := staleCommitConn(t,
+		func(_ int64, _ context.Context, _ TransportRuntime) {}, // never connects: the FSM stays NotConnected
+		func(rt TransportRuntime, gen uint64) {
+			mustGenCapability(rt).TCPUpFromGeneration(gen, conn)
+		},
+	)
+
+	require.NoError(t, c.Open(t.Context(), OpenBackground))
+	require.Equal(t, NotConnectedState, c.State())
+
+	genN := c.CurrentGeneration()
+	require.NotZero(t, genN, "a live generation must have an identity")
+
+	require.NoError(t, c.Close())
+
+	e := c.cur.Load()
+	require.Equal(t, genN, e.id, "Close does not publish a successor, so the closed generation is still the current one")
+
+	mt.releaseAbandonedGenAction() // the abandoned accept goroutine reports its socket, after Close
+
+	require.Equal(t, NotConnectedState, c.State(),
+		"a TCP-up reported by a generation that has ended must not resurrect the FSM")
+	require.Nil(t, e.liveConn(), "a TCP-up reported by a generation that has ended must not republish a socket on it")
+	require.Positive(t, c.sup.Load().staleGen.Load(), "the refused commit must be counted")
 }

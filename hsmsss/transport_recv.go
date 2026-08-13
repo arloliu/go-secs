@@ -171,7 +171,7 @@ func (t *transport) dispatchFrame(genCtx context.Context, g *genWG, frame []byte
 				// A genuine NotSelected->Selected commit (CAS success) cancels the T7 dwell
 				// (§9.2.2 — reaching Selected ends the NOT-SELECTED window) and starts the
 				// auto-linktest (D5a-5); a duplicate (already Selected) returns false and does neither.
-				if t.rt.CommitSelected() {
+				if t.commitSelected(g.gen) {
 					t.cancelT7()
 					t.startLinktest(g)
 				}

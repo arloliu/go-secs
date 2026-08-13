@@ -33,11 +33,27 @@ func (c *connection) RouteData(msg *DataMessage) error {
 //
 // It nil-guards the supervisor: with no live supervisor it reports false (no commit happened).
 func (c *connection) CommitSelected() bool {
+	return c.commitSelectAccepted(0)
+}
+
+// CommitSelectedFromGeneration is CommitSelected performed ON BEHALF OF gen,
+// the generation whose recv goroutine completed the handshake.
+//
+// Both Select commit sites run on the recv goroutine, and a bounded teardown join can abandon that goroutine.
+// A delayed correlated Select.rsp, or an inbound Select.req, processed after that generation ended
+// would otherwise flip the SUCCESSOR's FSM to Selected on a link that never ran a handshake.
+// A gen of 0 skips the match and behaves exactly like CommitSelected.
+func (c *connection) CommitSelectedFromGeneration(gen uint64) bool {
+	return c.commitSelectAccepted(gen)
+}
+
+// commitSelectAccepted is the shared body of the Select-accepted commit.
+func (c *connection) commitSelectAccepted(gen uint64) bool {
 	if s := c.sup.Load(); s != nil {
 		// CauseSelectAccepted: every caller of this commit is a completed select handshake.
 		// That covers the HSMS-SS responder and initiator paths,
 		// plus secs1's auto-commit, which runs no handshake but reaches Selected for the same reason: the session is now usable.
-		return s.CommitSelected(CauseSelectAccepted)
+		return s.CommitSelectedFromGeneration(gen, CauseSelectAccepted)
 	}
 
 	return false
@@ -46,12 +62,31 @@ func (c *connection) CommitSelected() bool {
 // SelectLost injects evSelectLost into the supervisor (Selected -> NotSelected, TransportRuntime).
 //
 // It nil-guards the supervisor: with no live supervisor it is a no-op.
+//
+// It carries no generation identity;
+// an in-module transport reports through [connection.SelectLostFromGeneration] instead.
 func (c *connection) SelectLost() {
+	c.commitSelectLost(0)
+}
+
+// SelectLostFromGeneration is SelectLost reported ON BEHALF OF gen,
+// the generation whose recv goroutine answered the Deselect.req.
+//
+// It closes the same hazard as [connection.CommitSelectedFromGeneration], from the same goroutine:
+// a Deselect answered after the generation ended must not deselect the successor's live link.
+// A gen of 0 skips the match.
+func (c *connection) SelectLostFromGeneration(gen uint64) {
+	c.commitSelectLost(gen)
+}
+
+// commitSelectLost is the shared body of the Select-lost commit.
+func (c *connection) commitSelectLost(gen uint64) {
 	if s := c.sup.Load(); s != nil {
 		// CausePeerDeselect: leaving Selected while the transport link stays up has exactly one producer,
 		// the responder answering an inbound Deselect.req (E37 §7.7).
 		// A peer Separate drops the link instead and arrives through TCPDownWithCause, not here.
-		s.CommitSelectLost(CausePeerDeselect) // synchronous guarded CAS Selected->NotSelected, then enqueue evSelectLost (I3)
+		// Synchronous guarded CAS Selected->NotSelected, then enqueue evSelectLost (I3).
+		s.CommitSelectLostFromGeneration(gen, CausePeerDeselect)
 	}
 }
 
