@@ -647,3 +647,85 @@ func TestReconnect_AbandonedGenerationTCPUpCannotResurrectAfterClose(t *testing.
 	require.Nil(t, e.liveConn(), "a TCP-up reported by a generation that has ended must not republish a socket on it")
 	require.Positive(t, c.sup.Load().staleGen.Load(), "the refused commit must be counted")
 }
+
+// TestReconnect_AbandonedGenerationT7TimeoutCannotDropSuccessor is the T7-dwell half of the
+// disconnect barrier, and the last of genCapability's five methods to get dedicated coverage.
+//
+// T7Expired is not a synchronous commit like CommitSelected/SelectLost/TCPUp.
+// injectT7Expiry goes straight to s.injectFrom with no pre-check of its own,
+// so it is QUEUED exactly like TCPDown,
+// and the only thing standing between a stale dwell timer and a live successor is step's generation match (supervisor.go).
+// That makes staleGen here a clean, specific proxy for that one check:
+// no other guard on this path could have incremented it.
+//
+// evT7Timeout is legal ONLY from NotSelected (supervisor.go's transition table);
+// from Selected it is a no-op regardless of generation.
+// So proving anything requires gen N+1 to ALSO be parked at NotSelected.
+// A Selected successor would pass even with the barrier deleted, because the transition itself would be illegal on cause, not generation.
+// Both generations' bring-up therefore stops at TCPUp and never selects.
+//
+// Here gen N's dwell timer is parked across the whole reconnect cycle
+// (the mock's action release stands in for a real T7 timer goroutine the bounded teardown join abandoned),
+// gen N+1 comes up to NotSelected only, and the parked goroutine then fires T7Expired naming gen N.
+// gen N+1 must stay NotSelected and report no NotConnected transition.
+//
+// Teeth: drop the generation match in supervisor.step (cmd.gen != 0 && s.curGen() != cmd.gen) —
+// the released expiry legally transitions gen N+1's NotSelected -> NotConnected,
+// a third generation is dialed,
+// and a second NotConnected event with CauseT7Timeout reaches the subscriber.
+func TestReconnect_AbandonedGenerationT7TimeoutCannotDropSuccessor(t *testing.T) {
+	c, mt := staleCommitConn(t,
+		func(_ int64, _ context.Context, rt TransportRuntime) {
+			rt.TCPUp(fakeConn{}) // neither generation selects; both park at NotSelected
+		},
+		func(rt TransportRuntime, gen uint64) {
+			mustGenCapability(rt).T7ExpiredFromGeneration(gen)
+		},
+	)
+
+	var mu sync.Mutex
+	var drops []TransitionCause
+	cancel := c.SubscribeLifecycle(func(ev LifecycleEvent) {
+		if ev.Current != NotConnectedState {
+			return
+		}
+		mu.Lock()
+		drops = append(drops, ev.Cause)
+		mu.Unlock()
+	})
+	defer cancel()
+
+	dropCount := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return len(drops)
+	}
+
+	require.NoError(t, c.Open(t.Context(), OpenBackground))
+	require.Eventually(t, func() bool { return c.State() == NotSelectedState }, 3*time.Second, time.Millisecond,
+		"gen N must come up and park at NotSelected")
+
+	genN := c.CurrentGeneration()
+	require.NotZero(t, genN, "a live generation must have an identity")
+
+	mt.simulateReadError(io.EOF) // gen N drops for real; its abandoned goroutine stays parked
+
+	require.Eventually(t, func() bool { return mt.startCalls() == 2 && c.State() == NotSelectedState }, 3*time.Second, time.Millisecond,
+		"gen N+1 must come up and park at NotSelected")
+	require.Eventually(t, func() bool { return dropCount() == 1 }, time.Second, time.Millisecond,
+		"the real gen-N drop must have been reported exactly once")
+
+	require.NotEqual(t, genN, c.CurrentGeneration(), "gen N+1 must carry a distinct identity")
+
+	mt.releaseAbandonedGenAction() // gen N's T7 dwell fires -- while gen N+1 owns the link
+
+	require.Never(t, func() bool {
+		return mt.startCalls() > 2 || c.State() != NotSelectedState || dropCount() > 1
+	}, 500*time.Millisecond, 5*time.Millisecond,
+		"a T7 dwell expiry from a generation that has ended must not drop its successor")
+
+	require.Positive(t, c.sup.Load().staleGen.Load(), "the stale T7 expiry must be counted")
+
+	require.NoError(t, c.Close())
+}
