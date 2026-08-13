@@ -29,6 +29,11 @@ import (
 // dropped and the engine reconnects (§6.3 / E37 §7.4).
 var errSelectRejected = errors.New("hsmsss: peer rejected Select.req (non-zero select-status)")
 
+// errSelectBadResponse is the TCPDown cause when the frame correlated to our Select.req is not a Select.rsp at all,
+// a peer protocol violation (E37 §7.10 requires a response to answer its own transaction).
+// It is kept distinct from errSelectRejected so a log reader can tell a peer that declined the select from a peer that answered with the wrong frame.
+var errSelectBadResponse = errors.New("hsmsss: peer answered Select.req with a frame that is not a Select.rsp")
+
 // runSelectProcedure is the active-role Select procedure goroutine (spec §6.3). It is spawned
 // by startActive (tracked by g.proc so Stop joins it) and receives the generation ctx so a
 // teardown cancels its pending Select wait. It never blocks Start: Open calls Start
@@ -61,25 +66,24 @@ func (t *transport) runSelectProcedure(ctx context.Context) {
 			return
 		}
 
-		// T6 timeout / write error: the peer never completed the Select transaction. Drive the
-		// FSM to NotConnected so the reconnect loop re-dials and re-selects (§6.3). T7 (Task 24)
-		// is the belt-and-suspenders NotSelected dwell timer; here the failure is explicit.
-		// Those two failures get two causes rather than one:
-		// a control transaction stranded at T6 and a broken socket are different diagnoses for the same drop.
-		cause := hsms.CauseIOError
-		if errors.Is(err, hsms.ErrT6Timeout) {
-			cause = hsms.CauseT6Timeout
-		}
-
-		t.tcpDown(fmt.Errorf("hsmsss: active Select procedure failed: %w", err), cause)
+		// The Select transaction did not complete.
+		// Drive the FSM to NotConnected so the reconnect loop re-dials and re-selects (§6.3).
+		// T7 (Task 24) is the belt-and-suspenders NotSelected dwell timer; here the failure is explicit.
+		// selectFailureCause splits the outcomes rather than reporting one cause for all of them.
+		t.tcpDown(fmt.Errorf("hsmsss: active Select procedure failed: %w", err), selectFailureCause(err))
 
 		return
 	}
 
-	// A well-formed Select.rsp with select-status 0 is success. The recv loop has ALREADY
-	// committed Selected (H2, see the file header); nothing more to do.
+	// A well-formed Select.rsp with select-status 0 is success.
+	// The recv loop has ALREADY committed Selected (H2, see the file header); nothing more to do.
+	//
+	// Anything else correlated to our System Bytes — a Deselect.rsp, a Linktest.rsp — is a peer protocol violation,
+	// and it leaves the select ungranted exactly as a failure status would.
+	// CauseSelectRejected covers "the peer answered but did not grant the select", which is what a subscriber needs;
+	// the error value distinguishes the two shapes for a reader of the log.
 	if rsp == nil || rsp.Type() != hsms.SelectRspType {
-		t.tcpDown(errSelectRejected, hsms.CauseSelectRejected)
+		t.tcpDown(errSelectBadResponse, hsms.CauseSelectRejected)
 
 		return
 	}
@@ -94,6 +98,27 @@ func (t *transport) runSelectProcedure(ctx context.Context) {
 	if s := selectStatus(rsp); s != hsms.SelectStatusSuccess && s != hsms.SelectStatusAlreadyActive {
 		t.tcpDown(errSelectRejected, hsms.CauseSelectRejected)
 	}
+}
+
+// selectFailureCause classifies an active Select transaction that ended in an error,
+// so a lifecycle subscriber is told what actually went wrong rather than being handed one catch-all cause.
+//
+// Three outcomes are distinguishable, and they mean different things to an operator.
+// A peer Reject.req correlated to our Select.req is delivered to the waiting sender as a *hsms.RejectError (E37 §7.10):
+// the peer answered and refused, nothing on the link failed, so this is a select rejection and NOT an I/O error.
+// A T6 expiry means the peer never answered at all.
+// Anything left is the transport itself failing — a write error, or a teardown that raced this goroutine's own ctx check.
+func selectFailureCause(err error) hsms.TransitionCause {
+	var rejectErr *hsms.RejectError
+	if errors.As(err, &rejectErr) {
+		return hsms.CauseSelectRejected
+	}
+
+	if errors.Is(err, hsms.ErrT6Timeout) {
+		return hsms.CauseT6Timeout
+	}
+
+	return hsms.CauseIOError
 }
 
 // selectStatus returns the select-status byte (HSMS header byte 3) of a Select.rsp control

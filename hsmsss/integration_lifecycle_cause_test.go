@@ -305,3 +305,158 @@ func runSelectBlackholePeer(ln net.Listener, done <-chan struct{}) error {
 
 	return nil
 }
+
+// A peer that answers our Select.req with a Reject.req refuses the select at the protocol layer
+// (E37 §7.10): it answered, and nothing on the link failed, so the drop must report
+// CauseSelectRejected rather than CauseIOError.
+func TestLifecycleCause_SelectRejectedByRejectReq(t *testing.T) {
+	t.Parallel()
+
+	assertSelectFailureCause(t, hsms.CauseSelectRejected, func(sb [4]byte) []byte {
+		return buildRejectFrame(byte(hsms.SelectReqType), hsms.RejectSTypeNotSupported, sb)
+	})
+}
+
+// A peer that correlates a NON-Select.rsp frame to our Select.req violates the response contract.
+// The select is left ungranted exactly as a failure select-status would leave it, so it reports
+// CauseSelectRejected — the peer answered and did not grant the select.
+func TestLifecycleCause_SelectAnsweredWithWrongResponseType(t *testing.T) {
+	t.Parallel()
+
+	assertSelectFailureCause(t, hsms.CauseSelectRejected, func(sb [4]byte) []byte {
+		return buildControlFrame(byte(hsms.LinktestRspType), 0, sb)
+	})
+}
+
+// assertSelectFailureCause runs an active SUT against a peer that answers its Select.req with the
+// frame reply builds from the request's System Bytes, and asserts the resulting drop's cause.
+// The peer holds the socket open afterwards, so the drop under test cannot be an EOF racing ahead
+// of the Select procedure's own classification.
+func assertSelectFailureCause(t *testing.T, want hsms.TransitionCause, reply func(sb [4]byte) []byte) {
+	t.Helper()
+
+	ln, port := listenLoopback(t)
+	defer func() { _ = ln.Close() }()
+
+	peerErrCh := make(chan error, 1)
+	peerDone := make(chan struct{})
+	stopPeer := sync.OnceFunc(func() { close(peerDone) })
+
+	defer stopPeer()
+
+	go func() { peerErrCh <- runSelectAnsweringPeer(ln, peerDone, reply) }()
+
+	// T6 far longer than the test window so a timeout can never be mistaken for the answer under test,
+	// and a long T7 so the NOT-SELECTED dwell cannot drop the link first.
+	ep := newEndpoint(t, port, true, []Option{
+		WithConnectionOption(hsms.WithT6(30 * time.Second)),
+		WithConnectionOption(hsms.WithT7(30 * time.Second)),
+	})
+	defer closeEndpoint(t, ep)
+
+	log := subscribeCauses(t, ep)
+
+	require.NoError(t, ep.conn.Open(t.Context(), hsms.OpenBackground))
+
+	var events []hsms.LifecycleEvent
+
+	require.Eventually(t, func() bool {
+		events = log.snapshot()
+
+		return len(events) >= 2
+	}, 10*time.Second, 2*time.Millisecond, "timeout waiting for the TCP-up and the failed-select drop")
+
+	require.Equal(t, hsms.NotSelectedState, events[0].Current)
+	require.Equal(t, hsms.CauseLocalOpen, events[0].Cause)
+
+	require.Equal(t, hsms.NotSelectedState, events[1].Previous)
+	require.Equal(t, hsms.NotConnectedState, events[1].Current)
+	require.Equal(t, want, events[1].Cause)
+
+	stopPeer()
+
+	select {
+	case err := <-peerErrCh:
+		require.NoError(t, err, "select-answering peer completed with error")
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for the select-answering peer to finish")
+	}
+}
+
+// runSelectAnsweringPeer accepts one connection, reads the SUT's Select.req, and answers it with
+// whatever frame reply builds from the request's System Bytes — so the frame correlates to the open
+// Select transaction and reaches the waiting Select procedure through the reply registry.
+// It then holds the socket open until done closes, so the SUT classifies the answer rather than an EOF.
+func runSelectAnsweringPeer(ln net.Listener, done <-chan struct{}, reply func(sb [4]byte) []byte) error {
+	conn, err := ln.Accept()
+	if err != nil {
+		return fmt.Errorf("accept: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	req, err := peerReadFrame(conn, 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("read select.req: %w", err)
+	}
+
+	if len(req) < 10 || req[5] != byte(hsms.SelectReqType) {
+		return fmt.Errorf("expected select.req, got SType=%d", req[5])
+	}
+
+	var sb [4]byte
+	copy(sb[:], req[6:10])
+
+	if _, err := conn.Write(reply(sb)); err != nil {
+		return fmt.Errorf("write select answer: %w", err)
+	}
+
+	<-done // hold the socket open: a close here would surface as CauseIOError, not the answer under test
+
+	return nil
+}
+
+// Consecutive linktest probes that time out up to the failure threshold report CauseLinktestFail,
+// not the CauseT6Timeout of the individual probes nor a generic CauseIOError.
+func TestLifecycleCause_LinktestFailureOverRealLink(t *testing.T) {
+	t.Parallel()
+
+	portP := freeLoopbackPort(t)
+
+	// Passive peer: auto-linktest off, so it only ANSWERS probes (handleLinktestReq).
+	passive := newEndpoint(t, portP, false, nil)
+	require.NoError(t, passive.conn.Open(t.Context(), hsms.OpenBackground))
+
+	defer closeEndpoint(t, passive)
+
+	// Drop every Linktest.rsp travelling back to the active side, and nothing else, so the Select
+	// handshake still completes and only the linktest round-trips fail.
+	proxy := newChaosProxy(t, portP)
+	proxy.SetFilter(func(isClientToTarget bool, header []byte, _ []byte) (ProxyAction, time.Duration) {
+		if isClientToTarget || len(header) < 10 || header[5] != byte(hsms.LinktestRspType) {
+			return ProxyActionForward, 0
+		}
+
+		return ProxyActionDrop, 0
+	})
+	proxy.Start(t)
+	t.Cleanup(proxy.Stop)
+
+	// Threshold 1 so the first unanswered probe drops the link, and suppression off so no credit
+	// rule can convert that failure and stall the test.
+	active := newEndpoint(t, proxy.Port(), true, []Option{
+		WithConnectionOption(hsms.WithLinktestInterval(100 * time.Millisecond)),
+		WithConnectionOption(hsms.WithT6(250 * time.Millisecond)),
+		WithConnectionOption(hsms.WithLinktestFailThreshold(1)),
+		WithConnectionOption(hsms.WithLinktestSuppression(false)),
+		WithConnectionOption(hsms.WithT7(30 * time.Second)),
+	})
+	defer closeEndpoint(t, active)
+
+	log := subscribeCauses(t, active)
+
+	require.NoError(t, active.conn.Open(t.Context(), hsms.OpenBackground))
+
+	up := log.waitBringUp(t, 0)
+
+	require.Equal(t, hsms.CauseLinktestFail, log.waitTeardown(t, len(up)).Cause)
+}

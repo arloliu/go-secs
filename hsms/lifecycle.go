@@ -34,8 +34,14 @@ const (
 	// that transport has no select handshake, so it commits to the selected state as soon as the line is up.
 	CauseSelectAccepted
 
-	// CauseSelectRejected means the peer answered our Select.req with a failure select-status,
+	// CauseSelectRejected means the peer answered our Select.req but did not grant the select,
 	// so the link was dropped and will be re-established (SEMI E37 §7.4).
+	//
+	// It covers all three ways a completed select transaction can fail to establish communication:
+	// a failure select-status, a Reject.req refusing the request outright (SEMI E37 §7.10),
+	// and a correlated response that is not a Select.rsp at all.
+	// A select the peer never answered reports CauseT6Timeout instead,
+	// and a select whose transport failed reports CauseIOError.
 	CauseSelectRejected
 
 	// CausePeerSeparate means the peer sent Separate.req to announce it is leaving (SEMI E37.1 §7.6).
