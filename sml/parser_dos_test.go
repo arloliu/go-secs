@@ -94,6 +94,36 @@ func TestParse_HugeDeclaredSizeDoesNotPrealloc(t *testing.T) {
 	}
 }
 
+func TestParse_PaddingDoesNotAmplifyPreallocation(t *testing.T) {
+	padding := strings.Repeat("/*padding*/", 200_000)
+	strictASCIIPadding := strings.Repeat("/*padding*/", 1_000_000)
+	tests := []struct {
+		name   string
+		input  string
+		strict bool
+	}{
+		{name: "list", input: `S1F1 <L[100000000] <A "x">>.` + padding},
+		{name: "uint", input: `S1F1 <U1[100000000] 1>.` + padding},
+		{name: "ascii_strict", input: `S1F1 <A[100000000] "x">.` + strictASCIIPadding, strict: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parser := NewParser()
+			if tt.strict {
+				parser = NewParser(WithParserStrictMode(true))
+			}
+
+			runtime.GC() //nolint:revive // a collected heap is what makes the TotalAlloc delta below meaningful
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			_, _ = parser.Parse(tt.input) //nolint:errcheck // allocation is the only thing under test
+			runtime.ReadMemStats(&after)
+			require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(maxAllowedAllocBytes))
+		})
+	}
+}
+
 // TestParseStrict_LongNumericTokenDoesNotCopyQuadratically guards the unquoted numeric token.
 // The token used to be accumulated one rune at a time into a string.
 // Go strings are immutable, so that cost O(n^2) copying before the token was even validated.

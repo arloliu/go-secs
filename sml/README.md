@@ -60,8 +60,7 @@ functions (which each allocate a fresh parser).
 
 ### Quick start
 
-`Encode` renders a `secs2.Item` to its canonical SML text, identical to
-`item.ToSML()`:
+`Encode` renders a valid `secs2.Item` to its canonical SML text, identical to `item.ToSML()`:
 
 ```go
 text := sml.Encode(item)
@@ -73,14 +72,19 @@ text := sml.Encode(item)
 text := sml.EncodeStrict(item)
 ```
 
-`EncodeMessage` renders a full `*hsms.DataMessage` (header line + body); `MustEncodeMessage` is the
-same but returns a `"<!sml encode error: ...>"` diagnostic string instead of an error, safe to embed
-directly in a log line:
+`EncodeMessage` renders a full `*hsms.DataMessage` (header line + body).
+`MustEncodeMessage` is the same but returns a `"<!sml encode error: ...>"` diagnostic string instead of an error,
+so it is safe to embed directly in a log line:
 
 ```go
 text, err := sml.EncodeMessage(msg)
 logLine := sml.MustEncodeMessage(msg) // never panics
 ```
+
+Item encoding returns empty text for a nil-like item.
+For a programmatic item tree deeper than `secs2.MaxListDepth`, item encoding returns a `"<!sml encode error: ...>"` diagnostic,
+while message encoding returns an error.
+`MustEncodeMessage` returns the diagnostic form for message errors and never panics.
 
 ### Custom encoder
 
@@ -104,8 +108,8 @@ dst = enc.AppendEncode(dst, item)
 text, err := enc.EncodeMessage(msg)
 ```
 
-The default `NewEncoder()` (no options) produces the same output as
-`item.ToSML()`, with an unquoted S/F header (e.g. `S1F1 W`).
+For a valid item tree at or below `secs2.MaxListDepth`, the default `NewEncoder()` produces the same output as `item.ToSML()`.
+Message encoding uses an unquoted S/F header by default (e.g. `S1F1 W`).
 
 ### Encoder options
 

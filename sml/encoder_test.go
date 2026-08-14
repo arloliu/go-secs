@@ -2,12 +2,28 @@ package sml
 
 import (
 	"encoding/binary"
+	"iter"
+	"strings"
 	"testing"
 
 	"github.com/arloliu/go-secs/v2/hsms"
 	"github.com/arloliu/go-secs/v2/secs2"
 	"github.com/stretchr/testify/require"
 )
+
+type cyclicListItem struct {
+	secs2.Item
+}
+
+func (item *cyclicListItem) IsList() bool { return true }
+
+func (item *cyclicListItem) Size() int { return 1 }
+
+func (item *cyclicListItem) Items() iter.Seq[secs2.Item] {
+	return func(yield func(secs2.Item) bool) {
+		yield(item)
+	}
+}
 
 func TestEncoder_DefaultEqualsToSML(t *testing.T) {
 	items := []secs2.Item{
@@ -78,6 +94,40 @@ func TestEncode_PackageShortcut(t *testing.T) {
 	}
 }
 
+func TestEncode_NilItemIsEmpty(t *testing.T) {
+	require.Empty(t, Encode(nil))
+	require.Empty(t, EncodeStrict(nil))
+	require.Equal(t, "prefix", string(NewEncoder().AppendEncode([]byte("prefix"), nil)))
+
+	var typedNil *secs2.ASCIIItem
+	require.Empty(t, Encode(typedNil))
+	require.Empty(t, EncodeStrict(typedNil))
+	require.Equal(t, "prefix", string(NewEncoder().AppendEncode([]byte("prefix"), typedNil)))
+}
+
+func TestEncode_ListDepthBound(t *testing.T) {
+	item := secs2.A("leaf")
+	for range secs2.MaxListDepth {
+		item = secs2.NewListItem(item)
+	}
+
+	require.NotContains(t, Encode(item), "<!sml encode error:")
+
+	item = secs2.NewListItem(item)
+	require.Contains(t, Encode(item), "<!sml encode error:")
+
+	msg, err := hsms.NewDataMessage(1, 1, false, 0, [4]byte{}, item)
+	require.NoError(t, err)
+	out, err := EncodeMessage(msg)
+	require.ErrorContains(t, err, "list nesting depth exceeds maximum allowed")
+	require.Empty(t, out)
+}
+
+func TestEncode_CyclicListIsBounded(t *testing.T) {
+	item := &cyclicListItem{Item: secs2.A("leaf")}
+	require.Contains(t, Encode(item), "<!sml encode error:")
+}
+
 // TestEncodeStrict_PackageShortcut verifies EncodeStrict(item):
 //   - for items with no non-printable bytes, is identical to the non-strict Encode(item)
 //     and to item.ToSML();
@@ -111,6 +161,30 @@ func TestEncodeStrict_PackageShortcut(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "a\nb", gotStr)
 	})
+}
+
+func TestEncodeStrict_GreaterThanRoundTrip(t *testing.T) {
+	tests := []struct {
+		name  string
+		quote QuoteStyle
+	}{
+		{name: "double quote", quote: QuoteDouble},
+		{name: "single quote", quote: QuoteSingle},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			enc := NewEncoder(WithEncoderStrictMode(true), WithASCIIQuote(tt.quote))
+			item := secs2.A(`a>b\c'"d`)
+			out := enc.Encode(item)
+			require.Contains(t, out, `\>`)
+
+			msgs, err := NewParser(WithParserStrictMode(true)).Parse("S1F1 " + out + ".")
+			require.NoError(t, err)
+			got, err := msgs[0].Item()
+			require.NoError(t, err)
+			require.True(t, secs2.Equal(item, got))
+		})
+	}
 }
 
 // TestAppendEncode verifies (*Encoder).AppendEncode appends the item's encoded SML text
@@ -156,6 +230,32 @@ func TestEncodeMessage_PackageShortcut(t *testing.T) {
 	got, err = EncodeMessage(msg, WithSFQuote(QuoteSingle))
 	require.NoError(t, err)
 	require.Equal(t, "'S1F1'\n<A[2] \"hi\">\n.", got)
+}
+
+func TestEncodeMessage_DoesNotAllocateIntermediateBody(t *testing.T) {
+	item := secs2.A(strings.Repeat("x", 4096))
+	msg, err := hsms.NewDataMessage(1, 1, false, 0, [4]byte{}, item)
+	require.NoError(t, err)
+	enc := NewEncoder()
+
+	var encoded string
+	itemAllocs := testing.AllocsPerRun(100, func() {
+		encoded = enc.Encode(item)
+	})
+
+	var encodeErr error
+	messageAllocs := testing.AllocsPerRun(100, func() {
+		encoded, encodeErr = enc.EncodeMessage(msg)
+	})
+	require.NoError(t, encodeErr)
+	require.NotEmpty(t, encoded)
+	require.LessOrEqual(t, messageAllocs, itemAllocs+1)
+}
+
+func TestEncodeMessage_Nil(t *testing.T) {
+	_, err := EncodeMessage(nil)
+	require.ErrorContains(t, err, "nil data message")
+	require.Contains(t, MustEncodeMessage(nil), "<!sml encode error:")
 }
 
 // TestEncodeMessage_DecodeErrorPropagates verifies that EncodeMessage returns the lazy body-decode

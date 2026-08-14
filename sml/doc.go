@@ -22,7 +22,9 @@
 //
 // # Encoding
 //
-// [Encode] renders a secs2.Item to its canonical SML text — identical to item.ToSML().
+// [Encode] renders a valid secs2.Item tree at or below [secs2.MaxListDepth] to canonical SML text identical to item.ToSML().
+// Nil-like items render as empty text.
+// Deeper trees produce a diagnostic from item encoding and an error from message encoding.
 // [NewEncoder] provides a configurable form:
 //
 //	enc := sml.NewEncoder(

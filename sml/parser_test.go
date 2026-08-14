@@ -213,6 +213,40 @@ func TestParse_NoErrorCases_NonStrictMode(t *testing.T) {
 	checkTestCase(t, tests, false)
 }
 
+func TestParse_ItemColonDoesNotNameHeader(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "scalar item", input: `S1F1 <A "x:y">.`, want: "x:y"},
+		{name: "nested item", input: `S1F1 <L[1] <A "x:y">>.`, want: "x:y"},
+		{name: "named header", input: `Message: S1F1 <A "x:y">.`, want: "x:y"},
+		{name: "URL with port", input: `Message: S1F1 <A "http://example.com:8080/path">.`, want: "http://example.com:8080/path"},
+		{name: "body on next line", input: "Message: S1F1\n<A \"x:y\">.", want: "x:y"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msgs, err := Parse(tt.input)
+			require.NoError(t, err)
+			require.Len(t, msgs, 1)
+			require.Equal(t, uint8(1), msgs[0].Stream())
+			require.Equal(t, uint8(1), msgs[0].Function())
+
+			item, err := msgs[0].Item()
+			require.NoError(t, err)
+			if item.IsList() {
+				item, err = item.ItemAt(0)
+				require.NoError(t, err)
+			}
+			ascii, err := item.ToASCII()
+			require.NoError(t, err)
+			require.Equal(t, tt.want, ascii)
+		})
+	}
+}
+
 func TestParseItem_ASCII(t *testing.T) {
 	testcases := []struct {
 		description    string
