@@ -18,7 +18,8 @@ var _ SECS2Message = (*Message)(nil)
 // NewMessage creates a SECS2Message from the given stream and function codes, wait bit, and data item.
 //
 // When replyExpected is true the message's wait bit (W-bit) is set, indicating that a reply is expected from the receiver.
-// If item is nil it is replaced with NewEmptyItem, so the returned message always carries a valid, empty-bodied item.
+// If item is nil or a typed nil it is replaced with NewEmptyItem,
+// so the returned message always carries a valid, empty-bodied item.
 //
 // Parameters:
 //   - stream: the SECS-II stream code.
@@ -29,7 +30,7 @@ var _ SECS2Message = (*Message)(nil)
 // Returns:
 //   - SECS2Message: the constructed message.
 func NewMessage(stream, function byte, replyExpected bool, item Item) SECS2Message {
-	if item == nil {
+	if isNilItem(item) {
 		item = NewEmptyItem()
 	}
 

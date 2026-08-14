@@ -302,6 +302,93 @@ func TestCursor_At_NoIndices(t *testing.T) {
 	require.Same(t, root, item)
 }
 
+// TestCursor_ZeroValue asserts that a zero-value Cursor never panics from any of its eleven surfaces,
+// even though it is reachable without calling NewCursor since Cursor is an exported struct.
+// It also asserts that every surface other than Err and the no-index form of At reports a
+// non-nil error.
+//
+// The "At(0)" case also pins the in-loop isNilItem guard inside At's loop (see the comment there):
+// deleting that guard turns Cursor{}.At(0) into a nil-interface panic instead of a descriptive error,
+// so a later reader who concludes the guard is dead has a failing test to correct them.
+func TestCursor_ZeroValue(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		run  func(t *testing.T)
+	}{
+		{"Err", func(t *testing.T) {
+			var c Cursor
+			require.NotPanics(t, func() { _ = c.Err() })
+		}},
+		{"At(0)", func(t *testing.T) {
+			var c Cursor
+			var next Cursor
+			require.NotPanics(t, func() { next = c.At(0) })
+			require.Error(t, next.Err())
+		}},
+		{"At()", func(t *testing.T) {
+			var c Cursor
+			require.NotPanics(t, func() { c.At() })
+		}},
+		{"Uint", func(t *testing.T) {
+			var c Cursor
+			var err error
+			require.NotPanics(t, func() { _, err = c.Uint() })
+			require.Error(t, err)
+		}},
+		{"Int", func(t *testing.T) {
+			var c Cursor
+			var err error
+			require.NotPanics(t, func() { _, err = c.Int() })
+			require.Error(t, err)
+		}},
+		{"Float", func(t *testing.T) {
+			var c Cursor
+			var err error
+			require.NotPanics(t, func() { _, err = c.Float() })
+			require.Error(t, err)
+		}},
+		{"Bool", func(t *testing.T) {
+			var c Cursor
+			var err error
+			require.NotPanics(t, func() { _, err = c.Bool() })
+			require.Error(t, err)
+		}},
+		{"ASCII", func(t *testing.T) {
+			var c Cursor
+			var err error
+			require.NotPanics(t, func() { _, err = c.ASCII() })
+			require.Error(t, err)
+		}},
+		{"Binary", func(t *testing.T) {
+			var c Cursor
+			var err error
+			require.NotPanics(t, func() { _, err = c.Binary() })
+			require.Error(t, err)
+		}},
+		{"Size", func(t *testing.T) {
+			var c Cursor
+			var err error
+			require.NotPanics(t, func() { _, err = c.Size() })
+			require.Error(t, err)
+		}},
+		{"Item", func(t *testing.T) {
+			var c Cursor
+			var err error
+			require.NotPanics(t, func() { _, err = c.Item() })
+			require.Error(t, err)
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t)
+		})
+	}
+}
+
 // --- Failure classes ---
 
 func TestCursor_At_IndexOutOfRange(t *testing.T) {

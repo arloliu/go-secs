@@ -58,3 +58,20 @@ func TestNewMessageNilItem(t *testing.T) {
 	require.NoError(err)
 	require.True(decoded.IsEmpty())
 }
+
+// TestNewMessageTypedNilItem verifies a typed-nil item -- an interface value that holds a nil
+// *ASCIIItem rather than being nil itself -- is caught by isNilItem and replaced the same as a
+// bare nil, so it never survives into Message.Item().
+func TestNewMessageTypedNilItem(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	var item *ASCIIItem
+	msg := NewMessage(1, 1, false, item)
+
+	got := msg.Item()
+	require.NotNil(got)
+	require.True(got.IsEmpty())
+	require.NotPanics(func() { got.ToSML() })
+}
