@@ -244,19 +244,22 @@ func TestParity_InvoluntaryDropReconnects(t *testing.T) {
 
 			require.Equal(t, hsms.SelectedState, conn.State())
 
+			// Mark BEFORE the drop: teardown lands within one secs1 poll tick (10ms), so a mark taken
+			// after dropLine can already sit past the teardown edge and the wait would then miss it.
+			marked := rec.mark()
+
 			// Abruptly drop the live peer: the connection's recv sees EOF and the FSM tears down.
 			dropped := latestScriptable(t, df)
 			dropped.dropLine()
 
-			// First observe the fresh teardown, then the fresh re-Select. Waiting on NotConnected first
-			// also absorbs the initial Selected notification (delivered asynchronously by the notifier, it
-			// may still be in flight when Open returns), so the subsequent Selected wait cannot mistake the
-			// stale initial Selected for the reconnect's — it detects the genuine re-Selected edge, which
-			// only a fresh dial (a new generation) can produce.
-			require.True(t, rec.awaitState(hsms.NotConnectedState, 3*time.Second),
-				"connection did not tear down after the involuntary drop")
-			require.True(t, rec.awaitState(hsms.SelectedState, 3*time.Second),
-				"connection did not re-Select after the involuntary drop")
+			// First observe the fresh teardown, then the fresh re-Select. The re-Select wait resumes at
+			// the edge AFTER the teardown match, so it cannot mistake the initial Selected (recorded
+			// before the drop) for the reconnect's — it detects the genuine re-Selected edge, which only
+			// a fresh dial (a new generation) can produce.
+			torn, ok := rec.awaitStateFrom(marked, hsms.NotConnectedState, 3*time.Second)
+			require.True(t, ok, "connection did not tear down after the involuntary drop")
+			_, ok = rec.awaitStateFrom(torn+1, hsms.SelectedState, 3*time.Second)
+			require.True(t, ok, "connection did not re-Select after the involuntary drop")
 
 			// The reconnect must have dialed a fresh-generation peer, distinct from the dropped one.
 			reconnected := latestScriptable(t, df)

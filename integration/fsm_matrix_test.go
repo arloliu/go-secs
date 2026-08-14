@@ -307,14 +307,18 @@ func TestFSM_HSMSSSMatrix(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
+		// Mark BEFORE Open: the notifier records on its own goroutine, so both transitions can land
+		// while this goroutine is still descheduled.
+		marked := rec.mark()
+
 		require.NoError(t, conn.Open(ctx, hsms.OpenBackground))
 
 		// The line comes up to NotSelected ...
-		require.True(t, rec.awaitState(hsms.NotSelectedState, 15*time.Second),
-			"the line must come up to NotSelected with the Select.rsp withheld")
+		up, ok := rec.awaitStateFrom(marked, hsms.NotSelectedState, 15*time.Second)
+		require.True(t, ok, "the line must come up to NotSelected with the Select.rsp withheld")
 		// ... then the T7 dwell expires and disconnects it.
-		require.True(t, rec.awaitState(hsms.NotConnectedState, 15*time.Second),
-			"the T7 (NOT-SELECTED) dwell must expire and disconnect")
+		_, ok = rec.awaitStateFrom(up+1, hsms.NotConnectedState, 15*time.Second)
+		require.True(t, ok, "the T7 (NOT-SELECTED) dwell must expire and disconnect")
 
 		p := rec.pairs()
 		require.True(t, hasStateEdge(p, hsms.NotConnectedState, hsms.NotSelectedState),
@@ -444,15 +448,20 @@ func TestFSM_SECS1Matrix(t *testing.T) {
 		return hasStateEdge(rec.pairs(), hsms.NotConnectedState, hsms.SelectedState)
 	}, 15*time.Second, 5*time.Millisecond, "a live SECS-I line must auto-commit NotConnected -> Selected")
 
+	// Mark BEFORE the drop: a SECS-I teardown lands within one poll tick (10ms), so a mark taken
+	// after dropLine can already sit past the teardown edge and the wait would then miss it.
+	marked := rec.mark()
+
 	// Drop the live line involuntarily: the connection tears down (Selected -> NotConnected) and the
 	// reconnect loop redials a fresh generation that auto-commits back to Selected.
 	dropped := latestScriptable(t, df)
 	dropped.dropLine()
 
-	require.True(t, rec.awaitState(hsms.NotConnectedState, 3*time.Second),
-		"an involuntary line drop must tear the SECS-I line down to NotConnected")
-	require.True(t, rec.awaitState(hsms.SelectedState, 3*time.Second),
-		"the reconnect must auto-commit the fresh SECS-I line back to Selected")
+	torn, ok := rec.awaitStateFrom(marked, hsms.NotConnectedState, 3*time.Second)
+	require.True(t, ok, "an involuntary line drop must tear the SECS-I line down to NotConnected")
+	// Resume past the teardown match so the pre-drop Selected cannot satisfy this wait.
+	_, ok = rec.awaitStateFrom(torn+1, hsms.SelectedState, 3*time.Second)
+	require.True(t, ok, "the reconnect must auto-commit the fresh SECS-I line back to Selected")
 
 	// Close settles the terminal Selected -> NotConnected edge and joins the notifier, so the whole
 	// lifecycle sequence is final once Close returns.
