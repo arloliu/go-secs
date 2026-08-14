@@ -228,7 +228,7 @@ func (item *ListItem) Error() error {
 //
 // Returns 0 when the list or any child has a deferred construction error.
 func (item *ListItem) EncodedLen() int {
-	if item.Error() != nil {
+	if !item.clean && item.Error() != nil {
 		return 0
 	}
 
@@ -250,7 +250,7 @@ func (item *ListItem) EncodedLen() int {
 //
 // Returns dst unchanged when the list or any child has a deferred construction error.
 func (item *ListItem) AppendTo(dst []byte) []byte {
-	if item.Error() != nil {
+	if !item.clean && item.Error() != nil {
 		return dst
 	}
 
