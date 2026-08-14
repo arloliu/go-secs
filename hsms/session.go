@@ -136,7 +136,7 @@ func (s *session) SendDataMessageAsync(ctx context.Context, stream, function byt
 // always a primary; msg's function must be odd (SEMI E5 §7.2), or this returns
 // ErrEvenFunctionPrimary without sending anything.
 //
-// Returns ErrNilMessage if msg is nil.
+// Returns ErrNilMessage if msg is nil or typed-nil.
 //
 // Returns the reply DataMessage when the W-bit is set.
 func (s *session) SendSECS2Message(ctx context.Context, msg secs2.SECS2Message) (*DataMessage, error) {

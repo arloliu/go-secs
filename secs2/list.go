@@ -226,7 +226,8 @@ func (item *ListItem) Error() error {
 
 // EncodedLen returns the total SECS-II wire byte length: the list header (whose data-length field encodes the child count) plus the sum of each child's EncodedLen.
 //
-// Returns 0 when the list or any child has a deferred construction error.
+// Returns 0 when [ListItem.Error] reports a non-nil error:
+// a deferred construction error on the list or any child, a nil child, or an empty item used as a child.
 func (item *ListItem) EncodedLen() int {
 	if !item.clean && item.Error() != nil {
 		return 0
@@ -248,7 +249,8 @@ func (item *ListItem) EncodedLen() int {
 // AppendTo appends the SECS-II wire encoding of this list (header + recursively encoded children) into dst
 // and returns the extended slice.
 //
-// Returns dst unchanged when the list or any child has a deferred construction error.
+// Returns dst unchanged when [ListItem.Error] reports a non-nil error:
+// a deferred construction error on the list or any child, a nil child, or an empty item used as a child.
 func (item *ListItem) AppendTo(dst []byte) []byte {
 	if !item.clean && item.Error() != nil {
 		return dst
