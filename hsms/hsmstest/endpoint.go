@@ -265,6 +265,10 @@ func (f *FakeEndpoint) record(method string, stream, function byte, replyExpecte
 // primary.Stream() is already masked to <=127 and replyExpected is hardcoded false (so the
 // even-function W-bit check can never fire here).
 func (f *FakeEndpoint) recordReply(primary *hsms.DataMessage, item secs2.Item) error {
+	if primary == nil {
+		return hsms.ErrNilMessage
+	}
+
 	msg, err := hsms.NewDataMessage(
 		primary.Stream(), primary.Function()+1, false,
 		f.sessionID, primary.SystemBytes(), item,
@@ -374,8 +378,9 @@ func (f *FakeEndpoint) SendSECS2Message(_ context.Context, msg secs2.SECS2Messag
 	return f.popScriptedReply()
 }
 
-// ReplyDataMessage records the reply. It never consults the reply script (a reply is not a
-// synchronous send awaiting a response).
+// ReplyDataMessage records the reply.
+// It never consults the reply script (a reply is not a synchronous send awaiting a response).
+// Returns hsms.ErrNilMessage if primary is nil, recording nothing, matching the real session.
 func (f *FakeEndpoint) ReplyDataMessage(_ context.Context, primary *hsms.DataMessage, item secs2.Item) error {
 	return f.recordReply(primary, item)
 }
