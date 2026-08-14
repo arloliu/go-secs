@@ -1,5 +1,16 @@
 # Log
 
+## 2026-08-14
+* **Update**: [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) refreshed the `secs1/transport.go` digest and revision after a semantic-linefeed-only comment change;
+  mechanic prose, generated metadata, and trust status remain unchanged.
+* **Update**: [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) now cites `secs1/transport.go`, which its `causeRuntime` pointer already named;
+  the body remains unchanged.
+* **Update**: [Parser input bounds](/sml/prealloc-bound.md) refreshed the parser allocation-test digest and revision after strict ASCII coverage was strengthened;
+  prose and generated metadata remain unchanged because the documented mechanic did not change.
+* **Update**: [Parser input bounds](/sml/prealloc-bound.md) now records the 64-element initial-capacity ceiling that prevents unrelated trailing input from amplifying parser preallocation;
+  digests and revisions were refreshed.
+  The entry remains draft pending independent verification.
+
 ## 2026-08-13
 * **Update**: [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) resynced after the Select-failure classification fix (`5a0ec1b`): the active Select procedure is the one site whose cause is not a constant, because its reply registry can return a `*hsms.RejectError` (peer refused — not an I/O fault), a bare `ErrT6Timeout` (peer never answered), or a transport error; a correlated response of the wrong TYPE also reports `CauseSelectRejected`, with the refusal-versus-wrong-frame distinction kept in the error value rather than the cause.
 * **Creation**: [Where a TransitionCause is chosen, and why one transition can swallow another's cause](/hsms/transition-cause-injection-sites.md) records the full injection-site to cause map behind `SubscribeLifecycle`; why the cause is data on `fsmCommand` rather than a function of the state pair; why the transports name it through a package-local `causeRuntime` capability instead of a widened `TransportRuntime`, so a bare `TCPDown` reports `CauseUnknown` rather than a guess; and the three ways a cause never reaches a subscriber (dedup on the state entered, drop-oldest coalescing, and the bring-up pair collapsing when the select commit outruns the TCP-up event); born draft.

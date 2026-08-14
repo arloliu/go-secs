@@ -4,12 +4,12 @@ title: Parser input bounds
 description: How the SML parser bounds allocation and recursion on attacker-controlled input.
 tags: [sml, parser, security, allocation, recursion]
 status: draft
-generated: {by: "claude/fable-5", at: 2026-08-12T10:45:49Z}
+generated: {by: "openai/gpt-5.6-sol", at: 2026-08-14T08:11:01Z}
 sources:
-  - {resource: sml/parser.go, digest: sha256:d56c5287e7e299b9, revision: 5cf7389}
-  - {resource: sml/parser_depth_test.go, digest: sha256:3230469c3aa4f0fe, revision: 5cf7389}
-  - {resource: secs2/decode.go, digest: sha256:8ca1e530a8d03c4a, revision: 5cf7389}
-  - {resource: sml/parser_dos_test.go, digest: sha256:51c56d2ddbd8b51d, revision: 5cf7389}
+  - {resource: sml/parser.go, digest: sha256:6a166a179414e02e, revision: f56c67a}
+  - {resource: sml/parser_depth_test.go, digest: sha256:3230469c3aa4f0fe, revision: f56c67a}
+  - {resource: secs2/decode.go, digest: sha256:8ca1e530a8d03c4a, revision: f56c67a}
+  - {resource: sml/parser_dos_test.go, digest: sha256:3465ac02e29b67c0, revision: 6cf2b49}
 ---
 
 # What it does
@@ -18,7 +18,7 @@ The parser used that count directly to size the buffer it preallocated.
 `sml/doc.go` documents the public contract but says nothing about this.
 The count is read off attacker-controlled text and bounded only by `math.MaxInt32`.
 A 29-byte message like `<U1[2000000000] 1 2 3>` therefore drove a multi-gigabyte allocation before any payload byte was inspected.
-The parser now clamps that preallocation hint,
+The parser now caps that preallocation hint at 64 elements,
 and bounds list nesting by the same constant the wire decoder uses.
 
 # How it works
@@ -28,7 +28,9 @@ The six slice-building parsers preallocate through `capHint(size, len(p.data))` 
 and `parseASCIIStrict` grows its `strings.Builder` through the same helper.
 `p.data` is the unconsumed remainder of the input.
 Every element the parser can still produce consumes at least one input byte,
-so `len(p.data)` is a sound upper bound and `capHint` returns `min(size, len(p.data))`.
+so `len(p.data)` is a sound local upper bound.
+`capHint` returns `min(size, len(p.data), 64)`,
+preventing unrelated trailing input from amplifying the initial allocation.
 The clamp caps only initial capacity.
 `append` and `Builder` growth still reach the true size,
 so a message whose declared count matches its payload is unaffected.
@@ -36,7 +38,7 @@ so a message whose declared count matches its payload is unaffected.
 Note the size token is a *hint only*, not a contract the parser enforces.
 `parseItem` discards the minimum,
 and no body parser reconciles the declared count against the number of values actually parsed.
-That is why the bound must come from the remaining input rather than from validating the token.
+That is why the hint must be bounded independently rather than relying on validation of the token.
 
 The size token is not the only attacker-controlled length in this area.
 `parseASCIIStrict` also reads unquoted numeric tokens,
@@ -59,6 +61,8 @@ a 195 KB token copied its way to roughly 19 GB before `ParseUint` ever rejected 
   Strict-mode ASCII was exactly this, reaching ~1.9 GB from a 25-byte input until its `Builder.Grow` was clamped too.
 - `TestParse_HugeDeclaredSizeDoesNotPrealloc` guards all seven paths,
   asserting that a huge declared count keeps allocation bounded.
+- `TestParse_PaddingDoesNotAmplifyPreallocation` guards against a large suffix inflating the remaining-input bound,
+  asserting that list, numeric, and ASCII inputs stay below the allocation ceiling.
 - `TestParseStrict_LongNumericTokenDoesNotCopyQuadratically` guards the numeric-token path,
   where the cost was quadratic in the token length rather than driven by the size token.
 - `TestParse_ListDepthMatchesWireDecoder` pins the nesting ceiling to the decoder's,
@@ -78,5 +82,5 @@ a 195 KB token copied its way to roughly 19 GB before `ParseUint` ever rejected 
 - clamped slice parsers: `sml/parser.go` → `parseList`, `parseBoolean`, `parseBinary`, `parseFloat`, `parseInt`, `parseUint`
 - clamped builder and sliced numeric token: `sml/parser.go` → `parseASCIIStrict`
 - nesting bound: `sml/parser.go` → `parseList`; the shared constant is `secs2/decode.go` → `MaxListDepth`
-- regression guards: `sml/parser_dos_test.go` → `TestParse_HugeDeclaredSizeDoesNotPrealloc`, `TestParseStrict_LongNumericTokenDoesNotCopyQuadratically`
+- regression guards: `sml/parser_dos_test.go` → `TestParse_HugeDeclaredSizeDoesNotPrealloc`, `TestParse_PaddingDoesNotAmplifyPreallocation`, `TestParseStrict_LongNumericTokenDoesNotCopyQuadratically`
 - nesting guard: `sml/parser_depth_test.go` → `TestParse_ListDepthMatchesWireDecoder`

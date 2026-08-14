@@ -26,6 +26,7 @@ sources:
   - {resource: hsmsss/transport_passive.go, digest: sha256:f5c2688db6585682, revision: 71a7afe}
   - {resource: hsmsss/transport_procedures.go, digest: sha256:232ee3127c6ae84b, revision: 0b40043}
   - {resource: hsmsss/transport_recv.go, digest: sha256:1b3b40dfd747daaf, revision: 2942595}
+  - {resource: secs1/transport.go, digest: sha256:05f8cb504e3bbeef, revision: 8bb9188}
 ---
 
 # What it does
@@ -293,7 +294,7 @@ see `hsmsss.causeLog.waitBringUp`, which tolerates both shapes.
 - the synchronous-commit fence: `hsms/connection.go` → `genGate`;
   `hsms/connection_lifecycle.go` → `commitGate`, `publishSocket`, `commitTCPUp`, `genCapability`;
   `hsms/epoch.go` → `epoch.ended`, `epoch.markEnded`;
-  `hsms/supervisor.go` → `commitFrom` and the three `Commit*FromGeneration` methods;
+  `hsms/supervisor.go` → `commitFrom`, `CommitConnectedFromGeneration`, `CommitSelectedFromGeneration`, `CommitSelectLostFromGeneration`;
   `hsms/connection_runtime.go` → `commitSelectAccepted`, `commitSelectLost`
 - transport capability: `hsmsss/transport_control.go` → `causeRuntime`, `genRuntime`,
   `transport.tcpDown`, `transport.t7Expired`, `transport.tcpUp`, `transport.commitSelected`, `transport.selectLost`;
