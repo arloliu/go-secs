@@ -54,20 +54,40 @@ func (r *stateRecorder) pairs() []stateEdge {
 	return append([]stateEdge(nil), r.edges...)
 }
 
-// awaitState blocks until a transition whose next state equals target is recorded AFTER this call
-// began, or timeout elapses. It reports whether such a fresh transition occurred.
+// mark returns the current edge count, to be passed to a later awaitStateFrom as its scan origin.
 //
-// "Fresh" is the load-bearing detail: it snapshots the current edge count on entry and only scans
-// transitions recorded from that point forward, so a target already reached before the call (for
-// example the initial Selected) does NOT satisfy the wait — only a genuinely new edge to target
-// (for example the re-Selected that follows an involuntary drop) does. It parks on a condition
-// variable, woken by record or by a one-shot timer at the deadline, so it never busy-loops.
-func (r *stateRecorder) awaitState(target hsms.ConnState, timeout time.Duration) bool {
+// Take the mark BEFORE the action that triggers the transition, never after.
+// The notifier records on its own goroutine,
+// so a teardown can be recorded while the test goroutine is still descheduled between the trigger and the wait.
+// secs1 tears down within one linePollInterval (10ms), which is well inside a scheduling hiccup under -race.
+// A mark taken after the trigger can therefore sit past the very edge the wait is looking for,
+// and the wait then blocks for its full timeout on a transition that already happened.
+func (r *stateRecorder) mark() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Only edges recorded from here forward count as a fresh transition to target.
-	scanned := len(r.edges)
+	return len(r.edges)
+}
+
+// awaitStateFrom blocks until a transition whose next state equals target is recorded at or after edge index from,
+// or timeout elapses.
+// It returns the index the match was found at and whether a match occurred;
+// on timeout it returns from unchanged and false.
+//
+// Chain sequential waits with the returned index — pass matched+1 to the next call —
+// so each wait scans strictly past its predecessor's match.
+// Restarting a follow-up wait from the ORIGINAL mark would let an edge recorded before the trigger satisfy it:
+// after an involuntary drop,
+// a Selected wait rooted at the pre-drop mark matches the INITIAL Selected and returns immediately,
+// passing without any reconnect having occurred.
+func (r *stateRecorder) awaitStateFrom(from int, target hsms.ConnState, timeout time.Duration) (int, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	scanned := from
+	if scanned < 0 {
+		scanned = 0
+	}
 
 	deadline := time.Now().Add(timeout)
 
@@ -83,12 +103,12 @@ func (r *stateRecorder) awaitState(target hsms.ConnState, timeout time.Duration)
 	for {
 		for ; scanned < len(r.edges); scanned++ {
 			if r.edges[scanned].next == target {
-				return true
+				return scanned, true
 			}
 		}
 
 		if !time.Now().Before(deadline) {
-			return false
+			return from, false
 		}
 
 		r.cond.Wait()
