@@ -14,6 +14,8 @@ import (
 
 const eof rune = -1
 
+const smlPreallocCap = 64
+
 // Parser is a parser for HSMS data messages in SML (SECS Message Language) format.
 //
 // It provides methods for parsing SML strings to HSMS data messages.
@@ -200,18 +202,20 @@ func (p *Parser) parseHSMSHeader() error {
 		return p.errf("invalid SML message without dot symbol or newline")
 	}
 
-	// try to find if the first item bracket '<' is present in the data, and choose the maximum index
-	// of the firstTerm and firstItemBracket.
-	//
-	// if firstTerm is not found or < firstItemBracket, we needs to use the firstItemBracket index
-	// as the end of search range for searching the message name.
-	//
-	// if firstItemBracket is not found or < firstTerm, we needs to use the firstTerm index
-	// as the end of search range for searching the message name.
 	firstItemBracket := strings.IndexByte(p.data, byte('<'))
-	i := max(firstTerm, firstItemBracket)
-	if i < 0 {
-		return p.errf("invalid SML message without item bracket '<' and dot symbol")
+	if firstItemBracket >= 0 {
+		nameSeparator := strings.IndexByte(p.data[:firstItemBracket], byte(':'))
+		if nameSeparator > firstTerm {
+			nextTerm := strings.IndexAny(p.data[nameSeparator+1:], "\n.")
+			if nextTerm < 0 {
+				return p.errf("invalid SML message without dot symbol or newline")
+			}
+			firstTerm = nameSeparator + 1 + nextTerm
+		}
+	}
+	i := firstTerm
+	if firstItemBracket >= 0 && firstItemBracket < i {
+		i = firstItemBracket
 	}
 
 	// get optional message name
@@ -1095,17 +1099,14 @@ func (p *Parser) nextItemSize() (int, error) {
 	return 0, p.errf("invalid item size")
 }
 
-// capHint bounds a preallocation hint against the bytes actually left to parse.
+// capHint bounds an attacker-controlled preallocation hint against the bytes actually left to parse.
 //
 // size comes straight off the SML declared-count token (`[n]` or `[n..m]`).
-// It is attacker-controlled and bounded only by math.MaxInt32, never by the input actually present.
-// Uncapped, it lets `<U1[2000000000] 1 2 3>` demand gigabytes before any payload byte is read.
-//
 // remaining is len(p.data) at the call site.
-// Every element still to be produced consumes at least one input byte, so it bounds what may follow.
-// Counts matching the remaining input are unaffected; the buffer still grows past the hint.
+// The fixed ceiling prevents unrelated trailing input from amplifying the initial allocation.
+// It does not limit valid item sizes because slices and strings.Builder continue growing as values are parsed.
 func capHint(size, remaining int) int {
-	return min(size, remaining)
+	return min(size, remaining, smlPreallocCap)
 }
 
 func toUpperRune(ch rune) rune {

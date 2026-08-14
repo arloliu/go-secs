@@ -2,6 +2,7 @@ package sml
 
 import (
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -11,7 +12,9 @@ import (
 
 // Encoder renders secs2 Items / hsms messages to SML text.
 //
-// Its zero-value defaults (set in NewEncoder) reproduce secs2.Item.ToSML() byte-for-byte.
+// NewEncoder's default options reproduce secs2.Item.ToSML() byte-for-byte for valid item trees at or below [secs2.MaxListDepth].
+// Nil-like items render as empty text.
+// Deeper trees produce a diagnostic from item encoding and an error from message encoding.
 // An Encoder is immutable after construction and safe for concurrent use.
 type Encoder struct {
 	strict      bool
@@ -21,8 +24,9 @@ type Encoder struct {
 	indent      string
 }
 
-// NewEncoder returns an Encoder; with no options Encode(item) equals item.ToSML(),
-// and EncodeMessage uses an UNQUOTED canonical S/F header (e.g. "S1F1 W").
+// NewEncoder returns an Encoder.
+// With no options, Encode(item) equals item.ToSML() for valid item trees at or below [secs2.MaxListDepth].
+// EncodeMessage uses an UNQUOTED canonical S/F header (e.g. "S1F1 W").
 func NewEncoder(opts ...EncoderOption) *Encoder {
 	e := &Encoder{asciiQuote: QuoteDouble, sfQuote: QuoteNone, binaryStyle: BinaryHex, indent: "  "}
 	for _, opt := range opts {
@@ -31,14 +35,29 @@ func NewEncoder(opts ...EncoderOption) *Encoder {
 	return e
 }
 
-// Encode renders item to SML text.
+// Encode renders item to SML text using the Encoder's configured options.
+// It returns empty text for a nil-like item.
+// For an item tree deeper than [secs2.MaxListDepth], it returns a diagnostic of the form "<!sml encode error: ...>".
 func (e *Encoder) Encode(it secs2.Item) string {
+	s, err := e.encodeChecked(it)
+	if err != nil {
+		return fmt.Sprintf("<!sml encode error: %v>", err)
+	}
+
+	return s
+}
+
+func (e *Encoder) encodeChecked(it secs2.Item) (string, error) {
 	var sb strings.Builder
-	e.encodeItem(&sb, it, 0)
-	return sb.String()
+	if err := e.encodeItem(&sb, it, 0); err != nil {
+		return "", err
+	}
+
+	return sb.String(), nil
 }
 
 // AppendEncode appends item's SML text to dst.
+// It appends nothing for a nil-like item and appends the Encode diagnostic for a tree deeper than [secs2.MaxListDepth].
 func (e *Encoder) AppendEncode(dst []byte, it secs2.Item) []byte {
 	return append(dst, e.Encode(it)...)
 }
@@ -50,12 +69,20 @@ func (e *Encoder) quoteByte() byte {
 	return '"'
 }
 
-func (e *Encoder) encodeItem(sb *strings.Builder, it secs2.Item, level int) {
+func (e *Encoder) encodeItem(sb *strings.Builder, it secs2.Item, level int) error {
+	if isNilItem(it) {
+		return nil
+	}
+
 	switch {
 	case it.IsEmpty():
 		// EmptyItem.ToSML() == ""
 	case it.IsList():
-		e.encodeList(sb, it, level)
+		if level >= secs2.MaxListDepth {
+			return fmt.Errorf("sml: list nesting depth exceeds maximum allowed: %d", secs2.MaxListDepth)
+		}
+
+		return e.encodeList(sb, it, level)
 	case it.IsASCII():
 		s, _ := it.ToASCII()
 		e.encodeString(sb, "A", s, e.strict) // ASCII honors strict (0xHH tokens)
@@ -80,6 +107,8 @@ func (e *Encoder) encodeItem(sb *strings.Builder, it secs2.Item, level int) {
 	default:
 		// unknown item type: no output
 	}
+
+	return nil
 }
 
 // encodeString renders an ASCII/JIS8 string. strict==true (ASCII only) emits
@@ -191,12 +220,13 @@ func (e *Encoder) encodeFloat(sb *strings.Builder, it secs2.Item) {
 	sb.WriteByte('>')
 }
 
-func (e *Encoder) encodeList(sb *strings.Builder, it secs2.Item, level int) {
+func (e *Encoder) encodeList(sb *strings.Builder, it secs2.Item, level int) error {
 	ind := strings.Repeat(e.indent, level)
 	if it.Size() == 0 {
 		sb.WriteString(ind)
 		sb.WriteString("<L[0]>")
-		return
+
+		return nil
 	}
 	sb.WriteString(ind)
 	sb.WriteString("<L[")
@@ -204,16 +234,22 @@ func (e *Encoder) encodeList(sb *strings.Builder, it secs2.Item, level int) {
 	sb.WriteString("]\n")
 	child := strings.Repeat(e.indent, level+1)
 	for c := range it.Items() {
-		if c.IsList() {
-			e.encodeItem(sb, c, level+1)
+		if !isNilItem(c) && c.IsList() {
+			if err := e.encodeItem(sb, c, level+1); err != nil {
+				return err
+			}
 		} else {
 			sb.WriteString(child)
-			e.encodeItem(sb, c, level+1)
+			if err := e.encodeItem(sb, c, level+1); err != nil {
+				return err
+			}
 		}
 		sb.WriteByte('\n')
 	}
 	sb.WriteString(ind)
 	sb.WriteByte('>')
+
+	return nil
 }
 
 // EncodeMessage renders the message header line then its body.
@@ -221,7 +257,12 @@ func (e *Encoder) encodeList(sb *strings.Builder, it secs2.Item, level int) {
 // The body is obtained via msg.Item(), which for a decoded (raw-frame) message decodes lazily and may return an error —
 // propagated, not swallowed.
 // A message with an empty body renders as just the header line followed by the terminating ".".
+// A nil message or a body tree deeper than [secs2.MaxListDepth] returns an error.
 func (e *Encoder) EncodeMessage(msg *hsms.DataMessage) (string, error) {
+	if msg == nil {
+		return "", fmt.Errorf("sml: nil data message")
+	}
+
 	item, err := msg.Item()
 	if err != nil {
 		return "", fmt.Errorf("sml: encode message body: %w", err) // wrap lazy-decode error, per spec §7
@@ -229,7 +270,9 @@ func (e *Encoder) EncodeMessage(msg *hsms.DataMessage) (string, error) {
 	var sb strings.Builder
 	e.writeHeader(&sb, msg)
 	sb.WriteByte('\n')
-	e.encodeItem(&sb, item, 0)
+	if err := e.encodeItem(&sb, item, 0); err != nil {
+		return "", fmt.Errorf("sml: encode message body: %w", err)
+	}
 	sb.WriteString("\n.")
 
 	return sb.String(), nil
@@ -259,18 +302,23 @@ func (e *Encoder) writeSFQuote(sb *strings.Builder) {
 }
 
 // Encode renders item to SML text using default (non-strict, canonical) options.
+// For a valid item tree at or below [secs2.MaxListDepth], the output equals item.ToSML() byte-for-byte.
+// It returns empty text for a nil-like item and an "<!sml encode error: ...>" diagnostic for a deeper tree.
 func Encode(it secs2.Item) string { return NewEncoder().Encode(it) }
 
 // EncodeStrict renders item with strict (round-trippable) ASCII escaping.
+// It returns empty text for a nil-like item
+// and an "<!sml encode error: ...>" diagnostic for a tree deeper than [secs2.MaxListDepth].
 func EncodeStrict(it secs2.Item) string {
 	return NewEncoder(WithEncoderStrictMode(true)).Encode(it)
 }
 
-// EncodeMessage renders msg to SML text using an encoder configured by opts (default:
-// hex binary, double-quoted ASCII, unquoted S/F header).
+// EncodeMessage renders msg to SML text using an encoder configured by opts.
+// The defaults are hex binary, double-quoted ASCII, and an unquoted S/F header.
 //
 // It mirrors the item-level Encode shortcut.
 // The body is decoded lazily via msg.Item(); a decode error is returned, not swallowed.
+// A nil message or a body tree deeper than [secs2.MaxListDepth] returns an error.
 func EncodeMessage(msg *hsms.DataMessage, opts ...EncoderOption) (string, error) {
 	return NewEncoder(opts...).EncodeMessage(msg)
 }
@@ -288,6 +336,17 @@ func MustEncodeMessage(msg *hsms.DataMessage, opts ...EncoderOption) string {
 	}
 
 	return s
+}
+
+func isNilItem(it secs2.Item) bool {
+	if it == nil {
+		return true
+	}
+
+	v := reflect.ValueOf(it)
+	k := v.Kind()
+
+	return (k == reflect.Chan || k == reflect.Func || k == reflect.Map || k == reflect.Pointer || k == reflect.Slice) && v.IsNil()
 }
 
 // writeStrictASCII renders s as printable runs quoted with `quote` and
@@ -322,7 +381,7 @@ func writeStrictASCII(sb *strings.Builder, s string, quote byte) {
 				sb.WriteByte(quote)
 				inRun = true
 			}
-			if c == quote || c == '\\' {
+			if c == quote || c == '\\' || c == '>' {
 				sb.WriteByte('\\')
 			}
 			sb.WriteByte(c)
