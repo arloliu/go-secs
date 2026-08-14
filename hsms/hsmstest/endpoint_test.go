@@ -604,6 +604,22 @@ func TestFakeEndpoint_ReplyDataMessage_InvalidConstruction(t *testing.T) {
 	assert.Empty(t, ep.Sent())
 }
 
+// TestFakeEndpoint_ReplyDataMessage_RejectsNilPrimary proves the fake's nil guard:
+// FakeEndpoint.ReplyDataMessage rejects a nil primary, mirroring hsms.session.ReplyDataMessage.
+// It returns hsms.ErrNilMessage without panicking and without recording anything.
+func TestFakeEndpoint_ReplyDataMessage_RejectsNilPrimary(t *testing.T) {
+	t.Parallel()
+
+	ep := hsmstest.NewFakeEndpoint()
+
+	var err error
+	require.NotPanics(t, func() {
+		err = ep.ReplyDataMessage(context.Background(), nil, secs2.NewEmptyItem())
+	})
+	require.ErrorIs(t, err, hsms.ErrNilMessage)
+	assert.Empty(t, ep.Sent(), "a nil primary must not be recorded")
+}
+
 func TestFakeEndpoint_ForwardDataMessage_RecordsVerbatim(t *testing.T) {
 	t.Parallel()
 
