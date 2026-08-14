@@ -20,7 +20,7 @@ import (
 )
 
 // TestNew_NilDialerReturnsError verifies that a hand-built active Config with a nil dialer causes
-// New to return a clear error instead of panicking. Passive role is unaffected.
+// New to return a clear error instead of panicking.
 func TestNew_NilDialerReturnsError(t *testing.T) {
 	t.Parallel()
 
@@ -34,6 +34,15 @@ func TestNew_NilDialerReturnsError(t *testing.T) {
 	require.Error(t, err, "active Config with nil dialer must return an error")
 	require.Contains(t, err.Error(), "nil dialer")
 	require.Contains(t, err.Error(), "NewConfig")
+}
+
+func TestNew_NilListenerReturnsError(t *testing.T) {
+	t.Parallel()
+
+	var cfg Config
+	_, err := New(cfg)
+	require.ErrorContains(t, err, "nil listener")
+	require.ErrorContains(t, err, "NewConfig")
 }
 
 // TestNew_ReturnsUsableConnection verifies New builds a non-nil hsms.Connection (nil error) for

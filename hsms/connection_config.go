@@ -104,6 +104,11 @@ func (c *ConnectionConfig) apply(opts ...ConnOption) error {
 	var errs []error
 
 	for _, opt := range opts {
+		if opt == nil {
+			errs = append(errs, errors.New("hsms: option must not be nil"))
+			continue
+		}
+
 		if err := opt(&scratch); err != nil {
 			errs = append(errs, err)
 		}

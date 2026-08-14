@@ -2,6 +2,7 @@ package hsms
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -85,6 +86,21 @@ func TestConnection_UpdateConfigOptions_Transactional(t *testing.T) {
 	require.NoError(t, conn.UpdateConfigOptions(WithT3(3*time.Second), WithSessionID(7)))
 	require.Equal(t, 3*time.Second, c.cfg.Load().timers.T3)
 	require.Equal(t, uint16(7), c.cfg.Load().sessionID)
+}
+
+func TestConnection_UpdateConfigOptions_NilOption(t *testing.T) {
+	conn, c := newTestConn(t)
+	origT3 := c.cfg.Load().timers.T3
+	siblingErr := errors.New("sibling option failed")
+
+	err := conn.UpdateConfigOptions(
+		WithT3(2*time.Second),
+		nil,
+		func(*ConnectionConfig) error { return siblingErr },
+	)
+	require.ErrorContains(t, err, "option must not be nil")
+	require.ErrorIs(t, err, siblingErr)
+	require.Equal(t, origT3, c.cfg.Load().timers.T3, "valid option must not commit when nil is in the batch")
 }
 
 // TestConnection_DoneBeforeOpenIsClosed verifies Done() returns an already-closed channel

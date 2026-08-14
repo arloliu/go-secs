@@ -35,13 +35,16 @@ type Connection interface {
 // This is the consumer entry point for the HSMS-SS transport: the engine lives once in the hsms package,
 // and the application holds only the Connection/hsms.Connection interface.
 //
-// cfg MUST originate from [NewConfig], which seeds the default TCP dialer.
-// Passing a hand-built [Config] literal leaves the dialer nil and will cause New to return a clear error for the active role.
+// cfg MUST originate from [NewConfig], which seeds the default TCP dialer and listener.
+// Passing a hand-built [Config] literal leaves the role-specific function nil and will cause New to return a clear error.
 //
 // Always use [NewConfig].
 func New(cfg Config) (Connection, error) {
 	if cfg.active && cfg.dial == nil {
 		return nil, errors.New("hsmsss: active Config has a nil dialer; always construct Config via NewConfig")
+	}
+	if !cfg.active && cfg.listen == nil {
+		return nil, errors.New("hsmsss: passive Config has a nil listener; always construct Config via NewConfig")
 	}
 
 	t := newTransport(cfg)
