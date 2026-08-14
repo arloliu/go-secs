@@ -38,6 +38,28 @@ func NewCursor(item Item) Cursor {
 	return Cursor{item: item}
 }
 
+// fault reports why the cursor cannot be read, or nil when it can.
+//
+// It folds the two conditions every terminal accessor must reject:
+// an error already accumulated by [NewCursor] or by a failed [Cursor.At] hop,
+// and the zero-value Cursor.
+//
+// Cursor is an exported struct, so a consumer reaches its zero value without calling NewCursor —
+// through a struct field left unset, a var assigned on only one branch, or a map lookup that misses.
+// That value carries a nil item and a nil error,
+// and without this guard the accessors dereference the nil item while formatting a mismatch error.
+func (c Cursor) fault() error {
+	if c.err != nil {
+		return c.err
+	}
+
+	if isNilItem(c.item) {
+		return errors.New("secs2: cursor: zero-value Cursor; construct one with NewCursor")
+	}
+
+	return nil
+}
+
 // hopTypeErr reports that [Cursor.At] tried to navigate a list index into an item that is not a
 // list. idx and depth describe the hop that failed: idx is the index being navigated, depth is
 // the number of hops that succeeded before it.
@@ -76,6 +98,9 @@ func (c Cursor) At(indices ...int) Cursor {
 	index := c.index
 
 	for _, idx := range indices {
+		// Not redundant: NewCursor validates its item and the hop below validates each next,
+		// but Cursor is an exported struct, so a consumer's zero value arrives here with a nil item and no error.
+		// Removing this guard makes Cursor{}.At(0) panic.
 		if isNilItem(cur) {
 			return Cursor{err: fmt.Errorf("secs2: cursor at index %d (depth %d): item is nil", idx, depth)}
 		}
@@ -108,8 +133,8 @@ func (c Cursor) At(indices ...int) Cursor {
 // Returns an error if the cursor already carries one, the item is not a UintItem, the item
 // carries a deferred construction error, or its size is not 1.
 func (c Cursor) Uint() (uint64, error) {
-	if c.err != nil {
-		return 0, c.err
+	if err := c.fault(); err != nil {
+		return 0, err
 	}
 
 	item, ok := c.item.(*UintItem)
@@ -136,8 +161,8 @@ func (c Cursor) Uint() (uint64, error) {
 // Returns an error if the cursor already carries one, the item is not an IntItem, the item
 // carries a deferred construction error, or its size is not 1.
 func (c Cursor) Int() (int64, error) {
-	if c.err != nil {
-		return 0, c.err
+	if err := c.fault(); err != nil {
+		return 0, err
 	}
 
 	item, ok := c.item.(*IntItem)
@@ -163,8 +188,8 @@ func (c Cursor) Int() (int64, error) {
 // Returns an error if the cursor already carries one, the item is not a FloatItem, the item
 // carries a deferred construction error, or its size is not 1.
 func (c Cursor) Float() (float64, error) {
-	if c.err != nil {
-		return 0, c.err
+	if err := c.fault(); err != nil {
+		return 0, err
 	}
 
 	item, ok := c.item.(*FloatItem)
@@ -190,8 +215,8 @@ func (c Cursor) Float() (float64, error) {
 // Returns an error if the cursor already carries one, the item is not a BooleanItem, the item
 // carries a deferred construction error, or its size is not 1.
 func (c Cursor) Bool() (bool, error) {
-	if c.err != nil {
-		return false, c.err
+	if err := c.fault(); err != nil {
+		return false, err
 	}
 
 	item, ok := c.item.(*BooleanItem)
@@ -218,8 +243,8 @@ func (c Cursor) Bool() (bool, error) {
 // Returns an error if the cursor already carries one, the item is not an ASCIIItem, or the item
 // carries a deferred construction error.
 func (c Cursor) ASCII() (string, error) {
-	if c.err != nil {
-		return "", c.err
+	if err := c.fault(); err != nil {
+		return "", err
 	}
 
 	item, ok := c.item.(*ASCIIItem)
@@ -242,8 +267,8 @@ func (c Cursor) ASCII() (string, error) {
 // Returns an error if the cursor already carries one, the item is not a BinaryItem, or the item
 // carries a deferred construction error.
 func (c Cursor) Binary() ([]byte, error) {
-	if c.err != nil {
-		return nil, c.err
+	if err := c.fault(); err != nil {
+		return nil, err
 	}
 
 	item, ok := c.item.(*BinaryItem)
@@ -260,11 +285,11 @@ func (c Cursor) Binary() ([]byte, error) {
 
 // Size returns the [Item.Size] of the item at the cursor.
 //
-// It carries forward any error already on the cursor, but otherwise never fails: like
-// Item.Size, it does not consult the item's deferred construction error.
+// It carries forward any error already on the cursor, and otherwise fails only on a zero-value
+// Cursor: like Item.Size, it does not consult the item's deferred construction error.
 func (c Cursor) Size() (int, error) {
-	if c.err != nil {
-		return 0, c.err
+	if err := c.fault(); err != nil {
+		return 0, err
 	}
 
 	return c.item.Size(), nil
@@ -272,11 +297,12 @@ func (c Cursor) Size() (int, error) {
 
 // Item unwraps the cursor and returns the [Item] at its current position.
 //
-// It carries forward any error already on the cursor, but does not itself consult the returned
-// item's deferred construction error — call [Item.Error] on the result to check that.
+// It carries forward any error already on the cursor, including the zero-value Cursor's.
+// It does not itself consult the returned item's deferred construction error —
+// call [Item.Error] on the result to check that.
 func (c Cursor) Item() (Item, error) {
-	if c.err != nil {
-		return nil, c.err
+	if err := c.fault(); err != nil {
+		return nil, err
 	}
 
 	return c.item, nil
