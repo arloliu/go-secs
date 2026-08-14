@@ -3,6 +3,7 @@ package secs1
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -100,6 +101,12 @@ func (l *lineIO) writeByte(b byte) error {
 	return err
 }
 
+func (l *lineIO) sendNAK() {
+	if err := l.writeByte(nak); err == nil {
+		l.metrics.incBlockNAKSentCount()
+	}
+}
+
 // writeAll writes all of data to the conn, looping over short writes.
 func (l *lineIO) writeAll(data []byte) error {
 	for written := 0; written < len(data); {
@@ -133,10 +140,12 @@ func (l *lineIO) drainUntilSilence() {
 // response to the peer's ENQ. The steps, per SEMI E4 §7.8.5:
 //
 //  1. Read the length byte with T2. On timeout: NAK, return ErrT2Timeout.
+//     On another I/O failure: return it without NAK.
 //  2. Validate the length range [minBlockLength, maxBlockLength]. On failure: drain, NAK,
 //     return ErrInvalidLength.
 //  3. Read header+body+checksum into a FRESH owned buffer with a per-read T1 deadline. On timeout:
 //     NAK, return ErrT1Timeout.
+//     On another I/O failure: return it without NAK.
 //  4. parseBlock (length + checksum). On failure: drain, NAK, return the parse error.
 //  5. On success: ACK and return the block.
 //
@@ -153,10 +162,13 @@ func (l *lineIO) receiveBlock(ctx context.Context) (block, error) {
 	// character ... an NAK is sent").
 	lengthByte, err := l.readByte(l.timers().T2)
 	if err != nil {
-		_ = l.writeByte(nak)
-		l.metrics.incBlockNAKSentCount()
+		if isTimeout(err) {
+			l.sendNAK()
 
-		return block{}, fmt.Errorf("%w: waiting for length byte: %w", ErrT2Timeout, err)
+			return block{}, fmt.Errorf("%w: waiting for length byte: %w", ErrT2Timeout, err)
+		}
+
+		return block{}, fmt.Errorf("secs1: waiting for length byte: %w", err)
 	}
 
 	// Step 2: validate the length range (§7.6: 10 <= N <= 254). On an invalid length the receiver
@@ -164,8 +176,7 @@ func (l *lineIO) receiveBlock(ctx context.Context) (block, error) {
 	n := int(lengthByte)
 	if n < minBlockLength || n > maxBlockLength {
 		l.drainUntilSilence()
-		_ = l.writeByte(nak)
-		l.metrics.incBlockNAKSentCount()
+		l.sendNAK()
 
 		return block{}, fmt.Errorf("%w: length byte %d out of [%d, %d]", ErrInvalidLength, n, minBlockLength, maxBlockLength)
 	}
@@ -174,10 +185,13 @@ func (l *lineIO) receiveBlock(ctx context.Context) (block, error) {
 	// between characters being received, then an NAK is sent".
 	buf := make([]byte, n+checksumSize)
 	if err := l.readFull(buf); err != nil {
-		_ = l.writeByte(nak)
-		l.metrics.incBlockNAKSentCount()
+		if isTimeout(err) {
+			l.sendNAK()
 
-		return block{}, fmt.Errorf("%w: reading block data: %w", ErrT1Timeout, err)
+			return block{}, fmt.Errorf("%w: reading block data: %w", ErrT1Timeout, err)
+		}
+
+		return block{}, fmt.Errorf("secs1: reading block data: %w", err)
 	}
 
 	// Step 4: parse + checksum. §7.8.5: on a checksum mismatch the receiver keeps listening (drain)
@@ -185,8 +199,7 @@ func (l *lineIO) receiveBlock(ctx context.Context) (block, error) {
 	blk, err := parseBlock(lengthByte, buf)
 	if err != nil {
 		l.drainUntilSilence()
-		_ = l.writeByte(nak)
-		l.metrics.incBlockNAKSentCount()
+		l.sendNAK()
 
 		return block{}, err
 	}
@@ -214,14 +227,14 @@ func (l *lineIO) receiveBlock(ctx context.Context) (block, error) {
 //   - sendContention => this end is the slave and the peer contended (ENQ). sendBlockOnce only
 //     DETECTS this; T2 owns the yield ACTION (send EOT, receiveBlock, deliver the peer's block,
 //     then re-attempt this send with the retry counter reset per §7.8.2.1).
-//   - sendAbort      => non-retryable (write error or context cancellation); return the error.
+//   - sendAbort      => non-retryable (I/O error or context cancellation); return the error.
 type sendResult int
 
 const (
 	sendOK         sendResult = iota // block sent and ACK'd
 	sendRetry                        // retryable failure (T2 timeout, NAK, non-ACK)
 	sendContention                   // slave detected contention (T2 performs the yield)
-	sendAbort                        // non-retryable failure (write error, context cancelled)
+	sendAbort                        // non-retryable failure (I/O error, context cancelled)
 )
 
 // sendBlockOnce performs ONE line-control handshake and block transmission attempt (SEMI E4 §7.8.2):
@@ -258,7 +271,11 @@ func (l *lineIO) sendBlockOnce(ctx context.Context, blk block) (sendResult, erro
 
 		b, err := l.readByte(remaining)
 		if err != nil {
-			return sendRetry, fmt.Errorf("%w: waiting for EOT after ENQ: %w", ErrT2Timeout, err)
+			if isTimeout(err) {
+				return sendRetry, fmt.Errorf("%w: waiting for EOT after ENQ: %w", ErrT2Timeout, err)
+			}
+
+			return sendAbort, fmt.Errorf("secs1: waiting for EOT after ENQ: %w", err)
 		}
 
 		switch {
@@ -280,11 +297,12 @@ func (l *lineIO) sendBlockOnce(ctx context.Context, blk block) (sendResult, erro
 // sendBlockData transmits the packed block and waits for ACK within T2 (SEMI E4 §7.8.3):
 //
 //  1. Write the wire frame [lengthByte][header][body][checksum].
-//  2. Wait up to T2 for one byte: ACK => sendOK; any non-ACK byte => sendRetry; a read error or T2
-//     timeout => sendRetry (ErrT2Timeout).
+//  2. Wait up to T2 for one byte: ACK => sendOK; any non-ACK byte => sendRetry; a T2 timeout =>
+//     sendRetry (ErrT2Timeout); another read error => sendAbort.
 //
-// A write error is non-retryable (sendAbort). Per §7.8.3, characters received before the last
-// checksum byte are ignored — the caller drained them within the T2 wait for EOT.
+// An I/O error is non-retryable (sendAbort).
+// Per §7.8.3, characters received before the last checksum byte are ignored;
+// the caller drained them within the T2 wait for EOT.
 func (l *lineIO) sendBlockData(blk block) (sendResult, error) {
 	l.sendBuf = blk.appendTo(l.sendBuf[:0])
 	if err := l.writeAll(l.sendBuf); err != nil {
@@ -293,7 +311,11 @@ func (l *lineIO) sendBlockData(blk block) (sendResult, error) {
 
 	b, err := l.readByte(l.timers().T2)
 	if err != nil {
-		return sendRetry, fmt.Errorf("%w: waiting for ACK: %w", ErrT2Timeout, err)
+		if isTimeout(err) {
+			return sendRetry, fmt.Errorf("%w: waiting for ACK: %w", ErrT2Timeout, err)
+		}
+
+		return sendAbort, fmt.Errorf("secs1: waiting for ACK: %w", err)
 	}
 
 	if b == ack {
@@ -323,7 +345,7 @@ func (l *lineIO) sendBlockData(blk block) (sendResult, error) {
 //
 // Returns:
 //   - error: nil on ACK; ErrSendFailed once the retries are exhausted; ctx.Err() on cancellation; a
-//     wrapped write error (non-retryable) otherwise. A deliver error during a contention yield is
+//     wrapped I/O error (non-retryable) otherwise. A deliver error during a contention yield is
 //     NON-FATAL (it never fails the send) — see the sendContention branch.
 func (l *lineIO) sendBlock(ctx context.Context, blk block, retryLimit int, deliver func(block) error) error {
 	retry := 0
@@ -354,8 +376,15 @@ func (l *lineIO) sendBlock(ctx context.Context, blk block, retryLimit int, deliv
 
 			recv, rerr := l.receiveBlock(ctx)
 			if rerr != nil {
-				// Anti-starvation (§7.8.2.1): a failed receive of the master's block is a normal
-				// retry — do NOT reset the counter and do NOT deliver.
+				if !errors.Is(rerr, ErrT1Timeout) &&
+					!errors.Is(rerr, ErrT2Timeout) &&
+					!errors.Is(rerr, ErrInvalidLength) &&
+					!errors.Is(rerr, ErrChecksumMismatch) {
+					return rerr
+				}
+
+				// Anti-starvation (§7.8.2.1): a timeout or protocol failure while receiving the
+				// master's block is a normal retry. Do not reset the counter or deliver.
 				l.metrics.incBlockRetryCount()
 				retry++
 

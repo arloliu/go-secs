@@ -59,6 +59,24 @@ type mockRuntime struct {
 // implement it — all method params are exported types).
 var _ hsms.TransportRuntime = (*mockRuntime)(nil)
 
+type deadlineCallConn struct {
+	net.Conn
+	readDeadlineCalls  int
+	writeDeadlineCalls int
+}
+
+func (c *deadlineCallConn) SetReadDeadline(deadline time.Time) error {
+	c.readDeadlineCalls++
+
+	return c.Conn.SetReadDeadline(deadline)
+}
+
+func (c *deadlineCallConn) SetWriteDeadline(deadline time.Time) error {
+	c.writeDeadlineCalls++
+
+	return c.Conn.SetWriteDeadline(deadline)
+}
+
 func newMockRuntime() *mockRuntime {
 	m := &mockRuntime{
 		tcpDownCh: make(chan struct{}),
@@ -333,6 +351,20 @@ func TestTransport_ArmStartInstallsFreshBundleAndChannels(t *testing.T) {
 	require.NotSame(t, wg1, tr.wg, "each ArmStart must install a fresh genWG — no cross-generation reuse")
 	require.True(t, tr.genDone != done1, "each ArmStart must install a fresh genDone — no cross-generation reuse")
 	require.True(t, tr.sendReqCh != sr1, "each ArmStart must install a fresh sendReqCh — no cross-generation reuse")
+}
+
+func TestTransport_DeadlineHooksAreNoOps(t *testing.T) {
+	local, peer := net.Pipe()
+	t.Cleanup(func() { _ = local.Close() })
+	t.Cleanup(func() { _ = peer.Close() })
+
+	conn := &deadlineCallConn{Conn: local}
+	tr := &transport{}
+
+	require.NoError(t, tr.SetReadDeadline(conn, time.Now()))
+	require.NoError(t, tr.SetWriteDeadline(conn, time.Now()))
+	require.Zero(t, conn.readDeadlineCalls)
+	require.Zero(t, conn.writeDeadlineCalls)
 }
 
 // --- Engine send path (runSend via sendReqCh) + the G-C cap-1 done invariant ---

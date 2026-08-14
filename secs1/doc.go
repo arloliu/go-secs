@@ -20,8 +20,14 @@
 // and the equipment/host role and device ID.
 // The core reply timeout is the embedded T3.
 //
-// [New] forces the core write timeout to 0 (disabled): a SECS-I line transaction self-bounds via T2×(RTY+1),
-// so a core write deadline is redundant and would spuriously preempt a legitimately retrying send.
+// [New] forces the core write timeout to 0 (disabled).
+// T2 bounds waits for protocol responses, and RTY bounds the number of failed protocol retries.
+// Neither bounds socket writes; the line engine performs them without a write deadline,
+// and connection teardown closes the socket to interrupt blocked I/O.
+// Each successful slave contention yield restarts the postponed send as a fresh request under E4,
+// so repeated successful master traffic can postpone the local send until the connection generation ends.
+// Close or connection teardown releases a blocked write through the generation's teardown signal.
+// A core write deadline would interfere with the line engine's socket-deadline ownership.
 // The override is enforced both at construction — [NewConfig] applies it as the LAST option, after all caller-supplied options —
 // and at runtime: Connection.UpdateConfigOptions re-appends hsms.WithWriteTimeout(0) after the caller's options,
 // so a WithWriteTimeout supplied at runtime is intercepted and neutralized rather than taking effect.
@@ -31,7 +37,12 @@
 // SECS-I is a half-duplex block protocol: only one party drives the line at a time.
 // A single line-engine goroutine owns the connection for each generation — it is the only code that reads or writes socket bytes —
 // alternating between draining a pending outbound send and polling for an inbound block.
-// Each block transfer is an ENQ/EOT/ACK/NAK handshake bounded by T1/T2; a block that is not ACK'd is retransmitted up to RTY times,
+// T2 bounds waits for EOT, the length byte, and ACK;
+// T1 bounds inter-character waits while receiving the block body.
+// Socket writes are not timer-bounded.
+// After an invalid length or checksum, the receiver drains until T1 silence;
+// each arriving chunk restarts T1, so a peer can keep the drain active until connection teardown.
+// A block is retransmitted up to RTY times after a retryable protocol-response failure,
 // and simultaneous send attempts are arbitrated by contention (the master — the equipment, per IsEquip — wins;
 // the slave yields, delivers the master's block, then re-sends its own as a fresh transaction).
 // A block send that exhausts RTY returns an error from the transport, which the core treats as a line failure:

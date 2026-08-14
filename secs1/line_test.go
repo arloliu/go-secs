@@ -7,8 +7,10 @@ package secs1
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -101,6 +103,59 @@ func makeTestBlock(t *testing.T, body []byte) block {
 
 	return block{header: buildHeader(h, 1, true), body: chunk}
 }
+
+type scriptedRead struct {
+	data []byte
+	err  error
+}
+
+type scriptedConn struct {
+	reads         []scriptedRead
+	writeErr      error
+	writeHook     func([]byte)
+	writeAttempts [][]byte
+}
+
+func (c *scriptedConn) Read(p []byte) (int, error) {
+	if len(c.reads) == 0 {
+		return 0, io.EOF
+	}
+
+	step := &c.reads[0]
+	n := copy(p, step.data)
+	if n < len(step.data) {
+		step.data = step.data[n:]
+
+		return n, nil
+	}
+
+	err := step.err
+	c.reads = c.reads[1:]
+
+	return n, err
+}
+
+func (c *scriptedConn) Write(p []byte) (int, error) {
+	attempt := append([]byte(nil), p...)
+	c.writeAttempts = append(c.writeAttempts, attempt)
+	if c.writeHook != nil {
+		c.writeHook(attempt)
+	}
+	if c.writeErr != nil {
+		return 0, c.writeErr
+	}
+
+	return len(p), nil
+}
+
+func (*scriptedConn) Close() error                     { return nil }
+func (*scriptedConn) LocalAddr() net.Addr              { return &net.TCPAddr{} }
+func (*scriptedConn) RemoteAddr() net.Addr             { return &net.TCPAddr{} }
+func (*scriptedConn) SetDeadline(time.Time) error      { return nil }
+func (*scriptedConn) SetReadDeadline(time.Time) error  { return nil }
+func (*scriptedConn) SetWriteDeadline(time.Time) error { return nil }
+
+var _ net.Conn = (*scriptedConn)(nil)
 
 // --- receiveBlock ---
 
@@ -208,6 +263,92 @@ func TestLineReceiveBlock_T1MidBlockTimeout(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrT1Timeout)
 	require.Equal(t, []byte{nak}, <-nakCh)
+}
+
+func TestLineReceiveBlock_LengthIOError(t *testing.T) {
+	readErr := errors.New("length read failed")
+	cfg := newLineTestConfig(t)
+	conn := &scriptedConn{reads: []scriptedRead{{err: readErr}}}
+	line := newLineIO(conn, cfg, cfg.Timers, &ConnectionMetrics{})
+
+	_, err := line.receiveBlock(t.Context())
+	require.ErrorIs(t, err, readErr)
+	require.NotErrorIs(t, err, ErrT1Timeout)
+	require.NotErrorIs(t, err, ErrT2Timeout)
+	require.Empty(t, conn.writeAttempts)
+	require.Zero(t, line.metrics.BlockNAKSentCount())
+}
+
+func TestLineReceiveBlock_MidBodyIOError(t *testing.T) {
+	readErr := errors.New("body read failed")
+	cfg := newLineTestConfig(t)
+	conn := &scriptedConn{reads: []scriptedRead{
+		{data: []byte{minBlockLength}},
+		{data: []byte{0x01}, err: readErr},
+	}}
+	line := newLineIO(conn, cfg, cfg.Timers, &ConnectionMetrics{})
+
+	_, err := line.receiveBlock(t.Context())
+	require.ErrorIs(t, err, readErr)
+	require.NotErrorIs(t, err, ErrT1Timeout)
+	require.NotErrorIs(t, err, ErrT2Timeout)
+	require.Empty(t, conn.writeAttempts)
+	require.Zero(t, line.metrics.BlockNAKSentCount())
+}
+
+func TestLineReceiveBlock_NAKWriteFailure(t *testing.T) {
+	nakWriteErr := errors.New("NAK write failed")
+	badChecksum := makeTestBlock(t, []byte("bad checksum")).appendTo(nil)
+	badChecksum[len(badChecksum)-1] ^= 0xFF
+
+	tests := []struct {
+		name    string
+		reads   []scriptedRead
+		wantErr error
+	}{
+		{
+			name:    "T2 length timeout",
+			reads:   []scriptedRead{{err: os.ErrDeadlineExceeded}},
+			wantErr: ErrT2Timeout,
+		},
+		{
+			name: "T1 body timeout",
+			reads: []scriptedRead{
+				{data: []byte{minBlockLength}},
+				{data: []byte{0x01}, err: os.ErrDeadlineExceeded},
+			},
+			wantErr: ErrT1Timeout,
+		},
+		{
+			name: "invalid length",
+			reads: []scriptedRead{
+				{data: []byte{minBlockLength - 1}},
+				{err: os.ErrDeadlineExceeded},
+			},
+			wantErr: ErrInvalidLength,
+		},
+		{
+			name: "checksum mismatch",
+			reads: []scriptedRead{
+				{data: badChecksum},
+				{err: os.ErrDeadlineExceeded},
+			},
+			wantErr: ErrChecksumMismatch,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn := &scriptedConn{reads: tt.reads, writeErr: nakWriteErr}
+			cfg := newLineTestConfig(t)
+			line := newLineIO(conn, cfg, cfg.Timers, &ConnectionMetrics{})
+
+			_, err := line.receiveBlock(t.Context())
+			require.ErrorIs(t, err, tt.wantErr)
+			require.Equal(t, [][]byte{{nak}}, conn.writeAttempts)
+			require.Zero(t, line.metrics.BlockNAKSentCount())
+		})
+	}
 }
 
 func TestLineReceiveBlock_CtxCancelled(t *testing.T) {
@@ -353,4 +494,142 @@ func TestLineSendBlockOnce_CtxCancelled(t *testing.T) {
 	res, err := line.sendBlockOnce(ctx, makeTestBlock(t, nil))
 	require.ErrorIs(t, err, context.Canceled)
 	require.Equal(t, sendAbort, res)
+}
+
+func TestLineSendBlockOnce_IOErrorsAbort(t *testing.T) {
+	tests := []struct {
+		name     string
+		closeACK bool
+	}{
+		{name: "waiting for EOT"},
+		{name: "waiting for ACK", closeACK: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := newLineTestConfig(t)
+			line, peer := newLinePair(t, cfg)
+			out := makeTestBlock(t, nil)
+			outWire := out.appendTo(nil)
+
+			peerDone := make(chan struct{})
+			go func() {
+				defer close(peerDone)
+				peerReadN(t, peer, 1)
+				if tt.closeACK {
+					peerWrite(t, peer, []byte{eot})
+					peerReadN(t, peer, len(outWire))
+				}
+				_ = peer.Close()
+			}()
+
+			result, err := line.sendBlockOnce(t.Context(), out)
+			<-peerDone
+			require.Equal(t, sendAbort, result)
+			require.Error(t, err)
+			require.NotErrorIs(t, err, ErrT2Timeout)
+		})
+	}
+}
+
+func TestLineSendBlock_IOErrorsDoNotRetry(t *testing.T) {
+	tests := []struct {
+		name     string
+		closeACK bool
+	}{
+		{name: "waiting for EOT"},
+		{name: "waiting for ACK", closeACK: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := newLineTestConfig(t)
+			line, peer := newLinePair(t, cfg)
+			out := makeTestBlock(t, nil)
+			outWire := out.appendTo(nil)
+
+			peerDone := make(chan struct{})
+			go func() {
+				defer close(peerDone)
+				peerReadN(t, peer, 1)
+				if tt.closeACK {
+					peerWrite(t, peer, []byte{eot})
+					peerReadN(t, peer, len(outWire))
+				}
+				_ = peer.Close()
+			}()
+
+			err := line.sendBlock(t.Context(), out, cfg.RetryLimit(), failDeliver(t))
+			<-peerDone
+			require.Error(t, err)
+			require.NotErrorIs(t, err, ErrT2Timeout)
+			require.Zero(t, line.metrics.BlockRetryCount())
+		})
+	}
+}
+
+func TestLineSendBlock_ContentionYieldIOErrorAborts(t *testing.T) {
+	readErr := errors.New("contention receive failed")
+	cfg := newLineTestConfig(t)
+	conn := &scriptedConn{reads: []scriptedRead{
+		{data: []byte{enq}},
+		{err: readErr},
+	}}
+	line := newLineIO(conn, cfg, cfg.Timers, &ConnectionMetrics{})
+
+	err := line.sendBlock(t.Context(), makeTestBlock(t, nil), cfg.RetryLimit(), failDeliver(t))
+	require.ErrorIs(t, err, readErr)
+	require.Equal(t, [][]byte{{enq}, {eot}}, conn.writeAttempts)
+	require.Zero(t, line.metrics.BlockRetryCount())
+}
+
+func TestLineSendBlock_ContentionYieldCancellationAborts(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	conn := &scriptedConn{reads: []scriptedRead{{data: []byte{enq}}}}
+	conn.writeHook = func(p []byte) {
+		if len(p) == 1 && p[0] == eot {
+			cancel()
+		}
+	}
+	cfg := newLineTestConfig(t)
+	line := newLineIO(conn, cfg, cfg.Timers, &ConnectionMetrics{})
+
+	err := line.sendBlock(ctx, makeTestBlock(t, nil), cfg.RetryLimit(), failDeliver(t))
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, [][]byte{{enq}, {eot}}, conn.writeAttempts)
+	require.Zero(t, line.metrics.BlockRetryCount())
+}
+
+func TestLineSendBlock_ContentionYieldRetryableFailures(t *testing.T) {
+	tests := []struct {
+		name  string
+		reads []scriptedRead
+	}{
+		{
+			name:  "T2 timeout",
+			reads: []scriptedRead{{data: []byte{enq}}, {err: os.ErrDeadlineExceeded}},
+		},
+		{
+			name: "invalid length",
+			reads: []scriptedRead{
+				{data: []byte{enq}},
+				{data: []byte{minBlockLength - 1}},
+				{err: os.ErrDeadlineExceeded},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := newLineTestConfig(t)
+			conn := &scriptedConn{reads: tt.reads}
+			line := newLineIO(conn, cfg, cfg.Timers, &ConnectionMetrics{})
+
+			err := line.sendBlock(t.Context(), makeTestBlock(t, nil), 0, failDeliver(t))
+			require.ErrorIs(t, err, ErrSendFailed)
+			require.Equal(t, [][]byte{{enq}, {eot}, {nak}}, conn.writeAttempts)
+			require.Equal(t, uint64(1), line.metrics.BlockRetryCount())
+			require.Equal(t, uint64(1), line.metrics.BlockNAKSentCount())
+		})
+	}
 }
