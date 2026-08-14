@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/arloliu/go-secs/v2/gem"
+	"github.com/arloliu/go-secs/v2/logger"
 )
 
 // RouteData delivers an inbound data message to the session fan-out (TransportRuntime).
@@ -117,6 +118,13 @@ func (c *connection) T7Expired() {
 // A gen of 0 skips the match.
 func (c *connection) T7ExpiredFromGeneration(gen uint64) {
 	c.injectT7Expiry(gen)
+}
+
+// TraceConfig returns trace enablement and its logger from one live configuration snapshot.
+func (c *connection) TraceConfig() (bool, logger.Logger) {
+	cfg := c.cfg.Load()
+
+	return cfg.traceTraffic, cfg.logger
 }
 
 // injectT7Expiry is the shared body of the T7 dwell-expiry back-channel.

@@ -41,7 +41,8 @@ func (m *ConnectionMetrics) LinktestRecvCount() uint64 {
 
 // LinktestErrCount returns the cumulative number of failed initiator linktest attempts.
 //
-// A failure is defined as a T6 timeout or a write error on a live link.
+// It counts any failed initiator round trip on a live link,
+// including T6 expiry, write failure, and peer rejection.
 // A linktest aborted by connection teardown (Close, Deselect, drop) is excluded —
 // that outcome is already signaled through the disconnect path, not this counter.
 // It only ever grows and is purely observational — it never influences the linktest-fail-threshold disconnect decision.
@@ -54,11 +55,10 @@ func (m *ConnectionMetrics) SelectEstablishedCount() uint64 {
 	return m.selectEstablished.Load()
 }
 
-// SeparateRecvCount returns the total number of inbound Separate.req messages received (each one tears down the connection —
-// a peer-initiated disconnect, E37.1 §7.6).
+// SeparateRecvCount returns the total number of inbound Separate.req messages received.
 //
-// Every Selected or NotSelected substate counts;
-// E37.1 §7.6 requires an immediate close on receiving a Separate.req regardless of the selection state.
+// It counts each inbound request whether or not it belongs to the still-current generation.
+// A request from the current generation tears down the connection as a peer-initiated disconnect (E37.1 §7.6).
 func (m *ConnectionMetrics) SeparateRecvCount() uint64 {
 	return m.separateRecv.Load()
 }

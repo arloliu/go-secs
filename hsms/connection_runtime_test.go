@@ -431,6 +431,20 @@ func TestDeliverOwnedFrame_TraceTraffic_LogsDecodeFailure(t *testing.T) {
 	require.Contains(t, keyvals, hexDump(garbage), "the logged payload must carry the raw frame hex dump")
 }
 
+func TestConnection_TraceConfig_UsesLiveSnapshot(t *testing.T) {
+	conn, core := newTestConn(t)
+	newLogger := loggertest.NewMockLogger()
+	err := conn.UpdateConfigOptions(
+		WithTraceTraffic(true),
+		WithLogger(newLogger),
+	)
+	require.NoError(t, err)
+
+	enabled, gotLogger := core.TraceConfig()
+	require.True(t, enabled)
+	require.Same(t, newLogger, gotLogger)
+}
+
 // TestDeliverOwnedFrame_DecodeErrCount proves an inbound frame that fails to decode increments
 // DecodeErrCount exactly once and does NOT increment DataMsgRecvCount (the receive chokepoint is
 // only reached after a successful decode).
