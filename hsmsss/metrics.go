@@ -12,7 +12,7 @@ import "sync/atomic"
 type ConnectionMetrics struct {
 	linktestSend       atomic.Uint64 // Linktest.req ATTEMPTED by our own auto-linktest (counted before the write)
 	linktestRecv       atomic.Uint64 // Linktest.rsp received (successful round-trip)
-	linktestErr        atomic.Uint64 // our own linktest round-trip failed (T6 timeout or write error)
+	linktestErr        atomic.Uint64 // our own linktest round-trip failed (T6 expiry, write failure, or peer rejection)
 	selectEstablished  atomic.Uint64 // Select responder committed NotSelected -> Selected (E37 §7.4)
 	separateRecv       atomic.Uint64 // peer Separate.req received in any connected substate (peer-initiated teardown, E37.1 §7.6)
 	rejectSent         atomic.Uint64 // Reject.req WE emit (peer sent us a malformed/unexpected frame)
