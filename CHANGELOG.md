@@ -5,169 +5,88 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.4.0] - 2026-08-14
+
+Consumer ergonomics and observability:
+typed value extraction, generated GEM decoders, channel delivery,
+lifecycle and transaction observability, and error retryability classification —
+plus a family of connection-generation isolation fixes present since v2.0.0.
 
 ### Added
 
-- `secs2`: `Cursor`, a typed path-extraction API for reading a value out of a nested item in one
-  chained call — `secs2.NewCursor(item).At(1, 0).ASCII()` — instead of a `Get` / type-assert /
-  `ToXxx` / index dance.
-  Errors accumulate across `At` hops, so a multi-hop extraction needs one error check instead of
-  one per hop, and error messages carry the failing hop's index and depth.
-  Scalar accessors (`Uint`, `Int`, `Float`, `Bool`) read the item's internal scalar storage
-  directly and allocate nothing on the happy path.
-- `gem`: a body decoder for every generated message builder — `DecodeS1F14` fills an `S1F14Reply`,
-  `DecodeS6F11` fills an `S6F11Body`, 122 pairs in all across streams 1, 2, 5, 6, and 9.
-  A decoder takes the message body as a `secs2.Item`, so `gem` stays independent of any transport
-  package, and the result struct's fields mirror the builder's parameters in order under the E5
-  data item names.
-  Messages with no body carry no decoder.
-- `gem`: the decoders are strict about shape by design.
-  A list of the wrong length, an item of the wrong SECS-II type, a value too wide for the E5 data
-  item's declared width, or a missing position returns an error naming the E5 field or the body
-  position that failed — never a zero value with a nil error.
-  Repeated groups accept any element count, groups SEMI E5 marks optional decode in either their
-  full or their omitted form, and equipment-defined fields are returned as `secs2.Item` unexamined.
-  A body that pads or extends the standard shape is served by the manual `secs2.NewCursor` path
-  instead.
-- `hsms`: `SECS2Endpoint.AddDataMessageChan(ch chan *DataMessage)` registers a channel to receive every inbound data message a `DataMessageHandler` would: primaries and orphan secondaries.
-  It is an alternative to callback-based registration.
-  Nothing is filtered at registration.
-  Split the stream yourself with the new `DataMessage.IsPrimary()`, the exact negation of the router's primary/secondary classification.
-  A registered channel shares `AddDataMessageHandler`'s delivery, backpressure, and lifetime contract:
-  delivery blocks the receive goroutine on a full channel, duplicate registration delivers once per registration, and registration is permanent for the connection's lifetime.
-  See the method's godoc for the full consumer contract.
-- `hsms`: `Connection.SubscribeLifecycle(fn func(LifecycleEvent)) (cancel func())` observes connection state transitions with the reason each one happened, and can be cancelled.
-  A `LifecycleEvent` carries the previous state, the current state, and a `TransitionCause` from a closed set:
-  `CauseLocalOpen`, `CauseLocalClose`, `CauseSelectAccepted`, `CauseSelectRejected`, `CausePeerSeparate`, `CausePeerDeselect`, `CauseT6Timeout`, `CauseT7Timeout`, `CauseLinktestFail`, `CauseIOError`, and `CauseUnknown` when the transport names no reason.
-  A consumer can now tell a local `Close` from a peer `Separate.req`, a T7 dwell expiry, or a dropped socket without correlating logs after the fact.
-  The cause is an enumerated value rather than a retained error, so observing one never keeps a failed transaction's error alive.
-  Callbacks run on the same notifier goroutine, in the same order, and with the same panic isolation as a handler registered through `AddConnStateChangeHandler`, which is unchanged.
-  A subscription persists across `Open`/`Close` cycles until its `cancel` runs; `cancel` is idempotent and safe to call from inside the callback.
-- `hsms`: `WithTransactionObserver(fn func(TxEvent))` reports one `TxEvent` per completed synchronous send transaction —
-  `SendDataMessage`, `SendSECS2Message`, and `ForwardDataMessage` —
-  describing how it ended (`TxReplied`, `TxSent`, `TxT3Timeout`, `TxRejected`, `TxCanceled`, or `TxSendError`) and how long it took.
-  The hook runs synchronously on the caller's own goroutine, right after the send's own outcome is known,
-  so it can bridge to a metrics backend such as Prometheus without the library importing one.
-  Async sends (`SendDataMessageAsync`, `ForwardDataMessageAsync`, `SendAsync`, and `ReplyDataMessage`, which is itself async)
-  are out of scope; `WithAsyncSendErrorHandler` already covers their failure observability.
-  Unset (the default) costs one already-necessary atomic config load plus a nil check —
-  no allocation, no measurable overhead.
-- `hsms`: `IsTransient(err) bool` and `IsTimeout(err) bool` classify an error returned from the send/lifecycle surface —
-  `SendDataMessage`, `SendSECS2Message`, `Forward*`, `Reply*`, `Open`, `Close` — on both transports,
-  so a consumer no longer hand-rolls its own `errors.Is` chain to decide whether a failed call is worth retrying.
-  A sentinel such as `ErrNotSelectedState`, `ErrConnClosed`, `ErrT3Timeout`, or `ErrT6Timeout` reports `IsTransient` true,
-  since a reconnect or protocol timer may resolve on its own.
-  `ErrMessageTooLarge`, `ErrEvenFunctionPrimary`, and similar caller-side errors report false:
-  the same call fails again on the same input.
-  `ErrCloseTimeout` is the one sentinel where the two axes diverge: it names a real deadline expiry (`IsTimeout` true),
-  but `Close` is idempotent, so retrying never produces a different outcome (`IsTransient` false).
-  An unrecognized error also reports false/false.
-  Misclassifying a permanent failure as retryable risks a silent retry storm, while the reverse only fails a job early.
-  Two marker interfaces, `TransientError` and `TimeoutError` (the latter shape-compatible with `net.Error`),
-  let a caller-defined error, or another transport's sentinel, opt into the same classification;
-  `secs1.ErrSendFailed` is marked this way, and `errors.Is(err, secs1.ErrSendFailed)` keeps working unchanged —
-  only the sentinel's dynamic type gained the marker, not its identity.
+- `secs2`: `Cursor` extracts a typed value from a nested item in one chained call —
+  `secs2.NewCursor(item).At(1, 0).ASCII()`.
+  Errors accumulate across hops (one check per extraction, not one per hop)
+  and name the failing hop's index and depth.
+  Scalar accessors allocate nothing on the happy path.
+- `gem`: a body decoder for every generated builder — 122 pairs across streams 1, 2, 5, 6, and 9
+  (`DecodeS1F14` fills an `S1F14Reply`, `DecodeS6F11` fills an `S6F11Body`, …).
+  Decoders take a `secs2.Item`, keeping `gem` transport-independent.
+  Shape checking is strict: wrong arity, type, or width returns an error naming the E5 field —
+  never a zero value with a nil error.
+  Repeated groups accept any count, optional groups decode in full or omitted form,
+  and equipment-defined fields pass through as `secs2.Item`.
+  Non-standard bodies are served by the manual `secs2.NewCursor` path.
+- `hsms`: `SECS2Endpoint.AddDataMessageChan` delivers every inbound data message —
+  primaries and orphan secondaries — to a registered channel,
+  as an alternative to callback handlers.
+  Split the stream with the new `DataMessage.IsPrimary()`.
+  Delivery, backpressure, and lifetime follow `AddDataMessageHandler`'s contract (see godoc).
+- `hsms`: `Connection.SubscribeLifecycle` observes state transitions with the reason each happened —
+  a `TransitionCause` such as `CauseLocalClose`, `CausePeerSeparate`, `CauseT6Timeout`,
+  `CauseLinktestFail`, or `CauseIOError` —
+  so a local close, a peer separate, and a dropped socket are distinguishable without log correlation.
+  Subscriptions are cancellable, persist across `Open`/`Close`,
+  and share the legacy `AddConnStateChangeHandler` notifier's ordering and panic isolation.
+- `hsms`: `WithTransactionObserver` reports one `TxEvent` per completed synchronous send
+  (`SendDataMessage`, `SendSECS2Message`, `ForwardDataMessage`),
+  carrying the outcome (`TxReplied`, `TxT3Timeout`, `TxRejected`, …) and duration.
+  It runs on the caller's goroutine and bridges to a metrics backend such as Prometheus
+  without the library importing one.
+  Unset, it costs one nil check on an already-loaded config pointer.
+- `hsms`: `IsTransient(err)` and `IsTimeout(err)` classify errors from the send and lifecycle
+  surfaces of both transports, replacing hand-rolled `errors.Is` chains.
+  Timer and connection-state sentinels (`ErrT3Timeout`, `ErrNotSelectedState`, …) are transient;
+  caller bugs (`ErrMessageTooLarge`, …) and unknown errors are not —
+  misclassifying a permanent failure risks a retry storm, the reverse only fails a job early.
+  The `TransientError` / `TimeoutError` marker interfaces let other transports and callers opt in;
+  `secs1.ErrSendFailed` is marked with its identity unchanged.
 
 ### Changed
 
-- **Breaking:** `hsms.SECS2Endpoint` gained a new method, `AddDataMessageChan`, and `hsms.Connection` gained `SubscribeLifecycle`.
-  Any hand-rolled implementation of either interface (outside of the connection and session types this package returns) now fails to compile until it adds the methods.
-  `hsmstest.FakeEndpoint` already implements `AddDataMessageChan`.
-  Embed it in a custom fake instead of implementing `SECS2Endpoint` from scratch to avoid this class of break on future interface growth.
-  `FakeEndpoint` does not implement `Connection`,
-  so a hand-rolled `Connection` still needs its own `SubscribeLifecycle` stub,
-  e.g. `func (...) SubscribeLifecycle(func(hsms.LifecycleEvent)) func() { return func() {} }`.
-  `hsmsss` and `secs1` are unaffected: both build on the connection engine this package returns.
+- **Breaking:** `hsms.SECS2Endpoint` gained `AddDataMessageChan` and
+  `hsms.Connection` gained `SubscribeLifecycle` — the first interface additions since v2.0.0 GA.
+  Hand-rolled implementations of either interface fail to compile until they add the method.
+  Embed `hsmstest.FakeEndpoint` (which implements `AddDataMessageChan`)
+  to be insulated from future `SECS2Endpoint` growth.
+  `FakeEndpoint` does not implement `Connection`;
+  a hand-rolled `Connection` needs a stub, e.g.
+  `func (...) SubscribeLifecycle(func(hsms.LifecycleEvent)) func() { return func() {} }`.
+  `hsmsss` and `secs1` are unaffected: both build on the engine this package returns.
 
 ### Fixed
 
-- **`hsms`, `hsmsss`: a transport goroutine that outlives its own connection generation can no longer
-  disconnect the generation that replaced it.**
-  Teardown joins a generation's goroutines under a bounded timeout, so one wedged past
-  `WithCloseTimeout` is abandoned and may resume long afterwards — by which point a reconnect can
-  already have established and selected a new link.
-  Because the disconnect back-channel resolved the current generation at call time, such a goroutine
-  reporting a peer `Separate.req`, a read error, a Select failure, a linktest failure, or a T7 dwell
-  expiry would drop the *new* link and hand `SubscribeLifecycle` subscribers (and
-  `AddConnStateChangeHandler` handlers) a reason belonging to a connection that had already ended.
-  Each generation now carries an identity that travels with the report all the way to the state
-  machine and is re-checked at the moment the transition is applied, so a report from a generation
-  that has ended is discarded instead.
-  A disconnect of the live generation is never affected: a mismatch can only mean that generation's
-  link was already torn down.
-  The same fix stops such a goroutine from marking the new generation as a comms failure, which had
-  suppressed that generation's courtesy farewell `Separate` on a later graceful `Close`.
-  This was not a v2.4 regression; it has been present since v2.0.0.
+- `hsms`, `hsmsss`: **a transport goroutine that outlives its connection generation can no longer
+  act on the generation that replaced it.**
+  Teardown abandons goroutines wedged past `WithCloseTimeout`;
+  one resuming after a reconnect could, until now:
+  drop the new link with a false lifecycle cause,
+  mark it Selected without a handshake (or drop it out of Selected),
+  attach its dead socket to it,
+  disarm its auto-linktest while leaving a stale T7 dwell behind,
+  answer the new peer with responses to transactions that peer never opened,
+  or open a Select / linktest transaction on the new link's socket and reply registry.
+  Every disconnect report, state commit, socket publication, and control frame now carries the
+  identity of the generation it belongs to,
+  and is applied or sent only while that generation is still current —
+  anything arriving out of an ended generation is discarded,
+  and a refused socket is closed instead of leaking with a goroutine parked on it.
+  The working generation is never affected.
+  Present since v2.0.0; not a v2.4 regression.
   `secs1` is unchanged and keeps the previous behavior.
-- **`hsms`, `hsmsss`: the same goroutine can no longer select, deselect, or reconnect the generation
-  that replaced it.**
-  This is the other half of the fix above, for the three state changes the transport applies
-  directly rather than reporting: the Select commit, the Deselect responder's loss of Select, and
-  the TCP-up commit.
-  A recv goroutine abandoned past `WithCloseTimeout`, processing a delayed `Select.rsp` or a late
-  `Select.req`, marked the *new* link Selected without any handshake having run on it — and because
-  that link was then already Selected, its own Select commit did nothing: its T7 dwell was never
-  cancelled, its auto-linktest never started, and its `SubscribeLifecycle` subscribers never saw it
-  reach `SelectedState`.
-  A `Deselect.req` read equally late dropped the new link out of `SelectedState`, and a passive
-  accept goroutine abandoned the same way attached its dead socket to the new generation.
-  Each of these now names the generation it belongs to and is applied only while that generation is
-  both current and not yet tearing down, so one arriving out of a generation that has ended is
-  discarded.
-  A commit by the working generation is never affected: it always runs before that generation's own
-  teardown, which is what has to happen before any replacement can exist.
-  This was not a v2.4 regression; it has been present since v2.0.0.
-  `secs1` is unchanged and keeps the previous behavior.
-- **`hsmsss`: a TCP-up reported by a generation that has already ended no longer leaks the socket or
-  parks a goroutine on it.**
-  This closes the one gap the two fixes above left open: `TCPUpFromGeneration` already refused a
-  stale generation's socket at the state-machine level, but reported nothing back, so `startActive`
-  and the passive accept goroutine spawned a recv loop on it regardless.
-  That recv loop then blocked indefinitely on the first byte — nothing was ever going to close the
-  socket or unblock it, since no epoch had taken ownership of it.
-  `TCPUpFromGeneration` now reports whether the socket was accepted; on refusal the caller closes it
-  and spawns nothing.
-  The plain `TCPUp` entry point (used by an out-of-module `TransportRuntime`) is unchanged.
-  This was not a v2.4 regression; it has been present since v2.0.0.
-- **`hsms`, `hsmsss`: a `Deselect.req` answered by a generation that has already ended no longer disarms the generation that replaced it.**
-  This is the Deselect counterpart of the socket gap above, and the last one of its kind.
-  The state machine already refused the stale generation's loss-of-Select,
-  but the refusal was not reported back to the responder,
-  which went on to stop the auto-linktest and arm a T7 dwell unconditionally.
-  Neither of those is generation-scoped: they act on whatever generation is current.
-  A link that had legitimately reselected was therefore left in `SelectedState` with no auto-linktest at all —
-  no probing, so a peer that went silent was no longer detected —
-  and with a stale T7 dwell attached to it.
-  The responder now skips both when the state machine refuses the transition.
-  A `Deselect.req` answered by the working generation is unaffected,
-  and so is its status, which still reports the state of the link the peer sees.
-  This was not a v2.4 regression; it has been present since v2.0.0.
-- **`hsmsss`: a control response written by a generation that has already ended no longer reaches the successor's peer.**
-  This is the wire half of the entry above, and it applies to every answer the receive path writes:
-  `Select.rsp`, `Deselect.rsp`, `Linktest.rsp`, and all three `Reject.req` variants.
-  A response is built from the request that arrived on its own generation's socket and carries that request's System Bytes,
-  but it was queued through a send that resolved whatever generation was current at the time.
-  A receive goroutine abandoned past `WithCloseTimeout` therefore handed the *new* link's peer an answer to a transaction that peer never opened —
-  and no state-machine refusal can retract a frame already queued.
-  The enqueue is now bound to the generation that owes the answer:
-  it goes to that generation's own send queue, or is dropped if that generation is over.
-  A response owed by the working generation is sent exactly as before.
-  This was not a v2.4 regression; it has been present since v2.0.0.
-- **`hsms`, `hsmsss`: a `Select.req` or auto-linktest probe from a generation that has already ended no longer opens a transaction on the successor's link.**
-  This is the request half of the entry above, and the more damaging one, because a request opens a transaction rather than closing one.
-  The active Select procedure and the auto-linktest each run on their own generation's goroutine, and a send from either resolved whatever generation was current:
-  the reply channel was registered against the *new* link and the request was written through the *new* link's socket.
-  An answer that arrived before the abandoned procedure noticed its own cancellation was then routed back as if the new link had asked —
-  a status-0 `Select.rsp` marking it Selected over a handshake it never ran.
-  A probe could also reach a peer while the new link was still not selected, which SEMI E37.1 §7.4 makes a communications failure that peer is entitled to answer by closing the connection.
-  Both are now issued on behalf of the generation that owns them, and a request from a generation that has ended is dropped before anything is registered or written;
-  the procedure treats that exactly as it already treats its own link going down, and exits quietly.
-  This was not a v2.4 regression; it has been present since v2.0.0.
-- `hsmsss`: `ConnectionMetrics.RejectSentCount` and `ConnectionMetrics.LinktestReqRecvCount` no longer count a response that was not sent.
-  Both are documented as frames emitted and probes answered, and both were incremented before the send.
-  With the generation binding above, a response owed by a generation that has ended is deliberately dropped, so counting it would report link activity that never happened.
-  `LinktestSendCount` keeps counting before the write, and its documentation now says so plainly: it is an attempt counter, not an emitted-frame one.
+- `hsmsss`: `ConnectionMetrics.RejectSentCount` and `LinktestReqRecvCount` no longer count
+  responses the generation binding deliberately dropped;
+  `LinktestSendCount`'s documentation now says plainly that it counts attempts, not emitted frames.
 
 ## [2.3.1] - 2026-08-12
 
@@ -1458,7 +1377,7 @@ release's fuzz work were closed out.
   Deselect.req / Deselect.rsp / Separate.req are now honoured end-to-end
   and take the session through the documented state transitions.
 
-[Unreleased]: https://github.com/arloliu/go-secs/compare/v2.3.1...HEAD
+[2.4.0]: https://github.com/arloliu/go-secs/releases/tag/v2.4.0
 [2.3.1]: https://github.com/arloliu/go-secs/releases/tag/v2.3.1
 [2.3.0]: https://github.com/arloliu/go-secs/releases/tag/v2.3.0
 [2.2.0]: https://github.com/arloliu/go-secs/releases/tag/v2.2.0
