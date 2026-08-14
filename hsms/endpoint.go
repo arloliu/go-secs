@@ -63,6 +63,8 @@ type SECS2Endpoint interface {
 	//
 	// msg's function must be odd (SEMI E5 §7.2); an even function returns ErrEvenFunctionPrimary without sending anything.
 	//
+	// Returns ErrNilMessage if msg is nil.
+	//
 	// Returns the reply DataMessage on success.
 	SendSECS2Message(ctx context.Context, msg secs2.SECS2Message) (*DataMessage, error)
 
