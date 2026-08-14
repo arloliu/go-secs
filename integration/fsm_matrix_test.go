@@ -25,6 +25,90 @@ func hasStateEdge(edges []stateEdge, prev, next hsms.ConnState) bool {
 	return false
 }
 
+// bringUpSelectedEdges enumerates the two edges the supervisor can legally report for a successful open reaching Selected.
+// evSelectAccepted is the ONLY event whose transition-table entry produces next == SelectedState
+// (hsms/supervisor.go transition()),
+// and fireTransition never fires a self-edge (step()'s "next != s.lastReacted" dedup — hsms/supervisor.go step()),
+// so prev is always whatever lastReacted last held:
+// NotSelectedState (the ordinary two-step climb) or NotConnectedState (below).
+//
+// The NotConnected -> Selected shape is reached via step()'s generation-match discard,
+// NOT the H2 same-generation pre-commit.
+// fireTransition's own doc comment confirms a same-generation pre-commit still reports
+// NotSelected -> Selected,
+// because CommitConnected's injectFrom for evTCPUp completes, on the active role,
+// before the recv loop that could race a CommitSelected is even spawned
+// (see hsmsss/transport_active.go startActive).
+// What DOES collapse it is cross-generation:
+// commitFrom's commitGate (hsms/connection_lifecycle.go commitTCPUp) admits a synchronous CAS
+// while the NAMED epoch's own {id, ended} latch is still clear,
+// but step()'s later generation check
+// (supervisor.go step(), the "cmd.gen != 0 && s.curGen() != cmd.gen" branch)
+// compares against whichever epoch is CURRENT at drain time
+// and returns WITHOUT updating lastReacted on a mismatch.
+// A short T7 (as staleT7NoOpFromSelected configures) can make a generation churn and get superseded
+// while run() is scheduler-starved and hasn't yet drained its evTCPUp:
+// that event is then discarded stale,
+// lastReacted never advances past NotConnectedState,
+// and the successor generation's own CommitSelected CAS
+// (which only checks the FROM state value, not which generation set it)
+// can still succeed on the still-NotSelected atomic state left behind —
+// so the eventual evSelectAccepted reports NotConnected -> Selected directly,
+// with the NotSelected -> Selected edge never firing at all
+// (not merely dropped from notify's delivery buffer).
+var bringUpSelectedEdges = []stateEdge{
+	{prev: hsms.NotSelectedState, next: hsms.SelectedState},
+	{prev: hsms.NotConnectedState, next: hsms.SelectedState},
+}
+
+// settledAtSelected reports whether edges records either legal bring-up shape settling at Selected
+// (bringUpSelectedEdges): the ordinary two-step climb or the cross-generation collapsed single edge.
+// It is shape-agnostic ON PURPOSE — see bringUpSelectedEdges —
+// while still admitting exactly the enumerated legal set, not "any state change":
+// a sequence that never reaches Selected at all still reports false.
+func settledAtSelected(edges []stateEdge) bool {
+	for _, want := range bringUpSelectedEdges {
+		if hasStateEdge(edges, want.prev, want.next) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// TestSettledAtSelected is the teeth check for settledAtSelected against hand-built edge sequences, standing in for the live cross-generation race (bringUpSelectedEdges)
+// that is too rare to force deterministically over the net.Pipe harness.
+// It proves three things the staleT7NoOpFromSelected fence change depends on:
+// the OLD fence (a bare hasStateEdge(NotSelected, Selected)) fails on the legal collapsed shape,
+// the NEW fence (settledAtSelected) passes on BOTH legal shapes,
+// and the NEW fence still correctly fails when Selected is never reached at all.
+func TestSettledAtSelected(t *testing.T) {
+	twoStep := []stateEdge{
+		{prev: hsms.NotConnectedState, next: hsms.NotSelectedState},
+		{prev: hsms.NotSelectedState, next: hsms.SelectedState},
+	}
+	collapsed := []stateEdge{
+		{prev: hsms.NotConnectedState, next: hsms.SelectedState},
+	}
+	neverSelected := []stateEdge{
+		{prev: hsms.NotConnectedState, next: hsms.NotSelectedState},
+		{prev: hsms.NotSelectedState, next: hsms.NotConnectedState},
+	}
+
+	// The OLD fence (hasStateEdge(NotSelected, Selected) alone) admits the ordinary two-step shape ...
+	require.True(t, hasStateEdge(twoStep, hsms.NotSelectedState, hsms.SelectedState),
+		"the old fence must accept the ordinary two-step bring-up")
+	// ... but fails on the legal collapsed shape — this is the flake staleT7NoOpFromSelected hit.
+	require.False(t, hasStateEdge(collapsed, hsms.NotSelectedState, hsms.SelectedState),
+		"the old fence must (incorrectly) reject the legal collapsed bring-up")
+
+	// The NEW fence accepts both legal shapes ...
+	require.True(t, settledAtSelected(twoStep), "settledAtSelected must accept the ordinary two-step bring-up")
+	require.True(t, settledAtSelected(collapsed), "settledAtSelected must accept the collapsed bring-up")
+	// ... and still correctly rejects a sequence that never reaches Selected — the genuinely wrong outcome the fence must keep failing on.
+	require.False(t, settledAtSelected(neverSelected), "settledAtSelected must reject a sequence that never reaches Selected")
+}
+
 // newHSMSSSMatrixConn constructs an HSMS-SS connection over the net.Pipe harness for the
 // connection-state matrix. It always applies a short T5 (fast reconnect cadence) plus any extra
 // connection options, spawns peers via spawn, and registers a fresh state recorder BEFORE Open so the
@@ -198,8 +282,11 @@ func TestFSM_HSMSSSMatrix(t *testing.T) {
 		require.NoError(t, conn.Open(ctx, hsms.OpenWaitSelected))
 		require.Equal(t, hsms.SelectedState, conn.State())
 
+		// settledAtSelected (not a bare hasStateEdge(NotSelected, Selected)) because the short T7 this scenario configures opens the cross-generation window bringUpSelectedEdges documents:
+		// a generation whose evTCPUp is discarded stale by step()'s generation check can still settle at Selected via a collapsed NotConnected -> Selected edge, with the NotSelected -> Selected edge never firing at all.
+		// A fence pinned to the two-step shape alone burns its full timeout and fails on that legal outcome — the flake this fence replaces.
 		require.Eventually(t, func() bool {
-			return hasStateEdge(rec.pairs(), hsms.NotSelectedState, hsms.SelectedState)
+			return settledAtSelected(rec.pairs())
 		}, 15*time.Second, 5*time.Millisecond, "connect must settle at Selected")
 
 		settled := rec.pairs()
