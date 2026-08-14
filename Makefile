@@ -37,9 +37,8 @@ STRESS_COUNT   ?= 10
 FUZZ_TIME      ?= 30s
 GO_TEST_P      ?= $(shell nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 8)
 
-ALL_SRC        := $(shell find . -name "*.go")
-ALL_SRC        += go.mod
-TEST_DIRS      := $(sort $(dir $(filter %_test.go,$(ALL_SRC))))
+# go list stays within the root module and skips hidden directories.
+TEST_DIRS      := $(sort $(patsubst $(CURDIR),./,$(patsubst $(CURDIR)/%,./%/,$(shell go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.Dir}}{{end}}' ./...))))
 LATEST_GIT_TAG := $(shell git describe --tags --abbrev=0 2>/dev/null)
 MODULE_PATH    := $(shell go list -m 2>/dev/null)
 
