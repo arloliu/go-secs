@@ -114,6 +114,8 @@ type SECS2Endpoint interface {
 	// ReplyDataMessage sends a secondary data message in reply to a primary message.
 	//
 	// The reply reuses the primary message's System Bytes verbatim (E37 §8.2.6.9) and carries no W-bit.
+	//
+	// Returns ErrNilMessage if primary is nil.
 	ReplyDataMessage(ctx context.Context, primary *DataMessage, item secs2.Item) error
 
 	// AddDataMessageHandler appends one or more inbound data message handlers.

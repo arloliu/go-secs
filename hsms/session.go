@@ -136,6 +136,8 @@ func (s *session) SendDataMessageAsync(ctx context.Context, stream, function byt
 // always a primary; msg's function must be odd (SEMI E5 §7.2), or this returns
 // ErrEvenFunctionPrimary without sending anything.
 //
+// Returns ErrNilMessage if msg is nil.
+//
 // Returns the reply DataMessage when the W-bit is set.
 func (s *session) SendSECS2Message(ctx context.Context, msg secs2.SECS2Message) (*DataMessage, error) {
 	if isNilValue(msg) {
@@ -209,6 +211,8 @@ func (s *session) ForwardDataMessageAsync(ctx context.Context, msg *DataMessage)
 //
 // The reply function is primary.Function()+1 (SECS-II secondary-function convention: primary is odd, reply is even), replyExpected is false,
 // and system bytes are taken verbatim from primary (E37 §8.2.6.9 — system bytes must match).
+//
+// Returns ErrNilMessage if primary is nil.
 // The message is enqueued via rt.SendAsync (no W-bit, no reply correlation needed).
 func (s *session) ReplyDataMessage(ctx context.Context, primary *DataMessage, item secs2.Item) error {
 	if primary == nil {
