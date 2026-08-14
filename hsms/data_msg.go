@@ -340,7 +340,7 @@ func NewDataMessage(stream, function uint8, replyExpected bool, sessionID uint16
 
 	// A nil-like item is treated as an empty body,
 	// mirroring the decode path where an empty (zero-length) body is legal and yields secs2.NewEmptyItem.
-	if isNilItem(item) {
+	if isNilValue(item) {
 		item = secs2.NewEmptyItem()
 	}
 
@@ -408,15 +408,20 @@ func NewDataMessageFromHeader(header [10]byte, item secs2.Item) (*DataMessage, e
 // Internal helpers
 // ────────────────────────────────────────────────────────────────
 
-func isNilItem(item secs2.Item) bool {
-	if item == nil {
+// isNilValue reports whether v is a nil interface value,
+// or an interface holding a typed nil.
+//
+// Passing an interface to an `any` parameter preserves its dynamic type,
+// so this is correct for any interface the package needs to guard.
+func isNilValue(v any) bool {
+	if v == nil {
 		return true
 	}
 
-	v := reflect.ValueOf(item)
-	switch v.Kind() { //nolint:exhaustive // only nil-capable kinds may call Value.IsNil
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() { //nolint:exhaustive // only nil-capable kinds may call Value.IsNil
 	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Slice:
-		return v.IsNil()
+		return rv.IsNil()
 	default:
 		return false
 	}

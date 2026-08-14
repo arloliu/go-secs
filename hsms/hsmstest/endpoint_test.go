@@ -639,6 +639,41 @@ func TestFakeEndpoint_ForwardDataMessage_NilMessage(t *testing.T) {
 	assert.Empty(t, ep.Sent(), "a nil forward records nothing")
 }
 
+// TestFakeEndpoint_SendSECS2Message_RejectsNilMessage proves the fake's nil guard:
+// FakeEndpoint.SendSECS2Message rejects a nil interface value and a typed-nil *secs2.Message,
+// mirroring hsms.session.SendSECS2Message.
+// It returns hsms.ErrNilMessage without panicking and without recording anything.
+func TestFakeEndpoint_SendSECS2Message_RejectsNilMessage(t *testing.T) {
+	t.Parallel()
+
+	var nilTyped *secs2.Message
+
+	tests := []struct {
+		name string
+		msg  secs2.SECS2Message
+	}{
+		{name: "interface nil", msg: nil},
+		{name: "typed nil", msg: nilTyped},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ep := hsmstest.NewFakeEndpoint()
+
+			var got *hsms.DataMessage
+			var err error
+			require.NotPanics(t, func() {
+				got, err = ep.SendSECS2Message(context.Background(), tt.msg)
+			})
+			require.ErrorIs(t, err, hsms.ErrNilMessage)
+			assert.Nil(t, got)
+			assert.Empty(t, ep.Sent(), "a nil message must not be recorded")
+		})
+	}
+}
+
 // TestFakeEndpoint_ScriptReply_MalformedReplyMirrorsRealDecodeError guards that the fake mirrors
 // the real session's reply-path decode check: a scripted reply that frames but whose SECS-II body
 // fails to decode is surfaced as (msg, decodeErr), not a clean (msg, nil). Without this a consumer

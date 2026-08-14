@@ -6,6 +6,7 @@ package hsmstest
 import (
 	"context"
 	"errors"
+	"reflect"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -221,6 +222,25 @@ func (f *FakeEndpoint) AddConnStateChangeHandler(handlers ...hsms.StateChangeHan
 	f.stateHandlers = append(f.stateHandlers, handlers...)
 }
 
+// isNilMessage reports whether msg is a nil interface value,
+// or an interface holding a typed nil.
+//
+// It mirrors the guard hsms.session.SendSECS2Message applies,
+// so the fake rejects the same inputs the real endpoint rejects.
+func isNilMessage(msg secs2.SECS2Message) bool {
+	if msg == nil {
+		return true
+	}
+
+	rv := reflect.ValueOf(msg)
+	switch rv.Kind() { //nolint:exhaustive // only nil-capable kinds may call Value.IsNil
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Slice:
+		return rv.IsNil()
+	default:
+		return false
+	}
+}
+
 // record constructs the DataMessage via hsms.NewDataMessage and returns its error, if any,
 // BEFORE any side effect — no Sent() entry, no scripted-reply pop, no handler invocation
 // happens on error. This mirrors the real session methods, which all return a NewDataMessage
@@ -333,7 +353,12 @@ func (f *FakeEndpoint) SendDataMessageAsync(_ context.Context, stream, function 
 // implementable secs2.SECS2Message interface.
 // When the snapshotted WaitBit is false it returns
 // (nil, nil) without consulting the reply script; when true it pops the next scripted reply.
+// A nil or typed-nil msg returns hsms.ErrNilMessage without recording anything.
 func (f *FakeEndpoint) SendSECS2Message(_ context.Context, msg secs2.SECS2Message) (*hsms.DataMessage, error) {
+	if isNilMessage(msg) {
+		return nil, hsms.ErrNilMessage
+	}
+
 	stream, function, waitBit, item := msg.StreamCode(), msg.FunctionCode(), msg.WaitBit(), msg.Item()
 	if function%2 == 0 {
 		return nil, hsms.ErrEvenFunctionPrimary

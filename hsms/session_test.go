@@ -376,6 +376,39 @@ func TestSession_SendDataMessageAsync_RejectsEvenFunctionPrimary(t *testing.T) {
 	require.False(t, asyncCalled, "a refused send must never reach SendAsync")
 }
 
+// TestSession_SendSECS2Message_RejectsNilMessage proves SendSECS2Message guards a nil message:
+// it rejects a nil interface value and a typed-nil *secs2.Message,
+// returning ErrNilMessage without panicking and without reaching WriteMessage.
+func TestSession_SendSECS2Message_RejectsNilMessage(t *testing.T) {
+	rt := newMockRuntime(t)
+	s := newSession(0xFFFF, rt, &sysBytesGen{})
+
+	var nilTyped *secs2.Message
+
+	tests := []struct {
+		name string
+		msg  secs2.SECS2Message
+	}{
+		{name: "interface nil", msg: nil},
+		{name: "typed nil", msg: nilTyped},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.NotPanics(t, func() {
+				dm, err := s.SendSECS2Message(t.Context(), tt.msg)
+				require.ErrorIs(t, err, ErrNilMessage)
+				require.Nil(t, dm)
+			})
+
+			rt.mu.Lock()
+			writeCalled := rt.writeCalled
+			rt.mu.Unlock()
+			require.False(t, writeCalled, "a nil message must never reach WriteMessage")
+		})
+	}
+}
+
 // TestSession_SendSECS2Message_RejectsEvenFunctionPrimary mirrors the odd-function guard for the
 // secs2.SECS2Message entry point.
 func TestSession_SendSECS2Message_RejectsEvenFunctionPrimary(t *testing.T) {
