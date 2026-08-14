@@ -5,6 +5,28 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- `sml`: programmatic item trees now stop at the same nesting depth as parser and wire decoder input,
+  and padded trailing input no longer amplifies parser preallocation.
+
+### Fixed
+
+- Public constructors, options, cursor traversal, list traversal, reply helpers, and SML logging helpers return errors or diagnostics for nil-like inputs instead of panicking.
+- Invalid SECS-II lists no longer emit a child count that disagrees with their wire payload.
+- Strict SML output escapes `>` and single-line item colons no longer alter header parsing.
+- SECS-I reports EOF and socket failures as I/O errors rather than T1/T2 expiry,
+  and its core deadline hooks no longer alter line-engine socket deadlines.
+- HSMS-SS inbound control tracing follows live logger and trace updates.
+
+### Known follow-ups
+
+- A dribbling SECS-I peer can keep malformed-frame draining active until disconnect.
+- Large legal SECS-II lists can expand to a much larger decoded object graph.
+- Framing protocol failures still report the existing `CauseIOError` lifecycle cause.
+
 ## [2.4.0] - 2026-08-14
 
 Consumer ergonomics and observability:
