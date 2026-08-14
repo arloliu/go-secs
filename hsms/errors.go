@@ -117,7 +117,7 @@ var (
 	// even though — unlike ErrT3Timeout/ErrT6Timeout — that expiry does not make a retry worthwhile.
 	ErrCloseTimeout = errors.New("hsms: close timeout (tasks still live)")
 
-	// ErrNilMessage indicates ForwardDataMessage or ForwardDataMessageAsync was called with a nil message.
+	// ErrNilMessage indicates ReplyDataMessage, ForwardDataMessage, or ForwardDataMessageAsync was called with a nil message.
 	//
 	// Classification: IsTransient and IsTimeout both report false.
 	// This is a caller-side argument error, and the same nil argument fails on every retry.

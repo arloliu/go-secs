@@ -11,6 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type externalNilItem struct {
+	secs2.Item
+}
+
+var _ secs2.Item = (*externalNilItem)(nil)
+
 // ────────────────────────────────────────────────────────────────
 // Interface compile-time check
 // ────────────────────────────────────────────────────────────────
@@ -61,6 +67,11 @@ func TestNewDataMessage_EmptyItem(t *testing.T) {
 	assert.Equal(t, [4]byte{}, msg.SystemBytes())
 	assert.Equal(t, 0, msg.BodyLen())
 	assert.Nil(t, msg.DecodeErr())
+}
+
+func TestNewDataMessage_EmptyItemChild(t *testing.T) {
+	_, err := hsms.NewDataMessage(0, 1, true, 123, [4]byte{}, secs2.NewListItem(secs2.NewEmptyItem()))
+	require.Error(t, err)
 }
 
 // TestNewDataMessage_Vectors ports the three known encoding vectors from v1.
@@ -426,6 +437,39 @@ func TestNewDataMessage_NilItem(t *testing.T) {
 		require.NotNil(t, item)
 		assert.True(t, item.IsEmpty(), "nil item must decode to an empty item")
 	})
+}
+
+func TestNewDataMessage_TypedNilItem(t *testing.T) {
+	t.Parallel()
+
+	want, err := hsms.NewDataMessage(1, 13, true, 0, [4]byte{}, nil)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		item secs2.Item
+	}{
+		{name: "built-in pointer", item: (*secs2.ASCIIItem)(nil)},
+		{name: "external pointer", item: (*externalNilItem)(nil)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var got *hsms.DataMessage
+			var gotErr error
+			require.NotPanics(t, func() {
+				got, gotErr = hsms.NewDataMessage(1, 13, true, 0, [4]byte{}, tt.item)
+			})
+			require.NoError(t, gotErr)
+			require.Equal(t, want.ToBytes(), got.ToBytes())
+
+			item, itemErr := got.Item()
+			require.NoError(t, itemErr)
+			require.True(t, item.IsEmpty())
+		})
+	}
 }
 
 // TestDataMessageBuilder_NilItem verifies that Derive().WithItem(nil).Build()

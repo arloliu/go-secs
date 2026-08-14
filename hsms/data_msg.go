@@ -3,6 +3,7 @@ package hsms
 import (
 	"encoding/binary"
 	"fmt"
+	"reflect"
 	"sync"
 
 	"github.com/arloliu/go-secs/v2/internal/framecodec"
@@ -322,8 +323,8 @@ func (b *DataMessageBuilder) Build() (*DataMessage, error) {
 
 // NewDataMessage creates an immutable HSMS data message.
 //
-// A nil item is treated as an empty body ([secs2.NewEmptyItem]), consistent with the decode path
-// where a zero-length body is legal.
+// A nil or typed-nil item is treated as an empty body ([secs2.NewEmptyItem]),
+// consistent with the decode path where a zero-length body is legal.
 //
 // Q3 validation (SEMI E37 §8.3.3.3) is performed before construction:
 //
@@ -337,10 +338,9 @@ func NewDataMessage(stream, function uint8, replyExpected bool, sessionID uint16
 		return nil, ErrInvalidStreamCode
 	}
 
-	// A nil item is treated as an empty body, mirroring the decode path where an
-	// empty (zero-length) body is legal and yields secs2.NewEmptyItem. This avoids
-	// a nil-interface panic in the item.Error() gate below.
-	if item == nil {
+	// A nil-like item is treated as an empty body,
+	// mirroring the decode path where an empty (zero-length) body is legal and yields secs2.NewEmptyItem.
+	if isNilItem(item) {
 		item = secs2.NewEmptyItem()
 	}
 
@@ -407,6 +407,20 @@ func NewDataMessageFromHeader(header [10]byte, item secs2.Item) (*DataMessage, e
 // ────────────────────────────────────────────────────────────────
 // Internal helpers
 // ────────────────────────────────────────────────────────────────
+
+func isNilItem(item secs2.Item) bool {
+	if item == nil {
+		return true
+	}
+
+	v := reflect.ValueOf(item)
+	switch v.Kind() { //nolint:exhaustive // only nil-capable kinds may call Value.IsNil
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
 
 // decode is the payload for [decodeState].once.Do. For tree-path messages the
 // once is pre-fired during [NewDataMessage], so this function never executes for

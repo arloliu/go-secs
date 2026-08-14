@@ -27,6 +27,42 @@ func cursorTree() Item {
 	)
 }
 
+type externalNilItem struct {
+	Item
+}
+
+var _ Item = (*externalNilItem)(nil)
+
+func requireCursorAccessorsError(t *testing.T, c Cursor) {
+	t.Helper()
+
+	require.Error(t, c.Err())
+
+	_, err := c.Uint()
+	require.Error(t, err)
+
+	_, err = c.Int()
+	require.Error(t, err)
+
+	_, err = c.Float()
+	require.Error(t, err)
+
+	_, err = c.Bool()
+	require.Error(t, err)
+
+	_, err = c.ASCII()
+	require.Error(t, err)
+
+	_, err = c.Binary()
+	require.Error(t, err)
+
+	_, err = c.Size()
+	require.Error(t, err)
+
+	_, err = c.Item()
+	require.Error(t, err)
+}
+
 func TestNewCursor_NilItem(t *testing.T) {
 	t.Parallel()
 
@@ -62,6 +98,39 @@ func TestNewCursor_NilItem(t *testing.T) {
 	// At on an errored cursor is a no-op.
 	c2 := c.At(0)
 	require.ErrorIs(t, c2.Err(), c.Err())
+}
+
+func TestNewCursor_TypedNilBuiltins(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range builtinTypeChildren() {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			requireCursorAccessorsError(t, NewCursor(tt.nilv))
+		})
+	}
+}
+
+func TestNewCursor_ExternalTypedNil(t *testing.T) {
+	t.Parallel()
+
+	var item *externalNilItem
+	requireCursorAccessorsError(t, NewCursor(item))
+}
+
+func TestCursor_HappyPathAllocs(t *testing.T) {
+	root := L(L(U1(uint(7))))
+	var value uint64
+	var err error
+
+	allocs := testing.AllocsPerRun(100, func() {
+		value, err = NewCursor(root).At(0, 0).Uint()
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, uint64(7), value)
+	require.Zero(t, allocs)
 }
 
 func TestCursor_Uint_Widths(t *testing.T) {
@@ -259,6 +328,20 @@ func TestCursor_At_NonListIntermediate(t *testing.T) {
 	require.ErrorContains(t, err, "depth 1")
 	require.ErrorContains(t, err, "got ascii")
 	require.ErrorContains(t, err, "want list")
+}
+
+func TestCursor_At_TypedNilChild(t *testing.T) {
+	t.Parallel()
+
+	var child *ASCIIItem
+	builtin := NewListItem(child)
+	external := &externalListItem{
+		Item:     NewListItem(),
+		children: []Item{builtin},
+	}
+	root := NewListItem(external)
+
+	requireCursorAccessorsError(t, NewCursor(root).At(0, 0, 0))
 }
 
 func TestCursor_WrongTypeFamily(t *testing.T) {

@@ -16,7 +16,7 @@ import (
 //
 // An item carrying a deferred construction error (Error() != nil) is never equal to any item, including another errored item, because its logical value is unspecified.
 //
-// Two nil items are equal; a nil item is not equal to a non-nil item.
+// Two nil-like items are equal; a nil-like item is not equal to a non-nil item.
 //
 // Parameters:
 //   - a: the first item to compare.
@@ -25,8 +25,9 @@ import (
 // Returns:
 //   - bool: true if a and b are the same SECS-II item.
 func Equal(a, b Item) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
+	aNil, bNil := isNilItem(a), isNilItem(b)
+	if aNil || bNil {
+		return aNil && bNil
 	}
 	if a.Error() != nil || b.Error() != nil {
 		return false
