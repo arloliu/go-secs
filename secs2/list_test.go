@@ -156,6 +156,43 @@ func TestListItem_Get(t *testing.T) {
 	require.Error(err)
 }
 
+type externalListItem struct {
+	Item
+	children []Item
+}
+
+var _ Item = (*externalListItem)(nil)
+
+func (e *externalListItem) IsList() bool { return true }
+
+func (e *externalListItem) Size() int { return len(e.children) }
+
+func (e *externalListItem) ItemAt(i int) (Item, error) {
+	if i < 0 || i >= len(e.children) {
+		return nil, NewItemErrorWithMsg("index out of range")
+	}
+
+	return e.children[i], nil
+}
+
+func TestListItem_Get_ExternalList(t *testing.T) {
+	t.Parallel()
+
+	want := NewASCIIItem("nested")
+	external := &externalListItem{
+		Item:     NewListItem(),
+		children: []Item{want},
+	}
+	list := NewListItem(external)
+
+	li, ok := list.(*ListItem)
+	require.True(t, ok)
+
+	got, err := li.Get(0, 0)
+	require.NoError(t, err)
+	require.Same(t, want, got)
+}
+
 // TestListItem_ToList_NoLeak confirms that mutating the slice returned by ToList does not
 // affect the ListItem's internal state (teeth test for the shallow-clone guarantee).
 func TestListItem_ToList_NoLeak(t *testing.T) {
@@ -262,6 +299,29 @@ func TestListItem_AppendTo_IndependentVector(t *testing.T) {
 	buf := make([]byte, 0, item.EncodedLen())
 	require.Equal(expected, item.AppendTo(buf))
 	require.Equal(expected, item.ToBytes())
+}
+
+func TestListItem_InvalidChildrenDoNotEncode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		item Item
+	}{
+		{name: "empty child", item: NewListItem(NewEmptyItem())},
+		{name: "errored child", item: NewListItem(NewIntItem(3, 1))},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Error(t, tt.item.Error())
+			require.Zero(t, tt.item.EncodedLen())
+			require.Equal(t, []byte{0xAA}, tt.item.AppendTo([]byte{0xAA}))
+			require.Empty(t, tt.item.ToBytes())
+		})
+	}
 }
 
 // TestListItem_Error verifies that Error() aggregates errors from all children recursively,
@@ -490,13 +550,17 @@ func builtinTypeChildren() []builtinTypeChild {
 	}
 }
 
-// TestListItem_AllBuiltinTypes_Clean drives every built-in concrete type through NewListItem as
-// a single valid child and verifies the resulting list is known-clean: Error() returns nil, and
-// the internal clean flag is set (the O(1) fast path condition this task adds).
+// TestListItem_AllBuiltinTypes_Clean drives every wire-encodable built-in concrete type through
+// NewListItem as a single valid child and verifies the resulting list is known-clean.
+// EmptyItem is an absence sentinel rather than a wire-encodable child, so it is checked separately.
 func TestListItem_AllBuiltinTypes_Clean(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range builtinTypeChildren() {
+		if tt.valid.IsEmpty() {
+			continue
+		}
+
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -510,6 +574,13 @@ func TestListItem_AllBuiltinTypes_Clean(t *testing.T) {
 			require.True(li.clean, "list containing a single valid %s child must be known-clean", tt.name)
 		})
 	}
+
+	emptyChild := NewListItem(NewEmptyItem())
+	require.Error(t, emptyChild.Error())
+
+	li, ok := emptyChild.(*ListItem)
+	require.True(t, ok)
+	require.False(t, li.clean, "a list containing EmptyItem must not be known-clean")
 }
 
 // TestListItem_Clean_EmptyNilSkipDecoded verifies Error() == nil for an empty list, a list whose
@@ -570,12 +641,8 @@ func TestListItem_Clean_EmptyNilSkipDecoded(t *testing.T) {
 	})
 }
 
-// TestListItem_TypedNilBuiltinChild verifies that a typed-nil built-in pointer, wrapped as an
-// Item, is never silently skipped or mistaken for known-clean: NewListItem must not panic when
-// storing it (each type-switch arm in childClean nil-checks before reading itemErr), but
-// Error() must still panic when it reaches the typed nil, exactly as it did before this task —
-// only the known-clean fast path is new; the not-clean walk that dereferences the nil pointer
-// is untouched.
+// TestListItem_TypedNilBuiltinChild verifies that typed-nil built-in children remain stored but
+// make traversal and formatting fail closed instead of panicking.
 func TestListItem_TypedNilBuiltinChild(t *testing.T) {
 	t.Parallel()
 
@@ -583,24 +650,27 @@ func TestListItem_TypedNilBuiltinChild(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			require := require.New(t)
-
-			var list Item
-
-			require.NotPanics(func() {
-				list = NewListItem(NewASCIIItem("ok"), tt.nilv)
-			})
-			require.Equal(2, list.Size(), "typed-nil child must be stored, not skipped")
+			list := NewListItem(NewASCIIItem("ok"), tt.nilv)
+			require.Equal(t, 2, list.Size(), "typed-nil child must be stored, not skipped")
+			require.Error(t, list.Error())
 
 			li, ok := list.(*ListItem)
-			require.True(ok)
-			require.False(li.clean, "a typed-nil built-in child must never be known-clean")
+			require.True(t, ok)
 
-			require.Panics(func() {
-				_ = list.Error()
-			}, "Error() must still panic on a typed-nil built-in child, unchanged from before this task")
+			_, err := li.Get(1)
+			require.Error(t, err)
+			require.Empty(t, list.ToSML())
 		})
 	}
+}
+
+func TestListItem_ToSML_OwnErrorIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	item := &ListItem{}
+	item.itemErr = NewItemErrorWithMsg("boom")
+
+	require.Empty(t, item.ToSML())
 }
 
 // countingErrorItem is a minimal external Item implementation used to verify that the

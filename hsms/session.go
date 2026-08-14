@@ -207,6 +207,10 @@ func (s *session) ForwardDataMessageAsync(ctx context.Context, msg *DataMessage)
 // and system bytes are taken verbatim from primary (E37 §8.2.6.9 — system bytes must match).
 // The message is enqueued via rt.SendAsync (no W-bit, no reply correlation needed).
 func (s *session) ReplyDataMessage(ctx context.Context, primary *DataMessage, item secs2.Item) error {
+	if primary == nil {
+		return ErrNilMessage
+	}
+
 	dm, err := NewDataMessage(
 		primary.Stream(),
 		primary.Function()+1, // SECS-II secondary function = primary function + 1

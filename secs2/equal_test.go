@@ -32,6 +32,39 @@ func TestEqual_NilHandling(t *testing.T) {
 	assert.False(t, Equal(I1(5), nil))
 }
 
+func TestEqual_TypedNilHandling(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		item Item
+	}{
+		{name: "built-in pointer", item: (*ASCIIItem)(nil)},
+		{name: "external pointer", item: (*fakeItem)(nil)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var itemNil, nilItem, itemItem, itemValid, validItem bool
+			require.NotPanics(t, func() {
+				itemNil = Equal(tt.item, nil)
+				nilItem = Equal(nil, tt.item)
+				itemItem = Equal(tt.item, tt.item)
+				itemValid = Equal(tt.item, I1(5))
+				validItem = Equal(I1(5), tt.item)
+			})
+
+			assert.True(t, itemNil)
+			assert.True(t, nilItem)
+			assert.True(t, itemItem)
+			assert.False(t, itemValid)
+			assert.False(t, validItem)
+		})
+	}
+}
+
 func TestEqual_ErroredItemNeverEqual(t *testing.T) {
 	t.Parallel()
 

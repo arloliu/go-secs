@@ -12,8 +12,9 @@ import (
 //	v, err := secs2.NewCursor(item).At(1, 0).ASCII()
 //
 // A Cursor is created with [NewCursor].
-// Copying it is free — it is a plain value with no pointer to mutable state — and no method
-// allocates on the happy path.
+// Copying it is free because it is a plain value with no pointer to mutable state.
+// Navigation and non-copying terminal accessors allocate nothing on the happy path;
+// [Cursor.Binary] allocates its documented caller-owned copy.
 //
 // Navigation with [Cursor.At] accumulates errors instead of failing immediately: once a hop
 // fails, every later [Cursor.At] call on the resulting Cursor is a no-op, and the terminal
@@ -30,7 +31,7 @@ type Cursor struct {
 //
 // A nil item yields a Cursor whose accessors all return a descriptive error; it never panics.
 func NewCursor(item Item) Cursor {
-	if item == nil {
+	if isNilItem(item) {
 		return Cursor{err: errors.New("secs2: cursor: item is nil")}
 	}
 
@@ -75,6 +76,10 @@ func (c Cursor) At(indices ...int) Cursor {
 	index := c.index
 
 	for _, idx := range indices {
+		if isNilItem(cur) {
+			return Cursor{err: fmt.Errorf("secs2: cursor at index %d (depth %d): item is nil", idx, depth)}
+		}
+
 		if !cur.IsList() {
 			return Cursor{err: hopTypeErr(idx, depth, cur.Type())}
 		}
@@ -82,6 +87,9 @@ func (c Cursor) At(indices ...int) Cursor {
 		next, err := cur.ItemAt(idx)
 		if err != nil {
 			return Cursor{err: fmt.Errorf("secs2: cursor at index %d (depth %d): %w", idx, depth, err)}
+		}
+		if isNilItem(next) {
+			return Cursor{err: fmt.Errorf("secs2: cursor at index %d (depth %d): item is nil", idx, depth)}
 		}
 
 		cur = next

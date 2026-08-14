@@ -471,6 +471,15 @@ func TestNewItemError(t *testing.T) {
 	}
 }
 
+func TestNewItemError_Nil(t *testing.T) {
+	t.Parallel()
+
+	err := NewItemError(nil)
+	require.NotPanics(t, func() { _ = err.Error() })
+	require.Error(t, err.Unwrap())
+	require.Equal(t, "secs2: nil error", err.Error())
+}
+
 // TestNewItemError_deferredErrorSurface proves the wrap chain stays errors.Is-transparent all the
 // way from a concrete item's deferred error to the original sentinel, through baseItem.setError's
 // errors.Join + NewItemError path.

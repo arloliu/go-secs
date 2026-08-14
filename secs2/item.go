@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"reflect"
 	"unsafe"
 )
 
@@ -112,12 +113,30 @@ func NewItemErrorWithMsg(errMsg string) *ItemError {
 //
 // If err is already an ItemError, the inner error is unwrapped to avoid double-wrapping.
 func NewItemError(err error) *ItemError {
+	if err == nil {
+		err = errors.New("secs2: nil error")
+	}
+
 	itemErr := &ItemError{}
 	if errors.As(err, &itemErr) {
 		return &ItemError{err: errors.Unwrap(err)}
 	}
 
 	return &ItemError{err: err}
+}
+
+func isNilItem(item Item) bool {
+	if item == nil {
+		return true
+	}
+
+	v := reflect.ValueOf(item)
+	switch v.Kind() { //nolint:exhaustive // only nil-capable kinds may call Value.IsNil
+	case reflect.Chan, reflect.Func, reflect.Map, reflect.Pointer, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
 }
 
 // Error implements the error interface.

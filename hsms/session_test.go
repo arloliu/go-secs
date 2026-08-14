@@ -468,6 +468,30 @@ func TestSession_ReplyDataMessage_AllowsEvenFunction(t *testing.T) {
 	require.Equal(t, uint8(2), dm.Function(), "reply function must be primary.Function()+1 (even)")
 }
 
+func TestSession_ReplyDataMessage_NilPrimary(t *testing.T) {
+	rt := newMockRuntime(t)
+	s := newSession(0xFFFF, rt, &sysBytesGen{})
+
+	err := s.ReplyDataMessage(t.Context(), nil, secs2.NewEmptyItem())
+	require.ErrorIs(t, err, ErrNilMessage)
+}
+
+func TestSession_ReplyDataMessage_Function255UsesFunction0(t *testing.T) {
+	rt := newMockRuntime(t)
+	s := newSession(0xFFFF, rt, &sysBytesGen{})
+	primary, err := NewDataMessage(1, 255, true, 0xFFFF, [4]byte{0, 0, 0, 1}, secs2.NewEmptyItem())
+	require.NoError(t, err)
+
+	require.NoError(t, s.ReplyDataMessage(t.Context(), primary, secs2.NewEmptyItem()))
+	rt.mu.Lock()
+	sent := rt.asyncMsg
+	rt.mu.Unlock()
+
+	dm, ok := sent.(*DataMessage)
+	require.True(t, ok)
+	require.Equal(t, uint8(0), dm.Function())
+}
+
 // TestSession_ForwardDataMessage_AllowsEvenFunction is the counter-assertion for the forward
 // path: ForwardDataMessage bypasses construction entirely and must forward an even-function
 // message verbatim.
