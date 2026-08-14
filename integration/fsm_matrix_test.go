@@ -32,37 +32,56 @@ func hasStateEdge(edges []stateEdge, prev, next hsms.ConnState) bool {
 // so prev is always whatever lastReacted last held:
 // NotSelectedState (the ordinary two-step climb) or NotConnectedState (below).
 //
-// The NotConnected -> Selected shape is reached via step()'s generation-match discard,
-// NOT the H2 same-generation pre-commit.
-// fireTransition's own doc comment confirms a same-generation pre-commit still reports
-// NotSelected -> Selected,
-// because CommitConnected's injectFrom for evTCPUp completes, on the active role,
-// before the recv loop that could race a CommitSelected is even spawned
-// (see hsmsss/transport_active.go startActive).
-// What DOES collapse it is cross-generation:
-// commitFrom's commitGate (hsms/connection_lifecycle.go commitTCPUp) admits a synchronous CAS
-// while the NAMED epoch's own {id, ended} latch is still clear,
-// but step()'s later generation check
-// (supervisor.go step(), the "cmd.gen != 0 && s.curGen() != cmd.gen" branch)
-// compares against whichever epoch is CURRENT at drain time
-// and returns WITHOUT updating lastReacted on a mismatch.
-// A short T7 (as staleT7NoOpFromSelected configures) can make a generation churn and get superseded
-// while run() is scheduler-starved and hasn't yet drained its evTCPUp:
-// that event is then discarded stale,
-// lastReacted never advances past NotConnectedState,
-// and the successor generation's own CommitSelected CAS
-// (which only checks the FROM state value, not which generation set it)
-// can still succeed on the still-NotSelected atomic state left behind —
-// so the eventual evSelectAccepted reports NotConnected -> Selected directly,
-// with the NotSelected -> Selected edge never firing at all
-// (not merely dropped from notify's delivery buffer).
+// TWO independent, unrelated mechanisms can legally produce the collapsed NotConnected -> Selected
+// edge, with the NotSelected -> Selected edge never firing at all
+// (not merely dropped from notify's delivery buffer — lastReacted itself never passes through
+// NotSelectedState).
+// Both rely on the SAME transition-table tolerance documented at supervisor.go:184-186
+// ("evTCPUp is legal from BOTH NotConnected AND NotSelected ... evSelectAccepted is legal from BOTH
+// NotSelected AND Selected (the latter tolerates the H2 pre-commit in CommitSelected)"),
+// but they need different conditions to trigger:
+//
+//  1. Same-generation scheduler race (no T7, no reconnect churn needed).
+//     CommitConnected's CAS+injectFrom (evTCPUp) and CommitSelected's CAS+injectFrom
+//     (evSelectAccepted) run synchronously on the CALLERS' own goroutines
+//     (the connect-procedure goroutine and the Select-procedure/recv-loop goroutine respectively),
+//     fully decoupled from when run() actually DEQUEUES and processes either event.
+//     evTCPUp being enqueued first only guarantees it is DEQUEUED first — it says nothing about
+//     what cur := s.state.Load() reads at that moment.
+//     If run() is scheduler-starved long enough for BOTH synchronous CASes to complete
+//     (state already Selected) before run() drains ANY of the backlog,
+//     step() reads cur == SelectedState for the queued evTCPUp:
+//     the evTCPUp table entry (supervisor.go:200-203) does NOT include SelectedState,
+//     so it is an illegal no-op and lastReacted is left at NotConnectedState.
+//     The immediately-following evSelectAccepted then finds cur == SelectedState too
+//     (its own tolerant table entry, supervisor.go:204-207, accepts that),
+//     and fires (NotConnectedState, SelectedState) directly.
+//     TestSupervisor_PreCommittedSelectFiresReactionExactlyOnce (hsms/supervisor_test.go) explicitly
+//     WAITS for evTCPUp to finish processing before calling CommitSelected, which is why that test
+//     does not exercise this window — it is deliberately avoiding the very race described here.
+//  2. Cross-generation churn (needs a short T7 to be practical — see staleT7NoOpFromSelected).
+//     commitFrom's commitGate (hsms/connection_lifecycle.go commitTCPUp) admits a synchronous CAS
+//     while the NAMED epoch's own {id, ended} latch is still clear,
+//     but step()'s later generation check
+//     (supervisor.go step(), the "cmd.gen != 0 && s.curGen() != cmd.gen" branch)
+//     compares against whichever epoch is CURRENT at drain time
+//     and returns WITHOUT updating lastReacted on a mismatch.
+//     A short T7 can make a generation churn and get superseded while run() is scheduler-starved
+//     and hasn't yet drained its evTCPUp: that event is then discarded stale,
+//     lastReacted never advances past NotConnectedState,
+//     and the successor generation's own CommitSelected CAS
+//     (which only checks the FROM state value, not which generation set it)
+//     can still succeed on the still-NotSelected atomic state left behind —
+//     so the eventual evSelectAccepted again reports NotConnected -> Selected directly.
+//
+// Either mechanism produces the identical recorded edge, so one fence (settledAtSelected) covers both.
 var bringUpSelectedEdges = []stateEdge{
 	{prev: hsms.NotSelectedState, next: hsms.SelectedState},
 	{prev: hsms.NotConnectedState, next: hsms.SelectedState},
 }
 
-// settledAtSelected reports whether edges records either legal bring-up shape settling at Selected
-// (bringUpSelectedEdges): the ordinary two-step climb or the cross-generation collapsed single edge.
+// settledAtSelected reports whether edges records either legal bring-up shape settling at Selected (bringUpSelectedEdges):
+// the ordinary two-step climb or the collapsed single edge (either mechanism bringUpSelectedEdges documents).
 // It is shape-agnostic ON PURPOSE — see bringUpSelectedEdges —
 // while still admitting exactly the enumerated legal set, not "any state change":
 // a sequence that never reaches Selected at all still reports false.
@@ -74,6 +93,47 @@ func settledAtSelected(edges []stateEdge) bool {
 	}
 
 	return false
+}
+
+// bringUpEdges are the ONLY edges a clean connect (Select.rsp granted, no forced disconnect) may ever record:
+// the intermediate NotConnected -> NotSelected step (recorded whenever evTCPUp is processed before the race window bringUpSelectedEdges documents closes) plus the two settling shapes bringUpSelectedEdges enumerates.
+// Anything else recorded during a connect — most notably a Selected -> NotSelected or
+// Selected -> NotConnected edge appearing mid bring-up — is a genuine defect, not a legal shape.
+var bringUpEdges = []stateEdge{
+	{prev: hsms.NotConnectedState, next: hsms.NotSelectedState},
+	{prev: hsms.NotSelectedState, next: hsms.SelectedState},
+	{prev: hsms.NotConnectedState, next: hsms.SelectedState},
+}
+
+// isLegalBringUpEdge reports whether e is a member of bringUpEdges.
+func isLegalBringUpEdge(e stateEdge) bool {
+	for _, want := range bringUpEdges {
+		if e == want {
+			return true
+		}
+	}
+
+	return false
+}
+
+// bringUpSettledCleanly reports whether edges is a valid, complete connect bring-up:
+// it settles at Selected (settledAtSelected)
+// AND every recorded edge is a member of the legal bring-up set (bringUpEdges) —
+// the shape-agnostic replacement for an exact two-step require.Equal pin.
+// It still fails on a genuinely wrong outcome:
+// never reaching Selected, or any edge outside the legal set (for example a Selected -> NotSelected mid bring-up).
+func bringUpSettledCleanly(edges []stateEdge) bool {
+	if !settledAtSelected(edges) {
+		return false
+	}
+
+	for _, e := range edges {
+		if !isLegalBringUpEdge(e) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // TestSettledAtSelected is the teeth check for settledAtSelected against hand-built edge sequences, standing in for the live cross-generation race (bringUpSelectedEdges)
@@ -107,6 +167,42 @@ func TestSettledAtSelected(t *testing.T) {
 	require.True(t, settledAtSelected(collapsed), "settledAtSelected must accept the collapsed bring-up")
 	// ... and still correctly rejects a sequence that never reaches Selected — the genuinely wrong outcome the fence must keep failing on.
 	require.False(t, settledAtSelected(neverSelected), "settledAtSelected must reject a sequence that never reaches Selected")
+}
+
+// TestBringUpSettledCleanly is the teeth check for bringUpSettledCleanly,
+// the replacement for connect's OLD exact-two-step require.Equal pin.
+// It proves the pin still does its job after being made shape-agnostic:
+// the collapsed shape now PASSES (the old exact-sequence pin would have failed it),
+// the ordinary two-step shape still passes,
+// and a genuinely illegal sequence — a Selected -> NotSelected edge appearing MID bring-up,
+// which no clean connect can ever produce — still FAILS.
+func TestBringUpSettledCleanly(t *testing.T) {
+	twoStep := []stateEdge{
+		{prev: hsms.NotConnectedState, next: hsms.NotSelectedState},
+		{prev: hsms.NotSelectedState, next: hsms.SelectedState},
+	}
+	collapsed := []stateEdge{
+		{prev: hsms.NotConnectedState, next: hsms.SelectedState},
+	}
+	// A stray Selected -> NotSelected edge mid bring-up:
+	// not producible by a clean connect (it is the Select-lost edge, the subject of the separate selectLost subtest),
+	// so bringUpSettledCleanly must reject it even though the sequence does eventually settle at Selected.
+	illegalMidBringUp := []stateEdge{
+		{prev: hsms.NotConnectedState, next: hsms.NotSelectedState},
+		{prev: hsms.NotSelectedState, next: hsms.SelectedState},
+		{prev: hsms.SelectedState, next: hsms.NotSelectedState},
+		{prev: hsms.NotSelectedState, next: hsms.SelectedState},
+	}
+	neverSelected := []stateEdge{
+		{prev: hsms.NotConnectedState, next: hsms.NotSelectedState},
+	}
+
+	require.True(t, bringUpSettledCleanly(twoStep), "the ordinary two-step bring-up must pass")
+	require.True(t, bringUpSettledCleanly(collapsed),
+		"the collapsed bring-up must pass — this is what the OLD exact-two-step pin would have failed")
+	require.False(t, bringUpSettledCleanly(illegalMidBringUp),
+		"a Selected -> NotSelected edge mid bring-up must still fail, even though the sequence eventually settles at Selected")
+	require.False(t, bringUpSettledCleanly(neverSelected), "a sequence that never reaches Selected must still fail")
 }
 
 // newHSMSSSMatrixConn constructs an HSMS-SS connection over the net.Pipe harness for the
@@ -186,19 +282,18 @@ func TestFSM_HSMSSSMatrix(t *testing.T) {
 		require.NoError(t, conn.Open(ctx, hsms.OpenWaitSelected))
 		require.Equal(t, hsms.SelectedState, conn.State())
 
-		// The state notifier records asynchronously, so wait (bounded) until both connect edges land.
+		// The state notifier records asynchronously, so wait (bounded) until the bring-up settles at Selected.
+		// settledAtSelected, not a hard requirement of both specific edges, because the scheduler race / cross-generation race bringUpSelectedEdges documents can legally collapse the two-step climb into a single NotConnected -> Selected edge.
 		require.Eventually(t, func() bool {
-			p := rec.pairs()
-			return hasStateEdge(p, hsms.NotConnectedState, hsms.NotSelectedState) &&
-				hasStateEdge(p, hsms.NotSelectedState, hsms.SelectedState)
-		}, 15*time.Second, 5*time.Millisecond, "connect must step NotConnected -> NotSelected -> Selected")
+			return settledAtSelected(rec.pairs())
+		}, 15*time.Second, 5*time.Millisecond, "connect must settle at Selected")
 
-		// The notifier delivers edges in order and the connection is quiescent at Selected, so the two
-		// connect edges are exactly the recorded sequence.
-		require.Equal(t, []stateEdge{
-			{prev: hsms.NotConnectedState, next: hsms.NotSelectedState},
-			{prev: hsms.NotSelectedState, next: hsms.SelectedState},
-		}, rec.pairs())
+		// Pin what the scenario actually tests —
+		// a clean bring-up settles at Selected with no illegal edge ever recorded — rather than demanding the two-step sequence specifically:
+		// bringUpEdges enumerates the full legal set (the intermediate step plus both settling shapes),
+		// so this still fails on a genuinely wrong outcome (for example a Selected -> NotSelected edge mid bring-up).
+		require.True(t, bringUpSettledCleanly(rec.pairs()),
+			"connect must settle at Selected via a legal bring-up shape with no illegal edge recorded: %+v", rec.pairs())
 	})
 
 	// t7DwellDisconnect: with the Select.rsp withheld the connection reaches NotSelected but never
@@ -248,11 +343,14 @@ func TestFSM_HSMSSSMatrix(t *testing.T) {
 		require.NoError(t, conn.Open(ctx, hsms.OpenWaitSelected))
 		require.Equal(t, hsms.SelectedState, conn.State())
 
-		// Wait until the notifier has recorded the connect edges through Selected, so the only forward
-		// edge into NotSelected the wait below can observe is the Deselect-driven Select-lost — not a
-		// still-in-flight connect NotConnected -> NotSelected.
+		// Wait until the bring-up has settled at Selected (settledAtSelected — see bringUpSelectedEdges;
+		// the scheduler race / cross-generation race it documents can legally collapse the two-step climb into a single NotConnected -> Selected edge).
+		// Either shape leaves the supervisor's own lastReacted at SelectedState once this returns true
+		// (fireTransition only ever fires on next != lastReacted, and a settling edge's next is always SelectedState),
+		// so the only way a LATER edge with next == NotSelectedState can appear is evSelectLost's tolerant table entry (Selected -> NotSelected) —
+		// never a still-in-flight connect NotConnected -> NotSelected, which cannot fire again once lastReacted has already passed it.
 		require.Eventually(t, func() bool {
-			return hasStateEdge(rec.pairs(), hsms.NotSelectedState, hsms.SelectedState)
+			return settledAtSelected(rec.pairs())
 		}, 15*time.Second, 5*time.Millisecond, "connect must settle at Selected before the Deselect")
 
 		require.NoError(t, latestHSMSPeer(t, df).sendDeselect(0xFFFF))
