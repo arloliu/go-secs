@@ -10,8 +10,13 @@ import (
 	"time"
 
 	"github.com/arloliu/go-secs/v2/hsms"
+	"github.com/arloliu/go-secs/v2/logger"
 	"github.com/arloliu/go-secs/v2/secs2"
 )
+
+type traceConfigRuntime interface {
+	TraceConfig() (bool, logger.Logger)
+}
 
 // makeFrame is the default frame allocator: a fresh GC-owned buffer of n bytes (NOT pooled,
 // §5.F option (b)). It is the production value of transport.allocFrame; tests override the
@@ -122,8 +127,12 @@ func (t *transport) dispatchFrame(genCtx context.Context, g *genWG, frame []byte
 		return true
 	}
 
-	if msgType != hsms.DataMsgType && t.cfg.TraceTraffic() {
-		t.cfg.Logger().Debug("hsmsss: trace: received control frame",
+	trace, log := t.cfg.TraceTraffic(), t.cfg.Logger()
+	if rt, ok := t.rt.(traceConfigRuntime); ok {
+		trace, log = rt.TraceConfig()
+	}
+	if msgType != hsms.DataMsgType && trace {
+		log.Debug("hsmsss: trace: received control frame",
 			"stype", sType, "raw", hexDumpFrame(frame))
 	}
 

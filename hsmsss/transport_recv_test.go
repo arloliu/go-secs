@@ -21,9 +21,8 @@ import (
 	"time"
 
 	"github.com/arloliu/go-secs/v2/hsms"
-	"github.com/arloliu/go-secs/v2/logger/loggertest"
+	"github.com/arloliu/go-secs/v2/logger"
 	"github.com/arloliu/go-secs/v2/secs2"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -45,6 +44,46 @@ func (g *testSysGen) next() [4]byte {
 	binary.BigEndian.PutUint32(b[:], g.n.Add(1))
 
 	return b
+}
+
+type traceRecord struct {
+	msg     string
+	keyvals []any
+}
+
+type traceCaptureLogger struct {
+	mu      sync.Mutex
+	records []traceRecord
+}
+
+func (l *traceCaptureLogger) Debug(msg string, keyvals ...any) {
+	l.mu.Lock()
+	l.records = append(l.records, traceRecord{msg: msg, keyvals: append([]any(nil), keyvals...)})
+	l.mu.Unlock()
+}
+
+func (*traceCaptureLogger) Info(string, ...any)  {}
+func (*traceCaptureLogger) Warn(string, ...any)  {}
+func (*traceCaptureLogger) Error(string, ...any) {}
+func (*traceCaptureLogger) Fatal(string, ...any) {}
+func (l *traceCaptureLogger) With(...any) logger.Logger {
+	return l
+}
+func (*traceCaptureLogger) Level() logger.LogLevel   { return logger.DebugLevel }
+func (*traceCaptureLogger) SetLevel(logger.LogLevel) {}
+
+func (l *traceCaptureLogger) count() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return len(l.records)
+}
+
+func (l *traceCaptureLogger) last() traceRecord {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.records[len(l.records)-1]
 }
 
 type recRT struct {
@@ -69,6 +108,8 @@ type recRT struct {
 	// (the active Select procedure parks there — unchanged from the framed-reader tests).
 	writeMsgFn      func(ctx context.Context, msg hsms.Message) (hsms.Message, error)
 	selectLostCount int // number of SelectLost() calls (Deselect responder transition)
+	traceEnabled    bool
+	traceLogger     logger.Logger
 
 	t7ExpiredCount int           // number of T7Expired() calls (NOT-SELECTED dwell expiry)
 	t7ExpiredCh    chan struct{} // closed on the FIRST T7Expired call
@@ -87,6 +128,14 @@ type recRT struct {
 	deliveredCh       chan struct{} // when non-nil, closed once on the FIRST DeliverOwnedFrame (delivery observed)
 	deliveredJustOnce sync.Once
 }
+
+// runtimeWithoutTraceConfig preserves only the TransportRuntime method set of its wrapped runtime.
+// Its dynamic type deliberately does not provide the optional traceConfigRuntime capability.
+type runtimeWithoutTraceConfig struct {
+	hsms.TransportRuntime
+}
+
+var _ hsms.TransportRuntime = runtimeWithoutTraceConfig{}
 
 func newRecRT() *recRT {
 	rt := &recRT{
@@ -199,6 +248,20 @@ func (m *recRT) LinktestFailThreshold() int {
 	defer m.mu.Unlock()
 
 	return m.linktestFailThreshold
+}
+
+func (m *recRT) TraceConfig() (bool, logger.Logger) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.traceEnabled, m.traceLogger
+}
+
+func (m *recRT) setTraceConfig(enabled bool, log logger.Logger) {
+	m.mu.Lock()
+	m.traceEnabled = enabled
+	m.traceLogger = log
+	m.mu.Unlock()
 }
 
 // setLinktest configures the auto-linktest interval/threshold before startLinktest is called.
@@ -370,7 +433,7 @@ func (m *recRT) tcpDownDidFire() bool {
 // plus the peer end of the connection (from which the test writes frames byte-streams and
 // reads any Reject the reader emits). setups run after newTransport but BEFORE Start, so a
 // test can install the allocFrame seam before the recv loop spawns (J2).
-func startReader(t *testing.T, rt *recRT, opts []Option, setups ...func(*transport)) *net.TCPConn {
+func startReader(t *testing.T, rt hsms.TransportRuntime, opts []Option, setups ...func(*transport)) *net.TCPConn {
 	t.Helper()
 
 	ln, port := listenLoopback(t)
@@ -599,56 +662,85 @@ func TestReader_ControlFrameLenNot10Rejected(t *testing.T) {
 	require.False(t, rt.tcpDownDidFire(), "a Reject must keep the link (no TCPDown)")
 }
 
-// TestDispatchFrame_TraceTraffic_LogsControlFrame proves that with WithTraceTraffic enabled, an
-// inbound control frame (here Linktest.req) logs a Debug line via dispatchFrame's control-only
-// trace hook (data frames are traced separately in hsms.DeliverOwnedFrame, so this hook excludes
-// them to avoid a double log) — and that the logged keysAndValues carry the real stype and hex-dump
-// payload (matching the pattern in hsms/connection_send_test.go's
-// TestWriteFrame_TraceTraffic_LogsSentFrame), not just that SOME Debug call happened.
-//
-// The Debug call happens on the recv goroutine while this test goroutine observes it, so
-// completion is signalled via a channel closed from testify's Run callback (mirroring recRT's
-// tcpDownCh/t7ExpiredCh pattern) rather than polling mockLog.Calls directly — reading that field
-// without the mock's internal lock would race with MethodCalled's concurrent append (-race). The
-// callback itself runs synchronously on the recv goroutine inside MethodCalled, so capturing its
-// Arguments into a test-goroutine-owned variable here is safe (no concurrent access to it until
-// after loggedCh is observed to have fired).
-func TestDispatchFrame_TraceTraffic_LogsControlFrame(t *testing.T) {
-	t.Parallel()
-
-	loggedCh := make(chan struct{})
-	var loggedOnce sync.Once
-	var keyvals []any
-
-	mockLog := loggertest.NewMockLogger()
-	mockLog.On("Debug", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
-		kv, ok := args[1].([]any)
-		require.True(t, ok, "Debug's variadic keysAndValues must be forwarded as a []any slice")
-		keyvals = kv
-		loggedOnce.Do(func() { close(loggedCh) })
-	}).Return()
-
+func TestDispatchFrame_TraceTraffic_UsesLiveConfig(t *testing.T) {
 	rt := newRecRT()
+	frozenLog := &traceCaptureLogger{}
 	peer := startReader(t, rt, []Option{
-		WithConnectionOption(hsms.WithTraceTraffic(true)),
-		WithConnectionOption(hsms.WithLogger(mockLog)),
+		WithConnectionOption(hsms.WithTraceTraffic(false)),
+		WithConnectionOption(hsms.WithLogger(frozenLog)),
 	})
+
+	liveLog := &traceCaptureLogger{}
+	rt.setTraceConfig(true, liveLog)
 
 	header := header10(0, byte(hsms.LinktestReqType))
 	wire := frameBytes(10, header, nil)
 	_, err := peer.Write(wire)
 	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rt.sentCount() == 1 },
+		5*time.Second, 10*time.Millisecond, "first Linktest.req must be handled")
 
-	select {
-	case <-loggedCh:
-	case <-time.After(15 * time.Second):
-		t.Fatal("a traced inbound control frame must log at Debug level")
-	}
-
-	require.Contains(t, keyvals, byte(hsms.LinktestReqType),
+	require.Equal(t, 1, liveLog.count())
+	require.Zero(t, frozenLog.count())
+	record := liveLog.last()
+	require.Equal(t, "hsmsss: trace: received control frame", record.msg)
+	require.Contains(t, record.keyvals, byte(hsms.LinktestReqType),
 		"the logged keysAndValues must carry the frame's real stype")
-	require.Contains(t, keyvals, hexDumpFrame(header),
+	require.Contains(t, record.keyvals, hexDumpFrame(header),
 		"the logged keysAndValues must carry the exact frame hex dump")
+
+	rt.setTraceConfig(false, liveLog)
+	header[9]++
+	_, err = peer.Write(frameBytes(10, header, nil))
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rt.sentCount() == 2 },
+		5*time.Second, 10*time.Millisecond, "second Linktest.req must be handled")
+	require.Equal(t, 1, liveLog.count(), "disabling live tracing must suppress later control-frame logs")
+}
+
+func TestDispatchFrame_TraceTraffic_LiveDisableOverridesConstruction(t *testing.T) {
+	rt := newRecRT()
+	frozenLog := &traceCaptureLogger{}
+	peer := startReader(t, rt, []Option{
+		WithConnectionOption(hsms.WithTraceTraffic(true)),
+		WithConnectionOption(hsms.WithLogger(frozenLog)),
+	})
+
+	liveLog := &traceCaptureLogger{}
+	rt.setTraceConfig(false, liveLog)
+
+	header := header10(0, byte(hsms.LinktestReqType))
+	_, err := peer.Write(frameBytes(10, header, nil))
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return rt.sentCount() == 1 },
+		5*time.Second, 10*time.Millisecond, "Linktest.req must be handled before checking trace suppression")
+	require.Zero(t, liveLog.count(), "live disablement must override construction-time enablement")
+	require.Zero(t, frozenLog.count(), "the frozen logger must not receive a live-disabled trace")
+}
+
+func TestDispatchFrame_TraceTraffic_WithoutCapabilityUsesConstructionConfig(t *testing.T) {
+	baseRT := newRecRT()
+	rt := runtimeWithoutTraceConfig{TransportRuntime: baseRT}
+	_, hasTraceConfig := any(rt).(traceConfigRuntime)
+	require.False(t, hasTraceConfig, "fallback runtime must not implement the optional trace capability")
+
+	frozenLog := &traceCaptureLogger{}
+	peer := startReader(t, rt, []Option{
+		WithConnectionOption(hsms.WithTraceTraffic(true)),
+		WithConnectionOption(hsms.WithLogger(frozenLog)),
+	})
+
+	header := header10(0, byte(hsms.LinktestReqType))
+	_, err := peer.Write(frameBytes(10, header, nil))
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return baseRT.sentCount() == 1 },
+		5*time.Second, 10*time.Millisecond, "Linktest.req must be handled before checking fallback tracing")
+
+	require.Equal(t, 1, frozenLog.count())
+	record := frozenLog.last()
+	require.Equal(t, "hsmsss: trace: received control frame", record.msg)
+	require.Contains(t, record.keyvals, byte(hsms.LinktestReqType))
+	require.Contains(t, record.keyvals, hexDumpFrame(header))
 }
 
 // TestReader_UnsupportedSTypeRejectsKeepsLink (J3, §7.10.3) — an undefined SType is answered
