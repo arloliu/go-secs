@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Public constructors, options, cursor traversal, list traversal, reply helpers, and SML logging helpers return errors or diagnostics for nil-like inputs instead of panicking.
+- Public constructors, options, cursor traversal, list traversal, send and reply helpers, and SML logging helpers return errors or diagnostics for nil-like inputs instead of panicking.
 - Invalid SECS-II lists no longer emit a child count that disagrees with their wire payload.
 - Strict SML output escapes `>` and single-line item colons no longer alter header parsing.
 - SECS-I reports EOF and socket failures as I/O errors rather than T1/T2 expiry,
@@ -27,8 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Large legal SECS-II lists can expand to a much larger decoded object graph.
   SML input that declares counts it never supplies preallocates several times what honest input needs.
 - Framing protocol failures still report the existing `CauseIOError` lifecycle cause.
-- Typed-nil guards at the `secs2` item boundary add roughly 3 ns per cursor hop and per `Equal` comparison.
-  Allocations are unchanged.
+- Typed-nil and zero-value guards at the `secs2` item boundary cost a few nanoseconds each.
+  They apply at every cursor hop, every terminal accessor, and every `Equal` comparison.
+  A two-hop cursor extraction takes about 9 ns longer than in v2.4.0, with allocations unchanged.
 
 ## [2.4.0] - 2026-08-14
 

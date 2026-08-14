@@ -285,8 +285,8 @@ func (c Cursor) Binary() ([]byte, error) {
 
 // Size returns the [Item.Size] of the item at the cursor.
 //
-// It carries forward any error already on the cursor, and otherwise fails only on a zero-value
-// Cursor: like Item.Size, it does not consult the item's deferred construction error.
+// It carries forward any error already on the cursor, and otherwise fails only on a zero-value Cursor:
+// like Item.Size, it does not consult the item's deferred construction error.
 func (c Cursor) Size() (int, error) {
 	if err := c.fault(); err != nil {
 		return 0, err
@@ -297,7 +297,7 @@ func (c Cursor) Size() (int, error) {
 
 // Item unwraps the cursor and returns the [Item] at its current position.
 //
-// It carries forward any error already on the cursor, including the zero-value Cursor's.
+// It carries forward any error already on the cursor, and reports a zero-value Cursor as an error of its own.
 // It does not itself consult the returned item's deferred construction error —
 // call [Item.Error] on the result to check that.
 func (c Cursor) Item() (Item, error) {
@@ -310,6 +310,7 @@ func (c Cursor) Item() (Item, error) {
 
 // Err returns the first error encountered while navigating or reading through the cursor, or nil
 // if none occurred.
+// A zero-value Cursor reports no error here, but every terminal accessor rejects it.
 func (c Cursor) Err() error {
 	return c.err
 }
