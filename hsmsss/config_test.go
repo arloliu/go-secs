@@ -1,12 +1,14 @@
 package hsmsss_test
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/arloliu/go-secs/v2/hsms"
 	"github.com/arloliu/go-secs/v2/hsmsss"
+	"github.com/stretchr/testify/require"
 )
 
 // TestNewConfig_Defaults verifies that NewConfig produces a Config whose
@@ -44,6 +46,47 @@ func TestNewConfig_Defaults(t *testing.T) {
 	// Session ID must be 0xFFFF (E37.1 single-session default).
 	if cfg.SessionID() != 0xFFFF {
 		t.Errorf("SessionID() = 0x%04X, want 0xFFFF", cfg.SessionID())
+	}
+}
+
+func TestNewConfig_NilOptionsReturnErrors(t *testing.T) {
+	_, err := hsmsss.NewConfig("127.0.0.1", 5000, nil)
+	require.ErrorContains(t, err, "option must not be nil")
+
+	_, err = hsmsss.NewConfig("127.0.0.1", 5000, hsmsss.WithConnectionOption(nil))
+	require.ErrorContains(t, err, "connection option must not be nil")
+}
+
+func TestApplyOptions_NilOptionsAreTransactional(t *testing.T) {
+	tests := []struct {
+		name    string
+		nilLike hsmsss.Option
+		wantErr string
+	}{
+		{name: "nil option", nilLike: nil, wantErr: "option must not be nil"},
+		{
+			name:    "nil connection option",
+			nilLike: hsmsss.WithConnectionOption(nil),
+			wantErr: "connection option must not be nil",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := hsmsss.NewConfig("127.0.0.1", 5000)
+			require.NoError(t, err)
+			origKeepAlive := cfg.TCPKeepAlive()
+			siblingErr := errors.New("sibling option failed")
+
+			err = cfg.ApplyOptions(
+				hsmsss.WithTCPKeepAlive(10*time.Second),
+				tt.nilLike,
+				func(*hsmsss.Config) error { return siblingErr },
+			)
+			require.ErrorContains(t, err, tt.wantErr)
+			require.ErrorIs(t, err, siblingErr)
+			require.Equal(t, origKeepAlive, cfg.TCPKeepAlive(), "valid option must not commit when a sibling fails")
+		})
 	}
 }
 

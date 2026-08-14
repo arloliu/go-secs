@@ -6,6 +6,7 @@ package secs1
 // value-receiver accessors. No network and no time.Sleep — the transport seam is never opened here.
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -29,6 +30,47 @@ func TestNewConfig_Defaults(t *testing.T) {
 	require.Equal(t, 3, cfg.RetryLimit(), "default RetryLimit")
 	require.False(t, cfg.IsEquip(), "default role is host (slave)")
 	require.Equal(t, uint16(0), cfg.DeviceID(), "default deviceID")
+}
+
+func TestNewConfig_NilOptionsReturnErrors(t *testing.T) {
+	_, err := NewConfig("127.0.0.1", 5000, nil)
+	require.ErrorContains(t, err, "option must not be nil")
+
+	_, err = NewConfig("127.0.0.1", 5000, WithConnectionOption(nil))
+	require.ErrorContains(t, err, "connection option must not be nil")
+}
+
+func TestApplyOptions_NilOptionsAreTransactional(t *testing.T) {
+	tests := []struct {
+		name    string
+		nilLike Option
+		wantErr string
+	}{
+		{name: "nil option", nilLike: nil, wantErr: "option must not be nil"},
+		{
+			name:    "nil connection option",
+			nilLike: WithConnectionOption(nil),
+			wantErr: "connection option must not be nil",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := NewConfig("127.0.0.1", 5000)
+			require.NoError(t, err)
+			origKeepAlive := cfg.TCPKeepAlive()
+			siblingErr := errors.New("sibling option failed")
+
+			err = cfg.ApplyOptions(
+				WithTCPKeepAlive(10*time.Second),
+				tt.nilLike,
+				func(*Config) error { return siblingErr },
+			)
+			require.ErrorContains(t, err, tt.wantErr)
+			require.ErrorIs(t, err, siblingErr)
+			require.Equal(t, origKeepAlive, cfg.TCPKeepAlive(), "valid option must not commit when a sibling fails")
+		})
+	}
 }
 
 // TestNewConfig_WriteTimeoutInvariant asserts the D5b-11 invariant: the embedded core writeTimeout

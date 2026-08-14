@@ -113,6 +113,11 @@ func (c *Config) apply(opts ...Option) error {
 	var errs []error
 
 	for _, opt := range opts {
+		if opt == nil {
+			errs = append(errs, errors.New("secs1: option must not be nil"))
+			continue
+		}
+
 		if err := opt(&scratch); err != nil {
 			errs = append(errs, err)
 		}
@@ -373,6 +378,10 @@ func WithTCPKeepAlive(d time.Duration) Option {
 //	)
 func WithConnectionOption(opt hsms.ConnOption) Option {
 	return func(c *Config) error {
+		if opt == nil {
+			return errors.New("WithConnectionOption: connection option must not be nil")
+		}
+
 		return opt(&c.ConnectionConfig)
 	}
 }
