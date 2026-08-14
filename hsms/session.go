@@ -138,6 +138,10 @@ func (s *session) SendDataMessageAsync(ctx context.Context, stream, function byt
 //
 // Returns the reply DataMessage when the W-bit is set.
 func (s *session) SendSECS2Message(ctx context.Context, msg secs2.SECS2Message) (*DataMessage, error) {
+	if isNilValue(msg) {
+		return nil, ErrNilMessage
+	}
+
 	// secs2.SECS2Message is externally implementable and carries no immutability
 	// guarantee, so every field is snapshotted once into a local before the guard
 	// runs; the guard and the construction below both read the same snapshot,
