@@ -25,7 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A dribbling SECS-I peer can keep malformed-frame draining active until disconnect.
 - Large legal SECS-II lists can expand to a much larger decoded object graph.
+  SML input that declares counts it never supplies preallocates several times what honest input needs.
 - Framing protocol failures still report the existing `CauseIOError` lifecycle cause.
+- Typed-nil guards at the `secs2` item boundary add roughly 3 ns per cursor hop and per `Equal` comparison.
+  Allocations are unchanged.
 
 ## [2.4.0] - 2026-08-14
 
