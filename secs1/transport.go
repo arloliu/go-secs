@@ -552,10 +552,10 @@ func (t *transport) lineEngine(engineCtx context.Context, g *genWG, conn net.Con
 
 			blk, rerr := line.receiveBlock(engineCtx)
 			if rerr != nil {
-				// A block-level receive error (T1/T2 timeout, bad length/checksum) was already NAK'd by
-				// receiveBlock; the peer will RTY. This is NOT a link teardown — keep looping. Exit
-				// promptly, though, if the error is a teardown cancellation (a genuine conn close
-				// otherwise surfaces as the next poll's real read error → the (3) TCPDown path).
+				// A protocol or timeout receive error was already NAK'd by receiveBlock;
+				// the peer will RTY.
+				// A real I/O error is not NAK'd and surfaces again on the next poll's TCPDown path.
+				// Exit promptly if this generation is already tearing down.
 				if engineCtx.Err() != nil {
 					return
 				}
@@ -717,9 +717,15 @@ func (t *transport) ArmStart() {
 //
 // It is the SOLE producer on sendReqCh.
 //
-// ctx is intentionally NOT selected on. secs1 forces writeTimeout=0 (D5b-11), so the core arms no write deadline:
-// a SECS-I Write may legitimately block for a whole line transaction (T2 x (RetryLimit+1)).
-// The engine bounds that transaction, and teardown (genDone) is the release for a parked Write —
+// ctx is intentionally NOT selected on.
+// secs1 forces writeTimeout=0 (D5b-11), so the core arms no write deadline.
+// T2 bounds waits for protocol responses, and RetryLimit bounds the number of failed protocol retries.
+// Neither bounds socket writes; the line engine performs them without a write deadline.
+// Each successful slave contention yield restarts the postponed send as a fresh request under E4,
+// so repeated successful master traffic can postpone the local send until the generation ends.
+// A malformed block received during a contention yield is drained until T1 silence;
+// each arriving chunk restarts T1, so the peer can keep that drain active until teardown.
+// Close or connection teardown closes the socket to interrupt line I/O and closes genDone to release a parked Write;
 // ctx cancellation is not a SECS-I line-abort signal.
 //
 // Shape + control guard (P0-2): the core supplies bufs whose bufs[0] is a 14-byte prefix ([4-byte length][10-byte HSMS header])
@@ -778,28 +784,11 @@ func (t *transport) Write(_ context.Context, conn net.Conn, bufs net.Buffers) er
 	}
 }
 
-// SetReadDeadline sets the read deadline on conn — the epoch's socket, passed explicitly (never re-resolve t.conn).
-//
-// Conn-bound no-op today: the line engine arms its own read deadlines on its captured conn (linePollInterval poll, T1/T2 in receiveBlock),
-// so no core caller drives this.
-func (t *transport) SetReadDeadline(conn net.Conn, deadline time.Time) error {
-	if conn == nil {
-		return nil
-	}
+// SetReadDeadline is a no-op because the line engine exclusively owns socket deadlines.
+func (t *transport) SetReadDeadline(_ net.Conn, _ time.Time) error { return nil }
 
-	return conn.SetReadDeadline(deadline)
-}
-
-// SetWriteDeadline sets the write deadline on conn — the same epoch socket handed to Write.
-//
-// Conn-bound no-op today: the line engine owns all writes on its captured conn.
-func (t *transport) SetWriteDeadline(conn net.Conn, deadline time.Time) error {
-	if conn == nil {
-		return nil
-	}
-
-	return conn.SetWriteDeadline(deadline)
-}
+// SetWriteDeadline is a no-op because the line engine exclusively owns socket deadlines.
+func (t *transport) SetWriteDeadline(_ net.Conn, _ time.Time) error { return nil }
 
 // applyKeepAlive enables TCP keep-alive probes on conn when TCPKeepAlive > 0 in the config. conn is
 // typically a *net.TCPConn (the passive Accept result or the default dialer's socket); a custom
