@@ -127,13 +127,16 @@ func (t *transport) dispatchFrame(genCtx context.Context, g *genWG, frame []byte
 		return true
 	}
 
-	trace, log := t.cfg.TraceTraffic(), t.cfg.Logger()
-	if rt, ok := t.rt.(traceConfigRuntime); ok {
-		trace, log = rt.TraceConfig()
-	}
-	if msgType != hsms.DataMsgType && trace {
-		log.Debug("hsmsss: trace: received control frame",
-			"stype", sType, "raw", hexDumpFrame(frame))
+	if msgType != hsms.DataMsgType {
+		trace, log := t.cfg.TraceTraffic(), t.cfg.Logger()
+		if rt, ok := t.rt.(traceConfigRuntime); ok {
+			trace, log = rt.TraceConfig()
+		}
+
+		if trace {
+			log.Debug("hsmsss: trace: received control frame",
+				"stype", sType, "raw", hexDumpFrame(frame))
+		}
 	}
 
 	switch msgType { //nolint:exhaustive // UndefinedMsgType is filtered by IsValidSType above; default is unreachable.
