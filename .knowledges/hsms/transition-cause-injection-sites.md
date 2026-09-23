@@ -4,14 +4,7 @@ title: Where a TransitionCause is chosen, and why one transition can swallow ano
 description: The full transition-source to cause map, why the cause is picked at the injection site rather than derived in the FSM, why the transports pass both the cause and their generation through a capability interface instead of TransportRuntime, how the generation match keeps a late transport goroutine from dropping its successor's link, why the three synchronous commits need a lock-fenced gate instead of that match, and the ways a cause never reaches a subscriber.
 tags: [hsms, lifecycle, supervisor, fsm, observability]
 status: draft
-generated: {by: "claude/opus-5", at: 2026-08-13T00:00:00Z}
-verified:
-  - {by: "claude/opus-5", at: 2026-08-13T00:00:00Z}
-  - {by: "claude/opus-5", at: 2026-08-13T13:00:00Z}
-  - {by: "claude/sonnet-5", at: 2026-08-13T23:00:00Z}
-  - {by: "claude/opus-5", at: 2026-08-14T02:00:00Z}
-  - {by: "claude/opus-5", at: 2026-08-14T05:00:00Z}
-  - {by: "claude/opus-5", at: 2026-08-14T09:00:00Z}
+generated: {by: "claude/opus-5", at: 2026-09-23T00:00:00Z}
 sources:
   - {resource: hsms/lifecycle.go, digest: sha256:65d429d90300b620, revision: 5a0ec1b}
   - {resource: hsms/supervisor.go, digest: sha256:6e184e41a0ff36b7, revision: 6ef4ce7}
@@ -27,6 +20,7 @@ sources:
   - {resource: hsmsss/transport_procedures.go, digest: sha256:232ee3127c6ae84b, revision: 0b40043}
   - {resource: hsmsss/transport_recv.go, digest: sha256:1b3b40dfd747daaf, revision: 2942595}
   - {resource: secs1/transport.go, digest: sha256:05f8cb504e3bbeef, revision: 8bb9188}
+  - {resource: internal/gencap/gencap.go, digest: sha256:cf8ecfdcf7a2b6d0, revision: 020da48}
 ---
 
 # What it does
@@ -248,8 +242,11 @@ That is what makes a refusal exit quietly instead of counting a linktest failure
 
 **How the cause crosses the package boundary.**
 `hsmsss` and `secs1` reach `TCPDownWithCause` by type-asserting `t.rt` to a package-local `causeRuntime` interface, then fall back to plain `TCPDown`.
-`hsmsss` additionally asserts a `genRuntime` interface carrying the three generation-aware methods,
+`hsmsss` additionally asserts a `genRuntime` interface carrying the generation-aware methods,
 and prefers it when present.
+`genRuntime` and hsms's `genCapability` are local aliases of one `gencap.GenerationRuntime[hsms.Message, hsms.TransitionCause]` instantiation,
+and hsms asserts at compile time that `*connection` satisfies it,
+so a method-set drift between the offering and the consuming side is a build failure rather than a silent fallback.
 This is the same pattern `suppressionRuntime` uses for `LinktestSuppression`,
 and for the same documented reason (`hsms/connection.go`):
 widening the exported `TransportRuntime` would break external implementers.
@@ -296,6 +293,7 @@ see `hsmsss.causeLog.waitBringUp`, which tolerates both shapes.
   `hsms/epoch.go` → `epoch.ended`, `epoch.markEnded`;
   `hsms/supervisor.go` → `commitFrom`, `CommitConnectedFromGeneration`, `CommitSelectedFromGeneration`, `CommitSelectLostFromGeneration`;
   `hsms/connection_runtime.go` → `commitSelectAccepted`, `commitSelectLost`
+- the shared capability type: `internal/gencap/gencap.go` → `GenerationRuntime`
 - transport capability: `hsmsss/transport_control.go` → `causeRuntime`, `genRuntime`,
   `transport.tcpDown`, `transport.t7Expired`, `transport.tcpUp`, `transport.commitSelected`, `transport.selectLost`;
   `secs1/transport.go` → `causeRuntime` only

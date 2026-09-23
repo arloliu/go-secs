@@ -690,23 +690,25 @@ func TestStaleGeneration_RefusedResponsesAreNotCounted(t *testing.T) {
 	require.Equal(t, uint64(1), tr.metrics.RejectSentCount(), "a Reject emitted on the live generation counts")
 }
 
-// TestGenRuntime_IsSatisfiedByTheRealCore is the one assertion nothing else in this package makes,
-// and the whole generation barrier — the disconnect half as much as the commit half — rests on it.
+// TestGenRuntime_IsSatisfiedByTheRealCore checks the generation barrier end to end through the real core,
+// and the whole barrier — the disconnect half as much as the commit half — rests on what it checks.
 //
-// The capability is reached by a RUNTIME type assertion on t.rt, and a failed assertion does not
-// error: it falls back to the generation-unaware path. So if the real core ever stops satisfying
-// genRuntime — a renamed method, a signature drift, one more method added to the interface here but
-// not there — every producer in this package silently reports gen 0, the core skips every match, and
-// the entire suite still passes. The mock-driven tests above cannot see that: they assert against
-// genRecRT, which satisfies the interface by construction.
+// Method-set drift is a compile error, not this test's job:
+// genRuntime and hsms's genCapability are the same gencap.GenerationRuntime instantiation,
+// and hsms asserts at compile time that *connection satisfies it.
+// What the type system cannot see is whether the value New actually binds to t.rt is that core,
+// and whether a live generation reports a non-zero identity through it.
+// A zero identity would make every producer in this package report gen 0,
+// the core would skip every match, and the mock-driven tests above would stay green,
+// because they assert against genRecRT.
 //
-// So this drives the REAL core, built exactly as New builds it, and checks both halves: that the
-// core satisfies the interface at all, and that a live generation actually reports a non-zero
-// identity through it (which additionally covers t.rt being bound and cur being published before
-// Start reads it).
+// So this drives the REAL core, built exactly as New builds it, and checks both halves:
+// that the core satisfies the interface through the runtime assertion,
+// and that a live generation reports a non-zero identity through it
+// (which additionally covers t.rt being bound and cur being published before Start reads it).
 //
-// Teeth: add a method to genRuntime that *hsms.connection does not have → this fails while
-// everything else stays green.
+// Teeth: have New bind t.rt to anything other than the core, or have CurrentGeneration report 0,
+// and this fails while everything else stays green.
 func TestGenRuntime_IsSatisfiedByTheRealCore(t *testing.T) {
 	t.Parallel()
 

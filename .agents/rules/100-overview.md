@@ -12,7 +12,8 @@
 | `gem`    | GEM (SEMI E30) helpers |
 | `logger` | Logger adapter (slog default) |
 
-Private: `internal/pool` (timer pool), `internal/queue`, `internal/util`. Do not expose in public signatures or docs.
+Private: `internal/framecodec` (frame-codec capability tokens), `internal/gencap` (generation-aware runtime capability shared by `hsms` and `hsmsss`), `internal/pool` (timer pool), `internal/throttle` (time-window gate), `internal/wire` (zero-copy message-body bridge).
+Do not expose in public signatures or docs.
 
 Integration: `tests/hsmsss_integration/`, `tests/secs1_integration/`, with helper binaries `tests/active_host/`, `tests/passive_host/`, `tests/passive_eqp/`, and shell harnesses (`tests/*.sh`).
 

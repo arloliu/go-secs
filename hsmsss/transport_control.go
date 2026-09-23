@@ -6,6 +6,7 @@ import (
 	"net"
 
 	"github.com/arloliu/go-secs/v2/hsms"
+	"github.com/arloliu/go-secs/v2/internal/gencap"
 )
 
 // errPeerSeparate is the TCPDown cause used when a peer Separate.req (SType 9) arrives on a live generation (E37.1 §7.6).
@@ -34,16 +35,10 @@ type causeRuntime interface {
 //
 // A runtime without the capability keeps the previous behavior:
 // reports resolve whatever generation is current when they land.
-type genRuntime interface {
-	CurrentGeneration() uint64
-	TCPUpFromGeneration(gen uint64, conn net.Conn) bool
-	TCPDownFromGeneration(gen uint64, cause error, transitionCause hsms.TransitionCause)
-	CommitSelectedFromGeneration(gen uint64) bool
-	SelectLostFromGeneration(gen uint64) bool
-	T7ExpiredFromGeneration(gen uint64)
-	SendAsyncFromGeneration(ctx context.Context, gen uint64, msg hsms.Message) error
-	WriteMessageFromGeneration(ctx context.Context, gen uint64, msg hsms.Message) (hsms.Message, error)
-}
+//
+// The method set is declared once, in gencap.GenerationRuntime,
+// and hsms asserts at compile time that its core implements it.
+type genRuntime = gencap.GenerationRuntime[hsms.Message, hsms.TransitionCause]
 
 // currentGeneration reads the runtime's live generation identity, or 0 when the runtime does not offer one.
 // Start calls it once per generation and stamps the answer on that generation's WaitGroup bundle,

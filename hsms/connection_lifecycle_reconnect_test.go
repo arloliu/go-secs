@@ -679,7 +679,8 @@ func TestReconnect_AbandonedGenerationTCPUpCannotResurrectAfterClose(t *testing.
 }
 
 // TestReconnect_AbandonedGenerationT7TimeoutCannotDropSuccessor is the T7-dwell half of the
-// disconnect barrier, and the last of genCapability's five methods to get dedicated coverage.
+// disconnect barrier, and the last of genCapability's five FSM-report methods
+// (TCPUp, TCPDown, CommitSelected, SelectLost, T7Expired) to get dedicated coverage.
 //
 // T7Expired is not a synchronous commit like CommitSelected/SelectLost/TCPUp.
 // injectT7Expiry goes straight to s.injectFrom with no pre-check of its own,

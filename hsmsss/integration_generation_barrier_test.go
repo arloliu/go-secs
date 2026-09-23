@@ -7,9 +7,9 @@ package hsmsss
 // against a mock TransportRuntime that satisfies hsms's genCapability BY CONSTRUCTION.
 // That leaves one thing unproven in this package:
 // whether the REAL core, reached through THIS package's own genRuntime type assertion (transport_control.go), still dispatches a stale report correctly.
-// A rename or signature drift on either side fails OPEN.
-// hsmsss keeps compiling, falls back to the generation-unaware TCPDown/TCPUp/commitSelected path,
-// and the mock-driven tests in this package (which also assert against a constructed mock) cannot see it.
+// Both sides name the same gencap.GenerationRuntime instantiation, so a rename or signature drift is a compile error.
+// A dispatch that compiles can still misroute a stale report at run time,
+// and the mock-driven tests in this package (which also assert against a constructed mock) cannot see that.
 // TestGenRuntime_IsSatisfiedByTheRealCore (transport_control_test.go) pins that the real core satisfies the interface at all;
 // the tests below pin that a stale report through it is actually discarded, not just accepted without panicking.
 //

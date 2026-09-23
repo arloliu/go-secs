@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net"
 	"time"
+
+	"github.com/arloliu/go-secs/v2/internal/gencap"
 )
 
 // farewellWriteTimeout bounds the courtesy farewell Separate write (§7.E). The farewell is a
@@ -562,22 +564,10 @@ func (c *connection) reconnectSleep(d time.Duration, stop <-chan struct{}) bool 
 	}
 }
 
-// genCapability is the complete set of generation-aware back-channel methods,
-// which an in-module transport reaches by type assertion rather than through [TransportRuntime].
-//
-// The assertion below is the only build-time protection there is:
-// the type assertion on the hsmsss side fails at RUN time, and a failed assertion silently falls back to the
-// generation-unaware path instead of erroring, so a renamed or dropped method here would disable the barrier quietly.
-type genCapability interface {
-	CurrentGeneration() uint64
-	TCPUpFromGeneration(gen uint64, conn net.Conn) bool
-	TCPDownFromGeneration(gen uint64, cause error, transitionCause TransitionCause)
-	CommitSelectedFromGeneration(gen uint64) bool
-	SelectLostFromGeneration(gen uint64) bool
-	T7ExpiredFromGeneration(gen uint64)
-	SendAsyncFromGeneration(ctx context.Context, gen uint64, msg Message) error
-	WriteMessageFromGeneration(ctx context.Context, gen uint64, msg Message) (Message, error)
-}
+// genCapability is the generation-aware back-channel this core offers; see gencap.GenerationRuntime.
+// The assertion below makes a method that *connection loses a build failure
+// instead of a silent fallback on the hsmsss side.
+type genCapability = gencap.GenerationRuntime[Message, TransitionCause]
 
 var _ genCapability = (*connection)(nil)
 
