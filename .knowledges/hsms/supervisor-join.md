@@ -3,12 +3,15 @@ type: Mechanic
 title: How a shutdown joins the per-Open supervisor
 description: Why Close joins the FSM goroutine unbounded but the notifier only up to the close timeout, and why the join signals live on the supervisor rather than the connection.
 tags: [hsms, lifecycle, supervisor, close, notifier, generations]
-status: draft
-generated: {by: "claude/opus-5.5", at: 2026-09-24T04:19:05Z}
+status: stable
+generated: {by: "claude/opus-5.5", at: 2026-09-24T11:50:00Z}
+verified:
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T12:34:28Z}
 sources:
   - {resource: hsms/connection_lifecycle.go, digest: sha256:221b0f7825783fad, revision: 922feb8}
   - {resource: hsms/supervisor.go, digest: sha256:1a4e9385175f90e9, revision: 922feb8}
   - {resource: hsms/state.go, digest: sha256:b0c58d8c774973d2, revision: fb8d9cd}
+  - {resource: hsms/connection.go, digest: sha256:82d716dbf253b02c, revision: 4eb40d1}
 ---
 
 # What it does
@@ -26,7 +29,12 @@ This entry records that.
 Each Open builds a fresh supervisor
 and starts two goroutines on it, `run()` (the FSM) and `notifier()` (user callbacks).
 Each closes its own channel on exit: `run()` closes `runDone` (and `notify`), `notifier()` closes `notifierDone`.
-There is no connection-scoped WaitGroup.
+No connection-scoped WaitGroup joins these two supervisor goroutines —
+each supervisor cycle's join lives on `runDone`/`notifierDone`, not on a shared counter.
+A separate connection-scoped WaitGroup does exist for a different goroutine class:
+`connection.connectLoopWg` (`hsms/connection.go`) joins reconnect loops,
+and `Close` waits on it after `joinSupervisor` has already joined the current cycle's FSM and notifier
+(see `Close`, below).
 
 `joinSupervisor(s, deadline)` is the only caller of `s.stop()` in production, and both shutdown paths go through it:
 
@@ -85,5 +93,6 @@ A later Close sees `runDone` closed and returns `s.shutdownErr` without touching
 - rollback's use of the join: `hsms/connection_lifecycle.go` → `(*connection).Open`
 - the timeout error: `hsms/connection_lifecycle.go` → `errNotifierTimeout`
 - completion signals: `hsms/supervisor.go` → `(*supervisor).run`, `(*supervisor).notifier`
+- the separate reconnect-loop join: `hsms/connection.go` → `connection.connectLoopWg`
 - stop signal: `hsms/supervisor.go` → `(*supervisor).stop`
 - public contract: `hsms/state.go` → `StateChangeHandler`

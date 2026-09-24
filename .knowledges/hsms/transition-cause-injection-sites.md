@@ -3,8 +3,10 @@ type: Mechanic
 title: Where a TransitionCause is chosen, and why one transition can swallow another's cause
 description: The full transition-source to cause map, why the cause is picked at the injection site rather than derived in the FSM, why the transports pass both the cause and their generation through a capability interface instead of TransportRuntime, how the generation match keeps a late transport goroutine from dropping its successor's link, why the three synchronous commits need a lock-fenced gate instead of that match, and the ways a cause never reaches a subscriber.
 tags: [hsms, lifecycle, supervisor, fsm, observability]
-status: draft
-generated: {by: "claude/opus-5", at: 2026-09-23T00:00:00Z}
+status: stable
+generated: {by: "claude/opus-5", at: 2026-09-24T11:50:00Z}
+verified:
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T12:34:28Z}
 sources:
   - {resource: hsms/lifecycle.go, digest: sha256:65d429d90300b620, revision: 5a0ec1b}
   - {resource: hsms/supervisor.go, digest: sha256:1a4e9385175f90e9, revision: a9235b4}
@@ -21,6 +23,7 @@ sources:
   - {resource: hsmsss/transport_recv.go, digest: sha256:f78883ced9f30422, revision: b0c8081}
   - {resource: secs1/transport.go, digest: sha256:d74a486193cbea69, revision: a9235b4}
   - {resource: internal/gencap/gencap.go, digest: sha256:cf8ecfdcf7a2b6d0, revision: 020da48}
+  - {resource: hsmsss/transport_control_test.go, digest: sha256:df0394e7579ac65d, revision: 4eb40d1}
 ---
 
 # What it does
@@ -66,7 +69,9 @@ That is exactly the discrimination the feature exists to provide, and the reason
 An active Select.req is an ordinary registered transaction, so THREE different things can come back through `WriteMessage`.
 A peer Reject.req correlated to its System Bytes is delivered as a `*hsms.RejectError` (`connection.RouteReply`) — the peer answered and refused, and no read or write failed,
 so classifying it as `CauseIOError` would report a link fault for a protocol answer.
-A T6 expiry returns a bare `ErrT6Timeout` (`connection.writeFrame`'s reply wait), meaning the peer never answered at all.
+A T6 expiry returns a bare `ErrT6Timeout` from `connection.sendWaitReplyOn`'s control-transaction reply wait —
+`writeFrame` performs only the synchronous write and has no reply wait of its own —
+meaning the peer never answered at all.
 Everything else is the transport failing.
 `selectFailureCause` splits those three; a correlated response of the wrong TYPE (a Linktest.rsp, a Deselect.rsp) is handled separately on the success path and also reports `CauseSelectRejected`,
 because the peer answered and the select was not granted — which is what `CauseSelectRejected` is defined to mean.
@@ -86,7 +91,8 @@ the auto-commit reaches `Selected` for the same reason a handshake does, so the 
 Defaulting it to `CauseIOError` would mislabel every drop an out-of-module transport reports for a non-I/O reason.
 Only the in-module transports name a cause, through `connection.TCPDownWithCause`.
 
-**Every injection site also names the generation it speaks for, and that is a separate axis from the cause.**
+**HSMS-SS injection sites also name the generation they speak for, and that is a separate axis from the cause.**
+SECS-I carries the cause only, and local Close and base-runtime paths use generation 0.
 A transport goroutine can outlive the generation that spawned it:
 the teardown join is bounded,
 so one wedged past the close timeout is abandoned and may resume after a reconnect has established and selected a new link.
@@ -101,9 +107,14 @@ which already reaches every goroutine it spawns;
 each producer passes `g.gen` back through `TCPDownFromGeneration` / `T7ExpiredFromGeneration`.
 It is checked in TWO places, and both are load-bearing:
 
-- `connection.injectDisconnect` drops a report whose generation has ended.
+- `connection.injectDisconnect` rejects a nonzero reported generation that differs in IDENTITY
+  from the currently published epoch's `id` — it does not inspect `ended`.
   This is what keeps a straggler from setting the SUCCESSOR's `commsFailure`,
   which would suppress that generation's courtesy farewell Separate on a later graceful Close.
+  A report whose generation still MATCHES the current (but already-ended) epoch passes this check regardless:
+  it can still mark that epoch `commsFailure` and queue its event, same as `step` below;
+  neither operation is thereby redirected onto a successor, since a successor cannot yet be published
+  while this epoch's teardown is in flight.
 - `fsmCommand.gen` carries the identity onto the queue,
   and `step` re-checks it AFTER `state.Load()` and BEFORE the transition.
   The ordering is the whole barrier:
@@ -112,9 +123,17 @@ It is checked in TWO places, and both are load-bearing:
   Reversing the two reverts it to a narrowed window.
 
 The match cannot suppress a legitimate disconnect, and the reason is an invariant elsewhere:
-`cur` is published in exactly two places (`Open`, `connectLoop`) and the loop only runs from the entering-NotConnected reaction,
-so `cur` advances only after the previous generation ended.
+`cur` is published in exactly two places (`Open`, `connectLoop`).
+`connectLoop` itself starts from either the entering-NotConnected reaction or `Open`'s own
+OpenBackground cold-active background retry (Gap 1) after that generation's own first-dial failure.
+With the shipped transports, either path publishes its successor only after the predecessor's own
+teardown and join (`prev.wait()`) completed, so `cur` advances only after the previous generation ended.
 A mismatch therefore means the reporting generation's link was already torn down.
+A custom transport whose `Start` errors after already driving TCP-up and a disconnect is the one
+documented exception:
+it can leave two `connectLoop` invocations running and racing to publish a successor —
+see reconnect-backoff-scope.md's Gotchas — so the unconditional single-publisher framing above
+holds for the shipped transports, not universally.
 `s.curGen` must stay a bare atomic load.
 `step` runs on the FSM goroutine, which an epoch teardown join can be waiting behind,
 so a lock the teardown path holds would close a cycle:
@@ -151,7 +170,20 @@ so it cannot close a cycle against the bounded teardown join.
 `CommitConnected` CASes out of `NotConnected`, the state a generation that ended leaves behind,
 and `cur` keeps pointing at a dead generation for the whole reconnect backoff — after a `Close`, forever.
 So the identity of a straggler's TCP-up still MATCHES, and only `ended` rejects it.
-The other two commits CAS out of states a dead generation cannot be in, so for them `ended` is redundant but harmless.
+The other two commits CAS out of states a dead generation is not SUPPOSED to be in, under the shipped
+transports' own invariants — but that is an assumption about caller behavior, not a structural guarantee
+`ended` enforces independently of it, and a misbehaving custom transport can break it.
+`connectLoop`'s Start-error branch (`hsms/connection_lifecycle.go` → `connectLoop`) tears the
+just-published epoch down directly via `epoch.teardown`, WITHOUT routing through `requestClose`/`evClose`,
+so it never resets supervisor state.
+A custom `Start` that drives TCP-up (committing `NotSelected`) before returning an error therefore
+leaves a DEAD generation sitting at exactly the state a live `CommitSelected` CAS expects —
+IDENTITY still matches (`cur` has not yet been replaced), so only the `ended` check rejects a stale
+Select CAS landing there.
+`ended` must not be treated as generally redundant for a commit based on the expected FSM state alone;
+it held for `CommitConnected` above because `epoch.ended`'s target state (`NotConnected`) is one a live
+generation is never IN while `cur` still points at it, which is a property of that specific state pair,
+not of "the other two commits" as a class.
 
 **`CommitSelected`'s gate does not bypass a gen of 0, unlike the other two.**
 `commitGate` (still used by `CommitConnected`/`CommitSelectLost`) is skipped outright whenever `gen == 0`, exactly the pre-generation behavior secs1 and every out-of-module transport get:
@@ -164,7 +196,13 @@ On a successful commit `selectCommitGate` also latches `epoch.reachedSelected` o
 see the reconnect-backoff-scope entry for what reads that marker and why.
 
 `connection.publishSocket` takes the same gate for the same reason:
-an abandoned accept goroutine must not hang its socket on an epoch whose teardown already closed its own.
+a passive accept can RACE teardown rather than be abandoned by it —
+`hsmsss.Stop` joins the accept goroutine (`g.accept.Wait`) WITHOUT a timeout, ahead of its own
+deadline-bounded joins (procedure, receive, linktest, T7), so an accept in flight is never abandoned
+by the close timeout the way those other goroutines can be.
+The race publishSocket guards is narrower: an accept that adopts a peer and reaches the publish gate
+just as (or just after) teardown has already latched `ended` on that same epoch, so its socket must be
+refused rather than published onto a generation that is already dying.
 It resolves the epoch by identity and writes to THAT epoch, so a swap can never redirect it to a successor.
 
 **The refusal is not silent: it is a reported bool, all the way out to the transport.**
@@ -197,25 +235,34 @@ The FSM cannot catch this downstream: `State()` still says Selected, because the
 The `Deselect.rsp` is still enqueued BEFORE the commit, and that ordering is deliberate.
 The §7.D/I3 invariant rests on the commit being synchronous on the sequential recv goroutine, not on its position relative to the rsp —
 the CAS lands before any pipelined re-`Select.req` is dispatched, and `SendAsync` only enqueues.
-Deriving the status from the commit instead would break the gen-0 fallback, which always reports true:
+Deriving the status from the commit instead would break the CAPABILITY-ABSENT transport fallback
+(`selectLost`'s plain `t.rt.SelectLost()` branch, taken only when the runtime does not implement
+`genRuntime`), which always reports true regardless of the CAS outcome:
 a Deselect answered while NOT Selected would be told status 0 and handed a `SelectLost` it never asked for.
+The concrete core's own gen-0 path is unaffected by this —
+`selectCommitGate` still returns the actual CAS result for a gen of 0, same as for a named generation.
 
 The remaining two producers stay void.
 A refused `TCPDownFromGeneration` or `T7ExpiredFromGeneration` is a queued event whose caller has nothing to undo.
 
-**A generation-guarded FSM commit does not protect the WIRE, so every answer the recv path writes is bound too.**
+**A generation-guarded FSM commit does not protect the WIRE, so the recv path binds its answers too.**
+When `genRuntime` is available they go through `SendAsyncFromGeneration`; otherwise `sendResponse` falls back to the unqualified `SendAsync`.
 This is a separate rule from the three commits, and the reason is that a frame cannot be retracted.
 `SendAsync` resolves `c.cur` at call time — correct for a caller that speaks for whatever generation is current,
 wrong for one that speaks for a named generation.
-Every response `hsmsss` writes is the second kind:
+Every response produced by the ESTABLISHED generation's recv dispatch is the second kind:
 `Select.rsp`, `Deselect.rsp`, `Linktest.rsp`, and the three `Reject.req` variants
 (`sendReject`, `sendRejectNotSelected`, `sendRejectTransactionNotOpen`)
 are all built from a request that arrived on ONE generation's socket, and all carry that request's System Bytes back.
 A straggler using the unqualified send therefore hands the SUCCESSOR's peer a response to a transaction it never opened.
 
 `connection.SendAsyncFromGeneration` is the bound entry point,
-and `hsmsss`'s `sendResponse` wrapper is the single site every response goes through
+and `hsmsss`'s `sendResponse` wrapper is the site every one of THOSE responses goes through
 (`g.gen` reaches it from `dispatchFrame`, which is why the Reject helpers and `handleLinktestReq` take the bundle).
+The passive extra-connection refusal is a SEPARATE exchange, not routed through `sendResponse` at all:
+`refuseExtraConn` (`hsmsss/transport_passive.go`) writes a status-1 Select.rsp directly to its captured
+extra socket, under that socket's own deadline, because that socket never became the generation's live
+connection and has no `g.gen` to bind through.
 The rule is enqueue-iff-live: `connection.liveEpoch` applies the same `{id, !ended}` test under the same gate,
 and a send naming a dead generation is DROPPED and counted in `connection.staleSend`, never redirected.
 Dropping is the correct answer rather than a fallback:
@@ -252,22 +299,35 @@ A refused request is dropped and counted before anything is registered, and repo
 which both procedures ALREADY read as their own generation's death (`runLinktest` had that branch for the teardown race; `runSelectProcedure` gained it).
 That is what makes a refusal exit quietly instead of counting a linktest failure or reporting a TCPDown for a frame that was never sent.
 
-**A refused response is not a sent one, and the public counters follow the send.**
-`RejectSentCount` (Rejects emitted) and `LinktestReqRecvCount` (probes answered) increment only when `sendResponse` returns nil.
-`LinktestSendCount` deliberately does not: it is an ATTEMPT counter, incremented before the write, which its godoc now states outright.
+**A refused response is not an enqueued one, and the public counters follow the enqueue, not the wire.**
+`RejectSentCount` (Rejects emitted) and `LinktestReqRecvCount` (probes answered) increment when `sendResponse`
+returns nil — that is, when `enqueueAsync` accepts the message onto `epoch.sendCh`, NOT when
+`drainSendCh`'s later `writeFrame` actually puts it on the wire.
+An enqueue that succeeds can still be followed by a write failure or a teardown that strands the queued
+frame (`drainSendCh`, C1), so these counters are proof of acceptance into the send queue, not of
+successful wire delivery.
+`LinktestSendCount` is the opposite shape: it is an ATTEMPT counter, incremented in `runLinktest` BEFORE
+the synchronous `writeMessage` call that actually sends the probe, which its godoc now states outright.
 
 **How the cause crosses the package boundary.**
 `hsmsss` and `secs1` reach `TCPDownWithCause` by type-asserting `t.rt` to a package-local `causeRuntime` interface, then fall back to plain `TCPDown`.
 `hsmsss` additionally asserts a `genRuntime` interface carrying the generation-aware methods,
 and prefers it when present.
-`genRuntime` and hsms's `genCapability` are local aliases of one `gencap.GenerationRuntime[hsms.Message, hsms.TransitionCause]` instantiation,
+`genRuntime` and hsms's `genCapability` are local aliases of one
+`gencap.GenerationRuntime[hsms.Message, hsms.TransitionCause]` instantiation —
+eight methods: the `CurrentGeneration` accessor, five `*FromGeneration` report/commit methods,
+and two generation-named send methods, `SendAsyncFromGeneration` / `WriteMessageFromGeneration` —
 and hsms asserts at compile time that `*connection` satisfies it,
 so a method-set drift between the offering and the consuming side is a build failure rather than a silent fallback.
 This is the same pattern `suppressionRuntime` uses for `LinktestSuppression`,
 and for the same documented reason (`hsms/connection.go`):
 widening the exported `TransportRuntime` would break external implementers.
-A mock runtime that implements only `TransportRuntime` — every mock in the suite — therefore reports `CauseUnknown`,
-which is why the hsms-package tests drive causes through the concrete `*connection` rather than a mock.
+A mock runtime that implements only `TransportRuntime` reports `CauseUnknown`.
+Not every mock in the suite is one of those, though:
+`hsmsss/transport_control_test.go`'s `genRecRT` additionally implements the generation capability,
+specifically to exercise generation-aware transport behavior in tests,
+so the hsms-package tests' reliance on the concrete `*connection` (rather than a mock) is about
+exercising the REAL `causeRuntime`/`TCPDownWithCause` wiring, not about no test mock offering `genRuntime` at all.
 
 # Failure mode
 
@@ -318,3 +378,4 @@ see `hsmsss.causeLog.waitBringUp`, which tolerates both shapes.
   `hsmsss/transport_active.go` → `runSelectProcedure`;
   `hsmsss/transport_control.go` → `handleSelectReq`;
   `hsmsss/transport_recv.go` → `dispatchFrame`'s routed Select.rsp branch
+- a test mock that DOES implement the generation capability: `hsmsss/transport_control_test.go` → `genRecRT`

@@ -3,8 +3,10 @@ type: Mechanic
 title: Reconnect backoff scope — what resets it, and what doesn't
 description: Where the reconnect delay is persisted across separate connectLoop invocations, and which drop actually resets it to the configured initial value.
 tags: [hsms, reconnect, backoff, lifecycle, generations]
-status: draft
-generated: {by: "claude/sonnet-5", at: 2026-09-24T12:00:00Z}
+status: stable
+generated: {by: "claude/sonnet-5", at: 2026-09-24T11:50:00Z}
+verified:
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T12:34:28Z}
 sources:
   - {resource: hsms/connection.go, digest: sha256:82d716dbf253b02c, revision: b0c8081}
   - {resource: hsms/connection_lifecycle.go, digest: sha256:221b0f7825783fad, revision: b0c8081}
@@ -13,6 +15,7 @@ sources:
   - {resource: hsms/connection_metrics.go, digest: sha256:b7722fa7d5fa1dc7, revision: b0c8081}
   - {resource: hsms/supervisor.go, digest: sha256:1a4e9385175f90e9, revision: b0c8081}
   - {resource: hsms/epoch.go, digest: sha256:d97677e4f16e9462, revision: 0c892d9}
+  - {resource: secs1/transport.go, digest: sha256:d74a486193cbea69, revision: 4eb40d1}
 ---
 
 # What it does
@@ -66,8 +69,9 @@ Keying the reset on the reaction would silently under-reset in exactly those cas
 The marker is instead set INSIDE THE SAME `genGate.RLock` critical section as the Select CAS itself —
 see `connection.selectCommitGate` —
 on the captured `cur` that section validated, never by re-resolving `c.cur` and never by calling `liveEpoch`.
-Because a successor can only be published after this generation's teardown has both latched `ended`
-(under the same gate) and completed its join,
+With the shipped transports, a successor is published only after this generation's teardown has both latched `ended`
+(under the same gate) and completed its join
+(a custom `Start` that drives TCP-up and a disconnect before returning an error is the overlapping-loop exception under Gotchas),
 a marker set while `ended` reads false is guaranteed to be on the generation `connectLoop` is about to read
 `prev.reachedSelected` from — there is no window where it lands on the wrong epoch.
 
@@ -105,21 +109,36 @@ as fast as the T7 dwell and the accept/handshake round-trip allow.
   and by `connectLoop` (one loop runs at a time per connection cycle, except the overlap described in Gotchas).
 - `epoch.reachedSelected` is set only inside the `genGate.RLock` section that also runs the Select CAS,
   on the epoch that section validated, and is never cleared.
-- A `connectLoop` invocation's OWN in-loop dial failures always grow
-  (their predecessor, if any, never selected by construction) —
-  this is unchanged from before this mechanic existed.
+- The predecessor's `reachedSelected` marker is checked only once, before the retry loop begins.
+  A `connectLoop` invocation's own subsequent failed `Start` attempts retain the advanced local delay
+  without repeating that check,
+  even when the invocation's own predecessor did reach Selected.
+  Whether the delay actually grows or plateaus across those attempts depends on the configured
+  multiplier and the T5 ceiling —
+  a multiplier of 1.0, or a delay already at T5, holds it flat instead of growing further.
 
 # Failure modes
 
 - Removing the `prev.reachedSelected` reset check:
-  the backoff mistakes a generation that never selected for one that did, or vice versa —
-  verified by mutation testing
+  a predecessor that DID reach Selected no longer resets the ramp,
+  so the delay keeps growing from where the dead predecessor left it —
+  mistaking a selected generation for one that never selected.
+  It does not introduce the reverse mistake:
+  an unselected predecessor still leaves the delay exactly where it was, growth unaffected.
+  Verified by mutation testing
   (removing it fails the "selected predecessor resets" and "reset on a Select commit without a reaction" cases).
 - Removing `Open`'s reseed: a fresh Open cycle inherits a prior cycle's grown delay instead of starting over.
 - Moving the marker STORE outside the `genGate.RLock` section the CAS runs in
-  reopens the exact ABA window the gate exists to close:
-  a teardown could latch `ended` and a successor could be published between the CAS and the marker store,
-  landing the marker on the wrong generation.
+  does not by itself redirect it onto the wrong generation —
+  the store still writes through the SAME `*epoch` pointer the CAS captured under the lock,
+  and delaying the write does not change which pointer that is.
+  What it opens instead is a timing race:
+  teardown can latch `ended` and complete its join —
+  unblocking `connectLoop`'s `prev.wait()` —
+  before the delayed store runs,
+  so `connectLoop` reads `prev.reachedSelected` as false and fails to reset a ramp that should have reset.
+  Landing the marker on a SUCCESSOR generation instead would additionally require the delayed code to
+  re-resolve `c.cur` rather than writing through the pointer already captured.
   The READ in `connectLoop` is deliberately outside that section and is safe:
   it happens after the predecessor is joined,
   and once teardown has latched `ended` no further Select commit can succeed on that epoch,
@@ -138,7 +157,10 @@ as fast as the T7 dwell and the accept/handshake round-trip allow.
   Neither shipped transport can actually reach this:
   hsmsss's active `Start` returns nil once `tcpUp` accepts the generation,
   hsmsss's passive `Start` has no error exit after it spawns the accept goroutine,
-  and secs1's `Start` returns nil right after its synchronous TCP-up-plus-Select-commit.
+  secs1's active `Start` returns nil right after its synchronous TCP-up-plus-Select-commit,
+  and secs1's passive `Start` returns nil right after spawning `acceptLoop`,
+  which performs that same TCP-up-plus-Select-commit asynchronously once a peer is accepted,
+  well after `Start` itself has returned.
   Only a custom or mock transport whose `Start` can fail after already driving TCP-up can hit this,
   and there two loops sharing the persisted delay is no worse than the competing-publish races that
   already exist for that shape of transport.
@@ -155,3 +177,5 @@ as fast as the T7 dwell and the accept/handshake round-trip allow.
 - config knobs: `hsms/connection_config.go` → `WithReconnectBackoff`, `WithT5`
 - the counted-reconnect distinction this mechanic does not change: `hsms/connection_metrics.go` →
   `ConnectionMetrics.Reconnects`
+- secs1's active-vs-passive `Start` shape referenced in Gotchas: `secs1/transport.go` →
+  `(*transport).startActive`, `(*transport).startPassive`, `(*transport).acceptLoop`

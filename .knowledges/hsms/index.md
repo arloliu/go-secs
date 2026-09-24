@@ -15,12 +15,12 @@ Owns no sockets and no wire framing. `hsmsss` and `secs1` supply the transport a
 # Entries
 
 * [The B1/B2 Selected gates on the send path](/hsms/selected-gates.md) - what stops a data send when not Selected, and why one check is not enough.
-* [Send error accounting — which outcomes count](/hsms/send-error-accounting.md) - why a normal Close mid-transaction does not inflate the error counter.
-* [The W-bit inflight gauge](/hsms/inflight-gauge.md) - when a message counts as in flight, and why a leak here disables liveness probing.
+* [Send error accounting — which outcomes count](/hsms/send-error-accounting.md) - which synchronous data-send outcomes count, and why ErrConnClosed is excluded without making a concurrent Close a blanket exclusion.
+* [The W-bit inflight gauge](/hsms/inflight-gauge.md) - when a message counts as in flight, and why a leaked increment suppresses automatic probing when linktest suppression is enabled.
 * [The I1 stale-epoch write guard](/hsms/stale-epoch-write-guard.md) - how a sender stalled across a reconnect is kept off the successor's socket.
 * [The reply registry's two-legged control exemption](/hsms/reply-matching-control-exemption.md) - why registration-side isData and result-side *DataMessage are two independent gates, and the v2.0.1 shape breaking both reproduces.
 * [The send-side MaxMessageSize ceiling's enforcement topology](/hsms/max-message-size-ceiling.md) - where the check runs relative to writeMu, why control frames are structurally exempt, and why async accounting has no exclusion list at all.
-* [The transaction observer's two chokepoints, its isData gate, and its outcome classifier](/hsms/transaction-observer-chokepoints.md) - why WithTransactionObserver instruments two call sites (not one), why the isData gate is load-bearing enough to crash the process without it, and how classifyTxOutcome relates to isCountedSendErr.
+* [The transaction observer's two chokepoints, its isData gate, and its outcome classifier](/hsms/transaction-observer-chokepoints.md) - why WithTransactionObserver instruments two call sites (not one), why the isData gate prevents an observer-path panic for control messages, and how classifyTxOutcome relates to isCountedSendErr.
 * [Where a TransitionCause is chosen, and why one transition can swallow another's cause](/hsms/transition-cause-injection-sites.md) - the full injection-site to cause map, why the transports pass a cause through a capability interface, and the three ways a cause never reaches a subscriber.
 * [How a shutdown joins the per-Open supervisor](/hsms/supervisor-join.md) - why the FSM join is unbounded but the notifier join ends at the close timeout, and why the join signals live on the supervisor.
 * [Reconnect backoff scope — what resets it, and what doesn't](/hsms/reconnect-backoff-scope.md) - where the persisted reconnect delay lives, the marker that resets it, and why that marker is not the reaction react fires.

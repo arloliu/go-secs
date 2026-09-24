@@ -71,6 +71,12 @@
   corrects the gate-deletion failure mode, and cites `hsmsss/transport_control.go`; still draft.
 * **Update** (sync, digests only): [passive refusal exchange](/hsmsss/passive-refusal-exchange.md), [reply-matching control exemption](/hsms/reply-matching-control-exemption.md), [supervisor join](/hsms/supervisor-join.md), [transition-cause injection sites](/hsms/transition-cause-injection-sites.md),
   [MaxMessageSize ceiling](/hsms/max-message-size-ceiling.md), [stale-epoch write guard](/hsms/stale-epoch-write-guard.md), [trailing-byte counting](/crosscutting/trailing-bytes-counting.md), and [decode aliasing](/secs2/decode-aliasing.md) — cited symbols unchanged.
+* **Update** (verify): all eleven Claude-authored drafts checked claim by claim against source by an independent model (openai/gpt-6-astra), corrected where wrong, re-confirmed (openai/gpt-5.6-terra), and promoted to stable:
+  [inflight gauge](/hsms/inflight-gauge.md), [Selected gates](/hsms/selected-gates.md), [send error accounting](/hsms/send-error-accounting.md), [transaction observer chokepoints](/hsms/transaction-observer-chokepoints.md),
+  [reconnect backoff scope](/hsms/reconnect-backoff-scope.md), [reply-matching control exemption](/hsms/reply-matching-control-exemption.md), [supervisor join](/hsms/supervisor-join.md), [transition-cause injection sites](/hsms/transition-cause-injection-sites.md),
+  [activity stamps](/hsmsss/activity-stamps.md), [E37.1 profile overrides](/hsmsss/e37-1-narrows-e37-generic.md), and [linktest teardown exclusion](/hsmsss/linktest-teardown-exemption.md) (retitled: one context tree, not two cascades).
+  Corrections removed overclaims (B2 closes TOCTOU; Close never counts; stamps never move backward; one-straggler bound) and fixed ordering, ancestry, and pointer errors.
+* **Update** (verify): [Parser input bounds](/sml/prealloc-bound.md) verified by claude/opus-5.5; one byte count corrected (the example message is 28 bytes); promoted to stable.
 
 ## 2026-09-23
 * **Update**: [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) now records that `genRuntime` and `genCapability` alias one shared `internal/gencap.GenerationRuntime` instantiation, and cites `internal/gencap/gencap.go`;
