@@ -3,15 +3,13 @@ type: Mechanic
 title: LinktestErrCount's teardown exclusion is two independent cancellation cascades, not one
 description: Why runLinktest checks both ctx.Err() and errors.Is(err, hsms.ErrConnClosed), and why ErrConnClosed is teardown-exclusive.
 tags: [hsmsss, linktest, metrics, shutdown, race]
-status: stable
-generated: {by: "claude/sonnet-5", at: 2026-08-12T00:00:00Z}
-verified:
-  - {by: "claude/opus-5", at: 2026-08-12T08:33:19Z}
+status: draft
+generated: {by: "claude/sonnet-5", at: 2026-09-24T07:00:00Z}
 sources:
-  - {resource: hsmsss/transport_procedures.go, digest: sha256:540e993910b596e2, revision: 0965bba}
-  - {resource: hsmsss/metrics.go, digest: sha256:cf910bb5649e2dd4, revision: 0965bba}
-  - {resource: hsms/connection_send.go, digest: sha256:9b1ccf21a9d24c0d, revision: 038319b}
-  - {resource: hsms/errors.go, digest: sha256:ffa4b24a88de6662, revision: 0965bba}
+  - {resource: hsmsss/transport_procedures.go, digest: sha256:ae651d8a0289a097, revision: 922feb8}
+  - {resource: hsmsss/metrics.go, digest: sha256:e822f4b53757800e, revision: 922feb8}
+  - {resource: hsms/connection_send.go, digest: sha256:37c6bd273ed11699, revision: 922feb8}
+  - {resource: hsms/errors.go, digest: sha256:4d51120b3cb3b060, revision: 922feb8}
 ---
 
 # What it does
@@ -57,6 +55,15 @@ unchanged — never wrapped or replaced with `ErrConnClosed`.
 That is why `errors.Is(err, hsms.ErrConnClosed)` is a safe, teardown-exclusive test: matching it can
 only mean "this epoch is tearing down," never "the write failed."
 
+**A fourth origin, added alongside generation isolation.**
+`runLinktest`'s `WriteMessage` call now goes through `t.writeMessage(lctx, g.gen, ...)`, which — when the runtime
+offers the generation-aware capability — resolves to `connection.WriteMessageFromGeneration`.
+That function returns `ErrConnClosed` directly, without ever reaching `writeFrame` or `sendWaitReply`,
+when the generation named by the caller (`g.gen`) is no longer the live one (`connection.liveEpoch` misses).
+This is still teardown-exclusive from the reporting goroutine's own point of view: a stale linktest
+goroutine's generation has ended, which is exactly the condition this guard exists to treat as teardown
+rather than as a link failure, even while some other, newer generation's link may be running fine.
+
 **What the guard buys.**
 Without the `ErrConnClosed` half, a teardown that wins the race described above would fall through to
 `t.metrics.incLinktestErr()` and feed `linktestFailureStep` — double-signaling a teardown that the
@@ -90,6 +97,6 @@ involuntary disconnect during what should be an orderly shutdown.
 
 - the two-part guard: `hsmsss/transport_procedures.go` → `(*transport).runLinktest`
 - the ctx derivation that makes the two cascades independent: `hsmsss/transport_procedures.go` → `(*transport).startLinktest`, `(*transport).stopLinktest`
-- every teardown-only origin of the sentinel: `hsms/connection_send.go` → `(*connection).writeFrame`, `(*connection).sendWaitReply`
+- every teardown-only origin of the sentinel: `hsms/connection_send.go` → `(*connection).writeFrame`, `(*connection).sendWaitReply`, `(*connection).WriteMessageFromGeneration`
 - the sentinel itself: `hsms/errors.go` → `ErrConnClosed`
 - the counter's public contract: `hsmsss/metrics.go` → `(*ConnectionMetrics).LinktestErrCount`

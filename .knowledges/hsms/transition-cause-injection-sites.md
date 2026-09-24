@@ -16,8 +16,8 @@ sources:
   - {resource: hsmsss/transport.go, digest: sha256:cf54049476fbfafe, revision: b0c8081}
   - {resource: hsmsss/transport_control.go, digest: sha256:7b5042e69a84d610, revision: b0c8081}
   - {resource: hsmsss/transport_active.go, digest: sha256:b4a168040cd91ff8, revision: b0c8081}
-  - {resource: hsmsss/transport_passive.go, digest: sha256:f5c2688db6585682, revision: 71a7afe}
-  - {resource: hsmsss/transport_procedures.go, digest: sha256:232ee3127c6ae84b, revision: 0b40043}
+  - {resource: hsmsss/transport_passive.go, digest: sha256:f4ebda2502d6b8ac, revision: 922feb8}
+  - {resource: hsmsss/transport_procedures.go, digest: sha256:ae651d8a0289a097, revision: 922feb8}
   - {resource: hsmsss/transport_recv.go, digest: sha256:f78883ced9f30422, revision: b0c8081}
   - {resource: secs1/transport.go, digest: sha256:d74a486193cbea69, revision: a9235b4}
   - {resource: internal/gencap/gencap.go, digest: sha256:cf8ecfdcf7a2b6d0, revision: 020da48}

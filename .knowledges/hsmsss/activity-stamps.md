@@ -3,16 +3,14 @@ type: Mechanic
 title: Activity stamps — the state behind linktest suppression
 description: Where "the line is alive" is stored, what writes it, and when it resets to zero knowledge.
 tags: [hsmsss, linktest, liveness, generations]
-status: stable
-generated: {by: "claude/sonnet-5", at: 2026-08-12T00:00:00Z}
-verified:
-  - {by: "claude/opus-5", at: 2026-08-12T08:33:19Z}
+status: draft
+generated: {by: "claude/sonnet-5", at: 2026-09-24T07:00:00Z}
 sources:
-  - {resource: hsmsss/transport.go, digest: sha256:838e98661f3e89d2, revision: 3660aa4}
-  - {resource: hsmsss/transport_procedures.go, digest: sha256:540e993910b596e2, revision: 3660aa4}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:67343e11cdcaea52, revision: 3660aa4}
-  - {resource: hsmsss/transport_active.go, digest: sha256:642cebd8a000d63d, revision: 3660aa4}
-  - {resource: hsmsss/transport_passive.go, digest: sha256:2dedaa78b1882b8d, revision: 3660aa4}
+  - {resource: hsmsss/transport.go, digest: sha256:cf54049476fbfafe, revision: 922feb8}
+  - {resource: hsmsss/transport_procedures.go, digest: sha256:ae651d8a0289a097, revision: 922feb8}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:f78883ced9f30422, revision: 922feb8}
+  - {resource: hsmsss/transport_active.go, digest: sha256:b4a168040cd91ff8, revision: 922feb8}
+  - {resource: hsmsss/transport_passive.go, digest: sha256:f4ebda2502d6b8ac, revision: 922feb8}
 ---
 
 # What it does
@@ -36,7 +34,17 @@ Writes happen at exactly two sites. `Write` stamps the send side only when `bufs
 
 Rule 1's skip does not simply wait another full interval: it re-arms the timer for `interval - idle`, so the probe converges on `lastActivity + interval` with no timer shared across goroutines. Rule 2's skip re-arms for the full interval instead, because an outstanding reply has no deadline of its own to converge on.
 
-`resetActivityStamps` writes `now` to *both* stamps when a generation publishes its conn. Both roles do it identically: under `connMu`, in the same critical section that assigns `t.conn`, and before `rt.TCPUp`. A fresh generation therefore starts out believing the line was active this instant. It is a rebaseline, not a fence — see the invariant below on straggler stamps.
+`resetActivityStamps` writes `now` to *both* stamps when a generation publishes its conn.
+Both roles do it identically: under `connMu`, in the same critical section that assigns `t.conn`.
+A fresh generation therefore starts out believing the line was active this instant.
+It is a rebaseline, not a fence — see the invariant below on straggler stamps.
+
+The ordering around that section is inverted from an earlier revision of this entry.
+`startActive`/`acceptLoop` now call the generation-gated `t.tcpUp(g.gen, conn)` (publish-socket-and-commit) *before* the `connMu` section, not after —
+a refused generation (its epoch already ended) must never reach `t.conn` or the stamp reset at all.
+On acceptance the order is: `tcpUp` succeeds, *then* `connMu.Lock(); t.conn = conn; resetActivityStamps(); connMu.Unlock()`.
+This stays same-goroutine, sequential code, so no concurrent reader can observe `t.conn` or the stamps between the two steps —
+the invariants below are unaffected; only the ordering claim itself changed.
 
 # Invariants
 
@@ -59,3 +67,4 @@ Rule 1's skip does not simply wait another full interval: it re-arms the timer f
 - receive-side stamp, after a complete frame: `hsmsss/transport_recv.go` → `(*transport).recvLoop`
 - the re-arm arithmetic and the reducer's real trigger: `hsmsss/transport_procedures.go` → `(*transport).runLinktest`, `linktestFailureStep`
 - per-generation reset at socket publish, both roles: `hsmsss/transport_active.go`, `hsmsss/transport_passive.go` → the `connMu` section assigning `t.conn`
+- the generation-gated publish that now runs before that section: `hsmsss/transport_active.go`, `hsmsss/transport_passive.go` → `t.tcpUp`

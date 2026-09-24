@@ -3,13 +3,11 @@ type: Mechanic
 title: Send error accounting — which outcomes count
 description: Why a normal Close mid-transaction does not inflate the error counter, and what does.
 tags: [hsms, metrics, send, lifecycle]
-status: stable
-generated: {by: "claude/sonnet-5", at: 2026-08-12T09:35:39Z}
-verified:
-  - {by: "codex/gpt-5.6-terra", at: 2026-08-12}
+status: draft
+generated: {by: "claude/sonnet-5", at: 2026-09-24T00:00:00Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:9b1ccf21a9d24c0d, revision: b1bb17b}
-  - {resource: hsms/connection_metrics.go, digest: sha256:44481eac3475bc65, revision: b1bb17b}
+  - {resource: hsms/connection_send.go, digest: sha256:37c6bd273ed11699, revision: 922feb8}
+  - {resource: hsms/connection_metrics.go, digest: sha256:b7722fa7d5fa1dc7, revision: 922feb8}
 ---
 
 # What it does
@@ -70,8 +68,9 @@ when a data message's frame would exceed `MaxMessageSize` (SEMI E37 §10.1 item 
 `writeFrame` catches it before `writeMu` is even acquired,
 so it never reaches the transport and is never a link failure.
 Anything else — a genuine transport write failure — counts.
-Both synchronous write paths apply it identically, each under an `isData` guard: `sendWaitReply`
-(reply-correlated) and `sendNoReply` (forward/relay). The async drain applies no classification at
+Both synchronous write paths apply it identically, each under an `isData` guard: `sendWaitReplyOn`
+(reply-correlated — the shared body `sendWaitReply` and the generation-bound `WriteMessageFromGeneration` both call)
+and `sendNoReply` (forward/relay). The async drain applies no classification at
 all — see [the MaxMessageSize ceiling](/hsms/max-message-size-ceiling.md).
 
 Separately, a T3 expiry while waiting for a reply counts, and when the auto-S9F9 knob is on it also sends an S9F9 (Transaction Timeout) notification carrying the timed-out message's 10-byte header as SHEAD. That notification is fire-and-forget and its own failure is deliberately swallowed, because the caller already has the timeout error to report.
@@ -113,7 +112,7 @@ The timeout branch is narrower than it looks. Both T3 (data) and T6 (control) re
 # Where to look
 
 - the classification policy: `hsms/connection_send.go` → `isCountedSendErr`
-- the four terminal branches and their attribution: `hsms/connection_send.go` → `(*connection).sendWaitReply`
+- the four terminal branches and their attribution: `hsms/connection_send.go` → `(*connection).sendWaitReplyOn` (called by `(*connection).sendWaitReply` and `(*connection).WriteMessageFromGeneration`)
 - the second synchronous path, now also named in the godoc: `hsms/connection_send.go` → `(*connection).sendNoReply`
 - the timeout notification: `hsms/connection_send.go` → `(*connection).sendAutoS9F9`
 - the counter's public contract, now accurate on which paths it counts: `hsms/connection_metrics.go` → `(*ConnectionMetrics).DataMsgErrCount`

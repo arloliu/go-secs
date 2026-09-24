@@ -6,8 +6,8 @@ tags: [hsms, lifecycle, supervisor, close, notifier, generations]
 status: draft
 generated: {by: "claude/opus-5.5", at: 2026-09-24T04:19:05Z}
 sources:
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:0104b09786d9206c, revision: fb8d9cd}
-  - {resource: hsms/supervisor.go, digest: sha256:3ad82a5b74e7ff78, revision: fb8d9cd}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:221b0f7825783fad, revision: 922feb8}
+  - {resource: hsms/supervisor.go, digest: sha256:1a4e9385175f90e9, revision: 922feb8}
   - {resource: hsms/state.go, digest: sha256:b0c58d8c774973d2, revision: fb8d9cd}
 ---
 
