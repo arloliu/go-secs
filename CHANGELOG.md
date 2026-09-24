@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   It still restarts from the initial delay after a selected link drops, and on Open.
   On a passive connection the same growth damps how fast a re-listen cycle repeats,
   for example a peer that connects and is dropped by T7 without ever selecting.
+- `hsms`: `TransportRuntime.CommitSelected` now returns false once the connection has torn down the current generation,
+  also for a transport that carries no generation identity (such as `secs1` or a custom transport).
+  Previously such a late commit could still move the state to Selected.
 
 ## [2.4.1] - 2026-08-15
 

@@ -85,7 +85,7 @@ func runReconnectBackoffAgainstRefusal(t *testing.T, status byte, waitAccept tim
 	// The active endpoint's own Select-rejection teardown is what closes the connection,
 	// which unblocks the drain read below and frees this goroutine to accept the next dial.
 	go func() {
-		for i := 0; i < wantAccepts; i++ {
+		for range wantAccepts {
 			conn, err := ln.Accept()
 			if err != nil {
 				return
