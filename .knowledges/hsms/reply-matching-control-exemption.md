@@ -8,10 +8,10 @@ generated: {by: "claude/sonnet-5", at: 2026-09-24T11:50:00Z}
 verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-24T12:34:28Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:37c6bd273ed11699, revision: dec5f46}
-  - {resource: hsms/reply_registry.go, digest: sha256:6d50e421b3006d65, revision: 922feb8}
-  - {resource: hsms/connection_runtime.go, digest: sha256:31ed96e7c5aa678b, revision: 922feb8}
-  - {resource: hsmsss/integration_reply_matching_test.go, digest: sha256:1c282545dbdbb352, revision: 4eb40d1}
+  - {resource: hsms/connection_send.go, digest: sha256:d2e809d7d0d95711, revision: a7ff4a8}
+  - {resource: hsms/reply_registry.go, digest: sha256:20d02d66955eca24, revision: a7ff4a8}
+  - {resource: hsms/connection_runtime.go, digest: sha256:4516a2d673859480, revision: a7ff4a8}
+  - {resource: hsmsss/integration_reply_matching_test.go, digest: sha256:e3ff71163fa0ec13, revision: a7ff4a8}
 ---
 
 # What it does

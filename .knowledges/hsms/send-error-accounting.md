@@ -4,12 +4,12 @@ title: Send error accounting — which outcomes count
 description: Which synchronous data-send outcomes count, and why ErrConnClosed is excluded without making a concurrent Close a blanket exclusion.
 tags: [hsms, metrics, send, lifecycle]
 status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-24T11:50:00Z}
+generated: {by: "claude/sonnet-5", at: 2026-09-24T15:45:31Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T12:34:28Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T15:53:52Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:37c6bd273ed11699, revision: 922feb8}
-  - {resource: hsms/connection_metrics.go, digest: sha256:b7722fa7d5fa1dc7, revision: 922feb8}
+  - {resource: hsms/connection_send.go, digest: sha256:d2e809d7d0d95711, revision: a7ff4a8}
+  - {resource: hsms/connection_metrics.go, digest: sha256:72ffe452d5b6489e, revision: a7ff4a8}
   - {resource: hsms/epoch.go, digest: sha256:d97677e4f16e9462, revision: 4eb40d1}
   - {resource: hsmsss/transport.go, digest: sha256:cf54049476fbfafe, revision: 4eb40d1}
 ---
@@ -98,8 +98,11 @@ The timeout branch is narrower than it looks. Both T3 (data) and T6 (control) re
   and that error is not one of `isCountedSendErr`'s named exclusions, so it counts.
   The reply-wait select's own teardown branch (`<-e.ctx.Done(): return nil, ErrConnClosed`) only fires for a wait already blocked past the write;
   it cannot retroactively reclassify a write that failed for a different reason.
-  `connection_send.go`'s own comment on that branch ("a normal Close mid-transaction never inflates the cumulative error counter") is the same overstatement carried into the source:
-  true for that specific select case, not a guarantee about concurrent Close in general.
+  `connection_send.go`'s own comment on that branch used to carry the same overstatement
+  ("a normal Close mid-transaction never inflates the cumulative error counter");
+  `ed4665e` corrected it to say the branch itself does not count, without claiming that as a
+  blanket exclusion — a write a teardown interrupts can still fail with the raw socket error,
+  which does count, matching what this entry already recorded.
 - A NotSelected drop is counted once, in its own counter, and never in the error counter — the two answer different questions ("was the peer unreachable?" vs "did the app send while down?").
 - A fire-and-forget (W-bit clear) data send that reaches the wire records send+1, error+0: it returns
   at once and can never reach a timeout branch.

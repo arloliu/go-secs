@@ -4,15 +4,15 @@ title: The transaction observer's two chokepoints, its isData gate, and its outc
 description: Why WithTransactionObserver instruments two call sites (not one), why the isData gate prevents an observer-path panic for control messages, and how classifyTxOutcome's six-way split relates to isCountedSendErr's binary one.
 tags: [hsms, observability, send, metrics, lifecycle]
 status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-24T11:50:00Z}
+generated: {by: "claude/sonnet-5", at: 2026-09-24T15:45:31Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T12:34:28Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T15:53:52Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:37c6bd273ed11699, revision: 922feb8}
+  - {resource: hsms/connection_send.go, digest: sha256:d2e809d7d0d95711, revision: a7ff4a8}
   - {resource: hsms/transaction_observer.go, digest: sha256:a89096ae2659fb79, revision: 33e9744}
   - {resource: hsms/connection_config.go, digest: sha256:1dd3eb7cbc113324, revision: 922feb8}
   - {resource: hsms/session.go, digest: sha256:758381f6b693490c, revision: 922feb8}
-  - {resource: hsmsss/transaction_observer_test.go, digest: sha256:aad0db840d794f9a, revision: 33e9744}
+  - {resource: hsmsss/transaction_observer_test.go, digest: sha256:cca4e16c9add5d25, revision: a7ff4a8}
   - {resource: hsmsss/transport_control.go, digest: sha256:7b5042e69a84d610, revision: 922feb8}
   - {resource: hsms/data_msg.go, digest: sha256:3d91341cbd89d7e7, revision: 4eb40d1}
 ---
@@ -70,11 +70,14 @@ Either way the panic fires after the inner `sendWaitReply`/`sendNoReply` call ha
 and it propagates up the caller's stack like any other panic —
 a caller with its own `recover()` catches it; one without lets it crash the process.
 
-**`hsmsss/transaction_observer_test.go`'s `TestTransactionObserver_ControlTransaction_NoEvent` doc comment still describes that teeth-check as proving today's behavior, but it no longer does.**
-Against the current production wiring, deleting `WriteMessage`'s `isData` gate would not reproduce the crash,
-because the real Select.req/Linktest.req traffic this test exercises now bypasses `WriteMessage` entirely via `WriteMessageFromGeneration`.
-The test's own assertion (`rec.snapshot()` stays empty across several linktest round trips) still passes and is still meaningful —
-it just now verifies the structural bypass, not the gate the comment names.
+**`hsmsss/transaction_observer_test.go`'s `TestTransactionObserver_ControlTransaction_NoEvent` doc comment was stale,
+and `a7ff4a8` rewrote it.**
+It used to describe an obsolete teeth-check (deleting `WriteMessage`'s `isData` gate crashes the process) as proving today's behavior,
+when the real Select.req/Linktest.req traffic this test exercises now bypasses `WriteMessage` entirely via `WriteMessageFromGeneration`.
+The rewritten comment now names both barriers — the structural bypass and the `isData` gate —
+and states that only removing both reaches `newTxEvent` unsafely, matching what this entry already found.
+The test's own assertion (`rec.snapshot()` stays empty across several linktest round trips)
+is unchanged and still meaningful.
 
 **The classifier vs. the counter.**
 `classifyTxOutcome` (`hsms/connection_send.go`, next to `isCountedSendErr`)
@@ -150,8 +153,8 @@ like any unrecovered panic it keeps unwinding through the calling frames until s
 - the excluded async path: `hsms/session.go` → `(*session).ReplyDataMessage`
 - the option and field: `hsms/connection_config.go` → `WithTransactionObserver`
 - the types: `hsms/transaction_observer.go` → `TxEvent`, `TxOutcome`
-- the gate's teeth-check (comment now describes a stale scenario — see above): `hsmsss/transaction_observer_test.go` →
-  `TestTransactionObserver_ControlTransaction_NoEvent`
+- the gate's teeth-check, its doc comment corrected in a7ff4a8 to match the current wiring:
+  `hsmsss/transaction_observer_test.go` → `TestTransactionObserver_ControlTransaction_NoEvent`
 - the structural bypass for a `genRuntime`-capable runtime: `hsmsss/transport_control.go` → `(*transport).writeMessage`, `(*transport).sendResponse`, `genRuntime`
 - the generation-bound entry points it calls: `hsms/connection_send.go` → `(*connection).WriteMessageFromGeneration`, `(*connection).SendAsyncFromGeneration`
 - the unconditional, nil-panicking accessors behind the `isData` gate: `hsms/data_msg.go` → `(*DataMessage).WaitBit`, `(*DataMessage).Stream`

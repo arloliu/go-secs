@@ -14,7 +14,8 @@ Does not own the message model, reply routing, generation lifecycle, or T3 — t
 
 # Entries
 
-None yet — this unit fills on miss via `/memex capture`.
+* [The block-send transaction's detect/act split and RTY counting](/secs1/block-send-detect-act-split.md) - how sendBlockOnce/sendBlock divide contention detection from the yield action, and how ErrSendFailed surfaces.
+* [The inbound assembler's accept order, lazy T4 check, and frame-ownership handoff](/secs1/assembler-accept-algorithm.md) - the fixed per-block check order, why T4 is a lazy gap check not a timer, and the owned-buffer handoff to DeliverOwnedFrame.
 
 # Entry points
 

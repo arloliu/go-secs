@@ -77,6 +77,16 @@
   [activity stamps](/hsmsss/activity-stamps.md), [E37.1 profile overrides](/hsmsss/e37-1-narrows-e37-generic.md), and [linktest teardown exclusion](/hsmsss/linktest-teardown-exemption.md) (retitled: one context tree, not two cascades).
   Corrections removed overclaims (B2 closes TOCTOU; Close never counts; stamps never move backward; one-straggler bound) and fixed ordering, ancestry, and pointer errors.
 * **Update** (verify): [Parser input bounds](/sml/prealloc-bound.md) verified by claude/opus-5.5; one byte count corrected (the example message is 28 bytes); promoted to stable.
+* **Creation**: [The block-send transaction's detect/act split and RTY counting](/secs1/block-send-detect-act-split.md) — the sendBlockOnce/sendBlock detect-vs-act split and anti-starvation retry counting on a failed contention yield;
+  first entries in a new `secs1` unit.
+* **Creation**: [The inbound assembler's accept order, lazy T4 check, and frame-ownership handoff](/secs1/assembler-accept-algorithm.md) — the fixed five-step per-block check order and T4 as a lazy next-arrival gap check rather than a timer;
+  the owned-buffer handoff to `rt.DeliverOwnedFrame`.
+* **Update** (resync against `a7ff4a8`): [Send error accounting](/hsms/send-error-accounting.md), [Linktest teardown exclusion](/hsmsss/linktest-teardown-exemption.md), and [Transaction observer chokepoints](/hsms/transaction-observer-chokepoints.md)
+  record that the source comments they flagged (the Close-mid-transaction claim, runLinktest's "two cascades", ErrConnClosed's godoc, the observer test's rationale) were corrected in `ed4665e` / `a7ff4a8`; `verified` dropped, status draft pending confirmation.
+* **Update** (resync, digests only): stale-epoch write guard, inflight gauge, Selected gates, MaxMessageSize ceiling, supervisor join, reconnect backoff scope, transition-cause injection sites, activity stamps, reply-matching control exemption, and E37.1 profile overrides —
+  their cited files changed only in comments they do not discuss.
+* **Update** (verify): the two secs1 drafts were checked against source by openai/gpt-6-astra and corrected — RTY bounds consecutive failures, not total attempts; `Write` can return `ErrConnClosed` on teardown; T4 can co-fire with a duplicate or invalid-first count; only the returned frame buffer is owned.
+* **Update** (verify): the three resynced entries and the two secs1 entries were confirmed by openai/gpt-5.6-terra and promoted to stable; every entry in the bundle is now stable.
 
 ## 2026-09-23
 * **Update**: [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) now records that `genRuntime` and `genCapability` alias one shared `internal/gencap.GenerationRuntime` instantiation, and cites `internal/gencap/gencap.go`;
