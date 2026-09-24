@@ -4,13 +4,14 @@ title: The transaction observer's two chokepoints, its isData gate, and its outc
 description: Why WithTransactionObserver instruments two call sites (not one), why the isData gate is load-bearing enough to crash the process without it, and how classifyTxOutcome's six-way split relates to isCountedSendErr's binary one.
 tags: [hsms, observability, send, metrics, lifecycle]
 status: draft
-generated: {by: "claude/sonnet-5", at: 2026-08-13T13:40:00Z}
+generated: {by: "claude/sonnet-5", at: 2026-09-24T00:00:00Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:6cec3817c0e2a9de, revision: 33e9744}
+  - {resource: hsms/connection_send.go, digest: sha256:37c6bd273ed11699, revision: 922feb8}
   - {resource: hsms/transaction_observer.go, digest: sha256:a89096ae2659fb79, revision: 33e9744}
-  - {resource: hsms/connection_config.go, digest: sha256:8a454cb02ca9582f, revision: 33e9744}
-  - {resource: hsms/session.go, digest: sha256:df87568a198c41ac, revision: 33e9744}
+  - {resource: hsms/connection_config.go, digest: sha256:1dd3eb7cbc113324, revision: 922feb8}
+  - {resource: hsms/session.go, digest: sha256:758381f6b693490c, revision: 922feb8}
   - {resource: hsmsss/transaction_observer_test.go, digest: sha256:aad0db840d794f9a, revision: 33e9744}
+  - {resource: hsmsss/transport_control.go, digest: sha256:7b5042e69a84d610, revision: 922feb8}
 ---
 
 # What it does
@@ -40,21 +41,29 @@ and a frame still queued at teardown is stranded, never flushed.
 `ReplyDataMessage` therefore never reaches either chokepoint and never reports a `TxEvent`,
 regardless of what the brief's method list said.
 
-**The `isData` gate.**
-`WriteMessage` is also the send path for internal control transactions —
-`hsmsss/transport_active.go`'s Select.req and `hsmsss/transport_procedures.go`'s Linktest.req both call `rt.WriteMessage` with a `*ControlMessage`,
-where the `*DataMessage` type assertion (`dm`) is `nil`.
-Both `WriteMessage` and `WriteMessageNoReply` type-assert `msg` to `*DataMessage`
-and skip the observer entirely (`if !isData { return c.sendWaitReply(ctx, msg) }`)
-before ever building a `TxEvent`.
-This gate was teeth-checked by deleting it:
-the failure is not the "Stream=0/Function=0 rows pollute a consumer's histogram" symptom one would guess from the classifier's shape.
-It is an immediate, whole-process crash —
+**The `isData` gate, and the structural bypass that now sits in front of it.**
+As of the generation-gated send commits, `hsmsss`'s internal control initiators no longer call `rt.WriteMessage` directly.
+`hsmsss/transport_active.go`'s Select.req and `hsmsss/transport_procedures.go`'s Linktest.req both call the `writeMessage` helper in `hsmsss/transport_control.go`,
+which type-asserts the runtime to the `genRuntime` capability and, when present, calls `WriteMessageFromGeneration` instead of `WriteMessage`.
+The production `hsms.connection` implements `genRuntime`,
+so for it a control send never reaches `WriteMessage`, `WriteMessageNoReply`, `newTxEvent`, or the `isData` gate at all.
+It goes straight to `sendWaitReplyOn` on the caller-named generation,
+which reports no `TxEvent` by construction (see `WriteMessageFromGeneration`'s own doc comment).
+The `isData` gate inside `WriteMessage`/`WriteMessageNoReply`
+(`if !isData { return c.sendWaitReply(ctx, msg) }` and its `WriteMessageNoReply` counterpart)
+is still the only thing protecting a caller that reaches `WriteMessage` with a `*ControlMessage` some other way —
+a runtime that does not implement `genRuntime` (an external `TransportRuntime`, or an internal call with `gen == 0`).
+That gate was teeth-checked by deleting it, at the earlier revision when control sends still ran through `WriteMessage` unconditionally.
+The failure was not the "Stream=0/Function=0 rows pollute a consumer's histogram" symptom one would guess from the classifier's shape.
+It was an immediate, whole-process crash —
 `newTxEvent` calls `dm.WaitBit()` on a nil `*DataMessage`,
-and `DataMessage.WaitBit()` dereferences `msg.header` unconditionally,
-so every connection that combines `WithTransactionObserver` with a real `Open()` panics with SIGSEGV on its own Select.req handshake,
-before a single data message is ever sent.
-See `hsmsss/transaction_observer_test.go`'s `TestTransactionObserver_ControlTransaction_NoEvent` doc comment for the full finding.
+and `DataMessage.WaitBit()` dereferences `msg.header` unconditionally.
+
+**`hsmsss/transaction_observer_test.go`'s `TestTransactionObserver_ControlTransaction_NoEvent` doc comment still describes that teeth-check as proving today's behavior, but it no longer does.**
+Against the current production wiring, deleting `WriteMessage`'s `isData` gate would not reproduce the crash,
+because the real Select.req/Linktest.req traffic this test exercises now bypasses `WriteMessage` entirely via `WriteMessageFromGeneration`.
+The test's own assertion (`rec.snapshot()` stays empty across several linktest round trips) still passes and is still meaningful —
+it just now verifies the structural bypass, not the gate the comment names.
 
 **The classifier vs. the counter.**
 `classifyTxOutcome` (`hsms/connection_send.go`, next to `isCountedSendErr`)
@@ -100,9 +109,11 @@ can only unwind `WriteMessage`'s own empty stack frame; it cannot leak any of th
 
 # Failure modes
 
-- **Deleting or weakening the `isData` gate** does not degrade gracefully into noisy data;
-  it crashes the process on the next Select.req or Linktest.req sent through an observed connection,
+- **Deleting or weakening the `isData` gate** does not degrade gracefully into noisy data.
+  Against the production `hsms.connection` it currently has no observable effect at all, because real Select.req/Linktest.req traffic already bypasses `WriteMessage` via `WriteMessageFromGeneration` and never reaches the gate.
+  It crashes the process the moment ANY caller reaches `WriteMessage`/`WriteMessageNoReply` with a `*ControlMessage` — a `genRuntime`-incapable `TransportRuntime`, or an internal call made with `gen == 0` —
   because `newTxEvent` reads `dm`'s fields unconditionally.
+  A change that removes the gate can therefore look safe against the shipped transports and still be a live landmine for any other caller.
 - **Assuming `classifyTxOutcome` and `isCountedSendErr` agree on what "counts"**
   is wrong on one axis (both exclude teardown/cancel as lifecycle noise) but not the other
   (`classifyTxOutcome` still names `ErrNotSelectedState`/`ErrMessageTooLarge` as a `TxOutcome`,
@@ -121,5 +132,7 @@ can only unwind `WriteMessage`'s own empty stack frame; it cannot leak any of th
 - the excluded async path: `hsms/session.go` → `(*session).ReplyDataMessage`
 - the option and field: `hsms/connection_config.go` → `WithTransactionObserver`
 - the types: `hsms/transaction_observer.go` → `TxEvent`, `TxOutcome`
-- the gate's teeth-check: `hsmsss/transaction_observer_test.go` →
+- the gate's teeth-check (comment now describes a stale scenario — see above): `hsmsss/transaction_observer_test.go` →
   `TestTransactionObserver_ControlTransaction_NoEvent`
+- the structural bypass for a `genRuntime`-capable runtime: `hsmsss/transport_control.go` → `(*transport).writeMessage`, `(*transport).sendResponse`, `genRuntime`
+- the generation-bound entry points it calls: `hsms/connection_send.go` → `(*connection).WriteMessageFromGeneration`, `(*connection).SendAsyncFromGeneration`

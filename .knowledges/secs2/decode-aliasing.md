@@ -9,7 +9,7 @@ verified:
   - {by: "claude/opus-5", at: 2026-08-12T08:33:19Z}
 sources:
   - {resource: secs2/decode.go, digest: sha256:8ca1e530a8d03c4a, revision: 3660aa4}
-  - {resource: secs2/item.go, digest: sha256:39618013ea8f34c1, revision: 3660aa4}
+  - {resource: secs2/item.go, digest: sha256:42e0d825d6da05fc, revision: 922feb8}
 ---
 
 # What it does

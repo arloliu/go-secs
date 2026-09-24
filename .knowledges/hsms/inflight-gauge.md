@@ -3,14 +3,11 @@ type: Mechanic
 title: The W-bit inflight gauge
 description: When a data message counts as in flight, and why a leak here silently disables liveness probing.
 tags: [hsms, metrics, send, liveness]
-status: stable
-generated: {by: "claude/opus-5", at: 2026-08-05T12:08:31Z}
-verified:
-  - {by: "claude/opus-5", at: 2026-08-05T13:05:00Z}
-  - {by: "codex/cli", at: 2026-08-05T13:50:00Z}
+status: draft
+generated: {by: "claude/sonnet-5", at: 2026-09-24T00:00:00Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:9b1ccf21a9d24c0d, revision: 038319b}
-  - {resource: hsms/connection.go, digest: sha256:ff66ee176cddfc56, revision: 3660aa4}
+  - {resource: hsms/connection_send.go, digest: sha256:37c6bd273ed11699, revision: 922feb8}
+  - {resource: hsms/connection.go, digest: sha256:82d716dbf253b02c, revision: 922feb8}
 ---
 
 # What it does
@@ -19,7 +16,12 @@ The inflight gauge counts sent data messages still awaiting a reply. It looks li
 
 # How it works
 
-The gauge is incremented exactly once, **after** the frame is on the wire, and only for a data message with the W-bit set. A single deferred decrement covers all four terminal branches of the reply wait, so no return path can skip it.
+The gauge is incremented exactly once, **after** the frame is on the wire, and only for a data message with the W-bit set.
+A single deferred decrement covers all four terminal branches of the reply wait, so no return path can skip it.
+
+This logic lives in `sendWaitReplyOn`, the body `sendWaitReply` runs after resolving the live epoch.
+`WriteMessageFromGeneration` — the generation-bound entry point the in-module Select.req/Linktest.req initiators use —
+calls `sendWaitReplyOn` directly against a caller-named generation, so both entry points get the same gauge accounting for free.
 
 `hsmsss` reaches the gauge through `DataMsgInflight()`, deliberately routed via a package-local capability interface rather than the exported `TransportRuntime` — widening that exported interface would break external implementers. `LinktestSuppression()` travels the same way.
 
@@ -39,5 +41,5 @@ The gauge is incremented exactly once, **after** the frame is on the wire, and o
 
 # Where to look
 
-- increment and the single covering defer: `hsms/connection_send.go` → `(*connection).sendWaitReply`
+- increment and the single covering defer: `hsms/connection_send.go` → `(*connection).sendWaitReplyOn` (called by `(*connection).sendWaitReply` and `(*connection).WriteMessageFromGeneration`)
 - the capability methods the transport reaches through: `hsms/connection.go` → `(*connection).DataMsgInflight`, `(*connection).LinktestSuppression`

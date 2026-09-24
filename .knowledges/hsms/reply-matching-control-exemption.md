@@ -7,8 +7,8 @@ status: draft
 generated: {by: "claude/sonnet-5", at: 2026-09-24T05:09:56Z}
 sources:
   - {resource: hsms/connection_send.go, digest: sha256:37c6bd273ed11699, revision: dec5f46}
-  - {resource: hsms/reply_registry.go, digest: sha256:0529bf4e86a639bb, revision: dec5f46}
-  - {resource: hsms/connection_runtime.go, digest: sha256:b7be63fa8e930c54, revision: dec5f46}
+  - {resource: hsms/reply_registry.go, digest: sha256:6d50e421b3006d65, revision: 922feb8}
+  - {resource: hsms/connection_runtime.go, digest: sha256:31ed96e7c5aa678b, revision: 922feb8}
 ---
 
 # What it does

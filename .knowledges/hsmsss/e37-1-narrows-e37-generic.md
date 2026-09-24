@@ -3,16 +3,14 @@ type: Mechanic
 title: Where the HSMS-SS profile overrides the generic core
 description: The four sites whose value or state check comes from E37.1 rather than E37, and what silently breaks if one is "simplified" back.
 tags: [hsmsss, e37-1, select, separate, linktest, reject, session-id]
-status: stable
-generated: {by: "claude/opus-5", at: 2026-08-10T00:00:00Z}
-verified:
-  - {by: "claude/opus-5", at: 2026-08-12T08:33:19Z}
+status: draft
+generated: {by: "claude/sonnet-5", at: 2026-09-24T07:00:00Z}
 sources:
-  - {resource: hsmsss/transport_active.go, digest: sha256:642cebd8a000d63d, revision: 3660aa4}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:c3f5abfffb491404, revision: 3660aa4}
+  - {resource: hsmsss/transport_active.go, digest: sha256:b4a168040cd91ff8, revision: 922feb8}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:221b0f7825783fad, revision: 922feb8}
   - {resource: hsms/control_msg.go, digest: sha256:847dad3406c4d87c, revision: 3660aa4}
-  - {resource: hsmsss/transport_control.go, digest: sha256:d0b89bf94d8c792b, revision: 3660aa4}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:67343e11cdcaea52, revision: 3660aa4}
+  - {resource: hsmsss/transport_control.go, digest: sha256:7b5042e69a84d610, revision: 922feb8}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:f78883ced9f30422, revision: 922feb8}
 ---
 
 # What it does
@@ -36,9 +34,11 @@ They implement generic E37, so the profile value is applied at the HSMS-SS call 
 **`writeFarewellSeparate` lives in the shared core, which `secs1` also reaches.** `secs1.New` wraps `hsms.NewConnection` and its transport commits the shared FSM to Selected, so a graceful SECS-I Close lands there too.
 No HSMS frame reaches a SECS-I peer only because `secs1`'s writer drops every non-zero SType before the wire — the constant is inert there, not correct there.
 
-**`handleSeparateReq` tears down in any connected substate, and needs the C1 straggler guard to do it.** `connection.TCPDown` resolves the *current* epoch and supervisor at call time and injects an untagged `evDisconnect`.
-`recvLoop` guards its read-error path against that with a `genCtx.Err()` check; the dispatch path had no such guard, which only became reachable once teardown stopped being restricted to Selected.
-`genCtx` is threaded `recvLoop` → `dispatchFrame` → `handleSeparateReq` for that check alone.
+**`handleSeparateReq` tears down in any connected substate, and two guards now keep that teardown inside the reporting generation.**
+It reports through `t.tcpDown(g.gen, errPeerSeparate, hsms.CausePeerSeparate)`, which resolves the target generation by identity (`connection.TCPDownFromGeneration`) rather than whichever epoch happens to be current when the report lands.
+The `genCtx.Err()` check ahead of it is only an early exit — cancellation can land between the check and the call — but `g.gen` is a real barrier: it travels with the queued event onto the FSM and is re-checked when `supervisor.step` applies it, so a stale report can no longer disconnect a successor generation even when the early exit misses it.
+This closes what the conformance audit recorded as Gap 2 (a narrowed-but-open window, not a fence); see [transition-cause-injection-sites](/hsms/transition-cause-injection-sites.md) for the full generation-identity mechanism this now rests on.
+`genCtx` and `g` are threaded `recvLoop` → `dispatchFrame` → `handleSeparateReq` together — `genCtx` for the early exit, `g.gen` for the barrier.
 
 **`handleLinktestReq` answers regardless of state, on purpose.** The initiator side is bracketed by `startLinktest` / `stopLinktest`; only the responder is lenient.
 See its comment and the audit's Gap 3.
@@ -51,7 +51,8 @@ The symptom is an endless `NotSelected` → `NotConnect` reconnect loop with no 
 That is why the guard tests carry counter-assertions rather than single-sided ones: `TestActive_SelectAndSeparateUseControlSessionID` asserts `0xFFFF` on control frames **and** the configured device ID on a data message, so an over-fix that forces `0xFFFF` everywhere fails too.
 `TestPassive_SelectRspMirrorsRequestSessionID` probes with a non-conformant `0x0042` because a conformant `0xFFFF` request cannot distinguish echoing from emitting a constant.
 
-Dropping the straggler guard fails differently and far more rarely: a Separate arriving while a bounded `Stop` has abandoned the recv goroutine disconnects the *successor* generation, which presents as a spurious reconnect with no peer-side cause.
+Dropping the `genCtx` early exit alone no longer disconnects a successor: the `g.gen` barrier at FSM-apply time now catches it, so the visible effect is only a counted stale report (`staleGen`) for a generation that was already ending.
+Dropping the `g.gen` barrier itself — reporting through the plain, ungapped path instead of `TCPDownFromGeneration` — reopens the original hazard: a Separate read by a recv goroutine a bounded `Stop` has abandoned disconnects the *successor* generation, presenting as a spurious reconnect with no peer-side cause.
 
 # Where to look
 
@@ -60,4 +61,5 @@ Dropping the straggler guard fails differently and far more rarely: a Separate a
 - farewell Separate: `hsms/connection_lifecycle.go` → `writeFarewellSeparate`
 - Reject senders: `hsmsss/transport_control.go` → `sendReject`, `sendRejectNotSelected`, `sendRejectTransactionNotOpen`
 - Separate / Linktest responders: `hsmsss/transport_control.go` → `handleSeparateReq`, `handleLinktestReq`
-- genCtx threading: `hsmsss/transport_recv.go` → `recvLoop`, `dispatchFrame`
+- genCtx + generation-identity threading: `hsmsss/transport_recv.go` → `recvLoop`, `dispatchFrame`
+- the generation barrier the report resolves against: `hsms/connection_lifecycle.go` → `TCPDownFromGeneration`

@@ -3,12 +3,10 @@ type: Mechanic
 title: The B1/B2 Selected gates on the send path
 description: What stops a data send when the session is not Selected, and why one check is not enough.
 tags: [hsms, send, state-machine, e37]
-status: stable
-generated: {by: "claude/opus-5", at: 2026-08-05T12:08:31Z}
-verified:
-  - {by: "agy/gemini-3.1-pro-high", at: 2026-08-05T14:10:00Z}
+status: draft
+generated: {by: "claude/sonnet-5", at: 2026-09-24T00:00:00Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:9b1ccf21a9d24c0d, revision: 038319b}
+  - {resource: hsms/connection_send.go, digest: sha256:37c6bd273ed11699, revision: 922feb8}
 ---
 
 # What it does
@@ -21,7 +19,10 @@ sources:
 
 **B2** runs inside `writeFrame`, under the epoch's write mutex — the same lock that serialises frames onto the wire. It re-checks Selected at the write boundary, closing the window between B1 and the actual `writev` where a Deselect or drop could land.
 
-Every refusal funnels through `dropNotSelected`, the single chokepoint (B3) that increments `DataMsgDropNotSelectedCount` exactly once and emits a rate-limited warning. There are four call sites, not two: the B1 gate in each of the three send entry points (`sendWaitReply`, `sendNoReply`, `SendAsync`) plus the B2 re-check inside `writeFrame`. Every one of them must route through the chokepoint or the counter silently under-reports.
+Every refusal funnels through `dropNotSelected`, the single chokepoint (B3) that increments `DataMsgDropNotSelectedCount` exactly once and emits a rate-limited warning.
+There are four B1/B2 gate *code sites*, not two:
+`sendWaitReplyOn` (the shared body behind `sendWaitReply` and the generation-bound `WriteMessageFromGeneration`), `sendNoReply`, `enqueueAsync` (the shared body behind `SendAsync` and the generation-bound `SendAsyncFromGeneration`), plus the B2 re-check inside `writeFrame`.
+Every one of them must route through the chokepoint or the counter silently under-reports.
 
 # Invariants
 
@@ -41,4 +42,5 @@ Every refusal funnels through `dropNotSelected`, the single chokepoint (B3) that
 - the pre-write gate: `hsms/connection_send.go` → `(*connection).IsSelected`
 - the counted chokepoint: `hsms/connection_send.go` → `(*connection).dropNotSelected`
 - the write-boundary re-check, under the epoch write mutex: `hsms/connection_send.go` → `(*connection).writeFrame`
-- the three gated entry points: `hsms/connection_send.go` → `(*connection).sendWaitReply`, `(*connection).sendNoReply`, `(*connection).SendAsync`
+- the gate code sites: `hsms/connection_send.go` → `(*connection).sendWaitReplyOn`, `(*connection).sendNoReply`, `(*connection).enqueueAsync`
+- the entry points that reuse them: `hsms/connection_send.go` → `(*connection).sendWaitReply`, `(*connection).WriteMessageFromGeneration`, `(*connection).SendAsync`, `(*connection).SendAsyncFromGeneration`
