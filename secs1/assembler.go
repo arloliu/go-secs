@@ -80,8 +80,9 @@ func (a *assembler) report(violation error, header [10]byte) {
 //     number and invariant header) is appended; any other block aborts the open partial and is
 //     re-evaluated as a potential fresh FIRST block (number 1, or number 0 for a lone E-bit single
 //     block, D5b-12).
-//  5. E-bit termination (E4 §9.4.4.5): the last block completes the message — assembleFrame +
-//     deliverFrame — then the partial resets.
+//  5. E-bit termination (E4 §9.4.4.5): the last block completes the message:
+//     assembleFrame, then the partial resets (before the assembly error is checked),
+//     then deliverFrame.
 //
 // It returns nil for every dropped/discarded block (a protocol violation is not a link teardown);
 // only a deliverFrame error on a completed message propagates (the engine treats inbound
@@ -210,9 +211,10 @@ func (a *assembler) appendBlock(blk block) error {
 	return nil
 }
 
-// complete assembles the accumulated blocks into a synthesized HSMS frame and delivers it to the
-// core, then resets the partial state (the duplicate-detection record persists). It runs on the
-// E-bit (last) block (E4 §9.4.4.5).
+// complete assembles the accumulated blocks into a synthesized HSMS frame,
+// resets the partial state before checking the assembly error (the duplicate-detection record persists),
+// and then delivers the frame to the core.
+// It runs on the E-bit (last) block (E4 §9.4.4.5).
 func (a *assembler) complete() error {
 	frame, err := assembleFrame(a.blocks)
 	a.reset()

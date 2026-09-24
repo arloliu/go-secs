@@ -247,7 +247,10 @@ func isSecondaryReply(dm *DataMessage) bool {
 // RouteReply looks up the System Bytes of msg in the per-generation sender-owned reply registry
 // and non-blocking-delivers the reply to the waiting sender (TransportRuntime, spec §5.5).
 //
-// It returns true on delivery (a sender received the reply), false on a miss.
+// It returns true on a registry hit, false on a miss.
+// A hit does not prove the waiter received the value:
+// replyRegistry.route still reports a hit, and discards the result,
+// when a duplicate reply finds the sender's one-slot buffer already full.
 // A miss has three causes: the registry has no open transaction for these System Bytes;
 // (WithStrictReplyMatching only) the candidate's stream/function diverged from the registered primary (E37 §9.4.1);
 // or a control response (Select.rsp/Deselect.rsp/Linktest.rsp) answering an open DATA transaction,

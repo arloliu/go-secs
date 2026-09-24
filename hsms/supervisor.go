@@ -408,10 +408,12 @@ func (s *supervisor) run() {
 }
 
 // step applies one event.
-// An event that names the generation it was injected for is first matched against the live generation,
+// It reads the current state.
+// Then an event that names the generation it was injected for is matched against the live generation,
 // and discarded if that generation has ended —
-// the barrier that keeps a late transport goroutine from dropping its successor's link.
-// Then it reads the current state, applies the pure transition (illegal
+// the barrier that keeps a late transport goroutine from dropping its successor's link
+// (reading state before this check is load-bearing; see the inline note below).
+// It then applies the pure transition (illegal
 // pairs are safe no-ops), stores state only when it actually changed (a no-op when
 // CommitSelected already pre-stored — H2), and fires the deduped reaction/notify keyed on
 // lastReacted (H3). Two events are guarded against a concurrent synchronous CommitSelected: the

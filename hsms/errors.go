@@ -84,8 +84,11 @@ var (
 	// IsTimeout reports false.
 	ErrNotSelectedState = errors.New("hsms: not in selected state")
 
-	// ErrConnClosed indicates the generation backing a send or wait was torn down while the call was in flight (spec §5.2/§5.5):
-	// a voluntary Close, an involuntary drop, or a wait that lost the race against teardown.
+	// ErrConnClosed indicates the generation backing a send or wait has no live socket (spec §5.2/§5.5):
+	// most commonly because the generation was torn down while the call was in flight —
+	// a voluntary Close, an involuntary drop, or a wait that lost the race against teardown —
+	// but a synchronous send can also see it before teardown,
+	// if it reaches the write with no socket published yet on the epoch.
 	//
 	// Classification: IsTransient reports true.
 	// After an involuntary drop, the connection's own reconnect loop re-establishes the link.

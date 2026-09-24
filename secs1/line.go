@@ -330,16 +330,18 @@ func (l *lineIO) sendBlockData(blk block) (sendResult, error) {
 // single-attempt sendBlockOnce in the RTY loop and owning the slave-yield ACTION that sendBlockOnce
 // only detects (see sendResult).
 //
-// The block is attempted up to retryLimit+1 times before ErrSendFailed (the loop bound is
-// retry <= retryLimit — load-bearing). On slave contention the yield is performed here, not in
+// ErrSendFailed follows retryLimit+1 consecutive failed attempts (the loop bound is
+// retry <= retryLimit — load-bearing).
+// A completed contention yield resets that count,
+// so RTY bounds consecutive failures, not the total number of attempts. On slave contention the yield is performed here, not in
 // sendBlockOnce: grant the master line control (EOT), take its block, deliver it, and reset the
 // retry counter per §7.8.2.1 ("the postponed block Send may be sent as if it were a new send
 // request"). A master (isEquip) never returns sendContention, so it never yields.
 //
 // Parameters:
 //   - blk:        the block to transmit.
-//   - retryLimit: the engine's cfg.RetryLimit() (lineIO never re-reads config); the block is sent
-//     up to retryLimit+1 times.
+//   - retryLimit: the engine's cfg.RetryLimit() (lineIO never re-reads config); the block gets
+//     retryLimit+1 attempts between contention yields.
 //   - deliver:    the engine's inbound sink (T3). A block received while yielding to a contending
 //     master is a REAL inbound message block and MUST be delivered, not dropped (P1).
 //

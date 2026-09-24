@@ -72,7 +72,8 @@ func (r replyRegistry) deregister(key [4]byte) {
 // route delivers res to the waiting sender for key using a non-blocking send (SEMI E37 §9.4.1).
 //
 // It returns (delivered, mismatched).
-// delivered reports whether the result was handed to the sender's channel:
+// delivered reports whether a registered waiter was found for key and the result was offered to it
+// (a full one-slot buffer silently discards the result but still counts as delivered; see below):
 // true on every registry hit under the default (observe) posture, and true on a strict-mode hit UNLESS the candidate mismatched
 // (except a DATA registration answered by a *ControlMessage; see below).
 // mismatched reports whether a compared candidate's stream or function diverged from the registered primary —
