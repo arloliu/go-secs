@@ -687,7 +687,7 @@ where an earlier draft had it as an unqualified pass.
 
 **§7.4 / §7.7.3 — simultaneous Select and simultaneous Deselect.**
 Simultaneous Select is handled: a duplicate `Select.req` is answered with status 1 and the link is kept.
-The full rationale, and why status 1 is treated as success on both sides,
+The full rationale — including why a status-1 answer to OUR Select.req is success only when this generation already selected —
 is in the E37.1 audit's "Deviations reviewed and accepted".
 Simultaneous Deselect does not arise — we never initiate a Deselect.
 

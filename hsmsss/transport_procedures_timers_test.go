@@ -98,6 +98,12 @@ func TestT7_CancelledWhenSelectCompletes(t *testing.T) {
 // TestT7_DeselectReArms — a Deselect.req while Selected transitions Selected->NotSelected
 // (SelectLost) on the SAME TCP connection, so the T7 dwell re-applies: handleDeselectReq re-arms
 // T7 and, if no re-Select follows, T7Expired() fires.
+//
+// It also pins the selectedOnce latch's lifetime across a real Deselect: the generation DID select
+// before the Deselect (the latch pre-set below models that).
+// A Deselect is a legitimate E37 transition, not a select refusal, so it must leave the latch
+// untouched.
+// Teeth: a Deselect path that clears genWG.selectedOnce fails the latch assertion below.
 func TestT7_DeselectReArms(t *testing.T) {
 	t.Parallel()
 
@@ -108,11 +114,14 @@ func TestT7_DeselectReArms(t *testing.T) {
 	ctx := t.Context()
 
 	tr := newLinktestTransport(t, rt, ctx)
+	tr.wg.selectedOnce.Store(true) // this generation selected before the Deselect below
 
 	// Deselect responder: replies success, SelectLost (-> NotSelected), stops linktest, re-arms T7.
 	req := hsms.NewDeselectReq(0xFFFF, rt.NextSystemBytes())
 	tr.handleDeselectReq(tr.wg, req)
 	require.Equal(t, 1, rt.selectLostCalls(), "Deselect while Selected must transition via SelectLost")
+	require.True(t, tr.wg.selectedOnce.Load(),
+		"a Deselect must NOT clear genWG.selectedOnce — the generation still did select once")
 
 	select {
 	case <-rt.t7ExpiredCh:

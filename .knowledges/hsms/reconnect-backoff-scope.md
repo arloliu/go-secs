@@ -6,13 +6,13 @@ tags: [hsms, reconnect, backoff, lifecycle, generations]
 status: draft
 generated: {by: "claude/sonnet-5", at: 2026-09-24T12:00:00Z}
 sources:
-  - {resource: hsms/connection.go, digest: sha256:82d716dbf253b02c, revision: a9235b4}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:221b0f7825783fad, revision: a9235b4}
-  - {resource: hsms/connection_config.go, digest: sha256:1dd3eb7cbc113324, revision: a9235b4}
-  - {resource: hsms/connection_runtime.go, digest: sha256:31ed96e7c5aa678b, revision: a9235b4}
-  - {resource: hsms/connection_metrics.go, digest: sha256:b7722fa7d5fa1dc7, revision: a9235b4}
-  - {resource: hsms/supervisor.go, digest: sha256:1a4e9385175f90e9, revision: a9235b4}
-  - {resource: hsms/epoch.go, digest: sha256:bc9fdafa3dff0a36, revision: a9235b4}
+  - {resource: hsms/connection.go, digest: sha256:82d716dbf253b02c, revision: b0c8081}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:221b0f7825783fad, revision: b0c8081}
+  - {resource: hsms/connection_config.go, digest: sha256:1dd3eb7cbc113324, revision: b0c8081}
+  - {resource: hsms/connection_runtime.go, digest: sha256:31ed96e7c5aa678b, revision: b0c8081}
+  - {resource: hsms/connection_metrics.go, digest: sha256:b7722fa7d5fa1dc7, revision: b0c8081}
+  - {resource: hsms/supervisor.go, digest: sha256:1a4e9385175f90e9, revision: b0c8081}
+  - {resource: hsms/epoch.go, digest: sha256:bc9fdafa3dff0a36, revision: b0c8081}
 ---
 
 # What it does

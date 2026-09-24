@@ -43,6 +43,22 @@
   Refreshes digests for `hsms/supervisor.go`, `hsms/connection_lifecycle.go`, `hsms/connection_runtime.go`,
   `hsms/connection.go`, `hsms/epoch.go`, and `secs1/transport.go` (revision advanced to `a9235b4`);
   `verified` stays dropped, entry remains draft.
+* **Update**: [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md)
+  qualifies the `runSelectProcedure` non-zero-select-status row:
+  a status-1 answer is this cause's genuine refusal only while this generation's `genWG.selectedOnce` latch reads false;
+  a status-1 answer while the latch reads true is the legitimate simultaneous-select case and drives no transition at all.
+  Adds a `genWG.selectedOnce` pointer under Where to look.
+  Refreshes digests for `hsmsss/transport.go`, `hsmsss/transport_control.go`, `hsmsss/transport_active.go`, and `hsmsss/transport_recv.go`
+  (revision advanced to `b0c8081`);
+  entry remains draft.
+* **Update**: [Reconnect backoff scope](/hsms/reconnect-backoff-scope.md) — `revision:` labels only, advanced to `b0c8081`;
+  digests were already current.
+* **Update**: [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) — no content change;
+  a follow-up pass tightened the `runSelectProcedure`/`genWG.selectedOnce` comments the prior entry above already describes
+  (a compact status-1 rewrite, the race-free store-before-read argument on the field comment, and matching test comments),
+  which moved the digests of `hsmsss/transport.go`, `hsmsss/transport_active.go`, and `hsmsss/transport_recv.go`;
+  `hsmsss/transport_control.go` was unchanged.
+  Revision stays `b0c8081`; entry remains draft.
 
 ## 2026-09-23
 * **Update**: [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) now records that `genRuntime` and `genCapability` alias one shared `internal/gencap.GenerationRuntime` instantiation, and cites `internal/gencap/gencap.go`;

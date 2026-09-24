@@ -28,8 +28,46 @@ import (
 // Before this fix, the reconnect loop reseeded its backoff to initial on every generation,
 // so five accepts landed in roughly 4 * (50ms + handshake) ~= 250ms —
 // well under the 600ms lower bound a genuinely growing (50, 100, 200, 400ms) cadence produces.
+//
+// It is parameterized over the peer's refusal status:
+// status 2 (Not Ready) is a genuine failure under every implementation,
+// but status 1 (Communication Already Active) on a connection
+// that never selected is ALSO a genuine refusal (this generation's selectedOnce latch never went true) —
+// not the "peer already Selected" success the active side used to grant it unconditionally.
+// Before the fix, status 1 here never tears the link down at all —
+// the link sits NotSelected until T7 (set to 5s on the endpoint below) finally drops it with CauseT7Timeout,
+// so a single generation alone burns more than the bounded wait below and the accept-count wait times out.
 func TestActiveReconnectBackoff_GrowsAcrossRepeatedSelectRejections(t *testing.T) {
 	t.Parallel()
+
+	cases := []struct {
+		name       string
+		status     byte
+		waitAccept time.Duration
+	}{
+		{"status_2_not_ready", byte(hsms.SelectStatusNotReady), 20 * time.Second},
+		// T7 is 5s (newEndpoint's default).
+		// Without the latch check, a never-selected generation waits out T7 (5s),
+		// so this bound fails fast.
+		{"status_1_already_active_never_selected", byte(hsms.SelectStatusAlreadyActive), 6 * time.Second},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			runReconnectBackoffAgainstRefusal(t, tc.status, tc.waitAccept)
+		})
+	}
+}
+
+// runReconnectBackoffAgainstRefusal drives a real active endpoint against a fake passive peer
+// that answers every Select.req with status (held open until the active's own teardown closes it),
+// and asserts the reconnect dial cadence over wantAccepts accepts grows per the configured backoff —
+// PROVIDED all wantAccepts accepts land within waitAccept;
+// a status whose refusal is not yet recognized as a drop trigger will time out here instead (see the test-level comment above).
+func runReconnectBackoffAgainstRefusal(t *testing.T, status byte, waitAccept time.Duration) {
+	t.Helper()
 
 	ctx := t.Context()
 
@@ -42,8 +80,8 @@ func TestActiveReconnectBackoff_GrowsAcrossRepeatedSelectRejections(t *testing.T
 	var accepts []time.Time
 	allAccepted := make(chan struct{})
 
-	// The fake passive peer: accept, answer every Select.req with a correlated status-2
-	// Select.rsp, and hold the socket open — it never closes its side.
+	// The fake passive peer: accept, answer every Select.req with a correlated Select.rsp of the
+	// given status, and hold the socket open — it never closes its side.
 	// The active endpoint's own Select-rejection teardown is what closes the connection,
 	// which unblocks the drain read below and frees this goroutine to accept the next dial.
 	go func() {
@@ -66,7 +104,7 @@ func TestActiveReconnectBackoff_GrowsAcrossRepeatedSelectRejections(t *testing.T
 					return
 				}
 
-				_, _ = c.Write(selectRspFrame(reqHdr[:10], byte(hsms.SelectStatusNotReady)))
+				_, _ = c.Write(selectRspFrame(reqHdr[:10], status))
 
 				// Hold the socket open: drain reads (there are none — the active side only
 				// closes) until the active endpoint's own teardown closes its side.
@@ -109,11 +147,11 @@ func TestActiveReconnectBackoff_GrowsAcrossRepeatedSelectRejections(t *testing.T
 
 	select {
 	case <-allAccepted:
-	case <-time.After(20 * time.Second):
+	case <-time.After(waitAccept):
 		mu.Lock()
 		n := len(accepts)
 		mu.Unlock()
-		t.Fatalf("timed out waiting for %d accepts (saw %d)", wantAccepts, n)
+		t.Fatalf("timed out waiting for %d accepts (saw %d) within %v", wantAccepts, n, waitAccept)
 	}
 
 	// Assert the cause BEFORE the timing assertion below: it is independent of the backoff

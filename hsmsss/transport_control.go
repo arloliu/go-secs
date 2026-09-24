@@ -211,21 +211,25 @@ func (t *transport) handleControlReq(g *genWG, msg hsms.Message) {
 // NOT spuriously Rejected(NotSelected). Committing AFTER (or asynchronously relative to) the
 // rsp reintroduces the bug.
 //
-// SelectStatus (E37 §8.3.7.2, Table 7): a genuine NotSelected->Selected transition (CAS success)
-// answers status 0 (Communication Established). A duplicate Select.req while ALREADY Selected —
-// CommitSelected returns false — answers status 1 (SelectStatusAlreadyActive, "Communication Already
-// Active"): a prior select already established communication, so this one establishes nothing new
-// (M5). The link stays Selected either way; the responder never Rejects a duplicate Select.
+// SelectStatus (E37 §8.3.7.2, Table 7):
+// a genuine NotSelected->Selected transition (CAS success) answers status 0 (Communication Established).
+// CommitSelected returning false answers status 1 (SelectStatusAlreadyActive, "Communication Already Active") instead.
+// That happens either for a duplicate Select.req while already Selected —
+// a prior select already established communication, so this one establishes nothing new (M5) —
+// or for a generation-gate refusal, when this generation has already ended.
+// The link's state is unaffected either way, and the responder never Rejects a Select.req.
 func (t *transport) handleSelectReq(g *genWG, req hsms.Message) {
-	// H2: synchronous commit BEFORE the rsp. A genuine NotSelected->Selected transition (CAS
-	// success) cancels the T7 dwell (§9.2.2 — the NOT-SELECTED window ends) and starts the
-	// auto-linktest (D5a-5, on this generation's bundle g — NEW-1); an already-Selected duplicate
-	// returns false and must NOT cancel/spawn again, and answers status 1 below.
+	// H2: synchronous commit BEFORE the rsp.
+	// A genuine NotSelected->Selected transition (CAS success) cancels the T7 dwell (§9.2.2 — the NOT-SELECTED window ends)
+	// and starts the auto-linktest (D5a-5, on this generation's bundle g — NEW-1).
+	// It also latches g.selectedOnce; see the field comment for why.
+	// A refused commit does none of that and answers status 1 below.
 	status := byte(hsms.SelectStatusSuccess)
 	if t.commitSelected(g.gen) {
 		t.metrics.incSelectEstablished()
 		t.cancelT7()
 		t.startLinktest(g)
+		g.selectedOnce.Store(true)
 	} else {
 		status = hsms.SelectStatusAlreadyActive
 	}

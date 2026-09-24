@@ -26,6 +26,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the real reply was then treated as unsolicited.
   The stray response is now answered with a Reject.req (`RejectTransactionNotOpen`),
   and the transaction keeps waiting for its reply.
+- `hsmsss`: an active connection whose Select.req is answered with status 1 (Communication Already Active)
+  on a connection that never selected now drops the link at once with `CauseSelectRejected`
+  and reconnects with backoff, instead of waiting for T7 and reporting `CauseT7Timeout`.
+  If the connection also fails while the answer is in flight,
+  that failure's cause may be reported instead.
 - `hsms`: the reconnect backoff now keeps growing across reconnects that never reach Selected,
   for example a peer that refuses every Select.req.
   Previously it restarted from the initial delay after every TCP connect,

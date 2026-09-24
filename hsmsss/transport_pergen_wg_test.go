@@ -29,6 +29,12 @@ import (
 // installs a FRESH *genWG for the next generation, so a generation never shares WaitGroups with a
 // prior one (and thus never with a prior generation's abandoned straggler).
 //
+// It also proves the successor bundle's selectedOnce latch starts false even
+// when the PRIOR generation's bundle latched true (a real prior generation that did select) —
+// the latch is per-generation state, not carried forward by ArmStart.
+// Teeth: a fresh bundle
+// whose latch reads true (e.g. reusing the old bundle, or copying its fields) fails the latch assertion below.
+//
 // Teeth-check: drop the `t.wg = &genWG{}` swap from ArmStart and the pointers coincide → NotSame bites.
 func TestTransport_ArmStartInstallsFreshWaitGroupBundle(t *testing.T) {
 	t.Parallel()
@@ -39,10 +45,13 @@ func TestTransport_ArmStartInstallsFreshWaitGroupBundle(t *testing.T) {
 
 	b0 := tr.wg
 	require.NotNil(t, b0, "newTransport must install an initial bundle")
+	b0.selectedOnce.Store(true) // b0's generation DID select — must not leak into the successor
 
 	tr.ArmStart()
 	b1 := tr.wg
 	require.NotSame(t, b0, b1, "ArmStart must install a FRESH bundle for the next generation")
+	require.False(t, b1.selectedOnce.Load(),
+		"a fresh generation's bundle must start with selectedOnce false, regardless of the prior generation's latch")
 
 	tr.ArmStart()
 	b2 := tr.wg

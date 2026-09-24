@@ -82,8 +82,8 @@ func (t *transport) runSelectProcedure(ctx context.Context, g *genWG) {
 		return
 	}
 
-	// A well-formed Select.rsp with select-status 0 is success.
-	// The recv loop has ALREADY committed Selected (H2, see the file header); nothing more to do.
+	// A well-formed Select.rsp with select-status 0 is success, and nothing more is done here:
+	// the recv loop commits Selected right after routing this reply, so the commit may not have landed yet.
 	//
 	// Anything else correlated to our System Bytes — a Deselect.rsp, a Linktest.rsp — is a peer protocol violation,
 	// and it leaves the select ungranted exactly as a failure status would.
@@ -95,16 +95,23 @@ func (t *transport) runSelectProcedure(ctx context.Context, g *genWG) {
 		return
 	}
 
-	// Select-status 1 (SelectStatusAlreadyActive, "Communication Already Active", E37 Table 7) is ALSO a
-	// success, NOT a rejection: it means the peer already considers the link established. This is
-	// reachable in a simultaneous-select race where the peer's Select.req arrived on OUR recv loop
-	// first — we committed Selected via the responder path (H2, M5) and our own later Select.req is
-	// then answered status 1. Tearing down here would drop a validly-Selected link; per E37 §7.4.1.3 a
-	// non-zero status yields no state transition, and we are already Selected. Any OTHER non-zero
-	// status (2 Not Ready, 3 Exhaust, 4+ reserved) IS a genuine Select failure → drop + reconnect.
-	if s := selectStatus(rsp); s != hsms.SelectStatusSuccess && s != hsms.SelectStatusAlreadyActive {
-		t.tcpDown(g.gen, errSelectRejected, hsms.CauseSelectRejected)
+	// Status 1 (Communication Already Active) is success only
+	// if this generation previously committed Selected on the recv path (g.selectedOnce), whatever its current state:
+	// the simultaneous-select race, where the peer's Select.req reached our responder first,
+	// and E37 §7.4.1.3 gives a non-zero status no transition.
+	// Otherwise it is a genuine refusal, like status 2 and above, and the link is dropped.
+	// Status 0 must not consult the latch:
+	// the initiator commit runs on the recv loop after the reply is routed.
+	s := selectStatus(rsp)
+	if s == hsms.SelectStatusSuccess {
+		return
 	}
+
+	if s == hsms.SelectStatusAlreadyActive && g.selectedOnce.Load() {
+		return
+	}
+
+	t.tcpDown(g.gen, errSelectRejected, hsms.CauseSelectRejected)
 }
 
 // selectFailureCause classifies an active Select transaction that ended in an error,
