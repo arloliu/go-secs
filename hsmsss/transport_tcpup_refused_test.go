@@ -152,7 +152,7 @@ func TestPassive_RefusedTCPUpClosesConnAndSkipsRecvLoop(t *testing.T) {
 	g := &genWG{gen: 1}
 	g.accept.Add(1) // mirrors startPassive's own Add before spawning acceptLoop
 
-	tr.acceptLoop(g, ln)
+	tr.acceptLoop(t.Context(), g, ln)
 
 	require.Equal(t, int64(1), tracked.closes.Load(),
 		"the refused conn must be closed EXACTLY once — a second close can land on a reused fd")
