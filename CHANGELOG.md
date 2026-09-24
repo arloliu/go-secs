@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A failed `Open` applies the same bound to its rollback.
   A callback left running this way finishes delivering its cycle's queued transitions after the shutdown returns,
   possibly concurrently with a reopened cycle's callbacks.
+- `hsms`, `hsmsss`: a control response (Linktest.rsp, Select.rsp, Deselect.rsp) whose System Bytes match a pending data transaction no longer completes it.
+  Previously `SendDataMessage` and `SendSECS2Message` returned no reply and no error,
+  and the real reply was then treated as unsolicited.
+  The stray response is now answered with a Reject.req (`RejectTransactionNotOpen`),
+  and the transaction keeps waiting for its reply.
 
 ## [2.4.1] - 2026-08-15
 

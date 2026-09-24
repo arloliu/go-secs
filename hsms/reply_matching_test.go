@@ -522,6 +522,51 @@ func TestReplyMatching_ForwardingCollision_Strict(t *testing.T) {
 	require.Equal(t, uint64(1), c.metrics.ReplyMismatchCount(), "only the stolen candidate is counted")
 }
 
+// TestReplyMatching_DataPrimary_ControlResponseMustMiss exercises, through the real RouteReply/sendWaitReply wiring, the mirror of TestReplyMatching_ControlRegistration_DataSecondaryDeliveredUncompared:
+// a DATA primary is pending (isData=true)
+// and a peer control response (Linktest.rsp) carrying the primary's own System Bytes arrives.
+// RouteReply must report a miss —
+// completing the data send with a *ControlMessage would surface as SendDataMessage's (nil, nil), a false success
+// while the real reply is still outstanding.
+// The transaction must stay open
+// until the genuine data secondary arrives and completes it, with no reply-mismatch counted either way.
+func TestReplyMatching_DataPrimary_ControlResponseMustMiss(t *testing.T) {
+	c, _ := newTestSendConn(t, SelectedState)
+	e := c.cur.Load()
+	sb := [4]byte{0, 0, 0, 16}
+
+	type result struct {
+		msg Message
+		err error
+	}
+	resCh := make(chan result, 1)
+	go func() {
+		m, err := c.sendWaitReply(t.Context(), mustSendData(t, sb, true)) // S1F1 primary
+		resCh <- result{m, err}
+	}()
+
+	require.Eventually(t, func() bool {
+		return e.replies.len() == 1
+	}, 2*time.Second, time.Millisecond)
+
+	linktestReq := NewLinktestReq(sb)
+	linktestRsp, err := NewLinktestRsp(linktestReq)
+	require.NoError(t, err)
+
+	require.False(t, c.RouteReply(linktestRsp), "a control response must not complete a pending data transaction")
+
+	// The transaction is still open: the genuine data reply now completes it.
+	require.NoError(t, c.DeliverOwnedFrame(ownedFrame(t, mustReplyDM(t, 1, 2, sb))))
+
+	got := <-resCh
+	require.NoError(t, got.err)
+	require.NotNil(t, got.msg, "the genuine reply must still complete the send")
+	gotDM, ok := got.msg.(*DataMessage)
+	require.True(t, ok)
+	require.Equal(t, uint8(1), gotDM.Stream())
+	require.Equal(t, uint64(0), c.metrics.ReplyMismatchCount(), "a control result is never counted as a field mismatch")
+}
+
 // TestReplyMatching_ControlRegistration_DataSecondaryDeliveredUncompared exercises the
 // registration-side exemption leg (isData) through the REAL DeliverOwnedFrame path, not the
 // synthetic registry-level construction in reply_registry_test.go.

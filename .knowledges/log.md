@@ -1,6 +1,19 @@
 # Log
 
 ## 2026-09-24
+* **Update**: [The reply registry's two-legged control exemption](/hsms/reply-matching-control-exemption.md) narrows the exemption:
+  a DATA registration (`isData` true) answered by a `*ControlMessage` result is a miss —
+  not delivered, registration not consumed, no mismatch recorded — instead of the old uncompared delivery,
+  while a `*RejectError` result and a CONTROL registration's own uncompared delivery are unchanged;
+  names the new `TestReplyRegistry_DataRegistration_ControlResultMustMiss`, `TestReplyMatching_DataPrimary_ControlResponseMustMiss`, and `TestReplyMatching_ControlResponseOnDataPrimary_RejectedThenGenuineReplyCompletes`.
+  A follow-up pass corrects the leg-1/leg-2 sections to the three-gate shape:
+  leg 1 (`isData`) now also gates the new `*ControlMessage`-miss check,
+  so removing it alone breaks `TestReplyMatching_StrictMode_SelectReachesSelected` and `TestReplyMatching_DefaultMode_LinktestRoundTripZeroMismatch` instead of going undetected;
+  leg 2 (the `*DataMessage` assertion) now only screens the field-less `*RejectError` result,
+  since a `*ControlMessage` never reaches it on a DATA registration.
+  The same pass refreshes the `hsms/connection_send.go` digest.
+  It re-reads the file and corrects the entry to attribute the `isData` type assertion to `sendWaitReplyOn` (called by `sendWaitReply`) rather than to `sendWaitReply` itself.
+  `verified` stays dropped, status stays draft pending independent verification.
 * **Creation**: [How a shutdown joins the per-Open supervisor](/hsms/supervisor-join.md) records the bounded notifier join introduced in `fb8d9cd`;
   draft pending independent verification.
 
