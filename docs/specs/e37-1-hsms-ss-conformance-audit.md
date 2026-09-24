@@ -321,16 +321,22 @@ the rsp is sent, `TCPDown` is not called, and the probe is still counted.
 "Immediately following any Select Procedure which fails to complete successfully with a zero Select Status,
 each Entity must close the TCP/IP connection and transit to the NOT CONNECTED state."
 
-We treat select-status **1** (`SelectStatusAlreadyActive`, E37 Table 7) as success on both sides:
-`runSelectProcedure` does not tear down on it,
-and `handleSelectReq` answers 1 to a duplicate `Select.req` while staying Selected.
-This is the simultaneous-select design (internal M5 / H2):
-in that race our own Select.req is answered 1 by a peer we are *already* validly Selected with,
+We treat select-status **1** (`SelectStatusAlreadyActive`, E37 Table 7) as success only when this generation has itself already committed Selected —
+the responder path (`handleSelectReq`) or the initiator path latches `genWG.selectedOnce` on a successful commit,
+and `runSelectProcedure` reads it before answering a status-1 reply.
+`handleSelectReq` still always answers 1 to a duplicate `Select.req` while staying Selected;
+that responder-side answer is unaffected.
+The success case is the simultaneous-select design (internal M5 / H2):
+in that race our own Select.req is answered 1 by a peer we are *already* validly Selected with —
+this generation's own responder commit set the latch before that answer arrived —
 and E37 §7.4.1.3 gives a non-zero status no state transition
 (§9.4 is SECS-II considerations — an earlier draft cited it in error).
-Tearing down would drop a good link.
+Tearing down that legitimate case would drop a good link.
+A status-1 answer on a generation whose latch is still false is a genuine refusal instead —
+the peer's own prior session, a stale half-open connection, or our own passive refuse path answering status 1 to an extra dialer —
+and that link IS torn down and reconnected, with the same close-and-reconnect result §7.1.1 requires.
 Statuses 2, 3, and 4+ are treated as genuine failures and do drive the close.
-We never *emit* 2 or 3, so the deviation is confined to status 1.
+We never *emit* 2 or 3, so the remaining deviation is confined to the legitimate simultaneous-select case of status 1.
 Deliberate, tested, keep.
 
 **§4.1.1 / §8.1 — Device ID is 15 bits.**

@@ -14,7 +14,6 @@ package hsmsss
 
 import (
 	"context"
-	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -27,7 +26,9 @@ import (
 // socket: the control-procedure helpers under test (startLinktest / stopLinktest /
 // handleLinktestReq / handleDeselectReq / handleSeparateReq) only touch rt and the transport's
 // own linktest fields, so no real TCP connection is needed.
-func newLinktestTransport(t *testing.T, rt *recRT, ctx context.Context) *transport {
+// rt takes the hsms.TransportRuntime interface (not the concrete *recRT) so a caller can supply a
+// thin wrapper around recRT that overrides a single method (e.g. commitSuccessRT below).
+func newLinktestTransport(t *testing.T, rt hsms.TransportRuntime, ctx context.Context) *transport {
 	t.Helper()
 
 	cfg, err := NewConfig("127.0.0.1", 5000)
@@ -407,31 +408,181 @@ func TestSelect_DuplicateWhileSelectedRepliesAlreadyActive(t *testing.T) {
 	require.Zero(t, rt.writtenCount(), "a duplicate Select must NOT start a second auto-linktest")
 }
 
-// TestActive_SelectRspStatusHandling is the P1-A teeth: the active Select procedure treats
-// Select-status 0 (Success) AND status 1 (Communication Already Active, E37 Table 7 / M5) as
-// success — NOT a rejection — while any other non-zero status is a genuine failure that tears the
-// link down. Status 1 is reachable in a simultaneous-select race (the peer already Selected when it
-// answers our Select.req); tearing down on it would drop a validly-Selected link. Teeth: reverting
-// runSelectProcedure to `!= SelectStatusSuccess` makes the status-1 case fire TCPDown and fail.
+// commitSuccessRT wraps recRT so CommitSelected reports a genuine NotSelected->Selected commit
+// (recRT's own CommitSelected is hard-coded false, modelling the already-Selected / gate-refused
+// case only). It exists so the selectedOnce latch tests can drive both commit outcomes from the
+// same harness.
+type commitSuccessRT struct {
+	*recRT
+}
+
+func (commitSuccessRT) CommitSelected() bool { return true }
+
+// TestSelect_ResponderLatchesSelectedOnceOnCommit is the responder-side latch teeth: a commit
+// that SUCCEEDS (a genuine NotSelected->Selected transition) sets genWG.selectedOnce, and a commit
+// that returns false (already Selected, or refused by the core's generation gate) leaves it false.
+// Teeth: removing the store on the commit-succeeds branch of handleSelectReq fails the
+// "commit_succeeds" row.
+func TestSelect_ResponderLatchesSelectedOnceOnCommit(t *testing.T) {
+	t.Parallel()
+
+	t.Run("commit_succeeds", func(t *testing.T) {
+		t.Parallel()
+
+		rt := commitSuccessRT{newRecRT()}
+		rt.setState(hsms.NotSelectedState)
+
+		ctx := t.Context()
+		tr := newLinktestTransport(t, rt, ctx)
+
+		req := hsms.NewSelectReq(0xFFFF, rt.NextSystemBytes())
+		tr.handleSelectReq(tr.wg, req)
+
+		require.True(t, tr.wg.selectedOnce.Load(),
+			"a successful commit must latch genWG.selectedOnce")
+	})
+
+	t.Run("commit_refused", func(t *testing.T) {
+		t.Parallel()
+
+		rt := newRecRT() // CommitSelected() returns false: already Selected / gate-refused
+		rt.setState(hsms.SelectedState)
+
+		ctx := t.Context()
+		tr := newLinktestTransport(t, rt, ctx)
+
+		req := hsms.NewSelectReq(0xFFFF, rt.NextSystemBytes())
+		tr.handleSelectReq(tr.wg, req)
+
+		require.False(t, tr.wg.selectedOnce.Load(),
+			"a refused commit must NOT latch genWG.selectedOnce")
+	})
+}
+
+// latchRT wraps recRT so the real recv loop's dispatchFrame (transport_recv.go) treats an inbound
+// Select.rsp as ROUTED (RouteReply hits) and CommitSelected reports success. recRT's own
+// RouteReply/CommitSelected are hard-coded to a miss/refusal, which cannot exercise the initiator
+// commit branch dispatchFrame takes after a routed Select.rsp.
+type latchRT struct {
+	*recRT
+}
+
+func (r latchRT) RouteReply(msg hsms.Message) bool {
+	r.recRT.RouteReply(msg) // still record it, so routedCount()/lastRouted() stay meaningful
+
+	return true
+}
+
+func (latchRT) CommitSelected() bool { return true }
+
+// TestSelect_InitiatorLatchesSelectedOnceOnRoutedSuccess is the initiator-side latch teeth
+// (dispatchFrame's routed-reply branch): a routed status-0 Select.rsp whose commit succeeds sets
+// genWG.selectedOnce, over the REAL recv loop (startReader).
+// A routed status-1 Select.rsp never reaches the commit call at all — dispatchFrame gates the
+// commit on select-status 0 — so it must never touch the latch, regardless of what CommitSelected
+// would report.
+// Teeth: removing the store on dispatchFrame's commit-succeeds branch fails the
+// "status_0_routed_commit_succeeds" row.
+func TestSelect_InitiatorLatchesSelectedOnceOnRoutedSuccess(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		status byte
+		want   bool
+	}{
+		{"status_0_routed_commit_succeeds", hsms.SelectStatusSuccess, true},
+		{"status_1_routed_never_reaches_commit", hsms.SelectStatusAlreadyActive, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rt := latchRT{newRecRT()}
+
+			var tr *transport
+			peer := startReader(t, rt, nil, func(installed *transport) { tr = installed })
+
+			reqHdr := header10(0, byte(hsms.SelectReqType))
+			_, err := peer.Write(selectRspFrame(reqHdr, tc.status))
+			require.NoError(t, err)
+
+			require.Eventually(t, func() bool { return rt.routedCount() >= 1 },
+				5*time.Second, 5*time.Millisecond, "the recv loop must route the Select.rsp we sent")
+
+			if tc.want {
+				require.Eventually(t, func() bool { return tr.wg.selectedOnce.Load() },
+					5*time.Second, 5*time.Millisecond,
+					"a routed status-0 commit success must latch genWG.selectedOnce")
+
+				return
+			}
+
+			require.Never(t, func() bool { return tr.wg.selectedOnce.Load() },
+				100*time.Millisecond, 10*time.Millisecond,
+				"a routed status-1 Select.rsp must never touch genWG.selectedOnce")
+		})
+	}
+}
+
+// TestActive_SelectRspStatusHandling is the teeth for the active Select procedure's status
+// handling: status 0 (Success) is always a success, and any status >= 2 (Not Ready, Exhaust) is
+// always a genuine failure that tears the link down.
+// Status 1 (Communication Already Active, E37 Table 7 / M5) is neither unconditionally: it is a
+// success ONLY when this generation's genWG.selectedOnce latch already reads true — proof that a
+// prior commitSelected succeeded on this generation, which is what a legitimate simultaneous-select
+// race leaves behind (the peer already Selected when it answers our Select.req).
+// A status-1 answer
+// on a generation whose latch is still false means the peer refused our Select outright (its own
+// prior session, a stale half-open connection, or go-secs's own passive refuse path), and that MUST
+// tear down and reconnect rather than sit NotSelected until T7 finally drops it.
+// The latch is deliberately read instead of State(): a peer may answer status 1 and then send its
+// own Deselect.req before we observe it, leaving State() at NotSelected on a generation that DID
+// select — tearing down on State() alone would drop that link wrongly (see TestT7_DeselectReArms's
+// latch-survives-Deselect row for the corresponding preservation guard).
+// Teeth: reverting runSelectProcedure to treat status 1 as always-success (dropping the latch
+// check) makes the "status 1, latch false" row fail to tear down; reverting it to
+// `!= SelectStatusSuccess` (treating status 1 as always-failure) makes both status-1/latch-true rows
+// fire TCPDown when they must not.
 func TestActive_SelectRspStatusHandling(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
+		name         string
 		status       byte
+		selectedOnce bool
+		state        hsms.ConnState
 		wantTearDown bool
 	}{
-		{hsms.SelectStatusSuccess, false},       // 0: established
-		{hsms.SelectStatusAlreadyActive, false}, // 1: already active — NOT a failure (P1-A)
-		{hsms.SelectStatusNotReady, true},       // 2: genuine failure
-		{hsms.SelectStatusAlreadyUsed, true},    // 3: genuine failure
+		// 0: established.
+		// The initiator commit happens on the recv loop AFTER routing (H2), so the latch may still
+		// read false here — status 0 must not consult it at all.
+		{"status_0_established", hsms.SelectStatusSuccess, false, hsms.SelectedState, false},
+		// 0, State() also still NotSelected:
+		// the procedure can wake and read a success status before the recv loop's initiator commit lands —
+		// status 0 must not consult State() any more than it consults the latch.
+		{"status_0_established_state_not_selected", hsms.SelectStatusSuccess, false, hsms.NotSelectedState, false},
+		// 1, latch true: a legitimate simultaneous select — this generation already selected.
+		{"status_1_already_active_latch_true", hsms.SelectStatusAlreadyActive, true, hsms.SelectedState, false},
+		// 1, latch true, but State() has since moved to NotSelected (peer Deselected before/around
+		// answering). The commit still happened on this generation, so this must still be treated
+		// as success — a State()-based predicate would wrongly tear down here.
+		{"status_1_already_active_latch_true_state_not_selected", hsms.SelectStatusAlreadyActive, true, hsms.NotSelectedState, false},
+		// 1, latch false: nothing on this generation ever committed — a genuine refusal.
+		// State() is deliberately set to Selected here (rather than NotSelected)
+		// to prove the teardown decision reads the latch, never State().
+		{"status_1_already_active_latch_false", hsms.SelectStatusAlreadyActive, false, hsms.SelectedState, true},
+		{"status_2_not_ready", hsms.SelectStatusNotReady, false, hsms.SelectedState, true},
+		{"status_3_already_used", hsms.SelectStatusAlreadyUsed, false, hsms.SelectedState, true},
 	}
 
 	for _, tc := range cases {
-		t.Run(fmt.Sprintf("status_%d", tc.status), func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			rt := newRecRT()
-			rt.setState(hsms.SelectedState)
+			rt.setState(tc.state)
 			status := tc.status
 			rt.setWriteMsgFn(func(_ context.Context, req hsms.Message) (hsms.Message, error) {
 				cm, ok := req.(*hsms.ControlMessage)
@@ -445,10 +596,19 @@ func TestActive_SelectRspStatusHandling(t *testing.T) {
 			ctx := t.Context()
 			tr := newLinktestTransport(t, rt, ctx)
 
-			tr.runSelectProcedure(ctx, &genWG{})
+			g := &genWG{}
+			if tc.selectedOnce {
+				g.selectedOnce.Store(true)
+			}
+
+			tr.runSelectProcedure(ctx, g)
 
 			require.Equal(t, tc.wantTearDown, rt.tcpDownDidFire(),
-				"status %d: tear-down expectation", tc.status)
+				"%s: tear-down expectation", tc.name)
+			if tc.wantTearDown {
+				require.ErrorIs(t, rt.tcpDownCause(), errSelectRejected,
+					"%s: a torn-down status must report errSelectRejected", tc.name)
+			}
 		})
 	}
 }

@@ -37,11 +37,12 @@ var _ = func() {
 	_, _ = hsms.NewConnection(nil, &transport{})
 }
 
-// genWG bundles the five per-generation join WaitGroups (NEW-1). A FRESH genWG is created for
-// each generation — in newTransport for the first, in ArmStart for every reconnect successor —
-// and every goroutine of that generation captures the SAME bundle at spawn: it Done()s on the
-// bundle it captured and Stop Wait()s the bundle it captured. The bundle is therefore NEVER
-// shared across generations.
+// genWG bundles the five per-generation join WaitGroups (NEW-1) and this generation's selectedOnce latch.
+// A FRESH genWG is created for each generation — in newTransport for the first,
+// in ArmStart for every reconnect successor —
+// and every goroutine of that generation captures the SAME bundle at spawn:
+// it Done()s on the bundle it captured and Stop Wait()s the bundle it captured.
+// The bundle is therefore NEVER shared across generations.
 //
 // Why per-generation, not per-transport: a bounded tr.Stop can time out and ABANDON a straggler
 // recv goroutine (one wedged in a blocking inline data handler) that still holds recv count >= 1.
@@ -67,6 +68,22 @@ type genWG struct {
 	accept   sync.WaitGroup // the passive accept goroutine (passive only) per Start call
 	linktest sync.WaitGroup // auto-linktest goroutines spawned while Selected
 	t7       sync.WaitGroup // the T7 NOT-SELECTED dwell goroutine
+
+	// selectedOnce latches true once this generation's recv goroutine has committed Selected through a successful commitSelected call —
+	// either the responder path (handleSelectReq) or the initiator path (dispatchFrame's routed status-0 Select.rsp branch).
+	// A refused commit (already Selected, or refused by the core's generation gate) leaves it unchanged.
+	// runSelectProcedure reads it to tell a legitimate simultaneous-select status-1 answer from a genuine refusal,
+	// without relying on State(), which a racing Deselect can move away from Selected even though this generation did select.
+	// It is never cleared: a Deselect on this generation leaves it set,
+	// and a fresh generation gets a fresh genWG whose latch starts false.
+	//
+	// The read is race-free because the store always precedes it on the wire:
+	// the recv goroutine stores the flag before it reads the next frame,
+	// and a legitimate status-1 answer follows the peer's own Select.req on that same stream,
+	// so the store happens before that answer is ever routed to runSelectProcedure.
+	// The initiator-side store has no reader today (one Select.req per generation)
+	// and is kept anyway so the latch uniformly means "this generation committed Selected".
+	selectedOnce atomic.Bool
 }
 
 // transport is the HSMS-SS concrete implementation of the unexported hsms.transport seam

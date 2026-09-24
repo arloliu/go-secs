@@ -13,12 +13,12 @@ sources:
   - {resource: hsms/connection_send.go, digest: sha256:37c6bd273ed11699, revision: 0b40043}
   - {resource: hsms/connection.go, digest: sha256:82d716dbf253b02c, revision: a9235b4}
   - {resource: hsms/epoch.go, digest: sha256:bc9fdafa3dff0a36, revision: a9235b4}
-  - {resource: hsmsss/transport.go, digest: sha256:af794dd9a6818352, revision: 71a7afe}
-  - {resource: hsmsss/transport_control.go, digest: sha256:d1ce177bbfdfcc10, revision: 0b40043}
-  - {resource: hsmsss/transport_active.go, digest: sha256:e54f48b6b4ec7e8b, revision: 0b40043}
+  - {resource: hsmsss/transport.go, digest: sha256:cf54049476fbfafe, revision: b0c8081}
+  - {resource: hsmsss/transport_control.go, digest: sha256:7b5042e69a84d610, revision: b0c8081}
+  - {resource: hsmsss/transport_active.go, digest: sha256:b4a168040cd91ff8, revision: b0c8081}
   - {resource: hsmsss/transport_passive.go, digest: sha256:f5c2688db6585682, revision: 71a7afe}
   - {resource: hsmsss/transport_procedures.go, digest: sha256:232ee3127c6ae84b, revision: 0b40043}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:1b3b40dfd747daaf, revision: 2942595}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:f78883ced9f30422, revision: b0c8081}
   - {resource: secs1/transport.go, digest: sha256:d74a486193cbea69, revision: a9235b4}
   - {resource: internal/gencap/gencap.go, digest: sha256:cf8ecfdcf7a2b6d0, revision: 020da48}
 ---
@@ -57,7 +57,7 @@ That is exactly the discrimination the feature exists to provide, and the reason
 | `connection.TCPDown` (no cause named) | `evDisconnect` | `CauseUnknown` |
 | `hsmsss.handleSeparateReq` | `evDisconnect` | `CausePeerSeparate` |
 | `hsmsss.runSelectProcedure` failed transaction | `evDisconnect` | `selectFailureCause`: `CauseSelectRejected` on a `*RejectError`, `CauseT6Timeout` on `ErrT6Timeout`, else `CauseIOError` |
-| `hsmsss.runSelectProcedure` non-zero select-status, or a correlated non-Select.rsp | `evDisconnect` | `CauseSelectRejected` |
+| `hsmsss.runSelectProcedure` a genuine select-status refusal (see below), or a correlated non-Select.rsp | `evDisconnect` | `CauseSelectRejected` |
 | `hsmsss.runLinktest` threshold reached | `evDisconnect` | `CauseLinktestFail` |
 | `hsmsss.recvLoop` nil conn / read error | `evDisconnect` | `CauseIOError` |
 | `secs1.lineEngine` read / EOT-write error | `evDisconnect` | `CauseIOError` |
@@ -71,6 +71,12 @@ Everything else is the transport failing.
 `selectFailureCause` splits those three; a correlated response of the wrong TYPE (a Linktest.rsp, a Deselect.rsp) is handled separately on the success path and also reports `CauseSelectRejected`,
 because the peer answered and the select was not granted — which is what `CauseSelectRejected` is defined to mean.
 The distinction between "refused" and "answered with the wrong frame" survives in the error value (`errSelectRejected` vs `errSelectBadResponse`), not in the cause.
+
+A non-zero select-status only reaches this cause when it is a genuine refusal.
+Status 2+ always is one;
+status 1 (`SelectStatusAlreadyActive`) is one only when this generation's `genWG.selectedOnce` latch still reads false.
+A status 1 answer while that latch reads true is the legitimate simultaneous-select case instead,
+and drives no transition at all.
 
 `CommitSelected` names `CauseSelectAccepted` for `secs1` too, which runs no select handshake:
 the auto-commit reaches `Selected` for the same reason a handshake does, so the cause is honest rather than approximate.
@@ -308,3 +314,7 @@ see `hsmsss.causeLog.waitBringUp`, which tolerates both shapes.
   `transport.tcpDown`, `transport.t7Expired`, `transport.tcpUp`, `transport.commitSelected`, `transport.selectLost`;
   `secs1/transport.go` → `causeRuntime` only
 - the generation token's carrier: `hsmsss/transport.go` → `genWG.gen`, stamped in `startActive` / `startPassive`
+- the simultaneous-select exemption for status 1: `hsmsss/transport.go` → `genWG.selectedOnce`;
+  `hsmsss/transport_active.go` → `runSelectProcedure`;
+  `hsmsss/transport_control.go` → `handleSelectReq`;
+  `hsmsss/transport_recv.go` → `dispatchFrame`'s routed Select.rsp branch

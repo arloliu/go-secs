@@ -207,9 +207,11 @@ func TestActive_SelectFailureDisconnects(t *testing.T) {
 	t.Cleanup(func() { _ = peer.Close() })
 
 	reqHdr := peerReadSelectReqHeader(t, peer)
-	// A GENUINE rejection status (2 = Connection Not Ready). Status 1 (Communication Already Active)
-	// is NOT a failure — E37 Table 7 / M5: it means the link is already established, so the active
-	// procedure must NOT tear down on it (see runSelectProcedure).
+	// A GENUINE rejection status (2 = Connection Not Ready) is used here rather than status 1
+	// (Communication Already Active, E37 Table 7 / M5):
+	// status 1 is success only when this generation's genWG.selectedOnce latch is already set (see runSelectProcedure),
+	// which is never true on a fresh connection,
+	// so using status 2 keeps this test an unambiguous genuine-failure case.
 	_, err := peer.Write(selectRspFrame(reqHdr, hsms.SelectStatusNotReady))
 	require.NoError(t, err)
 
