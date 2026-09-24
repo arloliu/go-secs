@@ -1,10 +1,12 @@
 ---
 type: Mechanic
 title: The transaction observer's two chokepoints, its isData gate, and its outcome classifier
-description: Why WithTransactionObserver instruments two call sites (not one), why the isData gate is load-bearing enough to crash the process without it, and how classifyTxOutcome's six-way split relates to isCountedSendErr's binary one.
+description: Why WithTransactionObserver instruments two call sites (not one), why the isData gate prevents an observer-path panic for control messages, and how classifyTxOutcome's six-way split relates to isCountedSendErr's binary one.
 tags: [hsms, observability, send, metrics, lifecycle]
-status: draft
-generated: {by: "claude/sonnet-5", at: 2026-09-24T00:00:00Z}
+status: stable
+generated: {by: "claude/sonnet-5", at: 2026-09-24T11:50:00Z}
+verified:
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T12:34:28Z}
 sources:
   - {resource: hsms/connection_send.go, digest: sha256:37c6bd273ed11699, revision: 922feb8}
   - {resource: hsms/transaction_observer.go, digest: sha256:a89096ae2659fb79, revision: 33e9744}
@@ -12,6 +14,7 @@ sources:
   - {resource: hsms/session.go, digest: sha256:758381f6b693490c, revision: 922feb8}
   - {resource: hsmsss/transaction_observer_test.go, digest: sha256:aad0db840d794f9a, revision: 33e9744}
   - {resource: hsmsss/transport_control.go, digest: sha256:7b5042e69a84d610, revision: 922feb8}
+  - {resource: hsms/data_msg.go, digest: sha256:3d91341cbd89d7e7, revision: 4eb40d1}
 ---
 
 # What it does
@@ -20,7 +23,7 @@ sources:
 which calls report an event, that the hook runs synchronously on the caller's goroutine,
 and that `ReplyDataMessage` / the async sends are excluded.
 It does not say *why* the exclusion is structural rather than a scope choice,
-nor that the `isData` gate guarding the classifier is load-bearing enough to crash the whole process if removed,
+nor that the `isData` gate guarding the classifier is load-bearing: removing it can panic the observer path for a control message, crashing the process only if unrecovered,
 nor how the new outcome classifier relates to the existing `isCountedSendErr` gate this unit already documents
 ([Send error accounting](/hsms/send-error-accounting.md)).
 That is the delta this entry records.
@@ -55,9 +58,17 @@ is still the only thing protecting a caller that reaches `WriteMessage` with a `
 a runtime that does not implement `genRuntime` (an external `TransportRuntime`, or an internal call with `gen == 0`).
 That gate was teeth-checked by deleting it, at the earlier revision when control sends still ran through `WriteMessage` unconditionally.
 The failure was not the "Stream=0/Function=0 rows pollute a consumer's histogram" symptom one would guess from the classifier's shape.
-It was an immediate, whole-process crash —
-`newTxEvent` calls `dm.WaitBit()` on a nil `*DataMessage`,
-and `DataMessage.WaitBit()` dereferences `msg.header` unconditionally.
+It was an immediate crash, unless a caller recovered it —
+but not inside `newTxEvent` itself, and not for both chokepoints the same way.
+`WriteMessage` evaluates `dm.WaitBit()` as `newTxEvent`'s own call argument,
+so a nil `dm` panics there, before `newTxEvent` is even entered
+(`(*DataMessage).WaitBit` dereferences `msg.header` unconditionally, with no nil check).
+`WriteMessageNoReply` passes the literal `false` instead of calling `WaitBit()`,
+so a nil `dm` reaches `newTxEvent`'s body unharmed and panics one line later, at `dm.Stream()` —
+the first field `newTxEvent`'s `TxEvent{...}` literal evaluates.
+Either way the panic fires after the inner `sendWaitReply`/`sendNoReply` call has already returned,
+and it propagates up the caller's stack like any other panic —
+a caller with its own `recover()` catches it; one without lets it crash the process.
 
 **`hsmsss/transaction_observer_test.go`'s `TestTransactionObserver_ControlTransaction_NoEvent` doc comment still describes that teeth-check as proving today's behavior, but it no longer does.**
 Against the current production wiring, deleting `WriteMessage`'s `isData` gate would not reproduce the crash,
@@ -75,8 +86,9 @@ and excludes `ErrNotSelectedState`, `ErrConnClosed`, `ErrMessageTooLarge`,
 and caller-context cancellation/deadline from the count —
 see [Send error accounting](/hsms/send-error-accounting.md) for why.
 `classifyTxOutcome` has six buckets,
-and deliberately routes `ErrConnClosed` to `TxCanceled` — grouped with caller-context cancellation, not with `TxSendError` —
-even though `TxCanceled`'s own enum doc (`hsms/transaction_observer.go`) only names caller-context cancellation explicitly.
+and deliberately routes `ErrConnClosed` to `TxCanceled` — grouped with caller-context cancellation, not with `TxSendError`.
+`TxCanceled`'s own enum doc (`hsms/transaction_observer.go`) already names both cases explicitly, including connection closure —
+so the grouping is not a silent extension of an underspecified doc; the doc and the classifier agree.
 The grouping is intentional:
 it mirrors `isCountedSendErr`'s "teardown and caller-cancel are both lifecycle events, not transport failures" philosophy,
 extended to a new place.
@@ -93,7 +105,9 @@ Neither `sendWaitReply` nor `sendNoReply` is modified by this feature at all.
 By the time the observer runs,
 reply-registry deregistration, the I1 inflight-gauge decrement, and timer-pool cleanup have already completed,
 so an observer panic (deliberately not recovered — see `WithTransactionObserver`'s godoc)
-can only unwind `WriteMessage`'s own empty stack frame; it cannot leak any of that internal state.
+cannot bypass that cleanup or leak any of that internal state.
+The panic itself is not confined to `WriteMessage`'s own frame, though:
+like any unrecovered panic it keeps unwinding through the calling frames until something recovers it, or the process crashes.
 
 # Invariants
 
@@ -111,8 +125,12 @@ can only unwind `WriteMessage`'s own empty stack frame; it cannot leak any of th
 
 - **Deleting or weakening the `isData` gate** does not degrade gracefully into noisy data.
   Against the production `hsms.connection` it currently has no observable effect at all, because real Select.req/Linktest.req traffic already bypasses `WriteMessage` via `WriteMessageFromGeneration` and never reaches the gate.
-  It crashes the process the moment ANY caller reaches `WriteMessage`/`WriteMessageNoReply` with a `*ControlMessage` — a `genRuntime`-incapable `TransportRuntime`, or an internal call made with `gen == 0` —
-  because `newTxEvent` reads `dm`'s fields unconditionally.
+  It panics the moment ANY caller reaches `WriteMessage`/`WriteMessageNoReply` with a `*ControlMessage` —
+  a `genRuntime`-incapable `TransportRuntime`, or an internal call made with `gen == 0` —
+  because a nil `dm` reaches an unconditional field/method dereference:
+  `dm.WaitBit()` at `WriteMessage`'s own call site, or `dm.Stream()` inside `newTxEvent` for `WriteMessageNoReply`.
+  The panic fires after the send itself has already completed and propagates up the caller's stack,
+  so an uncaught one crashes the process — but a caller with its own `recover()` survives it.
   A change that removes the gate can therefore look safe against the shipped transports and still be a live landmine for any other caller.
 - **Assuming `classifyTxOutcome` and `isCountedSendErr` agree on what "counts"**
   is wrong on one axis (both exclude teardown/cancel as lifecycle noise) but not the other
@@ -136,3 +154,4 @@ can only unwind `WriteMessage`'s own empty stack frame; it cannot leak any of th
   `TestTransactionObserver_ControlTransaction_NoEvent`
 - the structural bypass for a `genRuntime`-capable runtime: `hsmsss/transport_control.go` → `(*transport).writeMessage`, `(*transport).sendResponse`, `genRuntime`
 - the generation-bound entry points it calls: `hsms/connection_send.go` → `(*connection).WriteMessageFromGeneration`, `(*connection).SendAsyncFromGeneration`
+- the unconditional, nil-panicking accessors behind the `isData` gate: `hsms/data_msg.go` → `(*DataMessage).WaitBit`, `(*DataMessage).Stream`

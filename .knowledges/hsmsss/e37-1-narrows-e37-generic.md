@@ -3,14 +3,17 @@ type: Mechanic
 title: Where the HSMS-SS profile overrides the generic core
 description: The four sites whose value or state check comes from E37.1 rather than E37, and what silently breaks if one is "simplified" back.
 tags: [hsmsss, e37-1, select, separate, linktest, reject, session-id]
-status: draft
-generated: {by: "claude/sonnet-5", at: 2026-09-24T07:00:00Z}
+status: stable
+generated: {by: "claude/sonnet-5", at: 2026-09-24T11:50:00Z}
+verified:
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T12:34:28Z}
 sources:
   - {resource: hsmsss/transport_active.go, digest: sha256:b4a168040cd91ff8, revision: 922feb8}
   - {resource: hsms/connection_lifecycle.go, digest: sha256:221b0f7825783fad, revision: 922feb8}
   - {resource: hsms/control_msg.go, digest: sha256:847dad3406c4d87c, revision: 3660aa4}
   - {resource: hsmsss/transport_control.go, digest: sha256:7b5042e69a84d610, revision: 922feb8}
   - {resource: hsmsss/transport_recv.go, digest: sha256:f78883ced9f30422, revision: 922feb8}
+  - {resource: hsms/supervisor.go, digest: sha256:1a4e9385175f90e9, revision: 4eb40d1}
 ---
 
 # What it does
@@ -23,13 +26,23 @@ This entry records only where the four live and how they fail, so the next reade
 
 # How it works
 
-**Control frames never carry the configured session ID.** `hsms.ControlSessionID` is the profile constant; `Connection.SessionID()` is the device ID and belongs only in data messages.
-Five construction sites pass the constant: `runSelectProcedure` (`transport_active.go`), `writeFarewellSeparate` (`hsms/connection_lifecycle.go`), and the three Reject senders in `transport_control.go`.
+**Five construction sites explicitly pass the profile constant instead of the configured device ID.**
+`hsms.ControlSessionID` is the profile constant;
+`Connection.SessionID()` is the device ID and belongs only in data messages.
+`runSelectProcedure` (`transport_active.go`), the farewell `writeFarewellSeparate` (`hsms/connection_lifecycle.go`),
+and the three Reject senders in `transport_control.go` all pass `ControlSessionID` explicitly.
 `NewLinktestReq` hard-codes it internally.
 
 The generic constructors — `hsms.NewSelectReq`, `NewSeparateReq`, `NewRejectReqRaw` — deliberately keep taking an arbitrary session ID.
-They implement generic E37, so the profile value is applied at the HSMS-SS call sites, not baked into the shared message layer.
-`Select.rsp` / `Deselect.rsp` are responses whose session ID the standard binds to the request; they echo and are not call sites.
+They implement generic E37, so the profile value is applied at the HSMS-SS call sites,
+not baked into the shared message layer.
+
+`Select.rsp` and `Deselect.rsp` are NOT call sites and do not enforce the profile value:
+`NewSelectRsp`/`NewDeselectRsp` (`hsms/control_msg.go`) copy the request's own session-ID header bytes verbatim, whatever they were.
+"Control frames never carry the configured session ID" is therefore true only at these five sending sites,
+not as a wire-level guarantee —
+a peer (or a construction bug) that puts the configured device ID on a Select.req or Deselect.req
+gets it echoed straight back on the matching response, including a nonconformant value equal to the configured ID.
 
 **`writeFarewellSeparate` lives in the shared core, which `secs1` also reaches.** `secs1.New` wraps `hsms.NewConnection` and its transport commits the shared FSM to Selected, so a graceful SECS-I Close lands there too.
 No HSMS frame reaches a SECS-I peer only because `secs1`'s writer drops every non-zero SType before the wire — the constant is inert there, not correct there.
@@ -45,13 +58,24 @@ See its comment and the audit's Gap 3.
 
 # Failure modes
 
-A wrong control-frame session ID passes every loopback test and the whole existing suite, because the default device ID *is* `0xFFFF` — it only breaks against equipment that enforces the rule, and only when a device ID was configured.
+A wrong control-frame session ID slips past any test that only configures the default device ID, `0xFFFF`,
+because a control frame and a data frame then carry the same value,
+and nothing distinguishes echoing the profile constant from emitting the configured ID.
+It only shows up against equipment that enforces the rule, and only when a nondefault device ID was configured —
+which is exactly the condition the regression tests below now cover on purpose.
 The symptom is an endless `NotSelected` → `NotConnect` reconnect loop with no error naming the session ID.
 
 That is why the guard tests carry counter-assertions rather than single-sided ones: `TestActive_SelectAndSeparateUseControlSessionID` asserts `0xFFFF` on control frames **and** the configured device ID on a data message, so an over-fix that forces `0xFFFF` everywhere fails too.
 `TestPassive_SelectRspMirrorsRequestSessionID` probes with a non-conformant `0x0042` because a conformant `0xFFFF` request cannot distinguish echoing from emitting a constant.
 
-Dropping the `genCtx` early exit alone no longer disconnects a successor: the `g.gen` barrier at FSM-apply time now catches it, so the visible effect is only a counted stale report (`staleGen`) for a generation that was already ending.
+Dropping the `genCtx` early exit alone still leaves successor protection through the `g.gen` barrier,
+but the visible effect is not always just a counted stale report.
+`injectDisconnect` (`hsms/connection_lifecycle.go`) counts an identity mismatch (`e.id != gen`) as `staleGen` and drops it,
+but it never checks whether the CURRENT epoch itself has already started ending.
+If that epoch is still `c.cur` when the report lands,
+`injectDisconnect` sets `commsFailure` and injects the event anyway — a redundant disconnect report rather than a dropped one.
+And if the event reaches a supervisor that has already latched closed,
+`supervisor.step` (`hsms/supervisor.go`) returns immediately on `s.closed` without incrementing `staleGen` at all — a silent, uncounted no-op.
 Dropping the `g.gen` barrier itself — reporting through the plain, ungapped path instead of `TCPDownFromGeneration` — reopens the original hazard: a Separate read by a recv goroutine a bounded `Stop` has abandoned disconnects the *successor* generation, presenting as a spurious reconnect with no peer-side cause.
 
 # Where to look
@@ -62,4 +86,5 @@ Dropping the `g.gen` barrier itself — reporting through the plain, ungapped pa
 - Reject senders: `hsmsss/transport_control.go` → `sendReject`, `sendRejectNotSelected`, `sendRejectTransactionNotOpen`
 - Separate / Linktest responders: `hsmsss/transport_control.go` → `handleSeparateReq`, `handleLinktestReq`
 - genCtx + generation-identity threading: `hsmsss/transport_recv.go` → `recvLoop`, `dispatchFrame`
-- the generation barrier the report resolves against: `hsms/connection_lifecycle.go` → `TCPDownFromGeneration`
+- the generation barrier the report resolves against: `hsms/connection_lifecycle.go` → `TCPDownFromGeneration`, `injectDisconnect`
+- the closed-supervisor no-op: `hsms/supervisor.go` → `(*supervisor).step`

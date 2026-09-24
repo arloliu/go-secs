@@ -3,26 +3,33 @@ type: Mechanic
 title: The reply registry's two-legged control exemption
 description: Why registration-side isData and result-side *DataMessage assertion are two independent gates, not one, and what breaks when only one survives.
 tags: [hsms, reply-correlation, e37, control]
-status: draft
-generated: {by: "claude/sonnet-5", at: 2026-09-24T05:09:56Z}
+status: stable
+generated: {by: "claude/sonnet-5", at: 2026-09-24T11:50:00Z}
+verified:
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T12:34:28Z}
 sources:
   - {resource: hsms/connection_send.go, digest: sha256:37c6bd273ed11699, revision: dec5f46}
   - {resource: hsms/reply_registry.go, digest: sha256:6d50e421b3006d65, revision: 922feb8}
   - {resource: hsms/connection_runtime.go, digest: sha256:31ed96e7c5aa678b, revision: 922feb8}
+  - {resource: hsmsss/integration_reply_matching_test.go, digest: sha256:1c282545dbdbb352, revision: 4eb40d1}
 ---
 
 # What it does
 
-`docs/specs/secs2-hsms-conformance-audit.md` (D1) and `reply_registry.go`'s own comments already
-cover WHY the stream/function/isData check exists and WHAT the default-vs-strict posture does with
-a mismatch.
-Neither states the internal shape of the control exemption itself:
-it is not one condition but two independent legs — a registration-side flag and a result-side type assertion —
-and leg 1 closes a door leg 2 cannot reach on its own,
-while leg 2 is a comparison switch inside leg 1's path (plus the DATA-registration `*ControlMessage`-miss gate ahead of it).
-Dropping leg 2 alone is invisible to the two obvious round-trip tests; dropping leg 1 alone is not,
+`docs/specs/secs2-hsms-conformance-audit.md` (D1) and `reply_registry.go`'s own `route` comment now
+state the two-legged shape directly:
+a candidate is compared only when the registration is for a DATA primary (leg 1, `want.isData`)
+AND the routed result itself carries a `*DataMessage` (leg 2),
+and a DATA registration answered by a `*ControlMessage` is reported as a miss rather than compared.
+What neither states is which test catches which SINGLE-leg removal,
+or what the specific historical mutant that leg 2 alone does not catch actually did.
+That is the delta this entry records:
+dropping leg 2 alone is invisible to the two obvious round-trip tests;
+dropping leg 1 alone is not,
 since leg 1 also gates the DATA-registration `*ControlMessage`-miss check those same tests exercise;
-dropping both at once reproduces the exact NotSelected→NotConnect loop shape of the v2.0.1 field bug this mechanism fixed.
+dropping both at once reproduces the shape of the v2.0.1 field bug this mechanism fixed,
+by way of a documented historical mutant that classifies a candidate lacking data fields as a
+mismatch outright rather than genuinely comparing one.
 
 # How it works
 
@@ -37,7 +44,7 @@ values passed to `register` are left at their zero defaults — they are stored 
 **Result leg.**
 `route` (`reply_registry.go`) only enters the comparison branch when **both** hold at once:
 `w.isData` is true, AND `dm, ok := res.msg.(*DataMessage)` succeeds against the routed result.
-A field-less `*RejectError` result (`res.msg == nil` — `RouteReply`'s `RejectReqType` branch in `connection_runtime.go` builds exactly this for a peer Reject.req) always delivers uncompared, regardless of `isData` —
+A field-less `*RejectError` result (`res.msg == nil` — `RouteReply`'s `RejectReqType` branch in `connection_runtime.go` builds exactly this for a peer Reject.req) bypasses comparison regardless of `isData` (delivery is a non-blocking send into the waiter's one-slot buffer) —
 a peer Reject.req is a terminal rejection of the primary (E37 §8.3.11), not a reply to validate.
 A `*ControlMessage` result (Select.rsp/Deselect.rsp/Linktest.rsp) is treated differently depending on registration direction:
 a control registration (`isData` false) delivers it uncompared.
@@ -59,10 +66,16 @@ comment and `hsms/reply_matching_test.go`'s
 - Leg 1 alone (`isData`) closes the "reply to a DATA primary whose System Bytes collide with an
   open control transaction" door: a genuine `*DataMessage` secondary passes leg 2 cleanly, so only
   a control registration's `isData == false` keeps it uncompared.
-- Removing **both** — comparing every candidate unconditionally — reproduces the v2.0.1 field-bug
-  shape: every Select.rsp becomes an unconditional stream/function mismatch (0 vs. whatever the peer
-  actually sent), which stalls Select to T6 under strict mode (`CommitSelected` never runs, so the
-  FSM loops NotSelected → NotConnect) or floods `ReplyMismatchCount` under the default posture.
+- Removing **both** reproduces the v2.0.1 field-bug shape, but not through an actual stream/function
+  comparison: a `*ControlMessage` has no `Stream()`/`Function()` to compare in the first place.
+  The documented historical mutant (`hsmsss/integration_reply_matching_test.go`'s TEETH comment)
+  instead replaces the exemption logic with unconditional MISMATCH CLASSIFICATION for any result
+  lacking data fields — a `*ControlMessage`, or a field-less `*RejectError` — and additionally
+  bypasses the DATA-registration `*ControlMessage`-miss gate ahead of it.
+  That mutant rejects every Select.rsp under strict mode (`CommitSelected` never runs, so the FSM
+  loops NotSelected → NotConnect) and floods `ReplyMismatchCount` under the default posture.
+  The outcome depends on that explicit classification and on bypassing the miss gate;
+  merely removing the two conditions does not by itself specify equivalent behavior.
 
 The function match itself admits primary+1 **or** 0 — the SxF0 abort secondary (E5 §7.2/§10.4.1).
 That exception is function-only: a wrong-stream F0 still mismatches on stream.
@@ -70,7 +83,7 @@ That exception is function-only: a wrong-stream F0 still mismatches on stream.
 # Invariants
 
 - A comparison runs only when both legs hold;
-  a RejectError result, or a `*ControlMessage` result answering a CONTROL registration, always delivers the result uncompared, with no mismatch recorded.
+  a RejectError result, or a `*ControlMessage` result answering a CONTROL registration, bypasses comparison, with no mismatch recorded; `route` then attempts a non-blocking send into the waiter's one-slot buffer.
 - The one exception: a `*ControlMessage` result answering a DATA registration is always a miss —
   not delivered, registration not consumed, no mismatch recorded —
   for a DATA registration (leg 1 true), in either strict mode.

@@ -1,13 +1,17 @@
 ---
 type: Mechanic
 title: Send error accounting — which outcomes count
-description: Why a normal Close mid-transaction does not inflate the error counter, and what does.
+description: Which synchronous data-send outcomes count, and why ErrConnClosed is excluded without making a concurrent Close a blanket exclusion.
 tags: [hsms, metrics, send, lifecycle]
-status: draft
-generated: {by: "claude/sonnet-5", at: 2026-09-24T00:00:00Z}
+status: stable
+generated: {by: "claude/sonnet-5", at: 2026-09-24T11:50:00Z}
+verified:
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T12:34:28Z}
 sources:
   - {resource: hsms/connection_send.go, digest: sha256:37c6bd273ed11699, revision: 922feb8}
   - {resource: hsms/connection_metrics.go, digest: sha256:b7722fa7d5fa1dc7, revision: 922feb8}
+  - {resource: hsms/epoch.go, digest: sha256:d97677e4f16e9462, revision: 4eb40d1}
+  - {resource: hsmsss/transport.go, digest: sha256:cf54049476fbfafe, revision: 4eb40d1}
 ---
 
 # What it does
@@ -83,7 +87,19 @@ The timeout branch is narrower than it looks. Both T3 (data) and T6 (control) re
 
 # Invariants
 
-- Closing a connection mid-transaction must never increment the cumulative data-error counter. This is the reason `isCountedSendErr` exists instead of a bare `err != nil`.
+- `isCountedSendErr` excludes the `ErrConnClosed` *value* from the cumulative data-error counter,
+  not concurrent Close as a general event.
+  This is a narrower guarantee than it looks.
+  `(*epoch).teardown` closes the socket unconditionally and does not coordinate with an in-flight `writeMu`-held write.
+  `hsmsss`'s `(*transport).Write` and `writeFrame`'s own `c.tr.Write` call both return a transport write error unchanged,
+  uninspected and unwrapped.
+  So a write racing teardown's socket close can return something other than `ErrConnClosed` —
+  a raw "use of closed network connection", for one —
+  and that error is not one of `isCountedSendErr`'s named exclusions, so it counts.
+  The reply-wait select's own teardown branch (`<-e.ctx.Done(): return nil, ErrConnClosed`) only fires for a wait already blocked past the write;
+  it cannot retroactively reclassify a write that failed for a different reason.
+  `connection_send.go`'s own comment on that branch ("a normal Close mid-transaction never inflates the cumulative error counter") is the same overstatement carried into the source:
+  true for that specific select case, not a guarantee about concurrent Close in general.
 - A NotSelected drop is counted once, in its own counter, and never in the error counter — the two answer different questions ("was the peer unreachable?" vs "did the app send while down?").
 - A fire-and-forget (W-bit clear) data send that reaches the wire records send+1, error+0: it returns
   at once and can never reach a timeout branch.
@@ -116,3 +132,5 @@ The timeout branch is narrower than it looks. Both T3 (data) and T6 (control) re
 - the second synchronous path, now also named in the godoc: `hsms/connection_send.go` → `(*connection).sendNoReply`
 - the timeout notification: `hsms/connection_send.go` → `(*connection).sendAutoS9F9`
 - the counter's public contract, now accurate on which paths it counts: `hsms/connection_metrics.go` → `(*ConnectionMetrics).DataMsgErrCount`
+- the unconditional, write-uncoordinated socket close: `hsms/epoch.go` → `(*epoch).teardown`
+- the raw, unwrapped write-error passthrough: `hsmsss/transport.go` → `(*transport).Write`

@@ -3,8 +3,10 @@ type: Mechanic
 title: Parser input bounds
 description: How the SML parser bounds allocation and recursion on attacker-controlled input.
 tags: [sml, parser, security, allocation, recursion]
-status: draft
+status: stable
 generated: {by: "openai/gpt-5.6-sol", at: 2026-08-14T08:11:01Z}
+verified:
+  - {by: "claude/opus-5.5", at: 2026-09-24T12:34:28Z}
 sources:
   - {resource: sml/parser.go, digest: sha256:6a166a179414e02e, revision: f56c67a}
   - {resource: sml/parser_depth_test.go, digest: sha256:3230469c3aa4f0fe, revision: f56c67a}
@@ -17,7 +19,7 @@ An SML item may carry a declared element count in a size token (`[n]` or `[n..m]
 The parser used that count directly to size the buffer it preallocated.
 `sml/doc.go` documents the public contract but says nothing about this.
 The count is read off attacker-controlled text and bounded only by `math.MaxInt32`.
-A 29-byte message like `<U1[2000000000] 1 2 3>` therefore drove a multi-gigabyte allocation before any payload byte was inspected.
+A 28-byte message like `S1F1 <U1[2000000000] 1 2 3>.` therefore drove a multi-gigabyte allocation before any payload byte was inspected.
 The parser now caps that preallocation hint at 64 elements,
 and bounds list nesting by the same constant the wire decoder uses.
 
