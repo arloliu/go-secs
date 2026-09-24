@@ -33,6 +33,8 @@ func (c *connection) RouteData(msg *DataMessage) error {
 // CommitSelected performs the H2 §7.D synchronous responder commit via the supervisor (TransportRuntime).
 //
 // It nil-guards the supervisor: with no live supervisor it reports false (no commit happened).
+// With a live supervisor it is still admitted only while a live, un-torn-down generation exists
+// (see commitSelectAccepted).
 func (c *connection) CommitSelected() bool {
 	return c.commitSelectAccepted(0)
 }
@@ -43,12 +45,15 @@ func (c *connection) CommitSelected() bool {
 // Both Select commit sites run on the recv goroutine, and a bounded teardown join can abandon that goroutine.
 // A delayed correlated Select.rsp, or an inbound Select.req, processed after that generation ended
 // would otherwise flip the SUCCESSOR's FSM to Selected on a link that never ran a handshake.
-// A gen of 0 skips the match and behaves exactly like CommitSelected.
+// A gen of 0 skips only identity; liveness still applies (see commitSelectAccepted).
 func (c *connection) CommitSelectedFromGeneration(gen uint64) bool {
 	return c.commitSelectAccepted(gen)
 }
 
 // commitSelectAccepted is the shared body of the Select-accepted commit.
+//
+// It is gated even at gen 0 (secs1, and any out-of-module transport):
+// the gate admits it on liveness alone, skipping only identity (see connection.selectCommitGate).
 func (c *connection) commitSelectAccepted(gen uint64) bool {
 	if s := c.sup.Load(); s != nil {
 		// CauseSelectAccepted: every caller of this commit is a completed select handshake.

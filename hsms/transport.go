@@ -89,8 +89,12 @@ type TransportRuntime interface {
 
 	// CommitSelected atomically advances the FSM to Selected before the transport emits Select.rsp.
 	//
-	// It returns true if the CAS succeeded (this caller committed the transition), or false if the state was already Selected (idempotent —
-	// the simultaneous case, E37 §7.4.3).
+	// It returns true only when a live, un-torn-down generation exists
+	// and this caller moved the state from NotSelected to Selected.
+	// False does not mean the session is Selected:
+	// the state may already be Selected (idempotent — the simultaneous case, E37 §7.4.3),
+	// the link may already have dropped to NotConnected,
+	// or the connection may be tearing down the generation.
 	CommitSelected() (committed bool)
 
 	// SelectLost is called when the Selected state is lost due to a peer Separate or Deselect.

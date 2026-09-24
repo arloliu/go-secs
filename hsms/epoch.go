@@ -61,6 +61,13 @@ type epoch struct {
 	// which is correct because such an epoch has no id and so is never generation-matched.
 	genGate *sync.RWMutex
 
+	// reachedSelected latches true when a Select commit succeeds for this generation.
+	// selectCommitGate sets it under genGate on the epoch it validated;
+	// connectLoop reads it after this generation is joined,
+	// to decide whether the next reconnect wait restarts from the initial delay (connection.reconnectDelay).
+	// It is read only once, for that one generation, and never cleared — a fresh epoch starts false.
+	reachedSelected atomic.Bool
+
 	log logger.Logger // generation logger; used by teardown for close-timeout reporting
 
 	connMu sync.RWMutex // guards conn

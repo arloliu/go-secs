@@ -16,6 +16,33 @@
   `verified` stays dropped, status stays draft pending independent verification.
 * **Creation**: [How a shutdown joins the per-Open supervisor](/hsms/supervisor-join.md) records the bounded notifier join introduced in `fb8d9cd`;
   draft pending independent verification.
+* **Creation**: [Reconnect backoff scope — what resets it, and what doesn't](/hsms/reconnect-backoff-scope.md) records where `connection.reconnectDelay` is persisted across separate `connectLoop` invocations;
+  the `epoch.reachedSelected` marker set atomically with the Select CAS under `genGate` and read after `prev.wait()`;
+  why the reset is not keyed off `react`'s deduped reaction;
+  the gen-0 liveness gate `selectCommitGate` now applies to the Select commit;
+  config sampling; and passive re-listen damping.
+  Notes the pre-existing overlapping-reconnect-loops residual (unreachable with shipped transports) as a Gotcha;
+  born draft.
+* **Update**: [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) now records that the Select-accepted commit gates a gen of 0 too, through a sibling `connection.selectCommitGate` rather than `commitGate`;
+  the latter still bypasses gen 0 for the TCP-up and Select-lost commits.
+  Also records that a successful commit latches `epoch.reachedSelected`.
+  Refreshes digests for `hsms/supervisor.go`, `hsms/connection_lifecycle.go`, `hsms/connection_runtime.go`, `hsms/connection.go`, and `hsms/epoch.go`;
+  `verified` stays dropped, entry remains draft.
+* **Update**: [Reconnect backoff scope — what resets it, and what doesn't](/hsms/reconnect-backoff-scope.md)
+  paraphrases the `WithReconnectBackoff` opener instead of quoting text the godoc no longer carries;
+  corrects the missed-reaction window, which had the Select commit's CAS and `step`'s own load/store backwards
+  (the commit lands between `step`'s load and its plain Store, not the other way around);
+  notes the one-loop-at-a-time invariant now excepts the overlap already described under Gotchas;
+  rewraps the whole entry with semantic linefeeds.
+  Refreshes digests for `hsms/connection.go`, `hsms/connection_lifecycle.go`, `hsms/connection_config.go`,
+  `hsms/connection_runtime.go`, `hsms/supervisor.go`, and `hsms/epoch.go`;
+  `verified` stays dropped, entry remains draft.
+* **Update**: [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md)
+  corrects "where it used to always succeed" to "where it used to take the bare CAS":
+  before `selectCommitGate` existed, a gen-0 `CommitSelected` was never gated at all, not merely "always successful".
+  Refreshes digests for `hsms/supervisor.go`, `hsms/connection_lifecycle.go`, `hsms/connection_runtime.go`,
+  `hsms/connection.go`, `hsms/epoch.go`, and `secs1/transport.go` (revision advanced to `a9235b4`);
+  `verified` stays dropped, entry remains draft.
 
 ## 2026-09-23
 * **Update**: [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) now records that `genRuntime` and `genCapability` alias one shared `internal/gencap.GenerationRuntime` instantiation, and cites `internal/gencap/gencap.go`;

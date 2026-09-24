@@ -153,9 +153,12 @@ func (m *ConnectionMetrics) Reconnecting() int64 {
 
 // Reconnects returns the cumulative number of times this connection successfully re-established.
 //
-// This is counted once per successful re-establishment after an involuntary drop.
-// It is never counted per failed dial attempt, and never for the very first Open() — including when
-// that first connect had to retry a cold peer in the background (see countReconnect in connectLoop).
+// This is counted once per successful reconnect transport start after an involuntary drop —
+// an active re-dial or a passive re-listen.
+// Neither Selected nor, on a passive connection, an accepted peer is required:
+// the count reflects the transport coming back up, not the session reaching any particular state afterward.
+// It is never counted per failed dial attempt,
+// and never for the very first Open() — including when that first connect had to retry a cold peer in the background.
 func (m *ConnectionMetrics) Reconnects() uint64 {
 	return m.reconnects.Load()
 }

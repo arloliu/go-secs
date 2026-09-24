@@ -105,6 +105,11 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 
 	cfg := c.cfg.Load()
 
+	// Seed the reconnect backoff for this Open cycle from the configured initial delay, so every
+	// fresh cycle — including the cold-active background retry below — starts the ramp over,
+	// regardless of how far a prior cycle's backoff had grown (see connection.reconnectDelay).
+	c.reconnectDelay.Store(int64(cfg.reconnectBackoffInitial))
+
 	// Fresh per-generation epoch. The parent is context.Background(): e.ctx is
 	// generation-lifetime and is cancelled ONLY by teardown (never by the caller's Open ctx,
 	// which bounds only the OpenWaitSelected wait — D5a-7). stopTransport lets teardown join
@@ -137,8 +142,11 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	// It is a single atomic load and takes no locks: step runs on the FSM goroutine,
 	// which an epoch teardown join can be waiting behind, so any lock the teardown path holds would close a cycle here.
 	s.curGen = c.CurrentGeneration
-	// The fence behind the three synchronous commits, which never reach step and so are not covered by its match.
+	// The fence behind the TCP-up and Select-lost commits, which never reach step and so are not covered by its match.
 	s.commitGate = c.commitGate
+	// The Select commit's own fence: the same generation-guarded CAS discipline, but it also gates a
+	// gen of 0 and stores the reconnect-backoff reset marker (see connection.selectCommitGate).
+	s.selectGate = c.selectCommitGate
 	c.sup.Store(s)
 	go s.run()
 	go s.notifier()
@@ -467,6 +475,13 @@ func (c *connection) startConnectLoop(prev *epoch, countReconnect bool) {
 // immediately before publishing the fresh generation. The supervisor is NOT recreated here
 // (round-6) — only a fresh epoch per generation; the loop hands each generation to the persistent
 // supervisor via tr.Start (which drives evTCPUp -> CommitSelected -> Selected).
+//
+// The backoff delay itself outlives this one invocation:
+// it is read from and written back to connection.reconnectDelay,
+// so a generation that comes up and drops again without ever reaching Selected —
+// a peer that refuses every Select.req, for instance —
+// keeps the ramp growing across the fresh connectLoop invocation react launches for it,
+// instead of restarting at the initial delay.
 func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{}, countReconnect bool) {
 	c.metrics.incConnRetry()
 	defer c.metrics.decConnRetry()
@@ -500,7 +515,17 @@ func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{},
 		stop = *cancel
 	}
 
-	delay := c.cfg.Load().reconnectBackoffInitial
+	// Decide the starting delay now that the prior generation, if any, has fully ended.
+	// A predecessor that reached Selected at least once —
+	// epoch.reachedSelected, set atomically with its Select commit (see connection.selectCommitGate) —
+	// resets the ramp to the configured initial delay;
+	// otherwise the loop continues growing from the persisted delay (connection.reconnectDelay),
+	// which is what keeps the backoff climbing across reconnects that never select.
+	// A persisted value that is not yet valid (<= 0) also falls back to initial, defensively.
+	delay := time.Duration(c.reconnectDelay.Load())
+	if delay <= 0 || (prev != nil && prev.reachedSelected.Load()) {
+		delay = c.cfg.Load().reconnectBackoffInitial
+	}
 
 	for {
 		cfg := c.cfg.Load()
@@ -508,6 +533,13 @@ func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{},
 		sleepFor := delay
 		if ceil := cfg.timers.T5; sleepFor > ceil {
 			sleepFor = ceil
+		}
+
+		// Optional test hook (nil in production, zero cost).
+		// Reconnect-backoff persistence tests use it to record the exact delay sequence the loop computes,
+		// one call per dial attempt, before this attempt sleeps.
+		if hook := c.testHookBackoff; hook != nil {
+			hook(sleepFor)
 		}
 
 		// Exponential-backoff connect separation between attempts (active dial; a passive
@@ -518,6 +550,10 @@ func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{},
 		}
 
 		delay = nextBackoffDelay(delay, cfg.reconnectBackoffMultiplier, cfg.timers.T5)
+		// Persist the advanced delay so the NEXT connectLoop invocation —
+		// whether this same loop's next iteration or a fresh one launched by react after this generation drops —
+		// continues the ramp instead of reseeding (see connection.reconnectDelay).
+		c.reconnectDelay.Store(int64(delay))
 
 		// Optional test hook (nil in production, zero cost). The gen-fence / no-deadlock teeth
 		// tests use it to pause the loop between the backoff and the fence.
@@ -788,6 +824,52 @@ func (c *connection) commitGate(gen uint64, cas func() bool) (committed, live bo
 		}
 
 		c.cfg.Load().logger.Debug("hsms: dropped a state commit requested by a generation that is no longer live",
+			"reported_generation", gen, "current_generation", current)
+	}
+
+	return committed, live
+}
+
+// selectCommitGate is commitGate's counterpart for the Select-accepted commit only.
+//
+// It fences the same way —
+// one genGate.RLock section spanning {resolve the live generation, verify liveness, run the CAS} —
+// but ALSO differs from commitGate in the one place the Select commit needs to: a gen of 0 is NOT bypassed.
+// secs1 and any out-of-module transport never carry a generation identity,
+// so a named-generation check alone would leave every one of their Select commits ungated;
+// instead, a gen of 0 skips ONLY the identity comparison,
+// and the liveness requirement still applies — a non-nil, un-torn-down current generation.
+// A named generation (gen != 0, the hsmsss path) keeps requiring an exact identity match, exactly like commitGate.
+//
+// On a successful commit it also latches epoch.reachedSelected on the SAME generation the RLock section validated,
+// before releasing the lock —
+// the reconnect loop's backoff-reset read (connectLoop, connection.reconnectDelay)
+// depends on the marker landing on the exact generation whose commit set it,
+// never on a successor a concurrent teardown-and-republish could otherwise let it fall onto.
+//
+// Nothing that can block runs under the gate: the log below is deliberately emitted after the unlock,
+// exactly like commitGate.
+func (c *connection) selectCommitGate(gen uint64, cas func() bool) (committed, live bool) {
+	c.genGate.RLock()
+
+	e := c.cur.Load()
+	live = e != nil && !e.ended.Load() && (gen == 0 || e.id == gen)
+	if live {
+		committed = cas()
+		if committed {
+			e.reachedSelected.Store(true)
+		}
+	}
+
+	c.genGate.RUnlock()
+
+	if !live {
+		var current uint64
+		if e != nil {
+			current = e.id
+		}
+
+		c.cfg.Load().logger.Debug("hsms: dropped a select commit requested by a generation that is no longer live",
 			"reported_generation", gen, "current_generation", current)
 	}
 

@@ -639,14 +639,18 @@ func TestSupervisor_GenerationMatchAtProcessingTime(t *testing.T) {
 	}
 }
 
-// TestSupervisor_CommitFromGenerationHonorsTheGate pins the contract commitFrom relies on, which no
-// end-to-end test can state directly: the three SYNCHRONOUS commits are CAS operations applied by
-// the caller's own goroutine, so they never reach step and step's generation match cannot cover
-// them. Their barrier is the gate, and this is what the gate must do with each answer.
+// TestSupervisor_CommitFromGenerationHonorsTheGate pins the contract commitFrom relies on for the
+// Select-accepted commit, which no end-to-end test can state directly: it is a CAS operation applied
+// by the caller's own goroutine, so it never reaches step and step's generation match cannot cover it.
+// Its barrier is selectGate, and this is what the gate must do with each answer.
 //
 // The rows that must still COMMIT are as load-bearing as the ones that must not: a gen of 0 is
 // every out-of-module transport and secs1, and a nil gate is a supervisor built without a
 // connection — suppressing either would silently disable Select for them.
+// A gen of 0 is admitted on liveness alone, mirroring connection.selectCommitGate's own identity skip;
+// the fake gate below treats gen 0 as live only when the row's zeroLive says so.
+// This is never bypassed outright the way it is for the other two synchronous commits under commitGate:
+// the "gen 0 but not live" row below is what proves gen 0 still REACHES the gate rather than skipping it.
 func TestSupervisor_CommitFromGenerationHonorsTheGate(t *testing.T) {
 	const liveGen = uint64(7)
 
@@ -654,13 +658,15 @@ func TestSupervisor_CommitFromGenerationHonorsTheGate(t *testing.T) {
 		name        string
 		installGate bool
 		cmdGen      uint64
+		zeroLive    bool // only consulted when cmdGen == 0: whether the fake gate reports it live
 		wantCommit  bool
 		wantState   ConnState
 		wantStale   uint64
 	}{
 		{name: "live generation commits", installGate: true, cmdGen: liveGen, wantCommit: true, wantState: SelectedState},
 		{name: "ended generation is refused", installGate: true, cmdGen: liveGen - 1, wantState: NotSelectedState, wantStale: 1},
-		{name: "unnamed generation bypasses the gate", installGate: true, cmdGen: 0, wantCommit: true, wantState: SelectedState},
+		{name: "unnamed generation is admitted on liveness, not identity", installGate: true, cmdGen: 0, zeroLive: true, wantCommit: true, wantState: SelectedState},
+		{name: "unnamed generation still reaches the gate and can be refused on liveness", installGate: true, cmdGen: 0, zeroLive: false, wantState: NotSelectedState, wantStale: 1},
 		{name: "no gate installed commits", installGate: false, cmdGen: liveGen, wantCommit: true, wantState: SelectedState},
 	}
 
@@ -670,7 +676,17 @@ func TestSupervisor_CommitFromGenerationHonorsTheGate(t *testing.T) {
 			if tc.installGate {
 				// The production gate resolves the live generation under connection.genGate; here the
 				// answer is fixed, which is all commitFrom's contract depends on.
-				s.commitGate = func(gen uint64, cas func() bool) (committed, live bool) {
+				// gen == 0 skips only the identity check —
+				// the same skip connection.selectCommitGate applies for an unnamed generation —
+				// liveness (zeroLive) is still enforced.
+				s.selectGate = func(gen uint64, cas func() bool) (committed, live bool) {
+					if gen == 0 {
+						if !tc.zeroLive {
+							return false, false
+						}
+
+						return cas(), true
+					}
 					if gen != liveGen {
 						return false, false
 					}
@@ -692,4 +708,45 @@ func TestSupervisor_CommitFromGenerationHonorsTheGate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSupervisor_CommitGateBypassesUnnamedGeneration pins commitFrom's OTHER half of the gen-0 story:
+// unlike selectGate, commitGate is skipped OUTRIGHT for a gen of 0 on the TCP-up and Select-lost commits,
+// not merely admitted on liveness.
+// A gen of 0 must reach neither the gate's identity check nor its liveness check,
+// while a NAMED generation still goes through the same gate and can be refused.
+func TestSupervisor_CommitGateBypassesUnnamedGeneration(t *testing.T) {
+	const liveGen = uint64(7)
+
+	var called atomic.Bool
+	refuseAll := func(gen uint64, cas func() bool) (committed, live bool) {
+		called.Store(true)
+
+		return false, false
+	}
+
+	s := newSupervisorWithEventsCap(func(_, _ ConnState) {}, newHandlerPtr(), nil, supervisorEventsCap)
+	s.commitGate = refuseAll
+
+	// gen 0, TCP-up commit from NotConnected: the gate must be bypassed entirely.
+	require.True(t, s.CommitConnectedFromGeneration(0, CauseUnknown), "gen 0 must bypass commitGate outright")
+	require.Equal(t, NotSelectedState, s.State())
+	require.False(t, called.Load(), "commitGate must not be consulted for gen 0")
+	require.Equal(t, fsmCommand{ev: evTCPUp, cause: CauseUnknown, gen: 0}, <-s.events)
+
+	// gen 0, Select-lost commit from Selected: same bypass.
+	s.state.Store(uint32(SelectedState))
+	s.lastReacted = SelectedState
+	require.True(t, s.CommitSelectLostFromGeneration(0, CauseUnknown), "gen 0 must bypass commitGate outright")
+	require.Equal(t, NotSelectedState, s.State())
+	require.False(t, called.Load(), "commitGate must not be consulted for gen 0")
+	require.Equal(t, fsmCommand{ev: evSelectLost, cause: CauseUnknown, gen: 0}, <-s.events)
+
+	// A NAMED, ended generation must still be refused by the very same gate.
+	s.state.Store(uint32(NotConnectedState))
+	require.False(t, s.CommitConnectedFromGeneration(liveGen, CauseUnknown), "a named ended generation must be refused")
+	require.Equal(t, NotConnectedState, s.State())
+	require.True(t, called.Load(), "a named generation must reach commitGate")
+	require.Equal(t, uint64(1), s.staleGen.Load(), "a refused named commit must be counted")
+	require.Empty(t, s.events, "a refused commit must enqueue nothing")
 }
