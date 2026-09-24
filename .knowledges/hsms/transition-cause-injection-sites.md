@@ -12,7 +12,7 @@ sources:
   - {resource: hsms/connection_runtime.go, digest: sha256:31ed96e7c5aa678b, revision: a9235b4}
   - {resource: hsms/connection_send.go, digest: sha256:37c6bd273ed11699, revision: 0b40043}
   - {resource: hsms/connection.go, digest: sha256:82d716dbf253b02c, revision: a9235b4}
-  - {resource: hsms/epoch.go, digest: sha256:bc9fdafa3dff0a36, revision: a9235b4}
+  - {resource: hsms/epoch.go, digest: sha256:d97677e4f16e9462, revision: 0c892d9}
   - {resource: hsmsss/transport.go, digest: sha256:cf54049476fbfafe, revision: b0c8081}
   - {resource: hsmsss/transport_control.go, digest: sha256:7b5042e69a84d610, revision: b0c8081}
   - {resource: hsmsss/transport_active.go, digest: sha256:b4a168040cd91ff8, revision: b0c8081}
