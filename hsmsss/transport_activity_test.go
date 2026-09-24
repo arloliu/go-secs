@@ -187,6 +187,26 @@ func TestLinktestFailureStep_Branches(t *testing.T) {
 	}
 }
 
+// TestLinktestFailureStep_MemoryUnreadAtZeroRun pins the invariant runLinktest's re-check credit relies on:
+// with fails at 0 the reducer's run outcome does not depend on recvAtLastFail,
+// so that path can reset the run without restoring the memory.
+func TestLinktestFailureStep_MemoryUnreadAtZeroRun(t *testing.T) {
+	for _, suppress := range []bool{false, true} {
+		for _, in := range []struct{ recvNow, sentAt, inflight int64 }{
+			{100, 50, 0}, // frame after probe
+			{40, 50, 1},  // inflight
+			{40, 50, 0},  // silence
+		} {
+			wantFails, _, wantCredited := linktestFailureStep(suppress, in.recvNow, in.sentAt, in.inflight, 0, 0)
+			for _, mem := range []int64{-1, 0, 39, 40, 41, 1 << 40} {
+				gotFails, _, gotCredited := linktestFailureStep(suppress, in.recvNow, in.sentAt, in.inflight, 0, mem)
+				require.Equal(t, wantFails, gotFails, "suppress=%v in=%+v mem=%d", suppress, in, mem)
+				require.Equal(t, wantCredited, gotCredited, "suppress=%v in=%+v mem=%d", suppress, in, mem)
+			}
+		}
+	}
+}
+
 // TestLinktestDisconnectRecheck covers runLinktest's final pre-disconnect re-check (the last
 // guard before TCPDown once the reducer's consecutive-failure run reaches threshold): a
 // suppression-off run always disconnects regardless of inflight/recvNow; with suppression on,

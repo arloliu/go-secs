@@ -87,6 +87,9 @@ func (t *transport) stopLinktest() {
 //
 // Note "life" is receive-side only plus inflight: our own send stamps never forgive a
 // failure (a write success proves local TCP buffering, not the peer).
+//
+// recvAtLastFail is read only while fails > 0;
+// whenever the run is 0 its value is unobservable, and the next counted failure overwrites it.
 func linktestFailureStep(suppress bool, recvNow, sentAt, inflight int64, fails int, recvAtLastFail int64) (newFails int, newRecvAtLastFail int64, credited bool) {
 	if suppress && (recvNow > sentAt || inflight > 0) {
 		return 0, recvAtLastFail, true
@@ -194,8 +197,6 @@ func (t *transport) runLinktest(ctx context.Context, g *genWG, interval time.Dur
 				inflight = sr.DataMsgInflight()
 			}
 
-			prevRecvAtLastFail := recvAtLastFail
-
 			var credited bool
 			fails, recvAtLastFail, credited = linktestFailureStep(sr != nil, recvNow, sentAt, inflight, fails, recvAtLastFail)
 			if credited {
@@ -221,10 +222,9 @@ func (t *transport) runLinktest(ctx context.Context, g *genWG, interval time.Dur
 					return
 				}
 
-				// Credited here ⇒ run state untouched: restore recvAtLastFail to its
-				// pre-reducer value, matching the reducer's own credit branch (which leaves
-				// recvAtLastFail unchanged) instead of the counting branch's overwrite above.
-				recvAtLastFail = prevRecvAtLastFail
+				// Credited here ⇒ the run resets.
+				// recvAtLastFail needs no restore:
+				// with fails at 0 the reducer never reads it (see linktestFailureStep).
 				t.metrics.incLinktestCredited()
 				fails = 0
 			}
