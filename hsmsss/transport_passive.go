@@ -19,11 +19,22 @@ package hsmsss
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"time"
 
 	"github.com/arloliu/go-secs/v2/hsms"
+	"github.com/arloliu/go-secs/v2/internal/pool"
+)
+
+// Retry pacing for a transient Accept failure (acceptConn): the delay starts at acceptRetryInitial,
+// doubles on each consecutive failure, and is capped at acceptRetryMax — the same shape net/http's
+// Server.Serve uses for the same condition.
+const (
+	acceptRetryInitial = 5 * time.Millisecond
+	acceptRetryMax     = time.Second
 )
 
 // startPassive listens on the configured host:port and spawns the accept goroutine, then returns
@@ -76,7 +87,7 @@ func (t *transport) startPassive(ctx context.Context) error {
 	g := t.wg
 	g.gen = t.currentGeneration() // see the identical stamp in startActive
 	g.accept.Add(1)
-	go t.acceptLoop(g, ln)
+	go t.acceptLoop(ctx, g, ln)
 	t.startGate.RUnlock()
 
 	return nil
@@ -89,16 +100,17 @@ func (t *transport) startPassive(ctx context.Context) error {
 // g.accept.
 //
 // It NEVER initiates Select — a passive side only responds to an inbound Select.req (the shared H2
-// responder handleSelectReq, driven by the recv loop's dispatchFrame). Any Accept error means the
-// listener was closed by Stop (the sole closer of ln) — the loop exits cleanly WITHOUT rt.TCPDown:
-// a first-accept error is a teardown signal, not a comms failure. Reconnect after an ESTABLISHED
-// link drops is driven by the recv loop's rt.TCPDown (as in the active role), not by this loop; a
-// listen failure (never reaching here) is retried synchronously by the reconnect loop via startPassive.
-func (t *transport) acceptLoop(g *genWG, ln net.Listener) {
+// responder handleSelectReq, driven by the recv loop's dispatchFrame). Both Accept sites go through
+// acceptConn, which retries a transient Accept failure and returns an error only once Stop is
+// tearing the generation down — so the loop exits cleanly WITHOUT rt.TCPDown: an error here is a
+// teardown signal, not a comms failure. Reconnect after an ESTABLISHED link drops is driven by the
+// recv loop's rt.TCPDown (as in the active role), not by this loop; a listen failure (never
+// reaching here) is retried synchronously by the reconnect loop via startPassive.
+func (t *transport) acceptLoop(ctx context.Context, g *genWG, ln net.Listener) {
 	defer g.accept.Done()
 
 	// Accept the FIRST connection — the single live session for this generation.
-	conn, err := ln.Accept()
+	conn, err := t.acceptConn(ctx, ln)
 	if err != nil {
 		// Listener closed by Stop (teardown / Close / reconnect) before a peer connected. No peer
 		// was adopted and no recv loop was spawned; exit cleanly so g.accept.Wait unblocks.
@@ -155,13 +167,75 @@ func (t *transport) acceptLoop(g *genWG, ln net.Listener) {
 	// acceptable, since only one session is ever served.
 	// The loop ends when Stop closes ln (Accept errors).
 	for {
-		extra, err := ln.Accept()
+		extra, err := t.acceptConn(ctx, ln)
 		if err != nil {
 			return // listener closed by Stop — the generation is tearing down
 		}
 
 		t.refuseExtraConn(extra)
 	}
+}
+
+// acceptConn accepts one connection from ln, retrying an Accept failure that is not a teardown.
+//
+// An Accept error does NOT by itself mean Stop closed the listener.
+// The runtime retries ECONNABORTED internally, but it hands EMFILE / ENFILE (descriptor exhaustion) back to the caller,
+// and a ListenFunc supplied via WithListener may return any error at all.
+// Treating such an error as teardown would leave the generation stranded:
+// the listener stays open, so a peer's connect still lands in the backlog,
+// yet nothing accepts it, the FSM stays NotConnected, and no event ever arrives to start a reconnect.
+//
+// An error is therefore terminal only when the generation is going away:
+// the listener reports net.ErrClosed, the generation ctx is cancelled, or Stop has sealed the transport.
+// Stop seals (startGate) BEFORE it closes ln, so an Accept that fails because Stop closed a custom listener
+// always observes the seal, whatever error that listener returns —
+// which is what keeps Stop's unbounded g.accept.Wait from waiting on a retry loop.
+// Any other error is logged and retried after a doubling delay capped at acceptRetryMax;
+// the wait ends early on ctx cancellation.
+func (t *transport) acceptConn(ctx context.Context, ln net.Listener) (net.Conn, error) {
+	var delay time.Duration
+
+	for {
+		conn, err := ln.Accept()
+		if err == nil {
+			return conn, nil
+		}
+
+		if errors.Is(err, net.ErrClosed) || ctx.Err() != nil || t.isStopping() {
+			return nil, err
+		}
+
+		if delay == 0 {
+			delay = acceptRetryInitial
+		} else {
+			delay = min(2*delay, acceptRetryMax)
+		}
+
+		log := t.cfg.Logger()
+		if rt, ok := t.rt.(traceConfigRuntime); ok {
+			_, log = rt.TraceConfig()
+		}
+
+		log.Warn("hsmsss: accept failed, retrying", "error", err, "retry_in", delay)
+
+		timer := pool.GetTimer(delay)
+		select {
+		case <-ctx.Done():
+			pool.PutTimer(timer)
+
+			return nil, err
+		case <-timer.C:
+			pool.PutTimer(timer)
+		}
+	}
+}
+
+// isStopping reports whether Stop has sealed the transport for the current generation.
+func (t *transport) isStopping() bool {
+	t.startGate.RLock()
+	defer t.startGate.RUnlock()
+
+	return t.stopping
 }
 
 // refuseExtraConn refuses ONE extra dialer while a session is already live, per E37 §9.2.4.1.1 option 1 (the standard's OWN "preferred option"):

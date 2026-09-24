@@ -5,6 +5,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `hsmsss`: a passive connection retries a transient `Accept` failure, such as descriptor exhaustion,
+  instead of treating it as teardown.
+  Previously a failure on the first `Accept` left the listener open but unserved, with no reconnect,
+  and a failure while a session was live stopped refusing extra connections.
+
 ## [2.4.1] - 2026-08-15
 
 ### Security
