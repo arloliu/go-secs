@@ -45,6 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   also for a transport that carries no generation identity (such as `secs1` or a custom transport).
   Previously such a late commit could still move the state to Selected.
 
+### Changed
+
+- `hsms`: the `DataMessageHandler` and `DecodeErrorHandler` docs now state that calling `Close` from inside a handler always waits out the close timeout and returns `ErrCloseTimeout`,
+  because `Close` waits for the goroutine running the handler;
+  call `Close` on another goroutine instead.
+
 ## [2.4.1] - 2026-08-15
 
 ### Security
