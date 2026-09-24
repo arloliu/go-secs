@@ -14,6 +14,9 @@ import (
 // A handler therefore MUST NOT BLOCK: while it runs, the receive loop cannot read the next frame,
 // and Close cannot complete until the handler returns (Close bounds this by the close timeout — see WithCloseTimeout —
 // and returns ErrCloseTimeout if a handler stays blocked).
+// For the same reason, calling Close from inside a handler always waits out the close timeout and returns ErrCloseTimeout:
+// Close waits for the receive goroutine, which is the one running the handler.
+// To close the connection from a handler, call Close on another goroutine.
 // Offload slow work to your own goroutine.
 type DataMessageHandler func(msg *DataMessage, ep SECS2Endpoint)
 
@@ -27,6 +30,7 @@ type DataMessageHandler func(msg *DataMessage, ep SECS2Endpoint)
 //
 // Like DataMessageHandler, a DecodeErrorHandler is invoked INLINE on the connection's single receive goroutine and MUST NOT BLOCK:
 // while it runs, the receive loop cannot read the next frame and Close cannot complete until it returns.
+// Calling Close from inside it therefore always times out, as for DataMessageHandler.
 // Offload slow work to your own goroutine.
 type DecodeErrorHandler func(msg *DataMessage, err error, ep SECS2Endpoint)
 
