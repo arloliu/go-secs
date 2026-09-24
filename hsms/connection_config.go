@@ -164,11 +164,18 @@ func WithT5(d time.Duration) ConnOption {
 //
 // The configuration applies to dial retries per SEMI E37 §5.2 and §6.3.
 //
-// The first attempt after a drop waits for the duration specified by initial.
+// The first reconnect attempt of an Open cycle waits for the duration specified by initial.
 // For an active connection, this also applies to the first background retry of a cold-peer initial connect (see OpenBackground).
+// On a passive connection the wait separates re-listens rather than dials:
+// after repeated peers that never select — dropped by T7, for example —
+// the listening port stays closed for up to T5 between listens.
 //
-// Each subsequent failed attempt multiplies the previous wait by multiplier, capped at the configured T5 (see WithT5).
+// Each subsequent attempt multiplies the previous wait by multiplier, capped at the configured T5 (see WithT5).
 // T5 functions as the backoff CEILING, not the flat per-attempt delay.
+// The wait keeps growing across separate reconnect attempts,
+// including across a generation that comes up and drops again without ever reaching Selected —
+// for example a peer that refuses every Select.req.
+// It resets to initial only once a connection reaches Selected and later drops, or on the next Open.
 //
 // The initial duration must be > 0.
 // The multiplier must be >= 1.0.

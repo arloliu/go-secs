@@ -316,6 +316,19 @@ func (m *mockTransport) releaseHeldTCPDown() {
 	m.releaseHeld()
 }
 
+// resetStart reinstalls a fresh scripted startFn and resets the started/stopped/startCount
+// bookkeeping, race-safely under m.mu.
+// It is for a test that Closes and re-Opens the SAME mock transport
+// and needs the next Open cycle's Start calls to run a different script from a clean call count.
+func (m *mockTransport) resetStart(script mockScript) {
+	m.mu.Lock()
+	m.startFn = script
+	m.started = false
+	m.stopped = false
+	m.startCount = 0
+	m.mu.Unlock()
+}
+
 // startCalls returns how many times Start has been invoked (generation count).
 func (m *mockTransport) startCalls() int {
 	m.mu.Lock()

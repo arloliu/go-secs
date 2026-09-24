@@ -112,13 +112,22 @@ type supervisor struct {
 	// which SKIPS the match rather than suppressing the event.
 	curGen func() uint64
 
-	// commitGate fences a generation-guarded SYNCHRONOUS commit (connection.commitGate).
-	// The three synchronous commits are CAS operations on state rather than events on the queue,
+	// commitGate fences the TCP-up and Select-lost synchronous commits (connection.commitGate).
+	// Those two commits are CAS operations on state rather than events on the queue,
 	// so step's generation match never sees them and they need a barrier of their own.
 	// The gate runs the supplied CAS only while gen is still the live, un-torn-down generation,
 	// and reports both whether the CAS committed and whether the generation was live at all.
 	// Nil in unit tests that build a supervisor without a connection, which SKIPS the fence.
 	commitGate func(gen uint64, cas func() bool) (committed, live bool)
+
+	// selectGate is commitGate's counterpart for the Select-accepted commit (connection.selectCommitGate).
+	// It shares commitGate's shape and RLock discipline,
+	// but — unlike commitGate — does NOT bypass a gen of 0; see connection.selectCommitGate for why.
+	// On a successful commit it also latches the committing generation's reconnect-backoff reset
+	// marker (epoch.reachedSelected) inside the same RLock section.
+	// Nil in unit tests that build a supervisor without a connection, which SKIPS the fence exactly as
+	// a nil commitGate does.
+	selectGate func(gen uint64, cas func() bool) (committed, live bool)
 
 	// staleGen counts events discarded because the generation that injected them had already ended,
 	// plus the disconnect reports the injection path itself dropped for the same reason (connection.injectDisconnect),
@@ -310,12 +319,19 @@ func (s *supervisor) CommitSelectLostFromGeneration(gen uint64, cause Transition
 // followed by ev's injection for the deduped reaction/notify.
 //
 // gen is the generation the commit is made on behalf of, or 0 when the caller named none.
-// A gen of 0 — secs1, an out-of-module transport, or a runtime without the generation capability —
-// takes the bare CAS, exactly the behavior every commit had before generations were carried.
+// For the TCP-up and Select-lost commits, a gen of 0 — secs1, an out-of-module transport, or a
+// runtime without the generation capability — takes the bare CAS, exactly the behavior every commit
+// had before generations were carried.
+// The Select-accepted commit is the one exception: it uses selectGate instead of commitGate, and
+// that gate does NOT bypass a gen of 0 either (see selectGate's doc for why).
+// commitGate is skipped outright — the same bare CAS as above —
+// whenever it is nil (a supervisor built without a connection, as unit tests do) or whenever gen is 0.
+// selectGate is skipped outright only when it is nil.
 //
-// A named generation runs the CAS inside the connection's generation gate,
-// which admits it only while that generation is still the live one AND its teardown has not begun.
-// Both halves are needed:
+// A gated commit runs the CAS inside the connection's generation gate,
+// which admits it only while the live generation has not begun teardown and (for a named generation)
+// matches identity.
+// Both halves matter for a named generation:
 // identity alone cannot reject a commit replayed onto a generation that has ENDED but is still published,
 // because connection.cur keeps pointing at it for the whole reconnect backoff that follows.
 //
@@ -340,7 +356,14 @@ func (s *supervisor) CommitSelectLostFromGeneration(gen uint64, cause Transition
 func (s *supervisor) commitFrom(gen uint64, from, to ConnState, ev fsmEvent, cause TransitionCause) (committed bool) {
 	cas := func() bool { return s.state.CompareAndSwap(uint32(from), uint32(to)) }
 
-	if gen == 0 || s.commitGate == nil {
+	gate := s.commitGate
+	bypass := gen == 0 || gate == nil
+	if ev == evSelectAccepted {
+		gate = s.selectGate
+		bypass = gate == nil
+	}
+
+	if bypass {
 		if cas() {
 			s.injectFrom(gen, ev, cause)
 
@@ -350,7 +373,7 @@ func (s *supervisor) commitFrom(gen uint64, from, to ConnState, ev fsmEvent, cau
 		return false
 	}
 
-	committed, live := s.commitGate(gen, cas)
+	committed, live := gate(gen, cas)
 	if !live {
 		s.staleGen.Add(1)
 

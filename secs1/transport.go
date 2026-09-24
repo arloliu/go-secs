@@ -418,16 +418,21 @@ func (t *transport) acceptLoop(engineCtx context.Context, g *genWG, ln net.Liste
 	t.applyKeepAlive(conn)
 
 	// Late-accept seal guard (I1 / C1): a peer can be accepted CONCURRENTLY with a Stop that has
-	// already sealed this generation — Accept may dequeue a queued peer even as Stop closes the
-	// listener. Re-check the seal under startGate.RLock BEFORE driving ANY runtime callback. The core's
-	// CommitConnected/CommitSelected flip the FSM state atomic with an UNGUARDED CAS (only the
-	// reaction/notify inject is a no-op after the supervisor stops — hsms/supervisor.go:188/205), so a
-	// late TCPUp+CommitSelected here would pulse the state atomic NotConnected->NotSelected->Selected on
-	// a generation the supervisor believes is stopped. If a Stop has sealed, this generation is tearing
-	// down: close the accepted socket and return WITHOUT TCPUp/CommitSelected/g.line.Add. Mirrors the
-	// startActive/startPassive Add-vs-Wait guard; Stop's startGate.Lock serializes with this RLock, so
-	// either this publish completes before Stop seals (normal bring-up-then-teardown) or Stop wins and
-	// this bails (no spurious pulse, no unaccounted engine).
+	// already sealed this generation —
+	// Accept may dequeue a queued peer even as Stop closes the listener.
+	// Re-check the seal under startGate.RLock BEFORE driving ANY runtime callback.
+	// The core's CommitConnected flips the FSM state atomic with an UNGUARDED CAS;
+	// CommitSelected is liveness-gated instead, refused once the generation has torn down,
+	// though a gen of 0 still skips only the identity check, not the liveness one (see connection.selectCommitGate).
+	// Either way, only the reaction/notify inject is a no-op after the supervisor stops (hsms/supervisor.go:188/205),
+	// so a late TCPUp+CommitSelected here can still pulse the state atomic NotConnected->NotSelected->Selected
+	// on a generation the supervisor believes is stopped.
+	// If a Stop has sealed, this generation is tearing down:
+	// close the accepted socket and return WITHOUT TCPUp/CommitSelected/g.line.Add.
+	// Mirrors the startActive/startPassive Add-vs-Wait guard;
+	// Stop's startGate.Lock serializes with this RLock,
+	// so either this publish completes before Stop seals (normal bring-up-then-teardown) or Stop wins and this bails
+	// (no spurious pulse, no unaccounted engine).
 	t.startGate.RLock()
 	if t.stopping {
 		t.startGate.RUnlock()

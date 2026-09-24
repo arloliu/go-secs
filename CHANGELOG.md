@@ -26,6 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the real reply was then treated as unsolicited.
   The stray response is now answered with a Reject.req (`RejectTransactionNotOpen`),
   and the transaction keeps waiting for its reply.
+- `hsms`: the reconnect backoff now keeps growing across reconnects that never reach Selected,
+  for example a peer that refuses every Select.req.
+  Previously it restarted from the initial delay after every TCP connect,
+  reconnecting roughly ten times a second forever against such a peer.
+  It still restarts from the initial delay after a selected link drops, and on Open.
+  On a passive connection the same growth damps how fast a re-listen cycle repeats,
+  for example a peer that connects and is dropped by T7 without ever selecting.
 
 ## [2.4.1] - 2026-08-15
 

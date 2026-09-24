@@ -105,13 +105,25 @@ type connection struct {
 
 	connectLoopWg sync.WaitGroup // SEPARATE reconnect-loop join (§7.C) — NOT epoch.wg
 
-	// reconnectCancel is closed by Close to promptly interrupt a reconnect loop parked in its
-	// T5 backoff, so Close stays bounded even under a long T5. It is created fresh per Open (a
-	// closed channel cannot be reused) and closed exactly once by Close. It is deliberately
-	// SEPARATE from the supervisor stopCh: the failed-Open rollback stops the supervisor but must
-	// NOT cancel reconnect through this channel — the rollback relies on the shutdown fence
-	// (E2 reconciliation #2) as its sole reconnect guard.
+	// reconnectCancel is closed by Close to promptly interrupt a reconnect loop parked in its T5 backoff,
+	// so Close stays bounded even under a long T5.
+	// It is created fresh per Open (a closed channel cannot be reused) and closed exactly once by Close.
+	// It is deliberately SEPARATE from the supervisor stopCh:
+	// the failed-Open rollback stops the supervisor but must NOT cancel reconnect through this channel —
+	// the rollback relies on the shutdown fence (E2 reconciliation #2) as its sole reconnect guard.
 	reconnectCancel atomic.Pointer[chan struct{}]
+
+	// reconnectDelay is the next reconnect wait (a time.Duration, stored as nanoseconds),
+	// kept across separate connectLoop invocations so the backoff keeps growing across generations
+	// that drop without ever reaching Selected.
+	// Open reseeds it before tr.Start;
+	// connectLoop reseeds it when the joined predecessor reached Selected (epoch.reachedSelected),
+	// or defensively when the stored value is not yet valid (<= 0),
+	// and stores the advanced value after every sleep.
+	// Normally one loop runs at a time per Open cycle;
+	// a transport whose Start fails after already driving TCP-up can overlap two (a known residual),
+	// and the atomic keeps that race-free, merely non-monotone.
+	reconnectDelay atomic.Int64
 
 	// cfg is an atomic.Pointer so readers (Timers/SessionID and Open's cfg reads) are
 	// lock-free and race-free against a concurrent UpdateConfigOptions, which builds a fresh
@@ -138,6 +150,11 @@ type connection struct {
 	// G2 fence, once per dial attempt. It is nil in production (zero cost). The gen-fence
 	// and no-deadlock teeth tests set it to pause the loop at the fence deterministically.
 	testHookConnectLoop func()
+
+	// testHookBackoff is called by the reconnect loop with the delay it is about to sleep for, immediately before reconnectSleep.
+	// It is nil in production (zero cost).
+	// The reconnect-backoff persistence tests set it to record the exact delay sequence the loop computes, one call per dial attempt.
+	testHookBackoff func(d time.Duration)
 
 	*session // embedded: promotes the SECS2Endpoint surface onto the Connection value
 }

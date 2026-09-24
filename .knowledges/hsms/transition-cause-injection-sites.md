@@ -7,19 +7,19 @@ status: draft
 generated: {by: "claude/opus-5", at: 2026-09-23T00:00:00Z}
 sources:
   - {resource: hsms/lifecycle.go, digest: sha256:65d429d90300b620, revision: 5a0ec1b}
-  - {resource: hsms/supervisor.go, digest: sha256:6e184e41a0ff36b7, revision: 6ef4ce7}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:4fc4923423e1d0e0, revision: 0b40043}
-  - {resource: hsms/connection_runtime.go, digest: sha256:21ade095e315d4d8, revision: 0821fe8}
+  - {resource: hsms/supervisor.go, digest: sha256:1a4e9385175f90e9, revision: a9235b4}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:221b0f7825783fad, revision: a9235b4}
+  - {resource: hsms/connection_runtime.go, digest: sha256:31ed96e7c5aa678b, revision: a9235b4}
   - {resource: hsms/connection_send.go, digest: sha256:37c6bd273ed11699, revision: 0b40043}
-  - {resource: hsms/connection.go, digest: sha256:8eb744e7cb85d477, revision: 2942595}
-  - {resource: hsms/epoch.go, digest: sha256:414fa30bdca8edc5, revision: 18f0495}
+  - {resource: hsms/connection.go, digest: sha256:82d716dbf253b02c, revision: a9235b4}
+  - {resource: hsms/epoch.go, digest: sha256:bc9fdafa3dff0a36, revision: a9235b4}
   - {resource: hsmsss/transport.go, digest: sha256:af794dd9a6818352, revision: 71a7afe}
   - {resource: hsmsss/transport_control.go, digest: sha256:d1ce177bbfdfcc10, revision: 0b40043}
   - {resource: hsmsss/transport_active.go, digest: sha256:e54f48b6b4ec7e8b, revision: 0b40043}
   - {resource: hsmsss/transport_passive.go, digest: sha256:f5c2688db6585682, revision: 71a7afe}
   - {resource: hsmsss/transport_procedures.go, digest: sha256:232ee3127c6ae84b, revision: 0b40043}
   - {resource: hsmsss/transport_recv.go, digest: sha256:1b3b40dfd747daaf, revision: 2942595}
-  - {resource: secs1/transport.go, digest: sha256:05f8cb504e3bbeef, revision: 8bb9188}
+  - {resource: secs1/transport.go, digest: sha256:d74a486193cbea69, revision: a9235b4}
   - {resource: internal/gencap/gencap.go, digest: sha256:cf8ecfdcf7a2b6d0, revision: 020da48}
 ---
 
@@ -49,7 +49,7 @@ That is exactly the discrimination the feature exists to provide, and the reason
 | `connection.TCPUp` → `supervisor.CommitConnected` | `evTCPUp` | `CauseLocalOpen` |
 | `connection.CommitSelected` → `supervisor.CommitSelected` | `evSelectAccepted` | `CauseSelectAccepted` |
 | `connection.SelectLost` → `supervisor.CommitSelectLost` | `evSelectLost` | `CausePeerDeselect` |
-| (the three above, generation-named: `*FromGeneration` → `supervisor.commitFrom` under `connection.commitGate`) | same | same |
+| (the three above, generation-named: `*FromGeneration` → `supervisor.commitFrom`; `CommitConnected`/`CommitSelectLost` under `connection.commitGate`, `CommitSelected` under `connection.selectCommitGate`) | same | same |
 | `connection.T7Expired` | `evT7Timeout` | `CauseT7Timeout` |
 | `connection.Close` → `requestClose` | `evClose` | `CauseLocalClose` |
 | `connection.Open` rollback → `requestClose` | `evClose` | `CauseLocalClose` |
@@ -133,7 +133,7 @@ and `NotConnected -> NotSelected -> ... -> NotConnected` is a real cycle,
 so the state a stale CAS expects can legitimately reappear underneath it (plain ABA).
 
 The fence is `connection.genGate`, a `sync.RWMutex`:
-`connection.commitGate` takes RLock across {resolve `cur`, verify the identity and that `epoch.ended` is false, CAS},
+`connection.commitGate` (for `CommitConnected`/`CommitSelectLost`) or `connection.selectCommitGate` (for `CommitSelected`) takes RLock across {resolve `cur`, verify liveness, CAS},
 and `epoch.markEnded` takes Lock for a single atomic store at the top of `epoch.teardown`.
 The two are therefore mutually exclusive, and every successor publish is downstream of the join teardown starts,
 so a commit that observed its generation un-ended completed its CAS before any successor could exist.
@@ -146,6 +146,16 @@ so it cannot close a cycle against the bounded teardown join.
 and `cur` keeps pointing at a dead generation for the whole reconnect backoff — after a `Close`, forever.
 So the identity of a straggler's TCP-up still MATCHES, and only `ended` rejects it.
 The other two commits CAS out of states a dead generation cannot be in, so for them `ended` is redundant but harmless.
+
+**`CommitSelected`'s gate does not bypass a gen of 0, unlike the other two.**
+`commitGate` (still used by `CommitConnected`/`CommitSelectLost`) is skipped outright whenever `gen == 0`, exactly the pre-generation behavior secs1 and every out-of-module transport get:
+no lock, no liveness check, a bare CAS.
+`selectCommitGate` is a sibling gate `CommitSelected`/`CommitSelectedFromGeneration` use instead,
+and it admits a gen of 0 on liveness alone — a non-nil, un-torn-down `cur` — skipping only the identity comparison a named generation still has to pass.
+A gen-0 Select commit against an already-ended generation is therefore refused and counted in `staleGen`,
+the same outcome a refused named commit gets, where it used to take the bare CAS.
+On a successful commit `selectCommitGate` also latches `epoch.reachedSelected` on the SAME `cur` the RLock section validated, before releasing the lock —
+see the reconnect-backoff-scope entry for what reads that marker and why.
 
 `connection.publishSocket` takes the same gate for the same reason:
 an abandoned accept goroutine must not hang its socket on an epoch whose teardown already closed its own.
@@ -289,9 +299,9 @@ see `hsmsss.causeLog.waitBringUp`, which tolerates both shapes.
   `hsms/connection_lifecycle.go` → `CurrentGeneration` and the two `cur.Store` sites
 - the barrier itself: `hsms/supervisor.go` → `step`'s generation match, `curGen`, `staleGen`
 - the synchronous-commit fence: `hsms/connection.go` → `genGate`;
-  `hsms/connection_lifecycle.go` → `commitGate`, `publishSocket`, `commitTCPUp`, `genCapability`;
+  `hsms/connection_lifecycle.go` → `commitGate`, `selectCommitGate`, `publishSocket`, `commitTCPUp`, `genCapability`;
   `hsms/epoch.go` → `epoch.ended`, `epoch.markEnded`;
-  `hsms/supervisor.go` → `commitFrom`, `CommitConnectedFromGeneration`, `CommitSelectedFromGeneration`, `CommitSelectLostFromGeneration`;
+  `hsms/supervisor.go` → `commitFrom`, `selectGate`, `CommitConnectedFromGeneration`, `CommitSelectedFromGeneration`, `CommitSelectLostFromGeneration`;
   `hsms/connection_runtime.go` → `commitSelectAccepted`, `commitSelectLost`
 - the shared capability type: `internal/gencap/gencap.go` → `GenerationRuntime`
 - transport capability: `hsmsss/transport_control.go` → `causeRuntime`, `genRuntime`,
