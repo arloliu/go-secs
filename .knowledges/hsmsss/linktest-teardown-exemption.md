@@ -4,14 +4,14 @@ title: Linktest teardown exclusion covers cancellation propagation and stale gen
 description: Why runLinktest's two-part ErrConnClosed guard exists, and how far "teardown-exclusive" actually reaches.
 tags: [hsmsss, linktest, metrics, shutdown, race]
 status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-24T11:50:00Z}
+generated: {by: "claude/sonnet-5", at: 2026-09-24T15:45:31Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T12:34:28Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T15:53:52Z}
 sources:
-  - {resource: hsmsss/transport_procedures.go, digest: sha256:ae651d8a0289a097, revision: 922feb8}
+  - {resource: hsmsss/transport_procedures.go, digest: sha256:9a7bdb8ff23a8e5b, revision: a7ff4a8}
   - {resource: hsmsss/metrics.go, digest: sha256:e822f4b53757800e, revision: 922feb8}
-  - {resource: hsms/connection_send.go, digest: sha256:37c6bd273ed11699, revision: 922feb8}
-  - {resource: hsms/errors.go, digest: sha256:4d51120b3cb3b060, revision: 922feb8}
+  - {resource: hsms/connection_send.go, digest: sha256:d2e809d7d0d95711, revision: a7ff4a8}
+  - {resource: hsms/errors.go, digest: sha256:3057101139d08434, revision: a7ff4a8}
   - {resource: hsms/connection_lifecycle.go, digest: sha256:221b0f7825783fad, revision: 4eb40d1}
   - {resource: hsms/epoch.go, digest: sha256:d97677e4f16e9462, revision: 4eb40d1}
   - {resource: hsmsss/transport.go, digest: sha256:cf54049476fbfafe, revision: 4eb40d1}
@@ -49,10 +49,10 @@ A teardown that cancels the epoch's ctx can therefore have `sendWaitReplyOn` obs
 and return `ErrConnClosed` an instant before that same cancellation propagates down through
 `t.genCtx`'s child far enough for `runLinktest`'s own `ctx.Err()` — read immediately after
 `WriteMessage` returns — to observe a non-nil value.
-The code comment in `runLinktest` calls this "two separate cancellation cascades with no ordering
-guarantee between them"; that overstates it — it is one cascade, on one tree, with an ordinary
-parent-before-child propagation window.
-Implementation wins over the comment.
+The code comment in `runLinktest` used to call this "two separate cancellation cascades with no
+ordering guarantee between them"; `a7ff4a8` corrected it to say the same thing this entry does —
+one context tree, with the parent's `Done` closing before it reaches the child, not two independent
+cascades.
 
 **Where `ErrConnClosed` actually originates.**
 Tracing every `return …ErrConnClosed` in `hsms/connection_send.go`'s send path: `writeFrame`
@@ -65,8 +65,8 @@ in progress.
 Auto-linktest only ever starts via `startLinktest` on a committed Selected session, and a socket is
 always published by then, so on its own normal path every `ErrConnClosed` origin IS in practice a
 lifecycle exclusion — teardown, or a stale generation losing the race in `WriteMessageFromGeneration`.
-But the sentinel itself is not globally teardown-exclusive, and `ErrConnClosed`'s own godoc
-(`hsms/errors.go`) overstates it as unconditional.
+But the sentinel itself is not globally teardown-exclusive; `ErrConnClosed`'s own godoc
+(`hsms/errors.go`) now says so too, naming the not-yet-published-socket case explicitly (`a7ff4a8`).
 There remains no code path in `hsms` that returns `ErrConnClosed` for a live, merely slow or broken
 link on an already-published socket: a write timeout, a reset connection, or any other
 transport-level failure on a still-live epoch comes back from `c.tr.Write` as the RAW transport

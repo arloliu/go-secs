@@ -8,8 +8,8 @@ generated: {by: "claude/sonnet-5", at: 2026-09-24T11:50:00Z}
 verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-24T12:34:28Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:37c6bd273ed11699, revision: 922feb8}
-  - {resource: hsms/supervisor.go, digest: sha256:1a4e9385175f90e9, revision: 4eb40d1}
+  - {resource: hsms/connection_send.go, digest: sha256:d2e809d7d0d95711, revision: a7ff4a8}
+  - {resource: hsms/supervisor.go, digest: sha256:291a3c8397ed511d, revision: a7ff4a8}
 ---
 
 # What it does
