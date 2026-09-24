@@ -115,7 +115,9 @@ type TransportRuntime interface {
 
 	// RouteReply looks up the System Bytes of msg in the per-generation reply registry.
 	//
-	// It returns true if a waiting sender received the reply, false if the reply was unsolicited (routed as unsolicited or dropped).
+	// It returns true on a registry hit, false if the reply was unsolicited (routed as unsolicited or dropped).
+	// A hit does not guarantee the waiting sender received the value:
+	// a duplicate reply that finds the sender's one-slot buffer already full is silently discarded.
 	RouteReply(msg Message) bool
 
 	// RouteData delivers an inbound data message to the session fan-out.

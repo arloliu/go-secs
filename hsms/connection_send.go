@@ -152,8 +152,11 @@ func (c *connection) writeFrame(ctx context.Context, e *epoch, msg Message) erro
 
 	// B2 write-boundary re-check (data only, spec §5.5): a data message that passed the
 	// B1 pre-register gate but finds the link no longer Selected at the write boundary
-	// yields a counted, non-fatal ErrNotSelectedState — NEVER a teardown. This closes the
-	// TOCTOU gap between the B1 gate and the actual transport Write under writeMu.
+	// yields a counted, non-fatal ErrNotSelectedState — NEVER a teardown.
+	// This catches a state change that lands before this check, including one that lands
+	// while this write was waiting for another writer to release writeMu.
+	// It narrows the TOCTOU gap between the B1 gate and the actual transport Write, but does not close it:
+	// state transitions do not acquire writeMu and can still land after this check and before the write.
 	if isData && !c.IsSelected() {
 		c.dropNotSelected()
 		return ErrNotSelectedState

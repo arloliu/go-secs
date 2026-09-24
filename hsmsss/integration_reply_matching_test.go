@@ -10,15 +10,17 @@ package hsmsss
 // TEETH (recorded in the Task 6 commit body — verified empirically, not merely asserted):
 // replyRegistry.route compares a candidate only when BOTH legs hold — the entry was registered
 // for a data primary (isData) AND the routed result is itself a *DataMessage.
-// These two tests
-// bite ONLY when BOTH legs are gone at once (an unconditional comparison, where a result that
+// The Task 6 mutant replaced that exemption with an unconditional comparison, where a result that
 // cannot supply a stream/function — a *ControlMessage, or a field-less RejectError — is itself
-// treated as a mismatch rather than passing through uncompared): under that revert,
+// treated as a mismatch rather than passing through uncompared: under that revert,
 // TestReplyMatching_StrictMode_SelectReachesSelected fails (every Select.rsp is unconditionally
 // a mismatch, so every Select transaction misses under strict mode, CommitSelected never runs,
 // and waitSelected below times out — the same NotSelected -> NotConnected loop shape as the
 // v2.0.1 field bug this task fixes), and TestReplyMatching_DefaultMode_LinktestRoundTripZeroMismatch
 // fails (ReplyMismatchCount climbs on every successful Linktest.rsp instead of staying 0).
+// That specific outcome depends both on the unconditional-mismatch classification AND on
+// bypassing route's separate control-result miss gate (below); it does not mean these two tests
+// only bite when both legs are removed together.
 //
 // Removing a single leg behaves differently for each leg:
 //   - Leg 1 (isData) alone: these two tests DO bite.

@@ -332,20 +332,20 @@ func TestTransactionObserver_PanicPropagates(t *testing.T) {
 	require.Equal(t, hsms.SelectedState, active.conn.State())
 }
 
-// TestTransactionObserver_ControlTransaction_NoEvent proves the isData gate in WriteMessage:
-// the internal Select.req / Linktest.req control sends a transport issues never reach the
-// classifier, so they never report a TxEvent — only a caller-issued DATA message send does.
+// TestTransactionObserver_ControlTransaction_NoEvent proves that a completed control transaction
+// (Linktest.req/.rsp) never reports a TxEvent.
 //
-// Teeth-checked by deleting the gate (dm, _ := msg.(*DataMessage), no isData short-circuit):
-// every test in this file that Opens a connection with an observer configured — not just this one —
-// immediately crashes with a nil-pointer panic in newTxEvent's dm.WaitBit() call,
-// because the internal Select.req handshake (dm == nil) reaches the classifier first.
-// Restoring the gate restores a clean suite.
-// That crash is real teeth, but it is a blunt, whole-process signal that stops at the first control send;
-// this test adds a targeted, non-crashing assertion specifically on auto-linktest traffic
-// (several completed Linktest.req/.rsp round trips, zero events observed),
-// so a narrower future regression — Select.req made nil-safe but Linktest.req left reaching the classifier —
-// still fails a clean assertion here instead of going unnoticed.
+// This pins an end-to-end property, not either contributing barrier alone:
+// hsmsss's active Select.req and auto-linktest Linktest.req resolve their generation explicitly
+// through WriteMessageFromGeneration, which bypasses WriteMessage (and its observer call)
+// entirely for those two request types.
+// WriteMessage's own isData gate is a second, independent barrier that stops a control message
+// which DOES reach WriteMessage — the gen == 0 fallback path, for a runtime without the generation
+// capability — from reaching the classifier.
+// Removing either barrier alone still leaves the other one covering these two tests;
+// only removing both lets a control message reach newTxEvent, and unsafely:
+// WriteMessage panics evaluating dm.WaitBit() as an argument to newTxEvent, before newTxEvent is
+// even entered; WriteMessageNoReply instead panics inside newTxEvent itself, at dm.Stream().
 func TestTransactionObserver_ControlTransaction_NoEvent(t *testing.T) {
 	t.Parallel()
 

@@ -46,7 +46,8 @@
 // and simultaneous send attempts are arbitrated by contention (the master — the equipment, per IsEquip — wins;
 // the slave yields, delivers the master's block, then re-sends its own as a fresh transaction).
 // A block send that exhausts RTY returns an error from the transport, which the core treats as a line failure:
-// it tears the generation down and the reconnect loop re-dials.
+// it tears the generation down and the reconnect loop starts the transport again
+// (an active transport re-dials; a passive one re-listens).
 //
 // # Inbound handlers
 //
