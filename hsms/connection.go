@@ -39,8 +39,10 @@ var closedDoneChan = func() chan struct{} {
 //   - sup holds the E37 logical FSM supervisor, recreated FRESH per Open (no channel reuse).
 //   - handlers holds the user StateChangeHandler slice HERE (not on the supervisor) so it
 //     persists across Open/Close cycles while the supervisor is recreated.
-//   - connectLoopWg joins a dying reconnect loop separately from epoch.wg (§7.C); supWg
-//     joins the per-Open supervisor run()+notifier() goroutines (connection-owned).
+//   - connectLoopWg joins a dying reconnect loop separately from epoch.wg (§7.C).
+//   - The per-Open supervisor's run()+notifier() are joined through that supervisor's own runDone/notifierDone (joinSupervisor),
+//     never a connection-scoped WaitGroup:
+//     an abandoned notifier from one cycle must not be counted by the next cycle's join.
 //
 // The full send/lifecycle logic is fleshed by later tasks; this type currently provides
 // honest stubs for Open/Close/WriteMessage/SendAsync and the transport-driven callbacks
@@ -102,7 +104,6 @@ type connection struct {
 	genGate sync.RWMutex
 
 	connectLoopWg sync.WaitGroup // SEPARATE reconnect-loop join (§7.C) — NOT epoch.wg
-	supWg         sync.WaitGroup // joins the per-Open supervisor run()+notifier()
 
 	// reconnectCancel is closed by Close to promptly interrupt a reconnect loop parked in its
 	// T5 backoff, so Close stays bounded even under a long T5. It is created fresh per Open (a
@@ -160,7 +161,6 @@ func NewConnection(cfg *ConnectionConfig, tr transport) (Connection, error) {
 		shutdown:      atomic.Bool{},
 		reconnectGen:  atomic.Uint64{},
 		connectLoopWg: sync.WaitGroup{},
-		supWg:         sync.WaitGroup{},
 		dropWarn:      throttle.New(dropNotSelectedWarnInterval),
 	}
 	c.cfg.Store(cfg) // atomic publish; UpdateConfigOptions swaps a fresh pointer, never mutates in place

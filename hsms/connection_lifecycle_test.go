@@ -145,13 +145,12 @@ func TestOpenCloseReopen_DataMessageChanPersists(t *testing.T) {
 
 // TestOpen_WhileReconnectingReturnsErrAlreadyOpen (H6 guard fix): a second Open in the
 // reconnect inter-generation window — supervisor alive (shutdown==false) but cur points at
-// a done-closed epoch — must return ErrAlreadyOpen, NOT build a second supervisor on supWg.
+// a done-closed epoch — must return ErrAlreadyOpen, NOT build a second supervisor.
 //
-// Teeth: with the old cur-done-based H6 guard, this Open would pass the guard (done closed),
-// add two more goroutines to supWg, and store a second supervisor — Close's supWg.Wait()
-// would then wait forever for the first supervisor's goroutines (which nobody stopped):
-// a deterministic deadlock. Verify by temporarily reverting Open's guard to the cur.done
-// select and running with -timeout=10s: Close will hang and the test times out.
+// Teeth: with the old cur-done-based H6 guard, this Open would pass the guard (done closed)
+// and store a second supervisor over the first, whose goroutines nobody would ever stop.
+// Verify by temporarily reverting Open's guard to the cur.done select: the ErrAlreadyOpen
+// assertion fails.
 func TestOpen_WhileReconnectingReturnsErrAlreadyOpen(t *testing.T) {
 	// A long T5 keeps the reconnect loop parked in its backoff throughout the test window.
 	// Close interrupts it via reconnectCancel so the test still finishes promptly.
@@ -175,7 +174,7 @@ func TestOpen_WhileReconnectingReturnsErrAlreadyOpen(t *testing.T) {
 	}
 
 	// Second Open must be rejected as ErrAlreadyOpen (supervisor alive, shutdown==false).
-	// It must NOT build a second supervisor on supWg.
+	// It must NOT build a second supervisor.
 	openDone := make(chan error, 1)
 	go func() { openDone <- c.Open(t.Context(), OpenBackground) }()
 	select {
@@ -186,15 +185,14 @@ func TestOpen_WhileReconnectingReturnsErrAlreadyOpen(t *testing.T) {
 		t.Fatal("second Open in reconnect window must return promptly")
 	}
 
-	// Close must complete promptly. With the old guard a second supervisor would have been
-	// built; Close's supWg.Wait() would then block forever (first supervisor never stopped).
+	// Close must complete promptly and cleanly after the rejected second Open.
 	closeDone := make(chan error, 1)
 	go func() { closeDone <- c.Close() }()
 	select {
 	case err := <-closeDone:
 		require.NoError(t, err)
 	case <-time.After(3 * time.Second):
-		t.Fatal("Close hung — supWg.Wait must not deadlock after a no-op second Open (H6 fix)")
+		t.Fatal("Close hung after a no-op second Open (H6 fix)")
 	}
 }
 

@@ -368,8 +368,8 @@ func TestParity_StateChangeSequence(t *testing.T) {
 
 			require.Equal(t, hsms.SelectedState, conn.State())
 
-			// Close joins the state notifier before returning, so the full sequence — including the
-			// terminal ...->NotConnected edge — is settled and recorded once f.close returns.
+			// A clean Close joins the state notifier before returning,
+			// so the full sequence — including the terminal ...->NotConnected edge — is settled and recorded once f.close returns.
 			f.close(t, conn)
 
 			var want []stateEdge

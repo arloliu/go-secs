@@ -134,6 +134,8 @@ type SECS2Endpoint interface {
 	// AddConnStateChangeHandler appends one or more connection state-change handlers.
 	//
 	// Handlers persist across Open/Close cycles and are never removed.
+	// See [StateChangeHandler] for the delivery contract,
+	// including why a handler must not call Close synchronously.
 	// Registration is not blocking I/O and does not take a context.
 	AddConnStateChangeHandler(handlers ...StateChangeHandler)
 
@@ -196,6 +198,13 @@ type Connection interface {
 	//
 	// For an active connection under OpenBackground, a peer that is not yet reachable at Open time is not an error: Open returns nil
 	// and the connection retries the initial connect in the background (see the (*connection).Open doc for the exact NotConnectedState-only scoping).
+	//
+	// When Open returns a dial or listen error, it tears down what it started,
+	// even when a state-change callback was still running at the end of that teardown;
+	// see [StateChangeHandler] for what such a callback may still deliver.
+	// This does not apply to an OpenWaitSelected wait that fails afterwards
+	// (ctx cancelled, or the link dropped before Selected):
+	// the lifecycle keeps running, and the caller must Close it.
 	Open(ctx context.Context, mode OpenMode) error
 
 	// Close tears down the connection and all per-generation resources.
@@ -203,6 +212,11 @@ type Connection interface {
 	// Close is ctx-free and always completes teardown (internally bounded by the configured close timeout).
 	//
 	// It is idempotent: a second Close returns the prior error.
+	//
+	// Close also waits for the state-change notifier goroutine, bounded by the same close timeout.
+	// If a StateChangeHandler or lifecycle subscriber is still running when it expires —
+	// blocked, or itself the caller of this Close — Close returns ErrCloseTimeout
+	// and that callback's goroutine finishes delivering its queued transitions after Close has returned.
 	Close() error
 
 	// State returns the current FSM ConnState.
@@ -229,6 +243,9 @@ type Connection interface {
 	// fn runs on the connection's notifier goroutine — the same goroutine, in the same order, as a StateChangeHandler —
 	// so it must not block: a slow fn delays delivery to every other subscriber and handler.
 	// A panic inside fn is isolated and never stops the other subscribers.
+	// The same limits apply as for a StateChangeHandler:
+	// calling Close synchronously from fn returns ErrCloseTimeout after the close timeout,
+	// and ordering holds within one Open/Close cycle, not across a shutdown that gave up on a still-running fn.
 	//
 	// LifecycleEvent.Cause names the event that drove the transition the connection actually reported.
 	// Transitions are deduplicated on the state entered:
@@ -243,6 +260,9 @@ type Connection interface {
 	// cancel is idempotent and safe to call from any goroutine, including from inside fn.
 	// It is not a delivery barrier:
 	// an event already being dispatched may still reach fn, so keep fn safe to run once more after cancel returns.
+	// A notifier goroutine left running by a shutdown that gave up on a blocked callback (see [StateChangeHandler])
+	// holds its own dispatch in progress,
+	// so with such goroutines alive fn can run once more per goroutine, possibly concurrently.
 	//
 	// A nil fn registers nothing and returns a cancel that does nothing.
 	//
