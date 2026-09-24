@@ -269,8 +269,7 @@ func (e *epoch) join(timeout time.Duration) {
 			e.log.Warn("epoch: stopTransport returned error during teardown", "error", err)
 			// C1: a bounded-Stop timeout (the recv loop wedged in a blocking app handler) is a
 			// close-timeout — surface it to wait() so Close reports ErrCloseTimeout rather than nil.
-			// The §7.A task join (b) below may overwrite this with its own timeout; both wrap
-			// ErrCloseTimeout, so either faithfully reports that teardown could not fully join.
+			// The §7.A task join (b) below replaces it only when a task is still live.
 			e.closeErr = err
 		}
 		cancel()
@@ -288,9 +287,14 @@ func (e *epoch) join(timeout time.Duration) {
 	select {
 	case <-joined:
 	case <-time.After(time.Until(deadline)):
+		// When the transport's Stop used up the deadline, this timer is already expired
+		// and can win against tasks that have all exited;
+		// keep the transport's error then, rather than a misleading "0 tasks live".
 		live := e.liveTasks.Load()
-		e.closeErr = fmt.Errorf("%w: %d tasks live", ErrCloseTimeout, live)
-		e.log.Warn("epoch: bounded teardown join timed out", "live_tasks", live, "timeout", timeout)
+		if live > 0 || e.closeErr == nil {
+			e.closeErr = fmt.Errorf("%w: %d tasks live", ErrCloseTimeout, live)
+			e.log.Warn("epoch: bounded teardown join timed out", "live_tasks", live, "timeout", timeout)
+		}
 	}
 
 	// (c) publish the result; wait() reads closeErr after this close (happens-before).

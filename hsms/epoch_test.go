@@ -2,6 +2,8 @@ package hsms
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -138,4 +140,51 @@ func TestEpoch_TeardownClosesSocketBeforeJoin(t *testing.T) {
 	e.teardown(2 * time.Second)
 	require.NoError(t, e.wait()) // must NOT time out — closeSocket unblocked the reader
 	_ = srv.Close()
+}
+
+// TestEpoch_JoinKeepsTransportTimeoutWhenNoTaskIsLive pins which error a timed-out join reports
+// when the transport's bounded Stop used up the whole deadline and every task has already exited.
+// The task join then sees an expired deadline at once;
+// if it overwrote the transport's error it would report a misleading "0 tasks live"
+// and hide the recv-loop join that actually timed out.
+// The deadline-expired timer and the task join race in the select, so the scenario is repeated;
+// overwriting whenever the timer wins fails this within a few iterations.
+func TestEpoch_JoinKeepsTransportTimeoutWhenNoTaskIsLive(t *testing.T) {
+	errTransportJoin := fmt.Errorf("%w: transport teardown join timed out", ErrCloseTimeout)
+
+	for i := range 50 {
+		e := newEpoch(t.Context(), logger.Default(), 8)
+		e.stopTransport = func(ctx context.Context) error {
+			<-ctx.Done()
+
+			return errTransportJoin
+		}
+
+		e.join(time.Millisecond)
+
+		err := e.wait()
+		require.ErrorIs(t, err, errTransportJoin, "iteration %d: the transport's timeout must be reported, got %v", i, err)
+	}
+}
+
+// TestEpoch_JoinReportsLiveTasksOverTransportTimeout keeps the task join's error
+// when a task is still live after the transport's Stop also timed out:
+// the live-task count is then the more useful diagnosis.
+func TestEpoch_JoinReportsLiveTasksOverTransportTimeout(t *testing.T) {
+	e := newEpoch(t.Context(), logger.Default(), 8)
+	e.stopTransport = func(ctx context.Context) error {
+		<-ctx.Done()
+
+		return errors.New("transport teardown join timed out")
+	}
+
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+	require.True(t, e.spawn(logger.Default(), "stuck", func(context.Context) { <-block }))
+
+	e.join(time.Millisecond)
+
+	err := e.wait()
+	require.ErrorIs(t, err, ErrCloseTimeout)
+	require.ErrorContains(t, err, "1 tasks live")
 }
