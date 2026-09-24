@@ -1,5 +1,9 @@
 # Log
 
+## 2026-09-24
+* **Creation**: [How a shutdown joins the per-Open supervisor](/hsms/supervisor-join.md) records the bounded notifier join introduced in `fb8d9cd`;
+  draft pending independent verification.
+
 ## 2026-09-23
 * **Update**: [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) now records that `genRuntime` and `genCapability` alias one shared `internal/gencap.GenerationRuntime` instantiation, and cites `internal/gencap/gencap.go`;
   `verified` dropped, entry remains draft.
