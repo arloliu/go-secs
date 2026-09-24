@@ -4,9 +4,9 @@ title: The inbound assembler's accept order, lazy T4 check, and frame-ownership 
 description: The exact per-block check order in (*assembler).accept, why the T4 timeout is never a real timer, and how a completed message becomes an owned buffer handed to rt.DeliverOwnedFrame.
 tags: [secs1, e4, assembler, timers, ownership]
 status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-24T15:45:31Z}
+generated: {by: "claude/sonnet-5", at: 2026-09-24T18:00:36Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T15:53:52Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T18:01:57Z}
 sources:
   - {resource: secs1/assembler.go, digest: sha256:d10f1f694da2b9ba, revision: a7ff4a8}
   - {resource: secs1/message.go, digest: sha256:ede565d46963ed93, revision: ed4665e}
@@ -20,11 +20,7 @@ drops, T4 partial-message timeouts, wrong-direction drops, `DeviceIDMismatchCoun
 them, that a T4 expiry does NOT gate the later checks (so one arriving block can increment the T4
 counter together with a duplicate-drop or an invalid-first-block count), or that "T4" is not a timer
 at all.
-`docs/secs1/05-message-protocol-and-connection-design.md` describes an earlier, superseded design —
-a `map[uint64]*openMessage` keyed by system-bytes/device/R-bit, each entry carrying its own
-`*time.Timer` and a `t4Cancel` channel closed to stop a dedicated T4 goroutine — that the shipped code
-does not use; the real assembler holds at most one partial and checks the T4 gap lazily, with no
-timer and no goroutine of its own.
+The assembler holds at most one partial and checks the T4 gap lazily, with no timer and no goroutine of its own.
 Neither doc mentions `rt.DeliverOwnedFrame` or the ownership contract a completed message must
 satisfy before reaching it.
 
