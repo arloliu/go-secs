@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the real reply was then treated as unsolicited.
   The stray response is now answered with a Reject.req (`RejectTransactionNotOpen`),
   and the transaction keeps waiting for its reply.
+- `hsms`: when `Close` times out because the transport could not stop in time,
+  the returned `ErrCloseTimeout` now carries the transport's own error
+  instead of a misleading "0 tasks live".
 - `hsmsss`: an active connection whose Select.req is answered with status 1 (Communication Already Active)
   on a connection that never selected now drops the link at once with `CauseSelectRejected`
   and reconnects with backoff, instead of waiting for T7 and reporting `CauseT7Timeout`.
