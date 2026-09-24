@@ -334,8 +334,11 @@ func (c *connection) sendWaitReplyOn(callerCtx context.Context, e *epoch, msg Me
 
 		return nil, timeoutErr
 	case <-e.ctx.Done():
-		// Connection teardown/drop — a lifecycle event, NOT a data transaction error, so a
-		// normal Close mid-transaction never inflates the cumulative error counter.
+		// Connection teardown/drop while waiting for the reply — a lifecycle event, NOT a data transaction error,
+		// so this branch does not count.
+		// It does not make a concurrent Close a blanket exclusion:
+		// a write that teardown interrupts can fail with the raw socket error, which counts,
+		// and a T3 timer that is already ready can win this select.
 		return nil, ErrConnClosed
 	case <-callerCtx.Done():
 		return nil, callerCtx.Err()
@@ -351,7 +354,9 @@ func (c *connection) sendWaitReplyOn(callerCtx context.Context, e *epoch, msg Me
 // even acquired — never a transport/link event — so it is excluded here too, the same way
 // ErrNotSelectedState is: DataMsgErrCount stays a transport/protocol-health signal (a real write
 // failure or a T3 timeout), not a bucket for application bugs.
-// Anything else (a genuine transport write error) does count.
+// Anything else (a genuine transport write error) does count,
+// including a raw socket error from a write that a concurrent teardown interrupted:
+// the exclusion is by error value, not by cause.
 func isCountedSendErr(err error) bool {
 	return !errors.Is(err, ErrNotSelectedState) &&
 		!errors.Is(err, ErrConnClosed) &&

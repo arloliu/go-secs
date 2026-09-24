@@ -50,6 +50,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `hsms`: the `DataMessageHandler` and `DecodeErrorHandler` docs now state that calling `Close` from inside a handler always waits out the close timeout and returns `ErrCloseTimeout`,
   because `Close` waits for the goroutine running the handler;
   call `Close` on another goroutine instead.
+- `hsms`: the `DataMsgErrCount` docs now state that a data write already on the socket when `Close` tears the connection down
+  can fail with the socket's own error, and that such a failure is counted;
+  only a send that reports `ErrConnClosed` is excluded.
 
 ## [2.4.1] - 2026-08-15
 
