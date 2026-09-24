@@ -22,6 +22,7 @@ Owns no sockets and no wire framing. `hsmsss` and `secs1` supply the transport a
 * [The send-side MaxMessageSize ceiling's enforcement topology](/hsms/max-message-size-ceiling.md) - where the check runs relative to writeMu, why control frames are structurally exempt, and why async accounting has no exclusion list at all.
 * [The transaction observer's two chokepoints, its isData gate, and its outcome classifier](/hsms/transaction-observer-chokepoints.md) - why WithTransactionObserver instruments two call sites (not one), why the isData gate is load-bearing enough to crash the process without it, and how classifyTxOutcome relates to isCountedSendErr.
 * [Where a TransitionCause is chosen, and why one transition can swallow another's cause](/hsms/transition-cause-injection-sites.md) - the full injection-site to cause map, why the transports pass a cause through a capability interface, and the three ways a cause never reaches a subscriber.
+* [How a shutdown joins the per-Open supervisor](/hsms/supervisor-join.md) - why the FSM join is unbounded but the notifier join ends at the close timeout, and why the join signals live on the supervisor.
 
 # Entry points
 
