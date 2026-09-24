@@ -164,6 +164,69 @@ func TestReplyRegistry_ControlExemption_RegistrationLeg(t *testing.T) {
 	}
 }
 
+// TestReplyRegistry_DataRegistration_ControlResultMustMiss guards against a control response (Select.rsp/Linktest.rsp) completing a DATA primary's transaction.
+// A data-registered entry (isData true) can only be answered by a *DataMessage secondary (E37 §9.4.1);
+// a *ControlMessage carries no Stream()/Function() to compare in the first place,
+// so it must never be handed to the waiting sender as if it were that primary's reply — regardless of strict mode.
+// The registration must survive the miss so a later genuine data reply can still complete it.
+func TestReplyRegistry_DataRegistration_ControlResultMustMiss(t *testing.T) {
+	linktestReq := NewLinktestReq([4]byte{0, 0, 0, 20})
+	linktestRsp, err := NewLinktestRsp(linktestReq)
+	require.NoError(t, err)
+
+	selectReq := NewSelectReq(0xFFFF, [4]byte{0, 0, 0, 21})
+	selectRsp, err := NewSelectRsp(selectReq, SelectStatusSuccess)
+	require.NoError(t, err)
+
+	deselectReq := NewDeselectReq(0xFFFF, [4]byte{0, 0, 0, 22})
+	deselectRsp, err := NewDeselectRsp(deselectReq, DeselectStatusSuccess)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name    string
+		control *ControlMessage
+	}{
+		{"Linktest.rsp", linktestRsp},
+		{"Select.rsp", selectRsp},
+		{"Deselect.rsp", deselectRsp},
+	}
+
+	for _, tt := range tests {
+		for _, strict := range []bool{false, true} {
+			t.Run(tt.name+"/"+map[bool]string{false: "default", true: "strict"}[strict], func(t *testing.T) {
+				r := newReplyRegistry()
+				key := [4]byte{0, 0, 0, 30}
+				ch := r.register(key, 1, 1, true) // isData true: registered for a data primary (S1F1)
+				defer r.deregister(key)
+
+				control := tt.control.WithSystemBytes(key)
+				delivered, mismatched := r.route(key, replyResult{msg: control}, strict)
+
+				require.False(t, delivered, "a control response must never complete a data primary's transaction")
+				require.False(t, mismatched, "a control result is not a field-comparable candidate at all")
+				select {
+				case <-ch:
+					t.Fatal("the control result must not reach the sender channel")
+				default:
+				}
+				require.Equal(t, 1, r.len(), "the miss must not consume the registration")
+
+				// A subsequent GENUINE data reply for the same key must still be delivered.
+				reply := replyDM(1, 2)
+				delivered, mismatched = r.route(key, replyResult{msg: reply}, strict)
+				require.True(t, delivered, "the still-open registration must accept the real reply")
+				require.False(t, mismatched)
+				select {
+				case res := <-ch:
+					require.Same(t, reply, res.msg)
+				default:
+					t.Fatal("the genuine reply must reach the sender channel")
+				}
+			})
+		}
+	}
+}
+
 // TestReplyRegistry_ControlExemption_ResultLeg proves the exemption's second leg: a
 // data-registered entry (isData true) answered by a field-less result (an inbound Reject.req,
 // surfaced as replyResult{err: &RejectError{...}}, res.msg == nil) always delivers uncompared —

@@ -242,11 +242,15 @@ func isSecondaryReply(dm *DataMessage) bool {
 // RouteReply looks up the System Bytes of msg in the per-generation sender-owned reply registry
 // and non-blocking-delivers the reply to the waiting sender (TransportRuntime, spec §5.5).
 //
-// It returns true on delivery (a sender received the reply), false on a miss — either the registry
-// has no open transaction for these System Bytes, or (WithStrictReplyMatching only) the candidate's
-// stream/function diverged from the registered primary (E37 §9.4.1). Either way the caller routes
-// the message as a secondary or drops it; a strict-mode field mismatch does NOT consume the
-// registration, so a later conforming reply can still complete the transaction.
+// It returns true on delivery (a sender received the reply), false on a miss.
+// A miss has three causes: the registry has no open transaction for these System Bytes;
+// (WithStrictReplyMatching only) the candidate's stream/function diverged from the registered primary (E37 §9.4.1);
+// or a control response (Select.rsp/Deselect.rsp/Linktest.rsp) answering an open DATA transaction,
+// which is always a miss regardless of strict —
+// a control response has no stream/function to validate against a data primary in the first place.
+// Each miss kind is handled differently by the caller — see the §8.3.20 paragraph below;
+// a miss never consumes the registration,
+// so a later conforming reply can still complete the transaction.
 // It never touches the inflight gauge.
 // With no live epoch it reports a miss.
 //

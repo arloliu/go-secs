@@ -73,7 +73,8 @@ func (r replyRegistry) deregister(key [4]byte) {
 //
 // It returns (delivered, mismatched).
 // delivered reports whether the result was handed to the sender's channel:
-// true on every registry hit under the default (observe) posture, and true on a strict-mode hit UNLESS the candidate mismatched.
+// true on every registry hit under the default (observe) posture, and true on a strict-mode hit UNLESS the candidate mismatched
+// (except a DATA registration answered by a *ControlMessage; see below).
 // mismatched reports whether a compared candidate's stream or function diverged from the registered primary —
 // a combined stream+function mismatch counts once, not twice —
 // regardless of strict.
@@ -85,6 +86,15 @@ func (r replyRegistry) deregister(key [4]byte) {
 // and an inbound Reject.req answering a data primary routes as a field-less *RejectError (res.msg == nil), never a *DataMessage —
 // a terminal rejection (E37 §8.3.11), not a reply to validate.
 // Both always deliver uncompared.
+//
+// A third combination looks similar but is NOT uncompared delivery:
+// a DATA registration (want.isData) answered by a *ControlMessage result.
+// A control response cannot answer a data primary —
+// it has no Stream()/Function() to validate against one in the first place —
+// so route reports a miss instead of delivering it: (false, false), unconditionally, regardless of strict.
+// The registration is NOT consumed,
+// so the genuine data reply can still complete it,
+// and the miss lets the caller answer the stray control response with Reject(TransactionNotOpen, reason 3) per SEMI E37 §8.3.20.
 //
 // Function matches primary+1 OR 0 —
 // SEMI E5 §7.2/§10.4.1 reserve SxF0 as the transaction-abort secondary, admitted explicitly by E37 §9.4.1.
@@ -105,6 +115,13 @@ func (r replyRegistry) route(key [4]byte, res replyResult, strict bool) (deliver
 	}
 
 	if w.isData {
+		// A control response cannot answer a data primary: report a miss,
+		// so the transport can Reject it (reason 3, E37 §8.3.20) and the transaction stays open for its genuine reply.
+		// A RejectError result (res.msg == nil) still delivers below.
+		if _, ok := res.msg.(*ControlMessage); ok {
+			return false, false
+		}
+
 		if dm, ok := res.msg.(*DataMessage); ok {
 			streamMismatch := dm.Stream() != w.stream
 			// w.function is uint8, so a primary with function 255 makes w.function+1 wrap to 0 —
@@ -115,8 +132,8 @@ func (r replyRegistry) route(key [4]byte, res replyResult, strict bool) (deliver
 				mismatched = true
 			}
 		}
-		// A field-less result (RejectError, res.msg == nil) and any non-data result always
-		// deliver uncompared — the type assertion above fails and neither flag is set.
+		// A field-less result (RejectError, res.msg == nil) always delivers uncompared — the type assertion above fails
+		// and neither flag is set.
 	}
 
 	if mismatched && strict {

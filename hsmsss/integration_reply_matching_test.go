@@ -20,17 +20,15 @@ package hsmsss
 // v2.0.1 field bug this task fixes), and TestReplyMatching_DefaultMode_LinktestRoundTripZeroMismatch
 // fails (ReplyMismatchCount climbs on every successful Linktest.rsp instead of staying 0).
 //
-// Neither leg alone is sufficient to make these two tests bite, so removing either leg alone is
-// NOT teeth-checked here:
-//   - Leg 1 (isData) alone: with leg 2 (the *DataMessage type assertion) still gating the
-//     comparison, a Select.rsp/Linktest.rsp — which always decodes to *ControlMessage
-//     (hsms/decode.go), never *DataMessage — still fails the type assertion and is excluded
-//     regardless of isData's value, so these two tests keep passing.
-//     Empirically confirmed: removing isData alone leaves both tests green.
+// Removing a single leg behaves differently for each leg:
+//   - Leg 1 (isData) alone: these two tests DO bite.
+//     isData also gates route's control-result miss (a data registration answered by a *ControlMessage is a miss),
+//     so without it every Select.rsp and Linktest.rsp misses its own control registration,
+//     Select never completes, and both tests time out.
 //   - Leg 2 alone: with leg 1 (isData) still gating, a control-registered entry (isData=false)
-//     never reaches the type-assertion code at all, so these two tests keep passing here too.
+//     never reaches the type-assertion code at all, so these two tests keep passing here.
 //
-// isData IS independently load-bearing, just not on this file's two tests: it guards a genuine
+// isData is also load-bearing beyond this file's two tests: it guards a genuine
 // DATA secondary whose System Bytes collide with an open CONTROL transaction (e.g. Select.req
 // colliding with an in-flight data reply's System Bytes) — a case where leg 2 passes (the result
 // really is a *DataMessage) and only isData keeps it uncompared.
