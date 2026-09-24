@@ -4,9 +4,9 @@ title: The block-send transaction's detect/act split and RTY counting
 description: How sendBlockOnce (detect) and sendBlock (act + count) divide the ENQ/EOT handshake, contention, and RTY retry across the single line-engine goroutine, and how a failure surfaces.
 tags: [secs1, e4, line-protocol, timers, contention]
 status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-24T15:45:31Z}
+generated: {by: "claude/sonnet-5", at: 2026-09-24T18:00:36Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T15:53:52Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T18:01:57Z}
 sources:
   - {resource: secs1/line.go, digest: sha256:cbb1014c8ed253fe, revision: a7ff4a8}
   - {resource: secs1/transport.go, digest: sha256:d74a486193cbea69, revision: ed4665e}
@@ -22,10 +22,7 @@ delivers the master's block, then re-sends its own as a fresh transaction" — a
 It does not say HOW that outcome is produced: which function detects contention versus which one
 acts on it, why the split exists, how the retry counter actually behaves when a contention yield's
 receive itself fails, or which goroutine any of this runs on.
-`docs/secs1/04-block-transfer-state-machine-design.md` describes an earlier, superseded shape for
-this same transaction — an explicit state-machine enum and a `pendingSendChan` for postponed
-sends — that the shipped code does not use; the real split is two plain functions and a `sendResult`
-classification, not a state enum.
+The real split is two plain functions and a `sendResult` classification, not a state enum.
 
 # How it works
 

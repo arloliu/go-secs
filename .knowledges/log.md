@@ -87,6 +87,7 @@
   their cited files changed only in comments they do not discuss.
 * **Update** (verify): the two secs1 drafts were checked against source by openai/gpt-6-astra and corrected — RTY bounds consecutive failures, not total attempts; `Write` can return `ErrConnClosed` on teardown; T4 can co-fire with a duplicate or invalid-first count; only the returned frame buffer is owned.
 * **Update** (verify): the three resynced entries and the two secs1 entries were confirmed by openai/gpt-5.6-terra and promoted to stable; every entry in the bundle is now stable.
+* **Update**: [block-send detect/act split](/secs1/block-send-detect-act-split.md) and [assembler accept algorithm](/secs1/assembler-accept-algorithm.md) drop their notes on `docs/secs1/04-*` and `05-*`, superseded design docs now deleted; re-confirmed by openai/gpt-5.6-terra, stable.
 
 ## 2026-09-23
 * **Update**: [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) now records that `genRuntime` and `genCapability` alias one shared `internal/gencap.GenerationRuntime` instantiation, and cites `internal/gencap/gencap.go`;
