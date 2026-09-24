@@ -3,6 +3,7 @@ package hsms
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"time"
 
@@ -21,16 +22,20 @@ const farewellWriteTimeout = 500 * time.Millisecond
 // torn down (a connect-fatal drop closes e.done), so it never spins unbounded.
 const selectPollInterval = 2 * time.Millisecond
 
+// errNotifierTimeout is the shutdown result when the state-change notifier outlives the close timeout —
+// a StateChangeHandler or lifecycle subscriber that is blocked, or that is itself the Close being joined.
+var errNotifierTimeout = fmt.Errorf("%w: state-change handler still running", ErrCloseTimeout)
+
 // Open starts the connection lifecycle (spec §5.2).
 //
 // It is serialized with Close by lifeMu (one opener), and it creates a fresh per-generation epoch plus a FRESH per-Open supervisor.
 //
 // Invariants (spec §5.2):
 //   - tr must be non-nil (a connection built without a transport cannot open).
-//   - Double-open H6: if the supervisor is alive and shutdown==false (connection logically open, including during the reconnect inter-generation window) return ErrAlreadyOpen as a no-op. If shutdown==true (prior Close completed, supWg drained) the connection is legally reopened.
+//   - Double-open H6: if the supervisor is alive and shutdown==false (connection logically open, including during the reconnect inter-generation window) return ErrAlreadyOpen as a no-op. If shutdown==true (prior Close completed, supervisor joined) the connection is legally reopened.
 //   - G1: connectLoopWg.Wait() (join a dying reconnect loop) runs BEFORE creating fresh contexts,
 //     so a stale reconnect loop cannot publish over the new generation.
-//   - The supervisor's run()/notifier() are CONNECTION-owned goroutines joined by supWg (NOT epoch.spawn)
+//   - The supervisor's run()/notifier() are per-Open goroutines joined through the supervisor's own runDone/notifierDone (NOT epoch.spawn)
 //     so the supervisor OUTLIVES any single epoch (Codex round-6) — an involuntary disconnect cancels the epoch ctx
 //     but must not kill the supervisor (reconnect needs it).
 //   - The async sender is a PER-GENERATION goroutine via epoch.spawn (dies with the epoch).
@@ -66,12 +71,15 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	// on the current epoch's done channel. During the reconnect inter-generation window, cur
 	// points at a done-closed epoch (just torn down) while the supervisor is still alive
 	// (shutdown==false). The old cur-done check incorrectly passed in that window, allowing
-	// a second Open to add two goroutines to supWg and store a second supervisor — Close's
-	// supWg.Wait() would then wait forever for the first supervisor's goroutines (which nobody
-	// stopped): a deterministic deadlock. Three cases (under lifeMu, which Open/Close hold):
+	// a second Open to store a second supervisor over the first, whose goroutines nobody would
+	// ever stop. Three cases (under lifeMu, which Open/Close hold):
 	//   - s == nil:                  never opened               → proceed
 	//   - s != nil && !shutdown:     logically open (incl. mid-reconnect) → ErrAlreadyOpen
-	//   - s != nil && shutdown.Load: prior Close completed (supWg drained) → reopen, proceed
+	//   - s != nil && shutdown.Load: prior Close completed (supervisor joined) → reopen, proceed
+	//
+	// A prior shutdown may have abandoned its notifier (a callback outlived the close timeout).
+	// Reopening does not wait for it: the new supervisor has its own completion signals,
+	// so the straggler can never delay or corrupt this cycle's joins.
 	if s := c.sup.Load(); s != nil && !c.shutdown.Load() {
 		return ErrAlreadyOpen
 	}
@@ -117,8 +125,8 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	c.cur.Store(e)
 
 	// FRESH per-Open supervisor (no channel reuse — round-5). Its run()/notifier() are
-	// connection-owned (supWg), NOT epoch-spawned, so the supervisor spans reconnect
-	// generations (round-6). It reads user handlers from the Connection's persistent pointer.
+	// joined through its own runDone/notifierDone, NOT epoch-spawned, so the supervisor spans
+	// reconnect generations (round-6). It reads user handlers from the Connection's persistent pointer.
 	s := newSupervisor(c.react, &c.handlers, &c.lifecycleSubs)
 	// Install the LIVE closeTimeout provider (M7 — the evClose teardown reads current config, so a
 	// mid-session UpdateConfigOptions(WithCloseTimeout) is honored) and the logger for the
@@ -132,9 +140,8 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	// The fence behind the three synchronous commits, which never reach step and so are not covered by its match.
 	s.commitGate = c.commitGate
 	c.sup.Store(s)
-	c.supWg.Add(2)
-	go func() { defer c.supWg.Done(); s.run() }()
-	go func() { defer c.supWg.Done(); s.notifier() }()
+	go s.run()
+	go s.notifier()
 
 	// Per-generation async sender (epoch.spawn passes e.ctx; it exits when teardown cancels it).
 	e.spawn(cfg.logger, "sender", func(ctx context.Context) { c.drainSendCh(ctx, e) })
@@ -186,10 +193,10 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 		// a half-open connection (a later Open would then see a torn-down cur and reopen).
 		// CauseLocalClose: this rollback is a locally initiated teardown of a generation this same
 		// Open just built — the same class of transition a user Close drives, reached by a different door.
+		// The rollback's join result is recorded for a later Close; Open still reports the Start failure.
+		deadline := time.Now().Add(c.cfg.Load().closeTimeout)
 		s.requestClose(e, CauseLocalClose)
-		_ = e.wait()
-		s.stop()
-		c.supWg.Wait()
+		s.shutdownErr = firstErr(e.wait(), c.joinSupervisor(s, deadline))
 
 		return err
 	}
@@ -235,8 +242,13 @@ func (c *connection) waitSelected(ctx context.Context, e *epoch, s *supervisor) 
 // Entry guards (round-7/8):
 //   - NEVER-OPENED: cur == nil => ErrNotOpen (no requestClose/e.wait on a nil epoch/supervisor).
 //   - IDEMPOTENT RE-CLOSE: cur is NOT cleared on Close, so a re-Close sees a non-nil but torn-down epoch.
-//     If the supervisor already stopped (runDone closed) it returns the retained closeErr WITHOUT a second requestClose (which would deadlock on the now-unread events channel —
+//     If the supervisor already stopped (runDone closed) it returns the retained shutdown result WITHOUT a second requestClose (which would deadlock on the now-unread events channel —
 //     inject's runDone select is the backstop, but short-circuiting is the primary guard).
+//
+// The notifier join is bounded by the close timeout, counted from Close's entry:
+// the notifier runs user callbacks, and one of them may be this very Close.
+// On expiry the notifier is abandoned and Close reports ErrCloseTimeout,
+// unless the epoch join already reported its own, more specific error.
 func (c *connection) Close() error {
 	c.lifeMu.Lock()
 	defer c.lifeMu.Unlock()
@@ -249,15 +261,17 @@ func (c *connection) Close() error {
 	s := c.sup.Load()
 
 	// Idempotent re-Close: the supervisor already stopped => return the prior result WITHOUT a
-	// second requestClose. runDone closed implies (via the Close ordering below) e.done is also
-	// closed, so e.wait() returns the retained closeErr immediately.
+	// second requestClose. runDone closes only inside joinSupervisor, and every caller of that
+	// (Close below, Open's rollback) records shutdownErr under lifeMu before releasing it.
 	if s != nil {
 		select {
 		case <-s.runDone:
-			return e.wait()
+			return s.shutdownErr
 		default:
 		}
 	}
+
+	deadline := time.Now().Add(c.cfg.Load().closeTimeout)
 
 	// Voluntary close: fence out reconnect (bump reconnectGen + set shutdown, re-checked by the
 	// G2 fence / reconnect reactions), then funnel teardown through the supervisor's evClose. The
@@ -281,8 +295,8 @@ func (c *connection) Close() error {
 	s.requestClose(e, CauseLocalClose) // pins e + injects evClose (initiates teardown of e from EVERY state)
 	err := e.wait()                    // <-e.done; return closeErr — no poll, no F2 hang
 
-	s.stop()       // close stopCh -> run() exits (closing notify/runDone -> notifier exits)
-	c.supWg.Wait() // join run() + notifier()
+	err = firstErr(err, c.joinSupervisor(s, deadline))
+	s.shutdownErr = err
 
 	// Join any reconnect loop spawned by an earlier involuntary drop in this cycle. shutdown
 	// (set above) + reconnectGen (bumped above) + the closed reconnectCancel make the loop
@@ -292,6 +306,50 @@ func (c *connection) Close() error {
 	c.connectLoopWg.Wait()
 
 	return err
+}
+
+// joinSupervisor stops s and joins its FSM goroutine, then bounds only the notifier join by deadline.
+//
+// run() does not invoke state-change handlers or lifecycle subscribers, so its join stays unbounded;
+// abandoning it would leave a straggler FSM that reacts against whatever epoch cur holds next.
+// The notifier runs those callbacks, and a callback may be the very Close waiting here,
+// so its join ends at deadline: the notifier is abandoned and errNotifierTimeout is returned.
+// An already-finished notifier wins over an expired deadline.
+func (c *connection) joinSupervisor(s *supervisor, deadline time.Time) error {
+	s.stop() // close stopCh -> run() exits, closing notify (ending the notifier's range) and runDone
+	<-s.runDone
+
+	select {
+	case <-s.notifierDone:
+		return nil
+	default:
+	}
+
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return errNotifierTimeout
+	}
+
+	timer := time.NewTimer(remaining)
+	defer timer.Stop()
+
+	select {
+	case <-s.notifierDone:
+		return nil
+	case <-timer.C:
+		return errNotifierTimeout
+	}
+}
+
+// firstErr returns the first non-nil error, keeping the earlier and more specific cause.
+func firstErr(errs ...error) error {
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // react is the supervisor's transition reaction (spec §5.2/§7.E). It runs on the supervisor

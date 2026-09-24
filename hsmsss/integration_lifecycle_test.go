@@ -411,3 +411,34 @@ func TestLifecycle_CloseIsBoundedUnderBlockingHandler(t *testing.T) {
 		t.Fatal("Close HUNG behind the blocking data handler — the bounded-Stop (C1) fix is not working")
 	}
 }
+
+// TestLifecycle_CloseFromStateHandlerReturns:
+// a StateChangeHandler that calls Close on entering Selected runs on the notifier goroutine that Close joins,
+// so the join can never succeed.
+// Close must still return — bounded by the close timeout, reporting ErrCloseTimeout —
+// instead of deadlocking with the lifecycle lock held.
+func TestLifecycle_CloseFromStateHandlerReturns(t *testing.T) {
+	passive, active := newEndpointPair(t, WithConnectionOption(hsms.WithCloseTimeout(500*time.Millisecond)))
+	t.Cleanup(func() { closeEndpoint(t, passive) })
+
+	done := make(chan error, 1)
+	var once sync.Once
+	active.conn.AddConnStateChangeHandler(func(_, next hsms.ConnState) {
+		if next == hsms.SelectedState {
+			once.Do(func() { done <- active.conn.Close() })
+		}
+	})
+
+	require.NoError(t, passive.conn.Open(t.Context(), hsms.OpenBackground))
+	require.NoError(t, active.conn.Open(t.Context(), hsms.OpenBackground))
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, hsms.ErrCloseTimeout,
+			"a Close that cannot join its own notifier must report the close timeout")
+	case <-time.After(10 * time.Second):
+		t.Fatal("Close from a StateChangeHandler deadlocked — the notifier join must be bounded")
+	}
+
+	require.Equal(t, hsms.NotConnectedState, active.conn.State())
+}

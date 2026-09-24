@@ -84,7 +84,12 @@ type supervisor struct {
 	closeEpoch    atomic.Pointer[epoch]      // set by requestClose(e) BEFORE evClose; the epoch to ensure-tear-down
 	stopCh        chan struct{}              // closed by stop() (from Close, AFTER e.wait()) -> run() exits
 	runDone       chan struct{}              // closed when run() returns; makes inject a safe no-op after stop
+	notifierDone  chan struct{}              // closed when notifier() returns; the per-cycle notifier join signal
 	stopOnce      sync.Once                  // guards close(stopCh) so stop() is idempotent
+	// shutdownErr is the result of the shutdown that stopped this supervisor (Close, or a failed Open's rollback),
+	// returned again by every later Close of the same cycle.
+	// It is written once and read only under connection.lifeMu; runDone and notifierDone do NOT publish it.
+	shutdownErr error
 	// closeTimeout bounds the evClose ensure-teardown of the pinned epoch (§5.2/§7.A). It is a
 	// provider (not a captured value) so the teardown reads the LIVE config: a mid-session
 	// UpdateConfigOptions(WithCloseTimeout) is honored, matching the connection's other teardown
@@ -159,6 +164,7 @@ func newSupervisorWithEventsCap(
 		closeEpoch:    atomic.Pointer[epoch]{},
 		stopCh:        make(chan struct{}),
 		runDone:       make(chan struct{}),
+		notifierDone:  make(chan struct{}),
 		stopOnce:      sync.Once{},
 		handlers:      handlers,
 		subs:          subs,
@@ -574,7 +580,7 @@ func (s *supervisor) requestClose(e *epoch, cause TransitionCause) {
 }
 
 // stop closes stopCh exactly once (via stopOnce), causing run() to return. Close calls it
-// AFTER e.wait(); the run() defers then close notify (stopping the notifier) and runDone.
+// AFTER e.wait() (via joinSupervisor); the run() defers then close notify (stopping the notifier) and runDone.
 func (s *supervisor) stop() {
 	s.stopOnce.Do(func() {
 		close(s.stopCh)
@@ -593,6 +599,8 @@ func (s *supervisor) stop() {
 // so a cancel racing the pass can still let one already-dispatching event through (documented on SubscribeLifecycle),
 // but can never corrupt the iteration.
 func (s *supervisor) notifier() {
+	defer close(s.notifierDone)
+
 	for sc := range s.notify {
 		// Surface any notifications coalesced (dropped) since the last pickup. Emitted here, on the
 		// consumer goroutine — NEVER the supervisor run() goroutine — so a blocking user logger can

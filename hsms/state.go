@@ -35,6 +35,20 @@ func (s ConnState) String() string {
 // StateChangeHandler observes a logical state transition.
 //
 // Handlers run only on the notifier goroutine, never inline on a protocol goroutine.
+// Within one Open/Close cycle that goroutine delivers transitions one at a time, in order.
+//
+// Do not call Close synchronously from a handler.
+// Close waits for the notifier goroutine to finish, and a handler cannot wait for itself,
+// so such a Close waits out the configured close timeout and returns ErrCloseTimeout.
+// Call Close from a new goroutine instead.
+// Calling Open from a handler is fine.
+//
+// A shutdown can give up on a handler that is still running:
+// a Close called from inside the handler, a Close that timed out on a blocked handler, or a failed Open.
+// The handler's goroutine then outlives that shutdown,
+// and once the handler returns it delivers the rest of its cycle's queued transitions.
+// If the connection is reopened meanwhile, the same handler can run concurrently on that goroutine and the new cycle's,
+// and the old cycle's transitions can arrive after the new cycle's.
 type StateChangeHandler func(prev, next ConnState)
 
 // OpenMode selects Open's blocking behavior.

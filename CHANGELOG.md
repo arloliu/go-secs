@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of treating it as teardown.
   Previously a failure on the first `Accept` left the listener open but unserved, with no reconnect,
   and a failure while a session was live stopped refusing extra connections.
+- `hsms`: `Close` no longer deadlocks when called from a `StateChangeHandler` or `SubscribeLifecycle` callback,
+  and no longer waits indefinitely on a callback that blocks.
+  Waiting for the state-change notifier is now bounded by the close timeout;
+  on expiry `Close` returns `ErrCloseTimeout`.
+  Previously the call never returned and held the lifecycle lock, so every later `Open` or `Close` hung too.
+  A failed `Open` applies the same bound to its rollback.
+  A callback left running this way finishes delivering its cycle's queued transitions after the shutdown returns,
+  possibly concurrently with a reopened cycle's callbacks.
 
 ## [2.4.1] - 2026-08-15
 

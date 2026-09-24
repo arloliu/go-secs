@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"net"
+	"slices"
 	"testing"
 	"time"
 
@@ -107,13 +108,7 @@ var bringUpEdges = []stateEdge{
 
 // isLegalBringUpEdge reports whether e is a member of bringUpEdges.
 func isLegalBringUpEdge(e stateEdge) bool {
-	for _, want := range bringUpEdges {
-		if e == want {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(bringUpEdges, e)
 }
 
 // bringUpSettledCleanly reports whether edges is a valid, complete connect bring-up:
@@ -463,8 +458,8 @@ func TestFSM_SECS1Matrix(t *testing.T) {
 	_, ok = rec.awaitStateFrom(torn+1, hsms.SelectedState, 3*time.Second)
 	require.True(t, ok, "the reconnect must auto-commit the fresh SECS-I line back to Selected")
 
-	// Close settles the terminal Selected -> NotConnected edge and joins the notifier, so the whole
-	// lifecycle sequence is final once Close returns.
+	// A clean Close settles the terminal Selected -> NotConnected edge and joins the notifier,
+	// so the whole lifecycle sequence is final once Close returns.
 	require.NoError(t, conn.Close())
 
 	p := rec.pairs()

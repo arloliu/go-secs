@@ -265,6 +265,8 @@ type Connection struct {
     reconnectGen  atomic.Uint64
     connectLoopWg sync.WaitGroup        // SEPARATE reconnect-loop join (§7.C) — NOT epoch.wg
     supWg         sync.WaitGroup        // joins the per-Open supervisor run()+notifier() (Connection-owned, NOT epoch.wg)
+                                        // SUPERSEDED: replaced by the supervisor's own runDone/notifierDone,
+                                        // with a notifier join bounded by the close timeout (see joinSupervisor).
     // no AtomicOpState, no senderMsgChan, no sendMu/sendClosed, no closeErr pointer, no taskMgr
 }
 ```
@@ -300,7 +302,8 @@ type Connection struct {
   `NotSelected` via the reaction (no farewell); from `NotConnected` via the unconditional `e.teardown` (no
   reaction fires, no farewell needed). Then block on **`e.wait()`** (`<-e.done; return closeErr` — no
   `isClosed()` poll, no F2 hang; the supervisor was never blocked — §5.3); **then `sup.stop()`** — closes `stopCh`
-  so `run()` exits (closing `notify`+`runDone`, which ends `notifier()`) and **joins both via `supWg`**. Ordering
+  so `run()` exits (closing `notify`+`runDone`, which ends `notifier()`) and **joins both via `supWg`** (superseded: the notifier join is now bounded by
+  the close timeout and uses per-supervisor completion signals — see `joinSupervisor`). Ordering
   is deliberate: `requestClose` → `e.wait()` (the pinned-epoch teardown completes while the supervisor is still
   alive and draining `events`) → `sup.stop()` (only now tear down the supervisor itself). The supervisor outlives
   the epoch, never the reverse. Because teardown is initiated for **any** starting state, a `Close()` during active-dial /

@@ -109,6 +109,7 @@ var (
 
 	// ErrCloseTimeout indicates Close's bounded shutdown join exceeded the configured close timeout with tasks still live (spec §5.2, §7.A);
 	// the straggler is abandoned rather than awaited further.
+	// A still-running StateChangeHandler or lifecycle subscriber counts as such a task.
 	//
 	// Classification: IsTransient reports false.
 	// Close is idempotent, so a second call returns this same cached result rather than re-attempting the join.
