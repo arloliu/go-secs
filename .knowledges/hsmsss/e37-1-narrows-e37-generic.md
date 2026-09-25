@@ -4,15 +4,15 @@ title: Where the HSMS-SS profile overrides the generic core
 description: The four sites whose value or state check comes from E37.1 rather than E37, and what silently breaks if one is "simplified" back.
 tags: [hsmsss, e37-1, select, separate, linktest, reject, session-id]
 status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-24T11:50:00Z}
+generated: {by: "claude/sonnet-5", at: 2026-09-25T02:38:18Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T12:34:28Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T03:13:36Z}
 sources:
-  - {resource: hsmsss/transport_active.go, digest: sha256:b4a168040cd91ff8, revision: 922feb8}
+  - {resource: hsmsss/transport_active.go, digest: sha256:80daec469fc1444e, revision: 6c257b6}
   - {resource: hsms/connection_lifecycle.go, digest: sha256:221b0f7825783fad, revision: 922feb8}
   - {resource: hsms/control_msg.go, digest: sha256:847dad3406c4d87c, revision: 3660aa4}
-  - {resource: hsmsss/transport_control.go, digest: sha256:7b5042e69a84d610, revision: 922feb8}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:f78883ced9f30422, revision: 922feb8}
+  - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: 6c257b6}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:f54ea89029ef179c, revision: 6c257b6}
   - {resource: hsms/supervisor.go, digest: sha256:291a3c8397ed511d, revision: a7ff4a8}
 ---
 
@@ -49,9 +49,12 @@ No HSMS frame reaches a SECS-I peer only because `secs1`'s writer drops every no
 
 **`handleSeparateReq` tears down in any connected substate, and two guards now keep that teardown inside the reporting generation.**
 It reports through `t.tcpDown(g.gen, errPeerSeparate, hsms.CausePeerSeparate)`, which resolves the target generation by identity (`connection.TCPDownFromGeneration`) rather than whichever epoch happens to be current when the report lands.
-The `genCtx.Err()` check ahead of it is only an early exit — cancellation can land between the check and the call — but `g.gen` is a real barrier: it travels with the queued event onto the FSM and is re-checked when `supervisor.step` applies it, so a stale report can no longer disconnect a successor generation even when the early exit misses it.
+The `g.ctx.Err()` check ahead of it is only an early exit — cancellation can land between the check and the call — but `g.gen` is a real barrier: it travels with the queued event onto the FSM and is re-checked when `supervisor.step` applies it, so a stale report can no longer disconnect a successor generation even when the early exit misses it.
 This closes what the conformance audit recorded as Gap 2 (a narrowed-but-open window, not a fence); see [transition-cause-injection-sites](/hsms/transition-cause-injection-sites.md) for the full generation-identity mechanism this now rests on.
-`genCtx` and `g` are threaded `recvLoop` → `dispatchFrame` → `handleSeparateReq` together — `genCtx` for the early exit, `g.gen` for the barrier.
+Since the R10 inbound-generation-fence work, `genCtx` is no longer a separate parameter threaded alongside `g`:
+`startActive`/`startPassive` stamp `g.ctx` once, before spawning the receive loop, and `recvLoop` only reads it;
+`dispatchFrame` forwards that stored `g.ctx` straight to `handleSeparateReq` —
+one bundle carries both the early-exit ctx and the `g.gen` barrier, not two separately-threaded values.
 
 **`handleLinktestReq` answers regardless of state, on purpose.** The initiator side is bracketed by `startLinktest` / `stopLinktest`; only the responder is lenient.
 See its comment and the audit's Gap 3.
@@ -61,9 +64,16 @@ See its comment and the audit's Gap 3.
 A wrong control-frame session ID slips past any test that only configures the default device ID, `0xFFFF`,
 because a control frame and a data frame then carry the same value,
 and nothing distinguishes echoing the profile constant from emitting the configured ID.
-It only shows up against equipment that enforces the rule, and only when a nondefault device ID was configured —
+For the Select/Separate call sites (`runSelectProcedure`, `writeFarewellSeparate`),
+this only shows up against equipment that enforces the rule,
+and only when a nondefault device ID was configured —
 which is exactly the condition the regression tests below now cover on purpose.
-The symptom is an endless `NotSelected` → `NotConnect` reconnect loop with no error naming the session ID.
+The three Reject senders are different: they never read the configured device ID at all,
+so reverting them to echo the OFFENDING frame's own SessionID can fail even with the default local ID configured,
+since that SessionID comes from the peer's frame, not from local configuration.
+The symptom also depends on the procedure:
+a rejected Select handshake produces an endless `NotSelected` → `NotConnect` reconnect loop with no error naming the session ID;
+a wrong SessionID on a Reject or the farewell Separate does not feed back into the local FSM the same way.
 
 That is why the guard tests carry counter-assertions rather than single-sided ones: `TestActive_SelectAndSeparateUseControlSessionID` asserts `0xFFFF` on control frames **and** the configured device ID on a data message, so an over-fix that forces `0xFFFF` everywhere fails too.
 `TestPassive_SelectRspMirrorsRequestSessionID` probes with a non-conformant `0x0042` because a conformant `0xFFFF` request cannot distinguish echoing from emitting a constant.

@@ -4,17 +4,17 @@ title: The transaction observer's two chokepoints, its isData gate, and its outc
 description: Why WithTransactionObserver instruments two call sites (not one), why the isData gate prevents an observer-path panic for control messages, and how classifyTxOutcome's six-way split relates to isCountedSendErr's binary one.
 tags: [hsms, observability, send, metrics, lifecycle]
 status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-24T15:45:31Z}
+generated: {by: "claude/sonnet-5", at: 2026-09-25T02:38:18Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T15:53:52Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T03:13:36Z}
 sources:
   - {resource: hsms/connection_send.go, digest: sha256:d2e809d7d0d95711, revision: a7ff4a8}
   - {resource: hsms/transaction_observer.go, digest: sha256:a89096ae2659fb79, revision: 33e9744}
   - {resource: hsms/connection_config.go, digest: sha256:1dd3eb7cbc113324, revision: 922feb8}
-  - {resource: hsms/session.go, digest: sha256:758381f6b693490c, revision: 922feb8}
+  - {resource: hsms/session.go, digest: sha256:8394199f62beedfd, revision: 6c257b6}
   - {resource: hsmsss/transaction_observer_test.go, digest: sha256:cca4e16c9add5d25, revision: a7ff4a8}
-  - {resource: hsmsss/transport_control.go, digest: sha256:7b5042e69a84d610, revision: 922feb8}
-  - {resource: hsms/data_msg.go, digest: sha256:3d91341cbd89d7e7, revision: 4eb40d1}
+  - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: 6c257b6}
+  - {resource: hsms/data_msg.go, digest: sha256:32c3295c07f631df, revision: 6c257b6}
 ---
 
 # What it does
@@ -36,13 +36,20 @@ They converge on two: `WriteMessage`
 (backs `SendDataMessage` / `SendSECS2Message`, wraps `sendWaitReply`)
 and `WriteMessageNoReply` (backs `ForwardDataMessage`, wraps `sendNoReply`).
 `ReplyDataMessage` is a third, structurally different case —
-`session.ReplyDataMessage` (`hsms/session.go`) is built on `rt.SendAsync`,
-the same enqueue-only async primitive `SendDataMessageAsync` / `ForwardDataMessageAsync` use.
-`SendAsync` only guarantees the frame was *enqueued*;
+`session.ReplyDataMessage` (`hsms/session.go`) is built on `rt.SendAsync`
+or, since the R10 inbound-generation-fence work, `rt.SendAsyncFromGeneration`
+when the primary's origin token matches this connection's own identity
+(see the origin-token check in `ReplyDataMessage`'s own doc comment) —
+a matching token selects the generation-bound path even after that generation has ended;
+`SendAsyncFromGeneration` itself then checks liveness
+and refuses a stale generation rather than falling back to unbound sending.
+Both are the same enqueue-only async primitive family `SendDataMessageAsync` / `ForwardDataMessageAsync` use —
+`SendAsyncFromGeneration` differs only in binding the enqueue to a caller-named generation instead of resolving `c.cur` at call time, not in reaching `WriteMessage`/`WriteMessageNoReply` or `newTxEvent`.
+Either way the frame is only guaranteed *enqueued*;
 `drainSendCh` (connection_send.go) writes it later, on a different goroutine,
 and a frame still queued at teardown is stranded, never flushed.
 `ReplyDataMessage` therefore never reaches either chokepoint and never reports a `TxEvent`,
-regardless of what the brief's method list said.
+regardless of what the brief's method list said or which of the two enqueue paths it took.
 
 **The `isData` gate, and the structural bypass that now sits in front of it.**
 As of the generation-gated send commits, `hsmsss`'s internal control initiators no longer call `rt.WriteMessage` directly.
@@ -121,20 +128,26 @@ like any unrecovered panic it keeps unwinding through the calling frames until s
 - `ReplyDataMessage` must never be rerouted onto `WriteMessage`/`WriteMessageNoReply` to make it observable
   without also accepting the blocking-semantics and metric-attribution break that would be —
   see [Send error accounting](/hsms/send-error-accounting.md)'s note that `ReplyDataMessage` is already classified as an async path there too.
-- `TxT3Timeout` and `TxRejected` are reachable only via `WriteMessage`/`sendWaitReply` —
-  `sendNoReply` arms no T3 timer and registers no reply channel.
+- `sendNoReply` arms no T3 timer and registers no reply channel,
+  so it never generates a `TxT3Timeout` or `TxRejected` outcome itself.
+  But `classifyTxOutcome` classifies purely on the returned error, without checking `replyWaited` —
+  a transport `Write` that itself returns `ErrT3Timeout` or a `*RejectError`
+  produces the matching outcome through `WriteMessageNoReply` too.
 
 # Failure modes
 
 - **Deleting or weakening the `isData` gate** does not degrade gracefully into noisy data.
   Against the production `hsms.connection` it currently has no observable effect at all, because real Select.req/Linktest.req traffic already bypasses `WriteMessage` via `WriteMessageFromGeneration` and never reaches the gate.
-  It panics the moment ANY caller reaches `WriteMessage`/`WriteMessageNoReply` with a `*ControlMessage` —
+  With a non-nil `txObserver` installed,
+  it panics the moment a caller reaches `WriteMessage`/`WriteMessageNoReply` with a `*ControlMessage` —
   a `genRuntime`-incapable `TransportRuntime`, or an internal call made with `gen == 0` —
   because a nil `dm` reaches an unconditional field/method dereference:
   `dm.WaitBit()` at `WriteMessage`'s own call site, or `dm.Stream()` inside `newTxEvent` for `WriteMessageNoReply`.
+  With no observer installed, both functions return before ever reaching the gate, so that fast path is unaffected.
   The panic fires after the send itself has already completed and propagates up the caller's stack,
   so an uncaught one crashes the process — but a caller with its own `recover()` survives it.
-  A change that removes the gate can therefore look safe against the shipped transports and still be a live landmine for any other caller.
+  A change that removes the gate can therefore look safe against the shipped transports (no observer installed by default)
+  and still be a live landmine for any caller that also installs an observer.
 - **Assuming `classifyTxOutcome` and `isCountedSendErr` agree on what "counts"**
   is wrong on one axis (both exclude teardown/cancel as lifecycle noise) but not the other
   (`classifyTxOutcome` still names `ErrNotSelectedState`/`ErrMessageTooLarge` as a `TxOutcome`,

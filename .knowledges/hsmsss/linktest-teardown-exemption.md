@@ -4,17 +4,20 @@ title: Linktest teardown exclusion covers cancellation propagation and stale gen
 description: Why runLinktest's two-part ErrConnClosed guard exists, and how far "teardown-exclusive" actually reaches.
 tags: [hsmsss, linktest, metrics, shutdown, race]
 status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-24T15:45:31Z}
+generated: {by: "claude/sonnet-5", at: 2026-09-25T02:38:18Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T15:53:52Z}
+  - {by: "openai/gpt-6-astra", at: 2026-09-25T02:55:36Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T03:13:36Z}
 sources:
-  - {resource: hsmsss/transport_procedures.go, digest: sha256:9a7bdb8ff23a8e5b, revision: a7ff4a8}
+  - {resource: hsmsss/transport_procedures.go, digest: sha256:bf47bd9825ddb5da, revision: 6c257b6}
   - {resource: hsmsss/metrics.go, digest: sha256:e822f4b53757800e, revision: 922feb8}
   - {resource: hsms/connection_send.go, digest: sha256:d2e809d7d0d95711, revision: a7ff4a8}
   - {resource: hsms/errors.go, digest: sha256:3057101139d08434, revision: a7ff4a8}
   - {resource: hsms/connection_lifecycle.go, digest: sha256:221b0f7825783fad, revision: 4eb40d1}
   - {resource: hsms/epoch.go, digest: sha256:d97677e4f16e9462, revision: 4eb40d1}
-  - {resource: hsmsss/transport.go, digest: sha256:cf54049476fbfafe, revision: 4eb40d1}
+  - {resource: hsmsss/transport.go, digest: sha256:14cd2584fee0dbab, revision: 6c257b6}
+  - {resource: hsmsss/transport_active.go, digest: sha256:80daec469fc1444e, revision: 6c257b6}
+  - {resource: hsmsss/transport_passive.go, digest: sha256:baa34d672a03a889, revision: 6c257b6}
 ---
 
 # What it does
@@ -33,10 +36,13 @@ This entry is that mechanism.
 # How it works
 
 **Why one ctx check is not enough.**
-`t.genCtx` IS the hsms epoch's own ctx, not a separate tree: `connection.Open`
+`g.ctx` (`genWG.ctx`) IS the hsms epoch's own ctx, not a separate tree: `connection.Open`
 (`hsms/connection_lifecycle.go`) passes `e.ctx` straight into transport `Start`
-(`hsmsss/transport.go`), which stores it unchanged as `t.genCtx`.
-`startLinktest` derives the linktest goroutine's ctx as `context.WithCancel(t.genCtx)`, and the
+(`hsmsss/transport.go`), and `startActive`/`startPassive` stamp it, unchanged, onto the generation's
+own bundle (`g.ctx = ctx`) before spawning `recvLoop` — since the R10 inbound-generation-fence work
+this replaced an earlier single transport-wide `t.genCtx` field with the same value, now scoped per
+generation on `genWG` instead.
+`startLinktest` derives the linktest goroutine's ctx as `context.WithCancel(g.ctx)`, and the
 actual `WriteMessage` call inside `runLinktest` runs over a further child,
 `context.WithTimeout(ctx, t6)` — so `ctx`, `lctx`, and `e.ctx` all sit on ONE context tree, rooted
 at the same epoch, not on two independent trees.
@@ -47,7 +53,7 @@ Go's `context.cancelCtx.cancel` closes a parent's own `Done` channel before it w
 map and cancels each of them.
 A teardown that cancels the epoch's ctx can therefore have `sendWaitReplyOn` observe `e.ctx.Done()`
 and return `ErrConnClosed` an instant before that same cancellation propagates down through
-`t.genCtx`'s child far enough for `runLinktest`'s own `ctx.Err()` — read immediately after
+`g.ctx`'s child far enough for `runLinktest`'s own `ctx.Err()` — read immediately after
 `WriteMessage` returns — to observe a non-nil value.
 The code comment in `runLinktest` used to call this "two separate cancellation cascades with no
 ordering guarantee between them"; `a7ff4a8` corrected it to say the same thing this entry does —
@@ -124,7 +130,10 @@ involuntary disconnect during what should be an orderly shutdown.
 
 - the two-part guard: `hsmsss/transport_procedures.go` → `(*transport).runLinktest`
 - the ctx derivation that makes the two Done channels distinct: `hsmsss/transport_procedures.go` → `(*transport).startLinktest`, `(*transport).stopLinktest`
-- `t.genCtx`'s origin as the epoch's own ctx: `hsms/connection_lifecycle.go` → `(*connection).Open`; `hsmsss/transport.go` → `(*transport).Start`
+- `g.ctx`'s origin as the epoch's own ctx: `hsms/connection_lifecycle.go` → `(*connection).Open`;
+  `hsmsss/transport_active.go` → `startActive`;
+  `hsmsss/transport_passive.go` → `startPassive`;
+  `hsmsss/transport.go` → `genWG.ctx`
 - every origin of the sentinel, including the not-yet-published-socket case: `hsms/connection_send.go` → `(*connection).writeFrame`, `(*connection).sendWaitReplyOn`, `(*connection).WriteMessageFromGeneration`; `hsms/epoch.go` → `newEpoch`, `(*epoch).liveConn`
 - the sentinel itself: `hsms/errors.go` → `ErrConnClosed`
 - the counter's public contract: `hsmsss/metrics.go` → `(*ConnectionMetrics).LinktestErrCount`

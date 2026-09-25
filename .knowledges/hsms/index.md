@@ -24,6 +24,7 @@ Owns no sockets and no wire framing. `hsmsss` and `secs1` supply the transport a
 * [Where a TransitionCause is chosen, and why one transition can swallow another's cause](/hsms/transition-cause-injection-sites.md) - the full injection-site to cause map, why the transports pass a cause through a capability interface, and the three ways a cause never reaches a subscriber.
 * [How a shutdown joins the per-Open supervisor](/hsms/supervisor-join.md) - why the FSM join is unbounded but the notifier join ends at the close timeout, and why the join signals live on the supervisor.
 * [Reconnect backoff scope — what resets it, and what doesn't](/hsms/reconnect-backoff-scope.md) - where the persisted reconnect delay lives, the marker that resets it, and why that marker is not the reaction react fires.
+* [The inbound generation fence](/hsms/inbound-generation-fence.md) - how an inbound frame/reply is bound to the generation whose recv goroutine read it, the two different kinds of cutoff that enforce it, and the SECS-I asymmetry.
 
 # Entry points
 

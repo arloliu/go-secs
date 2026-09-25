@@ -8,9 +8,9 @@ generated: {by: "claude/sonnet-5", at: 2026-08-12T00:00:00Z}
 verified:
   - {by: "claude/opus-5", at: 2026-08-12T08:33:19Z}
 sources:
-  - {resource: hsmsss/transport_passive.go, digest: sha256:f4ebda2502d6b8ac, revision: 922feb8}
-  - {resource: hsmsss/transport.go, digest: sha256:cf54049476fbfafe, revision: 922feb8}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:f78883ced9f30422, revision: 922feb8}
+  - {resource: hsmsss/transport_passive.go, digest: sha256:baa34d672a03a889, revision: 6c257b6}
+  - {resource: hsmsss/transport.go, digest: sha256:14cd2584fee0dbab, revision: 6c257b6}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:f54ea89029ef179c, revision: 6c257b6}
 ---
 
 # What it does

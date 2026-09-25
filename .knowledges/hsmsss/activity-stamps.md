@@ -4,16 +4,17 @@ title: Activity stamps — the state behind linktest suppression
 description: Where "the line is alive" is stored, what writes it, and when it resets to zero knowledge.
 tags: [hsmsss, linktest, liveness, generations]
 status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-24T11:50:00Z}
+generated: {by: "claude/sonnet-5", at: 2026-09-25T02:38:18Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T12:34:28Z}
+  - {by: "openai/gpt-6-astra", at: 2026-09-25T02:55:36Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T03:13:36Z}
 sources:
-  - {resource: hsmsss/transport.go, digest: sha256:cf54049476fbfafe, revision: 922feb8}
-  - {resource: hsmsss/transport_procedures.go, digest: sha256:9a7bdb8ff23a8e5b, revision: a7ff4a8}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:f78883ced9f30422, revision: 922feb8}
-  - {resource: hsmsss/transport_active.go, digest: sha256:b4a168040cd91ff8, revision: 922feb8}
-  - {resource: hsmsss/transport_passive.go, digest: sha256:f4ebda2502d6b8ac, revision: 922feb8}
-  - {resource: hsmsss/transport_control.go, digest: sha256:7b5042e69a84d610, revision: 4eb40d1}
+  - {resource: hsmsss/transport.go, digest: sha256:14cd2584fee0dbab, revision: 6c257b6}
+  - {resource: hsmsss/transport_procedures.go, digest: sha256:bf47bd9825ddb5da, revision: 6c257b6}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:f54ea89029ef179c, revision: 6c257b6}
+  - {resource: hsmsss/transport_active.go, digest: sha256:80daec469fc1444e, revision: 6c257b6}
+  - {resource: hsmsss/transport_passive.go, digest: sha256:baa34d672a03a889, revision: 6c257b6}
+  - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: 6c257b6}
   - {resource: hsms/connection_lifecycle.go, digest: sha256:221b0f7825783fad, revision: 4eb40d1}
 ---
 
@@ -26,8 +27,9 @@ The code applies the failure reducer to **any** `WriteMessage` error that is not
 
 That filter is now two-part, not one.
 `runLinktest` skips the reducer (and the `LinktestErrCount` increment) when `ctx.Err() != nil` OR the error is `hsms.ErrConnClosed`.
-The `ErrConnClosed` half is new: `t.genCtx` IS the hsms epoch's own ctx —
-`connection.Open` passes `e.ctx` straight into transport `Start`, which stores it unchanged —
+The `ErrConnClosed` half is new: `g.ctx` (`genWG.ctx`) IS the hsms epoch's own ctx —
+`connection.Open` passes `e.ctx` straight into transport `Start`, and `startActive`/`startPassive` stamp it onto the generation's own bundle (`g.ctx = ctx`) before spawning `recvLoop` —
+which derives `runLinktest`'s parent ctx from that same field, never from a transport-wide one —
 so `runLinktest`'s ctx and the epoch's ctx sit on ONE tree, not two independent ones.
 They are still distinct `Done()` channels, though.
 Go's context cancellation closes a parent's own channel before it propagates to derived children,
@@ -79,14 +81,19 @@ a concurrent reader can observe either the pre-reset or post-reset value at any 
   an overlapping reset or a generation straggler can still overwrite a newer stamp with an older sample,
   so a stamp CAN move backward under those races.
 - `lastSendStamp` and `lastRecvStamp` are transport-wide atomics, rebaselined when a generation publishes its socket, not generation-tagged; the reset is not a hard barrier:
-  it rebaselines the stamps, it does not fence abandoned goroutines.
-  `recvLoop` captures `t.conn` and `t.genCtx` only once, when it starts executing,
-  without validating `g.gen` against the live generation —
-  a goroutine delayed before that capture can resume after a reconnect,
-  capture the successor's socket, and repeatedly read and stamp it.
-  The implementation does not establish a universal one-straggler-stamp or one-probe bound;
-  do not trust the field comment in `transport.go` that asserts one,
-  and do not read the reset as "the new generation cannot see old activity".
+  it rebaselines the stamps, it does not fence abandoned goroutines by itself.
+  Since the R10 inbound-generation-fence work, `recvLoop` no longer re-reads a transport-wide field to find its socket:
+  `startActive`/`acceptLoop` pass it the conn they just published, as a parameter, at spawn time,
+  and it reads only that value for the rest of its life.
+  A straggler abandoned by a bounded `Stop` therefore keeps reading its OWN (by then closed) socket, never a live successor's —
+  `Stop` closes that socket before joining the goroutine, and `readFrame` has no buffering layer to mask the failure,
+  so the straggler's NEXT read fails and the loop returns before it can stamp again.
+  This makes the field comment in `transport.go` (`lastSendStamp`/`lastRecvStamp`) accurate as written:
+  a torn-down generation's straggler can stamp **at most once** after that,
+  which delays or credits at most one probe (bounded).
+  An EARLIER revision of this entry recorded the opposite —
+  that `recvLoop` captured a transport-wide `conn`/`genCtx` pair once at start with no such bound —
+  which was true of the code at the time but is no longer; do not carry that claim forward.
 - With no stamps yet, `sinceLastActivity` returns the transport's age, which correctly reads as "long idle" — the first probe is never suppressed by uninitialised state.
 - The send stamp defers probes but can never forgive a failure; only the receive stamp and the inflight gauge do. A successful local write proves TCP buffering, not a live peer.
 
@@ -110,4 +117,8 @@ a concurrent reader can observe either the pre-reset or post-reset value at any 
 - per-generation reset at socket publish, both roles: `hsmsss/transport_active.go`, `hsmsss/transport_passive.go` → the `connMu` section assigning `t.conn`
 - the generation-gated publish that now runs before that section (call sites): `hsmsss/transport_active.go`, `hsmsss/transport_passive.go`
 - that publish's definition: `hsmsss/transport_control.go` → `(*transport).tcpUp`
-- `t.genCtx`'s origin as the epoch's own ctx: `hsms/connection_lifecycle.go` → `(*connection).Open`
+- `g.ctx`'s origin as the epoch's own ctx, and where it is stamped onto the generation bundle: `hsms/connection_lifecycle.go` → `(*connection).Open`;
+  `hsmsss/transport_active.go` → `startActive`;
+  `hsmsss/transport_passive.go` → `startPassive`;
+  `hsmsss/transport.go` → `genWG.ctx`
+- the socket-per-goroutine parameter that bounds a straggler's stamps: `hsmsss/transport_recv.go` → `recvLoop`'s `conn` parameter
