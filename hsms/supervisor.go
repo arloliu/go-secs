@@ -28,7 +28,7 @@ const supervisorFallbackCloseTimeout = 10 * time.Second
 type fsmEvent uint8
 
 const (
-	evTCPUp          fsmEvent = iota // TCP came up: NotConnected -> NotSelected
+	evTCPUp          fsmEvent = iota // TCP came up (a same-state no-op here; the NotConnected -> NotSelected CAS is CommitConnected's, see transition)
 	evSelectAccepted                 // Select accepted: NotSelected -> Selected (and Selected -> Selected, H2)
 	evSelectLost                     // Select lost: Selected -> NotSelected
 	evDisconnect                     // TCP dropped: Selected/NotSelected -> NotConnected
@@ -51,8 +51,9 @@ type fsmCommand struct {
 	gen uint64
 }
 
-// stateChange is one logical E37 transition, reported to the notifier as (prev -> next) plus the
-// cause carried by the event that drove it.
+// stateChange is one logical E37 transition, reported to the notifier as (prev -> next) plus a cause:
+// ordinarily the one carried by the event that drove it,
+// but step substitutes CauseSelectAccepted for the coalesced entering-Selected bring-up (see step and fireTransition).
 type stateChange struct {
 	prev  ConnState
 	next  ConnState
@@ -141,6 +142,19 @@ type supervisor struct {
 	// CommitSelected and exercise the evT7Timeout CAS tie. Always nil in production.
 	testHookAfterStateLoad func(ev fsmEvent)
 
+	// testHookBeforeEnqueue, when non-nil,
+	// is invoked by commitFrom immediately after one of the three synchronous commits' CAS succeeds and BEFORE its follow-up event is enqueued.
+	// A true return withholds that enqueue entirely, leaving the TEST —
+	// not commitFrom's caller, which never sees skipEnqueue —
+	// to replay the report later (via injectFrom) or drop it:
+	// the test seam this repo's synchronous-commit races have no other way to force deterministically,
+	// since a report that already landed on state but has not yet reached the FSM queue is exactly the window a disconnect (or a Close) can overtake.
+	// A test installs it before the commit it means to intercept can run —
+	// before starting any goroutine that could reach it, or behind its own happens-before edge —
+	// since a hook installed after that commit's CAS has already applied simply misses it.
+	// Always nil in production.
+	testHookBeforeEnqueue func(gen uint64, ev fsmEvent, cause TransitionCause) (skipEnqueue bool)
+
 	// handlers are NOT owned by the supervisor: they live on the Connection (an atomic.Pointer
 	// to an immutable slice) so they persist across Open/Close cycles while the supervisor is
 	// recreated per Open. The per-Open supervisor only reads this pointer.
@@ -208,9 +222,17 @@ func newSupervisor(
 // the (cur, ev) pair is a legal transition; an illegal pair yields (cur, false) so the run
 // loop can treat it as a safe no-op.
 //
-// evTCPUp is legal from BOTH NotConnected AND NotSelected (the latter tolerates the CommitConnected
-// pre-commit — spec §7.D), mirroring evSelectAccepted. evSelectAccepted is legal from BOTH
-// NotSelected AND Selected (the latter tolerates the H2 pre-commit in CommitSelected — spec §7.D).
+// evTCPUp is legal from NotSelected —
+// the ordinary case: CommitConnected's own CAS always lands before its event is processed (spec §7.D) —
+// and from Selected, tolerating a Select commit's CAS
+// that raced ahead of evTCPUp's own processing (step reports that coalesced bring-up with CauseSelectAccepted;
+// see step and fireTransition).
+// It is NOT legal from NotConnected:
+// production enqueues evTCPUp only after its own NotConnected->NotSelected CAS has already succeeded,
+// so finding NotConnected at processing time means a disconnect overtook it,
+// and treating that as a legal bring-up would resurrect a generation that has already dropped.
+// evSelectAccepted is legal from BOTH NotSelected AND Selected
+// (the latter tolerates the H2 pre-commit in CommitSelected — spec §7.D).
 // evClose is legal from ALL THREE states, all -> NotConnected, so Close cannot hang while dialing /
 // waiting for a passive peer.
 //
@@ -225,8 +247,8 @@ func newSupervisor(
 func transition(cur ConnState, ev fsmEvent) (ConnState, bool) {
 	switch ev {
 	case evTCPUp:
-		if cur == NotConnectedState || cur == NotSelectedState {
-			return NotSelectedState, true
+		if cur == NotSelectedState || cur == SelectedState {
+			return cur, true
 		}
 	case evSelectAccepted:
 		if cur == NotSelectedState || cur == SelectedState {
@@ -266,9 +288,14 @@ func (s *supervisor) State() ConnState {
 // so a Select.req dispatched right after TCP-up finds NotSelected and CommitSelected's CAS succeeds —
 // with NO async poll-fence.
 //
-// On a successful commit it enqueues evTCPUp so the supervisor fires the entering-NotSelected reaction/notify EXACTLY ONCE (deduped on lastReacted, tolerating the pre-committed state via the evTCPUp-from-NotSelected table entry).
-// It returns whether THIS call performed the commit; a call when not NotConnected is a no-op returning false (TCPUp is driven once per generation,
-// and the only transition out of NotConnected is evTCPUp itself, so the CAS always succeeds in practice).
+// On a successful commit it enqueues evTCPUp
+// so the supervisor fires the entering-NotSelected reaction/notify EXACTLY ONCE, deduped on lastReacted:
+// tolerant of the pre-committed state via the evTCPUp-from-NotSelected table entry,
+// and of a Select commit's CAS that raced ahead of it (see step's coalesced-cause handling).
+// It returns whether THIS call performed the commit;
+// a call when not NotConnected is a no-op returning false —
+// TCPUp is driven once per generation, and this CAS is the only site that ever moves state OUT of
+// NotConnected, so it always succeeds in practice.
 // cause comes from the caller, so the reason travels with the event from the site that named it.
 func (s *supervisor) CommitConnected(cause TransitionCause) (committed bool) {
 	return s.commitFrom(0, NotConnectedState, NotSelectedState, evTCPUp, cause)
@@ -377,7 +404,9 @@ func (s *supervisor) commitFrom(gen uint64, from, to ConnState, ev fsmEvent, cau
 
 	if bypass {
 		if cas() {
-			s.injectFrom(gen, ev, cause)
+			if hook := s.testHookBeforeEnqueue; hook == nil || !hook(gen, ev, cause) {
+				s.injectFrom(gen, ev, cause)
+			}
 
 			return true
 		}
@@ -393,7 +422,9 @@ func (s *supervisor) commitFrom(gen uint64, from, to ConnState, ev fsmEvent, cau
 	}
 
 	if committed {
-		s.injectFrom(gen, ev, cause)
+		if hook := s.testHookBeforeEnqueue; hook == nil || !hook(gen, ev, cause) {
+			s.injectFrom(gen, ev, cause)
+		}
 	}
 
 	return committed
@@ -428,7 +459,15 @@ func (s *supervisor) run() {
 // It then applies the pure transition (illegal
 // pairs are safe no-ops), stores state only when it actually changed (a no-op when
 // CommitSelected already pre-stored — H2), and fires the deduped reaction/notify keyed on
-// lastReacted (H3). Two events are guarded against a concurrent synchronous CommitSelected: the
+// lastReacted (H3).
+// A stored transition that actually drops the link into NotConnected is the one exception to that dedup:
+// it always fires, even when lastReacted already reads NotConnected
+// because an earlier bring-up into the state the link is leaving was itself never reported —
+// one reaction and one notification ENQUEUE per real drop, with the reported prev always the state actually left (cur), never lastReacted,
+// since lastReacted may lag behind an unreported bring-up the drop overtook.
+// Delivery past that enqueue stays best-effort (notify still coalesces under a stalled consumer — see emit),
+// so an unreported predecessor state may still go unobserved even though the drop itself is not.
+// Two events are guarded against a concurrent synchronous CommitSelected: the
 // evT7Timeout store is a CAS(cur -> next) (not a plain Store), and evSelectLost is abandoned when the
 // state is observed Selected (a pipelined re-Select re-committed after CommitSelectLost's CAS) — in
 // both cases step early-returns and leaves the committed Selected session intact rather than tearing
@@ -441,12 +480,13 @@ func (s *supervisor) run() {
 func (s *supervisor) step(cmd fsmCommand) {
 	ev := cmd.ev
 
-	// I2: once evClose has been processed the supervisor is LATCHED closed — every later event is a
-	// no-op. This closes the Close-vs-reconnect-Start race where an evTCPUp queued behind evClose
-	// (NotConnected -> NotSelected is a legal table entry) would resurrect NotSelected AFTER Close,
-	// leaving State() misreporting and suppressing the terminal NotConnected. requestClose is only
-	// ever terminal (Close / failed-Open rollback, both under lifeMu), so latching cannot drop a
-	// legitimate later transition — the generation is ending.
+	// Once evClose has been processed the supervisor is LATCHED closed — every later event is a no-op.
+	// This is the general backstop for the Close-vs-reconnect-Start race:
+	// a legal event queued behind evClose (evSelectAccepted from NotSelected, for instance) would otherwise still fire after Close,
+	// leaving State() misreporting and suppressing the terminal NotConnected.
+	// A delayed evTCPUp is additionally closed off at the table level (NotConnected + evTCPUp is illegal — see transition),
+	// but this latch is what protects every other event this race can queue.
+	// requestClose is only ever terminal (Close / failed-Open rollback, both under lifeMu), so latching cannot drop a legitimate later transition — the generation is ending.
 	if s.closed {
 		return
 	}
@@ -494,6 +534,10 @@ func (s *supervisor) step(cmd fsmCommand) {
 	}
 
 	if next, ok := transition(cur, ev); ok {
+		// left is the state this step actually replaced.
+		// It can differ from cur when a synchronous commit CASed the state after the load above,
+		// so a real drop reads it back from the store itself rather than trusting cur.
+		left := cur
 		if next != cur {
 			// evT7Timeout is the ONLY transition-store that can race a concurrent SYNCHRONOUS
 			// CommitSelected CAS: all other events are the supervisor's own serial transitions, and
@@ -509,12 +553,33 @@ func (s *supervisor) step(cmd fsmCommand) {
 					return // concurrent commit changed state; the T7 disconnect is stale — abandon it
 				}
 			} else {
-				s.state.Store(uint32(next))
+				left = ConnState(s.state.Swap(uint32(next)))
 			}
 		}
 
-		if next != s.lastReacted {
-			s.fireTransition(s.lastReacted, next, cmd.cause)
+		// A transition that really drops the link into NotConnected always fires,
+		// even when lastReacted already reads NotConnected.
+		// Dedup on lastReacted alone would absorb it whenever the bring-up it ends was never reported
+		// (a Select CAS landed while its evSelectAccepted was still queued, for instance),
+		// losing the reaction, the teardown and reconnect it drives, and the notification.
+		dropped := next == NotConnectedState && left != NotConnectedState
+
+		if next != s.lastReacted || dropped {
+			prev := s.lastReacted
+			if dropped {
+				// lastReacted can lag behind an unreported bring-up the drop overtook,
+				// so a drop reports the state the link actually left.
+				prev = left
+			}
+
+			cause := cmd.cause
+			if ev == evTCPUp && next == SelectedState {
+				// The Select commit's CAS landed before this evTCPUp was processed,
+				// so the coalesced bring-up is reported as an ordinary Select, not with evTCPUp's own cause.
+				cause = CauseSelectAccepted
+			}
+
+			s.fireTransition(prev, next, cause)
 			s.lastReacted = next
 		}
 	}
@@ -528,17 +593,24 @@ func (s *supervisor) step(cmd fsmCommand) {
 	}
 }
 
-// fireTransition emits the notification and calls react for one deduped transition. The
-// reported prev is lastReacted (NOT the atomic's current value — H2/H3), so a pre-committed
-// entering-Selected is still reported as (NotSelected -> Selected). For a terminal
-// NotConnected transition the notify is EMITTED BEFORE react (the F1 ordering guarantee: the
-// terminal state is enqueued before react may initiate teardown that stops the notifier);
+// fireTransition emits the notification and calls react for one deduped transition.
+// prev is supplied by step.
+// Normally it is lastReacted (NOT the atomic's current value — H2/H3),
+// so a pre-committed entering-Selected is still reported as (NotSelected -> Selected).
+// For a real drop into NotConnected it is the state the store actually replaced,
+// since lastReacted can lag behind an unreported bring-up the drop overtook.
+// For a terminal NotConnected transition the notify is EMITTED BEFORE react
+// (the F1 ordering guarantee: the terminal state is enqueued before react may initiate teardown that stops the notifier);
 // for any other transition react runs first, then emit.
 //
-// cause is the one carried by the event that DROVE this deduped transition.
+// cause is the one step computed for this deduped transition.
+// Ordinarily it is the cause carried by the event that drove it;
+// for the coalesced entering-Selected bring-up — evTCPUp finding the Select commit already applied —
+// it is CauseSelectAccepted, matching an ordinary Select.
 // Because the dedup key is the state entered,
 // a later event landing on the same state fires nothing and its cause is never reported —
-// a Close on an already-dropped link reports the drop's cause, not the close's (documented on SubscribeLifecycle).
+// a Close on an already-dropped link whose drop was itself already reported fires nothing further, not
+// CauseLocalClose (documented on SubscribeLifecycle).
 func (s *supervisor) fireTransition(prev, next ConnState, cause TransitionCause) {
 	if next == NotConnectedState {
 		s.emit(stateChange{prev: prev, next: next, cause: cause})
@@ -590,7 +662,10 @@ func (s *supervisor) resolveCloseTimeout() time.Duration {
 // entering-Selected reaction; dropping evClose would hang Close) — and a safe NO-OP once
 // run() has returned (runDone closed), so a re-Close after stop() cannot deadlock on the
 // unread events channel. Drop coalescing applies only to notify, never to events (spec §5.3).
-// cause is carried verbatim to the notifier for whichever transition this event ends up driving.
+// cause travels with the event to step,
+// which ordinarily reports it verbatim for whichever transition this event ends up driving —
+// except the coalesced entering-Selected bring-up,
+// where step substitutes CauseSelectAccepted regardless of the cause named here (see step).
 func (s *supervisor) inject(ev fsmEvent, cause TransitionCause) {
 	s.injectFrom(0, ev, cause)
 }

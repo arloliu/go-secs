@@ -99,6 +99,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which for a blocked `OpenWaitSelected` wait with no peer meant forever,
   and for a blocked first dial meant the OS connect timeout — roughly two minutes on Linux —
   unless `WithConnectTimeout` was set.
+- `hsms`: a disconnect that races the Select handshake —
+  landing after the Select commit but before its own report reached the connection state machine —
+  is no longer silently absorbed.
+  Previously such a disconnect could leave the connection down with no reconnect attempt and no
+  `NotConnected` notification.
+  A TCP-up report that a disconnect had already overtaken could also resurrect `NotSelected` on the dropped link, leaving it stuck there with no reconnect;
+  such a report is now discarded.
 
 ## [2.4.2] - 2026-09-25
 

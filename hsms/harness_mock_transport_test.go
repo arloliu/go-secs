@@ -511,10 +511,10 @@ type idConn struct {
 	id int
 }
 
-// driveSelect simulates the responder committing Selected: it retries rt.CommitSelected until
-// the CAS succeeds (which only happens once the supervisor has processed evTCPUp and reached
-// NotSelected) or the generation ctx is cancelled. It is a bounded ticker retry, never a
-// time.Sleep-poll.
+// driveSelect simulates the responder committing Selected:
+// it retries rt.CommitSelected until the CAS succeeds (which only happens once state reaches NotSelected —
+// TCPUp's own synchronous CAS, not evTCPUp's later, asynchronous reaction) or the generation ctx is cancelled.
+// It is a bounded ticker retry, never a time.Sleep-poll.
 func driveSelect(ctx context.Context, rt TransportRuntime) {
 	ticker := time.NewTicker(500 * time.Microsecond)
 	defer ticker.Stop()
