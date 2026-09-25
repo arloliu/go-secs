@@ -409,6 +409,12 @@ func WithSenderQueueSize(n int) ConnOption {
 
 // WithCloseTimeout sets the maximum time to wait for in-flight goroutines to finish during connection shutdown.
 //
+// It bounds two separate joins Close performs, one after the other: the per-generation teardown join
+// (the transport recv loop, and any live task goroutines) and, from whatever remains, the state-change notifier join.
+// It does NOT cover the best-effort farewell Separate write on a graceful teardown from Selected,
+// which has its own fixed allowance of at most 500ms
+// and is skipped rather than allowed to block Close — see [Connection.Close].
+//
 // The duration must be > 0.
 func WithCloseTimeout(d time.Duration) ConnOption {
 	return func(c *ConnectionConfig) error {
@@ -465,6 +471,10 @@ func (c *ConnectionConfig) Logger() logger.Logger {
 }
 
 // WithLogger sets the logger used by the connection.
+//
+// The logger is called on connection goroutines, including during teardown —
+// a call that blocks there blocks that goroutine, and can keep Close from completing (see [Connection.Close]).
+// It must not block.
 //
 // Must not be nil.
 func WithLogger(l logger.Logger) ConnOption {

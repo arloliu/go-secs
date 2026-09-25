@@ -237,10 +237,19 @@ type Connection interface {
 	// Open starts the connection lifecycle (dial/listen + FSM).
 	//
 	// The mode selects blocking (OpenWaitSelected) or background (OpenBackground) behavior.
-	// The ctx bounds the synchronous wait when mode is OpenWaitSelected.
+	// The ctx bounds the synchronous wait when mode is OpenWaitSelected,
+	// and also bounds an active transport's FIRST dial in EITHER mode.
+	// Under OpenBackground, a dial that is still blocked when ctx expires rolls back and returns ctx.Err(),
+	// instead of falling into the cold-peer background retry described below
+	// (see the (*connection).Open doc for the exact scoping).
+	// A concurrent Close interrupts either the wait or the first dial and makes Open return ErrConnClosed.
+	// This bounding applies to the transports this module ships;
+	// a Start supplied by a custom, out-of-module TransportRuntime is not bounded this way,
+	// and a custom DialFunc (the hsmsss and secs1 WithDialer option) that ignores its ctx is not interruptible either.
 	//
-	// For an active connection under OpenBackground, a peer that is not yet reachable at Open time is not an error: Open returns nil
-	// and the connection retries the initial connect in the background (see the (*connection).Open doc for the exact NotConnectedState-only scoping).
+	// For an active connection under OpenBackground, a peer that is not yet reachable at Open time is not an error:
+	// Open returns nil and the connection retries the initial connect in the background
+	// (see the (*connection).Open doc for the exact NotConnectedState-only scoping).
 	//
 	// When Open returns a dial or listen error, it tears down what it started,
 	// even when a state-change callback was still running at the end of that teardown;
@@ -252,7 +261,15 @@ type Connection interface {
 
 	// Close tears down the connection and all per-generation resources.
 	//
-	// Close is ctx-free and always completes teardown (internally bounded by the configured close timeout).
+	// Close is ctx-free.
+	// It interrupts an Open that is itself blocked — in OpenWaitSelected's wait for Selected,
+	// or in an active transport's first dial (see Open) — rather than waiting behind it.
+	// Close's own bound has two parts, one after the other:
+	// a best-effort farewell Separate write of at most 500ms (skipped rather than allowed to block),
+	// then the configured close timeout for the teardown join and the notifier join (see WithCloseTimeout).
+	// A custom net.Conn, or a custom DialFunc / ListenFunc (the hsmsss and secs1 WithDialer / WithListener options),
+	// or a Logger (see WithLogger) that blocks can still keep Close from completing —
+	// none of those hooks are preemptible by this package.
 	//
 	// It is idempotent: a second Close returns the prior error.
 	//

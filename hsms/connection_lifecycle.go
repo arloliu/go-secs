@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/arloliu/go-secs/v2/internal/gencap"
@@ -25,6 +27,52 @@ const selectPollInterval = 2 * time.Millisecond
 // errNotifierTimeout is the shutdown result when the state-change notifier outlives the close timeout —
 // a StateChangeHandler or lifecycle subscriber that is blocked, or that is itself the Close being joined.
 var errNotifierTimeout = fmt.Errorf("%w: state-change handler still running", ErrCloseTimeout)
+
+// abortToken is a one-shot interrupt a Close fires to unblock the Open it finds registered.
+//
+// Close (pre-firing a registered token, or firing the one an in-flight Open just published)
+// and Open (pre-firing its own fresh token when a Close is already pending)
+// both reach fire() through the SAME sync.Once,
+// so the several racing call sites documented on connection.pendingCloses / connection.openAbort can never double-close ch.
+type abortToken struct {
+	ch   chan struct{}
+	once sync.Once
+}
+
+// newAbortToken returns a fresh, unfired abortToken.
+func newAbortToken() *abortToken {
+	return &abortToken{ch: make(chan struct{})}
+}
+
+// fire closes the token's channel exactly once; a later call is a no-op.
+func (t *abortToken) fire() {
+	t.once.Do(func() { close(t.ch) })
+}
+
+// fired reports whether fire has already run, without blocking.
+func (t *abortToken) fired() bool {
+	select {
+	case <-t.ch:
+		return true
+	default:
+		return false
+	}
+}
+
+// firstDialState publishes what gencap.DialBounder.BoundDial needs to bound the FIRST dial of one Open cycle.
+// epochCtx is the original Start ctx — the identity BoundDial matches against —
+// callerCtx is the ctx the caller passed to Open, and abort is that Open's abort channel.
+// Open stores it immediately before c.tr.Start and clears it immediately after,
+// so a reconnect generation's Start (a different epochCtx) never matches.
+type firstDialState struct {
+	epochCtx  context.Context
+	callerCtx context.Context
+	abort     <-chan struct{}
+
+	// callerCut is set by BoundDial's caller-ctx bridge the instant it actually cuts the merged dial ctx, before that bridge cancels it —
+	// see mapAbortedStartErr, which reads this flag to credit a Start failure to the caller's own ctx only on that provenance, never on a context sentinel alone.
+	callerCut atomic.Bool
+}
 
 // Open starts the connection lifecycle (spec §5.2).
 //
@@ -59,6 +107,18 @@ var errNotifierTimeout = fmt.Errorf("%w: state-change handler still running", Er
 // the caller ctx expired, or a first-generation select rejection tripped the always-on reconnect loop — Open returns an error
 // but the connection lifecycle KEEPS RUNNING (goroutines, socket, reconnect loop); only a tr.Start failure rolls back.
 // A caller that gets a wait error must Close() to release the lifecycle — a bare retry-Open returns ErrAlreadyOpen.
+//
+// Close interruption and the first-dial ctx bound: Open publishes a one-shot abort token (under
+// abortMu, right after the double-open guard) and clears it on every return path before lifeMu releases —
+// see connection.openAbort / connection.pendingCloses for the full registration protocol.
+// A concurrent Close fires that token instead of blocking behind lifeMu until this Open returns on its own.
+// Open observes the fire in two places: waitSelected's own select, and the active transport's first dial,
+// bounded through the firstDialState this method publishes for gencap.DialBounder.BoundDial.
+// The caller's own ctx bounds that same first dial, in BOTH OpenWaitSelected and OpenBackground modes:
+// a caller ctx that expires while the dial is still in flight rolls back exactly like a fired abort,
+// taking the fatal/rollback path below rather than falling into the cold-active background retry.
+// Once the dial has returned a connection, neither the caller's ctx nor a Close abort has any further effect on that generation —
+// see BoundDial.
 func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	c.lifeMu.Lock()
 	defer c.lifeMu.Unlock()
@@ -83,6 +143,35 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	if s := c.sup.Load(); s != nil && !c.shutdown.Load() {
 		return ErrAlreadyOpen
 	}
+
+	// Test seam: between the double-open guard above and publishing this Open's abort
+	// token below — a test pauses here to register a Close first, exercising the registration
+	// ordering between a racing Close and this Open's publish.
+	if hook := c.testHookOpenBeforePublish; hook != nil {
+		hook()
+	}
+
+	// Publish this Open's abort token.
+	// A Close that registered (bumped pendingCloses) before this point could not have seen openAbort yet,
+	// so it cannot have fired it — pre-fire it here instead.
+	// A Close that registers AFTER this point finds openAbort non-nil and fires it itself (see Close, below).
+	// Either way no registered Close is ever missed:
+	// registration and this publish both happen under abortMu, so the two orderings are exhaustive.
+	tok := newAbortToken()
+	c.abortMu.Lock()
+	if c.pendingCloses > 0 {
+		tok.fire()
+	}
+	c.openAbort = tok
+	c.abortMu.Unlock()
+
+	// Cleared on EVERY return path, before lifeMu releases: this defer is registered AFTER the
+	// lifeMu-unlock defer at the top of Open, so LIFO runs it BEFORE that unlock actually fires.
+	defer func() {
+		c.abortMu.Lock()
+		c.openAbort = nil
+		c.abortMu.Unlock()
+	}()
 
 	// Fence any in-flight reconnect loop from a prior cycle: bump reconnectGen so the loop's
 	// G2 fence (atomics-only) observes the advance and abandons instead of publishing over the
@@ -110,10 +199,12 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	// regardless of how far a prior cycle's backoff had grown (see connection.reconnectDelay).
 	c.reconnectDelay.Store(int64(cfg.reconnectBackoffInitial))
 
-	// Fresh per-generation epoch. The parent is context.Background(): e.ctx is
-	// generation-lifetime and is cancelled ONLY by teardown (never by the caller's Open ctx,
-	// which bounds only the OpenWaitSelected wait — D5a-7). stopTransport lets teardown join
-	// the transport recv loop (Codex round-7).
+	// Fresh per-generation epoch.
+	// The parent is context.Background(): e.ctx is
+	// generation-lifetime and is cancelled ONLY by teardown, never directly by the caller's Open ctx
+	// (which instead bounds the first dial and the OpenWaitSelected wait through separate,
+	// narrower mechanisms — see firstDialState and waitSelected).
+	// stopTransport lets teardown join the transport recv loop (Codex round-7).
 	e := newEpoch(context.Background(), cfg.logger, cfg.senderQueueSize)
 	e.stopTransport = c.tr.Stop
 	// The gate teardown latches e.ended under,
@@ -163,9 +254,33 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	// every tr.Stop, so no straggler Stop is in flight whose seal this could undo.
 	c.tr.ArmStart()
 
+	// Publish the state gencap.DialBounder.BoundDial needs to bound the dial an active transport is about to make,
+	// keyed by e.ctx's identity — the EXACT ctx tr.Start receives below.
+	// Cleared immediately after Start returns (the deferred Store below runs even if a custom Start panics),
+	// so it is live only for this one call —
+	// a later reconnect generation's Start carries a different e.ctx and is never bound.
+	// Kept locally too, so a failed Start can still read its callerCut flag below after the
+	// deferred Store(nil) has already cleared the connection's own copy.
+	fd := &firstDialState{epochCtx: e.ctx, callerCtx: ctx, abort: tok.ch}
+	c.firstDial.Store(fd)
+
 	// Dial (active) or listen (passive) + spawn the recv loop, driving rt (TCPUp/CommitSelected/
 	// TCPDown). The recv loop is generation-scoped (e.ctx) and joined by teardown via tr.Stop.
-	if err := c.tr.Start(e.ctx, c); err != nil {
+	err := func() error {
+		defer c.firstDial.Store(nil)
+
+		return c.tr.Start(e.ctx, c)
+	}()
+
+	if err != nil {
+		// Because only the dial is bounded, an abort or an expired caller ctx always surfaces as a Start error BEFORE TCP-up —
+		// the FSM is still NotConnected, no recv goroutine exists, no reconnect can have started.
+		// Map that Start failure to the caller-visible error and skip the cold-active background retry below entirely
+		// (mapAbortedStartErr has the full mapping, including the caller-cancellation provenance it requires).
+		ctxErr := ctx.Err()
+		aborted := tok.fired()
+		callerCut := fd.callerCut.Load()
+
 		// Gap 1 (rc3): an ACTIVE connection under OpenBackground whose FIRST dial fails while the
 		// FSM never left NotConnectedState (TCPUp was never driven) is a cold peer, not a fatal
 		// error — v1 parity ("start the device; it connects whenever the equipment appears"). Tear
@@ -180,7 +295,12 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 		// reconciliation #2) — that stays fatal exactly as before; s.State() reads NotSelected (or
 		// further) there, not NotConnectedState, so this branch's condition is false and control
 		// falls through to the existing fatal path.
-		if mode == OpenBackground && c.tr.IsActive() && s.State() == NotConnectedState {
+		//
+		// ctxErr == nil && !aborted additionally excludes a bounded-dial interruption —
+		// an interrupted dial is not a "cold peer that will show up later", it is the caller (or a
+		// concurrent Close) asking to stop, so it always takes the fatal/rollback path below
+		// instead of the cold-active background retry.
+		if mode == OpenBackground && c.tr.IsActive() && s.State() == NotConnectedState && ctxErr == nil && !aborted {
 			c.cfg.Load().logger.Debug("hsms: initial connect failed, retrying in background", "error", err)
 
 			e.teardown(c.cfg.Load().closeTimeout)
@@ -210,21 +330,22 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 		s.requestClose(e, CauseLocalClose)
 		s.shutdownErr = firstErr(e.wait(), c.joinSupervisor(s, deadline))
 
-		return err
+		return mapAbortedStartErr(err, ctxErr, aborted, callerCut)
 	}
 
 	if mode == OpenWaitSelected {
-		return c.waitSelected(ctx, e, s)
+		return c.waitSelected(ctx, e, s, tok.ch)
 	}
 
 	return nil
 }
 
-// waitSelected blocks until the FSM reaches Selected, the caller's ctx is cancelled, or the
-// generation is torn down (a connect-fatal drop). It observes Selected via the lock-free FSM
-// atomic on a bounded poll (require.Eventually-style — never a time.Sleep-poll) and also
-// unblocks immediately on ctx.Done()/e.done via the select.
-func (c *connection) waitSelected(ctx context.Context, e *epoch, s *supervisor) error {
+// waitSelected blocks until the FSM reaches Selected, the caller's ctx is cancelled, the
+// generation is torn down (a connect-fatal drop), or a concurrent Close aborts this Open.
+// It observes Selected via the lock-free FSM atomic on a bounded poll
+// (require.Eventually-style — never a time.Sleep-poll) and also unblocks immediately on
+// ctx.Done()/e.done/abort via the select.
+func (c *connection) waitSelected(ctx context.Context, e *epoch, s *supervisor, abort <-chan struct{}) error {
 	ticker := time.NewTicker(selectPollInterval)
 	defer ticker.Stop()
 
@@ -238,6 +359,12 @@ func (c *connection) waitSelected(ctx context.Context, e *epoch, s *supervisor) 
 			return ctx.Err()
 		case <-e.done:
 			// The generation was torn down before reaching Selected (connect-fatal / drop).
+			return ErrConnClosed
+		case <-abort:
+			// A Close registered while this wait was parked here.
+			// Under the existing I7 contract a failed OpenWaitSelected wait does NOT roll back —
+			// the lifecycle keeps running — and by the pendingCloses invariant a registered Close is already blocked on lifeMu,
+			// so it performs the normal, fully fenced teardown the instant this call returns and releases lifeMu.
 			return ErrConnClosed
 		case <-ticker.C:
 		}
@@ -261,9 +388,39 @@ func (c *connection) waitSelected(ctx context.Context, e *epoch, s *supervisor) 
 // the notifier runs user callbacks, and one of them may be this very Close.
 // On expiry the notifier is abandoned and Close reports ErrCloseTimeout,
 // unless the epoch join already reported its own, more specific error.
+//
+// Close no longer waits behind an Open that is itself blocked — in OpenWaitSelected's
+// wait for Selected, or in an active transport's first dial.
+// Close registers as a PENDING close, and fires any in-flight Open's abort token, BEFORE it ever
+// tries to acquire lifeMu — see connection.pendingCloses / connection.openAbort for the full
+// registration protocol.
 func (c *connection) Close() error {
+	// Register BEFORE lifeMu: bump pendingCloses and fire any in-flight Open's abort token.
+	// A registration that lands before Open publishes its token is caught by Open's own pre-fire check instead (see Open, above) —
+	// the two sides agree under the SAME abortMu, so neither ordering ever misses the other.
+	c.abortMu.Lock()
+	c.pendingCloses++
+	if c.openAbort != nil {
+		c.openAbort.fire()
+	}
+	c.abortMu.Unlock()
+
 	c.lifeMu.Lock()
+
+	// Test seam: registered BEFORE the lifeMu-unlock defer below, so LIFO runs it AFTER
+	// lifeMu actually releases — a test uses it to observe a queued Open's freshly published
+	// token before this Close call returns to its caller.
+	if hook := c.testHookCloseAfterUnlock; hook != nil {
+		defer hook()
+	}
 	defer c.lifeMu.Unlock()
+
+	// Unregister IMMEDIATELY after acquiring lifeMu — a plain statement, not a defer, so the
+	// window in which a fresh Open could observe "a Close is blocked on lifeMu right now" is as
+	// short as possible (see the pendingCloses invariant on the field doc).
+	c.abortMu.Lock()
+	c.pendingCloses--
+	c.abortMu.Unlock()
 
 	e := c.cur.Load()
 	if e == nil {
@@ -297,9 +454,10 @@ func (c *connection) Close() error {
 	e = c.cur.Load() // re-pin under publishMu: a just-published reconnect successor, else unchanged
 	c.publishMu.Unlock()
 
-	// Interrupt a reconnect loop parked in its T5 backoff so Close stays bounded (the loop then
-	// re-checks its F3/G2 fence and returns). Closed exactly once — a re-Close short-circuits
-	// above, and a fresh Open installs a new channel.
+	// Interrupt a reconnect loop parked in its T5 backoff so it does not add its own wait to Close's
+	// real bound (the loop then re-checks its shutdown fence and returns) — one of several joins Close
+	// still performs; see [Connection.Close] for what actually bounds those and what does not.
+	// Closed exactly once — a re-Close short-circuits above, and a fresh Open installs a new channel.
 	if p := c.reconnectCancel.Load(); p != nil {
 		close(*p)
 	}
@@ -353,6 +511,30 @@ func (c *connection) joinSupervisor(s *supervisor, deadline time.Time) error {
 	}
 }
 
+// mapAbortedStartErr maps a tr.Start failure to the caller-visible error when the FIRST dial of an
+// Open cycle was bounded: a fired abort reports ErrConnClosed (a Close was requested — checked
+// first, the more actionable of the two when both happen to be true).
+// The caller's ctx is credited only on provenance, never on a context sentinel matching alone:
+// callerCut is true only when BoundDial's own caller-ctx bridge is what cut the merged dial ctx,
+// and even then only a Canceled error — the sentinel that bridge's own cancel produces — is mapped to ctxErr.
+// A context sentinel that reaches Start some other way — a WithConnectTimeout-style dial deadline expiring on its own,
+// for instance, while the caller's ctx happens to be done too for an unrelated reason —
+// never sets callerCut and so is returned unchanged.
+// A Start failure unrelated to the bound dial —
+// a passive listen refused because the port is already in use, for instance,
+// or any failure a transport's Start can still report after it has already driven TCP-up —
+// is returned unchanged too, even while ctxErr happens to be non-nil for an unrelated reason.
+func mapAbortedStartErr(err, ctxErr error, aborted, callerCut bool) error {
+	switch {
+	case aborted:
+		return ErrConnClosed
+	case callerCut && errors.Is(err, context.Canceled):
+		return ctxErr
+	default:
+		return err
+	}
+}
+
 // firstErr returns the first non-nil error, keeping the earlier and more specific cause.
 func firstErr(errs ...error) error {
 	for _, err := range errs {
@@ -364,10 +546,14 @@ func firstErr(errs ...error) error {
 	return nil
 }
 
-// react is the supervisor's transition reaction (spec §5.2/§7.E). It runs on the supervisor
-// goroutine and is the SOLE initiator of teardown. It MUST NOT block the supervisor: the
-// farewell uses TryLock + a short write deadline, and teardown is the non-blocking initiator
-// (it kicks the bounded join on a separate goroutine and returns immediately).
+// react is the supervisor's transition reaction (spec §5.2/§7.E).
+// It runs on the supervisor goroutine and is the SOLE initiator of teardown.
+// It MUST NOT block the supervisor: the farewell uses TryLock + a short write deadline,
+// and teardown is the non-blocking initiator (it kicks the bounded join on a separate goroutine and returns immediately).
+// This holds for the write itself and for its own control flow; it does NOT hold against a
+// pathological custom net.Conn — SetWriteDeadline/Write here, and Close inside e.teardown, are
+// synchronous calls into caller-supplied code, and a conn that ignores its deadline or blocks in
+// Close can still block this goroutine (see the WithDialer / WithListener caller-obligation docs).
 //
 // It acts only on transitions INTO NotConnected (fired by both a voluntary Close's
 // evClose Selected->NotConnected and an involuntary evDisconnect). Ordering: (1) bounded
@@ -669,6 +855,58 @@ type genCapability = gencap.GenerationRuntime[Message, TransitionCause]
 
 var _ genCapability = (*connection)(nil)
 
+// dialCapability is the dial-bounding back-channel this core offers; see gencap.DialBounder.
+type dialCapability = gencap.DialBounder
+
+var _ dialCapability = (*connection)(nil)
+
+// BoundDial merges dialCtx with the caller ctx and abort channel of the Open whose ORIGINAL Start
+// ctx is startCtx.
+//
+// startCtx is compared against the published firstDialState by IDENTITY, not value: a reconnect
+// generation's Start carries a DIFFERENT epoch ctx, so this returns dialCtx unchanged for it —
+// even while a firstDial from an unrelated, still-in-flight Open happens to be published, since that
+// published firstDial belongs to a different epoch than the one this Start call is dialing for.
+// The identity comparison alone is what makes this safe: it holds regardless of any ordering between
+// a reconnect generation's dial and any other Open's Start call, or of when that other Open's own
+// generation began or ended relative to this one.
+//
+// The merged ctx is cancelled when dialCtx is, when the caller's ctx is, or when the Open is
+// aborted by a concurrent Close. Neither the AfterFunc bridge nor the abort-bridge goroutine is
+// joined by the returned cancel func — both are confined to the dial: they exit promptly once the
+// merged ctx is cancelled, so nothing here can leak past the one dial call that owns this ctx.
+// The AfterFunc bridge also marks fd.callerCut before it cancels, recording that THIS bridge — not dialCtx's own deadline, and not the abort — is what cut the merged ctx;
+// mapAbortedStartErr reads that flag once Start returns.
+func (c *connection) BoundDial(startCtx, dialCtx context.Context) (context.Context, context.CancelFunc) {
+	fd := c.firstDial.Load()
+	if fd == nil || fd.epochCtx != startCtx {
+		return dialCtx, func() {}
+	}
+
+	merged, cancel := context.WithCancel(dialCtx)
+	stopCaller := context.AfterFunc(fd.callerCtx, func() {
+		fd.callerCut.Store(true)
+		cancel()
+	})
+
+	// Bridge the abort channel into the merged ctx's cancellation.
+	// It exits on its own, without being joined,
+	// the instant merged is cancelled by any means (dialCtx, the caller ctx via stopCaller, or this select's own abort case) —
+	// see the doc comment above.
+	go func() {
+		select {
+		case <-fd.abort:
+			cancel()
+		case <-merged.Done():
+		}
+	}()
+
+	return merged, func() {
+		stopCaller()
+		cancel()
+	}
+}
+
 // TCPUp is called by the transport when a TCP connection is established (TransportRuntime).
 //
 // It publishes the socket on the current epoch and then advances the FSM NotConnected -> NotSelected SYNCHRONOUSLY via a guarded CAS (CommitConnected, symmetric with CommitSelected),
@@ -929,8 +1167,11 @@ func (c *connection) CurrentGeneration() uint64 {
 // the one the caller belongs to, as returned by [connection.CurrentGeneration] when that generation started.
 //
 // A transport goroutine can outlive its own generation.
-// The shutdown join is bounded,
-// so a goroutine wedged past the close timeout is abandoned and may resume at any later time,
+// The shutdown join is bounded by the close timeout in the ordinary case —
+// a straggler task goroutine still running when that deadline passes is abandoned rather than awaited further —
+// though a custom net.Conn, DialFunc, ListenFunc, or Logger that itself ignores deadlines or blocks can still delay the join beyond that bound
+// (see the WithDialer / WithListener caller-obligation docs).
+// Either way, a goroutine wedged past the close timeout is abandoned and may resume at any later time,
 // by which point a successor generation can already be selected.
 // Because the plain TCPDown entry points resolve the current generation at CALL time,
 // such a straggler would otherwise mark the successor's socket as failed and drop a link it knows nothing about.

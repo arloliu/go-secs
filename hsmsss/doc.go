@@ -38,7 +38,7 @@
 //
 // Open the connection with a mode:
 //
-//	// Block until the session is Selected (or ctx expires):
+//	// Block until the session is Selected (or ctx expires, or Close is called):
 //	err := conn.Open(ctx, hsms.OpenWaitSelected)
 //	// Or kick off the lifecycle in the background (passive typically uses this):
 //	err := conn.Open(ctx, hsms.OpenBackground)

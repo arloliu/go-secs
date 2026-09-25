@@ -279,6 +279,10 @@ func WithDeviceID(id uint16) Option {
 //
 // Unlike a message handler, dial is an infrastructure hook, and a panic inside it is not recovered:
 // during Open it propagates to Open's caller; during a background reconnect it ends the process.
+//
+// The returned net.Conn must honour deadlines set on it (SetDeadline / SetReadDeadline / SetWriteDeadline)
+// and Close must return promptly once called;
+// a conn that does not can keep [github.com/arloliu/go-secs/v2/hsms.Connection.Close] from completing.
 func WithDialer(dial DialFunc) Option {
 	return func(c *Config) error {
 		if dial == nil {
@@ -328,6 +332,10 @@ func WithConnectTimeout(d time.Duration) Option {
 // Unlike a message handler, listen is an infrastructure hook,
 // and a panic inside it is not recovered: during Open it propagates to Open's caller;
 // during a background reconnect it ends the process.
+//
+// The returned net.Listener's Accept must return promptly once Close is called on it,
+// and any net.Conn it yields must honour deadlines the same way a WithDialer conn must —
+// a listener or conn that does not can keep [github.com/arloliu/go-secs/v2/hsms.Connection.Close] from completing.
 func WithListener(listen ListenFunc) Option {
 	return func(c *Config) error {
 		if listen == nil {

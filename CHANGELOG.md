@@ -40,6 +40,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A caller using a custom dialer or listener must configure keep-alive
   unless `WithTCPKeepAlive` is set and the socket is a `*net.TCPConn`.
   The README example enables a 30-second linktest.
+- `hsms`: `Connection.Open`'s ctx now also bounds an active transport's FIRST dial,
+  in BOTH `OpenWaitSelected` and `OpenBackground` modes.
+  Previously it bounded only the `OpenWaitSelected` wait for Selected,
+  and the dial itself rode out the OS connect timeout (or `WithConnectTimeout`) unbounded by the caller's ctx.
+  Behavior change under `OpenBackground`:
+  a caller ctx that expires while the first dial is still blocked now rolls back and returns the ctx error,
+  instead of falling into the cold-peer background retry
+  (the connection stays closed rather than silently starting to retry in the background).
+  A custom `DialFunc` that ignores its ctx is not interruptible this way.
+- `hsms`, `hsmsss`, `secs1`: the `Connection.Close`, `WithCloseTimeout`, `WithLogger`, `WithDialer`, and `WithListener` docs
+  now state the real close bound —
+  a best-effort farewell Separate of at most 500ms, then the configured close timeout for the teardown join and the notifier join —
+  and the caller obligations it depends on:
+  a blocking custom `net.Conn`, `DialFunc`, `ListenFunc`, or `Logger` can still keep `Close` from completing.
+  Previously `Close`'s doc described a single, unqualified "bounded by the configured close timeout".
+- `hsmsss`: the accept-retry warning a passive connection logs on a transient `Accept` failure
+  is now emitted off the accept goroutine, and suppressed while one is still being logged.
+  Previously a blocking `Logger` could stall `Close`'s unbounded join of that goroutine.
 
 ### Fixed
 
@@ -74,6 +92,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and a teardown wins over a simultaneous protocol timeout, which is then not counted.
   Previously the outcome was picked at random.
   Caller cancellation keeps its existing behavior.
+- `hsms`: `Close` no longer blocks behind an `Open` that is itself blocked —
+  in `OpenWaitSelected`'s wait for Selected, or in an active transport's first dial.
+  A concurrent `Close` now interrupts either, and `Open` returns `ErrConnClosed`.
+  Previously `Close` could not even acquire the lifecycle lock until such an `Open` returned on its own,
+  which for a blocked `OpenWaitSelected` wait with no peer meant forever,
+  and for a blocked first dial meant the OS connect timeout — roughly two minutes on Linux —
+  unless `WithConnectTimeout` was set.
 
 ## [2.4.2] - 2026-09-25
 

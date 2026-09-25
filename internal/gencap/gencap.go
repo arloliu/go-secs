@@ -36,3 +36,24 @@ type GenerationRuntime[M any, C any] interface {
 	DeliverOwnedFrameFromGeneration(gen uint64, frame []byte) error
 	RouteReplyFromGeneration(gen uint64, msg M) bool
 }
+
+// DialBounder lets a transport bound a dial by the caller of the Open that started this generation.
+//
+// It is reached by type assertion, the same way GenerationRuntime is:
+// the core offers it,
+// and an in-module transport's active dial site consults it after wrapping the dial ctx with its own per-attempt timeout (e.g. WithConnectTimeout).
+// It is unrelated to GenerationRuntime's per-message generation fencing —
+// it fences exactly one thing, the FIRST dial of an Open cycle.
+type DialBounder interface {
+	// BoundDial returns dialCtx, additionally cancelled
+	// when the Open that passed startCtx to Start has its ctx cancelled or is aborted by a concurrent Close.
+	//
+	// startCtx must be the EXACT ctx value the transport's Start received:
+	// the core matches it by identity against the ctx of the Open whose first dial is in flight.
+	// For any other startCtx — a reconnect generation's Start, or a call made once that Open has already returned —
+	// dialCtx is returned unchanged, with a no-op cancel.
+	//
+	// cancel must be called once the dial returns, successfully or not;
+	// it releases resources bound to this one call and never affects anything beyond it.
+	BoundDial(startCtx, dialCtx context.Context) (context.Context, context.CancelFunc)
+}

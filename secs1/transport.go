@@ -11,6 +11,7 @@ import (
 
 	"github.com/arloliu/go-secs/v2/gem"
 	"github.com/arloliu/go-secs/v2/hsms"
+	"github.com/arloliu/go-secs/v2/internal/gencap"
 	"github.com/arloliu/go-secs/v2/secs2"
 )
 
@@ -241,7 +242,12 @@ func (t *transport) Start(ctx context.Context, rt hsms.TransportRuntime) error {
 	engineCtx, engineCancel := context.WithCancel(ctx)
 
 	if t.cfg.Active() {
-		return t.startActive(engineCtx, engineCancel)
+		// ctx (the ORIGINAL Start ctx, not engineCtx) is threaded through so startActive can
+		// match it by identity against the core's published firstDial — see the note on
+		// startActive's dial-bounding call below. engineCtx is derived from ctx via
+		// context.WithCancel, a DIFFERENT value, so the identity check would silently never bind
+		// if only engineCtx reached BoundDial.
+		return t.startActive(ctx, engineCtx, engineCancel)
 	}
 
 	return t.startPassive(engineCtx, engineCancel)
@@ -266,7 +272,13 @@ func (t *transport) tcpDown(cause error, transitionCause hsms.TransitionCause) {
 // startActive dials the configured host:port, applies keep-alive, publishes the conn, auto-commits
 // the FSM to Selected, and spawns the single line engine. engineCtx/engineCancel scope this
 // generation's engine (teardown cancels engineCtx via Stop's engineCancel).
-func (t *transport) startActive(engineCtx context.Context, engineCancel context.CancelFunc) error {
+//
+// startCtx is the ORIGINAL ctx Start received —
+// the identity gencap.DialBounder matches the core's published firstDial against.
+// It is deliberately NOT engineCtx:
+// engineCtx is a derived context.WithCancel child, a different value,
+// so passing it instead would make the identity check silently never bind.
+func (t *transport) startActive(startCtx, engineCtx context.Context, engineCancel context.CancelFunc) error {
 	addr := fmt.Sprintf("%s:%d", t.cfg.Host(), t.cfg.Port())
 
 	// Ctx-aware dial (I6): the configured dialer (default (&net.Dialer{}).DialContext, overridable via
@@ -286,6 +298,17 @@ func (t *transport) startActive(engineCtx context.Context, engineCancel context.
 		var cancel context.CancelFunc
 		dialCtx, cancel = context.WithTimeout(engineCtx, t.cfg.connectTimeout)
 		defer cancel()
+	}
+
+	// Bound the FIRST dial of an Open cycle by the caller's Open ctx and by a
+	// concurrent Close, through the core's gencap.DialBounder back-channel — a no-op for any
+	// other startCtx (a reconnect generation) and when t.rt does not offer the capability.
+	// secs1's synchronous CommitSelected call below stays OUTSIDE this bound: only the dial
+	// itself can be interrupted this way.
+	if db, ok := t.rt.(gencap.DialBounder); ok {
+		var boundCancel context.CancelFunc
+		dialCtx, boundCancel = db.BoundDial(startCtx, dialCtx)
+		defer boundCancel()
 	}
 
 	conn, err := t.cfg.dial(dialCtx, "tcp", addr)
