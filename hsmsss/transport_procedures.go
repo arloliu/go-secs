@@ -26,12 +26,16 @@ type suppressionRuntime interface {
 }
 
 // startLinktest launches the auto-linktest goroutine for a freshly-entered Selected session (D5a-5).
-// It runs on the recv goroutine (the sole caller of CommitSelected), which passes its captured
-// generation bundle g (NEW-1) so the linktest goroutine registers on — and this generation's Stop
-// joins — g, never t.wg. The interval and the suppression capability/flag are read ONCE here from
-// the live config, so a reconfig applies only on the NEXT entry to Selected. A zero/negative
-// interval disables auto-linktest (no goroutine). The goroutine is cancelled by stopLinktest
-// (Deselect) or by genCtx cancellation (teardown/drop).
+// It runs on the recv goroutine (the sole caller of CommitSelected),
+// which passes its captured generation bundle g (NEW-1) —
+// so the linktest goroutine registers on, and this generation's Stop joins, g, never t.wg.
+// The interval and the suppression capability/flag are read ONCE here from the live config,
+// so a reconfig applies only on the NEXT entry to Selected.
+// A zero/negative interval disables auto-linktest (no goroutine).
+// The goroutine is cancelled by stopLinktest (Deselect) or by g.ctx cancellation (teardown/drop).
+//
+// the check-install-Add below is one critical section under g.timerMu; see
+// genWG.timersStopped for the seal guarantee this gives.
 func (t *transport) startLinktest(g *genWG) {
 	interval := t.rt.LinktestInterval()
 	if interval <= 0 {
@@ -46,31 +50,42 @@ func (t *transport) startLinktest(g *genWG) {
 		sr = s
 	}
 
-	t.connMu.Lock()
+	g.timerMu.Lock()
+	if g.timersStopped {
+		g.timerMu.Unlock()
+
+		return
+	}
 	// Defensive: a prior session's cancel should already be cleared (we only reach a true
 	// NotSelected->Selected commit while not Selected). Cancel any stale one before overwriting.
-	if t.linktestCancel != nil {
-		t.linktestCancel()
+	if g.linktestCancel != nil {
+		g.linktestCancel()
 	}
-	ctx, cancel := context.WithCancel(t.genCtx)
-	t.linktestCancel = cancel
+	ctx, cancel := context.WithCancel(g.ctx)
+	g.linktestCancel = cancel
 	g.linktest.Add(1)
-	t.connMu.Unlock()
+	g.timerMu.Unlock()
 
 	go t.runLinktest(ctx, g, interval, sr)
 }
 
-// stopLinktest cancels the current Selected session's auto-linktest goroutine (recv goroutine, on a
+// stopLinktest cancels g's current Selected-session auto-linktest goroutine (recv goroutine, on a
 // Deselect responder transition Selected->NotSelected). It does NOT join — the goroutine exits
 // promptly on ctx cancellation and is reaped by Stop's g.linktest.Wait; a brief overlap with a
 // subsequently re-spawned goroutine is benign (each has its own fail counter and sends are byte-atomic).
-func (t *transport) stopLinktest() {
-	t.connMu.Lock()
-	if t.linktestCancel != nil {
-		t.linktestCancel()
-		t.linktestCancel = nil
+//
+// g's linktestCancel lives ON g, guarded by g.timerMu,
+// so this touches ONLY the bundle it was called with.
+// A straggler calling stopLinktest(gStale) after gStale's own generation has ended
+// can therefore never reach a LIVE successor's auto-linktest —
+// there is no shared, transport-wide handle left for it to race into.
+func (t *transport) stopLinktest(g *genWG) {
+	g.timerMu.Lock()
+	if g.linktestCancel != nil {
+		g.linktestCancel()
+		g.linktestCancel = nil
 	}
-	t.connMu.Unlock()
+	g.timerMu.Unlock()
 }
 
 // linktestFailureStep is the pure state reducer for a failed probe round-trip (D5a-5
@@ -179,7 +194,7 @@ func (t *transport) runLinktest(ctx context.Context, g *genWG, interval time.Dur
 
 		if err != nil {
 			// A cancelled PARENT ctx (teardown / Deselect / drop) is not a linktest failure.
-			// Nor is a reply wait aborted via hsms.ErrConnClosed: t.genCtx IS the epoch's own ctx (Start's ctx),
+			// Nor is a reply wait aborted via hsms.ErrConnClosed: g.ctx IS the epoch's own ctx (Start's ctx),
 			// and this goroutine's ctx is a child derived from it, so they form one context tree, not two.
 			// A parent's Done channel closes before its cancellation reaches the child,
 			// so Close() can make sendWaitReplyOn return hsms.ErrConnClosed while this child ctx's Err() still reads nil —
@@ -242,38 +257,54 @@ func (t *transport) runLinktest(ctx context.Context, g *genWG, interval time.Dur
 
 // armT7 starts the T7 NOT-SELECTED dwell goroutine for a freshly-entered NotSelected state (§9.2.2).
 // It runs on the recv goroutine (recvLoop entry for NotConnected->NotSelected, and handleDeselectReq
-// for Selected->NotSelected), which passes its captured generation bundle g (NEW-1) so the T7
-// goroutine registers on — and this generation's Stop joins — g, never t.wg. A zero/negative T7
-// disables the dwell (no goroutine). The goroutine is cancelled by cancelT7 (on reaching Selected) or
-// by genCtx cancellation (teardown/drop). Cancellation is an optimization: even without it, the core
-// no-ops a stale evT7Timeout from Selected/NotConnected.
+// for Selected->NotSelected), which passes its captured generation bundle g (NEW-1)
+// so the T7 goroutine registers on — and this generation's Stop joins — g, never t.wg.
+// A zero/negative T7 disables the dwell (no goroutine).
+// The goroutine is cancelled by cancelT7 (on reaching Selected) or by g.ctx cancellation (teardown/drop).
+// Cancellation is an optimization: even without it, the core no-ops a stale evT7Timeout from Selected/NotConnected.
+//
+// the check-install-Add below is one critical section under g.timerMu, mirroring
+// startLinktest; see genWG.timersStopped for the seal guarantee this gives.
 func (t *transport) armT7(g *genWG) {
 	d := t.rt.Timers().T7
 	if d <= 0 {
 		return
 	}
 
-	t.connMu.Lock()
-	if t.t7Cancel != nil {
-		t.t7Cancel() // defensive: cancel a stale arm before overwriting (recv-goroutine-only path)
+	if hook := t.testHookArmT7BeforeLock; hook != nil {
+		hook()
 	}
-	ctx, cancel := context.WithCancel(t.genCtx)
-	t.t7Cancel = cancel
+
+	g.timerMu.Lock()
+	if g.timersStopped {
+		g.timerMu.Unlock()
+
+		return
+	}
+	if g.t7Cancel != nil {
+		g.t7Cancel() // defensive: cancel a stale arm before overwriting (recv-goroutine-only path)
+	}
+	ctx, cancel := context.WithCancel(g.ctx)
+	g.t7Cancel = cancel
 	g.t7.Add(1)
-	t.connMu.Unlock()
+	g.timerMu.Unlock()
 
 	go t.runT7(ctx, g, d)
 }
 
-// cancelT7 cancels the current NotSelected-entry's T7 goroutine (recv goroutine, on reaching Selected).
+// cancelT7 cancels g's current NotSelected-entry T7 goroutine (recv goroutine, on reaching Selected).
 // It does NOT join — the goroutine exits promptly on ctx cancellation and is reaped by Stop's g.t7.Wait.
-func (t *transport) cancelT7() {
-	t.connMu.Lock()
-	if t.t7Cancel != nil {
-		t.t7Cancel()
-		t.t7Cancel = nil
+//
+// g's t7Cancel lives ON g, guarded by g.timerMu, mirroring stopLinktest,
+// so this touches ONLY the bundle it was called with — a straggler calling cancelT7(gStale)
+// after gStale's own generation has ended can never reach a LIVE successor's T7 dwell.
+func (t *transport) cancelT7(g *genWG) {
+	g.timerMu.Lock()
+	if g.t7Cancel != nil {
+		g.t7Cancel()
+		g.t7Cancel = nil
 	}
-	t.connMu.Unlock()
+	g.timerMu.Unlock()
 }
 
 // runT7 is the one-shot T7 dwell timer. On expiry it injects evT7Timeout via rt.T7Expired(); the

@@ -124,6 +124,12 @@ func (f *FakeEndpoint) doneChan() chan struct{} {
 // Channel delivery selects on a per-FakeEndpoint done signal alongside the channel send,
 // mirroring the real hsms.SECS2Endpoint.AddDataMessageChan contract: a full channel blocks
 // Deliver until either the consumer drains it or Close unblocks the send.
+//
+// Unlike the real engine,
+// Deliver has no per-handler/per-channel observed-cancellation check
+// (the real fan-out's "done rechecked before each delivery" contract) and models no connection generations at all —
+// Close is a single bare unblock signal for the whole fake, not a per-epoch teardown.
+// Tests exercising a connection's generation-fenced reply/fan-out behavior need the real hsms.Connection, not this fake.
 func (f *FakeEndpoint) Deliver(msg *hsms.DataMessage) {
 	f.mu.Lock()
 	handlers := slices.Clone(f.dataHandlers)
@@ -203,8 +209,11 @@ func (f *FakeEndpoint) AddDecodeErrorHandler(handlers ...hsms.DecodeErrorHandler
 }
 
 // DeliverDecodeError invokes every registered DecodeErrorHandler with (msg, err, f),
-// as if an undecodable message had arrived on the wire. Handlers are snapshotted under
-// the lock and invoked with it released, matching Deliver's contract.
+// as if an undecodable message had arrived on the wire.
+// Handlers are snapshotted under the lock and invoked with it released, matching Deliver's contract.
+//
+// Like Deliver, it has no per-handler observed-cancellation check and models no connection generations;
+// see Deliver's doc.
 func (f *FakeEndpoint) DeliverDecodeError(msg *hsms.DataMessage, err error) {
 	f.mu.Lock()
 	handlers := slices.Clone(f.decodeErrHandlers)
@@ -381,6 +390,9 @@ func (f *FakeEndpoint) SendSECS2Message(_ context.Context, msg secs2.SECS2Messag
 // ReplyDataMessage records the reply.
 // It never consults the reply script (a reply is not a synchronous send awaiting a response).
 // Returns hsms.ErrNilMessage if primary is nil, recording nothing, matching the real session.
+//
+// Unlike the real hsms.SECS2Endpoint.ReplyDataMessage, this never refuses a reply:
+// FakeEndpoint models no connection generations, so it has no stale-generation case to reproduce.
 func (f *FakeEndpoint) ReplyDataMessage(_ context.Context, primary *hsms.DataMessage, item secs2.Item) error {
 	return f.recordReply(primary, item)
 }

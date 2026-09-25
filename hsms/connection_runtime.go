@@ -15,17 +15,33 @@ import (
 // When at least one decode-error handler is registered, RouteData forces the lazy SECS-II body decode here (where the metrics are in scope).
 // An undecodable primary is counted and diverted to the decode-error handlers instead of the normal data-message fan-out;
 // a message whose body decodes cleanly, and every message when no decode-error handler is registered, routes normally with decoding left lazy.
+//
+// RouteData resolves the current epoch once and delegates to routeDataOn,
+// fencing the fan-out's cancellation check to the epoch resolved HERE rather than whatever generation is current when a handler or channel delivery actually runs.
 func (c *connection) RouteData(msg *DataMessage) error {
+	return c.routeDataOn(c.cur.Load(), msg)
+}
+
+// routeDataOn is RouteData's body, performed on an ALREADY-RESOLVED epoch e.
+//
+// e may be nil (no live epoch — before the first Open, or after a full Close):
+// the fan-out then runs against a pre-closed done signal (epochDone), exactly as Done() reports today,
+// so a decode-error/data delivery attempted with no live connection observes an already-cancelled generation and delivers to nothing.
+//
+// The decode-error diversion uses dispatchDecodeErrorOn, bound to e's own cancellation signal.
+func (c *connection) routeDataOn(e *epoch, msg *DataMessage) error {
+	done := epochDone(e)
+
 	if c.hasDecodeErrorHandlers() {
 		if derr := msg.DecodeErr(); derr != nil { // forces the lazy body decode and caches the result
 			c.metrics.incBodyDecodeErr()
-			c.dispatchDecodeError(msg, derr)
+			c.dispatchDecodeErrorOn(done, msg, derr)
 
 			return nil // diverted — do NOT fan out to the normal data-message/channel handlers
 		}
 	}
 
-	c.recvDataMsg(msg) // promoted from the embedded session
+	c.recvDataMsgOn(done, msg) // promoted from the embedded session
 
 	return nil
 }
@@ -150,7 +166,57 @@ func (c *connection) injectT7Expiry(gen uint64) {
 // An orphan secondary that misses the registry also falls through to RouteData (delivered as unsolicited).
 // A decode error is returned (the recv loop treats it as a protocol error and keeps reading);
 // it is effectively unreachable because readFrame + dispatchFrame already validated length/PType/SType.
+//
+// DeliverOwnedFrame resolves the current epoch once and delegates to deliverOwnedFrameOn;
+// see that function for the generation-fenced admission, S9F1, and fan-out behavior it drives.
+// This is also the entry point SECS-I uses (secs1's assembler calls it directly, with no generation identity of its own),
+// so every inbound primary — HSMS-SS or SECS-I — is stamped by the same code path.
 func (c *connection) DeliverOwnedFrame(frame []byte) error {
+	return c.deliverOwnedFrameOn(c.cur.Load(), frame)
+}
+
+// DeliverOwnedFrameFromGeneration is DeliverOwnedFrame performed ON BEHALF OF gen, the generation
+// whose recv goroutine read frame.
+//
+// gen is resolved to its epoch under the generation gate (liveEpoch) BEFORE anything else runs —
+// this is the admission cutoff: a generation whose teardown has already latched ended is refused here, before the frame is even decoded,
+// so a straggler naming a dead generation can never reach the reply registry or the session fan-out, regardless of what publishes a successor in the meantime.
+// A refusal is not a decode error (the frame may be perfectly well-formed) —
+// it is dropped, counted at staleRecv, and logged at Debug, mirroring SendAsyncFromGeneration's stale accounting on the outbound side.
+//
+// Once gen is admitted, everything downstream (decode, S9F1, reply correlation, session fan-out)
+// runs against the RESOLVED epoch, never a re-read of c.cur — see deliverOwnedFrameOn.
+//
+// A gen of 0 (secs1, or any out-of-module transport) takes the plain DeliverOwnedFrame path unchanged.
+func (c *connection) DeliverOwnedFrameFromGeneration(gen uint64, frame []byte) error {
+	if gen == 0 {
+		return c.DeliverOwnedFrame(frame)
+	}
+
+	e := c.liveEpoch(gen)
+	if e == nil {
+		c.staleRecv.Add(1)
+		c.cfg.Load().logger.Debug("hsms: dropped an inbound frame admitted by a generation that is no longer live",
+			"reported_generation", gen, "current_generation", c.CurrentGeneration())
+
+		return nil
+	}
+
+	return c.deliverOwnedFrameOn(e, frame)
+}
+
+// deliverOwnedFrameOn is DeliverOwnedFrame's body, performed on an ALREADY-RESOLVED epoch e.
+//
+// e may be nil (no live epoch — before the first Open, or after a full Close):
+// decode still runs (so a caller with no live connection still gets an honest decode error for a malformed frame),
+// but the message is not stamped with an origin at all,
+// and every downstream fan-out check observes an already-cancelled done signal (epochDone), so nothing is ever delivered.
+//
+// The origin stamp:
+// an inbound *DataMessage admitted while a live generation exists (e != nil) is stamped with the connection's identity token and that generation's id,
+// so [SECS2Endpoint.ReplyDataMessage] can bind a reply to that same generation and refuse it once the generation has ended.
+// This covers the plain (gen-less) DeliverOwnedFrame path SECS-I uses just the same, since e is still resolved from c.cur there.
+func (c *connection) deliverOwnedFrameOn(e *epoch, frame []byte) error {
 	msg, err := decodeOwnedFrame(frame)
 	if err != nil {
 		c.metrics.incDecodeErr()
@@ -165,8 +231,15 @@ func (c *connection) DeliverOwnedFrame(frame []byte) error {
 
 	dm, ok := msg.(*DataMessage)
 	if !ok {
-		// Unreachable: dispatchFrame routes only DataMsgType frames here. Defensive.
+		// Unreachable: dispatchFrame routes only DataMsgType frames here.
+		// Defensive.
 		return errors.New("hsms: DeliverOwnedFrame received a non-data frame")
+	}
+
+	// Origin stamp: both fields are set only when a live generation admitted dm; see the doc above.
+	if e != nil {
+		dm.originIdent = c.ident
+		dm.originGen = e.id
 	}
 
 	c.metrics.incDataMsgRecv() // the single data-receive chokepoint (DataMsgRecvCount)
@@ -177,9 +250,13 @@ func (c *connection) DeliverOwnedFrame(frame []byte) error {
 	}
 
 	if c.cfg.Load().validateSessionID {
-		if err := c.checkSessionID(dm); err != nil {
+		if err := c.checkSessionID(e, dm); err != nil {
 			return nil // dropped — not a decode error, so the recv loop keeps reading
 		}
+	}
+
+	if hook := c.testHookBeforeFanout; hook != nil {
+		hook()
 	}
 
 	// Reply correlation applies ONLY to a SECONDARY (reply). A reply reuses the primary's System
@@ -191,40 +268,56 @@ func (c *connection) DeliverOwnedFrame(frame []byte) error {
 	// So only a secondary is offered to the registry; a primary (and an orphan secondary that misses)
 	// is delivered to the session's data handlers.
 	if isSecondaryReply(dm) {
-		if c.RouteReply(dm) {
+		if c.routeReplyOn(e, dm) {
 			return nil
 		}
 	}
 
-	return c.RouteData(dm)
+	return c.routeDataOn(e, dm)
 }
 
-// checkSessionID validates dm's SessionID against this connection's own configured SessionID (see
-// WithSessionIDValidation). On a mismatch it sends an S9F1 from this connection's own SessionID
-// (fire-and-forget — a failure to send the S9F1 does not change the outcome) and returns
-// ErrUnrecognizedSessionID so the caller drops dm without routing it. An inbound S9F1 is exempted
-// from the check entirely (regardless of its own SessionID): checkSessionID returns nil immediately,
-// so the caller proceeds to route dm normally (delivered to DataMessageHandlers, or reply-correlated
-// if it matches a pending transaction) — it is NOT dropped. This both avoids an S9F1-answers-S9F1
-// notification loop and preserves visibility into a diagnostic message the peer sent us.
+// checkSessionID validates dm's SessionID against this connection's own configured SessionID
+// (see WithSessionIDValidation), performed on the ALREADY-RESOLVED epoch e that admitted dm —
+// e is whichever epoch deliverOwnedFrameOn resolved, never a re-read of c.cur.
+// On a mismatch it sends an S9F1 from this connection's own SessionID
+// (fire-and-forget — a failure to send the S9F1 does not change the outcome),
+// and returns ErrUnrecognizedSessionID so the caller drops dm without routing it.
+// An inbound S9F1 is exempted from the check entirely, regardless of its own SessionID:
+// checkSessionID returns nil immediately, so the caller proceeds to route dm normally
+// (delivered to DataMessageHandlers, or reply-correlated if it matches a pending transaction) —
+// it is NOT dropped.
+// This both avoids an S9F1-answers-S9F1 notification loop
+// and preserves visibility into a diagnostic message the peer sent us.
 //
 // Per SEMI E5 §10.13, S9F1's body is MHEAD — the 10-byte header of the OFFENDING message (dm), not
 // an empty item. gem.S9F1(dm.HeaderBytes()) builds the correctly-shaped SECS2Message; this
 // re-stamps it as a DataMessage carrying THIS connection's own SessionID and a fresh System Bytes
 // (S9F1 is a notification, not a reply to dm, so it must not reuse dm's System Bytes).
-func (c *connection) checkSessionID(dm *DataMessage) error {
+//
+// The S9F1 is enqueued via enqueueAsync bound to e,
+// so it can never land on a successor generation's send queue:
+// a mismatch admitted by a generation that ends before the enqueue runs drops the S9F1 along with the rest of that generation's stranded queue (see SendAsyncFromGeneration).
+// A nil e (no live epoch) skips the enqueue entirely —
+// there is nowhere to send it —
+// matching the outcome the old unconditional SendAsync call already had (ErrNotOpen, ignored).
+func (c *connection) checkSessionID(e *epoch, dm *DataMessage) error {
 	isS9F1 := dm.Stream() == 9 && dm.Function() == 1
 	if isS9F1 || dm.SessionID() == c.SessionID() {
 		return nil
 	}
 
-	s9 := gem.S9F1(dm.HeaderBytes())
-	reject, err := NewDataMessage(
-		s9.StreamCode(), s9.FunctionCode(), s9.WaitBit(),
-		c.SessionID(), c.NextSystemBytes(), s9.Item(),
-	)
-	if err == nil {
-		_ = c.SendAsync(context.Background(), reject)
+	if e != nil {
+		s9 := gem.S9F1(dm.HeaderBytes())
+		reject, err := NewDataMessage(
+			s9.StreamCode(), s9.FunctionCode(), s9.WaitBit(),
+			c.SessionID(), c.NextSystemBytes(), s9.Item(),
+		)
+		if err == nil {
+			if hook := c.testHookBeforeS9F1Enqueue; hook != nil {
+				hook()
+			}
+			_ = c.enqueueAsync(context.Background(), e, reject)
+		}
 	}
 
 	return ErrUnrecognizedSessionID
@@ -280,8 +373,19 @@ func isSecondaryReply(dm *DataMessage) bool {
 // so on a miss (see transport.dispatchFrame → sendRejectTransactionNotOpen).
 // An orphan inbound Reject.req (SType 7, not a response) is dropped rather than re-rejected; an orphan data secondary
 // that misses falls through to the session as unsolicited.
+//
+// RouteReply resolves the current epoch once and delegates to routeReplyOn.
 func (c *connection) RouteReply(msg Message) bool {
-	e := c.cur.Load()
+	return c.routeReplyOn(c.cur.Load(), msg)
+}
+
+// routeReplyOn is RouteReply's body, performed on an ALREADY-RESOLVED epoch e.
+//
+// A nil e (no live epoch — no generation is registered) is a miss,
+// matching what RouteReply always reported before generations existed.
+// The nil check runs BEFORE touching msg at all,
+// so a nil msg with a nil e (the pre-Open honest-error case) never dereferences it.
+func (c *connection) routeReplyOn(e *epoch, msg Message) bool {
 	if e == nil {
 		return false
 	}
@@ -305,4 +409,34 @@ func (c *connection) RouteReply(msg Message) bool {
 	}
 
 	return delivered
+}
+
+// RouteReplyFromGeneration is RouteReply performed ON BEHALF OF gen, the generation whose recv goroutine read msg.
+//
+// gen is resolved under the generation gate exactly like DeliverOwnedFrameFromGeneration.
+// A stale gen is reported delivered (true) rather than a miss (false):
+// true enters dispatchFrame's HIT branch, which for a status-0 Select.rsp attempts commitSelected(gen) —
+// a commit that liveEpoch's own {id, not ended} test refuses for a dead generation, so no side effect follows —
+// while false would enter the MISS branch and attempt sendRejectTransactionNotOpen,
+// which SendAsyncFromGeneration also drops.
+// Both are safe; true avoids a pointless Reject attempt on a link that is already gone.
+// staleRecv is counted, and the drop logged at Debug, once here, in this function —
+// before dispatchFrame decides which of those two branches the true/false result sends it to.
+//
+// A gen of 0 takes the plain RouteReply path unchanged.
+func (c *connection) RouteReplyFromGeneration(gen uint64, msg Message) bool {
+	if gen == 0 {
+		return c.RouteReply(msg)
+	}
+
+	e := c.liveEpoch(gen)
+	if e == nil {
+		c.staleRecv.Add(1)
+		c.cfg.Load().logger.Debug("hsms: dropped a reply routed by a generation that is no longer live",
+			"reported_generation", gen, "current_generation", c.CurrentGeneration())
+
+		return true
+	}
+
+	return c.routeReplyOn(e, msg)
 }

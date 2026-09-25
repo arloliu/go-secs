@@ -29,4 +29,10 @@ type GenerationRuntime[M any, C any] interface {
 	T7ExpiredFromGeneration(gen uint64)
 	SendAsyncFromGeneration(ctx context.Context, gen uint64, msg M) error
 	WriteMessageFromGeneration(ctx context.Context, gen uint64, msg M) (M, error)
+
+	// DeliverOwnedFrameFromGeneration and RouteReplyFromGeneration fence the INBOUND path the same way the outbound methods above fence sends:
+	// each admits or routes on behalf of gen, the generation whose recv goroutine actually read the bytes,
+	// rather than whatever generation is current when the call runs.
+	DeliverOwnedFrameFromGeneration(gen uint64, frame []byte) error
+	RouteReplyFromGeneration(gen uint64, msg M) bool
 }

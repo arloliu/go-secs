@@ -210,6 +210,9 @@ func (t *transport) startActive(ctx context.Context) error {
 	// rather than whichever is current when it happens to report.
 	// The core published the generation before calling Start, so this reads THIS generation's identity.
 	g.gen = t.currentGeneration()
+	// Stamp this generation's OWN ctx right alongside gen; see genWG.ctx for why
+	// recvLoop and the timer helpers derive from it instead of a transport-wide field.
+	g.ctx = ctx
 
 	// Report TCP-up BEFORE touching any transport-level bookkeeping
 	// (t.conn, the activity stamps, t.procCancel).
@@ -241,7 +244,7 @@ func (t *transport) startActive(ctx context.Context) error {
 	t.connMu.Unlock()
 
 	g.recv.Add(1)
-	go t.recvLoop(g)
+	go t.recvLoop(g, conn)
 
 	g.proc.Go(func() {
 		t.runSelectProcedure(procCtx, g)

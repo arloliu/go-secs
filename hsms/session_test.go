@@ -37,7 +37,7 @@ func TestSession_FanOutDeliversSamePointer(t *testing.T) {
 	)
 
 	msg := mustDataMsg(t)
-	s.recvDataMsg(msg)
+	s.recvDataMsgOn(rt.Done(), msg)
 	wg.Wait()
 
 	require.Same(t, msg, got1)
@@ -74,11 +74,11 @@ func TestSession_J5_BlockedChannelDoesNotWedgeFanOut(t *testing.T) {
 	recvDone := make(chan struct{})
 	go func() {
 		defer close(recvDone)
-		s.recvDataMsg(msg)
+		s.recvDataMsgOn(rt.Done(), msg)
 	}()
 
 	// Give the goroutine time to enter the channel-delivery select before closing Done.
-	// Even if closeDone fires first, the early-exit in recvDataMsg returns immediately —
+	// Even if closeDone fires first, the early-exit in recvDataMsgOn returns immediately —
 	// the test still passes because the fan-out did not block permanently.
 	time.Sleep(20 * time.Millisecond)
 	rt.closeDone()
@@ -87,7 +87,7 @@ func TestSession_J5_BlockedChannelDoesNotWedgeFanOut(t *testing.T) {
 	case <-recvDone:
 		// J5 satisfied: fan-out unblocked when rt.Done() closed.
 	case <-time.After(2 * time.Second):
-		t.Fatal("J5 violated: recvDataMsg did not return after rt.Done() was closed")
+		t.Fatal("J5 violated: recvDataMsgOn did not return after rt.Done() was closed")
 	}
 }
 
@@ -113,7 +113,7 @@ func TestSession_AddDataMessageChan_DuplicateRegistrationDeliversTwice(t *testin
 	s.AddDataMessageChan(ch) // same channel, registered a second time
 
 	msg := mustDataMsg(t)
-	s.recvDataMsg(msg)
+	s.recvDataMsgOn(rt.Done(), msg)
 
 	require.Same(t, msg, <-ch, "first registration must deliver")
 	require.Same(t, msg, <-ch, "second registration must deliver independently")
@@ -150,7 +150,7 @@ func TestSession_AddDataMessageChan_FIFOWithFuncHandlers(t *testing.T) {
 	}
 
 	for _, m := range msgs {
-		s.recvDataMsg(m)
+		s.recvDataMsgOn(rt.Done(), m)
 	}
 
 	mu.Lock()
@@ -163,7 +163,7 @@ func TestSession_AddDataMessageChan_FIFOWithFuncHandlers(t *testing.T) {
 }
 
 // TestAddDecodeErrorHandler_registrationAndDispatch verifies that decode-error handlers
-// register under the session lock and that dispatchDecodeError delivers the exact
+// register under the session lock and that dispatchDecodeErrorOn delivers the exact
 // (msg, err) pair to every registered handler, passing the session as the endpoint.
 func TestAddDecodeErrorHandler_registrationAndDispatch(t *testing.T) {
 	s := newSession(1, nil, &sysBytesGen{}) // rt nil is fine; we only test registration+dispatch
@@ -184,7 +184,10 @@ func TestAddDecodeErrorHandler_registrationAndDispatch(t *testing.T) {
 
 	want := errors.New("boom")
 	dm := &DataMessage{}
-	s.dispatchDecodeError(dm, want)
+	// rt is nil, so dispatchDecodeErrorOn cannot read a Done() channel off it; a fresh, never-closed
+	// channel stands in for "no cancellation observed" instead.
+	done := make(chan struct{})
+	s.dispatchDecodeErrorOn(done, dm, want)
 
 	if !errors.Is(gotErr, want) {
 		t.Errorf("handler err = %v, want %v", gotErr, want)

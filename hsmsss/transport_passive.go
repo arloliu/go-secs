@@ -86,6 +86,7 @@ func (t *transport) startPassive(ctx context.Context) error {
 	// accept goroutine (and the recv loop it spawns) join on this captured bundle, never t.wg.
 	g := t.wg
 	g.gen = t.currentGeneration() // see the identical stamp in startActive
+	g.ctx = ctx                   // see the identical stamp in startActive
 	g.accept.Add(1)
 	go t.acceptLoop(ctx, g, ln)
 	t.startGate.RUnlock()
@@ -157,7 +158,7 @@ func (t *transport) acceptLoop(ctx context.Context, g *genWG, ln net.Listener) {
 	// only on rt.Done(), which closes only AFTER tr.Stop's g.accept.Wait joins THIS goroutine: a
 	// rare unbounded Close-during-accept-window deadlock, now structurally impossible.)
 	g.recv.Add(1)
-	go t.recvLoop(g)
+	go t.recvLoop(g, conn)
 
 	// Refuse subsequent connections while the accepted one is live, per E37 §9.2.4.1.1 option 1
 	// (see refuseExtraConn): accept, but answer any Select.req with Communication Already

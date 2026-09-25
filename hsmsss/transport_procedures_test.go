@@ -22,10 +22,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newLinktestTransport builds a *transport wired to rt with genCtx set, WITHOUT dialing a
-// socket: the control-procedure helpers under test (startLinktest / stopLinktest /
-// handleLinktestReq / handleDeselectReq / handleSeparateReq) only touch rt and the transport's
-// own linktest fields, so no real TCP connection is needed.
+// newLinktestTransport builds a *transport wired to rt with tr.wg.ctx set (R10 / D1), WITHOUT
+// dialing a socket: the control-procedure helpers under test (startLinktest / stopLinktest /
+// handleLinktestReq / handleDeselectReq / handleSeparateReq) only touch rt and the current
+// generation bundle's own linktest/T7 fields, so no real TCP connection is needed.
 // rt takes the hsms.TransportRuntime interface (not the concrete *recRT) so a caller can supply a
 // thin wrapper around recRT that overrides a single method (e.g. commitSuccessRT below).
 func newLinktestTransport(t *testing.T, rt hsms.TransportRuntime, ctx context.Context) *transport {
@@ -36,7 +36,7 @@ func newLinktestTransport(t *testing.T, rt hsms.TransportRuntime, ctx context.Co
 
 	tr := newTransport(cfg)
 	tr.rt = rt
-	tr.genCtx = ctx
+	tr.wg.ctx = ctx
 
 	return tr
 }
@@ -84,7 +84,7 @@ func TestLinktest_AutoFiresWhileSelected(t *testing.T) {
 	require.Equal(t, hsms.LinktestReqType, rt.lastWritten().Type(), "auto send must be a Linktest.req")
 
 	// Stopping the linktest (ctx cancel) halts the goroutine: it exits and issues no more sends.
-	tr.stopLinktest()
+	tr.stopLinktest(tr.wg)
 	waitLinktestExit(t, tr)
 
 	stopped := rt.writtenCount()

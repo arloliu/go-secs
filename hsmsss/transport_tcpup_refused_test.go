@@ -51,7 +51,7 @@ func (l *singleAcceptListener) Addr() net.Addr { return pipeAddr{} }
 
 // waitWaitGroup asserts wg.Wait() returns within timeout,
 // proving nothing was ever Add'd to it (or that whatever was has already Done'd) —
-// the goroutine-accounting proxy for "no recv loop / Select procedure was left parked."
+// the goroutine-accounting proxy for "no goroutine was left parked on this generation's bundle."
 func waitWaitGroupDone(t *testing.T, name string, wait func()) {
 	t.Helper()
 
@@ -64,7 +64,7 @@ func waitWaitGroupDone(t *testing.T, name string, wait func()) {
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatalf("%s: a refused TCP-up must not leave a goroutine parked on this generation's bundle", name)
+		t.Fatalf("%s: goroutine did not exit within the bound", name)
 	}
 }
 
@@ -95,8 +95,8 @@ func TestActive_RefusedTCPUpClosesConnAndSkipsRecvLoop(t *testing.T) {
 	tr := newTransport(cfg)
 	rt := newGenRecRT(2) // an arbitrary non-zero identity: this mock refuses unconditionally, so the value itself carries no meaning here
 	rt.setRefuseTCPUp(true)
-	tr.rt = rt              // re-bind to the capability-offering, refusal-controllable runtime
-	tr.genCtx = t.Context() // Start normally sets this before startActive; set it directly since this test calls startActive without going through Start
+	tr.rt = rt // re-bind to the capability-offering, refusal-controllable runtime
+	// startActive itself stamps g.ctx (R10 / D1), right alongside g.gen, before anything is spawned — nothing to set here.
 
 	err = tr.startActive(t.Context())
 	require.ErrorIs(t, err, errStartSealed, "a refused TCP-up must abort Start with errStartSealed")
@@ -146,9 +146,10 @@ func TestPassive_RefusedTCPUpClosesConnAndSkipsRecvLoop(t *testing.T) {
 	tr := newTransport(cfg)
 	rt := newGenRecRT(1)
 	rt.setRefuseTCPUp(true)
-	tr.rt = rt              // re-bind to the capability-offering, refusal-controllable runtime
-	tr.genCtx = t.Context() // startPassive normally sets this before acceptLoop runs
+	tr.rt = rt // re-bind to the capability-offering, refusal-controllable runtime
 
+	// acceptLoop is called directly here, bypassing startPassive (which would normally stamp
+	// g.ctx alongside g.gen — R10 / D1); the refusal path below never reads g.ctx, so it is left unset.
 	g := &genWG{gen: 1}
 	g.accept.Add(1) // mirrors startPassive's own Add before spawning acceptLoop
 

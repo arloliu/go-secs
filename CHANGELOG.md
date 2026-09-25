@@ -5,6 +5,30 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `hsms`, `hsmsss`: a receive goroutine left running past a connection's close timeout,
+  for example by a `DataMessageHandler` that blocks,
+  no longer delivers its frame into the connection's next generation after a reconnect.
+  Previously such a frame could reach later handlers and channels,
+  complete a transaction open on the new link with a reply meant for the old one,
+  or answer on the new link.
+  A frame read just as the connection starts tearing down is now dropped rather than delivered.
+- `hsms`: the data-message fan-out checks for teardown before each handler and each channel,
+  not only once before the first handler.
+  Once it observes that the connection is tearing down, later handlers and channels do not receive the message.
+- `hsms`: `ReplyDataMessage` returns `ErrConnClosed` and sends nothing
+  when the primary was received on a connection generation that has since ended,
+  for example a message read from a channel after the link dropped and reconnected.
+  Previously the reply went out on the new link with the old transaction's System Bytes,
+  where the peer had no such transaction open, or could have a different one open under the same System Bytes.
+  A primary received on another connection, or a reply built by hand, is not checked.
+- `hsmsss`: the T7 and auto-linktest timers of a connection generation that has ended
+  can no longer cancel or replace the timers of the generation that replaced it.
+  Previously a delayed goroutine from the old generation could leave the new link without T7 or linktest protection.
+
 ## [2.4.2] - 2026-09-25
 
 ### Fixed

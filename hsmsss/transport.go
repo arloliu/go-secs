@@ -63,11 +63,46 @@ type genWG struct {
 	// Zero when the runtime offers no generation identity (an out-of-module runtime, or a mock), which disables the match.
 	gen uint64
 
+	// ctx is this generation's own ctx — Start's ctx (R10 / D1), never dialCtx or procCtx.
+	// startActive and startPassive stamp it right next to gen,
+	// before any goroutine on this bundle is spawned, and nothing writes it afterwards.
+	// recvLoop and the timer helpers (armT7/startLinktest) derive from it directly instead of re-reading a transport-wide field,
+	// so a straggler goroutine — one abandoned by a bounded Stop, resumed after a reconnect —
+	// only ever reads or derives from ITS OWN generation's ctx, never a successor's.
+	ctx context.Context
+
 	recv     sync.WaitGroup // the one recv-loop goroutine per Start call
 	proc     sync.WaitGroup // the active Select-procedure goroutine (active only) per Start call
 	accept   sync.WaitGroup // the passive accept goroutine (passive only) per Start call
 	linktest sync.WaitGroup // auto-linktest goroutines spawned while Selected
 	t7       sync.WaitGroup // the T7 NOT-SELECTED dwell goroutine
+
+	// timerMu guards t7Cancel, linktestCancel, and timersStopped below (R10 / D4).
+	// A DEDICATED lock, not connMu:
+	// armT7/startLinktest/cancelT7/stopLinktest only ever touch fields on the SAME bundle they were called with,
+	// so a dedicated per-bundle lock needs no nesting with connMu or startGate.
+	timerMu sync.Mutex
+
+	// t7Cancel cancels this generation's current NotSelected-entry T7 dwell goroutine; nil when not armed.
+	// linktestCancel cancels this generation's current Selected-session auto-linktest goroutine; nil when not started.
+	// Both are guarded by timerMu and read/written ONLY by armT7/cancelT7/startLinktest/stopLinktest/Stop for THIS bundle —
+	// never a successor's, which is what closes the D4 hazard (a gen-N straggler could reach into a live gen-N+1's timers
+	// when these lived on the transport instead of the bundle).
+	t7Cancel       context.CancelFunc
+	linktestCancel context.CancelFunc
+
+	// timersStopped is set once, by Stop, under timerMu, before Stop's t7/linktest Waits.
+	// armT7/startLinktest check it, install their handle, and Add to the WaitGroup
+	// all under the SAME timerMu critical section,
+	// so the guarantee is "no Add after the SEAL" — not "no Add after Stop captured g".
+	// An Add that lands between Stop's startGate capture of g (transport.go) and this seal is fine:
+	// it completes its own check-install-Add before the seal takes timerMu,
+	// and Stop's g.t7.Wait/g.linktest.Wait below joins the goroutine it just registered.
+	// Only an Add attempted AFTER the seal is refused (no Add, no goroutine) —
+	// this is what closes both the production case (a straggler goroutine arming g long after a
+	// bounded Stop already returned, abandoned past the close timeout) and a unit test that calls
+	// armT7/startLinktest on a bundle it already Stopped.
+	timersStopped bool
 
 	// selectedOnce latches true once this generation's recv goroutine has committed Selected through a successful commitSelected call —
 	// either the responder path (handleSelectReq) or the initiator path (dispatchFrame's routed status-0 Select.rsp branch).
@@ -142,16 +177,6 @@ type transport struct {
 	stopping  bool   // guarded by startGate; a Stop is sealing → Start aborts its Adds (errStartSealed)
 	wg        *genWG // current generation's join bundle; read/written ONLY under startGate
 
-	// genCtx is the current generation's ctx (Start's ctx = the epoch ctx). Stored so the recv
-	// goroutine can derive the auto-linktest sub-context. Written by Start under connMu before the
-	// recv loop spawns; read by startLinktest under connMu. (Cross-generation access is serialized
-	// by Stop joining the prior recv loop before the next Start.)
-	genCtx context.Context // generation-lifetime ctx only; set once per Start (spec §6.3)
-
-	linktestCancel context.CancelFunc // cancels the CURRENT Selected-session's linktest goroutine; guarded by connMu; nil when not Selected
-
-	t7Cancel context.CancelFunc // cancels the current NotSelected-entry's T7 goroutine; guarded by connMu; nil when not armed
-
 	// allocFrame allocates the GC-owned frame buffer read by readFrame. It defaults to
 	// makeFrame; it is a test seam (overridden in reader_test.go) so a test can assert that
 	// an oversized, attacker-controlled length is rejected BEFORE any allocation (J2).
@@ -167,14 +192,17 @@ type transport struct {
 	// newTransport, never re-stored, so monoNanos() is race-free and wall-clock-jump immune.
 	clockBase time.Time
 
-	// lastSendStamp / lastRecvStamp hold monoNanos() at the last successful frame write /
-	// frame read. They feed the activity-based linktest suppression in runLinktest: the
-	// send stamp is written under the core's write serialization (single writer), the recv
-	// stamp by the recv goroutine (single reader) — both read lock-free by the linktest
-	// goroutine, so plain atomics suffice. Start re-baselines both (resetActivityStamps)
-	// when it publishes a new generation's conn; a torn-down generation's straggler can
-	// stamp at most once after that, which delays/credits at most one probe (bounded,
-	// documented in the plan's accepted-races note).
+	// lastSendStamp / lastRecvStamp hold monoNanos() at the last successful frame write / frame read.
+	// They feed the activity-based linktest suppression in runLinktest:
+	// the send stamp is written under the core's write serialization (single writer),
+	// the recv stamp by the recv goroutine (single reader) —
+	// both read lock-free by the linktest goroutine, so plain atomics suffice.
+	// Start re-baselines both (resetActivityStamps) when it publishes a new generation's conn.
+	//
+	// A recv goroutine stamps only the conn it was given (R10 / D1; see recvLoop's conn parameter),
+	// so a straggler abandoned by a bounded Stop can stamp at most once after its generation ends:
+	// Stop closes that same conn before joining the goroutine, readFrame has no buffering layer,
+	// so the straggler's NEXT read fails and the loop returns before it can stamp again.
 	lastSendStamp atomic.Int64
 	lastRecvStamp atomic.Int64
 
@@ -208,6 +236,23 @@ type transport struct {
 	// socket into refuseConn. It is the only way to deterministically drive the
 	// Stop-races-prepublication race in tests; production leaves it nil (no-op).
 	refusePrePublishHook func()
+
+	// testHookAfterReadFrame is a test-only, nil-by-default seam fired by recvLoop between a
+	// complete frame read and that frame's admission into dispatchFrame
+	// (used by setupAdmissionStraggler, integration_inbound_straggler_test.go).
+	// It is how a test pauses a straggler goroutine at the admission-cutoff boundary deterministically.
+	// Loaded with acquire semantics so the recv loop's read is race-free against a test's Store;
+	// never set from production code.
+	testHookAfterReadFrame atomic.Pointer[func()]
+
+	// testHookArmT7BeforeLock is a test-only, nil-by-default seam, style of refusePrePublishHook,
+	// called by armT7 immediately before it takes g.timerMu
+	// (used by TestD4Timers_ArmRacingStopNeverAddsAfterJoin, transport_generation_binding_test.go).
+	// It lets a test pause an in-flight armT7 call so a concurrent Stop can complete first,
+	// exercising the arm-races-Stop ordering the D4 design discusses.
+	// Set only before the racing goroutine is spawned (happens-before via goroutine creation),
+	// never concurrently; production leaves it nil.
+	testHookArmT7BeforeLock func()
 }
 
 // newTransport constructs a transport for cfg with an initial per-generation WaitGroup bundle.
@@ -249,12 +294,10 @@ func (t *transport) Start(ctx context.Context, rt hsms.TransportRuntime) error {
 		t.rt = rt
 	}
 
-	// Publish the generation ctx before spawning any goroutine: startLinktest (on the recv
-	// goroutine, at a Selected-commit) derives its auto-linktest sub-context from it under connMu.
-	t.connMu.Lock()
-	t.genCtx = ctx
-	t.connMu.Unlock()
-
+	// ctx is stamped onto the generation's OWN bundle (g.ctx; see genWG.ctx for the straggler-
+	// isolation rationale, R10 / D1) by startActive/startPassive — not here, since the bundle
+	// Start's caller (ArmStart) installed is not resolved until startActive/startPassive captures it
+	// under startGate.RLock.
 	if t.cfg.Active() {
 		return t.startActive(ctx)
 	}
@@ -296,11 +339,14 @@ func (t *transport) ArmStart() {
 // The recv/proc/linktest/T7 joins are BOUNDED by ctx (the close-timeout deadline epoch.join passes):
 // normally no goroutine outlives Stop (round-7), but if a data handler wedges the recv goroutine past the deadline, Stop returns ErrCloseTimeout
 // and ABANDONS that straggler.
-// recvLoop's captured-genCtx guard usually stops such a straggler from reporting at all,
+// recvLoop's g.ctx guard usually stops such a straggler from reporting at all,
 // but it is an early exit rather than a fence — cancellation can land between the check and the call.
 // What keeps an abandoned straggler from disconnecting a LATER generation is the identity it carries (genWG.gen),
 // which the core re-checks when the FSM applies the event (C1).
 // Idempotent: safe when Start never connected (nil conn) or Stop already ran.
+//
+// Stop also seals g's timer bundle (R10 / D4) before the Waits below, under g's own timerMu, never
+// t.connMu; see genWG.timersStopped for the guarantee this seal provides.
 //
 // The engine's epoch teardown calls tr.Stop after closeSocket has already closed the conn (J5),
 // so the recv loop's parked Read is unblocked before this join.
@@ -325,21 +371,30 @@ func (t *transport) Stop(ctx context.Context) error {
 	ln := t.listener
 	procCancel := t.procCancel
 	t.procCancel = nil
-	// Cancel the current Selected-session's auto-linktest goroutine (mirrors procCancel): in
-	// production genCtx cancellation at teardown already unwinds it, but this covers a unit test
-	// that passes a non-cancelled ctx. g.linktest.Wait below guarantees it does not outlive Stop.
-	if t.linktestCancel != nil {
-		t.linktestCancel()
-		t.linktestCancel = nil
-	}
-	// Cancel the current NotSelected-entry's T7 dwell goroutine (mirrors linktestCancel): in
-	// production genCtx cancellation at teardown already unwinds it, but this covers a unit test
-	// that passes a non-cancelled ctx. g.t7.Wait below guarantees it does not outlive Stop.
-	if t.t7Cancel != nil {
-		t.t7Cancel()
-		t.t7Cancel = nil
-	}
 	t.connMu.Unlock()
+
+	// Seal g's timers (R10 / D4) BEFORE the Waits below, under g's OWN timerMu — never connMu,
+	// which would nest with armT7/startLinktest's own timerMu section for no reason.
+	// See genWG.timersStopped for what this seal guarantees.
+	// g.ctx IS this generation's own ctx (R10 / D1, stamped by startActive/startPassive before any
+	// goroutine on g is spawned): cancelling it at teardown already unwinds runT7/runLinktest in
+	// production, so this seal is belt-and-suspenders there; it is load-bearing for a unit test that
+	// passes a non-cancelled ctx, and the g.t7.Wait/g.linktest.Wait below guarantee neither outlives
+	// Stop regardless.
+	g.timerMu.Lock()
+	g.timersStopped = true
+	t7Cancel := g.t7Cancel
+	g.t7Cancel = nil
+	linktestCancel := g.linktestCancel
+	g.linktestCancel = nil
+	g.timerMu.Unlock()
+
+	if t7Cancel != nil {
+		t7Cancel()
+	}
+	if linktestCancel != nil {
+		linktestCancel()
+	}
 
 	// Cancel the active Select procedure's ctx so a pending Select WriteMessage unwinds and the
 	// goroutine can exit — needed even when the ctx handed to Start is never cancelled by its
