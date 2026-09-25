@@ -1,6 +1,6 @@
 ---
 okf_version: "0.2"
-swept_at: a7ff4a8
+swept_at: 6c257b6
 ---
 
 # go-secs memex

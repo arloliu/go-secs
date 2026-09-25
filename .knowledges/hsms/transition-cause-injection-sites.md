@@ -4,26 +4,26 @@ title: Where a TransitionCause is chosen, and why one transition can swallow ano
 description: The full transition-source to cause map, why the cause is picked at the injection site rather than derived in the FSM, why the transports pass both the cause and their generation through a capability interface instead of TransportRuntime, how the generation match keeps a late transport goroutine from dropping its successor's link, why the three synchronous commits need a lock-fenced gate instead of that match, and the ways a cause never reaches a subscriber.
 tags: [hsms, lifecycle, supervisor, fsm, observability]
 status: stable
-generated: {by: "claude/opus-5", at: 2026-09-24T11:50:00Z}
+generated: {by: "claude/opus-5", at: 2026-09-25T02:38:18Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T12:34:28Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T03:13:36Z}
 sources:
   - {resource: hsms/lifecycle.go, digest: sha256:65d429d90300b620, revision: 5a0ec1b}
   - {resource: hsms/supervisor.go, digest: sha256:291a3c8397ed511d, revision: a7ff4a8}
   - {resource: hsms/connection_lifecycle.go, digest: sha256:221b0f7825783fad, revision: a9235b4}
-  - {resource: hsms/connection_runtime.go, digest: sha256:4516a2d673859480, revision: a7ff4a8}
+  - {resource: hsms/connection_runtime.go, digest: sha256:9a3bf737af4590d8, revision: 6c257b6}
   - {resource: hsms/connection_send.go, digest: sha256:d2e809d7d0d95711, revision: a7ff4a8}
-  - {resource: hsms/connection.go, digest: sha256:82d716dbf253b02c, revision: a9235b4}
+  - {resource: hsms/connection.go, digest: sha256:e7b5b0de14cd4c58, revision: 6c257b6}
   - {resource: hsms/epoch.go, digest: sha256:d97677e4f16e9462, revision: 0c892d9}
-  - {resource: hsmsss/transport.go, digest: sha256:cf54049476fbfafe, revision: b0c8081}
-  - {resource: hsmsss/transport_control.go, digest: sha256:7b5042e69a84d610, revision: b0c8081}
-  - {resource: hsmsss/transport_active.go, digest: sha256:b4a168040cd91ff8, revision: b0c8081}
-  - {resource: hsmsss/transport_passive.go, digest: sha256:f4ebda2502d6b8ac, revision: 922feb8}
-  - {resource: hsmsss/transport_procedures.go, digest: sha256:9a7bdb8ff23a8e5b, revision: a7ff4a8}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:f78883ced9f30422, revision: b0c8081}
+  - {resource: hsmsss/transport.go, digest: sha256:14cd2584fee0dbab, revision: 6c257b6}
+  - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: 6c257b6}
+  - {resource: hsmsss/transport_active.go, digest: sha256:80daec469fc1444e, revision: 6c257b6}
+  - {resource: hsmsss/transport_passive.go, digest: sha256:baa34d672a03a889, revision: 6c257b6}
+  - {resource: hsmsss/transport_procedures.go, digest: sha256:bf47bd9825ddb5da, revision: 6c257b6}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:f54ea89029ef179c, revision: 6c257b6}
   - {resource: secs1/transport.go, digest: sha256:d74a486193cbea69, revision: a9235b4}
-  - {resource: internal/gencap/gencap.go, digest: sha256:cf8ecfdcf7a2b6d0, revision: 020da48}
-  - {resource: hsmsss/transport_control_test.go, digest: sha256:df0394e7579ac65d, revision: 4eb40d1}
+  - {resource: internal/gencap/gencap.go, digest: sha256:cf920df43a1fd5e6, revision: 6c257b6}
+  - {resource: hsmsss/transport_control_test.go, digest: sha256:44103f361af0833e, revision: 6c257b6}
 ---
 
 # What it does
@@ -62,7 +62,7 @@ That is exactly the discrimination the feature exists to provide, and the reason
 | `hsmsss.runSelectProcedure` failed transaction | `evDisconnect` | `selectFailureCause`: `CauseSelectRejected` on a `*RejectError`, `CauseT6Timeout` on `ErrT6Timeout`, else `CauseIOError` |
 | `hsmsss.runSelectProcedure` a genuine select-status refusal (see below), or a correlated non-Select.rsp | `evDisconnect` | `CauseSelectRejected` |
 | `hsmsss.runLinktest` threshold reached | `evDisconnect` | `CauseLinktestFail` |
-| `hsmsss.recvLoop` nil conn / read error | `evDisconnect` | `CauseIOError` |
+| `hsmsss.recvLoop` read error | `evDisconnect` | `CauseIOError` |
 | `secs1.lineEngine` read / EOT-write error | `evDisconnect` | `CauseIOError` |
 
 **The Select procedure is the only site with a non-constant cause, and the reason is the reply registry.**
@@ -136,8 +136,10 @@ see reconnect-backoff-scope.md's Gotchas — so the unconditional single-publish
 holds for the shipped transports, not universally.
 `s.curGen` must stay a bare atomic load.
 `step` runs on the FSM goroutine, which an epoch teardown join can be waiting behind,
-so a lock the teardown path holds would close a cycle:
-`Stop` holds `startGate`, and `connectLoop` wants `startGate` in `ArmStart` while holding `publishMu`.
+so a lock the teardown path holds risks stalling `step` behind it:
+`Stop` holds `startGate` only while sealing starts and capturing its generation;
+it releases the lock before socket closure and every join,
+so it does not hold `startGate` during a join `step` could be waiting behind.
 
 `secs1` does NOT name a generation — its line engine runs under a derived ctx and its own bundle —
 so its reports keep the pre-barrier behavior.
@@ -181,9 +183,13 @@ leaves a DEAD generation sitting at exactly the state a live `CommitSelected` CA
 IDENTITY still matches (`cur` has not yet been replaced), so only the `ended` check rejects a stale
 Select CAS landing there.
 `ended` must not be treated as generally redundant for a commit based on the expected FSM state alone;
-it held for `CommitConnected` above because `epoch.ended`'s target state (`NotConnected`) is one a live
-generation is never IN while `cur` still points at it, which is a property of that specific state pair,
-not of "the other two commits" as a class.
+a live current epoch CAN be `NotConnected` during `Open`'s own startup window —
+`cur.Store(e)` runs before the TCP-up commit that CASes `NotConnected` to `NotSelected` —
+and an ended epoch can remain current in that same state for the whole reconnect backoff, or forever after a `Close`.
+Because both a live and a dead generation can occupy the same state pair `CommitConnected` CASes out of,
+identity and FSM state cannot replace the `ended` check there either;
+the check is not a property specific to some other commits' state pairs,
+it is what `CommitConnected` itself relies on too.
 
 **`CommitSelected`'s gate does not bypass a gen of 0, unlike the other two.**
 `commitGate` (still used by `CommitConnected`/`CommitSelectLost`) is skipped outright whenever `gen == 0`, exactly the pre-generation behavior secs1 and every out-of-module transport get:
@@ -221,16 +227,28 @@ so a dead generation's socket can never clobber a live successor's.
 The plain `TCPUp` (gen 0, out-of-module) keeps its void signature and unconditional-accept behavior;
 only the generation-named path can name a refusal.
 
-**Select-lost is the other reported refusal, and what it protects is not a socket.**
+**Select-lost is the other reported refusal, and what it protects has narrowed since R10.**
 `SelectLostFromGeneration` returns whether the CAS was applied,
 and `hsmsss`'s `selectLost` wrapper forwards that to `handleDeselectReq`.
-The work skipped on a refusal is the pair of calls that belong to a real `Selected -> NotSelected` transition, `stopLinktest` and `armT7`.
-Neither is generation-scoped:
-`stopLinktest` cancels whatever `t.linktestCancel` currently holds,
-and `armT7` derives its dwell ctx from the current `t.genCtx` while registering the goroutine on the STALE generation's bundle.
-Run after a refused commit, they leave the successor logically Selected with its auto-linktest cancelled and a stale dwell attached —
-a link that reports itself healthy while nothing probes it.
-The FSM cannot catch this downstream: `State()` still says Selected, because the successor legitimately is.
+The work skipped on a refusal is the pair of calls that belong to a real `Selected -> NotSelected` transition,
+`stopLinktest` and `armT7`.
+Before the R10 inbound-generation-fence work neither was generation-scoped —
+`stopLinktest` cancelled whatever the single transport-wide `t.linktestCancel` held,
+and `armT7` derived its dwell ctx from the current `t.genCtx`,
+while registering the goroutine on the STALE generation's bundle —
+so running them after a refused commit could leave a live successor logically Selected
+with its auto-linktest cancelled and a stale dwell attached.
+Since R10 / D4, `stopLinktest(g)` and `armT7(g)` both take the caller's bundle explicitly
+and touch ONLY `g`'s own `linktestCancel`/`t7Cancel`/`timerMu` fields (see `genWG` in `hsmsss/transport.go`):
+even an UNCONDITIONAL call from a straggler can no longer reach a live successor's timers,
+because there is no shared, transport-wide handle left for it to race into.
+`selectLost`'s guard on the CAS result therefore no longer fences a straggler from a successor's timers —
+D4's g-scoping does that at a different layer —
+it now only SAVES needless work on a refused commit (arming/cancelling a stale generation's own, already-dead bundle).
+The FSM cannot observe the skipped work either way:
+a refused commit leaves state exactly as it was —
+`NotConnected`, `NotSelected`, or `Selected`, depending on whether the refusal came from a stale generation
+(a live successor legitimately Selected) or from the CAS itself failing (the state was never Selected to begin with).
 
 The `Deselect.rsp` is still enqueued BEFORE the commit, and that ordering is deliberate.
 The §7.D/I3 invariant rests on the commit being synchronous on the sequential recv goroutine, not on its position relative to the rsp —
@@ -239,8 +257,10 @@ Deriving the status from the commit instead would break the CAPABILITY-ABSENT tr
 (`selectLost`'s plain `t.rt.SelectLost()` branch, taken only when the runtime does not implement
 `genRuntime`), which always reports true regardless of the CAS outcome:
 a Deselect answered while NOT Selected would be told status 0 and handed a `SelectLost` it never asked for.
-The concrete core's own gen-0 path is unaffected by this —
-`selectCommitGate` still returns the actual CAS result for a gen of 0, same as for a named generation.
+The concrete core's own gen-0 Select-lost path is unaffected by this —
+`commitFrom` routes `evSelectLost` through `commitGate`, never `selectGate`,
+so a gen of 0 there bypasses the gate entirely and returns its bare CAS result directly;
+`selectCommitGate` applies only to `evSelectAccepted` (Select-accepted), never to Select-lost.
 
 The remaining two producers stay void.
 A refused `TCPDownFromGeneration` or `T7ExpiredFromGeneration` is a queued event whose caller has nothing to undo.
@@ -315,9 +335,13 @@ the synchronous `writeMessage` call that actually sends the probe, which its god
 and prefers it when present.
 `genRuntime` and hsms's `genCapability` are local aliases of one
 `gencap.GenerationRuntime[hsms.Message, hsms.TransitionCause]` instantiation —
-eight methods: the `CurrentGeneration` accessor, five `*FromGeneration` report/commit methods,
-and two generation-named send methods, `SendAsyncFromGeneration` / `WriteMessageFromGeneration` —
-and hsms asserts at compile time that `*connection` satisfies it,
+ten methods since the R10 inbound-generation-fence work added two:
+the `CurrentGeneration` accessor, five `*FromGeneration` report/commit methods,
+two generation-named send methods (`SendAsyncFromGeneration` / `WriteMessageFromGeneration`),
+and two generation-named INBOUND methods (`DeliverOwnedFrameFromGeneration` / `RouteReplyFromGeneration`,
+which fence admission of a frame/reply to the generation whose recv goroutine actually read it) —
+and hsms asserts at compile time that `*connection` satisfies it —
+see [the inbound generation fence](/hsms/inbound-generation-fence.md) for how the two newer inbound methods admit or route on behalf of a named generation,
 so a method-set drift between the offering and the consuming side is a build failure rather than a silent fallback.
 This is the same pattern `suppressionRuntime` uses for `LinktestSuppression`,
 and for the same documented reason (`hsms/connection.go`):
@@ -374,6 +398,8 @@ see `hsmsss.causeLog.waitBringUp`, which tolerates both shapes.
   `transport.tcpDown`, `transport.t7Expired`, `transport.tcpUp`, `transport.commitSelected`, `transport.selectLost`;
   `secs1/transport.go` → `causeRuntime` only
 - the generation token's carrier: `hsmsss/transport.go` → `genWG.gen`, stamped in `startActive` / `startPassive`
+- the D4 timer g-scoping that narrowed what `selectLost`'s refusal protects: `hsmsss/transport.go` → `genWG.t7Cancel`, `genWG.linktestCancel`, `genWG.timerMu`;
+  `hsmsss/transport_procedures.go` → `(*transport).stopLinktest`, `(*transport).armT7`
 - the simultaneous-select exemption for status 1: `hsmsss/transport.go` → `genWG.selectedOnce`;
   `hsmsss/transport_active.go` → `runSelectProcedure`;
   `hsmsss/transport_control.go` → `handleSelectReq`;

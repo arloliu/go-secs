@@ -1,5 +1,92 @@
 # Log
 
+## 2026-09-25
+* **Creation**: [The inbound generation fence](/hsms/inbound-generation-fence.md) records the R10 inbound-fence mechanic `6c257b6` introduced:
+  the two distinct cutoffs (one-shot `liveEpoch` admission under `genGate`, vs. the ongoing per-handler `epochDone`/`e.ctx.Done()` recheck in fan-out),
+  the window between them and the three test hooks (`testHookAfterReadFrame`, `testHookBeforeFanout`, `testHookBeforeS9F1Enqueue`) that mark it,
+  that `lastRecvStamp` is written before either cutoff runs,
+  the `connIdentity` reply-origin token and its retention rationale,
+  and the SECS-I asymmetry (origin stamp yes, admission cutoff no).
+  Notes `staleRecv` has no `ConnectionMetrics` accessor — Debug log only.
+  Unit hsms; born draft.
+* **Update**: [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) resyncs to `6c257b6`:
+  the `hsmsss.recvLoop nil conn / read error` injection site is now `read error` only (the nil-conn branch was deleted — `recvLoop` now takes its socket as a spawn-time parameter);
+  the Select-lost section is rewritten — `stopLinktest`/`armT7` are no longer transport-wide, they now touch only the caller's `genWG` bundle (R10 / D4), so a refused Select-lost commit merely skips needless work rather than fencing a straggler from a live successor's timers;
+  `genRuntime`/`genCapability` now name ten methods (not eight) after `DeliverOwnedFrameFromGeneration`/`RouteReplyFromGeneration` were added;
+  `internal/gencap/gencap.go`'s recorded revision is corrected (it postdates `020da48`, which predates the file's creation);
+  adds a trail to the new inbound-generation-fence entry.
+  `verified` dropped, status draft.
+* **Update**: [Activity stamps](/hsmsss/activity-stamps.md) corrects the FALSE invariant flagged during triage:
+  since `6c257b6`, `recvLoop` takes its socket as a spawn-time parameter rather than re-reading `t.conn`,
+  so a straggler abandoned by a bounded `Stop` can stamp at most once after its own generation ends —
+  the `transport.go` field comment this entry previously said not to trust is now accurate, and the entry is corrected to agree with it.
+  Renames `t.genCtx` to `g.ctx` (`genWG.ctx`) throughout, matching the R10 rework that moved the ctx off the transport and onto the per-generation bundle;
+  updates the `Where to look` pointer for `g.ctx`'s origin to name `startActive`/`startPassive` rather than `(*transport).Start`, which no longer stores it.
+  `verified` dropped, status draft.
+* **Update**: [Linktest teardown exclusion](/hsmsss/linktest-teardown-exemption.md) renames `t.genCtx` to `g.ctx` (`genWG.ctx`) throughout — the field moved off the transport onto the per-generation bundle in `6c257b6` — and repoints the `Where to look` entry for its origin to `startActive`/`startPassive`.
+  The described mechanism (the two-part `ErrConnClosed` guard, the one-context-tree argument) is unchanged; `verified` dropped, status draft pending re-verification of the rename.
+* **Update**: [The reply registry's two-legged control exemption](/hsms/reply-matching-control-exemption.md) repoints the field-less-Reject-result citation from `RouteReply` to `routeReplyOn`, the function the reject-handling logic actually lives in after `6c257b6` split `RouteReply` into a thin wrapper over `routeReplyOn`/`RouteReplyFromGeneration`.
+  The two-legged gate mechanism itself is unchanged; `verified` dropped, status draft.
+* **Update**: [The transaction observer's two chokepoints](/hsms/transaction-observer-chokepoints.md) corrects the "`ReplyDataMessage` is built on `rt.SendAsync`" claim:
+  since `6c257b6` it is `rt.SendAsync` OR `rt.SendAsyncFromGeneration` (when the primary was admitted by this connection's still-live generation), both equally enqueue-only and equally excluded from the two `TxEvent` chokepoints.
+  `verified` dropped, status draft.
+* **Update**: [Where the HSMS-SS profile overrides the generic core](/hsmsss/e37-1-narrows-e37-generic.md) corrects the `handleSeparateReq` section:
+  `genCtx` is no longer threaded as a separate parameter alongside `g` — `recvLoop` stamps `g.ctx` once (from `genWG.ctx`) and `dispatchFrame` passes `g.ctx` straight through.
+  `verified` dropped, status draft.
+* Digest/revision-only refresh to `6c257b6` (prose unaffected — cited symbols untouched by the R10 diff): [Send error accounting](/hsms/send-error-accounting.md), [The W-bit inflight gauge](/hsms/inflight-gauge.md), [Trailing-byte counting](/crosscutting/trailing-bytes-counting.md), [How a shutdown joins the per-Open supervisor](/hsms/supervisor-join.md), [Reconnect backoff scope](/hsms/reconnect-backoff-scope.md), [The passive refusal exchange](/hsmsss/passive-refusal-exchange.md).
+* **Update** (independent verify pass against `6c257b6`): [The inbound generation fence](/hsms/inbound-generation-fence.md) corrected four claims:
+  the origin stamp is set only when the resolved epoch is non-nil,
+  not unconditionally;
+  fan-out's per-step cancellation check does not deterministically stop every later handler/channel send
+  (a channel send can win its select against concurrent cancellation);
+  selecting on `e.done` stalls until the bounded teardown join times out,
+  rather than deadlocking outright;
+  and a stale-admission drop has no exported counter of its own,
+  but a stale Reject.req already bumps the public `RejectRecvCount` before the refusal runs.
+  Digests and revision stay at `6c257b6`;
+  `verified` not touched (never set); status remains draft.
+* **Update** (independent verify pass against `6c257b6`): [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) corrected four claims:
+  `Stop` releases `startGate` before socket closure and every join,
+  so it never holds that lock during a join `step` could be waiting behind;
+  a live current epoch CAN be `NotConnected` during `Open`'s own startup window,
+  so identity+state cannot replace the `ended` check for `CommitConnected` either;
+  a refused Select-lost commit leaves state unchanged,
+  which may be `NotConnected`, `NotSelected`, or `Selected` depending on why it was refused, not always Selected;
+  and gen-0 Select-lost bypasses `commitGate` for a bare CAS,
+  never reaching `selectCommitGate` (which applies only to Select-accepted).
+  Digests and revision stay at `6c257b6`; status remains draft.
+* **Update** (independent verify pass against `6c257b6`): [The reply registry's two-legged control exemption](/hsms/reply-matching-control-exemption.md) fixed an internal contradiction:
+  the "removing the DATA-registration `*ControlMessage`-miss gate alone is undetected by every test above" claim directly conflicted with the same bullet's own "exercised by ..." list;
+  reworded to name the two control-round-trip tests that miss it
+  and the data-registration/control-response tests that catch it,
+  and to note a genuine reply can be consumed or discarded by the still-registered waiter (not only become unsolicited),
+  depending on whether it arrives before or after the sender's deferred deregistration.
+  Digests and revision stay at `6c257b6`; status remains draft.
+* **Update** (independent verify pass against `6c257b6`): [The transaction observer's two chokepoints](/hsms/transaction-observer-chokepoints.md) corrected three claims:
+  `ReplyDataMessage` selects the generation-bound send path by origin-token identity alone,
+  not by a still-live-generation check —
+  `SendAsyncFromGeneration` checks liveness itself
+  and refuses a stale generation rather than falling back to unbound sending;
+  deleting the `isData` gate only panics when a `txObserver` is installed,
+  since both `WriteMessage`/`WriteMessageNoReply` return before the gate when `txObserver == nil`;
+  and `classifyTxOutcome` does not check `replyWaited`,
+  so a transport `Write` returning `ErrT3Timeout`/`*RejectError` directly can still produce `TxT3Timeout`/`TxRejected` through the no-reply path.
+  Digests and revision stay at `6c257b6`; status remains draft.
+* **Update** (independent verify pass against `6c257b6`): [Where the HSMS-SS profile overrides the generic core](/hsmsss/e37-1-narrows-e37-generic.md) corrected two claims:
+  `g.ctx` is stamped once by `startActive`/`startPassive` before `recvLoop` is spawned,
+  not by `recvLoop` itself, which only reads it;
+  and the "only when a nondefault device ID was configured" / "endless reconnect loop" failure-mode framing held only for the Select/Separate call sites —
+  the three Reject senders never read the configured device ID at all
+  (their SessionID risk comes from the offending frame, independent of local config),
+  and only a rejected Select handshake produces the reconnect-loop symptom.
+  Digests and revision stay at `6c257b6`; status remains draft.
+* **Update**: promoted to stable after an independent confirmation pass (openai/gpt-5.6-terra) against `6c257b6` found no fault:
+  [The inbound generation fence](/hsms/inbound-generation-fence.md), [Activity stamps](/hsmsss/activity-stamps.md),
+  [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md), [linktest teardown exemption](/hsmsss/linktest-teardown-exemption.md),
+  [reply-matching control exemption](/hsms/reply-matching-control-exemption.md), [transaction-observer chokepoints](/hsms/transaction-observer-chokepoints.md),
+  and [E37.1 narrows generic E37](/hsmsss/e37-1-narrows-e37-generic.md).
+  Activity stamps and the linktest teardown exemption had also passed the preceding verify pass (openai/gpt-6-astra) unchanged.
+
 ## 2026-09-24
 * **Update**: [The reply registry's two-legged control exemption](/hsms/reply-matching-control-exemption.md) narrows the exemption:
   a DATA registration (`isData` true) answered by a `*ControlMessage` result is a miss —
