@@ -4,14 +4,16 @@ title: How a shutdown joins the per-Open supervisor
 description: Why Close joins the FSM goroutine unbounded but the notifier only up to the close timeout, and why the join signals live on the supervisor rather than the connection.
 tags: [hsms, lifecycle, supervisor, close, notifier, generations]
 status: stable
-generated: {by: "claude/opus-5.5", at: 2026-09-24T11:50:00Z}
+generated: {by: "claude/sonnet-5", at: 2026-09-25T08:02:46Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T12:34:28Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T08:40:31Z}
 sources:
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:221b0f7825783fad, revision: 922feb8}
-  - {resource: hsms/supervisor.go, digest: sha256:291a3c8397ed511d, revision: a7ff4a8}
-  - {resource: hsms/state.go, digest: sha256:b0c58d8c774973d2, revision: fb8d9cd}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:45ceec38bea801db, revision: d244104}
+  - {resource: hsms/supervisor.go, digest: sha256:90d6c1d8bddc9552, revision: d244104}
+  - {resource: hsms/state.go, digest: sha256:f467c560ffea5807, revision: d244104}
   - {resource: hsms/connection.go, digest: sha256:29d7e54aeb61fce0, revision: a1cdb0e}
+  - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: d244104}
+  - {resource: hsms/endpoint.go, digest: sha256:16e8340557415a64, revision: d244104}
 ---
 
 # What it does
@@ -53,6 +55,32 @@ and still returns the `tr.Start` error.
 
 A later Close sees `runDone` closed and returns `s.shutdownErr` without touching the epoch or supervisor again.
 
+**A callback ending notifier() early was always possible; as of `d244104` it is reported instead of silent.**
+`callHandler`/`callSub` now run the `StateChangeHandler`/subscriber `fn` through `runCallback`
+(`hsms/handler_panic.go`) instead of a bare `defer recover()`.
+Provided the panic-report hook and the configured logger return normally,
+a recovered panic does not touch the join: it is counted (`ConnectionMetrics.HandlerPanicCount`)
+and logged, `notifier()`'s `for sc := range s.notify` loop continues, and the rest of the cycle's
+callbacks still run.
+A logger that calls `runtime.Goexit` while reporting the panic instead ends the notifier through `runCallback`'s outer Goexit path,
+and `notifierDone` then closes — see [the callback panic/Goexit isolation entry](/hsms/handler-panic-goexit-isolation.md)
+for the mechanism.
+A `runtime.Goexit` from `fn` ends `notifier()` exactly as it always did — `runCallback` cannot recover a
+Goexit, only detect it — so `notifier()`'s own `defer close(s.notifierDone)` still fires as the
+goroutine unwinds.
+What changed is only that this is now logged (`reportGoexit`, not counted) instead of ending silently.
+Because `notifierDone` closes on the callback's own unwind rather than on a Close timeout, once
+Goexit unwinding reaches `notifier()`'s own completion defer, a `joinSupervisor` call already in
+flight (or one that starts moments later) can find step 3's `notifierDone` already closed instead of
+reaching step 4's timeout — this is the concrete reason `SubscribeLifecycle`'s and
+`StateChangeHandler`'s own godoc can now say "Close still completes".
+That is not a guarantee: the unwind between the Goexit and `notifierDone`'s close still runs
+`reportCallbackGoexit` → `reportGoexit` → a guarded, but user-supplied, logger call, which can block.
+A notifier-side Goexit performs no generation disconnect — only the data, decode-error, and async-send-error sites do.
+If that unwind has not finished by the deadline, the notifier join can still time out exactly like
+the "Abandoned notifier delivering late" failure mode below, which is about Close's timeout giving up
+on a *still-running* notifier.
+
 # Invariants
 
 - `run()` never calls a `StateChangeHandler` or lifecycle subscriber; all of them run on `notifier()`.
@@ -68,6 +96,13 @@ A later Close sees `runDone` closed and returns `s.shutdownErr` without touching
   Only the lock orders the two.
 - Every path that closes `runDone` writes `shutdownErr` before releasing `lifeMu`.
   A new path that calls `s.stop()` without doing so makes a re-Close return nil after a timeout.
+- `s.reportPanic`/`s.reportGoexit` are plain field writes in `Open`, made before `go s.run()`/`go
+  s.notifier()` start — the `go` statement itself is what gives those writes happens-before
+  visibility to the two new goroutines, so `callHandler`/`callSub` never observe a nil hook on a
+  production supervisor.
+  A supervisor built without a connection (unit tests) leaves both nil, and
+  `callHandler`/`callSub` fall back to a no-op report — the same silent isolation these sites had
+  before `d244104`.
 
 # Failure modes
 
@@ -96,3 +131,7 @@ A later Close sees `runDone` closed and returns `s.shutdownErr` without touching
 - the separate reconnect-loop join: `hsms/connection.go` → `connection.connectLoopWg`
 - stop signal: `hsms/supervisor.go` → `(*supervisor).stop`
 - public contract: `hsms/state.go` → `StateChangeHandler`
+- the callback isolation `callHandler`/`callSub` now run under, and the hook install: `hsms/supervisor.go` →
+  `(*supervisor).callHandler`, `(*supervisor).callSub`, `supervisor.reportPanic`, `supervisor.reportGoexit`;
+  `hsms/connection_lifecycle.go` → `(*connection).Open`
+- the shared panic/Goexit isolation primitive itself: `hsms/handler_panic.go` → `runCallback`

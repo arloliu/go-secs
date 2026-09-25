@@ -15,7 +15,7 @@ sources:
   - {resource: hsmsss/transport_active.go, digest: sha256:80daec469fc1444e, revision: 6c257b6}
   - {resource: hsmsss/transport_passive.go, digest: sha256:baa34d672a03a889, revision: 6c257b6}
   - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: 6c257b6}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:221b0f7825783fad, revision: 4eb40d1}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:45ceec38bea801db, revision: d244104}
 ---
 
 # What it does

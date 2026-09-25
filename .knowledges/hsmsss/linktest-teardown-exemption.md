@@ -10,9 +10,9 @@ verified:
 sources:
   - {resource: hsmsss/transport_procedures.go, digest: sha256:bf47bd9825ddb5da, revision: 6c257b6}
   - {resource: hsmsss/metrics.go, digest: sha256:e822f4b53757800e, revision: 922feb8}
-  - {resource: hsms/connection_send.go, digest: sha256:019a0edf15412086, revision: a1cdb0e}
+  - {resource: hsms/connection_send.go, digest: sha256:e485168d1a431fe7, revision: d244104}
   - {resource: hsms/errors.go, digest: sha256:3057101139d08434, revision: a7ff4a8}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:221b0f7825783fad, revision: 4eb40d1}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:45ceec38bea801db, revision: d244104}
   - {resource: hsms/epoch.go, digest: sha256:d97677e4f16e9462, revision: 4eb40d1}
   - {resource: hsmsss/transport.go, digest: sha256:14cd2584fee0dbab, revision: 6c257b6}
   - {resource: hsmsss/transport_active.go, digest: sha256:80daec469fc1444e, revision: 6c257b6}
