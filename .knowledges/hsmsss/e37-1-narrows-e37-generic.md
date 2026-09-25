@@ -13,7 +13,7 @@ sources:
   - {resource: hsms/control_msg.go, digest: sha256:847dad3406c4d87c, revision: 3660aa4}
   - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: 6c257b6}
   - {resource: hsmsss/transport_recv.go, digest: sha256:f54ea89029ef179c, revision: 6c257b6}
-  - {resource: hsms/supervisor.go, digest: sha256:90d6c1d8bddc9552, revision: d244104}
+  - {resource: hsms/supervisor.go, digest: sha256:bffb8f4562c8b494, revision: cc82a06}
 ---
 
 # What it does

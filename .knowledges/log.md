@@ -1,5 +1,37 @@
 # Log
 
+## 2026-09-26
+* **Update**: [Where a TransitionCause is chosen, and why one transition can swallow another's cause](/hsms/transition-cause-injection-sites.md) — confirmation-pass correction:
+  the shipped transports name a cause through the optional `TCPDownWithCause` capability; a runtime without it reports `CauseUnknown`.
+  Promoted to stable.
+* **Update**: [Reconnect backoff scope — what resets it, and what doesn't](/hsms/reconnect-backoff-scope.md) — confirmation pass found no fault.
+  Promoted to stable.
+* **Update**: [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) — verify-pass corrections:
+  the `hsms/epoch.go` source revision now matches its digest;
+  an absorbed Close still tears down via `closeEpoch`, only an absorbed involuntary drop loses teardown and reconnect;
+  a resurrected NotSelected loses only the successor's TCP-up CAS and report, not necessarily its Select;
+  shared-core write failures are also generation-named for `secs1`;
+  a stale Select.rsp can commit the successor even when the waiting caller returns cancellation.
+  Still draft.
+* **Update**: [Reconnect backoff scope](/hsms/reconnect-backoff-scope.md) — verify-pass corrections:
+  the `hsms/epoch.go` source revision now matches its digest;
+  `prev.wait()` signals teardown completion, not a full join;
+  loop lifetimes can overlap even with shipped transports, only the retry/publication sequences are serialized;
+  secs1's passive commits can land before or after `Start` returns;
+  the reset-check coverage claim now cites the tests rather than a mutation run.
+  Still draft.
+* **Update**: [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) — `cc82a06`:
+  a real drop into NotConnected now fires even when `lastReacted` already reads NotConnected, reporting the state the `Swap` replaced;
+  the coalesced bring-up now fires on the `evTCPUp` with `CauseSelectAccepted` and the later `evSelectAccepted` is the no-op;
+  a late `evTCPUp` that finds NotConnected is ignored; records how `react`'s farewell, reconnect, and teardown hang off the reported `prev`.
+  Demoted to draft.
+* **Update**: [Reconnect backoff scope](/hsms/reconnect-backoff-scope.md) — `cc82a06`: the disconnect's store is now a `Swap` and the drop reports `prev == Selected`,
+  though still no entering-Selected reaction fires. Demoted to draft.
+* **Update**: digest-only refresh to `cc82a06` for [selected gates](/hsms/selected-gates.md), [E37.1 narrows E37 generic](/hsmsss/e37-1-narrows-e37-generic.md),
+  [supervisor join](/hsms/supervisor-join.md), [callback panic/Goexit isolation](/hsms/handler-panic-goexit-isolation.md),
+  [inbound generation fence](/hsms/inbound-generation-fence.md), [Close interrupts a blocked Open](/hsms/open-close-abort.md),
+  and [block send detect/act split](/secs1/block-send-detect-act-split.md).
+
 ## 2026-09-25
 * **Update**: [How Close interrupts a blocked Open](/hsms/open-close-abort.md) — confirmation-pass correction:
   the opening summary no longer says a concurrent Close always makes Open return `ErrConnClosed`.

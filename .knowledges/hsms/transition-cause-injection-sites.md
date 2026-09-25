@@ -4,26 +4,26 @@ title: Where a TransitionCause is chosen, and why one transition can swallow ano
 description: The full transition-source to cause map, why the cause is picked at the injection site rather than derived in the FSM, why the transports pass both the cause and their generation through a capability interface instead of TransportRuntime, how the generation match keeps a late transport goroutine from dropping its successor's link, why the three synchronous commits need a lock-fenced gate instead of that match, and the ways a cause never reaches a subscriber.
 tags: [hsms, lifecycle, supervisor, fsm, observability]
 status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-25T08:02:46Z}
+generated: {by: "claude/opus-5.5", at: 2026-09-25T18:15:23Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T08:34:25Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T18:15:23Z}
 sources:
   - {resource: hsms/lifecycle.go, digest: sha256:9c093383d23470e1, revision: d244104}
   - {resource: hsms/session.go, digest: sha256:134bcdad84cba21a, revision: d244104}
   - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: d244104}
-  - {resource: hsms/supervisor.go, digest: sha256:90d6c1d8bddc9552, revision: d244104}
+  - {resource: hsms/supervisor.go, digest: sha256:bffb8f4562c8b494, revision: cc82a06}
   - {resource: hsms/connection_lifecycle.go, digest: sha256:dac8943b7389474b, revision: c00e1b5}
   - {resource: hsms/connection_runtime.go, digest: sha256:dce97e0bf7fc6616, revision: d244104}
   - {resource: hsms/connection_send.go, digest: sha256:e485168d1a431fe7, revision: d244104}
   - {resource: hsms/connection.go, digest: sha256:6b6b7d50cb9bae9e, revision: c00e1b5}
-  - {resource: hsms/epoch.go, digest: sha256:d97677e4f16e9462, revision: 0c892d9}
+  - {resource: hsms/epoch.go, digest: sha256:d97677e4f16e9462, revision: cc82a06}
   - {resource: hsmsss/transport.go, digest: sha256:cb3594d212e03da1, revision: c00e1b5}
   - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: 6c257b6}
   - {resource: hsmsss/transport_active.go, digest: sha256:252154bd042e64d4, revision: c00e1b5}
   - {resource: hsmsss/transport_passive.go, digest: sha256:562498fdb8cfa240, revision: c00e1b5}
   - {resource: hsmsss/transport_procedures.go, digest: sha256:bf47bd9825ddb5da, revision: 6c257b6}
   - {resource: hsmsss/transport_recv.go, digest: sha256:f54ea89029ef179c, revision: 6c257b6}
-  - {resource: secs1/transport.go, digest: sha256:17b2a87488b2f448, revision: c00e1b5}
+  - {resource: secs1/transport.go, digest: sha256:3a6524ea98141e18, revision: cc82a06}
   - {resource: internal/gencap/gencap.go, digest: sha256:388f19be3dd1fe52, revision: c00e1b5}
   - {resource: hsmsss/transport_control_test.go, digest: sha256:44103f361af0833e, revision: 6c257b6}
   - {resource: hsmsss/integration_lifecycle_cause_test.go, digest: sha256:50bb158dce6382ea, revision: d244104}
@@ -44,6 +44,9 @@ That is the delta this entry records.
 `fsmCommand{ev, cause}` is what `inject` queues and `step` dequeues;
 `stateChange` carries the cause to the notifier.
 The transition table (`transition`) never reads it.
+`step` makes exactly one substitution:
+an `evTCPUp` that finds the state already `Selected` reports `CauseSelectAccepted` instead of its own cause
+(the coalesced bring-up, under Failure mode).
 The same state pair therefore carries different causes on different runs:
 `Selected -> NotConnected` is a local Close, a peer Separate, a linktest failure, or a read error.
 That is exactly the discrimination the feature exists to provide, and the reason it cannot be reconstructed after the fact from `(prev, next)`.
@@ -52,7 +55,7 @@ That is exactly the discrimination the feature exists to provide, and the reason
 
 | Injection site | Event | Cause |
 |---|---|---|
-| `connection.TCPUp` → `supervisor.CommitConnected` | `evTCPUp` | `CauseLocalOpen` |
+| `connection.TCPUp` → `supervisor.CommitConnected` | `evTCPUp` | `CauseLocalOpen`; `step` reports `CauseSelectAccepted` instead when the Select commit already landed |
 | `connection.CommitSelected` → `supervisor.CommitSelected` | `evSelectAccepted` | `CauseSelectAccepted` |
 | `connection.SelectLost` → `supervisor.CommitSelectLost` | `evSelectLost` | `CausePeerDeselect` |
 | (the three above, generation-named: `*FromGeneration` → `supervisor.commitFrom`; `CommitConnected`/`CommitSelectLost` under `connection.commitGate`, `CommitSelected` under `connection.selectCommitGate`) | same | same |
@@ -91,9 +94,11 @@ generation.
 `secs1`-hosted `DataMessageHandler`/`DecodeErrorHandler` still resolves a real, nonzero `gen`: plain
 `DeliverOwnedFrame` loads `c.cur.Load()` unconditionally and `routeDataOn` computes `gen` from that
 epoch's own `id` (0 only when `cur` was nil).
-So a `secs1` handler's Goexit CAN drive a `CauseHandlerExit` disconnect naming the connection's current
-generation — the one place `secs1` participates in generation-named disconnects at all, despite
-having no generation-aware transport capability of its own.
+So a `secs1` handler's Goexit CAN drive a `CauseHandlerExit` disconnect naming the connection's current generation,
+despite `secs1` having no generation-aware transport capability of its own.
+SECS-I's own transport disconnect reports are unqualified;
+shared-core write failures (`connection.writeFrame`, which every `secs1` write goes through)
+and callback Goexit use generation-named disconnects.
 
 **The Select procedure is the only site with a non-constant cause, and the reason is the reply registry.**
 An active Select.req is an ordinary registered transaction, so THREE different things can come back through `WriteMessage`.
@@ -119,7 +124,8 @@ the auto-commit reaches `Selected` for the same reason a handshake does, so the 
 **`CauseUnknown` on bare `TCPDown` is deliberate.**
 `TransportRuntime.TCPDown(cause error)` carries an error for the farewell decision, not a classification.
 Defaulting it to `CauseIOError` would mislabel every drop an out-of-module transport reports for a non-I/O reason.
-Only the in-module transports name a cause, through `connection.TCPDownWithCause`.
+The shipped transports name a cause through the optional `TCPDownWithCause` capability, reached by type assertion;
+a runtime reached without that capability reports `CauseUnknown`.
 
 **HSMS-SS injection sites also name the generation they speak for, and that is a separate axis from the cause.**
 SECS-I carries the cause only, and local Close and base-runtime paths use generation 0.
@@ -343,8 +349,12 @@ Neither existing guard stops it.
 The cancelled generation ctx does not either: `writeFrame` checks the RESOLVED epoch's ctx, which is live, and the hsmsss transport ignores the caller ctx entirely.
 
 The damage is worse than a stray response.
-If the answer beats the caller's cancellation-deregistration, `RouteReply` finds the successor's registration and the transaction SUCCEEDS:
-a status-0 `Select.rsp` then drives the successor's own recv-loop commit to Selected over a handshake that link never ran.
+If the answer beats the caller's cancellation-deregistration, `RouteReply` finds the successor's registration,
+and the reply can reach it and trigger the successor's Select commit,
+even if the waiting caller ultimately returns cancellation —
+`sendWaitReplyOn`'s `callerCtx.Done()` arm does not re-check a ready reply.
+hsmsss's `transport.dispatchFrame` commits whenever routing a status-0 `Select.rsp` succeeds,
+so the successor's own recv loop commits to Selected over a handshake that link never ran.
 If cancellation wins instead, the answer is orphaned and the successor answers it with a `Reject.req` (§8.3.20) — a Reject to a peer that did nothing wrong.
 A stale `Linktest.req` can also arrive while the successor is still NotSelected, which E37.1 §7.4 classifies as a communications failure the peer may answer by closing the new link.
 
@@ -391,33 +401,69 @@ exercising the REAL `causeRuntime`/`TCPDownWithCause` wiring, not about no test 
 # Failure mode
 
 **A cause silently lost to dedup.**
-`step` fires only when `next != s.lastReacted`.
-An `evDisconnect(CauseIOError)` that has already driven `Selected -> NotConnected` leaves `lastReacted == NotConnected`;
-a `Close` behind it transitions `NotConnected -> NotConnected`, does not fire,
+`step` fires when `next != s.lastReacted`, or when the event really drops the link:
+it stores `NotConnected` over a live state (`left != NotConnected`, where `left` is what the `Swap` replaced).
+An `evDisconnect(CauseIOError)` that has already driven and reported `Selected -> NotConnected` leaves `lastReacted == NotConnected`;
+a `Close` behind it transitions `NotConnected -> NotConnected`, drops nothing, does not fire,
 and its `CauseLocalClose` is never reported.
 Observed from outside: a subscriber sees the drop's cause and no close event at all.
 This is correct — the FSM really did make one transition —
 but a consumer that treats the newest event as "why the link is down right now" reads the right answer only because the FIRST cause is the true one.
 
+The swallow needs the earlier drop to have been processed first.
+`lastReacted` can lag the stored state,
+because the synchronous commits CAS the state before their report reaches the queue,
+so it can read `NotConnected` while the link is actually `NotSelected` or `Selected`.
+Dedup on `lastReacted` alone would absorb the drop that ends such an unreported bring-up.
+The drop exception makes that drop fire anyway, with `prev` set to the replaced state rather than `lastReacted`;
+a `Close` that overtakes both bring-up reports fires `Selected -> NotConnected` with `CauseLocalClose`.
+The reaction depends on that `prev` too, and the SubscribeLifecycle godoc does not say how:
+`connection.react` sends the courtesy Separate only when `prev == Selected`,
+starts the reconnect loop unless the connection is shutting down, and initiates teardown.
+Without the exception, an absorbed involuntary disconnect would lose the reaction-driven teardown and reconnect,
+not just the notification, leaving a link down with nothing driving it back up.
+An absorbed Close would lose the courtesy farewell and the notification,
+but its explicit teardown (`step`'s `evClose` branch, via `closeEpoch`) still runs,
+and it never reconnects anyway.
+
 **A cause lost to coalescing.**
 `emit` is a non-blocking drop-OLDEST send.
 Under a subscriber that does not drain, an intermediate `stateChange` is discarded with its cause.
 The latest state always survives; an intermediate cause may not.
+The drop exception guarantees only the enqueue:
+under a subscriber that stays behind across further reconnects, a drop's own notification can be the one discarded.
 
 **The bring-up pair collapsing into one event.**
 `CommitConnected` CAS-stores `NotSelected` and then enqueues `evTCPUp`.
 If the select handshake commits before `run()` drains that `evTCPUp`,
-`step` finds the state already `Selected`, `transition(Selected, evTCPUp)` is illegal, and nothing fires;
-the subsequent `evSelectAccepted` then reports `NotConnected -> Selected` with `CauseSelectAccepted`.
+`step` finds the state already `Selected`.
+`transition(Selected, evTCPUp)` is a legal same-state entry, so nothing is stored,
+but `Selected` differs from `lastReacted`,
+so the `evTCPUp` itself fires `NotConnected -> Selected`, reported with the substituted `CauseSelectAccepted`.
+The `evSelectAccepted` behind it then finds `Selected == lastReacted` and fires nothing.
 A bring-up therefore legitimately reports either two events or one.
 A test that asserts an exact three-event Open/Select/Close sequence is flaky by construction;
 see `hsmsss.causeLog.waitBringUp`, which tolerates both shapes.
+
+**A late TCP-up report overtaken by a drop.**
+A disconnect can reach the queue between `CommitConnected`'s CAS and its `evTCPUp`.
+The disconnect then fires `NotSelected -> NotConnected` under the drop exception above,
+and the `evTCPUp` behind it finds `NotConnected`.
+`transition(NotConnected, evTCPUp)` is illegal, so that report is ignored.
+If it were legal, it would store `NotSelected` on a generation that has already dropped.
+The successor's own `CommitConnected` CAS expects `NotConnected`, so it would then fail,
+and the successor's TCP-up CAS and its report would be lost.
+That does not necessarily prevent the later Select commit or its notification:
+`connection.commitTCPUp` returns socket acceptance regardless of the CAS result,
+and `CommitSelectedFromGeneration` CASes out of the resurrected `NotSelected`.
 
 # Where to look
 
 - causes and subscription storage: `hsms/lifecycle.go` →
   `TransitionCause`, `LifecycleEvent`, `connection.SubscribeLifecycle`, `connection.cancelLifecycle`
 - event plumbing: `hsms/supervisor.go` → `fsmCommand`, `inject`, `injectFrom`, `step`, `fireTransition`, `notifySubs`
+- dedup, the drop exception, and the late-TCP-up rejection: `hsms/supervisor.go` → `step`, `lastReacted`, `transition`;
+  the reaction that reads the reported `prev`: `hsms/connection_lifecycle.go` → `(*connection).react`
 - cause-carrying disconnect: `hsms/connection_lifecycle.go` → `TCPDownWithCause`, `TCPDownFromGeneration`, `injectDisconnect`
 - `CauseHandlerExit`, the callback-exit injection site, and the generation it names: `hsms/handler_panic.go` →
   `(*connection).disconnectHandlerGeneration`, `errHandlerGoexit`;

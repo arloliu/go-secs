@@ -10,11 +10,11 @@ verified:
 sources:
   - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: d244104}
   - {resource: hsms/handler_panic_test.go, digest: sha256:def868b2ecc8930c, revision: d244104}
-  - {resource: hsms/endpoint.go, digest: sha256:a01c1f116383460c, revision: c00e1b5}
+  - {resource: hsms/endpoint.go, digest: sha256:b75d6a0370642b02, revision: cc82a06}
   - {resource: hsms/state.go, digest: sha256:f467c560ffea5807, revision: d244104}
   - {resource: hsms/connection_config.go, digest: sha256:e701533ea6c49f0a, revision: c00e1b5}
   - {resource: hsms/session.go, digest: sha256:134bcdad84cba21a, revision: d244104}
-  - {resource: hsms/supervisor.go, digest: sha256:90d6c1d8bddc9552, revision: d244104}
+  - {resource: hsms/supervisor.go, digest: sha256:bffb8f4562c8b494, revision: cc82a06}
   - {resource: hsms/connection_send.go, digest: sha256:e485168d1a431fe7, revision: d244104}
   - {resource: hsms/connection_lifecycle.go, digest: sha256:dac8943b7389474b, revision: c00e1b5}
   - {resource: hsms/connection_runtime.go, digest: sha256:dce97e0bf7fc6616, revision: d244104}

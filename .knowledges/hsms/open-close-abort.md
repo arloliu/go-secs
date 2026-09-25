@@ -10,11 +10,11 @@ verified:
 sources:
   - {resource: hsms/connection_lifecycle.go, digest: sha256:dac8943b7389474b, revision: c00e1b5}
   - {resource: hsms/connection.go, digest: sha256:6b6b7d50cb9bae9e, revision: c00e1b5}
-  - {resource: hsms/endpoint.go, digest: sha256:a01c1f116383460c, revision: c00e1b5}
+  - {resource: hsms/endpoint.go, digest: sha256:b75d6a0370642b02, revision: cc82a06}
   - {resource: internal/gencap/gencap.go, digest: sha256:388f19be3dd1fe52, revision: c00e1b5}
   - {resource: hsmsss/transport.go, digest: sha256:cb3594d212e03da1, revision: c00e1b5}
   - {resource: hsmsss/transport_active.go, digest: sha256:252154bd042e64d4, revision: c00e1b5}
-  - {resource: secs1/transport.go, digest: sha256:17b2a87488b2f448, revision: c00e1b5}
+  - {resource: secs1/transport.go, digest: sha256:3a6524ea98141e18, revision: cc82a06}
 ---
 
 # What it does

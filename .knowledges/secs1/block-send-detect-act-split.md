@@ -9,7 +9,7 @@ verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-24T18:01:57Z}
 sources:
   - {resource: secs1/line.go, digest: sha256:363cb924dca72a53, revision: d244104}
-  - {resource: secs1/transport.go, digest: sha256:17b2a87488b2f448, revision: c00e1b5}
+  - {resource: secs1/transport.go, digest: sha256:3a6524ea98141e18, revision: cc82a06}
   - {resource: hsms/connection_lifecycle.go, digest: sha256:dac8943b7389474b, revision: c00e1b5}
 ---
 
