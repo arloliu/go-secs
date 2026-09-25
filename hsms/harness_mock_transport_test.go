@@ -74,6 +74,13 @@ type mockTransport struct {
 
 	// writeErr, when set, is returned by every Write (to exercise the write-error send path).
 	writeErr error
+	// writeFn, when set, REPLACES Write's default frame-capture behavior entirely (see captureWrite).
+	// Write reads it under m.mu, then invokes it outside the lock,
+	// so a blocking override —
+	// such as the teardown-accounting harness's write-until-conn-closes fn —
+	// can never deadlock a concurrent mockTransport call like setWriteErr or simulateReadError.
+	// An override that wants the default behavior for a conn it does not special-case can still call m.captureWrite itself.
+	writeFn func(ctx context.Context, conn net.Conn, bufs net.Buffers) error
 	// lastWriteDeadline is the most recent SetWriteDeadline arg; capturedWriteDeadline is the value
 	// armed at the instant of a Write (captured before writeFrame's defer clears it) — the
 	// write-timeout arming (I5).
@@ -337,10 +344,25 @@ func (m *mockTransport) startCalls() int {
 	return m.startCount
 }
 
-// Write flattens the writev buffers into one captured frame (in call order) and returns the
-// configured writeErr (nil by default). Flattening mirrors what the peer would read off the
-// wire, so a captured frame is byte-comparable to Message.ToBytes().
+// Write invokes writeFn when one is installed, or captureWrite otherwise (see the writeFn field doc).
 func (m *mockTransport) Write(ctx context.Context, conn net.Conn, bufs net.Buffers) error {
+	m.mu.Lock()
+	fn := m.writeFn
+	m.mu.Unlock()
+
+	if fn != nil {
+		return fn(ctx, conn, bufs)
+	}
+
+	return m.captureWrite(conn, bufs)
+}
+
+// captureWrite is Write's default behavior:
+// it flattens the writev buffers into one captured frame (in call order) and returns the configured writeErr (nil by default).
+// Flattening mirrors what the peer would read off the wire,
+// so a captured frame is byte-comparable to Message.ToBytes().
+// A writeFn override that wants this behavior for a conn it does not special-case calls it directly.
+func (m *mockTransport) captureWrite(conn net.Conn, bufs net.Buffers) error {
 	var frame []byte
 	for _, b := range bufs {
 		frame = append(frame, b...)

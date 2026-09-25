@@ -113,8 +113,13 @@ func (m *ConnectionMetrics) DataMsgRecvCount() uint64 {
 //   - A message rejected before the wire for exceeding MaxMessageSize (ErrMessageTooLarge) — a
 //     local, caller-side construction error, not a transport/protocol failure.
 //
-// A send that fails because the connection is closing reports ErrConnClosed and is not counted,
-// but a write already on the socket when Close tears it down can fail with the socket's own error, and that is counted.
+// A send whose failure is observed after teardown has started — a voluntary Close or an involuntary drop —
+// reports ErrConnClosed and is not counted,
+// including a write that fails while on the socket:
+// the raw transport error is wrapped in ErrConnClosed (still matching it via errors.Is) rather than counted on its own.
+// A reply that has already arrived wins over a simultaneous teardown or protocol timeout,
+// and a teardown wins over a simultaneous protocol timeout;
+// caller cancellation keeps its existing behavior.
 //
 // See RejectError for peer rejections.
 func (m *ConnectionMetrics) DataMsgErrCount() uint64 {
