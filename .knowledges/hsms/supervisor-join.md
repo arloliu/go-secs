@@ -11,7 +11,7 @@ sources:
   - {resource: hsms/connection_lifecycle.go, digest: sha256:221b0f7825783fad, revision: 922feb8}
   - {resource: hsms/supervisor.go, digest: sha256:291a3c8397ed511d, revision: a7ff4a8}
   - {resource: hsms/state.go, digest: sha256:b0c58d8c774973d2, revision: fb8d9cd}
-  - {resource: hsms/connection.go, digest: sha256:e7b5b0de14cd4c58, revision: 6c257b6}
+  - {resource: hsms/connection.go, digest: sha256:29d7e54aeb61fce0, revision: a1cdb0e}
 ---
 
 # What it does

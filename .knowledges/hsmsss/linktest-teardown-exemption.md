@@ -4,14 +4,13 @@ title: Linktest teardown exclusion covers cancellation propagation and stale gen
 description: Why runLinktest's two-part ErrConnClosed guard exists, and how far "teardown-exclusive" actually reaches.
 tags: [hsmsss, linktest, metrics, shutdown, race]
 status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-25T02:38:18Z}
+generated: {by: "claude/sonnet-5", at: 2026-09-25T03:51:29Z}
 verified:
-  - {by: "openai/gpt-6-astra", at: 2026-09-25T02:55:36Z}
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T03:13:36Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T06:15:19Z}
 sources:
   - {resource: hsmsss/transport_procedures.go, digest: sha256:bf47bd9825ddb5da, revision: 6c257b6}
   - {resource: hsmsss/metrics.go, digest: sha256:e822f4b53757800e, revision: 922feb8}
-  - {resource: hsms/connection_send.go, digest: sha256:d2e809d7d0d95711, revision: a7ff4a8}
+  - {resource: hsms/connection_send.go, digest: sha256:019a0edf15412086, revision: a1cdb0e}
   - {resource: hsms/errors.go, digest: sha256:3057101139d08434, revision: a7ff4a8}
   - {resource: hsms/connection_lifecycle.go, digest: sha256:221b0f7825783fad, revision: 4eb40d1}
   - {resource: hsms/epoch.go, digest: sha256:d97677e4f16e9462, revision: 4eb40d1}
@@ -61,9 +60,15 @@ one context tree, with the parent's `Done` closing before it reaches the child, 
 cascades.
 
 **Where `ErrConnClosed` actually originates.**
-Tracing every `return …ErrConnClosed` in `hsms/connection_send.go`'s send path: `writeFrame`
-returns it when the epoch's captured conn is nil, or when its own `e.ctx.Done()` fast-fail fires;
-`sendWaitReplyOn`'s reply-wait select returns it on the `e.ctx.Done()` branch.
+Tracing every `return …ErrConnClosed` on the synchronous request path auto-linktest uses in `hsms/connection_send.go` (as of `a1cdb0e`)
+— the async paths (`SendAsyncFromGeneration`'s stale-generation refusal, `enqueueAsync`'s epoch cancellation) also return it but never participate in `runLinktest`:
+`writeFrame` returns it when the epoch's captured conn is nil, when its own `e.ctx.Done()` fast-fail
+fires BEFORE the write, or when its write fails AND `e.ctx.Err() != nil` AFTER the write — teardown
+observed after the fact, wrapping the raw transport error (or passing an already-`ErrConnClosed`
+result through unwrapped) rather than returning it raw;
+`sendWaitReplyOn`'s reply-wait select returns it on the `e.ctx.Done()` branch, and also on the
+timer (`T3`/`T6`) branch when a post-pick, non-blocking `e.ctx.Err() != nil` check finds teardown
+already under way — see the two new origins below.
 A nil conn is not exclusively a teardown symptom: `newEpoch` (`hsms/epoch.go`) starts a fresh epoch
 with no socket at all, so a control send issued before the transport ever publishes one — before
 any `TCPUp` — reaches the same `conn == nil` branch and the same `ErrConnClosed`, with no teardown
@@ -73,14 +78,27 @@ always published by then, so on its own normal path every `ErrConnClosed` origin
 lifecycle exclusion — teardown, or a stale generation losing the race in `WriteMessageFromGeneration`.
 But the sentinel itself is not globally teardown-exclusive; `ErrConnClosed`'s own godoc
 (`hsms/errors.go`) now says so too, naming the not-yet-published-socket case explicitly (`a7ff4a8`).
-There remains no code path in `hsms` that returns `ErrConnClosed` for a live, merely slow or broken
-link on an already-published socket: a write timeout, a reset connection, or any other
-transport-level failure on a still-live epoch comes back from `c.tr.Write` as the RAW transport
-error and propagates through `writeFrame`/`sendWaitReplyOn` unchanged — never wrapped or replaced
-with `ErrConnClosed`.
-That is why `errors.Is(err, hsms.ErrConnClosed)` is a safe test on auto-linktest's own call pattern:
-matching it can only mean "this epoch is tearing down, or this generation already ended," never
-"the write failed on a live link."
+For CORE-generated errors, there is no code path in `hsms` that returns `ErrConnClosed` for a live,
+merely slow or broken link on an already-published socket, i.e. one where `e.ctx.Err() == nil`: a
+write timeout, a reset connection, or any other transport-level failure on a still-live epoch comes
+back from `c.tr.Write` as the RAW transport error and propagates through
+`writeFrame`/`sendWaitReplyOn` unchanged — never wrapped or replaced with `ErrConnClosed`.
+That guarantee is scoped to `hsms`'s own errors and to a transport that reserves this sentinel for
+lifecycle outcomes.
+`hsmsss/transport.go`'s `(*transport).Write` passes a custom `WithDialer` conn's error straight
+through unexamined (`bufs.WriteTo(conn)`, error returned verbatim), so a custom `net.Conn` that
+itself returns, or wraps, a value matching `hsms.ErrConnClosed` on a genuinely live link would defeat
+this guarantee — `writeFrame` only ever classifies by `e.ctx.Err()`, never by re-deriving the error's
+cause.
+The two new origins below apply only on the OTHER side of that same check, `e.ctx.Err() != nil`,
+so they narrow nothing this paragraph claims.
+That is why `errors.Is(err, hsms.ErrConnClosed)` is a safe test on auto-linktest's own call pattern,
+given a core-generated transport error: matching it means this epoch's teardown was already under
+way, or this generation already ended, by the time the failure was observed — a LIFECYCLE
+classification, not proof the underlying failure was not ALSO a genuine live-link problem that
+happened to race with teardown (the original transport error stays reachable via `errors.Is`).
+Either cause still means the generation is going down, which is why treating a matching error as
+teardown rather than as a link failure remains correct for this guard's purpose.
 
 **A fourth origin, added alongside generation isolation.**
 `runLinktest`'s `WriteMessage` call now goes through `t.writeMessage(lctx, g.gen, ...)`, which — when the runtime
@@ -91,6 +109,20 @@ This is still teardown-exclusive from the reporting goroutine's own point of vie
 goroutine's generation has ended, which is exactly the condition this guard exists to treat as teardown
 rather than as a link failure, even while some other, newer generation's link may be running fine.
 
+**A fifth and sixth origin, added by the teardown-write reclassification (`a1cdb0e`).**
+`writeFrame`'s write-failure branch now checks `e.ctx.Err()` after `c.tr.Write` fails: when this
+epoch's teardown has already started, it returns `ErrConnClosed` instead of the raw transport error
+the trace above used to assume always propagated unwrapped through this branch.
+`sendWaitReplyOn`'s timer arm gained a matching re-check: Go's select can still pick the timer case
+while a teardown is simultaneously ready, so before committing to a genuine `ErrT3Timeout`/`ErrT6Timeout`
+the timer arm first tries a non-blocking `tryReply` (a reply that arrived can still win), then checks
+`e.ctx.Err() != nil` (a plain check, not a channel receive) and returns `ErrConnClosed` if teardown is
+under way — a teardown that lost the random pick to the timer still reports, and is still excluded, as
+teardown, not as a timeout.
+Both new origins are teardown-exclusive by the same construction as the existing four: `e.ctx.Err() !=
+nil` is the entire condition guarding each one, so `errors.Is(err, hsms.ErrConnClosed)` on
+auto-linktest's own call pattern remains a safe test with these two origins added, not narrowed.
+
 **What the guard buys.**
 Without the `ErrConnClosed` half, a teardown that wins the race described above would fall through to
 `t.metrics.incLinktestErr()` and feed `linktestFailureStep` — double-signaling a teardown that the
@@ -99,8 +131,10 @@ involuntary disconnect during what should be an orderly shutdown.
 
 # Invariants
 
-- `errors.Is(err, hsms.ErrConnClosed)` on auto-linktest's own send is a proxy for
-  "this epoch tore down, or this generation already ended" — never for "the write failed on a live link."
+- For core-generated errors, and for transports that reserve `ErrConnClosed` for lifecycle outcomes,
+  `errors.Is(err, hsms.ErrConnClosed)` on auto-linktest's own send means
+  "this epoch tore down, or this generation already ended".
+  A custom connection may violate that convention by returning or wrapping the sentinel on a live link.
   The sentinel is not globally teardown-exclusive — a control send before the first `TCPUp` hits the
   same nil-conn branch with no teardown in progress — but auto-linktest never sends before Selected
   commits, so its own path never observes that case.
