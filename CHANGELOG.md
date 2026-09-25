@@ -34,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so it reconnects instead of sitting Selected with no receiver.
   A `StateChangeHandler` or `SubscribeLifecycle` callback that does this is logged only,
   and later state notifications of that `Open` are no longer delivered.
+- `hsms`, `hsmsss`, `secs1`: the `WithLinktestInterval`, `WithTCPKeepAlive`, `WithDialer`, and `WithListener` docs
+  now explain how an idle link detects a silent half-open peer.
+  Linktest is off by default, so detection falls to TCP keep-alive, which can take minutes.
+  A caller using a custom dialer or listener must configure keep-alive
+  unless `WithTCPKeepAlive` is set and the socket is a `*net.TCPConn`.
+  The README example enables a 30-second linktest.
 
 ### Fixed
 

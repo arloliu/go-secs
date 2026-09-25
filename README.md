@@ -277,6 +277,8 @@ func main() {
         hsmsss.WithActive(), // dial outbound
         hsmsss.WithConnectionOption(hsms.WithSessionID(1000)),
         hsmsss.WithConnectionOption(hsms.WithT3(30*time.Second)),
+        // Probe an idle link so a vanished peer is noticed in seconds, not minutes (off by default).
+        hsmsss.WithConnectionOption(hsms.WithLinktestInterval(30*time.Second)),
     )
     if err != nil {
         log.Fatal(err)
