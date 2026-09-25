@@ -1,6 +1,34 @@
 # Log
 
 ## 2026-09-25
+* **Update**: [How Close interrupts a blocked Open](/hsms/open-close-abort.md) — confirmation-pass correction:
+  the opening summary no longer says a concurrent Close always makes Open return `ErrConnClosed`.
+  Promoted to stable.
+* **Update**: [How a shutdown joins the per-Open supervisor](/hsms/supervisor-join.md) — confirmation-pass correction:
+  a Close from any goroutine can time out on a blocked callback; only a callback's own-cycle Close joins itself.
+  Promoted to stable.
+* **Update**: [How Close interrupts a blocked Open](/hsms/open-close-abort.md) — verify-pass corrections:
+  a pre-fired token's Selected wait can still return nil or `ctx.Err()`, and pre-firing does not make Open nonblocking;
+  registration ordering and the positive-count invariant allow a descheduled Close;
+  reconnect dials can run before Open returns;
+  Start-error mapping requires `callerCut`;
+  the bound's cancel runs at `startActive` exit and joins neither bridge;
+  the interrupting Close returns the cached rollback result only while that supervisor is current.
+  Still draft.
+* **Update**: [How a shutdown joins the per-Open supervisor](/hsms/supervisor-join.md) — verify-pass corrections:
+  `mapAbortedStartErr` credits the caller only on `callerCut` plus `context.Canceled`;
+  the cached rollback result applies only while that supervisor stays current;
+  the callback-Close timeout covers only a callback closing its own current cycle,
+  and the notifier may be abandoned rather than joined before the reconnect-loop join.
+  Still draft.
+* **Creation**: [How Close interrupts a blocked Open](/hsms/open-close-abort.md) — the pending-close registration, one-shot abort token, first-dial bound, and Start-error mapping introduced in `c00e1b5`; draft.
+* **Update**: [How a shutdown joins the per-Open supervisor](/hsms/supervisor-join.md) — Open's rollback now also covers an aborted or caller-cancelled first dial and returns the mapped Start error, not the raw one; the interrupting Close returns the rollback's `shutdownErr`. Demoted to draft.
+* **Update**: digest-only refresh to `c00e1b5` for [transition-cause injection sites](/hsms/transition-cause-injection-sites.md), [reconnect backoff scope](/hsms/reconnect-backoff-scope.md),
+  [send error accounting](/hsms/send-error-accounting.md), [inflight gauge](/hsms/inflight-gauge.md), [inbound generation fence](/hsms/inbound-generation-fence.md),
+  [callback panic/Goexit isolation](/hsms/handler-panic-goexit-isolation.md), [transaction observer chokepoints](/hsms/transaction-observer-chokepoints.md),
+  [passive refusal exchange](/hsmsss/passive-refusal-exchange.md), [activity stamps](/hsmsss/activity-stamps.md), [linktest teardown exemption](/hsmsss/linktest-teardown-exemption.md),
+  [E37.1 narrows E37 generic](/hsmsss/e37-1-narrows-e37-generic.md), and [block send detect/act split](/secs1/block-send-detect-act-split.md)
+  (Close/Open abort protocol, dial bounding, accept-retry diagnostic, and caller-obligation docs changed; no cited claim touched).
 * **Update**: [callback panic/Goexit isolation](/hsms/handler-panic-goexit-isolation.md), [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md),
   [the inbound generation fence](/hsms/inbound-generation-fence.md), and [supervisor join](/hsms/supervisor-join.md) promoted to stable against `d244104`
   after a verify pass (openai/gpt-6-astra) and confirmation passes (openai/gpt-5.6-terra) that corrected Goexit-resumption semantics, reporter-exit cases,

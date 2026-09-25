@@ -12,7 +12,7 @@ sources:
   - {resource: hsms/connection_metrics.go, digest: sha256:2b06463b39b276c4, revision: d244104}
   - {resource: hsms/connection_send_metrics_test.go, digest: sha256:457aeefcd9801abc, revision: a1cdb0e}
   - {resource: hsms/epoch.go, digest: sha256:d97677e4f16e9462, revision: 4eb40d1}
-  - {resource: hsmsss/transport.go, digest: sha256:14cd2584fee0dbab, revision: 6c257b6}
+  - {resource: hsmsss/transport.go, digest: sha256:cb3594d212e03da1, revision: c00e1b5}
 ---
 
 # What it does

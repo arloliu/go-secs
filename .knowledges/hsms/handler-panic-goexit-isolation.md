@@ -10,19 +10,19 @@ verified:
 sources:
   - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: d244104}
   - {resource: hsms/handler_panic_test.go, digest: sha256:def868b2ecc8930c, revision: d244104}
-  - {resource: hsms/endpoint.go, digest: sha256:16e8340557415a64, revision: d244104}
+  - {resource: hsms/endpoint.go, digest: sha256:a01c1f116383460c, revision: c00e1b5}
   - {resource: hsms/state.go, digest: sha256:f467c560ffea5807, revision: d244104}
-  - {resource: hsms/connection_config.go, digest: sha256:8f190080c022c1fa, revision: 752a39a}
+  - {resource: hsms/connection_config.go, digest: sha256:e701533ea6c49f0a, revision: c00e1b5}
   - {resource: hsms/session.go, digest: sha256:134bcdad84cba21a, revision: d244104}
   - {resource: hsms/supervisor.go, digest: sha256:90d6c1d8bddc9552, revision: d244104}
   - {resource: hsms/connection_send.go, digest: sha256:e485168d1a431fe7, revision: d244104}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:45ceec38bea801db, revision: d244104}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:dac8943b7389474b, revision: c00e1b5}
   - {resource: hsms/connection_runtime.go, digest: sha256:dce97e0bf7fc6616, revision: d244104}
   - {resource: hsmsss/transport_recv.go, digest: sha256:f54ea89029ef179c, revision: d244104}
-  - {resource: hsmsss/transport.go, digest: sha256:14cd2584fee0dbab, revision: d244104}
+  - {resource: hsmsss/transport.go, digest: sha256:cb3594d212e03da1, revision: c00e1b5}
   - {resource: hsms/hsmstest/endpoint.go, digest: sha256:f695c5a80165861a, revision: d244104}
   - {resource: hsms/hsmstest/panic_test.go, digest: sha256:5503e2cd947250bc, revision: d244104}
-  - {resource: secs1/config.go, digest: sha256:271b8b5b7f00685d, revision: 752a39a}
+  - {resource: secs1/config.go, digest: sha256:c424cc48eb804c68, revision: c00e1b5}
 ---
 
 # What it does

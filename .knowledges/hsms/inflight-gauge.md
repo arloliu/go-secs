@@ -9,8 +9,8 @@ verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-24T12:34:28Z}
 sources:
   - {resource: hsms/connection_send.go, digest: sha256:e485168d1a431fe7, revision: d244104}
-  - {resource: hsms/connection.go, digest: sha256:29d7e54aeb61fce0, revision: a1cdb0e}
-  - {resource: hsms/connection_config.go, digest: sha256:8f190080c022c1fa, revision: 752a39a}
+  - {resource: hsms/connection.go, digest: sha256:6b6b7d50cb9bae9e, revision: c00e1b5}
+  - {resource: hsms/connection_config.go, digest: sha256:e701533ea6c49f0a, revision: c00e1b5}
   - {resource: hsmsss/transport_procedures.go, digest: sha256:bf47bd9825ddb5da, revision: 6c257b6}
   - {resource: hsmsss/transport_recv.go, digest: sha256:f54ea89029ef179c, revision: 6c257b6}
 ---

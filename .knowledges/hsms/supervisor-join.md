@@ -4,16 +4,16 @@ title: How a shutdown joins the per-Open supervisor
 description: Why Close joins the FSM goroutine unbounded but the notifier only up to the close timeout, and why the join signals live on the supervisor rather than the connection.
 tags: [hsms, lifecycle, supervisor, close, notifier, generations]
 status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-25T08:02:46Z}
+generated: {by: "claude/opus-5.5", at: 2026-09-25T13:05:39Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T08:40:31Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T13:08:00Z}
 sources:
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:45ceec38bea801db, revision: d244104}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:dac8943b7389474b, revision: c00e1b5}
   - {resource: hsms/supervisor.go, digest: sha256:90d6c1d8bddc9552, revision: d244104}
   - {resource: hsms/state.go, digest: sha256:f467c560ffea5807, revision: d244104}
-  - {resource: hsms/connection.go, digest: sha256:29d7e54aeb61fce0, revision: a1cdb0e}
+  - {resource: hsms/connection.go, digest: sha256:6b6b7d50cb9bae9e, revision: c00e1b5}
   - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: d244104}
-  - {resource: hsms/endpoint.go, digest: sha256:16e8340557415a64, revision: d244104}
+  - {resource: hsms/endpoint.go, digest: sha256:a01c1f116383460c, revision: c00e1b5}
 ---
 
 # What it does
@@ -25,6 +25,13 @@ and an abandoned callback's goroutine keeps delivering its cycle's transitions.
 They do not say which goroutine is joined how, why the FSM join is deliberately unbounded, where the deadline starts,
 or how a re-Close finds the first result.
 This entry records that.
+The ErrCloseTimeout clause is narrower in the code than it reads:
+among Closes issued from a callback, only one shutting down its own current cycle joins itself,
+while a Close from any goroutine can return ErrCloseTimeout when a handler or subscriber stays blocked,
+and an epoch-join error still takes precedence over the timeout.
+A callback on an earlier cycle's abandoned notifier either gets that cycle's cached result
+or closes the successor cycle,
+and never joins itself.
 
 # How it works
 
@@ -35,7 +42,8 @@ No connection-scoped WaitGroup joins these two supervisor goroutines —
 each supervisor cycle's join lives on `runDone`/`notifierDone`, not on a shared counter.
 A separate connection-scoped WaitGroup does exist for a different goroutine class:
 `connection.connectLoopWg` (`hsms/connection.go`) joins reconnect loops,
-and `Close` waits on it after `joinSupervisor` has already joined the current cycle's FSM and notifier
+and `Close` waits on it after `joinSupervisor` has joined the current cycle's FSM
+and either joined or already abandoned its notifier
 (see `Close`, below).
 
 `joinSupervisor(s, deadline)` is the only caller of `s.stop()` in production, and both shutdown paths go through it:
@@ -49,11 +57,23 @@ and `Close` waits on it after `joinSupervisor` has already joined the current cy
 `Close` samples `closeTimeout` from the live config right after its idempotent short-circuit,
 so the notifier gets whatever remains after the epoch join (step 3 covers a remainder of zero or less).
 It keeps the epoch join's error if there is one (`firstErr`), then stores the result in `s.shutdownErr`.
-Open's rollback runs on a `tr.Start` failure that is not the cold-active background retry.
-It takes its own deadline at rollback start, stores the same combined result in `s.shutdownErr`,
-and still returns the `tr.Start` error.
+Open's rollback runs on a `tr.Start` failure that is not the cold-active background retry;
+a Start failure seen after a Close fired this Open's abort token,
+or while the caller's ctx is already done, always takes the rollback, never that retry.
+It takes its own deadline at rollback start and stores the same combined result in `s.shutdownErr`,
+but does not return it.
+It returns the `tr.Start` error mapped by `mapAbortedStartErr`:
+`ErrConnClosed` when a Close fired this Open's abort token (sampled, checked first),
+otherwise the sampled caller `ctxErr` only when `callerCut` is true and the Start error wraps `context.Canceled`,
+otherwise the raw error.
+A Close that cut the dial is by then parked on `lifeMu`;
+once the rollback releases it, that Close finds `runDone` closed and returns the rollback's `shutdownErr`
+(see [how Close interrupts a blocked Open](/hsms/open-close-abort.md)).
+This cached-result behavior applies only while the rolled-back supervisor remains current;
+a queued Open that takes `lifeMu` first replaces it, and the Close then handles that successor cycle.
 
-A later Close sees `runDone` closed and returns `s.shutdownErr` without touching the epoch or supervisor again.
+While that supervisor remains current,
+a later Close sees `runDone` closed and returns `s.shutdownErr` without touching the epoch or supervisor again.
 
 **A callback ending notifier() early was always possible; as of `d244104` it is reported instead of silent.**
 `callHandler`/`callSub` now run the `StateChangeHandler`/subscriber `fn` through `runCallback`
@@ -126,6 +146,7 @@ on a *still-running* notifier.
 - the join: `hsms/connection_lifecycle.go` → `(*connection).joinSupervisor`
 - Close's deadline, precedence, and cached result: `hsms/connection_lifecycle.go` → `(*connection).Close`
 - rollback's use of the join: `hsms/connection_lifecycle.go` → `(*connection).Open`
+- the error rollback returns: `hsms/connection_lifecycle.go` → `mapAbortedStartErr`
 - the timeout error: `hsms/connection_lifecycle.go` → `errNotifierTimeout`
 - completion signals: `hsms/supervisor.go` → `(*supervisor).run`, `(*supervisor).notifier`
 - the separate reconnect-loop join: `hsms/connection.go` → `connection.connectLoopWg`

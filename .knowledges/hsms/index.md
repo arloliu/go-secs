@@ -26,6 +26,7 @@ Owns no sockets and no wire framing. `hsmsss` and `secs1` supply the transport a
 * [Reconnect backoff scope — what resets it, and what doesn't](/hsms/reconnect-backoff-scope.md) - where the persisted reconnect delay lives, the marker that resets it, and why that marker is not the reaction react fires.
 * [The inbound generation fence](/hsms/inbound-generation-fence.md) - how an inbound frame/reply is bound to the generation whose recv goroutine read it, the two different kinds of cutoff that enforce it, and the SECS-I asymmetry.
 * [How a user callback's panic or Goexit is contained](/hsms/handler-panic-goexit-isolation.md) - the two-frame detection runCallback needs, which goroutine each of the five callback sites runs on, and what this isolation does not cover.
+* [How Close interrupts a blocked Open](/hsms/open-close-abort.md) - the pending-close registration and abort token that unblock Open's Selected wait or first dial, and how the interrupted Start failure maps to Open's error.
 
 # Entry points
 

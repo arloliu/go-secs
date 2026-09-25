@@ -8,14 +8,14 @@ generated: {by: "claude/sonnet-5", at: 2026-09-24T11:50:00Z}
 verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-24T12:34:28Z}
 sources:
-  - {resource: hsms/connection.go, digest: sha256:29d7e54aeb61fce0, revision: a1cdb0e}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:45ceec38bea801db, revision: d244104}
-  - {resource: hsms/connection_config.go, digest: sha256:8f190080c022c1fa, revision: 752a39a}
+  - {resource: hsms/connection.go, digest: sha256:6b6b7d50cb9bae9e, revision: c00e1b5}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:dac8943b7389474b, revision: c00e1b5}
+  - {resource: hsms/connection_config.go, digest: sha256:e701533ea6c49f0a, revision: c00e1b5}
   - {resource: hsms/connection_runtime.go, digest: sha256:dce97e0bf7fc6616, revision: d244104}
   - {resource: hsms/connection_metrics.go, digest: sha256:2b06463b39b276c4, revision: d244104}
   - {resource: hsms/supervisor.go, digest: sha256:90d6c1d8bddc9552, revision: d244104}
   - {resource: hsms/epoch.go, digest: sha256:d97677e4f16e9462, revision: 0c892d9}
-  - {resource: secs1/transport.go, digest: sha256:8c3142a7ada318ee, revision: d244104}
+  - {resource: secs1/transport.go, digest: sha256:17b2a87488b2f448, revision: c00e1b5}
 ---
 
 # What it does

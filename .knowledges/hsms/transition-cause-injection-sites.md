@@ -12,19 +12,19 @@ sources:
   - {resource: hsms/session.go, digest: sha256:134bcdad84cba21a, revision: d244104}
   - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: d244104}
   - {resource: hsms/supervisor.go, digest: sha256:90d6c1d8bddc9552, revision: d244104}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:45ceec38bea801db, revision: d244104}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:dac8943b7389474b, revision: c00e1b5}
   - {resource: hsms/connection_runtime.go, digest: sha256:dce97e0bf7fc6616, revision: d244104}
   - {resource: hsms/connection_send.go, digest: sha256:e485168d1a431fe7, revision: d244104}
-  - {resource: hsms/connection.go, digest: sha256:29d7e54aeb61fce0, revision: a1cdb0e}
+  - {resource: hsms/connection.go, digest: sha256:6b6b7d50cb9bae9e, revision: c00e1b5}
   - {resource: hsms/epoch.go, digest: sha256:d97677e4f16e9462, revision: 0c892d9}
-  - {resource: hsmsss/transport.go, digest: sha256:14cd2584fee0dbab, revision: 6c257b6}
+  - {resource: hsmsss/transport.go, digest: sha256:cb3594d212e03da1, revision: c00e1b5}
   - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: 6c257b6}
-  - {resource: hsmsss/transport_active.go, digest: sha256:80daec469fc1444e, revision: 6c257b6}
-  - {resource: hsmsss/transport_passive.go, digest: sha256:baa34d672a03a889, revision: 6c257b6}
+  - {resource: hsmsss/transport_active.go, digest: sha256:252154bd042e64d4, revision: c00e1b5}
+  - {resource: hsmsss/transport_passive.go, digest: sha256:562498fdb8cfa240, revision: c00e1b5}
   - {resource: hsmsss/transport_procedures.go, digest: sha256:bf47bd9825ddb5da, revision: 6c257b6}
   - {resource: hsmsss/transport_recv.go, digest: sha256:f54ea89029ef179c, revision: 6c257b6}
-  - {resource: secs1/transport.go, digest: sha256:8c3142a7ada318ee, revision: d244104}
-  - {resource: internal/gencap/gencap.go, digest: sha256:cf920df43a1fd5e6, revision: 6c257b6}
+  - {resource: secs1/transport.go, digest: sha256:17b2a87488b2f448, revision: c00e1b5}
+  - {resource: internal/gencap/gencap.go, digest: sha256:388f19be3dd1fe52, revision: c00e1b5}
   - {resource: hsmsss/transport_control_test.go, digest: sha256:44103f361af0833e, revision: 6c257b6}
   - {resource: hsmsss/integration_lifecycle_cause_test.go, digest: sha256:50bb158dce6382ea, revision: d244104}
 ---
