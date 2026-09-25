@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,62 +28,51 @@ func hasStateEdge(edges []stateEdge, prev, next hsms.ConnState) bool {
 }
 
 // bringUpSelectedEdges enumerates the two edges the supervisor can legally report for a successful open reaching Selected.
-// evSelectAccepted is the ONLY event whose transition-table entry produces next == SelectedState
-// (hsms/supervisor.go transition()),
-// and fireTransition never fires a self-edge (step()'s "next != s.lastReacted" dedup — hsms/supervisor.go step()),
-// so prev is always whatever lastReacted last held:
-// NotSelectedState (the ordinary two-step climb) or NotConnectedState (below).
+// Entering Selected is never a "drop" (step's dropped exception applies only to next == NotConnectedState),
+// so the fire here is always the ordinary dedup, next != lastReacted,
+// and prev is always whatever lastReacted last held:
+// NotSelectedState (the ordinary two-step climb) or NotConnectedState (the collapsed shape below).
+// Two events can drive that fire: evSelectAccepted,
+// whose transition() entry returns SelectedState from either NotSelectedState or,
+// tolerating CommitSelected's own H2 pre-commit,
+// SelectedState itself;
+// and evTCPUp,
+// whose own entry now also tolerates a Select commit's CAS
+// that raced ahead of it (transition(SelectedState, evTCPUp) is a same-state no-op).
+// In the ordinary two-step climb evSelectAccepted is what fires the entering-Selected edge.
+// In the race below it is evTCPUp that fires it,
+// and the evSelectAccepted that follows then finds next already equal to lastReacted and fires nothing.
 //
-// TWO independent, unrelated mechanisms can legally produce the collapsed NotConnected -> Selected
-// edge, with the NotSelected -> Selected edge never firing at all
+// A same-generation scheduler race can legally collapse the two-step climb into a single
+// NotConnected -> Selected edge, with the NotSelected -> Selected edge never firing at all
 // (not merely dropped from notify's delivery buffer — lastReacted itself never passes through
-// NotSelectedState).
-// Both rely on the SAME transition-table tolerance documented at supervisor.go:184-186
-// ("evTCPUp is legal from BOTH NotConnected AND NotSelected ... evSelectAccepted is legal from BOTH
-// NotSelected AND Selected (the latter tolerates the H2 pre-commit in CommitSelected)"),
-// but they need different conditions to trigger:
+// NotSelectedState):
+// CommitConnected's CAS+injectFrom (evTCPUp) and CommitSelected's CAS+injectFrom (evSelectAccepted)
+// run synchronously on the CALLERS' own goroutines
+// (the connect-procedure goroutine and the Select-procedure/recv-loop goroutine respectively),
+// fully decoupled from when run() actually DEQUEUES and processes either event.
+// evTCPUp being enqueued first only guarantees it is DEQUEUED first —
+// it says nothing about what cur := s.state.Load() reads at that moment.
+// If run() is scheduler-starved long enough for BOTH synchronous CASes to complete
+// (state already Selected) before run() drains ANY of the backlog,
+// step() reads cur == SelectedState for the queued evTCPUp:
+// its table entry tolerates that, so it fires the coalesced bring-up directly —
+// (NotConnectedState, SelectedState), with the reported cause substituted to CauseSelectAccepted
+// (step's coalesced-cause rule) — and sets lastReacted to SelectedState.
+// TestSupervisor_PreCommittedSelectFiresReactionExactlyOnce (hsms/supervisor_test.go) explicitly WAITS for evTCPUp to finish processing before calling CommitSelected,
+// which is why that test does not exercise this window;
+// TestSupervisor_TCPUpCoalescesPrecommittedSelectThenDisconnectFiresOnce (same file) is the dedicated unit-level test for it.
 //
-//  1. Same-generation scheduler race (no T7, no reconnect churn needed).
-//     CommitConnected's CAS+injectFrom (evTCPUp) and CommitSelected's CAS+injectFrom
-//     (evSelectAccepted) run synchronously on the CALLERS' own goroutines
-//     (the connect-procedure goroutine and the Select-procedure/recv-loop goroutine respectively),
-//     fully decoupled from when run() actually DEQUEUES and processes either event.
-//     evTCPUp being enqueued first only guarantees it is DEQUEUED first — it says nothing about
-//     what cur := s.state.Load() reads at that moment.
-//     If run() is scheduler-starved long enough for BOTH synchronous CASes to complete
-//     (state already Selected) before run() drains ANY of the backlog,
-//     step() reads cur == SelectedState for the queued evTCPUp:
-//     the evTCPUp table entry (supervisor.go:200-203) does NOT include SelectedState,
-//     so it is an illegal no-op and lastReacted is left at NotConnectedState.
-//     The immediately-following evSelectAccepted then finds cur == SelectedState too
-//     (its own tolerant table entry, supervisor.go:204-207, accepts that),
-//     and fires (NotConnectedState, SelectedState) directly.
-//     TestSupervisor_PreCommittedSelectFiresReactionExactlyOnce (hsms/supervisor_test.go) explicitly
-//     WAITS for evTCPUp to finish processing before calling CommitSelected, which is why that test
-//     does not exercise this window — it is deliberately avoiding the very race described here.
-//  2. Cross-generation churn (needs a short T7 to be practical — see staleT7NoOpFromSelected).
-//     commitFrom's commitGate (hsms/connection_lifecycle.go commitTCPUp) admits a synchronous CAS
-//     while the NAMED epoch's own {id, ended} latch is still clear,
-//     but step()'s later generation check
-//     (supervisor.go step(), the "cmd.gen != 0 && s.curGen() != cmd.gen" branch)
-//     compares against whichever epoch is CURRENT at drain time
-//     and returns WITHOUT updating lastReacted on a mismatch.
-//     A short T7 can make a generation churn and get superseded while run() is scheduler-starved
-//     and hasn't yet drained its evTCPUp: that event is then discarded stale,
-//     lastReacted never advances past NotConnectedState,
-//     and the successor generation's own CommitSelected CAS
-//     (which only checks the FROM state value, not which generation set it)
-//     can still succeed on the still-NotSelected atomic state left behind —
-//     so the eventual evSelectAccepted again reports NotConnected -> Selected directly.
-//
-// Either mechanism produces the identical recorded edge, so one fence (settledAtSelected) covers both.
+// A cross-generation variant of this race is not reachable:
+// any real drop into NotConnectedState always fires its own reaction and notification (step's dropped exception),
+// so lastReacted can never be stranded at NotConnectedState behind an unreported intermediate drop the way a generation-mismatch discard of some OTHER generation's stale evTCPUp would require.
 var bringUpSelectedEdges = []stateEdge{
 	{prev: hsms.NotSelectedState, next: hsms.SelectedState},
 	{prev: hsms.NotConnectedState, next: hsms.SelectedState},
 }
 
 // settledAtSelected reports whether edges records either legal bring-up shape settling at Selected (bringUpSelectedEdges):
-// the ordinary two-step climb or the collapsed single edge (either mechanism bringUpSelectedEdges documents).
+// the ordinary two-step climb or the collapsed single edge (the scheduler race bringUpSelectedEdges documents).
 // It is shape-agnostic ON PURPOSE — see bringUpSelectedEdges —
 // while still admitting exactly the enumerated legal set, not "any state change":
 // a sequence that never reaches Selected at all still reports false.
@@ -97,7 +87,9 @@ func settledAtSelected(edges []stateEdge) bool {
 }
 
 // bringUpEdges are the ONLY edges a clean connect (Select.rsp granted, no forced disconnect) may ever record:
-// the intermediate NotConnected -> NotSelected step (recorded whenever evTCPUp is processed before the race window bringUpSelectedEdges documents closes) plus the two settling shapes bringUpSelectedEdges enumerates.
+// the intermediate NotConnected -> NotSelected step
+// (recorded whenever evTCPUp is processed before the race window bringUpSelectedEdges documents closes)
+// plus the two settling shapes bringUpSelectedEdges enumerates.
 // Anything else recorded during a connect — most notably a Selected -> NotSelected or
 // Selected -> NotConnected edge appearing mid bring-up — is a genuine defect, not a legal shape.
 var bringUpEdges = []stateEdge{
@@ -343,9 +335,10 @@ func TestFSM_HSMSSSMatrix(t *testing.T) {
 		require.Equal(t, hsms.SelectedState, conn.State())
 
 		// Wait until the bring-up has settled at Selected (settledAtSelected — see bringUpSelectedEdges;
-		// the scheduler race / cross-generation race it documents can legally collapse the two-step climb into a single NotConnected -> Selected edge).
+		// the scheduler race it documents can legally collapse the two-step climb into a single NotConnected -> Selected edge).
 		// Either shape leaves the supervisor's own lastReacted at SelectedState once this returns true
-		// (fireTransition only ever fires on next != lastReacted, and a settling edge's next is always SelectedState),
+		// (fireTransition fires whenever next != lastReacted, or unconditionally for a real drop into
+		// NotConnectedState — a settling edge's next is always SelectedState, so here it is the ordinary dedup alone),
 		// so the only way a LATER edge with next == NotSelectedState can appear is evSelectLost's tolerant table entry (Selected -> NotSelected) —
 		// never a still-in-flight connect NotConnected -> NotSelected, which cannot fire again once lastReacted has already passed it.
 		require.Eventually(t, func() bool {
@@ -379,9 +372,12 @@ func TestFSM_HSMSSSMatrix(t *testing.T) {
 		require.NoError(t, conn.Open(ctx, hsms.OpenWaitSelected))
 		require.Equal(t, hsms.SelectedState, conn.State())
 
-		// settledAtSelected (not a bare hasStateEdge(NotSelected, Selected)) because the short T7 this scenario configures opens the cross-generation window bringUpSelectedEdges documents:
-		// a generation whose evTCPUp is discarded stale by step()'s generation check can still settle at Selected via a collapsed NotConnected -> Selected edge, with the NotSelected -> Selected edge never firing at all.
-		// A fence pinned to the two-step shape alone burns its full timeout and fails on that legal outcome — the flake this fence replaces.
+		// settledAtSelected (not a bare hasStateEdge(NotSelected, Selected))
+		// because the scheduler race bringUpSelectedEdges documents can legally collapse the two-step climb into a single NotConnected -> Selected edge,
+		// with the NotSelected -> Selected edge never firing at all —
+		// independent of the short T7 this scenario configures.
+		// A fence pinned to the two-step shape alone burns its full timeout and fails on that legal outcome —
+		// the flake this fence replaces.
 		require.Eventually(t, func() bool {
 			return settledAtSelected(rec.pairs())
 		}, 15*time.Second, 5*time.Millisecond, "connect must settle at Selected")
@@ -419,36 +415,55 @@ func TestFSM_HSMSSSMatrix(t *testing.T) {
 	})
 }
 
-// TestFSM_SECS1Matrix asserts the SPARSE SECS-I connection-state matrix and the absence of any Select
-// layer. SECS-I (SEMI E4) has no HSMS-style Select handshake — a live line IS the selected session — so
-// the transport auto-commits NotConnected -> Selected and can only ever emit Selected -> NotConnected on
-// teardown. The Select-accepted, Select-lost, and T7 rows of the HSMS matrix are absent by design, and
-// no NotSelected state is ever entered. The invariant is asserted end to end across a full lifecycle:
-// open, involuntary line drop, reconnect, and close. The Select-lost edge in isolation is exercised by
-// the package-level supervisor unit tests, the authority for the exhaustive abstract table; here the
-// end-to-end teeth are that SECS-I never produces a NotSelected edge at all.
+// TestFSM_SECS1Matrix asserts the SPARSE SECS-I connection-state matrix and the absence of any Select handshake.
+// SECS-I (SEMI E4) has no HSMS-style Select handshake —
+// a live line IS the selected session —
+// so the transport commits straight through to Selected via the same two back-to-back synchronous commits
+// (TCPUp then CommitSelected — secs1/transport.go) HSMS-SS uses for its own bring-up.
+// That means the SAME scheduler race bringUpSelectedEdges documents applies here too:
+// bring-up may settle at Selected via either legal shape,
+// the collapsed NotConnected -> Selected edge or the ordinary NotConnected -> NotSelected -> Selected climb.
+// The Select-accepted, Select-lost, and T7 rows of the HSMS matrix are otherwise absent by design.
+// The invariant is asserted end to end across a full lifecycle: open, involuntary line drop, reconnect, and close.
+// The Select-lost edge in isolation is exercised by the package-level supervisor unit tests,
+// the authority for the exhaustive abstract table;
+// here the end-to-end teeth are that SECS-I never emits a Selected -> NotSelected edge —
+// the one shape only a real Select-lost handshake, which SECS-I has none of, can legitimately produce.
 func TestFSM_SECS1Matrix(t *testing.T) {
 	f := secs1Factory()
 
 	rec, handler := newStateRecorder()
+
+	// Every entry into Selected must carry CauseSelectAccepted, whichever bring-up shape produced it.
+	var causeMu sync.Mutex
+	var selectedCauses []hsms.TransitionCause
 	conn, df := f.openWith(t, func(c hsms.Connection) {
 		c.AddConnStateChangeHandler(handler)
+		c.SubscribeLifecycle(func(ev hsms.LifecycleEvent) {
+			if ev.Current != hsms.SelectedState {
+				return
+			}
+			causeMu.Lock()
+			selectedCauses = append(selectedCauses, ev.Cause)
+			causeMu.Unlock()
+		})
 	})
 	defer func() { _ = conn.Close() }() // idempotent safety close on an early-failure path
 
 	require.Equal(t, hsms.SelectedState, conn.State())
 
-	// A live line auto-commits straight to Selected — the auto-commit edge.
+	// A live line reaches Selected via either legal bring-up shape (settledAtSelected — see bringUpSelectedEdges);
+	// the pre-existing flake this replaces was a hard-coded collapsed-only assertion racing the same scheduler window HSMS-SS's own bring-up does.
 	require.Eventually(t, func() bool {
-		return hasStateEdge(rec.pairs(), hsms.NotConnectedState, hsms.SelectedState)
-	}, 15*time.Second, 5*time.Millisecond, "a live SECS-I line must auto-commit NotConnected -> Selected")
+		return settledAtSelected(rec.pairs())
+	}, 15*time.Second, 5*time.Millisecond, "a live SECS-I line must reach Selected via a legal bring-up shape")
 
 	// Mark BEFORE the drop: a SECS-I teardown lands within one poll tick (10ms), so a mark taken
 	// after dropLine can already sit past the teardown edge and the wait would then miss it.
 	marked := rec.mark()
 
 	// Drop the live line involuntarily: the connection tears down (Selected -> NotConnected) and the
-	// reconnect loop redials a fresh generation that auto-commits back to Selected.
+	// reconnect loop redials a fresh generation that commits back to Selected.
 	dropped := latestScriptable(t, df)
 	dropped.dropLine()
 
@@ -456,7 +471,7 @@ func TestFSM_SECS1Matrix(t *testing.T) {
 	require.True(t, ok, "an involuntary line drop must tear the SECS-I line down to NotConnected")
 	// Resume past the teardown match so the pre-drop Selected cannot satisfy this wait.
 	_, ok = rec.awaitStateFrom(torn+1, hsms.SelectedState, 3*time.Second)
-	require.True(t, ok, "the reconnect must auto-commit the fresh SECS-I line back to Selected")
+	require.True(t, ok, "the reconnect must bring the fresh SECS-I line back to Selected")
 
 	// A clean Close settles the terminal Selected -> NotConnected edge and joins the notifier,
 	// so the whole lifecycle sequence is final once Close returns.
@@ -464,17 +479,26 @@ func TestFSM_SECS1Matrix(t *testing.T) {
 
 	p := rec.pairs()
 
-	// The sparse sequence: only auto-commit (NotConnected -> Selected) and teardown (Selected ->
-	// NotConnected) edges ever appear.
-	require.True(t, hasStateEdge(p, hsms.NotConnectedState, hsms.SelectedState),
-		"SECS-I must auto-commit NotConnected -> Selected")
+	// The sparse sequence: bring-up (either legal shape) and teardown (Selected -> NotConnected)
+	// edges are all that ever appear.
+	require.True(t, settledAtSelected(p), "SECS-I must reach Selected via a legal bring-up shape")
 	require.True(t, hasStateEdge(p, hsms.SelectedState, hsms.NotConnectedState),
 		"SECS-I must tear down Selected -> NotConnected")
 
-	// The teeth: across the ENTIRE lifecycle — open, drop, reconnect, close — SECS-I never passes
-	// through NotSelected, because it has no Select layer. No edge touches NotSelected on either side.
+	// The teeth: across the ENTIRE lifecycle — open, drop, reconnect, close — SECS-I never emits a
+	// Selected -> NotSelected edge, because it has no Select-lost handshake to produce one.
+	// NotConnected -> NotSelected and NotSelected -> Selected MAY both appear (the uncollapsed bring-up shape above),
+	// so this checks the one illegal DIRECTION, not NotSelected's mere presence.
 	for _, e := range p {
-		require.NotEqual(t, hsms.NotSelectedState, e.prev, "SECS-I must never emit a NotSelected edge")
-		require.NotEqual(t, hsms.NotSelectedState, e.next, "SECS-I must never emit a NotSelected edge")
+		require.False(t, e.prev == hsms.SelectedState && e.next == hsms.NotSelectedState,
+			"SECS-I must never emit a Selected -> NotSelected edge: it has no Select-lost handshake")
+	}
+
+	// Close joined the notifier, so every lifecycle event has been delivered by now.
+	causeMu.Lock()
+	defer causeMu.Unlock()
+	require.NotEmpty(t, selectedCauses, "the bring-up and the reconnect must both report entering Selected")
+	for _, c := range selectedCauses {
+		require.Equal(t, hsms.CauseSelectAccepted, c, "every entry into Selected must report CauseSelectAccepted")
 	}
 }

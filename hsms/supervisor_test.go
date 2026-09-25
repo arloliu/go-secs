@@ -25,12 +25,12 @@ func newHandlerPtr(hs ...StateChangeHandler) *atomic.Pointer[[]StateChangeHandle
 	return p
 }
 
-// newTestSupervisor builds a supervisor with a no-op react, an explicit events-queue capacity,
+// newTestSupervisor builds a supervisor with a no-op react, an 8-slot events queue,
 // and a local handlers pointer wired with hs (as the Connection would own it).
-func newTestSupervisor(t *testing.T, eventsCap int, hs ...StateChangeHandler) *supervisor {
+func newTestSupervisor(t *testing.T, hs ...StateChangeHandler) *supervisor {
 	t.Helper()
 
-	return newSupervisorWithEventsCap(func(_, _ ConnState) {}, newHandlerPtr(hs...), nil, eventsCap)
+	return newSupervisorWithEventsCap(func(_, _ ConnState) {}, newHandlerPtr(hs...), nil, 8)
 }
 
 func TestTransition_E37Table(t *testing.T) {
@@ -40,8 +40,8 @@ func TestTransition_E37Table(t *testing.T) {
 		next ConnState
 		ok   bool
 	}{
-		{NotConnectedState, evTCPUp, NotSelectedState, true},
 		{NotSelectedState, evTCPUp, NotSelectedState, true}, // tolerate CommitConnected's pre-commit
+		{SelectedState, evTCPUp, SelectedState, true},       // tolerate a pre-committed Select racing ahead of its own evTCPUp (coalesced report — see step)
 		{NotSelectedState, evSelectAccepted, SelectedState, true},
 		{SelectedState, evSelectAccepted, SelectedState, true}, // H2: tolerate CommitSelected's pre-commit
 		{SelectedState, evSelectLost, NotSelectedState, true},
@@ -61,7 +61,10 @@ func TestTransition_E37Table(t *testing.T) {
 		{NotConnectedState, evT7Timeout, NotConnectedState, false},
 		// illegal:
 		{NotConnectedState, evSelectAccepted, NotConnectedState, false},
-		{SelectedState, evTCPUp, SelectedState, false},
+		// NotConnected + evTCPUp is a safe no-op: production only enqueues evTCPUp after its own
+		// NotConnected->NotSelected CAS succeeds, so finding NotConnected at processing time means
+		// a disconnect overtook it — treating it as legal would resurrect a dead generation.
+		{NotConnectedState, evTCPUp, NotConnectedState, false},
 	}
 	for _, c := range cases {
 		next, ok := transition(c.cur, c.ev)
@@ -81,7 +84,7 @@ func TestSupervisor_LatestStateSurvivesDropOldestWhenNotifyFull(t *testing.T) {
 	go s.run()
 	defer s.stop()
 
-	s.inject(evTCPUp, CauseUnknown)
+	s.CommitConnected(CauseUnknown) // NotConnected -> NotSelected; enqueues evTCPUp
 	s.inject(evSelectAccepted, CauseUnknown)
 	s.inject(evDisconnect, CauseUnknown) // terminal NotConnected — drop-oldest must keep THIS (the latest)
 
@@ -100,15 +103,30 @@ func TestSupervisor_LatestStateSurvivesDropOldestWhenNotifyFull(t *testing.T) {
 	require.Positive(t, s.droppedNotify.Load(), "coalescing should have counted drops")
 }
 
-// The supervisor must NEVER block on notify, so a concurrent Close's inject(evClose) always
-// makes progress — even when notify is full AND the notifier is parked in a stalled user
-// handler, AND across reconnect generations that emit further terminals. A small events buffer
-// gives the test teeth: a supervisor that parks on a blocking notify send cannot drain events,
-// so the guaranteed inject then blocks; a correct (non-blocking drop-oldest) supervisor drains
-// forever and every inject completes.
+// The supervisor must NEVER block on notify,
+// so a concurrent Close's inject(evClose) always makes progress —
+// even when notify is full AND the notifier is parked in a stalled user handler, AND across reconnect generations that emit further terminals.
+// The teeth come from the per-generation terminal acknowledgment (the terminals channel) timing out,
+// not from inject blocking on a full events queue:
+// a terminal's own notify send runs BEFORE its react call (fireTransition's terminal ordering),
+// so a supervisor that blocked on a full notify would never reach react's terminals<- send at all,
+// and the wait below times out.
+//
+// Each generation's bring-up goes through CommitConnected (its CAS requires state==NotConnected),
+// so the injecting goroutine acknowledges the previous generation's entering-NotConnected reaction
+// — via a dedicated react callback, delivered on the run goroutine and so never blocked by the
+// stuck StateChangeHandler below —
+// before starting the next one;
+// otherwise a disconnect still in flight could make the next CommitConnected's CAS a silent no-op.
 func TestSupervisor_NeverBlocksEventsDrainEvenAcrossSecondTerminal(t *testing.T) {
 	stuck := make(chan struct{})
-	s := newTestSupervisor(t, 4, func(_, _ ConnState) { <-stuck })
+	terminals := make(chan struct{}, 8)
+	react := func(_, next ConnState) {
+		if next == NotConnectedState {
+			terminals <- struct{}{}
+		}
+	}
+	s := newSupervisorWithEventsCap(react, newHandlerPtr(func(_, _ ConnState) { <-stuck }), nil, 4)
 	t.Cleanup(func() { close(stuck) })
 
 	for range cap(s.notify) {
@@ -118,18 +136,20 @@ func TestSupervisor_NeverBlocksEventsDrainEvenAcrossSecondTerminal(t *testing.T)
 	defer s.stop()
 	go s.notifier() // parks in the stuck handler after freeing one notify slot
 
-	evs := []fsmEvent{
-		evTCPUp, evSelectAccepted, evDisconnect, // first terminal
-		evTCPUp, evSelectAccepted, evDisconnect, // second terminal (reconnect generation)
-		evTCPUp, evSelectAccepted, evDisconnect, // third terminal
-		evTCPUp, evSelectAccepted, evDisconnect, // fourth terminal
-		evClose, // Close-like: must still make progress
-	}
 	done := make(chan struct{})
 	go func() {
-		for _, ev := range evs {
-			s.inject(ev, CauseUnknown)
+		for range 4 { // four reconnect generations, each emitting its own terminal
+			s.CommitConnected(CauseUnknown)
+			s.inject(evSelectAccepted, CauseUnknown)
+			s.inject(evDisconnect, CauseUnknown)
+
+			select {
+			case <-terminals:
+			case <-time.After(2 * time.Second):
+				return // the outer select below reports the hang; do not close done on a stall
+			}
 		}
+		s.inject(evClose, CauseUnknown) // Close-like: must still make progress
 		close(done)
 	}()
 
@@ -253,9 +273,9 @@ func TestSupervisor_CommitSelectedIsSynchronousAndIdempotent(t *testing.T) {
 	go s.run()
 	defer s.stop()
 
-	// Reach NotSelected first.
-	s.inject(evTCPUp, CauseUnknown)
-	require.Eventually(t, func() bool { return s.State() == NotSelectedState }, time.Second, time.Millisecond)
+	// Reach NotSelected first (a synchronous CAS — no wait needed).
+	s.CommitConnected(CauseUnknown)
+	require.Equal(t, NotSelectedState, s.State())
 
 	require.True(t, s.CommitSelected(CauseUnknown), "first commit performs the CAS")
 	require.Equal(t, SelectedState, s.State(), "state is Selected SYNCHRONOUSLY, before any rsp write")
@@ -268,7 +288,7 @@ func TestSupervisor_CommitSelectedIsSynchronousAndIdempotent(t *testing.T) {
 // let a re-Select be answered "success" without a real commit. run() is not started; every commit is
 // a synchronous CAS, asserted immediately.
 func TestSupervisor_CommitSelectLostIsSynchronous(t *testing.T) {
-	s := newTestSupervisor(t, 8)
+	s := newTestSupervisor(t)
 
 	require.True(t, s.CommitConnected(CauseUnknown)) // NotConnected -> NotSelected (sync CAS)
 	require.True(t, s.CommitSelected(CauseUnknown))  // NotSelected -> Selected (sync CAS)
@@ -283,13 +303,16 @@ func TestSupervisor_CommitSelectLostIsSynchronous(t *testing.T) {
 	require.Equal(t, SelectedState, s.State())
 }
 
-// TestSupervisor_ClosedLatchIgnoresLateEvents proves the I2 latch: once step() processes evClose the
-// supervisor is latched closed, so a late evTCPUp (queued behind evClose in the Close-vs-reconnect-
-// Start race, where NotConnected->NotSelected is a legal table entry) cannot resurrect NotSelected
-// after Close. run() is deliberately NOT started so step() is driven in the exact order the race
-// produces. Without the latch, the final evTCPUp re-stores NotSelected — the I2 defect.
+// TestSupervisor_ClosedLatchIgnoresLateEvents proves a late evTCPUp
+// (queued behind evClose in the Close-vs-reconnect-Start race)
+// cannot resurrect NotSelected after Close.
+// NotConnected + evTCPUp is illegal at the table level on its own (see transition),
+// so this specific resurrection does not isolate the closed latch by itself —
+// see TestSupervisor_ClosedLatchBlocksALegalEventFromANonTerminalState for that isolation,
+// which drives a still-legal queued event against a non-terminal stored state instead.
+// run() is deliberately NOT started so step() is driven in the exact order the race produces.
 func TestSupervisor_ClosedLatchIgnoresLateEvents(t *testing.T) {
-	s := newTestSupervisor(t, 8)
+	s := newTestSupervisor(t)
 
 	require.True(t, s.CommitConnected(CauseUnknown)) // a generation came up: TCP-up pre-committed NotSelected
 	require.Equal(t, NotSelectedState, s.State())
@@ -308,7 +331,7 @@ func TestSupervisor_ClosedLatchIgnoresLateEvents(t *testing.T) {
 // spuriously Reject the peer's next frame — the efb220b class). run() is not started; step is driven
 // directly in the exact order the pipeline produces.
 func TestSupervisor_StaleSelectLostAbandonedAfterReCommit(t *testing.T) {
-	s := newTestSupervisor(t, 8)
+	s := newTestSupervisor(t)
 
 	require.True(t, s.CommitConnected(CauseUnknown))  // -> NotSelected
 	require.True(t, s.CommitSelected(CauseUnknown))   // -> Selected
@@ -346,8 +369,16 @@ func TestSupervisor_PreCommittedSelectFiresReactionExactlyOnce(t *testing.T) {
 		}
 	}()
 
-	s.inject(evTCPUp, CauseUnknown)
-	require.Eventually(t, func() bool { return s.State() == NotSelectedState }, time.Second, time.Millisecond)
+	s.CommitConnected(CauseUnknown) // pre-commits state=NotSelected AND enqueues evTCPUp
+
+	// Acknowledge the entering-NotSelected reaction before the Select commit below: otherwise the
+	// Select CAS could land before run() dequeues evTCPUp, coalescing the bring-up into a single
+	// NotConnected->Selected report instead of the plain NotSelected->Selected this test targets.
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Contains(reactions, [2]ConnState{NotConnectedState, NotSelectedState})
+	}, time.Second, time.Millisecond, "the entering-NotSelected reaction must be processed before the Select commit")
 
 	require.True(t, s.CommitSelected(CauseUnknown)) // pre-commits state=Selected AND enqueues evSelectAccepted
 
@@ -376,7 +407,7 @@ func TestSupervisor_PreCommittedSelectFiresReactionExactlyOnce(t *testing.T) {
 
 func TestSupervisor_NotifierIsPanicIsolated(t *testing.T) {
 	var ran2 atomic.Bool
-	s := newTestSupervisor(t, 8,
+	s := newTestSupervisor(t,
 		func(_, _ ConnState) { panic("handler 1 panics") },
 		func(_, _ ConnState) { ran2.Store(true) }, // handler 2 must still run
 	)
@@ -392,12 +423,12 @@ func TestSupervisor_NotifierIsPanicIsolated(t *testing.T) {
 // registered handler observes it.
 func TestSupervisor_TerminalReachesUserHandler(t *testing.T) {
 	seen := make(chan stateChange, 8)
-	s := newTestSupervisor(t, 8, func(prev, next ConnState) { seen <- stateChange{prev: prev, next: next} })
+	s := newTestSupervisor(t, func(prev, next ConnState) { seen <- stateChange{prev: prev, next: next} })
 	go s.run()
 	defer s.stop()
 	go s.notifier()
 
-	s.inject(evTCPUp, CauseUnknown)
+	s.CommitConnected(CauseUnknown) // NotConnected -> NotSelected; enqueues evTCPUp
 	s.inject(evSelectAccepted, CauseUnknown)
 	s.inject(evDisconnect, CauseUnknown) // -> terminal NotConnected
 
@@ -420,7 +451,7 @@ func TestSupervisor_TerminalReachesUserHandler(t *testing.T) {
 // e.wait() cannot hang.
 func TestSupervisor_RequestClosePinsAndTearsDownEpoch(t *testing.T) {
 	e := newEpoch(t.Context(), logger.Default(), 8)
-	s := newTestSupervisor(t, 8)
+	s := newTestSupervisor(t)
 	go s.run()
 	defer s.stop()
 
@@ -444,9 +475,9 @@ func TestSupervisor_T7TimeoutFromNotSelectedDisconnects(t *testing.T) {
 	go s.run()
 	defer s.stop()
 
-	// Reach NotSelected first (TCP up, not yet selected — the T7 dwell window).
-	s.inject(evTCPUp, CauseUnknown)
-	require.Eventually(t, func() bool { return s.State() == NotSelectedState }, time.Second, time.Millisecond)
+	// Reach NotSelected first (TCP up, not yet selected — the T7 dwell window; a synchronous CAS).
+	s.CommitConnected(CauseUnknown)
+	require.Equal(t, NotSelectedState, s.State())
 
 	// T7 expires while still NotSelected: disconnect + reconnect (here just the reaction fires).
 	s.inject(evT7Timeout, CauseUnknown)
@@ -489,7 +520,7 @@ func TestSupervisor_T7TimeoutFromSelectedIsNoOp(t *testing.T) {
 	defer s.stop()
 
 	// Drive all the way to Selected.
-	s.inject(evTCPUp, CauseUnknown)
+	s.CommitConnected(CauseUnknown) // NotConnected -> NotSelected; enqueues evTCPUp
 	s.inject(evSelectAccepted, CauseUnknown)
 	require.Eventually(t, func() bool { return s.State() == SelectedState }, time.Second, time.Millisecond)
 
@@ -749,4 +780,336 @@ func TestSupervisor_CommitGateBypassesUnnamedGeneration(t *testing.T) {
 	require.True(t, called.Load(), "a named generation must reach commitGate")
 	require.Equal(t, uint64(1), s.staleGen.Load(), "a refused named commit must be counted")
 	require.Empty(t, s.events, "a refused commit must enqueue nothing")
+}
+
+// recordingReact returns a react func plus the slice it appends (prev, next) pairs into.
+// It is meant for the synchronous, single-goroutine tests below: step is called directly (run is never started), so no locking is needed around the slice.
+func recordingReact() (func(prev, next ConnState), *[][2]ConnState) {
+	var reactions [][2]ConnState
+
+	return func(prev, next ConnState) {
+		reactions = append(reactions, [2]ConnState{prev, next})
+	}, &reactions
+}
+
+// countEnteringNotConnected returns how many recorded reactions entered NotConnectedState —
+// the "one reaction per actual drop" count the tests below assert on,
+// as distinct from the total number of react calls.
+func countEnteringNotConnected(reactions [][2]ConnState) int {
+	n := 0
+	for _, r := range reactions {
+		if r[1] == NotConnectedState {
+			n++
+		}
+	}
+
+	return n
+}
+
+// drainNotify does a single non-blocking read of s.notify. step is synchronous in these tests
+// (run is never started), so a notification fired by the step call just made is already sitting
+// in the buffered channel — no wait is needed, and a second call proves nothing further arrived.
+func drainNotify(t *testing.T, s *supervisor) (stateChange, bool) {
+	t.Helper()
+
+	select {
+	case sc := <-s.notify:
+		return sc, true
+	default:
+		return stateChange{}, false
+	}
+}
+
+// stepQueued dequeues exactly one command from s.events and applies it — the bounded,
+// deterministic stand-in run() provides in these synchronous tests (run is never started).
+// It requires exactly one command to already be queued,
+// so a regression that fails to enqueue fails this assertion immediately instead of hanging on a bare <-s.events.
+func stepQueued(t *testing.T, s *supervisor) {
+	t.Helper()
+
+	require.Len(t, s.events, 1, "exactly one command must be queued before stepQueued")
+	s.step(<-s.events)
+}
+
+// waitEpochBounded bounds e.wait(), the epoch's ONLY blocking teardown-result read: a regression
+// that never closes e.done must fail this test instead of hanging it.
+// It also proves teardown fully COMPLETED —
+// the bounded join returned and closed e.done —
+// not merely that e.teardown() was called:
+// teardown() itself is documented to return immediately,
+// before the join it kicks off actually finishes.
+func waitEpochBounded(t *testing.T, e *epoch) error {
+	t.Helper()
+
+	select {
+	case <-e.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("epoch teardown did not complete within the bound")
+	}
+
+	return e.wait()
+}
+
+// TestSupervisor_TCPUpCoalescesPrecommittedSelectThenDisconnectFiresOnce drives the first lost-reaction order directly:
+// a Select commit's CAS lands before its own evSelectAccepted report is enqueued, so the supervisor observes Selected while processing the still-queued evTCPUp.
+// The coalesced bring-up must be reported once, as NotConnected->Selected with the cause a genuine Select carries — not evTCPUp's own.
+// A real disconnect that follows must still fire its own entering-NotConnected reaction, and the Select commit's own report, arriving later, must find nothing left to fire or store.
+func TestSupervisor_TCPUpCoalescesPrecommittedSelectThenDisconnectFiresOnce(t *testing.T) {
+	react, reactions := recordingReact()
+	s := newSupervisorWithEventsCap(react, newHandlerPtr(), nil, 8)
+
+	require.True(t, s.CommitConnected(CauseLocalOpen)) // NotConnected -> NotSelected; enqueues evTCPUp
+	// The Select responder's CAS lands before its own evSelectAccepted is ever enqueued.
+	require.True(t, s.state.CompareAndSwap(uint32(NotSelectedState), uint32(SelectedState)))
+
+	stepQueued(t, s) // processes the queued evTCPUp while state already reads Selected
+
+	require.Equal(t, SelectedState, s.State())
+	require.Equal(t, SelectedState, s.lastReacted)
+	require.Len(t, *reactions, 1, "the coalesced bring-up must fire exactly once")
+	require.Equal(t, [2]ConnState{NotConnectedState, SelectedState}, (*reactions)[0])
+
+	sc, ok := drainNotify(t, s)
+	require.True(t, ok, "expected a notification for the coalesced NotConnected->Selected transition")
+	require.Equal(t, stateChange{prev: NotConnectedState, next: SelectedState, cause: CauseSelectAccepted}, sc,
+		"the coalesced bring-up must report CauseSelectAccepted, not evTCPUp's own cause")
+
+	s.inject(evDisconnect, CauseIOError)
+	stepQueued(t, s)
+
+	require.Equal(t, NotConnectedState, s.State())
+	require.Len(t, *reactions, 2, "the real disconnect must still fire its own reaction")
+	require.Equal(t, [2]ConnState{SelectedState, NotConnectedState}, (*reactions)[1])
+
+	sc, ok = drainNotify(t, s)
+	require.True(t, ok, "expected a notification for the disconnect")
+	require.Equal(t, stateChange{prev: SelectedState, next: NotConnectedState, cause: CauseIOError}, sc)
+
+	// The late evSelectAccepted — the Select commit's own report, only now enqueued — finds the
+	// link already dropped: it must fire nothing and store nothing.
+	s.inject(evSelectAccepted, CauseSelectAccepted)
+	stepQueued(t, s)
+
+	require.Equal(t, NotConnectedState, s.State())
+	require.Len(t, *reactions, 2, "the late evSelectAccepted must not fire an additional reaction")
+	_, ok = drainNotify(t, s)
+	require.False(t, ok, "the late evSelectAccepted must not emit a notification")
+
+	require.Equal(t, 1, countEnteringNotConnected(*reactions),
+		"exactly one entering-NotConnected reaction across the whole sequence")
+}
+
+// TestSupervisor_DropReportsActualPredecessorEvenWhenLastReactedLags is the teeth test for the
+// unconditional drop-predecessor rule.
+// It drives the one order the withheld-report tests above cannot reach: there the Select commit's
+// CAS always lands BEFORE its own evTCPUp is even processed, so lastReacted jumps straight from
+// NotConnectedState to SelectedState and never disagrees with cur at drop time.
+// Here evTCPUp is processed FIRST,
+// while state still reads NotSelected —
+// an ordinary, correctly reported bring-up that advances lastReacted to NotSelectedState —
+// and ONLY THEN does the Select commit's CAS land,
+// with its own evSelectAccepted never reaching the queue.
+// The disconnect that follows must report prev as SelectedState, the state the link actually left,
+// not NotSelectedState, the stale value lastReacted was left holding:
+// a predecessor rule that falls back to lastReacted
+// whenever it happens to already read NotConnectedState —
+// rather than always reporting cur for a real drop —
+// reports the stale NotSelectedState here instead.
+func TestSupervisor_DropReportsActualPredecessorEvenWhenLastReactedLags(t *testing.T) {
+	react, reactions := recordingReact()
+	s := newSupervisorWithEventsCap(react, newHandlerPtr(), nil, 8)
+
+	require.True(t, s.CommitConnected(CauseLocalOpen)) // NotConnected -> NotSelected; enqueues evTCPUp
+	stepQueued(t, s)                                   // ordinary bring-up: lastReacted advances to NotSelected
+
+	require.Equal(t, NotSelectedState, s.State())
+	require.Equal(t, NotSelectedState, s.lastReacted)
+	require.Len(t, *reactions, 1)
+	require.Equal(t, [2]ConnState{NotConnectedState, NotSelectedState}, (*reactions)[0])
+
+	sc, ok := drainNotify(t, s)
+	require.True(t, ok)
+	require.Equal(t, stateChange{prev: NotConnectedState, next: NotSelectedState, cause: CauseLocalOpen}, sc)
+
+	// The Select commit's CAS lands ONLY NOW, with its own evSelectAccepted never enqueued.
+	require.True(t, s.state.CompareAndSwap(uint32(NotSelectedState), uint32(SelectedState)))
+
+	s.inject(evDisconnect, CauseIOError)
+	stepQueued(t, s)
+
+	require.Equal(t, NotConnectedState, s.State())
+	require.Len(t, *reactions, 2, "the disconnect must still fire its own reaction")
+	require.Equal(t, [2]ConnState{SelectedState, NotConnectedState}, (*reactions)[1],
+		"prev must be the state the link actually left (Selected), not the stale lastReacted (NotSelected)")
+
+	sc, ok = drainNotify(t, s)
+	require.True(t, ok, "expected a notification for the disconnect")
+	require.Equal(t, stateChange{prev: SelectedState, next: NotConnectedState, cause: CauseIOError}, sc)
+
+	require.Equal(t, 1, countEnteringNotConnected(*reactions))
+}
+
+// TestSupervisor_DropReportsStateReplacedWhenSelectCommitsDuringStep covers a Select commit
+// whose CAS lands after step has loaded the state for a disconnect but before it stores NotConnected.
+// The drop must report the state the store actually replaced (Selected),
+// not the value step loaded (NotSelected),
+// because react decides the courtesy Separate from that predecessor.
+func TestSupervisor_DropReportsStateReplacedWhenSelectCommitsDuringStep(t *testing.T) {
+	react, reactions := recordingReact()
+	s := newSupervisorWithEventsCap(react, newHandlerPtr(), nil, 8)
+
+	require.True(t, s.CommitConnected(CauseLocalOpen))
+	stepQueued(t, s)
+	_, ok := drainNotify(t, s)
+	require.True(t, ok)
+
+	s.testHookAfterStateLoad = func(ev fsmEvent) {
+		if ev == evDisconnect {
+			// The Select commit's CAS lands inside step's load-to-store window; its report is never enqueued.
+			require.True(t, s.state.CompareAndSwap(uint32(NotSelectedState), uint32(SelectedState)))
+		}
+	}
+
+	s.inject(evDisconnect, CauseIOError)
+	stepQueued(t, s)
+
+	require.Equal(t, NotConnectedState, s.State())
+	require.Len(t, *reactions, 2)
+	require.Equal(t, [2]ConnState{SelectedState, NotConnectedState}, (*reactions)[1],
+		"prev must be the state the store replaced, not the state step loaded")
+
+	sc, ok := drainNotify(t, s)
+	require.True(t, ok)
+	require.Equal(t, stateChange{prev: SelectedState, next: NotConnectedState, cause: CauseIOError}, sc)
+}
+
+// TestSupervisor_DisconnectFromUnreportedTCPUpFiresAndBlocksResurrection drives the second lost-reaction order directly:
+// the TCP-up CAS lands but its own evTCPUp report is withheld from the queue, and a disconnect overtakes it.
+// The disconnect must still fire its entering-NotConnected reaction — reporting the state the link actually left, since lastReacted has nothing useful of its own to report —
+// and the delayed evTCPUp, arriving after, must not resurrect NotSelected on the generation that already dropped.
+// A second disconnect must find nothing further to do, and a fresh CommitConnected for a successor generation must still succeed.
+func TestSupervisor_DisconnectFromUnreportedTCPUpFiresAndBlocksResurrection(t *testing.T) {
+	react, reactions := recordingReact()
+	s := newSupervisorWithEventsCap(react, newHandlerPtr(), nil, 8)
+
+	// The TCP-up CAS lands, but (unlike CommitConnected) its own evTCPUp report is withheld.
+	require.True(t, s.state.CompareAndSwap(uint32(NotConnectedState), uint32(NotSelectedState)))
+
+	s.inject(evDisconnect, CauseIOError)
+	stepQueued(t, s)
+
+	require.Equal(t, NotConnectedState, s.State())
+	require.Len(t, *reactions, 1, "the disconnect overtaking the unreported TCP-up must still fire")
+	require.Equal(t, [2]ConnState{NotSelectedState, NotConnectedState}, (*reactions)[0],
+		"the reported prev must be the state the link actually dropped from")
+
+	sc, ok := drainNotify(t, s)
+	require.True(t, ok, "expected a notification for the disconnect that overtook the unreported TCP-up")
+	require.Equal(t, stateChange{prev: NotSelectedState, next: NotConnectedState, cause: CauseIOError}, sc)
+
+	// The delayed evTCPUp report finally arrives: it must not resurrect NotSelected.
+	s.inject(evTCPUp, CauseLocalOpen)
+	stepQueued(t, s)
+
+	require.Equal(t, NotConnectedState, s.State(), "a delayed TCP-up report must not resurrect a dropped generation")
+	require.Len(t, *reactions, 1, "the delayed TCP-up report must fire nothing")
+	_, ok = drainNotify(t, s)
+	require.False(t, ok, "the delayed TCP-up report must emit no notification")
+
+	// A second disconnect finds nothing left to do.
+	s.inject(evDisconnect, CauseIOError)
+	stepQueued(t, s)
+
+	require.Equal(t, NotConnectedState, s.State())
+	require.Len(t, *reactions, 1, "a disconnect from an already-NotConnected state must fire nothing")
+	_, ok = drainNotify(t, s)
+	require.False(t, ok, "a disconnect from an already-NotConnected state must emit no notification")
+
+	// A fresh CommitConnected for the successor generation still succeeds.
+	require.True(t, s.CommitConnected(CauseLocalOpen))
+	require.Equal(t, NotSelectedState, s.State())
+
+	require.Equal(t, 1, countEnteringNotConnected(*reactions))
+}
+
+// TestSupervisor_CloseOvertakingUnreportedCommitsFiresWithPrevSelected drives a voluntary Close that overtakes both the TCP-up and Select commits before either report reaches the queue —
+// exactly reproducing the FIFO order a real Close can observe: both CASes land directly on state (no inject), so evClose is genuinely the first command the queue ever sees.
+// The resulting entering-NotConnected reaction must still fire exactly once, reporting the state the link actually reached (Selected),
+// and it must tear down the pinned epoch.
+// The delayed TCP-up and Select reports, released only afterward, must find the supervisor latched closed:
+// no store, no reaction, no notification.
+func TestSupervisor_CloseOvertakingUnreportedCommitsFiresWithPrevSelected(t *testing.T) {
+	react, reactions := recordingReact()
+	s := newSupervisorWithEventsCap(react, newHandlerPtr(), nil, 8)
+
+	// Both synchronous commits land directly on state; neither report is ever enqueued.
+	require.True(t, s.state.CompareAndSwap(uint32(NotConnectedState), uint32(NotSelectedState)))
+	require.True(t, s.state.CompareAndSwap(uint32(NotSelectedState), uint32(SelectedState)))
+
+	e := newEpoch(t.Context(), logger.Default(), 8)
+	s.requestClose(e, CauseLocalClose) // pins e and injects evClose — the FIRST command ever queued
+
+	stepQueued(t, s)
+
+	require.Equal(t, NotConnectedState, s.State())
+	require.Equal(t, NotConnectedState, s.lastReacted)
+	require.Len(t, *reactions, 1, "Close overtaking the unreported commits must still fire once")
+	require.Equal(t, [2]ConnState{SelectedState, NotConnectedState}, (*reactions)[0],
+		"the reported prev must be the state the link actually reached, not an unreported intermediate one")
+
+	sc, ok := drainNotify(t, s)
+	require.True(t, ok)
+	require.Equal(t, stateChange{prev: SelectedState, next: NotConnectedState, cause: CauseLocalClose}, sc)
+
+	// closeOnce admits exactly one teardown owner (epoch.teardown),
+	// and step's own closed latch
+	// (checked before the evClose handling below ever runs again)
+	// keeps this the only evClose this supervisor will ever process —
+	// so "torn down once" here turns on completion, not repetition:
+	// the bounded wait below proves the join actually finished,
+	// not merely that teardown() (which is documented to return immediately) was called.
+	require.NoError(t, waitEpochBounded(t, e), "requestClose must have torn down the pinned epoch")
+
+	// The delayed reports, released only now, must be rejected by the closed latch: no store, no
+	// reaction, no notification.
+	s.inject(evTCPUp, CauseLocalOpen)
+	stepQueued(t, s)
+	require.Equal(t, NotConnectedState, s.State())
+	require.Equal(t, NotConnectedState, s.lastReacted)
+	require.Len(t, *reactions, 1)
+
+	s.inject(evSelectAccepted, CauseSelectAccepted)
+	stepQueued(t, s)
+	require.Equal(t, NotConnectedState, s.State())
+	require.Equal(t, NotConnectedState, s.lastReacted)
+	require.Len(t, *reactions, 1)
+
+	_, ok = drainNotify(t, s)
+	require.False(t, ok, "a report delayed past Close must emit no notification")
+}
+
+// TestSupervisor_ClosedLatchBlocksALegalEventFromANonTerminalState isolates the closed latch
+// that step() checks first and unconditionally once evClose has been processed,
+// from the separate illegal-from-NotConnected evTCPUp table entry:
+// it puts the supervisor in a NON-terminal stored state with an otherwise perfectly legal queued event,
+// so only the closed latch itself —
+// not an illegal transition —
+// can be what blocks it.
+func TestSupervisor_ClosedLatchBlocksALegalEventFromANonTerminalState(t *testing.T) {
+	react, reactions := recordingReact()
+	s := newSupervisorWithEventsCap(react, newHandlerPtr(), nil, 8)
+
+	s.step(fsmCommand{ev: evClose}) // a fresh, already-NotConnected supervisor: latches closed, fires nothing
+	require.True(t, s.closed)
+	require.Empty(t, *reactions)
+
+	// A non-terminal stored state with an otherwise legal queued event (NotSelected + evSelectAccepted).
+	s.state.Store(uint32(NotSelectedState))
+
+	s.step(fsmCommand{ev: evSelectAccepted})
+
+	require.Equal(t, NotSelectedState, s.State(), "the closed latch must block even a legal transition")
+	require.Empty(t, *reactions, "the closed latch must block the reaction")
+	_, ok := drainNotify(t, s)
+	require.False(t, ok, "the closed latch must block the notification")
 }

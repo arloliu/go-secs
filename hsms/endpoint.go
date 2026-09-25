@@ -313,12 +313,19 @@ type Connection interface {
 	//
 	// LifecycleEvent.Cause names the event that drove the transition the connection actually reported.
 	// Transitions are deduplicated on the state entered:
-	// when a second event would land the connection in a state it is already in, nothing is reported for it.
-	// A Close issued on a link that has already dropped therefore reports nothing —
+	// when a second event would land the connection back in a state it already reported, nothing further is reported for it.
+	// A Close issued on a link that has already dropped and been reported therefore reports nothing —
 	// the drop's earlier event already carried the cause, not CauseLocalClose.
+	// A real drop into NotConnectedState always fires its reaction and enqueues its notification exactly once,
+	// even when the connection passed through an intermediate state — NotSelected or Selected —
+	// that was itself never reported.
+	// Previous on that notification names the state the link actually left, not the unreported intermediate one;
+	// it may not equal the Current of the last notification fn actually saw, if an earlier one was itself coalesced away.
 	//
-	// Delivery is best-effort under a subscriber that does not keep up:
-	// intermediate transitions, and their causes, may be coalesced away, but the connection's latest state is always delivered.
+	// Delivery past that enqueue is best-effort under a subscriber that does not keep up:
+	// notify is a small drop-OLDEST buffer, so an intermediate transition — or, under a subscriber
+	// that stays behind across further reconnects, even a drop's own notification — can be
+	// coalesced away by a later one before fn ever sees it.
 	//
 	// The subscription persists across Open/Close cycles until cancel is called.
 	// cancel is idempotent and safe to call from any goroutine, including from inside fn.

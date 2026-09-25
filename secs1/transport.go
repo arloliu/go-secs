@@ -452,9 +452,9 @@ func (t *transport) acceptLoop(engineCtx context.Context, g *genWG, ln net.Liste
 	// The core's CommitConnected flips the FSM state atomic with an UNGUARDED CAS;
 	// CommitSelected is liveness-gated instead, refused once the generation has torn down,
 	// though a gen of 0 still skips only the identity check, not the liveness one (see connection.selectCommitGate).
-	// Either way, only the reaction/notify inject is a no-op after the supervisor stops (hsms/supervisor.go:188/205),
-	// so a late TCPUp+CommitSelected here can still pulse the state atomic NotConnected->NotSelected->Selected
-	// on a generation the supervisor believes is stopped.
+	// Either way, only the reaction/notify inject is a no-op after the supervisor stops
+	// (supervisor.injectFrom's runDone case), so a late TCPUp+CommitSelected here can still pulse
+	// the state atomic NotConnected->NotSelected->Selected on a generation the supervisor believes is stopped.
 	// If a Stop has sealed, this generation is tearing down:
 	// close the accepted socket and return WITHOUT TCPUp/CommitSelected/g.line.Add.
 	// Mirrors the startActive/startPassive Add-vs-Wait guard;
