@@ -122,6 +122,11 @@ type transport struct {
 	// atomic Add/Load make cross-generation sharing safe. secs1.New hands the same pointer to the
 	// consumer via connection.BlockMetrics().
 	metrics *ConnectionMetrics
+
+	// testHookBeforeENQ, when non-nil, is copied onto every generation's lineIO at spawn (see lineEngine).
+	// See lineIO.testHookBeforeENQ for what it is for.
+	// Set once, before Start, by a test that needs it; always nil in production.
+	testHookBeforeENQ func()
 }
 
 // genState bundles ONE generation's live socket and its send/teardown plumbing so Write loads a
@@ -500,6 +505,7 @@ func (t *transport) lineEngine(engineCtx context.Context, g *genWG, conn net.Con
 	// ONE lineIO / bufio.Reader for this generation — the G-A single-reader invariant. This goroutine
 	// is the only code that ever reads or writes conn bytes.
 	line := newLineIO(conn, t.cfg, t.rt.Timers, t.metrics)
+	line.testHookBeforeENQ = t.testHookBeforeENQ // nil in production
 
 	// Build THIS generation's inbound sink once (the per-generation isolation point): the multi-block
 	// assembler holds partial-message state, so each engine accumulates in its own instance. A

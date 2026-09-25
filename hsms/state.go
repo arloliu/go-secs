@@ -49,6 +49,12 @@ func (s ConnState) String() string {
 // and once the handler returns it delivers the rest of its cycle's queued transitions.
 // If the connection is reopened meanwhile, the same handler can run concurrently on that goroutine and the new cycle's,
 // and the old cycle's transitions can arrive after the new cycle's.
+//
+// A panic inside a handler is recovered, logged at Error with its stack, counted in
+// [ConnectionMetrics.HandlerPanicCount], and never stops the other handlers or subscribers.
+// Calling runtime.Goexit from a handler is not a panic:
+// it is logged, not counted, and ends the notifier goroutine,
+// so no later notification for this Open cycle is delivered to any handler or subscriber; Close still completes.
 type StateChangeHandler func(prev, next ConnState)
 
 // OpenMode selects Open's blocking behavior.

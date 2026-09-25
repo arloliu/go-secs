@@ -62,6 +62,10 @@ const (
 
 	// CauseIOError means a transport read or write failed, or the peer closed the socket without announcing it.
 	CauseIOError
+
+	// CauseHandlerExit means a user callback called runtime.Goexit instead of returning,
+	// so the connection dropped the generation that callback was running for rather than leaving it selected with no receiver.
+	CauseHandlerExit
 )
 
 // LifecycleEvent is one observed connection state transition together with the cause that drove it.
@@ -110,6 +114,8 @@ func (c TransitionCause) String() string {
 		return "LinktestFail"
 	case CauseIOError:
 		return "IOError"
+	case CauseHandlerExit:
+		return "HandlerExit"
 	default:
 		return "TransitionCause(" + strconv.FormatUint(uint64(c), 10) + ")"
 	}

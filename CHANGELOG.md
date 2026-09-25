@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `hsms`: `ConnectionMetrics.HandlerPanicCount` reports the total number of panics recovered from application callbacks the connection runs on its own goroutines —
+  `DataMessageHandler`, `DecodeErrorHandler`, `StateChangeHandler`, `SubscribeLifecycle` callbacks, and the async send error handler.
+- `hsms`: `CauseHandlerExit`, a `TransitionCause` reported when a user callback calls `runtime.Goexit` instead of returning,
+  and the connection drops the generation that callback was running for,
+  so the link reconnects instead of sitting Selected with no receiver.
+
+### Changed
+
+- `hsms`: a panicking `DataMessageHandler` or `DecodeErrorHandler` is now recovered instead of crashing the process.
+  The message still reaches the remaining handlers (and, for a data message, the channels),
+  subject to the existing teardown-observation rules.
+  A decode-error message stays diverted and never reaches the channels regardless.
+  The connection stays up.
+- `hsms`: every recovered callback panic — from a `DataMessageHandler`, a `DecodeErrorHandler`,
+  a `StateChangeHandler`, a `SubscribeLifecycle` callback, or the async send error handler —
+  is now logged at Error with its stack and counted in `HandlerPanicCount`,
+  where previously a `StateChangeHandler`, lifecycle subscriber, or async send error handler panic was recovered silently,
+  with no trace at all.
+- `hsms`: a callback that calls `runtime.Goexit` instead of returning,
+  for example through `testing.T.FailNow`, is now detected and logged at Error.
+  For a `DataMessageHandler`, a `DecodeErrorHandler`, or the async send error handler,
+  the connection also drops the generation the callback was running for,
+  so it reconnects instead of sitting Selected with no receiver.
+  A `StateChangeHandler` or `SubscribeLifecycle` callback that does this is logged only,
+  and later state notifications of that `Open` are no longer delivered.
+
 ### Fixed
 
 - `hsms`, `hsmsss`: a receive goroutine left running past a connection's close timeout,

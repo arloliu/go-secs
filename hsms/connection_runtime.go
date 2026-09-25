@@ -29,19 +29,28 @@ func (c *connection) RouteData(msg *DataMessage) error {
 // so a decode-error/data delivery attempted with no live connection observes an already-cancelled generation and delivers to nothing.
 //
 // The decode-error diversion uses dispatchDecodeErrorOn, bound to e's own cancellation signal.
+//
+// e's own id travels to the fan-out as the generation a handler is running for (0 when e is nil),
+// so a handler that calls runtime.Goexit reports a forced disconnect against exactly that
+// generation — see [session.callDataHandler] and [session.callDecodeErrorHandler].
 func (c *connection) routeDataOn(e *epoch, msg *DataMessage) error {
 	done := epochDone(e)
+
+	var gen uint64
+	if e != nil {
+		gen = e.id
+	}
 
 	if c.hasDecodeErrorHandlers() {
 		if derr := msg.DecodeErr(); derr != nil { // forces the lazy body decode and caches the result
 			c.metrics.incBodyDecodeErr()
-			c.dispatchDecodeErrorOn(done, msg, derr)
+			c.dispatchDecodeErrorOn(gen, done, msg, derr)
 
 			return nil // diverted — do NOT fan out to the normal data-message/channel handlers
 		}
 	}
 
-	c.recvDataMsgOn(done, msg) // promoted from the embedded session
+	c.recvDataMsgOn(gen, done, msg) // promoted from the embedded session
 
 	return nil
 }

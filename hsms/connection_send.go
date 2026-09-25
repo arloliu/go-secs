@@ -607,7 +607,7 @@ func (c *connection) drainSendCh(ctx context.Context, e *epoch) {
 			// longer silent: it is counted and, if a handler is installed, reported (Gap 4).
 			if err := c.writeFrame(ctx, e, req.msg); err != nil {
 				c.metrics.incAsyncSendErr()
-				c.callAsyncSendErrorHandler(req.msg, err)
+				c.callAsyncSendErrorHandler(e.id, req.msg, err)
 			}
 		case <-ctx.Done():
 			return
@@ -615,21 +615,32 @@ func (c *connection) drainSendCh(ctx context.Context, e *epoch) {
 	}
 }
 
-// callAsyncSendErrorHandler invokes the configured WithAsyncSendErrorHandler callback (if any)
-// under a recover guard (mirrors supervisor.callHandler's panic isolation for
-// StateChangeHandler): one panicking handler must not kill the per-generation async sender
-// goroutine, which would silently stop draining e.sendCh for the rest of this generation.
-func (c *connection) callAsyncSendErrorHandler(msg Message, err error) {
+// callAsyncSendErrorHandler invokes the configured WithAsyncSendErrorHandler callback (if any) under [runCallback]'s panic/Goexit isolation:
+// one panicking handler must not kill the per-generation async sender goroutine,
+// which would silently stop draining e.sendCh for the rest of this generation.
+//
+// gen is e.id, the generation this sender is draining for (drainSendCh's own parameter),
+// threaded straight through rather than re-resolved here — the same discipline
+// [session.callDataHandler] follows and for the same reason: a Goexit-forced disconnect must name
+// the generation the handler was actually running for.
+//
+// A recovered panic is counted and logged;
+// a runtime.Goexit is logged and disconnects gen
+// so the link reconnects instead of leaving this generation's sender goroutine gone with nothing draining e.sendCh for the rest of it.
+func (c *connection) callAsyncSendErrorHandler(gen uint64, msg Message, err error) {
 	h := c.cfg.Load().asyncSendErrHandler
 	if h == nil {
 		return
 	}
 
-	defer func() {
-		_ = recover()
-	}()
-
-	h(msg, err)
+	runCallback(
+		func() { h(msg, err) },
+		func(r any) { countHandlerPanic(c.handlerMetrics(), c.handlerLogger(), kindAsyncSendErrorHandler, r) },
+		func() {
+			c.disconnectHandlerGeneration(gen)
+			logHandlerGoexit(c.handlerLogger(), kindAsyncSendErrorHandler)
+		},
+	)
 }
 
 // WriteMessage performs a synchronous framed write and awaits the protocol-bounded reply (TransportRuntime, spec §5.5/§6.2).

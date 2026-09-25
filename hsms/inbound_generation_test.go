@@ -355,7 +355,7 @@ func TestSessionRecvDataMsgOn_CancellationInLastHandlerSkipsChannelSend(t *testi
 		ch := make(chan *DataMessage, 1) // buffered/writable — a blocked channel would mask the bug
 		s.AddDataMessageChan(ch)
 
-		s.recvDataMsgOn(done, NewEmptyDataMessage())
+		s.recvDataMsgOn(0, done, NewEmptyDataMessage())
 
 		select {
 		case <-ch:
@@ -380,7 +380,7 @@ func TestSessionRecvDataMsgOn_CancellationInFirstHandlerSkipsSecondHandler(t *te
 		func(_ *DataMessage, _ SECS2Endpoint) { secondCalled.Store(true) },
 	)
 
-	s.recvDataMsgOn(done, NewEmptyDataMessage())
+	s.recvDataMsgOn(0, done, NewEmptyDataMessage())
 
 	require.False(t, secondCalled.Load(), "a cancellation observed after handler 1 must stop handler 2 from running")
 }
@@ -398,7 +398,7 @@ func TestDeliverOwnedFrameFromGeneration_StaleGenSkipsDecodeErrorHandlers(t *tes
 	var decodeErrCalled atomic.Bool
 	c.AddDecodeErrorHandler(func(_ *DataMessage, _ error, _ SECS2Endpoint) { decodeErrCalled.Store(true) })
 
-	bad := malformedDataMsg(t, 6, 11, false)
+	bad := malformedDataMsg(t, 6, 11)
 	err := c.DeliverOwnedFrameFromGeneration(genN.id, ownedFrame(t, bad))
 	require.NoError(t, err)
 
@@ -422,7 +422,7 @@ func TestSessionDispatchDecodeErrorOn_CancellationSkipsLaterHandlers(t *testing.
 		func(_ *DataMessage, _ error, _ SECS2Endpoint) { secondCalled.Store(true) },
 	)
 
-	s.dispatchDecodeErrorOn(done, NewEmptyDataMessage(), errors.New("boom"))
+	s.dispatchDecodeErrorOn(0, done, NewEmptyDataMessage(), errors.New("boom"))
 
 	require.False(t, secondCalled.Load(), "a cancellation observed after handler 1 must stop handler 2 from running")
 }
