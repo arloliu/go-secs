@@ -172,18 +172,37 @@ func (c *connection) writeFrame(ctx context.Context, e *epoch, msg Message) erro
 	}
 
 	if err := c.tr.Write(ctx, conn, bufs); err != nil {
-		// A write failure — a deadline exceeded on a wedged peer, or a broken socket — means this
-		// generation's stream is dead, and a deadline may have truncated a frame mid-writev, so the
-		// stream is desynced and cannot be reused. Tear the generation down (an involuntary drop) so
-		// the reconnect loop re-establishes it, rather than returning over a possibly-partial frame.
-		// TCPDown only injects evDisconnect (the actual teardown runs on the supervisor goroutine), so
-		// it is safe under writeMu. Guarded on e.ctx so an already-tearing-down generation is not
-		// redundantly re-dropped.
+		// A write failure means this generation's stream is dead, whether the cause is a live link
+		// (a deadline exceeded on a wedged peer, a broken socket) or teardown closing the socket out from under an in-flight write.
+		// A deadline may have truncated a frame mid-writev either way, so the stream is desynced and cannot be reused.
+		//
+		// The two causes are told apart by e.ctx.
+		// Teardown cancels it BEFORE closing the socket (epoch.teardown: markEnded -> cancel -> closeSocket),
+		// so a write failure that observes a cancelled ctx means teardown had already started when the failure was observed —
+		// whether teardown's own close caused it or it merely coincided with a live-link failure,
+		// the generation is going down either way.
+		// A write blocked mid-writev may have already sent part of the frame before failing,
+		// so this says nothing about what the peer received.
+		// It is therefore reported as a lifecycle outcome for THIS call, not a send failure,
+		// rather than tearing the generation down a second time or counting a transaction error.
+		// The raw error stays reachable via errors.Is:
+		// secs1's Write can itself return ErrConnClosed during teardown,
+		// and that exact sentinel must come back unwrapped, not doubled.
+		if e.ctx.Err() != nil {
+			if errors.Is(err, ErrConnClosed) {
+				return err
+			}
+
+			return fmt.Errorf("%w: %w", ErrConnClosed, err)
+		}
+
+		// A write that fails on a still-live generation IS the transport I/O failure:
+		// tear the generation down (an involuntary drop),
+		// so the reconnect loop re-establishes it, rather than returning over a possibly-partial frame.
+		// TCPDown only injects evDisconnect (the actual teardown runs on the supervisor goroutine), so it is safe under writeMu.
 		// Reported for THIS epoch's generation (e.id), not whichever is current when the report lands:
 		// a sender stalled across a reconnect must not drop the successor it never wrote to.
-		if e.ctx.Err() == nil {
-			c.TCPDownFromGeneration(e.id, err, CauseIOError) // a failed writev IS the transport I/O failure
-		}
+		c.TCPDownFromGeneration(e.id, err, CauseIOError)
 
 		return err
 	}
@@ -322,10 +341,34 @@ func (c *connection) sendWaitReplyOn(callerCtx context.Context, e *epoch, msg Me
 	timer := pool.GetTimer(timeout)
 	defer pool.PutTimer(timer)
 
+	// Test seam (nil in production): lets a test make the teardown outcome ready before the select
+	// runs, so the select has only one live arm to pick.
+	if c.testHookBeforeReplyWait != nil {
+		c.testHookBeforeReplyWait()
+	}
+
 	select {
 	case res := <-ch:
 		return res.msg, res.err
 	case <-timer.C:
+		if c.testHookWaitPicked != nil {
+			c.testHookWaitPicked(replyWaitArmTimer)
+		}
+
+		// The select above picks among whichever of these channels is ready at random,
+		// so a reply that had already arrived before the timer fired can lose to it here.
+		// Re-check the higher-priority outcomes non-blockingly, in priority order (reply, then teardown),
+		// before treating this as a genuine protocol-timer (T3/T6) timeout.
+		if res, ok := tryReply(ch); ok {
+			return res.msg, res.err
+		}
+
+		if e.ctx.Err() != nil {
+			// Teardown beat the protocol timer (T3/T6) to this select: the SAME lifecycle outcome as the e.ctx.Done() branch below,
+			// reached here because the timer arm was the one Go's select picked.
+			return nil, ErrConnClosed
+		}
+
 		// Protocol timeout: T3 (data) — a transaction failure.
 		if isData {
 			c.metrics.incDataMsgErr()
@@ -337,14 +380,51 @@ func (c *connection) sendWaitReplyOn(callerCtx context.Context, e *epoch, msg Me
 
 		return nil, timeoutErr
 	case <-e.ctx.Done():
+		if c.testHookWaitPicked != nil {
+			c.testHookWaitPicked(replyWaitArmTeardown)
+		}
+
 		// Connection teardown/drop while waiting for the reply — a lifecycle event, NOT a data transaction error,
 		// so this branch does not count.
-		// It does not make a concurrent Close a blanket exclusion:
-		// a write that teardown interrupts can fail with the raw socket error, which counts,
-		// and a T3 timer that is already ready can win this select.
+		// A write that teardown interrupts reports the same ErrConnClosed outcome (writeFrame wraps the raw transport error),
+		// so a teardown never surfaces as a counted send error, whether it is caught here or at the write itself.
+		//
+		// A reply that had already arrived can still lose the random pick this select makes among several ready channels;
+		// re-check it non-blockingly,
+		// so an outcome the caller was actually waiting for is never discarded in favor of the teardown this call had no way to avoid.
+		if res, ok := tryReply(ch); ok {
+			return res.msg, res.err
+		}
+
 		return nil, ErrConnClosed
 	case <-callerCtx.Done():
 		return nil, callerCtx.Err()
+	}
+}
+
+// replyWaitArm identifies which arm of sendWaitReplyOn's reply-wait select Go's runtime picked,
+// before that arm's own post-pick re-check runs.
+// It exists only for testHookWaitPicked (nil, and never constructed, in production).
+type replyWaitArm uint8
+
+const (
+	// replyWaitArmTimer is the protocol-timer (T3/T6) arm.
+	replyWaitArmTimer replyWaitArm = iota
+	// replyWaitArmTeardown is the connection-teardown (e.ctx.Done()) arm.
+	replyWaitArmTeardown
+)
+
+// tryReply performs a non-blocking receive on ch,
+// giving the timer and teardown branches of sendWaitReplyOn's select a way to detect a reply
+// that had already arrived before Go's select happened to pick a lower-priority ready case.
+// ch is always the caller's own buffered registration (sendWaitReplyOn registers it before this select is ever reached),
+// so this can never steal another sender's reply.
+func tryReply(ch chan replyResult) (replyResult, bool) {
+	select {
+	case res := <-ch:
+		return res, true
+	default:
+		return replyResult{}, false
 	}
 }
 
@@ -357,9 +437,10 @@ func (c *connection) sendWaitReplyOn(callerCtx context.Context, e *epoch, msg Me
 // even acquired — never a transport/link event — so it is excluded here too, the same way
 // ErrNotSelectedState is: DataMsgErrCount stays a transport/protocol-health signal (a real write
 // failure or a T3 timeout), not a bucket for application bugs.
-// Anything else (a genuine transport write error) does count,
-// including a raw socket error from a write that a concurrent teardown interrupted:
-// the exclusion is by error value, not by cause.
+// Anything else (a genuine transport write error) does count — the exclusion is by error value, not by cause.
+// A write failure observed after teardown has started is not an exception to that:
+// writeFrame classifies it as ErrConnClosed before it ever reaches here,
+// so it excludes on the same ErrConnClosed check as any other teardown outcome.
 func isCountedSendErr(err error) bool {
 	return !errors.Is(err, ErrNotSelectedState) &&
 		!errors.Is(err, ErrConnClosed) &&
@@ -385,9 +466,13 @@ func newTxEvent(dm *DataMessage, replyWaited bool, start time.Time, err error) T
 }
 
 // classifyTxOutcome maps one completed sync send's terminal (replyWaited, err) pair to exactly one TxOutcome.
-// It is the shared classifier for both WriteMessage (sendWaitReply) and WriteMessageNoReply (sendNoReply);
-// TxT3Timeout and TxRejected are reachable only through WriteMessage —
-// sendNoReply arms no T3 timer and registers no reply channel, so it can never produce ErrT3Timeout or a *RejectError.
+// It is the shared classifier for both WriteMessage (sendWaitReply) and WriteMessageNoReply (sendNoReply).
+// sendNoReply never produces ErrT3Timeout or a *RejectError itself —
+// it arms no protocol timer and registers no reply channel —
+// but classification here is by error VALUE, not by call site:
+// a live-generation writeFrame error is TxSendError unless it matches one of the cases below.
+// A custom transport whose Write returns ErrT3Timeout, a *RejectError, ErrConnClosed, or a ctx error classifies the same way,
+// regardless of which of the two functions called it.
 //
 // The return-path -> outcome mapping below is exhaustive over every return statement in sendWaitReply and sendNoReply reachable when isData is true
 // (control sends, dm == nil, never reach this classifier —
@@ -396,21 +481,25 @@ func newTxEvent(dm *DataMessage, replyWaited bool, start time.Time, err error) T
 // so no return path is double-counted or skipped.
 //
 //	sendWaitReply (dm != nil):
-//	  e == nil                                    -> ErrNotOpen            -> TxSendError
-//	  B1 gate (!IsSelected)                        -> ErrNotSelectedState  -> TxSendError
+//	  e == nil                                     -> ErrNotOpen            -> TxSendError
+//	  B1 gate (!IsSelected)                         -> ErrNotSelectedState  -> TxSendError
 //	  writeFrame: buildFrameBuffers too large       -> ErrMessageTooLarge   -> TxSendError
-//	  writeFrame: conn == nil / e.ctx already done -> ErrConnClosed        -> TxCanceled
-//	  writeFrame: B2 gate (!IsSelected)             -> ErrNotSelectedState  -> TxSendError
-//	  writeFrame: tr.Write ctx-cancel/deadline      -> context.Canceled /
-//	                                                   DeadlineExceeded    -> TxCanceled
-//	  writeFrame: tr.Write genuine transport error  -> (wrapped write err) -> TxSendError
-//	  fire-and-forget short-circuit (!W, on wire)   -> nil                 -> TxSent
-//	  wait-select: res.err == nil (reply)           -> nil                 -> TxReplied
+//	  writeFrame: conn == nil / e.ctx already done  -> ErrConnClosed        -> TxCanceled
+//	  writeFrame: B2 gate (!IsSelected)              -> ErrNotSelectedState  -> TxSendError
+//	  writeFrame: tr.Write ctx-cancel/deadline       -> context.Canceled /
+//	                                                    DeadlineExceeded    -> TxCanceled
+//	  writeFrame: tr.Write fails, teardown started  -> ErrConnClosed        -> TxCanceled
+//	  writeFrame: tr.Write fails, generation live    -> (raw write err)     -> TxSendError
+//	  fire-and-forget short-circuit (!W, on wire)    -> nil                 -> TxSent
+//	  wait-select: res.err == nil (reply)            -> nil                 -> TxReplied
 //	  wait-select: res.err is *RejectError           -> *RejectError        -> TxRejected
-//	  wait-select: timer.C (T3)                     -> ErrT3Timeout        -> TxT3Timeout
-//	  wait-select: e.ctx.Done() (teardown)          -> ErrConnClosed        -> TxCanceled
-//	  wait-select: callerCtx.Done()                 -> context.Canceled /
-//	                                                   DeadlineExceeded    -> TxCanceled
+//	  wait-select: timer.C (T3/T6)                   -> ErrT3Timeout        -> TxT3Timeout
+//	  wait-select: timer.C, reply already ready      -> nil / *RejectError  -> TxReplied / TxRejected
+//	  wait-select: timer.C, teardown started         -> ErrConnClosed        -> TxCanceled
+//	  wait-select: e.ctx.Done() (teardown)           -> ErrConnClosed        -> TxCanceled
+//	  wait-select: e.ctx.Done(), reply already ready -> nil / *RejectError  -> TxReplied / TxRejected
+//	  wait-select: callerCtx.Done()                  -> context.Canceled /
+//	                                                    DeadlineExceeded    -> TxCanceled
 //
 //	sendNoReply (dm != nil):
 //	  e == nil                                    -> ErrNotOpen            -> TxSendError
@@ -452,6 +541,12 @@ func classifyTxOutcome(replyWaited bool, err error) TxOutcome {
 // checkSessionID's S9F1 auto-reply construction exactly: a failure to send is not surfaced, since
 // the caller already has the timeout error to report.
 func (c *connection) sendAutoS9F9(msg Message) {
+	// Test seam (nil in production): lets a test observe that a T3 timeout attempted the notification,
+	// independent of whether the notification's own best-effort SendAsync enqueued.
+	if c.testHookAutoS9F9 != nil {
+		c.testHookAutoS9F9()
+	}
+
 	s9 := gem.S9F9(msg.HeaderBytes())
 	notice, err := NewDataMessage(
 		s9.StreamCode(), s9.FunctionCode(), s9.WaitBit(),

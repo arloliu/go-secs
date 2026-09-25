@@ -195,6 +195,33 @@ type connection struct {
 	// so it can advance the generation in that window before releasing.
 	testHookBeforeS9F1Enqueue func()
 
+	// testHookBeforeReplyWait is called by sendWaitReplyOn immediately before the reply-wait select
+	// (the timer is already armed by this point).
+	// It is nil in production (zero cost).
+	// A test uses it to make the teardown outcome ready BEFORE the select runs,
+	// so the select has only one live arm to pick (teardown) and cannot land on the timer arm instead.
+	// The select itself still picks at random among whichever of its channels are ready at once;
+	// determinism for the reply/teardown/protocol-timer (T3/T6) priority comes from each arm's own post-pick re-check (tryReply, and — timer arm only — e.ctx.Err()),
+	// which testHookWaitPicked observes.
+	testHookBeforeReplyWait func()
+
+	// testHookWaitPicked is called by the timer and teardown arms of sendWaitReplyOn's reply-wait select
+	// immediately after Go's select has picked one of them,
+	// before that arm's own re-check runs.
+	// It is nil in production (zero cost).
+	// A test uses it to inject the higher-priority outcome —
+	// route a reply, or cancel the epoch — deterministically AFTER the select already committed to the lower-priority arm,
+	// so a single run exercises the re-check's own correction, not Go's random ready-case selection.
+	testHookWaitPicked func(replyWaitArm)
+
+	// testHookAutoS9F9 is called by sendAutoS9F9 immediately before it builds and sends the S9F9
+	// (Transaction Timeout) notification.
+	// It is nil in production (zero cost).
+	// A test uses it to observe that a T3 timeout was actually treated as a timeout,
+	// rather than a teardown that beat it.
+	// This does not depend on whether the notification's own best-effort SendAsync happened to enqueue.
+	testHookAutoS9F9 func()
+
 	*session // embedded: promotes the SECS2Endpoint surface onto the Connection value
 }
 

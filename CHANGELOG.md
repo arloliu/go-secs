@@ -28,6 +28,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `hsmsss`: the T7 and auto-linktest timers of a connection generation that has ended
   can no longer cancel or replace the timers of the generation that replaced it.
   Previously a delayed goroutine from the old generation could leave the new link without T7 or linktest protection.
+- `hsms`: a synchronous data send whose write fails after connection teardown has started —
+  a voluntary `Close` or an involuntary drop —
+  now reports `ErrConnClosed` and is no longer counted in `DataMsgErrCount`.
+  The socket error stays wrapped, so `errors.Is` still matches it,
+  and an `ErrConnClosed` the transport itself returns comes back unwrapped.
+  Previously the raw socket error was returned and counted,
+  and `WithTransactionObserver` reported a send failure rather than a cancellation.
+- `hsms`: while a synchronous send waits for its reply,
+  a reply that has already arrived now wins over a simultaneous teardown or protocol timeout,
+  and a teardown wins over a simultaneous protocol timeout, which is then not counted.
+  Previously the outcome was picked at random.
+  Caller cancellation keeps its existing behavior.
 
 ## [2.4.2] - 2026-09-25
 
