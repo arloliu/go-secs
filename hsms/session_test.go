@@ -37,7 +37,7 @@ func TestSession_FanOutDeliversSamePointer(t *testing.T) {
 	)
 
 	msg := mustDataMsg(t)
-	s.recvDataMsgOn(rt.Done(), msg)
+	s.recvDataMsgOn(0, rt.Done(), msg)
 	wg.Wait()
 
 	require.Same(t, msg, got1)
@@ -74,7 +74,7 @@ func TestSession_J5_BlockedChannelDoesNotWedgeFanOut(t *testing.T) {
 	recvDone := make(chan struct{})
 	go func() {
 		defer close(recvDone)
-		s.recvDataMsgOn(rt.Done(), msg)
+		s.recvDataMsgOn(0, rt.Done(), msg)
 	}()
 
 	// Give the goroutine time to enter the channel-delivery select before closing Done.
@@ -113,7 +113,7 @@ func TestSession_AddDataMessageChan_DuplicateRegistrationDeliversTwice(t *testin
 	s.AddDataMessageChan(ch) // same channel, registered a second time
 
 	msg := mustDataMsg(t)
-	s.recvDataMsgOn(rt.Done(), msg)
+	s.recvDataMsgOn(0, rt.Done(), msg)
 
 	require.Same(t, msg, <-ch, "first registration must deliver")
 	require.Same(t, msg, <-ch, "second registration must deliver independently")
@@ -150,7 +150,7 @@ func TestSession_AddDataMessageChan_FIFOWithFuncHandlers(t *testing.T) {
 	}
 
 	for _, m := range msgs {
-		s.recvDataMsgOn(rt.Done(), m)
+		s.recvDataMsgOn(0, rt.Done(), m)
 	}
 
 	mu.Lock()
@@ -187,7 +187,7 @@ func TestAddDecodeErrorHandler_registrationAndDispatch(t *testing.T) {
 	// rt is nil, so dispatchDecodeErrorOn cannot read a Done() channel off it; a fresh, never-closed
 	// channel stands in for "no cancellation observed" instead.
 	done := make(chan struct{})
-	s.dispatchDecodeErrorOn(done, dm, want)
+	s.dispatchDecodeErrorOn(0, done, dm, want)
 
 	if !errors.Is(gotErr, want) {
 		t.Errorf("handler err = %v, want %v", gotErr, want)
@@ -231,10 +231,10 @@ func TestSession_SendDataMessage_DelegatesToWriteMessage(t *testing.T) {
 // succeed) but whose SECS-II body fails to decode lazily: DecodeErr() != nil. It replicates
 // the hsmstest.MalformedDataMessage trick here because a white-box package hsms test cannot
 // import hsmstest (which imports hsms) without an import cycle.
-func malformedDataMsg(t *testing.T, stream, function uint8, waitBit bool) *DataMessage {
+func malformedDataMsg(t *testing.T, stream, function uint8) *DataMessage {
 	t.Helper()
 
-	good, err := NewDataMessage(stream, function, waitBit, 0, [4]byte{0, 0, 0, 1}, secs2.NewBinaryItem([]byte{0x00}))
+	good, err := NewDataMessage(stream, function, false, 0, [4]byte{0, 0, 0, 1}, secs2.NewBinaryItem([]byte{0x00}))
 	require.NoError(t, err)
 
 	raw := good.ToBytes() // length-prefixed HSMS frame: [4]len | [10]header | body
@@ -307,7 +307,7 @@ func TestSession_SendDataMessage_malformedReplyReturnsErrAndMsg(t *testing.T) {
 	rt := newMockRuntime(t)
 	s := newSession(0xFFFF, rt, &sysBytesGen{})
 
-	rt.writeReply = malformedDataMsg(t, 1, 14, false)
+	rt.writeReply = malformedDataMsg(t, 1, 14)
 
 	dm, err := s.SendDataMessage(context.Background(), 1, 13, true, secs2.NewEmptyItem())
 	require.Error(t, err, "SendDataMessage must not return a nil error for an undecodable reply")
@@ -322,7 +322,7 @@ func TestSession_SendSECS2Message_malformedReplyReturnsErrAndMsg(t *testing.T) {
 	rt := newMockRuntime(t)
 	s := newSession(0xFFFF, rt, &sysBytesGen{})
 
-	rt.writeReply = malformedDataMsg(t, 1, 14, false)
+	rt.writeReply = malformedDataMsg(t, 1, 14)
 
 	primary := secs2.NewMessage(1, 13, true, secs2.NewEmptyItem())
 	dm, err := s.SendSECS2Message(context.Background(), primary)

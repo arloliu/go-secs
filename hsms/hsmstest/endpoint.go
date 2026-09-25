@@ -130,6 +130,10 @@ func (f *FakeEndpoint) doneChan() chan struct{} {
 // (the real fan-out's "done rechecked before each delivery" contract) and models no connection generations at all —
 // Close is a single bare unblock signal for the whole fake, not a per-epoch teardown.
 // Tests exercising a connection's generation-fenced reply/fan-out behavior need the real hsms.Connection, not this fake.
+//
+// Deliver also does NOT recover a panicking handler, unlike a real connection's fan-out (see hsms.DataMessageHandler):
+// a fake exists to test handlers,
+// so a handler panic should surface to the test rather than being silently recovered.
 func (f *FakeEndpoint) Deliver(msg *hsms.DataMessage) {
 	f.mu.Lock()
 	handlers := slices.Clone(f.dataHandlers)
@@ -212,8 +216,8 @@ func (f *FakeEndpoint) AddDecodeErrorHandler(handlers ...hsms.DecodeErrorHandler
 // as if an undecodable message had arrived on the wire.
 // Handlers are snapshotted under the lock and invoked with it released, matching Deliver's contract.
 //
-// Like Deliver, it has no per-handler observed-cancellation check and models no connection generations;
-// see Deliver's doc.
+// Like Deliver, it has no per-handler observed-cancellation check and models no connection generations,
+// and it does NOT recover a panicking handler either; see Deliver's doc.
 func (f *FakeEndpoint) DeliverDecodeError(msg *hsms.DataMessage, err error) {
 	f.mu.Lock()
 	handlers := slices.Clone(f.decodeErrHandlers)

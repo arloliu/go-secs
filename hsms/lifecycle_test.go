@@ -66,6 +66,29 @@ func (l *eventLog) requireCount(t *testing.T, tag string, n int) {
 	}, 3*time.Second, time.Millisecond, "timeout waiting for %d %q events, have %d", n, tag, len(l.filter(tag)))
 }
 
+// requireHandlerExitCause waits (bounded poll — never a Sleep) until the "sub" log holds a CauseHandlerExit entry, and returns it.
+// It searches by content rather than position,
+// so a schedule that adds an extra "sub" entry before the one under test — a Selected notification landing after State() already reports Selected, for instance —
+// can never point the caller at the wrong row.
+func (l *eventLog) requireHandlerExitCause(t *testing.T) logEntry {
+	t.Helper()
+
+	var found logEntry
+	require.Eventuallyf(t, func() bool {
+		for _, e := range l.filter("sub") {
+			if e.cause == CauseHandlerExit {
+				found = e
+
+				return true
+			}
+		}
+
+		return false
+	}, 3*time.Second, time.Millisecond, "timeout waiting for a %q event with cause %v", "sub", CauseHandlerExit)
+
+	return found
+}
+
 // openSelected walks c from NotConnected to Selected ONE transition at a time, waiting for each to
 // be observed on l before driving the next.
 // The shared connect+select mock script races the TCP-up event against the select commit,
@@ -113,6 +136,7 @@ func TestTransitionCause_String(t *testing.T) {
 		{CauseT7Timeout, "T7Timeout"},
 		{CauseLinktestFail, "LinktestFail"},
 		{CauseIOError, "IOError"},
+		{CauseHandlerExit, "HandlerExit"},
 		{TransitionCause(200), "TransitionCause(200)"},
 	}
 

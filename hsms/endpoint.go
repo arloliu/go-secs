@@ -23,6 +23,17 @@ import (
 // once the fan-out observes the generation's teardown, no further handler is called.
 // A handler already running is not interrupted.
 // A teardown that starts between the check and the call can still reach that one handler.
+//
+// A panic inside a handler is recovered, logged at Error with its stack, and counted in
+// [ConnectionMetrics.HandlerPanicCount]; the message still reaches the remaining handlers
+// (and the registered channels) unless the fan-out observes teardown in the meantime,
+// and the connection stays up.
+// A handler should still not panic:
+// a recovered panic can leave the application's own state inconsistent.
+// Calling runtime.Goexit from a handler — for example via testing.T.FailNow — is not a panic;
+// it is logged, not counted, and ends the goroutine running it,
+// and it drops the generation the handler was running for so the connection reconnects,
+// rather than sitting Selected with no receiver.
 type DataMessageHandler func(msg *DataMessage, ep SECS2Endpoint)
 
 // DecodeErrorHandler is the callback for an inbound data message whose SECS-II body failed to decode.
@@ -42,6 +53,12 @@ type DataMessageHandler func(msg *DataMessage, ep SECS2Endpoint)
 // once the fan-out observes the generation's teardown, no further handler is called,
 // a handler already running is not interrupted,
 // and a teardown that starts between the check and the call can still reach that one handler.
+//
+// A panic inside a handler is recovered, logged at Error with its stack, and counted in
+// [ConnectionMetrics.HandlerPanicCount], the same as [DataMessageHandler];
+// the message still reaches the remaining decode-error handlers unless the fan-out observes teardown in the meantime,
+// and the connection stays up.
+// Calling runtime.Goexit from a handler is not a panic — see [DataMessageHandler] for what it does instead.
 type DecodeErrorHandler func(msg *DataMessage, err error, ep SECS2Endpoint)
 
 // SECS2Endpoint provides the capability surface exposed to message handlers.
@@ -187,8 +204,8 @@ type SECS2Endpoint interface {
 	// so the send self-deadlocks until its own T3 timeout expires.
 	//
 	// Do not close ch.
-	// The receive goroutine has no recover around the delivery send, so a send on a closed ch
-	// panics there — the same exposure a panicking func handler has.
+	// The channel delivery itself is not a callback and is not recovered the way a panicking
+	// [DataMessageHandler] is, so a send on a closed ch still panics the receive goroutine.
 	// End your consumer loop with your own quit signal instead.
 	//
 	// Registering the same channel more than once delivers each message once per registration
@@ -268,7 +285,11 @@ type Connection interface {
 	//
 	// fn runs on the connection's notifier goroutine — the same goroutine, in the same order, as a StateChangeHandler —
 	// so it must not block: a slow fn delays delivery to every other subscriber and handler.
-	// A panic inside fn is isolated and never stops the other subscribers.
+	// A panic inside fn is recovered, logged at Error with its stack, counted in
+	// [ConnectionMetrics.HandlerPanicCount], and never stops the other subscribers.
+	// Calling runtime.Goexit from fn is not a panic:
+	// it is logged, not counted, and ends the notifier goroutine,
+	// so no later notification for this Open cycle is delivered to any handler or subscriber; Close still completes.
 	// The same limits apply as for a StateChangeHandler:
 	// calling Close synchronously from fn returns ErrCloseTimeout after the close timeout,
 	// and ordering holds within one Open/Close cycle, not across a shutdown that gave up on a still-running fn.

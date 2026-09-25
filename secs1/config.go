@@ -273,6 +273,9 @@ func WithDeviceID(id uint16) Option {
 //
 // Passing nil is a configuration error.
 // This option affects the active (dialing) role only; the passive role always listens on the configured TCP endpoint.
+//
+// Unlike a message handler, dial is an infrastructure hook, and a panic inside it is not recovered:
+// during Open it propagates to Open's caller; during a background reconnect it ends the process.
 func WithDialer(dial DialFunc) Option {
 	return func(c *Config) error {
 		if dial == nil {
@@ -315,6 +318,10 @@ func WithConnectTimeout(d time.Duration) Option {
 //
 // Passing nil is a configuration error.
 // This option affects the passive (listening) role only; the active role always dials the configured TCP endpoint via [WithDialer].
+//
+// Unlike a message handler, listen is an infrastructure hook,
+// and a panic inside it is not recovered: during Open it propagates to Open's caller;
+// during a background reconnect it ends the process.
 func WithListener(listen ListenFunc) Option {
 	return func(c *Config) error {
 		if listen == nil {

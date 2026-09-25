@@ -36,6 +36,7 @@ type ConnectionMetrics struct {
 	connRetry              atomic.Int64  // gauge: 1 while a reconnect loop is actively retrying, else 0
 	reconnects             atomic.Uint64 // cumulative count of successful re-establishments after an involuntary drop
 	replyMismatch          atomic.Uint64 // E37 §9.4.1: a candidate reply whose stream/function diverged from the registered primary
+	handlerPanic           atomic.Uint64 // count of panics recovered from application callbacks (HandlerPanicCount)
 }
 
 // DataMsgInflightCount returns the current number of data messages in flight.
@@ -159,6 +160,13 @@ func (m *ConnectionMetrics) Reconnecting() int64 {
 	return m.connRetry.Load()
 }
 
+// HandlerPanicCount returns the total number of panics recovered from application callbacks
+// that the connection runs on its own goroutines: DataMessageHandler, DecodeErrorHandler,
+// StateChangeHandler, SubscribeLifecycle callbacks, and the async send error handler.
+func (m *ConnectionMetrics) HandlerPanicCount() uint64 {
+	return m.handlerPanic.Load()
+}
+
 // Reconnects returns the cumulative number of times this connection successfully re-established.
 //
 // This is counted once per successful reconnect transport start after an involuntary drop —
@@ -223,4 +231,8 @@ func (m *ConnectionMetrics) incReconnects() {
 
 func (m *ConnectionMetrics) incReplyMismatch() {
 	m.replyMismatch.Add(1)
+}
+
+func (m *ConnectionMetrics) incHandlerPanic() {
+	m.handlerPanic.Add(1)
 }

@@ -303,7 +303,9 @@ func (s *session) hasDecodeErrorHandlers() bool {
 // entry, so a cancellation observed mid-fan-out (the generation that admitted msg ends while an
 // earlier handler runs) stops delivery to every handler still to come.
 // A handler already running when done is observed is not interrupted — see [DecodeErrorHandler].
-func (s *session) dispatchDecodeErrorOn(done <-chan struct{}, msg *DataMessage, err error) {
+// gen identifies the generation done belongs to (an epoch id), or 0 when the caller resolved no live epoch at all;
+// it travels to callDecodeErrorHandler unchanged, never re-resolved here — see that method's doc for why.
+func (s *session) dispatchDecodeErrorOn(gen uint64, done <-chan struct{}, msg *DataMessage, err error) {
 	s.mu.RLock()
 	handlers := s.decodeErrHandlers
 	s.mu.RUnlock()
@@ -315,13 +317,39 @@ func (s *session) dispatchDecodeErrorOn(done <-chan struct{}, msg *DataMessage, 
 		default:
 		}
 
-		s.callDecodeErrorHandler(h, msg, err)
+		s.callDecodeErrorHandler(gen, h, msg, err)
 	}
 }
 
-// callDecodeErrorHandler is the single call site that invokes a [DecodeErrorHandler] with (msg, err, s).
-func (s *session) callDecodeErrorHandler(h DecodeErrorHandler, msg *DataMessage, err error) {
-	h(msg, err, s)
+// callDecodeErrorHandler is the single call site that invokes a [DecodeErrorHandler] with (msg, err, s),
+// under [runCallback]'s panic/Goexit isolation.
+//
+// gen is the generation done was resolved from when the fan-out started (dispatchDecodeErrorOn's caller), threaded in rather than re-resolved here:
+// a handler that outlives its own generation's teardown must report a Goexit-forced disconnect against THAT generation,
+// never whatever generation happens to be current once it finally exits.
+//
+// A recovered panic is counted and logged;
+// a runtime.Goexit is logged and, when s.rt exposes the connection's [handlerHost] capability,
+// disconnects gen so the link reconnects instead of sitting Selected with no receiver for it.
+// A session built over a runtime that does not expose that capability —
+// every in-package mock TransportRuntime a session-level unit test constructs, and a nil rt —
+// calls h directly, unrecovered, exactly as before this isolation existed.
+func (s *session) callDecodeErrorHandler(gen uint64, h DecodeErrorHandler, msg *DataMessage, err error) {
+	host, ok := s.rt.(handlerHost)
+	if !ok {
+		h(msg, err, s)
+
+		return
+	}
+
+	runCallback(
+		func() { h(msg, err, s) },
+		func(r any) { countHandlerPanic(host.handlerMetrics(), host.handlerLogger(), kindDecodeErrorHandler, r) },
+		func() {
+			host.disconnectHandlerGeneration(gen)
+			logHandlerGoexit(host.handlerLogger(), kindDecodeErrorHandler)
+		},
+	)
 }
 
 // AddDataMessageChan implements the SECS2Endpoint method of the same name.
@@ -392,7 +420,9 @@ func (s *session) AddConnStateChangeHandler(handlers ...StateChangeHandler) {
 // when done is observed is not interrupted —
 // that race is the documented contract, not a bug;
 // see [DataMessageHandler] and [SECS2Endpoint.AddDataMessageChan].
-func (s *session) recvDataMsgOn(done <-chan struct{}, msg *DataMessage) {
+// gen identifies the generation done belongs to (an epoch id), or 0 when the caller resolved no live epoch at all;
+// it travels to callDataHandler unchanged, never re-resolved here — see that method's doc for why.
+func (s *session) recvDataMsgOn(gen uint64, done <-chan struct{}, msg *DataMessage) {
 	s.mu.RLock()
 	handlers := s.handlers
 	chans := s.chans
@@ -405,7 +435,7 @@ func (s *session) recvDataMsgOn(done <-chan struct{}, msg *DataMessage) {
 		default:
 		}
 
-		s.callDataHandler(h, msg)
+		s.callDataHandler(gen, h, msg)
 	}
 
 	for _, ch := range chans {
@@ -423,7 +453,33 @@ func (s *session) recvDataMsgOn(done <-chan struct{}, msg *DataMessage) {
 	}
 }
 
-// callDataHandler is the single call site that invokes a [DataMessageHandler] with (msg, s).
-func (s *session) callDataHandler(h DataMessageHandler, msg *DataMessage) {
-	h(msg, s)
+// callDataHandler is the single call site that invokes a [DataMessageHandler] with (msg, s),
+// under [runCallback]'s panic/Goexit isolation.
+//
+// gen is the generation done was resolved from when the fan-out started (recvDataMsgOn's caller), threaded in rather than re-resolved here:
+// a handler that outlives its own generation's teardown must report a Goexit-forced disconnect against THAT generation,
+// never whatever generation happens to be current once it finally exits.
+//
+// A recovered panic is counted and logged;
+// a runtime.Goexit is logged and, when s.rt exposes the connection's [handlerHost] capability,
+// disconnects gen so the link reconnects instead of sitting Selected with no receiver for it.
+// A session built over a runtime that does not expose that capability —
+// every in-package mock TransportRuntime a session-level unit test constructs, and a nil rt —
+// calls h directly, unrecovered, exactly as before this isolation existed.
+func (s *session) callDataHandler(gen uint64, h DataMessageHandler, msg *DataMessage) {
+	host, ok := s.rt.(handlerHost)
+	if !ok {
+		h(msg, s)
+
+		return
+	}
+
+	runCallback(
+		func() { h(msg, s) },
+		func(r any) { countHandlerPanic(host.handlerMetrics(), host.handlerLogger(), kindDataMessageHandler, r) },
+		func() {
+			host.disconnectHandlerGeneration(gen)
+			logHandlerGoexit(host.handlerLogger(), kindDataMessageHandler)
+		},
+	)
 }

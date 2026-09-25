@@ -583,8 +583,14 @@ func (c *ConnectionConfig) TraceTraffic() bool {
 // This is the ONLY way to observe such a failure per-message:
 // SendAsync/ForwardDataMessageAsync themselves report only enqueue-boundary errors (see AsyncSendErrCount for the always-on counter form).
 //
-// The fn callback runs SYNCHRONOUSLY, panic-isolated, on the per-generation async-sender goroutine.
+// The fn callback runs SYNCHRONOUSLY on the per-generation async-sender goroutine.
 // A slow fn delays every other queued async send on that generation, so keep it fast (increment a counter, log, push to a buffered channel) rather than doing blocking I/O.
+//
+// A panic inside fn is recovered, logged at Error with its stack, and counted in
+// [ConnectionMetrics.HandlerPanicCount]; the sender goroutine keeps draining queued sends for the
+// rest of this generation.
+// Calling runtime.Goexit from fn is not a panic: it is logged, not counted, and ends the sender goroutine,
+// dropping the generation it was draining for so the connection reconnects rather than leaving that generation's async sends unserved.
 //
 // Passing nil (the default) disables the callback.
 func WithAsyncSendErrorHandler(fn func(msg Message, err error)) ConnOption {

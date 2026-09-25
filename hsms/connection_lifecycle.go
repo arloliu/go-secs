@@ -138,6 +138,10 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	// notify-coalesce Warn (M4).
 	s.closeTimeout = func() time.Duration { return c.cfg.Load().closeTimeout }
 	s.logger = cfg.logger
+	// Handler-panic/Goexit reporting hooks (installed BEFORE run()/notifier() start below), each reading the connection's LIVE config on every call rather than the cfg snapshot taken here,
+	// so a later UpdateConfigOptions(WithLogger) is honored by every callback report this supervisor makes for the rest of its cycle.
+	s.reportPanic = func(kind string, r any) { countHandlerPanic(&c.metrics, c.cfg.Load().logger, kind, r) }
+	s.reportGoexit = func(kind string) { logHandlerGoexit(c.cfg.Load().logger, kind) }
 	// The live-generation provider behind step's generation match.
 	// It is a single atomic load and takes no locks: step runs on the FSM goroutine,
 	// which an epoch teardown join can be waiting behind, so any lock the teardown path holds would close a cycle here.

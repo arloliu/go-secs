@@ -151,6 +151,18 @@ type supervisor struct {
 	// the legacy append-only registration path stays untouched, and a cancel only ever rebuilds this slice.
 	// nil in unit tests that construct a supervisor without a connection.
 	subs *atomic.Pointer[[]lifecycleSub]
+
+	// reportPanic and reportGoexit are invoked by callHandler / callSub to record a recovered panic or a runtime.Goexit from a StateChangeHandler or a lifecycle-subscriber callback.
+	// Both are installed by the connection BEFORE run()/notifier() start (Open), and both load the
+	// connection's LIVE config on every call rather than a value snapshotted at install time, so a
+	// mid-session UpdateConfigOptions(WithLogger) is honored.
+	// Both are nil in a unit-test supervisor built without a connection;
+	// callHandler / callSub then fall back to a bare recover with no count and no log —
+	// the SAME silent isolation those sites had before this existed.
+	// Goexit detection itself is unaffected: runCallback always distinguishes a Goexit from a panic;
+	// only the REPORT (the count/log this hook would otherwise make) is a no-op.
+	reportPanic  func(kind string, r any)
+	reportGoexit func(kind string)
 }
 
 // newSupervisorWithEventsCap builds a supervisor with an explicit events-queue capacity
@@ -677,20 +689,43 @@ func (s *supervisor) reportDrops() {
 	}
 }
 
-// callHandler invokes one StateChangeHandler under a recover guard (H4 panic isolation).
+// callHandler invokes one StateChangeHandler under [runCallback]'s panic/Goexit isolation (H4):
+// a recovered panic is counted and logged, and a runtime.Goexit is logged —
+// there is no per-generation transport to drop for a notifier-side callback, so this site logs only.
+// The notifier goroutine ends WITH that Goexit — it runs the callback inline, so the Goexit unwinds the notifier itself —
+// so no later notification for this Open is delivered.
+// An unrecovered panic, in contrast, would crash the whole process rather than merely end this goroutine,
+// which is exactly why runCallback recovers it instead.
 func (s *supervisor) callHandler(h StateChangeHandler, sc stateChange) {
-	defer func() {
-		_ = recover() // isolate a panicking handler; one bad handler must not stop the rest
-	}()
-
-	h(sc.prev, sc.next)
+	runCallback(
+		func() { h(sc.prev, sc.next) },
+		func(r any) { s.reportCallbackPanic(kindStateChangeHandler, r) },
+		func() { s.reportCallbackGoexit(kindStateChangeHandler) },
+	)
 }
 
-// callSub invokes one lifecycle subscription callback under a recover guard, the same panic isolation callHandler gives a StateChangeHandler.
+// callSub invokes one lifecycle subscription callback under the same isolation callHandler gives
+// a StateChangeHandler.
 func (s *supervisor) callSub(fn func(LifecycleEvent), ev LifecycleEvent) {
-	defer func() {
-		_ = recover() // isolate a panicking subscriber; one bad callback must not stop the rest
-	}()
+	runCallback(
+		func() { fn(ev) },
+		func(r any) { s.reportCallbackPanic(kindLifecycleSubscriber, r) },
+		func() { s.reportCallbackGoexit(kindLifecycleSubscriber) },
+	)
+}
 
-	fn(ev)
+// reportCallbackPanic forwards to the installed reportPanic hook,
+// a no-op when the supervisor was built without a connection (see the reportPanic field doc).
+func (s *supervisor) reportCallbackPanic(kind string, r any) {
+	if s.reportPanic != nil {
+		s.reportPanic(kind, r)
+	}
+}
+
+// reportCallbackGoexit forwards to the installed reportGoexit hook,
+// a no-op when the supervisor was built without a connection (see the reportGoexit field doc).
+func (s *supervisor) reportCallbackGoexit(kind string) {
+	if s.reportGoexit != nil {
+		s.reportGoexit(kind)
+	}
 }

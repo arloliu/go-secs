@@ -39,6 +39,12 @@ type lineIO struct {
 	metrics *ConnectionMetrics      // block-level counters (secs1's own type — see secs1/metrics.go)
 	sendBuf []byte                  // reused frame buffer for sendBlockData; unlocked only because of the G-A invariant
 	isEquip bool                    // true = equipment (master); false = host (slave)
+
+	// testHookBeforeENQ, when non-nil, is invoked by sendBlockOnce immediately before it writes its own ENQ byte (SEMI E4 §7.8.2 step 1) —
+	// a synchronization seam a test uses to deterministically create the §7.8.2.1 line-contention window (both ends inside sendBlockOnce's wait loop when the peer's ENQ arrives)
+	// instead of racing on timing.
+	// Always nil in production.
+	testHookBeforeENQ func()
 }
 
 // newLineIO builds a lineIO over conn using timers' T1/T2 and cfg's equipment/host role. The bufio
@@ -250,6 +256,10 @@ const (
 // It does NOT retry and does NOT perform the slave yield — those are T2. If ctx is cancelled while
 // waiting, it returns sendAbort with ctx.Err().
 func (l *lineIO) sendBlockOnce(ctx context.Context, blk block) (sendResult, error) {
+	if l.testHookBeforeENQ != nil {
+		l.testHookBeforeENQ()
+	}
+
 	// Step 1: request line control.
 	if err := l.writeByte(enq); err != nil {
 		return sendAbort, fmt.Errorf("secs1: send ENQ: %w", err)
