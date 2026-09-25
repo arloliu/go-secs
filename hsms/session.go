@@ -16,13 +16,14 @@ var _ SECS2Endpoint = (*session)(nil)
 //
 // # Fan-out approach
 //
-// [session.recvDataMsg] delivers messages synchronously on the calling goroutine
-// (the epoch-joined recv loop, G3) to both func handlers and channel handlers:
+// recvDataMsgOn delivers messages synchronously on the calling goroutine (the epoch-joined recv loop, G3),
+// fenced to the specific generation's cancellation channel that admitted the message,
+// to both func handlers and channel handlers:
 //
 //   - Func handlers ([DataMessageHandler]) are called directly; no goroutine is spawned.
 //   - Channel handlers (chan *[DataMessage]) are delivered via
-//     select { case ch <- msg: case <-rt.Done(): return }
-//     so a stalled receiver can never block the fan-out past connection teardown (J5).
+//     select { case ch <- msg: case <-done: return }
+//     so a stalled receiver can never block the fan-out past that generation's teardown (J5).
 //
 // Because both paths are synchronous, no goroutines are spawned and no separate join
 // is needed (G3 is satisfied by the recv-loop epoch join, built in Task 19).
@@ -207,13 +208,37 @@ func (s *session) ForwardDataMessageAsync(ctx context.Context, msg *DataMessage)
 	return s.rt.SendAsync(ctx, msg)
 }
 
+// originSender is the narrow capability [session.ReplyDataMessage] needs from its own connection:
+// its identity token, to recognize a primary it admitted itself, and a generation-bound send to
+// reply through that same generation.
+// *connection satisfies it (asserted in connection.go).
+// A session built over a test double that does not — most in-package mock runtimes —
+// safely falls through to the ordinary send path,
+// since the type assertion in ReplyDataMessage simply reports false for it.
+type originSender interface {
+	originIdentity() *connIdentity
+	SendAsyncFromGeneration(ctx context.Context, gen uint64, msg Message) error
+}
+
 // ReplyDataMessage sends a secondary data message in reply to primary.
 //
 // The reply function is primary.Function()+1 (SECS-II secondary-function convention: primary is odd, reply is even), replyExpected is false,
 // and system bytes are taken verbatim from primary (E37 §8.2.6.9 — system bytes must match).
 //
 // Returns ErrNilMessage if primary is nil.
-// The message is enqueued via rt.SendAsync (no W-bit, no reply correlation needed).
+//
+// When primary was admitted by THIS session's own connection —
+// i.e. primary, or the copy it derives from via [DataMessage.WithSessionID], [DataMessage.WithSystemBytes], or [DataMessage.WithID], was delivered through this connection's [DataMessageHandler], [DecodeErrorHandler], or [SECS2Endpoint.AddDataMessageChan] fan-out —
+// the reply is sent through that SAME generation and refused with [ErrConnClosed] once that generation has ended,
+// rather than going out on a successor generation with the wrong System Bytes context.
+// A primary that arrived on a different connection,
+// that was never delivered through the fan-out,
+// or that reached this call as a hand-built message via [DataMessage.Derive] and [DataMessageBuilder.Build] (which does not carry the origin forward)
+// uses the ordinary send path instead —
+// the same not-Selected, context, and validation errors as any other send apply —
+// and the caller owns correlation for it.
+//
+// The message is enqueued via SendAsync/SendAsyncFromGeneration (no W-bit, no reply correlation needed).
 func (s *session) ReplyDataMessage(ctx context.Context, primary *DataMessage, item secs2.Item) error {
 	if primary == nil {
 		return ErrNilMessage
@@ -231,10 +256,16 @@ func (s *session) ReplyDataMessage(ctx context.Context, primary *DataMessage, it
 		return err
 	}
 
+	// primary.originIdent is an opaque token, not a pointer back to the connection that admitted primary (see DataMessage's origin fields),
+	// so identifying "this session's own connection" goes through a type assertion on the runtime rather than a direct field read.
+	if os, ok := s.rt.(originSender); ok && primary.originIdent != nil && os.originIdentity() == primary.originIdent {
+		return os.SendAsyncFromGeneration(ctx, primary.originGen, dm)
+	}
+
 	return s.rt.SendAsync(ctx, dm)
 }
 
-// AddDataMessageHandler appends one or more inbound data-message handlers under mu.Lock. recvDataMsg snapshots the slice header under RLock,
+// AddDataMessageHandler appends one or more inbound data-message handlers under mu.Lock. recvDataMsgOn snapshots the slice header under RLock,
 // so concurrent registration and delivery are race-free.
 func (s *session) AddDataMessageHandler(handlers ...DataMessageHandler) {
 	s.mu.Lock()
@@ -242,7 +273,7 @@ func (s *session) AddDataMessageHandler(handlers ...DataMessageHandler) {
 	s.handlers = append(s.handlers, handlers...)
 }
 
-// AddDecodeErrorHandler appends one or more inbound decode-error handlers under mu.Lock. dispatchDecodeError snapshots the slice header under RLock,
+// AddDecodeErrorHandler appends one or more inbound decode-error handlers under mu.Lock. dispatchDecodeErrorOn snapshots the slice header under RLock,
 // so concurrent registration and delivery are race-free.
 func (s *session) AddDecodeErrorHandler(handlers ...DecodeErrorHandler) {
 	s.mu.Lock()
@@ -258,21 +289,39 @@ func (s *session) hasDecodeErrorHandlers() bool {
 	return len(s.decodeErrHandlers) > 0
 }
 
-// dispatchDecodeError delivers (msg, err) to every registered decode-error handler.
-// Handlers are snapshotted under RLock and invoked with the lock released, matching
-// recvDataMsg's fan-out discipline. The snapshot is safe because AddDecodeErrorHandler
-// only ever appends and never mutates existing elements (a growing append writes only at
-// indices >= the snapshot's length, into spare capacity or a fresh backing array), and
-// the header read/write is mutex-synchronized — so ranging the aliased header after
-// RUnlock cannot race a concurrent registration.
-func (s *session) dispatchDecodeError(msg *DataMessage, err error) {
+// dispatchDecodeErrorOn delivers (msg, err) to every registered decode-error handler, fenced to a
+// specific generation's cancellation channel (done): done must be e.ctx.Done() for the generation
+// that admitted msg, never e.done.
+//
+// Handlers are snapshotted under RLock and invoked with the lock released.
+// The snapshot is safe because AddDecodeErrorHandler only ever appends and never mutates existing elements —
+// a growing append writes only at indices >= the snapshot's length, into spare capacity or a fresh backing array —
+// and the header read/write is mutex-synchronized,
+// so ranging the aliased header after RUnlock cannot race a concurrent registration.
+//
+// Observed-cancellation contract: done is rechecked before EACH handler call, not just once at
+// entry, so a cancellation observed mid-fan-out (the generation that admitted msg ends while an
+// earlier handler runs) stops delivery to every handler still to come.
+// A handler already running when done is observed is not interrupted — see [DecodeErrorHandler].
+func (s *session) dispatchDecodeErrorOn(done <-chan struct{}, msg *DataMessage, err error) {
 	s.mu.RLock()
 	handlers := s.decodeErrHandlers
 	s.mu.RUnlock()
 
 	for _, h := range handlers {
-		h(msg, err, s)
+		select {
+		case <-done:
+			return
+		default:
+		}
+
+		s.callDecodeErrorHandler(h, msg, err)
 	}
+}
+
+// callDecodeErrorHandler is the single call site that invokes a [DecodeErrorHandler] with (msg, err, s).
+func (s *session) callDecodeErrorHandler(h DecodeErrorHandler, msg *DataMessage, err error) {
+	h(msg, err, s)
 }
 
 // AddDataMessageChan implements the SECS2Endpoint method of the same name.
@@ -323,38 +372,58 @@ func (s *session) AddConnStateChangeHandler(handlers ...StateChangeHandler) {
 	}
 }
 
-// recvDataMsg delivers msg to every registered handler synchronously (§5.4, J5/G3).
+// recvDataMsgOn delivers msg to every registered handler and channel synchronously (§5.4, J5/G3),
+// fenced to a specific generation's cancellation channel (done):
+// done must be e.ctx.Done() for the generation that admitted msg, never e.done.
 // The same immutable *DataMessage pointer is passed to every handler — no Clone (D7).
 //
 // Fan-out order:
 //  1. Func handlers ([DataMessageHandler]) are called directly (no goroutine spawned).
 //  2. Channel handlers are delivered via
-//     select { case ch <- msg: case <-s.rt.Done(): return }
-//     so a full/stalled channel never blocks the fan-out past connection teardown (J5).
+//     select { case ch <- msg: case <-done: return }
+//     so a full/stalled channel never blocks the fan-out past that generation's teardown (J5).
 //
 // Returns immediately if there are no handlers or if the generation is already torn down.
-func (s *session) recvDataMsg(msg *DataMessage) {
-	// Fast-path exit if the generation is already torn down.
-	select {
-	case <-s.rt.Done():
-		return
-	default:
-	}
-
+//
+// Observed-cancellation contract:
+// done is rechecked before EACH handler call and before EACH channel delivery, not just once at entry,
+// so a cancellation observed mid-fan-out (the generation that admitted msg ends while an earlier handler or channel send runs) stops delivery to every handler and channel still to come.
+// A handler already running, or a channel send already unblocked by room becoming available,
+// when done is observed is not interrupted —
+// that race is the documented contract, not a bug;
+// see [DataMessageHandler] and [SECS2Endpoint.AddDataMessageChan].
+func (s *session) recvDataMsgOn(done <-chan struct{}, msg *DataMessage) {
 	s.mu.RLock()
 	handlers := s.handlers
 	chans := s.chans
 	s.mu.RUnlock()
 
 	for _, h := range handlers {
-		h(msg, s)
+		select {
+		case <-done:
+			return
+		default:
+		}
+
+		s.callDataHandler(h, msg)
 	}
 
 	for _, ch := range chans {
 		select {
+		case <-done:
+			return
+		default:
+		}
+
+		select {
 		case ch <- msg:
-		case <-s.rt.Done():
+		case <-done:
 			return
 		}
 	}
+}
+
+// callDataHandler is the single call site that invokes a [DataMessageHandler] with (msg, s).
+func (s *session) callDataHandler(h DataMessageHandler, msg *DataMessage) {
+	h(msg, s)
 }

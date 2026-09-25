@@ -18,6 +18,11 @@ import (
 // Close waits for the receive goroutine, which is the one running the handler.
 // To close the connection from a handler, call Close on another goroutine.
 // Offload slow work to your own goroutine.
+//
+// Observed-cancellation contract:
+// once the fan-out observes the generation's teardown, no further handler is called.
+// A handler already running is not interrupted.
+// A teardown that starts between the check and the call can still reach that one handler.
 type DataMessageHandler func(msg *DataMessage, ep SECS2Endpoint)
 
 // DecodeErrorHandler is the callback for an inbound data message whose SECS-II body failed to decode.
@@ -32,6 +37,11 @@ type DataMessageHandler func(msg *DataMessage, ep SECS2Endpoint)
 // while it runs, the receive loop cannot read the next frame and Close cannot complete until it returns.
 // Calling Close from inside it therefore always times out, as for DataMessageHandler.
 // Offload slow work to your own goroutine.
+//
+// The same observed-cancellation contract as [DataMessageHandler] applies:
+// once the fan-out observes the generation's teardown, no further handler is called,
+// a handler already running is not interrupted,
+// and a teardown that starts between the check and the call can still reach that one handler.
 type DecodeErrorHandler func(msg *DataMessage, err error, ep SECS2Endpoint)
 
 // SECS2Endpoint provides the capability surface exposed to message handlers.
@@ -120,6 +130,15 @@ type SECS2Endpoint interface {
 	// The reply reuses the primary message's System Bytes verbatim (E37 §8.2.6.9) and carries no W-bit.
 	//
 	// Returns ErrNilMessage if primary is nil.
+	//
+	// When primary was delivered by THIS connection's own inbound fan-out —
+	// a DataMessageHandler, a channel registered via AddDataMessageChan, or a DecodeErrorHandler —
+	// the reply is bound to the same generation that delivered primary and returns ErrConnClosed if that generation has since ended,
+	// instead of going out on a reconnected successor under the wrong System Bytes context.
+	// A primary received on a different connection, and a hand-built primary —
+	// one your code constructed with [DataMessage.Derive] rather than received —
+	// are not checked: the reply uses the ordinary send path (the same not-Selected, context, and validation errors as any other send apply),
+	// and you own correlation for it.
 	ReplyDataMessage(ctx context.Context, primary *DataMessage, item secs2.Item) error
 
 	// AddDataMessageHandler appends one or more inbound data message handlers.
@@ -175,8 +194,11 @@ type SECS2Endpoint interface {
 	// Registering the same channel more than once delivers each message once per registration
 	// (parity with DataMessageHandler; registration is not deduplicated).
 	//
-	// If the connection tears down mid-fan-out, channels later in the registration order can
-	// miss the in-flight message — delivery is at-most-once, with no teardown flush.
+	// Observed-cancellation contract: handlers always run before channels, in the registration order.
+	// Once the fan-out observes the generation's teardown, ch is skipped, along with every channel registered after it —
+	// delivery is at-most-once, with no teardown flush.
+	// A send already blocked on a full ch when teardown starts is abandoned, and the message is dropped:
+	// it unblocks via the select on the connection's teardown signal described above, not by completing the delivery.
 	//
 	// Registration is permanent for the connection's lifetime: there is no removal API, and ch
 	// keeps receiving across Close/Open cycles, exactly like a registered DataMessageHandler.

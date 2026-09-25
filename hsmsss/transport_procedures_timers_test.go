@@ -85,8 +85,8 @@ func TestT7_CancelledWhenSelectCompletes(t *testing.T) {
 
 	tr := newLinktestTransport(t, rt, ctx)
 
-	tr.armT7(tr.wg) // enter NotSelected — dwell armed
-	tr.cancelT7()   // Select completes before expiry — the CommitSelected==true path cancels T7
+	tr.armT7(tr.wg)    // enter NotSelected — dwell armed
+	tr.cancelT7(tr.wg) // Select completes before expiry — the CommitSelected==true path cancels T7
 
 	// The goroutine exits promptly on cancellation, and no T7Expired ever fires.
 	waitT7Exit(t, tr)

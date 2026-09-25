@@ -1,10 +1,8 @@
 package hsmsss
 
 import (
-	"context"
 	"encoding/binary"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -23,40 +21,25 @@ type traceConfigRuntime interface {
 // field to assert that an attacker-controlled length is rejected BEFORE allocation (J2).
 func makeFrame(n int) []byte { return make([]byte, n) }
 
-// recvLoop is the per-generation receive goroutine. It reads E37 frames via readFrame and
-// dispatches them (spec §6.1): data frames go zero-copy to rt.DeliverOwnedFrame, control
-// responses to rt.RouteReply, control requests to the responder procedures, and a peer
-// Separate drives teardown. On any read error (including the conn.Close in Stop) it calls
-// rt.TCPDown and returns. g.recv.Done fires via defer on return, unblocking Stop's
-// g.recv.Wait on this generation's captured bundle (Codex round-7 / NEW-1). g is threaded
-// into every WaitGroup-registering call this loop makes (armT7, startLinktest) so a straggler
-// abandoned by a bounded Stop registers only on ITS generation's bundle, never a successor's.
-func (t *transport) recvLoop(g *genWG) {
+// recvLoop is the per-generation receive goroutine.
+// It reads E37 frames via readFrame and dispatches them (spec §6.1):
+// data frames go zero-copy to t.deliverOwnedFrame, control responses to t.routeReply,
+// control requests to the responder procedures, and a peer Separate drives teardown.
+// On any read error (including the conn.Close in Stop) it calls t.tcpDown and returns.
+// g.recv.Done fires via defer on return, unblocking Stop's g.recv.Wait on this generation's captured bundle (Codex round-7 / NEW-1).
+// g is threaded into every WaitGroup-registering call this loop makes (armT7, startLinktest),
+// so a straggler abandoned by a bounded Stop registers only on ITS generation's bundle, never a successor's.
+//
+// conn is the socket Start just published for THIS generation:
+// startActive and acceptLoop pass the conn they just published, and this loop reads ONLY that value, never t.conn.
+// A straggler goroutine — one abandoned by a bounded Stop, resumed after a reconnect —
+// therefore keeps reading its OWN (by then closed) socket, never a live successor's,
+// and its next Read fails as soon as Stop closes that socket (readFrame has no buffering layer to mask it).
+func (t *transport) recvLoop(g *genWG, conn net.Conn) {
 	defer g.recv.Done()
 
-	// Cache the conn once (T18-review Minor): the socket is immutable for the life of this
-	// goroutine — Start publishes it before spawning recvLoop, and Stop's nil-out is paired
-	// with a conn.Close that surfaces here as a Read error the loop handles below. Reading it
-	// once avoids a connMu acquisition per frame.
-	t.connMu.Lock()
-	conn := t.conn
-	genCtx := t.genCtx // capture THIS generation's ctx once — never re-read t.genCtx (a later Start overwrites it)
-	t.connMu.Unlock()
-
-	if conn == nil {
-		// Start always publishes conn before spawning recvLoop; a nil here means Stop already
-		// ran (a torn-down generation), so genCtx is cancelled — teardown owns the disconnect and
-		// a stale TCPDown must not be injected (C1 straggler guard). Exit.
-		if genCtx == nil || genCtx.Err() == nil {
-			t.tcpDown(g.gen, errors.New("hsmsss: recvLoop: not connected"), hsms.CauseIOError)
-		}
-
-		return
-	}
-
 	// Entering NotSelected (NotConnected->NotSelected): TCPUp committed NotSelected synchronously
-	// (T22b) before this recv loop was spawned, so the T7 dwell applies now. Arm it for a LIVE
-	// generation only (after the conn nil-check above) — §9.2.2.
+	// (T22b) before this recv loop was spawned, so the T7 dwell applies now — §9.2.2.
 	t.armT7(g)
 
 	for {
@@ -64,17 +47,19 @@ func (t *transport) recvLoop(g *genWG) {
 		if err != nil {
 			t.metrics.incReadErrCount()
 
-			// C1 straggler guard: drive TCPDown only for a LIVE generation. The epoch ctx (genCtx)
-			// is rooted at context.Background() and cancelled ONLY by this generation's teardown, so
-			// a non-nil Err means teardown already began — either a voluntary Close (which owns the
-			// disconnect) or a straggler that outlived a bounded Stop. An involuntary peer drop
-			// (genCtx not cancelled) still drives the disconnect that initiates teardown.
+			// C1 straggler guard: drive TCPDown only for a LIVE generation.
+			// g.ctx is this generation's own ctx, cancelled ONLY by its own teardown,
+			// so a non-nil Err means teardown already began —
+			// either a voluntary Close (which owns the disconnect) or a straggler that outlived a bounded Stop.
+			// An involuntary peer drop (g.ctx not cancelled) still drives the disconnect that initiates teardown.
+			// g.ctx is never nil here: startActive/startPassive stamp it before spawning this goroutine
+			// and every caller of recvLoop does the same.
 			//
 			// The check is an early exit, not the barrier: cancellation can land between it and the call.
 			// g.gen is the barrier: it names the generation this loop belongs to,
 			// and the core discards the disconnect if that generation is no longer live
 			// when the FSM applies it (see hsms.supervisor.step).
-			if genCtx.Err() == nil {
+			if g.ctx.Err() == nil {
 				t.tcpDown(g.gen, err, hsms.CauseIOError)
 			}
 
@@ -83,10 +68,16 @@ func (t *transport) recvLoop(g *genWG) {
 
 		t.lastRecvStamp.Store(t.monoNanos()) // any complete inbound frame is proof of link liveness
 
-		// genCtx is threaded in for the SAME C1 straggler guard the read-error branch applies above.
-		// A peer Separate is the one dispatch path that injects TCPDown,
-		// so it must not fire from a generation whose teardown already began (see handleSeparateReq).
-		if !t.dispatchFrame(genCtx, g, frame) {
+		// testHookAfterReadFrame is a nil-by-default test seam (setupAdmissionStraggler,
+		// integration_inbound_straggler_test.go): it fires between a complete frame read and its
+		// admission into dispatchFrame, letting a test pause a straggler goroutine right at the
+		// admission cutoff (a generation that has ended admits no frame).
+		// No production path ever sets it.
+		if hook := t.testHookAfterReadFrame.Load(); hook != nil {
+			(*hook)()
+		}
+
+		if !t.dispatchFrame(g, frame) {
 			// dispatchFrame already drove teardown (a peer Separate called rt.TCPDown),
 			// or the generation is already tearing down.
 			// Either way do not call TCPDown again; just end the loop so Stop can join it.
@@ -100,10 +91,9 @@ func (t *transport) recvLoop(g *genWG) {
 // keep reading and false when it has itself driven teardown (peer Separate while Selected).
 // g is the recv goroutine's captured generation bundle (NEW-1), threaded onward to any
 // responder path that registers a linktest / T7 goroutine so it lands on this generation's bundle.
-// genCtx is the recv goroutine's captured generation ctx.
-// It is forwarded to the one path that injects TCPDown (the peer-Separate responder),
+// g.ctx is forwarded to the one path that injects TCPDown (the peer-Separate responder),
 // so that path applies the same C1 straggler guard as recvLoop's read-error branch.
-func (t *transport) dispatchFrame(genCtx context.Context, g *genWG, frame []byte) bool {
+func (t *transport) dispatchFrame(g *genWG, frame []byte) bool {
 	pType := frame[4]
 	sType := frame[5]
 
@@ -153,7 +143,7 @@ func (t *transport) dispatchFrame(genCtx context.Context, g *genWG, frame []byte
 
 		// Zero-copy hand-off: the core decodes via decodeOwnedFrame and routes to the session.
 		// A decode/route error is a protocol failure, not a transport failure — keep reading.
-		_ = t.rt.DeliverOwnedFrame(frame)
+		_ = t.deliverOwnedFrame(g.gen, frame)
 
 	case hsms.SelectRspType, hsms.DeselectRspType, hsms.LinktestRspType, hsms.RejectReqType:
 		// Terminal responses to one of our transactions (a Reject.req rejects a message we sent).
@@ -172,7 +162,7 @@ func (t *transport) dispatchFrame(genCtx context.Context, g *genWG, frame []byte
 			t.metrics.incRejectRecv()
 		}
 
-		if t.rt.RouteReply(msg) {
+		if t.routeReply(g.gen, msg) {
 			// HIT. H2 initiator commit (§7.D): a routed Select.rsp with select-status 0 completes
 			// our active Select. Commit to Selected SYNCHRONOUSLY on THIS recv goroutine — after
 			// routing the reply, before reading the next frame — so a data frame the peer pipelined
@@ -186,7 +176,7 @@ func (t *transport) dispatchFrame(genCtx context.Context, g *genWG, frame []byte
 				// and latches g.selectedOnce (see the field comment for why);
 				// a duplicate (already Selected) returns false and does none of that.
 				if t.commitSelected(g.gen) {
-					t.cancelT7()
+					t.cancelT7(g)
 					t.startLinktest(g)
 					g.selectedOnce.Store(true)
 				}
@@ -211,7 +201,7 @@ func (t *transport) dispatchFrame(genCtx context.Context, g *genWG, frame []byte
 
 	case hsms.SeparateReqType:
 		// Peer leaving (E37.1 §7.6): tear down in any connected substate, NotSelected included.
-		return t.handleSeparateReq(genCtx, g)
+		return t.handleSeparateReq(g.ctx, g)
 
 	default:
 		// Unreachable: IsValidSType already rejected every undefined SType above.

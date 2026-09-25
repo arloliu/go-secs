@@ -130,7 +130,7 @@ func TestOpenCloseReopen_DataMessageChanPersists(t *testing.T) {
 		requireSelected(t, c)
 
 		msg := mustDataMsg(t)
-		c.recvDataMsg(msg) // promoted from the embedded session; exercises the live epoch's Done()
+		c.recvDataMsgOn(c.Done(), msg) // promoted from the embedded session; exercises the live epoch's Done()
 
 		select {
 		case got := <-ch:

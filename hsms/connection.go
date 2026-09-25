@@ -16,6 +16,7 @@ import (
 var (
 	_ Connection       = (*connection)(nil)
 	_ TransportRuntime = (*connection)(nil)
+	_ originSender     = (*connection)(nil)
 )
 
 // closedDoneChan is a pre-closed channel returned by Done() when there is no live epoch
@@ -27,6 +28,19 @@ var closedDoneChan = func() chan struct{} {
 
 	return ch
 }()
+
+// connIdentity is a unique, non-zero-size identity token for one *connection.
+//
+// A *DataMessage stores a pointer to its admitting connection's token instead of a pointer to the
+// connection itself, so retaining one received message never retains the connection, its
+// handler/channel registrations, or its current epoch.
+// The byte field is load-bearing:
+// a zero-size struct's allocations can share one address (runtime.zerobase),
+// which would make two DIFFERENT connections' tokens compare equal by pointer;
+// giving the struct a field guarantees each connection's token its own address.
+// The token is compared by pointer identity only, via [connection.originIdentity];
+// it is never dereferenced.
+type connIdentity struct{ _ byte }
 
 // connection is the unexported concrete HSMS engine (spec §5.1). It satisfies both the
 // app-held Connection interface and the TransportRuntime back-channel, and embeds the
@@ -84,6 +98,13 @@ type connection struct {
 	// It is the send-path counterpart of supervisor.staleGen, kept here because a send never reaches the supervisor.
 	staleSend atomic.Uint64
 
+	// staleRecv counts inbound frames/replies dropped because the generation that admitted them had already ended.
+	// It is the recv-path counterpart of staleSend:
+	// staleSend counts a generation-bound OUTBOUND send refused by liveEpoch;
+	// staleRecv counts a generation-bound INBOUND delivery refused the same way
+	// (DeliverOwnedFrameFromGeneration / RouteReplyFromGeneration).
+	staleRecv atomic.Uint64
+
 	// genGate fences a generation-guarded SYNCHRONOUS commit against the end of the generation that asked for it.
 	// The three synchronous commits (TCP-up, Select-accepted, Select-lost) are CAS operations on the FSM state,
 	// not events on the supervisor queue, so step's generation match cannot cover them
@@ -136,6 +157,10 @@ type connection struct {
 
 	sysGen sysBytesGen // per-connection System Bytes generator
 
+	// ident is this connection's unique identity token (see [connIdentity]).
+	// Allocated once in NewConnection and never mutated afterward.
+	ident *connIdentity
+
 	// dropWarn rate-limits the B1 not-selected-drop Warn (B3); the metric counter is the
 	// authoritative chokepoint and is incremented on every drop regardless.
 	dropWarn *throttle.Throttle
@@ -155,6 +180,20 @@ type connection struct {
 	// It is nil in production (zero cost).
 	// The reconnect-backoff persistence tests set it to record the exact delay sequence the loop computes, one call per dial attempt.
 	testHookBackoff func(d time.Duration)
+
+	// testHookBeforeFanout is called by deliverOwnedFrameOn
+	// immediately after checkSessionID and before the inbound message is routed (reply correlation / session fan-out) on the RESOLVED epoch.
+	// It is nil in production (zero cost).
+	// A test uses it to pause delivery between admission and fan-out,
+	// so it can advance the generation (publish a successor, end the admitting generation) in that window before releasing.
+	testHookBeforeFanout func()
+
+	// testHookBeforeS9F1Enqueue is called by checkSessionID
+	// immediately before the S9F1 rejection notification is enqueued via enqueueAsync on the RESOLVED epoch.
+	// It is nil in production (zero cost).
+	// A test uses it to pause the S9F1 send between admission and enqueue,
+	// so it can advance the generation in that window before releasing.
+	testHookBeforeS9F1Enqueue func()
 
 	*session // embedded: promotes the SECS2Endpoint surface onto the Connection value
 }
@@ -179,6 +218,7 @@ func NewConnection(cfg *ConnectionConfig, tr transport) (Connection, error) {
 		reconnectGen:  atomic.Uint64{},
 		connectLoopWg: sync.WaitGroup{},
 		dropWarn:      throttle.New(dropNotSelectedWarnInterval),
+		ident:         &connIdentity{},
 	}
 	c.cfg.Store(cfg) // atomic publish; UpdateConfigOptions swaps a fresh pointer, never mutates in place
 
@@ -292,13 +332,36 @@ func (c *connection) NextSystemBytes() [4]byte {
 
 // Done returns the current generation's teardown-START signal (TransportRuntime, SELECT-ONLY — J5): e.ctx.Done(),
 // which closes the instant teardown begins (epoch.cancel), NOT when the bounded join completes (e.done).
-//
-// The session data-handler fan-out selects on it so a handler blocked on a full channel unblocks as soon as teardown starts.
 // Returning e.done here would be a CIRCULAR wait: e.done closes only after the join,
 // and the join waits (via tr.Stop → recvWg) for this very fan-out to return (C1).
 // When no live epoch exists it returns a pre-closed channel so a select never nil-blocks.
+//
+// Done is kept for the TransportRuntime contract;
+// no fan-out inside this package selects on it any more.
+// The generation-bound inbound path —
+// deliverOwnedFrameOn / routeDataOn / routeReplyOn, reached through DeliverOwnedFrameFromGeneration and RouteReplyFromGeneration —
+// never calls Done(): it binds each fan-out to the SPECIFIC epoch it resolved (epochDone(e)) instead,
+// rather than to whatever generation happens to be current when Done() is read.
 func (c *connection) Done() <-chan struct{} {
-	if e := c.cur.Load(); e != nil {
+	return epochDone(c.cur.Load())
+}
+
+// originIdentity returns c's own identity token, compared by pointer identity in
+// session.ReplyDataMessage's same-connection check (see [connIdentity]).
+//
+// It never returns nil: ident is allocated once in NewConnection and never mutated afterward.
+func (c *connection) originIdentity() *connIdentity {
+	return c.ident
+}
+
+// epochDone returns e's teardown-start signal, or a pre-closed channel when e is nil (no live epoch — before the first Open, or after a full Close),
+// so a select against it never nil-blocks.
+//
+// It is the shared body behind [connection.Done] and the epoch-bound inbound entry points
+// (routeDataOn, deliverOwnedFrameOn's fan-out),
+// which pass an ALREADY-RESOLVED epoch rather than re-reading c.cur.
+func epochDone(e *epoch) <-chan struct{} {
+	if e != nil {
 		return e.ctx.Done()
 	}
 

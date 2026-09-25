@@ -40,6 +40,29 @@ type causeRuntime interface {
 // and hsms asserts at compile time that its core implements it.
 type genRuntime = gencap.GenerationRuntime[hsms.Message, hsms.TransitionCause]
 
+// deliverOwnedFrame is dispatchFrame's data-branch entry point.
+// It names the generation whose recv goroutine read frame,
+// so a straggler's frame is delivered to that generation or dropped, never handed to its successor.
+// A runtime without genRuntime gets the plain hsms.TransportRuntime.DeliverOwnedFrame.
+func (t *transport) deliverOwnedFrame(gen uint64, frame []byte) error {
+	if gr, ok := t.rt.(genRuntime); ok {
+		return gr.DeliverOwnedFrameFromGeneration(gen, frame)
+	}
+
+	return t.rt.DeliverOwnedFrame(frame)
+}
+
+// routeReply is dispatchFrame's control-response-branch entry point.
+// It names the generation whose recv goroutine read msg, for the same reason deliverOwnedFrame does,
+// and falls back to the plain hsms.TransportRuntime.RouteReply the same way.
+func (t *transport) routeReply(gen uint64, msg hsms.Message) bool {
+	if gr, ok := t.rt.(genRuntime); ok {
+		return gr.RouteReplyFromGeneration(gen, msg)
+	}
+
+	return t.rt.RouteReply(msg)
+}
+
 // currentGeneration reads the runtime's live generation identity, or 0 when the runtime does not offer one.
 // Start calls it once per generation and stamps the answer on that generation's WaitGroup bundle,
 // which is how every goroutine this transport spawns knows which generation it speaks for.
@@ -227,7 +250,7 @@ func (t *transport) handleSelectReq(g *genWG, req hsms.Message) {
 	status := byte(hsms.SelectStatusSuccess)
 	if t.commitSelected(g.gen) {
 		t.metrics.incSelectEstablished()
-		t.cancelT7()
+		t.cancelT7(g)
 		t.startLinktest(g)
 		g.selectedOnce.Store(true)
 	} else {
@@ -479,11 +502,13 @@ func (t *transport) handleLinktestReq(g *genWG, msg hsms.Message) {
 // and TestDeselect_AnsweredDespiteE371Prohibition.
 //
 // The transition's SIDE EFFECTS are gated on the commit actually being applied, not on the status alone.
-// stopLinktest and armT7 both act on whatever generation is current —
-// they cancel t.linktestCancel and derive a T7 ctx from t.genCtx —
-// so a recv goroutine that outlived its own generation would cancel the SUCCESSOR's auto-linktest
-// and hang a stale dwell on it, leaving a link that is still logically Selected with no liveness probing at all.
-// selectLost reports the core's refusal precisely so that work can be skipped.
+// selectLost reports whether the core actually applied the transition for g.gen,
+// so a refused commit (this generation has already ended) skips stopLinktest/armT7 rather than running them for no reason.
+//
+// It is not the fence against a straggler reaching a successor's timers:
+// stopLinktest and armT7 touch only g's own bundle (see genWG.timersStopped),
+// so even an unguarded call from a straggler cannot cancel a live successor's auto-linktest or dwell.
+// The gate here saves needless work.
 //
 // The response is still enqueued BEFORE the commit, and that ordering is deliberate.
 // The §7.D/I3 invariant is satisfied by the commit being SYNCHRONOUS on the recv goroutine,
@@ -515,7 +540,7 @@ func (t *transport) handleDeselectReq(g *genWG, msg hsms.Message) {
 	// Selected -> NotSelected (evSelectLost), isolated to THIS generation.
 	// On a refusal the transition did not happen, so neither may anything downstream of it.
 	if status == hsms.DeselectStatusSuccess && t.selectLost(g.gen) {
-		t.stopLinktest()
+		t.stopLinktest(g)
 		// Back in NotSelected on the SAME TCP connection: the T7 dwell re-applies (§9.2.2), so
 		// re-arm it on this generation's bundle g (NEW-1) — if no re-Select follows, T7 expiry
 		// drops + reconnects.

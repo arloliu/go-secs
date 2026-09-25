@@ -42,6 +42,27 @@ type DataMessage struct {
 	header [10]byte
 	body   wire.Body
 	dec    *decodeState
+
+	// originIdent/originGen record which connection and generation admitted this message as an
+	// inbound PRIMARY, so [SECS2Endpoint.ReplyDataMessage] can bind its reply to that same
+	// generation and refuse it once that generation has ended.
+	//
+	// originIdent is an opaque per-connection identity token ([connIdentity]), not a pointer to the connection itself:
+	// a connection carries its whole handler/channel registration and its current epoch,
+	// so a DataMessage that retained a *connection would keep that entire graph alive for as long as an application holds the message.
+	// The token is compared by pointer identity only; it is never dereferenced.
+	//
+	// Stamped in deliverOwnedFrameOn for every inbound data message that a live generation admitted,
+	// including the plain (gen-less) DeliverOwnedFrame path SECS-I uses.
+	// A message admitted with no live generation (before the first Open, or after a full Close)
+	// carries no origin: neither field is stamped.
+	// [DataMessage.WithSessionID], [DataMessage.WithSystemBytes], and [DataMessage.WithID] copy both fields onto their derived value,
+	// since they preserve the message's identity.
+	// [DataMessage.Derive] and [DataMessageBuilder.Build] deliberately do NOT carry the origin forward:
+	// a derived message is a NEW message the caller assembled by hand,
+	// and [SECS2Endpoint.ReplyDataMessage] must not apply the generation check to it.
+	originIdent *connIdentity
+	originGen   uint64
 }
 
 // Ensure *DataMessage satisfies the Message interface.
@@ -195,8 +216,12 @@ func (msg *DataMessage) AppendBodyTo(dst []byte) []byte { return msg.body.Append
 // WithSessionID returns a new *DataMessage identical to msg except that header bytes 0–1 are replaced by id (big-endian).
 //
 // The body and decodeState pointer are shared; no body copy or re-encode is performed.
+//
+// The derived message keeps msg's origin stamp (the connection and generation that admitted msg,
+// if any): a reply to the derived copy is checked against that same generation exactly like a
+// reply to msg itself — see [SECS2Endpoint.ReplyDataMessage].
 func (msg *DataMessage) WithSessionID(id uint16) *DataMessage {
-	n := &DataMessage{header: msg.header, body: msg.body, dec: msg.dec}
+	n := &DataMessage{header: msg.header, body: msg.body, dec: msg.dec, originIdent: msg.originIdent, originGen: msg.originGen}
 	binary.BigEndian.PutUint16(n.header[0:2], id)
 
 	return n
@@ -204,8 +229,10 @@ func (msg *DataMessage) WithSessionID(id uint16) *DataMessage {
 
 // WithSystemBytes returns a new *DataMessage identical to msg except that header bytes 6–9 are replaced by b. The body
 // and decodeState pointer are shared; no body copy or re-encode is performed.
+//
+// The derived message keeps msg's origin stamp; see [DataMessage.WithSessionID].
 func (msg *DataMessage) WithSystemBytes(b [4]byte) *DataMessage {
-	n := &DataMessage{header: msg.header, body: msg.body, dec: msg.dec}
+	n := &DataMessage{header: msg.header, body: msg.body, dec: msg.dec, originIdent: msg.originIdent, originGen: msg.originGen}
 	n.header[6] = b[0]
 	n.header[7] = b[1]
 	n.header[8] = b[2]
@@ -218,6 +245,8 @@ func (msg *DataMessage) WithSystemBytes(b [4]byte) *DataMessage {
 //
 // It is the immutable-wither counterpart to the ID accessor: WithID(id) is exactly WithSystemBytes(ToSystemBytes(id)).
 // The body and decodeState pointer are shared; no body copy or re-encode is performed.
+//
+// The derived message keeps msg's origin stamp, via [DataMessage.WithSystemBytes].
 func (msg *DataMessage) WithID(id uint32) *DataMessage {
 	return msg.WithSystemBytes(ToSystemBytes(id))
 }
@@ -239,6 +268,12 @@ type DataMessageBuilder struct {
 
 // Derive returns a new [DataMessageBuilder] seeded with the stream, function, wait-bit, item, session ID,
 // and system bytes of msg.
+//
+// The built message does NOT keep msg's origin stamp:
+// [DataMessageBuilder.Build] always produces a message with no origin,
+// so a reply to it is never checked against msg's generation —
+// unlike [DataMessage.WithSessionID], [DataMessage.WithSystemBytes], and [DataMessage.WithID], which do carry it forward.
+// Derive builds a message the caller has reassembled by hand; the caller owns correlation for it.
 func (msg *DataMessage) Derive() *DataMessageBuilder {
 	// Fire dec.once to obtain the item. For tree-path messages the once is
 	// pre-fired and item is never nil. For raw-frame messages with a malformed
