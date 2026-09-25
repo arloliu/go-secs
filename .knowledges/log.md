@@ -1,6 +1,39 @@
 # Log
 
 ## 2026-09-25
+* **Update**: [Send error accounting](/hsms/send-error-accounting.md) and [linktest teardown exemption](/hsmsss/linktest-teardown-exemption.md)
+  promoted to stable against `a1cdb0e` after a verify pass (openai/gpt-6-astra) and confirmation passes (openai/gpt-5.6-terra)
+  that corrected the custom-connection caveat, the reply/caller-cancellation exceptions, the W-bit-independent counting guard,
+  and scoped the `ErrConnClosed` origin list to the synchronous request path; the final confirmation found no fault.
+* **Update** (independent verify pass against `a1cdb0e`): [Send error accounting](/hsms/send-error-accounting.md) —
+  scoped the "a control T6 expiry is counted nowhere" claim to `DataMsgErrCount` and cross-referenced that an auto-linktest T6 failure still increments hsmsss's `LinktestErrCount`;
+  fixed the "never reaches the wire" overstatement for a failed !W write (a deadline can truncate a frame mid-writev, so a write can fail after partial transmission);
+  replaced the "Both T3 and T6 return their timeout error" oversimplification with the accurate priority-recheck description (reply, then teardown, then the genuine timeout);
+  dropped the unverifiable "teeth-check ... reverting restored a green suite" execution-history claim, keeping only what `hsms/connection_send_metrics_test.go` itself shows, now added as a cited source.
+  `verified` still absent, status draft.
+* **Update** (independent verify pass against `a1cdb0e`): [Linktest teardown exclusion](/hsmsss/linktest-teardown-exemption.md) —
+  scoped the "no code path returns `ErrConnClosed` for a live link" guarantee to CORE-generated errors, noting a custom `WithDialer` `net.Conn` that itself returns or wraps a value matching `hsms.ErrConnClosed` would defeat it (`hsmsss/transport.go`'s `Write` passes such an error through unexamined);
+  clarified that a matching `ErrConnClosed` on auto-linktest's own path is a lifecycle classification, not proof the underlying write failure was not ALSO a genuine live-link problem racing with teardown.
+  status draft.
+* **Update** (sync against `a1cdb0e`): [Send error accounting](/hsms/send-error-accounting.md) round 5 —
+  `writeFrame` now checks `e.ctx.Err()` after a write fails and classifies a post-teardown failure as `ErrConnClosed` (wrapping the raw error, or passing one through) before `isCountedSendErr` ever sees it, reversing rounds 1-4's "a teardown-interrupted write still counts" finding by fixing the race those rounds only documented.
+  `sendWaitReplyOn`'s timer and teardown arms also gained a priority re-check (`tryReply`, then — timer arm only — `e.ctx.Err()`): reply beats teardown beats a genuine T3/T6 timeout, among those three arms only (`callerCtx.Done()` has no re-check).
+  Corrected the frontmatter `description` (a concurrent Close is now effectively a blanket exclusion for a sync data send) and the stale "unwrapped" claim about `writeFrame`'s own error handling.
+  `verified` dropped, status draft.
+* **Update** (sync against `a1cdb0e`): [Linktest teardown exclusion](/hsmsss/linktest-teardown-exemption.md) adds the two new `ErrConnClosed` origins `a1cdb0e` introduced — `writeFrame`'s post-write teardown reclassification, and `sendWaitReplyOn`'s timer-arm `e.ctx.Err()` re-check — to the "every origin of the sentinel" trace, which the diff made incomplete.
+  Both new origins are teardown-exclusive by the same `e.ctx.Err() != nil` construction as the existing four, so the guard's safety argument is unchanged, only its origin count.
+  `verified` dropped, status draft.
+* Digest/revision-only refresh to `a1cdb0e` (prose unaffected — the cited symbols each entry names were untouched by the `a1cdb0e` diff, judged cosmetic against a hint list that expected some of these material):
+  [Reconnect backoff scope](/hsms/reconnect-backoff-scope.md),
+  [How a shutdown joins the per-Open supervisor](/hsms/supervisor-join.md),
+  [The I1 stale-epoch write guard](/hsms/stale-epoch-write-guard.md),
+  [The B1/B2 Selected gates on the send path](/hsms/selected-gates.md),
+  [The inbound generation fence](/hsms/inbound-generation-fence.md),
+  [The W-bit inflight gauge](/hsms/inflight-gauge.md),
+  [The send-side MaxMessageSize ceiling's enforcement topology](/hsms/max-message-size-ceiling.md),
+  [The reply registry's two-legged control exemption](/hsms/reply-matching-control-exemption.md),
+  [The transaction observer's two chokepoints](/hsms/transaction-observer-chokepoints.md) — already stated classification-by-error-value before `a1cdb0e`'s doc comment caught up to it, not the other way around,
+  [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) — `writeFrame`'s `TCPDownFromGeneration(CauseIOError)` call was already gated on a live (non-cancelled) generation before this commit, so the injection-site table is unaffected.
 * **Creation**: [The inbound generation fence](/hsms/inbound-generation-fence.md) records the R10 inbound-fence mechanic `6c257b6` introduced:
   the two distinct cutoffs (one-shot `liveEpoch` admission under `genGate`, vs. the ongoing per-handler `epochDone`/`e.ctx.Done()` recheck in fan-out),
   the window between them and the three test hooks (`testHookAfterReadFrame`, `testHookBeforeFanout`, `testHookBeforeS9F1Enqueue`) that mark it,
