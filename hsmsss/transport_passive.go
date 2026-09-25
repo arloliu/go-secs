@@ -27,6 +27,7 @@ import (
 
 	"github.com/arloliu/go-secs/v2/hsms"
 	"github.com/arloliu/go-secs/v2/internal/pool"
+	"github.com/arloliu/go-secs/v2/logger"
 )
 
 // Retry pacing for a transient Accept failure (acceptConn): the delay starts at acceptRetryInitial,
@@ -212,12 +213,18 @@ func (t *transport) acceptConn(ctx context.Context, ln net.Listener) (net.Conn, 
 			delay = min(2*delay, acceptRetryMax)
 		}
 
-		log := t.cfg.Logger()
-		if rt, ok := t.rt.(traceConfigRuntime); ok {
-			_, log = rt.TraceConfig()
-		}
+		// Emit the diagnostic off the accept goroutine, on a goroutine nothing joins,
+		// so a blocking logger can never stall Stop's unbounded g.accept.Wait (this loop's own
+		// caller). At most one diagnostic is outstanding per transport; while one is in flight,
+		// further warnings from this loop are silently dropped rather than queued.
+		if t.acceptWarnInFlight.CompareAndSwap(false, true) {
+			log := t.cfg.Logger()
+			if rt, ok := t.rt.(traceConfigRuntime); ok {
+				_, log = rt.TraceConfig()
+			}
 
-		log.Warn("hsmsss: accept failed, retrying", "error", err, "retry_in", delay)
+			go t.reportAcceptRetry(log, err, delay)
+		}
 
 		timer := pool.GetTimer(delay)
 		select {
@@ -229,6 +236,19 @@ func (t *transport) acceptConn(ctx context.Context, ln net.Listener) (net.Conn, 
 			pool.PutTimer(timer)
 		}
 	}
+}
+
+// reportAcceptRetry logs one accept-retry diagnostic.
+//
+// It runs on a goroutine nothing joins, so a logger that blocks stalls only this one diagnostic,
+// never Stop's unbounded g.accept.Wait. log/err/delay are snapshotted at the call site rather than
+// captured, so a later accept attempt's values can never leak into an already-running call, and a
+// panicking logger is recovered rather than crashing the process.
+func (t *transport) reportAcceptRetry(log logger.Logger, err error, delay time.Duration) {
+	defer t.acceptWarnInFlight.Store(false)
+	defer func() { _ = recover() }()
+
+	log.Warn("hsmsss: accept failed, retrying", "error", err, "retry_in", delay)
 }
 
 // isStopping reports whether Stop has sealed the transport for the current generation.

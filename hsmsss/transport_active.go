@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	"github.com/arloliu/go-secs/v2/hsms"
+	"github.com/arloliu/go-secs/v2/internal/gencap"
 )
 
 // errSelectRejected is the TCPDown cause when the peer answers our Select.req with a non-zero
@@ -170,6 +171,18 @@ func (t *transport) startActive(ctx context.Context) error {
 		var cancel context.CancelFunc
 		dialCtx, cancel = context.WithTimeout(ctx, t.cfg.connectTimeout)
 		defer cancel()
+	}
+
+	// Bound the FIRST dial of an Open cycle by the caller's Open ctx and by a
+	// concurrent Close, through the core's gencap.DialBounder back-channel. ctx here is the
+	// EXACT ctx Start received, matched by identity against the core's published firstDial — a
+	// reconnect generation's Start carries a different ctx, so this is a no-op for it, and it is
+	// also a no-op when t.rt does not offer the capability (e.g. a custom out-of-module
+	// TransportRuntime).
+	if db, ok := t.rt.(gencap.DialBounder); ok {
+		var boundCancel context.CancelFunc
+		dialCtx, boundCancel = db.BoundDial(ctx, dialCtx)
+		defer boundCancel()
 	}
 
 	conn, err := t.cfg.dial(dialCtx, "tcp", addr)

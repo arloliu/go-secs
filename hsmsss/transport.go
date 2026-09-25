@@ -253,6 +253,11 @@ type transport struct {
 	// Set only before the racing goroutine is spawned (happens-before via goroutine creation),
 	// never concurrently; production leaves it nil.
 	testHookArmT7BeforeLock func()
+
+	// acceptWarnInFlight gates the accept-retry diagnostic log (acceptConn in
+	// transport_passive.go) to at most ONE outstanding goroutine per TRANSPORT — never reset by ArmStart,
+	// because it spans every generation this transport ever runs, not one generation.
+	acceptWarnInFlight atomic.Bool
 }
 
 // newTransport constructs a transport for cfg with an initial per-generation WaitGroup bundle.

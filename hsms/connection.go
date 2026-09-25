@@ -146,6 +146,44 @@ type connection struct {
 	// and the atomic keeps that race-free, merely non-monotone.
 	reconnectDelay atomic.Int64
 
+	// abortMu guards pendingCloses and openAbort.
+	// It is never held across a blocking call, and is nested with lifeMu in one direction only — lifeMu then abortMu —
+	// so Close, which takes it BEFORE lifeMu too, releases it before acquiring lifeMu and never holds both at once.
+	abortMu sync.Mutex
+
+	// pendingCloses counts Close calls that have registered (abortMu held) and are about to acquire lifeMu.
+	// Observed under lifeMu, pendingCloses > 0 means a Close is blocked on lifeMu right now,
+	// so a fresh Open publishing its abort token while this count is positive
+	// knows that Close is waiting behind it and pre-fires the token itself.
+	pendingCloses int
+
+	// openAbort is the current Open's one-shot interrupt signal, nil when no Open is in progress.
+	// Close fires it (if non-nil) before acquiring lifeMu;
+	// Open publishes a fresh token after the double-open guard
+	// and clears it back to nil on every return path, before lifeMu releases.
+	openAbort *abortToken
+
+	// firstDial publishes the state gencap.DialBounder.BoundDial reads to bound the FIRST dial of one Open cycle:
+	// the original Start ctx (the identity BoundDial matches against), the caller's Open ctx, the current Open's
+	// abort channel, and a flag BoundDial sets when the caller's ctx is what actually cut the dial.
+	// Open stores it immediately before c.tr.Start and clears it immediately after,
+	// so it is live only for the duration of that one synchronous call —
+	// a reconnect generation's Start never observes a match, because its own ctx is a different value.
+	firstDial atomic.Pointer[firstDialState]
+
+	// testHookOpenBeforePublish is called by Open, under lifeMu,
+	// between the double-open guard and publishing this Open's abort token.
+	// It is nil in production (zero cost).
+	// A test uses it to pause a fresh Open there so it can register a Close first,
+	// exercising the registration-ordering races between a publishing Open and a racing Close.
+	testHookOpenBeforePublish func()
+
+	// testHookCloseAfterUnlock is called by Close immediately after lifeMu actually releases, before Close returns to its caller.
+	// It is nil in production (zero cost).
+	// A test uses it to inspect a queued Open's freshly published token before this Close call returns,
+	// verifying that the pendingCloses bookkeeping is decremented before lifeMu actually releases.
+	testHookCloseAfterUnlock func()
+
 	// cfg is an atomic.Pointer so readers (Timers/SessionID and Open's cfg reads) are
 	// lock-free and race-free against a concurrent UpdateConfigOptions, which builds a fresh
 	// scratch config and atomically Stores it (never mutates the live struct in place). cfgMu
