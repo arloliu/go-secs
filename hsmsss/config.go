@@ -123,6 +123,9 @@ func WithPassive() Option {
 // Passing nil is a configuration error.
 // This option affects the active (dialing) role only; the passive role always listens on the configured TCP endpoint.
 //
+// Keep-alive on a socket from a custom dialer is the caller's responsibility
+// unless [WithTCPKeepAlive] is set and the socket is a *net.TCPConn.
+//
 // Unlike a message handler, dial is an infrastructure hook, and a panic inside it is not recovered:
 // during Open it propagates to Open's caller; during a background reconnect it ends the process.
 func WithDialer(dial DialFunc) Option {
@@ -168,6 +171,9 @@ func WithConnectTimeout(d time.Duration) Option {
 // Passing nil is a configuration error.
 // This option affects the passive (listening) role only; the active role always dials the configured TCP endpoint via WithDialer.
 //
+// Keep-alive on sockets accepted from a custom listener is the caller's responsibility
+// unless [WithTCPKeepAlive] is set and the socket is a *net.TCPConn.
+//
 // Unlike a message handler, listen is an infrastructure hook,
 // and a panic inside it is not recovered: during Open it propagates to Open's caller;
 // during a background reconnect it ends the process.
@@ -183,10 +189,17 @@ func WithListener(listen ListenFunc) Option {
 	}
 }
 
-// WithTCPKeepAlive sets the TCP keep-alive interval for the underlying socket.
+// WithTCPKeepAlive sets the TCP keep-alive idle period for the underlying socket.
 //
-// A value of 0 uses the OS default (keep-alive probes at the OS interval).
+// A positive value enables TCP keep-alive after that idle period on a *net.TCPConn socket.
+// A value of 0 leaves the socket as the dialer or listener created it:
+// Go's default dialer and listener enable keep-alive with Go's defaults (currently 15 seconds),
+// while a socket from a custom [WithDialer] or [WithListener] keeps whatever that function configured, which may be none.
+// A non-TCP connection is never changed.
 // The duration must be >= 0.
+//
+// Without a linktest, keep-alive is what detects a silent half-open peer on an idle link;
+// see [github.com/arloliu/go-secs/v2/hsms.WithLinktestInterval].
 func WithTCPKeepAlive(d time.Duration) Option {
 	return func(c *Config) error {
 		if d < 0 {

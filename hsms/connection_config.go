@@ -322,8 +322,16 @@ func WithSessionID(id uint16) ConnOption {
 
 // WithLinktestInterval sets the interval between automatic linktest messages.
 //
-// A value of 0 disables automatic linktests.
+// A value of 0 disables automatic linktests, and 0 is the default.
 // The duration must be >= 0.
+//
+// Without linktests an idle HSMS-SS link notices a silent half-open peer only through TCP keep-alive,
+// because the receive side waits for the first byte of a frame without a deadline;
+// a peer that closes or resets the connection is noticed at once either way.
+// Go's default dialer and listener enable keep-alive,
+// but on common platforms a dead peer is then detected only after minutes,
+// and a socket from a custom dialer or listener may have no keep-alive at all.
+// A production HSMS-SS link should therefore set an interval, for example 30 seconds.
 func WithLinktestInterval(d time.Duration) ConnOption {
 	return func(c *ConnectionConfig) error {
 		if d < 0 {
