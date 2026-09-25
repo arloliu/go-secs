@@ -9,13 +9,13 @@ verified:
   - {by: "openai/gpt-6-astra", at: 2026-09-25T02:55:36Z}
   - {by: "openai/gpt-5.6-terra", at: 2026-09-25T03:13:36Z}
 sources:
-  - {resource: hsmsss/transport.go, digest: sha256:14cd2584fee0dbab, revision: 6c257b6}
+  - {resource: hsmsss/transport.go, digest: sha256:cb3594d212e03da1, revision: c00e1b5}
   - {resource: hsmsss/transport_procedures.go, digest: sha256:bf47bd9825ddb5da, revision: 6c257b6}
   - {resource: hsmsss/transport_recv.go, digest: sha256:f54ea89029ef179c, revision: 6c257b6}
-  - {resource: hsmsss/transport_active.go, digest: sha256:80daec469fc1444e, revision: 6c257b6}
-  - {resource: hsmsss/transport_passive.go, digest: sha256:baa34d672a03a889, revision: 6c257b6}
+  - {resource: hsmsss/transport_active.go, digest: sha256:252154bd042e64d4, revision: c00e1b5}
+  - {resource: hsmsss/transport_passive.go, digest: sha256:562498fdb8cfa240, revision: c00e1b5}
   - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: 6c257b6}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:45ceec38bea801db, revision: d244104}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:dac8943b7389474b, revision: c00e1b5}
 ---
 
 # What it does
