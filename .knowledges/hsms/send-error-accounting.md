@@ -8,8 +8,8 @@ generated: {by: "claude/sonnet-5", at: 2026-09-25T03:51:29Z}
 verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-25T06:13:16Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:019a0edf15412086, revision: a1cdb0e}
-  - {resource: hsms/connection_metrics.go, digest: sha256:92d23ad6e8bf5471, revision: a1cdb0e}
+  - {resource: hsms/connection_send.go, digest: sha256:e485168d1a431fe7, revision: d244104}
+  - {resource: hsms/connection_metrics.go, digest: sha256:2b06463b39b276c4, revision: d244104}
   - {resource: hsms/connection_send_metrics_test.go, digest: sha256:457aeefcd9801abc, revision: a1cdb0e}
   - {resource: hsms/epoch.go, digest: sha256:d97677e4f16e9462, revision: 4eb40d1}
   - {resource: hsmsss/transport.go, digest: sha256:14cd2584fee0dbab, revision: 6c257b6}

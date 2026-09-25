@@ -1,6 +1,90 @@
 # Log
 
 ## 2026-09-25
+* **Update**: [callback panic/Goexit isolation](/hsms/handler-panic-goexit-isolation.md), [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md),
+  [the inbound generation fence](/hsms/inbound-generation-fence.md), and [supervisor join](/hsms/supervisor-join.md) promoted to stable against `d244104`
+  after a verify pass (openai/gpt-6-astra) and confirmation passes (openai/gpt-5.6-terra) that corrected Goexit-resumption semantics, reporter-exit cases,
+  identity-versus-liveness checks, and notifier-side Goexit; supervisor join now also cites `hsms/endpoint.go`.
+* **Update**: digest-only refresh to `752a39a` for entries citing `hsms/connection_config.go` or `secs1/config.go`
+  (keep-alive and linktest option docs changed; no cited claim touched).
+* **Update** (independent verify pass against `d244104`): [How a shutdown joins the per-Open supervisor](/hsms/supervisor-join.md) —
+  scoped the "far more likely"/"before any timeout is at stake" promptness claim: `notifierDone` only closes once Goexit unwinding
+  reaches `notifier()`'s own completion defer, and the reporting chain in between (`reportGoexit`, a user-supplied logger,
+  `disconnectHandlerGeneration`'s possibly-blocking `injectFrom` enqueue) can still delay it past the close deadline; added
+  `hsms/handler_panic.go` (`runCallback`) as a cited source, which the body already named but the frontmatter did not.
+  `verified` still absent, status draft.
+* **Update** (independent verify pass against `d244104`): [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) —
+  dropped the "CauseHandlerExit is the one injection site inside hsms" framing (the entry's own table already lists several
+  hsms-internal sites: Close, Open rollback, writeFrame, T7Expired, TCPUp, CommitSelected, SelectLost); corrected "the SAME
+  generation-named entry point hsmsss/secs1 use" — secs1 does not name a generation for its own disconnects; corrected "not a
+  separate check disconnectHandlerGeneration invents" — it explicitly rejects gen==0 itself, before injectDisconnect/step's
+  identity-only match ever runs; corrected "a gen of 0 skips the match everywhere" — selectCommitGate still liveness-checks a
+  gen of 0, and disconnectHandlerGeneration rejects it outright rather than treating it as a wildcard; added the missing
+  `hsmsss/integration_lifecycle_cause_test.go` source for `(*causeLog).waitBringUp`.
+  `verified` dropped, status draft.
+* **Update** (independent verify pass against `d244104`): [The inbound generation fence](/hsms/inbound-generation-fence.md) —
+  corrected the claim that a Goexit-forced handler disconnect is "a no-op ... the same generation-identity match cutoff #1
+  and #2 already rely on" — cutoff #1 (`liveEpoch`) checks identity AND `!ended`, cutoff #2 checks epoch cancellation, and
+  `disconnectHandlerGeneration`/`injectDisconnect` check identity only (zero rejected separately), three different conditions;
+  corrected "SECS-I (gen == 0) never reaches liveEpoch ... explicit, permanent bypass" — SECS-I's assembler is wired directly
+  to the plain `DeliverOwnedFrame` and never calls `DeliverOwnedFrameFromGeneration` at all (so it never takes that function's
+  own `if gen == 0` branch), while a stamped SECS-I reply's nonzero `originGen` still reaches `liveEpoch` through
+  `SendAsyncFromGeneration` on the outbound leg.
+  `verified` dropped, status draft.
+* **Update** (independent verify pass against `d244104`): [How a user callback's panic or Goexit is contained](/hsms/handler-panic-goexit-isolation.md) —
+  corrected the Goexit-resumption description against the actual runtime source (`runtime.recovery`'s `if p.goexit` branch):
+  recovery resumes the pending Goexit loop itself, not the recovering frame, and can revisit already-processed stack frames
+  while never re-invoking an already-consumed defer; scoped the "runCallback itself never panics"/"only a panic during Goexit
+  reports both" invariants to reporters (`onPanic`/`onGoexit`) that themselves return normally — a panicking reporter escapes
+  uncaught, and a Goexiting reporter also trips the outer detector; fixed the disconnect-before-log claim — a disconnect action
+  only precedes the site's own log call for a MATCHING generation, a stale-generation report never disconnects at all (pure
+  Debug log); reframed the five call sites as three execution roles rather than three fixed goroutines, and noted
+  `callDataHandler`/`callDecodeErrorHandler` call the handler unrecovered when `s.rt` does not satisfy `handlerHost`; scoped
+  the recv-goroutine-join claim — `g.recv.Done()` fires only after every intervening defer, and `tr.Stop`'s bounded join also
+  sequentially waits on `g.proc`/`g.linktest`/`g.t7`, not `g.recv` alone; fixed the "no log line" failure-mode overclaim — the
+  one-frame version's surviving `recover()` still reports the nested panic, only the Goexit-specific report and its disconnect
+  are lost, and differently by site (receiver lost vs. sender lost); corrected "deliberately NOT recovered" for the
+  transaction observer — `WriteMessage`/`WriteMessageNoReply` give it no dedicated recovery boundary, but a synchronous send
+  made from inside an already-isolated handler has the observer's panic caught incidentally by that handler's own
+  `runCallback`; added `hsmsss/transport.go` (`(*transport).Stop`) as a cited source.
+  `verified` still absent, status draft.
+* **Creation**: [How a user callback's panic or Goexit is contained](/hsms/handler-panic-goexit-isolation.md) —
+  `runCallback`'s two-frame detection (why one frame drops `onGoexit` for a nested panic that interrupts a Goexit,
+  pinned by `TestRunCallback_GoexitWithDeferredPanic`), the five call sites across three goroutines and what each
+  does on a Goexit, the disconnect-before-log ordering and its logger guard, and what stays outside this mechanism
+  (the transaction observer, `WithDialer`/`WithListener`, a closed registered channel, `hsmstest.FakeEndpoint`).
+  Sourced against `d244104`; status draft.
+* **Update** (sync against `d244104`, `feat(hsms): recover callback panics and detect Goexit`):
+  [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) — added the new
+  `CauseHandlerExit` injection site (a user callback's `runtime.Goexit` disconnecting the generation it ran for,
+  via `disconnectHandlerGeneration` → `TCPDownFromGeneration`), the one injection site that originates inside
+  `hsms` rather than a transport goroutine, and the fact that a `secs1`-hosted handler still resolves a nonzero
+  generation despite `secs1`'s own disconnects never naming one.
+  Digests refreshed; `verified` dropped; status draft.
+* **Update** (sync against `d244104`): [How a shutdown joins the per-Open supervisor](/hsms/supervisor-join.md) —
+  noted that `callHandler`/`callSub` now route a `StateChangeHandler`/subscriber callback through `runCallback`
+  (counted+logged panic, logged-only Goexit) instead of a bare silent `recover()`, why a Goexit-driven
+  `notifierDone` close is what usually lets `Close` "still complete" rather than the close timeout, and the
+  hook-install-before-`go` ordering that lets `callHandler`/`callSub` read `reportPanic`/`reportGoexit`
+  lock-free.
+  Digests refreshed; `verified` dropped; status draft.
+* **Update** (sync against `d244104`): [The inbound generation fence](/hsms/inbound-generation-fence.md) —
+  noted that cutoff #2 now threads `e`'s resolved generation one parameter deeper, into
+  `callDataHandler`/`callDecodeErrorHandler`'s panic/Goexit isolation, and that `callDataHandler` previously ran
+  a `DataMessageHandler` with no recover at all (a panic there used to crash the process). Digests refreshed;
+  `verified` dropped; status draft.
+* **Update** (sync against `d244104`, cosmetic — digest refresh only, no mechanic cited by these entries changed):
+  [The B1/B2 Selected gates](/hsms/selected-gates.md), [The I1 stale-epoch write guard](/hsms/stale-epoch-write-guard.md),
+  [Linktest teardown exclusion](/hsmsss/linktest-teardown-exemption.md),
+  [The transaction observer's two chokepoints](/hsms/transaction-observer-chokepoints.md),
+  [The W-bit inflight gauge](/hsms/inflight-gauge.md), [Where the HSMS-SS profile overrides the generic core](/hsmsss/e37-1-narrows-e37-generic.md),
+  [Reconnect backoff scope](/hsms/reconnect-backoff-scope.md), [The MaxMessageSize ceiling](/hsms/max-message-size-ceiling.md),
+  [The reply registry's two-legged control exemption](/hsms/reply-matching-control-exemption.md),
+  [Send error accounting](/hsms/send-error-accounting.md), [Activity stamps](/hsmsss/activity-stamps.md), and
+  [The block-send transaction's detect/act split](/secs1/block-send-detect-act-split.md) — `hsms/connection_send.go`
+  changed only inside `callAsyncSendErrorHandler`'s Goexit handling, and `hsms/connection_lifecycle.go`,
+  `supervisor.go`, `connection_config.go`, `connection_metrics.go`, `state.go`, `lifecycle.go`, and `secs1/line.go`,
+  `secs1/transport.go` changed only in regions none of these entries' claims rest on; `status: stable` and `verified` kept.
 * **Update**: [Send error accounting](/hsms/send-error-accounting.md) and [linktest teardown exemption](/hsmsss/linktest-teardown-exemption.md)
   promoted to stable against `a1cdb0e` after a verify pass (openai/gpt-6-astra) and confirmation passes (openai/gpt-5.6-terra)
   that corrected the custom-connection caveat, the reply/caller-cancellation exceptions, the W-bit-independent counting guard,

@@ -4,19 +4,20 @@ title: The inbound generation fence
 description: How an inbound frame or reply is bound to the generation whose recv goroutine actually read it, and the two different kinds of cutoff that enforce it.
 tags: [hsms, hsmsss, generations, inbound, fan-out]
 status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-25T02:38:18Z}
+generated: {by: "claude/sonnet-5", at: 2026-09-25T08:02:46Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T03:13:36Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T08:34:25Z}
 sources:
-  - {resource: hsms/connection_runtime.go, digest: sha256:9a3bf737af4590d8, revision: 6c257b6}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:221b0f7825783fad, revision: 6c257b6}
+  - {resource: hsms/connection_runtime.go, digest: sha256:dce97e0bf7fc6616, revision: d244104}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:45ceec38bea801db, revision: d244104}
   - {resource: hsms/connection.go, digest: sha256:29d7e54aeb61fce0, revision: a1cdb0e}
-  - {resource: hsms/session.go, digest: sha256:8394199f62beedfd, revision: 6c257b6}
+  - {resource: hsms/session.go, digest: sha256:134bcdad84cba21a, revision: d244104}
+  - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: d244104}
   - {resource: hsms/data_msg.go, digest: sha256:32c3295c07f631df, revision: 6c257b6}
   - {resource: hsmsss/transport_recv.go, digest: sha256:f54ea89029ef179c, revision: 6c257b6}
   - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: 6c257b6}
   - {resource: internal/gencap/gencap.go, digest: sha256:cf920df43a1fd5e6, revision: 6c257b6}
-  - {resource: secs1/transport.go, digest: sha256:d74a486193cbea69, revision: 6c257b6}
+  - {resource: secs1/transport.go, digest: sha256:8c3142a7ada318ee, revision: d244104}
   - {resource: hsmsss/transport.go, digest: sha256:14cd2584fee0dbab, revision: 6c257b6}
 ---
 
@@ -88,6 +89,31 @@ a handler or channel delivery whose check already passed can still proceed, with
 and that join waits (via the recv goroutine) for THIS SAME fan-out to return —
 selecting on `e.done` here would be a circular wait.
 
+**As of `d244104`, cutoff #2 also threads `e`'s own generation past the fan-out, into the handler call itself.**
+`routeDataOn` derives `gen` from `e.id` (0 when `e` is nil) and passes it as a new leading parameter to
+`recvDataMsgOn`/`dispatchDecodeErrorOn` (`hsms/session.go`), which pass it straight through to
+`callDataHandler`/`callDecodeErrorHandler` — the same generation cutoff #1 already resolved, never
+re-derived.
+Those two call sites use `gen` for something outside this entry's own scope: if the handler they invoke
+ends via `runtime.Goexit` instead of returning, they disconnect exactly `gen` — the admitted epoch's
+own ID — rather than whatever generation happens to be current once the handler finally exits.
+That disconnect report is a no-op only for the specific condition `disconnectHandlerGeneration`
+checks: `gen == 0` is ignored outright, and a nonzero `gen` that no longer matches the current
+epoch's identity is rejected by `injectDisconnect`.
+This is a DIFFERENT condition from either cutoff above: it compares identity only, not `ended`, so a
+report naming an ended-but-still-current epoch (the same epoch cutoff #1 admitted `e` under) still
+gets through — see [the transition-cause injection-site entry](/hsms/transition-cause-injection-sites.md)
+for that check's exact shape.
+See [the callback panic/Goexit isolation entry](/hsms/handler-panic-goexit-isolation.md) for that
+mechanism; the fact this entry records is only that the plumbing for it rides the SAME resolved `e`
+cutoff #1 already picked, one parameter deeper than before.
+A more consequential change rides along with it: before `d244104`, `callDataHandler` ran a
+`DataMessageHandler` with NO recover at all — a panicking handler crashed the process.
+It is now recovered (and counted) through the same `runCallback` isolation, so the "per-step recheck"
+this section already documents (does the fan-out stop before the NEXT handler/channel) is no longer the
+only thing standing between one misbehaving handler and the rest of the fan-out; a PANIC inside a single
+handler no longer takes down the others either.
+
 **The window between the two cutoffs, and where the test hooks sit.**
 Three nil-by-default hooks mark the three points in this sequence a test can pause at:
 `testHookAfterReadFrame` (`hsmsss/transport.go`, fired in `recvLoop`) sits BEFORE cutoff #1 —
@@ -132,8 +158,14 @@ SECS-I's own straggler protection is structural, in its line engine's own per-ge
 - `RouteReplyFromGeneration` reports `true` (not `false`) for a stale generation, deliberately,
   so a stale Select.rsp lands on `dispatchFrame`'s HIT branch (where `commitSelected` itself refuses it)
   rather than the MISS branch (which would attempt a pointless `Reject.req`).
-- SECS-I (`gen == 0`) never reaches `liveEpoch`;
-  `DeliverOwnedFrame`'s `if gen == 0` branch in `DeliverOwnedFrameFromGeneration` is an explicit, permanent bypass, not a temporary gap.
+- At this revision, SECS-I's INBOUND ingress bypasses admission checking entirely: `secs1`'s assembler
+  is wired at construction directly to the plain `DeliverOwnedFrame` (`secs1/transport.go` →
+  `newTransport`'s `t.newSink`), never to `DeliverOwnedFrameFromGeneration`, so it never reaches
+  `liveEpoch` and never takes that function's own `if gen == 0` branch (which exists for OTHER
+  gen-less callers that do go through the generation-aware entry point).
+  A stamped SECS-I reply is not exempt the same way on the OUTBOUND leg: when a live generation
+  admitted the primary, `ReplyDataMessage` binds the reply through `SendAsyncFromGeneration`, which
+  resolves that nonzero `originGen` through `liveEpoch` like any other generation-named send.
 - `connection.staleRecv` is incremented on every cutoff-#1 refusal (frame or reply)
   but is not part of `ConnectionMetrics` — it has no exported accessor.
   The Debug log line identifies the refusal,
@@ -161,6 +193,9 @@ SECS-I's own straggler protection is structural, in its line engine's own per-ge
   `(*connection).RouteReplyFromGeneration`, `(*connection).routeReplyOn`, `(*connection).checkSessionID`
 - the one-shot admission gate: `hsms/connection_lifecycle.go` → `(*connection).liveEpoch`
 - the per-step recheck during fan-out: `hsms/session.go` → `(*session).recvDataMsgOn`, `(*session).dispatchDecodeErrorOn`
+- the generation `gen` now carries into the handler call, and the panic isolation it feeds: `hsms/connection_runtime.go` →
+  `(*connection).routeDataOn`; `hsms/session.go` → `(*session).callDataHandler`, `(*session).callDecodeErrorHandler`;
+  `hsms/handler_panic.go` → `(*connection).disconnectHandlerGeneration`
 - why the fan-out watches `ctx.Done()` and not the join-complete signal: `hsms/connection.go` →
   `(*connection).Done`, `epochDone`
 - the reply-side origin token and its retention rationale: `hsms/connection.go` → `connIdentity`, `(*connection).originIdentity`;

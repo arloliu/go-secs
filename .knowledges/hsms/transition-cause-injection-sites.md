@@ -4,15 +4,17 @@ title: Where a TransitionCause is chosen, and why one transition can swallow ano
 description: The full transition-source to cause map, why the cause is picked at the injection site rather than derived in the FSM, why the transports pass both the cause and their generation through a capability interface instead of TransportRuntime, how the generation match keeps a late transport goroutine from dropping its successor's link, why the three synchronous commits need a lock-fenced gate instead of that match, and the ways a cause never reaches a subscriber.
 tags: [hsms, lifecycle, supervisor, fsm, observability]
 status: stable
-generated: {by: "claude/opus-5", at: 2026-09-25T02:38:18Z}
+generated: {by: "claude/sonnet-5", at: 2026-09-25T08:02:46Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T03:13:36Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T08:34:25Z}
 sources:
-  - {resource: hsms/lifecycle.go, digest: sha256:65d429d90300b620, revision: 5a0ec1b}
-  - {resource: hsms/supervisor.go, digest: sha256:291a3c8397ed511d, revision: a7ff4a8}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:221b0f7825783fad, revision: a9235b4}
-  - {resource: hsms/connection_runtime.go, digest: sha256:9a3bf737af4590d8, revision: 6c257b6}
-  - {resource: hsms/connection_send.go, digest: sha256:019a0edf15412086, revision: a1cdb0e}
+  - {resource: hsms/lifecycle.go, digest: sha256:9c093383d23470e1, revision: d244104}
+  - {resource: hsms/session.go, digest: sha256:134bcdad84cba21a, revision: d244104}
+  - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: d244104}
+  - {resource: hsms/supervisor.go, digest: sha256:90d6c1d8bddc9552, revision: d244104}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:45ceec38bea801db, revision: d244104}
+  - {resource: hsms/connection_runtime.go, digest: sha256:dce97e0bf7fc6616, revision: d244104}
+  - {resource: hsms/connection_send.go, digest: sha256:e485168d1a431fe7, revision: d244104}
   - {resource: hsms/connection.go, digest: sha256:29d7e54aeb61fce0, revision: a1cdb0e}
   - {resource: hsms/epoch.go, digest: sha256:d97677e4f16e9462, revision: 0c892d9}
   - {resource: hsmsss/transport.go, digest: sha256:14cd2584fee0dbab, revision: 6c257b6}
@@ -21,9 +23,10 @@ sources:
   - {resource: hsmsss/transport_passive.go, digest: sha256:baa34d672a03a889, revision: 6c257b6}
   - {resource: hsmsss/transport_procedures.go, digest: sha256:bf47bd9825ddb5da, revision: 6c257b6}
   - {resource: hsmsss/transport_recv.go, digest: sha256:f54ea89029ef179c, revision: 6c257b6}
-  - {resource: secs1/transport.go, digest: sha256:d74a486193cbea69, revision: a9235b4}
+  - {resource: secs1/transport.go, digest: sha256:8c3142a7ada318ee, revision: d244104}
   - {resource: internal/gencap/gencap.go, digest: sha256:cf920df43a1fd5e6, revision: 6c257b6}
   - {resource: hsmsss/transport_control_test.go, digest: sha256:44103f361af0833e, revision: 6c257b6}
+  - {resource: hsmsss/integration_lifecycle_cause_test.go, digest: sha256:50bb158dce6382ea, revision: d244104}
 ---
 
 # What it does
@@ -64,6 +67,33 @@ That is exactly the discrimination the feature exists to provide, and the reason
 | `hsmsss.runLinktest` threshold reached | `evDisconnect` | `CauseLinktestFail` |
 | `hsmsss.recvLoop` read error | `evDisconnect` | `CauseIOError` |
 | `secs1.lineEngine` read / EOT-write error | `evDisconnect` | `CauseIOError` |
+| `session.callDataHandler` / `callDecodeErrorHandler` / `connection.callAsyncSendErrorHandler` Goexit → `connection.disconnectHandlerGeneration` | `evDisconnect` | `CauseHandlerExit` |
+
+**`CauseHandlerExit` identifies callback-induced termination, using the generation supplied to that callback.**
+`CauseHandlerExit` reports on the generation a USER CALLBACK was running for, when that callback
+ends via `runtime.Goexit` instead of returning — `DataMessageHandler`/`DecodeErrorHandler`
+(`session.callDataHandler`/`callDecodeErrorHandler`, run on the recv goroutine) or the async send error
+handler (`connection.callAsyncSendErrorHandler`, run on the per-generation async-sender goroutine).
+All three route through `hsms/handler_panic.go`'s `disconnectHandlerGeneration`, which calls
+`c.TCPDownFromGeneration(gen, errHandlerGoexit, CauseHandlerExit)` — the SAME generation-named entry
+point `hsmsss` uses for its own disconnects, though `secs1` does not (see below).
+`disconnectHandlerGeneration` separately rejects `gen == 0` itself, before ever calling
+`TCPDownFromGeneration`.
+A nonzero, mismatched `gen` is instead caught by `injectDisconnect`/`step`'s own generation-identity
+match, which — as documented above — compares IDENTITY only, not `ended`: an ended-but-still-current
+generation's report still passes it.
+`gen` is always the generation `routeDataOn`/`recvDataMsgOn`/`dispatchDecodeErrorOn` (or
+`drainSendCh`) resolved BEFORE calling the handler, threaded straight through rather than re-resolved
+in the defer that detects the Goexit — see [the callback panic/Goexit isolation
+entry](/hsms/handler-panic-goexit-isolation.md) for why re-resolving there would name the wrong
+generation.
+`secs1` does not name a generation for its OWN disconnects (row above, `secs1.lineEngine`) — but a
+`secs1`-hosted `DataMessageHandler`/`DecodeErrorHandler` still resolves a real, nonzero `gen`: plain
+`DeliverOwnedFrame` loads `c.cur.Load()` unconditionally and `routeDataOn` computes `gen` from that
+epoch's own `id` (0 only when `cur` was nil).
+So a `secs1` handler's Goexit CAN drive a `CauseHandlerExit` disconnect naming the connection's current
+generation — the one place `secs1` participates in generation-named disconnects at all, despite
+having no generation-aware transport capability of its own.
 
 **The Select procedure is the only site with a non-constant cause, and the reason is the reply registry.**
 An active Select.req is an ordinary registered transaction, so THREE different things can come back through `WriteMessage`.
@@ -143,7 +173,12 @@ so it does not hold `startGate` during a join `step` could be waiting behind.
 
 `secs1` does NOT name a generation — its line engine runs under a derived ctx and its own bundle —
 so its reports keep the pre-barrier behavior.
-Out-of-module transports likewise pass no identity: a `gen` of 0 skips the match everywhere.
+Out-of-module transports likewise pass no identity, but a `gen` of 0 does not skip every match the
+same way: it bypasses `step`'s queued-event identity check and `commitGate` (the TCP-up and
+Select-lost commits) entirely — a bare CAS, no liveness check — but `selectCommitGate` (the
+Select-accepted commit) still requires a non-nil, un-torn-down current epoch even for a gen of 0, and
+`disconnectHandlerGeneration` rejects a gen of 0 outright rather than letting it through as a
+wildcard.
 
 **The three SYNCHRONOUS commits are not events, so `step`'s match does not cover them, and they need a lock.**
 `CommitConnected`, `CommitSelected`, and `CommitSelectLost` compare-and-swap `supervisor.state` directly on the
@@ -384,6 +419,11 @@ see `hsmsss.causeLog.waitBringUp`, which tolerates both shapes.
   `TransitionCause`, `LifecycleEvent`, `connection.SubscribeLifecycle`, `connection.cancelLifecycle`
 - event plumbing: `hsms/supervisor.go` → `fsmCommand`, `inject`, `injectFrom`, `step`, `fireTransition`, `notifySubs`
 - cause-carrying disconnect: `hsms/connection_lifecycle.go` → `TCPDownWithCause`, `TCPDownFromGeneration`, `injectDisconnect`
+- `CauseHandlerExit`, the callback-exit injection site, and the generation it names: `hsms/handler_panic.go` →
+  `(*connection).disconnectHandlerGeneration`, `errHandlerGoexit`;
+  `hsms/session.go` → `(*session).callDataHandler`, `(*session).callDecodeErrorHandler`;
+  `hsms/connection_send.go` → `(*connection).callAsyncSendErrorHandler`;
+  `hsms/connection_runtime.go` → `(*connection).routeDataOn`, `(*connection).DeliverOwnedFrame`
 - generation identity: `hsms/epoch.go` → `epoch.id`;
   `hsms/connection.go` → `genSeq`;
   `hsms/connection_lifecycle.go` → `CurrentGeneration` and the two `cur.Store` sites
@@ -405,3 +445,5 @@ see `hsmsss.causeLog.waitBringUp`, which tolerates both shapes.
   `hsmsss/transport_control.go` → `handleSelectReq`;
   `hsmsss/transport_recv.go` → `dispatchFrame`'s routed Select.rsp branch
 - a test mock that DOES implement the generation capability: `hsmsss/transport_control_test.go` → `genRecRT`
+- the bring-up-pair-tolerant wait helper: `hsmsss/integration_lifecycle_cause_test.go` →
+  `(*causeLog).waitBringUp`
