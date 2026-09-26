@@ -68,6 +68,33 @@ type epoch struct {
 	// It is read only once, for that one generation, and never cleared — a fresh epoch starts false.
 	reachedSelected atomic.Bool
 
+	// tcpUpAdmitted latches true the instant connection.tcpUpCommitGate admits a TCP-up report for this generation —
+	// the FIRST one, whether or not its state CAS goes on to succeed.
+	// It is never cleared.
+	// A second report on the same generation is refused at admission, even when the first one's CAS failed (at most one TCP-up per epoch).
+	tcpUpAdmitted atomic.Bool
+
+	// tcpUpCommitted latches true the instant an admitted TCP-up report wins its state CAS (NotConnected -> NotSelected) on this generation.
+	// It is never cleared.
+	// connectLoop reads it, after this generation's failed Start has been torn down and joined,
+	// to tell a plain dial/listen failure (the FSM never left NotConnected; the loop keeps retrying)
+	// from a Start that failed AFTER the link actually came up (the drop reaction owns the retry instead — see connection.connectLoop).
+	tcpUpCommitted atomic.Bool
+
+	// startReturned is closed exactly once by the goroutine that called tr.Start for this generation.
+	// On a successful Start it closes immediately (connectLoop, Open).
+	// connectLoop's own failure branch, and Open's cold-branch retry,
+	// each close it only after this generation has been torn down and that teardown joined
+	// (see connectLoopStartFailure and connection.Open).
+	// Open's OWN fatal-failure rollback is the one path that does not wait for that join first:
+	// it closes this barrier right after latching the generation ended — the publication fence, not the
+	// full teardown — strictly BEFORE that generation's real teardown runs (see connection.rollbackFailedOpen).
+	// A successor generation's connectLoop invocation waits on it, right after prev.wait(),
+	// before it may claim the reconnect gauge or dial —
+	// so a Start still in flight for this generation always finishes, or is torn down,
+	// before any successor for it is dialed or published.
+	startReturned chan struct{}
+
 	log logger.Logger // generation logger; used by teardown for close-timeout reporting
 
 	connMu sync.RWMutex // guards conn
@@ -109,12 +136,13 @@ func newEpoch(parent context.Context, log logger.Logger, sendQueue int) *epoch {
 	ctx, cancel := context.WithCancel(parent)
 
 	return &epoch{
-		ctx:     ctx,
-		cancel:  cancel,
-		log:     log,
-		done:    make(chan struct{}),
-		sendCh:  make(chan *sendRequest, sendQueue),
-		replies: newReplyRegistry(),
+		ctx:           ctx,
+		cancel:        cancel,
+		log:           log,
+		done:          make(chan struct{}),
+		sendCh:        make(chan *sendRequest, sendQueue),
+		replies:       newReplyRegistry(),
+		startReturned: make(chan struct{}),
 	}
 }
 

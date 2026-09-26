@@ -449,13 +449,15 @@ func (t *transport) acceptLoop(engineCtx context.Context, g *genWG, ln net.Liste
 	// already sealed this generation —
 	// Accept may dequeue a queued peer even as Stop closes the listener.
 	// Re-check the seal under startGate.RLock BEFORE driving ANY runtime callback.
-	// The core's CommitConnected flips the FSM state atomic with an UNGUARDED CAS;
-	// CommitSelected is liveness-gated instead, refused once the generation has torn down,
-	// though a gen of 0 still skips only the identity check, not the liveness one (see connection.selectCommitGate).
-	// Either way, only the reaction/notify inject is a no-op after the supervisor stops
-	// (supervisor.injectFrom's runDone case), so a late TCPUp+CommitSelected here can still pulse
-	// the state atomic NotConnected->NotSelected->Selected on a generation the supervisor believes is stopped.
-	// If a Stop has sealed, this generation is tearing down:
+	// The core gates both commits on the same liveness rule:
+	// TCPUp's CommitConnected is refused, exactly like CommitSelected, once the generation's teardown has already begun —
+	// a gen of 0 (secs1 never carries a generation identity) still skips only the identity check, not the liveness one
+	// (see connection.tcpUpCommitGate / connection.selectCommitGate).
+	// That closes the window this local t.stopping check alone would otherwise leave open:
+	// the core can latch a generation as ended before this transport's own Stop ever runs,
+	// and a late TCPUp+CommitSelected reaching it in that window is refused at the commit itself,
+	// not merely left to pulse the state atomic NotConnected->NotSelected->Selected unobserved.
+	// If a Stop HAS sealed this transport, this generation is tearing down regardless:
 	// close the accepted socket and return WITHOUT TCPUp/CommitSelected/g.line.Add.
 	// Mirrors the startActive/startPassive Add-vs-Wait guard;
 	// Stop's startGate.Lock serializes with this RLock,

@@ -58,6 +58,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `hsmsss`: the accept-retry warning a passive connection logs on a transient `Accept` failure
   is now emitted off the accept goroutine, and suppressed while one is still being logged.
   Previously a blocking `Logger` could stall `Close`'s unbounded join of that goroutine.
+- `hsms`: `ConnectionMetrics.Reconnecting` now rises only once a reconnect loop starts its first backoff, not the instant the drop is detected.
+  It excludes the dropped generation's own teardown and the wait for that generation's `Start` call to return,
+  a window a custom transport's slow `Start` could otherwise stretch out indefinitely.
+  It still never reads above 1.
 
 ### Fixed
 
@@ -106,6 +110,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `NotConnected` notification.
   A TCP-up report that a disconnect had already overtaken could also resurrect `NotSelected` on the dropped link, leaving it stuck there with no reconnect;
   such a report is now discarded.
+- `hsms`: a custom transport whose `Start` reports TCP-up and then returns an error no longer races two reconnect loops against each other.
+  Previously the drop's own reaction spawned a loop for the new generation while the failed `Start`'s own retry loop also kept going,
+  and whichever one published its own successor last silently orphaned the other's live generation —
+  a passive transport listening on the same port lost that race outright, wedged on "address already in use".
+  The failing `Start` now hands the reconnect off to the drop's own reaction instead, so only one of the two can ever proceed.
+- `hsms`: a custom transport's `Start` failing after TCP-up but before any drop is ever reported no longer leaves the FSM stuck at `NotSelected` with the link silently dead.
+  The core now reports the drop itself in that case, and the usual reconnect follows.
+- `hsms`: a failed `Open` no longer leaves a reconnect loop running past the call that failed.
+  Previously a drop reaction racing the failed-`Open` rollback could spawn a loop that outlived `Open`'s return,
+  sleeping out its full configured backoff before a later `Open` finally reaped it.
+- `hsms`, `secs1`: `TransportRuntime.TCPUp` now refuses its commit — leaving the FSM unchanged — when the current generation's teardown has already begun,
+  or when that generation has already reported TCP-up once before.
+  Previously an unnamed (gen-0) report reaching either case could move a dying or already-dropped link back to `NotSelected`.
+  This closes a real gap for SECS-I, whose plain `TCPUp` call carries no generation identity:
+  a report racing a core teardown, arriving just before the transport's own `Stop` seals it, is now refused instead of resurrecting the link.
 
 ## [2.4.2] - 2026-09-25
 

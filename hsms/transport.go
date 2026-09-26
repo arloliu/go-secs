@@ -16,6 +16,13 @@ type transport interface {
 	// Start dials (active) or accepts (passive) and spawns the per-generation recv loop
 	// that drives rt (the connection core). rt is the back-channel the transport calls to
 	// report TCP lifecycle, deliver frames, and route messages.
+	//
+	// Once Start has reported TCP-up, a later failure of this same link must be reported through TCPDown,
+	// and Start itself must return nil:
+	// a custom Start that still returns an error after TCP-up is treated as a drop of that link.
+	// For a reconnect generation, the core hands the retry to the reconnect loop the drop reaction starts;
+	// for the initial Start of an Open cycle, Open fails.
+	// A successor generation's own Start is never dialed until THIS Start call has returned.
 	Start(ctx context.Context, rt TransportRuntime) error
 
 	// IsActive reports whether this transport is configured for the active (dialing) role, as
@@ -78,8 +85,11 @@ type transport interface {
 type TransportRuntime interface {
 	// TCPUp is called by the transport when a TCP connection is established.
 	//
-	// It advances the FSM NotConnected -> NotSelected SYNCHRONOUSLY via a guarded CAS (CommitConnected) before returning —
-	// so State() reads NotSelected the instant TCPUp returns — and enqueues evTCPUp for the deduped reaction/notify.
+	// It attempts to advance the FSM NotConnected -> NotSelected SYNCHRONOUSLY via a guarded CAS (CommitConnected) before returning.
+	// On success, State() reads NotSelected the instant TCPUp returns, and evTCPUp is enqueued for the deduped reaction/notify.
+	// The commit is refused, and State() stays unchanged,
+	// when the current generation's teardown has already begun, or when that generation already admitted an earlier TCP-up report:
+	// a call after either can never resurrect a dying or already-dropped link.
 	TCPUp(conn net.Conn)
 
 	// TCPDown is called by the transport when the TCP connection is lost.
