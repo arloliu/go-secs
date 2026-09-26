@@ -134,8 +134,9 @@ func (c *connection) commitSelectLost(gen uint64) bool {
 // T7Expired injects evT7Timeout (NOT-SELECTED dwell expiry) — TransportRuntime.
 //
 // See the interface doc.
-// It carries no generation identity;
-// an in-module transport reports through [connection.T7ExpiredFromGeneration] instead.
+// It carries no generation identity; injectT7Expiry binds it, at report time, to whichever generation is current then
+// (see injectDisconnect).
+// An in-module transport reports through [connection.T7ExpiredFromGeneration] instead.
 func (c *connection) T7Expired() {
 	c.injectT7Expiry(0)
 }
@@ -145,7 +146,8 @@ func (c *connection) T7Expired() {
 // A dwell timer belonging to a generation that has already ended must not drop its successor,
 // which is the same hazard [connection.TCPDownFromGeneration] exists to close and is closed the same way:
 // the generation travels with the queued event and is re-checked when the FSM processes it.
-// A gen of 0 skips the match.
+// A gen of 0 is bound to whichever generation is current at report time instead of naming one,
+// behaving exactly like T7Expired.
 func (c *connection) T7ExpiredFromGeneration(gen uint64) {
 	c.injectT7Expiry(gen)
 }
@@ -158,7 +160,21 @@ func (c *connection) TraceConfig() (bool, logger.Logger) {
 }
 
 // injectT7Expiry is the shared body of the T7 dwell-expiry back-channel.
+//
+// gen is the reporting generation's identity, or 0 when the caller did not name one.
+// An unnamed report is bound here, at report time, to whichever generation is current then —
+// the same binding injectDisconnect applies to an unnamed TCPDown, and for the same reason.
+// No current generation (cur is nil) enqueues nothing.
 func (c *connection) injectT7Expiry(gen uint64) {
+	if gen == 0 {
+		e := c.cur.Load()
+		if e == nil {
+			return
+		}
+
+		gen = e.id
+	}
+
 	if s := c.sup.Load(); s != nil {
 		// The site IS the T7 dwell expiry; no other event reaches here.
 		s.injectFrom(gen, evT7Timeout, CauseT7Timeout)

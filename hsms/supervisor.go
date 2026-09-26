@@ -105,8 +105,9 @@ type supervisor struct {
 	// the drop Warn so a single stall-burst logs once, not once per coalesced notification.
 	lastLoggedDropped uint64
 
-	// curGen reports the identity of the generation that is live right now (connection.CurrentGeneration).
-	// step compares it against fsmCommand.gen so an event injected by a generation that has since ended is discarded.
+	// curGen reports the identity of the generation that is CURRENT (connection.CurrentGeneration),
+	// which may be a generation that has already ended, during the reconnect window before its successor publishes.
+	// step compares it against fsmCommand.gen and discards an event whose generation is no longer current.
 	// It MUST stay lock-free — step calls it on the FSM goroutine, which the epoch teardown join can be waiting behind,
 	// so a lock the teardown path holds would close a cycle.
 	// Nil in unit tests that build a supervisor without a connection,
@@ -689,12 +690,23 @@ func (s *supervisor) inject(ev fsmEvent, cause TransitionCause) {
 	s.injectFrom(0, ev, cause)
 }
 
-// injectFrom is inject for an event reported ON BEHALF OF a generation: gen (epoch.id) rides along on
-// the command and step discards the event if that generation is no longer the live one.
+// injectFrom is inject for an event reported ON BEHALF OF a generation.
+// gen (epoch.id) rides along on the command,
+// and step discards the event if that generation is no longer the current one
+// (an ended generation that is still current is admitted).
 //
-// A gen of 0 means the injection site named no generation and the event is always processed.
-// That is the behavior every site had before generations were carried,
-// and the behavior a transport that uses only TransportRuntime still gets.
+// A gen of 0 means the injection site itself named no generation.
+// step then processes the queued event against whatever generation is current when it reaches it,
+// skipping the identity match.
+// Two kinds of site queue an event with gen 0:
+// evClose, and the follow-up event of an unnamed synchronous commit (TCP-up, Select-accepted, or Select-lost).
+// Commit-time admission is a separate question from that queued bypass.
+// An unnamed TCP-up or Select-accepted commit still has its liveness checked at commit time;
+// only the identity comparison is skipped (see tcpUpCommitGate, selectCommitGate).
+// An unnamed Select-lost commit bypasses commitGate's liveness check too (see commitFrom).
+// An unnamed evDisconnect or evT7Timeout report never carries gen 0 here:
+// injectDisconnect and injectT7Expiry each bind it, at report time, to the generation current then,
+// before calling this (see injectDisconnect).
 func (s *supervisor) injectFrom(gen uint64, ev fsmEvent, cause TransitionCause) {
 	select {
 	case s.events <- fsmCommand{ev: ev, cause: cause, gen: gen}:

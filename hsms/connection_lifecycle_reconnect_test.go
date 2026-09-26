@@ -126,12 +126,18 @@ func TestReconnect_GenFenceAfterClose(t *testing.T) {
 	require.Equal(t, NotConnectedState, c.State())
 }
 
-// TestReconnect_StaleRecvLoopTCPDownDoesNotDisconnectNewGen (round-7 Critical): a stale gen-N
-// recv-loop TCPDown must not disconnect gen N+1. The reconnect loop e.wait()s the prior epoch —
-// whose teardown joins the recv loop via tr.Stop — BEFORE dialing gen N+1, so the stale TCPDown
-// provably fires (and drains as a no-op evDisconnect from terminal NotConnected) while cur is
-// still gen N. Teeth: skip the e.wait()-before-dial serialization → gen N+1 is dialed before the
-// gen-N recv loop is joined, and the stale TCPDown lands on gen N+1 and disconnects it.
+// TestReconnect_StaleRecvLoopTCPDownDoesNotDisconnectNewGen:
+// a stale gen-N recv-loop TCPDown must not disconnect gen N+1.
+// The reconnect loop e.wait()s the prior epoch — whose teardown joins the recv loop via tr.Stop —
+// BEFORE dialing gen N+1, so the stale TCPDown's own callback provably returns,
+// and its report provably enqueues, while cur is still gen N.
+// That join guarantees the callback completed, not that the supervisor has already processed the event it queued;
+// the two can be arbitrarily far apart.
+// The report-time binding does not close that gap — it makes the gap harmless,
+// keeping gen N+1 safe regardless of when the supervisor gets to the stale report (see injectDisconnect).
+// Teeth: skip the e.wait()-before-dial serialization,
+// so gen N+1 is dialed before the gen-N recv loop is joined,
+// and the stale TCPDown lands on gen N+1 and disconnects it.
 func TestReconnect_StaleRecvLoopTCPDownDoesNotDisconnectNewGen(t *testing.T) {
 	c, mt := newLifeConn(t, withMockTransport())
 	mt.holdableRecv = true                                             // arm a held gen-N recv loop on the first Start
@@ -145,13 +151,13 @@ func TestReconnect_StaleRecvLoopTCPDownDoesNotDisconnectNewGen(t *testing.T) {
 	require.Eventually(t, func() bool { return mt.startCalls() == 2 && c.State() == SelectedState }, 3*time.Second, time.Millisecond,
 		"gen N+1 must reselect (exactly two generations dialed so far)")
 
-	mt.releaseHeldTCPDown() // the stale gen-N TCPDown (already drained during teardown) — a no-op
+	mt.releaseHeldTCPDown() // idempotent: the teardown join above already released the held goroutine
 
 	// gen N+1 must STAY Selected. If the stale gen-N TCPDown had disconnected it, gen N+1 would
 	// tear down and a THIRD generation would be dialed (startCalls > 2) — a monotonic signal that
 	// survives the fast re-reconnect that would otherwise hide the brief NotConnected window.
 	require.Never(t, func() bool { return mt.startCalls() > 2 || c.State() != SelectedState }, 500*time.Millisecond, 5*time.Millisecond,
-		"a stale gen-N TCPDown must NOT disconnect gen N+1 (round-7)")
+		"a stale gen-N TCPDown must NOT disconnect gen N+1")
 
 	require.NoError(t, c.Close())
 }
