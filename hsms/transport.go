@@ -34,6 +34,9 @@ type transport interface {
 	// Stop joins the per-generation recv loop and releases transport resources.
 	// It is invoked by epoch teardown after the socket has already been closed,
 	// so a parked recv Read is already unblocked.
+	// Stop must also close any socket it handed to TCPUp:
+	// a TCPUp report that lands after teardown already closed the generation's socket still publishes its conn,
+	// and nothing in the core closes that one.
 	// Stop seals the transport's Add-vs-Wait guard (I1) so a concurrent/subsequent Start aborts its WaitGroup Adds
 	// rather than racing Stop's Waits on the GENERATION's WaitGroup bundle (NEW-1: each
 	// generation has its own bundle; Stop captures and waits the one it sealed).
