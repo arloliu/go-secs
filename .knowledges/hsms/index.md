@@ -6,7 +6,7 @@ description: Immutable HSMS message model (SEMI E37) plus the shared connection 
 
 # Responsibility
 
-Owns the message layer — `ControlMessage`, `DataMessage`, construction with Q3 validation, encode/decode, lazy body decode — and the connection engine every transport reuses: generations, reply routing, protocol timers, the send path, and connection metrics.
+Owns the message layer — `ControlMessage`, `DataMessage`, construction with data-message validation, encode/decode, lazy body decode — and the connection engine every transport reuses: generations, reply routing, protocol timers, the send path, and connection metrics.
 
 # Boundary
 
@@ -22,6 +22,8 @@ Owns no sockets and no wire framing. `hsmsss` and `secs1` supply the transport a
 * [The send-side MaxMessageSize ceiling's enforcement topology](/hsms/max-message-size-ceiling.md) - where the check runs relative to writeMu, why control frames are structurally exempt, and why async accounting has no exclusion list at all.
 * [The transaction observer's two chokepoints, its isData gate, and its outcome classifier](/hsms/transaction-observer-chokepoints.md) - why WithTransactionObserver instruments two call sites (not one), why the isData gate prevents an observer-path panic for control messages, and how classifyTxOutcome relates to isCountedSendErr.
 * [Where a TransitionCause is chosen, and why one transition can swallow another's cause](/hsms/transition-cause-injection-sites.md) - the full injection-site to cause map, why the transports pass a cause through a capability interface, and the four ways a cause never reaches a subscriber.
+* [How a report from an ended generation is kept off its successor](/hsms/generation-report-fence.md) - the generation identity on the queue, the lock-fenced gate for the three synchronous commits, and the unnamed reports that still bypass part of it.
+* [How the recv path's responses and requests are bound to a generation on the wire](/hsms/generation-bound-wire-sends.md) - why a straggler's response or request must not reach the successor's socket or registry, how the bound send resolves its epoch, and what the counters on that path count.
 * [How a shutdown joins the per-Open supervisor](/hsms/supervisor-join.md) - why the FSM join is unbounded but the notifier join ends at the close timeout, and why the join signals live on the supervisor.
 * [Reconnect backoff scope — what resets it, and what doesn't](/hsms/reconnect-backoff-scope.md) - where the persisted reconnect delay lives, the marker that resets it, and why that marker is not the reaction react fires.
 * [Who owns the reconnect retry after a failed Start](/hsms/reconnect-retry-ownership.md) - how a Start failure after TCP-up hands the retry to the drop reaction's loop, the startReturned barrier that keeps a second loop out, and the gauge ordering.

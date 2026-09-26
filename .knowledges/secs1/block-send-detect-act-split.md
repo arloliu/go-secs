@@ -10,7 +10,7 @@ verified:
 sources:
   - {resource: secs1/line.go, digest: sha256:363cb924dca72a53, revision: d244104}
   - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: 4be2062}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:e6d0d8d5bdf02ea2, revision: f7a5927}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:21abfedc85afb70a, revision: 7ae1ff0}
 ---
 
 # What it does

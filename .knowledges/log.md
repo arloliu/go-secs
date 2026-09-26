@@ -1,6 +1,19 @@
 # Log
 
 ## 2026-09-26
+* **Update**: [How the recv path's responses and requests are bound to a generation on the wire](/hsms/generation-bound-wire-sends.md) — verify pass: cites `hsmsss/metrics.go` for the `LinktestSendCount` claim; otherwise no fault. Promoted to stable.
+* **Update**: [How a report from an ended generation is kept off its successor](/hsms/generation-report-fence.md) — re-verify found no fault. Promoted to stable.
+* **Creation**: [How the recv path's responses and requests are bound to a generation on the wire](/hsms/generation-bound-wire-sends.md) — split out of the generation report fence to keep that entry near the length cap; history phrasing removed. Status draft.
+* **Update**: [How a report from an ended generation is kept off its successor](/hsms/generation-report-fence.md) — verify pass: two corrections (which godoc documents the gen-0 socket limitation; `startActive` / `startPassive` pointers repointed to their files); wire-side sections moved out; change-history phrasing replaced by current-state wording. Still draft pending re-verify.
+* **Update**: [Where a TransitionCause is chosen, and why one transition can swallow another's cause](/hsms/transition-cause-injection-sites.md) — verify pass found no fault. Promoted to stable.
+* **Creation**: [How a report from an ended generation is kept off its successor](/hsms/generation-report-fence.md) — split out of the TransitionCause entry, which no longer covered one mechanic:
+  the generation identity on the queue, the lock-fenced gate for the three synchronous commits, the refusal each producer reports, the wire-side binding, and the unnamed reports that still bypass part of it.
+  Adds a `# Failure modes` section and a `# What it does` delta of its own. Status draft.
+* **Update**: [Where a TransitionCause is chosen, and why one transition can swallow another's cause](/hsms/transition-cause-injection-sites.md) — the generation sections moved to the new entry;
+  what remains is the source-to-cause map, why the cause is chosen at the injection site, how it crosses the package boundary, and how a cause is lost. Digests refreshed; `verified` dropped; status draft.
+* **Update**: trails into the moved generation sections repointed to the new entry in [callback panic/Goexit isolation](/hsms/handler-panic-goexit-isolation.md), [the inbound generation fence](/hsms/inbound-generation-fence.md), and [E37.1 narrows E37](/hsmsss/e37-1-narrows-e37-generic.md); hsms unit index lists the new entry.
+* **Update**: internal finding and plan codes replaced by plain names in [transaction observer chokepoints](/hsms/transaction-observer-chokepoints.md), [activity stamps](/hsmsss/activity-stamps.md), [E37.1 narrows E37](/hsmsss/e37-1-narrows-e37-generic.md), [linktest teardown exemption](/hsmsss/linktest-teardown-exemption.md), [reconnect backoff scope](/hsms/reconnect-backoff-scope.md), and the hsms unit index; wording only, claims unchanged, status kept.
+* Digest/revision-only refresh to `7ae1ff0` (comments and test names only) for every entry citing a file that commit touched; prose unaffected.
 * **Update**: [Where a TransitionCause is chosen, and why one transition can swallow another's cause](/hsms/transition-cause-injection-sites.md) — verify pass found no fault. Promoted to stable.
 * **Update**: [Who owns the reconnect retry after a failed Start](/hsms/reconnect-retry-ownership.md) — verify pass found no fault. Promoted to stable.
 * **Update**: [Where a TransitionCause is chosen, and why one transition can swallow another's cause](/hsms/transition-cause-injection-sites.md) — `f7a5927`:

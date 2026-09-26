@@ -13,13 +13,13 @@ sources:
   - {resource: hsms/endpoint.go, digest: sha256:b75d6a0370642b02, revision: cc82a06}
   - {resource: hsms/state.go, digest: sha256:f467c560ffea5807, revision: d244104}
   - {resource: hsms/connection_config.go, digest: sha256:e701533ea6c49f0a, revision: c00e1b5}
-  - {resource: hsms/session.go, digest: sha256:134bcdad84cba21a, revision: d244104}
-  - {resource: hsms/supervisor.go, digest: sha256:1717fd0875937ae8, revision: f7a5927}
+  - {resource: hsms/session.go, digest: sha256:ce5c99a71ad4ff0b, revision: 7ae1ff0}
+  - {resource: hsms/supervisor.go, digest: sha256:1878d33bac78df60, revision: 7ae1ff0}
   - {resource: hsms/connection_send.go, digest: sha256:90a5e3ff7beea84c, revision: f7a5927}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:e6d0d8d5bdf02ea2, revision: f7a5927}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:21abfedc85afb70a, revision: 7ae1ff0}
   - {resource: hsms/connection_runtime.go, digest: sha256:990bc46123a7df1c, revision: f7a5927}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:f54ea89029ef179c, revision: d244104}
-  - {resource: hsmsss/transport.go, digest: sha256:cb3594d212e03da1, revision: c00e1b5}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:fc971b2806f82a52, revision: 7ae1ff0}
+  - {resource: hsmsss/transport.go, digest: sha256:176fff888fc8a85e, revision: 7ae1ff0}
   - {resource: hsms/hsmstest/endpoint.go, digest: sha256:f695c5a80165861a, revision: d244104}
   - {resource: hsms/hsmstest/panic_test.go, digest: sha256:5503e2cd947250bc, revision: d244104}
   - {resource: secs1/config.go, digest: sha256:c424cc48eb804c68, revision: c00e1b5}
@@ -84,8 +84,8 @@ with a nil `rt`, fails that assertion and calls the handler directly, unrecovere
 this isolation existed.
 
 The first three disconnect through `disconnectHandlerGeneration` → `connection.TCPDownFromGeneration(gen,
-errHandlerGoexit, CauseHandlerExit)` — see [the TransitionCause injection-site
-map](/hsms/transition-cause-injection-sites.md) for how that generation-identity match works and why
+errHandlerGoexit, CauseHandlerExit)` — see [the generation report
+fence](/hsms/generation-report-fence.md) for how that generation-identity match works and why
 `gen` is threaded in from the caller (cutoff #1's already-resolved epoch, or `drainSendCh`'s own `e.id`)
 rather than re-resolved inside `runCallback`'s `onGoexit` closure: by the time a Goexit-ending callback's
 defer chain runs, the CURRENT generation may already be a live successor, and re-resolving there would

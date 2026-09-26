@@ -9,16 +9,16 @@ verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-25T08:34:25Z}
 sources:
   - {resource: hsms/connection_runtime.go, digest: sha256:990bc46123a7df1c, revision: f7a5927}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:e6d0d8d5bdf02ea2, revision: f7a5927}
-  - {resource: hsms/connection.go, digest: sha256:d45005d0dcf9540c, revision: 4be2062}
-  - {resource: hsms/session.go, digest: sha256:134bcdad84cba21a, revision: d244104}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:21abfedc85afb70a, revision: 7ae1ff0}
+  - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: 7ae1ff0}
+  - {resource: hsms/session.go, digest: sha256:ce5c99a71ad4ff0b, revision: 7ae1ff0}
   - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: d244104}
-  - {resource: hsms/data_msg.go, digest: sha256:32c3295c07f631df, revision: 6c257b6}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:f54ea89029ef179c, revision: 6c257b6}
+  - {resource: hsms/data_msg.go, digest: sha256:88382441bb2794f4, revision: 7ae1ff0}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:fc971b2806f82a52, revision: 7ae1ff0}
   - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: 6c257b6}
   - {resource: internal/gencap/gencap.go, digest: sha256:388f19be3dd1fe52, revision: c00e1b5}
   - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: 4be2062}
-  - {resource: hsmsss/transport.go, digest: sha256:cb3594d212e03da1, revision: c00e1b5}
+  - {resource: hsmsss/transport.go, digest: sha256:176fff888fc8a85e, revision: 7ae1ff0}
 ---
 
 # What it does
@@ -102,7 +102,7 @@ checks: `gen == 0` is ignored outright, and a nonzero `gen` that no longer match
 epoch's identity is rejected by `injectDisconnect`.
 This is a DIFFERENT condition from either cutoff above: it compares identity only, not `ended`, so a
 report naming an ended-but-still-current epoch (the same epoch cutoff #1 admitted `e` under) still
-gets through — see [the transition-cause injection-site entry](/hsms/transition-cause-injection-sites.md)
+gets through — see [the generation report fence](/hsms/generation-report-fence.md)
 for that check's exact shape.
 See [the callback panic/Goexit isolation entry](/hsms/handler-panic-goexit-isolation.md) for that
 mechanism; the fact this entry records is only that the plumbing for it rides the SAME resolved `e`

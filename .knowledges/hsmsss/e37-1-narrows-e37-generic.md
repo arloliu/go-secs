@@ -8,12 +8,12 @@ generated: {by: "claude/sonnet-5", at: 2026-09-25T02:38:18Z}
 verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-25T03:13:36Z}
 sources:
-  - {resource: hsmsss/transport_active.go, digest: sha256:252154bd042e64d4, revision: c00e1b5}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:e6d0d8d5bdf02ea2, revision: f7a5927}
+  - {resource: hsmsss/transport_active.go, digest: sha256:33d63b7808dc1ed3, revision: 7ae1ff0}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:21abfedc85afb70a, revision: 7ae1ff0}
   - {resource: hsms/control_msg.go, digest: sha256:847dad3406c4d87c, revision: 3660aa4}
   - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: 6c257b6}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:f54ea89029ef179c, revision: 6c257b6}
-  - {resource: hsms/supervisor.go, digest: sha256:1717fd0875937ae8, revision: f7a5927}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:fc971b2806f82a52, revision: 7ae1ff0}
+  - {resource: hsms/supervisor.go, digest: sha256:1878d33bac78df60, revision: 7ae1ff0}
 ---
 
 # What it does
@@ -50,8 +50,8 @@ No HSMS frame reaches a SECS-I peer only because `secs1`'s writer drops every no
 **`handleSeparateReq` tears down in any connected substate, and two guards now keep that teardown inside the reporting generation.**
 It reports through `t.tcpDown(g.gen, errPeerSeparate, hsms.CausePeerSeparate)`, which resolves the target generation by identity (`connection.TCPDownFromGeneration`) rather than whichever epoch happens to be current when the report lands.
 The `g.ctx.Err()` check ahead of it is only an early exit — cancellation can land between the check and the call — but `g.gen` is a real barrier: it travels with the queued event onto the FSM and is re-checked when `supervisor.step` applies it, so a stale report can no longer disconnect a successor generation even when the early exit misses it.
-This closes what the conformance audit recorded as Gap 2 (a narrowed-but-open window, not a fence); see [transition-cause-injection-sites](/hsms/transition-cause-injection-sites.md) for the full generation-identity mechanism this now rests on.
-Since the R10 inbound-generation-fence work, `genCtx` is no longer a separate parameter threaded alongside `g`:
+This closes what the conformance audit recorded as Gap 2 (a narrowed-but-open window, not a fence); see [the generation report fence](/hsms/generation-report-fence.md) for the full generation-identity mechanism this now rests on.
+Since the inbound generation fence, `genCtx` is no longer a separate parameter threaded alongside `g`:
 `startActive`/`startPassive` stamp `g.ctx` once, before spawning the receive loop, and `recvLoop` only reads it;
 `dispatchFrame` forwards that stored `g.ctx` straight to `handleSeparateReq` —
 one bundle carries both the early-exit ctx and the `g.gen` barrier, not two separately-threaded values.
