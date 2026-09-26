@@ -1,5 +1,9 @@
 # Log
 
+## 2026-09-27
+* Digest/revision-only refresh to `02dd98c` (zero-length localized-string item in `secs2` decode and `sml`); no entry's mechanic changed.
+  `a2ce046` changed test helpers only, which no entry cites.
+
 ## 2026-09-26
 * Digest/revision-only refresh to `2041f5d` (transport Stop contract docs).
 * **Update**: [How the three synchronous commits are fenced](/hsms/synchronous-commit-gate.md) — the gen-0 socket limitation now names who closes the socket (the transport's `Stop`, per the contract `2041f5d` documents; `secs1`'s `Stop` closes its `t.conn`); mechanic unchanged, status kept.

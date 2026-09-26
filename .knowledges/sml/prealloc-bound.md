@@ -8,9 +8,9 @@ generated: {by: "openai/gpt-5.6-sol", at: 2026-08-14T08:11:01Z}
 verified:
   - {by: "claude/opus-5.5", at: 2026-09-24T12:34:28Z}
 sources:
-  - {resource: sml/parser.go, digest: sha256:6a166a179414e02e, revision: f56c67a}
+  - {resource: sml/parser.go, digest: sha256:d1e90df86c01da72, revision: 02dd98c}
   - {resource: sml/parser_depth_test.go, digest: sha256:3230469c3aa4f0fe, revision: f56c67a}
-  - {resource: secs2/decode.go, digest: sha256:8ca1e530a8d03c4a, revision: f56c67a}
+  - {resource: secs2/decode.go, digest: sha256:13650cb9e1cb45f1, revision: 02dd98c}
   - {resource: sml/parser_dos_test.go, digest: sha256:3465ac02e29b67c0, revision: 6cf2b49}
 ---
 

@@ -8,7 +8,7 @@ generated: {by: "claude/sonnet-5", at: 2026-08-12T00:00:00Z}
 verified:
   - {by: "claude/opus-5", at: 2026-08-12T08:33:19Z}
 sources:
-  - {resource: secs2/decode.go, digest: sha256:8ca1e530a8d03c4a, revision: 3660aa4}
+  - {resource: secs2/decode.go, digest: sha256:13650cb9e1cb45f1, revision: 02dd98c}
   - {resource: secs2/item.go, digest: sha256:42e0d825d6da05fc, revision: 922feb8}
 ---
 
