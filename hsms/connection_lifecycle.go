@@ -1131,8 +1131,9 @@ func (c *connection) BoundDial(startCtx, dialCtx context.Context) (context.Conte
 // A refused commit still costs nothing beyond the diagnostic accounting for the FSM itself:
 // publishSocket has already run by then, with no liveness check at gen 0 (see [connection.publishSocket]),
 // so a report racing a generation whose own teardown already closed its socket can still re-populate that socket,
-// and nothing closes it afterward — a pre-existing limitation of this unnamed path, tracked as a follow-up,
-// not something the FSM-commit refusal above fixes.
+// and the core never closes it afterward;
+// closing it is the transport's job in its Stop (see the transport interface),
+// not something the FSM-commit refusal above does.
 // [connection.TCPUpFromGeneration] is the generation-aware counterpart an in-module transport uses instead,
 // and it DOES report whether conn was accepted at the publish step.
 func (c *connection) TCPUp(conn net.Conn) {

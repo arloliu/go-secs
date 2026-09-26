@@ -84,6 +84,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every successful transport start after an involuntary drop, including when no generation of the cycle has selected yet,
   but not the success of the initial background retry of a cold peer.
   The counting itself is unchanged.
+- `hsms`: the transport contract `NewConnection` accepts now states that its `Stop` must close any socket it handed to `TransportRuntime.TCPUp`.
+  A `TCPUp` report that lands after teardown has already closed the generation's socket still publishes its connection,
+  and the core never closes that one.
+  `hsmsss` and `secs1` already do this; a custom transport that relied on the core to close every socket should close its own in `Stop`.
 
 ### Fixed
 
