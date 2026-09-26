@@ -63,6 +63,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a window a custom transport's slow `Start` could otherwise stretch out indefinitely.
   It still never reads above 1.
 
+- `hsms`, `secs1`: `TransportRuntime.TCPUp` now refuses its state commit — leaving the FSM unchanged — when the current generation's teardown has already begun,
+  or when that generation has already reported TCP-up once.
+  The socket is still handed to the generation as before; only the move to `NotSelected` is refused.
+  Previously such a report could move a dying or already-dropped link back to `NotSelected`.
+  Normal bring-up is unaffected.
+  For SECS-I, whose `TCPUp` carries no generation identity, a report racing a core teardown before the transport's own `Stop` seals it is now refused.
+- `hsms`: for a custom transport whose `Start` reports TCP-up and then returns an error,
+  the initial `Start` of an `Open` cycle now always fails `Open`, even under `OpenBackground`.
+  Previously the outcome depended on whether the drop had been processed first:
+  `Open` could return nil and start a background retry instead.
+  A later reconnect generation that fails this way hands the retry to the drop's reaction, as described under Fixed.
+- `hsms`: the `ConnectionMetrics.Reconnects` docs now state what is counted:
+  every successful transport start after an involuntary drop, including when no generation of the cycle has selected yet,
+  but not the success of the initial background retry of a cold peer.
+  The counting itself is unchanged.
+
 ### Fixed
 
 - `hsms`, `hsmsss`: a receive goroutine left running past a connection's close timeout,
@@ -106,8 +122,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `hsms`: a disconnect that races the Select handshake —
   landing after the Select commit but before its own report reached the connection state machine —
   is no longer silently absorbed.
-  Previously such a disconnect could leave the connection down with no reconnect attempt and no
-  `NotConnected` notification.
+  Previously such a disconnect could leave the connection down with no reconnect attempt and no `NotConnected` notification.
   A TCP-up report that a disconnect had already overtaken could also resurrect `NotSelected` on the dropped link, leaving it stuck there with no reconnect;
   such a report is now discarded.
 - `hsms`: a custom transport whose `Start` reports TCP-up and then returns an error no longer races two reconnect loops against each other.
@@ -120,11 +135,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `hsms`: a failed `Open` no longer leaves a reconnect loop running past the call that failed.
   Previously a drop reaction racing the failed-`Open` rollback could spawn a loop that outlived `Open`'s return,
   sleeping out its full configured backoff before a later `Open` finally reaped it.
-- `hsms`, `secs1`: `TransportRuntime.TCPUp` now refuses its commit — leaving the FSM unchanged — when the current generation's teardown has already begun,
-  or when that generation has already reported TCP-up once before.
-  Previously an unnamed (gen-0) report reaching either case could move a dying or already-dropped link back to `NotSelected`.
-  This closes a real gap for SECS-I, whose plain `TCPUp` call carries no generation identity:
-  a report racing a core teardown, arriving just before the transport's own `Stop` seals it, is now refused instead of resurrecting the link.
 
 ## [2.4.2] - 2026-09-25
 

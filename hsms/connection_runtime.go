@@ -77,7 +77,7 @@ func (c *connection) CommitSelectedFromGeneration(gen uint64) bool {
 
 // commitSelectAccepted is the shared body of the Select-accepted commit.
 //
-// It is gated even at gen 0 (secs1, and any out-of-module transport):
+// It is gated even at gen 0 (secs1, and any transport that uses only TransportRuntime):
 // the gate admits it on liveness alone, skipping only identity (see connection.selectCommitGate).
 func (c *connection) commitSelectAccepted(gen uint64) bool {
 	if s := c.sup.Load(); s != nil {
@@ -196,7 +196,7 @@ func (c *connection) DeliverOwnedFrame(frame []byte) error {
 // Once gen is admitted, everything downstream (decode, S9F1, reply correlation, session fan-out)
 // runs against the RESOLVED epoch, never a re-read of c.cur — see deliverOwnedFrameOn.
 //
-// A gen of 0 (secs1, or any out-of-module transport) takes the plain DeliverOwnedFrame path unchanged.
+// A gen of 0 (secs1, or any transport that uses only TransportRuntime) takes the plain DeliverOwnedFrame path unchanged.
 func (c *connection) DeliverOwnedFrameFromGeneration(gen uint64, frame []byte) error {
 	if gen == 0 {
 		return c.DeliverOwnedFrame(frame)

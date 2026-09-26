@@ -770,7 +770,7 @@ func (c *connection) SendAsync(ctx context.Context, msg Message) error {
 // the enqueue unblocks on the resolved epoch's own ctx,
 // and a frame already queued on an epoch being torn down is stranded with it and never flushed (see drainSendCh).
 //
-// A gen of 0 — secs1, an out-of-module transport, or a caller that names no generation —
+// A gen of 0 — secs1, a transport that uses only TransportRuntime, or a caller that names no generation —
 // takes the plain SendAsync path unchanged.
 func (c *connection) SendAsyncFromGeneration(ctx context.Context, gen uint64, msg Message) error {
 	if gen == 0 {
