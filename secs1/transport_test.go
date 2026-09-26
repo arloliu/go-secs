@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -548,16 +549,52 @@ func reserveTestPort(t *testing.T, port int) (release func(), ok bool) {
 	return sync.OnceFunc(func() { _ = f.Close() }), true
 }
 
-// freePort returns a currently-free loopback TCP port (a throwaway listener is opened then closed).
+// holdLoopbackPort allocates a loopback port and keeps it owned until the caller's test ends,
+// with a socket that is bound but never listening.
+//
+// It mirrors hsmsss/transport_passive_test.go's helper of the same name (see its doc for the full rationale):
+// the flock reservation cannot stop the kernel from handing a just-closed port to another bind(:0) or outbound connect,
+// while a bound SO_REUSEADDR socket keeps the port out of automatic selection
+// and still lets the transport's own listener bind and listen alongside it on Linux.
+func holdLoopbackPort(t *testing.T) int {
+	t.Helper()
+
+	syscall.ForkLock.RLock()
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
+	if err == nil {
+		syscall.CloseOnExec(fd)
+	}
+	syscall.ForkLock.RUnlock()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = syscall.Close(fd) })
+
+	require.NoError(t, syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1))
+	require.NoError(t, syscall.Bind(fd, &syscall.SockaddrInet4{Addr: [4]byte{127, 0, 0, 1}}))
+
+	sa, err := syscall.Getsockname(fd)
+	require.NoError(t, err)
+	in4, ok := sa.(*syscall.SockaddrInet4)
+	require.True(t, ok, "a socket bound to 127.0.0.1 must report an IPv4 address")
+
+	return in4.Port
+}
+
+// freePort returns a currently-free loopback TCP port, owned by the caller's test until it ends.
+// On Linux the port comes from holdLoopbackPort.
+// Elsewhere a throwaway listener is opened then closed;
 // net.ListenTCP sets SO_REUSEADDR so a passive transport can immediately re-bind it.
 //
-// The reservation is taken before the confirming bind and held until the CALLER's test ends (t.Cleanup),
+// The fallback's reservation is taken before the confirming bind and held until the CALLER's test ends (t.Cleanup),
 // not merely until this function returns,
 // so a concurrent caller — in this binary or another one — can never be handed the same port
 // while the first caller is still setting up (or mid-test).
 // A collision is therefore never fatal — it just retries.
 func freePort(t *testing.T) int {
 	t.Helper()
+
+	if runtime.GOOS == "linux" {
+		return holdLoopbackPort(t)
+	}
 
 	const maxAttempts = 50
 
