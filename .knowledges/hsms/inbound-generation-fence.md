@@ -9,15 +9,15 @@ verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-25T08:34:25Z}
 sources:
   - {resource: hsms/connection_runtime.go, digest: sha256:dce97e0bf7fc6616, revision: d244104}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:dac8943b7389474b, revision: c00e1b5}
-  - {resource: hsms/connection.go, digest: sha256:6b6b7d50cb9bae9e, revision: c00e1b5}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:55dd3be61ec99d15, revision: 4be2062}
+  - {resource: hsms/connection.go, digest: sha256:d45005d0dcf9540c, revision: 4be2062}
   - {resource: hsms/session.go, digest: sha256:134bcdad84cba21a, revision: d244104}
   - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: d244104}
   - {resource: hsms/data_msg.go, digest: sha256:32c3295c07f631df, revision: 6c257b6}
   - {resource: hsmsss/transport_recv.go, digest: sha256:f54ea89029ef179c, revision: 6c257b6}
   - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: 6c257b6}
   - {resource: internal/gencap/gencap.go, digest: sha256:388f19be3dd1fe52, revision: c00e1b5}
-  - {resource: secs1/transport.go, digest: sha256:3a6524ea98141e18, revision: cc82a06}
+  - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: 4be2062}
   - {resource: hsmsss/transport.go, digest: sha256:cb3594d212e03da1, revision: c00e1b5}
 ---
 

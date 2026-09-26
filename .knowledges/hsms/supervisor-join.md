@@ -4,14 +4,14 @@ title: How a shutdown joins the per-Open supervisor
 description: Why Close joins the FSM goroutine unbounded but the notifier only up to the close timeout, and why the join signals live on the supervisor rather than the connection.
 tags: [hsms, lifecycle, supervisor, close, notifier, generations]
 status: stable
-generated: {by: "claude/opus-5.5", at: 2026-09-25T13:05:39Z}
+generated: {by: "claude/opus-5.5", at: 2026-09-26T07:35:00Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T13:08:00Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-26T07:51:47Z}
 sources:
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:dac8943b7389474b, revision: c00e1b5}
-  - {resource: hsms/supervisor.go, digest: sha256:bffb8f4562c8b494, revision: cc82a06}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:55dd3be61ec99d15, revision: 4be2062}
+  - {resource: hsms/supervisor.go, digest: sha256:3eaeab8b7da4685b, revision: 4be2062}
   - {resource: hsms/state.go, digest: sha256:f467c560ffea5807, revision: d244104}
-  - {resource: hsms/connection.go, digest: sha256:6b6b7d50cb9bae9e, revision: c00e1b5}
+  - {resource: hsms/connection.go, digest: sha256:d45005d0dcf9540c, revision: 4be2062}
   - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: d244104}
   - {resource: hsms/endpoint.go, digest: sha256:b75d6a0370642b02, revision: cc82a06}
 ---
@@ -44,7 +44,8 @@ A separate connection-scoped WaitGroup does exist for a different goroutine clas
 `connection.connectLoopWg` (`hsms/connection.go`) joins reconnect loops,
 and `Close` waits on it after `joinSupervisor` has joined the current cycle's FSM
 and either joined or already abandoned its notifier
-(see `Close`, below).
+(see `Close`, below);
+a failed Open's rollback waits on it at the same point.
 
 `joinSupervisor(s, deadline)` is the only caller of `s.stop()` in production, and both shutdown paths go through it:
 
@@ -59,9 +60,15 @@ so the notifier gets whatever remains after the epoch join (step 3 covers a rema
 It keeps the epoch join's error if there is one (`firstErr`), then stores the result in `s.shutdownErr`.
 Open's rollback runs on a `tr.Start` failure that is not the cold-active background retry;
 a Start failure seen after a Close fired this Open's abort token,
-or while the caller's ctx is already done, always takes the rollback, never that retry.
-It takes its own deadline at rollback start and stores the same combined result in `s.shutdownErr`,
+or while the caller's ctx is already done, always takes the rollback, never that retry,
+and so does a Start that failed after a TCP-up commit succeeded on its generation.
+The rollback (`rollbackFailedOpen`) fences reconnect the way Close does —
+it bumps `reconnectGen`, sets `shutdown`, and re-pins `cur` under `publishMu`, then closes `reconnectCancel` —
+and tears down the pinned generation through `requestClose`,
+plus the failed generation separately if a reconnect loop had already replaced it.
+It takes its own deadline just before that teardown and stores the same combined result in `s.shutdownErr`,
 but does not return it.
+After the supervisor join it waits on `connectLoopWg`, so no reconnect loop outlives the failed Open.
 It returns the `tr.Start` error mapped by `mapAbortedStartErr`:
 `ErrConnClosed` when a Close fired this Open's abort token (sampled, checked first),
 otherwise the sampled caller `ctxErr` only when `callerCut` is true and the Start error wraps `context.Canceled`,
@@ -145,7 +152,7 @@ on a *still-running* notifier.
 
 - the join: `hsms/connection_lifecycle.go` → `(*connection).joinSupervisor`
 - Close's deadline, precedence, and cached result: `hsms/connection_lifecycle.go` → `(*connection).Close`
-- rollback's use of the join: `hsms/connection_lifecycle.go` → `(*connection).Open`
+- rollback's use of the join, its reconnect fence, and its `connectLoopWg` wait: `hsms/connection_lifecycle.go` → `(*connection).rollbackFailedOpen`
 - the error rollback returns: `hsms/connection_lifecycle.go` → `mapAbortedStartErr`
 - the timeout error: `hsms/connection_lifecycle.go` → `errNotifierTimeout`
 - completion signals: `hsms/supervisor.go` → `(*supervisor).run`, `(*supervisor).notifier`

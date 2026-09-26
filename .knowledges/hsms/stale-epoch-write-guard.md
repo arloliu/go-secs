@@ -10,7 +10,7 @@ verified:
   - {by: "codex/cli", at: 2026-08-05T13:50:00Z}
 sources:
   - {resource: hsms/connection_send.go, digest: sha256:e485168d1a431fe7, revision: d244104}
-  - {resource: hsms/epoch.go, digest: sha256:d97677e4f16e9462, revision: 922feb8}
+  - {resource: hsms/epoch.go, digest: sha256:5d48c9656ae715cc, revision: 4be2062}
 ---
 
 # What it does

@@ -4,18 +4,18 @@ title: Reconnect backoff scope — what resets it, and what doesn't
 description: Where the reconnect delay is persisted across separate connectLoop invocations, and which drop actually resets it to the configured initial value.
 tags: [hsms, reconnect, backoff, lifecycle, generations]
 status: stable
-generated: {by: "claude/opus-5-5", at: 2026-09-25T18:08:00Z}
+generated: {by: "claude/opus-5.5", at: 2026-09-26T07:45:27Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T18:15:23Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-26T07:51:47Z}
 sources:
-  - {resource: hsms/connection.go, digest: sha256:6b6b7d50cb9bae9e, revision: c00e1b5}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:dac8943b7389474b, revision: c00e1b5}
+  - {resource: hsms/connection.go, digest: sha256:d45005d0dcf9540c, revision: 4be2062}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:55dd3be61ec99d15, revision: 4be2062}
   - {resource: hsms/connection_config.go, digest: sha256:e701533ea6c49f0a, revision: c00e1b5}
   - {resource: hsms/connection_runtime.go, digest: sha256:dce97e0bf7fc6616, revision: d244104}
-  - {resource: hsms/connection_metrics.go, digest: sha256:2b06463b39b276c4, revision: d244104}
-  - {resource: hsms/supervisor.go, digest: sha256:bffb8f4562c8b494, revision: cc82a06}
-  - {resource: hsms/epoch.go, digest: sha256:d97677e4f16e9462, revision: cc82a06}
-  - {resource: secs1/transport.go, digest: sha256:3a6524ea98141e18, revision: cc82a06}
+  - {resource: hsms/connection_metrics.go, digest: sha256:4a106e75d9f7803b, revision: 4be2062}
+  - {resource: hsms/supervisor.go, digest: sha256:3eaeab8b7da4685b, revision: 4be2062}
+  - {resource: hsms/epoch.go, digest: sha256:5d48c9656ae715cc, revision: 4be2062}
+  - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: 4be2062}
 ---
 
 # What it does
@@ -45,9 +45,11 @@ including the cold-active background retry (Gap 1) that Open itself launches whe
 after every successful `reconnectSleep`, it advances the delay with `nextBackoffDelay`
 (using that iteration's own config snapshot) and stores the result back immediately, before the next fence check.
 `connectLoop` is also the reader:
-right after `prev.wait()` returns
-(the predecessor's teardown completion signal has arrived;
-the join is bounded, so timed-out goroutines may remain, and `connectLoop` ignores the returned error;
+right after `prev.wait()` returns and the predecessor's `startReturned` barrier has released
+(the predecessor's teardown completion signal has arrived, and its own `Start` call has returned;
+task joins use deadlines, so timed-out goroutines may remain, and `connectLoop` ignores the returned error,
+though teardown completion itself has no unconditional time bound —
+the transport's `Stop` runs synchronously and its unbounded accept join can delay it;
 the marker it reads is stable regardless, because `ended` was latched under `genGate`),
 it decides the STARTING delay for this invocation —
 either the persisted value, or a reset to the freshly-loaded initial delay.
@@ -74,17 +76,19 @@ Keying the reset on the reaction would silently under-reset in exactly those cas
 The marker is instead set INSIDE THE SAME `genGate.RLock` critical section as the Select CAS itself —
 see `connection.selectCommitGate` —
 on the captured `cur` that section validated, never by re-resolving `c.cur` and never by calling `liveEpoch`.
-With the shipped transports, a successor is published only after this generation's teardown has both latched `ended`
-(under the same gate) and completed its join
-(a custom `Start` that drives TCP-up and a disconnect before returning an error is the overlapping-loop exception under Gotchas),
-a marker set while `ended` reads false is guaranteed to be on the generation `connectLoop` is about to read
+A successor is published only after this generation's teardown has both latched `ended`
+(under the same gate) and completed its join,
+and after this generation's own `Start` call has returned (the `startReturned` barrier),
+so a marker set while `ended` reads false is guaranteed to be on the generation `connectLoop` is about to read
 `prev.reachedSelected` from — there is no window where it lands on the wrong epoch.
 
 **The gen-0 liveness gate.**
 `selectCommitGate` gates a gen of 0 too,
-unlike `commitGate` (still used by `CommitConnected` / `CommitSelectLost`, which bypass gen 0 entirely —
-the pre-generation behavior).
-secs1 and any out-of-module transport always call `CommitSelected()` with gen 0,
+unlike `commitGate` (now used only by `CommitSelectLost`, which bypasses gen 0 entirely —
+the pre-generation behavior;
+`CommitConnected` has its own `tcpUpCommitGate`, which gates gen 0 on liveness the same way `selectCommitGate` does,
+and additionally admits only one TCP-up per generation).
+secs1 and any transport using only `TransportRuntime` call `CommitSelected()` with gen 0,
 so gating only named generations would leave the reset marker unreachable for them.
 `selectCommitGate` admits a gen-0 commit whenever a live, un-torn-down `cur` exists,
 skipping only the identity comparison a named generation still has to pass.
@@ -112,11 +116,14 @@ as fast as the T7 dwell and the accept/handshake round-trip allow.
 
 - `connection.reconnectDelay` is written only by `Open` (before any loop can be running, per the G1 join)
   and by `connectLoop`.
-  With shipped transports, successive retry/publication sequences are serialized,
+  Successive retry/publication sequences are serialized for any transport,
   although loop goroutine lifetimes can overlap:
-  `react` can launch the next loop while the preceding one is still returning from a successful `tr.Start`,
-  after its last delay write.
-  The Start-error-after-disconnect shape in Gotchas can leave two continuing retry loops.
+  `react` can launch the next loop while the preceding one is still inside its `tr.Start`,
+  but the new loop does not read or write the delay until that predecessor's `startReturned` barrier releases.
+  A loop that published the dropped generation closes that barrier only on a path that then returns
+  (success, or the hand-off below), so the close follows its last delay write.
+  A loop whose `Start` fails after TCP-up hands the retry to the drop reaction's loop and returns
+  instead of retrying (see [who owns the retry after a failed Start](/hsms/reconnect-retry-ownership.md)).
 - `epoch.reachedSelected` is set only inside the `genGate.RLock` section that also runs the Select CAS,
   on the epoch that section validated, and is never cleared.
 - The predecessor's `reachedSelected` marker is checked only once, before the retry loop begins.
@@ -155,15 +162,19 @@ as fast as the T7 dwell and the accept/handshake round-trip allow.
 
 # Gotchas
 
-- **Overlapping reconnect loops when `tr.Start` fails after TCP-up (pre-existing, not fixed by this mechanic).**
-  `connectLoop`'s dial-failure branch retries (`continue`) after tearing down an epoch whose `Start`
-  returned an error;
-  if that `Start` had already driven TCP-up and a subsequent disconnect,
-  `react` has already launched a SECOND loop by the time the first one's `continue` runs,
-  and both loops end up sharing `connection.reconnectDelay` and racing to publish a successor.
-  `Open`'s cold-active branch has the same precondition
-  (`State() == NotConnectedState` observed after a TCP-up-then-drop).
-  Neither shipped transport can actually reach this:
+- **A `tr.Start` that fails after TCP-up no longer leaves two loops sharing the delay.**
+  `connectLoop`'s Start-failure branch used to retry after tearing down an epoch whose `Start`
+  had already driven TCP-up and a disconnect,
+  while `react` had already launched a second loop for that drop;
+  both then advanced `connection.reconnectDelay` and raced to publish a successor.
+  Now the failing loop tears the generation down first, reads its `tcpUpCommitted` marker,
+  and, when the link had come up, hands the retry to the drop reaction's loop and returns;
+  that loop waits at the failed generation's `startReturned` barrier,
+  so only one loop ever advances the delay
+  (see [who owns the retry after a failed Start](/hsms/reconnect-retry-ownership.md)).
+  `Open`'s cold-active branch now also requires that no TCP-up commit succeeded on the generation,
+  so the same shape fails the Open instead of starting a background retry.
+  Neither shipped transport reaches this shape at all:
   hsmsss's active `Start` returns nil once `tcpUp` accepts the generation,
   hsmsss's passive `Start` has no error exit after it spawns the accept goroutine,
   secs1's active `Start` returns nil right after its synchronous TCP-up-plus-Select-commit,
@@ -171,14 +182,14 @@ as fast as the T7 dwell and the accept/handshake round-trip allow.
   which performs that same TCP-up-plus-Select-commit asynchronously once a peer is accepted,
   potentially before or after `Start` returns;
   what matters is that `startPassive` has no error return after launching it.
-  Only a custom or mock transport whose `Start` can fail after already driving TCP-up can hit this,
-  and there two loops sharing the persisted delay is no worse than the competing-publish races that
-  already exist for that shape of transport.
+  Only a custom or mock transport whose `Start` can fail after already driving TCP-up takes the hand-off path.
 
 # Where to look
 
 - the persisted delay: `hsms/connection.go` → `connection.reconnectDelay`;
   `hsms/connection_lifecycle.go` → `Open`, `connectLoop`, `nextBackoffDelay`
+- the barrier that serializes the delay's readers and writers: `hsms/connection_lifecycle.go` → `connectLoopAwaitBarrier`,
+  `connectLoopStartFailure`; `hsms/epoch.go` → `epoch.startReturned`
 - the reset marker: `hsms/epoch.go` → `epoch.reachedSelected`;
   `hsms/connection_lifecycle.go` → `connection.selectCommitGate`
 - the gate CommitSelected now goes through even at gen 0: `hsms/supervisor.go` → `supervisor.selectGate`,
