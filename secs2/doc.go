@@ -58,7 +58,7 @@
 //	F4(values...)          // FloatItem — 4-byte (single-precision) floats
 //	F8(values...)          // FloatItem — 8-byte (double-precision) floats
 //
-// Full constructors (NewListItem, NewASCIIItem, NewBinaryItem, NewBooleanItem, NewIntItem, NewUintItem, NewFloatItem, NewJIS8Item, NewLocalizedStrItem, NewUTF8StrItem, NewEmptyItem) are also available.
+// Full constructors (NewListItem, NewASCIIItem, NewBinaryItem, NewBooleanItem, NewIntItem, NewUintItem, NewFloatItem, NewJIS8Item, NewLocalizedStrItem, NewUTF8StrItem, NewEmptyLocalizedStrItem, NewEmptyItem) are also available.
 //
 // Constructors never panic.
 // Out-of-range or invalid arguments store a deferred error on the returned item; callers should check Error() before use:

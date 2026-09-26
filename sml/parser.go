@@ -308,6 +308,8 @@ func (p *Parser) parseItem() (secs2.Item, error) {
 	if !ok {
 		return nil, p.errf("failed to parse item type")
 	}
+	// parseItemSize reports no size and [0] alike, and only W gives [0] a meaning of its own.
+	hasSize := p.peekNonSpaceRune() == '['
 	_, maxSize, err := p.parseItemSize()
 	if err != nil {
 		return nil, err
@@ -329,7 +331,7 @@ func (p *Parser) parseItem() (secs2.Item, error) {
 	case secs2.JIS8FormatCode:
 		item, err = p.parseJIS8()
 	case secs2.LocalizedStrFormatCode:
-		item, err = p.parseLocalizedStr()
+		item, err = p.parseLocalizedStr(hasSize && maxSize == 0)
 	case secs2.BooleanFormatCode:
 		item, err = p.parseBoolean(maxSize)
 	case secs2.BinaryFormatCode:
@@ -647,13 +649,25 @@ func (p *Parser) parseJIS8() (secs2.Item, error) {
 
 // parseLocalizedStr parses a Localized Character String data item from the input string.
 //
+// zeroLength is set for <W[0]>, the zero-length item that carries no LSH and no text,
+// which must therefore have no value.
+// A plain <W> with no value is still a UTF-8 item with empty text.
+//
 // It returns the parsed LocalizedStr item as a secs2.Item and an error if any occurred during parsing.
-func (p *Parser) parseLocalizedStr() (secs2.Item, error) {
+func (p *Parser) parseLocalizedStr(zeroLength bool) (secs2.Item, error) {
 	// consume first quote
 	ch := p.nextNonSpaceRune()
 
 	if ch == '>' { // empty string
+		if zeroLength {
+			return secs2.NewEmptyLocalizedStrItem(), nil
+		}
+
 		return secs2.NewUTF8StrItem(""), nil
+	}
+
+	if zeroLength {
+		return nil, p.errf("zero-length Localized string <W[0]> must not have a value")
 	}
 
 	if ch != '\'' && ch != '"' {

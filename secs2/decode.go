@@ -271,23 +271,7 @@ func decodeItem(owned []byte, pos, depth int, slab *decodeSlab) (Item, int, erro
 		return it, pos, nil
 
 	case LocalizedStrFormatCode:
-		if length < 2 {
-			return nil, pos, fmt.Errorf("localized string payload too short: %d bytes (minimum 2 for LSH)", length)
-		}
-
-		if pos+length > len(owned) {
-			return nil, pos, fmt.Errorf("unexpected end of data: localized string needs %d bytes, have %d", length, len(owned)-pos)
-		}
-
-		lsh := uint16(owned[pos])<<8 | uint16(owned[pos+1])
-		s := ownedString(owned[pos+2 : pos+length])
-		pos += length
-		it := slab.nextLocalizedStr()
-		it.lsh = lsh
-		it.value = s
-		it.setRaw(owned[startPos:pos])
-
-		return it, pos, nil
+		return decodeLocalizedStrItem(owned, startPos, pos, length, slab)
 
 	case Int8FormatCode:
 		return decodeIntItem(owned, startPos, pos, 1, length, slab)
@@ -315,6 +299,41 @@ func decodeItem(owned []byte, pos, depth int, slab *decodeSlab) (Item, int, erro
 	default:
 		return nil, pos, fmt.Errorf("unknown format code: %d", formatCode)
 	}
+}
+
+// decodeLocalizedStrItem decodes a format-22 payload of length bytes starting at pos.
+//
+// A zero-length item carries no LSH (SEMI E5 §9.2.1 allows a zero-length item of any format);
+// any other item must hold the 2-byte LSH.
+func decodeLocalizedStrItem(owned []byte, startPos, pos, length int, slab *decodeSlab) (Item, int, error) {
+	if length == 0 {
+		it := slab.nextLocalizedStr()
+		it.lsh = 0
+		it.value = ""
+		it.noLSH = true
+		it.setRaw(owned[startPos:pos])
+
+		return it, pos, nil
+	}
+
+	if length < 2 {
+		return nil, pos, fmt.Errorf("localized string payload too short: %d bytes (minimum 2 for LSH)", length)
+	}
+
+	if pos+length > len(owned) {
+		return nil, pos, fmt.Errorf("unexpected end of data: localized string needs %d bytes, have %d", length, len(owned)-pos)
+	}
+
+	lsh := uint16(owned[pos])<<8 | uint16(owned[pos+1])
+	s := ownedString(owned[pos+2 : pos+length])
+	pos += length
+	it := slab.nextLocalizedStr()
+	it.lsh = lsh
+	it.value = s
+	it.noLSH = false
+	it.setRaw(owned[startPos:pos])
+
+	return it, pos, nil
 }
 
 // decodeIntItem parses byteSize-wide signed integers from owned[pos:pos+length], builds

@@ -17,7 +17,8 @@ func TestRoundTrip_MessageLevel(t *testing.T) {
 		"S1F13\n<BOOLEAN[2] True False>\n.",
 		"S5F1\n<J[5] \"hello\">\n.", // JIS8 round-trip (requires the Step 6b parseJIS8 fix)
 		"S7F1\n<L[2]\n  <U2[2] 10 20>\n  <F8[1] 1.5>\n>\n.",
-		"S9F1\n<W \"loc\">\n.", // localized-string (W) round-trip — every item type per spec §10
+		"S9F1\n<W \"loc\">\n.",               // localized-string (W) round-trip — every item type per spec §10
+		"S9F3\n<L[2]\n  <W[0]>\n  <W>\n>\n.", // zero-length W next to an empty-text W: different wire values
 	}
 	enc := NewEncoder()
 	for _, src := range srcs {

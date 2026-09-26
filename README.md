@@ -166,7 +166,7 @@ secs2.Item (interface)
 ├── IntItem            (NewIntItem;    shortcuts I1, I2, I4, I8)
 ├── UintItem           (NewUintItem;   shortcuts U1, U2, U4, U8)
 ├── JIS8Item           (NewJIS8Item)
-├── LocalizedStrItem   (NewLocalizedStrItem, NewUTF8StrItem)
+├── LocalizedStrItem   (NewLocalizedStrItem, NewUTF8StrItem, NewEmptyLocalizedStrItem)
 └── ListItem           (NewListItem)
 ```
 

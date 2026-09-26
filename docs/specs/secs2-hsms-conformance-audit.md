@@ -111,9 +111,9 @@ Every §10 clause is therefore recorded below as **not implemented (by design)**
 | §9.3 | A list's length bytes count *elements*, not bytes | `secs2/decode.go:149`–`174` loops `length` times over child items; the encoder passes the direct-child count as the length field |
 | §9.3 | A list element may itself be a list | Recursive `decodeItem`. **Capped at `MaxListDepth` = 64, which E5 does not authorize — see the accepted-deviations section [R1]** |
 | §9.4.1 | The LSH is 2 bytes, precedes the string, and **is counted in the item length** | `secs2/localized_str.go:32` documents the layout; `AppendTo` writes `len(value)+2` as the length field (`:150`), and decode reads the LSH from inside the payload (`secs2/decode.go:252`) |
-| §9.4.1 | A localized-string item is therefore never shorter than 2 payload bytes | `length < 2` is rejected, `secs2/decode.go:244` |
+| §9.4.1, §9.2.1 | A non-empty localized-string item therefore holds at least 2 payload bytes; a zero-length one is an ordinary zero-length item with no LSH | `decodeLocalizedStrItem` (`secs2/decode.go`) decodes length 0 as the zero-length form (`NewEmptyLocalizedStrItem`, `HasLocalizedStrHeader` false) and rejects length 1. *Updated 2026-09-27: until then length 0 was rejected too, which made a conforming `49 00` body undecodable* |
 | §9.4.2, Table 2 | The 15 defined encoding-scheme codes | `secs2/localized_str.go:7`–`21` — all 15 present, values 0–14, matching Table 2 exactly |
-| §9.4.3 | Codes 15–32767 reserved, 32768–65535 custom | Not constrained; the LSH is a plain `uint16`, which is what "available for custom purposes" requires |
+| §9.4.3 | Codes 15–32767 reserved, 32768–65535 custom | Not constrained; the LSH is a plain `uint16`, which is what "available for custom purposes" requires. `IsReservedLSH` (added 2026-09-27) reports 0 and 15–32767, so a caller can refuse to send a reserved code |
 | §6.4.2 | Stream is 7 bits (0–127), function is 8 bits (0–255) | `secs2/message.go:42` masks the stream with `0x7F`; `hsms.NewDataMessage` enforces the range on the transport side (see Part 2) |
 | §6.4.3 | The protocol must be able to say whether a reply is requested | `Message.WaitBit()`, `secs2/message.go:48` |
 | — | Payload length must be a whole multiple of the element width | `secs2/decode.go:294`, `:357`, `:420` — a 3-byte I2 payload is rejected |

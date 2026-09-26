@@ -598,7 +598,11 @@ func FuzzDecode_OwnsBytes(f *testing.F) {
 	f.Add(NewIntItem(4, int32(-12345)).ToBytes())
 	f.Add(NewBooleanItem(true, false, true).ToBytes())
 	f.Add(NewListItem(NewUintItem(1, 1, 2, 3), NewASCIIItem("hi")).ToBytes())
-	f.Add([]byte{0x40}) // malformed: zero length-byte count
+	f.Add([]byte{0x40})                   // malformed: zero length-byte count
+	f.Add([]byte{0x49, 0x00})             // zero-length localized string (no LSH)
+	f.Add([]byte{0x01, 0x01, 0x49, 0x00}) // ...inside a list
+	f.Add([]byte{0x49, 0x01, 0x00})       // malformed: localized string too short for its LSH
+	f.Add([]byte{0x49, 0x02, 0x00, 0x00}) // LSH 0 with empty text
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		got, err := Decode(data)
