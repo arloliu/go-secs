@@ -8,13 +8,13 @@ generated: {by: "claude/opus-5.5", at: 2026-09-26T07:45:27Z}
 verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-26T07:51:47Z}
 sources:
-  - {resource: hsms/connection.go, digest: sha256:d45005d0dcf9540c, revision: 4be2062}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:e6d0d8d5bdf02ea2, revision: f7a5927}
+  - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: 7ae1ff0}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:21abfedc85afb70a, revision: 7ae1ff0}
   - {resource: hsms/connection_config.go, digest: sha256:e701533ea6c49f0a, revision: c00e1b5}
   - {resource: hsms/connection_runtime.go, digest: sha256:990bc46123a7df1c, revision: f7a5927}
   - {resource: hsms/connection_metrics.go, digest: sha256:dae358846f98653e, revision: f7a5927}
-  - {resource: hsms/supervisor.go, digest: sha256:1717fd0875937ae8, revision: f7a5927}
-  - {resource: hsms/epoch.go, digest: sha256:5d48c9656ae715cc, revision: 4be2062}
+  - {resource: hsms/supervisor.go, digest: sha256:1878d33bac78df60, revision: 7ae1ff0}
+  - {resource: hsms/epoch.go, digest: sha256:bdf3578cbc24fc48, revision: 7ae1ff0}
   - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: 4be2062}
 ---
 
@@ -114,7 +114,7 @@ as fast as the T7 dwell and the accept/handshake round-trip allow.
 
 # Invariants
 
-- `connection.reconnectDelay` is written only by `Open` (before any loop can be running, per the G1 join)
+- `connection.reconnectDelay` is written only by `Open` (before any loop can be running, because `Open` first joins any dying reconnect loop)
   and by `connectLoop`.
   Successive retry/publication sequences are serialized for any transport,
   although loop goroutine lifetimes can overlap:

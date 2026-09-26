@@ -11,12 +11,12 @@ sources:
   - {resource: hsmsss/transport_procedures.go, digest: sha256:bf47bd9825ddb5da, revision: 6c257b6}
   - {resource: hsmsss/metrics.go, digest: sha256:e822f4b53757800e, revision: 922feb8}
   - {resource: hsms/connection_send.go, digest: sha256:90a5e3ff7beea84c, revision: f7a5927}
-  - {resource: hsms/errors.go, digest: sha256:3057101139d08434, revision: a7ff4a8}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:e6d0d8d5bdf02ea2, revision: f7a5927}
-  - {resource: hsms/epoch.go, digest: sha256:5d48c9656ae715cc, revision: 4be2062}
-  - {resource: hsmsss/transport.go, digest: sha256:cb3594d212e03da1, revision: c00e1b5}
-  - {resource: hsmsss/transport_active.go, digest: sha256:252154bd042e64d4, revision: c00e1b5}
-  - {resource: hsmsss/transport_passive.go, digest: sha256:562498fdb8cfa240, revision: c00e1b5}
+  - {resource: hsms/errors.go, digest: sha256:739cc0dd4af61624, revision: 7ae1ff0}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:21abfedc85afb70a, revision: 7ae1ff0}
+  - {resource: hsms/epoch.go, digest: sha256:bdf3578cbc24fc48, revision: 7ae1ff0}
+  - {resource: hsmsss/transport.go, digest: sha256:176fff888fc8a85e, revision: 7ae1ff0}
+  - {resource: hsmsss/transport_active.go, digest: sha256:33d63b7808dc1ed3, revision: 7ae1ff0}
+  - {resource: hsmsss/transport_passive.go, digest: sha256:eaee7f67c2e994fc, revision: 7ae1ff0}
 ---
 
 # What it does
@@ -38,7 +38,7 @@ This entry is that mechanism.
 `g.ctx` (`genWG.ctx`) IS the hsms epoch's own ctx, not a separate tree: `connection.Open`
 (`hsms/connection_lifecycle.go`) passes `e.ctx` straight into transport `Start`
 (`hsmsss/transport.go`), and `startActive`/`startPassive` stamp it, unchanged, onto the generation's
-own bundle (`g.ctx = ctx`) before spawning `recvLoop` — since the R10 inbound-generation-fence work
+own bundle (`g.ctx = ctx`) before spawning `recvLoop` — since the inbound generation fence
 this replaced an earlier single transport-wide `t.genCtx` field with the same value, now scoped per
 generation on `genWG` instead.
 `startLinktest` derives the linktest goroutine's ctx as `context.WithCancel(g.ctx)`, and the

@@ -9,13 +9,13 @@ verified:
   - {by: "openai/gpt-6-astra", at: 2026-09-25T02:55:36Z}
   - {by: "openai/gpt-5.6-terra", at: 2026-09-25T03:13:36Z}
 sources:
-  - {resource: hsmsss/transport.go, digest: sha256:cb3594d212e03da1, revision: c00e1b5}
+  - {resource: hsmsss/transport.go, digest: sha256:176fff888fc8a85e, revision: 7ae1ff0}
   - {resource: hsmsss/transport_procedures.go, digest: sha256:bf47bd9825ddb5da, revision: 6c257b6}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:f54ea89029ef179c, revision: 6c257b6}
-  - {resource: hsmsss/transport_active.go, digest: sha256:252154bd042e64d4, revision: c00e1b5}
-  - {resource: hsmsss/transport_passive.go, digest: sha256:562498fdb8cfa240, revision: c00e1b5}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:fc971b2806f82a52, revision: 7ae1ff0}
+  - {resource: hsmsss/transport_active.go, digest: sha256:33d63b7808dc1ed3, revision: 7ae1ff0}
+  - {resource: hsmsss/transport_passive.go, digest: sha256:eaee7f67c2e994fc, revision: 7ae1ff0}
   - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: 6c257b6}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:e6d0d8d5bdf02ea2, revision: f7a5927}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:21abfedc85afb70a, revision: 7ae1ff0}
 ---
 
 # What it does
@@ -82,7 +82,7 @@ a concurrent reader can observe either the pre-reset or post-reset value at any 
   so a stamp CAN move backward under those races.
 - `lastSendStamp` and `lastRecvStamp` are transport-wide atomics, rebaselined when a generation publishes its socket, not generation-tagged; the reset is not a hard barrier:
   it rebaselines the stamps, it does not fence abandoned goroutines by itself.
-  Since the R10 inbound-generation-fence work, `recvLoop` no longer re-reads a transport-wide field to find its socket:
+  Since the inbound generation fence, `recvLoop` no longer re-reads a transport-wide field to find its socket:
   `startActive`/`acceptLoop` pass it the conn they just published, as a parameter, at spawn time,
   and it reads only that value for the rest of its life.
   A straggler abandoned by a bounded `Stop` therefore keeps reading its OWN (by then closed) socket, never a live successor's —
