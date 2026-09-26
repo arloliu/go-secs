@@ -9,7 +9,7 @@ verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-26T12:04:05Z}
 sources:
   - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: 7ae1ff0}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:8a7a71d56304a338, revision: b43b798}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:299faa7fdfbdf7fa, revision: 2041f5d}
   - {resource: hsms/connection_config.go, digest: sha256:e701533ea6c49f0a, revision: c00e1b5}
   - {resource: hsms/connection_runtime.go, digest: sha256:7340a3887598a8ba, revision: b43b798}
   - {resource: hsms/connection_metrics.go, digest: sha256:dae358846f98653e, revision: f7a5927}

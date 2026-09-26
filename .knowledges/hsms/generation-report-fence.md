@@ -9,12 +9,12 @@ verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-26T12:04:05Z}
 sources:
   - {resource: hsms/supervisor.go, digest: sha256:097ae581f965d935, revision: b43b798}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:8a7a71d56304a338, revision: b43b798}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:299faa7fdfbdf7fa, revision: 2041f5d}
   - {resource: hsms/connection_runtime.go, digest: sha256:7340a3887598a8ba, revision: b43b798}
   - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: b43b798}
   - {resource: hsms/epoch.go, digest: sha256:bdf3578cbc24fc48, revision: b43b798}
   - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: b43b798}
-  - {resource: hsms/transport.go, digest: sha256:760d41a4a861ea2c, revision: b43b798}
+  - {resource: hsms/transport.go, digest: sha256:8e0ca0744b8527b9, revision: 2041f5d}
   - {resource: hsmsss/transport.go, digest: sha256:176fff888fc8a85e, revision: b43b798}
   - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: b43b798}
   - {resource: hsmsss/transport_active.go, digest: sha256:33d63b7808dc1ed3, revision: b43b798}
