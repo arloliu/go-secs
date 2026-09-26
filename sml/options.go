@@ -33,6 +33,7 @@ func WithEncoderStrictMode(strict bool) EncoderOption {
 // QuoteNone is invalid for string data and is treated as QuoteDouble.
 //
 // Note: Localized (W) items are always rendered with Go-style double-quoting (strconv.Quote) regardless of this option.
+// A zero-length W item, which carries no LSH and no text, is rendered as <W[0]>.
 func WithASCIIQuote(q QuoteStyle) EncoderOption {
 	return func(e *Encoder) {
 		if q == QuoteNone {

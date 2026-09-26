@@ -14,6 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `hsms`: `CauseHandlerExit`, a `TransitionCause` reported when a user callback calls `runtime.Goexit` instead of returning,
   and the connection drops the generation that callback was running for,
   so the link reconnects instead of sitting Selected with no receiver.
+- `secs2`: `NewEmptyLocalizedStrItem` builds a zero-length localized-string (format 22) item, encoded as `49 00` with no LSH,
+  and `LocalizedStrItem.HasLocalizedStrHeader` reports whether an item carries an LSH.
+  `ToLocalizedStrHeader` reports 0 for a zero-length item, the same as for LSH 0;
+  through the `Item` interface, `Size` tells them apart (0 for the zero-length item, at least 2 otherwise).
+- `secs2`: `IsReservedLSH` reports whether an LSH code is reserved by SEMI E5:
+  0 (`LSHNone`) and 15 through 32767.
+  Reserved codes must not be sent, but `NewLocalizedStrItem` and decoding still accept them unchanged.
+- `sml`: `<W[0]>` is the SML form of a zero-length localized-string item, and the encoder writes one that way.
+  `<W>` still means a UTF-8 item with empty text (`49 02 00 02`),
+  and `<W[0]>` with a value is a parse error.
 
 ### Changed
 
@@ -91,6 +101,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `secs2`: a zero-length localized-string (format 22) item, `49 00`, now decodes, alone or inside a list,
+  and re-encodes to the same two bytes.
+  SEMI E5 allows a zero-length item of any format.
+  Previously the decoder required the 2-byte LSH,
+  so one such item made the whole message body undecodable.
+  A 1-byte body (`49 01 xx`) is still rejected.
 - `hsms`, `hsmsss`: a receive goroutine left running past a connection's close timeout,
   for example by a `DataMessageHandler` that blocks,
   no longer delivers its frame into the connection's next generation after a reconnect.
