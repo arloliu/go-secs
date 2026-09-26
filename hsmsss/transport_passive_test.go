@@ -691,8 +691,8 @@ func TestPassive_RefuseExtraConn_StopRacesPrePublicationWindow(t *testing.T) {
 
 	// Close cannot complete until the helper (still parked in the hook above) is released, so
 	// baselining `start` HERE — rather than before the Eventually poll above — measures Stop's
-	// own promptness after the race is resolved, not this test's own polling latency (test 5's
-	// StopDuringInFlightRefusalReturnsPromptly baselines the same way, with no poll in between).
+	// own promptness after the race is resolved, not this test's own polling latency
+	// (TestPassive_RefuseExtraConn_StopDuringInFlightRefusalReturnsPromptly baselines the same way, with no poll in between).
 	start := time.Now()
 	releaseOnce.Do(func() { close(release) }) // let the helper observe refuseStopped and close
 

@@ -15,7 +15,7 @@ import (
 // farewellWriteTimeout bounds the courtesy farewell Separate write (§7.E). The farewell is a
 // bounded best-effort courtesy: it acquires e.writeMu with TryLock (never blocks teardown) and
 // writes under a short deadline. On any failure it is skipped and teardown proceeds — the
-// unconditional closeSocket() in e.teardown is what guarantees progress (J5).
+// unconditional closeSocket() in e.teardown is what guarantees progress.
 const farewellWriteTimeout = 500 * time.Millisecond
 
 // selectPollInterval is the internal poll cadence used by OpenWaitSelected to observe the
@@ -81,10 +81,10 @@ type firstDialState struct {
 // Invariants (spec §5.2):
 //   - tr must be non-nil (a connection built without a transport cannot open).
 //   - Double-open H6: if the supervisor is alive and shutdown==false (connection logically open, including during the reconnect inter-generation window) return ErrAlreadyOpen as a no-op. If shutdown==true (prior Close completed, supervisor joined) the connection is legally reopened.
-//   - G1: connectLoopWg.Wait() (join a dying reconnect loop) runs BEFORE creating fresh contexts,
+//   - connectLoopWg.Wait() joins a dying reconnect loop first, before creating fresh contexts,
 //     so a stale reconnect loop cannot publish over the new generation.
 //   - The supervisor's run()/notifier() are per-Open goroutines joined through the supervisor's own runDone/notifierDone (NOT epoch.spawn)
-//     so the supervisor OUTLIVES any single epoch (Codex round-6) — an involuntary disconnect cancels the epoch ctx
+//     so the supervisor OUTLIVES any single epoch — an involuntary disconnect cancels the epoch ctx
 //     but must not kill the supervisor (reconnect needs it).
 //   - The async sender is a PER-GENERATION goroutine via epoch.spawn (dies with the epoch).
 //
@@ -173,17 +173,17 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 		c.abortMu.Unlock()
 	}()
 
-	// Fence any in-flight reconnect loop from a prior cycle: bump reconnectGen so the loop's
-	// G2 fence (atomics-only) observes the advance and abandons instead of publishing over the
-	// new generation. Open resets shutdown to false for the new cycle, so reconnectGen — NOT
-	// shutdown — is the fence that catches a reopen while a stale loop is still in flight.
+	// Fence any in-flight reconnect loop from a prior cycle:
+	// bump reconnectGen so the loop's reconnect fence (atomics-only) observes the advance and abandons instead of publishing over the new generation.
+	// Open resets shutdown to false for the new cycle,
+	// so reconnectGen — NOT shutdown — is the fence that catches a reopen while a stale loop is still in flight.
 	c.reconnectGen.Add(1)
 	c.shutdown.Store(false)
 
-	// G1: join a dying reconnect loop BEFORE creating fresh contexts, so the loop cannot
-	// cur.Store a stale epoch after we publish the new one. The reconnectGen bump above makes
-	// any such loop abandon at its fence; this join then reaps it deterministically. The
-	// loop's fence is atomics-only, so this lifeMu-held Wait cannot deadlock against it (round-8).
+	// Join a dying reconnect loop BEFORE creating fresh contexts,
+	// so the loop cannot cur.Store a stale epoch after we publish the new one.
+	// The reconnectGen bump above makes any such loop abandon at its fence; this join then reaps it deterministically.
+	// The loop's fence is atomics-only, so this lifeMu-held Wait cannot deadlock against it.
 	c.connectLoopWg.Wait()
 
 	// Fresh reconnect-cancel channel for this Open cycle (closed by Close to interrupt a T5
@@ -204,7 +204,7 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	// generation-lifetime and is cancelled ONLY by teardown, never directly by the caller's Open ctx
 	// (which instead bounds the first dial and the OpenWaitSelected wait through separate,
 	// narrower mechanisms — see firstDialState and waitSelected).
-	// stopTransport lets teardown join the transport recv loop (Codex round-7).
+	// stopTransport lets teardown join the transport recv loop.
 	e := newEpoch(context.Background(), cfg.logger, cfg.senderQueueSize)
 	e.stopTransport = c.tr.Stop
 	// The gate teardown latches e.ended under,
@@ -220,9 +220,10 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	e.id = c.genSeq.Add(1)
 	c.cur.Store(e)
 
-	// FRESH per-Open supervisor (no channel reuse — round-5). Its run()/notifier() are
+	// FRESH per-Open supervisor (no channel reuse). Its run()/notifier() are
 	// joined through its own runDone/notifierDone, NOT epoch-spawned, so the supervisor spans
-	// reconnect generations (round-6). It reads user handlers from the Connection's persistent pointer.
+	// reconnect generations.
+	// It reads user handlers from the Connection's persistent pointer.
 	s := newSupervisor(c.react, &c.handlers, &c.lifecycleSubs)
 	// Install the LIVE closeTimeout provider (M7 — the evClose teardown reads current config, so a
 	// mid-session UpdateConfigOptions(WithCloseTimeout) is honored) and the logger for the
@@ -313,7 +314,7 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 			// connectLoop's own dial-failure branch uses, WITHOUT s.requestClose/evClose:
 			// step()'s evClose handler unconditionally latches s.closed=true,
 			// and that latch would permanently stop this SAME persistent supervisor from ever processing another evTCPUp/evSelectAccepted —
-			// but the reconnect loop needs this exact supervisor alive for every future generation (round-6: the supervisor spans reconnect generations).
+			// but the reconnect loop needs this exact supervisor alive for every future generation.
 			e.teardown(c.cfg.Load().closeTimeout)
 			_ = e.wait()
 
@@ -439,9 +440,9 @@ func (c *connection) waitSelected(ctx context.Context, e *epoch, s *supervisor, 
 // It is serialized with Open by lifeMu.
 // Ordering is binding: requestClose(e) (pin + inject evClose) -> e.wait() (the pinned epoch's teardown completes while the supervisor is still alive
 // and draining events) -> sup.stop() (only NOW tear down the supervisor).
-// The supervisor outlives the epoch, never the reverse (round-6).
+// The supervisor outlives the epoch, never the reverse.
 //
-// Entry guards (round-7/8):
+// Entry guards:
 //   - NEVER-OPENED: cur == nil => ErrNotOpen (no requestClose/e.wait on a nil epoch/supervisor).
 //   - IDEMPOTENT RE-CLOSE: cur is NOT cleared on Close, so a re-Close sees a non-nil but torn-down epoch.
 //     If the supervisor already stopped (runDone closed) it returns the retained shutdown result WITHOUT a second requestClose (which would deadlock on the now-unread events channel —
@@ -505,8 +506,8 @@ func (c *connection) Close() error {
 
 	deadline := time.Now().Add(c.cfg.Load().closeTimeout)
 
-	// Voluntary close: fence out reconnect (bump reconnectGen + set shutdown, re-checked by the
-	// G2 fence / reconnect reactions), then funnel teardown through the supervisor's evClose. The
+	// Voluntary close: fence out reconnect (bump reconnectGen + set shutdown, re-checked by
+	// the reconnect fence), then funnel teardown through the supervisor's evClose. The
 	// fence + successor RE-PIN run under publishMu, linearized against the reconnect loop's publish
 	// (I1): re-loading cur here catches a successor generation the loop published just before we set
 	// shutdown, so Close tears THAT generation down (no orphan) rather than the stale one loaded
@@ -533,9 +534,9 @@ func (c *connection) Close() error {
 
 	// Join any reconnect loop spawned by an earlier involuntary drop in this cycle. shutdown
 	// (set above) + reconnectGen (bumped above) + the closed reconnectCancel make the loop
-	// abandon at its F3/G2 fence and return; this join reaps it so no reconnect goroutine
+	// abandon at its reconnect fence and return; this join reaps it so no reconnect goroutine
 	// outlives Close. It is SEPARATE from epoch.wg (§7.C), and the loop's fence is atomics-only,
-	// so this lifeMu-held Wait cannot deadlock against the loop (round-8).
+	// so this lifeMu-held Wait cannot deadlock against the loop.
 	c.connectLoopWg.Wait()
 
 	return err
@@ -669,7 +670,7 @@ func (c *connection) react(prev, next ConnState) {
 // writer holds) — on contention it SKIPS and returns, so it can NEVER block teardown behind a
 // wedged writer. On success it writes under a short deadline; any error is ignored (courtesy,
 // not correctness). closeSocket() (unconditional, inside e.teardown) is what actually unblocks
-// a wedged writer (J5), so skipping the farewell never stalls progress.
+// a wedged writer, so skipping the farewell never stalls progress.
 func (c *connection) writeFarewellSeparate(e *epoch) {
 	if !e.writeMu.TryLock() {
 		return // a writer holds writeMu — skip the courtesy Separate, never block teardown
@@ -725,7 +726,7 @@ func (c *connection) writeFarewellSeparate(e *epoch) {
 // (see ConnectionMetrics.Reconnects: a cold background retry's own success is not counted,
 // but a later recovery after its link came up and dropped is).
 func (c *connection) startConnectLoop(prev *epoch, countReconnect bool) {
-	gen := c.reconnectGen.Load()       // the generation THIS retry is scheduled at (the G2 fence base)
+	gen := c.reconnectGen.Load()       // the generation THIS retry is scheduled at (the reconnect fence base)
 	cancel := c.reconnectCancel.Load() // this cycle's cancel channel (closed by Close to interrupt backoff)
 
 	c.connectLoopWg.Go(func() {
@@ -773,7 +774,7 @@ func (c *connection) connectLoopAwaitBarrier(prev *epoch, stop <-chan struct{}) 
 // AND for that generation's OWN tr.Start call to have returned (the startReturned barrier, below),
 // then dials with an exponential backoff (WithReconnectBackoff) capped at T5,
 // re-checking shutdown and reconnectGen on every attempt and once more, under publishMu, immediately before publishing the fresh generation.
-// The supervisor is NOT recreated here (round-6) — only a fresh epoch per generation;
+// The supervisor is NOT recreated here — only a fresh epoch per generation;
 // the loop hands each generation to the persistent supervisor via tr.Start (which drives evTCPUp -> CommitSelected -> Selected).
 //
 // The startReturned barrier: a Start that has already reported TCP-up can still fail after react has already spawned this very invocation for the same predecessor
@@ -805,7 +806,7 @@ func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{},
 		stop = *cancel
 	}
 
-	// Generation-serialization (E2 reconciliation #1, round-7): wait for the just-torn-down
+	// Generation-serialization: wait for the just-torn-down
 	// prior epoch to be FULLY joined — its transport recv loop (via tr.Stop inside teardown) and
 	// every per-generation goroutine — BEFORE dialing the next generation. Generations normally do
 	// not overlap: a gen-N recv loop is gone before gen N+1 exists, so a stale gen-N evDisconnect
@@ -901,14 +902,14 @@ func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{},
 			hook()
 		}
 
-		// F3: a Close (shutdown) or a fresh Open (reconnectGen advanced) during reconnect stops
+		// A Close (shutdown) or a fresh Open (reconnectGen advanced) during reconnect stops
 		// the loop before it spends work building a generation.
 		if c.shutdown.Load() || c.reconnectGen.Load() != gen {
 			return
 		}
 
 		// Build the next-generation epoch (NOT yet published). stopTransport lets the epoch's
-		// teardown join this generation's transport recv loop (round-7).
+		// teardown join this generation's transport recv loop.
 		e := newEpoch(context.Background(), cfg.logger, cfg.senderQueueSize)
 		e.stopTransport = c.tr.Stop
 		e.genGate = &c.genGate // see the note at the Open site
@@ -917,7 +918,7 @@ func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{},
 		// so the generation it replaces has already ended.
 		e.id = c.genSeq.Add(1)
 
-		// G2 fence + publish, LINEARIZED against a voluntary Close under publishMu (I1). Re-check
+		// The reconnect fence + publish, LINEARIZED against a voluntary Close under publishMu (I1). Re-check
 		// shutdown + the captured reconnectGen and, if still current, arm the transport for this
 		// fresh generation and publish it — atomically w.r.t. Close's {set shutdown + re-pin cur}.
 		// Either Close observes this just-published successor and tears it down (no orphan), or this
@@ -938,8 +939,8 @@ func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{},
 		e.spawn(cfg.logger, "sender", func(ctx context.Context) { c.drainSendCh(ctx, e) })
 
 		// Dial (active) / re-listen (passive) + spawn the recv loop; the persistent supervisor
-		// drives evTCPUp -> CommitSelected -> Selected across this new generation (round-6). On
-		// success the generation is live and the loop's job is done.
+		// drives evTCPUp -> CommitSelected -> Selected across this new generation.
+		// On success the generation is live and the loop's job is done.
 		if err := c.tr.Start(e.ctx, c); err != nil {
 			if c.connectLoopStartFailure(e, err, cfg, releaseGauge) {
 				continue

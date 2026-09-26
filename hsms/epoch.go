@@ -25,11 +25,11 @@ import (
 // (guardrail 4). cancel is invoked only by teardown ownership (Task 6), never by
 // arbitrary helpers (guardrail 5).
 //
-// Teardown ownership (Task 6, spec §5.1/§7.A/C/E): closeOnce admits exactly one
+// Teardown ownership (Task 6, spec §5.1/§7.C/E): closeOnce admits exactly one
 // teardown owner (F4, replaces the v1 ToClosing CAS); closeErr is written inside the
 // once and read after done closes; stopTransport is a hook bound at epoch creation by a
-// later task (nil until then) that teardown calls to join the transport recv loop (Codex
-// round-7). log is the stored generation logger.
+// later task (nil until then) that teardown calls to join the transport recv loop.
+// log is the stored generation logger.
 //
 // Send-path state (Task 12, spec §5.5/§6.2): sendCh is the PER-GENERATION async send
 // channel (fire-and-forget frames drained by the sender goroutine; GC'd with the epoch, so
@@ -101,16 +101,16 @@ type epoch struct {
 	conn   net.Conn     // raw *net.TCPConn (no bufio wrapper — defeats writev, §6.2)
 	// nil ONLY after closeSocket(), which runs inside teardown's closeOnce.
 
-	wg        sync.WaitGroup // joins every per-generation TASK goroutine (G3)
-	liveTasks atomic.Int64   // count of live task goroutines; reported on a close-timeout (§7.A)
+	wg        sync.WaitGroup // joins every per-generation TASK goroutine (the epoch join)
+	liveTasks atomic.Int64   // count of live task goroutines; reported on a close-timeout
 	spawnMu   sync.RWMutex   // Add-vs-Wait happen-before guard (§7.B)
 	closing   bool           // set under spawnMu.Lock at teardown; post-teardown spawns are no-ops
 
 	closeOnce sync.Once // admits exactly ONE teardown owner (F4, replaces the ToClosing CAS)
 	closeErr  error     // written inside closeOnce; read only after <-done
 
-	// stopTransport joins the per-generation transport recv loop (Codex round-7). It is
-	// bound to the transport's Stop at epoch creation by a later task; nil until then, so
+	// stopTransport joins the per-generation transport recv loop.
+	// It is bound to the transport's Stop at epoch creation by a later task; nil until then, so
 	// teardown MUST nil-guard it.
 	stopTransport func(context.Context) error
 
@@ -186,7 +186,7 @@ func (e *epoch) setConn(c net.Conn) {
 // RLock path liveConn uses — the close must be exclusive). It guards against a nil
 // conn (never set) and against a double close (conn is niled after the first close),
 // so repeated calls are safe no-ops. teardown calls it exactly once (inside closeOnce)
-// and UNCONDITIONALLY before the join (J5): closing the socket unblocks any task parked
+// and UNCONDITIONALLY before the join: closing the socket unblocks any task parked
 // in conn.Read (which does not watch ctx), so the bounded join can complete.
 func (e *epoch) closeSocket() {
 	e.connMu.Lock()
@@ -245,7 +245,7 @@ func (e *epoch) spawn(log logger.Logger, name string, fn func(ctx context.Contex
 // Callers that need the teardown result call wait() instead.
 //
 // The body: cancel the generation ctx; closeSocket() UNCONDITIONALLY and BEFORE the join
-// (J5, so a parked conn.Read unblocks); seal closing under spawnMu.Lock (§7.B); then spawn
+// (so a parked conn.Read unblocks); seal closing under spawnMu.Lock (§7.B); then spawn
 // a SEPARATE goroutine (§7.C — the trigger must never be a member of the set it joins) that
 // runs join(timeout) and closes done.
 func (e *epoch) teardown(timeout time.Duration) {
@@ -262,7 +262,7 @@ func (e *epoch) teardown(timeout time.Duration) {
 		// Single-owner (F4): cancel the generation ctx so ctx-aware tasks unwind.
 		e.cancel()
 
-		// J5: close the socket BEFORE the join so a task parked in conn.Read (which
+		// Close the socket BEFORE the join so a task parked in conn.Read (which
 		// does NOT watch ctx) is unblocked and can exit — otherwise the bounded join
 		// would always hit its deadline.
 		e.closeSocket()
@@ -281,30 +281,31 @@ func (e *epoch) teardown(timeout time.Duration) {
 	})
 }
 
-// join, run on teardown's separate goroutine, performs the bounded shutdown join and
-// then closes done. It (a) joins the transport recv loop via stopTransport (Codex
-// round-7; nil-guarded until a later task binds it), (b) does the §7.A BOUNDED join of
+// join, run on teardown's separate goroutine, performs the bounded shutdown join and then closes done.
+// It (a) joins the transport recv loop via stopTransport
+// (nil-guarded until a later task binds it), (b) does the BOUNDED join of
 // the per-generation task goroutines — never a bare wg.Wait() — recording ErrCloseTimeout
 // with the live-task count on expiry, then (c) closes done to publish the result to wait().
 func (e *epoch) join(timeout time.Duration) {
 	deadline := time.Now().Add(timeout)
 
-	// (a) round-7: join the transport recv loop, if a transport was bound. Runs HERE,
-	// on the teardown goroutine, NOT the supervisor. Nil until a later task sets it.
+	// (a) join the transport recv loop, if a transport was bound.
+	// Runs HERE, on the teardown goroutine, NOT the supervisor.
+	// Nil until a later task sets it.
 	if e.stopTransport != nil {
 		ctx, cancel := context.WithDeadline(context.Background(), deadline)
 		if err := e.stopTransport(ctx); err != nil {
 			e.log.Warn("epoch: stopTransport returned error during teardown", "error", err)
 			// C1: a bounded-Stop timeout (the recv loop wedged in a blocking app handler) is a
 			// close-timeout — surface it to wait() so Close reports ErrCloseTimeout rather than nil.
-			// The §7.A task join (b) below replaces it only when a task is still live.
+			// The task join (b) below replaces it only when a task is still live.
 			e.closeErr = err
 		}
 		cancel()
 	}
 
-	// (b) §7.A bounded join: wait for every task goroutine, but never unbounded. The
-	// helper goroutine that runs wg.Wait may outlive this select if a task is stuck —
+	// (b) bounded join: wait for every task goroutine, but never unbounded.
+	// The helper goroutine that runs wg.Wait may outlive this select if a task is stuck —
 	// that is the stuck task's own leak, which the bounded join deliberately survives.
 	joined := make(chan struct{})
 	go func() {

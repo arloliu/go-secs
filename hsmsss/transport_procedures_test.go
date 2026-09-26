@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newLinktestTransport builds a *transport wired to rt with tr.wg.ctx set (R10 / D1), WITHOUT
+// newLinktestTransport builds a *transport wired to rt with tr.wg.ctx set, WITHOUT
 // dialing a socket: the control-procedure helpers under test (startLinktest / stopLinktest /
 // handleLinktestReq / handleDeselectReq / handleSeparateReq) only touch rt and the current
 // generation bundle's own linktest/T7 fields, so no real TCP connection is needed.

@@ -51,7 +51,7 @@ func TestNewConnection_NilConfigError(t *testing.T) {
 	require.Nil(t, conn)
 }
 
-// TestConnection_StateBeforeOpenIsNotConnected verifies the round-7 nil-supervisor guard:
+// TestConnection_StateBeforeOpenIsNotConnected verifies the nil-supervisor guard:
 // State() reports NotConnectedState before the first Open (sup is nil) and never nil-derefs.
 func TestConnection_StateBeforeOpenIsNotConnected(t *testing.T) {
 	conn, c := newTestConn(t)
@@ -104,7 +104,7 @@ func TestConnection_UpdateConfigOptions_NilOption(t *testing.T) {
 }
 
 // TestConnection_DoneBeforeOpenIsClosed verifies Done() returns an already-closed channel
-// when there is no live epoch (SELECT-ONLY, never nil-blocks — J5).
+// when there is no live epoch (SELECT-ONLY, never nil-blocks).
 func TestConnection_DoneBeforeOpenIsClosed(t *testing.T) {
 	conn, c := newTestConn(t)
 

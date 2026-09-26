@@ -110,7 +110,7 @@ var (
 	// A T6 expiry is a protocol timer firing, and the peer may answer the next attempt.
 	ErrT6Timeout = errors.New("hsms: T6 control timeout")
 
-	// ErrCloseTimeout indicates Close's bounded shutdown join exceeded the configured close timeout with tasks still live (spec §5.2, §7.A);
+	// ErrCloseTimeout indicates Close's bounded shutdown join exceeded the configured close timeout with tasks still live (spec §5.2);
 	// the straggler is abandoned rather than awaited further.
 	// A still-running StateChangeHandler or lifecycle subscriber counts as such a task.
 	//

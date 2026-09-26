@@ -285,7 +285,7 @@ func TestTransport_WriteSendsBytes(t *testing.T) {
 	require.Equal(t, want, got, "peer received unexpected bytes")
 }
 
-// TestTransport_StopJoinsRecvLoop is the round-7 key test. It verifies that Stop closes the
+// TestTransport_StopJoinsRecvLoop verifies that Stop closes the
 // connection (unblocking the recv loop's parked Read) and JOINS the recv loop via g.recv.Wait
 // before returning. Without g.recv.Wait, Stop returns before the recv loop's rt.TCPDown call
 // has completed, violating the epoch generation-serialization contract.

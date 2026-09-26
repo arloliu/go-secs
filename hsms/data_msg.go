@@ -347,7 +347,7 @@ func (b *DataMessageBuilder) WithID(id uint32) *DataMessageBuilder {
 
 // Build constructs and validates a new [DataMessage] using the builder's current field values.
 //
-// It runs the full Q3 validation (item error, W-bit vs even function, stream range).
+// It runs the full data-message validation (item error, W-bit vs even function, stream range).
 func (b *DataMessageBuilder) Build() (*DataMessage, error) {
 	return NewDataMessage(b.stream, b.function, b.waitBit, b.sessionID, b.systemBytes, b.item)
 }
@@ -361,7 +361,7 @@ func (b *DataMessageBuilder) Build() (*DataMessage, error) {
 // A nil or typed-nil item is treated as an empty body ([secs2.NewEmptyItem]),
 // consistent with the decode path where a zero-length body is legal.
 //
-// Q3 validation (SEMI E37 §8.3.3.3) is performed before construction:
+// Data-message validation (SEMI E37 §8.3.3.3) is performed before construction:
 //
 //   - item.Error() must be nil, including recursive aggregate errors from list children.
 //   - replyExpected may not be true when function is even (W=1 on a reply function is rejected with [ErrInvalidRspMsg]).
@@ -418,8 +418,9 @@ func NewDataMessage(stream, function uint8, replyExpected bool, sessionID uint16
 // that have a validated header and want to attach a body without re-deriving stream/function/session/System Bytes by hand.
 //
 // The header's PType (byte 4) and SType (byte 5) must both be 0 (a SECS-II data message); the stream, function, wait bit, session ID,
-// and System Bytes are read from the header and revalidated via the same Q3 rules as NewDataMessage.
-// This differs from the raw-frame decode path (decodeOwnedFrame), which does not run Q3 validation because it trusts the wire.
+// and System Bytes are read from the header and revalidated via the same rules as NewDataMessage.
+// This differs from the raw-frame decode path (decodeOwnedFrame),
+// which does not run data-message validation because it trusts the wire.
 func NewDataMessageFromHeader(header [10]byte, item secs2.Item) (*DataMessage, error) {
 	if header[4] != 0 {
 		return nil, fmt.Errorf("invalid PType: %d: %w", header[4], ErrInvalidPType)

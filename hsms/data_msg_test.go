@@ -241,7 +241,7 @@ func item1Bytes() []byte {
 	return secs2.NewASCIIItem("padded-body").ToBytes()
 }
 
-// TestDataMessage_TrailingBytes_SecondItem verifies the D3-observation contract: a body carrying
+// TestDataMessage_TrailingBytes_SecondItem verifies the conformance audit's D3-observation contract: a body carrying
 // a second complete item after the first is still delivered as ONLY the first item — DecodeErr
 // stays nil and Item returns item 1 — with TrailingBytes reporting the second item's byte count.
 // Delivery is the point of the task: a second item must never fail a decode.
@@ -397,7 +397,7 @@ func TestDataMessage_WithID(t *testing.T) {
 }
 
 // ────────────────────────────────────────────────────────────────
-// Q3 validation
+// Data-message validation
 // ────────────────────────────────────────────────────────────────
 
 // TestNewDataMessage_Q3_ItemError verifies that NewDataMessage rejects an item
@@ -560,12 +560,12 @@ func TestDataMessageBuilder_Build_Basic(t *testing.T) {
 }
 
 // TestDataMessageBuilder_Build_Q3_WBitOnEvenFunction verifies that Build() re-runs
-// the full Q3 validation and rejects W=1 on an even function.
+// the full data-message validation and rejects W=1 on an even function.
 func TestDataMessageBuilder_Build_Q3_WBitOnEvenFunction(t *testing.T) {
 	orig, err := hsms.NewDataMessage(1, 1, true, 0, [4]byte{}, secs2.NewEmptyItem())
 	require.NoError(t, err)
 
-	// Change function to even but keep W=true → must fail Q3.
+	// Change function to even but keep W=true → must fail validation.
 	_, err = orig.Derive().WithFunction(2).Build()
 	assert.ErrorIs(t, err, hsms.ErrInvalidRspMsg)
 }

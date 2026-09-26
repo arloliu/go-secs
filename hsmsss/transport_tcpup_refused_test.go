@@ -96,7 +96,7 @@ func TestActive_RefusedTCPUpClosesConnAndSkipsRecvLoop(t *testing.T) {
 	rt := newGenRecRT(2) // an arbitrary non-zero identity: this mock refuses unconditionally, so the value itself carries no meaning here
 	rt.setRefuseTCPUp(true)
 	tr.rt = rt // re-bind to the capability-offering, refusal-controllable runtime
-	// startActive itself stamps g.ctx (R10 / D1), right alongside g.gen, before anything is spawned — nothing to set here.
+	// startActive itself stamps g.ctx, right alongside g.gen, before anything is spawned — nothing to set here.
 
 	err = tr.startActive(t.Context())
 	require.ErrorIs(t, err, errStartSealed, "a refused TCP-up must abort Start with errStartSealed")
@@ -149,7 +149,7 @@ func TestPassive_RefusedTCPUpClosesConnAndSkipsRecvLoop(t *testing.T) {
 	tr.rt = rt // re-bind to the capability-offering, refusal-controllable runtime
 
 	// acceptLoop is called directly here, bypassing startPassive (which would normally stamp
-	// g.ctx alongside g.gen — R10 / D1); the refusal path below never reads g.ctx, so it is left unset.
+	// g.ctx alongside g.gen); the refusal path below never reads g.ctx, so it is left unset.
 	g := &genWG{gen: 1}
 	g.accept.Add(1) // mirrors startPassive's own Add before spawning acceptLoop
 

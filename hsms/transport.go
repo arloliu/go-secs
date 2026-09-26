@@ -31,10 +31,10 @@ type transport interface {
 	// (passive) — see the Active first-connect contract doc on (*connection).Open.
 	IsActive() bool
 
-	// Stop joins the per-generation recv loop and releases transport resources. It is
-	// invoked by epoch teardown (Codex round-7) after the socket has already been closed,
-	// so a parked recv Read is already unblocked (J5). Stop seals the transport's
-	// Add-vs-Wait guard (I1) so a concurrent/subsequent Start aborts its WaitGroup Adds
+	// Stop joins the per-generation recv loop and releases transport resources.
+	// It is invoked by epoch teardown after the socket has already been closed,
+	// so a parked recv Read is already unblocked.
+	// Stop seals the transport's Add-vs-Wait guard (I1) so a concurrent/subsequent Start aborts its WaitGroup Adds
 	// rather than racing Stop's Waits on the GENERATION's WaitGroup bundle (NEW-1: each
 	// generation has its own bundle; Stop captures and waits the one it sealed).
 	Stop(ctx context.Context) error

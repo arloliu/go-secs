@@ -23,7 +23,7 @@ func mustDataMsg(t *testing.T) *DataMessage {
 
 // TestSession_FanOutDeliversSamePointer registers two DataMessageHandlers, delivers a
 // message via recvDataMsg, and asserts that both handlers observe the exact same
-// *DataMessage pointer (no Clone — D7).
+// *DataMessage pointer (no Clone).
 func TestSession_FanOutDeliversSamePointer(t *testing.T) {
 	rt := newMockRuntime(t)
 	s := newSession(0xFFFF, rt, &sysBytesGen{})
@@ -41,7 +41,7 @@ func TestSession_FanOutDeliversSamePointer(t *testing.T) {
 	wg.Wait()
 
 	require.Same(t, msg, got1)
-	require.Same(t, got1, got2, "every handler gets the SAME immutable pointer (no Clone, D7)")
+	require.Same(t, got1, got2, "every handler gets the SAME immutable pointer (no Clone)")
 }
 
 // TestSession_SessionID verifies the SECS2Endpoint identity accessor (SessionID, the sole
@@ -52,15 +52,16 @@ func TestSession_SessionID(t *testing.T) {
 	require.Equal(t, uint16(0x1234), ep.SessionID())
 }
 
-// TestSession_J5_BlockedChannelDoesNotWedgeFanOut verifies that a full/stalled channel
-// handler cannot block recvDataMsg past connection teardown (J5).
+// TestSession_BlockedChannelDoesNotWedgeFanOut verifies that a full/stalled channel
+// handler cannot block recvDataMsg past connection teardown.
 //
-// Design: an unbuffered channel with no reader is registered. The goroutine running
-// recvDataMsg blocks on the channel-delivery select. Closing rt.Done() must unblock it.
+// Design: an unbuffered channel with no reader is registered.
+// The goroutine running recvDataMsg blocks on the channel-delivery select.
+// Closing rt.Done() must unblock it.
 //
 // Teeth-check: temporarily omit `case <-s.rt.Done()` from the channel-delivery select
-// in session.go and run this test — it times out at 2 s, confirming J5 is real.
-func TestSession_J5_BlockedChannelDoesNotWedgeFanOut(t *testing.T) {
+// in session.go and run this test — it times out at 2 s, confirming the unblock guarantee is real.
+func TestSession_BlockedChannelDoesNotWedgeFanOut(t *testing.T) {
 	rt := newMockRuntime(t)
 	s := newSession(0xFFFF, rt, &sysBytesGen{})
 
@@ -85,9 +86,9 @@ func TestSession_J5_BlockedChannelDoesNotWedgeFanOut(t *testing.T) {
 
 	select {
 	case <-recvDone:
-		// J5 satisfied: fan-out unblocked when rt.Done() closed.
+		// Fan-out unblocked when rt.Done() closed.
 	case <-time.After(2 * time.Second):
-		t.Fatal("J5 violated: recvDataMsgOn did not return after rt.Done() was closed")
+		t.Fatal("recvDataMsgOn did not return after rt.Done() was closed")
 	}
 }
 

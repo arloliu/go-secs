@@ -13,12 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestReconnect_AfterDropReselects is the happy-path reconnect (spec §5.2): an active pair opens,
-// selects, suffers an involuntary drop, and the reconnect loop dials a fresh generation that
-// re-selects — then Close tears it down cleanly. This is ALSO the round-6 supervisor-lifetime
-// teeth: the supervisor spans generations (it is connection-owned, NOT epoch-spawned), so it is
-// still alive to drive evTCPUp/evSelectAccepted for generation N+1. An epoch-spawned supervisor
-// would have been killed by the drop's epoch-ctx cancel and gen N+1 would never reselect.
+// TestReconnect_AfterDropReselects is the happy-path reconnect (spec §5.2):
+// an active pair opens, selects, suffers an involuntary drop, and the reconnect loop dials a fresh generation that re-selects —
+// then Close tears it down cleanly.
+// This is ALSO the supervisor-lifetime teeth:
+// the supervisor spans generations (it is connection-owned, NOT epoch-spawned),
+// so it is still alive to drive evTCPUp/evSelectAccepted for generation N+1.
+// An epoch-spawned supervisor would have been killed by the drop's epoch-ctx cancel and gen N+1 would never reselect.
 func TestReconnect_AfterDropReselects(t *testing.T) {
 	c, mt := newLifeConn(t, withMockTransport())
 	require.NoError(t, c.UpdateConfigOptions(WithT5(10*time.Millisecond)))
@@ -77,10 +78,11 @@ func TestReconnect_WriteFailureTearsDownAndReconnects(t *testing.T) {
 }
 
 // TestReconnect_GenFenceAfterClose: a reconnect scheduled just before Close must NOT publish a new
-// generation after Close (G2). It also exercises the round-8 no-deadlock property: Close holds
+// generation after Close.
+// It also exercises a no-deadlock property: Close holds
 // lifeMu while it connectLoopWg.Wait()s the paused loop, and the loop's fence is ATOMICS ONLY, so
 // it can abandon and return without ever contending lifeMu — no deadlock.
-// Teeth: drop the shutdown/reconnectGen re-check (F3 + the G2 fence) → the loop publishes a fresh
+// Teeth: drop the reconnect fence's shutdown/reconnectGen re-check → the loop publishes a fresh
 // epoch after Close (require.Same on cur then fails).
 func TestReconnect_GenFenceAfterClose(t *testing.T) {
 	c, mt := newLifeConn(t, withMockTransport())
@@ -118,11 +120,11 @@ func TestReconnect_GenFenceAfterClose(t *testing.T) {
 	case err := <-closeErr:
 		require.NoError(t, err)
 	case <-time.After(2 * time.Second):
-		t.Fatal("Close hung — the atomics-only G2 fence must not deadlock against lifeMu-held connectLoopWg.Wait (round-8)")
+		t.Fatal("Close hung — the atomics-only reconnect fence must not deadlock against lifeMu-held connectLoopWg.Wait")
 	}
 
 	require.Same(t, prevEpoch, c.cur.Load(),
-		"reconnect must NOT publish a new generation after Close (G2 fence)")
+		"reconnect must NOT publish a new generation after Close (the reconnect fence)")
 	require.Equal(t, NotConnectedState, c.State())
 }
 
@@ -192,7 +194,7 @@ func TestReconnect_LoopJoinSeparateFromEpochWg(t *testing.T) {
 	require.NoError(t, c.Close())
 }
 
-// TestOpen_StartFailureNoSpuriousReconnect (E2 reconciliation #2): a tr.Start that fails AFTER
+// TestOpen_StartFailureNoSpuriousReconnect: a tr.Start that fails AFTER
 // driving evTCPUp (FSM at NotSelected) must NOT trigger a reconnect — the Open rollback sets
 // shutdown before requestClose, so the NotSelected→NotConnected reaction skips startConnectLoop.
 // Teeth: remove the rollback shutdown fence → the reaction starts a reconnect loop and a second
