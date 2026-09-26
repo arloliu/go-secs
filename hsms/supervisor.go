@@ -43,8 +43,10 @@ const (
 type fsmCommand struct {
 	ev    fsmEvent
 	cause TransitionCause
-	// gen is the identity of the generation on whose behalf the event was injected (epoch.id),
-	// or 0 when the injection site did not name one.
+	// gen is the identity of the generation on whose behalf the event was injected (epoch.id).
+	// For a synchronous commit's follow-up that passed through a real gate,
+	// this is the gate's own resolved id, not the caller's own gen (see commitFrom).
+	// 0 means the injection site named none and no gate resolved one (evClose, or the nil-gate bypass).
 	// It is never reported to a subscriber.
 	// It exists so an event injected by a generation that has since ended is discarded,
 	// instead of driving a transition on its successor.
@@ -117,23 +119,24 @@ type supervisor struct {
 	// commitGate fences the Select-lost synchronous commit (connection.commitGate).
 	// That commit is a CAS operation on state rather than an event on the queue,
 	// so step's generation match never sees it and it needs a barrier of its own.
-	// The gate runs the supplied CAS only while gen is still the live, un-torn-down generation,
-	// and reports both whether the CAS committed and whether the generation was live at all.
+	// The gate runs the supplied CAS only while gen is still the live, un-torn-down generation
+	// (a gen of 0 is admitted on liveness alone, skipping only the identity comparison — connection.commitGate),
+	// and reports whether the CAS committed, whether the generation was live at all,
+	// and the id of the epoch it resolved the decision against (meaningful only when live).
+	// commitFrom carries that id onward to the follow-up event (see commitFrom).
 	// Nil in unit tests that build a supervisor without a connection, which SKIPS the fence.
-	commitGate func(gen uint64, cas func() bool) (committed, live bool)
+	commitGate func(gen uint64, cas func() bool) (committed, live bool, id uint64)
 
 	// selectGate is commitGate's counterpart for the Select-accepted commit (connection.selectCommitGate).
-	// It shares commitGate's shape and RLock discipline,
-	// but — unlike commitGate — does NOT bypass a gen of 0; see connection.selectCommitGate for why.
+	// It shares commitGate's shape, RLock discipline, and gen-0-admitted-on-liveness rule.
 	// On a successful commit it also latches the committing generation's reconnect-backoff reset
 	// marker (epoch.reachedSelected) inside the same RLock section.
 	// Nil in unit tests that build a supervisor without a connection, which SKIPS the fence exactly as
 	// a nil commitGate does.
-	selectGate func(gen uint64, cas func() bool) (committed, live bool)
+	selectGate func(gen uint64, cas func() bool) (committed, live bool, id uint64)
 
 	// tcpUpCommitGate is commitGate's counterpart for the TCP-up commit (connection.tcpUpCommitGate).
-	// It shares commitGate's shape and RLock discipline,
-	// and — like selectGate — does NOT bypass a gen of 0:
+	// It shares commitGate's shape, RLock discipline, and gen-0-admitted-on-liveness rule:
 	// SECS-I, and any transport that uses only TransportRuntime, report TCP-up unnamed,
 	// and gating only named generations would leave every one of their reports unfenced.
 	// It additionally admits at most one TCP-up per generation BEFORE the CAS runs at all —
@@ -141,7 +144,7 @@ type supervisor struct {
 	// and, on that admitted commit's success, latches the generation's tcpUpCommitted marker — see connection.tcpUpCommitGate.
 	// Nil in unit tests that build a supervisor without a connection, which SKIPS the fence exactly as
 	// a nil selectGate does.
-	tcpUpCommitGate func(gen uint64, cas func() bool) (committed, live bool)
+	tcpUpCommitGate func(gen uint64, cas func() bool) (committed, live bool, id uint64)
 
 	// staleGen counts events discarded because the generation that injected them had already ended,
 	// plus the disconnect reports the injection path itself dropped for the same reason (connection.injectDisconnect),
@@ -156,7 +159,10 @@ type supervisor struct {
 	testHookAfterStateLoad func(ev fsmEvent)
 
 	// testHookBeforeEnqueue, when non-nil,
-	// is invoked by commitFrom immediately after one of the three synchronous commits' CAS succeeds and BEFORE its follow-up event is enqueued.
+	// is invoked by commitFrom immediately after one of the three synchronous commits' CAS succeeds
+	// and BEFORE its follow-up event is enqueued.
+	// gen is the id that will be queued —
+	// the gate's own resolved id for a gated commit, or the caller's own gen for the nil-gate bypass (see commitFrom).
 	// A true return withholds that enqueue entirely, leaving the TEST —
 	// not commitFrom's caller, which never sees skipEnqueue —
 	// to replay the report later (via injectFrom) or drop it:
@@ -371,14 +377,12 @@ func (s *supervisor) CommitSelectLostFromGeneration(gen uint64, cause Transition
 // followed by ev's injection for the deduped reaction/notify.
 //
 // gen is the generation the commit is made on behalf of, or 0 when the caller named none.
-// For the Select-lost commit, a gen of 0 — secs1, a transport that uses only TransportRuntime, or a runtime without the generation capability —
-// takes the bare CAS, exactly the behavior every commit had before generations were carried.
-// The TCP-up and Select-accepted commits are the two exceptions:
-// they use tcpUpCommitGate / selectGate instead of commitGate, and neither gate bypasses a gen of 0
-// (see tcpUpCommitGate's and selectGate's docs for why).
-// commitGate is skipped outright — the same bare CAS as above —
-// whenever it is nil (a supervisor built without a connection, as unit tests do) or whenever gen is 0.
-// tcpUpCommitGate and selectGate are each skipped outright only when nil.
+// Every one of the three gates (commitGate for Select-lost, selectGate for Select-accepted, tcpUpCommitGate for TCP-up) is skipped outright,
+// leaving a bare CAS,
+// only when it is nil,
+// which happens only in a supervisor built without a connection (unit tests).
+// A gen of 0 reaches whichever gate is installed, exactly like any other gen:
+// it is admitted on liveness alone, skipping only the identity comparison (see commitGate's doc).
 //
 // A gated commit runs the CAS inside the connection's generation gate,
 // which admits it only while the live generation has not begun teardown and (for a named generation)
@@ -404,25 +408,24 @@ func (s *supervisor) CommitSelectLostFromGeneration(gen uint64, cause Transition
 //
 // The injection is deliberately issued AFTER the gate is released:
 // inject can block on a full event queue, and the gate must never be held across anything that blocks.
-// It carries gen onward so step's own generation match applies to the follow-up event as well.
+// A gated commit carries the gate's own id onward, in place of the caller's gen,
+// so step's later generation match is applied against the exact generation this gate resolved the decision against —
+// not against whatever generation is current by the time step processes the follow-up.
+// The nil-gate bypass has no gate to resolve an id from, so it carries the caller's gen onward unchanged.
 func (s *supervisor) commitFrom(gen uint64, from, to ConnState, ev fsmEvent, cause TransitionCause) (committed bool) {
 	cas := func() bool { return s.state.CompareAndSwap(uint32(from), uint32(to)) }
 
 	gate := s.commitGate
-	bypass := gen == 0 || gate == nil
 
 	if ev == evSelectAccepted { //nolint:staticcheck // if/else, not a switch: an exhaustive switch over every event would need a default with nothing sensible to do here.
 		gate = s.selectGate
-		bypass = gate == nil
 	} else if ev == evTCPUp {
 		gate = s.tcpUpCommitGate
-		bypass = gate == nil
 	}
 	// Every other event this function can be called with — only evSelectLost, in practice;
-	// evDisconnect, evClose, and evT7Timeout are async-only and never reach commitFrom —
-	// keeps commitGate and its gen-0 bypass, the plain CAS every commit had before generations were carried.
+	// evDisconnect, evClose, and evT7Timeout are async-only and never reach commitFrom — keeps commitGate.
 
-	if bypass {
+	if gate == nil {
 		if cas() {
 			if hook := s.testHookBeforeEnqueue; hook == nil || !hook(gen, ev, cause) {
 				s.injectFrom(gen, ev, cause)
@@ -434,7 +437,7 @@ func (s *supervisor) commitFrom(gen uint64, from, to ConnState, ev fsmEvent, cau
 		return false
 	}
 
-	committed, live := gate(gen, cas)
+	committed, live, id := gate(gen, cas)
 	if !live {
 		s.staleGen.Add(1)
 
@@ -442,8 +445,8 @@ func (s *supervisor) commitFrom(gen uint64, from, to ConnState, ev fsmEvent, cau
 	}
 
 	if committed {
-		if hook := s.testHookBeforeEnqueue; hook == nil || !hook(gen, ev, cause) {
-			s.injectFrom(gen, ev, cause)
+		if hook := s.testHookBeforeEnqueue; hook == nil || !hook(id, ev, cause) {
+			s.injectFrom(id, ev, cause)
 		}
 	}
 
@@ -472,8 +475,8 @@ func (s *supervisor) run() {
 
 // step applies one event.
 // It reads the current state.
-// Then an event that names the generation it was injected for is matched against the live generation,
-// and discarded if that generation has ended —
+// Then an event that names the generation it was injected for is matched against the current generation,
+// and discarded once its generation is no longer current —
 // the barrier that keeps a late transport goroutine from dropping its successor's link
 // (reading state before this check is load-bearing; see the inline note below).
 // It then applies the pure transition (illegal
@@ -698,12 +701,11 @@ func (s *supervisor) inject(ev fsmEvent, cause TransitionCause) {
 // A gen of 0 means the injection site itself named no generation.
 // step then processes the queued event against whatever generation is current when it reaches it,
 // skipping the identity match.
-// Two kinds of site queue an event with gen 0:
-// evClose, and the follow-up event of an unnamed synchronous commit (TCP-up, Select-accepted, or Select-lost).
-// Commit-time admission is a separate question from that queued bypass.
-// An unnamed TCP-up or Select-accepted commit still has its liveness checked at commit time;
-// only the identity comparison is skipped (see tcpUpCommitGate, selectCommitGate).
-// An unnamed Select-lost commit bypasses commitGate's liveness check too (see commitFrom).
+// Only two kinds of site still queue an event with gen 0: evClose,
+// and the nil-gate bypass a supervisor built without a connection falls back to (unit tests, which have no epoch to name).
+// Every unnamed synchronous commit (TCP-up, Select-accepted, or Select-lost) that reaches a real gate is instead queued with the gate's own resolved id (see commitFrom).
+// All three gates check liveness at commit time regardless of gen;
+// only the identity comparison is skipped for a gen of 0 (see commitGate, tcpUpCommitGate, selectCommitGate).
 // An unnamed evDisconnect or evT7Timeout report never carries gen 0 here:
 // injectDisconnect and injectT7Expiry each bind it, at report time, to the generation current then,
 // before calling this (see injectDisconnect).

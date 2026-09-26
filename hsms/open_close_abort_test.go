@@ -861,9 +861,11 @@ func TestOpen_DialAlreadySucceededCloseOwnsTeardown(t *testing.T) {
 	require.NoError(t, awaitErr(t, openDone, "Open"), "Open's outcome must be the normal success")
 	require.NoError(t, awaitErr(t, closeDone, "Close"), "Close must own the teardown of the just-opened generation")
 	// No final-state assertion here: the mock reports TCP-up through the non-generation-aware
-	// TCPUp entry point (the same one an out-of-module transport would use), which by contract
-	// bypasses the generation gate — so a background TCPUp goroutine racing Close's own teardown
-	// can legitimately still flip the FSM after Close returns.
+	// TCPUp entry point (the same one an out-of-module transport would use),
+	// which is gated by tcpUpCommitGate on liveness like any other TCP-up report, not bypassed —
+	// but the background goroutine that calls it here is not joined by Close's own teardown,
+	// so it can still win the race and commit before that teardown latches the epoch ended,
+	// legitimately flipping the FSM after Close returns.
 	// That is an accepted property of TCPUp itself, unrelated to what this test exercises.
 	// hsmsss's active transport uses the generation-aware entry point instead — see its own equivalent test.
 	// secs1 has no such race to begin with:

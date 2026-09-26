@@ -814,7 +814,7 @@ func TestCommitGate_FencesTheCASAgainstMarkEnded(t *testing.T) {
 
 		var committed, live bool
 		go func() {
-			committed, live = c.commitGate(e.id, func() bool {
+			committed, live, _ = c.commitGate(e.id, func() bool {
 				close(inCAS)
 				<-release
 
@@ -861,7 +861,7 @@ func TestCommitGate_FencesTheCASAgainstMarkEnded(t *testing.T) {
 		e.markEnded() // teardown wins the gate first
 
 		var casRan bool
-		committed, live := c.commitGate(e.id, func() bool {
+		committed, live, _ := c.commitGate(e.id, func() bool {
 			casRan = true
 
 			return true

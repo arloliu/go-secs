@@ -1049,7 +1049,7 @@ func TestTCPUpCommitGate_MarkerPlacement(t *testing.T) {
 
 		var committed, live bool
 		go func() {
-			committed, live = c.tcpUpCommitGate(e.id, func() bool {
+			committed, live, _ = c.tcpUpCommitGate(e.id, func() bool {
 				close(inCAS)
 				<-release
 
@@ -1116,7 +1116,7 @@ func TestTCPUpCommitGate_MarkerPlacement(t *testing.T) {
 
 		var committed, live bool
 		go func() {
-			committed, live = c.tcpUpCommitGate(0, func() bool {
+			committed, live, _ = c.tcpUpCommitGate(0, func() bool {
 				close(inCAS)
 				<-release
 
@@ -1171,7 +1171,7 @@ func TestTCPUpCommitGate_MarkerPlacement(t *testing.T) {
 		e.markEnded() // teardown wins the gate first
 
 		var casRan bool
-		committed, live := c.tcpUpCommitGate(0, func() bool {
+		committed, live, _ := c.tcpUpCommitGate(0, func() bool {
 			casRan = true
 
 			return true
@@ -1575,7 +1575,7 @@ func TestReconnect_FailedCommitAndTCPDownWithoutTCPUpKeepLoopOwnership(t *testin
 		e := c.cur.Load()
 		require.NotNil(t, e)
 
-		committed, live := c.tcpUpCommitGate(0, func() bool { return false })
+		committed, live, _ := c.tcpUpCommitGate(0, func() bool { return false })
 
 		require.True(t, live)
 		require.False(t, committed)

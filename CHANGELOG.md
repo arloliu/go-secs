@@ -62,6 +62,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   It excludes the dropped generation's own teardown and the wait for that generation's `Start` call to return,
   a window a custom transport's slow `Start` could otherwise stretch out indefinitely.
   It still never reads above 1.
+- `hsms`: `TransportRuntime.SelectLost` is now refused, leaving the state unchanged,
+  when the current generation's teardown has already begun — the same refusal `TCPUp` and `CommitSelected` already apply.
+  Previously an unnamed Select-lost commit bypassed that check entirely;
+  a transport using only `TransportRuntime` reports Select-lost unnamed.
+  A late unnamed call made after a new generation is already current still targets that new generation
+  and may commit if its remaining guards pass.
 
 - `hsms`, `secs1`: `TransportRuntime.TCPUp` now refuses its state commit — leaving the FSM unchanged — when the current generation's teardown has already begun,
   or when that generation has already reported TCP-up once.
@@ -141,6 +147,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and a Select arriving in that window could be refused;
   it is now applied only to the generation that was current when it was reported.
   The same fix applies to an unnamed T7 (NOT-SELECTED dwell) expiry.
+- `hsms`: a Select-accepted, Select-lost, or TCP-up commit reported without a generation identity
+  (`secs1`, or a transport using only `TransportRuntime`) —
+  if its own report to the state machine was delayed past a reconnect —
+  could be applied to the generation that replaced the one which made the commit.
+  Select-accepted could mark the new link Selected without its own handshake ever running;
+  Select-lost could report the new link's bring-up under the wrong cause;
+  TCP-up could report that bring-up on the old generation's behalf,
+  before the new link's own report (same cause, `CauseLocalOpen`).
+  The commit's own liveness check already ran against the reporting generation for Select-accepted and TCP-up;
+  an unnamed Select-lost commit had no liveness check at all until this fix — a bare CAS at generation 0 (see above).
+  Only the queued report to the state machine carried no generation identity,
+  so a stale one could still land on the new link.
+  That report is now bound to the generation the commit was validated against,
+  and is discarded once a successor generation has replaced it —
+  an ended-but-current generation's report is still admitted —
+  the same way an unnamed disconnect report already is.
+  A late unnamed call made after the new generation is already current still targets that new generation
+  and may commit if its remaining guards pass; socket publication is outside this fence.
 
 ## [2.4.2] - 2026-09-25
 

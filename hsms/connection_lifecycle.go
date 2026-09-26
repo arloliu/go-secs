@@ -240,11 +240,12 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	s.curGen = c.CurrentGeneration
 	// The fence behind the Select-lost commit, which never reaches step and so is not covered by its match.
 	s.commitGate = c.commitGate
-	// The Select commit's own fence: the same generation-guarded CAS discipline, but it also gates a
-	// gen of 0 and stores the reconnect-backoff reset marker (see connection.selectCommitGate).
+	// The Select commit's own fence: shares commitGate's generation-guarded CAS discipline,
+	// differing only in that it also stores the reconnect-backoff reset marker (see connection.selectCommitGate).
 	s.selectGate = c.selectCommitGate
-	// The TCP-up commit's own fence: gates a gen of 0 too,
-	// and admits at most one TCP-up per generation, recording whether it committed (see connection.tcpUpCommitGate).
+	// The TCP-up commit's own fence: shares commitGate's discipline,
+	// additionally admitting at most one TCP-up per generation before the CAS runs at all,
+	// and, on that admitted commit's success, recording whether it committed (see connection.tcpUpCommitGate).
 	s.tcpUpCommitGate = c.tcpUpCommitGate
 	c.sup.Store(s)
 	go s.run()
@@ -1253,25 +1254,33 @@ func (c *connection) liveEpoch(gen uint64) *epoch {
 
 // commitGate fences one generation-guarded synchronous FSM commit against the end of the generation that asked for it.
 //
-// It reports whether the CAS committed, and whether gen was live at all.
-// The caller needs the two apart:
+// It admits a gen of 0 on liveness alone, skipping only the identity comparison —
+// the same rule selectCommitGate and tcpUpCommitGate apply,
+// so an unnamed Select-lost commit (any transport that uses only TransportRuntime) is gated exactly like a named one,
+// never bypassed.
+//
+// It reports whether the CAS committed, whether gen was live at all, and the id of the epoch this RLock section actually resolved the decision against
+// (meaningful only when live;
+// for a named commit it equals gen, for a gen of 0 it is whichever generation the liveness check admitted).
+// commitFrom carries that id onward to the follow-up event (see commitFrom).
+// The caller needs committed and live apart:
 // "already in the target state" and "your generation is over" are different answers,
 // and only the second one is a discarded commit.
 //
-// The RLock spans the whole decision: resolve the live generation, verify it is gen and that gen has not ended,
-// and run the CAS.
+// The RLock spans the whole decision: resolve the live generation, verify liveness, and run the CAS.
 // epoch.markEnded takes the same gate for writing at the top of teardown,
 // so this section is ordered wholly before or wholly after the end of any generation.
 // Observing ended false therefore means the CAS lands while gen is still the working generation —
 // no successor can exist yet, because every successor publish is downstream of a teardown that has already latched ended.
 //
 // Nothing that can block runs under the gate: the log below is deliberately emitted after the unlock.
-func (c *connection) commitGate(gen uint64, cas func() bool) (committed, live bool) {
+func (c *connection) commitGate(gen uint64, cas func() bool) (committed, live bool, id uint64) {
 	c.genGate.RLock()
 
 	e := c.cur.Load()
-	live = e != nil && e.id == gen && !e.ended.Load()
+	live = e != nil && !e.ended.Load() && (gen == 0 || e.id == gen)
 	if live {
+		id = e.id
 		committed = cas()
 	}
 
@@ -1287,19 +1296,14 @@ func (c *connection) commitGate(gen uint64, cas func() bool) (committed, live bo
 			"reported_generation", gen, "current_generation", current)
 	}
 
-	return committed, live
+	return committed, live, id
 }
 
 // selectCommitGate is commitGate's counterpart for the Select-accepted commit only.
 //
 // It fences the same way —
-// one genGate.RLock section spanning {resolve the live generation, verify liveness, run the CAS} —
-// but ALSO differs from commitGate in the one place the Select commit needs to: a gen of 0 is NOT bypassed.
-// secs1, and any transport that uses only TransportRuntime, never carry a generation identity,
-// so a named-generation check alone would leave every one of their Select commits ungated;
-// instead, a gen of 0 skips ONLY the identity comparison,
-// and the liveness requirement still applies — a non-nil, un-torn-down current generation.
-// A named generation (gen != 0, the hsmsss path) keeps requiring an exact identity match, exactly like commitGate.
+// one genGate.RLock section spanning {resolve the live generation, verify liveness, run the CAS},
+// admitting a gen of 0 on liveness alone — and reports the same (committed, live, id) shape.
 //
 // On a successful commit it also latches epoch.reachedSelected on the SAME generation the RLock section validated,
 // before releasing the lock —
@@ -1309,12 +1313,13 @@ func (c *connection) commitGate(gen uint64, cas func() bool) (committed, live bo
 //
 // Nothing that can block runs under the gate: the log below is deliberately emitted after the unlock,
 // exactly like commitGate.
-func (c *connection) selectCommitGate(gen uint64, cas func() bool) (committed, live bool) {
+func (c *connection) selectCommitGate(gen uint64, cas func() bool) (committed, live bool, id uint64) {
 	c.genGate.RLock()
 
 	e := c.cur.Load()
 	live = e != nil && !e.ended.Load() && (gen == 0 || e.id == gen)
 	if live {
+		id = e.id
 		committed = cas()
 		if committed {
 			e.reachedSelected.Store(true)
@@ -1333,19 +1338,17 @@ func (c *connection) selectCommitGate(gen uint64, cas func() bool) (committed, l
 			"reported_generation", gen, "current_generation", current)
 	}
 
-	return committed, live
+	return committed, live, id
 }
 
 // tcpUpCommitGate is commitGate's counterpart for the TCP-up commit only.
 //
 // It fences the same way —
 // one genGate.RLock section spanning {resolve the live generation, verify liveness, run the CAS} —
-// but ALSO differs from commitGate in the one place the TCP-up commit needs it to: a gen of 0 is NOT bypassed,
-// for the same reason selectCommitGate does not bypass it —
+// admitting a gen of 0 on liveness alone, exactly like commitGate and selectCommitGate:
 // SECS-I, and any transport that uses only TransportRuntime, never carry a generation identity,
 // so a named-generation check alone would leave every one of their TCP-up reports ungated.
-// A gen of 0 skips ONLY the identity comparison; the liveness requirement — a non-nil,
-// un-torn-down current generation — still applies.
+// It reports the same (committed, live, id) shape as commitGate and selectCommitGate.
 //
 // It additionally admits AT MOST ONE TCP-up per generation:
 // e.tcpUpAdmitted.CompareAndSwap(false, true) inside the same RLock section refuses a second report
@@ -1368,7 +1371,7 @@ func (c *connection) selectCommitGate(gen uint64, cas func() bool) (committed, l
 // exactly like commitGate and selectCommitGate.
 // A refused second report on a still-live generation logs the same way, distinctly from a refusal on a dead one;
 // commitFrom counts staleGen only for the latter (live is still true here), so this refusal is a diagnostic only.
-func (c *connection) tcpUpCommitGate(gen uint64, cas func() bool) (committed, live bool) {
+func (c *connection) tcpUpCommitGate(gen uint64, cas func() bool) (committed, live bool, id uint64) {
 	c.genGate.RLock()
 
 	e := c.cur.Load()
@@ -1376,6 +1379,7 @@ func (c *connection) tcpUpCommitGate(gen uint64, cas func() bool) (committed, li
 
 	var admitted bool
 	if live {
+		id = e.id
 		admitted = e.tcpUpAdmitted.CompareAndSwap(false, true)
 		if admitted {
 			committed = cas()
@@ -1406,7 +1410,7 @@ func (c *connection) tcpUpCommitGate(gen uint64, cas func() bool) (committed, li
 			"reported_generation", gen, "current_generation", e.id)
 	}
 
-	return committed, live
+	return committed, live, id
 }
 
 // TCPDown is called by the transport when the TCP connection is lost (TransportRuntime).

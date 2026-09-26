@@ -90,6 +90,10 @@ type TransportRuntime interface {
 	// The commit is refused, and State() stays unchanged,
 	// when the current generation's teardown has already begun, or when that generation already admitted an earlier TCP-up report:
 	// a call after either can never resurrect a dying or already-dropped link.
+	// The enqueued reaction/notify is likewise applied only to the generation the commit was validated against,
+	// never to a successor that has since become current.
+	// A call made after a successor generation is already current is validated against, and applies to, that successor;
+	// the socket hand-off itself is outside this fence.
 	TCPUp(conn net.Conn)
 
 	// TCPDown is called by the transport when the TCP connection is lost.
@@ -108,11 +112,16 @@ type TransportRuntime interface {
 	// the state may already be Selected (idempotent — the simultaneous case, E37 §7.4.3),
 	// the link may already have dropped to NotConnected,
 	// or the connection may be tearing down the generation.
+	// The enqueued reaction/notify is applied only to the generation the commit was validated against,
+	// never to a successor that has since become current.
 	CommitSelected() (committed bool)
 
 	// SelectLost is called when the Selected state is lost due to a peer Separate or Deselect.
 	//
 	// It injects evSelectLost (Selected → NotSelected).
+	// The commit is refused, and State() stays unchanged,
+	// when the current generation's teardown has already begun — the same refusal TCPUp and CommitSelected apply.
+	// A call made after a successor generation is already current is validated against, and applies to, that successor.
 	SelectLost()
 
 	// T7Expired is called by the transport's T7 (NOT-SELECTED dwell) timer on expiry.

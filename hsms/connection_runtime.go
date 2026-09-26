@@ -93,6 +93,8 @@ func (c *connection) commitSelectAccepted(gen uint64) bool {
 // SelectLost injects evSelectLost into the supervisor (Selected -> NotSelected, TransportRuntime).
 //
 // It nil-guards the supervisor: with no live supervisor it is a no-op.
+// The commit is refused, and State() stays unchanged,
+// when the current generation's teardown has already begun — the same refusal TCPUp and CommitSelected apply.
 //
 // It carries no generation identity;
 // an in-module transport reports through [connection.SelectLostFromGeneration] instead.
@@ -105,7 +107,9 @@ func (c *connection) SelectLost() {
 //
 // It closes the same hazard as [connection.CommitSelectedFromGeneration], from the same goroutine:
 // a Deselect answered after the generation ended must not deselect the successor's live link.
-// A gen of 0 skips the match.
+// A gen of 0 skips only the identity comparison;
+// the liveness requirement — a non-nil, un-torn-down current generation — still applies,
+// exactly as it does for a named generation.
 //
 // It reports whether the commit was applied, for the same reason [connection.TCPUpFromGeneration] reports its refusal:
 // the caller has work of its own that belongs to the deselected link
