@@ -1,6 +1,50 @@
 # Log
 
 ## 2026-09-26
+* **Update**: [Who owns the reconnect retry after a failed Start](/hsms/reconnect-retry-ownership.md) — confirmation pass found no fault. Promoted to stable.
+* **Update**: [Reconnect backoff scope — what resets it, and what doesn't](/hsms/reconnect-backoff-scope.md) — confirmation pass found no fault. Promoted to stable.
+* **Update**: [Where a TransitionCause is chosen, and why one transition can swallow another's cause](/hsms/transition-cause-injection-sites.md) — confirmation-pass correction:
+  the late-TCP-up paragraph now marks its resurrection consequence as hypothetical and states the implemented outcome.
+  Promoted to stable.
+* **Update**: [How a shutdown joins the per-Open supervisor](/hsms/supervisor-join.md) — verify and confirmation passes found no fault. Promoted to stable.
+* **Update**: [Who owns the reconnect retry after a failed Start](/hsms/reconnect-retry-ownership.md) —
+  verify-pass corrections:
+  the successor's teardown wait is not cancellation-interruptible;
+  a Close racing `react`'s shutdown check can still get a loop,
+  which the cancel, the publish fence, and Close's join stop;
+  only transports using just `TransportRuntime` report TCP-up unnamed.
+  Stays draft.
+* **Update**: [Reconnect backoff scope](/hsms/reconnect-backoff-scope.md) — verify-pass corrections:
+  task joins use deadlines but teardown completion is not unconditionally bounded;
+  `tcpUpCommitGate` also enforces one TCP-up admission per generation;
+  gen-0 `CommitSelected` is qualified to transports using only `TransportRuntime`.
+  Stays draft.
+* **Update**: [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) — verify-pass corrections:
+  the plain TCP-up, Select-accepted, and Select-lost paths
+  call the supervisor's `FromGeneration` variants with generation 0;
+  a gen-0 TCP-up still needs an unused admission and a winning CAS;
+  the no-identity claim is qualified to transports using only `TransportRuntime`.
+  Stays draft.
+* **Creation**: [Who owns the reconnect retry after a failed Start](/hsms/reconnect-retry-ownership.md) — `4be2062`:
+  a Start that fails after TCP-up hands the retry to the drop reaction's loop through `injectDisconnect`;
+  the `startReturned` barrier, the `tcpUpCommitted` marker read after teardown, and the gauge release order keep one owner.
+  Draft.
+* **Update**: [Reconnect backoff scope](/hsms/reconnect-backoff-scope.md) — `4be2062`: the two-loop Start-failure gotcha is now closed by the hand-off;
+  successors also wait for the predecessor's `Start` to return; `CommitConnected` moved from `commitGate` to `tcpUpCommitGate`.
+  Demoted to draft.
+* **Update**: [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) — `4be2062`: new `CauseUnknown` hand-off injection site;
+  TCP-up commits go through `tcpUpCommitGate`, which gates gen 0 on liveness and admits one TCP-up per generation;
+  the single-publisher exception for custom transports is gone; gen-0 socket publication still has no liveness check.
+  Demoted to draft.
+* **Update**: [How a shutdown joins the per-Open supervisor](/hsms/supervisor-join.md) — `4be2062`: the failed-Open rollback, now `rollbackFailedOpen`,
+  fences and re-pins like Close, closes `reconnectCancel`, and waits on `connectLoopWg`.
+  Demoted to draft.
+* **Update**: digest-only refresh to `4be2062` for [stale-epoch write guard](/hsms/stale-epoch-write-guard.md), [selected gates](/hsms/selected-gates.md),
+  [inflight gauge](/hsms/inflight-gauge.md), [Close interrupts a blocked Open](/hsms/open-close-abort.md),
+  [send error accounting](/hsms/send-error-accounting.md), [callback panic/Goexit isolation](/hsms/handler-panic-goexit-isolation.md),
+  [inbound generation fence](/hsms/inbound-generation-fence.md), [activity stamps](/hsmsss/activity-stamps.md),
+  [E37.1 narrows E37 generic](/hsmsss/e37-1-narrows-e37-generic.md), [linktest teardown exemption](/hsmsss/linktest-teardown-exemption.md),
+  and [block send detect/act split](/secs1/block-send-detect-act-split.md).
 * **Update**: [Where a TransitionCause is chosen, and why one transition can swallow another's cause](/hsms/transition-cause-injection-sites.md) — confirmation-pass correction:
   the shipped transports name a cause through the optional `TCPDownWithCause` capability; a runtime without it reports `CauseUnknown`.
   Promoted to stable.
