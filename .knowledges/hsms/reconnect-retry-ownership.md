@@ -8,12 +8,12 @@ generated: {by: "claude/opus-5.5", at: 2026-09-26T09:40:37Z}
 verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-26T09:48:36Z}
 sources:
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:8a7a71d56304a338, revision: b43b798}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:299faa7fdfbdf7fa, revision: 2041f5d}
   - {resource: hsms/epoch.go, digest: sha256:bdf3578cbc24fc48, revision: 7ae1ff0}
   - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: 7ae1ff0}
   - {resource: hsms/connection_metrics.go, digest: sha256:dae358846f98653e, revision: f7a5927}
   - {resource: hsms/supervisor.go, digest: sha256:097ae581f965d935, revision: b43b798}
-  - {resource: hsms/transport.go, digest: sha256:760d41a4a861ea2c, revision: b43b798}
+  - {resource: hsms/transport.go, digest: sha256:8e0ca0744b8527b9, revision: 2041f5d}
 ---
 
 # What it does

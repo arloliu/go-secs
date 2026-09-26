@@ -9,11 +9,11 @@ verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-26T12:04:05Z}
 sources:
   - {resource: hsms/supervisor.go, digest: sha256:097ae581f965d935, revision: b43b798}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:8a7a71d56304a338, revision: b43b798}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:299faa7fdfbdf7fa, revision: 2041f5d}
   - {resource: hsms/connection_runtime.go, digest: sha256:7340a3887598a8ba, revision: b43b798}
   - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: b43b798}
   - {resource: hsms/epoch.go, digest: sha256:bdf3578cbc24fc48, revision: b43b798}
-  - {resource: hsms/transport.go, digest: sha256:760d41a4a861ea2c, revision: b43b798}
+  - {resource: hsms/transport.go, digest: sha256:8e0ca0744b8527b9, revision: 2041f5d}
   - {resource: hsmsss/transport.go, digest: sha256:176fff888fc8a85e, revision: b43b798}
   - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: b43b798}
   - {resource: hsmsss/transport_active.go, digest: sha256:33d63b7808dc1ed3, revision: b43b798}
@@ -125,7 +125,8 @@ only the generation-named path can name a refusal.
 Its FSM commit is gated even so (`tcpUpCommitGate`), but its socket publication is not:
 `publishSocket` has no liveness check at gen 0,
 so a gen-0 report landing after its generation's teardown already closed the socket can re-populate it,
-and nothing closes it afterward — a limitation the `TCPUp` godoc states.
+and the core never closes it afterward — a limitation the `TCPUp` godoc states;
+the transport contract makes closing it the transport's own `Stop`'s job, which `secs1`'s `Stop` does by closing its `t.conn`.
 
 **Select-lost is the other reported refusal, and what it protects is narrow.**
 `SelectLostFromGeneration` returns whether the CAS was applied,
@@ -175,7 +176,8 @@ The fence covers the window between a commit's validation and its queued report,
 **A gen-0 socket published onto a torn-down generation.**
 The plain `TCPUp` publishes its socket without a liveness check,
 so a report landing after its generation's teardown already closed the socket re-populates it,
-and nothing closes it afterward.
+and the core never closes it afterward;
+a transport whose `Stop` does not close the socket it handed to `TCPUp` leaks it until the epoch is garbage-collected.
 
 
 # Where to look

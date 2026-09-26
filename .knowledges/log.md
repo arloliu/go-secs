@@ -1,6 +1,8 @@
 # Log
 
 ## 2026-09-26
+* Digest/revision-only refresh to `2041f5d` (transport Stop contract docs).
+* **Update**: [How the three synchronous commits are fenced](/hsms/synchronous-commit-gate.md) — the gen-0 socket limitation now names who closes the socket (the transport's `Stop`, per the contract `2041f5d` documents; `secs1`'s `Stop` closes its `t.conn`); mechanic unchanged, status kept.
 * **Update**: [How the three synchronous commits are fenced](/hsms/synchronous-commit-gate.md) and [how a queued report from an ended generation is kept off its successor](/hsms/generation-report-fence.md) — verify pass: three wording corrections applied verbatim from the verifier (a non-live gate returns id zero; which refusals count in `staleGen`; gen 0 on the queue also from nil-gate test supervisors). Promoted to stable.
 * **Update**: [Reconnect backoff scope](/hsms/reconnect-backoff-scope.md) — verify pass found no fault. Promoted to stable.
 * **Creation**: [How the three synchronous commits are fenced against an ended generation](/hsms/synchronous-commit-gate.md) — split out of the generation report fence (over the length cap) and rewritten for `b43b798`:
