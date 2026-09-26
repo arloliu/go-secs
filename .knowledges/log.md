@@ -1,6 +1,13 @@
 # Log
 
 ## 2026-09-26
+* **Update**: [How the three synchronous commits are fenced](/hsms/synchronous-commit-gate.md) and [how a queued report from an ended generation is kept off its successor](/hsms/generation-report-fence.md) — verify pass: three wording corrections applied verbatim from the verifier (a non-live gate returns id zero; which refusals count in `staleGen`; gen 0 on the queue also from nil-gate test supervisors). Promoted to stable.
+* **Update**: [Reconnect backoff scope](/hsms/reconnect-backoff-scope.md) — verify pass found no fault. Promoted to stable.
+* **Creation**: [How the three synchronous commits are fenced against an ended generation](/hsms/synchronous-commit-gate.md) — split out of the generation report fence (over the length cap) and rewritten for `b43b798`:
+  all three gates admit gen 0 on liveness and return the id they validated, which `commitFrom` queues with the follow-up; an unnamed Select-lost no longer takes a bare CAS. Status draft.
+* **Update**: [How a queued report from an ended generation is kept off its successor](/hsms/generation-report-fence.md) — narrowed to the queue-side mechanic after the split; only `evClose` now reaches the queue with gen 0. `verified` dropped; status draft.
+* **Update**: [Reconnect backoff scope](/hsms/reconnect-backoff-scope.md) — the gen-0 liveness gate paragraph: `commitGate` now gates gen 0 like the other two gates. `verified` dropped; status draft.
+* Digest/revision-only refresh to `b43b798` for every other entry citing a file that commit touched; prose unaffected.
 * **Update**: [How the recv path's responses and requests are bound to a generation on the wire](/hsms/generation-bound-wire-sends.md) — verify pass: cites `hsmsss/metrics.go` for the `LinktestSendCount` claim; otherwise no fault. Promoted to stable.
 * **Update**: [How a report from an ended generation is kept off its successor](/hsms/generation-report-fence.md) — re-verify found no fault. Promoted to stable.
 * **Creation**: [How the recv path's responses and requests are bound to a generation on the wire](/hsms/generation-bound-wire-sends.md) — split out of the generation report fence to keep that entry near the length cap; history phrasing removed. Status draft.

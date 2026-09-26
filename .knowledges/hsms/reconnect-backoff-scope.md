@@ -4,16 +4,16 @@ title: Reconnect backoff scope — what resets it, and what doesn't
 description: Where the reconnect delay is persisted across separate connectLoop invocations, and which drop actually resets it to the configured initial value.
 tags: [hsms, reconnect, backoff, lifecycle, generations]
 status: stable
-generated: {by: "claude/opus-5.5", at: 2026-09-26T07:45:27Z}
+generated: {by: "claude/opus-5.5", at: 2026-09-26T11:59:50Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-26T07:51:47Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-26T12:04:05Z}
 sources:
   - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: 7ae1ff0}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:21abfedc85afb70a, revision: 7ae1ff0}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:8a7a71d56304a338, revision: b43b798}
   - {resource: hsms/connection_config.go, digest: sha256:e701533ea6c49f0a, revision: c00e1b5}
-  - {resource: hsms/connection_runtime.go, digest: sha256:990bc46123a7df1c, revision: f7a5927}
+  - {resource: hsms/connection_runtime.go, digest: sha256:7340a3887598a8ba, revision: b43b798}
   - {resource: hsms/connection_metrics.go, digest: sha256:dae358846f98653e, revision: f7a5927}
-  - {resource: hsms/supervisor.go, digest: sha256:1878d33bac78df60, revision: 7ae1ff0}
+  - {resource: hsms/supervisor.go, digest: sha256:097ae581f965d935, revision: b43b798}
   - {resource: hsms/epoch.go, digest: sha256:bdf3578cbc24fc48, revision: 7ae1ff0}
   - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: 4be2062}
 ---
@@ -83,11 +83,8 @@ so a marker set while `ended` reads false is guaranteed to be on the generation 
 `prev.reachedSelected` from — there is no window where it lands on the wrong epoch.
 
 **The gen-0 liveness gate.**
-`selectCommitGate` gates a gen of 0 too,
-unlike `commitGate` (now used only by `CommitSelectLost`, which bypasses gen 0 entirely —
-the pre-generation behavior;
-`CommitConnected` has its own `tcpUpCommitGate`, which gates gen 0 on liveness the same way `selectCommitGate` does,
-and additionally admits only one TCP-up per generation).
+`selectCommitGate` gates a gen of 0 on liveness, as `commitGate` and `tcpUpCommitGate` do
+(see [how the three synchronous commits are fenced](/hsms/synchronous-commit-gate.md)).
 secs1 and any transport using only `TransportRuntime` call `CommitSelected()` with gen 0,
 so gating only named generations would leave the reset marker unreachable for them.
 `selectCommitGate` admits a gen-0 commit whenever a live, un-torn-down `cur` exists,
@@ -192,7 +189,7 @@ as fast as the T7 dwell and the accept/handshake round-trip allow.
   `connectLoopStartFailure`; `hsms/epoch.go` → `epoch.startReturned`
 - the reset marker: `hsms/epoch.go` → `epoch.reachedSelected`;
   `hsms/connection_lifecycle.go` → `connection.selectCommitGate`
-- the gate CommitSelected now goes through even at gen 0: `hsms/supervisor.go` → `supervisor.selectGate`,
+- the gate CommitSelected goes through even at gen 0: `hsms/supervisor.go` → `supervisor.selectGate`,
   `supervisor.commitFrom`, `CommitSelected`, `CommitSelectedFromGeneration`;
   `hsms/connection_runtime.go` → `commitSelectAccepted`
 - config knobs: `hsms/connection_config.go` → `WithReconnectBackoff`, `WithT5`
