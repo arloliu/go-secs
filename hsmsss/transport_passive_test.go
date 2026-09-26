@@ -18,6 +18,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -75,8 +76,51 @@ func reserveTestPort(t *testing.T, port int) (release func(), ok bool) {
 	return sync.OnceFunc(func() { _ = f.Close() }), true
 }
 
-// freeLoopbackPort binds 127.0.0.1:0, records the OS-chosen port, and closes the listener
-// so a passive connection can bind that concrete port.
+// holdLoopbackPort allocates a loopback port and keeps it owned until the caller's test ends,
+// with a socket that is bound but never listening.
+//
+// The flock reservation cannot close the fallback's window on its own:
+// it only excludes other reservations,
+// while the kernel stays free to hand a just-closed port to any bind(:0) or outbound connect —
+// including another caller's own pick —
+// before the passive connection gets to bind it,
+// which fails its Open with "bind: address already in use".
+// A bound socket keeps the port out of the kernel's automatic selection instead.
+// Because it sets SO_REUSEADDR and never listens,
+// Linux still lets the connection's own listener (Go sets SO_REUSEADDR too) bind and listen alongside it,
+// on the first generation and on every reconnect,
+// and a dial while nothing listens is still refused.
+// Other platforms treat SO_REUSEADDR differently, which is why this path is Linux-only.
+func holdLoopbackPort(t *testing.T) int {
+	t.Helper()
+
+	syscall.ForkLock.RLock()
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
+	if err == nil {
+		syscall.CloseOnExec(fd)
+	}
+	syscall.ForkLock.RUnlock()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = syscall.Close(fd) })
+
+	require.NoError(t, syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1))
+	require.NoError(t, syscall.Bind(fd, &syscall.SockaddrInet4{Addr: [4]byte{127, 0, 0, 1}}))
+
+	sa, err := syscall.Getsockname(fd)
+	require.NoError(t, err)
+	in4, ok := sa.(*syscall.SockaddrInet4)
+	require.True(t, ok, "a socket bound to 127.0.0.1 must report an IPv4 address")
+
+	return in4.Port
+}
+
+// freeLoopbackPort returns a loopback port that a passive connection can bind,
+// owned by the caller's test until it ends.
+//
+// On Linux the port comes from holdLoopbackPort,
+// which keeps the kernel from handing it to anyone else in the meantime.
+// Elsewhere it falls back to the scheme below:
+// bind 127.0.0.1:0, record the OS-chosen port, and close the listener.
 // Go listeners set SO_REUSEADDR,
 // so the rebind (here and across reconnect generations) succeeds despite the brief close.
 //
@@ -92,6 +136,10 @@ func reserveTestPort(t *testing.T, port int) (release func(), ok bool) {
 // A collision is therefore never fatal: it just means retry with the next OS-assigned port.
 func freeLoopbackPort(t *testing.T) int {
 	t.Helper()
+
+	if runtime.GOOS == "linux" {
+		return holdLoopbackPort(t)
+	}
 
 	const maxAttempts = 50
 

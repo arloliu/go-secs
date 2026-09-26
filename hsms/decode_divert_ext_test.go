@@ -17,6 +17,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"sync"
 	"syscall"
@@ -73,11 +74,47 @@ func reserveTestPort(t *testing.T, port int) (release func(), ok bool) {
 	return sync.OnceFunc(func() { _ = f.Close() }), true
 }
 
-// freeDivertPort reserves and immediately releases a loopback TCP port for the pair to share.
-// The reservation is held from pick time until the caller's own t.Cleanup,
-// so a collision with any other caller — in this binary or another test binary — is structurally impossible.
+// holdLoopbackPort allocates a loopback port and keeps it owned until the caller's test ends,
+// with a socket that is bound but never listening.
+//
+// It mirrors hsmsss/transport_passive_test.go's helper of the same name (see its doc for the full rationale):
+// the flock reservation cannot stop the kernel from handing a just-closed port to another bind(:0) or outbound connect,
+// while a bound SO_REUSEADDR socket keeps the port out of automatic selection
+// and still lets the transport's own listener bind and listen alongside it on Linux.
+func holdLoopbackPort(t *testing.T) int {
+	t.Helper()
+
+	syscall.ForkLock.RLock()
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
+	if err == nil {
+		syscall.CloseOnExec(fd)
+	}
+	syscall.ForkLock.RUnlock()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = syscall.Close(fd) })
+
+	require.NoError(t, syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1))
+	require.NoError(t, syscall.Bind(fd, &syscall.SockaddrInet4{Addr: [4]byte{127, 0, 0, 1}}))
+
+	sa, err := syscall.Getsockname(fd)
+	require.NoError(t, err)
+	in4, ok := sa.(*syscall.SockaddrInet4)
+	require.True(t, ok, "a socket bound to 127.0.0.1 must report an IPv4 address")
+
+	return in4.Port
+}
+
+// freeDivertPort returns a loopback TCP port for the pair to share, owned by the caller's test until it ends.
+// On Linux the port comes from holdLoopbackPort.
+// Elsewhere a throwaway listener picks it and is closed,
+// and the reservation is held from pick time until the caller's own t.Cleanup,
+// so no other caller of this scheme — in this binary or another test binary — is handed the same port.
 func freeDivertPort(t *testing.T) int {
 	t.Helper()
+
+	if runtime.GOOS == "linux" {
+		return holdLoopbackPort(t)
+	}
 
 	const maxAttempts = 50
 
