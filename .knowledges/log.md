@@ -1,6 +1,28 @@
 # Log
 
 ## 2026-09-26
+* **Update**: [Where a TransitionCause is chosen, and why one transition can swallow another's cause](/hsms/transition-cause-injection-sites.md) — verify pass found no fault. Promoted to stable.
+* **Update**: [Who owns the reconnect retry after a failed Start](/hsms/reconnect-retry-ownership.md) — verify pass found no fault. Promoted to stable.
+* **Update**: [Where a TransitionCause is chosen, and why one transition can swallow another's cause](/hsms/transition-cause-injection-sites.md) — `f7a5927`:
+  an unnamed disconnect or T7 expiry is now bound at report time to the generation current then,
+  so `step`'s match discards it once a successor is current;
+  only `evClose` and the follow-ups of unnamed synchronous commits still reach the queue with gen 0,
+  and a delayed unnamed Select-accepted or Select-lost follow-up can still apply to a successor.
+  Also: `TransportRuntime`-only wording for the gen-0 paths, `# Failure modes` heading, unit index blurb now says four ways.
+  Digests refreshed; `verified` dropped; status draft.
+* **Update**: [Who owns the reconnect retry after a failed Start](/hsms/reconnect-retry-ownership.md) — `bee6c52`, `f7a5927`:
+  the `TCPDownFromGeneration` and `Reconnecting` docs now state the ended-but-current admission and the brief 0 at a hand-off,
+  so the doc delta in What it does is narrowed to what they still leave out.
+  Digests refreshed; `verified` dropped; status draft.
+* **Update**: digest-only refresh to `f7a5927` (prose unaffected — comment-only changes, or report-time binding of unnamed reports that these entries do not describe):
+  [callback panic/Goexit isolation](/hsms/handler-panic-goexit-isolation.md), [inbound generation fence](/hsms/inbound-generation-fence.md),
+  [W-bit inflight gauge](/hsms/inflight-gauge.md), [max message size ceiling](/hsms/max-message-size-ceiling.md),
+  [open/close abort](/hsms/open-close-abort.md), [reconnect backoff scope](/hsms/reconnect-backoff-scope.md),
+  [reply matching control exemption](/hsms/reply-matching-control-exemption.md), [selected gates](/hsms/selected-gates.md),
+  [send error accounting](/hsms/send-error-accounting.md), [stale-epoch write guard](/hsms/stale-epoch-write-guard.md),
+  [supervisor join](/hsms/supervisor-join.md), [transaction observer chokepoints](/hsms/transaction-observer-chokepoints.md),
+  [activity stamps](/hsmsss/activity-stamps.md), [E37.1 narrows E37 generic](/hsmsss/e37-1-narrows-e37-generic.md),
+  [linktest teardown exemption](/hsmsss/linktest-teardown-exemption.md), [block send detect/act split](/secs1/block-send-detect-act-split.md).
 * **Update**: [Who owns the reconnect retry after a failed Start](/hsms/reconnect-retry-ownership.md) — confirmation pass found no fault. Promoted to stable.
 * **Update**: [Reconnect backoff scope — what resets it, and what doesn't](/hsms/reconnect-backoff-scope.md) — confirmation pass found no fault. Promoted to stable.
 * **Update**: [Where a TransitionCause is chosen, and why one transition can swallow another's cause](/hsms/transition-cause-injection-sites.md) — confirmation-pass correction:

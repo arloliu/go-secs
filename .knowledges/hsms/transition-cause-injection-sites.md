@@ -4,17 +4,17 @@ title: Where a TransitionCause is chosen, and why one transition can swallow ano
 description: The full transition-source to cause map, why the cause is picked at the injection site rather than derived in the FSM, why the transports pass both the cause and their generation through a capability interface instead of TransportRuntime, how the generation match keeps a late transport goroutine from dropping its successor's link, why the three synchronous commits need a lock-fenced gate instead of that match, and the ways a cause never reaches a subscriber.
 tags: [hsms, lifecycle, supervisor, fsm, observability]
 status: stable
-generated: {by: "claude/opus-5.5", at: 2026-09-26T07:51:47Z}
+generated: {by: "claude/opus-5.5", at: 2026-09-26T09:40:37Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-26T07:51:47Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-26T09:48:36Z}
 sources:
   - {resource: hsms/lifecycle.go, digest: sha256:9c093383d23470e1, revision: d244104}
   - {resource: hsms/session.go, digest: sha256:134bcdad84cba21a, revision: d244104}
   - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: d244104}
-  - {resource: hsms/supervisor.go, digest: sha256:3eaeab8b7da4685b, revision: 4be2062}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:55dd3be61ec99d15, revision: 4be2062}
-  - {resource: hsms/connection_runtime.go, digest: sha256:dce97e0bf7fc6616, revision: d244104}
-  - {resource: hsms/connection_send.go, digest: sha256:e485168d1a431fe7, revision: d244104}
+  - {resource: hsms/supervisor.go, digest: sha256:1717fd0875937ae8, revision: f7a5927}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:e6d0d8d5bdf02ea2, revision: f7a5927}
+  - {resource: hsms/connection_runtime.go, digest: sha256:990bc46123a7df1c, revision: f7a5927}
+  - {resource: hsms/connection_send.go, digest: sha256:90a5e3ff7beea84c, revision: f7a5927}
   - {resource: hsms/connection.go, digest: sha256:d45005d0dcf9540c, revision: 4be2062}
   - {resource: hsms/epoch.go, digest: sha256:5d48c9656ae715cc, revision: 4be2062}
   - {resource: hsmsss/transport.go, digest: sha256:cb3594d212e03da1, revision: c00e1b5}
@@ -124,12 +124,15 @@ the auto-commit reaches `Selected` for the same reason a handshake does, so the 
 
 **`CauseUnknown` on bare `TCPDown` is deliberate.**
 `TransportRuntime.TCPDown(cause error)` carries an error for the farewell decision, not a classification.
-Defaulting it to `CauseIOError` would mislabel every drop an out-of-module transport reports for a non-I/O reason.
+Defaulting it to `CauseIOError` would mislabel every drop a transport using only `TransportRuntime` reports for a non-I/O reason.
 The shipped transports name a cause through the optional `TCPDownWithCause` capability, reached by type assertion;
 a runtime reached without that capability reports `CauseUnknown`.
 
 **HSMS-SS injection sites also name the generation they speak for, and that is a separate axis from the cause.**
-SECS-I carries the cause only, and local Close and base-runtime paths use generation 0.
+SECS-I carries the cause only.
+Local Close queues its event with generation 0,
+and a base-runtime report names no generation of its own
+(an unnamed disconnect or T7 expiry is bound to one at report time, below).
 A transport goroutine can outlive the generation that spawned it:
 the teardown join is bounded,
 so one wedged past the close timeout is abandoned and may resume after a reconnect has established and selected a new link.
@@ -146,6 +149,8 @@ It is checked in TWO places, and both are load-bearing:
 
 - `connection.injectDisconnect` rejects a nonzero reported generation that differs in IDENTITY
   from the currently published epoch's `id` — it does not inspect `ended`.
+  A gen of 0 skips that comparison and is bound, after it, to the `id` of the epoch that same `cur.Load()` returned,
+  so the event it queues always names a generation.
   This is what keeps a straggler from setting the SUCCESSOR's `commsFailure`,
   which would suppress that generation's courtesy farewell Separate on a later graceful Close.
   A report whose generation still MATCHES the current (but already-ended) epoch passes this check regardless:
@@ -178,12 +183,21 @@ so a lock the teardown path holds risks stalling `step` behind it:
 it releases the lock before socket closure and every join,
 so it does not hold `startGate` during a join `step` could be waiting behind.
 
-`secs1` does NOT name a generation — its line engine runs under a derived ctx and its own bundle —
-so its reports keep the pre-barrier behavior.
-Out-of-module transports using only `TransportRuntime` likewise pass no identity,
-but a `gen` of 0 does not skip every match the
-same way: it bypasses `step`'s queued-event identity check and `commitGate` (the
-Select-lost commit) entirely — a bare CAS, no liveness check — but `tcpUpCommitGate` (the TCP-up commit)
+`secs1` does NOT name a generation — its line engine runs under a derived ctx and its own bundle.
+Transports using only `TransportRuntime` likewise pass no identity.
+Their unnamed disconnect and T7 reports are still fenced on the queue:
+`injectDisconnect` and `injectT7Expiry` bind a gen of 0, at report time,
+to the `id` of the generation current then (a nil `cur` enqueues nothing),
+so `step`'s match discards the event once a successor is current, however long it sat queued.
+The binding does not cover a report made AFTER the successor was published:
+that call finds the successor current and binds to it,
+which is why `hsmsss` names the generation it captured at its own `Start` instead.
+Only two kinds of event still reach the queue with gen 0 and skip `step`'s identity match:
+`evClose`, and the follow-up event of an unnamed synchronous commit (TCP-up, Select-accepted, or Select-lost).
+A delayed unnamed Select-accepted or Select-lost follow-up event can therefore still be applied to a successor generation.
+Commit-time admission is a separate question from that queued bypass.
+`commitGate` (the Select-lost commit) is skipped entirely at gen 0 — a bare CAS, no liveness check —
+but `tcpUpCommitGate` (the TCP-up commit)
 and `selectCommitGate` (the Select-accepted commit) still require a non-nil, un-torn-down current epoch even for a gen of 0, and
 `disconnectHandlerGeneration` rejects a gen of 0 outright rather than letting it through as a
 wildcard.
@@ -277,7 +291,7 @@ and skip everything a live TCP-up would start
 so a dead generation's socket can never clobber a live successor's.
 `commitTCPUp` still runs the FSM commit unconditionally even on a `publishSocket` refusal, purely so
 `staleGen` keeps counting it — the commit itself is a guaranteed no-op there, since `ended` never reverts.
-The plain `TCPUp` (gen 0, out-of-module) keeps its void signature and unconditional socket publication;
+The plain `TCPUp` (gen 0, for a transport using only `TransportRuntime`) keeps its void signature and unconditional socket publication;
 only the generation-named path can name a refusal.
 Its FSM commit is gated even so (`tcpUpCommitGate`), but its socket publication is not:
 `publishSocket` has no liveness check at gen 0,
@@ -414,7 +428,7 @@ specifically to exercise generation-aware transport behavior in tests,
 so the hsms-package tests' reliance on the concrete `*connection` (rather than a mock) is about
 exercising the REAL `causeRuntime`/`TCPDownWithCause` wiring, not about no test mock offering `genRuntime` at all.
 
-# Failure mode
+# Failure modes
 
 **A cause silently lost to dedup.**
 `step` fires when `next != s.lastReacted`, or when the event really drops the link:
@@ -482,6 +496,7 @@ As implemented, the late report is ignored and the state stays `NotConnected`, s
 - dedup, the drop exception, and the late-TCP-up rejection: `hsms/supervisor.go` → `step`, `lastReacted`, `transition`;
   the reaction that reads the reported `prev`: `hsms/connection_lifecycle.go` → `(*connection).react`
 - cause-carrying disconnect: `hsms/connection_lifecycle.go` → `TCPDownWithCause`, `TCPDownFromGeneration`, `injectDisconnect`;
+  the unnamed T7 report and its report-time binding: `hsms/connection_runtime.go` → `T7Expired`, `injectT7Expiry`;
   the reconnect hand-off report: `connectLoopStartFailure`
 - `CauseHandlerExit`, the callback-exit injection site, and the generation it names: `hsms/handler_panic.go` →
   `(*connection).disconnectHandlerGeneration`, `errHandlerGoexit`;
