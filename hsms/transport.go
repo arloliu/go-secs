@@ -95,6 +95,9 @@ type TransportRuntime interface {
 	// TCPDown is called by the transport when the TCP connection is lost.
 	//
 	// The cause classifies the failure (graceful vs comms-failure) for the teardown farewell decision (E37 §9.1.1).
+	// It carries no generation identity:
+	// if the generation current at this call has been replaced by the time the report is processed,
+	// the report is discarded.
 	TCPDown(cause error)
 
 	// CommitSelected atomically advances the FSM to Selected before the transport emits Select.rsp.
@@ -114,8 +117,12 @@ type TransportRuntime interface {
 
 	// T7Expired is called by the transport's T7 (NOT-SELECTED dwell) timer on expiry.
 	//
-	// It injects evT7Timeout, which the supervisor evaluates SERIALLY: NotSelected -> NotConnected (reconnect),
-	// but a NO-OP if the session has since reached Selected or NotConnected — so a validly-Selected session is NEVER torn down by a stale T7 (E37 §9.2.2).
+	// It injects evT7Timeout, which the supervisor evaluates SERIALLY:
+	// NotSelected -> NotConnected (reconnect), but a NO-OP if the session has since reached Selected or NotConnected —
+	// so a validly-Selected session is NEVER torn down by a stale T7 (E37 §9.2.2).
+	// It carries no generation identity:
+	// if the generation current at this call has been replaced by the time the report is processed,
+	// the report is discarded.
 	T7Expired()
 
 	// DeliverOwnedFrame passes a freshly-read, GC-owned frame buffer to the core for decode and routing.

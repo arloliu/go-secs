@@ -135,6 +135,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `hsms`: a failed `Open` no longer leaves a reconnect loop running past the call that failed.
   Previously a drop reaction racing the failed-`Open` rollback could spawn a loop that outlived `Open`'s return,
   sleeping out its full configured backoff before a later `Open` finally reaped it.
+- `hsms`: a disconnect a transport reported without a generation identity (`secs1`, or a transport using only `TransportRuntime`) —
+  if it arrived just before a reconnect and was processed only after the new link came up —
+  could briefly knock the new link back to `NotConnected` (a `State()` misreport),
+  and a Select arriving in that window could be refused;
+  it is now applied only to the generation that was current when it was reported.
+  The same fix applies to an unnamed T7 (NOT-SELECTED dwell) expiry.
 
 ## [2.4.2] - 2026-09-25
 

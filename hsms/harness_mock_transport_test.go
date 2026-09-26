@@ -34,10 +34,13 @@ type mockTransport struct {
 	passiveRole bool
 
 	// holdableRecv, when true, makes the FIRST Start arm a "held recv loop" for the round-7
-	// stale-recv-loop reconnect test: a goroutine parked on holdRelease that fires exactly one
-	// (stale) rt.TCPDown when released. Stop releases + JOINS it — mirroring teardown's tr.Stop
-	// join of the real recv loop — so the reconnect loop's generation-serialization guarantees
-	// that stale TCPDown fires (and is drained) while cur is still gen N, never gen N+1.
+	// stale-recv-loop reconnect test: a goroutine parked on holdRelease that fires exactly one (stale) rt.TCPDown when released.
+	// Stop releases + JOINS it — mirroring teardown's tr.Stop join of the real recv loop —
+	// so the reconnect loop's generation-serialization guarantees only that the stale TCPDown's own callback fires,
+	// and its report enqueues, while cur is still gen N, never gen N+1.
+	// It does NOT guarantee the supervisor has already processed (drained) that queued report; that can happen at any later point —
+	// which is why the report's own binding to gen N, not to whichever generation the supervisor finds current when it gets there,
+	// is what actually keeps gen N+1 safe (see injectDisconnect's report-time binding).
 	holdableRecv bool
 	holdRelease  chan struct{}
 	holdExited   chan struct{}

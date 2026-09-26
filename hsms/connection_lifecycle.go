@@ -1431,15 +1431,20 @@ func (c *connection) TCPDown(cause error) {
 // cause is the transport's error for the drop (used for the farewell decision, unchanged);
 // transitionCause is the closed-set classification carried to the lifecycle subscribers.
 //
-// It carries NO generation identity, so it resolves the current generation at call time.
+// It carries NO generation identity;
+// injectDisconnect binds it, at report time, to whichever generation this call finds current (see injectDisconnect).
 // A transport that can outlive the generation it belongs to should report through
-// [connection.TCPDownFromGeneration] instead, which is generation-isolated.
+// [connection.TCPDownFromGeneration] instead, which is generation-isolated from an earlier point still:
+// the generation the transport itself captured at its own Start, not merely whichever one is current when it happens to call.
 func (c *connection) TCPDownWithCause(cause error, transitionCause TransitionCause) {
 	c.injectDisconnect(0, cause, transitionCause)
 }
 
-// CurrentGeneration returns the identity of the generation that is live right now, or 0 when none is.
+// CurrentGeneration returns the identity of the generation cur currently points at, or 0 when there is none.
 //
+// It names the generation that is CURRENT, not one guaranteed still live:
+// during the reconnect window between a drop and its successor's publish,
+// cur still points at the generation that just ended, and this returns that ended generation's own id, not 0.
 // A transport reads it once per Start and hands the value back with every disconnect it reports,
 // which is how the core tells a report from the LIVE generation apart from one arriving late out of a generation that has already ended.
 // It is reached by type assertion rather than through [TransportRuntime]:
@@ -1467,13 +1472,17 @@ func (c *connection) CurrentGeneration() uint64 {
 // such a straggler would otherwise mark the successor's socket as failed and drop a link it knows nothing about.
 //
 // Reporting the generation makes that impossible in two places.
-// Here, a report whose generation is no longer live is a counted no-op.
-// In particular it does not touch the successor's comms-failure flag,
+// Here, a report whose generation is not the CURRENT one is rejected by identity mismatch and counted as stale —
+// an ended-but-current generation is still admissible,
+// which is what the named hand-off report relies on when it reports after its own teardown.
+// A rejected report does not touch the successor's comms-failure flag,
 // which decides whether that generation still sends a courtesy Separate when it closes.
 // And on the event itself: the generation travels with the queued event and is re-checked when the FSM PROCESSES it,
 // which is what closes the window between this check and the injection (see supervisor.step).
 //
-// A gen of 0 means "unidentified" and skips the match, behaving exactly like TCPDownWithCause.
+// A gen of 0 skips this identity check — there is nothing to compare against —
+// and is instead bound to the generation current at report time (the single cur.Load() inside injectDisconnect),
+// exactly like TCPDownWithCause.
 func (c *connection) TCPDownFromGeneration(gen uint64, cause error, transitionCause TransitionCause) {
 	c.injectDisconnect(gen, cause, transitionCause)
 }
@@ -1482,6 +1491,12 @@ func (c *connection) TCPDownFromGeneration(gen uint64, cause error, transitionCa
 // (so the entering-NotConnected reaction sends no farewell Separate) and inject evDisconnect.
 //
 // gen is the reporting generation's identity, or 0 when the caller did not name one.
+// An unnamed report is bound here, at report time, to e — the generation this call finds current — before the event is queued.
+// That binding is what lets step honor or discard it against THAT generation,
+// no matter how long the event then sits queued before the FSM gets to process it (see injectFrom).
+// Without it, an unnamed report queued while its own generation is already over, but not yet processed,
+// would be matched against whatever generation is current BY THEN instead —
+// a successor that generation's own drop had nothing to do with.
 func (c *connection) injectDisconnect(gen uint64, cause error, transitionCause TransitionCause) {
 	e := c.cur.Load()
 	if e == nil {
@@ -1503,6 +1518,10 @@ func (c *connection) injectDisconnect(gen uint64, cause error, transitionCause T
 	}
 
 	e.commsFailure.Store(true)
+
+	if gen == 0 {
+		gen = e.id
+	}
 
 	if s := c.sup.Load(); s != nil {
 		s.injectFrom(gen, evDisconnect, transitionCause)
