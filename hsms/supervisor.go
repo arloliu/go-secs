@@ -113,9 +113,9 @@ type supervisor struct {
 	// which SKIPS the match rather than suppressing the event.
 	curGen func() uint64
 
-	// commitGate fences the TCP-up and Select-lost synchronous commits (connection.commitGate).
-	// Those two commits are CAS operations on state rather than events on the queue,
-	// so step's generation match never sees them and they need a barrier of their own.
+	// commitGate fences the Select-lost synchronous commit (connection.commitGate).
+	// That commit is a CAS operation on state rather than an event on the queue,
+	// so step's generation match never sees it and it needs a barrier of its own.
 	// The gate runs the supplied CAS only while gen is still the live, un-torn-down generation,
 	// and reports both whether the CAS committed and whether the generation was live at all.
 	// Nil in unit tests that build a supervisor without a connection, which SKIPS the fence.
@@ -129,6 +129,18 @@ type supervisor struct {
 	// Nil in unit tests that build a supervisor without a connection, which SKIPS the fence exactly as
 	// a nil commitGate does.
 	selectGate func(gen uint64, cas func() bool) (committed, live bool)
+
+	// tcpUpCommitGate is commitGate's counterpart for the TCP-up commit (connection.tcpUpCommitGate).
+	// It shares commitGate's shape and RLock discipline,
+	// and — like selectGate — does NOT bypass a gen of 0:
+	// SECS-I and any out-of-module transport report TCP-up unnamed,
+	// and gating only named generations would leave every one of their reports unfenced.
+	// It additionally admits at most one TCP-up per generation BEFORE the CAS runs at all —
+	// a second report on the same generation is refused outright, even when the first one's own CAS failed —
+	// and, on that admitted commit's success, latches the generation's tcpUpCommitted marker — see connection.tcpUpCommitGate.
+	// Nil in unit tests that build a supervisor without a connection, which SKIPS the fence exactly as
+	// a nil selectGate does.
+	tcpUpCommitGate func(gen uint64, cas func() bool) (committed, live bool)
 
 	// staleGen counts events discarded because the generation that injected them had already ended,
 	// plus the disconnect reports the injection path itself dropped for the same reason (connection.injectDisconnect),
@@ -358,14 +370,14 @@ func (s *supervisor) CommitSelectLostFromGeneration(gen uint64, cause Transition
 // followed by ev's injection for the deduped reaction/notify.
 //
 // gen is the generation the commit is made on behalf of, or 0 when the caller named none.
-// For the TCP-up and Select-lost commits, a gen of 0 — secs1, an out-of-module transport, or a
-// runtime without the generation capability — takes the bare CAS, exactly the behavior every commit
-// had before generations were carried.
-// The Select-accepted commit is the one exception: it uses selectGate instead of commitGate, and
-// that gate does NOT bypass a gen of 0 either (see selectGate's doc for why).
+// For the Select-lost commit, a gen of 0 — secs1, an out-of-module transport, or a runtime without the generation capability —
+// takes the bare CAS, exactly the behavior every commit had before generations were carried.
+// The TCP-up and Select-accepted commits are the two exceptions:
+// they use tcpUpCommitGate / selectGate instead of commitGate, and neither gate bypasses a gen of 0
+// (see tcpUpCommitGate's and selectGate's docs for why).
 // commitGate is skipped outright — the same bare CAS as above —
 // whenever it is nil (a supervisor built without a connection, as unit tests do) or whenever gen is 0.
-// selectGate is skipped outright only when it is nil.
+// tcpUpCommitGate and selectGate are each skipped outright only when nil.
 //
 // A gated commit runs the CAS inside the connection's generation gate,
 // which admits it only while the live generation has not begun teardown and (for a named generation)
@@ -397,10 +409,17 @@ func (s *supervisor) commitFrom(gen uint64, from, to ConnState, ev fsmEvent, cau
 
 	gate := s.commitGate
 	bypass := gen == 0 || gate == nil
-	if ev == evSelectAccepted {
+
+	if ev == evSelectAccepted { //nolint:staticcheck // if/else, not a switch: an exhaustive switch over every event would need a default with nothing sensible to do here.
 		gate = s.selectGate
 		bypass = gate == nil
+	} else if ev == evTCPUp {
+		gate = s.tcpUpCommitGate
+		bypass = gate == nil
 	}
+	// Every other event this function can be called with — only evSelectLost, in practice;
+	// evDisconnect, evClose, and evT7Timeout are async-only and never reach commitFrom —
+	// keeps commitGate and its gen-0 bypass, the plain CAS every commit had before generations were carried.
 
 	if bypass {
 		if cas() {

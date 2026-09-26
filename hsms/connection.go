@@ -126,12 +126,13 @@ type connection struct {
 
 	connectLoopWg sync.WaitGroup // SEPARATE reconnect-loop join (§7.C) — NOT epoch.wg
 
-	// reconnectCancel is closed by Close to promptly interrupt a reconnect loop parked in its T5 backoff,
-	// so Close stays bounded even under a long T5.
-	// It is created fresh per Open (a closed channel cannot be reused) and closed exactly once by Close.
-	// It is deliberately SEPARATE from the supervisor stopCh:
-	// the failed-Open rollback stops the supervisor but must NOT cancel reconnect through this channel —
-	// the rollback relies on the shutdown fence (E2 reconciliation #2) as its sole reconnect guard.
+	// reconnectCancel is closed to promptly interrupt a reconnect loop parked in its T5 backoff or its startReturned barrier wait,
+	// so neither Close nor a failed Open's own rollback has to wait either one out.
+	// It is created fresh per Open (a closed channel cannot be reused) and closed exactly once per Open cycle —
+	// by Close, or by a failed Open's own rollback, whichever gets there first
+	// (a later Close then finds runDone already closed and returns early instead of closing this same channel again).
+	// It is deliberately SEPARATE from the supervisor stopCh, which a failed Open's rollback stops on its own, through evClose:
+	// the two together interrupt every place a reconnect loop can be waiting.
 	reconnectCancel atomic.Pointer[chan struct{}]
 
 	// reconnectDelay is the next reconnect wait (a time.Duration, stored as nanoseconds),
@@ -214,6 +215,45 @@ type connection struct {
 	// and no-deadlock teeth tests set it to pause the loop at the fence deterministically.
 	testHookConnectLoop func()
 
+	// testHookConnectLoopBarrier is called by connectLoop immediately before it blocks on its predecessor's startReturned barrier.
+	// It is nil in production (zero cost).
+	// A test uses it to learn that a successor invocation is now parked at the barrier,
+	// so a gauge sample taken right after receiving this signal cannot race the increment that only happens once the barrier releases.
+	testHookConnectLoopBarrier func()
+
+	// testHookLoopSpawned is called by startConnectLoop immediately after it has launched the reconnect loop goroutine (connectLoopWg counted).
+	// It is nil in production (zero cost).
+	// A test uses it to learn that the reaction's own loop is now running before it releases a held predecessor Start,
+	// so both orderings of "drop processed" vs. "Start returns" can be driven deterministically.
+	testHookLoopSpawned func()
+
+	// testHookBeforeHandoffInject is called by connectLoop's Start-failure handoff branch immediately after it releases the startReturned barrier
+	// and before it reports the drop via injectDisconnect.
+	// It is nil in production (zero cost).
+	// A test uses it to let an already-unblocked successor run to publication before the handoff's own report is delivered,
+	// exercising that report's stale-generation no-op path.
+	testHookBeforeHandoffInject func()
+
+	// testHookConnectLoopBeforeFailureTeardown is called by connectLoop's Start-failure branch immediately on observing the failure,
+	// before it tears the failed generation down and reads e.tcpUpCommitted.
+	// It is nil in production (zero cost).
+	// A test uses it as an acknowledgement that the failing Start has already returned,
+	// at a point where an early-read mutant (one that samples e.tcpUpCommitted here instead of after the teardown that follows)
+	// would already have sampled false for a commit still parked in tcpUpCommitGate's RLock section —
+	// proving the real read is correctly ordered after that teardown, not merely usually so.
+	testHookConnectLoopBeforeFailureTeardown func()
+
+	// testHookLoopExit is called by connectLoop as the very last step before it returns,
+	// on EVERY return path — including a barrier wait interrupted by Close before the gauge was ever claimed.
+	// It runs BEFORE the deferred releaseGauge call that follows it,
+	// so on a path that released the gauge inline (success, hand-off) the gauge is already gone by the time this fires,
+	// but on a path that abandons without an inline release (the shutdown fence, a barrier wait interrupted by stop)
+	// it fires while the gauge is STILL claimed.
+	// It is nil in production (zero cost) and MAY BLOCK:
+	// the failed-Open rollback join test holds it to keep a reconnect loop alive
+	// while asserting that connectLoopWg.Wait() (in Open's own rollback) has not yet returned.
+	testHookLoopExit func()
+
 	// testHookBackoff is called by the reconnect loop with the delay it is about to sleep for, immediately before reconnectSleep.
 	// It is nil in production (zero cost).
 	// The reconnect-backoff persistence tests set it to record the exact delay sequence the loop computes, one call per dial attempt.
@@ -259,6 +299,20 @@ type connection struct {
 	// rather than a teardown that beat it.
 	// This does not depend on whether the notification's own best-effort SendAsync happened to enqueue.
 	testHookAutoS9F9 func()
+
+	// testHookReactBeforeCurLoad is called by react immediately before it resolves the generation the drop applies to (c.cur.Load()).
+	// It is nil in production (zero cost).
+	// A test uses it to hold react in the window between the FSM's own state store and this resolution,
+	// confirming the reaction still targets the generation that actually dropped — never a successor — however long that window is stretched.
+	testHookReactBeforeCurLoad func()
+
+	// testHookTCPUpCommitBeforeMarker is called by tcpUpCommitGate immediately after an admitted commit's CAS succeeds,
+	// before it stores epoch.tcpUpCommitted, while still holding genGate.RLock.
+	// It is nil in production (zero cost) and MAY BLOCK:
+	// a test uses it to park a concurrent transport goroutine's TCP-up commit there,
+	// proving a racing Start failure's own teardown (which needs genGate's write lock) cannot proceed —
+	// and so cannot read a stale, not-yet-set marker — until this section releases it.
+	testHookTCPUpCommitBeforeMarker func()
 
 	*session // embedded: promotes the SECS2Endpoint surface onto the Connection value
 }

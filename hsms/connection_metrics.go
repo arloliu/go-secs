@@ -150,10 +150,16 @@ func (m *ConnectionMetrics) ReplyMismatchCount() uint64 {
 // Reconnecting reports whether a reconnect loop is currently actively retrying.
 //
 // It returns 1 while retrying, and 0 when idle or connected.
-// This is a GAUGE, not a cumulative counter — it goes up when a reconnect loop starts
-// and back down when it exits, regardless of how many dial attempts happen inside.
+// This is a GAUGE, not a cumulative counter —
+// it rises when a reconnect loop starts its first backoff and falls when that loop stops,
+// regardless of how many dial attempts happen inside.
+// It rises only after the dropped generation's teardown has finished and its Start call has returned,
+// not the instant the drop is detected, so it excludes that teardown and the wait for Start to return.
+// It never reads above 1: a loop that hands its retry off to another loop releases its own count first,
+// so two loops can never both be counted at once.
 //
-// The gauge is also held at 1 while an active connection's OpenBackground initial-connect retry is in flight (it is the same underlying loop).
+// The gauge is also held at 1 while an active connection's OpenBackground initial-connect retry is in flight
+// (it is the same underlying loop).
 //
 // See Reconnects for the cumulative count of successful re-establishments.
 func (m *ConnectionMetrics) Reconnecting() int64 {
@@ -170,11 +176,14 @@ func (m *ConnectionMetrics) HandlerPanicCount() uint64 {
 // Reconnects returns the cumulative number of times this connection successfully re-established.
 //
 // This is counted once per successful reconnect transport start after an involuntary drop —
-// an active re-dial or a passive re-listen.
+// an active re-dial or a passive re-listen — including a generation that never reached Selected before dropping again.
 // Neither Selected nor, on a passive connection, an accepted peer is required:
 // the count reflects the transport coming back up, not the session reaching any particular state afterward.
-// It is never counted per failed dial attempt,
-// and never for the very first Open() — including when that first connect had to retry a cold peer in the background.
+// It is never counted per failed dial attempt.
+//
+// A cold background retry — Open's own initial-connect retry for a peer that was never reachable at all — is different:
+// its own eventual success is not counted, since there was no involuntary drop to recover from,
+// but a later recovery, after that retry's own link came up and then dropped, is counted exactly like any other reconnect.
 func (m *ConnectionMetrics) Reconnects() uint64 {
 	return m.reconnects.Load()
 }

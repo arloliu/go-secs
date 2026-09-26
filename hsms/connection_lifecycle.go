@@ -237,11 +237,14 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	// It is a single atomic load and takes no locks: step runs on the FSM goroutine,
 	// which an epoch teardown join can be waiting behind, so any lock the teardown path holds would close a cycle here.
 	s.curGen = c.CurrentGeneration
-	// The fence behind the TCP-up and Select-lost commits, which never reach step and so are not covered by its match.
+	// The fence behind the Select-lost commit, which never reaches step and so is not covered by its match.
 	s.commitGate = c.commitGate
 	// The Select commit's own fence: the same generation-guarded CAS discipline, but it also gates a
 	// gen of 0 and stores the reconnect-backoff reset marker (see connection.selectCommitGate).
 	s.selectGate = c.selectCommitGate
+	// The TCP-up commit's own fence: gates a gen of 0 too,
+	// and admits at most one TCP-up per generation, recording whether it committed (see connection.tcpUpCommitGate).
+	s.tcpUpCommitGate = c.tcpUpCommitGate
 	c.sup.Store(s)
 	go s.run()
 	go s.notifier()
@@ -281,63 +284,123 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 		aborted := tok.fired()
 		callerCut := fd.callerCut.Load()
 
-		// Gap 1 (rc3): an ACTIVE connection under OpenBackground whose FIRST dial fails while the
-		// FSM never left NotConnectedState (TCPUp was never driven) is a cold peer, not a fatal
-		// error — v1 parity ("start the device; it connects whenever the equipment appears"). Tear
-		// this failed epoch down WITHOUT s.requestClose/evClose: step()'s evClose handler
-		// unconditionally latches s.closed=true, and that latch would permanently stop this SAME
-		// persistent supervisor from ever processing another evTCPUp/evSelectAccepted — but the
-		// reconnect loop needs this exact supervisor alive for every future generation (round-6:
-		// the supervisor spans reconnect generations). e.teardown() is the same direct,
-		// non-latching teardown call connectLoop's own dial-failure-retry branch already uses.
+		// Latch e as ended BEFORE the cold-branch decision below, so e.tcpUpCommitted is final either way:
+		// markEnded takes the generation gate's write lock, which waits out any TCP-up commit still inside its own RLock section,
+		// and a commit that arrives after this latch is refused by that same gate.
+		// This is deliberately NOT the full teardown:
+		// the cold branch runs its own full e.teardown()/e.wait() below exactly as before,
+		// and the fatal path's requestClose funnels through react —
+		// which still finds a live socket to send the courtesy farewell from, since nothing has closed it yet —
+		// before ITS teardown call (idempotent alongside this one) runs.
+		e.markEnded()
+
+		// Gap 1 (rc3): an ACTIVE connection under OpenBackground whose FIRST dial fails while the FSM never left NotConnectedState
+		// AND no TCP-up commit ever succeeded on this generation is a cold peer, not a fatal error —
+		// v1 parity ("start the device; it connects whenever the equipment appears").
 		//
-		// This does NOT apply to the "TCPUp already fired, then Start errored" case below (E2
-		// reconciliation #2) — that stays fatal exactly as before; s.State() reads NotSelected (or
-		// further) there, not NotConnectedState, so this branch's condition is false and control
-		// falls through to the existing fatal path.
+		// !e.tcpUpCommitted.Load() is what keeps the "TCPUp already fired, then Start errored" case fatal exactly as before (the rollback below):
+		// s.State() usually already reads NotSelected (or further) there, so the branch condition is already false;
+		// the marker additionally catches a report whose own processing is still pending.
 		//
 		// ctxErr == nil && !aborted additionally excludes a bounded-dial interruption —
-		// an interrupted dial is not a "cold peer that will show up later", it is the caller (or a
-		// concurrent Close) asking to stop, so it always takes the fatal/rollback path below
-		// instead of the cold-active background retry.
-		if mode == OpenBackground && c.tr.IsActive() && s.State() == NotConnectedState && ctxErr == nil && !aborted {
+		// an interrupted dial is not a "cold peer that will show up later", it is the caller (or a concurrent Close) asking to stop,
+		// so it always takes the fatal/rollback path below instead of the cold-active background retry.
+		if mode == OpenBackground && c.tr.IsActive() && s.State() == NotConnectedState &&
+			ctxErr == nil && !aborted && !e.tcpUpCommitted.Load() {
 			c.cfg.Load().logger.Debug("hsms: initial connect failed, retrying in background", "error", err)
 
+			// e.teardown() is the same direct, non-latching call (idempotent alongside markEnded above)
+			// connectLoop's own dial-failure branch uses, WITHOUT s.requestClose/evClose:
+			// step()'s evClose handler unconditionally latches s.closed=true,
+			// and that latch would permanently stop this SAME persistent supervisor from ever processing another evTCPUp/evSelectAccepted —
+			// but the reconnect loop needs this exact supervisor alive for every future generation (round-6: the supervisor spans reconnect generations).
 			e.teardown(c.cfg.Load().closeTimeout)
 			_ = e.wait()
 
-			// false: this is the initial connect, not a post-Selected reconnect — it must NOT
-			// increment the cumulative Reconnects() metric (see its doc: "never for the very
-			// first Open()").
+			close(e.startReturned) // release the barrier for whatever successor this loop starts
+
+			// false: this is the initial cold-connect retry itself, not a recovery from an involuntary drop —
+			// its own eventual success must NOT increment the cumulative Reconnects() metric
+			// (see ConnectionMetrics.Reconnects: a cold background retry's own success is not counted).
 			c.startConnectLoop(e, false)
 
 			return nil
 		}
 
-		// E2 reconciliation #2: fence reconnect BEFORE the rollback teardown. A tr.Start that
-		// failed AFTER driving evTCPUp leaves the FSM at NotSelected, so requestClose(e) drives
-		// NotSelected->NotConnected and FIRES the reaction; with shutdown still false that
-		// reaction would start a spurious reconnect loop for a connection whose Open is failing.
-		// Setting shutdown makes the reaction's !shutdown check skip startConnectLoop.
-		c.shutdown.Store(true)
-
-		// Roll back the freshly created generation + supervisor so lifeMu is not released over
-		// a half-open connection (a later Open would then see a torn-down cur and reopen).
-		// CauseLocalClose: this rollback is a locally initiated teardown of a generation this same
-		// Open just built — the same class of transition a user Close drives, reached by a different door.
-		// The rollback's join result is recorded for a later Close; Open still reports the Start failure.
-		deadline := time.Now().Add(c.cfg.Load().closeTimeout)
-		s.requestClose(e, CauseLocalClose)
-		s.shutdownErr = firstErr(e.wait(), c.joinSupervisor(s, deadline))
-
-		return mapAbortedStartErr(err, ctxErr, aborted, callerCut)
+		return c.rollbackFailedOpen(e, s, err, ctxErr, aborted, callerCut)
 	}
+
+	// This generation is live: release its barrier so a future successor (spawned whenever it
+	// eventually drops) never has to wait on a Start call that has already returned.
+	close(e.startReturned)
 
 	if mode == OpenWaitSelected {
 		return c.waitSelected(ctx, e, s, tok.ch)
 	}
 
 	return nil
+}
+
+// rollbackFailedOpen performs Open's fatal-failure rollback for every Start failure
+// that does NOT qualify for the cold-active background retry above: a plain dial failure under OpenWaitSelected,
+// any passive transport's listen failure, a caller-ctx/Close-aborted dial,
+// or a Start that failed AFTER driving TCP-up on this generation.
+// The caller has already latched e as ended, so e.tcpUpCommitted is final,
+// but e's actual teardown — socket close, task join — has NOT run yet.
+//
+// It fences reconnect and interrupts any in-flight reconnect loop the same way Close does —
+// bumping reconnectGen, latching shutdown, re-pinning cur, and closing reconnectCancel —
+// before tearing the pinned generation down through the supervisor's own evClose
+// (so react still finds a live socket to send the courtesy farewell from) and joining the supervisor,
+// then joins connectLoopWg exactly as Close does,
+// so a reconnect loop spawned by a race between the cold-branch check above and this fence cannot outlive this Open call.
+func (c *connection) rollbackFailedOpen(e *epoch, s *supervisor, err, ctxErr error, aborted, callerCut bool) error {
+	// Fenced like Close: a tr.Start that failed AFTER driving evTCPUp leaves the FSM at NotSelected,
+	// so requestClose(pinned) drives NotSelected->NotConnected and FIRES the reaction;
+	// with shutdown still false that reaction would start a spurious reconnect loop for a connection whose Open is failing.
+	// Setting shutdown makes the reaction's !shutdown check skip startConnectLoop.
+	// reconnectGen is bumped and cur re-pinned under publishMu, the SAME fence Close itself uses,
+	// so a reconnect loop that raced ahead of this rollback and already published a successor
+	// is the one this rollback tears down instead of the stale e (no orphan) —
+	// e's own barrier, released below, already keeps that from happening for e itself; the re-pin is defence in depth.
+	c.publishMu.Lock()
+	c.reconnectGen.Add(1)
+	c.shutdown.Store(true)
+	pinned := c.cur.Load()
+	c.publishMu.Unlock()
+
+	// Interrupt a reconnect loop parked in its backoff, exactly like Close — closed exactly once per Open cycle:
+	// a later Close finds runDone already closed (via joinSupervisor below) and returns early instead of closing this same channel again,
+	// and the next Open installs a fresh one.
+	if p := c.reconnectCancel.Load(); p != nil {
+		close(*p)
+	}
+
+	close(e.startReturned)
+
+	// Roll back the freshly created generation + supervisor so lifeMu is not released over
+	// a half-open connection (a later Open would then see a torn-down cur and reopen).
+	// CauseLocalClose: this rollback is a locally initiated teardown of a generation this same
+	// Open just built — the same class of transition a user Close drives, reached by a different door.
+	// The rollback's join result is recorded for a later Close; Open still reports the Start failure.
+	deadline := time.Now().Add(c.cfg.Load().closeTimeout)
+	s.requestClose(pinned, CauseLocalClose)
+
+	teardownErr := pinned.wait()
+	if pinned != e {
+		// e was never the pinned generation, so nothing else tears it down:
+		// markEnded above only latched it as ended, it still needs its own real teardown (socket close, task join).
+		e.teardown(c.cfg.Load().closeTimeout)
+		teardownErr = firstErr(teardownErr, e.wait())
+	}
+
+	s.shutdownErr = firstErr(teardownErr, c.joinSupervisor(s, deadline))
+
+	// Join any reconnect loop a race above might have spawned before this rollback closed
+	// reconnectCancel — mirrors Close's own join, so no reconnect goroutine outlives a failed Open.
+	c.connectLoopWg.Wait()
+
+	return mapAbortedStartErr(err, ctxErr, aborted, callerCut)
 }
 
 // waitSelected blocks until the FSM reaches Selected, the caller's ctx is cancelled, the
@@ -563,6 +626,15 @@ func (c *connection) react(prev, next ConnState) {
 		return // reactions only matter for transitions INTO NotConnected
 	}
 
+	// Test seam (nil in production, MAY BLOCK): fires immediately before the generation resolution below.
+	// A test holds it to prove that nothing else can have published a successor in the window between the FSM's own store
+	// (already applied by the time react runs) and this resolution:
+	// the only other publisher of a successor is the reconnect loop THIS SAME call is about to start (step 2 below),
+	// so a react call for generation e's drop can only ever resolve e here, never a successor, however long that resolution is held.
+	if hook := c.testHookReactBeforeCurLoad; hook != nil {
+		hook()
+	}
+
 	e := c.cur.Load()
 	if e == nil {
 		return
@@ -579,10 +651,12 @@ func (c *connection) react(prev, next ConnState) {
 	// teardown below initiates the async close of e.done — so the Add strictly happens-before
 	// e.done closes, and thus before any Open/Close that gates on e.done and then joins
 	// connectLoopWg (a zero->1 Add can never race connectLoopWg.Wait — WaitGroup discipline,
-	// §7.C). The spawned loop's first act is e.wait() on the epoch torn down just below, so it
-	// never races teardown.
+	// §7.C).
+	// The spawned loop's first act is connectLoopAwaitBarrier's prev.wait() on the epoch torn down just below, so it never races teardown;
+	// its NEXT act is waiting for e's own startReturned barrier,
+	// so it never dials — or claims the reconnect gauge — while e's own Start call (on whatever goroutine drove it) may still be in flight.
 	if !c.shutdown.Load() {
-		c.startConnectLoop(e, true) // a post-Selected involuntary drop always counts as a reconnect
+		c.startConnectLoop(e, true) // any involuntary drop always counts as a reconnect, whether or not this generation ever reached Selected
 	}
 
 	// (3) Non-blocking teardown initiator (idempotent closeOnce — the supervisor's evClose
@@ -645,10 +719,11 @@ func (c *connection) writeFarewellSeparate(e *epoch) {
 // goroutine and BEFORE react initiates the prev-epoch teardown, so the Add happens-before
 // prev.done closes (WaitGroup discipline versus the Open/Close joins that gate on done).
 //
-// countReconnect selects whether a successful dial at the end of this loop increments the
-// cumulative Reconnects() metric — true for a post-Selected involuntary drop, false for Task 4's
-// initial-cold-connect retry (which must NOT count as a "reconnect": see
-// ConnectionMetrics.Reconnects doc, "never for the very first Open()").
+// countReconnect selects whether a successful dial at the end of this loop increments the cumulative Reconnects() metric —
+// true for a recovery after any involuntary drop, whether or not that generation ever reached Selected;
+// false for Task 4's initial-cold-connect retry, whose OWN success must NOT count as a "reconnect"
+// (see ConnectionMetrics.Reconnects: a cold background retry's own success is not counted,
+// but a later recovery after its link came up and dropped is).
 func (c *connection) startConnectLoop(prev *epoch, countReconnect bool) {
 	gen := c.reconnectGen.Load()       // the generation THIS retry is scheduled at (the G2 fence base)
 	cancel := c.reconnectCancel.Load() // this cycle's cancel channel (closed by Close to interrupt backoff)
@@ -656,15 +731,63 @@ func (c *connection) startConnectLoop(prev *epoch, countReconnect bool) {
 	c.connectLoopWg.Go(func() {
 		c.connectLoop(prev, gen, cancel, countReconnect)
 	})
+
+	// Test seam (nil in production): fires immediately after the goroutine above is counted, so a
+	// test can rely on the loop being launched before it releases a held predecessor Start —
+	// letting it drive both "drop processed first" and "Start returns first" schedules deterministically.
+	if hook := c.testHookLoopSpawned; hook != nil {
+		hook()
+	}
 }
 
-// connectLoop is the reconnect state machine (spec §5.2). It reconnects after a single involuntary
-// drop: it first waits for the prior generation to be FULLY torn down (generation-serialization),
-// then dials with an exponential backoff (WithReconnectBackoff) capped at T5, re-checking
-// shutdown/reconnectGen on every attempt (F3) and once more via the atomics-only G2 fence
-// immediately before publishing the fresh generation. The supervisor is NOT recreated here
-// (round-6) — only a fresh epoch per generation; the loop hands each generation to the persistent
-// supervisor via tr.Start (which drives evTCPUp -> CommitSelected -> Selected).
+// connectLoopAwaitBarrier waits for prev to be FULLY torn down and joined, then for prev's own
+// startReturned barrier to release, before a connectLoop invocation may claim the reconnect gauge or dial.
+// It reports false when stop (Close) released the wait before the barrier did —
+// in which case the caller must return without ever having claimed anything —
+// and true otherwise, including when prev is nil (no predecessor to wait for at all).
+func (c *connection) connectLoopAwaitBarrier(prev *epoch, stop <-chan struct{}) bool {
+	if prev == nil {
+		return true
+	}
+
+	_ = prev.wait()
+
+	// Test seam (nil in production): fires immediately before the barrier select below,
+	// so a test can rely on this invocation being parked here — neither channel closed yet —
+	// before it samples the gauge or otherwise asserts on state this invocation has not reached.
+	if hook := c.testHookConnectLoopBarrier; hook != nil {
+		hook()
+	}
+
+	select {
+	case <-prev.startReturned:
+		return true
+	case <-stop:
+		return false
+	}
+}
+
+// connectLoop is the reconnect state machine (spec §5.2).
+// It reconnects after a single involuntary drop:
+// it first waits for the prior generation to be FULLY torn down (generation-serialization)
+// AND for that generation's OWN tr.Start call to have returned (the startReturned barrier, below),
+// then dials with an exponential backoff (WithReconnectBackoff) capped at T5,
+// re-checking shutdown and reconnectGen on every attempt and once more, under publishMu, immediately before publishing the fresh generation.
+// The supervisor is NOT recreated here (round-6) — only a fresh epoch per generation;
+// the loop hands each generation to the persistent supervisor via tr.Start (which drives evTCPUp -> CommitSelected -> Selected).
+//
+// The startReturned barrier: a Start that has already reported TCP-up can still fail after react has already spawned this very invocation for the same predecessor
+// (a custom transport's Start can outlive the drop it eventually reports).
+// Waiting for prev.startReturned before doing anything else — claiming the reconnect gauge, computing a delay, or dialing —
+// guarantees that predecessor's own Start call has returned (or been torn down for) before this invocation acts,
+// so the two never dial concurrently and never race to publish a successor.
+// See connectLoopStartFailure for how a generation this loop itself starts hands off to its own successor the same way.
+//
+// Gauge ownership: this invocation claims connection.metrics.connRetry only once it is past the barrier,
+// and every terminating path from there on releases it —
+// inline, before releasing its OWN epoch's startReturned barrier, on every path that reaches a Start (success or hand-off alike),
+// or via the deferred release on a path that never reaches one (the shutdown fence, or a Close during the backoff sleep).
+// A successor can therefore never observe two owners' shares at once.
 //
 // The backoff delay itself outlives this one invocation:
 // it is read from and written back to connection.reconnectDelay,
@@ -673,8 +796,14 @@ func (c *connection) startConnectLoop(prev *epoch, countReconnect bool) {
 // keeps the ramp growing across the fresh connectLoop invocation react launches for it,
 // instead of restarting at the initial delay.
 func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{}, countReconnect bool) {
-	c.metrics.incConnRetry()
-	defer c.metrics.decConnRetry()
+	// stop is reconnectCancel —
+	// it lets a backoff, or the barrier below, be interrupted promptly so neither a Close nor a failed Open's own rollback has to wait either one out.
+	// It is NOT the supervisor stopCh:
+	// a failed Open's rollback stops the supervisor too, but through evClose, not through this channel.
+	var stop <-chan struct{}
+	if cancel != nil {
+		stop = *cancel
+	}
 
 	// Generation-serialization (E2 reconciliation #1, round-7): wait for the just-torn-down
 	// prior epoch to be FULLY joined — its transport recv loop (via tr.Stop inside teardown) and
@@ -693,17 +822,38 @@ func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{},
 	// re-checked when the FSM applies the event (supervisor.step).
 	// Serialization keeps generations from overlapping in the normal case;
 	// the generation match is what covers this exception.
-	if prev != nil {
-		_ = prev.wait()
+	//
+	// owned tracks whether this invocation currently holds the reconnect gauge share.
+	// releaseGauge is idempotent, so an inline release on a terminating Start attempt (below) and the deferred cleanup's own call never double-count.
+	// The single deferred cleanup below covers EVERY return path —
+	// including abandoning at the barrier, before owned is ever set true —
+	// so testHookLoopExit fires regardless of how far this invocation got, always strictly before whatever gauge release applies.
+	owned := false
+	releaseGauge := func() {
+		if owned {
+			owned = false
+			c.metrics.decConnRetry()
+		}
 	}
 
-	// stop is closed by Close (reconnectCancel) — it lets a backoff be interrupted promptly so
-	// a Close during reconnect does not wait out the whole backoff. It is NOT the supervisor
-	// stopCh: the failed-Open rollback stops the supervisor but must not cancel reconnect here.
-	var stop <-chan struct{}
-	if cancel != nil {
-		stop = *cancel
+	// Test seam (nil in production, MAY BLOCK): runs as the very last step before this invocation returns,
+	// on every path, BEFORE the gauge release below settles.
+	// The failed-Open rollback join test holds it to keep a reconnect loop alive
+	// while asserting that Open's own connectLoopWg.Wait() has not returned.
+	defer func() {
+		if hook := c.testHookLoopExit; hook != nil {
+			hook()
+		}
+
+		releaseGauge()
+	}()
+
+	if !c.connectLoopAwaitBarrier(prev, stop) {
+		return // Close released the wait before prev's own Start ever returned; nothing was claimed
 	}
+
+	c.metrics.incConnRetry()
+	owned = true
 
 	// Decide the starting delay now that the prior generation, if any, has fully ended.
 	// A predecessor that reached Selected at least once —
@@ -791,14 +941,18 @@ func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{},
 		// drives evTCPUp -> CommitSelected -> Selected across this new generation (round-6). On
 		// success the generation is live and the loop's job is done.
 		if err := c.tr.Start(e.ctx, c); err != nil {
-			// Dial failed: tear this generation down, join it, and retry after the next backoff
-			// (still F3/G2-gated). Joining here keeps the next attempt from overlapping this one.
-			cfg.logger.Debug("hsms: reconnect dial failed, retrying", "error", err)
-			e.teardown(c.cfg.Load().closeTimeout) // LIVE closeTimeout (M7) — consistent with the react teardown
-			_ = e.wait()
+			if c.connectLoopStartFailure(e, err, cfg, releaseGauge) {
+				continue
+			}
 
-			continue
+			return
 		}
+
+		// This generation is live and this loop's job is done:
+		// release the gauge and this generation's OWN barrier before returning,
+		// so a FUTURE successor (spawned whenever this generation eventually drops) never finds both owners' shares held at once.
+		releaseGauge()
+		close(e.startReturned)
 
 		if countReconnect {
 			c.metrics.incReconnects()
@@ -806,6 +960,60 @@ func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{},
 
 		return
 	}
+}
+
+// connectLoopStartFailure handles a failed tr.Start for the generation e that connectLoop just published:
+// tear it down and join that teardown FIRST, with e's own startReturned barrier still closed, so e.tcpUpCommitted is final before deciding what happened.
+//
+// A generation that never left NotConnected (no TCP-up commit ever succeeded on it) was a plain dial/listen failure:
+// releasing e's barrier and reporting true lets connectLoop retry with this same invocation, still the sole owner of the reconnect gauge.
+//
+// A generation that DID leave NotConnected came up and then failed to start:
+// this invocation hands the retry off to the drop reaction's own loop instead of retrying itself.
+// It releases the gauge share and e's barrier — in that order, so an already-unblocked successor can never observe both owners' shares held at once —
+// then reports the drop through injectDisconnect and returns false.
+// If the drop was already stored (a TCPDown processed first), the report is a no-op:
+// illegal from NotConnected, or stale once a successor is already current.
+// Otherwise it produces the drop, and every real drop into NotConnected is guaranteed a reaction (see supervisor.step's dropped-transition handling).
+// injectDisconnect can block — exactly like any other injection (see supervisor.inject),
+// it is a bounded-blocking send on the events queue, not a guaranteed-non-blocking one —
+// and becomes a safe no-op only once the supervisor has stopped (runDone closed).
+// It still cannot deadlock against a concurrent Close:
+// Close tears the connection down through requestClose/evClose on that SAME queue,
+// and the supervisor's own run() loop is what drains it,
+// so the two can never wait on each other.
+func (c *connection) connectLoopStartFailure(e *epoch, err error, cfg *ConnectionConfig, releaseGauge func()) (retry bool) {
+	// Test seam (nil in production): fires immediately on observing the failure,
+	// before the teardown below — see the field doc for what this acknowledgement proves.
+	if hook := c.testHookConnectLoopBeforeFailureTeardown; hook != nil {
+		hook()
+	}
+
+	e.teardown(c.cfg.Load().closeTimeout) // LIVE closeTimeout (M7) — consistent with the react teardown
+	_ = e.wait()
+
+	if !e.tcpUpCommitted.Load() {
+		cfg.logger.Debug("hsms: reconnect dial failed, retrying", "error", err)
+		close(e.startReturned)
+
+		return true
+	}
+
+	cfg.logger.Debug("hsms: reconnect start failed after TCP-up; handing the retry off to the drop reaction's own loop", "error", err)
+
+	releaseGauge()
+	close(e.startReturned)
+
+	// Test seam (nil in production): lets a test hold this invocation here, after the barrier has released,
+	// so an already-unblocked successor can run to publication BEFORE the report below —
+	// exercising injectDisconnect's stale-generation no-op path deterministically.
+	if hook := c.testHookBeforeHandoffInject; hook != nil {
+		hook()
+	}
+
+	c.injectDisconnect(e.id, err, CauseUnknown)
+
+	return false
 }
 
 // nextBackoffDelay advances the exponential reconnect backoff: cur scaled by multiplier, capped
@@ -909,15 +1117,22 @@ func (c *connection) BoundDial(startCtx, dialCtx context.Context) (context.Conte
 
 // TCPUp is called by the transport when a TCP connection is established (TransportRuntime).
 //
-// It publishes the socket on the current epoch and then advances the FSM NotConnected -> NotSelected SYNCHRONOUSLY via a guarded CAS (CommitConnected, symmetric with CommitSelected),
-// which also enqueues evTCPUp for the deduped entering-NotSelected reaction/notify.
+// It publishes the socket on the current epoch and then attempts to advance the FSM NotConnected -> NotSelected SYNCHRONOUSLY via a guarded CAS
+// (CommitConnected, symmetric with CommitSelected), which — on a committed CAS — also enqueues evTCPUp for the deduped entering-NotSelected reaction/notify.
 // The socket is published BEFORE the supervisor call so it is visible before State() flips to NotSelected.
 //
-// TCPUp carries no generation identity and so cannot report a refusal —
-// an out-of-module transport reaching this entry point gets the pre-generation behavior unconditionally
-// (conn is published whenever a current epoch exists at all).
+// TCPUp carries no generation identity,
+// so publishing the socket is unconditional whenever a current epoch exists at all — the same pre-generation behavior this entry point has always had.
+// The FSM commit that follows is different:
+// it is refused when the current generation's teardown has already begun,
+// or when that generation already admitted a TCP-up report, even at this unnamed call site — see [connection.tcpUpCommitGate].
+// A refused commit still costs nothing beyond the diagnostic accounting for the FSM itself:
+// publishSocket has already run by then, with no liveness check at gen 0 (see [connection.publishSocket]),
+// so a report racing a generation whose own teardown already closed its socket can still re-populate that socket,
+// and nothing closes it afterward — a pre-existing limitation of this unnamed path, tracked as a follow-up,
+// not something the FSM-commit refusal above fixes.
 // [connection.TCPUpFromGeneration] is the generation-aware counterpart an in-module transport uses instead,
-// and it DOES report whether conn was accepted.
+// and it DOES report whether conn was accepted at the publish step.
 func (c *connection) TCPUp(conn net.Conn) {
 	c.commitTCPUp(0, conn)
 }
@@ -953,20 +1168,22 @@ func (c *connection) TCPUpFromGeneration(gen uint64, conn net.Conn) bool {
 // NOT whether the FSM CAS that follows actually flipped the state —
 // those two can diverge
 // (a teardown can land between the two calls and refuse the CAS on a socket publishSocket already accepted),
-// but the divergence is harmless:
-// the epoch already owns conn by then,
-// so that same teardown's own closeSocket
-// (which always runs after markEnded, the same latch the CAS's gate re-checks) closes it.
-// A refusal at publishSocket itself is the only case where no epoch ever takes ownership,
+// but for a NAMED generation the divergence is harmless:
+// publishSocket's own liveness check (under genGate.RLock) refuses the store once that generation's teardown has begun,
+// so the epoch never takes ownership of a socket its own teardown has already closed.
+// At gen 0, though, publishSocket has no such check (see [connection.publishSocket]):
+// a report landing after this generation's own teardown already ran closeSocket can still re-populate its socket,
+// and nothing closes it afterward — the same pre-existing, unnamed-path limitation [connection.TCPUp] documents.
+// A refusal at publishSocket itself — the named-generation case — is the only case where no epoch ever takes ownership,
 // which is what the return value exists to let the caller detect.
 //
 // The FSM commit is still attempted UNCONDITIONALLY, even when publishSocket already refused:
-// commitGate applies the identical {id, ended} check on its own RLock section and,
+// tcpUpCommitGate applies the identical {id, ended} liveness check on its own RLock section and,
 // finding the same generation already gone, counts it as a stale commit (staleGen) and logs it —
 // the diagnostic this back-channel has always produced for a report naming a dead generation.
 // The commit itself is a guaranteed no-op in that case
 // (once ended latches true it never reverts,
-// so a generation publishSocket already refused can never pass commitGate either),
+// so a generation publishSocket already refused can never pass tcpUpCommitGate either),
 // so this costs nothing beyond the accounting.
 func (c *connection) commitTCPUp(gen uint64, conn net.Conn) bool {
 	accepted := c.publishSocket(gen, conn)
@@ -1113,6 +1330,79 @@ func (c *connection) selectCommitGate(gen uint64, cas func() bool) (committed, l
 
 		c.cfg.Load().logger.Debug("hsms: dropped a select commit requested by a generation that is no longer live",
 			"reported_generation", gen, "current_generation", current)
+	}
+
+	return committed, live
+}
+
+// tcpUpCommitGate is commitGate's counterpart for the TCP-up commit only.
+//
+// It fences the same way —
+// one genGate.RLock section spanning {resolve the live generation, verify liveness, run the CAS} —
+// but ALSO differs from commitGate in the one place the TCP-up commit needs it to: a gen of 0 is NOT bypassed,
+// for the same reason selectCommitGate does not bypass it —
+// SECS-I and any out-of-module transport never carry a generation identity,
+// so a named-generation check alone would leave every one of their TCP-up reports ungated.
+// A gen of 0 skips ONLY the identity comparison; the liveness requirement — a non-nil,
+// un-torn-down current generation — still applies.
+//
+// It additionally admits AT MOST ONE TCP-up per generation:
+// e.tcpUpAdmitted.CompareAndSwap(false, true) inside the same RLock section refuses a second report
+// on a generation that already admitted one, even when the first report's own CAS failed.
+// The admission CAS and the state CAS both run under the same RLock section, and a live generation cannot end while that section holds,
+// so concurrent RLock holders can never both pass the admission CAS.
+//
+// On a commit that both admission and the CAS accept,
+// it latches epoch.tcpUpCommitted on the SAME generation the RLock section validated, before releasing the lock —
+// connectLoop's Start-failure branch depends on that marker landing on the exact generation whose commit set it,
+// so it can tell a plain dial failure (the FSM never left NotConnected) from a link that came up and then failed to start
+// (see connectLoop).
+//
+// A TCP-up reported after the current generation's teardown has already begun,
+// or one reported after the generation already admitted an earlier TCP-up,
+// is refused here rather than moving a dying or already-dropped link back into NotSelected —
+// see the TransportRuntime.TCPUp doc for the resulting behavior change.
+//
+// Nothing that can block runs under the gate: the log below is deliberately emitted after the unlock,
+// exactly like commitGate and selectCommitGate.
+// A refused second report on a still-live generation logs the same way, distinctly from a refusal on a dead one;
+// commitFrom counts staleGen only for the latter (live is still true here), so this refusal is a diagnostic only.
+func (c *connection) tcpUpCommitGate(gen uint64, cas func() bool) (committed, live bool) {
+	c.genGate.RLock()
+
+	e := c.cur.Load()
+	live = e != nil && !e.ended.Load() && (gen == 0 || e.id == gen)
+
+	var admitted bool
+	if live {
+		admitted = e.tcpUpAdmitted.CompareAndSwap(false, true)
+		if admitted {
+			committed = cas()
+			if committed {
+				// Test seam (nil in production, MAY BLOCK): fires here, still holding genGate.RLock,
+				// after the CAS above and before the marker store below — see the field doc.
+				if hook := c.testHookTCPUpCommitBeforeMarker; hook != nil {
+					hook()
+				}
+
+				e.tcpUpCommitted.Store(true)
+			}
+		}
+	}
+
+	c.genGate.RUnlock()
+
+	if !live {
+		var current uint64
+		if e != nil {
+			current = e.id
+		}
+
+		c.cfg.Load().logger.Debug("hsms: dropped a TCP-up commit requested by a generation that is no longer live",
+			"reported_generation", gen, "current_generation", current)
+	} else if !admitted {
+		c.cfg.Load().logger.Debug("hsms: dropped a TCP-up commit because this generation already admitted an earlier one",
+			"reported_generation", gen, "current_generation", e.id)
 	}
 
 	return committed, live
