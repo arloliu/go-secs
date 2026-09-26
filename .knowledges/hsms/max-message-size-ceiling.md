@@ -8,7 +8,7 @@ generated: {by: "claude/sonnet-5", at: 2026-08-12T08:33:19Z}
 verified:
   - {by: "claude/sonnet-5", at: 2026-08-12T08:43:44Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:e485168d1a431fe7, revision: d244104}
+  - {resource: hsms/connection_send.go, digest: sha256:90a5e3ff7beea84c, revision: f7a5927}
   - {resource: hsms/errors.go, digest: sha256:3057101139d08434, revision: a7ff4a8}
   - {resource: internal/wire/body.go, digest: sha256:2fa6355ec9459b7c, revision: b1bb17b}
 ---

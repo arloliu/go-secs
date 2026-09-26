@@ -4,16 +4,16 @@ title: Who owns the reconnect retry after a failed Start
 description: How exactly one reconnect loop ends up retrying when a transport's Start fails, whether the link never came up or came up first, and what the startReturned barrier, the TCP-up marker, and the Reconnecting gauge each contribute.
 tags: [hsms, reconnect, lifecycle, generations, metrics]
 status: stable
-generated: {by: "claude/opus-5.5", at: 2026-09-26T07:45:27Z}
+generated: {by: "claude/opus-5.5", at: 2026-09-26T09:40:37Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-26T07:51:47Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-26T09:48:36Z}
 sources:
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:55dd3be61ec99d15, revision: 4be2062}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:e6d0d8d5bdf02ea2, revision: f7a5927}
   - {resource: hsms/epoch.go, digest: sha256:5d48c9656ae715cc, revision: 4be2062}
   - {resource: hsms/connection.go, digest: sha256:d45005d0dcf9540c, revision: 4be2062}
-  - {resource: hsms/connection_metrics.go, digest: sha256:4a106e75d9f7803b, revision: 4be2062}
-  - {resource: hsms/supervisor.go, digest: sha256:3eaeab8b7da4685b, revision: 4be2062}
-  - {resource: hsms/transport.go, digest: sha256:4bd6612b639eca21, revision: 4be2062}
+  - {resource: hsms/connection_metrics.go, digest: sha256:dae358846f98653e, revision: f7a5927}
+  - {resource: hsms/supervisor.go, digest: sha256:1717fd0875937ae8, revision: f7a5927}
+  - {resource: hsms/transport.go, digest: sha256:729e68fc418d4971, revision: f7a5927}
 ---
 
 # What it does
@@ -21,11 +21,12 @@ sources:
 Answers: *when a transport's `Start` fails, which reconnect loop retries, and how is a second one kept out?*
 The godoc of `connectLoop`, `connectLoopStartFailure`, `tcpUpCommitGate`, `epoch.startReturned`,
 `ConnectionMetrics.Reconnecting`, and the transport's `Start` each describes its own piece.
-None of them states that the hand-off only works because `injectDisconnect` checks identity and not `ended`,
-that every path which calls `Start` must close that generation's barrier or park its successor for good,
-or that the hand-off loop counts as a reconnect whatever the handing-off loop's own flag was.
-`Reconnecting`'s doc says it reads 1 while a loop retries;
-in fact it drops to 0 for a moment at every hand-off.
+`TCPDownFromGeneration`'s doc states that an ended-but-current generation's report is still admitted,
+which the hand-off report relies on,
+and `Reconnecting`'s doc states the gauge ordering and that the gauge can briefly read 0 during a hand-off.
+None of them states that every path which calls `Start` must close that generation's barrier or park its successor for good,
+that the hand-off loop counts as a reconnect whatever the handing-off loop's own flag was,
+or what the gauge's 0 gap at a hand-off waits on (see Gotchas).
 
 # How it works
 

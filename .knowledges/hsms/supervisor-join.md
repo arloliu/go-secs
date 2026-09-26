@@ -8,8 +8,8 @@ generated: {by: "claude/opus-5.5", at: 2026-09-26T07:35:00Z}
 verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-26T07:51:47Z}
 sources:
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:55dd3be61ec99d15, revision: 4be2062}
-  - {resource: hsms/supervisor.go, digest: sha256:3eaeab8b7da4685b, revision: 4be2062}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:e6d0d8d5bdf02ea2, revision: f7a5927}
+  - {resource: hsms/supervisor.go, digest: sha256:1717fd0875937ae8, revision: f7a5927}
   - {resource: hsms/state.go, digest: sha256:f467c560ffea5807, revision: d244104}
   - {resource: hsms/connection.go, digest: sha256:d45005d0dcf9540c, revision: 4be2062}
   - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: d244104}
