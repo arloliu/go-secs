@@ -201,7 +201,7 @@ func (t *transport) startActive(ctx context.Context) error {
 	// ONLY while no Stop is sealing. The DIAL above is deliberately OUTSIDE the guard (never hold
 	// startGate across a dial). If a voluntary Close sealed this transport after the core published
 	// this generation (the I1 race), abort the just-dialed conn instead of racing Stop's Waits: the
-	// reconnect loop then observes shutdown at its F3/G2 fence and returns. rt.TCPUp is kept inside
+	// reconnect loop then observes shutdown at the reconnect fence and returns. rt.TCPUp is kept inside
 	// the guard (before the recv-loop spawn) both to satisfy the FSM ordering (NotSelected committed
 	// before frames dispatch) and so a sealed generation drives no state.
 	t.startGate.RLock()

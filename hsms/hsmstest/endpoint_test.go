@@ -224,7 +224,7 @@ func TestFakeEndpoint_ZeroValue_CloseWithoutAnyRegistrationDoesNotPanic(t *testi
 
 // TestFakeEndpoint_AddDataMessageChan_CloseUnblocksStalledDeliver verifies that Close unblocks
 // a Deliver call stalled sending to a full/unread registered channel, mirroring the real
-// connection's teardown-unblocks-fan-out behavior (J5 parity).
+// connection's teardown-unblocks-fan-out behavior.
 func TestFakeEndpoint_AddDataMessageChan_CloseUnblocksStalledDeliver(t *testing.T) {
 	t.Parallel()
 

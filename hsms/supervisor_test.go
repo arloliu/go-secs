@@ -156,7 +156,7 @@ func TestSupervisor_NeverBlocksEventsDrainEvenAcrossSecondTerminal(t *testing.T)
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("supervisor parked on a blocking notify send — inject deadlocked across terminals with a stalled notifier (round-5)")
+		t.Fatal("supervisor parked on a blocking notify send — inject deadlocked across terminals with a stalled notifier")
 	}
 }
 

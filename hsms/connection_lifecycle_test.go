@@ -96,10 +96,9 @@ func TestOpen_TrNilError(t *testing.T) {
 	require.Error(t, c.Open(context.Background(), OpenBackground))
 }
 
-// TestOpenCloseReopenRestartsSupervisorNoClosedChannelPanic: Open after Close must create a
-// FRESH supervisor (no send-on-closed panic from reusing stopped channels), and handlers
-// registered once persist across cycles. Runs under -race -count to expose the closed-channel
-// race (the reopen race, round-5).
+// TestOpenCloseReopenRestartsSupervisorNoClosedChannelPanic: Open after Close must create a FRESH supervisor
+// (no send-on-closed panic from reusing stopped channels), and handlers registered once persist across cycles.
+// Runs under -race -count to expose the closed-channel race (the reopen race).
 func TestOpenCloseReopenRestartsSupervisorNoClosedChannelPanic(t *testing.T) {
 	c, _ := newLifeConn(t, withMockTransport())
 
@@ -220,7 +219,7 @@ func TestClose_BeforeOpenReturnsErrNotOpen(t *testing.T) {
 
 // TestClose_IdempotentReCloseDoesNotHang: a second Close (after the first ran sup.stop(), so
 // run() exited and events has no reader) short-circuits to the prior result — it must NOT block
-// on a blocking inject(evClose) onto the now-unread events channel (round-4).
+// on a blocking inject(evClose) onto the now-unread events channel.
 func TestClose_IdempotentReCloseDoesNotHang(t *testing.T) {
 	c, _ := newLifeConn(t, withMockTransport())
 	require.NoError(t, c.Open(t.Context(), OpenBackground))
@@ -228,8 +227,8 @@ func TestClose_IdempotentReCloseDoesNotHang(t *testing.T) {
 	require.NoError(t, c.Close()) // first close: drives teardown + sup.stop()
 
 	// Fill the supervisor's now-unread events buffer so a second requestClose's inject would
-	// block forever WITHOUT the already-stopped short-circuit AND the runDone backstop (round-4
-	// teeth). run() has exited, so these direct sends fill the buffer to capacity.
+	// block forever WITHOUT the already-stopped short-circuit AND the runDone backstop.
+	// run() has exited, so these direct sends fill the buffer to capacity.
 	s := c.sup.Load()
 	for range cap(s.events) {
 		select {
@@ -244,13 +243,13 @@ func TestClose_IdempotentReCloseDoesNotHang(t *testing.T) {
 	case err := <-done:
 		require.NoError(t, err)
 	case <-time.After(2 * time.Second):
-		t.Fatal("re-Close hung — Close must short-circuit when the supervisor already stopped (round-4)")
+		t.Fatal("re-Close hung — Close must short-circuit when the supervisor already stopped")
 	}
 }
 
 // TestClose_WhileNotSelectedDoesNotHang: OpenBackground returns before selection; Close while
 // the FSM is still NotSelected (TCP up, not selected) must tear down and return — NOT block on
-// e.done because no transition-to-NotConnected fired (round-2 Critical).
+// e.done because no transition-to-NotConnected fired.
 func TestClose_WhileNotSelectedDoesNotHang(t *testing.T) {
 	c, _ := newLifeConn(t, withMockTransportThatConnectsButNeverSelects())
 	require.NoError(t, c.Open(t.Context(), OpenBackground))
@@ -262,13 +261,13 @@ func TestClose_WhileNotSelectedDoesNotHang(t *testing.T) {
 	case err := <-done:
 		require.NoError(t, err)
 	case <-time.After(2 * time.Second):
-		t.Fatal("Close while NotSelected hung (round-2 Critical)")
+		t.Fatal("Close while NotSelected hung")
 	}
 }
 
 // TestClose_WhileDialingNotConnectedDoesNotHang: Close while the FSM is still NotConnected
 // (dial in progress, no TCPUp) must ensure-teardown of the pinned epoch from NotConnected —
-// where no transition fires — and return (round-2/7 Critical).
+// where no transition fires — and return.
 func TestClose_WhileDialingNotConnectedDoesNotHang(t *testing.T) {
 	c, _ := newLifeConn(t, withMockTransportThatNeverConnects())
 	require.NoError(t, c.Open(t.Context(), OpenBackground))
@@ -280,7 +279,7 @@ func TestClose_WhileDialingNotConnectedDoesNotHang(t *testing.T) {
 	case err := <-done:
 		require.NoError(t, err)
 	case <-time.After(2 * time.Second):
-		t.Fatal("Close while dialing (NotConnected) hung — evClose must ensure teardown from NotConnected (round-2 Critical)")
+		t.Fatal("Close while dialing (NotConnected) hung — evClose must ensure teardown from NotConnected")
 	}
 }
 

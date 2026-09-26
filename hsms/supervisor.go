@@ -91,7 +91,7 @@ type supervisor struct {
 	// returned again by every later Close of the same cycle.
 	// It is written once and read only under connection.lifeMu; runDone and notifierDone do NOT publish it.
 	shutdownErr error
-	// closeTimeout bounds the evClose ensure-teardown of the pinned epoch (§5.2/§7.A). It is a
+	// closeTimeout bounds the evClose ensure-teardown of the pinned epoch (§5.2). It is a
 	// provider (not a captured value) so the teardown reads the LIVE config: a mid-session
 	// UpdateConfigOptions(WithCloseTimeout) is honored, matching the connection's other teardown
 	// sites which all read c.cfg.Load().closeTimeout (M7). Nil defaults to supervisorFallbackCloseTimeout.
@@ -452,7 +452,7 @@ func (s *supervisor) commitFrom(gen uint64, from, to ConnState, ev fsmEvent, cau
 
 // run is the single writer for async transitions. Its lifetime is the whole Open/Close cycle
 // (NOT an epoch): it selects on stopCh (closed by stop()) and events. There is deliberately
-// NO ctx.Done()->evClose synthesis (Codex round-6) — evClose is ONLY ever the pinned one from
+// NO ctx.Done()->evClose synthesis — evClose is ONLY ever the pinned one from
 // requestClose(e), so the evClose handler's closeEpoch.Load().teardown() is never a nil deref
 // and an involuntary epoch-ctx cancellation never kills the supervisor. Closing notify and
 // runDone on return drains the notifier (H4/H5) and makes inject a safe no-op after stop.

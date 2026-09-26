@@ -26,7 +26,8 @@ func makeFrame(n int) []byte { return make([]byte, n) }
 // data frames go zero-copy to t.deliverOwnedFrame, control responses to t.routeReply,
 // control requests to the responder procedures, and a peer Separate drives teardown.
 // On any read error (including the conn.Close in Stop) it calls t.tcpDown and returns.
-// g.recv.Done fires via defer on return, unblocking Stop's g.recv.Wait on this generation's captured bundle (Codex round-7 / NEW-1).
+// g.recv.Done fires via defer on return, unblocking Stop's g.recv.Wait on this generation's captured bundle
+// (no recv goroutine outlives its generation; NEW-1).
 // g is threaded into every WaitGroup-registering call this loop makes (armT7, startLinktest),
 // so a straggler abandoned by a bounded Stop registers only on ITS generation's bundle, never a successor's.
 //

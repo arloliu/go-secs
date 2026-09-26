@@ -1,6 +1,6 @@
 package hsmsss
 
-// integration_inbound_straggler_test.go — end-to-end coverage for the generation-fenced inbound path (R10 / D2):
+// integration_inbound_straggler_test.go — end-to-end coverage for the generation-fenced inbound path:
 // the inbound fan-out and admission path must be fenced to the generation whose recv goroutine actually read the frame,
 // so a straggler abandoned by a bounded Close cannot reach a live successor's handlers, channels, or reply registry
 // once that successor exists.
@@ -50,15 +50,15 @@ func rejectReqFrame(sb [4]byte, reason byte) []byte {
 	return frameBytes(10, h, nil)
 }
 
-// ── test 11: fan-out straggler ──────────────────────────────────────────────
+// ── fan-out straggler ──────────────────────────────────────────────
 
-// TestInboundFanout_HandlerStragglerCannotReachSuccessor pins test 11:
+// TestInboundFanout_HandlerStragglerCannotReachSuccessor verifies that
 // a data-message handler wedged inline on generation N's recv goroutine is abandoned by a bounded Close
 // (independent of the wedge itself — the voluntary Close's own bounded join times out and moves on).
 // Once a successor generation N+1 reaches Selected,
 // releasing the wedged handler must not let handler 2 or a registered channel observe the stale generation-N message.
 // It must also not put any frame onto the successor's live peer link.
-// The end-to-end D3 check:
+// The end-to-end stale-reply refusal check:
 // handler 1's own reply attempt after release must be refused rather than delivered to the successor's peer.
 //
 // Teeth: session.recvDataMsg's per-handler loop must recheck cancellation before every handler,
@@ -81,7 +81,7 @@ func TestInboundFanout_HandlerStragglerCannotReachSuccessor(t *testing.T) {
 		close(entered)
 		<-release // wedge — mirrors a blocking inline data handler (Close must abandon this)
 
-		// D3 end-to-end: by the time this reply attempt runs, generation N has already ended
+		// Stale-reply refusal, end-to-end: by the time this reply attempt runs, generation N has already ended
 		// (Close returned and the successor is Selected),
 		// so the reply must be refused rather than sent on the successor under N's stale System Bytes.
 		replyErrCh <- ep.ReplyDataMessage(context.Background(), msg, secs2.A("stale-reply"))
@@ -151,18 +151,18 @@ func TestInboundFanout_HandlerStragglerCannotReachSuccessor(t *testing.T) {
 	waitWaitGroupDone(t, "the old generation's recv loop", oldG.recv.Wait)
 
 	require.Zero(t, handler2Calls.Load(),
-		"D2: handler 2 must never see the message delivered to the ended generation N")
+		"handler 2 must never see the message delivered to the ended generation N")
 
 	select {
 	case msg := <-ch:
-		t.Fatalf("D2: the registered channel must never receive the stale generation-N message, got %v", msg)
+		t.Fatalf("the registered channel must never receive the stale generation-N message, got %v", msg)
 	default:
 	}
 
 	select {
 	case replyErr := <-replyErrCh:
 		require.ErrorIs(t, replyErr, hsms.ErrConnClosed,
-			"D3: handler 1's reply from the ended generation must be refused, not sent on the successor")
+			"handler 1's reply from the ended generation must be refused, not sent on the successor")
 	case <-time.After(2 * time.Second):
 		t.Fatal("handler1 never attempted its post-release ReplyDataMessage")
 	}
@@ -172,10 +172,10 @@ func TestInboundFanout_HandlerStragglerCannotReachSuccessor(t *testing.T) {
 	_, err = peer2.Read(buf)
 	var netErr net.Error
 	require.True(t, errors.As(err, &netErr) && netErr.Timeout(),
-		"the successor's peer must receive nothing from generation N's stale fan-out or D3-refused reply (got err=%v)", err)
+		"the successor's peer must receive nothing from generation N's stale fan-out or refused reply (got err=%v)", err)
 }
 
-// ── test 12: admission straggler ────────────────────────────────────────────
+// ── admission straggler ────────────────────────────────────────────
 
 // admissionStragglerFixture is what setupAdmissionStraggler hands back:
 // everything a flavor-specific test needs to release the paused straggler and assert on the successor.
@@ -187,7 +187,7 @@ type admissionStragglerFixture struct {
 	release func() // idempotent; releases the paused straggler goroutine
 }
 
-// setupAdmissionStraggler is the shared setup for test 12's three flavors
+// setupAdmissionStraggler is the shared setup for the three admission-straggler flavors
 // (data secondary, control response / Reject.req, primary).
 // It opens a passive connection and selects generation N over peer1.
 // It pauses buildStaleFrame's frame's admission via testHookAfterReadFrame right after readFrame completes.
@@ -267,7 +267,7 @@ func setupAdmissionStraggler(t *testing.T, label string, buildStaleFrame func(sb
 	return &admissionStragglerFixture{conn: conn, tr: tr, oldG: oldG, peer2: peer2, release: releaseFn}
 }
 
-// runCollisionCase is test 12's shared body for the two collision flavors (data secondary, control response / Reject.req):
+// runCollisionCase is the shared body for the two collision flavors (data secondary, control response / Reject.req):
 // the stale frame's System Bytes are engineered to collide with a live transaction the successor opens,
 // and releasing the straggler must not complete that transaction.
 func runCollisionCase(t *testing.T, label string, buildStaleFrame func(sb [4]byte) []byte) {
@@ -316,7 +316,7 @@ func runCollisionCase(t *testing.T, label string, buildStaleFrame func(sb [4]byt
 	}
 }
 
-// TestAdmissionStraggler_DataSecondary is test 12's data-secondary flavor.
+// TestAdmissionStraggler_DataSecondary is the data-secondary flavor.
 func TestAdmissionStraggler_DataSecondary(t *testing.T) {
 	t.Parallel()
 
@@ -325,7 +325,7 @@ func TestAdmissionStraggler_DataSecondary(t *testing.T) {
 	})
 }
 
-// TestAdmissionStraggler_ControlResponse is test 12's control-response flavor.
+// TestAdmissionStraggler_ControlResponse is the control-response flavor.
 // Reject.req is the one control-typed frame the reply registry's control-transaction exemption lets satisfy a DATA transaction uncompared;
 // see rejectReqFrame's doc comment.
 func TestAdmissionStraggler_ControlResponse(t *testing.T) {
@@ -336,7 +336,7 @@ func TestAdmissionStraggler_ControlResponse(t *testing.T) {
 	})
 }
 
-// TestAdmissionStraggler_Primary is test 12's primary flavor:
+// TestAdmissionStraggler_Primary is the primary flavor:
 // unlike the secondary/control-response flavors, a stale PRIMARY has nothing open on the successor to collide with —
 // the successor must simply never deliver it to a data handler, or place any frame on the successor's peer socket.
 func TestAdmissionStraggler_Primary(t *testing.T) {
@@ -357,7 +357,7 @@ func TestAdmissionStraggler_Primary(t *testing.T) {
 	waitWaitGroupDone(t, "the old generation's recv loop", f.oldG.recv.Wait)
 
 	require.Zero(t, handlerCalls.Load(),
-		"D2: the successor must never deliver generation N's stale primary to a data handler")
+		"the successor must never deliver generation N's stale primary to a data handler")
 
 	require.NoError(t, f.peer2.SetReadDeadline(time.Now().Add(300*time.Millisecond)))
 	buf := make([]byte, 1)

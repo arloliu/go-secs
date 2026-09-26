@@ -16,17 +16,17 @@ var _ SECS2Endpoint = (*session)(nil)
 //
 // # Fan-out approach
 //
-// recvDataMsgOn delivers messages synchronously on the calling goroutine (the epoch-joined recv loop, G3),
+// recvDataMsgOn delivers messages synchronously on the calling goroutine (the epoch-joined recv loop),
 // fenced to the specific generation's cancellation channel that admitted the message,
 // to both func handlers and channel handlers:
 //
 //   - Func handlers ([DataMessageHandler]) are called directly; no goroutine is spawned.
 //   - Channel handlers (chan *[DataMessage]) are delivered via
 //     select { case ch <- msg: case <-done: return }
-//     so a stalled receiver can never block the fan-out past that generation's teardown (J5).
+//     so a stalled receiver can never block the fan-out past that generation's teardown.
 //
 // Because both paths are synchronous, no goroutines are spawned and no separate join
-// is needed (G3 is satisfied by the recv-loop epoch join, built in Task 19).
+// is needed — the epoch join already covers the recv loop.
 //
 // # AddConnStateChangeHandler
 //
@@ -355,7 +355,7 @@ func (s *session) callDecodeErrorHandler(gen uint64, h DecodeErrorHandler, msg *
 // AddDataMessageChan implements the SECS2Endpoint method of the same name.
 // See that interface method's godoc for the full consumer contract.
 //
-// The session delivers each inbound message to ch via a select that includes rt.Done() (J5),
+// The session delivers each inbound message to ch via a select that includes rt.Done(),
 // so a full channel can never block the fan-out past connection teardown.
 //
 // Panics if ch is nil: a nil channel would make every delivery select wait only on
@@ -400,16 +400,16 @@ func (s *session) AddConnStateChangeHandler(handlers ...StateChangeHandler) {
 	}
 }
 
-// recvDataMsgOn delivers msg to every registered handler and channel synchronously (§5.4, J5/G3),
+// recvDataMsgOn delivers msg to every registered handler and channel synchronously,
 // fenced to a specific generation's cancellation channel (done):
 // done must be e.ctx.Done() for the generation that admitted msg, never e.done.
-// The same immutable *DataMessage pointer is passed to every handler — no Clone (D7).
+// The same immutable *DataMessage pointer is passed to every handler — no Clone.
 //
 // Fan-out order:
 //  1. Func handlers ([DataMessageHandler]) are called directly (no goroutine spawned).
 //  2. Channel handlers are delivered via
 //     select { case ch <- msg: case <-done: return }
-//     so a full/stalled channel never blocks the fan-out past that generation's teardown (J5).
+//     so a full/stalled channel never blocks the fan-out past that generation's teardown.
 //
 // Returns immediately if there are no handlers or if the generation is already torn down.
 //

@@ -126,7 +126,8 @@ func TestEpoch_TeardownInitReturnsBeforeJoinCompletes(t *testing.T) {
 
 func TestEpoch_TeardownClosesSocketBeforeJoin(t *testing.T) {
 	// A goroutine parked in conn.Read must be unblocked by teardown's closeSocket
-	// (J5) so the join completes. Use a net.Pipe conn.
+	// so the join completes.
+	// Use a net.Pipe conn.
 	srv, cli := net.Pipe()
 	e := newEpoch(t.Context(), logger.Default(), 8)
 	e.setConn(cli)

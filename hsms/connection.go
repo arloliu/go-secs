@@ -20,7 +20,7 @@ var (
 )
 
 // closedDoneChan is a pre-closed channel returned by Done() when there is no live epoch
-// (before the first Open or after teardown). Callers use Done() SELECT-ONLY (J5); an
+// (before the first Open or after teardown). Callers use Done() SELECT-ONLY; an
 // already-closed channel makes such a select fire immediately rather than nil-block.
 var closedDoneChan = func() chan struct{} {
 	ch := make(chan struct{})
@@ -85,8 +85,8 @@ type connection struct {
 	lifecycleSubs atomic.Pointer[[]lifecycleSub]
 	lifecycleSeq  atomic.Uint64
 
-	shutdown     atomic.Bool   // set by Close; re-checked by reconnect reactions (F3/G2)
-	reconnectGen atomic.Uint64 // bumped by Close/Open; the G2 fence compares against it
+	shutdown     atomic.Bool   // set by Close; re-checked by the reconnect fence (shutdown flag + reconnectGen)
+	reconnectGen atomic.Uint64 // bumped by Close/Open; the reconnect fence compares against it
 
 	// genSeq mints epoch.id, the generation identity a transport carries,
 	// so a disconnect it reports is matched against the live generation when the supervisor processes it.
@@ -210,9 +210,10 @@ type connection struct {
 	// transition that races past the B1 pre-register gate.
 	testHookAfterWriteLock func()
 
-	// testHookConnectLoop is called by the reconnect loop between the T5 backoff and the
-	// G2 fence, once per dial attempt. It is nil in production (zero cost). The gen-fence
-	// and no-deadlock teeth tests set it to pause the loop at the fence deterministically.
+	// testHookConnectLoop is called by the reconnect loop between the T5 backoff and the reconnect fence,
+	// once per dial attempt.
+	// It is nil in production (zero cost).
+	// The gen-fence and no-deadlock teeth tests set it to pause the loop at the fence deterministically.
 	testHookConnectLoop func()
 
 	// testHookConnectLoopBarrier is called by connectLoop immediately before it blocks on its predecessor's startReturned barrier.
@@ -356,7 +357,7 @@ func NewConnection(cfg *ConnectionConfig, tr transport) (Connection, error) {
 
 // State returns the current logical E37 state.
 //
-// It nil-guards the supervisor (round-7): before the first Open (and after Close, when sup is stopped
+// It nil-guards the supervisor: before the first Open (and after Close, when sup is stopped
 // but still set) it reports NotConnectedState and never nil-derefs.
 func (c *connection) State() ConnState {
 	if s := c.sup.Load(); s != nil {
@@ -449,7 +450,7 @@ func (c *connection) NextSystemBytes() [4]byte {
 	return c.sysGen.next()
 }
 
-// Done returns the current generation's teardown-START signal (TransportRuntime, SELECT-ONLY — J5): e.ctx.Done(),
+// Done returns the current generation's teardown-START signal (TransportRuntime, SELECT-ONLY): e.ctx.Done(),
 // which closes the instant teardown begins (epoch.cancel), NOT when the bounded join completes (e.done).
 // Returning e.done here would be a CIRCULAR wait: e.done closes only after the join,
 // and the join waits (via tr.Stop → recvWg) for this very fan-out to return (C1).

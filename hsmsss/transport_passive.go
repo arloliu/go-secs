@@ -14,7 +14,7 @@ package hsmsss
 // synchronously (a listen failure is returned to the caller, retried by the reconnect loop exactly
 // like an active dial failure) and then spawns the accept goroutine, returning immediately. The
 // accept + rt.TCPUp happen on that goroutine; it is tracked by g.accept and joined by Stop, so no
-// accept/refuse goroutine outlives the generation (Codex round-7 join discipline).
+// accept/refuse goroutine outlives the generation.
 
 import (
 	"context"

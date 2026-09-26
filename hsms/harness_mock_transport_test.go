@@ -33,7 +33,7 @@ type mockTransport struct {
 	// passive mock calls setPassiveRole before Open.
 	passiveRole bool
 
-	// holdableRecv, when true, makes the FIRST Start arm a "held recv loop" for the round-7
+	// holdableRecv, when true, makes the FIRST Start arm a "held recv loop" for the
 	// stale-recv-loop reconnect test: a goroutine parked on holdRelease that fires exactly one (stale) rt.TCPDown when released.
 	// Stop releases + JOINS it — mirroring teardown's tr.Stop join of the real recv loop —
 	// so the reconnect loop's generation-serialization guarantees only that the stale TCPDown's own callback fires,

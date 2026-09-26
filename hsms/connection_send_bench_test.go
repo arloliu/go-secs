@@ -13,7 +13,7 @@ import (
 // net.Buffers result would otherwise be discarded.
 var bufsSink net.Buffers
 
-// BenchmarkBuildFrameBuffers is the R2 writev gate (success criterion #5): it proves the
+// BenchmarkBuildFrameBuffers is the writev gate: it proves the
 // send-side buffer build is O(14), NOT O(body). buildFrameBuffers (send.go) assembles a fresh
 // net.Buffers of {14-byte length+header prefix, body chunks} where the body chunks are zero-copy
 // sub-slices of the immutable body (treeBody.Buffers returns net.Buffers{memoized-encoding}); the
@@ -58,7 +58,7 @@ func BenchmarkBuildFrameBuffers(b *testing.B) {
 // memoized encoding is referenced as a COMPACT net.Buffers (it does not fan out to one chunk per
 // leaf), so the writev build allocates O(1) regardless of structural complexity as well as payload
 // size. (Wall-time does grow with leaf count — assembling the buffers walks the structure — but that
-// is a time cost, not an allocation/copy cost; the R2 "no per-message body copy" contract holds
+// is a time cost, not an allocation/copy cost; the no-per-message-body-copy contract holds
 // across both the size and structure dimensions.)
 func BenchmarkBuildFrameBuffers_ListLeaves(b *testing.B) {
 	var sb [4]byte

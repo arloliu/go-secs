@@ -38,7 +38,7 @@
 //   - [NewSeparateReq]
 //
 // Data messages are built via [NewDataMessage].
-// Before construction, [NewDataMessage] performs Q3 validation (SEMI E37 §8.3.3.3):
+// Before construction, [NewDataMessage] performs data-message validation (SEMI E37 §8.3.3.3):
 //
 //   - item.Error() must be nil, including recursive aggregate errors in list children.
 //   - replyExpected (W=1) is rejected when function is even (a reply function).
@@ -53,7 +53,7 @@
 //	    WithItem(newItem).
 //	    Build()
 //
-// [DataMessageBuilder.Build] runs the full Q3 validation.
+// [DataMessageBuilder.Build] runs the full data-message validation.
 // Fields not overridden by the builder are inherited from the source message.
 // [DataMessage.WithSessionID] and [DataMessage.WithSystemBytes] skip validation entirely because those envelope fields are always valid.
 //

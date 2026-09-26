@@ -3,7 +3,7 @@ package hsms
 // reply_matching_test.go exercises Task 6's E37 §9.4.1 reply-field matching at the connection
 // level: RouteReply/DeliverOwnedFrame wired to a real sendWaitReply transaction, default (observe)
 // vs WithStrictReplyMatching (enforce), the T3-stall/no-stall consequence, the SessionID and
-// Reject.req exemption legs, and the audit's D1 forwarding-collision scenario.
+// Reject.req exemption legs, and the conformance audit's D1 forwarding-collision scenario.
 // The pure
 // field-comparison matrix lives in reply_registry_test.go; this file proves the wiring around it.
 
@@ -439,7 +439,7 @@ func TestReplyMatching_SessionID_ValidationOn_DroppedBeforeRegistry(t *testing.T
 	require.Equal(t, uint64(0), c.metrics.ReplyMismatchCount(), "dropped before the registry — never counted")
 }
 
-// TestReplyMatching_ForwardingCollision_Default reproduces the audit's D1 reply-theft case: a
+// TestReplyMatching_ForwardingCollision_Default reproduces the conformance audit's D1 reply-theft case: a
 // forwarded primary's caller-supplied System Bytes collide with a local in-flight transaction
 // (ForwardDataMessage registers no waiter of its own — sendNoReply — so nothing but the local
 // waiter's entry exists for this key). The peer answers with the forwarded message's own
@@ -479,7 +479,7 @@ func TestReplyMatching_ForwardingCollision_Default(t *testing.T) {
 	require.Equal(t, uint64(1), c.metrics.ReplyMismatchCount())
 }
 
-// TestReplyMatching_ForwardingCollision_Strict proves strict mode closes the D1 theft: the
+// TestReplyMatching_ForwardingCollision_Strict proves strict mode closes the conformance audit's D1 theft: the
 // colliding reply misses (routes to the data handlers instead of the local waiter), and a later
 // conforming reply still satisfies the local waiter.
 func TestReplyMatching_ForwardingCollision_Strict(t *testing.T) {
