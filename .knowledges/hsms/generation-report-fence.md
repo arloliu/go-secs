@@ -1,42 +1,39 @@
 ---
 type: Mechanic
-title: How a report from an ended generation is kept off its successor
-description: How a disconnect, T7, TCP-up, Select, or send that speaks for one generation is bound to it — the identity carried on the queue, the lock-fenced gate the three synchronous commits need instead, the refusal each producer reports, and the unnamed reports that still bypass part of it.
+title: How a queued report from an ended generation is kept off its successor
+description: How a disconnect, T7 expiry, or commit follow-up that speaks for one generation is bound to it on the FSM queue — the epoch identity, the report-side and queue-side checks, the report-time binding of unnamed reports, and how the generation capability reaches hsms from a transport package.
 tags: [hsms, hsmsss, lifecycle, supervisor, generation, concurrency]
 status: stable
-generated: {by: "claude/opus-5.5", at: 2026-09-26T10:19:32Z}
+generated: {by: "claude/opus-5.5", at: 2026-09-26T11:59:29Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-26T10:28:15Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-26T12:04:05Z}
 sources:
-  - {resource: hsms/supervisor.go, digest: sha256:1878d33bac78df60, revision: 7ae1ff0}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:21abfedc85afb70a, revision: 7ae1ff0}
-  - {resource: hsms/connection_runtime.go, digest: sha256:990bc46123a7df1c, revision: 7ae1ff0}
-  - {resource: hsms/connection_send.go, digest: sha256:90a5e3ff7beea84c, revision: 7ae1ff0}
-  - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: 7ae1ff0}
-  - {resource: hsms/epoch.go, digest: sha256:bdf3578cbc24fc48, revision: 7ae1ff0}
-  - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: 7ae1ff0}
-  - {resource: hsms/transport.go, digest: sha256:dbd8d51fb2fc62ba, revision: 7ae1ff0}
-  - {resource: hsmsss/transport.go, digest: sha256:176fff888fc8a85e, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_active.go, digest: sha256:33d63b7808dc1ed3, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_passive.go, digest: sha256:eaee7f67c2e994fc, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_procedures.go, digest: sha256:bf47bd9825ddb5da, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:fc971b2806f82a52, revision: 7ae1ff0}
-  - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: 7ae1ff0}
-  - {resource: internal/gencap/gencap.go, digest: sha256:388f19be3dd1fe52, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_control_test.go, digest: sha256:d7d6115539bd3043, revision: 7ae1ff0}
+  - {resource: hsms/supervisor.go, digest: sha256:097ae581f965d935, revision: b43b798}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:8a7a71d56304a338, revision: b43b798}
+  - {resource: hsms/connection_runtime.go, digest: sha256:7340a3887598a8ba, revision: b43b798}
+  - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: b43b798}
+  - {resource: hsms/epoch.go, digest: sha256:bdf3578cbc24fc48, revision: b43b798}
+  - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: b43b798}
+  - {resource: hsms/transport.go, digest: sha256:760d41a4a861ea2c, revision: b43b798}
+  - {resource: hsmsss/transport.go, digest: sha256:176fff888fc8a85e, revision: b43b798}
+  - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: b43b798}
+  - {resource: hsmsss/transport_active.go, digest: sha256:33d63b7808dc1ed3, revision: b43b798}
+  - {resource: hsmsss/transport_passive.go, digest: sha256:eaee7f67c2e994fc, revision: b43b798}
+  - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: b43b798}
+  - {resource: internal/gencap/gencap.go, digest: sha256:388f19be3dd1fe52, revision: b43b798}
+  - {resource: hsmsss/transport_control_test.go, digest: sha256:d7d6115539bd3043, revision: b43b798}
 ---
 
 # What it does
 
-`TransportRuntime`'s godoc says only that an unnamed `TCPDown` or `T7Expired` is discarded once the generation current at the call has been replaced,
-`TransportRuntime.TCPUp`'s godoc describes its guarded FSM commit,
-and the gen-0 socket-publication limitation is documented on `(*connection).TCPUp`, not on the interface method.
-Neither says how a named generation travels from a transport goroutine to the FSM,
-why the three synchronous commits need a lock rather than the queue-side match,
-That is the delta this entry records;
-[how the recv path's responses and requests are bound on the wire](/hsms/generation-bound-wire-sends.md) records the same binding for frames;
-[where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) records the orthogonal question of which cause each report carries.
+`TransportRuntime`'s godoc says an unnamed `TCPDown` or `T7Expired` is discarded once the generation current at the call has been replaced.
+It does not say how a named generation travels from a transport goroutine to the FSM,
+which two checks enforce it and why both are needed,
+or where the report-time binding of an unnamed report stops helping.
+That is the delta this entry records.
+[How the three synchronous commits are fenced](/hsms/synchronous-commit-gate.md) records the commit-time side,
+[how the recv path's responses and requests are bound on the wire](/hsms/generation-bound-wire-sends.md) the frame side,
+and [where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md) which cause each report carries.
 
 # How it works
 
@@ -104,144 +101,12 @@ so `step`'s match discards the event once a successor is current, however long i
 The binding does not cover a report made AFTER the successor was published:
 that call finds the successor current and binds to it,
 which is why `hsmsss` names the generation it captured at its own `Start` instead.
-Only two kinds of event still reach the queue with gen 0 and skip `step`'s identity match:
-`evClose`, and the follow-up event of an unnamed synchronous commit (TCP-up, Select-accepted, or Select-lost).
-A delayed unnamed Select-accepted or Select-lost follow-up event can therefore still be applied to a successor generation.
-Commit-time admission is a separate question from that queued bypass.
-`commitGate` (the Select-lost commit) is skipped entirely at gen 0 — a bare CAS, no liveness check —
-but `tcpUpCommitGate` (the TCP-up commit)
-and `selectCommitGate` (the Select-accepted commit) still require a non-nil, un-torn-down current epoch even for a gen of 0, and
-`disconnectHandlerGeneration` rejects a gen of 0 outright rather than letting it through as a
-wildcard.
-
-**The three SYNCHRONOUS commits are not events, so `step`'s match does not cover them, and they need a lock.**
-`CommitConnected`, `CommitSelected`, and `CommitSelectLost` compare-and-swap `supervisor.state` directly on the
-transport's own goroutine and only THEN enqueue their event.
-That synchrony is the §7.D invariant — `IsSelected()` must be true before the responder writes `Select.rsp` —
-so it cannot be moved onto the queue.
-It also means there is no later point at which the generation answer can be re-taken:
-whatever check the caller makes, the CAS follows it on the same goroutine.
-
-The FSM state cannot supply the missing ordering either, which is why the trick `step` uses does not transfer.
-`step` reads state BEFORE it checks the generation, and a successor's state implies a successor was published.
-A commit's "state read" is fused into its CAS, so the check can only come first —
-and `NotConnected -> NotSelected -> ... -> NotConnected` is a real cycle,
-so the state a stale CAS expects can legitimately reappear underneath it (plain ABA).
-
-The fence is `connection.genGate`, a `sync.RWMutex`:
-`connection.commitGate` (for `CommitSelectLost`), `connection.tcpUpCommitGate` (for `CommitConnected`), or `connection.selectCommitGate` (for `CommitSelected`) takes RLock across {resolve `cur`, verify liveness, CAS},
-and `epoch.markEnded` takes Lock for a single atomic store at the top of `epoch.teardown`.
-The two are therefore mutually exclusive, and every successor publish is downstream of the join teardown starts,
-so a commit that observed its generation un-ended completed its CAS before any successor could exist.
-The gate is held across atomic operations and `epoch.connMu` only — never a log call, a channel send, or a Wait —
-so it cannot close a cycle against the bounded teardown join.
-`supervisor.commitFrom` issues the follow-up `injectFrom` AFTER the gate is released, because `inject` can block on a full queue.
-
-`epoch.ended` is a SEPARATE axis from `epoch.id`, and TCP-up is where the difference shows.
-`CommitConnected` CASes out of `NotConnected`, the state a generation that ended leaves behind,
-and `cur` keeps pointing at a dead generation for the whole reconnect backoff — after a `Close`, forever.
-So the identity of a straggler's TCP-up still MATCHES, and `ended` is what rejects it once teardown has begun.
-`tcpUpCommitGate` also admits at most one TCP-up per generation (`epoch.tcpUpAdmitted`, latched even when the admitted CAS fails),
-so a second report on a still-live generation is refused too; that refusal is logged but not counted in `staleGen`.
-The other two commits CAS out of states a dead generation is not SUPPOSED to be in, under the shipped
-transports' own invariants — but that is an assumption about caller behavior, not a structural guarantee
-`ended` enforces independently of it, and a misbehaving custom transport can break it.
-`connectLoop`'s Start-error branch (`hsms/connection_lifecycle.go` → `connectLoopStartFailure`) tears the
-just-published epoch down directly via `epoch.teardown`, WITHOUT routing through `requestClose`/`evClose`,
-so it never resets supervisor state.
-A custom `Start` that drives TCP-up (committing `NotSelected`) before returning an error therefore
-leaves a DEAD generation sitting at exactly the state a live `CommitSelected` CAS expects —
-IDENTITY still matches (`cur` has not yet been replaced), so only the `ended` check rejects a stale
-Select CAS landing there.
-That window lasts until the branch's own hand-off report (`injectDisconnect`, `CauseUnknown`) drives the drop,
-unless a disconnect the transport reported already did.
-`ended` must not be treated as generally redundant for a commit based on the expected FSM state alone;
-a live current epoch CAN be `NotConnected` during `Open`'s own startup window —
-`cur.Store(e)` runs before the TCP-up commit that CASes `NotConnected` to `NotSelected` —
-and an ended epoch can remain current in that same state for the whole reconnect backoff, or forever after a `Close`.
-Because both a live and a dead generation can occupy the same state pair `CommitConnected` CASes out of,
-identity and FSM state cannot replace the `ended` check there either;
-the check is not a property specific to some other commits' state pairs,
-it is what `CommitConnected` itself relies on too.
-
-**`CommitSelected`'s and `CommitConnected`'s gates do not bypass a gen of 0, unlike `CommitSelectLost`'s.**
-`commitGate` (used only by `CommitSelectLost`) is skipped outright whenever `gen == 0`,
-exactly the pre-generation behavior secs1 and every transport using only `TransportRuntime` get:
-no lock, no liveness check, a bare CAS.
-`tcpUpCommitGate` skips identity matching for a gen-0 TCP-up, as `selectCommitGate` below does,
-but still requires liveness and an unused per-generation admission (`epoch.tcpUpAdmitted`),
-and committing additionally requires its state CAS to succeed;
-on a successful commit it latches `epoch.tcpUpCommitted` on the generation it validated
-(see [who owns the retry after a failed Start](/hsms/reconnect-retry-ownership.md) for its reader).
-`selectCommitGate` is a sibling gate `CommitSelected`/`CommitSelectedFromGeneration` use instead,
-and it admits a gen of 0 on liveness alone — a non-nil, un-torn-down `cur` — skipping only the identity comparison a named generation still has to pass.
-A gen-0 Select commit against an already-ended generation is therefore refused and counted in `staleGen`,
-the same outcome a refused named commit gets.
-On a successful commit `selectCommitGate` also latches `epoch.reachedSelected` on the SAME `cur` the RLock section validated, before releasing the lock —
-see the reconnect-backoff-scope entry for what reads that marker and why.
-
-
-`connection.publishSocket` takes the same gate for the same reason:
-a passive accept can RACE teardown rather than be abandoned by it —
-`hsmsss.Stop` joins the accept goroutine (`g.accept.Wait`) WITHOUT a timeout, ahead of its own
-deadline-bounded joins (procedure, receive, linktest, T7), so an accept in flight is never abandoned
-by the close timeout the way those other goroutines can be.
-The race publishSocket guards is narrower: an accept that adopts a peer and reaches the publish gate
-just as (or just after) teardown has already latched `ended` on that same epoch, so its socket must be
-refused rather than published onto a generation that is already dying.
-It resolves the epoch by identity and writes to THAT epoch, so a swap can never redirect it to a successor.
-
-**The refusal is not silent: it is a reported bool, all the way out to the transport.**
-`publishSocket`, `commitTCPUp`, and `TCPUpFromGeneration` all return whether the socket was accepted.
-It is one of the two producers among the five `genCapability` methods whose caller has real cleanup to do on a
-refusal — here the socket itself, not just an event.
-`hsmsss`'s `tcpUp` wrapper forwards that bool, and `startActive` / `acceptLoop`
-(transport_active.go / transport_passive.go) check it:
-on `false` they close the conn themselves —
-no epoch will ever own a refused socket, so nobody else ever will —
-and skip everything a live TCP-up would start
-(the recv loop, the active Select procedure, the transport's own `t.conn` / activity-stamp bookkeeping),
-so a dead generation's socket can never clobber a live successor's.
-`commitTCPUp` still runs the FSM commit unconditionally even on a `publishSocket` refusal, purely so
-`staleGen` keeps counting it — the commit itself is a guaranteed no-op there, since `ended` never reverts.
-The plain `TCPUp` (gen 0, for a transport using only `TransportRuntime`) keeps its void signature and unconditional socket publication;
-only the generation-named path can name a refusal.
-Its FSM commit is gated even so (`tcpUpCommitGate`), but its socket publication is not:
-`publishSocket` has no liveness check at gen 0,
-so a gen-0 report landing after its generation's teardown already closed the socket can re-populate it,
-and nothing closes it afterward — a limitation the `TCPUp` godoc states.
-
-**Select-lost is the other reported refusal, and what it protects is narrow.**
-`SelectLostFromGeneration` returns whether the CAS was applied,
-and `hsmsss`'s `selectLost` wrapper forwards that to `handleDeselectReq`.
-The work skipped on a refusal is the pair of calls that belong to a real `Selected -> NotSelected` transition,
-`stopLinktest` and `armT7`.
-`stopLinktest(g)` and `armT7(g)` both take the caller's bundle explicitly
-and touch ONLY `g`'s own `linktestCancel`/`t7Cancel`/`timerMu` fields (see `genWG` in `hsmsss/transport.go`):
-even an UNCONDITIONAL call from a straggler cannot reach a live successor's timers,
-because there is no shared, transport-wide handle for it to race into.
-`selectLost`'s guard on the CAS result therefore does not fence a straggler from a successor's timers —
-the per-generation timer handles do that at a different layer —
-it only SAVES needless work on a refused commit (arming/cancelling a stale generation's own, already-dead bundle).
-The FSM cannot observe the skipped work either way:
-a refused commit leaves state exactly as it was —
-`NotConnected`, `NotSelected`, or `Selected`, depending on whether the refusal came from a stale generation
-(a live successor legitimately Selected) or from the CAS itself failing (the state was never Selected to begin with).
-
-The `Deselect.rsp` is still enqueued BEFORE the commit, and that ordering is deliberate.
-The §7.D/I3 invariant rests on the commit being synchronous on the sequential recv goroutine, not on its position relative to the rsp —
-the CAS lands before any pipelined re-`Select.req` is dispatched, and `SendAsync` only enqueues.
-Deriving the status from the commit instead would break the CAPABILITY-ABSENT transport fallback
-(`selectLost`'s plain `t.rt.SelectLost()` branch, taken only when the runtime does not implement
-`genRuntime`), which always reports true regardless of the CAS outcome:
-a Deselect answered while NOT Selected would be told status 0 and handed a `SelectLost` it never asked for.
-The concrete core's own gen-0 Select-lost path is unaffected by this —
-`commitFrom` routes `evSelectLost` through `commitGate`, never `selectGate`,
-so a gen of 0 there bypasses the gate entirely and returns its bare CAS result directly;
-`selectCommitGate` applies only to `evSelectAccepted` (Select-accepted), never to Select-lost.
-
-The remaining two producers stay void.
-A refused `TCPDownFromGeneration` or `T7ExpiredFromGeneration` is a queued event whose caller has nothing to undo.
+In a connection-backed supervisor, only `evClose` reaches the queue with gen 0 and skips `step`'s identity match;
+a nil-gate supervisor built without a connection (unit tests) may also enqueue gen 0.
+The follow-up event of a synchronous commit (TCP-up, Select-accepted, Select-lost) carries the id of the epoch its gate validated, named or not,
+so it is matched like any named report
+(see [how the three synchronous commits are fenced](/hsms/synchronous-commit-gate.md)).
+`disconnectHandlerGeneration` rejects a gen of 0 outright rather than letting it through as a wildcard.
 
 **How the generation capability crosses the package boundary.**
 `hsmsss` reaches the generation-aware methods by type-asserting `t.rt` to a package-local `genRuntime` interface,
@@ -261,6 +126,7 @@ which is why `secs1` and every transport using only `TransportRuntime` keep the 
 `hsmsss/transport_control_test.go`'s `genRecRT` is a test runtime that implements this capability,
 so generation-aware transport behavior can be exercised without a concrete `*connection`.
 
+
 # Failure modes
 
 **A straggler dropping the successor.**
@@ -272,21 +138,10 @@ Dropping either check reopens part of it:
 without the report-side check a straggler can still set the successor's `commsFailure`;
 without the queue-side re-check, an event queued before the successor was published drops that successor when it is processed.
 
-**A stale Select commit landing on a dead generation.**
-A custom `Start` that drives TCP-up and then errors leaves an ended generation current at `NotSelected`,
-the exact state a live `CommitSelected` CAS expects;
-dropping the `ended` check from `selectCommitGate` lets a straggler's Select commit move that dead link to `Selected`.
 
-**An unnamed synchronous-commit follow-up applied to a successor.**
-The follow-up event of an unnamed TCP-up, Select-accepted, or Select-lost commit reaches the queue with gen 0 and skips `step`'s identity match,
-and an unnamed Select-lost commit skips `commitGate` entirely.
-A delayed one can therefore still be applied to a successor generation.
-This affects `secs1` and transports using only `TransportRuntime`; `hsmsss` names its generation and is not exposed.
-
-**A gen-0 socket published onto a torn-down generation.**
-The plain `TCPUp` publishes its socket without a liveness check,
-so a report landing after its generation's teardown already closed the socket re-populates it,
-and nothing closes it afterward.
+**A late unnamed report bound to the successor.**
+An unnamed disconnect or T7 report made only AFTER the successor was published binds to the successor, and nothing can tell it apart from a report for that link.
+`secs1` and transports using only `TransportRuntime` are exposed; `hsmsss` names the generation it captured at its own `Start` and is not.
 
 # Where to look
 
@@ -297,16 +152,10 @@ and nothing closes it afterward.
   `hsms/connection_runtime.go` → `T7ExpiredFromGeneration`, `injectT7Expiry`;
   `hsms/handler_panic.go` → `(*connection).disconnectHandlerGeneration`
 - the queue-side barrier: `hsms/supervisor.go` → `step`'s generation match, `injectFrom`, `curGen`, `staleGen`
-- the synchronous-commit fence: `hsms/connection.go` → `genGate`;
-  `hsms/connection_lifecycle.go` → `commitGate`, `tcpUpCommitGate`, `selectCommitGate`, `publishSocket`, `commitTCPUp`, `connectLoopStartFailure`, `genCapability`;
-  `hsms/epoch.go` → `epoch.ended`, `epoch.markEnded`, `epoch.tcpUpAdmitted`, `epoch.tcpUpCommitted`;
-  `hsms/supervisor.go` → `commitFrom`, `selectGate`, `tcpUpCommitGate`, `CommitConnectedFromGeneration`, `CommitSelectedFromGeneration`, `CommitSelectLostFromGeneration`;
-  `hsms/connection_runtime.go` → `commitSelectAccepted`, `commitSelectLost`
-- the shared capability type: `internal/gencap/gencap.go` → `GenerationRuntime`
-- transport side: `hsmsss/transport_control.go` → `genRuntime`, `transport.tcpUp`, `transport.selectLost`;
+- the shared capability type: `internal/gencap/gencap.go` → `GenerationRuntime`; `hsms/connection_lifecycle.go` → `genCapability`
+- transport side: `hsmsss/transport_control.go` → `genRuntime`, `transport.tcpDown`, `transport.t7Expired`;
   `hsmsss/transport.go` → `genWG.gen`;
   `hsmsss/transport_active.go` → `(*transport).startActive`;
-  `hsmsss/transport_passive.go` → `(*transport).startPassive`, `acceptLoop`
-- per-generation timer handles that limit what `selectLost`'s refusal protects: `hsmsss/transport.go` → `genWG.t7Cancel`, `genWG.linktestCancel`, `genWG.timerMu`;
-  `hsmsss/transport_procedures.go` → `(*transport).stopLinktest`, `(*transport).armT7`
+  `hsmsss/transport_passive.go` → `(*transport).startPassive`;
+  `secs1/transport.go` → `causeRuntime`
 - a test runtime implementing the generation capability: `hsmsss/transport_control_test.go` → `genRecRT`

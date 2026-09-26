@@ -9,7 +9,7 @@ verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-24T12:34:28Z}
 sources:
   - {resource: hsms/connection_send.go, digest: sha256:90a5e3ff7beea84c, revision: f7a5927}
-  - {resource: hsms/supervisor.go, digest: sha256:1878d33bac78df60, revision: 7ae1ff0}
+  - {resource: hsms/supervisor.go, digest: sha256:097ae581f965d935, revision: b43b798}
 ---
 
 # What it does
