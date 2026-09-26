@@ -680,25 +680,32 @@ func TestSupervisor_GenerationMatchAtProcessingTime(t *testing.T) {
 // connection — suppressing either would silently disable Select for them.
 // A gen of 0 is admitted on liveness alone, mirroring connection.selectCommitGate's own identity skip;
 // the fake gate below treats gen 0 as live only when the row's zeroLive says so.
-// This is never bypassed outright the way it is for the other two synchronous commits under commitGate:
+// This is never bypassed outright:
 // the "gen 0 but not live" row below is what proves gen 0 still REACHES the gate rather than skipping it.
+//
+// The gate resolves an id independently of the caller's own cmdGen —
+// curEpochID stands in for whichever generation is actually current when a gen of 0 is admitted —
+// and the enqueued follow-up must carry THAT id, not cmdGen:
+// proving commitFrom stamps the follow-up with what the gate resolved, not with whatever the caller happened to name (or fail to name).
 func TestSupervisor_CommitFromGenerationHonorsTheGate(t *testing.T) {
 	const liveGen = uint64(7)
+	const curEpochID = uint64(42)
 
 	cases := []struct {
-		name        string
-		installGate bool
-		cmdGen      uint64
-		zeroLive    bool // only consulted when cmdGen == 0: whether the fake gate reports it live
-		wantCommit  bool
-		wantState   ConnState
-		wantStale   uint64
+		name          string
+		installGate   bool
+		cmdGen        uint64
+		zeroLive      bool // only consulted when cmdGen == 0: whether the fake gate reports it live
+		wantCommit    bool
+		wantState     ConnState
+		wantStale     uint64
+		wantQueuedGen uint64 // only consulted when wantCommit
 	}{
-		{name: "live generation commits", installGate: true, cmdGen: liveGen, wantCommit: true, wantState: SelectedState},
+		{name: "live generation commits", installGate: true, cmdGen: liveGen, wantCommit: true, wantState: SelectedState, wantQueuedGen: liveGen},
 		{name: "ended generation is refused", installGate: true, cmdGen: liveGen - 1, wantState: NotSelectedState, wantStale: 1},
-		{name: "unnamed generation is admitted on liveness, not identity", installGate: true, cmdGen: 0, zeroLive: true, wantCommit: true, wantState: SelectedState},
+		{name: "unnamed generation is admitted on liveness, not identity", installGate: true, cmdGen: 0, zeroLive: true, wantCommit: true, wantState: SelectedState, wantQueuedGen: curEpochID},
 		{name: "unnamed generation still reaches the gate and can be refused on liveness", installGate: true, cmdGen: 0, zeroLive: false, wantState: NotSelectedState, wantStale: 1},
-		{name: "no gate installed commits", installGate: false, cmdGen: liveGen, wantCommit: true, wantState: SelectedState},
+		{name: "no gate installed commits with the caller's own gen unchanged", installGate: false, cmdGen: liveGen, wantCommit: true, wantState: SelectedState, wantQueuedGen: liveGen},
 	}
 
 	for _, tc := range cases {
@@ -710,19 +717,21 @@ func TestSupervisor_CommitFromGenerationHonorsTheGate(t *testing.T) {
 				// gen == 0 skips only the identity check —
 				// the same skip connection.selectCommitGate applies for an unnamed generation —
 				// liveness (zeroLive) is still enforced.
-				s.selectGate = func(gen uint64, cas func() bool) (committed, live bool) {
+				// The id returned is the gate's OWN resolved generation (curEpochID for an admitted gen of 0),
+				// never merely gen echoed back.
+				s.selectGate = func(gen uint64, cas func() bool) (committed, live bool, id uint64) {
 					if gen == 0 {
 						if !tc.zeroLive {
-							return false, false
+							return false, false, 0
 						}
 
-						return cas(), true
+						return cas(), true, curEpochID
 					}
 					if gen != liveGen {
-						return false, false
+						return false, false, 0
 					}
 
-					return cas(), true
+					return cas(), true, gen
 				}
 			}
 			s.state.Store(uint32(NotSelectedState))
@@ -732,8 +741,9 @@ func TestSupervisor_CommitFromGenerationHonorsTheGate(t *testing.T) {
 			require.Equal(t, tc.wantStale, s.staleGen.Load(), "a refused commit must be counted")
 
 			if tc.wantCommit {
-				// The follow-up event carries the generation onward, so step's own match applies to it too.
-				require.Equal(t, fsmCommand{ev: evSelectAccepted, cause: CauseSelectAccepted, gen: tc.cmdGen}, <-s.events)
+				// The follow-up event carries the GATE's resolved id onward,
+				// so step's own match applies to it too — against the generation the gate actually validated, not the caller's gen.
+				require.Equal(t, fsmCommand{ev: evSelectAccepted, cause: CauseSelectAccepted, gen: tc.wantQueuedGen}, <-s.events)
 			} else {
 				require.Empty(t, s.events, "a refused commit must enqueue nothing")
 			}
@@ -741,46 +751,99 @@ func TestSupervisor_CommitFromGenerationHonorsTheGate(t *testing.T) {
 	}
 }
 
-// TestSupervisor_CommitGateBypassesUnnamedGeneration pins commitFrom's gen-0 story for the
-// Select-lost commit: commitGate is skipped OUTRIGHT for a gen of 0, not merely admitted on liveness.
-// A gen of 0 must reach neither the gate's identity check nor its liveness check,
-// while a NAMED generation still goes through the same gate and can be refused.
-//
-// The TCP-up commit no longer shares this story — it is dispatched through tcpUpCommitGate instead,
-// which is consulted for every generation including gen 0; see TestSupervisor_TCPUpCommitGateRouting.
-func TestSupervisor_CommitGateBypassesUnnamedGeneration(t *testing.T) {
-	const liveGen = uint64(7)
+// TestSupervisor_UnnamedSelectLostReachesCommitGate pins commitFrom's gen-0 story for the Select-lost commit:
+// commitGate is consulted for EVERY generation including gen 0, admitted on liveness alone (skipping only the identity comparison), and skipped outright only when nil —
+// a standalone supervisor with no connection, as other unit tests build.
+// A committed gen 0 is stamped with the gate's own resolved id, mirroring TestSupervisor_TCPUpCommitGateRouting's "gen 0 live is admitted" row for tcpUpCommitGate.
+func TestSupervisor_UnnamedSelectLostReachesCommitGate(t *testing.T) {
+	newRawSupervisor := func() *supervisor {
+		s := newSupervisorWithEventsCap(func(_, _ ConnState) {}, newHandlerPtr(), nil, supervisorEventsCap)
+		s.state.Store(uint32(SelectedState))
 
-	var called atomic.Bool
-	refuseAll := func(gen uint64, cas func() bool) (committed, live bool) {
-		called.Store(true)
-
-		return false, false
+		return s
 	}
 
-	s := newSupervisorWithEventsCap(func(_, _ ConnState) {}, newHandlerPtr(), nil, supervisorEventsCap)
-	s.commitGate = refuseAll
+	t.Run("nil gate bypasses to a bare CAS on a standalone supervisor", func(t *testing.T) {
+		s := newRawSupervisor()
 
-	// gen 0, Select-lost commit from Selected: the gate must be bypassed entirely.
-	s.state.Store(uint32(SelectedState))
-	s.lastReacted = SelectedState
-	require.True(t, s.CommitSelectLostFromGeneration(0, CauseUnknown), "gen 0 must bypass commitGate outright")
-	require.Equal(t, NotSelectedState, s.State())
-	require.False(t, called.Load(), "commitGate must not be consulted for gen 0")
-	require.Equal(t, fsmCommand{ev: evSelectLost, cause: CauseUnknown, gen: 0}, <-s.events)
+		require.True(t, s.CommitSelectLostFromGeneration(0, CauseUnknown), "a nil commitGate must bypass")
+		require.Equal(t, NotSelectedState, s.State())
+		select {
+		case cmd := <-s.events:
+			require.Equal(t, fsmCommand{ev: evSelectLost, cause: CauseUnknown, gen: 0}, cmd)
+		default:
+			t.Fatal("a committed Select-lost must enqueue its follow-up")
+		}
+	})
 
-	// A NAMED, ended generation's Select-lost commit must still be refused by the very same gate.
-	s.state.Store(uint32(SelectedState))
-	require.False(t, s.CommitSelectLostFromGeneration(liveGen, CauseUnknown), "a named ended generation must be refused")
-	require.Equal(t, SelectedState, s.State())
-	require.True(t, called.Load(), "a named generation must reach commitGate")
-	require.Equal(t, uint64(1), s.staleGen.Load(), "a refused named commit must be counted")
-	require.Empty(t, s.events, "a refused commit must enqueue nothing")
+	t.Run("gen 0 live is admitted and stamped with the gate's own id", func(t *testing.T) {
+		const curEpochID = uint64(42)
+
+		var seenGen uint64
+
+		s := newRawSupervisor()
+		s.commitGate = func(gen uint64, cas func() bool) (committed, live bool, id uint64) {
+			seenGen = gen
+
+			return cas(), true, curEpochID
+		}
+
+		require.True(t, s.CommitSelectLostFromGeneration(0, CauseUnknown), "a live gen 0 must be admitted")
+		require.Equal(t, NotSelectedState, s.State())
+		require.Equal(t, uint64(0), seenGen, "gen 0 must reach the gate, not bypass it")
+		select {
+		case cmd := <-s.events:
+			require.Equal(t, fsmCommand{ev: evSelectLost, cause: CauseUnknown, gen: curEpochID}, cmd)
+		default:
+			t.Fatal("a committed Select-lost must enqueue its follow-up")
+		}
+	})
+
+	t.Run("gen 0 ended is refused and counted", func(t *testing.T) {
+		s := newRawSupervisor()
+		s.commitGate = func(_ uint64, _ func() bool) (committed, live bool, id uint64) { return false, false, 0 }
+
+		require.False(t, s.CommitSelectLostFromGeneration(0, CauseUnknown), "an ended gen 0 must be refused")
+		require.Equal(t, SelectedState, s.State())
+		require.Equal(t, uint64(1), s.staleGen.Load())
+		require.Empty(t, s.events, "a refused commit must enqueue nothing")
+	})
+
+	t.Run("named live is admitted", func(t *testing.T) {
+		const liveGen = uint64(3)
+
+		s := newRawSupervisor()
+		s.commitGate = func(gen uint64, cas func() bool) (committed, live bool, id uint64) {
+			return cas(), true, gen
+		}
+
+		require.True(t, s.CommitSelectLostFromGeneration(liveGen, CauseUnknown))
+		require.Equal(t, NotSelectedState, s.State())
+		select {
+		case cmd := <-s.events:
+			require.Equal(t, fsmCommand{ev: evSelectLost, cause: CauseUnknown, gen: liveGen}, cmd)
+		default:
+			t.Fatal("a committed Select-lost must enqueue its follow-up")
+		}
+	})
+
+	t.Run("named ended is refused and counted", func(t *testing.T) {
+		const namedGen = uint64(9)
+
+		s := newRawSupervisor()
+		s.commitGate = func(_ uint64, _ func() bool) (committed, live bool, id uint64) { return false, false, 0 }
+
+		require.False(t, s.CommitSelectLostFromGeneration(namedGen, CauseUnknown))
+		require.Equal(t, SelectedState, s.State())
+		require.Equal(t, uint64(1), s.staleGen.Load())
+		require.Empty(t, s.events, "a refused commit must enqueue nothing")
+	})
 }
 
 // TestSupervisor_TCPUpCommitGateRouting pins commitFrom's dispatch for the TCP-up commit:
-// unlike commitGate, tcpUpCommitGate is consulted for EVERY generation including gen 0,
+// tcpUpCommitGate is consulted for EVERY generation including gen 0,
 // and is skipped outright only when nil (a standalone supervisor with no connection, as other unit tests build).
+// A committed gen 0 is stamped with the gate's own resolved id, not left at 0.
 func TestSupervisor_TCPUpCommitGateRouting(t *testing.T) {
 	newRawSupervisor := func() *supervisor {
 		return newSupervisorWithEventsCap(func(_, _ ConnState) {}, newHandlerPtr(), nil, supervisorEventsCap)
@@ -794,25 +857,27 @@ func TestSupervisor_TCPUpCommitGateRouting(t *testing.T) {
 		require.Equal(t, fsmCommand{ev: evTCPUp, cause: CauseUnknown, gen: 0}, <-s.events)
 	})
 
-	t.Run("gen 0 live is admitted", func(t *testing.T) {
+	t.Run("gen 0 live is admitted and stamped with the gate's own id", func(t *testing.T) {
+		const curEpochID = uint64(11)
+
 		var seenGen uint64
 
 		s := newRawSupervisor()
-		s.tcpUpCommitGate = func(gen uint64, cas func() bool) (committed, live bool) {
+		s.tcpUpCommitGate = func(gen uint64, cas func() bool) (committed, live bool, id uint64) {
 			seenGen = gen
 
-			return cas(), true
+			return cas(), true, curEpochID
 		}
 
 		require.True(t, s.CommitConnectedFromGeneration(0, CauseUnknown), "a live gen 0 must be admitted")
 		require.Equal(t, NotSelectedState, s.State())
 		require.Equal(t, uint64(0), seenGen, "gen 0 must reach the gate, not bypass it")
-		require.Equal(t, fsmCommand{ev: evTCPUp, cause: CauseUnknown, gen: 0}, <-s.events)
+		require.Equal(t, fsmCommand{ev: evTCPUp, cause: CauseUnknown, gen: curEpochID}, <-s.events)
 	})
 
 	t.Run("gen 0 ended is refused and counted", func(t *testing.T) {
 		s := newRawSupervisor()
-		s.tcpUpCommitGate = func(_ uint64, _ func() bool) (committed, live bool) { return false, false }
+		s.tcpUpCommitGate = func(_ uint64, _ func() bool) (committed, live bool, id uint64) { return false, false, 0 }
 
 		require.False(t, s.CommitConnectedFromGeneration(0, CauseUnknown), "an ended gen 0 must be refused")
 		require.Equal(t, NotConnectedState, s.State())
@@ -826,10 +891,10 @@ func TestSupervisor_TCPUpCommitGateRouting(t *testing.T) {
 		var seenGen uint64
 
 		s := newRawSupervisor()
-		s.tcpUpCommitGate = func(gen uint64, cas func() bool) (committed, live bool) {
+		s.tcpUpCommitGate = func(gen uint64, cas func() bool) (committed, live bool, id uint64) {
 			seenGen = gen
 
-			return cas(), true
+			return cas(), true, gen
 		}
 
 		require.True(t, s.CommitConnectedFromGeneration(liveGen, CauseUnknown))
@@ -842,7 +907,7 @@ func TestSupervisor_TCPUpCommitGateRouting(t *testing.T) {
 		const staleGen = uint64(9)
 
 		s := newRawSupervisor()
-		s.tcpUpCommitGate = func(_ uint64, _ func() bool) (committed, live bool) { return false, false }
+		s.tcpUpCommitGate = func(_ uint64, _ func() bool) (committed, live bool, id uint64) { return false, false, 0 }
 
 		require.False(t, s.CommitConnectedFromGeneration(staleGen, CauseUnknown))
 		require.Equal(t, NotConnectedState, s.State())

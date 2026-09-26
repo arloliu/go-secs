@@ -137,6 +137,17 @@ func TestReconnect_DelayedTCPUpReportOvertakenByDisconnectCannotResurrect(t *tes
 	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
 	require.NoError(t, c.UpdateConfigOptions(WithReconnectBackoff(300*time.Millisecond, 1.0)))
 
+	// The delayed TCP-up report is stamped with the generation its gate validated
+	// (still N's, since N is still current when its CAS lands).
+	// Holding the successor's PUBLICATION (not merely its own dial) until the same release this test already uses forces the schedule this guard is meant to exercise:
+	// N still current when the stamped report is admitted by the generation match, dying on the illegal NotConnected+evTCPUp transition below —
+	// rather than the generation match discarding it before it ever reaches the transition table,
+	// which would leave that guard unexercised and make a passing run prove nothing about it.
+	var holdPublishOnce sync.Once
+	c.testHookConnectLoop = func() {
+		holdPublishOnce.Do(func() { <-release })
+	}
+
 	var mu sync.Mutex
 	var drops []LifecycleEvent
 	cancel := c.SubscribeLifecycle(func(ev LifecycleEvent) {
@@ -174,8 +185,10 @@ func TestReconnect_DelayedTCPUpReportOvertakenByDisconnectCannotResurrect(t *tes
 	}
 
 	require.Equal(t, NotConnectedState, c.State(), "the delayed TCP-up report must not resurrect NotSelected on the generation that already dropped")
+	require.Equal(t, uint64(0), sup.staleGen.Load(),
+		"the delayed report must be admitted by the generation match (N still current) and die on the illegal transition below, not be discarded as stale")
 
-	releaseOnce.Do(func() { close(release) }) // the delayed report is settled — let the successor dial
+	releaseOnce.Do(func() { close(release) }) // the delayed report is settled — the successor may now publish and dial
 
 	select {
 	case <-successorCASSucceeded:
@@ -196,6 +209,99 @@ type pendingReport struct {
 	gen   uint64
 	ev    fsmEvent
 	cause TransitionCause
+}
+
+// TestReconnect_WithheldSelectAcceptedReportCannotPromoteSuccessor proves the pre-enqueue seam end to end.
+// A Select-accepted commit's own report is withheld right at commitFrom's pre-enqueue hook,
+// then replayed only once a successor generation has published and brought itself up to NotSelected on its own TCP-up.
+// It must not promote that successor to Selected without its own handshake.
+//
+// The predecessor's own TCP-up follow-up is withheld and discarded too, never replayed.
+// This scenario only cares about its state, which the CAS already settles synchronously.
+// Discarding it keeps evTCPUp — reused below as a same-state, no-op sentinel from either NotSelected or Selected —
+// from ever appearing on the queue for a reason other than the successor's own genuine report or the deliberate sentinel this test injects after the replay.
+func TestReconnect_WithheldSelectAcceptedReportCannotPromoteSuccessor(t *testing.T) {
+	var startCalls atomic.Int32
+	gen2Started := make(chan struct{})
+	script := mockScript(func(_ context.Context, _ TransportRuntime) error {
+		if startCalls.Add(1) == 2 {
+			close(gen2Started)
+		}
+
+		return nil
+	})
+
+	c, _ := newLifeConn(t, script)
+	require.NoError(t, c.UpdateConfigOptions(WithReconnectBackoff(5*time.Millisecond, 1.0)))
+
+	require.NoError(t, c.Open(t.Context(), OpenBackground))
+	require.Equal(t, int32(1), startCalls.Load())
+
+	// Installed right after Open returns and before any commit this test drives —
+	// call 1's own script does nothing, so nothing can reach either hook before this point.
+	sup := c.sup.Load()
+
+	// Counts every evTCPUp step() begins processing:
+	// the first is the successor's own genuine report, the second is this test's own sentinel injected after the replay below.
+	// Neither changes state (evTCPUp is a same-state no-op from NotSelected or Selected alike),
+	// so counting occurrences — rather than trying to tell them apart some other way —
+	// is enough to recognize the second one without racing whichever goroutine the scheduler happens to run first.
+	var evTCPUpCount atomic.Int32
+	replaySeen := make(chan struct{})
+	sup.testHookAfterStateLoad = func(ev fsmEvent) {
+		if ev == evTCPUp && evTCPUpCount.Add(1) == 2 {
+			close(replaySeen)
+		}
+	}
+
+	// The hook below runs on this same test goroutine — commitFrom reads it from whichever goroutine
+	// calls c.TCPUp/c.CommitSelected, both called directly below — so pending needs no synchronization of its own.
+	var pending pendingReport
+	sup.testHookBeforeEnqueue = func(gen uint64, ev fsmEvent, cause TransitionCause) (skipEnqueue bool) {
+		if ev == evTCPUp { //nolint:staticcheck // if/else, not an exhaustive switch: only these two events are ever reachable here.
+			return true // N's own TCP-up follow-up: its state is already settled by the CAS; discard it
+		} else if ev == evSelectAccepted {
+			pending = pendingReport{gen: gen, ev: ev, cause: cause}
+			sup.testHookBeforeEnqueue = nil // one-shot: never intercepts the successor's own reports
+
+			return true // withhold: the test replays it later, once the successor has published
+		}
+
+		return false
+	}
+
+	c.TCPUp(fakeConn{})
+	require.True(t, c.CommitSelected(), "N's own Select CAS must land synchronously")
+	require.Equal(t, SelectedState, c.State())
+
+	captured := pending
+	require.Equal(t, evSelectAccepted, captured.ev, "the withheld report must be captured before the drop")
+
+	genN := c.cur.Load()
+	require.Equal(t, genN.id, captured.gen, "the withheld report must carry the generation the gate validated, N's own")
+
+	c.TCPDown(io.EOF) // drop N; the entering-NotConnected reaction starts the reconnect loop
+
+	waitBounded(t, gen2Started, "the reconnect must publish and start the successor generation")
+
+	genN1 := c.cur.Load()
+	require.NotNil(t, genN1)
+	require.NotEqual(t, captured.gen, genN1.id, "the successor must be a different generation from the one that captured the report")
+
+	c.TCPUp(fakeConn{}) // the successor's own TCP-up; state -> NotSelected
+
+	sup.injectFrom(captured.gen, captured.ev, captured.cause) // replay N's withheld report, with its captured generation
+	sup.inject(evTCPUp, CauseUnknown)                         // FIFO sentinel: a same-state no-op from either NotSelected or Selected
+	waitBounded(t, replaySeen, "the sentinel must be stepped, proving the replayed report was processed first")
+
+	require.Equal(t, NotSelectedState, c.State(),
+		"a Select-accepted report withheld from a predecessor generation must not promote its successor without its own handshake")
+	require.Equal(t, uint64(1), sup.staleGen.Load(), "the replayed report must be discarded at the generation match, not merely absorbed")
+
+	require.True(t, c.CommitSelected(), "the successor's own Select CAS must still land")
+	require.True(t, genN1.reachedSelected.Load(), "the successor's own commit must latch its reconnect-backoff marker")
+
+	require.NoError(t, c.Close())
 }
 
 // errMockSelectCASDidNotLand is returned by withMockTransportWithholdingReports's Start
