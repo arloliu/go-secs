@@ -133,7 +133,7 @@ type supervisor struct {
 	// tcpUpCommitGate is commitGate's counterpart for the TCP-up commit (connection.tcpUpCommitGate).
 	// It shares commitGate's shape and RLock discipline,
 	// and — like selectGate — does NOT bypass a gen of 0:
-	// SECS-I and any out-of-module transport report TCP-up unnamed,
+	// SECS-I, and any transport that uses only TransportRuntime, report TCP-up unnamed,
 	// and gating only named generations would leave every one of their reports unfenced.
 	// It additionally admits at most one TCP-up per generation BEFORE the CAS runs at all —
 	// a second report on the same generation is refused outright, even when the first one's own CAS failed —
@@ -370,7 +370,7 @@ func (s *supervisor) CommitSelectLostFromGeneration(gen uint64, cause Transition
 // followed by ev's injection for the deduped reaction/notify.
 //
 // gen is the generation the commit is made on behalf of, or 0 when the caller named none.
-// For the Select-lost commit, a gen of 0 — secs1, an out-of-module transport, or a runtime without the generation capability —
+// For the Select-lost commit, a gen of 0 — secs1, a transport that uses only TransportRuntime, or a runtime without the generation capability —
 // takes the bare CAS, exactly the behavior every commit had before generations were carried.
 // The TCP-up and Select-accepted commits are the two exceptions:
 // they use tcpUpCommitGate / selectGate instead of commitGate, and neither gate bypasses a gen of 0
@@ -694,7 +694,7 @@ func (s *supervisor) inject(ev fsmEvent, cause TransitionCause) {
 //
 // A gen of 0 means the injection site named no generation and the event is always processed.
 // That is the behavior every site had before generations were carried,
-// and the behavior an out-of-module transport still gets.
+// and the behavior a transport that uses only TransportRuntime still gets.
 func (s *supervisor) injectFrom(gen uint64, ev fsmEvent, cause TransitionCause) {
 	select {
 	case s.events <- fsmCommand{ev: ev, cause: cause, gen: gen}:

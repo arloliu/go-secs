@@ -1294,7 +1294,7 @@ func (c *connection) commitGate(gen uint64, cas func() bool) (committed, live bo
 // It fences the same way —
 // one genGate.RLock section spanning {resolve the live generation, verify liveness, run the CAS} —
 // but ALSO differs from commitGate in the one place the Select commit needs to: a gen of 0 is NOT bypassed.
-// secs1 and any out-of-module transport never carry a generation identity,
+// secs1, and any transport that uses only TransportRuntime, never carry a generation identity,
 // so a named-generation check alone would leave every one of their Select commits ungated;
 // instead, a gen of 0 skips ONLY the identity comparison,
 // and the liveness requirement still applies — a non-nil, un-torn-down current generation.
@@ -1341,7 +1341,7 @@ func (c *connection) selectCommitGate(gen uint64, cas func() bool) (committed, l
 // one genGate.RLock section spanning {resolve the live generation, verify liveness, run the CAS} —
 // but ALSO differs from commitGate in the one place the TCP-up commit needs it to: a gen of 0 is NOT bypassed,
 // for the same reason selectCommitGate does not bypass it —
-// SECS-I and any out-of-module transport never carry a generation identity,
+// SECS-I, and any transport that uses only TransportRuntime, never carry a generation identity,
 // so a named-generation check alone would leave every one of their TCP-up reports ungated.
 // A gen of 0 skips ONLY the identity comparison; the liveness requirement — a non-nil,
 // un-torn-down current generation — still applies.

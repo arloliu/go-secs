@@ -149,7 +149,7 @@ func (m *ConnectionMetrics) ReplyMismatchCount() uint64 {
 
 // Reconnecting reports whether a reconnect loop is currently actively retrying.
 //
-// It returns 1 while retrying, and 0 when idle or connected.
+// It returns 1 while a reconnect loop is retrying, and 0 otherwise.
 // This is a GAUGE, not a cumulative counter —
 // it rises when a reconnect loop starts its first backoff and falls when that loop stops,
 // regardless of how many dial attempts happen inside.
@@ -157,6 +157,7 @@ func (m *ConnectionMetrics) ReplyMismatchCount() uint64 {
 // not the instant the drop is detected, so it excludes that teardown and the wait for Start to return.
 // It never reads above 1: a loop that hands its retry off to another loop releases its own count first,
 // so two loops can never both be counted at once.
+// For the same reason it can briefly read 0 during such a hand-off, before the next loop starts its backoff.
 //
 // The gauge is also held at 1 while an active connection's OpenBackground initial-connect retry is in flight
 // (it is the same underlying loop).
