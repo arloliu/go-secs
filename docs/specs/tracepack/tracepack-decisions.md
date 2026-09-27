@@ -248,3 +248,7 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   a producer publishes a capture descriptor with its `start` so segments carry the capture's pack metadata;
   a consumer may hold several open segments per scope; closure of a crashed producer's capture requires the successor's `start` staged,
   zero messages on the old capture's subject, and two catalog transactions (reserve, then register the boundary segment); post-closure segments are quarantined.
+- G5-88 Scope split (2026-09-27, proposed after the third v2.9 review round, under the treadmill rule):
+  the service-side closure of a crashed producer's capture leaves v2.9 and becomes proposal P7 (deferred);
+  until it is designed such a capture stays `open`, and producers publish a `stop` boundary on every orderly shutdown.
+  The capture descriptor is registered in the catalog by the consumer that receives the `start`, and a record without a known descriptor is deferred.

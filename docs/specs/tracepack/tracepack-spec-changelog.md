@@ -399,7 +399,8 @@ Summary:
 - [STO §4] (new bullet) Recorder over a durable bus: producers assign capture identity and seq and publish to a bus that persists before acknowledging;
   the recorder is a set of stateless consumers that acknowledge only after the segment is durable; redelivery replaces spool recovery;
   interleaved segments of one scope are normalized by the merge;
-  a producer crash is closed by a `stop-unclean` boundary the service writes once the successor's `start` is durable, the bus is drained of the old capture and the catalog recorded the closure.
+  the capture descriptor supplies the producer-owned pack metadata through the catalog, and a record whose descriptor is unknown is deferred;
+  closing a crashed producer's capture is split out as proposal P7 after review rounds 2 and 3, and such a capture stays `open` until then.
 - [SEM §4] and [SEM §5] name the producer as the clock-step actor for a durable-bus capture; the pack writer preserves the events and nothing re-checks the rule.
 - [FMT I-7] and [FMT §5] `flush_interval_ns` follow the producer's role and the consumer's flush interval; [STO §2] a bus consumer writes a subset per segment and may write several; [STO §3] takeover on lease expiry and the late commit-object write.
 - [STO §8] durable-bus vectors.
