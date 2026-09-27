@@ -22,6 +22,16 @@ const (
 	recordHeaderReservedLen   = 2
 )
 
+// Record header bit-set masks, per the tracepack format specification §9.
+const (
+	// recordHeaderQualityMask keeps bits 0-6; bits 7-15 are reserved.
+	recordHeaderQualityMask uint16 = 0x007F
+	// recordHeaderFieldValidityMask keeps bits 0-5; bits 6-7 are reserved.
+	recordHeaderFieldValidityMask uint8 = 0x3F
+	// recordHeaderRecordFlagsMask keeps bits 0-1; bits 2-7 are reserved.
+	recordHeaderRecordFlagsMask uint8 = 0x03
+)
+
 // RecordHeader is the decoded record header of the tracepack format specification §7.1.
 //
 // Fields hold the raw values as stored:
@@ -56,8 +66,9 @@ type RecordHeader struct {
 // the 56 known bytes, with the reserved bytes 54-55 written as zero, followed by h.Extra verbatim.
 //
 // It is a writer primitive, not the inverse of UnmarshalRecordHeader:
-// a header read with nonzero reserved bytes is written back with zeros,
+// a header read with nonzero reserved bytes or bits is written back with them zeroed,
 // so byte identity of stored records is compared on their raw bytes, never through a decode and re-encode.
+// Quality, FieldValidity and RecordFlags are each masked to their defined bits (§9) before being written.
 // The caller keeps RecordHeaderLen + len(h.Extra) within the u16 record_header_len of the block.
 // AppendRecordHeader does not allocate when dst has room for the whole header.
 func AppendRecordHeader(dst []byte, h *RecordHeader) []byte {
@@ -71,11 +82,11 @@ func AppendRecordHeader(dst []byte, h *RecordHeader) []byte {
 	dst = binary.LittleEndian.AppendUint32(dst, h.TrailingBytes)
 	dst = append(dst, h.SystemBytes[:]...)
 	dst = binary.LittleEndian.AppendUint16(dst, h.SessionID)
-	dst = binary.LittleEndian.AppendUint16(dst, h.Quality)
+	dst = binary.LittleEndian.AppendUint16(dst, h.Quality&recordHeaderQualityMask)
 	dst = append(dst,
 		h.Stream, h.Function, h.PType, h.SType,
 		h.Kind, h.Dir, h.Fidelity, h.DecodeStatus,
-		h.FieldValidity, h.RecordFlags,
+		h.FieldValidity&recordHeaderFieldValidityMask, h.RecordFlags&recordHeaderRecordFlagsMask,
 	)
 	dst = append(dst, make([]byte, recordHeaderReservedLen)...)
 

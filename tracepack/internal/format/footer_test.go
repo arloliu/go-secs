@@ -9,9 +9,10 @@ import (
 
 // goldenFooterPrologue is the F-1 footer prologue of the tracepack format specification §10,
 // built independently with Python's struct.pack('<HHIIIQQQQQQQ', ...).
-// Every field except footer_layout_version holds the bytes of its own offsets.
+// Every field except footer_layout_version and flags holds the bytes of its own offsets;
+// flags holds footerPrologueFlagsMask, its two defined bits (§10).
 var goldenFooterPrologue = []byte{
-	0x01, 0x00, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, // 0
+	0x01, 0x00, 0x03, 0x00, 0x04, 0x05, 0x06, 0x07, // 0
 	0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, // 8
 	0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, // 16
 	0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, // 24
@@ -58,7 +59,7 @@ var goldenF2EntryExtended = []byte{
 func goldenFooterPrologueStruct() FooterPrologue {
 	return FooterPrologue{
 		FooterLayoutVersion: 1,
-		Flags:               0x0302,
+		Flags:               footerPrologueFlagsMask,
 		BlockCount:          0x07060504,
 		F2EntryLen:          0x0B0A0908,
 		ExtractionVersion:   0x0F0E0D0C,
@@ -108,6 +109,17 @@ func TestAppendFooterPrologue_Golden(t *testing.T) {
 	require.Equal(t, goldenFooterPrologue, AppendFooterPrologue(nil, &p))
 }
 
+// Flags bits 2-15 are reserved (§10): a caller that sets every bit gets back only bits 0 and 1,
+// so the output is byte-identical to the golden vector.
+func TestAppendFooterPrologue_FlagsReservedBitsZeroed(t *testing.T) {
+	t.Parallel()
+
+	p := goldenFooterPrologueStruct()
+	p.Flags = 0xFFFF
+
+	require.Equal(t, goldenFooterPrologue, AppendFooterPrologue(nil, &p))
+}
+
 func TestAppendFooterPrologue_FieldOffsets(t *testing.T) {
 	t.Parallel()
 
@@ -116,8 +128,8 @@ func TestAppendFooterPrologue_FieldOffsets(t *testing.T) {
 
 	require.Len(t, b, FooterPrologueLen)
 	require.Equal(t, []byte{0x01, 0x00}, b[0:2], "footer_layout_version")
+	require.Equal(t, footerPrologueFlagsMask, binary.LittleEndian.Uint16(b[2:4]), "flags")
 	requireAscendingFields(t, b, []layoutField{
-		{"flags", 2, 2},
 		{"block_count", 4, 4},
 		{"f2_entry_len", 8, 4},
 		{"extraction_version", 12, 4},
@@ -185,7 +197,10 @@ func TestFooterPrologue_RoundTrip(t *testing.T) {
 
 			got, err := UnmarshalFooterPrologue(AppendFooterPrologue(nil, &tt.p))
 			require.NoError(t, err)
-			require.Equal(t, tt.p, got)
+
+			want := tt.p
+			want.Flags &= footerPrologueFlagsMask // bits 2-15 are reserved (§10) and zeroed on write
+			require.Equal(t, want, got)
 		})
 	}
 }

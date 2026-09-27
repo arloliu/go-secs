@@ -9,15 +9,16 @@ import (
 
 // goldenRecordHeader is the 56-byte record header of the tracepack format specification §7.1,
 // built independently with Python's struct.pack('<QqqIII4sHHBBBBBBBBBB2s', ...).
-// Every field except reserved holds the bytes of its own offsets.
+// Every field except quality, field_validity, record_flags and reserved holds the bytes of its own offsets;
+// quality, field_validity and record_flags each hold their own mask, their defined bits (§9).
 var goldenRecordHeader = []byte{
 	0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, // 0
 	0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, // 8
 	0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, // 16
 	0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, // 24
 	0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, // 32
-	0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, // 40
-	0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x00, 0x00, // 48
+	0x28, 0x29, 0x7F, 0x00, 0x2C, 0x2D, 0x2E, 0x2F, // 40
+	0x30, 0x31, 0x32, 0x33, 0x3F, 0x03, 0x00, 0x00, // 48
 }
 
 // goldenRecordHeaderExtended is a 64-byte record header built the same way:
@@ -28,8 +29,8 @@ var goldenRecordHeaderExtended = []byte{
 	0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, // 16
 	0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, // 24
 	0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, // 32
-	0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, // 40
-	0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0xFF, 0xFF, // 48
+	0x28, 0x29, 0x7F, 0x00, 0x2C, 0x2D, 0x2E, 0x2F, // 40
+	0x30, 0x31, 0x32, 0x33, 0x3F, 0x03, 0xFF, 0xFF, // 48
 	0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, // 56
 }
 
@@ -44,7 +45,7 @@ func goldenRecordHeaderStruct() RecordHeader {
 		TrailingBytes: 0x23222120,
 		SystemBytes:   [4]byte{0x24, 0x25, 0x26, 0x27},
 		SessionID:     0x2928,
-		Quality:       0x2B2A,
+		Quality:       recordHeaderQualityMask,
 		Stream:        0x2C,
 		Function:      0x2D,
 		PType:         0x2E,
@@ -53,8 +54,8 @@ func goldenRecordHeaderStruct() RecordHeader {
 		Dir:           0x31,
 		Fidelity:      0x32,
 		DecodeStatus:  0x33,
-		FieldValidity: 0x34,
-		RecordFlags:   0x35,
+		FieldValidity: recordHeaderFieldValidityMask,
+		RecordFlags:   recordHeaderRecordFlagsMask,
 	}
 }
 
@@ -68,6 +69,20 @@ func TestAppendRecordHeader_Golden(t *testing.T) {
 	t.Parallel()
 
 	h := goldenRecordHeaderStruct()
+
+	require.Equal(t, goldenRecordHeader, AppendRecordHeader(nil, &h))
+}
+
+// Quality bits 7-15, field_validity bits 6-7 and record_flags bits 2-7 are reserved (§9):
+// a caller that sets every bit of each field gets back only its defined bits,
+// so the output is byte-identical to the golden vector.
+func TestAppendRecordHeader_BitFieldsReservedBitsZeroed(t *testing.T) {
+	t.Parallel()
+
+	h := goldenRecordHeaderStruct()
+	h.Quality = 0xFFFF
+	h.FieldValidity = 0xFF
+	h.RecordFlags = 0xFF
 
 	require.Equal(t, goldenRecordHeader, AppendRecordHeader(nil, &h))
 }
@@ -88,7 +103,6 @@ func TestAppendRecordHeader_FieldOffsets(t *testing.T) {
 		{"trailing_bytes", 32, 4},
 		{"system_bytes", 36, 4},
 		{"session_id", 40, 2},
-		{"quality", 42, 2},
 		{"stream", 44, 1},
 		{"function", 45, 1},
 		{"ptype", 46, 1},
@@ -97,9 +111,10 @@ func TestAppendRecordHeader_FieldOffsets(t *testing.T) {
 		{"dir", 49, 1},
 		{"fidelity", 50, 1},
 		{"decode_status", 51, 1},
-		{"field_validity", 52, 1},
-		{"record_flags", 53, 1},
 	})
+	require.Equal(t, recordHeaderQualityMask, binary.LittleEndian.Uint16(b[42:44]), "quality")
+	require.Equal(t, recordHeaderFieldValidityMask, b[52], "field_validity")
+	require.Equal(t, recordHeaderRecordFlagsMask, b[53], "record_flags")
 	require.Equal(t, []byte{0, 0}, b[54:56], "reserved")
 }
 
