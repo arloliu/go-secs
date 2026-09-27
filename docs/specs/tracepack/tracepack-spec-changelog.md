@@ -404,6 +404,7 @@ Summary:
 - [SEM §4] and [SEM §5] name the producer as the clock-step actor for a durable-bus capture; the pack writer preserves the events and nothing re-checks the rule.
 - [FMT I-7] and [FMT §5] `flush_interval_ns` follow the producer's role and the consumer's flush interval; [STO §2] a bus consumer writes a subset per segment and may write several; [STO §3] takeover on lease expiry and the late commit-object write.
 - [STO §8] durable-bus vectors.
+- [SEM §5] a socket-refusal notification may source the transition record [FMT I-7] requires for an accepted-then-refused socket.
 - [FMT I-12] seq may be assigned by the producer that hands the writer its records; a writer never renumbers a received seq.
 - [STO §3] tool leases in the catalog for multi-instance publishing, a new publisher epoch per acquisition (G5-87); [OVW §6] ingest partitioned by tool deferred as a second-phase optimization.
 - `tracepack-go.md` §2 and `tracepack-impl-plan.md` phase 2 updated: the writer accepts producer-assigned seqs.
