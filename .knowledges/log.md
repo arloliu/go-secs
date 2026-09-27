@@ -1,6 +1,7 @@
 # Log
 
 ## 2026-09-27
+* Digest/revision-only refresh to `207066b` (W item SML grammar in `sml/parser.go`); the prealloc bound entry's mechanic is unchanged.
 * Digest/revision-only refresh to `02dd98c` (zero-length localized-string item in `secs2` decode and `sml`); no entry's mechanic changed.
   `a2ce046` changed test helpers only, which no entry cites.
 
