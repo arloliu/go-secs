@@ -10,11 +10,12 @@ Under [STO §4] "Recorder over a durable bus", a producer that stops without pub
 The successor capture of the same `recorder_instance_id` names it in `previous_capture_id` ([FMT I-7]),
 but v2.9 defines no rule by which the service turns that into a `stop-unclean` boundary.
 Consequences until P7 is designed:
-- such a capture stays `open` ([STO §5] Completeness): every epoch of it stays open,
-  a transaction lookup whose primary lies in it never returns `unmatched`, and its records are never proven complete;
-- the recorder downtime between the two captures is reported only through the seq coverage and the successor's `start`,
+- the capture remains `open`: the successor's `start` alone closes neither the capture nor an epoch;
+  completeness and `unmatched` for bounded windows still follow [STO §5] and [SEM §7.2]
+  (an epoch with a `close_seq`, a next same-key primary, or contiguous coverage over a bounded window keep their meaning);
+- the recorder downtime between the two captures is visible only through the seq coverage and the successor's `start`,
   not as a barrier with `gap_start` / `gap_end`;
-- nothing is lost: every record the bus accepted is staged, and the listing and catalog views are unaffected.
+- every record the bus accepted is staged as long as the stream retains it for redelivery, and the listing and catalog views are unaffected.
 
 A local recorder with a spool is not affected; its recovery rule in [STO §4] stands.
 

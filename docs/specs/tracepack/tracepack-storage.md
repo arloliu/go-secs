@@ -129,9 +129,7 @@ provided each commit object is deleted after the packs it commits.
     assigns a new `capture_id` per process start and names the immediately preceding capture in `previous_capture_id` ([FMT I-7]),
     assigns the capture-scoped `seq` ([FMT I-12]), and stamps `epoch`, `ts_utc_ns` and `mono_ns` at the observation point.
     With the capture's `start` boundary it publishes a **capture descriptor**:
-    every pack-metadata value it owns (`tool_id`, `recorder`, `capture_method`, `vantage`, `time_source`,
-    `capture_origin_utc_ns`, `capture_origin_mono_ns`, `clock_step_tolerance_ns`, `recorder_instance_id`, `previous_capture_id`, and the optional site and equipment tags),
-    which the consumer copies into the pack metadata of every segment of the capture.
+    the capture descriptor defined below, which the consumer copies into the pack metadata of every segment of the capture.
     It keeps the clock anchor of [SEM §4] and detects clock steps itself:
     it publishes the `clock-step` record and waits for the bus's acknowledgement before publishing the first record under the new anchor,
     so every record the bus holds was accepted after an anchor the bus also holds.
@@ -162,12 +160,16 @@ provided each commit object is deleted after the packs it commits.
   - *Capture descriptor and pack metadata.* The descriptor carries every always-required pack-metadata value the producer owns
     (`tool_id`, `transport`, `capture_method`, `vantage`, `recorder`, `time_source`, `lifecycle_coverage`, `quality_evaluated`,
     `recorder_instance_id`, `capture_origin_utc_ns`, `capture_origin_mono_ns`, `clock_step_tolerance_ns`, and `previous_capture_id` and the optional site and equipment tags when it has them);
-    the consumer owns `writer`, `classifier`, `period_start`, `period_end`, `seq_start`, `pack_role`, `compaction_level`, `scope_generation` and `flush_interval_ns`.
+    a log producer also supplies `source_tz`, `source_dialect` and `source_ref`;
+    the consumer owns `schema_version`, `writer`, `classifier`, `max_frame_len`, `period_start`, `period_end`, `seq_start`, `pack_role`, `compaction_level`, `scope_generation` and `flush_interval_ns`.
+    The traffic stream is configured so that an accepted message is removed only by acknowledgement, never by a size or age limit,
+    so an unacknowledged `start` stays available until its descriptor is registered and a deferred record until its descriptor exists.
     The consumer that receives a capture's `start` record registers the descriptor in the catalog before acknowledging it;
     a consumer holding a record of a capture whose descriptor the catalog does not have yet defers the record
     (a negative acknowledgement with a delay, so the bus redelivers it later) instead of writing a segment without the required metadata.
   - *A producer that stops without a `stop` boundary.* Its capture stays `open` ([STO §5]) until proposal P7 defines how the service closes it;
-    the successor's `start` and `previous_capture_id` remain the evidence of the restart, and no record is lost.
+    the successor's `start` and `previous_capture_id` remain the evidence of the restart,
+    and every record the bus accepted is staged as long as the stream retains it for redelivery (above).
     A producer publishes a `stop` boundary on every orderly shutdown, so the case is limited to crashes.
 - **Merge** of scope S: inputs are the active view of S.
   The merger copies every block of S in ascending `first_seq` order.
@@ -292,7 +294,8 @@ Its storage technology is not part of this specification.
   A `stop-unclean` boundary is a barrier for every epoch still open when the capture ended — one for which the per-capture entry records no closure —
   and for the time interval [`gap_start`, `gap_end`], unbounded on a side whose bound is absent;
   a transaction lookup whose primary lies in such an epoch never returns `unmatched`.
-  A gap between linked captures is recorder downtime and is always reported.
+  A gap between linked captures is recorder downtime and is always reported when the earlier capture carries an end boundary;
+  a capture left `open` (§4 Recorder over a durable bus) shows the restart through its successor's `start` but supplies no downtime barrier and no gap bounds.
   - A result that touches a scope that is not indexed is `incomplete` with reason `cold` and the searched scope;
     a transaction lookup whose eligibility window touches such a scope never returns `unmatched` ([SEM §7.2]).
   - End states, barriers and epoch closures come from the per-capture entries (above), whether or not the scope holding the evidence is indexed,
