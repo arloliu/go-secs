@@ -1,6 +1,6 @@
 # HSMS wire observer and generation-aware events
 
-Status: draft (2026-09-27) — proposal for go-secs v2.6.0, awaiting the owner.
+Status: draft (2026-09-27) — proposal for go-secs v2.6.0; owner decisions in §9, external review pending.
 
 ## 1. Purpose
 
@@ -218,11 +218,10 @@ tracepack's writer phase then requires go-secs v2.6.0.
 | 3 | `WithSocketObserver` and its call sites | pending |
 | 4 | README, `doc.go`, CHANGELOG; release v2.6.0 | pending |
 
-## 9. Open questions for the owner
+## 9. Owner decisions
 
-1. Panic policy: propagate (as `WithTransactionObserver`) or recover and disable the observer with an error log?
-   This proposal says propagate.
-2. Should the outbound observer fire before or after the write returns?
-   After (as proposed) means a frame that failed mid-write is not observed;
-   before means a frame that never reached the wire could be.
-3. Is the refused-socket exchange worth observing in the first release, or can it wait for a later minor version?
+Decided 2026-09-27:
+1. A panic in an observer propagates, as with `WithTransactionObserver`.
+2. The outbound observer fires after the write returns successfully;
+   a frame that failed mid-write is not observed, and the socket close event carries the error.
+3. The refused-socket exchange is observed in the first release.
