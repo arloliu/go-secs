@@ -108,13 +108,15 @@ Call sites:
 - outbound: the two places the connection hands buffers to the transport byte sink,
   `hsms/connection_send.go` `writeFrame` after a successful `Write`,
   and the courtesy Separate in `hsms/connection_lifecycle.go`.
-  The seam has two directions.
+  The seam has two directions, and neither widens an exported interface.
   `WireEvent` and `WithWireObserver` live in `hsms`, and the option stores the observer in the shared core.
-  Inbound and refusal events are raised by the HSMS-SS transport, which owns those bytes:
-  the core's transport runtime gains an `ObserveWire(WireEvent)` method the transport calls, a no-op when no observer is installed
-  (`hsmsss` imports `hsms`, so it constructs the event without a cycle).
-  Outbound events are raised by the core at its two write sites, but only when the transport asserts a wire-reporting capability
-  (a marker interface the HSMS-SS transport implements, discovered by type assertion like other `hsmsss` capabilities):
+  Inbound and refusal events are raised by the HSMS-SS transport, which owns those bytes,
+  through an optional runtime capability reached by type assertion, exactly as `causeRuntime` and the generation capability are today:
+  `hsmsss` declares `type wireRuntime interface { ObserveWire(hsms.WireEvent) }`, the core connection implements it
+  (returning at once when no observer is installed), and a runtime without it receives no wire events
+  (`hsmsss` imports `hsms`, so it constructs the event without a cycle; the existing generation capability is not touched).
+  Outbound events are raised by the core at its two write sites, but only when the transport asserts an optional capability
+  `WireReporting()` (a method the HSMS-SS transport implements; discovered by type assertion on the transport):
   the SECS-I transport reports success for an HSMS control frame without any wire I/O and converts data frames to SECS-I blocks,
   so an unconditional hook in the shared core would report frames that never crossed a SECS-I socket.
   An inbound event is raised with the receive goroutine's generation before dispatch, so a frame the admission check later drops is still reported as read.
@@ -181,14 +183,33 @@ func WithSocketObserver(fn func(SocketEvent)) ConnOption
 The socket record lives in the HSMS-SS transport, at the socket boundary,
 because sealed dials, TCP-ups the core refuses and extra passive sockets close without ever being adopted by an epoch.
 It is minted at every successful dial or accept, refused sockets included, and owns one close gate:
-an idempotent close that records the first initiating error it is given and emits `SocketClosed` once.
-Adoption hands the record's id to the core with the TCP-up, and the epoch stores it;
-the epoch's own socket close, which today runs before the transport is stopped, calls the transport's gate for that id instead of closing the connection directly,
-so the epoch, transport `Stop`, a sealed dial, a refused TCP-up and the refusal cleanup and `haltRefusal` paths all reach the same gate.
+an idempotent close that records the first initiating error it is given, closes the connection, and emits `SocketClosed` once.
+Socket events reach the core-held observer through a second optional runtime capability,
+`type socketRuntime interface { ObserveSocket(hsms.SocketEvent) }`, asserted and called by the transport like `wireRuntime`.
+
+Three interface paths, all optional and additive:
+- *Adoption.* The transport reports an adopted socket through a new optional runtime capability
+  `AdoptSocketFromGeneration(gen uint64, conn net.Conn, socket uint64) bool`, which the core implements next to `TCPUpFromGeneration`
+  and which stores the socket id on the epoch; `TCPUp` and `TCPUpFromGeneration` keep their signatures, so the SECS-I transport,
+  which only calls `TCPUp`, and any external caller are unaffected.
+  The transport uses the new method when the runtime has it and falls back to the existing one otherwise.
+- *Epoch close.* The epoch's socket close, which today closes the connection directly before the transport is stopped,
+  first asserts an optional transport capability `CloseSocket(conn net.Conn, err error)`;
+  when present it calls the gate with the failure the epoch recorded (below), otherwise it closes the connection directly as it does now.
+  Transport `Stop`, a sealed dial, a refused TCP-up, and the refusal cleanup and `haltRefusal` paths call the same gate,
+  so every socket closes through it and `SocketClosed` is emitted once.
+- *Failure first.* Every site that learns of a failure calls the gate with its error before it initiates teardown,
+  so teardown's later call with nil cannot win:
+  the receive loop calls the gate with the read error before it reports the TCP-down;
+  the core's write-error path records the write error on the epoch, and the epoch's close passes it to the gate;
+  and the refusal exchange retains the error of its malformed-length, malformed-header and failed-write branches for the gate, instead of closing through a deferred `Close`.
+  A local close with no recorded failure passes nil.
+  A race between a read error and a local close is decided by the first caller; the outcome is one close event with that caller's error.
+
 The raw socket's buffered `WriteTo` fast path is untouched, because the gate wraps closing, not writing.
-A close race is decided by the first caller: a read error that reaches the gate before a local close is the recorded `Err`, and a local close that arrives first records nil.
 `SocketRefused` is emitted when the extra-connection policy rejects the socket, whether the exchange completed, the peer's data was malformed or the response write failed;
 the `SocketClosed` that follows carries the protocol or I/O failure in the latter two cases and nil otherwise.
+The knowledge note on the passive refusal exchange (`haltRefusal` closes the socket directly) is updated with the mechanic.
 Call sites: `hsmsss/transport_active.go` after the dial, `hsmsss/transport_passive.go` after accept and in `refuseExtraConn`, and the gate.
 
 ### 3.4 Socket identity
@@ -200,21 +221,24 @@ It is distinct from `Generation` (`epoch.id`), which only adopted sockets get, s
 the generation-scoped refusal handoff token is not reused for it, because that token resets with every generation.
 A traffic-log recorder derives the tracepack `epoch`, which is defined per socket used, refused sockets included, from `Socket`:
 it keeps a per-capture `u32` counter keyed by the connection and `Socket` values it has seen, starting at 1,
-so the width of this counter never reaches the archive and a capture ends only for its own reasons.
+so the width of this counter never reaches the archive.
+A capture whose counter would exceed 2^32 − 1 ends with a `stop` boundary and a recorder error, and the recorder starts a new capture with a fresh counter;
+the mapping is per capture, so the new capture's epochs are unrelated to the old one's, as the archive already expects across captures.
 Both counters restart with the process, as tracepack expects: a recorder restart is a new capture.
 
 ## 4. What the recorder does with it
 
-For the eqp-hub device (or any recorder):
+For the eqp-hub device (or any recorder), with `epoch` always the per-capture value §3.4 maps from `Socket`:
 - one `WireEvent` becomes one data or control record:
-  `payload` = `Frame`, `ts_utc_ns` = `At.UnixNano()`, `mono_ns` = `At.Sub(origin)`, `epoch` = `Socket`,
+  `payload` = `Frame`, `ts_utc_ns` = `At.UnixNano()`, `mono_ns` = `At.Sub(origin)`,
   `dir` from `Direction` and the application's role, `fidelity` = `wire-exact`,
   copy fields and `decode_status` computed from the frame by the tracepack classifier;
-- one `LifecycleEvent` becomes a `state-transition` transport event
-  with `cause` mapped per `tracepack-go.md` §5 and `epoch` = `Socket`;
+- one `LifecycleEvent` becomes a `state-transition` transport event with `cause` mapped per `tracepack-go.md` §5;
 - one `TxEvent` with outcome T3 becomes a `timer-expiry` event with the primary's identifiers;
-- `SocketEvent`s become `socket-connect` / `socket-accept` / `socket-close` events
-  (a refused socket: accept then close, in its own epoch);
+- `SocketConnected` / `SocketAccepted` / `SocketClosed` become `socket-connect` / `socket-accept` / `socket-close` events;
+  a refused socket yields, in its own epoch, `socket-accept`, the two observed frames,
+  a `state-transition` record from `not-connected` to `not-connected` with cause `select-rejected` and `cause_raw` naming the refusal,
+  which is the transition record the format requires for an accepted-then-refused socket, and `socket-close`;
 - the device's own start and stop become the capture boundaries, with a recorder instance id it mints per process.
 
 Buffering, shipping and back-pressure are the recorder's, never go-secs's.
