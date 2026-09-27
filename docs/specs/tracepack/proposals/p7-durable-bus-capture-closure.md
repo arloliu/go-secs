@@ -24,10 +24,10 @@ A local recorder with a spool is not affected; its recovery rule in [STO §4] st
 Each attempt to write the boundary from the service side met one of these:
 1. Publish fence:
    "zero messages on the capture's subject" proves that every message the bus still holds was acknowledged, hence staged,
-   but not that no further message can be accepted (a publish request in flight when the producer died),
-   and stream limits (`MaxMsgs`, `MaxBytes`, `MaxAge`) can remove an unacknowledged message and produce a false zero.
-   A sound rule needs a fence the bus enforces, or a settle period justified by the bus's publish semantics,
-   and a retention configuration the profile requires.
+   but not that no further message can be accepted (a publish request in flight when the producer died).
+   [STO §4] excludes limit-based removal of accepted messages from the traffic stream;
+   a sound closure rule still needs a bus-enforced fence, or a settle period justified by the bus's publish semantics,
+   to handle a publish request still in flight.
 2. Interrupted closure:
    a closure that reserves the boundary's seq in the catalog and then writes the boundary segment has two crash windows
    (reserved but unwritten; written but unregistered),
@@ -49,8 +49,6 @@ Each attempt to write the boundary from the service side met one of these:
   which would give the service the fence of point 1 without inspecting the bus.
 - A closure protocol modelled on the commit protocol of [STO §5]:
   reserve, write, commit object, install, with the same recovery rule.
-- A stream configuration rule in the profile:
-  no limit-based discard on the traffic stream (discard-new with alerting), so a zero count cannot be false.
 - Treating a crashed producer's capture as ended by the successor's `start` for barrier purposes only, without a boundary record,
   which changes [STO §5] Completeness rather than the format.
 
