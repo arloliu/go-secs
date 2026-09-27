@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"crypto/rand"
 	"errors"
+	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -16,6 +19,14 @@ import (
 // zstdFrameMagic is the four-byte signature every RFC 8878 frame starts with,
 // independent of this package's own encoder.
 var zstdFrameMagic = []byte{0x28, 0xB5, 0x2F, 0xFD}
+
+// emptyZstdFrame is a complete RFC 8878 frame holding no content,
+// as the zstd CLI writes it for an empty file with --no-check:
+// single segment with a one-byte Frame_Content_Size of 0, then one last Raw block of size 0.
+var emptyZstdFrame = []byte{0x28, 0xB5, 0x2F, 0xFD, 0x20, 0x00, 0x01, 0x00, 0x00}
+
+// skippableZstdFrame is an RFC 8878 §3.1.2 skippable frame (magic 0x184D2A50) with no user data.
+var skippableZstdFrame = []byte{0x50, 0x2A, 0x4D, 0x18, 0x00, 0x00, 0x00, 0x00}
 
 // errCorrupted flags a concurrent decode whose result did not match the source,
 // distinct from a decode error.
@@ -213,4 +224,154 @@ func TestEncodeZstdDecodableByCLI(t *testing.T) {
 	cmd.Stdout = &decoded
 	require.NoError(t, cmd.Run())
 	require.Equal(t, src, decoded.Bytes())
+}
+
+func TestDecodeZstdRejectsAppendedEmptyFrame(t *testing.T) {
+	src := []byte(strings.Repeat("one frame only ", 32))
+	encoded, err := codec.Encode(codec.Zstd, nil, src)
+	require.NoError(t, err)
+
+	appended := append(append([]byte{}, encoded...), emptyZstdFrame...)
+	_, err = codec.Decode(codec.Zstd, nil, appended, len(src))
+	require.ErrorIs(t, err, codec.ErrTrailingBytes)
+}
+
+func TestDecodeZstdRejectsAppendedSkippableFrame(t *testing.T) {
+	src := []byte(strings.Repeat("one frame only ", 32))
+	encoded, err := codec.Encode(codec.Zstd, nil, src)
+	require.NoError(t, err)
+
+	appended := append(append([]byte{}, encoded...), skippableZstdFrame...)
+	_, err = codec.Decode(codec.Zstd, nil, appended, len(src))
+	require.ErrorIs(t, err, codec.ErrTrailingBytes)
+}
+
+func TestDecodeZstdRejectsLeadingSkippableFrame(t *testing.T) {
+	src := []byte(strings.Repeat("one frame only ", 32))
+	encoded, err := codec.Encode(codec.Zstd, nil, src)
+	require.NoError(t, err)
+
+	leading := append(append([]byte{}, skippableZstdFrame...), encoded...)
+	_, err = codec.Decode(codec.Zstd, nil, leading, len(src))
+	require.ErrorIs(t, err, codec.ErrNotZstdFrame)
+
+	_, err = codec.Decode(codec.Zstd, nil, skippableZstdFrame, 0)
+	require.ErrorIs(t, err, codec.ErrNotZstdFrame)
+}
+
+func TestDecodeZstdAcceptsEmptyFrame(t *testing.T) {
+	decoded, err := codec.Decode(codec.Zstd, nil, emptyZstdFrame, 0)
+	require.NoError(t, err)
+	require.Empty(t, decoded)
+}
+
+func TestDecodeZstdRejectsDictionaryHeader(t *testing.T) {
+	// Single segment, Dictionary_ID_flag 1 (a one-byte Dictionary_ID of 7), Frame_Content_Size 0, one last empty Raw block.
+	frame := []byte{0x28, 0xB5, 0x2F, 0xFD, 0x21, 0x07, 0x00, 0x01, 0x00, 0x00}
+
+	_, err := codec.Decode(codec.Zstd, nil, frame, 0)
+	require.ErrorIs(t, err, codec.ErrDictionary)
+}
+
+// TestDecodeZstdRejectsCLIDictionaryFrame decodes a frame the system zstd binary compressed with a trained dictionary.
+// The trained dictionary carries a nonzero Dictionary_ID, which the CLI writes into the frame header.
+// It is skipped when that binary is not on PATH.
+func TestDecodeZstdRejectsCLIDictionaryFrame(t *testing.T) {
+	if _, err := exec.LookPath("zstd"); err != nil {
+		t.Skip("zstd CLI not found on PATH; skipping independent cross-check")
+	}
+
+	dir := t.TempDir()
+	words := []string{"S1F1", "S2F41", "ALARM", "EVENT", "REPORT", "CEID", "VID", "tool", "lot", "wafer"}
+	samples := make([]string, 0, 40)
+	for i := range 40 {
+		var sb strings.Builder
+		for j := range 200 {
+			sb.WriteString(words[(i*7+j*j+j*i)%len(words)])
+			sb.WriteByte(' ')
+		}
+		name := filepath.Join(dir, fmt.Sprintf("sample%02d", i))
+		require.NoError(t, os.WriteFile(name, []byte(sb.String()), 0o600))
+		samples = append(samples, name)
+	}
+
+	dict := filepath.Join(dir, "dict")
+	train := exec.Command("zstd", append([]string{"-q", "-f", "--train", "--maxdict=2048", "-o", dict}, samples...)...)
+	require.NoError(t, train.Run())
+
+	body, err := os.ReadFile(samples[0])
+	require.NoError(t, err)
+
+	cmd := exec.Command("zstd", "-q", "-c", "-D", dict, samples[0])
+	var encoded bytes.Buffer
+	cmd.Stdout = &encoded
+	require.NoError(t, cmd.Run())
+
+	_, err = codec.Decode(codec.Zstd, nil, encoded.Bytes(), len(body))
+	require.ErrorIs(t, err, codec.ErrDictionary)
+}
+
+func TestDecodeZstdRejectsWindowAboveLimit(t *testing.T) {
+	tests := []struct {
+		name  string
+		frame []byte
+	}{
+		{
+			// Window_Descriptor 0x88: exponent 17, mantissa 0, so a 128 MiB window; no blocks follow.
+			name:  "window descriptor 128 MiB",
+			frame: []byte{0x28, 0xB5, 0x2F, 0xFD, 0x00, 0x88},
+		},
+		{
+			// Window_Descriptor 0x81: exponent 16, mantissa 1, so 64 MiB + 8 MiB; no blocks follow.
+			name:  "window descriptor 72 MiB",
+			frame: []byte{0x28, 0xB5, 0x2F, 0xFD, 0x00, 0x81},
+		},
+		{
+			// Single segment with an eight-byte Frame_Content_Size of 128 MiB, which is the window; no blocks follow.
+			name:  "single segment 128 MiB",
+			frame: []byte{0x28, 0xB5, 0x2F, 0xFD, 0xE0, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := codec.Decode(codec.Zstd, nil, tt.frame, 16)
+			require.ErrorIs(t, err, codec.ErrWindowTooLarge)
+		})
+	}
+}
+
+// TestDecodeZstdCLISingleSegmentFrame decodes a frame the system zstd binary built from a file rather than from stdin.
+// Knowing the content size up front, the CLI writes a single-segment frame with a two-byte Frame_Content_Size,
+// a header shape the stdin cross-check does not produce.
+// It is skipped when that binary is not on PATH.
+func TestDecodeZstdCLISingleSegmentFrame(t *testing.T) {
+	if _, err := exec.LookPath("zstd"); err != nil {
+		t.Skip("zstd CLI not found on PATH; skipping independent cross-check")
+	}
+
+	src := []byte(strings.Repeat("single segment cross-check ", 12))
+	name := filepath.Join(t.TempDir(), "body")
+	require.NoError(t, os.WriteFile(name, src, 0o600))
+
+	for _, args := range [][]string{{"-q", "-c", name}, {"-q", "-c", "--no-check", name}} {
+		cmd := exec.Command("zstd", args...)
+		var encoded bytes.Buffer
+		cmd.Stdout = &encoded
+		require.NoError(t, cmd.Run())
+
+		decoded, err := codec.Decode(codec.Zstd, nil, encoded.Bytes(), len(src))
+		require.NoError(t, err)
+		require.Equal(t, src, decoded)
+	}
+}
+
+func TestDecodeZstdAcceptsWindowAtLimit(t *testing.T) {
+	// Window_Descriptor 0x80: exponent 16, mantissa 0, so exactly the 64 MiB limit;
+	// then one last Raw block of 3 bytes.
+	frame := []byte{0x28, 0xB5, 0x2F, 0xFD, 0x00, 0x80, 0x19, 0x00, 0x00, 'a', 'b', 'c'}
+
+	decoded, err := codec.Decode(codec.Zstd, nil, frame, 3)
+	require.NoError(t, err)
+	require.Equal(t, []byte("abc"), decoded)
 }

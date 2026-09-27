@@ -4,13 +4,16 @@
 // The harness caps that length, so the fuzzer never asks for gigabytes:
 // see capUncompressedLen.
 // Each target asserts that Decode never panics,
+// that every error it returns wraps one of the package's sentinels,
 // that a successful decode has exactly the requested length and re-encodes with Encode to a stream that decodes equal,
 // and that the returned slice's capacity stays within a small multiple of the requested length.
 package codec_test
 
 import (
 	"bytes"
+	"errors"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 
@@ -21,6 +24,16 @@ import (
 
 // maxFuzzUncompressedLen is the largest uncompressed length a fuzz iteration requests: 4 MiB.
 const maxFuzzUncompressedLen = 4 << 20
+
+// zstdDecodeErrors are the sentinels a Zstd Decode error may wrap.
+var zstdDecodeErrors = []error{
+	codec.ErrIncompleteStream,
+	codec.ErrTrailingBytes,
+	codec.ErrLengthMismatch,
+	codec.ErrNotZstdFrame,
+	codec.ErrDictionary,
+	codec.ErrWindowTooLarge,
+}
 
 // capUncompressedLen folds a fuzzed uncompressed length above min(4 MiB, 64×srcLen+64) back into [0, that limit],
 // so a mutation of a large value still explores distinct lengths instead of collapsing onto the cap.
@@ -116,7 +129,7 @@ func FuzzDecodeNone(f *testing.F) {
 // and re-encodes with Encode to a frame that decodes equal.
 // Allocation bound: cap(result) ≤ 2×uncompressedLen+64,
 // which the harness cap keeps within 2×(64×len(src)+64)+64 = 128×len(src)+192.
-// On error the result is empty, with the same capacity bound.
+// On error the result is empty, with the same capacity bound, and the error wraps one of zstdDecodeErrors.
 func FuzzDecodeZstd(f *testing.F) {
 	payloads := fuzzPayloads()
 	frames := make([][]byte, 0, len(payloads))
@@ -142,6 +155,18 @@ func FuzzDecodeZstd(f *testing.F) {
 	f.Add(concatenated, shortLen)
 	f.Add(concatenated, 2*shortLen)
 
+	// Headers the frame walker must judge before any decoding:
+	// an empty frame, alone and appended; a skippable frame, leading and appended;
+	// a one-byte Dictionary_ID; and a 128 MiB Window_Descriptor.
+	empty := []byte{0x28, 0xB5, 0x2F, 0xFD, 0x20, 0x00, 0x01, 0x00, 0x00}
+	skippable := []byte{0x50, 0x2A, 0x4D, 0x18, 0x00, 0x00, 0x00, 0x00}
+	f.Add(empty, 0)
+	f.Add(append(append([]byte(nil), short...), empty...), shortLen)
+	f.Add(append(append([]byte(nil), skippable...), short...), shortLen)
+	f.Add(append(append([]byte(nil), short...), skippable...), shortLen)
+	f.Add([]byte{0x28, 0xB5, 0x2F, 0xFD, 0x21, 0x07, 0x00, 0x01, 0x00, 0x00}, 0)
+	f.Add([]byte{0x28, 0xB5, 0x2F, 0xFD, 0x00, 0x88, 0x01, 0x00, 0x00}, 0)
+
 	reference, err := zstd.NewReader(nil, zstd.WithDecoderConcurrency(1))
 	require.NoError(f, err)
 	f.Cleanup(reference.Close)
@@ -154,6 +179,8 @@ func FuzzDecodeZstd(f *testing.F) {
 		require.LessOrEqual(t, cap(out), capBound, "cap(result) must stay within 2×uncompressedLen+64")
 		if err != nil {
 			require.Empty(t, out)
+			require.Truef(t, slices.ContainsFunc(zstdDecodeErrors, func(target error) bool { return errors.Is(err, target) }),
+				"error %v wraps none of the package's sentinels", err)
 
 			return
 		}

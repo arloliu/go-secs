@@ -25,6 +25,23 @@ var ErrIncompleteStream = errors.New("codec: incomplete stream")
 // A concatenated second frame is the most common cause; the tracepack format specification §2 allows only one.
 var ErrTrailingBytes = errors.New("codec: trailing bytes after stream")
 
+// ErrNotZstdFrame reports a Zstd source that is not a well-formed RFC 8878 §3.1.1 Zstandard frame:
+// its first four bytes are not the Zstandard frame magic, or a block header names the reserved block type.
+// A skippable frame is reported through this sentinel too,
+// because the tracepack format specification §2 allows exactly one Zstandard frame and nothing else.
+// A source that ends before its frame does is reported through ErrIncompleteStream instead.
+var ErrNotZstdFrame = errors.New("codec: not a zstd frame")
+
+// ErrDictionary reports a Zstd frame whose header sets the Dictionary_ID_flag of RFC 8878 §3.1.1.1.1.
+// The tracepack format specification §2 forbids dictionaries,
+// so a frame is rejected even when the Dictionary_ID it carries is zero.
+var ErrDictionary = errors.New("codec: zstd frame names a dictionary")
+
+// ErrWindowTooLarge reports a Zstd frame whose header declares a window larger than this package decodes.
+// A window is history the decoder must keep in memory,
+// so the limit is checked from the frame header before any block is decoded.
+var ErrWindowTooLarge = errors.New("codec: zstd window too large")
+
 // ErrLengthMismatch reports a decoded length that does not match the uncompressed length the caller supplied.
 // A negative uncompressed length is always invalid and is also reported through this sentinel.
 var ErrLengthMismatch = errors.New("codec: length mismatch")
@@ -58,7 +75,9 @@ func Encode(codecID uint8, dst, src []byte) ([]byte, error) {
 // The returned slice is dst[:0] grown as needed;
 // callers that reuse dst across calls avoid repeated allocation.
 // For None, src must be exactly uncompressedLen bytes.
-// For Zstd, src must hold exactly one RFC 8878 frame with no dictionary whose decoded length is exactly uncompressedLen.
+// For Zstd, src must hold exactly one RFC 8878 frame with no dictionary whose decoded length is exactly uncompressedLen,
+// and the frame's declared window must not exceed 64 MiB;
+// the frame header is checked before any block is decoded.
 //
 // Parameters:
 //   - codecID: None or Zstd.
@@ -68,9 +87,11 @@ func Encode(codecID uint8, dst, src []byte) ([]byte, error) {
 //
 // Returns:
 //   - []byte: the decoded bytes, appended to dst.
-//   - error: ErrUnknownCodec for a codecID outside the registry,
-//     ErrLengthMismatch, ErrIncompleteStream or ErrTrailingBytes for a
-//     decoded length that disagrees with uncompressedLen.
+//   - error: ErrUnknownCodec for a codecID outside the registry;
+//     ErrLengthMismatch, ErrIncompleteStream or ErrTrailingBytes for a decoded length that disagrees with uncompressedLen;
+//     for Zstd, also ErrIncompleteStream when src ends before its frame does, even inside the frame header,
+//     ErrTrailingBytes for any byte after the frame, ErrNotZstdFrame for a skippable or otherwise malformed frame,
+//     ErrDictionary for a frame naming a dictionary, and ErrWindowTooLarge for a window above 64 MiB.
 func Decode(codecID uint8, dst, src []byte, uncompressedLen int) ([]byte, error) {
 	switch codecID {
 	case None:
