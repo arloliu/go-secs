@@ -44,7 +44,7 @@ func (t *transport) recvLoop(g *genWG, conn net.Conn) {
 	t.armT7(g)
 
 	for {
-		frame, err := t.readFrame(conn)
+		buf, err := t.readFrame(conn)
 		if err != nil {
 			t.metrics.incReadErrCount()
 
@@ -69,6 +69,10 @@ func (t *transport) recvLoop(g *genWG, conn net.Conn) {
 
 		t.lastRecvStamp.Store(t.monoNanos()) // any complete inbound frame is proof of link liveness
 
+		// The wire observer sees the frame as read, before anything interprets it,
+		// and before the straggler test seam below can pause this goroutine.
+		t.observeInbound(g.gen, buf)
+
 		// testHookAfterReadFrame is a nil-by-default test seam (setupAdmissionStraggler,
 		// integration_inbound_straggler_test.go): it fires between a complete frame read and its
 		// admission into dispatchFrame, letting a test pause a straggler goroutine right at the
@@ -78,7 +82,9 @@ func (t *transport) recvLoop(g *genWG, conn net.Conn) {
 			(*hook)()
 		}
 
-		if !t.dispatchFrame(g, frame) {
+		// Dispatch takes the frame without its length prefix: [header || body],
+		// the layout the core adopts zero-copy, with the body at header offset 10.
+		if !t.dispatchFrame(g, buf[4:]) {
 			// dispatchFrame already drove teardown (a peer Separate called rt.TCPDown),
 			// or the generation is already tearing down.
 			// Either way do not call TCPDown again; just end the loop so Stop can join it.
@@ -212,7 +218,10 @@ func (t *transport) dispatchFrame(g *genWG, frame []byte) bool {
 }
 
 // readFrame reads one HSMS E37 frame (spec §6.1) from conn: the 4-byte big-endian length
-// prefix, then the [10-byte header || body] into a fresh GC-owned buffer.
+// prefix, then the [10-byte header || body].
+// It returns the whole frame, [4-byte length prefix || header || body], in one fresh GC-owned buffer:
+// the wire observer is handed all of it, and dispatch is handed the slice after the prefix,
+// so the body the core adopts is never copied.
 //
 // Timing (§9.2.3.1 / J1): the FIRST byte of a frame is an idle wait (no deadline — a link may
 // sit idle indefinitely between messages); once any byte has been read, T8 governs EVERY
@@ -251,8 +260,10 @@ func (t *transport) readFrame(conn net.Conn) ([]byte, error) {
 		return nil, fmt.Errorf("hsmsss: frame length %d exceeds maximum %d", msgLen, secs2.MaxByteSize)
 	}
 
-	frame := t.allocFrame(int(msgLen))
-	if err := readN(conn, frame, t8, &started, t.clock()); err != nil {
+	// Both bounds are checked above, before this allocation is sized from msgLen.
+	frame := t.allocFrame(4 + int(msgLen))
+	copy(frame[:4], lenBuf[:])
+	if err := readN(conn, frame[4:], t8, &started, t.clock()); err != nil {
 		return nil, err
 	}
 

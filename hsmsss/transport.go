@@ -509,6 +509,11 @@ func (t *transport) Write(_ context.Context, conn net.Conn, bufs net.Buffers) er
 	return err
 }
 
+// WireReporting marks this transport as one whose Write puts the handed frame on its socket byte for byte,
+// so the connection core reports the frames it writes through it to an hsms.WithWireObserver hook.
+// The core discovers it by type assertion; it has no behavior of its own and is not meant to be called.
+func (t *transport) WireReporting() {}
+
 // monoNanos returns nanoseconds elapsed since this transport's immutable clockBase.
 // time.Since uses the monotonic clock, so stamps never move backward on wall-clock changes.
 func (t *transport) monoNanos() int64 {

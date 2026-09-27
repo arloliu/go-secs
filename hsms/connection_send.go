@@ -171,6 +171,14 @@ func (c *connection) writeFrame(ctx context.Context, e *epoch, msg Message) erro
 		defer func() { _ = c.tr.SetWriteDeadline(conn, time.Time{}) }()
 	}
 
+	// The wire observer's copy is taken now, because the write below consumes bufs as it goes.
+	// It is reported only once the write has succeeded.
+	var wireFrame []byte
+	wireObs := c.outboundWireObserver()
+	if wireObs != nil {
+		wireFrame = e.captureWireFrame(bufs)
+	}
+
 	if err := c.tr.Write(ctx, conn, bufs); err != nil {
 		// A write failure means this generation's stream is dead, whether the cause is a live link
 		// (a deadline exceeded on a wedged peer, a broken socket) or teardown closing the socket out from under an in-flight write.
@@ -218,6 +226,12 @@ func (c *connection) writeFrame(ctx context.Context, e *epoch, msg Message) erro
 	if cfg := c.cfg.Load(); cfg.traceTraffic {
 		cfg.logger.Debug("hsms: trace: sent frame",
 			"session_id", msg.SessionID(), "system_bytes", msg.SystemBytes(), "raw", hexDump(msg.ToBytes()))
+	}
+
+	// Reported last, so a panicking observer cannot skip the accounting above;
+	// the deferred unlock still releases writeMu as the panic unwinds.
+	if wireObs != nil {
+		wireObs(WireEvent{Direction: WireOutbound, Generation: e.id, At: time.Now(), Frame: wireFrame})
 	}
 
 	return nil
