@@ -400,7 +400,8 @@ Summary:
   the recorder is a set of stateless consumers that acknowledge only after the segment is durable; redelivery replaces spool recovery;
   interleaved segments of one scope are normalized by the merge;
   a producer crash is closed by a `stop-unclean` boundary the service writes once the successor's `start` is durable, the bus is drained of the old capture and the catalog recorded the closure.
-- [SEM §4] and [SEM §5] name the producer as the clock-step actor for a durable-bus capture; the pack writer preserves the events and `verify` checks the anchor rule.
+- [SEM §4] and [SEM §5] name the producer as the clock-step actor for a durable-bus capture; the pack writer preserves the events and nothing re-checks the rule.
+- [FMT I-7] and [FMT §5] `flush_interval_ns` follow the producer's role and the consumer's flush interval; [STO §2] a bus consumer writes a subset per segment and may write several; [STO §3] takeover on lease expiry and the late commit-object write.
 - [STO §8] durable-bus vectors.
 - [FMT I-12] seq may be assigned by the producer that hands the writer its records; a writer never renumbers a received seq.
 - [STO §3] tool leases in the catalog for multi-instance publishing, a new publisher epoch per acquisition (G5-87); [OVW §6] ingest partitioned by tool deferred as a second-phase optimization.
