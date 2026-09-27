@@ -108,10 +108,16 @@ Call sites:
 - outbound: the two places the connection hands buffers to the transport byte sink,
   `hsms/connection_send.go` `writeFrame` after a successful `Write`,
   and the courtesy Separate in `hsms/connection_lifecycle.go`.
-  Wire reporting is a transport capability the connection discovers by type assertion, as it does for other `hsmsss` capabilities,
-  and only the HSMS-SS transport provides it:
+  The seam has two directions.
+  `WireEvent` and `WithWireObserver` live in `hsms`, and the option stores the observer in the shared core.
+  Inbound and refusal events are raised by the HSMS-SS transport, which owns those bytes:
+  the core's transport runtime gains an `ObserveWire(WireEvent)` method the transport calls, a no-op when no observer is installed
+  (`hsmsss` imports `hsms`, so it constructs the event without a cycle).
+  Outbound events are raised by the core at its two write sites, but only when the transport asserts a wire-reporting capability
+  (a marker interface the HSMS-SS transport implements, discovered by type assertion like other `hsmsss` capabilities):
   the SECS-I transport reports success for an HSMS control frame without any wire I/O and converts data frames to SECS-I blocks,
   so an unconditional hook in the shared core would report frames that never crossed a SECS-I socket.
+  An inbound event is raised with the receive goroutine's generation before dispatch, so a frame the admission check later drops is still reported as read.
 - the refusal exchange of a second passive connection (`hsmsss/transport_passive.go` `refuseExtraConn`),
   which reads and writes the extra socket directly:
   the inbound Select.req is observed as the full 14-byte frame after the header read completes, before it is interpreted,
@@ -132,12 +138,17 @@ so a recorder derives both the wall clock (`UnixNano`) and elapsed monotonic tim
   never resolved from the current epoch on the notifier goroutine;
   `Close` takes the epoch `requestClose` pinned.
   Both fields are 0 when the connection has no epoch at all (a `Close` before any `Open`);
-  a transition of an epoch that never established a socket has its generation and socket 0.
-  A stale report is discarded by the supervisor and produces no event, so no event carries a generation that is already gone.
+  a transition of an epoch that never acquired a socket carries its generation and socket 0.
+  The epoch keeps its socket id after teardown clears its connection, so an event built late still names the socket.
+  A stale queued report is discarded by the supervisor and fires no transition;
+  a notification already fired keeps its original generation even when the notifier delivers it after that generation tore down.
 - `TxEvent` gains `Socket uint64`, `Generation uint64` and `SessionID uint16`.
   `sendWaitReply` and `sendNoReply` load the pinned epoch internally and the event is built after they return,
   so a fresh read there could name a successor after a reconnect;
-  the send path returns the identity it pinned, including on its early-failure returns, and the event is built from that.
+  the send path returns the epoch it pinned, and the event is built from that.
+  A send that found no epoch (`ErrNotOpen`) reports generation 0 and socket 0;
+  every return after an epoch was selected, including the pre-write refusals, write errors, timer, teardown and cancellation returns, carries that epoch's generation
+  and the socket id it retains after its connection is closed.
   `SessionID` is the primary's session id, which a T3 record needs and the event does not carry today.
   A late reply arriving after a T3 timeout needs no event:
   it is a frame, and the wire observer reports it.
@@ -150,7 +161,7 @@ type SocketEventKind uint8
 const (
     SocketConnected SocketEventKind = iota + 1 // active role: dial succeeded
     SocketAccepted                             // passive role: accept returned
-    SocketRefused                              // passive role: accepted, answered Communication Already Active, closed
+    SocketRefused                              // passive role: accepted, then rejected by the extra-connection policy, whether or not the response reached the peer
     SocketClosed                               // the socket is closed, by either side or by teardown
 )
 
@@ -161,21 +172,24 @@ type SocketEvent struct {
     At         time.Time
     Local      net.Addr
     Remote     net.Addr
-    Err        error       // for SocketClosed: the read or write error that ended it, nil for a local close
+    Err        error       // for SocketClosed: the first I/O or protocol failure that initiated the close; nil for a local or peer-requested close
 }
 
 func WithSocketObserver(fn func(SocketEvent)) ConnOption
 ```
 
-A socket record is minted at every successful dial or accept, refused sockets included,
-and owns a single close gate that captures the error which initiated the close.
-Every path that closes a socket goes through that gate:
-epoch teardown, a dial sealed by a concurrent teardown, a TCP-up the core refuses, transport `Stop`,
-and the refusal cleanup and `haltRefusal` paths of the extra socket.
-`SocketClosed` is therefore emitted exactly once per socket, with `Err` nil for a local close.
-`SocketRefused` is emitted when the exchange completes, and also when the peer's data is malformed or the response write fails;
-the close event that follows carries the error in those cases.
-Call sites: `hsmsss/transport_active.go` after the dial, `hsmsss/transport_passive.go` after accept and in `refuseExtraConn`, and the close gate.
+The socket record lives in the HSMS-SS transport, at the socket boundary,
+because sealed dials, TCP-ups the core refuses and extra passive sockets close without ever being adopted by an epoch.
+It is minted at every successful dial or accept, refused sockets included, and owns one close gate:
+an idempotent close that records the first initiating error it is given and emits `SocketClosed` once.
+Adoption hands the record's id to the core with the TCP-up, and the epoch stores it;
+the epoch's own socket close, which today runs before the transport is stopped, calls the transport's gate for that id instead of closing the connection directly,
+so the epoch, transport `Stop`, a sealed dial, a refused TCP-up and the refusal cleanup and `haltRefusal` paths all reach the same gate.
+The raw socket's buffered `WriteTo` fast path is untouched, because the gate wraps closing, not writing.
+A close race is decided by the first caller: a read error that reaches the gate before a local close is the recorded `Err`, and a local close that arrives first records nil.
+`SocketRefused` is emitted when the extra-connection policy rejects the socket, whether the exchange completed, the peer's data was malformed or the response write failed;
+the `SocketClosed` that follows carries the protocol or I/O failure in the latter two cases and nil otherwise.
+Call sites: `hsmsss/transport_active.go` after the dial, `hsmsss/transport_passive.go` after accept and in `refuseExtraConn`, and the gate.
 
 ### 3.4 Socket identity
 
@@ -184,9 +198,9 @@ It is unique within one connection, not across connections of a process;
 a recorder that serves several connections keys on the connection as well.
 It is distinct from `Generation` (`epoch.id`), which only adopted sockets get, so the FSM's straggler matching is untouched;
 the generation-scoped refusal handoff token is not reused for it, because that token resets with every generation.
-A traffic-log recorder uses `Socket` as the tracepack `epoch`, which is defined per socket used, refused sockets included.
-tracepack stores `epoch` as `u32`; a recorder that sees a value above 2^32 − 1 stops the capture and starts a new one,
-rather than wrapping, so the narrowing has a defined outcome even if it never happens in practice.
+A traffic-log recorder derives the tracepack `epoch`, which is defined per socket used, refused sockets included, from `Socket`:
+it keeps a per-capture `u32` counter keyed by the connection and `Socket` values it has seen, starting at 1,
+so the width of this counter never reaches the archive and a capture ends only for its own reasons.
 Both counters restart with the process, as tracepack expects: a recorder restart is a new capture.
 
 ## 4. What the recorder does with it
