@@ -238,7 +238,13 @@ func TestActiveReconnectCadence_ExponentialBackoff(t *testing.T) {
 	const t5 = 400 * time.Millisecond
 	ctx := t.Context()
 
-	ln, port := listenLoopback(t)
+	// The port stays owned by this test after ln closes (freeLoopbackPort holds it on Linux),
+	// so no parallel test's bind(:0) can pick it up and listen there.
+	// A reconnect that reached such a listener would not log a dial failure,
+	// and the backoff would reach the T5 ceiling before the first gap is measured.
+	port := freeLoopbackPort(t)
+	ln, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: port})
+	require.NoError(t, err)
 
 	var (
 		mu    sync.Mutex
