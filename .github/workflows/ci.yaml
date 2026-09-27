@@ -7,12 +7,16 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # Run the toolchain setup-go installed; without this, the go directive in go.mod
+      # makes Go download and switch to that version, so every matrix entry runs the same Go.
+      GOTOOLCHAIN: local
     strategy:
+      fail-fast: false
       matrix:
         go-version:
-          - "1.23"
-          - "1.24"
-          - "1.25"
+          - "oldstable"
+          - "stable"
     steps:
     - uses: actions/checkout@v4
 
