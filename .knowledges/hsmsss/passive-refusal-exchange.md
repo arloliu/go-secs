@@ -35,16 +35,31 @@ total connect-to-close budget, so a slow trickle could still hold the socket ope
 first read and never clears or extends it, reading via raw `io.ReadFull` rather than `readN`.
 
 **The two-sided handoff.**
-`refuseExtraConn` publishes `extra` into `t.refuseConn` only after checking `!t.refuseStopped` under
+`refuseExtraConn` publishes `extra`'s socket record into `t.refuseSock` only after checking `!t.refuseStopped` under
 `t.refuseMu` — the same mutex and the same flag `haltRefusal` (Stop's side) sets.
 If Stop already ran, `refuseExtraConn` observes `refuseStopped == true` and returns (closing `extra`
 via its own defer) without reading, instead of parking for the full T7.
 If `refuseExtraConn` already published before Stop runs, `haltRefusal` closes the published
-`t.refuseConn` directly.
+`t.refuseSock` through its record's close gate, with no failure, since Stop's close is a local one.
 Whichever side wins the race, the extra socket is closed and `Stop`'s `g.accept.Wait` never waits out
 the refusal deadline.
 
-**Why `refuseToken`, not `t.refuseConn == extra`.**
+**One close, through the gate.**
+`refuseExtraConn` mints a socket record for `extra` on entry (reported as accepted) and marks it refused.
+Every exit closes it through ONE deferred gate call carrying the failure retained by whichever branch returned:
+the `SetDeadline` error, a read error (the absolute deadline, a short read), a malformed length (`errRefusalBadLength`),
+a first frame that fails to decode or is not a Select.req (`errRefusalNotSelectReq`),
+or a failed or short response write;
+a completed exchange, and a helper that found `refuseStopped` already set, retain nil.
+The gate reports the socket refused and then closed, exactly once,
+whichever of the defer and `haltRefusal` reaches it first,
+so the refusal can never be reported after the close.
+The exchange itself lives in `refusalExchange`,
+which reads the 4-byte prefix and the 10-byte header into one fixed 14-byte buffer
+and reports that whole frame to the wire observer (socket identity, generation 0) before interpreting it;
+the Select.rsp is reported only when its write returned the full length without error.
+
+**Why `refuseToken`, not comparing the published conn with `extra`.**
 `WithListener` lets a caller supply a custom `net.Conn` whose dynamic type may be non-comparable
 (e.g. a struct embedding `net.Conn` plus a slice field) — comparing two such interface values with
 `==` panics at runtime.
@@ -56,7 +71,7 @@ The token only needs to distinguish "this publish" from "a later one", which the
 serial-refusal invariant guarantees: at most one token is ever live within one generation.
 
 **The `ArmStart` reset.**
-`ArmStart` resets `refuseStopped`/`refuseConn`/`refuseToken` to zero values under `refuseMu`,
+`ArmStart` resets `refuseStopped`/`refuseSock`/`refuseToken` to zero values under `refuseMu`,
 generation-scoped exactly like the `startGate.stopping` seal it sits beside.
 Without this reset, a prior generation's Stop would leave `refuseStopped == true`, and every later
 generation's `refuseExtraConn` calls would silently close-without-responding instead of running the
@@ -71,7 +86,7 @@ option 1 (accept, then answer Communication Already Active).
   So within one generation at most one `refuseToken` is ever live at cleanup time.
 - The deadline is armed once, before the first read, and never cleared or extended — the one
   difference from `readN`'s policy that makes this loop bounded at all.
-- `refuseStopped`/`refuseConn`/`refuseToken` are generation-scoped: a value set by one generation's
+- `refuseStopped`/`refuseSock`/`refuseToken` are generation-scoped: a value set by one generation's
   Stop must never suppress or corrupt a later generation's refusal.
 
 # Failure modes
@@ -79,7 +94,7 @@ option 1 (accept, then answer Communication Already Active).
 - Reusing `readFrame`/`readN` here would let a silent extra dialer park the accept goroutine
   indefinitely — the idle wait has no deadline to expire, so `Stop`'s `g.accept.Wait` never returns
   until the peer eventually closes or times out on its own.
-- Comparing `t.refuseConn == extra` directly panics on a non-comparable `net.Conn` implementation
+- Comparing the published conn with `extra` (`==`) panics on a non-comparable `net.Conn` implementation
   from a custom `WithListener` — exactly the case `refuseToken` exists to avoid.
 - Skipping the `ArmStart` reset lets one generation's Stop silently poison every subsequent
   generation's refusal into close-without-response.
@@ -88,6 +103,8 @@ option 1 (accept, then answer Communication Already Active).
 
 - the one-shot exchange and its absolute deadline: `hsmsss/transport_passive.go` → `(*transport).refuseExtraConn`
 - the Stop-side half of the handoff: `hsmsss/transport_passive.go` → `(*transport).haltRefusal`
+- the exchange and the frames it reports: `hsmsss/transport_passive.go` → `(*transport).refusalExchange`
+- the socket record and its close gate: `hsmsss/transport_socket.go` → `socketRecord`, `(*transport).mintSocket`, `(*socketRecord).gate`
 - the generation-scoped fields and their reset: `hsmsss/transport.go` → `(*transport).ArmStart`
 - Stop invoking the handoff before joining `g.accept`: `hsmsss/transport.go` → `(*transport).Stop`
 - the idle-vs-T8 policy this path deliberately avoids: `hsmsss/transport_recv.go` → `readN`

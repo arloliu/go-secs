@@ -121,6 +121,11 @@ func (t *transport) acceptLoop(ctx context.Context, g *genWG, ln net.Listener) {
 
 	t.applyKeepAlive(conn)
 
+	// Record the socket before anything decides its fate, so a refused accept is still reported, and closed through its gate.
+	// The record goes on the bundle before the core or the recv loop can reach it.
+	rec := t.mintSocket(conn, hsms.SocketAccepted)
+	g.sock = rec
+
 	// Report TCP-up BEFORE touching any transport-level bookkeeping (t.conn, the activity stamps).
 	// Reported for THIS generation (g.gen), not whichever is current when the report lands.
 	// Stop's join of this goroutine is bounded,
@@ -132,12 +137,12 @@ func (t *transport) acceptLoop(ctx context.Context, g *genWG, ln net.Listener) {
 	// so a dead generation's socket can never clobber a live successor's bookkeeping or join set.
 	// This reordering is safe on the ACCEPTED path too:
 	// nothing between here and the connMu block below ever reads t.conn
-	// (a write only reads e.liveConn(), already set by tcpUp's own publishSocket call).
+	// (a write only reads e.liveConn(), already set by the core's publishSocket during adoptSocket).
 	// A concurrent Stop cannot race this store either way:
 	// its g.accept.Wait() (transport.go) is unbounded and joins THIS goroutine —
 	// refused-and-returned or accepted-and-published — before Stop ever reads t.conn.
-	if !t.tcpUp(g.gen, conn) {
-		_ = conn.Close()
+	if !t.adoptSocket(g, rec) {
+		rec.close(nil)
 
 		return
 	}
@@ -149,6 +154,7 @@ func (t *transport) acceptLoop(ctx context.Context, g *genWG, ln net.Listener) {
 	// the §7.B Add-vs-Wait guarantee for this generation's recv loop.
 	t.connMu.Lock()
 	t.conn = conn
+	t.connSock = rec
 	t.resetActivityStamps()
 	t.connMu.Unlock()
 
@@ -267,6 +273,13 @@ func (t *transport) isStopping() bool {
 //
 // It owns extra's entire lifecycle, including the close, via its own defer:
 // a defer in acceptLoop's loop body would accumulate across iterations instead of closing per iteration.
+// The close goes through the socket's record, once, with the failure retained by whichever branch returned:
+// the absolute deadline or another read error, a short read, a malformed length or header, or a failed response write.
+// A completed exchange, and a helper that finds Stop already ran, retain nil.
+// The record's gate reports the socket refused and then closed, exactly once, whichever side closes it first.
+// The two frames of the exchange are reported to the wire observer with the socket's identity and generation 0:
+// the peer's first frame, whole, as soon as its header is read and before it is interpreted,
+// and the Select.rsp only once its write returned the full frame without error.
 //
 // Deliberately NOT readFrame/readN.
 // readN's idle-first-byte policy explicitly CLEARS the read deadline while waiting for the first byte (transport_recv.go's idle-link policy — correct for an adopted LIVE session, wrong here),
@@ -277,17 +290,23 @@ func (t *transport) isStopping() bool {
 // A single ABSOLUTE deadline covering the whole one-shot exchange — read and write — is the only bound that actually terminates it:
 // set once, before the first read, and never cleared or extended.
 func (t *transport) refuseExtraConn(extra net.Conn) {
-	defer func() { _ = extra.Close() }()
+	rec := t.mintSocket(extra, hsms.SocketAccepted)
+	rec.refused = true // before the record is published to haltRefusal, the only other side that can close it
+
+	var closeErr error
+	defer func() { rec.close(closeErr) }()
 
 	if err := extra.SetDeadline(t.clock()().Add(t.rt.Timers().T7)); err != nil {
 		// Without an armed absolute deadline the promised bound does not exist: close without
 		// reading rather than risk an unbounded read on this socket.
+		closeErr = err
+
 		return
 	}
 
 	// Test-only seam (nil in production, style of the injectable clock/clock()): invoked
 	// between Accept returning (acceptLoop's ln.Accept() above) and publishing extra into
-	// refuseConn below.
+	// refuseSock below.
 	// It exists ONLY so a test can deterministically drive the Stop-races-prepublication race —
 	// Stop closing the listener and setting refuseStopped while THIS extra socket has been
 	// accepted but not yet published.
@@ -295,7 +314,7 @@ func (t *transport) refuseExtraConn(extra net.Conn) {
 		t.refusePrePublishHook()
 	}
 
-	// Two-sided handoff (not a bare field): publish extra into the slot ONLY after checking
+	// Two-sided handoff (not a bare field): publish extra's record into the slot ONLY after checking
 	// refuseStopped under the SAME mutex Stop's haltRefusal uses.
 	// If Stop already ran, it saw no in-flight socket here and is (or is about to be) parked in
 	// its g.accept.Wait(); closing via the defer above and returning without reading is what
@@ -307,46 +326,58 @@ func (t *transport) refuseExtraConn(extra net.Conn) {
 	}
 	t.refuseToken++
 	token := t.refuseToken
-	t.refuseConn = extra
+	t.refuseSock = rec
 	t.refuseMu.Unlock()
 
-	// Clear the slot by TOKEN, not by "t.refuseConn == extra":
+	// Clear the slot by TOKEN, never by comparing conns:
 	// extra's dynamic type comes from WithListener's caller-supplied ListenFunc,
 	// which may be non-comparable (e.g. a struct embedding net.Conn plus a slice field),
 	// and interface equality panics on a non-comparable dynamic type.
 	// See refuseToken's doc comment for why the token still matches under the documented serial-refusal / Stop-joins-acceptLoop-before-ArmStart invariant.
+	// Registered after the close defer, so it runs first: the slot is cleared before the socket closes.
 	defer func() {
 		t.refuseMu.Lock()
 		if t.refuseToken == token {
-			t.refuseConn = nil
+			t.refuseSock = nil
 		}
 		t.refuseMu.Unlock()
 	}()
 
-	// Never allocate from the untrusted length (the validate-before-allocating discipline of
-	// .agents/rules/600-perf-sec.md and readFrame's own J2 guard): read the 4-byte length
-	// prefix into a fixed buffer first.
-	// A bare Select.req is EXACTLY a 10-byte header with no body (E37 §9.3.3.1 — control frames
-	// are header-only); any other length is a malformed or non-Select first message and is
-	// closed unanswered.
-	var lenBuf [4]byte
-	if _, err := io.ReadFull(extra, lenBuf[:]); err != nil {
-		return
+	closeErr = t.refusalExchange(rec, extra)
+}
+
+// refusalExchange runs the one-shot refusal exchange on extra, whose absolute deadline refuseExtraConn has armed,
+// and returns the failure that cut it short, or nil when it completed.
+//
+// Never allocate from the untrusted length
+// (the validate-before-allocating discipline of .agents/rules/600-perf-sec.md and readFrame's own J2 guard):
+// the frame is read into a fixed 14-byte buffer.
+// A bare Select.req is EXACTLY a 10-byte header with no body (E37 §9.3.3.1 — control frames are header-only);
+// any other length is a malformed or non-Select first message and is closed unanswered.
+func (t *transport) refusalExchange(rec *socketRecord, extra net.Conn) error {
+	var frame [14]byte // [4-byte length prefix || 10-byte header]
+	if _, err := io.ReadFull(extra, frame[:4]); err != nil {
+		return err
 	}
 
-	if binary.BigEndian.Uint32(lenBuf[:]) != 10 {
-		return
+	if n := binary.BigEndian.Uint32(frame[:4]); n != 10 {
+		return fmt.Errorf("%w: length %d", errRefusalBadLength, n)
 	}
 
-	var hdr [10]byte
-	if _, err := io.ReadFull(extra, hdr[:]); err != nil {
-		return
+	if _, err := io.ReadFull(extra, frame[4:]); err != nil {
+		return err
 	}
 
-	msg, err := decodeControlFrame(hdr[:]) // hdr is a [10]byte; decodeControlFrame takes []byte and returns hsms.Message
-	cm, ok := msg.(*hsms.ControlMessage)   // the responder pattern of handleSelectReq (transport_control.go)
-	if err != nil || !ok || cm.Type() != hsms.SelectReqType {
-		return // close without a response
+	t.observeRefusalFrame(rec, hsms.WireInbound, frame[:])
+
+	msg, err := decodeControlFrame(frame[4:]) // decodeControlFrame takes []byte and returns hsms.Message
+	if err != nil {
+		return err // close without a response
+	}
+
+	cm, ok := msg.(*hsms.ControlMessage) // the responder pattern of handleSelectReq (transport_control.go)
+	if !ok || cm.Type() != hsms.SelectReqType {
+		return errRefusalNotSelectReq // close without a response
 	}
 
 	// Status 1 (SelectStatusAlreadyActive / "Communication Already Active"), deliberately NOT
@@ -358,10 +389,22 @@ func (t *transport) refuseExtraConn(extra net.Conn) {
 	// as the standard actually specifies it — do not "improve" this to 3.
 	rsp, err := hsms.NewSelectRsp(cm, hsms.SelectStatusAlreadyActive)
 	if err != nil {
-		return
+		return err
 	}
 
-	_, _ = extra.Write(rsp.ToBytes()) // one bounded 14-byte write; the deadline is already set
+	out := rsp.ToBytes()
+	n, err := extra.Write(out) // one bounded 14-byte write; the deadline is already set
+	if err != nil {
+		return err
+	}
+
+	if n != len(out) {
+		return io.ErrShortWrite
+	}
+
+	t.observeRefusalFrame(rec, hsms.WireOutbound, out)
+
+	return nil
 }
 
 // haltRefusal is the Stop side of the two-sided refusal handoff (E37 §9.2.4.1.1 option 1,
@@ -370,16 +413,18 @@ func (t *transport) refuseExtraConn(extra net.Conn) {
 // of parking for the full T7 deadline, and it closes whatever socket IS already published.
 // Whichever side "wins" the race, the extra socket gets closed and Stop never waits out the
 // refusal deadline.
-// Called by Stop before g.accept.Wait (transport.go); a no-op (refuseConn nil) when no extra
+// The published socket is closed through its record's gate with no failure, because Stop's close is a local one;
+// the helper's own deferred close then finds the gate closed and reports nothing more.
+// Called by Stop before g.accept.Wait (transport.go); a no-op (refuseSock nil) when no extra
 // dialer is in flight.
 func (t *transport) haltRefusal() {
 	t.refuseMu.Lock()
 	t.refuseStopped = true
-	conn := t.refuseConn
-	t.refuseConn = nil
+	rec := t.refuseSock
+	t.refuseSock = nil
 	t.refuseMu.Unlock()
 
-	if conn != nil {
-		_ = conn.Close()
+	if rec != nil {
+		rec.close(nil)
 	}
 }

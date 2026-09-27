@@ -97,9 +97,22 @@ type epoch struct {
 
 	log logger.Logger // generation logger; used by teardown for close-timeout reporting
 
-	connMu sync.RWMutex // guards conn
+	connMu sync.RWMutex // guards conn and closeFailure
 	conn   net.Conn     // raw *net.TCPConn (no bufio wrapper — defeats writev, §6.2)
 	// nil ONLY after closeSocket(), which runs inside teardown's closeOnce.
+
+	// socket is the identity the transport minted for conn, stored with it by adoptConn and 0 when the transport named none.
+	// Unlike conn it is never cleared, so a report built after teardown still names the socket this generation used.
+	socket atomic.Uint64
+
+	// closeFailure is the first failure recorded as the initiator of this generation's socket close, guarded by connMu.
+	// closeSocket hands it to the transport's close (closeConn);
+	// nil means no failure initiated the close, as for a local Close.
+	closeFailure error
+
+	// closeConn is the transport's socket close capability, bound at epoch creation (see connection.bindSocketCloser),
+	// or nil, in which case closeSocket closes the conn directly.
+	closeConn func(net.Conn, error)
 
 	wg        sync.WaitGroup // joins every per-generation TASK goroutine (the epoch join)
 	liveTasks atomic.Int64   // count of live task goroutines; reported on a close-timeout
@@ -181,25 +194,66 @@ func (e *epoch) markEnded() {
 
 // setConn publishes the socket for this generation under connMu.Lock.
 func (e *epoch) setConn(c net.Conn) {
+	e.adoptConn(c, 0)
+}
+
+// adoptConn publishes the socket for this generation together with the identity the transport minted for it,
+// under connMu.Lock.
+// A socket of 0 means the transport named none.
+func (e *epoch) adoptConn(c net.Conn, socket uint64) {
 	e.connMu.Lock()
 	defer e.connMu.Unlock()
 	e.conn = c
+	e.socket.Store(socket)
 }
 
-// closeSocket idempotently closes the generation socket under connMu.Lock (NOT the
-// RLock path liveConn uses — the close must be exclusive). It guards against a nil
-// conn (never set) and against a double close (conn is niled after the first close),
-// so repeated calls are safe no-ops. teardown calls it exactly once (inside closeOnce)
-// and UNCONDITIONALLY before the join: closing the socket unblocks any task parked
-// in conn.Read (which does not watch ctx), so the bounded join can complete.
-func (e *epoch) closeSocket() {
+// socketID returns the identity of the socket this generation adopted, or 0 when it adopted none or the transport named none.
+// It keeps its value after closeSocket clears the conn.
+func (e *epoch) socketID() uint64 {
+	return e.socket.Load()
+}
+
+// recordCloseFailure records err as the failure that initiated this generation's socket close, unless one is already recorded.
+// The caller records it before it initiates the teardown,
+// so the close teardown performs passes it to the transport rather than nil.
+func (e *epoch) recordCloseFailure(err error) {
 	e.connMu.Lock()
 	defer e.connMu.Unlock()
 
-	if e.conn != nil {
-		_ = e.conn.Close()
-		e.conn = nil
+	if e.closeFailure == nil {
+		e.closeFailure = err
 	}
+}
+
+// closeSocket idempotently closes the generation socket.
+// It detaches the conn under connMu.Lock (NOT the RLock path liveConn uses — the detach must be exclusive),
+// so a nil conn (never set) and a second call (conn already detached) are safe no-ops.
+// teardown calls it exactly once (inside closeOnce) and UNCONDITIONALLY before the join:
+// closing the socket unblocks any task parked in conn.Read (which does not watch ctx), so the bounded join can complete.
+//
+// The close itself goes through the transport's closeConn when one is bound, with the recorded failure,
+// and runs after connMu is released:
+// the transport takes its own locks there,
+// and a transport goroutine can already hold one of them while it publishes a socket onto this epoch under connMu.
+// Without closeConn the conn is closed directly.
+func (e *epoch) closeSocket() {
+	e.connMu.Lock()
+	conn := e.conn
+	e.conn = nil
+	failure := e.closeFailure
+	e.connMu.Unlock()
+
+	if conn == nil {
+		return
+	}
+
+	if e.closeConn != nil {
+		e.closeConn(conn, failure)
+
+		return
+	}
+
+	_ = conn.Close()
 }
 
 // spawn is the ONE sanctioned launch path for a per-generation task goroutine.

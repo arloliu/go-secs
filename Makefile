@@ -205,7 +205,9 @@ stress-quick: clean ## Narrow stress run: only the known flake-prone tests
 	@printf "=== Quick stress: flake-prone tests, count=$(STRESS_COUNT) ===\n"
 	@GOMAXPROCS=1 CGO_ENABLED=1 go test ./hsmsss/... -run "TestLinktest_ThresholdDisconnect|TestLinktest_AutoFiresWhileSelected|TestHSMS_LinktestFailThreshold_ResetsOnSuccess|TestHSMS_StrandedSend_PostCloseGateAndReopenHealthCheck|TestChaos_DroppedLinktestRsp|TestChaos_RapidLinktestToggle" \
 		-count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p 1 $(VERBOSE_TAG)
-	@CGO_ENABLED=1 go test ./hsmsss/... -run "TestConcurrentClose|TestHSMS_CloseRace_BoundedCleanShutdown|TestHSMS_SelectCloseRace_NoPanicNoZombie|TestActiveReconnectCadence_ExponentialBackoff" \
+	@CGO_ENABLED=1 go test ./hsmsss/... -run "TestConcurrentClose|TestHSMS_CloseRace_BoundedCleanShutdown|TestHSMS_SelectCloseRace_NoPanicNoZombie|TestActiveReconnectCadence_ExponentialBackoff|TestSocketRace_" \
+		-count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p 1 $(VERBOSE_TAG)
+	@CGO_ENABLED=1 go test ./hsms/... -run "TestSocketRace_" \
 		-count=$(STRESS_COUNT) -race -timeout=$(STRESS_TIMEOUT) -p 1 $(VERBOSE_TAG)
 	@printf "=== Quick stress passed ===\n"
 

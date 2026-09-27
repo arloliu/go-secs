@@ -189,7 +189,7 @@ func newPassiveConn(t *testing.T, port int, opts ...hsms.ConnOption) hsms.Connec
 
 // newPassiveConnTr is newPassiveConn but also returns the underlying *transport, so a test can
 // reach transport-only state hsms.Connection does not expose: the passive-refusal handoff
-// fields (refuseMu/refuseStopped/refuseConn) and the test-only refusePrePublishHook seam used to
+// fields (refuseMu/refuseStopped/refuseSock) and the test-only refusePrePublishHook seam used to
 // drive the Stop-races-prepublication race deterministically.
 func newPassiveConnTr(t *testing.T, port int, opts ...hsms.ConnOption) (hsms.Connection, *transport) {
 	t.Helper()
@@ -656,7 +656,7 @@ func TestPassive_RefuseExtraConn_StopDuringInFlightRefusalReturnsPromptly(t *tes
 		tr.refuseMu.Lock()
 		defer tr.refuseMu.Unlock()
 
-		return tr.refuseConn != nil
+		return tr.refuseSock != nil
 	}, 15*time.Second, 2*time.Millisecond, "the extra socket must be published to the refusal slot")
 
 	done := make(chan error, 1)
@@ -728,7 +728,7 @@ func TestPassive_RefuseExtraConn_StopRacesPrePublicationWindow(t *testing.T) {
 	go func() { done <- conn.Close() }()
 
 	// Wait for Stop to reach haltRefusal WHILE the helper is still parked in the hook — at this
-	// instant refuseConn is nil (nothing published yet), so this is exactly the race the
+	// instant refuseSock is nil (nothing published yet), so this is exactly the race the
 	// two-sided handoff (not a bare field) exists to close.
 	require.Eventually(t, func() bool {
 		tr.refuseMu.Lock()
@@ -844,6 +844,10 @@ type deadlineErrConn struct {
 }
 
 func (c *deadlineErrConn) SetDeadline(time.Time) error { return errors.New("deadlineErrConn: boom") }
+
+// LocalAddr and RemoteAddr answer for the nil embedded conn: the socket record captures both when the socket is accepted.
+func (c *deadlineErrConn) LocalAddr() net.Addr  { return nil }
+func (c *deadlineErrConn) RemoteAddr() net.Addr { return nil }
 
 func (c *deadlineErrConn) Read(b []byte) (int, error) {
 	c.readCalled.Store(true)

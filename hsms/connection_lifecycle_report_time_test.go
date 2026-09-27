@@ -23,7 +23,7 @@ func newUnstartedReportTimeConn(t *testing.T) (c *connection, reactions *int) {
 	require.True(t, ok, "NewConnection must return the concrete *connection")
 
 	reactions = new(int)
-	s := newSupervisorWithEventsCap(func(ConnState, ConnState) { *reactions++ }, &c.handlers, &c.lifecycleSubs, 8)
+	s := newSupervisorWithEventsCap(func(ConnState, ConnState, TransitionCause) { *reactions++ }, &c.handlers, &c.lifecycleSubs, 8)
 	s.curGen = c.CurrentGeneration
 	c.sup.Store(s)
 

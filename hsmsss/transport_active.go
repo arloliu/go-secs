@@ -78,7 +78,7 @@ func (t *transport) runSelectProcedure(ctx context.Context, g *genWG) {
 		// Drive the FSM to NotConnected so the reconnect loop re-dials and re-selects (§6.3).
 		// T7 (Task 24) is the belt-and-suspenders NotSelected dwell timer; here the failure is explicit.
 		// selectFailureCause splits the outcomes rather than reporting one cause for all of them.
-		t.tcpDown(g.gen, fmt.Errorf("hsmsss: active Select procedure failed: %w", err), selectFailureCause(err))
+		t.tcpDown(g, fmt.Errorf("hsmsss: active Select procedure failed: %w", err), selectFailureCause(err))
 
 		return
 	}
@@ -91,7 +91,7 @@ func (t *transport) runSelectProcedure(ctx context.Context, g *genWG) {
 	// CauseSelectRejected covers "the peer answered but did not grant the select", which is what a subscriber needs;
 	// the error value distinguishes the two shapes for a reader of the log.
 	if rsp == nil || rsp.Type() != hsms.SelectRspType {
-		t.tcpDown(g.gen, errSelectBadResponse, hsms.CauseSelectRejected)
+		t.tcpDown(g, errSelectBadResponse, hsms.CauseSelectRejected)
 
 		return
 	}
@@ -112,7 +112,7 @@ func (t *transport) runSelectProcedure(ctx context.Context, g *genWG) {
 		return
 	}
 
-	t.tcpDown(g.gen, errSelectRejected, hsms.CauseSelectRejected)
+	t.tcpDown(g, errSelectRejected, hsms.CauseSelectRejected)
 }
 
 // selectFailureCause classifies an active Select transaction that ended in an error,
@@ -192,6 +192,9 @@ func (t *transport) startActive(ctx context.Context) error {
 
 	t.applyKeepAlive(conn)
 
+	// Record the socket before anything decides its fate, so a sealed or refused dial is still reported, and closed through its gate.
+	rec := t.mintSocket(conn, hsms.SocketConnected)
+
 	// Derive the Select procedure's ctx from the generation ctx so a teardown (which cancels the
 	// generation ctx) also cancels a pending Select wait. procCancel is Stop's explicit lever for
 	// the same, needed when Start's ctx is never cancelled by its parent (unit tests).
@@ -208,7 +211,7 @@ func (t *transport) startActive(ctx context.Context) error {
 	if t.stopping {
 		t.startGate.RUnlock()
 		procCancel()
-		_ = conn.Close()
+		rec.close(nil)
 
 		return errStartSealed
 	}
@@ -226,6 +229,8 @@ func (t *transport) startActive(ctx context.Context) error {
 	// Stamp this generation's OWN ctx right alongside gen; see genWG.ctx for why
 	// recvLoop and the timer helpers derive from it instead of a transport-wide field.
 	g.ctx = ctx
+	// And the socket's record, before the core or any goroutine of this generation can reach it.
+	g.sock = rec
 
 	// Report TCP-up BEFORE touching any transport-level bookkeeping
 	// (t.conn, the activity stamps, t.procCancel).
@@ -238,20 +243,21 @@ func (t *transport) startActive(ctx context.Context) error {
 	// and keeps its dead work out of the join set Stop waits on: no recv loop, no Select procedure.
 	// This reordering is safe on the ACCEPTED path too:
 	// nothing between here and the connMu block below ever reads t.conn
-	// (a write only reads e.liveConn(), already set by tcpUp's own publishSocket call),
+	// (a write only reads e.liveConn(), already set by the core's publishSocket during adoptSocket),
 	// and no concurrent Stop can race this store either way —
 	// the held startGate.RLock fences one out for as long as this whole function runs.
-	if !t.tcpUp(g.gen, conn) {
+	if !t.adoptSocket(g, rec) {
 		t.startGate.RUnlock()
 
 		procCancel() // release procCtx; nothing will ever run on it
-		_ = conn.Close()
+		rec.close(nil)
 
 		return errStartSealed
 	}
 
 	t.connMu.Lock()
 	t.conn = conn
+	t.connSock = rec
 	t.procCancel = procCancel
 	t.resetActivityStamps()
 	t.connMu.Unlock()

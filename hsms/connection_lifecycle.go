@@ -207,6 +207,7 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	// stopTransport lets teardown join the transport recv loop.
 	e := newEpoch(context.Background(), cfg.logger, cfg.senderQueueSize)
 	e.stopTransport = c.tr.Stop
+	e.closeConn = c.bindSocketCloser()
 	// The gate teardown latches e.ended under,
 	// so a generation-guarded synchronous commit cannot straddle the end of its own generation.
 	e.genGate = &c.genGate
@@ -623,7 +624,11 @@ func firstErr(errs ...error) error {
 // It acts only on transitions INTO NotConnected (fired by both a voluntary Close's
 // evClose Selected->NotConnected and an involuntary evDisconnect). Ordering: (1) bounded
 // best-effort farewell Separate, (2) if !shutdown start the reconnect loop, (3) e.teardown.
-func (c *connection) react(prev, next ConnState) {
+//
+// cause is the cause of the transition that fired.
+// A T7 dwell expiry records ErrT7Timeout as the failure that closes the socket, here and not when the expiry was reported:
+// a Select commit can win the race against the report, and then no transition fires and nothing is closed.
+func (c *connection) react(prev, next ConnState, cause TransitionCause) {
 	if next != NotConnectedState {
 		return // reactions only matter for transitions INTO NotConnected
 	}
@@ -659,6 +664,11 @@ func (c *connection) react(prev, next ConnState) {
 	// so it never dials — or claims the reconnect gauge — while e's own Start call (on whatever goroutine drove it) may still be in flight.
 	if !c.shutdown.Load() {
 		c.startConnectLoop(e, true) // any involuntary drop always counts as a reconnect, whether or not this generation ever reached Selected
+	}
+
+	// Recorded before the teardown below, which hands it to the socket close.
+	if cause == CauseT7Timeout {
+		e.recordCloseFailure(ErrT7Timeout)
 	}
 
 	// (3) Non-blocking teardown initiator (idempotent closeOnce — the supervisor's evClose
@@ -726,7 +736,7 @@ func (c *connection) writeFarewellSeparate(e *epoch) {
 	_ = c.tr.SetWriteDeadline(conn, time.Time{}) // clear the deadline for any later (teardown) use
 
 	if !writtenAt.IsZero() {
-		wireObs(WireEvent{Direction: WireOutbound, Generation: e.id, At: writtenAt, Frame: wireFrame})
+		wireObs(WireEvent{Direction: WireOutbound, Socket: e.socketID(), Generation: e.id, At: writtenAt, Frame: wireFrame})
 	}
 }
 
@@ -930,6 +940,7 @@ func (c *connection) connectLoop(prev *epoch, gen uint64, cancel *chan struct{},
 		// teardown join this generation's transport recv loop.
 		e := newEpoch(context.Background(), cfg.logger, cfg.senderQueueSize)
 		e.stopTransport = c.tr.Stop
+		e.closeConn = c.bindSocketCloser()
 		e.genGate = &c.genGate // see the note at the Open site
 		// The second and last cur publisher; see the identity note at the Open site.
 		// This loop is reached only from the entering-NotConnected reaction (or Open's cold-connect retry),
@@ -1087,6 +1098,11 @@ type dialCapability = gencap.DialBounder
 
 var _ dialCapability = (*connection)(nil)
 
+// adoptCapability is the socket-adoption back-channel this core offers; see gencap.SocketAdopter.
+type adoptCapability = gencap.SocketAdopter
+
+var _ adoptCapability = (*connection)(nil)
+
 // BoundDial merges dialCtx with the caller ctx and abort channel of the Open whose ORIGINAL Start
 // ctx is startCtx.
 //
@@ -1154,7 +1170,7 @@ func (c *connection) BoundDial(startCtx, dialCtx context.Context) (context.Conte
 // [connection.TCPUpFromGeneration] is the generation-aware counterpart an in-module transport uses instead,
 // and it DOES report whether conn was accepted at the publish step.
 func (c *connection) TCPUp(conn net.Conn) {
-	c.commitTCPUp(0, conn)
+	c.commitTCPUp(0, conn, 0)
 }
 
 // TCPUpFromGeneration is TCPUp reported ON BEHALF OF gen, the generation whose socket came up.
@@ -1176,11 +1192,13 @@ func (c *connection) TCPUp(conn net.Conn) {
 //
 // A gen of 0 skips the match and behaves exactly like TCPUp — always accepted, so the return is always true.
 func (c *connection) TCPUpFromGeneration(gen uint64, conn net.Conn) bool {
-	return c.commitTCPUp(gen, conn)
+	return c.commitTCPUp(gen, conn, 0)
 }
 
 // commitTCPUp is the shared body of the TCP-up back-channel:
 // publish the socket on the generation that owns it, then commit NotConnected -> NotSelected for that generation.
+// socket is the identity the transport minted for conn, or 0 when it named none;
+// it is published together with conn.
 //
 // The socket is published BEFORE the supervisor call so it is visible before State() flips to NotSelected.
 //
@@ -1205,8 +1223,8 @@ func (c *connection) TCPUpFromGeneration(gen uint64, conn net.Conn) bool {
 // (once ended latches true it never reverts,
 // so a generation publishSocket already refused can never pass tcpUpCommitGate either),
 // so this costs nothing beyond the accounting.
-func (c *connection) commitTCPUp(gen uint64, conn net.Conn) bool {
-	accepted := c.publishSocket(gen, conn)
+func (c *connection) commitTCPUp(gen uint64, conn net.Conn, socket uint64) bool {
+	accepted := c.publishSocket(gen, conn, socket)
 
 	if s := c.sup.Load(); s != nil {
 		// CauseLocalOpen: reaching NotSelected means OUR Open (or the reconnect loop it owns)
@@ -1228,10 +1246,11 @@ func (c *connection) commitTCPUp(gen uint64, conn net.Conn) bool {
 //
 // A gen of 0 publishes unconditionally (true whenever a current epoch exists),
 // exactly as this path did before generations were carried.
-func (c *connection) publishSocket(gen uint64, conn net.Conn) bool {
+// socket, the identity the transport minted for conn, is published with it and is refused with it.
+func (c *connection) publishSocket(gen uint64, conn net.Conn, socket uint64) bool {
 	if gen == 0 {
 		if e := c.cur.Load(); e != nil {
-			e.setConn(conn)
+			e.adoptConn(conn, socket)
 
 			return true
 		}
@@ -1243,7 +1262,7 @@ func (c *connection) publishSocket(gen uint64, conn net.Conn) bool {
 	defer c.genGate.RUnlock()
 
 	if e := c.cur.Load(); e != nil && e.id == gen && !e.ended.Load() {
-		e.setConn(conn)
+		e.adoptConn(conn, socket)
 
 		return true
 	}

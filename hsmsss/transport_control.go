@@ -73,13 +73,19 @@ func (t *transport) routeReply(gen uint64, msg hsms.Message) bool {
 	return t.rt.RouteReply(msg)
 }
 
-// observeInbound reports one complete frame read by the receive goroutine of gen to the runtime's wire observer.
+// observeInbound reports one complete frame read by the receive goroutine of g to the runtime's wire observer,
+// naming g's generation and the socket g adopted.
 // frame is the whole owned buffer, length prefix included;
 // the call returns before the frame is dispatched,
 // so a frame the receive path goes on to reject is still reported as read.
-func (t *transport) observeInbound(gen uint64, frame []byte) {
+func (t *transport) observeInbound(g *genWG, frame []byte) {
 	if wr, ok := t.rt.(wireRuntime); ok {
-		wr.ObserveWire(hsms.WireEvent{Direction: hsms.WireInbound, Generation: gen, At: time.Now(), Frame: frame})
+		var socket uint64
+		if g.sock != nil {
+			socket = g.sock.id
+		}
+
+		wr.ObserveWire(hsms.WireEvent{Direction: hsms.WireInbound, Socket: socket, Generation: g.gen, At: time.Now(), Frame: frame})
 	}
 }
 
@@ -98,11 +104,32 @@ func (t *transport) currentGeneration() uint64 {
 // Every TCPDown producer in this package goes through it,
 // so the cause is chosen at the site that knows why the link is going down.
 //
-// gen is the reporting generation (genWG.gen), so a report from a generation that has already ended is discarded.
-// Pass 0 only where no generation bundle is in scope.
-func (t *transport) tcpDown(gen uint64, cause error, transitionCause hsms.TransitionCause) {
+// g is the reporting generation's bundle:
+// its gen names the generation, so a report from a generation that has already ended is discarded,
+// and its sock is the socket that generation adopted.
+//
+// The socket is closed through its gate first, with cause as the failure that initiated the close,
+// so the failure reaches the gate before the teardown this report starts can close the socket with none.
+// A peer Separate is the exception:
+// the peer asked for the close, so the gate is handed nil, while the core is still told errPeerSeparate.
+// When another report already closed the socket, that report owns the socket's end and this one is dropped:
+// closing the socket wakes the recv loop with a read error,
+// and without the drop that read error could reach the core ahead of the report that caused it.
+// A bundle with no socket (a unit test's bare genWG) reports unconditionally.
+func (t *transport) tcpDown(g *genWG, cause error, transitionCause hsms.TransitionCause) {
+	if g.sock != nil {
+		closeErr := cause
+		if transitionCause == hsms.CausePeerSeparate {
+			closeErr = nil
+		}
+
+		if !g.sock.closeForReport(closeErr) {
+			return
+		}
+	}
+
 	if gr, ok := t.rt.(genRuntime); ok {
-		gr.TCPDownFromGeneration(gen, cause, transitionCause)
+		gr.TCPDownFromGeneration(g.gen, cause, transitionCause)
 
 		return
 	}
@@ -333,7 +360,7 @@ func (t *transport) handleSeparateReq(genCtx context.Context, g *genWG) bool {
 		return false
 	}
 
-	t.tcpDown(g.gen, errPeerSeparate, hsms.CausePeerSeparate)
+	t.tcpDown(g, errPeerSeparate, hsms.CausePeerSeparate)
 
 	return false
 }

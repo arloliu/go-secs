@@ -30,7 +30,7 @@ func newHandlerPtr(hs ...StateChangeHandler) *atomic.Pointer[[]StateChangeHandle
 func newTestSupervisor(t *testing.T, hs ...StateChangeHandler) *supervisor {
 	t.Helper()
 
-	return newSupervisorWithEventsCap(func(_, _ ConnState) {}, newHandlerPtr(hs...), nil, 8)
+	return newSupervisorWithEventsCap(func(_, _ ConnState, _ TransitionCause) {}, newHandlerPtr(hs...), nil, 8)
 }
 
 func TestTransition_E37Table(t *testing.T) {
@@ -77,7 +77,7 @@ func TestTransition_E37Table(t *testing.T) {
 // transition; the terminal (newest) must NOT be the one dropped — a later drain reads
 // NotConnected as the surviving latest.
 func TestSupervisor_LatestStateSurvivesDropOldestWhenNotifyFull(t *testing.T) {
-	s := newSupervisorWithEventsCap(func(_, _ ConnState) {}, newHandlerPtr(), nil, 8)
+	s := newSupervisorWithEventsCap(func(_, _ ConnState, _ TransitionCause) {}, newHandlerPtr(), nil, 8)
 	for range cap(s.notify) {
 		s.notify <- stateChange{prev: NotConnectedState, next: NotSelectedState} // fill with stale advisory
 	}
@@ -121,7 +121,7 @@ func TestSupervisor_LatestStateSurvivesDropOldestWhenNotifyFull(t *testing.T) {
 func TestSupervisor_NeverBlocksEventsDrainEvenAcrossSecondTerminal(t *testing.T) {
 	stuck := make(chan struct{})
 	terminals := make(chan struct{}, 8)
-	react := func(_, next ConnState) {
+	react := func(_, next ConnState, _ TransitionCause) {
 		if next == NotConnectedState {
 			terminals <- struct{}{}
 		}
@@ -165,7 +165,7 @@ func TestSupervisor_NeverBlocksEventsDrainEvenAcrossSecondTerminal(t *testing.T)
 // run() (nothing drains), fill events to capacity, then prove the next inject blocks; then
 // drain via run() and prove the blocked inject completes (nothing lost).
 func TestSupervisor_InjectIsGuaranteedNotDropping(t *testing.T) {
-	s := newSupervisorWithEventsCap(func(_, _ ConnState) {}, newHandlerPtr(), nil, 2)
+	s := newSupervisorWithEventsCap(func(_, _ ConnState, _ TransitionCause) {}, newHandlerPtr(), nil, 2)
 	// run() NOT started yet -> no drain.
 	s.inject(evTCPUp, CauseUnknown)
 	s.inject(evTCPUp, CauseUnknown) // events buffer now full (cap 2)
@@ -194,7 +194,7 @@ func TestSupervisor_InjectIsGuaranteedNotDropping(t *testing.T) {
 }
 
 func TestSupervisor_CommitConnectedIsSynchronousAndIdempotent(t *testing.T) {
-	s := newSupervisor(func(_, _ ConnState) {}, newHandlerPtr(), nil)
+	s := newSupervisor(func(_, _ ConnState, _ TransitionCause) {}, newHandlerPtr(), nil)
 	go s.run()
 	defer s.stop()
 
@@ -225,7 +225,7 @@ func TestSupervisor_CommitConnectedFiresReactionExactlyOnce(t *testing.T) {
 		return n
 	}
 
-	s := newSupervisor(func(prev, next ConnState) {
+	s := newSupervisor(func(prev, next ConnState, _ TransitionCause) {
 		mu.Lock()
 		reactions = append(reactions, [2]ConnState{prev, next})
 		mu.Unlock()
@@ -269,7 +269,7 @@ func TestSupervisor_CommitConnectedFiresReactionExactlyOnce(t *testing.T) {
 }
 
 func TestSupervisor_CommitSelectedIsSynchronousAndIdempotent(t *testing.T) {
-	s := newSupervisor(func(_, _ ConnState) {}, newHandlerPtr(), nil)
+	s := newSupervisor(func(_, _ ConnState, _ TransitionCause) {}, newHandlerPtr(), nil)
 	go s.run()
 	defer s.stop()
 
@@ -354,7 +354,7 @@ func TestSupervisor_StaleSelectLostAbandonedAfterReCommit(t *testing.T) {
 func TestSupervisor_PreCommittedSelectFiresReactionExactlyOnce(t *testing.T) {
 	var mu sync.Mutex
 	var reactions [][2]ConnState
-	s := newSupervisor(func(prev, next ConnState) {
+	s := newSupervisor(func(prev, next ConnState, _ TransitionCause) {
 		mu.Lock()
 		reactions = append(reactions, [2]ConnState{prev, next})
 		mu.Unlock()
@@ -467,7 +467,7 @@ func TestSupervisor_RequestClosePinsAndTearsDownEpoch(t *testing.T) {
 func TestSupervisor_T7TimeoutFromNotSelectedDisconnects(t *testing.T) {
 	var mu sync.Mutex
 	var reactions [][2]ConnState
-	s := newSupervisor(func(prev, next ConnState) {
+	s := newSupervisor(func(prev, next ConnState, _ TransitionCause) {
 		mu.Lock()
 		reactions = append(reactions, [2]ConnState{prev, next})
 		mu.Unlock()
@@ -511,7 +511,7 @@ func TestSupervisor_T7TimeoutFromNotSelectedDisconnects(t *testing.T) {
 // the invariant.
 func TestSupervisor_T7TimeoutFromSelectedIsNoOp(t *testing.T) {
 	var reactionCount atomic.Int64
-	s := newSupervisor(func(_, next ConnState) {
+	s := newSupervisor(func(_, next ConnState, _ TransitionCause) {
 		if next == NotConnectedState {
 			reactionCount.Add(1)
 		}
@@ -544,7 +544,7 @@ func TestSupervisor_T7TimeoutFromSelectedIsNoOp(t *testing.T) {
 // committed Selected and the state becomes NotConnected — confirming the CAS guard is what holds the
 // "never torn down by a stale T7" invariant.
 func TestSupervisor_T7TimeoutLosesTieToCommitSelected(t *testing.T) {
-	s := newSupervisor(func(_, _ ConnState) {}, newHandlerPtr(), nil)
+	s := newSupervisor(func(_, _ ConnState, _ TransitionCause) {}, newHandlerPtr(), nil)
 	s.state.Store(uint32(NotSelectedState))
 	s.lastReacted = NotSelectedState
 
@@ -572,7 +572,7 @@ func TestSupervisor_T7TimeoutLosesTieToCommitSelected(t *testing.T) {
 // further drops mean no further logs. Teeth: dropping the reportDrops call (or the log) fails the
 // AssertNumberOfCalls; a level-triggered (re-log-every-call) impl fails the "no new drops" check.
 func TestSupervisor_ReportDropsSurfacesWarnEdgeTriggered(t *testing.T) {
-	s := newSupervisorWithEventsCap(func(_, _ ConnState) {}, newHandlerPtr(), nil, 8)
+	s := newSupervisorWithEventsCap(func(_, _ ConnState, _ TransitionCause) {}, newHandlerPtr(), nil, 8)
 
 	mockLog := loggertest.NewMockLogger()
 	mockLog.On("Warn", mock.Anything, mock.Anything).Return()
@@ -605,7 +605,7 @@ func TestSupervisor_ReportDropsSurfacesWarnEdgeTriggered(t *testing.T) {
 // and falls back to supervisorFallbackCloseTimeout when no provider is installed. Teeth: caching
 // the value instead of calling the provider makes the "live update reflected" assertion fail.
 func TestSupervisor_ResolveCloseTimeoutIsLive(t *testing.T) {
-	s := newSupervisor(func(_, _ ConnState) {}, newHandlerPtr(), nil)
+	s := newSupervisor(func(_, _ ConnState, _ TransitionCause) {}, newHandlerPtr(), nil)
 
 	require.Equal(t, supervisorFallbackCloseTimeout, s.resolveCloseTimeout(), "nil provider → fallback")
 
@@ -646,7 +646,7 @@ func TestSupervisor_GenerationMatchAtProcessingTime(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var reacted atomic.Bool
-			s := newSupervisorWithEventsCap(func(_, next ConnState) {
+			s := newSupervisorWithEventsCap(func(_, next ConnState, _ TransitionCause) {
 				if next == NotConnectedState {
 					reacted.Store(true)
 				}
@@ -710,7 +710,7 @@ func TestSupervisor_CommitFromGenerationHonorsTheGate(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			s := newSupervisorWithEventsCap(func(_, _ ConnState) {}, newHandlerPtr(), nil, supervisorEventsCap)
+			s := newSupervisorWithEventsCap(func(_, _ ConnState, _ TransitionCause) {}, newHandlerPtr(), nil, supervisorEventsCap)
 			if tc.installGate {
 				// The production gate resolves the live generation under connection.genGate; here the
 				// answer is fixed, which is all commitFrom's contract depends on.
@@ -757,7 +757,7 @@ func TestSupervisor_CommitFromGenerationHonorsTheGate(t *testing.T) {
 // A committed gen 0 is stamped with the gate's own resolved id, mirroring TestSupervisor_TCPUpCommitGateRouting's "gen 0 live is admitted" row for tcpUpCommitGate.
 func TestSupervisor_UnnamedSelectLostReachesCommitGate(t *testing.T) {
 	newRawSupervisor := func() *supervisor {
-		s := newSupervisorWithEventsCap(func(_, _ ConnState) {}, newHandlerPtr(), nil, supervisorEventsCap)
+		s := newSupervisorWithEventsCap(func(_, _ ConnState, _ TransitionCause) {}, newHandlerPtr(), nil, supervisorEventsCap)
 		s.state.Store(uint32(SelectedState))
 
 		return s
@@ -846,7 +846,7 @@ func TestSupervisor_UnnamedSelectLostReachesCommitGate(t *testing.T) {
 // A committed gen 0 is stamped with the gate's own resolved id, not left at 0.
 func TestSupervisor_TCPUpCommitGateRouting(t *testing.T) {
 	newRawSupervisor := func() *supervisor {
-		return newSupervisorWithEventsCap(func(_, _ ConnState) {}, newHandlerPtr(), nil, supervisorEventsCap)
+		return newSupervisorWithEventsCap(func(_, _ ConnState, _ TransitionCause) {}, newHandlerPtr(), nil, supervisorEventsCap)
 	}
 
 	t.Run("nil gate bypasses to a bare CAS on a standalone supervisor", func(t *testing.T) {
@@ -918,10 +918,10 @@ func TestSupervisor_TCPUpCommitGateRouting(t *testing.T) {
 
 // recordingReact returns a react func plus the slice it appends (prev, next) pairs into.
 // It is meant for the synchronous, single-goroutine tests below: step is called directly (run is never started), so no locking is needed around the slice.
-func recordingReact() (func(prev, next ConnState), *[][2]ConnState) {
+func recordingReact() (func(prev, next ConnState, cause TransitionCause), *[][2]ConnState) {
 	var reactions [][2]ConnState
 
-	return func(prev, next ConnState) {
+	return func(prev, next ConnState, _ TransitionCause) {
 		reactions = append(reactions, [2]ConnState{prev, next})
 	}, &reactions
 }

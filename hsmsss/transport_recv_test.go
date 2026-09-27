@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"io"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -491,9 +492,11 @@ func header10(pType, sType byte) []byte {
 	return h
 }
 
-// expectNoPeerBytes asserts that conn delivers no bytes within timeout (used to prove the
-// reader sent NO farewell Separate after a peer Separate).
-func expectNoPeerBytes(t *testing.T, conn net.Conn, timeout time.Duration) {
+// expectClosedWithoutBytes asserts that conn delivers no bytes before the reader's side closes,
+// which proves the reader sent NO farewell Separate after a peer Separate.
+// The reader closes its socket as it reports the peer's Separate, before the report reaches the runtime,
+// so the read ends in a clean EOF rather than waiting out timeout.
+func expectClosedWithoutBytes(t *testing.T, conn net.Conn, timeout time.Duration) {
 	t.Helper()
 
 	require.NoError(t, conn.SetReadDeadline(time.Now().Add(timeout)))
@@ -501,11 +504,7 @@ func expectNoPeerBytes(t *testing.T, conn net.Conn, timeout time.Duration) {
 	var buf [1]byte
 	n, err := conn.Read(buf[:])
 	require.Zero(t, n, "expected no bytes from peer, got %d", n)
-	require.Error(t, err, "expected a read timeout (no farewell), got nil error")
-
-	var netErr net.Error
-	require.True(t, errors.As(err, &netErr) && netErr.Timeout(),
-		"expected a timeout error, got %v", err)
+	require.ErrorIs(t, err, io.EOF, "expected the reader to close without writing (no farewell)")
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────
@@ -959,7 +958,7 @@ func TestReader_PeerSeparate(t *testing.T) {
 		require.Equal(t, 0, rt.deliveredCount(), "a Separate must not be delivered as data")
 
 		// The reader must NOT answer with a farewell Separate (§9.1.1).
-		expectNoPeerBytes(t, peer, 200*time.Millisecond)
+		expectClosedWithoutBytes(t, peer, 5*time.Second)
 	})
 
 	t.Run("while_not_selected_disconnects_no_farewell", func(t *testing.T) {
@@ -981,7 +980,7 @@ func TestReader_PeerSeparate(t *testing.T) {
 		require.Equal(t, 0, rt.deliveredCount(), "a Separate must not be delivered as data")
 
 		// No farewell Separate back, and no Reject either — the peer announced its exit.
-		expectNoPeerBytes(t, peer, 200*time.Millisecond)
+		expectClosedWithoutBytes(t, peer, 5*time.Second)
 		require.Equal(t, 0, rt.sentCount(), "a peer Separate is never answered")
 	})
 }
