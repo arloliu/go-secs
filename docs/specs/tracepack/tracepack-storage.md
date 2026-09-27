@@ -57,9 +57,13 @@ Repairs and corrections are generation-0 **patches** registered against the curr
   Publishing is single-publisher per tool (§5): a new publisher acquires its epoch only after the previous one has stopped,
   so fences need no conditional write; concurrent publishers sharing an epoch are outside the supported configuration.
   A service that spreads publishing over several instances keeps that rule with **tool leases** recorded in the catalog (G5-87):
-  an instance publishes only for tools it holds a lease on, and each acquisition of a tool mints a new publisher epoch,
+  an instance publishes only for tools it holds a lease on.
+  Acquiring a lease atomically allocates a publisher epoch above every retained fence object and every indexed `publisher_epoch`,
+  and the holder writes the fence object durably before it claims any work,
   so a tool's generations rank in publication order even when the tool moves between instances and back.
-  A lease that expires while a claim is open is taken over through the recovery of an interrupted admission (§5).
+  Every admission and publication carries the lease token and epoch, and the catalog rejects one whose lease is no longer current,
+  so an expired holder still inside the commit protocol (§5) cannot commit after its successor took over.
+  On takeover the new holder first recovers every interrupted admission of the tool's scopes (§5) and only then admits new work for them.
 - Commit object: `<prefix>/commit/<tool_id>/<capture_id>/<YYYYMMDDHH>/<id>`, where `<id>` is the generation's `replacement_set_id` or the patch's `pack_id`;
   its content is irrelevant. It is the durable evidence that the catalog accepted the generation or patch (§5).
 - Other packs: `<prefix>/archive/<tool_id>/<YYYY>/<MM>/<DD>/<HH>/<capture_id>-<pack_id>.tpk`, hour in UTC.
@@ -119,27 +123,42 @@ provided each commit object is deleted after the packs it commits.
   The boundary is a **completeness barrier** (§5).
 - **Recorder over a durable bus** (G5-86): a deployment in which producers publish records to a message bus that persists each record before acknowledging the publish
   (the pilot uses NATS JetStream), and the recorder is a set of stateless consumers of that bus.
-  The producer assigns `capture_id` and `recorder_instance_id` per process start and the capture-scoped `seq` ([FMT I-12]),
-  stamps `epoch`, `ts_utc_ns` and `mono_ns` at the observation point, and detects its own clock steps ([SEM §4]), publishing the `clock-step` event as a record;
-  a consumer stores what it receives and never reassigns any of them.
-  The bus replaces the spool: the durability contract's interval F is the consumer's flush interval,
-  (1) holds because a record is durable in the bus before the producer sees the acknowledgement,
-  and (2) does not apply, because no consumer holds unflushed records that a crash could lose.
-  A consumer acknowledges a record to the bus only after the segment holding it is durable in `staging/`;
-  a consumer that stops before that acknowledges nothing, and the bus redelivers its records to another consumer.
-  A record may therefore be written twice, into segments of different consumers; [FMT I-12] deduplicates it, byte-identical.
-  Any consumer may take any record, so the segments of one scope interleave with gaps that other segments fill (allowed by [FMT I-12]),
-  and a redelivered record may arrive after later seqs: a consumer orders a block's records by seq before closing it,
-  so blocks stay strictly increasing ([FMT I-2]).
-  The merge below normalizes the interleaved segments of a scope, decoding the overlapping blocks as it does for any overlap.
-  Spool recovery does not apply.
-  A producer that stops without a `stop` boundary is detected by its successor:
-  the next capture of the same `recorder_instance_id` names it in `previous_capture_id` ([FMT I-7]).
-  Once no record of the earlier capture can still be in the bus (the bus's redelivery window has passed since the successor's `start`),
-  a consumer writes a segment of the earlier capture holding one `stop-unclean` boundary.
-  Its seq is the highest seq the service has stored for that capture + 1;
-  its `gap_start` is the `ts_utc_ns` of that highest record, and its `gap_end` is the successor's `start` boundary timestamp.
-  Records the producer appended but never published are lost; their count is unknown, and the boundary is a completeness barrier (§5).
+  - *Producer duties.* The producer keeps a stable `recorder_instance_id` for its deployment across restarts,
+    assigns a new `capture_id` per process start and names the immediately preceding capture in `previous_capture_id` ([FMT I-7]),
+    assigns the capture-scoped `seq` ([FMT I-12]), and stamps `epoch`, `ts_utc_ns` and `mono_ns` at the observation point.
+    It keeps the clock anchor of [SEM §4] and detects clock steps itself:
+    it publishes the `clock-step` record and waits for the bus's acknowledgement before publishing the first record under the new anchor,
+    so every record the bus holds was appended under an anchor the bus also holds.
+    A consumer stores all of these as received and never reassigns, synthesizes or moves any of them.
+  - *Durability.* The bus's acknowledgement is a record's durability point;
+    the producer decides how long it buffers an unacknowledged record and what it does when the bus is unreachable,
+    and a record it drops is a seq gap that §5 Completeness reports.
+    F = `flush_interval_ns` bounds the consumer's segment flush, not the time from observation to acknowledgement.
+    A consumer holds unflushed records in memory and acknowledges a record to the bus only after the segment holding it is durable in `staging/`;
+    a consumer that stops before that acknowledges nothing, and the bus redelivers its records to another consumer.
+    The liveness anchor and spool recovery do not apply.
+    A catalog rebuild (§5) sees a record only once a segment holds it.
+  - *Scope and order.* A consumer assigns a record to the scope of its `ts_utc_ns` and writes it in a segment whose period lies in that UTC hour,
+    whenever the record is delivered or redelivered; the flush timer decides when a segment closes, never which scope a record belongs to.
+    Any consumer may take any record, so the segments of one scope interleave with gaps that other segments fill (allowed by [FMT I-12]).
+    A redelivered record may arrive below seqs the consumer already wrote:
+    within one open segment blocks are closed in ascending, non-overlapping seq order,
+    and a record whose seq is below the highest seq of a closed block of that segment goes into a second open segment of the same scope,
+    so every segment satisfies the file-level order of [FMT I-12] and [FMT §10] without reopening a block.
+    A record may be written twice, into segments of different consumers; [FMT I-12] deduplicates it, byte-identical.
+    The merge below normalizes the interleaved segments of a scope, decoding the overlapping blocks as it does for any overlap.
+  - *Closing a capture whose producer stopped without a `stop` boundary.* The successor capture of the same `recorder_instance_id` names it in `previous_capture_id`.
+    The service writes exactly one `stop-unclean` boundary for the earlier capture, and only when all of the following hold:
+    the successor's `start` record is durable in `staging/`;
+    the bus holds no record of the earlier capture that is not yet in a durable segment (unconsumed or unacknowledged);
+    and the catalog has atomically recorded the closure for that capture, so that a second consumer cannot write another boundary
+    and any later segment of that capture is rejected at registration.
+    The boundary's seq is one above the highest seq the service has stored for the capture, or 0 when it stored none.
+    Its `gap_start` follows the Recovery rule above with `m_d` = the `mono_ns` of that highest record and the anchor = the latest stored `clock-step`
+    (or the capture origin), which the producer's publish order makes durable before any record under it;
+    `gap_end` is omitted, because the successor's clock may have changed while the producer was down and no liveness anchor bounds the loss.
+    Records the producer appended but never published are lost, their count is unknown, and the boundary is a completeness barrier (§5).
+    Until the boundary exists the capture is `open` (§5).
 - **Merge** of scope S: inputs are the active view of S.
   The merger copies every block of S in ascending `first_seq` order.
   A block whose seq range overlaps no already copied block is copied verbatim: its on-disk bytes are not re-encoded.
@@ -362,6 +381,13 @@ The following vectors belong to the corpus of [FMT §16]:
 - cumulative sub-threshold backward clock steps before a crash, and a clock rollback while the recorder is down ([SEM §4], §4);
 - a durable clock-step, a size-triggered spool roll, then a crash with an empty new spool: boundary seq and gap bounds (§4);
 - a record from the next UTC hour forcing a segment roll (§4);
+- durable-bus recorder (§4): a redelivered record below a closed block landing in a second segment of the scope;
+  a byte-identical redelivery written into two segments with different `pack_id`s;
+  a record delivered in a later hour than its `ts_utc_ns`, placed in its own hour's scope;
+  a late record of an earlier capture arriving before its closure, then the closure with seq one above it and `gap_end` absent;
+  a successor whose `start` record is delayed, leaving the earlier capture `open` until it lands;
+  a rebuild from `staging/` while bus records are still unstaged;
+  a lease expiring during each step of the commit protocol, with the former holder's late commit rejected (§3, §5);
 - a correction or repair followed by a late merge, and a repair holding only `coverage` (§4, §6);
 - a two-member generation with one member repaired, published, predecessors deleted (packs in either order, each commit object after its packs), then rebuild:
   the repaired prefix, the healthy sibling and all inherited coverage remain (§4);

@@ -128,7 +128,7 @@ Done when: all layouts round-trip, every spec offset is asserted by a test, fuzz
 ### Phase 2 — Writer and classifier
 
 - `PackMeta` builder that enforces the "required when" column of the tag registry ([FMT §5]).
-- Block builder: capture-scoped seq assignment (I-12) or acceptance of producer-assigned seqs, with records ordered by seq before a block closes ([STO §4] Recorder over a durable bus); strictly increasing seq, hour alignment (I-13), clock-step detection against the fixed anchor ([SEM §4]),
+- Block builder: capture-scoped seq assignment (I-12) or acceptance of producer-assigned seqs with a second open segment for a record below a closed block ([STO §4] Recorder over a durable bus); strictly increasing seq, hour alignment (I-13), clock-step detection against the fixed anchor ([SEM §4]) or preservation of producer-detected steps,
   size threshold (default 4 MiB), a record larger than the threshold alone in a block,
   body as header section + payload section ([FMT §6]), codec encode, envelope with `record_header_len`, `first_seq` and CRCs.
 - Validating writer option: commits `blocks_validated` in the pack metadata, decodes each encoded block and checks I-2 and I-10 before writing it,

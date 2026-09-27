@@ -238,3 +238,9 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   Merges run on a bounded worker pool per instance; a scope's merge holds only the blocks of its current seq window, so memory does not grow with the tools owned.
   Partitioning the ingest by tool (a NATS partition per tool set, subscribed by the instance that leases it, so segments stop interleaving and merges copy blocks verbatim)
   is a second-phase optimization: the partition becomes the leased unit, and the lease stays in the catalog.
+- G5-86 correction (2026-09-27, after the v2.9 review): `recorder_instance_id` stays stable across the producer's restarts, as [FMT I-7] requires;
+  only `capture_id` is new per process start, and the producer persists its last `capture_id` to fill `previous_capture_id`.
+  The producer publishes each `clock-step` and waits for its acknowledgement before the records under the new anchor.
+  A consumer that receives a record below a closed block opens a second segment for the scope instead of sorting per block.
+  The service closes a crashed producer's capture only after the successor's `start` is durable, the bus holds nothing of the old capture,
+  and the catalog has recorded the closure atomically; `gap_start` follows the recovery formula, `gap_end` is omitted.
