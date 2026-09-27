@@ -159,25 +159,16 @@ provided each commit object is deleted after the packs it commits.
     At flush the consumer finalizes every open segment of the scope.
     A record may be written twice, into segments of different consumers; [FMT I-12] deduplicates it, byte-identical.
     The merge below normalizes the interleaved segments of a scope, decoding the overlapping blocks as it does for any overlap.
-  - *Closing a capture whose producer stopped without a `stop` boundary.* The successor capture of the same `recorder_instance_id` names it in `previous_capture_id`.
-    The service writes exactly one `stop-unclean` boundary for the earlier capture, in this order:
-    (1) the successor's `start` record is durable in `staging/`, which under the one-process-per-instance rule above fences further publishes of the earlier capture;
-    (2) the bus reports **zero messages on the earlier capture's subject**:
-    the bus removes a message only when a consumer acknowledges it, and a consumer acknowledges only after staging,
-    so zero means every accepted record of the capture is in a durable segment, delivered-but-unacknowledged records included;
-    (3) one catalog transaction reserves the boundary's seq and records the capture as closing, so a second consumer cannot write another boundary;
-    (4) the consumer writes the boundary segment and, once it is durable, one catalog transaction registers it and records the closed state.
-    The boundary's seq is one above the highest seq the service has stored for the capture;
-    it is 0 only when the service stored no record, which under (2) means the bus never accepted one.
-    Its `gap_start` follows the Recovery rule above with `m_d` = the `mono_ns` of that highest record,
-    the anchor = the latest stored `clock-step` at or below it (or the capture origin), and the tolerance from the capture descriptor;
-    under (2) the preceding `clock-step` is staged whenever the record is.
-    `gap_start` is omitted when the capture has no stored record,
-    and `gap_end` is always omitted, because the successor's clock may have changed while the producer was down and no liveness anchor bounds the loss.
-    Records the producer appended but never published are lost, their count is unknown, and the boundary is a completeness barrier (§5).
-    Until (4) completes the capture is `open` (§5).
-    A segment of a closed capture offered for registration afterwards can only come from a component that broke the rules above:
-    the service moves it to a quarantine prefix outside `staging/`, so it never joins a listing view, a rebuild or the per-capture evidence, and reports it.
+  - *Capture descriptor and pack metadata.* The descriptor carries every always-required pack-metadata value the producer owns
+    (`tool_id`, `transport`, `capture_method`, `vantage`, `recorder`, `time_source`, `lifecycle_coverage`, `quality_evaluated`,
+    `recorder_instance_id`, `capture_origin_utc_ns`, `capture_origin_mono_ns`, `clock_step_tolerance_ns`, and `previous_capture_id` and the optional site and equipment tags when it has them);
+    the consumer owns `writer`, `classifier`, `period_start`, `period_end`, `seq_start`, `pack_role`, `compaction_level`, `scope_generation` and `flush_interval_ns`.
+    The consumer that receives a capture's `start` record registers the descriptor in the catalog before acknowledging it;
+    a consumer holding a record of a capture whose descriptor the catalog does not have yet defers the record
+    (a negative acknowledgement with a delay, so the bus redelivers it later) instead of writing a segment without the required metadata.
+  - *A producer that stops without a `stop` boundary.* Its capture stays `open` ([STO §5]) until proposal P7 defines how the service closes it;
+    the successor's `start` and `previous_capture_id` remain the evidence of the restart, and no record is lost.
+    A producer publishes a `stop` boundary on every orderly shutdown, so the case is limited to crashes.
 - **Merge** of scope S: inputs are the active view of S.
   The merger copies every block of S in ascending `first_seq` order.
   A block whose seq range overlaps no already copied block is copied verbatim: its on-disk bytes are not re-encoded.
@@ -400,14 +391,14 @@ The following vectors belong to the corpus of [FMT §16]:
 - cumulative sub-threshold backward clock steps before a crash, and a clock rollback while the recorder is down ([SEM §4], §4);
 - a durable clock-step, a size-triggered spool roll, then a crash with an empty new spool: boundary seq and gap bounds (§4);
 - a record from the next UTC hour forcing a segment roll (§4);
-- durable-bus recorder (§4): a redelivered record below a closed block landing in a second segment of the scope;
+- durable-bus recorder (§4): a redelivered record below a closed block landing in a second segment of the scope,
+  and a second late record below both open segments;
   a byte-identical redelivery written into two segments with different `pack_id`s;
   a record delivered in a later hour than its `ts_utc_ns`, placed in its own hour's scope;
-  a late record of an earlier capture arriving before its closure, then the closure with seq one above it and `gap_end` absent;
-  a capture with no stored record closed at seq 0 without `gap_start`; two consumers racing to close one capture; a second late record below both open segments of a scope;
-  a successor whose `start` record is delayed, leaving the earlier capture `open` until it lands;
+  a record whose capture descriptor is not yet registered, deferred and redelivered after the `start`;
+  a successor whose `start` is staged while the earlier capture stays `open`;
   a rebuild from `staging/` while bus records are still unstaged;
-  a lease expiring during each step of the commit protocol, with the former holder's late commit rejected (§3, §5);
+  a lease expiring during each step of the commit protocol, with the former holder's late commit handled by takeover recovery (§3, §5);
 - a correction or repair followed by a late merge, and a repair holding only `coverage` (§4, §6);
 - a two-member generation with one member repaired, published, predecessors deleted (packs in either order, each commit object after its packs), then rebuild:
   the repaired prefix, the healthy sibling and all inherited coverage remain (§4);
