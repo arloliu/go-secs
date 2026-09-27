@@ -206,7 +206,7 @@ Decisions that concern only the Virtual Equipment program stay in its design not
 
 - G5-80 Writer boundary (2026-09-27): producers (eqp-hub, tap converters and others) push records to the log service,
   and the log service is the traffic-log recorder in the sense of [STO §4] — the role of a log shipper such as fluentbit or vector.
-  It assigns `capture_id` and capture-scoped `seq`, keeps the spool and liveness anchor, and applies the clock-anchor rule;
+  It assigns `capture_id` and capture-scoped `seq`, keeps the spool and liveness anchor, and applies the clock-anchor rule (superseded by G5-86);
   the observed fields of a record (`ts_utc_ns`, `mono_ns`, direction, epoch) come from the producer.
   The producer-to-service transport (ordering, retransmission, idempotency, restart detection) is service design, outside the tracepack specification.
 - G5-81 Single source of truth per tool (2026-09-27): the log service records one producer per tool;
@@ -222,3 +222,12 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   exposing the connection generation number and the read-time wall and monotonic timestamps on received messages and lifecycle events.
   Design premise: eqp-hub will emit traffic-log records either through a new `secs-recorder` device or by adding record emission to `tap_nats`;
   the proposal serves both, and the log service ingests those records (G5-80).
+- G5-86 Stateless recorder over a durable bus (2026-09-27; supersedes the identity-assignment part of G5-80):
+  the producer (eqp-hub's `eqp_hsms` device, a converter, or any other) assigns `capture_id` and `recorder_instance_id` per process start,
+  assigns the capture-scoped `seq`, stamps the socket epoch and the wall and monotonic timestamps, detects its own clock steps,
+  and publishes each record to NATS JetStream, which persists it before acknowledging the publish.
+  The log service is a set of stateless consumers on one work-queue consumer with a queue group:
+  any instance takes any record, keeps one open block per scope with closed blocks compressed in memory,
+  flushes a segment every F, and acknowledges a record only after the segment holding it is durable in `staging/`.
+  Segments of one scope written by different instances interleave; the hourly merge normalizes them, and the first release does not partition by tool.
+  Spec: [FMT I-12] allows producer-assigned seqs; [STO §4] "Recorder over a durable bus" replaces the spool contract for this deployment.

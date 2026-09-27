@@ -29,6 +29,7 @@ How each Go-side producer fills the spec's capture model ([SEM §2]):
 | VE or test fixtures producing expected traffic | `generator` | `none` | `synthesized` | `veq/<ver>` |
 
 The conn wrapper is also the socket observer that assigns `epoch` ([FMT I-7]).
+In the durable-bus deployment ([STO §4]) the producer also assigns `capture_id`, `recorder_instance_id` and `seq`, and the writer stores them as received.
 A producer without it writes `epoch = 0` and `correlation-incomplete`.
 As of 2026-09-27 the eqp-hub path carries no connection generation id, no start/stop event or instance id,
 and only a wall-clock string taken when the adapter converts the message (`SourceTimeStamp`, host-local time zone, no monotonic reading),

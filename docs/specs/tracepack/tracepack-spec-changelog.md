@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-09-27) — spec v2.8.
+Status: current (2026-09-27) — spec v2.9.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository.
@@ -389,6 +389,19 @@ Round 5 returned a new class of P1 introduced by the round-4 fix; the owner spli
 |---|---|
 | P3 the service-vector exclusion gave an inaccurate reason ("rather than bytes"), although corpus vectors already include rebuilds, paginated observations and moving retention boundaries | [STO §8] the split is stated by ownership: corpus vectors exercise views and what a reader or pack source computes; service vectors exercise catalog transactions and lifecycle execution |
 | owner follow-up (2026-09-27): STO §3 named no actor for deleting lower-numbered fence objects, which Deletion and Retention do not cover | [STO §3] the removal rule covers packs and commit objects; lower-numbered fence objects MAY be deleted by the component that performs §4 Deletion |
+
+## Changes v2.8 → v2.9: stateless recorder over a durable bus (owner decisions G5-80, G5-86, 2026-09-27)
+
+Source: the log-service review of the specification and the owner's answers; no proposal document.
+Format version stays 1.0: no byte changes.
+
+Summary:
+- [STO §4] (new bullet) Recorder over a durable bus: producers assign capture identity and seq and publish to a bus that persists before acknowledging;
+  the recorder is a set of stateless consumers that acknowledge only after the segment is durable; redelivery replaces spool recovery;
+  interleaved segments of one scope are normalized by the merge;
+  a producer crash is closed by a `stop-unclean` boundary the service writes from the successor capture's evidence.
+- [FMT I-12] seq may be assigned by the producer that hands the writer its records; a writer never renumbers a received seq.
+- `tracepack-go.md` §2 and `tracepack-impl-plan.md` phase 2 updated: the writer accepts producer-assigned seqs.
 
 ## Changes v2.7 → v2.8: redaction by masking extracts (proposal P6, owner decisions G5-66..G5-76, 2026-09-27)
 
