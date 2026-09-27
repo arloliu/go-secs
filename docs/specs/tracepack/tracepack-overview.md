@@ -1,8 +1,8 @@
 # tracepack — overview
 
-Status: **v2.8 (2026-09-27)** — tracepack format **1.0**;
-external review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
-Decisions: `decisions.md` G3-20..G3-27, G4-28, G4-29, G3-PLACE, R3-4, R3-5, R3-6, G5-30..G5-76.
+Status: current (2026-09-27) — v2.8, tracepack format 1.0.
+External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
+Decisions: `tracepack-decisions.md` G3-20..G3-27, G4-28, G4-29, G3-PLACE, R3-4, R3-5, R3-6, G5-30..G5-79.
 Change history: `tracepack-spec-changelog.md`.
 This document is **informative**; the rules live in the three normative documents below.
 
@@ -32,7 +32,8 @@ It targets local file systems, S3-compatible object storage and HTTP range reads
 | `tracepack-semantics.md` [SEM] | capture model, decode_status, time and clock steps, transport events, quality, indexes, transaction lookup, query mapping, redaction | normative | 2, 3, 5, 7 |
 | `tracepack-storage.md` [STO] | scopes and generations, active view, commit protocol, object lifecycle and deletion, catalog contract with its window and listing views, retention, recorder durability and crash recovery, log converter | normative for publishers, recorders and converters | 4, 5, service |
 | `tracepack-go.md` | Go module, API, mapping from go-secs, CLI | Go reference implementation | — |
-| `tracepack-impl-plan.md` | phased Go implementation plan | plan | — |
+
+The implementation plan, the deferred proposals and the decision log are listed in `README.md`.
 
 The normative documents are defined only in terms of SEMI E37 (HSMS), SEMI E5 (SECS-II) and their own text.
 No behaviour of any library defines a field.

@@ -1,7 +1,7 @@
 # tracepack — file format
 
-Status: **v2.8 (2026-09-27)** — tracepack format **1.0**;
-external review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
+Status: current (2026-09-27) — v2.8, tracepack format 1.0.
+External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
 Depends on (the byte layouts, TLV encoding, footer and validation rules are self-contained; these rules give meaning to some fields and are defined elsewhere):

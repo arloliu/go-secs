@@ -1,9 +1,10 @@
 # tracepack spec — change history
 
+Status: current (2026-09-27) — spec v2.8.
 Section numbers in each entry refer to the numbering of the version it describes.
-The last single-file version is archived as `archive/tracepack-spec_v2.5.md`.
-Review reports and pre-change snapshots were removed on 2026-09-27; the finding→fix tables below are the record.
-Reports still cited by the open proposals P2, P4 and P5 are kept in `../reviews/`.
+The finding→fix tables below are the record of every review round;
+the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository.
+The deferred proposals and the decision log are listed in `README.md`.
 
 ## Changes vs v1 (summary)
 
@@ -188,13 +189,13 @@ Content unchanged; section numbers changed. Old → new:
 §2.5–§2.7 → [FMT §4–§6]; §2.8 → [FMT §10]; §2.9–§2.11 → [FMT §11–§13]; §3.1–§3.2 → [FMT §7.1–§7.2]; §3.3 → [FMT §9]; §3.4 → [FMT §8];
 §3.5–§3.9 → [SEM §2–§6]; §4.x → [SEM §7.x]; §5.1–§5.5 → [STO §2–§6]; §6 → [STO §7]; §7 → [FMT §15]; §8 → [FMT §14];
 §9 → [FMT §16] (vectors distributed to [FMT §16], [SEM §8], [STO §8]); §10–§11 → [OVW §5–§6]; Appendix A → [FMT Appendix A].
-Invariants keep their numbers (I-1..I-14) in [FMT §3]. The single-file version is archived as `archive/tracepack-spec_v2.5.md`.
+Invariants keep their numbers (I-1..I-14) in [FMT §3]. The single-file version is kept outside the repository.
 Split review S1: no P1; three P2 Depends-on list gaps fixed ([FMT] now lists its semantic/storage dependencies; [SEM] and [STO] lists completed).
 Split review S2: VERDICT ready; two remaining P2 Depends-on refinements applied ([FMT] adds [STO §5], [STO §7], [SEM §7.1–§7.3], corpus parts; [STO] lists I-7, [FMT §8], [FMT §16] as shared dependencies and qualifies the local-file-system sentence).
 
 ## Changes v2.5 → v2.6: block body split (proposal P1, owner decisions G5-49..G5-55, 2026-09-26)
 
-Source: `proposals/p1-block-body-split.md` revision 7.1; seven review rounds (round 7 ready).
+Source: proposal P1 revision 7.1 (kept outside the repository); seven review rounds (round 7 ready).
 Format version stays 1.0, because nothing is released.
 
 Summary:
@@ -212,7 +213,7 @@ Summary:
 - [FMT I-10], [FMT I-13], [FMT I-14], [FMT §2], [FMT §7], [FMT §13], [FMT §14], [FMT §16], [STO §8], [OVW §3], [OVW §4] Figures 1–2,
   `tracepack-go.md` and `tracepack-impl-plan.md` updated to match.
 - Moved out: storage handling of defective merge inputs (proposal P2, deferred by the owner to after the pilot); no per-record extension area (annotations instead).
-- Benchmark (`../research/tpkbench/b_test.go`, illustrative): a header-prefix decode takes ≈ 0.55 ms per 4 MiB block against ≈ 3.0–3.3 ms for a whole-body decode.
+- Benchmark (tpkbench, kept outside the repository; illustrative): a header-prefix decode takes ≈ 0.55 ms per 4 MiB block against ≈ 3.0–3.3 ms for a whole-body decode.
 
 ### P1 review round 1 fixes
 
@@ -237,7 +238,7 @@ Summary:
 | P2 affected text for merge validation | [FMT I-13], [FMT I-14], [FMT §10], [SEM §7.2], Go API, impl plan |
 | Multi-pack seq rule | [SEM §7.4] scoped by (`capture_id`, `seq`), applied before filters |
 
-### P1 review round 3 fixes (`../reviews/tracepack-block-split_r3_review.md`)
+### P1 review round 3 fixes
 
 | Finding | Fix |
 |---|---|
@@ -245,7 +246,7 @@ Summary:
 | P2 index-only exclusions escape `header-validated` | [SEM §7.4] status triggered by reliance, read or not; [FMT §16] paired vectors with and without the index |
 | P2 affected-text omissions | [SEM §7.1], [STO §8], [FMT §16] conformance criterion, impl-plan phases 2, 3 and 5 |
 
-### P1 review rounds 4–6 (`../reviews/tracepack-block-split_r{4,5,6}_review.md`)
+### P1 review rounds 4–6
 
 Rounds 4–6 found that the storage profile does not define how a merge handles input blocks that fail I-2, a gap that pre-dates P1.
 Owner decision after round 6 (G5-54): the storage rules they introduced (failure classes, member boundaries at undecodable blocks,
@@ -280,7 +281,7 @@ the query mode in the CLI and the staged `Merge` member (`tracepack-go.md`).
 
 ## Changes v2.6 → v2.7: object lifecycle and cold reads (proposal P3, owner decisions G5-56..G5-65, 2026-09-26)
 
-Source: `proposals/p3-storage-cold-reads.md` revision 7; six review rounds (round 6 ready).
+Source: proposal P3 revision 7 (kept outside the repository); six review rounds (round 6 ready).
 Format version stays 1.0; [FMT] content is unchanged.
 
 Summary:
@@ -304,7 +305,7 @@ Summary:
 - Moved out: admissions for scopes that are not indexed (proposal P4); capture end evidence beyond the retained packs and rebuilds that read only the window (proposal P5, G5-61..G5-64 deferred by G5-65).
 - Cost: a rebuild bootstraps every retained pack, about 6.5 million for 1500 tools over 6 months; it is a disaster path.
 
-### P3 review round 1 (`../reviews/tracepack-p3-cold-reads_r1_review.md`)
+### P3 review round 1
 
 | Finding | Resolution (v2.7) |
 |---|---|
@@ -330,7 +331,7 @@ Summary:
 | O1 scope | [STO §2] uncommitted packs included; [STO §5] Restart and rebuild states the all-fences-lost lower bound |
 | P2 quote-level inventory | applied per the checklist |
 
-### P3 review round 3 (`../reviews/tracepack-p3-cold-reads_r3_review.md`)
+### P3 review round 3
 
 | Finding | Resolution (v2.7) |
 |---|---|
@@ -344,7 +345,7 @@ Summary:
 | P2 commit-deletion authorization inferred from `ActiveView` | `tracepack-go.md` `ActiveView`; impl plan phase 5 |
 | P2 removed-hour terminal outcome for streaming output | [STO §5] Retention; `tracepack-go.md` `Result.Removed` and §7; impl plan phase 6 |
 
-### P3 review round 4 (`../reviews/tracepack-p3-cold-reads_r4_review.md`)
+### P3 review round 4
 
 | Finding | Resolution (v2.7) |
 |---|---|
@@ -358,7 +359,7 @@ Summary:
 | P2 removed outcome through the CLI | `tracepack-go.md` §7; impl plan phase 6 |
 | P2 converter end object | P5; [STO §5] Per capture includes converter archives presented for registration |
 
-### P3 review round 5 (`../reviews/tracepack-p3-cold-reads_r5_review.md`)
+### P3 review round 5
 
 Round 5 returned a new class of P1 introduced by the round-4 fix; the owner split the scope (G5-65).
 
@@ -386,9 +387,9 @@ Round 5 returned a new class of P1 introduced by the round-4 fix; the owner spli
 
 ## Changes v2.7 → v2.8: redaction by masking extracts (proposal P6, owner decisions G5-66..G5-76, 2026-09-27)
 
-Source: `proposals/p6-redaction.md` revision 3; two review rounds (round 2 ready).
+Source: proposal P6 revision 3 (kept outside the repository); two review rounds (round 2 ready).
 Format version stays 1.0, because nothing is released.
-E5 message structures and paths: `../research/redaction-e5-paths.md` (SEMI E5-0813).
+E5 message structures and paths: the E5 redaction-paths research note, from SEMI E5-0813 (kept outside the repository).
 
 Summary:
 - [SEM §8] (new) redaction: records are stored in full; a consumer that is not privileged receives an extract written under a redaction policy.

@@ -88,6 +88,10 @@ vet: ## Run go vet across all packages
 
 check: lint vet ## Run lint + vet (no file modifications)
 
+docs-check: ## Check docs/ against .agents/rules/450-doc-lifecycle.md (Status lines, subject READMEs, relative links)
+	@printf "Run docs check...\n"
+	@python3 scripts/docs-check.py
+
 ##@ Generator (tools/gemgen)
 
 # tools/gemgen is its own Go module (see docs/specs/2026-07-07-gem-codegen-design.md)
@@ -269,9 +273,9 @@ update-pkg-cache: ## Prime the Go module proxy (and transitively pkg.go.dev) wit
 
 ##@ Composite
 
-ci: check test test-gemgen test-gemgen-integration lint-gemgen lint-tracepack test-tracepack ## Single entry point for CI (lint + vet + -short tests + gemgen and tracepack module gates)
+ci: check docs-check test test-gemgen test-gemgen-integration lint-gemgen lint-tracepack test-tracepack ## Single entry point for CI (lint + vet + docs check + -short tests + gemgen and tracepack module gates)
 
-.PHONY: help lint fmt vet check \
+.PHONY: help lint fmt vet check docs-check \
         lint-gemgen test-gemgen test-gemgen-integration \
         work lint-tracepack test-tracepack check-tracepack-consumer fuzz-tracepack update-pkg-cache-tracepack \
         clean clean-coverage build-tests test test-all bench \

@@ -19,3 +19,4 @@ tools/gemgen/gemgen
 # Local Go workspace for the nested tracepack module (never committed)
 go.work
 go.work.sum
+__pycache__/

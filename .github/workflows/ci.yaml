@@ -43,6 +43,8 @@ jobs:
         golangci-lint version
     - name: Lint
       run: make lint lint-gemgen
+    - name: Docs check
+      run: make docs-check
 
   # tracepack/ is a nested module (github.com/arloliu/go-secs/tracepack) that the
   # root jobs never reach. Two legs:

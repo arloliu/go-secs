@@ -17,7 +17,7 @@ Do not expose in public signatures or docs.
 
 Integration: `tests/hsmsss_integration/`, `tests/secs1_integration/`, with helper binaries `tests/active_host/`, `tests/passive_host/`, `tests/passive_eqp/`, and shell harnesses (`tests/*.sh`).
 
-Also on disk: `examples/device/` and `examples/secs1_device/` (library-usage examples); `docs/secs1/` (SECS-I design notes) and `docs/specs/` (SEMI standard excerpts — read-only reference).
+Also on disk: `examples/device/` and `examples/secs1_device/` (library-usage examples); `docs/secs1/` (SECS-I design notes) and `docs/specs/` (subject directories under `450-doc-lifecycle.md`).
 
 ## Architecture
 
