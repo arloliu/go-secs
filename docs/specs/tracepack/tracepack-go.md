@@ -24,12 +24,16 @@ How each Go-side producer fills the spec's capture model ([SEM §2]):
 | Producer | `capture_method` | `vantage` | default `fidelity` | `recorder` example |
 |---|---|---|---|---|
 | go-secs conn wrapper recording socket bytes before HSMS decoding | `raw-stream` | `host` or `equipment`, by the application's role | `wire-exact` | `go-secs/2.4.2 conn-wrapper` |
-| eqp-hub `secs-recorder` (tap_nats or shadow channel), frames re-emitted via `ToBytes()` | `decoded-message` | `intermediary` | `re-encoded` | `eqp-hub/<ver> secs-recorder` |
+| eqp-hub, frames re-emitted via `ToBytes()`: today the `eqp_hsms` device → `hsms_secsjson` adapter → `tap_nats` device → JetStream path; a dedicated recorder device is planned, not built | `decoded-message` | `intermediary` | `re-encoded` | `eqp-hub/<ver> tap_nats` |
 | `tapconv` converting TAP SML logs | `log` | where TAP ran (normally `host`) | `reconstructed` | `tapconv/<ver>` |
 | VE or test fixtures producing expected traffic | `generator` | `none` | `synthesized` | `veq/<ver>` |
 
 The conn wrapper is also the socket observer that assigns `epoch` ([FMT I-7]).
 A producer without it writes `epoch = 0` and `correlation-incomplete`.
+As of 2026-09-27 the eqp-hub path carries no connection generation id, no start/stop event or instance id,
+and only a wall-clock string taken when the adapter converts the message (`SourceTimeStamp`, host-local time zone, no monotonic reading),
+so its records get `epoch = 0`, `correlation-incomplete` and `no-mono` until go-secs exposes a generation number and read-time timestamps on received messages and lifecycle events,
+and eqp-hub carries them to the producer boundary.
 Recorders flush `segment` packs to the staging tier; the merger (a service component using `Merge`) writes `archive` packs ([STO]).
 The query service, its catalog database and the live-tail interface are designed separately.
 
@@ -190,5 +194,7 @@ Output formats of the other commands and exit codes are deferred to implementati
 
 ## 8. Open questions
 
-1. Whether the eqp-hub `secs-recorder` can be given a socket-level observer,
+1. Whether eqp-hub can be given a socket-level observer (a recorder device or the conn wrapper),
    which would let it write `raw-stream` / `wire-exact` records instead of `decoded-message` / `re-encoded`.
+2. Which go-secs release exposes the connection generation number and the read-time wall and monotonic timestamps
+   that the eqp-hub path needs for `epoch` and `mono_ns` (see §2).

@@ -6,6 +6,11 @@ The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository.
 The deferred proposals and the decision log are listed in `README.md`.
 
+## tracepack-go.md notes
+
+- 2026-09-27: the eqp-hub producer row of §2 names the path that exists (`eqp_hsms` → `hsms_secsjson` → `tap_nats` → JetStream) instead of a `secs-recorder` device that was only planned,
+  and records what that path lacks today (generation id, start/stop event, monotonic time); open question 2 added.
+
 ## Changes vs v1 (summary)
 
 All 15 P1 + 2 P2 findings of the v1 review were addressed in v2:
