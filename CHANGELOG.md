@@ -7,195 +7,236 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-09-27
+
+Callback isolation, connection-lifecycle hardening, and complete format-22 (`W`) support.
+
+- Application callbacks can no longer crash the process or silently stall a link.
+  Panics are recovered, logged with a stack, and counted;
+  a callback that calls `runtime.Goexit` is detected.
+- `Close` interrupts a blocked `Open`,
+  and `Open`'s ctx now also bounds an active transport's first dial.
+- Known paths by which a previous link's inbound frames, replies, timers, or delayed state reports
+  could reach the link that replaced it after a reconnect are closed.
+- Custom transports get a tighter, documented `TransportRuntime` contract.
+- A zero-length `W` item decodes,
+  and `W` items round-trip through SML byte for byte.
+
+The public API only gains additions.
+A few behavior changes can affect existing callers; see Upgrade notes.
+
+### Upgrade notes
+
+- `hsms`: under `OpenBackground`, a ctx that expires while the first dial is still blocked
+  now makes `Open` roll back and return the ctx error.
+  Previously the connection fell into the cold-peer background retry.
+- `hsms`: a synchronous data send whose write fails after teardown has started returns `ErrConnClosed`,
+  not the raw socket error.
+  `errors.Is` still matches the wrapped socket error.
+- `hsms`: recovered callback panics are now logged at Error.
+  Panics from a `StateChangeHandler`, a `SubscribeLifecycle` callback, or the async send error handler
+  used to be recovered silently.
+- `hsms`: `ConnectionMetrics.Reconnecting` now rises when the reconnect loop starts its first backoff,
+  not the instant the drop is detected.
+- Custom transports (`hsms.NewConnection`):
+  `Stop` must close any socket the transport handed to `TransportRuntime.TCPUp`.
+  `TCPUp` and `SelectLost` refuse their state commit once the generation's teardown has begun,
+  and a `Start` that reports TCP-up and then fails now always fails the initial `Open`.
+  `hsmsss` and `secs1` already meet the new contract.
+- `sml`: inside a quoted `W` value, `\\`, `\'`, and `\"` are now escapes,
+  and adjacent quoted runs concatenate.
+  Hand-written `W` literals that relied on those characters being kept verbatim now read differently.
+
 ### Added
 
-- `hsms`: `ConnectionMetrics.HandlerPanicCount` reports the total number of panics recovered from application callbacks the connection runs on its own goroutines —
+- `hsms`: `ConnectionMetrics.HandlerPanicCount` counts the panics recovered from application callbacks
+  the connection runs on its own goroutines:
   `DataMessageHandler`, `DecodeErrorHandler`, `StateChangeHandler`, `SubscribeLifecycle` callbacks, and the async send error handler.
-- `hsms`: `CauseHandlerExit`, a `TransitionCause` reported when a user callback calls `runtime.Goexit` instead of returning,
-  and the connection drops the generation that callback was running for,
-  so the link reconnects instead of sitting Selected with no receiver.
-- `secs2`: `NewEmptyLocalizedStrItem` builds a zero-length localized-string (format 22) item, encoded as `49 00` with no LSH,
-  and `LocalizedStrItem.HasLocalizedStrHeader` reports whether an item carries an LSH.
+- `hsms`: `CauseHandlerExit`, the `TransitionCause` reported when a callback calls `runtime.Goexit` instead of returning
+  and the connection drops the generation that callback was running for.
+- `secs2`: `NewEmptyLocalizedStrItem` builds a zero-length localized-string (format 22) item,
+  encoded as `49 00` with no LSH.
+  `LocalizedStrItem.HasLocalizedStrHeader` reports whether an item carries an LSH.
   `ToLocalizedStrHeader` reports 0 for a zero-length item, the same as for LSH 0;
-  through the `Item` interface, `Size` tells them apart (0 for the zero-length item, at least 2 otherwise).
-- `secs2`: `IsReservedLSH` reports whether an LSH code is reserved by SEMI E5:
-  0 (`LSHNone`) and 15 through 32767.
-  Reserved codes must not be sent, but `NewLocalizedStrItem` and decoding still accept them unchanged.
+  `Size` tells them apart (0 for the zero-length item, at least 2 otherwise).
+- `secs2`: `IsReservedLSH` reports whether an LSH code is reserved by SEMI E5: 0 (`LSHNone`) and 15 through 32767.
+  Reserved codes must not be sent,
+  but `NewLocalizedStrItem` and decoding still accept them unchanged.
 - `sml`: `<W[0]>` is the SML form of a zero-length localized-string item, and the encoder writes one that way.
   `<W>` still means a UTF-8 item with empty text (`49 02 00 02`),
   and `<W[0]>` with a value is a parse error.
 
 ### Changed
 
-- `sml`, `secs2`: a `W` item now round-trips through SML byte for byte, LSH included.
+#### Callbacks
+
+- `hsms`: a panicking `DataMessageHandler` or `DecodeErrorHandler` is recovered instead of crashing the process,
+  and the connection stays up.
+  The message still reaches the remaining handlers and, for a data message, the channels,
+  subject to the usual teardown checks.
+  A decode-error message never reaches the channels.
+- `hsms`: every recovered callback panic is logged at Error with its stack and counted in `HandlerPanicCount`.
+- `hsms`: a callback that calls `runtime.Goexit` instead of returning,
+  for example through `testing.T.FailNow`, is detected and logged at Error.
+  For a `DataMessageHandler`, a `DecodeErrorHandler`, or the async send error handler,
+  the connection also drops the generation the callback was running for,
+  so it reconnects instead of sitting Selected with no receiver.
+  For a `StateChangeHandler` or `SubscribeLifecycle` callback it is logged only,
+  and later state notifications of that `Open` are no longer delivered.
+
+#### Connection lifecycle and metrics
+
+- `hsms`: `Connection.Open`'s ctx now bounds an active transport's first dial
+  in both `OpenWaitSelected` and `OpenBackground` modes.
+  Previously it bounded only the wait for Selected,
+  and the dial ran until the OS connect timeout or `WithConnectTimeout`.
+  A custom `DialFunc` that ignores its ctx is not interruptible this way.
+- `hsms`: `ConnectionMetrics.Reconnecting` excludes the dropped generation's own teardown
+  and the wait for that generation's `Start` to return,
+  a window a slow custom `Start` could otherwise stretch out indefinitely.
+  It still never reads above 1.
+- `hsmsss`: a passive connection logs its accept-retry warning off the accept goroutine,
+  and suppresses repeats while one is still being logged,
+  so a blocking `Logger` can no longer stall `Close`.
+
+#### Custom transports
+
+- `hsms`: the transport contract `NewConnection` accepts now states
+  that `Stop` must close any socket it handed to `TransportRuntime.TCPUp`.
+  A `TCPUp` report that lands after teardown has already closed the generation's socket still publishes that connection,
+  and the core never closes it.
+- `hsms`, `secs1`: `TransportRuntime.TCPUp` refuses its state commit, leaving the state unchanged,
+  when the current generation's teardown has begun or that generation has already reported TCP-up.
+  The socket is still handed to the generation; only the move to `NotSelected` is refused.
+  Previously such a report could move a dying or dropped link back to `NotSelected`.
+  Normal bring-up is unaffected.
+- `hsms`: `TransportRuntime.SelectLost` is refused, leaving the state unchanged,
+  when the current generation's teardown has begun, as `TCPUp` and `CommitSelected` already are.
+  Previously an unnamed Select-lost commit skipped that check.
+- `hsms`: when a custom transport's `Start` reports TCP-up and then returns an error,
+  the initial `Start` of an `Open` cycle always fails `Open`, even under `OpenBackground`.
+  Previously `Open` could instead return nil and start a background retry,
+  depending on whether the drop had been processed first.
+  In a later reconnect generation, the drop's reaction owns the retry (see Fixed).
+
+#### SML
+
+- `sml`, `secs2`: a `W` item round-trips through SML byte for byte, LSH included.
   The encoder and `LocalizedStrItem.ToSML` write printable UTF-8 in double-quoted runs that escape only `"` and `\`,
   write every other byte as a `0xHH` token instead of a Go escape such as `\n` or `\xff`,
   and write an LSH other than UTF-8 as a leading decimal token, for example `<W 8 0x82 0xA0>`.
   The parser reads that grammar in both modes:
-  `\\`, `\'`, and `\"` inside the quotes are now escapes, where they used to be kept verbatim,
-  and adjacent runs concatenate (`<W 'a' 'b'>` is now `ab`, not `a' 'b`).
-  A backslash before any other character is still kept, so older encoder output such as `<W "a\nb">` reads as before.
+  `\\`, `\'`, and `\"` inside the quotes are escapes,
+  and adjacent runs concatenate (`<W 'a' 'b'>` is `ab`, not `a' 'b`).
+  A backslash before any other character is kept, so older encoder output such as `<W "a\nb">` reads as before.
   In non-strict mode, a value the grammar rejects falls back to the old verbatim rule, so `<W 'it's'>` still parses;
   strict mode rejects it.
   `A` and `J` items are unchanged.
-- `hsms`: a panicking `DataMessageHandler` or `DecodeErrorHandler` is now recovered instead of crashing the process.
-  The message still reaches the remaining handlers (and, for a data message, the channels),
-  subject to the existing teardown-observation rules.
-  A decode-error message stays diverted and never reaches the channels regardless.
-  The connection stays up.
-- `hsms`: every recovered callback panic — from a `DataMessageHandler`, a `DecodeErrorHandler`,
-  a `StateChangeHandler`, a `SubscribeLifecycle` callback, or the async send error handler —
-  is now logged at Error with its stack and counted in `HandlerPanicCount`,
-  where previously a `StateChangeHandler`, lifecycle subscriber, or async send error handler panic was recovered silently,
-  with no trace at all.
-- `hsms`: a callback that calls `runtime.Goexit` instead of returning,
-  for example through `testing.T.FailNow`, is now detected and logged at Error.
-  For a `DataMessageHandler`, a `DecodeErrorHandler`, or the async send error handler,
-  the connection also drops the generation the callback was running for,
-  so it reconnects instead of sitting Selected with no receiver.
-  A `StateChangeHandler` or `SubscribeLifecycle` callback that does this is logged only,
-  and later state notifications of that `Open` are no longer delivered.
+
+#### Documentation
+
 - `hsms`, `hsmsss`, `secs1`: the `WithLinktestInterval`, `WithTCPKeepAlive`, `WithDialer`, and `WithListener` docs
-  now explain how an idle link detects a silent half-open peer.
+  explain how an idle link detects a silent half-open peer.
   Linktest is off by default, so detection falls to TCP keep-alive, which can take minutes.
-  A caller using a custom dialer or listener must configure keep-alive
+  A custom dialer or listener must configure keep-alive itself
   unless `WithTCPKeepAlive` is set and the socket is a `*net.TCPConn`.
   The README example enables a 30-second linktest.
-- `hsms`: `Connection.Open`'s ctx now also bounds an active transport's FIRST dial,
-  in BOTH `OpenWaitSelected` and `OpenBackground` modes.
-  Previously it bounded only the `OpenWaitSelected` wait for Selected,
-  and the dial itself rode out the OS connect timeout (or `WithConnectTimeout`) unbounded by the caller's ctx.
-  Behavior change under `OpenBackground`:
-  a caller ctx that expires while the first dial is still blocked now rolls back and returns the ctx error,
-  instead of falling into the cold-peer background retry
-  (the connection stays closed rather than silently starting to retry in the background).
-  A custom `DialFunc` that ignores its ctx is not interruptible this way.
 - `hsms`, `hsmsss`, `secs1`: the `Connection.Close`, `WithCloseTimeout`, `WithLogger`, `WithDialer`, and `WithListener` docs
-  now state the real close bound —
-  a best-effort farewell Separate of at most 500ms, then the configured close timeout for the teardown join and the notifier join —
-  and the caller obligations it depends on:
+  state the real close bound:
+  a best-effort farewell Separate of at most 500ms,
+  then the configured close timeout for the teardown join and the notifier join.
+  They also state the caller obligations it depends on:
   a blocking custom `net.Conn`, `DialFunc`, `ListenFunc`, or `Logger` can still keep `Close` from completing.
-  Previously `Close`'s doc described a single, unqualified "bounded by the configured close timeout".
-- `hsmsss`: the accept-retry warning a passive connection logs on a transient `Accept` failure
-  is now emitted off the accept goroutine, and suppressed while one is still being logged.
-  Previously a blocking `Logger` could stall `Close`'s unbounded join of that goroutine.
-- `hsms`: `ConnectionMetrics.Reconnecting` now rises only once a reconnect loop starts its first backoff, not the instant the drop is detected.
-  It excludes the dropped generation's own teardown and the wait for that generation's `Start` call to return,
-  a window a custom transport's slow `Start` could otherwise stretch out indefinitely.
-  It still never reads above 1.
-- `hsms`: `TransportRuntime.SelectLost` is now refused, leaving the state unchanged,
-  when the current generation's teardown has already begun — the same refusal `TCPUp` and `CommitSelected` already apply.
-  Previously an unnamed Select-lost commit bypassed that check entirely;
-  a transport using only `TransportRuntime` reports Select-lost unnamed.
-  A late unnamed call made after a new generation is already current still targets that new generation
-  and may commit if its remaining guards pass.
-
-- `hsms`, `secs1`: `TransportRuntime.TCPUp` now refuses its state commit — leaving the FSM unchanged — when the current generation's teardown has already begun,
-  or when that generation has already reported TCP-up once.
-  The socket is still handed to the generation as before; only the move to `NotSelected` is refused.
-  Previously such a report could move a dying or already-dropped link back to `NotSelected`.
-  Normal bring-up is unaffected.
-  For SECS-I, whose `TCPUp` carries no generation identity, a report racing a core teardown before the transport's own `Stop` seals it is now refused.
-- `hsms`: for a custom transport whose `Start` reports TCP-up and then returns an error,
-  the initial `Start` of an `Open` cycle now always fails `Open`, even under `OpenBackground`.
-  Previously the outcome depended on whether the drop had been processed first:
-  `Open` could return nil and start a background retry instead.
-  A later reconnect generation that fails this way hands the retry to the drop's reaction, as described under Fixed.
-- `hsms`: the `ConnectionMetrics.Reconnects` docs now state what is counted:
-  every successful transport start after an involuntary drop, including when no generation of the cycle has selected yet,
-  but not the success of the initial background retry of a cold peer.
+- `hsms`: the `ConnectionMetrics.Reconnects` docs state what is counted:
+  every successful transport start after an involuntary drop, including before any generation of the cycle has selected,
+  but not the initial background retry of a cold peer.
   The counting itself is unchanged.
-- `hsms`: the transport contract `NewConnection` accepts now states that its `Stop` must close any socket it handed to `TransportRuntime.TCPUp`.
-  A `TCPUp` report that lands after teardown has already closed the generation's socket still publishes its connection,
-  and the core never closes that one.
-  `hsmsss` and `secs1` already do this; a custom transport that relied on the core to close every socket should close its own in `Stop`.
 
 ### Fixed
 
-- `secs2`: a zero-length localized-string (format 22) item, `49 00`, now decodes, alone or inside a list,
+#### Localized strings
+
+- `secs2`: a zero-length localized-string (format 22) item, `49 00`, decodes, alone or inside a list,
   and re-encodes to the same two bytes.
   SEMI E5 allows a zero-length item of any format.
-  Previously the decoder required the 2-byte LSH,
-  so one such item made the whole message body undecodable.
+  Previously one such item made the whole message body undecodable.
   A 1-byte body (`49 01 xx`) is still rejected.
-- `hsms`, `hsmsss`: a receive goroutine left running past a connection's close timeout,
-  for example by a `DataMessageHandler` that blocks,
-  no longer delivers its frame into the connection's next generation after a reconnect.
+
+#### Leftovers from a previous link
+
+- `hsms`, `hsmsss`: a receive goroutine left running past the close timeout,
+  for example by a blocking `DataMessageHandler`,
+  no longer delivers its frame into the next generation after a reconnect.
   Previously such a frame could reach later handlers and channels,
-  complete a transaction open on the new link with a reply meant for the old one,
+  complete a transaction on the new link with a reply meant for the old one,
   or answer on the new link.
-  A frame read just as the connection starts tearing down is now dropped rather than delivered.
+  A frame read just as teardown starts is now dropped rather than delivered.
 - `hsms`: the data-message fan-out checks for teardown before each handler and each channel,
-  not only once before the first handler.
-  Once it observes that the connection is tearing down, later handlers and channels do not receive the message.
+  not only before the first handler.
+  Once it sees the connection tearing down, later handlers and channels do not receive the message.
 - `hsms`: `ReplyDataMessage` returns `ErrConnClosed` and sends nothing
-  when the primary was received on a connection generation that has since ended,
-  for example a message read from a channel after the link dropped and reconnected.
+  when the primary was received on a connection generation that has since ended.
   Previously the reply went out on the new link with the old transaction's System Bytes,
-  where the peer had no such transaction open, or could have a different one open under the same System Bytes.
+  which the peer did not expect or could have matched to a different transaction.
   A primary received on another connection, or a reply built by hand, is not checked.
-- `hsmsss`: the T7 and auto-linktest timers of a connection generation that has ended
-  can no longer cancel or replace the timers of the generation that replaced it.
-  Previously a delayed goroutine from the old generation could leave the new link without T7 or linktest protection.
-- `hsms`: a synchronous data send whose write fails after connection teardown has started —
+- `hsmsss`: the T7 and auto-linktest timers of an ended generation
+  can no longer cancel or replace the timers of the generation that replaced it,
+  which could leave the new link without T7 or linktest protection.
+
+#### Sends
+
+- `hsms`: a synchronous data send whose write fails after teardown has started —
   a voluntary `Close` or an involuntary drop —
-  now reports `ErrConnClosed` and is no longer counted in `DataMsgErrCount`.
+  reports `ErrConnClosed` and is no longer counted in `DataMsgErrCount`.
   The socket error stays wrapped, so `errors.Is` still matches it,
-  and an `ErrConnClosed` the transport itself returns comes back unwrapped.
-  Previously the raw socket error was returned and counted,
-  and `WithTransactionObserver` reported a send failure rather than a cancellation.
+  and an `ErrConnClosed` from the transport itself comes back unwrapped.
+  `WithTransactionObserver` now reports a cancellation rather than a send failure.
 - `hsms`: while a synchronous send waits for its reply,
-  a reply that has already arrived now wins over a simultaneous teardown or protocol timeout,
+  a reply that has already arrived wins over a simultaneous teardown or protocol timeout,
   and a teardown wins over a simultaneous protocol timeout, which is then not counted.
-  Previously the outcome was picked at random.
-  Caller cancellation keeps its existing behavior.
-- `hsms`: `Close` no longer blocks behind an `Open` that is itself blocked —
-  in `OpenWaitSelected`'s wait for Selected, or in an active transport's first dial.
-  A concurrent `Close` now interrupts either, and `Open` returns `ErrConnClosed`.
-  Previously `Close` could not even acquire the lifecycle lock until such an `Open` returned on its own,
-  which for a blocked `OpenWaitSelected` wait with no peer meant forever,
-  and for a blocked first dial meant the OS connect timeout — roughly two minutes on Linux —
-  unless `WithConnectTimeout` was set.
-- `hsms`: a disconnect that races the Select handshake —
-  landing after the Select commit but before its own report reached the connection state machine —
+  Previously the outcome was random.
+  Caller cancellation behaves as before.
+
+#### Open, Close, and reconnect
+
+- `hsms`: `Close` no longer blocks behind an `Open` that is itself blocked,
+  either in `OpenWaitSelected`'s wait for Selected or in an active transport's first dial.
+  `Close` interrupts either, and `Open` returns `ErrConnClosed`.
+  Previously `Close` waited until `Open` returned on its own:
+  forever for an `OpenWaitSelected` wait with no peer,
+  or about two minutes on Linux for a blocked first dial without `WithConnectTimeout`.
+- `hsms`: a disconnect landing after the Select commit but before its own report reached the state machine
   is no longer silently absorbed.
-  Previously such a disconnect could leave the connection down with no reconnect attempt and no `NotConnected` notification.
-  A TCP-up report that a disconnect had already overtaken could also resurrect `NotSelected` on the dropped link, leaving it stuck there with no reconnect;
-  such a report is now discarded.
-- `hsms`: a custom transport whose `Start` reports TCP-up and then returns an error no longer races two reconnect loops against each other.
-  Previously the drop's own reaction spawned a loop for the new generation while the failed `Start`'s own retry loop also kept going,
-  and whichever one published its own successor last silently orphaned the other's live generation —
-  a passive transport listening on the same port lost that race outright, wedged on "address already in use".
-  The failing `Start` now hands the reconnect off to the drop's own reaction instead, so only one of the two can ever proceed.
-- `hsms`: a custom transport's `Start` failing after TCP-up but before any drop is ever reported no longer leaves the FSM stuck at `NotSelected` with the link silently dead.
-  The core now reports the drop itself in that case, and the usual reconnect follows.
-- `hsms`: a failed `Open` no longer leaves a reconnect loop running past the call that failed.
-  Previously a drop reaction racing the failed-`Open` rollback could spawn a loop that outlived `Open`'s return,
-  sleeping out its full configured backoff before a later `Open` finally reaped it.
-- `hsms`: a disconnect a transport reported without a generation identity (`secs1`, or a transport using only `TransportRuntime`) —
-  if it arrived just before a reconnect and was processed only after the new link came up —
-  could briefly knock the new link back to `NotConnected` (a `State()` misreport),
-  and a Select arriving in that window could be refused;
-  it is now applied only to the generation that was current when it was reported.
-  The same fix applies to an unnamed T7 (NOT-SELECTED dwell) expiry.
+  Previously it could leave the connection down with no reconnect and no `NotConnected` notification.
+  A TCP-up report that a disconnect had already overtaken is now discarded,
+  instead of reviving `NotSelected` on the dropped link and leaving it stuck there.
+- `hsms`: a failed `Open` no longer leaves a reconnect loop running past its return.
+  Previously a drop reaction racing the rollback could start a loop
+  that slept out its full backoff before a later `Open` reaped it.
+
+#### Custom transports
+
+- `hsms`: a custom transport whose `Start` reports TCP-up and then returns an error
+  no longer runs two reconnect loops against each other.
+  Previously one loop could orphan the other's live generation;
+  a passive transport on the same port was left wedged on "address already in use".
+  The failing `Start` now hands the reconnect to the drop's reaction, so only one loop proceeds.
+- `hsms`: a custom transport's `Start` failing after TCP-up, before any drop is reported,
+  no longer leaves the state stuck at `NotSelected` with a dead link.
+  The core reports the drop itself, and the usual reconnect follows.
+- `hsms`: a disconnect or T7 expiry reported without a generation identity
+  (`secs1`, or a transport using only `TransportRuntime`)
+  is applied only to the generation that was current when it was reported.
+  Previously, if it was processed only after a reconnect,
+  it could knock the new link back to `NotConnected` and make it refuse a Select.
 - `hsms`: a Select-accepted, Select-lost, or TCP-up commit reported without a generation identity
-  (`secs1`, or a transport using only `TransportRuntime`) —
-  if its own report to the state machine was delayed past a reconnect —
-  could be applied to the generation that replaced the one which made the commit.
-  Select-accepted could mark the new link Selected without its own handshake ever running;
-  Select-lost could report the new link's bring-up under the wrong cause;
-  TCP-up could report that bring-up on the old generation's behalf,
-  before the new link's own report (same cause, `CauseLocalOpen`).
-  The commit's own liveness check already ran against the reporting generation for Select-accepted and TCP-up;
-  an unnamed Select-lost commit had no liveness check at all until this fix — a bare CAS at generation 0 (see above).
-  Only the queued report to the state machine carried no generation identity,
-  so a stale one could still land on the new link.
-  That report is now bound to the generation the commit was validated against,
-  and is discarded once a successor generation has replaced it —
-  an ended-but-current generation's report is still admitted —
-  the same way an unnamed disconnect report already is.
-  A late unnamed call made after the new generation is already current still targets that new generation
-  and may commit if its remaining guards pass; socket publication is outside this fence.
+  is bound to the generation it was validated against,
+  and its report is discarded once a successor generation has replaced that one.
+  Previously a delayed report could land on the new link:
+  Select-accepted could mark it Selected without its own handshake,
+  Select-lost could report its bring-up under the wrong cause,
+  and TCP-up could report its bring-up on the old generation's behalf.
+  A late call made after the new generation is already current still targets the new generation.
 
 ## [2.4.2] - 2026-09-25
 
@@ -1644,6 +1685,9 @@ release's fuzz work were closed out.
   Deselect.req / Deselect.rsp / Separate.req are now honoured end-to-end
   and take the session through the documented state transitions.
 
+[2.5.0]: https://github.com/arloliu/go-secs/releases/tag/v2.5.0
+[2.4.2]: https://github.com/arloliu/go-secs/releases/tag/v2.4.2
+[2.4.1]: https://github.com/arloliu/go-secs/releases/tag/v2.4.1
 [2.4.0]: https://github.com/arloliu/go-secs/releases/tag/v2.4.0
 [2.3.1]: https://github.com/arloliu/go-secs/releases/tag/v2.3.1
 [2.3.0]: https://github.com/arloliu/go-secs/releases/tag/v2.3.0
