@@ -198,11 +198,13 @@ Three interface paths, all optional and additive:
   when present it calls the gate with the failure the epoch recorded (below), otherwise it closes the connection directly as it does now.
   Transport `Stop`, a sealed dial, a refused TCP-up, and the refusal cleanup and `haltRefusal` paths call the same gate,
   so every socket closes through it and `SocketClosed` is emitted once.
-- *Failure first.* Every site that learns of a failure calls the gate with its error before it initiates teardown,
-  so teardown's later call with nil cannot win:
-  the receive loop calls the gate with the read error before it reports the TCP-down;
-  the core's write-error path records the write error on the epoch, and the epoch's close passes it to the gate;
-  and the refusal exchange retains the error of its malformed-length, malformed-header and failed-write branches for the gate, instead of closing through a deferred `Close`.
+- *Failure first.* Every failure that initiates a socket's closure reaches the gate with its error before teardown can reach it with nil,
+  through two chokepoints rather than per-site calls:
+  every involuntary disconnect the HSMS-SS transport reports goes through its `tcpDown` helper with an error and a cause
+  (read errors, a failed Select on the active side, a linktest failure, a T7 expiry), and that helper calls the gate with the error before reporting the down;
+  the core's write-error path records the write error on the epoch before it initiates teardown, and the epoch's close passes it to the gate.
+  The refusal exchange closes through one deferred gate call that takes the error retained by whichever branch returned:
+  the absolute deadline, a short read, a malformed length or header, or a failed response write.
   A local close with no recorded failure passes nil.
   A race between a read error and a local close is decided by the first caller; the outcome is one close event with that caller's error.
 
@@ -236,9 +238,13 @@ For the eqp-hub device (or any recorder), with `epoch` always the per-capture va
 - one `LifecycleEvent` becomes a `state-transition` transport event with `cause` mapped per `tracepack-go.md` §5;
 - one `TxEvent` with outcome T3 becomes a `timer-expiry` event with the primary's identifiers;
 - `SocketConnected` / `SocketAccepted` / `SocketClosed` become `socket-connect` / `socket-accept` / `socket-close` events;
-  a refused socket yields, in its own epoch, `socket-accept`, the two observed frames,
-  a `state-transition` record from `not-connected` to `not-connected` with cause `select-rejected` and `cause_raw` naming the refusal,
-  which is the transition record the format requires for an accepted-then-refused socket, and `socket-close`;
+  a refused socket yields, in its own epoch, `socket-accept`, whichever of its two frames were actually observed (none, one or both),
+  a `state-transition` record from `not-connected` to `not-connected` with cause `select-rejected` and `cause_raw` `go-secs:SocketRefused`,
+  and `socket-close`.
+  The transition record's source is the `SocketRefused` notification itself:
+  go-secs reports it as the HSMS implementation's notification that the refused socket's connection attempt ended,
+  which is what the format's transport-event rules require as the source of a transition record for an accepted-then-refused socket;
+  the Go mapping's cause table (`tracepack-go.md` §5) gains that row when this proposal is implemented;
 - the device's own start and stop become the capture boundaries, with a recorder instance id it mints per process.
 
 Buffering, shipping and back-pressure are the recorder's, never go-secs's.
