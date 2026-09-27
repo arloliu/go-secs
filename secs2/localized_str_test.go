@@ -51,7 +51,7 @@ func TestLocalizedStrItem(t *testing.T) {
 			expectedSize: 6, // 4 + 2
 			// 0x49 = format byte, 0x06 = length, 0x00 0x03 = LSH 3 (ASCII), "test"
 			expectedToBytes: []byte{0x49, 0x06, 0x00, 0x03, 't', 'e', 's', 't'},
-			expectedToSML:   `<W "test">`,
+			expectedToSML:   `<W 3 "test">`, // a non-UTF-8 LSH leads the value
 		},
 	}
 

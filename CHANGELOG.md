@@ -27,6 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `sml`, `secs2`: a `W` item now round-trips through SML byte for byte, LSH included.
+  The encoder and `LocalizedStrItem.ToSML` write printable UTF-8 in double-quoted runs that escape only `"` and `\`,
+  write every other byte as a `0xHH` token instead of a Go escape such as `\n` or `\xff`,
+  and write an LSH other than UTF-8 as a leading decimal token, for example `<W 8 0x82 0xA0>`.
+  The parser reads that grammar in both modes:
+  `\\`, `\'`, and `\"` inside the quotes are now escapes, where they used to be kept verbatim,
+  and adjacent runs concatenate (`<W 'a' 'b'>` is now `ab`, not `a' 'b`).
+  A backslash before any other character is still kept, so older encoder output such as `<W "a\nb">` reads as before.
+  In non-strict mode, a value the grammar rejects falls back to the old verbatim rule, so `<W 'it's'>` still parses;
+  strict mode rejects it.
+  `A` and `J` items are unchanged.
 - `hsms`: a panicking `DataMessageHandler` or `DecodeErrorHandler` is now recovered instead of crashing the process.
   The message still reaches the remaining handlers (and, for a data message, the channels),
   subject to the existing teardown-observation rules.

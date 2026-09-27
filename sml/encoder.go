@@ -90,16 +90,7 @@ func (e *Encoder) encodeItem(sb *strings.Builder, it secs2.Item, level int) erro
 		s, _ := it.ToJIS8()
 		e.encodeString(sb, "J", s, false) // JIS8 has no strict numeric-token grammar — always raw-quoted
 	case it.IsLocalizedStr():
-		if it.Size() == 0 { // the zero-length item: no LSH and no text
-			sb.WriteString("<W[0]>")
-
-			break
-		}
-
-		s, _ := it.ToLocalizedStr()
-		sb.WriteString("<W ")
-		sb.WriteString(strconv.Quote(s)) // matches secs2 %q
-		sb.WriteByte('>')
+		sb.WriteString(it.ToSML()) // one W grammar, shared with the parser's reader; see LocalizedStrItem.ToSML
 	case it.IsBinary():
 		e.encodeBinary(sb, it)
 	case it.IsBoolean():
