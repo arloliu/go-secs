@@ -7,5 +7,6 @@
 // the conformance corpus is the executable arbiter where the two disagree.
 //
 // This module is versioned independently of go-secs, with tags of the form tracepack/vX.Y.Z.
-// The package API is not yet defined; it lands with the format primitives.
+// The package holds the record and pack-metadata types, the typed event payloads and the Writer;
+// the reader, verification, merge and extraction follow.
 package tracepack

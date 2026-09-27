@@ -3,6 +3,7 @@ package tracepack_test
 import (
 	"bytes"
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -203,6 +204,13 @@ func mixedRecords(t *testing.T) []tracepack.Record {
 	return recs
 }
 
+// closeErr closes w and returns only the error.
+func closeErr(w *tracepack.Writer) error {
+	_, err := w.Close()
+
+	return err
+}
+
 // appendAll appends every record of recs to w, failing the test on error.
 func appendAll(t *testing.T, w *tracepack.Writer, recs []tracepack.Record) {
 	t.Helper()
@@ -231,8 +239,10 @@ func TestNewWriterWritesHeaderAndMetadata(t *testing.T) {
 	assert.Equal(t, meta, p.Meta, "metadata round trip; blocks_validated absent without Validate")
 	assert.Empty(t, p.Blocks)
 
-	require.NoError(t, w.Close())
-	assert.Equal(t, format.FileHeaderLen+len(p.MetaBytes), buf.Len(), "Close writes no footer or trailer yet")
+	mustClose(t, w)
+	p = mustWalkPack(t, buf.Bytes())
+	require.NotNil(t, p.Footer, "Close finalizes the pack")
+	assert.Equal(t, uint64(format.FileHeaderLen+len(p.MetaBytes)), p.Footer.Trailer.FooterOffset, "no block before the footer")
 }
 
 func TestNewWriterGeneratesUUIDv7(t *testing.T) {
@@ -259,7 +269,7 @@ func TestWriterRoundTripMixedKinds(t *testing.T) {
 			want := mixedRecords(t)
 			w, buf := newTestWriter(t, tracepack.WriterOptions{Codec: c})
 			appendAll(t, w, want)
-			require.NoError(t, w.Close())
+			mustClose(t, w)
 
 			p := mustWalkPack(t, buf.Bytes())
 			require.Len(t, p.Blocks, 1)
@@ -314,7 +324,7 @@ func TestWriterClosesBlockAtUTCHourBoundary(t *testing.T) {
 
 	w, buf := newTestWriter(t, tracepack.WriterOptions{Codec: tracepack.CodecZstd})
 	appendAll(t, w, recs)
-	require.NoError(t, w.Close())
+	mustClose(t, w)
 
 	p := mustWalkPack(t, buf.Bytes())
 	assert.Equal(t, [][]uint64{{0, 1}, {2, 3}, {4}, {5}, {6}}, blockSeqs(p))
@@ -346,7 +356,7 @@ func TestWriterClosesBlockAtThreshold(t *testing.T) {
 
 			w, buf := newTestWriter(t, tracepack.WriterOptions{BlockThreshold: tt.threshold})
 			appendAll(t, w, recs)
-			require.NoError(t, w.Close())
+			mustClose(t, w)
 
 			p := mustWalkPack(t, buf.Bytes())
 			assert.Equal(t, tt.want, blockSeqs(p))
@@ -370,7 +380,7 @@ func TestWriterWritesOversizedRecordAlone(t *testing.T) {
 
 	w, buf := newTestWriter(t, tracepack.WriterOptions{BlockThreshold: 200, Codec: tracepack.CodecZstd})
 	appendAll(t, w, recs)
-	require.NoError(t, w.Close())
+	mustClose(t, w)
 
 	p := mustWalkPack(t, buf.Bytes())
 	assert.Equal(t, [][]uint64{{0, 1}, {2}, {3}}, blockSeqs(p))
@@ -391,7 +401,7 @@ func TestWriterFlushClosesOpenBlock(t *testing.T) {
 	require.NoError(t, w.Flush())
 	require.NoError(t, w.Flush(), "a second flush has no block to close")
 	require.NoError(t, w.Append(&r1))
-	require.NoError(t, w.Close())
+	mustClose(t, w)
 
 	p := mustWalkPack(t, buf.Bytes())
 	assert.Equal(t, [][]uint64{{0}, {1}}, blockSeqs(p))
@@ -422,7 +432,7 @@ func TestWriterDerivesOwnedBits(t *testing.T) {
 
 	w, buf := newTestWriter(t, tracepack.WriterOptions{})
 	appendAll(t, w, in)
-	require.NoError(t, w.Close())
+	mustClose(t, w)
 
 	p := mustWalkPack(t, buf.Bytes())
 	assert.Equal(t, want, p.records())
@@ -455,7 +465,7 @@ func TestWriterZeroesUnavailableCopies(t *testing.T) {
 
 	w, buf := newTestWriter(t, tracepack.WriterOptions{Validate: true})
 	appendAll(t, w, []tracepack.Record{stale, event})
-	require.NoError(t, w.Close())
+	mustClose(t, w)
 
 	p := mustWalkPack(t, buf.Bytes())
 	got := p.records()
@@ -482,7 +492,7 @@ func TestWriterCodecsDecodeToEqualBodies(t *testing.T) {
 		w, buf := newTestWriter(t, tracepack.WriterOptions{Codec: c, BlockThreshold: 250, PackID: uuidOfByte(1), CaptureID: uuidOfByte(2)})
 		recs := mixedRecords(t)
 		appendAll(t, w, recs)
-		require.NoError(t, w.Close())
+		mustClose(t, w)
 
 		p := mustWalkPack(t, buf.Bytes())
 		for _, b := range p.Blocks {
@@ -535,7 +545,7 @@ func TestWriterCallerSeqsAllowGapsAndRejectDisorder(t *testing.T) {
 
 	r := dataRecord(21, hourStart+21)
 	require.NoError(t, w.Append(&r), "a rejected record leaves the writer usable")
-	require.NoError(t, w.Close())
+	mustClose(t, w)
 
 	p := mustWalkPack(t, buf.Bytes())
 	assert.Equal(t, [][]uint64{{10, 12, 20, 21}}, blockSeqs(p))
@@ -590,7 +600,7 @@ func TestWriterAssignsSeqFromNextSeq(t *testing.T) {
 		require.NoError(t, w.Append(&r))
 		assigned = append(assigned, r.Seq)
 	}
-	require.NoError(t, w.Close())
+	mustClose(t, w)
 
 	assert.Equal(t, []uint64{100, 101, 102}, assigned, "Append stores the assigned seq in the record")
 
@@ -628,11 +638,11 @@ func TestWriterSyncsEveryBlock(t *testing.T) {
 		r := dataRecord(uint64(i), hourStart+int64(i))
 		require.NoError(t, w.Append(&r))
 	}
-	require.NoError(t, w.Close())
+	mustClose(t, w)
 
 	p := mustWalkPack(t, buf.Bytes())
 	require.Len(t, p.Blocks, 3)
-	assert.Equal(t, len(p.Blocks), s.calls)
+	assert.Equal(t, len(p.Blocks)+1, s.calls, "one sync per block and one after the trailer")
 }
 
 func TestWriterSyncFailureFailsWriter(t *testing.T) {
@@ -653,7 +663,7 @@ func TestWriterSyncFailureFailsWriter(t *testing.T) {
 	err := w.Append(&r)
 	require.ErrorIs(t, err, tracepack.ErrWriterFailed)
 	require.ErrorIs(t, err, errSync, "the failure names its cause")
-	require.ErrorIs(t, w.Close(), tracepack.ErrWriterFailed)
+	require.ErrorIs(t, closeErr(w), tracepack.ErrWriterFailed)
 }
 
 // failingWriter accepts limit bytes, then fails every write.
@@ -701,13 +711,13 @@ func TestWriterRejectsCallsAfterClose(t *testing.T) {
 	w, buf := newTestWriter(t, tracepack.WriterOptions{})
 	r := dataRecord(0, hourStart)
 	require.NoError(t, w.Append(&r))
-	require.NoError(t, w.Close())
+	mustClose(t, w)
 	n := buf.Len()
 
 	r = dataRecord(1, hourStart+1)
 	require.ErrorIs(t, w.Append(&r), tracepack.ErrClosed)
 	require.ErrorIs(t, w.Flush(), tracepack.ErrClosed)
-	require.ErrorIs(t, w.Close(), tracepack.ErrClosed)
+	require.ErrorIs(t, closeErr(w), tracepack.ErrClosed)
 	assert.Equal(t, n, buf.Len())
 }
 
@@ -762,7 +772,7 @@ func TestValidatingWriterAttestsAgreeingPack(t *testing.T) {
 	w, buf := newTestWriter(t, tracepack.WriterOptions{Meta: meta, Validate: true, Codec: tracepack.CodecZstd, BlockThreshold: 200})
 	recs := mixedRecords(t)
 	appendAll(t, w, recs)
-	require.NoError(t, w.Close())
+	mustClose(t, w)
 
 	p := mustWalkPack(t, buf.Bytes())
 	require.NotNil(t, p.Meta.BlocksValidated)
@@ -811,7 +821,7 @@ func TestValidatingWriterRejectsCopyDisagreement(t *testing.T) {
 	require.ErrorIs(t, err, tracepack.ErrWriterFailed)
 	require.ErrorIs(t, err, tracepack.ErrValidation)
 	require.ErrorIs(t, w.Flush(), tracepack.ErrWriterFailed)
-	require.ErrorIs(t, w.Close(), tracepack.ErrWriterFailed)
+	require.ErrorIs(t, closeErr(w), tracepack.ErrWriterFailed)
 	assert.Equal(t, written, buf.Len())
 
 	p := mustWalkPack(t, buf.Bytes())
@@ -827,7 +837,7 @@ func TestValidatingWriterRejectsValidityBeyondPayload(t *testing.T) {
 	r.Payload = s1f3Frame[:9] // ptype is the last captured byte
 	r.DecodeStatus = tracepack.DecodeStatusShortFrame
 	require.NoError(t, w.Append(&r))
-	require.ErrorIs(t, w.Close(), tracepack.ErrValidation, "field_validity claims stype and system_bytes the payload lacks")
+	require.ErrorIs(t, closeErr(w), tracepack.ErrValidation, "field_validity claims stype and system_bytes the payload lacks")
 }
 
 func TestNonValidatingWriterStoresCopyDisagreement(t *testing.T) {
@@ -836,8 +846,231 @@ func TestNonValidatingWriterStoresCopyDisagreement(t *testing.T) {
 	w, buf := newTestWriter(t, tracepack.WriterOptions{})
 	bad := s6f11CopiesOverS1F3(0)
 	require.NoError(t, w.Append(&bad))
-	require.NoError(t, w.Close())
+	mustClose(t, w)
 
 	p := mustWalkPack(t, buf.Bytes())
 	assert.Equal(t, []tracepack.Record{bad}, p.records(), "the writer stores what it receives")
+}
+
+// clockTolerance is the clock_step_tolerance_ns of clockMeta: 1 ms.
+const clockTolerance int64 = 1_000_000
+
+// clockMeta returns writerMeta for a capture-clock pack,
+// whose clock anchor starts at (capture_origin_utc_ns = hourStart, mono 0) and tolerates clockTolerance of drift.
+func clockMeta() *tracepack.PackMeta {
+	m := writerMeta()
+	m.TimeSource = tracepack.TimeSourceCaptureClock
+	m.CaptureOriginUTCNs = new(hourStart)
+	m.CaptureOriginMonoNs = new(int64(123_456)) // the process clock reading; record mono values are relative to it
+	m.ClockStepToleranceNs = new(uint64(clockTolerance))
+
+	return m
+}
+
+// monoRecord returns a data record observed at wall clock wall and capture-relative mono clock mono.
+func monoRecord(wall, mono int64) tracepack.Record {
+	r := dataRecord(0, wall)
+	r.MonoNs = mono
+
+	return r
+}
+
+// clockStepRecord returns the record a detecting Writer writes before r under seq for a step of drift.
+func clockStepRecord(t *testing.T, r *tracepack.Record, seq uint64, drift int64) tracepack.Record {
+	t.Helper()
+
+	return tracepack.Record{
+		Seq: seq, TSUTCNs: r.TSUTCNs, MonoNs: r.MonoNs, MonoPresent: true, Epoch: r.Epoch,
+		Kind: tracepack.KindTransportEvent, Dir: tracepack.DirLocal,
+		Fidelity: tracepack.FidelityNotApplicable, DecodeStatus: tracepack.DecodeStatusNotApplicable,
+		Payload: mustEventPayload(t, &tracepack.TransportEvent{Event: tracepack.EventClockStep, ClockStepNs: &drift}),
+	}
+}
+
+// newClockWriter opens a Writer over a fresh buffer for clockMeta with assigned seqs and the given options.
+func newClockWriter(t *testing.T, opts tracepack.WriterOptions) (*tracepack.Writer, *bytes.Buffer) {
+	t.Helper()
+
+	opts.Meta = clockMeta()
+	opts.AssignSeq = true
+
+	return newTestWriter(t, opts)
+}
+
+func TestWriterDetectsClockStep(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	s := &sizeSyncer{buf: &buf}
+	w, err := tracepack.NewWriter(&buf, tracepack.WriterOptions{
+		Meta: clockMeta(), Facts: tracepack.PackFacts{AnyClassified: true}, AssignSeq: true, DetectClockSteps: true, Sync: s,
+		Validate: true,
+	})
+	require.NoError(t, err)
+
+	in := []tracepack.Record{
+		monoRecord(hourStart+1_000, 1_000),     // drift 0 against (hourStart, 0)
+		monoRecord(hourStart+2_000, 2_000),     // drift 0
+		monoRecord(hourStart+5_003_000, 3_000), // drift +5 ms: a step forward
+		monoRecord(hourStart+5_404_000, 4_000), // drift +0.4 ms against the new anchor (hourStart+5_003_000, 3_000)
+		monoRecord(hourStart+2_005_000, 5_000), // drift -3 ms against it: a step back
+	}
+	in[2].Epoch = 4
+	for i := range in {
+		require.NoError(t, w.Append(&in[i]), "record %d", i)
+	}
+	assert.Equal(t, []uint64{0, 1, 3, 4, 6}, []uint64{in[0].Seq, in[1].Seq, in[2].Seq, in[3].Seq, in[4].Seq},
+		"each step takes the seq before its record")
+	mustClose(t, w)
+
+	p := mustWalkPack(t, buf.Bytes())
+	assert.Equal(t, [][]uint64{{0, 1}, {2}, {3, 4}, {5}, {6}}, blockSeqs(p),
+		"the open block is closed before the step, and the step is written alone before its record")
+	want := []tracepack.Record{
+		in[0], in[1],
+		clockStepRecord(t, &in[2], 2, 5_000_000), in[2], in[3],
+		clockStepRecord(t, &in[4], 5, -3_000_000), in[4],
+	}
+	assert.Equal(t, want, p.records())
+
+	require.Len(t, s.sizes, len(p.Blocks)+1, "every block, the step's included, is synced; then the trailer")
+	for i, b := range p.Blocks {
+		assert.Equal(t, b.Offset+format.EnvelopeLen+len(b.Body), s.sizes[i], "block %d is synced once written", i)
+	}
+}
+
+func TestWriterClockStepBeforeFirstRecord(t *testing.T) {
+	t.Parallel()
+
+	w, buf := newClockWriter(t, tracepack.WriterOptions{DetectClockSteps: true})
+	r := monoRecord(hourStart+2*clockTolerance, 0)
+	require.NoError(t, w.Append(&r))
+	mustClose(t, w)
+
+	p := mustWalkPack(t, buf.Bytes())
+	assert.Equal(t, [][]uint64{{0}, {1}}, blockSeqs(p), "no open block to close: the step is the first record")
+	assert.Equal(t, []tracepack.Record{clockStepRecord(t, &r, 0, 2*clockTolerance), r}, p.records())
+}
+
+func TestWriterClockDriftWithinTolerance(t *testing.T) {
+	t.Parallel()
+
+	w, buf := newClockWriter(t, tracepack.WriterOptions{DetectClockSteps: true})
+	in := []tracepack.Record{
+		monoRecord(hourStart+1_000+clockTolerance, 1_000), // drift exactly +tolerance
+		monoRecord(hourStart+2_000-clockTolerance, 2_000), // drift exactly -tolerance
+		monoRecord(hourStart+3_000, 3_000),
+	}
+	appendAssigned(t, w, in)
+	mustClose(t, w)
+
+	p := mustWalkPack(t, buf.Bytes())
+	assert.Equal(t, in, p.records(), "a drift that does not exceed the tolerance is no step")
+}
+
+func TestWriterClockStepSkipsRecordsWithoutMono(t *testing.T) {
+	t.Parallel()
+
+	w, buf := newClockWriter(t, tracepack.WriterOptions{DetectClockSteps: true})
+	noMono := monoRecord(hourStart+hourNs/2, 0)
+	noMono.MonoPresent, noMono.MonoNs, noMono.Quality = false, 0, tracepack.QualityNoMono
+	in := []tracepack.Record{
+		monoRecord(hourStart+1_000, 1_000),
+		noMono, // 30 minutes off, but without mono the rule does not apply
+		monoRecord(hourStart+hourNs/2+500, hourNs/2), // drift +500 ns against the unmoved anchor
+	}
+	appendAssigned(t, w, in)
+	mustClose(t, w)
+
+	p := mustWalkPack(t, buf.Bytes())
+	assert.Equal(t, in, p.records())
+}
+
+func TestWriterAdoptsReceivedClockStepAsAnchor(t *testing.T) {
+	t.Parallel()
+
+	w, buf := newClockWriter(t, tracepack.WriterOptions{DetectClockSteps: true})
+	received := monoRecord(hourStart+10*clockTolerance+1_000, 1_000)
+	received = clockStepRecord(t, &received, 0, 10*clockTolerance)
+	in := []tracepack.Record{
+		monoRecord(hourStart, 0),
+		received, // exempt from the rule, and the new anchor
+		monoRecord(hourStart+10*clockTolerance+2_000, 2_000), // drift 0 against the received step
+	}
+	appendAssigned(t, w, in)
+	mustClose(t, w)
+
+	p := mustWalkPack(t, buf.Bytes())
+	assert.Equal(t, in, p.records(), "the writer adds no step of its own")
+}
+
+func TestWriterWithoutDetectionPreservesClockSteps(t *testing.T) {
+	t.Parallel()
+
+	w, buf := newClockWriter(t, tracepack.WriterOptions{})
+	drifted := monoRecord(hourStart+50*clockTolerance, 1_000)
+	in := []tracepack.Record{
+		monoRecord(hourStart, 0),
+		clockStepRecord(t, &drifted, 0, 50*clockTolerance), // producer-detected
+		drifted,
+		monoRecord(hourStart+hourNs/4, 2_000), // a drift no producer marked: stored as received
+	}
+	appendAssigned(t, w, in)
+	mustClose(t, w)
+
+	p := mustWalkPack(t, buf.Bytes())
+	assert.Equal(t, in, p.records())
+	assert.Equal(t, [][]uint64{{0, 1, 2, 3}}, blockSeqs(p))
+}
+
+func TestWriterClockStepDriftSaturates(t *testing.T) {
+	t.Parallel()
+
+	w, buf := newClockWriter(t, tracepack.WriterOptions{DetectClockSteps: true})
+	// (wall - anchor wall) - mono is far below -2^63: the recorded step saturates.
+	r := monoRecord(math.MinInt64, math.MaxInt64)
+	require.NoError(t, w.Append(&r))
+	mustClose(t, w)
+
+	p := mustWalkPack(t, buf.Bytes())
+	require.Len(t, p.records(), 2)
+	ev, err := tracepack.UnmarshalTransportEvent(p.records()[0].Payload)
+	require.NoError(t, err)
+	assert.Equal(t, tracepack.EventClockStep, ev.Event)
+	assert.Equal(t, new(int64(math.MinInt64)), ev.ClockStepNs)
+}
+
+func TestNewWriterRejectsClockStepOptions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		opts tracepack.WriterOptions
+	}{
+		{"caller seqs leave no seq for a step", tracepack.WriterOptions{Meta: clockMeta(), DetectClockSteps: true}},
+		{"not a capture-clock pack", tracepack.WriterOptions{Meta: writerMeta(), DetectClockSteps: true, AssignSeq: true}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.opts.Facts.AnyClassified = true
+			var buf bytes.Buffer
+			w, err := tracepack.NewWriter(&buf, tt.opts)
+			require.Error(t, err)
+			assert.Nil(t, w)
+			assert.Zero(t, buf.Len())
+		})
+	}
+}
+
+// appendAssigned appends every record of recs to a Writer that assigns seqs,
+// storing each assigned seq back in recs.
+func appendAssigned(t *testing.T, w *tracepack.Writer, recs []tracepack.Record) {
+	t.Helper()
+
+	for i := range recs {
+		require.NoError(t, w.Append(&recs[i]), "record %d", i)
+	}
 }

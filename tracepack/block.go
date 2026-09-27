@@ -26,10 +26,11 @@ type seqRange struct {
 }
 
 // epochSummary accumulates the records of one epoch within one block,
-// for the nested epoch entry of the block's footer summary (the tracepack format specification §10).
+// for the nested epoch entry of the block's footer summary (the tracepack format specification §10),
+// and within the whole pack for the pack statistics.
 type epochSummary struct {
 	epoch       uint32
-	recordCount uint32
+	recordCount uint64
 	seqFirst    uint64
 	seqLast     uint64
 	tsMin       int64

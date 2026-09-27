@@ -268,7 +268,8 @@ func TestWriterRecordsBlockSummaries(t *testing.T) {
 		r := testDataRecord(uint64(i), blockTestHour+int64(i), 1)
 		require.NoError(t, w.Append(&r))
 	}
-	require.NoError(t, w.Close())
+	_, err = w.Close()
+	require.NoError(t, err)
 
 	require.Len(t, w.blocks, 3)
 	next := uint64(headLen)
@@ -287,7 +288,9 @@ func TestWriterRecordsBlockSummaries(t *testing.T) {
 
 		next += uint64(s.onDiskLen)
 	}
-	assert.Equal(t, uint64(buf.Len()), next)
+	tr, err := format.UnmarshalTrailer(buf.Bytes()[buf.Len()-format.TrailerLen:])
+	require.NoError(t, err)
+	assert.Equal(t, tr.FooterOffset, next, "the footer follows the last block")
 	assert.Equal(t, []uint64{0, 2, 4}, []uint64{w.blocks[0].firstSeq, w.blocks[1].firstSeq, w.blocks[2].firstSeq})
 	assert.Equal(t, []uint64{1, 3, 4}, []uint64{w.blocks[0].lastSeq, w.blocks[1].lastSeq, w.blocks[2].lastSeq})
 }
