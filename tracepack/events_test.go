@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/arloliu/go-secs/tracepack"
+	"github.com/arloliu/go-secs/tracepack/internal/tlv"
 )
 
 // Golden transport-event and annotation payloads are hand-built from the entry layout of the tracepack format specification §5
@@ -251,4 +252,66 @@ func TestAnnotationMarshalRejectsUnknownEntryNamingKnownTag(t *testing.T) {
 	}
 	_, err := a.MarshalBinary()
 	require.ErrorIs(t, err, tracepack.ErrReservedTag)
+}
+
+func TestTransportEventMarshalRejectsValuesItsDecoderRejects(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		ev   tracepack.TransportEvent
+		want error
+	}{
+		{"cause_raw not valid UTF-8", tracepack.TransportEvent{Event: tracepack.EventStateTransition, CauseRaw: new("\xff")}, tlv.ErrUTF8},
+		{"primary_session_id above 2^63-1", tracepack.TransportEvent{
+			Event: tracepack.EventStateTransition, PrimarySessionID: new(uint64(1) << 63),
+		}, tlv.ErrLimit},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, err := tt.ev.MarshalBinary()
+			require.ErrorIs(t, err, tt.want)
+			assert.Nil(t, b)
+		})
+	}
+}
+
+func TestTransportEventMarshalLimitValueRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	ev := &tracepack.TransportEvent{Event: tracepack.EventStateTransition, PrimarySessionID: new(uint64(1)<<63 - 1)}
+	b, err := ev.MarshalBinary()
+	require.NoError(t, err)
+
+	got, err := tracepack.UnmarshalTransportEvent(b)
+	require.NoError(t, err)
+	assert.Equal(t, ev, got)
+}
+
+func TestAnnotationMarshalRejectsValuesItsDecoderRejects(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		ann  tracepack.Annotation
+		want error
+	}{
+		{"text not valid UTF-8", tracepack.Annotation{AnnotationKind: tracepack.AnnotationKindNote, Text: new("\xff")}, tlv.ErrUTF8},
+		{"ref_seq_first above 2^63-1", tracepack.Annotation{
+			AnnotationKind: tracepack.AnnotationKindNote, Text: new("note"), RefSeqFirst: new(uint64(1) << 63),
+		}, tlv.ErrLimit},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, err := tt.ann.MarshalBinary()
+			require.ErrorIs(t, err, tt.want)
+			assert.Nil(t, b)
+		})
+	}
 }

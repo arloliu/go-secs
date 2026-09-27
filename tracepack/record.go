@@ -40,8 +40,13 @@ const (
 // and every copy field and FieldValidity of a record that is neither data nor control,
 // because the tracepack format specification §7.2 requires them to be zero on write.
 // It derives record_flags from W and MonoPresent,
-// and owns two quality bits: QualityNoMono is set iff MonoPresent is false,
-// and QualityDecodeFailed is set iff DecodeStatus.Malformed(), whatever Quality holds.
+// and owns three quality bits whatever Quality holds:
+// QualityNoMono is set iff MonoPresent is false,
+// QualityDecodeFailed is set iff DecodeStatus.Malformed(),
+// and QualityCaptureBoundary is set iff the record is a transport event whose payload decodes to a capture-boundary event.
+// It adds QualityCorrelationIncomplete to a record of epoch 0 (the tracepack format specification I-7),
+// and keeps the bit the caller set on any other epoch.
+// QualityRedacted is accepted only in an extract whose file header sets redaction-present.
 type Record struct {
 	// Seq is the capture-scoped record number;
 	// a Writer with WriterOptions.AssignSeq assigns it.

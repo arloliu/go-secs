@@ -3,6 +3,7 @@ package tracepack
 import (
 	"bytes"
 	"encoding/binary"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -46,8 +47,9 @@ func testEventRecord(t *testing.T, seq uint64, ts int64, epoch uint32, ev *Trans
 func buildBlock(recs []Record) *blockBuilder {
 	var b blockBuilder
 	for i := range recs {
-		h := canonicalHeader(&recs[i], recs[i].Seq)
-		b.add(&h, recs[i].Payload, transportEventOf(&recs[i]))
+		ev := transportEventOf(&recs[i])
+		h := canonicalHeader(&recs[i], recs[i].Seq, ev)
+		b.add(&h, recs[i].Payload, ev)
 	}
 
 	return &b
@@ -63,6 +65,32 @@ func TestHourOf(t *testing.T) {
 	assert.Equal(t, int64(-1), hourOf(-hourNs))
 	assert.Equal(t, int64(-2), hourOf(-hourNs-1))
 	assert.Equal(t, int64(497222), hourOf(blockTestHour))
+}
+
+func TestExceedsLimitDoesNotOverflow(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		size, add, limit int
+		want             bool
+	}{
+		{"sum below the limit", 10, 20, 100, false},
+		{"sum equal to the limit", 80, 20, 100, false},
+		{"sum above the limit", 81, 20, 100, true},
+		{"sum past MaxInt32", math.MaxInt32 - 10, 20, math.MaxInt32, true},
+		{"largest record on a near-full block", math.MaxInt32 - 1, math.MaxInt32, math.MaxInt32, true},
+		{"sum past MaxInt", math.MaxInt - 10, 20, math.MaxInt, true},
+		{"sum at MaxInt32", math.MaxInt32 - 20, 20, math.MaxInt32, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, exceedsLimit(tt.size, tt.add, tt.limit))
+		})
+	}
 }
 
 func TestValidateBodyAcceptsBuiltBlock(t *testing.T) {
@@ -214,7 +242,9 @@ func TestBlockSummaryAccumulatesFooterFacts(t *testing.T) {
 		dirCounts:          []uint32{0, 4, 0, 4},
 		decodeStatusCounts: []uint32{0, 3, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4},
 		maxPayloadLen:      uint32(len(recs[0].Payload)),
-		qualityUnion:       QualityNoMono | QualityDecodeFailed | QualityDirectionInferred,
+		// The boundary events derive capture-boundary, and the epoch-0 one correlation-incomplete.
+		qualityUnion: QualityNoMono | QualityDecodeFailed | QualityDirectionInferred |
+			QualityCaptureBoundary | QualityCorrelationIncomplete,
 		epochs: []epochSummary{
 			{epoch: 0, recordCount: 1, seqFirst: 1, seqLast: 1, tsMin: blockTestHour + 20, tsMax: blockTestHour + 20},
 			{

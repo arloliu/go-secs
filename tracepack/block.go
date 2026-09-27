@@ -104,6 +104,12 @@ func hourOf(ts int64) int64 {
 	return h
 }
 
+// exceedsLimit reports whether size + add exceeds limit, for sizes that are never negative.
+// The sum is taken in uint64, because in int it can overflow where int is 32 bits.
+func exceedsLimit(size, add, limit int) bool {
+	return uint64(size)+uint64(add) > uint64(limit)
+}
+
 // validateBody checks a decoded block body against I-2 and I-10 of the tracepack format specification §3,
 // with the 56-byte record_header_len this writer uses:
 // record_count × record_header_len + Σ payload_len equals the decoded length,

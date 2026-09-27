@@ -304,9 +304,11 @@ type PackMeta struct {
 
 var _ encoding.BinaryMarshaler = (*PackMeta)(nil)
 
-// FieldError reports which field a PackMeta, TransportEvent or Annotation rule failed for.
+// FieldError reports which field a PackMeta, TransportEvent or Annotation rule failed for,
+// or which commitment of the pack metadata or the file header a Writer call contradicts.
 type FieldError struct {
-	// Field is the failing tag's specification name, or a "0x%04X" tag for one PackMeta and Annotation do not name.
+	// Field is the failing tag's specification name, or a "0x%04X" tag for one PackMeta and Annotation do not name;
+	// for a Writer's commitment it may also be "redaction-present", the file header flag.
 	Field string
 	// Err is the sentinel error describing the failure.
 	Err error
@@ -414,8 +416,9 @@ var redactionEntrySetters = map[uint16]func(r *RedactionEntry, e tlv.Entry) erro
 }
 
 // Validate checks m against the conditional "Required when" rules of the pack metadata tag registry
-// (the tracepack format specification §5) that PackMeta's own fields cannot answer by themselves,
-// using facts to resolve the rules that depend on the pack's records or scope.
+// (the tracepack format specification §5):
+// those m's own fields decide, which UnmarshalPackMeta and MarshalBinary also enforce,
+// and those that depend on the pack's records or scope, which facts resolve.
 // The unconditional "always" rules cannot fail: their fields are not pointers, so they are always encoded.
 //
 // Returns:
@@ -464,18 +467,21 @@ func (m *PackMeta) Validate(facts PackFacts) error {
 
 // MarshalBinary encodes m as the TLV bytes of the tracepack format specification §5.
 //
-// It calls Validate(PackFacts{}) first, so only the rules that do not depend on record or scope facts are enforced;
+// It first enforces the rules UnmarshalPackMeta enforces, those that do not depend on record or scope facts;
 // a caller whose pack has additional facts (a classified record, a redacted record, a generation with a predecessor,
 // and so on) must call Validate(facts) itself before calling MarshalBinary.
 // schema_version is always written as 1 (the tracepack format specification §14),
 // and every RawEntry in m.Unknown is re-encoded after the typed fields.
 //
+// It rejects any value UnmarshalPackMeta would reject:
+// a string that is not valid UTF-8, a u64 above 2^63-1, nested values included.
+//
 // Returns:
 //   - []byte: the encoded pack metadata.
-//   - error: a *FieldError from Validate, or *FieldError wrapping ErrReservedTag for an Unknown entry
-//     that names a tag this package already encodes.
+//   - error: a *FieldError from Validate, a *FieldError wrapping ErrReservedTag for an Unknown entry
+//     that names a tag this package already encodes, or an error naming the first value the decoder would reject.
 func (m *PackMeta) MarshalBinary() ([]byte, error) {
-	if err := m.Validate(PackFacts{}); err != nil {
+	if err := m.validateIntrinsic(); err != nil {
 		return nil, err
 	}
 
@@ -490,27 +496,25 @@ func (m *PackMeta) MarshalBinary() ([]byte, error) {
 		return nil, err
 	}
 
-	var buf []byte
-	for _, e := range entries {
-		buf = tlv.AppendEntry(buf, e)
-	}
-
-	return buf, nil
+	return encodeEntries(entries, tlv.PackMetadata, "pack metadata")
 }
 
 // UnmarshalPackMeta decodes the pack metadata of the tracepack format specification §5 from b.
 //
-// It decodes b and checks it against the pack metadata tag registry with tlv.Decode and tlv.Validate,
-// which enforce every unconditionally required tag, every value type, and every nested registry;
+// It checks b against the pack metadata tag registry:
+// every unconditionally required tag, every value type and every nested entry;
 // it additionally rejects a schema_version other than 1.
-// UnmarshalPackMeta does not evaluate the conditional "Required when" rules:
-// those depend on facts about the pack's records that a bare pack metadata blob does not carry,
-// so a reader calls Validate itself only if it also has PackFacts to check against.
+// It then evaluates the conditional "Required when" rules the metadata answers by itself,
+// the rules Validate enforces with the zero PackFacts,
+// such as the capture origins a capture-clock pack requires, or the scope_generation every pack but an extract requires.
+// The rules that depend on facts about the pack's records or scope are left to the reader,
+// which calls Validate itself when it has PackFacts to check against.
 // An entry whose tag is not in the registry is preserved in the returned PackMeta's Unknown field.
 //
 // Returns:
 //   - *PackMeta: the decoded pack metadata; nil on error.
-//   - error: non-nil if b is not valid TLV, fails the registry check, or names an unsupported schema_version.
+//   - error: non-nil if b is not valid TLV, fails the registry check, or names an unsupported schema_version;
+//     a *FieldError wrapping ErrRequiredTag for the first "Required when" rule the metadata itself violates.
 func UnmarshalPackMeta(b []byte) (*PackMeta, error) {
 	entries, err := tlv.Decode(b)
 	if err != nil {
@@ -543,6 +547,10 @@ func UnmarshalPackMeta(b []byte) (*PackMeta, error) {
 		}
 
 		m.Unknown = append(m.Unknown, newRawEntry(e))
+	}
+
+	if err := m.validateIntrinsic(); err != nil {
+		return nil, err
 	}
 
 	return m, nil
@@ -653,6 +661,14 @@ func (t HSMSTimers) entry() tlv.Entry {
 	return tlv.NestedEntry(tagHSMSTimers, sub)
 }
 
+// validateIntrinsic checks the "Required when" rules that m's own fields decide,
+// which UnmarshalPackMeta and MarshalBinary both enforce.
+// Every PackFacts field only adds requirements, so under the zero PackFacts no fact-dependent rule applies,
+// and Validate(PackFacts{}) checks exactly the intrinsic rules, in the registry table's order.
+func (m *PackMeta) validateIntrinsic() error {
+	return m.Validate(PackFacts{})
+}
+
 // appendAlwaysEntries appends the entries of m's unconditionally required tags, which are never absent
 // because their fields are not pointers.
 func (m *PackMeta) appendAlwaysEntries(dst []tlv.Entry) []tlv.Entry {
@@ -760,13 +776,37 @@ func appendPresent(dst []tlv.Entry, opts []optionalEntry) []tlv.Entry {
 // appendUnknownEntries appends the entries of unknown, rejecting one whose tag reg already assigns a field to.
 func appendUnknownEntries(dst []tlv.Entry, unknown []RawEntry, reg tlv.Registry) ([]tlv.Entry, error) {
 	for _, r := range unknown {
+		field := fmt.Sprintf("0x%04X", r.Tag)
 		if _, known := reg[r.Tag]; known {
-			return nil, &FieldError{Field: fmt.Sprintf("0x%04X", r.Tag), Err: ErrReservedTag}
+			return nil, &FieldError{Field: field, Err: ErrReservedTag}
+		}
+		// Registry validation skips unknown tags, so the two rules the decoder applies to every entry
+		// (the tracepack format specification §5) are checked here before the entry is encoded.
+		if r.Tag == 0 {
+			return nil, &FieldError{Field: field, Err: tlv.ErrZeroTag}
+		}
+		if n, fixed := tlv.ValueType(r.Type).FixedLen(); fixed && len(r.Value) != n {
+			return nil, &FieldError{Field: field, Err: tlv.ErrLength}
 		}
 		dst = append(dst, tlv.Entry{Tag: r.Tag, Type: tlv.ValueType(r.Type), Value: r.Value})
 	}
 
 	return dst, nil
+}
+
+// encodeEntries checks entries against reg with the same registry validation the decoder of what applies,
+// then encodes them, so a marshaler never returns bytes its own decoder rejects.
+func encodeEntries(entries []tlv.Entry, reg tlv.Registry, what string) ([]byte, error) {
+	if err := tlv.Validate(entries, reg); err != nil {
+		return nil, fmt.Errorf("tracepack: encode %s: %w", what, err)
+	}
+
+	var buf []byte
+	for _, e := range entries {
+		buf = tlv.AppendEntry(buf, e)
+	}
+
+	return buf, nil
 }
 
 // setField returns a setter-map entry for R that decodes e with decode and passes the result to assign.

@@ -2,11 +2,9 @@
 //
 // Each target feeds arbitrary bytes to its Unmarshal function and asserts that it never panics
 // and that a decode failure returns a nil result.
-// UnmarshalTransportEvent and UnmarshalAnnotation validate everything MarshalBinary requires before returning,
+// Each Unmarshal function validates everything its MarshalBinary requires before returning,
+// UnmarshalPackMeta included, since both enforce the "Required when" rules the metadata itself decides,
 // so a successful decode always re-encodes, and the result decodes back to an equal value.
-// UnmarshalPackMeta does not evaluate the conditional "Required when" rules (they need facts it does not have),
-// so its MarshalBinary may fail on a struct UnmarshalPackMeta produced;
-// when it succeeds, the result still decodes back to an equal value.
 package tracepack_test
 
 import (
@@ -34,12 +32,7 @@ func FuzzUnmarshalPackMeta(f *testing.F) {
 		}
 
 		enc, err := m.MarshalBinary()
-		if err != nil {
-			var fe *tracepack.FieldError
-			require.ErrorAs(t, err, &fe)
-
-			return
-		}
+		require.NoError(t, err)
 
 		got, err := tracepack.UnmarshalPackMeta(enc)
 		require.NoError(t, err)

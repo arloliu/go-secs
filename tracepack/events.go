@@ -158,10 +158,12 @@ var annotationSetters = map[uint16]func(a *Annotation, e tlv.Entry) error{
 
 // MarshalBinary encodes t as the TLV bytes of a transport-event record payload (the tracepack format specification §8).
 // Every RawEntry in t.Unknown is re-encoded after the typed fields.
+// It rejects any value UnmarshalTransportEvent would reject: a string that is not valid UTF-8, or a u64 above 2^63-1.
 //
 // Returns:
 //   - []byte: the encoded payload.
-//   - error: a *FieldError wrapping ErrReservedTag for an Unknown entry that names a tag this package already encodes.
+//   - error: a *FieldError wrapping ErrReservedTag for an Unknown entry that names a tag this package already encodes,
+//     or an error naming the first value the decoder would reject.
 func (t *TransportEvent) MarshalBinary() ([]byte, error) {
 	entries := []tlv.Entry{tlv.U8Entry(tagEvent, uint8(t.Event))}
 	entries = t.appendOptionalEntries(entries)
@@ -171,21 +173,18 @@ func (t *TransportEvent) MarshalBinary() ([]byte, error) {
 		return nil, err
 	}
 
-	var buf []byte
-	for _, e := range entries {
-		buf = tlv.AppendEntry(buf, e)
-	}
-
-	return buf, nil
+	return encodeEntries(entries, tlv.TransportEvent, "transport-event")
 }
 
 // MarshalBinary encodes a as the TLV bytes of an annotation record payload (the tracepack format specification §8).
 // Every RawEntry in a.Unknown is re-encoded after the typed fields.
+// It rejects any value UnmarshalAnnotation would reject: a string that is not valid UTF-8, or a u64 above 2^63-1.
 //
 // Returns:
 //   - []byte: the encoded payload.
 //   - error: ErrAnnotationText if Text and Raw are not exactly one of the two,
-//     or a *FieldError wrapping ErrReservedTag for an Unknown entry that names a tag this package already encodes.
+//     a *FieldError wrapping ErrReservedTag for an Unknown entry that names a tag this package already encodes,
+//     or an error naming the first value the decoder would reject.
 func (a *Annotation) MarshalBinary() ([]byte, error) {
 	if err := a.validateTextRaw(); err != nil {
 		return nil, err
@@ -199,12 +198,7 @@ func (a *Annotation) MarshalBinary() ([]byte, error) {
 		return nil, err
 	}
 
-	var buf []byte
-	for _, e := range entries {
-		buf = tlv.AppendEntry(buf, e)
-	}
-
-	return buf, nil
+	return encodeEntries(entries, tlv.Annotation, "annotation")
 }
 
 // UnmarshalTransportEvent decodes a transport-event record payload (the tracepack format specification §8) from b.

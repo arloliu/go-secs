@@ -2,20 +2,22 @@ package tracepack_test
 
 import (
 	"encoding/hex"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/arloliu/go-secs/tracepack"
+	"github.com/arloliu/go-secs/tracepack/internal/tlv"
 )
 
 // Golden pack metadata is hand-built from the entry layout of the tracepack format specification §5,
 // hex of python3 struct.pack('<HBBI', tag, value_type, 0, len(value)) + value for each entry, concatenated in tag order.
 const (
 	// pmAlways16Hex holds only the 16 unconditionally required tags (schema_version included).
-	// It decodes, because UnmarshalPackMeta only enforces the unconditional registry rules;
-	// it does not marshal, because Validate also requires scope_generation for a non-extract pack_role.
+	// It passes the registry check but neither decodes nor marshals,
+	// because pack_role = segment also requires scope_generation, which the metadata itself shows.
 	pmAlways16Hex = "010004000800000001000000000000000200060004000000746f6f6c030001000100000001040001000100000001050001000100000001060006000300000072656307000600020000007772090001000100000003100003000800000" +
 		"0e803000000000000110003000800000" +
 		"0d007000000000000120001000100000002130002000100000001180001000100000001190001000100000000" +
@@ -103,21 +105,91 @@ func TestPackMetaMarshalMinimalGolden(t *testing.T) {
 	assert.Equal(t, pmMinimal17Hex, hex.EncodeToString(got))
 }
 
-func TestUnmarshalPackMetaDecodeOnlyDoesNotRequireConditionalTags(t *testing.T) {
+func TestPackMetaMarshalRejectsValuesItsDecoderRejects(t *testing.T) {
 	t.Parallel()
 
-	m, err := tracepack.UnmarshalPackMeta(mustHexBytes(t, pmAlways16Hex))
-	require.NoError(t, err)
-	assert.Equal(t, "tool", m.ToolID)
-	assert.Nil(t, m.ScopeGeneration)
+	tests := []struct {
+		name string
+		edit func(m *tracepack.PackMeta)
+		want error
+	}{
+		{"tool_id not valid UTF-8", func(m *tracepack.PackMeta) { m.ToolID = "\xff" }, tlv.ErrUTF8},
+		{"device_id above 2^63-1", func(m *tracepack.PackMeta) { m.DeviceID = new(uint64(1) << 63) }, tlv.ErrLimit},
+		{"seq_start above 2^63-1", func(m *tracepack.PackMeta) { m.SeqStart = uint64(1) << 63 }, tlv.ErrLimit},
+		{"nested policy_id not valid UTF-8", func(m *tracepack.PackMeta) {
+			m.RedactionPolicy = &tracepack.RedactionPolicy{PolicyID: "\xc3", KeyID: "k"}
+		}, tlv.ErrUTF8},
+	}
 
-	// Decoding a pack that never set scope_generation succeeds (structural decode only),
-	// but re-marshaling it fails Validate, because pack_role = segment requires scope_generation.
-	_, err = m.MarshalBinary()
-	require.Error(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := basePackMeta()
+			tt.edit(m)
+			b, err := m.MarshalBinary()
+			require.ErrorIs(t, err, tt.want)
+			assert.Nil(t, b)
+		})
+	}
+}
+
+func TestPackMetaMarshalLimitValuesRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	m := basePackMeta()
+	m.ToolID = "\u5de5\u5177"
+	m.DeviceID = new(uint64(1)<<63 - 1)
+	b, err := m.MarshalBinary()
+	require.NoError(t, err)
+
+	got, err := tracepack.UnmarshalPackMeta(b)
+	require.NoError(t, err)
+	assert.Equal(t, m, got)
+}
+
+func TestUnmarshalPackMetaRejectsMissingIntrinsicTags(t *testing.T) {
+	t.Parallel()
+
+	// time_source (tag 0x0009) patched from generator (3) to capture-clock (1),
+	// which requires capture_origin_utc_ns, capture_origin_mono_ns and clock_step_tolerance_ns.
+	captureClockHex := strings.Replace(pmMinimal17Hex, "090001000100000003", "090001000100000001", 1)
+	require.NotEqual(t, pmMinimal17Hex, captureClockHex)
+
+	tests := []struct {
+		name  string
+		hex   string
+		field string
+	}{
+		{"segment without scope_generation", pmAlways16Hex, "scope_generation"},
+		{"capture-clock without origins", captureClockHex, "capture_origin_utc_ns"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m, err := tracepack.UnmarshalPackMeta(mustHexBytes(t, tt.hex))
+			require.ErrorIs(t, err, tracepack.ErrRequiredTag)
+			var fe *tracepack.FieldError
+			require.ErrorAs(t, err, &fe)
+			assert.Equal(t, tt.field, fe.Field)
+			assert.Nil(t, m)
+		})
+	}
+}
+
+func TestUnmarshalPackMetaDefersFactDependentTags(t *testing.T) {
+	t.Parallel()
+
+	// pmMinimal17Hex has no classifier, max_frame_len, redaction or flush_interval_ns:
+	// only facts about the records or the writer could require them.
+	m, err := tracepack.UnmarshalPackMeta(mustHexBytes(t, pmMinimal17Hex))
+	require.NoError(t, err)
+
 	var fe *tracepack.FieldError
-	require.ErrorAs(t, err, &fe)
-	assert.Equal(t, "scope_generation", fe.Field)
+	require.ErrorAs(t, m.Validate(tracepack.PackFacts{AnyClassified: true}), &fe)
+	assert.Equal(t, "classifier", fe.Field)
 }
 
 func TestUnmarshalPackMetaMinimalRoundTrip(t *testing.T) {
@@ -393,4 +465,38 @@ func TestPackMetaValidatePasses(t *testing.T) {
 	t.Parallel()
 
 	require.NoError(t, basePackMeta().Validate(tracepack.PackFacts{}))
+}
+
+func TestMarshalRejectsUnknownEntriesTheDecoderRejects(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		entry tracepack.RawEntry
+		want  error
+	}{
+		{"tag zero", tracepack.RawEntry{Tag: 0, Type: 7, Value: []byte{1}}, tlv.ErrZeroTag},
+		{"u8 with two bytes", tracepack.RawEntry{Tag: 0x8001, Type: 1, Value: []byte{1, 2}}, tlv.ErrLength},
+		{"uuid with one byte", tracepack.RawEntry{Tag: 0x8002, Type: 5, Value: []byte{1}}, tlv.ErrLength},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := basePackMeta()
+			m.Unknown = []tracepack.RawEntry{tt.entry}
+			_, err := m.MarshalBinary()
+			require.ErrorIs(t, err, tt.want)
+
+			ev := &tracepack.TransportEvent{Event: tracepack.EventClockStep, Unknown: []tracepack.RawEntry{tt.entry}}
+			_, err = ev.MarshalBinary()
+			require.ErrorIs(t, err, tt.want)
+
+			text := "note"
+			an := &tracepack.Annotation{AnnotationKind: tracepack.AnnotationKindNote, Text: &text, Unknown: []tracepack.RawEntry{tt.entry}}
+			_, err = an.MarshalBinary()
+			require.ErrorIs(t, err, tt.want)
+		})
+	}
 }
