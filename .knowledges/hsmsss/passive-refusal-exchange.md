@@ -45,19 +45,34 @@ Whichever side wins the race, the extra socket is closed and `Stop`'s `g.accept.
 the refusal deadline.
 
 **One close, through the gate.**
-`refuseExtraConn` mints a socket record for `extra` on entry (reported as accepted) and marks it refused.
+`refuseExtraConn` mints a socket record for `extra` on entry (reported as accepted) and reports it refused at once,
+before the exchange and before the record is published to `haltRefusal`, the only other side that can close it,
+so the refusal always precedes the close.
 Every exit closes it through ONE deferred gate call carrying the failure retained by whichever branch returned:
 the `SetDeadline` error, a read error (the absolute deadline, a short read), a malformed length (`errRefusalBadLength`),
 a first frame that fails to decode or is not a Select.req (`errRefusalNotSelectReq`),
 or a failed or short response write;
 a completed exchange, and a helper that found `refuseStopped` already set, retain nil.
-The gate reports the socket refused and then closed, exactly once,
-whichever of the defer and `haltRefusal` reaches it first,
-so the refusal can never be reported after the close.
+The gate reports the socket closed exactly once,
+whichever of the defer and `haltRefusal` reaches it first.
 The exchange itself lives in `refusalExchange`,
-which reads the 4-byte prefix and the 10-byte header into one fixed 14-byte buffer
-and reports that whole frame to the wire observer (socket identity, generation 0) before interpreting it;
-the Select.rsp is reported only when its write returned the full length without error.
+which reads the 4-byte prefix and the 10-byte header into one fixed 14-byte buffer.
+It never calls the wire observer: the accept goroutine it runs on is one `Stop` joins without a bound,
+so an observer that did not return there would hang `Stop`, hence `Close`.
+Instead `captureRefusal` opens the record's report scope (`openReport`) and allocates one `refusalCapture`,
+into which the exchange copies each frame as it crosses, with its `At` taken at that moment:
+the peer's first frame, whole, once its header is read and before it is interpreted,
+and the Select.rsp only when its write returned the full length without error.
+`refusalCapture.finish`, deferred after the close defer so it runs first, on a panic too,
+hands the capture to a new goroutine (`deliver`) while the scope is still held,
+which reports the frames in wire order, the peer's first, with generation 0, and then releases the scope;
+when no frame crossed, `finish` releases the scope inline and no goroutine is started.
+Nothing joins that goroutine: an observer that never returns leaks it and delays only that socket's `SocketClosed`.
+The close is reported after the frames whichever order the gate and the release run in:
+if the deferred close (or a `haltRefusal` close landing mid-exchange) runs the gate while the scope is held,
+the gate closes the socket at once and leaves the `SocketClosed` report to the release;
+if the release ran first, the gate finds no scope open and reports the close itself, after the frames the release followed.
+The report carries the time the gate closed the socket, not the time of its delivery.
 
 **Why `refuseToken`, not comparing the published conn with `extra`.**
 `WithListener` lets a caller supply a custom `net.Conn` whose dynamic type may be non-comparable

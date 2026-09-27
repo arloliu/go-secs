@@ -1,6 +1,7 @@
 package hsms
 
 import (
+	"bytes"
 	"net"
 	"strconv"
 	"time"
@@ -44,13 +45,26 @@ type WireEvent struct {
 
 // wireReporter is the optional transport capability that opts the core's outbound frames into wire observation.
 //
-// It is a marker reached by type assertion, deliberately not a method of the transport seam,
+// It is reached by type assertion, deliberately not a method of the transport seam,
 // so a transport implementation that predates it keeps compiling.
 // A transport offers it only when Write puts the handed buffers on its socket byte for byte:
 // the HSMS-SS transport does, while the SECS-I transport reports success for an HSMS control frame without any I/O
 // and re-frames a data message as SECS-I blocks, so reporting its frames would describe bytes that never crossed its wire.
+//
+// WireReportScope opens the report scope of socket, the identity the transport minted for the epoch's conn,
+// around one outbound write, and returns the function that releases it, to be called exactly once.
+// The core opens it just before the write and releases it after the frame's report,
+// or as soon as the write has failed, and on a panic in the observer.
+// While a scope is held, the transport holds back the report of that socket's close, never the close itself,
+// which is what keeps a frame's report ahead of its socket's close report without making a closer wait;
+// when the close lands meanwhile, the release delivers the close report on the goroutine that releases the scope:
+// the writing goroutine for a frame writeFrame reported,
+// or the goroutine that delivers the courtesy Separate's report (deliverWireReport).
+// It returns nil when that close is already pending, or when socket is not the transport's socket;
+// the core then writes the frame without reporting it.
+// The transport returns a function it holds for the socket's lifetime, so a call allocates nothing.
 type wireReporter interface {
-	WireReporting()
+	WireReportScope(socket uint64) func()
 }
 
 // String returns the string representation of the WireDirection.
@@ -76,20 +90,22 @@ func (c *connection) ObserveWire(ev WireEvent) {
 }
 
 // outboundWireObserver returns the wire observer that should see the core's outbound frames,
-// or nil when none is installed or the transport does not offer the wire-reporting capability.
+// together with the transport's wire-reporting capability,
+// or nil for both when no observer is installed or the transport does not offer the capability.
 // A write site loads it once and uses that one value for both the capture and the report,
 // so a concurrent UpdateConfigOptions cannot leave a frame captured but unreported, or reported uncaptured.
-func (c *connection) outboundWireObserver() func(WireEvent) {
+func (c *connection) outboundWireObserver() (func(WireEvent), wireReporter) {
 	obs := c.cfg.Load().wireObserver
 	if obs == nil {
-		return nil
+		return nil, nil
 	}
 
-	if _, ok := c.tr.(wireReporter); !ok {
-		return nil
+	wr, ok := c.tr.(wireReporter)
+	if !ok {
+		return nil, nil
 	}
 
-	return obs
+	return obs, wr
 }
 
 // captureWireFrame copies the frame held by bufs into this epoch's scratch buffer and returns it.
@@ -117,4 +133,26 @@ func (e *epoch) captureWireFrame(bufs net.Buffers) []byte {
 	}
 
 	return frame
+}
+
+// copyWireFrame returns a fresh copy of the frame held by bufs, for a report made off the writing goroutine.
+// The caller calls it before handing bufs to the transport, because the write consumes bufs as it goes.
+// Unlike captureWireFrame it does not use the epoch's scratch buffer,
+// which belongs to whoever holds e.writeMu and would be overwritten by the next write while the copy is still being reported.
+func copyWireFrame(bufs net.Buffers) []byte {
+	return bytes.Join(bufs, nil)
+}
+
+// deliverWireReport reports ev to obs and then releases the socket's report scope,
+// on a panic in obs too, so the close report the scope holds back is never lost.
+//
+// It is the body of the goroutine writeFarewellSeparate starts for the courtesy Separate's report:
+// the supervisor goroutine must never call the observer, because it runs the teardown that Close waits for,
+// so an observer that did not return there would hang Close.
+// Nothing joins that goroutine: an observer that never returns leaks it and delays only the socket's close report.
+// A panic in obs is not recovered, as at every other observer call site.
+func deliverWireReport(obs func(WireEvent), ev WireEvent, release func()) {
+	defer release()
+
+	obs(ev)
 }

@@ -693,22 +693,39 @@ func WithTransactionObserver(fn func(TxEvent)) ConnOption {
 //     Copy the bytes to keep them.
 //   - fn runs synchronously on the path that moved the frame:
 //     the receive goroutine for an inbound frame, and the writing goroutine, under the connection's write lock, for an outbound one.
+//     Two frames are the exception, because the goroutines that move them are ones Close waits for:
+//     the courtesy Separate a graceful close writes, and the frames of a refused peer's exchange,
+//     are delivered from a goroutine started for that one report once the frame has crossed, with At taken when it crossed.
 //     It must be cheap — copy the frame into your own queue and return.
-//     A slow fn delays the link, including the reads that the T8 inter-character timer bounds.
+//     A slow fn delays the link, including the reads that the T8 inter-character timer bounds,
+//     and delays the SocketClosed report of the socket the frame crossed, which follows the call;
+//     closing the socket itself never waits for fn,
+//     and Close and Stop wait for it only through the bounded teardown join, never without a bound.
+//     An fn that never returns from one of the delivered reports leaks that goroutine
+//     and never delivers that socket's SocketClosed event, nothing else.
 //   - Calls for the two directions can run at the same time, so fn must be safe for concurrent use.
-//   - fn must not send on the same connection from inside an outbound call:
-//     the write lock is held, so such a send waits for itself.
+//   - fn must not send on the same connection from inside any call.
+//     During an outbound call the write lock is held or the connection is closing, so such a send waits for itself or fails;
+//     during an inbound call the receive goroutine is the one parked in fn,
+//     so a send that waits for its reply waits out T3 for a reply nothing can read.
 //   - A panic in fn is not recovered by the hook:
 //     it unwinds whichever goroutine raised the frame —
-//     a synchronous send's caller, the receive goroutine, or one of the connection's internal send goroutines.
+//     a synchronous send's caller, the receive goroutine, one of the connection's internal send goroutines,
+//     or the goroutine delivering a courtesy Separate or a refused peer's frames, which nothing else runs on.
 //     Keep fn panic-free.
 //
 // Within one socket, inbound frames are reported in wire order, and so are outbound frames.
-// No order is promised between the two directions beyond the events' timestamps.
+// No order is promised between the two directions beyond the events' timestamps,
+// except on a refused socket, whose two frames one goroutine reports in wire order, the peer's first.
+// Every frame a socket carried is reported before that socket's SocketClosed event (see [WithSocketObserver]),
+// because that event is held back while a frame report is in progress on the socket
+// and is then delivered by the goroutine that made the frame's report, once fn has returned;
+// a frame read or written once the socket's close is pending is not reported.
 //
 // Passing nil (the default) disables the hook.
 // With an observer installed, an outbound frame is copied into a scratch buffer reused for the life of the link,
-// so observation adds no allocation per frame once that buffer has grown to the largest frame written.
+// so observation adds no allocation per frame once that buffer has grown to the largest frame written;
+// the courtesy Separate alone is copied into a buffer of its own, once per graceful close.
 func WithWireObserver(fn func(WireEvent)) ConnOption {
 	return func(c *ConnectionConfig) error {
 		c.wireObserver = fn
@@ -725,15 +742,20 @@ func WithWireObserver(fn func(WireEvent)) ConnOption {
 // a dial that completes after Close began, and a socket declined because its generation had already ended.
 // Each socket yields, in this order:
 //   - SocketConnected (active role) or SocketAccepted (passive role), as soon as the dial or accept returned;
-//   - SocketRefused, for an extra passive peer only, when the connection rejects it,
-//     whether or not the refusal exchange with that peer completed;
+//   - SocketRefused, for an extra passive peer only, as soon as the connection decides to refuse it,
+//     before the refusal exchange with that peer begins;
 //   - SocketClosed, exactly once, whichever side or path closed the socket first.
 //
 // Frames the socket carried are reported by [WithWireObserver] with the same [SocketEvent.Socket] value,
-// between that socket's first event and its close;
-// a refused socket's frames —
+// between that socket's first event and its close:
+// SocketClosed is held back while a frame report is in progress on the socket, so no frame event of a socket follows it.
+// Closing the socket never waits for that report, and neither do Close and Stop;
+// a wire observer that does not return delays only the SocketClosed event,
+// and the bounded teardown join when it is parked on the receive goroutine or a sender.
+// A SocketClosed delivered late still carries the time the socket was closed in [SocketEvent.At].
+// A refused socket's frames —
 // the peer's Select.req and the Select.rsp answering it, whichever of the two crossed the wire —
-// carry Generation 0.
+// follow its SocketRefused and carry Generation 0.
 // [SocketEvent.Err] on the close names the failure that initiated it, and is nil for a close nobody's failure caused.
 //
 // Sockets are reported only by a transport that owns sockets and reports them, which is the HSMS-SS transport.
@@ -742,7 +764,16 @@ func WithWireObserver(fn func(WireEvent)) ConnOption {
 // The contract fn must keep:
 //   - fn runs synchronously on whichever goroutine dialed, accepted, refused or closed the socket —
 //     including the connection's own lifecycle goroutine when a teardown closes the socket —
+//     or, for a SocketClosed held back behind a frame report, on the goroutine that made that report
+//     (the receive goroutine, a sender under the write lock,
+//     or the goroutine delivering a courtesy Separate or a refused peer's frames),
 //     so it must be cheap: copy what you need and return.
+//   - Close and Stop wait for a call of fn in progress on the dialing, accepting, refusing or closing goroutine to return,
+//     because the connection joins those goroutines, so an fn that never returns there holds Close.
+//     A SocketClosed held back behind a frame report is waited for only through the reporting goroutine's join:
+//     bounded for the receive goroutine and a sender, reported as ErrCloseTimeout,
+//     and not at all for the goroutine delivering a courtesy Separate or a refused peer's frames,
+//     where an fn that never returns leaks that goroutine and the event is never delivered.
 //   - Calls for different sockets, and a socket's close racing another socket's accept, can run at the same time,
 //     so fn must be safe for concurrent use.
 //   - fn must not call back into the connection (Open, Close, a send) from inside the call.

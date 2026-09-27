@@ -172,14 +172,38 @@ func (c *connection) writeFrame(ctx context.Context, e *epoch, msg Message) erro
 	}
 
 	// The wire observer's copy is taken now, because the write below consumes bufs as it goes.
-	// It is reported only once the write has succeeded.
-	var wireFrame []byte
-	wireObs := c.outboundWireObserver()
+	// It is reported only once the write has succeeded,
+	// inside the socket's report scope, opened here and held across the write,
+	// so the socket's close cannot be reported between the write and the frame's report.
+	// The deferred release covers a panicking observer;
+	// a failed write releases the scope itself, before it reports the failure.
+	var (
+		wireFrame []byte
+		release   func()
+	)
+
+	wireObs, reporter := c.outboundWireObserver()
 	if wireObs != nil {
 		wireFrame = e.captureWireFrame(bufs)
+
+		if release = reporter.WireReportScope(e.socketID()); release != nil {
+			defer func() {
+				if release != nil {
+					release()
+				}
+			}()
+		}
 	}
 
 	if err := c.tr.Write(ctx, conn, bufs); err != nil {
+		// A frame that was not written is not reported.
+		// Release the scope before anything below reports the failure,
+		// so the socket's close report is never held back behind a report that waits on the connection.
+		if release != nil {
+			release()
+			release = nil
+		}
+
 		// A write failure means this generation's stream is dead, whether the cause is a live link
 		// (a deadline exceeded on a wedged peer, a broken socket) or teardown closing the socket out from under an in-flight write.
 		// A deadline may have truncated a frame mid-writev either way, so the stream is desynced and cannot be reused.
@@ -231,8 +255,9 @@ func (c *connection) writeFrame(ctx context.Context, e *epoch, msg Message) erro
 	}
 
 	// Reported last, so a panicking observer cannot skip the accounting above;
-	// the deferred unlock still releases writeMu as the panic unwinds.
-	if wireObs != nil {
+	// the deferred releases still free the report scope and writeMu as the panic unwinds.
+	// A frame the transport gave no scope for is not reported: its socket's close is already pending.
+	if release != nil {
 		wireObs(WireEvent{Direction: WireOutbound, Socket: e.socketID(), Generation: e.id, At: time.Now(), Frame: wireFrame})
 	}
 

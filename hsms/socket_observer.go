@@ -14,10 +14,14 @@ const (
 	SocketConnected SocketEventKind = iota + 1
 	// SocketAccepted marks a socket the passive role accepted, including one it goes on to refuse.
 	SocketAccepted
-	// SocketRefused marks an accepted socket the passive role rejected because a session was already live,
-	// whether or not its refusal exchange with the peer completed.
+	// SocketRefused marks an accepted socket the passive role rejected because a session was already live.
+	// It is reported as soon as the passive role decides to refuse the socket, before the refusal exchange with the peer.
 	SocketRefused
 	// SocketClosed marks a socket that has been closed, by either side or by the connection's teardown.
+	// It is reported once, after every frame the socket carried:
+	// by the goroutine that closed the socket, or, when a frame report was in progress on the socket at that moment,
+	// by the goroutine that made that report, once the wire observer has returned.
+	// Either way its At is the time the socket was closed.
 	SocketClosed
 )
 
@@ -38,6 +42,8 @@ type SocketEvent struct {
 	// a refused socket, a dial that completed after Close began, or a socket the connection declined because its generation had already ended.
 	Generation uint64
 	// At is taken when the event happened.
+	// For a SocketClosed that is when the socket was closed,
+	// even when the event is delivered later, once a frame report that was in progress on the socket has returned.
 	// It carries a monotonic clock reading, like [WireEvent.At], so the two event streams can be ordered against each other.
 	At time.Time
 	// Local and Remote are the socket's addresses, as its net.Conn reported them when it was dialed or accepted.

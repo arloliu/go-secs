@@ -116,9 +116,13 @@ Call sites:
   (returning at once when no observer is installed), and a runtime without it receives no wire events
   (`hsmsss` imports `hsms`, so it constructs the event without a cycle; the existing generation capability is not touched).
   Outbound events are raised by the core at its two write sites, but only when the transport asserts an optional capability
-  `WireReporting()` (a method the HSMS-SS transport implements; discovered by type assertion on the transport):
+  `WireReportScope(socket uint64) func()` (a method the HSMS-SS transport implements; discovered by type assertion on the transport):
   the SECS-I transport reports success for an HSMS control frame without any wire I/O and converts data frames to SECS-I blocks,
   so an unconditional hook in the shared core would report frames that never crossed a SECS-I socket.
+  The capability also opens the socket's report scope (§3.3) around the write and returns its release,
+  a function the transport holds per socket so the call allocates nothing, or nil once the socket's close is pending:
+  the core holds the scope from just before the write until after the frame's report,
+  and releases it at once when the write fails, and on a panic in the observer.
   An inbound event is raised with the receive goroutine's generation before dispatch, so a frame the admission check later drops is still reported as read.
 - the refusal exchange of a second passive connection (`hsmsss/transport_passive.go` `refuseExtraConn`),
   which reads and writes the extra socket directly:
@@ -126,8 +130,16 @@ Call sites:
   invalid headers included;
   the outbound Select.rsp is observed only when the write returned the full frame length without error;
   both carry the refused socket's identity and generation 0.
+  The exchange runs on the accept goroutine, which `Stop` joins without a bound, so it never calls the observer:
+  it captures each frame as it crosses, with its `At` taken then,
+  and once it has ended hands both frames, still under the socket's report scope, to one goroutine
+  that reports them in wire order and then releases the scope.
+- the courtesy Separate runs on the supervisor goroutine, whose teardown `Close` waits for, so it never calls the observer either:
+  after a successful write it copies the frame (14 bytes, one allocation per graceful close, never the shared scratch buffer),
+  takes `At`, and hands the report to a goroutine of its own that holds the socket's report scope until it has reported.
+  Nothing joins either delivery goroutine; an observer that never returns leaks it and delays only that socket's close event.
 
-`At` is `time.Now()` at the call site.
+`At` is `time.Now()` at the call site, or at the capture for a frame reported from a delivery goroutine.
 Go's `time.Time` carries a monotonic reading,
 so a recorder derives both the wall clock (`UnixNano`) and elapsed monotonic time (`Sub` against its capture origin) from the one value.
 
@@ -210,9 +222,42 @@ Three interface paths, all optional and additive:
   the absolute deadline, a short read, a malformed length or header, or a failed response write; a completed exchange retains nil.
   A local close with no recorded failure passes nil.
   A race between a read error and a local close is decided by the first caller; the outcome is one close event with that caller's error.
+- *Frames before the close.* Every frame reported for a socket is reported before that socket's `SocketClosed`,
+  and no frame is reported after it; nobody waits to make that so.
+  The record counts its open report scopes under a mutex held only for that bookkeeping:
+  a goroutine that moves a frame across the socket
+  (the receive loop around its read, the core's write sites around their write, the refusal exchange as a whole)
+  opens a scope before the I/O and releases it after the frame's report, on a panic in the observer too.
+  The gate's winner marks the record closing as it is decided, which refuses every later scope,
+  then closes the connection, which fails any I/O in progress, and takes the close time,
+  then arms the close report and emits `SocketClosed` itself only when no scope is open;
+  otherwise the goroutine that releases the last open scope emits it, once its observer call has returned.
+  A scope requested after the mark returns nothing and the frame is moved without being reported.
+  The closer never blocks on a frame report: no caller of the gate ever waits on the wire observer,
+  so the supervisor's teardown stays a non-blocking initiator, and `Close` and `Stop` never wait on the wire observer either.
+  The socket observer is different by design: its events are delivered synchronously on the goroutine
+  that dialed, accepted, refused or closed the socket, the connection's own lifecycle goroutine included,
+  and `Close` and `Stop` wait for a call in progress on those goroutines to return;
+  a `SocketClosed` held back behind a frame report is delivered by the reporting goroutine instead,
+  and `Close` waits for it only through that goroutine's join: bounded for the receive goroutine and a sender,
+  not at all for the detached goroutine delivering a courtesy Separate or a refused peer's frames.
+  A socket has two or three such events, none on the traffic path,
+  so the contract stays "cheap and returning" rather than adding an ordered delivery goroutine per socket;
+  a socket observer that never returns on one of those goroutines holds `Close`.
+  The two frames whose goroutines `Close` joins without a bound, the courtesy Separate and a refused socket's exchange,
+  are delivered from a goroutine of their own that holds the scope (§3.1), so those goroutines never call the observer.
+  An observer that never returns delays only that socket's `SocketClosed`;
+  when it is parked on the receive goroutine or a sender it also delays the bounded teardown join,
+  which `Close` reports as `ErrCloseTimeout`, never `Close` itself;
+  when it is parked on a delivery goroutine it leaks that goroutine and nothing else.
+  The close is delivered by the gate's winner when no scope is open, otherwise by the goroutine releasing the last scope,
+  and its `At` is the time the winner closed the connection, whichever goroutine delivers it and however late.
+  An observer must still not send on the connection from inside a call in either direction:
+  an outbound call holds the write lock, and an inbound call parks the receive goroutine that would read the reply.
 
 The raw socket's buffered `WriteTo` fast path is untouched, because the gate wraps closing, not writing.
-`SocketRefused` is emitted when the extra-connection policy rejects the socket, whether or not the exchange completed;
+`SocketRefused` is emitted as soon as the extra-connection policy rejects the socket, before the exchange begins,
+so a recorder sees accepted, refused, the exchange's frames, closed;
 the `SocketClosed` that follows carries the retained failure (deadline, short read, malformed data or failed write) and nil only for a completed exchange,
 which is the `Err` contract of §3.3 applied to that socket.
 The knowledge note on the passive refusal exchange (`haltRefusal` closes the socket directly) is updated with the mechanic.
@@ -310,3 +355,11 @@ Decided 2026-09-27:
 2. The outbound observer fires after the write returns successfully;
    a frame that failed mid-write is not observed, and the socket close event carries the error.
 3. The refused-socket exchange is observed in the first release.
+
+Decided 2026-09-28:
+4. The socket observer stays a synchronous hook on the dialing, accepting, refusing and closing goroutines,
+   and `Close` and `Stop` wait for a call in progress on those goroutines;
+   a `SocketClosed` delivered by the goroutine that ended the last frame report follows that goroutine's join instead,
+   bounded for the receive goroutine and a sender, none for a detached delivery goroutine.
+   The wire observer never holds `Close` or `Stop`.
+   No ordered delivery goroutine per socket.
