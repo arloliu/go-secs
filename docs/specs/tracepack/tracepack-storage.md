@@ -56,6 +56,10 @@ Repairs and corrections are generation-0 **patches** registered against the curr
 - Fence object: `<prefix>/fence/<publisher_epoch>-<uuid>` (epoch in 20-digit zero-padded decimal); its content is irrelevant.
   Publishing is single-publisher per tool (§5): a new publisher acquires its epoch only after the previous one has stopped,
   so fences need no conditional write; concurrent publishers sharing an epoch are outside the supported configuration.
+  A service that spreads publishing over several instances keeps that rule with **tool leases** recorded in the catalog (G5-87):
+  an instance publishes only for tools it holds a lease on, and each acquisition of a tool mints a new publisher epoch,
+  so a tool's generations rank in publication order even when the tool moves between instances and back.
+  A lease that expires while a claim is open is taken over through the recovery of an interrupted admission (§5).
 - Commit object: `<prefix>/commit/<tool_id>/<capture_id>/<YYYYMMDDHH>/<id>`, where `<id>` is the generation's `replacement_set_id` or the patch's `pack_id`;
   its content is irrelevant. It is the durable evidence that the catalog accepted the generation or patch (§5).
 - Other packs: `<prefix>/archive/<tool_id>/<YYYY>/<MM>/<DD>/<HH>/<capture_id>-<pack_id>.tpk`, hour in UTC.

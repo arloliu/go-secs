@@ -231,3 +231,10 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   flushes a segment every F, and acknowledges a record only after the segment holding it is durable in `staging/`.
   Segments of one scope written by different instances interleave; the hourly merge normalizes them, and the first release does not partition by tool.
   Spec: [FMT I-12] allows producer-assigned seqs; [STO §4] "Recorder over a durable bus" replaces the spool contract for this deployment.
+- G5-87 Tool ownership for publishing (2026-09-27): the log service's merge and publish work is distributed by **tool leases in the catalog**:
+  a publisher instance acquires unowned or expired tools up to its share, releases tools above it, and renews its leases;
+  every acquisition of a tool mints a new publisher epoch (fence object, number allocated by the catalog),
+  so the generations of a tool always rank in the order they were published, whichever instance published them.
+  Merges run on a bounded worker pool per instance; a scope's merge holds only the blocks of its current seq window, so memory does not grow with the tools owned.
+  Partitioning the ingest by tool (a NATS partition per tool set, subscribed by the instance that leases it, so segments stop interleaving and merges copy blocks verbatim)
+  is a second-phase optimization: the partition becomes the leased unit, and the lease stays in the catalog.
