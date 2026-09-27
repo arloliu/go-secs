@@ -112,6 +112,20 @@
 // Each receives the exact same *[DataMessage] pointer, never a per-consumer copy —
 // the same no-Clone fan-out this section describes.
 //
+// # Observability
+//
+// A connection reports what it does through four independent hooks, all opt-in:
+//
+//   - [Connection.SubscribeLifecycle]: each state transition, with the [TransitionCause] that drove it, as a [LifecycleEvent].
+//   - [WithTransactionObserver]: each completed synchronous send, with its outcome and duration, as a [TxEvent].
+//   - [WithWireObserver]: each HSMS frame that crossed the socket, in either direction, as a [WireEvent] holding the exact wire bytes.
+//   - [WithSocketObserver]: each socket the connection dialed or accepted, refused ones included, as a [SocketEvent] when it comes up and when it closes.
+//
+// All four events name the socket and the connection generation they belong to,
+// so a recorder can join the streams on those two values.
+// Wire and socket events come only from a transport whose socket carries HSMS frames, which is the HSMS-SS transport;
+// a SECS-I connection reports neither.
+//
 // # E37 §10.1 implementation documentation
 //
 // SEMI E37 §10.1 requires an HSMS implementation to document six things.

@@ -50,6 +50,21 @@ type TxEvent struct {
 	Duration    time.Duration // wall-clock time from the call's start to its outcome
 	Outcome     TxOutcome
 	Err         error // nil on TxReplied / TxSent; the classifying error otherwise
+
+	// SessionID is the data message's session id, as its header carries it.
+	SessionID uint16
+
+	// Socket identifies the socket of the generation the send was bound to, as [SocketEvent.Socket] does.
+	// A send is bound to the generation current when it started, and keeps that binding to the end,
+	// so a send that completes after a reconnect still names that generation's socket,
+	// even though the socket has since been closed.
+	// It is 0 when that generation never acquired a socket, when the transport does not identify its sockets,
+	// and when the connection was not open ([ErrNotOpen]).
+	Socket uint64
+
+	// Generation identifies the connection generation the send was bound to, as [WireEvent.Generation] does.
+	// It is 0 only when the connection was not open ([ErrNotOpen]), so no generation was bound.
+	Generation uint64
 }
 
 // String returns the string representation of the TxOutcome.

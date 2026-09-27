@@ -38,9 +38,9 @@ That is the delta this entry records.
 # How it works
 
 **The cause is data on the event, never a function of the state pair.**
-`fsmCommand{ev, cause}` is what `inject` queues and `step` dequeues;
-`stateChange` carries the cause to the notifier.
-The transition table (`transition`) never reads it.
+`fsmCommand{ev, cause, gen}` is what `inject` queues and `step` dequeues;
+`stateChange` carries the cause to the notifier, together with the `gen` and `socket` the transition belongs to.
+The transition table (`transition`) never reads the cause.
 `step` makes exactly one substitution:
 an `evTCPUp` that finds the state already `Selected` reports `CauseSelectAccepted` instead of its own cause
 (the coalesced bring-up, under Failure mode).
@@ -132,6 +132,15 @@ and `secs1`'s own reports name none;
 the cause says WHY a transition happened,
 the generation says WHICH link it is allowed to happen to,
 so a transport goroutine that outlives its generation cannot drop a successor and report its cause to persistent subscribers.
+The generation is also reported now, not only fenced:
+when an event drives a transition, `step` snapshots the transition's identity with `transitionIdentity`
+and hands `fireTransition` a whole `stateChange`,
+and `notifySubs` copies its `gen` and `socket` into `LifecycleEvent.Generation` and `LifecycleEvent.Socket`.
+A Close reports the epoch `requestClose` pinned (`closeEpoch`), not whichever epoch is current;
+any other event reports the `fsmCommand.gen` it carries,
+and reads the socket from the current epoch (`curEpoch`) only when that epoch's id matches it.
+A generation that never acquired a socket reports socket 0,
+and an event carrying generation 0, which only a supervisor built without a connection queues, reports 0 for both.
 How that identity is carried, bound, and checked — on the queue, at the three synchronous commits, and on the wire —
 is recorded in [how a report from an ended generation is kept off its successor](/hsms/generation-report-fence.md).
 
@@ -213,7 +222,8 @@ As implemented, the late report is ignored and the state stays `NotConnected`, s
 
 - causes and subscription storage: `hsms/lifecycle.go` →
   `TransitionCause`, `LifecycleEvent`, `connection.SubscribeLifecycle`, `connection.cancelLifecycle`
-- event plumbing: `hsms/supervisor.go` → `fsmCommand`, `inject`, `injectFrom`, `step`, `fireTransition`, `notifySubs`
+- event plumbing: `hsms/supervisor.go` → `fsmCommand`, `stateChange`, `inject`, `injectFrom`, `step`, `fireTransition` (takes a `stateChange`), `notifySubs`
+- the identity a transition reports: `hsms/supervisor.go` → `transitionIdentity`, `supervisor.curEpoch`, `supervisor.closeEpoch`
 - dedup, the drop exception, and the late-TCP-up rejection: `hsms/supervisor.go` → `step`, `lastReacted`, `transition`;
   the reaction that reads the reported `prev`: `hsms/connection_lifecycle.go` → `(*connection).react`
 - cause-carrying disconnect: `hsms/connection_lifecycle.go` → `TCPDownWithCause`, `TCPDownFromGeneration`, `injectDisconnect`;

@@ -466,11 +466,16 @@ func isCountedSendErr(err error) bool {
 }
 
 // newTxEvent builds the TxEvent for one completed synchronous send (WithTransactionObserver), classifying err with classifyTxOutcome.
-// replyWaited is the W-bit for WriteMessage's own sendWaitReply call
+// replyWaited is the W-bit for WriteMessage's own sendWaitReplyOn call
 // (a reply-wait transaction was actually opened for a W-bit-set message, register() runs before every terminal return past the B1/e==nil early exits),
-// and is always false for WriteMessageNoReply's sendNoReply call, which never opens one regardless of msg's own W-bit.
-func newTxEvent(dm *DataMessage, replyWaited bool, start time.Time, err error) TxEvent {
-	return TxEvent{
+// and is always false for WriteMessageNoReply's sendNoReplyOn call, which never opens one regardless of msg's own W-bit.
+//
+// e is the epoch the send was pinned to, or nil when it found none (ErrNotOpen), which reports generation 0 and socket 0.
+// Its id and socket are read from e itself, never from connection.cur,
+// so a send that returns after a reconnect names the generation it ran on;
+// the epoch keeps its socket id after teardown clears its conn, so a send its teardown ended still names the socket.
+func newTxEvent(dm *DataMessage, e *epoch, replyWaited bool, start time.Time, err error) TxEvent {
+	ev := TxEvent{
 		Stream:      dm.Stream(),
 		Function:    dm.Function(),
 		ID:          dm.ID(),
@@ -478,7 +483,15 @@ func newTxEvent(dm *DataMessage, replyWaited bool, start time.Time, err error) T
 		Duration:    time.Since(start),
 		Outcome:     classifyTxOutcome(replyWaited, err),
 		Err:         err,
+		SessionID:   dm.SessionID(),
 	}
+
+	if e != nil {
+		ev.Generation = e.id
+		ev.Socket = e.socketID()
+	}
+
+	return ev
 }
 
 // classifyTxOutcome maps one completed sync send's terminal (replyWaited, err) pair to exactly one TxOutcome.
@@ -587,6 +600,12 @@ func (c *connection) sendNoReply(callerCtx context.Context, msg Message) error {
 		return ErrNotOpen
 	}
 
+	return c.sendNoReplyOn(callerCtx, e, msg)
+}
+
+// sendNoReplyOn is sendNoReply's body, performed on an ALREADY-RESOLVED epoch,
+// the way sendWaitReplyOn is sendWaitReply's.
+func (c *connection) sendNoReplyOn(callerCtx context.Context, e *epoch, msg Message) error {
 	_, isData := msg.(*DataMessage)
 
 	// B1 gate (data only) — refuse before any write while not Selected (B3 chokepoint).
@@ -665,8 +684,10 @@ func (c *connection) callAsyncSendErrorHandler(gen uint64, msg Message, err erro
 // and the four-outcome reply correlation (reply / T3|T6 / conn-drop / caller-ctx).
 //
 // When WithTransactionObserver is configured and msg is a *DataMessage,
-// it reports exactly one TxEvent here, timed around the sendWaitReply call, on this call's own goroutine.
+// it reports exactly one TxEvent here, timed around the send, on this call's own goroutine.
 // A control send (dm == nil — Select.req, Linktest.req) never reports one.
+// The observed send resolves its epoch here, exactly as sendWaitReply would,
+// and runs sendWaitReplyOn on it, so the event names the generation the send was pinned to (see newTxEvent).
 func (c *connection) WriteMessage(ctx context.Context, msg Message) (Message, error) {
 	obs := c.cfg.Load().txObserver
 	if obs == nil {
@@ -679,8 +700,20 @@ func (c *connection) WriteMessage(ctx context.Context, msg Message) (Message, er
 	}
 
 	start := time.Now()
-	reply, err := c.sendWaitReply(ctx, msg)
-	obs(newTxEvent(dm, dm.WaitBit(), start, err))
+
+	var (
+		reply Message
+		err   error
+	)
+
+	e := c.cur.Load()
+	if e == nil {
+		err = ErrNotOpen
+	} else {
+		reply, err = c.sendWaitReplyOn(ctx, e, msg)
+	}
+
+	obs(newTxEvent(dm, e, dm.WaitBit(), start, err))
 
 	return reply, err
 }
@@ -729,8 +762,9 @@ func (c *connection) WriteMessageFromGeneration(ctx context.Context, gen uint64,
 // Backs SECS2Endpoint.ForwardDataMessage.
 //
 // When WithTransactionObserver is configured,
-// it reports exactly one TxEvent, timed around the sendNoReply call, always with ReplyWaited false —
+// it reports exactly one TxEvent, timed around the send, always with ReplyWaited false —
 // this path never opens a reply-wait transaction, regardless of msg's own W-bit.
+// The observed send pins its epoch here and runs sendNoReplyOn on it, as WriteMessage does.
 func (c *connection) WriteMessageNoReply(ctx context.Context, msg Message) error {
 	obs := c.cfg.Load().txObserver
 	if obs == nil {
@@ -743,8 +777,15 @@ func (c *connection) WriteMessageNoReply(ctx context.Context, msg Message) error
 	}
 
 	start := time.Now()
-	err := c.sendNoReply(ctx, msg)
-	obs(newTxEvent(dm, false, start, err))
+
+	err := ErrNotOpen
+
+	e := c.cur.Load()
+	if e != nil {
+		err = c.sendNoReplyOn(ctx, e, msg)
+	}
+
+	obs(newTxEvent(dm, e, false, start, err))
 
 	return err
 }

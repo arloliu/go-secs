@@ -80,6 +80,20 @@ type LifecycleEvent struct {
 
 	// Cause names what drove the transition.
 	Cause TransitionCause
+
+	// Socket identifies the socket of the generation the transition belongs to, as [SocketEvent.Socket] does.
+	// It is taken when the transition happens,
+	// so an event delivered after its generation tore down, or after a reconnect, still names the socket that generation used.
+	// It is 0 when that generation never acquired a socket, when the transport does not identify its sockets,
+	// and when the connection has no generation at all.
+	Socket uint64
+
+	// Generation identifies the connection generation the transition belongs to, as [WireEvent.Generation] does.
+	// It is taken when the transition happens, like Socket:
+	// a Close names the generation it tore down,
+	// and a drop names the generation that dropped even when the notification is delivered after a successor is up.
+	// It is 0 only when the connection has no generation at all.
+	Generation uint64
 }
 
 // lifecycleSub is one cancellable subscription: the caller's callback plus the id its cancel function removes.

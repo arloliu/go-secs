@@ -33,8 +33,13 @@ That is the delta this entry records.
 **Two chokepoints, not one.**
 The brief this feature was built from assumed the four in-scope sync send calls converge on a single chokepoint.
 They converge on two: `WriteMessage`
-(backs `SendDataMessage` / `SendSECS2Message`, wraps `sendWaitReply`)
-and `WriteMessageNoReply` (backs `ForwardDataMessage`, wraps `sendNoReply`).
+(backs `SendDataMessage` / `SendSECS2Message`)
+and `WriteMessageNoReply` (backs `ForwardDataMessage`).
+With no observer installed, or for a control message, each simply returns `sendWaitReply` / `sendNoReply`.
+On the observed path each loads `c.cur` itself, reports `ErrNotOpen` when it is nil,
+and otherwise runs `sendWaitReplyOn` / `sendNoReplyOn` on that pinned epoch,
+so the `TxEvent` names the generation the send ran on and that epoch's socket (`epoch.socketID`),
+even when the send returns after a reconnect.
 `ReplyDataMessage` is a third, structurally different case —
 `session.ReplyDataMessage` (`hsms/session.go`) is built on `rt.SendAsync`
 or, since the inbound generation fence, `rt.SendAsyncFromGeneration`
@@ -73,7 +78,7 @@ so a nil `dm` panics there, before `newTxEvent` is even entered
 `WriteMessageNoReply` passes the literal `false` instead of calling `WaitBit()`,
 so a nil `dm` reaches `newTxEvent`'s body unharmed and panics one line later, at `dm.Stream()` —
 the first field `newTxEvent`'s `TxEvent{...}` literal evaluates.
-Either way the panic fires after the inner `sendWaitReply`/`sendNoReply` call has already returned,
+Either way the panic fires after the send itself (`sendWaitReplyOn`/`sendNoReplyOn` on the pinned epoch) has already returned,
 and it propagates up the caller's stack like any other panic —
 a caller with its own `recover()` catches it; one without lets it crash the process.
 
@@ -109,9 +114,11 @@ the two functions answer different questions
 so agreement on one axis (lifecycle exclusion) does not imply agreement on the other (does it count as a *failure* at all).
 
 **Observer timing.**
-The observer runs as a plain statement *after* the inner `sendWaitReply`/`sendNoReply` call fully returns —
+The observer runs as a plain statement *after* the send's `sendWaitReplyOn`/`sendNoReplyOn` call fully returns —
 not via a `defer` registered inside those functions.
-Neither `sendWaitReply` nor `sendNoReply` is modified by this feature at all.
+The observer adds nothing to those bodies:
+the chokepoint only resolves the epoch they run on, exactly as the plain `sendWaitReply`/`sendNoReply` wrappers do,
+so it can read the event's generation and socket from that same epoch afterwards.
 By the time the observer runs,
 reply-registry deregistration, the I1 inflight-gauge decrement, and timer-pool cleanup have already completed,
 so an observer panic (deliberately not recovered — see `WithTransactionObserver`'s godoc)
@@ -121,7 +128,8 @@ like any unrecovered panic it keeps unwinding through the calling frames until s
 
 # Invariants
 
-- Every sync return path in `sendWaitReply`/`sendNoReply` reachable when `isData` is true maps to exactly one `TxOutcome` —
+- Every sync return path in `sendWaitReplyOn`/`sendNoReplyOn` reachable when `isData` is true,
+  plus the chokepoint's own `ErrNotOpen` when no epoch is current, maps to exactly one `TxOutcome` —
   the full return-path table lives as `classifyTxOutcome`'s own doc comment in `hsms/connection_send.go`.
 - The `isData` gate must run before any field of `dm` is read.
   `newTxEvent` assumes a non-nil `dm`; nothing downstream nil-checks it.
@@ -163,6 +171,8 @@ like any unrecovered panic it keeps unwinding through the calling frames until s
   `(*connection).WriteMessageNoReply`
 - the classifier and the return-path table: `hsms/connection_send.go` → `classifyTxOutcome`
 - event construction: `hsms/connection_send.go` → `newTxEvent`
+- the epoch-pinned bodies the observed path runs: `hsms/connection_send.go` → `(*connection).sendWaitReplyOn`, `(*connection).sendNoReplyOn`;
+  the socket identity an epoch keeps after teardown: `hsms/epoch.go` → `(*epoch).socketID`
 - the excluded async path: `hsms/session.go` → `(*session).ReplyDataMessage`
 - the option and field: `hsms/connection_config.go` → `WithTransactionObserver`
 - the types: `hsms/transaction_observer.go` → `TxEvent`, `TxOutcome`

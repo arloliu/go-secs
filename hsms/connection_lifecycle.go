@@ -239,6 +239,8 @@ func (c *connection) Open(ctx context.Context, mode OpenMode) error {
 	// It is a single atomic load and takes no locks: step runs on the FSM goroutine,
 	// which an epoch teardown join can be waiting behind, so any lock the teardown path holds would close a cycle here.
 	s.curGen = c.CurrentGeneration
+	// The epoch behind it, read under the same lock-free rule when a transition fires, to name the transition's socket.
+	s.curEpoch = c.cur.Load
 	// The fence behind the Select-lost commit, which never reaches step and so is not covered by its match.
 	s.commitGate = c.commitGate
 	// The Select commit's own fence: shares commitGate's generation-guarded CAS discipline,

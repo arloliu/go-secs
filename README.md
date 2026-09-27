@@ -55,9 +55,18 @@ and SECS-I over TCP/IP (SEMI E4), together with an SML (SECS Message Language) p
   `SubscribeLifecycle` is the cancellable, cause-carrying counterpart:
   it reports each transition together with the `TransitionCause` that drove it —
   a local Close, a peer Separate, a T7 expiry, a linktest failure, a dropped socket, and so on.
+  Each `LifecycleEvent` also names the `Socket` and `Generation` the transition belongs to.
 * **Transaction observability:** `hsms.WithTransactionObserver` reports a `TxEvent` for every completed synchronous send.
-  The event names the stream, function, duration, and outcome —
-  enough to feed a metrics histogram or trace exporter without hand-instrumenting each call site.
+  The event names the stream, function, session ID, duration, and outcome —
+  enough to feed a metrics histogram or trace exporter without hand-instrumenting each call site —
+  and the `Socket` and `Generation` the send was bound to.
+* **Wire and socket observability:** `hsms.WithWireObserver` reports every HSMS frame that crosses the socket, in both directions,
+  as its exact wire bytes, control frames included.
+  `hsms.WithSocketObserver` reports each socket the connection dials or accepts, including an extra peer a passive connection refuses,
+  and its close, with the failure that caused it.
+  The wire, socket, lifecycle, and transaction events all carry the same `Socket` and `Generation` values,
+  so a recorder can join the four streams.
+  Only the HSMS-SS transport reports wire and socket events; a SECS-I connection reports neither.
 * **Resilience:** automatic reconnection, and an auto-linktest with a configurable failure threshold
   for tolerating transient T6 timeouts. Activity-based linktest suppression (on by default) probes
   only idle links and does not count a probe timeout toward the disconnect threshold when the
@@ -364,6 +373,55 @@ func main() {
     _ = reply // process the reply
 }
 ```
+
+### Observing the wire and sockets (HSMS-SS)
+
+A wire observer sees every frame as it crossed the socket.
+It runs on the connection's own receive and write paths, and `ev.Frame` is valid only during the call,
+so copy what you keep and hand it off without blocking:
+
+```go
+frames := make(chan hsms.WireEvent, 1024)
+
+wireObserver := func(ev hsms.WireEvent) {
+    ev.Frame = bytes.Clone(ev.Frame) // the connection reuses the buffer after the call returns
+    select {
+    case frames <- ev:
+    default: // drop the event rather than stall the link
+    }
+}
+
+cfg, err := hsmsss.NewConfig("127.0.0.1", 5000,
+    hsmsss.WithActive(),
+    hsmsss.WithConnectionOption(hsms.WithWireObserver(wireObserver)),
+)
+```
+
+A socket observer sees each socket come up and close, and the failure that closed it, if any:
+
+```go
+socketObserver := func(ev hsms.SocketEvent) {
+    // Runs on the connection's own goroutines: keep it short, and never call back into the connection.
+    switch ev.Kind {
+    case hsms.SocketConnected, hsms.SocketAccepted:
+        log.Printf("socket %d up: %v -> %v", ev.Socket, ev.Local, ev.Remote)
+    case hsms.SocketRefused:
+        log.Printf("socket %d refused: a session is already live", ev.Socket)
+    case hsms.SocketClosed:
+        log.Printf("socket %d (generation %d) closed, err=%v", ev.Socket, ev.Generation, ev.Err)
+    }
+}
+
+cfg, err := hsmsss.NewConfig("127.0.0.1", 5000,
+    hsmsss.WithPassive(),
+    hsmsss.WithConnectionOption(hsms.WithSocketObserver(socketObserver)),
+)
+```
+
+`ev.Err` on a close is nil for a close the application or the peer asked for,
+and names the failure otherwise — a read or write error, a failed linktest, `hsms.ErrT7Timeout`, and so on.
+`Socket` and `Generation` match the values on the wire events of that socket
+and on the `LifecycleEvent` and `TxEvent` of that generation.
 
 ### SECS-I host (active mode)
 
