@@ -366,12 +366,46 @@ func TestDecodeZstdCLISingleSegmentFrame(t *testing.T) {
 	}
 }
 
-func TestDecodeZstdAcceptsWindowAtLimit(t *testing.T) {
-	// Window_Descriptor 0x80: exponent 16, mantissa 0, so exactly the 64 MiB limit;
-	// then one last Raw block of 3 bytes.
-	frame := []byte{0x28, 0xB5, 0x2F, 0xFD, 0x00, 0x80, 0x19, 0x00, 0x00, 'a', 'b', 'c'}
+// TestDecodeZstdWindowBudget checks the per-call window rule:
+// a frame may declare a window up to the declared decoded length, or up to 8 MiB when the body is smaller,
+// so a tiny body cannot make the decoder reserve tens of megabytes of history.
+func TestDecodeZstdWindowBudget(t *testing.T) {
+	// Window_Descriptor 0x68: exponent 13, mantissa 0, an 8 MiB window; then one last Raw block of 3 bytes.
+	small := []byte{0x28, 0xB5, 0x2F, 0xFD, 0x00, 0x68, 0x19, 0x00, 0x00, 'a', 'b', 'c'}
+	// Window_Descriptor 0x80: exponent 16, mantissa 0, the 64 MiB limit; then the same block.
+	large := []byte{0x28, 0xB5, 0x2F, 0xFD, 0x00, 0x80, 0x19, 0x00, 0x00, 'a', 'b', 'c'}
 
-	decoded, err := codec.Decode(codec.Zstd, nil, frame, 3)
+	decoded, err := codec.Decode(codec.Zstd, nil, small, 3)
 	require.NoError(t, err)
 	require.Equal(t, []byte("abc"), decoded)
+
+	_, err = codec.Decode(codec.Zstd, nil, large, 3)
+	require.ErrorIs(t, err, codec.ErrWindowTooLarge)
+
+	// With a declared decoded length that covers the window, the window check passes
+	// and the short body fails later as an incomplete stream.
+	_, err = codec.Decode(codec.Zstd, nil, large, 64<<20)
+	require.ErrorIs(t, err, codec.ErrIncompleteStream)
+	require.NotErrorIs(t, err, codec.ErrWindowTooLarge)
+}
+
+// TestDecodeZstdSmallBodyAllocation checks that decoding a tiny body allocates no more than a small multiple of the window its budget allows.
+func TestDecodeZstdSmallBodyAllocation(t *testing.T) {
+	frame := []byte{0x28, 0xB5, 0x2F, 0xFD, 0x00, 0x68, 0x19, 0x00, 0x00, 'a', 'b', 'c'}
+
+	// Warm the pool so the measurement excludes the decoder's own construction.
+	_, err := codec.Decode(codec.Zstd, nil, frame, 3)
+	require.NoError(t, err)
+
+	// TotalAlloc is cumulative, so no collection is needed before reading it.
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	for range 4 {
+		_, err = codec.Decode(codec.Zstd, nil, frame, 3)
+		require.NoError(t, err)
+	}
+	runtime.ReadMemStats(&after)
+
+	const budget = 4 * 32 << 20
+	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(budget))
 }
