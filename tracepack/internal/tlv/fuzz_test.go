@@ -2,7 +2,8 @@
 //
 // FuzzDecode feeds arbitrary bytes to Decode,
 // then runs every registry's Validate and every typed accessor on every decoded entry,
-// descending into nested tlv values.
+// descending into nested tlv values;
+// when Validate accepts an entry list, every known tag's accessor must accept its value too.
 // The array targets fuzz DecodeU32Array, DecodeU64Array and DecodeSeqRange on their own,
 // and FuzzDecode also runs them on every entry value.
 // Each target asserts that nothing panics,
@@ -13,6 +14,7 @@ package tlv
 import (
 	"encoding/hex"
 	"errors"
+	"maps"
 	"slices"
 	"testing"
 	"unicode/utf8"
@@ -32,7 +34,7 @@ var fuzzRegistries = []Registry{
 
 // fuzzSentinels is every sentinel error the package reports.
 var fuzzSentinels = []error{
-	ErrTruncated, ErrZeroTag, ErrLength, ErrType, ErrDuplicate, ErrMissing, ErrLimit, ErrUTF8, ErrBool,
+	ErrTruncated, ErrZeroTag, ErrLength, ErrType, ErrDuplicate, ErrMissing, ErrLimit, ErrUTF8, ErrBool, ErrDepth,
 }
 
 // fuzzHex decodes a hex seed.
@@ -82,18 +84,24 @@ func encodeEntries(entries []Entry) []byte {
 // registrySeed returns an entry list holding every tag of reg, in tag order, each with a well-formed value,
 // so the seed passes Validate against reg.
 func registrySeed(reg Registry) []byte {
-	tags := make([]uint16, 0, len(reg))
-	for tag := range reg {
-		tags = append(tags, tag)
-	}
-	slices.Sort(tags)
+	return encodeEntries(registryEntries(reg))
+}
 
+// registryEntries returns the entries of registrySeed;
+// the value of a field with a nested registry holds every tag of that registry.
+func registryEntries(reg Registry) []Entry {
+	tags := slices.Sorted(maps.Keys(reg))
 	entries := make([]Entry, 0, len(tags))
 	for _, tag := range tags {
-		entries = append(entries, sampleEntry(tag, reg[tag].Type))
+		f := reg[tag]
+		if f.Nested != nil {
+			entries = append(entries, NestedEntry(tag, registryEntries(*f.Nested)))
+			continue
+		}
+		entries = append(entries, sampleEntry(tag, f.Type))
 	}
 
-	return encodeEntries(entries)
+	return entries
 }
 
 // requireEntryError asserts that err is an *EntryError wrapping one of the package's sentinel errors.
@@ -204,6 +212,8 @@ func checkEntries(t *testing.T, b []byte, depth int) {
 	for _, reg := range fuzzRegistries {
 		if err := Validate(entries, reg); err != nil {
 			requireEntryError(t, err)
+		} else {
+			requireValidated(t, entries, reg)
 		}
 	}
 
@@ -213,6 +223,54 @@ func checkEntries(t *testing.T, b []byte, depth int) {
 		checkNested(t, e, depth)
 		checkArrays(t, e.Value)
 	}
+}
+
+// requireValidated asserts what a nil error from Validate promises about entries:
+// every known tag carries its registry's type and a value its typed accessor accepts,
+// and the value of a field with a nested registry decodes to entries that registry accepts.
+func requireValidated(t *testing.T, entries []Entry, reg Registry) {
+	t.Helper()
+
+	for _, e := range entries {
+		f, known := reg[e.Tag]
+		if !known {
+			continue
+		}
+		require.Equal(t, f.Type, e.Type)
+		require.NoError(t, accessorError(e))
+		if f.Nested != nil {
+			nested, err := e.Nested()
+			require.NoError(t, err)
+			require.NoError(t, Validate(nested, *f.Nested))
+		}
+	}
+}
+
+// accessorError returns the error of the typed accessor for e's type, or nil for an unknown type.
+func accessorError(e Entry) error {
+	var err error
+	switch e.Type {
+	case TypeU8:
+		_, err = e.U8()
+	case TypeBool:
+		_, err = e.Bool()
+	case TypeI64:
+		_, err = e.I64()
+	case TypeU64:
+		_, err = e.U64()
+	case TypeUUID:
+		_, err = e.UUID()
+	case TypeUTF8:
+		_, err = e.UTF8()
+	case TypeBytes:
+		_, err = e.Bytes()
+	case TypeTLV:
+		_, err = e.Nested()
+	default:
+		// An unknown value type has no accessor.
+	}
+
+	return err
 }
 
 // requireAccessor checks the error of the accessor for type want on e:

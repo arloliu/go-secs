@@ -4,8 +4,9 @@
 // The same encoding carries the pack metadata, the payloads of transport-event and annotation records,
 // the block summaries and pack statistics of the footer, and every nested tlv value.
 // Decode checks only the entry structure, and keeps unknown tags and unknown value types as they are;
-// Validate applies a registry;
-// the typed accessors of Entry check value contents such as the u64 limit and UTF-8 validity.
+// the typed accessors of Entry check value contents such as the u64 limit and UTF-8 validity;
+// Validate applies a registry to the known tags,
+// checking their contents by the same rules and descending into nested tlv values.
 //
 // UUIDs are plain [16]byte values in RFC 9562 byte order.
 package tlv

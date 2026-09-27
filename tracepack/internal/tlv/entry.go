@@ -31,6 +31,8 @@ var (
 	ErrUTF8 = errors.New("tlv: utf8 value is not valid UTF-8")
 	// ErrBool reports a bool value other than 0 or 1.
 	ErrBool = errors.New("tlv: bool value is not 0 or 1")
+	// ErrDepth reports a tlv value nested more than MaxNestingDepth levels deep, which Validate does not descend into.
+	ErrDepth = errors.New("tlv: nested tlv values exceed the nesting depth limit")
 )
 
 // Entry is one TLV entry of the tracepack format specification §5.
@@ -58,7 +60,7 @@ type EntryError struct {
 	// Offset is the byte offset of the entry header, or -1 for a required tag that is absent.
 	Offset int
 	// Err is the sentinel error describing the failure,
-	// or for a malformed nested value, the nested entry's *EntryError.
+	// or for a nested value that does not decode or validate, the nested entry's *EntryError.
 	Err error
 }
 
@@ -152,17 +154,11 @@ func (e Entry) U8() (uint8, error) {
 
 // Bool returns the value of a bool entry; a value other than 0 or 1 is an error.
 func (e Entry) Bool() (bool, error) {
-	if err := e.check(TypeBool); err != nil {
+	if err := e.checkValue(TypeBool); err != nil {
 		return false, err
 	}
-	switch e.Value[0] {
-	case 0:
-		return false, nil
-	case 1:
-		return true, nil
-	default:
-		return false, e.errorf(ErrBool)
-	}
+
+	return e.Value[0] == 1, nil
 }
 
 // I64 returns the value of an i64 entry.
@@ -176,15 +172,11 @@ func (e Entry) I64() (int64, error) {
 
 // U64 returns the value of a u64 entry; a value above MaxU64 is an error.
 func (e Entry) U64() (uint64, error) {
-	if err := e.check(TypeU64); err != nil {
+	if err := e.checkValue(TypeU64); err != nil {
 		return 0, err
 	}
-	v := binary.LittleEndian.Uint64(e.Value)
-	if v > MaxU64 {
-		return 0, e.errorf(ErrLimit)
-	}
 
-	return v, nil
+	return binary.LittleEndian.Uint64(e.Value), nil
 }
 
 // UUID returns the value of a uuid entry in RFC 9562 byte order.
@@ -197,12 +189,10 @@ func (e Entry) UUID() ([16]byte, error) {
 }
 
 // UTF8 returns the value of a utf8 entry as a string; invalid UTF-8 is an error.
+// A leading BOM is valid UTF-8 and is returned as part of the string.
 func (e Entry) UTF8() (string, error) {
-	if err := e.check(TypeUTF8); err != nil {
+	if err := e.checkValue(TypeUTF8); err != nil {
 		return "", err
-	}
-	if !utf8.Valid(e.Value) {
-		return "", e.errorf(ErrUTF8)
 	}
 
 	return string(e.Value), nil
@@ -249,6 +239,31 @@ func (e Entry) check(want ValueType) error {
 	}
 	if n, fixed := want.FixedLen(); fixed && len(e.Value) != n {
 		return e.errorf(ErrLength)
+	}
+
+	return nil
+}
+
+// checkValue verifies what check verifies, then the content rule of the value type want:
+// a bool is 0 or 1, a u64 is at most MaxU64 (the tracepack format specification §2), and a utf8 value is valid UTF-8.
+// A leading BOM passes, because it is valid UTF-8:
+// the specification's "UTF-8 without BOM" binds writers, while a reader rejects only a value that is not UTF-8.
+// Any u8, i64, uuid or bytes value of the right length is valid,
+// a tlv value is checked where it is decoded,
+// and an unknown value type has no content rule.
+func (e Entry) checkValue(want ValueType) error {
+	if err := e.check(want); err != nil {
+		return err
+	}
+
+	if want == TypeBool && e.Value[0] > 1 {
+		return e.errorf(ErrBool)
+	}
+	if want == TypeU64 && binary.LittleEndian.Uint64(e.Value) > MaxU64 {
+		return e.errorf(ErrLimit)
+	}
+	if want == TypeUTF8 && !utf8.Valid(e.Value) {
+		return e.errorf(ErrUTF8)
 	}
 
 	return nil
