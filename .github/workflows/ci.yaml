@@ -29,3 +29,17 @@ jobs:
       run: go version
     - name: Test
       run: make test
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Go and golangci-lint from mise.toml
+      uses: jdx/mise-action@v4
+    - name: Display tool versions
+      run: |
+        go version
+        golangci-lint version
+    - name: Lint
+      run: make lint lint-gemgen

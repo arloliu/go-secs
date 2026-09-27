@@ -28,7 +28,8 @@ Also on disk: `examples/device/` and `examples/secs1_device/` (library-usage exa
 
 ## Toolchain
 
-- Go version is pinned in `go.mod`. The linter module (`.linter.go.mod`) pins its own; keep them separate.
+- The module's minimum Go version is the `go` directive in `go.mod`.
+  `mise.toml` pins the development toolchain (Go and golangci-lint); keep them separate.
 - Runtime deps are intentionally minimal — check `go.mod` before adding any. Prefer stdlib.
 - `.golangci.yaml` blocks: `github.com/golang/protobuf`, `github.com/satori/go.uuid`, `github.com/gofrs/uuid`.
 
