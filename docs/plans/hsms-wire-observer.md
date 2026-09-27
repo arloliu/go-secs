@@ -1,6 +1,6 @@
 # HSMS wire observer and generation-aware events
 
-Status: draft (2026-09-27) — proposal for go-secs v2.6.0; owner decisions in §9, external review pending.
+Status: draft (2026-09-27) — proposal for go-secs v2.6.0; owner decisions in §9; external review reached go after six rounds; awaiting the owner's go for implementation.
 
 ## 1. Purpose
 
@@ -290,6 +290,8 @@ tracepack's writer phase then requires go-secs v2.6.0.
   a read error racing a local close yields one close event with the winning cause.
 - `-race` for everything; `make stress-quick`, with the new race tests added to its selection pattern in the Makefile,
   because the hooks sit on connection state paths.
+- Refusal recorder cases with zero and one observed frame, next to the completed two-frame exchange.
+- The T7 error is attached to the epoch only after the T7 transition wins, never at report time; a test races a Select against T7 and checks the close error.
 - External review rounds until ready, per the repository's review pipeline.
 
 ## 8. Phases
