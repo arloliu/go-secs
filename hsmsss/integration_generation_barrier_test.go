@@ -100,7 +100,7 @@ func assertAbandonedGenerationTCPDownCannotDropSuccessor(t *testing.T, cause err
 
 	// Simulate the abandoned straggler having lost its race against genCtx cancellation:
 	// gen N's report reaches the FSM through the transport's own dispatch wrapper, naming gen N, while gen N+1 owns the link.
-	tr.tcpDown(genN, cause, transitionCause)
+	tr.tcpDown(&genWG{gen: genN}, cause, transitionCause)
 
 	require.Never(t, func() bool {
 		return conn.State() != hsms.SelectedState || dropCount() > 1
@@ -111,7 +111,7 @@ func assertAbandonedGenerationTCPDownCannotDropSuccessor(t *testing.T, cause err
 }
 
 // TestReconnect_AbandonedGenerationLinktestFailCannotDropSuccessor is the linktest-failure half of the disconnect barrier over a REAL passive core:
-// hsmsss.runLinktest's own tcpDown call (transport_procedures.go: t.tcpDown(g.gen, errLinktestFailed, hsms.CauseLinktestFail)), replayed for a generation that has already ended.
+// hsmsss.runLinktest's own tcpDown call (transport_procedures.go: t.tcpDown(g, errLinktestFailed, hsms.CauseLinktestFail)), replayed for a generation that has already ended.
 //
 // Mechanically this exercises the SAME generation match as TestReconnect_AbandonedGenerationTCPDownCannotDropSuccessor in the hsms package —
 // the barrier never reads the cause — so the value here is not a distinct code path in hsms.
@@ -129,7 +129,7 @@ func TestReconnect_AbandonedGenerationLinktestFailCannotDropSuccessor(t *testing
 }
 
 // TestReconnect_AbandonedGenerationPassiveRecvTCPDownCannotDropSuccessor is the passive-role recv-loop half of the disconnect barrier over a REAL passive core:
-// recvLoop's own read-error tcpDown call (transport_recv.go: t.tcpDown(g.gen, err, hsms.CauseIOError)), replayed for a generation that has already ended.
+// recvLoop's own read-error tcpDown call (transport_recv.go: t.tcpDown(g, err, hsms.CauseIOError)), replayed for a generation that has already ended.
 //
 // The hsms package's TestReconnect_AbandonedGenerationTCPDownCannotDropSuccessor already covers this exact scenario end-to-end with the mock transport,
 // and role (active/passive) makes no difference to the barrier itself:

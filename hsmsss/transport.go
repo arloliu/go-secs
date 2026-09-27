@@ -20,7 +20,7 @@ import (
 // rather than register this generation's goroutines on its WaitGroup bundle concurrently
 // with that generation's Stop Waits,
 // Start rolls back the just-dialed/listened socket.
-// Or the core's generation gate can have already refused the socket (startActive's tcpUp call):
+// Or the core's generation gate can have already refused the socket (startActive's adoptSocket call):
 // the generation ended — latched by a concurrent teardown — before that same teardown's tr.Stop ran,
 // so the I1 guard above had not sealed yet, but the socket has nowhere live to go regardless.
 // Either way Start rolls back the socket and returns this.
@@ -62,6 +62,13 @@ type genWG struct {
 	// It rides on the bundle because the bundle already reaches every such goroutine.
 	// Zero when the runtime offers no generation identity (an out-of-module runtime, or a mock), which disables the match.
 	gen uint64
+
+	// sock is the record of the socket this generation dialed or accepted, nil until then.
+	// startActive and acceptLoop set it before they report the socket to the core
+	// and before they spawn anything that reads it,
+	// and nothing writes it afterwards.
+	// tcpDown closes the socket through it, and the recv loop names it on every frame it reports.
+	sock *socketRecord
 
 	// ctx is this generation's own ctx — Start's ctx, never dialCtx or procCtx.
 	// startActive and startPassive stamp it right next to gen,
@@ -149,7 +156,8 @@ type transport struct {
 	// applyKeepAlive), but a custom dialer supplied via WithDialer may provide any net.Conn (e.g. an
 	// in-memory pipe), so the stored type is generalized to net.Conn.
 	conn     net.Conn
-	listener net.Listener // passive only; nil for active; nil after Accept completes
+	connSock *socketRecord // conn's record, stored and cleared together with conn; Stop closes conn through it
+	listener net.Listener  // passive only; nil for active; nil after Accept completes
 
 	// procCancel cancels the active Select-procedure goroutine's generation-scoped ctx. It is
 	// set (active only) by startActive under connMu and called by Stop so the pending Select
@@ -207,7 +215,7 @@ type transport struct {
 	lastSendStamp atomic.Int64
 	lastRecvStamp atomic.Int64
 
-	// refuseMu guards refuseStopped and refuseConn: the two-sided handoff between Stop and an in-flight refuseExtraConn (passive-only, E37 §9.2.4.1.1 option 1, passive.go).
+	// refuseMu guards refuseStopped, refuseSock and refuseToken: the two-sided handoff between Stop and an in-flight refuseExtraConn (passive-only, E37 §9.2.4.1.1 option 1, passive.go).
 	// Kept as a DEDICATED mutex rather than reusing connMu —
 	// the refusal exchange is orthogonal to the live conn/listener state connMu already serializes,
 	// and giving it its own mutex keeps the handoff self-contained in passive.go.
@@ -218,12 +226,14 @@ type transport struct {
 	// ArmStart resets it, mirroring the startGate.stopping seal/ArmStart pairing,
 	// so a prior generation's Stop never poisons a later generation's refusal into close-without-response.
 	refuseStopped bool
-	// refuseConn is the socket owned by an in-flight refuseExtraConn call, published only after the helper observes !refuseStopped under refuseMu; nil otherwise.
-	// Stop (haltRefusal) closes whatever is here so a parked io.ReadFull unblocks immediately instead of holding Stop's g.accept.Wait for the full T7 deadline.
-	refuseConn net.Conn
+	// refuseSock is the record of the socket owned by an in-flight refuseExtraConn call,
+	// published only after the helper observes !refuseStopped under refuseMu; nil otherwise.
+	// Stop (haltRefusal) closes whatever is here, through its gate,
+	// so a parked io.ReadFull unblocks immediately instead of holding Stop's g.accept.Wait for the full T7 deadline.
+	refuseSock *socketRecord
 	// refuseToken is a monotonically incremented publish counter, guarded by refuseMu.
 	// WithListener permits a custom net.Conn whose dynamic type may be non-comparable,
-	// so refuseExtraConn's own cleanup cannot use "==" against refuseConn to decide whether it still owns the published slot
+	// so refuseExtraConn's own cleanup cannot use "==" against the published conn to decide whether it still owns the published slot
 	// (that comparison panics for a non-comparable dynamic type).
 	// Each publish increments the counter and captures it locally;
 	// the cleanup clears the slot only if the counter still matches, i.e. no later publish has superseded it.
@@ -234,7 +244,7 @@ type transport struct {
 
 	// refusePrePublishHook is a test-only, nil-by-default seam (style of the injectable clock,
 	// see now/clock()) invoked by refuseExtraConn between Accept returning and publishing the
-	// socket into refuseConn. It is the only way to deterministically drive the
+	// socket into refuseSock. It is the only way to deterministically drive the
 	// Stop-races-prepublication race in tests; production leaves it nil (no-op).
 	refusePrePublishHook func()
 
@@ -259,6 +269,17 @@ type transport struct {
 	// transport_passive.go) to at most ONE outstanding goroutine per TRANSPORT — never reset by ArmStart,
 	// because it spans every generation this transport ever runs, not one generation.
 	acceptWarnInFlight atomic.Bool
+
+	// socketSeq mints socket identities (mintSocket): every dialed or accepted socket, refused ones included, takes the next value.
+	// Never reset — a transport serves one connection, and an identity must not repeat within it.
+	socketSeq atomic.Uint64
+
+	// adopted is the record of the socket most recently offered to the core for adoption (adoptSocket),
+	// which is the record CloseSocket closes an epoch's socket through.
+	// It is atomic so CloseSocket takes no lock of this transport:
+	// the core calls it from teardown,
+	// and a Start holding startGate can be publishing a socket onto an epoch at the same moment.
+	adopted atomic.Pointer[socketRecord]
 }
 
 // newTransport constructs a transport for cfg with an initial per-generation WaitGroup bundle.
@@ -331,11 +352,11 @@ func (t *transport) ArmStart() {
 	// Reset the passive-refusal handoff state (generation-scoped, mirrors the seal above) under
 	// its own dedicated mutex: a prior Stop's refuseStopped must not silently poison every later
 	// generation's refusal into close-without-response (E37 §9.2.4.1.1 option 1, passive.go).
-	// refuseConn is already nil by the time Stop returns (haltRefusal clears it), so this reset
-	// is belt-and-suspenders for refuseConn and load-bearing for refuseStopped.
+	// refuseSock is already nil by the time Stop returns (haltRefusal clears it), so this reset
+	// is belt-and-suspenders for refuseSock and load-bearing for refuseStopped.
 	t.refuseMu.Lock()
 	t.refuseStopped = false
-	t.refuseConn = nil
+	t.refuseSock = nil
 	t.refuseToken = 0
 	t.refuseMu.Unlock()
 }
@@ -375,6 +396,7 @@ func (t *transport) Stop(ctx context.Context) error {
 
 	t.connMu.Lock()
 	conn := t.conn
+	sock := t.connSock
 	ln := t.listener
 	procCancel := t.procCancel
 	t.procCancel = nil
@@ -418,9 +440,10 @@ func (t *transport) Stop(ctx context.Context) error {
 
 	// Close the conn we already know about (active: set synchronously by startActive; passive:
 	// set once the accept goroutine adopted a peer) to unblock the recv loop's parked Read (J5).
-	// Closing an already-closed net.Conn is safe — the error is intentionally discarded.
+	// It closes through the socket's gate with no failure:
+	// the epoch's teardown already closed it with whatever failure it recorded, so this is normally a no-op.
 	if conn != nil {
-		_ = conn.Close()
+		closeRecorded(sock, conn)
 	}
 
 	// Halt any in-flight passive refusal exchange (E37 §9.2.4.1.1 option 1, passive.go):
@@ -444,12 +467,14 @@ func (t *transport) Stop(ctx context.Context) error {
 	// it to unblock that recv loop's parked Read. Idempotent if it is the same conn closed above.
 	t.connMu.Lock()
 	late := t.conn
+	lateSock := t.connSock
 	t.conn = nil
+	t.connSock = nil
 	t.listener = nil
 	t.connMu.Unlock()
 
 	if late != nil {
-		_ = late.Close()
+		closeRecorded(lateSock, late)
 	}
 
 	// BOUNDED join (§7.A / C1) of the remaining per-generation goroutines. The recv loop runs app

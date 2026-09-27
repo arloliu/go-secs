@@ -35,7 +35,7 @@ func newTwoGenConn(t *testing.T) (c *connection, genN, genSucc *epoch) {
 	cc, ok := conn.(*connection)
 	require.True(t, ok, "NewConnection must return the concrete *connection")
 
-	sup := newSupervisor(func(_, _ ConnState) {}, &cc.handlers, &cc.lifecycleSubs)
+	sup := newSupervisor(func(_, _ ConnState, _ TransitionCause) {}, &cc.handlers, &cc.lifecycleSubs)
 	sup.state.Store(uint32(SelectedState))
 	cc.sup.Store(sup)
 

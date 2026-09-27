@@ -77,18 +77,18 @@ type stateChange struct {
 // (notify uses drop-OLDEST coalescing), so a concurrent Close()'s inject(evClose) always
 // makes progress (spec §5.3, Codex rounds 4-5).
 type supervisor struct {
-	state         atomic.Uint32              // stores a ConnState; lock-free hot-path reads + State()
-	lastReacted   ConnState                  // run-owned; dedups reactions/notify (H3; tolerates the H2 pre-commit)
-	closed        bool                       // run-owned; LATCHED true once evClose is processed (I2) — later events ignored
-	events        chan fsmCommand            // SOLE reader is run(); GUARANTEED command queue (inject blocks, never drops)
-	notify        chan stateChange           // SOLE sender is run(); NON-BLOCKING drop-OLDEST coalescing
-	droppedNotify atomic.Uint64              // count of coalesced/dropped notifications; surfaced via a rate-limited Warn (M4)
-	react         func(prev, next ConnState) // for a transition INTO NotConnected: farewell decision + teardown init
-	closeEpoch    atomic.Pointer[epoch]      // set by requestClose(e) BEFORE evClose; the epoch to ensure-tear-down
-	stopCh        chan struct{}              // closed by stop() (from Close, AFTER e.wait()) -> run() exits
-	runDone       chan struct{}              // closed when run() returns; makes inject a safe no-op after stop
-	notifierDone  chan struct{}              // closed when notifier() returns; the per-cycle notifier join signal
-	stopOnce      sync.Once                  // guards close(stopCh) so stop() is idempotent
+	state         atomic.Uint32                                     // stores a ConnState; lock-free hot-path reads + State()
+	lastReacted   ConnState                                         // run-owned; dedups reactions/notify (H3; tolerates the H2 pre-commit)
+	closed        bool                                              // run-owned; LATCHED true once evClose is processed (I2) — later events ignored
+	events        chan fsmCommand                                   // SOLE reader is run(); GUARANTEED command queue (inject blocks, never drops)
+	notify        chan stateChange                                  // SOLE sender is run(); NON-BLOCKING drop-OLDEST coalescing
+	droppedNotify atomic.Uint64                                     // count of coalesced/dropped notifications; surfaced via a rate-limited Warn (M4)
+	react         func(prev, next ConnState, cause TransitionCause) // for a transition INTO NotConnected: farewell decision + teardown init
+	closeEpoch    atomic.Pointer[epoch]                             // set by requestClose(e) BEFORE evClose; the epoch to ensure-tear-down
+	stopCh        chan struct{}                                     // closed by stop() (from Close, AFTER e.wait()) -> run() exits
+	runDone       chan struct{}                                     // closed when run() returns; makes inject a safe no-op after stop
+	notifierDone  chan struct{}                                     // closed when notifier() returns; the per-cycle notifier join signal
+	stopOnce      sync.Once                                         // guards close(stopCh) so stop() is idempotent
 	// shutdownErr is the result of the shutdown that stopped this supervisor (Close, or a failed Open's rollback),
 	// returned again by every later Close of the same cycle.
 	// It is written once and read only under connection.lifeMu; runDone and notifierDone do NOT publish it.
@@ -203,7 +203,7 @@ type supervisor struct {
 // buffer keeps the default capacity. The caller installs the live closeTimeout provider (M7)
 // and logger (M4) as post-construction fields; both are optional (safe defaults / nil-guard).
 func newSupervisorWithEventsCap(
-	react func(prev, next ConnState),
+	react func(prev, next ConnState, cause TransitionCause),
 	handlers *atomic.Pointer[[]StateChangeHandler],
 	subs *atomic.Pointer[[]lifecycleSub],
 	eventsCap int,
@@ -226,11 +226,11 @@ func newSupervisorWithEventsCap(
 }
 
 // newSupervisor builds a fresh supervisor for one Open/Close cycle. react is invoked for
-// each deduped logical transition (non-blocking — it only SCHEDULES teardown, never Waits);
+// each deduped logical transition, with the cause step reports for it (non-blocking — it only SCHEDULES teardown, never Waits);
 // handlers points at the Connection's persistent StateChangeHandler slice, and subs at its cancellable lifecycle-subscription slice.
 // The caller sets the live closeTimeout provider (M7) and logger (M4) on the returned supervisor.
 func newSupervisor(
-	react func(prev, next ConnState),
+	react func(prev, next ConnState, cause TransitionCause),
 	handlers *atomic.Pointer[[]StateChangeHandler],
 	subs *atomic.Pointer[[]lifecycleSub],
 ) *supervisor {
@@ -637,12 +637,12 @@ func (s *supervisor) step(cmd fsmCommand) {
 func (s *supervisor) fireTransition(prev, next ConnState, cause TransitionCause) {
 	if next == NotConnectedState {
 		s.emit(stateChange{prev: prev, next: next, cause: cause})
-		s.react(prev, next)
+		s.react(prev, next, cause)
 
 		return
 	}
 
-	s.react(prev, next)
+	s.react(prev, next, cause)
 	s.emit(stateChange{prev: prev, next: next, cause: cause})
 }
 

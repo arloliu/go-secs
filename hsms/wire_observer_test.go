@@ -52,7 +52,8 @@ func (l *wireLog) snapshot() []WireEvent {
 }
 
 // newWireSendConn is newTestSendConn over a transport that offers the wire-reporting capability.
-// The live epoch gets a non-zero identity so an event's Generation is distinguishable from the zero value.
+// The live epoch gets a non-zero generation and socket identity,
+// so an event's Generation and Socket are distinguishable from the zero value.
 func newWireSendConn(t *testing.T, opts ...ConnOption) (*connection, *mockTransport) {
 	t.Helper()
 
@@ -66,13 +67,13 @@ func newWireSendConn(t *testing.T, opts ...ConnOption) (*connection, *mockTransp
 	c, ok := conn.(*connection)
 	require.True(t, ok, "NewConnection must return the concrete *connection")
 
-	sup := newSupervisor(func(_, _ ConnState) {}, &c.handlers, &c.lifecycleSubs)
+	sup := newSupervisor(func(_, _ ConnState, _ TransitionCause) {}, &c.handlers, &c.lifecycleSubs)
 	sup.state.Store(uint32(SelectedState))
 	c.sup.Store(sup)
 
 	e := newEpoch(t.Context(), cfg.logger, cfg.senderQueueSize)
 	e.id = 7
-	e.setConn(fakeConn{})
+	e.adoptConn(fakeConn{}, 11)
 	c.cur.Store(e)
 
 	return c, mock
@@ -103,7 +104,7 @@ func TestWireObserver_WriteFrameReportsWrittenBytes(t *testing.T) {
 	for i, ev := range events {
 		require.Equal(t, WireOutbound, ev.Direction, "event %d", i)
 		require.Equal(t, uint64(7), ev.Generation, "event %d names the writing epoch", i)
-		require.Zero(t, ev.Socket, "event %d: socket identity is not reported yet", i)
+		require.Equal(t, uint64(11), ev.Socket, "event %d names the socket it was written to", i)
 		require.False(t, ev.At.IsZero(), "event %d carries a timestamp", i)
 		require.Equal(t, written[i], ev.Frame, "event %d is the frame the transport wrote", i)
 		require.Equal(t, msgs[i].ToBytes(), ev.Frame, "event %d is the message's wire encoding", i)
@@ -156,6 +157,7 @@ func TestWireObserver_CourtesySeparateReported(t *testing.T) {
 	require.Len(t, events, 1)
 	require.Equal(t, WireOutbound, events[0].Direction)
 	require.Equal(t, uint64(7), events[0].Generation)
+	require.Equal(t, uint64(11), events[0].Socket)
 	require.Equal(t, written[0], events[0].Frame)
 	require.Equal(t, byte(SeparateReqType), events[0].Frame[4+5], "the reported frame is the Separate.req")
 

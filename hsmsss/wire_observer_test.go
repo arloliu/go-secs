@@ -116,7 +116,7 @@ func requireOutboundMatches(t *testing.T, ev hsms.WireEvent, payload []byte, msg
 	require.Equal(t, payload, ev.Frame[4:], msgAndArgs...)
 }
 
-// requireOneGeneration asserts every event carries the same non-zero generation, socket 0 and a timestamp,
+// requireOneGeneration asserts every event carries the same non-zero generation, the same non-zero socket and a timestamp,
 // and that timestamps never go backwards within one direction; it returns the generation.
 func requireOneGeneration(t *testing.T, events []hsms.WireEvent) uint64 {
 	t.Helper()
@@ -124,11 +124,13 @@ func requireOneGeneration(t *testing.T, events []hsms.WireEvent) uint64 {
 	require.NotEmpty(t, events)
 	gen := events[0].Generation
 	require.NotZero(t, gen, "an adopted socket's frames carry its generation")
+	sock := events[0].Socket
+	require.NotZero(t, sock, "every frame names the socket it crossed")
 
 	var last [3]time.Time
 	for i, ev := range events {
 		require.Equal(t, gen, ev.Generation, "event %d", i)
-		require.Zero(t, ev.Socket, "event %d: socket identity is not reported yet", i)
+		require.Equal(t, sock, ev.Socket, "event %d: one generation's frames cross one socket", i)
 		require.False(t, ev.At.IsZero(), "event %d carries a timestamp", i)
 		require.False(t, ev.At.Before(last[ev.Direction]), "event %d: timestamps are in wire order within a direction", i)
 		last[ev.Direction] = ev.At
@@ -257,8 +259,8 @@ func TestWireObserver_CourtesySeparateObserved(t *testing.T) {
 	requireOneGeneration(t, rec.snapshot())
 }
 
-// Frames on a reconnected link carry the new generation:
-// every frame of the first peer's socket names one generation, and every frame of the second peer's a later one.
+// Frames on a reconnected link carry the new generation and the new socket:
+// every frame of the first peer's socket names one generation and socket, and every frame of the second peer's later ones.
 func TestWireObserver_ReconnectAdvancesGeneration(t *testing.T) {
 	t.Parallel()
 
@@ -283,6 +285,7 @@ func TestWireObserver_ReconnectAdvancesGeneration(t *testing.T) {
 	g1 := requireOneGeneration(t, []hsms.WireEvent{in[0], in[1], out[0]})
 	g2 := requireOneGeneration(t, []hsms.WireEvent{in[2], out[1]})
 	require.Greater(t, g2, g1, "the reconnected socket belongs to a later generation")
+	require.Greater(t, in[2].Socket, in[0].Socket, "the reconnected socket has a later identity")
 }
 
 // Between two go-secs endpoints, what one side observes writing is exactly what the other observes reading, in both directions:

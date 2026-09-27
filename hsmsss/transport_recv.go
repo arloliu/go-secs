@@ -61,7 +61,7 @@ func (t *transport) recvLoop(g *genWG, conn net.Conn) {
 			// and the core discards the disconnect if that generation is no longer live
 			// when the FSM applies it (see hsms.supervisor.step).
 			if g.ctx.Err() == nil {
-				t.tcpDown(g.gen, err, hsms.CauseIOError)
+				t.tcpDown(g, err, hsms.CauseIOError)
 			}
 
 			return
@@ -71,7 +71,7 @@ func (t *transport) recvLoop(g *genWG, conn net.Conn) {
 
 		// The wire observer sees the frame as read, before anything interprets it,
 		// and before the straggler test seam below can pause this goroutine.
-		t.observeInbound(g.gen, buf)
+		t.observeInbound(g, buf)
 
 		// testHookAfterReadFrame is a nil-by-default test seam (setupAdmissionStraggler,
 		// integration_inbound_straggler_test.go): it fires between a complete frame read and its

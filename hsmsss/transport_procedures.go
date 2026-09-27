@@ -236,7 +236,7 @@ func (t *transport) runLinktest(ctx context.Context, g *genWG, interval time.Dur
 				}
 
 				if linktestDisconnectRecheck(sr != nil, finalInflight, t.lastRecvStamp.Load(), sentAt) {
-					t.tcpDown(g.gen, errLinktestFailed, hsms.CauseLinktestFail)
+					t.tcpDown(g, errLinktestFailed, hsms.CauseLinktestFail)
 					return
 				}
 

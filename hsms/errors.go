@@ -110,6 +110,14 @@ var (
 	// A T6 expiry is a protocol timer firing, and the peer may answer the next attempt.
 	ErrT6Timeout = errors.New("hsms: T6 control timeout")
 
+	// ErrT7Timeout indicates a link stayed NOT SELECTED for the configured T7 interval after its TCP/IP connection was established
+	// (SEMI E37 §9.2.2, the not-selected timer), so the connection closed that link.
+	// It is the failure a SocketClosed event (see [WithSocketObserver]) carries for a link the T7 expiry tore down.
+	//
+	// Classification: IsTransient and IsTimeout both report true, for the same reason as ErrT3Timeout.
+	// A T7 expiry is a protocol timer firing, and the peer may select on the next connection.
+	ErrT7Timeout = errors.New("hsms: T7 not-selected timeout")
+
 	// ErrCloseTimeout indicates Close's bounded shutdown join exceeded the configured close timeout with tasks still live (spec §5.2);
 	// the straggler is abandoned rather than awaited further.
 	// A still-running StateChangeHandler or lifecycle subscriber counts as such a task.

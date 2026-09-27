@@ -57,3 +57,16 @@ type DialBounder interface {
 	// it releases resources bound to this one call and never affects anything beyond it.
 	BoundDial(startCtx, dialCtx context.Context) (context.Context, context.CancelFunc)
 }
+
+// SocketAdopter lets a transport hand the core a socket together with the identity the transport minted for it.
+//
+// It is reached by type assertion, the same way GenerationRuntime is,
+// and a transport falls back to GenerationRuntime.TCPUpFromGeneration when the runtime does not offer it.
+// It is kept apart from GenerationRuntime so that fallback stays reachable:
+// a runtime can offer generation fencing without socket identity.
+type SocketAdopter interface {
+	// AdoptSocketFromGeneration is TCPUpFromGeneration that also records socket as the identity of conn on the generation that adopts it.
+	// It reports whether conn was accepted onto a live generation, exactly as TCPUpFromGeneration does;
+	// on false the caller still owns conn and must close it.
+	AdoptSocketFromGeneration(gen uint64, conn net.Conn, socket uint64) bool
+}

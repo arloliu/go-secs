@@ -25,12 +25,14 @@ const (
 type WireEvent struct {
 	// Direction says whether the frame was read from or written to the peer.
 	Direction WireDirection
-	// Socket is reserved for the identity of the socket the frame crossed.
-	// It is always 0 in this release.
+	// Socket identifies the socket the frame crossed, as [SocketEvent.Socket] does:
+	// a per-connection counter that advances for every socket dialed or accepted, refused ones included.
 	Socket uint64
 	// Generation identifies the connection generation that owns the socket:
 	// a per-connection counter that advances each time the connection establishes a new link,
 	// so every frame of one link carries the same value and a reconnected link carries a larger one.
+	// It is 0 for a frame of a refused socket, which no generation owns:
+	// the peer's first frame on a passive connection's extra socket and the Select.rsp refusing it.
 	Generation uint64
 	// At is taken when the frame was fully read or fully written.
 	// It carries a monotonic clock reading,

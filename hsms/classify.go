@@ -34,6 +34,7 @@ var transientSentinels = []error{
 	ErrConnClosed,
 	ErrT3Timeout,
 	ErrT6Timeout,
+	ErrT7Timeout,
 }
 
 // timeoutSentinels lists the hsms sentinels IsTimeout recognizes by errors.Is.
@@ -42,6 +43,7 @@ var transientSentinels = []error{
 var timeoutSentinels = []error{
 	ErrT3Timeout,
 	ErrT6Timeout,
+	ErrT7Timeout,
 	ErrCloseTimeout,
 }
 

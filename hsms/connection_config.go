@@ -58,6 +58,7 @@ type ConnectionConfig struct {
 	asyncSendErrHandler        func(msg Message, err error)
 	txObserver                 func(TxEvent)
 	wireObserver               func(WireEvent)
+	socketObserver             func(SocketEvent)
 	reconnectBackoffInitial    time.Duration
 	reconnectBackoffMultiplier float64
 }
@@ -678,6 +679,8 @@ func WithTransactionObserver(fn func(TxEvent)) ConnOption {
 // A frame the connection could not read completely,
 // because the socket closed partway through it,
 // is never a frame and is not reported.
+// The frames a passive connection exchanges with an extra peer it refuses are reported too,
+// with that socket's identity and generation 0 (see [WithSocketObserver]).
 //
 // Frames are reported only by a transport whose socket carries HSMS frames, which is the HSMS-SS transport.
 // A SECS-I connection built on the same core reports nothing,
@@ -709,6 +712,47 @@ func WithTransactionObserver(fn func(TxEvent)) ConnOption {
 func WithWireObserver(fn func(WireEvent)) ConnOption {
 	return func(c *ConnectionConfig) error {
 		c.wireObserver = fn
+
+		return nil
+	}
+}
+
+// WithSocketObserver installs a hook called for every socket the connection dials or accepts,
+// once when the socket comes up, once more if it is refused, and once when it closes.
+//
+// Every socket is reported, including those the connection never uses for a session:
+// an extra peer the passive role accepts and then refuses because a session is already live,
+// a dial that completes after Close began, and a socket declined because its generation had already ended.
+// Each socket yields, in this order:
+//   - SocketConnected (active role) or SocketAccepted (passive role), as soon as the dial or accept returned;
+//   - SocketRefused, for an extra passive peer only, when the connection rejects it,
+//     whether or not the refusal exchange with that peer completed;
+//   - SocketClosed, exactly once, whichever side or path closed the socket first.
+//
+// Frames the socket carried are reported by [WithWireObserver] with the same [SocketEvent.Socket] value,
+// between that socket's first event and its close;
+// a refused socket's frames —
+// the peer's Select.req and the Select.rsp answering it, whichever of the two crossed the wire —
+// carry Generation 0.
+// [SocketEvent.Err] on the close names the failure that initiated it, and is nil for a close nobody's failure caused.
+//
+// Sockets are reported only by a transport that owns sockets and reports them, which is the HSMS-SS transport.
+// A SECS-I connection reports nothing.
+//
+// The contract fn must keep:
+//   - fn runs synchronously on whichever goroutine dialed, accepted, refused or closed the socket —
+//     including the connection's own lifecycle goroutine when a teardown closes the socket —
+//     so it must be cheap: copy what you need and return.
+//   - Calls for different sockets, and a socket's close racing another socket's accept, can run at the same time,
+//     so fn must be safe for concurrent use.
+//   - fn must not call back into the connection (Open, Close, a send) from inside the call.
+//   - A panic in fn is not recovered by the hook: it unwinds the goroutine that raised the event.
+//     Keep fn panic-free.
+//
+// Passing nil (the default) disables the hook.
+func WithSocketObserver(fn func(SocketEvent)) ConnOption {
+	return func(c *ConnectionConfig) error {
+		c.socketObserver = fn
 
 		return nil
 	}
