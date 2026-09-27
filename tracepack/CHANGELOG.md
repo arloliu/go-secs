@@ -23,3 +23,6 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   validates each block before writing it when asked and attests the pack, builds the footer by the aggregation rule,
   detects clock steps for a capture-clock pack, and returns the capture's next seq on close;
   and `classify.Frame`, the go-secs-backed decode-status classifier, which brings the module's first go-secs requirement.
+  The writer rejects, with `ErrMetadataCommitment`, a record the committed metadata cannot describe,
+  forces `correlation-incomplete` on epoch 0, owns the `capture-boundary` bit, and fails on a short write;
+  the typed marshalers reject what their decoders would reject.

@@ -3,6 +3,7 @@ package tracepack_test
 import (
 	"bytes"
 	"errors"
+	"io"
 	"math"
 	"testing"
 
@@ -166,7 +167,8 @@ func mixedRecords(t *testing.T) []tracepack.Record {
 	recs := []tracepack.Record{
 		{
 			Kind: tracepack.KindTransportEvent, Dir: tracepack.DirLocal, Fidelity: tracepack.FidelityNotApplicable,
-			DecodeStatus: tracepack.DecodeStatusNotApplicable, Quality: tracepack.QualityCaptureBoundary,
+			DecodeStatus: tracepack.DecodeStatusNotApplicable,
+			Quality:      tracepack.QualityCaptureBoundary | tracepack.QualityCorrelationIncomplete,
 			Payload: mustEventPayload(t, &tracepack.TransportEvent{
 				Event: tracepack.EventCaptureBoundary, BoundaryKind: new(tracepack.BoundaryKindStart),
 			}),
@@ -187,7 +189,7 @@ func mixedRecords(t *testing.T) []tracepack.Record {
 		{
 			Kind: tracepack.KindAnnotation, Dir: tracepack.DirLocal, Fidelity: tracepack.FidelityNotApplicable,
 			DecodeStatus: tracepack.DecodeStatusNotApplicable, Payload: note,
-			Quality: tracepack.QualityNoMono,
+			Quality: tracepack.QualityNoMono | tracepack.QualityCorrelationIncomplete,
 		},
 	}
 
@@ -442,6 +444,47 @@ func TestWriterDerivesOwnedBits(t *testing.T) {
 	assert.Equal(t, tracepack.RecordFlagsW, flags[1], "mono_present clear iff no-mono")
 }
 
+func TestWriterDerivesEpochAndBoundaryBits(t *testing.T) {
+	t.Parallel()
+
+	unknownEpoch := dataRecordIn(0, hourStart, 0)
+
+	keptIncomplete := dataRecordIn(1, hourStart+1, 1)
+	keptIncomplete.Quality = tracepack.QualityCorrelationIncomplete
+
+	dataClaimingBoundary := dataRecordIn(2, hourStart+2, 1)
+	dataClaimingBoundary.Quality = tracepack.QualityCaptureBoundary
+
+	boundaryWithoutBit := eventRecord(t, 3, hourStart+3, 1, &tracepack.TransportEvent{
+		Event: tracepack.EventCaptureBoundary, BoundaryKind: new(tracepack.BoundaryKindGap),
+	})
+
+	closeClaimingBoundary := eventRecord(t, 4, hourStart+4, 1, &tracepack.TransportEvent{Event: tracepack.EventSocketClose})
+	closeClaimingBoundary.Quality = tracepack.QualityCaptureBoundary
+
+	undecodableClaimingBoundary := eventRecord(t, 5, hourStart+5, 1, &tracepack.TransportEvent{Event: tracepack.EventCaptureBoundary})
+	undecodableClaimingBoundary.Payload = []byte{0xFF}
+	undecodableClaimingBoundary.Quality = tracepack.QualityCaptureBoundary
+
+	in := []tracepack.Record{
+		unknownEpoch, keptIncomplete, dataClaimingBoundary, boundaryWithoutBit, closeClaimingBoundary, undecodableClaimingBoundary,
+	}
+	want := make([]tracepack.Record, len(in))
+	copy(want, in)
+	want[0].Quality = tracepack.QualityCorrelationIncomplete
+	want[2].Quality = 0
+	want[3].Quality = tracepack.QualityCaptureBoundary
+	want[4].Quality = 0
+	want[5].Quality = 0
+
+	w, buf := newTestWriter(t, tracepack.WriterOptions{})
+	appendAll(t, w, in)
+	mustClose(t, w)
+
+	p := mustWalkPack(t, buf.Bytes())
+	assert.Equal(t, want, p.records())
+}
+
 func TestWriterZeroesUnavailableCopies(t *testing.T) {
 	t.Parallel()
 
@@ -472,14 +515,15 @@ func TestWriterZeroesUnavailableCopies(t *testing.T) {
 	require.Len(t, got, 2)
 
 	wantShort := short
-	wantShort.Quality = tracepack.QualityDecodeFailed | tracepack.QualityNoMono
+	wantShort.Quality = tracepack.QualityDecodeFailed | tracepack.QualityNoMono | tracepack.QualityCorrelationIncomplete
 	assert.Equal(t, wantShort, got[0])
 	assert.Equal(t, tracepack.FieldValiditySessionID|tracepack.FieldValidityStreamAndW, got[0].FieldValidity)
 	assert.Equal(t, uint16(0x1234), got[0].SessionID)
 
 	wantEvent := tracepack.Record{
 		Seq: 1, TSUTCNs: hourStart + 1, Kind: tracepack.KindTransportEvent,
-		DecodeStatus: tracepack.DecodeStatusNotApplicable, Payload: event.Payload, Quality: tracepack.QualityNoMono,
+		DecodeStatus: tracepack.DecodeStatusNotApplicable, Payload: event.Payload,
+		Quality: tracepack.QualityNoMono | tracepack.QualityCorrelationIncomplete,
 	}
 	assert.Equal(t, wantEvent, got[1])
 }
@@ -705,6 +749,57 @@ func TestWriterWriteFailureFailsWriter(t *testing.T) {
 	require.ErrorIs(t, w.Flush(), tracepack.ErrWriterFailed)
 }
 
+// shortWriter accepts every byte until full bytes are written,
+// then reports one byte fewer than each later write was given, with a nil error.
+type shortWriter struct {
+	buf  bytes.Buffer
+	full int
+}
+
+func (s *shortWriter) Write(p []byte) (int, error) {
+	if s.buf.Len()+len(p) <= s.full {
+		return s.buf.Write(p)
+	}
+	if len(p) == 0 {
+		return 0, nil
+	}
+
+	return s.buf.Write(p[:len(p)-1])
+}
+
+func TestNewWriterRejectsShortWrite(t *testing.T) {
+	t.Parallel()
+
+	sw := &shortWriter{}
+	w, err := tracepack.NewWriter(sw, tracepack.WriterOptions{Meta: writerMeta()})
+	require.ErrorIs(t, err, io.ErrShortWrite)
+	assert.Nil(t, w)
+}
+
+func TestWriterShortWriteFailsWriter(t *testing.T) {
+	t.Parallel()
+
+	var probe bytes.Buffer
+	_, err := tracepack.NewWriter(&probe, tracepack.WriterOptions{Meta: writerMeta(), Facts: tracepack.PackFacts{AnyClassified: true}})
+	require.NoError(t, err)
+
+	sw := &shortWriter{full: probe.Len()}
+	w, err := tracepack.NewWriter(sw, tracepack.WriterOptions{Meta: writerMeta(), Facts: tracepack.PackFacts{AnyClassified: true}})
+	require.NoError(t, err)
+
+	r := dataRecord(0, hourStart)
+	require.NoError(t, w.Append(&r))
+	require.ErrorIs(t, w.Flush(), io.ErrShortWrite)
+	written := sw.buf.Len()
+
+	r = dataRecord(1, hourStart+1)
+	require.ErrorIs(t, w.Append(&r), tracepack.ErrWriterFailed)
+	err = closeErr(w)
+	require.ErrorIs(t, err, tracepack.ErrWriterFailed)
+	require.ErrorIs(t, err, io.ErrShortWrite, "the failure names its cause")
+	assert.Equal(t, written, sw.buf.Len(), "no footer and no trailer follow a short write")
+}
+
 func TestWriterRejectsCallsAfterClose(t *testing.T) {
 	t.Parallel()
 
@@ -755,14 +850,144 @@ func TestNewWriterRejectsInvalidOptions(t *testing.T) {
 func TestNewWriterSetsRedactionPresentFromFacts(t *testing.T) {
 	t.Parallel()
 
-	meta := writerMeta()
-	meta.Redaction = []tracepack.RedactionEntry{{
-		Seq: 0, Domain: "d", Digest: make([]byte, 32), MaskedRanges: []tracepack.MaskedRange{{Offset: 14, Length: 2}},
-	}}
-	_, buf := newTestWriter(t, tracepack.WriterOptions{Meta: meta, Facts: tracepack.PackFacts{AnyRedacted: true}})
+	_, buf := newTestWriter(t, tracepack.WriterOptions{Meta: extractMeta(), Facts: tracepack.PackFacts{AnyRedacted: true}})
 
 	p := mustWalkPack(t, buf.Bytes())
 	assert.Equal(t, uint32(1), p.Header.Flags)
+}
+
+// extractMeta returns writerMeta for an extract pack, with one redaction entry for seq 0.
+func extractMeta() *tracepack.PackMeta {
+	m := writerMeta()
+	m.PackRole = tracepack.PackRoleExtract
+	m.ExtractFilter = new("stream 1")
+	m.ScopeGeneration = nil
+	m.Redaction = []tracepack.RedactionEntry{{
+		Seq: 0, Domain: "d", Digest: make([]byte, 32), MaskedRanges: []tracepack.MaskedRange{{Offset: 10, Length: 4}},
+	}}
+
+	return m
+}
+
+func TestWriterRejectsRecordMetadataCannotDescribe(t *testing.T) {
+	t.Parallel()
+
+	redactedMeta := writerMeta()
+	redactedMeta.Redaction = extractMeta().Redaction
+
+	tests := []struct {
+		name  string
+		meta  *tracepack.PackMeta
+		facts tracepack.PackFacts
+		edit  func(r *tracepack.Record)
+		field string
+	}{
+		{
+			"classified record without classifier", basePackMeta(), tracepack.PackFacts{},
+			func(r *tracepack.Record) { r.DecodeStatus = tracepack.DecodeStatusOK },
+			"classifier",
+		},
+		{
+			"unregistered decode_status without classifier", basePackMeta(), tracepack.PackFacts{},
+			func(r *tracepack.Record) { r.DecodeStatus = 200 },
+			"classifier",
+		},
+		{
+			"oversized record without max_frame_len", writerMeta(), tracepack.PackFacts{AnyClassified: true},
+			func(r *tracepack.Record) { r.DecodeStatus = tracepack.DecodeStatusOversized },
+			"max_frame_len",
+		},
+		{
+			"redacted record without redaction-present", extractMeta(), tracepack.PackFacts{AnyClassified: true},
+			func(r *tracepack.Record) { r.Quality = tracepack.QualityRedacted },
+			"redaction-present",
+		},
+		{
+			"redacted record outside an extract", redactedMeta, tracepack.PackFacts{AnyClassified: true},
+			func(r *tracepack.Record) { r.Quality = tracepack.QualityRedacted },
+			"pack_role",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf bytes.Buffer
+			w, err := tracepack.NewWriter(&buf, tracepack.WriterOptions{Meta: tt.meta, Facts: tt.facts})
+			require.NoError(t, err)
+
+			bad := dataRecord(0, hourStart)
+			bad.DecodeStatus = tracepack.DecodeStatusNotAttempted
+			tt.edit(&bad)
+			err = w.Append(&bad)
+			require.ErrorIs(t, err, tracepack.ErrMetadataCommitment)
+			var fe *tracepack.FieldError
+			require.ErrorAs(t, err, &fe)
+			assert.Equal(t, tt.field, fe.Field)
+
+			good := dataRecord(0, hourStart)
+			good.DecodeStatus = tracepack.DecodeStatusNotAttempted
+			require.NoError(t, w.Append(&good), "the rejected record was not added and the Writer is still usable")
+			mustClose(t, w)
+
+			p := mustWalkPack(t, buf.Bytes())
+			assert.Equal(t, []tracepack.Record{good}, p.records())
+		})
+	}
+}
+
+func TestWriterAcceptsRecordsMetadataDescribes(t *testing.T) {
+	t.Parallel()
+
+	unclassified := basePackMeta()
+	oversizedMeta := writerMeta()
+	oversizedMeta.MaxFrameLen = new(uint64(1 << 20))
+
+	tests := []struct {
+		name  string
+		meta  *tracepack.PackMeta
+		facts tracepack.PackFacts
+		edit  func(r *tracepack.Record)
+	}{
+		{
+			"not-attempted without classifier", unclassified, tracepack.PackFacts{},
+			func(r *tracepack.Record) { r.DecodeStatus = tracepack.DecodeStatusNotAttempted },
+		},
+		{
+			"not-applicable without classifier", unclassified, tracepack.PackFacts{},
+			func(r *tracepack.Record) { r.DecodeStatus = tracepack.DecodeStatusNotApplicable },
+		},
+		{
+			"oversized with max_frame_len", oversizedMeta, tracepack.PackFacts{AnyOversized: true},
+			func(r *tracepack.Record) {
+				r.DecodeStatus = tracepack.DecodeStatusOversized
+				r.Quality = tracepack.QualityDecodeFailed
+			},
+		},
+		{
+			"redacted in an extract with redaction-present", extractMeta(), tracepack.PackFacts{AnyClassified: true, AnyRedacted: true},
+			func(r *tracepack.Record) { r.Quality = tracepack.QualityRedacted },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var buf bytes.Buffer
+			w, err := tracepack.NewWriter(&buf, tracepack.WriterOptions{Meta: tt.meta, Facts: tt.facts})
+			require.NoError(t, err)
+
+			r := dataRecord(0, hourStart)
+			tt.edit(&r)
+			require.NoError(t, w.Append(&r))
+			mustClose(t, w)
+
+			p := mustWalkPack(t, buf.Bytes())
+			assert.Equal(t, []tracepack.Record{r}, p.records())
+		})
+	}
 }
 
 func TestValidatingWriterAttestsAgreeingPack(t *testing.T) {
@@ -1004,6 +1229,39 @@ func TestWriterAdoptsReceivedClockStepAsAnchor(t *testing.T) {
 	assert.Equal(t, in, p.records(), "the writer adds no step of its own")
 }
 
+func TestWriterMakesCallerClockStepDurableBeforeAnchoring(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	s := &sizeSyncer{buf: &buf}
+	w, err := tracepack.NewWriter(&buf, tracepack.WriterOptions{
+		Meta: clockMeta(), Facts: tracepack.PackFacts{AnyClassified: true}, AssignSeq: true, DetectClockSteps: true, Sync: s,
+	})
+	require.NoError(t, err)
+
+	before := monoRecord(hourStart, 0)
+	require.NoError(t, w.Append(&before))
+	assert.Empty(t, s.sizes, "a record without a step stays in the open block")
+
+	stepped := monoRecord(hourStart+10*clockTolerance+1_000, 1_000)
+	step := clockStepRecord(t, &stepped, 0, 10*clockTolerance)
+	require.NoError(t, w.Append(&step))
+	require.Len(t, s.sizes, 1, "the block holding the caller's step is written and synced by its Append")
+	assert.Equal(t, buf.Len(), s.sizes[0])
+
+	// Drift 0 against the step, 10 tolerances against the capture origin:
+	// without a new anchor the writer would insert a step of its own before it.
+	after := monoRecord(hourStart+10*clockTolerance+2_000, 2_000)
+	require.NoError(t, w.Append(&after))
+	assert.Equal(t, step.Seq+1, after.Seq, "no step is inserted: the record is anchored on the caller's step")
+	mustClose(t, w)
+
+	p := mustWalkPack(t, buf.Bytes())
+	assert.Equal(t, [][]uint64{{0, 1}, {2}}, blockSeqs(p), "the step's block precedes the record's")
+	assert.Equal(t, p.Blocks[0].Offset+format.EnvelopeLen+len(p.Blocks[0].Body), s.sizes[0])
+	assert.Equal(t, []tracepack.Record{before, step, after}, p.records())
+}
+
 func TestWriterWithoutDetectionPreservesClockSteps(t *testing.T) {
 	t.Parallel()
 
@@ -1073,4 +1331,47 @@ func appendAssigned(t *testing.T, w *tracepack.Writer, recs []tracepack.Record) 
 	for i := range recs {
 		require.NoError(t, w.Append(&recs[i]), "record %d", i)
 	}
+}
+
+func TestNewWriterRejectsRedactionPresentOutsideExtract(t *testing.T) {
+	t.Parallel()
+
+	m := writerMeta()
+	m.Redaction = []tracepack.RedactionEntry{{Seq: 0, Domain: "d", Digest: make([]byte, 32)}}
+
+	var buf bytes.Buffer
+	_, err := tracepack.NewWriter(&buf, tracepack.WriterOptions{
+		Meta:  m,
+		Facts: tracepack.PackFacts{AnyClassified: true, AnyRedacted: true},
+	})
+	require.ErrorIs(t, err, tracepack.ErrMetadataCommitment)
+
+	var fe *tracepack.FieldError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, "redaction-present", fe.Field)
+	assert.Zero(t, buf.Len())
+}
+
+func TestWriterCloseFailsWithoutARedactedRecordUnderTheFlag(t *testing.T) {
+	t.Parallel()
+
+	filter := "S1F3"
+	m := writerMeta()
+	m.PackRole = tracepack.PackRoleExtract
+	m.ScopeGeneration = nil
+	m.ExtractFilter = &filter
+	m.Redaction = []tracepack.RedactionEntry{{Seq: 0, Domain: "d", Digest: make([]byte, 32)}}
+
+	w, buf := newTestWriter(t, tracepack.WriterOptions{
+		Meta:  m,
+		Facts: tracepack.PackFacts{AnyRedacted: true},
+	})
+	r := dataRecord(0, hourStart)
+	require.NoError(t, w.Append(&r))
+
+	err := closeErr(w)
+	require.ErrorIs(t, err, tracepack.ErrMetadataCommitment)
+	require.ErrorIs(t, closeErr(w), tracepack.ErrWriterFailed)
+	tail := buf.Bytes()[buf.Len()-len(format.TrailerMagic):]
+	assert.NotEqual(t, format.TrailerMagic, string(tail), "no trailer after the failed close")
 }

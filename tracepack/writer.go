@@ -31,12 +31,28 @@ var (
 	// a block's uncompressed_len, 56 header bytes plus the payload for a record alone,
 	// must not exceed 2^31-1 (the tracepack format specification §2).
 	ErrPayloadTooLarge = errors.New("tracepack: record payload too large")
+	// ErrMetadataCommitment reports a contradiction with what the pack metadata or the file header commits to,
+	// wrapped in a *FieldError naming the commitment.
+	//
+	// Append returns it for a record the committed metadata cannot describe:
+	// a classified decode_status in a pack without classifier ("classifier"),
+	// an oversized record in a pack without max_frame_len ("max_frame_len"),
+	// or a quality.redacted record in a pack that is not an extract ("pack_role")
+	// or whose file header does not set redaction-present ("redaction-present").
+	// The record was not added and the Writer is still usable.
+	//
+	// NewWriter returns it when WriterOptions.Facts.AnyRedacted would set redaction-present in a pack that is not an extract ("redaction-present");
+	// it writes nothing and returns no Writer.
+	//
+	// Close returns it when the file header set redaction-present but no written record carries quality.redacted ("redaction-present");
+	// it writes neither footer nor trailer, and the Writer has failed.
+	ErrMetadataCommitment = errors.New("tracepack: record contradicts the pack metadata")
 	// ErrValidation reports that an encoded block failed the checks a validating Writer runs before writing it
 	// (the tracepack format specification §12);
 	// the block was not written and the Writer has failed.
 	ErrValidation = errors.New("tracepack: block failed validation")
 	// ErrWriterFailed reports a call on a Writer that an earlier failure left unusable:
-	// a failed validation, a failed write or a failed sync.
+	// a failed validation, a failed or short write, or a failed sync.
 	// The pack never becomes finalized; a caller starts a new pack instead.
 	ErrWriterFailed = errors.New("tracepack: writer failed")
 	// ErrClosed reports a call on a Writer after Close.
@@ -59,7 +75,8 @@ type WriterOptions struct {
 	// and seq_start from NextSeq when AssignSeq is set.
 	Meta *PackMeta
 	// Facts are the facts about the pack's records and scope that Meta is validated against.
-	// Facts.AnyRedacted also sets the file header's redaction-present flag.
+	// Facts.AnyRedacted also sets the file header's redaction-present flag,
+	// without which Append rejects a record carrying quality.redacted.
 	Facts PackFacts
 	// Codec compresses block bodies.
 	// The zero value is CodecNone;
@@ -91,7 +108,8 @@ type WriterOptions struct {
 	// the Writer closes and writes the open block, writes a clock-step transport event whose clock_step_ns is the drift,
 	// with the record's timestamps and epoch, alone in a block of its own,
 	// and takes it as the new anchor before it appends the record.
-	// A clock-step event the caller appends is not checked, and becomes the anchor.
+	// A clock-step event with mono that the caller appends is not checked:
+	// the Writer closes the block holding it, so it is written and synced, and then takes it as the anchor.
 	// It requires a capture-clock pack and AssignSeq, since the event takes the seq before the record's.
 	// Without it the Writer stores what it receives, including a producer's clock-step events.
 	DetectClockSteps bool
@@ -117,6 +135,12 @@ type Writer struct {
 	tolerance   uint64
 	anchorWall  int64
 	anchorMono  int64
+	// The written pack metadata and file header commit to hasClassifier, hasMaxFrameLen, packRole and redactionPresent;
+	// every record appended must agree with them.
+	hasClassifier    bool
+	hasMaxFrameLen   bool
+	packRole         PackRole
+	redactionPresent bool
 	// seqStart is the pack's seq_start, which the first record's seq must equal.
 	seqStart uint64
 	// nextSeq is the smallest seq the next record may carry, and the seq AssignSeq gives it.
@@ -148,7 +172,10 @@ type Writer struct {
 //
 // Returns:
 //   - *Writer: the Writer, positioned after the pack metadata; nil on error.
-//   - error: a *FieldError from PackMeta.Validate, an invalid option, or the error of writing the header.
+//   - error: a *FieldError from PackMeta.Validate, an invalid option,
+//     a *FieldError wrapping ErrMetadataCommitment when opts.Facts.AnyRedacted is set in a pack that is not an extract,
+//     or the error of writing the header,
+//     which is io.ErrShortWrite when w takes fewer bytes than it was given without reporting an error.
 func NewWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 	if err := checkOptions(&opts); err != nil {
 		return nil, err
@@ -177,7 +204,7 @@ func NewWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 		return nil, err
 	}
 
-	if _, err := w.Write(head); err != nil {
+	if _, err := writeFull(w, head); err != nil {
 		return nil, fmt.Errorf("tracepack: write file header and pack metadata: %w", err)
 	}
 
@@ -199,6 +226,11 @@ func NewWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 		seqStart:    meta.SeqStart,
 		nextSeq:     meta.SeqStart,
 		offset:      uint64(len(head)),
+
+		hasClassifier:    meta.Classifier != nil,
+		hasMaxFrameLen:   meta.MaxFrameLen != nil,
+		packRole:         meta.PackRole,
+		redactionPresent: opts.Facts.AnyRedacted,
 	}
 	if opts.DetectClockSteps {
 		// checkOptions made this a capture-clock pack, whose metadata carries both values.
@@ -258,7 +290,7 @@ func encodeHead(meta *PackMeta, opts *WriterOptions) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(metaBytes) > math.MaxUint32 {
+	if uint64(len(metaBytes)) > math.MaxUint32 {
 		return nil, fmt.Errorf("tracepack: pack metadata of %d bytes exceeds its u32 length field", len(metaBytes))
 	}
 
@@ -271,12 +303,28 @@ func encodeHead(meta *PackMeta, opts *WriterOptions) ([]byte, error) {
 		CaptureID:        format.UUID(opts.CaptureID),
 	}
 	if opts.Facts.AnyRedacted {
+		// The flag is set only in extracts (the tracepack format specification §4).
+		if meta.PackRole != PackRoleExtract {
+			return nil, &FieldError{Field: "redaction-present", Err: ErrMetadataCommitment}
+		}
 		h.Flags |= fileHeaderRedactionPresent
 	}
 
 	head := format.AppendFileHeader(make([]byte, 0, format.FileHeaderLen+len(metaBytes)), &h)
 
 	return append(head, metaBytes...), nil
+}
+
+// writeFull writes b to w and returns what w reports it wrote;
+// a write that takes fewer bytes than b without an error is io.ErrShortWrite,
+// since the rest of b would otherwise be silently missing from the file.
+func writeFull(w io.Writer, b []byte) (int, error) {
+	n, err := w.Write(b)
+	if err == nil && n < len(b) {
+		err = io.ErrShortWrite
+	}
+
+	return n, err
 }
 
 // idOrNew returns id, or a new UUIDv7 when id is the nil UUID
@@ -294,13 +342,15 @@ func idOrNew(id UUID) (UUID, error) {
 	return UUID(u), nil
 }
 
-// canonicalHeader builds the record header the Writer stores for r under seq:
+// canonicalHeader builds the record header the Writer stores for r under seq,
+// where ev is r's decoded transport-event payload, or nil:
 // mono_ns is 0 unless MonoPresent,
 // every copy field whose field_validity bit is clear is zero,
 // as is every copy field of a record that is neither data nor control,
 // record_flags is derived from W and MonoPresent,
-// and quality.no-mono and quality.decode-failed are derived, overriding r.Quality.
-func canonicalHeader(r *Record, seq uint64) format.RecordHeader {
+// quality.no-mono, quality.decode-failed and quality.capture-boundary are derived, overriding r.Quality,
+// and quality.correlation-incomplete is added for epoch 0.
+func canonicalHeader(r *Record, seq uint64, ev *TransportEvent) format.RecordHeader {
 	c := *r
 	if !c.hasCopies() {
 		c.FieldValidity = 0
@@ -326,7 +376,15 @@ func canonicalHeader(r *Record, seq uint64) format.RecordHeader {
 		FieldValidity: uint8(c.FieldValidity),
 	}
 
-	q := c.Quality &^ (QualityNoMono | QualityDecodeFailed)
+	q := c.Quality &^ (QualityNoMono | QualityDecodeFailed | QualityCaptureBoundary)
+	if ev != nil && ev.Event == EventCaptureBoundary {
+		q |= QualityCaptureBoundary
+	}
+	// Epoch 0 is unknown, which forces correlation-incomplete (the tracepack format specification I-7);
+	// the bit has other causes too, so a caller's bit on another epoch is kept.
+	if c.Epoch == 0 {
+		q |= QualityCorrelationIncomplete
+	}
 	var flags RecordFlags
 	if c.MonoPresent {
 		h.MonoNs = c.MonoNs
@@ -403,12 +461,14 @@ func transportEventOf(r *Record) *TransportEvent {
 // Append copies r.Payload and does not modify any other field of r:
 // the header it stores is canonical as described on Record, whatever r holds.
 // With WriterOptions.DetectClockSteps, a record whose drift exceeds the tolerance is preceded by a clock-step record,
-// written with the seq before r's in a block of its own after the open block is closed.
+// written with the seq before r's in a block of its own after the open block is closed;
+// a clock-step event r with mono closes the block holding it and becomes the anchor once written.
 // Closing a block writes it, and with WriterOptions.Validate checks it first,
 // so Append may return the error of the block it closed.
 //
 // Returns:
-//   - error: ErrPayloadTooLarge or ErrSeqOrder with r not added and the Writer still usable;
+//   - error: ErrPayloadTooLarge, ErrSeqOrder, or a *FieldError wrapping ErrMetadataCommitment,
+//     with r not added and the Writer still usable;
 //     an error wrapping ErrValidation or a write or sync error, after which the Writer has failed;
 //     ErrWriterFailed or ErrClosed on a failed or closed Writer.
 func (w *Writer) Append(r *Record) error {
@@ -418,6 +478,10 @@ func (w *Writer) Append(r *Record) error {
 
 	if len(r.Payload) > maxPayloadLen {
 		return fmt.Errorf("tracepack: payload of %d bytes above %d: %w", len(r.Payload), maxPayloadLen, ErrPayloadTooLarge)
+	}
+
+	if err := w.checkCommitments(r); err != nil {
+		return err
 	}
 
 	seq, err := w.seqFor(r)
@@ -437,20 +501,20 @@ func (w *Writer) Append(r *Record) error {
 	}
 
 	recordLen := recordHeaderLen + len(r.Payload)
-	if !w.block.empty() && (hourOf(r.TSUTCNs) != w.block.hour || w.block.size()+recordLen > w.threshold) {
+	if !w.block.empty() && (hourOf(r.TSUTCNs) != w.block.hour || exceedsLimit(w.block.size(), recordLen, w.threshold)) {
 		if err := w.closeBlock(); err != nil {
 			return err
 		}
 	}
 
-	h := canonicalHeader(r, seq)
+	h := canonicalHeader(r, seq, ev)
 	w.block.add(&h, r.Payload, ev)
 	w.nextSeq = seq + 1
 	if w.assignSeq {
 		r.Seq = seq
 	}
 	if w.detectSteps && r.MonoPresent && isClockStep(ev) {
-		w.anchorWall, w.anchorMono = r.TSUTCNs, r.MonoNs
+		return w.adoptClockStep(r)
 	}
 
 	if w.block.size() >= w.threshold {
@@ -485,6 +549,8 @@ func (w *Writer) Flush() error {
 //   - uint64: the seq after the pack's last record, or its seq_start when it holds no record;
 //     a capture that continues in another pack starts it there. 0 on error.
 //   - error: as for Flush, or the error of writing or syncing the footer and trailer, after which the Writer has failed;
+//     a *FieldError wrapping ErrMetadataCommitment, also leaving the Writer failed,
+//     when the file header set redaction-present but no written record carries quality.redacted;
 //     ErrWriterFailed on a failed Writer, and ErrClosed when already closed.
 func (w *Writer) Close() (uint64, error) {
 	if err := w.Flush(); err != nil {
@@ -523,6 +589,29 @@ func (w *Writer) usable() error {
 	}
 
 	return nil
+}
+
+// checkCommitments rejects r when the pack metadata and file header already written cannot describe it
+// (the tracepack format specification §4 and §5, the tracepack semantics specification §8).
+func (w *Writer) checkCommitments(r *Record) error {
+	classified := r.DecodeStatus != DecodeStatusNotAttempted && r.DecodeStatus != DecodeStatusNotApplicable
+	redacted := r.Quality.Has(QualityRedacted)
+
+	var field string
+	switch {
+	case classified && !w.hasClassifier:
+		field = "classifier"
+	case r.DecodeStatus == DecodeStatusOversized && !w.hasMaxFrameLen:
+		field = "max_frame_len"
+	case redacted && w.packRole != PackRoleExtract:
+		field = "pack_role"
+	case redacted && !w.redactionPresent:
+		field = "redaction-present"
+	default:
+		return nil
+	}
+
+	return &FieldError{Field: field, Err: ErrMetadataCommitment}
 }
 
 // seqFor returns the seq r is written under: the next assigned seq, or r.Seq checked against the order rules.
@@ -580,9 +669,17 @@ func (w *Writer) writeClockStep(r *Record, seq uint64, drift int64) error {
 		Kind: KindTransportEvent, Dir: DirLocal, Fidelity: FidelityNotApplicable, DecodeStatus: DecodeStatusNotApplicable,
 		Payload: payload,
 	}
-	h := canonicalHeader(&step, seq)
+	h := canonicalHeader(&step, seq, ev)
 	w.block.add(&h, step.Payload, ev)
 	w.nextSeq = seq + 1
+
+	return w.adoptClockStep(&step)
+}
+
+// adoptClockStep closes the open block, which holds r, a clock-step event,
+// and only once that block is written and synced takes r as the new clock anchor:
+// the anchor moves only at a durable clock-step event (the tracepack semantics specification §4).
+func (w *Writer) adoptClockStep(r *Record) error {
 	if err := w.closeBlock(); err != nil {
 		return err
 	}
@@ -662,12 +759,18 @@ func (w *Writer) writeBlock() error {
 
 // finalize writes the footer built from the written blocks, encoded with the Writer's codec,
 // then the trailer, then syncs (the tracepack format specification §12 step 3).
+// It writes nothing when the header set redaction-present but the pack's quality_union lacks quality.redacted:
+// the flag promised a redacted record, so the pack cannot be finalized under it (the tracepack format specification §4).
 func (w *Writer) finalize() error {
-	if len(w.blocks) > math.MaxUint32 {
+	if uint64(len(w.blocks)) > math.MaxUint32 {
 		return fmt.Errorf("tracepack: %d blocks exceed the u32 block_count", len(w.blocks))
 	}
 
 	footer, stats := buildFooter(w.blocks)
+	if w.redactionPresent && !stats.qualityUnion.Has(QualityRedacted) {
+		return &FieldError{Field: "redaction-present", Err: ErrMetadataCommitment}
+	}
+
 	enc, err := codec.Encode(uint8(w.codec), nil, footer)
 	if err != nil {
 		return fmt.Errorf("tracepack: encode footer: %w", err)
@@ -700,8 +803,9 @@ func (w *Writer) finalize() error {
 }
 
 // write writes b, the named part of the file, in full and advances the file offset by what was written.
+// A short write is an error, so the caller fails the Writer rather than write past a gap.
 func (w *Writer) write(b []byte, what string) error {
-	n, err := w.out.Write(b)
+	n, err := writeFull(w.out, b)
 	w.offset += uint64(n)
 	if err != nil {
 		return fmt.Errorf("tracepack: write %s: %w", what, err)
