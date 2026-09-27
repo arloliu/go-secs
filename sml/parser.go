@@ -653,21 +653,126 @@ func (p *Parser) parseJIS8() (secs2.Item, error) {
 // which must therefore have no value.
 // A plain <W> with no value is still a UTF-8 item with empty text.
 //
+// The value is read with the grammar LocalizedStrItem.ToSML writes, in both modes:
+// see parseLocalizedStrTokens.
+// In non-strict mode a value that grammar rejects is read once more with the verbatim rule,
+// which takes everything between the first quote and the last quote before '>' as the text,
+// so input such as <W 'it's'> keeps parsing.
+//
 // It returns the parsed LocalizedStr item as a secs2.Item and an error if any occurred during parsing.
 func (p *Parser) parseLocalizedStr(zeroLength bool) (secs2.Item, error) {
+	start := p.pos
+
+	item, err := p.parseLocalizedStrTokens(zeroLength)
+	if err == nil || p.strict || zeroLength {
+		return item, err
+	}
+
+	p.pos = start
+	p.data = p.input[start:]
+
+	return p.parseLocalizedStrVerbatim()
+}
+
+// parseLocalizedStrTokens reads a W value as whitespace-separated tokens up to the closing '>':
+//   - a run quoted with ' or ", where \\, \' and \" stand for the escaped character
+//     and a backslash before any other character is kept as is;
+//   - a 0xHH token, which is one byte of the text;
+//   - a decimal LSH, allowed only as the first token (the LSH is LSHUTF8 without one).
+//
+// Runs and byte tokens concatenate, so text in any encoding can be written byte for byte.
+//
+//nolint:cyclop
+func (p *Parser) parseLocalizedStrTokens(zeroLength bool) (secs2.Item, error) {
+	var buf []byte
+
+	lsh := secs2.LSHUTF8
+	tokens := 0
+
+	for ; ; tokens++ {
+		if !p.skipSpace() {
+			return nil, p.errf("unclosed Localized string item")
+		}
+
+		ch := p.data[0]
+
+		switch {
+		case ch == '>':
+			p.forward(1)
+
+			if zeroLength {
+				return secs2.NewEmptyLocalizedStrItem(), nil
+			}
+
+			return secs2.NewLocalizedStrItem(lsh, string(buf)), nil
+
+		case zeroLength:
+			return nil, p.errf("zero-length Localized string <W[0]> must not have a value")
+
+		case ch == '\'' || ch == '"':
+			i := 1
+			for ; i < len(p.data) && p.data[i] != ch; i++ {
+				if p.data[i] == '\\' && i+1 < len(p.data) {
+					switch p.data[i+1] {
+					case '\\', '\'', '"':
+						i++
+					default:
+						// not an escape: the backslash itself is text
+					}
+				}
+
+				buf = append(buf, p.data[i])
+			}
+
+			if i == len(p.data) {
+				return nil, p.errf("unclosed quote string for Localized string item")
+			}
+
+			p.forward(i + 1)
+
+		case ch >= '0' && ch <= '9':
+			end := strings.IndexAny(p.data, " \t\r\n>")
+			if end < 0 {
+				end = len(p.data)
+			}
+
+			tok := p.data[:end]
+
+			switch {
+			case len(tok) > 2 && (tok[:2] == "0x" || tok[:2] == "0X"):
+				v, err := strconv.ParseUint(tok[2:], 16, 8)
+				if err != nil {
+					return nil, p.errf("invalid byte token %q in Localized string", tok)
+				}
+
+				buf = append(buf, byte(v))
+			case tokens == 0:
+				v, err := strconv.ParseUint(tok, 10, 16)
+				if err != nil {
+					return nil, p.errf("invalid LSH %q in Localized string", tok)
+				}
+
+				lsh = uint16(v)
+			default:
+				return nil, p.errf("unexpected token %q in Localized string: a byte is written 0xHH, and an LSH only as the first token", tok)
+			}
+
+			p.forward(end)
+
+		default:
+			return nil, p.errf("invalid token in Localized string")
+		}
+	}
+}
+
+// parseLocalizedStrVerbatim reads a W value with the verbatim rule non-strict mode falls back to:
+// everything between the first quote and the last quote before '>' is the text, taken as is.
+func (p *Parser) parseLocalizedStrVerbatim() (secs2.Item, error) {
 	// consume first quote
 	ch := p.nextNonSpaceRune()
 
 	if ch == '>' { // empty string
-		if zeroLength {
-			return secs2.NewEmptyLocalizedStrItem(), nil
-		}
-
 		return secs2.NewUTF8StrItem(""), nil
-	}
-
-	if zeroLength {
-		return nil, p.errf("zero-length Localized string <W[0]> must not have a value")
 	}
 
 	if ch != '\'' && ch != '"' {

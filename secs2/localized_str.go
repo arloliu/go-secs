@@ -1,6 +1,12 @@
 package secs2
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
 
 // LSH constants define the Localized String Header encoding scheme identifiers as specified in SEMI E5 Table 2.
 //
@@ -219,12 +225,88 @@ func (item *LocalizedStrItem) ToBytes() []byte {
 // ToSML returns the SML (SECS Message Language) text representation of this item.
 //
 // Format: <W "value">, or <W[0]> for the zero-length form.
-// The LSH is not reflected in the SML representation.
-// Special characters in value are escaped using Go's %q quoting.
+// Printable UTF-8 text is written in double-quoted runs,
+// where only `"` and `\` are escaped with a backslash;
+// every byte that is not part of a printable UTF-8 character is written as a 0xHH token,
+// so the text round-trips byte for byte whatever its encoding.
+// An LSH other than LSHUTF8 is written as a leading decimal token,
+// for example <W 8 0x82 0xA0> for Shift-JIS.
 func (item *LocalizedStrItem) ToSML() string {
 	if item.noLSH {
 		return "<W[0]>"
 	}
 
-	return fmt.Sprintf("<W %q>", item.value)
+	var sb strings.Builder
+	sb.Grow(len(item.value) + 8)
+	sb.WriteString("<W ")
+
+	if item.lsh != LSHUTF8 {
+		sb.WriteString(strconv.FormatUint(uint64(item.lsh), 10))
+		sb.WriteByte(' ')
+	}
+
+	writeLocalizedStrSML(&sb, item.value)
+	sb.WriteByte('>')
+
+	return sb.String()
+}
+
+// writeLocalizedStrSML writes s as the value part of a W item:
+// double-quoted runs of printable UTF-8 with `"` and `\` escaped,
+// and 0xHH tokens for every other byte, all space-separated.
+// An empty s is written as "".
+func writeLocalizedStrSML(sb *strings.Builder, s string) {
+	if s == "" {
+		sb.WriteString(`""`)
+
+		return
+	}
+
+	const hex = "0123456789ABCDEF"
+
+	inRun := false
+	first := true
+	sep := func() {
+		if !first {
+			sb.WriteByte(' ')
+		}
+
+		first = false
+	}
+
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+
+		if (r != utf8.RuneError || size > 1) && unicode.IsPrint(r) {
+			if !inRun {
+				sep()
+				sb.WriteByte('"')
+				inRun = true
+			}
+
+			if r == '"' || r == '\\' {
+				sb.WriteByte('\\')
+			}
+
+			sb.WriteString(s[i : i+size])
+		} else {
+			if inRun {
+				sb.WriteByte('"')
+				inRun = false
+			}
+
+			for j := i; j < i+size; j++ {
+				sep()
+				sb.WriteString("0x")
+				sb.WriteByte(hex[s[j]>>4])
+				sb.WriteByte(hex[s[j]&0x0f])
+			}
+		}
+
+		i += size
+	}
+
+	if inRun {
+		sb.WriteByte('"')
+	}
 }

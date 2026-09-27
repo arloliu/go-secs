@@ -150,6 +150,30 @@ Example: strict-encoded ASCII containing a newline:
 <A[16] 'first line' 0x0A 'second line'>
 ```
 
+## Localized String (W) Items
+
+A `W` value has its own grammar, the same in both modes, which the encoder writes and the parser reads back byte for byte:
+
+- Double-quoted runs of printable UTF-8. Inside a run (the parser also accepts single quotes),
+  `\\`, `\'`, and `\"` stand for the escaped character,
+  and a backslash before any other character is kept as is.
+- `0xHH` tokens for every byte that is not part of a printable UTF-8 character.
+  Runs and byte tokens concatenate, so text in a non-UTF-8 encoding round-trips too,
+  though it is not human-readable.
+- An LSH other than UTF-8 (2) as a leading decimal token. Without one, the LSH is UTF-8.
+- `<W[0]>` for the zero-length item, which carries no LSH and no text. `<W>` is UTF-8 with empty text.
+
+```
+<W "héllo">                 UTF-8 text
+<W "say \"hi\"" 0x0A "C:\\dir">  quote, newline, and backslash
+<W 8 0x82 0xA0>             Shift-JIS, LSH 8
+<W[0]>                      zero-length item
+```
+
+In non-strict mode, a value this grammar rejects is read once more with the older verbatim rule:
+everything between the first quote and the last quote before `>` is the text, taken as is.
+So input such as `<W 'it's'>` still parses. In strict mode it is an error.
+
 ## Error Model
 
 Not all parse failures are `*ParseError`:
