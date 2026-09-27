@@ -218,3 +218,7 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   so a catalog rebuild from the bucket is a disaster path, and the per-capture end evidence that a rebuild cannot recover (P5) is accepted as a residual risk.
 - G5-84 Cold-scope admissions (2026-09-27): the rejection of admissions for scopes outside the catalog window (P4) is a known limitation;
   converter archives that arrive after the window are read through listing views only.
+- G5-85 go-secs support for the eqp-hub producer (2026-09-27): after the format primitives land, a go-secs proposal is written first,
+  exposing the connection generation number and the read-time wall and monotonic timestamps on received messages and lifecycle events.
+  Design premise: eqp-hub will emit traffic-log records either through a new `secs-recorder` device or by adding record emission to `tap_nats`;
+  the proposal serves both, and the log service ingests those records (G5-80).
