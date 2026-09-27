@@ -201,3 +201,20 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   The first tracepack release, `tracepack/v0.1.0`, requires go-secs v2.5.0 or later;
   go-secs changes that tracepack needs afterwards land in v2.5.x or v2.6.0.
   GitHub releases for `tracepack/` tags are created with `--latest=false`.
+
+## 2026-09-27 log service review (owner answers to the log-service checkpoints)
+
+- G5-80 Writer boundary (2026-09-27): producers (eqp-hub, tap converters and others) push records to the log service,
+  and the log service is the traffic-log recorder in the sense of [STO §4] — the role of a log shipper such as fluentbit or vector.
+  It assigns `capture_id` and capture-scoped `seq`, keeps the spool and liveness anchor, and applies the clock-anchor rule;
+  the observed fields of a record (`ts_utc_ns`, `mono_ns`, direction, epoch) come from the producer.
+  The producer-to-service transport (ordering, retransmission, idempotency, restart detection) is service design, outside the tracepack specification.
+- G5-81 Single source of truth per tool (2026-09-27): the log service records one producer per tool;
+  no policy for reconciling two captures of the same traffic from different vantages is needed.
+- G5-82 Live tail (2026-09-27): deferred, an advanced feature;
+  the intended design is that the log service discovers eqp-hub instances through the eqp-hub controller and queries them over gRPC,
+  not a tracepack read path.
+- G5-83 Catalog durability (2026-09-27): the catalog database is deployed with backup and high availability by default,
+  so a catalog rebuild from the bucket is a disaster path, and the per-capture end evidence that a rebuild cannot recover (P5) is accepted as a residual risk.
+- G5-84 Cold-scope admissions (2026-09-27): the rejection of admissions for scopes outside the catalog window (P4) is a known limitation;
+  converter archives that arrive after the window are read through listing views only.
