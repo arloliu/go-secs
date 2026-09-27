@@ -13,6 +13,5 @@ tmp/
 *.html
 *.pprof
 
-.tools-stamp
 
 tools/gemgen/gemgen

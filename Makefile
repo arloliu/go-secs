@@ -55,12 +55,8 @@ COVER_ROOT            := ./.coverage
 COVER_PROFILE         := $(COVER_ROOT)/coverprofile.out
 SUMMARY_COVER_PROFILE := $(COVER_ROOT)/summary.out
 
-# Linter tools are pinned in .linter.go.mod. $(LINTER_STAMP) gates downloads
-# so `make lint` does not re-run `go mod download` on every invocation.
-LINTER_MOD   := .linter.go.mod
-LINTER_SUM   := .linter.go.sum
-LINTER_STAMP := .tools-stamp
-GOLANGCI     := go tool -modfile=$(LINTER_MOD) golangci-lint
+# golangci-lint is pinned in mise.toml; `mise install` puts that version on PATH.
+GOLANGCI ?= golangci-lint
 
 .DEFAULT_GOAL := help
 
@@ -71,23 +67,13 @@ help: ## Print this help
 		/^[a-zA-Z0-9_.-]+:.*?##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 } \
 		/^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) }' $(MAKEFILE_LIST)
 
-##@ Tools
-
-update-tools: ## Install/refresh linter toolchain (run once per clone; rerun if .linter.go.mod changes)
-	@printf "Install/update linter tool...\n"
-	@go mod download -modfile=$(LINTER_MOD)
-	@touch $(LINTER_STAMP)
-
-$(LINTER_STAMP): $(LINTER_MOD) $(LINTER_SUM)
-	@$(MAKE) --no-print-directory update-tools
-
 ##@ Lint
 
-lint: $(LINTER_STAMP) ## Run golangci-lint (version pinned via .linter.go.mod)
+lint: ## Run golangci-lint (version pinned in mise.toml)
 	@printf "Run linter...\n"
 	@$(GOLANGCI) run
 
-fmt: $(LINTER_STAMP) ## Apply golangci-lint fmt (goimports etc. per .golangci.yaml)
+fmt: ## Apply golangci-lint fmt (goimports etc. per .golangci.yaml)
 	@printf "Run formatter...\n"
 	@$(GOLANGCI) fmt
 
@@ -102,13 +88,12 @@ check: lint vet ## Run lint + vet (no file modifications)
 # tools/gemgen is its own Go module (see docs/specs/2026-07-07-gem-codegen-design.md)
 # so root `lint`/`test`/`ci` never reach it -- `go test ./...`/`golangci-lint run`
 # only traverse the current module. These targets are the only way to exercise it.
-GEMGEN_DIR        := tools/gemgen
-GEMGEN_LINTER_MOD := ../../$(LINTER_MOD)
+GEMGEN_DIR := tools/gemgen
 
-lint-gemgen: $(LINTER_STAMP) ## Run the pinned linter against tools/gemgen (default + integration build tag)
+lint-gemgen: ## Run the pinned linter against tools/gemgen (default + integration build tag)
 	@printf "Run gemgen linter...\n"
-	@cd $(GEMGEN_DIR) && go tool -modfile=$(GEMGEN_LINTER_MOD) golangci-lint run --config ../../.golangci.yaml ./...
-	@cd $(GEMGEN_DIR) && go tool -modfile=$(GEMGEN_LINTER_MOD) golangci-lint run --config ../../.golangci.yaml --build-tags integration ./...
+	@cd $(GEMGEN_DIR) && $(GOLANGCI) run --config ../../.golangci.yaml ./...
+	@cd $(GEMGEN_DIR) && $(GOLANGCI) run --config ../../.golangci.yaml --build-tags integration ./...
 
 test-gemgen: ## Run tools/gemgen's own unit tests (schema, load/validate, params, render)
 	@printf "Run gemgen tests...\n"
@@ -237,7 +222,7 @@ update-pkg-cache: ## Prime the Go module proxy (and transitively pkg.go.dev) wit
 
 ci: check test test-gemgen test-gemgen-integration lint-gemgen ## Single entry point for CI (lint + vet + -short tests + gemgen module gates)
 
-.PHONY: help update-tools lint fmt vet check \
+.PHONY: help lint fmt vet check \
         lint-gemgen test-gemgen test-gemgen-integration \
         clean clean-coverage build-tests test test-all bench \
         stress-test stress-quick fuzz-test \

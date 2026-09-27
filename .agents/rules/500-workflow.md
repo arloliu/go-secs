@@ -27,8 +27,8 @@ See `550-git-conventions.md` for branch, commit-message, and pull-request conven
 ## Make targets
 
 ```bash
-# First-time setup (or after .linter.go.mod changes)
-make update-tools
+# First-time setup (or after mise.toml changes): Go + golangci-lint
+mise install
 
 # Lint, format, vet
 make lint                # pinned golangci-lint run
