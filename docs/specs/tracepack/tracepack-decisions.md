@@ -231,6 +231,7 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   flushes a segment every F, and acknowledges a record only after the segment holding it is durable in `staging/`.
   Segments of one scope written by different instances interleave; the hourly merge normalizes them, and the first release does not partition by tool.
   Spec: [FMT I-12] allows producer-assigned seqs; [STO §4] "Recorder over a durable bus" replaces the spool contract for this deployment.
+  (The service-side closure of a crashed producer's capture described in the corrections below is superseded by G5-88.)
 - G5-87 Tool ownership for publishing (2026-09-27): the log service's merge and publish work is distributed by **tool leases in the catalog**:
   a publisher instance acquires unowned or expired tools up to its share, releases tools above it, and renews its leases;
   every acquisition of a tool mints a new publisher epoch (fence object, number allocated by the catalog),
@@ -243,11 +244,12 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   The producer publishes each `clock-step` and waits for its acknowledgement before the records under the new anchor.
   A consumer that receives a record below a closed block opens a second segment for the scope instead of sorting per block.
   The service closes a crashed producer's capture only after the successor's `start` is durable, the bus holds nothing of the old capture,
-  and the catalog has recorded the closure atomically; `gap_start` follows the recovery formula, `gap_end` is omitted.
+  and the catalog has recorded the closure atomically; `gap_start` follows the recovery formula, `gap_end` is omitted (closure rule superseded by G5-88).
 - G5-86 second correction (2026-09-27, after the second v2.9 review): one bus subject per capture, and at most one producer process per `recorder_instance_id` at a time;
   a producer publishes a capture descriptor with its `start` so segments carry the capture's pack metadata;
   a consumer may hold several open segments per scope; closure of a crashed producer's capture requires the successor's `start` staged,
-  zero messages on the old capture's subject, and two catalog transactions (reserve, then register the boundary segment); post-closure segments are quarantined.
+  zero messages on the old capture's subject, and two catalog transactions (reserve, then register the boundary segment); post-closure segments are quarantined
+  (closure rule superseded by G5-88).
 - G5-88 Scope split (2026-09-27, proposed after the third v2.9 review round under the treadmill rule; owner agreed the same day):
   the service-side closure of a crashed producer's capture leaves v2.9 and becomes proposal P7 (deferred);
   until it is designed such a capture stays `open`, and producers publish a `stop` boundary on every orderly shutdown.
