@@ -154,14 +154,17 @@ Example: strict-encoded ASCII containing a newline:
 
 A `W` value has its own grammar, the same in both modes, which the encoder writes and the parser reads back byte for byte:
 
-- Double-quoted runs of printable UTF-8. Inside a run (the parser also accepts single quotes),
+- Double-quoted runs of printable UTF-8.
+  Inside a run (the parser also accepts single quotes),
   `\\`, `\'`, and `\"` stand for the escaped character,
   and a backslash before any other character is kept as is.
 - `0xHH` tokens for every byte that is not part of a printable UTF-8 character.
   Runs and byte tokens concatenate, so text in a non-UTF-8 encoding round-trips too,
   though it is not human-readable.
-- An LSH other than UTF-8 (2) as a leading decimal token. Without one, the LSH is UTF-8.
-- `<W[0]>` for the zero-length item, which carries no LSH and no text. `<W>` is UTF-8 with empty text.
+- An LSH other than UTF-8 (2) as a leading decimal token.
+  Without one, the LSH is UTF-8.
+- `<W[0]>` for the zero-length item, which carries no LSH and no text.
+  `<W>` is UTF-8 with empty text.
 
 ```
 <W "héllo">                 UTF-8 text
@@ -172,7 +175,8 @@ A `W` value has its own grammar, the same in both modes, which the encoder write
 
 In non-strict mode, a value this grammar rejects is read once more with the older verbatim rule:
 everything between the first quote and the last quote before `>` is the text, taken as is.
-So input such as `<W 'it's'>` still parses. In strict mode it is an error.
+So input such as `<W 'it's'>` still parses.
+In strict mode it is an error.
 
 ## Error Model
 
