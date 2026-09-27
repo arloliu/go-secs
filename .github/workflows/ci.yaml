@@ -43,3 +43,40 @@ jobs:
         golangci-lint version
     - name: Lint
       run: make lint lint-gemgen
+
+  # tracepack/ is a nested module (github.com/arloliu/go-secs/tracepack) that the
+  # root jobs never reach. Two legs:
+  #  - workspace: a local go.work joins root and tracepack, so one PR may change
+  #    both; this leg blocks PRs.
+  #  - consumer: GOWORK=off, exactly what `go get` of the published module sees;
+  #    advisory on PRs (a tracepack change that needs an unreleased go-secs
+  #    change fails here until that commit is on main), blocking on push to main,
+  #    and required before any tracepack/ tag.
+  tracepack:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: [workspace, consumer]
+    continue-on-error: ${{ matrix.leg == 'consumer' && github.event_name == 'pull_request' }}
+    env:
+      GOTOOLCHAIN: local
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Setup Go and golangci-lint from mise.toml
+      uses: jdx/mise-action@v4
+    - name: Display tool versions
+      run: |
+        go version
+        golangci-lint version
+
+    - name: Workspace leg (lint + -race tests under go.work)
+      if: matrix.leg == 'workspace'
+      run: |
+        make work
+        make lint-tracepack test-tracepack
+
+    - name: Consumer leg (GOWORK=off, tidy, build, -race tests)
+      if: matrix.leg == 'consumer'
+      run: make check-tracepack-consumer
