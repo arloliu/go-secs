@@ -311,7 +311,8 @@ func TestWireObserver_PairSidesAgree(t *testing.T) {
 	closeEndpoint(t, active)
 	waitState(t, passive, hsms.NotConnectedState)
 
-	activeOut := activeRec.direction(hsms.WireOutbound)
+	// The active's courtesy Separate is reported from a goroutine of its own, which can trail its Close.
+	activeOut := activeRec.waitDirection(t, hsms.WireOutbound, 3)
 	activeIn := activeRec.direction(hsms.WireInbound)
 	passiveIn := passiveRec.waitDirection(t, hsms.WireInbound, len(activeOut))
 	// An outbound frame is reported after its write returns, which can trail the peer's read of it.

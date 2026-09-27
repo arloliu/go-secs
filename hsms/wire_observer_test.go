@@ -8,22 +8,63 @@ package hsms
 // The inbound half and the real-socket comparison live in hsmsss/wire_observer_test.go.
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"net"
+	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
 // wireReportingMock is the send-path mock transport plus the wire-reporting capability,
 // standing in for the HSMS-SS transport, whose Write puts the handed buffers on a socket unchanged.
+// scope, when set, answers WireReportScope; otherwise every socket's scope is open.
 type wireReportingMock struct {
 	*mockTransport
+
+	scope func(socket uint64) func()
 }
 
-func (wireReportingMock) WireReporting() {}
+func (m wireReportingMock) WireReportScope(socket uint64) func() {
+	if m.scope != nil {
+		return m.scope(socket)
+	}
+
+	return releaseOpenScope
+}
+
+// releaseOpenScope is the release of a report scope that is always open; it does nothing.
+// It is one function for the whole package, so handing it out allocates nothing, as the real transport's release does not.
+func releaseOpenScope() {}
+
+// seqLog records the steps of a write in the order they happened.
+type seqLog struct {
+	mu    sync.Mutex
+	steps []string
+}
+
+func (l *seqLog) add(step string) {
+	l.mu.Lock()
+	l.steps = append(l.steps, step)
+	l.mu.Unlock()
+}
+
+func (l *seqLog) snapshot() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return slices.Clone(l.steps)
+}
+
+// releaseInto returns the release of a report scope that records its release in log.
+func releaseInto(log *seqLog) func() {
+	return func() { log.add("release") }
+}
 
 // wireLog collects WireEvents, copying each frame because the observer contract makes it valid only during the call.
 type wireLog struct {
@@ -32,9 +73,7 @@ type wireLog struct {
 }
 
 func (l *wireLog) observe(ev WireEvent) {
-	frame := make([]byte, len(ev.Frame))
-	copy(frame, ev.Frame)
-	ev.Frame = frame
+	ev.Frame = bytes.Clone(ev.Frame)
 
 	l.mu.Lock()
 	l.events = append(l.events, ev)
@@ -57,11 +96,18 @@ func (l *wireLog) snapshot() []WireEvent {
 func newWireSendConn(t *testing.T, opts ...ConnOption) (*connection, *mockTransport) {
 	t.Helper()
 
+	return newScopedWireSendConn(t, nil, opts...)
+}
+
+// newScopedWireSendConn is newWireSendConn whose transport answers WireReportScope with scope (nil: always open).
+func newScopedWireSendConn(t *testing.T, scope func(socket uint64) func(), opts ...ConnOption) (*connection, *mockTransport) {
+	t.Helper()
+
 	cfg := DefaultConnectionConfig()
 	require.NoError(t, cfg.apply(opts...))
 
 	mock := &mockTransport{}
-	conn, err := NewConnection(cfg, wireReportingMock{mock})
+	conn, err := NewConnection(cfg, wireReportingMock{mockTransport: mock, scope: scope})
 	require.NoError(t, err)
 
 	c, ok := conn.(*connection)
@@ -143,7 +189,7 @@ func TestWireObserver_TransportWithoutCapabilityReportsNothing(t *testing.T) {
 }
 
 // The courtesy Separate written on a graceful close is reported like any other frame,
-// and not reported when its write fails.
+// from a goroutine of its own rather than the caller's, and not reported when its write fails.
 func TestWireObserver_CourtesySeparateReported(t *testing.T) {
 	log := &wireLog{}
 	c, tr := newWireSendConn(t, WithWireObserver(log.observe))
@@ -151,10 +197,11 @@ func TestWireObserver_CourtesySeparateReported(t *testing.T) {
 
 	c.writeFarewellSeparate(e)
 
-	events := log.snapshot()
 	written := tr.writtenFrames()
 	require.Len(t, written, 1)
-	require.Len(t, events, 1)
+	require.Eventually(t, func() bool { return len(log.snapshot()) == 1 }, 5*time.Second, time.Millisecond,
+		"the Separate is reported once its delivery goroutine runs")
+	events := log.snapshot()
 	require.Equal(t, WireOutbound, events[0].Direction)
 	require.Equal(t, uint64(7), events[0].Generation)
 	require.Equal(t, uint64(11), events[0].Socket)
@@ -246,4 +293,103 @@ func TestWireObserver_WriteFrameNoExtraAllocs(t *testing.T) {
 	}
 
 	require.Positive(t, sink)
+}
+
+// Both write sites open the transport's report scope for the writing epoch's socket before the write,
+// report inside it, and release it after the report,
+// which is what lets the transport hold that socket's close report back until the frame's report is made;
+// the courtesy Separate's report and release run on a goroutine of their own, after the write returned.
+// A frame whose write failed releases the scope unreported,
+// and a frame the transport declines a scope for (its socket's close was already reported) is written but not reported.
+func TestWireObserver_ReportInsideSocketScope(t *testing.T) {
+	writeLinktest := func(c *connection, e *epoch) error {
+		return c.writeFrame(context.Background(), e, NewLinktestReq([4]byte{0, 0, 0, 1}))
+	}
+	writeFarewell := func(c *connection, e *epoch) error { c.writeFarewellSeparate(e); return nil }
+
+	tests := []struct {
+		name     string
+		declined bool
+		writeErr error
+		write    func(c *connection, e *epoch) error
+		want     []string
+	}{
+		{
+			name:  "writeFrame",
+			write: writeLinktest,
+			want:  []string{"open 11", "write", "report", "release"},
+		},
+		{
+			name:     "writeFrame failed write",
+			writeErr: errors.New("boom"),
+			write:    writeLinktest,
+			want:     []string{"open 11", "write", "release"},
+		},
+		{
+			name:     "writeFrame declined scope",
+			declined: true,
+			write:    writeLinktest,
+			want:     []string{"open 11", "write"},
+		},
+		{
+			name:  "courtesy Separate",
+			write: writeFarewell,
+			want:  []string{"open 11", "write", "report", "release"},
+		},
+		{
+			name:     "courtesy Separate declined scope",
+			declined: true,
+			write:    writeFarewell,
+			want:     []string{"open 11", "write"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			seq := &seqLog{}
+			scope := func(socket uint64) func() {
+				seq.add(fmt.Sprintf("open %d", socket))
+				if tt.declined {
+					return nil
+				}
+
+				return releaseInto(seq)
+			}
+
+			c, tr := newScopedWireSendConn(t, scope, WithWireObserver(func(WireEvent) { seq.add("report") }))
+			tr.writeFn = func(context.Context, net.Conn, net.Buffers) error {
+				seq.add("write")
+
+				return tt.writeErr
+			}
+
+			err := tt.write(c, c.cur.Load())
+			if tt.writeErr != nil {
+				require.ErrorIs(t, err, tt.writeErr)
+			} else {
+				require.NoError(t, err)
+			}
+
+			require.Eventually(t, func() bool { return len(seq.snapshot()) >= len(tt.want) }, 5*time.Second, time.Millisecond,
+				"steps so far: %v", seq.snapshot())
+			require.Equal(t, tt.want, seq.snapshot())
+		})
+	}
+}
+
+// A panic in the observer while the courtesy Separate's report is delivered still releases the socket's report scope,
+// so the close report the scope holds back is not lost, and the panic itself is not recovered.
+func TestWireObserver_FarewellReportPanicReleasesScope(t *testing.T) {
+	seq := &seqLog{}
+	release := releaseInto(seq)
+	observe := func(WireEvent) {
+		seq.add("report")
+		panic("observer boom")
+	}
+
+	require.PanicsWithValue(t, "observer boom", func() {
+		deliverWireReport(observe, WireEvent{Direction: WireOutbound, Socket: 11, Generation: 7}, release)
+	})
+
+	require.Equal(t, []string{"report", "release"}, seq.snapshot())
 }

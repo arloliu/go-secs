@@ -684,6 +684,8 @@ func (c *connection) react(prev, next ConnState, cause TransitionCause) {
 // wedged writer. On success it writes under a short deadline; any error is ignored (courtesy,
 // not correctness). closeSocket() (unconditional, inside e.teardown) is what actually unblocks
 // a wedged writer, so skipping the farewell never stalls progress.
+// The wire observer's report of the written Separate is handed to a goroutine of its own (deliverWireReport)
+// for the same reason: nothing on the supervisor goroutine may wait on an application callback.
 func (c *connection) writeFarewellSeparate(e *epoch) {
 	if !e.writeMu.TryLock() {
 		return // a writer holds writeMu — skip the courtesy Separate, never block teardown
@@ -720,26 +722,50 @@ func (c *connection) writeFarewellSeparate(e *epoch) {
 		return
 	}
 
-	// Captured before the write consumes bufs, and reported only if the write succeeds, as in writeFrame.
-	var wireFrame []byte
-	wireObs := c.outboundWireObserver()
+	// The frame is reported only if the write succeeds, inside the socket's report scope, as in writeFrame,
+	// but never from this goroutine:
+	// this is the supervisor, whose teardown below is what Close waits for,
+	// so an observer that did not return here would hang Close.
+	// The report is delivered from a goroutine of its own that holds the scope until it has reported,
+	// and the frame is copied for it before the write consumes bufs,
+	// into a buffer of its own rather than the epoch's scratch buffer, which the next writer would overwrite.
+	// A Separate is 14 bytes, so the copy is one small allocation per graceful close.
+	// The transport gives no scope once the socket's close is pending, and then the frame is written unreported.
+	var (
+		wireFrame []byte
+		release   func()
+	)
+
+	wireObs, reporter := c.outboundWireObserver()
 	if wireObs != nil {
-		wireFrame = e.captureWireFrame(bufs)
+		if release = reporter.WireReportScope(e.socketID()); release != nil {
+			wireFrame = copyWireFrame(bufs)
+		}
 	}
 
 	_ = c.tr.SetWriteDeadline(conn, time.Now().Add(farewellWriteTimeout))
+
 	err = c.tr.Write(e.ctx, conn, bufs)
 
+	// At is taken here, when the write returned, not when the report is delivered.
 	var writtenAt time.Time
-	if err == nil && wireObs != nil {
+	if release != nil {
 		writtenAt = time.Now()
 	}
 
 	_ = c.tr.SetWriteDeadline(conn, time.Time{}) // clear the deadline for any later (teardown) use
 
-	if !writtenAt.IsZero() {
-		wireObs(WireEvent{Direction: WireOutbound, Socket: e.socketID(), Generation: e.id, At: writtenAt, Frame: wireFrame})
+	if release == nil {
+		return
 	}
+
+	if err != nil {
+		release() // a frame that was not written is not reported
+
+		return
+	}
+
+	go deliverWireReport(wireObs, WireEvent{Direction: WireOutbound, Socket: e.socketID(), Generation: e.id, At: writtenAt, Frame: wireFrame}, release)
 }
 
 // startConnectLoop launches the reconnect loop after an involuntary drop (spec §5.2/§7.C). It is

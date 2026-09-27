@@ -273,13 +273,23 @@ func (t *transport) isStopping() bool {
 //
 // It owns extra's entire lifecycle, including the close, via its own defer:
 // a defer in acceptLoop's loop body would accumulate across iterations instead of closing per iteration.
+// The socket is reported refused as soon as it is recorded, which is when this policy decided to refuse it:
+// before its exchange, and before the record is published to haltRefusal, the only other side that can close it,
+// so the refusal is reported exactly once and always ahead of the close.
 // The close goes through the socket's record, once, with the failure retained by whichever branch returned:
 // the absolute deadline or another read error, a short read, a malformed length or header, or a failed response write.
 // A completed exchange, and a helper that finds Stop already ran, retain nil.
-// The record's gate reports the socket refused and then closed, exactly once, whichever side closes it first.
+// The record's gate reports the socket closed exactly once, whichever side closes it first.
 // The two frames of the exchange are reported to the wire observer with the socket's identity and generation 0:
 // the peer's first frame, whole, as soon as its header is read and before it is interpreted,
 // and the Select.rsp only once its write returned the full frame without error.
+// They are not reported from this goroutine, which Stop joins without a bound:
+// the exchange captures each frame as it crosses, with its At taken then (refusalCapture),
+// and once the exchange has ended hands the capture, still holding the socket's report scope, to a goroutine of its own,
+// which reports the frames in wire order and then releases the scope.
+// That handoff runs before the deferred close, on a panic too,
+// so a haltRefusal close that lands mid-exchange closes the socket at once
+// and the close is reported after the frames, by whichever of the gate and that release finds the other done.
 //
 // Deliberately NOT readFrame/readN.
 // readN's idle-first-byte policy explicitly CLEARS the read deadline while waiting for the first byte (transport_recv.go's idle-link policy — correct for an adopted LIVE session, wrong here),
@@ -291,7 +301,7 @@ func (t *transport) isStopping() bool {
 // set once, before the first read, and never cleared or extended.
 func (t *transport) refuseExtraConn(extra net.Conn) {
 	rec := t.mintSocket(extra, hsms.SocketAccepted)
-	rec.refused = true // before the record is published to haltRefusal, the only other side that can close it
+	t.observeSocket(rec.event(hsms.SocketRefused, nil, time.Now()))
 
 	var closeErr error
 	defer func() { rec.close(closeErr) }()
@@ -343,18 +353,27 @@ func (t *transport) refuseExtraConn(extra net.Conn) {
 		t.refuseMu.Unlock()
 	}()
 
-	closeErr = t.refusalExchange(rec, extra)
+	// Registered after the close defer, so it runs first, on a panic too:
+	// the frames' report and the scope's release are handed off before the deferred close runs the gate,
+	// which then leaves the close report to that release, or takes it itself when the release already ran.
+	capture := t.captureRefusal(rec)
+	if capture != nil {
+		defer capture.finish()
+	}
+
+	closeErr = t.refusalExchange(extra, capture)
 }
 
 // refusalExchange runs the one-shot refusal exchange on extra, whose absolute deadline refuseExtraConn has armed,
 // and returns the failure that cut it short, or nil when it completed.
+// It records the exchange's frames into capture, when the caller passes one, and never calls the wire observer itself.
 //
 // Never allocate from the untrusted length
 // (the validate-before-allocating discipline of .agents/rules/600-perf-sec.md and readFrame's own J2 guard):
 // the frame is read into a fixed 14-byte buffer.
 // A bare Select.req is EXACTLY a 10-byte header with no body (E37 §9.3.3.1 — control frames are header-only);
 // any other length is a malformed or non-Select first message and is closed unanswered.
-func (t *transport) refusalExchange(rec *socketRecord, extra net.Conn) error {
+func (t *transport) refusalExchange(extra net.Conn, capture *refusalCapture) error {
 	var frame [14]byte // [4-byte length prefix || 10-byte header]
 	if _, err := io.ReadFull(extra, frame[:4]); err != nil {
 		return err
@@ -368,7 +387,9 @@ func (t *transport) refusalExchange(rec *socketRecord, extra net.Conn) error {
 		return err
 	}
 
-	t.observeRefusalFrame(rec, hsms.WireInbound, frame[:])
+	if capture != nil {
+		capture.inbound(frame[:])
+	}
 
 	msg, err := decodeControlFrame(frame[4:]) // decodeControlFrame takes []byte and returns hsms.Message
 	if err != nil {
@@ -402,7 +423,9 @@ func (t *transport) refusalExchange(rec *socketRecord, extra net.Conn) error {
 		return io.ErrShortWrite
 	}
 
-	t.observeRefusalFrame(rec, hsms.WireOutbound, out)
+	if capture != nil {
+		capture.outbound(out)
+	}
 
 	return nil
 }
@@ -414,7 +437,11 @@ func (t *transport) refusalExchange(rec *socketRecord, extra net.Conn) error {
 // Whichever side "wins" the race, the extra socket gets closed and Stop never waits out the
 // refusal deadline.
 // The published socket is closed through its record's gate with no failure, because Stop's close is a local one;
-// the helper's own deferred close then finds the gate closed and reports nothing more.
+// the gate closes the socket at once, which fails the exchange's read or write,
+// and leaves the close report to the exchange's report scope when one is still open,
+// so the goroutine that reports the exchange's frames delivers it after them,
+// and the helper's own deferred close then finds the gate closed and reports nothing more.
+// Neither Stop nor the accept goroutine it joins ever waits on that report.
 // Called by Stop before g.accept.Wait (transport.go); a no-op (refuseSock nil) when no extra
 // dialer is in flight.
 func (t *transport) haltRefusal() {

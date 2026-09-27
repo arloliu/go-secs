@@ -41,18 +41,32 @@ One behavior change is visible to the peer; see Upgrade notes.
   Every frame is reported, data and control alike,
   including the frames the connection sends on its own and inbound frames it goes on to reject.
   An outbound frame is reported only after its write succeeded.
-  `Frame` is valid only during the call.
+  Every frame of a socket is reported before that socket's `SocketClosed` event:
+  a `SocketClosed` is held back while a frame report is in progress on the socket
+  and is then delivered by the goroutine that made that report,
+  so closing a socket never waits on the hook, and neither do `Close` and `Stop`.
+  The courtesy Separate of a graceful close and the frames of a refused peer's exchange
+  are delivered from a goroutine of their own, since the goroutines that write them are ones `Close` waits for;
+  a hook that never returns there leaks that goroutine and never delivers that socket's `SocketClosed`, nothing else.
+  `Frame` is valid only during the call,
+  and the hook must not send on the same connection.
   With an observer installed, outbound frames are copied into a buffer reused for the life of the link,
   so observation allocates nothing per frame once that buffer has grown.
 - `hsms`: `WithSocketObserver` installs a synchronous hook
   that receives a `SocketEvent` for each socket the connection dials or accepts:
   `SocketConnected` or `SocketAccepted` when it comes up,
   `SocketRefused` for an extra passive peer rejected because a session is already live,
-  and exactly one `SocketClosed`, whichever side or path closed it.
+  reported as soon as the connection decides to refuse it, before the refusal exchange,
+  and exactly one `SocketClosed`, whichever side or path closed it,
+  whose `At` is the time the socket was closed even when the event is delivered later.
   `SocketEvent.Err` on the close names the failure that initiated it —
   a read or write error, a refused or unanswered Select, a failed linktest, or `ErrT7Timeout` —
   and is nil for a close the application or the peer asked for.
   A refused socket and its frames carry generation 0.
+  The hook runs on the goroutine that dialed, accepted, refused or closed the socket,
+  and `Close` and `Stop` wait for a call in progress there to return, so it must be cheap and must return;
+  a `SocketClosed` held back behind a frame report is delivered by the reporting goroutine
+  and is waited for only through that goroutine's bounded join, or not at all from a delivery goroutine.
 - `hsms`: `LifecycleEvent.Socket` and `LifecycleEvent.Generation` name the generation a transition belongs to and that generation's socket,
   taken when the transition happens,
   so a notification delivered after a reconnect still names the link it reports.

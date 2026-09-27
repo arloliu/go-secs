@@ -44,7 +44,7 @@ func (t *transport) recvLoop(g *genWG, conn net.Conn) {
 	t.armT7(g)
 
 	for {
-		buf, err := t.readFrame(conn)
+		buf, err := t.readObserved(g, conn)
 		if err != nil {
 			t.metrics.incReadErrCount()
 
@@ -67,16 +67,12 @@ func (t *transport) recvLoop(g *genWG, conn net.Conn) {
 			return
 		}
 
-		t.lastRecvStamp.Store(t.monoNanos()) // any complete inbound frame is proof of link liveness
-
-		// The wire observer sees the frame as read, before anything interprets it,
-		// and before the straggler test seam below can pause this goroutine.
-		t.observeInbound(g, buf)
-
 		// testHookAfterReadFrame is a nil-by-default test seam (setupAdmissionStraggler,
 		// integration_inbound_straggler_test.go): it fires between a complete frame read and its
 		// admission into dispatchFrame, letting a test pause a straggler goroutine right at the
 		// admission cutoff (a generation that has ended admits no frame).
+		// It fires after readObserved released the socket's report scope,
+		// so a paused goroutine never holds up the close report of its socket.
 		// No production path ever sets it.
 		if hook := t.testHookAfterReadFrame.Load(); hook != nil {
 			(*hook)()
@@ -91,6 +87,42 @@ func (t *transport) recvLoop(g *genWG, conn net.Conn) {
 			return
 		}
 	}
+}
+
+// readObserved reads one frame from conn with readFrame and reports it to the wire observer,
+// as read and before anything interprets it,
+// holding the report scope of g's socket from before the read until after the report,
+// so a close of the socket that lands in between is reported only after the frame,
+// by this goroutine, as it releases the scope.
+// The scope is released before this returns, on the read error and on a panic in the observer too:
+// the caller goes on to dispatch the frame or to report the disconnect,
+// and the close report of this socket must not wait behind either.
+// It also stamps the frame's arrival, since any complete inbound frame is proof of link liveness.
+//
+// A frame read once the socket's close is pending is not reported.
+// A generation without a socket record (a unit-test runtime) reports every frame.
+func (t *transport) readObserved(g *genWG, conn net.Conn) ([]byte, error) {
+	report := g.sock == nil
+	if !report {
+		if release := g.sock.openReport(); release != nil {
+			defer release()
+
+			report = true
+		}
+	}
+
+	buf, err := t.readFrame(conn)
+	if err != nil {
+		return nil, err
+	}
+
+	t.lastRecvStamp.Store(t.monoNanos())
+
+	if report {
+		t.observeInbound(g, buf)
+	}
+
+	return buf, nil
 }
 
 // dispatchFrame routes one owned E37 frame (spec §6.1). frame is the [header || body] the
