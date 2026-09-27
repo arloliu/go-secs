@@ -49,6 +49,10 @@ const (
 	f2ReservedLen        = 2
 )
 
+// footerPrologueFlagsMask keeps bit 0, F-3 present, and bit 1, F-4 present;
+// bits 2-15 are reserved, per the tracepack format specification §10.
+const footerPrologueFlagsMask uint16 = 0x0003
+
 // FooterPrologue is the decoded F-1 footer prologue of the tracepack format specification §10.
 //
 // Fields hold the raw values as stored, and Flags keeps its reserved bits as read.
@@ -92,14 +96,15 @@ type F2Entry struct {
 
 // AppendFooterPrologue appends the 72-byte encoding of p to dst and returns the extended slice.
 //
-// Every field is written verbatim, including any reserved bits of Flags; the prologue has no reserved bytes and no CRC.
+// Every field is written verbatim, except that Flags is masked to its defined bits 0-1 first;
+// the prologue has no reserved bytes and no CRC.
 // AppendFooterPrologue does not validate p.
 // It does not allocate when dst has room for FooterPrologueLen more bytes.
 func AppendFooterPrologue(dst []byte, p *FooterPrologue) []byte {
 	dst = slices.Grow(dst, FooterPrologueLen)
 
 	dst = binary.LittleEndian.AppendUint16(dst, p.FooterLayoutVersion)
-	dst = binary.LittleEndian.AppendUint16(dst, p.Flags)
+	dst = binary.LittleEndian.AppendUint16(dst, p.Flags&footerPrologueFlagsMask)
 	dst = binary.LittleEndian.AppendUint32(dst, p.BlockCount)
 	dst = binary.LittleEndian.AppendUint32(dst, p.F2EntryLen)
 	dst = binary.LittleEndian.AppendUint32(dst, p.ExtractionVersion)

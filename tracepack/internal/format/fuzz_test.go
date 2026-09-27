@@ -115,13 +115,16 @@ func checkFileHeader(t *testing.T, b []byte) {
 
 	enc := AppendFileHeader(nil, &h)
 	require.Len(t, enc, FileHeaderLen)
-	require.Equal(t, b[:64], enc[:64], "every named field is written verbatim")
+	require.Equal(t, b[:12], enc[:12], "every named field before flags is written verbatim")
+	require.Equal(t, h.Flags&fileHeaderFlagsMask, binary.LittleEndian.Uint32(enc[12:16]), "flags keeps only its defined bit (§4)")
+	require.Equal(t, b[16:64], enc[16:64], "every named field after flags is written verbatim")
 
 	got, err := UnmarshalFileHeader(enc)
 	require.NoError(t, err)
 	require.Equal(t, CRC(enc[:fileHeaderCRCOff]), got.HeaderCRC)
 
 	h.HeaderCRC, got.HeaderCRC = 0, 0
+	h.Flags &= fileHeaderFlagsMask
 	require.Equal(t, h, got)
 }
 
@@ -252,11 +255,19 @@ func FuzzUnmarshalRecordHeader(f *testing.F) {
 
 		enc := AppendRecordHeader(nil, &h)
 		require.Len(t, enc, recordHeaderLen)
-		require.Equal(t, b[:54], enc[:54], "every named field is written verbatim")
+		require.Equal(t, b[:42], enc[:42], "every named field before quality is written verbatim")
+		require.Equal(t, h.Quality&recordHeaderQualityMask, binary.LittleEndian.Uint16(enc[42:44]), "quality keeps only its defined bits (§9)")
+		require.Equal(t, b[44:52], enc[44:52], "every named field between quality and field_validity is written verbatim")
+		require.Equal(t, h.FieldValidity&recordHeaderFieldValidityMask, enc[52], "field_validity keeps only its defined bits (§9)")
+		require.Equal(t, h.RecordFlags&recordHeaderRecordFlagsMask, enc[53], "record_flags keeps only its defined bits (§9)")
 		require.Equal(t, b[RecordHeaderLen:recordHeaderLen], enc[RecordHeaderLen:], "Extra is written verbatim")
 
 		got, err := UnmarshalRecordHeader(enc, recordHeaderLen)
 		require.NoError(t, err)
+
+		h.Quality &= recordHeaderQualityMask
+		h.FieldValidity &= recordHeaderFieldValidityMask
+		h.RecordFlags &= recordHeaderRecordFlagsMask
 		require.Equal(t, h, got)
 	})
 }
@@ -298,10 +309,14 @@ func FuzzUnmarshalFooterPrologue(f *testing.F) {
 		require.GreaterOrEqual(t, p.F2EntryLen, uint32(F2EntryLen))
 
 		enc := AppendFooterPrologue(nil, &p)
-		require.Equal(t, b[:FooterPrologueLen], enc)
+		require.Equal(t, b[:2], enc[:2], "footer_layout_version is written verbatim")
+		require.Equal(t, p.Flags&footerPrologueFlagsMask, binary.LittleEndian.Uint16(enc[2:4]), "flags keeps only its defined bits (§10)")
+		require.Equal(t, b[4:FooterPrologueLen], enc[4:FooterPrologueLen], "every field after flags is written verbatim")
 
 		got, err := UnmarshalFooterPrologue(enc)
 		require.NoError(t, err)
+
+		p.Flags &= footerPrologueFlagsMask
 		require.Equal(t, p, got)
 	})
 }
@@ -412,10 +427,14 @@ func checkTrailer(t *testing.T, b []byte) {
 	require.Equal(t, TrailerVersion, tr.TrailerVersion)
 
 	enc := AppendTrailer(nil, &tr)
-	require.Equal(t, b[:TrailerLen], enc)
+	require.Equal(t, b[:51], enc[:51], "every field before flags is written verbatim")
+	require.Zero(t, enc[51], "flags is fully reserved (§11) and written as zero")
 
 	got, err := UnmarshalTrailer(enc)
 	require.NoError(t, err)
+
+	tr.Flags &= trailerFlagsMask
+	tr.TrailerCRC, got.TrailerCRC = 0, 0
 	require.Equal(t, tr, got)
 }
 

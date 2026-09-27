@@ -27,6 +27,9 @@ const (
 	fileHeaderCRCOff      = 76
 )
 
+// fileHeaderFlagsMask keeps bit 0, redaction-present; bits 1-31 are reserved, per the tracepack format specification §4.
+const fileHeaderFlagsMask uint32 = 0x0000_0001
+
 // FileHeader is the decoded file header of the tracepack format specification §4.
 //
 // Fields hold the raw values as stored;
@@ -47,7 +50,7 @@ type FileHeader struct {
 
 // AppendFileHeader appends the 80-byte encoding of h to dst and returns the extended slice.
 //
-// Named fields are written verbatim, including any reserved bits of Flags;
+// Named fields are written verbatim, except that Flags is masked to its defined bit 0 first;
 // the reserved bytes 64-75 are written as zero,
 // and header_crc is computed over bytes 0-75, ignoring h.HeaderCRC and leaving h unchanged.
 // AppendFileHeader does not validate h: a writer sets h.FormatMajor to the FormatMajor constant itself.
@@ -59,7 +62,7 @@ func AppendFileHeader(dst []byte, h *FileHeader) []byte {
 	dst = append(dst, FileHeaderMagic...)
 	dst = binary.LittleEndian.AppendUint16(dst, h.FormatMajor)
 	dst = binary.LittleEndian.AppendUint16(dst, h.FormatMinor)
-	dst = binary.LittleEndian.AppendUint32(dst, h.Flags)
+	dst = binary.LittleEndian.AppendUint32(dst, h.Flags&fileHeaderFlagsMask)
 	dst = binary.LittleEndian.AppendUint32(dst, h.PackMetadataLen)
 	dst = binary.LittleEndian.AppendUint32(dst, h.PackMetadataCRC)
 	dst = binary.LittleEndian.AppendUint64(dst, uint64(h.WriterStartUTCNs))

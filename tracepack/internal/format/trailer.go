@@ -30,6 +30,9 @@ const (
 	trailerMagicOff                 = 56
 )
 
+// trailerFlagsMask keeps no bits: every bit of Flags is reserved, per the tracepack format specification §11.
+const trailerFlagsMask uint8 = 0x00
+
 // Trailer is the decoded trailer of the tracepack format specification §11.
 //
 // Fields hold the raw values as stored.
@@ -53,7 +56,7 @@ type Trailer struct {
 
 // AppendTrailer appends the 64-byte encoding of t to dst and returns the extended slice.
 //
-// Named fields are written verbatim, including Flags, whose bits are all reserved;
+// Named fields are written verbatim, except that Flags is masked to zero, since all of its bits are reserved;
 // trailer_crc is computed over bytes 0-51, ignoring t.TrailerCRC and leaving t unchanged,
 // and the magic follows it.
 // AppendTrailer does not validate t: a writer sets t.TrailerVersion to the TrailerVersion constant itself.
@@ -70,7 +73,7 @@ func AppendTrailer(dst []byte, t *Trailer) []byte {
 	dst = binary.LittleEndian.AppendUint64(dst, t.RecordCount)
 	dst = binary.LittleEndian.AppendUint64(dst, t.LastSeq)
 	dst = binary.LittleEndian.AppendUint16(dst, t.TrailerVersion)
-	dst = append(dst, t.FooterCodec, t.Flags)
+	dst = append(dst, t.FooterCodec, t.Flags&trailerFlagsMask)
 	dst = binary.LittleEndian.AppendUint32(dst, CRC(dst[start:]))
 
 	return append(dst, TrailerMagic...)

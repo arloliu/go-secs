@@ -9,8 +9,9 @@ import (
 
 // goldenTrailer is the trailer of the tracepack format specification §11,
 // built independently with Python's struct.pack('<QQQIIQQHBB', ...) + crc + magic and zlib.crc32.
-// Every field except trailer_version, trailer_crc and magic holds the bytes of its own offsets;
-// trailer_crc over bytes 0-51 is 0xC4BAB61D.
+// Every field except trailer_version, flags, trailer_crc and magic holds the bytes of its own offsets;
+// flags is 0, since every one of its bits is reserved (§11);
+// trailer_crc over bytes 0-51 is 0x7B6AD70B.
 var goldenTrailer = []byte{
 	0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, // 0
 	0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, // 8
@@ -18,7 +19,7 @@ var goldenTrailer = []byte{
 	0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, // 24
 	0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, // 32
 	0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F, // 40
-	0x01, 0x00, 0x32, 0x33, 0x1D, 0xB6, 0xBA, 0xC4, // 48
+	0x01, 0x00, 0x32, 0x00, 0x0B, 0xD7, 0x6A, 0x7B, // 48
 	0x54, 0x50, 0x4B, 0x45, 0x4E, 0x44, 0x0D, 0x0A, // 56
 }
 
@@ -34,8 +35,8 @@ func goldenTrailerStruct() Trailer {
 		LastSeq:               0x2F2E2D2C2B2A2928,
 		TrailerVersion:        1,
 		FooterCodec:           0x32,
-		Flags:                 0x33,
-		TrailerCRC:            0xC4BAB61D,
+		Flags:                 trailerFlagsMask,
+		TrailerCRC:            0x7B6AD70B,
 	}
 }
 
@@ -56,6 +57,17 @@ func TestAppendTrailer_Golden(t *testing.T) {
 	require.Equal(t, goldenTrailer, AppendTrailer(nil, &tr))
 }
 
+// Flags is entirely reserved (§11): a caller that sets every bit gets back zero,
+// and trailer_crc is computed over the zeroed byte, so the output is byte-identical to the golden vector.
+func TestAppendTrailer_FlagsReservedBitsZeroed(t *testing.T) {
+	t.Parallel()
+
+	tr := goldenTrailerStruct()
+	tr.Flags = 0xFF
+
+	require.Equal(t, goldenTrailer, AppendTrailer(nil, &tr))
+}
+
 func TestAppendTrailer_FieldOffsets(t *testing.T) {
 	t.Parallel()
 
@@ -72,10 +84,10 @@ func TestAppendTrailer_FieldOffsets(t *testing.T) {
 		{"record_count", 32, 8},
 		{"last_seq", 40, 8},
 		{"footer_codec", 50, 1},
-		{"flags", 51, 1},
 	})
+	require.Zero(t, b[51], "flags")
 	require.Equal(t, []byte{0x01, 0x00}, b[48:50], "trailer_version")
-	require.Equal(t, uint32(0xC4BAB61D), binary.LittleEndian.Uint32(b[52:56]), "trailer_crc")
+	require.Equal(t, uint32(0x7B6AD70B), binary.LittleEndian.Uint32(b[52:56]), "trailer_crc")
 	require.Equal(t, []byte{0x54, 0x50, 0x4B, 0x45, 0x4E, 0x44, 0x0D, 0x0A}, b[56:64], "magic")
 }
 
@@ -134,6 +146,7 @@ func TestTrailer_RoundTrip(t *testing.T) {
 			require.NoError(t, err)
 
 			want := tt.tr
+			want.Flags &= trailerFlagsMask // every bit of flags is reserved (§11) and zeroed on write
 			want.TrailerCRC = binary.LittleEndian.Uint32(b[52:56])
 			require.Equal(t, want, got)
 		})
