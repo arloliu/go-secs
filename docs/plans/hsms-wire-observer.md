@@ -81,11 +81,15 @@ Contract:
 - Not called for a frame the read loop could not complete (a socket that closed mid-frame):
   those bytes never form a frame.
   The socket close event of §3.3 marks the boundary.
-- `Frame` is valid only during the call and must not be retained;
+- `Frame` is valid only during the call, must not be retained and must not be mutated;
   the observer copies what it keeps.
-  Inbound frames are the read buffer with the length prefix.
-  Outbound frames are assembled once under the write lock into a per-socket scratch buffer,
-  so a recording observer costs no allocation per frame after warm-up.
+  This is a caller contract, not a physical guarantee:
+  the inbound buffer is the one the core later adopts as the data message's body (`DeliverOwnedFrame`), zero-copy,
+  so an observer that wrote into it would corrupt the message.
+  Outbound frames are assembled under the write lock into a per-socket scratch buffer, filled before the write consumes the buffer list,
+  so the observer adds no allocation of its own per frame after warm-up (the send path's own prefix allocation is unchanged).
+- The outbound hook runs under the socket's write lock:
+  an observer must not send on the same connection from inside the callback.
 - Ordering: within one socket,
   inbound events are delivered in wire order from the receive goroutine
   and outbound events in wire order under the write lock.
@@ -97,12 +101,23 @@ Contract:
 - Without an observer the cost is one nil check per frame.
 
 Call sites:
-- inbound: `hsmsss/transport_recv.go` `recvLoop`, right after `readFrame` returns and before `dispatchFrame`;
+- inbound: `hsmsss/transport_recv.go` `recvLoop`, right after `readFrame` returns and before `dispatchFrame`.
+  `readFrame` today reads the length into a separate small buffer and returns only header and body;
+  it changes to allocate one owned buffer holding prefix, header and body after the length is validated,
+  observes the whole buffer, and hands its `[4:]` slice to dispatch, so the body is still adopted without a copy.
 - outbound: the two places the connection hands buffers to the transport byte sink,
   `hsms/connection_send.go` `writeFrame` after a successful `Write`,
-  and the courtesy Separate in `hsms/connection_lifecycle.go`;
-- the refusal exchange of a second passive connection (`hsmsss/transport_passive.go` `refuseExtraConn`):
-  its inbound Select.req and outbound Select.rsp are observed with the refused socket's identity and generation 0.
+  and the courtesy Separate in `hsms/connection_lifecycle.go`.
+  Wire reporting is a transport capability the connection discovers by type assertion, as it does for other `hsmsss` capabilities,
+  and only the HSMS-SS transport provides it:
+  the SECS-I transport reports success for an HSMS control frame without any wire I/O and converts data frames to SECS-I blocks,
+  so an unconditional hook in the shared core would report frames that never crossed a SECS-I socket.
+- the refusal exchange of a second passive connection (`hsmsss/transport_passive.go` `refuseExtraConn`),
+  which reads and writes the extra socket directly:
+  the inbound Select.req is observed as the full 14-byte frame after the header read completes, before it is interpreted,
+  invalid headers included;
+  the outbound Select.rsp is observed only when the write returned the full frame length without error;
+  both carry the refused socket's identity and generation 0.
 
 `At` is `time.Now()` at the call site.
 Go's `time.Time` carries a monotonic reading,
@@ -110,13 +125,19 @@ so a recorder derives both the wall clock (`UnixNano`) and elapsed monotonic tim
 
 ### 3.2 Generation and session on existing events
 
-- `LifecycleEvent` gains `Socket uint64` and `Generation uint64`:
-  the socket and generation the transition belongs to,
-  0 when the transition is not bound to one (`Close` before any socket, a T7 expiry whose generation is already gone).
-  The supervisor already carries the generation with every generation-named commit (`commitFrom`),
-  so the values are available at the injection sites.
+- `LifecycleEvent` gains `Socket uint64` and `Generation uint64`, the socket and generation the transition belongs to.
+  The supervisor resolves the generation when it fires a transition (a guarded commit carries it; an unnamed T7 or disconnect report is bound at report time),
+  but today `stateChange` drops it and the notifier builds the event later.
+  The identity is therefore snapshotted into `stateChange` at the moment the transition fires,
+  never resolved from the current epoch on the notifier goroutine;
+  `Close` takes the epoch `requestClose` pinned.
+  Both fields are 0 when the connection has no epoch at all (a `Close` before any `Open`);
+  a transition of an epoch that never established a socket has its generation and socket 0.
+  A stale report is discarded by the supervisor and produces no event, so no event carries a generation that is already gone.
 - `TxEvent` gains `Socket uint64`, `Generation uint64` and `SessionID uint16`.
-  The generation is the one the send was pinned to (`sendWaitReply` loads it once);
+  `sendWaitReply` and `sendNoReply` load the pinned epoch internally and the event is built after they return,
+  so a fresh read there could name a successor after a reconnect;
+  the send path returns the identity it pinned, including on its early-failure returns, and the event is built from that.
   `SessionID` is the primary's session id, which a T3 record needs and the event does not carry today.
   A late reply arriving after a T3 timeout needs no event:
   it is a frame, and the wire observer reports it.
@@ -146,21 +167,26 @@ type SocketEvent struct {
 func WithSocketObserver(fn func(SocketEvent)) ConnOption
 ```
 
-Call sites: `hsmsss/transport_active.go` after the dial,
-`hsmsss/transport_passive.go` after accept and in `refuseExtraConn`,
-and the generation teardown that closes the socket.
-`SocketClosed` is emitted exactly once per socket.
+A socket record is minted at every successful dial or accept, refused sockets included,
+and owns a single close gate that captures the error which initiated the close.
+Every path that closes a socket goes through that gate:
+epoch teardown, a dial sealed by a concurrent teardown, a TCP-up the core refuses, transport `Stop`,
+and the refusal cleanup and `haltRefusal` paths of the extra socket.
+`SocketClosed` is therefore emitted exactly once per socket, with `Err` nil for a local close.
+`SocketRefused` is emitted when the exchange completes, and also when the peer's data is malformed or the response write fails;
+the close event that follows carries the error in those cases.
+Call sites: `hsmsss/transport_active.go` after the dial, `hsmsss/transport_passive.go` after accept and in `refuseExtraConn`, and the close gate.
 
 ### 3.4 Socket identity
 
-`Socket` is a per-connection monotonic counter minted when a socket is dialed or accepted, refused sockets included,
-so it never repeats within a process.
-It is distinct from `Generation` (`epoch.id`), which only adopted sockets get,
-so the FSM's straggler matching is untouched.
-A traffic-log recorder uses `Socket` as the tracepack `epoch`,
-which is defined per socket used, refused sockets included.
-tracepack stores `epoch` as `u32`, and a process cannot open 2^32 sockets on one connection,
-so the narrowing is safe.
+`Socket` is a per-connection monotonic counter minted when a socket is dialed or accepted, refused sockets included.
+It is unique within one connection, not across connections of a process;
+a recorder that serves several connections keys on the connection as well.
+It is distinct from `Generation` (`epoch.id`), which only adopted sockets get, so the FSM's straggler matching is untouched;
+the generation-scoped refusal handoff token is not reused for it, because that token resets with every generation.
+A traffic-log recorder uses `Socket` as the tracepack `epoch`, which is defined per socket used, refused sockets included.
+tracepack stores `epoch` as `u32`; a recorder that sees a value above 2^32 − 1 stops the capture and starts a new one,
+rather than wrapping, so the narrowing has a defined outcome even if it never happens in practice.
 Both counters restart with the process, as tracepack expects: a recorder restart is a new capture.
 
 ## 4. What the recorder does with it
@@ -182,8 +208,8 @@ Buffering, shipping and back-pressure are the recorder's, never go-secs's.
 ## 5. Not in scope
 
 - Partial frames at disconnect (never a frame; the close event is the evidence).
-- SECS-I (`secs1`): the same observer types apply to its normalised HSMS framing later;
-  this proposal changes only the HSMS-SS transport.
+- SECS-I (`secs1`): the HSMS-SS transport alone provides the wire capability;
+  an observer installed on a SECS-I connection receives no wire events until a SECS-I design defines what a frame is there.
 - Replacing `WithTraceTraffic`; it stays as the debugging aid it is.
 - Any change to message decoding, dispatch or the FSM.
 
@@ -206,7 +232,14 @@ tracepack's writer phase then requires go-secs v2.6.0.
 - Socket events: connect, accept, refuse, close once each; `Err` set only on an involuntary close.
 - Observer cost: a benchmark with and without an observer on the send and receive paths;
   no allocation per outbound frame after warm-up.
-- `-race` for everything; `make stress-quick`, because the hooks sit on connection state paths.
+- Identity races, following the patterns of `hsmsss/integration_inbound_straggler_test.go` and `integration_lifecycle_cause_test.go`:
+  a send pinned to one generation that completes after a reconnect reports the pinned generation;
+  a lifecycle notification queued before teardown and delivered after it keeps its generation;
+  `haltRefusal` racing the refusal publication on either side still yields one refuse and one close event;
+  a TCP-up the core refuses closes its socket through the gate once;
+  a read error racing a local close yields one close event with the winning cause.
+- `-race` for everything; `make stress-quick`, with the new race tests added to its selection pattern in the Makefile,
+  because the hooks sit on connection state paths.
 - External review rounds until ready, per the repository's review pipeline.
 
 ## 8. Phases
