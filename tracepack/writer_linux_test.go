@@ -45,6 +45,6 @@ func TestWriterRejectsPayloadAboveLimitWithoutAllocating(t *testing.T) {
 
 	r := dataRecord(0, hourStart)
 	require.NoError(t, w.Append(&r), "a rejected payload consumes no seq")
-	require.NoError(t, w.Close())
+	mustClose(t, w)
 	assert.Greater(t, buf.Len(), headLen)
 }

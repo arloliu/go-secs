@@ -16,3 +16,10 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   the block codecs `none` and `zstd` with a decoded-length-bounded decoder;
   and the public enums and bit sets of the format specification, with `unknown(<n>)` for values from a newer minor version.
   Every decoder has golden vectors from the specification and a fuzz target.
+- Writer and classifier:
+  `PackMeta` with every required-when rule, typed `TransportEvent` and `Annotation` payloads,
+  `Record` with the positional copy helper for HSMS header fields,
+  a `Writer` that commits the header and metadata first, closes blocks at the size threshold and the UTC hour,
+  validates each block before writing it when asked and attests the pack, builds the footer by the aggregation rule,
+  detects clock steps for a capture-clock pack, and returns the capture's next seq on close;
+  and `classify.Frame`, the go-secs-backed decode-status classifier, which brings the module's first go-secs requirement.
