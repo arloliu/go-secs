@@ -38,9 +38,14 @@ FUZZ_TIME      ?= 30s
 GO_TEST_P      ?= $(shell nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 8)
 
 # go list stays within the root module and skips hidden directories.
-TEST_DIRS      := $(sort $(patsubst $(CURDIR),./,$(patsubst $(CURDIR)/%,./%/,$(shell go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.Dir}}{{end}}' ./...))))
-LATEST_GIT_TAG := $(shell git describe --tags --abbrev=0 2>/dev/null)
-MODULE_PATH    := $(shell go list -m 2>/dev/null)
+# GOWORK=off keeps these variables on the root module when a developer has a
+# local go.work for the nested tracepack module: `go list -m` would otherwise
+# print every workspace module.
+TEST_DIRS      := $(sort $(patsubst $(CURDIR),./,$(patsubst $(CURDIR)/%,./%/,$(shell GOWORK=off go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.Dir}}{{end}}' ./...))))
+# Only root-module tags (vX.Y.Z); `git describe --tags` alone would return a
+# newer tracepack/vX.Y.Z tag.
+LATEST_GIT_TAG := $(shell git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null)
+MODULE_PATH    := $(shell GOWORK=off go list -m 2>/dev/null)
 
 # Packages with timing-sensitive tests exercised by stress-test.
 # Add new packages here when they start producing flakes under contention.
@@ -102,6 +107,50 @@ test-gemgen: ## Run tools/gemgen's own unit tests (schema, load/validate, params
 test-gemgen-integration: ## Run gemgen's real-compile guard (shells out to `go build` against secs2; NOT covered by test-gemgen)
 	@printf "Run gemgen integration tests...\n"
 	@cd $(GEMGEN_DIR) && go test -tags integration ./... -race
+
+##@ tracepack (nested module)
+
+# tracepack/ is the nested module github.com/arloliu/go-secs/tracepack
+# (spec in docs/specs/tracepack/, tags tracepack/vX.Y.Z). Root lint/test/ci
+# never reach it. Local development uses a go.work (`make work`, gitignored);
+# the *-consumer targets run with GOWORK=off so they see exactly what a
+# consumer of the published module sees, and they must pass before any
+# tracepack/ tag.
+TRACEPACK_DIR         := tracepack
+TRACEPACK_MODULE_PATH := $(shell cd $(TRACEPACK_DIR) && GOWORK=off go list -m 2>/dev/null)
+TRACEPACK_LATEST_TAG  := $(shell git describe --tags --abbrev=0 --match 'tracepack/v[0-9]*' 2>/dev/null)
+
+work: ## Create the local go.work for root + tracepack development (gitignored)
+	@printf "go work init . ./$(TRACEPACK_DIR)...\n"
+	@go work init . ./$(TRACEPACK_DIR)
+
+lint-tracepack: ## Run the pinned linter against tracepack/ (root .golangci.yaml)
+	@printf "Run tracepack linter...\n"
+	@cd $(TRACEPACK_DIR) && $(GOLANGCI) run --config ../.golangci.yaml ./...
+
+test-tracepack: ## Run tracepack's tests with -race
+	@printf "Run tracepack tests...\n"
+	@cd $(TRACEPACK_DIR) && CGO_ENABLED=1 go test ./... -timeout=$(TEST_TIMEOUT) $(VERBOSE_TAG) -race
+
+check-tracepack-consumer: ## Consumer view of tracepack/: GOWORK=off, tidy go.mod, build, -race tests (pre-tag gate)
+	@printf "Check tracepack as a consumer (GOWORK=off)...\n"
+	@cd $(TRACEPACK_DIR) && GOWORK=off go mod tidy -diff
+	@cd $(TRACEPACK_DIR) && GOWORK=off go build ./...
+	@cd $(TRACEPACK_DIR) && GOWORK=off CGO_ENABLED=1 go test ./... -timeout=$(TEST_TIMEOUT) $(VERBOSE_TAG) -race
+
+fuzz-tracepack: ## Run every Fuzz* target under tracepack/ for FUZZ_TIME (default 30s)
+	@printf "%s\n" "=== tracepack fuzz tests (each target for $(FUZZ_TIME)) ==="
+	@set -e; cd $(TRACEPACK_DIR); for pkg in $$(go list ./...); do \
+		for name in $$(go test -list '^Fuzz' $$pkg 2>/dev/null | grep -E '^Fuzz' | sort -u); do \
+			printf "%s\n" "-- $$name ($$pkg) --"; \
+			CGO_ENABLED=1 go test $$pkg -run=^$$ -fuzz=$$name -race -fuzztime=$(FUZZ_TIME); \
+		done; \
+	done
+	@printf "%s\n" "=== All tracepack fuzz tests completed ==="
+
+update-pkg-cache-tracepack: ## Prime the Go module proxy with the latest tracepack/vX.Y.Z tag
+	@printf "Priming module proxy cache for $(TRACEPACK_MODULE_PATH)@$(TRACEPACK_LATEST_TAG:tracepack/%=%)...\n"
+	@curl -s https://proxy.golang.org/$(TRACEPACK_MODULE_PATH)/@v/$(TRACEPACK_LATEST_TAG:tracepack/%=%).info > /dev/null
 
 ##@ Tests
 
@@ -220,10 +269,11 @@ update-pkg-cache: ## Prime the Go module proxy (and transitively pkg.go.dev) wit
 
 ##@ Composite
 
-ci: check test test-gemgen test-gemgen-integration lint-gemgen ## Single entry point for CI (lint + vet + -short tests + gemgen module gates)
+ci: check test test-gemgen test-gemgen-integration lint-gemgen lint-tracepack test-tracepack ## Single entry point for CI (lint + vet + -short tests + gemgen and tracepack module gates)
 
 .PHONY: help lint fmt vet check \
         lint-gemgen test-gemgen test-gemgen-integration \
+        work lint-tracepack test-tracepack check-tracepack-consumer fuzz-tracepack update-pkg-cache-tracepack \
         clean clean-coverage build-tests test test-all bench \
         stress-test stress-quick fuzz-test \
         coverage coverage-report \

@@ -1,0 +1,778 @@
+# tracepack — file format
+
+Status: **v2.8 (2026-09-27)** — tracepack format **1.0**;
+external review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
+Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
+
+Depends on (the byte layouts, TLV encoding, footer and validation rules are self-contained; these rules give meaning to some fields and are defined elsewhere):
+- [SEM §2] capture model (`fidelity`, `capture_method`, `vantage`), [SEM §3] `decode_status`, [SEM §4] time and clock anchor (`mono_ns`, `clock_step_tolerance_ns`),
+  [SEM §5] transport events, [SEM §6] quality bits and `quality_evaluated`.
+- [STO §4] active view (I-12 resolves identity within it), [STO §2] scopes, roles and generations, [STO §6] replacement sets and patches
+  (meaning of `pack_role`, `scope_generation`, `publisher_epoch`, `patch_base`, `replacement_set_*`, `compacted_from`, `supersedes`, `coverage`),
+  [STO §4] recorder durability contract (`flush_interval_ns`, `seq_start`, `stop-unclean`),
+  [STO §5] catalog and completeness barriers, [STO §7] log converter and source provenance (`source_ref`, `source_dialect`).
+- [SEM §7.1–§7.3] index structures and extraction rules carried in F-3 / F-4 (deferred parts included).
+- [SEM §8] redaction: meaning of `redaction-present`, `redaction_policy`, `redaction` entries and `quality.redacted`, and the validation of redaction entries.
+- The conformance corpus of §16 also contains the vectors of [SEM §9] and [STO §8].
+
+References: `[FMT §n]` = `tracepack-format.md`, `[SEM §n]` = `tracepack-semantics.md`, `[STO §n]` = `tracepack-storage.md`, `[OVW §n]` = `tracepack-overview.md`; `[FMT I-n]` = invariant I-n of the format document.
+Each rule is defined in exactly one document; the others only reference it.
+
+## 1. Conventions
+
+- `MUST`, `SHOULD`, `MAY` carry their RFC 2119 meaning.
+- Integer types: `u8`, `u16`, `u32`, `u64` unsigned; `i64` signed two's complement; all little-endian (I-8).
+  `[n]byte` is n raw bytes.
+- Offsets in layout tables are in bytes from the start of the structure.
+  Structures have no implicit padding; every byte is listed.
+- **Reserved** fields and bits are zero on write and ignored on read (I-9).
+- **Enums** are `u8` values from the registries of §9 and §5.
+  Value 0 is each enum's "no information" value: `unknown` by default, `none` for `codec` and `timer`, `not-attempted` for `decode_status`.
+  A reader preserves an unknown value and reports it as `unknown(<n>)`; it never maps it to a known value.
+- **CRC** means CRC-32/ISO-HDLC (§2).
+
+## 2. Portable encoding rules
+
+These rules let any mainstream language implement the format from this text alone (Appendix A lists per-language support).
+
+- **Integers**: fixed width, little-endian.
+  Every `u64` offset, length, count or seq MUST be ≤ 2^63 − 1, so languages without unsigned 64-bit types hold it in a signed 64-bit value.
+  `body_len`, `uncompressed_len` and `payload_len` MUST be ≤ 2^31 − 1 (the largest array in several runtimes);
+  a record larger than the block size threshold is written alone in its own block.
+  A value outside these limits is a decode error.
+- **UUIDs** (`pack_id`, `capture_id`, references): 16 bytes in RFC 9562 byte order,
+  i.e. the order of the hex digits in the canonical string, left to right.
+  Implementations whose native UUID type uses another byte order MUST convert.
+  Writers SHOULD generate `pack_id` and `capture_id` as UUIDv7 (time-ordered), so keys and catalog entries sort by creation time.
+- **Time**: `i64` nanoseconds since 1970-01-01T00:00:00Z on the POSIX time scale (no leap seconds);
+  a clock reading during a leap second is stored as the clock reported it.
+  Monotonic values (`mono_ns`) are `i64` nanoseconds relative to `capture_origin_mono_ns` ([SEM §4]).
+- **Strings**: UTF-8 without BOM, length given by the enclosing structure, not NUL-terminated.
+  Invalid UTF-8 in a `utf8` value is a decode error for that entry; data that may not be UTF-8 uses a `bytes` value.
+- **Checksums**: every CRC is **CRC-32/ISO-HDLC** (the IEEE 802.3 / zlib / PNG CRC):
+  polynomial 0x04C11DB7 reflected (0xEDB88320), initial value 0xFFFFFFFF, final XOR 0xFFFFFFFF;
+  check value over ASCII `123456789` = 0xCBF43926.
+  CRC-32C is not used, because it is missing from some standard libraries.
+  Each CRC's byte range is stated where the CRC field is defined.
+- **Codecs** (block bodies and the footer only; never the file header, pack metadata, block envelope or trailer):
+
+  | Value | Codec | Rules |
+  |---|---|---|
+  | 0 | `none` | the on-disk body is the decoded body (§6) verbatim |
+  | 1 | `zstd` | exactly one Zstandard frame per RFC 8878; no dictionary; the frame content checksum MAY be present and is not relied on |
+  | other | — | unknown: the block is unreadable and reported `incomplete`; adding a codec is a major version change (§14) |
+
+  Readers MUST support `none` and `zstd`; writers SHOULD use `zstd` and MAY use `none`.
+  Compression is per block, not per record:
+  individual SECS messages are often under 1 KiB, but a block holds many structurally repetitive records.
+  The codec set is deliberately small, because every codec allowed is one that every reader must implement.
+- **Hashes inside indexes** (Bloom filters, [SEM §7.2]): a published algorithm with test vectors, implementable from its specification;
+  language-runtime hashes are forbidden.
+- **Redaction digests** ([SEM §8]): HMAC-SHA-256 per RFC 2104 with SHA-256 per FIPS 180-4; the corpus (§16) publishes two test keys and the expected digests.
+
+## 3. Invariants
+
+- **I-1 Self-delimiting blocks.** Every block is a block envelope followed by a block body of `body_len` bytes.
+  A reader can walk blocks forward from the end of the pack metadata without the footer;
+  the envelope CRC protects the lengths that walk depends on.
+- **I-2 Block integrity beyond the CRC.** After decoding the whole body, the reader verifies that the codec stream is complete and decodes to exactly `uncompressed_len` bytes,
+  that `record_count × record_header_len` + Σ `payload_len` equals `uncompressed_len`,
+  that the first record's seq equals `first_seq`, and that seqs strictly increase;
+  a mismatch marks the block `corrupt` even if every CRC passed.
+  §6 defines a weaker header-only validation level; it never replaces I-2 where I-2 is required.
+- **I-3 Footer is derivable.** The footer contains nothing that cannot be rebuilt by walking the blocks.
+- **I-4 Trailer locates the footer.** The 64-byte trailer at end of file holds the footer's offset, lengths, codec and CRC,
+  the block count, the record count, the last seq, its own CRC and a magic (§11).
+- **I-5 Finalized means trailer valid.** A file is finalized iff the trailer magic matches, the trailer CRC matches, and the footer CRC matches.
+  This is the single logical finalization point; no byte is rewritten after it (§12).
+  A crash after a durable trailer leaves a finalized file even if the writer's close operation never returned.
+- **I-6 Immutable once finalized.** No byte of a finalized file is ever modified; corrections and repairs are new files ([STO §6]).
+- **I-7 Capture id across rolls; epoch bound at the transport boundary.**
+  `capture_id` is a UUID assigned by the recorder or converter per tool when it starts, and written into every pack it rolls.
+  `epoch` is assigned by a component that observes sockets directly, one per socket the HSMS implementation actually uses for a session,
+  and stamped on every record from that socket independently of lifecycle notifications ([SEM §5]);
+  accepted-then-refused sockets get their own epoch and a transition record.
+  A recorder that cannot observe sockets writes `epoch = 0` (unknown) and sets `correlation-incomplete` on every record.
+  Thus (`capture_id`, `epoch`) identifies one transport connection globally.
+  A recorder restart always starts a new capture, because neither the monotonic clock nor the seq counter survives a process restart;
+  consecutive captures of one recorder deployment are linked by `recorder_instance_id` and `previous_capture_id` (§5).
+- **I-8 Little-endian for tracepack's own integers; wire bytes untouched, except for the masking of extracts ([SEM §8]).**
+  HSMS payloads keep their big-endian length prefix and header (SEMI E37 §8.2).
+- **I-9 Reserved is zero on write, ignored on read.**
+- **I-10 Payload is authoritative.** For data/control records, every record-header field of class `copy` (§7.2)
+  MUST equal the payload bytes it is copied from wherever `field_validity` says those bytes were captured.
+  Readers use the payload when the two disagree; `verify` reports the disagreement as a writer defect.
+  Provisional query filters may use unvalidated header copies;
+  authoritative selection uses payload values or the header copies of attested blocks (§6, [SEM §7.4]);
+  a disagreement is detected only by full reads and `verify`.
+- **I-11 Derived values are opinions, not facts.** `decode_status`, `trailing_bytes` and the `quality.decode-failed` bit
+  are a classifier's judgement over the captured bytes.
+  The pack metadata names the classifier (`classifier` tag);
+  a consumer MAY recompute them from the payload, except over the masked ranges of an extract, where the stored values describe the source bytes ([SEM §8]),
+  and a correction pack MAY re-emit records with a newer classifier's values.
+- **I-12 Record identity is (`capture_id`, `seq`).** `seq` is capture-scoped:
+  the writer assigns it in capture order, starting at 0 and increasing by one per record, across every pack of the capture.
+  Merging packs never renumbers records, so a reference to (`capture_id`, `seq`) stays valid whichever file holds the record;
+  `pack_id` identifies a file, never a record.
+  Within a pack, records appear in strictly increasing seq order; gaps are allowed where other packs hold the missing records.
+  Identity is resolved **within the active view** ([STO §4]): records of replaced packs and lower generations are outside it,
+  so a correction or repair may re-emit a record under its original identity with new stored bits or classification.
+  Within the active view, two records with the same (`capture_id`, `seq`) MUST be byte-identical (record header and payload);
+  readers and mergers keep one copy and report a `conflict` otherwise, never choosing silently.
+- **I-13 Hour-aligned blocks.** All records of a block have `ts_utc_ns` in the same UTC hour;
+  a writer closes the current block before appending a record from a different UTC hour.
+  A block therefore belongs to exactly one hour and moves between packs without being re-encoded;
+  in the storage profile every pack except an extract also belongs to one hour ([STO §2]).
+- **I-14 Mergeable footer.** Every per-block footer entry is self-contained and position-independent,
+  and every pack-level statistic is a mergeable aggregate (sum, min, max, union),
+  so the footer of a merged pack is computed from its inputs' footers without decoding any block body (§10).
+  A merger that attests its output still decodes blocks to validate them ([STO §4]).
+
+## 4. File header (80 bytes, offset 0)
+
+| Off | Type | Field | Meaning |
+|---|---|---|---|
+| 0 | [8]byte | `magic` | `89 54 50 4B 0D 0A 1A 0A` (`\x89 T P K \r \n \x1A \n`); detects non-tracepack input and text-mode transfer damage |
+| 8 | u16 | `format_major` | 1 (§14) |
+| 10 | u16 | `format_minor` | 0 (§14) |
+| 12 | u32 | `flags` | bit 0 `redaction-present`: at least one record carries `quality.redacted` ([SEM §8]); set only in extracts; bits 1–31 reserved. There is no finalized flag (§12) |
+| 16 | u32 | `pack_metadata_len` | byte length of the pack metadata; the first block starts at 80 + this value |
+| 20 | u32 | `pack_metadata_crc` | CRC over the pack metadata bytes |
+| 24 | i64 | `writer_start_utc_ns` | wall clock when the writer opened the file |
+| 32 | [16]byte | `pack_id` | UUID of this file |
+| 48 | [16]byte | `capture_id` | UUID of the capture (I-7) |
+| 64 | [12]byte | reserved | |
+| 76 | u32 | `header_crc` | CRC over bytes 0–75 |
+
+A reader checks `magic`, then `header_crc`, then the version (§14), before reading anything else.
+
+## 5. Pack metadata (TLV)
+
+The pack metadata is a sequence of TLV entries filling exactly `pack_metadata_len` bytes.
+The same entry encoding is used for transport-event and annotation payloads (§8) and for nested values.
+
+**Entry layout** (8-byte entry header, then the value):
+
+| Off | Type | Field | Meaning |
+|---|---|---|---|
+| 0 | u16 | `tag` | registry below; 0x0000 invalid; 0x8000–0xFFFF private (skipped by readers that do not know them) |
+| 2 | u8 | `value_type` | table below |
+| 3 | u8 | reserved | |
+| 4 | u32 | `length` | byte length of the value |
+| 8 | [length]byte | `value` | |
+
+**Value types**:
+
+| Value | Type | Length |
+|---|---|---|
+| 1 | `u8` (enums and small integers) | 1 |
+| 2 | `bool` (0 or 1) | 1 |
+| 3 | `i64` | 8 |
+| 4 | `u64` | 8 |
+| 5 | `uuid` | 16 |
+| 6 | `utf8` | any |
+| 7 | `bytes` | any |
+| 8 | `tlv` (nested entries; tags in the nested structure's own registry) | any |
+
+Rules:
+- An entry whose `length` does not match a fixed-length type, or whose `value_type` differs from the registry for a known tag, rejects the file.
+- Unknown tags are skipped using `length`; their raw value is preserved in the canonical export (§15).
+- A tag appears at most once unless the registry marks it repeatable.
+- A required tag that is missing rejects the file.
+
+**Pack metadata tag registry**:
+
+| Tag | Name | Type | Required when | Meaning |
+|---|---|---|---|---|
+| 0x0001 | `schema_version` | u64 | always | 1 (§14) |
+| 0x0002 | `tool_id` | utf8 | always | the tool this capture belongs to |
+| 0x0003 | `transport` | u8 enum | always | §9 |
+| 0x0004 | `capture_method` | u8 enum | always | [SEM §2] |
+| 0x0005 | `vantage` | u8 enum | always | [SEM §2] |
+| 0x0006 | `recorder` | utf8 | always | recorder or converter product, version and mode; for display and tracing, never branched on |
+| 0x0007 | `writer` | utf8 | always | tracepack writer implementation and version |
+| 0x0008 | `classifier` | utf8 | any record's `decode_status` is not `not-attempted` / `not-applicable` | implementation and version that computed derived values (I-11) |
+| 0x0009 | `time_source` | u8 enum | always | §9 |
+| 0x000A | `capture_origin_utc_ns` | i64 | `time_source = capture-clock` | wall-clock counterpart of the mono origin ([SEM §4]) |
+| 0x000B | `capture_origin_mono_ns` | i64 | `time_source = capture-clock` | mono origin ([SEM §4]) |
+| 0x000C | `source_tz` | utf8 | `time_source = source-log` | IANA time-zone name the source timestamps are parsed in |
+| 0x000D | `source_dialect` | utf8 | `capture_method = log` | log format and parser mode used ([STO §7]) |
+| 0x000E | `source_ref` | utf8, repeatable | `capture_method = log` | identity of each source file |
+| 0x000F | `max_frame_len` | u64 | any record is classified `oversized` | the configured maximum frame length ([SEM §3]) |
+| 0x0010 | `period_start` | i64 | always | start of the period this pack covers: the flush interval of a segment, the UTC hour of an archive ([STO]) |
+| 0x0011 | `period_end` | i64 | always | end of that period (exclusive) |
+| 0x0012 | `lifecycle_coverage` | u8 enum | always | §9, [SEM §5] |
+| 0x0013 | `quality_evaluated` | bool | always | [SEM §6] |
+| 0x0014 | — | — | — | retired; the number is not reused (the record header length is per block, §6) |
+| 0x0015 | `supersedes` | uuid, repeatable | patches; generations ≥ 1 with a predecessor | lineage: the packs this one replaces; for generation-0 packs it also removes the named segment from the view ([STO §4]) |
+| 0x0016 | `coverage` | tlv, repeatable | a correction or repair lost data | one lost range per entry; nested tags below ([STO §6]) |
+| 0x0017 | `notes` | utf8 | optional | free text; never the sole record of data loss |
+| 0x0018 | `pack_role` | u8 enum | always | segment / archive / extract / repair / correction (§9, [STO §2]) |
+| 0x0019 | `compaction_level` | u8 | always | 0 = written by a recorder or converter; n ≥ 1 = produced by merging packs of level < n |
+| 0x001A | `compacted_from` | uuid, repeatable | `compaction_level` ≥ 1 | cumulative: every generation-0 pack this pack's records represent ([STO §4]) |
+| 0x001B | `recorder_instance_id` | uuid | always | stable identity of the recorder or converter deployment across restarts |
+| 0x001C | `previous_capture_id` | uuid | optional | the capture this recorder deployment ran immediately before this one (I-7) |
+| 0x001D | `extract_filter` | utf8 | `pack_role = extract` | description of the filter that selected the records; an extract is never a complete period |
+| 0x001E | `site_id` | utf8 | optional | site or fab identifier |
+| 0x001F | `equipment_model` | utf8 | optional | equipment model |
+| 0x0020 | `equipment_sw_rev` | utf8 | optional | equipment software revision |
+| 0x0021 | `host_software` | utf8 | optional | host-side software (e.g. EAP) name and version |
+| 0x0022 | `host_endpoint` | utf8 | optional | host side of the connection, `address:port` |
+| 0x0023 | `equipment_endpoint` | utf8 | optional | equipment side of the connection, `address:port` |
+| 0x0024 | `equipment_connect_mode` | u8 enum (`socket_role`) | optional | whether the equipment side is passive or active |
+| 0x0025 | `device_id` | u64 | optional | configured SessionID / DeviceID |
+| 0x0026 | `hsms_timers` | tlv | optional | configured timers; nested tag *n* (1–8) = T*n* in milliseconds, `u64` |
+| 0x0027 | `seq_start` | u64 | always | the first record's seq, or for a pack without records the capture's next seq; lets recovery of an empty spool place its boundary ([STO §4]) |
+| 0x0028 | `clock_step_tolerance_ns` | u64 | `time_source = capture-clock` | wall-clock drift the writer tolerates against its durable anchor before marking a step ([SEM §4]) |
+| 0x002C | `flush_interval_ns` | u64 | a recorder with a durable spool | the recorder's durability contract interval ([STO §4]) |
+| 0x002D | `scope_generation` | u64 | every pack except `extract` | 0 for segments and patches, ≥ 1 for generations produced by merges ([STO §2]) |
+| 0x002E | `publisher_epoch` | u64 | `scope_generation` ≥ 1 | fence epoch of the publisher that wrote the generation ([STO §2]) |
+| 0x002F | `patch_base` | uuid | a patch, when its scope has a generation | `replacement_set_id` of the generation the patch was registered against ([STO §4]) |
+| 0x0029 | `replacement_set_id` | uuid | `scope_generation` ≥ 1 | identity of the set of packs published together as one generation ([STO §6]) |
+| 0x002A | `replacement_set_size` | u64 | with `replacement_set_id` | number of packs in the set |
+| 0x002B | `replacement_set_index` | u64 | with `replacement_set_id` | this pack's index in the set, 0-based |
+| 0x0031 | `redaction_policy` | tlv | the extract was written under a redaction policy | the policy applied ([SEM §8]); nested tags below |
+| 0x0032 | `redaction` | tlv, repeatable | a record was masked | one mask per entry ([SEM §8]); nested tags below; ordered by `seq`, then first masked offset |
+| 0x0030 | `blocks_validated` | bool | optional (absent = false) | every block of this pack, as written, passed I-2, and every data/control record's copy fields agree with its payload under I-10 (§6, §12) |
+
+Nested tags of `coverage`: 0x0001 `capture_id` uuid, 0x0002 `seq_first` u64, 0x0003 `seq_last` u64,
+0x0004 `time_start` i64, 0x0005 `time_end` i64.
+
+Nested tags of `redaction_policy`: 0x0001 `policy_id` utf8, 0x0002 `policy_version` u64, 0x0003 `key_id` utf8, 0x0004 `digest_algorithm` u8 enum (§9), all required.
+
+Nested tags of `redaction` (a **redaction entry**): 0x0001 `seq` u64 (required), 0x0002 `item_path` utf8 (absent for a whole-text or annotation mask; empty for the root item),
+0x0003 `masked_ranges` bytes (required: a *u64 array* of (offset, length) pairs, offsets from the start of the record payload, [SEM §8]),
+0x0004 `domain` utf8 (required), 0x0005 `digest` bytes (required; 32 bytes for `hmac-sha256`).
+The redaction entry is self-contained so that a later minor version can carry it in an annotation record written at capture time ([OVW §6]).
+
+## 6. Block envelope (40 bytes) and block body
+
+| Off | Type | Field | Meaning |
+|---|---|---|---|
+| 0 | [4]byte | `magic` | `54 50 4B 42` (`TPKB`) |
+| 4 | u8 | `codec` | §2 |
+| 5 | [1]byte | reserved | |
+| 6 | u16 | `record_header_len` | bytes per record header in this block; 56 ≤ value ≤ 65535 (§7.1) |
+| 8 | u32 | `body_len` | on-disk length of the block body |
+| 12 | u32 | `uncompressed_len` | length of the decoded body |
+| 16 | u32 | `record_count` | records in the block, ≥ 1 |
+| 20 | u32 | `body_crc` | CRC over the on-disk block body bytes |
+| 24 | u64 | `first_seq` | seq of the block's first record |
+| 32 | [4]byte | reserved | |
+| 36 | u32 | `envelope_crc` | CRC over bytes 0–35 |
+
+The block body follows immediately.
+Decoded, the block body is a **header section** followed by a **payload section**, with no padding.
+The header section holds the `record_count` record headers in record order, each `record_header_len` bytes (from the envelope).
+The payload section holds the `record_count` payloads in the same order;
+record i's payload starts at offset `record_count × record_header_len + Σ_{j<i} payload_len_j` of the decoded body.
+Record i is the pair (header i, payload i).
+All products and sums are computed with overflow checks before any allocation or slicing.
+A `record_header_len` below 56 makes the block `corrupt`.
+A writer closes a block at a size threshold (default 4 MiB uncompressed) or on flush.
+
+**Block read levels.**
+A block read is **full** when the whole body was decoded and I-2 holds.
+A reader MAY instead decode only the header section (the first `record_count × record_header_len` bytes of the decoded body);
+such a read is **header-only**.
+Before using it, the reader verifies the envelope CRC, `body_crc` over the whole on-disk body, the envelope against its F-2 entry,
+`record_count × record_header_len ≤ uncompressed_len`, the seq checks of I-2 on the headers,
+and the length equation of I-2 using the headers' `payload_len` values.
+A header-only read leaves unchecked: codec completion and the validity of the stream after the prefix, the decoded length,
+the payload bytes, and the agreement of copy fields with the payload (I-10).
+A block is **attested** when its pack is finalized (I-5) and its pack metadata has `blocks_validated = true` (§5, §12);
+a header-only read of an attested block carries the guarantees of a full read,
+because its on-disk bytes are CRC-identical to bytes that passed full validation.
+`verify` and recovery (§13) always decode whole bodies.
+How queries use these levels is defined in [SEM §7.4].
+
+## 7. Record header
+
+A record is a (**record header**, payload) pair stored in the two sections of a decoded block body (§6, Figure 3):
+its record header in the header section, its `payload_len` bytes of payload in the payload section.
+Records exist only inside decoded block bodies.
+
+### 7.1 Record header layout (56 bytes known in format 1.0)
+
+| Off | Type | Field |
+|---|---|---|
+| 0 | u64 | `seq` |
+| 8 | i64 | `ts_utc_ns` |
+| 16 | i64 | `mono_ns` |
+| 24 | u32 | `epoch` |
+| 28 | u32 | `payload_len` |
+| 32 | u32 | `trailing_bytes` |
+| 36 | [4]byte | `system_bytes` |
+| 40 | u16 | `session_id` |
+| 42 | u16 | `quality` (bit set, §9) |
+| 44 | u8 | `stream` |
+| 45 | u8 | `function` |
+| 46 | u8 | `ptype` |
+| 47 | u8 | `stype` |
+| 48 | u8 | `kind` (enum) |
+| 49 | u8 | `dir` (enum) |
+| 50 | u8 | `fidelity` (enum) |
+| 51 | u8 | `decode_status` (enum) |
+| 52 | u8 | `field_validity` (bit set) |
+| 53 | u8 | `record_flags` (bit set) |
+| 54 | [2]byte | reserved |
+
+Each record header occupies `record_header_len` bytes of the header section, from the block envelope (§6).
+Format 1.0 writers write 56.
+A value below 56 makes the block `corrupt` (§6);
+for a larger value a reader reads the 56 bytes it knows and preserves the rest,
+which are part of the record's bytes for byte identity (I-12).
+A pack may mix blocks of different header lengths.
+Appending fields behind offset 56 is a minor version change; changing any existing offset is a major one (§14).
+
+### 7.2 Record header semantics
+
+Class column:
+`observed` = a captured fact;
+`declared` = assigned or declared by the writer, a fact about the capture that cannot be recomputed from the payload;
+`copy` = a positional copy of payload bytes for filtering, payload authoritative (I-10);
+`derived` = a classifier's judgement, recomputable (I-11) except over masked ranges ([SEM §8]);
+`structural` = framing and capture extent, computed from the captured bytes.
+
+| Field | Class | Semantics |
+|---|---|---|
+| `seq` | declared | capture-scoped record number (I-12); the global record reference is (`capture_id`, `seq`) |
+| `ts_utc_ns` | observed | wall clock at the observation point ([SEM §4]) |
+| `mono_ns` | observed | elapsed monotonic ns since `capture_origin_mono_ns`; valid iff `record_flags.mono_present` |
+| `epoch` | declared | transport connection number within the capture (I-7); 0 = unknown, which forces `correlation-incomplete` |
+| `kind` | declared | data / control / transport-event / annotation |
+| `dir` | observed | direction; `quality.direction-inferred` marks an inferred value |
+| `session_id` | copy | HSMS header bytes 0–1 (big-endian on the wire, stored as u16): SessionID, or DeviceID for normalised SECS-I, as observed, never normalised |
+| `stream` | copy | HSMS header byte 2, bits 0–6 |
+| `record_flags.W` | copy | HSMS header byte 2, bit 7 |
+| `function` | copy | HSMS header byte 3 |
+| `ptype`, `stype` | copy | HSMS header bytes 4 and 5, full byte values including values E37 does not define |
+| `system_bytes` | copy | HSMS header bytes 6–9 as on the wire |
+| `fidelity` | declared | how faithfully the payload reproduces the transmitted bytes ([SEM §2]; for a `redacted` record, the source payload, [SEM §8]) |
+| `quality` | declared | effective quality flags ([SEM §6]); only `decode-failed` is derived (it mirrors `decode_status`) |
+| `decode_status` | derived | [SEM §3] |
+| `trailing_bytes` | derived | message-text bytes after the first complete SECS-II item; meaningful only when `decode_status` is `ok` or `ok-with-trailing`; for a `redacted` record, of the source message text |
+| `field_validity` | structural | which copy fields were present in the captured bytes (short captures) |
+| `payload_len` | structural | payload length in bytes |
+
+The copy rule is **positional and identical for data and control records**:
+for control messages, bytes 2 and 3 carry status or reason codes (E37 §8.3),
+so `stream`, `W` and `function` hold those raw bits and are interpreted according to `stype`.
+For transport-event and annotation records all copy fields are zero and `field_validity` is 0.
+A copy field whose `field_validity` bit is clear MUST be zero on write,
+and a filter or index MUST treat it as "cannot match" on that field unless the caller explicitly asks for records with unavailable fields.
+
+## 8. Payload by kind
+
+- **data / control**: the full HSMS frame as captured (Figure 3):
+  4-byte big-endian length, 10-byte HSMS message header, message text (SEMI E37 §8.2).
+  Short or over-long captures are stored as captured, with `field_validity` and `decode_status` saying what is missing;
+  the writer never pads, truncates or repairs bytes.
+  In an extract written under a redaction policy, the payload is the captured frame with the masking of [SEM §8] applied, and nothing else changed.
+  For `transport = secs1-normalised`: the reassembled SECS-I message in HSMS framing;
+  SECS-I block-level evidence is not preserved in format 1.0 ([OVW §5]).
+- **transport-event**: a TLV body (§5 entry encoding) with these tags:
+
+  | Tag | Name | Type | Used for |
+  |---|---|---|---|
+  | 0x0001 | `event` | u8 enum | required |
+  | 0x0002 | `prev_state` | u8 enum | state-transition |
+  | 0x0003 | `cur_state` | u8 enum | state-transition |
+  | 0x0004 | `cause` | u8 enum | state-transition, socket-close |
+  | 0x0005 | `cause_raw` | utf8 | the implementation's own name for the cause, e.g. `vendor:CauseName` |
+  | 0x0006 | `timer` | u8 enum | timer-expiry, and state-transitions caused by a timer |
+  | 0x0007 | `socket_role` | u8 enum | socket events |
+  | 0x0008 | `inferred` | bool | a socket event derived from a lifecycle notification rather than observed ([SEM §5]) |
+  | 0x0009 | `primary_session_id` | u64 | T3: SessionID of the timed-out primary |
+  | 0x000A | `primary_stream` | u64 | T3: stream of the primary |
+  | 0x000B | `primary_function` | u64 | T3: function of the primary |
+  | 0x000C | `primary_system_bytes` | bytes (4) | T3: System Bytes of the primary |
+  | 0x000D | `boundary_kind` | u8 enum | capture-boundary |
+  | 0x000E | `boundary_seq_first` | u64 | capture-boundary: first seq of the range it delimits |
+  | 0x000F | `boundary_seq_last` | u64 | capture-boundary: last seq of that range |
+  | 0x0010 | `gap_start` | i64 | capture-boundary gap: start of the estimated missing interval |
+  | 0x0011 | `gap_end` | i64 | capture-boundary gap: end of that interval |
+  | 0x0012 | `detail` | utf8 | free text |
+  | 0x0013 | `clock_step_ns` | i64 | clock-step: wall-clock step observed, positive = forward ([SEM §4]) |
+
+- **annotation**: a TLV body with these tags:
+
+  | Tag | Name | Type | Used for |
+  |---|---|---|---|
+  | 0x0001 | `annotation_kind` | u8 enum | required |
+  | 0x0002 | `ref_capture_id` | uuid | capture of the referenced records; absent = refers to no record |
+  | 0x0003 | `ref_seq_first` | u64 | first referenced seq in `ref_capture_id` |
+  | 0x0004 | `ref_seq_last` | u64 | last referenced seq |
+  | 0x0005 | `text` | utf8 | exactly one of `text` / `raw` |
+  | 0x0006 | `raw` | bytes | source bytes that are not valid UTF-8; in a `redacted` annotation the value is masked and no longer reproduces them ([SEM §8]) |
+  | 0x0007 | `source_index` | u64 | which `source_ref` entry (0-based) the range refers to |
+  | 0x0008 | `source_offset` | u64 | byte offset in that source file ([STO §7]) |
+  | 0x0009 | `source_len` | u64 | byte length in that source file |
+
+- Every record produced from a source file must be able to carry a source reference.
+  Annotations carry it as above; the representation for data/control records is deferred ([OVW §6]).
+
+## 9. Enum and bit registries
+
+Record-header enums:
+
+| Enum | Values |
+|---|---|
+| `kind` | 0 unknown, 1 data, 2 control, 3 transport-event, 4 annotation |
+| `dir` | 0 unknown, 1 host-to-equipment, 2 equipment-to-host, 3 local |
+| `fidelity` | 0 unknown, 1 wire-exact, 2 re-encoded, 3 reconstructed, 4 synthesized, 5 not-applicable |
+| `decode_status` | 0 not-attempted, 1 ok, 2 ok-with-trailing, 3 short-frame, 4 length-mismatch, 5 bad-ptype, 6 bad-stype, 7 control-with-body, 8 oversized, 9 item-decode-error, 10 reconstructed-ok, 11 parse-failed, 12 build-rejected, 13 not-applicable |
+
+Record-header bit sets (bit 0 = least significant):
+
+| Field | Bits |
+|---|---|
+| `quality` (u16) | 0 capture-boundary, 1 ordering-uncertain, 2 correlation-incomplete, 3 decode-failed, 4 direction-inferred, 5 redacted, 6 no-mono; 7–15 reserved |
+| `field_validity` (u8) | 0 session_id, 1 stream and W (header byte 2), 2 function, 3 ptype, 4 stype, 5 system_bytes; 6–7 reserved |
+| `record_flags` (u8) | 0 W, 1 mono_present; 2–7 reserved |
+
+`quality.no-mono` MUST be set iff `record_flags.mono_present` is clear.
+
+Pack-metadata enums:
+
+| Enum | Values |
+|---|---|
+| `transport` | 0 unknown, 1 hsms-ss, 2 secs1-normalised |
+| `capture_method` | 0 unknown, 1 raw-stream, 2 decoded-message, 3 log, 4 generator ([SEM §2]) |
+| `vantage` | 0 unknown, 1 host, 2 equipment, 3 intermediary, 4 network, 5 none ([SEM §2]) |
+| `time_source` | 0 unknown, 1 capture-clock, 2 source-log, 3 generator |
+| `lifecycle_coverage` | 0 unknown, 1 subscribed, 2 none |
+| `pack_role` | 0 unknown, 1 segment, 2 archive, 3 extract, 4 repair, 5 correction |
+| `digest_algorithm` | 0 unknown, 1 hmac-sha256 (nested in `redaction_policy`, [SEM §8]) |
+
+Payload enums (§8, [SEM §5]):
+
+| Enum | Values |
+|---|---|
+| `event` | 0 unknown, 1 state-transition, 2 timer-expiry, 3 socket-accept, 4 socket-connect, 5 socket-close, 6 capture-boundary, 7 clock-step |
+| `state` | 0 unknown, 1 not-connected, 2 not-selected, 3 selected (E37 connection states) |
+| `timer` | 0 none; 1–8 = T1..T8 (the value is the timer number; SECS-I T1 / T2 / T4 included) |
+| `cause` | 0 unknown, 1 local-open, 2 local-close, 3 select-accepted, 4 select-rejected, 5 local-deselect, 6 peer-deselect, 7 local-separate, 8 peer-separate, 9 timer-expiry, 10 linktest-failure, 11 transport-error, 12 peer-close, 13 implementation-fault |
+| `socket_role` | 0 unknown, 1 passive, 2 active |
+| `boundary_kind` | 0 unknown, 1 start, 2 stop, 3 gap, 4 stop-unclean (the capture ended without a clean stop; written by recovery; a completeness barrier, [STO §4]–[STO §5]) |
+| `annotation_kind` | 0 unknown, 1 note, 2 unparsed-entry, 3 skipped-bytes, 4 unrecognised-line |
+
+## 10. Footer
+
+The footer is encoded as a whole with the trailer's `footer_codec`.
+Offsets inside the footer are relative to the start of the **decoded** footer.
+Its layout is fixed by `footer_layout_version = 1`;
+extension happens through TLV tags inside F-3, F-4 and F-5, so a later index structure is a minor addition, not a new layout.
+
+```
+ decoded footer
+ ┌───────────────────────────┐ 0
+ │ F-1 prologue (72 B)       │  layout version, flags, block_count, section offsets
+ ├───────────────────────────┤ f2_offset
+ │ F-2 block index           │  block_count × f2_entry_len, fixed-size entries in file order
+ ├───────────────────────────┤ f3_offset
+ │ F-3 block summaries       │  one TLV entry list per block, located by its F-2 entry
+ ├───────────────────────────┤ f4_offset (optional)
+ │ F-4 secondary index       │  deferred ([OVW §6]); absent in format 1.0 writers
+ ├───────────────────────────┤ f5_offset
+ │ F-5 pack statistics (TLV) │  mergeable aggregates
+ └───────────────────────────┘
+```
+
+**F-1 prologue** (72 bytes):
+
+| Off | Type | Field | Meaning |
+|---|---|---|---|
+| 0 | u16 | `footer_layout_version` | 1 |
+| 2 | u16 | `flags` | bit 0 F-3 present (always set in layout 1), bit 1 F-4 present; others reserved |
+| 4 | u32 | `block_count` | entries in F-2; equals the trailer's `block_count` |
+| 8 | u32 | `f2_entry_len` | bytes per F-2 entry; 80 in layout 1; readers read the fields they know and skip the rest |
+| 12 | u32 | `extraction_version` | secondary-index rule set ([SEM §7.3]); 0 when F-4 is absent |
+| 16 | u64 | `f2_offset` | F-2 length is `block_count × f2_entry_len` |
+| 24 | u64 | `f3_offset` | |
+| 32 | u64 | `f3_len` | |
+| 40 | u64 | `f4_offset` | |
+| 48 | u64 | `f4_len` | 0 when F-4 is absent |
+| 56 | u64 | `f5_offset` | |
+| 64 | u64 | `f5_len` | |
+
+**F-2 block index entry** (80 bytes in layout 1), one per block in file order, which is also ascending seq order (I-12):
+
+| Off | Type | Field | Meaning |
+|---|---|---|---|
+| 0 | u64 | `offset` | file offset of the block envelope |
+| 8 | u32 | `on_disk_len` | envelope + body length |
+| 12 | u32 | `uncompressed_len` | as in the envelope |
+| 16 | u32 | `record_count` | as in the envelope |
+| 20 | u32 | `body_crc` | copy of the envelope's `body_crc`; a merger uses it only as a candidate filter, never as proof of equality ([STO §4]) |
+| 24 | u64 | `first_seq` | seq of the block's first record |
+| 32 | u64 | `last_seq` | seq of the block's last record |
+| 40 | i64 | `ts_min` | **true** minimum `ts_utc_ns` in the block, not the first ([SEM §4]) |
+| 48 | i64 | `ts_max` | true maximum; `ts_min` and `ts_max` lie in the same UTC hour (I-13) |
+| 56 | u32 | `epoch_min` | |
+| 60 | u32 | `epoch_max` | |
+| 64 | u64 | `summary_offset` | offset of this block's F-3 entry list, relative to `f3_offset` |
+| 72 | u32 | `summary_len` | length of the block's F-3 entry list; never 0 in layout 1 |
+| 76 | u16 | `record_header_len` | as in the envelope; ≥ 56 |
+| 78 | [2]byte | reserved | |
+
+F-2 is scanned linearly for time or epoch pruning, because timestamps are not ordered across blocks ([SEM §4]);
+it can be binary-searched by seq.
+
+**F-3 block summaries** (required; flag bit 0 set): for each block, a TLV entry list (§5 encoding) of `summary_len` bytes.
+Every F-5 statistic is an aggregate of F-2 and F-3 values, so the F-3 tags marked *required* below exist for every block.
+*u32 array* below means a `bytes` value holding little-endian `u32` counts indexed by enum value (a block holds fewer than 2^32 records);
+a reader treats missing trailing elements as 0 and preserves extra elements.
+
+| Tag | Name | Type | Meaning |
+|---|---|---|---|
+| 0x0001 | `kind_counts` | u32 array | required; records per `kind` |
+| 0x0002 | `dir_counts` | u32 array | required; records per `dir` |
+| 0x0003 | `decode_status_counts` | u32 array | required; records per `decode_status` |
+| 0x0004 | `max_payload_len` | u64 | required; largest `payload_len` in the block |
+| 0x0005 | `quality_union` | u64 | required; union of the records' `quality` bits (low 16 bits) |
+| 0x0006 | `content_bytes` | u64 | required; record header + payload bytes of the block |
+| 0x0007 | `epoch` | tlv, repeatable | required, one per epoch present in the block; nested tags below |
+| 0x0008 | `boundary` | tlv, repeatable | one per capture-boundary record in the block; nested tags below |
+| 0x0009 | `seq_range` | bytes (16), repeatable | present only when the block's seqs are not contiguous: its exact seqs as sorted, maximal ranges; absent means exactly `first_seq`..`last_seq` |
+| 0x0010–0x001F | reserved for the index structures of [SEM §7.1]–[SEM §7.2] | — | deferred ([OVW §6]) |
+
+**F-4 secondary index**: deferred ([OVW §6]).
+When defined it MUST be per block and self-contained (I-14).
+
+**F-5 pack statistics**: a TLV entry list.
+
+| Tag | Name | Type | Meaning |
+|---|---|---|---|
+| 0x0001 | `record_count` | u64 | records in the pack |
+| 0x0002 | `kind_counts` | u64 array | |
+| 0x0003 | `dir_counts` | u64 array | |
+| 0x0004 | `decode_status_counts` | u64 array | |
+| 0x0005 | `ts_min` | i64 | whole-pack minimum `ts_utc_ns` |
+| 0x0006 | `ts_max` | i64 | whole-pack maximum |
+| 0x0007 | `content_bytes` | u64 | record header + payload bytes |
+| 0x0008 | `quality_union` | u64 | |
+| 0x0009 | `seq_range` | bytes (16: `first` u64, `last` u64), repeatable | the exact seqs present, as sorted, non-overlapping, maximal ranges |
+| 0x000A | `epoch` | tlv, repeatable | one per epoch present; nested tags below |
+| 0x000B | `boundary` | tlv, repeatable | one per capture-boundary record in the pack; nested tags below |
+
+Nested tags of `epoch` (F-3 and F-5): 0x0001 `epoch` u64, 0x0002 `record_count` u64, 0x0003 `seq_first` u64, 0x0004 `seq_last` u64,
+0x0005 `ts_min` i64, 0x0006 `ts_max` i64,
+0x0007 `close_seq` u64 (optional: seq of the socket-close event or clean `stop` that ended this epoch, when it lies in this block or pack).
+Nested tags of `boundary`: 0x0001 `seq` u64, 0x0002 `boundary_kind` u8, 0x0003 `ts` i64, 0x0004 `epoch` u64,
+0x0005 `gap_start` i64 and 0x0006 `gap_end` i64 (copied from the boundary record's payload; an absent `gap_start` on a `stop-unclean` boundary means unbounded, [STO §4]).
+*u64 array* is like *u32 array* with `u64` elements; pack-level counts use it so they cannot overflow.
+
+**Aggregation rule** (I-14): F-5 of any pack equals the aggregate of its blocks' F-2 and F-3 values —
+counts and `content_bytes` summed, minima and maxima taken, seq ranges unioned and coalesced,
+`epoch` entries combined per epoch (counts summed, seq and ts extremes taken, `close_seq` kept when present), `boundary` entries unioned.
+A merged pack's F-2 is recomputed from the copied blocks' new offsets, each copied block's F-3 entry list is copied verbatim,
+and F-5 is recomputed by this rule, so constructing the footer reads no block body;
+a merge may still decode blocks for other reasons ([STO §4]).
+A statistic that is not an aggregate of per-block F-3 values MUST NOT be added to F-5.
+
+**Footer validation.** Before trusting a footer, a reader checks:
+`f2_offset = 72`; `f2_entry_len ≥ 80`; F-2, F-3, F-4 and F-5 lie inside the decoded footer, in that order, without overlap;
+F-2 entries are contiguous on disk (the first starts at 80 + `pack_metadata_len`, each starts where the previous ends, the last ends at `footer_offset`);
+`first_seq ≤ last_seq` and seqs ascend across entries; every `summary_offset` / `summary_len` lies inside F-3;
+each block's seq set is consistent with its `record_count`: an F-3 `seq_range` list is sorted, non-overlapping, starts at `first_seq`, ends at `last_seq` and has exactly `record_count` members,
+and without it `last_seq − first_seq + 1 = record_count`;
+every F-3 count array and the F-3 `epoch` record counts sum to the block's `record_count`;
+F-5 equals the aggregate of F-2 and F-3 (§10 aggregation rule), which the reader recomputes;
+the sum of F-2 `record_count` equals F-5 `record_count` and the trailer's `record_count`;
+the trailer's `last_seq` equals the last entry's `last_seq`.
+Per block also: `record_header_len ≥ 56`, `ts_min ≤ ts_max` in the same UTC hour, `epoch_min ≤ epoch_max`, F-3 `content_bytes` = `uncompressed_len`,
+every F-3 `epoch` entry inside the block's epoch, seq and time bounds, and every `boundary` or `close_seq` seq inside the block's seq set.
+All sums are computed with overflow checks; an overflow invalidates the footer.
+A pack without blocks has `block_count = 0`, an empty F-2 and F-3, `record_count = 0`, `footer_offset = 80 + pack_metadata_len`,
+and no F-5 `ts_min`, `ts_max`, `seq_range`, `epoch` or `boundary` entries; its trailer `last_seq` is ignored.
+When a block is read, its envelope MUST agree with its F-2 entry, `record_header_len` included, or the block is `corrupt`.
+A footer failing any check is **invalid**: the reader reports it and falls back to the forward walk of I-1, never trusting the index.
+
+## 11. Trailer (64 bytes, at size − 64)
+
+| Off | Type | Field | Meaning |
+|---|---|---|---|
+| 0 | u64 | `footer_offset` | file offset of the footer |
+| 8 | u64 | `footer_len` | on-disk footer length; `footer_offset + footer_len = size − 64` |
+| 16 | u64 | `footer_uncompressed_len` | decoded footer length |
+| 24 | u32 | `block_count` | blocks in the file |
+| 28 | u32 | `footer_crc` | CRC over the on-disk footer bytes |
+| 32 | u64 | `record_count` | records in the file |
+| 40 | u64 | `last_seq` | seq of the last record; meaningful iff `record_count > 0` |
+| 48 | u16 | `trailer_version` | 1 |
+| 50 | u8 | `footer_codec` | §2 |
+| 51 | u8 | `flags` | reserved |
+| 52 | u32 | `trailer_crc` | CRC over bytes 0–51 |
+| 56 | [8]byte | `magic` | `54 50 4B 45 4E 44 0D 0A` (`TPKEND\r\n`) |
+
+## 12. Writer commit sequence (contract)
+
+1. Write the file header and the pack metadata.
+   `blocks_validated = true` (§5) is a commitment made here, before any block is written.
+2. For each block: if the pack commits `blocks_validated = true`, validate the block after encoding it and before writing it:
+   decode the encoded body, check I-2, and check I-10 agreement for every data/control record whose `field_validity` marks the copied bytes as captured.
+   Then write envelope + body;
+   if durability is enabled, flush to stable storage after the whole block is written.
+   A writer's output target and its durability operation are separate capabilities;
+   a seekable stream alone is not a durability contract.
+3. On close: write the footer, then the trailer, then flush to stable storage.
+   The trailer is the commit (I-5).
+   No byte is rewritten after the trailer:
+   a "finalized" hint, if a publisher wants one, goes into the stored object's metadata, never into the file.
+   A crash before the trailer is durable leaves an unfinalized file;
+   a crash after it leaves a finalized file whose close operation did not return.
+
+If a validation check of step 2 fails, the writer MUST NOT write the trailer, so the pack never becomes finalized;
+it MAY start a new pack (new `pack_id`) without the commitment.
+A writer never alters record bytes to make a check pass.
+The tag is a writer assertion: CRCs prove that the bytes are unchanged since writing, not that validation happened.
+
+## 13. Reader bootstrap and recovery (contract)
+
+The object size is known before reading (file system stat, object listing, the catalog of [STO §5], or a HEAD request).
+
+```
+                      ┌─ size ≤ whole-read threshold? ── yes ──► read the whole object (1 request)
+                      │
+ reader ── size ──────┼─ catalog has footer location?  ── yes ─► round 1, in parallel:
+                      │                                           head read  +  footer..EOF read
+                      │                                           (footer + trailer; trailer verified)
+                      │
+                      └─ otherwise ────────────────────────────► round 1, in parallel:
+                                                                  head read  +  tail read (last W bytes,
+                                                                  holds trailer + usually the footer)
+                                                                  round 2 only if the footer or the pack
+                                                                  metadata is larger than the read window
+```
+
+- **Bootstrap**: obtain the file header, pack metadata, trailer and footer as above.
+  The head read is a speculative prefix read that normally covers the pack metadata too.
+  The catalog's footer location is a hint: the footer read extends to end of file,
+  so it always includes the trailer, which is still parsed and verified (I-5);
+  a reader never treats a pack as finalized from the catalog alone.
+  Validate the file header, format version and `schema_version` **before** reading any block.
+  Typical cost is one round; the worst case is two.
+  Suffix range reads (`bytes=-W`) work on S3 and GCS;
+  stores without them use an absolute range computed from the known size.
+  Window W and the whole-read threshold are reader parameters, not format properties.
+- **Point queries** after bootstrap cost one round per group of blocks.
+- **Why the trailer is at the end** rather than an index at the front.
+  Only the trailer is fixed-size; the footer is variable and unbounded (Bloom filters, secondary index).
+  A trailer at the front would still need a second read for the footer,
+  and a footer at the front requires buffering or rewriting the whole file,
+  which breaks streaming writes, multipart upload while recording, crash safety, and I-5.
+- **Recovery** (`verify --repair`): walk blocks forward from the end of the pack metadata applying I-1 / I-2,
+  decoding and validating whole bodies.
+  Without a valid footer, each block's header length comes from its envelope alone and there is no F-2 entry to compare.
+  Outcomes: `finalized-consistent`, `finalized-truncated`, `unfinalized`, `corrupt-middle`.
+  Guarantee in format 1.0: the validated prefix is readable;
+  everything after is reported `incomplete` with offset and cause;
+  recovery beyond a corrupt middle block is deferred ([OVW §6]).
+  Repair never modifies a finalized file;
+  it writes a `repair` patch whose `supersedes` names the damaged pack and whose `coverage` entries record the lost (`capture_id`, `seq`) ranges and time intervals ([STO §6]).
+  Repair applies to stored packs; an extract is never repaired into a patch ([STO §2]), and `verify` of an extract only reports.
+- **Normal reads never silently skip.** A corrupt block, a truncated tail, an unknown codec or a `coverage` hit yields partial results
+  **with** an `incomplete` status the caller must inspect.
+  A read's validation status ([SEM §7.4]) is reported alongside `incomplete`, never instead of it.
+
+## 14. Versioning
+
+- `format_major.format_minor` in the file header.
+  Readers accept any minor within their major;
+  a newer minor may contain tags, enum values and record-header bytes the reader does not know,
+  which it handles per §5 (skip unknown tags), §1 (preserve unknown enum values) and §7.1 (preserve unknown record-header bytes).
+- `schema_version` is **frozen at 1** for format 1.x;
+  an unknown `schema_version` or major is rejected before any block is read.
+- Minor changes: new TLV tags, new enum values (readers preserve unknown values),
+  new record-header fields appended behind the known prefix, up to `record_header_len` = 65535 (§7.1),
+  new F-3 / F-5 tags, a longer `f2_entry_len` (§10).
+- Major changes: changing any existing offset or type, and **new codec values** (§2), because an old reader cannot decode the content at all.
+- A new `classifier` or `extraction_version` is not a format change.
+
+## 15. Canonical JSONL export
+
+The canonical JSONL export is the language-agnostic text form of a pack and its migration path.
+- The first line holds the file header and every pack metadata entry, unknown tags included (tag number, value type, raw value as base64).
+- Then one JSON object per record carrying every §7.1 field by its spec name,
+  enum values by name (`unknown(<n>)` for unknown values), bit sets as arrays of names,
+  the payload as base64, and transport-event / annotation bodies as objects keyed by tag name.
+- The schema is versioned (`tracepack-jsonl/1`); its byte-exact form (key order, number formatting) is deferred ([OVW §6]).
+- A query service offering downloads returns either native packs (`archive` packs, or `extract` packs with `extract_filter`, one per capture) or this export;
+  to a consumer that is not privileged it returns only extracts written under a redaction policy, or their export ([SEM §8]).
+- It is the expected output of the conformance corpus (§16),
+  so any two conforming readers produce identical JSONL for the same pack.
+
+## 16. Conformance corpus
+
+The corpus lets an implementation in any language prove that it reads and writes the same bytes as every other.
+- Contents: golden `.tpk` files, the expected canonical JSONL (§15) for each, and the expected `verify` report.
+- Vectors: empty pack; pack with zero records; codec `none` and codec `zstd` of the same records;
+  truncated tail; corrupt middle block; bad envelope CRC; unknown codec; unknown TLV tag and enum value;
+  `record_header_len` > 56; unordered timestamps;
+  maximum-value integers (§2); UUID byte order; the CRC check value;
+  a record whose copy fields disagree with its payload (I-10);
+  a short capture whose unavailable copy fields must not match a filter (§7.2);
+  CRC-valid but structurally invalid footers, and a block whose absent `seq_range` hides a missing seq (§10 footer validation).
+- Block framing vectors (§6, §7.1):
+  identical body bytes under different framing (134 decoded bytes as one record with a 120-byte header, or as two records with 56-byte headers);
+  `record_header_len` below 56; `record_count × record_header_len` overflow; an envelope / F-2 `record_header_len` mismatch;
+  a pack mixing blocks of different header lengths;
+  a block whose header prefix is valid but whose codec stream is short or malformed after it;
+  a block holding one oversized record.
+- Validation and query-mode vectors (§6, §12, [SEM §7.4]):
+  an I-10 disagreement seen by a header-only read;
+  a record whose header copies say S6F11 while its payload says S1F3 in a non-attested pack, queried for both S/F in provisional and authoritative mode,
+  with the expected results and statuses, and the same for SessionID and System Bytes in transaction candidate selection ([SEM §7.2]);
+  an agreeing record in an attested pack as the control for the same queries;
+  a writer attempting `blocks_validated = true` over that disagreement: no trailer, and recovery reports the pack unfinalized;
+  optionally a nonconforming-writer fixture that falsely asserts `blocks_validated = true`, labelled as such,
+  where a reader is not expected to detect the false assertion from a header-only read;
+  a provisional query with an empty result that still carries `header-validated`;
+  the same provisional S1F3 query over that non-attested block with its F-3 S/F structure present (index-only exclusion) and absent (header scan),
+  both reporting `header-validated` for the block;
+  a payload-only identity conflict between two packs.
+- Redaction vectors ([SEM §8]), written with the published test keys:
+  S7F3 with its PPBODY masked (length, item headers, `decode_status` and HSMS header unchanged; entry and digest as published);
+  S7F3 and S7F6 carrying the same process program, in one domain: equal digests; the same S7F3 under the second test key and key id: a different digest;
+  a formatted process program (S7F23) masked through path `4`: every CCODE and PPARM leaf zeroed, every list header kept;
+  a record whose header copies say S6F11 while its payload is S7F3: masked;
+  S7F3 frames whose declared length is shorter than the capture (an item after the declared end) and longer (a truncated capture): the captured text is screened, never the declared extent;
+  an oversized S7F3, and records whose payload is shorter than 14 bytes: screened by the same rule, and never masked when there is no message text;
+  an S7F3 whose message text is not one valid item, one with trailing bytes, and a well-formed one whose rule path does not resolve: one whole-text entry each, in `message-text`, without `item_path`;
+  an S13F6 whose fourth item is not a list, and an S16F15 in which one job lacks element `4/3`: whole-text masks (a failed branch fails the pattern);
+  an S13F6 whose data list is empty: nothing masked, no entry;
+  empty-list denials of S7F6, S7F26 and S7F36: not masked;
+  a zero-length PPBODY: no entry; a header-only S7F3 data message: no entry;
+  an S16F11 whose RCPPARVAL is a list holding a format-22 leaf: the localized string header kept, the rest zeroed; a format-22 leaf of 2 bytes: no target bytes; one of 1 byte: whole-text mask;
+  an S13F6 carrying a data set: every FILDAT zeroed;
+  a PPBODY whose content is already all zero: masked ranges still list it;
+  an `unparsed-entry` annotation masked through its `raw` value;
+  an extract under a policy that matched nothing: `redaction_policy` present, `redaction-present` clear, no entries;
+  an extract written without a policy;
+  malformed entries (empty or odd ranges array, zero length, unsorted or adjacent ranges, a range past `payload_len`, `seq` of a record without `redacted`, a `redacted` record without entry):
+  reported, and exactly the records concerned treated as wholly masked;
+  a valid masked record in an early block and a defective annotation entry for a record in a later block: the early record keeps its ranges, the later one is wholly masked;
+  an extract requested from an extract written under a policy, or from a pack holding a `redacted` record: rejected before any output;
+  one requested from an unscreened extract (no policy, no `redacted` record): written, because its records are in full;
+  a masked record read together with its source pack: `conflict`.
+- Each query vector carries its expected query results and validation statuses,
+  because JSONL and `verify` output alone do not exercise query modes.
+- [SEM §9] and [STO §8] add the vectors for their rules to the same corpus.
+- A reader conforms when it produces the expected JSONL and `verify` report for every vector,
+  and the expected query results and validation statuses for every query vector;
+  a writer conforms when a conforming reader round-trips its output.
+- The corpus is versioned with the format.
+
+## Appendix A. Cross-language support (informative, as of 2026-09)
+
+| Need | Go | Java | .NET | Python |
+|---|---|---|---|---|
+| zstd (RFC 8878) | `klauspost/compress/zstd` (pure Go) | `zstd-jni` (native; used by Kafka, Parquet, Spark) or `aircompressor` (pure Java; its pure-Java compressor supports only the default level) | .NET 11 BCL `ZstandardStream` (GA expected 2026-11); `ZstdSharp` (pure C#) for .NET 8 / 10 LTS | stdlib `compression.zstd` (3.14+) |
+| CRC-32/ISO-HDLC | `hash/crc32` IEEE | `java.util.zip.CRC32` | `System.IO.Hashing.Crc32` | `zlib.crc32` |
+| UUID byte order (§2) | `[16]byte` as-is | `UUID` most / least significant longs, written big-endian | **not** `Guid.ToByteArray()` (mixed-endian); use `Guid.TryWriteBytes(span, bigEndian: true, out _)` (.NET 8+) | `uuid.UUID.bytes` |
+| unsigned 64-bit | native | `long` within the §2 ≤ 2^63 − 1 limit | native | native |
+
+Codec alternatives considered: Deflate/gzip is in every standard library but compresses clearly worse and slower;
+LZ4 is fast but compresses less, and its main Java library changed maintainers in 2025 after CVEs,
+which weighs against it for archival use.
