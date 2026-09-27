@@ -47,19 +47,29 @@ type fsmCommand struct {
 	// For a synchronous commit's follow-up that passed through a real gate,
 	// this is the gate's own resolved id, not the caller's own gen (see commitFrom).
 	// 0 means the injection site named none and no gate resolved one (evClose, or the nil-gate bypass).
-	// It is never reported to a subscriber.
 	// It exists so an event injected by a generation that has since ended is discarded,
 	// instead of driving a transition on its successor.
+	// When the event does drive a transition,
+	// it is also the generation that transition is reported for (see transitionIdentity).
 	gen uint64
 }
 
 // stateChange is one logical E37 transition, reported to the notifier as (prev -> next) plus a cause:
 // ordinarily the one carried by the event that drove it,
 // but step substitutes CauseSelectAccepted for the coalesced entering-Selected bring-up (see step and fireTransition).
+//
+// gen and socket name the generation the transition belongs to and that generation's socket.
+// step snapshots them when the transition fires (see transitionIdentity),
+// and the notifier reports them verbatim:
+// a notification the notifier delivers late,
+// after its generation tore down or a successor was published,
+// still names its own generation.
 type stateChange struct {
-	prev  ConnState
-	next  ConnState
-	cause TransitionCause
+	prev   ConnState
+	next   ConnState
+	cause  TransitionCause
+	gen    uint64
+	socket uint64
 }
 
 // supervisor is the single E37 logical FSM (SEMI E37 §5.4–§5.6). It is created FRESH per
@@ -115,6 +125,12 @@ type supervisor struct {
 	// Nil in unit tests that build a supervisor without a connection,
 	// which SKIPS the match rather than suppressing the event.
 	curGen func() uint64
+
+	// curEpoch reports the epoch that is CURRENT (connection.cur), under the same lock-free rule as curGen.
+	// step reads it only when a transition fires,
+	// to name the socket of the generation the transition belongs to (see transitionIdentity).
+	// Nil in unit tests that build a supervisor without a connection, which reports socket 0.
+	curEpoch func() *epoch
 
 	// commitGate fences the Select-lost synchronous commit (connection.commitGate).
 	// That commit is a CAS operation on state rather than an event on the queue,
@@ -514,6 +530,12 @@ func (s *supervisor) step(cmd fsmCommand) {
 		return
 	}
 
+	// The epoch a Close tears down, loaded once so the transition it fires names the same epoch its teardown ends.
+	var closing *epoch
+	if ev == evClose {
+		closing = s.closeEpoch.Load()
+	}
+
 	cur := ConnState(s.state.Load())
 
 	// Generation match.
@@ -602,7 +624,8 @@ func (s *supervisor) step(cmd fsmCommand) {
 				cause = CauseSelectAccepted
 			}
 
-			s.fireTransition(prev, next, cause)
+			gen, socket := s.transitionIdentity(cmd, closing)
+			s.fireTransition(stateChange{prev: prev, next: next, cause: cause, gen: gen, socket: socket})
 			s.lastReacted = next
 		}
 	}
@@ -610,14 +633,47 @@ func (s *supervisor) step(cmd fsmCommand) {
 	if ev == evClose {
 		// Latch closed (I2) BEFORE teardown: no event queued behind this evClose may move state again.
 		s.closed = true
-		if e := s.closeEpoch.Load(); e != nil {
-			e.teardown(s.resolveCloseTimeout())
+		if closing != nil {
+			closing.teardown(s.resolveCloseTimeout())
 		}
 	}
 }
 
-// fireTransition emits the notification and calls react for one deduped transition.
-// prev is supplied by step.
+// transitionIdentity returns the generation and socket a transition driven by cmd belongs to,
+// read at the moment the transition fires.
+//
+// A Close belongs to closing, the epoch requestClose pinned, and not to whichever epoch is current;
+// it reports 0/0 when nothing was pinned, as for a connection with no epoch at all.
+// Any other event belongs to the generation it carries:
+// step has just matched that generation against the current one,
+// so the current epoch is that generation's own, and its socket is read from it.
+// The current epoch cannot have advanced since the match:
+// a successor is published only after this generation's link is down,
+// and an event of a generation whose link is down fires no transition.
+// An epoch that never acquired a socket reports socket 0,
+// and so does an event that names no generation, which only a supervisor built without a connection queues.
+func (s *supervisor) transitionIdentity(cmd fsmCommand, closing *epoch) (gen, socket uint64) {
+	if cmd.ev == evClose {
+		if closing == nil {
+			return 0, 0
+		}
+
+		return closing.id, closing.socketID()
+	}
+
+	if cmd.gen == 0 || s.curEpoch == nil {
+		return cmd.gen, 0
+	}
+
+	if e := s.curEpoch(); e != nil && e.id == cmd.gen {
+		return e.id, e.socketID()
+	}
+
+	return cmd.gen, 0
+}
+
+// fireTransition emits the notification and calls react for one deduped transition, sc, which step builds.
+// sc.prev is supplied by step.
 // Normally it is lastReacted (NOT the atomic's current value — H2/H3),
 // so a pre-committed entering-Selected is still reported as (NotSelected -> Selected).
 // For a real drop into NotConnected it is the state the store actually replaced,
@@ -626,7 +682,7 @@ func (s *supervisor) step(cmd fsmCommand) {
 // (the F1 ordering guarantee: the terminal state is enqueued before react may initiate teardown that stops the notifier);
 // for any other transition react runs first, then emit.
 //
-// cause is the one step computed for this deduped transition.
+// sc.cause is the one step computed for this deduped transition.
 // Ordinarily it is the cause carried by the event that drove it;
 // for the coalesced entering-Selected bring-up — evTCPUp finding the Select commit already applied —
 // it is CauseSelectAccepted, matching an ordinary Select.
@@ -634,16 +690,19 @@ func (s *supervisor) step(cmd fsmCommand) {
 // a later event landing on the same state fires nothing and its cause is never reported —
 // a Close on an already-dropped link whose drop was itself already reported fires nothing further, not
 // CauseLocalClose (documented on SubscribeLifecycle).
-func (s *supervisor) fireTransition(prev, next ConnState, cause TransitionCause) {
-	if next == NotConnectedState {
-		s.emit(stateChange{prev: prev, next: next, cause: cause})
-		s.react(prev, next, cause)
+//
+// sc.gen and sc.socket are the identity step snapshotted for this transition (see transitionIdentity);
+// react takes no identity, since it resolves the epoch it acts on itself.
+func (s *supervisor) fireTransition(sc stateChange) {
+	if sc.next == NotConnectedState {
+		s.emit(sc)
+		s.react(sc.prev, sc.next, sc.cause)
 
 		return
 	}
 
-	s.react(prev, next, cause)
-	s.emit(stateChange{prev: prev, next: next, cause: cause})
+	s.react(sc.prev, sc.next, sc.cause)
+	s.emit(sc)
 }
 
 // emit is a NON-BLOCKING drop-OLDEST send onto notify. The supervisor is the SOLE sender, so
@@ -774,7 +833,7 @@ func (s *supervisor) notifySubs(sc stateChange) {
 		return
 	}
 
-	ev := LifecycleEvent{Previous: sc.prev, Current: sc.next, Cause: sc.cause}
+	ev := LifecycleEvent{Previous: sc.prev, Current: sc.next, Cause: sc.cause, Socket: sc.socket, Generation: sc.gen}
 	for _, sub := range *subs {
 		s.callSub(sub.fn, ev)
 	}

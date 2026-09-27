@@ -8,6 +8,7 @@ package hsmsss
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"sync"
 	"testing"
@@ -137,16 +138,21 @@ func TestTransactionObserver_Sent_Forward(t *testing.T) {
 }
 
 // TestTransactionObserver_T3Timeout proves a W-bit SendDataMessage whose peer never answers reports TxT3Timeout once T3 expires, with Duration at least T3.
+// The event also names the session id, socket and generation the primary went out on:
+// they must match the outbound frame the wire observer saw for the same System Bytes.
 func TestTransactionObserver_T3Timeout(t *testing.T) {
 	t.Parallel()
 
 	const t3 = 300 * time.Millisecond
 
 	rec := &txEventRecorder{}
-	passive, active := newEndpointPair(t,
+	wire := &socketLog{}
+	port := freeLoopbackPort(t)
+	passive := newEndpoint(t, port, false, []Option{WithConnectionOption(hsms.WithT3(t3))})
+	active := newEndpoint(t, port, true, append([]Option{
 		WithConnectionOption(hsms.WithTransactionObserver(rec.observe)),
 		WithConnectionOption(hsms.WithT3(t3)),
-	)
+	}, wire.options()...))
 	defer closeEndpoint(t, passive)
 	defer closeEndpoint(t, active)
 
@@ -170,6 +176,28 @@ func TestTransactionObserver_T3Timeout(t *testing.T) {
 	require.ErrorIs(t, ev.Err, hsms.ErrT3Timeout)
 	require.GreaterOrEqual(t, ev.Duration, t3, "Duration must be at least T3")
 	require.GreaterOrEqual(t, time.Since(start), t3)
+
+	primary := outboundFrame(t, wire, ev.ID)
+	require.NotZero(t, primary.Socket)
+	require.NotZero(t, primary.Generation)
+	require.Equal(t, primary.Socket, ev.Socket, "the event must name the socket the primary was written to")
+	require.Equal(t, primary.Generation, ev.Generation, "the event must name the generation the primary was written on")
+	require.Equal(t, binary.BigEndian.Uint16(primary.Frame[4:6]), ev.SessionID, "the event must carry the primary's session id")
+}
+
+// outboundFrame returns the outbound wire event whose System Bytes equal id.
+func outboundFrame(t *testing.T, log *socketLog, id uint32) hsms.WireEvent {
+	t.Helper()
+
+	for _, e := range log.snapshot() {
+		if e.isWire && e.wire.Direction == hsms.WireOutbound && binary.BigEndian.Uint32(e.wire.Frame[10:14]) == id {
+			return e.wire
+		}
+	}
+
+	t.Fatalf("no outbound frame with System Bytes %#x was observed", id)
+
+	return hsms.WireEvent{}
 }
 
 // TestTransactionObserver_Rejected proves a W-bit SendDataMessage answered by a peer Reject.req reports TxRejected with Err carrying the *hsms.RejectError.
@@ -278,6 +306,31 @@ func TestTransactionObserver_SendError_NotSelected(t *testing.T) {
 	ev := events[0]
 	require.Equal(t, hsms.TxSendError, ev.Outcome)
 	require.ErrorIs(t, ev.Err, hsms.ErrNotSelectedState)
+	require.NotZero(t, ev.Generation, "an open connection has a generation even before any peer connects")
+	require.Zero(t, ev.Socket, "a generation that never acquired a socket reports socket 0")
+}
+
+// TestTransactionObserver_NotOpen proves a send on a connection that was never opened reports ErrNotOpen with generation 0 and socket 0:
+// no generation exists for the send to be bound to.
+func TestTransactionObserver_NotOpen(t *testing.T) {
+	t.Parallel()
+
+	rec := &txEventRecorder{}
+	ep := newEndpoint(t, freeLoopbackPort(t), true, []Option{WithConnectionOption(hsms.WithTransactionObserver(rec.observe))})
+
+	reply, err := ep.conn.SendDataMessage(t.Context(), 1, 1, true, secs2.A("ping"))
+	require.ErrorIs(t, err, hsms.ErrNotOpen)
+	require.Nil(t, reply)
+
+	events := rec.snapshot()
+	require.Len(t, events, 1)
+
+	ev := events[0]
+	require.Equal(t, hsms.TxSendError, ev.Outcome)
+	require.ErrorIs(t, ev.Err, hsms.ErrNotOpen)
+	require.Zero(t, ev.Generation)
+	require.Zero(t, ev.Socket)
+	require.Equal(t, ep.conn.SessionID(), ev.SessionID)
 }
 
 // TestTransactionObserver_Unset proves omitting WithTransactionObserver leaves send behavior unchanged —

@@ -48,6 +48,9 @@
 // and ReplyDataMessage.
 // Register inbound handlers with AddDataMessageHandler and lifecycle observers with AddConnStateChangeHandler,
 // or with SubscribeLifecycle when the observer needs the cause of each transition or must be able to cancel itself.
+// To see the link below the message layer,
+// install [github.com/arloliu/go-secs/v2/hsms.WithWireObserver] for every frame that crosses the socket
+// and [github.com/arloliu/go-secs/v2/hsms.WithSocketObserver] for every socket this package dials, accepts, refuses and closes.
 // UpdateConfigOptions retunes live timers, and Close tears the connection down (idempotent).
 //
 // This package is single-session by design: there is NO AddSession call — the Connection IS its own SECS-II endpoint.

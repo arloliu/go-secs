@@ -7,6 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Wire-level and socket-level observability for HSMS-SS,
+and socket and generation identity on lifecycle and transaction events.
+
+- `WithWireObserver` reports every HSMS frame that crosses the socket, in both directions,
+  as its exact wire bytes, control frames and the frames of a refused peer included.
+- `WithSocketObserver` reports each socket the connection dials or accepts, refused ones included,
+  when it comes up and when it closes, with the failure that initiated the close.
+- `LifecycleEvent` and `TxEvent` name the socket and connection generation they belong to,
+  so the wire, socket, lifecycle, and transaction streams join on the same two values.
+  `TxEvent` also carries the primary's session ID.
+- Only the HSMS-SS transport reports wire and socket events;
+  a SECS-I connection built on the same core reports neither.
+
+The public API only gains additions.
+One behavior change is visible to the peer; see Upgrade notes.
+
+### Upgrade notes
+
+- `hsmsss`: on a peer Separate, a linktest failure, or a failed active Select,
+  the socket now closes as soon as the transport reports the disconnect,
+  rather than later, when the connection tears the link down.
+  For a peer Separate this is the immediate close SEMI E37.1 §7.6 asks for.
+  The peer sees its TCP connection close sooner;
+  none of these paths sent a farewell Separate before, and none does now.
+
+### Added
+
+- `hsms`: `WithWireObserver` installs a synchronous hook
+  that receives a `WireEvent` for each complete HSMS frame the connection reads or writes:
+  its `WireDirection`, the socket and generation it crossed, a timestamp carrying a monotonic reading, and the frame bytes,
+  length prefix and header included.
+  Every frame is reported, data and control alike,
+  including the frames the connection sends on its own and inbound frames it goes on to reject.
+  An outbound frame is reported only after its write succeeded.
+  `Frame` is valid only during the call.
+  With an observer installed, outbound frames are copied into a buffer reused for the life of the link,
+  so observation allocates nothing per frame once that buffer has grown.
+- `hsms`: `WithSocketObserver` installs a synchronous hook
+  that receives a `SocketEvent` for each socket the connection dials or accepts:
+  `SocketConnected` or `SocketAccepted` when it comes up,
+  `SocketRefused` for an extra passive peer rejected because a session is already live,
+  and exactly one `SocketClosed`, whichever side or path closed it.
+  `SocketEvent.Err` on the close names the failure that initiated it —
+  a read or write error, a refused or unanswered Select, a failed linktest, or `ErrT7Timeout` —
+  and is nil for a close the application or the peer asked for.
+  A refused socket and its frames carry generation 0.
+- `hsms`: `LifecycleEvent.Socket` and `LifecycleEvent.Generation` name the generation a transition belongs to and that generation's socket,
+  taken when the transition happens,
+  so a notification delivered after a reconnect still names the link it reports.
+- `hsms`: `TxEvent.SessionID`, `TxEvent.Socket`, and `TxEvent.Generation`.
+  A send reports the generation it was bound to when it started, even when it completes after a reconnect,
+  and a send that found no open connection reports socket and generation 0.
+- `hsms`: `ErrT7Timeout`, the failure a `SocketClosed` event carries for a link the T7 not-selected timer tore down.
+  `IsTransient` and `IsTimeout` both report true for it.
+
+### Changed
+
+- `hsmsss`: every socket the transport dials or accepts, a refused extra peer's included, now closes through one close gate,
+  which keeps the failure of whichever path closed it first and reports the close exactly once.
+  An involuntary disconnect the transport detects itself —
+  a read error, a peer Separate, a failed linktest, or a failed active Select —
+  closes the socket through that gate before it reports the disconnect,
+  so the socket no longer stays open until the connection's teardown (see Upgrade notes).
+
 ## [2.5.0] - 2026-09-27
 
 Callback isolation, connection-lifecycle hardening, and complete format-22 (`W`) support.

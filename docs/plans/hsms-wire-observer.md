@@ -1,6 +1,6 @@
 # HSMS wire observer and generation-aware events
 
-Status: draft (2026-09-27) — proposal for go-secs v2.6.0; owner decisions in §9; external review reached go after six rounds; awaiting the owner's go for implementation.
+Status: active (2026-09-28) — implementation on branch feat/hsms/wire-observer; phases 1–3 done, phase 4 in progress.
 
 ## 1. Purpose
 
@@ -298,10 +298,10 @@ tracepack's writer phase then requires go-secs v2.6.0.
 
 | Phase | Content | Status |
 |---|---|---|
-| 1 | `WithWireObserver`, socket identity, inbound and outbound call sites, refusal exchange | pending |
-| 2 | `Socket`, `Generation` and `SessionID` on `LifecycleEvent` and `TxEvent` | pending |
-| 3 | `WithSocketObserver` and its call sites | pending |
-| 4 | README, `doc.go`, CHANGELOG; release v2.6.0 | pending |
+| 1 | `WithWireObserver`, socket identity, inbound and outbound call sites, refusal exchange | done |
+| 2 | `Socket`, `Generation` and `SessionID` on `LifecycleEvent` and `TxEvent` | done |
+| 3 | `WithSocketObserver` and its call sites | done |
+| 4 | README, `doc.go`, CHANGELOG; release v2.6.0 | in-progress |
 
 ## 9. Owner decisions
 
