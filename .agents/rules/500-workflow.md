@@ -35,6 +35,7 @@ make lint                # pinned golangci-lint run
 make fmt                 # pinned golangci-lint fmt (goimports etc.)
 make vet
 make check               # lint + vet
+make docs-check          # docs/ against 450-doc-lifecycle.md (Status lines, subject READMEs, links)
 
 # Tests
 make test build-tests    # -short suite; compile-only
@@ -63,7 +64,7 @@ make fuzz-tracepack      # FUZZ_TIME=30s default
 make update-pkg-cache-tracepack
 
 # CI entry point
-make ci                  # check + test + gemgen and tracepack lint/test gates
+make ci                  # check + docs-check + test + gemgen and tracepack lint/test gates
 ```
 
 ## tracepack module rules
