@@ -244,3 +244,7 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   A consumer that receives a record below a closed block opens a second segment for the scope instead of sorting per block.
   The service closes a crashed producer's capture only after the successor's `start` is durable, the bus holds nothing of the old capture,
   and the catalog has recorded the closure atomically; `gap_start` follows the recovery formula, `gap_end` is omitted.
+- G5-86 second correction (2026-09-27, after the second v2.9 review): one bus subject per capture, and at most one producer process per `recorder_instance_id` at a time;
+  a producer publishes a capture descriptor with its `start` so segments carry the capture's pack metadata;
+  a consumer may hold several open segments per scope; closure of a crashed producer's capture requires the successor's `start` staged,
+  zero messages on the old capture's subject, and two catalog transactions (reserve, then register the boundary segment); post-closure segments are quarantined.

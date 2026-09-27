@@ -123,13 +123,15 @@ other transport-event and annotation records use `not-applicable`.
   (`capture_origin_utc_ns`, 0) until the first `clock-step` event, then (`ts_utc_ns`, `mono_ns`) of the latest `clock-step` event;
   anchor mono values are capture-relative, like `mono_ns`.
   The anchor moves only at a durable `clock-step` event, never per record, so tolerated drift cannot accumulate.
-  For every new record the writer — or, for a capture carried over a durable bus ([STO §4]), the producer that observes the clock — computes the drift `(wall − anchor_wall) − (mono − anchor_mono)`;
+  For every new record the component that observes both clocks — the writer, or for a capture carried over a durable bus ([STO §4]) the producer — computes the drift `(wall − anchor_wall) − (mono − anchor_mono)`;
   when |drift| exceeds `clock_step_tolerance_ns`, it closes and durably flushes the current block, writes a `clock-step` transport event (`clock_step_ns` = the drift),
   makes it durable, and takes it as the new anchor before appending the record.
   Hence every record satisfies |`ts_utc_ns` − (anchor_wall + `mono_ns` − anchor_mono)| ≤ `clock_step_tolerance_ns` for the anchor in force when it was written,
   and that anchor is durable ([STO §4]).
+  A local writer flushes its block before writing the `clock-step`;
+  a producer over a durable bus publishes the `clock-step` and waits for the bus's acknowledgement before publishing records under the new anchor, and manages no blocks.
   A pack writer that receives records from a producer preserves the `clock-step` records it receives and never synthesizes or moves one;
-  the rule is then checked in seq order by `verify`, not enforced at write time.
+  no component re-checks the rule, which holds by the producer's construction.
 - Records within a file are in **write order**, which is capture order;
   timestamps may be unordered (clock steps, late input).
   Time queries therefore prune by `ts_min` / `ts_max` and scan every overlapping block (§7.4).

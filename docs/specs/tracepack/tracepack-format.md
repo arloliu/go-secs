@@ -88,7 +88,7 @@ These rules let any mainstream language implement the format from this text alon
   A crash after a durable trailer leaves a finalized file even if the writer's close operation never returned.
 - **I-6 Immutable once finalized.** No byte of a finalized file is ever modified; corrections and repairs are new files ([STO §6]).
 - **I-7 Capture id across rolls; epoch bound at the transport boundary.**
-  `capture_id` is a UUID assigned by the recorder or converter per tool when it starts, and written into every pack it rolls.
+  `capture_id` is a UUID assigned per tool when the recorder or converter starts — or, over a durable bus, when the producer that feeds it starts ([STO §4]) — and written into every pack it rolls.
   `epoch` is assigned by a component that observes sockets directly, one per socket the HSMS implementation actually uses for a session,
   and stamped on every record from that socket independently of lifecycle notifications ([SEM §5]);
   accepted-then-refused sockets get their own epoch and a transition record.
@@ -226,7 +226,7 @@ Rules:
 | 0x0026 | `hsms_timers` | tlv | optional | configured timers; nested tag *n* (1–8) = T*n* in milliseconds, `u64` |
 | 0x0027 | `seq_start` | u64 | always | the first record's seq, or for a pack without records the capture's next seq; lets recovery of an empty spool place its boundary ([STO §4]) |
 | 0x0028 | `clock_step_tolerance_ns` | u64 | `time_source = capture-clock` | wall-clock drift the writer tolerates against its durable anchor before marking a step ([SEM §4]) |
-| 0x002C | `flush_interval_ns` | u64 | a recorder with a durable spool | the recorder's durability contract interval ([STO §4]) |
+| 0x002C | `flush_interval_ns` | u64 | a recorder with a durable spool, or a consumer of a durable bus | the recorder's durability contract interval; for a bus consumer its maximum normal segment-flush interval ([STO §4]) |
 | 0x002D | `scope_generation` | u64 | every pack except `extract` | 0 for segments and patches, ≥ 1 for generations produced by merges ([STO §2]) |
 | 0x002E | `publisher_epoch` | u64 | `scope_generation` ≥ 1 | fence epoch of the publisher that wrote the generation ([STO §2]) |
 | 0x002F | `patch_base` | uuid | a patch, when its scope has a generation | `replacement_set_id` of the generation the patch was registered against ([STO §4]) |
