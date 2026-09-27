@@ -123,11 +123,13 @@ other transport-event and annotation records use `not-applicable`.
   (`capture_origin_utc_ns`, 0) until the first `clock-step` event, then (`ts_utc_ns`, `mono_ns`) of the latest `clock-step` event;
   anchor mono values are capture-relative, like `mono_ns`.
   The anchor moves only at a durable `clock-step` event, never per record, so tolerated drift cannot accumulate.
-  For every new record the writer computes the drift `(wall − anchor_wall) − (mono − anchor_mono)`;
+  For every new record the writer — or, for a capture carried over a durable bus ([STO §4]), the producer that observes the clock — computes the drift `(wall − anchor_wall) − (mono − anchor_mono)`;
   when |drift| exceeds `clock_step_tolerance_ns`, it closes and durably flushes the current block, writes a `clock-step` transport event (`clock_step_ns` = the drift),
   makes it durable, and takes it as the new anchor before appending the record.
   Hence every record satisfies |`ts_utc_ns` − (anchor_wall + `mono_ns` − anchor_mono)| ≤ `clock_step_tolerance_ns` for the anchor in force when it was written,
   and that anchor is durable ([STO §4]).
+  A pack writer that receives records from a producer preserves the `clock-step` records it receives and never synthesizes or moves one;
+  the rule is then checked in seq order by `verify`, not enforced at write time.
 - Records within a file are in **write order**, which is capture order;
   timestamps may be unordered (clock steps, late input).
   Time queries therefore prune by `ts_min` / `ts_max` and scan every overlapping block (§7.4).
@@ -145,7 +147,7 @@ The table says what a writer may record and from what kind of source.
 | timer-expiry T5 / T8 | only when a `raw-stream` observer can attribute them | — | never synthesised |
 | linktest / select / deselect / separate / reject | the control frames themselves (kind=control), plus the resulting state-transition | — | control frames are **not** duplicated as events |
 | socket-accept / socket-connect / socket-close | **socket observation only**. A state-change cause never establishes a socket event: "local close" means teardown was initiated, and a transport-error cause may cover several socket outcomes | `socket_role` | one per observed socket event; a writer without socket observation writes none, or, if it derives one, sets `inferred` and uses the notification timestamp. When both sources exist, the observed record is the socket event and the notification stays a transition; nothing is emitted twice |
-| clock-step | the writer's own comparison of wall and monotonic clocks (§4) | `clock_step_ns` | one per detected step, durable before the next record |
+| clock-step | the comparison of wall and monotonic clocks by the component that observes them, the writer or the producer that feeds it (§4) | `clock_step_ns` | one per detected step, durable before the next record |
 | capture-boundary | writer start / stop / gap; recovery after a crash (`stop-unclean`) | `boundary_kind`; seq range; `gap_start` / `gap_end` for gaps (including packet loss in a network capture and recorder downtime between linked captures) | one per boundary |
 
 Causes the source does not name are stored as `unknown` with the source's own name in `cause_raw`,
