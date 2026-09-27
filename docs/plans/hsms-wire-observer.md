@@ -199,18 +199,22 @@ Three interface paths, all optional and additive:
   Transport `Stop`, a sealed dial, a refused TCP-up, and the refusal cleanup and `haltRefusal` paths call the same gate,
   so every socket closes through it and `SocketClosed` is emitted once.
 - *Failure first.* Every failure that initiates a socket's closure reaches the gate with its error before teardown can reach it with nil,
-  through two chokepoints rather than per-site calls:
+  through three routes rather than per-site calls:
   every involuntary disconnect the HSMS-SS transport reports goes through its `tcpDown` helper with an error and a cause
-  (read errors, a failed Select on the active side, a linktest failure, a T7 expiry), and that helper calls the gate with the error before reporting the down;
-  the core's write-error path records the write error on the epoch before it initiates teardown, and the epoch's close passes it to the gate.
+  (read errors, a failed Select on the active side, a linktest failure), and that helper calls the gate with the error before reporting the down,
+  except for a peer Separate, where the helper passes nil to the gate while keeping the sentinel it reports to the core, because that close is peer-requested;
+  the core's write-error path records the write error on the epoch before it initiates teardown, and the epoch's close passes it to the gate;
+  and a T7 expiry, which does not go through `tcpDown` and which the FSM may discard when a Select wins the race,
+  closes nothing at report time: the teardown that the winning T7 transition triggers records the T7 error on the epoch, and the epoch's close passes it to the gate.
   The refusal exchange closes through one deferred gate call that takes the error retained by whichever branch returned:
-  the absolute deadline, a short read, a malformed length or header, or a failed response write.
+  the absolute deadline, a short read, a malformed length or header, or a failed response write; a completed exchange retains nil.
   A local close with no recorded failure passes nil.
   A race between a read error and a local close is decided by the first caller; the outcome is one close event with that caller's error.
 
 The raw socket's buffered `WriteTo` fast path is untouched, because the gate wraps closing, not writing.
-`SocketRefused` is emitted when the extra-connection policy rejects the socket, whether the exchange completed, the peer's data was malformed or the response write failed;
-the `SocketClosed` that follows carries the protocol or I/O failure in the latter two cases and nil otherwise.
+`SocketRefused` is emitted when the extra-connection policy rejects the socket, whether or not the exchange completed;
+the `SocketClosed` that follows carries the retained failure (deadline, short read, malformed data or failed write) and nil only for a completed exchange,
+which is the `Err` contract of §3.3 applied to that socket.
 The knowledge note on the passive refusal exchange (`haltRefusal` closes the socket directly) is updated with the mechanic.
 Call sites: `hsmsss/transport_active.go` after the dial, `hsmsss/transport_passive.go` after accept and in `refuseExtraConn`, and the gate.
 
@@ -241,10 +245,12 @@ For the eqp-hub device (or any recorder), with `epoch` always the per-capture va
   a refused socket yields, in its own epoch, `socket-accept`, whichever of its two frames were actually observed (none, one or both),
   a `state-transition` record from `not-connected` to `not-connected` with cause `select-rejected` and `cause_raw` `go-secs:SocketRefused`,
   and `socket-close`.
-  The transition record's source is the `SocketRefused` notification itself:
-  go-secs reports it as the HSMS implementation's notification that the refused socket's connection attempt ended,
-  which is what the format's transport-event rules require as the source of a transition record for an accepted-then-refused socket;
-  the Go mapping's cause table (`tracepack-go.md` §5) gains that row when this proposal is implemented;
+  The transition record's source is the `SocketRefused` notification.
+  The tracepack semantics today admit only a state-change notification as the source of a `state-transition` record,
+  while the format requires a transition record for an accepted-then-refused socket without naming its source;
+  this proposal therefore commits to the wording change in `tracepack-semantics.md` §5 that also permits an implementation's socket-refusal notification,
+  carrying the socket's identity, to source the `not-connected` to `not-connected` record,
+  and the Go mapping's cause table (`tracepack-go.md` §5) gains the `SocketRefused` row when this proposal is implemented;
 - the device's own start and stop become the capture boundaries, with a recorder instance id it mints per process.
 
 Buffering, shipping and back-pressure are the recorder's, never go-secs's.
