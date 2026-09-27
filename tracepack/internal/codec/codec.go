@@ -91,7 +91,8 @@ func Encode(codecID uint8, dst, src []byte) ([]byte, error) {
 //     ErrLengthMismatch, ErrIncompleteStream or ErrTrailingBytes for a decoded length that disagrees with uncompressedLen;
 //     for Zstd, also ErrIncompleteStream when src ends before its frame does, even inside the frame header,
 //     ErrTrailingBytes for any byte after the frame, ErrNotZstdFrame for a skippable or otherwise malformed frame,
-//     ErrDictionary for a frame naming a dictionary, and ErrWindowTooLarge for a window above 64 MiB.
+//     ErrDictionary for a frame naming a dictionary, and ErrWindowTooLarge for a window above 64 MiB
+//     or above both 8 MiB and uncompressedLen.
 func Decode(codecID uint8, dst, src []byte, uncompressedLen int) ([]byte, error) {
 	switch codecID {
 	case None:

@@ -15,9 +15,14 @@ import (
 // A window is history the decoder keeps in memory, and a frame declares its own,
 // so a hostile frame could otherwise make the decoder allocate far beyond the decoded length the caller expects.
 // 64 MiB covers the windows of zstd compression levels up to 21, well above the 4 MiB blocks the format defaults to.
-// It is deliberately not tied to the uncompressed length:
-// a conforming streaming encoder may declare its full window, for example 8 MiB, on a small body.
 const maxWindow = 64 << 20
+
+// windowFloor is the window every frame may declare regardless of its decoded length: 8 MiB.
+// A conforming streaming encoder that does not know its content size declares its full window on a small body,
+// and 8 MiB covers the windows of zstd compression levels up to 19.
+// Above the floor, a frame may declare a window no larger than the decoded length the caller expects,
+// so the decoder's history stays bounded by that length rather than by the frame's own claim.
+const windowFloor = 8 << 20
 
 // sharedEncoder is safe for concurrent use by multiple goroutines (EncodeAll's own contract in klauspost/compress/zstd).
 // Encode shares this one instance instead of allocating an encoder per call.
@@ -48,7 +53,8 @@ func encodeZstd(dst, src []byte) []byte {
 // src must hold exactly one RFC 8878 frame with no dictionary, decoding to exactly uncompressedLen bytes.
 //
 // Before any decoding, walkZstdFrame measures the frame from its headers:
-// it rejects a skippable or foreign frame, a dictionary, and a window above maxWindow,
+// it rejects a skippable or foreign frame, a dictionary, and a window above maxWindow;
+// a window above windowFloor is also rejected when it exceeds uncompressedLen,
 // and any byte after the frame is reported through ErrTrailingBytes,
 // so a second frame is rejected even when it would decode to no bytes at all.
 //
@@ -71,9 +77,15 @@ func decodeZstd(dst, src []byte, uncompressedLen int) ([]byte, error) {
 		return dst[:0], fmt.Errorf("codec: zstd: empty source: %w", ErrIncompleteStream)
 	}
 
-	frameLen, _, err := walkZstdFrame(src)
+	frameLen, window, err := walkZstdFrame(src)
 	if err != nil {
 		return dst[:0], fmt.Errorf("codec: zstd: %w", err)
+	}
+	if budget := max(uint64(uncompressedLen), windowFloor); window > budget {
+		return dst[:0], fmt.Errorf(
+			"codec: zstd: frame window %d exceeds the %d-byte budget for a %d-byte body: %w",
+			window, budget, uncompressedLen, ErrWindowTooLarge,
+		)
 	}
 	if frameLen != len(src) {
 		return dst[:0], fmt.Errorf(
