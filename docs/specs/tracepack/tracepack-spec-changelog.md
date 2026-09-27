@@ -401,6 +401,7 @@ Summary:
   interleaved segments of one scope are normalized by the merge;
   a producer crash is closed by a `stop-unclean` boundary the service writes from the successor capture's evidence.
 - [FMT I-12] seq may be assigned by the producer that hands the writer its records; a writer never renumbers a received seq.
+- [STO §3] tool leases in the catalog for multi-instance publishing, a new publisher epoch per acquisition (G5-87); [OVW §6] ingest partitioned by tool deferred as a second-phase optimization.
 - `tracepack-go.md` §2 and `tracepack-impl-plan.md` phase 2 updated: the writer accepts producer-assigned seqs.
 
 ## Changes v2.7 → v2.8: redaction by masking extracts (proposal P6, owner decisions G5-66..G5-76, 2026-09-27)
