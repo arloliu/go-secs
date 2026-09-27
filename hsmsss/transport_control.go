@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"time"
 
 	"github.com/arloliu/go-secs/v2/hsms"
 	"github.com/arloliu/go-secs/v2/internal/gencap"
@@ -20,6 +21,15 @@ var errPeerSeparate = errors.New("hsmsss: peer sent Separate.req")
 // A runtime that lacks the capability still gets the plain TCPDown, and its subscribers see hsms.CauseUnknown.
 type causeRuntime interface {
 	TCPDownWithCause(cause error, transitionCause hsms.TransitionCause)
+}
+
+// wireRuntime is the optional capability a runtime offers to receive the frames this transport reads,
+// for the observer hsms.WithWireObserver installs.
+// It is reached by type assertion for the same reason causeRuntime is,
+// and a runtime without it simply receives no wire events.
+// The core's ObserveWire returns at once when no observer is installed.
+type wireRuntime interface {
+	ObserveWire(ev hsms.WireEvent)
 }
 
 // genRuntime is the optional capability a runtime offers to accept the identity of the generation a report belongs to,
@@ -61,6 +71,16 @@ func (t *transport) routeReply(gen uint64, msg hsms.Message) bool {
 	}
 
 	return t.rt.RouteReply(msg)
+}
+
+// observeInbound reports one complete frame read by the receive goroutine of gen to the runtime's wire observer.
+// frame is the whole owned buffer, length prefix included;
+// the call returns before the frame is dispatched,
+// so a frame the receive path goes on to reject is still reported as read.
+func (t *transport) observeInbound(gen uint64, frame []byte) {
+	if wr, ok := t.rt.(wireRuntime); ok {
+		wr.ObserveWire(hsms.WireEvent{Direction: hsms.WireInbound, Generation: gen, At: time.Now(), Frame: frame})
+	}
 }
 
 // currentGeneration reads the runtime's live generation identity, or 0 when the runtime does not offer one.

@@ -177,7 +177,8 @@ func FuzzConnectionLifecycle(f *testing.F) {
 // Invariants:
 //  1. readFrame never panics on any input.
 //  2. err == nil ⇒ frame != nil.
-//  3. err == nil ⇒ len(frame) >= 10 (the mandatory header).
+//  3. err == nil ⇒ len(frame) >= 14 (the length prefix and the mandatory header),
+//     and the prefix announces exactly the bytes that follow it.
 //  4. On success, decoding the frame via hsms.DecodeHSMSMessage never panics, and
 //     decodeErr == nil ⇒ msg != nil (the v1 err==nil ⇒ msg≠nil contract). For a data message the
 //     lazy SECS-II body decode (Item) is also exercised to prove it cannot panic on fuzzed bytes.
@@ -224,17 +225,14 @@ func FuzzMessageReader(f *testing.F) {
 			return
 		}
 
-		// Invariant 2 + 3: success ⇒ non-nil frame at least 10 bytes (the header).
+		// Invariant 2 + 3: success ⇒ non-nil frame holding the prefix and at least the 10-byte header.
 		require.NotNil(t, frame, "readFrame returned nil frame with nil error")
-		require.GreaterOrEqual(t, len(frame), 10, "successful frame must include the 10-byte header")
+		require.GreaterOrEqual(t, len(frame), 14, "successful frame must include the length prefix and the 10-byte header")
+		require.Equal(t, uint32(len(frame)-4), binary.BigEndian.Uint32(frame[:4]), "the prefix must announce the bytes after it")
 
-		// Invariant 4: chain the decode. readFrame returns [header||body]; DecodeHSMSMessage
-		// expects a 4-byte length prefix, so prepend it (identical to decodeControlFrame).
-		full := make([]byte, 4+len(frame))
-		binary.BigEndian.PutUint32(full[:4], uint32(len(frame)))
-		copy(full[4:], frame)
-
-		msg, decodeErr := hsms.DecodeHSMSMessage(full)
+		// Invariant 4: chain the decode. readFrame returns [prefix||header||body], the layout
+		// DecodeHSMSMessage expects.
+		msg, decodeErr := hsms.DecodeHSMSMessage(frame)
 		if decodeErr == nil {
 			require.NotNil(t, msg, "decode success must yield a non-nil message")
 			// Exercise the lazy SECS-II body decode for a data message: it must never panic

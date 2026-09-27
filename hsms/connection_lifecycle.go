@@ -708,9 +708,26 @@ func (c *connection) writeFarewellSeparate(e *epoch) {
 		return
 	}
 
+	// Captured before the write consumes bufs, and reported only if the write succeeds, as in writeFrame.
+	var wireFrame []byte
+	wireObs := c.outboundWireObserver()
+	if wireObs != nil {
+		wireFrame = e.captureWireFrame(bufs)
+	}
+
 	_ = c.tr.SetWriteDeadline(conn, time.Now().Add(farewellWriteTimeout))
-	_ = c.tr.Write(e.ctx, conn, bufs)
+	err = c.tr.Write(e.ctx, conn, bufs)
+
+	var writtenAt time.Time
+	if err == nil && wireObs != nil {
+		writtenAt = time.Now()
+	}
+
 	_ = c.tr.SetWriteDeadline(conn, time.Time{}) // clear the deadline for any later (teardown) use
+
+	if !writtenAt.IsZero() {
+		wireObs(WireEvent{Direction: WireOutbound, Generation: e.id, At: writtenAt, Frame: wireFrame})
+	}
 }
 
 // startConnectLoop launches the reconnect loop after an involuntary drop (spec §5.2/§7.C). It is

@@ -120,6 +120,10 @@ type epoch struct {
 	replies replyRegistry     // per-generation sender-owned reply channels (dissolves F5/F6)
 	writeMu sync.Mutex        // serializes the writev over conn (§6.2)
 
+	// wireScratch is the reusable buffer an outbound frame is copied into for the wire observer, guarded by writeMu.
+	// It stays nil unless an observer is installed on a transport that reports its wire (see connection.outboundWireObserver).
+	wireScratch []byte
+
 	// commsFailure records the teardown CAUSE for this generation (E37 §9.1.1, spec §5.2/§9.1.1).
 	// TCPDown sets it (an involuntary drop / read-write failure / peer Separate), so the
 	// NotConnected reaction sends NO courtesy farewell Separate. It stays false for a graceful

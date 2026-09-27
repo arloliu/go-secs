@@ -57,6 +57,7 @@ type ConnectionConfig struct {
 	traceTraffic               bool
 	asyncSendErrHandler        func(msg Message, err error)
 	txObserver                 func(TxEvent)
+	wireObserver               func(WireEvent)
 	reconnectBackoffInitial    time.Duration
 	reconnectBackoffMultiplier float64
 }
@@ -660,6 +661,54 @@ func WithAsyncSendErrorHandler(fn func(msg Message, err error)) ConnOption {
 func WithTransactionObserver(fn func(TxEvent)) ConnOption {
 	return func(c *ConnectionConfig) error {
 		c.txObserver = fn
+
+		return nil
+	}
+}
+
+// WithWireObserver installs a hook called once for every complete HSMS frame that crosses the connection's socket, in either direction.
+//
+// Every frame is reported, data and control alike:
+// the frames the connection sends on its own (Select, Linktest, Reject, Separate, auto S9Fx),
+// and inbound frames the connection goes on to reject or drop after reading them
+// (an unsupported PType or SType, a control frame with a body, a data message while not Selected, a frame that fails to decode).
+// An inbound frame is reported as soon as it has been read, before it is interpreted.
+// An outbound frame is reported after its write returned successfully;
+// a frame whose write failed, and a frame refused before the write, are not reported.
+// A frame the connection could not read completely,
+// because the socket closed partway through it,
+// is never a frame and is not reported.
+//
+// Frames are reported only by a transport whose socket carries HSMS frames, which is the HSMS-SS transport.
+// A SECS-I connection built on the same core reports nothing,
+// because the bytes on its wire are SECS-I blocks, not HSMS frames.
+//
+// The contract fn must keep:
+//   - ev.Frame is valid only during the call: it must not be retained and must not be modified.
+//     The inbound buffer is the one the received data message later adopts as its body without a copy,
+//     so writing into it would corrupt that message.
+//     Copy the bytes to keep them.
+//   - fn runs synchronously on the path that moved the frame:
+//     the receive goroutine for an inbound frame, and the writing goroutine, under the connection's write lock, for an outbound one.
+//     It must be cheap — copy the frame into your own queue and return.
+//     A slow fn delays the link, including the reads that the T8 inter-character timer bounds.
+//   - Calls for the two directions can run at the same time, so fn must be safe for concurrent use.
+//   - fn must not send on the same connection from inside an outbound call:
+//     the write lock is held, so such a send waits for itself.
+//   - A panic in fn is not recovered by the hook:
+//     it unwinds whichever goroutine raised the frame —
+//     a synchronous send's caller, the receive goroutine, or one of the connection's internal send goroutines.
+//     Keep fn panic-free.
+//
+// Within one socket, inbound frames are reported in wire order, and so are outbound frames.
+// No order is promised between the two directions beyond the events' timestamps.
+//
+// Passing nil (the default) disables the hook.
+// With an observer installed, an outbound frame is copied into a scratch buffer reused for the life of the link,
+// so observation adds no allocation per frame once that buffer has grown to the largest frame written.
+func WithWireObserver(fn func(WireEvent)) ConnOption {
+	return func(c *ConnectionConfig) error {
+		c.wireObserver = fn
 
 		return nil
 	}
