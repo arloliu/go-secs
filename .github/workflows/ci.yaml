@@ -66,12 +66,20 @@ jobs:
     steps:
     - uses: actions/checkout@v7
 
+    # The workspace leg lints, so it takes the pinned Go and golangci-lint
+    # from mise.toml; the consumer leg builds with the Go version the module
+    # declares, as a consumer would.
     - name: Setup Go and golangci-lint from mise.toml
+      if: matrix.leg == 'workspace'
       uses: jdx/mise-action@v4
-    - name: Display tool versions
-      run: |
-        go version
-        golangci-lint version
+    - name: Setup Go from tracepack/go.mod
+      if: matrix.leg == 'consumer'
+      uses: actions/setup-go@v7
+      with:
+        go-version-file: tracepack/go.mod
+        cache-dependency-path: tracepack/go.sum
+    - name: Display Go version
+      run: go version
 
     - name: Workspace leg (lint + -race tests under go.work)
       if: matrix.leg == 'workspace'
