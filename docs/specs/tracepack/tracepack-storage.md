@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-09-27) — v2.8, tracepack format 1.0.
+Status: current (2026-09-27) — v2.9, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for publishers, mergers, recorders and log converters.
 
@@ -113,6 +113,29 @@ provided each commit object is deleted after the packs it commits.
   A bound that recovery cannot establish — no readable liveness anchor, or a recorder without the contract — is omitted, meaning unbounded on that side.
   Recovery never uses its own wall clock, which may have changed while the recorder was down.
   The boundary is a **completeness barrier** (§5).
+- **Recorder over a durable bus** (G5-86): a deployment in which producers publish records to a message bus that persists each record before acknowledging the publish
+  (the pilot uses NATS JetStream), and the recorder is a set of stateless consumers of that bus.
+  The producer assigns `capture_id` and `recorder_instance_id` per process start and the capture-scoped `seq` ([FMT I-12]),
+  stamps `epoch`, `ts_utc_ns` and `mono_ns` at the observation point, and detects its own clock steps ([SEM §4]), publishing the `clock-step` event as a record;
+  a consumer stores what it receives and never reassigns any of them.
+  The bus replaces the spool: the durability contract's interval F is the consumer's flush interval,
+  (1) holds because a record is durable in the bus before the producer sees the acknowledgement,
+  and (2) does not apply, because no consumer holds unflushed records that a crash could lose.
+  A consumer acknowledges a record to the bus only after the segment holding it is durable in `staging/`;
+  a consumer that stops before that acknowledges nothing, and the bus redelivers its records to another consumer.
+  A record may therefore be written twice, into segments of different consumers; [FMT I-12] deduplicates it, byte-identical.
+  Any consumer may take any record, so the segments of one scope interleave with gaps that other segments fill (allowed by [FMT I-12]),
+  and a redelivered record may arrive after later seqs: a consumer orders a block's records by seq before closing it,
+  so blocks stay strictly increasing ([FMT I-2]).
+  The merge below normalizes the interleaved segments of a scope, decoding the overlapping blocks as it does for any overlap.
+  Spool recovery does not apply.
+  A producer that stops without a `stop` boundary is detected by its successor:
+  the next capture of the same `recorder_instance_id` names it in `previous_capture_id` ([FMT I-7]).
+  Once no record of the earlier capture can still be in the bus (the bus's redelivery window has passed since the successor's `start`),
+  a consumer writes a segment of the earlier capture holding one `stop-unclean` boundary.
+  Its seq is the highest seq the service has stored for that capture + 1;
+  its `gap_start` is the `ts_utc_ns` of that highest record, and its `gap_end` is the successor's `start` boundary timestamp.
+  Records the producer appended but never published are lost; their count is unknown, and the boundary is a completeness barrier (§5).
 - **Merge** of scope S: inputs are the active view of S.
   The merger copies every block of S in ascending `first_seq` order.
   A block whose seq range overlaps no already copied block is copied verbatim: its on-disk bytes are not re-encoded.

@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-09-27) — v2.8, tracepack format 1.0.
+Status: current (2026-09-27) — v2.9, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -111,7 +111,9 @@ These rules let any mainstream language implement the format from this text alon
   a consumer MAY recompute them from the payload, except over the masked ranges of an extract, where the stored values describe the source bytes ([SEM §8]),
   and a correction pack MAY re-emit records with a newer classifier's values.
 - **I-12 Record identity is (`capture_id`, `seq`).** `seq` is capture-scoped:
-  the writer assigns it in capture order, starting at 0 and increasing by one per record, across every pack of the capture.
+  it is assigned in capture order, starting at 0 and increasing by one per record, across every pack of the capture,
+  by the writer or by the producer that hands the writer its records ([STO §4] Recorder over a durable bus);
+  a writer never renumbers a seq it received.
   Merging packs never renumbers records, so a reference to (`capture_id`, `seq`) stays valid whichever file holds the record;
   `pack_id` identifies a file, never a record.
   Within a pack, records appear in strictly increasing seq order; gaps are allowed where other packs hold the missing records.
