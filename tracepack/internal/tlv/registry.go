@@ -30,7 +30,7 @@ var (
 		0x0012: {Name: "lifecycle_coverage", Type: TypeU8, Required: true},
 		0x0013: {Name: "quality_evaluated", Type: TypeBool, Required: true},
 		0x0015: {Name: "supersedes", Type: TypeUUID, Repeatable: true},
-		0x0016: {Name: "coverage", Type: TypeTLV, Repeatable: true},
+		0x0016: {Name: "coverage", Type: TypeTLV, Repeatable: true, Nested: &Coverage},
 		0x0017: {Name: "notes", Type: TypeUTF8},
 		0x0018: {Name: "pack_role", Type: TypeU8, Required: true},
 		0x0019: {Name: "compaction_level", Type: TypeU8, Required: true},
@@ -46,7 +46,7 @@ var (
 		0x0023: {Name: "equipment_endpoint", Type: TypeUTF8},
 		0x0024: {Name: "equipment_connect_mode", Type: TypeU8},
 		0x0025: {Name: "device_id", Type: TypeU64},
-		0x0026: {Name: "hsms_timers", Type: TypeTLV},
+		0x0026: {Name: "hsms_timers", Type: TypeTLV, Nested: &HSMSTimers},
 		0x0027: {Name: "seq_start", Type: TypeU64, Required: true},
 		0x0028: {Name: "clock_step_tolerance_ns", Type: TypeU64},
 		0x0029: {Name: "replacement_set_id", Type: TypeUUID},
@@ -57,8 +57,8 @@ var (
 		0x002E: {Name: "publisher_epoch", Type: TypeU64},
 		0x002F: {Name: "patch_base", Type: TypeUUID},
 		0x0030: {Name: "blocks_validated", Type: TypeBool},
-		0x0031: {Name: "redaction_policy", Type: TypeTLV},
-		0x0032: {Name: "redaction", Type: TypeTLV, Repeatable: true},
+		0x0031: {Name: "redaction_policy", Type: TypeTLV, Nested: &RedactionPolicy},
+		0x0032: {Name: "redaction", Type: TypeTLV, Repeatable: true, Nested: &Redaction},
 	}
 
 	// Coverage is the registry of the entries nested in a pack metadata `coverage` entry.
@@ -153,8 +153,8 @@ var (
 		0x0004: {Name: "max_payload_len", Type: TypeU64, Required: true},
 		0x0005: {Name: "quality_union", Type: TypeU64, Required: true},
 		0x0006: {Name: "content_bytes", Type: TypeU64, Required: true},
-		0x0007: {Name: "epoch", Type: TypeTLV, Repeatable: true, Required: true},
-		0x0008: {Name: "boundary", Type: TypeTLV, Repeatable: true},
+		0x0007: {Name: "epoch", Type: TypeTLV, Repeatable: true, Required: true, Nested: &Epoch},
+		0x0008: {Name: "boundary", Type: TypeTLV, Repeatable: true, Nested: &Boundary},
 		0x0009: {Name: "seq_range", Type: TypeBytes, Repeatable: true},
 	}
 
@@ -171,29 +171,32 @@ var (
 		0x0007: {Name: "content_bytes", Type: TypeU64},
 		0x0008: {Name: "quality_union", Type: TypeU64},
 		0x0009: {Name: "seq_range", Type: TypeBytes, Repeatable: true},
-		0x000A: {Name: "epoch", Type: TypeTLV, Repeatable: true},
-		0x000B: {Name: "boundary", Type: TypeTLV, Repeatable: true},
+		0x000A: {Name: "epoch", Type: TypeTLV, Repeatable: true, Nested: &Epoch},
+		0x000B: {Name: "boundary", Type: TypeTLV, Repeatable: true, Nested: &Boundary},
 	}
 
 	// Epoch is the registry of the entries nested in an `epoch` entry of F-3 or F-5.
-	// The tracepack format specification §10 defines it.
+	// The tracepack format specification §10 defines it,
+	// marking only close_seq optional.
 	Epoch = Registry{
-		0x0001: {Name: "epoch", Type: TypeU64},
-		0x0002: {Name: "record_count", Type: TypeU64},
-		0x0003: {Name: "seq_first", Type: TypeU64},
-		0x0004: {Name: "seq_last", Type: TypeU64},
-		0x0005: {Name: "ts_min", Type: TypeI64},
-		0x0006: {Name: "ts_max", Type: TypeI64},
+		0x0001: {Name: "epoch", Type: TypeU64, Required: true},
+		0x0002: {Name: "record_count", Type: TypeU64, Required: true},
+		0x0003: {Name: "seq_first", Type: TypeU64, Required: true},
+		0x0004: {Name: "seq_last", Type: TypeU64, Required: true},
+		0x0005: {Name: "ts_min", Type: TypeI64, Required: true},
+		0x0006: {Name: "ts_max", Type: TypeI64, Required: true},
 		0x0007: {Name: "close_seq", Type: TypeU64},
 	}
 
 	// Boundary is the registry of the entries nested in a `boundary` entry of F-3 or F-5.
-	// The tracepack format specification §10 defines it.
+	// The tracepack format specification §10 defines it:
+	// gap_start and gap_end are copied from the boundary record and may be absent,
+	// and the other tags are required.
 	Boundary = Registry{
-		0x0001: {Name: "seq", Type: TypeU64},
-		0x0002: {Name: "boundary_kind", Type: TypeU8},
-		0x0003: {Name: "ts", Type: TypeI64},
-		0x0004: {Name: "epoch", Type: TypeU64},
+		0x0001: {Name: "seq", Type: TypeU64, Required: true},
+		0x0002: {Name: "boundary_kind", Type: TypeU8, Required: true},
+		0x0003: {Name: "ts", Type: TypeI64, Required: true},
+		0x0004: {Name: "epoch", Type: TypeU64, Required: true},
 		0x0005: {Name: "gap_start", Type: TypeI64},
 		0x0006: {Name: "gap_end", Type: TypeI64},
 	}
@@ -209,6 +212,10 @@ type Field struct {
 	Repeatable bool
 	// Required reports whether the tag must be present in every entry list the registry applies to.
 	Required bool
+	// Nested is the registry of the entries nested in the value of a tlv tag,
+	// which Validate decodes and validates against it;
+	// nil leaves the value unexamined.
+	Nested *Registry
 }
 
 // Registry maps the tags of one entry list to their fields.

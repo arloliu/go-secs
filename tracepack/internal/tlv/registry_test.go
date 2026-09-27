@@ -26,6 +26,7 @@ func assertRegistry(t *testing.T, reg Registry, rows []specRow) {
 		if !assert.True(t, ok, "tag 0x%04X (%s) missing", r.tag, r.name) {
 			continue
 		}
+		f.Nested = nil // checked by TestNestedRegistries
 		assert.Equal(t, Field{Name: r.name, Type: r.vt, Repeatable: r.repeatable, Required: r.required}, f,
 			"tag 0x%04X", r.tag)
 	}
@@ -233,32 +234,82 @@ func TestF5Registry(t *testing.T) {
 	})
 }
 
-// Transcribed from "Nested tags of epoch (F-3 and F-5)" in §10;
-// the text marks only close_seq optional and none required, so none is required here.
+// Transcribed from "Nested tags of epoch (F-3 and F-5)" in §10:
+// the text marks only close_seq optional, so the six tags before it are required.
 func TestEpochRegistry(t *testing.T) {
 	t.Parallel()
 
 	assertRegistry(t, Epoch, []specRow{
-		{0x0001, "epoch", TypeU64, false, false},
-		{0x0002, "record_count", TypeU64, false, false},
-		{0x0003, "seq_first", TypeU64, false, false},
-		{0x0004, "seq_last", TypeU64, false, false},
-		{0x0005, "ts_min", TypeI64, false, false},
-		{0x0006, "ts_max", TypeI64, false, false},
+		{0x0001, "epoch", TypeU64, false, true},
+		{0x0002, "record_count", TypeU64, false, true},
+		{0x0003, "seq_first", TypeU64, false, true},
+		{0x0004, "seq_last", TypeU64, false, true},
+		{0x0005, "ts_min", TypeI64, false, true},
+		{0x0006, "ts_max", TypeI64, false, true},
 		{0x0007, "close_seq", TypeU64, false, false},
 	})
 }
 
-// Transcribed from "Nested tags of boundary" in §10; none is marked required.
+// Transcribed from "Nested tags of boundary" in §10:
+// seq, boundary_kind, ts and epoch are plain and required;
+// gap_start and gap_end may be absent (an absent gap_start means unbounded), so they are optional.
 func TestBoundaryRegistry(t *testing.T) {
 	t.Parallel()
 
 	assertRegistry(t, Boundary, []specRow{
-		{0x0001, "seq", TypeU64, false, false},
-		{0x0002, "boundary_kind", TypeU8, false, false},
-		{0x0003, "ts", TypeI64, false, false},
-		{0x0004, "epoch", TypeU64, false, false},
+		{0x0001, "seq", TypeU64, false, true},
+		{0x0002, "boundary_kind", TypeU8, false, true},
+		{0x0003, "ts", TypeI64, false, true},
+		{0x0004, "epoch", TypeU64, false, true},
 		{0x0005, "gap_start", TypeI64, false, false},
 		{0x0006, "gap_end", TypeI64, false, false},
 	})
+}
+
+// Every tlv tag names the registry of its nested entries, from the specification text:
+// §5 "Nested tags of coverage", "of redaction_policy", "of redaction" and the hsms_timers row,
+// and §10 "Nested tags of epoch (F-3 and F-5)" and "of boundary".
+// No tag of another value type names one.
+func TestNestedRegistries(t *testing.T) {
+	t.Parallel()
+
+	wiring := []struct {
+		name   string
+		reg    Registry
+		tag    uint16
+		nested *Registry
+	}{
+		{"pack metadata coverage", PackMetadata, 0x0016, &Coverage},
+		{"pack metadata hsms_timers", PackMetadata, 0x0026, &HSMSTimers},
+		{"pack metadata redaction_policy", PackMetadata, 0x0031, &RedactionPolicy},
+		{"pack metadata redaction", PackMetadata, 0x0032, &Redaction},
+		{"F-3 epoch", F3, 0x0007, &Epoch},
+		{"F-3 boundary", F3, 0x0008, &Boundary},
+		{"F-5 epoch", F5, 0x000A, &Epoch},
+		{"F-5 boundary", F5, 0x000B, &Boundary},
+	}
+	for _, w := range wiring {
+		assert.Same(t, w.nested, w.reg[w.tag].Nested, w.name)
+	}
+
+	all := []struct {
+		name string
+		reg  Registry
+	}{
+		{"pack metadata", PackMetadata}, {"coverage", Coverage}, {"redaction policy", RedactionPolicy},
+		{"redaction", Redaction}, {"hsms timers", HSMSTimers}, {"transport event", TransportEvent},
+		{"annotation", Annotation}, {"F-3", F3}, {"F-5", F5}, {"epoch", Epoch}, {"boundary", Boundary},
+	}
+	wired := 0
+	for _, r := range all {
+		for tag, f := range r.reg {
+			if f.Type == TypeTLV {
+				assert.NotNil(t, f.Nested, "%s tag 0x%04X is tlv without a nested registry", r.name, tag)
+				wired++
+			} else {
+				assert.Nil(t, f.Nested, "%s tag 0x%04X is %s with a nested registry", r.name, tag, f.Type)
+			}
+		}
+	}
+	assert.Equal(t, len(wiring), wired, "every tlv tag is in the wiring table")
 }
