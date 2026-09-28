@@ -1,6 +1,6 @@
 # HSMS wire observer and generation-aware events
 
-Status: active (2026-09-28) — phases 1–3 merged; phase 5 (event times and the close cause) on branch feat/hsms/observer-timing; the release waits for it.
+Status: active (2026-09-28) — phases 1–3 merged; phases 5 and 6 done on branch feat/hsms/observer-timing; the v2.6.0 release is pending.
 
 ## 1. Purpose
 
@@ -474,8 +474,8 @@ tracepack's writer phase then requires go-secs v2.6.0.
 | 2 | `Socket`, `Generation` and `SessionID` on `LifecycleEvent` and `TxEvent` | done |
 | 3 | `WithSocketObserver` and its call sites | done |
 | 4 | README, `doc.go`, CHANGELOG; release v2.6.0, after phases 5 and 6 | in-progress |
-| 5 | Outbound `At` at write issue, `LifecycleEvent.At`, `SocketEvent.Cause` (§3.5) and their tests (§7); Godoc, `README.md`, `hsms/doc.go`, `hsmsss/doc.go`, CHANGELOG, and the knowledge notes on transition-cause injection sites and the passive refusal exchange | pending |
-| 6 | `tracepack-semantics.md` §4: a frame the vantage sends itself is observed complete when it is handed to the socket, with a spec changelog entry; `tracepack-go.md` brought up to the v2.6.0 API: socket and generation identity, the `SocketRefused` row, the close-cause mapping of §4, the answered open questions, and a new open question on marking a record that reached the recorder after its window | pending |
+| 5 | Outbound `At` at write issue, `LifecycleEvent.At`, `SocketEvent.Cause` (§3.5) and their tests (§7); Godoc, `README.md`, `hsms/doc.go`, `hsmsss/doc.go`, CHANGELOG, and the knowledge notes on transition-cause injection sites and the passive refusal exchange | done |
+| 6 | `tracepack-semantics.md` §4: a frame the vantage sends itself is observed complete when it is handed to the socket, with a spec changelog entry; `tracepack-go.md` brought up to the v2.6.0 API: socket and generation identity, the `SocketRefused` row, the close-cause mapping of §4, the answered open questions, and a new open question on marking a record that reached the recorder after its window | done |
 
 ## 9. Owner decisions
 
