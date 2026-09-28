@@ -38,6 +38,20 @@ const (
 	acceptRetryMax     = time.Second
 )
 
+// refusalCloseCause is the cause a refused socket's close reports next to failure, the failure its exchange retained.
+// A failure, whether a read or write error, the exchange's deadline, or a malformed length or header,
+// is a failed exchange, CauseIOError,
+// as the adopted receive path treats an invalid frame length as a read error;
+// no failure, for a completed exchange or one Stop halted, is this side's decision to close, CauseLocalClose.
+// The policy that refused the socket is reported by SocketRefused, not by the close.
+func refusalCloseCause(failure error) hsms.TransitionCause {
+	if failure != nil {
+		return hsms.CauseIOError
+	}
+
+	return hsms.CauseLocalClose
+}
+
 // startPassive listens on the configured host:port and spawns the accept goroutine, then returns
 // (it never blocks Open on Accept — see the ASYNC-START CONTRACT above). The listener is created
 // synchronously so a listen failure (e.g. port in use) surfaces to the engine's reconnect loop for
@@ -142,7 +156,8 @@ func (t *transport) acceptLoop(ctx context.Context, g *genWG, ln net.Listener) {
 	// its g.accept.Wait() (transport.go) is unbounded and joins THIS goroutine —
 	// refused-and-returned or accepted-and-published — before Stop ever reads t.conn.
 	if !t.adoptSocket(g, rec) {
-		rec.close(nil)
+		// The core gives no reason for refusing the socket.
+		rec.close(nil, hsms.CauseUnknown)
 
 		return
 	}
@@ -279,6 +294,7 @@ func (t *transport) isStopping() bool {
 // The close goes through the socket's record, once, with the failure retained by whichever branch returned:
 // the absolute deadline or another read error, a short read, a malformed length or header, or a failed response write.
 // A completed exchange, and a helper that finds Stop already ran, retain nil.
+// The close's cause follows the failure (refusalCloseCause): CauseIOError with one, CauseLocalClose without.
 // The record's gate reports the socket closed exactly once, whichever side closes it first.
 // The two frames of the exchange are reported to the wire observer with the socket's identity and generation 0:
 // the peer's first frame, whole, as soon as its header is read and before it is interpreted,
@@ -302,10 +318,10 @@ func (t *transport) isStopping() bool {
 // set once, before the first read, and never cleared or extended.
 func (t *transport) refuseExtraConn(extra net.Conn) {
 	rec := t.mintSocket(extra, hsms.SocketAccepted)
-	t.observeSocket(rec.event(hsms.SocketRefused, nil, time.Now()))
+	t.observeSocket(rec.event(hsms.SocketRefused, nil, hsms.CauseUnknown, time.Now()))
 
 	var closeErr error
-	defer func() { rec.close(closeErr) }()
+	defer func() { rec.close(closeErr, refusalCloseCause(closeErr)) }()
 
 	if err := extra.SetDeadline(t.clock()().Add(t.rt.Timers().T7)); err != nil {
 		// Without an armed absolute deadline the promised bound does not exist: close without
@@ -444,7 +460,7 @@ func (t *transport) refusalExchange(extra net.Conn, capture *refusalCapture) err
 // of parking for the full T7 deadline, and it closes whatever socket IS already published.
 // Whichever side "wins" the race, the extra socket gets closed and Stop never waits out the
 // refusal deadline.
-// The published socket is closed through its record's gate with no failure, because Stop's close is a local one;
+// The published socket is closed through its record's gate with no failure and CauseLocalClose, because Stop's close is a local one;
 // the gate closes the socket at once, which fails the exchange's read or write,
 // and leaves the close report to the exchange's report scope when one is still open,
 // so the goroutine that reports the exchange's frames delivers it after them,
@@ -460,6 +476,6 @@ func (t *transport) haltRefusal() {
 	t.refuseMu.Unlock()
 
 	if rec != nil {
-		rec.close(nil)
+		rec.close(nil, hsms.CauseLocalClose)
 	}
 }

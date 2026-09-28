@@ -211,7 +211,8 @@ func (t *transport) startActive(ctx context.Context) error {
 	if t.stopping {
 		t.startGate.RUnlock()
 		procCancel()
-		rec.close(nil)
+		// The transport is stopping, so the sealed socket's close is a local one.
+		rec.close(nil, hsms.CauseLocalClose)
 
 		return errStartSealed
 	}
@@ -250,7 +251,8 @@ func (t *transport) startActive(ctx context.Context) error {
 		t.startGate.RUnlock()
 
 		procCancel() // release procCtx; nothing will ever run on it
-		rec.close(nil)
+		// The core gives no reason for refusing the socket.
+		rec.close(nil, hsms.CauseUnknown)
 
 		return errStartSealed
 	}

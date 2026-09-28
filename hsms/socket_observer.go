@@ -54,10 +54,42 @@ type SocketEvent struct {
 	// the read or write error that broke the link,
 	// a protocol failure that made the connection drop it
 	// (a refused or unanswered Select, a failed linktest, [ErrT7Timeout]),
+	// the error of a reconnect whose Start failed after the link came up,
 	// or, for a refused socket, whatever cut its refusal exchange short.
 	// It is nil for a close the application asked for, for a close the peer asked for with a Separate.req,
-	// and for a refused socket whose refusal exchange completed.
+	// for a teardown whose transition names its own cause (such as [CauseHandlerExit]),
+	// for a socket the connection declined to adopt,
+	// and for a refused socket whose refusal exchange completed or was cut short by the connection's own teardown.
+	// On an adopted socket, a peer that closed its side without a Separate.req,
+	// at a frame boundary or in the middle of a frame,
+	// gives [CauseIOError] with errors.Is(Err, io.EOF).
+	// That does not extend to a refused socket's exchange, which reads whole frames:
+	// a peer that closed before sending its complete Select.req gives io.EOF or io.ErrUnexpectedEOF there.
 	Err error
+	// Cause is set only on a SocketClosed event, and names why the socket was closed;
+	// it is [CauseUnknown] for every other kind.
+	// Err and Cause are one pair, the close reason, and both come from whichever path closed the socket first;
+	// a later path changes neither.
+	//
+	//   - [CauseIOError]: a read or write error, a peer that closed its side without a Separate.req,
+	//     or a refused socket whose exchange failed
+	//   - [CausePeerSeparate]: a peer Separate.req
+	//   - [CauseSelectRejected], [CauseT6Timeout], [CauseLinktestFail], [CauseT7Timeout]:
+	//     the failed Select, the failed linktest, or the T7 expiry that dropped the link
+	//   - [CauseLocalClose]: a local Close, including the rollback of an Open whose Start failed,
+	//     a dial that completed after Close began,
+	//     and a refused socket whose exchange completed or was cut short by the connection's own teardown
+	//   - another teardown's own transition cause, such as [CauseHandlerExit]
+	//   - [CauseUnknown]: a socket the connection declined to adopt,
+	//     and a reconnect whose Start failed after the link came up
+	//
+	// Because the socket keeps the first reason, Cause can differ from the Cause of the [LifecycleEvent]
+	// that ended the socket's generation:
+	// a write error recorded just before a concurrent Close wins the transition
+	// gives a SocketClosed with CauseIOError and the write error,
+	// while the lifecycle event reports CauseLocalClose.
+	// The socket event says what closed the socket first; the lifecycle event says what drove the state machine.
+	Cause TransitionCause
 }
 
 // socketCloser is the optional transport capability that takes over closing the socket an epoch adopted.
@@ -66,10 +98,11 @@ type SocketEvent struct {
 // so a transport implementation that predates it keeps compiling;
 // without it the epoch closes its socket directly.
 // The HSMS-SS transport offers it so that every socket, adopted or not, closes through one gate
-// that records the failure that initiated the close and reports the close exactly once.
-// err is the failure the epoch recorded (see epoch.recordCloseFailure), or nil for a close no failure initiated.
+// that records the reason for the close and reports the close exactly once.
+// err and cause are the close reason the epoch recorded (see epoch.recordCloseReason):
+// the failure that initiated the close, nil when none did, and the TransitionCause that names it.
 type socketCloser interface {
-	CloseSocket(conn net.Conn, err error)
+	CloseSocket(conn net.Conn, err error, cause TransitionCause)
 }
 
 // String returns the string representation of the SocketEventKind.
@@ -112,7 +145,7 @@ func (c *connection) AdoptSocketFromGeneration(gen uint64, conn net.Conn, socket
 
 // bindSocketCloser returns the close the epoch uses for its socket:
 // the transport's CloseSocket capability when it offers one, or nil so the epoch closes the socket directly.
-func (c *connection) bindSocketCloser() func(net.Conn, error) {
+func (c *connection) bindSocketCloser() func(net.Conn, error, TransitionCause) {
 	if sc, ok := c.tr.(socketCloser); ok {
 		return sc.CloseSocket
 	}

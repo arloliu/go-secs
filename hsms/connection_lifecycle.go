@@ -395,6 +395,8 @@ func (c *connection) rollbackFailedOpen(e *epoch, s *supervisor, err, ctxErr err
 	if pinned != e {
 		// e was never the pinned generation, so nothing else tears it down:
 		// markEnded above only latched it as ended, it still needs its own real teardown (socket close, task join).
+		// Its close reason is the Start failure, with the cause a reconnect Start failure reports.
+		e.recordCloseReason(err, CauseUnknown)
 		e.teardown(c.cfg.Load().closeTimeout)
 		teardownErr = firstErr(teardownErr, e.wait())
 	}
@@ -628,8 +630,11 @@ func firstErr(errs ...error) error {
 // best-effort farewell Separate, (2) if !shutdown start the reconnect loop, (3) e.teardown.
 //
 // cause is the cause of the transition that fired.
-// A T7 dwell expiry records ErrT7Timeout as the failure that closes the socket, here and not when the expiry was reported:
-// a Select commit can win the race against the report, and then no transition fires and nothing is closed.
+// It records the generation's close reason before the teardown:
+// ErrT7Timeout with CauseT7Timeout for a T7 dwell expiry, here and not when the expiry was reported,
+// because a Select commit can win the race against the report, and then no transition fires and nothing is closed;
+// no failure and the transition's own cause for any other transition.
+// The first reason recorded wins, so a write that failed before this record keeps its own error and cause.
 func (c *connection) react(prev, next ConnState, cause TransitionCause) {
 	if next != NotConnectedState {
 		return // reactions only matter for transitions INTO NotConnected
@@ -670,7 +675,9 @@ func (c *connection) react(prev, next ConnState, cause TransitionCause) {
 
 	// Recorded before the teardown below, which hands it to the socket close.
 	if cause == CauseT7Timeout {
-		e.recordCloseFailure(ErrT7Timeout)
+		e.recordCloseReason(ErrT7Timeout, CauseT7Timeout)
+	} else {
+		e.recordCloseReason(nil, cause)
 	}
 
 	// (3) Non-blocking teardown initiator (idempotent closeOnce — the supervisor's evClose
@@ -1047,6 +1054,9 @@ func (c *connection) connectLoopStartFailure(e *epoch, err error, cfg *Connectio
 		hook()
 	}
 
+	// The Start error and CauseUnknown, the cause the hand-off below reports, are this generation's close reason,
+	// used only when the Start adopted a socket before it failed.
+	e.recordCloseReason(err, CauseUnknown)
 	e.teardown(c.cfg.Load().closeTimeout) // LIVE closeTimeout (M7) — consistent with the react teardown
 	_ = e.wait()
 

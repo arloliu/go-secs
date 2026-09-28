@@ -46,10 +46,12 @@ type adoptRuntime = gencap.SocketAdopter
 // It is minted as soon as the dial or accept returns, before anything decides the socket's fate,
 // so a socket that is sealed out, refused by the core, or refused as an extra passive peer is still recorded and reported.
 // Its close is a gate:
-// the first call closes the conn, has the socket reported closed with the failure it was handed, and wins;
+// the first call closes the conn, has the socket reported closed with the close reason it was handed, and wins;
 // every later call does nothing and loses.
+// A close reason is a pair, the failure that initiated the close (nil when none did) and the TransitionCause that names it,
+// and both halves always come from the same caller.
 // Every path that closes a recorded socket goes through the gate,
-// which is what makes the close reported exactly once, with the failure of whichever path got there first.
+// which is what makes the close reported exactly once, with the reason of whichever path got there first.
 //
 // A frame's report is ordered ahead of the close's through report scopes (openReport), without anyone waiting:
 // a goroutine that moves a frame across the socket holds a scope from before the read or write until after the frame's report,
@@ -88,6 +90,8 @@ type socketRecord struct {
 	closeErr       error     // the failure the close reports, set with closeArmed
 	closedAt       time.Time // when the winner closed the conn, set with closeArmed; the close report's At, however late it is delivered
 	closeReported  bool      // the close report has been taken, by the winner or by the goroutine ending the last scope
+	// closeCause is the cause the close reports, set with closeArmed together with closeErr.
+	closeCause hsms.TransitionCause
 }
 
 // refusalCapture carries the frames of one refused socket's exchange (refusalExchange) to the goroutine that reports them,
@@ -120,7 +124,7 @@ type refusalCapture struct {
 func (t *transport) mintSocket(conn net.Conn, kind hsms.SocketEventKind) *socketRecord {
 	rec := &socketRecord{t: t, conn: conn, id: t.socketSeq.Add(1), local: conn.LocalAddr(), remote: conn.RemoteAddr()}
 	rec.release = rec.endReport
-	t.observeSocket(rec.event(kind, nil, time.Now()))
+	t.observeSocket(rec.event(kind, nil, hsms.CauseUnknown, time.Now()))
 
 	return rec
 }
@@ -177,7 +181,8 @@ func (t *transport) WireReportScope(socket uint64) func() {
 	return rec.openReport()
 }
 
-// CloseSocket closes conn, the socket an epoch adopted, through its record's gate with err, the failure the epoch recorded.
+// CloseSocket closes conn, the socket an epoch adopted, through its record's gate with err and cause,
+// the close reason the epoch recorded.
 // The connection core reaches it by type assertion from the epoch's socket close;
 // it is not meant to be called otherwise.
 //
@@ -185,9 +190,9 @@ func (t *transport) WireReportScope(socket uint64) func() {
 // a conn from a caller-supplied dialer or listener may have a non-comparable dynamic type.
 // That record is conn's own, because only an adopted socket ever reaches an epoch,
 // and a generation's socket is adopted, used and closed before the next generation's Start can mint another.
-func (t *transport) CloseSocket(conn net.Conn, err error) {
+func (t *transport) CloseSocket(conn net.Conn, err error, cause hsms.TransitionCause) {
 	if rec := t.adopted.Load(); rec != nil {
-		rec.close(err)
+		rec.close(err, cause)
 
 		return
 	}
@@ -195,10 +200,11 @@ func (t *transport) CloseSocket(conn net.Conn, err error) {
 	_ = conn.Close()
 }
 
-// closeRecorded closes conn through rec's gate with no failure, or directly when conn has no record.
+// closeRecorded closes conn through rec's gate as a local close, with no failure and CauseLocalClose,
+// or directly when conn has no record.
 func closeRecorded(rec *socketRecord, conn net.Conn) {
 	if rec != nil {
-		rec.close(nil)
+		rec.close(nil, hsms.CauseLocalClose)
 
 		return
 	}
@@ -224,11 +230,11 @@ func (t *transport) captureRefusal(rec *socketRecord) *refusalCapture {
 	return &refusalCapture{wr: wr, rec: rec, release: release}
 }
 
-// event builds a socket event of kind for this record, stamped at.
-func (r *socketRecord) event(kind hsms.SocketEventKind, err error, at time.Time) hsms.SocketEvent {
+// event builds a socket event of kind for this record, stamped at, with err and cause as its close reason.
+func (r *socketRecord) event(kind hsms.SocketEventKind, err error, cause hsms.TransitionCause, at time.Time) hsms.SocketEvent {
 	return hsms.SocketEvent{
 		Kind: kind, Socket: r.id, Generation: r.gen.Load(), At: at,
-		Local: r.local, Remote: r.remote, Err: err,
+		Local: r.local, Remote: r.remote, Err: err, Cause: cause,
 	}
 }
 
@@ -265,20 +271,20 @@ func (r *socketRecord) endReport() {
 	if report {
 		r.closeReported = true
 	}
-	err, at := r.closeErr, r.closedAt
+	err, cause, at := r.closeErr, r.closeCause, r.closedAt
 	r.mu.Unlock()
 
 	if report {
-		r.t.observeSocket(r.event(hsms.SocketClosed, err, at))
+		r.t.observeSocket(r.event(hsms.SocketClosed, err, cause, at))
 	}
 }
 
 // close is the socket's close gate, for every path that is not a disconnect report.
-// The first call closes the conn and reports the socket closed with err,
-// the failure that initiated the close (nil when none did).
+// The first call closes the conn and reports the socket closed with err and cause,
+// the failure that initiated the close (nil when none did) and the TransitionCause that names it.
 // Every later call does nothing.
-func (r *socketRecord) close(err error) {
-	r.gate(err, false)
+func (r *socketRecord) close(err error, cause hsms.TransitionCause) {
+	r.gate(err, cause, false)
 }
 
 // closeForReport is the gate for a disconnect report (tcpDown), and reports whether that report should still be made.
@@ -287,13 +293,13 @@ func (r *socketRecord) close(err error) {
 // and the read error its close provokes in the recv loop must not reach the core ahead of it, or instead of it.
 // A report that lost to any other close — a teardown, Stop, a refusal — is still made;
 // the core discards it or finds the link already down, exactly as it did before the gate existed.
-func (r *socketRecord) closeForReport(err error) bool {
-	won, lostToReport := r.gate(err, true)
+func (r *socketRecord) closeForReport(err error, cause hsms.TransitionCause) bool {
+	won, lostToReport := r.gate(err, cause, true)
 
 	return won || !lostToReport
 }
 
-// gate decides the socket's close.
+// gate decides the socket's close, with err and cause as its close reason.
 // The winner is decided under mu, and everything else runs after it is released,
 // so a losing caller returns at once and never waits on the conn's Close or on the observer.
 //
@@ -307,7 +313,7 @@ func (r *socketRecord) closeForReport(err error) bool {
 // and the winner never waits: on a goroutine parked inside an observer call it delays only the close report,
 // which that goroutine delivers when its call returns.
 // It reports whether this call won and, when it did not, whether the winner was a disconnect report.
-func (r *socketRecord) gate(err error, byReport bool) (won, lostToReport bool) {
+func (r *socketRecord) gate(err error, cause hsms.TransitionCause, byReport bool) (won, lostToReport bool) {
 	r.mu.Lock()
 	if r.closed {
 		lostToReport = r.closedByReport
@@ -326,6 +332,7 @@ func (r *socketRecord) gate(err error, byReport bool) (won, lostToReport bool) {
 	r.mu.Lock()
 	r.closeArmed = true
 	r.closeErr = err
+	r.closeCause = cause
 	r.closedAt = closedAt
 	report := r.openReports == 0
 	if report {
@@ -334,7 +341,7 @@ func (r *socketRecord) gate(err error, byReport bool) (won, lostToReport bool) {
 	r.mu.Unlock()
 
 	if report {
-		r.t.observeSocket(r.event(hsms.SocketClosed, err, closedAt))
+		r.t.observeSocket(r.event(hsms.SocketClosed, err, cause, closedAt))
 	}
 
 	return true, false

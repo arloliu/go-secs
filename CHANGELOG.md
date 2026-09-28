@@ -11,12 +11,13 @@ Wire-level and socket-level observability for HSMS-SS,
 and socket and generation identity on lifecycle and transaction events.
 
 - `WithWireObserver` reports every HSMS frame that crosses the socket, in both directions,
-  as its exact wire bytes, control frames and the frames of a refused peer included.
+  as its exact wire bytes, control frames and the frames of a refused peer included,
+  timed so that a reply never precedes the frame it answers.
 - `WithSocketObserver` reports each socket the connection dials or accepts, refused ones included,
-  when it comes up and when it closes, with the failure that initiated the close.
+  when it comes up and when it closes, with the cause and the failure that closed it.
 - `LifecycleEvent` and `TxEvent` name the socket and connection generation they belong to,
   so the wire, socket, lifecycle, and transaction streams join on the same two values.
-  `TxEvent` also carries the primary's session ID.
+  `LifecycleEvent` also carries the time its transition fired, and `TxEvent` the primary's session ID.
 - Only the HSMS-SS transport reports wire and socket events;
   a SECS-I connection built on the same core reports neither.
 
@@ -36,11 +37,15 @@ One behavior change is visible to the peer; see Upgrade notes.
 
 - `hsms`: `WithWireObserver` installs a synchronous hook
   that receives a `WireEvent` for each complete HSMS frame the connection reads or writes:
-  its `WireDirection`, the socket and generation it crossed, a timestamp carrying a monotonic reading, and the frame bytes,
+  its `WireDirection`, the socket and generation it crossed, its time `At`, and the frame bytes,
   length prefix and header included.
   Every frame is reported, data and control alike,
   including the frames the connection sends on its own and inbound frames it goes on to reject.
   An outbound frame is reported only after its write succeeded.
+  `At` carries a monotonic reading.
+  For an inbound frame it is the time the frame was fully read;
+  for an outbound frame it is the time immediately before its write was issued, not when the write returned,
+  so a reply's `At` never precedes that of the frame it answers.
   Every frame of a socket is reported before that socket's `SocketClosed` event:
   a `SocketClosed` is held back while a frame report is in progress on the socket
   and is then delivered by the goroutine that made that report,
@@ -62,14 +67,20 @@ One behavior change is visible to the peer; see Upgrade notes.
   `SocketEvent.Err` on the close names the failure that initiated it —
   a read or write error, a refused or unanswered Select, a failed linktest, or `ErrT7Timeout` —
   and is nil for a close the application or the peer asked for.
+  `SocketEvent.Cause` names why the socket closed;
+  a peer that closed its side of an adopted socket without a Separate.req gives `CauseIOError` with `errors.Is(Err, io.EOF)`.
+  `Err` and `Cause` are one close reason, taken from whichever path closed the socket first,
+  so a socket's `Cause` can differ from the cause of the lifecycle transition that ended its generation.
   A refused socket and its frames carry generation 0.
   The hook runs on the goroutine that dialed, accepted, refused or closed the socket,
   and `Close` and `Stop` wait for a call in progress there to return, so it must be cheap and must return;
   a `SocketClosed` held back behind a frame report is delivered by the reporting goroutine
   and is waited for only through that goroutine's bounded join, or not at all from a delivery goroutine.
-- `hsms`: `LifecycleEvent.Socket` and `LifecycleEvent.Generation` name the generation a transition belongs to and that generation's socket,
-  taken when the transition happens,
-  so a notification delivered after a reconnect still names the link it reports.
+- `hsms`: `LifecycleEvent.Socket`, `LifecycleEvent.Generation`, and `LifecycleEvent.At`:
+  the generation a transition belongs to, that generation's socket, and the time the transition fired.
+  All three are taken when the transition happens,
+  so a notification delivered after a reconnect still names the link it reports,
+  and one that a slow handler or subscriber delayed still carries the time its transition fired.
 - `hsms`: `TxEvent.SessionID`, `TxEvent.Socket`, and `TxEvent.Generation`.
   A send reports the generation it was bound to when it started, even when it completes after a reconnect,
   and a send that found no open connection reports socket and generation 0.
@@ -79,7 +90,8 @@ One behavior change is visible to the peer; see Upgrade notes.
 ### Changed
 
 - `hsmsss`: every socket the transport dials or accepts, a refused extra peer's included, now closes through one close gate,
-  which keeps the failure of whichever path closed it first and reports the close exactly once.
+  which keeps the close reason (the failure and its cause) of whichever path closed it first
+  and reports the close exactly once.
   An involuntary disconnect the transport detects itself —
   a read error, a peer Separate, a failed linktest, or a failed active Select —
   closes the socket through that gate before it reports the disconnect,

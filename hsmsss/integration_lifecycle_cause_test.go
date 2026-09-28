@@ -10,8 +10,11 @@ package hsmsss
 // which TryLocks the write lock and may legitimately be skipped.
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"net"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -126,6 +129,20 @@ func requireOneLink(t *testing.T, sockets *socketLog, events []hsms.LifecycleEve
 	return socket, gen
 }
 
+// requireCloseReason asserts the socket observer reported socket closed with cause,
+// the cause half of its close reason, and an error that is wantErr (errors.Is), or no error when wantErr is nil.
+func requireCloseReason(t *testing.T, sockets *socketLog, socket uint64, cause hsms.TransitionCause, wantErr error) {
+	t.Helper()
+
+	closed := sockets.waitClosed(t, socket)
+	require.Equal(t, cause, closed.Cause, "the socket's close cause")
+	if wantErr == nil {
+		require.NoError(t, closed.Err, "the socket's close error")
+	} else {
+		require.ErrorIs(t, closed.Err, wantErr, "the socket's close error")
+	}
+}
+
 // selectPassiveSUT brings a passive endpoint up to Selected against a raw peer that writes the
 // Select.req itself, and returns the raw peer connection.
 // It leaves the SUT Selected with the raw socket live, so a caller can drive whatever teardown the
@@ -165,7 +182,8 @@ func TestLifecycleCause_LocalCloseOverRealLink(t *testing.T) {
 
 	down := log.waitTeardown(t, len(up))
 	require.Equal(t, hsms.CauseLocalClose, down.Cause)
-	requireOneLink(t, sockets, append(up, down))
+	socket, _ := requireOneLink(t, sockets, append(up, down))
+	requireCloseReason(t, sockets, socket, hsms.CauseLocalClose, nil)
 }
 
 // A peer Separate.req while Selected reports CausePeerSeparate — distinguishable from both a local
@@ -192,7 +210,8 @@ func TestLifecycleCause_PeerSeparateOverRealLink(t *testing.T) {
 
 	down := log.waitTeardown(t, len(up))
 	require.Equal(t, hsms.CausePeerSeparate, down.Cause)
-	requireOneLink(t, sockets, append(up, down))
+	socket, _ := requireOneLink(t, sockets, append(up, down))
+	requireCloseReason(t, sockets, socket, hsms.CausePeerSeparate, nil)
 }
 
 // A peer that disappears without announcing it — the socket simply closes — reports CauseIOError,
@@ -214,7 +233,35 @@ func TestLifecycleCause_IOErrorOverRealLink(t *testing.T) {
 
 	down := log.waitTeardown(t, len(up))
 	require.Equal(t, hsms.CauseIOError, down.Cause)
-	requireOneLink(t, sockets, append(up, down))
+	socket, _ := requireOneLink(t, sockets, append(up, down))
+	requireCloseReason(t, sockets, socket, hsms.CauseIOError, io.EOF)
+}
+
+// A data handler that ends its goroutine with runtime.Goexit drops the link with CauseHandlerExit,
+// and the socket closes with that same cause and no failure: no read or write failed.
+func TestLifecycleCause_HandlerExitOverRealLink(t *testing.T) {
+	t.Parallel()
+
+	port := freeLoopbackPort(t)
+	sockets := &socketLog{}
+	ep := newEndpoint(t, port, false, sockets.options())
+	defer closeEndpoint(t, ep)
+	ep.conn.AddDataMessageHandler(func(*hsms.DataMessage, hsms.SECS2Endpoint) { runtime.Goexit() })
+
+	log := subscribeCauses(t, ep)
+
+	raw := selectPassiveSUT(t, ep, port)
+	defer func() { _ = raw.Close() }()
+
+	up := log.waitBringUp(t, 0)
+
+	_, err := raw.Write(dataFrame(0, 1, 1, [4]byte{0, 0, 0, 0x42}, nil))
+	require.NoError(t, err)
+
+	down := log.waitTeardown(t, len(up))
+	require.Equal(t, hsms.CauseHandlerExit, down.Cause)
+	socket, _ := requireOneLink(t, sockets, append(up, down))
+	requireCloseReason(t, sockets, socket, hsms.CauseHandlerExit, nil)
 }
 
 // A subscription survives a full Close/Open cycle and observes the second bring-up too,
@@ -312,7 +359,8 @@ func TestLifecycleCause_SelectT6TimeoutOverRealLink(t *testing.T) {
 	require.Equal(t, hsms.NotSelectedState, events[1].Previous)
 	require.Equal(t, hsms.NotConnectedState, events[1].Current)
 	require.Equal(t, hsms.CauseT6Timeout, events[1].Cause)
-	requireOneLink(t, sockets, events[:2])
+	socket, _ := requireOneLink(t, sockets, events[:2])
+	requireCloseReason(t, sockets, socket, hsms.CauseT6Timeout, hsms.ErrT6Timeout)
 
 	stopPeer() // release the peer so its clean return is observable
 
@@ -355,7 +403,11 @@ func runSelectBlackholePeer(ln net.Listener, done <-chan struct{}) error {
 func TestLifecycleCause_SelectRejectedByRejectReq(t *testing.T) {
 	t.Parallel()
 
-	assertSelectFailureCause(t, hsms.CauseSelectRejected, func(sb [4]byte) []byte {
+	assertSelectFailureCause(t, hsms.CauseSelectRejected, func(err error) bool {
+		var reject *hsms.RejectError
+
+		return errors.As(err, &reject)
+	}, func(sb [4]byte) []byte {
 		return buildRejectFrame(byte(hsms.SelectReqType), hsms.RejectSTypeNotSupported, sb)
 	})
 }
@@ -366,16 +418,19 @@ func TestLifecycleCause_SelectRejectedByRejectReq(t *testing.T) {
 func TestLifecycleCause_SelectAnsweredWithWrongResponseType(t *testing.T) {
 	t.Parallel()
 
-	assertSelectFailureCause(t, hsms.CauseSelectRejected, func(sb [4]byte) []byte {
+	assertSelectFailureCause(t, hsms.CauseSelectRejected, func(err error) bool {
+		return errors.Is(err, errSelectBadResponse)
+	}, func(sb [4]byte) []byte {
 		return buildControlFrame(byte(hsms.LinktestRspType), 0, sb)
 	})
 }
 
 // assertSelectFailureCause runs an active SUT against a peer that answers its Select.req with the
-// frame reply builds from the request's System Bytes, and asserts the resulting drop's cause.
+// frame reply builds from the request's System Bytes, and asserts the resulting drop's cause,
+// which is also the socket's close cause, and that the socket's close error is one isErr accepts.
 // The peer holds the socket open afterwards, so the drop under test cannot be an EOF racing ahead
 // of the Select procedure's own classification.
-func assertSelectFailureCause(t *testing.T, want hsms.TransitionCause, reply func(sb [4]byte) []byte) {
+func assertSelectFailureCause(t *testing.T, want hsms.TransitionCause, isErr func(error) bool, reply func(sb [4]byte) []byte) {
 	t.Helper()
 
 	ln, port := listenLoopback(t)
@@ -416,7 +471,10 @@ func assertSelectFailureCause(t *testing.T, want hsms.TransitionCause, reply fun
 	require.Equal(t, hsms.NotSelectedState, events[1].Previous)
 	require.Equal(t, hsms.NotConnectedState, events[1].Current)
 	require.Equal(t, want, events[1].Cause)
-	requireOneLink(t, sockets, events[:2])
+	socket, _ := requireOneLink(t, sockets, events[:2])
+	closed := sockets.waitClosed(t, socket)
+	require.Equal(t, want, closed.Cause, "the socket's close cause")
+	require.True(t, isErr(closed.Err), "the socket's close error: %v", closed.Err)
 
 	stopPeer()
 
@@ -506,5 +564,6 @@ func TestLifecycleCause_LinktestFailureOverRealLink(t *testing.T) {
 
 	down := log.waitTeardown(t, len(up))
 	require.Equal(t, hsms.CauseLinktestFail, down.Cause)
-	requireOneLink(t, sockets, append(up, down))
+	socket, _ := requireOneLink(t, sockets, append(up, down))
+	requireCloseReason(t, sockets, socket, hsms.CauseLinktestFail, errLinktestFailed)
 }

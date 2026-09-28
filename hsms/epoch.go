@@ -97,7 +97,7 @@ type epoch struct {
 
 	log logger.Logger // generation logger; used by teardown for close-timeout reporting
 
-	connMu sync.RWMutex // guards conn and closeFailure
+	connMu sync.RWMutex // guards conn and reason
 	conn   net.Conn     // raw *net.TCPConn (no bufio wrapper — defeats writev, §6.2)
 	// nil ONLY after closeSocket(), which runs inside teardown's closeOnce.
 
@@ -105,14 +105,14 @@ type epoch struct {
 	// Unlike conn it is never cleared, so a report built after teardown still names the socket this generation used.
 	socket atomic.Uint64
 
-	// closeFailure is the first failure recorded as the initiator of this generation's socket close, guarded by connMu.
-	// closeSocket hands it to the transport's close (closeConn);
-	// nil means no failure initiated the close, as for a local Close.
-	closeFailure error
+	// reason is why this generation's socket is closed, guarded by connMu.
+	// The first reason recorded (recordCloseReason) is kept and a later one changes nothing,
+	// and closeSocket hands it to the transport's close (closeConn).
+	reason closeReason
 
 	// closeConn is the transport's socket close capability, bound at epoch creation (see connection.bindSocketCloser),
 	// or nil, in which case closeSocket closes the conn directly.
-	closeConn func(net.Conn, error)
+	closeConn func(net.Conn, error, TransitionCause)
 
 	wg        sync.WaitGroup // joins every per-generation TASK goroutine (the epoch join)
 	liveTasks atomic.Int64   // count of live task goroutines; reported on a close-timeout
@@ -143,6 +143,16 @@ type epoch struct {
 	// voluntary Close, which does attempt the bounded best-effort farewell from a live Selected
 	// link. It is per-generation (a fresh epoch starts graceful) so no reset is needed.
 	commsFailure atomic.Bool
+}
+
+// closeReason is why a generation's socket is closed:
+// the failure that initiated the close, nil when none did,
+// and the TransitionCause that names it.
+// set tells a recorded reason from none, so a first reason that carries no failure still wins.
+type closeReason struct {
+	err   error
+	cause TransitionCause
+	set   bool
 }
 
 // newEpoch creates a fresh generation rooted at parent: ctx/cancel derive from
@@ -213,15 +223,17 @@ func (e *epoch) socketID() uint64 {
 	return e.socket.Load()
 }
 
-// recordCloseFailure records err as the failure that initiated this generation's socket close, unless one is already recorded.
-// The caller records it before it initiates the teardown,
-// so the close teardown performs passes it to the transport rather than nil.
-func (e *epoch) recordCloseFailure(err error) {
+// recordCloseReason records err and cause as the reason this generation's socket is closed,
+// unless a reason is already recorded, in which case it changes nothing, even when that reason carries no error.
+// Every path that tears a generation down records its reason immediately before its teardown call,
+// so the close that teardown performs hands the transport the reason of whichever path got there first.
+// A generation that never adopted a socket never uses its reason.
+func (e *epoch) recordCloseReason(err error, cause TransitionCause) {
 	e.connMu.Lock()
 	defer e.connMu.Unlock()
 
-	if e.closeFailure == nil {
-		e.closeFailure = err
+	if !e.reason.set {
+		e.reason = closeReason{err: err, cause: cause, set: true}
 	}
 }
 
@@ -231,7 +243,8 @@ func (e *epoch) recordCloseFailure(err error) {
 // teardown calls it exactly once (inside closeOnce) and UNCONDITIONALLY before the join:
 // closing the socket unblocks any task parked in conn.Read (which does not watch ctx), so the bounded join can complete.
 //
-// The close itself goes through the transport's closeConn when one is bound, with the recorded failure,
+// The close itself goes through the transport's closeConn when one is bound, with the recorded reason
+// (nil and CauseUnknown when none was recorded),
 // and runs after connMu is released:
 // the transport takes its own locks there,
 // and a transport goroutine can already hold one of them while it publishes a socket onto this epoch under connMu.
@@ -240,7 +253,7 @@ func (e *epoch) closeSocket() {
 	e.connMu.Lock()
 	conn := e.conn
 	e.conn = nil
-	failure := e.closeFailure
+	reason := e.reason
 	e.connMu.Unlock()
 
 	if conn == nil {
@@ -248,7 +261,7 @@ func (e *epoch) closeSocket() {
 	}
 
 	if e.closeConn != nil {
-		e.closeConn(conn, failure)
+		e.closeConn(conn, reason.err, reason.cause)
 
 		return
 	}

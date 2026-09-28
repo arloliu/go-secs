@@ -55,17 +55,23 @@ and SECS-I over TCP/IP (SEMI E4), together with an SML (SECS Message Language) p
   `SubscribeLifecycle` is the cancellable, cause-carrying counterpart:
   it reports each transition together with the `TransitionCause` that drove it —
   a local Close, a peer Separate, a T7 expiry, a linktest failure, a dropped socket, and so on.
-  Each `LifecycleEvent` also names the `Socket` and `Generation` the transition belongs to.
+  Each `LifecycleEvent` also names the `Socket` and `Generation` the transition belongs to,
+  and carries `At`, the time the transition fired, however late the event is delivered.
 * **Transaction observability:** `hsms.WithTransactionObserver` reports a `TxEvent` for every completed synchronous send.
   The event names the stream, function, session ID, duration, and outcome —
   enough to feed a metrics histogram or trace exporter without hand-instrumenting each call site —
   and the `Socket` and `Generation` the send was bound to.
 * **Wire and socket observability:** `hsms.WithWireObserver` reports every HSMS frame that crosses the socket, in both directions,
-  as its exact wire bytes, control frames included.
+  as its exact wire bytes, control frames included,
+  timed when an inbound frame was fully read or immediately before an outbound frame's write was issued,
+  so a reply is never timed before the frame it answers.
   `hsms.WithSocketObserver` reports each socket the connection dials or accepts, including an extra peer a passive connection refuses,
-  and its close, with the failure that caused it.
+  and its close, with the cause and the failure that closed it;
+  that cause names what closed the socket first,
+  so it can differ from the cause of the lifecycle transition that ended the link.
   The wire, socket, lifecycle, and transaction events all carry the same `Socket` and `Generation` values,
-  so a recorder can join the four streams.
+  so a recorder can join the four streams,
+  and the wire, socket, and lifecycle events carry the time they happened, so it can also order them.
   Only the HSMS-SS transport reports wire and socket events; a SECS-I connection reports neither.
 * **Resilience:** automatic reconnection, and an auto-linktest with a configurable failure threshold
   for tolerating transient T6 timeouts. Activity-based linktest suppression (on by default) probes

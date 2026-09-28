@@ -40,7 +40,7 @@ first read and never clears or extends it, reading via raw `io.ReadFull` rather 
 If Stop already ran, `refuseExtraConn` observes `refuseStopped == true` and returns (closing `extra`
 via its own defer) without reading, instead of parking for the full T7.
 If `refuseExtraConn` already published before Stop runs, `haltRefusal` closes the published
-`t.refuseSock` through its record's close gate, with no failure, since Stop's close is a local one.
+`t.refuseSock` through its record's close gate with `(nil, CauseLocalClose)`, since Stop's close is a local one.
 Whichever side wins the race, the extra socket is closed and `Stop`'s `g.accept.Wait` never waits out
 the refusal deadline.
 
@@ -53,8 +53,12 @@ the `SetDeadline` error, a read error (the absolute deadline, a short read), a m
 a first frame that fails to decode or is not a Select.req (`errRefusalNotSelectReq`),
 or a failed or short response write;
 a completed exchange, and a helper that found `refuseStopped` already set, retain nil.
-The gate reports the socket closed exactly once,
-whichever of the defer and `haltRefusal` reaches it first.
+The gate takes a close reason, an error and a cause, and `refusalCloseCause` derives the cause from the retained failure:
+`CauseIOError` with one, since a malformed length or header is a failed exchange as an invalid frame length is on the adopted receive path,
+and `CauseLocalClose` without one, since this side decided to close; the policy itself is reported by `SocketRefused`.
+The gate reports the socket closed exactly once, with the pair of whichever of the defer and `haltRefusal` reaches it first.
+Because the exchange reads with `io.ReadFull`, a peer that closed before its whole Select.req arrived gives `io.EOF` or `io.ErrUnexpectedEOF`,
+unlike the adopted receive path, whose reads return the socket's error unchanged.
 The exchange itself lives in `refusalExchange`,
 which reads the 4-byte prefix and the 10-byte header into one fixed 14-byte buffer.
 It never calls the wire observer: the accept goroutine it runs on is one `Stop` joins without a bound,
@@ -121,6 +125,7 @@ option 1 (accept, then answer Communication Already Active).
 - the Stop-side half of the handoff: `hsmsss/transport_passive.go` → `(*transport).haltRefusal`
 - the exchange and the frames it reports: `hsmsss/transport_passive.go` → `(*transport).refusalExchange`
 - the socket record and its close gate: `hsmsss/transport_socket.go` → `socketRecord`, `(*transport).mintSocket`, `(*socketRecord).gate`
+- the refused socket's close cause: `hsmsss/transport_passive.go` → `refusalCloseCause`
 - the generation-scoped fields and their reset: `hsmsss/transport.go` → `(*transport).ArmStart`
 - Stop invoking the handoff before joining `g.accept`: `hsmsss/transport.go` → `(*transport).Stop`
 - the idle-vs-T8 policy this path deliberately avoids: `hsmsss/transport_recv.go` → `readN`

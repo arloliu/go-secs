@@ -288,6 +288,8 @@ func TestSocketObserver_ConnectedThenLocalClose(t *testing.T) {
 	require.Zero(t, up.Generation, "a socket is not adopted yet when it is reported up")
 	require.NotZero(t, closed.Generation, "an adopted socket's close names its generation")
 	require.NoError(t, closed.Err, "a local close reports no failure")
+	require.Equal(t, hsms.CauseLocalClose, closed.Cause)
+	require.Equal(t, hsms.CauseUnknown, up.Cause, "only a close carries a cause")
 	require.False(t, up.At.IsZero())
 	require.False(t, closed.At.Before(up.At))
 	requireAddrs(t, up, raw)
@@ -314,6 +316,7 @@ func TestSocketObserver_AcceptedThenPeerSeparate(t *testing.T) {
 	requireAddrs(t, up, raw)
 	requireAddrs(t, closed, raw)
 	require.NoError(t, closed.Err, "a close the peer requested reports no failure")
+	require.Equal(t, hsms.CausePeerSeparate, closed.Cause)
 	require.NotZero(t, closed.Generation)
 
 	closeEndpoint(t, sut)
@@ -321,21 +324,64 @@ func TestSocketObserver_AcceptedThenPeerSeparate(t *testing.T) {
 	require.Len(t, log.kind(hsms.SocketAccepted), 1)
 }
 
-// A peer that drops the link reports the read error as the close's failure.
+// A peer that drops the link reports the read error as the close's failure, with CauseIOError.
+// A peer that closed its side without a Separate.req gives io.EOF,
+// whether it closed at a frame boundary or in the middle of a frame;
+// a peer that reset the connection gives the reset, which is not io.EOF.
 func TestSocketObserver_PeerDropReportsReadError(t *testing.T) {
 	t.Parallel()
 
-	log := &socketLog{}
-	sut, raw, _ := selectedPassive(t, log)
+	tests := []struct {
+		name string
+		drop func(t *testing.T, raw *net.TCPConn)
+		eof  bool
+	}{
+		{
+			name: "close at a frame boundary",
+			drop: func(t *testing.T, raw *net.TCPConn) { t.Helper(); require.NoError(t, raw.Close()) },
+			eof:  true,
+		},
+		{
+			name: "close in the middle of a frame",
+			drop: func(t *testing.T, raw *net.TCPConn) {
+				t.Helper()
+				frame := dataFrame(0, 1, 1, [4]byte{0, 0, 0, 0x42}, []byte{0x41, 0x01, 'x'})
+				_, err := raw.Write(frame[:len(frame)-2])
+				require.NoError(t, err)
+				require.NoError(t, raw.Close())
+			},
+			eof: true,
+		},
+		{
+			name: "reset",
+			drop: func(t *testing.T, raw *net.TCPConn) {
+				t.Helper()
+				require.NoError(t, raw.SetLinger(0))
+				require.NoError(t, raw.Close())
+			},
+			eof: false,
+		},
+	}
 
-	require.NoError(t, raw.Close())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	up := log.waitKind(t, hsms.SocketAccepted, 1)[0]
-	closed := log.waitClosed(t, up.Socket)
-	require.ErrorIs(t, closed.Err, io.EOF, "the close reports the read error that broke the link")
+			log := &socketLog{}
+			sut, raw, _ := selectedPassive(t, log)
 
-	closeEndpoint(t, sut)
-	require.Equal(t, 1, log.countKind(up.Socket, hsms.SocketClosed))
+			tt.drop(t, raw)
+
+			up := log.waitKind(t, hsms.SocketAccepted, 1)[0]
+			closed := log.waitClosed(t, up.Socket)
+			require.Error(t, closed.Err, "the close reports the read error that broke the link")
+			require.Equal(t, tt.eof, errors.Is(closed.Err, io.EOF), "io.EOF in %v", closed.Err)
+			require.Equal(t, hsms.CauseIOError, closed.Cause)
+
+			closeEndpoint(t, sut)
+			require.Equal(t, 1, log.countKind(up.Socket, hsms.SocketClosed))
+		})
+	}
 }
 
 // errInjectedWrite is the failure failingWriteConn returns once armed.
@@ -385,6 +431,7 @@ func TestSocketObserver_WriteFailureReportsWriteError(t *testing.T) {
 	up := log.waitKind(t, hsms.SocketConnected, 1)[0]
 	closed := log.waitClosed(t, up.Socket)
 	require.ErrorIs(t, closed.Err, errInjectedWrite, "the close reports the write error that initiated it")
+	require.Equal(t, hsms.CauseIOError, closed.Cause)
 
 	closeEndpoint(t, sut)
 	require.Equal(t, 1, log.countKind(up.Socket, hsms.SocketClosed))
@@ -406,13 +453,15 @@ func TestSocketObserver_T7ExpiryReportsErrT7Timeout(t *testing.T) {
 	up := log.waitKind(t, hsms.SocketAccepted, 1)[0]
 	closed := log.waitClosed(t, up.Socket)
 	require.ErrorIs(t, closed.Err, hsms.ErrT7Timeout)
+	require.Equal(t, hsms.CauseT7Timeout, closed.Cause)
 	require.NotZero(t, closed.Generation)
 }
 
 // A refused socket is observed in its own identity with generation 0:
 // accepted, then refused as soon as the connection decides to refuse it, before its exchange,
 // then whichever frames of its refusal exchange crossed the wire, then closed.
-// The close reports what cut the exchange short, and nothing for a completed exchange.
+// The close reports what cut the exchange short, with CauseIOError,
+// and nothing for a completed exchange, with CauseLocalClose, since this side decided to close it.
 // The live session is untouched throughout.
 func TestSocketObserver_RefusedSocket(t *testing.T) {
 	t.Parallel()
@@ -549,6 +598,11 @@ func TestSocketObserver_RefusedSocket(t *testing.T) {
 			in, out := tt.peer(t, raw)
 			closed := log.waitClosed(t, refused.Socket)
 			tt.wantErr(t, closed.Err)
+			if closed.Err == nil {
+				require.Equal(t, hsms.CauseLocalClose, closed.Cause, "a completed exchange is closed by this side's decision")
+			} else {
+				require.Equal(t, hsms.CauseIOError, closed.Cause, "a failed exchange is closed as a failed I/O exchange")
+			}
 
 			entries := log.of(refused.Socket)
 			require.Len(t, entries, 3+len(in)+len(out), "accepted, refused, the frames, closed: %+v", entries)
@@ -666,7 +720,7 @@ func TestSocketRace_HaltRefusalRacingPublication(t *testing.T) {
 }
 
 // requireOneRefusal asserts the second accepted socket of log, which exchanged no frame,
-// was accepted, refused once and closed once, in that order, with no failure.
+// was accepted, refused once and closed once, in that order, with no failure and CauseLocalClose.
 func requireOneRefusal(t *testing.T, log *socketLog) {
 	t.Helper()
 
@@ -679,6 +733,7 @@ func requireOneRefusal(t *testing.T, log *socketLog) {
 	require.Equal(t, hsms.SocketRefused, entries[1].sock.Kind, "refused is reported before closed")
 	require.Equal(t, hsms.SocketClosed, entries[2].sock.Kind)
 	require.NoError(t, entries[2].sock.Err, "Stop's close is a local one")
+	require.Equal(t, hsms.CauseLocalClose, entries[2].sock.Cause, "Stop's close is a local one")
 }
 
 // sockRecRT is genRecRT plus the socket-observation capability, recording every socket event.
@@ -691,7 +746,8 @@ type sockRecRT struct {
 func (r *sockRecRT) ObserveSocket(ev hsms.SocketEvent) { r.log.observeSocket(ev) }
 
 // A TCP-up the core refuses closes the socket through the gate exactly once,
-// reporting it up and then closed, never adopted (generation 0) and with no failure.
+// reporting it up and then closed, never adopted (generation 0), with no failure and CauseUnknown:
+// the core gives the transport no reason for the refusal.
 // The runtime here offers no adoption capability, so this also covers the transport's fallback to TCPUpFromGeneration.
 func TestSocketRace_RefusedTCPUpClosesThroughGateOnce(t *testing.T) {
 	t.Parallel()
@@ -755,8 +811,76 @@ func TestSocketRace_RefusedTCPUpClosesThroughGateOnce(t *testing.T) {
 			require.Equal(t, socks[0].Socket, socks[1].Socket)
 			require.Zero(t, socks[1].Generation, "a socket the core refused was never adopted")
 			require.NoError(t, socks[1].Err)
+			require.Equal(t, hsms.CauseUnknown, socks[1].Cause)
 		})
 	}
+}
+
+// A dial the transport sealed because it was stopping, a Close having begun while the dial was in flight,
+// closes the socket through the gate exactly once, never adopted, with no failure and CauseLocalClose.
+func TestSocketObserver_SealedDialReportsLocalClose(t *testing.T) {
+	t.Parallel()
+
+	server, client := net.Pipe()
+	t.Cleanup(func() { _ = server.Close(); _ = client.Close() })
+	tracked := &sealCloseTrackingConn{Conn: client}
+
+	cfg, err := NewConfig("127.0.0.1", 0, WithDialer(func(context.Context, string, string) (net.Conn, error) { return tracked, nil }))
+	require.NoError(t, err)
+
+	log := &socketLog{}
+	tr := newTransport(cfg)
+	tr.rt = &sockRecRT{genRecRT: newGenRecRT(1), log: log}
+	sealTransport(t, tr)
+
+	require.ErrorIs(t, tr.startActive(t.Context()), errStartSealed)
+	require.Equal(t, int64(1), tracked.closes.Load(), "the sealed socket is closed exactly once")
+
+	socks := log.sockets()
+	require.Len(t, socks, 2, "%+v", socks)
+	require.Equal(t, hsms.SocketConnected, socks[0].Kind)
+	require.Equal(t, hsms.SocketClosed, socks[1].Kind)
+	require.Zero(t, socks[1].Generation, "a sealed socket was never adopted")
+	require.NoError(t, socks[1].Err)
+	require.Equal(t, hsms.CauseLocalClose, socks[1].Cause, "the transport sealed it because it was stopping")
+}
+
+// sockMockRT is the transport unit-test runtime plus the socket-observation capability.
+// It has no socket close of its own, so nothing closes an adopted socket before the transport's Stop does.
+type sockMockRT struct {
+	*mockRT
+
+	log *socketLog
+}
+
+func (r *sockMockRT) ObserveSocket(ev hsms.SocketEvent) { r.log.observeSocket(ev) }
+
+// Stop closes the socket its generation adopted, when nothing closed it first, as a local close:
+// no failure and CauseLocalClose.
+func TestSocketObserver_StopClosesAsLocalClose(t *testing.T) {
+	t.Parallel()
+
+	port := freeLoopbackPort(t)
+	cfg, err := NewConfig("127.0.0.1", port, WithPassive())
+	require.NoError(t, err)
+
+	log := &socketLog{}
+	rt := &sockMockRT{mockRT: newMockRT(), log: log}
+	tr := newTransport(cfg)
+	require.NoError(t, tr.Start(context.Background(), rt))
+	t.Cleanup(func() { _ = tr.Stop(context.Background()) })
+
+	raw := dialPassive(t, port)
+	defer func() { _ = raw.Close() }()
+	rt.waitTCPUp(t)
+	id := log.waitKind(t, hsms.SocketAccepted, 1)[0].Socket
+
+	require.NoError(t, tr.Stop(context.Background()))
+
+	closed := log.waitClosed(t, id)
+	require.NoError(t, closed.Err, "Stop's close is a local one")
+	require.Equal(t, hsms.CauseLocalClose, closed.Cause, "Stop's close is a local one")
+	require.Equal(t, 1, log.countKind(id, hsms.SocketClosed))
 }
 
 // A reconnect advances both counters: the second socket has a larger identity and belongs to a later generation,
@@ -790,7 +914,7 @@ func TestSocketObserver_ReconnectAdvancesSocketAndGeneration(t *testing.T) {
 }
 
 // A read error racing a local Close yields exactly one close event for the socket,
-// carrying the failure of whichever side reached the socket's close first.
+// carrying the failure and the cause of whichever side reached the socket's close first.
 //
 // The read error wins when the peer's drop has already closed the socket through its gate,
 // here held inside that close's report while the local Close runs to the point where the transport is stopping.
@@ -833,7 +957,9 @@ func TestSocketRace_ReadErrorRacingLocalClose(t *testing.T) {
 		require.NoError(t, <-done)
 
 		require.Equal(t, 1, log.countKind(id, hsms.SocketClosed), "one close event")
-		require.ErrorIs(t, log.waitClosed(t, id).Err, io.EOF, "the read error won, so the close reports it")
+		closed := log.waitClosed(t, id)
+		require.ErrorIs(t, closed.Err, io.EOF, "the read error won, so the close reports it")
+		require.Equal(t, hsms.CauseIOError, closed.Cause, "the cause comes from the same initiator as the error")
 	})
 
 	t.Run("local close wins", func(t *testing.T) {
@@ -869,7 +995,9 @@ func TestSocketRace_ReadErrorRacingLocalClose(t *testing.T) {
 		require.NoError(t, <-done)
 
 		// The close report can trail Close behind the courtesy Separate's delivery, which holds the socket's report scope.
-		require.NoError(t, log.waitClosed(t, id).Err, "the local close won, so the close reports no failure")
+		closed := log.waitClosed(t, id)
+		require.NoError(t, closed.Err, "the local close won, so the close reports no failure")
+		require.Equal(t, hsms.CauseLocalClose, closed.Cause, "the cause comes from the same initiator as the error")
 		require.Equal(t, 1, log.countKind(id, hsms.SocketClosed), "one close event")
 	})
 }
@@ -1064,7 +1192,8 @@ func (r *downCountingRT) reported() []error {
 }
 
 // tcpDown closes the generation's socket through its gate before it reports,
-// hands the gate nil for a peer Separate while still reporting errPeerSeparate,
+// handing the gate its error and its transition cause,
+// but nil for a peer Separate while still reporting errPeerSeparate,
 // and drops a report only when another report already closed the socket:
 // a report that loses to any other close (teardown, Stop) is still made.
 func TestSocketObserver_TCPDownGatesBeforeReporting(t *testing.T) {
@@ -1074,10 +1203,11 @@ func TestSocketObserver_TCPDownGatesBeforeReporting(t *testing.T) {
 	errSecond := errors.New("second report")
 
 	tests := []struct {
-		name         string
-		run          func(tr *transport, g *genWG)
-		wantReports  []error
-		wantCloseErr error
+		name           string
+		run            func(tr *transport, g *genWG)
+		wantReports    []error
+		wantCloseErr   error
+		wantCloseCause hsms.TransitionCause
 	}{
 		{
 			name: "a second report after a report is dropped",
@@ -1085,25 +1215,28 @@ func TestSocketObserver_TCPDownGatesBeforeReporting(t *testing.T) {
 				tr.tcpDown(g, errFirst, hsms.CauseLinktestFail)
 				tr.tcpDown(g, errSecond, hsms.CauseIOError)
 			},
-			wantReports:  []error{errFirst},
-			wantCloseErr: errFirst,
+			wantReports:    []error{errFirst},
+			wantCloseErr:   errFirst,
+			wantCloseCause: hsms.CauseLinktestFail,
 		},
 		{
 			name: "a report after a local close is still made",
 			run: func(tr *transport, g *genWG) {
-				g.sock.close(nil)
+				g.sock.close(nil, hsms.CauseLocalClose)
 				tr.tcpDown(g, errSecond, hsms.CauseIOError)
 			},
-			wantReports:  []error{errSecond},
-			wantCloseErr: nil,
+			wantReports:    []error{errSecond},
+			wantCloseErr:   nil,
+			wantCloseCause: hsms.CauseLocalClose,
 		},
 		{
 			name: "a peer Separate closes with no failure",
 			run: func(tr *transport, g *genWG) {
 				tr.tcpDown(g, errPeerSeparate, hsms.CausePeerSeparate)
 			},
-			wantReports:  []error{errPeerSeparate},
-			wantCloseErr: nil,
+			wantReports:    []error{errPeerSeparate},
+			wantCloseErr:   nil,
+			wantCloseCause: hsms.CausePeerSeparate,
 		},
 	}
 
@@ -1126,6 +1259,7 @@ func TestSocketObserver_TCPDownGatesBeforeReporting(t *testing.T) {
 			closed := log.kind(hsms.SocketClosed)
 			require.Len(t, closed, 1)
 			require.Equal(t, tt.wantCloseErr, closed[0].Err)
+			require.Equal(t, tt.wantCloseCause, closed[0].Cause, "the error and the cause come from the same report")
 
 			_, err := server.Read(make([]byte, 1))
 			require.ErrorIs(t, err, io.EOF, "the gate closed the socket before the report")
@@ -1172,14 +1306,14 @@ func TestSocketObserver_RefusalReportPanicReleasesScope(t *testing.T) {
 	}}
 
 	rec := tr.mintSocket(client, hsms.SocketAccepted)
-	tr.observeSocket(rec.event(hsms.SocketRefused, nil, time.Now()))
+	tr.observeSocket(rec.event(hsms.SocketRefused, nil, hsms.CauseUnknown, time.Now()))
 	capture := tr.captureRefusal(rec)
 	require.NotNil(t, capture, "the runtime offers a wire observer and the socket is open")
 
 	capture.inbound(selectReqFrame([4]byte{0, 0, 0, 9}))
 	capture.outbound(buildControlFrame(byte(hsms.SelectRspType), byte(hsms.SelectStatusAlreadyActive), [4]byte{0, 0, 0, 9}), time.Now())
 
-	rec.close(nil) // the exchange's deferred close: the scope is held, so the close report is left to its release
+	rec.close(nil, hsms.CauseLocalClose) // the exchange's deferred close: the scope is held, so the close report is left to its release
 	require.Zero(t, log.countKind(rec.id, hsms.SocketClosed), "the close must not be reported while the frames' report is pending")
 
 	require.PanicsWithValue(t, boom, capture.deliver, "the observer's panic unwinds the delivery")
@@ -1449,7 +1583,7 @@ func TestSocketObserver_NoScopeOnceCloseDecided(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		rec.close(nil)
+		rec.close(nil, hsms.CauseLocalClose)
 	}()
 
 	select {
