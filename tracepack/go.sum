@@ -1,5 +1,5 @@
-github.com/arloliu/go-secs/v2 v2.5.1-0.20260927150104-76928c7f2a8c h1:7N9fwRbRFOnDf/ZVDHpXT5Ag3LdS4194mnx/THAvvSM=
-github.com/arloliu/go-secs/v2 v2.5.1-0.20260927150104-76928c7f2a8c/go.mod h1:2sIKZ6keYTFe8usyYlR30wQnu4zrUHPVSGn55aoieMQ=
+github.com/arloliu/go-secs/v2 v2.6.0 h1:Tgqy+Oob1GQ9y3UR4r7/W2OqOZiOWFC1w/YJs5CK5dk=
+github.com/arloliu/go-secs/v2 v2.6.0/go.mod h1:SEbNIic8oZ6zb0EW/ldiw7gfQNPgePSDqpZITKHqiHA=
 github.com/klauspost/compress v1.20.1 h1:T7kKElXUMXrUJ2E9QhQhxFtcK5rPyLdsGZvdbLMPdiQ=
 github.com/klauspost/compress v1.20.1/go.mod h1:LUdAzn7YLVvxLpc7y3V1m40wESHTgc1422pwwBSKYuI=
 github.com/phsym/console-slog v0.3.1 h1:Fuzcrjr40xTc004S9Kni8XfNsk+qrptQmyR+wZw9/7A=

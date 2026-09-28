@@ -5,6 +5,13 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-28
+
+The first release: the format primitives, the `Writer`, and the go-secs-backed classifier.
+It writes packs but does not read them yet;
+the reader, verification, merge, and extraction follow in later releases.
+The module requires go-secs v2.6.0.
+
 ### Added
 
 - Module skeleton: `github.com/arloliu/go-secs/tracepack`, nested in `tracepack/`, with Makefile targets, a dedicated CI job and the release flow.
