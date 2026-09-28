@@ -95,7 +95,9 @@ type socketRecord struct {
 //
 // The exchange runs on the accept goroutine, which Stop joins without a bound,
 // so the accept goroutine must never call the wire observer:
-// it captures each frame as it crosses, with its At taken at that moment,
+// it captures each frame as it crosses,
+// the peer's frame with its At taken when its read completed
+// and the Select.rsp with its At taken when its write was issued,
 // and hands the capture to a new goroutine (deliver) once the exchange has ended, while the scope is still held.
 // One capture is allocated per refused socket whose exchange is reported.
 type refusalCapture struct {
@@ -105,7 +107,9 @@ type refusalCapture struct {
 
 	// in and out hold the frames that crossed, both header-only control frames of 14 bytes:
 	// the peer's first frame, and the Select.rsp refusing it.
-	// Each is present only when its flag is set, with its At taken when the read or write completed.
+	// Each is present only when its flag is set:
+	// the peer's frame with its At taken when the read completed,
+	// the Select.rsp with its At taken when the write was issued, and only once that write returned the full frame.
 	in, out       [14]byte
 	inAt, outAt   time.Time
 	hasIn, hasOut bool
@@ -343,10 +347,11 @@ func (c *refusalCapture) inbound(frame []byte) {
 	c.hasIn = true
 }
 
-// outbound records frame, the Select.rsp, as written now.
-func (c *refusalCapture) outbound(frame []byte) {
+// outbound records frame, the Select.rsp, once its write returned the full frame,
+// with at, the time that write was issued.
+func (c *refusalCapture) outbound(frame []byte, at time.Time) {
 	copy(c.out[:], frame)
-	c.outAt = time.Now()
+	c.outAt = at
 	c.hasOut = true
 }
 

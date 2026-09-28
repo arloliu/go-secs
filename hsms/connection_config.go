@@ -676,6 +676,9 @@ func WithTransactionObserver(fn func(TxEvent)) ConnOption {
 // An inbound frame is reported as soon as it has been read, before it is interpreted.
 // An outbound frame is reported after its write returned successfully;
 // a frame whose write failed, and a frame refused before the write, are not reported.
+// [WireEvent.At] is the time an inbound frame was fully read, and the time immediately before an outbound frame's write was issued:
+// a frame the peer sends in answer never carries an earlier At than the frame it answers,
+// however late the write of the frame it answers returned.
 // A frame the connection could not read completely,
 // because the socket closed partway through it,
 // is never a frame and is not reported.
@@ -695,7 +698,10 @@ func WithTransactionObserver(fn func(TxEvent)) ConnOption {
 //     the receive goroutine for an inbound frame, and the writing goroutine, under the connection's write lock, for an outbound one.
 //     Two frames are the exception, because the goroutines that move them are ones Close waits for:
 //     the courtesy Separate a graceful close writes, and the frames of a refused peer's exchange,
-//     are delivered from a goroutine started for that one report once the frame has crossed, with At taken when it crossed.
+//     are delivered from a goroutine started for that one report,
+//     once the peer's frame was fully read or the outbound frame's write succeeded.
+//     Their At follows the same rule as every other frame's:
+//     when an inbound frame was fully read, and immediately before an outbound frame's write was issued.
 //     It must be cheap — copy the frame into your own queue and return.
 //     A slow fn delays the link, including the reads that the T8 inter-character timer bounds,
 //     and delays the SocketClosed report of the socket the frame crossed, which follows the call;

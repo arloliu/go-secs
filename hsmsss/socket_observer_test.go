@@ -1177,7 +1177,7 @@ func TestSocketObserver_RefusalReportPanicReleasesScope(t *testing.T) {
 	require.NotNil(t, capture, "the runtime offers a wire observer and the socket is open")
 
 	capture.inbound(selectReqFrame([4]byte{0, 0, 0, 9}))
-	capture.outbound(buildControlFrame(byte(hsms.SelectRspType), byte(hsms.SelectStatusAlreadyActive), [4]byte{0, 0, 0, 9}))
+	capture.outbound(buildControlFrame(byte(hsms.SelectRspType), byte(hsms.SelectStatusAlreadyActive), [4]byte{0, 0, 0, 9}), time.Now())
 
 	rec.close(nil) // the exchange's deferred close: the scope is held, so the close report is left to its release
 	require.Zero(t, log.countKind(rec.id, hsms.SocketClosed), "the close must not be reported while the frames' report is pending")

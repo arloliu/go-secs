@@ -745,13 +745,13 @@ func (c *connection) writeFarewellSeparate(e *epoch) {
 
 	_ = c.tr.SetWriteDeadline(conn, time.Now().Add(farewellWriteTimeout))
 
-	err = c.tr.Write(e.ctx, conn, bufs)
-
-	// At is taken here, when the write returned, not when the report is delivered.
-	var writtenAt time.Time
+	// At is taken immediately before the write, as in writeFrame, not when the write returns or the report is delivered.
+	var issuedAt time.Time
 	if release != nil {
-		writtenAt = time.Now()
+		issuedAt = time.Now()
 	}
+
+	err = c.tr.Write(e.ctx, conn, bufs)
 
 	_ = c.tr.SetWriteDeadline(conn, time.Time{}) // clear the deadline for any later (teardown) use
 
@@ -765,7 +765,7 @@ func (c *connection) writeFarewellSeparate(e *epoch) {
 		return
 	}
 
-	go deliverWireReport(wireObs, WireEvent{Direction: WireOutbound, Socket: e.socketID(), Generation: e.id, At: writtenAt, Frame: wireFrame}, release)
+	go deliverWireReport(wireObs, WireEvent{Direction: WireOutbound, Socket: e.socketID(), Generation: e.id, At: issuedAt, Frame: wireFrame}, release)
 }
 
 // startConnectLoop launches the reconnect loop after an involuntary drop (spec §5.2/§7.C). It is
