@@ -192,7 +192,8 @@ func AppendF2Entry(dst []byte, e *F2Entry) []byte {
 // UnmarshalF2Entry reads the 80 bytes layout 1 defines and skips the rest, ignoring the reserved bytes 78-79.
 // It checks that record_header_len is at least RecordHeaderLen (ErrCorrupt),
 // then that offset, first_seq, last_seq and summary_offset are at most MaxU64
-// and on_disk_len and uncompressed_len at most MaxLen32 (ErrLimit).
+// uncompressed_len at most MaxLen32, and on_disk_len at most EnvelopeLen + MaxLen32,
+// the envelope plus the largest body_len (ErrLimit).
 // The rest of the footer validation of the tracepack format specification §10 is the caller's.
 // The returned entry copies every field out of b.
 //
@@ -306,10 +307,18 @@ func (e *F2Entry) validate() error {
 		return err
 	}
 
-	lens := [...]len32Field{
-		{name: "on_disk_len", off: f2OnDiskLenOff, value: e.OnDiskLen},
-		{name: "uncompressed_len", off: f2UncompressedLenOff, value: e.UncompressedLen},
+	// on_disk_len is the envelope plus a body_len of at most MaxLen32,
+	// so it may exceed MaxLen32 by the envelope's length.
+	if e.OnDiskLen > EnvelopeLen+MaxLen32 {
+		return &OffsetError{
+			Structure: f2EntryStructure,
+			Field:     "on_disk_len",
+			Offset:    f2OnDiskLenOff,
+			Err:       fmt.Errorf("on_disk_len: value %d exceeds the %d-byte envelope plus %d: %w", e.OnDiskLen, EnvelopeLen, MaxLen32, ErrLimit),
+		}
 	}
+
+	lens := [...]len32Field{{name: "uncompressed_len", off: f2UncompressedLenOff, value: e.UncompressedLen}}
 
 	return checkLen32Fields(f2EntryStructure, lens[:])
 }

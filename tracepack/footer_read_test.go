@@ -680,13 +680,77 @@ func TestParseFooterRejectsLayout(t *testing.T) {
 		{name: "F-3 length at the u64 limit", raw: prologue(func(p *format.FooterPrologue) { p.F3Len = format.MaxU64 }), want: "F-3 at offset"},
 		{
 			name: "F-4 inside F-3",
-			raw:  prologue(func(p *format.FooterPrologue) { p.F4Offset, p.F4Len = p.F3Offset, 1 }),
+			raw: prologue(func(p *format.FooterPrologue) {
+				p.Flags, p.F4Offset, p.F4Len = p.Flags|footerFlagF4Present, p.F3Offset, 1
+			}),
 			want: "F-4 at offset",
 		},
-		{name: "F-5 overlaps a non-empty F-4", raw: prologue(func(p *format.FooterPrologue) { p.F4Len = 1 }), want: "F-5 at offset"},
+		{
+			name: "F-5 overlaps a non-empty F-4",
+			raw:  prologue(func(p *format.FooterPrologue) { p.Flags, p.F4Len = p.Flags|footerFlagF4Present, 1 }),
+			want: "F-5 at offset",
+		},
+		{name: "F-4 bytes without the F-4 present flag", raw: prologue(func(p *format.FooterPrologue) { p.F4Len = 1 }), want: "F-4 present"},
+		{
+			name: "F-4 present flag without F-4 bytes",
+			raw:  prologue(func(p *format.FooterPrologue) { p.Flags |= footerFlagF4Present }),
+			want: "F-4 present",
+		},
+		{
+			name: "extraction_version without F-4",
+			raw:  prologue(func(p *format.FooterPrologue) { p.ExtractionVersion = 1 }),
+			want: "extraction_version 1",
+		},
 		{name: "F-5 before F-3", raw: prologue(func(p *format.FooterPrologue) { p.F5Offset = p.F3Offset }), want: "F-5 at offset"},
 		{name: "F-5 past the footer end", raw: prologue(func(p *format.FooterPrologue) { p.F5Len++ }), want: "F-5 at offset"},
 	})
+}
+
+// TestParseFooterAcceptsF4 checks that a footer with a non-empty F-4 and its present flag is accepted,
+// its content unread, since the tracepack format specification §10 defers the secondary index.
+func TestParseFooterAcceptsF4(t *testing.T) {
+	t.Parallel()
+
+	base := richFooterPack(t, CodecNone)
+	b := splitFooter(t, base.decoded).encode()
+	pro, err := format.UnmarshalFooterPrologue(b)
+	require.NoError(t, err)
+
+	const f4Len = 8
+	withF4 := slices.Concat(b[:pro.F5Offset], []byte{1, 2, 3, 4, 5, 6, 7, 8}, b[pro.F5Offset:])
+	withF4 = patchPrologue(t, withF4, func(p *format.FooterPrologue) {
+		p.Flags |= footerFlagF4Present
+		p.ExtractionVersion = 1
+		p.F4Offset, p.F4Len = p.F5Offset, f4Len
+		p.F5Offset += f4Len
+	})
+
+	idx, err := parseFooter(withF4, &base.tr, base.blocksStart)
+	require.NoError(t, err)
+	assert.Len(t, idx.entries, len(base.blocks))
+}
+
+// TestParseFooterAcceptsLargestBlock checks that a block whose body_len is at the 2^31-1 limit of
+// the tracepack format specification §2 keeps its index entry:
+// its on_disk_len is the 40-byte envelope plus that body, above 2^31-1.
+func TestParseFooterAcceptsLargestBlock(t *testing.T) {
+	t.Parallel()
+
+	base := richFooterPack(t, CodecNone)
+	last := len(base.blocks) - 1
+	p := splitFooter(t, base.decoded)
+	p.entries[last].OnDiskLen = format.EnvelopeLen + format.MaxLen32
+	tr := base.tr
+	tr.FooterOffset = base.blocks[last].offset + uint64(p.entries[last].OnDiskLen)
+
+	_, err := parseFooter(p.encode(), &tr, base.blocksStart)
+	require.NoError(t, err)
+
+	p.entries[last].OnDiskLen++
+	tr.FooterOffset++
+	_, err = parseFooter(p.encode(), &tr, base.blocksStart)
+	require.ErrorIs(t, err, ErrInvalidFooter)
+	require.ErrorIs(t, err, format.ErrLimit)
 }
 
 func TestParseFooterRejectsBlockIndex(t *testing.T) {

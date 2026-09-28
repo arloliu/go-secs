@@ -98,10 +98,18 @@ func parseFooter(decoded []byte, tr *format.Trailer, blocksStart uint64) (*foote
 }
 
 // checkPrologue checks the F-1 fields UnmarshalFooterPrologue leaves to the caller:
-// F-3 present, f2_offset = 72, block_count equal to the trailer's, and an empty F-3 in a pack without blocks.
+// F-3 present, F-4 present exactly when f4_len is not 0, extraction_version 0 without F-4,
+// f2_offset = 72, block_count equal to the trailer's, and an empty F-3 in a pack without blocks.
 func checkPrologue(pro *format.FooterPrologue, tr *format.Trailer) error {
 	if pro.Flags&footerFlagF3Present == 0 {
 		return footerErrorf("F-1 flags 0x%04X lack F-3 present", pro.Flags)
+	}
+	f4Present := pro.Flags&footerFlagF4Present != 0
+	if f4Present != (pro.F4Len != 0) {
+		return footerErrorf("F-1 flags 0x%04X disagree with f4_len %d on F-4 present", pro.Flags, pro.F4Len)
+	}
+	if !f4Present && pro.ExtractionVersion != 0 {
+		return footerErrorf("F-1 extraction_version %d without F-4", pro.ExtractionVersion)
 	}
 	if pro.F2Offset != format.FooterPrologueLen {
 		return footerErrorf("F-1 f2_offset %d, not %d", pro.F2Offset, format.FooterPrologueLen)
