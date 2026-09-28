@@ -1,6 +1,6 @@
 # tracepack — record semantics
 
-Status: current (2026-09-27) — v2.9, tracepack format 1.0.
+Status: current (2026-09-27) — v2.10, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic.
 
@@ -111,6 +111,8 @@ other transport-event and annotation records use `not-applicable`.
 ## 4. Time
 
 - `ts_utc_ns`: for `time_source = capture-clock`, the wall clock at the vantage point when the **complete frame** was observed.
+  A frame the vantage sends itself is observed complete when it is handed to the socket, not when the send returns,
+  because the peer can read and answer it before the send returns.
   A first-byte time, if ever wanted, is an additional field in a minor version, never a reinterpretation.
   For `time_source = source-log`, the source timestamp parsed in `source_tz` and converted to UTC.
 - `mono_ns`: capture-clock only; elapsed monotonic ns since `capture_origin_mono_ns`,

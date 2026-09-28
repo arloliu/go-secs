@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation plan (v1)
 
 Status: active (2026-09-28) — phase 2 done; phase 3 next.
-Implements: tracepack v2.8 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
+Implements: tracepack v2.10 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
 

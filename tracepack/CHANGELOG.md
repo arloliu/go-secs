@@ -8,7 +8,7 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 ### Added
 
 - Module skeleton: `github.com/arloliu/go-secs/tracepack`, nested in `tracepack/`, with Makefile targets, a dedicated CI job and the release flow.
-  The format specification (tracepack v2.8, format 1.0) lives in `docs/specs/tracepack/`.
+  The format specification (tracepack v2.10, format 1.0) lives in `docs/specs/tracepack/`.
 - Format primitives (internal, no public API beyond the enums yet):
   CRC-32/ISO-HDLC, RFC 9562 UUIDs with a UUIDv7 generator, the portable integer limits and sentinel errors;
   the fixed byte layouts (file header, block envelope, record header, trailer, footer prologue, block index entry) with encoders, decoders and offset-reporting errors;
