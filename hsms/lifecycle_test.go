@@ -66,6 +66,29 @@ func (l *eventLog) requireCount(t *testing.T, tag string, n int) {
 	}, 3*time.Second, time.Millisecond, "timeout waiting for %d %q events, have %d", n, tag, len(l.filter(tag)))
 }
 
+// countEntering returns how many entries with tag report a transition into next.
+func (l *eventLog) countEntering(tag string, next ConnState) int {
+	n := 0
+	for _, e := range l.filter(tag) {
+		if e.next == next {
+			n++
+		}
+	}
+
+	return n
+}
+
+// requireEntering waits (bounded poll — never a Sleep) until at least n entries with tag report a transition into next.
+// Keying the wait on the state entered, rather than on the total count,
+// lets a caller wait for THIS cycle's report on a log that already holds earlier cycles,
+// including a previous Close's terminal entry that may still be in flight.
+func (l *eventLog) requireEntering(t *testing.T, tag string, next ConnState, n int) {
+	t.Helper()
+	require.Eventuallyf(t, func() bool {
+		return l.countEntering(tag, next) >= n
+	}, 3*time.Second, time.Millisecond, "timeout waiting for %d %q events entering %v, have %d", n, tag, next, l.countEntering(tag, next))
+}
+
 // requireHandlerExitCause waits (bounded poll — never a Sleep) until the "sub" log holds a CauseHandlerExit entry, and returns it.
 // It searches by content rather than position,
 // so a schedule that adds an extra "sub" entry before the one under test — a Selected notification landing after State() already reports Selected, for instance —
@@ -95,14 +118,20 @@ func (l *eventLog) requireHandlerExitCause(t *testing.T) logEntry {
 // so the supervisor legitimately collapses both into a single NotConnected -> Selected report when the commit wins;
 // stepping removes that race so a test can assert on an exact event sequence.
 // l must already hold a subscription registered through subscribeLog.
+// Each wait is for the report of this Open's own transition:
+// on a reopened connection the log already holds the previous cycle's entries,
+// so a plain count would be satisfied before the transport has even brought this cycle up.
 func openSelected(t *testing.T, c *connection, l *eventLog) {
 	t.Helper()
 
+	notSelected := l.countEntering("sub", NotSelectedState)
+	selected := l.countEntering("sub", SelectedState)
+
 	require.NoError(t, c.Open(t.Context(), OpenBackground))
-	l.requireCount(t, "sub", 1) // NotConnected -> NotSelected
+	l.requireEntering(t, "sub", NotSelectedState, notSelected+1) // NotConnected -> NotSelected
 
 	require.True(t, c.CommitSelected(), "the select commit must be this call's CAS")
-	l.requireCount(t, "sub", 2) // NotSelected -> Selected
+	l.requireEntering(t, "sub", SelectedState, selected+1) // NotSelected -> Selected
 	requireSelected(t, c)
 }
 

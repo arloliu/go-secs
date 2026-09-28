@@ -77,7 +77,17 @@ func TestTransition_E37Table(t *testing.T) {
 // transition; the terminal (newest) must NOT be the one dropped — a later drain reads
 // NotConnected as the surviving latest.
 func TestSupervisor_LatestStateSurvivesDropOldestWhenNotifyFull(t *testing.T) {
-	s := newSupervisorWithEventsCap(func(_, _ ConnState, _ TransitionCause) {}, newHandlerPtr(), nil, 8)
+	// A terminal transition is emitted onto notify BEFORE its react call (fireTransition's terminal ordering),
+	// so react observing NotConnected means every transition of this run, the terminal included,
+	// has already been pushed against the full buffer.
+	// Draining notify any earlier would free slots and leave nothing to drop.
+	terminal := newOnceSignal()
+	react := func(_, next ConnState, _ TransitionCause) {
+		if next == NotConnectedState {
+			terminal.fire()
+		}
+	}
+	s := newSupervisorWithEventsCap(react, newHandlerPtr(), nil, 8)
 	for range cap(s.notify) {
 		s.notify <- stateChange{prev: NotConnectedState, next: NotSelectedState} // fill with stale advisory
 	}
@@ -88,17 +98,22 @@ func TestSupervisor_LatestStateSurvivesDropOldestWhenNotifyFull(t *testing.T) {
 	s.inject(evSelectAccepted, CauseUnknown)
 	s.inject(evDisconnect, CauseUnknown) // terminal NotConnected — drop-oldest must keep THIS (the latest)
 
-	require.Eventually(t, func() bool {
-		var last *stateChange
-		for {
-			select {
-			case sc := <-s.notify:
-				last = &sc
-			default:
-				return last != nil && last.next == NotConnectedState && last.prev != NotConnectedState
-			}
+	terminal.wait(t, "the supervisor never reacted to the terminal NotConnected transition")
+
+	var last *stateChange
+drain:
+	for {
+		select {
+		case sc := <-s.notify:
+			last = &sc
+		default:
+			break drain
 		}
-	}, 2*time.Second, 10*time.Millisecond, "drop-oldest must preserve the LATEST (terminal NotConnected) state (F1)")
+	}
+
+	require.NotNil(t, last)
+	require.Equal(t, NotConnectedState, last.next, "drop-oldest must preserve the LATEST (terminal NotConnected) state")
+	require.NotEqual(t, NotConnectedState, last.prev)
 
 	require.Positive(t, s.droppedNotify.Load(), "coalescing should have counted drops")
 }
