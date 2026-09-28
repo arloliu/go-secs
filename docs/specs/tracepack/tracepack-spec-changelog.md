@@ -10,6 +10,16 @@ The deferred proposals and the decision log are listed in `README.md`.
 
 - 2026-09-27: the eqp-hub producer row of §2 names the path that exists (`eqp_hsms` → `hsms_secsjson` → `tap_nats` → JetStream) instead of a `secs-recorder` device that was only planned,
   and records what that path lacks today (generation id, start/stop event, monotonic time); open question 2 added.
+- 2026-09-28: brought up to the go-secs v2.6.0 observers, and to spec v2.10.
+  §2 records through `WithWireObserver` and `WithSocketObserver` instead of a conn wrapper and maps `epoch` from `Socket`;
+  the eqp-hub paragraph says what v2.6.0 exposes and what eqp-hub, still on v2.3.0 without a recorder device, lacks.
+  §5.1 drops the branch note on `CauseHandlerExit` and gains the `SocketRefused` row;
+  §5.2 takes lifecycle epochs and times from `LifecycleEvent.Socket` and `At`, keeping the drop-oldest caveat;
+  §5.3 takes socket events from `WithSocketObserver`, with the `socket-close` cause mapping and the note that it can differ from the lifecycle cause;
+  §5.4 notes the session, socket and generation `TxEvent` carries;
+  the new §5.5 maps wire events to records, the outbound time being the [SEM §4] hand-to-socket time.
+  Open questions 1 and 2 are answered;
+  question 3, on marking a record that reached the recorder after its ordering window, is added.
 
 ## Changes vs v1 (summary)
 
