@@ -123,6 +123,13 @@
 //
 // All four events name the socket and the connection generation they belong to,
 // so a recorder can join the streams on those two values.
+// Lifecycle, wire and socket events also carry the time they happened, with a monotonic reading.
+// A transition's time is when it fired, not when its event was delivered.
+// An inbound frame's time is when it was fully read,
+// and an outbound frame's is immediately before its write was issued,
+// so a reply never carries an earlier time than the frame it answers.
+// A SocketClosed event names the cause of the close next to its error ([SocketEvent.Cause]);
+// that cause names what closed the socket first, so it can differ from the cause of the transition that ended the link.
 // Wire and socket events come only from a transport whose socket carries HSMS frames, which is the HSMS-SS transport;
 // a SECS-I connection reports neither.
 //

@@ -149,6 +149,27 @@ and an event carrying generation 0, which only a supervisor built without a conn
 How that identity is carried, bound, and checked — on the queue, at the three synchronous commits, and on the wire —
 is recorded in [how a report from an ended generation is kept off its successor](/hsms/generation-report-fence.md).
 
+**The socket's close reason is a separate record, and the first one wins.**
+`SocketEvent.Cause` and `SocketEvent.Err` are one pair, the close reason, and both come from whichever path closed the socket first.
+The HSMS-SS socket record's gate (`hsmsss` `socketRecord.gate`) keeps the pair of its first caller:
+`transport.tcpDown` hands it the error and the cause it reports (nil with `CausePeerSeparate` for a peer Separate),
+Stop and a sealed dial hand it `(nil, CauseLocalClose)`, a TCP-up the core refused `(nil, CauseUnknown)`.
+For an adopted socket the core's side is `epoch.reason`, written once under `connMu` by `recordCloseReason`,
+where a `set` flag, not a nil error, marks it recorded, so a first `(nil, CauseLocalClose)` also wins.
+Every path that tears an epoch down records its reason immediately before its `teardown` call:
+`writeFrame`'s write-error branch `(the write error, CauseIOError)`;
+`react` `(ErrT7Timeout, CauseT7Timeout)` for a T7 transition and `(nil, the transition's cause)` for any other;
+`step`'s `evClose` branch `(nil, CauseLocalClose)`, which is the only record for a Close that fired no transition;
+`connectLoopStartFailure`, and `Open`'s rollback for an epoch it did not pin, `(the Start error, CauseUnknown)`.
+`requestClose` records nothing, and `Open`'s cold branch records nothing because that epoch never adopted a socket.
+`closeSocket` hands the pair to `socketCloser.CloseSocket(conn, err, cause)`, which closes through the same gate.
+So the socket's cause can differ from the transition's:
+a write that fails before a queued Close is stepped, or after a T7 transition fired and before `react` records,
+keeps `CauseIOError` on the socket while the lifecycle event reports `CauseLocalClose` or `CauseT7Timeout`.
+The socket event says what closed the socket first; the lifecycle event says what drove the state machine.
+An initial `Open` whose `Start` failed after the TCP-up closes through `requestClose`, so its socket reports `CauseLocalClose`,
+while the same failure on a reconnect reports `CauseUnknown` with the `Start` error.
+
 **How the cause crosses the package boundary.**
 `hsmsss` and `secs1` reach `TCPDownWithCause` by type-asserting `t.rt` to a package-local `causeRuntime` interface, then fall back to plain `TCPDown`.
 `hsmsss` additionally asserts a generation-aware `genRuntime` interface and prefers it when present
@@ -240,6 +261,11 @@ As implemented, the late report is ignored and the state stays `NotConnected`, s
   `hsms/connection_send.go` → `(*connection).callAsyncSendErrorHandler`;
   `hsms/connection_runtime.go` → `(*connection).routeDataOn`, `(*connection).DeliverOwnedFrame`
 - generation identity and every fence on it: [the generation report fence](/hsms/generation-report-fence.md)
+- the socket's close reason: `hsms/epoch.go` → `closeReason`, `(*epoch).recordCloseReason`, `(*epoch).closeSocket`;
+  the recording sites: `hsms/connection_send.go` → `writeFrame`, `hsms/connection_lifecycle.go` → `react`, `connectLoopStartFailure`, `rollbackFailedOpen`,
+  `hsms/supervisor.go` → `step`;
+  the capability: `hsms/socket_observer.go` → `socketCloser`;
+  the gate: `hsmsss/transport_socket.go` → `(*socketRecord).gate`, `(*transport).CloseSocket`
 - transport capability: `hsmsss/transport_control.go` → `causeRuntime`, `genRuntime`,
   `transport.tcpDown`, `transport.t7Expired`, `transport.tcpUp`, `transport.commitSelected`, `transport.selectLost`;
   `secs1/transport.go` → `causeRuntime` only

@@ -639,6 +639,10 @@ func (s *supervisor) step(cmd fsmCommand) {
 		// Latch closed (I2) BEFORE teardown: no event queued behind this evClose may move state again.
 		s.closed = true
 		if closing != nil {
+			// A local close with no failure is the close reason, unless one was recorded first:
+			// the reaction to this Close's own transition, or a write that failed before it.
+			// It is what a Close that fired no transition hands the socket's close.
+			closing.recordCloseReason(nil, CauseLocalClose)
 			closing.teardown(s.resolveCloseTimeout())
 		}
 	}

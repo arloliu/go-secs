@@ -440,8 +440,8 @@ func (t *transport) Stop(ctx context.Context) error {
 
 	// Close the conn we already know about (active: set synchronously by startActive; passive:
 	// set once the accept goroutine adopted a peer) to unblock the recv loop's parked Read (J5).
-	// It closes through the socket's gate with no failure:
-	// the epoch's teardown already closed it with whatever failure it recorded, so this is normally a no-op.
+	// It closes through the socket's gate as a local close, with no failure and CauseLocalClose:
+	// the epoch's teardown already closed it with whatever close reason it recorded, so this is normally a no-op.
 	if conn != nil {
 		closeRecorded(sock, conn)
 	}

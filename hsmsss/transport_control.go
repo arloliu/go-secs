@@ -108,10 +108,11 @@ func (t *transport) currentGeneration() uint64 {
 // its gen names the generation, so a report from a generation that has already ended is discarded,
 // and its sock is the socket that generation adopted.
 //
-// The socket is closed through its gate first, with cause as the failure that initiated the close,
-// so the failure reaches the gate before the teardown this report starts can close the socket with none.
-// A peer Separate is the exception:
-// the peer asked for the close, so the gate is handed nil, while the core is still told errPeerSeparate.
+// The socket is closed through its gate first, with cause as the failure that initiated the close
+// and transitionCause as the cause that names it,
+// so this report's close reason reaches the gate before the teardown it starts can close the socket with another.
+// A peer Separate is the exception to the failure half:
+// the peer asked for the close, so the gate is handed nil with CausePeerSeparate, while the core is still told errPeerSeparate.
 // When another report already closed the socket, that report owns the socket's end and this one is dropped:
 // closing the socket wakes the recv loop with a read error,
 // and without the drop that read error could reach the core ahead of the report that caused it.
@@ -123,7 +124,7 @@ func (t *transport) tcpDown(g *genWG, cause error, transitionCause hsms.Transiti
 			closeErr = nil
 		}
 
-		if !g.sock.closeForReport(closeErr) {
+		if !g.sock.closeForReport(closeErr, transitionCause) {
 			return
 		}
 	}

@@ -242,8 +242,9 @@ func (c *connection) writeFrame(ctx context.Context, e *epoch, msg Message) erro
 		// TCPDown only injects evDisconnect (the actual teardown runs on the supervisor goroutine), so it is safe under writeMu.
 		// Reported for THIS epoch's generation (e.id), not whichever is current when the report lands:
 		// a sender stalled across a reconnect must not drop the successor it never wrote to.
-		// The error is recorded first, so the socket close that teardown performs carries it.
-		e.recordCloseFailure(err)
+		// The error is recorded first, as this generation's close reason,
+		// so the socket close that teardown performs carries it.
+		e.recordCloseReason(err, CauseIOError)
 		c.TCPDownFromGeneration(e.id, err, CauseIOError)
 
 		return err

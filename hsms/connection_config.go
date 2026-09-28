@@ -762,7 +762,10 @@ func WithWireObserver(fn func(WireEvent)) ConnOption {
 // A refused socket's frames —
 // the peer's Select.req and the Select.rsp answering it, whichever of the two crossed the wire —
 // follow its SocketRefused and carry Generation 0.
-// [SocketEvent.Err] on the close names the failure that initiated it, and is nil for a close nobody's failure caused.
+// [SocketEvent.Err] on the close names the failure that initiated it, and is nil for a close nobody's failure caused;
+// [SocketEvent.Cause] names why the socket closed.
+// The two are one close reason, from whichever path closed the socket first,
+// so Cause can differ from the cause of the lifecycle transition that ended the socket's generation.
 //
 // Sockets are reported only by a transport that owns sockets and reports them, which is the HSMS-SS transport.
 // A SECS-I connection reports nothing.
