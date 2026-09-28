@@ -104,6 +104,55 @@ func Decode(codecID uint8, dst, src []byte, uncompressedLen int) ([]byte, error)
 	}
 }
 
+// DecodePrefix decodes only the first prefixLen bytes of a body of uncompressedLen decoded bytes
+// and appends them to dst:
+// the header-only read of the tracepack format specification §6.
+//
+// It runs the checks Decode runs before decoding:
+// for None, src must be exactly uncompressedLen bytes;
+// for Zstd, src must hold exactly one RFC 8878 frame with no dictionary and a window within Decode's budget.
+// It does not check the stream after the prefix,
+// nor that the stream decodes to exactly uncompressedLen bytes,
+// so a nil error says nothing about the rest of the body.
+//
+// Parameters:
+//   - codecID: None or Zstd.
+//   - dst: destination buffer; may be nil.
+//   - src: the encoded body.
+//   - prefixLen: the number of decoded bytes wanted; 0 ≤ prefixLen ≤ uncompressedLen.
+//   - uncompressedLen: the body's declared decoded length; never negative.
+//
+// Returns:
+//   - []byte: the first prefixLen decoded bytes, appended to dst.
+//   - error: ErrUnknownCodec for a codecID outside the registry;
+//     ErrLengthMismatch for a prefixLen or uncompressedLen out of range, or a None source of the wrong length;
+//     for Zstd, ErrIncompleteStream when the stream ends before the prefix does,
+//     and the frame errors of Decode.
+func DecodePrefix(codecID uint8, dst, src []byte, prefixLen, uncompressedLen int) ([]byte, error) {
+	if prefixLen < 0 || prefixLen > uncompressedLen {
+		return dst[:0], fmt.Errorf(
+			"codec: decode prefix: prefix length %d outside a %d-byte body: %w",
+			prefixLen, uncompressedLen, ErrLengthMismatch,
+		)
+	}
+
+	switch codecID {
+	case None:
+		if len(src) != uncompressedLen {
+			return dst[:0], fmt.Errorf(
+				"codec: none: source length %d does not match uncompressed length %d: %w",
+				len(src), uncompressedLen, ErrLengthMismatch,
+			)
+		}
+
+		return append(dst[:0], src[:prefixLen]...), nil
+	case Zstd:
+		return decodeZstdPrefix(dst, src, prefixLen, uncompressedLen)
+	default:
+		return dst[:0], fmt.Errorf("codec: decode prefix: value %d: %w", codecID, ErrUnknownCodec)
+	}
+}
+
 // decodeNone implements Decode for the None codec: src must be exactly uncompressedLen bytes, copied verbatim (§2).
 func decodeNone(dst, src []byte, uncompressedLen int) ([]byte, error) {
 	if len(src) != uncompressedLen {
