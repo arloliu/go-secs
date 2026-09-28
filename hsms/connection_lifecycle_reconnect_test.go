@@ -543,16 +543,24 @@ func TestReconnect_AbandonedGenerationCommitSelectedCannotSelectSuccessor(t *tes
 		},
 	)
 
+	// The subscriber runs on the notifier goroutine, which delivers after the state is stored,
+	// so the test waits for gen N's Selected notification itself, not for the state,
+	// before it reads the count.
 	var selects atomic.Int64
+	firstSelect := make(chan struct{})
 	cancel := c.SubscribeLifecycle(func(ev LifecycleEvent) {
-		if ev.Current == SelectedState {
-			selects.Add(1)
+		if ev.Current == SelectedState && selects.Add(1) == 1 {
+			close(firstSelect)
 		}
 	})
 	defer cancel()
 
 	require.NoError(t, c.Open(t.Context(), OpenBackground))
-	requireSelected(t, c)
+	select {
+	case <-firstSelect:
+	case <-time.After(time.Second):
+		t.Fatal("gen N's select must reach the subscriber")
+	}
 
 	genN := c.CurrentGeneration()
 	require.NotZero(t, genN, "a live generation must have an identity")
