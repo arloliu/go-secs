@@ -508,4 +508,6 @@ Summary:
   an absent bound is unbounded, an inverted entry intersects every query of its capture,
   and an entry without `capture_id` belongs to the pack's capture.
 - [STO §5] Completeness points at that rule.
+- [FMT §16] the provisional S1F3 vector with its F-3 S/F structure present waits for that structure,
+  which format 1.0 does not define ([SEM §7.1], [OVW §6]); the header-scan variant stays.
 - Whether a writer must fill every nested tag stays open for `Repair`, which writes all of them.
