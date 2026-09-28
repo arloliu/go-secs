@@ -39,7 +39,8 @@ That is the delta this entry records.
 
 **The cause is data on the event, never a function of the state pair.**
 `fsmCommand{ev, cause, gen}` is what `inject` queues and `step` dequeues;
-`stateChange` carries the cause to the notifier, together with the `gen` and `socket` the transition belongs to.
+`stateChange` carries the cause to the notifier, together with the `gen` and `socket` the transition belongs to
+and the time `at` it fired.
 The transition table (`transition`) never reads the cause.
 `step` makes exactly one substitution:
 an `evTCPUp` that finds the state already `Selected` reports `CauseSelectAccepted` instead of its own cause
@@ -134,8 +135,12 @@ the generation says WHICH link it is allowed to happen to,
 so a transport goroutine that outlives its generation cannot drop a successor and report its cause to persistent subscribers.
 The generation is also reported now, not only fenced:
 when an event drives a transition, `step` snapshots the transition's identity with `transitionIdentity`
+and the time it fired with `time.Now()`,
 and hands `fireTransition` a whole `stateChange`,
-and `notifySubs` copies its `gen` and `socket` into `LifecycleEvent.Generation` and `LifecycleEvent.Socket`.
+and `notifySubs` copies its `gen`, `socket` and `at` into `LifecycleEvent.Generation`, `LifecycleEvent.Socket` and `LifecycleEvent.At`.
+The time is taken there, on the supervisor goroutine, and never on the notifier,
+whose delivery trails the transition by as long as a slow handler or subscriber holds it;
+the coalesced bring-up is stamped at that same site, when it fires.
 A Close reports the epoch `requestClose` pinned (`closeEpoch`), not whichever epoch is current;
 any other event reports the `fsmCommand.gen` it carries,
 and reads the socket from the current epoch (`curEpoch`) only when that epoch's id matches it.

@@ -186,7 +186,7 @@ func TestReconnect_DelayedUnnamedSelectAcceptedRejectedAfterSuccessorPublishes(t
 
 	select {
 	case sc := <-s.notify:
-		require.Equal(t, stateChange{prev: NotConnectedState, next: NotSelectedState, cause: CauseLocalOpen, gen: genN1.id}, sc,
+		require.Equal(t, stateChange{prev: NotConnectedState, next: NotSelectedState, cause: CauseLocalOpen, gen: genN1.id}, untimed(t, sc),
 			"the successor's own bring-up must notify with its own cause")
 	default:
 		t.Fatal("the successor's own bring-up must notify")
@@ -208,7 +208,7 @@ func TestReconnect_DelayedUnnamedSelectAcceptedRejectedAfterSuccessorPublishes(t
 
 	select {
 	case sc := <-s.notify:
-		require.Equal(t, stateChange{prev: NotSelectedState, next: SelectedState, cause: CauseSelectAccepted, gen: genN1.id}, sc,
+		require.Equal(t, stateChange{prev: NotSelectedState, next: SelectedState, cause: CauseSelectAccepted, gen: genN1.id}, untimed(t, sc),
 			"the successor's own entering-Selected transition must notify with CauseSelectAccepted")
 	default:
 		t.Fatal("the successor's own entering-Selected transition must notify")
@@ -311,7 +311,7 @@ func TestReconnect_DelayedUnnamedReportsRejectedBeforeSuccessorsOwnBringUpIsStep
 
 			select {
 			case sc := <-s.notify:
-				require.Equal(t, stateChange{prev: NotConnectedState, next: NotSelectedState, cause: CauseLocalOpen, gen: genN1.id}, sc,
+				require.Equal(t, stateChange{prev: NotConnectedState, next: NotSelectedState, cause: CauseLocalOpen, gen: genN1.id}, untimed(t, sc),
 					"the successor's own bring-up must notify with its own cause")
 			default:
 				t.Fatal("the successor's own bring-up must notify")

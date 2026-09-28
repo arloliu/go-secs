@@ -277,6 +277,57 @@ func TestSubscribeLifecycle_SharesTheNotifierGoroutine(t *testing.T) {
 	}
 }
 
+// LifecycleEvent.At is the time the connection fired the transition, not the time the event reached the subscriber:
+// a StateChangeHandler registered ahead of the subscriber that holds the notifier delays the delivery, never the time.
+func TestSubscribeLifecycle_AtIsWhenTransitionFired(t *testing.T) {
+	c, _ := newLifeConn(t, withMockTransportNeverSelects())
+
+	var once sync.Once
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	releaseOnce := sync.OnceFunc(func() { close(release) })
+
+	// Unparking the notifier is unconditional, including on the failure path:
+	// a t.Fatal with the handler still parked would wedge the notifier and hang the cleanup Close.
+	defer releaseOnce()
+
+	// Only the FIRST transition parks the notifier, so the cleanup Close can still complete.
+	c.AddConnStateChangeHandler(func(_, _ ConnState) {
+		once.Do(func() {
+			close(entered)
+			<-release
+		})
+	})
+
+	// Buffered: a delivery must never block the notifier, even on the failure path.
+	delivered := make(chan LifecycleEvent, 4)
+	t.Cleanup(c.SubscribeLifecycle(func(ev LifecycleEvent) { delivered <- ev }))
+
+	opened := time.Now()
+	require.NoError(t, c.Open(t.Context(), OpenBackground))
+
+	select {
+	case <-entered: // the transition has fired, and the notifier is held in the handler ahead of the subscriber
+	case <-time.After(3 * time.Second):
+		t.Fatal("the handler was never called for the bring-up")
+	}
+
+	held := time.Now()
+	releaseOnce()
+
+	var ev LifecycleEvent
+	select {
+	case ev = <-delivered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the subscription was never delivered after the handler returned")
+	}
+
+	require.Equal(t, NotSelectedState, ev.Current)
+	require.False(t, ev.At.Before(opened), "At %v must not precede the Open %v that drove the transition", ev.At, opened)
+	require.True(t, ev.At.Before(held), "At %v must precede the delay the handler added, which lasted past %v", ev.At, held)
+}
+
 // cancel stops delivery, and calling it again is a no-op rather than a panic or a double removal.
 // The cancel happens while the connection is QUIESCENT, after the Selected event has already been observed,
 // so "no further events" is a deterministic claim rather than a race against an in-flight dispatch.

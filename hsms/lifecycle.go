@@ -1,6 +1,9 @@
 package hsms
 
-import "strconv"
+import (
+	"strconv"
+	"time"
+)
 
 // TransitionCause names why a connection state transition happened.
 //
@@ -94,6 +97,18 @@ type LifecycleEvent struct {
 	// and a drop names the generation that dropped even when the notification is delivered after a successor is up.
 	// It is 0 only when the connection has no generation at all.
 	Generation uint64
+
+	// At is the time the connection fired the transition.
+	// It is taken when the transition happens, like Socket and Generation, never when the event is delivered:
+	// a slow StateChangeHandler or subscriber ahead of this one delays the delivery, not At.
+	// A coalesced notification carries the time of the transition it reports:
+	// a bring-up whose Select completed before its connect was reported arrives as one entry into Selected,
+	// stamped when that entry fired,
+	// and a notification kept while a backlog of older ones was dropped keeps its own time.
+	// A report the connection discards as stale fires no transition, so it produces no event and no time.
+	// It carries a monotonic clock reading, like [WireEvent.At] and [SocketEvent.At],
+	// so transitions can be ordered against the connection's frames and sockets.
+	At time.Time
 }
 
 // lifecycleSub is one cancellable subscription: the caller's callback plus the id its cancel function removes.
