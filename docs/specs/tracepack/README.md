@@ -21,6 +21,7 @@ Documents here follow `.agents/rules/450-doc-lifecycle.md`.
 | `proposals/p4-cold-scope-admissions.md` | finite | deferred | admissions for scopes outside the catalog window (issue record) |
 | `proposals/p5-capture-registry.md` | finite | deferred | capture end evidence beyond the retained packs (issue record) |
 | `proposals/p7-durable-bus-capture-closure.md` | finite | deferred | closing a crashed producer's capture over a durable bus (issue record) |
+| `proposals/p8-bus-record-transport.md` | finite | draft | what one bus message carries, and how a record larger than the bus message limit crosses the bus |
 
-Next proposal ID: P8.
+Next proposal ID: P9.
 P1, P3 and P6 were applied as spec v2.6, v2.7 and v2.8 (see the changelog).
