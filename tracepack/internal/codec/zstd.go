@@ -52,57 +52,17 @@ func encodeZstd(dst, src []byte) []byte {
 // decodeZstd implements Decode for the Zstd codec (§2):
 // src must hold exactly one RFC 8878 frame with no dictionary, decoding to exactly uncompressedLen bytes.
 //
-// Before any decoding, walkZstdFrame measures the frame from its headers:
-// it rejects a skippable or foreign frame, a dictionary, and a window above maxWindow;
-// a window above windowFloor is also rejected when it exceeds uncompressedLen,
-// and any byte after the frame is reported through ErrTrailingBytes,
-// so a second frame is rejected even when it would decode to no bytes at all.
-//
-// It then decodes with a pooled streaming decoder rather than DecodeAll,
+// openZstd checks the frame before any decoding,
 // so memory use is bounded by uncompressedLen instead of by whatever length a malicious or miscounted frame claims.
 // After reading uncompressedLen bytes, one more byte is read from the stream:
 // a clean io.EOF confirms the frame held exactly that many bytes and nothing more;
 // anything else means the frame decoded to more than uncompressedLen bytes.
 func decodeZstd(dst, src []byte, uncompressedLen int) ([]byte, error) {
-	if uncompressedLen < 0 {
-		return dst[:0], fmt.Errorf(
-			"codec: zstd: negative uncompressed length %d: %w",
-			uncompressedLen, ErrLengthMismatch,
-		)
-	}
-	if len(src) == 0 {
-		// §2 requires exactly one frame,
-		// and even a frame holding no content is a nonempty byte sequence,
-		// so an empty src is never a valid stream, whatever uncompressedLen is.
-		return dst[:0], fmt.Errorf("codec: zstd: empty source: %w", ErrIncompleteStream)
-	}
-
-	frameLen, window, err := walkZstdFrame(src)
+	dec, err := openZstd(src, uncompressedLen)
 	if err != nil {
-		return dst[:0], fmt.Errorf("codec: zstd: %w", err)
+		return dst[:0], err
 	}
-	if budget := max(uint64(uncompressedLen), windowFloor); window > budget {
-		return dst[:0], fmt.Errorf(
-			"codec: zstd: frame window %d exceeds the %d-byte budget for a %d-byte body: %w",
-			window, budget, uncompressedLen, ErrWindowTooLarge,
-		)
-	}
-	if frameLen != len(src) {
-		return dst[:0], fmt.Errorf(
-			"codec: zstd: %d bytes after a %d-byte frame: %w",
-			len(src)-frameLen, frameLen, ErrTrailingBytes,
-		)
-	}
-
-	dec, _ := decoderPool.Get().(*zstd.Decoder)
-	defer func() {
-		_ = dec.Reset(nil)
-		decoderPool.Put(dec)
-	}()
-
-	if err := dec.Reset(bytes.NewReader(src)); err != nil {
-		return dst[:0], fmt.Errorf("codec: zstd: reset decoder: %w", err)
-	}
+	defer releaseDecoder(dec)
 
 	dst = slices.Grow(dst[:0], uncompressedLen)[:uncompressedLen]
 	if _, err := io.ReadFull(dec, dst); err != nil {
@@ -127,6 +87,84 @@ func decodeZstd(dst, src []byte, uncompressedLen int) ([]byte, error) {
 			uncompressedLen, ErrTrailingBytes, err,
 		)
 	}
+}
+
+// decodeZstdPrefix implements DecodePrefix for the Zstd codec:
+// the frame checks of decodeZstd, then only the first prefixLen decoded bytes.
+// The stream after them is neither decoded nor checked,
+// so memory use is bounded by prefixLen plus the decoder's window.
+func decodeZstdPrefix(dst, src []byte, prefixLen, uncompressedLen int) ([]byte, error) {
+	dec, err := openZstd(src, uncompressedLen)
+	if err != nil {
+		return dst[:0], err
+	}
+	defer releaseDecoder(dec)
+
+	dst = slices.Grow(dst[:0], prefixLen)[:prefixLen]
+	if _, err := io.ReadFull(dec, dst); err != nil {
+		return dst[:0], fmt.Errorf(
+			"codec: zstd: decode a %d-byte prefix: %w: %w",
+			prefixLen, ErrIncompleteStream, err,
+		)
+	}
+
+	return dst, nil
+}
+
+// openZstd checks src as the single Zstandard frame of a body of uncompressedLen decoded bytes (§2)
+// and returns a pooled decoder positioned at its start; the caller returns it with releaseDecoder.
+//
+// Before any decoding, walkZstdFrame measures the frame from its headers:
+// it rejects a skippable or foreign frame, a dictionary, and a window above maxWindow;
+// a window above windowFloor is also rejected when it exceeds uncompressedLen,
+// and any byte after the frame is reported through ErrTrailingBytes,
+// so a second frame is rejected even when it would decode to no bytes at all.
+// Decoding then uses a streaming decoder rather than DecodeAll,
+// so memory use is bounded by what the caller reads instead of by whatever length a malicious or miscounted frame claims.
+func openZstd(src []byte, uncompressedLen int) (*zstd.Decoder, error) {
+	if uncompressedLen < 0 {
+		return nil, fmt.Errorf(
+			"codec: zstd: negative uncompressed length %d: %w",
+			uncompressedLen, ErrLengthMismatch,
+		)
+	}
+	if len(src) == 0 {
+		// §2 requires exactly one frame,
+		// and even a frame holding no content is a nonempty byte sequence,
+		// so an empty src is never a valid stream, whatever uncompressedLen is.
+		return nil, fmt.Errorf("codec: zstd: empty source: %w", ErrIncompleteStream)
+	}
+
+	frameLen, window, err := walkZstdFrame(src)
+	if err != nil {
+		return nil, fmt.Errorf("codec: zstd: %w", err)
+	}
+	if budget := max(uint64(uncompressedLen), windowFloor); window > budget {
+		return nil, fmt.Errorf(
+			"codec: zstd: frame window %d exceeds the %d-byte budget for a %d-byte body: %w",
+			window, budget, uncompressedLen, ErrWindowTooLarge,
+		)
+	}
+	if frameLen != len(src) {
+		return nil, fmt.Errorf(
+			"codec: zstd: %d bytes after a %d-byte frame: %w",
+			len(src)-frameLen, frameLen, ErrTrailingBytes,
+		)
+	}
+
+	dec, _ := decoderPool.Get().(*zstd.Decoder)
+	if err := dec.Reset(bytes.NewReader(src)); err != nil {
+		releaseDecoder(dec)
+		return nil, fmt.Errorf("codec: zstd: reset decoder: %w", err)
+	}
+
+	return dec, nil
+}
+
+// releaseDecoder detaches dec from its source and returns it to the pool.
+func releaseDecoder(dec *zstd.Decoder) {
+	_ = dec.Reset(nil)
+	decoderPool.Put(dec)
 }
 
 // newSharedEncoder builds the package's one zstd encoder.
