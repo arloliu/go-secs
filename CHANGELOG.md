@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-09-28
+
 Wire-level and socket-level observability for HSMS-SS,
 and socket and generation identity on lifecycle and transaction events.
 
@@ -106,6 +108,8 @@ One behavior change is visible to the peer; see Upgrade notes.
   Each now waits on the edge it was implicitly assuming:
   the reopened connection's own bring-up reports, a successor generation reaching Selected,
   and the supervisor reacting to the terminal transition before the notify buffer is drained.
+- `hsms`: a reconnect test waits for the Selected notification itself before counting it,
+  instead of the state, which the notifier goroutine reports later.
 
 ## [2.5.0] - 2026-09-27
 
@@ -1785,6 +1789,7 @@ release's fuzz work were closed out.
   Deselect.req / Deselect.rsp / Separate.req are now honoured end-to-end
   and take the session through the documented state transitions.
 
+[2.6.0]: https://github.com/arloliu/go-secs/releases/tag/v2.6.0
 [2.5.0]: https://github.com/arloliu/go-secs/releases/tag/v2.5.0
 [2.4.2]: https://github.com/arloliu/go-secs/releases/tag/v2.4.2
 [2.4.1]: https://github.com/arloliu/go-secs/releases/tag/v2.4.1
