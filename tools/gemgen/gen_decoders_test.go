@@ -129,7 +129,7 @@ func TestRenderDecodersRepeatAndPackedGroups(t *testing.T) {
 func TestRenderDecodersOptionalGroup(t *testing.T) {
 	src := renderOneDecoder(t, 14, "both", &StructureNode{Type: "list", Items: []StructureNode{
 		{Item: "ACKA"},
-		{Type: "list", MinItems: intp(0), MaxItems: intp(2), Items: []StructureNode{{Item: "ERRCODE"}, {Item: "ERRTEXT"}}},
+		{Type: "list", MinItems: new(0), MaxItems: new(2), Items: []StructureNode{{Item: "ERRCODE"}, {Item: "ERRTEXT"}}},
 	}}, decoderItems())
 
 	require.Contains(t, src, `optionalArity(root.At(1), "S1F14 body[1]", 0, 2)`)
@@ -197,12 +197,12 @@ func TestRenderDecodersRejectsUndecodableShapes(t *testing.T) {
 		},
 		{
 			name: "maxItems disagreeing with the declared children",
-			node: &StructureNode{Type: "list", MinItems: intp(0), MaxItems: intp(3), Items: []StructureNode{{Item: "MDLN"}}},
+			node: &StructureNode{Type: "list", MinItems: new(0), MaxItems: new(3), Items: []StructureNode{{Item: "MDLN"}}},
 			want: "maxItems 3 does not match the 1 declared children",
 		},
 		{
 			name: "minItems above the declared children",
-			node: &StructureNode{Type: "list", MinItems: intp(2), Items: []StructureNode{{Item: "MDLN"}}},
+			node: &StructureNode{Type: "list", MinItems: new(2), Items: []StructureNode{{Item: "MDLN"}}},
 			want: "minItems 2 exceeds the 1 declared children",
 		},
 	}

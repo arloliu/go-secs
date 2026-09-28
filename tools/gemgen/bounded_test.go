@@ -74,7 +74,7 @@ func TestRenderMessagesBoundedArityList(t *testing.T) {
 		Bodies: []Body{
 			{
 				Actor: "both", ReplyExpected: false,
-				Structure: &StructureNode{Type: "list", MinItems: intp(0), MaxItems: intp(4), Items: []StructureNode{{Item: "MDLN"}}},
+				Structure: &StructureNode{Type: "list", MinItems: new(0), MaxItems: new(4), Items: []StructureNode{{Item: "MDLN"}}},
 			},
 		},
 	}}}
@@ -99,7 +99,7 @@ func TestRenderTestsBoundedArityList(t *testing.T) {
 		Bodies: []Body{
 			{
 				Actor: "both", ReplyExpected: false,
-				Structure: &StructureNode{Type: "list", MinItems: intp(0), MaxItems: intp(4), Items: []StructureNode{{Item: "MDLN"}}},
+				Structure: &StructureNode{Type: "list", MinItems: new(0), MaxItems: new(4), Items: []StructureNode{{Item: "MDLN"}}},
 			},
 		},
 	}}}

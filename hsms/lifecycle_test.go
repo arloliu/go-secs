@@ -350,11 +350,7 @@ func TestSubscribeLifecycle_ConcurrentSubscribeCancelIsRaceFree(t *testing.T) {
 	stop := make(chan struct{})
 
 	for range 8 {
-		churn.Add(1)
-
-		go func() {
-			defer churn.Done()
-
+		churn.Go(func() {
 			for {
 				select {
 				case <-stop:
@@ -366,7 +362,7 @@ func TestSubscribeLifecycle_ConcurrentSubscribeCancelIsRaceFree(t *testing.T) {
 				cancel()
 				cancel()
 			}
-		}()
+		})
 	}
 
 	openSelected(t, c, survivor)

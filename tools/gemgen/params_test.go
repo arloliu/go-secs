@@ -27,8 +27,6 @@ func paramsItems() map[string]Item {
 	}
 }
 
-func intp(i int) *int { return &i }
-
 func TestBuildParams(t *testing.T) {
 	items := paramsItems()
 
@@ -114,7 +112,7 @@ func TestBuildParams(t *testing.T) {
 		},
 		{
 			name: "bounded-arity list",
-			node: &StructureNode{Type: "list", MinItems: intp(0), MaxItems: intp(4), Items: []StructureNode{{Item: "MDLN"}}},
+			node: &StructureNode{Type: "list", MinItems: new(0), MaxItems: new(4), Items: []StructureNode{{Item: "MDLN"}}},
 			want: []Param{{Name: "mdln", Type: "string"}},
 		},
 	}
@@ -183,7 +181,7 @@ func TestBodyExpr(t *testing.T) {
 		},
 		{
 			"bounded-arity list",
-			&StructureNode{Type: "list", MinItems: intp(0), MaxItems: intp(4), Items: []StructureNode{{Item: "MDLN"}}},
+			&StructureNode{Type: "list", MinItems: new(0), MaxItems: new(4), Items: []StructureNode{{Item: "MDLN"}}},
 			"secs2.L(secs2.A(mdln))",
 		},
 	}
@@ -255,7 +253,7 @@ func TestBodyDoc(t *testing.T) {
 		},
 		{
 			"bounded-arity list",
-			&StructureNode{Type: "list", MinItems: intp(0), MaxItems: intp(4), Items: []StructureNode{{Item: "MDLN"}}},
+			&StructureNode{Type: "list", MinItems: new(0), MaxItems: new(4), Items: []StructureNode{{Item: "MDLN"}}},
 			"L[0,4]{ A[mdln] }",
 		},
 	}

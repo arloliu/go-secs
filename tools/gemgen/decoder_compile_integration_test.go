@@ -63,7 +63,7 @@ func TestDecodersCompileAndRoundTripAgainstRealSecs2(t *testing.T) {
 		{Type: "list", Items: []StructureNode{{Item: "MDLN"}}},            // nested fixed list
 		{Type: "list", Repeat: "svids", Of: &StructureNode{Item: "SVID"}}, // repeated group
 		{Type: "list", Packed: "tsips", Of: &StructureNode{Item: "TSIP"}}, // packed group
-		{Type: "list", MinItems: intp(0), MaxItems: intp(2), Items: []StructureNode{ // optional group
+		{Type: "list", MinItems: new(0), MaxItems: new(2), Items: []StructureNode{ // optional group
 			{Item: "ERRCODE"},
 			{Item: "ERRTEXT"},
 		}},

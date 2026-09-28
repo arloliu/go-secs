@@ -84,10 +84,7 @@ func (r *stateRecorder) awaitStateFrom(from int, target hsms.ConnState, timeout 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	scanned := from
-	if scanned < 0 {
-		scanned = 0
-	}
+	scanned := max(from, 0)
 
 	deadline := time.Now().Add(timeout)
 
