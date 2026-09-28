@@ -53,7 +53,8 @@ func encodeZstd(dst, src []byte) []byte {
 // src must hold exactly one RFC 8878 frame with no dictionary, decoding to exactly uncompressedLen bytes.
 //
 // openZstd checks the frame before any decoding,
-// so memory use is bounded by uncompressedLen instead of by whatever length a malicious or miscounted frame claims.
+// so memory use is bounded by uncompressedLen plus the decoder window openZstd allows,
+// instead of by whatever length a malicious or miscounted frame claims.
 // After reading uncompressedLen bytes, one more byte is read from the stream:
 // a clean io.EOF confirms the frame held exactly that many bytes and nothing more;
 // anything else means the frame decoded to more than uncompressedLen bytes.

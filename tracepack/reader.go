@@ -16,12 +16,18 @@ import (
 
 // Default ReaderOptions values, which a zero or negative field takes.
 const (
+	// DefaultWholeReadThreshold is the default ReaderOptions.WholeReadThreshold: 256 KiB.
 	DefaultWholeReadThreshold = 256 << 10
-	DefaultHeadWindow         = 64 << 10
-	DefaultTailWindow         = 256 << 10
+	// DefaultHeadWindow is the default ReaderOptions.HeadWindow: 64 KiB.
+	DefaultHeadWindow = 64 << 10
+	// DefaultTailWindow is the default ReaderOptions.TailWindow: 256 KiB.
+	DefaultTailWindow = 256 << 10
+	// DefaultMaxPackMetadataLen is the default ReaderOptions.MaxPackMetadataLen: 64 MiB.
 	DefaultMaxPackMetadataLen = 64 << 20
-	DefaultMaxFooterLen       = 64 << 20
-	DefaultMaxBlockLen        = 256 << 20
+	// DefaultMaxFooterLen is the default ReaderOptions.MaxFooterLen: 64 MiB.
+	DefaultMaxFooterLen = 64 << 20
+	// DefaultMaxBlockLen is the default ReaderOptions.MaxBlockLen: 256 MiB.
+	DefaultMaxBlockLen = 256 << 20
 )
 
 // footerCRCChunk is the largest read of the sequential reads that compute the CRC of a footer over MaxFooterLen.
