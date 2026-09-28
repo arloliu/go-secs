@@ -70,6 +70,7 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 5 — Merge, MergeIterate, FindTransaction | pending |
 | 6 — JSONL export, conformance corpus, CLI | pending |
 | 7 — Extract and redaction | pending |
+| 8 — Producer API for a durable-bus capture | pending |
 
 ### Phase 0 — Module skeleton
 
@@ -253,6 +254,28 @@ Tests: the redaction vectors of [FMT §16], generated with their goldens and exp
 the payload length and every record-header field except `quality.redacted` are unchanged, and `Verify` reports exactly the source's defects and no new one.
 
 Done when: every redaction vector reproduces its bytes, entries and digests exactly, and the sweep passes.
+
+### Phase 8 — Producer API for a durable-bus capture
+
+A recorder prototype built on go-secs v2.6.0 (2026-09-28) wrote valid packs through `Writer`,
+but a producer that publishes one record per bus message ([STO §4], proposal P8) cannot be written with the module as it is:
+
+- No exported encoding of one record outside a block:
+  `canonicalHeader` and the record header layout are unexported, so the bus message of P8 §2.1 has no implementation to share between producer and consumer.
+- No capture-descriptor type:
+  `PackMeta.MarshalBinary` validates the whole pack metadata, including values the consumer owns (`scope_generation` among them),
+  so a producer cannot encode only the entries it owns.
+- Clock-step detection is tied to seq assignment:
+  `DetectClockSteps` requires `AssignSeq`, but a durable-bus producer assigns seq and detects clock steps itself ([SEM §4]),
+  so it needs the detector on its own.
+- `capture_origin_mono_ns`: Go exposes no raw monotonic reading, so a Go producer writes 0 and measures `mono_ns` from its origin `time.Time`;
+  the spec should say whether 0 is an acceptable origin value or what a producer without a raw reading writes.
+- A `stop` boundary cannot name its seq in advance when a clock-step may be inserted before it.
+- `classify.Name` falls back to `go-secs/unknown` when go-secs is replaced by a local path, so a producer sets the classifier name explicitly.
+- `Writer.Append` copies the payload a second time after the producer's own copy of a wire frame.
+
+The first four depend on proposal P8's outcome and are designed with it; the last three are small fixes.
+Tests and done criteria are set when P8 is decided.
 
 ## 4. Cross-cutting requirements
 
