@@ -64,12 +64,15 @@ type fsmCommand struct {
 // a notification the notifier delivers late,
 // after its generation tore down or a successor was published,
 // still names its own generation.
+// at is the time step fired the transition, taken with the identity for the same reason:
+// the notifier's delivery can trail it by as long as a slow handler or subscriber holds the notifier.
 type stateChange struct {
 	prev   ConnState
 	next   ConnState
 	cause  TransitionCause
 	gen    uint64
 	socket uint64
+	at     time.Time
 }
 
 // supervisor is the single E37 logical FSM (SEMI E37 §5.4–§5.6). It is created FRESH per
@@ -624,8 +627,10 @@ func (s *supervisor) step(cmd fsmCommand) {
 				cause = CauseSelectAccepted
 			}
 
+			// The time is taken here, as the transition fires, with its identity,
+			// never on the notifier goroutine, whose delivery a slow handler or subscriber delays.
 			gen, socket := s.transitionIdentity(cmd, closing)
-			s.fireTransition(stateChange{prev: prev, next: next, cause: cause, gen: gen, socket: socket})
+			s.fireTransition(stateChange{prev: prev, next: next, cause: cause, gen: gen, socket: socket, at: time.Now()})
 			s.lastReacted = next
 		}
 	}
@@ -833,7 +838,7 @@ func (s *supervisor) notifySubs(sc stateChange) {
 		return
 	}
 
-	ev := LifecycleEvent{Previous: sc.prev, Current: sc.next, Cause: sc.cause, Socket: sc.socket, Generation: sc.gen}
+	ev := LifecycleEvent{Previous: sc.prev, Current: sc.next, Cause: sc.cause, Socket: sc.socket, Generation: sc.gen, At: sc.at}
 	for _, sub := range *subs {
 		s.callSub(sub.fn, ev)
 	}

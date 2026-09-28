@@ -969,6 +969,17 @@ func drainNotify(t *testing.T, s *supervisor) (stateChange, bool) {
 	}
 }
 
+// untimed asserts that sc carries the time its transition fired and returns sc with that time cleared,
+// so the rest of it can be compared with a literal.
+func untimed(t *testing.T, sc stateChange) stateChange {
+	t.Helper()
+
+	require.False(t, sc.at.IsZero(), "a fired transition carries the time it fired")
+	sc.at = time.Time{}
+
+	return sc
+}
+
 // stepQueued dequeues exactly one command from s.events and applies it — the bounded,
 // deterministic stand-in run() provides in these synchronous tests (run is never started).
 // It requires exactly one command to already be queued,
@@ -1020,7 +1031,7 @@ func TestSupervisor_TCPUpCoalescesPrecommittedSelectThenDisconnectFiresOnce(t *t
 
 	sc, ok := drainNotify(t, s)
 	require.True(t, ok, "expected a notification for the coalesced NotConnected->Selected transition")
-	require.Equal(t, stateChange{prev: NotConnectedState, next: SelectedState, cause: CauseSelectAccepted}, sc,
+	require.Equal(t, stateChange{prev: NotConnectedState, next: SelectedState, cause: CauseSelectAccepted}, untimed(t, sc),
 		"the coalesced bring-up must report CauseSelectAccepted, not evTCPUp's own cause")
 
 	s.inject(evDisconnect, CauseIOError)
@@ -1032,7 +1043,7 @@ func TestSupervisor_TCPUpCoalescesPrecommittedSelectThenDisconnectFiresOnce(t *t
 
 	sc, ok = drainNotify(t, s)
 	require.True(t, ok, "expected a notification for the disconnect")
-	require.Equal(t, stateChange{prev: SelectedState, next: NotConnectedState, cause: CauseIOError}, sc)
+	require.Equal(t, stateChange{prev: SelectedState, next: NotConnectedState, cause: CauseIOError}, untimed(t, sc))
 
 	// The late evSelectAccepted — the Select commit's own report, only now enqueued — finds the
 	// link already dropped: it must fire nothing and store nothing.
@@ -1046,6 +1057,27 @@ func TestSupervisor_TCPUpCoalescesPrecommittedSelectThenDisconnectFiresOnce(t *t
 
 	require.Equal(t, 1, countEnteringNotConnected(*reactions),
 		"exactly one entering-NotConnected reaction across the whole sequence")
+}
+
+// The coalesced bring-up, an evTCPUp that finds the Select commit already applied and is reported as an ordinary Select,
+// carries the time the supervisor fired it, not the time its TCP-up or its Select was committed.
+func TestSupervisor_CoalescedBringUpCarriesItsFiringTime(t *testing.T) {
+	react, _ := recordingReact()
+	s := newSupervisorWithEventsCap(react, newHandlerPtr(), nil, 8)
+
+	require.True(t, s.CommitConnected(CauseLocalOpen)) // NotConnected -> NotSelected; enqueues evTCPUp
+	// The Select responder's CAS lands before its own evSelectAccepted is ever enqueued.
+	require.True(t, s.state.CompareAndSwap(uint32(NotSelectedState), uint32(SelectedState)))
+
+	before := time.Now()
+	stepQueued(t, s) // processes the queued evTCPUp while state already reads Selected
+	fired := time.Now()
+
+	sc, ok := drainNotify(t, s)
+	require.True(t, ok, "expected a notification for the coalesced NotConnected->Selected transition")
+	require.Equal(t, stateChange{prev: NotConnectedState, next: SelectedState, cause: CauseSelectAccepted}, untimed(t, sc))
+	require.False(t, sc.at.Before(before), "at %v must not precede the step %v that fired the transition", sc.at, before)
+	require.False(t, sc.at.After(fired), "at %v must not follow the step %v that fired the transition", sc.at, fired)
 }
 
 // TestSupervisor_DropReportsActualPredecessorEvenWhenLastReactedLags is the teeth test for the
@@ -1078,7 +1110,7 @@ func TestSupervisor_DropReportsActualPredecessorEvenWhenLastReactedLags(t *testi
 
 	sc, ok := drainNotify(t, s)
 	require.True(t, ok)
-	require.Equal(t, stateChange{prev: NotConnectedState, next: NotSelectedState, cause: CauseLocalOpen}, sc)
+	require.Equal(t, stateChange{prev: NotConnectedState, next: NotSelectedState, cause: CauseLocalOpen}, untimed(t, sc))
 
 	// The Select commit's CAS lands ONLY NOW, with its own evSelectAccepted never enqueued.
 	require.True(t, s.state.CompareAndSwap(uint32(NotSelectedState), uint32(SelectedState)))
@@ -1093,7 +1125,7 @@ func TestSupervisor_DropReportsActualPredecessorEvenWhenLastReactedLags(t *testi
 
 	sc, ok = drainNotify(t, s)
 	require.True(t, ok, "expected a notification for the disconnect")
-	require.Equal(t, stateChange{prev: SelectedState, next: NotConnectedState, cause: CauseIOError}, sc)
+	require.Equal(t, stateChange{prev: SelectedState, next: NotConnectedState, cause: CauseIOError}, untimed(t, sc))
 
 	require.Equal(t, 1, countEnteringNotConnected(*reactions))
 }
@@ -1129,7 +1161,7 @@ func TestSupervisor_DropReportsStateReplacedWhenSelectCommitsDuringStep(t *testi
 
 	sc, ok := drainNotify(t, s)
 	require.True(t, ok)
-	require.Equal(t, stateChange{prev: SelectedState, next: NotConnectedState, cause: CauseIOError}, sc)
+	require.Equal(t, stateChange{prev: SelectedState, next: NotConnectedState, cause: CauseIOError}, untimed(t, sc))
 }
 
 // TestSupervisor_DisconnectFromUnreportedTCPUpFiresAndBlocksResurrection drives the second lost-reaction order directly:
@@ -1154,7 +1186,7 @@ func TestSupervisor_DisconnectFromUnreportedTCPUpFiresAndBlocksResurrection(t *t
 
 	sc, ok := drainNotify(t, s)
 	require.True(t, ok, "expected a notification for the disconnect that overtook the unreported TCP-up")
-	require.Equal(t, stateChange{prev: NotSelectedState, next: NotConnectedState, cause: CauseIOError}, sc)
+	require.Equal(t, stateChange{prev: NotSelectedState, next: NotConnectedState, cause: CauseIOError}, untimed(t, sc))
 
 	// The delayed evTCPUp report finally arrives: it must not resurrect NotSelected.
 	s.inject(evTCPUp, CauseLocalOpen)
@@ -1208,7 +1240,7 @@ func TestSupervisor_CloseOvertakingUnreportedCommitsFiresWithPrevSelected(t *tes
 
 	sc, ok := drainNotify(t, s)
 	require.True(t, ok)
-	require.Equal(t, stateChange{prev: SelectedState, next: NotConnectedState, cause: CauseLocalClose}, sc)
+	require.Equal(t, stateChange{prev: SelectedState, next: NotConnectedState, cause: CauseLocalClose}, untimed(t, sc))
 
 	// closeOnce admits exactly one teardown owner (epoch.teardown),
 	// and step's own closed latch
