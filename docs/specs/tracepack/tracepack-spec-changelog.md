@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-09-27) — spec v2.9.
+Status: current (2026-09-27) — spec v2.10.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository.
@@ -476,3 +476,13 @@ Specification version unchanged (v2.8); only `tracepack-go.md` and `tracepack-im
   `tracepack/go.mod` has no `replace` and requires a `main` pseudo-version until a go-secs release suffices (impl plan §2.1).
 - Phase 0 gains the Makefile targets, a separate CI job (blocking workspace leg, advisory `GOWORK=off` consumer leg) and the `tracepack/vX.Y.Z` release steps.
 - go-secs v2.5.0 is released first; the first tracepack release requires v2.5.0 or later.
+
+## Changes v2.9 → v2.10: outbound observation time (2026-09-28)
+
+Source: the go-secs v2.6.0 recorder prototype, which timed the frames it sent when their write returned
+and so recorded replies up to 170 µs before the frames they answered; no proposal document.
+Format version stays 1.0: no byte changes.
+
+Summary:
+- [SEM §4] a frame the vantage sends itself is observed complete when it is handed to the socket, not when the send returns,
+  so its `ts_utc_ns` never follows that of a reply the peer sends in answer.
