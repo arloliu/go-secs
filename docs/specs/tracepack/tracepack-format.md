@@ -737,8 +737,10 @@ The corpus lets an implementation in any language prove that it reads and writes
   optionally a nonconforming-writer fixture that falsely asserts `blocks_validated = true`, labelled as such,
   where a reader is not expected to detect the false assertion from a header-only read;
   a provisional query with an empty result that still carries `header-validated`;
-  the same provisional S1F3 query over that non-attested block with its F-3 S/F structure present (index-only exclusion) and absent (header scan),
-  both reporting `header-validated` for the block;
+  the same provisional S1F3 query over that non-attested block without an F-3 S/F structure (header scan),
+  reporting `header-validated` for the block,
+  and, once the deferred S/F presence structure ([SEM §7.1], [OVW §6]) is defined,
+  with it present (index-only exclusion), reporting the same;
   a payload-only identity conflict between two packs.
 - Redaction vectors ([SEM §8]), written with the published test keys:
   S7F3 with its PPBODY masked (length, item headers, `decode_status` and HSMS header unchanged; entry and digest as published);
