@@ -177,9 +177,13 @@ func (c *connection) writeFrame(ctx context.Context, e *epoch, msg Message) erro
 	// so the socket's close cannot be reported between the write and the frame's report.
 	// The deferred release covers a panicking observer;
 	// a failed write releases the scope itself, before it reports the failure.
+	// The frame's At is taken immediately before the write, not after it returns:
+	// the peer can read the frame, and answer it, before a write returns,
+	// and a time taken at issue keeps the answer's inbound At after this frame's.
 	var (
 		wireFrame []byte
 		release   func()
+		issuedAt  time.Time
 	)
 
 	wireObs, reporter := c.outboundWireObserver()
@@ -193,6 +197,10 @@ func (c *connection) writeFrame(ctx context.Context, e *epoch, msg Message) erro
 				}
 			}()
 		}
+	}
+
+	if release != nil {
+		issuedAt = time.Now()
 	}
 
 	if err := c.tr.Write(ctx, conn, bufs); err != nil {
@@ -258,7 +266,7 @@ func (c *connection) writeFrame(ctx context.Context, e *epoch, msg Message) erro
 	// the deferred releases still free the report scope and writeMu as the panic unwinds.
 	// A frame the transport gave no scope for is not reported: its socket's close is already pending.
 	if release != nil {
-		wireObs(WireEvent{Direction: WireOutbound, Socket: e.socketID(), Generation: e.id, At: time.Now(), Frame: wireFrame})
+		wireObs(WireEvent{Direction: WireOutbound, Socket: e.socketID(), Generation: e.id, At: issuedAt, Frame: wireFrame})
 	}
 
 	return nil

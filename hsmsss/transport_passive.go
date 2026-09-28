@@ -284,7 +284,8 @@ func (t *transport) isStopping() bool {
 // the peer's first frame, whole, as soon as its header is read and before it is interpreted,
 // and the Select.rsp only once its write returned the full frame without error.
 // They are not reported from this goroutine, which Stop joins without a bound:
-// the exchange captures each frame as it crosses, with its At taken then (refusalCapture),
+// the exchange captures each frame as it crosses (refusalCapture),
+// the peer's with its At taken when its read completed and the Select.rsp with its At taken when its write was issued,
 // and once the exchange has ended hands the capture, still holding the socket's report scope, to a goroutine of its own,
 // which reports the frames in wire order and then releases the scope.
 // That handoff runs before the deferred close, on a panic too,
@@ -414,6 +415,13 @@ func (t *transport) refusalExchange(extra net.Conn, capture *refusalCapture) err
 	}
 
 	out := rsp.ToBytes()
+
+	// The response's At is taken immediately before its write, as at the core's own write sites, not when the write returns.
+	var issuedAt time.Time
+	if capture != nil {
+		issuedAt = time.Now()
+	}
+
 	n, err := extra.Write(out) // one bounded 14-byte write; the deadline is already set
 	if err != nil {
 		return err
@@ -424,7 +432,7 @@ func (t *transport) refusalExchange(extra net.Conn, capture *refusalCapture) err
 	}
 
 	if capture != nil {
-		capture.outbound(out)
+		capture.outbound(out, issuedAt)
 	}
 
 	return nil

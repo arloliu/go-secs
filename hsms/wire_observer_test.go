@@ -213,6 +213,59 @@ func TestWireObserver_CourtesySeparateReported(t *testing.T) {
 	require.Len(t, log.snapshot(), 1, "a failed courtesy write is not reported")
 }
 
+// An outbound frame's At is the time its write was issued, not the time the write returned,
+// at writeFrame and at the courtesy Separate alike:
+// a Write that holds on after putting the frame on the wire cannot push the frame's At past the moment the write began.
+// A peer reads the frame, and answers it, only after the write began,
+// so the frame's At stays ahead of the answer's however long the write takes to return.
+func TestWireObserver_OutboundAtIsWhenWriteIssued(t *testing.T) {
+	// hold keeps the write from returning after the frame has been put on the wire.
+	const hold = 2 * time.Millisecond
+
+	tests := []struct {
+		name  string
+		write func(c *connection, e *epoch) error
+	}{
+		{
+			name: "writeFrame",
+			write: func(c *connection, e *epoch) error {
+				return c.writeFrame(context.Background(), e, NewLinktestReq([4]byte{0, 0, 0, 1}))
+			},
+		},
+		{
+			name:  "courtesy Separate",
+			write: func(c *connection, e *epoch) error { c.writeFarewellSeparate(e); return nil },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			log := &wireLog{}
+			c, tr := newWireSendConn(t, WithWireObserver(log.observe))
+
+			// Both writes run on this goroutine, so the two times need no lock.
+			var entered, returned time.Time
+			tr.writeFn = func(_ context.Context, conn net.Conn, bufs net.Buffers) error {
+				entered = time.Now()
+				err := tr.captureWrite(conn, bufs)
+				time.Sleep(hold)
+				returned = time.Now()
+
+				return err
+			}
+
+			require.NoError(t, tt.write(c, c.cur.Load()))
+			require.Eventually(t, func() bool { return len(log.snapshot()) == 1 }, 5*time.Second, time.Millisecond,
+				"the frame is reported once")
+
+			ev := log.snapshot()[0]
+			require.Equal(t, WireOutbound, ev.Direction)
+			require.False(t, ev.At.After(entered), "At %v must not follow the moment the write began %v", ev.At, entered)
+			require.True(t, ev.At.Before(returned), "At %v must precede the write's return %v", ev.At, returned)
+		})
+	}
+}
+
 // A panic in the observer is not recovered by the send path:
 // it reaches the caller of the write, and the write lock is released on the way out.
 func TestWireObserver_PanicPropagatesAndReleasesWriteLock(t *testing.T) {

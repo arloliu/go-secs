@@ -60,9 +60,10 @@ which reads the 4-byte prefix and the 10-byte header into one fixed 14-byte buff
 It never calls the wire observer: the accept goroutine it runs on is one `Stop` joins without a bound,
 so an observer that did not return there would hang `Stop`, hence `Close`.
 Instead `captureRefusal` opens the record's report scope (`openReport`) and allocates one `refusalCapture`,
-into which the exchange copies each frame as it crosses, with its `At` taken at that moment:
-the peer's first frame, whole, once its header is read and before it is interpreted,
-and the Select.rsp only when its write returned the full length without error.
+into which the exchange copies each frame as it crosses:
+the peer's first frame, whole, once its header is read and before it is interpreted, with its `At` taken then,
+and the Select.rsp only when its write returned the full length without error,
+with its `At` taken immediately before that write was issued, as at the core's outbound write sites.
 `refusalCapture.finish`, deferred after the close defer so it runs first, on a panic too,
 hands the capture to a new goroutine (`deliver`) while the scope is still held,
 which reports the frames in wire order, the peer's first, with generation 0, and then releases the scope;

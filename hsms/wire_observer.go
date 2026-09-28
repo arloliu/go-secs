@@ -35,7 +35,12 @@ type WireEvent struct {
 	// It is 0 for a frame of a refused socket, which no generation owns:
 	// the peer's first frame on a passive connection's extra socket and the Select.rsp refusing it.
 	Generation uint64
-	// At is taken when the frame was fully read or fully written.
+	// At is taken by direction.
+	// An inbound frame's At is the time the frame was fully read.
+	// An outbound frame's At is the time immediately before its write was issued, not when the write returned,
+	// although the observer is called for the frame only after that write succeeded.
+	// A peer reads a frame, and answers it, only after its write was issued,
+	// so a reply's inbound At never precedes the outbound At of the frame it answers.
 	// It carries a monotonic clock reading,
 	// so At.Sub against another event's At measures elapsed time even across a wall-clock step.
 	At time.Time

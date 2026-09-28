@@ -10,9 +10,12 @@ package hsmsss
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"net"
+	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -395,6 +398,175 @@ func framesOf(events []hsms.WireEvent) [][]byte {
 	out := make([][]byte, len(events))
 	for i, ev := range events {
 		out[i] = ev.Frame
+	}
+
+	return out
+}
+
+// writeHoldConn is a socket whose every Write holds on for hold after its bytes are on the wire,
+// the way a write can return late on a loaded host, and records when each Write began.
+// Wrapping the *net.TCPConn also drops the vectored-write fast path, so a frame's buffers are written one Write at a time.
+type writeHoldConn struct {
+	net.Conn
+
+	hold time.Duration
+
+	mu    sync.Mutex
+	began []time.Time
+}
+
+func (c *writeHoldConn) Write(b []byte) (int, error) {
+	began := time.Now()
+	c.mu.Lock()
+	c.began = append(c.began, began)
+	c.mu.Unlock()
+
+	n, err := c.Conn.Write(b)
+	time.Sleep(c.hold)
+
+	return n, err
+}
+
+// writesBegan returns when each Write began, in call order.
+func (c *writeHoldConn) writesBegan() []time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return slices.Clone(c.began)
+}
+
+// The Select.rsp refusing an extra peer carries the time its write was issued, not the time the write returned:
+// a write that holds on after the response is on the wire cannot push the frame's At past the moment the write began.
+func TestWireObserver_RefusalSelectRspAtIsWhenWriteIssued(t *testing.T) {
+	t.Parallel()
+
+	var refusedConn atomic.Pointer[writeHoldConn]
+	log := &socketLog{}
+	_, _, port := selectedPassive(t, log, WithListener(wrappingListen(func(n int64, c net.Conn) net.Conn {
+		if n != 2 {
+			return c
+		}
+
+		hc := &writeHoldConn{Conn: c, hold: 2 * time.Millisecond}
+		refusedConn.Store(hc)
+
+		return hc
+	})))
+
+	raw := dialPassive(t, port)
+	defer func() { _ = raw.Close() }()
+
+	refused := log.waitKind(t, hsms.SocketAccepted, 2)[1]
+
+	_, err := raw.Write(selectReqFrame([4]byte{0, 0, 0, 9}))
+	require.NoError(t, err)
+	_, err = peerReadFrame(raw, 5*time.Second)
+	require.NoError(t, err)
+	log.waitClosed(t, refused.Socket)
+
+	var rsp []hsms.WireEvent
+	for _, e := range log.of(refused.Socket) {
+		if e.isWire && e.wire.Direction == hsms.WireOutbound {
+			rsp = append(rsp, e.wire)
+		}
+	}
+	require.Len(t, rsp, 1, "the Select.rsp is reported once")
+
+	began := refusedConn.Load().writesBegan()
+	require.Len(t, began, 1, "the Select.rsp is the refused socket's only write")
+	require.False(t, rsp[0].At.After(began[0]), "At %v must not follow the moment the write began %v", rsp[0].At, began[0])
+}
+
+// Over a real link, a burst of request/reply transactions never times a frame ahead of the frame that caused it.
+// For every transaction the At values, recorded at both ends, follow the causal chain:
+// the requester writes the primary, the responder reads it, the responder writes the reply, the requester reads it.
+// Both ends' sockets hold every write on after its bytes are on the wire,
+// so a frame timed when its write returned would carry a time after the peer had already read it.
+func TestSocketRace_BurstFrameTimesFollowCausalOrder(t *testing.T) {
+	t.Parallel()
+
+	const (
+		hold  = time.Millisecond
+		burst = 16
+	)
+
+	wrap := func(c net.Conn) net.Conn { return &writeHoldConn{Conn: c, hold: hold} }
+	dial := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		c, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+
+		return wrap(c), nil
+	}
+
+	activeRec, passiveRec := &wireRecorder{}, &wireRecorder{}
+	port := freeLoopbackPort(t)
+	passive := newEndpoint(t, port, false, []Option{
+		WithConnectionOption(hsms.WithWireObserver(passiveRec.observe)),
+		WithListener(wrappingListen(func(_ int64, c net.Conn) net.Conn { return wrap(c) })),
+	}, echoHandler)
+	active := newEndpoint(t, port, true, []Option{
+		WithConnectionOption(hsms.WithWireObserver(activeRec.observe)),
+		WithDialer(dial),
+	})
+	defer closeEndpoint(t, passive)
+	defer closeEndpoint(t, active)
+
+	require.NoError(t, passive.conn.Open(t.Context(), hsms.OpenBackground))
+	require.NoError(t, active.conn.Open(t.Context(), hsms.OpenBackground))
+	waitSelected(t, passive)
+	waitSelected(t, active)
+
+	errs := make(chan error, burst)
+	var wg sync.WaitGroup
+	for i := range burst {
+		wg.Go(func() {
+			_, err := active.conn.SendDataMessage(t.Context(), 1, 1, true, secs2.U4(uint32(i)))
+			errs <- err
+		})
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+
+	// A reply is reported by the responder once its write returned, which can trail the requester's read of it.
+	require.Eventually(t, func() bool { return len(dataFrameTimes(passiveRec.direction(hsms.WireOutbound), 2)) == burst },
+		5*time.Second, time.Millisecond, "every reply is reported by the responder")
+
+	primaryOut := dataFrameTimes(activeRec.direction(hsms.WireOutbound), 1)
+	primaryIn := dataFrameTimes(passiveRec.direction(hsms.WireInbound), 1)
+	replyOut := dataFrameTimes(passiveRec.direction(hsms.WireOutbound), 2)
+	replyIn := dataFrameTimes(activeRec.direction(hsms.WireInbound), 2)
+	require.Len(t, primaryOut, burst)
+	require.Len(t, primaryIn, burst)
+	require.Len(t, replyIn, burst)
+
+	for sb, sent := range primaryOut {
+		read, ok := primaryIn[sb]
+		require.True(t, ok, "primary %x is read by the responder", sb)
+		answered, ok := replyOut[sb]
+		require.True(t, ok, "primary %x is answered", sb)
+		got, ok := replyIn[sb]
+		require.True(t, ok, "the reply to %x is read by the requester", sb)
+
+		require.False(t, read.Before(sent), "primary %x: read at %v before it was written at %v", sb, read, sent)
+		require.False(t, answered.Before(read), "primary %x: answered at %v before it was read at %v", sb, answered, read)
+		require.False(t, got.Before(answered), "primary %x: reply read at %v before it was written at %v", sb, got, answered)
+	}
+}
+
+// dataFrameTimes returns the At of every data frame among events whose function is function, keyed by System Bytes.
+func dataFrameTimes(events []hsms.WireEvent, function byte) map[[4]byte]time.Time {
+	out := make(map[[4]byte]time.Time, len(events))
+	for _, ev := range events {
+		if len(ev.Frame) < 14 || ev.Frame[9] != 0 || ev.Frame[7] != function {
+			continue
+		}
+
+		out[[4]byte(ev.Frame[10:14])] = ev.At
 	}
 
 	return out
