@@ -1,6 +1,6 @@
 # tracepack — decision log
 
-Status: current (2026-09-27)
+Status: current (2026-09-28)
 Owner decisions for tracepack; append-only under `.agents/rules/450-doc-lifecycle.md`.
 Entries up to G5-79 were recorded in the design notes before the repository became the source of truth;
 they are copied here verbatim under their original headings, and later entries are added only here.
