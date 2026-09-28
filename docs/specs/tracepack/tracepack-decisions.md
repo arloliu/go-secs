@@ -254,3 +254,13 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   the service-side closure of a crashed producer's capture leaves v2.9 and becomes proposal P7 (deferred);
   until it is designed such a capture stays `open`, and producers publish a `stop` boundary on every orderly shutdown.
   The capture descriptor is registered in the catalog by the consumer that receives the `start`, and a record without a known descriptor is deferred.
+
+## 2026-09-28 reader
+
+- G5-89 Coverage matching (2026-09-28): a reader matches a `coverage` entry by its own bounds and errs toward `incomplete`:
+  an absent seq or time bound is unbounded, so an entry without a time interval intersects every time query of its capture;
+  an inverted entry intersects every query of its capture; an entry without `capture_id` belongs to the pack's capture.
+  Rationale: `coverage` is rare (a stored pack damaged beyond repair), and a missed intersection would turn lost records into "no match",
+  e.g. a transaction reported `unmatched`; over-reporting is bounded by the pack's hour.
+  Writer-side requiredness of the nested tags is left to `Repair`, which writes all of them.
+  Spec: [FMT §5] (v2.11).

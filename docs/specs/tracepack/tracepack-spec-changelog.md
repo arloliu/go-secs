@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-09-27) — spec v2.10.
+Status: current (2026-09-28) — spec v2.11.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository.
@@ -496,3 +496,16 @@ Format version stays 1.0: no byte changes.
 Summary:
 - [SEM §4] a frame the vantage sends itself is observed complete when it is handed to the socket, not when the send returns,
   so its `ts_utc_ns` never follows that of a reply the peer sends in answer.
+
+## Changes v2.10 → v2.11: coverage matching (owner decision G5-89, 2026-09-28)
+
+Source: the Go reader, whose `Iterate` must report a `coverage` hit as `incomplete` ([FMT §13])
+while no nested tag of `coverage` is required; no proposal document.
+Format version stays 1.0: no byte changes.
+
+Summary:
+- [FMT §5] a reader matches a `coverage` entry by its own seq range and time interval, both inclusive;
+  an absent bound is unbounded, an inverted entry intersects every query of its capture,
+  and an entry without `capture_id` belongs to the pack's capture.
+- [STO §5] Completeness points at that rule.
+- Whether a writer must fill every nested tag stays open for `Repair`, which writes all of them.

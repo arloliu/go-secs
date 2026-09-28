@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-09-27) — v2.10, tracepack format 1.0.
+Status: current (2026-09-28) — v2.11, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for publishers, mergers, recorders and log converters.
 
@@ -290,7 +290,7 @@ Its storage technology is not part of this specification.
   no `coverage` entry of a pack in the view intersects it, and it does not reach past a completeness barrier;
   otherwise it is `incomplete` with the searched scope.
   Time queries select record-bearing packs by their actual `ts_min` / `ts_max` (F-5), never by period, because a same-hour clock step can put records outside a segment's flush interval;
-  they consult `coverage` entries and completeness barriers by their own intervals, including those of packs without records.
+  they consult `coverage` entries ([FMT §5] matching rule) and completeness barriers by their own intervals, including those of packs without records.
   A `stop-unclean` boundary is a barrier for every epoch still open when the capture ended — one for which the per-capture entry records no closure —
   and for the time interval [`gap_start`, `gap_end`], unbounded on a side whose bound is absent;
   a transaction lookup whose primary lies in such an epoch never returns `unmatched`.
