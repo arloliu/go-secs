@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-09-27) — v2.10, tracepack format 1.0.
+Status: current (2026-09-28) — v2.11, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -239,6 +239,12 @@ Rules:
 
 Nested tags of `coverage`: 0x0001 `capture_id` uuid, 0x0002 `seq_first` u64, 0x0003 `seq_last` u64,
 0x0004 `time_start` i64, 0x0005 `time_end` i64.
+A reader matches a `coverage` entry against a query by the entry's own bounds, never by the records around it:
+the seq range [`seq_first`, `seq_last`] against the queried seqs, the time interval [`time_start`, `time_end`] against the queried time range, both inclusive.
+A side whose bound is absent is unbounded, so an entry without a time interval intersects every time range of its capture, and one without a seq range every seq range;
+an entry whose first bound exceeds its last intersects every query of its capture;
+an entry without `capture_id` belongs to the pack's capture.
+The rule errs toward `incomplete` (§13), because a missed intersection would present lost records as records that do not exist.
 
 Nested tags of `redaction_policy`: 0x0001 `policy_id` utf8, 0x0002 `policy_version` u64, 0x0003 `key_id` utf8, 0x0004 `digest_algorithm` u8 enum (§9), all required.
 
