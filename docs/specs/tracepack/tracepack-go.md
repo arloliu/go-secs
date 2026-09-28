@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
 Status: current (2026-09-27)
-Implements tracepack v2.8 (format 1.0): `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Implements tracepack v2.10 (format 1.0): `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -23,18 +23,25 @@ How each Go-side producer fills the spec's capture model ([SEM §2]):
 
 | Producer | `capture_method` | `vantage` | default `fidelity` | `recorder` example |
 |---|---|---|---|---|
-| go-secs conn wrapper recording socket bytes before HSMS decoding | `raw-stream` | `host` or `equipment`, by the application's role | `wire-exact` | `go-secs/2.4.2 conn-wrapper` |
-| eqp-hub, frames re-emitted via `ToBytes()`: today the `eqp_hsms` device → `hsms_secsjson` adapter → `tap_nats` device → JetStream path; a dedicated recorder device is planned, not built | `decoded-message` | `intermediary` | `re-encoded` | `eqp-hub/<ver> tap_nats` |
+| a go-secs application recording the frames `hsms.WithWireObserver` reports (go-secs v2.6.0 or later), before HSMS decoding | `raw-stream` | `host` or `equipment`, by the application's role | `wire-exact` | `<app>/<ver> go-secs/2.6.0` |
+| eqp-hub, frames re-emitted via `ToBytes()`: today the `eqp_hsms` device → `hsms_secsjson` adapter → `tap_nats` device → JetStream path; a recorder device on the go-secs v2.6.0 observers is planned, not built | `decoded-message` | `intermediary` | `re-encoded` | `eqp-hub/<ver> tap_nats` |
 | `tapconv` converting TAP SML logs | `log` | where TAP ran (normally `host`) | `reconstructed` | `tapconv/<ver>` |
 | VE or test fixtures producing expected traffic | `generator` | `none` | `synthesized` | `veq/<ver>` |
 
-The conn wrapper is also the socket observer that assigns `epoch` ([FMT I-7]).
+A recorder on the go-secs observers also installs `hsms.WithSocketObserver`
+and assigns `epoch` ([FMT I-7]) from the `Socket` value every go-secs observer event carries (§5):
+a per-capture `u32` counter keyed by the connection and its `Socket` values, starting at 1,
+because `Socket` is unique only within one connection.
 In the durable-bus deployment ([STO §4]) the producer also assigns `capture_id`, `recorder_instance_id` and `seq`, and the writer stores them as received.
-A producer without it writes `epoch = 0` and `correlation-incomplete`.
-As of 2026-09-27 the eqp-hub path carries no connection generation id, no start/stop event or instance id,
+A producer without socket identity writes `epoch = 0` and `correlation-incomplete`.
+As of 2026-09-28, go-secs v2.6.0 (release pending) exposes what the eqp-hub path lacked:
+socket and generation identity on wire, socket, lifecycle and transaction events,
+the wire and socket observers,
+and event times that carry a monotonic reading (`WireEvent.At`, `SocketEvent.At`, `LifecycleEvent.At`).
+eqp-hub itself still runs go-secs v2.3.0 and has no recorder device:
+its path carries no generation id, no start/stop event or instance id,
 and only a wall-clock string taken when the adapter converts the message (`SourceTimeStamp`, host-local time zone, no monotonic reading),
-so its records get `epoch = 0`, `correlation-incomplete` and `no-mono` until go-secs exposes a generation number and read-time timestamps on received messages and lifecycle events,
-and eqp-hub carries them to the producer boundary.
+so its records get `epoch = 0`, `correlation-incomplete` and `no-mono` until eqp-hub moves to go-secs v2.6.0 and records through the observers.
 Recorders flush `segment` packs to the staging tier; the merger (a service component using `Merge`) writes `archive` packs ([STO]).
 The query service, its catalog database and the live-tail interface are designed separately.
 
@@ -119,7 +126,7 @@ For well-formed frames the data/control payload equals `(*DataMessage).ToBytes()
 and is what `DecodeHSMSMessage` consumes.
 Where go-secs's strictness differs from the spec's item-validity rules, the conformance corpus decides and the classifier is adjusted.
 
-## 5. Lifecycle and transaction events: go-secs → transport events
+## 5. Observer events: go-secs → transport events and records
 
 ### 5.1 Cause mapping
 
@@ -136,35 +143,93 @@ Where go-secs's strictness differs from the spec's item-validity rules, the conf
 | `CauseT7Timeout` | timer-expiry | 7 |
 | `CauseLinktestFail` | linktest-failure | — |
 | `CauseIOError` | transport-error | — |
-| `CauseHandlerExit` (on branch `fix/robustness-batch2`, not yet on `main`) | implementation-fault | — |
+| `CauseHandlerExit` | implementation-fault | — |
+| `SocketRefused` (a `SocketEventKind`, `hsms/socket_observer.go`), which sources a refused socket's `not-connected` → `not-connected` record (§5.3) | select-rejected | — |
 
 `cause_raw` is always written as `go-secs:<ConstantName>`.
 go-secs folds an unannounced peer close into `CauseIOError`, so the Go recorder never writes `peer-close` from a lifecycle event;
-only the conn wrapper's socket observation can.
+only a `socket-close` record can, from `SocketEvent.Err` (§5.3).
 T8 also surfaces as `CauseIOError`; T5 has no go-secs source.
 go-secs emits no local-deselect or local-separate cause.
 
-### 5.2 Why lifecycle epochs are unknown by default ([SEM §5])
+### 5.2 Lifecycle epochs and times ([SEM §5])
 
-`hsms.LifecycleEvent{Previous, Current, Cause}` (`hsms/lifecycle.go`) carries no generation id;
-the supervisor's state-notification buffer drops the oldest entry when full (`supervisor.notify`, `hsms/supervisor.go`),
-so a coalesced bring-up can surface as one transition with `CauseSelectAccepted` rather than `CauseLocalOpen`;
-an old cycle's handler can still deliver after a reopen (handler-concurrency note in `hsms/state.go`).
+`hsms.LifecycleEvent` (`hsms/lifecycle.go`) carries `Socket`, `Generation` and `At`,
+all taken when the supervisor fires the transition, never when the notifier delivers the event.
+A notification delivered late, behind a slow state-change handler or subscriber or after a reopen (handler-concurrency note in `hsms/state.go`),
+still names the socket of its own generation and the time its transition fired,
+so the recorder writes the `epoch` it maps from `Socket` (§2) and takes `ts_utc_ns` and `mono_ns` from `At`, as for a wire record (§5.5).
+`Socket` is 0 for a transition of a generation that never acquired a socket and when the connection has no generation at all;
+it names no socket, so such a record is written with `epoch = 0` under the [SEM §5] rule.
+Delivery stays best-effort:
+the supervisor's state-notification buffer drops the oldest entry when full (`supervisor.emit`, `hsms/supervisor.go`),
+so a coalesced bring-up can surface as one transition with `CauseSelectAccepted` rather than `CauseLocalOpen`,
+and a dropped notification leaves no record, which [SEM §5] allows.
+A coalesced notification carries the `At` of the transition it reports.
 States `NotConnectedState` / `NotSelectedState` / `SelectedState` (`hsms/state.go`) map to the spec's `state` enum.
 
 ### 5.3 Socket events
 
+A lifecycle cause never establishes a socket event ([SEM §5]):
 `CauseLocalClose` means a local Close initiated the transition,
 `CauseIOError` covers read/write failure and unannounced peer close (both documented in `hsms/lifecycle.go`),
 and the transition into NotConnected is committed before the supervisor's `react` step starts teardown (`hsms/supervisor.go`).
-Hence socket-accept / socket-connect / socket-close come only from the conn wrapper.
+Socket events come from `hsms.WithSocketObserver` (`hsms/socket_observer.go`), which only the HSMS-SS transport reports.
+`SocketConnected`, `SocketAccepted` and `SocketClosed` become `socket-connect`, `socket-accept` and `socket-close`, timed by `SocketEvent.At`,
+with `socket_role` `active` for a dialed socket and `passive` for an accepted one;
+a `SocketClosed` delivered late still carries the time the socket was closed.
+`SocketRefused` sources the refused socket's `state-transition` record (§5.1),
+so a refused socket yields, in its own epoch, `socket-accept`, whichever of its two frames were observed (none, one or both), that transition record, and `socket-close`.
+
+`socket-close` takes its `cause` from `SocketEvent.Cause`, with `cause_raw` `go-secs:<ConstantName>` as in §5.1:
+
+| `SocketClosed` | spec `cause` |
+|---|---|
+| `CauseIOError` with `errors.Is(Err, io.EOF)`, or, on a socket reported `SocketRefused`, also with `errors.Is(Err, io.ErrUnexpectedEOF)` | peer-close |
+| any other `CauseIOError` | transport-error |
+| `CauseLocalClose` | local-close |
+| `CauseUnknown` | unknown |
+| any other cause | as in §5.1 |
+
+`Err` and `Cause` are one close reason, taken from whichever path closed the socket first,
+so a `socket-close` cause can differ from the cause of the `state-transition` that ended the same generation:
+a write error recorded just before a concurrent Close wins the transition gives `transport-error` on the socket and `local-close` on the transition.
+Both are recorded as reported;
+the socket record says what closed the socket first, and the transition record what drove the state machine.
 
 ### 5.4 Transactions
 
 T3 comes from `TxEvent{Outcome: TxT3Timeout}` (`hsms/transaction_observer.go`),
-which carries S/F and System Bytes but not SessionID or direction; the recorder supplies those.
+which carries S/F, System Bytes, `SessionID`, and the `Socket` and `Generation` the send was bound to, even when it completes after a reconnect;
+a send that found no open connection reports both as 0.
+It does not carry the direction: the primary is always one this connection sent, so the recorder supplies it from its role.
+`TxEvent` has no time of its own;
+the transaction observer runs synchronously when the outcome is known, so the recorder takes the time when it receives the event.
 Outcomes mirror `TxRejected` / `TxT3Timeout` vs `TxReplied`.
 The same-stream F0 rule of [SEM §7.2] matches the SxF0 note in `hsms/data_msg.go` and the mismatch rule of `replyRegistry` (`hsms/reply_registry.go`).
+
+### 5.5 Wire records
+
+`hsms.WithWireObserver` (`hsms/wire_observer.go`) reports every frame the HSMS-SS transport reads or writes,
+control frames, frames go-secs rejects after reading them, and a refused socket's frames included.
+One `WireEvent` becomes one data or control record:
+`payload` = `Frame`, copied during the call; `epoch` from `Socket` (§2);
+`dir` from `Direction` and the application's role; `fidelity` = `wire-exact`;
+copy fields and `decode_status` from the classifier (§4);
+`ts_utc_ns` = `At.UnixNano()` and `mono_ns` = `At.Sub(origin)`.
+An inbound frame's `At` is the time the frame was fully read.
+An outbound frame's `At` is taken immediately before its write is issued,
+which is when [SEM §4] observes a frame the vantage sends itself complete: when it is handed to the socket.
+The observer is still called only after the write succeeded,
+so a frame whose write failed is not recorded, and the `socket-close` that follows carries the error.
+
+go-secs makes the times causal, not the delivery:
+the hooks run on different goroutines, an outbound report follows its write,
+and the courtesy Separate and a refused socket's frames are reported from goroutines of their own,
+so an event can reach the recorder after events that happened later, with no bound on the delay.
+A recorder that sorts by `At` within a window before it assigns `seq` gets causal order for every event that arrives within the window;
+one that arrives later is recorded where it arrives (§8 question 3),
+and a reply recorded before its primary is reported by transaction matching as an anomaly ([SEM §7.2]).
 
 ## 6. TAP converter (`veq/tools/tapconv`)
 
@@ -195,7 +260,13 @@ Output formats of the other commands and exit codes are deferred to implementati
 
 ## 8. Open questions
 
-1. Whether eqp-hub can be given a socket-level observer (a recorder device or the conn wrapper),
-   which would let it write `raw-stream` / `wire-exact` records instead of `decoded-message` / `re-encoded`.
-2. Which go-secs release exposes the connection generation number and the read-time wall and monotonic timestamps
-   that the eqp-hub path needs for `epoch` and `mono_ns` (see §2).
+1. Answered by go-secs v2.6.0: eqp-hub can be given a socket-level observer.
+   `hsms.WithWireObserver` reports every frame's wire bytes, in both directions, on the connection the `eqp_hsms` device holds,
+   so a recorder device there writes `raw-stream` / `wire-exact` records instead of `decoded-message` / `re-encoded` (§5.5).
+   eqp-hub still has to move to v2.6.0 and build that device.
+2. Answered: go-secs v2.6.0 exposes the socket and generation on every observer event,
+   and the wall and monotonic time in one `time.Time` on wire, socket and lifecycle events (§5),
+   which the eqp-hub path needs for `epoch` and `mono_ns` (§2).
+3. How a record that reached the recorder after its ordering window is marked (§5.5):
+   its `seq` follows records of events that happened after it, so a reply can be recorded before its primary.
+   Whether `ordering-uncertain` ([SEM §6]) covers such a record, or it needs a marker of its own, is open.
