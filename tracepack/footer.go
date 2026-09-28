@@ -9,8 +9,11 @@ import (
 )
 
 // footerFlagF3Present is F-1 flags bit 0, F-3 present, which footer layout 1 always sets;
-// bit 1, F-4 present, stays clear because this writer builds no secondary index.
-const footerFlagF3Present uint16 = 1
+// footerFlagF4Present, bit 1, stays clear because this writer builds no secondary index.
+const (
+	footerFlagF3Present uint16 = 1
+	footerFlagF4Present uint16 = 2
+)
 
 // Tags of an F-3 block summary (the tracepack format specification §10).
 const (
