@@ -378,11 +378,15 @@ func TestReconnect_ExponentialBackoffGrowsToT5Ceiling(t *testing.T) {
 
 	require.NoError(t, c.Open(t.Context(), OpenBackground))
 	requireSelected(t, c)
+	genN := c.CurrentGeneration()
 
 	mt.simulateReadError(io.EOF) // involuntary drop → 4 failed re-dials, then success
 
-	require.Eventually(t, func() bool { return c.State() == SelectedState }, 10*time.Second, time.Millisecond,
-		"the reconnect loop must eventually recover once dial failures stop")
+	// The drop is reported asynchronously, so the dropped generation still reads Selected here;
+	// recovery means a successor generation reached Selected.
+	require.Eventually(t, func() bool {
+		return c.CurrentGeneration() != genN && c.State() == SelectedState
+	}, 10*time.Second, time.Millisecond, "the reconnect loop must eventually recover once dial failures stop")
 
 	times := capLog.snapshot()
 	require.GreaterOrEqual(t, len(times), 4, "expected at least 4 recorded dial-failure retries")

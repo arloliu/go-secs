@@ -84,6 +84,16 @@ One behavior change is visible to the peer; see Upgrade notes.
   a read error, a peer Separate, a failed linktest, or a failed active Select —
   closes the socket through that gate before it reports the disconnect,
   so the socket no longer stays open until the connection's teardown (see Upgrade notes).
+- `github.com/stretchr/testify` moved from v1.9.0 to v1.12.1,
+  the version the nested `tracepack` module already pins.
+
+### Tests
+
+- `hsms`: three tests no longer depend on `require.Eventually` deferring its first check to the first tick,
+  which testify 1.10 and later stopped doing.
+  Each now waits on the edge it was implicitly assuming:
+  the reopened connection's own bring-up reports, a successor generation reaching Selected,
+  and the supervisor reacting to the terminal transition before the notify buffer is drained.
 
 ## [2.5.0] - 2026-09-27
 
