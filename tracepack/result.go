@@ -1,0 +1,79 @@
+package tracepack
+
+import "fmt"
+
+// Reasons a read is incomplete, the "incomplete" status of the tracepack format specification §13.
+const (
+	// ReasonCorruptBlock reports a block that failed an integrity check:
+	// a CRC, its envelope against its F-2 entry, I-2, the header-only checks of §6, or its records against its F-2 entry.
+	ReasonCorruptBlock IncompleteReason = iota + 1
+	// ReasonUnknownCodec reports a block whose codec is outside the registry of §2.
+	ReasonUnknownCodec
+	// ReasonTruncated reports a pack that is not finalized, so more records may follow,
+	// or a forward walk that could not account for the pack's block region.
+	ReasonTruncated
+	// ReasonCoverage reports a coverage entry of the pack metadata that intersects the query (§5).
+	ReasonCoverage
+	// ReasonLimit reports a block larger than ReaderOptions.MaxBlockLen, which was not read.
+	ReasonLimit
+)
+
+// IncompleteReason classifies why a read is incomplete.
+//
+// The zero value is not a reason; String prints it and any undefined value as "unknown(<n>)".
+type IncompleteReason uint8
+
+var _ fmt.Stringer = IncompleteReason(0)
+
+// Defect is one cause of an incomplete read,
+// reported beside the records that were read, never instead of them (the tracepack format specification §13).
+type Defect struct {
+	// Reason classifies the defect.
+	Reason IncompleteReason
+	// Block is the index into Reader.Blocks of the block the defect concerns; -1 when it concerns no single block.
+	Block int
+	// Offset is the file offset where the defect was found; -1 when there is none.
+	Offset int64
+	// Coverage is the coverage entry that intersects the query; set for ReasonCoverage only.
+	Coverage *Coverage
+	// Err describes the defect.
+	Err error
+}
+
+// Result is the status of a read, reported beside the records it yielded.
+type Result struct {
+	// Incomplete lists every cause that made the read incomplete, in the order they were found;
+	// empty when the read is complete.
+	Incomplete []Defect
+	// HeaderValidated lists, in ascending order, the blocks whose unvalidated record-header copies the result relied on
+	// (the tracepack semantics specification §7.4).
+	HeaderValidated []int
+	// FooterErr is PackHeader.FooterErr: non-nil when the footer was not used and the blocks came from the forward walk.
+	// It is independent of Incomplete:
+	// a finalized pack whose walk accounts for every block and record is complete without its footer.
+	FooterErr error
+}
+
+// String returns the reason's name, or "unknown(<n>)" for a value this package does not define.
+func (r IncompleteReason) String() string {
+	switch r {
+	case ReasonCorruptBlock:
+		return "corrupt-block"
+	case ReasonUnknownCodec:
+		return "unknown-codec"
+	case ReasonTruncated:
+		return "truncated"
+	case ReasonCoverage:
+		return "coverage"
+	case ReasonLimit:
+		return "limit"
+	default:
+		return fmt.Sprintf("unknown(%d)", uint8(r))
+	}
+}
+
+// Complete reports whether the read is complete: whether Incomplete is empty.
+// HeaderValidated and FooterErr do not make a read incomplete.
+func (r Result) Complete() bool {
+	return len(r.Incomplete) == 0
+}
