@@ -32,7 +32,9 @@ type Defect struct {
 	Reason IncompleteReason
 	// Block is the index into Reader.Blocks of the block the defect concerns; -1 when it concerns no single block.
 	Block int
-	// Offset is the file offset where the defect was found; -1 when there is none.
+	// Offset is the file offset where the defect was found:
+	// the block envelope's offset for a defect of a block, whose checks mostly have no finer position;
+	// -1 when there is none.
 	Offset int64
 	// Coverage is the coverage entry that intersects the query; set for ReasonCoverage only.
 	Coverage *Coverage
