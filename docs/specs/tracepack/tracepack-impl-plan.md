@@ -1,6 +1,6 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-09-29) — phase 3 done; phase 4 next.
+Status: active (2026-09-29) — phase 3 done; the format revision (proposal P9) next, then phase 4.
 Implements: tracepack v2.12 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
@@ -12,10 +12,10 @@ so that recorders, the merger and a query service can be built on it.
 
 In scope:
 - every fixed structure, TLV, codec and CRC of the spec, with golden vectors;
-- `Writer`, `Reader`, `Verify`, `Repair`, `Recover`, `Merge`, `MergeIterate`, `FindTransaction`, `ExportJSONL`, and `Extract` with redaction ([SEM §8]);
+- `Writer`, `Reader`, `Verify`, `Repair`, `Recover` (deferred, G5-91), `Merge`, `MergeIterate`, `FindTransaction`, `ExportJSONL`, and `Extract` with redaction ([SEM §8]);
 - the go-secs classifier (`decode_status` from frame bytes);
 - the conformance corpus generator and its first vectors;
-- CLI subcommands `list`, `stats`, `dump`, `verify`, `merge`, `recover`.
+- CLI subcommands `list`, `stats`, `dump`, `verify`, `merge`, and `recover` once `Recover` is planned (G5-91).
 
 Out of scope (separate designs or later phases):
 the go-secs conn-wrapper recorder, eqp-hub integration, `tapconv`, the query service, its MariaDB catalog, the live-tail interface,
@@ -27,7 +27,7 @@ Nested module `github.com/arloliu/go-secs/tracepack` (own `go.mod` in `tracepack
 
 | Package | Content | Public? |
 |---|---|---|
-| `tracepack` | `Record`, enums, `PackMeta`, `Writer`, `Reader`, `Filter`, `Verify`, `Repair`, `Recover`, `Merge`, `MergeIterate`, `FindTransaction`, `Extract`, `RedactionPolicy` | yes |
+| `tracepack` | `Record`, enums, `PackMeta`, `Writer`, `Reader`, `Filter`, `Verify`, `Repair`, `Recover` (deferred), `Merge`, `MergeIterate`, `FindTransaction`, `Extract`, `RedactionPolicy` | yes |
 | `tracepack/jsonl` | canonical export | yes |
 | `tracepack/classify` | go-secs-based `decode_status` classifier | yes |
 | `tracepack/internal/format` | byte layouts: file header, envelope, record header, trailer, F-1, F-2; CRC; UUID byte order | no |
@@ -66,7 +66,8 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 1 — Format primitives | done |
 | 2 — Writer and classifier | done |
 | 3 — Reader | done |
-| 4 — Verify, Repair, Recover | pending |
+| Format revision (P9) | pending |
+| 4 — Verify, Repair | pending |
 | 5 — Merge, MergeIterate, FindTransaction | pending |
 | 6 — JSONL export, conformance corpus, CLI | pending |
 | 7 — Extract and redaction | pending |
@@ -172,19 +173,37 @@ and the labelled nonconforming false-attestation fixture, for which a header-onl
 
 Done when: bootstrap costs one round in the hint and small-window paths, and the corruption sweep finds no silent error.
 
-### Phase 4 — Verify, Repair, Recover
+### Format revision (proposal P9)
+
+Applies the spec version that carries P9 (G5-92..G5-94) to the code before phase 4 (G5-91).
+- Writer: transpose the header section when a block body is assembled.
+- Reader: untranspose the decoded header section into a reusable row buffer; every record-level path stays as it is.
+- Validating writer: decode the encoded body and untranspose its header section before the I-2 and I-10 checks ([FMT §12]).
+- Retired pack-metadata numbers are dropped from preserved unknown entries on write.
+- Retired tag and value of P9 §3.3 (`pack_role` 5 rejected by the `Writer`; replacement-set size 1 and index 0), and the retired tags of P9 §3.4 (G5-96): encoding, validation and tests.
+- An in-repository benchmark that reproduces the columnar comparison of P9 §2 on the implemented writer and reader.
+- Tests: golden block bodies and the reader's per-offset corruption expectations regenerated;
+  a row-layout sample pack with a multi-record block read as `corrupt`; round trips with `record_header_len` > 56;
+  attested multi-record blocks under both codecs, with I-2 and I-10 defects injected after encoding.
+- Run the tracepack fuzz targets before committing the decoder change.
+
+Done when: the writer and reader implement the revised layout, and the corruption sweep finds no silent error.
+
+### Phase 4 — Verify, Repair
 
 - `Verify`: forward block walk (I-1, I-2), outcomes `finalized-consistent`, `finalized-truncated`, `unfinalized`, `corrupt-middle`, report with offsets.
-- `Repair`: rejects an extract ([STO §2]); writes a generation-0 `repair` patch with `supersedes` = the damaged pack, `patch_base`, the damaged pack's inherited `coverage` plus new `coverage` (capture_id + seq ranges + time intervals).
-- `Recover`: spool file + liveness anchor → segment of the original capture, same seqs, plus a `stop-unclean` boundary record with `gap_start` / `gap_end` computed per [STO §4].
-- Writer-side spool durability contract helpers: clock anchor and drift check ([SEM §4]), liveness anchor file rewritten every F, at spool rotation and after a durable clock-step ([STO §4]);
-  segment roll at an hour change.
-- Tests: the durable clock-step → size roll → empty spool → crash vector; nonzero `capture_origin_mono_ns`.
+- `Repair`: rejects an extract ([STO §2]); writes a `repair` pack with `supersedes` = the damaged pack, the damaged pack's inherited `coverage` plus new `coverage` (capture_id + seq ranges + time intervals).
+  Starts after proposal P10 is decided (G5-95): its metadata (`patch_base`) follows P10's outcome, and `coverage`'s nested-tag requiredness is settled with it.
 
 Tests: truncate a pack at every byte offset and check the outcome;
-recovery keeps the validated prefix byte-identical and continues seq correctly.
+the repair pack keeps the validated prefix byte-identical.
 
 Done when: every truncation point yields the expected outcome and no validated record is lost.
+
+Deferred until a local-spool recorder is planned (G5-91):
+`Recover` (spool file + liveness anchor → segment of the original capture, same seqs, plus a `stop-unclean` boundary record with `gap_start` / `gap_end` per [STO §4]);
+the writer-side spool durability helpers (liveness anchor rewritten every F, at spool rotation and after a durable clock-step, [STO §4]; segment roll at an hour change);
+and their vectors (the durable clock-step → size roll → empty spool → crash vector; nonzero `capture_origin_mono_ns`).
 
 ### Phase 5 — Merge, MergeIterate, FindTransaction
 
@@ -233,7 +252,7 @@ for a merge that validated its output but could not attest it, `Verify` reports 
 - Corpus generator producing the [FMT §16] vectors except the redaction vectors (phase 7), with golden `.tpk`, `.jsonl` and verify reports under `testdata/corpus/`,
   plus the expected query results and validation statuses of the query vectors,
   regenerated only with an explicit `-update` flag.
-- CLI: `list`, `stats`, `dump --sml | --jsonl`, `verify [--repair]`, `merge`, `recover`; local paths first, `s3://` through an `io.ReaderAt` adapter;
+- CLI: `list`, `stats`, `dump --sml | --jsonl`, `verify [--repair]`, `merge`, and `recover` once `Recover` is planned (G5-91); local paths first, `s3://` through an `io.ReaderAt` adapter;
   on `s3://` sources, `list`, `stats` and `dump` end an hour that becomes removed with the removed outcome ([STO §5] Retention).
 
 Done when: the corpus regenerates byte-identically, `dump --jsonl` matches every golden,
