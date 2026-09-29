@@ -9,11 +9,6 @@ import (
 	"github.com/arloliu/go-secs/tracepack/internal/format"
 )
 
-// knownFieldValidity holds the field_validity bits the tracepack format specification §9 defines;
-// the others are reserved and ignored on read (I-9).
-const knownFieldValidity = FieldValiditySessionID | FieldValidityStreamAndW | FieldValidityFunction |
-	FieldValidityPType | FieldValiditySType | FieldValiditySystemBytes
-
 // blockBuf holds the buffers one iteration reuses across the blocks it reads,
 // so a read allocates only for a block larger than every block read before it with the same blockBuf.
 // Each iteration owns its blockBuf; nothing mutable is shared on the Reader.
@@ -46,15 +41,13 @@ type decodedBlock struct {
 	offs []uint32
 }
 
-// recordCopies is the copy fields of a record and its field_validity (the tracepack format specification §7.2).
+// recordCopies is the copy fields a Filter tests and the field_validity bits that make them available
+// (the tracepack format specification §7.2).
 type recordCopies struct {
 	systemBytes [4]byte
 	sessionID   uint16
 	stream      uint8
 	function    uint8
-	pType       uint8
-	sType       uint8
-	w           bool
 	validity    FieldValidity
 }
 
@@ -97,31 +90,23 @@ func storedRecord(h *format.RecordHeader, payload []byte) Record {
 	}
 }
 
-// copyMismatch reports whether the stored copy fields of a data or control record disagree with its payload (I-10):
-// whether the copy fields and field_validity of want, the stored record with Record.SetHeaderCopies applied,
-// differ from the stored copy fields, W and field_validity of stored, reserved field_validity bits aside (I-9).
-// A record of any other kind has no copies, so it never mismatches.
-func copyMismatch(stored, want *Record) bool {
-	if !stored.hasCopies() {
-		return false
-	}
-
-	got := copiesOf(stored)
-	got.validity &= knownFieldValidity
-
-	return got != copiesOf(want)
+// copyMismatch reports whether the record header h of a data or control record disagrees with its payload p under I-10:
+// a copy field whose field_validity bit is set differs from the payload bytes it copies, or p lacks them.
+// A copy field whose bit is clear is not compared, even where p holds its bytes,
+// and reserved field_validity bits are ignored (I-9);
+// a record of any other kind has no copies, so it never mismatches (the tracepack format specification §7.2).
+// It is the Writer's I-10 check: copyMismatch(h, p) == (checkCopies(h, p) != nil).
+func copyMismatch(h *format.RecordHeader, p []byte) bool {
+	return copyDisagreement(h, p) >= 0
 }
 
-// copiesOf returns r's copy fields and field_validity.
+// copiesOf returns the copy fields a Filter tests of r, available as r.FieldValidity marks them.
 func copiesOf(r *Record) recordCopies {
 	return recordCopies{
 		systemBytes: r.SystemBytes,
 		sessionID:   r.SessionID,
 		stream:      r.Stream,
 		function:    r.Function,
-		pType:       r.PType,
-		sType:       r.SType,
-		w:           r.W,
 		validity:    r.FieldValidity,
 	}
 }

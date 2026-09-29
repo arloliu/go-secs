@@ -17,7 +17,8 @@ const (
 	// also when the block yields no record.
 	QueryProvisional QueryMode = iota
 	// QueryAuthoritative evaluates the copy-field predicates of a Filter on the values in the payload (I-10),
-	// or on the stored copies of an attested block, which carry the guarantees of a full read.
+	// or on the stored copies of an attested block, which carry the guarantees of a full read;
+	// either way a field is available only when its stored field_validity bit is set.
 	// A block that is not attested is read in full whenever the Filter has a copy-field predicate,
 	// so it is never excluded by its stored copies.
 	QueryAuthoritative
@@ -70,9 +71,10 @@ type SF struct {
 // so every mode evaluates them on the stored record header.
 // SF, SessionIDs and SystemBytes test copy fields (the tracepack format specification §7.2),
 // which the Query's mode decides how to evaluate.
-// A copy field is available when its field_validity bit is set:
-// the bit stored in the record header, or, when the mode evaluates the payload's values, the bit the payload gives,
-// which is clear for every copy field of a record that is neither data nor control.
+// A copy field is available when the field_validity bit stored in its record header is set, in every mode,
+// even where the payload holds the field's bytes (the tracepack format specification §7.2).
+// When the mode evaluates the payload's values, the payload must also hold all of the field's bytes,
+// and a record that is neither data nor control has no available copy field.
 // A predicate whose field is unavailable cannot match, unless IncludeUnavailable is set.
 type Filter struct {
 	// TimeFrom and TimeTo bound ts_utc_ns to the half-open range [TimeFrom, TimeTo); a nil bound is unbounded.
@@ -108,8 +110,9 @@ var _ fmt.Stringer = ReadLevel(0)
 // Iterate reuses the Item, and Record.Payload and HeaderExtra alias Iterate's buffers.
 // A caller that keeps a record copies it, cloning Payload and HeaderExtra.
 type Item struct {
-	// Record is the record as stored, every copy field as its record header holds it, whatever the mode;
-	// SetHeaderCopies on a copy of a full read gives the payload's values, which an authoritative query selects on.
+	// Record is the record as stored, every copy field and FieldValidity as its record header holds them, whatever the mode;
+	// SetHeaderCopies on a copy of a full read gives the payload's values, which an authoritative query selects on,
+	// but availability stays with the stored FieldValidity (see Filter).
 	// Payload is set iff Level is ReadFull.
 	Record Record
 	// HeaderExtra holds the record-header bytes behind offset 56, which a newer minor version may define
@@ -119,9 +122,14 @@ type Item struct {
 	Block int
 	// Level is the level the record's block was read at.
 	Level ReadLevel
-	// CopyMismatch reports, at ReadFull, that the stored copy fields, W or field_validity of a data or control record
-	// differ from the values Record.SetHeaderCopies computes from its payload (I-10);
-	// it is always false at the other levels, which do not decode the payload.
+	// CopyMismatch reports, at ReadFull, that a data or control record breaks I-10:
+	// a copy field whose stored field_validity bit is set differs from the payload bytes it copies, or the payload lacks them,
+	// the check a validating Writer runs before it writes a block.
+	// A copy field whose bit is clear is not compared, even where the payload holds its bytes
+	// (the tracepack format specification §7.2).
+	// It is always false at the other levels, which do not decode the payload.
+	// Only a yielded record carries it: a record the filter excludes is not reported;
+	// finding every such writer defect of a pack takes a verification that decodes every block.
 	CopyMismatch bool
 }
 

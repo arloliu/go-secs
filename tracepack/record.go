@@ -85,7 +85,9 @@ type Record struct {
 	SType uint8
 	// Quality is the stored quality bit set.
 	Quality Quality
-	// FieldValidity marks which copy fields were present in the captured bytes.
+	// FieldValidity marks which copy fields were present in the captured bytes,
+	// or, for a log conversion, which the source's metadata established (the tracepack format specification §7.2);
+	// a copy field whose bit is clear is unavailable to a query even where Payload holds its bytes.
 	FieldValidity FieldValidity
 	// Payload is the record payload: the captured HSMS frame for data and control records,
 	// a TLV body for transport-event and annotation records (the tracepack format specification §8).
