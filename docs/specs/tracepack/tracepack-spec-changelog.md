@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-09-29) — spec v2.13.
+Status: current (2026-09-29) — spec v2.14.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -662,3 +662,35 @@ Summary:
 ### P9 application review A2 — VERDICT: ready
 
 No findings: the three A1 findings are resolved, and G5-99 agrees with the eligibility window, the completeness rule and [FMT §7.2].
+
+## Changes v2.13 → v2.14: verification outcomes (owner decision G5-100, 2026-09-29)
+
+Source: planning the Go `Verify`, which found the four outcomes of [FMT §13] named but not defined; no proposal document.
+Format version stays 1.0: no byte changes.
+
+Summary:
+- [FMT §13] verification and recovery: a block fails on its envelope, body CRC, codec, I-2 or F-2 envelope agreement;
+  with a valid footer, a block whose envelope fails is passed by its F-2 entry, and each block's records are checked against its F-2 entry and F-3 summary.
+  The outcome is the first that applies of `corrupt-middle`, `unfinalized`, `finalized-truncated`, `finalized-inconsistent` (new) and `finalized-consistent`.
+- [FMT §13] writer defects in a validated block (a `field_validity` bit beyond the payload; a transport-event or annotation record with a nonzero `field_validity` or an invalid TLV body;
+  seqs not increasing across blocks; a block over two UTC hours) are reported and never change the outcome.
+- [FMT §13] the report states finalization, the end of the validated prefix and, with a valid footer, the seq ranges and time intervals of the failed blocks;
+  an unreadable file header or pack metadata is an error.
+  The guarantee covers every validated block, and the validated prefix without the footer.
+- [FMT §10], [FMT §13] a block whose envelope agrees with its F-2 entry but whose records do not is read, and the read is `incomplete`,
+  so that every validated block is readable, as `finalized-inconsistent` promises.
+  A reader that prunes by a valid footer trusts it, so an index that misstates a block consistently can hide that block's records from a pruned read;
+  `verify` reports such an index.
+- [FMT I-5], [FMT §11] a trailer that places the footer before the end of the pack metadata does not finalize the file, as a reader already treated it.
+- [FMT §16] verification vectors, one per outcome, plus a writer defect of each kind.
+- [OVW §6] the deferred item is locating blocks after an envelope the walk cannot account for, in a pack without a valid footer.
+- `tracepack-go.md` §3: `Verify` takes options and returns an error for an unreadable pack.
+
+### Verification outcome review rounds 1–3 — VERDICT (round 3): ready
+
+| Finding | Resolution (v2.14) |
+|---|---|
+| P1 a pruned read trusts a valid footer whose index misstates a block while staying consistent with itself | [FMT §10] the limitation stated; `verify` reports such an index |
+| P1 the I-12 and I-13 writer defects cannot coexist with a valid footer | [FMT §13] they come with an invalid or disagreeing footer, which makes the outcome `finalized-inconsistent` when no earlier outcome applies |
+| P1 a trailer placing the footer inside the pack metadata met I-5 while the reader rejected it | [FMT I-5], [FMT §11] |
+| P1 ×2 boundary multiplicity in the F-3 comparison, the footer budget error; P2 ×2 test construction | the Go implementation plan |

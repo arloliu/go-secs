@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-09-29) — v2.13, tracepack format 1.0.
+Status: current (2026-09-29) — v2.14, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -82,7 +82,8 @@ These rules let any mainstream language implement the format from this text alon
 - **I-3 Footer is derivable.** The footer contains nothing that cannot be rebuilt by walking the blocks.
 - **I-4 Trailer locates the footer.** The 64-byte trailer at end of file holds the footer's offset, lengths, codec and CRC,
   the block count, the record count, the last seq, its own CRC and a magic (§11).
-- **I-5 Finalized means trailer valid.** A file is finalized iff the trailer magic matches, the trailer CRC matches, and the footer CRC matches.
+- **I-5 Finalized means trailer valid.** A file is finalized iff the trailer magic matches, the trailer CRC matches,
+  the trailer places the footer at or after the end of the pack metadata and ending where the trailer starts (§11), and the footer CRC matches.
   This is the single logical finalization point; no byte is rewritten after it (§12).
   A crash after a durable trailer leaves a finalized file even if the writer's close operation never returned.
 - **I-6 Immutable once finalized.** No byte of a finalized file is ever modified; repairs are new files ([STO §6]).
@@ -614,13 +615,19 @@ All sums are computed with overflow checks; an overflow invalidates the footer.
 A pack without blocks has `block_count = 0`, an empty F-2 and F-3, `record_count = 0`, `footer_offset = 80 + pack_metadata_len`,
 and no F-5 `ts_min`, `ts_max`, `seq_range`, `epoch` or `boundary` entries; its trailer `last_seq` is ignored.
 When a block is read, its envelope MUST agree with its F-2 entry, `record_header_len` included, or the block is `corrupt`.
+A block whose envelope agrees but whose records disagree with its F-2 entry (last seq, time or epoch range) is not `corrupt`:
+its records are used, and the read is `incomplete`, because the same index pruned the blocks it did not read (§13).
+A reader that prunes blocks by a valid footer trusts it:
+an index that misstates a block while staying consistent with itself passes these checks,
+so a read that prunes by it can miss that block's records without reporting it.
+Such an index is a writer defect that only reading every block reveals; `verify` reports it (§13, `finalized-inconsistent`).
 A footer failing any check is **invalid**: the reader reports it and falls back to the forward walk of I-1, never trusting the index.
 
 ## 11. Trailer (64 bytes, at size − 64)
 
 | Off | Type | Field | Meaning |
 |---|---|---|---|
-| 0 | u64 | `footer_offset` | file offset of the footer |
+| 0 | u64 | `footer_offset` | file offset of the footer; at or after the end of the pack metadata (80 + `pack_metadata_len`) |
 | 8 | u64 | `footer_len` | on-disk footer length; `footer_offset + footer_len = size − 64` |
 | 16 | u64 | `footer_uncompressed_len` | decoded footer length |
 | 24 | u32 | `block_count` | blocks in the file |
@@ -691,17 +698,45 @@ The object size is known before reading (file system stat, object listing, the c
   A trailer at the front would still need a second read for the footer,
   and a footer at the front requires buffering or rewriting the whole file,
   which breaks streaming writes, multipart upload while recording, crash safety, and I-5.
-- **Recovery** (`verify --repair`): walk blocks forward from the end of the pack metadata applying I-1 / I-2,
+- **Verification and recovery** (`verify`, `verify --repair`): walk blocks forward from the end of the pack metadata applying I-1 / I-2,
   decoding and validating whole bodies.
-  Without a valid footer, each block's header length comes from its envelope alone and there is no F-2 entry to compare.
-  Outcomes: `finalized-consistent`, `finalized-truncated`, `unfinalized`, `corrupt-middle`.
-  Guarantee in format 1.0: the validated prefix is readable;
-  everything after is reported `incomplete` with offset and cause;
-  recovery beyond a corrupt middle block is deferred ([OVW §6]).
+  Without a valid footer (§10), each block's header length comes from its envelope alone and there is no F-2 entry to compare;
+  the walk stops at an envelope it cannot account for, and no block after it is located.
+  With a valid footer, each block's envelope is also checked against its F-2 entry,
+  and its records against that entry and the block's F-3 summary (I-3);
+  a block whose envelope fails is passed by its F-2 entry, so the blocks after it are still checked.
+  A block **fails** when its envelope, its body CRC, I-2 or the agreement of its envelope with its F-2 entry fails,
+  or when its codec is outside the registry (§2);
+  a block that does not fail is **validated**.
+  The **outcome** of a pack is the first of these that applies:
+  1. `corrupt-middle`: a block fails, and a validated block follows it.
+  2. `unfinalized`: I-5 does not hold.
+  3. `finalized-truncated`: a block fails, or the walk stops before `footer_offset`.
+  4. `finalized-inconsistent`: the footer is invalid, a block's records disagree with its F-2 entry or its F-3 summary,
+     or the walked blocks disagree with the trailer's `block_count` or `record_count`;
+     every block is validated, so no record is lost.
+  5. `finalized-consistent`: none of the above.
+
+  Validated blocks are also checked for **writer defects**, which are reported and never change the outcome:
+  a set `field_validity` bit whose bytes the payload lacks (§7.2);
+  a transport-event or annotation record whose `field_validity` is not 0 or whose payload is not a valid TLV body (§8);
+  a block whose first seq is not above the last seq of the validated block before it (I-12);
+  and a block whose records lie in more than one UTC hour (I-13).
+  Footer validation (§10) rejects an index that states either of the last two,
+  so in a finalized pack they come with an invalid or disagreeing footer:
+  the outcome is `finalized-inconsistent` when no earlier outcome applies, for that reason and not for the defect.
+  The report names, with offset and cause, every failed block, the point where the walk stopped, every disagreement and every writer defect.
+  It states whether the pack is finalized (I-5) and where the validated prefix ends:
+  at the first failed block or the point where the walk stopped, else at the end of the last block.
+  With a valid footer it also gives the seq ranges and time intervals of the failed blocks, from their F-2 entries and F-3 summaries.
+  A file header or pack metadata that cannot be read (§4, §5, §14) is an error, not an outcome: there is no block region to walk.
+  Guarantee in format 1.0: every validated block is readable, and the validated prefix is readable without the footer;
+  every failed block and every byte range the walk cannot account for is reported `incomplete` with offset and cause.
+  Locating blocks after an envelope the walk cannot account for, in a pack without a valid footer, is deferred ([OVW §6]).
   Repair never modifies a finalized file;
   it writes a `repair` patch whose `supersedes` names the damaged pack and whose `coverage` entries record the lost (`capture_id`, `seq`) ranges and time intervals ([STO §6]).
   Repair applies to stored packs; an extract is never repaired into a patch ([STO §2]), and `verify` of an extract only reports.
-- **Normal reads never silently skip.** A corrupt block, a truncated tail, an unknown codec or a `coverage` hit yields partial results
+- **Normal reads never silently skip.** A corrupt block, a truncated tail, an unknown codec, a block whose records disagree with its F-2 entry or a `coverage` hit yields partial results
   **with** an `incomplete` status the caller must inspect.
 
 ## 14. Versioning
@@ -772,6 +807,13 @@ The corpus lets an implementation in any language prove that it reads and writes
   a validating writer whose encoded block has an I-2 defect injected after encoding:
   the block and the trailer are not written, and recovery reports the pack unfinalized;
   a payload-only identity conflict between two packs.
+- Verification vectors (§13), each with its expected outcome:
+  a finalized pack whose blocks all pass: `finalized-consistent`;
+  a pack truncated at every byte offset: `unfinalized`, and no block of the validated prefix lost;
+  a finalized pack whose last block fails: `finalized-truncated`;
+  a failed block between validated ones, with a valid footer and, for a block whose envelope holds, without one: `corrupt-middle`;
+  a finalized pack whose footer is invalid, or whose F-3 summary disagrees with its block's records, while every block passes: `finalized-inconsistent`;
+  a writer defect of each kind in a validated block: reported, the outcome unchanged.
 - Redaction vectors ([SEM §8]), written with the published test keys:
   S7F3 with its PPBODY masked (length, item headers, `decode_status` and HSMS header unchanged; entry and digest as published);
   S7F3 and S7F6 carrying the same process program, in one domain: equal digests; the same S7F3 under the second test key and key id: a different digest;
