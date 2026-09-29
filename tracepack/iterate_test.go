@@ -456,7 +456,7 @@ func TestIterateShortCaptureCopies(t *testing.T) {
 	// whose stored copies are zero: a query for the zero value must still not match them (§7.2).
 	short := shortCapture(0, blockTestHour, 7)
 	require.Equal(t, FieldValiditySessionID|FieldValidityStreamAndW, short.FieldValidity)
-	event := footerEventRecord(t, 1, blockTestHour+1, 1, &TransportEvent{Event: EventSocketClose})
+	event := testEventRecord(t, 1, blockTestHour+1, 1, &TransportEvent{Event: EventSocketClose})
 
 	tests := []struct {
 		name string
@@ -526,7 +526,7 @@ func TestIterateCopyMismatch(t *testing.T) {
 		}
 		recs = append(recs, r)
 	}
-	recs = append(recs, footerEventRecord(t, uint64(len(edits)), blockTestHour+100, 1, &TransportEvent{Event: EventSocketClose}))
+	recs = append(recs, testEventRecord(t, uint64(len(edits)), blockTestHour+100, 1, &TransportEvent{Event: EventSocketClose}))
 
 	p := writeReaderPack(t, readerPackConfig{codec: CodecZstd}, recs)
 	r := mustOpen(t, p.file, ReaderOptions{})
@@ -1074,7 +1074,7 @@ func fuzzIterateSeeds(f *testing.F) [][]byte {
 	mixed := []Record{
 		v.disagreeingRecord(),
 		shortCapture(1, blockTestHour+1, 7),
-		footerEventRecord(f, 2, blockTestHour+2, 1, &TransportEvent{Event: EventSocketClose}),
+		testEventRecord(f, 2, blockTestHour+2, 1, &TransportEvent{Event: EventSocketClose}),
 	}
 	coverage, _ := coveragePack(f, false)
 	wide := writeReaderPack(f, readerPackConfig{codec: CodecZstd}, hourRecords(2, 2))

@@ -30,3 +30,12 @@ func TestCRC(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateCRCChunks(t *testing.T) {
+	t.Parallel()
+
+	in := []byte("123456789")
+	for split := range len(in) + 1 {
+		require.Equal(t, uint32(0xCBF43926), UpdateCRC(UpdateCRC(0, in[:split]), in[split:]), "split at %d", split)
+	}
+}

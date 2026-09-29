@@ -31,7 +31,7 @@ func testDataRecord(seq uint64, ts int64, epoch uint32) Record {
 }
 
 // testEventRecord returns a transport-event record carrying ev.
-func testEventRecord(t *testing.T, seq uint64, ts int64, epoch uint32, ev *TransportEvent) Record {
+func testEventRecord(t testing.TB, seq uint64, ts int64, epoch uint32, ev *TransportEvent) Record {
 	t.Helper()
 
 	p, err := ev.MarshalBinary()
@@ -102,7 +102,8 @@ func TestValidateBodyAcceptsBuiltBlock(t *testing.T) {
 		testDataRecord(9, blockTestHour+2, 2),
 	})
 
-	require.NoError(t, validateBody(b.body(nil), 3, 4))
+	_, err := validateBody(b.body(nil), 3, 4, nil)
+	require.NoError(t, err)
 }
 
 func TestValidateBodyRejectsTamperedBody(t *testing.T) {
@@ -171,7 +172,8 @@ func TestValidateBodyRejectsTamperedBody(t *testing.T) {
 				body = tt.tamper(body)
 			}
 
-			require.Error(t, validateBody(body, tt.count, tt.firstSeq))
+			_, err := validateBody(body, tt.count, tt.firstSeq, nil)
+			require.Error(t, err)
 		})
 	}
 }
@@ -181,7 +183,8 @@ func TestValidateBodyIgnoresCopiesOfOtherKinds(t *testing.T) {
 
 	ev := testEventRecord(t, 0, blockTestHour, 0, &TransportEvent{Event: EventClockStep})
 	b := buildBlock([]Record{ev})
-	require.NoError(t, validateBody(b.body(nil), 1, 0))
+	_, err := validateBody(b.body(nil), 1, 0, nil)
+	require.NoError(t, err)
 }
 
 func TestValidateEncodedRejectsBrokenStream(t *testing.T) {
@@ -194,14 +197,10 @@ func TestValidateEncodedRejectsBrokenStream(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, CodecZstd, c)
 
-	_, err = validateEncoded(c, nil, enc, &b.summary, len(body))
-	require.NoError(t, err)
-
-	_, err = validateEncoded(c, nil, enc[:len(enc)-1], &b.summary, len(body))
-	require.Error(t, err, "a truncated frame does not complete")
-
-	_, err = validateEncoded(c, nil, enc, &b.summary, len(body)+1)
-	require.Error(t, err, "the frame decodes to fewer bytes than uncompressed_len")
+	var buf validateBuf
+	require.NoError(t, validateEncoded(c, &buf, enc, &b.summary, len(body)))
+	require.Error(t, validateEncoded(c, &buf, enc[:len(enc)-1], &b.summary, len(body)), "a truncated frame does not complete")
+	require.Error(t, validateEncoded(c, &buf, enc, &b.summary, len(body)+1), "the frame decodes to fewer bytes than uncompressed_len")
 }
 
 func TestBlockSummaryAccumulatesFooterFacts(t *testing.T) {

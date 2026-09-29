@@ -72,7 +72,7 @@ func compatRecords(t testing.TB) []Record {
 		testDataRecord(0, blockTestHour+10, 1),
 		unknownKind,
 		controlRecord(2, blockTestHour+30, 1, DirHostToEquipment),
-		footerEventRecord(t, 3, blockTestHour+40, 1, &TransportEvent{Event: EventSocketClose}),
+		testEventRecord(t, 3, blockTestHour+40, 1, &TransportEvent{Event: EventSocketClose}),
 		unknownDir,
 		shortCapture(5, blockTestHour+60, 6),
 		unknownFidelity,
@@ -237,7 +237,8 @@ func TestReaderCompatUnknownEnumValues(t *testing.T) {
 			t.Parallel()
 
 			recs := compatRecords(t)
-			cr := readCompat(t, compatPack(t, cfg, nil), cfg)
+			file := compatPack(t, cfg, nil)
+			cr := readCompat(t, file, cfg)
 
 			all := cr.runs[0]
 			require.Len(t, all.items, len(recs))
@@ -259,8 +260,10 @@ func TestReaderCompatUnknownEnumValues(t *testing.T) {
 			assert.Equal(t, uint32(1), f.blocks[1].dirCounts[compatUnknown])
 			require.Greater(t, len(f.blocks[2].decodeStatusCounts), compatUnknown)
 			assert.Equal(t, uint32(1), f.blocks[2].decodeStatusCounts[compatUnknown])
-			require.Greater(t, len(f.stats.kindCounts), compatUnknown)
-			assert.Equal(t, uint64(1), f.stats.kindCounts[compatUnknown])
+			_, decoded, _ := splitPack(t, file)
+			stats := footerStats(t, decoded)
+			require.Greater(t, len(stats.kindCounts), compatUnknown)
+			assert.Equal(t, uint64(1), stats.kindCounts[compatUnknown])
 
 			// A query on an unknown value is answered like any other, the F-3 counts pruning the blocks without it.
 			assert.Equal(t, []uint64{1}, cr.runs[7].seqs())
@@ -355,9 +358,11 @@ func TestReaderCompatLongerF2Entries(t *testing.T) {
 
 			file := compatPack(t, cfg, nil)
 			base := readCompat(t, file, cfg)
-			got := readCompat(t, editFooter(t, file, lengthenEntries), cfg)
+			edited := editFooter(t, file, lengthenEntries)
+			got := readCompat(t, edited, cfg)
 
-			require.Equal(t, uint32(format.F2EntryLen+8), got.r.footer.prologue.F2EntryLen)
+			require.NotNil(t, got.r.footer)
+			require.Equal(t, uint32(format.F2EntryLen+8), footerPrologueOf(t, edited).F2EntryLen)
 			assert.Equal(t, base.r.Blocks(), got.r.Blocks(), "the fields of each entry are read at their offsets, the rest skipped")
 			requireSameRead(t, base, got, nil)
 		})
@@ -409,8 +414,20 @@ func TestReaderCompatNewerMinorPack(t *testing.T) {
 			h := got.r.Header()
 			assert.Equal(t, uint16(1), h.FormatMinor)
 			assert.Equal(t, compatMetaEntries(), h.Meta.Unknown)
-			require.Equal(t, uint32(format.F2EntryLen+8), got.r.footer.prologue.F2EntryLen)
+			require.NotNil(t, got.r.footer)
+			require.Equal(t, uint32(format.F2EntryLen+8), footerPrologueOf(t, file).F2EntryLen)
 			requireSameRead(t, base, got, wideExtraOf(got.r.Blocks(), wide))
 		})
 	}
+}
+
+// footerPrologueOf returns the F-1 prologue of the footer of the tracepack file.
+func footerPrologueOf(t *testing.T, file []byte) format.FooterPrologue {
+	t.Helper()
+
+	_, decoded, _ := splitPack(t, file)
+	pro, err := format.UnmarshalFooterPrologue(decoded)
+	require.NoError(t, err)
+
+	return pro
 }

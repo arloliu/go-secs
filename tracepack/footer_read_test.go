@@ -2,7 +2,6 @@ package tracepack
 
 import (
 	"bytes"
-	"cmp"
 	"math"
 	"slices"
 	"testing"
@@ -31,19 +30,6 @@ type footerTestStep struct {
 	flush bool
 }
 
-// footerEventRecord returns a transport-event record carrying ev.
-func footerEventRecord(t testing.TB, seq uint64, ts int64, epoch uint32, ev *TransportEvent) Record {
-	t.Helper()
-
-	p, err := ev.MarshalBinary()
-	require.NoError(t, err)
-
-	return Record{
-		Seq: seq, TSUTCNs: ts, Epoch: epoch, Kind: KindTransportEvent, Dir: DirLocal,
-		DecodeStatus: DecodeStatusNotApplicable, Payload: p,
-	}
-}
-
 // richFooterSteps returns the records of the rich footer test pack, with caller seqs from 10.
 // With the 250-byte block threshold and one Flush they form five blocks over two UTC hours:
 //
@@ -59,21 +45,21 @@ func richFooterSteps(t testing.TB) []footerTestStep {
 	h1 := blockTestHour + hourNs
 
 	return []footerTestStep{
-		{rec: footerEventRecord(t, 10, blockTestHour+50, 0, &TransportEvent{
+		{rec: testEventRecord(t, 10, blockTestHour+50, 0, &TransportEvent{
 			Event: EventCaptureBoundary, BoundaryKind: new(BoundaryKindStart),
 		})},
 		{rec: testDataRecord(11, blockTestHour+10, 1)},
 		{rec: testDataRecord(13, blockTestHour+20, 1), flush: true},
 		{rec: testDataRecord(14, blockTestHour+30, 1)},
-		{rec: footerEventRecord(t, 15, blockTestHour+40, 1, &TransportEvent{Event: EventSocketClose})},
-		{rec: footerEventRecord(t, 20, blockTestHour+300, 0, &TransportEvent{
+		{rec: testEventRecord(t, 15, blockTestHour+40, 1, &TransportEvent{Event: EventSocketClose})},
+		{rec: testEventRecord(t, 20, blockTestHour+300, 0, &TransportEvent{
 			Event: EventCaptureBoundary, BoundaryKind: new(BoundaryKindGap), GapStart: &gapStart, GapEnd: &gapEnd,
 		})},
 		{rec: testDataRecord(21, blockTestHour+400, 2)},
 		{rec: testDataRecord(22, h1+1, 2)},
 		{rec: testDataRecord(23, h1+2, 2)},
 		{rec: testDataRecord(30, h1+3, 3)},
-		{rec: footerEventRecord(t, 31, h1+4, 3, &TransportEvent{
+		{rec: testEventRecord(t, 31, h1+4, 3, &TransportEvent{
 			Event: EventCaptureBoundary, BoundaryKind: new(BoundaryKindStop),
 		})},
 	}
@@ -321,26 +307,32 @@ func nthEntry(t testing.TB, list []tlv.Entry, tag uint16, n int) tlv.Entry {
 	return list[i]
 }
 
+// footerStats returns the F-5 statistics of the decoded footer as read,
+// for a footer parseFooter accepted.
+func footerStats(t testing.TB, decoded []byte) *packStats {
+	t.Helper()
+
+	pro, err := format.UnmarshalFooterPrologue(decoded)
+	require.NoError(t, err)
+	sec, err := locateSections(decoded, &pro)
+	require.NoError(t, err)
+	st, err := parsePackStats(sec.f5, pro.BlockCount > 0)
+	require.NoError(t, err)
+
+	return st
+}
+
 // normalizeStats returns a copy of st in a canonical form for comparison:
 // count arrays without trailing zeros, epochs in ascending epoch order, boundaries sorted by every field,
 // and every empty slice as nil.
 func normalizeStats(st *packStats) packStats {
-	trim := func(v []uint64) []uint64 {
-		n := len(v)
-		for n > 0 && v[n-1] == 0 {
-			n--
-		}
-
-		return slices.Clip(v[:n])
-	}
-
 	out := *st
-	out.kindCounts = trim(st.kindCounts)
-	out.dirCounts = trim(st.dirCounts)
-	out.decodeStatusCounts = trim(st.decodeStatusCounts)
+	out.kindCounts = trimZeros(st.kindCounts)
+	out.dirCounts = trimZeros(st.dirCounts)
+	out.decodeStatusCounts = trimZeros(st.decodeStatusCounts)
 	out.seqRanges = slices.Clone(st.seqRanges)
 	out.epochs = slices.SortedFunc(slices.Values(st.epochs), compareEpochs)
-	out.boundaries = slices.SortedFunc(slices.Values(st.boundaries), compareTestBoundaries)
+	out.boundaries = slices.SortedFunc(slices.Values(st.boundaries), compareBoundaries)
 
 	if len(out.kindCounts) == 0 {
 		out.kindCounts = nil
@@ -364,28 +356,6 @@ func normalizeStats(st *packStats) packStats {
 	return out
 }
 
-// compareTestBoundaries orders boundary entries by seq, kind, ts, epoch, then gap_start and gap_end,
-// an absent gap bound before a present one.
-func compareTestBoundaries(a, b boundarySummary) int {
-	optional := func(x, y *int64) int {
-		switch {
-		case x == nil && y == nil:
-			return 0
-		case x == nil:
-			return -1
-		case y == nil:
-			return 1
-		default:
-			return cmp.Compare(*x, *y)
-		}
-	}
-
-	return cmp.Or(
-		cmp.Compare(a.seq, b.seq), cmp.Compare(a.kind, b.kind), cmp.Compare(a.ts, b.ts), cmp.Compare(a.epoch, b.epoch),
-		optional(a.gapStart, b.gapStart), optional(a.gapEnd, b.gapEnd),
-	)
-}
-
 func TestParseFooterAcceptsWriterPacks(t *testing.T) {
 	t.Parallel()
 
@@ -399,15 +369,16 @@ func TestParseFooterAcceptsWriterPacks(t *testing.T) {
 			idx, err := parseFooter(p.decoded, &p.tr, p.blocksStart)
 			require.NoError(t, err)
 
-			assert.Equal(t, format.FooterLayoutVersion, idx.prologue.FooterLayoutVersion)
-			assert.Equal(t, uint32(len(p.blocks)), idx.prologue.BlockCount)
-			require.Len(t, idx.entries, len(p.blocks))
+			pro, err := format.UnmarshalFooterPrologue(p.decoded)
+			require.NoError(t, err)
+			assert.Equal(t, format.FooterLayoutVersion, pro.FooterLayoutVersion)
+			assert.Equal(t, uint32(len(p.blocks)), pro.BlockCount)
+			require.Len(t, idx.blocks, len(p.blocks))
 			for i := range p.blocks {
-				want := f2EntryOf(&p.blocks[i], idx.entries[i].SummaryOffset, idx.entries[i].SummaryLen)
-				assert.Equal(t, want, idx.entries[i], "F-2 entry %d", i)
+				assert.Equal(t, f2EntryOf(&p.blocks[i], 0, 0), f2EntryOf(&idx.blocks[i], 0, 0), "F-2 entry %d", i)
 			}
 			assert.Equal(t, sortedEpochBlocks(p.blocks), idx.blocks)
-			assert.Equal(t, aggregate(p.blocks), idx.stats)
+			assert.Equal(t, aggregate(p.blocks), footerStats(t, p.decoded))
 		})
 	}
 }
@@ -436,8 +407,9 @@ func TestParseFooterRichPackCoversEveryStructure(t *testing.T) {
 	assert.Equal(t, BoundaryKindGap, b1.boundaries[0].kind)
 
 	assert.NotEqual(t, hourOf(idx.blocks[0].tsMin), hourOf(idx.blocks[4].tsMin), "the pack spans two hours")
-	assert.Equal(t, []seqRange{{10, 11}, {13, 15}, {20, 23}, {30, 31}}, idx.stats.seqRanges)
-	assert.Len(t, idx.stats.boundaries, 3)
+	stats := footerStats(t, p.decoded)
+	assert.Equal(t, []seqRange{{10, 11}, {13, 15}, {20, 23}, {30, 31}}, stats.seqRanges)
+	assert.Len(t, stats.boundaries, 3)
 }
 
 func TestParseFooterAcceptsEmptyPack(t *testing.T) {
@@ -448,9 +420,8 @@ func TestParseFooterAcceptsEmptyPack(t *testing.T) {
 
 	idx, err := parseFooter(p.decoded, &p.tr, p.blocksStart)
 	require.NoError(t, err)
-	assert.Empty(t, idx.entries)
 	assert.Empty(t, idx.blocks)
-	assert.Equal(t, packStats{}, normalizeStats(idx.stats))
+	assert.Equal(t, packStats{}, normalizeStats(footerStats(t, p.decoded)))
 }
 
 func TestParseFooterAcceptsVariants(t *testing.T) {
@@ -538,9 +509,10 @@ func TestParseFooterAcceptsVariants(t *testing.T) {
 
 			p := splitFooter(t, base.decoded)
 			tt.mutate(t, p)
-			idx, err := parseFooter(p.encode(), &base.tr, base.blocksStart)
+			decoded := p.encode()
+			_, err := parseFooter(decoded, &base.tr, base.blocksStart)
 			require.NoError(t, err)
-			assert.Equal(t, normalizeStats(aggregate(base.blocks)), normalizeStats(idx.stats))
+			assert.Equal(t, normalizeStats(aggregate(base.blocks)), normalizeStats(footerStats(t, decoded)))
 		})
 	}
 }
@@ -681,19 +653,19 @@ func TestParseFooterRejectsLayout(t *testing.T) {
 		{
 			name: "F-4 inside F-3",
 			raw: prologue(func(p *format.FooterPrologue) {
-				p.Flags, p.F4Offset, p.F4Len = p.Flags|footerFlagF4Present, p.F3Offset, 1
+				p.Flags, p.F4Offset, p.F4Len = p.Flags|format.FooterFlagF4Present, p.F3Offset, 1
 			}),
 			want: "F-4 at offset",
 		},
 		{
 			name: "F-5 overlaps a non-empty F-4",
-			raw:  prologue(func(p *format.FooterPrologue) { p.Flags, p.F4Len = p.Flags|footerFlagF4Present, 1 }),
+			raw:  prologue(func(p *format.FooterPrologue) { p.Flags, p.F4Len = p.Flags|format.FooterFlagF4Present, 1 }),
 			want: "F-5 at offset",
 		},
 		{name: "F-4 bytes without the F-4 present flag", raw: prologue(func(p *format.FooterPrologue) { p.F4Len = 1 }), want: "F-4 present"},
 		{
 			name: "F-4 present flag without F-4 bytes",
-			raw:  prologue(func(p *format.FooterPrologue) { p.Flags |= footerFlagF4Present }),
+			raw:  prologue(func(p *format.FooterPrologue) { p.Flags |= format.FooterFlagF4Present }),
 			want: "F-4 present",
 		},
 		{
@@ -719,7 +691,7 @@ func TestParseFooterAcceptsF4(t *testing.T) {
 	const f4Len = 8
 	withF4 := slices.Concat(b[:pro.F5Offset], []byte{1, 2, 3, 4, 5, 6, 7, 8}, b[pro.F5Offset:])
 	withF4 = patchPrologue(t, withF4, func(p *format.FooterPrologue) {
-		p.Flags |= footerFlagF4Present
+		p.Flags |= format.FooterFlagF4Present
 		p.ExtractionVersion = 1
 		p.F4Offset, p.F4Len = p.F5Offset, f4Len
 		p.F5Offset += f4Len
@@ -727,7 +699,7 @@ func TestParseFooterAcceptsF4(t *testing.T) {
 
 	idx, err := parseFooter(withF4, &base.tr, base.blocksStart)
 	require.NoError(t, err)
-	assert.Len(t, idx.entries, len(base.blocks))
+	assert.Len(t, idx.blocks, len(base.blocks))
 }
 
 // TestParseFooterAcceptsLargestBlock checks that a block whose body_len is at the 2^31-1 limit of
@@ -1266,10 +1238,10 @@ func FuzzParseFooter(f *testing.F) {
 			return
 		}
 
-		require.Len(t, idx.entries, int(blockCount))
 		require.Len(t, idx.blocks, int(blockCount))
-		assert.Equal(t, recordCount, idx.stats.recordCount)
-		assert.Equal(t, normalizeStats(aggregate(idx.blocks)), normalizeStats(idx.stats),
+		stats := footerStats(t, decoded)
+		assert.Equal(t, recordCount, stats.recordCount)
+		assert.Equal(t, normalizeStats(aggregate(idx.blocks)), normalizeStats(stats),
 			"the statistics of an accepted footer are the aggregate of its blocks")
 	})
 }
