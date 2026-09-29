@@ -178,13 +178,17 @@ Done when: bootstrap costs one round in the hint and small-window paths, and the
 Applies the spec version that carries P9 (G5-92..G5-94) to the code before phase 4 (G5-91).
 - Writer: transpose the header section when a block body is assembled.
 - Reader: untranspose the decoded header section into a reusable row buffer; every record-level path stays as it is.
-- Validating writer: decode the encoded body and untranspose its header section before the I-2 and I-10 checks ([FMT §12]).
+- Validating writer option: decode the encoded body and untranspose its header section before the I-2 checks ([FMT §12]), with no metadata commitment.
 - Retired pack-metadata numbers are dropped from preserved unknown entries on write.
 - Retired tag and value of P9 §3.3 (`pack_role` 5 rejected by the `Writer`; replacement-set size 1 and index 0), and the retired tags of P9 §3.4 (G5-96): encoding, validation and tests.
 - An in-repository benchmark that reproduces the columnar comparison of P9 §2 on the implemented writer and reader.
+- The 44-byte record header without copy fields (P9 §3.7–§3.8, G5-97, G5-98): `Record` without copy fields, a payload helper returning value and availability,
+  the append-time `field_validity` check, `quality` bits 3 and 6 retired, F-3 `max_payload_len` retired.
+- Every read full: the header-only path, `ReadLevel`, query modes, `header-validated`, `CopyMismatch` and `blocks_validated` removed; the writer's block validation kept as an option without a metadata commitment.
 - Tests: golden block bodies and the reader's per-offset corruption expectations regenerated;
-  a row-layout sample pack with a multi-record block read as `corrupt`; round trips with `record_header_len` > 56;
-  attested multi-record blocks under both codecs, with I-2 and I-10 defects injected after encoding.
+  a row-layout sample pack with a multi-record block read as `corrupt`; round trips with `record_header_len` > 44, including 45–55;
+  validated multi-record blocks under both codecs, with I-2 defects injected after encoding;
+  `field_validity` availability for each short-field threshold, clear bits over placeholder bytes, a set bit beyond the payload rejected at append, control-frame fields read from the payload.
 - Run the tracepack fuzz targets before committing the decoder change.
 
 Done when: the writer and reader implement the revised layout, and the corruption sweep finds no silent error.

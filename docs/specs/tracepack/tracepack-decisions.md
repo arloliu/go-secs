@@ -306,3 +306,22 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   Rationale: `schema_version` repeats the format version and F-3 `content_bytes` must equal F-2 `uncompressed_len`;
   `time_source` is not implied by `capture_method` (a packet-capture stream is `raw-stream` with another machine's timestamps).
   Spec: P9 §3.4.
+- G5-97 Record header without copy fields (2026-09-29): the record header no longer copies HSMS header fields
+  (`session_id`, `stream`, `function`, `ptype`, `stype`, `system_bytes`, `record_flags.W`); predicates read them from the payload,
+  which still holds the whole frame.
+  `field_validity` stays, and a writer rejects a set bit whose bytes the payload lacks.
+  I-10, the provisional and authoritative query modes with `header-validated` (G5-51), and `blocks_validated` attestation (G5-52) are removed with the copies;
+  a writer SHOULD still validate each block before writing it.
+  Rationale: records are read on demand for one tool or a few tools of one type, and the VE reads whole windows offline;
+  no consumer needs S/F or System Bytes filtering without decoding payloads, while the copies carried the most review-heavy rules of the format.
+  Spec: P9 §3.7.
+- G5-98 Field review (2026-09-29, after an external opinion on each retirement): every block read is a full read —
+  the header-only read level and `blocks_validated` are removed, because without attestation a header-only result could count records a full read rejects,
+  and under the access patterns of G5-97 a header-only read saves only CPU.
+  `mono_ns` with `record_flags.mono_present`, `trailing_bytes` and `quality.capture-boundary` are kept;
+  `quality.no-mono`, `quality.decode-failed` and F-3 `max_payload_len` are retired (the first two are mirrors; readers offer derived predicates instead).
+  SEM §7.3's extraction design is removed while the F-4 slot stays an absent, undefined section, so the footer layout does not change.
+  The record header becomes 44 bytes.
+  Rejected: dropping `mono_ns` or storing it as a residual (VE latency), retiring `trailing_bytes` (not recomputable from masked extracts)
+  and `quality.capture-boundary` (not derivable per record from `kind` and `decode_status`).
+  Spec: P9 §3.8.
