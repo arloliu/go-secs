@@ -47,11 +47,11 @@ The premise needs four rules:
 3. **Classification is owned by the producer** for a capture over a durable bus.
    Today [STO §4] gives `classifier` to the consumer,
    so during a rolling upgrade two consumers with different classifier versions disagree:
-   they write different `decode_status`, `trailing_bytes` and `quality.decode-failed` for one redelivered record
+   they write different `decode_status` and `trailing_bytes` for one redelivered record
    (P8 §5 point 5 records this).
    The producer computes them once, the capture descriptor names the `classifier`, and consumers store them as received;
    P8 §2.1's body then carries them instead of zeros.
-4. Every other byte a writer derives (the quality bits of [FMT §7.2] it owns, the copy fields)
+4. Every other byte a writer derives (the quality bits of [FMT §7.2] it owns)
    is a function of the record fixed by the format version, not by the writer's version.
    This holds for format 1.0 and is stated as a rule.
 
@@ -93,9 +93,10 @@ and must have one direction, so two packs never justify deleting each other.
   Every record of M1 came from an original pack in its list, so M2 holds it;
   M2 also carries every `coverage` entry those packs carried, because merges union coverage ([STO §4]).
 - **Grounds are checked, not trusted.**
-  A pack justifies a deletion only when it is finalized and attested (`blocks_validated`),
+  A pack justifies a deletion only when it is finalized and its blocks were verified in full,
   and its F-5 seq ranges and `coverage` entries contain those of the pack to be deleted:
   a footer comparison, no block read.
+  Spec v2.13 removed attestation (`blocks_validated`), so how that verification is established and kept is open.
 - The deletion delay of [STO §4] and Retention of [STO §5] are unchanged, less commit objects.
 - A reader that finds a listed pack missing relists the scope once before reporting anything:
   the pack was deleted because a covering pack exists.

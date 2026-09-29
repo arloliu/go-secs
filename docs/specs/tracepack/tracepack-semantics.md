@@ -1,6 +1,6 @@
 # tracepack — record semantics
 
-Status: current (2026-09-29) — v2.12, tracepack format 1.0.
+Status: current (2026-09-29) — v2.13, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic.
 
@@ -9,15 +9,16 @@ Each rule is defined in exactly one document; the others only reference it.
 
 ## 1. Depends on
 
-- [FMT §7] record header fields and their classes, [FMT §8] payload TLV bodies, [FMT §9] enum registries.
-- [FMT I-7] epoch binding, [FMT I-10] payload authority, [FMT I-11] derived values, [FMT I-12] record identity, [FMT I-13] hour-aligned blocks.
+- [FMT §7] record header fields and their classes, and the HSMS header fields read from the payload with their `field_validity` availability ([FMT §7.2]);
+  [FMT §8] payload TLV bodies, [FMT §9] enum registries.
+- [FMT I-7] epoch binding, [FMT I-11] derived values, [FMT I-12] record identity, [FMT I-13] hour-aligned blocks.
 - [FMT §10] footer F-2 / F-3 / F-5 content used by pruning and lookup; [FMT §13] bootstrap, which a reader of a listing view performs before using that content.
-- [FMT §6] block read levels (full, header-only) and attested blocks, with [FMT §5] `blocks_validated`, used by the query modes of §7.4.
-- [FMT §2] portable encoding rules, including the index-hash requirements; [FMT §5] pack metadata tags used by capture, time and quality semantics;
+- [FMT §6] full block reads, used by every query of §7.4.
+- [FMT §2] portable encoding rules; [FMT §5] pack metadata tags used by capture, time and quality semantics;
   [FMT I-6] immutability; [FMT §16] corpus contract for the vectors of §9.
 - [FMT §5] `redaction_policy` and `redaction` entries, [FMT §4] `redaction-present`, used by §8.
 - [STO §4] recorder durability contract and durable clock anchor; [STO §5] catalog completeness (seq coverage, barriers) and listing views used by transaction lookup and effective quality;
-  [STO §6] corrections (patches) that re-emit records with new stored bits.
+  [STO §6] repairs (patches) that re-emit records with new stored bits.
 
 ## 2. Capture model: fidelity, capture method, vantage
 
@@ -107,7 +108,7 @@ control records reach `ok` when the frame parses (there is no SECS-II item);
 `log` writers use only `reconstructed-ok`, `parse-failed` and `build-rejected`;
 other transport-event and annotation records use `not-applicable`.
 **Malformed predicate**: `decode_status ∈ {short-frame, length-mismatch, bad-ptype, bad-stype, control-with-body, oversized, item-decode-error}`.
-`quality.decode-failed` is set iff malformed; `not-attempted` and `not-applicable` never set it.
+No quality bit mirrors the predicate; readers offer the decode state of §6 instead.
 `fidelity` is independent of `decode_status`.
 
 ## 4. Time
@@ -121,7 +122,7 @@ other transport-event and annotation records use `not-applicable`.
   whose wall-clock counterpart is `capture_origin_utc_ns` (both identical across all packs of one capture).
   Latency between two records of one capture is the `mono_ns` difference, immune to wall-clock steps.
   A recorder restart starts a new capture id, so mono values are never compared across captures.
-- Source-log records: `mono_present` clear and `quality.no-mono` set;
+- Source-log records: `mono_present` clear;
   DST-ambiguous or nonexistent local times are resolved to the earlier instant and flagged `ordering-uncertain`.
 - Clock steps: a capture-clock writer keeps a **clock anchor** (wall, mono):
   (`capture_origin_utc_ns`, 0) until the first `clock-step` event, then (`ts_utc_ns`, `mono_ns`) of the latest `clock-step` event;
@@ -163,7 +164,8 @@ never mapped to a plausible value.
 
 Stored `quality` bits record only what the writer knew **when it wrote the record**:
 `epoch = 0` or missing source metadata (`correlation-incomplete`), clock or DST problems (`ordering-uncertain`),
-`decode-failed`, `direction-inferred`, `redacted`, `no-mono`, and `capture-boundary` on the boundary record itself.
+`direction-inferred`, `redacted`, and `capture-boundary` on the boundary record itself.
+Every stored bit is declared by the writer; none mirrors another field.
 Clear stored bits mean checked absence of those conditions only when the pack metadata declares `quality_evaluated = true`.
 A writer never revisits a record already written, so stored bits never depend on later records ([FMT I-6], [FMT I-12]).
 `redacted` is set only by an extract writer (§8).
@@ -174,25 +176,36 @@ A writer never revisits a record already written, so stored bits never depend on
 - a record from a pack with `quality_evaluated = false` never yields clean evidence.
 
 F-5 `boundary` and `epoch` entries ([FMT §10]) let a catalog, or a reader of a listing view after the [FMT §13] bootstrap, evaluate these conditions without reading blocks.
-A correction pack may still re-emit records with new stored bits ([STO §6]); it never changes records in place.
+A repair may re-emit records with new stored bits ([STO §6]); it never changes records in place.
+
+**Derived predicates.**
+Readers offer two predicates computed from other fields, in place of quality bits:
+- a record's **decode state** is *malformed* when its `decode_status` is in the malformed set of §3,
+  *clean* when it is a known value outside that set,
+  and *unknown* for a value the reader does not know ([FMT §1]), which never counts as clean;
+- a record has **no monotonic time** iff `record_flags.mono_present` is clear.
+
+A consumer that needs clean evidence requires a clean decode state; `not malformed` is not enough.
+F-3 and F-5 `quality_union` cover the stored bits only.
+A block may be excluded as holding no malformed record only when its `decode_status_counts` are zero for every malformed value
+and for every element beyond the values the reader knows.
 
 ## 7. Indexes and lookup
 
 ### 7.1 Per-block summary (footer F-3)
 
-Defined now ([FMT §10]): counts per kind, direction and `decode_status`, `max_payload_len`, `quality_union`.
-Deferred index structures ([OVW §6]), in the reserved F-3 tags:
-an S/F presence structure (exact set when ≤ 64 distinct pairs, bitmap otherwise),
-a System Bytes locator (§7.2), and a session-id set with overflow flag.
+Defined ([FMT §10]): counts per kind, direction and `decode_status`, and `quality_union`.
 Time, epoch and seq ranges are in F-2.
+No summary of HSMS header fields (S/F, SessionID, System Bytes) is defined or planned ([OVW §6]);
+predicates on them are evaluated on payloads (§7.4).
 **Contract**: a summary may produce false positives and must never exclude a matching record;
-an absent tag, an absent summary or an overflowed structure means "may match".
-The contract holds for matching on copy fields.
-In authoritative mode (§7.4), a structure derived from copy fields prunes only attested blocks ([FMT §6]).
+an absent tag or an absent summary means "may match".
+Exclusion by `decode_status_counts` follows §6.
 
 ### 7.2 Transaction identity and lookup
 
-Transaction key = (`capture_id`, `epoch`, initiating direction, `session_id`, `system_bytes`, primary `seq`).
+Transaction key = (`capture_id`, `epoch`, initiating direction, SessionID, System Bytes, primary `seq`),
+SessionID and System Bytes read from the primary's payload ([FMT §7.2]).
 Three relationships stay distinct:
 - **Candidate association**: same capture and epoch, opposite direction, same session and System Bytes.
   Candidates are always returned so anomalies stay visible.
@@ -205,13 +218,21 @@ Three relationships stay distinct:
   never promoted to a conforming reply.
 
 Which steps need what:
-candidate association, the eligibility window and the protocol-valid match use only record-header fields (seq, epoch, direction, SessionID, System Bytes, S/F);
-candidate selection by SessionID and System Bytes follows the query modes of §7.4.
+candidate association, the eligibility window and the protocol-valid match use the record header's seq, epoch and direction
+and the payloads' SessionID, System Bytes and S/F, each available only when its `field_validity` bit is set ([FMT §7.2]).
 Establishing `unmatched` also needs completeness evidence per [STO §5] (below),
 and observed runtime outcomes need payloads: the T3 `timer-expiry` primary identifiers are transport-event TLV fields ([FMT §8]).
 
-Results: `matched` (exactly one valid match), `ambiguous`, `unmatched`, `incomplete`;
-each is reported together with the validation status of §7.4.
+**Unavailable key fields.**
+A field is unavailable when its `field_validity` bit is clear or the payload lacks its bytes ([FMT §7.2]).
+A primary whose SessionID or System Bytes is unavailable has no transaction key; a lookup from it is `incomplete`.
+A data record of the primary's capture and epoch, in the opposite direction,
+that follows the primary and precedes the next primary with the same key (if one exists),
+and whose SessionID, System Bytes, stream or function is unavailable, could be the reply:
+while one exists the result is never `unmatched` but `incomplete`, and the record is reported with the anomalies.
+`matched` and `ambiguous` are decided on the candidates whose fields are available.
+
+Results: `matched` (exactly one valid match), `ambiguous`, `unmatched`, `incomplete`.
 **`unmatched` requires that every record of the eligibility window was searched**:
 the seq coverage over the eligibility window is contiguous per [STO §5] Completeness (never the case when the window touches a scope that is not indexed),
 and the window is closed — by the next same-key primary, or by evidence that the queried epoch itself ended
@@ -219,50 +240,32 @@ and the window is closed — by the next same-key primary, or by evidence that t
 the existence of a later epoch is **not** closure evidence, because accepted-then-refused sockets get their own epochs while an earlier connection stays open ([FMT I-7]);
 if absence cannot be established (packs missing from the catalog or a listing view, an unevaluated pack, a `capture-boundary` in the epoch,
 `correlation-incomplete` on the primary) the result is `incomplete` **with the searched scope**.
-Per-block System Bytes locator: sorted distinct values when ≤ 4096,
-else a Bloom filter sized for ≤ 1 % false positives at the block's cardinality
-(FP ≈ (1 − e^(−k·n/m))^k; n = 1500, k = 4 needs m ≈ 2 KiB, not 256 bytes),
-hashed per [FMT §2].
 
-### 7.3 Secondary index (optional, footer F-4)
+### 7.3 Secondary index
 
-Extracted well-known ids (CEID, ALID, RPTID, SVID, ECID, RCMD) from a **versioned extraction rule set** (`extraction_version`).
-Per (block, id kind) a completeness marker: `complete`, `partial` (some records failed extraction or, in an extract, carry `redacted`, §8), `absent`.
-Readers scan whenever the marker is not `complete`.
-Values carry a type discriminator (unsigned / ASCII);
-ASCII ids are stored verbatim (bounded length), not hashed.
-The index answers "which records contain id X in a documented position" and nothing broader.
+Format 1.0 defines no secondary index: F-4 is an absent, undefined section ([FMT §10]).
+Well-known ids (CEID, ALID, RPTID, SVID, ECID, RCMD) are found by decoding and scanning payloads (§7.4 (c)).
+A later index would use the F-4 slot, per block and self-contained ([FMT I-14]).
 
 ### 7.4 Query mapping
 
 | Query | Mechanism |
 |---|---|
 | (a) tool + time | catalog, or listing views for scopes it does not index ([STO §5]) → packs whose `ts_min` / `ts_max` overlap → F-2 entries whose range overlaps → range reads of those blocks → scan |
-| (b) + S/F | F-3 S/F presence prunes; exact match by record-header scan |
-| (c) CEID / ALID / … | §7.3 when `complete`, else decode-and-scan |
-| (d) System Bytes → pair | locator prunes (when present); scan; §7.2 matching across all packs of the (capture, epoch) per the catalog or listing views; `incomplete` with scope when coverage is not contiguous ([STO §5]) |
+| (b) + S/F | scan; the S/F of each data record is read from its payload ([FMT §7.2]) |
+| (c) CEID / ALID / … | decode-and-scan |
+| (d) System Bytes → pair | scan payloads for the System Bytes; §7.2 matching across all packs of the (capture, epoch) per the catalog or listing views; `incomplete` with scope when coverage is not contiguous ([STO §5]) |
 | (e) transport events | kind count prunes; scan; control frames are records, so Linktest / Select queries read kind=control |
 | (f) SML full text, (g) cross-tool | scan, via listing views where not indexed; catalog statistics (F-5) cover indexed scopes, and an aggregate over a range with scopes that are not indexed is `incomplete` with reason `cold` |
 
-**Query modes.**
-A query runs in one of two modes.
-- **Provisional**: filters on copy fields, and the F-3 / F-4 structures derived from them, may be applied to unvalidated header copies.
-  If the result relied on the header copies of a non-attested block ([FMT §6]), or on F-3 / F-4 structures derived from them —
-  to include its records or to exclude the block, whether or not the block was read —
-  the result carries the validation status `header-validated` with the blocks concerned, also when the result is empty.
-  `header-validated` means "selected by unvalidated copies"; for a block excluded by an index alone, none of its bytes were read.
-- **Authoritative**: a copy-field predicate is evaluated either on the values in the payload ([FMT I-10])
-  or on header copies of attested blocks;
-  in both cases a field is available only when its stored `field_validity` bit is set ([FMT §7.2]).
-  A non-attested block is never excluded by its header copies or by F-3 / F-4 structures derived from them;
-  it is read in full and its records are selected by payload values.
-
-In both modes, a query that returns payloads reads those records' blocks in full.
+**Evaluation.**
+Every block a query reads is read in full ([FMT §6]); only F-2 and the F-3 summaries (§7.1) exclude a block without reading it.
+A predicate on an HSMS header field — SessionID, S/F, W, PType, SType or System Bytes — is evaluated on the payload's value,
+and the field is available only when its stored `field_validity` bit is set ([FMT §7.2]).
 Where two packs in the active view hold the same (`capture_id`, `seq`) ([FMT I-12]; visible from F-5 `seq_range`, located through F-2),
-the blocks holding it are read in full and compared byte for byte before any filter discards a representation,
-so byte identity and `conflict` are decided in both modes; attestation proves neither cross-pack equality nor the absence of conflicts.
-The validation status is independent of `incomplete`, `conflict` and the transaction outcomes of §7.2:
-a result reports each that applies, and `header-validated` never replaces or hides another status.
+the blocks holding it are compared byte for byte before any filter discards a representation,
+so byte identity and `conflict` are always decided.
+`incomplete`, `conflict` and the transaction outcomes of §7.2 are reported side by side; none replaces or hides another.
 
 ## 8. Redaction
 
@@ -291,8 +294,8 @@ A `*` step expands to every element of the list, and to none when the list is em
 A pattern **resolves** when no step of any branch of its expansion fails; it then selects the items its branches reach, possibly none.
 
 **Matching.**
-An item rule applies to a `data` record whose stream and function, read from the HSMS message header in the payload ([FMT I-10]), equal the rule's;
-header copies are never used for matching.
+An item rule applies to a `data` record whose stream and function, read from payload bytes 6 and 7 ([FMT §7.2]), equal the rule's,
+whatever `field_validity` says: like the screened text, matching never relies on a stored field.
 An annotation rule applies to an `annotation` record of that `annotation_kind`.
 Control records and transport events are never masked.
 
@@ -320,7 +323,7 @@ equal digests mean equal encoded bytes, so the same value in another item format
 A policy gives items that should be comparable one domain.
 
 **Masked record.**
-A masked record keeps its identity (`capture_id`, `seq`), every record-header field — `fidelity`, `decode_status`, `trailing_bytes` and the copy fields included — and gains `quality.redacted`.
+A masked record keeps its identity (`capture_id`, `seq`), every record-header field — `fidelity`, `decode_status` and `trailing_bytes` included — and gains `quality.redacted`.
 A value is **masked** when any byte its interpretation depends on is a target byte of an entry.
 `redacted` takes precedence over `fidelity`: a masked value is unavailable.
 No conclusion may rest on it — neither byte-level (wire-exact analysis, byte identity, malformed-frame analysis) nor semantic:
@@ -328,8 +331,6 @@ a zeroed parameter is not an observed zero, and the evidence grades of §2 apply
 A consumer compares masked content only by digest; `fidelity` still describes how the source was captured.
 A masked record and its source differ in bytes by design;
 a reader given both reports a `conflict` ([FMT I-12]), and consumers do not combine an extract with other packs of its capture.
-An extract writer that builds the secondary index (F-4, §7.3, deferred in format 1.0) indexes no value of a `redacted` record and marks every id kind `partial` for a block holding one,
-so the footer stays derivable from the blocks ([FMT I-3]).
 
 **Marking.**
 An extract written under a policy carries `redaction_policy`, even when nothing matched,
@@ -398,5 +399,6 @@ The following vectors belong to the corpus of [FMT §16]:
 - repeated System Bytes; cross-pack transactions;
 - a repeated transaction key: one completed transaction followed by an unanswered primary (§7.2);
 - an outstanding primary on epoch E1, a refused socket E2, then the E1 reply (§7.2 closure);
+- a primary without System Bytes, and an otherwise unanswered primary followed in its window by a reply-direction record whose System Bytes are unavailable: both `incomplete` (§7.2);
 - a nonzero `capture_origin_mono_ns` (§4);
 - redaction (§8): the vectors of [FMT §16] "Redaction vectors".

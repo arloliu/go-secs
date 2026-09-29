@@ -47,13 +47,14 @@ Reasons, from [STO §4]:
   The tool token costs nothing now;
   it is the token a later ingest partition by tool (G5-87, second phase) maps with a `{{partition(n, …)}}` subject transform.
   `tool_id` is encoded as a valid subject token (no `.`, `*`, `>` or whitespace), and `capture_id` as lowercase hex.
-- **Body:** the 56-byte record header of [FMT §7.1], followed by the `payload_len` bytes of payload of [FMT §8].
+- **Body:** the record header of [FMT §7.1] (44 bytes) as one record's gathered bytes, in field order ([FMT §6]),
+  followed by the `payload_len` bytes of payload of [FMT §8].
   Reusing the record header layout avoids a second schema, and the consumer copies the producer-owned bytes as received.
   The producer fills the fields it owns:
   `seq`, `ts_utc_ns`, `mono_ns`, `record_flags.mono_present`, `epoch`, `kind`, `dir`, `fidelity`, the declared `quality` bits and `payload_len`.
   The consumer owns `classifier` ([STO §4]),
-  so it computes `decode_status`, `trailing_bytes` and `quality.decode-failed` ([FMT I-11]),
-  and the copy fields and `field_validity`, from the payload;
+  so it computes `decode_status` and `trailing_bytes` ([FMT I-11]),
+  and `field_validity`, from the payload;
   the producer writes those fields as zero.
 - **Headers:**
   - `Tpk-Layout: 1` names the body layout, so a later layout (§2.3) can coexist with this one.

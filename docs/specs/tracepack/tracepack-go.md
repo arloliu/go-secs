@@ -1,7 +1,8 @@
 # tracepack — Go reference implementation
 
 Status: current (2026-09-27)
-Implements tracepack v2.12 (format 1.0): `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Targets tracepack v2.13 (format 1.0): `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+The code follows v2.13 once the format-revision step of `tracepack-impl-plan.md` is done.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -41,38 +42,48 @@ and event times that carry a monotonic reading (`WireEvent.At`, `SocketEvent.At`
 eqp-hub itself still runs go-secs v2.3.0 and has no recorder device:
 its path carries no generation id, no start/stop event or instance id,
 and only a wall-clock string taken when the adapter converts the message (`SourceTimeStamp`, host-local time zone, no monotonic reading),
-so its records get `epoch = 0`, `correlation-incomplete` and `no-mono` until eqp-hub moves to go-secs v2.6.0 and records through the observers.
+so its records get `epoch = 0`, `correlation-incomplete` and no monotonic time (`mono_present` clear) until eqp-hub moves to go-secs v2.6.0 and records through the observers.
 Recorders flush `segment` packs to the staging tier; the merger (a service component using `Merge`) writes `archive` packs ([STO]).
 The query service, its catalog database and the live-tail interface are designed separately.
 
 ## 3. API sketch (non-binding)
 
 - `Record` mirrors the spec's record header (`Mono` nil when `mono_present` is clear).
+  A helper returns each HSMS header field from the payload as a value and an availability, separately ([FMT §7.2]);
+  it reports a field unavailable when its `field_validity` bit is clear, when the payload lacks that field's bytes, and for kinds without an HSMS frame,
+  so a short frame still yields the fields it holds.
+  A second helper computes the `field_validity` of a raw frame from its length, for writers of raw captures.
+  `DecodeStatus.Malformed` is true only for known malformed values, and `DecodeStatus.Clean` only for known values outside the malformed set;
+  an unknown value is neither, so `!Malformed()` never proves a clean decode ([SEM §6]).
 - `Writer`: `NewWriter(w io.Writer, sync Syncer, meta PackMeta, opts)`; options: codec (default zstd), block size threshold,
-  and validation: a validating writer commits `blocks_validated` in the pack metadata, decodes and checks each encoded block before writing it,
-  and on a failed check returns an error without writing the trailer ([FMT §12]).
-  A block is written as its header section followed by its payload section ([FMT §6]);
-  the writer may feed the two buffers to the encoder in turn instead of concatenating them.
-  `PackMeta` carries `capture_id`, the capture's next seq and every pack metadata tag.
+  and validation: a validating writer decodes each encoded block, gathers its record headers and checks I-2 before writing it,
+  and on a failed check returns an error without writing the block or the trailer ([FMT §12]); nothing is committed to the pack metadata.
+  The writer transposes the record headers into the header section when it assembles a block body ([FMT §6]);
+  it may feed the header and payload buffers to the encoder in turn instead of concatenating them.
+  `PackMeta` carries `capture_id`, the capture's next seq and every pack metadata tag;
+  the `Writer` rejects `pack_role` 5 and replacement-set values other than size 1 and index 0,
+  and drops retired tag numbers from the unknown entries it preserves ([FMT §5]).
   `Append(*Record)` never rejects for time, assigns the capture-scoped `Seq` ([FMT I-12])
-  and closes the current block before a record from another UTC hour ([FMT I-13]).
+  and closes the current block before a record from another UTC hour ([FMT I-13]);
+  it rejects a record whose set `field_validity` bit names bytes its payload lacks ([FMT §7.2]).
   `Flush`; `Close` writes footer + trailer ([FMT §12]) and returns the capture's next seq for the following segment.
 - `Reader`: `Open(ctx, ra io.ReaderAt, size, opts)` performs the [FMT §13] bootstrap, optionally seeded with a catalog footer location;
   `Header()`, `Blocks()` (F-2), `Iterate(ctx, Query, fn) (Result, error)`.
   `Open` parses the redaction entries with the pack metadata and runs their structural checks; its cost grows with the entries.
   Records expose `Redacted` and their masked ranges, validated against the record when it is read ([SEM §8] Marking);
   a wholly masked record reports its defect, and `Header()` exposes the policy, the entries and any bootstrap defect.
-  The decode step either decodes the whole body (a full read, [FMT I-2]) or streams only the header section (a header-only read, [FMT §6]).
-  A header-only iterator yields record headers with their validation level; payloads are decoded lazily, by a full read of the block.
-  An implementation MAY view the header section without copying as a slice of a native struct (`unsafe.Slice`)
+  Every block read decodes the whole body and checks I-2 before any record is used ([FMT §6]);
+  the reader untransposes the decoded header section into a reusable row buffer, after which every record-level path reads headers in row form.
+  An implementation MAY view that row buffer without copying as a slice of a native struct (`unsafe.Slice`)
   only when the stride equals the struct's size, every field offset matches [FMT §7.1], the buffer is suitably aligned and the host is little-endian;
-  the view is valid only while the decoded buffer lives; otherwise headers are decoded field by field.
-- `Query` = `Filter` plus a mode, `Provisional` or `Authoritative` ([SEM §7.4]).
-  `Result` carries `Incomplete`, `Conflict` and the validation status (`HeaderValidated` with the blocks concerned) side by side;
-  none of them hides another.
+  the view is valid only while the buffer lives; otherwise headers are decoded field by field.
+  The header section itself, stored column by column, is never such a view.
+- `Query` = `Filter` plus `Payloads`, which decides only whether payloads are returned ([SEM §7.4]).
+  `Result` carries `Incomplete` and `Conflict` side by side; neither hides the other.
   `Incomplete` carries the searched scope and a `Reason` (`Cold` among them, [STO §5] Completeness), for `Iterate` and `MergeIterate` alike;
   `Removed` lists the hours that ended with the removed outcome ([STO §5] Retention), and a caller never reports records of a removed hour as a result.
 - `Filter` uses typed slices (`[]SF`, `[]Kind`, `*[4]byte`) and a time range, with nil meaning "any"; no sentinel values.
+  HSMS header fields are matched on payload values, available only where `field_validity` says so ([FMT §7.2]).
 - `MergeIterate(ctx, readers, Query, order, fn)` with two orders:
   capture order (by `seq` within each capture, captures interleaved by their F-2 `ts_min`), which streams without buffering;
   and time order (`ts_utc_ns`, `capture_id`, `seq`), which timestamps inside a pack do not provide, so it uses a watermark:
@@ -81,8 +92,8 @@ The query service, its catalog database and the live-tail interface are designed
   Memory is bounded by the records of blocks whose [`ts_min`, `ts_max`] overlap the watermark — at most one UTC hour per capture, because blocks are hour-aligned ([FMT I-13]);
   a caller-set limit returns an error instead of exceeding it.
   Both orders deduplicate by (`capture_id`, `seq`) ([FMT I-12]).
-- `FindTransaction(ctx, src PackSource, TxKey, mode) (TxResult, error)` returning `Matched | Ambiguous | Unmatched | Incomplete{SearchedScope, Reason}` (`Reason` including `Cold`)
-  plus candidates, outcome records and the validation status of [SEM §7.4];
+- `FindTransaction(ctx, src PackSource, TxKey) (TxResult, error)` returning `Matched | Ambiguous | Unmatched | Incomplete{SearchedScope, Reason}` (`Reason` including `Cold`)
+  plus candidates and outcome records ([SEM §7.2]);
   `PackSource` supplies, per scope, the packs, whether the scope is indexed and the seq coverage it can establish,
   and per capture the end states, barriers and epoch closures of [STO §5], including every barrier that meets the queried range whatever capture it belongs to ([SEM §7.2]);
   a listing-backed implementation takes coherent observations ([STO §5]).
@@ -91,10 +102,9 @@ The query service, its catalog database and the live-tail interface are designed
   Whether a commit object may be deleted is decided by the service from its own record of deleted packs, never from packs missing in the input.
 - `Merge(ctx, dst io.Writer, inputs []MergeInput, opts) (MergeReport, error)`:
   block-copy merge of one scope's active view into the allocated claim number under the publisher's epoch, with dedup and footer aggregation ([FMT §10], [STO §4]).
-  Blocks are copied verbatim; duplicates are dropped only on equal envelope and body bytes; only blocks of equal `record_header_len` are coalesced.
-  An `Attest` option validates every block of a member before its pack metadata is written ([STO §4]):
-  `Merge` validates or stages the whole member first, so the destination never needs a restart.
-  `MergeReport` lists the members written without `blocks_validated` and the defects found.
+  Blocks are copied verbatim; duplicates are dropped only on equal envelope and body bytes;
+  small blocks are coalesced by the greedy grouping of [STO §4], each new encoding validated in memory before it is written.
+  The output is one archive per scope, a replacement set of one member ([STO §6]).
 - `Extract(ctx, src PackSource, Query, dst io.Writer, opts ExtractOptions) (ExtractReport, error)`: writes one `extract` pack of one capture.
   With `opts.Policy` (a compiled `RedactionPolicy`: id, version, key id, item and annotation rules; compilation rejects invalid patterns and domains) and `opts.Key`,
   it plans every mask and digest first, then writes the header, the pack metadata with `redaction_policy` and the `redaction` entries, and the masked blocks ([SEM §8]);
@@ -105,7 +115,8 @@ The query service, its catalog database and the live-tail interface are designed
 - `Verify(ctx, ra, size) Report` and `Repair(ctx, src, dst) Report`: writes a generation-0 `repair` patch naming the damaged pack, with `coverage` ([STO §6]);
   the next `Merge` folds it into a generation, once the service admits the patch to an indexed scope ([STO §5]).
   `Repair` rejects an extract ([STO §2]).
-- `Recover(ctx, spool, dst) Report`: finalizes an unfinalized spool file as a segment of its original capture with a `stop-unclean` boundary ([STO §4]).
+- `Recover(ctx, spool, dst) Report`, deferred until a local-spool recorder is planned (G5-91):
+  finalizes an unfinalized spool file as a segment of its original capture with a `stop-unclean` boundary ([STO §4]).
 - `ExportJSONL(ctx, r, w)`: canonical export ([FMT §15]).
 
 ## 4. Classifier: go-secs → decode_status
@@ -215,7 +226,7 @@ control frames, frames go-secs rejects after reading them, and a refused socket'
 One `WireEvent` becomes one data or control record:
 `payload` = `Frame`, copied during the call; `epoch` from `Socket` (§2);
 `dir` from `Direction` and the application's role; `fidelity` = `wire-exact`;
-copy fields and `decode_status` from the classifier (§4);
+`field_validity` from the frame's length and `decode_status` from the classifier (§4);
 `ts_utc_ns` = `At.UnixNano()` and `mono_ns` = `At.Sub(origin)`.
 An inbound frame's `At` is the time the frame was fully read.
 An outbound frame's `At` is taken immediately before its write is issued,
@@ -244,13 +255,11 @@ and a reply recorded before its primary is reported by transaction matching as a
 
 ## 7. Reference CLI (`tracepack/cmd/tracepack`)
 
-Subcommands `list`, `stats`, `dump --sml`, `dump --jsonl`, `verify [--repair]`, `merge`, `recover`; `grep` and `tx` follow in a later phase;
+Subcommands `list`, `stats`, `dump --sml`, `dump --jsonl`, `verify [--repair]`, `merge`, and `recover` once `Recover` is planned; `grep` and `tx` follow in a later phase;
 local paths and `s3://` URLs.
 Every command reports `incomplete` and `conflicted` explicitly,
 and a storage-backed command whose hour becomes removed ([STO §5] Retention) ends with that outcome, never with success after the records it printed;
 the output syntax stays deferred with the other output formats.
-Query commands take the query mode (`--mode provisional|authoritative`, [SEM §7.4])
-and print the validation status next to `incomplete` and `conflict`.
 `dump --sml` renders data records through `sml.Encoder` and falls back to hex for control, event, annotation and malformed records;
 `dump --jsonl` emits the spec's canonical export ([FMT §15]).
 In `dump --sml`, a masked subtree is shown at its path with its domain and a digest prefix, its leaves with their item type and length but no value;
