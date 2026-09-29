@@ -227,42 +227,35 @@ func resealBlocks(data []byte) {
 	}
 }
 
-// requireBlocksRead reads every block of r at both levels through one blockBuf and checks each against want.
+// requireBlocksRead reads every block of r through one blockBuf and checks each against want.
 func requireBlocksRead(t *testing.T, r *Reader, want [][]storedBlockRecord) {
 	t.Helper()
 
 	require.Len(t, r.blocks, len(want))
 
 	var buf blockBuf
-	for _, full := range []bool{false, true} {
-		for i := range want {
-			d, def, err := r.readBlock(i, full, &buf)
-			require.NoError(t, err)
-			require.Nil(t, def, "block %d, full %v", i, full)
-			require.NotNil(t, d)
-			requireBlockConsistent(t, &r.blocks[i], d, full)
+	for i := range want {
+		d, def, err := r.readBlock(i, &buf)
+		require.NoError(t, err)
+		require.Nil(t, def, "block %d", i)
+		require.NotNil(t, d)
+		requireBlockConsistent(t, &r.blocks[i], d)
 
-			require.Equal(t, len(want[i]), d.count())
-			for j, w := range want[i] {
-				assert.Equal(t, w.h, d.header(j), "block %d record %d, full %v", i, j, full)
-				if full {
-					assert.Equal(t, w.payload, d.payload(j), "block %d record %d", i, j)
-				} else {
-					assert.Nil(t, d.payload(j), "a header-only read has no payload")
-				}
-			}
+		require.Equal(t, len(want[i]), d.count())
+		for j, w := range want[i] {
+			assert.Equal(t, w.h, d.header(j), "block %d record %d", i, j)
+			assert.Equal(t, w.payload, d.payload(j), "block %d record %d", i, j)
 		}
 	}
 }
 
 // requireBlockConsistent checks what readBlock guarantees for a block it returns:
 // the envelope agrees with info, the seqs start at first_seq and strictly increase,
-// every header carries the bytes behind offset 56, the length equation of I-2 holds,
-// and a full read carries every payload.
-func requireBlockConsistent(t *testing.T, info *BlockInfo, d *decodedBlock, full bool) {
+// every header carries the bytes behind the known record header, the length equation of I-2 holds,
+// and every payload is present.
+func requireBlockConsistent(t *testing.T, info *BlockInfo, d *decodedBlock) {
 	t.Helper()
 
-	require.Equal(t, full, d.full)
 	require.Equal(t, info.RecordHeaderLen, d.env.RecordHeaderLen)
 	require.Equal(t, info.UncompressedLen, d.env.UncompressedLen)
 	require.Equal(t, int(info.RecordCount), d.count())
@@ -281,42 +274,27 @@ func requireBlockConsistent(t *testing.T, info *BlockInfo, d *decodedBlock, full
 		total += uint64(h.PayloadLen)
 
 		rec := blockRecord(d, j)
-		if full {
-			require.Len(t, d.payload(j), int(h.PayloadLen))
-			require.Len(t, rec.Payload, int(h.PayloadLen))
-		} else {
-			require.Nil(t, d.payload(j))
-			require.Nil(t, rec.Payload)
-		}
-		_ = copyMismatch(&h, rec.Payload)
+		require.Len(t, d.payload(j), int(h.PayloadLen))
+		require.Len(t, rec.Payload, int(h.PayloadLen))
 	}
 	require.Equal(t, uint64(info.UncompressedLen), total, "record_count × record_header_len + Σ payload_len")
 }
 
-// requireBlockDefect reads block i of r at both levels and requires the defect of requireLevelDefect at each.
+// requireBlockDefect reads block i of r
+// and requires a defect of reason at the block's offset whose error contains msg, with no block.
 func requireBlockDefect(t *testing.T, r *Reader, i int, reason IncompleteReason, msg string) {
 	t.Helper()
 
-	for _, full := range []bool{false, true} {
-		requireLevelDefect(t, r, i, full, reason, msg)
-	}
-}
-
-// requireLevelDefect reads block i of r at one level
-// and requires a defect of reason at the block's offset whose error contains msg, with no block.
-func requireLevelDefect(t *testing.T, r *Reader, i int, full bool, reason IncompleteReason, msg string) {
-	t.Helper()
-
 	var buf blockBuf
-	d, def, err := r.readBlock(i, full, &buf)
+	d, def, err := r.readBlock(i, &buf)
 	require.NoError(t, err)
-	require.Nil(t, d, "a defective block yields nothing, full %v", full)
-	require.NotNil(t, def, "full %v", full)
-	assert.Equal(t, reason, def.Reason, "full %v: %v", full, def.Err)
+	require.Nil(t, d, "a defective block yields nothing")
+	require.NotNil(t, def)
+	assert.Equal(t, reason, def.Reason, "%v", def.Err)
 	assert.Equal(t, i, def.Block)
 	assert.Equal(t, int64(r.blocks[i].Offset), def.Offset)
 	assert.Nil(t, def.Coverage)
-	require.ErrorContains(t, def.Err, msg, "full %v", full)
+	require.ErrorContains(t, def.Err, msg)
 }
 
 // encode returns the block's envelope, computed from its re-encoded body, and the encoded body.
@@ -383,23 +361,17 @@ func TestReadBlockRecords(t *testing.T) {
 	r := mustOpen(t, p.file, ReaderOptions{})
 
 	var buf blockBuf
-	for _, full := range []bool{false, true} {
-		k := 0
-		for i := range p.blocks {
-			d, def, err := r.readBlock(i, full, &buf)
-			require.NoError(t, err)
-			require.Nil(t, def)
-			for j := range d.count() {
-				want := recs[k]
-				if !full {
-					want.Payload = nil
-				}
-				assert.Equal(t, want, blockRecord(d, j), "record %d, full %v", k, full)
-				k++
-			}
+	k := 0
+	for i := range p.blocks {
+		d, def, err := r.readBlock(i, &buf)
+		require.NoError(t, err)
+		require.Nil(t, def)
+		for j := range d.count() {
+			assert.Equal(t, recs[k], blockRecord(d, j), "record %d", k)
+			k++
 		}
-		assert.Equal(t, len(recs), k)
 	}
+	assert.Equal(t, len(recs), k)
 }
 
 func TestStoredRecord(t *testing.T) {
@@ -573,12 +545,10 @@ func TestReadBlockCorruption(t *testing.T) {
 
 			var buf blockBuf
 			for _, i := range []int{0, 2} {
-				for _, full := range []bool{false, true} {
-					d, def, err := r.readBlock(i, full, &buf)
-					require.NoError(t, err)
-					require.Nil(t, def, "block %d still reads", i)
-					requireBlockConsistent(t, &r.blocks[i], d, full)
-				}
+				d, def, err := r.readBlock(i, &buf)
+				require.NoError(t, err)
+				require.Nil(t, def, "block %d still reads", i)
+				requireBlockConsistent(t, &r.blocks[i], d)
 			}
 		})
 	}
@@ -607,23 +577,12 @@ func TestReadBlockDamagedStreamAfterHeaders(t *testing.T) {
 
 	info := r.blocks[0]
 	body := file[info.Offset+format.EnvelopeLen : info.Offset+uint64(info.OnDiskLen)]
-	hsLen := len(recs) * format.RecordHeaderLen
 	_, err := codec.Decode(codec.Zstd, nil, body, int(info.UncompressedLen))
 	require.Error(t, err, "the damage must break a full decode")
-	_, err = codec.DecodePrefix(codec.Zstd, nil, body, hsLen, int(info.UncompressedLen))
-	require.NoError(t, err, "the damage must lie after the header section")
 
-	var buf blockBuf
-	d, def, err := r.readBlock(0, false, &buf)
-	require.NoError(t, err)
-	require.Nil(t, def, "a header-only read leaves the stream after the header section unchecked")
-	requireBlockConsistent(t, &info, d, false)
-
-	requireLevelDefect(t, r, 0, true, ReasonCorruptBlock, "decode body")
-	d, def, err = r.readBlock(0, false, &buf)
-	require.NoError(t, err)
-	require.Nil(t, def)
-	require.Equal(t, len(recs), d.count())
+	// Every read is full, so a stream damaged only after an intact header section still makes the block corrupt
+	// (the tracepack format specification §6).
+	requireBlockDefect(t, r, 0, ReasonCorruptBlock, "decode body")
 }
 
 // TestReadBlockBudgetAllocation is not parallel: it measures the process-wide TotalAlloc.
@@ -646,8 +605,8 @@ func TestReadBlockBudgetAllocation(t *testing.T) {
 	var buf blockBuf
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
-	for _, full := range []bool{false, true} {
-		d, def, err := r.readBlock(1, full, &buf)
+	for range 2 {
+		d, def, err := r.readBlock(1, &buf)
 		require.NoError(t, err)
 		require.Nil(t, d)
 		require.NotNil(t, def)
@@ -662,10 +621,10 @@ func TestReadBlockBudgetAllocation(t *testing.T) {
 
 	requireBlockDefect(t, r, 1, ReasonLimit, "MaxBlockLen")
 	for _, i := range []int{0, 2} {
-		d, def, err := r.readBlock(i, true, &buf)
+		d, def, err := r.readBlock(i, &buf)
 		require.NoError(t, err)
 		require.Nil(t, def)
-		requireBlockConsistent(t, &r.blocks[i], d, true)
+		requireBlockConsistent(t, &r.blocks[i], d)
 	}
 }
 
@@ -710,12 +669,10 @@ func TestReadBlockOverBudget(t *testing.T) {
 
 			var buf blockBuf
 			for _, i := range []int{0, 2} {
-				for _, full := range []bool{false, true} {
-					d, def, err := r.readBlock(i, full, &buf)
-					require.NoError(t, err)
-					require.Nil(t, def, "block %d after the big block still reads", i)
-					require.Equal(t, uint64(i), d.header(0).Seq)
-				}
+				d, def, err := r.readBlock(i, &buf)
+				require.NoError(t, err)
+				require.Nil(t, def, "block %d after the big block still reads", i)
+				require.Equal(t, uint64(i), d.header(0).Seq)
 			}
 		})
 	}
@@ -738,7 +695,7 @@ func TestReadBlockReadErrors(t *testing.T) {
 		g.mu.Unlock()
 
 		var buf blockBuf
-		d, def, err := r.readBlock(1, true, &buf)
+		d, def, err := r.readBlock(1, &buf)
 		require.ErrorIs(t, err, errInjected)
 		require.Nil(t, d)
 		require.Nil(t, def, "a read failure is an error, not a defect")
@@ -762,146 +719,11 @@ func TestReadBlockReadErrors(t *testing.T) {
 		r.ra = bytes.NewReader(p.file[:at+format.EnvelopeLen+1])
 
 		var buf blockBuf
-		d, def, err := r.readBlock(1, false, &buf)
+		d, def, err := r.readBlock(1, &buf)
 		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 		require.Nil(t, d)
 		require.Nil(t, def)
 	})
-}
-
-func TestCopyMismatch(t *testing.T) {
-	t.Parallel()
-
-	whole := testDataRecord(1, blockTestHour, 1)
-	short := testDataRecord(2, blockTestHour, 1)
-	short.Payload = blockTestFrame[:copyPTypeEnd]
-	short.SetHeaderCopies()
-	require.Equal(t, FieldValiditySessionID|FieldValidityStreamAndW|FieldValidityFunction|FieldValidityPType, short.FieldValidity)
-
-	tests := []struct {
-		name  string
-		rec   Record
-		patch func(h *format.RecordHeader)
-		want  bool
-	}{
-		{name: "agreeing record", rec: whole},
-		{name: "agreeing short capture", rec: short},
-		{name: "session_id", rec: whole, patch: func(h *format.RecordHeader) { h.SessionID++ }, want: true},
-		{name: "stream", rec: whole, patch: func(h *format.RecordHeader) { h.Stream ^= 1 }, want: true},
-		{name: "stream bit 7", rec: whole, patch: func(h *format.RecordHeader) { h.Stream |= wBit }, want: true},
-		{name: "W", rec: whole, patch: func(h *format.RecordHeader) { h.RecordFlags ^= uint8(RecordFlagsW) }, want: true},
-		{name: "function", rec: whole, patch: func(h *format.RecordHeader) { h.Function++ }, want: true},
-		{name: "ptype", rec: whole, patch: func(h *format.RecordHeader) { h.PType++ }, want: true},
-		{name: "stype", rec: whole, patch: func(h *format.RecordHeader) { h.SType++ }, want: true},
-		{name: "system_bytes", rec: whole, patch: func(h *format.RecordHeader) { h.SystemBytes[3]++ }, want: true},
-		// Only the fields whose bit is set are compared (the tracepack format specification §7.2).
-		{name: "field_validity bit clear on a captured field", rec: whole, patch: func(h *format.RecordHeader) {
-			h.FieldValidity &^= uint8(FieldValidityFunction)
-		}},
-		{name: "short capture claims a byte the payload lacks", rec: short, patch: func(h *format.RecordHeader) {
-			h.FieldValidity |= uint8(FieldValiditySType)
-		}, want: true},
-		{name: "short capture with a value where the payload lacks the byte", rec: short, patch: func(h *format.RecordHeader) {
-			h.SystemBytes[0] = 1
-		}},
-		{name: "reserved field_validity bits", rec: whole, patch: func(h *format.RecordHeader) { h.FieldValidity |= 0xC0 }},
-		{name: "mono_present is not a copy", rec: whole, patch: func(h *format.RecordHeader) {
-			h.RecordFlags ^= uint8(RecordFlagsMonoPresent)
-		}},
-		{name: "control record", rec: whole, patch: func(h *format.RecordHeader) {
-			h.Kind = uint8(KindControl)
-			h.SessionID++
-		}, want: true},
-		{name: "transport event with nonzero copies", rec: whole, patch: func(h *format.RecordHeader) {
-			h.Kind = uint8(KindTransportEvent)
-			h.SessionID++
-		}},
-		{name: "annotation with nonzero copies", rec: whole, patch: func(h *format.RecordHeader) {
-			h.Kind = uint8(KindAnnotation)
-			h.FieldValidity = 0
-		}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := canonicalHeader(&tt.rec, tt.rec.Seq, nil)
-			if tt.patch != nil {
-				tt.patch(&h)
-			}
-			assert.Equal(t, tt.want, copyMismatch(&h, tt.rec.Payload))
-		})
-	}
-}
-
-func TestCopyMismatchAgreesWithWriter(t *testing.T) {
-	t.Parallel()
-
-	edit := func(edit func(r *Record)) Record {
-		r := testDataRecord(0, blockTestHour, 1)
-		edit(&r)
-
-		return r
-	}
-	short := func(n int, validity FieldValidity) Record {
-		return edit(func(r *Record) {
-			r.Payload = blockTestFrame[:n]
-			r.DecodeStatus = DecodeStatusShortFrame
-			r.FieldValidity = validity
-		})
-	}
-	all := FieldValiditySessionID | FieldValidityStreamAndW | FieldValidityFunction |
-		FieldValidityPType | FieldValiditySType | FieldValiditySystemBytes
-
-	tests := []struct {
-		name     string
-		rec      Record
-		mismatch bool
-	}{
-		{name: "whole frame", rec: testDataRecord(0, blockTestHour, 1)},
-		{name: "short capture", rec: shortCapture(0, blockTestHour, 7)},
-		{name: "empty capture", rec: shortCapture(0, blockTestHour, 0)},
-		{name: "clear System Bytes bit over present bytes", rec: clearedSystemBytes(0)},
-		{name: "clear bits with values over present bytes", rec: edit(func(r *Record) { r.FieldValidity = 0 })},
-		{name: "set System Bytes bit beyond the payload", rec: short(copySTypeEnd, all), mismatch: true},
-		{name: "set SessionID bit beyond the payload", rec: short(copySessionIDOff, FieldValiditySessionID), mismatch: true},
-		{name: "set stype bit beyond the payload", rec: short(copyPTypeEnd, all&^FieldValiditySystemBytes), mismatch: true},
-		{name: "set bits over exactly their bytes", rec: short(copyPTypeEnd, all&^(FieldValiditySType|FieldValiditySystemBytes))},
-		{name: "stream and function", rec: copyVectors()[0].disagreeingRecord(), mismatch: true},
-		{name: "SessionID", rec: copyVectors()[1].disagreeingRecord(), mismatch: true},
-		{name: "System Bytes", rec: copyVectors()[2].disagreeingRecord(), mismatch: true},
-		{name: "W", rec: edit(func(r *Record) { r.W = !r.W }), mismatch: true},
-		{name: "ptype", rec: edit(func(r *Record) { r.PType++ }), mismatch: true},
-		{name: "control record", rec: controlRecord(0, blockTestHour, 1, DirEquipmentToHost)},
-		{name: "control record with a disagreeing stype", rec: func() Record {
-			r := controlRecord(0, blockTestHour, 1, DirEquipmentToHost)
-			r.SType++
-
-			return r
-		}(), mismatch: true},
-		{name: "transport event", rec: testEventRecord(t, 0, blockTestHour, 1, &TransportEvent{Event: EventSocketClose})},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			h := canonicalHeader(&tt.rec, tt.rec.Seq, nil)
-			require.Equal(t, tt.mismatch, copyMismatch(&h, tt.rec.Payload))
-			require.Equal(t, tt.mismatch, checkCopies(&h, tt.rec.Payload) != nil, "the Writer's I-10 check")
-
-			_, err := buildReaderPack(readerPackConfig{codec: CodecZstd, validate: true}, []Record{tt.rec})
-			if tt.mismatch {
-				require.ErrorIs(t, err, ErrValidation)
-			} else {
-				require.NoError(t, err)
-			}
-
-			p := writeReaderPack(t, readerPackConfig{codec: CodecZstd}, []Record{tt.rec})
-			run := iterate(t, mustOpen(t, p.file, ReaderOptions{}), Query{Payloads: true})
-			require.Len(t, run.items, 1)
-			require.Equal(t, tt.mismatch, run.items[0].mismatch, "the Reader's I-10 check at ReadFull")
-		})
-	}
 }
 
 func FuzzReadBlock(f *testing.F) {
@@ -932,23 +754,21 @@ func FuzzReadBlock(f *testing.F) {
 
 		var buf blockBuf
 		for i := range r.blocks {
-			for _, full := range []bool{false, true} {
-				d, def, err := r.readBlock(i, full, &buf)
-				require.NoError(t, err, "every block lies inside the object")
-				if def != nil {
-					require.Nil(t, d)
-					require.Equal(t, i, def.Block)
-					require.Error(t, def.Err)
-					require.Contains(t, []IncompleteReason{ReasonCorruptBlock, ReasonUnknownCodec, ReasonLimit}, def.Reason)
-					continue
-				}
-				requireBlockConsistent(t, &r.blocks[i], d, full)
+			d, def, err := r.readBlock(i, &buf)
+			require.NoError(t, err, "every block lies inside the object")
+			if def != nil {
+				require.Nil(t, d)
+				require.Equal(t, i, def.Block)
+				require.Error(t, def.Err)
+				require.Contains(t, []IncompleteReason{ReasonCorruptBlock, ReasonUnknownCodec, ReasonLimit}, def.Reason)
+				continue
 			}
+			requireBlockConsistent(t, &r.blocks[i], d)
 		}
 	})
 }
 
-// blockRecord returns record i of d as stored, with its payload for a full read.
+// blockRecord returns record i of d as stored, with its payload.
 func blockRecord(d *decodedBlock, i int) Record {
 	h := d.header(i)
 

@@ -48,7 +48,7 @@ var (
 	// it writes neither footer nor trailer, and the Writer has failed.
 	ErrMetadataCommitment = errors.New("tracepack: record contradicts the pack metadata")
 	// ErrValidation reports that an encoded block failed the checks a validating Writer runs before writing it
-	// (the tracepack format specification §12);
+	// (the tracepack format specification §12: the decoded body against I-2);
 	// the block was not written and the Writer has failed.
 	ErrValidation = errors.New("tracepack: block failed validation")
 	// ErrWriterFailed reports a call on a Writer that an earlier failure left unusable:
@@ -70,9 +70,7 @@ type Syncer interface {
 // WriterOptions configures NewWriter.
 type WriterOptions struct {
 	// Meta is the pack metadata written at the start of the pack; required.
-	// NewWriter copies it and does not modify it:
-	// the Writer sets blocks_validated itself from Validate,
-	// and seq_start from NextSeq when AssignSeq is set.
+	// NewWriter copies it and does not modify it; the Writer sets seq_start from NextSeq when AssignSeq is set.
 	Meta *PackMeta
 	// Facts are the facts about the pack's records and scope that Meta is validated against.
 	// Facts.AnyRedacted also sets the file header's redaction-present flag,
@@ -86,9 +84,9 @@ type WriterOptions struct {
 	// zero means DefaultBlockThreshold.
 	// A block never exceeds it, except a block holding a single record larger than it.
 	BlockThreshold int
-	// Validate makes the Writer attest its blocks:
-	// it commits blocks_validated = true in the pack metadata,
-	// and decodes and checks every encoded block before writing it (the tracepack format specification §12).
+	// Validate makes the Writer decode every encoded block and check it against I-2 before writing it
+	// (the tracepack format specification §12, which recommends it);
+	// it commits nothing to the pack metadata, since a reader checks every block it reads.
 	Validate bool
 	// Sync, when set, is called after every block is written and after the trailer.
 	Sync Syncer
@@ -154,7 +152,9 @@ type Writer struct {
 	bodyBuf []byte
 	encBuf  []byte
 	valBuf  validateBuf
-	closed  bool
+	// encodedHook, set only by tests, changes an encoded block body before it is validated and written.
+	encodedHook func(enc []byte) []byte
+	closed      bool
 	// failure is the error that left the Writer failed; nil while it is usable.
 	failure error
 }
@@ -162,8 +162,6 @@ type Writer struct {
 // NewWriter validates the options, then writes the file header and the pack metadata to w
 // (the tracepack format specification §4, §5 and §12 step 1).
 //
-// With opts.Validate the pack metadata commits blocks_validated = true before any block is written;
-// without it blocks_validated is absent, whatever opts.Meta holds.
 // With opts.AssignSeq the pack metadata's seq_start is opts.NextSeq.
 //
 // Parameters:
@@ -182,11 +180,6 @@ func NewWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 	}
 
 	meta := *opts.Meta
-	meta.BlocksValidated = nil
-	if opts.Validate {
-		validated := true
-		meta.BlocksValidated = &validated
-	}
 	if opts.AssignSeq {
 		meta.SeqStart = opts.NextSeq
 	}
@@ -689,7 +682,7 @@ func (w *Writer) adoptClockStep(r *Record) error {
 	return nil
 }
 
-// closeBlock encodes the open block, validates it when the Writer attests its blocks,
+// closeBlock encodes the open block, validates it when WriterOptions.Validate is set,
 // writes envelope and body, syncs, and records the block's summary.
 // Any failure leaves the Writer failed, so no trailer can follow a block that was not written whole.
 func (w *Writer) closeBlock() error {
@@ -715,6 +708,9 @@ func (w *Writer) writeBlock() error {
 	}
 	if c == CodecZstd {
 		w.encBuf = enc
+	}
+	if w.encodedHook != nil {
+		enc = w.encodedHook(enc)
 	}
 
 	if w.validate {

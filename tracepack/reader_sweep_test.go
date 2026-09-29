@@ -19,13 +19,13 @@ const sweepFailureLimit = 10
 
 // Indexes into sweepQueries of the queries whose baseline results newSweepBaseline checks beyond completeness.
 const (
-	sweepQueryEmptySF = 4
-	sweepQueryPrunes  = 5
-	sweepQueryAuthSF  = 6
+	sweepQueryEmptySF = 2
+	sweepQueryPrunes  = 3
+	sweepQuerySF      = 4
 )
 
 // sweepVariant is one pack of the corruption and truncation sweeps:
-// the sweep records written with one codec, attested by the Writer or not, and the options Open reads the pack with.
+// the sweep records written with one codec, validated by the Writer or not, and the options Open reads the pack with.
 type sweepVariant struct {
 	name     string
 	codec    Codec
@@ -67,7 +67,7 @@ type sweepCounts struct {
 	failures   int
 }
 
-// sweepVariants returns the packs of the sweeps: codec none and zstd, each attested by the Writer and not.
+// sweepVariants returns the packs of the sweeps: codec none and zstd, each validated by the Writer and not.
 // The zstd packs are read with windows small enough that Open reads the head and the tail,
 // then the rest of the pack metadata and of the footer in a second round;
 // the none packs are read whole.
@@ -76,9 +76,9 @@ func sweepVariants() []sweepVariant {
 
 	return []sweepVariant{
 		{name: "none", codec: CodecNone},
-		{name: "none attested", codec: CodecNone, validate: true},
+		{name: "none validated", codec: CodecNone, validate: true},
 		{name: "zstd", codec: CodecZstd, opts: windows},
-		{name: "zstd attested", codec: CodecZstd, validate: true, opts: windows},
+		{name: "zstd validated", codec: CodecZstd, validate: true, opts: windows},
 	}
 }
 
@@ -102,7 +102,7 @@ func sweepRecords(t testing.TB) []Record {
 	}
 }
 
-// writeFlushedPack writes recs into a new pack with codec c, attested when validate is set,
+// writeFlushedPack writes recs into a new pack with codec c, validated by the Writer when validate is set,
 // flushing the open block after record flushAfter;
 // meta, when set, adjusts the pack metadata before the Writer is created.
 func writeFlushedPack(t testing.TB, c Codec, validate bool, meta func(*PackMeta), recs []Record, flushAfter int) []byte {
@@ -128,10 +128,9 @@ func writeFlushedPack(t testing.TB, c Codec, validate bool, meta func(*PackMeta)
 	return buf.Bytes()
 }
 
-// sweepPack writes sweepRecords with codec c, attested when validate is set,
-// then widens every record header of block 1 to 64 bytes.
-// The widened block is re-encoded with the same records, so it still satisfies I-2 and I-10,
-// and the attestation of an attested pack stays true of it.
+// sweepPack writes sweepRecords with codec c, validated by the Writer when validate is set,
+// then widens every record header of block 1.
+// The widened block is re-encoded with the same records, so it still satisfies I-2.
 func sweepPack(t testing.TB, c Codec, validate bool) []byte {
 	t.Helper()
 
@@ -145,21 +144,19 @@ func sweepPack(t testing.TB, c Codec, validate bool) []byte {
 }
 
 // sweepQueries returns the queries of the sweeps:
-// every record with payloads and header-only, each in both modes;
-// a provisional S/F query with an empty result, which still reads every block;
+// every record with and without payloads;
+// an S/F query with an empty result, which still reads every block;
 // a time query whose F-2 ranges exclude the blocks of hour 0;
-// and an authoritative copy-field query.
+// and an S/F query that selects on the payload's HSMS header fields.
 func sweepQueries() []sweepQuery {
 	h1 := blockTestHour + hourNs
 
 	return []sweepQuery{
-		{name: "payloads provisional", q: Query{Payloads: true}},
-		{name: "payloads authoritative", q: Query{Mode: QueryAuthoritative, Payloads: true}},
-		{name: "header-only provisional", q: Query{}},
-		{name: "header-only authoritative", q: Query{Mode: QueryAuthoritative}},
-		{name: "provisional S6F11, empty", q: Query{Filter: Filter{SF: []SF{{Stream: 6, Function: 11}}}}},
+		{name: "payloads", q: Query{Payloads: true}},
+		{name: "no payloads", q: Query{}},
+		{name: "S6F11, empty", q: Query{Filter: Filter{SF: []SF{{Stream: 6, Function: 11}}}}},
 		{name: "hour 1, prunes", q: Query{Filter: Filter{TimeFrom: new(h1), TimeTo: new(h1 + hourNs)}}},
-		{name: "authoritative S1F3", q: Query{Mode: QueryAuthoritative, Filter: Filter{SF: []SF{{Stream: 1, Function: 3}}}}},
+		{name: "S1F3", q: Query{Filter: Filter{SF: []SF{{Stream: 1, Function: 3}}}}},
 	}
 }
 
@@ -170,7 +167,6 @@ func newSweepBaseline(t *testing.T, file []byte, v *sweepVariant) *sweepBaseline
 	r := mustOpen(t, file, v.opts)
 	h := r.Header()
 	require.True(t, h.Finalized)
-	require.Equal(t, v.validate, h.Attested)
 	require.NoError(t, h.FooterErr)
 
 	queries := sweepQueries()
@@ -202,23 +198,16 @@ func newSweepBaseline(t *testing.T, file []byte, v *sweepVariant) *sweepBaseline
 	all := &b.runs[0]
 	require.Len(t, all.items, len(recs))
 	for k, it := range all.items {
-		require.Equal(t, ReadFull, it.level)
 		require.Equal(t, uint64(k), it.rec.Seq)
 		require.Equal(t, it.block == 1, it.extra != nil, "block 1 carries the widened header bytes")
 		b.stored[it.rec.Seq] = it
 	}
 
 	// The queries do what their names say over this pack.
-	sf := b.runs[sweepQueryEmptySF]
-	require.Empty(t, sf.items)
-	if v.validate {
-		require.Empty(t, sf.res.HeaderValidated)
-	} else {
-		require.Equal(t, []int{0, 1, 2}, sf.res.HeaderValidated)
-	}
+	require.Empty(t, b.runs[sweepQueryEmptySF].items)
 	require.Equal(t, []int{0, 1}, b.pruned[sweepQueryPrunes])
 	require.Equal(t, []uint64{4, 5}, b.runs[sweepQueryPrunes].seqs())
-	require.Equal(t, []uint64{0, 4, 5}, b.runs[sweepQueryAuthSF].seqs(), "the short capture lacks the function byte")
+	require.Equal(t, []uint64{0, 4, 5}, b.runs[sweepQuerySF].seqs(), "the short capture lacks the function byte")
 	for qi, p := range b.pruned {
 		if qi != sweepQueryPrunes {
 			require.Empty(t, p, queries[qi].name)
@@ -238,11 +227,10 @@ func sameRecord(a, b Record) bool {
 	return reflect.DeepEqual(a, b)
 }
 
-// sameItems reports whether a and b yield the same records, header bytes behind offset 56, blocks, levels and mismatches.
+// sameItems reports whether a and b yield the same records, header extension bytes and blocks.
 func sameItems(a, b []iterItem) bool {
 	return slices.EqualFunc(a, b, func(x, y iterItem) bool {
-		return sameRecord(x.rec, y.rec) && bytes.Equal(x.extra, y.extra) &&
-			x.block == y.block && x.level == y.level && x.mismatch == y.mismatch
+		return sameRecord(x.rec, y.rec) && bytes.Equal(x.extra, y.extra) && x.block == y.block
 	})
 }
 
@@ -294,10 +282,9 @@ func (b *sweepBaseline) region(off uint64) string {
 // read opens data and runs every query over it, judging each outcome against the baseline and counting it.
 //
 // Open must fail unless wantOpen is set.
-// A complete result must equal the baseline's: its items byte for byte, HeaderValidated and FooterErr;
+// A complete result must equal the baseline's: its items byte for byte and FooterErr;
 // a complete result that differs is a silent error.
-// An incomplete result must yield a subset of the baseline's records, byte for byte,
-// each at the level the Reader reads the query at.
+// An incomplete result must yield a subset of the baseline's records, byte for byte.
 // wantComplete(qi) states which of the two query qi must give,
 // so a mutation the Reader misses fails the sweep, and so does one it reports although the query does not read the mutated bytes.
 func (b *sweepBaseline) read(t *testing.T, data []byte, what func() string, wantOpen bool, wantComplete func(qi int) bool, c *sweepCounts) {
@@ -340,12 +327,10 @@ func (b *sweepBaseline) read(t *testing.T, data []byte, what func() string, want
 
 		c.complete[qi]++
 		base := &b.runs[qi]
-		if !sameItems(base.items, run.items) || !slices.Equal(base.res.HeaderValidated, run.res.HeaderValidated) ||
-			!sameErr(base.res.FooterErr, run.res.FooterErr) {
+		if !sameItems(base.items, run.items) || !sameErr(base.res.FooterErr, run.res.FooterErr) {
 			msg := fmt.Sprintf("%s, query %q: complete but different from the baseline", what(), q.name)
 			c.failf(t, "%s", msg)
 			assert.Equal(t, base.items, run.items, msg)
-			assert.Equal(t, base.res.HeaderValidated, run.res.HeaderValidated, msg)
 			assert.Equal(t, base.res.FooterErr, run.res.FooterErr, msg)
 
 			continue
@@ -358,10 +343,9 @@ func (b *sweepBaseline) read(t *testing.T, data []byte, what func() string, want
 
 // subsetProblem describes how the incomplete run of query qi over r departs from the baseline, or returns "".
 // Every item must be a record the baseline yields for the query, byte for byte, in ascending seq order,
-// read at the level r reads the query at; HeaderValidated must be sorted and free of duplicates.
+// with its payload exactly when the query asks for payloads.
 func (b *sweepBaseline) subsetProblem(qi int, r *Reader, run *iterRun) string {
 	q := &b.queries[qi].q
-	level := fuzzLevel(q, r.attested)
 	nblocks := len(r.blocks)
 
 	for k := range run.items {
@@ -374,23 +358,13 @@ func (b *sweepBaseline) subsetProblem(qi int, r *Reader, run *iterRun) string {
 			return fmt.Sprintf("item %d: seq %d is not in the baseline result", k, seq)
 		case it.block < 0 || it.block >= nblocks:
 			return fmt.Sprintf("item %d: block %d outside the %d blocks", k, it.block, nblocks)
-		case it.level != level:
-			return fmt.Sprintf("item %d: level %v, the query reads at %v", k, it.level, level)
 		}
 
 		ref := b.stored[seq]
-		want := storedAs(ref.rec, it.level)
+		want := storedAs(ref.rec, q.Payloads)
 		if !sameRecord(it.rec, want) || !bytes.Equal(it.extra, ref.extra) {
 			return fmt.Sprintf("item %d: seq %d differs from the stored record:\n got %+v extra %x\nwant %+v extra %x", k, seq, it.rec, it.extra, want, ref.extra)
 		}
-		if want := it.level == ReadFull && ref.mismatch; it.mismatch != want {
-			return fmt.Sprintf("item %d: CopyMismatch %v, want %v", k, it.mismatch, want)
-		}
-	}
-
-	hv := run.res.HeaderValidated
-	if !slices.IsSorted(hv) || len(slices.Compact(slices.Clone(hv))) != len(hv) {
-		return fmt.Sprintf("HeaderValidated %v is not sorted and unique", hv)
 	}
 
 	return ""

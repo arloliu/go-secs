@@ -30,11 +30,11 @@ type compatRead struct {
 	pruned [][]int
 }
 
-// compatConfigs returns the configurations of the vectors: codec none not attested, and codec zstd attested.
+// compatConfigs returns the configurations of the vectors: codec none, and codec zstd validated by the Writer.
 func compatConfigs() []compatConfig {
 	return []compatConfig{
 		{name: "none", codec: CodecNone},
-		{name: "zstd attested", codec: CodecZstd, validate: true},
+		{name: "zstd validated", codec: CodecZstd, validate: true},
 	}
 }
 
@@ -88,8 +88,15 @@ func compatPack(t testing.TB, cfg compatConfig, meta func(*PackMeta)) []byte {
 	return writeFlushedPack(t, cfg.codec, cfg.validate, meta, compatRecords(t), 2)
 }
 
+// Indexes into compatQueries of the queries whose results the vectors check beyond completeness.
+const (
+	compatQuerySF          = 2
+	compatQueryUnknownKind = 4
+	compatQueryUnknownDir  = 5
+)
+
 // compatQueries returns the queries every vector is read with:
-// every record with payloads and header-only in both modes, a copy-field query in both modes,
+// every record with and without payloads, an HSMS header query,
 // a time query and queries on the unknown kind and dir, which the footer answers by pruning,
 // and a kind query with payloads.
 func compatQueries() []Query {
@@ -98,11 +105,8 @@ func compatQueries() []Query {
 
 	return []Query{
 		{Payloads: true},
-		{Mode: QueryAuthoritative, Payloads: true},
 		{},
-		{Mode: QueryAuthoritative},
 		{Filter: s1f3},
-		{Mode: QueryAuthoritative, Filter: s1f3},
 		{Filter: Filter{TimeFrom: new(h1), TimeTo: new(h1 + hourNs)}},
 		{Filter: Filter{Kinds: []Kind{Kind(compatUnknown)}}},
 		{Filter: Filter{Dirs: []Dir{Dir(compatUnknown)}}},
@@ -110,15 +114,14 @@ func compatQueries() []Query {
 	}
 }
 
-// readCompat opens file and requires a finalized pack whose footer the Reader uses, attested as cfg says;
+// readCompat opens file and requires a finalized pack whose footer the Reader uses;
 // then it runs every compat query and requires each result complete.
-func readCompat(t *testing.T, file []byte, cfg compatConfig) *compatRead {
+func readCompat(t *testing.T, file []byte) *compatRead {
 	t.Helper()
 
 	r := mustOpen(t, file, ReaderOptions{})
 	h := r.Header()
 	require.True(t, h.Finalized)
-	require.Equal(t, cfg.validate, h.Attested)
 	require.NoError(t, h.FooterErr)
 	for i, b := range r.Blocks() {
 		require.True(t, b.Indexed, "block %d", i)
@@ -206,7 +209,7 @@ func lengthenEntries(_ testing.TB, p *footerParts) {
 }
 
 // widenFile returns file with every record header of the blocks wide selects widened to 64 bytes by wideExtra.
-// The blocks keep their records, so an attested pack stays truthfully attested.
+// The blocks keep their records, so they still satisfy I-2.
 func widenFile(t testing.TB, file []byte, wide func(i int) bool) []byte {
 	t.Helper()
 
@@ -238,7 +241,7 @@ func TestReaderCompatUnknownEnumValues(t *testing.T) {
 
 			recs := compatRecords(t)
 			file := compatPack(t, cfg, nil)
-			cr := readCompat(t, file, cfg)
+			cr := readCompat(t, file)
 
 			all := cr.runs[0]
 			require.Len(t, all.items, len(recs))
@@ -266,14 +269,14 @@ func TestReaderCompatUnknownEnumValues(t *testing.T) {
 			assert.Equal(t, uint64(1), stats.kindCounts[compatUnknown])
 
 			// A query on an unknown value is answered like any other, the F-3 counts pruning the blocks without it.
-			assert.Equal(t, []uint64{1}, cr.runs[7].seqs())
-			assert.Equal(t, []int{1, 2}, cr.pruned[7])
-			assert.Equal(t, []uint64{4}, cr.runs[8].seqs())
-			assert.Equal(t, []int{0, 2}, cr.pruned[8])
+			assert.Equal(t, []uint64{1}, cr.runs[compatQueryUnknownKind].seqs())
+			assert.Equal(t, []int{1, 2}, cr.pruned[compatQueryUnknownKind])
+			assert.Equal(t, []uint64{4}, cr.runs[compatQueryUnknownDir].seqs())
+			assert.Equal(t, []int{0, 2}, cr.pruned[compatQueryUnknownDir])
 
-			// A record of an unknown kind has no copy fields, so a copy-field predicate never selects it.
+			// A record of an unknown kind has no HSMS header fields, so an S/F predicate never selects it.
 			assert.Equal(t, FieldValidity(0), all.items[1].rec.FieldValidity)
-			assert.NotContains(t, cr.runs[4].seqs(), uint64(1))
+			assert.NotContains(t, cr.runs[compatQuerySF].seqs(), uint64(1))
 		})
 	}
 }
@@ -285,8 +288,8 @@ func TestReaderCompatUnknownPackMetaTags(t *testing.T) {
 		t.Run(cfg.name, func(t *testing.T) {
 			t.Parallel()
 
-			base := readCompat(t, compatPack(t, cfg, nil), cfg)
-			got := readCompat(t, compatPack(t, cfg, func(m *PackMeta) { m.Unknown = compatMetaEntries() }), cfg)
+			base := readCompat(t, compatPack(t, cfg, nil))
+			got := readCompat(t, compatPack(t, cfg, func(m *PackMeta) { m.Unknown = compatMetaEntries() }))
 
 			assert.Equal(t, compatMetaEntries(), got.r.Header().Meta.Unknown, "the unknown entries are skipped and preserved")
 			requireSameRead(t, base, got, nil)
@@ -302,9 +305,9 @@ func TestReaderCompatFormatMinor(t *testing.T) {
 			t.Parallel()
 
 			file := compatPack(t, cfg, nil)
-			base := readCompat(t, file, cfg)
+			base := readCompat(t, file)
 			for _, minor := range []uint16{1, 0xFFFF} {
-				got := readCompat(t, patchHeader(t, file, func(h *format.FileHeader) { h.FormatMinor = minor }), cfg)
+				got := readCompat(t, patchHeader(t, file, func(h *format.FileHeader) { h.FormatMinor = minor }))
 
 				h := got.r.Header()
 				assert.Equal(t, uint16(1), h.FormatMajor)
@@ -332,8 +335,8 @@ func TestReaderCompatWideRecordHeaders(t *testing.T) {
 				t.Parallel()
 
 				file := compatPack(t, cfg, nil)
-				base := readCompat(t, file, cfg)
-				got := readCompat(t, widenFile(t, file, tt.wide), cfg)
+				base := readCompat(t, file)
+				got := readCompat(t, widenFile(t, file, tt.wide))
 
 				blocks := got.r.Blocks()
 				for i, b := range blocks {
@@ -357,9 +360,9 @@ func TestReaderCompatLongerF2Entries(t *testing.T) {
 			t.Parallel()
 
 			file := compatPack(t, cfg, nil)
-			base := readCompat(t, file, cfg)
+			base := readCompat(t, file)
 			edited := editFooter(t, file, lengthenEntries)
-			got := readCompat(t, edited, cfg)
+			got := readCompat(t, edited)
 
 			require.NotNil(t, got.r.footer)
 			require.Equal(t, uint32(format.F2EntryLen+8), footerPrologueOf(t, edited).F2EntryLen)
@@ -377,13 +380,13 @@ func TestReaderCompatUnknownFooterTags(t *testing.T) {
 			t.Parallel()
 
 			file := compatPack(t, cfg, nil)
-			base := readCompat(t, file, cfg)
+			base := readCompat(t, file)
 			edited := editFooter(t, file, addFooterTags)
 			_, decoded, _ := splitPack(t, edited)
 			parts := splitFooter(t, decoded)
 			require.GreaterOrEqual(t, entryIndex(parts.f3[0], 0x8001, 0), 0, "the edited footer carries the private F-3 tag")
 			require.GreaterOrEqual(t, entryIndex(parts.f5, 0x8001, 0), 0, "the edited footer carries the private F-5 tag")
-			got := readCompat(t, edited, cfg)
+			got := readCompat(t, edited)
 
 			assert.Equal(t, base.r.Blocks(), got.r.Blocks())
 			requireSameRead(t, base, got, nil)
@@ -403,13 +406,13 @@ func TestReaderCompatNewerMinorPack(t *testing.T) {
 		t.Run(cfg.name, func(t *testing.T) {
 			t.Parallel()
 
-			base := readCompat(t, compatPack(t, cfg, nil), cfg)
+			base := readCompat(t, compatPack(t, cfg, nil))
 
 			file := compatPack(t, cfg, func(m *PackMeta) { m.Unknown = compatMetaEntries() })
 			file = widenFile(t, file, wide)
 			file = editFooter(t, file, lengthenEntries, addFooterTags)
 			file = patchHeader(t, file, func(h *format.FileHeader) { h.FormatMinor = 1 })
-			got := readCompat(t, file, cfg)
+			got := readCompat(t, file)
 
 			h := got.r.Header()
 			assert.Equal(t, uint16(1), h.FormatMinor)

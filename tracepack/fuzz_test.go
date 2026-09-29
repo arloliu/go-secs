@@ -19,7 +19,7 @@ import (
 
 // retiredPackMetaTags are the retired pack metadata tags, which a decode keeps in Unknown and MarshalBinary drops
 // (the tracepack format specification §5).
-var retiredPackMetaTags = []uint16{0x0001, 0x0014}
+var retiredPackMetaTags = []uint16{0x0001, 0x0014, 0x0030}
 
 // retiredPackRole is the retired pack_role value 5 (the tracepack format specification §9).
 const retiredPackRole tracepack.PackRole = 5

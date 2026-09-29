@@ -54,7 +54,6 @@ func TestOpenWalksUnfinalizedPack(t *testing.T) {
 			r := mustOpen(t, p.file, ReaderOptions{})
 			h := r.Header()
 			assert.False(t, h.Finalized)
-			assert.False(t, h.Attested)
 			assert.Nil(t, h.Trailer)
 			require.Error(t, h.FooterErr)
 			assert.Equal(t, walkedInfos(p.blocks), r.Blocks())

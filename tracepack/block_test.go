@@ -113,8 +113,6 @@ func TestValidateBodyRejectsTamperedBody(t *testing.T) {
 	const (
 		seqOff        = 0
 		payloadLenOff = 28
-		streamOff     = 44
-		sysBytesOff   = 36
 	)
 
 	tests := []struct {
@@ -144,18 +142,6 @@ func TestValidateBodyRejectsTamperedBody(t *testing.T) {
 		}, 3, 4},
 		{"body truncated", func(b []byte) []byte { return b[:len(b)-1] }, 3, 4},
 		{"header section longer than the body", func(b []byte) []byte { return b[:2*recordHeaderLen] }, 3, 4},
-		{"stream copy disagrees", func(b []byte) []byte {
-			b[recordHeaderLen+streamOff] = 6
-			return b
-		}, 3, 4},
-		{"system bytes copy disagrees", func(b []byte) []byte {
-			b[sysBytesOff] ^= 0xFF
-			return b
-		}, 3, 4},
-		{"W copy disagrees", func(b []byte) []byte {
-			b[recordHeaderLen+53] &^= byte(RecordFlagsW)
-			return b
-		}, 3, 4},
 	}
 
 	for _, tt := range tests {

@@ -990,7 +990,7 @@ func TestWriterAcceptsRecordsMetadataDescribes(t *testing.T) {
 	}
 }
 
-func TestValidatingWriterAttestsAgreeingPack(t *testing.T) {
+func TestValidatingWriterWritesAgreeingPack(t *testing.T) {
 	t.Parallel()
 
 	meta := writerMeta()
@@ -1000,44 +1000,57 @@ func TestValidatingWriterAttestsAgreeingPack(t *testing.T) {
 	mustClose(t, w)
 
 	p := mustWalkPack(t, buf.Bytes())
-	require.NotNil(t, p.Meta.BlocksValidated)
-	assert.True(t, *p.Meta.BlocksValidated)
+	assert.Equal(t, meta, p.Meta, "validation commits nothing to the pack metadata")
 	assert.Greater(t, len(p.Blocks), 1)
 	assert.Equal(t, recs, p.records())
-	assert.Nil(t, meta.BlocksValidated, "NewWriter does not modify the caller's PackMeta")
 }
 
-func TestNonValidatingWriterNeverAttests(t *testing.T) {
+func TestWriterDropsRetiredMetadataTags(t *testing.T) {
 	t.Parallel()
 
 	meta := writerMeta()
-	meta.BlocksValidated = new(true)
-	_, buf := newTestWriter(t, tracepack.WriterOptions{Meta: meta})
+	meta.Unknown = []tracepack.RawEntry{
+		{Tag: 0x0001, Type: 4, Value: make([]byte, 8)},
+		{Tag: 0x0030, Type: 2, Value: []byte{1}},
+		{Tag: 0x0050, Type: 7, Value: []byte{0xAA}},
+	}
+	for _, validate := range []bool{false, true} {
+		_, buf := newTestWriter(t, tracepack.WriterOptions{Meta: meta, Validate: validate})
 
-	p := mustWalkPack(t, buf.Bytes())
-	assert.Nil(t, p.Meta.BlocksValidated, "blocks_validated is absent unless the writer validates")
+		p := mustWalkPack(t, buf.Bytes())
+		assert.Equal(t, []tracepack.RawEntry{{Tag: 0x0050, Type: 7, Value: []byte{0xAA}}}, p.Meta.Unknown,
+			"validate %v: retired tags are never written, other unknown tags are kept", validate)
+	}
 }
 
-// s6f11CopiesOverS1F3 returns a record whose header copies claim S6F11 while its payload is the S1F3 frame.
-func s6f11CopiesOverS1F3(seq uint64) tracepack.Record {
-	r := dataRecord(seq, hourStart+int64(seq))
-	r.Stream, r.Function = 6, 11
+// corruptFirstSeq returns a hook that inverts byte 0 of the encoded body of block n and later ones, counting from 0,
+// which for codec none is byte 0 of the first record's seq, so the block's first seq no longer equals first_seq (I-2).
+func corruptFirstSeq(n int) func(enc []byte) []byte {
+	block := 0
 
-	return r
+	return func(enc []byte) []byte {
+		if block >= n {
+			enc[0] ^= 0xFF
+		}
+		block++
+
+		return enc
+	}
 }
 
-func TestValidatingWriterRejectsCopyDisagreement(t *testing.T) {
+func TestValidatingWriterRejectsCorruptEncoding(t *testing.T) {
 	t.Parallel()
 
-	w, buf := newTestWriter(t, tracepack.WriterOptions{Validate: true, Codec: tracepack.CodecZstd})
+	w, buf := newTestWriter(t, tracepack.WriterOptions{Validate: true})
+	tracepack.SetEncodedHook(w, corruptFirstSeq(1))
 
 	good := dataRecord(0, hourStart)
 	require.NoError(t, w.Append(&good))
 	require.NoError(t, w.Flush())
 	written := buf.Len()
 
-	bad := s6f11CopiesOverS1F3(1)
-	require.NoError(t, w.Append(&bad), "the disagreement is found when the block is checked, before it is written")
+	bad := dataRecord(1, hourStart+1)
+	require.NoError(t, w.Append(&bad), "the defect is found when the block is checked, before it is written")
 	require.ErrorIs(t, w.Flush(), tracepack.ErrValidation)
 	assert.Equal(t, written, buf.Len(), "nothing of the failed block is written")
 
@@ -1053,23 +1066,25 @@ func TestValidatingWriterRejectsCopyDisagreement(t *testing.T) {
 	assert.Equal(t, [][]uint64{{0}}, blockSeqs(p))
 }
 
-func TestValidatingWriterRejectsValidityBeyondPayload(t *testing.T) {
+func TestNonValidatingWriterWritesCorruptEncoding(t *testing.T) {
 	t.Parallel()
 
-	w, _ := newTestWriter(t, tracepack.WriterOptions{Validate: true})
-
+	w, buf := newTestWriter(t, tracepack.WriterOptions{})
+	tracepack.SetEncodedHook(w, corruptFirstSeq(0))
 	r := dataRecord(0, hourStart)
-	r.Payload = s1f3Frame[:9] // ptype is the last captured byte
-	r.DecodeStatus = tracepack.DecodeStatusShortFrame
 	require.NoError(t, w.Append(&r))
-	require.ErrorIs(t, closeErr(w), tracepack.ErrValidation, "field_validity claims stype and system_bytes the payload lacks")
+	mustClose(t, w)
+
+	_, err := walkPack(buf.Bytes())
+	require.Error(t, err, "without validation the defect reaches the file, where a reader finds it")
 }
 
 func TestNonValidatingWriterStoresCopyDisagreement(t *testing.T) {
 	t.Parallel()
 
 	w, buf := newTestWriter(t, tracepack.WriterOptions{})
-	bad := s6f11CopiesOverS1F3(0)
+	bad := dataRecord(0, hourStart)
+	bad.Stream, bad.Function = 6, 11 // copies that claim S6F11 over the S1F3 frame
 	require.NoError(t, w.Append(&bad))
 	mustClose(t, w)
 

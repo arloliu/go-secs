@@ -15,27 +15,23 @@ import (
 type blockBuf struct {
 	// raw holds the block as read: its envelope, then its on-disk body.
 	raw []byte
-	// decoded holds the decoded body of a full read, or the header section of a header-only read,
-	// of a block whose codec is not None; a None block's body is used in place in raw.
+	// decoded holds the decoded body of a block whose codec is not None; a None block's body is used in place in raw.
 	decoded []byte
 	// offs holds the payload offsets of the block's records.
 	offs []uint32
 	blk  decodedBlock
 }
 
-// decodedBlock is a block that passed every check of its read level (the tracepack format specification §6).
+// decodedBlock is a block that passed every check of a full read (the tracepack format specification §6).
 //
 // Its slices alias the blockBuf it was read with,
 // so it is valid only until the next read with that blockBuf.
 type decodedBlock struct {
 	// env is the block envelope, which agrees with the block's BlockInfo.
 	env format.BlockEnvelope
-	// full reports a full read: the whole body was decoded and I-2 holds.
-	// Otherwise the read was header-only, and the block carries no payload.
-	full bool
 	// section is the header section: record_count record headers of record_header_len bytes each.
 	section []byte
-	// body is the decoded body of a full read; nil for a header-only read.
+	// body is the decoded body.
 	body []byte
 	// offs holds record_count + 1 offsets into the decoded body: record i's payload spans offs[i] to offs[i+1].
 	offs []uint32
@@ -88,16 +84,6 @@ func storedRecord(h *format.RecordHeader, payload []byte) Record {
 		FieldValidity: FieldValidity(h.FieldValidity),
 		Payload:       payload,
 	}
-}
-
-// copyMismatch reports whether the record header h of a data or control record disagrees with its payload p under I-10:
-// a copy field whose field_validity bit is set differs from the payload bytes it copies, or p lacks them.
-// A copy field whose bit is clear is not compared, even where p holds its bytes,
-// and reserved field_validity bits are ignored (I-9);
-// a record of any other kind has no copies, so it never mismatches (the tracepack format specification §7.2).
-// It is the Writer's I-10 check: copyMismatch(h, p) == (checkCopies(h, p) != nil).
-func copyMismatch(h *format.RecordHeader, p []byte) bool {
-	return copyDisagreement(h, p) >= 0
 }
 
 // copiesOf returns the copy fields a Filter tests of r, available as r.FieldValidity marks them.
@@ -178,32 +164,27 @@ func envelopeAgrees(e *format.BlockEnvelope, info *BlockInfo) error {
 	return nil
 }
 
-// decodeBlock decodes the block of env, read into buf.raw, at the full or the header-only level,
+// decodeBlock decodes the whole body of the block of env, read into buf.raw, to exactly uncompressed_len bytes,
 // and checks its records with checkRecords.
-// A full read decodes the whole body to exactly uncompressed_len bytes;
-// a header-only read decodes only the header section, leaving the stream after it unchecked.
-// The header section's length is checked against uncompressed_len before either decode.
+// The header section's length is checked against uncompressed_len before the decode.
 //
 // Returns:
 //   - *decodedBlock: &buf.blk, filled; nil on error.
 //   - recordSpan: the records' last seq and time and epoch ranges.
 //   - error: nil, or the failed check.
-func decodeBlock(env *format.BlockEnvelope, buf *blockBuf, full bool) (*decodedBlock, recordSpan, error) {
+func decodeBlock(env *format.BlockEnvelope, buf *blockBuf) (*decodedBlock, recordSpan, error) {
 	hsLen, err := headerSectionLen(env)
 	if err != nil {
 		return nil, recordSpan{}, err
 	}
 
-	decoded, err := decodeBody(env, buf, hsLen, full)
+	decoded, err := decodeBody(env, buf)
 	if err != nil {
 		return nil, recordSpan{}, err
 	}
 
 	d := &buf.blk
-	*d = decodedBlock{env: *env, full: full, section: decoded[:hsLen]}
-	if full {
-		d.body = decoded
-	}
+	*d = decodedBlock{env: *env, section: decoded[:hsLen], body: decoded}
 
 	var span recordSpan
 	buf.offs, span, err = checkRecords(d.section, env, buf.offs)
@@ -229,34 +210,25 @@ func headerSectionLen(env *format.BlockEnvelope) (int, error) {
 	return hsLen, nil
 }
 
-// decodeBody decodes the on-disk body in buf.raw of the block of env:
-// all of it for a full read, else at least its first hsLen decoded bytes, the header section.
+// decodeBody decodes the whole on-disk body in buf.raw of the block of env.
 // A None body is the decoded body itself, already covered by body_crc,
 // so it is used in place, aliasing buf.raw, instead of copied into buf.decoded.
-func decodeBody(env *format.BlockEnvelope, buf *blockBuf, hsLen int, full bool) ([]byte, error) {
+func decodeBody(env *format.BlockEnvelope, buf *blockBuf) ([]byte, error) {
 	n := int(env.UncompressedLen)
 	body := buf.raw[format.EnvelopeLen:]
 
 	var err error
-	switch {
-	case env.Codec == codec.None:
+	if env.Codec == codec.None {
 		err = codec.CheckNone(body, n)
-	case full:
+	} else {
 		buf.decoded, err = codec.Decode(env.Codec, buf.decoded, body, n)
 		body = buf.decoded
-	default:
-		buf.decoded, err = codec.DecodePrefix(env.Codec, buf.decoded, body, hsLen, n)
-		body = buf.decoded
+	}
+	if err != nil {
+		return nil, fmt.Errorf("decode body: %w", err)
 	}
 
-	switch {
-	case err == nil:
-		return body, nil
-	case full:
-		return nil, fmt.Errorf("decode body: %w", err)
-	default:
-		return nil, fmt.Errorf("decode header section: %w", err)
-	}
+	return body, nil
 }
 
 // checkRecords checks the record headers of the header section of the block of env against I-2:
@@ -299,22 +271,19 @@ func checkRecords(section []byte, env *format.BlockEnvelope, offs []uint32) ([]u
 	return offs, span, nil
 }
 
-// readBlock reads block i at the full or the header-only level and validates it before any of its records is used
-// (the tracepack format specification §6).
+// readBlock reads block i in full and validates it before any of its records is used
+// (the tracepack format specification §6: every block read is a full read).
 //
 // It checks the block's on-disk body length and uncompressed_len against MaxBlockLen before it allocates anything,
-// then reads the whole block with one ReadAt, because body_crc covers the whole on-disk body at both levels.
+// then reads the whole block with one ReadAt.
 // The envelope must decode and agree with the block's BlockInfo:
 // with its F-2 entry for an indexed block (§10), with what the forward walk found for a walked one.
 // Then body_crc must match and the codec must be known (§2).
-// A full read decodes the whole body and checks I-2.
-// A header-only read checks that record_count × record_header_len fits uncompressed_len, decodes only that prefix,
-// and checks the seqs of I-2 and its length equation from the headers' payload_len.
+// It checks that record_count × record_header_len fits uncompressed_len, decodes the whole body and checks I-2.
 // For an indexed block the records' last seq, ts_utc_ns range and epoch range must also equal its F-2 entry.
 //
 // Parameters:
 //   - i: the block's index into the Reader's block index.
-//   - full: whether to decode the whole body; else the read is header-only.
 //   - buf: the buffers to read into; the block returned aliases them until buf's next use.
 //
 // Returns:
@@ -324,7 +293,7 @@ func checkRecords(section []byte, env *format.BlockEnvelope, offs []uint32) ([]u
 //     ReasonUnknownCodec for a codec outside the registry;
 //     ReasonCorruptBlock for any other failed check.
 //   - error: the ReadAt error, wrapping io.ErrUnexpectedEOF for a short read.
-func (r *Reader) readBlock(i int, full bool, buf *blockBuf) (*decodedBlock, *Defect, error) {
+func (r *Reader) readBlock(i int, buf *blockBuf) (*decodedBlock, *Defect, error) {
 	info := &r.blocks[i]
 	if err := r.checkBlockBudget(info); err != nil {
 		return nil, blockDefect(i, info, ReasonLimit, err), nil
@@ -340,7 +309,7 @@ func (r *Reader) readBlock(i int, full bool, buf *blockBuf) (*decodedBlock, *Def
 		return nil, blockDefect(i, info, reason, err), nil
 	}
 
-	d, span, err := decodeBlock(&env, buf, full)
+	d, span, err := decodeBlock(&env, buf)
 	if err == nil && info.Indexed {
 		err = span.agrees(info)
 	}
@@ -387,12 +356,8 @@ func (d *decodedBlock) header(i int) format.RecordHeader {
 	return h
 }
 
-// payload returns the payload of record i, aliasing the decoded body; nil for a header-only read.
+// payload returns the payload of record i, aliasing the decoded body.
 func (d *decodedBlock) payload(i int) []byte {
-	if !d.full {
-		return nil
-	}
-
 	return d.body[d.offs[i]:d.offs[i+1]:d.offs[i+1]]
 }
 
