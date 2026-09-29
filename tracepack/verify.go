@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 )
 
 // Outcome is the verification outcome of a pack (the tracepack format specification §13).
@@ -238,6 +239,11 @@ func (r *Reader) verify(ctx context.Context) (Report, error) {
 		if def != nil {
 			rep.Disagreements = append(rep.Disagreements, *def)
 		}
+		if r.footer != nil {
+			if err := checkSummary(&r.footer.blocks[i], d); err != nil {
+				rep.Disagreements = append(rep.Disagreements, *blockDefect(i, info, ReasonIndexMismatch, err))
+			}
+		}
 
 		rep.Validated++
 		rep.Records += uint64(d.count())
@@ -247,6 +253,8 @@ func (r *Reader) verify(ctx context.Context) (Report, error) {
 	}
 	if r.walkStop != nil {
 		rep.Failed = append(rep.Failed, *r.walkStop)
+	} else if err := r.walkTotalsErr(); err != nil {
+		rep.Disagreements = append(rep.Disagreements, Defect{Reason: ReasonIndexMismatch, Block: -1, Offset: -1, Err: err})
 	}
 
 	inconsistent := r.footerErr != nil || len(rep.Disagreements) > 0
@@ -272,4 +280,69 @@ func (r *Reader) appendLost(dst []Coverage, i int) []Coverage {
 	}
 
 	return dst
+}
+
+// walkTotalsErr compares a finalized pack's walked blocks with its trailer's block_count and record_count,
+// the check a valid footer's validation makes otherwise (the tracepack format specification §10);
+// nil when the footer is valid, the pack is not finalized, or the totals agree.
+func (r *Reader) walkTotalsErr() error {
+	if r.footer != nil || !r.finalized {
+		return nil
+	}
+
+	var records uint64
+	for i := range r.blocks {
+		records = addSat(records, uint64(r.blocks[i].RecordCount))
+	}
+	if uint64(len(r.blocks)) != uint64(r.trailer.BlockCount) || records != r.trailer.RecordCount {
+		return fmt.Errorf("tracepack: forward walk found %d blocks of %d records, the trailer claims %d blocks of %d records",
+			len(r.blocks), records, r.trailer.BlockCount, r.trailer.RecordCount)
+	}
+
+	return nil
+}
+
+// checkSummary compares stated, the F-3 summary of an indexed block, with the summary its records d give,
+// built as the Writer builds it (the tracepack format specification §10):
+// count arrays equal once trailing zeros are dropped, quality_union and seq ranges exactly equal,
+// epoch entries equal as a set keyed by epoch, and boundary entries equal as a multiset.
+// The F-2 fields are compared by the block read itself.
+func checkSummary(stated *blockSummary, d *decodedBlock) error {
+	var got blockSummary
+	for j := range d.count() {
+		h := d.header(j)
+		var ev *TransportEvent
+		if Kind(h.Kind) == KindTransportEvent {
+			// A payload that does not decode contributes nothing, as in the Writer's summary.
+			ev, _ = UnmarshalTransportEvent(d.payload(j))
+		}
+		got.addRecord(&h, ev)
+	}
+
+	counts := [...]struct {
+		name      string
+		got, want []uint32
+	}{
+		{"kind_counts", got.kindCounts, stated.kindCounts},
+		{"dir_counts", got.dirCounts, stated.dirCounts},
+		{"decode_status_counts", got.decodeStatusCounts, stated.decodeStatusCounts},
+	}
+	for _, c := range counts {
+		if !slices.Equal(trimZeros(c.got), trimZeros(c.want)) {
+			return fmt.Errorf("F-3 %s %v, the records give %v", c.name, c.want, c.got)
+		}
+	}
+
+	switch {
+	case got.qualityUnion != stated.qualityUnion:
+		return fmt.Errorf("F-3 quality_union 0x%04X, the records give 0x%04X", uint16(stated.qualityUnion), uint16(got.qualityUnion))
+	case !slices.Equal(got.seqRanges, stated.seqRanges):
+		return fmt.Errorf("F-3 seq_range entries %v, the records hold %v", stated.seqRanges, got.seqRanges)
+	case !slices.Equal(slices.SortedFunc(slices.Values(got.epochs), compareEpochs), slices.SortedFunc(slices.Values(stated.epochs), compareEpochs)):
+		return fmt.Errorf("F-3 epoch entries differ from the records' epochs")
+	case !equalBoundarySets(got.boundaries, stated.boundaries):
+		return fmt.Errorf("F-3 boundary entries differ from the records' boundaries")
+	}
+
+	return nil
 }

@@ -408,7 +408,7 @@ func compareOptional(a, b *int64) int {
 }
 
 // trimZeros returns counts without its trailing zero elements, which a reader treats as absent.
-func trimZeros(counts []uint64) []uint64 {
+func trimZeros[T uint32 | uint64](counts []T) []T {
 	n := len(counts)
 	for n > 0 && counts[n-1] == 0 {
 		n--

@@ -3,6 +3,7 @@ package tracepack
 import (
 	"bytes"
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/arloliu/go-secs/tracepack/internal/format"
@@ -270,4 +271,124 @@ func TestVerifyErrors(t *testing.T) {
 		_, err := Verify(ctx, bytes.NewReader(p.file), int64(len(p.file)), VerifyOptions{})
 		require.ErrorIs(t, err, context.Canceled)
 	})
+}
+
+// cloneSummaries returns a deep copy of blocks, so a test may change any of its slices.
+func cloneSummaries(blocks []blockSummary) []blockSummary {
+	out := slices.Clone(blocks)
+	for i := range out {
+		s := &out[i]
+		s.kindCounts = slices.Clone(s.kindCounts)
+		s.dirCounts = slices.Clone(s.dirCounts)
+		s.decodeStatusCounts = slices.Clone(s.decodeStatusCounts)
+		s.epochs = slices.Clone(s.epochs)
+		s.boundaries = slices.Clone(s.boundaries)
+		s.seqRanges = slices.Clone(s.seqRanges)
+	}
+
+	return out
+}
+
+// resummarized returns file with its footer rebuilt by the Writer's footer builder from blocks after edit changes block i,
+// so F-5 is the aggregate of the changed F-3 summary and the footer validates while disagreeing with the block's records.
+func resummarized(t testing.TB, file []byte, blocks []blockSummary, i int, edit func(s *blockSummary)) []byte {
+	t.Helper()
+
+	changed := cloneSummaries(blocks)
+	edit(&changed[i])
+	footer, _ := buildFooter(changed)
+
+	return refooter(t, file, footer)
+}
+
+// requireInconsistent requires that rep reports a finalized pack whose footer disagrees with block i, and nothing else.
+func requireInconsistent(t *testing.T, rep Report, i int, msg string) {
+	t.Helper()
+
+	assert.Equal(t, OutcomeFinalizedInconsistent, rep.Outcome)
+	require.NoError(t, rep.FooterErr, "the footer must stay valid")
+	assert.Empty(t, rep.Failed)
+	require.Len(t, rep.Disagreements, 1)
+	assert.Equal(t, ReasonIndexMismatch, rep.Disagreements[0].Reason)
+	assert.Equal(t, i, rep.Disagreements[0].Block)
+	require.ErrorContains(t, rep.Disagreements[0].Err, msg)
+}
+
+func TestVerifyFooterSummaryDisagrees(t *testing.T) {
+	t.Parallel()
+
+	rich := richFooterPack(t, CodecZstd)
+	require.Len(t, rich.blocks, 5)
+	require.Len(t, rich.blocks[0].seqRanges, 2, "block 0 holds seqs 10, 11 and 13")
+	require.Len(t, rich.blocks[1].boundaries, 1, "block 1 holds a gap boundary")
+	require.Len(t, rich.blocks[1].epochs, 2, "block 1 holds epochs 0 and 1")
+
+	tests := []struct {
+		name  string
+		block int
+		edit  func(s *blockSummary)
+		msg   string
+	}{
+		{name: "kind_counts", block: 3, edit: func(s *blockSummary) {
+			s.kindCounts[KindData]--
+			s.kindCounts = append(s.kindCounts, 0)
+			s.kindCounts[KindControl]++
+		}, msg: "kind_counts"},
+		{name: "dir_counts", block: 3, edit: func(s *blockSummary) {
+			k := slices.IndexFunc(s.dirCounts, func(n uint32) bool { return n > 0 })
+			s.dirCounts[k]--
+			s.dirCounts[(k+1)%len(s.dirCounts)]++
+		}, msg: "dir_counts"},
+		{name: "quality_union", block: 2, edit: func(s *blockSummary) { s.qualityUnion |= QualityOrderingUncertain }, msg: "quality_union"},
+		{name: "epoch entry", block: 1, edit: func(s *blockSummary) { s.epochs[0].tsMax-- }, msg: "epoch"},
+		{name: "boundary entry", block: 1, edit: func(s *blockSummary) { s.boundaries[0].gapEnd = new(*s.boundaries[0].gapEnd + 1) }, msg: "boundary"},
+		{name: "duplicated boundary entry", block: 1, edit: func(s *blockSummary) { s.boundaries = append(s.boundaries, s.boundaries[0]) }, msg: "boundary"},
+		{name: "seq_range", block: 0, edit: func(s *blockSummary) { s.seqRanges = []seqRange{{10, 10}, {12, 13}} }, msg: "seq_range"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			file := resummarized(t, rich.file, rich.blocks, tt.block, tt.edit)
+			requireInconsistent(t, mustVerify(t, file), tt.block, tt.msg)
+		})
+	}
+}
+
+func TestVerifyRichPackConsistent(t *testing.T) {
+	t.Parallel()
+
+	for _, c := range []Codec{CodecNone, CodecZstd} {
+		t.Run(c.String(), func(t *testing.T) {
+			t.Parallel()
+
+			rich := richFooterPack(t, c)
+			rep := mustVerify(t, rich.file)
+			assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome, "%v", rep.Disagreements)
+
+			rep = mustVerify(t, editFooter(t, rich.file, addFooterTags))
+			assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome, "unknown F-3 tags are skipped: %v", rep.Disagreements)
+		})
+	}
+}
+
+func TestVerifyTrailerDisagrees(t *testing.T) {
+	t.Parallel()
+
+	p := writeReaderPack(t, readerPackConfig{codec: CodecZstd}, hourRecords(3, 40))
+	file := patchTrailer(t, invalidFooterFile(t, p.file), func(tr *format.Trailer) { tr.RecordCount++ })
+
+	rep := mustVerify(t, file)
+	assert.Equal(t, OutcomeFinalizedInconsistent, rep.Outcome)
+	assert.True(t, rep.Finalized)
+	require.ErrorIs(t, rep.FooterErr, ErrInvalidFooter)
+	assert.Equal(t, 3, rep.Validated)
+	require.Len(t, rep.Disagreements, 1)
+	assert.Equal(t, -1, rep.Disagreements[0].Block)
+	assert.Equal(t, ReasonIndexMismatch, rep.Disagreements[0].Reason)
+	require.ErrorContains(t, rep.Disagreements[0].Err, "the trailer claims 3 blocks of 121 records")
+
+	rep = mustVerify(t, invalidFooterFile(t, p.file))
+	assert.Equal(t, OutcomeFinalizedInconsistent, rep.Outcome, "an invalid footer alone")
+	assert.Empty(t, rep.Disagreements)
 }
