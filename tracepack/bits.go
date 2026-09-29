@@ -10,7 +10,8 @@ import "strings"
 type Quality uint16
 
 const (
-	// QualityCaptureBoundary marks a record adjacent to a capture-boundary event.
+	// QualityCaptureBoundary marks a capture-boundary transport event itself, the record that delimits a capture or a gap;
+	// the Writer sets it on such a record and clears it on every other.
 	QualityCaptureBoundary Quality = 1 << 0
 	// QualityOrderingUncertain marks a record whose position relative to others is not certain.
 	QualityOrderingUncertain Quality = 1 << 1
