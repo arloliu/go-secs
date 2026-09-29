@@ -114,6 +114,8 @@ type Reader struct {
 	// openDefects holds the defects every read of the pack carries:
 	// the forward walk's stop, a pack that is not finalized, or a walk that disagrees with the trailer.
 	openDefects []Defect
+	// walkStop is the forward walk's stop: the envelope it could not account for; nil when it did not stop.
+	walkStop *Defect
 }
 
 // PackHeader describes a pack: its file header, its pack metadata, and its finalization.
