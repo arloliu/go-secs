@@ -20,22 +20,22 @@ func TestQuality_Names(t *testing.T) {
 		{"bit0", tracepack.QualityCaptureBoundary, []string{"capture-boundary"}},
 		{"bit1", tracepack.QualityOrderingUncertain, []string{"ordering-uncertain"}},
 		{"bit2", tracepack.QualityCorrelationIncomplete, []string{"correlation-incomplete"}},
-		{"bit3", tracepack.QualityDecodeFailed, []string{"decode-failed"}},
+		{"bit3 retired", 1 << 3, nil},
 		{"bit4", tracepack.QualityDirectionInferred, []string{"direction-inferred"}},
 		{"bit5", tracepack.QualityRedacted, []string{"redacted"}},
-		{"bit6", tracepack.QualityNoMono, []string{"no-mono"}},
+		{"bit6 retired", 1 << 6, nil},
 		{
 			"ascending order regardless of set order",
-			tracepack.QualityNoMono | tracepack.QualityCaptureBoundary,
-			[]string{"capture-boundary", "no-mono"},
+			tracepack.QualityRedacted | tracepack.QualityCaptureBoundary,
+			[]string{"capture-boundary", "redacted"},
 		},
 		{
 			"all known bits",
 			tracepack.QualityCaptureBoundary | tracepack.QualityOrderingUncertain | tracepack.QualityCorrelationIncomplete |
-				tracepack.QualityDecodeFailed | tracepack.QualityDirectionInferred | tracepack.QualityRedacted | tracepack.QualityNoMono,
+				tracepack.QualityDirectionInferred | tracepack.QualityRedacted,
 			[]string{
 				"capture-boundary", "ordering-uncertain", "correlation-incomplete",
-				"decode-failed", "direction-inferred", "redacted", "no-mono",
+				"direction-inferred", "redacted",
 			},
 		},
 		{"reserved bit only", 1 << 7, nil},
@@ -61,8 +61,8 @@ func TestQuality_String(t *testing.T) {
 		{"one bit", tracepack.QualityRedacted, "redacted"},
 		{
 			"multiple bits joined ascending",
-			tracepack.QualityNoMono | tracepack.QualityCaptureBoundary | tracepack.QualityDecodeFailed,
-			"capture-boundary|decode-failed|no-mono",
+			tracepack.QualityRedacted | tracepack.QualityCaptureBoundary | 1<<3 | 1<<6,
+			"capture-boundary|redacted",
 		},
 	}
 	for _, tt := range tests {
@@ -76,17 +76,17 @@ func TestQuality_String(t *testing.T) {
 func TestQuality_Has(t *testing.T) {
 	t.Parallel()
 
-	q := tracepack.QualityRedacted | tracepack.QualityNoMono
+	q := tracepack.QualityRedacted | tracepack.QualityCaptureBoundary
 	require.True(t, q.Has(tracepack.QualityRedacted))
-	require.True(t, q.Has(tracepack.QualityNoMono))
-	require.False(t, q.Has(tracepack.QualityDecodeFailed))
+	require.True(t, q.Has(tracepack.QualityCaptureBoundary))
+	require.False(t, q.Has(tracepack.QualityOrderingUncertain))
 }
 
 func TestFieldValidity_Names(t *testing.T) {
 	t.Parallel()
 
 	// Bit positions and names transcribed from the tracepack format specification §9, `field_validity` row.
-	// Bit 1 covers both stream and W, because both are copied from HSMS header byte 2.
+	// Bit 1 covers both stream and W, because both live in payload byte 6.
 	tests := []struct {
 		name  string
 		value tracepack.FieldValidity
@@ -157,13 +157,9 @@ func TestRecordFlags_Names(t *testing.T) {
 		want  []string
 	}{
 		{"zero", 0, nil},
-		{"bit0", tracepack.RecordFlagsW, []string{"W"}},
+		{"bit0 retired", 1 << 0, nil},
 		{"bit1", tracepack.RecordFlagsMonoPresent, []string{"mono_present"}},
-		{
-			"ascending order",
-			tracepack.RecordFlagsW | tracepack.RecordFlagsMonoPresent,
-			[]string{"W", "mono_present"},
-		},
+		{"retired bit beside mono_present", 1<<0 | tracepack.RecordFlagsMonoPresent, []string{"mono_present"}},
 		{"reserved bit only", 1 << 2, nil},
 	}
 	for _, tt := range tests {
@@ -183,8 +179,8 @@ func TestRecordFlags_String(t *testing.T) {
 		want  string
 	}{
 		{"zero", 0, ""},
-		{"one bit", tracepack.RecordFlagsW, "W"},
-		{"both bits", tracepack.RecordFlagsW | tracepack.RecordFlagsMonoPresent, "W|mono_present"},
+		{"mono_present", tracepack.RecordFlagsMonoPresent, "mono_present"},
+		{"retired bit only", 1 << 0, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -199,5 +195,5 @@ func TestRecordFlags_Has(t *testing.T) {
 
 	f := tracepack.RecordFlagsMonoPresent
 	require.True(t, f.Has(tracepack.RecordFlagsMonoPresent))
-	require.False(t, f.Has(tracepack.RecordFlagsW))
+	require.False(t, tracepack.RecordFlags(1<<0).Has(tracepack.RecordFlagsMonoPresent))
 }

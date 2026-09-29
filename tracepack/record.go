@@ -2,25 +2,26 @@ package tracepack
 
 import "encoding/binary"
 
-// Positions of the copy fields inside a data or control record payload:
+// Positions of the HSMS header fields inside a data or control record payload:
 // the 4-byte length prefix, then the 10-byte HSMS message header (SEMI E37 §8.2).
-// Each end offset is the captured length at which the field becomes available.
+// Each end offset is the captured length at which the field's bytes are all present
+// (the tracepack format specification §7.2).
 const (
-	copySessionIDEnd   = 6
-	copyByte2End       = 7
-	copyFunctionEnd    = 8
-	copyPTypeEnd       = 9
-	copySTypeEnd       = 10
-	copySystemBytesEnd = 14
+	fieldSessionIDEnd   = 6
+	fieldByte6End       = 7
+	fieldFunctionEnd    = 8
+	fieldPTypeEnd       = 9
+	fieldSTypeEnd       = 10
+	fieldSystemBytesEnd = 14
 
-	copySessionIDOff   = 4
-	copyByte2Off       = 6
-	copyFunctionOff    = 7
-	copyPTypeOff       = 8
-	copySTypeOff       = 9
-	copySystemBytesOff = 10
+	fieldSessionIDOff   = 4
+	fieldByte6Off       = 6
+	fieldFunctionOff    = 7
+	fieldPTypeOff       = 8
+	fieldSTypeOff       = 9
+	fieldSystemBytesOff = 10
 
-	// streamMask keeps bits 0-6 of HSMS header byte 2; bit 7 is the W bit.
+	// streamMask keeps bits 0-6 of payload byte 6; bit 7 is the W bit.
 	streamMask = 0x7F
 	wBit       = 0x80
 )
@@ -28,22 +29,18 @@ const (
 // Record is one record of a tracepack file: its record header fields and its payload
 // (the tracepack format specification §7).
 //
+// The record header holds no field of the HSMS message header:
+// the payload of a data or control record holds the whole captured frame,
+// and HSMSHeader reads SessionID, S/F, W, PType, SType and System Bytes from it.
+// FieldValidity says which of those fields are real (the tracepack format specification §7.2).
+//
 // Mono is carried as MonoNs and MonoPresent rather than a pointer,
 // so building or reading a record never allocates for it.
-// When MonoPresent is false the Writer stores mono_ns as 0 and sets quality.no-mono,
-// so a record read back has MonoNs 0.
+// When MonoPresent is false the Writer stores mono_ns as 0, so a record read back has MonoNs 0.
 //
-// The copy fields (SessionID, Stream, W, Function, PType, SType and SystemBytes)
-// are positional copies of the HSMS header bytes of Payload for data and control records;
-// SetHeaderCopies fills them and FieldValidity from Payload.
-// The Writer zeroes every copy field whose FieldValidity bit is clear,
-// and every copy field and FieldValidity of a record that is neither data nor control,
-// because the tracepack format specification §7.2 requires them to be zero on write.
-// It derives record_flags from W and MonoPresent,
-// and owns three quality bits whatever Quality holds:
-// QualityNoMono is set iff MonoPresent is false,
-// QualityDecodeFailed is set iff DecodeStatus.Malformed(),
-// and QualityCaptureBoundary is set iff the record is a transport event whose payload decodes to a capture-boundary event.
+// The Writer stores FieldValidity as 0 for a record that is neither data nor control,
+// derives record_flags from MonoPresent,
+// and owns the quality bit QualityCaptureBoundary, set iff the record is a transport event whose payload decodes to a capture-boundary event.
 // It adds QualityCorrelationIncomplete to a record of epoch 0 (the tracepack format specification I-7),
 // and keeps the bit the caller set on any other epoch.
 // QualityRedacted is accepted only in an extract whose file header sets redaction-present.
@@ -69,102 +66,115 @@ type Record struct {
 	DecodeStatus DecodeStatus
 	// TrailingBytes counts the message-text bytes after the first complete SECS-II item.
 	TrailingBytes uint32
-	// SystemBytes copies HSMS header bytes 6-9.
-	SystemBytes [4]byte
-	// SessionID copies HSMS header bytes 0-1, big-endian on the wire.
-	SessionID uint16
-	// Stream copies bits 0-6 of HSMS header byte 2.
-	Stream uint8
-	// W copies bit 7 of HSMS header byte 2 (record_flags.W).
-	W bool
-	// Function copies HSMS header byte 3.
-	Function uint8
-	// PType copies HSMS header byte 4.
-	PType uint8
-	// SType copies HSMS header byte 5.
-	SType uint8
 	// Quality is the stored quality bit set.
 	Quality Quality
-	// FieldValidity marks which copy fields were present in the captured bytes,
-	// or, for a log conversion, which the source's metadata established (the tracepack format specification §7.2);
-	// a copy field whose bit is clear is unavailable to a query even where Payload holds its bytes.
+	// FieldValidity marks which HSMS header fields of Payload are real: present in the captured bytes,
+	// or, for a log conversion, established from the source's metadata (the tracepack format specification §7.2).
+	// A field whose bit is clear is unavailable to a query even where Payload holds its bytes.
+	// A Writer rejects a data or control record with a set bit whose bytes Payload lacks.
 	FieldValidity FieldValidity
 	// Payload is the record payload: the captured HSMS frame for data and control records,
 	// a TLV body for transport-event and annotation records (the tracepack format specification §8).
 	Payload []byte
 }
 
-// SetHeaderCopies fills r's copy fields and FieldValidity from r.Payload,
-// following the positional copy rule of the tracepack format specification §7.2.
+// HSMSHeader is the HSMS message header of a data or control record, read from its payload
+// (the tracepack format specification §7.2).
 //
-// For a data or control record, each copy field whose bytes lie inside Payload is copied
-// and its FieldValidity bit set;
-// a field of a short capture whose bytes are missing is zeroed and its bit cleared.
-// The rule is identical for data and control records:
-// for a control message Stream, W and Function hold the raw bits of HSMS header bytes 2 and 3.
-// For any other kind every copy field and FieldValidity are zeroed.
-func (r *Record) SetHeaderCopies() {
-	r.SessionID, r.Stream, r.W, r.Function, r.PType, r.SType = 0, 0, false, 0, 0, 0
-	r.SystemBytes = [4]byte{}
-	r.FieldValidity = 0
+// Each field whose bytes the payload holds carries the payload's value, whatever field_validity says;
+// a field whose bytes are missing reads as zero.
+// Available says which fields a predicate may use: a field is available only when its field_validity bit is set
+// and the payload holds all of its bytes, so a log conversion's placeholder bytes are visible but never available.
+type HSMSHeader struct {
+	// SessionID is payload bytes 4-5, big-endian: SessionID, or DeviceID for normalised SECS-I, as observed.
+	SessionID uint16
+	// Stream is bits 0-6 of payload byte 6.
+	Stream uint8
+	// W is bit 7 of payload byte 6.
+	W bool
+	// Function is payload byte 7.
+	Function uint8
+	// PType is payload byte 8, the full byte value.
+	PType uint8
+	// SType is payload byte 9, the full byte value.
+	SType uint8
+	// SystemBytes is payload bytes 10-13, as on the wire.
+	SystemBytes [4]byte
+	// Available holds the FieldValidity bit of every available field; Stream and W share one bit.
+	Available FieldValidity
+}
 
-	if !r.hasCopies() {
-		return
+// HSMSHeader returns the HSMS message header fields of r's payload and which of them are available
+// (the tracepack format specification §7.2).
+//
+// A record that is neither data nor control has no HSMS frame: every field reads as zero and none is available.
+// For a control message, Stream, W and Function hold the raw bits of payload bytes 6 and 7,
+// the status or reason codes a predicate interprets according to SType (SEMI E37 §8.3).
+func (r *Record) HSMSHeader() HSMSHeader {
+	var h HSMSHeader
+	if !r.hasHSMSFrame() {
+		return h
 	}
 
 	p := r.Payload
-	if len(p) >= copySessionIDEnd {
-		r.SessionID = binary.BigEndian.Uint16(p[copySessionIDOff:copySessionIDEnd])
-		r.FieldValidity |= FieldValiditySessionID
+	if len(p) >= fieldSessionIDEnd {
+		h.SessionID = binary.BigEndian.Uint16(p[fieldSessionIDOff:fieldSessionIDEnd])
 	}
-	if len(p) >= copyByte2End {
-		r.Stream = p[copyByte2Off] & streamMask
-		r.W = p[copyByte2Off]&wBit != 0
-		r.FieldValidity |= FieldValidityStreamAndW
+	if len(p) >= fieldByte6End {
+		h.Stream = p[fieldByte6Off] & streamMask
+		h.W = p[fieldByte6Off]&wBit != 0
 	}
-	if len(p) >= copyFunctionEnd {
-		r.Function = p[copyFunctionOff]
-		r.FieldValidity |= FieldValidityFunction
+	if len(p) >= fieldFunctionEnd {
+		h.Function = p[fieldFunctionOff]
 	}
-	if len(p) >= copyPTypeEnd {
-		r.PType = p[copyPTypeOff]
-		r.FieldValidity |= FieldValidityPType
+	if len(p) >= fieldPTypeEnd {
+		h.PType = p[fieldPTypeOff]
 	}
-	if len(p) >= copySTypeEnd {
-		r.SType = p[copySTypeOff]
-		r.FieldValidity |= FieldValiditySType
+	if len(p) >= fieldSTypeEnd {
+		h.SType = p[fieldSTypeOff]
 	}
-	if len(p) >= copySystemBytesEnd {
-		r.SystemBytes = [4]byte(p[copySystemBytesOff:copySystemBytesEnd])
-		r.FieldValidity |= FieldValiditySystemBytes
+	if len(p) >= fieldSystemBytesEnd {
+		h.SystemBytes = [4]byte(p[fieldSystemBytesOff:fieldSystemBytesEnd])
+	}
+	h.Available = r.FieldValidity & capturedFields(len(p))
+
+	return h
+}
+
+// SetCapturedFieldValidity sets r.FieldValidity to exactly the HSMS header fields whose bytes r.Payload holds,
+// for a data or control record, and to 0 for any other kind:
+// the field_validity a writer of raw captures records (the tracepack format specification §7.2).
+// A log converter clears the bits of identities its source did not carry instead (the tracepack storage specification §7).
+func (r *Record) SetCapturedFieldValidity() {
+	r.FieldValidity = 0
+	if r.hasHSMSFrame() {
+		r.FieldValidity = capturedFields(len(r.Payload))
 	}
 }
 
-// hasCopies reports whether r's kind carries copy fields: only data and control records do.
-func (r *Record) hasCopies() bool {
+// hasHSMSFrame reports whether r's kind carries an HSMS frame in its payload: only data and control records do.
+func (r *Record) hasHSMSFrame() bool {
 	return r.Kind == KindData || r.Kind == KindControl
 }
 
-// zeroUnavailableCopies zeroes every copy field whose FieldValidity bit is clear,
-// as the tracepack format specification §7.2 requires on write.
-func (r *Record) zeroUnavailableCopies() {
-	v := r.FieldValidity
-	if !v.Has(FieldValiditySessionID) {
-		r.SessionID = 0
+// capturedFields returns the field_validity bits of the HSMS header fields whose bytes a payload of n bytes holds.
+func capturedFields(n int) FieldValidity {
+	var v FieldValidity
+	for _, f := range [...]struct {
+		bit FieldValidity
+		end int
+	}{
+		{FieldValiditySessionID, fieldSessionIDEnd},
+		{FieldValidityStreamAndW, fieldByte6End},
+		{FieldValidityFunction, fieldFunctionEnd},
+		{FieldValidityPType, fieldPTypeEnd},
+		{FieldValiditySType, fieldSTypeEnd},
+		{FieldValiditySystemBytes, fieldSystemBytesEnd},
+	} {
+		if n >= f.end {
+			v |= f.bit
+		}
 	}
-	if !v.Has(FieldValidityStreamAndW) {
-		r.Stream, r.W = 0, false
-	}
-	if !v.Has(FieldValidityFunction) {
-		r.Function = 0
-	}
-	if !v.Has(FieldValidityPType) {
-		r.PType = 0
-	}
-	if !v.Has(FieldValiditySType) {
-		r.SType = 0
-	}
-	if !v.Has(FieldValiditySystemBytes) {
-		r.SystemBytes = [4]byte{}
-	}
+
+	return v
 }

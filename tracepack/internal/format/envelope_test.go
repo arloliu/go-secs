@@ -120,7 +120,7 @@ func TestBlockEnvelope_RoundTrip(t *testing.T) {
 		e    BlockEnvelope
 	}{
 		{name: "golden", e: goldenEnvelopeStruct()},
-		{name: "minimal", e: BlockEnvelope{RecordHeaderLen: 56, RecordCount: 1}},
+		{name: "minimal", e: BlockEnvelope{RecordHeaderLen: 44, RecordCount: 1}},
 		{
 			name: "every value at its limit",
 			e: BlockEnvelope{
@@ -201,7 +201,7 @@ func TestUnmarshalBlockEnvelope_Errors(t *testing.T) {
 			name: "bad CRC before bad record_header_len",
 			b: func() []byte {
 				b := cloneBytes(goldenEnvelope)
-				binary.LittleEndian.PutUint16(b[6:], 55)
+				binary.LittleEndian.PutUint16(b[6:], 43)
 
 				return b
 			},
@@ -222,8 +222,8 @@ func TestUnmarshalBlockEnvelope_Errors(t *testing.T) {
 			wantErr: ErrCRC,
 		},
 		{
-			name:    "record_header_len 55",
-			b:       withField(func(b []byte) { binary.LittleEndian.PutUint16(b[6:], 55) }),
+			name:    "record_header_len 43",
+			b:       withField(func(b []byte) { binary.LittleEndian.PutUint16(b[6:], 43) }),
 			field:   "record_header_len",
 			off:     6,
 			wantErr: ErrCorrupt,

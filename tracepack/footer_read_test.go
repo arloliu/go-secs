@@ -79,7 +79,7 @@ func writeFooterTestPack(t testing.TB, c Codec, steps []footerTestStep) *footerT
 	}
 
 	var buf bytes.Buffer
-	w, err := NewWriter(&buf, WriterOptions{Meta: meta, Codec: c, BlockThreshold: 250})
+	w, err := NewWriter(&buf, WriterOptions{Meta: meta, Codec: c, BlockThreshold: 220})
 	require.NoError(t, err)
 	for i := range steps {
 		require.NoError(t, w.Append(&steps[i].rec), "step %d", i)
@@ -770,8 +770,8 @@ func TestParseFooterRejectsBlockIndex(t *testing.T) {
 			want:  "block 2: F-2 first_seq 20 does not follow the previous last_seq 20",
 		},
 		{
-			name:  "record_header_len 55",
-			parts: func(_ *testing.T, p *footerParts) { p.entries[1].RecordHeaderLen = 55 },
+			name:  "record_header_len 43",
+			parts: func(_ *testing.T, p *footerParts) { p.entries[1].RecordHeaderLen = 43 },
 			want:  "block 1: F-2: footer block index entry: record_header_len",
 		},
 		{

@@ -366,7 +366,7 @@ func TestF2Entry_RoundTrip(t *testing.T) {
 		e    F2Entry
 	}{
 		{name: "golden", e: goldenF2EntryStruct()},
-		{name: "minimal", e: F2Entry{RecordCount: 1, SummaryLen: 1, RecordHeaderLen: 56}},
+		{name: "minimal", e: F2Entry{RecordCount: 1, SummaryLen: 1, RecordHeaderLen: 44}},
 		{
 			name: "values at their limits",
 			e: F2Entry{
@@ -439,8 +439,8 @@ func TestUnmarshalF2Entry_Errors(t *testing.T) {
 			wantErr:    ErrShort,
 		},
 		{
-			name:       "record_header_len 55",
-			b:          withField(func(b []byte) { binary.LittleEndian.PutUint16(b[76:], 55) }),
+			name:       "record_header_len 43",
+			b:          withField(func(b []byte) { binary.LittleEndian.PutUint16(b[76:], 43) }),
 			f2EntryLen: F2EntryLen,
 			field:      "record_header_len",
 			off:        76,
@@ -492,14 +492,14 @@ func TestHeaderSectionLen(t *testing.T) {
 		want            int
 		wantErr         bool
 	}{
-		{name: "no records", recordCount: 0, recordHeaderLen: 56, want: 0},
-		{name: "one record", recordCount: 1, recordHeaderLen: 56, want: 56},
-		{name: "typical block", recordCount: 1000, recordHeaderLen: 56, want: 56000},
+		{name: "no records", recordCount: 0, recordHeaderLen: 44, want: 0},
+		{name: "one record", recordCount: 1, recordHeaderLen: 44, want: 44},
+		{name: "typical block", recordCount: 1000, recordHeaderLen: 44, want: 44000},
 		{name: "exactly at the limit", recordCount: 2147483647, recordHeaderLen: 1, want: 2147483647},
 		{name: "largest header just under", recordCount: 65535, recordHeaderLen: 32768, want: 2147450880},
 		{name: "largest header just over", recordCount: 65535, recordHeaderLen: 32769, wantErr: true},
-		{name: "56-byte headers just under", recordCount: 38347922, recordHeaderLen: 56, want: 2147483632},
-		{name: "56-byte headers just over", recordCount: 38347923, recordHeaderLen: 56, wantErr: true},
+		{name: "44-byte headers just under", recordCount: 48806446, recordHeaderLen: 44, want: 2147483624},
+		{name: "44-byte headers just over", recordCount: 48806447, recordHeaderLen: 44, wantErr: true},
 		{name: "both at their type maximum", recordCount: 0xFFFFFFFF, recordHeaderLen: 0xFFFF, wantErr: true},
 	}
 
@@ -541,7 +541,7 @@ func TestFooter_Allocs(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if _, err := HeaderSectionLen(1000, 56); err != nil {
+		if _, err := HeaderSectionLen(1000, 44); err != nil {
 			t.Fatal(err)
 		}
 	})

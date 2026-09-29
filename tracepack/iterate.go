@@ -166,10 +166,10 @@ func (r *Reader) prunes(i int, f *Filter) bool {
 }
 
 // yield calls fn with every record of block i, read as d, that q's filter selects, reusing item.
-// The HSMS header fields are taken from the payload once per record, only when the filter tests one.
+// The HSMS header fields are read from the payload once per record, only when the filter tests one.
 func yield(q *Query, i int, d *decodedBlock, item *Item, fn func(*Item) error) error {
 	f := &q.Filter
-	fields := f.hasCopyPredicate()
+	fields := f.hasFieldPredicate()
 	for j := range d.count() {
 		h := d.header(j)
 		if !f.matchHeader(&h) {
@@ -177,8 +177,10 @@ func yield(q *Query, i int, d *decodedBlock, item *Item, fn func(*Item) error) e
 		}
 
 		rec := storedRecord(&h, d.payload(j))
-		if fields && !f.matchCopies(payloadCopies(&rec)) {
-			continue
+		if fields {
+			if h := rec.HSMSHeader(); !f.matchFields(&h) {
+				continue
+			}
 		}
 		if !q.Payloads {
 			rec.Payload = nil
@@ -191,15 +193,4 @@ func yield(q *Query, i int, d *decodedBlock, item *Item, fn func(*Item) error) e
 	}
 
 	return nil
-}
-
-// payloadCopies returns the HSMS header fields of rec's payload that a Filter tests (the tracepack format specification §7.2):
-// the payload's values, each available when rec's stored field_validity bit is set and the payload holds all of the field's bytes.
-func payloadCopies(rec *Record) *recordCopies {
-	want := *rec
-	want.SetHeaderCopies()
-	c := copiesOf(&want)
-	c.validity &= rec.FieldValidity
-
-	return &c
 }

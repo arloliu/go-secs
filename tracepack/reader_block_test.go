@@ -18,7 +18,7 @@ import (
 	"github.com/arloliu/go-secs/tracepack/internal/tlv"
 )
 
-// wideExtraLen is the number of bytes a widened block appends behind offset 56 of every record header.
+// wideExtraLen is the number of bytes a widened block appends behind offset 44 of every record header.
 const wideExtraLen = 8
 
 // storedBlockRecord is one record as the Writer stored it: its record header and its payload.
@@ -75,7 +75,7 @@ func wideExtra(j int, seq uint64) []byte {
 	return []byte{0xE0, byte(j), 0xA5, 3, 4, 5, byte(seq >> 8), byte(seq)}
 }
 
-// widen gives every record header of b the wideExtraLen bytes of wideExtra behind offset 56.
+// widen gives every record header of b the bytes of wideExtra as its extension area, behind offset 44.
 func widen(b *testBlock) {
 	for j := range b.headers {
 		b.headers[j].Extra = wideExtra(j, b.headers[j].Seq)
@@ -378,25 +378,21 @@ func TestStoredRecord(t *testing.T) {
 	t.Parallel()
 
 	h := format.RecordHeader{
-		Seq: 7, TSUTCNs: 8, MonoNs: 9, Epoch: 10, PayloadLen: 3, TrailingBytes: 11,
-		SystemBytes: [4]byte{1, 2, 3, 4}, SessionID: 12, Quality: 13,
-		Stream: 14, Function: 15, PType: 16, SType: 17,
+		Seq: 7, TSUTCNs: 8, MonoNs: 9, Epoch: 10, PayloadLen: 3, TrailingBytes: 11, Quality: 13,
 		Kind: 18, Dir: 19, Fidelity: 20, DecodeStatus: 21, FieldValidity: 22,
-		RecordFlags: uint8(RecordFlagsW | RecordFlagsMonoPresent),
+		RecordFlags: uint8(RecordFlagsMonoPresent),
 		Extra:       []byte{1},
 	}
 	payload := []byte{0xA, 0xB, 0xC}
 	want := Record{
 		Seq: 7, TSUTCNs: 8, MonoNs: 9, MonoPresent: true, Epoch: 10,
 		Kind: 18, Dir: 19, Fidelity: 20, DecodeStatus: 21, TrailingBytes: 11,
-		SystemBytes: [4]byte{1, 2, 3, 4}, SessionID: 12,
-		Stream: 14, W: true, Function: 15, PType: 16, SType: 17,
 		Quality: 13, FieldValidity: 22, Payload: payload,
 	}
 	assert.Equal(t, want, storedRecord(&h, payload))
 
 	h.RecordFlags = 0
-	want.W, want.MonoPresent = false, false
+	want.MonoPresent = false
 	assert.Equal(t, want, storedRecord(&h, payload), "mono_ns is kept as stored even when mono_present is clear")
 }
 
@@ -486,11 +482,11 @@ func TestReadBlockCorruption(t *testing.T) {
 		reason IncompleteReason
 		msg    string
 	}{
-		{name: "envelope record_header_len 64, F-2 56", file: rebuilt(func(b *testBlock) {
+		{name: "envelope record_header_len widened, F-2 known", file: rebuilt(func(b *testBlock) {
 			widen(b)
 			b.patchEntry = func(e *format.F2Entry) { e.RecordHeaderLen = format.RecordHeaderLen }
 		}), msg: "record_header_len"},
-		{name: "envelope record_header_len 56, F-2 64", file: rebuilt(func(b *testBlock) {
+		{name: "envelope record_header_len known, F-2 widened", file: rebuilt(func(b *testBlock) {
 			b.patchEntry = func(e *format.F2Entry) { e.RecordHeaderLen = format.RecordHeaderLen + wideExtraLen }
 		}), msg: "record_header_len"},
 		{name: "envelope uncompressed_len vs F-2", file: rebuilt(func(b *testBlock) {
@@ -502,7 +498,7 @@ func TestReadBlockCorruption(t *testing.T) {
 		{name: "envelope body_len vs F-2 on_disk_len", file: rebuilt(func(b *testBlock) {
 			b.patchEnv = func(e *format.BlockEnvelope) { e.BodyLen-- }
 		}), msg: "on_disk_len"},
-		{name: "record_header_len 55", file: patched(closed.file, func(e *format.BlockEnvelope) {
+		{name: "record_header_len below the known header", file: patched(closed.file, func(e *format.BlockEnvelope) {
 			e.RecordHeaderLen = format.RecordHeaderLen - 1
 		}), msg: "record_header_len"},
 		{name: "body_crc mismatch", file: func(testing.TB) []byte {

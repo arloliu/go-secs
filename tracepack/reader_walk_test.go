@@ -22,7 +22,7 @@ func bigDataRecord(seq uint64, ts int64, n int) Record {
 		Seq: seq, TSUTCNs: ts, MonoPresent: true, Epoch: 1,
 		Kind: KindData, Dir: DirHostToEquipment, DecodeStatus: DecodeStatusOK, Payload: frame,
 	}
-	r.SetHeaderCopies()
+	r.SetCapturedFieldValidity()
 
 	return r
 }
@@ -128,8 +128,8 @@ func TestOpenWalkStopsAtBadEnvelope(t *testing.T) {
 		{name: "record_count 0", patch: func(t testing.TB, file []byte) []byte {
 			return patchEnvelope(t, file, at, func(e *format.BlockEnvelope) { e.RecordCount = 0 })
 		}},
-		{name: "record_header_len below 56", patch: func(t testing.TB, file []byte) []byte {
-			return patchEnvelope(t, file, at, func(e *format.BlockEnvelope) { e.RecordHeaderLen = 55 })
+		{name: "record_header_len below 44", patch: func(t testing.TB, file []byte) []byte {
+			return patchEnvelope(t, file, at, func(e *format.BlockEnvelope) { e.RecordHeaderLen = 43 })
 		}},
 		{name: "body_len over the format limit", patch: func(t testing.TB, file []byte) []byte {
 			return patchEnvelope(t, file, at, func(e *format.BlockEnvelope) { e.BodyLen = format.MaxLen32 + 1 })

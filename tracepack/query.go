@@ -54,7 +54,7 @@ type Filter struct {
 	SessionIDs []uint16
 	// SystemBytes selects records whose system_bytes equal it.
 	SystemBytes *[4]byte
-	// IncludeUnavailable makes a record whose field needed by a copy-field predicate is unavailable satisfy that predicate,
+	// IncludeUnavailable makes a record whose field needed by an HSMS header predicate is unavailable satisfy that predicate,
 	// the explicit request for records with unavailable fields of the tracepack format specification §7.2.
 	IncludeUnavailable bool
 }
@@ -65,12 +65,11 @@ type Filter struct {
 // Iterate reuses the Item, and Record.Payload and HeaderExtra alias Iterate's buffers.
 // A caller that keeps a record copies it, cloning Payload and HeaderExtra.
 type Item struct {
-	// Record is the record as stored, every copy field and FieldValidity as its record header holds them;
-	// the Filter selects on the payload's values, not on the stored copies (see Filter).
-	// Payload is set iff Query.Payloads.
+	// Record is the record as stored.
+	// Payload is set iff Query.Payloads; without it Record.HSMSHeader reports no field available.
 	Record Record
-	// HeaderExtra holds the record-header bytes behind offset 56, which a newer minor version may define
-	// (the tracepack format specification §7.1); nil for a 56-byte record header.
+	// HeaderExtra holds the record header's extension area, the bytes behind offset 44, which a newer minor version may define
+	// (the tracepack format specification §7.1); nil for a 44-byte record header.
 	HeaderExtra []byte
 	// Block is the index into Reader.Blocks of the record's block.
 	Block int
@@ -107,12 +106,12 @@ func (q *Query) validate() error {
 	return nil
 }
 
-// hasCopyPredicate reports whether f tests a copy field.
-func (f *Filter) hasCopyPredicate() bool {
+// hasFieldPredicate reports whether f tests an HSMS header field.
+func (f *Filter) hasFieldPredicate() bool {
 	return len(f.SF) > 0 || len(f.SessionIDs) > 0 || f.SystemBytes != nil
 }
 
-// matchHeader reports whether the stored record header h satisfies the predicates of f on fields that are not copies:
+// matchHeader reports whether the stored record header h satisfies the predicates of f on the record header:
 // the time range, Kinds, Dirs and Epochs.
 func (f *Filter) matchHeader(h *format.RecordHeader) bool {
 	if f.TimeFrom != nil && h.TSUTCNs < *f.TimeFrom {
@@ -125,24 +124,24 @@ func (f *Filter) matchHeader(h *format.RecordHeader) bool {
 	return oneOf(f.Kinds, Kind(h.Kind)) && oneOf(f.Dirs, Dir(h.Dir)) && oneOf(f.Epochs, h.Epoch)
 }
 
-// matchCopies reports whether the copy fields c satisfy the copy-field predicates of f,
-// each field available iff its bit is set in c.validity.
-func (f *Filter) matchCopies(c *recordCopies) bool {
+// matchFields reports whether the HSMS header fields h of a record's payload satisfy the field predicates of f,
+// each field available iff its bit is set in h.Available.
+func (f *Filter) matchFields(h *HSMSHeader) bool {
 	if len(f.SF) > 0 &&
-		!f.satisfied(c.validity, FieldValidityStreamAndW|FieldValidityFunction, slices.Contains(f.SF, SF{Stream: c.stream, Function: c.function})) {
+		!f.satisfied(h.Available, FieldValidityStreamAndW|FieldValidityFunction, slices.Contains(f.SF, SF{Stream: h.Stream, Function: h.Function})) {
 		return false
 	}
-	if len(f.SessionIDs) > 0 && !f.satisfied(c.validity, FieldValiditySessionID, slices.Contains(f.SessionIDs, c.sessionID)) {
+	if len(f.SessionIDs) > 0 && !f.satisfied(h.Available, FieldValiditySessionID, slices.Contains(f.SessionIDs, h.SessionID)) {
 		return false
 	}
-	if f.SystemBytes != nil && !f.satisfied(c.validity, FieldValiditySystemBytes, *f.SystemBytes == c.systemBytes) {
+	if f.SystemBytes != nil && !f.satisfied(h.Available, FieldValiditySystemBytes, *f.SystemBytes == h.SystemBytes) {
 		return false
 	}
 
 	return true
 }
 
-// satisfied returns the outcome of a copy-field predicate whose fields need the bits need of validity:
+// satisfied returns the outcome of a field predicate whose fields need the bits need of validity:
 // match when every one is set, else IncludeUnavailable, since an unavailable field cannot match (§7.2).
 func (f *Filter) satisfied(validity, need FieldValidity, match bool) bool {
 	if validity&need != need {

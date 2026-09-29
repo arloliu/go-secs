@@ -200,9 +200,9 @@ func checkBlockEnvelope(t *testing.T, b []byte) {
 // FuzzUnmarshalRecordHeader fuzzes UnmarshalRecordHeader with a fuzzed record_header_len,
 // capped at 65535 and passed through when negative.
 //
-// On success, Extra holds exactly the bytes from offset 56 to record_header_len, is nil when there are none,
+// On success, Extra holds exactly the bytes from offset 44 to record_header_len, is nil when there are none,
 // and never aliases the input;
-// AppendRecordHeader of the result is record_header_len bytes long, reproduces every byte but the reserved 54-55,
+// AppendRecordHeader of the result is record_header_len bytes long, reproduces every byte but the retired and reserved bits,
 // and decodes to an equal header.
 // Allocation bound: cap(Extra) ≤ 2×len(input), since the copy is rounded up to an allocator size class.
 func FuzzUnmarshalRecordHeader(f *testing.F) {
@@ -255,11 +255,11 @@ func FuzzUnmarshalRecordHeader(f *testing.F) {
 
 		enc := AppendRecordHeader(nil, &h)
 		require.Len(t, enc, recordHeaderLen)
-		require.Equal(t, b[:42], enc[:42], "every named field before quality is written verbatim")
-		require.Equal(t, h.Quality&recordHeaderQualityMask, binary.LittleEndian.Uint16(enc[42:44]), "quality keeps only its defined bits (§9)")
-		require.Equal(t, b[44:52], enc[44:52], "every named field between quality and field_validity is written verbatim")
-		require.Equal(t, h.FieldValidity&recordHeaderFieldValidityMask, enc[52], "field_validity keeps only its defined bits (§9)")
-		require.Equal(t, h.RecordFlags&recordHeaderRecordFlagsMask, enc[53], "record_flags keeps only its defined bits (§9)")
+		require.Equal(t, b[:36], enc[:36], "every named field before quality is written verbatim")
+		require.Equal(t, h.Quality&recordHeaderQualityMask, binary.LittleEndian.Uint16(enc[36:38]), "quality keeps only its defined bits (§9)")
+		require.Equal(t, b[38:42], enc[38:42], "every named field between quality and field_validity is written verbatim")
+		require.Equal(t, h.FieldValidity&recordHeaderFieldValidityMask, enc[42], "field_validity keeps only its defined bits (§9)")
+		require.Equal(t, h.RecordFlags&recordHeaderRecordFlagsMask, enc[43], "record_flags keeps only its defined bits (§9)")
 		require.Equal(t, b[RecordHeaderLen:recordHeaderLen], enc[RecordHeaderLen:], "Extra is written verbatim")
 
 		got, err := UnmarshalRecordHeader(enc, recordHeaderLen)

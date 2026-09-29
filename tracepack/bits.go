@@ -6,7 +6,7 @@ import "strings"
 //
 // Zero means none of the quality conditions apply.
 // See the tracepack format specification §9 for the full registry;
-// bits 7-15 are reserved and never appear in [Quality.Names] or [Quality.String].
+// bits 3 and 6 are retired and bits 7-15 reserved: they never appear in [Quality.Names] or [Quality.String].
 type Quality uint16
 
 const (
@@ -16,49 +16,52 @@ const (
 	QualityOrderingUncertain Quality = 1 << 1
 	// QualityCorrelationIncomplete marks a record whose transport connection could not be fully correlated.
 	QualityCorrelationIncomplete Quality = 1 << 2
-	// QualityDecodeFailed mirrors a malformed [DecodeStatus].
-	QualityDecodeFailed Quality = 1 << 3
 	// QualityDirectionInferred marks a record whose [Dir] was inferred rather than observed.
 	QualityDirectionInferred Quality = 1 << 4
 	// QualityRedacted marks a record whose payload was masked by a redaction policy.
 	QualityRedacted Quality = 1 << 5
-	// QualityNoMono marks a record with no valid mono_ns; it is set iff record_flags.mono_present is clear.
-	QualityNoMono Quality = 1 << 6
 )
 
-// FieldValidity is the record-header bit set marking which copy fields were present in the captured bytes.
+// qualityMask holds the defined quality bits; bits 3 and 6 are retired and bits 7-15 reserved, all zero on write (I-9).
+const qualityMask = QualityCaptureBoundary | QualityOrderingUncertain | QualityCorrelationIncomplete |
+	QualityDirectionInferred | QualityRedacted
+
+// FieldValidity is the record-header bit set marking which HSMS header fields of a record's payload are real
+// (the tracepack format specification §7.2).
 //
-// Zero means every copy field is unavailable, as for a very short capture.
+// Zero means every field is unavailable, as for a very short capture or a record without an HSMS frame.
 // See the tracepack format specification §9 for the full registry;
 // bits 6-7 are reserved and never appear in [FieldValidity.Names] or [FieldValidity.String].
 type FieldValidity uint8
 
 const (
-	// FieldValiditySessionID marks that session_id was present in the captured bytes.
+	// FieldValiditySessionID marks SessionID, payload bytes 4-5, as real.
 	FieldValiditySessionID FieldValidity = 1 << 0
-	// FieldValidityStreamAndW marks that stream and the W bit were present in the captured bytes;
-	// the two share one bit because both live in HSMS header byte 2.
+	// FieldValidityStreamAndW marks stream and the W bit as real;
+	// the two share one bit because both live in payload byte 6.
 	FieldValidityStreamAndW FieldValidity = 1 << 1
-	// FieldValidityFunction marks that function was present in the captured bytes.
+	// FieldValidityFunction marks function, payload byte 7, as real.
 	FieldValidityFunction FieldValidity = 1 << 2
-	// FieldValidityPType marks that PType was present in the captured bytes.
+	// FieldValidityPType marks PType, payload byte 8, as real.
 	FieldValidityPType FieldValidity = 1 << 3
-	// FieldValiditySType marks that SType was present in the captured bytes.
+	// FieldValiditySType marks SType, payload byte 9, as real.
 	FieldValiditySType FieldValidity = 1 << 4
-	// FieldValiditySystemBytes marks that system_bytes was present in the captured bytes.
+	// FieldValiditySystemBytes marks System Bytes, payload bytes 10-13, as real.
 	FieldValiditySystemBytes FieldValidity = 1 << 5
 )
 
-// RecordFlags is the record-header bit set carrying the raw W bit and mono_ns availability.
+// fieldValidityMask holds the defined field_validity bits; bits 6-7 are reserved and ignored (I-9).
+const fieldValidityMask = FieldValiditySessionID | FieldValidityStreamAndW | FieldValidityFunction |
+	FieldValidityPType | FieldValiditySType | FieldValiditySystemBytes
+
+// RecordFlags is the record-header bit set carrying mono_ns availability.
 //
-// Zero means the W bit is clear and mono_ns is not present.
+// Zero means mono_ns is not present.
 // See the tracepack format specification §9 for the full registry;
-// bits 2-7 are reserved and never appear in [RecordFlags.Names] or [RecordFlags.String].
+// bit 0 is retired and bits 2-7 reserved: they never appear in [RecordFlags.Names] or [RecordFlags.String].
 type RecordFlags uint8
 
 const (
-	// RecordFlagsW is the raw W (wait) bit copied from HSMS header byte 2, bit 7.
-	RecordFlagsW RecordFlags = 1 << 0
 	// RecordFlagsMonoPresent marks that mono_ns is valid for this record.
 	RecordFlagsMonoPresent RecordFlags = 1 << 1
 )
@@ -70,7 +73,7 @@ func (q Quality) Has(bit Quality) bool {
 
 // Names returns the tracepack format specification's names for q's set bits, in ascending bit order.
 //
-// Reserved bits, if set, are not represented: they carry no name to return.
+// Retired and reserved bits, if set, are not represented: they carry no name to return.
 func (q Quality) Names() []string {
 	var names []string
 
@@ -81,10 +84,8 @@ func (q Quality) Names() []string {
 		{QualityCaptureBoundary, "capture-boundary"},
 		{QualityOrderingUncertain, "ordering-uncertain"},
 		{QualityCorrelationIncomplete, "correlation-incomplete"},
-		{QualityDecodeFailed, "decode-failed"},
 		{QualityDirectionInferred, "direction-inferred"},
 		{QualityRedacted, "redacted"},
-		{QualityNoMono, "no-mono"},
 	} {
 		if q.Has(b.bit) {
 			names = append(names, b.name)
@@ -141,7 +142,7 @@ func (f RecordFlags) Has(bit RecordFlags) bool {
 
 // Names returns the tracepack format specification's names for f's set bits, in ascending bit order.
 //
-// Reserved bits, if set, are not represented: they carry no name to return.
+// Retired and reserved bits, if set, are not represented: they carry no name to return.
 func (f RecordFlags) Names() []string {
 	var names []string
 
@@ -149,7 +150,6 @@ func (f RecordFlags) Names() []string {
 		bit  RecordFlags
 		name string
 	}{
-		{RecordFlagsW, "W"},
 		{RecordFlagsMonoPresent, "mono_present"},
 	} {
 		if f.Has(b.bit) {

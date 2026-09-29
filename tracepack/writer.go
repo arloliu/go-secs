@@ -28,9 +28,14 @@ var (
 	// so a caller holding an earlier record opens another Writer for it.
 	ErrSeqOrder = errors.New("tracepack: record seq out of order")
 	// ErrPayloadTooLarge reports a record payload too large for any block:
-	// a block's uncompressed_len, 56 header bytes plus the payload for a record alone,
+	// a block's uncompressed_len, 44 header bytes plus the payload for a record alone,
 	// must not exceed 2^31-1 (the tracepack format specification §2).
 	ErrPayloadTooLarge = errors.New("tracepack: record payload too large")
+	// ErrFieldValidity reports a data or control record whose field_validity marks an HSMS header field
+	// whose bytes its payload lacks, a writer defect every writer rejects when the record is appended
+	// (the tracepack format specification §7.2).
+	// The record was not added and the Writer is still usable.
+	ErrFieldValidity = errors.New("tracepack: field_validity marks a field the payload lacks")
 	// ErrMetadataCommitment reports a contradiction with what the pack metadata or the file header commits to,
 	// wrapped in a *FieldError naming the commitment.
 	//
@@ -338,62 +343,41 @@ func idOrNew(id UUID) (UUID, error) {
 // canonicalHeader builds the record header the Writer stores for r under seq,
 // where ev is r's decoded transport-event payload, or nil:
 // mono_ns is 0 unless MonoPresent,
-// every copy field whose field_validity bit is clear is zero,
-// as is every copy field of a record that is neither data nor control,
-// record_flags is derived from W and MonoPresent,
-// quality.no-mono, quality.decode-failed and quality.capture-boundary are derived, overriding r.Quality,
+// field_validity is 0 for a record that is neither data nor control,
+// record_flags is derived from MonoPresent,
+// quality.capture-boundary is derived, overriding r.Quality,
 // and quality.correlation-incomplete is added for epoch 0.
+// Retired and reserved bits of quality and field_validity are cleared, so the block summary's quality_union covers only stored bits.
 func canonicalHeader(r *Record, seq uint64, ev *TransportEvent) format.RecordHeader {
-	c := *r
-	if !c.hasCopies() {
-		c.FieldValidity = 0
-	}
-	c.zeroUnavailableCopies()
-
 	h := format.RecordHeader{
 		Seq:           seq,
-		TSUTCNs:       c.TSUTCNs,
-		Epoch:         c.Epoch,
-		PayloadLen:    uint32(len(c.Payload)),
-		TrailingBytes: c.TrailingBytes,
-		SystemBytes:   c.SystemBytes,
-		SessionID:     c.SessionID,
-		Stream:        c.Stream,
-		Function:      c.Function,
-		PType:         c.PType,
-		SType:         c.SType,
-		Kind:          uint8(c.Kind),
-		Dir:           uint8(c.Dir),
-		Fidelity:      uint8(c.Fidelity),
-		DecodeStatus:  uint8(c.DecodeStatus),
-		FieldValidity: uint8(c.FieldValidity),
+		TSUTCNs:       r.TSUTCNs,
+		Epoch:         r.Epoch,
+		PayloadLen:    uint32(len(r.Payload)),
+		TrailingBytes: r.TrailingBytes,
+		Kind:          uint8(r.Kind),
+		Dir:           uint8(r.Dir),
+		Fidelity:      uint8(r.Fidelity),
+		DecodeStatus:  uint8(r.DecodeStatus),
+	}
+	if r.hasHSMSFrame() {
+		h.FieldValidity = uint8(r.FieldValidity & fieldValidityMask)
 	}
 
-	q := c.Quality &^ (QualityNoMono | QualityDecodeFailed | QualityCaptureBoundary)
+	q := r.Quality & qualityMask &^ QualityCaptureBoundary
 	if ev != nil && ev.Event == EventCaptureBoundary {
 		q |= QualityCaptureBoundary
 	}
 	// Epoch 0 is unknown, which forces correlation-incomplete (the tracepack format specification I-7);
 	// the bit has other causes too, so a caller's bit on another epoch is kept.
-	if c.Epoch == 0 {
+	if r.Epoch == 0 {
 		q |= QualityCorrelationIncomplete
 	}
-	var flags RecordFlags
-	if c.MonoPresent {
-		h.MonoNs = c.MonoNs
-		flags |= RecordFlagsMonoPresent
-	} else {
-		q |= QualityNoMono
+	if r.MonoPresent {
+		h.MonoNs = r.MonoNs
+		h.RecordFlags = uint8(RecordFlagsMonoPresent)
 	}
-	if c.DecodeStatus.Malformed() {
-		q |= QualityDecodeFailed
-	}
-	if c.W {
-		flags |= RecordFlagsW
-	}
-
 	h.Quality = uint16(q)
-	h.RecordFlags = uint8(flags)
 
 	return h
 }
@@ -451,6 +435,8 @@ func transportEventOf(r *Record) *TransportEvent {
 // a record larger than the threshold is written alone in its own block.
 // With WriterOptions.AssignSeq, Append assigns the next seq and stores it in r.Seq;
 // otherwise r.Seq must equal seq_start for the first record and exceed the previous seq after that.
+// It rejects a data or control record whose field_validity marks a field its payload lacks;
+// a clear bit over present bytes is kept, as a log conversion needs (the tracepack format specification §7.2).
 // Append copies r.Payload and does not modify any other field of r:
 // the header it stores is canonical as described on Record, whatever r holds.
 // With WriterOptions.DetectClockSteps, a record whose drift exceeds the tolerance is preceded by a clock-step record,
@@ -460,7 +446,7 @@ func transportEventOf(r *Record) *TransportEvent {
 // so Append may return the error of the block it closed.
 //
 // Returns:
-//   - error: ErrPayloadTooLarge, ErrSeqOrder, or a *FieldError wrapping ErrMetadataCommitment,
+//   - error: ErrPayloadTooLarge, ErrFieldValidity, ErrSeqOrder, or a *FieldError wrapping ErrMetadataCommitment,
 //     with r not added and the Writer still usable;
 //     an error wrapping ErrValidation or a write or sync error, after which the Writer has failed;
 //     ErrWriterFailed or ErrClosed on a failed or closed Writer.
@@ -471,6 +457,11 @@ func (w *Writer) Append(r *Record) error {
 
 	if len(r.Payload) > maxPayloadLen {
 		return fmt.Errorf("tracepack: payload of %d bytes above %d: %w", len(r.Payload), maxPayloadLen, ErrPayloadTooLarge)
+	}
+	if r.hasHSMSFrame() {
+		if beyond := r.FieldValidity & fieldValidityMask &^ capturedFields(len(r.Payload)); beyond != 0 {
+			return fmt.Errorf("tracepack: field_validity marks %s, but the payload is %d bytes: %w", beyond, len(r.Payload), ErrFieldValidity)
+		}
 	}
 
 	if err := w.checkCommitments(r); err != nil {

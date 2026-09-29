@@ -7,11 +7,11 @@ import (
 	"github.com/arloliu/go-secs/tracepack/internal/format"
 )
 
-// recordHeaderLen is the record_header_len this writer gives every block: the 56 bytes format 1.0 defines.
+// recordHeaderLen is the record_header_len this writer gives every block: the 44 bytes format 1.0 defines.
 const recordHeaderLen = format.RecordHeaderLen
 
 // maxPayloadLen is the largest payload a record may carry.
-// A record alone in its own block has uncompressed_len = 56 + payload_len,
+// A record alone in its own block has uncompressed_len = 44 + payload_len,
 // which the tracepack format specification §2 limits to 2^31-1.
 const maxPayloadLen = int(format.MaxLen32) - recordHeaderLen
 

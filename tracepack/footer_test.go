@@ -61,19 +61,18 @@ func footerPackSteps(t *testing.T) []footerPackStep {
 	gapStart, gapEnd := hour0+100, hour1+1
 	control := dataRecordIn(12, hour0+20, 1)
 	control.Kind, control.Dir, control.Payload = tracepack.KindControl, tracepack.DirEquipmentToHost, linktestReqFrame
-	control.SetHeaderCopies()
+	control.SetCapturedFieldValidity()
 
 	short := dataRecordIn(13, hour0+30, 1)
 	short.Payload, short.DecodeStatus, short.MonoPresent, short.MonoNs = s1f3Frame[:9], tracepack.DecodeStatusShortFrame, false, 0
-	short.SetHeaderCopies()
-	short.Quality = tracepack.QualityDecodeFailed | tracepack.QualityNoMono
+	short.SetCapturedFieldValidity()
 
 	note, err := (&tracepack.Annotation{AnnotationKind: tracepack.AnnotationKindNote, Text: new("note")}).MarshalBinary()
 	require.NoError(t, err)
 	annotation := tracepack.Record{
 		Seq: 22, TSUTCNs: hour1 + 9, Epoch: 2, Kind: tracepack.KindAnnotation, Dir: tracepack.DirLocal,
 		Fidelity: tracepack.FidelityNotApplicable, DecodeStatus: tracepack.DecodeStatusNotApplicable,
-		Payload: note, Quality: tracepack.QualityNoMono,
+		Payload: note,
 	}
 
 	return []footerPackStep{
@@ -141,7 +140,7 @@ func mustClose(t *testing.T, w *tracepack.Writer) uint64 {
 // statsFromRecords computes the F-5 pack statistics of recs by brute force over the records themselves,
 // independent of any F-2 or F-3 value:
 // the count arrays are indexed by raw enum value and sized by the largest value present plus one,
-// content_bytes counts a 56-byte header per record, epoch entries are in ascending epoch order,
+// content_bytes counts a 44-byte header per record, epoch entries are in ascending epoch order,
 // and close_seq is the first socket-close event or stop boundary of each epoch.
 func statsFromRecords(t *testing.T, recs []tracepack.Record) packStat {
 	t.Helper()

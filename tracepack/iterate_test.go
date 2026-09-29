@@ -84,23 +84,23 @@ func storedAs(rec Record, payloads bool) Record {
 	return rec
 }
 
-// shortCapture returns a data record over the first n bytes of blockTestFrame, its copies set from those bytes.
+// shortCapture returns a data record over the first n bytes of blockTestFrame, with the field_validity of those bytes.
 func shortCapture(seq uint64, ts int64, n int) Record {
 	r := testDataRecord(seq, ts, 1)
 	r.Payload = blockTestFrame[:n]
 	r.DecodeStatus = DecodeStatusShortFrame
-	r.SetHeaderCopies()
+	r.SetCapturedFieldValidity()
 
 	return r
 }
 
-// controlRecord returns a control record over controlTestFrame, its copies set from the frame.
+// controlRecord returns a control record over controlTestFrame, with the field_validity of the whole frame.
 func controlRecord(seq uint64, ts int64, epoch uint32, dir Dir) Record {
 	r := Record{
 		Seq: seq, TSUTCNs: ts, MonoPresent: true, Epoch: epoch,
 		Kind: KindControl, Dir: dir, DecodeStatus: DecodeStatusNotApplicable, Payload: controlTestFrame,
 	}
-	r.SetHeaderCopies()
+	r.SetCapturedFieldValidity()
 
 	return r
 }
@@ -228,77 +228,56 @@ func TestIterateHeaderExtra(t *testing.T) {
 	}
 }
 
-// copyVector is a record whose stored copy of one field disagrees with its payload,
-// with a filter on the stored value and one on the payload's value.
-type copyVector struct {
-	name string
-	// edit changes the stored copy of a record over blockTestFrame.
-	edit func(r *Record)
-	// header selects the stored value; payload selects the payload's value.
-	header, payload Filter
-}
+// s6f11Frame is an HSMS S6F11 W frame with an empty message text:
+// SessionID 0x0BAD, System Bytes 01 02 03 04.
+var s6f11Frame = []byte{0, 0, 0, 0x0A, 0x0B, 0xAD, 0x86, 0x0B, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04}
 
-// copyVectors returns stored copies that disagree with their payload for S/F, SessionID and System Bytes.
-func copyVectors() []copyVector {
-	return []copyVector{
-		{
-			name:   "S6F11 over S1F3",
-			edit:   func(r *Record) { r.Stream, r.Function = 6, 11 },
-			header: Filter{SF: []SF{{Stream: 6, Function: 11}}}, payload: Filter{SF: []SF{{Stream: 1, Function: 3}}},
-		},
-		{
-			name:   "SessionID",
-			edit:   func(r *Record) { r.SessionID = 0x0BAD },
-			header: Filter{SessionIDs: []uint16{0x0BAD}}, payload: Filter{SessionIDs: []uint16{0x1234}},
-		},
-		{
-			name:   "SystemBytes",
-			edit:   func(r *Record) { r.SystemBytes = [4]byte{1, 2, 3, 4} },
-			header: Filter{SystemBytes: &[4]byte{1, 2, 3, 4}}, payload: Filter{SystemBytes: &[4]byte{0xDE, 0xAD, 0xBE, 0xEF}},
-		},
-	}
-}
-
-// disagreeingRecord returns the record of v: a data record over blockTestFrame whose stored copy v changes.
-func (v *copyVector) disagreeingRecord() Record {
-	r := testDataRecord(0, blockTestHour, 1)
-	v.edit(&r)
-
-	return r
-}
-
-// TestIteratePredicatesReadPayload checks that the HSMS header predicates of a Filter are evaluated on the payload,
-// whatever the record header stores (the tracepack semantics specification §7.4), with and without payloads.
-func TestIteratePredicatesReadPayload(t *testing.T) {
+// TestIterateFieldPredicates checks that the HSMS header predicates of a Filter select on the payload's values
+// (the tracepack format specification §7.2), for data and control records, with and without payloads.
+func TestIterateFieldPredicates(t *testing.T) {
 	t.Parallel()
 
-	for _, v := range copyVectors() {
-		t.Run(v.name, func(t *testing.T) {
-			t.Parallel()
+	s6f11 := testDataRecord(1, blockTestHour+1, 1)
+	s6f11.Payload = s6f11Frame
+	recs := []Record{
+		testDataRecord(0, blockTestHour, 1),
+		s6f11,
+		controlRecord(2, blockTestHour+2, 1, DirEquipmentToHost),
+	}
+	p := writeReaderPack(t, readerPackConfig{codec: CodecZstd}, recs)
+	r := mustOpen(t, p.file, ReaderOptions{})
 
-			rec := v.disagreeingRecord()
-			p := writeReaderPack(t, readerPackConfig{codec: CodecZstd}, []Record{rec})
-			r := mustOpen(t, p.file, ReaderOptions{})
-
-			for _, payloads := range []bool{false, true} {
-				none := iterate(t, r, Query{Filter: v.header, Payloads: payloads})
-				assert.Empty(t, none.items, "payloads %v: the stored value is never matched", payloads)
-				assert.Equal(t, Result{}, none.res)
-
-				run := iterate(t, r, Query{Filter: v.payload, Payloads: payloads})
-				require.Len(t, run.items, 1, "payloads %v: the payload's value is matched", payloads)
-				assert.Equal(t, storedAs(rec, payloads), run.items[0].rec, "the record is yielded as stored")
-				assert.Equal(t, Result{}, run.res)
+	tests := []struct {
+		name string
+		f    Filter
+		want []uint64
+	}{
+		{name: "S1F3", f: Filter{SF: []SF{{Stream: 1, Function: 3}}}, want: []uint64{0}},
+		{name: "S6F11", f: Filter{SF: []SF{{Stream: 6, Function: 11}}}, want: []uint64{1}},
+		{name: "SessionID", f: Filter{SessionIDs: []uint16{0x0BAD}}, want: []uint64{1}},
+		{name: "System Bytes", f: Filter{SystemBytes: &[4]byte{0xDE, 0xAD, 0xBE, 0xEF}}, want: []uint64{0}},
+		// A control frame's bytes 6 and 7 are status or reason codes, read as stream and function like any other.
+		{name: "control stream 0 function 0", f: Filter{SF: []SF{{Stream: 0, Function: 0}}}, want: []uint64{2}},
+		{name: "control SessionID", f: Filter{SessionIDs: []uint16{0xFFFF}}, want: []uint64{2}},
+		{name: "no match", f: Filter{SF: []SF{{Stream: 2, Function: 41}}}},
+	}
+	for _, tt := range tests {
+		for _, payloads := range []bool{false, true} {
+			run := iterate(t, r, Query{Filter: tt.f, Payloads: payloads})
+			assert.Equal(t, tt.want, nilIfEmpty(run.seqs()), "%s, payloads %v", tt.name, payloads)
+			assert.Equal(t, Result{}, run.res, tt.name)
+			for _, it := range run.items {
+				assert.Equal(t, storedAs(recs[it.rec.Seq], payloads), it.rec, "%s: the record is yielded as stored", tt.name)
 			}
-		})
+		}
 	}
 }
 
-func TestIterateShortCaptureCopies(t *testing.T) {
+func TestIterateShortCaptureFields(t *testing.T) {
 	t.Parallel()
 
 	// Seven captured bytes hold SessionID and stream, but not function or System Bytes,
-	// whose stored copies are zero: a query for the zero value must still not match them (§7.2).
+	// which read as zero but are unavailable: a query for the zero value must still not match them (§7.2).
 	short := shortCapture(0, blockTestHour, 7)
 	require.Equal(t, FieldValiditySessionID|FieldValidityStreamAndW, short.FieldValidity)
 	event := testEventRecord(t, 1, blockTestHour+1, 1, &TransportEvent{Event: EventSocketClose})
@@ -343,13 +322,11 @@ func nilIfEmpty[T any](v []T) []T {
 	return v
 }
 
-// clearedSystemBytes returns a data record over the whole blockTestFrame
-// whose System Bytes bit is clear and whose copy is zero,
-// as a log conversion stores an identity its source did not carry (the tracepack storage specification §7).
+// clearedSystemBytes returns a data record over the whole blockTestFrame whose System Bytes bit is clear,
+// as a log conversion stores an identity its source did not carry over placeholder bytes (the tracepack storage specification §7).
 func clearedSystemBytes(seq uint64) Record {
 	r := testDataRecord(seq, blockTestHour+int64(seq), 1)
 	r.FieldValidity &^= FieldValiditySystemBytes
-	r.SystemBytes = [4]byte{}
 
 	return r
 }
@@ -360,7 +337,7 @@ func TestIterateClearBitOverPayloadBytes(t *testing.T) {
 	// The payload holds System Bytes DE AD BE EF, but the stored bit is clear,
 	// so the field is unavailable, whether the Writer validated its blocks or not (the tracepack format specification §7.2).
 	rec := clearedSystemBytes(0)
-	payloadSB := [4]byte(blockTestFrame[copySystemBytesOff:copySystemBytesEnd])
+	payloadSB := [4]byte(blockTestFrame[fieldSystemBytesOff:fieldSystemBytesEnd])
 
 	for _, validate := range []bool{false, true} {
 		p := writeReaderPack(t, readerPackConfig{codec: CodecZstd, validate: validate}, []Record{rec})
@@ -380,26 +357,34 @@ func TestIterateClearBitOverPayloadBytes(t *testing.T) {
 			assert.Len(t, sf.items, 1, "%s: the fields whose bits are set stay available", name)
 		}
 	}
+
+	h := rec.HSMSHeader()
+	assert.Equal(t, payloadSB, h.SystemBytes, "the placeholder bytes are visible")
+	assert.False(t, h.Available.Has(FieldValiditySystemBytes), "but never available")
 }
 
 func TestIterateSetBitBeyondPayload(t *testing.T) {
 	t.Parallel()
 
-	// Every bit is set, but the payload ends before System Bytes: a writer defect (the tracepack format specification §7.2),
-	// whose field a reader treats as unavailable.
+	// Every bit is set, but the payload ends before System Bytes: a writer defect (the tracepack format specification §7.2)
+	// that every Writer rejects, so the pack of a nonconforming writer is crafted by cutting the payload of a written record.
+	// A reader treats the field as unavailable.
 	rec := testDataRecord(0, blockTestHour, 1)
-	rec.Payload = blockTestFrame[:copySTypeEnd]
-	rec.DecodeStatus = DecodeStatusShortFrame
-
 	p := writeReaderPack(t, readerPackConfig{codec: CodecZstd}, []Record{rec})
-	r := mustOpen(t, p.file, ReaderOptions{})
+	file := rebuildPack(t, p.file, func(_ int, b *testBlock) {
+		b.payloads[0] = b.payloads[0][:fieldSTypeEnd]
+		b.headers[0].PayloadLen = fieldSTypeEnd
+	})
+	r := mustOpen(t, file, ReaderOptions{})
+	require.NoError(t, r.Header().FooterErr)
+	stored := [4]byte(blockTestFrame[fieldSystemBytesOff:fieldSystemBytesEnd])
 
 	tests := []struct {
 		name    string
 		f       Filter
 		yielded bool
 	}{
-		{name: "stored System Bytes", f: Filter{SystemBytes: &rec.SystemBytes}},
+		{name: "System Bytes of the whole frame", f: Filter{SystemBytes: &stored}},
 		{name: "zero System Bytes", f: Filter{SystemBytes: &[4]byte{}}},
 		{name: "unavailable requested", f: Filter{SystemBytes: &[4]byte{}, IncludeUnavailable: true}, yielded: true},
 		{name: "an available field", f: Filter{SF: []SF{{Stream: 1, Function: 3}}}, yielded: true},
@@ -904,12 +889,13 @@ func fuzzRecordKey(it *Item) string {
 }
 
 // fuzzIterateSeeds returns the seed packs of FuzzIterate:
-// indexed, validated, walked, copy disagreements with a short capture and an event, coverage, widened headers,
+// indexed, validated, walked, an S6F11 frame with a short capture and an event, coverage, widened headers,
 // and blocks that prune by time, epoch, kind and direction.
 func fuzzIterateSeeds(f *testing.F) [][]byte {
-	v := copyVectors()[0]
+	s6f11 := testDataRecord(0, blockTestHour, 1)
+	s6f11.Payload = s6f11Frame
 	mixed := []Record{
-		v.disagreeingRecord(),
+		s6f11,
 		shortCapture(1, blockTestHour+1, 7),
 		testEventRecord(f, 2, blockTestHour+2, 1, &TransportEvent{Event: EventSocketClose}),
 	}
