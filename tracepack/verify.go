@@ -213,6 +213,11 @@ func (r *Reader) verify(ctx context.Context) (Report, error) {
 	rep := Report{Finalized: r.finalized, FooterErr: r.footerErr, Blocks: len(r.blocks), PrefixEnd: r.blocksStart()}
 	failed := make([]bool, len(r.blocks))
 	inPrefix := true
+	// prevSeq is the last seq of the latest validated block; valid iff hasPrev.
+	var (
+		prevSeq uint64
+		hasPrev bool
+	)
 
 	var buf blockBuf
 	for i := range r.blocks {
@@ -243,6 +248,11 @@ func (r *Reader) verify(ctx context.Context) (Report, error) {
 			if err := checkSummary(&r.footer.blocks[i], d); err != nil {
 				rep.Disagreements = append(rep.Disagreements, *blockDefect(i, info, ReasonIndexMismatch, err))
 			}
+		}
+
+		rep.WriterDefects = appendWriterDefects(rep.WriterDefects, i, info, d, prevSeq, hasPrev)
+		if n := d.count(); n > 0 {
+			prevSeq, hasPrev = d.header(n-1).Seq, true
 		}
 
 		rep.Validated++
@@ -345,4 +355,69 @@ func checkSummary(stated *blockSummary, d *decodedBlock) error {
 	}
 
 	return nil
+}
+
+// appendWriterDefects appends to dst the writer defects of validated block i, read as d
+// (the tracepack format specification §13), in this order:
+// a first seq not above prevSeq, the last seq of the validated block before it, when hasPrev (I-12);
+// per record, a data or control record whose field_validity marks a field its payload lacks (§7.2),
+// and a transport-event or annotation record whose field_validity is not 0 or whose payload is not a valid TLV body (§8);
+// then records in more than one UTC hour (I-13).
+// Reserved field_validity bits are ignored (I-9), and a record of an unknown kind is not checked.
+func appendWriterDefects(dst []WriterDefect, i int, info *BlockInfo, d *decodedBlock, prevSeq uint64, hasPrev bool) []WriterDefect {
+	n := d.count()
+	if n == 0 {
+		return dst
+	}
+	add := func(kind WriterDefectKind, seq uint64, err error) {
+		dst = append(dst, WriterDefect{Kind: kind, Block: i, Offset: int64(info.Offset), Seq: seq, Err: err})
+	}
+
+	first := d.header(0)
+	if hasPrev && first.Seq <= prevSeq {
+		add(WriterDefectSeqOrder, first.Seq, fmt.Errorf(
+			"tracepack: block %d at offset %d: first seq %d is not above the previous block's last seq %d", i, info.Offset, first.Seq, prevSeq))
+	}
+
+	tsMin, tsMax := first.TSUTCNs, first.TSUTCNs
+	for j := range n {
+		h := d.header(j)
+		tsMin, tsMax = min(tsMin, h.TSUTCNs), max(tsMax, h.TSUTCNs)
+
+		payload := d.payload(j)
+		fv := FieldValidity(h.FieldValidity) & fieldValidityMask
+		// A record of another kind, unclassified or outside the registry, has no rule to check.
+		if kind := Kind(h.Kind); kind == KindData || kind == KindControl {
+			if beyond := fv &^ capturedFields(len(payload)); beyond != 0 {
+				add(WriterDefectFieldValidity, h.Seq, fmt.Errorf("tracepack: record seq %d: field_validity marks %s, but the payload is %d bytes: %w",
+					h.Seq, beyond, len(payload), ErrFieldValidity))
+			}
+		} else if kind == KindTransportEvent || kind == KindAnnotation {
+			if fv != 0 {
+				add(WriterDefectEventFieldValidity, h.Seq, fmt.Errorf("tracepack: %s record seq %d: field_validity %s, not 0", kind, h.Seq, fv))
+			}
+			if err := checkEventPayload(kind, payload); err != nil {
+				add(WriterDefectEventPayload, h.Seq, fmt.Errorf("tracepack: %s record seq %d: %w", kind, h.Seq, err))
+			}
+		}
+	}
+
+	if hourOf(tsMin) != hourOf(tsMax) {
+		add(WriterDefectHourSpan, first.Seq, fmt.Errorf(
+			"tracepack: block %d at offset %d: records span %d to %d, more than one UTC hour", i, info.Offset, tsMin, tsMax))
+	}
+
+	return dst
+}
+
+// checkEventPayload decodes the TLV body of a transport-event or annotation record, kind, and returns its error (§8).
+func checkEventPayload(kind Kind, payload []byte) error {
+	var err error
+	if kind == KindTransportEvent {
+		_, err = UnmarshalTransportEvent(payload)
+	} else {
+		_, err = UnmarshalAnnotation(payload)
+	}
+
+	return err
 }

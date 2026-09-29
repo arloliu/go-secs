@@ -392,3 +392,184 @@ func TestVerifyTrailerDisagrees(t *testing.T) {
 	assert.Equal(t, OutcomeFinalizedInconsistent, rep.Outcome, "an invalid footer alone")
 	assert.Empty(t, rep.Disagreements)
 }
+
+// defectTestSteps returns the records of the writer-defect test pack, three blocks in one UTC hour:
+//
+//	block 0: 0 data, 1 annotation, 2 state-transition event
+//	block 1: 3 data, 4 data
+//	block 2: 5 data
+func defectTestSteps(t testing.TB) []footerTestStep {
+	t.Helper()
+
+	note, err := (&Annotation{AnnotationKind: AnnotationKindNote, Text: new("note")}).MarshalBinary()
+	require.NoError(t, err)
+	ts := func(i int64) int64 { return blockTestHour + 1000*i }
+
+	return []footerTestStep{
+		{rec: testDataRecord(0, ts(0), 1)},
+		{rec: Record{Seq: 1, TSUTCNs: ts(1), Epoch: 1, Kind: KindAnnotation, Dir: DirLocal, DecodeStatus: DecodeStatusNotApplicable, Payload: note}},
+		{rec: testEventRecord(t, 2, ts(2), 1, &TransportEvent{
+			Event: EventStateTransition, PrevState: new(StateNotSelected), CurState: new(StateSelected),
+		}), flush: true},
+		{rec: testDataRecord(3, ts(3), 1)},
+		{rec: testDataRecord(4, ts(4), 1), flush: true},
+		{rec: testDataRecord(5, ts(5), 1)},
+	}
+}
+
+// defectTestPack writes the writer-defect test pack, finalized, and checks its layout.
+func defectTestPack(t testing.TB) *footerTestPack {
+	t.Helper()
+
+	p := writeFooterTestPack(t, CodecZstd, defectTestSteps(t))
+	require.Len(t, p.blocks, 3)
+	require.Equal(t, []uint32{3, 2, 1}, []uint32{p.blocks[0].recordCount, p.blocks[1].recordCount, p.blocks[2].recordCount})
+
+	return p
+}
+
+// editBlock returns file with block i's records changed by edit and the block re-encoded (see rebuildPack).
+func editBlock(t testing.TB, file []byte, i int, edit func(b *testBlock)) []byte {
+	t.Helper()
+
+	return rebuildPack(t, file, func(j int, b *testBlock) {
+		if j == i {
+			edit(b)
+		}
+	})
+}
+
+// requireWriterDefect requires that defects holds exactly one defect, of kind, in block i at off, for seq.
+func requireWriterDefect(t *testing.T, defects []WriterDefect, kind WriterDefectKind, i int, off, seq uint64) {
+	t.Helper()
+
+	require.Len(t, defects, 1, "%v", defects)
+	d := defects[0]
+	assert.Equal(t, kind, d.Kind, "%v", d.Err)
+	assert.Equal(t, i, d.Block)
+	assert.Equal(t, int64(off), d.Offset)
+	assert.Equal(t, seq, d.Seq)
+	require.Error(t, d.Err)
+}
+
+func TestVerifyRecordWriterDefects(t *testing.T) {
+	t.Parallel()
+
+	p := defectTestPack(t)
+	tests := []struct {
+		name string
+		edit func(b *testBlock)
+		kind WriterDefectKind
+		seq  uint64
+	}{
+		{name: "System Bytes marked beyond a 10-byte payload", edit: func(b *testBlock) {
+			b.payloads[0] = b.payloads[0][:10]
+			b.headers[0].PayloadLen = 10
+		}, kind: WriterDefectFieldValidity, seq: 0},
+		{name: "annotation with field_validity", edit: func(b *testBlock) {
+			b.headers[1].FieldValidity = uint8(FieldValiditySessionID)
+		}, kind: WriterDefectEventFieldValidity, seq: 1},
+		{name: "transport event with field_validity", edit: func(b *testBlock) {
+			b.headers[2].FieldValidity = uint8(FieldValiditySystemBytes)
+		}, kind: WriterDefectEventFieldValidity, seq: 2},
+		{name: "annotation payload not a TLV body", edit: func(b *testBlock) {
+			b.payloads[1] = []byte{0xFF}
+			b.headers[1].PayloadLen = 1
+		}, kind: WriterDefectEventPayload, seq: 1},
+		{name: "transport event payload not a TLV body", edit: func(b *testBlock) {
+			b.payloads[2] = []byte{0xFF}
+			b.headers[2].PayloadLen = 1
+		}, kind: WriterDefectEventPayload, seq: 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rep := mustVerify(t, editBlock(t, p.file, 0, tt.edit))
+			assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome, "a writer defect never changes the outcome: %v", rep.Disagreements)
+			requireWriterDefect(t, rep.WriterDefects, tt.kind, 0, p.blocks[0].offset, tt.seq)
+		})
+	}
+
+	t.Run("reserved field_validity bits are ignored", func(t *testing.T) {
+		t.Parallel()
+
+		rep := mustVerify(t, editBlock(t, p.file, 0, func(b *testBlock) { b.headers[1].FieldValidity = 0xC0 }))
+		assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome)
+		assert.Empty(t, rep.WriterDefects)
+	})
+}
+
+func TestVerifyBlockWriterDefects(t *testing.T) {
+	t.Parallel()
+
+	p := defectTestPack(t)
+	open := writeFooterTestPack(t, CodecZstd, defectTestSteps(t))
+	openFile := open.file[:open.tr.FooterOffset]
+	nextHour := blockTestHour + hourNs
+
+	// seqOverlap makes block 1 start at seq 2, the last seq of block 0, and states it in its F-2 entry, so the index is faithful.
+	seqOverlap := func(b *testBlock) {
+		b.env.FirstSeq = 2
+		b.headers[0].Seq = 2
+	}
+	// hourSpan moves block 1's last record into the next hour.
+	hourSpan := func(b *testBlock) { b.headers[1].TSUTCNs = nextHour }
+	faithfulHourSpan := func(b *testBlock) {
+		hourSpan(b)
+		b.patchEntry = func(e *format.F2Entry) { e.TSMax = nextHour }
+	}
+
+	tests := []struct {
+		name      string
+		file      []byte
+		want      Outcome
+		footerErr bool
+		disagrees bool
+		kind      WriterDefectKind
+		seq       uint64
+	}{
+		{name: "seq order, faithful index", file: editBlock(t, p.file, 1, seqOverlap),
+			want: OutcomeFinalizedInconsistent, footerErr: true, kind: WriterDefectSeqOrder, seq: 2},
+		{name: "seq order, unfinalized", file: editBlock(t, openFile, 1, seqOverlap),
+			want: OutcomeUnfinalized, footerErr: true, kind: WriterDefectSeqOrder, seq: 2},
+		{name: "hour span, faithful index", file: editBlock(t, p.file, 1, faithfulHourSpan),
+			want: OutcomeFinalizedInconsistent, footerErr: true, kind: WriterDefectHourSpan, seq: 3},
+		{name: "hour span, index understating it", file: editBlock(t, p.file, 1, hourSpan),
+			want: OutcomeFinalizedInconsistent, disagrees: true, kind: WriterDefectHourSpan, seq: 3},
+		{name: "hour span, unfinalized", file: editBlock(t, openFile, 1, hourSpan),
+			want: OutcomeUnfinalized, footerErr: true, kind: WriterDefectHourSpan, seq: 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rep := mustVerify(t, tt.file)
+			assert.Equal(t, tt.want, rep.Outcome)
+			assert.Equal(t, tt.footerErr, rep.FooterErr != nil, "%v", rep.FooterErr)
+			assert.Equal(t, tt.disagrees, len(rep.Disagreements) > 0, "%v", rep.Disagreements)
+			assert.Equal(t, 3, rep.Validated)
+			requireWriterDefect(t, rep.WriterDefects, tt.kind, 1, p.blocks[1].offset, tt.seq)
+		})
+	}
+
+	t.Run("precedence with a failed block", func(t *testing.T) {
+		t.Parallel()
+
+		defective := editBlock(t, p.file, 0, func(b *testBlock) {
+			b.headers[2].TSUTCNs = nextHour
+			b.patchEntry = func(e *format.F2Entry) { e.TSMax = nextHour }
+		})
+		// Re-encoding block 0 may change its length, so the later blocks are located in the rebuilt file.
+		blocks := mustOpen(t, defective, ReaderOptions{}).Blocks()
+		body := func(i int) uint64 { return blocks[i].Offset + format.EnvelopeLen + 1 }
+
+		rep := mustVerify(t, flipByte(defective, body(2)))
+		assert.Equal(t, OutcomeFinalizedTruncated, rep.Outcome)
+		requireWriterDefect(t, rep.WriterDefects, WriterDefectHourSpan, 0, p.blocks[0].offset, 0)
+
+		rep = mustVerify(t, flipByte(defective, body(1)))
+		assert.Equal(t, OutcomeCorruptMiddle, rep.Outcome)
+		requireWriterDefect(t, rep.WriterDefects, WriterDefectHourSpan, 0, p.blocks[0].offset, 0)
+	})
+}
