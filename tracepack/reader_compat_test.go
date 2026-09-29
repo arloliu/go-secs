@@ -1,6 +1,8 @@
 package tracepack
 
 import (
+	"fmt"
+	"os"
 	"slices"
 	"testing"
 
@@ -208,7 +210,7 @@ func lengthenEntries(_ testing.TB, p *footerParts) {
 	p.entryPad = []byte{0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8}
 }
 
-// widenFile returns file with every record header of the blocks wide selects widened to 64 bytes by wideExtra.
+// widenFile returns file with every record header of the blocks wide selects widened by the extension area of wideExtra.
 // The blocks keep their records, so they still satisfy I-2.
 func widenFile(t testing.TB, file []byte, wide func(i int) bool) []byte {
 	t.Helper()
@@ -326,8 +328,8 @@ func TestReaderCompatWideRecordHeaders(t *testing.T) {
 		name string
 		wide func(i int) bool
 	}{
-		{name: "every block 64", wide: func(int) bool { return true }},
-		{name: "blocks of 56 and 64", wide: func(i int) bool { return i == 1 }},
+		{name: "every block widened", wide: func(int) bool { return true }},
+		{name: "known and widened blocks", wide: func(i int) bool { return i == 1 }},
 	}
 	for _, cfg := range compatConfigs() {
 		for _, tt := range tests {
@@ -350,6 +352,78 @@ func TestReaderCompatWideRecordHeaders(t *testing.T) {
 			})
 		}
 	}
+}
+
+// TestReaderCompatExtensionLengths reads blocks whose record headers carry extension areas of 1 to 20 bytes,
+// record_header_len 45 to 64, each byte a column of the header section like any other
+// (the tracepack format specification §6 and §7.1): the known fields read as before, the extension bytes are kept.
+func TestReaderCompatExtensionLengths(t *testing.T) {
+	t.Parallel()
+
+	recs := hourRecords(1, 5)
+	for _, n := range []int{1, 6, 11, 20} {
+		t.Run(fmt.Sprintf("record_header_len %d", format.RecordHeaderLen+n), func(t *testing.T) {
+			t.Parallel()
+
+			extra := func(j int) []byte {
+				e := make([]byte, n)
+				for k := range e {
+					e[k] = byte(0xC0 + 16*j + k)
+				}
+
+				return e
+			}
+			p := writeReaderPack(t, readerPackConfig{codec: CodecZstd}, recs)
+			file := rebuildPack(t, p.file, func(_ int, b *testBlock) {
+				for j := range b.headers {
+					b.headers[j].Extra = extra(j)
+				}
+			})
+			r := mustOpen(t, file, ReaderOptions{})
+			require.NoError(t, r.Header().FooterErr)
+			require.Equal(t, uint16(format.RecordHeaderLen+n), r.Blocks()[0].RecordHeaderLen)
+
+			run := iterate(t, r, Query{Payloads: true})
+			require.True(t, run.res.Complete(), "%v", run.res.Incomplete)
+			require.Len(t, run.items, len(recs))
+			for k, it := range run.items {
+				assert.Equal(t, recs[k], it.rec, "record %d", k)
+				assert.Equal(t, extra(k), it.extra, "record %d keeps its extension area", k)
+			}
+		})
+	}
+}
+
+// TestReaderV010Sample reads the pack of testdata/v0.1.0-rows.tpk, written by tracepack v0.1.0 with 56-byte headers stored in rows,
+// which the redefined format 1.0 does not support (the tracepack format specification §14).
+// It is a sample of that layout, not a detection guarantee:
+// its three-record block gathers its seqs from mixed bytes and fails I-2,
+// while its one-record block, laid out identically in both layouts, passes I-2 with its fields from byte 36 on misread.
+func TestReaderV010Sample(t *testing.T) {
+	t.Parallel()
+
+	file, err := os.ReadFile("testdata/v0.1.0-rows.tpk")
+	require.NoError(t, err)
+	r := mustOpen(t, file, ReaderOptions{})
+	require.NoError(t, r.Header().FooterErr, "the old footer validates: its retired F-3 tags are skipped")
+	require.Len(t, r.Blocks(), 2)
+	assert.Equal(t, uint16(56), r.Blocks()[0].RecordHeaderLen)
+
+	run := iterate(t, r, Query{Payloads: true})
+	require.Len(t, run.res.Incomplete, 1)
+	d := run.res.Incomplete[0]
+	assert.Equal(t, ReasonCorruptBlock, d.Reason)
+	assert.Equal(t, 0, d.Block)
+	require.ErrorContains(t, d.Err, "first_seq 0")
+
+	require.Len(t, run.items, 1, "the one-record block reads")
+	rec := run.items[0].rec
+	assert.Equal(t, uint64(3), rec.Seq)
+	assert.Equal(t, uint32(1), rec.Epoch)
+	assert.Len(t, rec.Payload, 14)
+	assert.NotEqual(t, KindData, rec.Kind, "kind is read from what was the System Bytes copy")
+	assert.Equal(t, "unknown(4)", rec.Dir.String())
+	assert.Len(t, run.items[0].extra, 56-format.RecordHeaderLen, "bytes 44-55 read as an extension area")
 }
 
 func TestReaderCompatLongerF2Entries(t *testing.T) {
@@ -396,7 +470,7 @@ func TestReaderCompatUnknownFooterTags(t *testing.T) {
 
 // TestReaderCompatNewerMinorPack reads a pack carrying every change
 // that the tracepack format specification §14 allows a minor version:
-// format_minor 1, unknown pack metadata tags, unknown enum values, 64-byte record headers beside 56-byte ones,
+// format_minor 1, unknown pack metadata tags, unknown enum values, widened record headers beside 44-byte ones,
 // 88-byte F-2 entries and unknown F-3 and F-5 tags.
 func TestReaderCompatNewerMinorPack(t *testing.T) {
 	t.Parallel()
