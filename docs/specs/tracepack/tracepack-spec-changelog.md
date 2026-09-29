@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-09-28) — spec v2.11.
+Status: current (2026-09-29) — spec v2.12.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository.
@@ -511,3 +511,19 @@ Summary:
 - [FMT §16] the provisional S1F3 vector with its F-3 S/F structure present waits for that structure,
   which format 1.0 does not define ([SEM §7.1], [OVW §6]); the header-scan variant stays.
 - Whether a writer must fill every nested tag stays open for `Repair`, which writes all of them.
+
+## Changes v2.11 → v2.12: copy-field availability follows field_validity (owner decision G5-90, 2026-09-29)
+
+Source: the Go reader, which took a copy field's availability from the payload in authoritative mode on a non-attested block
+and from `field_validity` otherwise,
+so a log-converted record whose source lacked System Bytes matched a query for its placeholder bytes only when its pack was not attested; no proposal document.
+Format version stays 1.0: no byte changes.
+
+Summary:
+- [FMT §7.2] `field_validity` also records which identities a log conversion established from its source ([STO §7]);
+  availability follows the stored bit alone, and the payload supplies only the value.
+- [SEM §7.4] authoritative evaluation keeps the payload's values and the stored availability.
+- [FMT §7.2], [FMT §12] a set bit requires the field's bytes in the payload: an attesting writer rejects a record that lacks them, a full read and `verify` report it, and an authoritative query treats the field as unavailable.
+- [SEM §2] the reconstruction contract keeps an identity its source lacks unavailable, whatever placeholder bytes the frame needs.
+- [FMT §16] query vectors for a clear bit over payload bytes and for a set bit over missing bytes, in both modes, attested and not.
+- Rejected alternative: the writer computing `field_validity` from the payload length, which would break the converter contract of [STO §7].

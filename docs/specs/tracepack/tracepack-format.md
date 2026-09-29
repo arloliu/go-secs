@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-09-28) — v2.11, tracepack format 1.0.
+Status: current (2026-09-29) — v2.12, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -296,7 +296,7 @@ How queries use these levels is defined in [SEM §7.4].
 
 ## 7. Record header
 
-A record is a (**record header**, payload) pair stored in the two sections of a decoded block body (§6, Figure 3):
+A record is a (**record header**, payload) pair stored in the two sections of a decoded block body (§6, [OVW] Figure 3):
 its record header in the header section, its `payload_len` bytes of payload in the payload section.
 Records exist only inside decoded block bodies.
 
@@ -360,7 +360,7 @@ Class column:
 | `quality` | declared | effective quality flags ([SEM §6]); only `decode-failed` is derived (it mirrors `decode_status`) |
 | `decode_status` | derived | [SEM §3] |
 | `trailing_bytes` | derived | message-text bytes after the first complete SECS-II item; meaningful only when `decode_status` is `ok` or `ok-with-trailing`; for a `redacted` record, of the source message text |
-| `field_validity` | structural | which copy fields were present in the captured bytes (short captures) |
+| `field_validity` | structural | which copy fields were present in the captured bytes (short captures), or, for a log conversion, established from the source's metadata ([STO §7]) |
 | `payload_len` | structural | payload length in bytes |
 
 The copy rule is **positional and identical for data and control records**:
@@ -369,10 +369,18 @@ so `stream`, `W` and `function` hold those raw bits and are interpreted accordin
 For transport-event and annotation records all copy fields are zero and `field_validity` is 0.
 A copy field whose `field_validity` bit is clear MUST be zero on write,
 and a filter or index MUST treat it as "cannot match" on that field unless the caller explicitly asks for records with unavailable fields.
+Availability follows the stored `field_validity` bit, never the payload's extent: a clear bit is unavailable even where the payload holds the field's bytes,
+as a log conversion's payload does for an identity its source did not carry ([STO §7]);
+the payload supplies a field's value (I-10), never its availability, so a query gives the same availability whether or not the block is attested (§6, [SEM §7.4]).
+A set bit requires the payload to hold every byte of its field:
+a record whose set bit lacks them is a writer defect, which an attesting writer rejects (§12)
+and `verify` reports as a disagreement under I-10;
+an authoritative query, which needs the payload's value, treats that field as unavailable,
+while a provisional query, which selects on header copies, may match it and reports `header-validated` ([SEM §7.4]).
 
 ## 8. Payload by kind
 
-- **data / control**: the full HSMS frame as captured (Figure 3):
+- **data / control**: the full HSMS frame as captured ([OVW] Figure 3):
   4-byte big-endian length, 10-byte HSMS message header, message text (SEMI E37 §8.2).
   Short or over-long captures are stored as captured, with `field_validity` and `decode_status` saying what is missing;
   the writer never pads, truncates or repairs bytes.
@@ -619,7 +627,8 @@ A footer failing any check is **invalid**: the reader reports it and falls back 
 1. Write the file header and the pack metadata.
    `blocks_validated = true` (§5) is a commitment made here, before any block is written.
 2. For each block: if the pack commits `blocks_validated = true`, validate the block after encoding it and before writing it:
-   decode the encoded body, check I-2, and check I-10 agreement for every data/control record whose `field_validity` marks the copied bytes as captured.
+   decode the encoded body, check I-2, and check I-10 agreement for every data/control record whose `field_validity` marks the copied bytes as captured,
+   which fails when the payload lacks those bytes (§7.2).
    Then write envelope + body;
    if durability is enabled, flush to stable storage after the whole block is written.
    A writer's output target and its durability operation are separate capabilities;
@@ -721,6 +730,11 @@ The corpus lets an implementation in any language prove that it reads and writes
   maximum-value integers (§2); UUID byte order; the CRC check value;
   a record whose copy fields disagree with its payload (I-10);
   a short capture whose unavailable copy fields must not match a filter (§7.2);
+  a data record whose `field_validity` bit for System Bytes is clear while its payload holds them (a log conversion without source System Bytes),
+  queried for those payload bytes in both modes, attested and not: never matched unless unavailable fields are requested (§7.2);
+  the inverse, a non-attested record whose System Bytes bit is set while its payload ends before them, queried for its header copy:
+  unavailable in authoritative mode, matched with `header-validated` in provisional mode,
+  and reported by `verify` as a writer defect (§7.2);
   CRC-valid but structurally invalid footers, and a block whose absent `seq_range` hides a missing seq (§10 footer validation).
 - Block framing vectors (§6, §7.1):
   identical body bytes under different framing (134 decoded bytes as one record with a 120-byte header, or as two records with 56-byte headers);

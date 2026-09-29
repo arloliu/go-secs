@@ -1,6 +1,6 @@
 # tracepack — record semantics
 
-Status: current (2026-09-28) — v2.11, tracepack format 1.0.
+Status: current (2026-09-29) — v2.12, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic.
 
@@ -69,7 +69,9 @@ They apply only to values that are not masked (§8): a masked value of a `redact
 
 **Reconstruction contract** (`capture_method = log`):
 the writer builds each message from its source text,
-then sets SessionID / DeviceID, System Bytes and the W-bit from the source's per-entry metadata, never from defaults.
+then sets SessionID / DeviceID, System Bytes and the W-bit from the source's per-entry metadata, never from defaults:
+an identity the metadata does not carry keeps whatever placeholder bytes encoding the frame requires,
+and its `field_validity` bit stays clear, so it is never available to a query ([FMT §7.2], [STO §7]).
 A W-bit on an even (reply) function is invalid (SEMI E5 §7.2: replies never request a reply);
 such an entry is stored as an annotation with `decode_status = build-rejected`, never as a silently repaired message.
 
@@ -250,7 +252,8 @@ A query runs in one of two modes.
   the result carries the validation status `header-validated` with the blocks concerned, also when the result is empty.
   `header-validated` means "selected by unvalidated copies"; for a block excluded by an index alone, none of its bytes were read.
 - **Authoritative**: a copy-field predicate is evaluated either on the values in the payload ([FMT I-10])
-  or on header copies of attested blocks.
+  or on header copies of attested blocks;
+  in both cases a field is available only when its stored `field_validity` bit is set ([FMT §7.2]).
   A non-attested block is never excluded by its header copies or by F-3 / F-4 structures derived from them;
   it is read in full and its records are selected by payload values.
 

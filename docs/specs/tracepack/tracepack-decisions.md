@@ -1,6 +1,6 @@
 # tracepack — decision log
 
-Status: current (2026-09-28)
+Status: current (2026-09-29)
 Owner decisions for tracepack; append-only under `.agents/rules/450-doc-lifecycle.md`.
 Entries up to G5-79 were recorded in the design notes before the repository became the source of truth;
 they are copied here verbatim under their original headings, and later entries are added only here.
@@ -264,3 +264,11 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   e.g. a transaction reported `unmatched`; over-reporting is bounded by the pack's hour.
   Writer-side requiredness of the nested tags is left to `Repair`, which writes all of them.
   Spec: [FMT §5] (v2.11).
+- G5-90 Copy-field availability (2026-09-29): a copy field's availability follows its stored `field_validity` bit, never the payload's extent,
+  in every query mode, attested or not; authoritative evaluation takes the field's value from the payload and its availability from the bit,
+  so a set bit whose bytes the payload lacks (a writer defect) is unavailable to it.
+  The writer keeps the caller's `field_validity`, because a log converter clears the bits of identities its source did not carry ([STO §7]).
+  Rationale: the query result no longer depends on whether a pack is attested, the writer's and reader's I-10 checks agree,
+  and the v0.1.0 writer's behavior is unchanged.
+  Rejected: the writer computing `field_validity` from the payload length (breaks [STO §7] item 4).
+  Spec: [FMT §7.2], [SEM §7.4], [FMT §16] (v2.12).
