@@ -1,6 +1,6 @@
 # Proposal P9 — format revision before phase 4: columnar record headers, block coalescing, retirements
 
-Status: draft (2026-09-29) — applies owner decisions G5-91..G5-96; review round 3 findings fixed, ready to apply.
+Status: draft (2026-09-29) — applies owner decisions G5-91..G5-98; review round 6: ready to apply.
 Source: the weight and small-message overhead review of 2026-09-29 (kept outside the repository)
 and the owner discussion of the same day.
 
@@ -13,8 +13,9 @@ Its measurements are in §2.
 
 This proposal revises the format:
 a byte-columnar header section (§3.1), block coalescing in merges (§3.2), two retirements (§3.3),
-a small redundancy cleanup (§3.4), and the phase 4 scope (§3.6).
-The owner decided it on 2026-09-29 (G5-91..G5-96).
+a small redundancy cleanup (§3.4), the phase 4 scope (§3.6),
+a record header without copy fields (§3.7), and a review of the remaining fields with every read made full (§3.8).
+The owner decided it on 2026-09-29 (G5-91..G5-98).
 It lands as spec v2.13 and as the format-revision step of the implementation plan, before phase 4.
 
 The storage question the review raised — a view without commit objects — was part of this proposal until review round 1
@@ -25,7 +26,7 @@ the outcome goes to the changelog and the decision log, and this file is deleted
 
 ## 2. Evidence
 
-Measured with the tracepack Writer (zstd default level, attested) on synthetic traffic:
+Measured with the tracepack Writer (zstd default level, block validation on) on synthetic traffic:
 *idle* = Linktest every 30 s, S1F3/S1F4 every 5 s, S1F1/S1F2 every 60 s (30.7 wire bytes per message);
 *busy* = idle plus S6F11 every 1–3 s, an S6F1 trace every 1 s and S2F41 every 5 min (77.7 wire bytes per message).
 The benchmark code is outside the repository (`tpkbench`, kept with the review);
@@ -62,7 +63,20 @@ on one 4 MiB block of busy traffic (31,505 records, 1,764,280-byte header sectio
 | compressed block | 1,816,820 B | 1,532,637 B (−15.6 %) |
 | encode (transpose + zstd) | 14.8 ms | 11.8 ms |
 | full decode | 2.57 ms | 3.31 ms (untranspose 0.66 ms) |
-| header-section decode + S6F11 filter | 0.73 ms | 0.83 ms scanning two columns; 1.5 ms after untransposing |
+| header-section decode + S6F11 filter (the header-only read that §3.8 removes; kept for comparison) | 0.73 ms | 0.83 ms scanning two columns; 1.5 ms after untransposing |
+
+Bytes per record of a columnar block body by record-header content (one hour, timestamps with nanosecond noise):
+
+| Record header | idle | busy |
+|---|---|---|
+| 1.0 today (56 B) | 14.7 | 49.3 |
+| without copy fields (§3.7, the decided content) | 13.8 | 47.8 |
+| without copy fields, `mono_ns` stored as a residual (§3.8) | 11.2 | 45.6 |
+| without copy fields and `mono_ns` (§3.8) | 9.2 | 43.8 |
+| payloads only | 3.8 | 38.5 |
+
+`trailing_bytes`, `fidelity` and `decode_status` each measured under 0.1 bytes per record;
+removing them is about rules, not bytes.
 
 ## 3. Format
 
@@ -72,7 +86,7 @@ The header section of a decoded block body stores the record headers transposed:
 with `n = record_count` and `L = record_header_len`,
 byte `j` of record `i`'s header is at offset `j × n + i` of the header section, for 0 ≤ `j` < `L` and 0 ≤ `i` < `n`.
 The section is still `n × L` bytes and still precedes the payload section,
-so the payload offsets, I-2's length equation, the header-only read level and the footer are unchanged.
+so the payload offsets, I-2's length equation and the footer are unchanged.
 
 Proposed wording for [FMT §6],
 replacing "The header section holds the `record_count` record headers in record order, each `record_header_len` bytes":
@@ -85,11 +99,10 @@ replacing "The header section holds the `record_count` record headers in record 
 Consequences, each to be stated where it applies:
 
 - [FMT §7.1] offsets are positions in the gathered header, not in the section.
-- A `record_header_len` above 56 transposes all `L` bytes;
+- A `record_header_len` above the known length (44 after §3.8) transposes all `L` bytes;
   unknown bytes are byte columns like any other and are preserved
   (I-12 byte identity is over the gathered bytes and the payload).
-- A header-only read decodes the whole header section before any record's header is complete, as today;
-  I-2's seq checks run on the gathered headers.
+- I-2's seq and length checks run on the gathered headers, after the whole body is decoded (§3.8: every read is full).
 - A block of one record is laid out identically in both layouts.
 - Merges copy blocks verbatim as before; record-level resolution and coalescing gather and re-transpose.
 - The footer, the envelope and every F-3 statistic are unchanged.
@@ -117,19 +130,17 @@ labelled as a sample of the layout before v2.13, not as a detection guarantee.
 The writer transposes once when it assembles a block body (one loop over `n × L` bytes).
 The reader untransposes the decoded header section into a reusable row buffer,
 after which every existing record-level path is unchanged —
-the I-2 walk, header access, payload offsets, unknown header bytes;
-a filter may instead scan columns directly.
+the I-2 walk, header access, payload offsets, unknown header bytes.
 The validating writer ([FMT §12]) checks the encoded bytes through the same path:
-it decodes the encoded body, untransposes its header section, then runs the I-2 and I-10 checks;
+it decodes the encoded body, untransposes its header section, then runs the I-2 checks;
 checking the buffer before the transpose would not check what is written.
 Golden block bodies and the reader's per-offset corruption expectations are regenerated.
 
 **Pros:** header cost −40 % with no field removed and no semantic change; encoding 20 % faster;
-column scans for S/F, direction and kind filters;
 any language implements it with a nested loop (`reshape(L, n).T` in NumPy).
 
 **Cons:** decoding costs 0.66 ms more per 4 MiB block
-(full decode +29 %; the header-only path stays 2–3 times faster than a full decode);
+(full decode +29 %);
 a reader holds one more buffer of the header section's size;
 a record's header is no longer contiguous in the decoded body, which makes hex dumps harder to read;
 the zero-copy struct view noted by proposal P1 is gone (no implementation uses it).
@@ -150,7 +161,7 @@ the zero-copy struct view noted by proposal P1 is gone (no implementation uses i
 > All blocks of a scope lie in one UTC hour ([FMT I-13]), so no group crosses an hour.
 > Each new encoding is validated in memory before it is written;
 > a failing one is discarded and its group's blocks are copied verbatim, as for every new encoding.
-> Attestation follows the rules above unchanged.
+> The merger's validation rules above apply unchanged.
 
 The rationale sentence names the cost of §2:
 small blocks multiply the per-record cost, and the archive is what retention keeps.
@@ -195,7 +206,7 @@ a writer's durability sync is a flush only for writers that must make records du
 | `schema_version` (tag 0x0001) | retire | frozen at 1 and checked together with `format_major` ([FMT §14]); the format version alone says the same |
 | F-3 `content_bytes` (0x0006) | retire | must equal F-2 `uncompressed_len` ([FMT §10]); F-5 `content_bytes` aggregates F-2 instead |
 | `time_source` | keep | not implied by `capture_method`: a TCP stream reassembled from a packet capture is `raw-stream` with the capturing machine's timestamps and no mono |
-| derived quality bits (`no-mono`, `decode-failed`, `capture-boundary`) | keep | cost no bytes; `quality_union` and bit-mask filters use them, and the VE's candidate rule reads the bit set alone |
+| derived quality bits (`no-mono`, `decode-failed`, `capture-boundary`) | decided in §3.8 | §3.8 keeps `capture-boundary` and retires `no-mono` and `decode-failed` |
 | trailer `block_count`, `record_count`, `last_seq`; F-1 `block_count` | keep | 20 bytes per file; checked before the footer is trusted |
 
 Contract for each retired tag:
@@ -240,6 +251,131 @@ the writer-side requiredness of `coverage`'s nested tags (left open by G5-89) is
 G5-86 replaced the spool contract for the bus deployment the pilot uses ([STO §4]),
 so nothing in the pilot writes a spool.
 
+### 3.7 Record header without copy fields (G5-97)
+
+The access patterns that set the bar (owner, 2026-09-29):
+records are read on demand to troubleshoot one tool or a few tools of one type,
+and the VE reads a tool type's packs for offline iteration —
+it pools a few tools of one model and firmware range (G1-6, G1-9),
+reads every record of its window, and filters in memory or through its Evidence Index.
+No consumer scans the fleet.
+Under these patterns the copy fields' one benefit, filtering by S/F, System Bytes or session without decoding the payload section, has no consumer.
+The I/O is the same, because a header-only read fetches the whole block body to check `body_crc`;
+the difference is the CPU of decoding the payload section, and a full decode of one busy tool's four-week window takes about a second.
+
+Changes:
+
+- The record header no longer holds `session_id`, `stream`, `function`, `ptype`, `stype`, `system_bytes` or `record_flags.W`.
+  The payload of a data or control record is still the whole captured frame ([FMT §8]), so nothing is lost:
+  a predicate on an HSMS header field reads the field from the payload —
+  `session_id` from bytes 4–5, `stream` and W from byte 6 (bits 0–6 and bit 7), `function` from byte 7, `ptype` and `stype` from bytes 8 and 9, System Bytes from bytes 10–13 —
+  and only when the field's `field_validity` bit is set.
+- `field_validity` stays, with the same bits; it says which HSMS header fields of the payload are real.
+  For a raw capture a writer sets a bit iff the payload holds that field's bytes.
+  For a log conversion the converter clears the bits of identities its source did not carry,
+  although the reconstructed frame holds placeholder bytes there ([STO §7] item 4);
+  this is why the field survives, and a writer never sets a bit merely because bytes are present.
+  Transport-event and annotation records carry a TLV payload and always have `field_validity` 0.
+  Availability follows the bit and the value comes from the payload, as G5-90 decided:
+  a clear bit cannot match even where placeholder bytes would.
+  A set bit whose bytes the payload lacks is a writer defect.
+  Every writer checks it when a record is appended, whether or not it validates encoded blocks, and rejects the record;
+  a reader treats the field as unavailable, and `Verify` reports the defect.
+  A bus consumer that fetches a claim-checked payload (P8) checks after the fetch.
+- I-10 is removed: nothing is copied, so nothing can disagree.
+- The query modes go ([SEM §7.4], G5-51): no provisional or authoritative mode, no `header-validated` status;
+  every predicate on an HSMS header field is evaluated on payload values.
+  [SEM §7.2] transaction lookup takes S/F, session and System Bytes from payloads;
+  its candidate steps no longer claim to use record-header fields only.
+- `blocks_validated` (0x0030) is retired, superseding G5-52, and the header-only read level goes with it (§3.8).
+- Unaffected: redaction `masked_ranges` are offsets from the start of the payload, which is unchanged,
+  and redaction already matches S/F on payload values;
+  normalised SECS-I records are stored in HSMS framing ([FMT §8]), so the same payload positions apply, DeviceID in bytes 4–5;
+  the transport-event `primary_*` tags stay.
+- The copy fields leave the list of bytes a consumer derives (P10 §3 item 4).
+  The bus body of P8 §2.1 carries the new record header;
+  which of its remaining bytes the producer supplies (`field_validity`, `decode_status`) is settled in P8 and P10, not here.
+- Go API: `Record` loses the copy fields;
+  a helper returns each HSMS header field from the payload as a value and an availability, separately,
+  and reports unavailable for short frames and for kinds without an HSMS frame.
+
+### 3.8 Field review (G5-98)
+
+Every remaining field was judged by the same access patterns.
+The owner asked an external reviewer for an opinion on every retirement before deciding (the opinion is kept outside the repository);
+the decisions below follow it where it disagreed.
+
+| Field | Bytes per record | Decision | Reason |
+|---|---|---|---|
+| header-only read level and `blocks_validated` | — | **removed**: every block read is a full read (I-2) | attestation also gave header-only reads the guarantees of a full read (codec completion, decoded length); without it a header-only result could count records a full read rejects. Under the access patterns a header-only read saves only CPU, and F-3 / F-5 already give per-block counts without reading a block |
+| `mono_ns`, `record_flags.mono_present` | 4.6 / 4.0 (idle / busy) | **kept** | step-resistant latency within a capture for the VE, and the clock anchor rule of [SEM §4]. A residual encoding (11.2 / 45.6) and dropping it (9.2 / 43.8) were considered |
+| `quality.no-mono` | 0 | **retired** | a mirror of `record_flags.mono_present`, which stays |
+| `quality.decode-failed` | 0 | **retired** | a mirror of a malformed `decode_status` |
+| `quality.capture-boundary` | 0 | **kept** | `kind` and `decode_status` cannot tell a boundary event from other transport events; the VE's candidate rule reads it per record, and footer `boundary` entries are block summaries |
+| `trailing_bytes` | < 0.1 | **kept** | the exact excess length cannot be recomputed from a masked extract, whose `decode_status` and `trailing_bytes` describe the source ([SEM §8]) |
+| F-3 `max_payload_len` | < 0.1 (per block) | **retired** | no consumer in SEM, STO or tracepack-go.md |
+| F-4 secondary index, [SEM §7.3], `extraction_version` | — | **extraction design removed; slot kept** | the extraction rule set has no consumer. F-4 stays an absent, undefined section: F-1 keeps `f4_offset` = `f5_offset`, `f4_len` = 0, `extraction_version` = 0 and flag bit 1 clear, so the footer layout and its validation do not change, and a later index can still use the slot |
+| F-3 range 0x0010–0x001F (S/F presence, System Bytes locator) | — | stays reserved; no longer planned ([OVW §6]) | — |
+| `fidelity` | < 0.1 | kept | a decoded-message recorder that also keeps the raw bytes of undecodable frames writes them `wire-exact` ([SEM §2]) |
+| `decode_status` | < 0.1 | kept | capture-time classification survives masking; who computes it for a bus capture is P10's premise item 3 |
+| `field_validity`, `time_source`, `quality_evaluated`, `writer_start_utc_ns`, trailer counts | — | kept | — |
+
+**Derived predicates.**
+A record's decode state has three values:
+*malformed* when its `decode_status` is in the malformed set of [SEM §3],
+*clean* when it is a known value outside that set,
+and *unknown* for a value the reader does not know ([FMT §1]), which never counts as clean.
+A record has no monotonic time iff `record_flags.mono_present` is clear.
+Readers offer both as predicates in place of the retired bits.
+The VE's candidate rule becomes: none of `capture-boundary`, `ordering-uncertain`, `correlation-incomplete`, and a clean decode state.
+F-3 and F-5 `quality_union` covers the stored bits only.
+A block may be excluded as holding no malformed record only when its `decode_status_counts` are zero for every malformed value
+and for every element beyond the values the reader knows.
+
+**Retired numbers.**
+Pack-metadata tag 0x0030 (`blocks_validated`) joins 0x0001 and 0x0014, and F-3 tag 0x0004 (`max_payload_len`) joins 0x0006:
+a writer never writes them, a reader treats them as unknown tags, and copied F-3 lists keep them as data (§3.4).
+A pack whose F-4 is present, nonzero and undefined is still read: its F-4 bytes are checked for placement as today and otherwise ignored,
+and a merger writes F-4 absent.
+
+**Every read is full.**
+[FMT §6]'s block read levels go: a reader decodes the whole block body and checks I-2 before it uses any record of the block.
+A writer SHOULD validate each encoded block before writing it ([FMT §12], without a metadata commitment),
+and a merger validates every new encoding in memory as before ([STO §4]).
+The header section stays in front of the payload section, which the columnar layout of §3.1 needs for compression.
+Proposal P10's deletion witness, which required attestation, needs its own verification.
+Go API, removed: `ReadLevel` with `ReadHeaderOnly` and `ReadAttested`, `QueryMode` and `Query.Mode`, `PackHeader.Attested`, `Item.Level`, `Item.CopyMismatch`, `Result.HeaderValidated`,
+`PackMeta.BlocksValidated`, `ErrSchemaVersion`, `QualityDecodeFailed`, `QualityNoMono`, `RecordFlagsW`, `PackRoleCorrection` with its `correction` name (value 5 then prints as `unknown(5)`), and `Record.SetHeaderCopies`,
+which becomes a helper that computes the captured-field `field_validity` of a raw frame for writers of raw captures.
+Kept with changed behavior: `Query.Payloads` decides only whether payloads are returned;
+`WriterOptions.Validate` validates each encoded block without committing anything to the pack metadata;
+`DecodeStatus.Malformed` stays true only for known malformed values, and a new `DecodeStatus.Clean` is true only for known values outside the malformed set;
+an unknown value is neither, so `!Malformed()` never proves a clean decode.
+In tracepack-go.md, `FindTransaction` loses its mode argument and validation status, `Merge` loses its `Attest` option and report,
+and the CLI loses `--mode` and the validation status.
+
+**Record header layout, 44 bytes.**
+Retired bits keep their numbers, reserved: `quality` bits 3 (`decode-failed`) and 6 (`no-mono`), `record_flags` bit 0 (W).
+
+| Off | Type | Field |
+|---|---|---|
+| 0 | u64 | `seq` |
+| 8 | i64 | `ts_utc_ns` |
+| 16 | i64 | `mono_ns` |
+| 24 | u32 | `epoch` |
+| 28 | u32 | `payload_len` |
+| 32 | u32 | `trailing_bytes` |
+| 36 | u16 | `quality` |
+| 38 | u8 | `kind` |
+| 39 | u8 | `dir` |
+| 40 | u8 | `fidelity` |
+| 41 | u8 | `decode_status` |
+| 42 | u8 | `field_validity` |
+| 43 | u8 | `record_flags` (bit 1 `mono_present`) |
+
+The minimum `record_header_len` becomes 44 in [FMT §6], the envelope and F-2 offset 76;
+[FMT §7.1]'s extension area, which readers preserve as unknown bytes, starts at byte 44.
+
 ## 4. Spec changes
 
 | Document | Changes |
@@ -250,4 +386,15 @@ so nothing in the pilot writes a spool.
 | [OVW] | §3 terminology (header section, pack metadata row), §4 Figure 2, §6 deferred table |
 | tracepack-go.md | `Recover` marked deferred; the zero-copy struct view of the header section applies only to headers gathered into a row buffer |
 | impl plan | the format-revision step; phases 2 and 3 (done) point to it for the footer builder, the validating writer and the bootstrap; phase 4 = `Verify`, then `Repair` after P10, `Recover` deferred; phase 5 coalescing rule, no size-capped sets, correction tests replaced by repair tests |
+| §3.7–§3.8 in [FMT] | the dependency list's F-3 / F-4 index line; §2 the Bloom-hash rule removed; §3 I-2's pointer to a weaker header-only level, I-10 removed, I-11's `decode-failed` mention, I-14's attesting merger; §5 `blocks_validated` retired; §6 block read levels removed (every read full), the minimum `record_header_len` 44; §7.1 the 44-byte layout; §7.2 the copy class removed, the `field_validity` rule rewritten with the append-time check, the sentence naming `decode-failed` as the only derived quality bit; §9 `quality` bits 3 and 6 and `record_flags` bit 0 reserved; §10 F-3 `max_payload_len` retired, the F-3 range 0x0010–0x001F reserved without a planned structure, F-4 an absent undefined section; §12 the validation SHOULD without a commitment; §10 F-2 and footer-validation `record_header_len` ≥ 44; §13 the read validation status and header-only wording; §14 the `extraction_version` sentence; §16 the query-mode and attestation vectors removed, the redaction vector built on disagreeing copies rewritten to select by payload S/F, and availability vectors kept for each short-field threshold, clear validity over placeholder bytes, a set bit beyond the payload, control-frame fields and a 45–55-byte header, without validation-status expectations in the corpus contract |
+| §3.7–§3.8 in [SEM] | §1 dependency list; §3 the `decode-failed` mirror sentence; §4 the `no-mono` mention; §6 quality bits and the derived predicates; §7.1 F-3 summary without the deferred S/F presence and System Bytes locator structures; §7.2 transaction lookup from payloads and the System Bytes locator removed; §7.3 extraction design removed; §7.4 without query modes or header-only reads, its S/F, System Bytes and well-known-id paths scanning payload fields instead of S/F presence, the locator and §7.3; §8 the clause on copy fields of masked records, the I-10 citation, and the F-4 `partial` marking |
+| §3.7–§3.8 in [STO], [OVW] | [STO] §4 recorder and merger validation without attestation, §6 `blocks_validated` per pack, §8 attestation vectors; [OVW] §3 record header size, §4 Figure 3 without copy arrows, §6 deferred table (F-3 index structures no longer planned) |
+| §3.7–§3.8 elsewhere | tracepack-go.md: §2 the eqp-hub `no-mono` note and the recorder's `blocks_validated` commitment, §3 the Go API of §3.7 and §3.8 (header-only iterator, `Query` mode, `Result` status, transaction and merge), §5.5 copy fields, §7 CLI; P8: the bus body; P10: premise items 3 (no `quality.decode-failed`) and 4, and the deletion witness; the VE design's candidate rule |
+| impl plan | the format-revision step also carries the 44-byte record header, the payload helper, and the removal of query modes, header-only reads and attestation; phases 2 and 3 (done) point to it; §1's deferred F-3 index tags and F-4; phase 5's attestation items and acceptance criteria; phase 6's validation-status goldens and acceptance; phase 7's F-4 obligation; §4's attestation throughput |
 | tracepack/CHANGELOG.md | the breaking changes: columnar header section, v0.1.0 packs unsupported, retired tags and value |
+
+Applying P9 ends with a sweep of [FMT], [SEM], [STO], [OVW], tracepack-go.md and the implementation plan for these terms:
+copy field, I-10, header-only, attested and attestation, `blocks_validated`, `header-validated`, provisional, authoritative, validation status,
+`decode-failed`, `no-mono`, `record_flags.W`, `max_payload_len`, F-3 `content_bytes`, `schema_version`, `extraction_version`, F-4 content, locator, Bloom, S/F presence,
+correction, and a 56-byte record header.
+Every occurrence is revised or removed; the table lists the known ones.
