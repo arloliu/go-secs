@@ -157,6 +157,8 @@ func walkBlock(b []byte, off int) (walkedBlock, int, error) {
 }
 
 // walkRecords splits a decoded body into its records and checks the I-2 equations on them.
+// It gathers each record header from the column-by-column header section itself (the tracepack format specification §6),
+// byte j of record i at offset j × record_count + i, independently of the Writer and the Reader.
 func walkRecords(env *format.BlockEnvelope, decoded []byte) ([]tracepack.Record, error) {
 	hsLen, err := format.HeaderSectionLen(env.RecordCount, env.RecordHeaderLen)
 	if err != nil {
@@ -166,12 +168,12 @@ func walkRecords(env *format.BlockEnvelope, decoded []byte) ([]tracepack.Record,
 		return nil, fmt.Errorf("%w: header section %d bytes, body %d", errWalk, hsLen, len(decoded))
 	}
 
-	hlen := int(env.RecordHeaderLen)
-	records := make([]tracepack.Record, 0, env.RecordCount)
+	hlen, count := int(env.RecordHeaderLen), int(env.RecordCount)
+	records := make([]tracepack.Record, 0, count)
 	payloadOff := hsLen
 
-	for i := range int(env.RecordCount) {
-		h, err := format.UnmarshalRecordHeader(decoded[i*hlen:], hlen)
+	for i := range count {
+		h, err := format.UnmarshalRecordHeader(gatherHeader(decoded, count, hlen, i), hlen)
 		if err != nil {
 			return nil, err
 		}
@@ -194,6 +196,16 @@ func walkRecords(env *format.BlockEnvelope, decoded []byte) ([]tracepack.Record,
 	}
 
 	return records, nil
+}
+
+// gatherHeader returns record i's header of hlen bytes from the header section of a block of count records.
+func gatherHeader(decoded []byte, count, hlen, i int) []byte {
+	h := make([]byte, hlen)
+	for j := range h {
+		h[j] = decoded[j*count+i]
+	}
+
+	return h
 }
 
 // checkSeqOrder checks the seq rules of I-2 for record i: the first equals first_seq, later ones strictly increase.

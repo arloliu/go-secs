@@ -17,6 +17,8 @@ type blockBuf struct {
 	raw []byte
 	// decoded holds the decoded body of a block whose codec is not None; a None block's body is used in place in raw.
 	decoded []byte
+	// rows holds the record headers gathered from the header section, one after another.
+	rows []byte
 	// offs holds the payload offsets of the block's records.
 	offs []uint32
 	blk  decodedBlock
@@ -29,7 +31,8 @@ type blockBuf struct {
 type decodedBlock struct {
 	// env is the block envelope, which agrees with the block's BlockInfo.
 	env format.BlockEnvelope
-	// section is the header section: record_count record headers of record_header_len bytes each.
+	// section holds the record headers gathered from the header section, one after another:
+	// record_count headers of record_header_len bytes each.
 	section []byte
 	// body is the decoded body.
 	body []byte
@@ -155,8 +158,11 @@ func decodeBlock(env *format.BlockEnvelope, buf *blockBuf) (*decodedBlock, recor
 		return nil, recordSpan{}, err
 	}
 
+	// The header section stores the headers column by column (the tracepack format specification §6);
+	// every record-level path reads them gathered into rows, copied so a None body used in place is never changed.
+	buf.rows = format.UntransposeHeaders(buf.rows[:0], decoded[:hsLen], int(env.RecordCount), int(env.RecordHeaderLen))
 	d := &buf.blk
-	*d = decodedBlock{env: *env, section: decoded[:hsLen], body: decoded}
+	*d = decodedBlock{env: *env, section: buf.rows, body: decoded}
 
 	var span recordSpan
 	buf.offs, span, err = checkRecords(d.section, env, buf.offs)
@@ -203,7 +209,7 @@ func decodeBody(env *format.BlockEnvelope, buf *blockBuf) ([]byte, error) {
 	return body, nil
 }
 
-// checkRecords checks the record headers of the header section of the block of env against I-2:
+// checkRecords checks the record headers of the block of env, gathered from its header section into section, against I-2:
 // the first seq equals first_seq, seqs strictly increase,
 // and record_count × record_header_len + Σ payload_len equals uncompressed_len,
 // the sum checked as it grows, so it never passes uncompressed_len.

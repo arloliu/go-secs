@@ -83,8 +83,9 @@ type blockSummary struct {
 	seqRanges []seqRange
 }
 
-// blockBuilder accumulates the open block: its header section, its payload section and its summary.
+// blockBuilder accumulates the open block: its record headers as consecutive rows, its payload section and its summary.
 type blockBuilder struct {
+	// headers holds the record headers one after another; body transposes them into the header section.
 	headers  []byte
 	payloads []byte
 	hour     int64
@@ -110,16 +111,13 @@ func exceedsLimit(size, add, limit int) bool {
 
 // validateBody checks a decoded block body against I-2 of the tracepack format specification §3,
 // with the record_header_len this writer uses:
-// record_count × record_header_len + Σ payload_len equals the decoded length,
+// it gathers the record headers from the column-by-column header section into buf.rows (§6),
+// then checks that record_count × record_header_len + Σ payload_len equals the decoded length,
 // the first record's seq equals firstSeq, and seqs strictly increase.
 // The checks are the reader's, checkRecords;
 // every product and sum is checked before it is used to slice.
-// offs is reused for the records' payload offsets.
-//
-// Returns:
-//   - []uint32: offs, reused, for the next call.
-//   - error: nil, or an error naming the first violation.
-func validateBody(decoded []byte, count uint32, firstSeq uint64, offs []uint32) ([]uint32, error) {
+// buf's buffers are reused.
+func validateBody(decoded []byte, count uint32, firstSeq uint64, buf *validateBuf) error {
 	// The writer's decoded length is at most 2^31-1, so it fits uncompressed_len.
 	env := format.BlockEnvelope{
 		RecordHeaderLen: recordHeaderLen,
@@ -129,11 +127,12 @@ func validateBody(decoded []byte, count uint32, firstSeq uint64, offs []uint32) 
 	}
 	hsLen, err := headerSectionLen(&env)
 	if err != nil {
-		return offs, err
+		return err
 	}
-	offs, _, err = checkRecords(decoded[:hsLen], &env, offs)
+	buf.rows = format.UntransposeHeaders(buf.rows[:0], decoded[:hsLen], int(count), recordHeaderLen)
+	buf.offs, _, err = checkRecords(buf.rows, &env, buf.offs)
 
-	return offs, err
+	return err
 }
 
 // checkBlockSeq checks the seq rules of I-2 for record i of a block.
@@ -184,6 +183,8 @@ func encodeBlock(c Codec, dst, body []byte) ([]byte, Codec, error) {
 type validateBuf struct {
 	// decoded holds the decoded body.
 	decoded []byte
+	// rows holds the record headers gathered from the header section.
+	rows []byte
 	// offs holds the records' payload offsets.
 	offs []uint32
 }
@@ -196,9 +197,7 @@ func validateEncoded(c Codec, buf *validateBuf, enc []byte, s *blockSummary, unc
 		return fmt.Errorf("decode the encoded body: %w", err)
 	}
 
-	buf.offs, err = validateBody(buf.decoded, s.recordCount, s.firstSeq, buf.offs)
-
-	return err
+	return validateBody(buf.decoded, s.recordCount, s.firstSeq, buf)
 }
 
 // empty reports whether the open block holds no record.
@@ -223,9 +222,10 @@ func (b *blockBuilder) add(h *format.RecordHeader, payload []byte, ev *Transport
 	b.summary.addRecord(h, ev)
 }
 
-// body returns the decoded block body: the header section followed by the payload section, in buf.
+// body returns the decoded block body in buf: the header section, the record headers transposed column by column
+// (the tracepack format specification §6), followed by the payload section.
 func (b *blockBuilder) body(buf []byte) []byte {
-	buf = append(buf[:0], b.headers...)
+	buf = format.TransposeHeaders(buf[:0], b.headers, int(b.summary.recordCount), recordHeaderLen)
 
 	return append(buf, b.payloads...)
 }

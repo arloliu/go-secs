@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -102,8 +103,30 @@ func TestValidateBodyAcceptsBuiltBlock(t *testing.T) {
 		testDataRecord(9, blockTestHour+2, 2),
 	})
 
-	_, err := validateBody(b.body(nil), 3, 4, nil)
-	require.NoError(t, err)
+	require.NoError(t, validateBody(b.body(nil), 3, 4, &validateBuf{}))
+}
+
+// TestBlockBodyIsColumnar checks the header section a built block writes (the tracepack format specification §6):
+// byte j of record i's header at offset j × record_count + i, then the payloads in record order.
+func TestBlockBodyIsColumnar(t *testing.T) {
+	t.Parallel()
+
+	b := buildBlock([]Record{
+		testDataRecord(4, blockTestHour, 1),
+		testDataRecord(5, blockTestHour+1, 2),
+	})
+	body := b.body(nil)
+	require.Len(t, body, 2*recordHeaderLen+2*len(blockTestFrame))
+
+	for i := range 2 {
+		row := b.headers[i*recordHeaderLen : (i+1)*recordHeaderLen]
+		for j := range recordHeaderLen {
+			require.Equal(t, row[j], body[j*2+i], "record %d byte %d", i, j)
+		}
+	}
+	// The seqs 4 and 5 interleave in the first two columns: byte 0 of each, then byte 1 of each.
+	assert.Equal(t, []byte{4, 5, 0, 0}, body[:4])
+	assert.Equal(t, append(slices.Clone(blockTestFrame), blockTestFrame...), body[2*recordHeaderLen:])
 }
 
 func TestValidateBodyRejectsTamperedBody(t *testing.T) {
@@ -116,32 +139,35 @@ func TestValidateBodyRejectsTamperedBody(t *testing.T) {
 	)
 
 	tests := []struct {
-		name     string
-		tamper   func(body []byte) []byte
+		name string
+		// rows changes the record headers, one after another, before they are transposed.
+		rows func(rows []byte)
+		// body changes the built body.
+		body     func(body []byte) []byte
 		count    uint32
 		firstSeq uint64
 	}{
-		{"record_count one too many", nil, 4, 4},
-		{"record_count one too few", nil, 2, 4},
-		{"first seq differs from first_seq", nil, 3, 3},
-		{"seq repeats", func(b []byte) []byte {
+		{name: "record_count one too many", count: 4, firstSeq: 4},
+		{name: "record_count one too few", count: 2, firstSeq: 4},
+		{name: "first seq differs from first_seq", count: 3, firstSeq: 3},
+		{name: "seq repeats", rows: func(b []byte) {
 			binary.LittleEndian.PutUint64(b[recordHeaderLen+seqOff:], 4)
-			return b
-		}, 3, 4},
-		{"seq decreases", func(b []byte) []byte {
+		}, count: 3, firstSeq: 4},
+		{name: "seq decreases", rows: func(b []byte) {
 			binary.LittleEndian.PutUint64(b[2*recordHeaderLen+seqOff:], 3)
-			return b
-		}, 3, 4},
-		{"payload_len overruns the body", func(b []byte) []byte {
+		}, count: 3, firstSeq: 4},
+		{name: "payload_len overruns the body", rows: func(b []byte) {
 			binary.LittleEndian.PutUint32(b[2*recordHeaderLen+payloadLenOff:], 15)
-			return b
-		}, 3, 4},
-		{"payload_len leaves bytes uncovered", func(b []byte) []byte {
+		}, count: 3, firstSeq: 4},
+		{name: "payload_len leaves bytes uncovered", rows: func(b []byte) {
 			binary.LittleEndian.PutUint32(b[2*recordHeaderLen+payloadLenOff:], 13)
-			return b
-		}, 3, 4},
-		{"body truncated", func(b []byte) []byte { return b[:len(b)-1] }, 3, 4},
-		{"header section longer than the body", func(b []byte) []byte { return b[:2*recordHeaderLen] }, 3, 4},
+		}, count: 3, firstSeq: 4},
+		{name: "headers left in rows", body: func(b []byte) []byte {
+			// The rows as a writer of the earlier layout stored them: the first seq no longer gathers to 4.
+			return append(format.UntransposeHeaders(nil, b[:3*recordHeaderLen], 3, recordHeaderLen), b[3*recordHeaderLen:]...)
+		}, count: 3, firstSeq: 4},
+		{name: "body truncated", body: func(b []byte) []byte { return b[:len(b)-1] }, count: 3, firstSeq: 4},
+		{name: "header section longer than the body", body: func(b []byte) []byte { return b[:2*recordHeaderLen] }, count: 3, firstSeq: 4},
 	}
 
 	for _, tt := range tests {
@@ -153,13 +179,15 @@ func TestValidateBodyRejectsTamperedBody(t *testing.T) {
 				testDataRecord(5, blockTestHour+1, 1),
 				testDataRecord(9, blockTestHour+2, 2),
 			})
+			if tt.rows != nil {
+				tt.rows(b.headers)
+			}
 			body := b.body(nil)
-			if tt.tamper != nil {
-				body = tt.tamper(body)
+			if tt.body != nil {
+				body = tt.body(body)
 			}
 
-			_, err := validateBody(body, tt.count, tt.firstSeq, nil)
-			require.Error(t, err)
+			require.Error(t, validateBody(body, tt.count, tt.firstSeq, &validateBuf{}))
 		})
 	}
 }
@@ -169,8 +197,7 @@ func TestValidateBodyAcceptsEvent(t *testing.T) {
 
 	ev := testEventRecord(t, 0, blockTestHour, 0, &TransportEvent{Event: EventClockStep})
 	b := buildBlock([]Record{ev})
-	_, err := validateBody(b.body(nil), 1, 0, nil)
-	require.NoError(t, err)
+	require.NoError(t, validateBody(b.body(nil), 1, 0, &validateBuf{}))
 }
 
 func TestValidateEncodedRejectsBrokenStream(t *testing.T) {

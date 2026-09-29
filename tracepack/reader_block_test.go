@@ -125,8 +125,9 @@ func decodeTestBlock(t testing.TB, b []byte) *testBlock {
 		headers: make([]format.RecordHeader, 0, n), payloads: make([][]byte, 0, n),
 	}
 	off := n * rhl
+	rows := format.UntransposeHeaders(nil, decoded[:off], n, rhl)
 	for j := range n {
-		h, err := format.UnmarshalRecordHeader(decoded[j*rhl:], rhl)
+		h, err := format.UnmarshalRecordHeader(rows[j*rhl:], rhl)
 		require.NoError(t, err)
 		tb.headers = append(tb.headers, h)
 		tb.payloads = append(tb.payloads, decoded[off:off+int(h.PayloadLen)])
@@ -301,10 +302,15 @@ func requireBlockDefect(t *testing.T, r *Reader, i int, reason IncompleteReason,
 func (b *testBlock) encode(t testing.TB) (format.BlockEnvelope, []byte) {
 	t.Helper()
 
-	var body []byte
+	var rows []byte
 	for j := range b.headers {
-		body = format.AppendRecordHeader(body, &b.headers[j])
+		rows = format.AppendRecordHeader(rows, &b.headers[j])
 	}
+	rhl := len(rows)
+	if n := len(b.headers); n > 0 {
+		rhl /= n
+	}
+	body := format.TransposeHeaders(nil, rows, len(b.headers), rhl)
 	for _, p := range b.payloads {
 		body = append(body, p...)
 	}
