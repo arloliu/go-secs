@@ -193,7 +193,8 @@ func classifyOutcome(finalized bool, failed []bool, walkStopped, inconsistent bo
 //   - Report: the outcome and its evidence; the zero Report on an error.
 //   - error: every error of Open, for a file header or pack metadata that cannot be read;
 //     an error wrapping ErrReadLimit for a block over MaxBlockLen,
-//     or for the footer of a finalized pack over MaxFooterLen, on disk or decoded;
+//     for the footer of a finalized pack over MaxFooterLen, on disk or decoded,
+//     or for a forward walk that reached MaxWalkedBlocks;
 //     ctx's error, wrapped; a ReadAt error, wrapping io.ErrUnexpectedEOF for a short read.
 func Verify(ctx context.Context, ra io.ReaderAt, size int64, opts VerifyOptions) (Report, error) {
 	r, err := Open(ctx, ra, size, opts.Reader)
@@ -208,6 +209,9 @@ func Verify(ctx context.Context, ra io.ReaderAt, size int64, opts VerifyOptions)
 func (r *Reader) verify(ctx context.Context) (Report, error) {
 	if r.finalized && errors.Is(r.footerErr, ErrReadLimit) {
 		return Report{}, fmt.Errorf("tracepack: verify: %w", r.footerErr)
+	}
+	if r.walkStop != nil && r.walkStop.Reason == ReasonLimit {
+		return Report{}, fmt.Errorf("tracepack: verify: %w", r.walkStop.Err)
 	}
 
 	rep := Report{Finalized: r.finalized, FooterErr: r.footerErr, Blocks: len(r.blocks), PrefixEnd: r.blocksStart()}

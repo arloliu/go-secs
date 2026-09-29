@@ -48,7 +48,8 @@ and adds the reader and verification (spec v2.14).
   `Open` bootstraps a `Reader` over an `io.ReaderAt` of known size in rounds of concurrent reads:
   one round when the pack metadata and the footer fit the head and tail windows or a catalog hint locates the footer, two otherwise.
   It validates the file header, the format version and the pack metadata before any block is read.
-  `ReaderOptions` sets the windows, the whole-read threshold and the reader budgets `MaxPackMetadataLen`, `MaxFooterLen` and `MaxBlockLen`,
+  `ReaderOptions` sets the windows, the whole-read threshold and the reader budgets `MaxPackMetadataLen`, `MaxFooterLen`, `MaxBlockLen`
+  and `MaxWalkedBlocks`, the last bounding the block index of a forward walk,
   each checked before the structure is allocated.
   `Header` returns a fresh `PackHeader` with the pack metadata, `Finalized`, `FooterErr` and the trailer,
   and `Blocks` returns the block index.
