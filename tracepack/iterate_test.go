@@ -499,6 +499,102 @@ func nilIfEmpty[T any](v []T) []T {
 	return v
 }
 
+// clearedSystemBytes returns a data record over the whole blockTestFrame
+// whose System Bytes bit is clear and whose copy is zero,
+// as a log conversion stores an identity its source did not carry (the tracepack storage specification §7).
+func clearedSystemBytes(seq uint64) Record {
+	r := testDataRecord(seq, blockTestHour+int64(seq), 1)
+	r.FieldValidity &^= FieldValiditySystemBytes
+	r.SystemBytes = [4]byte{}
+
+	return r
+}
+
+func TestIterateClearBitOverPayloadBytes(t *testing.T) {
+	t.Parallel()
+
+	// The payload holds System Bytes DE AD BE EF, but the stored bit is clear,
+	// so the field is unavailable in every mode, attested or not (the tracepack format specification §7.2).
+	rec := clearedSystemBytes(0)
+	payloadSB := [4]byte(blockTestFrame[copySystemBytesOff:copySystemBytesEnd])
+
+	for _, validate := range []bool{false, true} {
+		p := writeReaderPack(t, readerPackConfig{codec: CodecZstd, validate: validate}, []Record{rec})
+		r := mustOpen(t, p.file, ReaderOptions{})
+		require.Equal(t, validate, r.Header().Attested, "the validating Writer accepts a clear bit over present bytes")
+
+		for _, mode := range []QueryMode{QueryProvisional, QueryAuthoritative} {
+			for _, payloads := range []bool{false, true} {
+				name := fmt.Sprintf("attested %v, %v, payloads %v", validate, mode, payloads)
+				for _, sb := range [][4]byte{payloadSB, {}} {
+					run := iterate(t, r, Query{Filter: Filter{SystemBytes: &sb}, Mode: mode, Payloads: payloads})
+					assert.Empty(t, run.items, "%s: System Bytes % X", name, sb)
+				}
+
+				run := iterate(t, r, Query{Filter: Filter{SystemBytes: &payloadSB, IncludeUnavailable: true}, Mode: mode, Payloads: payloads})
+				require.Len(t, run.items, 1, name)
+				assert.False(t, run.items[0].mismatch, "%s: a clear bit over present bytes is no disagreement", name)
+
+				sf := iterate(t, r, Query{Filter: Filter{SF: []SF{{Stream: 1, Function: 3}}}, Mode: mode, Payloads: payloads})
+				assert.Len(t, sf.items, 1, "%s: the fields whose bits are set stay available", name)
+			}
+		}
+	}
+}
+
+func TestIterateSetBitBeyondPayload(t *testing.T) {
+	t.Parallel()
+
+	// Every bit is set, but the payload ends before System Bytes: a writer defect (the tracepack format specification §7.2).
+	rec := testDataRecord(0, blockTestHour, 1)
+	rec.Payload = blockTestFrame[:copySTypeEnd]
+	rec.DecodeStatus = DecodeStatusShortFrame
+
+	_, err := buildReaderPack(readerPackConfig{codec: CodecZstd, validate: true}, []Record{rec})
+	require.ErrorIs(t, err, ErrValidation, "a validating Writer rejects the record")
+
+	p := writeReaderPack(t, readerPackConfig{codec: CodecZstd}, []Record{rec})
+	r := mustOpen(t, p.file, ReaderOptions{})
+	require.False(t, r.Header().Attested)
+
+	f := Filter{SystemBytes: &rec.SystemBytes}
+	tests := []struct {
+		name     string
+		q        Query
+		yielded  bool
+		level    ReadLevel
+		mismatch bool
+		hv       []int
+	}{
+		// A provisional query selects on the stored header copy, relying on it.
+		{name: "provisional", q: Query{Filter: f}, yielded: true, level: ReadHeaderOnly, hv: []int{0}},
+		{name: "provisional with payloads", q: Query{Filter: f, Payloads: true}, yielded: true, level: ReadFull, mismatch: true, hv: []int{0}},
+		// An authoritative query finds the field unavailable, since the payload lacks its bytes.
+		{name: "authoritative", q: Query{Filter: f, Mode: QueryAuthoritative}},
+		{name: "authoritative with payloads", q: Query{Filter: f, Mode: QueryAuthoritative, Payloads: true}},
+		{
+			name: "authoritative with unavailable", q: Query{Filter: Filter{SystemBytes: &[4]byte{}, IncludeUnavailable: true}, Mode: QueryAuthoritative},
+			yielded: true, level: ReadFull, mismatch: true,
+		},
+		{
+			name: "authoritative on an available field", q: Query{Filter: Filter{SF: []SF{{Stream: 1, Function: 3}}}, Mode: QueryAuthoritative},
+			yielded: true, level: ReadFull, mismatch: true,
+		},
+	}
+	for _, tt := range tests {
+		run := iterate(t, r, tt.q)
+		assert.Equal(t, tt.hv, run.res.HeaderValidated, tt.name)
+		if !tt.yielded {
+			assert.Empty(t, run.items, tt.name)
+			continue
+		}
+
+		require.Len(t, run.items, 1, tt.name)
+		assert.Equal(t, tt.level, run.items[0].level, tt.name)
+		assert.Equal(t, tt.mismatch, run.items[0].mismatch, tt.name)
+	}
+}
+
 func TestIterateCopyMismatch(t *testing.T) {
 	t.Parallel()
 

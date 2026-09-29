@@ -289,7 +289,7 @@ func requireBlockConsistent(t *testing.T, info *BlockInfo, d *decodedBlock, full
 			require.Nil(t, d.payload(j))
 			require.Nil(t, rec.Payload)
 		}
-		_ = headerCopyMismatch(&h, rec.Payload)
+		_ = copyMismatch(&h, rec.Payload)
 	}
 	require.Equal(t, uint64(info.UncompressedLen), total, "record_count × record_header_len + Σ payload_len")
 }
@@ -795,15 +795,16 @@ func TestCopyMismatch(t *testing.T) {
 		{name: "ptype", rec: whole, patch: func(h *format.RecordHeader) { h.PType++ }, want: true},
 		{name: "stype", rec: whole, patch: func(h *format.RecordHeader) { h.SType++ }, want: true},
 		{name: "system_bytes", rec: whole, patch: func(h *format.RecordHeader) { h.SystemBytes[3]++ }, want: true},
+		// Only the fields whose bit is set are compared (the tracepack format specification §7.2).
 		{name: "field_validity bit clear on a captured field", rec: whole, patch: func(h *format.RecordHeader) {
 			h.FieldValidity &^= uint8(FieldValidityFunction)
-		}, want: true},
+		}},
 		{name: "short capture claims a byte the payload lacks", rec: short, patch: func(h *format.RecordHeader) {
 			h.FieldValidity |= uint8(FieldValiditySType)
 		}, want: true},
 		{name: "short capture with a value where the payload lacks the byte", rec: short, patch: func(h *format.RecordHeader) {
 			h.SystemBytes[0] = 1
-		}, want: true},
+		}},
 		{name: "reserved field_validity bits", rec: whole, patch: func(h *format.RecordHeader) { h.FieldValidity |= 0xC0 }},
 		{name: "mono_present is not a copy", rec: whole, patch: func(h *format.RecordHeader) {
 			h.RecordFlags ^= uint8(RecordFlagsMonoPresent)
@@ -829,7 +830,77 @@ func TestCopyMismatch(t *testing.T) {
 			if tt.patch != nil {
 				tt.patch(&h)
 			}
-			assert.Equal(t, tt.want, headerCopyMismatch(&h, tt.rec.Payload))
+			assert.Equal(t, tt.want, copyMismatch(&h, tt.rec.Payload))
+		})
+	}
+}
+
+func TestCopyMismatchAgreesWithWriter(t *testing.T) {
+	t.Parallel()
+
+	edit := func(edit func(r *Record)) Record {
+		r := testDataRecord(0, blockTestHour, 1)
+		edit(&r)
+
+		return r
+	}
+	short := func(n int, validity FieldValidity) Record {
+		return edit(func(r *Record) {
+			r.Payload = blockTestFrame[:n]
+			r.DecodeStatus = DecodeStatusShortFrame
+			r.FieldValidity = validity
+		})
+	}
+	all := FieldValiditySessionID | FieldValidityStreamAndW | FieldValidityFunction |
+		FieldValidityPType | FieldValiditySType | FieldValiditySystemBytes
+
+	tests := []struct {
+		name     string
+		rec      Record
+		mismatch bool
+	}{
+		{name: "whole frame", rec: testDataRecord(0, blockTestHour, 1)},
+		{name: "short capture", rec: shortCapture(0, blockTestHour, 7)},
+		{name: "empty capture", rec: shortCapture(0, blockTestHour, 0)},
+		{name: "clear System Bytes bit over present bytes", rec: clearedSystemBytes(0)},
+		{name: "clear bits with values over present bytes", rec: edit(func(r *Record) { r.FieldValidity = 0 })},
+		{name: "set System Bytes bit beyond the payload", rec: short(copySTypeEnd, all), mismatch: true},
+		{name: "set SessionID bit beyond the payload", rec: short(copySessionIDOff, FieldValiditySessionID), mismatch: true},
+		{name: "set stype bit beyond the payload", rec: short(copyPTypeEnd, all&^FieldValiditySystemBytes), mismatch: true},
+		{name: "set bits over exactly their bytes", rec: short(copyPTypeEnd, all&^(FieldValiditySType|FieldValiditySystemBytes))},
+		{name: "stream and function", rec: copyVectors()[0].disagreeingRecord(), mismatch: true},
+		{name: "SessionID", rec: copyVectors()[1].disagreeingRecord(), mismatch: true},
+		{name: "System Bytes", rec: copyVectors()[2].disagreeingRecord(), mismatch: true},
+		{name: "W", rec: edit(func(r *Record) { r.W = !r.W }), mismatch: true},
+		{name: "ptype", rec: edit(func(r *Record) { r.PType++ }), mismatch: true},
+		{name: "control record", rec: controlRecord(0, blockTestHour, 1, DirEquipmentToHost)},
+		{name: "control record with a disagreeing stype", rec: func() Record {
+			r := controlRecord(0, blockTestHour, 1, DirEquipmentToHost)
+			r.SType++
+
+			return r
+		}(), mismatch: true},
+		{name: "transport event", rec: testEventRecord(t, 0, blockTestHour, 1, &TransportEvent{Event: EventSocketClose})},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := canonicalHeader(&tt.rec, tt.rec.Seq, nil)
+			require.Equal(t, tt.mismatch, copyMismatch(&h, tt.rec.Payload))
+			require.Equal(t, tt.mismatch, checkCopies(&h, tt.rec.Payload) != nil, "the Writer's I-10 check")
+
+			_, err := buildReaderPack(readerPackConfig{codec: CodecZstd, validate: true}, []Record{tt.rec})
+			if tt.mismatch {
+				require.ErrorIs(t, err, ErrValidation)
+			} else {
+				require.NoError(t, err)
+			}
+
+			p := writeReaderPack(t, readerPackConfig{codec: CodecZstd}, []Record{tt.rec})
+			run := iterate(t, mustOpen(t, p.file, ReaderOptions{}), Query{Payloads: true})
+			require.Len(t, run.items, 1)
+			require.Equal(t, tt.mismatch, run.items[0].mismatch, "the Reader's I-10 check at ReadFull")
 		})
 	}
 }
@@ -876,15 +947,6 @@ func FuzzReadBlock(f *testing.F) {
 			}
 		}
 	})
-}
-
-// headerCopyMismatch reports copyMismatch for the record whose stored header is h and whose payload is payload.
-func headerCopyMismatch(h *format.RecordHeader, payload []byte) bool {
-	stored := storedRecord(h, payload)
-	want := stored
-	want.SetHeaderCopies()
-
-	return copyMismatch(&stored, &want)
 }
 
 // blockRecord returns record i of d as stored, with its payload for a full read.

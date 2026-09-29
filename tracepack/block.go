@@ -162,50 +162,81 @@ func checkBlockSeq(i int, seq, prevSeq, firstSeq uint64) error {
 	return nil
 }
 
-// checkCopies checks I-10 for one record: for a data or control record,
-// every copy field whose field_validity bit is set must equal the payload bytes it copies,
-// and those bytes must be present in the payload.
+// copyFields lists the copy fields that I-10 checks, in payload order:
+// each field's field_validity bit, its name, and the payload length that holds all its bytes.
+var copyFields = [...]struct {
+	bit  FieldValidity
+	name string
+	end  int
+}{
+	{FieldValiditySessionID, "session_id", copySessionIDEnd},
+	{FieldValidityStreamAndW, "stream and W", copyByte2End},
+	{FieldValidityFunction, "function", copyFunctionEnd},
+	{FieldValidityPType, "ptype", copyPTypeEnd},
+	{FieldValiditySType, "stype", copySTypeEnd},
+	{FieldValiditySystemBytes, "system_bytes", copySystemBytesEnd},
+}
+
+// checkCopies checks I-10 for one record, the record header h over the payload p:
+// for a data or control record, every copy field whose field_validity bit is set must equal the payload bytes it copies,
+// and those bytes must be present in the payload;
+// a copy field whose bit is clear is not compared, even where the payload holds its bytes
+// (the tracepack format specification §7.2).
+// The reader's copyMismatch reports a disagreement exactly when checkCopies returns an error.
 func checkCopies(h *format.RecordHeader, p []byte) error {
-	if Kind(h.Kind) != KindData && Kind(h.Kind) != KindControl {
+	i := copyDisagreement(h, p)
+	if i < 0 {
 		return nil
 	}
 
+	c := &copyFields[i]
+	if len(p) < c.end {
+		return fmt.Errorf("field_validity marks %s captured, but the payload is %d bytes", c.name, len(p))
+	}
+
+	return fmt.Errorf("header copy of %s disagrees with the payload", c.name)
+}
+
+// copyDisagreement returns the index into copyFields of the first copy field of the record header h
+// that breaks I-10 over the payload p: its field_validity bit is set, and p lacks its bytes or disagrees with its copy.
+// It returns -1 when no field does, and for a record that is neither data nor control, which has no copies.
+func copyDisagreement(h *format.RecordHeader, p []byte) int {
+	if Kind(h.Kind) != KindData && Kind(h.Kind) != KindControl {
+		return -1
+	}
+
 	v := FieldValidity(h.FieldValidity)
-	w := RecordFlags(h.RecordFlags).Has(RecordFlagsW)
-
-	checks := [...]struct {
-		bit   FieldValidity
-		name  string
-		end   int
-		equal func() bool
-	}{
-		{FieldValiditySessionID, "session_id", copySessionIDEnd, func() bool {
-			return binary.BigEndian.Uint16(p[copySessionIDOff:copySessionIDEnd]) == h.SessionID
-		}},
-		{FieldValidityStreamAndW, "stream and W", copyByte2End, func() bool {
-			return p[copyByte2Off]&streamMask == h.Stream && (p[copyByte2Off]&wBit != 0) == w
-		}},
-		{FieldValidityFunction, "function", copyFunctionEnd, func() bool { return p[copyFunctionOff] == h.Function }},
-		{FieldValidityPType, "ptype", copyPTypeEnd, func() bool { return p[copyPTypeOff] == h.PType }},
-		{FieldValiditySType, "stype", copySTypeEnd, func() bool { return p[copySTypeOff] == h.SType }},
-		{FieldValiditySystemBytes, "system_bytes", copySystemBytesEnd, func() bool {
-			return [4]byte(p[copySystemBytesOff:copySystemBytesEnd]) == h.SystemBytes
-		}},
-	}
-
-	for _, c := range checks {
-		if !v.Has(c.bit) {
-			continue
-		}
-		if len(p) < c.end {
-			return fmt.Errorf("field_validity marks %s captured, but the payload is %d bytes", c.name, len(p))
-		}
-		if !c.equal() {
-			return fmt.Errorf("header copy of %s disagrees with the payload", c.name)
+	for i := range copyFields {
+		c := &copyFields[i]
+		if v.Has(c.bit) && (len(p) < c.end || !copyEqual(c.bit, h, p)) {
+			return i
 		}
 	}
 
-	return nil
+	return -1
+}
+
+// copyEqual reports whether the copy field of bit in the record header h equals the payload bytes it copies;
+// p holds all of those bytes.
+func copyEqual(bit FieldValidity, h *format.RecordHeader, p []byte) bool {
+	switch bit {
+	case FieldValiditySessionID:
+		return binary.BigEndian.Uint16(p[copySessionIDOff:copySessionIDEnd]) == h.SessionID
+	case FieldValidityStreamAndW:
+		w := RecordFlags(h.RecordFlags).Has(RecordFlagsW)
+		return p[copyByte2Off]&streamMask == h.Stream && (p[copyByte2Off]&wBit != 0) == w
+	case FieldValidityFunction:
+		return p[copyFunctionOff] == h.Function
+	case FieldValidityPType:
+		return p[copyPTypeOff] == h.PType
+	case FieldValiditySType:
+		return p[copySTypeOff] == h.SType
+	case FieldValiditySystemBytes:
+		return [4]byte(p[copySystemBytesOff:copySystemBytesEnd]) == h.SystemBytes
+	}
+
+	// copyFields holds no other bit.
+	return false
 }
 
 // countEnum increments counts[v], growing counts to hold index v.

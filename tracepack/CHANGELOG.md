@@ -19,7 +19,9 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   `FooterErr` reports it, and the forward walk finds the blocks instead.
 - `Reader.Iterate` yields the records a `Query` selects, in file order, and returns the read's `Result`:
   a `Filter` on time, kind, direction, epoch and the copy fields (stream and function, session ID, System Bytes),
-  where an unavailable copy field matches only on request;
+  where a copy field is available only when its stored `field_validity` bit is set, in every mode, attested or not
+  (and, for an authoritative query of a pack that is not attested, only when the payload also holds the field's bytes),
+  and an unavailable copy field matches only on request;
   pruning by the footer's time and epoch ranges and kind and direction counts;
   the provisional and authoritative query modes,
   with `HeaderValidated` listing the blocks whose unvalidated header copies a result relied on;
@@ -27,14 +29,17 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
   reported beside the records that were read.
   Each `Item` carries the record as stored, the record-header bytes a newer minor version appends, its block and its read level
   (`ReadHeaderOnly`, `ReadAttested`, `ReadFull`);
-  `CopyMismatch` reports a full read whose header copies disagree with the payload.
+  `CopyMismatch` reports a full read whose header copies break I-10 by the validating `Writer`'s own check:
+  a copy field whose `field_validity` bit is set differs from the payload or lies beyond it.
   A `Reader` is safe for concurrent `Iterate` calls.
 - Sentinel errors `ErrNotTracepack`, `ErrUnsupportedFormat`, `ErrChecksum`, `ErrReadLimit`, `ErrInvalidFooter` and `ErrInvalidQuery`.
 
 ### Changed
 
-- The format specification moved to tracepack v2.11 (format 1.0, no byte changes):
-  it defines how a reader matches a coverage entry against a query.
+- The format specification moved to tracepack v2.12 (format 1.0, no byte changes):
+  it defines how a reader matches a coverage entry against a query,
+  and makes a copy field's availability follow its stored `field_validity` bit alone,
+  the payload supplying only its value.
 
 ## [0.1.0] - 2026-09-28
 

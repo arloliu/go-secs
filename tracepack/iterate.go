@@ -83,7 +83,9 @@ func clonePtr[T any](v *T) *T {
 // A record is selected when it satisfies every predicate of q.Filter:
 // the time range, Kinds, Dirs and Epochs on its stored header;
 // the copy-field predicates on the payload's values (Record.SetHeaderCopies) for an authoritative query over a pack that is not attested,
-// and on the stored copies otherwise.
+// and on the stored copies otherwise;
+// a copy field is available when its stored field_validity bit is set
+// and, for the payload's values, the payload holds all its bytes.
 // fn receives each selected record as an Item that is valid only during the call;
 // Iterate reuses the Item and its buffers.
 //
@@ -215,8 +217,8 @@ func (r *Reader) prunes(i int, f *Filter) bool {
 
 // yield calls fn with every record of block i, read as d, that p's filter selects, reusing item.
 //
-// For a full read it computes the payload's positional copies once per record,
-// for both the copy-field predicates, when p evaluates the payload, and Item.CopyMismatch.
+// It computes the payload's positional copies at most once per record, only when p evaluates the payload,
+// and checks I-10 for Item.CopyMismatch on every record of a full read.
 func (p *iterPlan) yield(i int, d *decodedBlock, item *Item, fn func(*Item) error) error {
 	var want Record
 	for j := range d.count() {
@@ -226,7 +228,7 @@ func (p *iterPlan) yield(i int, d *decodedBlock, item *Item, fn func(*Item) erro
 		}
 
 		rec := storedRecord(&h, d.payload(j))
-		if p.full {
+		if p.payloadCopies {
 			want = rec
 			want.SetHeaderCopies()
 		}
@@ -236,7 +238,7 @@ func (p *iterPlan) yield(i int, d *decodedBlock, item *Item, fn func(*Item) erro
 
 		*item = Item{Record: rec, HeaderExtra: h.Extra, Block: i, Level: p.level}
 		if p.full {
-			item.CopyMismatch = copyMismatch(&rec, &want)
+			item.CopyMismatch = copyMismatch(&h, rec.Payload)
 		}
 		if err := fn(item); err != nil {
 			return err
@@ -246,16 +248,20 @@ func (p *iterPlan) yield(i int, d *decodedBlock, item *Item, fn func(*Item) erro
 	return nil
 }
 
-// matchCopies reports whether a record satisfies the copy-field predicates of p's filter:
-// on want, its payload's values as Record.SetHeaderCopies computes them, when p evaluates the payload,
-// else on rec, its stored copies and field_validity.
+// matchCopies reports whether a record satisfies the copy-field predicates of p's filter
+// (the tracepack format specification §7.2, the tracepack semantics specification §7.4).
+// Availability comes from rec's stored field_validity in every mode.
+// When p evaluates the payload, the values are want's, rec with Record.SetHeaderCopies applied,
+// and a field is available only when its stored bit is set and the payload holds all its bytes,
+// so a set bit over a payload that ends before the field leaves it unavailable;
+// otherwise the values are rec's stored copies.
 // A filter without a copy-field predicate matches every record.
 func (p *iterPlan) matchCopies(rec, want *Record) bool {
-	src := rec
+	c := copiesOf(rec)
 	if p.payloadCopies {
-		src = want
+		c = copiesOf(want)
+		c.validity &= rec.FieldValidity
 	}
-	c := copiesOf(src)
 
 	return p.f.matchCopies(&c)
 }
