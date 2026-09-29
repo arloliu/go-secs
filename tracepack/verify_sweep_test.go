@@ -207,3 +207,121 @@ func TestVerifyTruncationSweep(t *testing.T) {
 		})
 	}
 }
+
+// reportEvidence is what a Report's lists say about its located blocks.
+type reportEvidence struct {
+	// failed holds the blocks the report lists as failed.
+	failed map[int]bool
+	// stops counts the walk's stops the report lists.
+	stops int
+	// middle reports a failed block followed by a validated one.
+	middle bool
+}
+
+// checkReportLists requires the lists of rep to agree with its counts and with each other, and returns their evidence.
+func checkReportLists(t *testing.T, rep *Report, size int) reportEvidence {
+	t.Helper()
+
+	ev := reportEvidence{failed: make(map[int]bool)}
+	firstFailed := -1
+	for _, d := range rep.Failed {
+		if d.Block == -1 {
+			require.Equal(t, ReasonTruncated, d.Reason, "only the walk's stop concerns no block")
+			ev.stops++
+
+			continue
+		}
+		require.True(t, d.Block >= 0 && d.Block < rep.Blocks, "failed block %d of %d", d.Block, rep.Blocks)
+		require.Contains(t, []IncompleteReason{ReasonCorruptBlock, ReasonUnknownCodec}, d.Reason)
+		require.False(t, ev.failed[d.Block], "block %d failed twice", d.Block)
+		ev.failed[d.Block] = true
+		if firstFailed < 0 {
+			firstFailed = d.Block
+		}
+	}
+	for i := range rep.Blocks {
+		if !ev.failed[i] && firstFailed >= 0 && i > firstFailed {
+			ev.middle = true
+		}
+	}
+
+	require.LessOrEqual(t, ev.stops, 1)
+	require.Equal(t, rep.Blocks, rep.Validated+len(ev.failed))
+	for _, d := range rep.Disagreements {
+		require.Equal(t, ReasonIndexMismatch, d.Reason)
+		require.True(t, d.Block == -1 || (d.Block >= 0 && d.Block < rep.Blocks && !ev.failed[d.Block]))
+	}
+	for _, w := range rep.WriterDefects {
+		require.True(t, w.Block >= 0 && w.Block < rep.Blocks && !ev.failed[w.Block], "writer defect in block %d", w.Block)
+	}
+	if len(rep.Lost) > 0 {
+		require.NoError(t, rep.FooterErr, "lost ranges come from a valid footer")
+		require.NotEmpty(t, ev.failed)
+	}
+	require.LessOrEqual(t, rep.PrefixEnd, uint64(size))
+
+	return ev
+}
+
+// checkReportOutcome requires the outcome of rep to follow from its evidence ev (the tracepack format specification §13),
+// and a pack of data reported finalized-consistent to read complete but for its coverage entries.
+func checkReportOutcome(t *testing.T, rep *Report, ev reportEvidence, data []byte, opts ReaderOptions) {
+	t.Helper()
+
+	switch rep.Outcome {
+	case OutcomeCorruptMiddle:
+		require.True(t, ev.middle)
+	case OutcomeUnfinalized:
+		require.False(t, ev.middle)
+		require.False(t, rep.Finalized)
+	case OutcomeFinalizedTruncated:
+		require.False(t, ev.middle)
+		require.True(t, rep.Finalized)
+		require.True(t, len(ev.failed) > 0 || ev.stops > 0)
+	case OutcomeFinalizedInconsistent:
+		require.True(t, rep.Finalized)
+		require.Empty(t, rep.Failed)
+		require.True(t, rep.FooterErr != nil || len(rep.Disagreements) > 0)
+	case OutcomeFinalizedConsistent:
+		require.True(t, rep.Finalized)
+		require.Empty(t, rep.Failed)
+		require.Empty(t, rep.Disagreements)
+		require.NoError(t, rep.FooterErr)
+
+		r, err := Open(t.Context(), bytes.NewReader(data), int64(len(data)), opts)
+		require.NoError(t, err)
+		res, err := r.Iterate(t.Context(), Query{}, func(*Item) error { return nil })
+		require.NoError(t, err)
+		for _, d := range res.Incomplete {
+			require.Equal(t, ReasonCoverage, d.Reason, "a consistent pack reads complete but for its coverage entries: %v", d.Err)
+		}
+	default:
+		t.Fatalf("outcome %s", rep.Outcome)
+	}
+}
+
+// FuzzVerify verifies mutated packs.
+// Verify must never panic, must stay within the reader budgets, and must keep the report's invariants on every input:
+// its counts agree, every index lies among the located blocks, and the outcome follows from the evidence it reports
+// (the tracepack format specification §13).
+// A pack reported finalized-consistent must also read complete, but for the coverage entries of its pack metadata.
+func FuzzVerify(f *testing.F) {
+	opts := VerifyOptions{Reader: ReaderOptions{MaxPackMetadataLen: 1 << 20, MaxFooterLen: 1 << 20, MaxBlockLen: 1 << 20}}
+
+	for _, file := range fuzzIterateSeeds(f) {
+		f.Add(file)
+	}
+	f.Add(sweepPack(f, CodecZstd, true))
+	f.Add(richFooterPack(f, CodecZstd).file)
+	f.Add(defectTestPack(f).file)
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		rep, err := Verify(t.Context(), bytes.NewReader(data), int64(len(data)), opts)
+		if err != nil {
+			return
+		}
+
+		ev := checkReportLists(t, &rep, len(data))
+		checkReportOutcome(t, &rep, ev, data, opts.Reader)
+	})
+}
