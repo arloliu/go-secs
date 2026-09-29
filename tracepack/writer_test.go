@@ -600,8 +600,9 @@ func recordFlagsOf(t *testing.T, p *walkedPack) []tracepack.RecordFlags {
 		decoded, err := codec.Decode(b.Env.Codec, nil, b.Body, int(b.Env.UncompressedLen))
 		require.NoError(t, err)
 
-		for i := range int(b.Env.RecordCount) {
-			h, err := format.UnmarshalRecordHeader(decoded[i*int(b.Env.RecordHeaderLen):], int(b.Env.RecordHeaderLen))
+		count, hlen := int(b.Env.RecordCount), int(b.Env.RecordHeaderLen)
+		for i := range count {
+			h, err := format.UnmarshalRecordHeader(gatherHeader(decoded, count, hlen, i), hlen)
 			require.NoError(t, err)
 			out = append(out, tracepack.RecordFlags(h.RecordFlags))
 		}
@@ -1101,6 +1102,55 @@ func TestValidatingWriterRejectsCorruptEncoding(t *testing.T) {
 
 	p := mustWalkPack(t, buf.Bytes())
 	assert.Equal(t, [][]uint64{{0}}, blockSeqs(p))
+}
+
+// TestValidatingWriterChecksColumnarSection injects I-2 defects into the column-by-column header section
+// of an encoded three-record block, after encoding, under both codecs:
+// the validation decodes the body and gathers the headers before it checks them (the tracepack format specification §12).
+func TestValidatingWriterChecksColumnarSection(t *testing.T) {
+	t.Parallel()
+
+	const (
+		count      = 3
+		bodyLen    = count * (format.RecordHeaderLen + 14)
+		seqOff     = 0
+		payloadOff = 28
+	)
+	defects := []struct {
+		name string
+		// at is the offset of the changed byte in the header section: byte j of record i at j × count + i.
+		at int
+		to byte
+	}{
+		{name: "second seq repeats the first", at: seqOff*count + 1, to: 0},
+		{name: "last payload_len grows", at: payloadOff*count + 2, to: 15},
+	}
+	for _, c := range []tracepack.Codec{tracepack.CodecNone, tracepack.CodecZstd} {
+		for _, d := range defects {
+			t.Run(c.String()+" "+d.name, func(t *testing.T) {
+				t.Parallel()
+
+				w, buf := newTestWriter(t, tracepack.WriterOptions{Validate: true, Codec: c})
+				tracepack.SetEncodedHook(w, func(enc []byte) []byte {
+					body, err := codec.Decode(uint8(c), nil, enc, bodyLen)
+					require.NoError(t, err)
+					body[d.at] = d.to
+					out, err := codec.Encode(uint8(c), nil, body)
+					require.NoError(t, err)
+
+					return out
+				})
+				head := buf.Len()
+				for i := range count {
+					r := dataRecord(uint64(i), hourStart+int64(i))
+					require.NoError(t, w.Append(&r))
+				}
+				require.ErrorIs(t, w.Flush(), tracepack.ErrValidation)
+				require.ErrorIs(t, closeErr(w), tracepack.ErrWriterFailed)
+				assert.Equal(t, head, buf.Len(), "neither the block nor a trailer is written")
+			})
+		}
+	}
 }
 
 func TestNonValidatingWriterWritesCorruptEncoding(t *testing.T) {
