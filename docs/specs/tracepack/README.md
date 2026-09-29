@@ -22,7 +22,6 @@ Documents here follow `.agents/rules/450-doc-lifecycle.md`.
 | `proposals/p5-capture-registry.md` | finite | deferred | capture end evidence beyond the retained packs (issue record) |
 | `proposals/p7-durable-bus-capture-closure.md` | finite | deferred | closing a crashed producer's capture over a durable bus (issue record) |
 | `proposals/p8-bus-record-transport.md` | finite | draft | what one bus message carries, and how a record larger than the bus message limit crosses the bus |
-| `proposals/p10-storage-view-without-commits.md` | finite | draft | a storage view defined by the packs alone, without commit and fence objects (split out of P9) |
 
 Next proposal ID: P11.
-P1, P3, P6 and P9 were applied as spec v2.6, v2.7, v2.8 and v2.13 (see the changelog).
+P1, P3, P6 and P9 were applied as spec v2.6, v2.7, v2.8 and v2.13 (see the changelog); P10 was rejected (G5-101).

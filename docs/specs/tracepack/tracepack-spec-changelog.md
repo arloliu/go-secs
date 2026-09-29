@@ -649,7 +649,7 @@ Summary:
 | Finding | Resolution (v2.13) |
 |---|---|
 | P2 name the retired Go role constant | impl plan format-revision step (`PackRoleCorrection`) |
-| P2 P10's retired-bit example | P10 §3 item 3 |
+| P2 P10's retired-bit example | P10 §3 item 3 (P10 rejected later, G5-101; text at `69767cf`) |
 
 ### P9 application review A1
 
@@ -694,3 +694,10 @@ Summary:
 | P1 the I-12 and I-13 writer defects cannot coexist with a valid footer | [FMT §13] they come with an invalid or disagreeing footer, which makes the outcome `finalized-inconsistent` when no earlier outcome applies |
 | P1 a trailer placing the footer inside the pack metadata met I-5 while the reader rejected it | [FMT I-5], [FMT §11] |
 | P1 ×2 boundary multiplicity in the F-3 comparison, the footer budget error; P2 ×2 test construction | the Go implementation plan |
+
+## Proposal P10 rejected (owner decision G5-101, 2026-09-29)
+
+P10 (a storage view without commit and fence objects) is closed as rejected; its last text is at commit `69767cf`.
+The storage profile does not change: the catalog stays a cache rebuilt from the packs plus the commit and fence objects ([STO §5]),
+and `Repair` follows [STO §2], §5 and §6, with `patch_base` supplied by its caller.
+The review findings listed as open in P10 under the v2.13 entry are closed with it.

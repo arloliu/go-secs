@@ -346,3 +346,13 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   Rejected: `unfinalized` before `corrupt-middle`; a footer defect reported under `finalized-consistent` or `finalized-truncated`;
   a writer defect failing its block; an unreadable file header or pack metadata reported as an outcome.
   Spec: [FMT §13], [FMT §16] (v2.14).
+- G5-101 Proposal P10 rejected (2026-09-29): the storage view without commit and fence objects is not pursued.
+  The catalog is already a cache rebuilt from the packs plus the commit and fence objects ([STO §5]),
+  so P10's gain was only retiring those objects and the rules around them;
+  three of its four open P0s were live-operation coherence gaps that the commit protocol exists to close,
+  and closing them meant designing a protocol of equal strength.
+  Consequences: the commit protocol, publisher epochs, generation ranking and `patch_base` stay as [STO §2], §4, §5 and §6 define them;
+  `Repair` writes a generation-0 patch whose `patch_base` is the current generation's `replacement_set_id`, supplied by its caller;
+  P4 stays deferred and P7 is unchanged.
+  Not adopted with it: a rule that every repair re-emits its records byte for byte; [STO §6] keeps "possibly with new stored bits or classification".
+- P10 closed (2026-09-29): rejected (G5-101); its last text is at commit `69767cf`.
