@@ -188,7 +188,6 @@ func rebuildPack(t testing.TB, file []byte, edit func(i int, b *testBlock)) []by
 		if b.patchEntry != nil {
 			b.patchEntry(e)
 		}
-		parts.f3[i] = replaceEntry(t, parts.f3[i], f3TagContentBytes, 0, tlv.U64Entry(f3TagContentBytes, uint64(e.UncompressedLen)))
 		content += uint64(e.UncompressedLen)
 	}
 	if parts == nil {

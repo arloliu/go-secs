@@ -8,9 +8,8 @@ package tlv
 // is not Required here; the caller that knows the condition checks it.
 var (
 	// PackMetadata is the pack metadata tag registry (the tracepack format specification §5).
-	// The retired tag 0x0014 is absent, so a reader skips it like any unknown tag.
+	// The retired tags 0x0001 and 0x0014 are absent, so a reader skips them like any unknown tag.
 	PackMetadata = Registry{
-		0x0001: {Name: "schema_version", Type: TypeU64, Required: true},
 		0x0002: {Name: "tool_id", Type: TypeUTF8, Required: true},
 		0x0003: {Name: "transport", Type: TypeU8, Required: true},
 		0x0004: {Name: "capture_method", Type: TypeU8, Required: true},
@@ -145,14 +144,12 @@ var (
 	// F3 is the registry of a block summary entry list in footer section F-3.
 	// The tracepack format specification §10 defines it.
 	// The count arrays are bytes values holding u32 arrays;
-	// the reserved tags 0x0010–0x001F are absent, so a reader skips them.
+	// the retired tags 0x0004 and 0x0006 and the reserved tags 0x0010–0x001F are absent, so a reader skips them.
 	F3 = Registry{
 		0x0001: {Name: "kind_counts", Type: TypeBytes, Required: true},
 		0x0002: {Name: "dir_counts", Type: TypeBytes, Required: true},
 		0x0003: {Name: "decode_status_counts", Type: TypeBytes, Required: true},
-		0x0004: {Name: "max_payload_len", Type: TypeU64, Required: true},
 		0x0005: {Name: "quality_union", Type: TypeU64, Required: true},
-		0x0006: {Name: "content_bytes", Type: TypeU64, Required: true},
 		0x0007: {Name: "epoch", Type: TypeTLV, Repeatable: true, Required: true, Nested: &Epoch},
 		0x0008: {Name: "boundary", Type: TypeTLV, Repeatable: true, Nested: &Boundary},
 		0x0009: {Name: "seq_range", Type: TypeBytes, Repeatable: true},

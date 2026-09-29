@@ -668,18 +668,13 @@ func TestParseFooterRejectsLayout(t *testing.T) {
 			raw:  prologue(func(p *format.FooterPrologue) { p.Flags |= format.FooterFlagF4Present }),
 			want: "F-4 present",
 		},
-		{
-			name: "extraction_version without F-4",
-			raw:  prologue(func(p *format.FooterPrologue) { p.ExtractionVersion = 1 }),
-			want: "extraction_version 1",
-		},
 		{name: "F-5 before F-3", raw: prologue(func(p *format.FooterPrologue) { p.F5Offset = p.F3Offset }), want: "F-5 at offset"},
 		{name: "F-5 past the footer end", raw: prologue(func(p *format.FooterPrologue) { p.F5Len++ }), want: "F-5 at offset"},
 	})
 }
 
 // TestParseFooterAcceptsF4 checks that a footer with a non-empty F-4 and its present flag is accepted,
-// its content unread, since the tracepack format specification §10 defers the secondary index.
+// its content and extraction_version unread, since F-4 is undefined in format 1.0 (the tracepack format specification §10).
 func TestParseFooterAcceptsF4(t *testing.T) {
 	t.Parallel()
 
@@ -698,6 +693,24 @@ func TestParseFooterAcceptsF4(t *testing.T) {
 	})
 
 	idx, err := parseFooter(withF4, &base.tr, base.blocksStart)
+	require.NoError(t, err)
+	assert.Len(t, idx.blocks, len(base.blocks))
+}
+
+// TestParseFooterIgnoresRetiredFields checks that a footer written before the F-3 tags 0x0004 and 0x0006 were retired,
+// with values no rule checks any longer, and with extraction_version set without F-4, is accepted
+// (the tracepack format specification §10: retired tags are unknown F-3 tags, and readers ignore extraction_version).
+func TestParseFooterIgnoresRetiredFields(t *testing.T) {
+	t.Parallel()
+
+	base := richFooterPack(t, CodecNone)
+	p := splitFooter(t, base.decoded)
+	for i := range p.f3 {
+		p.f3[i] = append(p.f3[i], tlv.U64Entry(0x0004, uint64(format.MaxLen32)+1), tlv.U64Entry(0x0006, 1))
+	}
+	b := patchPrologue(t, p.encode(), func(p *format.FooterPrologue) { p.ExtractionVersion = 7 })
+
+	idx, err := parseFooter(b, &base.tr, base.blocksStart)
 	require.NoError(t, err)
 	assert.Len(t, idx.blocks, len(base.blocks))
 }
@@ -821,15 +834,15 @@ func TestParseFooterRejectsBlockSummary(t *testing.T) {
 		},
 		{
 			name:  "required tag missing",
-			parts: func(_ *testing.T, p *footerParts) { p.f3[3] = removeEntries(p.f3[3], f3TagMaxPayloadLen) },
-			want:  "block 3: F-3: tlv: tag 0x0004",
+			parts: func(_ *testing.T, p *footerParts) { p.f3[3] = removeEntries(p.f3[3], f3TagQualityUnion) },
+			want:  "block 3: F-3: tlv: tag 0x0005",
 		},
 		{
 			name: "known tag of the wrong type",
 			parts: func(t *testing.T, p *footerParts) {
-				p.f3[0] = replaceEntry(t, p.f3[0], f3TagContentBytes, 0, tlv.I64Entry(f3TagContentBytes, 1))
+				p.f3[0] = replaceEntry(t, p.f3[0], f3TagQualityUnion, 0, tlv.I64Entry(f3TagQualityUnion, 1))
 			},
-			want: "block 0: F-3: tlv: tag 0x0006",
+			want: "block 0: F-3: tlv: tag 0x0005",
 		},
 		{name: "kind_counts sum above record_count", parts: counts0(f3TagKindCounts, plusOne), want: "block 0: F-3 kind_counts sums past record_count 3"},
 		{name: "dir_counts sum above record_count", parts: counts0(f3TagDirCounts, plusOne), want: "block 0: F-3 dir_counts sums past"},
@@ -851,26 +864,11 @@ func TestParseFooterRejectsBlockSummary(t *testing.T) {
 			want: "block 0: F-3 kind_counts: u32 array",
 		},
 		{
-			name: "max_payload_len above the payload_len limit",
-			parts: func(t *testing.T, p *footerParts) {
-				p.f3[0] = replaceEntry(t, p.f3[0], f3TagMaxPayloadLen, 0, tlv.U64Entry(f3TagMaxPayloadLen, uint64(format.MaxLen32)+1))
-			},
-			want: "block 0: F-3 max_payload_len",
-		},
-		{
 			name: "quality_union above 16 bits",
 			parts: func(t *testing.T, p *footerParts) {
 				p.f3[0] = replaceEntry(t, p.f3[0], f3TagQualityUnion, 0, tlv.U64Entry(f3TagQualityUnion, 0x10000))
 			},
 			want: "block 0: F-3 quality_union",
-		},
-		{
-			name: "content_bytes differs from uncompressed_len",
-			parts: func(t *testing.T, p *footerParts) {
-				v := uint64(p.entries[0].UncompressedLen) + 1
-				p.f3[0] = replaceEntry(t, p.f3[0], f3TagContentBytes, 0, tlv.U64Entry(f3TagContentBytes, v))
-			},
-			want: "block 0: F-3 content_bytes",
 		},
 		{
 			name:  "epoch listed twice",

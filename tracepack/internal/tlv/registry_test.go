@@ -39,7 +39,6 @@ func TestPackMetadataRegistry(t *testing.T) {
 	t.Parallel()
 
 	rows := []specRow{
-		{0x0001, "schema_version", TypeU64, false, true},
 		{0x0002, "tool_id", TypeUTF8, false, true},
 		{0x0003, "transport", TypeU8, false, true},
 		{0x0004, "capture_method", TypeU8, false, true},
@@ -91,8 +90,10 @@ func TestPackMetadataRegistry(t *testing.T) {
 	}
 	assertRegistry(t, PackMetadata, rows)
 
-	_, retired := PackMetadata[0x0014]
-	assert.False(t, retired, "the retired tag 0x0014 must stay unknown")
+	for _, tag := range []uint16{0x0001, 0x0014} {
+		_, retired := PackMetadata[tag]
+		assert.False(t, retired, "the retired tag 0x%04X must stay unknown", tag)
+	}
 }
 
 // Transcribed from "Nested tags of coverage" in §5; the specification marks none of them required.
@@ -194,7 +195,7 @@ func TestAnnotationRegistry(t *testing.T) {
 }
 
 // Transcribed from the F-3 block summary table of §10.
-// A u32 array is a bytes value; tags 0x0010–0x001F are reserved and stay unknown.
+// A u32 array is a bytes value; the retired tags 0x0004 and 0x0006 and the reserved tags 0x0010–0x001F stay unknown.
 func TestF3Registry(t *testing.T) {
 	t.Parallel()
 
@@ -202,9 +203,7 @@ func TestF3Registry(t *testing.T) {
 		{0x0001, "kind_counts", TypeBytes, false, true},
 		{0x0002, "dir_counts", TypeBytes, false, true},
 		{0x0003, "decode_status_counts", TypeBytes, false, true},
-		{0x0004, "max_payload_len", TypeU64, false, true},
 		{0x0005, "quality_union", TypeU64, false, true},
-		{0x0006, "content_bytes", TypeU64, false, true},
 		{0x0007, "epoch", TypeTLV, true, true},
 		{0x0008, "boundary", TypeTLV, true, false},
 		{0x0009, "seq_range", TypeBytes, true, false},

@@ -17,6 +17,7 @@ import (
 
 	"github.com/arloliu/go-secs/tracepack/internal/codec"
 	"github.com/arloliu/go-secs/tracepack/internal/format"
+	"github.com/arloliu/go-secs/tracepack/internal/tlv"
 )
 
 // gateTimeout bounds how long a gated call waits for the other calls of its round.
@@ -528,10 +529,9 @@ func TestOpenRejectsBeforeAnyBlockRead(t *testing.T) {
 			want: ErrUnsupportedFormat,
 		},
 		{
-			name: "schema_version 2",
-			// schema_version is the first entry: an 8-byte entry header, then its u64 value.
-			file: patchMeta(t, p.file, func(m []byte) { m[8] = 2 }),
-			want: ErrSchemaVersion,
+			name: "pack metadata entry with tag 0",
+			file: patchMeta(t, p.file, func(m []byte) { m[0], m[1] = 0, 0 }),
+			want: tlv.ErrZeroTag,
 		},
 		{
 			name: "pack metadata past the object",
@@ -943,9 +943,9 @@ func TestOpenFooterOverBudget(t *testing.T) {
 	t.Run("pack metadata rejected before the footer is read", func(t *testing.T) {
 		t.Parallel()
 
-		g := newGatedReader(patchMeta(t, p.file, func(m []byte) { m[8] = 2 }), 2)
+		g := newGatedReader(patchMeta(t, p.file, func(m []byte) { m[0], m[1] = 0, 0 }), 2)
 		_, err := Open(t.Context(), g, l.size, opts)
-		require.ErrorIs(t, err, ErrSchemaVersion)
+		require.ErrorIs(t, err, tlv.ErrZeroTag)
 		assert.Empty(t, g.roundCalls(1), "no footer chunk is read for a pack whose metadata is rejected")
 	})
 }

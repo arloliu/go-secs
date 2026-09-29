@@ -15,18 +15,18 @@ import (
 // Golden pack metadata is hand-built from the entry layout of the tracepack format specification §5,
 // hex of python3 struct.pack('<HBBI', tag, value_type, 0, len(value)) + value for each entry, concatenated in tag order.
 const (
-	// pmAlways16Hex holds only the 16 unconditionally required tags (schema_version included).
+	// pmAlways15Hex holds only the 15 unconditionally required tags.
 	// It passes the registry check but neither decodes nor marshals,
 	// because pack_role = segment also requires scope_generation, which the metadata itself shows.
-	pmAlways16Hex = "010004000800000001000000000000000200060004000000746f6f6c030001000100000001040001000100000001050001000100000001060006000300000072656307000600020000007772090001000100000003100003000800000" +
+	pmAlways15Hex = "0200060004000000746f6f6c030001000100000001040001000100000001050001000100000001060006000300000072656307000600020000007772090001000100000003100003000800000" +
 		"0e803000000000000110003000800000" +
 		"0d007000000000000120001000100000002130002000100000001180001000100000001190001000100000000" +
 		"1b00050010000000000102030405060708090a0b0c0d0e0f27000400080000000000000000000000"
-	// pmMinimal17Hex adds scope_generation = 0, making the pack marshalable under PackFacts{} (PackRole = segment).
-	pmMinimal17Hex = pmAlways16Hex + "2d000400080000000000000000000000"
-	// pmWithUnknownHex is pmMinimal17Hex plus one entry of an unknown tag (0x0050, bytes, 0xAA 0xBB),
+	// pmMinimal16Hex adds scope_generation = 0, making the pack marshalable under PackFacts{} (PackRole = segment).
+	pmMinimal16Hex = pmAlways15Hex + "2d000400080000000000000000000000"
+	// pmWithUnknownHex is pmMinimal16Hex plus one entry of an unknown tag (0x0050, bytes, 0xAA 0xBB),
 	// which MarshalBinary re-encodes after the typed fields.
-	pmWithUnknownHex = pmMinimal17Hex + "5000070002000000aabb"
+	pmWithUnknownHex = pmMinimal16Hex + "5000070002000000aabb"
 )
 
 // mustHexBytes decodes a hex constant of these tests, failing t on a typo.
@@ -40,7 +40,7 @@ func mustHexBytes(t testing.TB, s string) []byte {
 
 // basePackMeta returns a minimal PackMeta that satisfies every unconditional rule and,
 // with PackRole segment and ScopeGeneration 0, every conditional rule too:
-// the struct MarshalBinary encodes to pmMinimal17Hex.
+// the struct MarshalBinary encodes to pmMinimal16Hex.
 func basePackMeta() *tracepack.PackMeta {
 	var recorderID tracepack.UUID
 	for i := range recorderID {
@@ -102,7 +102,7 @@ func TestPackMetaMarshalMinimalGolden(t *testing.T) {
 
 	got, err := basePackMeta().MarshalBinary()
 	require.NoError(t, err)
-	assert.Equal(t, pmMinimal17Hex, hex.EncodeToString(got))
+	assert.Equal(t, pmMinimal16Hex, hex.EncodeToString(got))
 }
 
 func TestPackMetaMarshalRejectsValuesItsDecoderRejects(t *testing.T) {
@@ -153,15 +153,15 @@ func TestUnmarshalPackMetaRejectsMissingIntrinsicTags(t *testing.T) {
 
 	// time_source (tag 0x0009) patched from generator (3) to capture-clock (1),
 	// which requires capture_origin_utc_ns, capture_origin_mono_ns and clock_step_tolerance_ns.
-	captureClockHex := strings.Replace(pmMinimal17Hex, "090001000100000003", "090001000100000001", 1)
-	require.NotEqual(t, pmMinimal17Hex, captureClockHex)
+	captureClockHex := strings.Replace(pmMinimal16Hex, "090001000100000003", "090001000100000001", 1)
+	require.NotEqual(t, pmMinimal16Hex, captureClockHex)
 
 	tests := []struct {
 		name  string
 		hex   string
 		field string
 	}{
-		{"segment without scope_generation", pmAlways16Hex, "scope_generation"},
+		{"segment without scope_generation", pmAlways15Hex, "scope_generation"},
 		{"capture-clock without origins", captureClockHex, "capture_origin_utc_ns"},
 	}
 
@@ -182,9 +182,9 @@ func TestUnmarshalPackMetaRejectsMissingIntrinsicTags(t *testing.T) {
 func TestUnmarshalPackMetaDefersFactDependentTags(t *testing.T) {
 	t.Parallel()
 
-	// pmMinimal17Hex has no classifier, max_frame_len, redaction or flush_interval_ns:
+	// pmMinimal16Hex has no classifier, max_frame_len, redaction or flush_interval_ns:
 	// only facts about the records or the writer could require them.
-	m, err := tracepack.UnmarshalPackMeta(mustHexBytes(t, pmMinimal17Hex))
+	m, err := tracepack.UnmarshalPackMeta(mustHexBytes(t, pmMinimal16Hex))
 	require.NoError(t, err)
 
 	var fe *tracepack.FieldError
@@ -195,7 +195,7 @@ func TestUnmarshalPackMetaDefersFactDependentTags(t *testing.T) {
 func TestUnmarshalPackMetaMinimalRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	m, err := tracepack.UnmarshalPackMeta(mustHexBytes(t, pmMinimal17Hex))
+	m, err := tracepack.UnmarshalPackMeta(mustHexBytes(t, pmMinimal16Hex))
 	require.NoError(t, err)
 	assert.Equal(t, "tool", m.ToolID)
 	assert.Equal(t, tracepack.TransportHSMSSS, m.Transport)
@@ -205,17 +205,96 @@ func TestUnmarshalPackMetaMinimalRoundTrip(t *testing.T) {
 
 	again, err := m.MarshalBinary()
 	require.NoError(t, err)
-	assert.Equal(t, pmMinimal17Hex, hex.EncodeToString(again))
+	assert.Equal(t, pmMinimal16Hex, hex.EncodeToString(again))
 }
 
-func TestUnmarshalPackMetaRejectsSchemaVersion(t *testing.T) {
+// TestPackMetaRetiredTags checks the retired pack metadata tags 0x0001 (schema_version) and 0x0014
+// (the tracepack format specification §5): a reader keeps them in Unknown like any unknown tag,
+// and MarshalBinary never writes them, while it keeps a tag that is merely unknown.
+func TestPackMetaRetiredTags(t *testing.T) {
 	t.Parallel()
 
-	// pmAlways16Hex with schema_version's value byte changed from 1 to 2.
-	b := mustHexBytes(t, pmAlways16Hex)
-	b[8] = 2
-	_, err := tracepack.UnmarshalPackMeta(b)
-	require.ErrorIs(t, err, tracepack.ErrSchemaVersion)
+	const (
+		schemaVersionHex = "01000400080000000100000000000000"
+		retired14Hex     = "1400020001000000" + "01"
+	)
+	m, err := tracepack.UnmarshalPackMeta(mustHexBytes(t, schemaVersionHex+pmWithUnknownHex+retired14Hex))
+	require.NoError(t, err)
+	tags := make([]uint16, 0, len(m.Unknown))
+	for _, e := range m.Unknown {
+		tags = append(tags, e.Tag)
+	}
+	assert.Equal(t, []uint16{0x0001, 0x0050, 0x0014}, tags, "retired tags are read as unknown entries")
+
+	again, err := m.MarshalBinary()
+	require.NoError(t, err)
+	assert.Equal(t, pmWithUnknownHex, hex.EncodeToString(again), "retired tags are never written")
+}
+
+// TestPackMetaRetiredPackRole checks the retired pack_role 5 (the tracepack format specification §9):
+// read and reported as unknown(5), never written.
+func TestPackMetaRetiredPackRole(t *testing.T) {
+	t.Parallel()
+
+	// pack_role is the u8 entry 18 00 01 00 01000000 01 (segment); make its value 5.
+	b := strings.Replace(pmMinimal16Hex, "18000100010000000"+"1", "18000100010000000"+"5", 1)
+	require.NotEqual(t, pmMinimal16Hex, b)
+	m, err := tracepack.UnmarshalPackMeta(mustHexBytes(t, b))
+	require.NoError(t, err)
+	assert.Equal(t, "unknown(5)", m.PackRole.String())
+
+	_, err = m.MarshalBinary()
+	var fe *tracepack.FieldError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, "pack_role", fe.Field)
+	require.ErrorIs(t, err, tracepack.ErrFieldValue)
+}
+
+// TestPackMetaReplacementSetValues checks that a replacement set has exactly one member
+// (the tracepack storage specification §6): any other size or index is rejected on write and on read.
+func TestPackMetaReplacementSetValues(t *testing.T) {
+	t.Parallel()
+
+	generation := func() *tracepack.PackMeta {
+		m := basePackMeta()
+		m.PackRole = tracepack.PackRoleArchive
+		m.CompactionLevel = 1
+		m.CompactedFrom = []tracepack.UUID{uuidOfByte(1)}
+		m.ScopeGeneration = new(uint64(1))
+		m.PublisherEpoch = new(uint64(1))
+		m.ReplacementSetID = new(uuidOfByte(2))
+		m.ReplacementSetSize = new(uint64(1))
+		m.ReplacementSetIndex = new(uint64(0))
+
+		return m
+	}
+	good, err := generation().MarshalBinary()
+	require.NoError(t, err)
+
+	for _, tt := range []struct {
+		field string
+		mut   func(m *tracepack.PackMeta)
+		from  string
+		to    string
+	}{
+		{"replacement_set_size", func(m *tracepack.PackMeta) { m.ReplacementSetSize = new(uint64(2)) },
+			"2a0004000800000001", "2a0004000800000002"},
+		{"replacement_set_index", func(m *tracepack.PackMeta) { m.ReplacementSetIndex = new(uint64(1)) },
+			"2b0004000800000000", "2b0004000800000001"},
+	} {
+		m := generation()
+		tt.mut(m)
+		_, err := m.MarshalBinary()
+		var fe *tracepack.FieldError
+		require.ErrorAs(t, err, &fe, tt.field)
+		assert.Equal(t, tt.field, fe.Field)
+		require.ErrorIs(t, err, tracepack.ErrFieldValue, tt.field)
+
+		bad := strings.Replace(hex.EncodeToString(good), tt.from, tt.to, 1)
+		require.NotEqual(t, hex.EncodeToString(good), bad, tt.field)
+		_, err = tracepack.UnmarshalPackMeta(mustHexBytes(t, bad))
+		require.ErrorIs(t, err, tracepack.ErrFieldValue, tt.field)
+	}
 }
 
 func TestPackMetaUnknownEntryRoundTrip(t *testing.T) {
@@ -246,7 +325,7 @@ func TestPackMetaNestedRepeatableRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	m := basePackMeta()
-	m.PackRole = tracepack.PackRoleCorrection
+	m.PackRole = tracepack.PackRoleRepair
 	m.CompactionLevel = 1
 	m.CaptureMethod = tracepack.CaptureMethodLog
 	m.SourceDialect = new("sml")
@@ -346,7 +425,7 @@ func TestPackMetaValidateRequiredWhen(t *testing.T) {
 		{
 			"supersedes required for a patch",
 			"supersedes",
-			func(m *tracepack.PackMeta, _ *tracepack.PackFacts) { m.PackRole = tracepack.PackRoleCorrection },
+			func(m *tracepack.PackMeta, _ *tracepack.PackFacts) { m.PackRole = tracepack.PackRoleRepair },
 		},
 		{
 			"supersedes required for a generation with a predecessor",
@@ -357,10 +436,10 @@ func TestPackMetaValidateRequiredWhen(t *testing.T) {
 			},
 		},
 		{
-			"coverage required when a correction or repair lost data",
+			"coverage required when a repair lost data",
 			"coverage",
 			func(m *tracepack.PackMeta, facts *tracepack.PackFacts) {
-				m.PackRole = tracepack.PackRoleCorrection
+				m.PackRole = tracepack.PackRoleRepair
 				m.Supersedes = []tracepack.UUID{uuidOfByte(1)}
 				facts.CoverageLoss = true
 			},
@@ -403,7 +482,7 @@ func TestPackMetaValidateRequiredWhen(t *testing.T) {
 			"patch_base required for a patch whose scope has a generation",
 			"patch_base",
 			func(m *tracepack.PackMeta, facts *tracepack.PackFacts) {
-				m.PackRole = tracepack.PackRoleCorrection
+				m.PackRole = tracepack.PackRoleRepair
 				m.Supersedes = []tracepack.UUID{uuidOfByte(1)}
 				facts.ScopeHasGeneration = true
 			},

@@ -240,7 +240,6 @@ func TestBlockSummaryAccumulatesFooterFacts(t *testing.T) {
 		kindCounts:         []uint32{0, 3, 0, 4, 0, 0, 0, 1},
 		dirCounts:          []uint32{0, 4, 0, 4},
 		decodeStatusCounts: []uint32{0, 3, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4},
-		maxPayloadLen:      uint32(len(recs[0].Payload)),
 		// The boundary events derive capture-boundary, and the epoch-0 one correlation-incomplete.
 		qualityUnion: QualityNoMono | QualityDecodeFailed | QualityDirectionInferred |
 			QualityCaptureBoundary | QualityCorrelationIncomplete,
@@ -261,8 +260,6 @@ func TestBlockSummaryAccumulatesFooterFacts(t *testing.T) {
 		},
 		seqRanges: []seqRange{{1, 3}, {5, 9}},
 	}
-	require.Greater(t, want.maxPayloadLen, uint32(len(blockTestFrame)), "an event payload is the largest here")
-
 	assert.Equal(t, want, s)
 }
 

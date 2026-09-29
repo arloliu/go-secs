@@ -191,8 +191,8 @@ func (s DecodeStatus) String() string {
 // Malformed reports whether s is one of the malformed classifications of the tracepack semantics specification §3:
 // short-frame, length-mismatch, bad-ptype, bad-stype, control-with-body, oversized, or item-decode-error.
 //
-// A malformed classification is what sets a record's quality.decode-failed bit;
-// not-attempted and not-applicable are never malformed.
+// It is false for every other value, a value outside the registry included,
+// so !Malformed() never proves a clean decode; see [DecodeStatus.Clean].
 func (s DecodeStatus) Malformed() bool {
 	switch s {
 	case DecodeStatusShortFrame,
@@ -214,6 +214,34 @@ func (s DecodeStatus) Malformed() bool {
 	}
 
 	// Outside the registry: preserved but never malformed.
+	return false
+}
+
+// Clean reports whether s is a known classification outside the malformed set of the tracepack semantics specification §3,
+// the clean decode state of the tracepack semantics specification §6.
+//
+// A value outside the registry is neither clean nor malformed: its decode state is unknown, which never counts as clean.
+func (s DecodeStatus) Clean() bool {
+	switch s {
+	case DecodeStatusNotAttempted,
+		DecodeStatusOK,
+		DecodeStatusOKWithTrailing,
+		DecodeStatusReconstructedOK,
+		DecodeStatusParseFailed,
+		DecodeStatusBuildRejected,
+		DecodeStatusNotApplicable:
+		return true
+	case DecodeStatusShortFrame,
+		DecodeStatusLengthMismatch,
+		DecodeStatusBadPType,
+		DecodeStatusBadSType,
+		DecodeStatusControlWithBody,
+		DecodeStatusOversized,
+		DecodeStatusItemDecodeError:
+		return false
+	}
+
+	// Outside the registry: unknown, never clean.
 	return false
 }
 
@@ -404,8 +432,6 @@ const (
 	PackRoleExtract
 	// PackRoleRepair means the pack replaces a damaged pack after recovery.
 	PackRoleRepair
-	// PackRoleCorrection means the pack re-emits records under a newer classification.
-	PackRoleCorrection
 )
 
 // String returns the tracepack format specification's name for r, or "unknown(<n>)" for a value outside the registry.
@@ -421,8 +447,6 @@ func (r PackRole) String() string {
 		return "extract"
 	case PackRoleRepair:
 		return "repair"
-	case PackRoleCorrection:
-		return "correction"
 	default:
 		return fmt.Sprintf("unknown(%d)", uint8(r))
 	}

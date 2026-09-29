@@ -4,18 +4,14 @@ import (
 	"encoding"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/arloliu/go-secs/tracepack/internal/format"
 	"github.com/arloliu/go-secs/tracepack/internal/tlv"
 )
 
-// schemaVersion1 is the only pack metadata schema_version a format 1.x reader accepts
-// (the tracepack format specification §14).
-const schemaVersion1 uint64 = 1
-
 // Pack metadata tag registry (the tracepack format specification §5).
 const (
-	tagSchemaVersion        uint16 = 0x0001
 	tagToolID               uint16 = 0x0002
 	tagTransport            uint16 = 0x0003
 	tagCaptureMethod        uint16 = 0x0004
@@ -66,6 +62,13 @@ const (
 	tagRedaction            uint16 = 0x0032
 )
 
+// retiredPackMetaTags are the retired pack metadata tag numbers (the tracepack format specification §5):
+// a writer never writes them, and a reader treats them as unknown tags.
+var retiredPackMetaTags = [...]uint16{0x0001, 0x0014}
+
+// packRoleRetired is the retired pack_role value 5, which a writer never writes (the tracepack format specification §9).
+const packRoleRetired = 5
+
 // Nested tags of a pack metadata `coverage` entry (the tracepack format specification §5).
 const (
 	tagCoverageCaptureID uint16 = 0x0001
@@ -96,9 +99,10 @@ const (
 var (
 	// ErrRequiredTag reports that a "Required when" rule of the tracepack format specification §5 or §8 is not satisfied.
 	ErrRequiredTag = errors.New("tracepack: required tag is missing")
-	// ErrSchemaVersion reports a pack metadata schema_version other than 1,
-	// frozen for format 1.x (the tracepack format specification §14).
-	ErrSchemaVersion = errors.New("tracepack: unsupported pack metadata schema_version")
+	// ErrFieldValue reports a field holding a value the format does not allow (the tracepack format specification §5 and §9):
+	// a replacement_set_size other than 1 or a replacement_set_index other than 0, read or written,
+	// or the retired pack_role 5, which a writer never writes.
+	ErrFieldValue = errors.New("tracepack: field value not allowed")
 	// ErrAnnotationText reports an annotation whose text and raw tags are not exactly one of the two
 	// (the tracepack format specification §8).
 	ErrAnnotationText = errors.New("tracepack: annotation must carry exactly one of text or raw")
@@ -154,7 +158,7 @@ type PackFacts struct {
 	// GenerationHasPredecessor reports that this pack's scope_generation replaces an earlier generation,
 	// which, together with a non-zero scope_generation, requires the supersedes tag.
 	GenerationHasPredecessor bool
-	// CoverageLoss reports that a correction or repair pack lost data it cannot recover,
+	// CoverageLoss reports that a repair pack lost data it cannot recover,
 	// which requires at least one coverage entry (the tracepack storage specification §6).
 	CoverageLoss bool
 	// ScopeHasGeneration reports that the pack's scope already has a published generation,
@@ -166,7 +170,7 @@ type PackFacts struct {
 }
 
 // Coverage is one lost range of a pack metadata `coverage` entry:
-// a correction or repair pack's account of data it could not recover (the tracepack storage specification §6).
+// a repair pack's account of data it could not recover (the tracepack storage specification §6).
 //
 // See the tracepack format specification §5.
 // Every field is optional, because a writer may know only part of the lost range.
@@ -249,7 +253,8 @@ type HSMSTimers struct {
 // Validate reports which fields the specification's "Required when" column requires for the PackFacts passed to it.
 // Unknown preserves every entry whose tag PackMeta does not recognize, private tags included,
 // so MarshalBinary reproduces them on a round trip.
-// schema_version is not a field: MarshalBinary always writes 1, and UnmarshalPackMeta rejects any other value.
+// A retired tag (the tracepack format specification §5) that UnmarshalPackMeta finds stays in Unknown like any unknown tag,
+// but MarshalBinary never writes one, so a pack written from decoded metadata drops it.
 type PackMeta struct {
 	ToolID               string
 	Transport            Transport
@@ -425,7 +430,7 @@ var redactionEntrySetters = map[uint16]func(r *RedactionEntry, e tlv.Entry) erro
 //   - error: nil, or a *FieldError for the first rule violated,
 //     in the order the tracepack format specification §5 registry table lists the rows.
 func (m *PackMeta) Validate(facts PackFacts) error {
-	isPatch := m.PackRole == PackRoleRepair || m.PackRole == PackRoleCorrection
+	isPatch := m.PackRole == PackRoleRepair
 	isGeneration := m.ScopeGeneration != nil && *m.ScopeGeneration >= 1
 
 	checks := []struct {
@@ -462,6 +467,14 @@ func (m *PackMeta) Validate(facts PackFacts) error {
 		}
 	}
 
+	// A replacement set has exactly one member (the tracepack storage specification §6).
+	if m.ReplacementSetSize != nil && *m.ReplacementSetSize != 1 {
+		return &FieldError{Field: "replacement_set_size", Err: ErrFieldValue}
+	}
+	if m.ReplacementSetIndex != nil && *m.ReplacementSetIndex != 0 {
+		return &FieldError{Field: "replacement_set_index", Err: ErrFieldValue}
+	}
+
 	return nil
 }
 
@@ -470,28 +483,34 @@ func (m *PackMeta) Validate(facts PackFacts) error {
 // It first enforces the rules UnmarshalPackMeta enforces, those that do not depend on record or scope facts;
 // a caller whose pack has additional facts (a classified record, a redacted record, a generation with a predecessor,
 // and so on) must call Validate(facts) itself before calling MarshalBinary.
-// schema_version is always written as 1 (the tracepack format specification §14),
-// and every RawEntry in m.Unknown is re-encoded after the typed fields.
+// Every RawEntry in m.Unknown is re-encoded after the typed fields, except a retired tag number, which is dropped,
+// because a writer never writes one (the tracepack format specification §5).
+// The retired pack_role 5 is rejected: a writer never writes it (the tracepack format specification §9).
 //
 // It rejects any value UnmarshalPackMeta would reject:
 // a string that is not valid UTF-8, a u64 above 2^63-1, nested values included.
 //
 // Returns:
 //   - []byte: the encoded pack metadata.
-//   - error: a *FieldError from Validate, a *FieldError wrapping ErrReservedTag for an Unknown entry
-//     that names a tag this package already encodes, or an error naming the first value the decoder would reject.
+//   - error: a *FieldError from Validate, a *FieldError wrapping ErrFieldValue for pack_role 5,
+//     a *FieldError wrapping ErrReservedTag for an Unknown entry that names a tag this package already encodes,
+//     or an error naming the first value the decoder would reject.
 func (m *PackMeta) MarshalBinary() ([]byte, error) {
 	if err := m.validateIntrinsic(); err != nil {
 		return nil, err
 	}
 
-	entries := []tlv.Entry{tlv.U64Entry(tagSchemaVersion, schemaVersion1)}
-	entries = m.appendAlwaysEntries(entries)
+	if m.PackRole == packRoleRetired {
+		return nil, &FieldError{Field: "pack_role", Err: ErrFieldValue}
+	}
+
+	entries := m.appendAlwaysEntries(nil)
 	entries = m.appendOptionalScalarEntries(entries)
 	entries = m.appendRepeatableEntries(entries)
 	entries = m.appendNestedEntries(entries)
 
-	entries, err := appendUnknownEntries(entries, m.Unknown, tlv.PackMetadata)
+	unknown := slices.DeleteFunc(slices.Clone(m.Unknown), func(r RawEntry) bool { return slices.Contains(retiredPackMetaTags[:], r.Tag) })
+	entries, err := appendUnknownEntries(entries, unknown, tlv.PackMetadata)
 	if err != nil {
 		return nil, err
 	}
@@ -502,19 +521,19 @@ func (m *PackMeta) MarshalBinary() ([]byte, error) {
 // UnmarshalPackMeta decodes the pack metadata of the tracepack format specification §5 from b.
 //
 // It checks b against the pack metadata tag registry:
-// every unconditionally required tag, every value type and every nested entry;
-// it additionally rejects a schema_version other than 1.
+// every unconditionally required tag, every value type and every nested entry.
 // It then evaluates the conditional "Required when" rules the metadata answers by itself,
 // the rules Validate enforces with the zero PackFacts,
 // such as the capture origins a capture-clock pack requires, or the scope_generation every pack but an extract requires.
 // The rules that depend on facts about the pack's records or scope are left to the reader,
 // which calls Validate itself when it has PackFacts to check against.
-// An entry whose tag is not in the registry is preserved in the returned PackMeta's Unknown field.
+// An entry whose tag is not in the registry, a retired tag included, is preserved in the returned PackMeta's Unknown field.
 //
 // Returns:
 //   - *PackMeta: the decoded pack metadata; nil on error.
-//   - error: non-nil if b is not valid TLV, fails the registry check, or names an unsupported schema_version;
-//     a *FieldError wrapping ErrRequiredTag for the first "Required when" rule the metadata itself violates.
+//   - error: non-nil if b is not valid TLV or fails the registry check;
+//     a *FieldError wrapping ErrRequiredTag for the first "Required when" rule the metadata itself violates,
+//     or ErrFieldValue for a replacement-set value other than size 1 and index 0.
 func UnmarshalPackMeta(b []byte) (*PackMeta, error) {
 	entries, err := tlv.Decode(b)
 	if err != nil {
@@ -526,18 +545,6 @@ func UnmarshalPackMeta(b []byte) (*PackMeta, error) {
 
 	m := &PackMeta{}
 	for _, e := range entries {
-		if e.Tag == tagSchemaVersion {
-			v, err := e.U64()
-			if err != nil {
-				return nil, fmt.Errorf("tracepack: schema_version: %w", err)
-			}
-			if v != schemaVersion1 {
-				return nil, fmt.Errorf("tracepack: pack metadata schema_version %d: %w", v, ErrSchemaVersion)
-			}
-
-			continue
-		}
-
 		if set, known := packMetaSetters[e.Tag]; known {
 			if err := set(m, e); err != nil {
 				return nil, err

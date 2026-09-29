@@ -40,7 +40,6 @@ var (
 	ErrNotTracepack = errors.New("tracepack: not a tracepack file")
 	// ErrUnsupportedFormat reports a file whose format_major this package does not read
 	// (the tracepack format specification §14).
-	// A pack metadata schema_version other than 1 is reported through ErrSchemaVersion instead.
 	ErrUnsupportedFormat = errors.New("tracepack: unsupported format version")
 	// ErrChecksum reports a CRC that does not match the bytes it covers:
 	// the bytes changed after they were written.
@@ -226,7 +225,7 @@ type bootstrap struct {
 //     ErrUnsupportedFormat for a format_major other than 1;
 //     ErrChecksum for a bad file header or pack metadata CRC;
 //     ErrReadLimit for a pack metadata over MaxPackMetadataLen;
-//     the error of UnmarshalPackMeta, wrapping ErrSchemaVersion for a schema_version other than 1.
+//     the error of UnmarshalPackMeta.
 func Open(ctx context.Context, ra io.ReaderAt, size int64, opts ReaderOptions) (*Reader, error) {
 	if size < format.FileHeaderLen {
 		return nil, fmt.Errorf("tracepack: object of %d bytes is shorter than the %d-byte file header: %w: %w",

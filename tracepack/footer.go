@@ -13,9 +13,7 @@ const (
 	f3TagKindCounts         uint16 = 0x0001
 	f3TagDirCounts          uint16 = 0x0002
 	f3TagDecodeStatusCounts uint16 = 0x0003
-	f3TagMaxPayloadLen      uint16 = 0x0004
 	f3TagQualityUnion       uint16 = 0x0005
-	f3TagContentBytes       uint16 = 0x0006
 	f3TagEpoch              uint16 = 0x0007
 	f3TagBoundary           uint16 = 0x0008
 	f3TagSeqRange           uint16 = 0x0009
@@ -163,16 +161,14 @@ func blockSummaryOf(e *format.F2Entry) blockSummary {
 }
 
 // appendF3 appends the F-3 entry list of s to dst, in tag order:
-// the count arrays, max_payload_len, quality_union, content_bytes,
+// the count arrays, quality_union,
 // one epoch entry per epoch in ascending epoch order, one boundary entry per capture-boundary record,
 // and seq_range entries only when the block's seqs are not contiguous.
 func appendF3(dst []byte, s *blockSummary) []byte {
 	dst = tlv.AppendEntry(dst, tlv.BytesEntry(f3TagKindCounts, tlv.AppendU32Array(nil, s.kindCounts)))
 	dst = tlv.AppendEntry(dst, tlv.BytesEntry(f3TagDirCounts, tlv.AppendU32Array(nil, s.dirCounts)))
 	dst = tlv.AppendEntry(dst, tlv.BytesEntry(f3TagDecodeStatusCounts, tlv.AppendU32Array(nil, s.decodeStatusCounts)))
-	dst = tlv.AppendEntry(dst, tlv.U64Entry(f3TagMaxPayloadLen, uint64(s.maxPayloadLen)))
 	dst = tlv.AppendEntry(dst, tlv.U64Entry(f3TagQualityUnion, uint64(s.qualityUnion)))
-	dst = tlv.AppendEntry(dst, tlv.U64Entry(f3TagContentBytes, uint64(s.uncompressedLen)))
 
 	epochs := slices.SortedFunc(slices.Values(s.epochs), compareEpochs)
 	for i := range epochs {

@@ -103,36 +103,38 @@ func TestDecodeStatus_String(t *testing.T) {
 	checkEnumStrings[tracepack.DecodeStatus](t, cases, 14)
 }
 
-func TestDecodeStatus_Malformed(t *testing.T) {
+func TestDecodeStatus_MalformedAndClean(t *testing.T) {
 	t.Parallel()
 
 	// The malformed set is transcribed from the tracepack semantics specification §3:
 	// decode_status ∈ {short-frame, length-mismatch, bad-ptype, bad-stype, control-with-body, oversized, item-decode-error}.
+	// Every other known value is clean; a value outside the registry is neither (§6: its decode state is unknown).
 	tests := []struct {
-		status tracepack.DecodeStatus
-		want   bool
+		status           tracepack.DecodeStatus
+		malformed, clean bool
 	}{
-		{tracepack.DecodeStatusNotAttempted, false},
-		{tracepack.DecodeStatusOK, false},
-		{tracepack.DecodeStatusOKWithTrailing, false},
-		{tracepack.DecodeStatusShortFrame, true},
-		{tracepack.DecodeStatusLengthMismatch, true},
-		{tracepack.DecodeStatusBadPType, true},
-		{tracepack.DecodeStatusBadSType, true},
-		{tracepack.DecodeStatusControlWithBody, true},
-		{tracepack.DecodeStatusOversized, true},
-		{tracepack.DecodeStatusItemDecodeError, true},
-		{tracepack.DecodeStatusReconstructedOK, false},
-		{tracepack.DecodeStatusParseFailed, false},
-		{tracepack.DecodeStatusBuildRejected, false},
-		{tracepack.DecodeStatusNotApplicable, false},
-		{tracepack.DecodeStatus(14), false},
-		{tracepack.DecodeStatus(255), false},
+		{tracepack.DecodeStatusNotAttempted, false, true},
+		{tracepack.DecodeStatusOK, false, true},
+		{tracepack.DecodeStatusOKWithTrailing, false, true},
+		{tracepack.DecodeStatusShortFrame, true, false},
+		{tracepack.DecodeStatusLengthMismatch, true, false},
+		{tracepack.DecodeStatusBadPType, true, false},
+		{tracepack.DecodeStatusBadSType, true, false},
+		{tracepack.DecodeStatusControlWithBody, true, false},
+		{tracepack.DecodeStatusOversized, true, false},
+		{tracepack.DecodeStatusItemDecodeError, true, false},
+		{tracepack.DecodeStatusReconstructedOK, false, true},
+		{tracepack.DecodeStatusParseFailed, false, true},
+		{tracepack.DecodeStatusBuildRejected, false, true},
+		{tracepack.DecodeStatusNotApplicable, false, true},
+		{tracepack.DecodeStatus(14), false, false},
+		{tracepack.DecodeStatus(255), false, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.status.String(), func(t *testing.T) {
 			t.Parallel()
-			require.Equal(t, tt.want, tt.status.Malformed())
+			require.Equal(t, tt.malformed, tt.status.Malformed(), "Malformed")
+			require.Equal(t, tt.clean, tt.status.Clean(), "Clean")
 		})
 	}
 }
@@ -213,9 +215,9 @@ func TestPackRole_String(t *testing.T) {
 		{2, "archive"},
 		{3, "extract"},
 		{4, "repair"},
-		{5, "correction"},
 	}
-	checkEnumStrings[tracepack.PackRole](t, cases, 6)
+	// 5 is the retired correction role, reported like any unknown value.
+	checkEnumStrings[tracepack.PackRole](t, cases, 5)
 }
 
 func TestDigestAlgorithm_String(t *testing.T) {

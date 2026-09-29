@@ -92,8 +92,7 @@ func parseFooter(decoded []byte, tr *format.Trailer, blocksStart uint64) (*foote
 }
 
 // checkPrologue checks the F-1 fields UnmarshalFooterPrologue leaves to the caller:
-// F-3 present, F-4 present exactly when f4_len is not 0, extraction_version 0 without F-4,
-// f2_offset = 72, block_count equal to the trailer's, and an empty F-3 in a pack without blocks.
+// F-3 present, F-4 present exactly when f4_len is not 0, f2_offset = 72, block_count equal to the trailer's, and an empty F-3 in a pack without blocks.
 func checkPrologue(pro *format.FooterPrologue, tr *format.Trailer) error {
 	if pro.Flags&format.FooterFlagF3Present == 0 {
 		return footerErrorf("F-1 flags 0x%04X lack F-3 present", pro.Flags)
@@ -101,9 +100,6 @@ func checkPrologue(pro *format.FooterPrologue, tr *format.Trailer) error {
 	f4Present := pro.Flags&format.FooterFlagF4Present != 0
 	if f4Present != (pro.F4Len != 0) {
 		return footerErrorf("F-1 flags 0x%04X disagree with f4_len %d on F-4 present", pro.Flags, pro.F4Len)
-	}
-	if !f4Present && pro.ExtractionVersion != 0 {
-		return footerErrorf("F-1 extraction_version %d without F-4", pro.ExtractionVersion)
 	}
 	if pro.F2Offset != format.FooterPrologueLen {
 		return footerErrorf("F-1 f2_offset %d, not %d", pro.F2Offset, format.FooterPrologueLen)
@@ -545,12 +541,9 @@ func footerErrorf(msg string, args ...any) error {
 }
 
 // setF3 folds one entry of the block's F-3 list into s, checking what a single entry can show;
-// unknown tags, the reserved index tags included, are skipped.
+// unknown tags, the retired and reserved tags included, are skipped.
 func (s *blockSummary) setF3(e tlv.Entry) error {
-	var (
-		v   uint64
-		err error
-	)
+	var err error
 
 	switch e.Tag {
 	case f3TagKindCounts:
@@ -559,17 +552,8 @@ func (s *blockSummary) setF3(e tlv.Entry) error {
 		s.dirCounts, err = tlv.DecodeU32Array(e.Value)
 	case f3TagDecodeStatusCounts:
 		s.decodeStatusCounts, err = tlv.DecodeU32Array(e.Value)
-	case f3TagMaxPayloadLen:
-		if v, err = e.U64(); err == nil && v > uint64(format.MaxLen32) {
-			err = fmt.Errorf("%d exceeds the %d payload_len limit", v, format.MaxLen32)
-		}
-		s.maxPayloadLen = uint32(v)
 	case f3TagQualityUnion:
 		s.qualityUnion, err = qualityUnionOf(e)
-	case f3TagContentBytes:
-		if v, err = e.U64(); err == nil && v != uint64(s.uncompressedLen) {
-			err = fmt.Errorf("%d, uncompressed_len is %d", v, s.uncompressedLen)
-		}
 	case f3TagEpoch:
 		var ep epochSummary
 		ep, err = epochOf(e)
