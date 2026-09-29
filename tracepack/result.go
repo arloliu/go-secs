@@ -5,7 +5,7 @@ import "fmt"
 // Reasons a read is incomplete, the "incomplete" status of the tracepack format specification §13.
 const (
 	// ReasonCorruptBlock reports a block that failed an integrity check:
-	// a CRC, its envelope against its F-2 entry, I-2, or its records against its F-2 entry.
+	// a CRC, its envelope against its F-2 entry, or I-2.
 	ReasonCorruptBlock IncompleteReason = iota + 1
 	// ReasonUnknownCodec reports a block whose codec is outside the registry of §2.
 	ReasonUnknownCodec
@@ -16,6 +16,11 @@ const (
 	ReasonCoverage
 	// ReasonLimit reports a block larger than ReaderOptions.MaxBlockLen, which was not read.
 	ReasonLimit
+	// ReasonIndexMismatch reports a block whose records disagree with its F-2 entry
+	// (the tracepack format specification §10): its last seq, time range or epoch range.
+	// The block's records are still read, because its envelope, body CRC and I-2 checks passed;
+	// the read is incomplete, because the same index pruned the blocks it did not read.
+	ReasonIndexMismatch
 )
 
 // IncompleteReason classifies why a read is incomplete.
@@ -66,6 +71,8 @@ func (r IncompleteReason) String() string {
 		return "coverage"
 	case ReasonLimit:
 		return "limit"
+	case ReasonIndexMismatch:
+		return "index-mismatch"
 	default:
 		return fmt.Sprintf("unknown(%d)", uint8(r))
 	}

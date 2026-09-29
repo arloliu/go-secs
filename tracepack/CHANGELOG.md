@@ -60,9 +60,10 @@ and adds the reader.
   and on the stream and function, session ID and System Bytes read from each payload,
   a field being available only when its stored `field_validity` bit is set and the payload holds its bytes;
   an unavailable field matches only on request.
-  The footer's time and epoch ranges and kind and direction counts prune blocks;
+  The footer's time and epoch ranges and kind and direction counts prune blocks, trusting a footer that passed validation;
   `Incomplete` reports corrupt, unknown-codec, truncated and over-budget blocks and coverage entries that intersect the query,
-  beside the records that were read.
+  beside the records that were read,
+  and a block whose records disagree with its index entry, whose records are still yielded.
   Each `Item` carries the record as stored, with its payload when `Query.Payloads` is set,
   the record header's extension area that a newer minor version appends, and its block.
   A `Reader` is safe for concurrent `Iterate` calls.

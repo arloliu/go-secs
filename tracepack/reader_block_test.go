@@ -518,11 +518,6 @@ func TestReadBlockCorruption(t *testing.T) {
 		{name: "decoded body one byte longer", file: rebuilt(func(b *testBlock) { b.tail = []byte{0} }), msg: "cover"},
 		{name: "payload_len one too large", file: rebuilt(func(b *testBlock) { b.headers[last].PayloadLen++ }), msg: "past uncompressed_len"},
 		{name: "payload_len one too small", file: rebuilt(func(b *testBlock) { b.headers[0].PayloadLen-- }), msg: "cover"},
-		{name: "last seq vs F-2 last_seq", file: rebuilt(func(b *testBlock) { b.headers[last].Seq++ }), msg: "last_seq"},
-		{name: "min ts vs F-2 ts_min", file: rebuilt(func(b *testBlock) { b.headers[0].TSUTCNs++ }), msg: "ts_min"},
-		{name: "max ts vs F-2 ts_max", file: rebuilt(func(b *testBlock) { b.headers[last].TSUTCNs++ }), msg: "ts_max"},
-		{name: "min epoch vs F-2 epoch_min", file: rebuilt(func(b *testBlock) { b.headers[3].Epoch = 0 }), msg: "epoch_min"},
-		{name: "max epoch vs F-2 epoch_max", file: rebuilt(func(b *testBlock) { b.headers[3].Epoch = 2 }), msg: "epoch_max"},
 		{name: "record_count × record_header_len overflows", walked: true, file: patched(open.file, func(e *format.BlockEnvelope) {
 			e.RecordCount, e.RecordHeaderLen = math.MaxUint32, math.MaxUint16
 		}), msg: "header section"},
@@ -552,6 +547,77 @@ func TestReadBlockCorruption(t *testing.T) {
 				require.Nil(t, def, "block %d still reads", i)
 				requireBlockConsistent(t, &r.blocks[i], d)
 			}
+		})
+	}
+}
+
+// indexMismatchPack returns a finalized pack of three hourly blocks whose block 1 has its records adjusted by edit
+// while its F-2 entry and F-3 summary are kept, so the footer stays valid and disagrees with the block,
+// together with block 1's records as stored.
+func indexMismatchPack(t *testing.T, edit func(b *testBlock)) ([]byte, *testBlock) {
+	t.Helper()
+
+	closed := writeReaderPack(t, readerPackConfig{codec: CodecZstd}, hourRecords(3, 40))
+	require.Len(t, closed.blocks, 3)
+	var edited *testBlock
+	file := rebuildPack(t, closed.file, func(i int, b *testBlock) {
+		if i == 1 {
+			edit(b)
+			edited = b
+		}
+	})
+
+	return file, edited
+}
+
+func TestReadBlockIndexMismatch(t *testing.T) {
+	t.Parallel()
+
+	const last = 39
+	tests := []struct {
+		name string
+		edit func(b *testBlock)
+		msg  string
+	}{
+		{name: "last seq vs F-2 last_seq", edit: func(b *testBlock) { b.headers[last].Seq++ }, msg: "last_seq"},
+		{name: "min ts vs F-2 ts_min", edit: func(b *testBlock) { b.headers[0].TSUTCNs++ }, msg: "ts_min"},
+		{name: "max ts vs F-2 ts_max", edit: func(b *testBlock) { b.headers[last].TSUTCNs++ }, msg: "ts_max"},
+		{name: "min epoch vs F-2 epoch_min", edit: func(b *testBlock) { b.headers[3].Epoch = 0 }, msg: "epoch_min"},
+		{name: "max epoch vs F-2 epoch_max", edit: func(b *testBlock) { b.headers[3].Epoch = 2 }, msg: "epoch_max"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			file, edited := indexMismatchPack(t, tt.edit)
+			r := mustOpen(t, file, ReaderOptions{})
+			require.NoError(t, r.Header().FooterErr, "the footer must stay valid")
+			require.True(t, r.blocks[1].Indexed)
+
+			var buf blockBuf
+			d, def, err := r.readBlock(1, &buf)
+			require.NoError(t, err)
+			require.NotNil(t, def)
+			assert.Equal(t, ReasonIndexMismatch, def.Reason, "%v", def.Err)
+			assert.Equal(t, 1, def.Block)
+			assert.Equal(t, int64(r.blocks[1].Offset), def.Offset)
+			require.ErrorContains(t, def.Err, tt.msg)
+
+			require.NotNil(t, d, "a block that disagrees only with its index is read")
+			require.Equal(t, len(edited.headers), d.count())
+			for j := range d.count() {
+				h := d.header(j)
+				assert.Equal(t, edited.headers[j].Seq, h.Seq, "record %d", j)
+				assert.Equal(t, edited.headers[j].TSUTCNs, h.TSUTCNs, "record %d", j)
+				assert.Equal(t, edited.headers[j].Epoch, h.Epoch, "record %d", j)
+				assert.Equal(t, edited.payloads[j], d.payload(j), "record %d", j)
+			}
+
+			run := iterate(t, r, Query{Payloads: true})
+			assert.Len(t, run.items, 3*40, "every record is yielded, the disagreeing block's included")
+			require.Len(t, run.res.Incomplete, 1)
+			assert.Equal(t, ReasonIndexMismatch, run.res.Incomplete[0].Reason)
+			assert.Equal(t, 1, run.res.Incomplete[0].Block)
 		})
 	}
 }

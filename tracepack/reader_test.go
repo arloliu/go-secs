@@ -426,6 +426,7 @@ func TestIncompleteReasonString(t *testing.T) {
 		{ReasonTruncated, "truncated"},
 		{ReasonCoverage, "coverage"},
 		{ReasonLimit, "limit"},
+		{ReasonIndexMismatch, "index-mismatch"},
 		{0, "unknown(0)"},
 		{IncompleteReason(200), "unknown(200)"},
 	}
