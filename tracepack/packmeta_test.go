@@ -208,23 +208,24 @@ func TestUnmarshalPackMetaMinimalRoundTrip(t *testing.T) {
 	assert.Equal(t, pmMinimal16Hex, hex.EncodeToString(again))
 }
 
-// TestPackMetaRetiredTags checks the retired pack metadata tags 0x0001 (schema_version) and 0x0014
+// TestPackMetaRetiredTags checks the retired pack metadata tags 0x0001 (schema_version), 0x0014 and 0x0030 (blocks_validated)
 // (the tracepack format specification §5): a reader keeps them in Unknown like any unknown tag,
 // and MarshalBinary never writes them, while it keeps a tag that is merely unknown.
 func TestPackMetaRetiredTags(t *testing.T) {
 	t.Parallel()
 
 	const (
-		schemaVersionHex = "01000400080000000100000000000000"
-		retired14Hex     = "1400020001000000" + "01"
+		schemaVersionHex   = "01000400080000000100000000000000"
+		retired14Hex       = "1400020001000000" + "01"
+		blocksValidatedHex = "3000020001000000" + "01"
 	)
-	m, err := tracepack.UnmarshalPackMeta(mustHexBytes(t, schemaVersionHex+pmWithUnknownHex+retired14Hex))
+	m, err := tracepack.UnmarshalPackMeta(mustHexBytes(t, schemaVersionHex+pmWithUnknownHex+retired14Hex+blocksValidatedHex))
 	require.NoError(t, err)
 	tags := make([]uint16, 0, len(m.Unknown))
 	for _, e := range m.Unknown {
 		tags = append(tags, e.Tag)
 	}
-	assert.Equal(t, []uint16{0x0001, 0x0050, 0x0014}, tags, "retired tags are read as unknown entries")
+	assert.Equal(t, []uint16{0x0001, 0x0050, 0x0014, 0x0030}, tags, "retired tags are read as unknown entries")
 
 	again, err := m.MarshalBinary()
 	require.NoError(t, err)
