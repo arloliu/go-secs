@@ -1,6 +1,6 @@
 # tracepack — overview
 
-Status: current (2026-09-29) — v2.13, tracepack format 1.0.
+Status: current (2026-09-29) — v2.14, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Decisions: `tracepack-decisions.md` G3-20..G3-27, G4-28, G4-29, G3-PLACE, R3-4, R3-5, R3-6, G5-30..G5-99.
 Change history: `tracepack-spec-changelog.md`.
@@ -153,7 +153,7 @@ For transport-event and annotation records the payload is a TLV body ([FMT §8])
 | Source reference for data/control records | needs the pilot's converter inputs |
 | Exhaustive item-validity checklist ([SEM §3]) | delivered as conformance vectors |
 | Byte-exact JSONL schema and catalog schema | follow the implementation; the catalog window and the retention period are service parameters (35 days and 6 months in the pilot plan), not format properties |
-| Recovery beyond a corrupt middle block | needs a resynchronisation design |
+| Locating blocks after an envelope the forward walk cannot account for, in a pack without a valid footer ([FMT §13]) | needs a resynchronisation design |
 | Live-tail interface and query-service API | service design, outside the format |
 | Compression, latency and throughput numbers | measured on the pilot sample |
 | Admissions for scopes the catalog does not index (repairs and merges of hours outside the window) | the listing-view contract of [STO §5] holds only while no admission reaches such a scope; admitting one needs a consistency design with interrupted-admission recovery (proposal P4, `proposals/p4-cold-scope-admissions.md`) |

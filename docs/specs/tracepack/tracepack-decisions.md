@@ -332,3 +332,17 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   Rationale: `unmatched` must never rest on a record that could not be compared (the direction of G5-89);
   a stricter rule, `incomplete` even beside a valid match, would make every lookup of a log conversion without System Bytes incomplete.
   Spec: [SEM §7.2] (v2.13).
+- G5-100 Verification outcomes (2026-09-29, before implementing `verify`): [FMT §13] named four outcomes without defining them.
+  A block fails on its envelope, its body CRC, its codec, I-2 or the agreement of its envelope with its F-2 entry.
+  The outcome is the first that applies of `corrupt-middle` (a failed block followed by a validated one), `unfinalized` (I-5 does not hold),
+  `finalized-truncated` (a failed block or a stopped walk, with no validated block after it),
+  the new `finalized-inconsistent` (every block validated, while the footer is invalid or disagrees with the records or the trailer)
+  and `finalized-consistent`.
+  Writer defects in a validated block, such as a `field_validity` bit beyond the payload, are reported beside the outcome and never change it,
+  because a reader treats such a field as unavailable and still uses the record.
+  A file header or pack metadata that cannot be read is an error, as for `Open`.
+  Rationale: `corrupt-middle` comes first because the report also states finalization, so both facts stay visible;
+  `finalized-inconsistent` tells a pack that lost no record, whose footer a rewrite rebuilds, from one that needs a repair.
+  Rejected: `unfinalized` before `corrupt-middle`; a footer defect reported under `finalized-consistent` or `finalized-truncated`;
+  a writer defect failing its block; an unreadable file header or pack metadata reported as an outcome.
+  Spec: [FMT §13], [FMT §16] (v2.14).

@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-09-29) — the format revision of spec v2.13 done; phase 4 (`Verify`) next.
-Implements: tracepack v2.13 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
+Status: active (2026-09-29) — phase 4 `Verify` in progress; `Repair` waits for proposal P10.
+Implements: tracepack v2.14 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
 
@@ -67,7 +67,7 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 2 — Writer and classifier | done |
 | 3 — Reader | done |
 | Format revision (spec v2.13) | done |
-| 4 — Verify, Repair | pending |
+| 4 — Verify, Repair | in progress |
 | 5 — Merge, MergeIterate, FindTransaction | pending |
 | 6 — JSONL export, conformance corpus, CLI | pending |
 | 7 — Extract and redaction | pending |
@@ -202,7 +202,7 @@ Done when: the writer and reader implement the revised layout, and the corruptio
 
 ### Phase 4 — Verify, Repair
 
-- `Verify`: forward block walk (I-1, I-2), outcomes `finalized-consistent`, `finalized-truncated`, `unfinalized`, `corrupt-middle`, report with offsets.
+- `Verify`: forward block walk (I-1, I-2), the outcomes and writer defects of [FMT §13] (G5-100), report with offsets.
 - `Repair`: rejects an extract ([STO §2]); writes a `repair` pack with `supersedes` = the damaged pack, the damaged pack's inherited `coverage` plus new `coverage` (capture_id + seq ranges + time intervals).
   Starts after proposal P10 is decided (G5-95): its metadata (`patch_base`) follows P10's outcome, and `coverage`'s nested-tag requiredness is settled with it.
 
