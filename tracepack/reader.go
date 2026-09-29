@@ -103,7 +103,6 @@ type Reader struct {
 	// meta is the Reader's own decoded pack metadata; it is never handed out.
 	meta      *PackMeta
 	finalized bool
-	attested  bool
 	// footerErr is non-nil when the footer was not used and blocks came from the forward walk.
 	footerErr error
 	// trailer is nil when the trailer is invalid.
@@ -130,9 +129,6 @@ type PackHeader struct {
 	Meta *PackMeta
 	// Finalized reports I-5: the trailer magic, the trailer CRC and the footer CRC match.
 	Finalized bool
-	// Attested reports that the pack is finalized and its pack metadata has blocks_validated = true,
-	// so its blocks are attested (the tracepack format specification §6).
-	Attested bool
 	// FooterErr is non-nil when the footer was not used and the blocks came from the forward walk:
 	// no valid trailer, a footer CRC mismatch, a footer over MaxFooterLen (wrapping ErrReadLimit),
 	// or a footer that fails to decode or validate (wrapping ErrInvalidFooter).
@@ -355,7 +351,6 @@ func (r *Reader) Header() *PackHeader {
 		CaptureID:        UUID(r.hdr.CaptureID),
 		Meta:             meta,
 		Finalized:        r.finalized,
-		Attested:         r.attested,
 		FooterErr:        r.footerErr,
 	}
 	if r.trailer != nil {
@@ -561,7 +556,6 @@ func (r *Reader) settleFooter(ctx context.Context, b *bootstrap) error {
 	}
 
 	r.finalized = true
-	r.attested = r.meta.BlocksValidated != nil && *r.meta.BlocksValidated
 
 	if b.footer == nil {
 		r.footerErr = fmt.Errorf("tracepack: footer at offset %d: footer_len %d exceeds MaxFooterLen %d: %w",

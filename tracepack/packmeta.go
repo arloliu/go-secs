@@ -57,14 +57,13 @@ const (
 	tagScopeGeneration      uint16 = 0x002D
 	tagPublisherEpoch       uint16 = 0x002E
 	tagPatchBase            uint16 = 0x002F
-	tagBlocksValidated      uint16 = 0x0030
 	tagRedactionPolicy      uint16 = 0x0031
 	tagRedaction            uint16 = 0x0032
 )
 
 // retiredPackMetaTags are the retired pack metadata tag numbers (the tracepack format specification §5):
 // a writer never writes them, and a reader treats them as unknown tags.
-var retiredPackMetaTags = [...]uint16{0x0001, 0x0014}
+var retiredPackMetaTags = [...]uint16{0x0001, 0x0014, 0x0030}
 
 // packRoleRetired is the retired pack_role value 5, which a writer never writes (the tracepack format specification §9).
 const packRoleRetired = 5
@@ -301,7 +300,6 @@ type PackMeta struct {
 	ScopeGeneration      *uint64
 	PublisherEpoch       *uint64
 	PatchBase            *UUID
-	BlocksValidated      *bool
 	RedactionPolicy      *RedactionPolicy
 	Redaction            []RedactionEntry
 	Unknown              []RawEntry
@@ -382,7 +380,6 @@ var packMetaSetters = map[uint16]func(m *PackMeta, e tlv.Entry) error{
 	tagScopeGeneration:      setField(tlv.Entry.U64, func(m *PackMeta, v uint64) { m.ScopeGeneration = &v }),
 	tagPublisherEpoch:       setField(tlv.Entry.U64, func(m *PackMeta, v uint64) { m.PublisherEpoch = &v }),
 	tagPatchBase:            setField(uuidOf, func(m *PackMeta, v UUID) { m.PatchBase = &v }),
-	tagBlocksValidated:      setField(tlv.Entry.Bool, func(m *PackMeta, v bool) { m.BlocksValidated = &v }),
 	tagRedactionPolicy:      setNested(decodeNested(redactionPolicySetters), func(m *PackMeta, v RedactionPolicy) { m.RedactionPolicy = &v }),
 	tagRedaction: setNested(decodeNested(redactionEntrySetters), func(m *PackMeta, v RedactionEntry) {
 		m.Redaction = append(m.Redaction, v)
@@ -727,7 +724,6 @@ func (m *PackMeta) appendOptionalScalarEntries(dst []tlv.Entry) []tlv.Entry {
 		{m.ScopeGeneration != nil, func() tlv.Entry { return tlv.U64Entry(tagScopeGeneration, *m.ScopeGeneration) }},
 		{m.PublisherEpoch != nil, func() tlv.Entry { return tlv.U64Entry(tagPublisherEpoch, *m.PublisherEpoch) }},
 		{m.PatchBase != nil, func() tlv.Entry { return tlv.UUIDEntry(tagPatchBase, [16]byte(*m.PatchBase)) }},
-		{m.BlocksValidated != nil, func() tlv.Entry { return tlv.BoolEntry(tagBlocksValidated, *m.BlocksValidated) }},
 	})
 }
 

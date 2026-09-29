@@ -547,11 +547,12 @@ func TestWriterCloseAfterFailureWritesNothing(t *testing.T) {
 	t.Parallel()
 
 	w, buf := newTestWriter(t, tracepack.WriterOptions{Validate: true})
+	tracepack.SetEncodedHook(w, corruptFirstSeq(1))
 	good := dataRecord(0, hourStart)
 	require.NoError(t, w.Append(&good))
 	require.NoError(t, w.Flush())
 
-	bad := s6f11CopiesOverS1F3(1)
+	bad := dataRecord(1, hourStart+1)
 	require.NoError(t, w.Append(&bad))
 	require.ErrorIs(t, w.Flush(), tracepack.ErrValidation)
 	written := buf.Len()

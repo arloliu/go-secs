@@ -5,7 +5,7 @@ import "fmt"
 // Reasons a read is incomplete, the "incomplete" status of the tracepack format specification §13.
 const (
 	// ReasonCorruptBlock reports a block that failed an integrity check:
-	// a CRC, its envelope against its F-2 entry, I-2, the header-only checks of §6, or its records against its F-2 entry.
+	// a CRC, its envelope against its F-2 entry, I-2, or its records against its F-2 entry.
 	ReasonCorruptBlock IncompleteReason = iota + 1
 	// ReasonUnknownCodec reports a block whose codec is outside the registry of §2.
 	ReasonUnknownCodec
@@ -47,9 +47,6 @@ type Result struct {
 	// Incomplete lists every cause that made the read incomplete, in the order they were found;
 	// empty when the read is complete.
 	Incomplete []Defect
-	// HeaderValidated lists, in ascending order, the blocks whose unvalidated record-header copies the result relied on
-	// (the tracepack semantics specification §7.4).
-	HeaderValidated []int
 	// FooterErr is PackHeader.FooterErr: non-nil when the footer was not used and the blocks came from the forward walk.
 	// It is independent of Incomplete:
 	// a finalized pack whose walk accounts for every block and record is complete without its footer.
@@ -75,7 +72,7 @@ func (r IncompleteReason) String() string {
 }
 
 // Complete reports whether the read is complete: whether Incomplete is empty.
-// HeaderValidated and FooterErr do not make a read incomplete.
+// FooterErr does not make a read incomplete.
 func (r Result) Complete() bool {
 	return len(r.Incomplete) == 0
 }

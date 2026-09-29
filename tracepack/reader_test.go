@@ -166,7 +166,7 @@ func hourRecords(hours, perHour int) []Record {
 	return recs
 }
 
-// bigFooterPack is an attested pack of single-record blocks whose footer, written with codec none, exceeds 1 MiB.
+// bigFooterPack is a validated pack of single-record blocks whose footer, written with codec none, exceeds 1 MiB.
 var bigFooterPack = sync.OnceValues(func() (*readerPack, error) {
 	recs := make([]Record, 4400)
 	for i := range recs {
@@ -438,8 +438,8 @@ func TestResultComplete(t *testing.T) {
 	t.Parallel()
 
 	assert.True(t, Result{}.Complete())
-	assert.True(t, Result{HeaderValidated: []int{0}, FooterErr: ErrInvalidFooter}.Complete(),
-		"header validation and a footer failure are reported beside the defects, never as one")
+	assert.True(t, Result{FooterErr: ErrInvalidFooter}.Complete(),
+		"a footer failure is reported beside the defects, never as one")
 	assert.False(t, Result{Incomplete: []Defect{{Reason: ReasonTruncated, Block: -1, Offset: 80}}}.Complete())
 }
 
@@ -459,7 +459,6 @@ func TestOpenValidPack(t *testing.T) {
 				r := mustOpen(t, p.file, ReaderOptions{})
 				h := r.Header()
 				assert.True(t, h.Finalized)
-				assert.Equal(t, validate, h.Attested, "attested iff written with Validate")
 				require.NoError(t, h.FooterErr)
 				assert.Equal(t, &TrailerInfo{BlockCount: 3, RecordCount: 120, LastSeq: 119, FooterOffset: l.tr.FooterOffset}, h.Trailer)
 				assert.Equal(t, format.FormatMajor, h.FormatMajor)
@@ -784,7 +783,6 @@ func TestOpenBrokenTrailer(t *testing.T) {
 			r := mustOpen(t, tt.file, ReaderOptions{})
 			h := r.Header()
 			assert.False(t, h.Finalized)
-			assert.False(t, h.Attested)
 			assert.Nil(t, h.Trailer)
 			require.Error(t, h.FooterErr, "the footer was not used")
 			assert.Equal(t, walkedInfos(p.blocks), r.Blocks())
@@ -803,7 +801,6 @@ func TestOpenFooterCRCMismatch(t *testing.T) {
 	r := mustOpen(t, flipByte(p.file, l.tr.FooterOffset+5), ReaderOptions{})
 	h := r.Header()
 	assert.False(t, h.Finalized)
-	assert.False(t, h.Attested, "a pack that is not finalized is not attested")
 	require.NotNil(t, h.Trailer, "the trailer itself is valid")
 	require.ErrorIs(t, h.FooterErr, ErrChecksum)
 	assert.Equal(t, walkedInfos(p.blocks), r.Blocks())
@@ -833,7 +830,6 @@ func TestOpenInvalidFooterFallsBackToWalk(t *testing.T) {
 			r := mustOpen(t, tt.file, ReaderOptions{})
 			h := r.Header()
 			assert.True(t, h.Finalized, "finalization depends on the footer CRC, not on the footer's content")
-			assert.True(t, h.Attested)
 			require.ErrorIs(t, h.FooterErr, ErrInvalidFooter)
 			assert.Nil(t, r.footer)
 			assert.Equal(t, walkedInfos(p.blocks), r.Blocks())
@@ -906,7 +902,6 @@ func TestOpenFooterOverBudget(t *testing.T) {
 
 		h := r.Header()
 		assert.True(t, h.Finalized, "the streamed footer CRC settles finalization")
-		assert.True(t, h.Attested)
 		require.ErrorIs(t, h.FooterErr, ErrReadLimit)
 		assert.Equal(t, walkedInfos(p.blocks), r.Blocks())
 		assert.Empty(t, r.openDefects)
@@ -964,15 +959,13 @@ func TestHeaderReturnsACopy(t *testing.T) {
 	assert.NotSame(t, h.Meta, r.meta, "the Reader never hands out its own metadata")
 	*h.Meta.Coverage[0].TimeStart = 0
 	h.Meta.Coverage = append(h.Meta.Coverage, Coverage{})
-	*h.Meta.BlocksValidated = false
 	h.Meta.ToolID = "changed"
 	h.Trailer.BlockCount = 99
 	h.Finalized = false
-	h.Attested = false
 
 	assert.Equal(t, want, r.Header())
-	assert.True(t, r.attested)
-	assert.True(t, *r.meta.BlocksValidated)
+	assert.True(t, r.finalized)
+	assert.Equal(t, "tool", r.meta.ToolID)
 	assert.Equal(t, []Coverage{{TimeStart: &start, TimeEnd: &end}}, r.meta.Coverage)
 	assert.Equal(t, uint32(2), r.trailer.BlockCount)
 }
@@ -1022,9 +1015,6 @@ func FuzzOpen(f *testing.F) {
 		require.NotNil(t, h.Meta)
 		require.Equal(t, h.FooterErr == nil, r.footer != nil, "the footer is used iff FooterErr is nil")
 		require.Equal(t, h.Trailer != nil, r.trailer != nil)
-		if h.Attested {
-			require.True(t, h.Finalized)
-		}
 		if !h.Finalized {
 			require.NotEmpty(t, r.openDefects, "a pack that is not finalized is truncated")
 		}

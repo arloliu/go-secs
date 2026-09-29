@@ -86,11 +86,10 @@ func TestPackMetadataRegistry(t *testing.T) {
 		{0x002B, "replacement_set_index", TypeU64, false, false},
 		{0x0031, "redaction_policy", TypeTLV, false, false},
 		{0x0032, "redaction", TypeTLV, true, false},
-		{0x0030, "blocks_validated", TypeBool, false, false},
 	}
 	assertRegistry(t, PackMetadata, rows)
 
-	for _, tag := range []uint16{0x0001, 0x0014} {
+	for _, tag := range []uint16{0x0001, 0x0014, 0x0030} {
 		_, retired := PackMetadata[tag]
 		assert.False(t, retired, "the retired tag 0x%04X must stay unknown", tag)
 	}

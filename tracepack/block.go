@@ -1,7 +1,6 @@
 package tracepack
 
 import (
-	"encoding/binary"
 	"fmt"
 
 	"github.com/arloliu/go-secs/tracepack/internal/codec"
@@ -109,12 +108,11 @@ func exceedsLimit(size, add, limit int) bool {
 	return uint64(size)+uint64(add) > uint64(limit)
 }
 
-// validateBody checks a decoded block body against I-2 and I-10 of the tracepack format specification §3,
-// with the 56-byte record_header_len this writer uses:
+// validateBody checks a decoded block body against I-2 of the tracepack format specification §3,
+// with the record_header_len this writer uses:
 // record_count × record_header_len + Σ payload_len equals the decoded length,
-// the first record's seq equals firstSeq, seqs strictly increase,
-// and every copy field of a data or control record whose field_validity bit is set equals the payload bytes it copies.
-// The I-2 checks are the reader's, checkRecords;
+// the first record's seq equals firstSeq, and seqs strictly increase.
+// The checks are the reader's, checkRecords;
 // every product and sum is checked before it is used to slice.
 // offs is reused for the records' payload offsets.
 //
@@ -134,19 +132,8 @@ func validateBody(decoded []byte, count uint32, firstSeq uint64, offs []uint32) 
 		return offs, err
 	}
 	offs, _, err = checkRecords(decoded[:hsLen], &env, offs)
-	if err != nil {
-		return offs, err
-	}
 
-	for i := range int(count) {
-		// checkRecords decoded every header without error.
-		h, _ := format.UnmarshalRecordHeader(decoded[i*recordHeaderLen:], recordHeaderLen)
-		if err := checkCopies(&h, decoded[offs[i]:offs[i+1]]); err != nil {
-			return offs, fmt.Errorf("record %d (seq %d): %w", i, h.Seq, err)
-		}
-	}
-
-	return offs, nil
+	return offs, err
 }
 
 // checkBlockSeq checks the seq rules of I-2 for record i of a block.
@@ -159,83 +146,6 @@ func checkBlockSeq(i int, seq, prevSeq, firstSeq uint64) error {
 	}
 
 	return nil
-}
-
-// copyFields lists the copy fields that I-10 checks, in payload order:
-// each field's field_validity bit, its name, and the payload length that holds all its bytes.
-var copyFields = [...]struct {
-	bit  FieldValidity
-	name string
-	end  int
-}{
-	{FieldValiditySessionID, "session_id", copySessionIDEnd},
-	{FieldValidityStreamAndW, "stream and W", copyByte2End},
-	{FieldValidityFunction, "function", copyFunctionEnd},
-	{FieldValidityPType, "ptype", copyPTypeEnd},
-	{FieldValiditySType, "stype", copySTypeEnd},
-	{FieldValiditySystemBytes, "system_bytes", copySystemBytesEnd},
-}
-
-// checkCopies checks I-10 for one record, the record header h over the payload p:
-// for a data or control record, every copy field whose field_validity bit is set must equal the payload bytes it copies,
-// and those bytes must be present in the payload;
-// a copy field whose bit is clear is not compared, even where the payload holds its bytes
-// (the tracepack format specification §7.2).
-// The reader's copyMismatch reports a disagreement exactly when checkCopies returns an error.
-func checkCopies(h *format.RecordHeader, p []byte) error {
-	i := copyDisagreement(h, p)
-	if i < 0 {
-		return nil
-	}
-
-	c := &copyFields[i]
-	if len(p) < c.end {
-		return fmt.Errorf("field_validity marks %s captured, but the payload is %d bytes", c.name, len(p))
-	}
-
-	return fmt.Errorf("header copy of %s disagrees with the payload", c.name)
-}
-
-// copyDisagreement returns the index into copyFields of the first copy field of the record header h
-// that breaks I-10 over the payload p: its field_validity bit is set, and p lacks its bytes or disagrees with its copy.
-// It returns -1 when no field does, and for a record that is neither data nor control, which has no copies.
-func copyDisagreement(h *format.RecordHeader, p []byte) int {
-	if Kind(h.Kind) != KindData && Kind(h.Kind) != KindControl {
-		return -1
-	}
-
-	v := FieldValidity(h.FieldValidity)
-	for i := range copyFields {
-		c := &copyFields[i]
-		if v.Has(c.bit) && (len(p) < c.end || !copyEqual(c.bit, h, p)) {
-			return i
-		}
-	}
-
-	return -1
-}
-
-// copyEqual reports whether the copy field of bit in the record header h equals the payload bytes it copies;
-// p holds all of those bytes.
-func copyEqual(bit FieldValidity, h *format.RecordHeader, p []byte) bool {
-	switch bit {
-	case FieldValiditySessionID:
-		return binary.BigEndian.Uint16(p[copySessionIDOff:copySessionIDEnd]) == h.SessionID
-	case FieldValidityStreamAndW:
-		w := RecordFlags(h.RecordFlags).Has(RecordFlagsW)
-		return p[copyByte2Off]&streamMask == h.Stream && (p[copyByte2Off]&wBit != 0) == w
-	case FieldValidityFunction:
-		return p[copyFunctionOff] == h.Function
-	case FieldValidityPType:
-		return p[copyPTypeOff] == h.PType
-	case FieldValiditySType:
-		return p[copySTypeOff] == h.SType
-	case FieldValiditySystemBytes:
-		return [4]byte(p[copySystemBytesOff:copySystemBytesEnd]) == h.SystemBytes
-	}
-
-	// copyFields holds no other bit.
-	return false
 }
 
 // countEnum increments counts[v], growing counts to hold index v.

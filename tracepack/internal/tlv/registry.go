@@ -8,7 +8,7 @@ package tlv
 // is not Required here; the caller that knows the condition checks it.
 var (
 	// PackMetadata is the pack metadata tag registry (the tracepack format specification §5).
-	// The retired tags 0x0001 and 0x0014 are absent, so a reader skips them like any unknown tag.
+	// The retired tags 0x0001, 0x0014 and 0x0030 are absent, so a reader skips them like any unknown tag.
 	PackMetadata = Registry{
 		0x0002: {Name: "tool_id", Type: TypeUTF8, Required: true},
 		0x0003: {Name: "transport", Type: TypeU8, Required: true},
@@ -55,7 +55,6 @@ var (
 		0x002D: {Name: "scope_generation", Type: TypeU64},
 		0x002E: {Name: "publisher_epoch", Type: TypeU64},
 		0x002F: {Name: "patch_base", Type: TypeUUID},
-		0x0030: {Name: "blocks_validated", Type: TypeBool},
 		0x0031: {Name: "redaction_policy", Type: TypeTLV, Nested: &RedactionPolicy},
 		0x0032: {Name: "redaction", Type: TypeTLV, Repeatable: true, Nested: &Redaction},
 	}

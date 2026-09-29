@@ -98,28 +98,6 @@ func decodeZstd(dst, src []byte, uncompressedLen int) ([]byte, error) {
 	}
 }
 
-// decodeZstdPrefix implements DecodePrefix for the Zstd codec:
-// the frame checks of decodeZstd, then only the first prefixLen decoded bytes.
-// The stream after them is neither decoded nor checked,
-// so memory use is bounded by prefixLen plus the decoder's window.
-func decodeZstdPrefix(dst, src []byte, prefixLen, uncompressedLen int) ([]byte, error) {
-	dec, err := openZstd(src, uncompressedLen)
-	if err != nil {
-		return dst[:0], err
-	}
-	defer releaseDecoder(dec)
-
-	dst = slices.Grow(dst[:0], prefixLen)[:prefixLen]
-	if _, err := io.ReadFull(dec, dst); err != nil {
-		return dst[:0], fmt.Errorf(
-			"codec: zstd: decode a %d-byte prefix: %w: %w",
-			prefixLen, ErrIncompleteStream, err,
-		)
-	}
-
-	return dst, nil
-}
-
 // openZstd checks src as the single Zstandard frame of a body of uncompressedLen decoded bytes (§2)
 // and returns a pooled decoder positioned at its start; the caller returns it with releaseDecoder.
 //

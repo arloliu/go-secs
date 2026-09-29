@@ -9,52 +9,16 @@ import (
 	"github.com/arloliu/go-secs/tracepack/internal/format"
 )
 
-// Query modes, the modes of the tracepack semantics specification §7.4.
-const (
-	// QueryProvisional evaluates the copy-field predicates of a Filter on the stored record-header copies,
-	// which are unvalidated in a block that is not attested (the tracepack format specification §6).
-	// A result that relied on the copies of such a block lists the block in Result.HeaderValidated,
-	// also when the block yields no record.
-	QueryProvisional QueryMode = iota
-	// QueryAuthoritative evaluates the copy-field predicates of a Filter on the values in the payload (I-10),
-	// or on the stored copies of an attested block, which carry the guarantees of a full read;
-	// either way a field is available only when its stored field_validity bit is set.
-	// A block that is not attested is read in full whenever the Filter has a copy-field predicate,
-	// so it is never excluded by its stored copies.
-	QueryAuthoritative
-)
-
-// Read levels of a block, the levels of the tracepack format specification §6.
-const (
-	// ReadHeaderOnly is a header-only read of a block that is not attested:
-	// the record headers passed the checks of §6, but their copy fields are not validated against the payloads (I-10),
-	// and no payload was decoded.
-	ReadHeaderOnly ReadLevel = iota + 1
-	// ReadAttested is a header-only read of an attested block,
-	// which carries the guarantees of a full read because its bytes are CRC-identical to bytes that passed full validation.
-	ReadAttested
-	// ReadFull is a full read: the whole body was decoded, I-2 holds, and every record carries its payload.
-	ReadFull
-)
-
-// ErrInvalidQuery reports a Query that Reader.Iterate cannot run: an unknown Mode, or a TimeFrom after TimeTo.
+// ErrInvalidQuery reports a Query that Reader.Iterate cannot run: a TimeFrom after TimeTo.
 var ErrInvalidQuery = errors.New("tracepack: invalid query")
-
-// QueryMode selects how a query evaluates the copy-field predicates of its Filter
-// (the tracepack semantics specification §7.4).
-//
-// String prints an undefined value as "unknown(<n>)".
-type QueryMode uint8
-
-var _ fmt.Stringer = QueryMode(0)
 
 // Query selects records of a pack for Reader.Iterate.
 type Query struct {
 	// Filter selects the records; its zero value selects every record.
 	Filter Filter
-	// Mode selects how the copy-field predicates of Filter are evaluated.
-	Mode QueryMode
-	// Payloads makes Iterate read in full every block it reads, so every Item carries its payload.
+	// Payloads makes every Item carry its record's payload; otherwise Item.Record.Payload is nil.
+	// It decides only what an Item carries: every block is read in full either way (the tracepack format specification §6),
+	// and the Filter is evaluated before the payload is dropped, so the records selected do not depend on it.
 	Payloads bool
 }
 
@@ -67,14 +31,12 @@ type SF struct {
 // Filter holds the predicates a record must satisfy to be selected: every predicate that is set.
 //
 // A nil or empty slice places no constraint.
-// The time range, Kinds, Dirs and Epochs test fields that are not copies,
-// so every mode evaluates them on the stored record header.
-// SF, SessionIDs and SystemBytes test copy fields (the tracepack format specification §7.2),
-// which the Query's mode decides how to evaluate.
-// A copy field is available when the field_validity bit stored in its record header is set, in every mode,
-// even where the payload holds the field's bytes (the tracepack format specification §7.2).
-// When the mode evaluates the payload's values, the payload must also hold all of the field's bytes,
-// and a record that is neither data nor control has no available copy field.
+// The time range, Kinds, Dirs and Epochs test the record header.
+// SF, SessionIDs and SystemBytes test HSMS header fields, whose values are read from the payload
+// (the tracepack format specification §7.2).
+// A field is available when the field_validity bit stored in its record header is set and the payload holds all of its bytes;
+// a clear bit leaves it unavailable even where the payload holds the field's bytes,
+// and a record that is neither data nor control has no available field.
 // A predicate whose field is unavailable cannot match, unless IncludeUnavailable is set.
 type Filter struct {
 	// TimeFrom and TimeTo bound ts_utc_ns to the half-open range [TimeFrom, TimeTo); a nil bound is unbounded.
@@ -97,40 +59,21 @@ type Filter struct {
 	IncludeUnavailable bool
 }
 
-// ReadLevel is the level at which the block of a yielded record was read (the tracepack format specification §6).
-//
-// The zero value is not a level; String prints it and any undefined value as "unknown(<n>)".
-type ReadLevel uint8
-
-var _ fmt.Stringer = ReadLevel(0)
-
 // Item is one record yielded by Reader.Iterate.
 //
 // An Item is valid only during the callback that receives it:
 // Iterate reuses the Item, and Record.Payload and HeaderExtra alias Iterate's buffers.
 // A caller that keeps a record copies it, cloning Payload and HeaderExtra.
 type Item struct {
-	// Record is the record as stored, every copy field and FieldValidity as its record header holds them, whatever the mode;
-	// SetHeaderCopies on a copy of a full read gives the payload's values, which an authoritative query selects on,
-	// but availability stays with the stored FieldValidity (see Filter).
-	// Payload is set iff Level is ReadFull.
+	// Record is the record as stored, every copy field and FieldValidity as its record header holds them;
+	// the Filter selects on the payload's values, not on the stored copies (see Filter).
+	// Payload is set iff Query.Payloads.
 	Record Record
 	// HeaderExtra holds the record-header bytes behind offset 56, which a newer minor version may define
 	// (the tracepack format specification §7.1); nil for a 56-byte record header.
 	HeaderExtra []byte
 	// Block is the index into Reader.Blocks of the record's block.
 	Block int
-	// Level is the level the record's block was read at.
-	Level ReadLevel
-	// CopyMismatch reports, at ReadFull, that a data or control record breaks I-10:
-	// a copy field whose stored field_validity bit is set differs from the payload bytes it copies, or the payload lacks them,
-	// the check a validating Writer runs before it writes a block.
-	// A copy field whose bit is clear is not compared, even where the payload holds its bytes
-	// (the tracepack format specification §7.2).
-	// It is always false at the other levels, which do not decode the payload.
-	// Only a yielded record carries it: a record the filter excludes is not reported;
-	// finding every such writer defect of a pack takes a verification that decodes every block.
-	CopyMismatch bool
 }
 
 // overlaps reports whether the inclusive interval [lo, hi] meets the half-open range [from, to),
@@ -154,38 +97,8 @@ func oneOf[T comparable](values []T, v T) bool {
 	return len(values) == 0 || slices.Contains(values, v)
 }
 
-// String returns the mode's name, or "unknown(<n>)" for a value this package does not define.
-func (m QueryMode) String() string {
-	switch m {
-	case QueryProvisional:
-		return "provisional"
-	case QueryAuthoritative:
-		return "authoritative"
-	default:
-		return fmt.Sprintf("unknown(%d)", uint8(m))
-	}
-}
-
-// String returns the level's name, or "unknown(<n>)" for a value this package does not define.
-func (l ReadLevel) String() string {
-	switch l {
-	case ReadHeaderOnly:
-		return "header-only"
-	case ReadAttested:
-		return "attested"
-	case ReadFull:
-		return "full"
-	default:
-		return fmt.Sprintf("unknown(%d)", uint8(l))
-	}
-}
-
-// validate checks q before Iterate reads anything: a defined mode, and a time range whose start is not after its end.
+// validate checks q before Iterate reads anything: a time range whose start is not after its end.
 func (q *Query) validate() error {
-	if q.Mode != QueryProvisional && q.Mode != QueryAuthoritative {
-		return fmt.Errorf("%w: mode %v", ErrInvalidQuery, q.Mode)
-	}
-
 	f := &q.Filter
 	if inverted(f.TimeFrom, f.TimeTo) {
 		return fmt.Errorf("%w: TimeFrom %d is after TimeTo %d", ErrInvalidQuery, *f.TimeFrom, *f.TimeTo)

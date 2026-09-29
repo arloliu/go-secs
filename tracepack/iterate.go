@@ -6,21 +6,6 @@ import (
 	"slices"
 )
 
-// iterPlan is what a query decides once, before Iterate reads any block.
-type iterPlan struct {
-	f *Filter
-	// full reads every block in full; otherwise header-only.
-	full bool
-	// level is the ReadLevel of every yielded record.
-	level ReadLevel
-	// payloadCopies evaluates the copy-field predicates on the payload's values instead of the stored copies:
-	// f tests a copy field in an authoritative query over a pack that is not attested.
-	// It implies full.
-	payloadCopies bool
-	// headerValidated lists every block read in Result.HeaderValidated.
-	headerValidated bool
-}
-
 // anyCounted reports whether values is empty or counts holds a count other than 0 for one of values,
 // counts being indexed by value and a missing element counting 0.
 func anyCounted[T ~uint8](counts []uint32, values []T) bool {
@@ -68,24 +53,17 @@ func clonePtr[T any](v *T) *T {
 // Then Iterate visits the blocks in file order, checking ctx before each.
 // It skips a block the footer excludes: an indexed block whose F-2 time range misses the query's,
 // whose F-2 epoch range holds none of Epochs, or whose F-3 kind or direction counts are 0 for every one of Kinds or Dirs.
-// These fields are not copies, so skipping never makes the result rely on header copies;
-// it trusts the validated footer, whose F-2 ranges only a read of the block compares with its records.
+// It trusts the validated footer, whose F-2 ranges only a read of the block compares with its records.
 // A walked block is never skipped.
 //
-// Iterate reads a block in full when q.Payloads is set,
-// or when an authoritative query with a copy-field predicate meets a pack that is not attested;
-// otherwise it reads the block header-only, at ReadAttested for an attested pack and ReadHeaderOnly otherwise.
-// A block that fails a check of its read level, or exceeds ReaderOptions.MaxBlockLen, adds a Defect and yields nothing,
+// Every block Iterate reads is read in full and checked against I-2 before any of its records is used
+// (the tracepack format specification §6).
+// A block that fails a check, or exceeds ReaderOptions.MaxBlockLen, adds a Defect and yields nothing,
 // and iteration continues with the next block.
-// A provisional query with a copy-field predicate over a pack that is not attested
-// lists every block it read in Result.HeaderValidated, also when the block yields no record.
 //
 // A record is selected when it satisfies every predicate of q.Filter:
-// the time range, Kinds, Dirs and Epochs on its stored header;
-// the copy-field predicates on the payload's values (Record.SetHeaderCopies) for an authoritative query over a pack that is not attested,
-// and on the stored copies otherwise;
-// a copy field is available when its stored field_validity bit is set
-// and, for the payload's values, the payload holds all its bytes.
+// the time range, Kinds, Dirs and Epochs on its record header,
+// and SF, SessionIDs and SystemBytes on the HSMS header fields of its payload, each available as Filter describes.
 // fn receives each selected record as an Item that is valid only during the call;
 // Iterate reuses the Item and its buffers.
 //
@@ -105,9 +83,9 @@ func (r *Reader) Iterate(ctx context.Context, q Query, fn func(*Item) error) (Re
 		return Result{}, err
 	}
 
-	p := r.plan(&q)
+	f := &q.Filter
 	res := Result{Incomplete: slices.Clone(r.openDefects), FooterErr: r.footerErr}
-	res.Incomplete = r.appendCoverageDefects(res.Incomplete, p.f)
+	res.Incomplete = r.appendCoverageDefects(res.Incomplete, f)
 
 	var (
 		buf  blockBuf
@@ -117,11 +95,11 @@ func (r *Reader) Iterate(ctx context.Context, q Query, fn func(*Item) error) (Re
 		if err := ctx.Err(); err != nil {
 			return res, fmt.Errorf("tracepack: iterate: %w", err)
 		}
-		if r.prunes(i, p.f) {
+		if r.prunes(i, f) {
 			continue
 		}
 
-		d, def, err := r.readBlock(i, p.full, &buf)
+		d, def, err := r.readBlock(i, &buf)
 		if err != nil {
 			return res, err
 		}
@@ -129,40 +107,12 @@ func (r *Reader) Iterate(ctx context.Context, q Query, fn func(*Item) error) (Re
 			res.Incomplete = append(res.Incomplete, *def)
 			continue
 		}
-		if p.headerValidated {
-			res.HeaderValidated = append(res.HeaderValidated, i)
-		}
-		if err := p.yield(i, d, &item, fn); err != nil {
+		if err := yield(&q, i, d, &item, fn); err != nil {
 			return res, err
 		}
 	}
 
 	return res, nil
-}
-
-// plan returns the read level and the evaluation of the copy-field predicates of q over r
-// (the tracepack semantics specification §7.4).
-func (r *Reader) plan(q *Query) iterPlan {
-	f := &q.Filter
-	authoritative := q.Mode == QueryAuthoritative
-	unattestedCopies := !r.attested && f.hasCopyPredicate()
-	p := iterPlan{
-		f:               f,
-		payloadCopies:   authoritative && unattestedCopies,
-		headerValidated: !authoritative && unattestedCopies,
-	}
-	p.full = q.Payloads || p.payloadCopies
-
-	switch {
-	case p.full:
-		p.level = ReadFull
-	case r.attested:
-		p.level = ReadAttested
-	default:
-		p.level = ReadHeaderOnly
-	}
-
-	return p
 }
 
 // appendCoverageDefects appends to dst a ReasonCoverage defect for every coverage entry of the pack metadata
@@ -215,31 +165,26 @@ func (r *Reader) prunes(i int, f *Filter) bool {
 	return !anyCounted(s.kindCounts, f.Kinds) || !anyCounted(s.dirCounts, f.Dirs)
 }
 
-// yield calls fn with every record of block i, read as d, that p's filter selects, reusing item.
-//
-// It computes the payload's positional copies at most once per record, only when p evaluates the payload,
-// and checks I-10 for Item.CopyMismatch on every record of a full read.
-func (p *iterPlan) yield(i int, d *decodedBlock, item *Item, fn func(*Item) error) error {
-	var want Record
+// yield calls fn with every record of block i, read as d, that q's filter selects, reusing item.
+// The HSMS header fields are taken from the payload once per record, only when the filter tests one.
+func yield(q *Query, i int, d *decodedBlock, item *Item, fn func(*Item) error) error {
+	f := &q.Filter
+	fields := f.hasCopyPredicate()
 	for j := range d.count() {
 		h := d.header(j)
-		if !p.f.matchHeader(&h) {
+		if !f.matchHeader(&h) {
 			continue
 		}
 
 		rec := storedRecord(&h, d.payload(j))
-		if p.payloadCopies {
-			want = rec
-			want.SetHeaderCopies()
-		}
-		if !p.matchCopies(&rec, &want) {
+		if fields && !f.matchCopies(payloadCopies(&rec)) {
 			continue
 		}
-
-		*item = Item{Record: rec, HeaderExtra: h.Extra, Block: i, Level: p.level}
-		if p.full {
-			item.CopyMismatch = copyMismatch(&h, rec.Payload)
+		if !q.Payloads {
+			rec.Payload = nil
 		}
+
+		*item = Item{Record: rec, HeaderExtra: h.Extra, Block: i}
 		if err := fn(item); err != nil {
 			return err
 		}
@@ -248,20 +193,13 @@ func (p *iterPlan) yield(i int, d *decodedBlock, item *Item, fn func(*Item) erro
 	return nil
 }
 
-// matchCopies reports whether a record satisfies the copy-field predicates of p's filter
-// (the tracepack format specification §7.2, the tracepack semantics specification §7.4).
-// Availability comes from rec's stored field_validity in every mode.
-// When p evaluates the payload, the values are want's, rec with Record.SetHeaderCopies applied,
-// and a field is available only when its stored bit is set and the payload holds all its bytes,
-// so a set bit over a payload that ends before the field leaves it unavailable;
-// otherwise the values are rec's stored copies.
-// A filter without a copy-field predicate matches every record.
-func (p *iterPlan) matchCopies(rec, want *Record) bool {
-	c := copiesOf(rec)
-	if p.payloadCopies {
-		c = copiesOf(want)
-		c.validity &= rec.FieldValidity
-	}
+// payloadCopies returns the HSMS header fields of rec's payload that a Filter tests (the tracepack format specification §7.2):
+// the payload's values, each available when rec's stored field_validity bit is set and the payload holds all of the field's bytes.
+func payloadCopies(rec *Record) *recordCopies {
+	want := *rec
+	want.SetHeaderCopies()
+	c := copiesOf(&want)
+	c.validity &= rec.FieldValidity
 
-	return p.f.matchCopies(&c)
+	return &c
 }
