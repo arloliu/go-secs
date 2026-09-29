@@ -123,7 +123,9 @@ var _ fmt.Stringer = UUID{}
 // an unknown tag, or a private tag (0x8000-0xFFFF), per the tracepack format specification §5.
 //
 // MarshalBinary re-encodes every RawEntry after the typed fields, in the order it was decoded,
-// so a round trip through UnmarshalPackMeta, UnmarshalTransportEvent or UnmarshalAnnotation reproduces it.
+// so a round trip through UnmarshalPackMeta, UnmarshalTransportEvent or UnmarshalAnnotation reproduces it,
+// except a retired pack metadata tag (0x0001, 0x0014, 0x0030), which PackMeta.MarshalBinary drops
+// because a writer never writes one (the tracepack format specification §5).
 type RawEntry struct {
 	// Tag is the entry's tag.
 	Tag uint16
