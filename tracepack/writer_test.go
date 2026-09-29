@@ -1352,6 +1352,24 @@ func TestNewWriterRejectsRedactionPresentOutsideExtract(t *testing.T) {
 	assert.Zero(t, buf.Len())
 }
 
+// TestNewWriterRejectsRetiredPackRole checks that a Writer never writes the retired pack_role 5
+// (the tracepack format specification §9).
+func TestNewWriterRejectsRetiredPackRole(t *testing.T) {
+	t.Parallel()
+
+	m := writerMeta()
+	m.PackRole = tracepack.PackRole(5)
+
+	var buf bytes.Buffer
+	_, err := tracepack.NewWriter(&buf, tracepack.WriterOptions{Meta: m, Facts: tracepack.PackFacts{AnyClassified: true}})
+	require.ErrorIs(t, err, tracepack.ErrFieldValue)
+
+	var fe *tracepack.FieldError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, "pack_role", fe.Field)
+	assert.Zero(t, buf.Len())
+}
+
 func TestWriterCloseFailsWithoutARedactedRecordUnderTheFlag(t *testing.T) {
 	t.Parallel()
 

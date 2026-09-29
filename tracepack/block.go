@@ -75,7 +75,6 @@ type blockSummary struct {
 	kindCounts         []uint32
 	dirCounts          []uint32
 	decodeStatusCounts []uint32
-	maxPayloadLen      uint32
 	qualityUnion       Quality
 	// epochs holds one entry per epoch present, in order of first appearance.
 	epochs []epochSummary
@@ -343,7 +342,6 @@ func (s *blockSummary) addRecord(h *format.RecordHeader, ev *TransportEvent) {
 	s.kindCounts = countEnum(s.kindCounts, h.Kind)
 	s.dirCounts = countEnum(s.dirCounts, h.Dir)
 	s.decodeStatusCounts = countEnum(s.decodeStatusCounts, h.DecodeStatus)
-	s.maxPayloadLen = max(s.maxPayloadLen, h.PayloadLen)
 	s.qualityUnion |= Quality(h.Quality)
 	s.addSeq(h.Seq)
 

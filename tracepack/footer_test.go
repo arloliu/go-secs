@@ -174,19 +174,14 @@ func statsFromRecords(t *testing.T, recs []tracepack.Record) packStat {
 }
 
 // blockStatFromRecords computes the F-3 summary of one block's records by brute force:
-// the pack statistics less record_count and the ts extremes, plus max_payload_len,
+// the pack statistics less record_count, content_bytes and the ts extremes,
 // and seq_range entries only when the seqs are not contiguous.
 func blockStatFromRecords(t *testing.T, recs []tracepack.Record) packStat {
 	t.Helper()
 
 	s := statsFromRecords(t, recs)
 	s.RecordCount, s.TSMin, s.TSMax = nil, nil, nil
-
-	var maxLen uint64
-	for _, r := range recs {
-		maxLen = max(maxLen, uint64(len(r.Payload)))
-	}
-	s.MaxPayloadLen = &maxLen
+	s.ContentBytes = 0
 	if len(s.SeqRanges) == 1 {
 		s.SeqRanges = nil
 	}

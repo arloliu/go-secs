@@ -4,10 +4,12 @@
 // and that a decode failure returns a nil result.
 // Each Unmarshal function validates everything its MarshalBinary requires before returning,
 // UnmarshalPackMeta included, since both enforce the "Required when" rules the metadata itself decides,
-// so a successful decode always re-encodes, and the result decodes back to an equal value.
+// so a successful decode re-encodes, and the result decodes back to an equal value,
+// except the pack metadata's retired pack_role, which is never written, and its retired tags, which are dropped.
 package tracepack_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -15,13 +17,20 @@ import (
 	"github.com/arloliu/go-secs/tracepack"
 )
 
+// retiredPackMetaTags are the retired pack metadata tags, which a decode keeps in Unknown and MarshalBinary drops
+// (the tracepack format specification §5).
+var retiredPackMetaTags = []uint16{0x0001, 0x0014}
+
+// retiredPackRole is the retired pack_role value 5 (the tracepack format specification §9).
+const retiredPackRole tracepack.PackRole = 5
+
 // FuzzUnmarshalPackMeta fuzzes UnmarshalPackMeta.
 func FuzzUnmarshalPackMeta(f *testing.F) {
-	f.Add(mustHexBytes(f, pmMinimal17Hex))
-	f.Add(mustHexBytes(f, pmAlways16Hex))
+	f.Add(mustHexBytes(f, pmMinimal16Hex))
+	f.Add(mustHexBytes(f, pmAlways15Hex))
 	f.Add(mustHexBytes(f, pmWithUnknownHex))
 	f.Add([]byte{})
-	f.Add(mustHexBytes(f, pmMinimal17Hex)[:10])
+	f.Add(mustHexBytes(f, pmMinimal16Hex)[:10])
 
 	f.Fuzz(func(t *testing.T, b []byte) {
 		m, err := tracepack.UnmarshalPackMeta(b)
@@ -32,11 +41,25 @@ func FuzzUnmarshalPackMeta(f *testing.F) {
 		}
 
 		enc, err := m.MarshalBinary()
+		if m.PackRole == retiredPackRole {
+			require.ErrorIs(t, err, tracepack.ErrFieldValue, "a writer never writes the retired pack_role")
+
+			return
+		}
 		require.NoError(t, err)
 
 		got, err := tracepack.UnmarshalPackMeta(enc)
 		require.NoError(t, err)
-		require.Equal(t, m, got)
+
+		// MarshalBinary drops the retired tags a decode keeps in Unknown (the tracepack format specification §5).
+		want := *m
+		want.Unknown = slices.DeleteFunc(slices.Clone(m.Unknown), func(e tracepack.RawEntry) bool {
+			return slices.Contains(retiredPackMetaTags, e.Tag)
+		})
+		if len(want.Unknown) == 0 {
+			want.Unknown = nil
+		}
+		require.Equal(t, &want, got)
 	})
 }
 

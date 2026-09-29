@@ -277,9 +277,8 @@ type packStat struct {
 	KindCounts         []uint64
 	DirCounts          []uint64
 	DecodeStatusCounts []uint64
-	MaxPayloadLen      *uint64 // F-3 only
 	QualityUnion       uint64
-	ContentBytes       uint64
+	ContentBytes       uint64 // F-5 only
 	TSMin              *int64 // F-5 only
 	TSMax              *int64 // F-5 only
 	SeqRanges          []tlv.SeqRange
@@ -289,8 +288,8 @@ type packStat struct {
 
 // statTags are the tags of the F-3 or the F-5 entry list; tag 0, which no entry carries, marks a tag the list lacks.
 type statTags struct {
-	recordCount, kind, dir, decodeStatus, maxPayloadLen, qualityUnion uint16
-	contentBytes, tsMin, tsMax, seqRange, epoch, boundary             uint16
+	recordCount, kind, dir, decodeStatus, qualityUnion    uint16
+	contentBytes, tsMin, tsMax, seqRange, epoch, boundary uint16
 	// countWidth is the element width of the count arrays: 4 in F-3, 8 in F-5.
 	countWidth int
 }
@@ -298,8 +297,8 @@ type statTags struct {
 // f3Tags and f5Tags follow the tag tables of the tracepack format specification §10.
 var (
 	f3Tags = statTags{
-		kind: 0x01, dir: 0x02, decodeStatus: 0x03, maxPayloadLen: 0x04, qualityUnion: 0x05,
-		contentBytes: 0x06, epoch: 0x07, boundary: 0x08, seqRange: 0x09, countWidth: 4,
+		kind: 0x01, dir: 0x02, decodeStatus: 0x03, qualityUnion: 0x05,
+		epoch: 0x07, boundary: 0x08, seqRange: 0x09, countWidth: 4,
 	}
 	f5Tags = statTags{
 		recordCount: 0x01, kind: 0x02, dir: 0x03, decodeStatus: 0x04, tsMin: 0x05, tsMax: 0x06,
@@ -393,7 +392,7 @@ func (f *walkedFooter) parseSections() error {
 	return nil
 }
 
-// parseStat decodes an F-3 or F-5 entry list, validates it against reg, and types it by tags.
+// parseStat decodes an F-3 or F-5 entry list, validates it against reg, checks it holds only reg's tags, and types it by tags.
 func parseStat(b []byte, reg tlv.Registry, tags *statTags) (packStat, error) {
 	entries, err := tlv.Decode(b)
 	if err != nil {
@@ -405,6 +404,10 @@ func parseStat(b []byte, reg tlv.Registry, tags *statTags) (packStat, error) {
 
 	var s packStat
 	for _, e := range entries {
+		// The Writer writes only defined tags, never a retired or reserved one (the tracepack format specification §10).
+		if _, known := reg[e.Tag]; !known {
+			return packStat{}, fmt.Errorf("tag 0x%04X is not a defined tag", e.Tag)
+		}
 		if err := s.set(e, tags); err != nil {
 			return packStat{}, fmt.Errorf("tag 0x%04X: %w", e.Tag, err)
 		}
@@ -426,8 +429,6 @@ func (s *packStat) set(e tlv.Entry, tags *statTags) error {
 		s.DirCounts, err = decodeCounts(e.Value, tags.countWidth)
 	case tags.decodeStatus:
 		s.DecodeStatusCounts, err = decodeCounts(e.Value, tags.countWidth)
-	case tags.maxPayloadLen:
-		s.MaxPayloadLen = new(entryU64(e))
 	case tags.qualityUnion:
 		s.QualityUnion = entryU64(e)
 	case tags.contentBytes:
@@ -699,7 +700,6 @@ func verifyBlockSummary(t *testing.T, e *format.F2Entry, s *packStat, i int) {
 	for name, counts := range map[string][]uint64{"kind": s.KindCounts, "dir": s.DirCounts, "decode_status": s.DecodeStatusCounts} {
 		assert.Equal(t, count, sumChecked(t, counts), "block %d %s_counts sum to record_count", i, name)
 	}
-	assert.Equal(t, uint64(e.UncompressedLen), s.ContentBytes, "block %d content_bytes = uncompressed_len", i)
 
 	var epochRecords uint64
 	for _, ep := range s.Epochs {
@@ -763,7 +763,7 @@ func floorDiv(a, b int64) int64 {
 
 // aggregateStats recomputes F-5 from F-2 and F-3 by the aggregation rule of the tracepack format specification §10,
 // independently of the writer:
-// counts and content_bytes summed with overflow checks, ts extremes from F-2, seq ranges unioned and coalesced,
+// counts summed and content_bytes summed from F-2 uncompressed_len, with overflow checks, ts extremes from F-2, seq ranges unioned and coalesced,
 // epoch entries combined per epoch, in ascending epoch order and keeping the smallest close_seq,
 // and boundary entries concatenated in block order.
 func aggregateStats(t *testing.T, f2 []format.F2Entry, f3 []packStat) packStat {
@@ -777,7 +777,7 @@ func aggregateStats(t *testing.T, f2 []format.F2Entry, f3 []packStat) packStat {
 		out.KindCounts = addCounts(t, out.KindCounts, s.KindCounts)
 		out.DirCounts = addCounts(t, out.DirCounts, s.DirCounts)
 		out.DecodeStatusCounts = addCounts(t, out.DecodeStatusCounts, s.DecodeStatusCounts)
-		out.ContentBytes = checkedAdd(t, out.ContentBytes, s.ContentBytes)
+		out.ContentBytes = checkedAdd(t, out.ContentBytes, uint64(e.UncompressedLen))
 		out.QualityUnion |= s.QualityUnion
 		if i == 0 {
 			out.TSMin, out.TSMax = new(e.TSMin), new(e.TSMax)
