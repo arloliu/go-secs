@@ -62,6 +62,7 @@ func (r *Reader) walk(ctx context.Context) error {
 		off = next
 	}
 
+	r.walkStop = stop
 	r.openDefects = r.walkDefects(stop, off, records)
 
 	return nil

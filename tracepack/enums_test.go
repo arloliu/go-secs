@@ -352,3 +352,32 @@ func TestCodec_String(t *testing.T) {
 	}
 	checkEnumStrings[tracepack.Codec](t, cases, 2)
 }
+
+func TestOutcome_String(t *testing.T) {
+	t.Parallel()
+
+	// Transcribed from the tracepack format specification §13.
+	cases := []enumCase{
+		{0, "unknown(0)"},
+		{1, "finalized-consistent"},
+		{2, "finalized-inconsistent"},
+		{3, "finalized-truncated"},
+		{4, "unfinalized"},
+		{5, "corrupt-middle"},
+	}
+	checkEnumStrings[tracepack.Outcome](t, cases, 6)
+}
+
+func TestWriterDefectKind_String(t *testing.T) {
+	t.Parallel()
+
+	cases := []enumCase{
+		{0, "unknown(0)"},
+		{1, "field-validity"},
+		{2, "event-field-validity"},
+		{3, "event-payload"},
+		{4, "seq-order"},
+		{5, "hour-span"},
+	}
+	checkEnumStrings[tracepack.WriterDefectKind](t, cases, 6)
+}
