@@ -22,7 +22,7 @@ var ErrSchema = errors.New("unknown format or schema version")
 var ErrShort = errors.New("buffer shorter than structure")
 
 // ErrCorrupt reports a structural violation that is not a bad magic, a CRC mismatch or a short buffer,
-// such as a record_header_len below 56 or a record_count of zero.
+// such as a record_header_len below 44 or a record_count of zero.
 var ErrCorrupt = errors.New("corrupt structure")
 
 // OffsetError reports a decode failure at a specific field of a fixed-layout structure.

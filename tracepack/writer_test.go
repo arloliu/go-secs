@@ -41,82 +41,103 @@ const allValidity = tracepack.FieldValiditySessionID | tracepack.FieldValiditySt
 	tracepack.FieldValidityFunction | tracepack.FieldValidityPType |
 	tracepack.FieldValiditySType | tracepack.FieldValiditySystemBytes
 
-func TestRecordSetHeaderCopies(t *testing.T) {
+func TestRecordSetCapturedFieldValidity(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name string
-		in   tracepack.Record
-		want tracepack.Record
+		kind tracepack.Kind
+		n    int
+		want tracepack.FieldValidity
 	}{
-		{
-			name: "data frame copies every field",
-			in:   tracepack.Record{Kind: tracepack.KindData, Payload: s1f3Frame},
-			want: tracepack.Record{
-				Kind: tracepack.KindData, Payload: s1f3Frame,
-				SessionID: 0x1234, Stream: 1, W: true, Function: 3, PType: 0, SType: 0,
-				SystemBytes: [4]byte{0xDE, 0xAD, 0xBE, 0xEF}, FieldValidity: allValidity,
-			},
-		},
-		{
-			name: "control frame copies byte 2 and 3 as raw bits",
-			in:   tracepack.Record{Kind: tracepack.KindControl, Payload: linktestReqFrame},
-			want: tracepack.Record{
-				Kind: tracepack.KindControl, Payload: linktestReqFrame,
-				SessionID: 0xFFFF, SType: 5,
-				SystemBytes: [4]byte{0, 0, 0, 7}, FieldValidity: allValidity,
-			},
-		},
-		{
-			name: "short capture of 8 bytes keeps session_id, byte 2 and function only",
-			in: tracepack.Record{
-				Kind: tracepack.KindData, Payload: s1f3Frame[:8],
-				// Stale values the helper must clear.
-				PType: 9, SType: 9, SystemBytes: [4]byte{1, 2, 3, 4},
-			},
-			want: tracepack.Record{
-				Kind: tracepack.KindData, Payload: s1f3Frame[:8],
-				SessionID: 0x1234, Stream: 1, W: true, Function: 3,
-				FieldValidity: tracepack.FieldValiditySessionID | tracepack.FieldValidityStreamAndW | tracepack.FieldValidityFunction,
-			},
-		},
-		{
-			name: "short capture of 13 bytes lacks only the system bytes",
-			in:   tracepack.Record{Kind: tracepack.KindData, Payload: s1f3Frame[:13]},
-			want: tracepack.Record{
-				Kind: tracepack.KindData, Payload: s1f3Frame[:13],
-				SessionID: 0x1234, Stream: 1, W: true, Function: 3,
-				FieldValidity: allValidity &^ tracepack.FieldValiditySystemBytes,
-			},
-		},
-		{
-			name: "short capture of 5 bytes has no copy field",
-			in:   tracepack.Record{Kind: tracepack.KindData, Payload: s1f3Frame[:5], SessionID: 7},
-			want: tracepack.Record{Kind: tracepack.KindData, Payload: s1f3Frame[:5]},
-		},
-		{
-			name: "transport event zeroes every copy",
-			in: tracepack.Record{
-				Kind: tracepack.KindTransportEvent, Payload: s1f3Frame,
-				SessionID: 1, Stream: 2, W: true, Function: 3, PType: 4, SType: 5,
-				SystemBytes: [4]byte{6, 7, 8, 9}, FieldValidity: allValidity,
-			},
-			want: tracepack.Record{Kind: tracepack.KindTransportEvent, Payload: s1f3Frame},
-		},
-		{
-			name: "annotation zeroes every copy",
-			in:   tracepack.Record{Kind: tracepack.KindAnnotation, Payload: s1f3Frame, SessionID: 1, FieldValidity: 1},
-			want: tracepack.Record{Kind: tracepack.KindAnnotation, Payload: s1f3Frame},
-		},
+		{name: "whole data frame", kind: tracepack.KindData, n: len(s1f3Frame), want: allValidity},
+		{name: "whole control frame", kind: tracepack.KindControl, n: len(linktestReqFrame), want: allValidity},
+		{name: "4 bytes, the length prefix only", kind: tracepack.KindData, n: 4},
+		{name: "5 bytes, half of SessionID", kind: tracepack.KindData, n: 5},
+		{name: "6 bytes", kind: tracepack.KindData, n: 6, want: tracepack.FieldValiditySessionID},
+		{name: "7 bytes", kind: tracepack.KindData, n: 7, want: tracepack.FieldValiditySessionID | tracepack.FieldValidityStreamAndW},
+		{name: "8 bytes", kind: tracepack.KindData, n: 8,
+			want: tracepack.FieldValiditySessionID | tracepack.FieldValidityStreamAndW | tracepack.FieldValidityFunction},
+		{name: "9 bytes", kind: tracepack.KindData, n: 9,
+			want: allValidity &^ (tracepack.FieldValiditySType | tracepack.FieldValiditySystemBytes)},
+		{name: "10 bytes", kind: tracepack.KindData, n: 10, want: allValidity &^ tracepack.FieldValiditySystemBytes},
+		{name: "13 bytes lack a System Bytes byte", kind: tracepack.KindData, n: 13, want: allValidity &^ tracepack.FieldValiditySystemBytes},
+		{name: "transport event", kind: tracepack.KindTransportEvent, n: len(s1f3Frame)},
+		{name: "annotation", kind: tracepack.KindAnnotation, n: len(s1f3Frame)},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := tt.in
-			got.SetHeaderCopies()
-			assert.Equal(t, tt.want, got)
+			frame := s1f3Frame
+			if tt.kind == tracepack.KindControl {
+				frame = linktestReqFrame
+			}
+			r := tracepack.Record{Kind: tt.kind, Payload: frame[:tt.n], FieldValidity: 0xFF}
+			r.SetCapturedFieldValidity()
+			assert.Equal(t, tt.want, r.FieldValidity)
+		})
+	}
+}
+
+func TestRecordHSMSHeader(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		r    tracepack.Record
+		want tracepack.HSMSHeader
+	}{
+		{
+			name: "data frame",
+			r:    tracepack.Record{Kind: tracepack.KindData, Payload: s1f3Frame, FieldValidity: allValidity},
+			want: tracepack.HSMSHeader{
+				SessionID: 0x1234, Stream: 1, W: true, Function: 3,
+				SystemBytes: [4]byte{0xDE, 0xAD, 0xBE, 0xEF}, Available: allValidity,
+			},
+		},
+		{
+			// A control frame's bytes 6 and 7 are status or reason codes, read like any other.
+			name: "control frame",
+			r:    tracepack.Record{Kind: tracepack.KindControl, Payload: linktestReqFrame, FieldValidity: allValidity},
+			want: tracepack.HSMSHeader{SessionID: 0xFFFF, SType: 5, SystemBytes: [4]byte{0, 0, 0, 7}, Available: allValidity},
+		},
+		{
+			// A log conversion without source System Bytes: the placeholder bytes are visible, never available.
+			name: "clear bit over present bytes",
+			r:    tracepack.Record{Kind: tracepack.KindData, Payload: s1f3Frame, FieldValidity: allValidity &^ tracepack.FieldValiditySystemBytes},
+			want: tracepack.HSMSHeader{
+				SessionID: 0x1234, Stream: 1, W: true, Function: 3,
+				SystemBytes: [4]byte{0xDE, 0xAD, 0xBE, 0xEF}, Available: allValidity &^ tracepack.FieldValiditySystemBytes,
+			},
+		},
+		{
+			// A writer defect: the bits claim fields the payload lacks, which stay unavailable.
+			name: "set bits beyond the payload",
+			r:    tracepack.Record{Kind: tracepack.KindData, Payload: s1f3Frame[:8], FieldValidity: allValidity},
+			want: tracepack.HSMSHeader{
+				SessionID: 0x1234, Stream: 1, W: true, Function: 3,
+				Available: tracepack.FieldValiditySessionID | tracepack.FieldValidityStreamAndW | tracepack.FieldValidityFunction,
+			},
+		},
+		{
+			name: "reserved bits are never available",
+			r:    tracepack.Record{Kind: tracepack.KindData, Payload: s1f3Frame, FieldValidity: 0xC0},
+			want: tracepack.HSMSHeader{SessionID: 0x1234, Stream: 1, W: true, Function: 3, SystemBytes: [4]byte{0xDE, 0xAD, 0xBE, 0xEF}},
+		},
+		{
+			name: "transport event",
+			r:    tracepack.Record{Kind: tracepack.KindTransportEvent, Payload: s1f3Frame, FieldValidity: allValidity},
+		},
+		{
+			name: "no payload",
+			r:    tracepack.Record{Kind: tracepack.KindData, FieldValidity: allValidity},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.r.HSMSHeader())
 		})
 	}
 }
@@ -156,7 +177,7 @@ func mustEventPayload(t *testing.T, e *tracepack.TransportEvent) []byte {
 }
 
 // mixedRecords returns one record of each kind, in seq order from 0,
-// with the copy fields set by SetHeaderCopies and the derived bits already correct,
+// with the field_validity of a raw capture and the derived bits already correct,
 // so a round trip must reproduce them exactly.
 func mixedRecords(t *testing.T) []tracepack.Record {
 	t.Helper()
@@ -184,23 +205,24 @@ func mixedRecords(t *testing.T) []tracepack.Record {
 		{
 			Kind: tracepack.KindData, Dir: tracepack.DirHostToEquipment, Fidelity: tracepack.FidelityWireExact,
 			DecodeStatus: tracepack.DecodeStatusShortFrame, Epoch: 1, Payload: s1f3Frame[:9],
-			Quality: tracepack.QualityDecodeFailed,
 		},
 		{
 			Kind: tracepack.KindAnnotation, Dir: tracepack.DirLocal, Fidelity: tracepack.FidelityNotApplicable,
 			DecodeStatus: tracepack.DecodeStatusNotApplicable, Payload: note,
-			Quality: tracepack.QualityNoMono | tracepack.QualityCorrelationIncomplete,
+			Quality: tracepack.QualityCorrelationIncomplete,
 		},
 	}
 
+	// The annotation has no monotonic time.
+	const noMono = 4
 	for i := range recs {
 		r := &recs[i]
 		r.Seq = uint64(i)
 		r.TSUTCNs = hourStart + int64(i)*1_000_000
-		if !r.Quality.Has(tracepack.QualityNoMono) {
+		if i != noMono {
 			r.MonoNs, r.MonoPresent = int64(i)*1_000_000+5, true
 		}
-		r.SetHeaderCopies()
+		r.SetCapturedFieldValidity()
 	}
 
 	return recs
@@ -284,14 +306,14 @@ func TestWriterRoundTripMixedKinds(t *testing.T) {
 	}
 }
 
-// dataRecord returns an S1F3 data record at ts, with mono present and its copy fields set.
+// dataRecord returns an S1F3 data record at ts, with mono present and the field_validity of the whole frame.
 func dataRecord(seq uint64, ts int64) tracepack.Record {
 	r := tracepack.Record{
 		Seq: seq, TSUTCNs: ts, MonoNs: ts - hourStart, MonoPresent: true, Epoch: 1,
 		Kind: tracepack.KindData, Dir: tracepack.DirHostToEquipment, Fidelity: tracepack.FidelityWireExact,
 		DecodeStatus: tracepack.DecodeStatusOK, Payload: s1f3Frame,
 	}
-	r.SetHeaderCopies()
+	r.SetCapturedFieldValidity()
 
 	return r
 }
@@ -336,14 +358,14 @@ func TestWriterClosesBlockAtUTCHourBoundary(t *testing.T) {
 func TestWriterClosesBlockAtThreshold(t *testing.T) {
 	t.Parallel()
 
-	// Each record is 56 header bytes plus the 14-byte frame: 70 bytes uncompressed.
+	// Each record is 44 header bytes plus the 14-byte frame: 58 bytes uncompressed.
 	tests := []struct {
 		name      string
 		threshold int
 		want      [][]uint64
 	}{
-		{"closes before a record that would exceed it", 200, [][]uint64{{0, 1}, {2, 3}, {4, 5}, {6}}},
-		{"closes when a record reaches it exactly", 210, [][]uint64{{0, 1, 2}, {3, 4, 5}, {6}}},
+		{"closes before a record that would exceed it", 150, [][]uint64{{0, 1}, {2, 3}, {4, 5}, {6}}},
+		{"closes when a record reaches it exactly", 174, [][]uint64{{0, 1, 2}, {3, 4, 5}, {6}}},
 		{"threshold below one record puts each alone", 1, [][]uint64{{0}, {1}, {2}, {3}, {4}, {5}, {6}}},
 	}
 
@@ -364,7 +386,7 @@ func TestWriterClosesBlockAtThreshold(t *testing.T) {
 			assert.Equal(t, tt.want, blockSeqs(p))
 			assert.Equal(t, recs, p.records())
 			for _, b := range p.Blocks {
-				assert.Equal(t, uint32(70*len(b.Records)), b.Env.UncompressedLen)
+				assert.Equal(t, uint32(58*len(b.Records)), b.Env.UncompressedLen)
 			}
 		})
 	}
@@ -386,7 +408,7 @@ func TestWriterWritesOversizedRecordAlone(t *testing.T) {
 
 	p := mustWalkPack(t, buf.Bytes())
 	assert.Equal(t, [][]uint64{{0, 1}, {2}, {3}}, blockSeqs(p))
-	assert.Equal(t, uint32(56+14+300), p.Blocks[1].Env.UncompressedLen)
+	assert.Equal(t, uint32(44+14+300), p.Blocks[1].Env.UncompressedLen)
 	assert.Equal(t, recs, p.records())
 }
 
@@ -412,25 +434,21 @@ func TestWriterFlushClosesOpenBlock(t *testing.T) {
 func TestWriterDerivesOwnedBits(t *testing.T) {
 	t.Parallel()
 
-	okWithWrongBits := dataRecord(0, hourStart)
-	okWithWrongBits.Quality = tracepack.QualityNoMono | tracepack.QualityDecodeFailed | tracepack.QualityDirectionInferred
+	// Quality bits 3 and 6 are retired (the tracepack format specification §9): a caller's bits are cleared,
+	// and nothing derives them from decode_status or mono_present any longer.
+	retiredBits := dataRecord(0, hourStart)
+	retiredBits.Quality = 1<<3 | 1<<6 | tracepack.QualityDirectionInferred
 
-	malformedWithoutBits := dataRecord(1, hourStart+1)
-	malformedWithoutBits.DecodeStatus = tracepack.DecodeStatusItemDecodeError
-	malformedWithoutBits.MonoPresent = false
-	malformedWithoutBits.MonoNs = 12345 // stale: must not reach the file
+	malformedWithoutMono := dataRecord(1, hourStart+1)
+	malformedWithoutMono.DecodeStatus = tracepack.DecodeStatusItemDecodeError
+	malformedWithoutMono.MonoPresent = false
+	malformedWithoutMono.MonoNs = 12345 // stale: must not reach the file
 
-	notAttempted := dataRecord(2, hourStart+2)
-	notAttempted.DecodeStatus = tracepack.DecodeStatusNotAttempted
-	notAttempted.Quality = tracepack.QualityDecodeFailed
+	in := []tracepack.Record{retiredBits, malformedWithoutMono}
 
-	in := []tracepack.Record{okWithWrongBits, malformedWithoutBits, notAttempted}
-
-	want := []tracepack.Record{okWithWrongBits, malformedWithoutBits, notAttempted}
+	want := []tracepack.Record{retiredBits, malformedWithoutMono}
 	want[0].Quality = tracepack.QualityDirectionInferred
-	want[1].Quality = tracepack.QualityDecodeFailed | tracepack.QualityNoMono
 	want[1].MonoNs = 0
-	want[2].Quality = 0
 
 	w, buf := newTestWriter(t, tracepack.WriterOptions{})
 	appendAll(t, w, in)
@@ -440,8 +458,8 @@ func TestWriterDerivesOwnedBits(t *testing.T) {
 	assert.Equal(t, want, p.records())
 
 	flags := recordFlagsOf(t, p)
-	assert.Equal(t, tracepack.RecordFlagsW|tracepack.RecordFlagsMonoPresent, flags[0])
-	assert.Equal(t, tracepack.RecordFlagsW, flags[1], "mono_present clear iff no-mono")
+	assert.Equal(t, tracepack.RecordFlagsMonoPresent, flags[0])
+	assert.Equal(t, tracepack.RecordFlags(0), flags[1], "mono_present clear without mono; the retired W bit is never written")
 }
 
 func TestWriterDerivesEpochAndBoundaryBits(t *testing.T) {
@@ -485,47 +503,69 @@ func TestWriterDerivesEpochAndBoundaryBits(t *testing.T) {
 	assert.Equal(t, want, p.records())
 }
 
-func TestWriterZeroesUnavailableCopies(t *testing.T) {
+func TestWriterStoresFieldValidity(t *testing.T) {
 	t.Parallel()
 
-	// A 7-byte short capture: the length prefix plus session_id and byte 2 of the header.
+	// A 7-byte short capture holds SessionID and byte 6 only.
 	short := tracepack.Record{
 		Seq: 0, TSUTCNs: hourStart, Kind: tracepack.KindData, Dir: tracepack.DirHostToEquipment,
 		DecodeStatus: tracepack.DecodeStatusShortFrame, Payload: s1f3Frame[:7],
 	}
-	short.SetHeaderCopies()
-	// Stale values for the fields the capture lacks, which SetHeaderCopies would have cleared.
-	stale := short
-	stale.Function, stale.PType, stale.SType, stale.SystemBytes = 3, 1, 2, [4]byte{9, 9, 9, 9}
+	short.SetCapturedFieldValidity()
 
+	// A log conversion keeps a clear bit over placeholder bytes (the tracepack storage specification §7).
+	logConverted := dataRecord(1, hourStart+1)
+	logConverted.FieldValidity &^= tracepack.FieldValiditySystemBytes
+
+	// Reserved bits are written as zero (I-9).
+	reserved := dataRecord(2, hourStart+2)
+	reserved.FieldValidity |= 0xC0
+
+	// A record without an HSMS frame always has field_validity 0.
 	event := tracepack.Record{
-		Seq: 1, TSUTCNs: hourStart + 1, Kind: tracepack.KindTransportEvent,
-		DecodeStatus: tracepack.DecodeStatusNotApplicable,
-		Payload:      mustEventPayload(t, &tracepack.TransportEvent{Event: tracepack.EventClockStep, ClockStepNs: new(int64(5))}),
-		SessionID:    1, Stream: 2, W: true, Function: 3, PType: 4, SType: 5, SystemBytes: [4]byte{6, 7, 8, 9},
+		Seq: 3, TSUTCNs: hourStart + 3, Kind: tracepack.KindTransportEvent,
+		DecodeStatus:  tracepack.DecodeStatusNotApplicable,
+		Payload:       mustEventPayload(t, &tracepack.TransportEvent{Event: tracepack.EventClockStep, ClockStepNs: new(int64(5))}),
 		FieldValidity: allValidity,
 	}
 
 	w, buf := newTestWriter(t, tracepack.WriterOptions{Validate: true})
-	appendAll(t, w, []tracepack.Record{stale, event})
+	appendAll(t, w, []tracepack.Record{short, logConverted, reserved, event})
 	mustClose(t, w)
 
 	p := mustWalkPack(t, buf.Bytes())
 	got := p.records()
-	require.Len(t, got, 2)
-
-	wantShort := short
-	wantShort.Quality = tracepack.QualityDecodeFailed | tracepack.QualityNoMono | tracepack.QualityCorrelationIncomplete
-	assert.Equal(t, wantShort, got[0])
+	require.Len(t, got, 4)
 	assert.Equal(t, tracepack.FieldValiditySessionID|tracepack.FieldValidityStreamAndW, got[0].FieldValidity)
-	assert.Equal(t, uint16(0x1234), got[0].SessionID)
+	assert.Equal(t, allValidity&^tracepack.FieldValiditySystemBytes, got[1].FieldValidity)
+	assert.Equal(t, allValidity, got[2].FieldValidity)
+	assert.Equal(t, tracepack.FieldValidity(0), got[3].FieldValidity)
+}
 
-	wantEvent := tracepack.Record{
-		Seq: 1, TSUTCNs: hourStart + 1, Kind: tracepack.KindTransportEvent,
-		DecodeStatus: tracepack.DecodeStatusNotApplicable, Payload: event.Payload,
-		Quality: tracepack.QualityNoMono | tracepack.QualityCorrelationIncomplete,
+func TestWriterRejectsFieldValidityBeyondPayload(t *testing.T) {
+	t.Parallel()
+
+	for _, validate := range []bool{false, true} {
+		w, buf := newTestWriter(t, tracepack.WriterOptions{Validate: validate})
+
+		for _, n := range []int{5, 9, 13} {
+			r := dataRecord(0, hourStart) // every bit set
+			r.Payload = s1f3Frame[:n]
+			r.DecodeStatus = tracepack.DecodeStatusShortFrame
+			require.ErrorIs(t, w.Append(&r), tracepack.ErrFieldValidity, "validate %v, %d bytes", validate, n)
+		}
+
+		control := dataRecord(0, hourStart)
+		control.Kind, control.Payload = tracepack.KindControl, linktestReqFrame[:9]
+		require.ErrorIs(t, w.Append(&control), tracepack.ErrFieldValidity, "a control record is checked the same way")
+
+		good := dataRecord(0, hourStart)
+		require.NoError(t, w.Append(&good), "a rejected record leaves the Writer usable")
+		mustClose(t, w)
+
+		p := mustWalkPack(t, buf.Bytes())
+		assert.Equal(t, []tracepack.Record{good}, p.records(), "no rejected record is written")
 	}
-	assert.Equal(t, wantEvent, got[1])
 }
 
 func TestWriterCodecsDecodeToEqualBodies(t *testing.T) {
@@ -960,10 +1000,7 @@ func TestWriterAcceptsRecordsMetadataDescribes(t *testing.T) {
 		},
 		{
 			"oversized with max_frame_len", oversizedMeta, tracepack.PackFacts{AnyOversized: true},
-			func(r *tracepack.Record) {
-				r.DecodeStatus = tracepack.DecodeStatusOversized
-				r.Quality = tracepack.QualityDecodeFailed
-			},
+			func(r *tracepack.Record) { r.DecodeStatus = tracepack.DecodeStatusOversized },
 		},
 		{
 			"redacted in an extract with redaction-present", extractMeta(), tracepack.PackFacts{AnyClassified: true, AnyRedacted: true},
@@ -1077,19 +1114,6 @@ func TestNonValidatingWriterWritesCorruptEncoding(t *testing.T) {
 
 	_, err := walkPack(buf.Bytes())
 	require.Error(t, err, "without validation the defect reaches the file, where a reader finds it")
-}
-
-func TestNonValidatingWriterStoresCopyDisagreement(t *testing.T) {
-	t.Parallel()
-
-	w, buf := newTestWriter(t, tracepack.WriterOptions{})
-	bad := dataRecord(0, hourStart)
-	bad.Stream, bad.Function = 6, 11 // copies that claim S6F11 over the S1F3 frame
-	require.NoError(t, w.Append(&bad))
-	mustClose(t, w)
-
-	p := mustWalkPack(t, buf.Bytes())
-	assert.Equal(t, []tracepack.Record{bad}, p.records(), "the writer stores what it receives")
 }
 
 // clockTolerance is the clock_step_tolerance_ns of clockMeta: 1 ms.
@@ -1213,7 +1237,7 @@ func TestWriterClockStepSkipsRecordsWithoutMono(t *testing.T) {
 
 	w, buf := newClockWriter(t, tracepack.WriterOptions{DetectClockSteps: true})
 	noMono := monoRecord(hourStart+hourNs/2, 0)
-	noMono.MonoPresent, noMono.MonoNs, noMono.Quality = false, 0, tracepack.QualityNoMono
+	noMono.MonoPresent, noMono.MonoNs = false, 0
 	in := []tracepack.Record{
 		monoRecord(hourStart+1_000, 1_000),
 		noMono, // 30 minutes off, but without mono the rule does not apply

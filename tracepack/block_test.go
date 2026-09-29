@@ -19,13 +19,13 @@ const blockTestHour int64 = 1_789_999_200_000_000_000
 // length 10, session_id 0x1234, byte 2 = 0x81, function 3, ptype 0, stype 0, system bytes DE AD BE EF.
 var blockTestFrame = []byte{0, 0, 0, 0x0A, 0x12, 0x34, 0x81, 0x03, 0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF}
 
-// testDataRecord returns a data record over blockTestFrame with its copy fields set.
+// testDataRecord returns a data record over blockTestFrame with the field_validity of a raw capture.
 func testDataRecord(seq uint64, ts int64, epoch uint32) Record {
 	r := Record{
 		Seq: seq, TSUTCNs: ts, MonoPresent: true, Epoch: epoch,
 		Kind: KindData, Dir: DirHostToEquipment, DecodeStatus: DecodeStatusOK, Payload: blockTestFrame,
 	}
-	r.SetHeaderCopies()
+	r.SetCapturedFieldValidity()
 
 	return r
 }
@@ -164,7 +164,7 @@ func TestValidateBodyRejectsTamperedBody(t *testing.T) {
 	}
 }
 
-func TestValidateBodyIgnoresCopiesOfOtherKinds(t *testing.T) {
+func TestValidateBodyAcceptsEvent(t *testing.T) {
 	t.Parallel()
 
 	ev := testEventRecord(t, 0, blockTestHour, 0, &TransportEvent{Event: EventClockStep})
@@ -195,7 +195,7 @@ func TestBlockSummaryAccumulatesFooterFacts(t *testing.T) {
 	gapStart, gapEnd := int64(100), int64(200)
 	unknownKind := testDataRecord(3, blockTestHour+30, 2)
 	unknownKind.Kind = Kind(7) // outside the registry: counted at its own index
-	unknownKind.SetHeaderCopies()
+	unknownKind.SetCapturedFieldValidity()
 	unknownKind.Quality = QualityDirectionInferred
 	malformed := testDataRecord(5, blockTestHour+10, 2)
 	malformed.DecodeStatus = DecodeStatusShortFrame
@@ -227,8 +227,7 @@ func TestBlockSummaryAccumulatesFooterFacts(t *testing.T) {
 		dirCounts:          []uint32{0, 4, 0, 4},
 		decodeStatusCounts: []uint32{0, 3, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4},
 		// The boundary events derive capture-boundary, and the epoch-0 one correlation-incomplete.
-		qualityUnion: QualityNoMono | QualityDecodeFailed | QualityDirectionInferred |
-			QualityCaptureBoundary | QualityCorrelationIncomplete,
+		qualityUnion: QualityDirectionInferred | QualityCaptureBoundary | QualityCorrelationIncomplete,
 		epochs: []epochSummary{
 			{epoch: 0, recordCount: 1, seqFirst: 1, seqLast: 1, tsMin: blockTestHour + 20, tsMax: blockTestHour + 20},
 			{

@@ -37,16 +37,6 @@ type decodedBlock struct {
 	offs []uint32
 }
 
-// recordCopies is the copy fields a Filter tests and the field_validity bits that make them available
-// (the tracepack format specification §7.2).
-type recordCopies struct {
-	systemBytes [4]byte
-	sessionID   uint16
-	stream      uint8
-	function    uint8
-	validity    FieldValidity
-}
-
 // recordSpan is what the F-2 entry of a block states about its records (the tracepack format specification §10):
 // the last seq and the ranges of ts_utc_ns and epoch.
 type recordSpan struct {
@@ -58,7 +48,7 @@ type recordSpan struct {
 }
 
 // storedRecord returns the record whose stored header is h and whose payload is payload:
-// every field as stored, with MonoPresent and W taken from record_flags.
+// every field as stored, with MonoPresent taken from record_flags.
 func storedRecord(h *format.RecordHeader, payload []byte) Record {
 	flags := RecordFlags(h.RecordFlags)
 
@@ -73,27 +63,9 @@ func storedRecord(h *format.RecordHeader, payload []byte) Record {
 		Fidelity:      Fidelity(h.Fidelity),
 		DecodeStatus:  DecodeStatus(h.DecodeStatus),
 		TrailingBytes: h.TrailingBytes,
-		SystemBytes:   h.SystemBytes,
-		SessionID:     h.SessionID,
-		Stream:        h.Stream,
-		W:             flags.Has(RecordFlagsW),
-		Function:      h.Function,
-		PType:         h.PType,
-		SType:         h.SType,
 		Quality:       Quality(h.Quality),
 		FieldValidity: FieldValidity(h.FieldValidity),
 		Payload:       payload,
-	}
-}
-
-// copiesOf returns the copy fields a Filter tests of r, available as r.FieldValidity marks them.
-func copiesOf(r *Record) recordCopies {
-	return recordCopies{
-		systemBytes: r.SystemBytes,
-		sessionID:   r.SessionID,
-		stream:      r.Stream,
-		function:    r.Function,
-		validity:    r.FieldValidity,
 	}
 }
 
@@ -342,7 +314,7 @@ func (d *decodedBlock) count() int {
 }
 
 // header returns the record header of record i,
-// whose Extra aliases the header section's bytes behind offset 56, or is nil for 56-byte headers.
+// whose Extra aliases the header's extension area behind offset 44, or is nil for 44-byte headers.
 func (d *decodedBlock) header(i int) format.RecordHeader {
 	rhl := int(d.env.RecordHeaderLen)
 	b := d.section[i*rhl : (i+1)*rhl : (i+1)*rhl]

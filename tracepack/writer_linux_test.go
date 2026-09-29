@@ -25,8 +25,8 @@ func TestWriterRejectsPayloadAboveLimitWithoutAllocating(t *testing.T) {
 		t.Skipf("mmap 2 GiB of address space: %v", err)
 	}
 	t.Cleanup(func() { _ = syscall.Munmap(huge) })
-	// The largest payload a block can hold alone: 2^31-1 minus the 56 header bytes, plus one.
-	justOver := huge[:(1<<31-1)-56+1]
+	// The largest payload a block can hold alone: 2^31-1 minus the 44 header bytes, plus one.
+	justOver := huge[:(1<<31-1)-44+1]
 
 	w, buf := newTestWriter(t, tracepack.WriterOptions{})
 	headLen := buf.Len()
