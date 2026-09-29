@@ -1,6 +1,6 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-09-29) — phase 4 `Verify` in progress; `Repair` waits for proposal P10.
+Status: active (2026-09-29) — phase 4 `Verify` in progress; `Repair` follows.
 Implements: tracepack v2.14 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
@@ -204,7 +204,8 @@ Done when: the writer and reader implement the revised layout, and the corruptio
 
 - `Verify`: forward block walk (I-1, I-2), the outcomes and writer defects of [FMT §13] (G5-100), report with offsets.
 - `Repair`: rejects an extract ([STO §2]); writes a `repair` pack with `supersedes` = the damaged pack, the damaged pack's inherited `coverage` plus new `coverage` (capture_id + seq ranges + time intervals).
-  Starts after proposal P10 is decided (G5-95): its metadata (`patch_base`) follows P10's outcome, and `coverage`'s nested-tag requiredness is settled with it.
+  Proposal P10 was rejected (G5-101), so `patch_base` is the current generation's `replacement_set_id`, supplied by the caller ([STO §2], [STO §5]);
+  `coverage`'s nested-tag requiredness is settled when `Repair` is planned.
 
 Tests: truncate a pack at every byte offset and check the outcome;
 the repair pack keeps the validated prefix byte-identical.
