@@ -6,7 +6,7 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 ## [Unreleased]
 
 This release follows the format revision of spec v2.13, which redefines format 1.0 in place,
-and adds the reader.
+and adds the reader and verification (spec v2.14).
 
 ### Upgrade notes
 
@@ -67,6 +67,14 @@ and adds the reader.
   Each `Item` carries the record as stored, with its payload when `Query.Payloads` is set,
   the record header's extension area that a newer minor version appends, and its block.
   A `Reader` is safe for concurrent `Iterate` calls.
+- `Verify` reads every block of a pack in full and returns a `Report` with its `Outcome`:
+  the first that applies of corrupt-middle, unfinalized, finalized-truncated, finalized-inconsistent and finalized-consistent.
+  A valid footer locates the blocks, passing a block whose envelope fails; without one, the forward walk does.
+  The report lists failed blocks and the walk's stop with their offsets, the end of the validated prefix,
+  footer disagreements with the records or the trailer (`ReasonIndexMismatch`),
+  `WriterDefect`s that never change the outcome,
+  and, with a valid footer, the seq and time ranges of the failed blocks as `Coverage` entries.
+  An unreadable file header or pack metadata is an error, and so is a block or a finalized pack's footer over the reader budgets.
 - `Record.HSMSHeader` and `HSMSHeader`, the HSMS header fields of a payload with their availability kept separate;
   `Record.SetCapturedFieldValidity`.
 - `DecodeStatus.Clean`, true only for a known classification outside the malformed set, so an unknown value is neither clean nor malformed.
