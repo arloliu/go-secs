@@ -201,7 +201,7 @@ type bootstrap struct {
 // Otherwise it reads the first HeadWindow bytes,
 // together with the bytes from a usable FooterOffset hint to the end of the object, or else the last TailWindow bytes.
 // A second round, only when needed, reads the rest of the pack metadata and the rest of the footer concurrently.
-// Open validates the file header, the format version, the pack metadata and its schema_version before any block is read,
+// Open validates the file header, the format version and the pack metadata before any block is read,
 // then decides finalization by the trailer and the footer CRC (I-5) and validates the footer (§10).
 // A footer it cannot use makes it walk the blocks forward from the pack metadata instead (I-1),
 // one ReadAt per block, after streaming the CRC of a footer over MaxFooterLen in reads of at most 1 MiB.
@@ -509,7 +509,7 @@ func (r *Reader) roundTwo(ctx context.Context, b *bootstrap) error {
 	return readRound(ctx, r.ra, reqs)
 }
 
-// decodeMeta checks the pack metadata CRC and decodes the pack metadata, schema_version included,
+// decodeMeta checks the pack metadata CRC and decodes the pack metadata,
 // and keeps both the bytes and the decoded value.
 func (r *Reader) decodeMeta(raw []byte) error {
 	if crc := format.CRC(raw); crc != r.hdr.PackMetadataCRC {
