@@ -813,7 +813,8 @@ The corpus lets an implementation in any language prove that it reads and writes
   a finalized pack whose last block fails: `finalized-truncated`;
   a failed block between validated ones, with a valid footer and, for a block whose envelope holds, without one: `corrupt-middle`;
   a finalized pack whose footer is invalid, or whose F-3 summary disagrees with its block's records, while every block passes: `finalized-inconsistent`;
-  a writer defect of each kind in a validated block: reported, the outcome unchanged.
+  a writer defect of each kind in a validated block: reported, never changing the outcome by itself;
+  the seq-order and hour-span defects of a finalized pack come with an invalid or disagreeing footer, so `finalized-inconsistent`.
 - Redaction vectors ([SEM §8]), written with the published test keys:
   S7F3 with its PPBODY masked (length, item headers, `decode_status` and HSMS header unchanged; entry and digest as published);
   S7F3 and S7F6 carrying the same process program, in one domain: equal digests; the same S7F3 under the second test key and key id: a different digest;
