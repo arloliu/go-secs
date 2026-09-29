@@ -13,6 +13,11 @@ const (
 	Zstd uint8 = 1
 )
 
+// Known reports whether id is a codec of the registry of the tracepack format specification §2: None or Zstd.
+func Known(id uint8) bool {
+	return id == None || id == Zstd
+}
+
 // ErrUnknownCodec reports a codec value outside the registry of the tracepack format specification §2.
 // Adding a codec value is a major format version change, so a reader never guesses at an unknown value's meaning.
 var ErrUnknownCodec = errors.New("codec: unknown codec")
@@ -138,11 +143,8 @@ func DecodePrefix(codecID uint8, dst, src []byte, prefixLen, uncompressedLen int
 
 	switch codecID {
 	case None:
-		if len(src) != uncompressedLen {
-			return dst[:0], fmt.Errorf(
-				"codec: none: source length %d does not match uncompressed length %d: %w",
-				len(src), uncompressedLen, ErrLengthMismatch,
-			)
+		if err := CheckNone(src, uncompressedLen); err != nil {
+			return dst[:0], err
 		}
 
 		return append(dst[:0], src[:prefixLen]...), nil
@@ -155,12 +157,27 @@ func DecodePrefix(codecID uint8, dst, src []byte, prefixLen, uncompressedLen int
 
 // decodeNone implements Decode for the None codec: src must be exactly uncompressedLen bytes, copied verbatim (§2).
 func decodeNone(dst, src []byte, uncompressedLen int) ([]byte, error) {
+	if err := CheckNone(src, uncompressedLen); err != nil {
+		return dst[:0], err
+	}
+
+	return append(dst[:0], src...), nil
+}
+
+// CheckNone checks src as a None body of uncompressedLen decoded bytes:
+// src must be exactly uncompressedLen bytes, since None stores the decoded body verbatim (§2).
+// It is the check Decode and DecodePrefix run for None,
+// for a caller that uses src in place instead of copying it.
+//
+// Returns:
+//   - error: nil, or ErrLengthMismatch for a src of another length.
+func CheckNone(src []byte, uncompressedLen int) error {
 	if len(src) != uncompressedLen {
-		return dst[:0], fmt.Errorf(
+		return fmt.Errorf(
 			"codec: none: source length %d does not match uncompressed length %d: %w",
 			len(src), uncompressedLen, ErrLengthMismatch,
 		)
 	}
 
-	return append(dst[:0], src...), nil
+	return nil
 }

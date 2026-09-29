@@ -29,17 +29,25 @@ const windowFloor = 8 << 20
 // A concurrency of 1 keeps a single call's work on one goroutine, since the caller already parallelizes across blocks.
 var sharedEncoder = newSharedEncoder()
 
-// decoderPool holds *zstd.Decoder values between calls.
+// pooledDecoder is a streaming zstd decoder and the reader of the source it decodes, pooled together.
+type pooledDecoder struct {
+	*zstd.Decoder
+	src bytes.Reader
+}
+
+// decoderPool holds *pooledDecoder values between calls.
 // A streaming decoder is stateful and cannot be shared across concurrent Reset calls,
 // so each Decode borrows one, uses it against a single frame, and returns it.
+// A concurrency of 1 makes the decoder decode synchronously in the calling goroutine,
+// starting no goroutine per Reset, since the caller already parallelizes across blocks.
 var decoderPool = sync.Pool{
 	New: func() any {
-		dec, err := zstd.NewReader(nil, zstd.WithDecoderMaxWindow(maxWindow))
+		dec, err := zstd.NewReader(nil, zstd.WithDecoderMaxWindow(maxWindow), zstd.WithDecoderConcurrency(1))
 		if err != nil {
 			panic("codec: failed to create zstd decoder: " + err.Error())
 		}
 
-		return dec
+		return &pooledDecoder{Decoder: dec}
 	},
 }
 
@@ -122,7 +130,7 @@ func decodeZstdPrefix(dst, src []byte, prefixLen, uncompressedLen int) ([]byte, 
 // so a second frame is rejected even when it would decode to no bytes at all.
 // Decoding then uses a streaming decoder rather than DecodeAll,
 // so memory use is bounded by what the caller reads instead of by whatever length a malicious or miscounted frame claims.
-func openZstd(src []byte, uncompressedLen int) (*zstd.Decoder, error) {
+func openZstd(src []byte, uncompressedLen int) (*pooledDecoder, error) {
 	if uncompressedLen < 0 {
 		return nil, fmt.Errorf(
 			"codec: zstd: negative uncompressed length %d: %w",
@@ -153,8 +161,9 @@ func openZstd(src []byte, uncompressedLen int) (*zstd.Decoder, error) {
 		)
 	}
 
-	dec, _ := decoderPool.Get().(*zstd.Decoder)
-	if err := dec.Reset(bytes.NewReader(src)); err != nil {
+	dec, _ := decoderPool.Get().(*pooledDecoder)
+	dec.src.Reset(src)
+	if err := dec.Reset(&dec.src); err != nil {
 		releaseDecoder(dec)
 		return nil, fmt.Errorf("codec: zstd: reset decoder: %w", err)
 	}
@@ -163,8 +172,9 @@ func openZstd(src []byte, uncompressedLen int) (*zstd.Decoder, error) {
 }
 
 // releaseDecoder detaches dec from its source and returns it to the pool.
-func releaseDecoder(dec *zstd.Decoder) {
+func releaseDecoder(dec *pooledDecoder) {
 	_ = dec.Reset(nil)
+	dec.src.Reset(nil)
 	decoderPool.Put(dec)
 }
 

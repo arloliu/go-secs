@@ -10,3 +10,10 @@ import "hash/crc32"
 func CRC(b []byte) uint32 {
 	return crc32.ChecksumIEEE(b)
 }
+
+// UpdateCRC returns the CRC-32/ISO-HDLC checksum of the bytes crc covers followed by b,
+// so a checksum is computed over sequential chunks, starting from 0:
+// UpdateCRC(UpdateCRC(0, a), b) equals CRC of a followed by b.
+func UpdateCRC(crc uint32, b []byte) uint32 {
+	return crc32.Update(crc, crc32.IEEETable, b)
+}

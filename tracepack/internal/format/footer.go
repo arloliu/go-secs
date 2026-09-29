@@ -49,9 +49,17 @@ const (
 	f2ReservedLen        = 2
 )
 
-// footerPrologueFlagsMask keeps bit 0, F-3 present, and bit 1, F-4 present;
-// bits 2-15 are reserved, per the tracepack format specification §10.
-const footerPrologueFlagsMask uint16 = 0x0003
+// F-1 flags bits of the tracepack format specification §10;
+// bits 2-15 are reserved.
+const (
+	// FooterFlagF3Present is F-1 flags bit 0, F-3 present, which footer layout 1 always sets.
+	FooterFlagF3Present uint16 = 1 << 0
+	// FooterFlagF4Present is F-1 flags bit 1, F-4 present.
+	FooterFlagF4Present uint16 = 1 << 1
+)
+
+// footerPrologueFlagsMask keeps the defined F-1 flags bits, F-3 present and F-4 present.
+const footerPrologueFlagsMask = FooterFlagF3Present | FooterFlagF4Present
 
 // FooterPrologue is the decoded F-1 footer prologue of the tracepack format specification §10.
 //

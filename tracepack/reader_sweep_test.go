@@ -95,7 +95,7 @@ func sweepRecords(t testing.TB) []Record {
 	return []Record{
 		testDataRecord(0, blockTestHour+10, 1),
 		controlRecord(1, blockTestHour+20, 1, DirHostToEquipment),
-		footerEventRecord(t, 2, blockTestHour+30, 1, &TransportEvent{Event: EventSocketClose}),
+		testEventRecord(t, 2, blockTestHour+30, 1, &TransportEvent{Event: EventSocketClose}),
 		shortCapture(3, blockTestHour+40, 7),
 		testDataRecord(4, h1+1, 2),
 		testDataRecord(5, h1+2, 2),

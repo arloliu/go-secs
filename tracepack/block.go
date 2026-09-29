@@ -115,49 +115,39 @@ func exceedsLimit(size, add, limit int) bool {
 // record_count × record_header_len + Σ payload_len equals the decoded length,
 // the first record's seq equals firstSeq, seqs strictly increase,
 // and every copy field of a data or control record whose field_validity bit is set equals the payload bytes it copies.
-// Every product and sum is checked before it is used to slice.
+// The I-2 checks are the reader's, checkRecords;
+// every product and sum is checked before it is used to slice.
+// offs is reused for the records' payload offsets.
 //
 // Returns:
+//   - []uint32: offs, reused, for the next call.
 //   - error: nil, or an error naming the first violation.
-func validateBody(decoded []byte, count uint32, firstSeq uint64) error {
-	hsLen, err := format.HeaderSectionLen(count, recordHeaderLen)
+func validateBody(decoded []byte, count uint32, firstSeq uint64, offs []uint32) ([]uint32, error) {
+	// The writer's decoded length is at most 2^31-1, so it fits uncompressed_len.
+	env := format.BlockEnvelope{
+		RecordHeaderLen: recordHeaderLen,
+		UncompressedLen: uint32(len(decoded)),
+		RecordCount:     count,
+		FirstSeq:        firstSeq,
+	}
+	hsLen, err := headerSectionLen(&env)
 	if err != nil {
-		return err
+		return offs, err
 	}
-	if hsLen > len(decoded) {
-		return fmt.Errorf("header section of %d bytes exceeds the %d-byte body", hsLen, len(decoded))
+	offs, _, err = checkRecords(decoded[:hsLen], &env, offs)
+	if err != nil {
+		return offs, err
 	}
-
-	payloadOff := uint64(hsLen)
-	var prevSeq uint64
 
 	for i := range int(count) {
-		h, err := format.UnmarshalRecordHeader(decoded[i*recordHeaderLen:], recordHeaderLen)
-		if err != nil {
-			return fmt.Errorf("record %d: %w", i, err)
+		// checkRecords decoded every header without error.
+		h, _ := format.UnmarshalRecordHeader(decoded[i*recordHeaderLen:], recordHeaderLen)
+		if err := checkCopies(&h, decoded[offs[i]:offs[i+1]]); err != nil {
+			return offs, fmt.Errorf("record %d (seq %d): %w", i, h.Seq, err)
 		}
-
-		if err := checkBlockSeq(i, h.Seq, prevSeq, firstSeq); err != nil {
-			return err
-		}
-		prevSeq = h.Seq
-
-		end := payloadOff + uint64(h.PayloadLen)
-		if end > uint64(len(decoded)) {
-			return fmt.Errorf("record %d: payload ends at %d, past the %d-byte body", i, end, len(decoded))
-		}
-
-		if err := checkCopies(&h, decoded[payloadOff:end]); err != nil {
-			return fmt.Errorf("record %d (seq %d): %w", i, h.Seq, err)
-		}
-		payloadOff = end
 	}
 
-	if payloadOff != uint64(len(decoded)) {
-		return fmt.Errorf("record headers and payloads cover %d bytes, uncompressed_len is %d", payloadOff, len(decoded))
-	}
-
-	return nil
+	return offs, nil
 }
 
 // checkBlockSeq checks the seq rules of I-2 for record i of a block.
@@ -250,15 +240,25 @@ func encodeBlock(c Codec, dst, body []byte) ([]byte, Codec, error) {
 	return enc, c, nil
 }
 
-// validateEncoded decodes an encoded block body and checks it with validateBody.
-// dst is reused for the decoded bytes and returned for the next call.
-func validateEncoded(c Codec, dst, enc []byte, s *blockSummary, uncompressedLen int) ([]byte, error) {
-	decoded, err := codec.Decode(uint8(c), dst, enc, uncompressedLen)
+// validateBuf holds the buffers the writer's block validation reuses across blocks.
+type validateBuf struct {
+	// decoded holds the decoded body.
+	decoded []byte
+	// offs holds the records' payload offsets.
+	offs []uint32
+}
+
+// validateEncoded decodes an encoded block body into buf and checks it with validateBody.
+func validateEncoded(c Codec, buf *validateBuf, enc []byte, s *blockSummary, uncompressedLen int) error {
+	var err error
+	buf.decoded, err = codec.Decode(uint8(c), buf.decoded, enc, uncompressedLen)
 	if err != nil {
-		return decoded, fmt.Errorf("decode the encoded body: %w", err)
+		return fmt.Errorf("decode the encoded body: %w", err)
 	}
 
-	return decoded, validateBody(decoded, s.recordCount, s.firstSeq)
+	buf.offs, err = validateBody(buf.decoded, s.recordCount, s.firstSeq, buf.offs)
+
+	return err
 }
 
 // empty reports whether the open block holds no record.

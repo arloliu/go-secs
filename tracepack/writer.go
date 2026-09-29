@@ -150,10 +150,10 @@ type Writer struct {
 	block  blockBuilder
 	// blocks summarizes every block written, in file order, for the footer.
 	blocks []blockSummary
-	// bodyBuf, encBuf and decBuf are reused across blocks.
+	// bodyBuf, encBuf and valBuf are reused across blocks.
 	bodyBuf []byte
 	encBuf  []byte
-	decBuf  []byte
+	valBuf  validateBuf
 	closed  bool
 	// failure is the error that left the Writer failed; nil while it is usable.
 	failure error
@@ -246,7 +246,7 @@ func checkOptions(opts *WriterOptions) error {
 	if opts.Meta == nil {
 		return errors.New("tracepack: WriterOptions.Meta is nil")
 	}
-	if opts.Codec != CodecNone && opts.Codec != CodecZstd {
+	if !codec.Known(uint8(opts.Codec)) {
 		return fmt.Errorf("tracepack: WriterOptions.Codec %s is not a codec a writer may use", opts.Codec)
 	}
 	if opts.BlockThreshold < 0 || int64(opts.BlockThreshold) > int64(format.MaxLen32) {
@@ -718,8 +718,7 @@ func (w *Writer) writeBlock() error {
 	}
 
 	if w.validate {
-		w.decBuf, err = validateEncoded(c, w.decBuf, enc, s, uncompressedLen)
-		if err != nil {
+		if err := validateEncoded(c, &w.valBuf, enc, s, uncompressedLen); err != nil {
 			return fmt.Errorf("%w: block of seq %d-%d: %w", ErrValidation, s.firstSeq, s.lastSeq, err)
 		}
 	}

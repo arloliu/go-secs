@@ -20,7 +20,8 @@ const knownFieldValidity = FieldValiditySessionID | FieldValidityStreamAndW | Fi
 type blockBuf struct {
 	// raw holds the block as read: its envelope, then its on-disk body.
 	raw []byte
-	// decoded holds the decoded body of a full read, or the header section of a header-only read.
+	// decoded holds the decoded body of a full read, or the header section of a header-only read,
+	// of a block whose codec is not None; a None block's body is used in place in raw.
 	decoded []byte
 	// offs holds the payload offsets of the block's records.
 	offs []uint32
@@ -97,22 +98,18 @@ func storedRecord(h *format.RecordHeader, payload []byte) Record {
 }
 
 // copyMismatch reports whether the stored copy fields of a data or control record disagree with its payload (I-10):
-// whether the copy fields and field_validity that Record.SetHeaderCopies computes from payload
-// differ from the stored copy fields, W and field_validity, reserved field_validity bits aside (I-9).
+// whether the copy fields and field_validity of want, the stored record with Record.SetHeaderCopies applied,
+// differ from the stored copy fields, W and field_validity of stored, reserved field_validity bits aside (I-9).
 // A record of any other kind has no copies, so it never mismatches.
-func copyMismatch(h *format.RecordHeader, payload []byte) bool {
-	stored := storedRecord(h, payload)
+func copyMismatch(stored, want *Record) bool {
 	if !stored.hasCopies() {
 		return false
 	}
 
-	want := stored
-	want.SetHeaderCopies()
-
-	got := copiesOf(&stored)
+	got := copiesOf(stored)
 	got.validity &= knownFieldValidity
 
-	return got != copiesOf(&want)
+	return got != copiesOf(want)
 }
 
 // copiesOf returns r's copy fields and field_validity.
@@ -160,7 +157,7 @@ func checkEnvelope(raw []byte, info *BlockInfo) (format.BlockEnvelope, Incomplet
 	if crc := format.CRC(raw[format.EnvelopeLen:]); crc != env.BodyCRC {
 		return env, ReasonCorruptBlock, fmt.Errorf("body CRC 0x%08X, body_crc 0x%08X", crc, env.BodyCRC)
 	}
-	if env.Codec != codec.None && env.Codec != codec.Zstd {
+	if !codec.Known(env.Codec) {
 		return env, ReasonUnknownCodec, fmt.Errorf("codec %d: %w", env.Codec, codec.ErrUnknownCodec)
 	}
 
@@ -207,32 +204,20 @@ func envelopeAgrees(e *format.BlockEnvelope, info *BlockInfo) error {
 //   - recordSpan: the records' last seq and time and epoch ranges.
 //   - error: nil, or the failed check.
 func decodeBlock(env *format.BlockEnvelope, buf *blockBuf, full bool) (*decodedBlock, recordSpan, error) {
-	n := int(env.UncompressedLen)
-	hsLen, err := format.HeaderSectionLen(env.RecordCount, env.RecordHeaderLen)
+	hsLen, err := headerSectionLen(env)
 	if err != nil {
 		return nil, recordSpan{}, err
 	}
-	if hsLen > n {
-		return nil, recordSpan{}, fmt.Errorf("header section of %d bytes exceeds uncompressed_len %d", hsLen, n)
-	}
 
-	body := buf.raw[format.EnvelopeLen:]
-	if full {
-		buf.decoded, err = codec.Decode(env.Codec, buf.decoded, body, n)
-		if err != nil {
-			return nil, recordSpan{}, fmt.Errorf("decode body: %w", err)
-		}
-	} else {
-		buf.decoded, err = codec.DecodePrefix(env.Codec, buf.decoded, body, hsLen, n)
-		if err != nil {
-			return nil, recordSpan{}, fmt.Errorf("decode header section: %w", err)
-		}
+	decoded, err := decodeBody(env, buf, hsLen, full)
+	if err != nil {
+		return nil, recordSpan{}, err
 	}
 
 	d := &buf.blk
-	*d = decodedBlock{env: *env, full: full, section: buf.decoded[:hsLen]}
+	*d = decodedBlock{env: *env, full: full, section: decoded[:hsLen]}
 	if full {
-		d.body = buf.decoded
+		d.body = decoded
 	}
 
 	var span recordSpan
@@ -243,6 +228,50 @@ func decodeBlock(env *format.BlockEnvelope, buf *blockBuf, full bool) (*decodedB
 	d.offs = buf.offs
 
 	return d, span, nil
+}
+
+// headerSectionLen returns the length of the header section of the block of env,
+// record_count × record_header_len, after checking that it fits uncompressed_len.
+func headerSectionLen(env *format.BlockEnvelope) (int, error) {
+	hsLen, err := format.HeaderSectionLen(env.RecordCount, env.RecordHeaderLen)
+	if err != nil {
+		return 0, err
+	}
+	if n := int(env.UncompressedLen); hsLen > n {
+		return 0, fmt.Errorf("header section of %d bytes exceeds uncompressed_len %d", hsLen, n)
+	}
+
+	return hsLen, nil
+}
+
+// decodeBody decodes the on-disk body in buf.raw of the block of env:
+// all of it for a full read, else at least its first hsLen decoded bytes, the header section.
+// A None body is the decoded body itself, already covered by body_crc,
+// so it is used in place, aliasing buf.raw, instead of copied into buf.decoded.
+func decodeBody(env *format.BlockEnvelope, buf *blockBuf, hsLen int, full bool) ([]byte, error) {
+	n := int(env.UncompressedLen)
+	body := buf.raw[format.EnvelopeLen:]
+
+	var err error
+	switch {
+	case env.Codec == codec.None:
+		err = codec.CheckNone(body, n)
+	case full:
+		buf.decoded, err = codec.Decode(env.Codec, buf.decoded, body, n)
+		body = buf.decoded
+	default:
+		buf.decoded, err = codec.DecodePrefix(env.Codec, buf.decoded, body, hsLen, n)
+		body = buf.decoded
+	}
+
+	switch {
+	case err == nil:
+		return body, nil
+	case full:
+		return nil, fmt.Errorf("decode body: %w", err)
+	default:
+		return nil, fmt.Errorf("decode header section: %w", err)
+	}
 }
 
 // checkRecords checks the record headers of the header section of the block of env against I-2:
@@ -311,7 +340,7 @@ func checkRecords(section []byte, env *format.BlockEnvelope, offs []uint32) ([]u
 //     ReasonCorruptBlock for any other failed check.
 //   - error: the ReadAt error, wrapping io.ErrUnexpectedEOF for a short read.
 func (r *Reader) readBlock(i int, full bool, buf *blockBuf) (*decodedBlock, *Defect, error) {
-	info := &r.blocks[i].info
+	info := &r.blocks[i]
 	if err := r.checkBlockBudget(info); err != nil {
 		return nil, blockDefect(i, info, ReasonLimit, err), nil
 	}
@@ -380,13 +409,6 @@ func (d *decodedBlock) payload(i int) []byte {
 	}
 
 	return d.body[d.offs[i]:d.offs[i+1]:d.offs[i+1]]
-}
-
-// record returns record i as stored, with its payload for a full read.
-func (d *decodedBlock) record(i int) Record {
-	h := d.header(i)
-
-	return storedRecord(&h, d.payload(i))
 }
 
 // add folds the header h of record i of a block into s.

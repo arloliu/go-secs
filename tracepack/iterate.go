@@ -13,9 +13,9 @@ type iterPlan struct {
 	full bool
 	// level is the ReadLevel of every yielded record.
 	level ReadLevel
-	// copyPredicate reports that f tests a copy field.
-	copyPredicate bool
-	// payloadCopies evaluates the copy-field predicates on the payload's values instead of the stored copies.
+	// payloadCopies evaluates the copy-field predicates on the payload's values instead of the stored copies:
+	// f tests a copy field in an authoritative query over a pack that is not attested.
+	// It implies full.
 	payloadCopies bool
 	// headerValidated lists every block read in Result.HeaderValidated.
 	headerValidated bool
@@ -143,13 +143,13 @@ func (r *Reader) Iterate(ctx context.Context, q Query, fn func(*Item) error) (Re
 func (r *Reader) plan(q *Query) iterPlan {
 	f := &q.Filter
 	authoritative := q.Mode == QueryAuthoritative
+	unattestedCopies := !r.attested && f.hasCopyPredicate()
 	p := iterPlan{
 		f:               f,
-		copyPredicate:   f.hasCopyPredicate(),
-		payloadCopies:   authoritative && !r.attested,
-		headerValidated: !authoritative && !r.attested && f.hasCopyPredicate(),
+		payloadCopies:   authoritative && unattestedCopies,
+		headerValidated: !authoritative && unattestedCopies,
 	}
-	p.full = q.Payloads || (p.payloadCopies && p.copyPredicate)
+	p.full = q.Payloads || p.payloadCopies
 
 	switch {
 	case p.full:
@@ -196,7 +196,7 @@ func (r *Reader) appendCoverageDefects(dst []Defect, f *Filter) []Defect {
 // or its F-3 kind_counts or dir_counts are 0 for every value of f.Kinds or f.Dirs, a missing element counting 0
 // (the tracepack format specification §10).
 func (r *Reader) prunes(i int, f *Filter) bool {
-	info := &r.blocks[i].info
+	info := &r.blocks[i]
 	if !info.Indexed {
 		return false
 	}
@@ -214,22 +214,29 @@ func (r *Reader) prunes(i int, f *Filter) bool {
 }
 
 // yield calls fn with every record of block i, read as d, that p's filter selects, reusing item.
+//
+// For a full read it computes the payload's positional copies once per record,
+// for both the copy-field predicates, when p evaluates the payload, and Item.CopyMismatch.
 func (p *iterPlan) yield(i int, d *decodedBlock, item *Item, fn func(*Item) error) error {
+	var want Record
 	for j := range d.count() {
 		h := d.header(j)
 		if !p.f.matchHeader(&h) {
 			continue
 		}
 
-		payload := d.payload(j)
-		rec := storedRecord(&h, payload)
-		if p.copyPredicate && !p.matchCopies(&rec) {
+		rec := storedRecord(&h, d.payload(j))
+		if p.full {
+			want = rec
+			want.SetHeaderCopies()
+		}
+		if !p.matchCopies(&rec, &want) {
 			continue
 		}
 
 		*item = Item{Record: rec, HeaderExtra: h.Extra, Block: i, Level: p.level}
 		if p.full {
-			item.CopyMismatch = copyMismatch(&h, payload)
+			item.CopyMismatch = copyMismatch(&rec, &want)
 		}
 		if err := fn(item); err != nil {
 			return err
@@ -239,18 +246,16 @@ func (p *iterPlan) yield(i int, d *decodedBlock, item *Item, fn func(*Item) erro
 	return nil
 }
 
-// matchCopies reports whether the stored record rec satisfies the copy-field predicates of p's filter:
-// on the values rec's payload gives, as Record.SetHeaderCopies computes them, when p evaluates the payload,
-// else on the stored copies and field_validity.
-func (p *iterPlan) matchCopies(rec *Record) bool {
-	if !p.payloadCopies {
-		c := copiesOf(rec)
-		return p.f.matchCopies(&c)
+// matchCopies reports whether a record satisfies the copy-field predicates of p's filter:
+// on want, its payload's values as Record.SetHeaderCopies computes them, when p evaluates the payload,
+// else on rec, its stored copies and field_validity.
+// A filter without a copy-field predicate matches every record.
+func (p *iterPlan) matchCopies(rec, want *Record) bool {
+	src := rec
+	if p.payloadCopies {
+		src = want
 	}
-
-	pos := *rec
-	pos.SetHeaderCopies()
-	c := copiesOf(&pos)
+	c := copiesOf(src)
 
 	return p.f.matchCopies(&c)
 }

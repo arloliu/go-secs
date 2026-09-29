@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"hash/crc32"
 	"io"
 	"math"
 	"sync"
@@ -113,7 +112,7 @@ type Reader struct {
 	// footer is the validated footer; nil when it was not used.
 	footer *footerIndex
 	// blocks is the block index, from the footer or the forward walk, in file order.
-	blocks []blockRef
+	blocks []BlockInfo
 	// openDefects holds the defects every read of the pack carries:
 	// the forward walk's stop, a pack that is not finalized, or a walk that disagrees with the trailer.
 	openDefects []Defect
@@ -176,11 +175,6 @@ type BlockInfo struct {
 	TSMin, TSMax int64
 	EpochMin     uint32
 	EpochMax     uint32
-}
-
-// blockRef is one entry of a Reader's block index.
-type blockRef struct {
-	info BlockInfo
 }
 
 // readReq is one ReadAt call of a round: fill buf from file offset off.
@@ -308,28 +302,32 @@ func readRound(ctx context.Context, ra io.ReaderAt, reqs []readReq) error {
 }
 
 // indexedBlocks returns the block index of a validated footer, one indexed block per F-2 entry.
-func indexedBlocks(idx *footerIndex) []blockRef {
-	blocks := make([]blockRef, len(idx.entries))
-	for i := range idx.entries {
-		e := &idx.entries[i]
-		blocks[i].info = BlockInfo{
-			Offset:          e.Offset,
-			OnDiskLen:       e.OnDiskLen,
-			UncompressedLen: e.UncompressedLen,
-			RecordCount:     e.RecordCount,
-			BodyCRC:         e.BodyCRC,
-			RecordHeaderLen: e.RecordHeaderLen,
-			FirstSeq:        e.FirstSeq,
-			Indexed:         true,
-			LastSeq:         e.LastSeq,
-			TSMin:           e.TSMin,
-			TSMax:           e.TSMax,
-			EpochMin:        e.EpochMin,
-			EpochMax:        e.EpochMax,
-		}
+func indexedBlocks(idx *footerIndex) []BlockInfo {
+	blocks := make([]BlockInfo, len(idx.blocks))
+	for i := range idx.blocks {
+		blocks[i] = idx.blocks[i].blockInfo()
 	}
 
 	return blocks
+}
+
+// blockInfo returns the BlockInfo of the indexed block whose F-2 entry and F-3 summary s holds.
+func (s *blockSummary) blockInfo() BlockInfo {
+	return BlockInfo{
+		Offset:          s.offset,
+		OnDiskLen:       s.onDiskLen,
+		UncompressedLen: s.uncompressedLen,
+		RecordCount:     s.recordCount,
+		BodyCRC:         s.bodyCRC,
+		RecordHeaderLen: s.recordHeaderLen,
+		FirstSeq:        s.firstSeq,
+		Indexed:         true,
+		LastSeq:         s.lastSeq,
+		TSMin:           s.tsMin,
+		TSMax:           s.tsMax,
+		EpochMin:        s.epochMin,
+		EpochMax:        s.epochMax,
+	}
 }
 
 // positiveOr returns v when it is positive, else def.
@@ -374,10 +372,9 @@ func (r *Reader) Header() *PackHeader {
 // The blocks come from the footer when it is valid, each with Indexed set,
 // else from the forward walk, which stops at the first block it cannot account for.
 func (r *Reader) Blocks() []BlockInfo {
+	// A pack without blocks yields an empty, non-nil slice, which slices.Clone would not.
 	out := make([]BlockInfo, len(r.blocks))
-	for i := range r.blocks {
-		out[i] = r.blocks[i].info
-	}
+	copy(out, r.blocks)
 
 	return out
 }
@@ -440,7 +437,11 @@ func (r *Reader) roundOne(ctx context.Context) (*bootstrap, error) {
 
 	hdr, err := format.UnmarshalFileHeader(b.head)
 	if err != nil {
-		return nil, fmt.Errorf("tracepack: %w: %w", fileHeaderClass(err), err)
+		if class := fileHeaderClass(err); class != nil {
+			return nil, fmt.Errorf("tracepack: %w: %w", class, err)
+		}
+
+		return nil, fmt.Errorf("tracepack: %w", err)
 	}
 	r.hdr = hdr
 
@@ -585,7 +586,7 @@ func (r *Reader) streamFooterCRC(ctx context.Context, tr *format.Trailer) (uint3
 		if err := readRound(ctx, r.ra, []readReq{{off: int64(off), buf: chunk}}); err != nil {
 			return 0, err
 		}
-		crc = crc32.Update(crc, crc32.IEEETable, chunk)
+		crc = format.UpdateCRC(crc, chunk)
 		off += uint64(len(chunk))
 	}
 
@@ -613,15 +614,17 @@ func (r *Reader) decodeFooter(onDisk []byte, tr *format.Trailer) (*footerIndex, 
 }
 
 // fileHeaderClass returns the public sentinel for an error of format.UnmarshalFileHeader:
-// ErrChecksum for a CRC mismatch, ErrUnsupportedFormat for an unknown format_major,
-// and ErrNotTracepack otherwise, since the magic is checked first.
+// ErrNotTracepack for a bad magic or a short buffer, ErrChecksum for a CRC mismatch,
+// ErrUnsupportedFormat for an unknown format_major, and nil for any other error.
 func fileHeaderClass(err error) error {
 	switch {
+	case errors.Is(err, format.ErrBadMagic), errors.Is(err, format.ErrShort):
+		return ErrNotTracepack
 	case errors.Is(err, format.ErrCRC):
 		return ErrChecksum
 	case errors.Is(err, format.ErrSchema):
 		return ErrUnsupportedFormat
 	default:
-		return ErrNotTracepack
+		return nil
 	}
 }

@@ -241,7 +241,7 @@ func requireBlocksRead(t *testing.T, r *Reader, want [][]storedBlockRecord) {
 			require.NoError(t, err)
 			require.Nil(t, def, "block %d, full %v", i, full)
 			require.NotNil(t, d)
-			requireBlockConsistent(t, &r.blocks[i].info, d, full)
+			requireBlockConsistent(t, &r.blocks[i], d, full)
 
 			require.Equal(t, len(want[i]), d.count())
 			for j, w := range want[i] {
@@ -281,7 +281,7 @@ func requireBlockConsistent(t *testing.T, info *BlockInfo, d *decodedBlock, full
 		prev = h.Seq
 		total += uint64(h.PayloadLen)
 
-		rec := d.record(j)
+		rec := blockRecord(d, j)
 		if full {
 			require.Len(t, d.payload(j), int(h.PayloadLen))
 			require.Len(t, rec.Payload, int(h.PayloadLen))
@@ -289,7 +289,7 @@ func requireBlockConsistent(t *testing.T, info *BlockInfo, d *decodedBlock, full
 			require.Nil(t, d.payload(j))
 			require.Nil(t, rec.Payload)
 		}
-		_ = copyMismatch(&h, rec.Payload)
+		_ = headerCopyMismatch(&h, rec.Payload)
 	}
 	require.Equal(t, uint64(info.UncompressedLen), total, "record_count × record_header_len + Σ payload_len")
 }
@@ -315,7 +315,7 @@ func requireLevelDefect(t *testing.T, r *Reader, i int, full bool, reason Incomp
 	require.NotNil(t, def, "full %v", full)
 	assert.Equal(t, reason, def.Reason, "full %v: %v", full, def.Err)
 	assert.Equal(t, i, def.Block)
-	assert.Equal(t, int64(r.blocks[i].info.Offset), def.Offset)
+	assert.Equal(t, int64(r.blocks[i].Offset), def.Offset)
 	assert.Nil(t, def.Coverage)
 	require.ErrorContains(t, def.Err, msg, "full %v", full)
 }
@@ -395,7 +395,7 @@ func TestReadBlockRecords(t *testing.T) {
 				if !full {
 					want.Payload = nil
 				}
-				assert.Equal(t, want, d.record(j), "record %d, full %v", k, full)
+				assert.Equal(t, want, blockRecord(d, j), "record %d, full %v", k, full)
 				k++
 			}
 		}
@@ -564,7 +564,7 @@ func TestReadBlockCorruption(t *testing.T) {
 			r := mustOpen(t, tt.file(t), ReaderOptions{})
 			require.Equal(t, tt.walked, r.Header().FooterErr != nil, "the footer must stay valid: %v", r.Header().FooterErr)
 			require.Len(t, r.blocks, 3)
-			require.Equal(t, !tt.walked, r.blocks[1].info.Indexed)
+			require.Equal(t, !tt.walked, r.blocks[1].Indexed)
 
 			reason := tt.reason
 			if reason == 0 {
@@ -578,7 +578,7 @@ func TestReadBlockCorruption(t *testing.T) {
 					d, def, err := r.readBlock(i, full, &buf)
 					require.NoError(t, err)
 					require.Nil(t, def, "block %d still reads", i)
-					requireBlockConsistent(t, &r.blocks[i].info, d, full)
+					requireBlockConsistent(t, &r.blocks[i], d, full)
 				}
 			}
 		})
@@ -606,7 +606,7 @@ func TestReadBlockDamagedStreamAfterHeaders(t *testing.T) {
 	r := mustOpen(t, file, ReaderOptions{})
 	require.NoError(t, r.Header().FooterErr)
 
-	info := r.blocks[0].info
+	info := r.blocks[0]
 	body := file[info.Offset+format.EnvelopeLen : info.Offset+uint64(info.OnDiskLen)]
 	hsLen := len(recs) * format.RecordHeaderLen
 	_, err := codec.Decode(codec.Zstd, nil, body, int(info.UncompressedLen))
@@ -666,7 +666,7 @@ func TestReadBlockBudgetAllocation(t *testing.T) {
 		d, def, err := r.readBlock(i, true, &buf)
 		require.NoError(t, err)
 		require.Nil(t, def)
-		requireBlockConsistent(t, &r.blocks[i].info, d, true)
+		requireBlockConsistent(t, &r.blocks[i], d, true)
 	}
 }
 
@@ -706,7 +706,7 @@ func TestReadBlockOverBudget(t *testing.T) {
 			require.Equal(t, tt.msg == "uncompressed_len", uncompressedLen > limit)
 
 			r := mustOpen(t, p.file, ReaderOptions{MaxBlockLen: limit})
-			require.False(t, r.blocks[1].info.Indexed, "the pack is walked")
+			require.False(t, r.blocks[1].Indexed, "the pack is walked")
 			requireBlockDefect(t, r, 1, ReasonLimit, tt.msg)
 
 			var buf blockBuf
@@ -750,7 +750,7 @@ func TestReadBlockReadErrors(t *testing.T) {
 
 		open := writeReaderPack(t, readerPackConfig{codec: CodecZstd, open: true}, hourRecords(2, 3))
 		r := mustOpen(t, open.file, ReaderOptions{})
-		require.False(t, r.blocks[0].info.Indexed)
+		require.False(t, r.blocks[0].Indexed)
 		r.ra = bytes.NewReader(patchEnvelope(t, open.file, open.blocks[0].offset, func(e *format.BlockEnvelope) { e.FirstSeq++ }))
 
 		requireBlockDefect(t, r, 0, ReasonCorruptBlock, "disagrees with the forward walk")
@@ -829,7 +829,7 @@ func TestCopyMismatch(t *testing.T) {
 			if tt.patch != nil {
 				tt.patch(&h)
 			}
-			assert.Equal(t, tt.want, copyMismatch(&h, tt.rec.Payload))
+			assert.Equal(t, tt.want, headerCopyMismatch(&h, tt.rec.Payload))
 		})
 	}
 }
@@ -872,8 +872,24 @@ func FuzzReadBlock(f *testing.F) {
 					require.Contains(t, []IncompleteReason{ReasonCorruptBlock, ReasonUnknownCodec, ReasonLimit}, def.Reason)
 					continue
 				}
-				requireBlockConsistent(t, &r.blocks[i].info, d, full)
+				requireBlockConsistent(t, &r.blocks[i], d, full)
 			}
 		}
 	})
+}
+
+// headerCopyMismatch reports copyMismatch for the record whose stored header is h and whose payload is payload.
+func headerCopyMismatch(h *format.RecordHeader, payload []byte) bool {
+	stored := storedRecord(h, payload)
+	want := stored
+	want.SetHeaderCopies()
+
+	return copyMismatch(&stored, &want)
+}
+
+// blockRecord returns record i of d as stored, with its payload for a full read.
+func blockRecord(d *decodedBlock, i int) Record {
+	h := d.header(i)
+
+	return storedRecord(&h, d.payload(i))
 }

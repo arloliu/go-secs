@@ -8,13 +8,6 @@ import (
 	"github.com/arloliu/go-secs/tracepack/internal/tlv"
 )
 
-// footerFlagF3Present is F-1 flags bit 0, F-3 present, which footer layout 1 always sets;
-// footerFlagF4Present, bit 1, stays clear because this writer builds no secondary index.
-const (
-	footerFlagF3Present uint16 = 1
-	footerFlagF4Present uint16 = 2
-)
-
 // Tags of an F-3 block summary (the tracepack format specification §10).
 const (
 	f3TagKindCounts         uint16 = 0x0001
@@ -90,7 +83,8 @@ type packStats struct {
 // with the pack statistics it aggregated (the tracepack format specification §10).
 //
 // The decoded footer is the F-1 prologue, F-2 at offset 72, F-3 right after F-2, and F-5 right after F-3;
-// F-4 is absent, recorded as zero bytes at the end of F-3, so the sections stay in order without overlap.
+// F-4 is absent, recorded as zero bytes at the end of F-3, so the sections stay in order without overlap,
+// and the F-1 flags set only F-3 present, since this writer builds no secondary index.
 // F-5 is computed from the F-2 and F-3 values alone.
 func buildFooter(blocks []blockSummary) ([]byte, *packStats) {
 	var f3 []byte
@@ -108,7 +102,7 @@ func buildFooter(blocks []blockSummary) ([]byte, *packStats) {
 	f5Offset := f3Offset + uint64(len(f3))
 	pro := format.FooterPrologue{
 		FooterLayoutVersion: format.FooterLayoutVersion,
-		Flags:               footerFlagF3Present,
+		Flags:               format.FooterFlagF3Present,
 		BlockCount:          uint32(len(blocks)),
 		F2EntryLen:          format.F2EntryLen,
 		F2Offset:            format.FooterPrologueLen,
@@ -146,6 +140,25 @@ func f2EntryOf(s *blockSummary, summaryOffset uint64, summaryLen uint32) format.
 		SummaryOffset:   summaryOffset,
 		SummaryLen:      summaryLen,
 		RecordHeaderLen: s.recordHeaderLen,
+	}
+}
+
+// blockSummaryOf returns the blockSummary holding the block index fields of the F-2 entry e,
+// the inverse of f2EntryOf; its F-3 fields are left empty.
+func blockSummaryOf(e *format.F2Entry) blockSummary {
+	return blockSummary{
+		offset:          e.Offset,
+		onDiskLen:       e.OnDiskLen,
+		uncompressedLen: e.UncompressedLen,
+		recordCount:     e.RecordCount,
+		bodyCRC:         e.BodyCRC,
+		recordHeaderLen: e.RecordHeaderLen,
+		firstSeq:        e.FirstSeq,
+		lastSeq:         e.LastSeq,
+		tsMin:           e.TSMin,
+		tsMax:           e.TSMax,
+		epochMin:        e.EpochMin,
+		epochMax:        e.EpochMax,
 	}
 }
 

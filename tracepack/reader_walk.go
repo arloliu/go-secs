@@ -57,7 +57,7 @@ func (r *Reader) walk(ctx context.Context) error {
 			break
 		}
 
-		r.blocks = append(r.blocks, blockRef{info: walkedInfo(off, &e)})
+		r.blocks = append(r.blocks, walkedInfo(off, &e))
 		records = addSat(records, uint64(e.RecordCount))
 		off = next
 	}
@@ -67,7 +67,8 @@ func (r *Reader) walk(ctx context.Context) error {
 	return nil
 }
 
-// walkStop returns the defect of a forward walk that stops at the block envelope at off.
+// walkStop returns the defect of a forward walk that stops at off:
+// at a block envelope it cannot account for, or at the end of a pack that is not finalized.
 func walkStop(off uint64, err error) *Defect {
 	return &Defect{Reason: ReasonTruncated, Block: -1, Offset: int64(off), Err: err}
 }
@@ -106,7 +107,7 @@ func (r *Reader) walkDefects(stop *Defect, end, records uint64) []Defect {
 	case stop != nil:
 		return []Defect{*stop}
 	case !r.finalized:
-		return []Defect{{Reason: ReasonTruncated, Block: -1, Offset: int64(end), Err: errNotFinalized}}
+		return []Defect{*walkStop(end, errNotFinalized)}
 	case uint64(len(r.blocks)) != uint64(r.trailer.BlockCount) || records != r.trailer.RecordCount:
 		return []Defect{{Reason: ReasonTruncated, Block: -1, Offset: -1, Err: fmt.Errorf(
 			"tracepack: forward walk found %d blocks of %d records, the trailer claims %d blocks of %d records",

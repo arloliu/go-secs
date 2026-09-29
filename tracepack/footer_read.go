@@ -22,15 +22,9 @@ var ErrInvalidFooter = errors.New("tracepack: invalid footer")
 
 // footerIndex is a decoded footer that passed the footer validation of the tracepack format specification §10.
 type footerIndex struct {
-	prologue format.FooterPrologue
-	// entries holds the F-2 block index entries, in file order.
-	entries []format.F2Entry
-	// blocks holds each block's F-3 summary typed into the writer's shape, parallel to entries,
-	// with the block index fields filled from the block's F-2 entry;
+	// blocks holds each block's F-2 entry and F-3 summary typed into the writer's shape, in file order;
 	// a block whose seqs are contiguous has one seq range, first_seq to last_seq.
 	blocks []blockSummary
-	// stats is the F-5 pack statistics as read, which equal the aggregate of blocks.
-	stats *packStats
 }
 
 // footerSections holds the F-2, F-3 and F-5 sections of a decoded footer.
@@ -69,42 +63,42 @@ func parseFooter(decoded []byte, tr *format.Trailer, blocksStart uint64) (*foote
 		return nil, err
 	}
 
-	idx := &footerIndex{prologue: pro}
-	idx.entries, err = parseBlockIndex(sec.f2, &pro, blocksStart, tr.FooterOffset)
+	entries, err := parseBlockIndex(sec.f2, &pro, blocksStart, tr.FooterOffset)
 	if err != nil {
 		return nil, err
 	}
 
-	idx.blocks = make([]blockSummary, len(idx.entries))
-	for i := range idx.entries {
-		e := &idx.entries[i]
+	blocks := make([]blockSummary, len(entries))
+	for i := range entries {
+		e := &entries[i]
 		list := sec.f3[e.SummaryOffset : e.SummaryOffset+uint64(e.SummaryLen)]
-		if idx.blocks[i], err = parseBlockSummary(i, list, e); err != nil {
+		if blocks[i], err = parseBlockSummary(i, list, e); err != nil {
 			return nil, err
 		}
 	}
 
-	if idx.stats, err = parsePackStats(sec.f5, len(idx.entries) > 0); err != nil {
+	stats, err := parsePackStats(sec.f5, len(blocks) > 0)
+	if err != nil {
 		return nil, err
 	}
-	if err := checkPackStats(idx.stats, aggregate(idx.blocks)); err != nil {
+	if err := checkPackStats(stats, aggregate(blocks)); err != nil {
 		return nil, err
 	}
-	if err := checkTrailerTotals(idx, tr); err != nil {
+	if err := checkTrailerTotals(stats, blocks, tr); err != nil {
 		return nil, err
 	}
 
-	return idx, nil
+	return &footerIndex{blocks: blocks}, nil
 }
 
 // checkPrologue checks the F-1 fields UnmarshalFooterPrologue leaves to the caller:
 // F-3 present, F-4 present exactly when f4_len is not 0, extraction_version 0 without F-4,
 // f2_offset = 72, block_count equal to the trailer's, and an empty F-3 in a pack without blocks.
 func checkPrologue(pro *format.FooterPrologue, tr *format.Trailer) error {
-	if pro.Flags&footerFlagF3Present == 0 {
+	if pro.Flags&format.FooterFlagF3Present == 0 {
 		return footerErrorf("F-1 flags 0x%04X lack F-3 present", pro.Flags)
 	}
-	f4Present := pro.Flags&footerFlagF4Present != 0
+	f4Present := pro.Flags&format.FooterFlagF4Present != 0
 	if f4Present != (pro.F4Len != 0) {
 		return footerErrorf("F-1 flags 0x%04X disagree with f4_len %d on F-4 present", pro.Flags, pro.F4Len)
 	}
@@ -220,28 +214,12 @@ func checkBlockEntry(e *format.F2Entry, f3Len uint64) error {
 // parseBlockSummary decodes the F-3 entry list of block i, whose F-2 entry is e,
 // validates it against the F-3 registry, types it, and checks it against e.
 func parseBlockSummary(i int, list []byte, e *format.F2Entry) (blockSummary, error) {
-	entries, err := tlv.Decode(list)
-	if err == nil {
-		err = tlv.Validate(entries, tlv.F3)
-	}
+	entries, err := decodeValidated(list, tlv.F3)
 	if err != nil {
 		return blockSummary{}, footerErrorf("block %d: F-3: %w", i, err)
 	}
 
-	s := blockSummary{
-		offset:          e.Offset,
-		onDiskLen:       e.OnDiskLen,
-		uncompressedLen: e.UncompressedLen,
-		recordCount:     e.RecordCount,
-		bodyCRC:         e.BodyCRC,
-		recordHeaderLen: e.RecordHeaderLen,
-		firstSeq:        e.FirstSeq,
-		lastSeq:         e.LastSeq,
-		tsMin:           e.TSMin,
-		tsMax:           e.TSMax,
-		epochMin:        e.EpochMin,
-		epochMax:        e.EpochMax,
-	}
+	s := blockSummaryOf(e)
 	for _, en := range entries {
 		if err := s.setF3(en); err != nil {
 			return blockSummary{}, footerErrorf("block %d: F-3 %s: %w", i, tlv.F3[en.Tag].Name, err)
@@ -254,15 +232,22 @@ func parseBlockSummary(i int, list []byte, e *format.F2Entry) (blockSummary, err
 	return s, nil
 }
 
+// decodeValidated decodes the TLV entry list b and validates it against reg.
+func decodeValidated(b []byte, reg tlv.Registry) ([]tlv.Entry, error) {
+	entries, err := tlv.Decode(b)
+	if err != nil {
+		return nil, err
+	}
+
+	return entries, tlv.Validate(entries, reg)
+}
+
 // parsePackStats decodes the F-5 entry list f5, validates it against the F-5 registry, and types it.
 // Every statistic that is not conditional must be present,
 // since F-5 must equal the aggregate of the blocks;
 // ts_min and ts_max are present iff the pack has blocks.
 func parsePackStats(f5 []byte, hasBlocks bool) (*packStats, error) {
-	entries, err := tlv.Decode(f5)
-	if err == nil {
-		err = tlv.Validate(entries, tlv.F5)
-	}
+	entries, err := decodeValidated(f5, tlv.F5)
 	if err != nil {
 		return nil, footerErrorf("F-5: %w", err)
 	}
@@ -337,15 +322,15 @@ func checkPackStats(got, want *packStats) error {
 	return nil
 }
 
-// checkTrailerTotals checks the trailer against the validated footer:
+// checkTrailerTotals checks the trailer against the validated footer's F-5 statistics st and blocks:
 // record_count equals the F-5 record_count, which checkPackStats found equal to the sum of the F-2 record counts,
 // and when the pack has blocks, last_seq equals the last block's last_seq.
-func checkTrailerTotals(idx *footerIndex, tr *format.Trailer) error {
-	if tr.RecordCount != idx.stats.recordCount {
-		return footerErrorf("trailer record_count %d, F-5 record_count %d", tr.RecordCount, idx.stats.recordCount)
+func checkTrailerTotals(st *packStats, blocks []blockSummary, tr *format.Trailer) error {
+	if tr.RecordCount != st.recordCount {
+		return footerErrorf("trailer record_count %d, F-5 record_count %d", tr.RecordCount, st.recordCount)
 	}
-	if n := len(idx.entries); n > 0 && tr.LastSeq != idx.entries[n-1].LastSeq {
-		return footerErrorf("trailer last_seq %d, the last block's last_seq %d", tr.LastSeq, idx.entries[n-1].LastSeq)
+	if n := len(blocks); n > 0 && tr.LastSeq != blocks[n-1].lastSeq {
+		return footerErrorf("trailer last_seq %d, the last block's last_seq %d", tr.LastSeq, blocks[n-1].lastSeq)
 	}
 
 	return nil
@@ -381,23 +366,10 @@ func checkUniqueEpochs(epochs []epochSummary) error {
 }
 
 // equalEpochSets reports whether got and want hold the same epoch entries, in any order;
-// got's epochs are unique, which parsePackStats checked, and aggregate makes want's unique.
+// got's epochs are unique, which parsePackStats checked,
+// and aggregate makes want's unique and sorts them by epoch.
 func equalEpochSets(got, want []epochSummary) bool {
-	if len(got) != len(want) {
-		return false
-	}
-
-	byEpoch := make(map[uint32]epochSummary, len(want))
-	for _, e := range want {
-		byEpoch[e.epoch] = e
-	}
-	for _, e := range got {
-		if w, ok := byEpoch[e.epoch]; !ok || w != e {
-			return false
-		}
-	}
-
-	return true
+	return slices.Equal(slices.SortedFunc(slices.Values(got), compareEpochs), want)
 }
 
 // equalBoundarySets reports whether got and want hold the same boundary entries, each as often, in any order.
@@ -533,6 +505,19 @@ func boundaryOf(e tlv.Entry) (boundarySummary, error) {
 	return out, nil
 }
 
+// qualityUnionOf returns the value of a quality_union entry, which holds only the 16 quality bits.
+func qualityUnionOf(e tlv.Entry) (Quality, error) {
+	v, err := e.U64()
+	if err != nil {
+		return 0, err
+	}
+	if v > maxQualityUnion {
+		return 0, fmt.Errorf("0x%X sets bits above the 16 quality bits", v)
+	}
+
+	return Quality(v), nil
+}
+
 // optionalI64 returns the value of an i64 entry as a present optional value.
 func optionalI64(e tlv.Entry) (*int64, error) {
 	v, err := e.I64()
@@ -580,10 +565,7 @@ func (s *blockSummary) setF3(e tlv.Entry) error {
 		}
 		s.maxPayloadLen = uint32(v)
 	case f3TagQualityUnion:
-		if v, err = e.U64(); err == nil && v > maxQualityUnion {
-			err = fmt.Errorf("0x%X sets bits above the 16 quality bits", v)
-		}
-		s.qualityUnion = Quality(v)
+		s.qualityUnion, err = qualityUnionOf(e)
 	case f3TagContentBytes:
 		if v, err = e.U64(); err == nil && v != uint64(s.uncompressedLen) {
 			err = fmt.Errorf("%d, uncompressed_len is %d", v, s.uncompressedLen)
@@ -742,10 +724,7 @@ func (s *blockSummary) inSeqSet(seq uint64) bool {
 // setF5 folds one entry of the F-5 list into st, checking what a single entry can show;
 // unknown tags are skipped.
 func (st *packStats) setF5(e tlv.Entry) error {
-	var (
-		v   uint64
-		err error
-	)
+	var err error
 
 	switch e.Tag {
 	case f5TagRecordCount:
@@ -763,10 +742,7 @@ func (st *packStats) setF5(e tlv.Entry) error {
 	case f5TagContentBytes:
 		st.contentBytes, err = e.U64()
 	case f5TagQualityUnion:
-		if v, err = e.U64(); err == nil && v > maxQualityUnion {
-			err = fmt.Errorf("0x%X sets bits above the 16 quality bits", v)
-		}
-		st.qualityUnion = Quality(v)
+		st.qualityUnion, err = qualityUnionOf(e)
 	case f5TagSeqRange:
 		var r seqRange
 		r, err = seqRangeOf(e)
