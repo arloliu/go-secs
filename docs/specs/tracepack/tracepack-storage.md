@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-09-29) — v2.12, tracepack format 1.0.
+Status: current (2026-09-29) — v2.13, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for publishers, mergers, recorders and log converters.
 
@@ -18,11 +18,11 @@ Depends on:
 - [FMT §8] transport-event and annotation payload tags (boundary records, converter annotations); [FMT §16] corpus contract for the vectors of §8.
 - [FMT §5] pack metadata tags (`pack_role`, `scope_generation`, `publisher_epoch`, `patch_base`, replacement-set tags, `compacted_from`, `supersedes`, `coverage`, `seq_start`, `flush_interval_ns`, `clock_step_tolerance_ns`).
 - [FMT §10] footer aggregation rule and validation; [FMT §13] recovery walk, and the bootstrap that listing views perform (§5).
-- [FMT §6] block envelope, block body and attested blocks; [FMT I-2] block integrity; [FMT I-10] payload authority; [FMT §12] `blocks_validated` commitment.
+- [FMT §6] block envelope and block body; [FMT I-2] block integrity; [FMT §12] block validation.
 - [SEM §4] clock anchor and clock-step rule; [SEM §5] capture-boundary events; [SEM §6] effective quality; [SEM §7.2] transaction lookup.
 - For the log converter (§7): [SEM §2] reconstruction contract and capture model, [SEM §3] converter `decode_status` values, [SEM §4] source-log time rules,
   [FMT §7.2] record fields and `field_validity`, [FMT §9] enums.
-- [FMT I-11] derived values, for corrections that reclassify records.
+- [FMT I-11] derived values, which a repair may re-emit with new classification (§6).
 - [SEM §8] redaction, for extracts.
 
 ## 2. Scopes, roles, generations
@@ -36,10 +36,9 @@ a pack's scope comes from its period, never from its record timestamps, so a pac
 | `segment` | recorder, per flush | records of one flush interval of one scope, all of them for a local recorder, a subset for a consumer of a durable bus (§4), which may write several segments per interval; `compaction_level = 0` | 0 |
 | `archive` | merger (or a converter directly) | all records of one scope | ≥ 1 |
 | `repair` | `verify --repair` | a **patch**: the recoverable records of the damaged packs it names in `supersedes`, with `coverage` for the rest | 0 |
-| `correction` | an operator tool | a **patch**: the records of the packs it names in `supersedes`, re-emitted with new stored bits or classification | 0 |
 | `extract` | query service, on request | a filtered subset of one capture (`extract_filter`), masked under a redaction policy for consumers that are not privileged ([SEM §8]); never a complete period, never stored in the tiers, never a merge input, a patch or the subject of a repair | — |
 
-A **generation** is a replacement set (§6) of one scope with one `scope_generation` ≥ 1; only merges produce generations.
+A **generation** is a replacement set (§6), the one archive of a scope with one `scope_generation` ≥ 1; only merges produce generations.
 Generations are ranked by (`publisher_epoch`, `scope_generation`), compared lexicographically.
 A **publisher epoch** fences publishing work across restarts and catalog rebuilds:
 before it claims anything, a publisher writes a fence object (§3) numbered one higher than every fence object in the bucket
@@ -48,7 +47,13 @@ and stamps that number on every generation it writes.
 Work started under an older epoch can therefore never outrank work accepted under a newer one, even if its upload completes later.
 Within an epoch, a merge claims the number one higher than the highest generation claimed so far for the scope (the catalog allocates it, §5);
 because an interrupted claim may leave a gap, the active generation is the highest-ranked *complete* one, which need not be the highest claimed.
-Repairs and corrections are generation-0 **patches** registered against the current generation (`patch_base`); for an indexed scope (§5), the next merge folds them into a generation.
+Repairs are generation-0 **patches** registered against the current generation (`patch_base`); for an indexed scope (§5), the next merge folds them into a generation.
+
+**Roles in the tiers.**
+Only a pack whose `pack_role` is `segment`, `archive` or `repair` takes part in a scope's view, is a merge input, is registered by the catalog (§5),
+or becomes deletable under §4 Deletion.
+A pack with any other role — an unknown value, including the retired value 5 ([FMT §9]); an `extract` never enters the tiers —
+is excluded from all four, removed only by §5 Retention with its hour, and reported to the operator.
 
 ## 3. Keys
 
@@ -83,14 +88,15 @@ Repairs and corrections are generation-0 **patches** registered against the curr
 
 ## 4. Active view, flush, merge
 
-**Active view of a scope** — the records a reader uses for it, computable from the surviving packs and commit objects alone:
+**Active view of a scope** — the records a reader uses for it, computable from the surviving packs and commit objects alone,
+among the packs whose role takes part in it (§2):
 1. G = the highest-ranked (§2) generation of the scope with a complete replacement set (§6) **and** a commit object (§3); none if there is no such generation.
    Two different complete sets with the same highest rank make the scope `conflicted`, never a silent choice.
-2. The view is the members of generation G,
-   plus every generation-0 pack of the scope that is not listed in generation G's `compacted_from` (identical in every member, §6),
+2. The view is the member of generation G,
+   plus every generation-0 pack of the scope that is not listed in generation G's `compacted_from`,
    and, for a patch, that has a commit object and whose `patch_base` is G's `replacement_set_id` (absent when there is no G),
    minus every pack named in the `supersedes` of a patch that is itself in the view.
-   A patch may name segments and members of generation G; it replaces exactly the packs it names, so healthy siblings stay in the view.
+   A patch may name segments and the member of generation G; it replaces exactly the packs it names, so the other packs stay in the view.
    A patch whose base is not G (stale, or rejected at registration) is outside the view.
 3. Records are deduplicated by (`capture_id`, `seq`) ([FMT I-12]); the `coverage` of every pack in the view applies.
 
@@ -105,8 +111,7 @@ provided each commit object is deleted after the packs it commits.
   (2) the recorder durably rewrites a **liveness anchor** next to the spool at least every F of monotonic time,
   when it starts a new spool (before the spool receives a record), and when a `clock-step` event becomes durable.
   The liveness anchor holds `capture_id`, the next seq, the seq and `mono_ns` of the last durable record, the clock anchor in force ([SEM §4]), and the current `mono_ns`.
-  Recorders SHOULD validate their blocks and commit `blocks_validated` ([FMT §12]), so that recent segments are attested too;
-  the cost is one decode per block written.
+  Recorders SHOULD validate each block before writing it ([FMT §12]); the cost is one decode per block written.
 - **Recovery**: after a crash, recovery finalizes the spool's validated prefix as a segment of the **old** capture,
   appends a `stop-unclean` capture-boundary to it, uploads it, and only then starts a new capture ([FMT I-7]).
   It reconciles the spool and the liveness anchor, taking the newest of each fact:
@@ -161,7 +166,7 @@ provided each commit object is deleted after the packs it commits.
     (`tool_id`, `transport`, `capture_method`, `vantage`, `recorder`, `time_source`, `lifecycle_coverage`, `quality_evaluated`,
     `recorder_instance_id`, `capture_origin_utc_ns`, `capture_origin_mono_ns`, `clock_step_tolerance_ns`, and `previous_capture_id` and the optional site and equipment tags when it has them);
     a log producer also supplies `source_tz`, `source_dialect` and `source_ref`;
-    the consumer owns `schema_version`, `writer`, `classifier`, `max_frame_len`, `period_start`, `period_end`, `seq_start`, `pack_role`, `compaction_level`, `scope_generation` and `flush_interval_ns`.
+    the consumer owns `writer`, `classifier`, `max_frame_len`, `period_start`, `period_end`, `seq_start`, `pack_role`, `compaction_level`, `scope_generation` and `flush_interval_ns`.
     The traffic stream is configured so that an accepted message is removed only by acknowledgement, never by a size or age limit,
     so an unacknowledged `start` stays available until its descriptor is registered and a deferred record until its descriptor exists.
     The consumer that receives a capture's `start` record registers the descriptor in the catalog before acknowledging it;
@@ -181,27 +186,25 @@ provided each commit object is deleted after the packs it commits.
   In record-level resolution, output records keep their header bytes unchanged, unknown bytes included,
   and the output starts a new block whenever the next record's `record_header_len` differs from the current block's.
   Two records with the same identity and different header lengths are different bytes, hence a `conflict`, never normalised.
-  Adjacent small blocks with equal `record_header_len` MAY be decoded and re-encoded into one block; their records stay byte-identical.
+  **Coalescing** is the one exception to copying non-overlapping blocks verbatim.
+  A merger SHOULD coalesce small blocks, because small blocks multiply the per-record cost and the archive is what retention keeps.
+  Taking the blocks it outputs in ascending seq order, it groups them greedily:
+  a group grows while the next block has the same `record_header_len`
+  and the group's decoded bodies, that block's included, stay within the merger's block size threshold (4 MiB decoded by default);
+  a block whose decoded body alone reaches the threshold, such as a block holding one oversized record, is a group of its own.
+  A group of one block is copied verbatim;
+  every larger group is encoded as one block, its records byte-identical and in their order.
+  All blocks of a scope lie in one UTC hour ([FMT I-13]), so no group crosses an hour.
   The merger validates every new encoding in memory before writing it ([FMT I-2], and byte identity of every record with its source).
-  A failing coalesced encoding is discarded and the original blocks are copied verbatim instead;
+  A failing coalesced encoding is discarded and its group's blocks are copied verbatim instead;
   if record-level resolution cannot produce a correct encoding, the merge fails and publishes nothing.
   The output is the claimed generation of S (§2): `pack_role = archive`, the hour as the period, `compaction_level` = 1 + the highest input level,
   the capture-level tags of the inputs, the union of the inputs' `coverage`,
   a **cumulative** `compacted_from` (generation G's list plus every generation-0 pack in the view and every generation-0 pack the view's patches name),
-  `supersedes` = the members of generation G (lineage only), and a replacement set (§6).
+  `supersedes` = the member of generation G (lineage only), and a replacement set of one member (§6).
   Its footer follows [FMT §10].
-  When the records of S exceed 256 MiB of content, the set has several members with disjoint seq ranges.
-  A merger SHOULD attest its output ([FMT §5] `blocks_validated`).
-  Before writing a member's pack metadata, an attesting merger validates every block the member will contain ([FMT I-2] and [FMT I-10], [FMT §12]):
-  copied blocks by decoding their on-disk bytes, new encodings as produced in memory.
-  If every block passes, it commits `blocks_validated = true`;
-  otherwise it writes the member without the tag and reports the failing blocks and records to the operator.
+  A merge writes one archive per scope, whatever its size: the limits of [FMT §2] apply per block, not per pack.
   It never repairs record bytes.
-  Because validation precedes the metadata, a readable I-10 defect in an input never blocks a merge,
-  including the cancellation merge of §5 recovery: the output is simply not attested.
-  Attestation never changes which blocks are copied, where members end, what is published or what becomes deletable;
-  those follow the merge, publication and deletion rules of this document unchanged.
-  Attestation is per pack: members of one replacement set may differ (§6).
 - **Readiness**: S is merged after its hour has ended plus a grace period,
   once the catalog shows contiguous seq coverage from the capture's start —
   or, when the capture has scopes that are not indexed (§5), from the lowest seq in the views of its indexed scopes whose hour lies in the window —
@@ -214,11 +217,11 @@ provided each commit object is deleted after the packs it commits.
 - **Deletion**: being outside the view (excluded from record reads) is not the same as being deletable.
   A pack becomes deletable only when the current generation G makes it redundant:
   a generation-0 pack (segment or patch) when G's `compacted_from` lists it;
-  a generation member when a complete generation ranked higher than its own is G — so a member replaced by a patch is kept until the next merge folds the patch,
+  a generation's member when a complete generation ranked higher than its own is G — so a member replaced by a patch is kept until the next merge folds the patch,
   because G's completeness depends on it;
   a stale patch or an incomplete set when G ranks above its base or its own rank.
   A commit object is deleted only by the component that deleted every pack it commits, immediately after deleting the last of them:
-  for a generation, every one of its `replacement_set_size` members, all registered in the catalog; for a patch, the patch.
+  for a generation, its member, registered in the catalog; for a patch, the patch.
   A commit object whose packs that component cannot account for this way (e.g. one written late for an admission that was cancelled)
   is never deleted on the evidence of a listing; it is removed with its hour by §5 Retention.
   The deleting component deletes packs and commit objects only on the catalog's decisions for indexed scopes, and by §5 Retention.
@@ -262,9 +265,9 @@ Its storage technology is not part of this specification.
   Every key L1 returned still exists at t, because nothing is deleted; every key that exists at t exists throughout L2, so L2 returns it.
   Hence L1 ⊆ C(t) ⊆ L2, and L1 = L2 gives C(t) = L1, the set of commit objects at t.
   The view at t reads only packs that exist at t — a pack is uploaded before its commit object (commit protocol step 1 before step 3) and is never deleted here —
-  namely G's members, the generation-0 packs outside G's `compacted_from` and the patches in the view; so (2) lists every one of them.
+  namely G's member, the generation-0 packs outside G's `compacted_from` and the patches in the view; so (2) lists every one of them.
   A listed pack whose commit object is not in C(t) is uncommitted in the view, whenever it was uploaded.
-  A set whose commit object is in C(t) but whose members are not all listed is incomplete and outside the view, as in §4.
+  A set whose commit object is in C(t) but whose member is not listed is incomplete and outside the view, as in §4.
   Segments uploaded after t may be listed too, and join the view because segments need no commit object;
   the result is the committed view at t plus some of the segments uploaded after t, not a snapshot of any later instant.
   A listed pack that is gone when read is gone because its hour was removed (reported as removed) or because a component did not conform;
@@ -273,6 +276,8 @@ Its storage technology is not part of this specification.
 - **Listing view**: for a scope that is not indexed, a reader computes the active view of §4 from a coherent observation.
   A reader finds the captures and packs of a tool in a time range by listing `staging/<tool_id>/` and `archive/<tool_id>/<YYYY>/<MM>/<DD>/` for the days concerned,
   and takes end states and barriers from the catalog's per-capture entries.
+- **Roles**: the catalog registers only packs whose role takes part in the tiers (§2),
+  and it reports any other pack presented to it to the operator.
 - **No admissions outside the index**: registering a segment or a patch, and claiming a merge, for a scope that is not indexed are rejected.
   A rejected segment stays in `staging/`, where listing views read it; the recorder treats the rejection as final.
   The catalog still records the per-capture evidence of a rejected segment or converter archive (Per capture, below).
@@ -340,22 +345,20 @@ Its storage technology is not part of this specification.
   A segment of a removed hour uploaded later is deleted by the same component when found.
   Per-capture entries are not removed.
 
-## 6. Replacement sets, corrections, repairs
+## 6. Replacement sets and repairs
 
-A **replacement set** is the packs sharing one `replacement_set_id`.
-Members MUST agree on `replacement_set_size`, capture, scope, `publisher_epoch`, `scope_generation`, `supersedes` and `compacted_from` (replicated identically),
-have disjoint seq ranges, and have unique indexes 0 .. `replacement_set_size` − 1.
-`blocks_validated` is per pack and not among the tags members must agree on.
-A set is complete when all its members exist; an incomplete or uncommitted set is ignored (an interrupted or rejected publication), and the view falls back to the highest-ranked committed complete generation.
-Every `archive` belongs to a set, usually of size 1.
+A **replacement set** is the archive a merge publishes as one generation, identified by its `replacement_set_id`.
+Every set has exactly one member: `replacement_set_size` = 1 and `replacement_set_index` = 0 ([FMT §5]).
+A set is complete when its member exists; an incomplete or uncommitted set is ignored (an interrupted or rejected publication), and the view falls back to the highest-ranked committed complete generation.
+Every `archive` belongs to a set.
 
-A patch (`repair` or `correction`, generation 0) completely replaces the packs it names in `supersedes`, all in its scope:
+A patch (a `repair`, generation 0) completely replaces the packs it names in `supersedes`, all in its scope:
 it contains every record of those packs (possibly with new stored bits or classification, [FMT I-11]),
 carries the union of those packs' existing `coverage` entries (coverage is metadata, so a patch that omitted it would silently drop it),
 and declares any newly lost (`capture_id`, `seq`) ranges and time intervals as further `coverage` entries,
 which the next merge of the scope carries into the generation (union) and every later generation inherits;
 a view that still holds the patch applies them directly; every query touching them reports `incomplete`.
-Other packs of the view, including sibling members of the same generation, are untouched.
+Other packs of the view are untouched.
 Because the lost records of a pack belong to its scope, their time intervals lie within its hour, except for completeness barriers (§4), which are handled separately.
 Readers default to the active view and can include packs outside it on request.
 
@@ -402,36 +405,34 @@ The following vectors belong to the corpus of [FMT §16]:
   a successor whose `start` is staged while the earlier capture stays `open`;
   a rebuild from `staging/` while bus records are still unstaged;
   a lease expiring during each step of the commit protocol, with the former holder's late commit handled by takeover recovery (§3, §5);
-- a correction or repair followed by a late merge, and a repair holding only `coverage` (§4, §6);
-- a two-member generation with one member repaired, published, predecessors deleted (packs in either order, each commit object after its packs), then rebuild:
-  the repaired prefix, the healthy sibling and all inherited coverage remain (§4);
+- a repair followed by a late merge, and a repair holding only `coverage` (§4, §6);
+- a generation whose member is repaired, published, predecessors deleted (packs in either order, each commit object after its packs), then rebuild:
+  the repaired prefix and all inherited coverage remain (§4);
 - a patch replacing one generation member, an attempted deletion before the next merge, and a rebuild; then the folding merge and deletions (packs in either order, each commit object after its packs) (§4);
 - generations A → B → C of one scope with B deleted before A (packs in either order, each commit object after its packs), then catalog rebuild: the view is exactly C with its inherited coverage (§4);
-- a correction of an already repaired archive, keeping the inherited coverage (§6);
 - a backward clock step across a flush-period boundary within one hour, queried before and after merging (§5);
 - an invisible high-number claim, a rebuild with a new publisher epoch, a lower-number merge absorbing a late segment, deletion of its inputs,
   then completion of the old upload and another rebuild: the newer records and coverage remain (§2, §5);
 - a patch registered between a merge's claim and its publication (§5);
-- a merge claim, an accepted correction, a complete stale upload, rejected publication, a crash before the retry, rebuild, merge and deletion:
-  the correction and its coverage survive (§5 commit protocol);
+- a merge claim, an accepted repair, a complete stale upload, rejected publication, a crash before the retry, rebuild, merge and deletion:
+  the repair and its coverage survive (§5 commit protocol);
 - a rejected patch whose upload survives, then rebuild (§5);
-- a commit object written, a crash before installation, recovery, an attempted correction against the old base, rebuild, merge and deletion;
+- a commit object written, a crash before installation, recovery, an attempted repair against the old base, rebuild, merge and deletion;
   and the same with an unknown commit-write outcome, for an uncertain generation and for an uncertain patch, with and without an earlier generation,
   and with a crash during the cancellation itself (§5 recovery);
-- a replacement set whose members disagree on `publisher_epoch` (§6);
-- a size-capped replacement set, complete and interrupted (§6);
+- pack metadata with `replacement_set_size` ≠ 1 or `replacement_set_index` ≠ 0: rejected ([FMT §5], §6);
+- a pack whose `pack_role` is 5 or another unknown value beside a segment and a generation: outside the view, no merge input, not deletable, and reported, before and after a rebuild (§2);
 - merge framing: two overlapping blocks with equal body bytes but different envelopes (different `record_header_len` or `record_count`),
   resolved record by record, never dropped as duplicates;
   adjacent blocks of unequal `record_header_len` left uncoalesced; two records with the same identity and different header lengths reported as a `conflict` (§4);
+- coalescing: three small blocks of which only the first two fit the threshold together, a block holding one oversized record,
+  and adjacent blocks of unequal `record_header_len`: grouped as §4 says (§4);
 - a coalesced block whose new encoding is validated in memory before it is written (§4);
 - an I-2 failure injected into a newly encoded (coalesced) merge block: the encoding is discarded and the original blocks are copied verbatim (§4);
 - an I-2 failure injected into a newly encoded record-level-resolution block that cannot be rebuilt: nothing is published and no input becomes deletable (§4);
-- attestation: a non-attested segment with an I-10 disagreement, a correction whose commit-object write has an unknown outcome,
-  the cancellation merge publishing a non-attested generation, the correction re-registered, and the folding merge publishing an attested generation (§4, §5);
-- a generation whose members differ in attestation (§4, §6);
-- a generation G with a predecessor G−1 whose members are deletable but not yet deleted, and G's commit object removed first: the view falls back to G−1;
+- a generation G with a predecessor G−1 whose member is deletable but not yet deleted, and G's commit object removed first: the view falls back to G−1;
   the vector shows why §4 Deletion orders commit objects after their packs, and conforming deletion never produces this state (§4);
-- deletion of G−1's members in any order, then G−1's commit object: the view is G throughout (§4);
+- deletion of G−1's member, then G−1's commit object: the view is G throughout (§4);
 - coherent observation with pagination: an uncertain patch P against G1 and an uncertain cancellation generation G2, both validated while the scope was indexed, with late commit writes;
   the commit enumeration paused at a page boundary, G2's commit landing behind the cursor and P's commit ahead of it, then finished:
   the second listing differs, the reader repeats, and the view is never G1 plus P (§5);

@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-09-29) — phase 3 done; the format revision (proposal P9) next, then phase 4.
-Implements: tracepack v2.12 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
+Status: active (2026-09-29) — phase 3 done; the format revision of spec v2.13 next, then phase 4.
+Implements: tracepack v2.13 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
 
@@ -19,7 +19,7 @@ In scope:
 
 Out of scope (separate designs or later phases):
 the go-secs conn-wrapper recorder, eqp-hub integration, `tapconv`, the query service, its MariaDB catalog, the live-tail interface,
-the deferred F-3 index tags and F-4 ([OVW §6]), CLI `grep` / `tx`, and the redaction policy file format and key management.
+indexes in the footer (no longer planned, [OVW §6]), CLI `grep` / `tx`, and the redaction policy file format and key management.
 
 ## 2. Module and package layout
 
@@ -66,7 +66,7 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 1 — Format primitives | done |
 | 2 — Writer and classifier | done |
 | 3 — Reader | done |
-| Format revision (P9) | pending |
+| Format revision (spec v2.13) | pending |
 | 4 — Verify, Repair | pending |
 | 5 — Merge, MergeIterate, FindTransaction | pending |
 | 6 — JSONL export, conformance corpus, CLI | pending |
@@ -116,7 +116,7 @@ so the branch commit reaches neither the public proxy nor the checksum database.
 - CRC-32/ISO-HDLC helper with the check-value test (`123456789` → 0xCBF43926).
 - UUID: RFC 9562 byte order encode/decode; UUIDv7 generator.
 - Fixed layouts with `MarshalBinary` / `UnmarshalBinary`-style functions:
-  file header (80 B), block envelope (40 B, `record_header_len` at offset 6), record header (56 known B), trailer (64 B), F-1 (72 B), F-2 entry (80 B, `record_header_len` at offset 76).
+  file header (80 B), block envelope (40 B, `record_header_len` at offset 6), record header (44 known B since the format revision), trailer (64 B), F-1 (72 B), F-2 entry (80 B, `record_header_len` at offset 76).
   Each validates magic, CRC, reserved-zero on write, limits (≤ 2^63 − 1, ≤ 2^31 − 1) on read.
 - TLV: entry encode/decode, value types, per-registry type checks, repeatable and required tags, unknown-tag preservation,
   nested TLV, *u32 array* and *u64 array* helpers; registries for pack metadata, transport-event, annotation, F-3, F-5, `coverage`, `epoch`, `boundary`, `hsms_timers`.
@@ -133,62 +133,69 @@ Done when: all layouts round-trip, every spec offset is asserted by a test, fuzz
 - Block builder: capture-scoped seq assignment (I-12) or acceptance of producer-assigned seqs with a second open segment for a record below a closed block ([STO §4] Recorder over a durable bus); strictly increasing seq, hour alignment (I-13), clock-step detection against the fixed anchor ([SEM §4]) or preservation of producer-detected steps,
   size threshold (default 4 MiB), a record larger than the threshold alone in a block,
   body as header section + payload section ([FMT §6]), codec encode, envelope with `record_header_len`, `first_seq` and CRCs.
-- Validating writer option: commits `blocks_validated` in the pack metadata, decodes each encoded block and checks I-2 and I-10 before writing it,
-  and withholds the trailer on a failed check ([FMT §12]).
+- Validating writer option: decodes each encoded block and checks it before writing it,
+  and withholds the trailer on a failed check ([FMT §12]); the format-revision step below revises what it checks and commits.
 - Durability: `Syncer` called after each block and after the trailer ([FMT §12]).
-- Footer builder: F-2 entries, F-3 lists (`kind_counts`, `dir_counts`, `decode_status_counts`, `max_payload_len`, `quality_union`),
-  plus the per-block `content_bytes`, `epoch`, `boundary` and (when needed) `seq_range` tags;
+- Footer builder: F-2 entries, F-3 lists (`kind_counts`, `dir_counts`, `decode_status_counts`, `quality_union`),
+  plus the per-block `epoch`, `boundary` and (when needed) `seq_range` tags;
   F-5 computed only by the aggregation rule over F-2 and F-3 ([FMT §10]).
+  The format-revision step retires the two other F-3 tags this phase wrote ([FMT §10]).
 - `Close` returns the next seq.
 - `classify.Frame(b []byte, maxFrameLen int) (DecodeStatus, trailing int)` per [SEM §3] using the go-secs mapping of `tracepack-go.md` §4.
   `tracepack/go.mod` gains its first go-secs requirement here: a `main` commit at or after PR #14, or v2.5.0 once released (§2.1).
 
 Tests: round trip through a minimal reader; hour-boundary split; oversized record; codec `none` vs `zstd` equivalence after decode;
-validating writer: an agreeing pack is attested, an I-10 disagreement returns an error and leaves no trailer;
-F-5 against a brute-force recomputation; unavailable copy fields written as zero; one classifier test per `decode_status` value.
+validating writer: a failed check returns an error and leaves no trailer;
+F-5 against a brute-force recomputation; one classifier test per `decode_status` value.
+The format-revision step replaces the tests of the retired record-header fields.
 
 Done when: written packs pass Phase 1 decoders, footers match brute-force recomputation, classifier covers every status.
 
 ### Phase 3 — Reader
 
 - Bootstrap: `Open(ctx, io.ReaderAt, size, opts)` with an optional footer hint, speculative head and tail reads,
-  version and `schema_version` checks before any block ([FMT §13]).
+  version checks before any block ([FMT §13]); the format-revision step drops a retired metadata check.
 - Footer validation ([FMT §10]) with fallback to the forward walk when the footer is invalid.
 - Block access through F-2; envelope checked against its F-2 entry, `record_header_len` included; decode with I-2 checks;
-  unknown bytes of a `record_header_len` > 56 preserved and `f2_entry_len` > 80 skipped correctly.
-- Header-only reads ([FMT §6]): decode the header-section prefix, with the header-only checks; full reads for payloads.
-- Filters treat unavailable copy fields as "cannot match" unless partial records are requested.
-- `Iterate(ctx, Query, fn)`: time pruning by F-2; the two query modes of [SEM §7.4] with their validation statuses:
-  provisional filtering on header copies reporting `header-validated`,
-  authoritative filtering on payload values or attested header copies with the full-read fallback for non-attested blocks;
-  `Incomplete` for corrupt blocks, unknown codec, truncated tail.
+  unknown bytes of a longer `record_header_len` preserved and `f2_entry_len` > 80 skipped correctly.
+- Filters treat unavailable fields as "cannot match" unless partial records are requested.
+- `Iterate(ctx, Query, fn)`: time pruning by F-2; `Incomplete` for corrupt blocks, unknown codec, truncated tail.
+- This phase also built a read of the header section alone and query modes over header fields;
+  the format-revision step removes them (every read full, [FMT §6]; predicates on payload values, [SEM §7.4]).
 
 Tests: a counting `ReaderAt` asserting request rounds for the three bootstrap paths;
 corrupt-byte injection at every offset of a small pack (every result is either correct or `Incomplete`, never silently wrong);
 CRC-valid but structurally invalid footers (fallback to forward walk);
 forward-compatibility vectors (unknown tags, enums, longer record header and F-2 entries);
-the query-mode vectors of [FMT §16] in both modes:
-the S6F11 / S1F3 disagreement in a non-attested pack, the agreeing record in an attested pack,
-and the labelled nonconforming false-attestation fixture, for which a header-only read is not expected to detect the false assertion.
+the query vectors of [FMT §16] as they stood; the format-revision step replaces them.
 
 Done when: bootstrap costs one round in the hint and small-window paths, and the corruption sweep finds no silent error.
 
-### Format revision (proposal P9)
+### Format revision (spec v2.13)
 
-Applies the spec version that carries P9 (G5-92..G5-94) to the code before phase 4 (G5-91).
-- Writer: transpose the header section when a block body is assembled.
+Applies spec v2.13 (G5-92..G5-98) to the code before phase 4 (G5-91); the spec changelog's v2.13 entry lists every change.
+- Writer: transpose the record headers into the header section when a block body is assembled ([FMT §6]).
 - Reader: untranspose the decoded header section into a reusable row buffer; every record-level path stays as it is.
-- Validating writer option: decode the encoded body and untranspose its header section before the I-2 checks ([FMT §12]), with no metadata commitment.
-- Retired pack-metadata numbers are dropped from preserved unknown entries on write.
-- Retired tag and value of P9 §3.3 (`pack_role` 5 rejected by the `Writer`; replacement-set size 1 and index 0), and the retired tags of P9 §3.4 (G5-96): encoding, validation and tests.
-- An in-repository benchmark that reproduces the columnar comparison of P9 §2 on the implemented writer and reader.
-- The 44-byte record header without copy fields (P9 §3.7–§3.8, G5-97, G5-98): `Record` without copy fields, a payload helper returning value and availability,
-  the append-time `field_validity` check, `quality` bits 3 and 6 retired, F-3 `max_payload_len` retired.
-- Every read full: the header-only path, `ReadLevel`, query modes, `header-validated`, `CopyMismatch` and `blocks_validated` removed; the writer's block validation kept as an option without a metadata commitment.
+- The 44-byte record header ([FMT §7.1]): `Record` without the fields that copied the HSMS message header;
+  a payload helper returning each HSMS header field's value and availability ([FMT §7.2]);
+  a helper computing the `field_validity` of a raw frame, replacing `Record.SetHeaderCopies`;
+  the append-time `field_validity` check in every writer; `quality` bits 3 and 6 and `record_flags` bit 0 retired ([FMT §9]).
+- Decode state ([SEM §6]): `DecodeStatus.Malformed` true only for known malformed values, a new `DecodeStatus.Clean` true only for known values outside the malformed set.
+- Every read full ([FMT §6]): removed are `ReadLevel` with `ReadHeaderOnly` and `ReadAttested`, `QueryMode` and `Query.Mode`, `PackHeader.Attested`, `Item.Level`, `Item.CopyMismatch`,
+  `Result.HeaderValidated`, `PackMeta.BlocksValidated`, `ErrSchemaVersion`, `QualityDecodeFailed`, `QualityNoMono`, `RecordFlagsW`, and `PackRoleCorrection` with its `correction` name;
+  `Query.Payloads` decides only whether payloads are returned.
+- Validating writer option ([FMT §12]): decode the encoded body and untranspose its header section before the I-2 checks, with no metadata commitment.
+- Retired numbers ([FMT §5], [FMT §10]): pack-metadata tags 0x0001, 0x0014 and 0x0030 never written, also not from preserved unknown entries;
+  F-3 tags 0x0004 and 0x0006 never written, F-5 `content_bytes` aggregated from F-2 `uncompressed_len`; F-4 written absent.
+- Retired role and set values ([FMT §5], [FMT §9]): `pack_role` 5 rejected by the `Writer` and read as `unknown(5)`; replacement-set size 1 and index 0, other values rejected.
+- An in-repository benchmark that reproduces the columnar comparison of the v2.13 changelog entry on the implemented writer and reader.
+- `tracepack/CHANGELOG.md` records the breaking changes: the columnar header section and the 44-byte record header, tracepack v0.1.0 packs unsupported ([FMT §14]),
+  the retired tags, bits and value, and the removed API.
 - Tests: golden block bodies and the reader's per-offset corruption expectations regenerated;
-  a row-layout sample pack with a multi-record block read as `corrupt`; round trips with `record_header_len` > 44, including 45–55;
+  a tracepack v0.1.0 sample pack with a multi-record block read as `corrupt` ([FMT §16]); round trips with `record_header_len` > 44, including 45–55;
   validated multi-record blocks under both codecs, with I-2 defects injected after encoding;
-  `field_validity` availability for each short-field threshold, clear bits over placeholder bytes, a set bit beyond the payload rejected at append, control-frame fields read from the payload.
+  `field_validity` availability for each short-field threshold, clear bits over placeholder bytes, a set bit beyond the payload rejected at append, control-frame fields read from the payload;
+  retired tags present in read metadata and footers: skipped on read, kept in the canonical export, never written.
 - Run the tracepack fuzz targets before committing the decoder change.
 
 Done when: the writer and reader implement the revised layout, and the corruption sweep finds no silent error.
@@ -225,9 +232,10 @@ and their vectors (the durable clock-step → size roll → empty spool → cras
   copy non-overlapping blocks verbatim; drop an overlapping block only when envelope and body bytes are byte-for-byte equal (`body_crc` is only a candidate filter);
   decode-and-resolve every other overlap, starting a new output block when `record_header_len` changes; report `conflict` for same seq with different bytes;
   inputs include the whole active archive set;
-  optional coalescing of small blocks with equal `record_header_len`; every new encoding validated in memory before it is written ([STO §4]);
-  optional attestation: every block of a member validated before its pack metadata is written, `blocks_validated` committed only when all pass; F-5 by the aggregation rule ([FMT §10]); lineage tags (`compaction_level`, `compacted_from`, `supersedes`, inherited `coverage`);
-  replacement sets for size-capped output, validated for consistent size, `supersedes`, identical `compacted_from`, capture, scope, `publisher_epoch`, generation and unique indexes ([STO §6]);
+  coalescing of small blocks by the greedy grouping of [STO §4] (an option; the rule is a SHOULD); every new encoding validated in memory before it is written ([STO §4]);
+  F-5 by the aggregation rule ([FMT §10]); lineage tags (`compaction_level`, `compacted_from`, `supersedes`, inherited `coverage`);
+  one archive per scope, a replacement set of one member ([STO §6]);
+  only packs whose role takes part in the tiers ([STO §2]) are inputs;
   commit-object handling in `ActiveView` ([STO §3], [STO §5]).
 - `MergeIterate`: capture order (streaming) and time order (watermark over F-2 `ts_min`, bounded memory with a caller limit) with dedup (`tracepack-go.md` §3).
 - `FindTransaction` over a `PackSource` interface (catalog abstraction; an in-memory implementation for tests), [SEM §7.2] results,
@@ -235,32 +243,32 @@ and their vectors (the durable clock-step → size roll → empty spool → cras
 
 Tests: merge of generated segments equals a directly written archive record-for-record;
 generations A → B → C with B deleted before A (packs in either order, each commit object after its packs), then view rebuild,
-and the fallback to G−1 when G's commit object is removed first; correction → late merge; repair → late merge; coverage-only repair;
+and the fallback to G−1 when G's commit object is removed first; repair → late merge; coverage-only repair;
 time-order iteration with backward timestamps within and across blocks and packs;
-transaction eligibility with a reused key;
+transaction eligibility with a reused key; a primary without System Bytes and a window holding a reply-direction record without them ([SEM §7.2]);
 merged F-5 equals brute-force recomputation; overlapping and duplicated inputs; conflict detection;
 a transaction split across packs; `incomplete` when seq coverage has a gap, and with reason `cold` when a scope is not indexed;
 the coherent-observation, listing-view, window-boundary and removed-outcome vectors of [STO §8];
 through an in-memory `PackSource`, the barrier and closure effects of the [STO §8] end-evidence service vectors
 (registration, rejection, eviction and rebuild themselves are service work, §1);
-the merge-framing, failed-encoding and attestation vectors of [STO §8].
+the merge-framing, coalescing, failed-encoding and role vectors of [STO §8].
 
 Done when: output records equal the de-duplicated union of the inputs;
-with optional coalescing disabled, no block of the non-overlap path is re-encoded (asserted by an encode counter);
-attested output passes `Verify`;
-for a merge that validated its output but could not attest it, `Verify` reports exactly the input defects the merger reported.
+with coalescing disabled, no block of the non-overlap path is re-encoded (asserted by an encode counter);
+with it enabled, only groups of more than one block are;
+output passes `Verify`.
 
 ### Phase 6 — JSONL export, conformance corpus, CLI
 
 - `jsonl.Export` per [FMT §15]; write the draft byte-exact schema (`tracepack-jsonl/1`: key order, number and base64 formatting) alongside.
 - Corpus generator producing the [FMT §16] vectors except the redaction vectors (phase 7), with golden `.tpk`, `.jsonl` and verify reports under `testdata/corpus/`,
-  plus the expected query results and validation statuses of the query vectors,
+  plus the expected query results of the query vectors,
   regenerated only with an explicit `-update` flag.
 - CLI: `list`, `stats`, `dump --sml | --jsonl`, `verify [--repair]`, `merge`, and `recover` once `Recover` is planned (G5-91); local paths first, `s3://` through an `io.ReaderAt` adapter;
   on `s3://` sources, `list`, `stats` and `dump` end an hour that becomes removed with the removed outcome ([STO §5] Retention).
 
 Done when: the corpus regenerates byte-identically, `dump --jsonl` matches every golden,
-every query vector yields its expected results and validation statuses, and the CLI works on the corpus.
+every query vector yields its expected results, and the CLI works on the corpus.
 
 ### Phase 7 — Extract and redaction
 
@@ -271,7 +279,6 @@ every query vector yields its expected results and validation statuses, and the 
 - HMAC-SHA-256 with the corpus test keys; `redaction_policy` and `redaction` entries.
 - Reader: entries parsed and structurally checked at `Open`, validated per record at read time, wholly masked records reported.
 - `dump --sml` rendering of masked content.
-- F-4 itself stays out of scope; the F-4 rule of [SEM §8] binds whoever builds it later.
 
 Tests: the redaction vectors of [FMT §16], generated with their goldens and expected reports by the phase-6 corpus generator extended here; a sweep over the corpus asserting, for every record, that each target byte is zero, each other byte equals the source,
 the payload length and every record-header field except `quality.redacted` are unchanged, and `Verify` reports exactly the source's defects and no new one.
@@ -303,11 +310,11 @@ Tests and done criteria are set when P8 is decided.
 ## 4. Cross-cutting requirements
 
 - Performance targets (checked with benchmarks, not tuned before measurement): writer ≥ 50 MB/s uncompressed per core with zstd level 3;
-  merge throughput measured with and without attestation; reader bootstrap allocations independent of file size, apart from the pack metadata (an extract's redaction entries).
+  merge throughput measured with and without coalescing; reader bootstrap allocations independent of file size, apart from the pack metadata (an extract's redaction entries).
 - Memory: the writer holds at most one block; the reader holds at most the pack metadata and the footer plus one decoded block per concurrent iterator,
   except time-order `MergeIterate`, whose heap is bounded by the blocks overlapping its watermark and by a caller limit.
   An extract's pack metadata grows with its redaction entries, and the extract writer's plan grows with the matches of the selected records.
-- Errors: sentinel errors per failure class (bad magic, CRC, limit, unknown codec, schema) wrapped with offsets.
+- Errors: sentinel errors per failure class (bad magic, CRC, limit, unknown codec, unsupported version) wrapped with offsets.
 - Concurrency: `Reader` safe for concurrent `Iterate`; `Writer` single-goroutine by contract.
 
 ## 5. Risks

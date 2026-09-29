@@ -325,3 +325,10 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   Rejected: dropping `mono_ns` or storing it as a residual (VE latency), retiring `trailing_bytes` (not recomputable from masked extracts)
   and `quality.capture-boundary` (not derivable per record from `kind` and `decode_status`).
   Spec: P9 §3.8.
+- P9 closed (2026-09-29): applied as spec v2.13 (`tracepack-spec-changelog.md`); its last text is at commit `cd5c171`.
+- G5-99 Transaction lookup with unavailable key fields (2026-09-29, after the first application review of P9): a primary whose SessionID or System Bytes is unavailable has no key and its lookup is `incomplete`;
+  a reply-direction data record in the primary's window whose SessionID, System Bytes, stream or function is unavailable could be the reply,
+  so it turns `unmatched` into `incomplete` and is reported as an anomaly; `matched` and `ambiguous` are decided on the candidates with available fields.
+  Rationale: `unmatched` must never rest on a record that could not be compared (the direction of G5-89);
+  a stricter rule, `incomplete` even beside a valid match, would make every lookup of a log conversion without System Bytes incomplete.
+  Spec: [SEM §7.2] (v2.13).

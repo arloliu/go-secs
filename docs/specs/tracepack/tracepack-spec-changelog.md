@@ -1,9 +1,10 @@
 # tracepack spec — change history
 
-Status: current (2026-09-29) — spec v2.12.
+Status: current (2026-09-29) — spec v2.13.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
-the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository.
+the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
+the last text of proposal P9 is in the repository history at commit `cd5c171`.
 The deferred proposals and the decision log are listed in `README.md`.
 
 ## tracepack-go.md notes
@@ -527,3 +528,137 @@ Summary:
 - [SEM §2] the reconstruction contract keeps an identity its source lacks unavailable, whatever placeholder bytes the frame needs.
 - [FMT §16] query vectors for a clear bit over payload bytes and for a set bit over missing bytes, in both modes, attested and not.
 - Rejected alternative: the writer computing `field_validity` from the payload length, which would break the converter contract of [STO §7].
+
+## Changes v2.12 → v2.13: format revision (proposal P9, owner decisions G5-91..G5-99, 2026-09-29)
+
+Source: the weight and small-message overhead review of 2026-09-29 (kept outside the repository), the owner discussion of the same day,
+and proposal P9 after six review rounds (round 6 ready).
+P9 is closed: applied as v2.13; its last text is at commit `cd5c171`.
+Format version stays 1.0, redefined in place once, before any production use ([FMT §14]):
+the byte layout of the header section and of the record header changed, and packs written by tracepack v0.1.0 are unsupported.
+
+Evidence (measured with the tracepack Writer before this revision, zstd default level, block validation on; the benchmark is kept outside the repository):
+*idle* traffic is Linktest every 30 s, S1F3/S1F4 every 5 s and S1F1/S1F2 every 60 s (30.7 wire bytes per message);
+*busy* adds S6F11 every 1–3 s, an S6F1 trace every 1 s and S2F41 every 5 min (77.7 wire bytes per message).
+
+| Bytes per record, one block per pack | idle, 5 min pack | idle, 1 h pack | busy, 1 h pack |
+|---|---|---|---|
+| tracepack (row layout, 56-byte header) | 29.1 | 21.6 | 55.3 |
+| zstd of timestamp, direction and frame | 10.0 | 9.5 | 44.6 |
+| zstd of SML text | 11.8 | 11.9 | 61.8 |
+| wire | 30.7 | 30.7 | 77.7 |
+
+- The record header cost about 17 bytes per record after compression, whatever the message size; a timestamp and a direction alone cost about 5.7.
+- Transposing the header section into byte columns, with every field kept, lowered the header cost from 17.2 to 9.6 bytes per record (idle) and from 16.7 to 9.2 (busy);
+  a higher zstd level does not close the gap (row layout 21.4 → 19.8 bytes per record at the best level, columnar about 14.5 at every level).
+- Closing a block every second multiplies the idle cost by 4.8 and the busy cost by 2.3, hence merge coalescing.
+- One 4 MiB block of busy traffic (31,505 records): compressed 1,816,820 → 1,532,637 bytes (−15.6 %); encode 14.8 → 11.8 ms; full decode 2.57 → 3.31 ms (untranspose 0.66 ms).
+- Columnar block body by record-header content, bytes per record (idle / busy, one hour): 56-byte header 14.7 / 49.3; without the copies 13.8 / 47.8;
+  with `mono_ns` as a residual 11.2 / 45.6 and without `mono_ns` 9.2 / 43.8 (both rejected); payloads only 3.8 / 38.5.
+  `trailing_bytes`, `fidelity` and `decode_status` each cost under 0.1 bytes per record.
+
+Summary:
+- [FMT §6] the header section stores the record headers column by column, byte `j` of record `i` at `j × record_count + i`;
+  every rule on a record header reads the gathered bytes, and a block of one record is laid out as before (G5-92).
+  Every block read is full: the header-only read level is removed, and [FMT I-2] runs on the gathered headers before any record is used (G5-98).
+- [FMT §7.1] the record header is 44 bytes and no longer copies the HSMS message header (`session_id`, `stream`, `function`, `ptype`, `stype`, `system_bytes`, `record_flags.W`);
+  the extension area starts at byte 44 (G5-97, G5-98).
+  [FMT §7.2] predicates read those fields from the payload, available only where `field_validity` is set;
+  every writer rejects a set bit whose bytes the payload lacks when the record is appended.
+  [FMT I-10] and the `copy` class are retired, and [FMT I-11] no longer names a quality bit.
+- Retired, numbers never reused (G5-94, G5-96, G5-98):
+  pack-metadata tags `schema_version` (0x0001) and `blocks_validated` (0x0030), never written even from preserved unknown entries ([FMT §5]);
+  F-3 `max_payload_len` (0x0004) and `content_bytes` (0x0006), F-5 `content_bytes` now summing F-2 `uncompressed_len` ([FMT §10]);
+  `quality` bits 3 (`decode-failed`) and 6 (`no-mono`) and `record_flags` bit 0 (W) ([FMT §9]);
+  `pack_role` 5 (`correction`), with every correction rule ([FMT] I-6, I-11, I-12, §5, §9; [SEM §1], [SEM §6]; [STO §1], [STO §2], [STO §6], [STO §8]; [OVW §3], [OVW §6]).
+- [FMT §5], [STO §6] a replacement set has exactly one member: a merge writes one archive per scope whatever its size, and other set values reject the file (G5-94).
+- [FMT §10] F-4 is an absent, undefined slot and F-3 tags 0x0010–0x001F are reserved without a planned structure; [FMT §2] the index-hash rule is removed;
+  [SEM §7.1]–[SEM §7.4] define no index of HSMS header fields or ids: queries scan payloads, and the provisional and authoritative query modes with `header-validated` are removed (G5-97, G5-98).
+- [SEM §6] readers offer derived predicates instead of the retired bits: a decode state (malformed, clean or unknown, where unknown never counts as clean) and no monotonic time;
+  exclusion by `decode_status_counts` counts unknown elements as possibly malformed.
+- [SEM §8] redaction item rules match the S/F in payload bytes 6 and 7 whatever `field_validity` says, as they matched the payload before.
+- [SEM §7.2] a primary without an available SessionID or System Bytes has no key, and a reply-direction record in its window whose key or S/F fields are unavailable turns `unmatched` into `incomplete` (G5-99, from application review A1); [SEM §9] vector.
+- [FMT §12] a writer SHOULD validate each block after encoding it (decode, gather, I-2) and commits nothing to the pack metadata;
+  [FMT §13] bootstrap checks the file header and format version; [FMT §14] records the one-time redefinition and the deployment precondition;
+  [FMT §16] vectors for HSMS header fields, gathered headers, `record_header_len` 45–55, retired tags, and a tracepack v0.1.0 sample.
+- [STO §2] only `segment`, `archive` and `repair` packs take part in views, merges, registration and deletion; any other role is reported and left to Retention.
+  [STO §4] a merger SHOULD coalesce small blocks by a greedy grouping up to its block size threshold (G5-93); attestation is removed;
+  a bus consumer no longer owns `schema_version`.
+  [STO §8] vectors follow.
+- [OVW §3], [OVW §4] terminology and Figures 2 and 3 follow; [OVW §6] footer indexes are no longer planned.
+- `tracepack-go.md` §3, §5.5 and §7 and `tracepack-impl-plan.md` (the format-revision step, phases 2, 3, 5, 6 and 7) updated;
+  phase 4 is `Verify`, then `Repair` once proposal P10 is decided; `Recover`, the liveness anchor and the spool helpers wait for a local-spool recorder (G5-91, G5-95).
+- Moved out: a storage view without commit and fence objects, as proposal P10 (G5-95).
+- Corrected while applying: P9 said a one-record block of tracepack v0.1.0 reads correctly under the new layout.
+  That held for the transposition alone; with the 44-byte header it passes I-2 but its fields from byte 36 on are misread ([FMT §14]).
+  The owner decision (such packs are unsupported, detection not guaranteed) is unchanged.
+
+### P9 review round 1
+
+| Finding | Resolution (v2.13) |
+|---|---|
+| P0 ×4 on the storage view without commit objects: witness eligibility after a repair, containment proof, listing coherence against deletion, catalog visibility of durable segments | split out as proposal P10 (G5-95); not applied |
+| P1 ×3 on that view: byte identity at the bus boundary, byte-for-byte re-emission by a repair, the completeness observation contract | open in P10 |
+| P1 the v0.1.0 compatibility wording overstated detection | [FMT §14] such packs are unsupported, detection is not guaranteed, deployment precondition; [FMT §16] sample |
+| P1 the retirements lacked a read-side contract | per-tag write, read, reserved-number and validation rules in [FMT §5] and [FMT §10]; plan scope follows the deferred `Recover` |
+| P2 the measurements could not be verified in review | labelled as measured outside the repository; the format-revision step adds an in-repository benchmark |
+
+### P9 review round 2
+
+| Finding | Resolution (v2.13) |
+|---|---|
+| P1 an unknown role could still enter the active view | [STO §2] roles in the tiers; [STO §5] registration |
+| P1 the change table left correction rules and the plan stale | every correction rule removed or narrowed to repairs (Summary) |
+| P1 retiring F-3 `content_bytes` conflicted with the footer merge rule | [FMT §10] F-5 aggregates F-2 or F-3 values; copied F-3 lists keep retired tags as data; [FMT §5] retired numbers never written from preserved entries |
+| P1 the coalescing SHOULD had no run rule | [STO §4] greedy grouping in seq order by header length and threshold; a group of one is copied verbatim |
+| P1 the validating writer needed a transpose-aware path | [FMT §12] decode, gather the headers, then I-2 |
+| P1 versioning needed the owner's explicit exception | [FMT §14] one-time exception; [FMT §16] corpus identified by spec version |
+| P2 benchmark reproduction | a done criterion of the format-revision step |
+
+### P9 review round 3
+
+| Finding | Resolution (v2.13) |
+|---|---|
+| P1 bus-consumer metadata still required `schema_version` | [STO §4] removed from the values a consumer owns |
+| P2 the Go guidance still allowed a struct view of the header section | `tracepack-go.md` §3: only of the gathered row buffer |
+
+### P9 review round 4 (after G5-97 and G5-98)
+
+| Finding | Resolution (v2.13) |
+|---|---|
+| P1 P9 still kept removed read behavior | [FMT I-2], [FMT §6] every read full; [FMT §12] validation untransposes before I-2 |
+| P1 the 44-byte minimum was missing from footer rules and extension guidance | [FMT §6], [FMT §7.1], [FMT §10] F-2 and footer validation; extension area from byte 44; 45–55 vector |
+| P1 attestation and validation-status rules outside the change table | removed from [FMT] I-14, §12, §13, [STO §4], [STO §6], [STO §8] |
+| P1 deleted index designs still had normative dependencies | [FMT §2] hash rule, [SEM §7.3] extraction, [SEM §8] F-4 marking and I-10 citation removed; [FMT §10] F-4 slot kept absent |
+| P1 an unknown `decode_status` could pass the candidate rule | [SEM §6] three-valued decode state; exclusion by `decode_status_counts` |
+| P1 the corpus edit missed validity and redaction cases | [FMT §16] HSMS header field vectors, redaction selected by payload S/F, no validation statuses |
+| P1 the Go API and plan edit lists were incomplete | impl plan format-revision step; `tracepack-go.md` §3, §5.5, §7 |
+| P2 retired-tag and present-F-4 input treatment | [FMT §10]; [FMT §16] vector |
+
+### P9 review round 5
+
+| Finding | Resolution (v2.13) |
+|---|---|
+| P1 a retired quality bit remained in two rules | [FMT I-11], [FMT §7.2] |
+| P1 removed index designs had unnamed normative uses | [FMT §10] F-3 range reserved without a planned structure; [SEM §7.1], [SEM §7.4] scan payload fields |
+| P1 later phases still required validation statuses and the F-4 rule | impl plan phases 6 and 7 |
+| P2 the Boolean decode API | `DecodeStatus.Malformed` and `DecodeStatus.Clean` ([SEM §6], `tracepack-go.md` §3) |
+
+### P9 review round 6 — VERDICT: ready
+
+| Finding | Resolution (v2.13) |
+|---|---|
+| P2 name the retired Go role constant | impl plan format-revision step (`PackRoleCorrection`) |
+| P2 P10's retired-bit example | P10 §3 item 3 |
+
+### P9 application review A1
+
+| Finding | Fix |
+|---|---|
+| P1 the Go payload helper reported every field of a short frame unavailable | `tracepack-go.md` §3: unavailable per field, when its bit is clear or its bytes are missing |
+| P1 transaction outcome undefined when key fields are unavailable (open since before v2.13) | [SEM §7.2] unavailable key fields (owner decision G5-99); [SEM §9] vector; impl plan phase 5 test |
+| P2 `tracepack-go.md` claimed to implement v2.13 before the code does | it targets v2.13; the code follows with the format-revision step |
+
+### P9 application review A2 — VERDICT: ready
+
+No findings: the three A1 findings are resolved, and G5-99 agrees with the eligibility window, the completeness rule and [FMT §7.2].
