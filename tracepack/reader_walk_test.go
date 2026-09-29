@@ -203,3 +203,41 @@ func TestOpenWalkPassesOverBudgetBlock(t *testing.T) {
 		assert.Empty(t, r.openDefects)
 	})
 }
+
+func TestOpenWalkStopsAtMaxWalkedBlocks(t *testing.T) {
+	t.Parallel()
+
+	recs := hourRecords(3, 4)
+	open := writeReaderPack(t, readerPackConfig{codec: CodecZstd, open: true}, recs)
+	require.Len(t, open.blocks, 3)
+
+	r := mustOpen(t, open.file, ReaderOptions{MaxWalkedBlocks: 2})
+	assert.Equal(t, walkedInfos(open.blocks[:2]), r.Blocks(), "the walk indexes at most MaxWalkedBlocks blocks")
+
+	run := iterate(t, r, Query{Payloads: true})
+	assert.Equal(t, []uint64{0, 1, 2, 3, 4, 5, 6, 7}, run.seqs(), "the indexed blocks are read")
+	require.Len(t, run.res.Incomplete, 1)
+	d := run.res.Incomplete[0]
+	assert.Equal(t, ReasonLimit, d.Reason)
+	assert.Equal(t, -1, d.Block)
+	assert.Equal(t, int64(open.blocks[2].offset), d.Offset, "the walk stops at the first block it does not index")
+	require.ErrorIs(t, d.Err, ErrReadLimit)
+
+	_, err := verifyBytes(t, open.file, VerifyOptions{Reader: ReaderOptions{MaxWalkedBlocks: 2}})
+	require.ErrorIs(t, err, ErrReadLimit, "Verify guesses no outcome past the budget")
+
+	rep, err := verifyBytes(t, open.file, VerifyOptions{Reader: ReaderOptions{MaxWalkedBlocks: 3}})
+	require.NoError(t, err)
+	assert.Equal(t, OutcomeUnfinalized, rep.Outcome, "a walk of exactly MaxWalkedBlocks blocks completes")
+
+	closed := writeReaderPack(t, readerPackConfig{codec: CodecZstd}, recs)
+	r = mustOpen(t, closed.file, ReaderOptions{MaxWalkedBlocks: 1})
+	assert.Len(t, r.Blocks(), 3, "a valid footer's index is not walked")
+}
+
+func TestReaderOptionsDefaultMaxWalkedBlocks(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, DefaultMaxWalkedBlocks, ReaderOptions{}.withDefaults().MaxWalkedBlocks)
+	assert.Equal(t, DefaultMaxWalkedBlocks, ReaderOptions{MaxWalkedBlocks: -1}.withDefaults().MaxWalkedBlocks)
+}

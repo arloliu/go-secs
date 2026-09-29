@@ -14,7 +14,8 @@ const (
 	ReasonTruncated
 	// ReasonCoverage reports a coverage entry of the pack metadata that intersects the query (§5).
 	ReasonCoverage
-	// ReasonLimit reports a block larger than ReaderOptions.MaxBlockLen, which was not read.
+	// ReasonLimit reports a block larger than ReaderOptions.MaxBlockLen, which was not read,
+	// or a forward walk that stopped at ReaderOptions.MaxWalkedBlocks, past which no block was read.
 	ReasonLimit
 	// ReasonIndexMismatch reports a block whose records disagree with its F-2 entry
 	// (the tracepack format specification §10): its last seq, time range or epoch range.

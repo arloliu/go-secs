@@ -23,6 +23,7 @@ var errNotFinalized = errors.New("tracepack: pack not finalized: more records ma
 // An envelope that does not fit before the end, a bad envelope, or a body past the end stops the walk
 // with a ReasonTruncated defect at the envelope's offset;
 // recovery beyond such a block is deferred (§13).
+// A block past ReaderOptions.MaxWalkedBlocks stops the walk with a ReasonLimit defect, wrapping ErrReadLimit, at its offset.
 // Walked blocks are not indexed.
 func (r *Reader) walk(ctx context.Context) error {
 	end := uint64(r.size)
@@ -57,6 +58,11 @@ func (r *Reader) walk(ctx context.Context) error {
 			break
 		}
 
+		if len(r.blocks) >= r.opts.MaxWalkedBlocks {
+			stop = &Defect{Reason: ReasonLimit, Block: -1, Offset: int64(off), Err: fmt.Errorf(
+				"tracepack: forward walk: block at offset %d is past MaxWalkedBlocks %d: %w", off, r.opts.MaxWalkedBlocks, ErrReadLimit)}
+			break
+		}
 		r.blocks = append(r.blocks, walkedInfo(off, &e))
 		records = addSat(records, uint64(e.RecordCount))
 		off = next

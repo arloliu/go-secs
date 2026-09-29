@@ -106,6 +106,22 @@ func TestVerifyFailedBlocks(t *testing.T) {
 		}}, rep.Lost)
 	})
 
+	t.Run("block of several seq ranges with a valid footer", func(t *testing.T) {
+		t.Parallel()
+
+		rich := richFooterPack(t, CodecZstd)
+		b := &rich.blocks[0]
+		require.Len(t, b.seqRanges, 2, "block 0 holds seqs 10, 11 and 13")
+		rep := mustVerify(t, flipByte(rich.file, b.offset+format.EnvelopeLen+1))
+		assert.Equal(t, OutcomeCorruptMiddle, rep.Outcome)
+
+		capture := UUID(layoutHeader(t, rich.file).CaptureID)
+		lost := func(first, last uint64) Coverage {
+			return Coverage{CaptureID: &capture, SeqFirst: new(first), SeqLast: new(last), TimeStart: new(b.tsMin), TimeEnd: new(b.tsMax)}
+		}
+		assert.Equal(t, []Coverage{lost(10, 11), lost(13, 13)}, rep.Lost, "one entry per seq range, each with the block's time range")
+	})
+
 	t.Run("middle body without a valid footer", func(t *testing.T) {
 		t.Parallel()
 

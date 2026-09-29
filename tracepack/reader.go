@@ -27,6 +27,8 @@ const (
 	DefaultMaxFooterLen = 64 << 20
 	// DefaultMaxBlockLen is the default ReaderOptions.MaxBlockLen: 256 MiB.
 	DefaultMaxBlockLen = 256 << 20
+	// DefaultMaxWalkedBlocks is the default ReaderOptions.MaxWalkedBlocks: 1 Mi blocks.
+	DefaultMaxWalkedBlocks = 1 << 20
 )
 
 // footerCRCChunk is the largest read of the sequential reads that compute the CRC of a footer over MaxFooterLen.
@@ -86,6 +88,11 @@ type ReaderOptions struct {
 	// a larger block is not read and is reported as incomplete.
 	// Default 256 MiB.
 	MaxBlockLen int64
+	// MaxWalkedBlocks is the largest number of blocks the forward walk indexes when the footer is not used,
+	// which bounds the block index as MaxFooterLen bounds a footer's;
+	// the walk stops at the next block, and every read reports the rest of the pack as incomplete with ReasonLimit.
+	// Default 1 Mi blocks.
+	MaxWalkedBlocks int
 }
 
 // Reader reads one tracepack file through an io.ReaderAt.
@@ -328,7 +335,7 @@ func (s *blockSummary) blockInfo() BlockInfo {
 }
 
 // positiveOr returns v when it is positive, else def.
-func positiveOr(v, def int64) int64 {
+func positiveOr[T int | int64](v, def T) T {
 	if v > 0 {
 		return v
 	}
@@ -384,6 +391,7 @@ func (o ReaderOptions) withDefaults() ReaderOptions {
 	o.MaxPackMetadataLen = positiveOr(o.MaxPackMetadataLen, DefaultMaxPackMetadataLen)
 	o.MaxFooterLen = positiveOr(o.MaxFooterLen, DefaultMaxFooterLen)
 	o.MaxBlockLen = positiveOr(o.MaxBlockLen, DefaultMaxBlockLen)
+	o.MaxWalkedBlocks = positiveOr(o.MaxWalkedBlocks, DefaultMaxWalkedBlocks)
 
 	return o
 }
