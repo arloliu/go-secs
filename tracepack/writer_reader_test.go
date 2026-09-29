@@ -661,7 +661,7 @@ func verifyBlockIndex(t *testing.T, p *walkedPack) {
 		}
 		assert.Positive(t, e.SummaryLen, "block %d summary_len", i)
 		assert.LessOrEqual(t, e.SummaryOffset+uint64(e.SummaryLen), f.Prologue.F3Len, "block %d summary inside F-3", i)
-		assert.GreaterOrEqual(t, e.RecordHeaderLen, uint16(format.RecordHeaderLen), "block %d record_header_len ≥ 56", i)
+		assert.GreaterOrEqual(t, e.RecordHeaderLen, uint16(format.RecordHeaderLen), "block %d record_header_len ≥ 44", i)
 		assert.LessOrEqual(t, e.TSMin, e.TSMax, "block %d ts_min ≤ ts_max", i)
 		assert.Equal(t, floorDiv(e.TSMin, hourNs), floorDiv(e.TSMax, hourNs), "block %d ts_min and ts_max in one UTC hour", i)
 		assert.LessOrEqual(t, e.EpochMin, e.EpochMax, "block %d epoch_min ≤ epoch_max", i)
