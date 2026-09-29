@@ -272,3 +272,37 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   and the v0.1.0 writer's behavior is unchanged.
   Rejected: the writer computing `field_validity` from the payload length (breaks [STO §7] item 4).
   Spec: [FMT §7.2], [SEM §7.4], [FMT §16] (v2.12).
+
+## 2026-09-29 weight and small-message overhead review (proposal P9)
+
+- G5-91 Sequencing and phase 4 scope (2026-09-29): the format revision of P9 comes before phase 4;
+  phase 4 is `Verify` and `Repair`.
+  `Recover`, the liveness anchor and the spool durability helpers wait until a local-spool recorder is planned,
+  because G5-86 replaced the spool contract for the bus deployment the pilot uses.
+  Rationale: a format change is cheapest before more code and packs depend on the layout.
+- G5-92 Byte-columnar header section (2026-09-29): the header section of a decoded block body stores the record headers transposed,
+  byte `j` of record `i` at offset `j × record_count + i`; every field is kept.
+  Format 1.0 is redefined in place: packs written by tracepack v0.1.0 are not readable by the new reader
+  (a one-record block is laid out identically; larger blocks usually read `corrupt`).
+  Rationale: measured header cost −40 % (about 17 → 10 bytes per record after compression) and encoding 20 % faster,
+  for 0.66 ms more decoding per 4 MiB block; no production packs exist yet.
+  Spec: P9 §3.1.
+- G5-93 Merge coalescing (2026-09-29): a merger SHOULD coalesce runs of adjacent small blocks with equal `record_header_len` into blocks up to the size threshold.
+  Rationale: small blocks multiply the per-record cost (a block per second: ×4.8 idle, ×2.3 busy), and the archive is what retention keeps.
+  Spec: P9 §3.2.
+- G5-94 Retirements (2026-09-29): correction patches and multi-member replacement sets leave format 1.0;
+  a merge writes one archive per scope whatever its size.
+  Rationale: no planned tool writes corrections; at the stated load a scope holds a few MB to about 40 MB per hour, far below the 256 MiB split.
+  Spec: P9 §3.3.
+- G5-95 Scope split (2026-09-29, after P9 review round 1 under the treadmill rule; owner agreed the same day):
+  the storage part of P9 — a view defined by the packs alone, without commit objects, fence objects, publisher epochs or generation ranking — becomes proposal P10 (draft),
+  because the review found four P0 gaps (witness eligibility after a repair, containment proof, listing coherence against deletion, catalog visibility of durable segments).
+  P9 keeps the format revision.
+  Phase 4 starts with `Verify`; `Repair` waits for P10's outcome, because a repair pack's metadata (`patch_base`) depends on it.
+  For a catalog rebuild alone (deleting component stopped), the packs suffice once every copy of a record is byte-identical; live operation needs P10's redesign.
+- G5-96 Redundancy cleanup (2026-09-29): pack-metadata `schema_version` (0x0001) and F-3 `content_bytes` (0x0006) are retired;
+  writers never write them, readers treat them as unknown tags, and their numbers stay reserved.
+  `time_source`, the derived quality bits and the trailer and F-1 counts are kept.
+  Rationale: `schema_version` repeats the format version and F-3 `content_bytes` must equal F-2 `uncompressed_len`;
+  `time_source` is not implied by `capture_method` (a packet-capture stream is `raw-stream` with another machine's timestamps).
+  Spec: P9 §3.4.
