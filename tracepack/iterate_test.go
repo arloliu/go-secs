@@ -401,6 +401,37 @@ func TestIterateSetBitBeyondPayload(t *testing.T) {
 	}
 }
 
+// TestIterateReadsWholeBlockWithoutPayloads checks that a query without payloads still decodes the whole body:
+// a zstd stream damaged only after the header section, resealed so every CRC matches, makes the block incomplete
+// (the tracepack format specification §6: every block read is a full read).
+func TestIterateReadsWholeBlockWithoutPayloads(t *testing.T) {
+	t.Parallel()
+
+	recs := []Record{
+		testDataRecord(0, blockTestHour, 1),
+		testDataRecord(1, blockTestHour+1, 1),
+		textDataRecord(2, blockTestHour+2, 300<<10),
+	}
+	p := writeReaderPack(t, readerPackConfig{codec: CodecZstd}, recs)
+	require.Len(t, p.blocks, 1)
+	// The byte before the 4-byte content checksum lies in the frame's last block, far past the header section.
+	file := rebuildPack(t, p.file, func(_ int, b *testBlock) {
+		b.onDisk = func(enc []byte) []byte {
+			enc[len(enc)-5] ^= 0xFF
+			return enc
+		}
+	})
+	r := mustOpen(t, file, ReaderOptions{})
+	require.NoError(t, r.Header().FooterErr)
+
+	for _, payloads := range []bool{false, true} {
+		run := iterate(t, r, Query{Payloads: payloads})
+		assert.Empty(t, run.items, "payloads %v", payloads)
+		require.Len(t, run.res.Incomplete, 1, "payloads %v", payloads)
+		assert.Equal(t, ReasonCorruptBlock, run.res.Incomplete[0].Reason)
+	}
+}
+
 func TestIterateCallbackError(t *testing.T) {
 	t.Parallel()
 

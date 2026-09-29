@@ -121,6 +121,18 @@ func TestRecordHSMSHeader(t *testing.T) {
 			},
 		},
 		{
+			// Control status and reason codes in bytes 6 and 7 read as stream, W and function (SEMI E37 §8.3).
+			name: "control frame with status bytes",
+			r: tracepack.Record{
+				Kind: tracepack.KindControl, FieldValidity: allValidity,
+				Payload: []byte{0, 0, 0, 0x0A, 0xFF, 0xFF, 0x85, 0x03, 0x00, 0x02, 0, 0, 0, 9},
+			},
+			want: tracepack.HSMSHeader{
+				SessionID: 0xFFFF, Stream: 5, W: true, Function: 3, SType: 2,
+				SystemBytes: [4]byte{0, 0, 0, 9}, Available: allValidity,
+			},
+		},
+		{
 			name: "reserved bits are never available",
 			r:    tracepack.Record{Kind: tracepack.KindData, Payload: s1f3Frame, FieldValidity: 0xC0},
 			want: tracepack.HSMSHeader{SessionID: 0x1234, Stream: 1, W: true, Function: 3, SystemBytes: [4]byte{0xDE, 0xAD, 0xBE, 0xEF}},
@@ -164,6 +176,49 @@ func newTestWriter(t *testing.T, opts tracepack.WriterOptions) (*tracepack.Write
 	require.NoError(t, err)
 
 	return w, &buf
+}
+
+// TestRecordHSMSHeaderThresholds reads a frame cut at every length from 4 to 14 bytes, every bit set:
+// each field carries its value exactly when the payload holds all of its bytes, and is available exactly then.
+func TestRecordHSMSHeaderThresholds(t *testing.T) {
+	t.Parallel()
+
+	whole := tracepack.Record{Kind: tracepack.KindData, Payload: s1f3Frame, FieldValidity: allValidity}
+	full := whole.HSMSHeader()
+	for n := 4; n <= len(s1f3Frame); n++ {
+		r := tracepack.Record{Kind: tracepack.KindData, Payload: s1f3Frame[:n], FieldValidity: allValidity}
+		h := r.HSMSHeader()
+
+		var want tracepack.HSMSHeader
+		if n >= 6 {
+			want.SessionID = full.SessionID
+			want.Available |= tracepack.FieldValiditySessionID
+		}
+		if n >= 7 {
+			want.Stream, want.W = full.Stream, full.W
+			want.Available |= tracepack.FieldValidityStreamAndW
+		}
+		if n >= 8 {
+			want.Function = full.Function
+			want.Available |= tracepack.FieldValidityFunction
+		}
+		if n >= 9 {
+			want.PType = full.PType
+			want.Available |= tracepack.FieldValidityPType
+		}
+		if n >= 10 {
+			want.SType = full.SType
+			want.Available |= tracepack.FieldValiditySType
+		}
+		if n >= 14 {
+			want.SystemBytes = full.SystemBytes
+			want.Available |= tracepack.FieldValiditySystemBytes
+		}
+		assert.Equal(t, want, h, "%d bytes", n)
+
+		r.SetCapturedFieldValidity()
+		assert.Equal(t, want.Available, r.FieldValidity, "%d bytes: SetCapturedFieldValidity agrees with the availability", n)
+	}
 }
 
 // mustEventPayload marshals e and fails the test on error.
@@ -1049,6 +1104,7 @@ func TestWriterDropsRetiredMetadataTags(t *testing.T) {
 	meta := writerMeta()
 	meta.Unknown = []tracepack.RawEntry{
 		{Tag: 0x0001, Type: 4, Value: make([]byte, 8)},
+		{Tag: 0x0014, Type: 2, Value: []byte{1}},
 		{Tag: 0x0030, Type: 2, Value: []byte{1}},
 		{Tag: 0x0050, Type: 7, Value: []byte{0xAA}},
 	}
