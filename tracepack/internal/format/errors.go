@@ -15,8 +15,8 @@ var ErrCRC = errors.New("CRC mismatch")
 // such as the 2^63-1 ceiling on a u64 offset, length, count or seq, or the 2^31-1 ceiling on a u32 length.
 var ErrLimit = errors.New("value exceeds format limit")
 
-// ErrSchema reports an unknown format major version or an unknown pack metadata schema_version.
-var ErrSchema = errors.New("unknown format or schema version")
+// ErrSchema reports an unknown format major version or footer layout version.
+var ErrSchema = errors.New("unknown format or layout version")
 
 // ErrShort reports that a buffer is shorter than the structure being decoded from it.
 var ErrShort = errors.New("buffer shorter than structure")
