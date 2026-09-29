@@ -258,18 +258,20 @@ func checkRecords(section []byte, env *format.BlockEnvelope, offs []uint32) ([]u
 // with its F-2 entry for an indexed block (§10), with what the forward walk found for a walked one.
 // Then body_crc must match and the codec must be known (§2).
 // It checks that record_count × record_header_len fits uncompressed_len, decodes the whole body and checks I-2.
-// For an indexed block the records' last seq, ts_utc_ns range and epoch range must also equal its F-2 entry.
+// For an indexed block the records' last seq, ts_utc_ns range and epoch range are then compared with its F-2 entry;
+// a disagreement is reported beside the block, not instead of it (§10).
 //
 // Parameters:
 //   - i: the block's index into the Reader's block index.
 //   - buf: the buffers to read into; the block returned aliases them until buf's next use.
 //
 // Returns:
-//   - *decodedBlock: the validated block; nil with a defect or an error.
+//   - *decodedBlock: the validated block; nil with a failure or an error.
 //   - *Defect: the block's defect, at its envelope offset:
 //     ReasonLimit, wrapping ErrReadLimit, for a block over MaxBlockLen;
 //     ReasonUnknownCodec for a codec outside the registry;
-//     ReasonCorruptBlock for any other failed check.
+//     ReasonCorruptBlock for any other failed check, all three with a nil block;
+//     ReasonIndexMismatch, with the block, for an indexed block whose records disagree with its F-2 entry.
 //   - error: the ReadAt error, wrapping io.ErrUnexpectedEOF for a short read.
 func (r *Reader) readBlock(i int, buf *blockBuf) (*decodedBlock, *Defect, error) {
 	info := &r.blocks[i]
@@ -288,11 +290,13 @@ func (r *Reader) readBlock(i int, buf *blockBuf) (*decodedBlock, *Defect, error)
 	}
 
 	d, span, err := decodeBlock(&env, buf)
-	if err == nil && info.Indexed {
-		err = span.agrees(info)
-	}
 	if err != nil {
 		return nil, blockDefect(i, info, ReasonCorruptBlock, err), nil
+	}
+	if info.Indexed {
+		if err := span.agrees(info); err != nil {
+			return d, blockDefect(i, info, ReasonIndexMismatch, err), nil
+		}
 	}
 
 	return d, nil, nil

@@ -622,9 +622,9 @@ func TestIteratePruningTrustsValidatedFooter(t *testing.T) {
 
 	read, run = blocksRead(t, r, g, Query{Filter: Filter{TimeFrom: new(h + 1500), TimeTo: new(h + 1503)}})
 	assert.Equal(t, []int{1}, read)
-	assert.Empty(t, run.items)
+	assert.Empty(t, run.items, "its records lie outside the query")
 	require.Len(t, run.res.Incomplete, 1, "a block that is read is compared with its F-2 entry")
-	assert.Equal(t, ReasonCorruptBlock, run.res.Incomplete[0].Reason)
+	assert.Equal(t, ReasonIndexMismatch, run.res.Incomplete[0].Reason)
 	assert.Equal(t, 1, run.res.Incomplete[0].Block)
 }
 

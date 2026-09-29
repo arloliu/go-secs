@@ -53,13 +53,16 @@ func clonePtr[T any](v *T) *T {
 // Then Iterate visits the blocks in file order, checking ctx before each.
 // It skips a block the footer excludes: an indexed block whose F-2 time range misses the query's,
 // whose F-2 epoch range holds none of Epochs, or whose F-3 kind or direction counts are 0 for every one of Kinds or Dirs.
-// It trusts the validated footer, whose F-2 ranges only a read of the block compares with its records.
+// It trusts the validated footer, whose F-2 ranges only a read of the block compares with its records,
+// so an index that misstates a block can hide the block's records without the read reporting it (§10).
 // A walked block is never skipped.
 //
 // Every block Iterate reads is read in full and checked against I-2 before any of its records is used
 // (the tracepack format specification §6).
 // A block that fails a check, or exceeds ReaderOptions.MaxBlockLen, adds a Defect and yields nothing,
 // and iteration continues with the next block.
+// An indexed block whose records disagree with its F-2 entry adds a ReasonIndexMismatch Defect
+// and still yields its records, which passed every check of the block itself.
 //
 // A record is selected when it satisfies every predicate of q.Filter:
 // the time range, Kinds, Dirs and Epochs on its record header,
@@ -105,6 +108,8 @@ func (r *Reader) Iterate(ctx context.Context, q Query, fn func(*Item) error) (Re
 		}
 		if def != nil {
 			res.Incomplete = append(res.Incomplete, *def)
+		}
+		if d == nil {
 			continue
 		}
 		if err := yield(&q, i, d, &item, fn); err != nil {
