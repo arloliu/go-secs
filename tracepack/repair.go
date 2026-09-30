@@ -84,16 +84,9 @@ type RepairReport struct {
 //     an error when a validated block fails or differs on the copy; ctx's error, wrapped;
 //     a write or sync error of dst, or the Writer's error for a footer it cannot encode.
 func Repair(ctx context.Context, ra io.ReaderAt, size int64, dst io.Writer, opts RepairOptions) (RepairReport, error) {
-	if opts.Writer == "" {
-		return RepairReport{}, errors.New("tracepack: RepairOptions.Writer is empty")
-	}
-
 	r, err := Open(ctx, ra, size, opts.Reader)
 	if err != nil {
 		return RepairReport{}, err
-	}
-	if !opts.PackID.IsZero() && opts.PackID == UUID(r.hdr.PackID) {
-		return RepairReport{}, fmt.Errorf("tracepack: RepairOptions.PackID %s is the damaged pack's own pack_id", opts.PackID)
 	}
 
 	a, err := r.analyze(ctx, true)
@@ -124,12 +117,14 @@ type repairPlan struct {
 	coverage []Coverage
 }
 
-// planRepair decides, before anything is written, whether the pack analyzed as a can be repaired,
-// in the order of the tracepack format specification §13's refusals, and returns the patch's plan.
+// planRepair decides, before anything is written, whether the pack analyzed as a can be repaired, and returns the patch's plan.
+// It decides in this order: the pack's role, whether it needs repair, its period, the writer defects,
+// the hours of the validated blocks, the metadata's commitments, the lost runs, then the options and the patch's metadata,
+// so a refusal of the pack is never masked by an option error.
 //
 // Returns:
 //   - *repairPlan: the plan; nil on error.
-//   - error: ErrRepairNotNeeded, an error wrapping ErrNotRepairable,
+//   - error: ErrRepairNotNeeded, an error wrapping ErrNotRepairable, an empty opts.Writer, opts.PackID equal to the pack's,
 //     or a *FieldError from validating or encoding the patch's metadata.
 func (r *Reader) planRepair(a *analysis, opts *RepairOptions) (*repairPlan, error) {
 	meta := r.meta
@@ -150,29 +145,24 @@ func (r *Reader) planRepair(a *analysis, opts *RepairOptions) (*repairPlan, erro
 		}
 	}
 
-	var facts PackFacts
 	scope := hourOf(meta.PeriodStart)
 	for i := range a.blocks {
-		b := &a.blocks[i]
-		if b.failed {
-			continue
-		}
-		if hourOf(b.tsMin) != scope || hourOf(b.tsMax) != scope {
+		if b := &a.blocks[i]; !b.failed && (hourOf(b.tsMin) != scope || hourOf(b.tsMax) != scope) {
 			return nil, fmt.Errorf("%w: block %d at offset %d lies outside the UTC hour of the period", ErrNotRepairable, i, r.blocks[i].Offset)
 		}
-		facts.AnyClassified = facts.AnyClassified || b.classified
-		facts.AnyOversized = facts.AnyOversized || b.oversized
-		if b.redacted {
-			return nil, fmt.Errorf("%w: block %d at offset %d holds a redacted record, which no stored pack holds", ErrNotRepairable, i, r.blocks[i].Offset)
-		}
 	}
-	if err := checkRepairCommitments(meta, facts); err != nil {
+	facts, err := r.checkRepairCommitments(a)
+	if err != nil {
 		return nil, err
 	}
 
 	coverage, err := r.newCoverage(a)
 	if err != nil {
 		return nil, err
+	}
+
+	if opts.Writer == "" {
+		return nil, errors.New("tracepack: RepairOptions.Writer is empty")
 	}
 
 	p := &repairPlan{meta: r.patchMeta(a, opts, coverage), facts: facts, coverage: coverage}
@@ -184,19 +174,35 @@ func (r *Reader) planRepair(a *analysis, opts *RepairOptions) (*repairPlan, erro
 	if _, err := p.meta.MarshalBinary(); err != nil {
 		return nil, err
 	}
+	if !opts.PackID.IsZero() && opts.PackID == UUID(r.hdr.PackID) {
+		return nil, fmt.Errorf("tracepack: RepairOptions.PackID %s is the damaged pack's own pack_id", opts.PackID)
+	}
 
 	return p, nil
 }
 
-// checkRepairCommitments rejects validated records, described by facts, that the damaged pack's metadata cannot describe.
-func checkRepairCommitments(meta *PackMeta, facts PackFacts) error {
+// checkRepairCommitments rejects validated records of the pack analyzed as a that its metadata cannot describe:
+// a classified record without classifier, an oversized record without max_frame_len, or a redacted record, which no stored pack holds.
+// It returns the facts of the validated records that the patch's metadata is validated against.
+func (r *Reader) checkRepairCommitments(a *analysis) (PackFacts, error) {
+	var facts PackFacts
+	for i := range a.blocks {
+		if b := &a.blocks[i]; !b.failed {
+			facts.AnyClassified = facts.AnyClassified || b.classified
+			facts.AnyOversized = facts.AnyOversized || b.oversized
+			facts.AnyRedacted = facts.AnyRedacted || b.redacted
+		}
+	}
+
 	switch {
-	case facts.AnyClassified && meta.Classifier == nil:
-		return fmt.Errorf("%w: a classified record without classifier in the pack metadata", ErrNotRepairable)
-	case facts.AnyOversized && meta.MaxFrameLen == nil:
-		return fmt.Errorf("%w: an oversized record without max_frame_len in the pack metadata", ErrNotRepairable)
+	case facts.AnyClassified && r.meta.Classifier == nil:
+		return PackFacts{}, fmt.Errorf("%w: a classified record without classifier in the pack metadata", ErrNotRepairable)
+	case facts.AnyOversized && r.meta.MaxFrameLen == nil:
+		return PackFacts{}, fmt.Errorf("%w: an oversized record without max_frame_len in the pack metadata", ErrNotRepairable)
+	case facts.AnyRedacted:
+		return PackFacts{}, fmt.Errorf("%w: a redacted record, which no stored pack holds", ErrNotRepairable)
 	default:
-		return nil
+		return facts, nil
 	}
 }
 

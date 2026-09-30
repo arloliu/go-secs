@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -185,6 +186,9 @@ func TestAppendBlockOwnsItsSummary(t *testing.T) {
 			s.boundaries[j].seq++
 			if s.boundaries[j].gapStart != nil {
 				*s.boundaries[j].gapStart++
+			}
+			if s.boundaries[j].gapEnd != nil {
+				*s.boundaries[j].gapEnd++
 			}
 		}
 	}
@@ -444,19 +448,21 @@ func TestWriterRejectsAnOversizedBlockSummary(t *testing.T) {
 	assert.Equal(t, written, out.Len(), "neither footer nor trailer is written")
 	_, err = w.Close()
 	require.ErrorIs(t, err, ErrWriterFailed)
-
-	_, _, err = buildFooter(blocks2summaries(blocks), 1<<32)
-	require.NoError(t, err, "a limit above the u32 range is capped, not an error")
 }
 
-// blocks2summaries returns the summaries of blocks.
-func blocks2summaries(blocks []sourceBlock) []blockSummary {
-	out := make([]blockSummary, len(blocks))
-	for i := range blocks {
-		out[i] = blocks[i].sum
-	}
+func TestSummaryLen32(t *testing.T) {
+	t.Parallel()
 
-	return out
+	n, ok := summaryLen32(math.MaxUint32, math.MaxUint32)
+	assert.True(t, ok)
+	assert.Equal(t, uint32(math.MaxUint32), n)
+
+	_, ok = summaryLen32(1<<32, math.MaxUint32)
+	assert.False(t, ok, "2^32 does not fit summary_len")
+	_, ok = summaryLen32(1<<32, 1<<40)
+	assert.False(t, ok, "a limit above the u32 range is capped")
+	_, ok = summaryLen32(11, 10)
+	assert.False(t, ok, "a lower limit applies")
 }
 
 func TestNewWriterKeepsANilCaptureID(t *testing.T) {

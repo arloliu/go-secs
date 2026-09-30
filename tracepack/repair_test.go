@@ -536,17 +536,39 @@ func coverageMatches(c *Coverage, capture UUID, seq uint64, ts int64) bool {
 	if c.CaptureID != nil && *c.CaptureID != capture {
 		return false
 	}
-	within := func(v int64, lo, hi *int64) bool {
-		if inverted(lo, hi) {
-			return true
-		}
-
-		return (lo == nil || v >= *lo) && (hi == nil || v <= *hi)
+	// An entry whose first bound exceeds its last, on either side, intersects every query of its capture.
+	if inverted(c.SeqFirst, c.SeqLast) || inverted(c.TimeStart, c.TimeEnd) {
+		return true
 	}
-	seqOK := inverted(c.SeqFirst, c.SeqLast) ||
-		((c.SeqFirst == nil || seq >= *c.SeqFirst) && (c.SeqLast == nil || seq <= *c.SeqLast))
 
-	return seqOK && within(ts, c.TimeStart, c.TimeEnd)
+	return (c.SeqFirst == nil || seq >= *c.SeqFirst) && (c.SeqLast == nil || seq <= *c.SeqLast) &&
+		(c.TimeStart == nil || ts >= *c.TimeStart) && (c.TimeEnd == nil || ts <= *c.TimeEnd)
+}
+
+func TestCoverageMatches(t *testing.T) {
+	t.Parallel()
+
+	own, other := UUID{1}, UUID{2}
+	u := func(v uint64) *uint64 { return new(v) }
+	i := func(v int64) *int64 { return new(v) }
+	tests := []struct {
+		name string
+		c    Coverage
+		want bool
+	}{
+		{name: "inside both", c: Coverage{SeqFirst: u(5), SeqLast: u(15), TimeStart: i(50), TimeEnd: i(150)}, want: true},
+		{name: "seq outside", c: Coverage{SeqFirst: u(11), SeqLast: u(15), TimeStart: i(50), TimeEnd: i(150)}},
+		{name: "time outside", c: Coverage{SeqFirst: u(5), SeqLast: u(15), TimeStart: i(101), TimeEnd: i(150)}},
+		{name: "inverted seqs, time outside", c: Coverage{SeqFirst: u(15), SeqLast: u(5), TimeStart: i(101), TimeEnd: i(150)}, want: true},
+		{name: "inverted times, seq outside", c: Coverage{SeqFirst: u(11), SeqLast: u(15), TimeStart: i(150), TimeEnd: i(50)}, want: true},
+		{name: "unbounded", c: Coverage{}, want: true},
+		{name: "own capture named", c: Coverage{CaptureID: &own}, want: true},
+		{name: "another capture", c: Coverage{CaptureID: &other}},
+		{name: "another capture, inverted", c: Coverage{CaptureID: &other, SeqFirst: u(15), SeqLast: u(5)}},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, coverageMatches(&tt.c, own, 10, 100), tt.name)
+	}
 }
 
 // blockBytes returns the on-disk bytes of every located block of file that keep selects, in file order.
@@ -643,6 +665,9 @@ func TestRepairPatches(t *testing.T) {
 			}},
 		{name: "valid footer a validated block disagrees with", baseline: understated, damaged: flipAll(understated, p, 3),
 			want: []Coverage{hourLost(23, new(uint64(30)))}},
+		{name: "valid footer whose F-3 a validated block disagrees with, failed block", baseline: p.file,
+			damaged: flipAll(resummarized(t, p.file, p.blocks, 0, func(s *blockSummary) { s.qualityUnion |= QualityRedacted }), p, 2),
+			want:    []Coverage{hourLost(21, new(uint64(22)))}},
 		{name: "invalid footer, failed middle block", baseline: p.file, damaged: flipAll(invalidFooterFile(t, p.file), p, 2),
 			want: []Coverage{hourLost(21, new(uint64(22)))}},
 		{name: "invalid footer, failed first block", baseline: p.file, damaged: flipAll(invalidFooterFile(t, p.file), p, 0),
@@ -772,6 +797,17 @@ func TestRepairEdgePacks(t *testing.T) {
 				assert.True(t, known, "block %d: F-3 tag 0x%04X", i, e.Tag)
 			}
 		}
+	})
+
+	t.Run("records in the scope hour outside the period", func(t *testing.T) {
+		t.Parallel()
+
+		// A same-hour clock step can put records outside a segment's period; the scope is still the hour.
+		late := writeRepairPack(t, CodecZstd, func(m *PackMeta) { m.PeriodStart = blockTestHour + hourNs/2 }, false, repairSteps(t))
+		damaged := flipAll(late.file, late, 2)
+		patch, rep := mustRepair(t, damaged)
+		checkPatch(t, late.file, damaged, patch, rep)
+		require.Len(t, rep.Coverage, 1)
 	})
 
 	t.Run("metadata only, unfinalized", func(t *testing.T) {
@@ -1020,4 +1056,160 @@ func TestRunCoverage(t *testing.T) {
 			assert.Equal(t, Coverage{SeqFirst: new(tt.first), SeqLast: tt.last}, c, tt.name)
 		}
 	}
+}
+
+func TestRepairPrecedence(t *testing.T) {
+	t.Parallel()
+
+	p := defaultRepairPack(t)
+	id := UUID(layoutHeader(t, p.file).PackID)
+	extract := writeRepairPack(t, CodecZstd, func(m *PackMeta) {
+		m.PackRole, m.ScopeGeneration, m.ExtractFilter = PackRoleExtract, nil, new("all")
+	}, false, repairSteps(t)).file
+	// Block 0 holds a redacted record and block 3 lies in the next hour, outside the period's.
+	redactedAndOutside := rebuildPack(t, p.file, func(i int, tb *testBlock) {
+		switch i {
+		case 0:
+			tb.headers[0].Quality |= uint16(QualityRedacted)
+		case 3:
+			for j := range tb.headers {
+				tb.headers[j].TSUTCNs += hourNs
+			}
+		default:
+		}
+	})
+
+	tests := []struct {
+		name string
+		file []byte
+		opts RepairOptions
+		want error
+		msg  string
+	}{
+		{name: "a consistent pack before the pack's own id", file: p.file, opts: RepairOptions{Writer: "w", PackID: id}, want: ErrRepairNotNeeded},
+		{name: "a consistent pack before an empty writer", file: p.file, opts: RepairOptions{}, want: ErrRepairNotNeeded},
+		{name: "an extract before an empty writer", file: extract, opts: RepairOptions{}, want: ErrNotRepairable, msg: "extract"},
+		{name: "a block outside the hour before a redacted record", file: redactedAndOutside, opts: repairOpts(),
+			want: ErrNotRepairable, msg: "outside the UTC hour"},
+	}
+	for _, tt := range tests {
+		out, rep, err := repairBytes(t, tt.file, tt.opts)
+		require.ErrorIs(t, err, tt.want, tt.name)
+		if tt.msg != "" {
+			require.ErrorContains(t, err, tt.msg, tt.name)
+		}
+		assert.Empty(t, out, tt.name)
+		assert.Equal(t, mustVerify(t, tt.file), rep.Verify, tt.name)
+	}
+}
+
+// budgetSteps returns n data records of one epoch at seqs 0 to n−1 in blockTestHour, flushed every 10 records.
+func budgetSteps(n int) []footerTestStep {
+	steps := make([]footerTestStep, n)
+	for i := range steps {
+		steps[i] = footerTestStep{rec: testDataRecord(uint64(i), blockTestHour+int64(i), 1), flush: i%10 == 9}
+	}
+
+	return steps
+}
+
+func TestRepairBudgets(t *testing.T) {
+	t.Parallel()
+
+	closed := writeRepairPack(t, CodecZstd, nil, false, budgetSteps(40))
+	open := writeRepairPack(t, CodecZstd, nil, true, budgetSteps(40))
+	require.Len(t, closed.blocks, 4)
+	l := layoutOf(t, closed.file)
+	require.Greater(t, l.tr.FooterUncompressedLen, l.tr.FooterLen, "the footer must compress")
+	var maxBody int64
+	var decodedLarger bool
+	for _, b := range closed.blocks {
+		maxBody = max(maxBody, int64(b.onDiskLen)-format.EnvelopeLen)
+	}
+	for _, b := range closed.blocks {
+		decodedLarger = decodedLarger || int64(b.uncompressedLen) > maxBody
+	}
+	require.True(t, decodedLarger, "a block must decode past every block's on-disk length")
+
+	for _, tt := range []struct {
+		name string
+		file []byte
+		opts ReaderOptions
+	}{
+		{name: "pack metadata over MaxPackMetadataLen", file: closed.file, opts: ReaderOptions{MaxPackMetadataLen: 8}},
+		{name: "block over MaxBlockLen on disk", file: closed.file, opts: ReaderOptions{MaxBlockLen: 16}},
+		{name: "block over MaxBlockLen decoded only", file: closed.file, opts: ReaderOptions{MaxBlockLen: maxBody}},
+		{name: "footer over MaxFooterLen on disk", file: closed.file, opts: ReaderOptions{MaxFooterLen: int64(l.tr.FooterLen) - 1}},
+		{name: "footer over MaxFooterLen decoded only", file: closed.file, opts: ReaderOptions{MaxFooterLen: int64(l.tr.FooterLen)}},
+		{name: "walk past MaxWalkedBlocks", file: open.file, opts: ReaderOptions{MaxWalkedBlocks: 3}},
+	} {
+		opts := repairOpts()
+		opts.Reader = tt.opts
+		out, rep, err := repairBytes(t, tt.file, opts)
+		require.ErrorIs(t, err, ErrReadLimit, tt.name)
+		assert.Equal(t, RepairReport{}, rep, "%s: a budget is an error, never lost records", tt.name)
+		assert.Empty(t, out, tt.name)
+	}
+
+	capture := UUID(layoutHeader(t, open.file).CaptureID)
+	closedCapture := UUID(layoutHeader(t, closed.file).CaptureID)
+	h0, h1 := scopeHour()
+	for _, tt := range []struct {
+		name     string
+		baseline []byte
+		file     []byte
+		opts     ReaderOptions
+		want     []Coverage
+	}{
+		{name: "a walk of exactly MaxWalkedBlocks blocks", baseline: open.file, file: open.file, opts: ReaderOptions{MaxWalkedBlocks: 4},
+			want: []Coverage{lostEntry(capture, 40, nil, h0, h1)}},
+		{name: "a valid footer is not walked", baseline: closed.file, file: flipByte(closed.file, closed.blocks[1].offset+format.EnvelopeLen+1),
+			opts: ReaderOptions{MaxWalkedBlocks: 1},
+			want: []Coverage{lostEntry(closedCapture, 10, new(uint64(19)), closed.blocks[1].tsMin, closed.blocks[1].tsMax)}},
+		{name: "a footer over MaxFooterLen whose CRC fails", baseline: closed.file, file: flipByte(closed.file, l.tr.FooterOffset+1),
+			opts: ReaderOptions{MaxFooterLen: 1}, want: []Coverage{lostEntry(closedCapture, 40, nil, h0, h1)}},
+	} {
+		opts := repairOpts()
+		opts.Reader = tt.opts
+		patch, rep, err := repairBytes(t, tt.file, opts)
+		require.NoError(t, err, tt.name)
+		checkPatch(t, tt.baseline, tt.file, patch, rep)
+		assert.Equal(t, tt.want, rep.Coverage, tt.name)
+	}
+}
+
+func TestRepairCancelledAfterVerification(t *testing.T) {
+	t.Parallel()
+
+	p := defaultRepairPack(t)
+	damaged := flipAll(p.file, p, 1)
+	last := p.blocks[4]
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	// The verification reads the last block first: cancel then, so the verification completes and nothing is written.
+	ra := &firstReadAt{file: damaged, off: int64(last.offset), n: int(last.onDiskLen), first: cancel}
+
+	var out bytes.Buffer
+	rep, err := Repair(ctx, ra, int64(len(damaged)), &out, repairOpts())
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, RepairReport{}, rep)
+	assert.Zero(t, out.Len(), "cancellation before the patch's header writes nothing")
+}
+
+// firstReadAt serves file and calls first on the first read of exactly the bytes at off of length n.
+type firstReadAt struct {
+	file  []byte
+	off   int64
+	n     int
+	done  bool
+	first func()
+}
+
+func (f *firstReadAt) ReadAt(p []byte, off int64) (int, error) {
+	if off == f.off && len(p) == f.n && !f.done {
+		f.done = true
+		f.first()
+	}
+
+	return bytes.NewReader(f.file).ReadAt(p, off)
 }

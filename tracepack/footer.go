@@ -94,10 +94,11 @@ func buildFooter(blocks []blockSummary, maxF3ListLen uint64) ([]byte, *packStats
 		start := len(f3)
 		f3 = appendF3(f3, &blocks[i])
 		n := uint64(len(f3) - start)
-		if n > min(maxF3ListLen, math.MaxUint32) {
+		summaryLen, ok := summaryLen32(n, maxF3ListLen)
+		if !ok {
 			return nil, nil, fmt.Errorf("tracepack: block %d: F-3 entry list of %d bytes exceeds the u32 summary_len", i, n)
 		}
-		index[i] = f2EntryOf(&blocks[i], uint64(start), uint32(n))
+		index[i] = f2EntryOf(&blocks[i], uint64(start), summaryLen)
 	}
 
 	stats := aggregate(blocks)
@@ -126,6 +127,16 @@ func buildFooter(blocks []blockSummary, maxF3ListLen uint64) ([]byte, *packStats
 	out = append(out, f3...)
 
 	return append(out, f5...), stats, nil
+}
+
+// summaryLen32 returns n, the length of a block's F-3 entry list, as the F-2 summary_len,
+// or false when n exceeds limit or 2^32-1, the most summary_len can state.
+func summaryLen32(n, limit uint64) (uint32, bool) {
+	if n > min(limit, math.MaxUint32) {
+		return 0, false
+	}
+
+	return uint32(n), true
 }
 
 // f2EntryOf returns the F-2 block index entry of s, whose F-3 list lies at summaryOffset in F-3 and is summaryLen bytes long.
