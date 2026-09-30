@@ -116,6 +116,8 @@ type Reader struct {
 	trailer *TrailerInfo
 	// footer is the validated footer; nil when it was not used.
 	footer *footerIndex
+	// keepF3 is set when the Reader was opened to keep a valid footer's F-3 section, so rawF3 can return its lists.
+	keepF3 bool
 	// blocks is the block index, from the footer or the forward walk, in file order.
 	blocks []BlockInfo
 	// openDefects holds the defects every read of the pack carries:
@@ -232,12 +234,19 @@ type bootstrap struct {
 //     ErrReadLimit for a pack metadata over MaxPackMetadataLen;
 //     the error of UnmarshalPackMeta.
 func Open(ctx context.Context, ra io.ReaderAt, size int64, opts ReaderOptions) (*Reader, error) {
+	return openReader(ctx, ra, size, opts, false)
+}
+
+// openReader is Open, and with keepF3 set it also keeps a valid footer's F-3 section and each block's span in it,
+// so that rawF3 returns a block's F-3 entry list as stored.
+// Only a merge copies those lists; every other Reader keeps no F-3 bytes.
+func openReader(ctx context.Context, ra io.ReaderAt, size int64, opts ReaderOptions, keepF3 bool) (*Reader, error) {
 	if size < format.FileHeaderLen {
 		return nil, fmt.Errorf("tracepack: object of %d bytes is shorter than the %d-byte file header: %w: %w",
 			size, format.FileHeaderLen, ErrNotTracepack, io.ErrUnexpectedEOF)
 	}
 
-	r := &Reader{ra: ra, size: size, opts: opts.withDefaults()}
+	r := &Reader{ra: ra, size: size, opts: opts.withDefaults(), keepF3: keepF3}
 	b, err := r.roundOne(ctx)
 	if err != nil {
 		return nil, err
@@ -613,7 +622,23 @@ func (r *Reader) decodeFooter(onDisk []byte, tr *format.Trailer) (*footerIndex, 
 		return nil, fmt.Errorf("%w: footer_codec %d: %w", ErrInvalidFooter, tr.FooterCodec, err)
 	}
 
-	return parseFooter(decoded, tr, r.blocksStart())
+	return parseFooter(decoded, tr, r.blocksStart(), r.keepF3)
+}
+
+// rawF3 returns block i's F-3 entry list exactly as the pack's validated footer stores it,
+// the list a merge copies verbatim with the block (the tracepack format specification §10 aggregation rule).
+// It returns nil unless the Reader was opened by openReader with keepF3 set:
+// without it the Reader keeps no F-3 bytes.
+// It also returns nil when the pack's blocks come from the forward walk, since the footer is invalid or not used.
+// The list aliases the Reader's copy of the F-3 section, which lives as long as the Reader and is never modified;
+// the caller must not modify it.
+// Its capacity ends where the list does, so an append never writes into the section.
+func (r *Reader) rawF3(i int) []byte {
+	if r.footer == nil || !r.keepF3 {
+		return nil
+	}
+
+	return r.footer.f3List(i)
 }
 
 // fileHeaderClass returns the public sentinel for an error of format.UnmarshalFileHeader:

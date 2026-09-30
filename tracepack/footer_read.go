@@ -1,6 +1,7 @@
 package tracepack
 
 import (
+	"bytes"
 	"cmp"
 	"errors"
 	"fmt"
@@ -25,6 +26,13 @@ type footerIndex struct {
 	// blocks holds each block's F-2 entry and F-3 summary typed into the writer's shape, in file order;
 	// a block whose seqs are contiguous has one seq range, first_seq to last_seq.
 	blocks []blockSummary
+	// f3 is a copy of the F-3 section, kept only when parseFooter was asked to keep it, else nil;
+	// being a copy, it retains no other part of the decoded footer.
+	// It is never modified, and the lists f3List returns alias it.
+	f3 []byte
+	// f3Spans locates each block's F-3 entry list in f3, parallel to blocks; nil when f3 is not kept.
+	// Two spans may overlap: the footer validation requires each to lie inside F-3, not that they be disjoint.
+	f3Spans []f3Span
 }
 
 // footerSections holds the F-2, F-3 and F-5 sections of a decoded footer.
@@ -32,6 +40,12 @@ type footerSections struct {
 	f2 []byte
 	f3 []byte
 	f5 []byte
+}
+
+// f3Span is the location of one block's F-3 entry list in the F-3 section: its F-2 summary_offset and summary_len.
+type f3Span struct {
+	offset uint64
+	n      uint32
 }
 
 // parseFooter decodes a decoded footer and applies the footer validation of the tracepack format specification §10.
@@ -45,11 +59,13 @@ type footerSections struct {
 // Every section and summary location is bounds-checked before it slices,
 // and the F-2 section is found inside decoded before its entries are allocated,
 // so no input makes parseFooter panic or allocate beyond what decoded's length bounds.
+// With keepF3 set, a valid footer's index also keeps a copy of F-3 and each block's span in it, for f3List;
+// without it the index keeps neither.
 //
 // Returns:
 //   - *footerIndex: the decoded footer; nil on error.
 //   - error: nil, or an error wrapping ErrInvalidFooter that names the failed check and, for a block, its index.
-func parseFooter(decoded []byte, tr *format.Trailer, blocksStart uint64) (*footerIndex, error) {
+func parseFooter(decoded []byte, tr *format.Trailer, blocksStart uint64, keepF3 bool) (*footerIndex, error) {
 	pro, err := format.UnmarshalFooterPrologue(decoded)
 	if err != nil {
 		return nil, footerErrorf("F-1: %w", err)
@@ -88,7 +104,12 @@ func parseFooter(decoded []byte, tr *format.Trailer, blocksStart uint64) (*foote
 		return nil, err
 	}
 
-	return &footerIndex{blocks: blocks}, nil
+	idx := &footerIndex{blocks: blocks}
+	if keepF3 {
+		idx.retainF3(sec.f3, entries)
+	}
+
+	return idx, nil
 }
 
 // checkPrologue checks the F-1 fields UnmarshalFooterPrologue leaves to the caller:
@@ -538,6 +559,30 @@ func seqRangeOf(e tlv.Entry) (seqRange, error) {
 // msg may wrap a further error with %w.
 func footerErrorf(msg string, args ...any) error {
 	return fmt.Errorf("%w: %w", ErrInvalidFooter, fmt.Errorf(msg, args...))
+}
+
+// retainF3 makes the index keep a copy of f3, the validated F-3 section,
+// and each block's span in it, taken from entries, the blocks' F-2 entries.
+// F-3 is copied, not sliced, so the index neither keeps the decoded footer alive nor changes when that buffer does.
+func (idx *footerIndex) retainF3(f3 []byte, entries []format.F2Entry) {
+	idx.f3 = bytes.Clone(f3)
+	idx.f3Spans = make([]f3Span, len(entries))
+	for i := range entries {
+		idx.f3Spans[i] = f3Span{offset: entries[i].SummaryOffset, n: entries[i].SummaryLen}
+	}
+}
+
+// f3List returns block i's F-3 entry list exactly as the footer stores it,
+// retired, reserved and unknown tags, entry order and trailing zero count elements included.
+// The list aliases the index's F-3 section, which is never modified, and the caller must not modify it;
+// its capacity ends where the list does, so an append copies it instead of writing into the section.
+// The index must keep F-3: parseFooter's keepF3 was set.
+func (idx *footerIndex) f3List(i int) []byte {
+	sp := idx.f3Spans[i]
+	// parseFooter checked every span against F-3, so end lies inside f3.
+	end := sp.offset + uint64(sp.n)
+
+	return idx.f3[sp.offset:end:end]
 }
 
 // setF3 folds one entry of the block's F-3 list into s, checking what a single entry can show;
