@@ -454,6 +454,24 @@ func (s *blockSummary) commitmentFacts() (classified, oversized, redacted bool) 
 	return classified, oversized, s.qualityUnion.Has(QualityRedacted)
 }
 
+// checkStoredCommitments rejects the records of a stored pack, as facts describe them,
+// when its pack metadata meta cannot describe them:
+// a classified record without classifier, an oversized record without max_frame_len,
+// or a redacted record, which no stored pack holds.
+// Only the AnyClassified, AnyOversized and AnyRedacted facts are read.
+func checkStoredCommitments(meta *PackMeta, facts PackFacts) error {
+	switch {
+	case facts.AnyClassified && len(meta.Classifiers) == 0:
+		return errors.New("a classified record without classifier in the pack metadata")
+	case facts.AnyOversized && len(meta.MaxFrameLens) == 0:
+		return errors.New("an oversized record without max_frame_len in the pack metadata")
+	case facts.AnyRedacted:
+		return errors.New("a redacted record, which no stored pack holds")
+	default:
+		return nil
+	}
+}
+
 // addRecord folds one record into s.
 func (s *blockSummary) addRecord(h *format.RecordHeader, ev *TransportEvent) {
 	if s.recordCount == 0 {
