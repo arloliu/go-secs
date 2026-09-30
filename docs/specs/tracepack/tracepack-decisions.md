@@ -404,3 +404,23 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   bounding every failed block by its neighbours instead would report the seq gaps between blocks and every time query of the hour as lost.
   Rejected: always trusting the footer; always the neighbour bounds.
   Spec: [FMT §13] (v2.15).
+
+## 2026-09-30 transitive supersession
+
+- G5-107 Transitive supersession (2026-09-30):
+  a patch based on G, one with a commit object whose `patch_base` is G's `replacement_set_id`,
+  removes the packs its `supersedes` names from the view, also when a later patch names that patch in turn,
+  so the packs a repaired patch replaced stay replaced.
+  This settles the view question that G5-104 left to `ActiveView`.
+  A patch may name patches in the view.
+  Merge's cumulative `compacted_from` lists every generation-0 pack that a patch based on G names,
+  so the packs of such a chain are folded, and become deletable, together.
+  Rationale: patch registration is serialized and a patch names only packs in the view,
+  so chains of `supersedes` are acyclic and the view needs no fixpoint;
+  the later patch holds the earlier patch's recoverable records and carries its `coverage` ([STO §6]),
+  so nothing the earlier patch replaced is needed again.
+  Rejected: applying only the `supersedes` of patches still in the view,
+  under which a later patch would bring back the damaged pack an earlier patch replaced, and the next merge would fold it;
+  the transitive view without the `compacted_from` change,
+  under which a replaced segment would miss the list, return to the next generation's view and never become deletable.
+  Spec: [STO §4], [STO §5], [STO §8], [FMT §5], [FMT §13] (v2.16).

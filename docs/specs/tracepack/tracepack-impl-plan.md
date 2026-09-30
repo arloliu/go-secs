@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation plan (v1)
 
 Status: active (2026-09-30) — phase 4 done (`Verify`, `Repair`); phase 5 next.
-Implements: tracepack v2.15 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
+Implements: tracepack v2.16 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
 
@@ -221,10 +221,10 @@ and their vectors (the durable clock-step → size roll → empty spool → cras
 ### Phase 5 — Merge, MergeIterate, FindTransaction
 
 - `ActiveView(packs, commits)`: the [STO §4] view of a scope from pack metadata and commit objects
-  (highest-ranked complete generation by (`publisher_epoch`, `scope_generation`), unconsumed generation-0 packs, patches with a matching `patch_base` naming segments or generation members)
+  (highest-ranked complete generation by (`publisher_epoch`, `scope_generation`), unconsumed generation-0 packs, patches with a matching `patch_base` naming segments, generation members or patches)
   and the packs deletable under [STO §4]; staging segments are part of the input.
-  To settle first (G5-104): whether the packs an in-view patch removed come back when a later patch, the repair of that patch, names only it
-  ([STO §4] view, [STO §5] patch acceptance).
+  Supersession is transitive (G5-107): every patch based on G removes the packs it names, also one that a later patch replaced,
+  and Merge's `compacted_from` lists every generation-0 pack those patches name ([STO §4]).
   Whether a commit object may be deleted is the service's decision from its record of deleted packs, outside `ActiveView` ([STO §4] Deletion).
 - Listing-backed `PackSource` for scopes the catalog does not index: a coherent observation ([STO §5]) —
   the commit listing repeated until two complete listings agree, then the `archive/` and `staging/` listings, then a [FMT §13] bootstrap of each listed pack —
