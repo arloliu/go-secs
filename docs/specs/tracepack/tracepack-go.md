@@ -1,6 +1,6 @@
 # tracepack — Go reference implementation
 
-Status: current (2026-09-29)
+Status: current (2026-09-30)
 Implements tracepack v2.14 (format 1.0): `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
@@ -111,13 +111,15 @@ The query service, its catalog database and the live-tail interface are designed
   Path resolution uses the module's own E5 item walker, which reports byte offsets; it does not depend on go-secs.
   A record it cannot screen, a source record with `redacted` and a source pack with `redaction_policy` fail the extract before any output.
   `ExtractReport` counts masks per rule and whole-text masks.
-- `Verify(ctx, ra, size, opts) (Report, error)`: the outcome, failed blocks, disagreements, writer defects and validated prefix of [FMT §13];
+- `Verify(ctx, ra, size, opts) (VerifyReport, error)`: the outcome, failed blocks, disagreements, writer defects and validated prefix of [FMT §13];
   a file header or pack metadata that cannot be read is an error, as for `Open`.
-- `Repair(ctx, src, dst) Report`: writes a generation-0 `repair` patch naming the damaged pack, with `coverage` ([STO §6]);
+- `Repair(ctx, src, dst) (RepairReport, error)`: writes a generation-0 `repair` patch naming the damaged pack, with `coverage` ([STO §6]);
   the next `Merge` folds it into a generation, once the service admits the patch to an indexed scope ([STO §5]).
   `Repair` rejects an extract ([STO §2]).
-- `Recover(ctx, spool, dst) Report`, deferred until a local-spool recorder is planned (G5-91):
-  finalizes an unfinalized spool file as a segment of its original capture with a `stop-unclean` boundary ([STO §4]).
+  `RepairReport` holds the damaged pack's `VerifyReport` beside what the patch records.
+- `Recover(ctx, spool, dst) (RecoverReport, error)`, deferred until a local-spool recorder is planned (G5-91):
+  finalizes an unfinalized spool file as a segment of its original capture with a `stop-unclean` boundary ([STO §4]);
+  `RecoverReport` holds the spool file's `VerifyReport`.
 - `ExportJSONL(ctx, r, w)`: canonical export ([FMT §15]).
 
 ## 4. Classifier: go-secs → decode_status

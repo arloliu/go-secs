@@ -94,7 +94,7 @@ func (k WriterDefectKind) String() string {
 type WriterDefect struct {
 	// Kind classifies the defect.
 	Kind WriterDefectKind
-	// Block is the index of the block in file order, as Report.Blocks counts them.
+	// Block is the index of the block in file order, as VerifyReport.Blocks counts them.
 	Block int
 	// Offset is the file offset of the block's envelope.
 	Offset int64
@@ -111,8 +111,8 @@ type VerifyOptions struct {
 	Reader ReaderOptions
 }
 
-// Report is the result of Verify (the tracepack format specification §13).
-type Report struct {
+// VerifyReport is the result of Verify (the tracepack format specification §13).
+type VerifyReport struct {
 	// Outcome is the pack's verification outcome.
 	Outcome Outcome
 	// Finalized reports I-5: the trailer magic and CRC match, the trailer places the footer after the pack metadata,
@@ -190,31 +190,31 @@ func classifyOutcome(finalized bool, failed []bool, walkStopped, inconsistent bo
 //   - opts: the bootstrap and the reader budgets.
 //
 // Returns:
-//   - Report: the outcome and its evidence; the zero Report on an error.
+//   - VerifyReport: the outcome and its evidence; the zero VerifyReport on an error.
 //   - error: every error of Open, for a file header or pack metadata that cannot be read;
 //     an error wrapping ErrReadLimit for a block over MaxBlockLen,
 //     for the footer of a finalized pack over MaxFooterLen, on disk or decoded,
 //     or for a forward walk that reached MaxWalkedBlocks;
 //     ctx's error, wrapped; a ReadAt error, wrapping io.ErrUnexpectedEOF for a short read.
-func Verify(ctx context.Context, ra io.ReaderAt, size int64, opts VerifyOptions) (Report, error) {
+func Verify(ctx context.Context, ra io.ReaderAt, size int64, opts VerifyOptions) (VerifyReport, error) {
 	r, err := Open(ctx, ra, size, opts.Reader)
 	if err != nil {
-		return Report{}, err
+		return VerifyReport{}, err
 	}
 
 	return r.verify(ctx)
 }
 
-// verify reads every located block of r in full and builds the Report of Verify.
-func (r *Reader) verify(ctx context.Context) (Report, error) {
+// verify reads every located block of r in full and builds the VerifyReport of Verify.
+func (r *Reader) verify(ctx context.Context) (VerifyReport, error) {
 	if r.finalized && errors.Is(r.footerErr, ErrReadLimit) {
-		return Report{}, fmt.Errorf("tracepack: verify: %w", r.footerErr)
+		return VerifyReport{}, fmt.Errorf("tracepack: verify: %w", r.footerErr)
 	}
 	if r.walkStop != nil && r.walkStop.Reason == ReasonLimit {
-		return Report{}, fmt.Errorf("tracepack: verify: %w", r.walkStop.Err)
+		return VerifyReport{}, fmt.Errorf("tracepack: verify: %w", r.walkStop.Err)
 	}
 
-	rep := Report{Finalized: r.finalized, FooterErr: r.footerErr, Blocks: len(r.blocks), PrefixEnd: r.blocksStart()}
+	rep := VerifyReport{Finalized: r.finalized, FooterErr: r.footerErr, Blocks: len(r.blocks), PrefixEnd: r.blocksStart()}
 	failed := make([]bool, len(r.blocks))
 	inPrefix := true
 	// prevSeq is the last seq of the latest validated block; valid iff hasPrev.
@@ -226,16 +226,16 @@ func (r *Reader) verify(ctx context.Context) (Report, error) {
 	var buf blockBuf
 	for i := range r.blocks {
 		if err := ctx.Err(); err != nil {
-			return Report{}, fmt.Errorf("tracepack: verify: %w", err)
+			return VerifyReport{}, fmt.Errorf("tracepack: verify: %w", err)
 		}
 
 		info := &r.blocks[i]
 		d, def, err := r.readBlock(i, &buf)
 		if err != nil {
-			return Report{}, err
+			return VerifyReport{}, err
 		}
 		if def != nil && def.Reason == ReasonLimit {
-			return Report{}, fmt.Errorf("tracepack: verify: %w", def.Err)
+			return VerifyReport{}, fmt.Errorf("tracepack: verify: %w", def.Err)
 		}
 		if d == nil {
 			failed[i] = true

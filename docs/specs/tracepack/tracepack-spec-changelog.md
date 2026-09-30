@@ -21,6 +21,8 @@ The deferred proposals and the decision log are listed in `README.md`.
   the new §5.5 maps wire events to records, the outbound time being the [SEM §4] hand-to-socket time.
   Open questions 1 and 2 are answered;
   question 3, on marking a record that reached the recorder after its ordering window, is added.
+- 2026-09-30: §3 names each operation's report after it, as `MergeReport` and `ExtractReport` already were:
+  `Verify` returns a `VerifyReport`, and `Repair` and `Recover` return a `RepairReport` and a `RecoverReport` that hold the `VerifyReport` of their input.
 
 ## Changes vs v1 (summary)
 
