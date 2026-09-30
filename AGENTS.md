@@ -17,6 +17,7 @@ Rules are in `.agents/rules/`. Read any file whose topic matches the task before
 | `700-lint-after-write.md` | Lint workflow |
 
 Skills (invoke by name):
+`.agents/skills/` holds them, and `.claude/skills` is a symlink to it so Claude Code loads the same files.
 
 | Skill | Purpose |
 |-------|---------|
