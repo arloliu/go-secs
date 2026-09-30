@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/binary"
 	"math"
+	"runtime"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -331,4 +333,280 @@ func TestWriterRecordsBlockSummaries(t *testing.T) {
 	assert.Equal(t, tr.FooterOffset, next, "the footer follows the last block")
 	assert.Equal(t, []uint64{0, 2, 4}, []uint64{w.blocks[0].firstSeq, w.blocks[1].firstSeq, w.blocks[2].firstSeq})
 	assert.Equal(t, []uint64{1, 3, 4}, []uint64{w.blocks[0].lastSeq, w.blocks[1].lastSeq, w.blocks[2].lastSeq})
+}
+
+// epochRecord is one record of the epoch summary tests: its header, and its transport event or nil.
+type epochRecord struct {
+	h  format.RecordHeader
+	ev *TransportEvent
+}
+
+// epochRecords returns one record per element of epochs, in that epoch, with consecutive seqs from firstSeq
+// and timestamps that do not follow the seqs, so every epoch's ts range moves both ways.
+// The records at the positions closes lists are socket-close events.
+func epochRecords(firstSeq uint64, epochs []uint32, closes ...int) []epochRecord {
+	recs := make([]epochRecord, len(epochs))
+	for i, e := range epochs {
+		seq := firstSeq + uint64(i)
+		recs[i].h = format.RecordHeader{Seq: seq, TSUTCNs: blockTestHour + int64(seq*7919%1000), Epoch: e}
+		if slices.Contains(closes, i) {
+			recs[i].ev = &TransportEvent{Event: EventSocketClose}
+		}
+	}
+
+	return recs
+}
+
+// epochRange returns the epochs from first to last, ascending or descending.
+func epochRange(first, last uint32) []uint32 {
+	var out []uint32
+	for e := first; ; {
+		out = append(out, e)
+		switch {
+		case e == last:
+			return out
+		case e < last:
+			e++
+		default:
+			e--
+		}
+	}
+}
+
+// summarize folds recs into s, in order.
+func summarize(s *blockSummary, recs []epochRecord) {
+	for i := range recs {
+		s.addRecord(&recs[i].h, recs[i].ev)
+	}
+}
+
+// foldEpochs returns the epoch entries of recs as a linear search over the entries finds them:
+// one per epoch in order of first appearance, keeping each epoch's first socket-close seq.
+func foldEpochs(recs []epochRecord) []epochSummary {
+	var out []epochSummary
+	for _, r := range recs {
+		i := slices.IndexFunc(out, func(e epochSummary) bool { return e.epoch == r.h.Epoch })
+		if i < 0 {
+			out = append(out, epochSummary{epoch: r.h.Epoch, seqFirst: r.h.Seq, tsMin: r.h.TSUTCNs, tsMax: r.h.TSUTCNs})
+			i = len(out) - 1
+		}
+		e := &out[i]
+		e.recordCount++
+		e.seqLast = r.h.Seq
+		e.tsMin, e.tsMax = min(e.tsMin, r.h.TSUTCNs), max(e.tsMax, r.h.TSUTCNs)
+		if r.ev != nil && !e.hasCloseSeq {
+			e.closeSeq, e.hasCloseSeq = r.h.Seq, true
+		}
+	}
+
+	return out
+}
+
+// requireEpochIndex checks that s's epoch index, when s holds one, names the entry of every epoch of s.
+func requireEpochIndex(t *testing.T, s *blockSummary) {
+	t.Helper()
+
+	if s.epochIndex == nil {
+		return
+	}
+	require.Len(t, s.epochIndex, len(s.epochs))
+	for i := range s.epochs {
+		require.Equal(t, i, s.epochIndex[s.epochs[i].epoch], "epoch %d", s.epochs[i].epoch)
+	}
+}
+
+// TestBlockSummaryEpochLookupIsLinear checks that a block summary finds a record's epoch entry in bounded work:
+// 100 000 records in 100 000 epochs, then 100 000 records revisiting them in reverse,
+// examine at most three entries per record in total, where a linear search examines about n²/2 per pass.
+// It is not parallel because it sets epochProbe, a package variable:
+// Go starts the parallel tests only after every sequential top-level test has finished.
+func TestBlockSummaryEpochLookupIsLinear(t *testing.T) {
+	var examined int
+	epochProbe = func(n int) { examined += n }
+	t.Cleanup(func() { epochProbe = nil })
+
+	const n = 100_000
+	recs := slices.Concat(epochRecords(0, epochRange(0, n-1)), epochRecords(n, epochRange(n-1, 0)))
+	var s blockSummary
+	summarize(&s, recs)
+	assert.LessOrEqual(t, examined, 3*len(recs), "entries examined for %d records", len(recs))
+
+	want := make([]epochSummary, n)
+	for i := range want {
+		seq := uint64(i)
+		want[i] = epochSummary{
+			epoch: uint32(i), recordCount: 2, seqFirst: seq, seqLast: 2*n - 1 - seq,
+			tsMin: min(recs[i].h.TSUTCNs, recs[2*n-1-i].h.TSUTCNs), tsMax: max(recs[i].h.TSUTCNs, recs[2*n-1-i].h.TSUTCNs),
+		}
+	}
+	assert.Equal(t, want, s.epochs)
+	requireEpochIndex(t, &s)
+}
+
+// TestBlockSummaryEpochsScaleLinearly summarizes blocks of 10 000 and 100 000 records, each record in an epoch of its own,
+// as BenchmarkBlockSummaryEpochs does:
+// each block allocates at most 1 KiB per record,
+// and the larger one allocates at most 20 times what the smaller one does and takes at most 20 times as long,
+// where a search over the epoch entries would take about 100 times as long.
+// A block's time is the fastest of several runs, which keeps a stray pause out of the ratio;
+// no absolute time is asserted, since it would depend on the machine and its load.
+// It is not parallel: no other test of the package runs beside the timed runs,
+// and it measures the process-wide TotalAlloc.
+func TestBlockSummaryEpochsScaleLinearly(t *testing.T) {
+	const runs = 5
+
+	// measure returns the fastest of the runs that summarize n records in n epochs, and what one run allocates.
+	measure := func(n uint32) (time.Duration, uint64) {
+		recs := epochRecords(0, epochRange(0, n-1))
+		best := time.Duration(math.MaxInt64)
+		var alloc uint64
+		for range runs {
+			var s blockSummary
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			start := time.Now()
+			summarize(&s, recs)
+			d := time.Since(start)
+			runtime.ReadMemStats(&after)
+
+			require.Len(t, s.epochs, int(n))
+			best, alloc = min(best, d), after.TotalAlloc-before.TotalAlloc
+		}
+
+		return best, alloc
+	}
+
+	smallTime, smallAlloc := measure(10_000)
+	largeTime, largeAlloc := measure(100_000)
+	t.Logf("10 000 records: %v, %d bytes; 100 000 records: %v, %d bytes", smallTime, smallAlloc, largeTime, largeAlloc)
+	assert.LessOrEqual(t, smallAlloc, uint64(10_000<<10), "at most 1 KiB per record")
+	assert.LessOrEqual(t, largeAlloc, uint64(100_000<<10), "at most 1 KiB per record")
+	assert.LessOrEqual(t, largeAlloc, 20*smallAlloc, "allocation grows linearly")
+	assert.LessOrEqual(t, largeTime, 20*smallTime, "time grows linearly")
+}
+
+// TestBlockSummaryEpochIndex checks that a block summary's epoch entries equal a linear search's,
+// below the threshold where it keeps an epoch index, across it, and when records revisit earlier epochs,
+// the first socket-close seq of an epoch included.
+func TestBlockSummaryEpochIndex(t *testing.T) {
+	t.Parallel()
+
+	// indexed says whether a lookup found more than maxLinearEpochs entries, so the summary built its epoch index.
+	tests := []struct {
+		name    string
+		epochs  []uint32
+		closes  []int
+		indexed bool
+	}{
+		{"one epoch", []uint32{7, 7, 7, 7}, []int{1, 3}, false},
+		{"at most eight epochs, revisited", []uint32{1, 2, 1, 3, 4, 5, 6, 7, 8, 2, 8, 1}, []int{2, 9}, false},
+		{"nine epochs, the last one new", epochRange(0, 8), nil, false},
+		{"nine epochs, then the last one again", slices.Concat(epochRange(0, 8), []uint32{8}), nil, false},
+		{"nine epochs, then an earlier one", slices.Concat(epochRange(0, 8), []uint32{4}), nil, true},
+		{
+			// Epoch 3 closes before the index exists and again after it; epoch 5 closes only after it.
+			"crossing the threshold, revisited", slices.Concat(epochRange(0, 20), []uint32{0, 5, 20, 9, 9, 3, 5}),
+			[]int{3, 22, 26}, true,
+		},
+		{"descending, then revisited", slices.Concat(epochRange(30, 0), []uint32{30, 0, 15}), []int{31}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			recs := epochRecords(10, tt.epochs, tt.closes...)
+			var s blockSummary
+			summarize(&s, recs)
+			assert.Equal(t, foldEpochs(recs), s.epochs)
+			assert.Equal(t, tt.indexed, s.epochIndex != nil)
+			requireEpochIndex(t, &s)
+		})
+	}
+}
+
+// TestBlockSummaryCloneHoldsNoEpochIndex checks that a clone of a summary with an epoch index shares none with it:
+// records added to each afterwards reach only that one, which builds its own index when it needs one.
+func TestBlockSummaryCloneHoldsNoEpochIndex(t *testing.T) {
+	t.Parallel()
+
+	for _, n := range []uint32{4, 12} {
+		recs := slices.Concat(epochRecords(0, epochRange(0, n-1)), epochRecords(uint64(n), []uint32{2}))
+		var s blockSummary
+		summarize(&s, recs)
+		require.Equal(t, n > maxLinearEpochs, s.epochIndex != nil, "%d epochs", n)
+
+		c := s.clone()
+		assert.Nil(t, c.epochIndex, "%d epochs", n)
+
+		// Each side gains epochs past the threshold and revisits one of the shared ones.
+		sMore := epochRecords(100, slices.Concat(epochRange(100, 110), []uint32{1, 105}), 11)
+		cMore := epochRecords(100, slices.Concat(epochRange(200, 210), []uint32{1, 205}), 12)
+		summarize(&s, sMore)
+		summarize(&c, cMore)
+
+		assert.Equal(t, foldEpochs(slices.Concat(recs, sMore)), s.epochs, "%d epochs", n)
+		assert.Equal(t, foldEpochs(slices.Concat(recs, cMore)), c.epochs, "%d epochs", n)
+		requireEpochIndex(t, &s)
+		requireEpochIndex(t, &c)
+		assert.NotContains(t, s.epochIndex, uint32(200), "%d epochs", n)
+		assert.NotContains(t, c.epochIndex, uint32(100), "%d epochs", n)
+	}
+}
+
+// TestBlockBuilderResetDropsEpochIndex checks that resetting the open block drops its epoch index with its epochs,
+// so the next block's summary holds only its own records.
+func TestBlockBuilderResetDropsEpochIndex(t *testing.T) {
+	t.Parallel()
+
+	var b blockBuilder
+	for _, r := range epochRecords(0, slices.Concat(epochRange(0, 11), []uint32{3})) {
+		b.add(&r.h, nil, r.ev)
+	}
+	require.NotNil(t, b.summary.epochIndex)
+
+	b.reset()
+	assert.Nil(t, b.summary.epochIndex)
+
+	next := epochRecords(20, slices.Concat(epochRange(20, 11), []uint32{3, 20}), 13)
+	for _, r := range next {
+		b.add(&r.h, nil, r.ev)
+	}
+	assert.Equal(t, foldEpochs(next), b.summary.epochs)
+	requireEpochIndex(t, &b.summary)
+}
+
+// TestWriterKeepsNoEpochIndex checks a block whose records span more epochs than a summary searches linearly:
+// the Writer keeps its summary without the epoch index, a full read summarizes it to the same epoch entries,
+// and the pack verifies finalized-consistent.
+func TestWriterKeepsNoEpochIndex(t *testing.T) {
+	t.Parallel()
+
+	meta := &PackMeta{
+		ToolID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
+		PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)),
+		PeriodStart: blockTestHour, PeriodEnd: blockTestHour + hourNs,
+	}
+	var buf bytes.Buffer
+	w, err := NewWriter(&buf, WriterOptions{Meta: meta, Codec: CodecZstd, BlockThreshold: 1 << 16})
+	require.NoError(t, err)
+	epochs := slices.Concat(epochRange(0, 11), []uint32{3, 0, 11, 3})
+	for i, e := range epochs {
+		r := testDataRecord(uint64(i), blockTestHour+int64(i), e)
+		require.NoError(t, w.Append(&r))
+	}
+	_, err = w.Close()
+	require.NoError(t, err)
+
+	require.Len(t, w.blocks, 1)
+	assert.Nil(t, w.blocks[0].epochIndex)
+	require.Len(t, w.blocks[0].epochs, 12)
+
+	_, blocks := readSourceBlocks(t, buf.Bytes())
+	require.Len(t, blocks, 1)
+	assert.Nil(t, blocks[0].sum.epochIndex)
+	assert.Equal(t, w.blocks[0].epochs, blocks[0].sum.epochs)
+
+	v := mustVerify(t, buf.Bytes())
+	assert.Equal(t, OutcomeFinalizedConsistent, v.Outcome, "failed %v, disagreements %v", v.Failed, v.Disagreements)
 }
