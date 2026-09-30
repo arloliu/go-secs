@@ -42,6 +42,9 @@ type testBlock struct {
 	patchEnv func(*format.BlockEnvelope)
 	// patchEntry, when set, adjusts the block's F-2 entry.
 	patchEntry func(*format.F2Entry)
+	// patchRows, when set, adjusts the encoded record headers, one row of rhl bytes per record, before they are transposed;
+	// it can set the reserved and retired bits a record header encoder masks.
+	patchRows func(rows []byte, rhl int)
 }
 
 // storedBlocks returns the records the Writer stored for recs, split into the blocks it wrote.
@@ -309,6 +312,9 @@ func (b *testBlock) encode(t testing.TB) (format.BlockEnvelope, []byte) {
 	rhl := len(rows)
 	if n := len(b.headers); n > 0 {
 		rhl /= n
+	}
+	if b.patchRows != nil {
+		b.patchRows(rows, rhl)
 	}
 	body := format.TransposeHeaders(nil, rows, len(b.headers), rhl)
 	for _, p := range b.payloads {

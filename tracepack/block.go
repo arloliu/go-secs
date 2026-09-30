@@ -2,6 +2,7 @@ package tracepack
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/arloliu/go-secs/tracepack/internal/codec"
 	"github.com/arloliu/go-secs/tracepack/internal/format"
@@ -235,6 +236,35 @@ func (b *blockBuilder) reset() {
 	b.headers = b.headers[:0]
 	b.payloads = b.payloads[:0]
 	b.summary = blockSummary{}
+}
+
+// clone returns a copy of s that shares no memory with it.
+func (s *blockSummary) clone() blockSummary {
+	c := *s
+	c.kindCounts = slices.Clone(s.kindCounts)
+	c.dirCounts = slices.Clone(s.dirCounts)
+	c.decodeStatusCounts = slices.Clone(s.decodeStatusCounts)
+	c.epochs = slices.Clone(s.epochs)
+	c.seqRanges = slices.Clone(s.seqRanges)
+	c.boundaries = slices.Clone(s.boundaries)
+	for i := range c.boundaries {
+		c.boundaries[i].gapStart = clonePtr(c.boundaries[i].gapStart)
+		c.boundaries[i].gapEnd = clonePtr(c.boundaries[i].gapEnd)
+	}
+
+	return c
+}
+
+// anyClassified reports whether any record of s has a decode_status other than not-attempted and not-applicable,
+// a value outside the registry included, as Append's commitment check counts it.
+func (s *blockSummary) anyClassified() bool {
+	for v, n := range s.decodeStatusCounts {
+		if n > 0 && DecodeStatus(v) != DecodeStatusNotAttempted && DecodeStatus(v) != DecodeStatusNotApplicable {
+			return true
+		}
+	}
+
+	return false
 }
 
 // addRecord folds one record into s.

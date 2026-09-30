@@ -3,6 +3,7 @@ package tracepack
 import (
 	"bytes"
 	"context"
+	"math"
 	"slices"
 	"testing"
 
@@ -312,7 +313,8 @@ func resummarized(t testing.TB, file []byte, blocks []blockSummary, i int, edit 
 
 	changed := cloneSummaries(blocks)
 	edit(&changed[i])
-	footer, _ := buildFooter(changed)
+	footer, _, err := buildFooter(changed, math.MaxUint32)
+	require.NoError(t, err)
 
 	return refooter(t, file, footer)
 }
