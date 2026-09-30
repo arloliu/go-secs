@@ -3,7 +3,7 @@ type: Bundle Conventions
 title: go-secs memex conventions
 unit: go-package
 unit_globs: ["*/"]
-exclude: [internal, tools, benchmarks, integration, docs, tmp, .worktrees, .agents, .claude, .github, .vscode, .codex, .superpowers, .antigravitycli, .knowledges]
+exclude: [internal, tools, scripts, tracepack, benchmarks, integration, docs, tmp, .worktrees, .agents, .claude, .github, .vscode, .codex, .superpowers, .antigravitycli, .knowledges]
 scope: mechanics
 pointer_style: symbol
 tracked: true
@@ -38,6 +38,7 @@ declined:
   - hsms/endpoint.go
   - hsms/transport.go
   - hsms/data_msg_codec.go
+  - hsms/wire_observer.go
   - hsmsss/config.go
   - secs1/config.go
   - logger/slog.go
@@ -48,7 +49,8 @@ declined:
 
 The seven public packages named in `.agents/rules/100-overview.md`: `gem`, `hsms`, `hsmsss`, `logger`, `secs1`, `secs2`, `sml`.
 
-`unit_globs` is `*/` rather than an explicit list so a **new** public package is proposed by the coverage sweep instead of staying invisible. Everything not a public package is excluded: `internal/` (private by prime directive 3), `tools/gemgen` (generator, not library surface), `benchmarks/`, `integration/`, and the `*test` helper subpackages (`hsms/hsmstest`, `logger/loggertest`), which sit below the glob's depth anyway.
+`unit_globs` is `*/` rather than an explicit list so a **new** public package is proposed by the coverage sweep instead of staying invisible.
+Everything not a public package is excluded: `internal/` (private by prime directive 3), `tools/gemgen` (generator, not library surface), `scripts/` (repo tooling), `tracepack/` (a nested module with its own spec under `docs/specs/tracepack/`), `benchmarks/`, `integration/`, and the `*test` helper subpackages (`hsms/hsmstest`, `logger/loggertest`), which sit below the glob's depth anyway.
 
 # What earns an entry
 

@@ -10,7 +10,10 @@ Owns the message layer — `ControlMessage`, `DataMessage`, construction with da
 
 # Boundary
 
-Owns no sockets and no wire framing. `hsmsss` and `secs1` supply the transport and must both keep satisfying `hsms.Connection` / `hsms.Session` (prime directive 4). Item semantics belong to `secs2`.
+Owns no sockets and no wire framing.
+`hsmsss` and `secs1` supply the transport through the unexported `transport` seam,
+and `hsmsss.New` / `secs1.New` must both keep returning a `Connection` that satisfies `hsms.Connection` (prime directive 4).
+Item semantics belong to `secs2`.
 
 # Entries
 
@@ -36,7 +39,7 @@ Owns no sockets and no wire framing. `hsmsss` and `secs1` supply the transport a
 
 - frame decode: `hsms/` → `DecodeHSMSMessage`
 - construction: `hsms/` → `NewDataMessage`, `NewSelectReq`, `NewLinktestReq`, `DataMessage.Derive`
-- consumer surface: `hsms/` → `Connection`, `Session`, `SECS2Endpoint`
+- consumer surface: `hsms/` → `Connection`, `SECS2Endpoint`
 - engine knobs: `hsms/connection_config.go` → `ConnOption` constructors
 
 # Read first

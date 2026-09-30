@@ -1,5 +1,22 @@
 # Log
 
+## 2026-09-30
+* **Update**: the nine draft entries from this sync independently verified against source by `openai/gpt-5.6-terra` and promoted to stable: [selected gates](/hsms/selected-gates.md), [send error accounting](/hsms/send-error-accounting.md), [transaction observer chokepoints](/hsms/transaction-observer-chokepoints.md), [handler panic/Goexit isolation](/hsms/handler-panic-goexit-isolation.md), [synchronous commit gate](/hsms/synchronous-commit-gate.md), [transition cause injection sites](/hsms/transition-cause-injection-sites.md), [E37.1 narrows E37](/hsmsss/e37-1-narrows-e37-generic.md), [activity stamps](/hsmsss/activity-stamps.md), [passive refusal exchange](/hsmsss/passive-refusal-exchange.md).
+* Sync to `be7a75b` (25 commits since `207066b`: socket and wire observers, socket identity, close reasons, `sendNoReplyOn`).
+  Digest/revision-only refresh, prose untouched: [reply-matching control exemption](/hsms/reply-matching-control-exemption.md), [inflight gauge](/hsms/inflight-gauge.md), [max message size ceiling](/hsms/max-message-size-ceiling.md), [stale-epoch write guard](/hsms/stale-epoch-write-guard.md), [reconnect backoff scope](/hsms/reconnect-backoff-scope.md), [reconnect retry ownership](/hsms/reconnect-retry-ownership.md), [supervisor join](/hsms/supervisor-join.md), [open-close abort](/hsms/open-close-abort.md), [generation report fence](/hsms/generation-report-fence.md), [generation-bound wire sends](/hsms/generation-bound-wire-sends.md), [inbound generation fence](/hsms/inbound-generation-fence.md), [linktest teardown exemption](/hsmsss/linktest-teardown-exemption.md), [block-send detect/act split](/secs1/block-send-detect-act-split.md).
+* **Update**: [The B1/B2 Selected gates on the send path](/hsms/selected-gates.md) the no-reply gate code site is now `sendNoReplyOn`, which `sendNoReply` and `WriteMessageNoReply` wrap; draft.
+* **Update**: [Send error accounting](/hsms/send-error-accounting.md) the no-reply counted-error increment now sits in `sendNoReplyOn`; draft.
+* **Update**: [How a user callback's panic or Goexit is contained](/hsms/handler-panic-goexit-isolation.md) `WithWireObserver` and `WithSocketObserver` hooks added to what the isolation does not cover; draft.
+* **Update**: [How the three synchronous commits are fenced](/hsms/synchronous-commit-gate.md) the refusal path runs through `adoptSocket` / `AdoptSocketFromGeneration` (`gencap.SocketAdopter`), and a refused socket closes through its record's gate; draft.
+* **Update**: [Where the HSMS-SS profile overrides the generic core](/hsmsss/e37-1-narrows-e37-generic.md) `handleSeparateReq` reports through `tcpDown(g, ...)`, which closes the socket through its gate first; draft.
+* **Update**: [Activity stamps](/hsmsss/activity-stamps.md) the receive stamp is taken in `readObserved`, and publication goes through `adoptSocket` with `t.connSock` set under `connMu`; draft.
+* **Update**: [Where a TransitionCause is chosen](/hsms/transition-cause-injection-sites.md), [The transaction observer's two chokepoints](/hsms/transaction-observer-chokepoints.md), and [The passive refusal exchange](/hsmsss/passive-refusal-exchange.md) had prose rewritten in the 2026-09-28 feature commits without a new verification; demoted to draft, `verified` cleared.
+  Their "Where to look" files `hsms/epoch.go`, `hsms/socket_observer.go`, and `hsmsss/transport_socket.go` are now cited sources, and the socket gate pointer names `(*socketRecord).close`.
+* `scripts/` and `tracepack/` added to `exclude` in [CONVENTIONS.md](/CONVENTIONS.md): repo tooling, and a nested module with its own spec; neither is a root-module public package.
+* `hsms/wire_observer.go` added to `declined`: the wire observer's public contract is documented in its Godoc, and the frame-before-close ordering below it is covered through `hsmsss/transport_socket.go`.
+* **Update**: [hsms](/hsms/) and [secs1](/secs1/) unit indexes dropped the v1 `hsms.Session` from Boundary and Entry points, matching prime directive 4 in `.agents/rules/100-overview.md`.
+  Structural only; no entry changed.
+
 ## 2026-09-27
 * Digest/revision-only refresh to `207066b` (W item SML grammar in `sml/parser.go`); the prealloc bound entry's mechanic is unchanged.
 * Digest/revision-only refresh to `02dd98c` (zero-length localized-string item in `secs2` decode and `sml`); no entry's mechanic changed.

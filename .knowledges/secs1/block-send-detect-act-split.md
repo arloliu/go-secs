@@ -8,9 +8,9 @@ generated: {by: "claude/sonnet-5", at: 2026-09-24T18:00:36Z}
 verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-24T18:01:57Z}
 sources:
-  - {resource: secs1/line.go, digest: sha256:363cb924dca72a53, revision: d244104}
-  - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: 4be2062}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:299faa7fdfbdf7fa, revision: 2041f5d}
+  - {resource: secs1/line.go, digest: sha256:363cb924dca72a53, revision: be7a75b}
+  - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: be7a75b}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: be7a75b}
 ---
 
 # What it does

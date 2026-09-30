@@ -9,8 +9,8 @@ verified:
   - {by: "claude/opus-5", at: 2026-08-05T13:22:00Z}
   - {by: "codex/cli", at: 2026-08-05T13:50:00Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:90a5e3ff7beea84c, revision: f7a5927}
-  - {resource: hsms/epoch.go, digest: sha256:bdf3578cbc24fc48, revision: 7ae1ff0}
+  - {resource: hsms/connection_send.go, digest: sha256:0dcb81d9fccb4e5f, revision: be7a75b}
+  - {resource: hsms/epoch.go, digest: sha256:d6cc2283dd4d5e58, revision: be7a75b}
 ---
 
 # What it does
