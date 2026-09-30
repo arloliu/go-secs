@@ -1,6 +1,6 @@
 # tracepack — record semantics
 
-Status: current (2026-09-30) — v2.16, tracepack format 1.0.
+Status: current (2026-09-30) — v2.17, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic.
 
@@ -78,7 +78,7 @@ such an entry is stored as an annotation with `decode_status = build-rejected`, 
 
 ## 3. decode_status (decision table)
 
-`decode_status` is derived ([FMT I-11]): it records what the `classifier` concluded about the payload (for a `redacted` record, the source payload, §8).
+`decode_status` is derived ([FMT I-11]): it records what a classifier the pack names in `classifier` concluded about the payload (for a `redacted` record, the source payload, §8).
 Predicates are defined on the captured bytes, per SEMI E37 §8 and E5 §9.
 
 | Status | Predicate (evaluated in this order) | Malformed? |
@@ -89,7 +89,7 @@ Predicates are defined on the captured bytes, per SEMI E37 §8 and E5 §9.
 | `bad-ptype` | PType ≠ 0 (E37 §8.2.6; 0 = SECS-II) | yes |
 | `bad-stype` | SType not defined by E37 Table 5 (defined: 0–7, 9) | yes |
 | `control-with-body` | SType ≠ 0 and length field ≠ 10 | yes |
-| `oversized` | frame length exceeds `max_frame_len` | yes |
+| `oversized` | frame length exceeds the `max_frame_len` in force where the record was classified | yes |
 | `item-decode-error` | SType = 0, message text non-empty, and it does not begin with one complete, valid SECS-II item or list per E5 §9.2–9.3 (defined format code, 1–3 length bytes, body length consistent with the format's element size, every nested list element present) | yes |
 | `ok-with-trailing` | item valid and message text continues after it; `trailing_bytes` = the excess | quirk, not malformed |
 | `ok` | item valid with no excess, or empty message text (header-only data message), or a well-formed control message | no |
@@ -98,6 +98,7 @@ Predicates are defined on the captured bytes, per SEMI E37 §8 and E5 §9.
 | `build-rejected` | `log` writer parsed the entry but the message is invalid (e.g. W on an even function, §2) | n/a |
 | `not-applicable` | transport-event and annotation records not covered by the rows above | n/a |
 
+A pack whose records were classified under several `max_frame_len` values carries all of them and does not say which one a record was classified under ([FMT §5]).
 The exhaustive item-validity checklist is part of the conformance corpus ([FMT §16]), one vector per rule;
 E5 §9 is its normative base.
 Decoders differ in strictness on edge cases;

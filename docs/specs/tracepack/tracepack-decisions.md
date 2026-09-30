@@ -424,3 +424,54 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   the transitive view without the `compacted_from` change,
   under which a replaced segment would miss the list, return to the next generation's view and never become deletable.
   Spec: [STO §4], [STO §5], [STO §8], [FMT §5], [FMT §13] (v2.16).
+
+## 2026-09-30 merge
+
+- G5-108 Repeatable `classifier` and `max_frame_len` (2026-09-30, planning `Merge`):
+  both tags are repeatable.
+  A recorder or converter writes one value of each, as before;
+  a merger writes every distinct value its inputs carry,
+  so an archive whose segments were classified by different consumer versions names all of them.
+  `classifier` stays required when any record is classified, and `max_frame_len` when any record is `oversized`, now with one or more values.
+  A record's `oversized` status was decided against the `max_frame_len` in force where it was classified;
+  with several values the pack does not say which one.
+  Rationale: the consumers of a durable bus are upgraded one by one, so the segments of one scope can carry different classifier versions,
+  and a merge must still produce an archive that describes every record it holds.
+  Rejected: failing the merge when the inputs' values differ, which blocks merges during every rolling upgrade of the consumers;
+  writing one representative value, which misdescribes the records classified by the others.
+  Spec: [FMT §5], [FMT I-11], [FMT §14], [SEM §3], [STO §4] (v2.17).
+- G5-109 Defective merge inputs (2026-09-30):
+  a merger reads every block of every input in full, as verification does ([FMT §13]),
+  and fails, publishing nothing, when an input is not `finalized-consistent`:
+  no valid footer, a failed block, or a block that disagrees with its footer (F-2 or F-3).
+  The damaged input is repaired first ([FMT §13], [STO §6]), and the patch joins the view in its place.
+  This settles the first two items of proposal P2 §1; P2 stays deferred for its recovery items.
+  Rationale: a block copied verbatim is never decoded by the copy itself,
+  so only a full read keeps a CRC-valid block that fails I-2, or one its footer misstates, out of a generation that makes its inputs deletable.
+  Rejected: trusting footers and CRCs alone, under which a CRC-valid undecodable block could enter a generation.
+  Spec: [STO §4], [STO §8] (v2.17); proposal P2.
+- G5-110 Record conflicts in a merge (2026-09-30):
+  two records of the view with the same (`capture_id`, `seq`) and different bytes fail the merge,
+  which publishes nothing and reports every conflict;
+  both versions stay in the view, where readers report the `conflict` ([FMT I-12]), until an operator resolves it.
+  Rationale: the merge's output makes its inputs deletable,
+  so any version it did not carry would be lost with them.
+  Rejected: keeping one version and reporting the conflict, under which the other version is lost once the inputs are deleted.
+  Spec: [FMT I-12], [STO §4], [STO §8] (v2.17).
+- G5-111 Lineage of a pack without generation-0 ancestors (2026-09-30):
+  `compacted_from` lists the generation-0 packs a pack's records represent;
+  it is present when there is at least one, and absent otherwise, whatever `compaction_level` is.
+  A merge of a scope whose view holds only a converter's archive ([STO §7] item 9: `compaction_level` 0, no `compacted_from`)
+  writes an archive at level 1 without `compacted_from`.
+  The rule replaces "required when `compaction_level` ≥ 1".
+  Rationale: a converter's archive represents no generation-0 pack, so a merge of it has none to list,
+  and an invented entry would name a pack that never existed.
+  Rejected: forbidding the merge of such a scope,
+  which [STO §5] needs when it cancels an interrupted admission by an ordinary merge of the view.
+  Spec: [FMT §5], [FMT §14], [STO §4], [STO §7] (v2.17).
+- G5-112 `seq_start` of an archive without records (2026-09-30):
+  the largest `seq_start` of the merge's inputs,
+  the latest position the inputs knew of the capture's next seq.
+  Rationale: every input's `seq_start` is at or below the capture's next seq, so the largest is the closest to it.
+  Rejected: the smallest, which lies further from the capture's next seq.
+  Spec: [FMT §5], [STO §4] (v2.17).

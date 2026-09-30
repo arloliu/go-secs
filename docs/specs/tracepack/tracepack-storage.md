@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-09-30) — v2.16, tracepack format 1.0.
+Status: current (2026-09-30) — v2.17, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for publishers, mergers, recorders and log converters.
 
@@ -181,16 +181,48 @@ provided each commit object is deleted after the packs it commits.
     the successor's `start` and `previous_capture_id` remain the evidence of the restart,
     and every record the bus accepted is staged as long as the stream retains it for redelivery (above).
     A producer publishes a `stop` boundary on every orderly shutdown, so the case is limited to crashes.
-- **Merge** of scope S: inputs are the active view of S.
-  The merger copies every block of S in ascending `first_seq` order.
-  A block whose seq range overlaps no already copied block is copied verbatim: its on-disk bytes are not re-encoded.
-  For overlapping seq ranges, a block is dropped only
-  when its complete block envelope (40 bytes) and its on-disk body are **byte-for-byte equal** to those of an already copied block
-  (`body_crc` only selects candidates);
-  every other overlap is decoded and resolved record by record: identical records are kept once, differing records are a `conflict` ([FMT I-12]).
+- **Merge** of scope S: inputs are the packs of the active view of S.
+  **Input verification** (G5-109): the merger reads every block of every input in full, as verification does ([FMT §13]),
+  and fails, publishing nothing, when an input is not `finalized-consistent`:
+  no valid footer, a failed block, or a block that disagrees with its footer (F-2 or F-3).
+  The damaged input is repaired first ([FMT §13], §6), and the patch joins the view in its place.
+  The merge also fails, publishing nothing, when an input breaches its scope or its own pack metadata:
+  its period is empty or not inside the UTC hour of S;
+  a block's records lie outside that hour (records of the hour outside a segment's period are allowed, since a same-hour clock step puts them there, §5);
+  a pack with records has a `seq_start` other than its first record's seq ([FMT §5]);
+  or its records breach its own commitments:
+  a classified record without a `classifier` in that input's metadata, an `oversized` record without a `max_frame_len` there, or a `quality.redacted` record.
+  Repair writes nothing for a `finalized-consistent` pack ([FMT §13]),
+  so a scope holding a `finalized-consistent` input with such a breach stays unmerged until an operator acts.
+  Every input carries the same value of each **capture-level tag**:
+  `tool_id`, `transport`, `capture_method`, `vantage`, `recorder`, `time_source`, `lifecycle_coverage`, `quality_evaluated`, `recorder_instance_id`,
+  `capture_origin_utc_ns`, `capture_origin_mono_ns`, `clock_step_tolerance_ns`, `previous_capture_id`,
+  `site_id`, `equipment_model`, `equipment_sw_rev`, `host_software`, `host_endpoint`, `equipment_endpoint`, `equipment_connect_mode`, `device_id`, `hsms_timers`,
+  `source_tz`, `source_dialect` and `source_ref`:
+  absent in all inputs, or equal values in all, compared as decoded values;
+  for `hsms_timers`, the same timers T1–T8, each absent in all or equal, while nested entries a reader does not know are neither compared nor carried
+  (a patch rewrites its metadata and may have dropped them, §6);
+  for `source_ref`, the same ordered list, duplicates included,
+  because an annotation's `source_index` is a position in that list ([FMT §8]) and a merge never rewrites record bytes.
+  Otherwise the merge fails.
+  **Overlaps.** Taking every input block by its F-2 seq range [`first_seq`, `last_seq`],
+  a **cluster** is a maximal set of blocks connected by overlaps, each overlapping another member directly or through a chain of overlapping ranges;
+  two ranges overlap when they share at least one seq, so containment and a shared endpoint are overlaps,
+  while adjacent ranges that share no seq, such as [1, 5] and [6, 10], do not.
+  The merger writes the clusters in ascending first seq; they are disjoint seq intervals, so the archive keeps the order of [FMT I-12].
+  A cluster of one block is copied verbatim: its on-disk bytes are not re-encoded, and its F-3 list is copied ([FMT §10]).
+  In a larger cluster, a block is dropped only
+  when its complete block envelope (40 bytes) and its on-disk body are **byte-for-byte equal** to those of a block already kept
+  (`body_crc` only selects candidates), and only after it has itself been read in full and checked against its own footer;
+  if one block remains, it is copied verbatim;
+  otherwise the cluster's records are decoded and resolved record by record: identical records are kept once, differing records are a `conflict` ([FMT I-12]).
+  **Conflicts** (G5-110): a conflict fails the merge, which publishes nothing and reports every conflict it finds;
+  both versions stay in the view, where readers report the `conflict`, until an operator resolves it.
   In record-level resolution, output records keep their header bytes unchanged, unknown bytes included,
   and the output starts a new block whenever the next record's `record_header_len` differs from the current block's.
   Two records with the same identity and different header lengths are different bytes, hence a `conflict`, never normalised.
+  A new block holds records while its decoded size (Σ `record_header_len` + `payload_len`) stays within the merger's block size threshold;
+  a record whose decoded size alone reaches the threshold is written whole, in a block of its own ([FMT §2]).
   **Coalescing** is the one exception to copying non-overlapping blocks verbatim.
   A merger SHOULD coalesce small blocks, because small blocks multiply the per-record cost and the archive is what retention keeps.
   Taking the blocks it outputs in ascending seq order, it groups them greedily:
@@ -203,11 +235,25 @@ provided each commit object is deleted after the packs it commits.
   The merger validates every new encoding in memory before writing it ([FMT I-2], and byte identity of every record with its source).
   A failing coalesced encoding is discarded and its group's blocks are copied verbatim instead;
   if record-level resolution cannot produce a correct encoding, the merge fails and publishes nothing.
-  The output is the claimed generation of S (§2): `pack_role = archive`, the hour as the period, `compaction_level` = 1 + the highest input level,
-  the capture-level tags of the inputs, the union of the inputs' `coverage`,
+  The output is the claimed generation of S (§2), a replacement set of one member (§6).
+  Its file header carries the capture of S and a new `pack_id`, without the `redaction-present` flag.
+  Its pack metadata:
+  `pack_role = archive`; the claim's `scope_generation`, `publisher_epoch` and `replacement_set_id`, a new `replacement_set_id` for every claim, a retry under a new claim included;
+  the UTC hour of S as the period, a bound that does not fit in an i64 clamped to the i64 range;
+  `compaction_level` = 1 + the highest input level (an input at level 255 fails the merge);
+  the capture-level tags of the inputs;
+  the union of the inputs' `coverage`, each entry carried as data ([FMT §5]) and only once:
+  an entry is not carried again when an entry already carried holds the same nested entries,
+  known nested tags compared by value and unknown nested entries in their stored order;
   a **cumulative** `compacted_from` (generation G's list plus every generation-0 pack in the view
   and every generation-0 pack that a patch based on G names, whether or not a later patch replaced that patch),
-  `supersedes` = the member of generation G (lineage only), and a replacement set of one member (§6).
+  absent when the list is empty (G5-111, [FMT §5]);
+  `supersedes` = the member of generation G (lineage only), absent when there is no G;
+  every distinct `classifier` and `max_frame_len` value of the inputs (G5-108);
+  the merger's own `writer`;
+  and `seq_start` = the first record's seq, or for an archive without records the largest `seq_start` of the inputs (G5-112).
+  It carries no `flush_interval_ns` (an archive is not written by a recorder), `notes`, `patch_base`, `redaction_policy`, `redaction` or `extract_filter`,
+  and no unknown top-level entry of an input: such an entry belongs to the pack that held it, and the archive is a new pack.
   Its footer follows [FMT §10].
   A merge writes one archive per scope, whatever its size: the limits of [FMT §2] apply per block, not per pack.
   It never repairs record bytes.
@@ -221,11 +267,22 @@ provided each commit object is deleted after the packs it commits.
   so they join the view and, while S is indexed (§5), trigger another merge;
   a later starting point of the seq coverage therefore never loses records, because readiness governs only when a merge starts.
 - **Deletion**: being outside the view (excluded from record reads) is not the same as being deletable.
+  The rules below apply to a **complete observation** of the scope:
+  every surviving pack of the scope that a reader could list, replaced patches included, and the scope's commit objects
+  (a catalog snapshot, or a coherent observation, §5).
   A pack becomes deletable only when the current generation G makes it redundant:
   a generation-0 pack (segment or patch) when G's `compacted_from` lists it;
-  a generation's member when a complete generation ranked higher than its own is G — so a member replaced by a patch is kept until the next merge folds the patch,
-  because G's completeness depends on it;
-  a stale patch or an incomplete set when G ranks above its base or its own rank.
+  a generation's member when its rank is below G's, whether or not its set was committed (an uncommitted member's rank is read from its own pack metadata);
+  a patch, committed or not, whose base ranks below G:
+  its `patch_base` names a generation ranked below G,
+  or names no surviving generation and is not G's `replacement_set_id`
+  (a generation's member is deleted only when a higher-ranked generation is G, and G never ranks lower afterwards),
+  or is absent while G exists (the patch was registered before the scope had any generation).
+  No other pack is deletable; in particular:
+  G's own member stays while G is current, also when a patch replaced it, until the next merge folds the patch, because G's completeness depends on it;
+  an uncommitted patch whose `patch_base` matches G (absent when there is no G) stays, because it may be an admission in progress;
+  an incomplete set has no member to delete, and its commit object is handled as below;
+  and a pack whose role takes no part in the tiers is never deletable (§2).
   A commit object is deleted only by the component that deleted every pack it commits, immediately after deleting the last of them:
   for a generation, its member, registered in the catalog; for a patch, the patch.
   A commit object whose packs that component cannot account for this way (e.g. one written late for an admission that was cancelled)
@@ -331,6 +388,8 @@ Its storage technology is not part of this specification.
   cancel by committing a new generation of the scope under the new publisher epoch, built by an ordinary merge of the last committed view
   (which excludes the uncertain admission); it outranks an uncertain generation, and an uncertain patch no longer matches its base.
   If the cancellation itself is interrupted, this recovery rule applies to it again, under a still newer epoch; the scope stays closed to other admissions until a recovery completes.
+  A cancellation merge that §4 refuses — an input refused by the input checks, capture-level tags that differ, or a record conflict — cannot complete,
+  so the scope stays closed until an operator acts (proposal P2 records the open design).
   Only then may patches be registered or merges published for the scope.
   Segments need no commit object: a segment takes part in its scope's view by the rules of §4, and the catalog registers it while the scope is indexed.
 - **Restart and rebuild**: a publisher or catalog that loses its claim state starts a new publisher epoch (§2) before claiming again,
@@ -397,14 +456,15 @@ A source dialect lacking some of these is still convertible, with the effects st
 8. **Epoch**: increments on each explicit connect / accept line;
    a dialect without them yields `epoch = 0` + `correlation-incomplete` ([FMT I-7]).
    `capture_id` is one per converter run per source file set; `seq` is capture-scoped ([FMT I-12]).
-9. **Output**: a converter MAY write `archive` packs directly, one per (capture, UTC hour), with hour-aligned blocks ([FMT I-13]) and `compaction_level = 0`.
+9. **Output**: a converter MAY write `archive` packs directly, one per (capture, UTC hour), with hour-aligned blocks ([FMT I-13]), `compaction_level = 0` and no `compacted_from`,
+   since they represent no generation-0 pack ([FMT §5]); a merge whose view holds only such an archive writes none either (§4, G5-111).
 
 ## 8. Conformance vectors
 
 The following vectors belong to the corpus of [FMT §16]:
 - converter failures (§7);
 - a merge of several segments into an archive, including overlapping inputs, an hour change forcing two segments, and a late segment producing a new generation (§4);
-- two records with the same (`capture_id`, `seq`) but different bytes ([FMT I-12]);
+- two records with the same (`capture_id`, `seq`) but different bytes: readers report a `conflict`, and a merge fails and publishes nothing ([FMT I-12], §4);
 - overlapping blocks with the same seq range but different codec or compressed bytes, and a forced `body_crc` collision (§4);
 - a `stop-unclean` recovery followed by a linked capture, recovery with zero recovered records, and a clock step before the crash (§4);
 - cumulative sub-threshold backward clock steps before a crash, and a clock rollback while the recorder is down ([SEM §4], §4);
@@ -441,12 +501,28 @@ The following vectors belong to the corpus of [FMT §16]:
 - a pack whose `pack_role` is 5 or another unknown value beside a segment and a generation: outside the view, no merge input, not deletable, and reported, before and after a rebuild (§2);
 - merge framing: two overlapping blocks with equal body bytes but different envelopes (different `record_header_len` or `record_count`),
   resolved record by record, never dropped as duplicates;
-  adjacent blocks of unequal `record_header_len` left uncoalesced; two records with the same identity and different header lengths reported as a `conflict` (§4);
+  adjacent blocks of unequal `record_header_len` left uncoalesced; two records with the same identity and different header lengths: a `conflict`, so the merge fails (§4);
 - coalescing: three small blocks of which only the first two fit the threshold together, a block holding one oversized record,
   and adjacent blocks of unequal `record_header_len`: grouped as §4 says (§4);
 - a coalesced block whose new encoding is validated in memory before it is written (§4);
 - an I-2 failure injected into a newly encoded (coalesced) merge block: the encoding is discarded and the original blocks are copied verbatim (§4);
 - an I-2 failure injected into a newly encoded record-level-resolution block that cannot be rebuilt: nothing is published and no input becomes deletable (§4);
+- defective merge inputs: an input with a failed block, one without a valid footer, and one with a block that disagrees with its F-3 summary:
+  the merge fails and publishes nothing; after a repair, the patch is merged in its place (§4);
+- inputs that breach their scope or their own metadata: a block of another hour, correctly indexed;
+  a classified record in an input without a `classifier` of its own, beside an input that has one;
+  a pack with records whose `seq_start` differs from its first record's seq, alone and beside a valid input:
+  the merge fails and publishes nothing (§4);
+- three versions of one (`capture_id`, `seq`) in three inputs: the merge fails, publishes nothing and reports each version with the inputs that hold it,
+  and a reader of the view reports the `conflict` (§4);
+- inputs classified under two `classifier` values and two `max_frame_len` values: the archive carries every distinct value ([FMT §5], §4);
+- interleaved segments of several durable-bus consumers, gaps filled by other segments and one record written twice: one archive holding every record once (§4);
+- inputs whose `source_ref` lists hold the same files in another order, or one file twice: the merge fails (§4);
+- a converter's archive merged twice: archives at levels 1 and 2, neither with `compacted_from` ([FMT §5], §4, §7);
+- an incomplete set, a commit object whose member is missing: outside the view, and no pack deletable on its account (§4 Deletion);
+- a stale patch whose base generation no longer survives: deletable; an uncommitted patch whose `patch_base` matches G: not deletable (§4 Deletion);
+- a view holding only segments without records and a patch holding only `coverage`:
+  an archive without blocks, carrying the `coverage`, whose `seq_start` is the largest `seq_start` of the inputs ([FMT §5], §4);
 - a generation G with a predecessor G−1 whose member is deletable but not yet deleted, and G's commit object removed first: the view falls back to G−1;
   the vector shows why §4 Deletion orders commit objects after their packs, and conforming deletion never produces this state (§4);
 - deletion of G−1's member, then G−1's commit object: the view is G throughout (§4);

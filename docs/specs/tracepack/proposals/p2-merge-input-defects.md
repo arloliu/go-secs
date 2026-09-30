@@ -3,6 +3,14 @@
 Status: deferred (2026-09-26) — open issue record; split out of proposal P1 §6 by owner decision after review round 6.
 Source: P1 review rounds 3–6 (the reports and the P1 text are kept outside the repository).
 Nothing here is a decided rule; it records what the P1 review rounds established so a later design starts from it.
+Outcome (2026-09-30): owner decision G5-109 (spec v2.17) settles the first two bullets of §1:
+a merger reads every block of every input in full and fails, publishing nothing, when an input is not `finalized-consistent`,
+and the damaged input is repaired first ([STO §4]).
+P2 stays deferred for its recovery items:
+any input the cancellation merge of an interrupted-admission recovery refuses — defective, breaching its scope or its own metadata, with differing capture-level tags, or holding a conflicting record —
+which leaves the scope closed until an operator acts ([STO §5]; §2 r6 P1, the recovery orderings of §3).
+The two r5 P1 rows of §2 and the first two vectors of §3 assumed a defective block could be published in a member;
+under G5-109 it cannot, so they are moot unless a recovery design reintroduces such publication; §4's inventory stays open for that design.
 
 ## 1. The gap
 
