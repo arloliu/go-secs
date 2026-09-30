@@ -29,7 +29,22 @@ func cloneCoverage(c *Coverage) *Coverage {
 		SeqLast:   clonePtr(c.SeqLast),
 		TimeStart: clonePtr(c.TimeStart),
 		TimeEnd:   clonePtr(c.TimeEnd),
+		Unknown:   cloneRawEntries(c.Unknown),
 	}
+}
+
+// cloneRawEntries returns a copy of entries whose values are copies too, or nil when entries is empty.
+func cloneRawEntries(entries []RawEntry) []RawEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	out := make([]RawEntry, len(entries))
+	for i, e := range entries {
+		out[i] = RawEntry{Tag: e.Tag, Type: e.Type, Value: slices.Clone(e.Value)}
+	}
+
+	return out
 }
 
 // clonePtr returns a pointer to a copy of *v, or nil when v is nil.

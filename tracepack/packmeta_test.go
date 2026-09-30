@@ -580,3 +580,104 @@ func TestMarshalRejectsUnknownEntriesTheDecoderRejects(t *testing.T) {
 		})
 	}
 }
+
+// coverageMetaHex returns pmMinimal16Hex followed by one coverage entry per nested entry list in covs, in order.
+func coverageMetaHex(t testing.TB, covs ...[]tlv.Entry) string {
+	t.Helper()
+
+	var b []byte
+	for _, nested := range covs {
+		b = tlv.AppendEntry(b, tlv.NestedEntry(0x0016, nested))
+	}
+
+	return pmMinimal16Hex + hex.EncodeToString(b)
+}
+
+func TestCoverageUnknownNestedRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	// Known tags out of tag order, unknown tags interleaved, one of them repeated.
+	stored := []tlv.Entry{
+		tlv.I64Entry(0x0005, 50),
+		{Tag: 0x0050, Type: tlv.TypeBytes, Value: []byte{0xAA}},
+		tlv.U64Entry(0x0002, 7),
+		{Tag: 0x0050, Type: tlv.TypeBytes, Value: []byte{0xBB}},
+		{Tag: 0x0051, Type: tlv.TypeU8, Value: []byte{9}},
+	}
+	m, err := tracepack.UnmarshalPackMeta(mustHexBytes(t, coverageMetaHex(t, stored)))
+	require.NoError(t, err)
+	require.Len(t, m.Coverage, 1)
+	c := m.Coverage[0]
+	assert.Equal(t, new(int64(50)), c.TimeEnd)
+	assert.Equal(t, new(uint64(7)), c.SeqFirst)
+	assert.Nil(t, c.CaptureID)
+	assert.Equal(t, []tracepack.RawEntry{
+		{Tag: 0x0050, Type: 7, Value: []byte{0xAA}},
+		{Tag: 0x0050, Type: 7, Value: []byte{0xBB}},
+		{Tag: 0x0051, Type: 1, Value: []byte{9}},
+	}, c.Unknown, "unknown nested entries are kept in stored order, a repeated tag included")
+
+	again, err := m.MarshalBinary()
+	require.NoError(t, err)
+	// The known nested tags are written in tag order, then the unknown ones in their order.
+	want := coverageMetaHex(t, []tlv.Entry{stored[2], stored[0], stored[1], stored[3], stored[4]})
+	assert.Equal(t, want, hex.EncodeToString(again))
+
+	back, err := tracepack.UnmarshalPackMeta(again)
+	require.NoError(t, err)
+	assert.Equal(t, m, back, "the entry survives a round trip as data")
+}
+
+func TestCoverageEntriesRoundTripInNumberAndOrder(t *testing.T) {
+	t.Parallel()
+
+	m := basePackMeta()
+	m.Coverage = []tracepack.Coverage{
+		{}, // no bound at all
+		{SeqFirst: new(uint64(9)), SeqLast: new(uint64(3))},       // inverted seqs
+		{TimeStart: new(int64(5)), TimeEnd: new(int64(-5))},       // inverted times
+		{SeqFirst: new(uint64(9)), SeqLast: new(uint64(3))},       // a duplicate entry
+		{CaptureID: new(uuidOfByte(4)), SeqFirst: new(uint64(1))}, // no upper bound
+	}
+	b, err := m.MarshalBinary()
+	require.NoError(t, err)
+	back, err := tracepack.UnmarshalPackMeta(b)
+	require.NoError(t, err)
+	assert.Equal(t, m.Coverage, back.Coverage)
+}
+
+func TestCoverageRejectsRepeatedKnownNestedTag(t *testing.T) {
+	t.Parallel()
+
+	_, err := tracepack.UnmarshalPackMeta(mustHexBytes(t, coverageMetaHex(t, []tlv.Entry{tlv.U64Entry(0x0002, 1), tlv.U64Entry(0x0002, 2)})))
+	require.ErrorIs(t, err, tlv.ErrDuplicate)
+}
+
+func TestCoverageMarshalRejectsUnknownEntries(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		entry tracepack.RawEntry
+		want  error
+	}{
+		{"naming a known nested tag", tracepack.RawEntry{Tag: 0x0002, Type: 4, Value: make([]byte, 8)}, tracepack.ErrReservedTag},
+		{"tag zero", tracepack.RawEntry{Tag: 0, Type: 7, Value: []byte{1}}, tlv.ErrZeroTag},
+		{"u64 with one byte", tracepack.RawEntry{Tag: 0x8001, Type: 4, Value: []byte{1}}, tlv.ErrLength},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			m := basePackMeta()
+			m.Coverage = []tracepack.Coverage{{SeqFirst: new(uint64(1))}, {Unknown: []tracepack.RawEntry{tt.entry}}}
+			_, err := m.MarshalBinary()
+			require.ErrorIs(t, err, tt.want)
+
+			var fe *tracepack.FieldError
+			require.ErrorAs(t, err, &fe)
+			assert.Contains(t, err.Error(), "coverage entry 1")
+		})
+	}
+}
