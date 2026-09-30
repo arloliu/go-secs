@@ -157,7 +157,7 @@ func TestRecordHSMSHeader(t *testing.T) {
 // writerMeta returns a PackMeta valid for records classified by a classifier.
 func writerMeta() *tracepack.PackMeta {
 	m := basePackMeta()
-	m.Classifier = new("go-secs/test")
+	m.Classifiers = []string{"go-secs/test"}
 
 	return m
 }
@@ -1038,7 +1038,7 @@ func TestWriterAcceptsRecordsMetadataDescribes(t *testing.T) {
 
 	unclassified := basePackMeta()
 	oversizedMeta := writerMeta()
-	oversizedMeta.MaxFrameLen = new(uint64(1 << 20))
+	oversizedMeta.MaxFrameLens = []uint64{1 << 20}
 
 	tests := []struct {
 		name  string

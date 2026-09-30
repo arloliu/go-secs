@@ -31,6 +31,9 @@ func FuzzUnmarshalPackMeta(f *testing.F) {
 	f.Add(mustHexBytes(f, pmWithUnknownHex))
 	f.Add([]byte{})
 	f.Add(mustHexBytes(f, pmMinimal16Hex)[:10])
+	repeated, err := twoClassifiersMeta().MarshalBinary()
+	require.NoError(f, err)
+	f.Add(repeated)
 
 	f.Fuzz(func(t *testing.T, b []byte) {
 		m, err := tracepack.UnmarshalPackMeta(b)

@@ -161,7 +161,7 @@ func repairSteps(t testing.TB) []footerTestStep {
 // repairTestMeta returns the pack metadata of the repair test pack: a segment whose period is blockTestHour.
 func repairTestMeta() *PackMeta {
 	return &PackMeta{
-		ToolID: "tool", Recorder: "rec", Writer: "wr", Classifier: new("c"),
+		ToolID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
 		PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)),
 		PeriodStart: blockTestHour, PeriodEnd: blockTestHour + hourNs,
 	}
@@ -324,7 +324,7 @@ func TestRepairRefusals(t *testing.T) {
 		}
 	})
 	id := UUID(layoutHeader(t, p.file).PackID)
-	unclassified := func(m *PackMeta) { m.Classifier = nil }
+	unclassified := func(m *PackMeta) { m.Classifiers = nil }
 	notAttempted := func(steps []footerTestStep) []footerTestStep {
 		for i := range steps {
 			if steps[i].rec.Kind == KindData {
@@ -521,7 +521,7 @@ func TestRepairPatchMetadata(t *testing.T) {
 	assert.Equal(t, want.ClockStepToleranceNs, m.ClockStepToleranceNs)
 	assert.Equal(t, want.FlushIntervalNs, m.FlushIntervalNs)
 	assert.Equal(t, [2]int64{want.PeriodStart, want.PeriodEnd}, [2]int64{m.PeriodStart, m.PeriodEnd})
-	assert.Equal(t, want.Classifier, m.Classifier)
+	assert.Equal(t, want.Classifiers, m.Classifiers)
 	assert.Equal(t, []RawEntry{{Tag: 0x8004, Type: 7, Value: []byte("kept")}}, m.Unknown, "the retired tags are dropped")
 
 	require.NotEmpty(t, rep.Coverage)
@@ -534,6 +534,29 @@ func TestRepairPatchMetadata(t *testing.T) {
 	// Without a patch_base.
 	patch, _ = mustRepair(t, file)
 	assert.Nil(t, mustOpen(t, patch, ReaderOptions{}).Header().Meta.PatchBase)
+}
+
+// TestRepairCarriesEveryClassifier checks a pack whose metadata names two classifiers and two maximum frame lengths
+// (the tracepack format specification §5): its classified records verify finalized-consistent,
+// and a patch of it carries both values of each, in order (the tracepack storage specification §6).
+func TestRepairCarriesEveryClassifier(t *testing.T) {
+	t.Parallel()
+
+	classifiers, maxFrameLens := []string{"go-secs/v2", "go-secs/v1"}, []uint64{1 << 20, 4096}
+	p := writeRepairPack(t, CodecZstd, func(m *PackMeta) {
+		m.Classifiers, m.MaxFrameLens = slices.Clone(classifiers), slices.Clone(maxFrameLens)
+	}, false, repairSteps(t))
+	v := mustVerify(t, p.file)
+	require.Equal(t, OutcomeFinalizedConsistent, v.Outcome, "failed %v, disagreements %v", v.Failed, v.Disagreements)
+	_, a := mustAnalyze(t, p.file)
+	require.True(t, slices.ContainsFunc(a.blocks, func(b blockAnalysis) bool { return b.classified }), "the pack holds classified records")
+
+	damaged := flipByte(p.file, p.bodyByteOf(2))
+	patch, rep := mustRepair(t, damaged)
+	m := mustOpen(t, patch, ReaderOptions{}).Header().Meta
+	assert.Equal(t, classifiers, m.Classifiers)
+	assert.Equal(t, maxFrameLens, m.MaxFrameLens)
+	checkPatch(t, p.file, damaged, patch, rep)
 }
 
 func TestRepairKeepsANilCaptureID(t *testing.T) {

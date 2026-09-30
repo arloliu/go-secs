@@ -2,6 +2,7 @@ package tracepack_test
 
 import (
 	"encoding/hex"
+	"maps"
 	"strings"
 	"testing"
 
@@ -416,11 +417,28 @@ func TestPackMetaValidateRequiredWhen(t *testing.T) {
 			},
 		},
 		{
+			"classifier required: an empty list is absent",
+			"classifier",
+			func(m *tracepack.PackMeta, facts *tracepack.PackFacts) {
+				facts.AnyClassified = true
+				m.Classifiers = []string{}
+			},
+		},
+		{
 			"max_frame_len required when any record oversized",
 			"max_frame_len",
 			func(m *tracepack.PackMeta, facts *tracepack.PackFacts) {
 				facts.AnyOversized = true
-				m.Classifier = new("go-secs/test")
+				m.Classifiers = []string{"go-secs/test"}
+			},
+		},
+		{
+			"max_frame_len required: an empty list is absent",
+			"max_frame_len",
+			func(m *tracepack.PackMeta, facts *tracepack.PackFacts) {
+				facts.AnyOversized = true
+				m.Classifiers = []string{"go-secs/test"}
+				m.MaxFrameLens = []uint64{}
 			},
 		},
 		{
@@ -444,11 +462,6 @@ func TestPackMetaValidateRequiredWhen(t *testing.T) {
 				m.Supersedes = []tracepack.UUID{uuidOfByte(1)}
 				facts.CoverageLoss = true
 			},
-		},
-		{
-			"compacted_from required when compaction_level >= 1",
-			"compacted_from",
-			func(m *tracepack.PackMeta, _ *tracepack.PackFacts) { m.CompactionLevel = 1 },
 		},
 		{
 			"extract_filter required when pack_role extract",
@@ -545,6 +558,131 @@ func TestPackMetaValidatePasses(t *testing.T) {
 	t.Parallel()
 
 	require.NoError(t, basePackMeta().Validate(tracepack.PackFacts{}))
+}
+
+// twoClassifiersMeta returns basePackMeta naming two classifiers and two maximum frame lengths,
+// neither list in sorted order, as a merge whose inputs were classified under two configurations writes them.
+func twoClassifiersMeta() *tracepack.PackMeta {
+	m := basePackMeta()
+	m.Classifiers = []string{"go-secs/v2", "go-secs/v1"}
+	m.MaxFrameLens = []uint64{1 << 20, 4096}
+
+	return m
+}
+
+// TestPackMetaRepeatedClassifierAndMaxFrameLen checks that classifier and max_frame_len are repeatable
+// (the tracepack format specification §5): every value is kept, in stored order, on decode and on encode.
+func TestPackMetaRepeatedClassifierAndMaxFrameLen(t *testing.T) {
+	t.Parallel()
+
+	m := twoClassifiersMeta()
+	b, err := m.MarshalBinary()
+	require.NoError(t, err)
+	got, err := tracepack.UnmarshalPackMeta(b)
+	require.NoError(t, err)
+	assert.Equal(t, m, got)
+
+	// Stored interleaved: classifier "b", max_frame_len 2, classifier "a", max_frame_len 1.
+	var stored []byte
+	stored = tlv.AppendEntry(stored, tlv.UTF8Entry(0x0008, "b"))
+	stored = tlv.AppendEntry(stored, tlv.U64Entry(0x000F, 2))
+	stored = tlv.AppendEntry(stored, tlv.UTF8Entry(0x0008, "a"))
+	stored = tlv.AppendEntry(stored, tlv.U64Entry(0x000F, 1))
+	m, err = tracepack.UnmarshalPackMeta(append(mustHexBytes(t, pmMinimal16Hex), stored...))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"b", "a"}, m.Classifiers)
+	assert.Equal(t, []uint64{2, 1}, m.MaxFrameLens)
+
+	again, err := m.MarshalBinary()
+	require.NoError(t, err)
+	entries, err := tlv.Decode(again)
+	require.NoError(t, err)
+	var classifiers []string
+	var maxFrameLens []uint64
+	for _, e := range entries {
+		switch e.Tag {
+		case 0x0008:
+			v, err := e.UTF8()
+			require.NoError(t, err)
+			classifiers = append(classifiers, v)
+		case 0x000F:
+			v, err := e.U64()
+			require.NoError(t, err)
+			maxFrameLens = append(maxFrameLens, v)
+		default:
+		}
+	}
+	assert.Equal(t, []string{"b", "a"}, classifiers, "each value is written, in order")
+	assert.Equal(t, []uint64{2, 1}, maxFrameLens, "each value is written, in order")
+}
+
+// TestPackMetaValidateAcceptsSeveralClassifiers checks that one value or more satisfies
+// the classifier and max_frame_len rules (the tracepack format specification §5).
+func TestPackMetaValidateAcceptsSeveralClassifiers(t *testing.T) {
+	t.Parallel()
+
+	facts := tracepack.PackFacts{AnyClassified: true, AnyOversized: true}
+	require.NoError(t, twoClassifiersMeta().Validate(facts))
+
+	m := twoClassifiersMeta()
+	m.Classifiers, m.MaxFrameLens = m.Classifiers[:1], m.MaxFrameLens[:1]
+	require.NoError(t, m.Validate(facts))
+}
+
+// TestPackMetaPriorSingletonRegistryRejectsRepeatedTags checks the incompatibility
+// the tracepack format specification §14 states:
+// a reader whose registry still makes classifier and max_frame_len singletons rejects metadata repeating either,
+// which the current registry accepts.
+func TestPackMetaPriorSingletonRegistryRejectsRepeatedTags(t *testing.T) {
+	t.Parallel()
+
+	b, err := twoClassifiersMeta().MarshalBinary()
+	require.NoError(t, err)
+	entries, err := tlv.Decode(b)
+	require.NoError(t, err)
+	require.NoError(t, tlv.Validate(entries, tlv.PackMetadata))
+
+	for _, tt := range []struct {
+		tag   uint16
+		field tlv.Field
+	}{
+		{0x0008, tlv.Field{Name: "classifier", Type: tlv.TypeUTF8}},
+		{0x000F, tlv.Field{Name: "max_frame_len", Type: tlv.TypeU64}},
+	} {
+		prior := maps.Clone(tlv.PackMetadata)
+		prior[tt.tag] = tt.field
+		err := tlv.Validate(entries, prior)
+		require.ErrorIs(t, err, tlv.ErrDuplicate, tt.field.Name)
+		var ee *tlv.EntryError
+		require.ErrorAs(t, err, &ee, tt.field.Name)
+		assert.Equal(t, tt.tag, ee.Tag, tt.field.Name)
+	}
+}
+
+// TestPackMetaArchiveWithoutCompactedFrom checks that compacted_from is not required at compaction_level 1 or above
+// (the tracepack format specification §5):
+// an archive whose lineage list is empty, such as a converter's, validates and round-trips.
+func TestPackMetaArchiveWithoutCompactedFrom(t *testing.T) {
+	t.Parallel()
+
+	for _, level := range []uint8{1, 2, 255} {
+		m := basePackMeta()
+		m.PackRole = tracepack.PackRoleArchive
+		m.CompactionLevel = level
+		m.ScopeGeneration = new(uint64(1))
+		m.PublisherEpoch = new(uint64(1))
+		m.ReplacementSetID = new(uuidOfByte(2))
+		m.ReplacementSetSize = new(uint64(1))
+		m.ReplacementSetIndex = new(uint64(0))
+		require.NoError(t, m.Validate(tracepack.PackFacts{}), "level %d", level)
+
+		b, err := m.MarshalBinary()
+		require.NoError(t, err, "level %d", level)
+		got, err := tracepack.UnmarshalPackMeta(b)
+		require.NoError(t, err, "level %d", level)
+		assert.Equal(t, m, got, "level %d", level)
+		assert.Empty(t, got.CompactedFrom, "level %d", level)
+	}
 }
 
 func TestMarshalRejectsUnknownEntriesTheDecoderRejects(t *testing.T) {
