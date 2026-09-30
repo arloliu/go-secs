@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-09-30) — v2.15, tracepack format 1.0.
+Status: current (2026-09-30) — v2.16, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for publishers, mergers, recorders and log converters.
 
@@ -95,8 +95,13 @@ among the packs whose role takes part in it (§2):
 2. The view is the member of generation G,
    plus every generation-0 pack of the scope that is not listed in generation G's `compacted_from`,
    and, for a patch, that has a commit object and whose `patch_base` is G's `replacement_set_id` (absent when there is no G),
-   minus every pack named in the `supersedes` of a patch that is itself in the view.
-   A patch may name segments and the member of generation G; it replaces exactly the packs it names, so the other packs stay in the view.
+   minus every pack named in the `supersedes` of a **patch based on G**,
+   one that has a commit object and a `patch_base` matching G as above,
+   whether or not a later patch names that patch in turn.
+   A patch may name segments, the member of generation G and patches in the view;
+   it replaces exactly the packs it names, so the other packs stay in the view.
+   Supersession is therefore transitive: when a later patch replaces a patch, the packs the earlier patch replaced stay replaced.
+   Patches are registered one at a time and name only packs in the view (§5), so no chain of `supersedes` is circular.
    A patch whose base is not G (stale, or rejected at registration) is outside the view.
 3. Records are deduplicated by (`capture_id`, `seq`) ([FMT I-12]); the `coverage` of every pack in the view applies.
 
@@ -200,7 +205,8 @@ provided each commit object is deleted after the packs it commits.
   if record-level resolution cannot produce a correct encoding, the merge fails and publishes nothing.
   The output is the claimed generation of S (§2): `pack_role = archive`, the hour as the period, `compaction_level` = 1 + the highest input level,
   the capture-level tags of the inputs, the union of the inputs' `coverage`,
-  a **cumulative** `compacted_from` (generation G's list plus every generation-0 pack in the view and every generation-0 pack the view's patches name),
+  a **cumulative** `compacted_from` (generation G's list plus every generation-0 pack in the view
+  and every generation-0 pack that a patch based on G names, whether or not a later patch replaced that patch),
   `supersedes` = the member of generation G (lineage only), and a replacement set of one member (§6).
   Its footer follows [FMT §10].
   A merge writes one archive per scope, whatever its size: the limits of [FMT §2] apply per block, not per pack.
@@ -265,7 +271,8 @@ Its storage technology is not part of this specification.
   Every key L1 returned still exists at t, because nothing is deleted; every key that exists at t exists throughout L2, so L2 returns it.
   Hence L1 ⊆ C(t) ⊆ L2, and L1 = L2 gives C(t) = L1, the set of commit objects at t.
   The view at t reads only packs that exist at t — a pack is uploaded before its commit object (commit protocol step 1 before step 3) and is never deleted here —
-  namely G's member, the generation-0 packs outside G's `compacted_from` and the patches in the view; so (2) lists every one of them.
+  namely G's member and the generation-0 packs outside G's `compacted_from`,
+  every patch based on G among them, also one that a later patch replaced; so (2) lists every one of them.
   A listed pack whose commit object is not in C(t) is uncommitted in the view, whenever it was uploaded.
   A set whose commit object is in C(t) but whose member is not listed is incomplete and outside the view, as in §4.
   Segments uploaded after t may be listed too, and join the view because segments need no commit object;
@@ -415,6 +422,10 @@ The following vectors belong to the corpus of [FMT §16]:
 - a generation whose member is repaired, published, predecessors deleted (packs in either order, each commit object after its packs), then rebuild:
   the repaired prefix and all inherited coverage remain (§4);
 - a patch replacing one generation member, an attempted deletion before the next merge, and a rebuild; then the folding merge and deletions (packs in either order, each commit object after its packs) (§4);
+- a patch of a patch, S1 ← P1 ← P2 for a segment S1 and M ← P1' ← P2' for generation G's member M:
+  the view holds P2 and P2' but none of S1, P1, M and P1', also after a rebuild;
+  the folding merge lists S1, P1, P2, P1' and P2' in `compacted_from`,
+  and deletions (packs in either order, each commit object after its packs) and a rebuild leave the view unchanged (§4, §5);
 - generations A → B → C of one scope with B deleted before A (packs in either order, each commit object after its packs), then catalog rebuild: the view is exactly C with its inherited coverage (§4);
 - a backward clock step across a flush-period boundary within one hour, queried before and after merging (§5);
 - an invisible high-number claim, a rebuild with a new publisher epoch, a lower-number merge absorbing a late segment, deletion of its inputs,

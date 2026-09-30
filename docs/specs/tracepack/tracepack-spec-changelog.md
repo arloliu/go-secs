@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-09-30) — spec v2.15.
+Status: current (2026-09-30) — spec v2.16.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -736,3 +736,23 @@ Summary:
 | P1 inherited `coverage` entries could lose unknown nested tags | [FMT §5]: carried as data, nested order and reserved bytes normalized |
 | P0 ×1, P1 ×8 capture identity, analysis and budget errors, arithmetic and footer limits, the Writer seam, source changes, the error contract, test fixtures | the Go implementation plan |
 
+## Changes v2.15 → v2.16: transitive supersession (owner decision G5-107, 2026-09-30)
+
+Source: the view question of a patch naming a patch, which G5-104 left to the design of `ActiveView`; no proposal document.
+Format version stays 1.0: no byte changes.
+
+Summary:
+- [STO §4] a patch based on G (a commit object, and `patch_base` = G's `replacement_set_id`) removes the packs it names from the view,
+  also when a later patch names it, so supersession is transitive (G5-107).
+  A patch may name patches in the view,
+  and no chain of `supersedes` is circular because patch registration is serialized.
+- [STO §4] Merge's cumulative `compacted_from` lists every generation-0 pack that a patch based on G names,
+  those of a replaced patch included,
+  so a segment that a replaced patch replaced is folded and becomes deletable.
+- [STO §5] a coherent observation lists the replaced patches whose `supersedes` the view applies.
+- [STO §8] vector: a patch of a patch, for a segment and for the generation's member,
+  through a rebuild, the folding merge and deletions.
+- [FMT §5] `supersedes` removes the named packs, not only segments,
+  and they stay removed when a later patch replaces the patch;
+  [FMT §13] repair of a patch says so.
+- Impl plan phase 5: `ActiveView` and `Merge` follow the rule.

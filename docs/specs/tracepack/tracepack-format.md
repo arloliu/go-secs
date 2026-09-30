@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-09-30) — v2.15, tracepack format 1.0.
+Status: current (2026-09-30) — v2.16, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -204,7 +204,7 @@ Rules:
 | 0x0012 | `lifecycle_coverage` | u8 enum | always | §9, [SEM §5] |
 | 0x0013 | `quality_evaluated` | bool | always | [SEM §6] |
 | 0x0014 | — | — | — | retired (the record header length is per block, §6) |
-| 0x0015 | `supersedes` | uuid, repeatable | patches; generations ≥ 1 with a predecessor | lineage: the packs this one replaces; for generation-0 packs it also removes the named segment from the view ([STO §4]) |
+| 0x0015 | `supersedes` | uuid, repeatable | patches; generations ≥ 1 with a predecessor | lineage: the packs this one replaces; for a patch it also removes the named packs from the view, and they stay removed when a later patch replaces the patch ([STO §4]) |
 | 0x0016 | `coverage` | tlv, repeatable | a repair lost data | one lost range per entry; nested tags below ([STO §6]) |
 | 0x0017 | `notes` | utf8 | optional | free text; never the sole record of data loss |
 | 0x0018 | `pack_role` | u8 enum | always | segment / archive / extract / repair (§9, [STO §2]) |
@@ -740,7 +740,8 @@ The object size is known before reading (file system stat, object listing, the c
   every failed block and every byte range the walk cannot account for is reported `incomplete` with offset and cause.
   Locating blocks after an envelope the walk cannot account for, in a pack without a valid footer, is deferred ([OVW §6]).
 - **Repair** (`verify --repair`) never modifies the damaged file;
-  it writes a `repair` patch ([STO §6]) whose `supersedes` names the damaged pack, also when that pack is itself a patch.
+  it writes a `repair` patch ([STO §6]) whose `supersedes` names the damaged pack, also when that pack is itself a patch;
+  the packs that patch replaced stay replaced ([STO §4]).
   The patch holds every validated block of the damaged pack, those after a failed block included,
   copied byte for byte in file order;
   no record is re-encoded, so header extension bytes, reserved bits and unknown enum values survive.
