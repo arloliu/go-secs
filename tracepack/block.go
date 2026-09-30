@@ -19,6 +19,14 @@ const maxPayloadLen = int(format.MaxLen32) - recordHeaderLen
 // hourNs is one hour in nanoseconds, the width of the UTC hour a block's records share (I-13).
 const hourNs int64 = 3_600_000_000_000
 
+// maxLinearEpochs is the number of epoch entries a block summary searches linearly;
+// a summary with more keeps an epoch index, so a block of n records in n epochs is summarized in O(n).
+const maxLinearEpochs = 8
+
+// epochProbe, when a test sets it, receives the number of epoch entries each epoch lookup examined:
+// those it compared, and those it indexed when it built the epoch index.
+var epochProbe func(examined int)
+
 // seqRange is one maximal run of consecutive seqs, first to last inclusive.
 type seqRange struct {
 	first uint64
@@ -78,6 +86,10 @@ type blockSummary struct {
 	qualityUnion       Quality
 	// epochs holds one entry per epoch present, in order of first appearance.
 	epochs []epochSummary
+	// epochIndex maps an epoch to its entry in epochs once a lookup has found more than maxLinearEpochs entries.
+	// It is building state only: a clone and a finished summary hold none,
+	// and the next lookup that needs it builds it again.
+	epochIndex map[uint32]int
 	// boundaries holds one entry per capture-boundary record, in seq order.
 	boundaries []boundarySummary
 	// seqRanges holds the block's seqs as sorted maximal runs; one run means the seqs are contiguous.
@@ -245,6 +257,7 @@ func (s *blockSummary) clone() blockSummary {
 	c.dirCounts = slices.Clone(s.dirCounts)
 	c.decodeStatusCounts = slices.Clone(s.decodeStatusCounts)
 	c.epochs = slices.Clone(s.epochs)
+	c.epochIndex = nil
 	c.seqRanges = slices.Clone(s.seqRanges)
 	c.boundaries = slices.Clone(s.boundaries)
 	for i := range c.boundaries {
@@ -308,12 +321,13 @@ func (s *blockSummary) addSeq(seq uint64) {
 
 // epochEntry folds the record into the entry of its epoch, creating it on first appearance, and returns it.
 func (s *blockSummary) epochEntry(h *format.RecordHeader) *epochSummary {
-	for i := range s.epochs {
-		e := &s.epochs[i]
-		if e.epoch != h.Epoch {
-			continue
-		}
+	i, found, examined := s.findEpoch(h.Epoch)
+	if epochProbe != nil {
+		epochProbe(examined)
+	}
 
+	if found {
+		e := &s.epochs[i]
 		e.recordCount++
 		e.seqLast = h.Seq
 		e.tsMin, e.tsMax = min(e.tsMin, h.TSUTCNs), max(e.tsMax, h.TSUTCNs)
@@ -326,8 +340,49 @@ func (s *blockSummary) epochEntry(h *format.RecordHeader) *epochSummary {
 		seqFirst: h.Seq, seqLast: h.Seq,
 		tsMin: h.TSUTCNs, tsMax: h.TSUTCNs,
 	})
+	i = len(s.epochs) - 1
+	if s.epochIndex != nil {
+		s.epochIndex[h.Epoch] = i
+	}
 
-	return &s.epochs[len(s.epochs)-1]
+	return &s.epochs[i]
+}
+
+// findEpoch returns the position of epoch's entry in s.epochs, whether there is one,
+// and the number of entries it examined.
+// It checks the last entry first, since consecutive records mostly share an epoch;
+// then it compares the other entries when there are at most maxLinearEpochs,
+// or else looks the epoch up in s.epochIndex, which it builds from s.epochs when there is none.
+func (s *blockSummary) findEpoch(epoch uint32) (i int, found bool, examined int) {
+	n := len(s.epochs)
+	if n == 0 {
+		return 0, false, 0
+	}
+	if s.epochs[n-1].epoch == epoch {
+		return n - 1, true, 1
+	}
+
+	if n <= maxLinearEpochs {
+		for j := range n - 1 {
+			if s.epochs[j].epoch == epoch {
+				return j, true, j + 2
+			}
+		}
+
+		return 0, false, n
+	}
+
+	examined = 1
+	if s.epochIndex == nil {
+		s.epochIndex = make(map[uint32]int, n)
+		for j := range s.epochs {
+			s.epochIndex[s.epochs[j].epoch] = j
+		}
+		examined += n
+	}
+	i, found = s.epochIndex[epoch]
+
+	return i, found, examined + 1
 }
 
 // addEvent records what a transport event contributes to the summary:

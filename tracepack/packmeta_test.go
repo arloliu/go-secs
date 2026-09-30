@@ -616,8 +616,8 @@ func TestPackMetaRepeatedClassifierAndMaxFrameLen(t *testing.T) {
 	assert.Equal(t, []uint64{2, 1}, maxFrameLens, "each value is written, in order")
 }
 
-// TestPackMetaValidateAcceptsSeveralClassifiers checks that one value or more satisfies
-// the classifier and max_frame_len rules (the tracepack format specification §5).
+// TestPackMetaValidateAcceptsSeveralClassifiers checks that one value or more satisfies the classifier and max_frame_len rules
+// (the tracepack format specification §5).
 func TestPackMetaValidateAcceptsSeveralClassifiers(t *testing.T) {
 	t.Parallel()
 
@@ -629,8 +629,7 @@ func TestPackMetaValidateAcceptsSeveralClassifiers(t *testing.T) {
 	require.NoError(t, m.Validate(facts))
 }
 
-// TestPackMetaPriorSingletonRegistryRejectsRepeatedTags checks the incompatibility
-// the tracepack format specification §14 states:
+// TestPackMetaPriorSingletonRegistryRejectsRepeatedTags checks the incompatibility the tracepack format specification §14 states:
 // a reader whose registry still makes classifier and max_frame_len singletons rejects metadata repeating either,
 // which the current registry accepts.
 func TestPackMetaPriorSingletonRegistryRejectsRepeatedTags(t *testing.T) {

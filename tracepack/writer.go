@@ -765,7 +765,7 @@ func (w *Writer) writeBlock() error {
 }
 
 // finishBlock syncs the block just written, whose envelope is env, and keeps s, the summary of its records,
-// for the footer, placed as env and the block's position say.
+// for the footer, placed as env and the block's position say, without its epoch index.
 func (w *Writer) finishBlock(s blockSummary, env *format.BlockEnvelope) error {
 	if w.syncer != nil {
 		if err := w.syncer.Sync(); err != nil {
@@ -779,6 +779,7 @@ func (w *Writer) finishBlock(s blockSummary, env *format.BlockEnvelope) error {
 	s.uncompressedLen = env.UncompressedLen
 	s.bodyCRC = env.BodyCRC
 	s.recordHeaderLen = env.RecordHeaderLen
+	s.epochIndex = nil
 	w.blocks = append(w.blocks, s)
 
 	return nil

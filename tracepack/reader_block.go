@@ -345,7 +345,7 @@ func (d *decodedBlock) payload(i int) []byte {
 
 // summaryOf returns the summary the Writer builds for the records of d (the tracepack format specification §10);
 // the fields the block's envelope and position give are left to the caller.
-// The summary shares no memory with d.
+// The summary shares no memory with d, and holds no epoch index.
 func summaryOf(d *decodedBlock) blockSummary {
 	var s blockSummary
 	for j := range d.count() {
@@ -357,6 +357,7 @@ func summaryOf(d *decodedBlock) blockSummary {
 		}
 		s.addRecord(&h, ev)
 	}
+	s.epochIndex = nil
 
 	return s
 }
