@@ -1,6 +1,7 @@
 package tracepack
 
 import (
+	"bytes"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -165,7 +166,23 @@ type Writer struct {
 	// maxF3ListLen is the longest F-3 entry list the footer's u32 summary_len can state;
 	// tests lower it to reach the check.
 	maxF3ListLen uint64
-	closed       bool
+	// footerBudget, when not 0, bounds two values, each on its own.
+	// The first is footerCounted, the sum of the appended blocks' footerCost:
+	// the bytes each block adds to the decoded footer, its F-2 entry and F-3 list,
+	// plus an estimate of the memory the Writer holds for the block until Close,
+	// its kept summary with the summary's contents, its copy of a verbatim F-3 list, and the F-2 entry buildFooter builds for it.
+	// appendBlock rejects a block that would take footerCounted past the budget, before it writes or keeps anything of it.
+	// The second is the footer's length, decoded and on disk, as a reader's MaxFooterLen bounds both:
+	// Close computes the decoded length from the footer's sections and checks it before it assembles the footer,
+	// then checks the encoded length before it writes the footer.
+	// Every error wraps ErrMergeLimit and leaves the Writer failed.
+	// Close's other working memory is not counted on its own:
+	// the F-3 section and the F-5 statistics it builds before the first check derive from what the blocks counted,
+	// and the encoded footer, built after that check, is at most a few bytes longer than the decoded one.
+	// Blocks closed by Append are not counted: a budget is set only by a merge, which appends every block with appendBlock.
+	footerBudget  uint64
+	footerCounted uint64
+	closed        bool
 	// failure is the error that left the Writer failed; nil while it is usable.
 	failure error
 }
@@ -788,18 +805,27 @@ func (w *Writer) finishBlock(s blockSummary, env *format.BlockEnvelope) error {
 // appendBlock writes raw, the envelope and on-disk body of a block a full read validated in another pack, byte for byte,
 // and keeps a copy of s, the summary its records give (summaryOf), for the footer (the tracepack format specification §10).
 // The block keeps its codec and record header length whatever the Writer's options.
+// f3, when not empty, is the block's F-3 entry list as the other pack's footer stores it (rawF3),
+// which the footer then holds byte for byte in place of the list built from s, while F-5 still aggregates s;
+// the Writer keeps its own copy of f3, so f3 may alias a Reader's F-3 section and the caller may reuse it afterwards.
+// A non-empty f3 must state the same summary as s;
+// the caller checks it, as a full read checks a block against its footer (checkSummary).
+// appendBlock does not parse f3, and a list that disagrees with s gives a footer whose F-5, the aggregate of s,
+// is not the aggregate of its F-3 lists, so the footer fails the validation of the tracepack format specification §10.
 //
 // It requires no open block, and checks from s what Append checks of each record:
 // I-12 (the pack's first seq is seq_start, every block's first seq is above the last seq written, no seq above 2^63-1),
 // I-13 (the block's records lie in one UTC hour), and the commitments of the written pack metadata and file header.
 // raw's envelope must agree with s on record_count and first_seq, and hold exactly the body that follows it.
+// With a footer budget it then counts the block against the budget,
+// and a block over it is an error wrapping ErrMergeLimit, returned before raw is written or s or f3 copied.
 // Any error leaves the Writer failed.
-func (w *Writer) appendBlock(raw []byte, s *blockSummary) error {
+func (w *Writer) appendBlock(raw []byte, s *blockSummary, f3 []byte) error {
 	if err := w.usable(); err != nil {
 		return err
 	}
 
-	if err := w.writeRawBlock(raw, s); err != nil {
+	if err := w.writeRawBlock(raw, s, f3); err != nil {
 		w.failure = err
 		return err
 	}
@@ -808,18 +834,45 @@ func (w *Writer) appendBlock(raw []byte, s *blockSummary) error {
 }
 
 // writeRawBlock does the work of appendBlock, returning its first error.
-func (w *Writer) writeRawBlock(raw []byte, s *blockSummary) error {
+func (w *Writer) writeRawBlock(raw []byte, s *blockSummary, f3 []byte) error {
 	env, err := w.checkAppendBlock(raw, s)
 	if err != nil {
+		return err
+	}
+	if err := w.countFooter(s, f3); err != nil {
 		return err
 	}
 	if err := w.write(raw, "block"); err != nil {
 		return err
 	}
-	if err := w.finishBlock(s.clone(), &env); err != nil {
+
+	kept := s.clone()
+	if len(f3) > 0 {
+		kept.verbatimF3 = bytes.Clone(f3)
+	}
+	if err := w.finishBlock(kept, &env); err != nil {
 		return err
 	}
 	w.nextSeq = s.lastSeq + 1
+
+	return nil
+}
+
+// countFooter counts the block of s, with the verbatim F-3 list f3 or none, against the footer budget when there is one:
+// it adds the block's footerCost to footerCounted.
+// A block that would take footerCounted past the budget is an error wrapping ErrMergeLimit, and is not counted.
+func (w *Writer) countFooter(s *blockSummary, f3 []byte) error {
+	if w.footerBudget == 0 {
+		return nil
+	}
+
+	// footerCounted never passes footerBudget, so the subtraction cannot wrap.
+	cost, left := footerCost(s, f3), w.footerBudget-w.footerCounted
+	if cost > left {
+		return fmt.Errorf("tracepack: block of seq %d-%d needs %d bytes of the footer budget of %d, %d are left: %w",
+			s.firstSeq, s.lastSeq, cost, w.footerBudget, left, ErrMergeLimit)
+	}
+	w.footerCounted += cost
 
 	return nil
 }
@@ -866,7 +919,7 @@ func (w *Writer) finalize() error {
 		return fmt.Errorf("tracepack: %d blocks exceed the u32 block_count", len(w.blocks))
 	}
 
-	footer, stats, err := buildFooter(w.blocks, w.maxF3ListLen)
+	footer, stats, err := buildFooter(w.blocks, w.maxF3ListLen, w.footerBudget)
 	if err != nil {
 		return err
 	}
@@ -877,6 +930,11 @@ func (w *Writer) finalize() error {
 	enc, err := codec.Encode(uint8(w.codec), nil, footer)
 	if err != nil {
 		return fmt.Errorf("tracepack: encode footer: %w", err)
+	}
+	// A reader's MaxFooterLen bounds the footer on disk as well as decoded,
+	// and zstd stores an incompressible footer a few bytes longer than it is.
+	if n := uint64(len(enc)); w.footerBudget != 0 && n > w.footerBudget {
+		return fmt.Errorf("tracepack: footer of %d bytes on disk exceeds the budget of %d: %w", n, w.footerBudget, ErrMergeLimit)
 	}
 
 	tr := format.Trailer{

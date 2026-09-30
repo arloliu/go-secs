@@ -307,7 +307,7 @@ func resummarized(t testing.TB, file []byte, blocks []blockSummary, i int, edit 
 
 	changed := cloneSummaries(blocks)
 	edit(&changed[i])
-	footer, _, err := buildFooter(changed, math.MaxUint32)
+	footer, _, err := buildFooter(changed, math.MaxUint32, 0)
 	require.NoError(t, err)
 
 	return refooter(t, file, footer)
