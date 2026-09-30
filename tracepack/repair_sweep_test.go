@@ -1,6 +1,7 @@
 package tracepack
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"testing"
@@ -112,4 +113,68 @@ func errorClass(err error) string {
 	}
 
 	return fmt.Sprintf("other: %v", err)
+}
+
+// FuzzRepair repairs mutated packs.
+// With an in-memory source and destination, every refusal is decided before the patch's header,
+// so Repair either fails having written nothing or writes a patch that verifies finalized-consistent,
+// copies the validated blocks byte for byte, holds every validated record,
+// and declares each new coverage entry with its capture, first seq and time bounds.
+func FuzzRepair(f *testing.F) {
+	readerOpts := ReaderOptions{MaxPackMetadataLen: 1 << 20, MaxFooterLen: 1 << 20, MaxBlockLen: 1 << 20}
+	opts := RepairOptions{Reader: readerOpts, Writer: "fuzz"}
+
+	for _, c := range []Codec{CodecNone, CodecZstd} {
+		file := repairSweepPack(f, c)
+		f.Add(file)
+		f.Add(file[:len(file)/2])
+		f.Add(invalidFooterFile(f, file))
+	}
+	p := writeRepairPack(f, CodecZstd, nil, false, repairSteps(f))
+	f.Add(flipAll(p.file, p, 2))
+	f.Add(flipAll(invalidFooterFile(f, p.file), p, 1, 3))
+	for _, file := range fuzzIterateSeeds(f) {
+		f.Add(file)
+	}
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var out bytes.Buffer
+		rep, err := Repair(t.Context(), bytes.NewReader(data), int64(len(data)), &out, opts)
+		if err != nil {
+			require.Empty(t, out.Bytes(), "an in-memory repair fails only before writing: %v", err)
+
+			return
+		}
+
+		patch := out.Bytes()
+		require.Equal(t, uint64(len(patch)), rep.Size)
+		v, err := Verify(t.Context(), bytes.NewReader(patch), int64(len(patch)), VerifyOptions{Reader: readerOpts})
+		require.NoError(t, err)
+		require.Equal(t, OutcomeFinalizedConsistent, v.Outcome, "failed %v, disagreements %v", v.Failed, v.Disagreements)
+		require.Equal(t, rep.Verify.Records, v.Records)
+		require.Equal(t, rep.Records, v.Records)
+		require.NotEqual(t, OutcomeFinalizedConsistent, rep.Verify.Outcome)
+
+		r, err := Open(t.Context(), bytes.NewReader(data), int64(len(data)), readerOpts)
+		require.NoError(t, err)
+		a, err := r.analyze(t.Context(), true)
+		require.NoError(t, err)
+		var want [][]byte
+		for i, b := range r.Blocks() {
+			if !a.blocks[i].failed {
+				want = append(want, data[b.Offset:b.Offset+uint64(b.OnDiskLen)])
+			}
+		}
+		pr, err := Open(t.Context(), bytes.NewReader(patch), int64(len(patch)), readerOpts)
+		require.NoError(t, err)
+		var got [][]byte
+		for _, b := range pr.Blocks() {
+			got = append(got, patch[b.Offset:b.Offset+uint64(b.OnDiskLen)])
+		}
+		require.Equal(t, want, got, "the validated blocks, byte for byte")
+
+		for i, c := range rep.Coverage {
+			require.True(t, c.CaptureID != nil && c.SeqFirst != nil && c.TimeStart != nil && c.TimeEnd != nil, "new entry %d", i)
+		}
+	})
 }

@@ -803,8 +803,8 @@ func TestRepairEdgePacks(t *testing.T) {
 	})
 }
 
-// secondReadAt serves file, except that the second and later reads of exactly the bytes at off of length n
-// are served by second, which returns the bytes to serve or an error.
+// secondReadAt serves file, except for the second and later reads of exactly the n bytes at off:
+// second serves those, filling the buffer or returning an error.
 type secondReadAt struct {
 	file   []byte
 	off    int64
