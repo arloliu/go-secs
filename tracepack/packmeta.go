@@ -174,7 +174,9 @@ type PackFacts struct {
 // a repair pack's account of data it could not recover (the tracepack storage specification §6).
 //
 // See the tracepack format specification §5.
-// Every field is optional, because a writer may know only part of the lost range.
+// Every field is optional on read.
+// A writer declaring a new entry sets CaptureID, SeqFirst, TimeStart and TimeEnd, and SeqLast when the upper bound of the lost seqs is known;
+// an entry a repair inherits is carried as it was read.
 type Coverage struct {
 	// CaptureID is the capture the lost range belongs to.
 	CaptureID *UUID
@@ -186,6 +188,9 @@ type Coverage struct {
 	TimeStart *int64
 	// TimeEnd is the end of the lost range.
 	TimeEnd *int64
+	// Unknown holds the nested entries this package does not know, in stored order, a repeated tag included.
+	// MarshalBinary writes them after the known nested tags; coverage matching ignores them.
+	Unknown []RawEntry
 }
 
 // RedactionPolicy is the policy an extract's pack metadata `redaction_policy` entry names
@@ -354,7 +359,7 @@ var packMetaSetters = map[uint16]func(m *PackMeta, e tlv.Entry) error{
 	tagSupersedes: setField(uuidOf, func(m *PackMeta, v UUID) {
 		m.Supersedes = append(m.Supersedes, v)
 	}),
-	tagCoverage:        setNested(decodeNested(coverageSetters), func(m *PackMeta, v Coverage) { m.Coverage = append(m.Coverage, v) }),
+	tagCoverage:        setNested(decodeCoverage, func(m *PackMeta, v Coverage) { m.Coverage = append(m.Coverage, v) }),
 	tagNotes:           setField(tlv.Entry.UTF8, func(m *PackMeta, v string) { m.Notes = &v }),
 	tagPackRole:        setField(u8As[PackRole], func(m *PackMeta, v PackRole) { m.PackRole = v }),
 	tagCompactionLevel: setField(tlv.Entry.U8, func(m *PackMeta, v uint8) { m.CompactionLevel = v }),
@@ -484,6 +489,7 @@ func (m *PackMeta) Validate(facts PackFacts) error {
 // and so on) must call Validate(facts) itself before calling MarshalBinary.
 // Every RawEntry in m.Unknown is re-encoded after the typed fields, except a retired tag number, which is dropped,
 // because a writer never writes one (the tracepack format specification §5).
+// The Unknown entries of each coverage entry are re-encoded after its known nested tags.
 // The retired pack_role 5 is rejected: a writer never writes it (the tracepack format specification §9).
 //
 // It rejects any value UnmarshalPackMeta would reject:
@@ -492,7 +498,8 @@ func (m *PackMeta) Validate(facts PackFacts) error {
 // Returns:
 //   - []byte: the encoded pack metadata.
 //   - error: a *FieldError from Validate, a *FieldError wrapping ErrFieldValue for pack_role 5,
-//     a *FieldError wrapping ErrReservedTag for an Unknown entry that names a tag this package already encodes,
+//     a *FieldError wrapping ErrReservedTag for an Unknown entry, of the metadata or of a coverage entry,
+//     that names a tag this package already encodes,
 //     or an error naming the first value the decoder would reject.
 func (m *PackMeta) MarshalBinary() ([]byte, error) {
 	if err := m.validateIntrinsic(); err != nil {
@@ -505,11 +512,14 @@ func (m *PackMeta) MarshalBinary() ([]byte, error) {
 
 	entries := m.appendAlwaysEntries(nil)
 	entries = m.appendOptionalScalarEntries(entries)
-	entries = m.appendRepeatableEntries(entries)
+	entries, err := m.appendRepeatableEntries(entries)
+	if err != nil {
+		return nil, err
+	}
 	entries = m.appendNestedEntries(entries)
 
 	unknown := slices.DeleteFunc(slices.Clone(m.Unknown), func(r RawEntry) bool { return slices.Contains(retiredPackMetaTags[:], r.Tag) })
-	entries, err := appendUnknownEntries(entries, unknown, tlv.PackMetadata)
+	entries, err = appendUnknownEntries(entries, unknown, tlv.PackMetadata)
 	if err != nil {
 		return nil, err
 	}
@@ -593,8 +603,14 @@ func (u UUID) IsZero() bool {
 	return u == UUID{}
 }
 
-// entry returns c as the nested entry list of a pack metadata `coverage` entry.
-func (c Coverage) entry() tlv.Entry {
+// entry returns c as the nested entry list of a pack metadata `coverage` entry:
+// its known nested tags in tag order, then its Unknown entries in order.
+//
+// Returns:
+//   - tlv.Entry: the coverage entry.
+//   - error: a *FieldError wrapping ErrReservedTag for an Unknown entry that names a known nested tag,
+//     or the error of an Unknown entry the decoder would reject.
+func (c Coverage) entry() (tlv.Entry, error) {
 	var sub []tlv.Entry
 	if c.CaptureID != nil {
 		sub = append(sub, tlv.UUIDEntry(tagCoverageCaptureID, [16]byte(*c.CaptureID)))
@@ -612,7 +628,12 @@ func (c Coverage) entry() tlv.Entry {
 		sub = append(sub, tlv.I64Entry(tagCoverageTimeEnd, *c.TimeEnd))
 	}
 
-	return tlv.NestedEntry(tagCoverage, sub)
+	sub, err := appendUnknownEntries(sub, c.Unknown, tlv.Coverage)
+	if err != nil {
+		return tlv.Entry{}, err
+	}
+
+	return tlv.NestedEntry(tagCoverage, sub), nil
 }
 
 // entry returns p as the nested entry list of a pack metadata `redaction_policy` entry.
@@ -730,7 +751,8 @@ func (m *PackMeta) appendOptionalScalarEntries(dst []tlv.Entry) []tlv.Entry {
 }
 
 // appendRepeatableEntries appends the entries of m's repeatable tags.
-func (m *PackMeta) appendRepeatableEntries(dst []tlv.Entry) []tlv.Entry {
+// It returns the error of the first coverage entry that cannot be encoded, naming its index.
+func (m *PackMeta) appendRepeatableEntries(dst []tlv.Entry) ([]tlv.Entry, error) {
 	for _, s := range m.SourceRefs {
 		dst = append(dst, tlv.UTF8Entry(tagSourceRef, s))
 	}
@@ -740,14 +762,18 @@ func (m *PackMeta) appendRepeatableEntries(dst []tlv.Entry) []tlv.Entry {
 	for _, id := range m.CompactedFrom {
 		dst = append(dst, tlv.UUIDEntry(tagCompactedFrom, [16]byte(id)))
 	}
-	for _, c := range m.Coverage {
-		dst = append(dst, c.entry())
+	for i, c := range m.Coverage {
+		e, err := c.entry()
+		if err != nil {
+			return nil, fmt.Errorf("tracepack: coverage entry %d: %w", i, err)
+		}
+		dst = append(dst, e)
 	}
 	for _, r := range m.Redaction {
 		dst = append(dst, r.entry())
 	}
 
-	return dst
+	return dst, nil
 }
 
 // appendNestedEntries appends the entries of m's single nested tags that are present.
@@ -845,7 +871,7 @@ func setNested[T any](decode func([]tlv.Entry) (T, error), assign func(*PackMeta
 }
 
 // decodeNested returns a setNested decoder that fills an R from its nested entries with setters.
-// A nested tag without a setter is skipped: only top-level unknown entries are preserved.
+// A nested tag without a setter is skipped; decodeCoverage keeps them for a coverage entry instead.
 func decodeNested[R any](setters map[uint16]func(*R, tlv.Entry) error) func([]tlv.Entry) (R, error) {
 	return func(nested []tlv.Entry) (R, error) {
 		var r R
@@ -862,6 +888,25 @@ func decodeNested[R any](setters map[uint16]func(*R, tlv.Entry) error) func([]tl
 
 		return r, nil
 	}
+}
+
+// decodeCoverage decodes the nested entries of a pack metadata `coverage` entry,
+// keeping every nested entry without a setter in Coverage.Unknown, in order.
+func decodeCoverage(nested []tlv.Entry) (Coverage, error) {
+	var c Coverage
+	for _, e := range nested {
+		set, known := coverageSetters[e.Tag]
+		if !known {
+			c.Unknown = append(c.Unknown, newRawEntry(e))
+
+			continue
+		}
+		if err := set(&c, e); err != nil {
+			return Coverage{}, err
+		}
+	}
+
+	return c, nil
 }
 
 // u8As decodes e's u8 value as the enum type T.

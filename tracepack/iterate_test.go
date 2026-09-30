@@ -634,13 +634,13 @@ func coverageTestEntries(own, other UUID) []Coverage {
 	at := func(v int64) *int64 { return new(h + v) }
 
 	return []Coverage{
-		{TimeStart: at(100)},                   // 0: no end
-		{TimeEnd: at(50)},                      // 1: no start
-		{TimeStart: at(500), TimeEnd: at(100)}, // 2: inverted time
-		{SeqFirst: new(uint64(10)), SeqLast: new(uint64(5)), TimeStart: at(900), TimeEnd: at(950)}, // 3: inverted seqs
-		{TimeStart: at(200), TimeEnd: at(300)},                                                     // 4
-		{CaptureID: &other, TimeStart: at(0), TimeEnd: at(1000)},                                   // 5: another capture
-		{CaptureID: &own, TimeStart: at(600), TimeEnd: at(700), SeqFirst: new(uint64(1))},          // 6: this capture, named
+		{TimeStart: at(100)}, // 0: no end
+		{TimeEnd: at(50)},    // 1: no start
+		{TimeStart: at(500), TimeEnd: at(100), Unknown: []RawEntry{{Tag: 0x0050, Type: 7, Value: []byte{0xAA}}}}, // 2: inverted time, an unknown nested tag
+		{SeqFirst: new(uint64(10)), SeqLast: new(uint64(5)), TimeStart: at(900), TimeEnd: at(950)},               // 3: inverted seqs
+		{TimeStart: at(200), TimeEnd: at(300)},                                            // 4
+		{CaptureID: &other, TimeStart: at(0), TimeEnd: at(1000)},                          // 5: another capture
+		{CaptureID: &own, TimeStart: at(600), TimeEnd: at(700), SeqFirst: new(uint64(1))}, // 6: this capture, named
 	}
 }
 
@@ -868,6 +868,7 @@ func TestIterateUnaffectedByCallerMutation(t *testing.T) {
 
 	h := r.Header()
 	h.Meta.PackRole = PackRoleExtract
+	h.Meta.Coverage[2].Unknown[0].Value[0]++
 	*h.Meta.Coverage[0].TimeStart = blockTestHour + 5000
 	h.Meta.Coverage = h.Meta.Coverage[:1]
 
@@ -881,6 +882,9 @@ func TestIterateUnaffectedByCallerMutation(t *testing.T) {
 			}
 			if d.Coverage.CaptureID != nil {
 				d.Coverage.CaptureID[0]++
+			}
+			for k := range d.Coverage.Unknown {
+				d.Coverage.Unknown[k].Value[0]++
 			}
 			d.Coverage.SeqLast = nil
 		}
