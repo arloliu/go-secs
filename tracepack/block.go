@@ -255,16 +255,20 @@ func (s *blockSummary) clone() blockSummary {
 	return c
 }
 
-// anyClassified reports whether any record of s has a decode_status other than not-attempted and not-applicable,
-// a value outside the registry included, as Append's commitment check counts it.
-func (s *blockSummary) anyClassified() bool {
+// commitmentFacts reports, as Append's commitment check counts them, whether any record of s is classified,
+// with a decode_status other than not-attempted and not-applicable, a value outside the registry included;
+// whether any is oversized; and whether any carries quality.redacted.
+func (s *blockSummary) commitmentFacts() (classified, oversized, redacted bool) {
 	for v, n := range s.decodeStatusCounts {
 		if n > 0 && DecodeStatus(v) != DecodeStatusNotAttempted && DecodeStatus(v) != DecodeStatusNotApplicable {
-			return true
+			classified = true
+
+			break
 		}
 	}
+	oversized = anyCounted(s.decodeStatusCounts, []DecodeStatus{DecodeStatusOversized})
 
-	return false
+	return classified, oversized, s.qualityUnion.Has(QualityRedacted)
 }
 
 // addRecord folds one record into s.

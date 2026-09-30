@@ -166,8 +166,6 @@ func (r *Reader) planRepair(a *analysis, opts *RepairOptions) (*repairPlan, erro
 	}
 
 	p := &repairPlan{meta: r.patchMeta(a, opts, coverage), facts: facts, coverage: coverage}
-	p.facts.CoverageLoss = len(p.meta.Coverage) > 0
-	p.facts.ScopeHasGeneration = p.meta.PatchBase != nil
 	if err := p.meta.Validate(p.facts); err != nil {
 		return nil, err
 	}
@@ -240,9 +238,9 @@ func (r *Reader) lostRuns(a *analysis) ([]Coverage, error) {
 		// prev is the last seq of the latest validated block; valid iff hasPrev.
 		prev    uint64
 		hasPrev bool
-		// inRun reports an open lost run, and runFailed whether it holds a failed block; runAt is the index of its first block.
-		inRun, runFailed bool
-		runAt            int
+		// runFailed reports an open run of failed blocks, and runAt is the index of its first block.
+		runFailed bool
+		runAt     int
 	)
 	closeRun := func(next uint64, hasNext bool) error {
 		c, ok := runCoverage(prev, hasPrev, next, hasNext, r.meta.SeqStart)
@@ -252,7 +250,7 @@ func (r *Reader) lostRuns(a *analysis) ([]Coverage, error) {
 		} else if runFailed {
 			return fmt.Errorf("%w: the lost run from block %d has no seq between its validated neighbours", ErrNotRepairable, runAt)
 		}
-		inRun, runFailed = false, false
+		runFailed = false
 
 		return nil
 	}
@@ -260,14 +258,13 @@ func (r *Reader) lostRuns(a *analysis) ([]Coverage, error) {
 	for i := range a.blocks {
 		b := &a.blocks[i]
 		if b.failed {
-			if !inRun {
-				inRun, runAt = true, i
+			if !runFailed {
+				runFailed, runAt = true, i
 			}
-			runFailed = true
 
 			continue
 		}
-		if inRun {
+		if runFailed {
 			if err := closeRun(b.firstSeq, true); err != nil {
 				return nil, err
 			}
@@ -275,12 +272,7 @@ func (r *Reader) lostRuns(a *analysis) ([]Coverage, error) {
 		prev, hasPrev = b.lastSeq, true
 	}
 
-	if !r.finalized || r.walkStop != nil {
-		if !inRun {
-			inRun, runAt = true, len(a.blocks)
-		}
-	}
-	if inRun {
+	if runFailed || !r.finalized || r.walkStop != nil {
 		if err := closeRun(0, false); err != nil {
 			return nil, err
 		}
@@ -338,10 +330,7 @@ func (r *Reader) patchMeta(a *analysis, opts *RepairOptions, coverage []Coverage
 	m.ReplacementSetID, m.ReplacementSetSize, m.ReplacementSetIndex = nil, nil, nil
 	m.Supersedes = []UUID{UUID(r.hdr.PackID)}
 	m.Coverage = append(m.Coverage, coverage...)
-	m.PatchBase = nil
-	if opts.PatchBase != nil {
-		m.PatchBase = new(*opts.PatchBase)
-	}
+	m.PatchBase = clonePtr(opts.PatchBase)
 	m.Writer = opts.Writer
 	for i := range a.blocks {
 		if !a.blocks[i].failed {
@@ -360,7 +349,7 @@ func (r *Reader) writePatch(ctx context.Context, a *analysis, p *repairPlan, dst
 	w, err := startWriter(dst, WriterOptions{
 		Meta: p.meta, Facts: p.facts, Codec: opts.Codec, Sync: opts.Sync,
 		PackID: opts.PackID, CaptureID: UUID(r.hdr.CaptureID),
-	}, true)
+	})
 	if err != nil {
 		return RepairReport{}, err
 	}
