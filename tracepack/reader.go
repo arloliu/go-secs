@@ -379,6 +379,17 @@ func (r *Reader) Header() *PackHeader {
 	return h
 }
 
+// Info returns the pack's PackInfo, which ActiveView takes:
+// the file header's pack_id and capture_id, and the pack metadata decoded afresh from the Reader's own copy of its bytes,
+// so no change to a PackHeader that Header returned reaches it.
+func (r *Reader) Info() PackInfo {
+	// Open decoded the same bytes without error, so decoding them again cannot fail.
+	meta, _ := UnmarshalPackMeta(r.metaRaw)
+
+	// The Reader never modifies metaRaw, and PackInfo never hands it out, so the two share it.
+	return PackInfo{packID: UUID(r.hdr.PackID), captureID: UUID(r.hdr.CaptureID), raw: r.metaRaw, meta: meta}
+}
+
 // Blocks returns a copy of the pack's block index, in file order.
 //
 // The blocks come from the footer when it is valid, each with Indexed set,
