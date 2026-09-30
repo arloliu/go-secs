@@ -65,26 +65,6 @@ func copyBlocks(t testing.TB, opts WriterOptions, blocks []sourceBlock) []byte {
 	return out.Bytes()
 }
 
-// footerCodecOf returns the footer codec of a finalized pack.
-func footerCodecOf(t testing.TB, file []byte) Codec {
-	t.Helper()
-
-	tr, err := format.UnmarshalTrailer(file[len(file)-format.TrailerLen:])
-	require.NoError(t, err)
-
-	return Codec(tr.FooterCodec)
-}
-
-// blocksStartOf returns the offset of the first block of file.
-func blocksStartOf(t testing.TB, file []byte) int {
-	t.Helper()
-
-	hdr, err := format.UnmarshalFileHeader(file)
-	require.NoError(t, err)
-
-	return format.FileHeaderLen + int(hdr.PackMetadataLen)
-}
-
 func TestAppendBlockCopiesPacks(t *testing.T) {
 	t.Parallel()
 
@@ -97,13 +77,13 @@ func TestAppendBlockCopiesPacks(t *testing.T) {
 		}
 		for name, src := range sources {
 			r, blocks := readSourceBlocks(t, src)
-			cp := copyBlocks(t, copyOptions(r, blocks, footerCodecOf(t, src)), blocks)
+			cp := copyBlocks(t, copyOptions(r, blocks, Codec(layoutOf(t, src).tr.FooterCodec)), blocks)
 
 			rep := mustVerify(t, cp)
 			assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome, "%s %s", c, name)
 			assert.Equal(t, len(blocks), rep.Validated, "%s %s", c, name)
 			// Same metadata, so the same offsets: blocks, footer and trailer are the source's byte for byte.
-			start := blocksStartOf(t, src)
+			start := int(layoutOf(t, src).blocksStart)
 			assert.Equal(t, src[start:], cp[start:], "%s %s", c, name)
 		}
 	}
@@ -159,7 +139,7 @@ func TestAppendBlockKeepsReservedBits(t *testing.T) {
 
 	rep := mustVerify(t, cp)
 	assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome)
-	start := blocksStartOf(t, src)
+	start := int(layoutOf(t, src).blocksStart)
 	end := int(r.Header().Trailer.FooterOffset)
 	assert.Equal(t, src[start:end], cp[start:end], "the reserved bits are copied with the blocks")
 }
@@ -195,7 +175,7 @@ func TestAppendBlockOwnsItsSummary(t *testing.T) {
 	_, err = w.Close()
 	require.NoError(t, err)
 
-	start := blocksStartOf(t, src)
+	start := int(layoutOf(t, src).blocksStart)
 	assert.Equal(t, src[start:], out.Bytes()[start:])
 }
 
@@ -362,7 +342,7 @@ func TestAppendBlockOutputFailures(t *testing.T) {
 
 	src := richFooterPack(t, CodecZstd).file
 	r, blocks := readSourceBlocks(t, src)
-	head := blocksStartOf(t, src)
+	head := int(layoutOf(t, src).blocksStart)
 
 	t.Run("write fails in a block", func(t *testing.T) {
 		t.Parallel()
@@ -477,9 +457,7 @@ func TestNewWriterKeepsANilCaptureID(t *testing.T) {
 	w, err := startWriter(&kept, WriterOptions{Meta: meta})
 	require.NoError(t, err)
 	assert.True(t, w.CaptureID().IsZero())
-	hdr, err := format.UnmarshalFileHeader(kept.Bytes())
-	require.NoError(t, err)
-	assert.Equal(t, format.UUID{}, hdr.CaptureID)
+	assert.Equal(t, format.UUID{}, layoutHeader(t, kept.Bytes()).CaptureID)
 
 	w, err = NewWriter(io.Discard, WriterOptions{Meta: meta})
 	require.NoError(t, err)
