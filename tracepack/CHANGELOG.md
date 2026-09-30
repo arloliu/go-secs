@@ -6,7 +6,7 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 ## [Unreleased]
 
 This release follows the format revision of spec v2.13, which redefines format 1.0 in place,
-and adds the reader and verification (spec v2.14).
+and adds the reader and verification (spec v2.14) and repair (spec v2.15).
 
 ### Upgrade notes
 
@@ -41,6 +41,11 @@ and adds the reader and verification (spec v2.14).
 - `PackMeta`: `MarshalBinary` rejects `pack_role` 5 with the new `ErrFieldValue`,
   and a `replacement_set_size` other than 1 or a `replacement_set_index` other than 0 is rejected on read and on write with it;
   `UnmarshalPackMeta` keeps a retired tag in `Unknown` like any unknown tag.
+- `Coverage` gains `Unknown`: the nested entries of a coverage entry that this package does not know are kept in stored order,
+  where they were dropped, and `MarshalBinary` writes them after the known nested tags, which it writes in tag order.
+- `Writer`: `Close` rejects a block summary too long for the footer's u32 summary length instead of narrowing it unchecked,
+  and the documentation no longer promises that a failed Writer leaves the pack unfinalized:
+  a failed footer-and-trailer write, or the sync after it, can come after the trailer reached the output.
 
 ### Added
 
@@ -76,11 +81,21 @@ and adds the reader and verification (spec v2.14).
   `WriterDefect`s that never change the outcome,
   and, with a valid footer, the seq and time ranges of the failed blocks as `Coverage` entries.
   An unreadable file header or pack metadata is an error, and so is a block or a finalized pack's footer over the reader budgets.
+- `Repair` writes a generation-0 repair patch of a damaged stored pack to an `io.Writer`, returning a `RepairReport`.
+  It verifies the pack first and decides every refusal before writing:
+  `ErrRepairNotNeeded` for a finalized-consistent pack,
+  and `ErrNotRepairable` for a pack that is not stored, a period or validated block outside one UTC hour,
+  a seq-order or hour-span writer defect, a lost run with no seq between its neighbours,
+  or records that breach the pack metadata's commitments.
+  The patch copies every validated block byte for byte and rebuilds the footer from the copied records;
+  its metadata names the damaged pack in `supersedes`, takes `patch_base` and `writer` from `RepairOptions`,
+  and carries the damaged pack's coverage followed by entries for the lost records:
+  a valid footer's ranges when no validated block disagrees with it, else the seqs between each lost run's validated neighbours within the scope's hour.
 - `Record.HSMSHeader` and `HSMSHeader`, the HSMS header fields of a payload with their availability kept separate;
   `Record.SetCapturedFieldValidity`.
 - `DecodeStatus.Clean`, true only for a known classification outside the malformed set, so an unknown value is neither clean nor malformed.
 - Sentinel errors `ErrNotTracepack`, `ErrUnsupportedFormat`, `ErrChecksum`, `ErrReadLimit`, `ErrInvalidFooter`, `ErrInvalidQuery`,
-  `ErrFieldValidity` and `ErrFieldValue`.
+  `ErrFieldValidity`, `ErrFieldValue`, `ErrRepairNotNeeded` and `ErrNotRepairable`.
 
 ## [0.1.0] - 2026-09-28
 

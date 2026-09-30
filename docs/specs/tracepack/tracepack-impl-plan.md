@@ -1,6 +1,6 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-09-30) — phase 4 `Verify` done; `Repair` in progress (spec v2.15).
+Status: active (2026-09-30) — phase 4 done (`Verify`, `Repair`); phase 5 next.
 Implements: tracepack v2.15 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
@@ -67,7 +67,7 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 2 — Writer and classifier | done |
 | 3 — Reader | done |
 | Format revision (spec v2.13) | done |
-| 4 — Verify, Repair | in progress |
+| 4 — Verify, Repair | done |
 | 5 — Merge, MergeIterate, FindTransaction | pending |
 | 6 — JSONL export, conformance corpus, CLI | pending |
 | 7 — Extract and redaction | pending |
@@ -203,7 +203,7 @@ Done when: the writer and reader implement the revised layout, and the corruptio
 ### Phase 4 — Verify, Repair
 
 - `Verify` (done): forward block walk (I-1, I-2), the outcomes and writer defects of [FMT §13] (G5-100), report with offsets.
-- `Repair`: the patch of [FMT §13] and [STO §6] (G5-102..G5-106):
+- `Repair` (done): the patch of [FMT §13] and [STO §6] (G5-102..G5-106):
   every validated block copied verbatim, the footer rebuilt from the records, `supersedes` = the damaged pack,
   the damaged pack's `coverage` carried as data plus new `coverage` from the trusted footer or the neighbour bounds, and every refusal decided before any output.
   Proposal P10 was rejected (G5-101), so `patch_base` is the current generation's `replacement_set_id`, supplied by the caller ([STO §2], [STO §5]).
