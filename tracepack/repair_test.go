@@ -304,6 +304,26 @@ func TestRepairRefusals(t *testing.T) {
 			}
 		}
 	}
+	// damagedWith returns a pack of repairSteps whose metadata meta adjusts, with a failed middle block.
+	damagedWith := func(meta func(m *PackMeta)) []byte {
+		return flipByte(writeRepairPack(t, CodecZstd, meta, false, repairSteps(t)).file, p.bodyByteOf(2))
+	}
+	extract := writeRepairPack(t, CodecZstd, func(m *PackMeta) {
+		m.PackRole, m.ScopeGeneration, m.ExtractFilter = PackRoleExtract, nil, new("all")
+	}, false, repairSteps(t)).file
+	// Block 0 holds a redacted record and block 3 lies in the next hour, outside the period's.
+	redactedAndOutside := rebuildPack(t, p.file, func(i int, tb *testBlock) {
+		switch i {
+		case 0:
+			tb.headers[0].Quality |= uint16(QualityRedacted)
+		case 3:
+			for j := range tb.headers {
+				tb.headers[j].TSUTCNs += hourNs
+			}
+		default:
+		}
+	})
+	id := UUID(layoutHeader(t, p.file).PackID)
 	unclassified := func(m *PackMeta) { m.Classifier = nil }
 	notAttempted := func(steps []footerTestStep) []footerTestStep {
 		for i := range steps {
@@ -315,28 +335,27 @@ func TestRepairRefusals(t *testing.T) {
 		return steps
 	}
 
+	// A refusal of the pack comes before an error of the options: opts, when set, replaces repairOpts.
 	tests := []struct {
 		name string
 		file []byte
+		opts *RepairOptions
 		want error
 		msg  string
 	}{
 		{name: "finalized-consistent", file: p.file, want: ErrRepairNotNeeded},
-		{name: "extract", want: ErrNotRepairable, msg: "extract", file: writeRepairPack(t, CodecZstd, func(m *PackMeta) {
-			m.PackRole, m.ScopeGeneration, m.ExtractFilter = PackRoleExtract, nil, new("all")
-		}, false, repairSteps(t)).file},
+		{name: "extract", want: ErrNotRepairable, msg: "extract", file: extract},
 		{name: "unknown pack role", file: setMetaRole(t, damaged, 0), want: ErrNotRepairable, msg: "pack_role unknown is"},
 		{name: "retired pack role", file: setMetaRole(t, damaged, packRoleRetired), want: ErrNotRepairable, msg: "unknown(5)"},
-		{name: "empty period", want: ErrNotRepairable, msg: "period", file: flipByte(writeRepairPack(t, CodecZstd, func(m *PackMeta) {
+		{name: "empty period", want: ErrNotRepairable, msg: "period", file: damagedWith(func(m *PackMeta) {
 			m.PeriodEnd = m.PeriodStart
-		}, false, repairSteps(t)).file, p.bodyByteOf(2))},
-		{name: "period over two hours", want: ErrNotRepairable, msg: "period", file: flipByte(writeRepairPack(t, CodecZstd, func(m *PackMeta) {
+		})},
+		{name: "period over two hours", want: ErrNotRepairable, msg: "period", file: damagedWith(func(m *PackMeta) {
 			m.PeriodStart, m.PeriodEnd = blockTestHour+hourNs/2, blockTestHour+3*hourNs/2
-		}, false, repairSteps(t)).file, p.bodyByteOf(2))},
-		{name: "block outside the period's hour", want: ErrNotRepairable, msg: "outside the UTC hour",
-			file: flipByte(writeRepairPack(t, CodecZstd, func(m *PackMeta) {
-				m.PeriodStart, m.PeriodEnd = blockTestHour+hourNs, blockTestHour+2*hourNs
-			}, false, repairSteps(t)).file, p.bodyByteOf(2))},
+		})},
+		{name: "block outside the period's hour", want: ErrNotRepairable, msg: "outside the UTC hour", file: damagedWith(func(m *PackMeta) {
+			m.PeriodStart, m.PeriodEnd = blockTestHour+hourNs, blockTestHour+2*hourNs
+		})},
 		{name: "seq-order writer defect", want: ErrNotRepairable, msg: "seq-order", file: flipByte(editBlock(t, p.file, 3, func(b *testBlock) {
 			b.env.FirstSeq, b.headers[0].Seq = 22, 22
 		}), p.bodyByteOf(1))},
@@ -356,13 +375,21 @@ func TestRepairRefusals(t *testing.T) {
 		{name: "redacted record", want: ErrNotRepairable, msg: "redacted", file: rebuildPack(t, p.file, func(_ int, b *testBlock) {
 			b.headers[0].Quality |= uint16(QualityRedacted)
 		})},
+		{name: "a consistent pack before the pack's own id", file: p.file, opts: &RepairOptions{Writer: "w", PackID: id}, want: ErrRepairNotNeeded},
+		{name: "a consistent pack before an empty writer", file: p.file, opts: &RepairOptions{}, want: ErrRepairNotNeeded},
+		{name: "an extract before an empty writer", file: extract, opts: &RepairOptions{}, want: ErrNotRepairable, msg: "extract"},
+		{name: "a block outside the hour before a redacted record", file: redactedAndOutside, want: ErrNotRepairable, msg: "outside the UTC hour"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			out, rep, err := repairBytes(t, tt.file, repairOpts())
+			opts := repairOpts()
+			if tt.opts != nil {
+				opts = *tt.opts
+			}
+			out, rep, err := repairBytes(t, tt.file, opts)
 			require.ErrorIs(t, err, tt.want)
 			if tt.msg != "" {
 				require.ErrorContains(t, err, tt.msg)
@@ -633,13 +660,12 @@ func TestRepairPatches(t *testing.T) {
 
 	p := defaultRepairPack(t)
 	open := writeRepairPack(t, CodecZstd, nil, true, repairSteps(t))
-	var capture UUID // set per pack in the loop
 	h0, h1 := scopeHour()
 	b := p.blocks
 	footerLost := func(i int, first, last uint64) Coverage {
-		return lostEntry(capture, first, new(last), b[i].tsMin, b[i].tsMax)
+		return lostEntry(UUID{}, first, new(last), b[i].tsMin, b[i].tsMax)
 	}
-	hourLost := func(first uint64, last *uint64) Coverage { return lostEntry(capture, first, last, h0, h1) }
+	hourLost := func(first uint64, last *uint64) Coverage { return lostEntry(UUID{}, first, last, h0, h1) }
 	footerAt := layoutOf(t, p.file).tr.FooterOffset
 	// understated makes block 1's last record one nanosecond later than its F-2 ts_max says.
 	understated := editBlock(t, p.file, 1, func(tb *testBlock) { tb.headers[len(tb.headers)-1].TSUTCNs++ })
@@ -696,7 +722,7 @@ func TestRepairPatches(t *testing.T) {
 			require.NotEqual(t, OutcomeFinalizedConsistent, mustVerify(t, tt.damaged).Outcome)
 			patch, rep := mustRepair(t, tt.damaged)
 			checkPatch(t, tt.baseline, tt.damaged, patch, rep)
-			// Each pack has its own capture.
+			// Each pack has its own capture, so the cases leave it to this loop.
 			want := slices.Clone(tt.want)
 			for i := range want {
 				want[i].CaptureID = new(UUID(layoutHeader(t, tt.damaged).CaptureID))
@@ -839,29 +865,26 @@ func TestRepairEdgePacks(t *testing.T) {
 	})
 }
 
-// secondReadAt serves file, except for the second and later reads of exactly the n bytes at off:
-// second serves those, filling the buffer or returning an error.
-type secondReadAt struct {
-	file   []byte
-	off    int64
-	n      int
-	reads  int
-	second func(p []byte) error
+// blockReadAt serves file, and on each read of exactly the n bytes at off calls hook with the read's number, from 1,
+// and the bytes served, which hook may change; an error of hook fails the read.
+type blockReadAt struct {
+	file  []byte
+	off   int64
+	n     int
+	reads int
+	hook  func(read int, p []byte) error
 }
 
-func (s *secondReadAt) ReadAt(p []byte, off int64) (int, error) {
-	if off == s.off && len(p) == s.n {
-		s.reads++
-		if s.reads >= 2 {
-			if err := s.second(p); err != nil {
-				return 0, err
-			}
-
-			return len(p), nil
+func (b *blockReadAt) ReadAt(p []byte, off int64) (int, error) {
+	n, err := bytes.NewReader(b.file).ReadAt(p, off)
+	if err == nil && off == b.off && len(p) == b.n {
+		b.reads++
+		if err := b.hook(b.reads, p); err != nil {
+			return 0, err
 		}
 	}
 
-	return bytes.NewReader(s.file).ReadAt(p, off)
+	return n, err
 }
 
 func TestRepairSecondReadDiffers(t *testing.T) {
@@ -870,7 +893,6 @@ func TestRepairSecondReadDiffers(t *testing.T) {
 	p := defaultRepairPack(t)
 	damaged := flipAll(p.file, p, 1)
 	b := p.blocks[3]
-	raw := damaged[b.offset : b.offset+uint64(b.onDiskLen)]
 	errRead := errors.New("second read failed")
 
 	tests := []struct {
@@ -880,13 +902,11 @@ func TestRepairSecondReadDiffers(t *testing.T) {
 		msg    string
 	}{
 		{name: "a resealed envelope", msg: "changed between", second: func(p []byte) error {
-			copy(p, raw)
 			p[35]++ // a reserved envelope byte
 			binary.LittleEndian.PutUint32(p[36:], format.CRC(p[:36]))
 			return nil
 		}},
 		{name: "a corrupt body", msg: "then failed on the copy", second: func(p []byte) error {
-			copy(p, raw)
 			p[format.EnvelopeLen+1]++
 			return nil
 		}},
@@ -896,7 +916,12 @@ func TestRepairSecondReadDiffers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			ra := &secondReadAt{file: damaged, off: int64(b.offset), n: int(b.onDiskLen), second: tt.second}
+			ra := &blockReadAt{file: damaged, off: int64(b.offset), n: int(b.onDiskLen), hook: func(read int, p []byte) error {
+				if read < 2 {
+					return nil
+				}
+				return tt.second(p)
+			}}
 			var out bytes.Buffer
 			_, err := Repair(t.Context(), ra, int64(len(damaged)), &out, repairOpts())
 			require.Error(t, err)
@@ -920,9 +945,11 @@ func TestRepairCancelledBeforeTheFooter(t *testing.T) {
 	last := p.blocks[4]
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	ra := &secondReadAt{file: damaged, off: int64(last.offset), n: int(last.onDiskLen), second: func(q []byte) error {
-		copy(q, damaged[last.offset:])
-		cancel()
+	// The copy reads the last block second: cancel then, after the last block is read and before the footer.
+	ra := &blockReadAt{file: damaged, off: int64(last.offset), n: int(last.onDiskLen), hook: func(read int, _ []byte) error {
+		if read == 2 {
+			cancel()
+		}
 		return nil
 	}}
 
@@ -952,8 +979,8 @@ func TestRepairOutputFailures(t *testing.T) {
 	p := defaultRepairPack(t)
 	damaged := flipAll(p.file, p, 1)
 	good, _ := mustRepair(t, damaged)
-	head := blocksStartOf(t, good)
-	footerAt := int(layoutOf(t, good).tr.FooterOffset)
+	l := layoutOf(t, good)
+	head, footerAt := int(l.blocksStart), int(l.tr.FooterOffset)
 
 	run := func(t *testing.T, dst io.Writer, opts RepairOptions) (RepairReport, error) {
 		t.Helper()
@@ -1058,51 +1085,6 @@ func TestRunCoverage(t *testing.T) {
 	}
 }
 
-func TestRepairPrecedence(t *testing.T) {
-	t.Parallel()
-
-	p := defaultRepairPack(t)
-	id := UUID(layoutHeader(t, p.file).PackID)
-	extract := writeRepairPack(t, CodecZstd, func(m *PackMeta) {
-		m.PackRole, m.ScopeGeneration, m.ExtractFilter = PackRoleExtract, nil, new("all")
-	}, false, repairSteps(t)).file
-	// Block 0 holds a redacted record and block 3 lies in the next hour, outside the period's.
-	redactedAndOutside := rebuildPack(t, p.file, func(i int, tb *testBlock) {
-		switch i {
-		case 0:
-			tb.headers[0].Quality |= uint16(QualityRedacted)
-		case 3:
-			for j := range tb.headers {
-				tb.headers[j].TSUTCNs += hourNs
-			}
-		default:
-		}
-	})
-
-	tests := []struct {
-		name string
-		file []byte
-		opts RepairOptions
-		want error
-		msg  string
-	}{
-		{name: "a consistent pack before the pack's own id", file: p.file, opts: RepairOptions{Writer: "w", PackID: id}, want: ErrRepairNotNeeded},
-		{name: "a consistent pack before an empty writer", file: p.file, opts: RepairOptions{}, want: ErrRepairNotNeeded},
-		{name: "an extract before an empty writer", file: extract, opts: RepairOptions{}, want: ErrNotRepairable, msg: "extract"},
-		{name: "a block outside the hour before a redacted record", file: redactedAndOutside, opts: repairOpts(),
-			want: ErrNotRepairable, msg: "outside the UTC hour"},
-	}
-	for _, tt := range tests {
-		out, rep, err := repairBytes(t, tt.file, tt.opts)
-		require.ErrorIs(t, err, tt.want, tt.name)
-		if tt.msg != "" {
-			require.ErrorContains(t, err, tt.msg, tt.name)
-		}
-		assert.Empty(t, out, tt.name)
-		assert.Equal(t, mustVerify(t, tt.file), rep.Verify, tt.name)
-	}
-}
-
 // budgetSteps returns n data records of one epoch at seqs 0 to n−1 in blockTestHour, flushed every 10 records.
 func budgetSteps(n int) []footerTestStep {
 	steps := make([]footerTestStep, n)
@@ -1187,29 +1169,16 @@ func TestRepairCancelledAfterVerification(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	// The verification reads the last block first: cancel then, so the verification completes and nothing is written.
-	ra := &firstReadAt{file: damaged, off: int64(last.offset), n: int(last.onDiskLen), first: cancel}
+	ra := &blockReadAt{file: damaged, off: int64(last.offset), n: int(last.onDiskLen), hook: func(read int, _ []byte) error {
+		if read == 1 {
+			cancel()
+		}
+		return nil
+	}}
 
 	var out bytes.Buffer
 	rep, err := Repair(ctx, ra, int64(len(damaged)), &out, repairOpts())
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, RepairReport{}, rep)
 	assert.Zero(t, out.Len(), "cancellation before the patch's header writes nothing")
-}
-
-// firstReadAt serves file and calls first on the first read of exactly the bytes at off of length n.
-type firstReadAt struct {
-	file  []byte
-	off   int64
-	n     int
-	done  bool
-	first func()
-}
-
-func (f *firstReadAt) ReadAt(p []byte, off int64) (int, error) {
-	if off == f.off && len(p) == f.n && !f.done {
-		f.done = true
-		f.first()
-	}
-
-	return bytes.NewReader(f.file).ReadAt(p, off)
 }

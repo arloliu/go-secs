@@ -292,15 +292,9 @@ func TestVerifyErrors(t *testing.T) {
 
 // cloneSummaries returns a deep copy of blocks, so a test may change any of its slices.
 func cloneSummaries(blocks []blockSummary) []blockSummary {
-	out := slices.Clone(blocks)
-	for i := range out {
-		s := &out[i]
-		s.kindCounts = slices.Clone(s.kindCounts)
-		s.dirCounts = slices.Clone(s.dirCounts)
-		s.decodeStatusCounts = slices.Clone(s.decodeStatusCounts)
-		s.epochs = slices.Clone(s.epochs)
-		s.boundaries = slices.Clone(s.boundaries)
-		s.seqRanges = slices.Clone(s.seqRanges)
+	out := make([]blockSummary, len(blocks))
+	for i := range blocks {
+		out[i] = blocks[i].clone()
 	}
 
 	return out

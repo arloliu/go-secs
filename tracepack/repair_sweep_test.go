@@ -35,7 +35,7 @@ func TestRepairTruncationSweep(t *testing.T) {
 			t.Parallel()
 
 			file := repairSweepPack(t, c)
-			start := blocksStartOf(t, file)
+			start := int(layoutOf(t, file).blocksStart)
 			blocks := mustOpen(t, file, ReaderOptions{}).Blocks()
 			capture := UUID(layoutHeader(t, file).CaptureID)
 			h0, h1 := scopeHour()
