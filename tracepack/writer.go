@@ -58,7 +58,10 @@ var (
 	ErrValidation = errors.New("tracepack: block failed validation")
 	// ErrWriterFailed reports a call on a Writer that an earlier failure left unusable:
 	// a failed validation, a failed or short write, or a failed sync.
-	// The pack never becomes finalized; a caller starts a new pack instead.
+	// A failure before Close writes the footer leaves the pack unfinalized;
+	// a failure of the footer-and-trailer write or of the sync after it may leave a finalized pack,
+	// which the Writer still reports as failed, since it cannot vouch for it.
+	// Either way the caller discards the output and starts a new pack.
 	ErrWriterFailed = errors.New("tracepack: writer failed")
 	// ErrClosed reports a call on a Writer after Close.
 	ErrClosed = errors.New("tracepack: writer closed")
@@ -123,7 +126,7 @@ type WriterOptions struct {
 //
 // A Writer is not safe for concurrent use.
 // Any failed write, sync or validation leaves it failed:
-// every later call returns an error wrapping ErrWriterFailed, and the pack is never finalized.
+// every later call returns an error wrapping ErrWriterFailed, and the caller discards the output (see ErrWriterFailed).
 type Writer struct {
 	out       io.Writer
 	packID    UUID
@@ -159,7 +162,10 @@ type Writer struct {
 	valBuf  validateBuf
 	// encodedHook, set only by tests, changes an encoded block body before it is validated and written.
 	encodedHook func(enc []byte) []byte
-	closed      bool
+	// maxF3ListLen is the longest F-3 entry list the footer's u32 summary_len can state;
+	// tests lower it to reach the check.
+	maxF3ListLen uint64
+	closed       bool
 	// failure is the error that left the Writer failed; nil while it is usable.
 	failure error
 }
@@ -180,6 +186,13 @@ type Writer struct {
 //     or the error of writing the header,
 //     which is io.ErrShortWrite when w takes fewer bytes than it was given without reporting an error.
 func NewWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
+	return startWriter(w, opts, false)
+}
+
+// startWriter does the work of NewWriter.
+// With keepCaptureID it writes opts.CaptureID as given, the nil UUID included,
+// so a pack written from another pack keeps that pack's capture exactly.
+func startWriter(w io.Writer, opts WriterOptions, keepCaptureID bool) (*Writer, error) {
 	if err := checkOptions(&opts); err != nil {
 		return nil, err
 	}
@@ -193,8 +206,10 @@ func NewWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 	if opts.PackID, err = idOrNew(opts.PackID); err != nil {
 		return nil, err
 	}
-	if opts.CaptureID, err = idOrNew(opts.CaptureID); err != nil {
-		return nil, err
+	if !keepCaptureID {
+		if opts.CaptureID, err = idOrNew(opts.CaptureID); err != nil {
+			return nil, err
+		}
 	}
 
 	head, err := encodeHead(&meta, &opts)
@@ -224,6 +239,8 @@ func NewWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 		seqStart:    meta.SeqStart,
 		nextSeq:     meta.SeqStart,
 		offset:      uint64(len(head)),
+
+		maxF3ListLen: math.MaxUint32,
 
 		hasClassifier:    meta.Classifier != nil,
 		hasMaxFrameLen:   meta.MaxFrameLen != nil,
@@ -526,13 +543,15 @@ func (w *Writer) Flush() error {
 // Close flushes the open block, then writes the footer and the trailer that finalize the pack,
 // and with a Syncer syncs after the trailer (the tracepack format specification §10 to §12).
 //
-// The trailer is the commit: a failed Writer writes neither footer nor trailer, so its pack stays unfinalized.
+// The trailer is the commit: a failed Writer writes neither footer nor trailer, so its pack stays unfinalized;
+// but an error from the footer-and-trailer write itself, or from the sync after it, may come after the trailer reached the output.
 // Close does not close the underlying output.
 //
 // Returns:
 //   - uint64: the seq after the pack's last record, or its seq_start when it holds no record;
 //     a capture that continues in another pack starts it there. 0 on error.
 //   - error: as for Flush, or the error of writing or syncing the footer and trailer, after which the Writer has failed;
+//     an error, before the footer is written, for a block summary too long for the footer's u32 summary_len;
 //     a *FieldError wrapping ErrMetadataCommitment, also leaving the Writer failed,
 //     when the file header set redaction-present but no written record carries quality.redacted;
 //     ErrWriterFailed on a failed Writer, and ErrClosed when already closed.
@@ -579,13 +598,18 @@ func (w *Writer) usable() error {
 // (the tracepack format specification §4 and §5, the tracepack semantics specification §8).
 func (w *Writer) checkCommitments(r *Record) error {
 	classified := r.DecodeStatus != DecodeStatusNotAttempted && r.DecodeStatus != DecodeStatusNotApplicable
-	redacted := r.Quality.Has(QualityRedacted)
 
+	return w.checkCommitmentFacts(classified, r.DecodeStatus == DecodeStatusOversized, r.Quality.Has(QualityRedacted))
+}
+
+// checkCommitmentFacts rejects records that are classified, oversized or redacted, as the flags say,
+// when the pack metadata and file header already written cannot describe them.
+func (w *Writer) checkCommitmentFacts(classified, oversized, redacted bool) error {
 	var field string
 	switch {
 	case classified && !w.hasClassifier:
 		field = "classifier"
-	case r.DecodeStatus == DecodeStatusOversized && !w.hasMaxFrameLen:
+	case oversized && !w.hasMaxFrameLen:
 		field = "max_frame_len"
 	case redacted && w.packRole != PackRoleExtract:
 		field = "pack_role"
@@ -743,6 +767,82 @@ func (w *Writer) writeBlock() error {
 	return nil
 }
 
+// appendBlock writes raw, the envelope and on-disk body of a block a full read validated in another pack, byte for byte,
+// and keeps a copy of s, the summary its records give (summaryOf), for the footer (the tracepack format specification §10).
+// The block keeps its codec and record header length whatever the Writer's options.
+//
+// It requires no open block, and checks from s what Append checks of each record:
+// I-12 (the pack's first seq is seq_start, every block's first seq is above the last seq written, no seq above 2^63-1),
+// I-13 (the block's records lie in one UTC hour), and the commitments of the written pack metadata and file header.
+// raw's envelope must agree with s on record_count and first_seq, and hold exactly the body that follows it.
+// Any error leaves the Writer failed.
+func (w *Writer) appendBlock(raw []byte, s *blockSummary) error {
+	if err := w.usable(); err != nil {
+		return err
+	}
+
+	env, err := w.checkAppendBlock(raw, s)
+	if err == nil {
+		err = w.write(raw, "block")
+	}
+	if err == nil && w.syncer != nil {
+		if err = w.syncer.Sync(); err != nil {
+			err = fmt.Errorf("tracepack: sync block: %w", err)
+		}
+	}
+	if err != nil {
+		w.failure = err
+		return err
+	}
+
+	c := s.clone()
+	c.offset = w.offset - uint64(len(raw))
+	c.onDiskLen = uint32(len(raw))
+	c.uncompressedLen = env.UncompressedLen
+	c.bodyCRC = env.BodyCRC
+	c.recordHeaderLen = env.RecordHeaderLen
+	w.blocks = append(w.blocks, c)
+	w.nextSeq = s.lastSeq + 1
+
+	return nil
+}
+
+// checkAppendBlock returns raw's envelope once raw and s pass the checks of appendBlock.
+func (w *Writer) checkAppendBlock(raw []byte, s *blockSummary) (format.BlockEnvelope, error) {
+	if !w.block.empty() {
+		return format.BlockEnvelope{}, errors.New("tracepack: append a block while a block is open")
+	}
+	if len(raw) < format.EnvelopeLen {
+		return format.BlockEnvelope{}, fmt.Errorf("tracepack: block of %d bytes is shorter than its envelope", len(raw))
+	}
+	env, err := format.UnmarshalBlockEnvelope(raw[:format.EnvelopeLen])
+	if err != nil {
+		return format.BlockEnvelope{}, fmt.Errorf("tracepack: append a block: %w", err)
+	}
+	switch {
+	case uint64(len(raw)) != format.EnvelopeLen+uint64(env.BodyLen):
+		return format.BlockEnvelope{}, fmt.Errorf("tracepack: block of %d bytes, its envelope states a %d-byte body", len(raw), env.BodyLen)
+	case env.RecordCount != s.recordCount || env.FirstSeq != s.firstSeq:
+		return format.BlockEnvelope{}, fmt.Errorf("tracepack: block envelope states %d records from seq %d, its summary %d from seq %d",
+			env.RecordCount, env.FirstSeq, s.recordCount, s.firstSeq)
+	case len(w.blocks) == 0 && s.firstSeq != w.seqStart:
+		return format.BlockEnvelope{}, fmt.Errorf("tracepack: first seq %d, seq_start is %d: %w", s.firstSeq, w.seqStart, ErrSeqOrder)
+	case s.firstSeq < w.nextSeq:
+		return format.BlockEnvelope{}, fmt.Errorf("tracepack: block from seq %d after seq %d: %w", s.firstSeq, w.nextSeq-1, ErrSeqOrder)
+	case s.lastSeq > format.MaxU64:
+		return format.BlockEnvelope{}, fmt.Errorf("tracepack: seq %d above %d: %w", s.lastSeq, format.MaxU64, ErrSeqOrder)
+	case hourOf(s.tsMin) != hourOf(s.tsMax):
+		return format.BlockEnvelope{}, fmt.Errorf("tracepack: block of seq %d-%d has records in more than one UTC hour", s.firstSeq, s.lastSeq)
+	}
+
+	oversized := int(DecodeStatusOversized) < len(s.decodeStatusCounts) && s.decodeStatusCounts[DecodeStatusOversized] > 0
+	if err := w.checkCommitmentFacts(s.anyClassified(), oversized, s.qualityUnion.Has(QualityRedacted)); err != nil {
+		return format.BlockEnvelope{}, err
+	}
+
+	return env, nil
+}
+
 // finalize writes the footer built from the written blocks, encoded with the Writer's codec,
 // then the trailer, then syncs (the tracepack format specification §12 step 3).
 // It writes nothing when the header set redaction-present but the pack's quality_union lacks quality.redacted:
@@ -752,7 +852,10 @@ func (w *Writer) finalize() error {
 		return fmt.Errorf("tracepack: %d blocks exceed the u32 block_count", len(w.blocks))
 	}
 
-	footer, stats := buildFooter(w.blocks)
+	footer, stats, err := buildFooter(w.blocks, w.maxF3ListLen)
+	if err != nil {
+		return err
+	}
 	if w.redactionPresent && !stats.qualityUnion.Has(QualityRedacted) {
 		return &FieldError{Field: "redaction-present", Err: ErrMetadataCommitment}
 	}

@@ -2,6 +2,8 @@ package tracepack
 
 import (
 	"cmp"
+	"fmt"
+	"math"
 	"slices"
 
 	"github.com/arloliu/go-secs/tracepack/internal/format"
@@ -84,13 +86,18 @@ type packStats struct {
 // F-4 is absent, recorded as zero bytes at the end of F-3, so the sections stay in order without overlap,
 // and the F-1 flags set only F-3 present, since this writer builds no secondary index.
 // F-5 is computed from the F-2 and F-3 values alone.
-func buildFooter(blocks []blockSummary) ([]byte, *packStats) {
+// A block's F-3 entry list longer than maxF3ListLen, at most 2^32-1 so that F-2 summary_len can state it, is an error.
+func buildFooter(blocks []blockSummary, maxF3ListLen uint64) ([]byte, *packStats, error) {
 	var f3 []byte
 	index := make([]format.F2Entry, len(blocks))
 	for i := range blocks {
 		start := len(f3)
 		f3 = appendF3(f3, &blocks[i])
-		index[i] = f2EntryOf(&blocks[i], uint64(start), uint32(len(f3)-start))
+		n := uint64(len(f3) - start)
+		if n > min(maxF3ListLen, math.MaxUint32) {
+			return nil, nil, fmt.Errorf("tracepack: block %d: F-3 entry list of %d bytes exceeds the u32 summary_len", i, n)
+		}
+		index[i] = f2EntryOf(&blocks[i], uint64(start), uint32(n))
 	}
 
 	stats := aggregate(blocks)
@@ -118,7 +125,7 @@ func buildFooter(blocks []blockSummary) ([]byte, *packStats) {
 	}
 	out = append(out, f3...)
 
-	return append(out, f5...), stats
+	return append(out, f5...), stats, nil
 }
 
 // f2EntryOf returns the F-2 block index entry of s, whose F-3 list lies at summaryOffset in F-3 and is summaryLen bytes long.
