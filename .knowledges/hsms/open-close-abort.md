@@ -8,13 +8,13 @@ generated: {by: "claude/opus-5.5", at: 2026-09-25T13:05:39Z}
 verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-25T13:08:00Z}
 sources:
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:299faa7fdfbdf7fa, revision: 2041f5d}
-  - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: 7ae1ff0}
-  - {resource: hsms/endpoint.go, digest: sha256:b75d6a0370642b02, revision: cc82a06}
-  - {resource: internal/gencap/gencap.go, digest: sha256:388f19be3dd1fe52, revision: c00e1b5}
-  - {resource: hsmsss/transport.go, digest: sha256:176fff888fc8a85e, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_active.go, digest: sha256:33d63b7808dc1ed3, revision: 7ae1ff0}
-  - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: 4be2062}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: be7a75b}
+  - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: be7a75b}
+  - {resource: hsms/endpoint.go, digest: sha256:b75d6a0370642b02, revision: be7a75b}
+  - {resource: internal/gencap/gencap.go, digest: sha256:b7a6e492698ff6d3, revision: be7a75b}
+  - {resource: hsmsss/transport.go, digest: sha256:038b98574e452c16, revision: be7a75b}
+  - {resource: hsmsss/transport_active.go, digest: sha256:689f931cb195678f, revision: be7a75b}
+  - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: be7a75b}
 ---
 
 # What it does

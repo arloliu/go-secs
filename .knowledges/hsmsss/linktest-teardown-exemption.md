@@ -8,15 +8,15 @@ generated: {by: "claude/sonnet-5", at: 2026-09-25T03:51:29Z}
 verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-25T06:15:19Z}
 sources:
-  - {resource: hsmsss/transport_procedures.go, digest: sha256:bf47bd9825ddb5da, revision: 6c257b6}
-  - {resource: hsmsss/metrics.go, digest: sha256:e822f4b53757800e, revision: 922feb8}
-  - {resource: hsms/connection_send.go, digest: sha256:90a5e3ff7beea84c, revision: f7a5927}
-  - {resource: hsms/errors.go, digest: sha256:739cc0dd4af61624, revision: 7ae1ff0}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:299faa7fdfbdf7fa, revision: 2041f5d}
-  - {resource: hsms/epoch.go, digest: sha256:bdf3578cbc24fc48, revision: 7ae1ff0}
-  - {resource: hsmsss/transport.go, digest: sha256:176fff888fc8a85e, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_active.go, digest: sha256:33d63b7808dc1ed3, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_passive.go, digest: sha256:eaee7f67c2e994fc, revision: 7ae1ff0}
+  - {resource: hsmsss/transport_procedures.go, digest: sha256:8ef63578b72806e0, revision: be7a75b}
+  - {resource: hsmsss/metrics.go, digest: sha256:e822f4b53757800e, revision: be7a75b}
+  - {resource: hsms/connection_send.go, digest: sha256:0dcb81d9fccb4e5f, revision: be7a75b}
+  - {resource: hsms/errors.go, digest: sha256:9f53c2c2c40abee9, revision: be7a75b}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: be7a75b}
+  - {resource: hsms/epoch.go, digest: sha256:d6cc2283dd4d5e58, revision: be7a75b}
+  - {resource: hsmsss/transport.go, digest: sha256:038b98574e452c16, revision: be7a75b}
+  - {resource: hsmsss/transport_active.go, digest: sha256:689f931cb195678f, revision: be7a75b}
+  - {resource: hsmsss/transport_passive.go, digest: sha256:f00a1ae9c47094d4, revision: be7a75b}
 ---
 
 # What it does

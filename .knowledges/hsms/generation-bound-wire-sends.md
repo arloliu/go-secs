@@ -8,17 +8,17 @@ generated: {by: "claude/opus-5.5", at: 2026-09-26T10:24:15Z}
 verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-26T10:28:15Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:90a5e3ff7beea84c, revision: 7ae1ff0}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:299faa7fdfbdf7fa, revision: 2041f5d}
-  - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: 7ae1ff0}
-  - {resource: hsms/epoch.go, digest: sha256:bdf3578cbc24fc48, revision: 7ae1ff0}
-  - {resource: hsms/reply_registry.go, digest: sha256:20d02d66955eca24, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_procedures.go, digest: sha256:bf47bd9825ddb5da, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_active.go, digest: sha256:33d63b7808dc1ed3, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:fc971b2806f82a52, revision: 7ae1ff0}
-  - {resource: hsmsss/metrics.go, digest: sha256:e822f4b53757800e, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_passive.go, digest: sha256:eaee7f67c2e994fc, revision: 7ae1ff0}
+  - {resource: hsms/connection_send.go, digest: sha256:0dcb81d9fccb4e5f, revision: be7a75b}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: be7a75b}
+  - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: be7a75b}
+  - {resource: hsms/epoch.go, digest: sha256:d6cc2283dd4d5e58, revision: be7a75b}
+  - {resource: hsms/reply_registry.go, digest: sha256:20d02d66955eca24, revision: be7a75b}
+  - {resource: hsmsss/transport_control.go, digest: sha256:ad8c57da5652a769, revision: be7a75b}
+  - {resource: hsmsss/transport_procedures.go, digest: sha256:8ef63578b72806e0, revision: be7a75b}
+  - {resource: hsmsss/transport_active.go, digest: sha256:689f931cb195678f, revision: be7a75b}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:f8d35637783f58a6, revision: be7a75b}
+  - {resource: hsmsss/metrics.go, digest: sha256:e822f4b53757800e, revision: be7a75b}
+  - {resource: hsmsss/transport_passive.go, digest: sha256:f00a1ae9c47094d4, revision: be7a75b}
 ---
 
 # What it does

@@ -4,25 +4,25 @@ title: How a user callback's panic or Goexit is contained
 description: The two-frame detection runCallback needs to tell a panic from a Goexit apart even when one interrupts the other, which goroutine each callback site runs on, and what this isolation does not cover.
 tags: [hsms, panic-isolation, goroutines, lifecycle, generations]
 status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-25T08:02:46Z}
+generated: {by: "claude/sonnet-5.5", at: 2026-09-30T10:40:00Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T08:37:47Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-30T10:57:34Z}
 sources:
-  - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: d244104}
-  - {resource: hsms/handler_panic_test.go, digest: sha256:def868b2ecc8930c, revision: d244104}
-  - {resource: hsms/endpoint.go, digest: sha256:b75d6a0370642b02, revision: cc82a06}
-  - {resource: hsms/state.go, digest: sha256:f467c560ffea5807, revision: d244104}
-  - {resource: hsms/connection_config.go, digest: sha256:e701533ea6c49f0a, revision: c00e1b5}
-  - {resource: hsms/session.go, digest: sha256:ce5c99a71ad4ff0b, revision: 7ae1ff0}
-  - {resource: hsms/supervisor.go, digest: sha256:097ae581f965d935, revision: b43b798}
-  - {resource: hsms/connection_send.go, digest: sha256:90a5e3ff7beea84c, revision: f7a5927}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:299faa7fdfbdf7fa, revision: 2041f5d}
-  - {resource: hsms/connection_runtime.go, digest: sha256:7340a3887598a8ba, revision: b43b798}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:fc971b2806f82a52, revision: 7ae1ff0}
-  - {resource: hsmsss/transport.go, digest: sha256:176fff888fc8a85e, revision: 7ae1ff0}
-  - {resource: hsms/hsmstest/endpoint.go, digest: sha256:f695c5a80165861a, revision: d244104}
-  - {resource: hsms/hsmstest/panic_test.go, digest: sha256:5503e2cd947250bc, revision: d244104}
-  - {resource: secs1/config.go, digest: sha256:c424cc48eb804c68, revision: c00e1b5}
+  - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: be7a75b}
+  - {resource: hsms/handler_panic_test.go, digest: sha256:def868b2ecc8930c, revision: be7a75b}
+  - {resource: hsms/endpoint.go, digest: sha256:b75d6a0370642b02, revision: be7a75b}
+  - {resource: hsms/state.go, digest: sha256:f467c560ffea5807, revision: be7a75b}
+  - {resource: hsms/connection_config.go, digest: sha256:fed694e843097a3c, revision: be7a75b}
+  - {resource: hsms/session.go, digest: sha256:ce5c99a71ad4ff0b, revision: be7a75b}
+  - {resource: hsms/supervisor.go, digest: sha256:597d3ffbcb56fb87, revision: be7a75b}
+  - {resource: hsms/connection_send.go, digest: sha256:0dcb81d9fccb4e5f, revision: be7a75b}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: be7a75b}
+  - {resource: hsms/connection_runtime.go, digest: sha256:7340a3887598a8ba, revision: be7a75b}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:f8d35637783f58a6, revision: be7a75b}
+  - {resource: hsmsss/transport.go, digest: sha256:038b98574e452c16, revision: be7a75b}
+  - {resource: hsms/hsmstest/endpoint.go, digest: sha256:f695c5a80165861a, revision: be7a75b}
+  - {resource: hsms/hsmstest/panic_test.go, digest: sha256:5503e2cd947250bc, revision: be7a75b}
+  - {resource: secs1/config.go, digest: sha256:c424cc48eb804c68, revision: be7a75b}
 ---
 
 # What it does
@@ -181,6 +181,15 @@ turning a Goexit report into a crash.
 - **`WithDialer`/`WithListener`.** `secs1/config.go`'s godoc for both now states a panic there is an
   infrastructure-hook failure, not a callback failure: it propagates to `Open`'s caller during `Open`,
   or ends the process during a background reconnect — neither goes through `runCallback`.
+- **The wire and socket observers.**
+  `WithWireObserver` and `WithSocketObserver`'s godoc (`hsms/connection_config.go`) state a panic in the hook is not recovered:
+  it unwinds whichever goroutine raised the report.
+  That is the receive goroutine for an inbound frame,
+  the writing goroutine for an outbound one,
+  or a dial, accept, or teardown goroutine for a socket event,
+  and none of them goes through `runCallback`.
+  A frame or socket report delivered from its own goroutine
+  (the courtesy Separate, a refused peer's frames) has nothing else on that goroutine to catch the panic.
 - **A send on a closed registered channel.** `AddDataMessageChan`'s doc (`hsms/endpoint.go`) states the
   channel delivery itself is not a callback and is not recovered the way a panicking `DataMessageHandler`
   is: a send on a closed `ch` still panics the receive goroutine outright.
@@ -212,6 +221,6 @@ turning a Goexit report into a crash.
   `hsmsss/transport_recv.go` → `(*transport).recvLoop`
 - the overall sequential join `g.recv`'s completion feeds into: `hsmsss/transport.go` →
   `(*transport).Stop`
-- what stays outside this mechanism: `hsms/connection_config.go` → `WithTransactionObserver`;
+- what stays outside this mechanism: `hsms/connection_config.go` → `WithTransactionObserver`, `WithWireObserver`, `WithSocketObserver`;
   `secs1/config.go` → `WithDialer`, `WithListener`; `hsms/endpoint.go` → `AddDataMessageChan`;
   `hsms/hsmstest/endpoint.go` → `FakeEndpoint.Deliver`, `FakeEndpoint.DeliverDecodeError`

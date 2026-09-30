@@ -6,15 +6,16 @@ tags: [hsms, observability, send, metrics, lifecycle]
 status: stable
 generated: {by: "claude/sonnet-5", at: 2026-09-25T02:38:18Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T03:13:36Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-30T10:58:06Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:90a5e3ff7beea84c, revision: f7a5927}
-  - {resource: hsms/transaction_observer.go, digest: sha256:a89096ae2659fb79, revision: 33e9744}
-  - {resource: hsms/connection_config.go, digest: sha256:e701533ea6c49f0a, revision: c00e1b5}
-  - {resource: hsms/session.go, digest: sha256:ce5c99a71ad4ff0b, revision: 7ae1ff0}
-  - {resource: hsmsss/transaction_observer_test.go, digest: sha256:cca4e16c9add5d25, revision: a7ff4a8}
-  - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: 6c257b6}
-  - {resource: hsms/data_msg.go, digest: sha256:88382441bb2794f4, revision: 7ae1ff0}
+  - {resource: hsms/connection_send.go, digest: sha256:0dcb81d9fccb4e5f, revision: be7a75b}
+  - {resource: hsms/transaction_observer.go, digest: sha256:31245ab9750ba784, revision: be7a75b}
+  - {resource: hsms/connection_config.go, digest: sha256:fed694e843097a3c, revision: be7a75b}
+  - {resource: hsms/session.go, digest: sha256:ce5c99a71ad4ff0b, revision: be7a75b}
+  - {resource: hsmsss/transaction_observer_test.go, digest: sha256:498f47d6b3971437, revision: be7a75b}
+  - {resource: hsmsss/transport_control.go, digest: sha256:ad8c57da5652a769, revision: be7a75b}
+  - {resource: hsms/data_msg.go, digest: sha256:88382441bb2794f4, revision: be7a75b}
+  - {resource: hsms/epoch.go, digest: sha256:d6cc2283dd4d5e58, revision: be7a75b}
 ---
 
 # What it does

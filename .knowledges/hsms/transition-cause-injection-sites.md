@@ -6,24 +6,27 @@ tags: [hsms, lifecycle, supervisor, fsm, observability]
 status: stable
 generated: {by: "claude/opus-5.5", at: 2026-09-26T10:19:32Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-26T10:24:29Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-30T10:57:34Z}
 sources:
-  - {resource: hsms/lifecycle.go, digest: sha256:9c093383d23470e1, revision: 7ae1ff0}
-  - {resource: hsms/session.go, digest: sha256:ce5c99a71ad4ff0b, revision: 7ae1ff0}
-  - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: 7ae1ff0}
-  - {resource: hsms/supervisor.go, digest: sha256:097ae581f965d935, revision: b43b798}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:299faa7fdfbdf7fa, revision: 2041f5d}
-  - {resource: hsms/connection_runtime.go, digest: sha256:7340a3887598a8ba, revision: b43b798}
-  - {resource: hsms/connection_send.go, digest: sha256:90a5e3ff7beea84c, revision: 7ae1ff0}
-  - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: 7ae1ff0}
-  - {resource: hsmsss/transport.go, digest: sha256:176fff888fc8a85e, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_active.go, digest: sha256:33d63b7808dc1ed3, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:fc971b2806f82a52, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_procedures.go, digest: sha256:bf47bd9825ddb5da, revision: 7ae1ff0}
-  - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_control_test.go, digest: sha256:d7d6115539bd3043, revision: 7ae1ff0}
-  - {resource: hsmsss/integration_lifecycle_cause_test.go, digest: sha256:50bb158dce6382ea, revision: 7ae1ff0}
+  - {resource: hsms/lifecycle.go, digest: sha256:5c6fef9f2a58e9f9, revision: be7a75b}
+  - {resource: hsms/session.go, digest: sha256:ce5c99a71ad4ff0b, revision: be7a75b}
+  - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: be7a75b}
+  - {resource: hsms/supervisor.go, digest: sha256:597d3ffbcb56fb87, revision: be7a75b}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: be7a75b}
+  - {resource: hsms/connection_runtime.go, digest: sha256:7340a3887598a8ba, revision: be7a75b}
+  - {resource: hsms/connection_send.go, digest: sha256:0dcb81d9fccb4e5f, revision: be7a75b}
+  - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: be7a75b}
+  - {resource: hsmsss/transport.go, digest: sha256:038b98574e452c16, revision: be7a75b}
+  - {resource: hsmsss/transport_control.go, digest: sha256:ad8c57da5652a769, revision: be7a75b}
+  - {resource: hsmsss/transport_active.go, digest: sha256:689f931cb195678f, revision: be7a75b}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:f8d35637783f58a6, revision: be7a75b}
+  - {resource: hsmsss/transport_procedures.go, digest: sha256:8ef63578b72806e0, revision: be7a75b}
+  - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: be7a75b}
+  - {resource: hsmsss/transport_control_test.go, digest: sha256:d7d6115539bd3043, revision: be7a75b}
+  - {resource: hsmsss/integration_lifecycle_cause_test.go, digest: sha256:8edcbd4a7dcc10a1, revision: be7a75b}
+  - {resource: hsms/epoch.go, digest: sha256:d6cc2283dd4d5e58, revision: be7a75b}
+  - {resource: hsms/socket_observer.go, digest: sha256:572241fb407ab6c0, revision: be7a75b}
+  - {resource: hsmsss/transport_socket.go, digest: sha256:7eb2e5f887e7f1c3, revision: be7a75b}
 ---
 
 # What it does
@@ -265,7 +268,7 @@ As implemented, the late report is ignored and the state stays `NotConnected`, s
   the recording sites: `hsms/connection_send.go` → `writeFrame`, `hsms/connection_lifecycle.go` → `react`, `connectLoopStartFailure`, `rollbackFailedOpen`,
   `hsms/supervisor.go` → `step`;
   the capability: `hsms/socket_observer.go` → `socketCloser`;
-  the gate: `hsmsss/transport_socket.go` → `(*socketRecord).gate`, `(*transport).CloseSocket`
+  the gate: `hsmsss/transport_socket.go` → `(*socketRecord).close`, `(*transport).CloseSocket`
 - transport capability: `hsmsss/transport_control.go` → `causeRuntime`, `genRuntime`,
   `transport.tcpDown`, `transport.t7Expired`, `transport.tcpUp`, `transport.commitSelected`, `transport.selectLost`;
   `secs1/transport.go` → `causeRuntime` only

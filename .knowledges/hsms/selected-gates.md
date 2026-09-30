@@ -4,12 +4,12 @@ title: The B1/B2 Selected gates on the send path
 description: What stops a data send when the session is not Selected, and why one check is not enough.
 tags: [hsms, send, state-machine, e37]
 status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-24T11:50:00Z}
+generated: {by: "claude/sonnet-5.5", at: 2026-09-30T10:40:00Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-24T12:34:28Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-30T10:58:06Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:90a5e3ff7beea84c, revision: f7a5927}
-  - {resource: hsms/supervisor.go, digest: sha256:097ae581f965d935, revision: b43b798}
+  - {resource: hsms/connection_send.go, digest: sha256:0dcb81d9fccb4e5f, revision: be7a75b}
+  - {resource: hsms/supervisor.go, digest: sha256:597d3ffbcb56fb87, revision: be7a75b}
 ---
 
 # What it does
@@ -35,14 +35,14 @@ so a Deselect can still land in the instructions between B2's `IsSelected()` che
 
 Every refusal funnels through `dropNotSelected`, the single chokepoint (B3) that increments `DataMsgDropNotSelectedCount` exactly once and emits a rate-limited warning.
 There are four B1/B2 gate *code sites*, not two:
-`sendWaitReplyOn` (the shared body behind `sendWaitReply` and the generation-bound `WriteMessageFromGeneration`), `sendNoReply`, `enqueueAsync` (the shared body behind `SendAsync` and the generation-bound `SendAsyncFromGeneration`), plus the B2 re-check inside `writeFrame`.
+`sendWaitReplyOn` (the shared body behind `sendWaitReply` and the generation-bound `WriteMessageFromGeneration`), `sendNoReplyOn` (the shared body behind `sendNoReply` and `WriteMessageNoReply`), `enqueueAsync` (the shared body behind `SendAsync` and the generation-bound `SendAsyncFromGeneration`), plus the B2 re-check inside `writeFrame`.
 Every one of them must route through the chokepoint or the counter silently under-reports.
 
 # Invariants
 
 - Control messages are never gated. Only data sends check Selected, because control traffic is what *establishes* the state the gate tests.
 - A gated send is **non-fatal**: it never tears the connection down.
-  A synchronous refusal (`sendWaitReplyOn`/`sendNoReply`, B1 or B2) and an async B1 refusal (`enqueueAsync`) both return `ErrNotSelectedState` to the caller directly.
+  A synchronous refusal (`sendWaitReplyOn`/`sendNoReplyOn`, B1 or B2) and an async B1 refusal (`enqueueAsync`) both return `ErrNotSelectedState` to the caller directly.
   An async B2 refusal is different: it happens later, inside `drainSendCh`, after `enqueueAsync` already returned success to the caller.
   It increments `AsyncSendErrCount` and invokes the configured async error handler instead of returning anything to the original caller.
 - A drop is counted exactly once, at one chokepoint, and lands in its own counter — never in the general data-error counter.
@@ -60,7 +60,7 @@ Every one of them must route through the chokepoint or the counter silently unde
 - the pre-write gate: `hsms/connection_send.go` → `(*connection).IsSelected`
 - the counted chokepoint: `hsms/connection_send.go` → `(*connection).dropNotSelected`
 - the write-boundary re-check, under the epoch write mutex: `hsms/connection_send.go` → `(*connection).writeFrame`
-- the gate code sites: `hsms/connection_send.go` → `(*connection).sendWaitReplyOn`, `(*connection).sendNoReply`, `(*connection).enqueueAsync`
-- the entry points that reuse them: `hsms/connection_send.go` → `(*connection).sendWaitReply`, `(*connection).WriteMessageFromGeneration`, `(*connection).SendAsync`, `(*connection).SendAsyncFromGeneration`
+- the gate code sites: `hsms/connection_send.go` → `(*connection).sendWaitReplyOn`, `(*connection).sendNoReplyOn`, `(*connection).enqueueAsync`
+- the entry points that reuse them: `hsms/connection_send.go` → `(*connection).sendWaitReply`, `(*connection).sendNoReply`, `(*connection).WriteMessageNoReply`, `(*connection).WriteMessageFromGeneration`, `(*connection).SendAsync`, `(*connection).SendAsyncFromGeneration`
 - the async B2 refusal path, which reports to the error handler rather than the enqueue caller: `hsms/connection_send.go` → `(*connection).drainSendCh`
 - the atomic CAS that moves state without `writeMu`, the reason B2 narrows rather than closes the race: `hsms/supervisor.go` → `(*supervisor).commitFrom`

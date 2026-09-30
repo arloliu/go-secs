@@ -6,11 +6,12 @@ tags: [hsmsss, e37, passive, timers, shutdown]
 status: stable
 generated: {by: "claude/sonnet-5", at: 2026-08-12T00:00:00Z}
 verified:
-  - {by: "claude/opus-5", at: 2026-08-12T08:33:19Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-30T10:57:45Z}
 sources:
-  - {resource: hsmsss/transport_passive.go, digest: sha256:eaee7f67c2e994fc, revision: 7ae1ff0}
-  - {resource: hsmsss/transport.go, digest: sha256:176fff888fc8a85e, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:fc971b2806f82a52, revision: 7ae1ff0}
+  - {resource: hsmsss/transport_passive.go, digest: sha256:f00a1ae9c47094d4, revision: be7a75b}
+  - {resource: hsmsss/transport.go, digest: sha256:038b98574e452c16, revision: be7a75b}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:f8d35637783f58a6, revision: be7a75b}
+  - {resource: hsmsss/transport_socket.go, digest: sha256:7eb2e5f887e7f1c3, revision: be7a75b}
 ---
 
 # What it does

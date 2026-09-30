@@ -4,18 +4,18 @@ title: Activity stamps — the state behind linktest suppression
 description: Where "the line is alive" is stored, what writes it, and when it resets to zero knowledge.
 tags: [hsmsss, linktest, liveness, generations]
 status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-25T02:38:18Z}
+generated: {by: "claude/sonnet-5.5", at: 2026-09-30T10:40:00Z}
 verified:
-  - {by: "openai/gpt-6-astra", at: 2026-09-25T02:55:36Z}
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T03:13:36Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-30T10:57:45Z}
 sources:
-  - {resource: hsmsss/transport.go, digest: sha256:176fff888fc8a85e, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_procedures.go, digest: sha256:bf47bd9825ddb5da, revision: 6c257b6}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:fc971b2806f82a52, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_active.go, digest: sha256:33d63b7808dc1ed3, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_passive.go, digest: sha256:eaee7f67c2e994fc, revision: 7ae1ff0}
-  - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: 6c257b6}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:299faa7fdfbdf7fa, revision: 2041f5d}
+  - {resource: hsmsss/transport.go, digest: sha256:038b98574e452c16, revision: be7a75b}
+  - {resource: hsmsss/transport_procedures.go, digest: sha256:8ef63578b72806e0, revision: be7a75b}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:f8d35637783f58a6, revision: be7a75b}
+  - {resource: hsmsss/transport_active.go, digest: sha256:689f931cb195678f, revision: be7a75b}
+  - {resource: hsmsss/transport_passive.go, digest: sha256:f00a1ae9c47094d4, revision: be7a75b}
+  - {resource: hsmsss/transport_control.go, digest: sha256:ad8c57da5652a769, revision: be7a75b}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: be7a75b}
+  - {resource: hsmsss/transport_socket.go, digest: sha256:7eb2e5f887e7f1c3, revision: be7a75b}
 ---
 
 # What it does
@@ -45,7 +45,8 @@ Two `atomic.Int64` stamps hold the whole picture: `lastSendStamp` and `lastRecvS
 
 Activity updates happen at three sites, not two.
 `Write` stamps the send side only when `bufs.WriteTo` returned no error.
-The recv loop stamps the receive side after a *complete* inbound frame, before dispatch.
+The recv loop stamps the receive side after a *complete* inbound frame, before dispatch:
+the stamp lives in `readObserved`, which wraps `readFrame`, stamps on success, and only then hands the frame to the wire observer.
 `resetActivityStamps` rebaselines both stamps to now whenever a generation publishes its conn —
 that third site is not gated on any frame I/O at all.
 
@@ -61,13 +62,14 @@ A fresh generation therefore starts out believing the line was active this insta
 It is a rebaseline, not a fence — see the invariant below on straggler stamps.
 
 The ordering around that section is inverted from an earlier revision of this entry.
-`startActive`/`acceptLoop` now call the generation-gated `t.tcpUp(g.gen, conn)` (publish-socket-and-commit) *before* the `connMu` section, not after —
+`startActive`/`acceptLoop` now call the generation-gated `t.adoptSocket(g, rec)` (publish-socket-and-commit) *before* the `connMu` section, not after —
 a refused generation (its epoch already ended) must never reach `t.conn` or the stamp reset at all.
-On acceptance the order is: `tcpUp` succeeds, *then* `connMu.Lock(); t.conn = conn; resetActivityStamps(); connMu.Unlock()`.
+`adoptSocket` reports through the runtime's adoption capability when it has one, and through `tcpUp` otherwise.
+On acceptance the order is: `adoptSocket` succeeds, *then* `connMu.Lock(); t.conn = conn; t.connSock = rec; resetActivityStamps(); connMu.Unlock()`.
 That is two separate steps, not one atomic publication:
-`tcpUp`'s acceptance is the core's socket/state update, while `t.conn` and the stamps are this transport's own state, assigned afterward under `connMu`.
+`adoptSocket`'s acceptance is the core's socket/state update, while `t.conn`, `t.connSock` and the stamps are this transport's own state, assigned afterward under `connMu`.
 `sinceLastActivity` reads the stamps lock-free, so it is never excluded by that `connMu` section anyway —
-a concurrent reader can observe either the pre-reset or post-reset value at any point, race-free but with no ordering tie to `tcpUp`'s acceptance.
+a concurrent reader can observe either the pre-reset or post-reset value at any point, race-free but with no ordering tie to the core's acceptance.
 
 # Invariants
 
@@ -112,11 +114,11 @@ a concurrent reader can observe either the pre-reset or post-reset value at any 
 
 - stamp storage, clock base, and both readers: `hsmsss/transport.go` → `(*transport).sinceLastActivity`, `(*transport).monoNanos`, `(*transport).resetActivityStamps`
 - send-side stamp, gated on write success: `hsmsss/transport.go` → `(*transport).Write`
-- receive-side stamp, after a complete frame: `hsmsss/transport_recv.go` → `(*transport).recvLoop`
+- receive-side stamp, after a complete frame: `hsmsss/transport_recv.go` → `(*transport).readObserved` (called from `(*transport).recvLoop`)
 - the re-arm arithmetic and the reducer's real trigger: `hsmsss/transport_procedures.go` → `(*transport).runLinktest`, `linktestFailureStep`
 - per-generation reset at socket publish, both roles: `hsmsss/transport_active.go`, `hsmsss/transport_passive.go` → the `connMu` section assigning `t.conn`
 - the generation-gated publish that now runs before that section (call sites): `hsmsss/transport_active.go`, `hsmsss/transport_passive.go`
-- that publish's definition: `hsmsss/transport_control.go` → `(*transport).tcpUp`
+- that publish's definition: `hsmsss/transport_socket.go` → `(*transport).adoptSocket`, falling back to `hsmsss/transport_control.go` → `(*transport).tcpUp`
 - `g.ctx`'s origin as the epoch's own ctx, and where it is stamped onto the generation bundle: `hsms/connection_lifecycle.go` → `(*connection).Open`;
   `hsmsss/transport_active.go` → `startActive`;
   `hsmsss/transport_passive.go` → `startPassive`;

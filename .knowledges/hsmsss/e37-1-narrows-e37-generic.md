@@ -4,16 +4,16 @@ title: Where the HSMS-SS profile overrides the generic core
 description: The four sites whose value or state check comes from E37.1 rather than E37, and what silently breaks if one is "simplified" back.
 tags: [hsmsss, e37-1, select, separate, linktest, reject, session-id]
 status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-25T02:38:18Z}
+generated: {by: "claude/sonnet-5.5", at: 2026-09-30T10:40:00Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T03:13:36Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-30T10:57:45Z}
 sources:
-  - {resource: hsmsss/transport_active.go, digest: sha256:33d63b7808dc1ed3, revision: 7ae1ff0}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:299faa7fdfbdf7fa, revision: 2041f5d}
-  - {resource: hsms/control_msg.go, digest: sha256:847dad3406c4d87c, revision: 3660aa4}
-  - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: 6c257b6}
-  - {resource: hsmsss/transport_recv.go, digest: sha256:fc971b2806f82a52, revision: 7ae1ff0}
-  - {resource: hsms/supervisor.go, digest: sha256:097ae581f965d935, revision: b43b798}
+  - {resource: hsmsss/transport_active.go, digest: sha256:689f931cb195678f, revision: be7a75b}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: be7a75b}
+  - {resource: hsms/control_msg.go, digest: sha256:847dad3406c4d87c, revision: be7a75b}
+  - {resource: hsmsss/transport_control.go, digest: sha256:ad8c57da5652a769, revision: be7a75b}
+  - {resource: hsmsss/transport_recv.go, digest: sha256:f8d35637783f58a6, revision: be7a75b}
+  - {resource: hsms/supervisor.go, digest: sha256:597d3ffbcb56fb87, revision: be7a75b}
 ---
 
 # What it does
@@ -48,7 +48,9 @@ gets it echoed straight back on the matching response, including a nonconformant
 No HSMS frame reaches a SECS-I peer only because `secs1`'s writer drops every non-zero SType before the wire — the constant is inert there, not correct there.
 
 **`handleSeparateReq` tears down in any connected substate, and two guards now keep that teardown inside the reporting generation.**
-It reports through `t.tcpDown(g.gen, errPeerSeparate, hsms.CausePeerSeparate)`, which resolves the target generation by identity (`connection.TCPDownFromGeneration`) rather than whichever epoch happens to be current when the report lands.
+It reports through `t.tcpDown(g, errPeerSeparate, hsms.CausePeerSeparate)`.
+`tcpDown` first closes `g.sock` through its close gate (with no failure, since the peer asked for the close),
+then resolves the target generation by identity from `g.gen` (`connection.TCPDownFromGeneration`) rather than whichever epoch happens to be current when the report lands.
 The `g.ctx.Err()` check ahead of it is only an early exit — cancellation can land between the check and the call — but `g.gen` is a real barrier: it travels with the queued event onto the FSM and is re-checked when `supervisor.step` applies it, so a stale report can no longer disconnect a successor generation even when the early exit misses it.
 This closes what the conformance audit recorded as Gap 2 (a narrowed-but-open window, not a fence); see [the generation report fence](/hsms/generation-report-fence.md) for the full generation-identity mechanism this now rests on.
 Since the inbound generation fence, `genCtx` is no longer a separate parameter threaded alongside `g`:

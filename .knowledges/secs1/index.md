@@ -10,7 +10,8 @@ Splits an immutable SECS-II body into ≤244-byte transport blocks and reassembl
 
 # Boundary
 
-Does not own the message model, reply routing, generation lifecycle, or T3 — those are `hsms`. Satisfies `hsms.Connection` / `hsms.Session` so it substitutes for `hsmsss` (prime directive 4).
+Does not own the message model, reply routing, generation lifecycle, or T3 — those are `hsms`.
+`secs1.Connection` embeds `hsms.Connection`, so it substitutes for `hsmsss` (prime directive 4).
 
 # Entries
 

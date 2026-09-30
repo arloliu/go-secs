@@ -8,14 +8,14 @@ generated: {by: "claude/opus-5.5", at: 2026-09-26T11:59:50Z}
 verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-26T12:04:05Z}
 sources:
-  - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: 7ae1ff0}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:299faa7fdfbdf7fa, revision: 2041f5d}
-  - {resource: hsms/connection_config.go, digest: sha256:e701533ea6c49f0a, revision: c00e1b5}
-  - {resource: hsms/connection_runtime.go, digest: sha256:7340a3887598a8ba, revision: b43b798}
-  - {resource: hsms/connection_metrics.go, digest: sha256:dae358846f98653e, revision: f7a5927}
-  - {resource: hsms/supervisor.go, digest: sha256:097ae581f965d935, revision: b43b798}
-  - {resource: hsms/epoch.go, digest: sha256:bdf3578cbc24fc48, revision: 7ae1ff0}
-  - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: 4be2062}
+  - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: be7a75b}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: be7a75b}
+  - {resource: hsms/connection_config.go, digest: sha256:fed694e843097a3c, revision: be7a75b}
+  - {resource: hsms/connection_runtime.go, digest: sha256:7340a3887598a8ba, revision: be7a75b}
+  - {resource: hsms/connection_metrics.go, digest: sha256:dae358846f98653e, revision: be7a75b}
+  - {resource: hsms/supervisor.go, digest: sha256:597d3ffbcb56fb87, revision: be7a75b}
+  - {resource: hsms/epoch.go, digest: sha256:d6cc2283dd4d5e58, revision: be7a75b}
+  - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: be7a75b}
 ---
 
 # What it does

@@ -4,15 +4,15 @@ title: Send error accounting — which outcomes count
 description: Which synchronous data-send outcomes count, and why every teardown-observed outcome — including a write that fails after teardown starts — reports ErrConnClosed and is excluded.
 tags: [hsms, metrics, send, lifecycle]
 status: stable
-generated: {by: "claude/sonnet-5", at: 2026-09-25T03:51:29Z}
+generated: {by: "claude/sonnet-5.5", at: 2026-09-30T10:40:00Z}
 verified:
-  - {by: "openai/gpt-5.6-terra", at: 2026-09-25T06:13:16Z}
+  - {by: "openai/gpt-5.6-terra", at: 2026-09-30T10:58:06Z}
 sources:
-  - {resource: hsms/connection_send.go, digest: sha256:90a5e3ff7beea84c, revision: f7a5927}
-  - {resource: hsms/connection_metrics.go, digest: sha256:dae358846f98653e, revision: f7a5927}
-  - {resource: hsms/connection_send_metrics_test.go, digest: sha256:457aeefcd9801abc, revision: a1cdb0e}
-  - {resource: hsms/epoch.go, digest: sha256:bdf3578cbc24fc48, revision: 7ae1ff0}
-  - {resource: hsmsss/transport.go, digest: sha256:176fff888fc8a85e, revision: 7ae1ff0}
+  - {resource: hsms/connection_send.go, digest: sha256:0dcb81d9fccb4e5f, revision: be7a75b}
+  - {resource: hsms/connection_metrics.go, digest: sha256:dae358846f98653e, revision: be7a75b}
+  - {resource: hsms/connection_send_metrics_test.go, digest: sha256:457aeefcd9801abc, revision: be7a75b}
+  - {resource: hsms/epoch.go, digest: sha256:d6cc2283dd4d5e58, revision: be7a75b}
+  - {resource: hsmsss/transport.go, digest: sha256:038b98574e452c16, revision: be7a75b}
 ---
 
 # What it does
@@ -106,7 +106,8 @@ That assumes the transport reserves `ErrConnClosed` for lifecycle outcomes:
 a custom connection that returns the sentinel on a live generation is excluded too.
 Both synchronous write paths apply it identically, each under an `isData` guard: `sendWaitReplyOn`
 (reply-correlated — the shared body `sendWaitReply` and the generation-bound `WriteMessageFromGeneration` both call)
-and `sendNoReply` (forward/relay). The async drain applies no classification at
+and `sendNoReplyOn` (forward/relay — the shared body behind `sendNoReply` and `WriteMessageNoReply`).
+The async drain applies no classification at
 all — see [the MaxMessageSize ceiling](/hsms/max-message-size-ceiling.md).
 
 Separately, a GENUINE T3 expiry while waiting for a reply counts,
@@ -199,7 +200,7 @@ The data-error counter is exactly that: a *data* counter.
 - the classification policy: `hsms/connection_send.go` → `isCountedSendErr`
 - the write-failure teardown reclassification, ahead of `isCountedSendErr`: `hsms/connection_send.go` → `(*connection).writeFrame`
 - the four terminal branches, their priority re-check, and their attribution: `hsms/connection_send.go` → `(*connection).sendWaitReplyOn` (called by `(*connection).sendWaitReply` and `(*connection).WriteMessageFromGeneration`), `tryReply`
-- the second synchronous path, now also named in the godoc: `hsms/connection_send.go` → `(*connection).sendNoReply`
+- the second synchronous path, now also named in the godoc: `hsms/connection_send.go` → `(*connection).sendNoReplyOn` (called by `(*connection).sendNoReply` and `(*connection).WriteMessageNoReply`)
 - the timeout notification: `hsms/connection_send.go` → `(*connection).sendAutoS9F9`
 - the counter's public contract, now accurate on which paths it counts: `hsms/connection_metrics.go` → `(*ConnectionMetrics).DataMsgErrCount`
 - the fire-and-forget write-error regression test: `hsms/connection_send_metrics_test.go` → `TestSendMetrics_DataMsgErr_OnWriteError_FireAndForget`, `TestSendMetrics_DataMsgErr_OnWriteError`

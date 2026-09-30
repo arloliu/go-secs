@@ -8,20 +8,20 @@ generated: {by: "claude/opus-5.5", at: 2026-09-26T11:59:29Z}
 verified:
   - {by: "openai/gpt-5.6-terra", at: 2026-09-26T12:04:05Z}
 sources:
-  - {resource: hsms/supervisor.go, digest: sha256:097ae581f965d935, revision: b43b798}
-  - {resource: hsms/connection_lifecycle.go, digest: sha256:299faa7fdfbdf7fa, revision: 2041f5d}
-  - {resource: hsms/connection_runtime.go, digest: sha256:7340a3887598a8ba, revision: b43b798}
-  - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: b43b798}
-  - {resource: hsms/epoch.go, digest: sha256:bdf3578cbc24fc48, revision: b43b798}
-  - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: b43b798}
-  - {resource: hsms/transport.go, digest: sha256:8e0ca0744b8527b9, revision: 2041f5d}
-  - {resource: hsmsss/transport.go, digest: sha256:176fff888fc8a85e, revision: b43b798}
-  - {resource: hsmsss/transport_control.go, digest: sha256:84353e5b3b34860b, revision: b43b798}
-  - {resource: hsmsss/transport_active.go, digest: sha256:33d63b7808dc1ed3, revision: b43b798}
-  - {resource: hsmsss/transport_passive.go, digest: sha256:eaee7f67c2e994fc, revision: b43b798}
-  - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: b43b798}
-  - {resource: internal/gencap/gencap.go, digest: sha256:388f19be3dd1fe52, revision: b43b798}
-  - {resource: hsmsss/transport_control_test.go, digest: sha256:d7d6115539bd3043, revision: b43b798}
+  - {resource: hsms/supervisor.go, digest: sha256:597d3ffbcb56fb87, revision: be7a75b}
+  - {resource: hsms/connection_lifecycle.go, digest: sha256:84c70134ab8b14a4, revision: be7a75b}
+  - {resource: hsms/connection_runtime.go, digest: sha256:7340a3887598a8ba, revision: be7a75b}
+  - {resource: hsms/connection.go, digest: sha256:3c8a78070c937d5a, revision: be7a75b}
+  - {resource: hsms/epoch.go, digest: sha256:d6cc2283dd4d5e58, revision: be7a75b}
+  - {resource: hsms/handler_panic.go, digest: sha256:7c995367269a8805, revision: be7a75b}
+  - {resource: hsms/transport.go, digest: sha256:8e0ca0744b8527b9, revision: be7a75b}
+  - {resource: hsmsss/transport.go, digest: sha256:038b98574e452c16, revision: be7a75b}
+  - {resource: hsmsss/transport_control.go, digest: sha256:ad8c57da5652a769, revision: be7a75b}
+  - {resource: hsmsss/transport_active.go, digest: sha256:689f931cb195678f, revision: be7a75b}
+  - {resource: hsmsss/transport_passive.go, digest: sha256:f00a1ae9c47094d4, revision: be7a75b}
+  - {resource: secs1/transport.go, digest: sha256:399009fc96b7bf6c, revision: be7a75b}
+  - {resource: internal/gencap/gencap.go, digest: sha256:b7a6e492698ff6d3, revision: be7a75b}
+  - {resource: hsmsss/transport_control_test.go, digest: sha256:d7d6115539bd3043, revision: be7a75b}
 ---
 
 # What it does
