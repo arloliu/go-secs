@@ -52,8 +52,9 @@ MODULE_PATH    := $(shell GOWORK=off go list -m 2>/dev/null)
 STRESS_DIRS := ./hsmsss/... ./hsms/... ./secs1/... ./integration/...
 
 # Packages that contain Fuzz* targets. fuzz-test auto-discovers the targets
-# inside each package, so new fuzzers are picked up automatically.
-FUZZ_PKGS := ./hsms ./hsmsss ./integration
+# inside each package, so new fuzzers in a listed package are picked up
+# automatically; a package's first fuzzer needs an entry here.
+FUZZ_PKGS := ./hsms ./hsmsss ./integration ./secs2 ./sml
 
 # Coverage outputs.
 COVER_ROOT            := ./.coverage
