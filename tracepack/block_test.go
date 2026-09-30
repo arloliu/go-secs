@@ -661,7 +661,7 @@ func TestEncodeRawBlockKeepsRecordBytes(t *testing.T) {
 				t.Parallel()
 
 				rows, payloads := rawTestRecords(t, hl)
-				raw, sum, err := encodeRawBlock(c, hl, rows, payloads, nil)
+				raw, sum, err := encodeRawBlock(&encodeBuf{}, c, hl, rows, payloads)
 				require.NoError(t, err)
 
 				env, err := format.UnmarshalBlockEnvelope(raw)
@@ -698,6 +698,57 @@ func TestEncodeRawBlockKeepsRecordBytes(t *testing.T) {
 				assert.Equal(t, blocks[0].sum, sum)
 			})
 		}
+	}
+}
+
+// TestEncodeRawBlockReusesItsBuffers encodes blocks of several sizes and header lengths with one encodeBuf, in turn,
+// some of them changed by the hook so that they fail their check:
+// each block that passes equals the block a fresh encodeBuf builds,
+// whatever the blocks before it, failed ones included, left in the buffers,
+// and aliases the encodeBuf until its next use.
+// A none block is built in place behind its envelope, without the decoded-body buffer.
+func TestEncodeRawBlockReusesItsBuffers(t *testing.T) {
+	t.Parallel()
+
+	corrupt := func(enc []byte) []byte {
+		enc[len(enc)-1] ^= 1
+
+		return enc
+	}
+	for _, c := range []Codec{CodecNone, CodecZstd} {
+		t.Run(c.String(), func(t *testing.T) {
+			t.Parallel()
+
+			var e encodeBuf
+			steps := []struct {
+				hl, n int
+				fail  bool
+			}{{52, 7, false}, {300, 7, true}, {44, 2, false}, {300, 7, false}, {45, 3, true}, {44, 1, false}, {45, 5, false}}
+			for _, st := range steps {
+				rows, payloads := rawTestRecords(t, st.hl)
+				rows, payloads = rows[:st.n], payloads[:st.n]
+				if st.fail {
+					e.hook = corrupt
+					raw, _, err := encodeRawBlock(&e, c, st.hl, rows, payloads)
+					e.hook = nil
+					require.ErrorContains(t, err, "fails its check", "record_header_len %d, %d records", st.hl, st.n)
+					assert.Nil(t, raw)
+
+					continue
+				}
+
+				want, wantSum, err := encodeRawBlock(&encodeBuf{}, c, st.hl, rows, payloads)
+				require.NoError(t, err)
+				raw, sum, err := encodeRawBlock(&e, c, st.hl, rows, payloads)
+				require.NoError(t, err)
+				assert.Equal(t, want, raw, "record_header_len %d, %d records", st.hl, st.n)
+				assert.Equal(t, wantSum, sum, "record_header_len %d, %d records", st.hl, st.n)
+				assert.Same(t, &e.raw[0], &raw[0], "the block aliases the encodeBuf")
+				if c == CodecNone {
+					assert.Empty(t, e.body, "a none body is built behind its envelope")
+				}
+			}
+		})
 	}
 }
 
@@ -815,7 +866,7 @@ func TestEncodeRawBlockRejectsRecords(t *testing.T) {
 				t.Error("a block was encoded")
 				return enc
 			}
-			raw, sum, err := encodeRawBlock(CodecZstd, hl, rows, payloads, encoded)
+			raw, sum, err := encodeRawBlock(&encodeBuf{hook: encoded}, CodecZstd, hl, rows, payloads)
 			require.ErrorContains(t, err, tt.want)
 			assert.Nil(t, raw)
 			assert.Zero(t, sum.recordCount)
@@ -886,7 +937,7 @@ func TestEncodeRawBlockCheckRejectsCorruption(t *testing.T) {
 
 				rows, payloads := rawTestRecords(t, hl)
 				require.Len(t, rows, n)
-				_, _, err := encodeRawBlock(c, hl, rows, payloads, nil)
+				_, _, err := encodeRawBlock(&encodeBuf{}, c, hl, rows, payloads)
 				require.NoError(t, err, "the records encode without the hook")
 
 				uncompressedLen := n * hl
@@ -902,7 +953,7 @@ func TestEncodeRawBlockCheckRejectsCorruption(t *testing.T) {
 
 					return out
 				}
-				raw, sum, err := encodeRawBlock(c, hl, rows, payloads, hook)
+				raw, sum, err := encodeRawBlock(&encodeBuf{hook: hook}, c, hl, rows, payloads)
 				require.ErrorContains(t, err, "fails its check")
 				require.ErrorContains(t, err, tt.want)
 				assert.Nil(t, raw)
