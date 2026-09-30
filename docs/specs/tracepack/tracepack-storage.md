@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-09-29) — v2.14, tracepack format 1.0.
+Status: current (2026-09-30) — v2.15, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for publishers, mergers, recorders and log converters.
 
@@ -359,6 +359,12 @@ and declares any newly lost (`capture_id`, `seq`) ranges and time intervals as f
 which the next merge of the scope carries into the generation (union) and every later generation inherits;
 a view that still holds the patch applies them directly; every query touching them reports `incomplete`.
 Other packs of the view are untouched.
+A patch keeps the scope and capture of the pack it repairs:
+its `capture_id`, its period and its capture-level tags, and for an archive its `compaction_level` and `compacted_from`,
+since the patch's records still represent the generation-0 packs that list names (§4 Merge takes the list cumulatively);
+its `scope_generation` is 0, and it carries no `publisher_epoch` or replacement-set tags.
+A patch without records takes the damaged pack's `seq_start` ([FMT §5]).
+How a patch is built from a damaged pack, and when repair is refused, is [FMT §13].
 Because the lost records of a pack belong to its scope, their time intervals lie within its hour, except for completeness barriers (§4), which are handled separately.
 Readers default to the active view and can include packs outside it on request.
 

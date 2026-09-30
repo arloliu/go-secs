@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-09-30) — phase 4 `Verify` done; `Repair` next.
-Implements: tracepack v2.14 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
+Status: active (2026-09-30) — phase 4 `Verify` done; `Repair` in progress (spec v2.15).
+Implements: tracepack v2.15 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
 
@@ -203,9 +203,10 @@ Done when: the writer and reader implement the revised layout, and the corruptio
 ### Phase 4 — Verify, Repair
 
 - `Verify` (done): forward block walk (I-1, I-2), the outcomes and writer defects of [FMT §13] (G5-100), report with offsets.
-- `Repair`: rejects an extract ([STO §2]); writes a `repair` pack with `supersedes` = the damaged pack, the damaged pack's inherited `coverage` plus new `coverage` (capture_id + seq ranges + time intervals).
-  Proposal P10 was rejected (G5-101), so `patch_base` is the current generation's `replacement_set_id`, supplied by the caller ([STO §2], [STO §5]);
-  `coverage`'s nested-tag requiredness is settled when `Repair` is planned.
+- `Repair`: the patch of [FMT §13] and [STO §6] (G5-102..G5-106):
+  every validated block copied verbatim, the footer rebuilt from the records, `supersedes` = the damaged pack,
+  the damaged pack's `coverage` carried as data plus new `coverage` from the trusted footer or the neighbour bounds, and every refusal decided before any output.
+  Proposal P10 was rejected (G5-101), so `patch_base` is the current generation's `replacement_set_id`, supplied by the caller ([STO §2], [STO §5]).
 
 Tests: truncate a pack at every byte offset and check the outcome;
 the repair pack keeps the validated prefix byte-identical.
@@ -222,6 +223,8 @@ and their vectors (the durable clock-step → size roll → empty spool → cras
 - `ActiveView(packs, commits)`: the [STO §4] view of a scope from pack metadata and commit objects
   (highest-ranked complete generation by (`publisher_epoch`, `scope_generation`), unconsumed generation-0 packs, patches with a matching `patch_base` naming segments or generation members)
   and the packs deletable under [STO §4]; staging segments are part of the input.
+  To settle first (G5-104): whether the packs an in-view patch removed come back when a later patch, the repair of that patch, names only it
+  ([STO §4] view, [STO §5] patch acceptance).
   Whether a commit object may be deleted is the service's decision from its record of deleted packs, outside `ActiveView` ([STO §4] Deletion).
 - Listing-backed `PackSource` for scopes the catalog does not index: a coherent observation ([STO §5]) —
   the commit listing repeated until two complete listings agree, then the `archive/` and `staging/` listings, then a [FMT §13] bootstrap of each listed pack —

@@ -356,3 +356,51 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   P4 stays deferred and P7 is unchanged.
   Not adopted with it: a rule that every repair re-emits its records byte for byte; [STO §6] keeps "possibly with new stored bits or classification".
 - P10 closed (2026-09-29): rejected (G5-101); its last text is at commit `69767cf`.
+
+## 2026-09-30 repair
+
+- G5-102 `coverage` nested tags on write (2026-09-30, planning `Repair`; closes the writer-side requiredness G5-89 left open):
+  a writer writes `capture_id`, `seq_first`, `time_start` and `time_end` in every `coverage` entry it declares,
+  and `seq_last` whenever the upper bound of the lost seqs is known;
+  an absent `seq_last` means the loss extends past the last seq the writer could establish,
+  which the G5-89 reading rule already treats as unbounded.
+  Entries a patch inherits are carried as data, whatever nested tags they hold.
+  Rejected: writing `seq_last` = 2^63−1 as a sentinel for an unknown bound.
+  Spec: [FMT §5] (v2.15).
+- G5-103 Repair refusals (2026-09-30): repair writes nothing, and the damaged pack stays, when no faithful and consistent patch can be made:
+  a validated block carries a seq-order (I-12) or hour-span (I-13) writer defect,
+  which footer validation would reject in the patch's own index;
+  a lost run holding a failed block has no seq between its validated neighbours,
+  which shows that I-12 breaks inside the failed region, so the lost seqs cannot be bounded;
+  the pack is not a stored pack (`pack_role` other than `segment`, `archive` or `repair`);
+  its period is not inside one UTC hour; a validated block lies outside the scope's hour;
+  or the validated records breach the pack metadata's commitments:
+  a classified record without `classifier`, an `oversized` record without `max_frame_len`, or a `quality.redacted` record.
+  The other writer defects do not affect the footer, so their blocks are copied with the defects.
+  Rejected: copying such blocks anyway (the patch would itself be `finalized-inconsistent`);
+  dropping them into `coverage` (validated records would be lost);
+  declaring a capture-wide `coverage` entry when the lost seqs cannot be bounded.
+  Spec: [FMT §13] (v2.15).
+- G5-104 Repair of a patch (2026-09-30): `supersedes` names only the damaged pack, also when that pack is itself a `repair` patch.
+  Whether the packs an in-view patch removed come back when a later patch names that patch is a question of the active view ([STO §4]),
+  left to the design of `ActiveView`.
+  Rejected: also naming the damaged patch's own `supersedes`,
+  which [STO §5] would reject at registration, since those packs are no longer in the view;
+  refusing to repair a patch.
+  Spec: [FMT §13] (v2.15); impl plan phase 5.
+- G5-105 Blocks after a failed block (2026-09-30): repair copies every validated block,
+  including the validated blocks a valid footer locates after a failed one,
+  as the [FMT §13] guarantee (every validated block is readable) requires.
+  Rejected: copying only the validated prefix.
+  Spec: [FMT §13] (v2.15).
+- G5-106 Trust in a valid footer for lost ranges (2026-09-30, after the first plan review of `Repair`):
+  with a valid footer, a failed block's lost records are its F-3 seq ranges within its F-2 time range,
+  the same trust a read that prunes by that footer places in it ([FMT §10]);
+  when a validated block of the pack disagrees with the footer, the footer has shown itself false,
+  and every failed block of the pack is bounded as in a pack without a valid footer:
+  by the seqs of its validated neighbours, within the scope's hour.
+  Rationale: a footer that stays consistent with itself while misstating a block is a writer defect that only reading the block reveals,
+  and the failed block cannot be read;
+  bounding every failed block by its neighbours instead would report the seq gaps between blocks and every time query of the hour as lost.
+  Rejected: always trusting the footer; always the neighbour bounds.
+  Spec: [FMT §13] (v2.15).

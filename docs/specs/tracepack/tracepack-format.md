@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-09-29) — v2.14, tracepack format 1.0.
+Status: current (2026-09-30) — v2.15, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -222,7 +222,7 @@ Rules:
 | 0x0024 | `equipment_connect_mode` | u8 enum (`socket_role`) | optional | whether the equipment side is passive or active |
 | 0x0025 | `device_id` | u64 | optional | configured SessionID / DeviceID |
 | 0x0026 | `hsms_timers` | tlv | optional | configured timers; nested tag *n* (1–8) = T*n* in milliseconds, `u64` |
-| 0x0027 | `seq_start` | u64 | always | the first record's seq, or for a pack without records the capture's next seq; lets recovery of an empty spool place its boundary ([STO §4]) |
+| 0x0027 | `seq_start` | u64 | always | the first record's seq, or for a pack without records the capture's next seq (for a patch without records, the damaged pack's `seq_start`, [STO §6]); lets recovery of an empty spool place its boundary ([STO §4]) |
 | 0x0028 | `clock_step_tolerance_ns` | u64 | `time_source = capture-clock` | wall-clock drift the writer tolerates against its durable anchor before marking a step ([SEM §4]) |
 | 0x002C | `flush_interval_ns` | u64 | a recorder with a durable spool, or a consumer of a durable bus | the recorder's durability contract interval; for a bus consumer its maximum normal segment-flush interval ([STO §4]) |
 | 0x002D | `scope_generation` | u64 | every pack except `extract` | 0 for segments and patches, ≥ 1 for generations produced by merges ([STO §2]) |
@@ -243,6 +243,12 @@ A side whose bound is absent is unbounded, so an entry without a time interval i
 an entry whose first bound exceeds its last intersects every query of its capture;
 an entry without `capture_id` belongs to the pack's capture.
 The rule errs toward `incomplete` (§13), because a missed intersection would present lost records as records that do not exist.
+A writer writes `capture_id`, `seq_first`, `time_start` and `time_end` in every `coverage` entry it declares,
+and `seq_last` whenever the upper bound of the lost seqs is known;
+an absent `seq_last` means the loss extends past the last seq the writer could establish.
+The entries a patch inherits ([STO §6]) are carried as data, whatever nested tags they hold:
+every entry, in its order, with every nested tag, type and value, unknown tags included;
+the nested entries may be re-encoded in another order, since their order carries no meaning, with reserved bytes zero (I-9).
 
 Nested tags of `redaction_policy`: 0x0001 `policy_id` utf8, 0x0002 `policy_version` u64, 0x0003 `key_id` utf8, 0x0004 `digest_algorithm` u8 enum (§9), all required.
 
@@ -733,9 +739,39 @@ The object size is known before reading (file system stat, object listing, the c
   Guarantee in format 1.0: every validated block is readable, and the validated prefix is readable without the footer;
   every failed block and every byte range the walk cannot account for is reported `incomplete` with offset and cause.
   Locating blocks after an envelope the walk cannot account for, in a pack without a valid footer, is deferred ([OVW §6]).
-  Repair never modifies a finalized file;
-  it writes a `repair` patch whose `supersedes` names the damaged pack and whose `coverage` entries record the lost (`capture_id`, `seq`) ranges and time intervals ([STO §6]).
-  Repair applies to stored packs; an extract is never repaired into a patch ([STO §2]), and `verify` of an extract only reports.
+- **Repair** (`verify --repair`) never modifies the damaged file;
+  it writes a `repair` patch ([STO §6]) whose `supersedes` names the damaged pack, also when that pack is itself a patch.
+  The patch holds every validated block of the damaged pack, those after a failed block included,
+  copied byte for byte in file order;
+  no record is re-encoded, so header extension bytes, reserved bits and unknown enum values survive.
+  Its footer is built from the copied records as a writer builds it (§10):
+  F-2 for the new offsets, F-3 from the records, F-5 aggregated.
+  Unlike a merge, which copies each block's F-3 list verbatim, a repair never propagates the damaged pack's footer,
+  which may be invalid or false, so the damaged footer's unknown F-3 tags are not kept.
+  Its `coverage` holds the damaged pack's entries, carried as data (§5), then one new entry per lost range:
+  - with a valid footer that every validated block agrees with,
+    one entry per F-3 seq range of each failed block, within the block's F-2 `ts_min`..`ts_max`;
+  - otherwise, one entry per **lost run**: a maximal run of consecutive failed blocks,
+    with a tail after the last located block when the pack is not finalized or the walk stopped.
+    `seq_first` is the last seq of the validated block before the run + 1, or the damaged pack's `seq_start` when none precedes it;
+    `seq_last` is the first seq of the validated block after the run − 1, absent when none follows;
+    the time interval is the scope's UTC hour ([STO §2]), clamped to the i64 range.
+    A tail with no seq left to lose, after a last seq of 2^63−1, yields no entry.
+  These bounds use the seqs of the validated blocks' records,
+  never a failed block's envelope, nor the F-2 entries of a footer that is not trusted.
+  A valid footer is trusted as a read that prunes by it trusts it (§10), unless a validated block disagrees with it.
+  What remains undetectable is a failed block whose records broke I-12 outside the bounds its neighbours give,
+  since its bytes cannot be read.
+  A `finalized-inconsistent` pack is repaired like any other: every block copied, no new `coverage`, the footer rebuilt.
+  Repair writes nothing, and the damaged pack stays, when any of these holds:
+  the pack is `finalized-consistent`, so there is nothing to repair;
+  it is not a stored pack, its `pack_role` being other than `segment`, `archive` or `repair`
+  (an extract is never repaired into a patch, [STO §2], and `verify` of an extract only reports);
+  its period is not inside one UTC hour, or a validated block lies outside that hour;
+  a validated block carries the I-12 or I-13 writer defect, which the patch's own footer validation would reject;
+  a lost run holding a failed block has no seq between its neighbours, which shows that I-12 breaks inside it;
+  or the validated records breach the pack metadata's commitments:
+  a classified record without `classifier`, an `oversized` record without `max_frame_len`, or a `quality.redacted` record.
 - **Normal reads never silently skip.** A corrupt block, a truncated tail, an unknown codec, a block whose records disagree with its F-2 entry or a `coverage` hit yields partial results
   **with** an `incomplete` status the caller must inspect.
 
@@ -815,6 +851,14 @@ The corpus lets an implementation in any language prove that it reads and writes
   a finalized pack whose footer is invalid, or whose F-3 summary disagrees with its block's records, while every block passes: `finalized-inconsistent`;
   a writer defect of each kind in a validated block: reported, never changing the outcome by itself;
   the seq-order and hour-span defects of a finalized pack come with an invalid or disagreeing footer, so `finalized-inconsistent`.
+- Repair vectors (§13), each patch verified `finalized-consistent`, its blocks byte-identical to the damaged pack's validated blocks,
+  and every record not copied matched by a `coverage` entry:
+  a failed middle block with a valid footer (the footer's ranges);
+  the same with a footer a validated block disagrees with, and without a valid footer (the neighbours' seqs, the scope hour);
+  a pack truncated at every byte offset (a tail entry without `seq_last`); every block failed (a patch holding only `coverage`);
+  a `finalized-inconsistent` pack (every block copied, no new `coverage`); a repair of a patch (its `coverage` inherited);
+  and each refusal:
+  `finalized-consistent`, an extract, a seq-order or hour-span defect, a lost run without a seq between its neighbours, a block outside the scope's hour.
 - Redaction vectors ([SEM §8]), written with the published test keys:
   S7F3 with its PPBODY masked (length, item headers, `decode_status` and HSMS header unchanged; entry and digest as published);
   S7F3 and S7F6 carrying the same process program, in one domain: equal digests; the same S7F3 under the second test key and key id: a different digest;

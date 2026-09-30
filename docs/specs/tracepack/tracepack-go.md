@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
 Status: current (2026-09-30)
-Implements tracepack v2.14 (format 1.0): `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Implements tracepack v2.15 (format 1.0): `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -113,10 +113,18 @@ The query service, its catalog database and the live-tail interface are designed
   `ExtractReport` counts masks per rule and whole-text masks.
 - `Verify(ctx, ra, size, opts) (VerifyReport, error)`: the outcome, failed blocks, disagreements, writer defects and validated prefix of [FMT §13];
   a file header or pack metadata that cannot be read is an error, as for `Open`.
-- `Repair(ctx, src, dst) (RepairReport, error)`: writes a generation-0 `repair` patch naming the damaged pack, with `coverage` ([STO §6]);
+- `Repair(ctx, ra, size, dst io.Writer, opts) (RepairReport, error)`:
+  writes a generation-0 `repair` patch of the damaged pack, as [FMT §13] builds it ([STO §6]);
   the next `Merge` folds it into a generation, once the service admits the patch to an indexed scope ([STO §5]).
-  `Repair` rejects an extract ([STO §2]).
-  `RepairReport` holds the damaged pack's `VerifyReport` beside what the patch records.
+  `opts` names the patch's `writer` and its `patch_base` (the scope's current generation, supplied by the caller),
+  and optionally its `pack_id`, the footer codec and a `Syncer`.
+  It verifies the pack first and decides every refusal of [FMT §13] before writing a byte:
+  `ErrRepairNotNeeded` for a `finalized-consistent` pack, `ErrNotRepairable` for the others, both with nothing written.
+  It then copies the validated blocks, checking each against what the verification read.
+  After any error the caller discards what was written;
+  an error of the final write or sync can leave bytes that form a finalized pack, which `Repair` still reports as a failure.
+  `RepairReport` holds the damaged pack's `VerifyReport` beside what the patch records:
+  its `pack_id`, the blocks and records copied, and the new `coverage` entries.
 - `Recover(ctx, spool, dst) (RecoverReport, error)`, deferred until a local-spool recorder is planned (G5-91):
   finalizes an unfinalized spool file as a segment of its original capture with a `stop-unclean` boundary ([STO §4]);
   `RecoverReport` holds the spool file's `VerifyReport`.
