@@ -4,7 +4,7 @@
 
 | Package  | Scope |
 |----------|-------|
-| `hsms`   | HSMS message types (control / data), encode / decode, connection-state machine, `Connection` / `Session` interfaces |
+| `hsms`   | HSMS message types (control / data), encode / decode, connection-state machine, `Connection` / `SECS2Endpoint` interfaces |
 | `hsmsss` | HSMS-SS single-session transport: active / passive, host / equipment, linktest, reconnect |
 | `secs1`  | SECS-I over TCP/IP: block transport, ENQ/EOT/ACK/NAK, T1–T4, 244-byte block split/reassembly, Master/Slave contention, S9Fx |
 | `secs2`  | SECS-II data items + shortcut constructors (`A`, `B`, `BOOLEAN`, `F4/F8`, `I1–I8`, `U1–U8`, `L`) |
@@ -15,16 +15,28 @@
 Private: `internal/framecodec` (frame-codec capability tokens), `internal/gencap` (generation-aware runtime capability shared by `hsms` and `hsmsss`), `internal/pool` (timer pool), `internal/throttle` (time-window gate), `internal/wire` (zero-copy message-body bridge).
 Do not expose in public signatures or docs.
 
-Integration: `tests/hsmsss_integration/`, `tests/secs1_integration/`, with helper binaries `tests/active_host/`, `tests/passive_host/`, `tests/passive_eqp/`, and shell harnesses (`tests/*.sh`).
+Integration: `integration/` drives the real `hsmsss` and `secs1` connections over in-memory pipes against scripted peers.
 
-Also on disk: `examples/device/` and `examples/secs1_device/` (library-usage examples); `docs/secs1/` (SECS-I design notes) and `docs/specs/` (subject directories under `450-doc-lifecycle.md`).
+Also on disk: `tracepack/` and `tools/gemgen/` (nested modules; see `500-workflow.md`);
+`docs/secs1/` (SECS-I design notes) and `docs/specs/` (subject directories under `450-doc-lifecycle.md`).
 
 ## Architecture
 
-- **Transport-agnostic sessions.** Both `hsmsss` and `secs1` satisfy `hsms.Connection` and `hsms.Session`. Keep that substitution property intact.
-- **Connection state machine.** `hsms.ConnStateMgr` drives NOT-CONNECTED → CONNECTED → NOT-SELECTED → SELECTED transitions and exposes an event notifier. Consumers subscribe; tests must subscribe, not poll. Race-sensitive.
-- **Data-message lifecycle.** `hsms.DataMessage.Free` returns pooled items and MUST be idempotent. Do not hold references past the reply.
-- **SML mode is global.** Mode setters (`sml.WithASCIIStrictMode`, `hsms.UseStreamFunctionSingleQuote`, etc.) configure the package; treat them as startup configuration, not per-message knobs.
+- **Transport-agnostic connection.**
+  `hsmsss.New` and `secs1.New` each return their package's `Connection`, which embeds `hsms.Connection`;
+  each transport plugs into the shared engine in `hsms` through its unexported `transport` interface.
+  Keep that substitution property intact.
+- **Connection state machine.**
+  The `hsms` engine drives the `hsms.ConnState` transitions and reports them through `Connection.SubscribeLifecycle` and `AddConnStateChangeHandler`.
+  Consumers subscribe; tests must subscribe, not poll.
+  Race-sensitive.
+- **Immutable messages.**
+  `hsms` messages and `secs2` items are GC-owned immutable values that goroutines share safely;
+  there is no `Free` and no message pooling (`hsms/doc.go`).
+  Zero-copy discipline lives on `internal/wire`, not on any public API.
+- **SML modes are per instance.**
+  Strictness and quoting are `sml.ParserOption` / `sml.EncoderOption` values (`WithParserStrictMode`, `WithEncoderStrictMode`, `WithASCIIQuote`, …),
+  fixed when the `Parser` or `Encoder` is built.
 
 ## Toolchain
 
@@ -38,4 +50,5 @@ Also on disk: `examples/device/` and `examples/secs1_device/` (library-usage exa
 1. Small diffs. Don't rewrite files unnecessarily.
 2. Public API stability. Breaking changes to exported symbols in public packages need clear justification.
 3. No `internal/` types in public signatures, examples, or READMEs.
-4. `hsmsss` and `secs1` must both continue to satisfy `hsms.Connection` / `hsms.Session`. Change the interface → update both transports + integration tests.
+4. `hsmsss.New` and `secs1.New` must both keep returning a `Connection` that satisfies `hsms.Connection`.
+   Change `hsms.Connection` or the transport seam → update both transports + `integration/` tests.

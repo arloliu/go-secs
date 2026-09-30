@@ -16,7 +16,8 @@ Default scope: all public packages + the state / transport machinery. Narrow wit
 - SECS-I (SEMI E4): block header + checksum, T1–T4, Master-wins contention, duplicate-block discard (§9.4.2).
 - SECS-II (SEMI E5): format codes, length-byte-count encoding, nested-list depth.
 - Implicit limits (max message size, max outstanding replies, max in-flight blocks, linktest failure threshold) enforced and documented.
-- `NewConnection` / `AddSession` / `SendDataMessage` edge cases: missing options, duplicate IDs, calls before `Open`, failed-mid-select `Open` leaves state consistent.
+- `NewConfig` / `New` / `SendDataMessage` edge cases:
+  missing or conflicting options, calls before `Open`, failed-mid-select `Open` leaves state consistent.
 
 **Fault tolerance**
 - TCP disconnect mid-message cancels outstanding replies with a typed error, not an indefinite block.
@@ -24,25 +25,25 @@ Default scope: all public packages + the state / transport machinery. Narrow wit
 - Linktest tolerates its configured transient-failure budget; on trip, transitions cleanly.
 - Active-mode exponential backoff: resets on success, bounded by a max, aborts on `Close`.
 - Slow-loris peer: per-read timeouts prevent pinned goroutines.
-- Malformed frames: oversized length rejected before allocation; truncated body wraps a decode error; invalid SECS-II headers don't leak pool references; duplicate/out-of-order SECS-I blocks discarded without breaking reassembly.
+- Malformed frames: oversized length rejected before allocation;
+  truncated body or invalid SECS-II header wraps a decode error;
+  duplicate/out-of-order SECS-I blocks discarded without breaking reassembly.
 - `fmt.Errorf("…: %w", err)` preserves chains; timeout, protocol, and I/O errors are `errors.Is/As`-distinguishable.
 
 **Resources**
-- `Connection.Close`, `Session.Close`: idempotent, leak-free.
-- `DataMessage.Free`: idempotent, safe under concurrent calls.
-- Pooled items not referenced after return.
+- `Connection.Close`: idempotent, leak-free.
 - Timers returned on all paths (success, error, cancel).
 - TCP listeners / dialers closed in correct shutdown order.
 
 **Concurrency**
-- `ConnStateMgr` mutations and notifier fan-out are race-free.
-- `Session` safe under concurrent `SendDataMessage` and handler dispatch; reply routing matches the correct system bytes.
+- State transitions and their fan-out to `SubscribeLifecycle` / state-change handlers are race-free.
+- `Connection` safe under concurrent `SendDataMessage` and handler dispatch;
+  reply routing matches the correct system bytes.
 - Handler goroutine + lifetime documented.
-- Global SML / quote config treated as startup-only.
 
 **Performance**
 - No allocations that scale with message rate on the hot path (slice appends, `fmt.Sprintf`, `time.NewTimer`).
-- Pool reuse on decode; minimal byte-slice copies on encode.
+- Minimal allocations and byte-slice copies on decode and encode.
 - SECS-I reassembly buffer bounded; pathological never-completing-E-bit streams don't exhaust memory.
 - Context cancellation terminates read / write / linktest / reconnect goroutines.
 

@@ -77,7 +77,7 @@ Verified with the comment-text normalisation check in
 ## doc-sync reflow report — hsms
 
 ### Reflowed
-- DataMessage.Free, DataMessage.Derive, NewDataMessage, Message (interface, 6 method comments), doc.go package comment — 24 symbols.
+- DataMessage.Derive, NewDataMessage, Message (interface, 6 method comments), doc.go package comment — 24 symbols.
 
 ### Already conforming
 - ControlMessage.RejectReasonCode, NewSelectReq, NewSelectRsp — 9 symbols.
@@ -86,7 +86,7 @@ Verified with the comment-text normalisation check in
 - MsgType constants L40-58: single-line comments, nothing to break.
 
 ### Missing Godoc (drift, not reflowed)
-- Session.SendDataMessageAsync — exported, no comment.
+- SECS2Endpoint.SendDataMessageAsync — exported, no comment.
 
 ### Verification
 - Wording check: OK on all 7 changed files.

@@ -54,9 +54,8 @@ A clause boundary is a semicolon, a colon, an em dash, a coordinating conjunctio
 A comma between items of a list is not one.
 
 ```go
-// Free returns the message's pooled items to the pool and is safe to call more than once;
-// callers must not retain the message, or any item obtained from it, after Free returns.
-func (m *DataMessage) Free() { }
+// An outbound frame is reported after its write returned successfully;
+// a frame whose write failed, and a frame refused before the write, are not reported.
 ```
 
 120 is a readability guide, not a gate.

@@ -10,17 +10,18 @@ Default scope: the top-level public packages listed in `100-overview.md`. Narrow
 ## Checklist
 
 **Interfaces & types**
-- Exported interfaces are small, behavior-named (`Connection`, `Session`, `HSMSMessage`, `SECS2Message`, `Item`).
+- Exported interfaces are small, behavior-named (`Connection`, `SECS2Endpoint`, `Message`, `SECS2Message`, `Item`).
 - "Accept interfaces, return structs" where applicable.
-- `hsmsss` and `secs1` are visibly substitutable behind `hsms.Connection` / `hsms.Session`.
+- `hsmsss.New` and `secs1.New` are visibly substitutable behind `hsms.Connection`.
 - No `internal/` types in exported signatures.
 
 **Methods & options**
 - Single responsibility per exported function / method.
 - Value vs. pointer receivers consistent with mutation / size.
-- Functional options (`WithActive`, `WithPassive`, `WithHostRole`, `WithEquipRole`, `WithT3Timeout`, `WithDeviceID`, `WithASCIIStrictMode`, etc.) discoverable from Godoc; groups and mutually-exclusive pairs documented.
-- Connection lifecycle explicit (`NewConnection` → `Open` → session send/handler dispatch → `Close`).
-- Item lifecycle explicit (construct → `ToBytes` / `ToSML` → `Free`).
+- Functional options (`WithActive`, `WithPassive`, `WithHostRole`, `WithEquipRole`, `WithDeviceID`, `hsms.WithT3`, `sml.WithParserStrictMode`, etc.) discoverable from Godoc;
+  groups and mutually-exclusive pairs documented.
+- Connection lifecycle explicit (`NewConfig` → `New` → `Open` → send / handler dispatch → `Close`).
+- Item construction and serialization obvious (construct → `ToBytes` / `ToSML`), and immutability stated.
 - When to use `New*Item` vs. shortcut constructors is obvious.
 
 **Errors & context**
@@ -36,8 +37,8 @@ Default scope: the top-level public packages listed in `100-overview.md`. Narrow
 - A new user can ship a round-trip S1F1 using only the docs.
 
 **Misuse & concurrency**
-- Documented consequences of misuse: `Send*` before `Open`, use after `Close`, reference held past `Free`, double-free on `DataMessage`, global-mode switch mid-flight.
-- Thread-safety guarantees stated for `Connection`, `Session`, `ConnStateMgr`, `DataMessage`.
+- Documented consequences of misuse: `Send*` before `Open`, use after `Close`.
+- Thread-safety guarantees stated for `Connection` (including its handler and lifecycle callbacks), `DataMessage`, and `secs2.Item`.
 - `Close` is idempotent and safe during in-flight traffic.
 - State transitions (NOT-CONNECTED → CONNECTED → NOT-SELECTED → SELECTED) documented with the subscribe mechanism.
 - Active-mode reconnect / backoff behavior documented (trigger, interaction with `Close`).
