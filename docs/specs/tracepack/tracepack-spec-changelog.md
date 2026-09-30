@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-09-30) — spec v2.16.
+Status: current (2026-09-30) — spec v2.17.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -756,3 +756,65 @@ Summary:
   and they stay removed when a later patch replaces the patch;
   [FMT §13] repair of a patch says so.
 - Impl plan phase 5: `ActiveView` and `Merge` follow the rule.
+
+## Changes v2.16 → v2.17: merge (owner decisions G5-108..G5-112, 2026-09-30)
+
+Source: planning the Go `ActiveView` and `Merge` (impl plan phase 5a), whose four review rounds found the merge's inputs, conflicts, lineage and output metadata underspecified;
+no proposal document.
+Format version stays 1.0, redefined in place under the extended exception of [FMT §14]:
+`classifier` and `max_frame_len` became repeatable, and `compacted_from` is absent from a pack whose lineage list is empty,
+so a reader written for v2.13 to v2.16 rejects some packs a v2.17 writer writes, while every pack those versions wrote stays valid.
+Publication evidence, checked 2026-09-30:
+the remote's only tracepack tag is `tracepack/v0.1.0` (`git ls-remote --tags origin 'tracepack/*'`);
+the Go module proxy lists only `v0.1.0` for `github.com/arloliu/go-secs/tracepack`;
+the only tracepack GitHub release is `tracepack/v0.1.0`, "writer and classifier" (2026-09-28),
+whose changelog entry records a writer and no reader, built on spec v2.10, before the v2.13 redefinition (`tracepack/CHANGELOG.md`).
+No reader of the redefined format has been published.
+
+Summary:
+- [FMT §5] `classifier` and `max_frame_len` are repeatable: a recorder or converter writes one value, a merger every distinct value of its inputs;
+  with several `max_frame_len` values the pack does not say which one a record was classified under (G5-108).
+  [FMT I-11] names the classifiers; [SEM §3] `oversized` is decided against the `max_frame_len` in force where the record was classified.
+- [FMT §5] `compacted_from` is present when a pack's lineage list is non-empty — a generation's as its merge folds it ([STO §4]), a patch's inherited from the pack it repairs ([STO §6]) — and absent otherwise, whatever `compaction_level` is (G5-111);
+  [STO §7] item 9: a converter's archive has none, and neither has a merge whose view holds only such an archive.
+- [FMT §5] the `seq_start` of an archive without records is the largest `seq_start` of the merge's inputs (G5-112).
+- [FMT §14] the in-place redefinition of format 1.0 stays open until the first published release of a reader of the redefined format,
+  and the changes of v2.17 fall inside it.
+- [FMT I-12] a merge that finds a conflict fails (G5-110); [FMT I-14] a merger reads every input block in full.
+- [STO §4] Merge: every block of every input is read in full, and an input that is not `finalized-consistent` fails the merge, which publishes nothing;
+  the input is repaired first (G5-109).
+  Each input's period and blocks lie in the scope's hour, a non-empty input's `seq_start` is its first record's seq, and its records keep its own commitments;
+  a `finalized-consistent` input that breaches these is not repaired by Repair and waits for an operator.
+  The capture-level tags are listed and equal in every input, `source_ref` as the same ordered list, duplicates included.
+- [STO §4] Merge: overlaps are clusters of chained F-2 seq ranges;
+  a one-block cluster is copied with its F-3 list, exact duplicates are dropped after they were read, and every other cluster is resolved record by record;
+  resolved records fill new blocks within the block size threshold, an oversized record alone.
+- [STO §4] Merge: a record conflict fails the merge, which publishes nothing and reports every conflict; both versions stay in the view (G5-110).
+- [STO §4] Merge: the archive's file header and pack metadata tag by tag,
+  with the period clamped to the i64 range, each `coverage` entry carried once, and the tags and unknown top-level entries that are not carried.
+- [STO §4] Deletion: the rules made precise under a complete-observation premise:
+  members ranked below G, committed or not; patches based below G, on a missing generation or on none while G exists;
+  uncommitted patches based on G kept.
+- [STO §8] vectors: defective inputs, inputs breaching their scope or metadata, a conflict of three versions, mixed classifiers, interleaved bus segments, a reordered `source_ref`,
+  a converter's archive merged twice, an incomplete set, a stale patch whose base is gone, and an archive without records;
+  the two existing conflict vectors now fail the merge.
+- Proposal P2: G5-109 settles the first two bullets of its §1; P2 stays deferred for its recovery items.
+- `tracepack-go.md` §3: `ActiveView` takes a complete observation and `PackInfo` values built only from decoded bytes;
+  `Merge` takes the `View`, requires `OnConflict`, returns `ErrMergeInput`, `ErrMergeConflict` and `ErrMergeLimit`, and states what an error leaves in `dst`.
+- Impl plan: phase 5 split into 5a (`ActiveView`, `Merge`, Writer seams; in progress), 5b (`MergeIterate`) and 5c (`FindTransaction`, `PackSource`, listing views, retention).
+
+### Merge plan review rounds 1–4 — VERDICT (round 4): ready
+
+| Finding | Resolution (v2.17) |
+|---|---|
+| P0 deduplicating `source_ref` would break annotations' `source_index` | [STO §4] `source_ref` is a capture-level tag: the same ordered list in every input, duplicates included |
+| P0 the Writer's checks miss an input's scope and its own commitments | [STO §4] per-input checks of period, block hours and own commitments; Repair leaves such a `finalized-consistent` input to an operator |
+| P0 a non-empty input's `seq_start` could disagree with its first record and pass into the archive | [STO §4] per-input check: `seq_start` equals the first record's seq |
+| P1 a converter's archive has no generation-0 ancestors for `compacted_from` | G5-111: [FMT §5], [STO §7] item 9 |
+| P1 the `seq_start` of an archive without records was undefined | G5-112: [FMT §5] |
+| P1 oversized records in record-level resolution | [STO §4] the new-block size rule; the archive's period clamped to the i64 range |
+| P1 the `ActiveView` validation boundary | [STO §4] Deletion: the precise rules under a complete-observation premise; `tracepack-go.md` §3 |
+| P1 ×2 conflict diagnostics lost on cancellation or without a callback | G5-110; `tracepack-go.md` §3: a required `OnConflict`, and `ErrMergeConflict` only once every block was compared |
+| P2 `compacted_from` order and `coverage` equality | [STO §4] a `coverage` entry carried once, compared on its nested entries; the order in the Go implementation plan |
+| P2 ×2 the format-version explanation and its publication evidence | [FMT §14] the redefinition stays open until a reader of it is published; the dated evidence in this entry |
+| P1 ×6, P2 ×1 output identities and trust in the `View`, the memory bound, `PackInfo` built from decoded bytes (×2), verbatim F-3 amplification and pending coalescing units against the output footer budget, task checkpoints | the Go implementation plan |

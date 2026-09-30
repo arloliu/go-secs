@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-09-30) — v2.16, tracepack format 1.0.
+Status: current (2026-09-30) — v2.17, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -103,7 +103,7 @@ These rules let any mainstream language implement the format from this text alon
   The record header no longer copies bytes of the payload,
   so the HSMS header fields of a record exist only in its payload (§7.2).
 - **I-11 Derived values are opinions, not facts.** `decode_status` and `trailing_bytes` are a classifier's judgement over the captured bytes.
-  The pack metadata names the classifier (`classifier` tag);
+  The pack metadata names the classifiers that computed them (`classifier` tag, one value per classifier, §5);
   a consumer MAY recompute them from the payload, except over the masked ranges of an extract, where the stored values describe the source bytes ([SEM §8]).
 - **I-12 Record identity is (`capture_id`, `seq`).** `seq` is capture-scoped:
   it is assigned in capture order, starting at 0 and increasing by one per record, across every pack of the capture,
@@ -115,7 +115,8 @@ These rules let any mainstream language implement the format from this text alon
   Identity is resolved **within the active view** ([STO §4]): records of replaced packs and lower generations are outside it,
   so a repair may re-emit a record under its original identity with new stored bits or classification.
   Within the active view, two records with the same (`capture_id`, `seq`) MUST be byte-identical (record header and payload);
-  readers and mergers keep one copy and report a `conflict` otherwise, never choosing silently.
+  readers keep one copy and report a `conflict` otherwise, never choosing silently,
+  and a merge that finds one fails ([STO §4]).
 - **I-13 Hour-aligned blocks.** All records of a block have `ts_utc_ns` in the same UTC hour;
   a writer closes the current block before appending a record from a different UTC hour.
   A block therefore belongs to exactly one hour and moves between packs without being re-encoded;
@@ -123,7 +124,7 @@ These rules let any mainstream language implement the format from this text alon
 - **I-14 Mergeable footer.** Every per-block footer entry is self-contained and position-independent,
   and every pack-level statistic is a mergeable aggregate (sum, min, max, union),
   so the footer of a merged pack is computed from its inputs' footers without decoding any block body (§10).
-  A merger still decodes the blocks it resolves or coalesces ([STO §4]).
+  A merger still reads and checks every input block in full, as verification does (§13), and re-encodes only the blocks it resolves or coalesces ([STO §4]).
 
 ## 4. File header (80 bytes, offset 0)
 
@@ -174,7 +175,7 @@ The same entry encoding is used for transport-event and annotation payloads (§8
 Rules:
 - An entry whose `length` does not match a fixed-length type, or whose `value_type` differs from the registry for a known tag, rejects the file.
 - Unknown tags are skipped using `length`; their raw value is preserved in the canonical export (§15).
-- A tag appears at most once unless the registry marks it repeatable.
+- A tag appears at most once unless the registry marks it repeatable; a repeated tag the registry does not mark repeatable rejects the file.
 - A required tag that is missing rejects the file.
 - A **retired** tag number is never reused.
   A writer never writes it, also not from the unknown entries it preserved when it read another pack;
@@ -191,14 +192,14 @@ Rules:
 | 0x0005 | `vantage` | u8 enum | always | [SEM §2] |
 | 0x0006 | `recorder` | utf8 | always | recorder or converter product, version and mode; for display and tracing, never branched on |
 | 0x0007 | `writer` | utf8 | always | tracepack writer implementation and version |
-| 0x0008 | `classifier` | utf8 | any record's `decode_status` is not `not-attempted` / `not-applicable` | implementation and version that computed derived values (I-11) |
+| 0x0008 | `classifier` | utf8, repeatable | any record's `decode_status` is not `not-attempted` / `not-applicable` | implementation and version that computed derived values (I-11); one value per classifier: a recorder or converter writes one, a merger every distinct value of its inputs ([STO §4]), a patch those of the pack it repairs ([STO §6]) |
 | 0x0009 | `time_source` | u8 enum | always | §9 |
 | 0x000A | `capture_origin_utc_ns` | i64 | `time_source = capture-clock` | wall-clock counterpart of the mono origin ([SEM §4]) |
 | 0x000B | `capture_origin_mono_ns` | i64 | `time_source = capture-clock` | mono origin ([SEM §4]) |
 | 0x000C | `source_tz` | utf8 | `time_source = source-log` | IANA time-zone name the source timestamps are parsed in |
 | 0x000D | `source_dialect` | utf8 | `capture_method = log` | log format and parser mode used ([STO §7]) |
 | 0x000E | `source_ref` | utf8, repeatable | `capture_method = log` | identity of each source file |
-| 0x000F | `max_frame_len` | u64 | any record is classified `oversized` | the configured maximum frame length ([SEM §3]) |
+| 0x000F | `max_frame_len` | u64, repeatable | any record is classified `oversized` | the configured maximum frame length ([SEM §3]); one value per configuration: a recorder or converter writes one, a merger every distinct value of its inputs ([STO §4]), a patch those of the pack it repairs ([STO §6]); with several values the pack does not say which one a record was classified under |
 | 0x0010 | `period_start` | i64 | always | start of the period this pack covers: the flush interval of a segment, the UTC hour of an archive ([STO]) |
 | 0x0011 | `period_end` | i64 | always | end of that period (exclusive) |
 | 0x0012 | `lifecycle_coverage` | u8 enum | always | §9, [SEM §5] |
@@ -209,7 +210,7 @@ Rules:
 | 0x0017 | `notes` | utf8 | optional | free text; never the sole record of data loss |
 | 0x0018 | `pack_role` | u8 enum | always | segment / archive / extract / repair (§9, [STO §2]) |
 | 0x0019 | `compaction_level` | u8 | always | 0 = written by a recorder or converter; n ≥ 1 = produced by merging packs of level < n |
-| 0x001A | `compacted_from` | uuid, repeatable | `compaction_level` ≥ 1 | cumulative: every generation-0 pack this pack's records represent ([STO §4]) |
+| 0x001A | `compacted_from` | uuid, repeatable | its lineage list is non-empty | lineage list, cumulative: for a generation, the generation-0 packs its merge folded ([STO §4] Merge); for a patch, the list of the pack it repairs ([STO §6]); absent when that list is empty, whatever `compaction_level` is (a converter's archive, [STO §7], and a merge whose view holds only such an archive); never in a segment or a patch of one |
 | 0x001B | `recorder_instance_id` | uuid | always | stable identity of the recorder or converter deployment across restarts |
 | 0x001C | `previous_capture_id` | uuid | optional | the capture this recorder deployment ran immediately before this one (I-7) |
 | 0x001D | `extract_filter` | utf8 | `pack_role = extract` | description of the filter that selected the records; an extract is never a complete period |
@@ -222,7 +223,7 @@ Rules:
 | 0x0024 | `equipment_connect_mode` | u8 enum (`socket_role`) | optional | whether the equipment side is passive or active |
 | 0x0025 | `device_id` | u64 | optional | configured SessionID / DeviceID |
 | 0x0026 | `hsms_timers` | tlv | optional | configured timers; nested tag *n* (1–8) = T*n* in milliseconds, `u64` |
-| 0x0027 | `seq_start` | u64 | always | the first record's seq, or for a pack without records the capture's next seq (for a patch without records, the damaged pack's `seq_start`, [STO §6]); lets recovery of an empty spool place its boundary ([STO §4]) |
+| 0x0027 | `seq_start` | u64 | always | the first record's seq, or for a pack without records the capture's next seq (for a patch without records, the damaged pack's `seq_start`, [STO §6]; for an archive without records, the largest `seq_start` of the merge's inputs, [STO §4]); lets recovery of an empty spool place its boundary ([STO §4]) |
 | 0x0028 | `clock_step_tolerance_ns` | u64 | `time_source = capture-clock` | wall-clock drift the writer tolerates against its durable anchor before marking a step ([SEM §4]) |
 | 0x002C | `flush_interval_ns` | u64 | a recorder with a durable spool, or a consumer of a durable bus | the recorder's durability contract interval; for a bus consumer its maximum normal segment-flush interval ([STO §4]) |
 | 0x002D | `scope_generation` | u64 | every pack except `extract` | 0 for segments and patches, ≥ 1 for generations produced by merges ([STO §2]) |
@@ -788,8 +789,8 @@ The object size is known before reading (file system stat, object listing, the c
   new F-3 / F-5 tags, a longer `f2_entry_len` (§10).
 - Major changes: changing any existing offset or type, and **new codec values** (§2), because an old reader cannot decode the content at all.
 - A new `classifier` is not a format change.
-- **One exception, made once in spec v2.13, before any production use.**
-  Format 1.0 was redefined in place, without a new format number:
+- **One exception, before any production use.**
+  In spec v2.13, format 1.0 was redefined in place, without a new format number:
   the header section became byte-columnar (§6),
   and the record header lost its copies of the HSMS message header and became 44 bytes (§7.1).
   Packs written under the earlier definition — by tracepack v0.1.0, the only writer of it — are **unsupported**.
@@ -799,7 +800,14 @@ The object size is known before reading (file system stat, object listing, the c
   but its fields from byte 36 on are misread;
   a larger old block usually fails I-2, because its seqs are gathered from mixed bytes, and is then reported `corrupt`,
   but that detection is not guaranteed.
-  No later change uses this exception.
+  The redefinition stays open until the first published release of a reader of the redefined format:
+  until then a spec version may change format 1.0 in place again,
+  and its changelog entry records the dated evidence that no such reader has been published.
+  Spec v2.17 did so: `classifier` and `max_frame_len` became repeatable,
+  and `compacted_from` became absent from a pack whose lineage list is empty (§5).
+  A reader written for spec v2.13 to v2.16 rejects a pack that uses either change (§5 rules),
+  while every pack a writer of those versions wrote is a valid pack of v2.17.
+  Once a reader of the redefined format is published, the exception is closed, and no later change uses it.
 
 ## 15. Canonical JSONL export
 

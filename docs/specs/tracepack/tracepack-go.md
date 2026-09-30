@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
 Status: current (2026-09-30)
-Implements tracepack v2.16 (format 1.0): `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Implements tracepack v2.17 (format 1.0): `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -97,13 +97,28 @@ The query service, its catalog database and the live-tail interface are designed
   and per capture the end states, barriers and epoch closures of [STO §5], including every barrier that meets the queried range whatever capture it belongs to ([SEM §7.2]);
   a listing-backed implementation takes coherent observations ([STO §5]).
 - `ActiveView(packs []PackInfo, commits CommitSet) (View, error)`: [STO §4] active view of one scope from pack metadata (staging segments included) and the scope's commit objects,
-  plus the packs that are deletable under [STO §4] Deletion.
+  plus the packs that are deletable under [STO §4] Deletion, the packs excluded for their role ([STO §2]), and the `compacted_from` the next merge writes.
+  `packs` is a complete observation of the scope: every surviving pack a reader could list, replaced patches included (a catalog snapshot or a coherent observation, [STO §5]).
+  A `PackInfo` is built only from decoded bytes:
+  `(*Reader).Info()` for a pack a `Reader` opened, or `NewPackInfo(packID, captureID, metadata)`, which decodes a pack's stored pack metadata as `UnmarshalPackMeta` does;
+  its accessors return copies.
+  Inconsistent input (a period outside one hour, mixed captures or hours, a role that disagrees with its generation, a repeated `pack_id`, two members of one set) returns the zero `View` and an error,
+  and two different complete committed sets of the highest rank return `ErrViewConflicted`.
   Whether a commit object may be deleted is decided by the service from its own record of deleted packs, never from packs missing in the input.
-- `Merge(ctx, dst io.Writer, inputs []MergeInput, opts) (MergeReport, error)`:
-  block-copy merge of one scope's active view into the allocated claim number under the publisher's epoch, with dedup and footer aggregation ([FMT §10], [STO §4]).
-  Blocks are copied verbatim; duplicates are dropped only on equal envelope and body bytes;
+- `Merge(ctx, dst io.Writer, view View, inputs []MergeInput, opts MergeOptions) (MergeReport, error)`:
+  writes the next generation of the scope of `view`, `ActiveView`'s unchanged result, from `inputs`, which are exactly `view.Packs`,
+  into the claim (`ScopeGeneration`, `PublisherEpoch`, a new `ReplacementSetID`) the caller allocated ([FMT §10], [STO §4]);
+  `view` supplies the lineage, since `compacted_from` names packs outside the inputs.
+  Every input block is read in full.
+  A block that overlaps no other block is copied verbatim with its F-3 list;
+  duplicates are dropped only on equal envelope and body bytes; every other overlap is resolved record by record;
   small blocks are coalesced by the greedy grouping of [STO §4], each new encoding validated in memory before it is written.
   The output is one archive per scope, a replacement set of one member ([STO §6]).
+  An input that is not `finalized-consistent`, breaches its scope or its own commitments, or differs from the others in a capture-level tag fails with `ErrMergeInput`, wrapped with the pack and the cause;
+  record conflicts fail with `ErrMergeConflict` once every block was compared, and each conflict is passed, as it is found, to `opts.OnConflict`, which is required;
+  exceeding `MaxOpenBlocks` or the output footer budget `MaxFooterLen` fails with `ErrMergeLimit`.
+  An error found before the archive's header leaves `dst` untouched, and after any error the caller discards `dst` and publishes nothing ([STO §5] commit protocol);
+  an error of the final write or sync can leave bytes that form a finalized pack, which `Merge` still reports as a failure.
 - `Extract(ctx, src PackSource, Query, dst io.Writer, opts ExtractOptions) (ExtractReport, error)`: writes one `extract` pack of one capture.
   With `opts.Policy` (a compiled `RedactionPolicy`: id, version, key id, item and annotation rules; compilation rejects invalid patterns and domains) and `opts.Key`,
   it plans every mask and digest first, then writes the header, the pack metadata with `redaction_policy` and the `redaction` entries, and the masked blocks ([SEM §8]);

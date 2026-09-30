@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-09-30) — phase 4 done (`Verify`, `Repair`); phase 5 next.
-Implements: tracepack v2.16 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
+Status: active (2026-09-30) — phase 4 done (`Verify`, `Repair`); phase 5a in progress (`ActiveView`, `Merge`).
+Implements: tracepack v2.17 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
 
@@ -68,7 +68,9 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 3 — Reader | done |
 | Format revision (spec v2.13) | done |
 | 4 — Verify, Repair | done |
-| 5 — Merge, MergeIterate, FindTransaction | pending |
+| 5a — ActiveView, Merge, Writer seams | in-progress |
+| 5b — MergeIterate | pending |
+| 5c — FindTransaction, PackSource, listing views, retention | pending |
 | 6 — JSONL export, conformance corpus, CLI | pending |
 | 7 — Extract and redaction | pending |
 | 8 — Producer API for a durable-bus capture | pending |
@@ -220,47 +222,74 @@ and their vectors (the durable clock-step → size roll → empty spool → cras
 
 ### Phase 5 — Merge, MergeIterate, FindTransaction
 
+Phase 5 is delivered in three steps: 5a (`ActiveView`, `Merge` and the Writer seams they need), 5b (`MergeIterate`),
+and 5c (`FindTransaction`, `PackSource`, listing views and retention).
+
+#### 5a — ActiveView, Merge, Writer seams (in progress)
+
+- Spec v2.17 first: `classifier` and `max_frame_len` become repeatable (G5-108), an API break of `PackMeta`,
+  and `compacted_from` is required only when a pack's lineage list is non-empty (G5-111).
+  A block's epoch summaries are built in time linear in its records, since the Writer, `Verify`, `Repair` and `Merge` all build them.
 - `ActiveView(packs, commits)`: the [STO §4] view of a scope from pack metadata and commit objects
   (highest-ranked complete generation by (`publisher_epoch`, `scope_generation`), unconsumed generation-0 packs, patches with a matching `patch_base` naming segments, generation members or patches)
   and the packs deletable under [STO §4]; staging segments are part of the input.
   Supersession is transitive (G5-107): every patch based on G removes the packs it names, also one that a later patch replaced,
   and Merge's `compacted_from` lists every generation-0 pack those patches name ([STO §4]).
+  The input is a complete observation of the scope ([STO §4] Deletion), and each pack's `PackInfo` is built only from decoded pack metadata.
   Whether a commit object may be deleted is the service's decision from its record of deleted packs, outside `ActiveView` ([STO §4] Deletion).
+- Writer seams: a copied block keeps its F-3 list verbatim ([FMT §10]);
+  a block is built from raw record-header rows and payloads and checked in memory before it is written;
+  the output footer is budgeted as blocks are appended.
+- `Merge` for one scope (capture, UTC hour): inputs are its active view, and `Merge` takes the `View` for the lineage;
+  output is the allocated claim number under the publisher epoch, with cumulative `compacted_from` and union `coverage`;
+  every input read in full and refused unless it is `finalized-consistent`, inside its scope and within its own commitments, with capture-level tags equal to the others' (G5-109, [STO §4]);
+  plan from input footers: clusters of overlapping F-2 seq ranges, in ascending first seq;
+  copy a single-block cluster verbatim with its F-3 list;
+  drop an overlapping block only when envelope and body bytes are byte-for-byte equal (`body_crc` is only a candidate filter);
+  decode-and-resolve every other overlap, starting a new output block when `record_header_len` changes or the block size threshold is reached;
+  a record conflict fails the merge, and every conflict is reported (G5-110);
+  inputs include the whole active archive set;
+  coalescing of small blocks by the greedy grouping of [STO §4] (an option; the rule is a SHOULD); every new encoding validated in memory before it is written ([STO §4]);
+  F-5 by the aggregation rule ([FMT §10]); lineage tags (`compaction_level`, `compacted_from`, `supersedes`, inherited `coverage`),
+  every distinct `classifier` and `max_frame_len` of the inputs (G5-108), and `seq_start` of an archive without records (G5-112);
+  one archive per scope, a replacement set of one member ([STO §6]);
+  only packs whose role takes part in the tiers ([STO §2]) are inputs;
+  commit-object handling in `ActiveView` ([STO §3], [STO §5]).
+
+Tests: merge of generated segments equals a directly written archive record-for-record;
+generations A → B → C with B deleted before A (packs in either order, each commit object after its packs), then view rebuild,
+and the fallback to G−1 when G's commit object is removed first; repair → late merge; coverage-only repair;
+merged F-5 equals brute-force recomputation; overlapping and duplicated inputs; conflict detection;
+the merge-framing, coalescing, failed-encoding and role vectors of [STO §8],
+and its merge-input, conflict, lineage and deletion vectors of v2.17.
+
+Done when: output records equal the de-duplicated union of the inputs;
+with coalescing disabled, no block of the non-overlap path is re-encoded (asserted by an encode counter);
+with it enabled, only groups of more than one block are;
+output passes `Verify`;
+a defective input and a record conflict each fail the merge with nothing a caller could publish.
+
+#### 5b — MergeIterate (pending)
+
+- `MergeIterate`: capture order (streaming) and time order (watermark over F-2 `ts_min`, bounded memory with a caller limit) with dedup (`tracepack-go.md` §3).
+
+Tests: time-order iteration with backward timestamps within and across blocks and packs.
+
+#### 5c — FindTransaction, PackSource, listing views, retention (pending)
+
 - Listing-backed `PackSource` for scopes the catalog does not index: a coherent observation ([STO §5]) —
   the commit listing repeated until two complete listings agree, then the `archive/` and `staging/` listings, then a [FMT §13] bootstrap of each listed pack —
   feeding `ActiveView`; results touching such scopes are `Incomplete` with `Reason: Cold`.
 - Retention boundary, supplied by the caller: checked before each listing and before emitting each block's records;
   an hour that becomes removed ends with the removed outcome in `Result.Removed` ([STO §5] Retention).
-- `Merge` for one scope (capture, UTC hour): inputs are its active view; output is the allocated claim number under the publisher epoch, with cumulative `compacted_from` and union `coverage`;
-  plan from input footers only; copy blocks of the hour in `first_seq` order by range reads;
-  copy non-overlapping blocks verbatim; drop an overlapping block only when envelope and body bytes are byte-for-byte equal (`body_crc` is only a candidate filter);
-  decode-and-resolve every other overlap, starting a new output block when `record_header_len` changes; report `conflict` for same seq with different bytes;
-  inputs include the whole active archive set;
-  coalescing of small blocks by the greedy grouping of [STO §4] (an option; the rule is a SHOULD); every new encoding validated in memory before it is written ([STO §4]);
-  F-5 by the aggregation rule ([FMT §10]); lineage tags (`compaction_level`, `compacted_from`, `supersedes`, inherited `coverage`);
-  one archive per scope, a replacement set of one member ([STO §6]);
-  only packs whose role takes part in the tiers ([STO §2]) are inputs;
-  commit-object handling in `ActiveView` ([STO §3], [STO §5]).
-- `MergeIterate`: capture order (streaming) and time order (watermark over F-2 `ts_min`, bounded memory with a caller limit) with dedup (`tracepack-go.md` §3).
 - `FindTransaction` over a `PackSource` interface (catalog abstraction; an in-memory implementation for tests), [SEM §7.2] results,
   honouring completeness barriers (`stop-unclean`, [STO §5]) and returning `Incomplete` with `Reason: Cold` when the eligibility window touches a scope that is not indexed.
 
-Tests: merge of generated segments equals a directly written archive record-for-record;
-generations A → B → C with B deleted before A (packs in either order, each commit object after its packs), then view rebuild,
-and the fallback to G−1 when G's commit object is removed first; repair → late merge; coverage-only repair;
-time-order iteration with backward timestamps within and across blocks and packs;
-transaction eligibility with a reused key; a primary without System Bytes and a window holding a reply-direction record without them ([SEM §7.2]);
-merged F-5 equals brute-force recomputation; overlapping and duplicated inputs; conflict detection;
+Tests: transaction eligibility with a reused key; a primary without System Bytes and a window holding a reply-direction record without them ([SEM §7.2]);
 a transaction split across packs; `incomplete` when seq coverage has a gap, and with reason `cold` when a scope is not indexed;
 the coherent-observation, listing-view, window-boundary and removed-outcome vectors of [STO §8];
 through an in-memory `PackSource`, the barrier and closure effects of the [STO §8] end-evidence service vectors
-(registration, rejection, eviction and rebuild themselves are service work, §1);
-the merge-framing, coalescing, failed-encoding and role vectors of [STO §8].
-
-Done when: output records equal the de-duplicated union of the inputs;
-with coalescing disabled, no block of the non-overlap path is re-encoded (asserted by an encode counter);
-with it enabled, only groups of more than one block are;
-output passes `Verify`.
+(registration, rejection, eviction and rebuild themselves are service work, §1).
 
 ### Phase 6 — JSONL export, conformance corpus, CLI
 
