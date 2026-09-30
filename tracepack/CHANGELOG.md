@@ -68,7 +68,7 @@ and adds the reader and verification (spec v2.14).
   Each `Item` carries the record as stored, with its payload when `Query.Payloads` is set,
   the record header's extension area that a newer minor version appends, and its block.
   A `Reader` is safe for concurrent `Iterate` calls.
-- `Verify` reads every block of a pack in full and returns a `Report` with its `Outcome`:
+- `Verify` reads every block of a pack in full and returns a `VerifyReport` with its `Outcome`:
   the first that applies of corrupt-middle, unfinalized, finalized-truncated, finalized-inconsistent and finalized-consistent.
   A valid footer locates the blocks, passing a block whose envelope fails; without one, the forward walk does.
   The report lists failed blocks and the walk's stop with their offsets, the end of the validated prefix,

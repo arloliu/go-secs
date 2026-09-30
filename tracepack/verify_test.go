@@ -12,14 +12,14 @@ import (
 )
 
 // verifyBytes runs Verify over file.
-func verifyBytes(t testing.TB, file []byte, opts VerifyOptions) (Report, error) {
+func verifyBytes(t testing.TB, file []byte, opts VerifyOptions) (VerifyReport, error) {
 	t.Helper()
 
 	return Verify(t.Context(), bytes.NewReader(file), int64(len(file)), opts)
 }
 
 // mustVerify runs Verify over file and fails the test on an error.
-func mustVerify(t testing.TB, file []byte) Report {
+func mustVerify(t testing.TB, file []byte) VerifyReport {
 	t.Helper()
 
 	rep, err := verifyBytes(t, file, VerifyOptions{})
@@ -318,7 +318,7 @@ func resummarized(t testing.TB, file []byte, blocks []blockSummary, i int, edit 
 }
 
 // requireInconsistent requires that rep reports a finalized pack whose footer disagrees with block i, and nothing else.
-func requireInconsistent(t *testing.T, rep Report, i int, msg string) {
+func requireInconsistent(t *testing.T, rep VerifyReport, i int, msg string) {
 	t.Helper()
 
 	assert.Equal(t, OutcomeFinalizedInconsistent, rep.Outcome)

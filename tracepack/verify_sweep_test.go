@@ -25,9 +25,9 @@ func (s *verifySweep) failf(t *testing.T, format string, args ...any) {
 	}
 }
 
-// verify runs Verify over data and returns its Report, or ok false when it failed.
+// verify runs Verify over data and returns its VerifyReport, or ok false when it failed.
 // It must fail exactly when wantErr is set.
-func (s *verifySweep) verify(t *testing.T, data []byte, what string, wantErr bool) (Report, bool) {
+func (s *verifySweep) verify(t *testing.T, data []byte, what string, wantErr bool) (VerifyReport, bool) {
 	t.Helper()
 
 	rep, err := Verify(t.Context(), bytes.NewReader(data), int64(len(data)), VerifyOptions{Reader: s.b.opts})
@@ -46,7 +46,7 @@ func (s *verifySweep) verify(t *testing.T, data []byte, what string, wantErr boo
 // and requires each to read and each of its records to equal the stored record of its seq, extension bytes and payload included,
 // so a report that validates a block holding anything else, or counts records it does not hold, fails the sweep.
 // It also requires rep's block, validated-block and record counts to agree with what it read.
-func (s *verifySweep) checkValidated(t *testing.T, data []byte, what string, rep *Report) {
+func (s *verifySweep) checkValidated(t *testing.T, data []byte, what string, rep *VerifyReport) {
 	t.Helper()
 
 	r, err := Open(t.Context(), bytes.NewReader(data), int64(len(data)), s.b.opts)
@@ -208,7 +208,7 @@ func TestVerifyTruncationSweep(t *testing.T) {
 	}
 }
 
-// reportEvidence is what a Report's lists say about its located blocks.
+// reportEvidence is what a VerifyReport's lists say about its located blocks.
 type reportEvidence struct {
 	// failed holds the blocks the report lists as failed.
 	failed map[int]bool
@@ -219,7 +219,7 @@ type reportEvidence struct {
 }
 
 // checkReportLists requires the lists of rep to agree with its counts and with each other, and returns their evidence.
-func checkReportLists(t *testing.T, rep *Report, size int) reportEvidence {
+func checkReportLists(t *testing.T, rep *VerifyReport, size int) reportEvidence {
 	t.Helper()
 
 	ev := reportEvidence{failed: make(map[int]bool)}
@@ -265,7 +265,7 @@ func checkReportLists(t *testing.T, rep *Report, size int) reportEvidence {
 
 // checkReportOutcome requires the outcome of rep to follow from its evidence ev (the tracepack format specification §13),
 // and a pack of data reported finalized-consistent to read complete but for its coverage entries.
-func checkReportOutcome(t *testing.T, rep *Report, ev reportEvidence, data []byte, opts ReaderOptions) {
+func checkReportOutcome(t *testing.T, rep *VerifyReport, ev reportEvidence, data []byte, opts ReaderOptions) {
 	t.Helper()
 
 	switch rep.Outcome {
