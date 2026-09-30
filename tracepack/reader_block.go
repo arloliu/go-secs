@@ -343,6 +343,29 @@ func (d *decodedBlock) payload(i int) []byte {
 	return d.body[d.offs[i]:d.offs[i+1]:d.offs[i+1]]
 }
 
+// summaryOf returns the summary the Writer builds for the records of d (the tracepack format specification §10),
+// with record_header_len, uncompressed_len and body_crc taken from its envelope;
+// the file offset and the on-disk length are left to the caller.
+// The summary shares no memory with d.
+func summaryOf(d *decodedBlock) blockSummary {
+	var s blockSummary
+	for j := range d.count() {
+		h := d.header(j)
+		var ev *TransportEvent
+		if Kind(h.Kind) == KindTransportEvent {
+			// A payload that does not decode contributes nothing, as in the Writer's summary.
+			ev, _ = UnmarshalTransportEvent(d.payload(j))
+		}
+		s.addRecord(&h, ev)
+	}
+
+	s.recordHeaderLen = d.env.RecordHeaderLen
+	s.uncompressedLen = d.env.UncompressedLen
+	s.bodyCRC = d.env.BodyCRC
+
+	return s
+}
+
 // add folds the header h of record i of a block into s.
 func (s *recordSpan) add(i int, h *format.RecordHeader) {
 	if i == 0 {

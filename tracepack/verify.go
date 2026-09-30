@@ -322,16 +322,7 @@ func (r *Reader) walkTotalsErr() error {
 // epoch entries equal as a set keyed by epoch, and boundary entries equal as a multiset.
 // The F-2 fields are compared by the block read itself.
 func checkSummary(stated *blockSummary, d *decodedBlock) error {
-	var got blockSummary
-	for j := range d.count() {
-		h := d.header(j)
-		var ev *TransportEvent
-		if Kind(h.Kind) == KindTransportEvent {
-			// A payload that does not decode contributes nothing, as in the Writer's summary.
-			ev, _ = UnmarshalTransportEvent(d.payload(j))
-		}
-		got.addRecord(&h, ev)
-	}
+	got := summaryOf(d)
 
 	counts := [...]struct {
 		name      string
