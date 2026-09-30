@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"slices"
+
+	"github.com/arloliu/go-secs/tracepack/internal/format"
 )
 
 // Outcome is the verification outcome of a pack (the tracepack format specification §13).
@@ -202,18 +204,62 @@ func Verify(ctx context.Context, ra io.ReaderAt, size int64, opts VerifyOptions)
 		return VerifyReport{}, err
 	}
 
-	return r.verify(ctx)
+	a, err := r.analyze(ctx, false)
+	if err != nil {
+		return VerifyReport{}, err
+	}
+
+	return a.report, nil
 }
 
-// verify reads every located block of r in full and builds the VerifyReport of Verify.
-func (r *Reader) verify(ctx context.Context) (VerifyReport, error) {
-	if r.finalized && errors.Is(r.footerErr, ErrReadLimit) {
-		return VerifyReport{}, fmt.Errorf("tracepack: verify: %w", r.footerErr)
+// analysis is a verification of a pack, with what a repair needs of every located block when it is kept.
+type analysis struct {
+	report VerifyReport
+	// blocks holds, when kept, one entry per located block, in file order.
+	blocks []blockAnalysis
+}
+
+// blockAnalysis is what the verification of one located block tells a repair.
+type blockAnalysis struct {
+	// failed reports a failed block; the other fields describe a validated block only.
+	failed bool
+	// firstSeq, lastSeq, tsMin and tsMax are the bounds of the block's own records, never its F-2 entry's.
+	firstSeq uint64
+	lastSeq  uint64
+	tsMin    int64
+	tsMax    int64
+	// envelopeCRC fingerprints the block as read: its envelope CRC, which covers its body CRC.
+	envelopeCRC uint32
+	// classified, oversized and redacted report a record of the block whose decode_status is neither not-attempted nor not-applicable,
+	// one whose decode_status is oversized, and one carrying quality.redacted.
+	classified bool
+	oversized  bool
+	redacted   bool
+}
+
+// blockAnalysisOf returns the analysis of a validated block whose envelope is env and whose records give s.
+func blockAnalysisOf(env *format.BlockEnvelope, s *blockSummary) blockAnalysis {
+	return blockAnalysis{
+		firstSeq: s.firstSeq, lastSeq: s.lastSeq, tsMin: s.tsMin, tsMax: s.tsMax,
+		envelopeCRC: env.EnvelopeCRC,
+		classified:  s.anyClassified(),
+		oversized:   int(DecodeStatusOversized) < len(s.decodeStatusCounts) && s.decodeStatusCounts[DecodeStatusOversized] > 0,
+		redacted:    s.qualityUnion.Has(QualityRedacted),
 	}
-	if r.walkStop != nil && r.walkStop.Reason == ReasonLimit {
-		return VerifyReport{}, fmt.Errorf("tracepack: verify: %w", r.walkStop.Err)
+}
+
+// analyze reads every located block of r in full and builds the VerifyReport of Verify;
+// with keep, it also keeps the analysis of every located block.
+// A resource limit is an error before any block is counted as failed, so a budget never reads as lost records.
+func (r *Reader) analyze(ctx context.Context, keep bool) (*analysis, error) {
+	if err := r.bootstrapLimitErr(); err != nil {
+		return nil, err
 	}
 
+	a := &analysis{}
+	if keep {
+		a.blocks = make([]blockAnalysis, 0, len(r.blocks))
+	}
 	rep := VerifyReport{Finalized: r.finalized, FooterErr: r.footerErr, Blocks: len(r.blocks), PrefixEnd: r.blocksStart()}
 	failed := make([]bool, len(r.blocks))
 	inPrefix := true
@@ -226,31 +272,38 @@ func (r *Reader) verify(ctx context.Context) (VerifyReport, error) {
 	var buf blockBuf
 	for i := range r.blocks {
 		if err := ctx.Err(); err != nil {
-			return VerifyReport{}, fmt.Errorf("tracepack: verify: %w", err)
+			return nil, fmt.Errorf("tracepack: verify: %w", err)
 		}
 
 		info := &r.blocks[i]
 		d, def, err := r.readBlock(i, &buf)
 		if err != nil {
-			return VerifyReport{}, err
+			return nil, err
 		}
 		if def != nil && def.Reason == ReasonLimit {
-			return VerifyReport{}, fmt.Errorf("tracepack: verify: %w", def.Err)
+			return nil, fmt.Errorf("tracepack: verify: %w", def.Err)
 		}
 		if d == nil {
 			failed[i] = true
 			inPrefix = false
 			rep.Failed = append(rep.Failed, *def)
 			rep.Lost = r.appendLost(rep.Lost, i)
+			if keep {
+				a.blocks = append(a.blocks, blockAnalysis{failed: true})
+			}
 
 			continue
 		}
 		if def != nil {
 			rep.Disagreements = append(rep.Disagreements, *def)
 		}
-		if r.footer != nil {
-			if err := checkSummary(&r.footer.blocks[i], d); err != nil {
-				rep.Disagreements = append(rep.Disagreements, *blockDefect(i, info, ReasonIndexMismatch, err))
+		if r.footer != nil || keep {
+			ba, disagreement := r.summarize(i, d)
+			if disagreement != nil {
+				rep.Disagreements = append(rep.Disagreements, *disagreement)
+			}
+			if keep {
+				a.blocks = append(a.blocks, ba)
 			}
 		}
 
@@ -273,8 +326,35 @@ func (r *Reader) verify(ctx context.Context) (VerifyReport, error) {
 
 	inconsistent := r.footerErr != nil || len(rep.Disagreements) > 0
 	rep.Outcome = classifyOutcome(r.finalized, failed, r.walkStop != nil, inconsistent)
+	a.report = rep
 
-	return rep, nil
+	return a, nil
+}
+
+// bootstrapLimitErr returns the resource limit the bootstrap reached, as an error:
+// the footer of a finalized pack over MaxFooterLen, or a forward walk that reached MaxWalkedBlocks.
+func (r *Reader) bootstrapLimitErr() error {
+	if r.finalized && errors.Is(r.footerErr, ErrReadLimit) {
+		return fmt.Errorf("tracepack: verify: %w", r.footerErr)
+	}
+	if r.walkStop != nil && r.walkStop.Reason == ReasonLimit {
+		return fmt.Errorf("tracepack: verify: %w", r.walkStop.Err)
+	}
+
+	return nil
+}
+
+// summarize builds the summary the records of validated block i, read as d, give,
+// and returns the block's analysis and, when the footer is valid and its F-3 summary disagrees, a ReasonIndexMismatch defect.
+func (r *Reader) summarize(i int, d *decodedBlock) (blockAnalysis, *Defect) {
+	got := summaryOf(d)
+	if r.footer != nil {
+		if err := checkSummary(&r.footer.blocks[i], &got); err != nil {
+			return blockAnalysisOf(&d.env, &got), blockDefect(i, &r.blocks[i], ReasonIndexMismatch, err)
+		}
+	}
+
+	return blockAnalysisOf(&d.env, &got), nil
 }
 
 // appendLost appends to dst, when the footer is valid, one coverage entry per seq range of failed block i:
@@ -316,14 +396,12 @@ func (r *Reader) walkTotalsErr() error {
 	return nil
 }
 
-// checkSummary compares stated, the F-3 summary of an indexed block, with the summary its records d give,
+// checkSummary compares stated, the F-3 summary of an indexed block, with got, the summary its records give (summaryOf),
 // built as the Writer builds it (the tracepack format specification §10):
 // count arrays equal once trailing zeros are dropped, quality_union and seq ranges exactly equal,
 // epoch entries equal as a set keyed by epoch, and boundary entries equal as a multiset.
 // The F-2 fields are compared by the block read itself.
-func checkSummary(stated *blockSummary, d *decodedBlock) error {
-	got := summaryOf(d)
-
+func checkSummary(stated, got *blockSummary) error {
 	counts := [...]struct {
 		name      string
 		got, want []uint32
