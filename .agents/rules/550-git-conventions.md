@@ -38,10 +38,11 @@ Do NOT reference:
 
 Bad: `fix(hsms): close W15+W16 per PR-2 spec`.
 
-Good: `fix(hsms): serialize ConnStateMgr transitions with stale gate`.
+Good: `fix(hsms): bind an unnamed disconnect to the generation it reported on`.
 
-Citing a discoverable spec FILE PATH is fine (e.g. `See docs/plans/.../02-spec.md`) —
-the path is discoverable; the section IDs inside it are not.
+Citing a living document's FILE PATH is fine (e.g. `See docs/specs/tracepack/tracepack-format.md`) —
+the path stays discoverable; the section IDs inside it are not.
+Finite documents (`docs/plans/`, proposals) are deleted when they close, so cite them only as `450-doc-lifecycle.md` directs.
 
 ### Attribution
 Never add `Co-Authored-By` or any other attribution trailers.

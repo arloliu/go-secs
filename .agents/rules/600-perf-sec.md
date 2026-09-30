@@ -12,13 +12,15 @@ In those paths:
 
 - Pre-allocate slices (`make([]T, 0, cap)`) and maps (`make(map[K]V, size)`). The `prealloc` linter flags growable slices.
 - Avoid `append` in tight per-message loops when the size is predictable.
-- Reuse the existing item / message pools. Do not allocate timers per message; use `internal/pool.TimerPool` for T1–T4, T3 replies, and linktest.
+- Do not allocate timers per message;
+  take them from `internal/pool` (`GetTimer` / `PutTimer`), as the `hsms` send path and the `hsmsss` procedures do.
 - Pass small headers by value; avoid deep-copying `DataMessage`.
-- Don't add indirection on top of `secs2.Item` / `hsms.HSMSMessage` dispatch.
+- Don't add indirection on top of `secs2.Item` / `hsms.Message` dispatch.
 - `sync/atomic` for flags / counters, `sync.Mutex` for complex state, `puzpuzpuz/xsync/v3` for concurrent maps with heavy read/write mix.
 - No unbounded goroutines — all loops are scoped to the connection context.
 
-Benchmarks live in `*_bench_test.go`. Stress / soak via `make stress-test` and `tests/bench_timer_pool_test.sh`.
+Benchmarks live in `*_bench_test.go`.
+Stress / soak via `make stress-test`.
 
 ## Security
 
@@ -31,5 +33,5 @@ go-secs decodes bytes from untrusted TCP peers. Treat input as adversarial.
 - Every blocking network read respects a configured timeout (T1–T8 as applicable) and the connection context.
 - Return wrapped errors on malformed input. Do not panic.
 - Don't log message bodies above DEBUG — SECS-II payloads can be sensitive.
-- Extend `hsms/fuzz_test.go` / `hsmsss/fuzz_*_test.go` when adding a decoder entry point.
+- Extend the package's `fuzz_test.go` (e.g. `hsms/fuzz_test.go`, `hsmsss/fuzz_test.go`) when adding a decoder entry point.
 - `gosec` is enabled; suppress only with a specific `//nolint:gosec // reason`.

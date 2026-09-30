@@ -4,9 +4,14 @@
 
 1. `make lint` — fix all issues.
 2. `make test` — must pass with race detector.
-3. Touched connection state, timers, or block transport? Run `make stress-quick` (or `make stress-test` for a broader sweep).
-4. Touched a decoder or parser? Run `make fuzz-test` (extend with `FUZZ_TIME=5m` if warranted).
-5. Changed exported API or documented behavior? Update `README.md` / `sml/README.md` / `doc.go`.
+3. Touched `tracepack/` or `tools/gemgen/`?
+   Steps 1–2 never reach them; run that module's lint and test targets below (`make ci` runs every gate).
+4. Touched connection state, timers, or block transport?
+   Run `make stress-quick` (or `make stress-test` for a broader sweep).
+5. Touched a decoder or parser?
+   Run `make fuzz-test` (extend with `FUZZ_TIME=5m` if warranted).
+6. Changed exported API or documented behavior?
+   Update `README.md` / `sml/README.md` / `doc.go`.
 
 ## Commits
 
@@ -15,9 +20,9 @@ See `550-git-conventions.md` for branch, commit-message, and pull-request conven
 ## Review checklist
 
 - [ ] Correctness
-- [ ] `hsms.ConnStateMgr` transitions remain race-free
-- [ ] `DataMessage.Free` idempotency preserved
-- [ ] `hsmsss` and `secs1` still satisfy `hsms.Connection` / `hsms.Session`
+- [ ] `hsms.ConnState` transitions and their lifecycle reporting remain race-free
+- [ ] `hsms` messages and `secs2` items stay immutable once built
+- [ ] `hsmsss.New` and `secs1.New` still return a `Connection` that satisfies `hsms.Connection`
 - [ ] No `internal/` types in public signatures or docs
 - [ ] No unnecessary allocs on encode / decode / per-message paths
 - [ ] Fuzz targets extended for new decoder entry points

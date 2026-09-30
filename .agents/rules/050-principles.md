@@ -25,4 +25,5 @@ Write new prose by meaning, one sentence per line, and leave the old wrapping al
 A test must capture why a behavior matters, not just that it currently happens. A test that cannot fail when the business logic changes is worthless. (Mechanics and async rules live in `300-testing.md`.)
 
 ## Define Verifiable Success Criteria, Then Fail Loud
-Transform vague tasks ("fix the bug") into concrete checks ("write a test that reproduces it, then make it pass"). For multi-step work, state a brief plan with verification steps and checkpoint after each significant step: what changed, what is verified, what remains. Never claim "done" or "tests pass" if anything was skipped — default to surfacing uncertainty, not hiding it.
+Transform vague tasks ("fix the bug") into concrete checks ("write a test that reproduces it, then make it pass").
+Never claim "done" or "tests pass" if anything was skipped — default to surfacing uncertainty, not hiding it.
