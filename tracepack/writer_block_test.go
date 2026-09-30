@@ -54,7 +54,7 @@ func copyBlocks(t testing.TB, opts WriterOptions, blocks []sourceBlock) []byte {
 	t.Helper()
 
 	var out bytes.Buffer
-	w, err := startWriter(&out, opts, true)
+	w, err := startWriter(&out, opts)
 	require.NoError(t, err)
 	for i := range blocks {
 		require.NoError(t, w.appendBlock(blocks[i].raw, &blocks[i].sum), "block %d", i)
@@ -171,7 +171,7 @@ func TestAppendBlockOwnsItsSummary(t *testing.T) {
 	r, blocks := readSourceBlocks(t, src)
 
 	var out bytes.Buffer
-	w, err := startWriter(&out, copyOptions(r, blocks, CodecZstd), true)
+	w, err := startWriter(&out, copyOptions(r, blocks, CodecZstd))
 	require.NoError(t, err)
 	for i := range blocks {
 		s := blocks[i].sum.clone()
@@ -331,7 +331,7 @@ func TestAppendBlockRejections(t *testing.T) {
 			if tt.opts != nil {
 				tt.opts(&opts)
 			}
-			w, err := startWriter(io.Discard, opts, true)
+			w, err := startWriter(io.Discard, opts)
 			require.NoError(t, err)
 
 			err = tt.run(w)
@@ -350,7 +350,7 @@ func TestAppendBlockAfterClose(t *testing.T) {
 	t.Parallel()
 
 	r, blocks := readSourceBlocks(t, richFooterPack(t, CodecZstd).file)
-	w, err := startWriter(io.Discard, copyOptions(r, blocks, CodecZstd), true)
+	w, err := startWriter(io.Discard, copyOptions(r, blocks, CodecZstd))
 	require.NoError(t, err)
 	_, err = w.Close()
 	require.NoError(t, err)
@@ -368,7 +368,7 @@ func TestAppendBlockOutputFailures(t *testing.T) {
 		t.Parallel()
 
 		fw := &failAfterWriter{limit: head + 10}
-		w, err := startWriter(fw, copyOptions(r, blocks, CodecZstd), true)
+		w, err := startWriter(fw, copyOptions(r, blocks, CodecZstd))
 		require.NoError(t, err)
 		require.ErrorIs(t, w.appendBlock(blocks[0].raw, &blocks[0].sum), errTestWrite)
 		require.ErrorIs(t, w.appendBlock(blocks[1].raw, &blocks[1].sum), ErrWriterFailed)
@@ -379,7 +379,7 @@ func TestAppendBlockOutputFailures(t *testing.T) {
 
 		opts := copyOptions(r, blocks, CodecZstd)
 		opts.Sync = &syncFailer{ok: 1}
-		w, err := startWriter(io.Discard, opts, true)
+		w, err := startWriter(io.Discard, opts)
 		require.NoError(t, err)
 		require.NoError(t, w.appendBlock(blocks[0].raw, &blocks[0].sum))
 		require.ErrorIs(t, w.appendBlock(blocks[1].raw, &blocks[1].sum), errTestSync)
@@ -402,7 +402,7 @@ func TestWriterFinalFailureMayLeaveAFinalizedPack(t *testing.T) {
 		var out bytes.Buffer
 		opts := copyOptions(r, blocks, CodecZstd)
 		opts.Sync = &syncFailer{ok: len(blocks)}
-		w, err := startWriter(&out, opts, true)
+		w, err := startWriter(&out, opts)
 		require.NoError(t, err)
 		for i := range blocks {
 			require.NoError(t, w.appendBlock(blocks[i].raw, &blocks[i].sum))
@@ -417,7 +417,7 @@ func TestWriterFinalFailureMayLeaveAFinalizedPack(t *testing.T) {
 		t.Parallel()
 
 		fw := &failAfterWriter{limit: int(r.Header().Trailer.FooterOffset), takeAll: true}
-		w, err := startWriter(fw, copyOptions(r, blocks, CodecZstd), true)
+		w, err := startWriter(fw, copyOptions(r, blocks, CodecZstd))
 		require.NoError(t, err)
 		for i := range blocks {
 			require.NoError(t, w.appendBlock(blocks[i].raw, &blocks[i].sum))
@@ -435,7 +435,7 @@ func TestWriterRejectsAnOversizedBlockSummary(t *testing.T) {
 	r, blocks := readSourceBlocks(t, src)
 
 	var out bytes.Buffer
-	w, err := startWriter(&out, copyOptions(r, blocks, CodecZstd), true)
+	w, err := startWriter(&out, copyOptions(r, blocks, CodecZstd))
 	require.NoError(t, err)
 	for i := range blocks {
 		require.NoError(t, w.appendBlock(blocks[i].raw, &blocks[i].sum))
@@ -474,7 +474,7 @@ func TestNewWriterKeepsANilCaptureID(t *testing.T) {
 	}
 
 	var kept bytes.Buffer
-	w, err := startWriter(&kept, WriterOptions{Meta: meta}, true)
+	w, err := startWriter(&kept, WriterOptions{Meta: meta})
 	require.NoError(t, err)
 	assert.True(t, w.CaptureID().IsZero())
 	hdr, err := format.UnmarshalFileHeader(kept.Bytes())

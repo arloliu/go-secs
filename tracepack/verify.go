@@ -239,13 +239,13 @@ type blockAnalysis struct {
 
 // blockAnalysisOf returns the analysis of a validated block whose envelope is env and whose records give s.
 func blockAnalysisOf(env *format.BlockEnvelope, s *blockSummary) blockAnalysis {
-	return blockAnalysis{
+	b := blockAnalysis{
 		firstSeq: s.firstSeq, lastSeq: s.lastSeq, tsMin: s.tsMin, tsMax: s.tsMax,
 		envelopeCRC: env.EnvelopeCRC,
-		classified:  s.anyClassified(),
-		oversized:   int(DecodeStatusOversized) < len(s.decodeStatusCounts) && s.decodeStatusCounts[DecodeStatusOversized] > 0,
-		redacted:    s.qualityUnion.Has(QualityRedacted),
 	}
+	b.classified, b.oversized, b.redacted = s.commitmentFacts()
+
+	return b
 }
 
 // analyze reads every located block of r in full and builds the VerifyReport of Verify;

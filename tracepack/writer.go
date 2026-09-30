@@ -186,13 +186,17 @@ type Writer struct {
 //     or the error of writing the header,
 //     which is io.ErrShortWrite when w takes fewer bytes than it was given without reporting an error.
 func NewWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
-	return startWriter(w, opts, false)
+	var err error
+	if opts.CaptureID, err = idOrNew(opts.CaptureID); err != nil {
+		return nil, err
+	}
+
+	return startWriter(w, opts)
 }
 
-// startWriter does the work of NewWriter.
-// With keepCaptureID it writes opts.CaptureID as given, the nil UUID included,
+// startWriter does the work of NewWriter, but writes opts.CaptureID as given, the nil UUID included,
 // so a pack written from another pack keeps that pack's capture exactly.
-func startWriter(w io.Writer, opts WriterOptions, keepCaptureID bool) (*Writer, error) {
+func startWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 	if err := checkOptions(&opts); err != nil {
 		return nil, err
 	}
@@ -205,11 +209,6 @@ func startWriter(w io.Writer, opts WriterOptions, keepCaptureID bool) (*Writer, 
 	var err error
 	if opts.PackID, err = idOrNew(opts.PackID); err != nil {
 		return nil, err
-	}
-	if !keepCaptureID {
-		if opts.CaptureID, err = idOrNew(opts.CaptureID); err != nil {
-			return nil, err
-		}
 	}
 
 	head, err := encodeHead(&meta, &opts)
@@ -629,16 +628,26 @@ func (w *Writer) seqFor(r *Record) (uint64, error) {
 		seq = r.Seq
 	}
 
-	switch {
-	case seq > format.MaxU64:
-		return 0, fmt.Errorf("tracepack: seq %d above %d: %w", seq, format.MaxU64, ErrSeqOrder)
-	case len(w.blocks) == 0 && w.block.empty() && seq != w.seqStart:
-		return 0, fmt.Errorf("tracepack: first seq %d, seq_start is %d: %w", seq, w.seqStart, ErrSeqOrder)
-	case seq < w.nextSeq:
-		return 0, fmt.Errorf("tracepack: seq %d after seq %d: %w", seq, w.nextSeq-1, ErrSeqOrder)
+	if err := w.checkSeq(seq); err != nil {
+		return 0, err
 	}
 
 	return seq, nil
+}
+
+// checkSeq checks seq, the seq of the next record written, against I-12:
+// the pack's first seq is seq_start, every seq is above the last seq written, and none is above 2^63-1.
+func (w *Writer) checkSeq(seq uint64) error {
+	switch {
+	case seq > format.MaxU64:
+		return fmt.Errorf("tracepack: seq %d above %d: %w", seq, format.MaxU64, ErrSeqOrder)
+	case len(w.blocks) == 0 && w.block.empty() && seq != w.seqStart:
+		return fmt.Errorf("tracepack: first seq %d, seq_start is %d: %w", seq, w.seqStart, ErrSeqOrder)
+	case seq < w.nextSeq:
+		return fmt.Errorf("tracepack: seq %d after seq %d: %w", seq, w.nextSeq-1, ErrSeqOrder)
+	}
+
+	return nil
 }
 
 // clockStep applies the clock anchor rule of the tracepack semantics specification §4 to r:
@@ -751,18 +760,26 @@ func (w *Writer) writeBlock() error {
 	if err := w.write(enc, "block"); err != nil {
 		return err
 	}
+
+	return w.finishBlock(*s, &env)
+}
+
+// finishBlock syncs the block just written, whose envelope is env, and keeps s, the summary of its records,
+// for the footer, placed as env and the block's position say.
+func (w *Writer) finishBlock(s blockSummary, env *format.BlockEnvelope) error {
 	if w.syncer != nil {
 		if err := w.syncer.Sync(); err != nil {
 			return fmt.Errorf("tracepack: sync block: %w", err)
 		}
 	}
 
-	s.offset = w.offset - uint64(format.EnvelopeLen+len(enc))
-	s.onDiskLen = uint32(format.EnvelopeLen + len(enc))
+	onDiskLen := format.EnvelopeLen + uint64(env.BodyLen)
+	s.offset = w.offset - onDiskLen
+	s.onDiskLen = uint32(onDiskLen)
 	s.uncompressedLen = env.UncompressedLen
 	s.bodyCRC = env.BodyCRC
-	s.recordHeaderLen = recordHeaderLen
-	w.blocks = append(w.blocks, *s)
+	s.recordHeaderLen = env.RecordHeaderLen
+	w.blocks = append(w.blocks, s)
 
 	return nil
 }
@@ -781,27 +798,26 @@ func (w *Writer) appendBlock(raw []byte, s *blockSummary) error {
 		return err
 	}
 
-	env, err := w.checkAppendBlock(raw, s)
-	if err == nil {
-		err = w.write(raw, "block")
-	}
-	if err == nil && w.syncer != nil {
-		if err = w.syncer.Sync(); err != nil {
-			err = fmt.Errorf("tracepack: sync block: %w", err)
-		}
-	}
-	if err != nil {
+	if err := w.writeRawBlock(raw, s); err != nil {
 		w.failure = err
 		return err
 	}
 
-	c := s.clone()
-	c.offset = w.offset - uint64(len(raw))
-	c.onDiskLen = uint32(len(raw))
-	c.uncompressedLen = env.UncompressedLen
-	c.bodyCRC = env.BodyCRC
-	c.recordHeaderLen = env.RecordHeaderLen
-	w.blocks = append(w.blocks, c)
+	return nil
+}
+
+// writeRawBlock does the work of appendBlock, returning its first error.
+func (w *Writer) writeRawBlock(raw []byte, s *blockSummary) error {
+	env, err := w.checkAppendBlock(raw, s)
+	if err != nil {
+		return err
+	}
+	if err := w.write(raw, "block"); err != nil {
+		return err
+	}
+	if err := w.finishBlock(s.clone(), &env); err != nil {
+		return err
+	}
 	w.nextSeq = s.lastSeq + 1
 
 	return nil
@@ -812,10 +828,7 @@ func (w *Writer) checkAppendBlock(raw []byte, s *blockSummary) (format.BlockEnve
 	if !w.block.empty() {
 		return format.BlockEnvelope{}, errors.New("tracepack: append a block while a block is open")
 	}
-	if len(raw) < format.EnvelopeLen {
-		return format.BlockEnvelope{}, fmt.Errorf("tracepack: block of %d bytes is shorter than its envelope", len(raw))
-	}
-	env, err := format.UnmarshalBlockEnvelope(raw[:format.EnvelopeLen])
+	env, err := format.UnmarshalBlockEnvelope(raw)
 	if err != nil {
 		return format.BlockEnvelope{}, fmt.Errorf("tracepack: append a block: %w", err)
 	}
@@ -825,18 +838,18 @@ func (w *Writer) checkAppendBlock(raw []byte, s *blockSummary) (format.BlockEnve
 	case env.RecordCount != s.recordCount || env.FirstSeq != s.firstSeq:
 		return format.BlockEnvelope{}, fmt.Errorf("tracepack: block envelope states %d records from seq %d, its summary %d from seq %d",
 			env.RecordCount, env.FirstSeq, s.recordCount, s.firstSeq)
-	case len(w.blocks) == 0 && s.firstSeq != w.seqStart:
-		return format.BlockEnvelope{}, fmt.Errorf("tracepack: first seq %d, seq_start is %d: %w", s.firstSeq, w.seqStart, ErrSeqOrder)
-	case s.firstSeq < w.nextSeq:
-		return format.BlockEnvelope{}, fmt.Errorf("tracepack: block from seq %d after seq %d: %w", s.firstSeq, w.nextSeq-1, ErrSeqOrder)
+	}
+	if err := w.checkSeq(s.firstSeq); err != nil {
+		return format.BlockEnvelope{}, err
+	}
+	switch {
 	case s.lastSeq > format.MaxU64:
 		return format.BlockEnvelope{}, fmt.Errorf("tracepack: seq %d above %d: %w", s.lastSeq, format.MaxU64, ErrSeqOrder)
 	case hourOf(s.tsMin) != hourOf(s.tsMax):
 		return format.BlockEnvelope{}, fmt.Errorf("tracepack: block of seq %d-%d has records in more than one UTC hour", s.firstSeq, s.lastSeq)
 	}
 
-	oversized := int(DecodeStatusOversized) < len(s.decodeStatusCounts) && s.decodeStatusCounts[DecodeStatusOversized] > 0
-	if err := w.checkCommitmentFacts(s.anyClassified(), oversized, s.qualityUnion.Has(QualityRedacted)); err != nil {
+	if err := w.checkCommitmentFacts(s.commitmentFacts()); err != nil {
 		return format.BlockEnvelope{}, err
 	}
 
