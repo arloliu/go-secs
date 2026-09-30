@@ -3,6 +3,7 @@ package tracepack
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"math"
 	"runtime"
 	"slices"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/arloliu/go-secs/tracepack/internal/codec"
 	"github.com/arloliu/go-secs/tracepack/internal/format"
 )
 
@@ -609,4 +611,303 @@ func TestWriterKeepsNoEpochIndex(t *testing.T) {
 
 	v := mustVerify(t, buf.Bytes())
 	assert.Equal(t, OutcomeFinalizedConsistent, v.Outcome, "failed %v, disagreements %v", v.Failed, v.Disagreements)
+}
+
+// rawTestRecords returns the header rows, headerLen bytes each, and the payloads of the rich footer test pack's records in its first UTC hour
+// (seqs 10, 11, 13, 14, 15, 20 and 21: data records, a start and a gap boundary, a socket-close),
+// each header as the Writer stores it, then changed as no record header encoder writes it:
+// the retired quality bits 3 and 6, the reserved quality bit 15, the reserved field_validity bit 7,
+// the retired record_flags bit 0 and the reserved record_flags bit 5 set,
+// and headerLen − 44 extension bytes that differ from record to record.
+func rawTestRecords(t testing.TB, headerLen int) ([][]byte, [][]byte) {
+	t.Helper()
+
+	var rows, payloads [][]byte
+	for _, st := range richFooterSteps(t) {
+		r := st.rec
+		if hourOf(r.TSUTCNs) != hourOf(blockTestHour) {
+			continue
+		}
+		h := canonicalHeader(&r, r.Seq, transportEventOf(&r))
+		for k := range headerLen - format.RecordHeaderLen {
+			h.Extra = append(h.Extra, byte(int(r.Seq)*7+k))
+		}
+		row := format.AppendRecordHeader(nil, &h)
+		binary.LittleEndian.PutUint16(row[36:], h.Quality|1<<3|1<<6|1<<15)
+		row[42] |= 1 << 7
+		row[43] |= 1<<0 | 1<<5
+		rows = append(rows, row)
+		payloads = append(payloads, r.Payload)
+	}
+	require.Len(t, rows, 7)
+
+	return rows, payloads
+}
+
+// TestEncodeRawBlockKeepsRecordBytes checks that a block encodeRawBlock builds holds every record byte for byte:
+// each header row, reserved and retired bits and extension bytes included, and each payload,
+// for both codecs and record_header_len 44, 45 to 55 and 65535.
+// The block decodes as a reader decodes it, and the summary returned is the one a full read of the block gives.
+func TestEncodeRawBlockKeepsRecordBytes(t *testing.T) {
+	t.Parallel()
+
+	lens := []int{format.RecordHeaderLen, math.MaxUint16}
+	for n := 45; n <= 55; n++ {
+		lens = append(lens, n)
+	}
+	for _, c := range []Codec{CodecNone, CodecZstd} {
+		for _, hl := range lens {
+			t.Run(fmt.Sprintf("%s/%d", c, hl), func(t *testing.T) {
+				t.Parallel()
+
+				rows, payloads := rawTestRecords(t, hl)
+				raw, sum, err := encodeRawBlock(c, hl, rows, payloads, nil)
+				require.NoError(t, err)
+
+				env, err := format.UnmarshalBlockEnvelope(raw)
+				require.NoError(t, err)
+				assert.Equal(t, uint8(c), env.Codec)
+				assert.Equal(t, uint16(hl), env.RecordHeaderLen)
+				assert.Equal(t, uint32(len(rows)), env.RecordCount)
+				assert.Equal(t, uint64(10), env.FirstSeq)
+				assert.Len(t, raw, format.EnvelopeLen+int(env.BodyLen))
+				assert.Equal(t, format.CRC(raw[format.EnvelopeLen:]), env.BodyCRC)
+
+				body, err := codec.Decode(env.Codec, nil, raw[format.EnvelopeLen:], int(env.UncompressedLen))
+				require.NoError(t, err)
+				n := len(rows)
+				gathered := format.UntransposeHeaders(nil, body[:n*hl], n, hl)
+				off := n * hl
+				for i := range rows {
+					assert.Equal(t, rows[i], gathered[i*hl:(i+1)*hl], "record %d header", i)
+					assert.Equal(t, payloads[i], body[off:off+len(payloads[i])], "record %d payload", i)
+					off += len(payloads[i])
+				}
+				assert.Len(t, body, off)
+
+				meta := &PackMeta{
+					ToolID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
+					PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)), SeqStart: sum.firstSeq,
+				}
+				pack := copyBlocks(t, WriterOptions{Meta: meta, Codec: CodecZstd}, []sourceBlock{{raw: raw, sum: sum}})
+				rep := mustVerify(t, pack)
+				assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome, "failed %v, disagreements %v", rep.Failed, rep.Disagreements)
+				_, blocks := readSourceBlocks(t, pack)
+				require.Len(t, blocks, 1)
+				assert.Equal(t, raw, blocks[0].raw)
+				assert.Equal(t, blocks[0].sum, sum)
+			})
+		}
+	}
+}
+
+// TestEncodeRawBlockRejectsRecords checks every check encodeRawBlock runs on its records before it allocates the block,
+// the limits of the tracepack format specification §2 included, which it reaches without allocating 2 GiB:
+// the header section of many rows sharing one backing array, and a decoded body from a row's payload_len alone.
+func TestEncodeRawBlockRejectsRecords(t *testing.T) {
+	t.Parallel()
+
+	// bigRow is a 65535-byte header row whose payload_len is 0;
+	// 32769 of them make a header section one row past the 2^31-1 limit.
+	bigRow := make([]byte, math.MaxUint16)
+	bigRows := slices.Repeat([][]byte{bigRow}, 32769)
+	bigPayloads := make([][]byte, len(bigRows))
+
+	tests := []struct {
+		name string
+		// hl is the record_header_len passed; edit changes the rows and payloads of rawTestRecords(44).
+		hl   int
+		edit func(rows, payloads [][]byte) ([][]byte, [][]byte)
+		want string
+	}{
+		{name: "record_header_len below 44", hl: 43, want: "record_header_len 43 outside"},
+		{name: "record_header_len above 65535", hl: 65536, want: "record_header_len 65536 outside"},
+		{
+			name: "no records",
+			edit: func(_, _ [][]byte) ([][]byte, [][]byte) { return nil, nil },
+			want: "no records",
+		},
+		{
+			name: "a payload missing",
+			edit: func(rows, payloads [][]byte) ([][]byte, [][]byte) { return rows, payloads[:len(payloads)-1] },
+			want: "7 record headers and 6 payloads",
+		},
+		{
+			name: "a row shorter than record_header_len",
+			edit: func(rows, payloads [][]byte) ([][]byte, [][]byte) {
+				rows[2] = rows[2][:43]
+				return rows, payloads
+			},
+			want: "record 2: header of 43 bytes",
+		},
+		{
+			name: "a row longer than record_header_len",
+			edit: func(rows, payloads [][]byte) ([][]byte, [][]byte) {
+				rows[2] = append(rows[2], 0)
+				return rows, payloads
+			},
+			want: "record 2: header of 45 bytes",
+		},
+		{
+			name: "a payload shorter than its payload_len",
+			edit: func(rows, payloads [][]byte) ([][]byte, [][]byte) {
+				payloads[1] = payloads[1][:len(payloads[1])-1]
+				return rows, payloads
+			},
+			want: "record 1: payload of",
+		},
+		{
+			name: "a payload longer than its payload_len",
+			edit: func(rows, payloads [][]byte) ([][]byte, [][]byte) {
+				payloads[1] = append(slices.Clone(payloads[1]), 0)
+				return rows, payloads
+			},
+			want: "record 1: payload of",
+		},
+		{
+			name: "a seq repeated",
+			edit: func(rows, payloads [][]byte) ([][]byte, [][]byte) {
+				copy(rows[3][:8], rows[2][:8])
+				return rows, payloads
+			},
+			want: "record 3 seq 13 does not follow 13",
+		},
+		{
+			name: "seqs out of order",
+			edit: func(rows, payloads [][]byte) ([][]byte, [][]byte) {
+				rows[2], rows[3] = rows[3], rows[2]
+				payloads[2], payloads[3] = payloads[3], payloads[2]
+				return rows, payloads
+			},
+			want: "record 3 seq 13 does not follow 14",
+		},
+		{
+			name: "a header section over the limit",
+			hl:   math.MaxUint16,
+			edit: func(_, _ [][]byte) ([][]byte, [][]byte) { return bigRows, bigPayloads },
+			want: "header section of 32769 records",
+		},
+		{
+			name: "a decoded body over the limit",
+			edit: func(rows, payloads [][]byte) ([][]byte, [][]byte) {
+				binary.LittleEndian.PutUint32(rows[0][28:], format.MaxLen32-format.RecordHeaderLen+1)
+				return rows[:1], [][]byte{nil}
+			},
+			want: "record 0: the decoded body exceeds",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rows, payloads := rawTestRecords(t, format.RecordHeaderLen)
+			if tt.edit != nil {
+				rows, payloads = tt.edit(rows, payloads)
+			}
+			hl := tt.hl
+			if hl == 0 {
+				hl = format.RecordHeaderLen
+			}
+
+			// The records are rejected before any block is encoded.
+			encoded := func(enc []byte) []byte {
+				t.Error("a block was encoded")
+				return enc
+			}
+			raw, sum, err := encodeRawBlock(CodecZstd, hl, rows, payloads, encoded)
+			require.ErrorContains(t, err, tt.want)
+			assert.Nil(t, raw)
+			assert.Zero(t, sum.recordCount)
+		})
+	}
+}
+
+// TestEncodeRawBlockCheckRejectsCorruption checks that the in-memory check of encodeRawBlock rejects an encoding
+// that does not hold its records: a corruption I-2 catches,
+// and corruptions that decode cleanly and pass I-2 but change a record's bytes, which only the byte comparison with the source catches.
+func TestEncodeRawBlockCheckRejectsCorruption(t *testing.T) {
+	t.Parallel()
+
+	const hl = 52
+	n := 7
+
+	tests := []struct {
+		name string
+		// edit changes the decoded body, whose header section stores byte j of record i at j × n + i.
+		edit func(body []byte) []byte
+		want string
+	}{
+		{
+			name: "two seqs swapped",
+			edit: func(body []byte) []byte {
+				for j := range 8 {
+					body[j*n+1], body[j*n+2] = body[j*n+2], body[j*n+1]
+				}
+				return body
+			},
+			want: "record 2 seq 11 does not follow 13",
+		},
+		{
+			name: "an extension byte",
+			edit: func(body []byte) []byte {
+				body[(format.RecordHeaderLen+3)*n+1] ^= 0x10
+				return body
+			},
+			want: "record 1: the decoded header differs",
+		},
+		{
+			name: "a reserved quality bit",
+			edit: func(body []byte) []byte {
+				body[37*n+4] ^= 1 << 6
+				return body
+			},
+			want: "record 4: the decoded header differs",
+		},
+		{
+			name: "a payload byte",
+			edit: func(body []byte) []byte {
+				body[len(body)-1] ^= 1
+				return body
+			},
+			want: "record 6: the decoded payload differs",
+		},
+		{
+			name: "a body one byte short",
+			edit: func(body []byte) []byte { return body[:len(body)-1] },
+			want: "decode body",
+		},
+	}
+
+	for _, c := range []Codec{CodecNone, CodecZstd} {
+		for _, tt := range tests {
+			t.Run(c.String()+"/"+tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				rows, payloads := rawTestRecords(t, hl)
+				require.Len(t, rows, n)
+				_, _, err := encodeRawBlock(c, hl, rows, payloads, nil)
+				require.NoError(t, err, "the records encode without the hook")
+
+				uncompressedLen := n * hl
+				for _, p := range payloads {
+					uncompressedLen += len(p)
+				}
+				// The hook changes the decoded body and encodes it again, so a zstd body stays a valid frame.
+				hook := func(enc []byte) []byte {
+					body, err := codec.Decode(uint8(c), nil, enc, uncompressedLen)
+					require.NoError(t, err)
+					out, err := codec.Encode(uint8(c), nil, tt.edit(body))
+					require.NoError(t, err)
+
+					return out
+				}
+				raw, sum, err := encodeRawBlock(c, hl, rows, payloads, hook)
+				require.ErrorContains(t, err, "fails its check")
+				require.ErrorContains(t, err, tt.want)
+				assert.Nil(t, raw)
+				assert.Zero(t, sum.recordCount)
+			})
+		}
+	}
 }

@@ -1302,13 +1302,14 @@ func TestReaderRawF3AsStored(t *testing.T) {
 	}
 }
 
-// TestReaderRawF3OverlappingSpans checks that rawF3 returns each block's own list
-// when F-2 entries locate overlapping lists,
-// which the footer validation of the tracepack format specification §10 accepts:
+// overlappingF3Pack returns the rich footer test pack with its F-3 section rebuilt
+// so that F-2 entries locate overlapping lists,
+// which the footer validation of the tracepack format specification §10 accepts,
+// and each block's F-3 list as the rebuilt footer stores it:
 // block 1's list lies inside block 0's, as the value of an unknown entry,
 // and blocks 2 and 3 share an unknown entry that ends block 2's list and starts block 3's.
-func TestReaderRawF3OverlappingSpans(t *testing.T) {
-	t.Parallel()
+func overlappingF3Pack(t testing.TB) ([]byte, [][]byte) {
+	t.Helper()
 
 	base := richFooterPack(t, CodecZstd)
 	lists := splitFooter(t, base.decoded).f3Raw
@@ -1328,7 +1329,15 @@ func TestReaderRawF3OverlappingSpans(t *testing.T) {
 	}
 	want := [][]byte{list0, lists[1], slices.Concat(lists[2], shared), slices.Concat(shared, lists[3]), lists[4]}
 
-	file := refooter(t, base.file, splitFooter(t, base.decoded).encodeF3(f3, spans))
+	return refooter(t, base.file, splitFooter(t, base.decoded).encodeF3(f3, spans)), want
+}
+
+// TestReaderRawF3OverlappingSpans checks that rawF3 returns each block's own list
+// when F-2 entries locate overlapping lists (overlappingF3Pack).
+func TestReaderRawF3OverlappingSpans(t *testing.T) {
+	t.Parallel()
+
+	file, want := overlappingF3Pack(t)
 	r := mustOpenKeepingF3(t, file, ReaderOptions{})
 	require.NoError(t, r.Header().FooterErr)
 	for i := range want {

@@ -57,6 +57,21 @@ const (
 	boundaryTagGapEnd   uint16 = 0x0006
 )
 
+// Estimates, in bytes on a 64-bit platform, of the memory a Writer holds for each block until Close,
+// counted against its footer budget (footerCost):
+// the blockSummary it keeps, the format.F2Entry buildFooter builds for the block at Close,
+// and per entry of the summary's variable contents an epoch entry, a boundary entry with its two gap values,
+// a seq range, and one element of a count array.
+// TestFooterCostEstimates checks each against the size of its type.
+const (
+	keptSummaryLen  = 256
+	keptF2EntryLen  = 80
+	keptEpochLen    = 64
+	keptBoundaryLen = 64
+	keptSeqRangeLen = 16
+	keptCountLen    = 4
+)
+
 // packStats is the F-5 pack statistics:
 // the aggregate of the blocks' F-2 entries and F-3 summaries by the aggregation rule of the tracepack format specification §10.
 //
@@ -85,14 +100,22 @@ type packStats struct {
 // The decoded footer is the F-1 prologue, F-2 at offset 72, F-3 right after F-2, and F-5 right after F-3;
 // F-4 is absent, recorded as zero bytes at the end of F-3, so the sections stay in order without overlap,
 // and the F-1 flags set only F-3 present, since this writer builds no secondary index.
-// F-5 is computed from the F-2 and F-3 values alone.
+// A block whose summary holds a verbatim F-3 list gets that list byte for byte;
+// every other block gets the list appendF3 builds.
+// F-5 is computed from the F-2 and F-3 values alone, those of a block with a verbatim list taken from its summary.
 // A block's F-3 entry list longer than maxF3ListLen, at most 2^32-1 so that F-2 summary_len can state it, is an error.
-func buildFooter(blocks []blockSummary, maxF3ListLen uint64) ([]byte, *packStats, error) {
+// When maxLen is not 0, a footer longer than maxLen is an error wrapping ErrMergeLimit,
+// returned once F-5 is built, before the footer is assembled.
+func buildFooter(blocks []blockSummary, maxF3ListLen, maxLen uint64) ([]byte, *packStats, error) {
 	var f3 []byte
 	index := make([]format.F2Entry, len(blocks))
 	for i := range blocks {
 		start := len(f3)
-		f3 = appendF3(f3, &blocks[i])
+		if l := blocks[i].verbatimF3; len(l) > 0 {
+			f3 = append(f3, l...)
+		} else {
+			f3 = appendF3(f3, &blocks[i])
+		}
 		n := uint64(len(f3) - start)
 		summaryLen, ok := summaryLen32(n, maxF3ListLen)
 		if !ok {
@@ -104,8 +127,12 @@ func buildFooter(blocks []blockSummary, maxF3ListLen uint64) ([]byte, *packStats
 	stats := aggregate(blocks)
 	f5 := appendF5(nil, stats, len(blocks) > 0)
 
-	f3Offset := uint64(format.FooterPrologueLen + len(blocks)*format.F2EntryLen)
+	f3Offset := uint64(format.FooterPrologueLen) + uint64(len(blocks))*format.F2EntryLen
 	f5Offset := f3Offset + uint64(len(f3))
+	if n := f5Offset + uint64(len(f5)); maxLen != 0 && n > maxLen {
+		return nil, nil, fmt.Errorf("tracepack: footer of %d bytes exceeds the budget of %d: %w", n, maxLen, ErrMergeLimit)
+	}
+
 	pro := format.FooterPrologue{
 		FooterLayoutVersion: format.FooterLayoutVersion,
 		Flags:               format.FooterFlagF3Present,
@@ -137,6 +164,28 @@ func summaryLen32(n, limit uint64) (uint32, bool) {
 	}
 
 	return uint32(n), true
+}
+
+// footerCost returns what a block adds to a Writer's footer budget,
+// for the block of s with the verbatim F-3 list f3, or none when f3 is empty.
+// It is the sum of the bytes the block adds to the decoded footer:
+// its 80-byte F-2 entry and its F-3 list, f3 or the list appendF3 builds from s;
+// and of the estimated memory the Writer holds for the block until Close, at the kept*Len estimates:
+// the blockSummary it keeps, the summary's epoch, boundary, seq-range and count entries,
+// its copy of f3, and the format.F2Entry buildFooter builds for it.
+// A summary of fewer than 2^32 records holds fewer than 2^32 of each entry and at most 3 × 256 count elements,
+// so the cost stays far below 2^64.
+func footerCost(s *blockSummary, f3 []byte) uint64 {
+	listLen := uint64(len(f3))
+	if listLen == 0 {
+		listLen = uint64(len(appendF3(nil, s)))
+	}
+	kept := keptSummaryLen + keptF2EntryLen + uint64(len(f3)) +
+		uint64(len(s.epochs))*keptEpochLen + uint64(len(s.boundaries))*keptBoundaryLen +
+		uint64(len(s.seqRanges))*keptSeqRangeLen +
+		uint64(len(s.kindCounts)+len(s.dirCounts)+len(s.decodeStatusCounts))*keptCountLen
+
+	return format.F2EntryLen + listLen + kept
 }
 
 // f2EntryOf returns the F-2 block index entry of s, whose F-3 list lies at summaryOffset in F-3 and is summaryLen bytes long.

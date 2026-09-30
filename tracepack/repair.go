@@ -368,7 +368,7 @@ func (r *Reader) writePatch(ctx context.Context, a *analysis, p *repairPlan, dst
 		if err != nil {
 			return RepairReport{}, err
 		}
-		if err := w.appendBlock(buf.raw, &s); err != nil {
+		if err := w.appendBlock(buf.raw, &s, nil); err != nil {
 			return RepairReport{}, err
 		}
 		rep.Blocks++

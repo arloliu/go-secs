@@ -1,7 +1,10 @@
 package tracepack
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"math"
 	"slices"
 
 	"github.com/arloliu/go-secs/tracepack/internal/codec"
@@ -94,6 +97,10 @@ type blockSummary struct {
 	boundaries []boundarySummary
 	// seqRanges holds the block's seqs as sorted maximal runs; one run means the seqs are contiguous.
 	seqRanges []seqRange
+	// verbatimF3, when not empty, is the block's F-3 entry list as another pack's footer stores it,
+	// which the footer writes byte for byte in place of the list appendF3 builds (the tracepack format specification §10);
+	// only a summary the Writer keeps for a block appended with a verbatim list holds one, and a clone holds none.
+	verbatimF3 []byte
 }
 
 // blockBuilder accumulates the open block: its record headers as consecutive rows, its payload section and its summary.
@@ -192,6 +199,168 @@ func encodeBlock(c Codec, dst, body []byte) ([]byte, Codec, error) {
 	return enc, c, nil
 }
 
+// encodeRawBlock encodes one block from records of another pack, given as stored, with codec c,
+// and checks the encoding in memory before it returns it
+// (the tracepack storage specification §4: a merger validates every new encoding before it writes it).
+//
+// The decoded body is the header section, rows transposed column by column (the tracepack format specification §6),
+// followed by the payloads; encodeBlock may store it with the none codec instead of c.
+// No record header is decoded and encoded again,
+// so reserved and retired bits and the extension area behind offset 44 stay as they are (§7.1).
+// Before it allocates anything, and before any length is narrowed into the envelope, it checks with overflow checks:
+// headerLen within 44 to 65535; at least one record, and one payload per row; each row exactly headerLen bytes;
+// seqs strictly increasing (I-2); the decoded body, from the rows' payload_len, within 2^31-1 bytes (§2);
+// and each payload as long as its row's payload_len.
+// Then it decodes the block it built as a reader does (§6), checks I-2 on the gathered headers,
+// and compares every record's header row and payload byte for byte with its source.
+// It leaves to the Writer's appendBlock the checks appendBlock runs on every block:
+// the block's seqs against the pack's (I-12, seq_start included), its records' UTC hour (I-13) and the pack's commitments.
+//
+// Parameters:
+//   - c: CodecNone or CodecZstd.
+//   - headerLen: the record_header_len of the rows.
+//   - rows: the records' header rows as stored, in seq order.
+//   - payloads: the records' payloads, parallel to rows.
+//   - encodedHook: nil, or a test's change to the encoded body before it is checked.
+//
+// Returns:
+//   - []byte: the block's envelope and on-disk body, for appendBlock.
+//   - blockSummary: the summary of its records, as summaryOf gives it.
+//   - error: the failed check; no block is returned.
+func encodeRawBlock(c Codec, headerLen int, rows, payloads [][]byte, encodedHook func([]byte) []byte) ([]byte, blockSummary, error) {
+	uncompressedLen, firstSeq, err := checkRawRecords(headerLen, rows, payloads)
+	if err != nil {
+		return nil, blockSummary{}, fmt.Errorf("tracepack: encode a block: %w", err)
+	}
+
+	section := make([]byte, 0, len(rows)*headerLen)
+	for _, row := range rows {
+		section = append(section, row...)
+	}
+	body := format.TransposeHeaders(make([]byte, 0, uncompressedLen), section, len(rows), headerLen)
+	for _, p := range payloads {
+		body = append(body, p...)
+	}
+
+	enc, used, err := encodeBlock(c, nil, body)
+	if err != nil {
+		return nil, blockSummary{}, fmt.Errorf("tracepack: encode a block: %w", err)
+	}
+	if encodedHook != nil {
+		enc = encodedHook(enc)
+	}
+	if len(enc) > int(format.MaxLen32) {
+		return nil, blockSummary{}, fmt.Errorf("tracepack: encode a block: body_len %d above %d", len(enc), format.MaxLen32)
+	}
+
+	// checkRawRecords checked every value narrowed here: headerLen, the record count, which is below 2^31, and uncompressedLen.
+	env := format.BlockEnvelope{
+		Codec:           uint8(used),
+		RecordHeaderLen: uint16(headerLen),
+		BodyLen:         uint32(len(enc)),
+		UncompressedLen: uint32(uncompressedLen),
+		RecordCount:     uint32(len(rows)),
+		BodyCRC:         format.CRC(enc),
+		FirstSeq:        firstSeq,
+	}
+	raw := format.AppendBlockEnvelope(make([]byte, 0, format.EnvelopeLen+len(enc)), &env)
+	raw = append(raw, enc...)
+
+	s, err := checkRawBlock(raw, rows, payloads)
+	if err != nil {
+		return nil, blockSummary{}, fmt.Errorf("tracepack: the new block of seq %d fails its check: %w", firstSeq, err)
+	}
+
+	return raw, s, nil
+}
+
+// checkRawRecords checks the records encodeRawBlock takes as rows and payloads, before anything is allocated,
+// and returns the length of their decoded body and their first seq.
+// The decoded body is record_count × headerLen + Σ payload_len,
+// each product and sum checked against the 2^31-1 limit before it is taken.
+// Each record's payload_len is added to that sum before its payload's length is compared with it.
+func checkRawRecords(headerLen int, rows, payloads [][]byte) (int, uint64, error) {
+	switch {
+	case headerLen < format.RecordHeaderLen || headerLen > math.MaxUint16:
+		return 0, 0, fmt.Errorf("record_header_len %d outside %d to %d", headerLen, format.RecordHeaderLen, math.MaxUint16)
+	case len(rows) == 0:
+		return 0, 0, errors.New("no records")
+	case len(payloads) != len(rows):
+		return 0, 0, fmt.Errorf("%d record headers and %d payloads", len(rows), len(payloads))
+	case uint64(len(rows)) > uint64(format.MaxLen32)/uint64(headerLen):
+		return 0, 0, fmt.Errorf("a header section of %d records of %d bytes exceeds %d bytes", len(rows), headerLen, format.MaxLen32)
+	}
+
+	n := uint64(len(rows)) * uint64(headerLen)
+	var first, prev uint64
+	for i, row := range rows {
+		h, err := rawRecordHeader(i, row, headerLen)
+		if err != nil {
+			return 0, 0, err
+		}
+		if i == 0 {
+			first = h.Seq
+		}
+		if err := checkBlockSeq(i, h.Seq, prev, first); err != nil {
+			return 0, 0, err
+		}
+		prev = h.Seq
+
+		n += uint64(h.PayloadLen)
+		if n > uint64(format.MaxLen32) {
+			return 0, 0, fmt.Errorf("record %d: the decoded body exceeds %d bytes", i, format.MaxLen32)
+		}
+		if p := payloads[i]; uint64(len(p)) != uint64(h.PayloadLen) {
+			return 0, 0, fmt.Errorf("record %d: payload of %d bytes, payload_len %d", i, len(p), h.PayloadLen)
+		}
+	}
+
+	return int(n), first, nil
+}
+
+// rawRecordHeader decodes the 44 bytes format 1.0 defines of row, record i's header as stored,
+// after checking that row is headerLen bytes long.
+// The extension area is not copied.
+func rawRecordHeader(i int, row []byte, headerLen int) (format.RecordHeader, error) {
+	if len(row) != headerLen {
+		return format.RecordHeader{}, fmt.Errorf("record %d: header of %d bytes, record_header_len %d", i, len(row), headerLen)
+	}
+	h, err := format.UnmarshalRecordHeader(row, format.RecordHeaderLen)
+	if err != nil {
+		return format.RecordHeader{}, fmt.Errorf("record %d: %w", i, err)
+	}
+
+	return h, nil
+}
+
+// checkRawBlock decodes raw, a block encodeRawBlock built, as a reader decodes it (decodeBlock),
+// which checks I-2 on its gathered record headers,
+// then compares every record's header row and payload with rows and payloads, its source.
+// It returns the summary of the decoded records.
+func checkRawBlock(raw []byte, rows, payloads [][]byte) (blockSummary, error) {
+	env, err := format.UnmarshalBlockEnvelope(raw)
+	if err != nil {
+		return blockSummary{}, err
+	}
+	buf := blockBuf{raw: raw}
+	d, _, err := decodeBlock(&env, &buf)
+	if err != nil {
+		return blockSummary{}, err
+	}
+
+	rhl := int(env.RecordHeaderLen)
+	for i := range d.count() {
+		switch {
+		case !bytes.Equal(d.section[i*rhl:(i+1)*rhl], rows[i]):
+			return blockSummary{}, fmt.Errorf("record %d: the decoded header differs from its source", i)
+		case !bytes.Equal(d.payload(i), payloads[i]):
+			return blockSummary{}, fmt.Errorf("record %d: the decoded payload differs from its source", i)
+		}
+	}
+
+	return summaryOf(d), nil
+}
+
 // validateBuf holds the buffers the writer's block validation reuses across blocks.
 type validateBuf struct {
 	// decoded holds the decoded body.
@@ -250,7 +419,7 @@ func (b *blockBuilder) reset() {
 	b.summary = blockSummary{}
 }
 
-// clone returns a copy of s that shares no memory with it.
+// clone returns a copy of s that shares no memory with it, without its epoch index or verbatim F-3 list.
 func (s *blockSummary) clone() blockSummary {
 	c := *s
 	c.kindCounts = slices.Clone(s.kindCounts)
@@ -264,6 +433,7 @@ func (s *blockSummary) clone() blockSummary {
 		c.boundaries[i].gapStart = clonePtr(c.boundaries[i].gapStart)
 		c.boundaries[i].gapEnd = clonePtr(c.boundaries[i].gapEnd)
 	}
+	c.verbatimF3 = nil
 
 	return c
 }
