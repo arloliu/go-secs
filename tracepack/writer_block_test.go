@@ -257,7 +257,7 @@ func TestAppendBlockRejections(t *testing.T) {
 		},
 		{
 			name: "classified record without classifier",
-			opts: func(o *WriterOptions) { o.Meta.Classifier = nil },
+			opts: func(o *WriterOptions) { o.Meta.Classifiers = nil },
 			run:  func(w *Writer) error { return w.appendBlock(blocks[0].raw, &blocks[0].sum) },
 			want: ErrMetadataCommitment,
 		},

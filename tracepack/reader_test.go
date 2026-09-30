@@ -103,7 +103,7 @@ func newGatedReader(data []byte, rounds ...int) *gatedReader {
 // readerTestMeta returns the pack metadata of the reader test packs.
 func readerTestMeta() *PackMeta {
 	return &PackMeta{
-		ToolID: "tool", Recorder: "rec", Writer: "wr", Classifier: new("c"),
+		ToolID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
 		PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)),
 	}
 }

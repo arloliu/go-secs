@@ -255,7 +255,8 @@ type HSMSTimers struct {
 // the TLV entries the tracepack format specification §5 requires to fill pack_metadata_len bytes,
 // decoded into typed fields.
 //
-// A pointer or slice field is present on the wire only when it is non-nil or non-empty;
+// A pointer or slice field is present on the wire only when it is non-nil or non-empty,
+// and a slice field holds one value per entry of its repeatable tag, in stored order;
 // Validate reports which fields the specification's "Required when" column requires for the PackFacts passed to it.
 // Unknown preserves every entry whose tag PackMeta does not recognize, private tags included,
 // so MarshalBinary reproduces them on a round trip.
@@ -268,14 +269,14 @@ type PackMeta struct {
 	Vantage              Vantage
 	Recorder             string
 	Writer               string
-	Classifier           *string
+	Classifiers          []string
 	TimeSource           TimeSource
 	CaptureOriginUTCNs   *int64
 	CaptureOriginMonoNs  *int64
 	SourceTZ             *string
 	SourceDialect        *string
 	SourceRefs           []string
-	MaxFrameLen          *uint64
+	MaxFrameLens         []uint64
 	PeriodStart          int64
 	PeriodEnd            int64
 	LifecycleCoverage    LifecycleCoverage
@@ -342,7 +343,7 @@ var packMetaSetters = map[uint16]func(m *PackMeta, e tlv.Entry) error{
 	tagVantage:             setField(u8As[Vantage], func(m *PackMeta, v Vantage) { m.Vantage = v }),
 	tagRecorder:            setField(tlv.Entry.UTF8, func(m *PackMeta, v string) { m.Recorder = v }),
 	tagWriter:              setField(tlv.Entry.UTF8, func(m *PackMeta, v string) { m.Writer = v }),
-	tagClassifier:          setField(tlv.Entry.UTF8, func(m *PackMeta, v string) { m.Classifier = &v }),
+	tagClassifier:          setField(tlv.Entry.UTF8, func(m *PackMeta, v string) { m.Classifiers = append(m.Classifiers, v) }),
 	tagTimeSource:          setField(u8As[TimeSource], func(m *PackMeta, v TimeSource) { m.TimeSource = v }),
 	tagCaptureOriginUTCNs:  setField(tlv.Entry.I64, func(m *PackMeta, v int64) { m.CaptureOriginUTCNs = &v }),
 	tagCaptureOriginMonoNs: setField(tlv.Entry.I64, func(m *PackMeta, v int64) { m.CaptureOriginMonoNs = &v }),
@@ -351,7 +352,7 @@ var packMetaSetters = map[uint16]func(m *PackMeta, e tlv.Entry) error{
 	tagSourceRef: setField(tlv.Entry.UTF8, func(m *PackMeta, v string) {
 		m.SourceRefs = append(m.SourceRefs, v)
 	}),
-	tagMaxFrameLen:       setField(tlv.Entry.U64, func(m *PackMeta, v uint64) { m.MaxFrameLen = &v }),
+	tagMaxFrameLen:       setField(tlv.Entry.U64, func(m *PackMeta, v uint64) { m.MaxFrameLens = append(m.MaxFrameLens, v) }),
 	tagPeriodStart:       setField(tlv.Entry.I64, func(m *PackMeta, v int64) { m.PeriodStart = v }),
 	tagPeriodEnd:         setField(tlv.Entry.I64, func(m *PackMeta, v int64) { m.PeriodEnd = v }),
 	tagLifecycleCoverage: setField(u8As[LifecycleCoverage], func(m *PackMeta, v LifecycleCoverage) { m.LifecycleCoverage = v }),
@@ -429,6 +430,8 @@ var redactionEntrySetters = map[uint16]func(r *RedactionEntry, e tlv.Entry) erro
 // those m's own fields decide, which UnmarshalPackMeta and MarshalBinary also enforce,
 // and those that depend on the pack's records or scope, which facts resolve.
 // The unconditional "always" rules cannot fail: their fields are not pointers, so they are always encoded.
+// The compacted_from rule is not checked:
+// it requires the tag when the pack's lineage list is non-empty, which neither m nor facts shows.
 //
 // Returns:
 //   - error: nil, or a *FieldError for the first rule violated,
@@ -442,16 +445,15 @@ func (m *PackMeta) Validate(facts PackFacts) error {
 		required bool
 		present  bool
 	}{
-		{"classifier", facts.AnyClassified || facts.AnyOversized, m.Classifier != nil},
+		{"classifier", facts.AnyClassified || facts.AnyOversized, len(m.Classifiers) > 0},
 		{"capture_origin_utc_ns", m.TimeSource == TimeSourceCaptureClock, m.CaptureOriginUTCNs != nil},
 		{"capture_origin_mono_ns", m.TimeSource == TimeSourceCaptureClock, m.CaptureOriginMonoNs != nil},
 		{"source_tz", m.TimeSource == TimeSourceSourceLog, m.SourceTZ != nil},
 		{"source_dialect", m.CaptureMethod == CaptureMethodLog, m.SourceDialect != nil},
 		{"source_ref", m.CaptureMethod == CaptureMethodLog, len(m.SourceRefs) > 0},
-		{"max_frame_len", facts.AnyOversized, m.MaxFrameLen != nil},
+		{"max_frame_len", facts.AnyOversized, len(m.MaxFrameLens) > 0},
 		{"supersedes", isPatch || (isGeneration && facts.GenerationHasPredecessor), len(m.Supersedes) > 0},
 		{"coverage", isPatch && facts.CoverageLoss, len(m.Coverage) > 0},
-		{"compacted_from", m.CompactionLevel >= 1, len(m.CompactedFrom) > 0},
 		{"extract_filter", m.PackRole == PackRoleExtract, m.ExtractFilter != nil},
 		{"clock_step_tolerance_ns", m.TimeSource == TimeSourceCaptureClock, m.ClockStepToleranceNs != nil},
 		{"flush_interval_ns", facts.DurableRecorder, m.FlushIntervalNs != nil},
@@ -722,12 +724,10 @@ func (m *PackMeta) appendAlwaysEntries(dst []tlv.Entry) []tlv.Entry {
 // that are present.
 func (m *PackMeta) appendOptionalScalarEntries(dst []tlv.Entry) []tlv.Entry {
 	return appendPresent(dst, []optionalEntry{
-		{m.Classifier != nil, func() tlv.Entry { return tlv.UTF8Entry(tagClassifier, *m.Classifier) }},
 		{m.CaptureOriginUTCNs != nil, func() tlv.Entry { return tlv.I64Entry(tagCaptureOriginUTCNs, *m.CaptureOriginUTCNs) }},
 		{m.CaptureOriginMonoNs != nil, func() tlv.Entry { return tlv.I64Entry(tagCaptureOriginMonoNs, *m.CaptureOriginMonoNs) }},
 		{m.SourceTZ != nil, func() tlv.Entry { return tlv.UTF8Entry(tagSourceTZ, *m.SourceTZ) }},
 		{m.SourceDialect != nil, func() tlv.Entry { return tlv.UTF8Entry(tagSourceDialect, *m.SourceDialect) }},
-		{m.MaxFrameLen != nil, func() tlv.Entry { return tlv.U64Entry(tagMaxFrameLen, *m.MaxFrameLen) }},
 		{m.Notes != nil, func() tlv.Entry { return tlv.UTF8Entry(tagNotes, *m.Notes) }},
 		{m.PreviousCaptureID != nil, func() tlv.Entry { return tlv.UUIDEntry(tagPreviousCaptureID, [16]byte(*m.PreviousCaptureID)) }},
 		{m.ExtractFilter != nil, func() tlv.Entry { return tlv.UTF8Entry(tagExtractFilter, *m.ExtractFilter) }},
@@ -753,8 +753,14 @@ func (m *PackMeta) appendOptionalScalarEntries(dst []tlv.Entry) []tlv.Entry {
 // appendRepeatableEntries appends the entries of m's repeatable tags.
 // It returns the error of the first coverage entry that cannot be encoded, naming its index.
 func (m *PackMeta) appendRepeatableEntries(dst []tlv.Entry) ([]tlv.Entry, error) {
+	for _, s := range m.Classifiers {
+		dst = append(dst, tlv.UTF8Entry(tagClassifier, s))
+	}
 	for _, s := range m.SourceRefs {
 		dst = append(dst, tlv.UTF8Entry(tagSourceRef, s))
+	}
+	for _, v := range m.MaxFrameLens {
+		dst = append(dst, tlv.U64Entry(tagMaxFrameLen, v))
 	}
 	for _, id := range m.Supersedes {
 		dst = append(dst, tlv.UUIDEntry(tagSupersedes, [16]byte(id)))

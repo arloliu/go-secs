@@ -241,8 +241,8 @@ func startWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 
 		maxF3ListLen: math.MaxUint32,
 
-		hasClassifier:    meta.Classifier != nil,
-		hasMaxFrameLen:   meta.MaxFrameLen != nil,
+		hasClassifier:    len(meta.Classifiers) > 0,
+		hasMaxFrameLen:   len(meta.MaxFrameLens) > 0,
 		packRole:         meta.PackRole,
 		redactionPresent: opts.Facts.AnyRedacted,
 	}

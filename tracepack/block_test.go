@@ -293,7 +293,7 @@ func TestWriterRecordsBlockSummaries(t *testing.T) {
 	t.Parallel()
 
 	meta := &PackMeta{
-		ToolID: "tool", Recorder: "rec", Writer: "wr", Classifier: new("c"),
+		ToolID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
 		PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)),
 	}
 

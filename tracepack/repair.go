@@ -193,9 +193,9 @@ func (r *Reader) checkRepairCommitments(a *analysis) (PackFacts, error) {
 	}
 
 	switch {
-	case facts.AnyClassified && r.meta.Classifier == nil:
+	case facts.AnyClassified && len(r.meta.Classifiers) == 0:
 		return PackFacts{}, fmt.Errorf("%w: a classified record without classifier in the pack metadata", ErrNotRepairable)
-	case facts.AnyOversized && r.meta.MaxFrameLen == nil:
+	case facts.AnyOversized && len(r.meta.MaxFrameLens) == 0:
 		return PackFacts{}, fmt.Errorf("%w: an oversized record without max_frame_len in the pack metadata", ErrNotRepairable)
 	case facts.AnyRedacted:
 		return PackFacts{}, fmt.Errorf("%w: a redacted record, which no stored pack holds", ErrNotRepairable)

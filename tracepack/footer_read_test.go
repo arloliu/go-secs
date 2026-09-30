@@ -71,7 +71,7 @@ func writeFooterTestPack(t testing.TB, c Codec, steps []footerTestStep) *footerT
 	t.Helper()
 
 	meta := &PackMeta{
-		ToolID: "tool", Recorder: "rec", Writer: "wr", Classifier: new("c"),
+		ToolID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
 		PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)),
 	}
 	if len(steps) > 0 {
