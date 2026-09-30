@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-09-29) — spec v2.14.
+Status: current (2026-09-30) — spec v2.15.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -703,3 +703,36 @@ P10 (a storage view without commit and fence objects) is closed as rejected; its
 The storage profile does not change: the catalog stays a cache rebuilt from the packs plus the commit and fence objects ([STO §5]),
 and `Repair` follows [STO §2], §5 and §6, with `patch_base` supplied by its caller.
 The review findings listed as open in P10 under the v2.13 entry are closed with it.
+
+## Changes v2.14 → v2.15: repair (owner decisions G5-102..G5-106, 2026-09-30)
+
+Source: planning the Go `Repair`, which found the patch's content, its lost ranges and the cases it must refuse unspecified; no proposal document.
+Format version stays 1.0: no byte changes.
+
+Summary:
+- [FMT §5] a writer writes `capture_id`, `seq_first`, `time_start` and `time_end` in every `coverage` entry it declares, and `seq_last` when the upper bound is known (G5-102);
+  inherited entries are carried as data, unknown nested tags included.
+  The `seq_start` row gives a patch without records the damaged pack's `seq_start`.
+- [FMT §13] repair: every validated block copied byte for byte, those after a failed block included (G5-105);
+  the footer rebuilt from the copied records, never propagated;
+  `supersedes` names only the damaged pack, also a patch (G5-104).
+- [FMT §13] new `coverage`: a trusted valid footer gives each failed block's F-3 seq ranges within its F-2 times;
+  a footer that a validated block disagrees with, or no valid footer, gives one entry per lost run, bounded by the seqs of its validated neighbours, within the scope's hour (G5-106);
+  the residual trust is stated.
+- [FMT §13] repair writes nothing for a `finalized-consistent` pack, a pack that is not stored, a period outside one hour or a block outside it,
+  an I-12 or I-13 writer defect, a lost run without a seq between its neighbours, or records breaching the metadata's commitments (G5-103).
+- [STO §6] a patch keeps the scope, capture, period, capture-level tags and compaction lineage of the pack it repairs, with `scope_generation` 0.
+- [FMT §16] repair vectors.
+- `tracepack-go.md` §3: `Repair` takes the pack as `io.ReaderAt` and size, a destination and options, and states its refusals and its error contract.
+- Impl plan phase 5: the view question of a patch naming a patch is settled before `ActiveView`.
+
+### Repair plan review rounds 1–3 — VERDICT (round 3): ready
+
+| Finding | Resolution (v2.15) |
+|---|---|
+| P0 a valid footer that misstates a failed block would make the patch under-report the loss | G5-106: the footer is trusted as for pruning, unless a validated block disagrees with it; residual trust stated in [FMT §13] |
+| P0 an empty interval between a failed block's neighbours would drop its loss | G5-103: repair is refused |
+| P1 the scope hour as a loss interval assumed a stored pack inside one hour | G5-103: a pack that is not stored, a period outside one hour and a block outside it are refused |
+| P1 inherited `coverage` entries could lose unknown nested tags | [FMT §5]: carried as data, nested order and reserved bytes normalized |
+| P0 ×1, P1 ×8 capture identity, analysis and budget errors, arithmetic and footer limits, the Writer seam, source changes, the error contract, test fixtures | the Go implementation plan |
+
