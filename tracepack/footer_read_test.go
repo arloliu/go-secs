@@ -2,6 +2,7 @@ package tracepack
 
 import (
 	"bytes"
+	"errors"
 	"math"
 	"slices"
 	"testing"
@@ -382,7 +383,7 @@ func TestParseFooterAcceptsWriterPacks(t *testing.T) {
 			p := richFooterPack(t, c)
 			require.Len(t, p.blocks, 5)
 
-			idx, err := parseFooter(p.decoded, &p.tr, p.blocksStart, false)
+			idx, err := parseFooter(p.decoded, &p.tr, p.blocksStart, DefaultMaxFooterLen, false)
 			require.NoError(t, err)
 
 			pro, err := format.UnmarshalFooterPrologue(p.decoded)
@@ -403,7 +404,7 @@ func TestParseFooterRichPackCoversEveryStructure(t *testing.T) {
 	t.Parallel()
 
 	p := richFooterPack(t, CodecZstd)
-	idx, err := parseFooter(p.decoded, &p.tr, p.blocksStart, false)
+	idx, err := parseFooter(p.decoded, &p.tr, p.blocksStart, DefaultMaxFooterLen, false)
 	require.NoError(t, err)
 
 	// Block 0 holds seqs 10, 11 and 13, so its summary carries seq_range entries.
@@ -434,7 +435,7 @@ func TestParseFooterAcceptsEmptyPack(t *testing.T) {
 	p := emptyFooterPack(t)
 	require.Equal(t, p.blocksStart, p.tr.FooterOffset)
 
-	idx, err := parseFooter(p.decoded, &p.tr, p.blocksStart, false)
+	idx, err := parseFooter(p.decoded, &p.tr, p.blocksStart, DefaultMaxFooterLen, false)
 	require.NoError(t, err)
 	assert.Empty(t, idx.blocks)
 	assert.Equal(t, packStats{}, normalizeStats(footerStats(t, p.decoded)))
@@ -526,7 +527,7 @@ func TestParseFooterAcceptsVariants(t *testing.T) {
 			p := splitFooter(t, base.decoded)
 			tt.mutate(t, p)
 			decoded := p.encode()
-			_, err := parseFooter(decoded, &base.tr, base.blocksStart, false)
+			_, err := parseFooter(decoded, &base.tr, base.blocksStart, DefaultMaxFooterLen, false)
 			require.NoError(t, err)
 			assert.Equal(t, normalizeStats(aggregate(base.blocks)), normalizeStats(footerStats(t, decoded)))
 		})
@@ -559,7 +560,7 @@ type footerRejectCase struct {
 func runFooterRejectCases(t *testing.T, base *footerTestPack, tests []footerRejectCase) {
 	t.Helper()
 
-	_, err := parseFooter(splitFooter(t, base.decoded).encode(), &base.tr, base.blocksStart, false)
+	_, err := parseFooter(splitFooter(t, base.decoded).encode(), &base.tr, base.blocksStart, DefaultMaxFooterLen, false)
 	require.NoError(t, err, "the unmutated footer is valid")
 
 	for _, tt := range tests {
@@ -579,7 +580,7 @@ func runFooterRejectCases(t *testing.T, base *footerTestPack, tests []footerReje
 				tt.trailer(&tr)
 			}
 
-			idx, err := parseFooter(b, &tr, base.blocksStart+tt.startShift, false)
+			idx, err := parseFooter(b, &tr, base.blocksStart+tt.startShift, DefaultMaxFooterLen, false)
 			require.ErrorIs(t, err, ErrInvalidFooter)
 			assert.ErrorContains(t, err, tt.want)
 			assert.Nil(t, idx)
@@ -708,7 +709,7 @@ func TestParseFooterAcceptsF4(t *testing.T) {
 		p.F5Offset += f4Len
 	})
 
-	idx, err := parseFooter(withF4, &base.tr, base.blocksStart, false)
+	idx, err := parseFooter(withF4, &base.tr, base.blocksStart, DefaultMaxFooterLen, false)
 	require.NoError(t, err)
 	assert.Len(t, idx.blocks, len(base.blocks))
 }
@@ -726,7 +727,7 @@ func TestParseFooterIgnoresRetiredFields(t *testing.T) {
 	}
 	b := patchPrologue(t, p.encode(), func(p *format.FooterPrologue) { p.ExtractionVersion = 7 })
 
-	idx, err := parseFooter(b, &base.tr, base.blocksStart, false)
+	idx, err := parseFooter(b, &base.tr, base.blocksStart, DefaultMaxFooterLen, false)
 	require.NoError(t, err)
 	assert.Len(t, idx.blocks, len(base.blocks))
 }
@@ -744,12 +745,12 @@ func TestParseFooterAcceptsLargestBlock(t *testing.T) {
 	tr := base.tr
 	tr.FooterOffset = base.blocks[last].offset + uint64(p.entries[last].OnDiskLen)
 
-	_, err := parseFooter(p.encode(), &tr, base.blocksStart, false)
+	_, err := parseFooter(p.encode(), &tr, base.blocksStart, DefaultMaxFooterLen, false)
 	require.NoError(t, err)
 
 	p.entries[last].OnDiskLen++
 	tr.FooterOffset++
-	_, err = parseFooter(p.encode(), &tr, base.blocksStart, false)
+	_, err = parseFooter(p.encode(), &tr, base.blocksStart, DefaultMaxFooterLen, false)
 	require.ErrorIs(t, err, ErrInvalidFooter)
 	require.ErrorIs(t, err, format.ErrLimit)
 }
@@ -1178,7 +1179,7 @@ func TestCloseSeqOfEpochEndedTwice(t *testing.T) {
 				{rec: testEventRecord(t, 12, blockTestHour+2, 1, stop)},
 			})
 
-			idx, err := parseFooter(p.decoded, &p.tr, p.blocksStart, false)
+			idx, err := parseFooter(p.decoded, &p.tr, p.blocksStart, DefaultMaxFooterLen, false)
 			require.NoError(t, err)
 			require.Len(t, idx.blocks, len(tt.wantF3))
 			for i, want := range tt.wantF3 {
@@ -1202,7 +1203,7 @@ func TestCloseSeqOfEpochEndedTwice(t *testing.T) {
 			if tt.split {
 				parts := splitFooter(t, p.decoded)
 				parts.f5 = withNestedAt(t, parts.f5, f5TagEpoch, 0, epochTagCloseSeq, tlv.U64Entry(epochTagCloseSeq, 12))
-				_, err := parseFooter(parts.encode(), &p.tr, p.blocksStart, false)
+				_, err := parseFooter(parts.encode(), &p.tr, p.blocksStart, DefaultMaxFooterLen, false)
 				require.ErrorIs(t, err, ErrInvalidFooter)
 				assert.ErrorContains(t, err, "F-5 epoch entries differ")
 
@@ -1287,7 +1288,7 @@ func TestParseFooterIgnoresEmptyPackLastSeq(t *testing.T) {
 	tr := p.tr
 	tr.LastSeq = 12345
 
-	_, err := parseFooter(p.decoded, &tr, p.blocksStart, false)
+	_, err := parseFooter(p.decoded, &tr, p.blocksStart, DefaultMaxFooterLen, false)
 	require.NoError(t, err)
 }
 
@@ -1417,6 +1418,50 @@ func TestReaderRawF3OverlappingSpans(t *testing.T) {
 	assert.Equal(t, OutcomeFinalizedConsistent, mustVerify(t, file).Outcome)
 }
 
+// sharedCountsF3Pack returns file, a finalized pack whose blocks hold equal kind_counts,
+// with its F-3 section rebuilt so that every block's list ends in one kind_counts entry the blocks share,
+// its array followed by pad zero bytes;
+// it also returns the total length of the blocks' lists, each counted once per block.
+// Block i's list is its entries other than kind_counts,
+// then an unknown entry whose value holds block i+1's list up to the shared entry,
+// then the shared entry;
+// the trailing zero elements keep each block's counts and the F-5 sums.
+// The footer validation of the tracepack format specification §10 accepts the footer,
+// since it requires each list inside F-3,
+// so F-3 stores the padded array once while every block's list holds it.
+func sharedCountsF3Pack(t testing.TB, file []byte, pad int) ([]byte, uint64) {
+	t.Helper()
+
+	parts := splitFooter(t, footerOf(t, file))
+	n := len(parts.f3)
+	require.Positive(t, n)
+	kinds := nthEntry(t, parts.f3[0], f3TagKindCounts, 0)
+	own := make([][]byte, n)
+	for i, list := range parts.f3 {
+		require.Equal(t, kinds.Value, nthEntry(t, list, f3TagKindCounts, 0).Value, "block %d", i)
+		for _, e := range removeEntries(list, f3TagKindCounts) {
+			own[i] = tlv.AppendEntry(own[i], e)
+		}
+	}
+	kinds.Value = append(slices.Clone(kinds.Value), make([]byte, pad)...)
+	shared := tlv.AppendEntry(nil, kinds)
+
+	// heads[i] is block i's list up to the shared entry.
+	heads := make([][]byte, n)
+	heads[n-1] = own[n-1]
+	for i := n - 2; i >= 0; i-- {
+		heads[i] = tlv.AppendEntry(slices.Clone(own[i]), tlv.BytesEntry(0x0101, heads[i+1]))
+	}
+	spans := make([]f3Span, n)
+	var total uint64
+	for i := range heads {
+		spans[i] = f3Span{offset: uint64(len(heads[0]) - len(heads[i])), n: uint32(len(heads[i]) + len(shared))}
+		total += uint64(spans[i].n)
+	}
+
+	return refooter(t, file, parts.encodeF3(slices.Concat(heads[0], shared), spans)), total
+}
+
 // TestReaderRawF3NilWithoutValidFooter checks that rawF3 returns nil for every block the forward walk found,
 // even with F-3 retention requested: a pack without a valid footer has no stored lists.
 func TestReaderRawF3NilWithoutValidFooter(t *testing.T) {
@@ -1516,7 +1561,7 @@ func TestParseFooterCopiesF3(t *testing.T) {
 	p := richFooterPack(t, CodecNone)
 	want := splitFooter(t, p.decoded).f3Raw
 	decoded := bytes.Clone(p.decoded)
-	idx, err := parseFooter(decoded, &p.tr, p.blocksStart, true)
+	idx, err := parseFooter(decoded, &p.tr, p.blocksStart, DefaultMaxFooterLen, true)
 	require.NoError(t, err)
 
 	for i := range decoded {
@@ -1533,6 +1578,9 @@ func FuzzParseFooter(f *testing.F) {
 	empty := emptyFooterPack(f)
 	padded := splitFooter(f, rich.decoded)
 	padded.entryPad = make([]byte, 8)
+	// The blocks' lists total more than the footer.
+	sharedFile, _ := sharedCountsF3Pack(f, mergePack(f, seg0, nil, hourSteps(1, 4, 1)), 1<<10)
+	sharedTr, shared, sharedStart := splitPack(f, sharedFile)
 
 	seeds := []struct {
 		decoded []byte
@@ -1543,6 +1591,7 @@ func FuzzParseFooter(f *testing.F) {
 		{plain.decoded, plain.tr, plain.blocksStart},
 		{padded.encode(), rich.tr, rich.blocksStart},
 		{empty.decoded, empty.tr, empty.blocksStart},
+		{shared, sharedTr, sharedStart},
 	}
 	for _, s := range seeds {
 		f.Add(s.decoded, s.tr.FooterOffset, s.tr.BlockCount, s.tr.RecordCount, s.tr.LastSeq, s.start)
@@ -1551,9 +1600,11 @@ func FuzzParseFooter(f *testing.F) {
 	f.Fuzz(func(t *testing.T, decoded []byte, footerOffset uint64, blockCount uint32, recordCount, lastSeq, blocksStart uint64) {
 		tr := format.Trailer{FooterOffset: footerOffset, BlockCount: blockCount, RecordCount: recordCount, LastSeq: lastSeq}
 
-		idx, err := parseFooter(decoded, &tr, blocksStart, false)
+		// The budget is the footer's length, the smallest under which Open decodes it.
+		idx, err := parseFooter(decoded, &tr, blocksStart, uint64(len(decoded)), false)
 		if err != nil {
-			require.ErrorIs(t, err, ErrInvalidFooter)
+			// A budget is never a defect, nor a defect a budget.
+			require.NotEqual(t, errors.Is(err, ErrInvalidFooter), errors.Is(err, ErrReadLimit), "%v", err)
 			require.Nil(t, idx)
 
 			return

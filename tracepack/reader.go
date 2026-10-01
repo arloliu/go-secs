@@ -80,8 +80,13 @@ type ReaderOptions struct {
 	// MaxPackMetadataLen is the largest pack metadata Open reads; above it Open fails with ErrReadLimit.
 	// Default 64 MiB.
 	MaxPackMetadataLen int64
-	// MaxFooterLen is the largest footer Open reads and decodes, on disk and decoded;
-	// above it the footer is not used, and the blocks are found by the forward walk.
+	// MaxFooterLen is the largest footer Open reads and decodes, on disk and decoded,
+	// and the largest total of the blocks' F-3 lists Open parses from it, each list counted once per block that locates it;
+	// above either, the footer is not used, and the blocks are found by the forward walk.
+	// The Writer lays the lists end to end, so in its packs they total less than the footer,
+	// and only a footer whose lists share bytes can exceed the budget with them:
+	// lists may overlap (the tracepack format specification §10), and each block parses its own.
+	// The memory Open spends on a footer thus grows with MaxFooterLen, not with the number of blocks sharing a list.
 	// Default 64 MiB.
 	MaxFooterLen int64
 	// MaxBlockLen is the largest block body a read decodes, on disk and decoded;
@@ -141,7 +146,8 @@ type PackHeader struct {
 	// Finalized reports I-5: the trailer magic, the trailer CRC and the footer CRC match.
 	Finalized bool
 	// FooterErr is non-nil when the footer was not used and the blocks came from the forward walk:
-	// no valid trailer, a footer CRC mismatch, a footer over MaxFooterLen (wrapping ErrReadLimit),
+	// no valid trailer, a footer CRC mismatch,
+	// a footer, or the blocks' F-3 lists in it, over MaxFooterLen (wrapping ErrReadLimit),
 	// or a footer that fails to decode or validate (wrapping ErrInvalidFooter).
 	FooterErr error
 	// Trailer is the trailer's content; nil when the trailer is invalid.
@@ -620,7 +626,8 @@ func (r *Reader) streamFooterCRC(ctx context.Context, tr *format.Trailer) (uint3
 //
 // Returns:
 //   - *footerIndex: the validated footer; nil on error.
-//   - error: ErrReadLimit for a footer_uncompressed_len over MaxFooterLen;
+//   - error: ErrReadLimit for a footer_uncompressed_len over MaxFooterLen,
+//     or for blocks' F-3 lists that total more than it;
 //     ErrInvalidFooter for an unknown footer_codec, a decode failure or a failed validation.
 func (r *Reader) decodeFooter(onDisk []byte, tr *format.Trailer) (*footerIndex, error) {
 	if limit := min(uint64(r.opts.MaxFooterLen), math.MaxInt); tr.FooterUncompressedLen > limit {
@@ -633,7 +640,7 @@ func (r *Reader) decodeFooter(onDisk []byte, tr *format.Trailer) (*footerIndex, 
 		return nil, fmt.Errorf("%w: footer_codec %d: %w", ErrInvalidFooter, tr.FooterCodec, err)
 	}
 
-	return parseFooter(decoded, tr, r.blocksStart(), r.keepF3)
+	return parseFooter(decoded, tr, r.blocksStart(), uint64(r.opts.MaxFooterLen), r.keepF3)
 }
 
 // rawF3 returns block i's F-3 entry list exactly as the pack's validated footer stores it,

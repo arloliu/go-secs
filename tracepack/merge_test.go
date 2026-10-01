@@ -597,6 +597,28 @@ func TestMergeInputOverReaderBudget(t *testing.T) {
 	}
 }
 
+// TestMergeInputSharedF3ListsOverReaderBudget merges an input whose 8 blocks share one kind_counts array (sharedCountsF3Pack)
+// under a reader budget that holds its footer but not its blocks' lists, each counted once per block:
+// the merge fails before it touches dst with ErrReadLimit naming the input, as for any input over a reader budget.
+// Under a budget that holds the lists the input merges.
+func TestMergeInputSharedF3ListsOverReaderBudget(t *testing.T) {
+	t.Parallel()
+
+	file, lists := sharedCountsF3Pack(t, mergePack(t, seg0, nil, hourSteps(1, 8, 1)), 4<<10)
+	l := layoutOf(t, file).tr
+	require.Less(t, max(l.FooterLen, l.FooterUncompressedLen), lists-1, "the budget holds the footer")
+	v := mergeView(t, nil, file)
+	opts := mergeOpts()
+	opts.Reader.MaxFooterLen = int64(lists) - 1
+	requireMergeRefused(t, v, inputsOf(t, v, file), opts, "input 0, pack "+seg0.String(), ErrReadLimit)
+	_, _, err := mergeBytes(t.Context(), v, inputsOf(t, v, file), opts)
+	require.ErrorContains(t, err, "the F-3 lists of blocks 0 to 7 ")
+
+	opts.Reader.MaxFooterLen = int64(lists)
+	_, rep := mustMerge(t, v, inputsOf(t, v, file), opts)
+	assert.Equal(t, uint64(8), rep.Records)
+}
+
 func TestMergeInputReadFailures(t *testing.T) {
 	t.Parallel()
 

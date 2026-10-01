@@ -345,7 +345,7 @@ func TestBoundaryBitMakesNoBoundaryRecord(t *testing.T) {
 	assert.Equal(t, uint64(2), rep.WriterDefects[0].Seq)
 
 	tr, decoded, blocksStart := splitPack(t, pack)
-	idx, err := parseFooter(decoded, &tr, blocksStart, false)
+	idx, err := parseFooter(decoded, &tr, blocksStart, DefaultMaxFooterLen, false)
 	require.NoError(t, err)
 	require.Len(t, idx.blocks, 1)
 	assert.Empty(t, idx.blocks[0].boundaries, "F-3 boundary entries")

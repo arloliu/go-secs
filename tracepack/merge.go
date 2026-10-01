@@ -588,7 +588,8 @@ func openInput(ctx context.Context, i int, id UUID, in MergeInput, opts ReaderOp
 		return nil, inputError(i, id, err)
 	}
 
-	// A footer over MaxFooterLen leaves the pack finalized without a footer index; the budget decides, not the pack.
+	// A footer, or its blocks' F-3 lists, over MaxFooterLen leaves the pack finalized without a footer index;
+	// the budget decides, not the pack.
 	if r.finalized && r.footer == nil && errors.Is(r.footerErr, ErrReadLimit) {
 		return nil, fmt.Errorf("tracepack: merge: input %d, pack %s: %w", i, id, r.footerErr)
 	}

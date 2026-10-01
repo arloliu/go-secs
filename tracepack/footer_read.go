@@ -57,15 +57,20 @@ type f3Span struct {
 // Every value aggregate adds per block is then below 2^32, so no sum over fewer than 2^32 blocks wraps 64 bits,
 // and a sum above 2^63-1 cannot equal its F-5 value, which the TLV decoder keeps at or below 2^63-1.
 // Every section and summary location is bounds-checked before it slices,
-// and the F-2 section is found inside decoded before its entries are allocated,
-// so no input makes parseFooter panic or allocate beyond what decoded's length bounds.
+// and the F-2 section is found inside decoded before its entries are allocated.
+// The blocks' F-3 lists, each counted once per block that locates it, may total at most maxF3 bytes,
+// which is checked before each block's list is parsed:
+// the footer validation lets lists overlap, and every block parses its own, count arrays included,
+// so lists that share bytes would otherwise cost them once per block.
+// No input thus makes parseFooter panic or allocate beyond what decoded's length and maxF3 bound.
 // With keepF3 set, a valid footer's index also keeps a copy of F-3 and each block's span in it, for f3List;
 // without it the index keeps neither.
 //
 // Returns:
 //   - *footerIndex: the decoded footer; nil on error.
-//   - error: nil, or an error wrapping ErrInvalidFooter that names the failed check and, for a block, its index.
-func parseFooter(decoded []byte, tr *format.Trailer, blocksStart uint64, keepF3 bool) (*footerIndex, error) {
+//   - error: nil, an error wrapping ErrInvalidFooter that names the failed check and, for a block, its index,
+//     or an error wrapping ErrReadLimit, and not ErrInvalidFooter, for lists over maxF3.
+func parseFooter(decoded []byte, tr *format.Trailer, blocksStart, maxF3 uint64, keepF3 bool) (*footerIndex, error) {
 	pro, err := format.UnmarshalFooterPrologue(decoded)
 	if err != nil {
 		return nil, footerErrorf("F-1: %w", err)
@@ -85,8 +90,14 @@ func parseFooter(decoded []byte, tr *format.Trailer, blocksStart uint64, keepF3 
 	}
 
 	blocks := make([]blockSummary, len(entries))
+	// Fewer than 2^32 lists of fewer than 2^32 bytes each, so the total cannot overflow 64 bits.
+	var listsLen uint64
 	for i := range entries {
 		e := &entries[i]
+		if listsLen += uint64(e.SummaryLen); listsLen > maxF3 {
+			return nil, fmt.Errorf("tracepack: footer at offset %d: the F-3 lists of blocks 0 to %d total %d bytes and exceed MaxFooterLen %d: %w",
+				tr.FooterOffset, i, listsLen, maxF3, ErrReadLimit)
+		}
 		list := sec.f3[e.SummaryOffset : e.SummaryOffset+uint64(e.SummaryLen)]
 		if blocks[i], err = parseBlockSummary(i, list, e); err != nil {
 			return nil, err

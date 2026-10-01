@@ -63,6 +63,16 @@ It adds the reader and verification (spec v2.14), repair (spec v2.15), and the a
   a failed footer-and-trailer write, or the sync after it, can come after the trailer reached the output.
 - The Writer, `Verify` and `Repair` summarize a block's epochs in time linear in its records,
   where a block of n records in n epochs took time quadratic in n.
+- Reader: `Open` no longer uses a footer whose blocks' F-3 lists, each counted once per block that locates it,
+  total more than `ReaderOptions.MaxFooterLen`;
+  `PackHeader.FooterErr` wraps `ErrReadLimit`,
+  and the blocks are found by the forward walk, as for a footer over the budget.
+  The format lets lists overlap, and every block parses its own,
+  so blocks sharing one long count array took memory in proportion to their number times the array's length.
+  Every reader entry point follows:
+  `Iterate` reports it in `Result.FooterErr`, `Verify` and `Repair` fail with it,
+  and `Merge` fails with it naming the input.
+  No pack whose lists lie end to end, as the Writer and `Merge` write them, is affected.
 
 ### Added
 

@@ -195,7 +195,7 @@ func classifyOutcome(finalized bool, failed []bool, walkStopped, inconsistent bo
 //   - VerifyReport: the outcome and its evidence; the zero VerifyReport on an error.
 //   - error: every error of Open, for a file header or pack metadata that cannot be read;
 //     an error wrapping ErrReadLimit for a block over MaxBlockLen,
-//     for the footer of a finalized pack over MaxFooterLen, on disk or decoded,
+//     for the footer of a finalized pack over MaxFooterLen, on disk or decoded, or for its blocks' F-3 lists over it,
 //     or for a forward walk that reached MaxWalkedBlocks;
 //     ctx's error, wrapped; a ReadAt error, wrapping io.ErrUnexpectedEOF for a short read.
 func Verify(ctx context.Context, ra io.ReaderAt, size int64, opts VerifyOptions) (VerifyReport, error) {
@@ -332,7 +332,7 @@ func (r *Reader) analyze(ctx context.Context, keep bool) (*analysis, error) {
 }
 
 // bootstrapLimitErr returns the resource limit the bootstrap reached, as an error:
-// the footer of a finalized pack over MaxFooterLen, or a forward walk that reached MaxWalkedBlocks.
+// the footer of a finalized pack, or its blocks' F-3 lists, over MaxFooterLen, or a forward walk that reached MaxWalkedBlocks.
 func (r *Reader) bootstrapLimitErr() error {
 	if r.finalized && errors.Is(r.footerErr, ErrReadLimit) {
 		return fmt.Errorf("tracepack: verify: %w", r.footerErr)
