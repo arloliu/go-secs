@@ -117,7 +117,7 @@ func errorClass(err error) string {
 
 // FuzzRepair repairs mutated packs.
 // With an in-memory source and destination, every refusal is decided before the patch's header,
-// so Repair either fails having written nothing or writes a patch that verifies finalized-consistent,
+// so Repair either fails having written nothing or writes a patch that verifies finalized-consistent with a correct seq_start,
 // copies the validated blocks byte for byte, holds every validated record,
 // and declares each new coverage entry with its capture, first seq and time bounds.
 func FuzzRepair(f *testing.F) {
@@ -133,6 +133,7 @@ func FuzzRepair(f *testing.F) {
 	p := writeRepairPack(f, CodecZstd, nil, false, repairSteps(f))
 	f.Add(flipAll(p.file, p, 2))
 	f.Add(flipAll(invalidFooterFile(f, p.file), p, 1, 3))
+	f.Add(withSeqStart(f, p.file, 9))
 	for _, file := range fuzzIterateSeeds(f) {
 		f.Add(file)
 	}
@@ -153,7 +154,10 @@ func FuzzRepair(f *testing.F) {
 		require.Equal(t, OutcomeFinalizedConsistent, v.Outcome, "failed %v, disagreements %v", v.Failed, v.Disagreements)
 		require.Equal(t, rep.Verify.Records, v.Records)
 		require.Equal(t, rep.Records, v.Records)
-		require.NotEqual(t, OutcomeFinalizedConsistent, rep.Verify.Outcome)
+		require.False(t, hasSeqStartDefect(v.WriterDefects), "%v", v.WriterDefects)
+		if rep.Verify.Outcome == OutcomeFinalizedConsistent {
+			require.True(t, hasSeqStartDefect(rep.Verify.WriterDefects), "a consistent pack is repaired only for its seq_start")
+		}
 
 		r, err := Open(t.Context(), bytes.NewReader(data), int64(len(data)), readerOpts)
 		require.NoError(t, err)

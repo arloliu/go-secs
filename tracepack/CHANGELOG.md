@@ -6,7 +6,7 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 ## [Unreleased]
 
 This release follows the format revision of spec v2.13, which redefines format 1.0 in place, and its amendment in spec v2.17.
-It adds the reader and verification (spec v2.14), repair (spec v2.15), and the active view and merge of a scope (spec v2.16 to v2.18).
+It adds the reader and verification (spec v2.14), repair (spec v2.15 and v2.19), and the active view and merge of a scope (spec v2.16 to v2.18).
 
 ### Upgrade notes
 
@@ -106,11 +106,13 @@ It adds the reader and verification (spec v2.14), repair (spec v2.15), and the a
   The report lists failed blocks and the walk's stop with their offsets, the end of the validated prefix,
   footer disagreements with the records or the trailer (`ReasonIndexMismatch`),
   `WriterDefect`s that never change the outcome,
+  among them a first validated block whose first seq is not the pack's `seq_start` (spec v2.19),
   and, with a valid footer, the seq and time ranges of the failed blocks as `Coverage` entries.
   An unreadable file header or pack metadata is an error, and so is a block or a finalized pack's footer over the reader budgets.
 - `Repair` writes a generation-0 repair patch of a damaged stored pack to an `io.Writer`, returning a `RepairReport`.
   It verifies the pack first and decides every refusal before writing:
   `ErrRepairNotNeeded` for a finalized-consistent pack,
+  unless its first record's seq is not its `seq_start`, which the patch corrects so that `Merge` accepts it (spec v2.19),
   and `ErrNotRepairable` for a pack that is not stored, a period or validated block outside one UTC hour,
   a seq-order or hour-span writer defect, a lost run with no seq between its neighbours,
   or records that breach the pack metadata's commitments.

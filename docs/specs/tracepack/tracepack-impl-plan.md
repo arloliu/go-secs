@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation plan (v1)
 
 Status: active (2026-10-01) — phases 4 and 5a done (`Verify`, `Repair`, `ActiveView`, `Merge`); phase 5b next (`MergeIterate`).
-Implements: tracepack v2.18 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
+Implements: tracepack v2.19 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
 
@@ -209,6 +209,8 @@ Done when: the writer and reader implement the revised layout, and the corruptio
   every validated block copied verbatim, the footer rebuilt from the records, `supersedes` = the damaged pack,
   the damaged pack's `coverage` carried as data plus new `coverage` from the trusted footer or the neighbour bounds, and every refusal decided before any output.
   Proposal P10 was rejected (G5-101), so `patch_base` is the current generation's `replacement_set_id`, supplied by the caller ([STO §2], [STO §5]).
+- `seq_start` defect (done, spec v2.19, G5-115): `Verify` reports a first validated block whose first seq is not the pack's `seq_start`,
+  and `Repair` corrects it in a `finalized-consistent` pack, which `Merge` refuses as an input.
 
 Tests: truncate a pack at every byte offset and check the outcome;
 the repair pack keeps the validated prefix byte-identical.
