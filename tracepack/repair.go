@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 
 	"github.com/arloliu/go-secs/tracepack/internal/format"
 )
 
 var (
-	// ErrRepairNotNeeded reports a finalized-consistent pack, which Repair leaves as it is and writes nothing for
-	// (the tracepack format specification §13).
+	// ErrRepairNotNeeded reports a finalized-consistent pack without the WriterDefectSeqStart defect,
+	// which Repair leaves as it is and writes nothing for (the tracepack format specification §13).
 	ErrRepairNotNeeded = errors.New("tracepack: pack needs no repair")
 	// ErrNotRepairable reports a pack for which no faithful and consistent patch can be made
 	// (the tracepack format specification §13): a pack that is not stored, a period or a validated block outside one UTC hour, a seq-order or hour-span writer defect,
@@ -131,7 +132,7 @@ func (r *Reader) planRepair(a *analysis, opts *RepairOptions) (*repairPlan, erro
 	if role := meta.PackRole; role != PackRoleSegment && role != PackRoleArchive && role != PackRoleRepair {
 		return nil, fmt.Errorf("%w: pack_role %s is not a stored pack's", ErrNotRepairable, role)
 	}
-	if a.report.Outcome == OutcomeFinalizedConsistent {
+	if a.report.Outcome == OutcomeFinalizedConsistent && !hasSeqStartDefect(a.report.WriterDefects) {
 		return nil, ErrRepairNotNeeded
 	}
 
@@ -177,6 +178,12 @@ func (r *Reader) planRepair(a *analysis, opts *RepairOptions) (*repairPlan, erro
 	}
 
 	return p, nil
+}
+
+// hasSeqStartDefect reports whether defects holds a WriterDefectSeqStart,
+// which a patch corrects, so Repair writes one for a finalized-consistent pack that has it.
+func hasSeqStartDefect(defects []WriterDefect) bool {
+	return slices.ContainsFunc(defects, func(d WriterDefect) bool { return d.Kind == WriterDefectSeqStart })
 }
 
 // checkRepairCommitments rejects validated records of the pack analyzed as a that its metadata cannot describe:

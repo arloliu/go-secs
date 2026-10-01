@@ -378,6 +378,7 @@ func TestWriterDefectKind_String(t *testing.T) {
 		{3, "event-payload"},
 		{4, "seq-order"},
 		{5, "hour-span"},
+		{6, "seq-start"},
 	}
-	checkEnumStrings[tracepack.WriterDefectKind](t, cases, 6)
+	checkEnumStrings[tracepack.WriterDefectKind](t, cases, 7)
 }

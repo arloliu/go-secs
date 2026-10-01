@@ -69,6 +69,10 @@ const (
 	WriterDefectSeqOrder
 	// WriterDefectHourSpan reports a block whose records lie in more than one UTC hour (I-13).
 	WriterDefectHourSpan
+	// WriterDefectSeqStart reports the first validated block when its first seq is not the pack's seq_start,
+	// or, after a failed block, is not above it (§5).
+	// It is the one writer defect Repair corrects in a finalized-consistent pack.
+	WriterDefectSeqStart
 )
 
 var _ fmt.Stringer = WriterDefectKind(0)
@@ -86,6 +90,8 @@ func (k WriterDefectKind) String() string {
 		return "seq-order"
 	case WriterDefectHourSpan:
 		return "hour-span"
+	case WriterDefectSeqStart:
+		return "seq-start"
 	default:
 		return fmt.Sprintf("unknown(%d)", uint8(k))
 	}
@@ -101,7 +107,7 @@ type WriterDefect struct {
 	// Offset is the file offset of the block's envelope.
 	Offset int64
 	// Seq is the seq of the record concerned;
-	// for WriterDefectSeqOrder and WriterDefectHourSpan, the block's first seq.
+	// for WriterDefectSeqOrder, WriterDefectHourSpan and WriterDefectSeqStart, the block's first seq.
 	Seq uint64
 	// Err describes the defect.
 	Err error
@@ -307,6 +313,9 @@ func (r *Reader) analyze(ctx context.Context, keep bool) (*analysis, error) {
 			}
 		}
 
+		if !hasPrev && d.count() > 0 {
+			rep.WriterDefects = r.appendSeqStartDefect(rep.WriterDefects, i, info, d.header(0).Seq, !inPrefix)
+		}
 		rep.WriterDefects = appendWriterDefects(rep.WriterDefects, i, info, d, prevSeq, hasPrev)
 		if n := d.count(); n > 0 {
 			prevSeq, hasPrev = d.header(n-1).Seq, true
@@ -428,6 +437,25 @@ func checkSummary(stated, got *blockSummary) error {
 	}
 
 	return nil
+}
+
+// appendSeqStartDefect appends to dst the seq_start defect of block i, the first validated block, whose first seq is firstSeq
+// (the tracepack format specification §13):
+// a first seq other than the pack's seq_start, or, when afterFailed, a failed block preceding it,
+// a first seq not above seq_start, since a failed block holds at least one record.
+func (r *Reader) appendSeqStartDefect(dst []WriterDefect, i int, info *BlockInfo, firstSeq uint64, afterFailed bool) []WriterDefect {
+	seqStart := r.meta.SeqStart
+	var err error
+	switch {
+	case afterFailed && firstSeq <= seqStart:
+		err = fmt.Errorf("tracepack: block %d at offset %d: first seq %d after a failed block is not above seq_start %d", i, info.Offset, firstSeq, seqStart)
+	case !afterFailed && firstSeq != seqStart:
+		err = fmt.Errorf("tracepack: block %d at offset %d: first seq %d is not seq_start %d", i, info.Offset, firstSeq, seqStart)
+	default:
+		return dst
+	}
+
+	return append(dst, WriterDefect{Kind: WriterDefectSeqStart, Block: i, Offset: int64(info.Offset), Seq: firstSeq, Err: err})
 }
 
 // appendWriterDefects appends to dst the writer defects of validated block i, read as d

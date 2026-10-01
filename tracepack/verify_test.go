@@ -585,3 +585,44 @@ func TestVerifyBlockWriterDefects(t *testing.T) {
 		requireWriterDefect(t, rep.WriterDefects, WriterDefectHourSpan, 0, p.blocks[0].offset, 0)
 	})
 }
+
+func TestVerifySeqStartDefect(t *testing.T) {
+	t.Parallel()
+
+	// The repair test pack starts at seq 10; its blocks start at 10, 14, 21, 23 and 31.
+	p := defaultRepairPack(t)
+	failedFirst := flipByte(p.file, p.bodyByteOf(0))
+
+	tests := []struct {
+		name   string
+		file   []byte
+		want   Outcome
+		defect bool
+		block  int
+		seq    uint64
+	}{
+		{name: "seq_start below the first record", file: withSeqStart(t, p.file, 9),
+			want: OutcomeFinalizedConsistent, defect: true, block: 0, seq: 10},
+		{name: "seq_start above the first record", file: withSeqStart(t, p.file, 11),
+			want: OutcomeFinalizedConsistent, defect: true, block: 0, seq: 10},
+		{name: "after a failed block, seq_start at the first validated record", file: withSeqStart(t, failedFirst, 14),
+			want: OutcomeCorruptMiddle, defect: true, block: 1, seq: 14},
+		{name: "after a failed block, seq_start below the first validated record", file: withSeqStart(t, failedFirst, 13),
+			want: OutcomeCorruptMiddle},
+		{name: "after a failed block, the pack's own seq_start", file: failedFirst, want: OutcomeCorruptMiddle},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rep := mustVerify(t, tt.file)
+			assert.Equal(t, tt.want, rep.Outcome, "a writer defect never changes the outcome: %v", rep.Disagreements)
+			if !tt.defect {
+				assert.Empty(t, rep.WriterDefects)
+
+				return
+			}
+			requireWriterDefect(t, rep.WriterDefects, WriterDefectSeqStart, tt.block, p.blocks[tt.block].offset, tt.seq)
+		})
+	}
+}

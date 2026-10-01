@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"slices"
@@ -1204,4 +1205,29 @@ func TestRepairCancelledAfterVerification(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, RepairReport{}, rep)
 	assert.Zero(t, out.Len(), "cancellation before the patch's header writes nothing")
+}
+
+func TestRepairCorrectsSeqStart(t *testing.T) {
+	t.Parallel()
+
+	p := defaultRepairPack(t)
+	for _, seqStart := range []uint64{9, 11} {
+		t.Run(fmt.Sprintf("seq_start %d", seqStart), func(t *testing.T) {
+			t.Parallel()
+
+			damaged := withSeqStart(t, p.file, seqStart)
+			require.Equal(t, OutcomeFinalizedConsistent, mustVerify(t, damaged).Outcome)
+
+			patch, rep := mustRepair(t, damaged)
+			checkPatch(t, p.file, damaged, patch, rep)
+			assert.Empty(t, rep.Coverage, "no record is lost")
+			assert.Equal(t, []WriterDefect{{Kind: WriterDefectSeqStart, Seq: 10, Offset: int64(p.blocks[0].offset), Err: rep.Verify.WriterDefects[0].Err}},
+				rep.Verify.WriterDefects)
+
+			meta := mustOpen(t, patch, ReaderOptions{}).Header().Meta
+			assert.Equal(t, uint64(10), meta.SeqStart, "the first record's seq")
+			assert.Empty(t, meta.Coverage)
+			assert.Empty(t, mustVerify(t, patch).WriterDefects)
+		})
+	}
 }
