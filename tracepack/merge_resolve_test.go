@@ -98,6 +98,7 @@ type loadEvent struct {
 
 // writeWithHooks writes the archive of the plan of inputs with fixedIDs(opts) into a buffer,
 // the plan's hooks set by hooks before it writes, and returns what it wrote, its report and its error.
+// An archive written without an error must have the properties of every successful merge (requireMergeProperties).
 func writeWithHooks(t *testing.T, v View, inputs []MergeInput, opts MergeOptions, hooks func(p *mergePlan)) ([]byte, MergeReport, error) {
 	t.Helper()
 
@@ -106,6 +107,9 @@ func writeWithHooks(t *testing.T, v View, inputs []MergeInput, opts MergeOptions
 	hooks(p)
 	var out bytes.Buffer
 	rep, err := p.write(t.Context(), &out, &opts)
+	if err == nil {
+		requireMergeProperties(t, inputFiles(t, inputs), out.Bytes(), rep, opts)
+	}
 
 	return out.Bytes(), rep, err
 }

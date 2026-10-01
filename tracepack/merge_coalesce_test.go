@@ -420,7 +420,9 @@ func TestMergeFooterBudgetWithCoalescing(t *testing.T) {
 		assert.Nil(t, m.w.blocks[0].verbatimF3, "the coalesced block's list is built from its summary")
 		_, err = m.w.Close()
 		require.NoError(t, err)
-		requireConsistent(t, out.Bytes())
+		// The report as mergePlan.write completes it after Close.
+		m.rep.Size, m.rep.ConflictsComplete = m.w.offset, true
+		requireMergeProperties(t, [][]byte{file}, out.Bytes(), m.rep, opts)
 	})
 
 	t.Run("coalesced", func(t *testing.T) {
