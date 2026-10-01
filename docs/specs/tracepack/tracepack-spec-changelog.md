@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-01) — spec v2.18.
+Status: current (2026-10-01) — spec v2.19.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -839,3 +839,19 @@ Summary:
   an epoch ended by a socket-close event and then a clean `stop`, in one block and across two blocks, with an F-5 stating the higher seq invalid,
   and in one block an F-3 entry stating it, with F-5 recomputed from it, `finalized-inconsistent`;
   quality bit 0 on a record that is not a capture-boundary record; a transport-event record whose payload is not a valid TLV body.
+
+## Changes v2.18 → v2.19: the `seq_start` writer defect (owner decision G5-115, 2026-10-01)
+
+Source: the merge plan's last review round, which found that `Merge` refuses an input whose `seq_start` is not its first record's seq,
+while `verify` did not report it and repair refused such a `finalized-consistent` pack as needing no repair;
+no proposal document.
+Format version stays 1.0: no byte changes.
+
+Summary:
+- [FMT §13] a new writer defect: a first validated block whose first seq is not `seq_start`,
+  or, when a failed block precedes it, not above `seq_start`;
+  footer validation does not check it, so a finalized pack with it alone is `finalized-consistent`.
+- [FMT §13] repair writes a patch for a `finalized-consistent` pack with that defect, as for a `finalized-inconsistent` one,
+  its `seq_start` the first record's seq and no new `coverage`; the refusal for `finalized-consistent` applies only without the defect.
+- [STO §4] the merge-input paragraph says repair corrects this breach, while the other breaches of a `finalized-consistent` input still need an operator.
+- [FMT §16] verification and repair vectors for the defect.

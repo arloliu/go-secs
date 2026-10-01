@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-10-01) — v2.18, tracepack format 1.0.
+Status: current (2026-10-01) — v2.19, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for publishers, mergers, recorders and log converters.
 
@@ -192,8 +192,9 @@ provided each commit object is deleted after the packs it commits.
   a pack with records has a `seq_start` other than its first record's seq ([FMT §5]);
   or its records breach its own commitments:
   a classified record without a `classifier` in that input's metadata, an `oversized` record without a `max_frame_len` there, or a `quality.redacted` record.
-  Repair writes nothing for a `finalized-consistent` pack ([FMT §13]),
-  so a scope holding a `finalized-consistent` input with such a breach stays unmerged until an operator acts.
+  Repair of a `finalized-consistent` input corrects a `seq_start` other than its first record's seq ([FMT §13], G5-115),
+  but writes nothing for any other breach,
+  so a scope holding a `finalized-consistent` input with another such breach stays unmerged until an operator acts.
   Every input carries the same value of each **capture-level tag**:
   `tool_id`, `transport`, `capture_method`, `vantage`, `recorder`, `time_source`, `lifecycle_coverage`, `quality_evaluated`, `recorder_instance_id`,
   `capture_origin_utc_ns`, `capture_origin_mono_ns`, `clock_step_tolerance_ns`, `previous_capture_id`,
