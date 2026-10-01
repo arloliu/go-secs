@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -879,6 +880,104 @@ func TestOpenDecodedFooterOverBudget(t *testing.T) {
 	require.ErrorIs(t, h.FooterErr, ErrReadLimit)
 	assert.Equal(t, walkedInfos(p.blocks), r.Blocks())
 	assert.Empty(t, r.openDefects)
+}
+
+// TestOpenSharedF3ListsOverBudget opens a pack whose 32 blocks share one kind_counts array of 64 KiB (sharedCountsF3Pack)
+// under a MaxFooterLen that holds the footer but not the blocks' lists, each counted once per block:
+// the footer is not used, as for a footer over the budget, and the blocks are walked.
+// Iterate reads every record and reports the budget, and Verify and Repair fail with it before reading a block,
+// as for any footer over the budget; none reports the footer invalid.
+// Under the default budget the same footer is valid and used.
+func TestOpenSharedF3ListsOverBudget(t *testing.T) {
+	t.Parallel()
+
+	const blocks = 32
+	file, lists := sharedCountsF3Pack(t, mergePack(t, seg0, nil, hourSteps(1, blocks, 1)), 64<<10)
+	require.NoError(t, mustOpen(t, file, ReaderOptions{}).Header().FooterErr)
+	requireConsistent(t, file)
+
+	opts := ReaderOptions{MaxFooterLen: int64(lists / 2)}
+	require.Less(t, layoutOf(t, file).tr.FooterUncompressedLen, uint64(opts.MaxFooterLen), "the budget holds the footer")
+	r := mustOpen(t, file, opts)
+	h := r.Header()
+	assert.True(t, h.Finalized)
+	require.ErrorIs(t, h.FooterErr, ErrReadLimit)
+	assert.NotErrorIs(t, h.FooterErr, ErrInvalidFooter, "a budget, not a defect")
+	require.ErrorContains(t, h.FooterErr, "the F-3 lists of blocks 0 to ")
+	require.Len(t, r.Blocks(), blocks)
+	for i, b := range r.Blocks() {
+		assert.False(t, b.Indexed, "block %d", i)
+	}
+	assert.Empty(t, r.openDefects)
+
+	run := iterate(t, r, Query{})
+	assert.Len(t, run.items, blocks)
+	assert.Equal(t, h.FooterErr, run.res.FooterErr)
+	assert.Empty(t, run.res.Incomplete)
+
+	_, err := verifyBytes(t, file, VerifyOptions{Reader: opts})
+	require.ErrorIs(t, err, ErrReadLimit)
+	require.ErrorContains(t, err, "the F-3 lists of blocks 0 to ")
+	ro := repairOpts()
+	ro.Reader = opts
+	patch, rep, err := repairBytes(t, file, ro)
+	require.ErrorIs(t, err, ErrReadLimit)
+	assert.Empty(t, patch)
+	assert.Equal(t, RepairReport{}, rep)
+}
+
+// TestOpenSharedF3ListsAtBudget opens a pack whose 4 blocks share a kind_counts array (sharedCountsF3Pack)
+// under a MaxFooterLen equal to the total of its blocks' lists, each counted once per block, and one byte below:
+// the footer is used at the budget, and below it the blocks are walked, the last block's list being the one over it.
+// A pack the Writer wrote, whose lists lie end to end and total less than its footer,
+// is indexed under the smallest budget that holds its footer.
+func TestOpenSharedF3ListsAtBudget(t *testing.T) {
+	t.Parallel()
+
+	plain := mergePack(t, seg0, nil, hourSteps(1, 4, 1))
+	pl := layoutOf(t, plain).tr
+	r := mustOpen(t, plain, ReaderOptions{MaxFooterLen: int64(max(pl.FooterLen, pl.FooterUncompressedLen))})
+	require.NoError(t, r.Header().FooterErr, "the Writer's pack")
+
+	file, lists := sharedCountsF3Pack(t, plain, 4<<10)
+	l := layoutOf(t, file).tr
+	require.Less(t, max(l.FooterLen, l.FooterUncompressedLen), lists-1, "the footer fits under both budgets")
+
+	r = mustOpen(t, file, ReaderOptions{MaxFooterLen: int64(lists)})
+	require.NoError(t, r.Header().FooterErr)
+	assert.True(t, r.Blocks()[0].Indexed)
+
+	r = mustOpen(t, file, ReaderOptions{MaxFooterLen: int64(lists) - 1})
+	require.ErrorIs(t, r.Header().FooterErr, ErrReadLimit)
+	require.ErrorContains(t, r.Header().FooterErr, fmt.Sprintf("the F-3 lists of blocks 0 to 3 total %d bytes", lists))
+	assert.False(t, r.Blocks()[0].Indexed)
+}
+
+// TestOpenSharedF3ListsAllocation opens a pack whose 128 blocks share one kind_counts array of 256 KiB
+// under a MaxFooterLen of 1 MiB, which holds the footer:
+// Open allocates about the budget, not the 32 MiB that parsing every block's list would take.
+// It is not parallel: it measures the process-wide TotalAlloc.
+func TestOpenSharedF3ListsAllocation(t *testing.T) {
+	const (
+		blocks = 128
+		pad    = 256 << 10
+		budget = 1 << 20
+	)
+
+	file, lists := sharedCountsF3Pack(t, mergePack(t, seg0, nil, hourSteps(1, blocks, 1)), pad)
+	require.Greater(t, lists, uint64(blocks*pad))
+	require.Less(t, layoutOf(t, file).tr.FooterUncompressedLen, uint64(budget/2), "the budget holds the footer")
+
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	r, err := Open(t.Context(), bytes.NewReader(file), int64(len(file)), ReaderOptions{MaxFooterLen: budget})
+	runtime.ReadMemStats(&after)
+
+	require.NoError(t, err)
+	require.ErrorIs(t, r.Header().FooterErr, ErrReadLimit)
+	delta := after.TotalAlloc - before.TotalAlloc
+	t.Logf("opening %d lists that total %d bytes allocated %d bytes", blocks, lists, delta)
+	assert.Less(t, delta, uint64(4*budget), "no list is parsed past the budget")
 }
 
 func TestOpenFooterOverBudget(t *testing.T) {
