@@ -504,3 +504,24 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   Rejected: deriving `boundary` entries from quality bit 0;
   setting `close_seq` at a clean `stop` in every epoch still open, which the `stop` `boundary` entry already covers for the whole capture.
   Spec: [FMT §10], [FMT §16], [SEM §7.2] (v2.18).
+
+## 2026-10-01 `seq_start` of a pack with records
+
+- G5-115 A `seq_start` other than the first record's seq (2026-10-01):
+  `verify` reports it as a writer defect of the first validated block:
+  a first seq other than `seq_start`, or, when a failed block precedes that block, a first seq not above `seq_start`.
+  Like every writer defect it never changes the outcome, and footer validation does not compare `seq_start` with the index,
+  so a finalized pack whose only fault it is stays `finalized-consistent`.
+  Repair writes a patch for such a pack, as for a `finalized-inconsistent` one:
+  every block copied, the footer rebuilt, no new `coverage`, and the patch's `seq_start` its first record's seq.
+  The seqs between the damaged `seq_start` and the first record are not reported lost.
+  Rationale: a merge refuses an input whose `seq_start` is not its first record's seq ([STO §4]),
+  so without a repair such a pack could not be merged,
+  and verification did not even name the reason.
+  Unlike the seq-order and hour-span defects, the records are sound and only the pack metadata is wrong,
+  which a patch writes anew, so the patch is faithful.
+  `seq_start` states the first record's seq ([FMT §5]); a mismatch is a fault of the metadata, not evidence of lost records.
+  Rejected: reporting the defect without a repair, which leaves the pack stuck between `verify` and a merge;
+  having footer validation reject it, which would change how every reader opens such a pack;
+  recording the seqs below the first record as lost `coverage`.
+  Spec: [FMT §13], [FMT §16], [STO §4] (v2.19).

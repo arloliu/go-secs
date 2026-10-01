@@ -1,6 +1,6 @@
 # tracepack — record semantics
 
-Status: current (2026-10-01) — v2.18, tracepack format 1.0.
+Status: current (2026-10-01) — v2.19, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic.
 

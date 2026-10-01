@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-10-01) — v2.18, tracepack format 1.0.
+Status: current (2026-10-01) — v2.19, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -742,10 +742,13 @@ The object size is known before reading (file system stat, object listing, the c
   a set `field_validity` bit whose bytes the payload lacks (§7.2);
   a transport-event or annotation record whose `field_validity` is not 0 or whose payload is not a valid TLV body (§8);
   a block whose first seq is not above the last seq of the validated block before it (I-12);
-  and a block whose records lie in more than one UTC hour (I-13).
-  Footer validation (§10) rejects an index that states either of the last two,
+  a block whose records lie in more than one UTC hour (I-13);
+  and a first validated block whose first seq is not the pack's `seq_start` (§5),
+  or, when a failed block precedes it, is not above `seq_start`, since a failed block holds at least one record.
+  Footer validation (§10) rejects an index that states the I-12 or the I-13 defect,
   so in a finalized pack they come with an invalid or disagreeing footer:
   the outcome is `finalized-inconsistent` when no earlier outcome applies, for that reason and not for the defect.
+  It does not compare `seq_start` with the index, so a finalized pack whose only fault is the `seq_start` defect is `finalized-consistent`.
   The report names, with offset and cause, every failed block, the point where the walk stopped, every disagreement and every writer defect.
   It states whether the pack is finalized (I-5) and where the validated prefix ends:
   at the first failed block or the point where the walk stopped, else at the end of the last block.
@@ -779,8 +782,12 @@ The object size is known before reading (file system stat, object listing, the c
   What remains undetectable is a failed block whose records broke I-12 outside the bounds its neighbours give,
   since its bytes cannot be read.
   A `finalized-inconsistent` pack is repaired like any other: every block copied, no new `coverage`, the footer rebuilt.
+  So is a `finalized-consistent` pack with the `seq_start` defect,
+  whose patch states the first record's seq as its `seq_start` (§5), as every patch with records does.
+  The seqs between the damaged pack's `seq_start` and its first record are not reported lost:
+  `seq_start` states the first record's seq, so the mismatch is a fault of the pack metadata, not a sign of missing records.
   Repair writes nothing, and the damaged pack stays, when any of these holds:
-  the pack is `finalized-consistent`, so there is nothing to repair;
+  the pack is `finalized-consistent` without the `seq_start` defect, so there is nothing to repair;
   it is not a stored pack, its `pack_role` being other than `segment`, `archive` or `repair`
   (an extract is never repaired into a patch, [STO §2], and `verify` of an extract only reports);
   its period is not inside one UTC hour, or a validated block lies outside that hour;
@@ -878,6 +885,8 @@ The corpus lets an implementation in any language prove that it reads and writes
   a failed block between validated ones, with a valid footer and, for a block whose envelope holds, without one: `corrupt-middle`;
   a finalized pack whose footer is invalid, or whose F-3 summary disagrees with its block's records, while every block passes: `finalized-inconsistent`;
   a writer defect of each kind in a validated block: reported, never changing the outcome by itself;
+  a first block whose first seq is above, and one whose first seq is below, `seq_start`,
+  and a first validated block after a failed one whose first seq equals `seq_start`: the `seq_start` defect;
   the seq-order and hour-span defects of a finalized pack come with an invalid or disagreeing footer, so `finalized-inconsistent`.
 - Repair vectors (§13), each patch verified `finalized-consistent`, its blocks byte-identical to the damaged pack's validated blocks,
   and every record not copied matched by a `coverage` entry:
@@ -885,8 +894,9 @@ The corpus lets an implementation in any language prove that it reads and writes
   the same with a footer a validated block disagrees with, and without a valid footer (the neighbours' seqs, the scope hour);
   a pack truncated at every byte offset (a tail entry without `seq_last`); every block failed (a patch holding only `coverage`);
   a `finalized-inconsistent` pack (every block copied, no new `coverage`); a repair of a patch (its `coverage` inherited);
+  a `finalized-consistent` pack with the `seq_start` defect, above and below its first record's seq (every block copied, no new `coverage`, the patch's `seq_start` its first record's seq);
   and each refusal:
-  `finalized-consistent`, an extract, a seq-order or hour-span defect, a lost run without a seq between its neighbours, a block outside the scope's hour.
+  `finalized-consistent` without the `seq_start` defect, an extract, a seq-order or hour-span defect, a lost run without a seq between its neighbours, a block outside the scope's hour.
 - Redaction vectors ([SEM §8]), written with the published test keys:
   S7F3 with its PPBODY masked (length, item headers, `decode_status` and HSMS header unchanged; entry and digest as published);
   S7F3 and S7F6 carrying the same process program, in one domain: equal digests; the same S7F3 under the second test key and key id: a different digest;
