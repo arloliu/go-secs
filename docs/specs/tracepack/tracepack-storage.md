@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-09-30) — v2.17, tracepack format 1.0.
+Status: current (2026-10-01) — v2.18, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for publishers, mergers, recorders and log converters.
 

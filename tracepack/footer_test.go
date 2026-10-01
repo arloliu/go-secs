@@ -606,7 +606,7 @@ func TestWriterIDAccessors(t *testing.T) {
 func TestFooterPackStatsKeepFirstCloseSeq(t *testing.T) {
 	t.Parallel()
 
-	// Epoch 1 closes in the first block and again in the second: F-5 keeps the first close_seq.
+	// Epoch 1 closes in the first block and again in the second: F-5 keeps the lowest close_seq, the first block's.
 	w, buf := newTestWriter(t, tracepack.WriterOptions{})
 	closeEvent := &tracepack.TransportEvent{Event: tracepack.EventSocketClose}
 	steps := []tracepack.Record{

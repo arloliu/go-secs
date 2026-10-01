@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-09-30) — spec v2.17.
+Status: current (2026-10-01) — spec v2.18.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -818,3 +818,24 @@ Summary:
 | P2 `compacted_from` order and `coverage` equality | [STO §4] a `coverage` entry carried once, compared on its nested entries; the order in the Go implementation plan |
 | P2 ×2 the format-version explanation and its publication evidence | [FMT §14] the redefinition stays open until a reader of it is published; the dated evidence in this entry |
 | P1 ×6, P2 ×1 output identities and trust in the `View`, the memory bound, `PackInfo` built from decoded bytes (×2), verbatim F-3 amplification and pending coalescing units against the output footer budget, task checkpoints | the Go implementation plan |
+
+## Changes v2.17 → v2.18: epoch closure and capture-boundary records (owner decisions G5-113, G5-114, 2026-10-01)
+
+Source: checking merged footers against footers recomputed from their records by [FMT §10] (impl plan phase 5a),
+which found that the text did not say which record `close_seq` names when two end an epoch, nor what makes a record a capture-boundary record;
+no proposal document.
+Format version stays 1.0: no byte changes.
+The rules write down what the Go writer, footer validation and `verify` already do.
+
+Summary:
+- [FMT §10] an F-3 `epoch` entry's `close_seq` is the lowest seq among the block's records that end the epoch, socket-close events and clean `stop`s;
+  the aggregation rule takes the minimum `close_seq` present in place of "kept when present" (G5-113).
+- [FMT §10] a capture-boundary record is a transport-event record whose payload is a valid TLV body with `event` = capture-boundary;
+  quality bit 0 does not make a record one, and an absent `boundary_kind` is written as 0 (unknown);
+  a transport-event record whose payload is not a valid TLV body adds no `boundary` entry and no `close_seq` (G5-114).
+- [FMT §10] the epoch a record ends is the one in its own record header, so a clean `stop` sets `close_seq` only in its own epoch's entry;
+  the capture's end is shown by the `stop` `boundary` entry (G5-114), to which [SEM §7.2] closure evidence now points.
+- [FMT §16] vectors:
+  an epoch ended by a socket-close event and then a clean `stop`, in one block and across two blocks, with an F-5 stating the higher seq invalid,
+  and in one block an F-3 entry stating it, with F-5 recomputed from it, `finalized-inconsistent`;
+  quality bit 0 on a record that is not a capture-boundary record; a transport-event record whose payload is not a valid TLV body.

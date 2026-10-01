@@ -322,7 +322,7 @@ func boundaryEntry(tag uint16, b *boundarySummary) tlv.Entry {
 
 // aggregate computes the F-5 pack statistics from the blocks' F-2 and F-3 values by the aggregation rule of the tracepack format specification §10:
 // counts and content_bytes summed, ts extremes taken, seq ranges unioned and coalesced,
-// epoch entries combined per epoch keeping the first close_seq, and boundary entries unioned in block order.
+// epoch entries combined per epoch keeping the minimum close_seq, and boundary entries unioned in block order.
 func aggregate(blocks []blockSummary) *packStats {
 	st := &packStats{}
 	epochIndex := make(map[uint32]int)
@@ -379,7 +379,7 @@ func unionSeqRanges(ranges, add []seqRange) []seqRange {
 
 // mergeEpoch combines e into the pack entry of its epoch, whose index in epochs is index[e.epoch],
 // or appends it as a new entry.
-// Blocks arrive in ascending seq order, so the close_seq kept is the first one present.
+// Blocks arrive in ascending seq order, so the first close_seq present is the minimum, and it is kept.
 func mergeEpoch(epochs []epochSummary, index map[uint32]int, e *epochSummary) []epochSummary {
 	i, ok := index[e.epoch]
 	if !ok {
