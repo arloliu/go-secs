@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/arloliu/go-secs/tracepack/internal/codec"
 	"github.com/arloliu/go-secs/tracepack/internal/format"
 	"github.com/arloliu/go-secs/tracepack/internal/tlv"
 )
@@ -73,12 +72,12 @@ func mergeBytes(ctx context.Context, v View, inputs []MergeInput, opts MergeOpti
 	return out.Bytes(), rep, err
 }
 
-// mustMerge merges inputs, which v.Packs names, with fixedIDs(opts) and requires the archive to be written:
-// finalized-consistent and rep.Size bytes long;
+// mustMerge merges inputs, which v.Packs names, with fixedIDs(opts),
+// and requires the archive to be written with the properties of every successful merge (requireMergeProperties):
+// finalized-consistent, its records those of the inputs, each once, its footer the one its records give,
+// and a report of no conflict that counts what it holds;
 // its file header carrying rep's pack_id, the view's capture exactly and no redaction-present flag;
-// its pack metadata the one planMerge plans, byte for byte;
-// its records those of the inputs, each once, as mergedRecords reads them;
-// and no conflict in rep, whose blocks and records are the archive's, and whose counts agree (requireCountsAgree).
+// and its pack metadata the one planMerge plans, byte for byte.
 // It returns the archive and the report, whose block counts the caller checks.
 func mustMerge(t *testing.T, v View, inputs []MergeInput, opts MergeOptions) ([]byte, MergeReport) {
 	t.Helper()
@@ -86,13 +85,9 @@ func mustMerge(t *testing.T, v View, inputs []MergeInput, opts MergeOptions) ([]
 	opts = fixedIDs(opts)
 	out, rep, err := mergeBytes(t.Context(), v, inputs, opts)
 	require.NoError(t, err)
-	requireConsistent(t, out)
-	assert.Equal(t, uint64(len(out)), rep.Size)
+	requireMergeProperties(t, inputFiles(t, inputs), out, rep, opts)
 	assert.Equal(t, opts.PackID, rep.PackID)
 	assert.Equal(t, opts.ReplacementSetID, rep.ReplacementSetID)
-	assert.Equal(t, len(inputs), rep.Inputs)
-	assert.True(t, rep.ConflictsComplete)
-	assert.Zero(t, rep.Conflicts)
 
 	hdr := layoutHeader(t, out)
 	assert.Equal(t, format.UUID(opts.PackID), hdr.PackID)
@@ -102,17 +97,6 @@ func mustMerge(t *testing.T, v View, inputs []MergeInput, opts MergeOptions) ([]
 	want, err := mustPlanMerge(t, v, inputs, opts).meta.MarshalBinary()
 	require.NoError(t, err)
 	assert.Equal(t, want, mustOpen(t, out, ReaderOptions{}).metaRaw, "the planned pack metadata")
-
-	files := inputFiles(t, inputs)
-	records := make([][]rawRecord, len(files))
-	for i, f := range files {
-		records[i] = rawRecordsOf(t, f)
-	}
-	assert.Equal(t, mergedRecords(t, slices.Concat(records...)), rawRecordsOf(t, out), "the inputs' records, each once, in seq order")
-	tr := layoutOf(t, out).tr
-	assert.Equal(t, int(tr.BlockCount), rep.Blocks)
-	assert.Equal(t, tr.RecordCount, rep.Records)
-	requireCountsAgree(t, files, out, rep)
 
 	return out, rep
 }
@@ -128,16 +112,7 @@ func mustMerge(t *testing.T, v View, inputs []MergeInput, opts MergeOptions) ([]
 func requireCountsAgree(t *testing.T, inputs [][]byte, out []byte, rep MergeReport) {
 	t.Helper()
 
-	type block struct{ bytes, f3 string }
-	kept := make(map[block]struct{})
-	blocks := 0
-	for _, f := range inputs {
-		lists := f3ListsOf(t, f)
-		for i, b := range blockBytes(t, f, allBlocks) {
-			kept[block{string(b), string(lists[i])}] = struct{}{}
-		}
-		blocks += len(lists)
-	}
+	kept, blocks := packBlockSet(t, inputs)
 	assert.Equal(t, blocks, rep.Copied+rep.Duplicates+rep.Resolved+rep.Coalesced, "each input block copied, dropped, resolved or coalesced")
 	// twice is the number of blocks the resolution encoded that were coalesced, so encoded twice.
 	twice := rep.Copied + rep.ResolvedEncodings + rep.CoalescedEncodings - rep.Blocks
@@ -151,13 +126,52 @@ func requireCountsAgree(t *testing.T, inputs [][]byte, out []byte, rep MergeRepo
 	}
 
 	copied := 0
-	lists := f3ListsOf(t, out)
-	for i, b := range blockBytes(t, out, allBlocks) {
-		if _, ok := kept[block{string(b), string(lists[i])}]; ok {
+	for _, b := range packBlocks(t, out) {
+		if _, ok := kept[b]; ok {
 			copied++
 		}
 	}
 	assert.GreaterOrEqual(t, copied, rep.Copied, "each block copied is an input block, with its F-3 list")
+}
+
+// packBlock is one block of a finalized pack as the pack stores it:
+// its envelope and on-disk body, and its F-3 entry list.
+type packBlock struct {
+	bytes string
+	f3    string
+}
+
+// packBlocks returns every block of the finalized pack file in file order, with its F-3 list,
+// read from the file's bytes and its decoded footer as stored, without a Reader,
+// whose retained F-3 section is what a merge copies lists from.
+func packBlocks(t testing.TB, file []byte) []packBlock {
+	t.Helper()
+
+	parts := splitFooter(t, footerOf(t, file))
+	out := make([]packBlock, len(parts.entries))
+	for i, e := range parts.entries {
+		out[i] = packBlock{bytes: string(file[e.Offset : e.Offset+uint64(e.OnDiskLen)]), f3: string(parts.f3Raw[i])}
+	}
+
+	return out
+}
+
+// packBlockSet returns the blocks of the finalized pack files, as packBlocks gives them, as a set,
+// and the number of blocks the files hold.
+func packBlockSet(t testing.TB, files [][]byte) (map[packBlock]struct{}, int) {
+	t.Helper()
+
+	set := make(map[packBlock]struct{})
+	n := 0
+	for _, f := range files {
+		blocks := packBlocks(t, f)
+		for _, b := range blocks {
+			set[b] = struct{}{}
+		}
+		n += len(blocks)
+	}
+
+	return set, n
 }
 
 // requireCopied requires rep to count blocks blocks written, of records records, every one an input block copied verbatim,
@@ -213,29 +227,21 @@ type rawRecord struct {
 }
 
 // rawRecordsOf returns every record of the finalized pack file, in file order, as its block stores it:
-// each block decoded from its bytes as the tracepack format specification §6 lays them out,
-// without the Reader's record path or Verify.
+// each block located and decoded from its bytes by walkBlocks, without the Reader's record path or Verify.
 func rawRecordsOf(t testing.TB, file []byte) []rawRecord {
 	t.Helper()
 
-	var out []rawRecord
-	for _, b := range mustOpen(t, file, ReaderOptions{}).Blocks() {
-		blk := file[b.Offset : b.Offset+uint64(b.OnDiskLen)]
-		env, err := format.UnmarshalBlockEnvelope(blk)
-		require.NoError(t, err)
-		body, err := codec.Decode(env.Codec, nil, blk[format.EnvelopeLen:], int(env.UncompressedLen))
-		require.NoError(t, err)
+	blocks, _ := walkBlocks(t, file)
 
-		n, rhl := int(env.RecordCount), int(env.RecordHeaderLen)
-		rows := format.UntransposeHeaders(nil, body[:n*rhl], n, rhl)
-		off := n * rhl
-		for j := range n {
-			row := rows[j*rhl : (j+1)*rhl]
-			h, err := format.UnmarshalRecordHeader(row, format.RecordHeaderLen)
-			require.NoError(t, err)
-			end := off + int(h.PayloadLen)
-			out = append(out, rawRecord{seq: h.Seq, row: row, payload: body[off:end]})
-			off = end
+	return recordsOfBlocks(blocks)
+}
+
+// recordsOfBlocks returns every record of blocks, in their order, as its block stores it.
+func recordsOfBlocks(blocks []walkedBlock) []rawRecord {
+	var out []rawRecord
+	for _, b := range blocks {
+		for _, r := range b.records {
+			out = append(out, rawRecord{seq: r.h.Seq, row: r.row, payload: r.payload})
 		}
 	}
 
