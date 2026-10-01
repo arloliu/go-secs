@@ -1,6 +1,6 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-09-30) — phase 4 done (`Verify`, `Repair`); phase 5a in progress (`ActiveView`, `Merge`).
+Status: active (2026-10-01) — phases 4 and 5a done (`Verify`, `Repair`, `ActiveView`, `Merge`); phase 5b next (`MergeIterate`).
 Implements: tracepack v2.18 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
@@ -68,7 +68,7 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 3 — Reader | done |
 | Format revision (spec v2.13) | done |
 | 4 — Verify, Repair | done |
-| 5a — ActiveView, Merge, Writer seams | in-progress |
+| 5a — ActiveView, Merge, Writer seams | done |
 | 5b — MergeIterate | pending |
 | 5c — FindTransaction, PackSource, listing views, retention | pending |
 | 6 — JSONL export, conformance corpus, CLI | pending |
@@ -225,7 +225,7 @@ and their vectors (the durable clock-step → size roll → empty spool → cras
 Phase 5 is delivered in three steps: 5a (`ActiveView`, `Merge` and the Writer seams they need), 5b (`MergeIterate`),
 and 5c (`FindTransaction`, `PackSource`, listing views and retention).
 
-#### 5a — ActiveView, Merge, Writer seams (in progress)
+#### 5a — ActiveView, Merge, Writer seams (done)
 
 - Spec v2.17 first: `classifier` and `max_frame_len` become repeatable (G5-108), an API break of `PackMeta`,
   and `compacted_from` is required only when a pack's lineage list is non-empty (G5-111).
@@ -268,6 +268,28 @@ with coalescing disabled, no block of the non-overlap path is re-encoded (assert
 with it enabled, only groups of more than one block are;
 output passes `Verify`;
 a defective input and a record conflict each fail the merge with nothing a caller could publish.
+
+Done (2026-10-01): every criterion above holds,
+and a property check recomputes F-2, F-3 and F-5 of every merged archive from its records, independently of the Writer's footer code and `Verify`.
+`FuzzMerge`, `FuzzMergeGenerated` and the pack-metadata, footer, open, iterate and verify fuzz targets ran 10 minutes each without a failure.
+The implementation settled what the text above leaves open:
+- Memory: a pending coalescing group holds one block summary per block in it, besides their records and on-disk bytes:
+  about 0.6 KiB for a block of one record, at most threshold/44 of them, together no more than about the inputs' footer indexes, which the merge already holds.
+  Coalescing encodes in its own encode and check buffers, kept for the whole merge beside the resolution's:
+  about 3× the threshold with zstd, 1–2× with `none`.
+- `MaxOpenBlocks` counts a block from when it is read and kept until its last record is resolved;
+  a block dropped as a duplicate never counts, so a merge holds at most `MaxOpenBlocks` blocks and the one it is reading.
+  The bound is checked after the block was read and checked, so a defective block fails with `ErrMergeInput` first.
+- `Conflict.Versions` orders the versions by the first block holding each, blocks taken in ascending first seq, then in `View.Packs` order;
+  each version lists its packs in `View.Packs` order, each once, those whose blocks were dropped as duplicates included.
+- On error `MergeReport` holds only `Conflicts` and `ConflictsComplete`; every other field is zero.
+- `ctx` is checked before each block read, every 4096 records resolved, and before `Close`.
+  Once every block was compared, a merge that found a conflict returns `ErrMergeConflict`, complete, even if `ctx` was cancelled since;
+  one without a conflict writes its pending coalescing group before that last check.
+- `MergeReport.Coalesced` counts the input blocks coalesced into a new block,
+  so `Copied`, `Duplicates`, `Resolved` and `Coalesced` sum to the number of input blocks.
+- The archive's pack metadata must fit `MergeOptions.Reader.MaxPackMetadataLen`, the budget the next merge opens it with;
+  longer metadata fails with `ErrMergeLimit` before `dst` is touched.
 
 #### 5b — MergeIterate (pending)
 
