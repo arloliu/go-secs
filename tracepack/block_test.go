@@ -293,6 +293,68 @@ func TestBlockSummarySkipsUndecodableEvent(t *testing.T) {
 	assert.False(t, s.epochs[0].hasCloseSeq)
 }
 
+// TestBoundaryBitMakesNoBoundaryRecord stores quality bit 0 (capture-boundary) on records that are not capture-boundary records,
+// which the Writer never does, so the block is encoded from raw header rows:
+// a data record and a socket-close event of epoch 1, and, in epoch 2, a transport-event record whose payload is not a valid TLV body.
+// Only a capture-boundary event in the payload makes a boundary entry (the tracepack format specification §10),
+// so F-3 and F-5 hold the bit in quality_union and no boundary entry;
+// the socket-close event still ends epoch 1, and the undecodable payload ends no epoch and is a writer defect.
+// The pack verifies finalized-consistent.
+func TestBoundaryBitMakesNoBoundaryRecord(t *testing.T) {
+	t.Parallel()
+
+	undecodable := Record{
+		Seq: 2, TSUTCNs: blockTestHour + 2, Epoch: 2, Kind: KindTransportEvent, Dir: DirLocal,
+		DecodeStatus: DecodeStatusNotApplicable, Payload: []byte{0xFF},
+	}
+	recs := []Record{
+		testDataRecord(0, blockTestHour, 1),
+		testEventRecord(t, 1, blockTestHour+1, 1, &TransportEvent{Event: EventSocketClose}),
+		undecodable,
+	}
+	rows, payloads := make([][]byte, 0, len(recs)), make([][]byte, 0, len(recs))
+	for i := range recs {
+		h := canonicalHeader(&recs[i], recs[i].Seq, transportEventOf(&recs[i]))
+		require.Zero(t, h.Quality&uint16(QualityCaptureBoundary), "record %d: the Writer would not set the bit", i)
+		h.Quality |= uint16(QualityCaptureBoundary)
+		rows = append(rows, format.AppendRecordHeader(nil, &h))
+		payloads = append(payloads, recs[i].Payload)
+	}
+
+	raw, sum, err := encodeRawBlock(&encodeBuf{}, CodecZstd, format.RecordHeaderLen, rows, payloads)
+	require.NoError(t, err)
+	assert.Empty(t, sum.boundaries)
+	assert.True(t, sum.qualityUnion.Has(QualityCaptureBoundary))
+	require.Len(t, sum.epochs, 2)
+	assert.Equal(t, epochSummary{
+		epoch: 1, recordCount: 2, seqFirst: 0, seqLast: 1, tsMin: blockTestHour, tsMax: blockTestHour + 1,
+		closeSeq: 1, hasCloseSeq: true,
+	}, sum.epochs[0])
+	assert.False(t, sum.epochs[1].hasCloseSeq, "an undecodable payload ends no epoch")
+
+	meta := &PackMeta{
+		ToolID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
+		PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)),
+	}
+	pack := copyBlocks(t, WriterOptions{Meta: meta, Codec: CodecZstd}, []sourceBlock{{raw: raw, sum: sum}})
+
+	rep := mustVerify(t, pack)
+	assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome, "failed %v, disagreements %v", rep.Failed, rep.Disagreements)
+	require.Len(t, rep.WriterDefects, 1)
+	assert.Equal(t, WriterDefectEventPayload, rep.WriterDefects[0].Kind)
+	assert.Equal(t, uint64(2), rep.WriterDefects[0].Seq)
+
+	tr, decoded, blocksStart := splitPack(t, pack)
+	idx, err := parseFooter(decoded, &tr, blocksStart, false)
+	require.NoError(t, err)
+	require.Len(t, idx.blocks, 1)
+	assert.Empty(t, idx.blocks[0].boundaries, "F-3 boundary entries")
+	assert.True(t, idx.blocks[0].qualityUnion.Has(QualityCaptureBoundary), "F-3 quality_union")
+	st := footerStats(t, decoded)
+	assert.Empty(t, st.boundaries, "F-5 boundary entries")
+	assert.True(t, st.qualityUnion.Has(QualityCaptureBoundary), "F-5 quality_union")
+}
+
 func TestWriterRecordsBlockSummaries(t *testing.T) {
 	t.Parallel()
 

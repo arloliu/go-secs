@@ -1,6 +1,6 @@
 # tracepack — record semantics
 
-Status: current (2026-09-30) — v2.17, tracepack format 1.0.
+Status: current (2026-10-01) — v2.18, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic.
 
@@ -237,7 +237,7 @@ Results: `matched` (exactly one valid match), `ambiguous`, `unmatched`, `incompl
 **`unmatched` requires that every record of the eligibility window was searched**:
 the seq coverage over the eligibility window is contiguous per [STO §5] Completeness (never the case when the window touches a scope that is not indexed),
 and the window is closed — by the next same-key primary, or by evidence that the queried epoch itself ended
-(an `epoch` entry for it has `close_seq`, or the capture ended with a clean `stop`);
+(an `epoch` entry for it has `close_seq`, or a `boundary` entry of kind `stop` shows that the capture ended with a clean `stop`, [FMT §10]);
 the existence of a later epoch is **not** closure evidence, because accepted-then-refused sockets get their own epochs while an earlier connection stays open ([FMT I-7]);
 if absence cannot be established (packs missing from the catalog or a listing view, an unevaluated pack, a `capture-boundary` in the epoch,
 `correlation-incomplete` on the primary) the result is `incomplete` **with the searched scope**.

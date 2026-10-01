@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-09-30) — v2.17, tracepack format 1.0.
+Status: current (2026-10-01) — v2.18, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -591,14 +591,28 @@ such an index MUST be per block and self-contained (I-14).
 
 Nested tags of `epoch` (F-3 and F-5): 0x0001 `epoch` u64, 0x0002 `record_count` u64, 0x0003 `seq_first` u64, 0x0004 `seq_last` u64,
 0x0005 `ts_min` i64, 0x0006 `ts_max` i64,
-0x0007 `close_seq` u64 (optional: seq of the socket-close event or clean `stop` that ended this epoch, when it lies in this block or pack).
+0x0007 `close_seq` u64 (optional: the seq of a record of this block or pack that ends this epoch, as defined below).
 Nested tags of `boundary`: 0x0001 `seq` u64, 0x0002 `boundary_kind` u8, 0x0003 `ts` i64, 0x0004 `epoch` u64,
 0x0005 `gap_start` i64 and 0x0006 `gap_end` i64 (copied from the boundary record's payload; an absent `gap_start` on a `stop-unclean` boundary means unbounded, [STO §4]).
 *u64 array* is like *u32 array* with `u64` elements; pack-level counts use it so they cannot overflow.
 
+A **capture-boundary record** is a transport-event record whose payload is a valid TLV body (§8) with `event` = capture-boundary.
+Each one has a `boundary` entry, whose `boundary_kind` is 0 (unknown) when the payload carries none.
+Quality bit 0 (`capture-boundary`, §9) does not make a record one:
+a record that carries the bit without being a capture-boundary record has no `boundary` entry.
+A record **ends an epoch** when it is a socket-close event (a transport-event record whose payload is a valid TLV body with `event` = socket-close)
+or a clean `stop` (a capture-boundary record with `boundary_kind` = stop; `stop-unclean` ends no epoch),
+and the epoch it ends is the one in its own record header.
+An F-3 `epoch` entry carries `close_seq` when a record of the block ends that epoch, with the lowest seq among those records;
+an F-5 `epoch` entry carries the minimum `close_seq` of the blocks' entries for that epoch, and none when no block's entry has one.
+A clean `stop` therefore sets `close_seq` only in the entry of its own epoch:
+that the capture ended is shown by its `boundary` entry ([SEM §7.2]), never by `close_seq` in the entries of other epochs.
+A transport-event record whose payload is not a valid TLV body is neither a capture-boundary record nor the end of an epoch:
+it adds no `boundary` entry and no `close_seq`, and `verify` reports it as a writer defect (§13).
+
 **Aggregation rule** (I-14): F-5 of any pack equals the aggregate of its blocks' F-2 and F-3 values —
 counts summed, `content_bytes` summed from F-2 `uncompressed_len`, minima and maxima taken, seq ranges unioned and coalesced,
-`epoch` entries combined per epoch (counts summed, seq and ts extremes taken, `close_seq` kept when present), `boundary` entries unioned.
+`epoch` entries combined per epoch (counts summed, seq and ts extremes taken, `close_seq` the minimum of those present), `boundary` entries unioned.
 A merged pack's F-2 is recomputed from the copied blocks' new offsets, each copied block's F-3 entry list is copied verbatim,
 and F-5 is recomputed by this rule, so constructing the footer reads no block body;
 a merge may still decode blocks for other reasons ([STO §4]).
@@ -831,7 +845,12 @@ The corpus lets an implementation in any language prove that it reads and writes
   `record_header_len` > 44, including 45–55, with the extension bytes preserved; unordered timestamps;
   maximum-value integers (§2); UUID byte order; the CRC check value;
   CRC-valid but structurally invalid footers, and a block whose absent `seq_range` hides a missing seq (§10 footer validation);
-  a footer with retired F-3 tags and with a present F-4, read with both ignored (§10).
+  a footer with retired F-3 tags and with a present F-4, read with both ignored (§10);
+  an epoch ended twice, by a socket-close event and then a clean `stop`, in one block and across two blocks:
+  `close_seq` is the lower seq in F-3 and in F-5, and an F-5 that states the higher one is invalid (§10);
+  in one block, an F-3 entry that states the higher one, with F-5 recomputed from it, makes `verify` report `finalized-inconsistent` (§10, §13);
+  a record that carries quality bit 0 without being a capture-boundary record: no `boundary` entry (§10);
+  a transport-event record whose payload is not a valid TLV body: no `boundary` entry, no `close_seq`, and a writer defect (§10, §13).
 - HSMS header field vectors (§7.2):
   short captures ending before and at the last byte of each field (payloads of 5 to 14 bytes):
   each field available exactly when its bit is set, and an unavailable field never matched unless unavailable fields are requested;

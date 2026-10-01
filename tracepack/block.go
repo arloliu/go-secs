@@ -46,7 +46,7 @@ type epochSummary struct {
 	seqLast     uint64
 	tsMin       int64
 	tsMax       int64
-	// closeSeq is the seq of the first socket-close event or clean stop boundary of this epoch in the block;
+	// closeSeq is the lowest seq among the socket-close events and clean stop boundaries of this epoch in the block;
 	// valid iff hasCloseSeq.
 	closeSeq    uint64
 	hasCloseSeq bool

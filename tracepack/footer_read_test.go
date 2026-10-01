@@ -1144,6 +1144,77 @@ func TestParseFooterRejectsPackStats(t *testing.T) {
 	})
 }
 
+// TestCloseSeqOfEpochEndedTwice writes an epoch that a socket-close event and then a clean stop both end,
+// the two records in one block and in two blocks.
+// Each F-3 epoch entry carries the lowest seq among its block's records that end the epoch,
+// F-5 carries the minimum close_seq of the blocks' entries,
+// and the pack verifies finalized-consistent (the tracepack format specification §10).
+// A footer that names the later record instead is rejected:
+// in two blocks its F-5 fails footer validation,
+// and in one block, with F-5 recomputed from it, its F-3 entry disagrees with the block's records.
+func TestCloseSeqOfEpochEndedTwice(t *testing.T) {
+	t.Parallel()
+
+	socketClose := &TransportEvent{Event: EventSocketClose}
+	stop := &TransportEvent{Event: EventCaptureBoundary, BoundaryKind: new(BoundaryKindStop)}
+
+	tests := []struct {
+		name string
+		// split flushes the block after the socket-close event, so the stop opens a second block.
+		split bool
+		// wantF3 is the close_seq of epoch 1 in each block's F-3 entry.
+		wantF3 []uint64
+	}{
+		{name: "one block", wantF3: []uint64{11}},
+		{name: "two blocks", split: true, wantF3: []uint64{11, 12}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p := writeFooterTestPack(t, CodecZstd, []footerTestStep{
+				{rec: testDataRecord(10, blockTestHour, 1)},
+				{rec: testEventRecord(t, 11, blockTestHour+1, 1, socketClose), flush: tt.split},
+				{rec: testEventRecord(t, 12, blockTestHour+2, 1, stop)},
+			})
+
+			idx, err := parseFooter(p.decoded, &p.tr, p.blocksStart, false)
+			require.NoError(t, err)
+			require.Len(t, idx.blocks, len(tt.wantF3))
+			for i, want := range tt.wantF3 {
+				require.Len(t, idx.blocks[i].epochs, 1, "block %d", i)
+				e := idx.blocks[i].epochs[0]
+				assert.True(t, e.hasCloseSeq, "block %d F-3 close_seq present", i)
+				assert.Equal(t, want, e.closeSeq, "block %d F-3 close_seq is the lowest seq that ends the epoch", i)
+			}
+
+			st := footerStats(t, p.decoded)
+			require.Len(t, st.epochs, 1)
+			assert.True(t, st.epochs[0].hasCloseSeq, "F-5 close_seq present")
+			assert.Equal(t, uint64(11), st.epochs[0].closeSeq, "F-5 close_seq is the minimum of the blocks'")
+			require.Len(t, st.boundaries, 1)
+			assert.Equal(t, BoundaryKindStop, st.boundaries[0].kind)
+
+			rep := mustVerify(t, p.file)
+			assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome, "failed %v, disagreements %v", rep.Failed, rep.Disagreements)
+			assert.Empty(t, rep.WriterDefects)
+
+			if tt.split {
+				parts := splitFooter(t, p.decoded)
+				parts.f5 = withNestedAt(t, parts.f5, f5TagEpoch, 0, epochTagCloseSeq, tlv.U64Entry(epochTagCloseSeq, 12))
+				_, err := parseFooter(parts.encode(), &p.tr, p.blocksStart, false)
+				require.ErrorIs(t, err, ErrInvalidFooter)
+				assert.ErrorContains(t, err, "F-5 epoch entries differ")
+
+				return
+			}
+
+			file := resummarized(t, p.file, p.blocks, 0, func(s *blockSummary) { s.epochs[0].closeSeq = 12 })
+			requireInconsistent(t, mustVerify(t, file), 0, "epoch")
+		})
+	}
+}
+
 func TestParseFooterRejectsTrailerTotals(t *testing.T) {
 	t.Parallel()
 

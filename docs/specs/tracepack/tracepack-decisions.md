@@ -475,3 +475,32 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   Rationale: every input's `seq_start` is at or below the capture's next seq, so the largest is the closest to it.
   Rejected: the smallest, which lies further from the capture's next seq.
   Spec: [FMT §5], [STO §4] (v2.17).
+
+## 2026-10-01 epoch closure and capture-boundary records
+
+- G5-113 `close_seq` of an epoch ended twice (2026-10-01):
+  an F-3 `epoch` entry carries the lowest seq among the block's records that ended that epoch, socket-close events and clean `stop`s;
+  the F-5 aggregation takes the minimum `close_seq` present among the blocks' entries for that epoch.
+  The rule replaces "`close_seq` kept when present", which did not say which closing record wins.
+  Rationale: a minimum is a mergeable aggregate ([FMT I-14]), and it is what the Go writer and reader already compute.
+  A reader recomputes F-5 from the F-3 entries, and `verify` recomputes each F-3 entry from its block's records,
+  so every writer must follow one rule:
+  a writer that kept the last closing record would write an F-5 that footer validation rejects when the two records lie in different blocks,
+  and an F-3 entry that `verify` finds disagreeing with its block's records (`finalized-inconsistent`) when they share one.
+  Rejected: the last closing record, under which the footers the Go writer has written for such epochs would be invalid;
+  leaving the choice to the writer, which a reader that recomputes the footer by one rule cannot accept.
+  Spec: [FMT §10], [FMT §16] (v2.18).
+- G5-114 Capture-boundary records and the epoch a clean `stop` ends (2026-10-01):
+  a capture-boundary record is a transport-event record whose payload is a valid TLV body ([FMT §8]) with `event` = capture-boundary.
+  Quality bit 0 does not make a record one; an absent `boundary_kind` is written as 0 (unknown) in its `boundary` entry;
+  a transport-event record whose payload is not a valid TLV body adds no `boundary` entry and no `close_seq`.
+  A clean `stop` sets `close_seq` only in the `epoch` entry of its own record's epoch;
+  that the capture ended is shown by its `boundary` entry ([SEM §7.2]), not by `close_seq` in other epochs.
+  Both write down what the Go writer, reader and `verify` already do.
+  Rationale: a summary entry follows from what a record's payload says, which every reader can recompute,
+  while quality bit 0 is a stored bit its writer declares ([SEM §6]);
+  an `epoch` entry describes its epoch's records,
+  and an epoch still open at a clean `stop` need not have a record in the block or pack that holds the `stop`.
+  Rejected: deriving `boundary` entries from quality bit 0;
+  setting `close_seq` at a clean `stop` in every epoch still open, which the `stop` `boundary` entry already covers for the whole capture.
+  Spec: [FMT §10], [FMT §16], [SEM §7.2] (v2.18).
