@@ -8,7 +8,8 @@ import (
 
 // Checks of ctx in a read over several packs.
 const (
-	// resolveCtxCopies is the number of copies of records the read gathers into seq groups between two checks of ctx.
+	// resolveCtxCopies is the step of the count of copies of records the read gathers into seq groups:
+	// ctx is checked after a seq group is gathered, whenever the count reaches or passes a multiple of it.
 	resolveCtxCopies = 4096
 	// yieldCtxCalls is the number of calls of fn between two checks of ctx:
 	// ctx is checked before the 4096th call, the 8192nd, and so on.
@@ -25,9 +26,18 @@ type mergeIterateRun struct {
 	// copies counts every copy of a record gathered into a seq group, over every cluster resolved:
 	// identical copies held by distinct open blocks each count.
 	// A block dropped at load as a duplicate never enters a group, so its records are not counted.
-	copies int
+	copies ctxCounter
 	// yields counts the calls of fn.
-	yields int
+	yields ctxCounter
+}
+
+// ctxCounter counts toward the checks of ctx at every multiple of a step,
+// keeping only the count since the last multiple, so that no count of a read can overflow it.
+type ctxCounter struct {
+	// step is the step of the checks, positive.
+	step int
+	// n is the count modulo step.
+	n int
 }
 
 // candidate is a version of a record that the query selects, not yet yielded:
@@ -70,7 +80,18 @@ var _ blockSource = (*clusterResolver)(nil)
 
 // newMergeIterateRun returns the run of the read of q that p planned.
 func newMergeIterateRun(p *mergeIteratePlan, q *Query) *mergeIterateRun {
-	return &mergeIterateRun{p: p, q: q, fields: q.Filter.hasFieldPredicate()}
+	copiesStep, yieldStep := resolveCtxCopies, yieldCtxCalls
+	if p.copiesStep > 0 {
+		copiesStep = p.copiesStep
+	}
+	if p.yieldStep > 0 {
+		yieldStep = p.yieldStep
+	}
+
+	return &mergeIterateRun{
+		p: p, q: q, fields: q.Filter.hasFieldPredicate(),
+		copies: ctxCounter{step: copiesStep}, yields: ctxCounter{step: yieldStep},
+	}
 }
 
 // newClusterResolver returns the resolver of c, at the start of the cluster.
@@ -267,12 +288,16 @@ func (cr *clusterResolver) done(o *openBlock) {
 	cr.run.p.loader.release(h)
 }
 
-// countCopies counts n more copies gathered into a seq group,
-// and checks ctx each time the count passes a multiple of resolveCtxCopies.
+// countCopies counts the n copies of a seq group just gathered,
+// and checks ctx when the count reaches or passes a multiple of resolveCtxCopies.
+// A group whose copies take the count across several multiples gets one check:
+// gathering a group reads nothing, each block load checking ctx itself,
+// and a group is no larger than the copies the held blocks hold.
+//
+// Returns:
+//   - error: ctx's error, wrapped, when the check fails.
 func (r *mergeIterateRun) countCopies(ctx context.Context, n int) error {
-	before := r.copies
-	r.copies += n
-	if r.copies/resolveCtxCopies == before/resolveCtxCopies {
+	if !r.copies.add(n) {
 		return nil
 	}
 	if err := ctx.Err(); err != nil {
@@ -295,15 +320,28 @@ func (r *mergeIterateRun) packID(i int) UUID {
 // Returns:
 //   - error: ctx's error, wrapped, fn not called; fn's error, as is.
 func (r *mergeIterateRun) yield(ctx context.Context, c *candidate, it *Item, fn func(*Item) error) error {
-	if (r.yields+1)%yieldCtxCalls == 0 {
+	if r.yields.add(1) {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("tracepack: merge iterate: %w", err)
 		}
 	}
-	r.yields++
 	c.item(r.q, it)
 	err := fn(it)
 	*it = Item{}
 
 	return err
+}
+
+// add adds n, not negative, to the count,
+// and reports whether the count reached or passed a multiple of k.step.
+func (k *ctxCounter) add(n int) bool {
+	if n < k.step-k.n {
+		k.n += n
+
+		return false
+	}
+	// k.n and n%k.step are both below k.step, so their sum cannot overflow.
+	k.n = (k.n + n%k.step) % k.step
+
+	return true
 }
