@@ -174,21 +174,13 @@ func (r *Reader) appendCoverageDefects(dst []Defect, f *Filter) []Defect {
 // or its F-3 kind_counts or dir_counts are 0 for every value of f.Kinds or f.Dirs, a missing element counting 0
 // (the tracepack format specification §10).
 func (r *Reader) prunes(i int, f *Filter) bool {
-	info := &r.blocks[i]
-	if !info.Indexed {
+	if !r.blocks[i].Indexed {
 		return false
 	}
-	if !overlaps(&info.TSMin, &info.TSMax, f.TimeFrom, f.TimeTo) {
-		return true
-	}
-	if len(f.Epochs) > 0 && !slices.ContainsFunc(f.Epochs, func(e uint32) bool { return e >= info.EpochMin && e <= info.EpochMax }) {
-		return true
-	}
-
 	// An indexed block comes from the validated footer, which holds its F-3 summary.
-	s := &r.footer.blocks[i]
+	b := r.indexedBlock(0, i)
 
-	return !anyCounted(s.kindCounts, f.Kinds) || !anyCounted(s.dirCounts, f.Dirs)
+	return b.excludedBy(f)
 }
 
 // yield calls fn with every record of block i, read as d, that q's filter selects, reusing item.
