@@ -42,8 +42,9 @@ type candidate struct {
 	version int
 	// conflict is set when the record's seq has more than one version.
 	conflict bool
-	// ts is the record's ts_utc_ns.
-	ts int64
+	// seq is the record's seq, and ts its ts_utc_ns.
+	seq uint64
+	ts  int64
 	// blockTSMin is the ts_min of the representative's block, as its F-2 entry or its computed summary states it.
 	blockTSMin int64
 }
@@ -192,7 +193,7 @@ func (cr *clusterResolver) candidateOf(o *openBlock, version int, conflict bool)
 
 	return candidate{
 		h: held, rec: o.next, version: version, conflict: conflict,
-		ts: h.TSUTCNs, blockTSMin: cr.c.blocks[o.pos].span.tsMin,
+		seq: h.Seq, ts: h.TSUTCNs, blockTSMin: cr.c.blocks[o.pos].span.tsMin,
 	}, true
 }
 
