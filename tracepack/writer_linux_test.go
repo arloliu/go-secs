@@ -4,6 +4,7 @@ package tracepack_test
 
 import (
 	"runtime"
+	"strconv"
 	"syscall"
 	"testing"
 
@@ -20,7 +21,12 @@ func TestWriterRejectsPayloadAboveLimitWithoutAllocating(t *testing.T) {
 	// Not parallel: the allocation check reads process-wide memory statistics.
 	// 2^31 bytes of address space mapped outside the Go heap and never touched:
 	// the writer must reject the payload by its length alone, never reading or copying it.
-	huge, err := syscall.Mmap(-1, 0, 1<<31, syscall.PROT_READ, syscall.MAP_PRIVATE|syscall.MAP_ANON|syscall.MAP_NORESERVE)
+	// Where int is 32 bits no slice is that long, so there is nothing to test.
+	if strconv.IntSize < 64 {
+		t.Skip("a 2 GiB payload needs 64-bit ints")
+	}
+	size := int64(1) << 31
+	huge, err := syscall.Mmap(-1, 0, int(size), syscall.PROT_READ, syscall.MAP_PRIVATE|syscall.MAP_ANON|syscall.MAP_NORESERVE)
 	if err != nil {
 		t.Skipf("mmap 2 GiB of address space: %v", err)
 	}

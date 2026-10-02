@@ -912,6 +912,9 @@ func TestWriterRejectsCallsAfterClose(t *testing.T) {
 	assert.Equal(t, n, buf.Len())
 }
 
+// aboveBodyLimit is 2^31, one above the largest block body, as a variable so the tests compile where int is 32 bits.
+var aboveBodyLimit int64 = 1 << 31
+
 func TestNewWriterRejectsInvalidOptions(t *testing.T) {
 	t.Parallel()
 
@@ -925,7 +928,8 @@ func TestNewWriterRejectsInvalidOptions(t *testing.T) {
 		{"nil meta", tracepack.WriterOptions{}},
 		{"unknown codec", tracepack.WriterOptions{Meta: writerMeta(), Codec: 2}},
 		{"negative threshold", tracepack.WriterOptions{Meta: writerMeta(), BlockThreshold: -1}},
-		{"threshold above the body limit", tracepack.WriterOptions{Meta: writerMeta(), BlockThreshold: 1 << 31}},
+		// Where int is 32 bits the conversion wraps to a negative threshold, refused all the same.
+		{"threshold above the body limit", tracepack.WriterOptions{Meta: writerMeta(), BlockThreshold: int(aboveBodyLimit)}},
 		{"metadata failing its rules", tracepack.WriterOptions{Meta: extract}},
 		{"classified records without a classifier", tracepack.WriterOptions{Meta: basePackMeta(), Facts: tracepack.PackFacts{AnyClassified: true}}},
 	}
