@@ -6,8 +6,14 @@ import (
 	"fmt"
 )
 
-// resolveCtxCopies is the number of copies of records a read over several packs gathers into seq groups between two checks of ctx.
-const resolveCtxCopies = 4096
+// Checks of ctx in a read over several packs.
+const (
+	// resolveCtxCopies is the number of copies of records the read gathers into seq groups between two checks of ctx.
+	resolveCtxCopies = 4096
+	// yieldCtxCalls is the number of calls of fn between two checks of ctx:
+	// ctx is checked before the 4096th call, the 8192nd, and so on.
+	yieldCtxCalls = 4096
+)
 
 // mergeIterateRun is one read over several packs once planned:
 // its plan, its query, and what the resolutions of its clusters share.
@@ -20,6 +26,8 @@ type mergeIterateRun struct {
 	// identical copies held by distinct open blocks each count.
 	// A block dropped at load as a duplicate never enters a group, so its records are not counted.
 	copies int
+	// yields counts the calls of fn.
+	yields int
 }
 
 // candidate is a version of a record that the query selects, not yet yielded:
@@ -36,6 +44,8 @@ type candidate struct {
 	conflict bool
 	// ts is the record's ts_utc_ns.
 	ts int64
+	// blockTSMin is the ts_min of the representative's block, as its F-2 entry or its computed summary states it.
+	blockTSMin int64
 }
 
 // clusterResolver resolves the records of one overlap cluster of a read over several packs, seq by seq,
@@ -180,7 +190,10 @@ func (cr *clusterResolver) candidateOf(o *openBlock, version int, conflict bool)
 	held := cr.held[o.pos]
 	held.hold()
 
-	return candidate{h: held, rec: o.next, version: version, conflict: conflict, ts: h.TSUTCNs}, true
+	return candidate{
+		h: held, rec: o.next, version: version, conflict: conflict,
+		ts: h.TSUTCNs, blockTSMin: cr.c.blocks[o.pos].span.tsMin,
+	}, true
 }
 
 // blockCount returns the number of the cluster's blocks.
@@ -271,4 +284,25 @@ func (r *mergeIterateRun) countCopies(ctx context.Context, n int) error {
 // packID returns the pack_id of the reader at index i of the read.
 func (r *mergeIterateRun) packID(i int) UUID {
 	return UUID(r.p.readers[i].hdr.PackID)
+}
+
+// yield passes c's record to fn in *it, as the read yields it, and counts the call,
+// after checking ctx when the call is the read's 4096th, 8192nd, and so on.
+// It leaves c unreleased, and resets *it to the zero Item once fn returns,
+// so the Item keeps no block the read releases.
+//
+// Returns:
+//   - error: ctx's error, wrapped, fn not called; fn's error, as is.
+func (r *mergeIterateRun) yield(ctx context.Context, c *candidate, it *Item, fn func(*Item) error) error {
+	if (r.yields+1)%yieldCtxCalls == 0 {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("tracepack: merge iterate: %w", err)
+		}
+	}
+	r.yields++
+	c.item(r.q, it)
+	err := fn(it)
+	*it = Item{}
+
+	return err
 }
