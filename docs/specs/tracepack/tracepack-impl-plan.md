@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation plan (v1)
 
 Status: active (2026-10-01) — phases 4 and 5a done (`Verify`, `Repair`, `ActiveView`, `Merge`); phase 5b next (`MergeIterate`).
-Implements: tracepack v2.19 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
+Implements: tracepack v2.20 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
 
@@ -295,9 +295,11 @@ The implementation settled what the text above leaves open:
 
 #### 5b — MergeIterate (pending)
 
-- `MergeIterate`: capture order (streaming) and time order (watermark over F-2 `ts_min`, bounded memory with a caller limit) with dedup (`tracepack-go.md` §3).
+- Spec v2.20 first (G5-116..G5-119): overlap clusters across the packs read, excluded only whole, a pre-read of blocks without an F-2 entry,
+  every selected version of a conflict yielded and marked, capture order interleaved block by block ([SEM §7.4]).
+- `MergeIterate`: capture order (streaming) and time order (watermark over the clusters' `ts_min`), with held block bytes and listed conflicts bounded by caller limits (`tracepack-go.md` §3).
 
-Tests: time-order iteration with backward timestamps within and across blocks and packs.
+Tests: time-order iteration with backward timestamps within and across blocks and packs; the multi-pack read vectors of [SEM §9].
 
 #### 5c — FindTransaction, PackSource, listing views, retention (pending)
 
@@ -369,7 +371,7 @@ Tests and done criteria are set when P8 is decided.
 - Performance targets (checked with benchmarks, not tuned before measurement): writer ≥ 50 MB/s uncompressed per core with zstd level 3;
   merge throughput measured with and without coalescing; reader bootstrap allocations independent of file size, apart from the pack metadata (an extract's redaction entries).
 - Memory: the writer holds at most one block; the reader holds at most the pack metadata and the footer plus one decoded block per concurrent iterator,
-  except time-order `MergeIterate`, whose heap is bounded by the blocks overlapping its watermark and by a caller limit.
+  except `MergeIterate`, which holds the blocks of its open overlap clusters and of the records it has yet to yield, bounded in bytes by a caller limit (`tracepack-go.md` §3).
   An extract's pack metadata grows with its redaction entries, and the extract writer's plan grows with the matches of the selected records.
 - Errors: sentinel errors per failure class (bad magic, CRC, limit, unknown codec, unsupported version) wrapped with offsets.
 - Concurrency: `Reader` safe for concurrent `Iterate`; `Writer` single-goroutine by contract.

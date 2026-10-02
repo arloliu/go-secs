@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-10-01) — v2.19, tracepack format 1.0.
+Status: current (2026-10-02) — v2.20, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -115,8 +115,8 @@ These rules let any mainstream language implement the format from this text alon
   Identity is resolved **within the active view** ([STO §4]): records of replaced packs and lower generations are outside it,
   so a repair may re-emit a record under its original identity with new stored bits or classification.
   Within the active view, two records with the same (`capture_id`, `seq`) MUST be byte-identical (record header and payload);
-  readers keep one copy and report a `conflict` otherwise, never choosing silently,
-  and a merge that finds one fails ([STO §4]).
+  readers keep one copy of identical records, and otherwise report a `conflict` and yield every version, marked, never choosing silently ([SEM §7.4]);
+  a merge that finds one fails ([STO §4]).
 - **I-13 Hour-aligned blocks.** All records of a block have `ts_utc_ns` in the same UTC hour;
   a writer closes the current block before appending a record from a different UTC hour.
   A block therefore belongs to exactly one hour and moves between packs without being re-encoded;

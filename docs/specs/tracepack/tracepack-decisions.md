@@ -525,3 +525,34 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   having footer validation reject it, which would change how every reader opens such a pack;
   recording the seqs below the first record as lost `coverage`.
   Spec: [FMT §13], [FMT §16], [STO §4] (v2.19).
+
+## 2026-10-01 reads over several packs
+
+- G5-116 Capture order interleaves block by block (2026-10-01):
+  each capture is a stream of its records in ascending `seq`,
+  and the next record yielded comes from the capture whose next selected record lies in the block with the smallest `ts_min`, ties broken by `capture_id`;
+  `ts_min` is the block's F-2 value or, without one, the smallest `ts_utc_ns` of its records.
+  Rationale: the output follows time roughly while each capture stays in seq order, without buffering beyond each capture's open blocks.
+  Rejected: concatenating whole captures in the order of their first block's `ts_min`, which is not an interleaving.
+  Spec: [SEM §7.4] (v2.20).
+- G5-117 Blocks without an F-2 entry (2026-10-01):
+  a read over several packs reads each block of a pack that is not finalized, or whose footer is not valid, once beforehand,
+  takes its seq and time ranges from its records and releases it, then reads it again when the order reaches it.
+  Rationale: clusters and the time-order watermark need each block's ranges, and memory stays bounded; such a pack is read twice.
+  Rejected: refusing such packs in time order, which would keep a live segment out of a time-ordered read;
+  loading every such block at once, which a large live segment would push past any memory limit.
+  Spec: [SEM §7.4] (v2.20).
+- G5-118 Exclusion by overlap cluster (2026-10-01):
+  the blocks of one capture whose seq ranges overlap, across every pack read, form an overlap cluster, as for a merge;
+  F-2 and the F-3 summaries exclude a cluster only when they exclude every block of it, and otherwise every block of it is read and its copies compared before the filter.
+  A cluster excluded whole is not read, and a conflict inside it is not reported, since none of its records is selected.
+  Rationale: excluding one block while reading an overlapping one would let a filter discard a version unseen, so a conflict would go unreported.
+  Rejected: never excluding a block that overlaps another, which reads more for no selected record.
+  Spec: [SEM §7.4] (v2.20).
+- G5-119 Every selected version of a conflict is yielded (2026-10-01):
+  each distinct version the filter selects is yielded once, marked as a conflict,
+  and the read lists every conflict of every compared cluster, whether or not the filter selected a version.
+  This replaces "readers keep one copy and report a `conflict`" of [FMT I-12], which did not say which copy.
+  Rationale: the records exist, and yielding one would be the silent choice I-12 forbids.
+  Rejected: yielding no version, which hides evidence; yielding the first version, a silent choice.
+  Spec: [FMT I-12], [SEM §7.4] (v2.20).

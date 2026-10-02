@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-10-01) — v2.19, tracepack format 1.0.
+Status: current (2026-10-02) — v2.20, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for publishers, mergers, recorders and log converters.
 
@@ -359,7 +359,8 @@ Its storage technology is not part of this specification.
 - **Completeness**: a query result for a (capture, epoch) or time range is complete only when the catalog shows contiguous seq coverage over it,
   no `coverage` entry of a pack in the view intersects it, and it does not reach past a completeness barrier;
   otherwise it is `incomplete` with the searched scope.
-  Time queries select record-bearing packs by their actual `ts_min` / `ts_max` (F-5), never by period, because a same-hour clock step can put records outside a segment's flush interval;
+  Time queries select the scopes whose UTC hour meets the range and read every pack of their active views ([SEM §7.4]);
+  inside those packs, the actual record times (F-2, F-5) decide what a read excludes, cluster by cluster, never a pack's period, because a same-hour clock step can put records outside a segment's flush interval;
   they consult `coverage` entries ([FMT §5] matching rule) and completeness barriers by their own intervals, including those of packs without records.
   A `stop-unclean` boundary is a barrier for every epoch still open when the capture ended — one for which the per-capture entry records no closure —
   and for the time interval [`gap_start`, `gap_end`], unbounded on a side whose bound is absent;

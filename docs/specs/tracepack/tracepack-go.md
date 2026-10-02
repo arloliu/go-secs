@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
 Status: current (2026-10-01)
-Implements tracepack v2.19 (format 1.0): `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Implements tracepack v2.20 (format 1.0): `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -77,20 +77,30 @@ The query service, its catalog database and the live-tail interface are designed
   only when the stride equals the struct's size, every field offset matches [FMT §7.1], the buffer is suitably aligned and the host is little-endian;
   the view is valid only while the buffer lives; otherwise headers are decoded field by field.
   The header section itself, stored column by column, is never such a view.
-- `Query` = `Filter` plus `Payloads`, which decides only whether payloads are returned ([SEM §7.4]).
-  `Result` carries `Incomplete` and `Conflict` side by side; neither hides the other.
+- `Query` = `Filter` plus `Payloads`, which decides only whether payloads are returned ([SEM §7.4]);
+  without payloads a read over several packs still reads and compares them.
+  `Result` carries `Incomplete` and `Conflicts` side by side; neither hides the other.
+  `Incomplete`'s defects and every `Item` name the pack they come from (`Pack`, an index into the readers given; 0 for `Iterate`);
+  `FooterErrs` lists each pack whose footer was not used, outside `Incomplete`, since a finalized pack whose walk accounts for every block is complete without its footer.
   `Incomplete` carries the searched scope and a `Reason` (`Cold` among them, [STO §5] Completeness), for `Iterate` and `MergeIterate` alike;
   `Removed` lists the hours that ended with the removed outcome ([STO §5] Retention), and a caller never reports records of a removed hour as a result.
 - `Filter` uses typed slices (`[]SF`, `[]Kind`, `*[4]byte`) and a time range, with nil meaning "any"; no sentinel values.
   HSMS header fields are matched on payload values, available only where `field_validity` says so ([FMT §7.2]).
-- `MergeIterate(ctx, readers, Query, order, fn)` with two orders:
-  capture order (by `seq` within each capture, captures interleaved by their F-2 `ts_min`), which streams without buffering;
-  and time order (`ts_utc_ns`, `capture_id`, `seq`), which timestamps inside a pack do not provide, so it uses a watermark:
-  blocks are loaded in ascending F-2 `ts_min`, decoded records wait in a heap, and a record is emitted once its timestamp is strictly < the smallest `ts_min` of the blocks not yet loaded
-  (the heap drains completely at the end), so equal timestamps are ordered by (`capture_id`, `seq`) correctly.
-  Memory is bounded by the records of blocks whose [`ts_min`, `ts_max`] overlap the watermark — at most one UTC hour per capture, because blocks are hour-aligned ([FMT I-13]);
-  a caller-set limit returns an error instead of exceeding it.
-  Both orders deduplicate by (`capture_id`, `seq`) ([FMT I-12]).
+- `MergeIterate(ctx, readers, Query, MergeIterateOptions, fn) (Result, error)`: one read over several packs, as [SEM §7.4] resolves and orders it;
+  the options carry the `Order` (capture or time, required), `MaxHeldBytes` and `MaxConflicts`.
+  Readers must be distinct packs (no repeated `pack_id`); the guarantees cover the readers given.
+  Copies of a record are compared before the filter, identical ones yielded once, and every selected version of a `conflict` yielded with `Item.Conflict` set;
+  `Result.Conflicts` lists every conflict of every compared cluster in discovery order, each with its versions in version order,
+  and for each version the `pack_id`s holding it, in the order the readers were given, each once.
+  An `Item` names its record's representative ([SEM §7.4]) as its pack and block.
+  Capture order streams: it holds, per capture, the blocks of its current cluster that are open and those of the versions it has yet to yield.
+  Time order holds the blocks of the cluster being read and every block with a selected record not yet yielded;
+  a cluster can span hours, since a pack's seqs may have gaps (I-12), so this is not bounded by one hour per capture.
+  `MaxHeldBytes` bounds the bytes of the block buffers held at once, reserved before each block is read;
+  it does not bound the process heap (the readers, the plan of the read, its queues, codec state and the conflict list lie outside it).
+  `MaxConflicts` bounds how many conflicts are listed, not the size of one.
+  Either limit ends the read with an error wrapping `ErrReadLimit`, returned with the `Result` found so far, instead of exceeding it or omitting a conflict.
+  A block over the reader's `MaxBlockLen`, or whose stated dimensions cannot be consistent, is a defect and is skipped, as in `Iterate`.
 - `FindTransaction(ctx, src PackSource, TxKey) (TxResult, error)` returning `Matched | Ambiguous | Unmatched | Incomplete{SearchedScope, Reason}` (`Reason` including `Cold`)
   plus candidates and outcome records ([SEM §7.2]);
   `PackSource` supplies, per scope, the packs, whether the scope is indexed and the seq coverage it can establish,
