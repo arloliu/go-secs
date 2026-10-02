@@ -326,7 +326,8 @@ The implementation settled what the text above leaves open:
   then those of the walked blocks' first reads, in reader then file order;
   then those of the clusters' reads, in the order the blocks are loaded.
 - Captures rank by `capture_id` as raw UUID bytes, the order of their text form too, in both orders and for the order streams are started in.
-- `ctx` is checked each time the count of copies gathered into seq groups passes a multiple of 4096, every copy counted, identical ones included;
+- `ctx` is checked after a seq group is gathered, whenever the count of copies gathered reaches or passes a multiple of 4096, every copy counted, identical ones included;
+  a group taking the count across several multiples gets one check;
   a block dropped as a duplicate adds none.
   Calls of `fn` are counted apart, and `ctx` is checked before the 4096th call, the 8192nd and so on.
 

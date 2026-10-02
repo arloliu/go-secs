@@ -54,6 +54,10 @@ type mergeIteratePlan struct {
 	// captures holds the read's captures in ascending capture_id.
 	captures []planCapture
 	loader   heldLoader
+	// copiesStep and yieldStep, set only by tests, replace resolveCtxCopies and yieldCtxCalls in the read's checks of ctx;
+	// zero keeps them.
+	copiesStep int
+	yieldStep  int
 }
 
 // checkMergeIterate validates the arguments of MergeIterate before anything is read

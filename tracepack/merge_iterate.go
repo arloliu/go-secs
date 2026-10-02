@@ -131,7 +131,8 @@ var _ error = PackError{}
 // fn receives each selected record as an Item that is valid only during the call:
 // MergeIterate reuses the Item, and Record.Payload and HeaderExtra alias the representative's block, held until fn returns.
 // ctx is checked once after the arguments are validated, before each block read,
-// each time the number of copies gathered passes a multiple of 4096, before the 4096th call of fn, the 8192nd and so on,
+// after a seq group is gathered, whenever the count of copies gathered reaches or passes a multiple of 4096,
+// before the 4096th call of fn, the 8192nd and so on,
 // and once more before returning nil.
 // A failed check returns ctx's error, and fn is not called again;
 // when fn returns an error, that error is returned, whatever became of ctx during the call.

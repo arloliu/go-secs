@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math"
+	"math/big"
+	"math/rand/v2"
 	"slices"
 	"testing"
 
@@ -604,6 +607,267 @@ func TestClusterResolverCopiesCounter(t *testing.T) {
 			releaseAll(t, run, cr, cands)
 		})
 	}
+}
+
+// TestRunCaptureCopiesCounterCrossing reads, in capture order,
+// three packs holding the same records in blocks of other boundaries,
+// so every seq group gathers three copies and the count of copies goes from 4095 after seq 1365 to 4098 at seq 1366,
+// passing 4096 without reaching it.
+// fn cancels ctx when called for seq 1365 and returns nil:
+// the check after the group of seq 1366 is gathered stops the read with ctx's error, and fn is not called again.
+func TestRunCaptureCopiesCounterCrossing(t *testing.T) {
+	t.Parallel()
+
+	files := [][]byte{
+		mergePack(t, seg0, nil, hourSteps(1, 2000, 1000)),
+		mergePack(t, seg1, nil, hourSteps(1, 2000, 999)),
+		mergePack(t, seg2, nil, hourSteps(1, 2000, 998)),
+	}
+	readers := openAll(t, files...)
+	for i, r := range readers {
+		for _, b := range r.Blocks() {
+			require.True(t, b.Indexed)
+			require.NotEqual(t, uint64(1366), b.FirstSeq, "pack %d: no block load at seq 1366, whose ctx check would come first", i)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	items, _, err := captureRead(t, ctx, readers, Query{}, MergeIterateOptions{}, func(it *Item) error {
+		if it.Record.Seq == 1365 {
+			cancel()
+		}
+
+		return nil
+	})
+	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorContains(t, err, "tracepack: merge iterate:")
+	require.Len(t, items, 1365, "no call of fn after the check fails")
+	assert.Equal(t, uint64(1365), items[len(items)-1].rec.Seq)
+}
+
+// TestRunCaptureCopiesCounterCrossingConflicts reads, in capture order,
+// three packs holding each seq in a version of its own, the System Bytes of its payload differing,
+// in blocks of other boundaries,
+// with a filter selecting pack 0's version, so each seq group gathers three copies, lists a conflict,
+// and passes one record to fn.
+// fn cancels ctx when called for seq 1365 and returns nil:
+// the check after the group of seq 1366 is gathered, its count of copies going from 4095 to 4098,
+// stops the read with ctx's error before that group's conflict is listed, and fn is not called again.
+func TestRunCaptureCopiesCounterCrossingConflicts(t *testing.T) {
+	t.Parallel()
+
+	seqs := make([]uint64, 2000)
+	for i := range seqs {
+		seqs[i] = uint64(i + 1)
+	}
+	files := [][]byte{
+		mergePack(t, seg0, nil, hourSteps(1, 2000, 1000)),
+		mergePack(t, seg1, nil, changed(hourSteps(1, 2000, 999), 1, seqs...)),
+		mergePack(t, seg2, nil, changed(hourSteps(1, 2000, 998), 2, seqs...)),
+	}
+	readers := openAll(t, files...)
+	for i, r := range readers {
+		for _, b := range r.Blocks() {
+			require.True(t, b.Indexed)
+			require.NotEqual(t, uint64(1366), b.FirstSeq, "pack %d: no block load at seq 1366, whose ctx check would come first", i)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	q := Query{Filter: Filter{SystemBytes: &[4]byte{0xDE, 0xAD, 0xBE, 0xEF}}}
+	items, res, err := captureRead(t, ctx, readers, q, MergeIterateOptions{}, func(it *Item) error {
+		if it.Record.Seq == 1365 {
+			cancel()
+		}
+
+		return nil
+	})
+	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorContains(t, err, "tracepack: merge iterate:")
+	require.Len(t, items, 1365, "one call of fn for each seq, none after the check fails")
+	for k, it := range items {
+		require.Equal(t, uint64(k+1), it.rec.Seq)
+		require.Equal(t, 0, it.pack, "seq %d: pack 0's version", it.rec.Seq)
+		require.True(t, it.conflict, "seq %d", it.rec.Seq)
+	}
+	require.Len(t, res.Conflicts, 1365, "the conflicts of seqs 1 to 1365, not that of seq 1366")
+	for k, c := range res.Conflicts {
+		require.Equal(t, viewCapture, c.CaptureID)
+		require.Equal(t, uint64(k+1), c.Seq)
+		require.ElementsMatch(t, [][]UUID{{seg0}, {seg1}, {seg2}}, c.Versions, "seq %d", c.Seq)
+	}
+	assert.Empty(t, res.Incomplete)
+}
+
+// TestRunCaptureCopiesCounterLargeGroup reads, in capture order with a step of 5 copies,
+// twelve packs holding each seq of 1 to 10 in a version of its own, in blocks starting at seqs 1, 5 and 9,
+// with a filter selecting pack 0's version, so each seq group gathers twelve copies, lists a conflict,
+// and passes one record to fn.
+// fn cancels ctx when called for seq 2 and returns nil:
+// the group of seq 3, which loads no block and takes the count of copies from 24 to 36 across three multiples of 5,
+// is checked once after it is gathered,
+// which stops the read with ctx's error before that group's conflict is listed, and fn is not called again.
+func TestRunCaptureCopiesCounterLargeGroup(t *testing.T) {
+	t.Parallel()
+
+	const packs = 12
+	seqs := []uint64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+	files := make([][]byte, packs)
+	ids := make([][]UUID, packs)
+	for i := range files {
+		id := UUID{0x50 + byte(i)}
+		files[i] = mergePack(t, id, nil, changed(hourSteps(1, 10, 4), byte(i), seqs...))
+		ids[i] = []UUID{id}
+	}
+	readers := openAll(t, files...)
+	for i, r := range readers {
+		for _, b := range r.Blocks() {
+			require.True(t, b.Indexed)
+			require.NotEqual(t, uint64(3), b.FirstSeq, "pack %d: no block load at seq 3, whose ctx check would come first", i)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	q := Query{Filter: Filter{SystemBytes: &[4]byte{0xDE, 0xAD, 0xBE, 0xEF}}}
+	var items []iterItem
+	fn := func(it *Item) error {
+		items = append(items, copyItem(it))
+		if it.Record.Seq == 2 {
+			cancel()
+		}
+
+		return nil
+	}
+	o, err := checkMergeIterate(ctx, readers, &q, MergeIterateOptions{Order: OrderCapture}, fn)
+	require.NoError(t, err)
+	p := newMergeIteratePlan(o)
+	p.copiesStep = 5
+	require.NoError(t, p.build(ctx, readers, &q))
+	err = p.runCapture(ctx, &q, fn)
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorContains(t, err, "tracepack: merge iterate:")
+	require.Len(t, items, 2, "one call of fn for each of seqs 1 and 2, none after the check fails")
+	for k, it := range items {
+		require.Equal(t, uint64(k+1), it.rec.Seq)
+		require.Equal(t, 0, it.pack, "seq %d: pack 0's version", it.rec.Seq)
+		require.True(t, it.conflict, "seq %d", it.rec.Seq)
+	}
+	require.Len(t, p.res.Conflicts, 2, "the conflicts of seqs 1 and 2, not that of seq 3")
+	for k, c := range p.res.Conflicts {
+		require.Equal(t, viewCapture, c.CaptureID)
+		require.Equal(t, uint64(k+1), c.Seq)
+		require.ElementsMatch(t, ids, c.Versions, "seq %d", c.Seq)
+	}
+	assert.Empty(t, p.res.Incomplete)
+	assert.Zero(t, p.loader.budget.held, "nothing stays held")
+}
+
+// TestCtxCounterAdd adds counts from 0 up to math.MaxInt to counters of several steps
+// and requires each addition to report a check exactly when the exact total reaches or passes a multiple of the step,
+// the counter keeping the exact total modulo the step, however far the total goes past the int range.
+func TestCtxCounterAdd(t *testing.T) {
+	t.Parallel()
+
+	for _, step := range []int{1, 5, resolveCtxCopies} {
+		t.Run(fmt.Sprintf("step %d", step), func(t *testing.T) {
+			t.Parallel()
+
+			rng := rand.New(rand.NewPCG(1, uint64(step)))
+			k := ctxCounter{step: step}
+			total, bigStep := new(big.Int), big.NewInt(int64(step))
+			before, after, mod := new(big.Int), new(big.Int), new(big.Int)
+			for i := range 20000 {
+				var n int
+				switch rng.IntN(5) {
+				case 0:
+					n = 0
+				case 1:
+					n = math.MaxInt
+				case 2:
+					n = math.MaxInt - rng.IntN(2*step)
+				default:
+					n = rng.IntN(3 * step)
+				}
+				before.Quo(total, bigStep)
+				total.Add(total, big.NewInt(int64(n)))
+				after.Quo(total, bigStep)
+				require.Equal(t, after.Cmp(before) > 0, k.add(n), "addition %d of %d", i, n)
+				require.Equal(t, mod.Mod(total, bigStep).Int64(), int64(k.n), "addition %d of %d", i, n)
+			}
+		})
+	}
+}
+
+// TestCountCopiesNearTheStep starts a read's count of copies just below a multiple of 4096
+// and counts a group of three copies with ctx done:
+// the group that reaches or passes the multiple fails the check, and a group stopping short of it is not checked.
+func TestCountCopiesNearTheStep(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		count   int
+		stopped bool
+	}{
+		{count: resolveCtxCopies - 1, stopped: true},
+		{count: resolveCtxCopies - 3, stopped: true},
+		{count: resolveCtxCopies - 4, stopped: false},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("from %d", tt.count), func(t *testing.T) {
+			t.Parallel()
+
+			run, _ := planResolve(t, t.Context(), Query{}, 0, nil, mergePack(t, seg0, nil, hourSteps(1, 2, 2)))
+			require.Equal(t, resolveCtxCopies, run.copies.step)
+			run.copies.n = tt.count
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+
+			err := run.countCopies(ctx, 3)
+			if !tt.stopped {
+				require.NoError(t, err)
+				require.Equal(t, resolveCtxCopies-1, run.copies.n)
+				err = run.countCopies(ctx, 3)
+			}
+			require.ErrorIs(t, err, context.Canceled)
+			require.ErrorContains(t, err, "tracepack: merge iterate:")
+		})
+	}
+}
+
+// TestYieldNearTheStep starts a read's count of calls of fn two below a multiple of 4096 and cancels ctx:
+// the next call of fn is made unchecked, and the one after, which would make the multiple, is not made.
+func TestYieldNearTheStep(t *testing.T) {
+	t.Parallel()
+
+	run, _ := planResolve(t, t.Context(), Query{}, 0, nil, mergePack(t, seg0, nil, hourSteps(1, 2, 2)))
+	require.Equal(t, yieldCtxCalls, run.yields.step)
+	pc := &run.p.captures[0]
+	cr := newClusterResolver(run, pc.id, &pc.clusters[0])
+	cands, ok, err := cr.next(t.Context(), nil)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Len(t, cands, 1)
+
+	run.yields.n = yieldCtxCalls - 2
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	calls := 0
+	fn := func(*Item) error {
+		calls++
+
+		return nil
+	}
+	var it Item
+	require.NoError(t, run.yield(ctx, &cands[0], &it, fn))
+	err = run.yield(ctx, &cands[0], &it, fn)
+	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorContains(t, err, "tracepack: merge iterate:")
+	assert.Equal(t, 1, calls, "no call of fn after the check fails")
+	releaseAll(t, run, cr, cands)
 }
 
 // TestClusterResolverOwnership requires a candidate to keep its representative's block, and its bytes,
