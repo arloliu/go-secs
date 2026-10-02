@@ -23,6 +23,10 @@ The deferred proposals and the decision log are listed in `README.md`.
   question 3, on marking a record that reached the recorder after its ordering window, is added.
 - 2026-09-30: §3 names each operation's report after it, as `MergeReport` and `ExtractReport` already were:
   `Verify` returns a `VerifyReport`, and `Repair` and `Recover` return a `RepairReport` and a `RecoverReport` that hold the `VerifyReport` of their input.
+- 2026-10-02: the §3 `MergeIterate` bullet follows the code:
+  capture order holds the representatives of the versions a capture has yet to yield,
+  and time order the representative of every selected record not yet yielded, not every block holding one;
+  the heap outside `MaxHeldBytes` holds the block descriptors and clusters `MergeIterate` builds before reading, where it said "the plan of the read".
 
 ## Changes vs v1 (summary)
 
