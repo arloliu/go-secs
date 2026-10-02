@@ -1,6 +1,6 @@
 # tracepack — record semantics
 
-Status: current (2026-10-01) — v2.19, tracepack format 1.0.
+Status: current (2026-10-02) — v2.20, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic.
 
@@ -252,20 +252,82 @@ A later index would use the F-4 slot, per block and self-contained ([FMT I-14]).
 
 | Query | Mechanism |
 |---|---|
-| (a) tool + time | catalog, or listing views for scopes it does not index ([STO §5]) → packs whose `ts_min` / `ts_max` overlap → F-2 entries whose range overlaps → range reads of those blocks → scan |
+| (a) tool + time | catalog, or listing views for scopes it does not index ([STO §5]) → the scopes whose hour overlaps → every pack of each scope's active view ([STO §4]) → overlap clusters across those packs, excluded whole by F-2 / F-3 (Evaluation) → range reads of the blocks of the other clusters → scan |
 | (b) + S/F | scan; the S/F of each data record is read from its payload ([FMT §7.2]) |
 | (c) CEID / ALID / … | decode-and-scan |
 | (d) System Bytes → pair | scan payloads for the System Bytes; §7.2 matching across all packs of the (capture, epoch) per the catalog or listing views; `incomplete` with scope when coverage is not contiguous ([STO §5]) |
-| (e) transport events | kind count prunes; scan; control frames are records, so Linktest / Select queries read kind=control |
+| (e) transport events | kind counts exclude clusters (Evaluation); scan; control frames are records, so Linktest / Select queries read kind=control |
 | (f) SML full text, (g) cross-tool | scan, via listing views where not indexed; catalog statistics (F-5) cover indexed scopes, and an aggregate over a range with scopes that are not indexed is `incomplete` with reason `cold` |
 
 **Evaluation.**
 Every block a query reads is read in full ([FMT §6]); only F-2 and the F-3 summaries (§7.1) exclude a block without reading it.
 A predicate on an HSMS header field — SessionID, S/F, W, PType, SType or System Bytes — is evaluated on the payload's value,
 and the field is available only when its stored `field_validity` bit is set ([FMT §7.2]).
-Where two packs in the active view hold the same (`capture_id`, `seq`) ([FMT I-12]; visible from F-5 `seq_range`, located through F-2),
-the blocks holding it are compared byte for byte before any filter discards a representation,
-so byte identity and `conflict` are always decided.
+
+A read over several packs, such as the active views of the scopes a query selects, resolves record identity ([FMT I-12]) before it filters:
+- **Selection.** Scopes are chosen by capture and hour, and every pack of a chosen scope's active view is read;
+  no pack of that set is left out for its own time range or summaries,
+  since a pack outside the query's time range can hold another version of a record inside it.
+- **Overlap clusters.** The blocks of one capture whose seq ranges overlap, across every pack read, form an overlap cluster, as for a merge ([STO §4]).
+  A block without an F-2 entry, in a pack that is not finalized or whose footer is not valid, is read once beforehand, and released,
+  to take from its records what its index would state: its seq range, time range, epoch range and kind and direction counts (G5-117).
+  That **computed summary** stands in for the missing F-2 entry and F-3 summary in clustering, exclusion and both orders.
+  A block that fails that read is reported and takes no further part.
+- **Exclusion.** F-2 and the F-3 summaries, or the computed summaries, exclude a cluster only when they exclude every block of it (G5-118).
+  A cluster excluded whole is not read (a block with a computed summary is not read a second time), and a conflict inside it is not reported.
+  A cluster's `ts_min` is the smallest `ts_min` of its blocks.
+- **Comparison.** In every other cluster each block is read,
+  and the copies of each (`capture_id`, `seq`) are compared byte for byte, the record header as stored (all `record_header_len` bytes) and the payload,
+  before any filter discards one; copies with different header lengths differ ([STO §4]).
+  So byte identity and `conflict` are decided for every record of a compared cluster.
+- **Conflicts.** Identical copies are one record, yielded once.
+  Each distinct version, the one version of a record without a conflict included, has a **representative**:
+  the first block holding it in cluster order (ascending first seq, then the order in which the packs were given, then file order).
+  The record is yielded from its representative, which the read names as the record's pack and block,
+  and the representative's `ts_min` schedules it in capture order.
+  Differing copies are a `conflict`: each version the filter selects is yielded once, marked as a conflict,
+  and the read lists every conflict of every cluster it compared, whether or not the filter selected a version (G5-119).
+  A reader that bounds that list fails the read when one more conflict is found; it never omits one from a successful read.
+  An extract and a pack of its own capture conflict on every masked record (§8).
+- **Scope of the guarantees.** They cover the packs read: a copy in a pack the read was not given is neither read nor compared.
+  The read trusts a valid footer's F-2 ranges and F-3 summaries ([FMT §10]),
+  so the guarantees hold, for the packs read as a whole, only when every block read agrees with its F-2 entry
+  and every block excluded agrees with its F-2 entry and F-3 summary;
+  a false F-3 count can exclude a cluster whose records the filter would select, and they are then missing unreported.
+  A block whose records lie outside its F-2 seq range can place a seq in the wrong cluster,
+  so a copy of that seq in another pack, even a truthful one, is not compared and can be yielded twice, unmarked;
+  a record before its block's F-2 `ts_min` can be yielded out of time order.
+  A block read that disagrees with its F-2 entry makes the read `incomplete`;
+  a misstated block that is never read is not detected, so the absence of such a report does not certify the index.
+  A merge refuses such a pack ([STO §4]), and `verify` finds it ([FMT §13]).
+
+A read of a single pack holds no two copies of a seq (I-12), so it excludes blocks one by one.
+
+**Order of a read over several packs.**
+- **Capture order**: each capture's records in ascending `seq`.
+  Captures are interleaved block by block (G5-116):
+  the next record yielded is the next record the filter selects from the capture whose next selected record has the representative with the smallest `ts_min`,
+  ties broken by `capture_id`; `ts_min` is the block's F-2 value or its computed summary's.
+  A record the filter rejects never delays its capture, so a filter can change how captures interleave, never the order within one.
+  The selected versions of a conflicting record are yielded in version order, each scheduled by its own representative,
+  before the capture's next seq; records of other captures can come between them.
+- **Time order**: by (`ts_utc_ns`, `capture_id`, `seq`), then version.
+  A pack's records are in write order, not time order (§4), so the read takes the clusters it does not exclude
+  in ascending (`ts_min`, `capture_id`, first seq), and before it reads each one,
+  yields every selected record already read whose `ts_utc_ns` is strictly below that cluster's `ts_min`;
+  it reads each cluster whole before yielding any record of it,
+  and once no cluster is left, yields every remaining record.
+  An excluded cluster takes no part in this.
+- The **version order** of a conflicting record is the order of the first block holding each version,
+  blocks taken in cluster order: ascending first seq, then the order in which the packs were given, then file order.
+- **Conflicts are listed in discovery order**, independent of the order records are yielded:
+  in time order, clusters in the order they are read, seqs ascending within each;
+  in capture order, the captures are started in ascending `capture_id`, each up to its first selected record, then in the order the read advances them.
+  The same packs, given in the same order with unchanged bytes, with the same query, order and limits, list the same conflicts in the same order,
+  and a conflict limit ends the read on the same conflict.
+  Giving the packs in another order keeps which records conflict and which versions they have,
+  but may change the representatives, the order of the packs holding each version, and so the interleaving of captures.
+
 `incomplete`, `conflict` and the transaction outcomes of §7.2 are reported side by side; none replaces or hides another.
 
 ## 8. Redaction
@@ -402,4 +464,18 @@ The following vectors belong to the corpus of [FMT §16]:
 - an outstanding primary on epoch E1, a refused socket E2, then the E1 reply (§7.2 closure);
 - a primary without System Bytes, and an otherwise unanswered primary followed in its window by a reply-direction record whose System Bytes are unavailable: both `incomplete` (§7.2);
 - a nonzero `capture_origin_mono_ns` (§4);
-- redaction (§8): the vectors of [FMT §16] "Redaction vectors".
+- redaction (§8): the vectors of [FMT §16] "Redaction vectors";
+- reads over several packs (§7.4):
+  two captures interleaved block by block in capture order, with a filter that rejects one capture's next record;
+  backward timestamps within a block, across the blocks of a pack and across packs, read in time order;
+  equal timestamps across captures, across clusters and across the versions of one record (two and three versions, yielded in version order);
+  a record held identically by two packs, yielded once;
+  a conflict of two versions with both, one and no version selected by the filter (the conflict listed in each case);
+  copies differing only in a reserved `record_flags` bit, only in the record header's extension area, in `record_header_len`, and only in the payload with payloads not requested: each a `conflict`;
+  two packs holding versions of one seq with different timestamps, and a query whose time range selects only one (both read, the conflict listed);
+  a cluster with one block the summaries exclude and one they do not (both read), and a cluster excluded whole (not read, no conflict listed);
+  a cluster spanning two hours;
+  a conflict limit reached exactly (the read succeeds) and exceeded by one (an error, with the conflicts found so far);
+  a walked block whose computed summary excludes its cluster (read once only);
+  a pack that is not finalized beside its archive, in both orders;
+  an extract beside its source (each masked record a `conflict`).

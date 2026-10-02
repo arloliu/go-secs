@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-01) — spec v2.19.
+Status: current (2026-10-02) — spec v2.20.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -855,3 +855,37 @@ Summary:
   its `seq_start` the first record's seq and no new `coverage`; the refusal for `finalized-consistent` applies only without the defect.
 - [STO §4] the merge-input paragraph says repair corrects this breach, while the other breaches of a `finalized-consistent` input still need an operator.
 - [FMT §16] verification and repair vectors for the defect.
+
+## Changes v2.19 → v2.20: reads over several packs (owner decisions G5-116..G5-119, 2026-10-01)
+
+Source: planning `MergeIterate` (impl plan phase 5b), whose plan review found that the text left open how copies of a record in several packs are compared, ordered and reported;
+no proposal document.
+Format version stays 1.0: no byte changes.
+
+Summary:
+- [SEM §7.4] Evaluation: a read over several packs selects scopes by capture and hour and reads every pack of their active views;
+  forms overlap clusters across them, with a pre-read of blocks without an F-2 entry (G5-117);
+  excludes a cluster only whole (G5-118); compares the stored record header and payload of every copy before filtering;
+  yields every selected version of a conflict, marked, and lists every conflict of a compared cluster (G5-119), failing rather than omitting one under a limit;
+  its guarantees cover the packs read and hold only where the indexes are true.
+- [SEM §7.4] the order of such a read: capture order interleaved block by block (G5-116), time order through a watermark over the clusters' `ts_min`,
+  the version order of a conflicting record, and the discovery order of the listed conflicts.
+- [SEM §7.4] query table: row (a) reads every pack of the selected scopes' active views and excludes clusters, not packs or blocks; row (e) likewise.
+- [STO §5] Completeness: time queries select scopes by hour and read every pack of their active views; record times exclude clusters, never packs.
+- [FMT I-12] a reader yields every version of a conflict, marked, instead of keeping one copy.
+- `tracepack-go.md` §3: `MergeIterate` takes `MergeIterateOptions` (`Order`, `MaxHeldBytes`, `MaxConflicts`); its memory is bounded in held block bytes, not by one hour per capture;
+  `Result` carries `Conflicts` and `FooterErrs`, and defects and items name their pack.
+- [SEM §9] vectors for reads over several packs.
+
+### MergeIterate plan review rounds 1–5 and spec review rounds 1–2 — VERDICT (plan round 5, spec round 2): ready
+
+| Finding | Resolution (v2.20) |
+|---|---|
+| P1 a misstated footer can break identity for truthful packs too | [SEM §7.4] the guarantees hold for the packs read as a whole, only where every block read and excluded is truthful; the absence of a mismatch report certifies nothing |
+| P1 conflict truncation would omit a conflict from a successful read | [SEM §7.4] a bounded conflict list fails the read instead; `tracepack-go.md` §3 `MaxConflicts` |
+| P1 conflict order depended on traversal; determinism unscoped | [SEM §7.4] discovery order per order, and determinism for the same ordered packs, bytes, query, order and limits |
+| P1 the query table pruned packs before clustering | [SEM §7.4] row (a) and Selection; [STO §5] Completeness (spec round 1, P0) |
+| P1 the one-hour memory bound does not hold for clusters spanning hours | `tracepack-go.md` §3 and the impl plan §4: held block bytes, bounded by a caller limit, not the process heap |
+| P0 (spec round 1) excluded blocks also need a true F-3 summary | [SEM §7.4] Scope of the guarantees |
+| P1 ×3 (spec round 1) time-order cluster key and drains, the representative of a version, computed summaries of blocks without an F-2 entry | [SEM §7.4] Exclusion, Conflicts and Order |
+| P0 ×3, P1 ×11, P2 ×4 memory reservation, cancellation, ownership, loader outcomes, footer diagnostics, the test reference and read counts, validation | the Go implementation plan |
