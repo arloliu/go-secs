@@ -278,5 +278,8 @@ func (m *mergeRun) buffer() *blockBuf {
 
 // release returns buf, whose block is no longer held, for a later read.
 func (m *mergeRun) release(buf *blockBuf) {
+	if m.p.releaseHook != nil {
+		m.p.releaseHook(buf)
+	}
 	m.free = append(m.free, buf)
 }
