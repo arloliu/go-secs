@@ -3,9 +3,7 @@ package tracepack
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"fmt"
-	"slices"
 )
 
 // resolveCtxRecords is the number of records the record-by-record resolution resolves between two checks of ctx.
@@ -26,44 +24,22 @@ type unitBuilder struct {
 	payloadViews [][]byte
 }
 
-// openBlock is an input block the resolution of a cluster holds, read in full into buf,
-// with the cursor of its next record.
-type openBlock struct {
-	// b is the block, and pos its position in the cluster's blocks.
-	b   *mergeBlock
-	pos int
-	buf *blockBuf
-	d   *decodedBlock
-	// sum is the summary of the block's records (summaryOf), for a block copied verbatim after all.
-	sum blockSummary
-	// next is the index of the block's next record, and seq that record's seq.
-	next int
-	seq  uint64
-	// origins holds the inputs holding the block, by their index in the view's Packs:
-	// its own input, then the inputs of the blocks dropped as its duplicates.
-	origins []int
-}
-
-// cursorHeap holds the open blocks that have records left,
-// as a binary min-heap by the seq of their next record, then by their position in the cluster.
-type cursorHeap []*openBlock
-
-// resolution is the record-by-record resolution of one overlap cluster (the tracepack storage specification §4 Merge).
-//
-// The cluster's blocks are loaded in their order, ascending first seq, then input order:
-// before the records of a seq are resolved, every next block whose first seq is at or below that seq is loaded,
-// the smallest seq of the open blocks' next records taken again after each load,
-// so a block is loaded only once the resolution reaches its first seq.
+// resolution is the record-by-record resolution of one overlap cluster (the tracepack storage specification §4 Merge),
+// through a seqCursor over the cluster's blocks, which the resolution loads as readInputBlock reads them.
 // A block is released once its last record is resolved.
 type resolution struct {
 	m *mergeRun
 	c *mergeCluster
-	// next is the position in c.blocks of the next block to load.
-	next int
-	open cursorHeap
-	// at holds the open blocks whose next record has the seq being resolved, in position order.
-	at []*openBlock
+	// seqCursor is embedded so that the cursor's open blocks are r.open;
+	// the resolution is the blockSource it passes to its own cursor.
+	seqCursor
+	// sums holds the summaries of the open blocks (summaryOf), by position,
+	// for a block copied verbatim after all;
+	// a block's summary is dropped with the block.
+	sums []blockSummary
 }
+
+var _ blockSource = (*resolution)(nil)
 
 // add takes a resolved record, its header row and payload, into the unit being filled,
 // after encoding and emitting that unit first when the record does not fit it:
@@ -115,33 +91,10 @@ func (m *mergeRun) flushUnit() error {
 }
 
 // conflict reports the conflict of seq, whose records the open blocks at hold at their cursors, in position order:
-// it builds a new Conflict, whose versions are the distinct records in the order of the first block holding each,
-// each with its holders' origins in the order of the view's Packs, each once,
+// it builds a new Conflict (conflictOf), whose versions name their holders' inputs in the order of the view's Packs,
 // passes it to OnConflict, and counts it.
 func (m *mergeRun) conflict(seq uint64, at []*openBlock) {
-	var firsts []*openBlock
-	var holders [][]int
-	for _, o := range at {
-		k := slices.IndexFunc(firsts, o.sameRecord)
-		if k < 0 {
-			k = len(firsts)
-			firsts = append(firsts, o)
-			holders = append(holders, nil)
-		}
-		holders[k] = append(holders[k], o.origins...)
-	}
-
-	versions := make([][]UUID, len(holders))
-	for k, inputs := range holders {
-		slices.Sort(inputs)
-		inputs = slices.Compact(inputs)
-		versions[k] = make([]UUID, len(inputs))
-		for j, i := range inputs {
-			versions[k][j] = m.p.inputID(i)
-		}
-	}
-
-	m.onConflict(Conflict{CaptureID: m.p.captureID, Seq: seq, Versions: versions})
+	m.onConflict(conflictOf(m.p.captureID, seq, at, m.p.inputID))
 	m.rep.Conflicts++
 }
 
@@ -186,74 +139,6 @@ func (u *unitBuilder) reset() {
 	u.rows, u.payloads, u.ends = u.rows[:0], u.payloads[:0], u.ends[:0]
 }
 
-// record returns the header row, as stored, and the payload of the block's next record, aliasing its buffer.
-func (o *openBlock) record() ([]byte, []byte) {
-	rhl, i := int(o.d.env.RecordHeaderLen), o.next
-
-	return o.d.section[i*rhl : (i+1)*rhl : (i+1)*rhl], o.d.payload(i)
-}
-
-// seqAt returns the seq of record i, the first field of its header row (the tracepack format specification §7.1).
-func (o *openBlock) seqAt(i int) uint64 {
-	return binary.LittleEndian.Uint64(o.d.section[i*int(o.d.env.RecordHeaderLen):])
-}
-
-// sameRecord reports whether the next records of o and v are equal, header row and payload byte for byte.
-func (o *openBlock) sameRecord(v *openBlock) bool {
-	orow, opayload := o.record()
-	vrow, vpayload := v.record()
-
-	return bytes.Equal(orow, vrow) && bytes.Equal(opayload, vpayload)
-}
-
-// less reports whether the open block at i comes before the one at j:
-// the seq of its next record is smaller, or equal with an earlier position in the cluster.
-func (h cursorHeap) less(i, j int) bool {
-	a, b := h[i], h[j]
-
-	return a.seq < b.seq || (a.seq == b.seq && a.pos < b.pos)
-}
-
-// push adds o to the heap.
-func (h *cursorHeap) push(o *openBlock) {
-	*h = append(*h, o)
-	s := *h
-	for i := len(s) - 1; i > 0; {
-		parent := (i - 1) / 2
-		if !s.less(i, parent) {
-			break
-		}
-		s[i], s[parent] = s[parent], s[i]
-		i = parent
-	}
-}
-
-// pop removes and returns the heap's first open block; the heap is not empty.
-func (h *cursorHeap) pop() *openBlock {
-	s := *h
-	n := len(s) - 1
-	top := s[0]
-	s[0], s[n] = s[n], nil
-	s = s[:n]
-	for i := 0; ; {
-		c := 2*i + 1
-		if c >= n {
-			break
-		}
-		if r := c + 1; r < n && s.less(r, c) {
-			c = r
-		}
-		if !s.less(c, i) {
-			break
-		}
-		s[i], s[c] = s[c], s[i]
-		i = c
-	}
-	*h = s
-
-	return top
-}
-
 // run resolves the cluster's records in ascending seq, loading its blocks as the resolution reaches them,
 // then encodes and emits the last unit of its records.
 // The records of one seq, one at the cursor of each open block that holds the seq, are resolved together:
@@ -262,21 +147,21 @@ func (h *cursorHeap) pop() *openBlock {
 // Each open block is counted as resolved once its last record is resolved.
 func (r *resolution) run(ctx context.Context) error {
 	for {
-		if err := r.loadFrontier(ctx); err != nil {
+		seq, at, err := r.next(ctx, r)
+		if err != nil {
 			return err
 		}
-		if len(r.open) == 0 {
+		if at == nil {
 			break
 		}
 
-		seq := r.gather()
-		row, payload := r.at[0].record()
-		if !r.agree() {
-			r.m.conflict(seq, r.at)
+		row, payload := at[0].record()
+		if !agree(at) {
+			r.m.conflict(seq, at)
 		} else if err := r.m.add(row, payload); err != nil {
 			return err
 		}
-		r.advance()
+		r.advance(r)
 		if err := r.m.countResolved(ctx); err != nil {
 			return err
 		}
@@ -285,94 +170,64 @@ func (r *resolution) run(ctx context.Context) error {
 	return r.m.flushUnit()
 }
 
-// loadFrontier loads, in order, every next block of the cluster whose first seq is at or below the smallest seq pending,
-// the seq of the next record of an open block, taken again after each load;
-// with no block open, it loads the next block, whatever its first seq.
+// loadFrontier loads every next block of the cluster that the resolution reaches, as seqCursor.loadFrontier does,
+// the resolution being the cursor's blockSource.
 func (r *resolution) loadFrontier(ctx context.Context) error {
-	for r.next < len(r.c.blocks) {
-		if len(r.open) > 0 && r.c.blocks[r.next].first > r.open[0].seq {
-			return nil
-		}
-		if err := r.load(ctx); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return r.seqCursor.loadFrontier(ctx, r)
 }
 
-// load reads the cluster's next block in full and checks it, as readInputBlock does.
+// blockCount returns the number of the cluster's blocks.
+func (r *resolution) blockCount() int {
+	return len(r.c.blocks)
+}
+
+// firstSeq returns the F-2 first seq of the cluster's block at position pos.
+func (r *resolution) firstSeq(pos int) uint64 {
+	return r.c.blocks[pos].first
+}
+
+// load reads the cluster's block at position pos in full and checks it, as readInputBlock does.
 // A block whose envelope and on-disk body equal those of an open block with the same first seq
 // is dropped as a duplicate, its input added to that block's origins;
 // any other block is opened, which fails with ErrMergeLimit when MaxOpenBlocks blocks are open already.
 // The open blocks then all hold the block's first seq, so their number is the overlap depth at that seq.
-func (r *resolution) load(ctx context.Context) error {
-	m, b, pos := r.m, &r.c.blocks[r.next], r.next
-	r.next++
+func (r *resolution) load(ctx context.Context, pos int, open []*openBlock) (*openBlock, error) {
+	m, b := r.m, &r.c.blocks[pos]
 	if m.p.loadHook != nil {
-		m.p.loadHook(b, len(r.open), m.resolved)
+		m.p.loadHook(b, len(open), m.resolved)
 	}
 
 	buf := m.buffer()
 	d, s, err := m.p.readInputBlock(ctx, b, buf)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	for _, o := range r.open {
-		if o.b.first == b.first && bytes.Equal(o.buf.raw, buf.raw) {
+	for _, o := range open {
+		if r.c.blocks[o.pos].first == b.first && bytes.Equal(o.buf.raw, buf.raw) {
 			o.origins = append(o.origins, b.input)
 			m.rep.Duplicates++
 			m.release(buf)
 
-			return nil
+			return nil, nil //nolint:nilnil // a duplicate contributes no records, which load returns as nil
 		}
 	}
-	if len(r.open) >= m.p.maxOpenBlocks {
-		return fmt.Errorf("tracepack: merge: the blocks of seqs %d to %d overlap %d deep at seq %d, above MaxOpenBlocks %d: %w",
-			r.c.first, r.c.last, len(r.open)+1, b.first, m.p.maxOpenBlocks, ErrMergeLimit)
+	if len(open) >= m.p.maxOpenBlocks {
+		return nil, fmt.Errorf("tracepack: merge: the blocks of seqs %d to %d overlap %d deep at seq %d, above MaxOpenBlocks %d: %w",
+			r.c.first, r.c.last, len(open)+1, b.first, m.p.maxOpenBlocks, ErrMergeLimit)
 	}
+
+	if r.sums == nil {
+		r.sums = make([]blockSummary, len(r.c.blocks))
+	}
+	r.sums[pos] = s
 
 	// The block's first record has the block's first seq (I-2).
-	r.open.push(&openBlock{b: b, pos: pos, buf: buf, d: d, sum: s, seq: b.first, origins: []int{b.input}})
-
-	return nil
+	return &openBlock{pos: pos, buf: buf, d: d, seq: b.first, origins: []int{b.input}}, nil
 }
 
-// gather moves every open block whose next record has the smallest seq pending from the heap into r.at,
-// in position order, and returns that seq.
-func (r *resolution) gather() uint64 {
-	seq := r.open[0].seq
-	r.at = r.at[:0]
-	for len(r.open) > 0 && r.open[0].seq == seq {
-		r.at = append(r.at, r.open.pop())
-	}
-
-	return seq
-}
-
-// agree reports whether the records at the cursors of the blocks of r.at are equal, header row and payload byte for byte.
-func (r *resolution) agree() bool {
-	for _, o := range r.at[1:] {
-		if !o.sameRecord(r.at[0]) {
-			return false
-		}
-	}
-
-	return true
-}
-
-// advance moves the cursor of every block of r.at to its next record and returns the block to the heap,
-// or releases a block without a next record, counting it as resolved.
-func (r *resolution) advance() {
-	for _, o := range r.at {
-		o.next++
-		if o.next < o.d.count() {
-			o.seq = o.seqAt(o.next)
-			r.open.push(o)
-
-			continue
-		}
-		r.m.rep.Resolved++
-		r.m.release(o.buf)
-	}
+// done counts the open block o, whose last record was resolved, as resolved, and releases it and its summary.
+func (r *resolution) done(o *openBlock) {
+	r.m.rep.Resolved++
+	r.m.release(o.buf)
+	r.sums[o.pos] = blockSummary{}
 }

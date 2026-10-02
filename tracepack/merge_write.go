@@ -253,7 +253,7 @@ func (m *mergeRun) writeCluster(ctx context.Context, c *mergeCluster) error {
 		}
 		if len(r.open) == 1 {
 			o := r.open[0]
-			u := newMergeUnit(o.buf.raw, o.d, o.sum, o.b.f3)
+			u := newMergeUnit(o.buf.raw, o.d, r.sums[o.pos], c.blocks[o.pos].f3)
 			err := m.emit(&u)
 			m.release(o.buf)
 
