@@ -6,7 +6,8 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 ## [Unreleased]
 
 This release follows the format revision of spec v2.13, which redefines format 1.0 in place, and its amendment in spec v2.17.
-It adds the reader and verification (spec v2.14), repair (spec v2.15 and v2.19), and the active view and merge of a scope (spec v2.16 to v2.18).
+It adds the reader and verification (spec v2.14), repair (spec v2.15 and v2.19), the active view and merge of a scope (spec v2.16 to v2.18),
+and one read over several packs (spec v2.20).
 
 ### Upgrade notes
 
@@ -106,7 +107,7 @@ It adds the reader and verification (spec v2.14), repair (spec v2.15 and v2.19),
   The report lists failed blocks and the walk's stop with their offsets, the end of the validated prefix,
   footer disagreements with the records or the trailer (`ReasonIndexMismatch`),
   `WriterDefect`s that never change the outcome,
-  among them a first validated block whose first seq is not the pack's `seq_start` (spec v2.19),
+  among them a first validated block whose first seq is not the pack's `seq_start` (`WriterDefectSeqStart`, spec v2.19),
   and, with a valid footer, the seq and time ranges of the failed blocks as `Coverage` entries.
   An unreadable file header or pack metadata is an error, and so is a block or a finalized pack's footer over the reader budgets.
 - `Repair` writes a generation-0 repair patch of a damaged stored pack to an `io.Writer`, returning a `RepairReport`.
@@ -170,6 +171,41 @@ It adds the reader and verification (spec v2.14), repair (spec v2.15 and v2.19),
   an archive footer, or the block summaries kept for it, over `MergeOptions.MaxFooterLen`;
   or an overlap whose resolution would hold more than `MergeOptions.MaxOpenBlocks` blocks at once.
   `ctx` is checked before each block read, after every 4096 records resolved, and before the footer.
+- `MergeIterate` reads the records a `Query` selects from several packs, typically the packs of the active views of the scopes a query touches,
+  in the order `MergeIterateOptions.Order` requires, and returns the read's `Result` (spec v2.20).
+  It reads every pack given, and its guarantees cover those packs.
+  The blocks of one capture whose seq ranges overlap, across every pack, form an overlap cluster;
+  a block without an F-2 entry, from a forward walk, is read once before anything is yielded, to take the summary an index would state.
+  A cluster is excluded, and not read, only when the footer or those summaries exclude every block of it;
+  every block of any other cluster is read, a walked one a second time.
+  In a cluster read, the copies of each seq are compared byte for byte, record header and payload, before the filter is applied, whatever `Query.Payloads`.
+  Identical copies are one record, yielded once from their representative, the first block holding them, which `Item.Pack` and `Item.Block` name.
+  Copies with different bytes are a conflict, reported and never hidden:
+  every version the filter selects is yielded with `Item.Conflict` set,
+  and the conflict is listed in `Result.Conflicts`, whether or not a version was selected.
+  `OrderCapture` yields each capture's records in ascending seq, the captures interleaved block by block:
+  the next record comes from the capture whose next selected record lies in the block with the smallest `ts_min`;
+  `OrderTime` yields them in ascending (`ts_utc_ns`, `capture_id`, `seq`), then version,
+  reading the clusters in ascending `ts_min` and yielding the records below each cluster's `ts_min` before reading it.
+  Captures compare by `capture_id` as raw UUID bytes.
+  `MergeIterateOptions.MaxHeldBytes` bounds the block buffers held at once, each reserved before its block is read,
+  and `MaxConflicts` the length of `Result.Conflicts`;
+  a read over either ends with an error wrapping `ErrReadLimit`, returned with the `Result` found so far.
+  Defects are reported as `Reader.Iterate` reports them, beside the records, each naming its pack.
+  `MergeIterate` never modifies a `Reader`, so readers can be shared with concurrent reads.
+- Types and fields for reads over several packs:
+  `Order`, with `OrderCapture`, `OrderTime` and `String`;
+  `DefaultMaxHeldBytes` and `DefaultMaxConflicts`, which a zero or negative `MergeIterateOptions` limit takes;
+  `MergeIterateOptions`;
+  `PackError`, an error about one pack that does not make a read incomplete, with `Error` and `Unwrap`;
+  `Item.Pack` and `Item.Conflict`, `Defect.Pack`, `Result.Conflicts` and `Result.FooterErrs`.
+  `Conflict` describes a conflict of a read as well as one of a merge, its versions' packs then in the order the readers were given.
+  `Reader.Iterate` names pack 0 in every `Item` and `Defect`, never marks a conflict,
+  and sets `Result.FooterErrs` to one entry, beside `Result.FooterErr`, when the footer was not used.
+- `MergeIterate` has property tests that compare each of 512 generated reads (96 under `-short`), in both orders,
+  with a reference built from the stored rows and payloads of every block:
+  the records yielded with their packs, blocks and conflict marks, the conflicts listed, the defects, the reads of each block, and nothing held after the read;
+  and the fuzz targets `FuzzMergeIterate` and `FuzzMergeIterateGenerated`.
 - `Merge` has property tests over hand-written vectors and 64 generated scopes,
   which recompute F-2, F-3 and F-5 from each archive's records independently of the Writer,
   and check the record union, the size and greedy-coalescing rules and the report's counts;

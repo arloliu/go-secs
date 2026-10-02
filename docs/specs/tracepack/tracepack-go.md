@@ -93,11 +93,12 @@ The query service, its catalog database and the live-tail interface are designed
   `Result.Conflicts` lists every conflict of every compared cluster in discovery order, each with its versions in version order,
   and for each version the `pack_id`s holding it, in the order the readers were given, each once.
   An `Item` names its record's representative ([SEM §7.4]) as its pack and block.
-  Capture order streams: it holds, per capture, the blocks of its current cluster that are open and those of the versions it has yet to yield.
-  Time order holds the blocks of the cluster being read and every block with a selected record not yet yielded;
+  Capture order streams: it holds, per capture, the blocks of its current cluster that are open and the representatives of the versions it has yet to yield.
+  Time order holds the blocks of the cluster being read and the representative of every selected record not yet yielded;
   a cluster can span hours, since a pack's seqs may have gaps (I-12), so this is not bounded by one hour per capture.
   `MaxHeldBytes` bounds the bytes of the block buffers held at once, reserved before each block is read;
-  it does not bound the process heap (the readers, the plan of the read, its queues, codec state and the conflict list lie outside it).
+  it does not bound the process heap:
+  the readers, the block descriptors and clusters it builds before reading, its queues, codec state and the conflict list lie outside it.
   `MaxConflicts` bounds how many conflicts are listed, not the size of one.
   Either limit ends the read with an error wrapping `ErrReadLimit`, returned with the `Result` found so far, instead of exceeding it or omitting a conflict.
   A block over the reader's `MaxBlockLen`, or whose stated dimensions cannot be consistent, is a defect and is skipped, as in `Iterate`.

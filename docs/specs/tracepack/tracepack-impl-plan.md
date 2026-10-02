@@ -1,6 +1,6 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-10-01) — phases 4 and 5a done (`Verify`, `Repair`, `ActiveView`, `Merge`); phase 5b next (`MergeIterate`).
+Status: active (2026-10-02) — phases 4, 5a and 5b done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`); phase 5c next (`FindTransaction`, `PackSource`, listing views, retention).
 Implements: tracepack v2.20 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
@@ -69,7 +69,7 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | Format revision (spec v2.13) | done |
 | 4 — Verify, Repair | done |
 | 5a — ActiveView, Merge, Writer seams | done |
-| 5b — MergeIterate | pending |
+| 5b — MergeIterate | done |
 | 5c — FindTransaction, PackSource, listing views, retention | pending |
 | 6 — JSONL export, conformance corpus, CLI | pending |
 | 7 — Extract and redaction | pending |
@@ -293,13 +293,42 @@ The implementation settled what the text above leaves open:
 - The archive's pack metadata must fit `MergeOptions.Reader.MaxPackMetadataLen`, the budget the next merge opens it with;
   longer metadata fails with `ErrMergeLimit` before `dst` is touched.
 
-#### 5b — MergeIterate (pending)
+#### 5b — MergeIterate (done)
 
 - Spec v2.20 first (G5-116..G5-119): overlap clusters across the packs read, excluded only whole, a pre-read of blocks without an F-2 entry,
   every selected version of a conflict yielded and marked, capture order interleaved block by block ([SEM §7.4]).
 - `MergeIterate`: capture order (streaming) and time order (watermark over the clusters' `ts_min`), with held block bytes and listed conflicts bounded by caller limits (`tracepack-go.md` §3).
 
 Tests: time-order iteration with backward timestamps within and across blocks and packs; the multi-pack read vectors of [SEM §9].
+
+Done (2026-10-02): every test above passes, the [SEM §9] vector of an extract beside its source excepted:
+it waits for the extract writer (phase 7),
+and a test that zeroes the message text of two records in a second pack of the capture, as an extract masks them, stands in for it.
+Every read of generated multi-pack inputs, walked packs, failed blocks, duplicates and conflicts included,
+equals a reference built from the stored rows and payloads of every block, in both orders:
+the records yielded with their packs, blocks and conflict marks, the conflicts listed, the defects, the full-block reads of each block and the footer errors.
+The read counts hold for every kind of block:
+an indexed block is read once when its cluster is kept and not at all when it is excluded;
+a walked block is read before the read, and once more only when its cluster is kept and that first read succeeded;
+a block over `MaxBlockLen` or with dimensions that cannot be consistent is never read.
+The bytes held never exceed `MaxHeldBytes`, a reservation over it fails with `ErrReadLimit` before anything is allocated,
+and nothing is held after any return, success, `fn` error, cancellation, limit or `ReadAt` failure.
+`FuzzMergeIterate` and `FuzzMergeIterateGenerated` ran 10 minutes each without a failure.
+The implementation settled what the text above leaves open:
+- A held block's buffers are allocated for it alone, at the exact sizes its F-2 entry or envelope states, and dropped when its last owner lets go;
+  nothing is pooled.
+  The decoded body is reserved for every block but allocated only for a compressed one: a block stored with codec `none` is used in place.
+- A block is dropped as soon as it is read, as `Merge` drops one,
+  when its bytes, envelope and on-disk body, equal those of an open block of its cluster with the same first seq;
+  its pack is added to that block's holders, and it holds no memory.
+- The defects follow the order of the read:
+  those of each pack's `Open` and its coverage entries for the query, in reader order;
+  then those of the walked blocks' first reads, in reader then file order;
+  then those of the clusters' reads, in the order the blocks are loaded.
+- Captures rank by `capture_id` as raw UUID bytes, the order of their text form too, in both orders and for the order streams are started in.
+- `ctx` is checked each time the count of copies gathered into seq groups passes a multiple of 4096, every copy counted, identical ones included;
+  a block dropped as a duplicate adds none.
+  Calls of `fn` are counted apart, and `ctx` is checked before the 4096th call, the 8192nd and so on.
 
 #### 5c — FindTransaction, PackSource, listing views, retention (pending)
 
