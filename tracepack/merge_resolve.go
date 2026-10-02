@@ -91,10 +91,12 @@ func (m *mergeRun) flushUnit() error {
 }
 
 // conflict reports the conflict of seq, whose records the open blocks at hold at their cursors, in position order:
-// it builds a new Conflict (conflictOf), whose versions name their holders' inputs in the order of the view's Packs,
+// it groups the records into versions and builds a new Conflict of them (conflictOf), whose versions name their holders' inputs in the order of the view's Packs,
 // passes it to OnConflict, and counts it.
 func (m *mergeRun) conflict(seq uint64, at []*openBlock) {
-	m.onConflict(conflictOf(m.p.captureID, seq, at, m.p.inputID))
+	var v seqVersions
+	v.group(at)
+	m.onConflict(conflictOf(m.p.captureID, seq, at, &v, m.p.inputID))
 	m.rep.Conflicts++
 }
 
