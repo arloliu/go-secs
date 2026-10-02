@@ -137,6 +137,11 @@ test-tracepack: ## Run tracepack's tests with -race
 	@printf "Run tracepack tests...\n"
 	@cd $(TRACEPACK_DIR) && CGO_ENABLED=1 go test ./... -timeout=$(TEST_TIMEOUT) $(VERBOSE_TAG) -race
 
+test-tracepack-386: ## Vet and test tracepack where int is 32 bits (GOARCH=386, GOWORK=off; no -race on 386)
+	@printf "Run tracepack tests for GOARCH=386...\n"
+	@cd $(TRACEPACK_DIR) && GOWORK=off GOARCH=386 go vet ./...
+	@cd $(TRACEPACK_DIR) && GOWORK=off GOARCH=386 go test ./... -timeout=$(TEST_TIMEOUT) $(VERBOSE_TAG)
+
 check-tracepack-consumer: ## Consumer view of tracepack/: GOWORK=off, tidy go.mod, build, -race tests (pre-tag gate)
 	@printf "Check tracepack as a consumer (GOWORK=off)...\n"
 	@cd $(TRACEPACK_DIR) && GOWORK=off go mod tidy -diff
@@ -280,7 +285,7 @@ ci: check docs-check test test-gemgen test-gemgen-integration lint-gemgen lint-t
 
 .PHONY: help lint fmt vet check docs-check \
         lint-gemgen test-gemgen test-gemgen-integration \
-        work lint-tracepack test-tracepack check-tracepack-consumer fuzz-tracepack update-pkg-cache-tracepack \
+        work lint-tracepack test-tracepack test-tracepack-386 check-tracepack-consumer fuzz-tracepack update-pkg-cache-tracepack \
         clean clean-coverage build-tests test test-all bench \
         stress-test stress-quick fuzz-test \
         coverage coverage-report \

@@ -64,6 +64,7 @@ make test-gemgen-integration  # real-compile guard against secs2 (build tag: int
 make work                # create the local go.work (gitignored) for root + tracepack development
 make lint-tracepack      # pinned linter, root .golangci.yaml
 make test-tracepack      # tracepack's tests with -race
+make test-tracepack-386  # vet + tests with GOARCH=386 (32-bit int), no -race
 make check-tracepack-consumer  # GOWORK=off: tidy go.mod, build, -race tests; must pass before any tracepack/ tag
 make fuzz-tracepack      # FUZZ_TIME=30s default
 make update-pkg-cache-tracepack
