@@ -47,19 +47,21 @@ jobs:
       run: make docs-check
 
   # tracepack/ is a nested module (github.com/arloliu/go-secs/tracepack) that the
-  # root jobs never reach. Two legs:
+  # root jobs never reach. Three legs:
   #  - workspace: a local go.work joins root and tracepack, so one PR may change
   #    both; this leg blocks PRs.
   #  - consumer: GOWORK=off, exactly what `go get` of the published module sees;
   #    advisory on PRs (a tracepack change that needs an unreleased go-secs
   #    change fails here until that commit is on main), blocking on push to main,
   #    and required before any tracepack/ tag.
+  #  - 386: GOWORK=off with GOARCH=386, so code and tests stay correct where
+  #    int is 32 bits; blocks PRs.
   tracepack:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        leg: [workspace, consumer]
+        leg: [workspace, consumer, '386']
     continue-on-error: ${{ matrix.leg == 'consumer' && github.event_name == 'pull_request' }}
     env:
       GOTOOLCHAIN: local
@@ -67,13 +69,13 @@ jobs:
     - uses: actions/checkout@v7
 
     # The workspace leg lints, so it takes the pinned Go and golangci-lint
-    # from mise.toml; the consumer leg builds with the Go version the module
-    # declares, as a consumer would.
+    # from mise.toml; the consumer and 386 legs build with the Go version the
+    # module declares, as a consumer would.
     - name: Setup Go and golangci-lint from mise.toml
       if: matrix.leg == 'workspace'
       uses: jdx/mise-action@v4
     - name: Setup Go from tracepack/go.mod
-      if: matrix.leg == 'consumer'
+      if: matrix.leg != 'workspace'
       uses: actions/setup-go@v7
       with:
         go-version-file: tracepack/go.mod
@@ -90,3 +92,7 @@ jobs:
     - name: Consumer leg (GOWORK=off, tidy, build, -race tests)
       if: matrix.leg == 'consumer'
       run: make check-tracepack-consumer
+
+    - name: 386 leg (GOWORK=off, GOARCH=386 vet and tests)
+      if: matrix.leg == '386'
+      run: make test-tracepack-386
