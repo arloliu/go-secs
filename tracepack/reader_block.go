@@ -12,6 +12,8 @@ import (
 // blockBuf holds the buffers one iteration reuses across the blocks it reads,
 // so a read allocates only for a block larger than every block read before it with the same blockBuf.
 // Each iteration owns its blockBuf; nothing mutable is shared on the Reader.
+// A held block of a read over several packs has a blockBuf of its own instead,
+// read into once and kept until the block is dropped.
 type blockBuf struct {
 	// raw holds the block as read: its envelope, then its on-disk body.
 	raw []byte
@@ -27,7 +29,8 @@ type blockBuf struct {
 // decodedBlock is a block that passed every check of a full read (the tracepack format specification §6).
 //
 // Its slices alias the blockBuf it was read with,
-// so it is valid only until the next read with that blockBuf.
+// so it is valid only until the next read with that blockBuf,
+// or, for a held block, until the block is dropped.
 type decodedBlock struct {
 	// env is the block envelope, which agrees with the block's BlockInfo.
 	env format.BlockEnvelope
@@ -148,7 +151,7 @@ func envelopeAgrees(e *format.BlockEnvelope, info *BlockInfo) error {
 //   - recordSpan: the records' last seq and time and epoch ranges.
 //   - error: nil, or the failed check.
 func decodeBlock(env *format.BlockEnvelope, buf *blockBuf) (*decodedBlock, recordSpan, error) {
-	hsLen, err := headerSectionLen(env)
+	hsLen, err := headerSectionLen(env.RecordCount, env.RecordHeaderLen, env.UncompressedLen)
 	if err != nil {
 		return nil, recordSpan{}, err
 	}
@@ -174,14 +177,14 @@ func decodeBlock(env *format.BlockEnvelope, buf *blockBuf) (*decodedBlock, recor
 	return d, span, nil
 }
 
-// headerSectionLen returns the length of the header section of the block of env,
-// record_count × record_header_len, after checking that it fits uncompressed_len.
-func headerSectionLen(env *format.BlockEnvelope) (int, error) {
-	hsLen, err := format.HeaderSectionLen(env.RecordCount, env.RecordHeaderLen)
+// headerSectionLen returns the length of the header section of a block of count records of rhl bytes each,
+// count × rhl, after checking that it fits the block's uncompressed_len ulen.
+func headerSectionLen(count uint32, rhl uint16, ulen uint32) (int, error) {
+	hsLen, err := format.HeaderSectionLen(count, rhl)
 	if err != nil {
 		return 0, err
 	}
-	if n := int(env.UncompressedLen); hsLen > n {
+	if n := int(ulen); hsLen > n {
 		return 0, fmt.Errorf("header section of %d bytes exceeds uncompressed_len %d", hsLen, n)
 	}
 
@@ -191,6 +194,8 @@ func headerSectionLen(env *format.BlockEnvelope) (int, error) {
 // decodeBody decodes the whole on-disk body in buf.raw of the block of env.
 // A None body is the decoded body itself, already covered by body_crc,
 // so it is used in place, aliasing buf.raw, instead of copied into buf.decoded.
+// Any other body is decoded into buf.decoded,
+// first allocated at exactly uncompressed_len when buf.decoded has no capacity.
 func decodeBody(env *format.BlockEnvelope, buf *blockBuf) ([]byte, error) {
 	n := int(env.UncompressedLen)
 	body := buf.raw[format.EnvelopeLen:]
@@ -199,6 +204,10 @@ func decodeBody(env *format.BlockEnvelope, buf *blockBuf) ([]byte, error) {
 	if env.Codec == codec.None {
 		err = codec.CheckNone(body, n)
 	} else {
+		if cap(buf.decoded) == 0 {
+			// A fresh buffer gets the exact length, which growing it by appending would round up.
+			buf.decoded = make([]byte, 0, n)
+		}
 		buf.decoded, err = codec.Decode(env.Codec, buf.decoded, body, n)
 		body = buf.decoded
 	}

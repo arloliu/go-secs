@@ -145,7 +145,7 @@ func validateBody(decoded []byte, count uint32, firstSeq uint64, buf *validateBu
 		RecordCount:     count,
 		FirstSeq:        firstSeq,
 	}
-	hsLen, err := headerSectionLen(&env)
+	hsLen, err := headerSectionLen(env.RecordCount, env.RecordHeaderLen, env.UncompressedLen)
 	if err != nil {
 		return err
 	}
