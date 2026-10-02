@@ -24,9 +24,11 @@ var errStopIterate = errors.New("stop iterating")
 
 // iterItem is an Item copied out of an Iterate callback.
 type iterItem struct {
-	rec   Record
-	extra []byte
-	block int
+	rec      Record
+	extra    []byte
+	pack     int
+	block    int
+	conflict bool
 }
 
 // iterRun is what one Iterate call yielded and returned.
@@ -40,7 +42,7 @@ func copyItem(it *Item) iterItem {
 	rec := it.Record
 	rec.Payload = bytes.Clone(rec.Payload)
 
-	return iterItem{rec: rec, extra: bytes.Clone(it.HeaderExtra), block: it.Block}
+	return iterItem{rec: rec, extra: bytes.Clone(it.HeaderExtra), pack: it.Pack, block: it.Block, conflict: it.Conflict}
 }
 
 // runQuery runs q over r and returns what it yielded.
@@ -194,7 +196,9 @@ func TestIterateAll(t *testing.T) {
 				for k, it := range run.items {
 					assert.Equal(t, storedAs(recs[k], payloads), it.rec)
 					assert.Nil(t, it.extra)
+					assert.Equal(t, 0, it.pack, "Iterate reads one pack")
 					assert.Equal(t, k/4, it.block)
+					assert.False(t, it.conflict, "a pack holds no two copies of a seq")
 				}
 				assert.Equal(t, Result{}, run.res, "a complete result with nothing to report")
 			}
@@ -734,8 +738,31 @@ func TestIterateResultOrder(t *testing.T) {
 	assert.Equal(t, ReasonCoverage, run.res.Incomplete[1].Reason)
 	assert.Equal(t, ReasonCorruptBlock, run.res.Incomplete[2].Reason)
 	assert.Equal(t, 1, run.res.Incomplete[2].Block)
+	for _, d := range run.res.Incomplete {
+		assert.Equal(t, 0, d.Pack, "Iterate reads one pack")
+	}
 	require.Error(t, run.res.FooterErr)
+	assert.Equal(t, []PackError{{Pack: 0, Err: run.res.FooterErr}}, run.res.FooterErrs)
 	assert.Equal(t, []uint64{0, 1, 4, 5}, run.seqs())
+}
+
+func TestIterateFooterErrs(t *testing.T) {
+	t.Parallel()
+
+	recs := hourRecords(3, 4)
+	p := writeReaderPack(t, readerPackConfig{codec: CodecZstd}, recs)
+	r := mustOpen(t, invalidFooterFile(t, p.file), ReaderOptions{})
+	require.ErrorIs(t, r.Header().FooterErr, ErrInvalidFooter)
+
+	run := iterate(t, r, Query{Payloads: true})
+	assert.Len(t, run.items, len(recs), "the walk accounts for every record")
+	require.ErrorIs(t, run.res.FooterErr, ErrInvalidFooter)
+	assert.Equal(t, []PackError{{Pack: 0, Err: run.res.FooterErr}}, run.res.FooterErrs)
+	require.ErrorIs(t, run.res.FooterErrs[0], ErrInvalidFooter, "a PackError unwraps to the error about its pack")
+	assert.Equal(t, "tracepack: pack 0: "+run.res.FooterErr.Error(), run.res.FooterErrs[0].Error())
+	assert.Empty(t, run.res.Incomplete)
+	assert.True(t, run.res.Complete(), "a finalized pack whose walk accounts for every block is complete without its footer")
+	assert.Empty(t, run.res.Conflicts)
 }
 
 func TestIterateOverBudgetBlock(t *testing.T) {

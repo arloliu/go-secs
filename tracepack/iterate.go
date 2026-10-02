@@ -59,7 +59,10 @@ func clonePtr[T any](v *T) *T {
 // Iterate yields the records of the pack that q selects, in file order,
 // and returns the status of the read (the tracepack semantics specification §7.4).
 //
-// The Result starts with the defects every read of the pack carries, those Open found, and PackHeader.FooterErr.
+// The Result starts with the defects every read of the pack carries, those Open found,
+// and with PackHeader.FooterErr as Result.FooterErr.
+// A non-nil FooterErr is also the one entry of Result.FooterErrs, for pack 0.
+// Every Item and Defect names pack 0, no Item is a conflict, and Result.Conflicts stays empty.
 // Next come the coverage entries of the pack metadata that intersect the query (the tracepack format specification §5):
 // an entry of the pack's capture, an absent capture_id included, whose inclusive time interval meets [TimeFrom, TimeTo),
 // an absent bound being unbounded, or whose first bound, of time or seq, exceeds its last;
@@ -103,6 +106,9 @@ func (r *Reader) Iterate(ctx context.Context, q Query, fn func(*Item) error) (Re
 
 	f := &q.Filter
 	res := Result{Incomplete: slices.Clone(r.openDefects), FooterErr: r.footerErr}
+	if r.footerErr != nil {
+		res.FooterErrs = []PackError{{Pack: 0, Err: r.footerErr}}
+	}
 	res.Incomplete = r.appendCoverageDefects(res.Incomplete, f)
 
 	var (

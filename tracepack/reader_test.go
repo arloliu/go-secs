@@ -442,6 +442,9 @@ func TestResultComplete(t *testing.T) {
 	assert.True(t, Result{}.Complete())
 	assert.True(t, Result{FooterErr: ErrInvalidFooter}.Complete(),
 		"a footer failure is reported beside the defects, never as one")
+	assert.True(t, Result{FooterErrs: []PackError{{Pack: 1, Err: ErrInvalidFooter}}}.Complete(),
+		"a pack's footer failure is reported beside the defects, never as one")
+	assert.True(t, Result{Conflicts: []Conflict{{Seq: 1}}}.Complete(), "a conflict is not a defect")
 	assert.False(t, Result{Incomplete: []Defect{{Reason: ReasonTruncated, Block: -1, Offset: 80}}}.Complete())
 }
 

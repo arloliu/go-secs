@@ -227,16 +227,18 @@ type MergeReport struct {
 	Size uint64
 }
 
-// Conflict is one record conflict of a merge: records of the view with the same capture_id and seq and different bytes
+// Conflict is one record conflict of a merge or of a read over several packs:
+// records of the packs compared with the same capture_id and seq and different bytes
 // (the tracepack format specification I-12).
 type Conflict struct {
 	// CaptureID and Seq identify the record.
 	CaptureID UUID
 	Seq       uint64
-	// Versions holds, for each distinct version of the record, the pack_ids of the inputs holding it,
-	// those whose blocks were dropped as duplicates included, each once, in the order of the view's Packs.
-	// The versions are in the order of the first block holding each,
-	// blocks taken in ascending first seq, then in the order of the view's Packs.
+	// Versions holds, for each distinct version of the record, the pack_ids of the packs holding it, each once:
+	// for a merge, the inputs, those whose blocks were dropped as duplicates included, in the order of the view's Packs;
+	// for a read, in the order the readers were given.
+	// The versions are in the order of the first block holding each, blocks taken in cluster order:
+	// ascending first seq, then the order of the view's Packs or of the readers, then file order.
 	Versions [][]UUID
 }
 
