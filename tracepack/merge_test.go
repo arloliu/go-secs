@@ -288,7 +288,12 @@ func TestMergeOptionErrors(t *testing.T) {
 		{name: "epoch above 2^63-1", edit: func(o *MergeOptions) { o.PublisherEpoch = 1 << 63 }, msg: "rank"},
 		{name: "a codec outside the registry", edit: func(o *MergeOptions) { o.Codec = Codec(9) }, msg: "Codec"},
 		{name: "negative block threshold", edit: func(o *MergeOptions) { o.BlockThreshold = -1 }, msg: "BlockThreshold"},
-		{name: "block threshold above 2^31-1", edit: func(o *MergeOptions) { o.BlockThreshold = int(format.MaxLen32) + 1 }, msg: "BlockThreshold"},
+		{name: "block threshold above 2^31-1", edit: func(o *MergeOptions) {
+			// A variable, so the test compiles where int is 32 bits:
+			// there no int lies above 2^31-1, and the conversion wraps to a negative threshold the same check refuses.
+			above := int64(format.MaxLen32) + 1
+			o.BlockThreshold = int(above)
+		}, msg: "BlockThreshold"},
 		{name: "negative open blocks", edit: func(o *MergeOptions) { o.MaxOpenBlocks = -1 }, msg: "MaxOpenBlocks"},
 		{name: "negative footer budget", edit: func(o *MergeOptions) { o.MaxFooterLen = -1 }, msg: "MaxFooterLen"},
 		{name: "a view without packs", view: &View{Capture: viewCapture, Hour: mergeHour}, inputs: []MergeInput{}, msg: "no packs"},
