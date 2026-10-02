@@ -114,6 +114,11 @@ type heldBlock struct {
 	d *decodedBlock
 	// size is the bytes reserved for buf; 0 once the block is dropped.
 	size int64
+	// owners counts the owners of the block, 1 from its load:
+	// in the resolution of a cluster, the cluster's cursor, from the load until the block's last record is resolved,
+	// and each pending candidate whose representative it is, from the candidate's creation until it is released.
+	// release drops the block once the count reaches 0.
+	owners int
 }
 
 // heldLoader reads blocks into held buffers, each reserved against budget before it is allocated.
@@ -122,6 +127,11 @@ type heldLoader struct {
 	// readHook, set only by tests, receives every block the loader reads in full and its buffers, before the read:
 	// a block failing its preflight or its reservation is not read.
 	readHook func(pack, block int, buf *blockBuf)
+}
+
+// hold adds an owner to h.
+func (h *heldBlock) hold() {
+	h.owners++
 }
 
 // load reads block i of r, the Reader at index pack among the readers of the read, into buffers of its own.
@@ -134,7 +144,8 @@ type heldLoader struct {
 // and only after checking that the envelope agrees with the block's BlockInfo.
 //
 // Returns:
-//   - *heldBlock: the usable block, holding its reservation until drop; nil with a failed block or an error.
+//   - *heldBlock: the usable block, holding its reservation until drop, with its caller as its one owner;
+//     nil with a failed block or an error.
 //   - *Defect: the block's defect, with Pack set:
 //     a failed block's (no block), or ReasonIndexMismatch beside the block, as readBlock reports them.
 //   - error: an error wrapping ErrReadLimit when the reservation would exceed the budget;
@@ -151,7 +162,7 @@ func (l *heldLoader) load(r *Reader, pack, i int) (*heldBlock, *Defect, error) {
 		return nil, nil, fmt.Errorf("tracepack: pack %d, block %d: %w", pack, i, err)
 	}
 
-	h := &heldBlock{pack: pack, block: i, buf: s.newBuf(), size: s.total}
+	h := &heldBlock{pack: pack, block: i, buf: s.newBuf(), size: s.total, owners: 1}
 	if l.readHook != nil {
 		l.readHook(pack, i, h.buf)
 	}
@@ -182,4 +193,12 @@ func (l *heldLoader) drop(h *heldBlock) {
 	*h.buf = blockBuf{}
 	l.budget.release(h.size)
 	h.size = 0
+}
+
+// release drops one owner of h, and drops h once it has no owner left.
+func (l *heldLoader) release(h *heldBlock) {
+	h.owners--
+	if h.owners == 0 {
+		l.drop(h)
+	}
 }
