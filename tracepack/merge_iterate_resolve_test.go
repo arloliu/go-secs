@@ -106,6 +106,24 @@ func plainViews(pack, block int, seqs ...uint64) []candView {
 	return out
 }
 
+// misindexedPack returns a finalized pack id of capture with a valid footer that misstates its one block:
+// the block holds seqs 10, 12, 14 and 16, the record of seq s at blockTestHour + s,
+// while its F-2 entry, its F-3 summary and the trailer state seqs 10 to 13.
+func misindexedPack(t testing.TB, id, capture UUID) []byte {
+	t.Helper()
+
+	file := reindexedWith(t, planTestPack(t, id, capture, false, seqBlocks([]uint64{10, 12, 14, 16})), func(_ int, s *blockSummary) {
+		s.lastSeq = 13
+		s.seqRanges = []seqRange{{first: 10, last: 13}}
+		require.Len(t, s.epochs, 1)
+		s.epochs[0].seqLast = 13
+	})
+	tr := layoutOf(t, file).tr
+	tr.LastSeq = 13
+
+	return format.AppendTrailer(file[:len(file)-format.TrailerLen], &tr)
+}
+
 // heldSize returns the bytes the loader reserves for the first block of file.
 func heldSize(t testing.TB, file []byte) int64 {
 	t.Helper()
@@ -434,17 +452,8 @@ func TestClusterResolverFailedBlocks(t *testing.T) {
 	t.Run("records past the cluster's last seq", func(t *testing.T) {
 		t.Parallel()
 
-		// a's one block holds 10, 12, 14 and 16, while its index states seqs 10 to 13, the range of b's one block:
-		// a valid footer that misstates the block.
-		a := reindexedWith(t, mergePack(t, seg0, nil, seqBlocks([]uint64{10, 12, 14, 16})), func(_ int, s *blockSummary) {
-			s.lastSeq = 13
-			s.seqRanges = []seqRange{{first: 10, last: 13}}
-			require.Len(t, s.epochs, 1)
-			s.epochs[0].seqLast = 13
-		})
-		tr := layoutOf(t, a).tr
-		tr.LastSeq = 13
-		a = format.AppendTrailer(a[:len(a)-format.TrailerLen], &tr)
+		// a's one block holds 10, 12, 14 and 16, while its index states seqs 10 to 13, the range of b's one block.
+		a := misindexedPack(t, seg0, viewCapture)
 		b := mergePack(t, seg1, nil, hourSteps(10, 13, 4))
 		run, _ := planResolve(t, t.Context(), Query{}, 0, nil, a, b)
 		require.Empty(t, run.p.res.FooterErrs, "the footer must stay valid")
