@@ -98,32 +98,46 @@ func TestRunTimeBackwardTimestamps(t *testing.T) {
 	tests := []struct {
 		name  string
 		files func(t testing.TB) [][]byte
-		want  []yieldView
+		// clusters is the number of clusters the files form.
+		clusters int
+		want     []yieldView
 	}{
 		{name: "within a block", files: func(t testing.TB) [][]byte {
 			return [][]byte{planTestPack(t, seg0, captureLow, false, recordsAt(1, h+30, h+10, h+20))}
-		}, want: []yieldView{{seq: 2}, {seq: 3}, {seq: 1}}},
+		}, clusters: 1, want: []yieldView{{seq: 2}, {seq: 3}, {seq: 1}}},
 		{name: "across the blocks of a pack", files: func(t testing.TB) [][]byte {
 			return [][]byte{planTestPack(t, seg0, captureLow, false, slices.Concat(recordsAt(1, h+50, h+60), recordsAt(3, h+10, h+70)))}
-		}, want: []yieldView{{block: 1, seq: 3}, {seq: 1}, {seq: 2}, {block: 1, seq: 4}}},
+		}, clusters: 2, want: []yieldView{{block: 1, seq: 3}, {seq: 1}, {seq: 2}, {block: 1, seq: 4}}},
 		{name: "across packs", files: func(t testing.TB) [][]byte {
 			return [][]byte{
 				planTestPack(t, seg0, captureLow, false, recordsAt(1, h+100, h+110)),
 				planTestPack(t, seg1, captureLow, false, recordsAt(3, h+0, h+5)),
 			}
-		}, want: []yieldView{{pack: 1, seq: 3}, {pack: 1, seq: 4}, {seq: 1}, {seq: 2}}},
+		}, clusters: 2, want: []yieldView{{pack: 1, seq: 3}, {pack: 1, seq: 4}, {seq: 1}, {seq: 2}}},
 		{name: "across packs, one cluster", files: func(t testing.TB) [][]byte {
+			// Pack 0's one block holds seqs 1 and 3, so pack 1's block of seq 2 lies within its range.
 			return [][]byte{
-				planTestPack(t, seg0, captureLow, false, slices.Concat(recordsAt(1, h+100), recordsAt(3, h+0))),
+				planTestPack(t, seg0, captureLow, false, []footerTestStep{
+					{rec: testDataRecord(1, h+100, 1)},
+					{rec: testDataRecord(3, h+0, 1), flush: true},
+				}),
 				planTestPack(t, seg1, captureLow, false, recordsAt(2, h+50)),
 			}
-		}, want: []yieldView{{block: 1, seq: 3}, {pack: 1, seq: 2}, {seq: 1}}},
+		}, clusters: 1, want: []yieldView{{seq: 3}, {pack: 1, seq: 2}, {seq: 1}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			items, res := mustTimeRead(t, tt.files(t)...)
+			files := tt.files(t)
+			p, _ := mustPlan(t, openAll(t, files...), Query{})
+			clusters := 0
+			for _, c := range p.captures {
+				clusters += len(c.clusters)
+			}
+			assert.Equal(t, tt.clusters, clusters)
+
+			items, res := mustTimeRead(t, files...)
 			assert.Equal(t, tt.want, yieldViews(items))
 			assert.Empty(t, res.Conflicts)
 			assert.Empty(t, res.Incomplete)

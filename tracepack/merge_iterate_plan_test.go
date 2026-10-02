@@ -475,6 +475,182 @@ func TestMergeIteratePlanPreReadErrors(t *testing.T) {
 	})
 }
 
+// mixedWalkedPack returns an unfinalized pack of four hourly blocks,
+// each needing the most of one of the four buffers of a block read:
+// block 0 of raw, its payloads incompressible;
+// block 1 of decoded, its payloads compressible;
+// block 2 of rows, its few record headers widened by 200 bytes;
+// block 3 of offsets, its many records of plain headers.
+func mixedWalkedPack(t testing.TB) []byte {
+	t.Helper()
+
+	var recs []Record
+	add := func(hour int, n int, rec func(seq uint64, ts int64) Record) {
+		for i := range n {
+			recs = append(recs, rec(uint64(len(recs)), blockTestHour+int64(hour)*hourNs+int64(i)))
+		}
+	}
+	add(0, 2, func(seq uint64, ts int64) Record { return randomDataRecord(seq, ts, 64<<10) })
+	add(1, 4, func(seq uint64, ts int64) Record { return textDataRecord(seq, ts, 64<<10) })
+	add(2, 300, func(seq uint64, ts int64) Record { return testDataRecord(seq, ts, 1) })
+	add(3, 1000, func(seq uint64, ts int64) Record { return testDataRecord(seq, ts, 1) })
+	file := writeReaderPack(t, readerPackConfig{codec: CodecZstd, open: true}, recs).file
+
+	return rebuildPack(t, file, func(i int, b *testBlock) {
+		if i == 2 {
+			for j := range b.headers {
+				b.headers[j].Extra = make([]byte, 200)
+			}
+		}
+	})
+}
+
+// TestMergeIteratePlanPreReadDropsEachBuffer pre-reads mixedWalkedPack to each outcome of a block's pre-read:
+// its summary, its defect, a ReadAt error, ctx cancelled.
+// When each pre-read buffer is allocated, every earlier one is dropped,
+// and the bytes held are only the block's own reservation;
+// after planning every buffer is dropped.
+// A read over the pack then holds at most the largest block.
+func TestMergeIteratePlanPreReadDropsEachBuffer(t *testing.T) {
+	t.Parallel()
+
+	file := mixedWalkedPack(t)
+	r := mustOpen(t, file, ReaderOptions{})
+	require.Len(t, r.blocks, 4)
+	sizes := make([]blockSizes, len(r.blocks))
+	for i := range r.blocks {
+		require.False(t, r.blocks[i].Indexed)
+		s, def := r.preflightBlock(i)
+		require.Nil(t, def)
+		sizes[i] = s
+	}
+	largestAt := func(of func(s *blockSizes) int) int {
+		k := 0
+		for i := range sizes {
+			if of(&sizes[i]) > of(&sizes[k]) {
+				k = i
+			}
+		}
+
+		return k
+	}
+	require.Equal(t, []int{0, 1, 2, 3}, []int{
+		largestAt(func(s *blockSizes) int { return s.raw }),
+		largestAt(func(s *blockSizes) int { return s.decoded }),
+		largestAt(func(s *blockSizes) int { return s.rows }),
+		largestAt(func(s *blockSizes) int { return s.offs }),
+	}, "raw, decoded, rows and offsets each largest in a block of its own: %+v", sizes)
+
+	type preReadCase struct {
+		name   string
+		reader func(t *testing.T) *Reader
+		// cancelAt is the block whose pre-read cancels ctx; -1 for none.
+		cancelAt int
+		// defectAt is the block whose pre-read is a defect; -1 for none.
+		defectAt int
+		// err is the error build returns; nil for none.
+		err error
+		// read is the number of blocks read.
+		read int
+	}
+	tests := []preReadCase{
+		{
+			name:   "summaries",
+			reader: func(t *testing.T) *Reader { return mustOpen(t, file, ReaderOptions{}) }, cancelAt: -1, defectAt: -1, read: 4,
+		},
+	}
+	for k := range r.blocks {
+		b := &r.blocks[k]
+		corrupt := flipByte(file, b.Offset+format.EnvelopeLen+uint64(b.OnDiskLen-format.EnvelopeLen)/2)
+		tests = append(tests, preReadCase{
+			name:   fmt.Sprintf("defect at block %d", k),
+			reader: func(t *testing.T) *Reader { return mustOpen(t, corrupt, ReaderOptions{}) }, cancelAt: -1, defectAt: k, read: 4,
+		}, preReadCase{
+			name: fmt.Sprintf("ReadAt fails at block %d", k),
+			reader: func(t *testing.T) *Reader {
+				g := newGatedReader(file)
+				walked, err := openReader(t.Context(), g, int64(len(file)), ReaderOptions{}, false)
+				require.NoError(t, err)
+				off := int64(b.Offset)
+				g.fail = func(o int64, _ int) bool { return o == off }
+
+				return walked
+			}, cancelAt: -1, defectAt: -1, err: errInjected, read: k + 1,
+		})
+		if k < len(r.blocks)-1 {
+			tests = append(tests, preReadCase{
+				name:   fmt.Sprintf("ctx cancelled at block %d", k),
+				reader: func(t *testing.T) *Reader { return mustOpen(t, file, ReaderOptions{}) }, cancelAt: k, defectAt: -1, err: context.Canceled, read: k + 1,
+			})
+		}
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			q := Query{}
+			readers := []*Reader{tt.reader(t)}
+			o, err := checkMergeIterate(ctx, readers, &q, MergeIterateOptions{Order: OrderCapture}, acceptItems)
+			require.NoError(t, err)
+			p := newMergeIteratePlan(o)
+			var bufs []*blockBuf
+			p.loader.readHook = func(_, block int, buf *blockBuf) {
+				for k, prev := range bufs {
+					assert.True(t, prev.raw == nil && prev.decoded == nil && prev.rows == nil && prev.offs == nil,
+						"block %d: the buffers of block %d dropped before it is allocated", block, k)
+				}
+				assert.Equal(t, sizes[block].total, p.loader.budget.held, "block %d: only its reservation held", block)
+				bufs = append(bufs, buf)
+				if block == tt.cancelAt {
+					cancel()
+				}
+			}
+
+			err = p.build(ctx, readers, &q)
+			if tt.err != nil {
+				require.ErrorIs(t, err, tt.err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Len(t, bufs, tt.read)
+			if tt.defectAt >= 0 {
+				require.NotEmpty(t, p.res.Incomplete)
+				def := p.res.Incomplete[len(p.res.Incomplete)-1]
+				assert.Equal(t, ReasonCorruptBlock, def.Reason)
+				assert.Equal(t, tt.defectAt, def.Block)
+			}
+			for _, buf := range bufs {
+				requireDropped(t, buf)
+			}
+			assert.Zero(t, p.loader.budget.held)
+		})
+	}
+
+	t.Run("resolution", func(t *testing.T) {
+		t.Parallel()
+
+		largest := sizes[largestAt(func(s *blockSizes) int { return int(s.total) })].total
+		p, reads, err := planReads(t, t.Context(), openAll(t, file), Query{}, MergeIterateOptions{Order: OrderCapture, MaxHeldBytes: largest}, nil)
+		require.NoError(t, err)
+		require.Len(t, reads, 4)
+
+		maxHeld := int64(0)
+		p.loader.readHook = func(int, int, *blockBuf) { maxHeld = max(maxHeld, p.loader.budget.held) }
+		calls := 0
+		require.NoError(t, p.runCapture(t.Context(), &Query{}, func(*Item) error {
+			calls++
+			maxHeld = max(maxHeld, p.loader.budget.held)
+
+			return nil
+		}))
+		assert.Equal(t, 1306, calls)
+		assert.LessOrEqual(t, maxHeld, largest)
+		assert.Zero(t, p.loader.budget.held)
+	})
+}
+
 func TestMergeIteratePlanClusters(t *testing.T) {
 	t.Parallel()
 
