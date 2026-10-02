@@ -1284,3 +1284,111 @@ func FuzzMergeGenerated(f *testing.F) {
 		requireMergeProperties(t, files, r.out, r.rep, opts)
 	})
 }
+
+// overwriteBuf overwrites the storage of every buffer of buf to its capacity,
+// bytes with 0xA5 and offsets with offsets past any body,
+// so a block read into buf before reads as no block of the merge once its buffer is released.
+func overwriteBuf(buf *blockBuf) {
+	for _, b := range [][]byte{buf.raw, buf.decoded, buf.rows} {
+		b = b[:cap(b)]
+		for i := range b {
+			b[i] = 0xA5
+		}
+	}
+	offs := buf.offs[:cap(buf.offs)]
+	for i := range offs {
+		offs[i] = math.MaxUint32
+	}
+}
+
+// overwrittenMerge is what mergeOverwriting gives of a merge:
+// what it wrote, the file header's writer_start_utc_ns set to 0, its report, the conflicts OnConflict received, its error,
+// and the number of buffers it released.
+type overwrittenMerge struct {
+	out       []byte
+	rep       MergeReport
+	conflicts []Conflict
+	err       error
+	released  int
+}
+
+// mergeOverwriting merges files, the packs v.Packs names in that order, with fixedIDs(opts),
+// every other coalesced encoding made to fail its check when fallbacks is set,
+// and, when overwrite is set, every block buffer overwritten (overwriteBuf)
+// as soon as the merge releases it for a later read.
+func mergeOverwriting(t *testing.T, v View, files [][]byte, opts MergeOptions, fallbacks, overwrite bool) overwrittenMerge {
+	t.Helper()
+
+	var m overwrittenMerge
+	opts = fixedIDs(opts)
+	opts.OnConflict = func(c Conflict) { m.conflicts = append(m.conflicts, c) }
+	p := mustPlanMerge(t, v, inputsOfFiles(files), opts)
+	var calls int
+	if fallbacks {
+		p.coalescedHook = failingEveryOther(&calls)
+	}
+	p.releaseHook = func(buf *blockBuf) {
+		m.released++
+		if overwrite {
+			overwriteBuf(buf)
+		}
+	}
+	var out bytes.Buffer
+	m.rep, m.err = p.write(t.Context(), &out, &opts)
+	m.out = out.Bytes()
+	if len(m.out) >= format.FileHeaderLen {
+		m.out = patchHeader(t, m.out, func(h *format.FileHeader) { h.WriterStartUTCNs = 0 })
+	}
+
+	return m
+}
+
+// TestMergeReleasedBuffersOverwritten merges generated scopes, and a scope whose segments conflict,
+// once as they are and once with every block buffer overwritten as soon as the merge releases it for a later read:
+// both merges write the same archive, but for the time the Writer started, report the same and receive the same conflicts,
+// so the merge releases no buffer whose block it still uses.
+func TestMergeReleasedBuffersOverwritten(t *testing.T) {
+	t.Parallel()
+
+	type scope struct {
+		name      string
+		v         View
+		files     [][]byte
+		opts      MergeOptions
+		fallbacks bool
+		// want is the error the merge ends with.
+		want error
+	}
+	c := propertyCapture(t)
+	n := len(c)
+	conflicting := [][]byte{
+		mergePack(t, seg0, nil, inBlocks(c[:2*n/3], 2)),
+		mergePack(t, seg1, nil, changed(inBlocks(c[n/3:], 3), 1, c[n/2].Seq, c[n/2+1].Seq)),
+	}
+	const seeds = 24
+	scopes := make([]scope, 0, 1+seeds)
+	scopes = append(scopes, scope{name: "conflicting segments", v: mergeView(t, nil, conflicting...), files: conflicting, opts: mergeOpts(), want: ErrMergeConflict})
+	for seed := range uint64(seeds) {
+		s := genScopeOf(t, seed)
+		v := mergeView(t, s.commits, s.files...)
+		scopes = append(scopes, scope{name: fmt.Sprint(seed), v: v, files: filesOf(t, v, s.files...), opts: s.opts, fallbacks: s.fallbacks})
+	}
+	for _, s := range scopes {
+		t.Run(s.name, func(t *testing.T) {
+			t.Parallel()
+
+			kept := mergeOverwriting(t, s.v, s.files, s.opts, s.fallbacks, false)
+			overwritten := mergeOverwriting(t, s.v, s.files, s.opts, s.fallbacks, true)
+			require.Positive(t, overwritten.released)
+			if s.want == nil {
+				require.NoError(t, kept.err)
+			} else {
+				require.ErrorIs(t, kept.err, s.want)
+			}
+			require.Equal(t, kept.err, overwritten.err)
+			assert.Equal(t, kept.rep, overwritten.rep)
+			assert.Equal(t, kept.conflicts, overwritten.conflicts)
+			assert.Equal(t, kept.out, overwritten.out, "the archives")
+		})
+	}
+}
