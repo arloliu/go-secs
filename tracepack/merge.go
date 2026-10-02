@@ -294,16 +294,21 @@ type mergeBlock struct {
 	f3 []byte
 }
 
-// mergeCluster is one overlap cluster (the tracepack storage specification §4 Merge):
-// a maximal set of input blocks whose F-2 seq ranges chain into one interval,
+// seqCluster is one overlap cluster of blocks, each described by a T that gives its seq range:
+// a maximal set of blocks whose seq ranges chain into one interval,
 // two ranges overlapping when they share a seq.
-type mergeCluster struct {
+type seqCluster[T any] struct {
 	// first and last bound the seqs of the cluster's blocks.
 	first uint64
 	last  uint64
-	// blocks holds the cluster's blocks in ascending first seq, then in input order, then in block order.
-	blocks []mergeBlock
+	// blocks holds the cluster's blocks in ascending first seq, then in the order they were given in.
+	blocks []T
 }
+
+// mergeCluster is one overlap cluster of input blocks (the tracepack storage specification §4 Merge),
+// by their F-2 seq ranges;
+// its blocks are in ascending first seq, then in input order, then in block order.
+type mergeCluster = seqCluster[mergeBlock]
 
 // Merge writes to dst the next generation of the scope of view, from inputs:
 // an archive, the one member of a new replacement set, as the tracepack storage specification §4 Merge builds it.
@@ -528,9 +533,8 @@ func newMergePlan(view *View, opts *MergeOptions) (*mergePlan, UUID, error) {
 	return p, setID, nil
 }
 
-// clustersOf returns the overlap clusters of the blocks of inputs, whose footers are valid, in ascending first seq.
-// A block joins the cluster before it when its first seq is at or below the cluster's last seq:
-// taken in ascending first seq, it then shares its first seq with a block of that cluster.
+// clustersOf returns the overlap clusters of the blocks of inputs, whose footers are valid, in ascending first seq,
+// as chainClusters chains them by their F-2 seq ranges.
 func clustersOf(inputs []*Reader) []mergeCluster {
 	total := 0
 	for _, r := range inputs {
@@ -543,22 +547,42 @@ func clustersOf(inputs []*Reader) []mergeCluster {
 			blocks = append(blocks, mergeBlock{input: i, block: j, first: s.firstSeq, last: s.lastSeq, f3: r.rawF3(j)})
 		}
 	}
-	// The blocks were gathered in input order, then block order, which the stable sort keeps among equal first seqs.
-	slices.SortStableFunc(blocks, func(a, b mergeBlock) int { return cmp.Compare(a.first, b.first) })
+	// The blocks were gathered in input order, then block order, which the sort keeps among equal first seqs.
+	return chainClusters(blocks, func(b *mergeBlock) (uint64, uint64) { return b.first, b.last })
+}
 
-	var out []mergeCluster
+// chainClusters sorts blocks by first seq, keeping their order among equal first seqs,
+// and returns their overlap clusters in ascending first seq.
+// A block joins the cluster before it when its first seq is at or below the cluster's last seq:
+// taken in ascending first seq, it then shares its first seq with a block of that cluster.
+//
+// Parameters:
+//   - blocks: the blocks, sorted in place.
+//   - seqs: returns the first and last seq of a block.
+//
+// Returns:
+//   - []seqCluster[T]: the clusters, whose blocks are sub-slices of blocks, each capped at its end.
+func chainClusters[T any](blocks []T, seqs func(*T) (first, last uint64)) []seqCluster[T] {
+	slices.SortStableFunc(blocks, func(a, b T) int {
+		af, _ := seqs(&a)
+		bf, _ := seqs(&b)
+
+		return cmp.Compare(af, bf)
+	})
+
+	var out []seqCluster[T]
 	start := 0
 	for k := range blocks {
-		b := &blocks[k]
-		if n := len(out); n > 0 && b.first <= out[n-1].last {
+		first, last := seqs(&blocks[k])
+		if n := len(out); n > 0 && first <= out[n-1].last {
 			c := &out[n-1]
-			c.last = max(c.last, b.last)
+			c.last = max(c.last, last)
 			c.blocks = blocks[start : k+1 : k+1]
 
 			continue
 		}
 		start = k
-		out = append(out, mergeCluster{first: b.first, last: b.last, blocks: blocks[k : k+1 : k+1]})
+		out = append(out, seqCluster[T]{first: first, last: last, blocks: blocks[k : k+1 : k+1]})
 	}
 
 	return out
