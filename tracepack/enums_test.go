@@ -382,3 +382,14 @@ func TestWriterDefectKind_String(t *testing.T) {
 	}
 	checkEnumStrings[tracepack.WriterDefectKind](t, cases, 7)
 }
+
+func TestOrder_String(t *testing.T) {
+	t.Parallel()
+
+	cases := []enumCase{
+		{0, "unknown(0)"},
+		{1, "capture"},
+		{2, "time"},
+	}
+	checkEnumStrings[tracepack.Order](t, cases, 3)
+}

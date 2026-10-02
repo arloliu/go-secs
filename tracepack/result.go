@@ -36,7 +36,9 @@ var _ fmt.Stringer = IncompleteReason(0)
 type Defect struct {
 	// Reason classifies the defect.
 	Reason IncompleteReason
-	// Block is the index into Reader.Blocks of the block the defect concerns; -1 when it concerns no single block.
+	// Pack is the index into the readers given to MergeIterate of the pack the defect concerns; 0 for Reader.Iterate.
+	Pack int
+	// Block is the index into the pack's Reader.Blocks of the block the defect concerns; -1 when it concerns no single block.
 	Block int
 	// Offset is the file offset where the defect was found:
 	// the block envelope's offset for a defect of a block, whose checks mostly have no finer position;
@@ -53,10 +55,22 @@ type Result struct {
 	// Incomplete lists every cause that made the read incomplete, in the order they were found;
 	// empty when the read is complete.
 	Incomplete []Defect
-	// FooterErr is PackHeader.FooterErr: non-nil when the footer was not used and the blocks came from the forward walk.
+	// Conflicts lists every conflict of every cluster a read over several packs compared, in discovery order
+	// (the tracepack semantics specification §7.4), whether or not the filter selected a version of its record.
+	// It is always empty for Reader.Iterate, since a pack's seqs strictly increase.
+	Conflicts []Conflict
+	// FooterErr is Reader.Iterate's PackHeader.FooterErr:
+	// non-nil when the footer was not used and the blocks came from the forward walk;
+	// nil for MergeIterate, which reports footer errors in FooterErrs.
 	// It is independent of Incomplete:
 	// a finalized pack whose walk accounts for every block and record is complete without its footer.
 	FooterErr error
+	// FooterErrs holds one entry for each pack whose footer was not used, its PackHeader.FooterErr,
+	// in the order the readers were given;
+	// nil when there is none.
+	// For Reader.Iterate it holds FooterErr as the entry of pack 0 when FooterErr is non-nil.
+	// Like FooterErr, it is independent of Incomplete.
+	FooterErrs []PackError
 }
 
 // String returns the reason's name, or "unknown(<n>)" for a value this package does not define.
@@ -80,7 +94,7 @@ func (r IncompleteReason) String() string {
 }
 
 // Complete reports whether the read is complete: whether Incomplete is empty.
-// FooterErr does not make a read incomplete.
+// Neither FooterErr nor FooterErrs makes a read incomplete, and Conflicts are reported beside Incomplete, not in it.
 func (r Result) Complete() bool {
 	return len(r.Incomplete) == 0
 }

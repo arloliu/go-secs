@@ -71,8 +71,19 @@ type Item struct {
 	// HeaderExtra holds the record header's extension area, the bytes behind offset 44, which a newer minor version may define
 	// (the tracepack format specification §7.1); nil for a 44-byte record header.
 	HeaderExtra []byte
-	// Block is the index into Reader.Blocks of the record's block.
+	// Pack is the index into the readers given to MergeIterate of the record's pack; 0 for Reader.Iterate.
+	Pack int
+	// Block is the index into the pack's Reader.Blocks of the record's block.
+	//
+	// For a record, or a version of a conflicting record, held by several packs,
+	// Pack and Block name the representative of that version:
+	// the first block holding it in cluster order
+	// (ascending first seq, then the order the readers were given, then file order),
+	// as the tracepack semantics specification §7.4 defines it.
 	Block int
+	// Conflict reports that another version of the record exists among the copies the read compared;
+	// Reader.Iterate never sets it.
+	Conflict bool
 }
 
 // overlaps reports whether the inclusive interval [lo, hi] meets the half-open range [from, to),
