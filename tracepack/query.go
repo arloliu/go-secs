@@ -9,16 +9,20 @@ import (
 	"github.com/arloliu/go-secs/tracepack/internal/format"
 )
 
-// ErrInvalidQuery reports a Query that Reader.Iterate cannot run: a TimeFrom after TimeTo.
+// ErrInvalidQuery reports a read that cannot run, before anything is read:
+// for Reader.Iterate and MergeIterate, a Query whose TimeFrom is after its TimeTo;
+// for MergeIterate also a nil fn, an Order that is not one,
+// a nil reader, a Reader given twice, or two readers holding the same pack_id.
 var ErrInvalidQuery = errors.New("tracepack: invalid query")
 
-// Query selects records of a pack for Reader.Iterate.
+// Query selects records of a pack for Reader.Iterate, or of several packs for MergeIterate.
 type Query struct {
 	// Filter selects the records; its zero value selects every record.
 	Filter Filter
 	// Payloads makes every Item carry its record's payload; otherwise Item.Record.Payload is nil.
 	// It decides only what an Item carries: every block is read in full either way (the tracepack format specification §6),
 	// and the Filter is evaluated before the payload is dropped, so the records selected do not depend on it.
+	// MergeIterate compares payloads whatever its value.
 	Payloads bool
 }
 
@@ -59,10 +63,11 @@ type Filter struct {
 	IncludeUnavailable bool
 }
 
-// Item is one record yielded by Reader.Iterate.
+// Item is one record yielded by Reader.Iterate or MergeIterate.
 //
 // An Item is valid only during the callback that receives it:
-// Iterate reuses the Item, and Record.Payload and HeaderExtra alias Iterate's buffers.
+// the read reuses the Item, and Record.Payload and HeaderExtra alias its buffers,
+// for MergeIterate the block of the record's representative, held until the callback returns.
 // A caller that keeps a record copies it, cloning Payload and HeaderExtra.
 type Item struct {
 	// Record is the record as stored.
