@@ -57,6 +57,17 @@ type seqCursor struct {
 	at []*openBlock
 }
 
+// seqVersions are the distinct records of one seq group,
+// the records at the cursors of the open blocks a seqCursor gathered for the seq, in position order.
+// A seqVersions is reused across groups; group sets it anew.
+type seqVersions struct {
+	// reps holds the representative of each version: the first block of the group holding it.
+	// The versions are in the order of their representatives, the version order.
+	reps []*openBlock
+	// of holds, for each block of the group, the index into reps of the version it holds.
+	of []int
+}
+
 // agree reports whether the records at the cursors of the blocks of at are equal, header row and payload byte for byte.
 func agree(at []*openBlock) bool {
 	for _, o := range at[1:] {
@@ -69,19 +80,13 @@ func agree(at []*openBlock) bool {
 }
 
 // conflictOf returns the conflict of seq in the capture captureID,
-// whose records the open blocks of at hold at their cursors, in position order:
-// its versions are the distinct records in the order of the first block holding each,
+// whose records the open blocks of at hold at their cursors, in position order, grouped into the versions v:
+// its versions are those of v, in version order,
 // each with its holders' origins, each once, in ascending order, named by packID.
-func conflictOf(captureID UUID, seq uint64, at []*openBlock, packID func(origin int) UUID) Conflict {
-	var firsts []*openBlock
-	var holders [][]int
-	for _, o := range at {
-		k := slices.IndexFunc(firsts, o.sameRecord)
-		if k < 0 {
-			k = len(firsts)
-			firsts = append(firsts, o)
-			holders = append(holders, nil)
-		}
+func conflictOf(captureID UUID, seq uint64, at []*openBlock, v *seqVersions, packID func(origin int) UUID) Conflict {
+	holders := make([][]int, len(v.reps))
+	for i, o := range at {
+		k := v.of[i]
 		holders[k] = append(holders[k], o.origins...)
 	}
 
@@ -231,4 +236,36 @@ func (c *seqCursor) advance(src blockSource) {
 		src.done(o)
 	}
 	c.at = c.at[:0]
+}
+
+// close passes every block the cursor still holds to src's done:
+// the blocks of the group next returned, when advance was not called for it, then the open blocks with records left.
+// The cursor is then empty, and its walk over, so a later next loads nothing and returns no group.
+// close after the cluster's last record was resolved does nothing.
+func (c *seqCursor) close(src blockSource) {
+	for _, o := range c.at {
+		src.done(o)
+	}
+	clear(c.at)
+	c.at = c.at[:0]
+	for _, o := range c.open {
+		src.done(o)
+	}
+	clear(c.open)
+	c.open = c.open[:0]
+	c.toLoad = src.blockCount()
+}
+
+// group sets v to the versions of the records the open blocks of at hold at their cursors, in position order:
+// records equal header row and payload byte for byte are one version (sameRecord).
+func (v *seqVersions) group(at []*openBlock) {
+	v.reps, v.of = v.reps[:0], v.of[:0]
+	for _, o := range at {
+		k := slices.IndexFunc(v.reps, o.sameRecord)
+		if k < 0 {
+			k = len(v.reps)
+			v.reps = append(v.reps, o)
+		}
+		v.of = append(v.of, k)
+	}
 }

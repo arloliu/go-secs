@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"math/rand/v2"
 	"runtime"
 	"slices"
@@ -96,6 +97,16 @@ type loadEvent struct {
 	resolved int
 }
 
+// seqListSource is a blockSource over blocks given by the seqs of their records,
+// which logs the positions of the blocks it loads and of those passed to done.
+type seqListSource struct {
+	blocks   [][]uint64
+	loaded   []int
+	finished []int
+}
+
+var _ blockSource = (*seqListSource)(nil)
+
 // writeWithHooks writes the archive of the plan of inputs with fixedIDs(opts) into a buffer,
 // the plan's hooks set by hooks before it writes, and returns what it wrote, its report and its error.
 // An archive written without an error must have the properties of every successful merge (requireMergeProperties).
@@ -112,6 +123,34 @@ func writeWithHooks(t *testing.T, v View, inputs []MergeInput, opts MergeOptions
 	}
 
 	return out.Bytes(), rep, err
+}
+
+// blockCount returns the number of blocks.
+func (s *seqListSource) blockCount() int {
+	return len(s.blocks)
+}
+
+// firstSeq returns the first seq of the block at pos.
+func (s *seqListSource) firstSeq(pos int) uint64 {
+	return s.blocks[pos][0]
+}
+
+// load opens the block at pos: a decodedBlock whose header rows are its seqs alone, 8 bytes each.
+func (s *seqListSource) load(_ context.Context, pos int, _ []*openBlock) (*openBlock, error) {
+	s.loaded = append(s.loaded, pos)
+	seqs := s.blocks[pos]
+	section := make([]byte, 0, 8*len(seqs))
+	for _, seq := range seqs {
+		section = binary.LittleEndian.AppendUint64(section, seq)
+	}
+	d := &decodedBlock{env: format.BlockEnvelope{RecordCount: uint32(len(seqs)), RecordHeaderLen: 8}, section: section}
+
+	return &openBlock{pos: pos, d: d, seq: seqs[0]}, nil
+}
+
+// done logs o.
+func (s *seqListSource) done(o *openBlock) {
+	s.finished = append(s.finished, o.pos)
 }
 
 func TestMergeResolvesOverlaps(t *testing.T) {
@@ -813,4 +852,63 @@ func TestCursorHeap(t *testing.T) {
 		pop()
 	}
 	assert.GreaterOrEqual(t, most, 16, "the heap held enough blocks to reach every branch")
+}
+
+// TestSeqCursorClose closes a cursor after each number of resolved seq groups, with the next group borrowed or not:
+// close passes every block the cursor loaded and has not passed on to done, the borrowed group first,
+// so every block loaded is done exactly once, and the cursor neither loads nor returns anything after it.
+func TestSeqCursorClose(t *testing.T) {
+	t.Parallel()
+
+	// The groups are seqs 1 to 6; block 1 opens at seq 2, block 2 at seq 4, block 3 at seq 6.
+	blocks := [][]uint64{{1, 2, 3}, {2, 5}, {4}, {6}}
+	tests := []struct {
+		resolved int
+		borrow   bool
+		// atClose is the positions close passes to done.
+		atClose []int
+	}{
+		{resolved: 0, borrow: false, atClose: nil},
+		{resolved: 0, borrow: true, atClose: []int{0}},
+		{resolved: 1, borrow: true, atClose: []int{0, 1}},
+		{resolved: 2, borrow: false, atClose: []int{0, 1}},
+		{resolved: 2, borrow: true, atClose: []int{0, 1}},
+		{resolved: 3, borrow: true, atClose: []int{2, 1}},
+		{resolved: 4, borrow: true, atClose: []int{1}},
+		{resolved: 5, borrow: false, atClose: nil},
+		{resolved: 5, borrow: true, atClose: []int{3}},
+		{resolved: 6, borrow: false, atClose: nil},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%d resolved, borrowed %v", tt.resolved, tt.borrow), func(t *testing.T) {
+			t.Parallel()
+
+			src := &seqListSource{blocks: blocks}
+			var c seqCursor
+			for range tt.resolved {
+				_, at, err := c.next(t.Context(), src)
+				require.NoError(t, err)
+				require.NotNil(t, at)
+				c.advance(src)
+			}
+			if tt.borrow {
+				_, at, err := c.next(t.Context(), src)
+				require.NoError(t, err)
+				require.NotNil(t, at)
+			}
+
+			before := len(src.finished)
+			c.close(src)
+			assert.Equal(t, tt.atClose, nilIfEmpty(src.finished[before:]), "the blocks close passes to done")
+			assert.ElementsMatch(t, src.loaded, src.finished, "every block loaded is done exactly once")
+
+			loaded := len(src.loaded)
+			_, at, err := c.next(t.Context(), src)
+			require.NoError(t, err)
+			assert.Nil(t, at, "no group after close")
+			assert.Len(t, src.loaded, loaded, "no load after close")
+			c.close(src)
+			assert.ElementsMatch(t, src.loaded, src.finished, "a second close passes nothing")
+		})
+	}
 }
