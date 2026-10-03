@@ -51,7 +51,8 @@ var (
 )
 
 // ErrReadLimit reports a structure larger than a reader budget of ReaderOptions,
-// or a read by MergeIterate over a limit of MergeIterateOptions: MaxHeldBytes or MaxConflicts.
+// or a read by MergeIterate over a limit of MergeIterateOptions: MaxHeldBytes or MaxConflicts;
+// the Observe of the source NewStoreSource returns wraps it too, for a limit of StoreSourceOptions.
 // It is a resource limit of the reader, not a format defect:
 // a caller raises the budget to read a legitimately larger structure.
 // The error that wraps it names the structure and its offset, or the limit and what would exceed it.

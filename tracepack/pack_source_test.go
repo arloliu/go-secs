@@ -108,19 +108,6 @@ func newMemSource() *memSource {
 	}
 }
 
-// cloneBoundaries returns a deep copy of bs, nil for an empty bs.
-func cloneBoundaries(bs []Boundary) []Boundary {
-	if len(bs) == 0 {
-		return nil
-	}
-	out := make([]Boundary, len(bs))
-	for i := range bs {
-		out[i] = cloneBoundary(bs[i])
-	}
-
-	return out
-}
-
 // scope returns the scope of capture in hour, created empty when absent; s.mu is held.
 func (s *memSource) scope(capture UUID, hour int64) *memScope {
 	k := memScopeKey{capture: capture, hour: hour}
