@@ -353,7 +353,7 @@ func TestFindTransactionKeepsSeqGroups(t *testing.T) {
 				files = append(files, txPack(t, []UUID{seg0, seg1, seg2}[i], nil, steps))
 			}
 			res, err := findTx(t, t.Context(), txSource(t, true, files...), txKeyAt(12), TxOptions{MaxScopes: 1})
-			require.ErrorIs(t, err, errTxNotImplemented)
+			require.NoError(t, err)
 			assert.Equal(t, tt.want, recordSeqs(res.Records))
 			packs := make([]UUID, len(res.Records))
 			for i := range res.Records {
@@ -361,7 +361,8 @@ func TestFindTransactionKeepsSeqGroups(t *testing.T) {
 			}
 			assert.Equal(t, tt.packs, packs)
 			assert.Equal(t, tt.conflicts, conflictSeqs(res.Conflicts))
-			require.Equal(t, []TxGapReason{TxGapConflict}, gapReasons(res.Gaps))
+			assert.Equal(t, TxIncomplete, res.Outcome)
+			require.Equal(t, []TxGapReason{TxGapConflict, TxGapOpenWindow}, gapReasons(res.Gaps))
 			assert.Equal(t, TxGap{
 				Reason: TxGapConflict, Hours: []int64{memTestHour}, Block: -1, Offset: -1, Seq: new(tt.conflicts[0]), Err: res.Gaps[0].Err,
 			}, res.Gaps[0])
@@ -372,6 +373,8 @@ func TestFindTransactionKeepsSeqGroups(t *testing.T) {
 // TestFindTransactionReadsEveryScope reads three scopes, the last empty:
 // each is read once and searched, and each record above the primary that plays a role is kept once,
 // those of the primary's scope included, which its one read classified.
+// The replies at 14 and 20 are two valid matches, below the possible primary at 21, which could also be the reply:
+// the outcome is TxAmbiguous, beside the open window and the possible reply.
 func TestFindTransactionReadsEveryScope(t *testing.T) {
 	t.Parallel()
 
@@ -380,7 +383,7 @@ func TestFindTransactionReadsEveryScope(t *testing.T) {
 		[][]byte{txPackIn(t, seg1, 1, nil, txBlock(txReply(20, nil), txRecord(21, func(r *Record) { r.Dir = DirUnknown })))},
 		nil)
 	res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 3})
-	require.ErrorIs(t, err, errTxNotImplemented)
+	require.NoError(t, err)
 	observes, scopes, closes := s.counts()
 	assert.Equal(t, [2]int{1, 1}, [2]int{observes, closes})
 	assert.Equal(t, map[int64]int{memTestHour: 1, memTestHour + 1: 1, memTestHour + 2: 1}, scopes)
@@ -391,7 +394,9 @@ func TestFindTransactionReadsEveryScope(t *testing.T) {
 	}, res.Searched)
 	assert.Equal(t, []string{"12@0 primary", "14@0 candidate", "20@1 candidate", "21@1 possible-reply|possible-primary"},
 		recordSeqs(res.Records))
-	assert.Empty(t, res.Gaps)
+	assert.Equal(t, TxAmbiguous, res.Outcome)
+	assert.Equal(t, []TxGapReason{TxGapOpenWindow, TxGapUnavailable}, gapReasons(res.Gaps))
+	assert.Equal(t, new(uint64(21)), res.Gaps[1].Seq)
 }
 
 // TestFindTransactionCrossScopeConflicts reads seqs that the reads of several scopes yield:
@@ -399,6 +404,7 @@ func TestFindTransactionReadsEveryScope(t *testing.T) {
 // reserved once however many reads yield it, with every kept version marked as a conflict.
 // A version kept nowhere else is kept where it qualifies, and one that plays no role is not kept.
 // Runs of adjacent seqs from different hours stay apart.
+// No record bounds the window, and each read keeps only its run set once its status is in the result.
 func TestFindTransactionCrossScopeConflicts(t *testing.T) {
 	t.Parallel()
 
@@ -415,15 +421,18 @@ func TestFindTransactionCrossScopeConflicts(t *testing.T) {
 		{name: "adjacent runs", hours: [][][]byte{
 			{primary},
 			{txPackIn(t, seg1, 1, nil, txBlock(txRecord(15, irrelevant), txRecord(16, irrelevant)))},
-		}, want: []string{"12@0 primary", "14@0 candidate"}, runs: []txRuns{
+		}, want: []string{"12@0 primary", "14@0 candidate"}, gaps: []TxGap{
+			{Reason: TxGapOpenWindow, Block: -1, Offset: -1},
+		}, runs: []txRuns{
 			{hour: memTestHour, runs: []txRun{{first: 12, last: 14}}},
 			{hour: memTestHour + 1, runs: []txRun{{first: 15, last: 16}}},
 		}},
 		{name: "a version irrelevant where first read", hours: [][][]byte{
 			{primary},
 			{txPackIn(t, seg1, 1, nil, txBlock(txReply(13, nil), txRecord(16, irrelevant)))},
-		}, want: []string{"12@0 primary", "14@0 candidate", "13@1 candidate!"}, gaps: []TxGap{
+		}, want: []string{"12@0 primary", "13@1 candidate!", "14@0 candidate"}, gaps: []TxGap{
 			{Reason: TxGapConflict, Hours: []int64{memTestHour, memTestHour + 1}, Block: -1, Offset: -1, Seq: new(uint64(13))},
+			{Reason: TxGapOpenWindow, Block: -1, Offset: -1},
 		}, runs: []txRuns{
 			{hour: memTestHour, runs: []txRun{{first: 12, last: 14}}},
 			{hour: memTestHour + 1, runs: []txRun{{first: 13, last: 13}, {first: 16, last: 16}}},
@@ -434,6 +443,7 @@ func TestFindTransactionCrossScopeConflicts(t *testing.T) {
 			{txPackIn(t, seg2, 2, nil, txBlock(txReply(14, nil)))},
 		}, want: []string{"12@0 primary", "14@0 candidate!", "14@1 candidate!", "14@2 candidate!"}, gaps: []TxGap{
 			{Reason: TxGapConflict, Hours: []int64{memTestHour, memTestHour + 1, memTestHour + 2}, Block: -1, Offset: -1, Seq: new(uint64(14))},
+			{Reason: TxGapOpenWindow, Block: -1, Offset: -1},
 		}, conflicts: 1},
 		{name: "two scopes apart", hours: [][][]byte{
 			{primary},
@@ -441,6 +451,7 @@ func TestFindTransactionCrossScopeConflicts(t *testing.T) {
 			{txPackIn(t, seg2, 2, nil, txBlock(txReply(14, irrelevant)))},
 		}, want: []string{"12@0 primary", "14@0 candidate!"}, gaps: []TxGap{
 			{Reason: TxGapConflict, Hours: []int64{memTestHour, memTestHour + 2}, Block: -1, Offset: -1, Seq: new(uint64(14))},
+			{Reason: TxGapOpenWindow, Block: -1, Offset: -1},
 		}, conflicts: 1},
 		{name: "within a scope and across scopes", hours: [][][]byte{
 			{primary},
@@ -451,6 +462,7 @@ func TestFindTransactionCrossScopeConflicts(t *testing.T) {
 		}, want: []string{"12@0 primary", "14@0 candidate!", "14@1 candidate!", "14@1 none!"}, gaps: []TxGap{
 			{Reason: TxGapConflict, Hours: []int64{memTestHour + 1}, Block: -1, Offset: -1, Seq: new(uint64(14))},
 			{Reason: TxGapConflict, Hours: []int64{memTestHour, memTestHour + 1}, Block: -1, Offset: -1, Seq: new(uint64(14))},
+			{Reason: TxGapOpenWindow, Block: -1, Offset: -1},
 		}, conflicts: 2},
 	}
 	for _, tt := range tests {
@@ -459,7 +471,7 @@ func TestFindTransactionCrossScopeConflicts(t *testing.T) {
 
 			s := txHours(t, tt.hours...)
 			l, err := runTxLookup(t, s, txKeyAt(12), TxOptions{MaxScopes: len(tt.hours)})
-			require.ErrorIs(t, err, errTxNotImplemented)
+			require.NoError(t, err)
 			assert.Equal(t, tt.want, recordSeqs(l.res.Records))
 			for i := range l.res.Gaps {
 				require.Error(t, l.res.Gaps[i].Err)
@@ -467,6 +479,12 @@ func TestFindTransactionCrossScopeConflicts(t *testing.T) {
 			}
 			assert.Equal(t, tt.gaps, nilIfEmpty(l.res.Gaps))
 			assert.Equal(t, tt.conflicts, l.conflicts)
+			for _, rd := range l.reads {
+				// A read's Result, readers and group buffer are dropped once its status is in the result.
+				assert.Zero(t, rd.res, "hour %d", rd.hour)
+				assert.Nil(t, rd.readers, "hour %d", rd.hour)
+				assert.Zero(t, rd.group, "hour %d", rd.hour)
+			}
 			if tt.runs != nil {
 				runs := make([]txRuns, len(l.reads))
 				for i, rd := range l.reads {
@@ -500,10 +518,10 @@ func TestFindTransactionLaterPrimaryInvalidation(t *testing.T) {
 		hours []int64
 	}{
 		{name: "two scopes", third: txPackIn(t, seg2, 2, nil, txBlock(txReply(15, nil))),
-			want:  []string{"12@0 primary!", "13@0 candidate", "12@1 primary!", "14@1 candidate", "15@2 candidate"},
+			want:  []string{"12@0 primary!", "12@1 primary!", "13@0 candidate", "14@1 candidate", "15@2 candidate"},
 			hours: []int64{memTestHour, memTestHour + 1}},
 		{name: "three scopes", third: txPackIn(t, seg2, 2, nil, txBlock(txRecord(12, nil), txReply(15, nil))),
-			want:  []string{"12@0 primary!", "13@0 candidate", "12@1 primary!", "14@1 candidate", "12@2 primary!", "15@2 candidate"},
+			want:  []string{"12@0 primary!", "12@1 primary!", "12@2 primary!", "13@0 candidate", "14@1 candidate", "15@2 candidate"},
 			hours: []int64{memTestHour, memTestHour + 1, memTestHour + 2}},
 	}
 	t.Run("two versions in the later scope", func(t *testing.T) {
@@ -511,12 +529,13 @@ func TestFindTransactionLaterPrimaryInvalidation(t *testing.T) {
 
 		other := txPackIn(t, seg3, 1, nil, changed(txBlock(txRecord(12, nil)), 1, 12))
 		l, err := runTxLookup(t, txHours(t, [][]byte{first}, [][]byte{later, other}), txKeyAt(12), TxOptions{MaxScopes: 2})
-		require.ErrorIs(t, err, errTxNotImplemented)
-		require.Equal(t, []TxGapReason{TxGapConflict, TxGapConflict, TxGapNoKey}, gapReasons(l.res.Gaps))
+		require.NoError(t, err)
+		assert.Equal(t, TxIncomplete, l.res.Outcome)
+		require.Equal(t, []TxGapReason{TxGapConflict, TxGapConflict, TxGapNoKey, TxGapOpenWindow}, gapReasons(l.res.Gaps))
 		assert.Equal(t, []int64{memTestHour + 1}, l.res.Gaps[0].Hours, "the conflict within the later read")
 		assert.Equal(t, []int64{memTestHour, memTestHour + 1}, l.res.Gaps[1].Hours, "the conflict across reads")
 		assert.Equal(t, 2, l.conflicts)
-		assert.Equal(t, []string{"12@0 primary!", "13@0 candidate", "12@1 primary!", "12@1 primary!", "14@1 candidate"},
+		assert.Equal(t, []string{"12@0 primary!", "12@1 primary!", "12@1 primary!", "13@0 candidate", "14@1 candidate"},
 			recordSeqs(l.res.Records))
 	})
 	for _, tt := range tests {
@@ -525,12 +544,13 @@ func TestFindTransactionLaterPrimaryInvalidation(t *testing.T) {
 
 			s := txHours(t, [][]byte{first}, [][]byte{later}, [][]byte{tt.third})
 			l, err := runTxLookup(t, s, txKeyAt(12), TxOptions{MaxScopes: 3})
-			require.ErrorIs(t, err, errTxNotImplemented)
+			require.NoError(t, err)
 			_, scopes, _ := s.counts()
 			assert.Equal(t, map[int64]int{memTestHour: 1, memTestHour + 1: 1, memTestHour + 2: 1}, scopes)
 			assert.Len(t, l.res.Searched, 3)
 			assert.Equal(t, tt.want, recordSeqs(l.res.Records))
-			require.Equal(t, []TxGapReason{TxGapConflict, TxGapNoKey}, gapReasons(l.res.Gaps))
+			assert.Equal(t, TxIncomplete, l.res.Outcome, "beside the valid matches classified with the first version's key")
+			require.Equal(t, []TxGapReason{TxGapConflict, TxGapNoKey, TxGapOpenWindow}, gapReasons(l.res.Gaps))
 			assert.Equal(t, tt.hours, l.res.Gaps[0].Hours)
 			assert.Equal(t, new(uint64(12)), l.res.Gaps[0].Seq)
 			assert.Equal(t, []int64{memTestHour}, l.res.Gaps[1].Hours)
@@ -543,17 +563,19 @@ func TestFindTransactionLaterPrimaryInvalidation(t *testing.T) {
 }
 
 // TestFindTransactionConflictBelowPrimary reads a conflict below a keyed primary:
-// MergeIterate lists it and it counts against MaxConflicts, but it is no gap of the lookup.
+// MergeIterate lists it and it counts against MaxConflicts, but it is no gap of the lookup:
+// the one gap is the window that no record bounds.
 func TestFindTransactionConflictBelowPrimary(t *testing.T) {
 	t.Parallel()
 
 	steps := txBlock(txSeqs(10, 12)...)
 	s := txSource(t, true, txPack(t, seg0, nil, steps), txPack(t, seg1, nil, changed(steps, 1, 10)))
 	l, err := runTxLookup(t, s, txKeyAt(12), TxOptions{MaxScopes: 1})
-	require.ErrorIs(t, err, errTxNotImplemented)
+	require.NoError(t, err)
 	assert.Equal(t, []uint64{10}, conflictSeqs(l.res.Conflicts))
 	assert.Equal(t, 1, l.conflicts)
-	assert.Empty(t, l.res.Gaps)
+	assert.Equal(t, []TxGapReason{TxGapOpenWindow}, gapReasons(l.res.Gaps))
+	assert.Equal(t, TxIncomplete, l.res.Outcome)
 	assert.Equal(t, []string{"12@0 primary"}, recordSeqs(l.res.Records))
 }
 
@@ -661,7 +683,7 @@ func TestFindTransactionConflictBudget(t *testing.T) {
 			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: len(tt.hours), MaxConflicts: tt.max})
 			assert.Len(t, res.Searched, tt.searched)
 			if tt.err == "" {
-				require.ErrorIs(t, err, errTxNotImplemented)
+				require.NoError(t, err)
 				return
 			}
 			require.ErrorIs(t, err, ErrReadLimit)
@@ -716,7 +738,7 @@ func TestFindTransactionGapOrder(t *testing.T) {
 			txPackIn(t, seg3, 1, nil, changed(txBlock(txSeqs(20)...), 1, 20)),
 		})
 	res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 2})
-	require.ErrorIs(t, err, errTxNotImplemented)
+	require.NoError(t, err)
 	assert.Equal(t, []TxGapReason{TxGapUnevaluated, TxGapConflict, TxGapUnevaluated, TxGapConflict, TxGapConflict}, gapReasons(res.Gaps))
 	var seqs []uint64
 	var hours [][]int64
@@ -746,7 +768,7 @@ func TestFindTransactionOrderingUncertainEpochs(t *testing.T) {
 		[][]byte{txPack(t, seg0, nil, txBlock(txRecord(10, uncertain(1)), txRecord(11, uncertain(2)), txRecord(12, nil), txRecord(13, uncertain(2))))},
 		[][]byte{txPackIn(t, seg1, 1, nil, txBlock(txRecord(5, uncertain(3)), txRecord(20, uncertain(3))))})
 	l, err := runTxLookup(t, s, txKeyAt(12), TxOptions{MaxScopes: 2})
-	require.ErrorIs(t, err, errTxNotImplemented)
+	require.NoError(t, err)
 	assert.Equal(t, map[uint32]txSeen{
 		1: {hour: memTestHour, seq: 10, pack: seg0},
 		2: {hour: memTestHour, seq: 11, pack: seg0},
@@ -775,7 +797,7 @@ func TestFindTransactionNotesBoundaryRecords(t *testing.T) {
 		boundary(16, txTestEpoch, BoundaryKindStop, nil, nil),
 	))})
 	l, err := runTxLookup(t, s, txKeyAt(12), TxOptions{MaxScopes: 1})
-	require.ErrorIs(t, err, errTxNotImplemented)
+	require.NoError(t, err)
 	assert.Equal(t, []txBoundaryRecord{
 		{at: txSeen{hour: memTestHour, seq: 13, pack: seg0}, boundary: Boundary{
 			Capture: captureLow, Seq: 13, Kind: BoundaryKindGap, TS: blockTestHour + 13, Epoch: txTestEpoch, GapStart: at(5), GapEnd: at(9),

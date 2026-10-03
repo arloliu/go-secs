@@ -44,6 +44,7 @@ type txLookup struct {
 }
 
 // txScopeRead is one scope a transaction lookup reads: its fixed view and the status of its read.
+// Once the read's status is added to the result, its readers, its Result and its group buffer are dropped.
 type txScopeRead struct {
 	hour    int64
 	indexed bool
@@ -51,6 +52,8 @@ type txScopeRead struct {
 	// packs holds the pack_id of each reader, in view order.
 	packs []UUID
 	res   Result
+	// defect reports that the read has a defect other than a coverage entry.
+	defect bool
 	// runs is the read's run set.
 	runs *txRuns
 	// group is the seq group the read is yielding.
@@ -176,6 +179,9 @@ func (l *txLookup) readScope(ctx context.Context, hour int64,
 	if merr := l.mapScope(ctx, rd, err == nil); err == nil {
 		err = merr
 	}
+	// What the lookup needs of the read is in the result and in rd's own state now,
+	// so the read's Result and group buffer do not live until the lookup ends.
+	rd.readers, rd.res, rd.group = nil, Result{}, txGroup{}
 	if err != nil {
 		return rd, fmt.Errorf("tracepack: find transaction: hour %d: %w", hour, err)
 	}
@@ -255,6 +261,7 @@ func (l *txLookup) mapScope(ctx context.Context, rd *txScopeRead, completed bool
 func (l *txLookup) mapDefects(ctx context.Context, rd *txScopeRead) error {
 	for i := range rd.res.Incomplete {
 		d := &rd.res.Incomplete[i]
+		rd.defect = rd.defect || d.Reason != ReasonCoverage
 		if d.Reason == ReasonCoverage {
 			if err := l.grow(ctx, txPendingCoverageCharge+coverageCost(d.Coverage)); err != nil {
 				return err
@@ -492,16 +499,7 @@ func sameStoredRecord(a, b *TxRecord) bool {
 // explainsMissing reports whether the read rd has a defect other than a coverage entry, or reads a scope that is not indexed,
 // either of which explains why it yielded no version of the primary.
 func explainsMissing(rd *txScopeRead) bool {
-	if !rd.indexed {
-		return true
-	}
-	for i := range rd.res.Incomplete {
-		if rd.res.Incomplete[i].Reason != ReasonCoverage {
-			return true
-		}
-	}
-
-	return false
+	return !rd.indexed || rd.defect
 }
 
 // coverageAtPrimary finds the first coverage entry read in scope key.Hour that meets the primary's seq and hour,

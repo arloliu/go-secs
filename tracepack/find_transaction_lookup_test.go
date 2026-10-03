@@ -382,20 +382,24 @@ func TestFindTransactionConflictingPrimary(t *testing.T) {
 // and in epoch 0, which the Writer marks correlation-incomplete:
 // the key and match fields are derived, StreamAvailable and WAvailable false without the stream,
 // and correlation-incomplete adds a TxGapCorrelation gap.
-// The evaluation is not in place yet, so the lookup returns errTxNotImplemented with what the read gave.
+// The same-key primary at 13 bounds an empty window, so the outcome is TxUnmatched;
+// in epoch 0 it lies in another epoch, so the window stays open and the outcome is TxIncomplete.
 func TestFindTransactionKeyed(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		edit   func(r *Record)
-		stream bool
-		epoch  uint32
-		gaps   []TxGapReason
+		name    string
+		edit    func(r *Record)
+		stream  bool
+		epoch   uint32
+		gaps    []TxGapReason
+		outcome TxOutcome
 	}{
-		{name: "every field available", stream: true, epoch: txTestEpoch},
-		{name: "the stream unavailable", edit: func(r *Record) { r.FieldValidity &^= FieldValidityStreamAndW }, epoch: txTestEpoch},
-		{name: "correlation-incomplete", edit: func(r *Record) { r.Epoch = 0 }, stream: true, gaps: []TxGapReason{TxGapCorrelation}},
+		{name: "every field available", stream: true, epoch: txTestEpoch, outcome: TxUnmatched},
+		{name: "the stream unavailable", edit: func(r *Record) { r.FieldValidity &^= FieldValidityStreamAndW }, epoch: txTestEpoch,
+			outcome: TxUnmatched},
+		{name: "correlation-incomplete", edit: func(r *Record) { r.Epoch = 0 }, stream: true,
+			gaps: []TxGapReason{TxGapCorrelation, TxGapOpenWindow}, outcome: TxIncomplete},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -404,8 +408,8 @@ func TestFindTransactionKeyed(t *testing.T) {
 			primary := txRecord(12, tt.edit)
 			s := txSource(t, true, txPack(t, seg0, nil, txBlock(txRecord(11, nil), primary, txRecord(13, nil))))
 			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
-			require.ErrorIs(t, err, errTxNotImplemented)
-			assert.Equal(t, TxOutcome(0), res.Outcome)
+			require.NoError(t, err)
+			assert.Equal(t, tt.outcome, res.Outcome)
 			assert.Equal(t, tt.gaps, nilIfEmpty(gapReasons(res.Gaps)))
 			assert.Equal(t, tt.epoch, res.Epoch)
 			assert.Equal(t, DirHostToEquipment, res.Dir)
@@ -423,8 +427,11 @@ func TestFindTransactionKeyed(t *testing.T) {
 			if tt.epoch == txTestEpoch {
 				require.Len(t, res.Records, 2, "the primary and the same-key primary at 13")
 				assert.Equal(t, TxSameKeyPrimary, res.Records[1].Class)
+				assert.True(t, res.Records[1].Bound)
+				assert.Equal(t, new(uint64(13)), res.WindowEnd)
 			} else {
 				require.Len(t, res.Records, 1, "13 lies in another epoch")
+				assert.Nil(t, res.WindowEnd)
 			}
 			assert.Equal(t, TxPrimary, res.Records[0].Class)
 			assert.Equal(t, tt.epoch != 0, res.Records[0].Record.Quality&QualityCorrelationIncomplete == 0)
@@ -467,9 +474,10 @@ func TestFindTransactionPrimaryAfterHigherSeqs(t *testing.T) {
 
 		s := txSource(t, true, misindexed, primary)
 		res, err := findTx(t, t.Context(), s, txKeyAt(15), TxOptions{MaxScopes: 1})
-		require.ErrorIs(t, err, errTxNotImplemented)
+		require.NoError(t, err)
 		require.Empty(t, res.FooterErrs, "the footer must stay valid")
-		assert.Equal(t, []TxGapReason{TxGapIndex, TxGapIndex}, gapReasons(res.Gaps))
+		assert.Equal(t, TxIncomplete, res.Outcome)
+		assert.Equal(t, []TxGapReason{TxGapIndex, TxGapIndex, TxGapOpenWindow}, gapReasons(res.Gaps))
 		assert.Equal(t, ReasonIndexMismatch, res.Gaps[0].Defect)
 		assert.Equal(t, new(seg0), res.Gaps[0].Pack)
 		assert.Nil(t, res.Gaps[0].Seq)
@@ -617,7 +625,7 @@ func TestFindTransactionOwnsRecords(t *testing.T) {
 	file := widenedFrom(t, txPack(t, seg0, nil, steps), 11)
 	s := txSource(t, true, file)
 	res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
-	require.ErrorIs(t, err, errTxNotImplemented)
+	require.NoError(t, err)
 	require.Len(t, res.Records, 1)
 
 	got := res.Records[0]
@@ -626,7 +634,7 @@ func TestFindTransactionOwnsRecords(t *testing.T) {
 
 	// Another lookup over the same packs and the caller's own changes leave the first result as it was.
 	again, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
-	require.ErrorIs(t, err, errTxNotImplemented)
+	require.NoError(t, err)
 	again.Records[0].Record.Payload[0] ^= 0xFF
 	again.Records[0].HeaderExtra[0] ^= 0xFF
 	assert.Equal(t, blockTestFrame, got.Record.Payload)
@@ -666,8 +674,9 @@ func TestFindTransactionNamesPacks(t *testing.T) {
 
 		corrupt := flipByte(second, mustOpen(t, second, ReaderOptions{}).Blocks()[1].Offset+format.EnvelopeLen+3)
 		res, err := findTx(t, t.Context(), txSource(t, true, first, corrupt), txKeyAt(11), TxOptions{MaxScopes: 1})
-		require.ErrorIs(t, err, errTxNotImplemented)
-		require.Len(t, res.Gaps, 1)
+		require.NoError(t, err)
+		assert.Equal(t, TxIncomplete, res.Outcome)
+		require.Len(t, res.Gaps, 1, "the same-key primary at 12 bounds an empty window")
 		assert.Equal(t, TxGapRead, res.Gaps[0].Reason)
 		assert.Equal(t, new(seg1), res.Gaps[0].Pack)
 		assert.Equal(t, 1, res.Gaps[0].Block)
@@ -679,7 +688,8 @@ func TestFindTransactionNamesPacks(t *testing.T) {
 
 		walked := invalidFooterFile(t, second)
 		res, err := findTx(t, t.Context(), txSource(t, true, first, walked), txKeyAt(11), TxOptions{MaxScopes: 1})
-		require.ErrorIs(t, err, errTxNotImplemented)
+		require.NoError(t, err)
+		assert.Equal(t, TxUnmatched, res.Outcome)
 		assert.Empty(t, res.Gaps)
 		require.Len(t, res.FooterErrs, 1)
 		fe := res.FooterErrs[0]
@@ -706,14 +716,16 @@ func TestFindTransactionSplitPrimaryCopies(t *testing.T) {
 
 		res, err := findTx(t, t.Context(), txSource(t, true, misindexed, txPack(t, seg1, nil, other)), txKeyAt(15),
 			TxOptions{MaxScopes: 1})
-		require.ErrorIs(t, err, errTxNotImplemented)
+		require.NoError(t, err)
 		require.Empty(t, res.FooterErrs, "the footer must stay valid")
-		assert.Equal(t, []TxGapReason{TxGapIndex}, gapReasons(res.Gaps))
+		assert.Equal(t, TxIncomplete, res.Outcome)
+		assert.Equal(t, []TxGapReason{TxGapIndex, TxGapSeqGap}, gapReasons(res.Gaps))
 		assert.Equal(t, ReasonIndexMismatch, res.Gaps[0].Defect)
+		assert.Equal(t, new(uint64(16)), res.Gaps[1].Seq, "the window (15, 20) holds no seq read")
 		assert.Empty(t, res.Conflicts)
 		assert.Equal(t, []TxRecord{
 			{Record: txRecord(15, nil), Hour: memTestHour, Pack: seg0, Class: TxPrimary},
-			{Record: txRecord(20, nil), Hour: memTestHour, Pack: seg1, Class: TxSameKeyPrimary},
+			{Record: txRecord(20, nil), Hour: memTestHour, Pack: seg1, Class: TxSameKeyPrimary, Bound: true},
 		}, res.Records)
 		assert.Equal(t, DirHostToEquipment, res.Dir)
 	})
