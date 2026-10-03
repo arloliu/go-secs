@@ -382,7 +382,7 @@ func TestFindTransactionConflictingPrimary(t *testing.T) {
 // and in epoch 0, which the Writer marks correlation-incomplete:
 // the key and match fields are derived, StreamAvailable and WAvailable false without the stream,
 // and correlation-incomplete adds a TxGapCorrelation gap.
-// The search of the window is not in place yet, so the lookup returns errTxNotImplemented with what scope key.Hour gave.
+// The evaluation is not in place yet, so the lookup returns errTxNotImplemented with what the read gave.
 func TestFindTransactionKeyed(t *testing.T) {
 	t.Parallel()
 
@@ -420,13 +420,35 @@ func TestFindTransactionKeyed(t *testing.T) {
 			} else {
 				assert.Zero(t, res.Stream)
 			}
-			require.Len(t, res.Records, 1)
+			if tt.epoch == txTestEpoch {
+				require.Len(t, res.Records, 2, "the primary and the same-key primary at 13")
+				assert.Equal(t, TxSameKeyPrimary, res.Records[1].Class)
+			} else {
+				require.Len(t, res.Records, 1, "13 lies in another epoch")
+			}
 			assert.Equal(t, TxPrimary, res.Records[0].Class)
 			assert.Equal(t, tt.epoch != 0, res.Records[0].Record.Quality&QualityCorrelationIncomplete == 0)
 			_, _, closes := s.counts()
 			assert.Equal(t, 1, closes)
 		})
 	}
+}
+
+// txMisindexed returns a pack seg0 of one block that holds seqs 10 and seq, above 11,
+// while the block's F-2 entry and the trailer state seqs 10 to 11; its footer stays valid.
+func txMisindexed(t testing.TB, seq uint64) []byte {
+	t.Helper()
+
+	file := reindexedWith(t, txPack(t, seg0, nil, txBlock(txSeqs(10, seq)...)), func(_ int, s *blockSummary) {
+		s.lastSeq = 11
+		s.seqRanges = []seqRange{{first: 10, last: 11}}
+		require.Len(t, s.epochs, 1)
+		s.epochs[0].seqLast = 11
+	})
+	tr := layoutOf(t, file).tr
+	tr.LastSeq = 11
+
+	return format.AppendTrailer(file[:len(file)-format.TrailerLen], &tr)
 }
 
 // TestFindTransactionPrimaryAfterHigherSeqs reads a scope where a block whose F-2 entry under-reports its last seq
@@ -437,15 +459,7 @@ func TestFindTransactionPrimaryAfterHigherSeqs(t *testing.T) {
 	t.Parallel()
 
 	// The one block of seg0 holds seqs 10 and 20, while its index states 10 to 11.
-	misindexed := reindexedWith(t, txPack(t, seg0, nil, txBlock(txSeqs(10, 20)...)), func(_ int, s *blockSummary) {
-		s.lastSeq = 11
-		s.seqRanges = []seqRange{{first: 10, last: 11}}
-		require.Len(t, s.epochs, 1)
-		s.epochs[0].seqLast = 11
-	})
-	tr := layoutOf(t, misindexed).tr
-	tr.LastSeq = 11
-	misindexed = format.AppendTrailer(misindexed[:len(misindexed)-format.TrailerLen], &tr)
+	misindexed := txMisindexed(t, 20)
 	primary := txPack(t, seg1, nil, txBlock(txSeqs(15)...))
 
 	t.Run("the primary arrives", func(t *testing.T) {
@@ -549,7 +563,7 @@ func nilIfEmptyMap[K comparable, V any](m map[K]V) map[K]V {
 }
 
 // TestFindTransactionConflictLimit reads a scope with two conflicts, beside a primary without a key:
-// MaxConflicts 2 lets the read finish and lists both;
+// MaxConflicts 2 lets the read finish and lists both, with no conflict gap since the lookup ends at the primary;
 // MaxConflicts 1 ends the read at the second with ErrReadLimit, the first listed,
 // the scope not searched and the observation closed once.
 func TestFindTransactionConflictLimit(t *testing.T) {
@@ -564,6 +578,7 @@ func TestFindTransactionConflictLimit(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, TxIncomplete, res.Outcome)
 	assert.Equal(t, []uint64{10, 13}, conflictSeqs(res.Conflicts))
+	assert.Equal(t, []TxGapReason{TxGapNoKey}, gapReasons(res.Gaps), "no conflict gap beside a primary without a key")
 
 	s = txSource(t, true, files...)
 	res, err = FindTransaction(t.Context(), s, txKeyAt(11), TxOptions{MaxConflicts: 1})
@@ -683,15 +698,7 @@ func TestFindTransactionSplitPrimaryCopies(t *testing.T) {
 	t.Parallel()
 
 	// The one block of seg0 holds seqs 10 and 15, while its index states 10 to 11; seg1 holds 15 and 20.
-	misindexed := reindexedWith(t, txPack(t, seg0, nil, txBlock(txSeqs(10, 15)...)), func(_ int, s *blockSummary) {
-		s.lastSeq = 11
-		s.seqRanges = []seqRange{{first: 10, last: 11}}
-		require.Len(t, s.epochs, 1)
-		s.epochs[0].seqLast = 11
-	})
-	tr := layoutOf(t, misindexed).tr
-	tr.LastSeq = 11
-	misindexed = format.AppendTrailer(misindexed[:len(misindexed)-format.TrailerLen], &tr)
+	misindexed := txMisindexed(t, 15)
 	other := txBlock(txSeqs(15, 20)...)
 
 	t.Run("identical copies", func(t *testing.T) {
@@ -704,7 +711,10 @@ func TestFindTransactionSplitPrimaryCopies(t *testing.T) {
 		assert.Equal(t, []TxGapReason{TxGapIndex}, gapReasons(res.Gaps))
 		assert.Equal(t, ReasonIndexMismatch, res.Gaps[0].Defect)
 		assert.Empty(t, res.Conflicts)
-		assert.Equal(t, []TxRecord{{Record: txRecord(15, nil), Hour: memTestHour, Pack: seg0, Class: TxPrimary}}, res.Records)
+		assert.Equal(t, []TxRecord{
+			{Record: txRecord(15, nil), Hour: memTestHour, Pack: seg0, Class: TxPrimary},
+			{Record: txRecord(20, nil), Hour: memTestHour, Pack: seg1, Class: TxSameKeyPrimary},
+		}, res.Records)
 		assert.Equal(t, DirHostToEquipment, res.Dir)
 	})
 
