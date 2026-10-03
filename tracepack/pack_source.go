@@ -64,6 +64,9 @@ type Observation interface {
 	// Barriers returns every stop-unclean boundary of a capture of the tool whose gap interval [GapStart, GapEnd] meets [from, to),
 	// in nanoseconds, a nil bound being unbounded;
 	// an interval whose GapStart exceeds its GapEnd meets every range.
+	// The range must be non-empty and lie within the observation's hours,
+	// [from·3600·10⁹, to·3600·10⁹) for the from and to of Observe;
+	// any other range is an error.
 	Barriers(ctx context.Context, from, to int64) ([]Boundary, error)
 	// Close releases the observation; the Readers it returned are not used after it.
 	// It is bounded: it never waits on I/O or on other callers,
