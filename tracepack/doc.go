@@ -7,7 +7,7 @@
 // the conformance corpus is the executable arbiter where the two disagree.
 //
 // This module is versioned independently of go-secs, with tags of the form tracepack/vX.Y.Z.
-// The package holds the record and pack-metadata types, the typed event payloads, the Writer, the Reader, Verify, Repair, ActiveView, Merge and MergeIterate;
+// The package holds the record and pack-metadata types, the typed event payloads, the Writer, the Reader, Verify, Repair, ActiveView, Merge, MergeIterate and FindTransaction;
 // extraction follows.
 //
 // ActiveView computes the active view of one scope, one capture in one UTC hour (the tracepack storage specification §2 and §4),
@@ -29,4 +29,13 @@
 // Records of one seq with different bytes are reported, not hidden:
 // every version the query selects is yielded, marked as a conflict,
 // and the conflict is listed in Result.Conflicts beside the defects in Result.Incomplete.
+//
+// FindTransaction looks up the reply to a primary record (the tracepack semantics specification §7.2)
+// in one observation that a PackSource fixes before any record is read (the tracepack storage specification §5):
+// the primary's hour and the next TxOptions.MaxScopes - 1 hours, each read once by MergeIterate.
+// It reports TxMatched, TxAmbiguous, TxUnmatched or TxIncomplete,
+// with the records it kept and every reason the lookup is not complete, each a TxGap;
+// it returns TxUnmatched only when it read every seq of a window that a record it read bounds, and found no such reason.
+// Its comparison of a record's copies covers the hours it reads, as MergeIterate's covers the packs it is given.
+// The Godoc of FindTransaction, PackSource and Observation states the rules.
 package tracepack

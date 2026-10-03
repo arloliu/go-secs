@@ -7,7 +7,7 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 This release follows the format revision of spec v2.13, which redefines format 1.0 in place, and its amendment in spec v2.17.
 It adds the reader and verification (spec v2.14), repair (spec v2.15 and v2.19), the active view and merge of a scope (spec v2.16 to v2.18),
-and one read over several packs (spec v2.20).
+one read over several packs (spec v2.20), and the lookup of a transaction from its primary (spec v2.21).
 
 ### Upgrade notes
 
@@ -206,6 +206,63 @@ and one read over several packs (spec v2.20).
   with a reference built from the stored rows and payloads of every block:
   the records yielded with their packs, blocks and conflict marks, the conflicts listed, the defects, the reads of each block, and nothing held after the read;
   and the fuzz targets `FuzzMergeIterate` and `FuzzMergeIterateGenerated`.
+- `FindTransaction` looks up the reply to a primary record, named by a `TxKey` (its capture, seq and the UTC hour of its scope),
+  in one observation a `PackSource` supplies,
+  and returns a `TxResult` with the outcome of the semantics specification §7.2:
+  `TxMatched`, `TxAmbiguous`, `TxUnmatched` or `TxIncomplete` (spec v2.21).
+  It reads the primary's hour and the next `TxOptions.MaxScopes` − 1 hours, the next one by default, each once, by one `MergeIterate` in capture order,
+  and every one of them even after the window closed, since a later hour can hold another version of a window record or a smaller bound.
+  From the primary it derives the transaction key, the epoch, direction, SessionID and System Bytes, and the stream and function to match;
+  it fails with `ErrNotPrimary` when the record is not a data record with an available odd function,
+  or when a complete read of an indexed scope holds no record at that seq.
+  It searches only the seqs above the primary's.
+  The window ends at the smallest seq of a same-key primary, or of a closing record without a conflict, that the lookup read:
+  a socket-close of the primary's epoch, or a clean capture stop.
+  A footer's or the per-capture evidence's claim that an epoch closed never bounds the window,
+  and a claim that the records read contradict is reported;
+  so is a claim at or below the primary, since it says the primary's epoch or the capture ended before the primary.
+- A conflict on a seq at or above the primary's, a block whose records disagree with its F-2 entry, or a primary without a key makes the outcome `TxIncomplete`.
+  Otherwise one valid match is `TxMatched` and several are `TxAmbiguous`, each with every gap found listed beside it.
+  Without a valid match the outcome is `TxUnmatched` only when nothing prevents establishing absence:
+  the lookup read a bound and every seq of the window below it;
+  no scope read is cold, and no pack read is damaged, unevaluated, or has a coverage entry that meets the window;
+  the per-capture evidence is complete and no claim of it is contradicted;
+  no stop-unclean barrier applies, one of the capture unless the lookup read a closing record of the primary's epoch, or one of the tool whose gap meets the hours read;
+  no other capture boundary and no ordering-uncertain record of the primary's epoch was found, and the primary is not correlation-incomplete;
+  and no possible reply, undecidable candidate, or candidate at or after a possible same-key primary lies in the window.
+  Each condition found is a `TxGap` in `TxResult.Gaps`, naming its hours, pack, block and seq where it has them.
+- The comparison of a record's copies covers the scopes the lookup reads:
+  another version of a record in an hour the lookup did not read is not compared,
+  and such a version is not found by verifying one pack or merging one scope either.
+  A seq of the window with no version in the hours read is a seq gap, never an absence.
+- `TxResult.Records` holds every version the lookup kept, with its roles, its window and candidate flags,
+  `Searched` the scopes read to their end, `Conflicts` the conflicts the reads listed, and `FooterErrs` the footer errors of the packs read;
+  every record, coverage entry and boundary it holds is a copy, valid after the lookup.
+  `TxOptions.MaxHeldBytes` bounds the block buffers of each read as `MergeIterateOptions.MaxHeldBytes` does,
+  `MaxConflicts` the conflicts of the whole lookup, those between hours included,
+  and `MaxStateBytes` the lookup's own state, the records it keeps with their payloads among them;
+  a lookup over any of them ends with an error wrapping `ErrReadLimit`, returned with the `TxResult` found so far and no outcome.
+  `ErrInvalidQuery` rejects, before anything is read, a nil source, a zero capture, a seq above 2^63−1, an hour outside [`MinTxHour`, `MaxTxHour`],
+  and a last hour read past `MaxTxHour`.
+  `ctx` is checked before each call to the source, during each read, and every 4096 iterations of the lookup's own loops.
+- `PackSource` and `Observation` are the source of a lookup, the storage specification's observation of a lookup:
+  `PackSource.Observe` fixes, before it returns, the view of every scope of the hours asked, the capture's per-capture evidence and the tool's stop-unclean barriers;
+  `Observation.Scope`, `Evidence` and `Barriers` answer from what it fixed, every value returned being the caller's,
+  and `Close` releases it without blocking.
+  `FindTransaction` closes the observation it opened exactly once, whatever happened.
+  The module provides no `PackSource`: a caller implements one over its catalog and storage.
+- Types for a transaction lookup:
+  `TxKey`; `TxOptions`, with `DefaultTxMaxScopes` and `DefaultTxMaxStateBytes`, which a zero or negative limit takes; `MinTxHour` and `MaxTxHour`;
+  `TxOutcome`, with `TxMatched`, `TxAmbiguous`, `TxUnmatched`, `TxIncomplete` and `String`;
+  `TxClass`, one bit per role (`TxPrimary`, `TxCandidate`, `TxPossibleReply`, `TxSameKeyPrimary`, `TxPossiblePrimary`, `TxClosing`, `TxOutcomeRecord`),
+  with `Has`, `Names` and `String`, which name undefined bits too, unlike those of `Quality`;
+  `TxRecord`; `TxGapReason`, one value per reason of the semantics specification §7.2, with `String`; `TxGap`; `TxScope`;
+  `TxPackError`, with `Error` and `Unwrap`; `TxResult`;
+  `SourceScope`, `CaptureEvidence`, `EpochClosure`, `Boundary`, and `EndState`, with `EndOpen`, `EndStopped`, `EndStoppedUnclean` and `String`.
+- `FindTransaction` has a property test that looks up every record of 96 generated captures (24 under `-short`)
+  and requires each result to equal one computed from the scopes read independently of the lookup,
+  and each `TxUnmatched`, and each `TxMatched` without a gap, to hold over the capture as written, versions in hours not read excluded;
+  and the fuzz targets `FuzzFindTransaction` and `FuzzFindTransactionGenerated`.
 - `Merge` has property tests over hand-written vectors and 64 generated scopes,
   which recompute F-2, F-3 and F-5 from each archive's records independently of the Writer,
   and check the record union, the size and greedy-coalescing rules and the report's counts;
@@ -215,7 +272,7 @@ and one read over several packs (spec v2.20).
 - `DecodeStatus.Clean`, true only for a known classification outside the malformed set, so an unknown value is neither clean nor malformed.
 - Sentinel errors `ErrNotTracepack`, `ErrUnsupportedFormat`, `ErrChecksum`, `ErrReadLimit`, `ErrInvalidFooter`, `ErrInvalidQuery`,
   `ErrFieldValidity`, `ErrFieldValue`, `ErrRepairNotNeeded`, `ErrNotRepairable`,
-  `ErrViewConflicted`, `ErrMergeInput`, `ErrMergeConflict` and `ErrMergeLimit`.
+  `ErrViewConflicted`, `ErrMergeInput`, `ErrMergeConflict`, `ErrMergeLimit` and `ErrNotPrimary`.
 
 ## [0.1.0] - 2026-09-28
 
