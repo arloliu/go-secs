@@ -13,7 +13,7 @@ import (
 // for Reader.Iterate and MergeIterate, a Query whose TimeFrom is after its TimeTo;
 // for MergeIterate also a nil fn, an Order that is not one,
 // a nil reader, a Reader given twice, or two readers holding the same pack_id;
-// for FindTransaction a nil PackSource, a zero TxKey.Capture, a TxKey.Hour outside [MinTxHour, MaxTxHour],
+// for FindTransaction a nil PackSource, a zero TxKey.Capture, a TxKey.Seq above 2^63-1, a TxKey.Hour outside [MinTxHour, MaxTxHour],
 // or a last hour read past MaxTxHour.
 var ErrInvalidQuery = errors.New("tracepack: invalid query")
 
