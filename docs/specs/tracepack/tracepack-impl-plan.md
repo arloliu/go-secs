@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-10-02) — phases 4, 5a and 5b done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`); phase 5c next (`FindTransaction`, `PackSource`, listing views, retention).
-Implements: tracepack v2.20 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
+Status: active (2026-10-03) — phases 4, 5a and 5b done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`); phase 5c1 next (`PackSource`, `FindTransaction`), then 5c2 (listing-backed source) and 5c3 (retention).
+Implements: tracepack v2.21 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
 
@@ -70,7 +70,9 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 4 — Verify, Repair | done |
 | 5a — ActiveView, Merge, Writer seams | done |
 | 5b — MergeIterate | done |
-| 5c — FindTransaction, PackSource, listing views, retention | pending |
+| 5c1 — PackSource, FindTransaction | in progress |
+| 5c2 — listing-backed PackSource, listing views | pending |
+| 5c3 — retention | pending |
 | 6 — JSONL export, conformance corpus, CLI | pending |
 | 7 — Extract and redaction | pending |
 | 8 — Producer API for a durable-bus capture | pending |
@@ -224,8 +226,8 @@ and their vectors (the durable clock-step → size roll → empty spool → cras
 
 ### Phase 5 — Merge, MergeIterate, FindTransaction
 
-Phase 5 is delivered in three steps: 5a (`ActiveView`, `Merge` and the Writer seams they need), 5b (`MergeIterate`),
-and 5c (`FindTransaction`, `PackSource`, listing views and retention).
+Phase 5 is delivered in steps: 5a (`ActiveView`, `Merge` and the Writer seams they need), 5b (`MergeIterate`),
+and 5c in three (G5-120): 5c1 (`PackSource`, `FindTransaction`), 5c2 (listing-backed `PackSource`, listing views) and 5c3 (retention).
 
 #### 5a — ActiveView, Merge, Writer seams (done)
 
@@ -331,21 +333,36 @@ The implementation settled what the text above leaves open:
   a block dropped as a duplicate adds none.
   Calls of `fn` are counted apart, and `ctx` is checked before the 4096th call, the 8192nd and so on.
 
-#### 5c — FindTransaction, PackSource, listing views, retention (pending)
+#### 5c1 — PackSource, FindTransaction (in progress)
+
+- Spec v2.21 first (G5-120..G5-136): [SEM §7.2]'s lookup from a primary — its definitions, closing records read and checked against the evidence (G5-135),
+  conflicts and block-index disagreements making it `incomplete` (G5-132..G5-134), the comparison covering the scopes read (G5-136) —
+  and [STO §5]'s observation of a lookup (G5-128).
+- `PackSource` and `Observation`: one observation per lookup, fixed before any record is read; scopes, per-capture evidence and barriers from it.
+  A source for tests only, in the package's tests: views from `ActiveView`, per-capture evidence as a registration history independent of the packs present.
+- `FindTransaction(ctx, src, TxKey{Capture, Seq, Hour}, TxOptions)`: the primary's scope and the next ones up to `MaxScopes`, each read once by one `MergeIterate` in capture order;
+  `TxResult` with the outcome, the derived key, every kept version and its roles, every reason absence could not be established with its hours and pack_id, the scopes read and the conflicts.
+  An unexported conflict-reservation seam in `MergeIterate` lets one budget cover the conflicts of every read and those across them.
+
+Tests: the [SEM §9] lookup vectors; the barrier and closure effects of the [STO §8] end-evidence service vectors through the test source;
+an observation mutated after it was fixed; a reference built from the stored rows of the scopes read, and a whole-capture safety check that every `unmatched` lookup read every seq of its window.
+
+#### 5c2 — listing-backed PackSource, listing views (pending)
 
 - Listing-backed `PackSource` for scopes the catalog does not index: a coherent observation ([STO §5]) —
   the commit listing repeated until two complete listings agree, then the `archive/` and `staging/` listings, then a [FMT §13] bootstrap of each listed pack —
-  feeding `ActiveView`; results touching such scopes are `Incomplete` with `Reason: Cold`.
+  feeding `ActiveView`, fixed inside the observation; results touching such scopes are `Incomplete` with `Reason: Cold`.
+- The per-capture evidence provider it takes from the catalog (G5-123), and `(*Reader).Stats()` (G5-131).
+- `Result`'s searched scope and `Cold` reason for reads over listing views.
+
+Tests: the coherent-observation, listing-view and window-boundary vectors of [STO §8].
+
+#### 5c3 — retention (pending)
+
 - Retention boundary, supplied by the caller: checked before each listing and before emitting each block's records;
   an hour that becomes removed ends with the removed outcome in `Result.Removed` ([STO §5] Retention).
-- `FindTransaction` over a `PackSource` interface (catalog abstraction; an in-memory implementation for tests), [SEM §7.2] results,
-  honouring completeness barriers (`stop-unclean`, [STO §5]) and returning `Incomplete` with `Reason: Cold` when the eligibility window touches a scope that is not indexed.
 
-Tests: transaction eligibility with a reused key; a primary without System Bytes and a window holding a reply-direction record without them ([SEM §7.2]);
-a transaction split across packs; `incomplete` when seq coverage has a gap, and with reason `cold` when a scope is not indexed;
-the coherent-observation, listing-view, window-boundary and removed-outcome vectors of [STO §8];
-through an in-memory `PackSource`, the barrier and closure effects of the [STO §8] end-evidence service vectors
-(registration, rejection, eviction and rebuild themselves are service work, §1).
+Tests: the removed-outcome vector of [STO §8].
 
 ### Phase 6 — JSONL export, conformance corpus, CLI
 

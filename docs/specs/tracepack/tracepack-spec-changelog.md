@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-02) — spec v2.20.
+Status: current (2026-10-03) — spec v2.21.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -893,3 +893,48 @@ Summary:
 | P0 (spec round 1) excluded blocks also need a true F-3 summary | [SEM §7.4] Scope of the guarantees |
 | P1 ×3 (spec round 1) time-order cluster key and drains, the representative of a version, computed summaries of blocks without an F-2 entry | [SEM §7.4] Exclusion, Conflicts and Order |
 | P0 ×3, P1 ×11, P2 ×4 memory reservation, cancellation, ownership, loader outcomes, footer diagnostics, the test reference and read counts, validation | the Go implementation plan |
+
+## Changes v2.20 → v2.21: transaction lookup from a primary (owner decisions G5-120..G5-138, 2026-10-02..03)
+
+Source: planning `FindTransaction` and `PackSource` (impl plan phase 5c, split into 5c1..5c3 by G5-120),
+whose plan review found that [SEM §7.2] left open how a lookup is bounded, what makes a record a primary, a bound or a closure, how conflicts and a defective index affect it, and how its source stays consistent;
+no proposal document.
+Format version stays 1.0: no byte changes.
+
+Summary:
+- [SEM §7.2] a lookup from a primary named by capture, seq and hour (G5-122, G5-124): definitions of the primary (G5-125), candidate, possible reply, same-key and possible same-key primary, closing record and outcome records;
+  the window bounded only by records read (G5-135), evidence closures checked against them;
+  conflicts at or above the primary, and blocks disagreeing with their F-2 entry, making it `incomplete` (G5-126, G5-132..G5-134);
+  the comparison covering the scopes read (G5-136); the scopes read, bounded by the caller and searched above the primary only (G5-121, G5-129);
+  the conditions that prevent `unmatched`, and the result rules (G5-127).
+  The closure-evidence sentence now names a record that ends the epoch or a clean `stop` record, not the `close_seq` and `boundary` entries.
+- [SEM §6] the epoch-wide effective-quality rule as a lookup evaluates it (G5-130); F-5 entries do not establish closure for a lookup.
+- [SEM §7.4] row (d) finds a primary, then runs §7.2's lookup.
+- [STO §5] Observation of a lookup (G5-128): one observation per lookup, fixed before any record is read, its scopes from one catalog snapshot or a coherent observation, never switched;
+  Completeness: which epochs a `stop-unclean` leaves open is decided per reader — other queries from the per-capture entry, a transaction lookup only from a closing record it read (G5-135).
+- [FMT §10] a transaction lookup relies on neither `close_seq` nor a `boundary` entry alone and reads the record they name.
+- [STO §5] Completeness: a `stop-unclean` gap interval whose start exceeds its end meets every time range (G5-137).
+- [SEM §7.2] an evidence closure contradicts the records only when no version's bytes at its seq are the closing event; a conflicted closing seq is reported as the conflict only (G5-138).
+- [STO §8] the "bounded unclean end evicted" service vector restated for G5-135; two observation vectors.
+- [SEM §9] lookup vectors.
+- `tracepack-go.md` §3: `FindTransaction(ctx, src, TxKey, TxOptions)`, `TxResult`, `PackSource.Observe` and `Observation`; the listing-backed source, the evidence provider and `(*Reader).Stats()` wait for 5c2 (G5-123, G5-131).
+- Impl plan: 5c split into 5c1 (`PackSource`, `FindTransaction`), 5c2 (listing-backed source) and 5c3 (retention).
+
+### FindTransaction plan review rounds 1–5 and precision pass — VERDICT (precision pass): no P0; precision fixes applied
+
+| Finding | Resolution (v2.21) |
+|---|---|
+| P0 a lookup's source calls could see different states | [STO §5] Observation of a lookup (G5-128) |
+| P0 a conflicting record could bound or empty the window; conflicts across scopes went unseen | [SEM §7.2] any conflict at or above the primary → `incomplete` (G5-132), conflicts across scopes by seq and hours (G5-133) |
+| P0 an unevaluated pack could yield `unmatched` | [SEM §7.2] a pack with `quality_evaluated` false prevents `unmatched` |
+| P0 a primary's unavailable stream could fake or hide a match | [SEM §7.2] association key vs match fields; decidable candidates |
+| P0 a skipped `ordering-uncertain` record below the primary | [SEM §7.2] `ordering-uncertain` at any seq of the scopes read (G5-130) |
+| P0 a footer-claimed `close_seq` could empty a window | [SEM §7.2], [STO §5] closure only from records read (G5-135) |
+| P0 stopping early hid a later scope's version | [SEM §7.2] every scope up to the caller's bound is read |
+| P0 another version in an earlier, unread hour | [SEM §7.2] the comparison covers the scopes read (G5-136) |
+| P1 a defective index breaks order and identity | [SEM §7.2] such a block makes the lookup `incomplete` (G5-134) |
+| P1 an uncertain later primary with unavailable fields | [SEM §7.2] possible same-key primaries end eligibility |
+| P1 coverage matched on seqs alone | [SEM §7.2] [FMT §5]'s conjunction: the window's seqs and the hours read |
+| P1 cold fallback after the observation | [STO §5] cold scopes are fixed inside the observation, never switched |
+| P0 ×3, P1 ×4, P2 (spec round 1) open window overriding a match, the closing `stop` in the epoch-wide rule, the old unavailable-field rule, decision wording, verify/merge coverage claim, observation lifecycle, kept versions | [SEM §6], [SEM §7.2], [STO §5], `tracepack-go.md` §3, decision log |
+| P0 (spec round 2) evidence-only closure left in older text | [SEM §7.2] result preface, [STO §5] Completeness split per reader, [FMT §10] |

@@ -556,3 +556,107 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   Rationale: the records exist, and yielding one would be the silent choice I-12 forbids.
   Rejected: yielding no version, which hides evidence; yielding the first version, a silent choice.
   Spec: [FMT I-12], [SEM §7.4] (v2.20).
+
+## 2026-10-02 transaction lookup
+
+- G5-120 Phase 5c in three steps (2026-10-02):
+  5c1 the `PackSource` interface, a test source and `FindTransaction`; 5c2 a listing-backed `PackSource` and the object-store interface it needs; 5c3 the retention boundary and `Result.Removed`.
+  Rationale: the lookup is the first user of `PackSource` and shapes it; each step is reviewable alone.
+  Rejected: infrastructure first; one step.
+  Spec: impl plan "5c" (v2.21).
+- G5-121 A caller bounds the lookup's forward search (2026-10-02):
+  the eligibility window has no upper bound while no later same-key primary and no closure is known,
+  so a lookup reads a caller-given number of scopes from the primary's, and a window still unbounded after them prevents `unmatched` (a match found is still reported, G5-127).
+  Rationale: an unanswered primary on a long connection could otherwise scan the rest of the capture.
+  Rejected: walking to the capture's end; a fixed two-hour window in the spec.
+  Spec: [SEM §7.2] (v2.21).
+- G5-122 A lookup starts from the primary record (2026-10-02):
+  the caller names the primary, and the lookup reads it and derives `epoch`, direction, SessionID, System Bytes, stream and function from it.
+  Rationale: §7.2 needs the primary itself (its quality bits, the availability of its fields), and a caller-given key could disagree with it.
+  Rejected: a caller-given six-field key, verified or not.
+  Spec: [SEM §7.2] (v2.21).
+- G5-123 A listing-backed source takes per-capture evidence from a provider (2026-10-02):
+  end states, barriers and epoch closures come from the catalog's per-capture entries ([STO §5] Listing view), which the caller supplies.
+  Rationale: the bucket alone cannot show the evidence of other hours or of rejected registrations.
+  Rejected: deriving it from the F-5 of the listed packs alone.
+  Spec: [STO §5], `tracepack-go.md` §3 (v2.21; designed in 5c2).
+- G5-124 A lookup names the primary's hour (2026-10-02):
+  the key is (`capture_id`, `seq`, UTC hour of the primary's `ts_utc_ns`), the hour being its scope.
+  Rationale: a seq does not show its hour, and archive keys carry no seq, so a listing could not find it.
+  Rejected: a seq → hour lookup on the source.
+  Spec: [SEM §7.2] (v2.21).
+- G5-125 What a primary is (2026-10-02):
+  a `data` record with an available, odd function; a lookup naming another record fails as an error.
+  The next same-key primary is a `data` record with an odd function of the primary's capture, epoch and direction, with its SessionID and System Bytes.
+  The W bit takes no part and is reported.
+  Rejected: any same-direction data record; requiring W.
+  Spec: [SEM §7.2] (v2.21).
+- G5-126 A conflicting primary or candidate makes a lookup `incomplete` (2026-10-02):
+  its versions are reported, and so is every conflict found.
+  Rejected: evaluating each version as a candidate of its own.
+  Spec: [SEM §7.2] (v2.21).
+- G5-127 `matched` and `ambiguous` are reported as found (2026-10-02):
+  every reason absence could not be established is reported beside them; only a lookup that would be `unmatched` becomes `incomplete`.
+  Rationale: [SEM §7.4] reports conditions side by side, none hiding another.
+  Rejected: any gap turning the result into `incomplete`.
+  Spec: [SEM §7.2] (v2.21).
+- G5-128 One observation per lookup (2026-10-02):
+  a lookup reads scopes, per-capture evidence and barriers from one observation its source fixes before the lookup reads any record.
+  Rationale: evidence and views taken at different instants can disagree, and a lookup cannot tell.
+  Rejected: separate source calls with the inconsistency documented.
+  Spec: [STO §5] Observation of a lookup (v2.21).
+- G5-129 Only seqs above the primary are searched (2026-10-02):
+  each scope is read once; the primary arrives before every higher seq of its capture, so the records after it are classified with the key known;
+  candidates below the primary are outside every window and are not searched for.
+  Rejected: reading the primary's scope twice behind a seq filter.
+  Spec: [SEM §7.2] (v2.21).
+- G5-130 Epoch-wide conditions (2026-10-02):
+  a capture-boundary in the primary's epoch comes from the per-capture evidence, over the whole epoch;
+  an `ordering-uncertain` record of the epoch is found only in the scopes a lookup reads, since no index records it per epoch.
+  Rejected: every epoch not read in full counting against `unmatched`; both conditions only in the scopes read.
+  Spec: [SEM §6], [SEM §7.2] (v2.21).
+- G5-131 `(*Reader).Stats()` waits for 5c2 (2026-10-02):
+  the F-5 statistics a catalog builds per-capture evidence from are designed with the evidence provider.
+  Spec: `tracepack-go.md` §3 (v2.21).
+- G5-132 Any conflict at or above the primary makes a lookup `incomplete` (2026-10-02):
+  a conflict on a seq at or above the primary's, within a scope or across scopes, inside the window or after it, whatever its versions are.
+  Rationale: deciding which conflicts matter kept leaving cases where a disputed record bounded or emptied a window; conflicts are pipeline defects and rare.
+  Rejected: refining which conflicts are relevant.
+  Spec: [SEM §7.2] (v2.21).
+- G5-133 A conflict across scopes is reported by seq and hours (2026-10-02):
+  a lookup reports the hours whose reads yielded the seq and the versions it kept;
+  a version it judged irrelevant before the other one appeared is not kept.
+  This relaxes G5-126 for conflicts across scopes.
+  Rejected: keeping every body and holder across scopes.
+  Spec: [SEM §7.2] (v2.21).
+- G5-134 A block whose records disagree with its F-2 entry makes a lookup `incomplete` (2026-10-02):
+  also when a match was found, because such a block can break seq order and identity ([SEM §7.4]); an exception to G5-127.
+  Rejected: reporting it beside the result only.
+  Spec: [SEM §7.2] (v2.21).
+- G5-135 Only records read establish a window bound or epoch closure (2026-10-03):
+  a footer's `close_seq` and `boundary` entries, and the per-capture evidence built from them, are claims whose structure footer validation proves, not their meaning;
+  a lookup's window is bounded only by records it read — a same-key primary, or a closing record (a socket-close of the primary's epoch, or a clean `stop` of any epoch) —
+  and only a closing record of the primary's own epoch that it read exempts that epoch from the `stop-unclean` barrier;
+  a claim that a record it read contradicts is reported.
+  Rationale: a false `close_seq` could empty a window and make a lookup `unmatched`.
+  Rejected: trusting the evidence and checking it only when its record happens to be read.
+  Spec: [SEM §7.2], [STO §5] Completeness, [STO §8] (v2.21).
+- G5-136 A lookup compares the copies in the scopes it reads (2026-10-03):
+  a version of a record can lie in any hour, its `ts_utc_ns` deciding its scope, so no bounded read excludes another version of a window seq;
+  `unmatched` and `matched` hold for the scopes read, as [SEM §7.4]'s guarantees hold for the packs read, and the spec and the Go documentation say so.
+  Rationale: two versions of one record are a pipeline defect; a seq with no version read still counts as missing.
+  Such versions in different hours are compared by no per-pack `verify` and no per-scope merge, so they can stay unreported.
+  Rejected: reading hours before the primary's, which reads more without closing the gap; never returning `unmatched`.
+  Spec: [SEM §7.2] (v2.21).
+- G5-137 An inverted barrier interval meets every time range (2026-10-03):
+  a `stop-unclean` boundary whose `gap_start` exceeds its `gap_end` is a time barrier for every time range,
+  as an inverted `coverage` entry intersects every query ([FMT §5]); the format does not check the order of the two bounds.
+  Rationale: the rule errs toward `incomplete`, never toward a false absence.
+  Rejected: swapping the bounds, which guesses the writer's intent; treating the interval as empty, which can drop a barrier.
+  Spec: [STO §5] Completeness, [SEM §7.2] (v2.21).
+- G5-138 A contradiction is judged by the bytes of the versions read (2026-10-03):
+  an evidence closure at a seq the lookup read contradicts the records only when no version's bytes there are the closing event it names;
+  when the versions conflict and one of them is that event, the lookup reports the conflict, which already makes it `incomplete` (G5-132), and no contradiction.
+  Rationale: the evidence then names a record that exists; the disagreement lies between the copies, and the conflict reports it.
+  Rejected: a contradiction whenever the seq holds no closing record, which reports one defect twice.
+  Spec: [SEM §7.2] (v2.21).

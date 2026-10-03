@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
-Status: current (2026-10-01)
-Implements tracepack v2.20 (format 1.0): `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Status: current (2026-10-03)
+Implements tracepack v2.21 (format 1.0): `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -82,7 +82,7 @@ The query service, its catalog database and the live-tail interface are designed
   `Result` carries `Incomplete` and `Conflicts` side by side; neither hides the other.
   `Incomplete`'s defects and every `Item` name the pack they come from (`Pack`, an index into the readers given; 0 for `Iterate`);
   `FooterErrs` lists each pack whose footer was not used, outside `Incomplete`, since a finalized pack whose walk accounts for every block is complete without its footer.
-  `Incomplete` carries the searched scope and a `Reason` (`Cold` among them, [STO §5] Completeness), for `Iterate` and `MergeIterate` alike;
+  `Incomplete` carries the searched scope and a `Reason` (`Cold` among them, [STO §5] Completeness), for `Iterate` and `MergeIterate` alike (phase 5c2; `FindTransaction` reports them in `TxResult` since 5c1);
   `Removed` lists the hours that ended with the removed outcome ([STO §5] Retention), and a caller never reports records of a removed hour as a result.
 - `Filter` uses typed slices (`[]SF`, `[]Kind`, `*[4]byte`) and a time range, with nil meaning "any"; no sentinel values.
   HSMS header fields are matched on payload values, available only where `field_validity` says so ([FMT §7.2]).
@@ -102,11 +102,20 @@ The query service, its catalog database and the live-tail interface are designed
   `MaxConflicts` bounds how many conflicts are listed, not the size of one.
   Either limit ends the read with an error wrapping `ErrReadLimit`, returned with the `Result` found so far, instead of exceeding it or omitting a conflict.
   A block over the reader's `MaxBlockLen`, or whose stated dimensions cannot be consistent, is a defect and is skipped, as in `Iterate`.
-- `FindTransaction(ctx, src PackSource, TxKey) (TxResult, error)` returning `Matched | Ambiguous | Unmatched | Incomplete{SearchedScope, Reason}` (`Reason` including `Cold`)
-  plus candidates and outcome records ([SEM §7.2]);
-  `PackSource` supplies, per scope, the packs, whether the scope is indexed and the seq coverage it can establish,
-  and per capture the end states, barriers and epoch closures of [STO §5], including every barrier that meets the queried range whatever capture it belongs to ([SEM §7.2]);
-  a listing-backed implementation takes coherent observations ([STO §5]).
+- `FindTransaction(ctx, src PackSource, TxKey, TxOptions) (TxResult, error)`: [SEM §7.2]'s lookup from a primary named by `TxKey{Capture, Seq, Hour}` (G5-124);
+  it derives the key from the primary (G5-122) and fails with `ErrNotPrimary` when the record is not a `data` record whose function is available and odd, or is absent from a complete read (G5-125).
+  `TxOptions`: `MaxScopes` (the hours read from `Hour`, default 2, G5-121), `MaxHeldBytes` per read, `MaxConflicts` over the lookup, `MaxStateBytes` for the lookup's own state.
+  `TxResult` holds the outcome (`TxMatched`, `TxAmbiguous`, `TxUnmatched`, `TxIncomplete`; zero only beside an error), the derived key with the W bit,
+  the window end, every kept version as a `TxRecord` with its roles as a `TxClass` bit set (primary, candidate, possible reply, same-key primary, possible same-key primary, closing record, outcome record) and its candidate flags,
+  every reason absence could not be established as a `TxGap` naming its hours and pack_id, the scopes read, the conflicts and the footer errors.
+  Each scope is one `MergeIterate` in capture order; its guarantees cover the scopes read (G5-136).
+  `PackSource.Observe(ctx, capture, from, to)` returns an `Observation` fixed before it returns ([STO §5] Observation of a lookup, G5-128):
+  `Scope(ctx, hour)` (the readers of the scope's view and whether it is indexed), `Evidence(ctx)` (end state, capture-boundary entries, epoch closures, a partial flag), `Barriers(ctx, from, to)` (the tool's `stop-unclean` boundaries meeting a time range) and `Close`, which never blocks;
+  every value returned is the caller's: `Readers` a fresh slice, the evidence and the boundaries deep copies, none changed afterwards by the source or by the lookup;
+  readers stay valid until `Close`.
+  An `Observe` that fails returns no `Observation`; the lookup closes one it got exactly once, after its last use, whatever happened.
+  The source does not retry inside an observation: a failed call ends the lookup with its error.
+  A test source lives in the package's tests; a listing-backed source, the per-capture evidence provider it takes from the catalog (G5-123) and `(*Reader).Stats()`, the F-5 statistics a catalog builds that evidence from (G5-131), come with phase 5c2.
 - `ActiveView(packs []PackInfo, commits CommitSet) (View, error)`: [STO §4] active view of one scope from pack metadata (staging segments included) and the scope's commit objects,
   plus the packs that are deletable under [STO §4] Deletion, the packs excluded for their role ([STO §2]), and the `compacted_from` the next merge writes.
   `packs` is a complete observation of the scope: every surviving pack a reader could list, replaced patches included (a catalog snapshot or a coherent observation, [STO §5]).

@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-10-02) — v2.20, tracepack format 1.0.
+Status: current (2026-10-03) — v2.21, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for publishers, mergers, recorders and log converters.
 
@@ -341,6 +341,15 @@ Its storage technology is not part of this specification.
 - **Listing view**: for a scope that is not indexed, a reader computes the active view of §4 from a coherent observation.
   A reader finds the captures and packs of a tool in a time range by listing `staging/<tool_id>/` and `archive/<tool_id>/<YYYY>/<MM>/<DD>/` for the days concerned,
   and takes end states and barriers from the catalog's per-capture entries.
+- **Observation of a lookup** (G5-128): a transaction lookup ([SEM §7.2]) reads one tool's scopes, per-capture evidence and barriers through one **observation**, fixed before the lookup reads any record.
+  The source that serves it (the reference library's `PackSource`) fixes, for each hour the lookup may read, the scope's view:
+  for a scope the catalog indexes, from one catalog snapshot, together with the capture's per-capture entries and the tool's barriers, which reflect every registration completed before that snapshot;
+  for a scope it does not index, by the coherent observation above and its listing view, taken while the observation is fixed, the source establishing the procedure's premises or failing the observation.
+  Every later answer comes from what was fixed: a scope never switches from the snapshot to a listing, also when it is evicted meanwhile.
+  The source does not retry inside an observation; a failed answer ends the lookup.
+  A pack of a fixed view deleted meanwhile under §4 Deletion fails its read, and the lookup fails with it.
+  A listing view of a scope that is not indexed can hold boundaries the snapshot's per-capture entries lack; the scope is `cold`, so the lookup is never `unmatched` on its account.
+  One source serves one tool; a source whose per-capture evidence is incomplete (a pack whose footer is not valid) marks it partial, and a lookup is then never `unmatched`.
 - **Roles**: the catalog registers only packs whose role takes part in the tiers (§2),
   and it reports any other pack presented to it to the operator.
 - **No admissions outside the index**: registering a segment or a patch, and claiming a merge, for a scope that is not indexed are rejected.
@@ -362,9 +371,13 @@ Its storage technology is not part of this specification.
   Time queries select the scopes whose UTC hour meets the range and read every pack of their active views ([SEM §7.4]);
   inside those packs, the actual record times (F-2, F-5) decide what a read excludes, cluster by cluster, never a pack's period, because a same-hour clock step can put records outside a segment's flush interval;
   they consult `coverage` entries ([FMT §5] matching rule) and completeness barriers by their own intervals, including those of packs without records.
-  A `stop-unclean` boundary is a barrier for every epoch still open when the capture ended — one for which the per-capture entry records no closure —
-  and for the time interval [`gap_start`, `gap_end`], unbounded on a side whose bound is absent;
-  a transaction lookup whose primary lies in such an epoch never returns `unmatched`.
+  A `stop-unclean` boundary is a barrier for every epoch still open when the capture ended, and for the time interval [`gap_start`, `gap_end`], unbounded on a side whose bound is absent;
+  an interval whose `gap_start` exceeds its `gap_end` meets every time range, as an inverted `coverage` entry does ([FMT §5], G5-137).
+  Which epochs were still open is decided per reader:
+  a query other than a transaction lookup takes an epoch as closed when the per-capture entry records its closure;
+  a transaction lookup takes it as closed only when it read the record that closed it ([SEM §7.2], G5-135),
+  since the per-capture entry's closure is a footer claim, kept as evidence and checked against that record where the lookup reads it, never by itself an exemption.
+  A transaction lookup whose primary lies in an epoch it must take as still open never returns `unmatched`.
   A gap between linked captures is recorder downtime and is always reported when the earlier capture carries an end boundary;
   a capture left `open` (§4 Recorder over a durable bus) shows the restart through its successor's `start` but supplies no downtime barrier and no gap bounds.
   - A result that touches a scope that is not indexed is `incomplete` with reason `cold` and the searched scope;
@@ -539,6 +552,9 @@ The following vectors belong to the corpus of [FMT §16]:
 - a late segment of a scope that is not indexed: the listing view includes it, and the result is `incomplete` with reason `cold` (§5);
 - a query spanning the window boundary: the indexed part follows the normal rules, the whole result is `incomplete` with reason `cold`,
   and a transaction lookup across the boundary never returns `unmatched` (§5);
+- a lookup's observation fixed, then an indexed scope evicted, a late segment holding a valid reply registered or rejected, closure evidence and a barrier changed:
+  the lookup answers from what was fixed (§5 Observation of a lookup);
+- an observation whose scope that is not indexed becomes indexed while it is listed: the observation fails (§5 Observation of a lookup);
 - a query started just before an hour is removed, with retention advancing between each listing, read and output step:
   the reader ends the hour with the outcome removed, also after emitting some of its records, and emits no record of a lower generation (§5 Retention).
 
@@ -557,7 +573,8 @@ End evidence:
 - clean end evicted: a capture's final hour with a `stop` boundary is evicted;
   queries whose records and coverage lie in scopes that stay indexed give the same results as before;
   a transaction lookup whose primary lies in an indexed hour and whose eligibility window reaches the evicted hour becomes `incomplete` with reason `cold`, although the clean end is kept;
-- bounded unclean end evicted: the time barrier keeps its gap bounds, and an epoch whose closure was recorded stays exempt from the epoch barrier after the closing scope is evicted;
+- bounded unclean end evicted: the time barrier keeps its gap bounds, and an epoch's recorded closure stays in the per-capture entry after the closing scope is evicted;
+  a transaction lookup is exempt from the epoch barrier only when it reads the closing record, so one that reaches the evicted closing scope reads it through a listing view and is `cold`, never `unmatched` ([SEM §7.2], G5-135);
 - a converter archive of a scope that is not indexed, with boundaries: rejected, its per-capture evidence recorded;
 - entirely cold capture: capture C has no indexed scope, and its recorded gap meets indexed hour H, which holds only capture D's records:
   a time-range query of H is `incomplete`, with C's barrier recorded at registration and again after a rebuild;
