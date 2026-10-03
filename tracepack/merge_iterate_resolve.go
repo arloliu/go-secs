@@ -137,7 +137,8 @@ func (c *candidate) release(l *heldLoader) {
 //   - []candidate: dst with the seq's candidates appended; dst itself with an error or once the cluster is resolved.
 //   - bool: whether a seq was resolved; false once every record of the cluster is resolved, or with an error.
 //   - error: the error of a load (load); ctx's error, wrapped;
-//     an error wrapping ErrReadLimit when one more conflict would exceed MaxConflicts, the Result keeping those listed.
+//     an error wrapping ErrReadLimit when one more conflict would exceed MaxConflicts,
+//     or the error of the conflict reservation, wrapped, when it fails, the Result keeping those listed.
 //     After an error the seq's copies stay with the cursor, which close releases.
 func (cr *clusterResolver) next(ctx context.Context, dst []candidate) ([]candidate, bool, error) {
 	seq, at, err := cr.cur.next(ctx, cr)

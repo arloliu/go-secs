@@ -12,7 +12,9 @@ import (
 // ErrInvalidQuery reports a read that cannot run, before anything is read:
 // for Reader.Iterate and MergeIterate, a Query whose TimeFrom is after its TimeTo;
 // for MergeIterate also a nil fn, an Order that is not one,
-// a nil reader, a Reader given twice, or two readers holding the same pack_id.
+// a nil reader, a Reader given twice, or two readers holding the same pack_id;
+// for FindTransaction a nil PackSource, a zero TxKey.Capture, a TxKey.Hour outside [MinTxHour, MaxTxHour],
+// or a last hour read past MaxTxHour.
 var ErrInvalidQuery = errors.New("tracepack: invalid query")
 
 // Query selects records of a pack for Reader.Iterate, or of several packs for MergeIterate.
