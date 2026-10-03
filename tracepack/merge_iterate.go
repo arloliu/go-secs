@@ -47,6 +47,14 @@ type MergeIterateOptions struct {
 	MaxConflicts int
 }
 
+// mergeIterateOptions holds the options of a read over several packs that only this package sets.
+type mergeIterateOptions struct {
+	// reserveConflict, when set, is called before each conflict is added to Result.Conflicts,
+	// in place of the check against MaxConflicts, so a caller can count the conflicts of several reads against one allowance.
+	// An error ends the read, wrapped, the conflict not added.
+	reserveConflict func() error
+}
+
 // PackError is an error about one pack of a read that does not make the read incomplete.
 type PackError struct {
 	// Pack is the index into the readers given to MergeIterate of the pack the error concerns; 0 for Reader.Iterate.
@@ -155,6 +163,13 @@ var _ error = PackError{}
 //     a ReadAt error, wrapped with the reader and block index;
 //     or the error fn returned, as is.
 func MergeIterate(ctx context.Context, readers []*Reader, q Query, opts MergeIterateOptions, fn func(*Item) error) (Result, error) {
+	return mergeIterateWith(ctx, readers, q, opts, mergeIterateOptions{}, fn)
+}
+
+// mergeIterateWith is MergeIterate with the options only this package sets, which the zero mergeIterateOptions leaves unused.
+func mergeIterateWith(ctx context.Context, readers []*Reader, q Query, opts MergeIterateOptions, internal mergeIterateOptions,
+	fn func(*Item) error,
+) (Result, error) {
 	o, err := checkMergeIterate(ctx, readers, &q, opts, fn)
 	if err != nil {
 		return Result{}, err
@@ -164,6 +179,7 @@ func MergeIterate(ctx context.Context, readers []*Reader, q Query, opts MergeIte
 	}
 
 	p := newMergeIteratePlan(o)
+	p.reserveConflict = internal.reserveConflict
 	if err := p.build(ctx, readers, &q); err != nil {
 		return p.res, err
 	}

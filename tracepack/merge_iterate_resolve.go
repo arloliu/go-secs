@@ -176,12 +176,18 @@ func (cr *clusterResolver) close() {
 
 // addConflict lists in the read's Result the conflict of seq, whose copies at hold the versions cr.versions grouped,
 // its versions naming the packs holding each in reader order.
+// When the plan has a reserveConflict, it reserves the conflict through it instead of checking MaxConflicts.
 //
 // Returns:
-//   - error: an error wrapping ErrReadLimit, listing nothing, when MaxConflicts conflicts are listed already.
+//   - error: an error wrapping ErrReadLimit, listing nothing, when MaxConflicts conflicts are listed already;
+//     reserveConflict's error, wrapped with the seq and capture, listing nothing.
 func (cr *clusterResolver) addConflict(seq uint64, at []*openBlock) error {
 	p := cr.run.p
-	if len(p.res.Conflicts) >= p.opts.MaxConflicts {
+	if p.reserveConflict != nil {
+		if err := p.reserveConflict(); err != nil {
+			return fmt.Errorf("tracepack: merge iterate: the conflict at seq %d of capture %s: %w", seq, cr.capture, err)
+		}
+	} else if len(p.res.Conflicts) >= p.opts.MaxConflicts {
 		return fmt.Errorf("tracepack: merge iterate: the conflict at seq %d of capture %s exceeds MaxConflicts %d: %w",
 			seq, cr.capture, p.opts.MaxConflicts, ErrReadLimit)
 	}

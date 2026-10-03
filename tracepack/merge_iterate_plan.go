@@ -54,6 +54,8 @@ type mergeIteratePlan struct {
 	// captures holds the read's captures in ascending capture_id.
 	captures []planCapture
 	loader   heldLoader
+	// reserveConflict is mergeIterateOptions.reserveConflict; nil checks MaxConflicts instead.
+	reserveConflict func() error
 	// copiesStep and yieldStep, set only by tests, replace resolveCtxCopies and yieldCtxCalls in the read's checks of ctx;
 	// zero keeps them.
 	copiesStep int
