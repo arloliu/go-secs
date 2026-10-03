@@ -142,6 +142,10 @@ type TxOptions struct {
 	// MaxStateBytes bounds the lookup's own state: the records it keeps, with their payloads and header extensions,
 	// and what it records of the seqs it visited, the conflicts, the gaps and the scopes read;
 	// zero or negative means DefaultTxMaxStateBytes.
+	// Each item is charged a fixed size as the state grows,
+	// a record also its payload and header-extension bytes, a copied coverage entry also the values of its unknown entries,
+	// and the charge of a record copied but not kept is released;
+	// a charge that would pass MaxStateBytes fails the lookup with an error wrapping ErrReadLimit.
 	// The readers, the evidence, the barriers and what each MergeIterate builds lie outside it.
 	MaxStateBytes int64
 }
@@ -317,7 +321,8 @@ type TxResult struct {
 // with none, the outcome is TxUnmatched when no gap is listed, TxIncomplete otherwise.
 //
 // Parameters:
-//   - ctx: cancels the lookup; it is checked before each call to the source, during each scope read, and before returning.
+//   - ctx: cancels the lookup; it is checked before each call to the source, during each scope read,
+//     every 4096 iterations of the lookup's own loops, and before returning.
 //   - src: the source of the observation; not nil.
 //   - key: the primary; Capture not zero, Hour in [MinTxHour, MaxTxHour].
 //   - opts: the limits; see TxOptions.
@@ -333,7 +338,12 @@ type TxResult struct {
 //     a ReadAt error; an error wrapping ErrReadLimit from MaxHeldBytes, MaxConflicts or MaxStateBytes;
 //     ctx's error, wrapped.
 //     A block over its Reader's MaxBlockLen is not an error: it is a TxGapRead gap.
-func FindTransaction(ctx context.Context, src PackSource, key TxKey, opts TxOptions) (res TxResult, err error) {
+func FindTransaction(ctx context.Context, src PackSource, key TxKey, opts TxOptions) (TxResult, error) {
+	return findTransactionWith(ctx, src, key, opts, nil)
+}
+
+// findTransactionWith is FindTransaction; prep, set only by tests, runs on the lookup's state before the lookup starts.
+func findTransactionWith(ctx context.Context, src PackSource, key TxKey, opts TxOptions, prep func(l *txLookup)) (res TxResult, err error) {
 	opts, err = checkFindTransaction(src, key, opts)
 	if err != nil {
 		return TxResult{}, err
@@ -359,6 +369,9 @@ func FindTransaction(ctx context.Context, src PackSource, key TxKey, opts TxOpti
 	}()
 
 	l := newTxLookup(key, opts, obs)
+	if prep != nil {
+		prep(l)
+	}
 	err = l.run(ctx)
 	if err == nil {
 		if cerr := ctx.Err(); cerr != nil {
