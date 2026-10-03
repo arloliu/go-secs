@@ -134,7 +134,7 @@ func requireStateLimit(t *testing.T, source func(t testing.TB) *memSource, opts 
 	s := source(t)
 	opts.MaxStateBytes = limit
 	_, err := findTx(t, t.Context(), s, txKeyAt(12), opts)
-	require.ErrorIs(t, err, errTxNotImplemented, "MaxStateBytes %d fits", limit)
+	require.NoError(t, err, "MaxStateBytes %d fits", limit)
 	_, _, closes := s.counts()
 	require.Equal(t, 1, closes)
 
@@ -178,11 +178,15 @@ func TestTxRunsChargeMillions(t *testing.T) {
 // TestFindTransactionStateBudget charges a lookup's state against MaxStateBytes:
 // the charge of each lookup is computed from the charges of what it holds,
 // the lookup succeeds with exactly that budget, and fails with ErrReadLimit with one byte less.
+// No record bounds the window of any of these lookups, so each holds a TxGapOpenWindow gap,
+// and each version of a possible reply a TxGapUnavailable gap.
 func TestFindTransactionStateBudget(t *testing.T) {
 	t.Parallel()
 
 	primary := txRecord(12, nil)
 	primaryCost := versionCost(&primary, nil)
+	openWindow := gapCost(&TxGap{})
+	unavailable := gapCost(&TxGap{Hours: []int64{memTestHour}})
 	const runs = 30_000
 	const replies = 5_000
 	const versions = 64
@@ -209,7 +213,7 @@ func TestFindTransactionStateBudget(t *testing.T) {
 
 				return txSource(t, true, txPack(t, seg0, nil, steps))
 			},
-			want: scopeCost(1) + primaryCost + (runs+1)*txRunCharge,
+			want: scopeCost(1) + primaryCost + (runs+1)*txRunCharge + openWindow,
 		},
 		{
 			name: "many tiny possible replies",
@@ -222,7 +226,7 @@ func TestFindTransactionStateBudget(t *testing.T) {
 
 				return txSource(t, true, txPack(t, seg0, nil, txBlock(recs...)))
 			},
-			want: scopeCost(1) + primaryCost + txRunCharge + replies*txRecordCharge,
+			want: scopeCost(1) + primaryCost + txRunCharge + replies*txRecordCharge + openWindow + replies*unavailable,
 		},
 		{
 			name: "one conflict of many versions",
@@ -236,7 +240,8 @@ func TestFindTransactionStateBudget(t *testing.T) {
 				return txSource(t, true, files...)
 			},
 			want: scopeCost(versions) + primaryCost + txRunCharge + versions*txRecordCharge +
-				gapCost(&TxGap{Hours: []int64{memTestHour}}) + txConflictCharge + versions*(txVersionCharge+txPackCharge),
+				gapCost(&TxGap{Hours: []int64{memTestHour}}) + txConflictCharge + versions*(txVersionCharge+txPackCharge) +
+				openWindow + versions*unavailable,
 		},
 		{
 			name: "a coverage entry with large unknown values",
@@ -245,7 +250,7 @@ func TestFindTransactionStateBudget(t *testing.T) {
 					txBlock(primary)))
 			},
 			want: scopeCost(1) + primaryCost + txRunCharge + txPendingCoverageCharge +
-				txCoverageCharge + 2*txRawEntryCharge + 50_000,
+				txCoverageCharge + 2*txRawEntryCharge + 50_000 + openWindow,
 		},
 	}
 	for _, tt := range tests {
@@ -253,7 +258,7 @@ func TestFindTransactionStateBudget(t *testing.T) {
 			t.Parallel()
 
 			res, l, err := findTxState(t, tt.source(t), TxOptions{MaxScopes: 1})
-			require.ErrorIs(t, err, errTxNotImplemented)
+			require.NoError(t, err)
 			require.Equal(t, tt.want, l.state.used, "the charge of %d records, %d gaps, %d conflicts",
 				len(res.Records), len(res.Gaps), len(res.Conflicts))
 			requireStateLimit(t, tt.source, TxOptions{MaxScopes: 1}, tt.want)
@@ -282,12 +287,14 @@ func TestFindTransactionStateBudgetReleases(t *testing.T) {
 	group := versionCost(&note, nil) + versionCost(&other, nil)
 	kept := versionCost(&reply, nil)
 	listed := txConflictCharge + 2*(txVersionCharge+txPackCharge)
-	require.LessOrEqual(t, base+kept+listed, base+group, "the reply and the conflict fit once the group is released")
+	// No record bounds the window.
+	evaluated := gapCost(&TxGap{})
+	require.LessOrEqual(t, base+kept+listed+evaluated, base+group, "the reply, the conflict and the open window fit once the group is released")
 
 	res, l, err := findTxState(t, source(t), TxOptions{MaxScopes: 1})
-	require.ErrorIs(t, err, errTxNotImplemented)
+	require.NoError(t, err)
 	assert.Equal(t, []string{"12@0 primary", "14@0 candidate"}, recordSeqs(res.Records))
-	require.Equal(t, base+kept+listed, l.state.used)
+	require.Equal(t, base+kept+listed+evaluated, l.state.used)
 
 	// The peak is reached when the group's second version is cloned.
 	requireStateLimit(t, source, TxOptions{MaxScopes: 1}, base+group)
@@ -297,7 +304,10 @@ func TestFindTransactionStateBudgetReleases(t *testing.T) {
 // before Observe, before Evidence, before the first Scope, while Scope opens the readers, during a scope read,
 // and, through the checks every 4096 iterations of the lookup's loops, during the identity insertions of a read,
 // the mapping of its status, the search for coverage at a missing primary, the comparison of the primary's copies,
-// the probes of the earlier reads for a seq, the commit of a read's conflict gaps and the marking of the kept records:
+// the probes of the earlier reads for a seq, the commit of a read's conflict gaps, the marking of the kept records,
+// and each loop of the evaluation: the sort, the search for the window's end,
+// the search for a missing seq and its probes of the reads,
+// the flags of the kept records and the outcome's look at the gaps:
 // each returns ctx's error with the result so far, no outcome, and the observation closed once when it was opened.
 func TestFindTransactionCancelSteps(t *testing.T) {
 	t.Parallel()
@@ -305,6 +315,15 @@ func TestFindTransactionCancelSteps(t *testing.T) {
 	twoHours := func(t testing.TB) *memSource {
 		return txHours(t,
 			[][]byte{txPackIn(t, seg0, 0, nil, txBlock(txSeqs(12, 13)...))},
+			[][]byte{txPackIn(t, seg1, 1, nil, txBlock(txSeqs(20)...))})
+	}
+	// evaluated holds a window (12, 17) that misses 13 and holds a possible reply at 15:
+	// its evaluation adds a seq gap and an unavailable gap.
+	evaluated := func(t testing.TB, _ context.CancelFunc) *memSource {
+		return txHours(t,
+			[][]byte{txPackIn(t, seg0, 0, nil, txBlock(
+				txRecord(12, nil), txReply(14, nil), txReply(15, func(r *Record) { r.FieldValidity &^= FieldValiditySystemBytes }),
+				txRecord(17, nil)))},
 			[][]byte{txPackIn(t, seg1, 1, nil, txBlock(txSeqs(20)...))})
 	}
 	tests := []struct {
@@ -434,6 +453,19 @@ func TestFindTransactionCancelSteps(t *testing.T) {
 		{name: "while probing the earlier reads for a seq", in: "crossConflict", observes: 1,
 			scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1}, searched: 1, records: 2, err: "hour 497223: context canceled",
 			source: func(t testing.TB, _ context.CancelFunc) *memSource { return twoHours(t) }},
+		{name: "while sorting the kept records", in: "sortRecords", observes: 1, scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1},
+			searched: 2, records: 5, err: "find transaction: context canceled", source: evaluated},
+		{name: "while finding the window", in: "finalWindow", observes: 1, scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1},
+			searched: 2, records: 5, err: "find transaction: context canceled", source: evaluated},
+		{name: "while finding a missing seq", in: "firstMissing", observes: 1, scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1},
+			searched: 2, records: 5, err: "find transaction: context canceled", source: evaluated},
+		{name: "while probing the reads for a missing seq", in: "visitedFrom", observes: 1,
+			scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1}, searched: 2, records: 5, err: "find transaction: context canceled",
+			source: evaluated},
+		{name: "while flagging the kept records", in: "flagRecords", observes: 1, scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1},
+			searched: 2, records: 5, gaps: 1, err: "find transaction: context canceled", source: evaluated},
+		{name: "while deciding the outcome", in: "decide", observes: 1, scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1},
+			searched: 2, records: 5, gaps: 2, err: "find transaction: context canceled", source: evaluated},
 		{name: "while adding a read's conflict gaps", in: "commitRead", observes: 1, scopes: map[int64]int{memTestHour: 1},
 			searched: 1, records: 3, err: "find transaction: context canceled",
 			source: func(t testing.TB, _ context.CancelFunc) *memSource {
@@ -581,7 +613,7 @@ func TestFindTransactionStateBudgetCrossConflict(t *testing.T) {
 			[][]byte{txPackIn(t, seg1, 1, nil, txBlock(txSeqs(13)...))})
 	}
 	res, l, err := findTxState(t, source(t), TxOptions{MaxScopes: 2})
-	require.ErrorIs(t, err, errTxNotImplemented)
+	require.NoError(t, err)
 	require.Equal(t, []string{"12@0 primary", "13@0 same-key-primary!", "13@1 same-key-primary!"}, recordSeqs(res.Records))
 	// The version of 13 in the second hour is the last charge, after the conflict's.
 	last := &res.Records[2]

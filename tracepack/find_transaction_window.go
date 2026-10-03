@@ -314,14 +314,6 @@ func (l *txLookup) searchWindow(ctx context.Context) error {
 	return l.evaluate(ctx)
 }
 
-// evaluate decides the outcome once every scope is read.
-// It is not in place yet: it returns errTxNotImplemented, the result holding what the reads gave.
-// Its call of the observation's Barriers is to follow a check of ctx, as every call to the observation does,
-// and each of its loops is to count its iterations with tick.
-func (l *txLookup) evaluate(context.Context) error {
-	return errTxNotImplemented
-}
-
 // collect takes an item of the read rd.
 //
 // Every item whose record carries ordering-uncertain notes its epoch, whatever its seq.

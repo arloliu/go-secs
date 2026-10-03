@@ -112,9 +112,6 @@ const (
 // or no record where a complete read of an indexed scope shows none (the tracepack semantics specification §7.2).
 var ErrNotPrimary = errors.New("tracepack: not a primary")
 
-// errTxNotImplemented is what FindTransaction returns once every scope of a keyed primary is read, until the evaluation is in place.
-var errTxNotImplemented = errors.New("tracepack: find transaction: lookup not implemented")
-
 // TxKey names the primary record of a transaction lookup.
 type TxKey struct {
 	// Capture is the primary's capture_id; it is not zero.
@@ -274,11 +271,14 @@ type TxResult struct {
 	StreamAvailable bool
 	// W is the primary's W bit, valid iff WAvailable; it takes no part in the lookup.
 	W, WAvailable bool
-	// WindowEnd is the seq of the window's bound: the smallest seq of a closing record or same-key primary read;
+	// WindowEnd is the seq of the window's bound:
+	// the smallest seq of a same-key primary, or of a closing record without a conflict, that the lookup read;
 	// nil while none was read.
 	WindowEnd *uint64
 	// Records holds every kept version, in ascending seq, then hour of the read, then version order within the read:
 	// the primary's versions, then every seq that qualified, each with every version the read that kept it yielded.
+	// Beside an error, it holds the versions kept until then,
+	// in the order and with the flags the lookup had reached when it failed.
 	Records []TxRecord
 	// Gaps holds every reason the lookup is not complete, in discovery order.
 	Gaps []TxGap
