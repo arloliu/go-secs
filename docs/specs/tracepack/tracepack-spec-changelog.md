@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-03) — spec v2.21.
+Status: current (2026-10-04) — spec v2.22.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -938,3 +938,34 @@ Summary:
 | P1 cold fallback after the observation | [STO §5] cold scopes are fixed inside the observation, never switched |
 | P0 ×3, P1 ×4, P2 (spec round 1) open window overriding a match, the closing `stop` in the epoch-wide rule, the old unavailable-field rule, decision wording, verify/merge coverage claim, observation lifecycle, kept versions | [SEM §6], [SEM §7.2], [STO §5], `tracepack-go.md` §3, decision log |
 | P0 (spec round 2) evidence-only closure left in older text | [SEM §7.2] result preface, [STO §5] Completeness split per reader, [FMT §10] |
+
+## Changes v2.21 → v2.22: store-backed source and listing views (owner decisions G5-139..G5-147, 2026-10-03..04)
+
+Source: planning the store-backed `PackSource` (impl plan phase 5c2),
+whose plan review found that [STO §3] left the text of keys open, that [STO §5] did not say how a source establishes the coherent observation's premise against a catalog it cannot see or what a gone segment of unknown hour does,
+and that [SEM §7.2] said nothing of a conflicted scope or of a record outside its scope's hour;
+no proposal document.
+Format version stays 1.0: no byte changes.
+
+Summary:
+- [STO §3] `tool_id` percent-encoding (G5-141) and canonical lowercase UUIDs in keys (G5-143);
+  a segment's `seq_first` checked only when its first seq is known or the segment is known empty (G5-147).
+- [STO §5] a listed segment of any hour that is gone when read fails the observation (G5-144);
+  premise (i) confirmed by the catalog per scope, from the snapshot to a check after the scope's last read (G5-139);
+  a conflicted scope reported as such, its packs not read (G5-142).
+- [SEM §7.2] a conflicted scope is not read and prevents `unmatched` (G5-142); a record outside its scope's hour makes the lookup `incomplete` (G5-146);
+  coverage and barriers meet the time range of the hours scheduled, which a conflicted hour belongs to; [SEM §9] vectors.
+- `tracepack-go.md` §3: `NewStoreSource` over `ObjectStore` and `Catalog`, key builders, `(*Reader).Stats()` and `AddPackEvidence`, `SourceScope.Conflicted`, the `Barriers` range rule;
+  the searched scope and `Cold` for `Iterate` and `MergeIterate` wait for a query over a source (G5-140).
+- Impl plan: 5c2 rewritten.
+
+### Store-backed source plan review rounds 1–5 and precision pass — VERDICT (precision pass): no P0; precision fixes applied
+
+| Finding | Resolution (v2.22) |
+|---|---|
+| P0 a pack listed under one hour but holding another's period | pack validation in the source (impl plan 5c2) |
+| P0 a malformed key of the queried capture skipped as another capture's | [STO §3] one spelling per key (G5-141, G5-143); keys parsed before classification |
+| P0 a gone segment skipped could shrink the result | [STO §5] the observation fails (G5-144, revised) |
+| P0 a record of another hour read as the primary's or the reply's | [SEM §7.2] scope breach (G5-146) |
+| P0 adapter buffers reused before the source copies them | `tracepack-go.md` §3 returned values are the source's |
+| P1 the listing contract, remote reads, memory bounds, excluded roles, barrier ranges, confirmation interval, conflicted scopes, evidence fold | `tracepack-go.md` §3, [STO §5] (G5-139, G5-142, G5-145) |

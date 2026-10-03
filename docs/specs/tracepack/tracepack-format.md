@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-10-03) — v2.21, tracepack format 1.0.
+Status: current (2026-10-04) — v2.22, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 

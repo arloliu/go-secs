@@ -660,3 +660,54 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   Rationale: the evidence then names a record that exists; the disagreement lies between the copies, and the conflict reports it.
   Rejected: a contradiction whenever the seq holds no closing record, which reports one defect twice.
   Spec: [SEM §7.2] (v2.21).
+- G5-139 A store-backed source over the caller's object store and catalog (2026-10-03):
+  the reference library defines an object-store interface and a catalog interface, and implements a `PackSource` over them;
+  a scope the catalog indexes takes its view from one catalog snapshot, a scope it does not index from the coherent observation and listing view of [STO §5], which the library runs.
+  Premise (i) of that procedure is confirmed by the catalog per scope: the scope was not indexed at any instant from the snapshot to a check made after the scope's last listing and pack read.
+  Rationale: the library cannot see a catalog's index state, and a check only before and after the listings misses a scope indexed and evicted in between.
+  Rejected: a listing-only source, leaving indexed scopes to the caller; only building blocks.
+  Spec: [STO §5] Observation of a lookup, `tracepack-go.md` §3 (v2.22).
+- G5-140 The searched scope and `Cold` of other reads wait for a query over a source (2026-10-03):
+  `Iterate` and `MergeIterate` take readers and cannot tell whether a scope is indexed; the transaction lookup reports both since v2.21.
+  Rationale: the reason belongs to the component that routes a query to scopes.
+  Rejected: a `Cold` reason the caller attaches; a scope-level query in phase 5c2.
+  Spec: `tracepack-go.md` §3, impl plan "5c2" (v2.22).
+- G5-141 The percent-encoding of `tool_id` in keys (2026-10-03):
+  every byte outside the RFC 3986 unreserved set is written `%XX` with uppercase hex digits, and no other byte is; an empty `tool_id`, `.` and `..` cannot be stored.
+  Rationale: one spelling per `tool_id`, reversible, never a `/`, the same in every language.
+  Rejected: a language library's path escaping, which keeps some delimiters.
+  Spec: [STO §3] (v2.22).
+- G5-142 A conflicted scope is reported, not read (2026-10-03):
+  an observation reports a scope whose view is `conflicted` as such, and a lookup reads none of its packs, lists it, and is never `unmatched`; a match found in another hour is still reported.
+  A conflicted scope of the primary's hour explains a missing primary, as a scope that is not indexed does.
+  Rationale: [STO §4] forbids choosing one of the two sets silently; failing the whole lookup would lose what the other hours show.
+  Rejected: failing the observation.
+  Spec: [STO §5], [SEM §7.2] (v2.22).
+- G5-143 UUIDs in keys are canonical lowercase text (2026-10-03):
+  `capture_id`, `pack_id` and a commit object's `<id>` appear in keys in the lowercase 8-4-4-4-12 form of RFC 9562, the only form a reader accepts.
+  Rationale: listings select by key prefix, so one spelling is required.
+  Rejected: accepting any case when reading, which a prefix listing cannot honour.
+  Spec: [STO §3] (v2.22).
+- G5-144 A listed pack that is gone fails the observation (2026-10-03, revised 2026-10-04):
+  a coherent observation lists every segment of the capture; a segment's hour is known only once it is read, so one that is gone when read cannot be shown to lie outside the observed scope,
+  and the observation fails, retriably.
+  Rationale: skipping it is sound only while every component conforms, and a result is never silently smaller ([STO §5]); the race needs a deletion between a listing and a read, so a new observation normally succeeds.
+  Rejected: skipping it (the first version of this decision); asking the catalog to classify the missing pack.
+  Spec: [STO §5] Coherent observation (v2.22).
+- G5-145 The object store bounds its own reads (2026-10-03):
+  the reference library reads objects through `io.ReaderAt`; the adapter bounds each read by its own deadline and supports concurrent reads, and closing an object never waits on remote I/O.
+  Rationale: the reader API takes no context per read; threading one through it changes every read path.
+  Rejected: a context-aware read interface.
+  Spec: `tracepack-go.md` §3 (v2.22).
+- G5-146 A record outside its scope's hour makes a lookup `incomplete` (2026-10-04):
+  a record whose `ts_utc_ns` lies outside the hour of the scope it was read from breaches the scope ([FMT I-13], [STO §2]);
+  the lookup reports it and returns `incomplete`, even beside a match, and in the primary's scope it explains a missing primary as a read defect does.
+  Rationale: such a record could be read as the primary or the reply of the wrong hour; a merge refuses such a pack, but a read takes records as they come.
+  Rejected: failing the lookup with an error; rejecting such packs when the observation is taken, which cannot see the records of a pack without a used footer.
+  Spec: [SEM §7.2] (v2.22).
+- G5-147 A segment whose first seq damage hides is not checked against its key's `seq_first` (2026-10-04):
+  a source that checks a segment's key against the pack compares `seq_first` with the first seq of the first block it finds, and with `seq_start` only when the pack is known to hold no record;
+  when no block is found and the pack is not known to be empty, it skips the comparison, and the read reports the damage.
+  Rationale: a damaged segment is a gap of the reads over it ([STO §5] Completeness), not a failure of the whole observation, which a retry would not cure.
+  Rejected: comparing with `seq_start` whenever no block is found; failing the observation whenever the first seq is unknown.
+  Spec: [STO §3] (v2.22).
