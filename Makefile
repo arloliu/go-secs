@@ -153,7 +153,7 @@ fuzz-tracepack: ## Run every Fuzz* target under tracepack/ for FUZZ_TIME (defaul
 	@set -e; cd $(TRACEPACK_DIR); for pkg in $$(go list ./...); do \
 		for name in $$(go test -list '^Fuzz' $$pkg 2>/dev/null | grep -E '^Fuzz' | sort -u); do \
 			printf "%s\n" "-- $$name ($$pkg) --"; \
-			CGO_ENABLED=1 go test $$pkg -run=^$$ -fuzz=$$name -race -fuzztime=$(FUZZ_TIME); \
+			CGO_ENABLED=1 go test $$pkg -run=^$$ -fuzz="^$$name\$$" -race -fuzztime=$(FUZZ_TIME) -fuzzminimizetime=1s; \
 		done; \
 	done
 	@printf "%s\n" "=== All tracepack fuzz tests completed ==="
@@ -224,7 +224,7 @@ fuzz-test: ## Run every Fuzz* target for FUZZ_TIME (default 30s)
 	@set -e; for pkg in $(FUZZ_PKGS); do \
 		for name in $$(go test -list '^Fuzz' $$pkg 2>/dev/null | grep -E '^Fuzz' | sort -u); do \
 			printf "%s\n" "-- $$name ($$pkg) --"; \
-			CGO_ENABLED=1 go test $$pkg -run=^$$ -fuzz=$$name -race -fuzztime=$(FUZZ_TIME); \
+			CGO_ENABLED=1 go test $$pkg -run=^$$ -fuzz="^$$name\$$" -race -fuzztime=$(FUZZ_TIME) -fuzzminimizetime=1s; \
 		done; \
 	done
 	@printf "%s\n" "=== All fuzz tests completed ==="
