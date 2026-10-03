@@ -43,6 +43,12 @@ type txLookup struct {
 	ticks ctxCounter
 	// onTick, set only by tests, runs at each check of ctx that tick makes, before it.
 	onTick func()
+	// skipSeqGap and trustClosures, set only by tests, each take a rule out of the lookup,
+	// so that a test shows the checks that catch its absence.
+	// skipSeqGap leaves a bounded window's seq gap unlisted.
+	// trustClosures, when set, may move the window's end, and the per-capture evidence's closures are not checked.
+	skipSeqGap    bool
+	trustClosures func(w *txWindow)
 }
 
 // txScopeRead is one scope a transaction lookup reads: its fixed view and the status of its read.
