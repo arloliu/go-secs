@@ -57,7 +57,7 @@ type PackSource interface {
 // and calls Close exactly once, after its last use, whatever happened.
 type Observation interface {
 	// Scope returns the fixed view of the scope (capture, hour), hour in the observation's [from, to):
-	// its packs and whether the catalog indexes it.
+	// its packs and whether the catalog indexes it, or that its view is conflicted.
 	Scope(ctx context.Context, hour int64) (SourceScope, error)
 	// Evidence returns the capture's per-capture evidence.
 	Evidence(ctx context.Context) (CaptureEvidence, error)
@@ -78,11 +78,16 @@ type Observation interface {
 // SourceScope is the fixed view of one scope of an Observation.
 type SourceScope struct {
 	// Readers holds a Reader for each pack of the scope's view, distinct pack_ids, in view order;
-	// empty for an hour without packs.
+	// empty for an hour without packs and for a conflicted scope.
 	Readers []*Reader
 	// Indexed reports whether the catalog indexes the scope;
 	// a scope not indexed was fixed by a coherent observation and its listing view.
 	Indexed bool
+	// Conflicted reports a scope whose view is conflicted (the tracepack storage specification §4),
+	// in the catalog's snapshot or in its listing view;
+	// such a scope has no Readers, and FindTransaction reads none of its packs;
+	// FindTransaction fails on a conflicted scope that comes with Readers.
+	Conflicted bool
 }
 
 // EpochClosure is the closure of one epoch that the per-capture evidence records:

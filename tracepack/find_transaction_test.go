@@ -185,7 +185,7 @@ func TestTxEnumStrings(t *testing.T) {
 		TxGapSeqGap: "seq-gap", TxGapOpenWindow: "open-window", TxGapBarrier: "barrier",
 		TxGapCaptureBoundary: "capture-boundary", TxGapOrderingUncertain: "ordering-uncertain",
 		TxGapCorrelation: "correlation", TxGapUnavailable: "unavailable", TxGapContradiction: "contradiction",
-		17: "unknown(17)",
+		TxGapConflicted: "conflicted", TxGapScopeBreach: "scope-breach", 19: "unknown(19)",
 	}
 	for r, want := range reasons {
 		assert.Equal(t, want, r.String())

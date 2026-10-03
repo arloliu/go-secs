@@ -35,13 +35,13 @@ type txTruth struct {
 	// seqs holds every seq the capture wrote, in every hour, ascending.
 	seqs  []uint64
 	packs []txGenPack
-	// indexed holds whether the catalog indexes each hour.
-	indexed map[int64]bool
+	// indexed holds whether the catalog indexes each hour, and conflicted whether its view is conflicted.
+	indexed, conflicted map[int64]bool
 }
 
 // txTruthOf returns the ground truth of the generated capture g.
 func txTruthOf(g *txGen) *txTruth {
-	tr := &txTruth{src: g.src, capture: captureLow, packs: g.packs, indexed: g.indexed}
+	tr := &txTruth{src: g.src, capture: captureLow, packs: g.packs, indexed: g.indexed, conflicted: g.conflicted}
 	for _, r := range g.truth {
 		tr.seqs = append(tr.seqs, r.Seq)
 	}
@@ -58,12 +58,13 @@ type txTruthDomain struct {
 }
 
 // domain returns the comparison domain of a lookup of key over maxScopes scopes:
-// a scope's view holds the packs the catalog admitted, and, when the catalog does not index it, the packs staged too.
+// a scope's view holds the packs the catalog admitted, and, when the catalog does not index it, the packs staged too;
+// a conflicted scope is not read, so none of its packs is in the domain.
 func (tr *txTruth) domain(key TxKey, maxScopes int) *txTruthDomain {
 	d := &txTruthDomain{versions: map[uint64][]Record{}}
 	for i := range tr.packs {
 		p := &tr.packs[i]
-		if p.hour < key.Hour || p.hour >= key.Hour+int64(maxScopes) || !p.admitted && tr.indexed[p.hour] {
+		if p.hour < key.Hour || p.hour >= key.Hour+int64(maxScopes) || !p.admitted && tr.indexed[p.hour] || tr.conflicted[p.hour] {
 			continue
 		}
 		d.packs = append(d.packs, p)
@@ -251,6 +252,7 @@ func (tr *txTruth) evidence() txTruthEvidence {
 // no valid match, no record that could be the reply and no conflict in the domain,
 // and none of the conditions that keep absence from being established.
 // A TxMatched without a gap must report the domain's one valid match.
+// Neither may come from a domain whose packs hold a version outside their scope's hour.
 func (tr *txTruth) violations(key TxKey, maxScopes int, res *TxResult, runs [][]txRun) []string {
 	unmatched := res.Outcome == TxUnmatched
 	if !unmatched && (res.Outcome != TxMatched || len(res.Gaps) > 0) {
@@ -258,6 +260,7 @@ func (tr *txTruth) violations(key TxKey, maxScopes int, res *TxResult, runs [][]
 	}
 	d := tr.domain(key, maxScopes)
 	c := &txSafetyCheck{tr: tr, d: d, key: key, maxScopes: maxScopes, res: res}
+	c.breaches()
 	if !c.primary() {
 		return c.out
 	}
@@ -290,6 +293,18 @@ type txSafetyCheck struct {
 // failf notes a violation, described by format and args.
 func (c *txSafetyCheck) failf(format string, args ...any) {
 	c.out = append(c.out, fmt.Sprintf(format, args...))
+}
+
+// breaches requires every version of every pack of the domain to lie in the pack's hour, the hour of its scope:
+// a version outside it breaches the scope (the tracepack format specification I-13), which makes a lookup incomplete.
+func (c *txSafetyCheck) breaches() {
+	for _, pk := range c.d.packs {
+		for i := range pk.recs {
+			if h := hourOf(pk.recs[i].TSUTCNs); h != pk.hour {
+				c.failf("pack %v of hour %d holds seq %d of hour %d", pk.id, pk.hour, pk.recs[i].Seq, h)
+			}
+		}
+	}
 }
 
 // primary requires one version of the primary's seq in the domain, in the hour key.Hour,
@@ -440,7 +455,7 @@ func (c *txSafetyCheck) replies(e uint64, unmatched bool) {
 
 // conditions requires none of the conditions that keep absence from being established,
 // in the scopes read and the evidence:
-// a scope not indexed, a pack read unfinalized, damaged or unevaluated,
+// a scope not indexed or conflicted, a pack read unfinalized, damaged or unevaluated,
 // a coverage entry meeting the window and the hours,
 // partial evidence, a barrier, a capture-boundary of the epoch other than the stop that bounds the window,
 // an ordering-uncertain record of the epoch, or a closure the evidence claims and the records contradict.
@@ -450,6 +465,9 @@ func (c *txSafetyCheck) conditions(e uint64) {
 	for h := c.key.Hour; h < c.key.Hour+int64(c.maxScopes); h++ {
 		if !c.tr.indexed[h] {
 			c.failf("hour %d is not indexed", h)
+		}
+		if c.tr.conflicted[h] {
+			c.failf("hour %d is conflicted", h)
 		}
 	}
 	for _, pk := range c.d.packs {
@@ -496,7 +514,7 @@ func txTruthCoverage(cv *Coverage, capture UUID, lo, hi uint64, from, to int64) 
 }
 
 // barriers requires no stop-unclean of the capture unless the domain closes the primary's epoch above it,
-// and no stop-unclean of the tool whose gap interval meets the hours read, an inverted one meeting every range.
+// and no stop-unclean of the tool whose gap interval meets the hours scheduled, an inverted one meeting every range.
 func (c *txSafetyCheck) barriers(ev *txTruthEvidence, from, to int64) {
 	closed := false
 	for _, seq := range c.d.seqs {
@@ -512,7 +530,7 @@ func (c *txSafetyCheck) barriers(ev *txTruthEvidence, from, to int64) {
 	for _, b := range ev.barriers {
 		inverted := b.GapStart != nil && b.GapEnd != nil && *b.GapStart > *b.GapEnd
 		if inverted || (b.GapStart == nil || *b.GapStart < to) && (b.GapEnd == nil || *b.GapEnd >= from) {
-			c.failf("a stop-unclean of capture %v has a gap that meets the hours read", b.Capture)
+			c.failf("a stop-unclean of capture %v has a gap that meets the hours scheduled", b.Capture)
 		}
 	}
 }

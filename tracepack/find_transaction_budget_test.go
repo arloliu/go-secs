@@ -120,12 +120,15 @@ func findTx(t testing.TB, ctx context.Context, src PackSource, key TxKey, opts T
 type txReadersSource struct {
 	*memSource
 	readers []*Reader
+	// conflicted marks that scope conflicted, beside its readers.
+	conflicted bool
 }
 
 // txReadersObservation is an observation of a txReadersSource.
 type txReadersObservation struct {
 	Observation
-	readers []*Reader
+	readers    []*Reader
+	conflicted bool
 }
 
 // Observe observes the memSource, wrapping the observation.
@@ -135,16 +138,17 @@ func (s *txReadersSource) Observe(ctx context.Context, capture UUID, from, to in
 		return nil, err
 	}
 
-	return &txReadersObservation{Observation: o, readers: s.readers}, nil
+	return &txReadersObservation{Observation: o, readers: s.readers, conflicted: s.conflicted}, nil
 }
 
-// Scope answers scope memTestHour with the source's readers, as an indexed scope, and every other hour as the memSource does.
+// Scope answers scope memTestHour with the source's readers, as an indexed scope, conflicted when the source says so,
+// and every other hour as the memSource does.
 func (o *txReadersObservation) Scope(ctx context.Context, hour int64) (SourceScope, error) {
 	if hour != memTestHour {
 		return o.Observation.Scope(ctx, hour)
 	}
 
-	return SourceScope{Readers: o.readers, Indexed: true}, nil
+	return SourceScope{Readers: o.readers, Indexed: true, Conflicted: o.conflicted}, nil
 }
 
 // TestFindTransactionScopeChargedFirst reads a scope whose view has more packs than MaxStateBytes admits:
