@@ -63,6 +63,9 @@ func (l *txLookup) evaluateWindow(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if l.trustClosures != nil {
+		l.trustClosures(&w)
+	}
 	if w.bounded {
 		l.res.WindowEnd = new(w.e)
 	}
@@ -154,6 +157,9 @@ func (l *txLookup) windowGaps(ctx context.Context, w *txWindow) error {
 			Reason: TxGapOpenWindow, Block: -1, Offset: -1,
 			Err: fmt.Errorf("no record read in hours [%d, %d) bounds the window", l.key.Hour, l.key.Hour+int64(l.opts.MaxScopes)),
 		})
+	}
+	if l.skipSeqGap {
+		return nil
 	}
 	missing, ok, err := l.firstMissing(ctx, w)
 	if err != nil || !ok {

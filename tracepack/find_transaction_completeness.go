@@ -49,6 +49,9 @@ func (l *txLookup) completenessGaps(ctx context.Context, w *txWindow) error {
 			return err
 		}
 	}
+	if l.trustClosures != nil {
+		return nil
+	}
 
 	return l.contradictionGaps(ctx)
 }
