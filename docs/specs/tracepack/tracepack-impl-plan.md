@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-10-03) — phases 4, 5a, 5b and 5c1 done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`); phase 5c2 next (listing-backed source), then 5c3 (retention).
-Implements: tracepack v2.21 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
+Status: active (2026-10-04) — phases 4, 5a, 5b and 5c1 done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`); phase 5c2 in progress (store-backed source), then 5c3 (retention).
+Implements: tracepack v2.22 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
 
@@ -71,7 +71,7 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 5a — ActiveView, Merge, Writer seams | done |
 | 5b — MergeIterate | done |
 | 5c1 — PackSource, FindTransaction | done |
-| 5c2 — listing-backed PackSource, listing views | pending |
+| 5c2 — store-backed PackSource, listing views | in-progress |
 | 5c3 — retention | pending |
 | 6 — JSONL export, conformance corpus, CLI | pending |
 | 7 — Extract and redaction | pending |
@@ -227,7 +227,7 @@ and their vectors (the durable clock-step → size roll → empty spool → cras
 ### Phase 5 — Merge, MergeIterate, FindTransaction
 
 Phase 5 is delivered in steps: 5a (`ActiveView`, `Merge` and the Writer seams they need), 5b (`MergeIterate`),
-and 5c in three (G5-120): 5c1 (`PackSource`, `FindTransaction`), 5c2 (listing-backed `PackSource`, listing views) and 5c3 (retention).
+and 5c in three (G5-120): 5c1 (`PackSource`, `FindTransaction`), 5c2 (store-backed `PackSource`, listing views, G5-139) and 5c3 (retention).
 
 #### 5a — ActiveView, Merge, Writer seams (done)
 
@@ -402,15 +402,20 @@ The implementation settled what the text above leaves open:
 - Generated captures hold no block that disagrees with its F-2 entry, since the reference reads each block by its entry,
   so `index` gaps and the seqs before a late primary are covered by unit tests only.
 
-#### 5c2 — listing-backed PackSource, listing views (pending)
+#### 5c2 — store-backed PackSource, listing views (in progress)
 
-- Listing-backed `PackSource` for scopes the catalog does not index: a coherent observation ([STO §5]) —
-  the commit listing repeated until two complete listings agree, then the `archive/` and `staging/` listings, then a [FMT §13] bootstrap of each listed pack —
-  feeding `ActiveView`, fixed inside the observation; results touching such scopes are `Incomplete` with `Reason: Cold`.
-- The per-capture evidence provider it takes from the catalog (G5-123), and `(*Reader).Stats()` (G5-131).
-- `Result`'s searched scope and `Cold` reason for reads over listing views.
+- Spec v2.22 first (G5-139..G5-147): the key encodings of [STO §3] (G5-141, G5-143) and the segment `seq_first` check (G5-147);
+  in [STO §5], a listed segment that is gone fails the observation (G5-144), premise (i) confirmed by the catalog per scope (G5-139), a conflicted scope reported as such (G5-142);
+  in [SEM §7.2], a conflicted scope not read (G5-142), a record outside its scope's hour (G5-146), the time range of the hours scheduled.
+- `NewStoreSource(ObjectStore, Catalog, StoreSourceOptions)`, a `PackSource` (G5-139):
+  indexed scopes from one catalog snapshot, each pack opened and checked against its descriptor;
+  the others by a coherent observation ([STO §5]) — the commit listing repeated until two complete listings agree, then the `archive/` and `staging/` listings, each segment's head read for its hour, the packs opened and checked, `ActiveView` — confirmed not indexed after the scope's last read.
+  Strict key parsing, pack validation, limits (`MaxCommitListings`, `MaxListPages`, `MaxObjects`, `MaxSourceBytes`), `OnExcluded`, cleanup on every failure.
+- The catalog is the per-capture evidence provider (G5-123); `(*Reader).Stats()` (G5-131) and `AddPackEvidence`.
+- `FindTransaction`: the `conflicted` gap (G5-142) and the `scope-breach` gap (G5-146).
+- Not in 5c2: the searched scope and `Cold` reason in `Result` for `Iterate` and `MergeIterate`, which wait for a query over a `PackSource` (G5-140, pending, unscheduled).
 
-Tests: the coherent-observation, listing-view and window-boundary vectors of [STO §8].
+Tests: the coherent-observation, listing-view and window-boundary vectors of [STO §8], through `FindTransaction` over a `StoreSource`, checked against an acquisition model built from the store's history.
 
 #### 5c3 — retention (pending)
 

@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-10-03) — v2.21, tracepack format 1.0.
+Status: current (2026-10-04) — v2.22, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for publishers, mergers, recorders and log converters.
 
@@ -74,7 +74,12 @@ is excluded from all four, removed only by §5 Retention with its hour, and repo
 - Commit object: `<prefix>/commit/<tool_id>/<capture_id>/<YYYYMMDDHH>/<id>`, where `<id>` is the generation's `replacement_set_id` or the patch's `pack_id`;
   its content is irrelevant. It is the durable evidence that the catalog accepted the generation or patch (§5).
 - Other packs: `<prefix>/archive/<tool_id>/<YYYY>/<MM>/<DD>/<HH>/<capture_id>-<pack_id>.tpk`, hour in UTC.
-- `tool_id` is percent-encoded; `seq_first` is the pack's first seq (its `seq_start` when empty) in 20-digit zero-padded decimal, so segments list in seq order.
+- `tool_id` is percent-encoded: every byte of it outside the RFC 3986 unreserved set (`A`–`Z`, `a`–`z`, `0`–`9`, `-`, `.`, `_`, `~`) is written `%XX` with two uppercase hex digits, and no other byte is (G5-141),
+  so each `tool_id` has one spelling and never yields `/`; a `tool_id` that is empty, `.` or `..` cannot be stored.
+  `capture_id`, `pack_id` and a commit object's `<id>` are written in the canonical lowercase 8-4-4-4-12 form of RFC 9562, the only form a reader accepts (G5-143).
+  `seq_first` is the pack's first seq (its `seq_start` when empty) in 20-digit zero-padded decimal, so segments list in seq order.
+  A source that checks a key against the segment it names compares `seq_first` with the first seq of the first block it finds, and with `seq_start` only when the segment is known to hold no record;
+  when damage hides the first seq, it skips that comparison and the read reports the damage (G5-147).
 - Every key contains the `pack_id`, so every upload has a unique key and no object is ever overwritten.
   Retried and duplicate uploads are harmless: the catalog registers each `pack_id` of an indexed scope once (§5),
   and records are deduplicated by (`capture_id`, `seq`) in every view ([FMT I-12]).
@@ -335,8 +340,10 @@ Its storage technology is not part of this specification.
   A set whose commit object is in C(t) but whose member is not listed is incomplete and outside the view, as in §4.
   Segments uploaded after t may be listed too, and join the view because segments need no commit object;
   the result is the committed view at t plus some of the segments uploaded after t, not a snapshot of any later instant.
-  A listed pack that is gone when read is gone because its hour was removed (reported as removed) or because a component did not conform;
+  A listed pack of the observed scope that is gone when read is gone because its hour was removed (reported as removed) or because a component did not conform;
   either way the result is never silently smaller.
+  The listing of `staging/<tool_id>/<capture_id>/` in (2) also returns segments of other hours, where a conforming deletion may remove one (§4 Deletion of an indexed scope);
+  a segment's hour is known only once it is read, so one that is gone cannot be shown to lie outside the observed scope, and the observation fails either way; a reader may take a new one (G5-144).
   The observation is defined only for scopes that are not indexed: on an indexed scope admissions and deletions run, and it is no snapshot.
 - **Listing view**: for a scope that is not indexed, a reader computes the active view of §4 from a coherent observation.
   A reader finds the captures and packs of a tool in a time range by listing `staging/<tool_id>/` and `archive/<tool_id>/<YYYY>/<MM>/<DD>/` for the days concerned,
@@ -344,7 +351,10 @@ Its storage technology is not part of this specification.
 - **Observation of a lookup** (G5-128): a transaction lookup ([SEM §7.2]) reads one tool's scopes, per-capture evidence and barriers through one **observation**, fixed before the lookup reads any record.
   The source that serves it (the reference library's `PackSource`) fixes, for each hour the lookup may read, the scope's view:
   for a scope the catalog indexes, from one catalog snapshot, together with the capture's per-capture entries and the tool's barriers, which reflect every registration completed before that snapshot;
-  for a scope it does not index, by the coherent observation above and its listing view, taken while the observation is fixed, the source establishing the procedure's premises or failing the observation.
+  for a scope it does not index, by the coherent observation above and its listing view, taken while the observation is fixed, the source establishing the procedure's premises or failing the observation:
+  premise (i) holds when the catalog confirms that the scope was not indexed at any instant from the snapshot to a check made after the scope's last listing and pack read (G5-139);
+  a scope indexed after that check keeps the view fixed for it.
+  A scope whose view is `conflicted` (§4), from the snapshot or from its listing view, is reported as conflicted, and the lookup reads none of its packs (G5-142).
   Every later answer comes from what was fixed: a scope never switches from the snapshot to a listing, also when it is evicted meanwhile.
   The source does not retry inside an observation; a failed answer ends the lookup.
   A pack of a fixed view deleted meanwhile under §4 Deletion fails its read, and the lookup fails with it.

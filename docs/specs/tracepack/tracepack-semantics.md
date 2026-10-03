@@ -1,6 +1,6 @@
 # tracepack — record semantics
 
-Status: current (2026-10-03) — v2.21, tracepack format 1.0.
+Status: current (2026-10-04) — v2.22, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic.
 
@@ -245,7 +245,7 @@ the existence of a later epoch is **not** closure evidence, because accepted-the
 if absence cannot be established (packs missing from the catalog or a listing view, an unevaluated pack, a `capture-boundary` in the epoch other than the clean `stop` that closes the window,
 `correlation-incomplete` on the primary, or any other condition the lookup below lists) the result is `incomplete` **with the searched scope**.
 
-**Lookup from a primary** (G5-121, G5-122, G5-124..G5-138).
+**Lookup from a primary** (G5-121, G5-122, G5-124..G5-138, G5-142, G5-146).
 A lookup names its primary by (`capture_id`, `seq`, UTC hour): the hour of the primary's `ts_utc_ns`, which is its scope ([STO §2], [FMT I-13]) (G5-124).
 It reads the primary and derives the key from it (G5-122), so a caller never supplies a key that disagrees with the record.
 It reads the scopes of the primary's capture from that hour on, a caller-bounded number of them ([STO §5] observation),
@@ -287,11 +287,11 @@ and decides with the definitions and rules below.
 
 *Identity across the scopes read.*
 Within one read of a scope, copies of each (`capture_id`, `seq`) are compared as §7.4 says.
-Two copies of one record in different scopes are never identical, since identical copies share `ts_utc_ns` and so an hour:
-a seq yielded by the reads of two scopes is a conflict.
+Where packs keep to their scopes, two copies of one record in different scopes are never identical, since identical copies share `ts_utc_ns` and so an hour (a pack that does not keep to its scope is a scope breach, below);
+whatever the reason, a seq yielded by the reads of two scopes is a conflict.
 **Any conflict on a seq at or above `p` among the records read makes the result `incomplete`** (G5-126, G5-132),
 whatever role its versions play and wherever it lies, inside the window or after it, within one scope or across scopes:
-the versions disagree on what the record is, so neither the window nor the candidates are established.
+the versions disagree in their bytes or in the scopes that yielded them, so neither the window nor the candidates are established.
 A conflict at `p` leaves the primary, and so the key, unestablished.
 A conflict across scopes is reported by its seq and the hours whose reads yielded it; its versions are reported where the lookup kept them (G5-133).
 A lookup **keeps** every record it reads that plays one of the roles defined above, wherever it lies relative to the final window,
@@ -300,6 +300,8 @@ a version it read in another scope is kept only if it qualified there.
 A kept version carries the roles and candidate flags its own bytes give, so the versions of a conflicting candidate can differ in them.
 A conflict at `p` found in a later scope's read leaves the key derived from the first version, and what it classified, reported as diagnostics, beside the conflict and the missing key.
 A record whose block disagrees with its F-2 entry can arrive out of seq order and escape comparison (§7.4), so such a block in a scope read also makes the result `incomplete`, even when a match was found (G5-134).
+A record whose `ts_utc_ns` lies outside the hour of the scope it was read from breaches that scope ([FMT I-13], [STO §2]): it is reported as a **scope breach**, with its seq and hour, and makes the result `incomplete`, even when a match was found;
+in the primary's scope it also leaves a missing primary explained, as a read defect does (G5-146).
 **The comparison covers the scopes the lookup read** (G5-136), as §7.4's guarantees cover the packs read:
 a version of a window seq that lies only in a scope the lookup did not read — after the last scope it read, or before the primary's hour after a backward clock step (§4) — is not compared.
 Two versions of one record are a pipeline defect, found only by an operation that compares both:
@@ -309,17 +311,19 @@ A seq of the window with no version in the scopes read is missing from the cover
 *Scopes read* (G5-121, G5-129).
 The lookup reads the scope of the primary's hour and the following hours, as many as the caller allows, each once, every one of them even after its window is closed:
 a later scope can hold another version of a window seq or a smaller bound.
+A scope whose view is `conflicted` ([STO §4]) is not read: it is reported as conflicted, and, after the primary's scope, the lookup goes on with the next hour;
+a conflicted scope of the primary's hour explains the missing primary, as a scope that is not indexed does, and ends the lookup without a key (G5-142).
 It searches only seqs above `p`; candidates below the primary are outside every window and are not searched for.
 A primary that is missing, conflicting within its own scope's read, or without a key ends the lookup after that one scope, since its result is then decided.
 A window still unbounded after the last scope prevents `unmatched`; a match found is still reported as one (G5-127).
 
 *What prevents `unmatched`* — each reported, side by side, with the scope the lookup searched:
-a scope read that is not indexed ([STO §5]); a read defect of a scope read, other than a `coverage` entry;
-a `coverage` entry of a pack read, of the primary's capture, that meets the lookup's query by [FMT §5] — seqs (`p`, `e`), or (`p`, ∞) while unbounded, and the time range of the hours read;
+a scope that is not indexed ([STO §5]), read or not; a scope not read because it is conflicted (G5-142), reported beside its being not indexed when it is both; a read defect of a scope read, other than a `coverage` entry;
+a `coverage` entry of a pack read, of the primary's capture, that meets the lookup's query by [FMT §5] — seqs (`p`, `e`), or (`p`, ∞) while unbounded, and the time range of the hours scheduled (the primary's hour and the following ones the caller allows, a conflicted one included);
 a pack read with `quality_evaluated` false (§6); per-capture evidence that its source marks partial ([STO §5]);
 a seq of a bounded window not read (a seq gap); a window still unbounded after the last scope;
 a completeness barrier ([STO §5]): a `stop-unclean` of the primary's capture while the lookup read no closing record of the primary's epoch,
-or a `stop-unclean` of any capture of the tool whose gap interval meets the time range of the hours read (an inverted interval meets every range, G5-137);
+or a `stop-unclean` of any capture of the tool whose gap interval meets the time range of the hours scheduled (an inverted interval meets every range, G5-137);
 a capture-boundary of the primary's epoch — anywhere in the epoch by the per-capture evidence, or a capture-boundary record of the epoch read above `p` — other than the clean `stop` that bounds the window (G5-130);
 an `ordering-uncertain` record of the primary's epoch in a scope read, at any seq (§6, G5-130); `correlation-incomplete` on the primary;
 a possible reply, an undecidable eligible candidate, or a candidate at or after a possible same-key primary, in the window;
@@ -327,7 +331,7 @@ a contradiction.
 `ordering-uncertain` is detected only in the scopes read: no index records it per epoch, so a lookup that reads part of a long epoch can miss one (G5-130).
 
 *Result* (G5-126, G5-127):
-a conflict on a seq at or above `p`, a block whose records disagree with its F-2 entry, or a primary without a key → `incomplete`;
+a conflict on a seq at or above `p`, a block whose records disagree with its F-2 entry, a scope breach, or a primary without a key → `incomplete`;
 else one valid match → `matched`, several → `ambiguous`, each reported beside every condition above that the lookup found, none hiding another (§7.4);
 else `unmatched` when none of those conditions was found, otherwise `incomplete`.
 
@@ -556,6 +560,8 @@ The following vectors belong to the corpus of [FMT §16]:
   a reply in the next hour's scope; a window closed by a same-key primary, by a socket-close of the epoch, by a clean `stop` of another epoch, and not within the scopes read;
   a footer whose `close_seq` names an annotation, with its F-2 entry true (a contradiction, never a bound);
   a footer whose `close_seq` names a seq with two versions, one of them the socket-close (a conflict, not a contradiction);
+  a conflicted scope in the primary's hour (incomplete, no key) and in a later hour (a match in another hour still `matched`, beside it);
+  a pack of hour H whose truthful blocks lie in hour K, holding the primary and its reply (a scope breach: incomplete), and a same-hour clock step that puts records outside a segment's period (no breach);
   closure evidence at or below the primary's seq;
   a valid match, a wrong stream, an F0 abort, a wrong-stream F0, a control record whose bytes 6–7 look like F + 1, two valid matches (`ambiguous`);
   a possible same-key primary with System Bytes unavailable, a reply before it (valid) and after it (not eligible);
@@ -563,7 +569,7 @@ The following vectors belong to the corpus of [FMT §16]:
   a conflict within a scope on a candidate and on an unrelated record after the window, and across scopes on the primary and on a candidate: each `incomplete`;
   a block whose records disagree with its F-2 entry: `incomplete` with a match found;
   another version of a window seq in the hour before the primary's, after a backward clock step: outside the comparison, and the same seq with no version in the scopes read: a seq gap;
-  a `coverage` entry whose seq range meets the window and whose time interval does not meet the hours read, and the reverse;
+  a `coverage` entry whose seq range meets the window and whose time interval does not meet the hours scheduled, and the reverse; a coverage entry and a barrier meeting only a conflicted hour, which is scheduled though not read;
   an `ordering-uncertain` record of the epoch below the primary, and a capture-boundary of the epoch outside the hours read;
   a pack with `quality_evaluated` false; a `Reject.req` with SType unavailable; a T3 `timer-expiry` without identifiers;
 - a nonzero `capture_origin_mono_ns` (§4);
