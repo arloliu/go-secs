@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	"github.com/arloliu/go-secs/tracepack/internal/format"
 )
 
 // Default TxOptions values, which a zero or negative field takes.
@@ -116,7 +118,7 @@ var ErrNotPrimary = errors.New("tracepack: not a primary")
 type TxKey struct {
 	// Capture is the primary's capture_id; it is not zero.
 	Capture UUID
-	// Seq is the primary's seq.
+	// Seq is the primary's seq; it is not above 2^63-1, the largest seq the tracepack format allows.
 	Seq uint64
 	// Hour is the UTC hour of the primary's ts_utc_ns, its scope, numbered in whole hours from 1970-01-01T00:00Z;
 	// it lies in [MinTxHour, MaxTxHour].
@@ -331,7 +333,7 @@ type TxResult struct {
 //   - TxResult: the result; on an error it holds what was found before the error, Outcome zero.
 //     Searched lists only scopes read to their end.
 //   - error: an error wrapping ErrInvalidQuery, before anything is read:
-//     for a nil src, a zero key.Capture, a key.Hour outside [MinTxHour, MaxTxHour],
+//     for a nil src, a zero key.Capture, a key.Seq above 2^63-1, a key.Hour outside [MinTxHour, MaxTxHour],
 //     or a last hour key.Hour + MaxScopes - 1 above MaxTxHour;
 //     ErrNotPrimary;
 //     an error of src or of the Observation, wrapped with the hour, a Close error only when nothing else failed;
@@ -384,7 +386,8 @@ func findTransactionWith(ctx context.Context, src PackSource, key TxKey, opts Tx
 
 // checkFindTransaction validates the arguments of FindTransaction before anything is read and applies the defaults of opts.
 //
-// It checks, in this order: src is not nil; key.Capture is not zero; key.Hour lies in [MinTxHour, MaxTxHour];
+// It checks, in this order: src is not nil; key.Capture is not zero; key.Seq is a seq the format allows;
+// key.Hour lies in [MinTxHour, MaxTxHour];
 // then, MaxScopes defaulted, the last hour read, key.Hour + MaxScopes - 1, is not above MaxTxHour,
 // compared without overflow as MaxScopes - 1 > MaxTxHour - key.Hour.
 //
@@ -397,6 +400,9 @@ func checkFindTransaction(src PackSource, key TxKey, opts TxOptions) (TxOptions,
 	}
 	if key.Capture == (UUID{}) {
 		return opts, fmt.Errorf("%w: the capture_id is zero", ErrInvalidQuery)
+	}
+	if key.Seq > format.MaxU64 {
+		return opts, fmt.Errorf("%w: seq %d is above %d", ErrInvalidQuery, key.Seq, format.MaxU64)
 	}
 	if key.Hour < MinTxHour || key.Hour > MaxTxHour {
 		return opts, fmt.Errorf("%w: hour %d is outside [%d, %d]", ErrInvalidQuery, key.Hour, MinTxHour, MaxTxHour)
