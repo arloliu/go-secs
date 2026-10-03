@@ -121,7 +121,7 @@ func TestFindTransactionMissingPrimary(t *testing.T) {
 			t.Parallel()
 
 			s := txSource(t, true, tt.file)
-			res, err := FindTransaction(t.Context(), s, tt.key, TxOptions{MaxScopes: 3})
+			res, err := findTx(t, t.Context(), s, tt.key, TxOptions{MaxScopes: 3})
 			require.ErrorIs(t, err, ErrNotPrimary)
 			assert.Equal(t, TxOutcome(0), res.Outcome)
 			assert.Equal(t, []TxScope{{Hour: memTestHour, Indexed: true, Packs: []UUID{seg0}}}, res.Searched)
@@ -138,7 +138,7 @@ func TestFindTransactionMissingPrimary(t *testing.T) {
 		s.setIndexed(captureLow, memTestHour+1, true)
 		key := txKeyAt(11)
 		key.Hour++
-		res, err := FindTransaction(t.Context(), s, key, TxOptions{})
+		res, err := findTx(t, t.Context(), s, key, TxOptions{})
 		require.ErrorIs(t, err, ErrNotPrimary)
 		assert.Equal(t, []TxScope{{Hour: memTestHour + 1, Indexed: true}}, res.Searched)
 		assert.Empty(t, res.Gaps)
@@ -200,7 +200,7 @@ func TestFindTransactionMissingPrimaryExplained(t *testing.T) {
 			t.Parallel()
 
 			s := txSource(t, !tt.cold, tt.file)
-			res, err := FindTransaction(t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 3})
+			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 3})
 			requireOneScopeRead(t, s)
 			if tt.notFound {
 				require.ErrorIs(t, err, ErrNotPrimary)
@@ -230,7 +230,7 @@ func TestFindTransactionMissingPrimaryExplained(t *testing.T) {
 	t.Run("the failed block's gap", func(t *testing.T) {
 		t.Parallel()
 
-		res, err := FindTransaction(t.Context(), txSource(t, true, corrupt), txKeyAt(12), TxOptions{})
+		res, err := findTx(t, t.Context(), txSource(t, true, corrupt), txKeyAt(12), TxOptions{})
 		require.NoError(t, err)
 		g := res.Gaps[0]
 		assert.Equal(t, TxGapRead, g.Reason)
@@ -286,7 +286,7 @@ func TestFindTransactionNotPrimary(t *testing.T) {
 			t.Parallel()
 
 			s := txSource(t, true, txPack(t, seg0, nil, txBlock(txRecord(11, nil), tt.rec(t), txRecord(13, nil))))
-			res, err := FindTransaction(t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 3})
+			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 3})
 			require.ErrorIs(t, err, ErrNotPrimary)
 			require.ErrorContains(t, err, tt.why)
 			assert.Equal(t, TxResult{Searched: []TxScope{{Hour: memTestHour, Indexed: true, Packs: []UUID{seg0}}}}, res)
@@ -330,7 +330,7 @@ func TestFindTransactionNoKey(t *testing.T) {
 
 			primary := txRecord(12, tt.edit)
 			s := txSource(t, true, txPack(t, seg0, nil, txBlock(txRecord(11, nil), primary, txRecord(13, nil))))
-			res, err := FindTransaction(t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 3})
+			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 3})
 			require.NoError(t, err)
 			requireOneScopeRead(t, s)
 
@@ -359,7 +359,7 @@ func TestFindTransactionConflictingPrimary(t *testing.T) {
 
 	steps := txBlock(txSeqs(11, 12, 13)...)
 	s := txSource(t, true, txPack(t, seg0, nil, steps), txPack(t, seg1, nil, changed(steps, 1, 12)))
-	res, err := FindTransaction(t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 3})
+	res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 3})
 	require.NoError(t, err)
 	requireOneScopeRead(t, s)
 
@@ -403,7 +403,7 @@ func TestFindTransactionKeyed(t *testing.T) {
 
 			primary := txRecord(12, tt.edit)
 			s := txSource(t, true, txPack(t, seg0, nil, txBlock(txRecord(11, nil), primary, txRecord(13, nil))))
-			res, err := FindTransaction(t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
+			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
 			require.ErrorIs(t, err, errTxNotImplemented)
 			assert.Equal(t, TxOutcome(0), res.Outcome)
 			assert.Equal(t, tt.gaps, nilIfEmpty(gapReasons(res.Gaps)))
@@ -466,7 +466,7 @@ func TestFindTransactionPrimaryAfterHigherSeqs(t *testing.T) {
 		t.Parallel()
 
 		s := txSource(t, true, misindexed, primary)
-		res, err := FindTransaction(t.Context(), s, txKeyAt(15), TxOptions{MaxScopes: 1})
+		res, err := findTx(t, t.Context(), s, txKeyAt(15), TxOptions{MaxScopes: 1})
 		require.ErrorIs(t, err, errTxNotImplemented)
 		require.Empty(t, res.FooterErrs, "the footer must stay valid")
 		assert.Equal(t, []TxGapReason{TxGapIndex, TxGapIndex}, gapReasons(res.Gaps))
@@ -483,7 +483,7 @@ func TestFindTransactionPrimaryAfterHigherSeqs(t *testing.T) {
 		t.Parallel()
 
 		s := txSource(t, true, misindexed)
-		res, err := FindTransaction(t.Context(), s, txKeyAt(15), TxOptions{MaxScopes: 1})
+		res, err := findTx(t, t.Context(), s, txKeyAt(15), TxOptions{MaxScopes: 1})
 		require.NoError(t, err)
 		assert.Equal(t, TxIncomplete, res.Outcome)
 		assert.Equal(t, []TxGapReason{TxGapIndex, TxGapNoKey}, gapReasons(res.Gaps))
@@ -538,7 +538,7 @@ func TestFindTransactionClosesOnce(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			tt.setup(s, cancel)
-			res, err := FindTransaction(ctx, s, txKeyAt(12), TxOptions{MaxScopes: 3})
+			res, err := findTx(t, ctx, s, txKeyAt(12), TxOptions{MaxScopes: 3})
 			require.ErrorIs(t, err, tt.err)
 			assert.Equal(t, TxOutcome(0), res.Outcome)
 			assert.Equal(t, tt.gaps, nilIfEmpty(gapReasons(res.Gaps)))
@@ -574,14 +574,14 @@ func TestFindTransactionConflictLimit(t *testing.T) {
 	files := [][]byte{txPack(t, seg0, nil, steps), txPack(t, seg1, nil, changed(steps, 1, 10, 13))}
 
 	s := txSource(t, true, files...)
-	res, err := FindTransaction(t.Context(), s, txKeyAt(11), TxOptions{MaxConflicts: 2})
+	res, err := findTx(t, t.Context(), s, txKeyAt(11), TxOptions{MaxConflicts: 2})
 	require.NoError(t, err)
 	assert.Equal(t, TxIncomplete, res.Outcome)
 	assert.Equal(t, []uint64{10, 13}, conflictSeqs(res.Conflicts))
 	assert.Equal(t, []TxGapReason{TxGapNoKey}, gapReasons(res.Gaps), "no conflict gap beside a primary without a key")
 
 	s = txSource(t, true, files...)
-	res, err = FindTransaction(t.Context(), s, txKeyAt(11), TxOptions{MaxConflicts: 1})
+	res, err = findTx(t, t.Context(), s, txKeyAt(11), TxOptions{MaxConflicts: 1})
 	require.ErrorIs(t, err, ErrReadLimit)
 	require.ErrorContains(t, err, "seq 13")
 	assert.Equal(t, TxOutcome(0), res.Outcome)
@@ -616,7 +616,7 @@ func TestFindTransactionOwnsRecords(t *testing.T) {
 	}
 	file := widenedFrom(t, txPack(t, seg0, nil, steps), 11)
 	s := txSource(t, true, file)
-	res, err := FindTransaction(t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
+	res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
 	require.ErrorIs(t, err, errTxNotImplemented)
 	require.Len(t, res.Records, 1)
 
@@ -625,7 +625,7 @@ func TestFindTransactionOwnsRecords(t *testing.T) {
 	assert.Equal(t, seqExtra(12), got.HeaderExtra)
 
 	// Another lookup over the same packs and the caller's own changes leave the first result as it was.
-	again, err := FindTransaction(t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
+	again, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
 	require.ErrorIs(t, err, errTxNotImplemented)
 	again.Records[0].Record.Payload[0] ^= 0xFF
 	again.Records[0].HeaderExtra[0] ^= 0xFF
@@ -665,7 +665,7 @@ func TestFindTransactionNamesPacks(t *testing.T) {
 		t.Parallel()
 
 		corrupt := flipByte(second, mustOpen(t, second, ReaderOptions{}).Blocks()[1].Offset+format.EnvelopeLen+3)
-		res, err := FindTransaction(t.Context(), txSource(t, true, first, corrupt), txKeyAt(11), TxOptions{MaxScopes: 1})
+		res, err := findTx(t, t.Context(), txSource(t, true, first, corrupt), txKeyAt(11), TxOptions{MaxScopes: 1})
 		require.ErrorIs(t, err, errTxNotImplemented)
 		require.Len(t, res.Gaps, 1)
 		assert.Equal(t, TxGapRead, res.Gaps[0].Reason)
@@ -678,7 +678,7 @@ func TestFindTransactionNamesPacks(t *testing.T) {
 		t.Parallel()
 
 		walked := invalidFooterFile(t, second)
-		res, err := FindTransaction(t.Context(), txSource(t, true, first, walked), txKeyAt(11), TxOptions{MaxScopes: 1})
+		res, err := findTx(t, t.Context(), txSource(t, true, first, walked), txKeyAt(11), TxOptions{MaxScopes: 1})
 		require.ErrorIs(t, err, errTxNotImplemented)
 		assert.Empty(t, res.Gaps)
 		require.Len(t, res.FooterErrs, 1)
@@ -704,7 +704,7 @@ func TestFindTransactionSplitPrimaryCopies(t *testing.T) {
 	t.Run("identical copies", func(t *testing.T) {
 		t.Parallel()
 
-		res, err := FindTransaction(t.Context(), txSource(t, true, misindexed, txPack(t, seg1, nil, other)), txKeyAt(15),
+		res, err := findTx(t, t.Context(), txSource(t, true, misindexed, txPack(t, seg1, nil, other)), txKeyAt(15),
 			TxOptions{MaxScopes: 1})
 		require.ErrorIs(t, err, errTxNotImplemented)
 		require.Empty(t, res.FooterErrs, "the footer must stay valid")
@@ -722,7 +722,7 @@ func TestFindTransactionSplitPrimaryCopies(t *testing.T) {
 		t.Parallel()
 
 		s := txSource(t, true, misindexed, txPack(t, seg1, nil, changed(other, 1, 15)))
-		res, err := FindTransaction(t.Context(), s, txKeyAt(15), TxOptions{MaxScopes: 3})
+		res, err := findTx(t, t.Context(), s, txKeyAt(15), TxOptions{MaxScopes: 3})
 		require.NoError(t, err)
 		requireOneScopeRead(t, s)
 		assert.Equal(t, TxIncomplete, res.Outcome)
