@@ -18,8 +18,12 @@ type txLookup struct {
 	evidence CaptureEvidence
 	// conflicts counts the conflicts reserved over the whole lookup against opts.MaxConflicts.
 	conflicts int
-	// primary holds the versions of the primary's seq that the read of scope key.Hour yielded, cloned as they arrived.
-	primary []TxRecord
+	// primary holds the versions of the primary's seq that the read of scope key.Hour yielded, cloned as they arrived,
+	// and primaryFlags the record_flags of each, as stored, which the version's charge covers.
+	primary      []TxRecord
+	primaryFlags []uint8
+	// flags receives the record_flags, as stored, of the item a read passes to its callback.
+	flags uint8
 	// prim is what the records above the primary are classified against, taken from primary's first version.
 	prim txPrimaryKey
 	// early counts the records above the primary's seq that the read of scope key.Hour yielded before any version of the primary,
@@ -32,6 +36,8 @@ type txLookup struct {
 	reads []*txScopeRead
 	// cross maps each seq in conflict across scope reads to the hours that yielded it.
 	cross map[uint64]*txCrossConflict
+	// conflicted holds each seq in conflict within a scope read, above the primary or in a later scope.
+	conflicted map[uint64]struct{}
 	// uncertain maps each epoch of a record with ordering-uncertain that a read yielded, at any seq,
 	// to where the first such record was seen.
 	uncertain map[uint32]txSeen
@@ -180,7 +186,7 @@ func (l *txLookup) readScope(ctx context.Context, hour int64,
 	l.reads = append(l.reads, rd)
 	rd.res, err = mergeIterateWith(ctx, sc.Readers, Query{Payloads: true},
 		MergeIterateOptions{Order: OrderCapture, MaxHeldBytes: l.opts.MaxHeldBytes},
-		mergeIterateOptions{reserveConflict: l.reserveConflict},
+		mergeIterateOptions{reserveConflict: l.reserveConflict, storedFlags: &l.flags},
 		func(it *Item) error { return fn(ctx, rd, it) })
 	l.endGroup(rd)
 	// The read's own error comes first; the mapping stops at its first error, so that the state stays within its budget.
@@ -350,9 +356,9 @@ func keepVersion(rd *txScopeRead, it *Item, class TxClass) TxRecord {
 // The gap carries a copy of the first coverage entry that meets the primary's seq and hour, if any.
 // A version of the primary after a record above it, in the same read, is a TxGapIndex gap: the order was broken.
 // Copies of the primary that the read yielded uncompared, from clusters that a block disagreeing with its F-2 entry split,
-// are compared here, byte for byte: identical copies are one version, kept once.
-// Several versions are a conflict at the primary: a TxGapConflict and a TxGapNoKey gap,
-// every version kept and marked as a conflict;
+// are compared here, byte for byte, as stored: identical copies are one version, kept once.
+// Several versions, or a version the read marked as a conflict, are a conflict at the primary:
+// a TxGapConflict and a TxGapNoKey gap, every version kept and marked as a conflict;
 // when the read listed no conflict at the primary, because the versions arrived uncompared, the conflict is reserved here.
 // One version that is not a data record with an available odd function is ErrNotPrimary.
 // Otherwise the key is derived from it, and it is kept.
@@ -405,30 +411,15 @@ func (l *txLookup) settle(ctx context.Context, rd *txScopeRead) (bool, error) {
 		}
 	}
 
+	// A conflict the read listed stands whatever the comparison below finds.
 	listed := slices.ContainsFunc(l.primary, func(v TxRecord) bool { return v.Conflict })
-	distinct, err := l.distinctVersions(ctx, l.primary)
-	if err != nil {
+	if err := l.distinctVersions(ctx); err != nil {
 		return false, err
 	}
-	l.primary = distinct
-	first := &l.primary[0].Record
-	if len(l.primary) > 1 {
-		if !listed {
-			if err := l.reserveConflict(); err != nil {
-				return false, fmt.Errorf("the conflict at seq %d: %w", p, err)
-			}
-		}
-		l.deriveKey(first)
-		for i := range l.primary {
-			l.primary[i].Conflict = true
-		}
-		l.res.Records = append(l.res.Records, l.primary...)
-		if err := l.addGap(ctx, l.keyGap(TxGapConflict, fmt.Sprintf("the primary has %d versions", len(l.primary)))); err != nil {
-			return false, err
-		}
-
-		return false, l.addGap(ctx, l.keyGap(TxGapNoKey, "the primary conflicts"))
+	if len(l.primary) > 1 || listed {
+		return false, l.settleConflict(ctx, listed)
 	}
+	first := &l.primary[0].Record
 	h := first.HSMSHeader()
 	if first.Kind != KindData || h.Available&FieldValidityFunction == 0 || h.Function%2 == 0 {
 		return false, fmt.Errorf("%w: seq %d of capture %s in hour %d is a %v record with function %d, available %t",
@@ -448,6 +439,31 @@ func (l *txLookup) settle(ctx context.Context, rd *txScopeRead) (bool, error) {
 	return true, nil
 }
 
+// settleConflict settles a primary whose versions conflict:
+// the key derived from the first version, every version kept and marked as a conflict,
+// a TxGapConflict and a TxGapNoKey gap;
+// the conflict is reserved here unless the read listed it, which listed reports.
+//
+// Returns:
+//   - error: the reservation's error, wrapping ErrReadLimit; the error of a gap's charge, wrapping ErrReadLimit; ctx's error.
+func (l *txLookup) settleConflict(ctx context.Context, listed bool) error {
+	if !listed {
+		if err := l.reserveConflict(); err != nil {
+			return fmt.Errorf("the conflict at seq %d: %w", l.key.Seq, err)
+		}
+	}
+	l.deriveKey(&l.primary[0].Record)
+	for i := range l.primary {
+		l.primary[i].Conflict = true
+	}
+	l.res.Records = append(l.res.Records, l.primary...)
+	if err := l.addGap(ctx, l.keyGap(TxGapConflict, fmt.Sprintf("the primary has %d versions", len(l.primary)))); err != nil {
+		return err
+	}
+
+	return l.addGap(ctx, l.keyGap(TxGapNoKey, "the primary conflicts"))
+}
+
 // keyMissing returns why a primary of direction dir whose available HSMS header fields are avail has no association key,
 // or "" when it has one.
 func keyMissing(dir Dir, avail FieldValidity) string {
@@ -463,22 +479,23 @@ func keyMissing(dir Dir, avail FieldValidity) string {
 	}
 }
 
-// distinctVersions returns the versions of vs that differ from every earlier one, in order:
-// two versions are one when their records, header fields as stored, payload and header extension, are equal.
+// distinctVersions keeps, in l.primary and l.primaryFlags, the versions of the primary that differ from every earlier one, in order:
+// two versions are one when their records are equal as stored (sameStoredRecord).
 // The charge of each version left out is released once every version is compared.
 //
 // Returns:
-//   - error: ctx's error, as is, nothing released.
-func (l *txLookup) distinctVersions(ctx context.Context, vs []TxRecord) ([]TxRecord, error) {
-	out := vs[:0:0]
+//   - error: ctx's error, as is, nothing released and l.primary unchanged.
+func (l *txLookup) distinctVersions(ctx context.Context) error {
+	vs, flags := l.primary, l.primaryFlags
+	out, outFlags := vs[:0:0], flags[:0:0]
 	var dropped int64
 	for i := range vs {
 		same := false
 		for j := range out {
 			if err := l.tick(ctx); err != nil {
-				return nil, err
+				return err
 			}
-			if sameStoredRecord(&out[j], &vs[i]) {
+			if sameStoredRecord(&out[j], &vs[i], outFlags[j], flags[i]) {
 				same = true
 				break
 			}
@@ -486,19 +503,23 @@ func (l *txLookup) distinctVersions(ctx context.Context, vs []TxRecord) ([]TxRec
 		if same {
 			dropped += versionCost(&vs[i].Record, vs[i].HeaderExtra)
 		} else {
-			out = append(out, vs[i])
+			out, outFlags = append(out, vs[i]), append(outFlags, flags[i])
 		}
 	}
 	l.state.release(dropped)
+	l.primary, l.primaryFlags = out, outFlags
 
-	return out, nil
+	return nil
 }
 
-// sameStoredRecord reports whether a and b hold the same record: every record header field, the payload and the header extension.
-func sameStoredRecord(a, b *TxRecord) bool {
+// sameStoredRecord reports whether a, whose record_flags as stored are fa, and b, whose are fb, hold the same record as stored:
+// every byte of the record header and the payload.
+// Record holds every record header field as stored but record_flags, of which it keeps only mono_present,
+// and the payload's length is payload_len.
+func sameStoredRecord(a, b *TxRecord, fa, fb uint8) bool {
 	x, y := &a.Record, &b.Record
 
-	return x.Seq == y.Seq && x.TSUTCNs == y.TSUTCNs && x.MonoNs == y.MonoNs && x.MonoPresent == y.MonoPresent &&
+	return x.Seq == y.Seq && x.TSUTCNs == y.TSUTCNs && x.MonoNs == y.MonoNs && fa == fb &&
 		x.Epoch == y.Epoch && x.Kind == y.Kind && x.Dir == y.Dir && x.Fidelity == y.Fidelity &&
 		x.DecodeStatus == y.DecodeStatus && x.TrailingBytes == y.TrailingBytes && x.Quality == y.Quality &&
 		x.FieldValidity == y.FieldValidity && bytes.Equal(x.Payload, y.Payload) && bytes.Equal(a.HeaderExtra, b.HeaderExtra)

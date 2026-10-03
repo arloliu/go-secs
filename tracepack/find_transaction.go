@@ -179,7 +179,9 @@ type TxRecord struct {
 	// Pack is the pack_id of the version's representative in that read, and Block the index of its block in the pack.
 	Pack  UUID
 	Block int
-	// Conflict reports that the seq has another version: within the scope read, as Item.Conflict, or in another scope read.
+	// Conflict reports that the lookup found the seq in conflict, within a scope read or across scope reads,
+	// and is set for every kept version of that seq, not only those Item.Conflict marks:
+	// a copy that a block disagreeing with its F-2 entry let arrive uncompared is marked as well.
 	Conflict bool
 	// Class is the set of roles the version plays.
 	Class TxClass

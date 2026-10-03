@@ -104,7 +104,10 @@ func newClusterResolver(run *mergeIterateRun, capture UUID, c *planCluster) *clu
 // the record as stored in its representative, with its header extension, pack and block;
 // its payload only when q asks for payloads.
 // The Item aliases the representative's block, valid while the candidate is not released.
-func (c *candidate) item(q *Query, it *Item) {
+//
+// Returns:
+//   - uint8: the record_flags of the record header as stored.
+func (c *candidate) item(q *Query, it *Item) uint8 {
 	d := c.h.d
 	h := d.header(c.rec)
 	rec := storedRecord(&h, d.payload(c.rec))
@@ -112,6 +115,8 @@ func (c *candidate) item(q *Query, it *Item) {
 		rec.Payload = nil
 	}
 	*it = Item{Record: rec, HeaderExtra: h.Extra, Pack: c.h.pack, Block: c.h.block, Conflict: c.conflict}
+
+	return h.RecordFlags
 }
 
 // release drops the candidate's ownership of its representative's block, through l, the loader that loaded it.
@@ -321,6 +326,7 @@ func (r *mergeIterateRun) packID(i int) UUID {
 
 // yield passes c's record to fn in *it, as the read yields it, and counts the call,
 // after checking ctx when the call is the read's 4096th, 8192nd, and so on.
+// When the plan has storedFlags, it receives the record's record_flags as stored before fn is called.
 // It leaves c unreleased, and resets *it to the zero Item once fn returns,
 // so the Item keeps no block the read releases.
 //
@@ -332,7 +338,10 @@ func (r *mergeIterateRun) yield(ctx context.Context, c *candidate, it *Item, fn 
 			return fmt.Errorf("tracepack: merge iterate: %w", err)
 		}
 	}
-	c.item(r.q, it)
+	flags := c.item(r.q, it)
+	if r.p.storedFlags != nil {
+		*r.p.storedFlags = flags
+	}
 	err := fn(it)
 	*it = Item{}
 

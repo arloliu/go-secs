@@ -579,6 +579,74 @@ func TestFindTransactionConflictBelowPrimary(t *testing.T) {
 	assert.Equal(t, []string{"12@0 primary"}, recordSeqs(l.res.Records))
 }
 
+// TestFindTransactionConflictAfterSplitCopy reads a seq whose copy in a misindexed block arrives uncompared
+// right before the versions of the same seq that the read compared and found in conflict, all in one seq group:
+// the conflict is reported by a TxGapConflict gap although the group's first version carries no Item.Conflict,
+// and that version is marked as a conflict too.
+func TestFindTransactionConflictAfterSplitCopy(t *testing.T) {
+	t.Parallel()
+
+	// seg0's one block holds 10 and 20, while its index states 10 to 11; seg1 and seg2 hold 20 in different versions.
+	s := txSource(t, true, txMisindexed(t, 20),
+		txPack(t, seg1, nil, txBlock(txSeqs(20)...)), txPack(t, seg2, nil, changed(txBlock(txSeqs(20)...), 1, 20)))
+	res, err := findTx(t, t.Context(), s, txKeyAt(10), TxOptions{MaxScopes: 1})
+	require.NoError(t, err)
+	assert.Equal(t, TxIncomplete, res.Outcome)
+	assert.Equal(t, []uint64{20}, conflictSeqs(res.Conflicts))
+	assert.Equal(t, []string{"index", "conflict@20", "seq-gap@11"}, gapSeqs(res.Gaps))
+	assert.Equal(t, []string{"10@0 primary", "20@0 same-key-primary!", "20@0 same-key-primary!", "20@0 none!"},
+		recordSeqs(res.Records))
+}
+
+// TestFindTransactionSplitCopyOfConflict reads a closing record at 20 whose copy in a misindexed block arrives uncompared,
+// right before the versions of 20 that the read compared and found in conflict, the closing record and an annotation:
+// every copy of 20 is marked as a conflict, the first one too, so none closes the window or the primary's epoch,
+// also when a record read between them puts the uncompared copy in a seq group of its own.
+// The window stays open and the capture's stop-unclean, whose gap misses the hour read, is an epoch barrier.
+func TestFindTransactionSplitCopyOfConflict(t *testing.T) {
+	t.Parallel()
+
+	past := new(blockTestHour - 2*hourNs)
+	tests := []struct {
+		name    string
+		closing func(t testing.TB) Record
+		// before is read before the compared versions of 20, after the uncompared copy.
+		before []Record
+		class  string
+		gaps   []string
+	}{
+		{name: "a socket-close", closing: func(t testing.TB) Record { return txSocketClose(t, 20) }, class: "closing",
+			gaps: []string{"index", "conflict@20", "open-window", "barrier"}},
+		{name: "a clean stop", closing: func(t testing.TB) Record { return txBoundaryAt(t, 20, txTestEpoch, BoundaryKindStop, nil, nil) },
+			class: "closing", gaps: []string{"index", "conflict@20", "open-window", "barrier", "capture-boundary@20"}},
+		{name: "a socket-close, the copies in two groups", closing: func(t testing.TB) Record { return txSocketClose(t, 20) },
+			before: []Record{txNote(15, nil)}, class: "closing", gaps: []string{"index", "conflict@20", "open-window", "barrier"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			closing := tt.closing(t)
+			s := txSource(t, true, txMisindexedAt(t, closing),
+				txPack(t, seg1, nil, txBlock(append(slices.Clone(tt.before), closing)...)),
+				txPack(t, seg2, nil, txBlock(append(slices.Clone(tt.before), txNote(20, nil))...)))
+			b := txUnclean(captureLow, 100, 2, past, past)
+			s.addBoundary(b)
+			res, err := findTx(t, t.Context(), s, txKeyAt(10), TxOptions{MaxScopes: 1})
+			require.NoError(t, err)
+			assert.Equal(t, TxIncomplete, res.Outcome)
+			assert.Nil(t, res.WindowEnd, "no copy of 20 bounds the window")
+			assert.Equal(t, []uint64{20}, conflictSeqs(res.Conflicts))
+			assert.Equal(t, tt.gaps, gapSeqs(res.Gaps))
+			assert.Equal(t, []string{"10@0 primary", "20@0 " + tt.class + "!", "20@0 " + tt.class + "!", "20@0 none!"},
+				recordSeqs(res.Records))
+			for _, r := range res.Records[1:] {
+				assert.False(t, r.Bound, "a copy of 20 bounds nothing")
+			}
+		})
+	}
+}
+
 // TestFindTransactionCrossScopeConflictBeforeError finds a conflict across scope reads in the second scope,
 // then fails: at the third scope's Scope call, or within the second read at a conflict past MaxConflicts.
 // The result returned with the error still lists the conflict across reads with both hours,

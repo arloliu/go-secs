@@ -2,6 +2,7 @@ package tracepack
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"slices"
 	"testing"
@@ -378,6 +379,59 @@ func TestFindTransactionConflictingPrimary(t *testing.T) {
 	assert.Equal(t, DirHostToEquipment, res.Dir)
 }
 
+// txFlagged returns file with reserved bit 5 of record_flags set in the record header of seq:
+// a stored difference that the decoded Record does not show.
+func txFlagged(t testing.TB, file []byte, seq uint64) []byte {
+	t.Helper()
+
+	return reindexed(t, rebuildPack(t, file, func(_ int, b *testBlock) {
+		b.patchRows = func(rows []byte, rhl int) {
+			for off := 0; off < len(rows); off += rhl {
+				if binary.LittleEndian.Uint64(rows[off:]) == seq {
+					rows[off+43] |= 1 << 5
+				}
+			}
+		}
+	}))
+}
+
+// TestFindTransactionPrimaryFlagsApart looks up a primary that two packs of its scope hold in versions
+// whose record headers differ only in a reserved record_flags bit:
+// the read lists the conflict at the primary, so the primary has no key whatever its decoded fields show,
+// and the outcome is TxIncomplete after one scope read, both versions kept and marked,
+// whether the window would have been empty or held a valid reply.
+func TestFindTransactionPrimaryFlagsApart(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		after []Record
+	}{
+		{name: "a same-key primary next", after: txSeqs(13)},
+		{name: "a valid reply, then a same-key primary", after: []Record{txReply(13, nil), txRecord(14, nil)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			steps := txBlock(slices.Concat(txSeqs(11, 12), tt.after)...)
+			s := txSource(t, true, txPack(t, seg0, nil, steps), txFlagged(t, txPack(t, seg1, nil, steps), 12))
+			// One scope, so that no other scope's gap makes the outcome incomplete.
+			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
+			require.NoError(t, err)
+			assert.Equal(t, TxIncomplete, res.Outcome)
+			assert.Equal(t, []TxGapReason{TxGapConflict, TxGapNoKey}, gapReasons(res.Gaps))
+			assert.Equal(t, []Conflict{{CaptureID: captureLow, Seq: 12, Versions: [][]UUID{{seg0}, {seg1}}}}, res.Conflicts)
+			assert.Equal(t, []TxRecord{
+				{Record: txRecord(12, nil), Hour: memTestHour, Pack: seg0, Conflict: true, Class: TxPrimary},
+				{Record: txRecord(12, nil), Hour: memTestHour, Pack: seg1, Conflict: true, Class: TxPrimary},
+			}, res.Records)
+			assert.Nil(t, res.WindowEnd)
+			requireOneScopeRead(t, s)
+		})
+	}
+}
+
 // TestFindTransactionKeyed looks up primaries that have a key, all fields available, the stream unavailable,
 // and in epoch 0, which the Writer marks correlation-incomplete:
 // the key and match fields are derived, StreamAvailable and WAvailable false without the stream,
@@ -446,11 +500,22 @@ func TestFindTransactionKeyed(t *testing.T) {
 func txMisindexed(t testing.TB, seq uint64) []byte {
 	t.Helper()
 
-	file := reindexedWith(t, txPack(t, seg0, nil, txBlock(txSeqs(10, seq)...)), func(_ int, s *blockSummary) {
+	return txMisindexedAt(t, txRecord(seq, nil))
+}
+
+// txMisindexedAt is txMisindexed with rec, above 11, in place of the data record of seq;
+// the footer states no closure or capture-boundary in the block, so it stays valid when rec is a closing record.
+func txMisindexedAt(t testing.TB, rec Record) []byte {
+	t.Helper()
+
+	file := reindexedWith(t, txPack(t, seg0, nil, txBlock(txRecord(10, nil), rec)), func(_ int, s *blockSummary) {
 		s.lastSeq = 11
 		s.seqRanges = []seqRange{{first: 10, last: 11}}
 		require.Len(t, s.epochs, 1)
 		s.epochs[0].seqLast = 11
+		// The closure and boundary entries of a closing record above 11 would name a seq outside the stated range.
+		s.epochs[0].closeSeq, s.epochs[0].hasCloseSeq = 0, false
+		s.boundaries = nil
 	})
 	tr := layoutOf(t, file).tr
 	tr.LastSeq = 11
@@ -748,6 +813,23 @@ func TestFindTransactionSplitPrimaryCopies(t *testing.T) {
 			{Record: txRecord(15, nil), Hour: memTestHour, Pack: seg0, Conflict: true, Class: TxPrimary},
 			{Record: second, Hour: memTestHour, Pack: seg1, Conflict: true, Class: TxPrimary},
 		}, res.Records)
+	})
+
+	t.Run("copies a reserved record_flags bit apart", func(t *testing.T) {
+		t.Parallel()
+
+		// The decoded copies are equal; their stored headers are not.
+		s := txSource(t, true, misindexed, txFlagged(t, txPack(t, seg1, nil, other), 15))
+		res, err := findTx(t, t.Context(), s, txKeyAt(15), TxOptions{MaxScopes: 3})
+		require.NoError(t, err)
+		assert.Equal(t, TxIncomplete, res.Outcome)
+		assert.Equal(t, []TxGapReason{TxGapIndex, TxGapConflict, TxGapNoKey}, gapReasons(res.Gaps))
+		assert.Empty(t, res.Conflicts, "the read compared neither copy with the other")
+		assert.Equal(t, []TxRecord{
+			{Record: txRecord(15, nil), Hour: memTestHour, Pack: seg0, Conflict: true, Class: TxPrimary},
+			{Record: txRecord(15, nil), Hour: memTestHour, Pack: seg1, Conflict: true, Class: TxPrimary},
+		}, res.Records)
+		requireOneScopeRead(t, s)
 	})
 }
 
