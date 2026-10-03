@@ -342,7 +342,9 @@ func (l *txLookup) collect(ctx context.Context, rd *txScopeRead, it *Item) error
 		return nil
 	}
 	if !rd.group.open || rd.group.seq != rec.Seq {
-		l.endGroup(rd)
+		if err := l.endGroup(ctx, rd); err != nil {
+			return err
+		}
 		if err := l.beginGroup(ctx, rd, it); err != nil {
 			return err
 		}
@@ -465,7 +467,7 @@ func (l *txLookup) localConflict(rd *txScopeRead, it *Item) error {
 //
 // A new entry is charged with its two hours and its gaps in one charge before any of them is added,
 // and a later hour is charged before it is added.
-// Each probe of an earlier read's run set counts toward the checks of ctx (tick).
+// Each probe of an earlier read counts toward the checks of ctx (tick), its run set empty or not.
 //
 // Returns:
 //   - error: the error of the conflict reservation, wrapped with the seq and hours; the error of a charge, wrapping ErrReadLimit;
@@ -488,11 +490,11 @@ func (l *txLookup) crossConflict(ctx context.Context, rd *txScopeRead, seq uint6
 	earlier := l.reads[:len(l.reads)-1]
 	at := -1
 	for k, r := range earlier {
-		if len(r.runs.runs) == 0 {
-			continue
-		}
 		if err := l.tick(ctx); err != nil {
 			return err
+		}
+		if len(r.runs.runs) == 0 {
+			continue
 		}
 		if r.runs.contains(seq) {
 			at = k
@@ -614,18 +616,31 @@ func (l *txLookup) noteBoundary(rd *txScopeRead, it *Item, ev *TransportEvent) e
 
 // endGroup ends the read rd's open group:
 // its versions are kept, in rd, their charge with them, when one of them plays a role;
-// otherwise they are dropped, and their charge released.
-func (l *txLookup) endGroup(rd *txScopeRead) {
+// otherwise they are dropped, and their charge released, each version counting toward the checks of ctx (tick).
+//
+// Returns:
+//   - error: ctx's error, as is; the versions before it are released and dropped,
+//     the others stay buffered in the open group with their charge.
+func (l *txLookup) endGroup(ctx context.Context, rd *txScopeRead) error {
 	g := &rd.group
 	if g.keep {
 		rd.kept = append(rd.kept, g.versions...)
 	} else {
 		for i := range g.versions {
+			if err := l.tick(ctx); err != nil {
+				n := copy(g.versions, g.versions[i:])
+				clear(g.versions[n:])
+				g.versions = g.versions[:n]
+
+				return err
+			}
 			l.state.release(versionCost(&g.versions[i].Record, g.versions[i].HeaderExtra))
 		}
 	}
 	clear(g.versions)
 	*g = txGroup{versions: g.versions[:0]}
+
+	return nil
 }
 
 // commitRead adds to the result the versions the read rd kept and its conflict gaps, in the order found;

@@ -206,7 +206,7 @@ func (l *txLookup) firstMissing(ctx context.Context, w *txWindow) (uint64, bool,
 }
 
 // visitedFrom finds a run of a scope read that holds seq.
-// Each probe of a non-empty run set counts toward the checks of ctx (tick).
+// Each probe of a read counts toward the checks of ctx (tick), its run set empty or not.
 //
 // Returns:
 //   - uint64: the last seq of the run found, valid iff the bool is true.
@@ -214,12 +214,12 @@ func (l *txLookup) firstMissing(ctx context.Context, w *txWindow) (uint64, bool,
 //   - error: ctx's error, as is.
 func (l *txLookup) visitedFrom(ctx context.Context, seq uint64) (uint64, bool, error) {
 	for _, rd := range l.reads {
+		if err := l.tick(ctx); err != nil {
+			return 0, false, err
+		}
 		runs := rd.runs.runs
 		if len(runs) == 0 {
 			continue
-		}
-		if err := l.tick(ctx); err != nil {
-			return 0, false, err
 		}
 		i, _ := slices.BinarySearchFunc(runs, seq, func(r txRun, seq uint64) int { return cmp.Compare(r.last, seq) })
 		if i < len(runs) && runs[i].first <= seq {

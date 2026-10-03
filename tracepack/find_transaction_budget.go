@@ -95,20 +95,32 @@ func versionCost(rec *Record, ext []byte) int64 {
 func coverageCost(c *Coverage) int64 {
 	n := txCoverageCharge
 	for i := range c.Unknown {
-		n += txRawEntryCharge + int64(len(c.Unknown[i].Value))
+		n += rawEntryCost(&c.Unknown[i])
 	}
 
 	return n
+}
+
+// rawEntryCost returns the charge of a copy of e, an Unknown entry of a Coverage.
+func rawEntryCost(e *RawEntry) int64 {
+	return txRawEntryCharge + int64(len(e.Value))
 }
 
 // gapCost returns the charge of g: its fixed charge, one hour for each of its own Hours,
 // and the copies of its Coverage and Barrier.
 // A gap of a conflict across scope reads is charged before its Hours are set, since they are the conflict's.
 func gapCost(g *TxGap) int64 {
-	n := txGapCharge + int64(len(g.Hours))*txHourCharge
+	n := gapOwnCost(g)
 	if g.Coverage != nil {
 		n += coverageCost(g.Coverage)
 	}
+
+	return n
+}
+
+// gapOwnCost returns the charge of g but the copy of its Coverage.
+func gapOwnCost(g *TxGap) int64 {
+	n := txGapCharge + int64(len(g.Hours))*txHourCharge
 	if g.Barrier != nil {
 		n += txBoundaryCharge
 	}
@@ -120,10 +132,64 @@ func gapCost(g *TxGap) int64 {
 func conflictCost(c *Conflict) int64 {
 	n := txConflictCharge
 	for _, v := range c.Versions {
-		n += txVersionCharge + int64(len(v))*txPackCharge
+		n += conflictVersionCost(v)
 	}
 
 	return n
+}
+
+// conflictVersionCost returns the charge of v, a version of a listed conflict: the pack_ids that hold it.
+func conflictVersionCost(v []UUID) int64 {
+	return txVersionCharge + int64(len(v))*txPackCharge
+}
+
+// coverageCharge returns coverageCost(c), each Unknown entry of c counting toward the checks of ctx (tick).
+//
+// Returns:
+//   - error: ctx's error, as is.
+func (l *txLookup) coverageCharge(ctx context.Context, c *Coverage) (int64, error) {
+	n := txCoverageCharge
+	for i := range c.Unknown {
+		if err := l.tick(ctx); err != nil {
+			return 0, err
+		}
+		n += rawEntryCost(&c.Unknown[i])
+	}
+
+	return n, nil
+}
+
+// gapCharge returns gapCost(g), each Unknown entry of its Coverage counting toward the checks of ctx (coverageCharge).
+//
+// Returns:
+//   - error: ctx's error, as is.
+func (l *txLookup) gapCharge(ctx context.Context, g *TxGap) (int64, error) {
+	n := gapOwnCost(g)
+	if g.Coverage != nil {
+		m, err := l.coverageCharge(ctx, g.Coverage)
+		if err != nil {
+			return 0, err
+		}
+		n += m
+	}
+
+	return n, nil
+}
+
+// conflictCharge returns conflictCost(c), each version of c counting toward the checks of ctx (tick).
+//
+// Returns:
+//   - error: ctx's error, as is.
+func (l *txLookup) conflictCharge(ctx context.Context, c *Conflict) (int64, error) {
+	n := txConflictCharge
+	for _, v := range c.Versions {
+		if err := l.tick(ctx); err != nil {
+			return 0, err
+		}
+		n += conflictVersionCost(v)
+	}
+
+	return n, nil
 }
 
 // scopeCost returns the charge of a scope read whose view holds packs packs.
