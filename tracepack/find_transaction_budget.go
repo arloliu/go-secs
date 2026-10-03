@@ -35,6 +35,8 @@ const (
 	txPackCharge = int64(unsafe.Sizeof(UUID{}))
 	// txPackErrorCharge is the charge of a footer error.
 	txPackErrorCharge = (int64(unsafe.Sizeof(TxPackError{})) + txAlignMask) &^ txAlignMask
+	// txConflictedCharge is the charge of a seq in conflict within a scope read, its map entry included.
+	txConflictedCharge = (int64(unsafe.Sizeof(uint64(0))) + txAlignMask) &^ txAlignMask
 	// txUncertainCharge is the charge of an epoch with ordering-uncertain, its map entry included.
 	txUncertainCharge = (int64(unsafe.Sizeof(uint32(0))+unsafe.Sizeof(txSeen{})) + txAlignMask) &^ txAlignMask
 	// txPendingCoverageCharge is the fixed charge of a pending coverage entry, beside the copy of its Coverage.

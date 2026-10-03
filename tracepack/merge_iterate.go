@@ -53,6 +53,9 @@ type mergeIterateOptions struct {
 	// in place of the check against MaxConflicts, so a caller can count the conflicts of several reads against one allowance.
 	// An error ends the read, wrapped, the conflict not added.
 	reserveConflict func() error
+	// storedFlags, when set, receives the record_flags of each item's record header, as stored, before fn is called with the item:
+	// Record keeps only mono_present of them, so a caller that compares stored records byte for byte needs the others.
+	storedFlags *uint8
 }
 
 // PackError is an error about one pack of a read that does not make the read incomplete.
@@ -179,7 +182,7 @@ func mergeIterateWith(ctx context.Context, readers []*Reader, q Query, opts Merg
 	}
 
 	p := newMergeIteratePlan(o)
-	p.reserveConflict = internal.reserveConflict
+	p.reserveConflict, p.storedFlags = internal.reserveConflict, internal.storedFlags
 	if err := p.build(ctx, readers, &q); err != nil {
 		return p.res, err
 	}

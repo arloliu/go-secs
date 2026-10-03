@@ -56,6 +56,8 @@ type mergeIteratePlan struct {
 	loader   heldLoader
 	// reserveConflict is mergeIterateOptions.reserveConflict; nil checks MaxConflicts instead.
 	reserveConflict func() error
+	// storedFlags is mergeIterateOptions.storedFlags; nil receives nothing.
+	storedFlags *uint8
 	// copiesStep and yieldStep, set only by tests, replace resolveCtxCopies and yieldCtxCalls in the read's checks of ctx;
 	// zero keeps them.
 	copiesStep int

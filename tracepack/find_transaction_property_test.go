@@ -1941,8 +1941,31 @@ func FuzzFindTransaction(f *testing.F) {
 	})
 }
 
+// requireTxConflictsIncomplete requires the outcome of res, a lookup of key without an error, to follow its conflicts
+// (the tracepack semantics specification §7.2):
+// TxIncomplete beside a conflict at or above the primary's seq, listed or marked on a record,
+// and a TxGapNoKey gap beside a listed conflict at the primary's seq.
+func requireTxConflictsIncomplete(t *testing.T, key TxKey, res *TxResult) {
+	t.Helper()
+
+	for _, c := range res.Conflicts {
+		if c.CaptureID != key.Capture || c.Seq < key.Seq {
+			continue
+		}
+		require.Equal(t, TxIncomplete, res.Outcome, "the conflict at seq %d makes the outcome incomplete", c.Seq)
+		if c.Seq == key.Seq {
+			require.Contains(t, gapReasons(res.Gaps), TxGapNoKey, "the conflict at the primary leaves no key")
+		}
+	}
+	if slices.ContainsFunc(res.Records, func(v TxRecord) bool { return v.Conflict }) {
+		require.Equal(t, TxIncomplete, res.Outcome, "a record marked as a conflict makes the outcome incomplete")
+	}
+}
+
 // requireTxInvariants looks up key with opts over s and requires what every lookup holds:
 // Outcome zero beside an error and an outcome otherwise, never TxUnmatched beside a gap,
+// TxIncomplete beside a conflict at or above the primary's seq, listed or marked on a record,
+// and a TxGapNoKey gap beside a listed conflict at the primary's seq (the tracepack semantics specification §7.2),
 // its state charged as recounted, each scope read at most once, the observation closed once when Observe returned one,
 // its records at or above the primary's seq in ascending (seq, hour),
 // and each version's window and candidate flags consistent with WindowEnd.
@@ -1973,6 +1996,7 @@ func requireTxInvariants(t *testing.T, s *memSource, key TxKey, opts TxOptions) 
 	if res.Outcome == TxUnmatched {
 		require.Empty(t, res.Gaps)
 	}
+	requireTxConflictsIncomplete(t, key, &res)
 	if res.WindowEnd != nil {
 		require.Greater(t, *res.WindowEnd, key.Seq)
 	}

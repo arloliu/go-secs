@@ -54,6 +54,8 @@ type txGroup struct {
 	seq  uint64
 	// keep reports that a version of the group plays a role, so that every version buffered is kept.
 	keep bool
+	// conflict reports that the group's conflict within the read has its TxGapConflict gap.
+	conflict bool
 	// versions holds the versions buffered, each cloned as it arrived.
 	versions []TxRecord
 }
@@ -288,7 +290,7 @@ func (s *txRuns) contains(seq uint64) bool {
 
 // searchWindow reads the scopes after key.Hour, each once, in order, and evaluates the window of a keyed primary.
 // Each read's kept versions and conflict gaps are added to the result after its other gaps, also when the read fails,
-// and every kept version of a seq in conflict across reads is then marked as a conflict.
+// and every kept version of a seq in conflict, within a read or across reads, is then marked as a conflict (markConflicts).
 //
 // Returns:
 //   - error: the error of a read, wrapped with its hour; ctx's error, wrapped; the error of the evaluation.
@@ -302,12 +304,12 @@ func (l *txLookup) searchWindow(ctx context.Context) error {
 		}
 		if err != nil {
 			// The marks complete what the result holds so far; the read's error is the one returned.
-			_ = l.markCrossConflicts(ctx)
+			_ = l.markConflicts(ctx)
 
 			return err
 		}
 	}
-	if err := l.markCrossConflicts(ctx); err != nil {
+	if err := l.markConflicts(ctx); err != nil {
 		return fmt.Errorf("tracepack: find transaction: %w", err)
 	}
 
@@ -317,7 +319,8 @@ func (l *txLookup) searchWindow(ctx context.Context) error {
 // collect takes an item of the read rd.
 //
 // Every item whose record carries ordering-uncertain notes its epoch, whatever its seq.
-// An item at or above the primary's seq enters the read's run set and its seq group (beginGroup).
+// An item at or above the primary's seq enters the read's run set and its seq group (beginGroup),
+// or, joining the open group, adds the group's conflict gap when it is the group's first version marked as a conflict (localConflict).
 // In scope key.Hour, a version of the primary is cloned and kept, the first one taken as the key to classify against,
 // and an item above the primary that arrives before any version of it is counted and its seq noted, not classified.
 // Every other item at or above the primary's seq is classified and buffered in its group (addVersion).
@@ -343,6 +346,8 @@ func (l *txLookup) collect(ctx context.Context, rd *txScopeRead, it *Item) error
 		if err := l.beginGroup(ctx, rd, it); err != nil {
 			return err
 		}
+	} else if err := l.localConflict(rd, it); err != nil {
+		return err
 	}
 
 	first := rd.hour == l.key.Hour
@@ -352,7 +357,7 @@ func (l *txLookup) collect(ctx context.Context, rd *txScopeRead, it *Item) error
 		if err != nil {
 			return err
 		}
-		l.primary = append(l.primary, v)
+		l.primary, l.primaryFlags = append(l.primary, v), append(l.primaryFlags, l.flags)
 		if len(l.primary) == 1 {
 			l.prim = primaryKeyOf(&l.primary[0].Record)
 		}
@@ -396,8 +401,7 @@ func seenAt(rd *txScopeRead, it *Item) txSeen {
 
 // beginGroup starts the seq group of it, the first version of its seq in this stretch of the read rd:
 // the seq enters the read's run set;
-// a version marked as a conflict within the read adds a TxGapConflict gap, except at the primary in scope key.Hour,
-// whose settlement reports it;
+// a version marked as a conflict within the read adds a TxGapConflict gap (localConflict);
 // and, in a later scope, a seq that an earlier read yielded is a conflict across scope reads (crossConflict).
 //
 // Returns:
@@ -408,21 +412,49 @@ func (l *txLookup) beginGroup(ctx context.Context, rd *txScopeRead, it *Item) er
 		return err
 	}
 	rd.group.open, rd.group.seq = true, seq
-
-	first := rd.hour == l.key.Hour
-	if it.Conflict && (!first || seq != l.key.Seq) {
-		if err := l.pendGap(rd, txPendingGap{gap: TxGap{
-			Reason: TxGapConflict, Hours: []int64{rd.hour}, Block: -1, Offset: -1, Seq: new(seq),
-			Err: fmt.Errorf("the read of hour %d yields several versions of seq %d", rd.hour, seq),
-		}}); err != nil {
-			return err
-		}
+	if err := l.localConflict(rd, it); err != nil {
+		return err
 	}
-	if first {
+	if rd.hour == l.key.Hour {
 		return nil
 	}
 
 	return l.crossConflict(ctx, rd, seq)
+}
+
+// localConflict adds a TxGapConflict gap for the seq group of the read rd when it, a version of the group,
+// is marked as a conflict within the read and the group has no such gap yet,
+// except at the primary in scope key.Hour, whose settlement reports it;
+// the seq is noted as in conflict, charged before it is added, so that every kept version of it is marked (markConflicts).
+// A version that a block disagreeing with its F-2 entry let arrive uncompared can open the group
+// before the versions the read compared, or form a group of its own, so every version of the group is looked at, not only its first,
+// and the copies of the seq that arrived uncompared are marked as well.
+//
+// Returns:
+//   - error: the error of a charge, wrapping ErrReadLimit.
+func (l *txLookup) localConflict(rd *txScopeRead, it *Item) error {
+	seq := it.Record.Seq
+	if !it.Conflict || rd.group.conflict || rd.hour == l.key.Hour && seq == l.key.Seq {
+		return nil
+	}
+	if _, ok := l.conflicted[seq]; !ok {
+		if err := l.state.reserve(txConflictedCharge); err != nil {
+			return err
+		}
+		if l.conflicted == nil {
+			l.conflicted = make(map[uint64]struct{})
+		}
+		l.conflicted[seq] = struct{}{}
+	}
+	if err := l.pendGap(rd, txPendingGap{gap: TxGap{
+		Reason: TxGapConflict, Hours: []int64{rd.hour}, Block: -1, Offset: -1, Seq: new(seq),
+		Err: fmt.Errorf("the read of hour %d yields several versions of seq %d", rd.hour, seq),
+	}}); err != nil {
+		return err
+	}
+	rd.group.conflict = true
+
+	return nil
 }
 
 // crossConflict checks seq, which the read rd of a later scope yields, against the run sets of the earlier reads.
@@ -622,19 +654,24 @@ func (l *txLookup) commitRead(ctx context.Context, rd *txScopeRead) error {
 	return nil
 }
 
-// markCrossConflicts marks as conflicting every kept version of a seq in conflict across scope reads.
+// markConflicts marks as conflicting every kept version of a seq in conflict across scope reads or within one,
+// so that no version of a seq in conflict counts as one without a conflict (the tracepack semantics specification §7.2),
+// a copy that arrived uncompared included.
 //
 // Returns:
 //   - error: ctx's error, as is, the versions before it marked.
-func (l *txLookup) markCrossConflicts(ctx context.Context) error {
-	if len(l.cross) == 0 {
+func (l *txLookup) markConflicts(ctx context.Context) error {
+	if len(l.cross) == 0 && len(l.conflicted) == 0 {
 		return nil
 	}
 	for i := range l.res.Records {
 		if err := l.tick(ctx); err != nil {
 			return err
 		}
-		if _, ok := l.cross[l.res.Records[i].Record.Seq]; ok {
+		seq := l.res.Records[i].Record.Seq
+		_, cross := l.cross[seq]
+		_, local := l.conflicted[seq]
+		if cross || local {
 			l.res.Records[i].Conflict = true
 		}
 	}

@@ -89,6 +89,7 @@ func txStateRecount(l *txLookup) int64 {
 		n += conflictCost(&l.res.Conflicts[i])
 	}
 	n += int64(len(l.uncertain))*txUncertainCharge + int64(len(l.boundaries))*txBoundaryRecordCharge
+	n += int64(len(l.conflicted)) * txConflictedCharge
 	n += int64(len(l.earlyRuns.runs)) * txRunCharge
 
 	return n
@@ -242,8 +243,8 @@ func TestFindTransactionStateBudget(t *testing.T) {
 				return txSource(t, true, files...)
 			},
 			want: scopeCost(versions) + primaryCost + txRunCharge + versions*txRecordCharge +
-				gapCost(&TxGap{Hours: []int64{memTestHour}}) + txConflictCharge + versions*(txVersionCharge+txPackCharge) +
-				openWindow + versions*unavailable,
+				gapCost(&TxGap{Hours: []int64{memTestHour}}) + txConflictedCharge + txConflictCharge +
+				versions*(txVersionCharge+txPackCharge) + openWindow + versions*unavailable,
 		},
 		{
 			name: "a coverage entry with large unknown values",
@@ -287,7 +288,9 @@ func TestFindTransactionStateBudgetReleases(t *testing.T) {
 			txPack(t, seg1, nil, txBlock(other)))
 	}
 
-	base := scopeCost(2) + versionCost(&primary, nil) + txRunCharge + gapCost(&TxGap{Hours: []int64{memTestHour}})
+	// The conflict at 13 adds its gap and notes its seq.
+	base := scopeCost(2) + versionCost(&primary, nil) + txRunCharge + gapCost(&TxGap{Hours: []int64{memTestHour}}) +
+		txConflictedCharge
 	group := versionCost(&note, nil) + versionCost(&other, nil)
 	kept := versionCost(&reply, nil)
 	listed := txConflictCharge + 2*(txVersionCharge+txPackCharge)
@@ -707,7 +710,7 @@ func TestTxCosts(t *testing.T) {
 
 	// The rounded fixed charges are positive multiples of 16; a pack_id is 16 bytes and an hour 8.
 	for _, c := range []int64{
-		txRecordCharge, txRunCharge, txCrossCharge, txGapCharge, txScopeCharge, txPackErrorCharge, txUncertainCharge,
+		txRecordCharge, txRunCharge, txCrossCharge, txGapCharge, txScopeCharge, txPackErrorCharge, txUncertainCharge, txConflictedCharge,
 		txPendingCoverageCharge, txCoverageCharge, txRawEntryCharge, txConflictCharge,
 	} {
 		assert.Positive(t, c)
