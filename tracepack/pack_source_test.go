@@ -2,7 +2,6 @@ package tracepack
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -34,11 +33,11 @@ type memScope struct {
 
 // memEvidence is the registration history of one capture's per-capture evidence:
 // what the catalog recorded, independent of the packs present.
+// Each registration is the statistics it recorded, in registration order;
+// nil for a pack whose footer is not used.
+// Observe folds them with AddPackEvidence, and the safety check reads them as recorded.
 type memEvidence struct {
-	boundaries []Boundary
-	// closures holds the smallest close_seq recorded per epoch.
-	closures map[uint32]uint64
-	partial  bool
+	stats []*PackStats
 }
 
 // memSource is a PackSource over packs held in memory, for one tool, modelling a catalog and its storage
@@ -135,7 +134,7 @@ func (s *memSource) scope(capture UUID, hour int64) *memScope {
 func (s *memSource) captureEvidence(capture UUID) *memEvidence {
 	e := s.evidence[capture]
 	if e == nil {
-		e = &memEvidence{closures: map[uint32]uint64{}}
+		e = &memEvidence{}
 		s.evidence[capture] = e
 	}
 
@@ -143,9 +142,12 @@ func (s *memSource) captureEvidence(capture UUID) *memEvidence {
 }
 
 // addPack admits file to the scope of its capture in hour,
-// and records its footer's evidence when it is a segment or converter archive, as a registration does
-// (the tracepack storage specification §5, Per capture):
-// a pack of a later generation or of a replacement set, the output of a merge, adds no evidence.
+// and records its footer's evidence as a registration of a segment does
+// (the tracepack storage specification §5, Per capture).
+// As a shortcut, it takes every pack of a later generation or of a replacement set for the output of a merge,
+// which adds no evidence;
+// a test records a converter archive's evidence with registerEvidence.
+// The shortcut is this source's registration policy, not AddPackEvidence's, which folds whatever statistics it is given.
 func (s *memSource) addPack(t testing.TB, hour int64, file []byte) {
 	t.Helper()
 
@@ -193,56 +195,40 @@ func (s *memSource) setIndexed(capture UUID, hour int64, indexed bool) {
 }
 
 // registerEvidence records the per-capture evidence of file's footer as a registration would, as the footer claims it:
-// every capture-boundary entry and every epoch's close_seq.
+// its F-5 statistics, from which Observe takes every capture-boundary entry and every epoch's close_seq.
 // A pack whose footer is not used marks its capture's evidence partial.
 func (s *memSource) registerEvidence(t testing.TB, file []byte) {
 	t.Helper()
 
 	r := mustOpen(t, file, ReaderOptions{})
-	capture := UUID(r.hdr.CaptureID)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	e := s.captureEvidence(capture)
-	if r.footer == nil {
-		e.partial = true
-
-		return
+	var stats *PackStats
+	if st, ok := r.Stats(); ok {
+		stats = &st
 	}
-	for i := range r.footer.blocks {
-		b := &r.footer.blocks[i]
-		for _, bs := range b.boundaries {
-			e.boundaries = append(e.boundaries, cloneBoundary(Boundary{
-				Capture: capture, Seq: bs.seq, Kind: bs.kind, TS: bs.ts, Epoch: bs.epoch, GapStart: bs.gapStart, GapEnd: bs.gapEnd,
-			}))
-		}
-		for _, ep := range b.epochs {
-			if ep.hasCloseSeq {
-				addClosure(e, ep.epoch, ep.closeSeq)
-			}
-		}
-	}
+	s.record(UUID(r.hdr.CaptureID), stats)
 }
 
 // addBoundary records b as a capture-boundary entry of its capture's evidence, by hand.
 func (s *memSource) addBoundary(b Boundary) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	e := s.captureEvidence(b.Capture)
-	e.boundaries = append(e.boundaries, cloneBoundary(b))
+	s.record(b.Capture, &PackStats{Boundaries: []Boundary{cloneBoundary(b)}})
 }
 
 // addClosure records that close_seq closes epoch of capture, by hand.
 func (s *memSource) addClosure(capture UUID, epoch uint32, closeSeq uint64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	addClosure(s.captureEvidence(capture), epoch, closeSeq)
+	s.record(capture, &PackStats{Epochs: []EpochStats{{Epoch: epoch, CloseSeq: &closeSeq}}})
 }
 
 // setPartial marks capture's evidence partial.
 func (s *memSource) setPartial(capture UUID) {
+	s.record(capture, nil)
+}
+
+// record appends the registration stats to capture's evidence; nil marks it partial.
+func (s *memSource) record(capture UUID, stats *PackStats) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.captureEvidence(capture).partial = true
+	e := s.captureEvidence(capture)
+	e.stats = append(e.stats, stats)
 }
 
 // counts returns the calls of Observe, of Scope by hour, and of Close so far.
@@ -251,13 +237,6 @@ func (s *memSource) counts() (observes int, scopes map[int64]int, closes int) {
 	defer s.mu.Unlock()
 
 	return s.observes, maps.Clone(s.scopeCalls), s.closes
-}
-
-// addClosure records closeSeq for epoch in e, keeping the smallest.
-func addClosure(e *memEvidence, epoch uint32, closeSeq uint64) {
-	if seq, ok := e.closures[epoch]; !ok || closeSeq < seq {
-		e.closures[epoch] = closeSeq
-	}
 }
 
 // Observe fixes the views of capture's scopes over [from, to), the capture's evidence and the tool's barriers.
@@ -318,25 +297,9 @@ func (s *memSource) fix(ctx context.Context, capture UUID, from, to int64) (*mem
 		o.scopes[h] = memFixedScope{files: files, indexed: indexed}
 	}
 
-	e := s.evidence[capture]
-	if e == nil {
-		e = &memEvidence{}
-	}
-	o.evidence = CaptureEvidence{Boundaries: uniqueBoundaries(e.boundaries), Partial: e.partial}
-	// Any stop-unclean makes the end unclean, also beside a clean stop.
-	for _, b := range o.evidence.Boundaries {
-		if b.Kind == BoundaryKindStop && o.evidence.End == EndOpen {
-			o.evidence.End = EndStopped
-		}
-		if b.Kind == BoundaryKindStopUnclean {
-			o.evidence.End = EndStoppedUnclean
-		}
-	}
-	for _, epoch := range slices.Sorted(maps.Keys(e.closures)) {
-		o.evidence.Closures = append(o.evidence.Closures, EpochClosure{Epoch: epoch, CloseSeq: e.closures[epoch]})
-	}
+	o.evidence = s.foldEvidence(capture)
 	for _, id := range slices.SortedFunc(maps.Keys(s.evidence), func(a, b UUID) int { return bytes.Compare(a[:], b[:]) }) {
-		for _, b := range uniqueBoundaries(s.evidence[id].boundaries) {
+		for _, b := range s.foldEvidence(id).Boundaries {
 			if b.Kind == BoundaryKindStopUnclean {
 				o.barriers = append(o.barriers, b)
 			}
@@ -346,22 +309,17 @@ func (s *memSource) fix(ctx context.Context, capture UUID, from, to int64) (*mem
 	return o, nil
 }
 
-// uniqueBoundaries returns a deep copy of bs in ascending seq, then by every other field, each distinct value once;
-// nil for an empty bs.
-func uniqueBoundaries(bs []Boundary) []Boundary {
-	out := cloneBoundaries(bs)
-	slices.SortFunc(out, compareBoundary)
+// foldEvidence returns capture's evidence:
+// its registrations folded by AddPackEvidence in registration order; s.mu is held.
+func (s *memSource) foldEvidence(capture UUID) CaptureEvidence {
+	var out CaptureEvidence
+	if e := s.evidence[capture]; e != nil {
+		for _, st := range e.stats {
+			AddPackEvidence(&out, st)
+		}
+	}
 
-	return slices.CompactFunc(out, func(a, b Boundary) bool { return compareBoundary(a, b) == 0 })
-}
-
-// compareBoundary orders boundaries by seq, then capture, kind, ts, epoch, gap_start and gap_end, an absent gap bound first.
-func compareBoundary(a, b Boundary) int {
-	return cmp.Or(
-		cmp.Compare(a.Seq, b.Seq), bytes.Compare(a.Capture[:], b.Capture[:]), cmp.Compare(a.Kind, b.Kind),
-		cmp.Compare(a.TS, b.TS), cmp.Compare(a.Epoch, b.Epoch),
-		compareOptional(a.GapStart, b.GapStart), compareOptional(a.GapEnd, b.GapEnd),
-	)
+	return out
 }
 
 // viewFiles returns the files of the active view of the packs present under commits, in view order; nil for no packs.
@@ -692,6 +650,85 @@ func TestMemSourceEvidenceOutOfOrder(t *testing.T) {
 	b, err := o.Barriers(t.Context(), math.MinInt64, math.MaxInt64)
 	require.NoError(t, err)
 	assert.Equal(t, []Boundary{unclean}, b)
+}
+
+// TestMemSourceRejectedRegistrations stages a converter archive and a segment in a scope the catalog does not index,
+// rejected, with their evidence recorded (the tracepack storage specification §5, Per capture):
+// the listing view reads both, and the evidence holds their boundaries and closures.
+// Evidence rebuilt by folding the statistics of the scope's packs in another order is the same.
+// A merge's archive admitted by addPack adds no evidence, by the source's registration policy,
+// although AddPackEvidence folds its statistics like any others.
+func TestMemSourceRejectedRegistrations(t *testing.T) {
+	t.Parallel()
+
+	h := blockTestHour
+	gapStart, gapEnd := h+100, h+200
+	boundary := func(seq uint64, epoch uint32, kind BoundaryKind, gap bool) footerTestStep {
+		ev := &TransportEvent{Event: EventCaptureBoundary, BoundaryKind: new(kind)}
+		if gap {
+			ev.GapStart, ev.GapEnd = &gapStart, &gapEnd
+		}
+
+		return footerTestStep{rec: testEventRecord(t, seq, h+int64(seq), epoch, ev)}
+	}
+	closeAt := func(seq uint64, epoch uint32) footerTestStep {
+		return footerTestStep{rec: testEventRecord(t, seq, h+int64(seq), epoch, &TransportEvent{Event: EventSocketClose})}
+	}
+	converter := writeRepairPack(t, CodecZstd, func(m *PackMeta) {
+		generationMeta(m, setA, 1, 1, nil)
+		m.CompactionLevel = 0
+	}, false, []footerTestStep{
+		boundary(1, 0, BoundaryKindStart, false), {rec: testDataRecord(2, h+2, 0)}, closeAt(3, 0), boundary(4, 1, BoundaryKindStop, false),
+	})
+	converterFile := withIDs(t, converter.file, memA, captureLow)
+	segment := planTestPack(t, seg1, captureLow, false, []footerTestStep{
+		{rec: testDataRecord(20, h+20, 2)}, boundary(21, 2, BoundaryKindGap, true), closeAt(22, 2),
+	})
+
+	s := newMemSource()
+	for _, f := range [][]byte{converterFile, segment} {
+		s.stagePack(t, memTestHour, f)
+		s.registerEvidence(t, f)
+	}
+	s.commit(captureLow, memTestHour, setA)
+	merged := writeRepairPack(t, CodecZstd, func(m *PackMeta) { generationMeta(m, setB, 1, 1, []UUID{seg2}) }, false,
+		[]footerTestStep{boundary(40, 3, BoundaryKindGap, false)})
+	mergedFile := withIDs(t, merged.file, memB, captureLow)
+	s.setIndexed(captureLow, memTestHour+1, true)
+	s.addPack(t, memTestHour+1, mergedFile)
+
+	o, err := s.Observe(t.Context(), captureLow, memTestHour, memTestHour+1)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, o.Close()) })
+	sc, err := o.Scope(t.Context(), memTestHour)
+	require.NoError(t, err)
+	assert.False(t, sc.Indexed)
+	require.Equal(t, []UUID{memA, seg1}, packIDs(sc.Readers))
+	e, err := o.Evidence(t.Context())
+	require.NoError(t, err)
+	want := CaptureEvidence{
+		End: EndStopped,
+		Boundaries: []Boundary{
+			{Capture: captureLow, Seq: 1, Kind: BoundaryKindStart, TS: h + 1, Epoch: 0},
+			{Capture: captureLow, Seq: 4, Kind: BoundaryKindStop, TS: h + 4, Epoch: 1},
+			{Capture: captureLow, Seq: 21, Kind: BoundaryKindGap, TS: h + 21, Epoch: 2, GapStart: &gapStart, GapEnd: &gapEnd},
+		},
+		Closures: []EpochClosure{{Epoch: 0, CloseSeq: 3}, {Epoch: 1, CloseSeq: 4}, {Epoch: 2, CloseSeq: 22}},
+	}
+	assert.Equal(t, want, e)
+
+	var rebuilt CaptureEvidence
+	for _, r := range slices.Backward(sc.Readers) {
+		st, ok := r.Stats()
+		require.True(t, ok)
+		AddPackEvidence(&rebuilt, &st)
+	}
+	assert.Equal(t, want, rebuilt)
+
+	st, ok := mustOpen(t, mergedFile, ReaderOptions{}).Stats()
+	require.True(t, ok)
+	AddPackEvidence(&rebuilt, &st)
+	assert.Len(t, rebuilt.Boundaries, 4, "the helper folds a merge's statistics")
 }
 
 // TestMemSourceBarriers fixes stop-unclean boundaries of two captures, one-sided, bounded and inverted:

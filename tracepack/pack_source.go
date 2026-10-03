@@ -96,7 +96,8 @@ type CaptureEvidence struct {
 	// End is the capture's end state.
 	End EndState
 	// Boundaries holds every capture-boundary entry recorded for the capture, in ascending seq.
-	// An entry may repeat: a source can be presented one boundary twice, in two packs holding its record.
+	// AddPackEvidence keeps each distinct entry once, but entries of one seq may differ,
+	// and a source that builds evidence otherwise may repeat an entry.
 	Boundaries []Boundary
 	// Closures holds one closure per epoch that has one, in ascending epoch.
 	Closures []EpochClosure

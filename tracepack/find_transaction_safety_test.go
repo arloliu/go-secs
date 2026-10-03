@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"cmp"
 	"fmt"
-	"maps"
 	"reflect"
 	"slices"
 	"strings"
@@ -212,21 +211,32 @@ type txTruthEvidence struct {
 	barriers   []Boundary
 }
 
-// evidence returns what the source's registrations recorded.
+// evidence returns what the source's registrations recorded, read from the registrations themselves:
+// every boundary as often as it was recorded, the smallest close_seq per epoch, and every stop-unclean of the tool.
 func (tr *txTruth) evidence() txTruthEvidence {
 	s := tr.src
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var out txTruthEvidence
-	if e := s.evidence[tr.capture]; e != nil {
-		out.boundaries, out.partial = cloneBoundaries(e.boundaries), e.partial
-		out.closures = map[uint32]uint64{}
-		maps.Copy(out.closures, e.closures)
-	}
-	for _, e := range s.evidence {
-		for _, b := range e.boundaries {
-			if b.Kind == BoundaryKindStopUnclean {
-				out.barriers = append(out.barriers, cloneBoundary(b))
+	out := txTruthEvidence{closures: map[uint32]uint64{}}
+	for capture, e := range s.evidence {
+		for _, st := range e.stats {
+			if st == nil {
+				out.partial = out.partial || capture == tr.capture
+				continue
+			}
+			for _, b := range st.Boundaries {
+				if b.Kind == BoundaryKindStopUnclean {
+					out.barriers = append(out.barriers, cloneBoundary(b))
+				}
+			}
+			if capture != tr.capture {
+				continue
+			}
+			out.boundaries = append(out.boundaries, cloneBoundaries(st.Boundaries)...)
+			for _, ep := range st.Epochs {
+				if seq, ok := out.closures[ep.Epoch]; ep.CloseSeq != nil && (!ok || *ep.CloseSeq < seq) {
+					out.closures[ep.Epoch] = *ep.CloseSeq
+				}
 			}
 		}
 	}

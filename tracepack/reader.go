@@ -409,6 +409,28 @@ func (r *Reader) Blocks() []BlockInfo {
 	return out
 }
 
+// Stats returns the pack's F-5 statistics (the tracepack format specification §10),
+// when the Reader uses the pack's footer.
+//
+// Every call returns a new PackStats: its slices and pointers are the caller's,
+// so a caller may modify the result without affecting the Reader or any other PackStats.
+// Its count arrays are as the footer stores them, trailing zeros kept;
+// its epochs are in ascending epoch, its boundaries in ascending seq,
+// and each boundary carries the capture_id of the pack's file header.
+//
+// Returns:
+//   - PackStats: the statistics; the zero PackStats when the footer is not used.
+//   - bool: false when the footer is not used,
+//     being absent, invalid, or over a ReaderOptions limit, as PackHeader.FooterErr reports;
+//     false even when the forward walk accounts for every record.
+func (r *Reader) Stats() (PackStats, bool) {
+	if r.footer == nil {
+		return PackStats{}, false
+	}
+
+	return r.footer.stats.public(UUID(r.hdr.CaptureID)), true
+}
+
 // withDefaults returns o with every zero or negative field set to its default
 // and the windows raised to hold the file header and the trailer.
 func (o ReaderOptions) withDefaults() ReaderOptions {
