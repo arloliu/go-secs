@@ -33,6 +33,10 @@ type footerIndex struct {
 	// f3Spans locates each block's F-3 entry list in f3, parallel to blocks; nil when f3 is not kept.
 	// Two spans may overlap: the footer validation requires each to lie inside F-3, not that they be disjoint.
 	f3Spans []f3Span
+	// stats is the footer's F-5 statistics as stored, which the validation found equal to the blocks' aggregate,
+	// normalized: epochs in ascending epoch, boundaries in ascending seq.
+	// It is never modified, and Reader.Stats copies it.
+	stats *packStats
 }
 
 // footerSections holds the F-2, F-3 and F-5 sections of a decoded footer.
@@ -65,6 +69,7 @@ type f3Span struct {
 // No input thus makes parseFooter panic or allocate beyond what decoded's length and maxF3 bound.
 // With keepF3 set, a valid footer's index also keeps a copy of F-3 and each block's span in it, for f3List;
 // without it the index keeps neither.
+// A valid footer's index always keeps its decoded F-5 statistics, for Reader.Stats.
 //
 // Returns:
 //   - *footerIndex: the decoded footer; nil on error.
@@ -115,7 +120,8 @@ func parseFooter(decoded []byte, tr *format.Trailer, blocksStart, maxF3 uint64, 
 		return nil, err
 	}
 
-	idx := &footerIndex{blocks: blocks}
+	stats.normalize()
+	idx := &footerIndex{blocks: blocks, stats: stats}
 	if keepF3 {
 		idx.retainF3(sec.f3, entries)
 	}
