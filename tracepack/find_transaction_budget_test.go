@@ -116,6 +116,72 @@ func findTx(t testing.TB, ctx context.Context, src PackSource, key TxKey, opts T
 	return res, err
 }
 
+// txReadersSource is a memSource whose observations answer scope key.Hour of txKeyAt with readers, as given, nil ones included.
+type txReadersSource struct {
+	*memSource
+	readers []*Reader
+}
+
+// txReadersObservation is an observation of a txReadersSource.
+type txReadersObservation struct {
+	Observation
+	readers []*Reader
+}
+
+// Observe observes the memSource, wrapping the observation.
+func (s *txReadersSource) Observe(ctx context.Context, capture UUID, from, to int64) (Observation, error) {
+	o, err := s.memSource.Observe(ctx, capture, from, to)
+	if err != nil {
+		return nil, err
+	}
+
+	return &txReadersObservation{Observation: o, readers: s.readers}, nil
+}
+
+// Scope answers scope memTestHour with the source's readers, as an indexed scope, and every other hour as the memSource does.
+func (o *txReadersObservation) Scope(ctx context.Context, hour int64) (SourceScope, error) {
+	if hour != memTestHour {
+		return o.Observation.Scope(ctx, hour)
+	}
+
+	return SourceScope{Readers: o.readers, Indexed: true}, nil
+}
+
+// TestFindTransactionScopeChargedFirst reads a scope whose view has more packs than MaxStateBytes admits:
+// the scope's charge fails before any of its readers is looked at, so a nil reader among them is not reported,
+// and with room for the scope, a nil reader fails the read with the scope's charge released.
+func TestFindTransactionScopeChargedFirst(t *testing.T) {
+	t.Parallel()
+
+	r := mustOpen(t, txPack(t, seg0, nil, txBlock(txSeqs(12)...)), ReaderOptions{})
+	tests := []struct {
+		name    string
+		readers []*Reader
+		max     int64
+		err     error
+		text    string
+	}{
+		{name: "more packs than the state admits", readers: make([]*Reader, 10000), max: scopeCost(10000) - 1, err: ErrReadLimit,
+			text: "hour 497222: the lookup's state of 0 bytes and"},
+		{name: "a nil reader", readers: []*Reader{r, nil}, max: scopeCost(2), text: "hour 497222: scope: reader 1 is nil"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := &txReadersSource{memSource: txSource(t, true), readers: tt.readers}
+			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1, MaxStateBytes: tt.max})
+			require.ErrorContains(t, err, tt.text)
+			if tt.err != nil {
+				require.ErrorIs(t, err, tt.err)
+			}
+			assert.Empty(t, res.Searched)
+			_, _, closes := s.counts()
+			assert.Equal(t, 1, closes)
+		})
+	}
+}
+
 // findTxState runs FindTransaction with opts over s for the primary at seq 12, keeping the lookup's state.
 func findTxState(t testing.TB, s *memSource, opts TxOptions) (TxResult, *txLookup, error) {
 	t.Helper()

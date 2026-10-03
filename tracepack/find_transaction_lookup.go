@@ -152,10 +152,11 @@ func (l *txLookup) run(ctx context.Context) error {
 // passing each item to fn with the read;
 // it then ends the read's last seq group and adds the read's status to the result (mapScope), also after the read failed.
 // The conflicts of the read are reserved against the lookup's MaxConflicts,
-// and the scope, with a pack_id for each pack of its view, is charged against MaxStateBytes before it is read.
+// and the scope, with a pack_id for each pack of its view, is charged against MaxStateBytes before its pack_ids are taken.
 //
 // Returns:
-//   - *txScopeRead: the read; nil when the observation could not answer the scope or the scope's charge failed.
+//   - *txScopeRead: the read; nil, its charge released, when the observation could not answer the scope,
+//     the scope's charge failed or a reader is nil.
 //   - error: the observation's error, wrapped with the hour; ctx's error, wrapped;
 //     the read's error, else the error of its mapping, wrapped with the hour;
 //     an error wrapping ErrReadLimit when a charge passes MaxStateBytes.
@@ -170,18 +171,22 @@ func (l *txLookup) readScope(ctx context.Context, hour int64,
 		return nil, fmt.Errorf("tracepack: find transaction: hour %d: scope: %w", hour, err)
 	}
 
+	// The scope is charged before its pack_ids are allocated; a failure after the charge releases it.
+	cost := scopeCost(len(sc.Readers))
+	if err := l.state.reserve(cost); err != nil {
+		return nil, fmt.Errorf("tracepack: find transaction: hour %d: %w", hour, err)
+	}
 	rd := &txScopeRead{hour: hour, indexed: sc.Indexed, readers: sc.Readers, runs: &txRuns{hour: hour}}
 	if len(sc.Readers) > 0 {
 		rd.packs = make([]UUID, len(sc.Readers))
 		for i, r := range sc.Readers {
 			if r == nil {
+				l.state.release(cost)
+
 				return nil, fmt.Errorf("tracepack: find transaction: hour %d: scope: reader %d is nil", hour, i)
 			}
 			rd.packs[i] = UUID(r.hdr.PackID)
 		}
-	}
-	if err := l.state.reserve(scopeCost(len(rd.packs))); err != nil {
-		return nil, fmt.Errorf("tracepack: find transaction: hour %d: %w", hour, err)
 	}
 	l.reads = append(l.reads, rd)
 	rd.res, err = mergeIterateWith(ctx, sc.Readers, Query{Payloads: true},
