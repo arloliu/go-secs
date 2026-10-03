@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-10-02) — v2.20, tracepack format 1.0.
+Status: current (2026-10-03) — v2.21, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -606,7 +606,8 @@ and the epoch it ends is the one in its own record header.
 An F-3 `epoch` entry carries `close_seq` when a record of the block ends that epoch, with the lowest seq among those records;
 an F-5 `epoch` entry carries the minimum `close_seq` of the blocks' entries for that epoch, and none when no block's entry has one.
 A clean `stop` therefore sets `close_seq` only in the entry of its own epoch:
-that the capture ended is shown by its `boundary` entry ([SEM §7.2]), never by `close_seq` in the entries of other epochs.
+that the capture ended is shown by its `boundary` entry, never by `close_seq` in the entries of other epochs;
+a transaction lookup relies on neither entry alone and reads the record they name ([SEM §7.2]).
 A transport-event record whose payload is not a valid TLV body is neither a capture-boundary record nor the end of an epoch:
 it adds no `boundary` entry and no `close_seq`, and `verify` reports it as a writer defect (§13).
 
