@@ -22,8 +22,10 @@ type txLookup struct {
 	primary []TxRecord
 	// prim is what the records above the primary are classified against, taken from primary's first version.
 	prim txPrimaryKey
-	// early counts the records above the primary's seq that the read of scope key.Hour yielded before any version of the primary.
-	early int
+	// early counts the records above the primary's seq that the read of scope key.Hour yielded before any version of the primary,
+	// and earlyRuns holds their seqs, none of them classified or kept.
+	early     int
+	earlyRuns txRuns
 	// coverage holds the coverage entries of the packs read, each evaluated against the lookup's query once the reads are done.
 	coverage []txCoverage
 	// reads holds each scope read, in read order, from the charge of its scope on.

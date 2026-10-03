@@ -217,8 +217,9 @@ type TxGap struct {
 	Block int
 	// Offset is the file offset of the defect the gap reports; -1 when none.
 	Offset int64
-	// Seq is the seq the gap concerns: the conflicting seq, the first missing seq of a seq gap, a contradicted closure's seq;
-	// nil when none.
+	// Seq is the seq the gap concerns: the conflicting seq, the first missing seq of a seq gap, a capture-boundary's seq,
+	// the seq of the first ordering-uncertain record read, a contradicted closure's seq;
+	// nil when none, as for a barrier, whose seq Barrier holds.
 	Seq *uint64
 	// Defect is the reason of the read defect a TxGapRead or TxGapIndex reports; zero otherwise.
 	Defect IncompleteReason

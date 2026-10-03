@@ -319,7 +319,7 @@ func (l *txLookup) searchWindow(ctx context.Context) error {
 // Every item whose record carries ordering-uncertain notes its epoch, whatever its seq.
 // An item at or above the primary's seq enters the read's run set and its seq group (beginGroup).
 // In scope key.Hour, a version of the primary is cloned and kept, the first one taken as the key to classify against,
-// and an item above the primary that arrives before any version of it is counted, not classified.
+// and an item above the primary that arrives before any version of it is counted and its seq noted, not classified.
 // Every other item at or above the primary's seq is classified and buffered in its group (addVersion).
 // Each item counts toward the checks of ctx (tick), and what it adds to the state is charged before it is added.
 //
@@ -357,6 +357,9 @@ func (l *txLookup) collect(ctx context.Context, rd *txScopeRead, it *Item) error
 			l.prim = primaryKeyOf(&l.primary[0].Record)
 		}
 	case first && len(l.primary) == 0:
+		if err := l.earlyRuns.insert(rec.Seq, &l.state); err != nil {
+			return err
+		}
 		l.early++
 	default:
 		return l.addVersion(rd, it)

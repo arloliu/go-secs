@@ -106,18 +106,6 @@ func newMemSource() *memSource {
 	}
 }
 
-// cloneBoundary returns a copy of b with fresh GapStart and GapEnd pointers.
-func cloneBoundary(b Boundary) Boundary {
-	if b.GapStart != nil {
-		b.GapStart = new(*b.GapStart)
-	}
-	if b.GapEnd != nil {
-		b.GapEnd = new(*b.GapEnd)
-	}
-
-	return b
-}
-
 // cloneBoundaries returns a deep copy of bs, nil for an empty bs.
 func cloneBoundaries(bs []Boundary) []Boundary {
 	if len(bs) == 0 {
@@ -454,7 +442,7 @@ func (o *memObservation) Evidence(ctx context.Context) (CaptureEvidence, error) 
 	return e, nil
 }
 
-// Barriers returns deep copies of the fixed barriers whose gap interval meets [from, to).
+// Barriers returns deep copies of the fixed barriers whose gap interval meets [from, to), an inverted one meeting every range.
 func (o *memObservation) Barriers(ctx context.Context, from, to int64) ([]Boundary, error) {
 	if err := o.check(ctx); err != nil {
 		return nil, err
@@ -470,7 +458,7 @@ func (o *memObservation) Barriers(ctx context.Context, from, to int64) ([]Bounda
 
 	var out []Boundary
 	for _, b := range o.barriers {
-		if overlaps(b.GapStart, b.GapEnd, &from, &to) {
+		if barrierMeets(&b, from, to) {
 			out = append(out, cloneBoundary(b))
 		}
 	}
@@ -706,8 +694,9 @@ func TestMemSourceEvidenceOutOfOrder(t *testing.T) {
 	assert.Equal(t, []Boundary{unclean}, b)
 }
 
-// TestMemSourceBarriers fixes stop-unclean boundaries of two captures, one-sided and bounded:
-// Barriers returns those whose gap interval meets the range, gap_end inclusive, the range's end exclusive.
+// TestMemSourceBarriers fixes stop-unclean boundaries of two captures, one-sided, bounded and inverted:
+// Barriers returns those whose gap interval meets the range, gap_end inclusive, the range's end exclusive,
+// and the inverted one, gap_start after gap_end, for every range.
 func TestMemSourceBarriers(t *testing.T) {
 	t.Parallel()
 
@@ -715,8 +704,10 @@ func TestMemSourceBarriers(t *testing.T) {
 	at := func(v int64) *int64 { return &v }
 	bounded := Boundary{Capture: captureHigh, Seq: 1, Kind: BoundaryKindStopUnclean, GapStart: at(100), GapEnd: at(200)}
 	open := Boundary{Capture: captureLow, Seq: 2, Kind: BoundaryKindStopUnclean, GapStart: at(500)}
+	reversed := Boundary{Capture: captureHigh, Seq: 4, Kind: BoundaryKindStopUnclean, GapStart: at(300), GapEnd: at(250)}
 	s.addBoundary(bounded)
 	s.addBoundary(open)
+	s.addBoundary(reversed)
 	s.addBoundary(Boundary{Capture: captureLow, Seq: 3, Kind: BoundaryKindGap, GapStart: at(0), GapEnd: at(1000)})
 	o, err := s.Observe(t.Context(), captureLow, 0, 1)
 	require.NoError(t, err)
@@ -726,12 +717,12 @@ func TestMemSourceBarriers(t *testing.T) {
 		from, to int64
 		want     []Boundary
 	}{
-		{from: 0, to: 100},
-		{from: 0, to: 101, want: []Boundary{bounded}},
-		{from: 200, to: 300, want: []Boundary{bounded}},
-		{from: 201, to: 500},
-		{from: 201, to: 501, want: []Boundary{open}},
-		{from: 150, to: 1 << 40, want: []Boundary{open, bounded}},
+		{from: 0, to: 100, want: []Boundary{reversed}},
+		{from: 0, to: 101, want: []Boundary{bounded, reversed}},
+		{from: 200, to: 300, want: []Boundary{bounded, reversed}},
+		{from: 201, to: 500, want: []Boundary{reversed}},
+		{from: 201, to: 501, want: []Boundary{open, reversed}},
+		{from: 150, to: 1 << 40, want: []Boundary{open, bounded, reversed}},
 	}
 	for _, tt := range tests {
 		got, err := o.Barriers(t.Context(), tt.from, tt.to)

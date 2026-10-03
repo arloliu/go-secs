@@ -62,7 +62,8 @@ type Observation interface {
 	// Evidence returns the capture's per-capture evidence.
 	Evidence(ctx context.Context) (CaptureEvidence, error)
 	// Barriers returns every stop-unclean boundary of a capture of the tool whose gap interval [GapStart, GapEnd] meets [from, to),
-	// in nanoseconds, a nil bound being unbounded.
+	// in nanoseconds, a nil bound being unbounded;
+	// an interval whose GapStart exceeds its GapEnd meets every range.
 	Barriers(ctx context.Context, from, to int64) ([]Boundary, error)
 	// Close releases the observation; the Readers it returned are not used after it.
 	// It is bounded: it never waits on I/O or on other callers,
@@ -116,6 +117,26 @@ type Boundary struct {
 	Epoch uint32
 	// GapStart and GapEnd are the entry's gap_start and gap_end; nil when absent.
 	GapStart, GapEnd *int64
+}
+
+// cloneBoundary returns a copy of b with fresh GapStart and GapEnd pointers.
+func cloneBoundary(b Boundary) Boundary {
+	if b.GapStart != nil {
+		b.GapStart = new(*b.GapStart)
+	}
+	if b.GapEnd != nil {
+		b.GapEnd = new(*b.GapEnd)
+	}
+
+	return b
+}
+
+// barrierMeets reports whether the gap interval [GapStart, GapEnd] of the stop-unclean boundary b meets the time range [from, to)
+// (the tracepack storage specification §5, Completeness):
+// a nil bound is unbounded,
+// and an interval whose GapStart exceeds its GapEnd meets every range, as an inverted coverage entry does.
+func barrierMeets(b *Boundary, from, to int64) bool {
+	return inverted(b.GapStart, b.GapEnd) || overlaps(b.GapStart, b.GapEnd, &from, &to)
 }
 
 // String returns the end state's name in the tracepack storage specification, or "unknown(<n>)" for a value this package does not define.

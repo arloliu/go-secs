@@ -39,11 +39,12 @@ func (w *txWindow) in(seq uint64) bool {
 // it sorts the kept records, finds the final window, adds the gaps of the window,
 // sets each kept version's window and candidate flags,
 // adding a TxGapUnavailable gap for each version that could be the reply,
+// adds the other gaps that keep absence from being established (completenessGaps),
 // and decides the outcome from the valid matches and the gaps.
 // Each gap is charged before it is added (addGap), and each loop counts its iterations toward the checks of ctx (tick).
 //
 // Returns:
-//   - error: ctx's error, or the error of a charge, wrapping ErrReadLimit, wrapped;
+//   - error: ctx's error, the error of a charge, wrapping ErrReadLimit, or the error of the observation's Barriers, wrapped;
 //     the result holds what was decided until then, without an outcome.
 func (l *txLookup) evaluate(ctx context.Context) error {
 	if err := l.evaluateWindow(ctx); err != nil {
@@ -73,11 +74,9 @@ func (l *txLookup) evaluateWindow(ctx context.Context) error {
 		return err
 	}
 
-	// The completeness gaps that the kept records' flags do not decide are to be added here, before the outcome:
-	// the coverage entries that meet (w.p, w.e), or (w.p, ∞) while unbounded, and the searched time range,
-	// the barriers, the capture-boundaries, the ordering-uncertain epochs, partial evidence and the contradictions.
-	// None of them is evaluated yet.
-
+	if err := l.completenessGaps(ctx, &w); err != nil {
+		return err
+	}
 	outcome, err := l.decide(ctx, valid)
 	if err != nil {
 		return err
