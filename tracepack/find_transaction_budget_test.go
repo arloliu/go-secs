@@ -415,6 +415,13 @@ func TestFindTransactionCancelSteps(t *testing.T) {
 
 		return s
 	}
+	// noteConflict holds two versions of an annotation at 13, a seq group that plays no role, dropped once 14 is read.
+	noteConflict := func(t testing.TB, _ context.CancelFunc) *memSource {
+		return txHours(t, [][]byte{
+			txPackIn(t, seg0, 0, nil, txBlock(txRecord(12, nil), txNote(13, []byte{1}), txRecord(14, nil))),
+			txPackIn(t, seg1, 0, nil, txBlock(txNote(13, []byte{2}))),
+		})
+	}
 	tests := []struct {
 		name string
 		// source returns the source, its hooks set with cancel.
@@ -497,9 +504,10 @@ func TestFindTransactionCancelSteps(t *testing.T) {
 			},
 			prep: func(t *testing.T, l *txLookup, cancel context.CancelFunc) {
 				l.onTick = func() {
-					// The first check comes after txCtxStep items: the primary and txCtxStep-1 records above it.
+					// The first check comes after txCtxStep iterations:
+					// the one reader's pack_id, the primary and txCtxStep-2 records above it.
 					require.Len(t, l.reads, 1)
-					require.Len(t, l.reads[0].runs.runs, txCtxStep-1)
+					require.Len(t, l.reads[0].runs.runs, txCtxStep-2)
 					cancel()
 				}
 			}},
@@ -592,6 +600,39 @@ func TestFindTransactionCancelSteps(t *testing.T) {
 		{name: "while checking a closure's seq", in: "checkClaim", observes: 1,
 			scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1}, searched: 2, records: 3, gaps: 3,
 			err: "find transaction: context canceled", source: complete},
+		{name: "while taking the readers' pack_ids", in: "readScope", observes: 1, scopes: map[int64]int{memTestHour: 1},
+			err: "hour 497222: context canceled", source: func(t testing.TB, _ context.CancelFunc) *memSource { return twoHours(t) }},
+		{name: "while looking for packs not evaluated", in: "mapScope", observes: 1, scopes: map[int64]int{memTestHour: 1},
+			err: "hour 497222: context canceled", source: func(t testing.TB, _ context.CancelFunc) *memSource { return twoHours(t) }},
+		{name: "while charging a coverage entry", in: "coverageCharge", observes: 1, scopes: map[int64]int{memTestHour: 1},
+			err: "hour 497222: context canceled",
+			source: func(t testing.TB, _ context.CancelFunc) *memSource {
+				unknown := []RawEntry{{Tag: 0x0050, Type: 7, Value: []byte{0xAA}}}
+				return txHours(t, [][]byte{txPackIn(t, seg0, 0, func(m *PackMeta) { m.Coverage = []Coverage{{Unknown: unknown}} },
+					txBlock(txSeqs(12, 13)...))})
+			}},
+		{name: "while charging a listed conflict", in: "conflictCharge", observes: 1, scopes: map[int64]int{memTestHour: 1},
+			err: "hour 497222: context canceled",
+			source: func(t testing.TB, _ context.CancelFunc) *memSource {
+				return txHours(t, [][]byte{
+					txPackIn(t, seg0, 0, nil, txBlock(txSeqs(12, 13)...)),
+					txPackIn(t, seg1, 0, nil, changed(txBlock(txSeqs(13)...), 1, 13)),
+				})
+			}},
+		{name: "while looking for a conflict at the primary", in: "distinctVersions", observes: 1, scopes: map[int64]int{memTestHour: 1},
+			searched: 1, err: "hour 497222: context canceled",
+			source: func(t testing.TB, _ context.CancelFunc) *memSource {
+				// One version of the primary: nothing to compare, yet the versions are scanned for a listed conflict.
+				return txHours(t, [][]byte{txPackIn(t, seg0, 0, nil, txBlock(txSeqs(12, 13)...))})
+			}},
+		{name: "while marking the versions of a conflicting primary", in: "settleConflict", observes: 1,
+			scopes: map[int64]int{memTestHour: 1}, searched: 1, err: "hour 497222: context canceled",
+			source: func(t testing.TB, _ context.CancelFunc) *memSource {
+				steps := txBlock(txSeqs(12, 13)...)
+				return txHours(t, [][]byte{txPackIn(t, seg0, 0, nil, steps), txPackIn(t, seg1, 0, nil, changed(steps, 1, 12))})
+			}},
+		{name: "while dropping a seq group", in: "endGroup", observes: 1, scopes: map[int64]int{memTestHour: 1},
+			err: "hour 497222: context canceled", source: noteConflict},
 		{name: "while adding a read's conflict gaps", in: "commitRead", observes: 1, scopes: map[int64]int{memTestHour: 1},
 			searched: 1, records: 3, err: "find transaction: context canceled",
 			source: func(t testing.TB, _ context.CancelFunc) *memSource {
@@ -649,6 +690,62 @@ func TestFindTransactionCancelSteps(t *testing.T) {
 			assert.Equal(t, tt.observes, closes, "closed once when opened")
 		})
 	}
+}
+
+// TestFindTransactionCancelDroppingGroup cancels the lookup while a dropped seq group of three versions is released,
+// after its first version: the versions released leave the state, the others stay buffered and charged,
+// so the state is still as recounted.
+func TestFindTransactionCancelDroppingGroup(t *testing.T) {
+	t.Parallel()
+
+	s := txHours(t, [][]byte{
+		txPackIn(t, seg0, 0, nil, txBlock(txRecord(12, nil), txNote(13, []byte{1}), txRecord(14, nil))),
+		txPackIn(t, seg1, 0, nil, txBlock(txNote(13, []byte{2}))),
+		txPackIn(t, seg2, 0, nil, txBlock(txNote(13, []byte{3}))),
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var lk *txLookup
+	ticks := 0
+	res, err := findTransactionWith(ctx, s, txKeyAt(12), TxOptions{MaxScopes: 1}, func(l *txLookup) {
+		lk = l
+		l.ticks.step = 1
+		l.onTick = func() {
+			if tickCaller() == "endGroup" {
+				if ticks++; ticks == 2 {
+					cancel()
+				}
+			}
+		}
+	})
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Zero(t, res.Outcome)
+	require.NotNil(t, lk)
+	require.Len(t, lk.reads, 1)
+	assert.Len(t, lk.reads[0].group.versions, 2, "the versions not released stay buffered")
+	requireStateRecount(t, lk)
+}
+
+// TestFindTransactionTicksEmptyScopes counts the checks of ctx in the probes of the scope reads for a seq:
+// a read whose run set is empty counts toward them as any other,
+// both when a later scope's seq is looked up in the earlier reads and when a window seq is looked up in every read.
+func TestFindTransactionTicksEmptyScopes(t *testing.T) {
+	t.Parallel()
+
+	// The window (12, 14) misses 13; the two hours between the primary's and 14's are read and empty.
+	s := txHours(t,
+		[][]byte{txPackIn(t, seg0, 0, nil, txBlock(txSeqs(12)...))},
+		nil, nil,
+		[][]byte{txPackIn(t, seg1, 3, nil, txBlock(txSeqs(14)...))})
+	ticks := map[string]int{}
+	res, err := findTransactionWith(t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 4}, func(l *txLookup) {
+		l.ticks.step = 1
+		l.onTick = func() { ticks[tickCaller()]++ }
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"seq-gap@13"}, gapSeqs(res.Gaps))
+	assert.Equal(t, 3, ticks["crossConflict"], "14 probes the three earlier reads")
+	assert.Equal(t, 4, ticks["visitedFrom"], "13 probes the four reads")
 }
 
 // armedCtx is a context that is done only once armed: after arm, Err returns nil once, then context.Canceled.
@@ -772,6 +869,32 @@ func TestTxCosts(t *testing.T) {
 	}
 	for _, tt := range tests {
 		assert.Equal(t, tt.want, tt.got, tt.name)
+	}
+
+	// The charges that count toward the checks of ctx sum as the cost functions do.
+	l := newTxLookup(TxKey{}, TxOptions{}, nil)
+	conflict := &Conflict{Versions: [][]UUID{{seg0}, {seg1, seg2, seg3}, {}}}
+	gap := &TxGap{Hours: []int64{1, 2}, Coverage: cov, Barrier: &Boundary{}}
+	for _, c := range []struct {
+		name  string
+		got   func() (int64, error)
+		want  int64
+		ticks int
+	}{
+		{name: "a coverage entry", got: func() (int64, error) { return l.coverageCharge(t.Context(), cov) }, want: coverageCost(cov), ticks: 3},
+		{name: "a gap", got: func() (int64, error) { return l.gapCharge(t.Context(), gap) }, want: gapCost(gap), ticks: 3},
+		{name: "a gap without coverage", got: func() (int64, error) { return l.gapCharge(t.Context(), &TxGap{Hours: []int64{1}}) },
+			want: gapCost(&TxGap{Hours: []int64{1}})},
+		{name: "a conflict", got: func() (int64, error) { return l.conflictCharge(t.Context(), conflict) }, want: conflictCost(conflict),
+			ticks: 3},
+	} {
+		l.ticks = ctxCounter{step: 1}
+		n := 0
+		l.onTick = func() { n++ }
+		got, err := c.got()
+		require.NoError(t, err)
+		assert.Equal(t, c.want, got, c.name)
+		assert.Equal(t, c.ticks, n, "%s: one check per entry", c.name)
 	}
 
 	// The rounded fixed charges are positive multiples of 16; a pack_id is 16 bytes and an hour 8.

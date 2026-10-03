@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 )
 
 // txLookup is the state of one FindTransaction call over one Observation.
@@ -152,11 +151,12 @@ func (l *txLookup) run(ctx context.Context) error {
 // passing each item to fn with the read;
 // it then ends the read's last seq group and adds the read's status to the result (mapScope), also after the read failed.
 // The conflicts of the read are reserved against the lookup's MaxConflicts,
-// and the scope, with a pack_id for each pack of its view, is charged against MaxStateBytes before its pack_ids are taken.
+// and the scope, with a pack_id for each pack of its view, is charged against MaxStateBytes before its pack_ids are taken;
+// each reader counts toward the checks of ctx (tick).
 //
 // Returns:
 //   - *txScopeRead: the read; nil, its charge released, when the observation could not answer the scope,
-//     the scope's charge failed or a reader is nil.
+//     the scope's charge failed, a reader is nil, or ctx is done while the readers' pack_ids are taken.
 //   - error: the observation's error, wrapped with the hour; ctx's error, wrapped;
 //     the read's error, else the error of its mapping, wrapped with the hour;
 //     an error wrapping ErrReadLimit when a charge passes MaxStateBytes.
@@ -180,6 +180,11 @@ func (l *txLookup) readScope(ctx context.Context, hour int64,
 	if len(sc.Readers) > 0 {
 		rd.packs = make([]UUID, len(sc.Readers))
 		for i, r := range sc.Readers {
+			if err := l.tick(ctx); err != nil {
+				l.state.release(cost)
+
+				return nil, fmt.Errorf("tracepack: find transaction: hour %d: %w", hour, err)
+			}
 			if r == nil {
 				l.state.release(cost)
 
@@ -193,14 +198,21 @@ func (l *txLookup) readScope(ctx context.Context, hour int64,
 		MergeIterateOptions{Order: OrderCapture, MaxHeldBytes: l.opts.MaxHeldBytes},
 		mergeIterateOptions{reserveConflict: l.reserveConflict, storedFlags: &l.flags},
 		func(it *Item) error { return fn(ctx, rd, it) })
-	l.endGroup(rd)
+	gerr := l.endGroup(ctx, rd)
+	if err == nil {
+		err = gerr
+	}
 	// The read's own error comes first; the mapping stops at its first error, so that the state stays within its budget.
 	if merr := l.mapScope(ctx, rd, err == nil); err == nil {
 		err = merr
 	}
 	// What the lookup needs of the read is in the result and in rd's own state now,
-	// so the read's Result and group buffer do not live until the lookup ends.
-	rd.readers, rd.res, rd.group = nil, Result{}, txGroup{}
+	// so the read's Result and group buffer do not live until the lookup ends;
+	// a group whose end was cancelled keeps the versions it still holds, charged.
+	rd.readers, rd.res = nil, Result{}
+	if gerr == nil {
+		rd.group = txGroup{}
+	}
 	if err != nil {
 		return rd, fmt.Errorf("tracepack: find transaction: hour %d: %w", hour, err)
 	}
@@ -242,6 +254,10 @@ func (l *txLookup) mapScope(ctx context.Context, rd *txScopeRead, completed bool
 		l.res.FooterErrs = append(l.res.FooterErrs, TxPackError{Hour: rd.hour, Pack: rd.packs[fe.Pack], Err: fe.Err})
 	}
 	for i, r := range rd.readers {
+		// Every pack counts toward the checks of ctx, an evaluated one too.
+		if err := l.tick(ctx); err != nil {
+			return err
+		}
 		if r.meta.QualityEvaluated {
 			continue
 		}
@@ -260,7 +276,11 @@ func (l *txLookup) mapScope(ctx context.Context, rd *txScopeRead, completed bool
 		}
 	}
 	for i := range rd.res.Conflicts {
-		if err := l.grow(ctx, conflictCost(&rd.res.Conflicts[i])); err != nil {
+		n, err := l.conflictCharge(ctx, &rd.res.Conflicts[i])
+		if err != nil {
+			return err
+		}
+		if err := l.grow(ctx, n); err != nil {
 			return err
 		}
 		l.res.Conflicts = append(l.res.Conflicts, rd.res.Conflicts[i])
@@ -282,7 +302,11 @@ func (l *txLookup) mapDefects(ctx context.Context, rd *txScopeRead) error {
 		d := &rd.res.Incomplete[i]
 		rd.defect = rd.defect || d.Reason != ReasonCoverage
 		if d.Reason == ReasonCoverage {
-			if err := l.grow(ctx, txPendingCoverageCharge+coverageCost(d.Coverage)); err != nil {
+			n, err := l.coverageCharge(ctx, d.Coverage)
+			if err != nil {
+				return err
+			}
+			if err := l.grow(ctx, txPendingCoverageCharge+n); err != nil {
 				return err
 			}
 			l.coverage = append(l.coverage, txCoverage{hour: rd.hour, pack: rd.packs[d.Pack], cov: d.Coverage})
@@ -321,7 +345,11 @@ func (l *txLookup) grow(ctx context.Context, n int64) error {
 // Returns:
 //   - error: ctx's error, as is; the charge's error, wrapping ErrReadLimit.
 func (l *txLookup) addGap(ctx context.Context, g TxGap) error {
-	if err := l.grow(ctx, gapCost(&g)); err != nil {
+	n, err := l.gapCharge(ctx, &g)
+	if err != nil {
+		return err
+	}
+	if err := l.grow(ctx, n); err != nil {
 		return err
 	}
 	l.res.Gaps = append(l.res.Gaps, g)
@@ -417,8 +445,8 @@ func (l *txLookup) settle(ctx context.Context, rd *txScopeRead) (bool, error) {
 	}
 
 	// A conflict the read listed stands whatever the comparison below finds.
-	listed := slices.ContainsFunc(l.primary, func(v TxRecord) bool { return v.Conflict })
-	if err := l.distinctVersions(ctx); err != nil {
+	listed, err := l.distinctVersions(ctx)
+	if err != nil {
 		return false, err
 	}
 	if len(l.primary) > 1 || listed {
@@ -459,6 +487,9 @@ func (l *txLookup) settleConflict(ctx context.Context, listed bool) error {
 	}
 	l.deriveKey(&l.primary[0].Record)
 	for i := range l.primary {
+		if err := l.tick(ctx); err != nil {
+			return err
+		}
 		l.primary[i].Conflict = true
 	}
 	l.res.Records = append(l.res.Records, l.primary...)
@@ -487,18 +518,25 @@ func keyMissing(dir Dir, avail FieldValidity) string {
 // distinctVersions keeps, in l.primary and l.primaryFlags, the versions of the primary that differ from every earlier one, in order:
 // two versions are one when their records are equal as stored (sameStoredRecord).
 // The charge of each version left out is released once every version is compared.
+// Each version and each comparison counts toward the checks of ctx (tick).
 //
 // Returns:
+//   - bool: whether the read marked a version of the primary as a conflict (Item.Conflict).
 //   - error: ctx's error, as is, nothing released and l.primary unchanged.
-func (l *txLookup) distinctVersions(ctx context.Context) error {
+func (l *txLookup) distinctVersions(ctx context.Context) (bool, error) {
 	vs, flags := l.primary, l.primaryFlags
 	out, outFlags := vs[:0:0], flags[:0:0]
 	var dropped int64
+	listed := false
 	for i := range vs {
+		if err := l.tick(ctx); err != nil {
+			return false, err
+		}
+		listed = listed || vs[i].Conflict
 		same := false
 		for j := range out {
 			if err := l.tick(ctx); err != nil {
-				return err
+				return false, err
 			}
 			if sameStoredRecord(&out[j], &vs[i], outFlags[j], flags[i]) {
 				same = true
@@ -514,7 +552,7 @@ func (l *txLookup) distinctVersions(ctx context.Context) error {
 	l.state.release(dropped)
 	l.primary, l.primaryFlags = out, outFlags
 
-	return nil
+	return listed, nil
 }
 
 // sameStoredRecord reports whether a, whose record_flags as stored are fa, and b, whose are fb, hold the same record as stored:
