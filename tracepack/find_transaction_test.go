@@ -11,10 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestFindTransactionInvalid calls FindTransaction with arguments it must reject before observing anything,
-// and with the edges it must accept:
-// a rejected call returns the zero TxResult and an error wrapping ErrInvalidQuery, and never calls the source.
-func TestFindTransactionInvalid(t *testing.T) {
+// TestFindTransactionArguments calls FindTransaction with arguments it must reject before observing anything,
+// and with the edges of the valid ones:
+// a rejected call returns the zero TxResult and an error wrapping ErrInvalidQuery, and never calls the source;
+// an accepted call observes the empty source once over its hours, reads the scope of its hour alone,
+// finds the primary missing from a scope not indexed, and closes the observation once.
+func TestFindTransactionArguments(t *testing.T) {
 	t.Parallel()
 
 	key := TxKey{Capture: captureLow, Seq: 1, Hour: memTestHour}
@@ -56,15 +58,23 @@ func TestFindTransactionInvalid(t *testing.T) {
 				src = nil
 			}
 			res, err := FindTransaction(t.Context(), src, tt.key, tt.opts)
-			assert.Equal(t, TxResult{}, res)
+			observes, scopes, closes := s.counts()
 			if tt.invalid != "" {
 				require.ErrorIs(t, err, ErrInvalidQuery)
 				require.ErrorContains(t, err, tt.invalid)
-			} else {
-				require.ErrorIs(t, err, errTxNotImplemented)
+				assert.Equal(t, TxResult{}, res)
+				assert.Zero(t, observes)
+
+				return
 			}
-			observes, _, _ := s.counts()
-			assert.Zero(t, observes)
+
+			require.NoError(t, err)
+			assert.Equal(t, TxIncomplete, res.Outcome)
+			assert.Equal(t, []TxGapReason{TxGapCold, TxGapNoKey}, gapReasons(res.Gaps))
+			assert.Equal(t, []TxScope{{Hour: tt.key.Hour}}, res.Searched)
+			assert.Equal(t, 1, observes)
+			assert.Equal(t, map[int64]int{tt.key.Hour: 1}, scopes)
+			assert.Equal(t, 1, closes)
 		})
 	}
 }

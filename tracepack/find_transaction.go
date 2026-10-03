@@ -112,7 +112,7 @@ const (
 // or no record where a complete read of an indexed scope shows none (the tracepack semantics specification §7.2).
 var ErrNotPrimary = errors.New("tracepack: not a primary")
 
-// errTxNotImplemented is what FindTransaction returns, once its arguments are valid, until the lookup itself is in place.
+// errTxNotImplemented is what FindTransaction returns once the primary has a key, until the search of its window is in place.
 var errTxNotImplemented = errors.New("tracepack: find transaction: lookup not implemented")
 
 // TxKey names the primary record of a transaction lookup.
@@ -218,7 +218,9 @@ type TxGap struct {
 	Seq *uint64
 	// Defect is the reason of the read defect a TxGapRead or TxGapIndex reports; zero otherwise.
 	Defect IncompleteReason
-	// Coverage is the coverage entry a TxGapCoverage reports; nil otherwise.
+	// Coverage is the coverage entry a TxGapCoverage reports,
+	// or, for a TxGapNoKey gap of a missing primary, the first coverage entry that meets the primary's seq and hour;
+	// nil otherwise.
 	Coverage *Coverage
 	// Barrier is the boundary a TxGapBarrier or TxGapCaptureBoundary reports; nil otherwise.
 	Barrier *Boundary
@@ -256,8 +258,8 @@ type TxResult struct {
 	Outcome TxOutcome
 	// Epoch, Dir, SessionID and SystemBytes are the association key derived from the primary,
 	// and Stream and Function its match fields, Stream valid iff StreamAvailable.
-	// They are zero until the primary is read;
-	// after a conflict at the primary found in a later scope, they stay those of the first version, as diagnostics.
+	// They are zero when the primary is missing or the lookup fails with ErrNotPrimary, and an unavailable field stays zero;
+	// when the primary has several versions, in its own scope or a later one, they are those of the first version, as diagnostics.
 	Epoch           uint32
 	Dir             Dir
 	SessionID       uint16
@@ -330,15 +332,40 @@ type TxResult struct {
 //     a ReadAt error; an error wrapping ErrReadLimit from MaxHeldBytes, MaxConflicts or MaxStateBytes;
 //     ctx's error, wrapped.
 //     A block over its Reader's MaxBlockLen is not an error: it is a TxGapRead gap.
-func FindTransaction(ctx context.Context, src PackSource, key TxKey, opts TxOptions) (TxResult, error) {
-	if _, err := checkFindTransaction(src, key, opts); err != nil {
+func FindTransaction(ctx context.Context, src PackSource, key TxKey, opts TxOptions) (res TxResult, err error) {
+	opts, err = checkFindTransaction(src, key, opts)
+	if err != nil {
 		return TxResult{}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return TxResult{}, fmt.Errorf("tracepack: find transaction: %w", err)
 	}
+	// checkFindTransaction bounded the last hour by MaxTxHour, so the end of the range fits.
+	to := key.Hour + int64(opts.MaxScopes)
+	obs, err := src.Observe(ctx, key.Capture, key.Hour, to)
+	if err != nil {
+		return TxResult{}, fmt.Errorf("tracepack: find transaction: observe hours [%d, %d): %w", key.Hour, to, err)
+	}
 
-	return TxResult{}, errTxNotImplemented
+	// Close runs once on every path, a panic included; its error is returned only when nothing else failed.
+	defer func() {
+		if cerr := obs.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("tracepack: find transaction: close hours [%d, %d): %w", key.Hour, to, cerr)
+		}
+		if err != nil {
+			res.Outcome = 0
+		}
+	}()
+
+	l := newTxLookup(key, opts, obs)
+	err = l.run(ctx)
+	if err == nil {
+		if cerr := ctx.Err(); cerr != nil {
+			err = fmt.Errorf("tracepack: find transaction: %w", cerr)
+		}
+	}
+
+	return l.res, err
 }
 
 // checkFindTransaction validates the arguments of FindTransaction before anything is read and applies the defaults of opts.
