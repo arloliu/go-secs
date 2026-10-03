@@ -112,7 +112,7 @@ const (
 // or no record where a complete read of an indexed scope shows none (the tracepack semantics specification §7.2).
 var ErrNotPrimary = errors.New("tracepack: not a primary")
 
-// errTxNotImplemented is what FindTransaction returns once the primary has a key, until the search of its window is in place.
+// errTxNotImplemented is what FindTransaction returns once every scope of a keyed primary is read, until the evaluation is in place.
 var errTxNotImplemented = errors.New("tracepack: find transaction: lookup not implemented")
 
 // TxKey names the primary record of a transaction lookup.
@@ -135,7 +135,8 @@ type TxOptions struct {
 	// zero or negative means DefaultMaxHeldBytes.
 	MaxHeldBytes int64
 	// MaxConflicts bounds the conflicts of the whole lookup:
-	// each conflict a scope read lists counts one, and so does each seq yielded by more than one scope read, once however many;
+	// each conflict a scope read lists counts one, and so does each seq yielded by more than one scope read, once however many,
+	// and a conflict at the primary among copies its scope's read did not compare;
 	// zero or negative means DefaultMaxConflicts.
 	MaxConflicts int
 	// MaxStateBytes bounds the lookup's own state: the records it keeps, with their payloads and header extensions,

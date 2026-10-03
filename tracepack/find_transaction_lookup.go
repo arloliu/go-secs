@@ -20,10 +20,21 @@ type txLookup struct {
 	conflicts int
 	// primary holds the versions of the primary's seq that the read of scope key.Hour yielded, cloned as they arrived.
 	primary []TxRecord
+	// prim is what the records above the primary are classified against, taken from primary's first version.
+	prim txPrimaryKey
 	// early counts the records above the primary's seq that the read of scope key.Hour yielded before any version of the primary.
 	early int
 	// coverage holds the coverage entries of the packs read, each evaluated against the lookup's query once the reads are done.
 	coverage []txCoverage
+	// runs holds the run set of each scope read, in read order.
+	runs []*txRuns
+	// cross maps each seq in conflict across scope reads to the hours that yielded it.
+	cross map[uint64]*txCrossConflict
+	// uncertain maps each epoch of a record with ordering-uncertain that a read yielded, at any seq,
+	// to where the first such record was seen.
+	uncertain map[uint32]txSeen
+	// boundaries holds every version of a capture-boundary record of the primary's epoch above the primary that a read yielded.
+	boundaries []txBoundaryRecord
 }
 
 // txScopeRead is one scope a transaction lookup reads: its fixed view and the status of its read.
@@ -34,6 +45,13 @@ type txScopeRead struct {
 	// packs holds the pack_id of each reader, in view order.
 	packs []UUID
 	res   Result
+	// runs is the read's run set, also held by the lookup.
+	runs *txRuns
+	// group is the seq group the read is yielding.
+	group txGroup
+	// kept holds the versions the read kept, and gaps the conflicts it found, until they are added to the result.
+	kept []TxRecord
+	gaps []txPendingGap
 }
 
 // txCoverage is a coverage entry of a pack a transaction lookup read.
@@ -81,7 +99,7 @@ func (l *txLookup) run(ctx context.Context) error {
 	}
 	l.evidence = ev
 
-	rd, err := l.readScope(ctx, l.key.Hour, l.collectPrimary)
+	rd, err := l.readScope(ctx, l.key.Hour, l.collect)
 	if err != nil {
 		return err
 	}
@@ -89,24 +107,22 @@ func (l *txLookup) run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if keyed {
-		return l.searchWindow(ctx)
+	if !keyed {
+		// A primary without a key makes the outcome incomplete, and no further scope is read
+		// (the tracepack semantics specification §7.2).
+		// What the read classified above it was classified against no key, and is dropped.
+		l.res.Outcome = TxIncomplete
+
+		return nil
 	}
-	// A primary without a key makes the outcome incomplete, and no further scope is read
-	// (the tracepack semantics specification §7.2).
-	l.res.Outcome = TxIncomplete
+	l.commitRead(rd)
 
-	return nil
-}
-
-// searchWindow reads the scopes after key.Hour and evaluates the window of a keyed primary.
-// It is not in place yet: it returns errTxNotImplemented, the result holding what scope key.Hour gave.
-func (l *txLookup) searchWindow(context.Context) error {
-	return errTxNotImplemented
+	return l.searchWindow(ctx)
 }
 
 // readScope reads the scope of hour with one MergeIterate in capture order, a zero filter and payloads,
-// passing each item to fn with the read, and then adds the read's status to the result (mapScope).
+// passing each item to fn with the read;
+// it then ends the read's last seq group and adds the read's status to the result (mapScope).
 // The conflicts of the read are reserved against the lookup's MaxConflicts.
 //
 // Returns:
@@ -121,7 +137,7 @@ func (l *txLookup) readScope(ctx context.Context, hour int64, fn func(rd *txScop
 		return nil, fmt.Errorf("tracepack: find transaction: hour %d: scope: %w", hour, err)
 	}
 
-	rd := &txScopeRead{hour: hour, indexed: sc.Indexed, readers: sc.Readers}
+	rd := &txScopeRead{hour: hour, indexed: sc.Indexed, readers: sc.Readers, runs: &txRuns{hour: hour}}
 	if len(sc.Readers) > 0 {
 		rd.packs = make([]UUID, len(sc.Readers))
 		for i, r := range sc.Readers {
@@ -131,10 +147,12 @@ func (l *txLookup) readScope(ctx context.Context, hour int64, fn func(rd *txScop
 			rd.packs[i] = UUID(r.hdr.PackID)
 		}
 	}
+	l.runs = append(l.runs, rd.runs)
 	rd.res, err = mergeIterateWith(ctx, sc.Readers, Query{Payloads: true},
 		MergeIterateOptions{Order: OrderCapture, MaxHeldBytes: l.opts.MaxHeldBytes},
 		mergeIterateOptions{reserveConflict: l.reserveConflict},
 		func(it *Item) error { return fn(rd, it) })
+	l.endGroup(rd)
 	l.mapScope(rd, err == nil)
 	if err != nil {
 		return rd, fmt.Errorf("tracepack: find transaction: hour %d: %w", hour, err)
@@ -199,20 +217,6 @@ func (l *txLookup) mapScope(rd *txScopeRead, completed bool) {
 	}
 }
 
-// collectPrimary takes an item of the read of scope key.Hour:
-// each version of the primary's seq is cloned and kept,
-// and a record above the primary's seq that arrives before any version of it is counted.
-func (l *txLookup) collectPrimary(rd *txScopeRead, it *Item) error {
-	seq := it.Record.Seq
-	if seq == l.key.Seq {
-		l.primary = append(l.primary, keepVersion(rd, it, TxPrimary))
-	} else if seq > l.key.Seq && len(l.primary) == 0 {
-		l.early++
-	}
-
-	return nil
-}
-
 // keepVersion returns the version of item it, which the read rd yielded, with class,
 // its payload and header extension cloned.
 func keepVersion(rd *txScopeRead, it *Item, class TxClass) TxRecord {
@@ -234,7 +238,8 @@ func keepVersion(rd *txScopeRead, it *Item, class TxClass) TxRecord {
 // Copies of the primary that the read yielded uncompared, from clusters that a block disagreeing with its F-2 entry split,
 // are compared here, byte for byte: identical copies are one version, kept once.
 // Several versions are a conflict at the primary: a TxGapConflict and a TxGapNoKey gap,
-// every version kept and marked as a conflict.
+// every version kept and marked as a conflict;
+// when the read listed no conflict at the primary, because the versions arrived uncompared, the conflict is reserved here.
 // One version that is not a data record with an available odd function is ErrNotPrimary.
 // Otherwise the key is derived from it, and it is kept.
 // It has no key, a TxGapNoKey gap, unless its direction is host-to-equipment or equipment-to-host
@@ -243,7 +248,8 @@ func keepVersion(rd *txScopeRead, it *Item, class TxClass) TxRecord {
 //
 // Returns:
 //   - bool: whether the primary has a key, so that its window is to be searched.
-//   - error: an error wrapping ErrNotPrimary.
+//   - error: an error wrapping ErrNotPrimary;
+//     the error of the reservation of a conflict the read did not list, wrapping ErrReadLimit.
 func (l *txLookup) settlePrimary(rd *txScopeRead) (bool, error) {
 	p := l.key.Seq
 	if len(l.primary) == 0 {
@@ -262,9 +268,15 @@ func (l *txLookup) settlePrimary(rd *txScopeRead) (bool, error) {
 		l.addKeyGap(TxGapIndex, fmt.Sprintf("%d records above the primary arrived before it", l.early))
 	}
 
+	listed := slices.ContainsFunc(l.primary, func(v TxRecord) bool { return v.Conflict })
 	l.primary = distinctVersions(l.primary)
 	first := &l.primary[0].Record
 	if len(l.primary) > 1 {
+		if !listed {
+			if err := l.reserveConflict(); err != nil {
+				return false, fmt.Errorf("tracepack: find transaction: hour %d: the conflict at seq %d: %w", l.key.Hour, p, err)
+			}
+		}
 		l.deriveKey(first)
 		for i := range l.primary {
 			l.primary[i].Conflict = true
