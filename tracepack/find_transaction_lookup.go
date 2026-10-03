@@ -48,12 +48,18 @@ type txLookup struct {
 	ticks ctxCounter
 	// onTick, set only by tests, runs at each check of ctx that tick makes, before it.
 	onTick func()
-	// skipSeqGap and trustClosures, set only by tests, each take a rule out of the lookup,
-	// so that a test shows the checks that catch its absence.
+	// skipSeqGap, trustClosures, readConflicted, breachComplete and breachFromPrimary, set only by tests,
+	// each take a rule out of the lookup, so that a test shows the checks that catch its absence.
 	// skipSeqGap leaves a bounded window's seq gap unlisted.
 	// trustClosures, when set, may move the window's end, and the per-capture evidence's closures are not checked.
-	skipSeqGap    bool
-	trustClosures func(w *txWindow)
+	// readConflicted reads a conflicted scope as a scope without packs.
+	// breachComplete lets a scope breach leave the outcome as the other gaps decide it.
+	// breachFromPrimary checks only the versions at or above the primary's seq for a scope breach.
+	skipSeqGap        bool
+	trustClosures     func(w *txWindow)
+	readConflicted    bool
+	breachComplete    bool
+	breachFromPrimary bool
 }
 
 // txScopeRead is one scope a transaction lookup reads: its fixed view and the status of its read.
@@ -61,12 +67,16 @@ type txLookup struct {
 type txScopeRead struct {
 	hour    int64
 	indexed bool
-	readers []*Reader
+	// conflicted reports a scope whose view is conflicted, which is not read:
+	// it has no readers, run set or pack_ids, and is not among the lookup's reads.
+	conflicted bool
+	readers    []*Reader
 	// packs holds the pack_id of each reader, in view order.
 	packs []UUID
 	res   Result
-	// defect reports that the read has a defect other than a coverage entry.
-	defect bool
+	// defect reports that the read has a defect other than a coverage entry,
+	// and breach that it yielded a version outside the scope's hour.
+	defect, breach bool
 	// runs is the read's run set.
 	runs *txRuns
 	// group is the seq group the read is yielding.
@@ -153,10 +163,12 @@ func (l *txLookup) run(ctx context.Context) error {
 // The conflicts of the read are reserved against the lookup's MaxConflicts,
 // and the scope, with a pack_id for each pack of its view, is charged against MaxStateBytes before its pack_ids are taken;
 // each reader counts toward the checks of ctx (tick).
+// A scope whose view is conflicted is not read (passConflicted).
 //
 // Returns:
 //   - *txScopeRead: the read; nil, its charge released, when the observation could not answer the scope,
-//     the scope's charge failed, a reader is nil, or ctx is done while the readers' pack_ids are taken.
+//     the scope's charge failed, a reader is nil, a conflicted scope has readers,
+//     or ctx is done while the readers' pack_ids are taken.
 //   - error: the observation's error, wrapped with the hour; ctx's error, wrapped;
 //     the read's error, else the error of its mapping, wrapped with the hour;
 //     an error wrapping ErrReadLimit when a charge passes MaxStateBytes.
@@ -169,6 +181,17 @@ func (l *txLookup) readScope(ctx context.Context, hour int64,
 	sc, err := l.obs.Scope(ctx, hour)
 	if err != nil {
 		return nil, fmt.Errorf("tracepack: find transaction: hour %d: scope: %w", hour, err)
+	}
+	if sc.Conflicted && !l.readConflicted {
+		if len(sc.Readers) > 0 {
+			return nil, fmt.Errorf("tracepack: find transaction: hour %d: scope: a conflicted scope comes with readers (%d)", hour, len(sc.Readers))
+		}
+		rd := &txScopeRead{hour: hour, indexed: sc.Indexed, conflicted: true}
+		if err := l.passConflicted(ctx, rd); err != nil {
+			return rd, fmt.Errorf("tracepack: find transaction: hour %d: %w", hour, err)
+		}
+
+		return rd, nil
 	}
 
 	// The scope is charged before its pack_ids are allocated; a failure after the charge releases it.
@@ -218,6 +241,28 @@ func (l *txLookup) readScope(ctx context.Context, hour int64,
 	}
 
 	return rd, nil
+}
+
+// passConflicted adds the gaps of the conflicted scope rd, which the lookup does not read
+// (the tracepack semantics specification §7.2):
+// TxGapCold when the catalog does not index it, then TxGapConflicted, each charged before it is added.
+// Nothing else of the scope enters the state: no scope charge, run set, read or searched scope.
+//
+// Returns:
+//   - error: ctx's error, as is; the error of a gap's charge, wrapping ErrReadLimit.
+func (l *txLookup) passConflicted(ctx context.Context, rd *txScopeRead) error {
+	if !rd.indexed {
+		if err := l.addGap(ctx, TxGap{
+			Reason: TxGapCold, Hours: []int64{rd.hour}, Block: -1, Offset: -1, Err: errors.New("the scope is not indexed"),
+		}); err != nil {
+			return err
+		}
+	}
+
+	return l.addGap(ctx, TxGap{
+		Reason: TxGapConflicted, Hours: []int64{rd.hour}, Block: -1, Offset: -1,
+		Err: errors.New("the scope's view is conflicted, so it is not read"),
+	})
 }
 
 // reserveConflict reserves one conflict of the lookup against opts.MaxConflicts.
@@ -385,7 +430,8 @@ func keepVersion(rd *txScopeRead, it *Item, class TxClass) TxRecord {
 // settlePrimary settles the primary once scope key.Hour is read (the tracepack semantics specification §7.2).
 //
 // With no version, the primary is missing: a TxGapNoKey gap when the read has a defect other than a coverage entry,
-// a coverage entry meets the primary's seq and hour, or the scope is not indexed; ErrNotPrimary otherwise.
+// yielded a version outside the scope's hour, a coverage entry meets the primary's seq and hour,
+// or the scope is not indexed or conflicted; ErrNotPrimary otherwise.
 // The gap carries a copy of the first coverage entry that meets the primary's seq and hour, if any.
 // A version of the primary after a record above it, in the same read, is a TxGapIndex gap: the order was broken.
 // Copies of the primary that the read yielded uncompared, from clusters that a block disagreeing with its F-2 entry split,
@@ -568,10 +614,11 @@ func sameStoredRecord(a, b *TxRecord, fa, fb uint8) bool {
 		x.FieldValidity == y.FieldValidity && bytes.Equal(x.Payload, y.Payload) && bytes.Equal(a.HeaderExtra, b.HeaderExtra)
 }
 
-// explainsMissing reports whether the read rd has a defect other than a coverage entry, or reads a scope that is not indexed,
-// either of which explains why it yielded no version of the primary.
+// explainsMissing reports whether the read rd has a defect other than a coverage entry,
+// yielded a version outside the scope's hour, reads a scope that is not indexed, or passes over a conflicted scope,
+// any of which explains why it yielded no version of the primary.
 func explainsMissing(rd *txScopeRead) bool {
-	return !rd.indexed || rd.defect
+	return !rd.indexed || rd.defect || rd.breach || rd.conflicted
 }
 
 // coverageAtPrimary finds the first coverage entry read in scope key.Hour that meets the primary's seq and hour,

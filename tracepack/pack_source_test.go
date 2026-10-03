@@ -55,6 +55,8 @@ type memSource struct {
 	scopes   map[memScopeKey]*memScope
 	indexed  map[memScopeKey]bool
 	evidence map[UUID]*memEvidence
+	// conflicted holds the scopes the catalog reports conflicted whatever their packs.
+	conflicted map[memScopeKey]bool
 
 	// duringObserve, when set, runs inside Observe after the views are fixed,
 	// before Observe checks that every scope it fixed as not indexed still is.
@@ -94,13 +96,15 @@ var _ Observation = (*memObservation)(nil)
 type memFixedScope struct {
 	files   [][]byte
 	indexed bool
+	// conflicted reports a scope whose view is conflicted; it has no files.
+	conflicted bool
 }
 
 // newMemSource returns an empty memSource.
 func newMemSource() *memSource {
 	return &memSource{
 		scopes: map[memScopeKey]*memScope{}, indexed: map[memScopeKey]bool{}, evidence: map[UUID]*memEvidence{},
-		scopeCalls: map[int64]int{},
+		conflicted: map[memScopeKey]bool{}, scopeCalls: map[int64]int{},
 	}
 }
 
@@ -184,6 +188,35 @@ func (s *memSource) commit(capture UUID, hour int64, id UUID) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.scope(capture, hour).commits[id] = struct{}{}
+}
+
+// conflict makes captureLow's scope of hour conflicted (the tracepack storage specification §4):
+// it puts in it the members of two generations of one rank, setA's memA and setB's memB,
+// each holding steps, whose records keep their times, its period hour,
+// admitted, or staged when staged is set, so that only a listing view reads them, and commits both sets.
+func (s *memSource) conflict(t testing.TB, hour int64, staged bool, steps []footerTestStep) {
+	t.Helper()
+
+	for _, m := range []struct{ id, set UUID }{{memA, setA}, {memB, setB}} {
+		file := txPack(t, m.id, func(pm *PackMeta) {
+			pm.PeriodStart += (hour - memTestHour) * hourNs
+			pm.PeriodEnd += (hour - memTestHour) * hourNs
+			generationMeta(pm, m.set, 1, 1, nil)
+		}, steps)
+		if staged {
+			s.stagePack(t, hour, file)
+		} else {
+			s.addPack(t, hour, file)
+		}
+		s.commit(captureLow, hour, m.set)
+	}
+}
+
+// setConflicted makes the catalog report capture's scope in hour conflicted, whatever its packs, or not.
+func (s *memSource) setConflicted(capture UUID, hour int64, conflicted bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.conflicted[memScopeKey{capture: capture, hour: hour}] = conflicted
 }
 
 // setIndexed makes the catalog index capture's scope in hour, or not.
@@ -273,6 +306,8 @@ func (s *memSource) Observe(ctx context.Context, capture UUID, from, to int64) (
 }
 
 // fix returns the observation of capture over [from, to) from the source's current state; s.mu is held.
+// A scope whose active view is conflicted, indexed or not, is fixed as conflicted, without files,
+// and so is a scope setConflicted marks.
 func (s *memSource) fix(ctx context.Context, capture UUID, from, to int64) (*memObservation, error) {
 	if from >= to {
 		return nil, fmt.Errorf("memSource: empty hours [%d, %d)", from, to)
@@ -281,6 +316,11 @@ func (s *memSource) fix(ctx context.Context, capture UUID, from, to int64) (*mem
 	for h := from; h < to; h++ {
 		k := memScopeKey{capture: capture, hour: h}
 		indexed := s.indexed[k]
+		if s.conflicted[k] {
+			o.scopes[h] = memFixedScope{indexed: indexed, conflicted: true}
+
+			continue
+		}
 		var present map[UUID][]byte
 		var commits CommitSet
 		if sc := s.scopes[k]; sc != nil {
@@ -290,10 +330,11 @@ func (s *memSource) fix(ctx context.Context, capture UUID, from, to int64) (*mem
 			}
 		}
 		files, err := viewFiles(ctx, present, commits)
-		if err != nil {
+		conflicted := errors.Is(err, ErrViewConflicted)
+		if err != nil && !conflicted {
 			return nil, fmt.Errorf("memSource: hour %d: %w", h, err)
 		}
-		o.scopes[h] = memFixedScope{files: files, indexed: indexed}
+		o.scopes[h] = memFixedScope{files: files, indexed: indexed, conflicted: conflicted}
 	}
 
 	o.evidence = s.foldEvidence(capture)
@@ -347,7 +388,7 @@ func viewFiles(ctx context.Context, present map[UUID][]byte, commits CommitSet) 
 	return files, nil
 }
 
-// Scope opens a fresh Reader for each pack of hour's fixed view.
+// Scope opens a fresh Reader for each pack of hour's fixed view; a conflicted scope has none.
 func (o *memObservation) Scope(ctx context.Context, hour int64) (SourceScope, error) {
 	if err := o.check(ctx); err != nil {
 		return SourceScope{}, err
@@ -366,6 +407,9 @@ func (o *memObservation) Scope(ctx context.Context, hour int64) (SourceScope, er
 	}
 
 	sc := o.scopes[hour]
+	if sc.conflicted {
+		return SourceScope{Indexed: sc.indexed, Conflicted: true}, nil
+	}
 	out := SourceScope{Readers: make([]*Reader, len(sc.files)), Indexed: sc.indexed}
 	for i, f := range sc.files {
 		r, err := Open(ctx, bytes.NewReader(f), int64(len(f)), ReaderOptions{})
@@ -540,6 +584,47 @@ func TestMemSourceListingView(t *testing.T) {
 			want = want[:1]
 		}
 		assert.Equal(t, want, packIDs(sc.Readers), "indexed %v", indexed)
+		require.NoError(t, o.Close())
+	}
+}
+
+// TestMemSourceConflicted fixes a scope holding a segment and two committed generations of one rank, admitted,
+// a scope holding a segment beside such generations only staged,
+// and a scope holding a segment that the catalog reports conflicted:
+// the first and the last are conflicted, indexed or not, with no readers;
+// the second is conflicted only through its listing view, its indexed view the segment.
+func TestMemSourceConflicted(t *testing.T) {
+	t.Parallel()
+
+	s := newMemSource()
+	for h := range int64(3) {
+		s.addPack(t, memTestHour+h, txPackIn(t, seg0, h, nil, txBlock(txSeqs(12)...)))
+	}
+	for h := range int64(2) {
+		s.conflict(t, memTestHour+h, h == 1, inHours(h, txBlock(txSeqs(12)...)))
+	}
+	s.setConflicted(captureLow, memTestHour+2, true)
+	for _, indexed := range []bool{true, false} {
+		for h := range int64(3) {
+			s.setIndexed(captureLow, memTestHour+h, indexed)
+		}
+		o, err := s.Observe(t.Context(), captureLow, memTestHour, memTestHour+3)
+		require.NoError(t, err)
+		sc, err := o.Scope(t.Context(), memTestHour)
+		require.NoError(t, err)
+		assert.Equal(t, SourceScope{Indexed: indexed, Conflicted: true}, sc, "admitted, indexed %v", indexed)
+		sc, err = o.Scope(t.Context(), memTestHour+1)
+		require.NoError(t, err)
+		assert.Equal(t, !indexed, sc.Conflicted, "staged, indexed %v", indexed)
+		assert.Equal(t, indexed, sc.Indexed)
+		if indexed {
+			assert.Equal(t, []UUID{seg0}, packIDs(sc.Readers))
+		} else {
+			assert.Empty(t, sc.Readers)
+		}
+		sc, err = o.Scope(t.Context(), memTestHour+2)
+		require.NoError(t, err)
+		assert.Equal(t, SourceScope{Indexed: indexed, Conflicted: true}, sc, "reported, indexed %v", indexed)
 		require.NoError(t, o.Close())
 	}
 }

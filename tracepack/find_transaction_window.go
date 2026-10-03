@@ -318,6 +318,8 @@ func (l *txLookup) searchWindow(ctx context.Context) error {
 
 // collect takes an item of the read rd.
 //
+// Every item whose record lies outside the scope's hour adds a TxGapScopeBreach gap (noteBreach), whatever its seq,
+// to the result's gaps at once, ahead of the read's mapped gaps.
 // Every item whose record carries ordering-uncertain notes its epoch, whatever its seq.
 // An item at or above the primary's seq enters the read's run set and its seq group (beginGroup),
 // or, joining the open group, adds the group's conflict gap when it is the group's first version marked as a conflict (localConflict).
@@ -333,6 +335,11 @@ func (l *txLookup) collect(ctx context.Context, rd *txScopeRead, it *Item) error
 		return err
 	}
 	rec := &it.Record
+	if hourOf(rec.TSUTCNs) != rd.hour && (!l.breachFromPrimary || rec.Seq >= l.key.Seq) {
+		if err := l.noteBreach(ctx, rd, it); err != nil {
+			return err
+		}
+	}
 	if rec.Quality&QualityOrderingUncertain != 0 {
 		if err := l.noteOrderingUncertain(rd, it); err != nil {
 			return err
@@ -371,6 +378,29 @@ func (l *txLookup) collect(ctx context.Context, rd *txScopeRead, it *Item) error
 	default:
 		return l.addVersion(rd, it)
 	}
+
+	return nil
+}
+
+// noteBreach adds a TxGapScopeBreach gap for it, whose record's ts_utc_ns lies outside the hour of the scope rd reads
+// (the tracepack format specification I-13), charged before it is added (addGap),
+// and marks the read as breached, which explains a missing primary (explainsMissing).
+// The gap lists the scope's hour and names the version's pack, block and seq.
+// It goes to the result's gaps at once, so a read's breach gaps precede the gaps its mapping adds (mapScope):
+// unlike the conflict gaps a read pends until commitRead, they must survive an initial key failure,
+// which drops the pended gaps of the primary's scope.
+//
+// Returns:
+//   - error: ctx's error, as is; the charge's error, wrapping ErrReadLimit.
+func (l *txLookup) noteBreach(ctx context.Context, rd *txScopeRead, it *Item) error {
+	rec := &it.Record
+	if err := l.addGap(ctx, TxGap{
+		Reason: TxGapScopeBreach, Hours: []int64{rd.hour}, Pack: new(rd.packs[it.Pack]), Block: it.Block, Offset: -1,
+		Seq: new(rec.Seq), Err: fmt.Errorf("the record of seq %d lies in hour %d, outside the scope's hour", rec.Seq, hourOf(rec.TSUTCNs)),
+	}); err != nil {
+		return err
+	}
+	rd.breach = true
 
 	return nil
 }

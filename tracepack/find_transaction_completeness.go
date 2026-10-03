@@ -13,8 +13,9 @@ import (
 // (the tracepack semantics specification §7.2, the tracepack storage specification §5, Completeness):
 // the coverage entries that meet the lookup's query, the epoch barrier, the time barriers,
 // the capture-boundaries of the primary's epoch, its ordering-uncertain records, partial evidence and the contradictions.
-// The searched time range is the one of the hours read, [key.Hour, key.Hour + MaxScopes), in nanoseconds:
-// evaluation runs only once every one of them is read.
+// The time range is the one of the hours scheduled, [key.Hour, key.Hour + MaxScopes), in nanoseconds,
+// a conflicted hour, which is not read, included:
+// evaluation runs only once every one of them is read or passed over.
 //
 // Returns:
 //   - error: ctx's error, as is; the error of a gap's charge, wrapping ErrReadLimit;
@@ -73,7 +74,7 @@ func (l *txLookup) coverageGaps(ctx context.Context, w *txWindow, from, to int64
 		// Charged as a copy, then copied.
 		if err := l.addGap(ctx, TxGap{
 			Reason: TxGapCoverage, Hours: []int64{c.hour}, Pack: new(c.pack), Block: -1, Offset: -1, Coverage: c.cov,
-			Err: errors.New("a coverage entry of the pack meets the window and the hours read"),
+			Err: errors.New("a coverage entry of the pack meets the window and the hours scheduled"),
 		}); err != nil {
 			return err
 		}
@@ -183,7 +184,7 @@ func (l *txLookup) timeBarrierGaps(ctx context.Context, from, to int64) error {
 		}
 		if err := l.addBoundaryGap(ctx, TxGap{
 			Reason: TxGapBarrier, Block: -1, Offset: -1,
-			Err: fmt.Errorf("a stop-unclean boundary of capture %s has a gap that meets the hours read", b.Capture),
+			Err: fmt.Errorf("a stop-unclean boundary of capture %s has a gap that meets the hours scheduled", b.Capture),
 		}, b); err != nil {
 			return err
 		}

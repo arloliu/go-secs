@@ -300,7 +300,7 @@ func (l *txLookup) unavailable(v *TxRecord, w *txWindow) string {
 }
 
 // decide returns the outcome from the valid matches and the gaps listed (the tracepack semantics specification §7.2):
-// TxIncomplete beside a TxGapNoKey, TxGapConflict or TxGapIndex gap;
+// TxIncomplete beside a TxGapNoKey, TxGapConflict, TxGapIndex or TxGapScopeBreach gap;
 // otherwise TxMatched for one valid match and TxAmbiguous for several, whatever other gap is listed;
 // otherwise TxUnmatched when no gap is listed, TxIncomplete when one is.
 //
@@ -313,7 +313,7 @@ func (l *txLookup) decide(ctx context.Context, valid int) (TxOutcome, error) {
 			return 0, err
 		}
 		// Any other gap only prevents TxUnmatched, below.
-		if r := l.res.Gaps[i].Reason; r == TxGapNoKey || r == TxGapConflict || r == TxGapIndex {
+		if r := l.res.Gaps[i].Reason; r == TxGapNoKey || r == TxGapConflict || r == TxGapIndex || r == TxGapScopeBreach && !l.breachComplete {
 			return TxIncomplete, nil
 		}
 	}
