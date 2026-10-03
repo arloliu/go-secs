@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math"
 	"slices"
 	"sync"
 	"testing"
@@ -400,7 +399,8 @@ func (o *memObservation) Evidence(ctx context.Context) (CaptureEvidence, error) 
 	return e, nil
 }
 
-// Barriers returns deep copies of the fixed barriers whose gap interval meets [from, to), an inverted one meeting every range.
+// Barriers returns deep copies of the fixed barriers whose gap interval meets [from, to), an inverted one meeting every range;
+// a range that is empty or not within the observation's hours is an error.
 func (o *memObservation) Barriers(ctx context.Context, from, to int64) ([]Boundary, error) {
 	if err := o.check(ctx); err != nil {
 		return nil, err
@@ -414,6 +414,9 @@ func (o *memObservation) Barriers(ctx context.Context, from, to int64) ([]Bounda
 		}
 	}
 
+	if from >= to || from < o.from*hourNs || to > o.to*hourNs {
+		return nil, fmt.Errorf("memSource: barriers range [%d, %d) is empty or outside hours [%d, %d)", from, to, o.from, o.to)
+	}
 	var out []Boundary
 	for _, b := range o.barriers {
 		if barrierMeets(&b, from, to) {
@@ -647,7 +650,7 @@ func TestMemSourceEvidenceOutOfOrder(t *testing.T) {
 		Closures: []EpochClosure{{Epoch: 2, CloseSeq: 25}, {Epoch: 3, CloseSeq: 50}},
 	}, e)
 
-	b, err := o.Barriers(t.Context(), math.MinInt64, math.MaxInt64)
+	b, err := o.Barriers(t.Context(), blockTestHour, blockTestHour+hourNs)
 	require.NoError(t, err)
 	assert.Equal(t, []Boundary{unclean}, b)
 }
@@ -768,6 +771,56 @@ func TestMemSourceBarriers(t *testing.T) {
 	}
 }
 
+// TestMemSourceBarriersRange asks an observation of two hours for its barriers over ranges within its hours and beyond them:
+// the exact interval and strict subranges answer, with the unbounded and inverted barriers and those of another capture;
+// a range with either end outside the hours, an empty range and a reversed one are errors.
+func TestMemSourceBarriersRange(t *testing.T) {
+	t.Parallel()
+
+	at := func(v int64) *int64 { return &v }
+	from, to := blockTestHour, blockTestHour+2*hourNs
+	unbounded := Boundary{Capture: captureLow, Seq: 1, Kind: BoundaryKindStopUnclean}
+	inverted := Boundary{Capture: captureHigh, Seq: 2, Kind: BoundaryKindStopUnclean, GapStart: at(to + 5), GapEnd: at(from - 5)}
+	second := Boundary{Capture: captureHigh, Seq: 3, Kind: BoundaryKindStopUnclean, GapStart: at(from + hourNs), GapEnd: at(from + hourNs)}
+	s := newMemSource()
+	for _, b := range []Boundary{unbounded, inverted, second} {
+		s.addBoundary(b)
+	}
+	o, err := s.Observe(t.Context(), captureLow, memTestHour, memTestHour+2)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, o.Close()) })
+
+	tests := []struct {
+		name     string
+		from, to int64
+		want     []Boundary
+		err      bool
+	}{
+		{name: "the observation's hours", from: from, to: to, want: []Boundary{unbounded, inverted, second}},
+		{name: "the first hour", from: from, to: from + hourNs, want: []Boundary{unbounded, inverted}},
+		{name: "the second hour", from: from + hourNs, to: to, want: []Boundary{unbounded, inverted, second}},
+		{name: "one ns inside", from: from + 1, to: from + 2, want: []Boundary{unbounded, inverted}},
+		{name: "the last ns", from: to - 1, to: to, want: []Boundary{unbounded, inverted}},
+		{name: "starting before", from: from - 1, to: to, err: true},
+		{name: "ending after", from: from, to: to + 1, err: true},
+		{name: "wholly before", from: from - hourNs, to: from, err: true},
+		{name: "wholly after", from: to, to: to + hourNs, err: true},
+		{name: "empty", from: from + 5, to: from + 5, err: true},
+		{name: "reversed", from: from + 6, to: from + 5, err: true},
+	}
+	for _, tt := range tests {
+		got, err := o.Barriers(t.Context(), tt.from, tt.to)
+		if tt.err {
+			require.Error(t, err, tt.name)
+			assert.Nil(t, got, tt.name)
+
+			continue
+		}
+		require.NoError(t, err, tt.name)
+		assert.Equal(t, tt.want, got, tt.name)
+	}
+}
+
 // TestMemSourceOwnership mutates every value an observation returned, then asks again:
 // the answers are unchanged, and each Readers slice and boundary pointer is fresh.
 func TestMemSourceOwnership(t *testing.T) {
@@ -790,7 +843,7 @@ func TestMemSourceOwnership(t *testing.T) {
 	*e.Boundaries[0].GapStart = 99
 	e.Boundaries[0].Seq = 99
 	e.Closures[0].CloseSeq = 99
-	b, err := o.Barriers(t.Context(), 0, 10)
+	b, err := o.Barriers(t.Context(), blockTestHour, blockTestHour+hourNs)
 	require.NoError(t, err)
 	*b[0].GapStart = 99
 
@@ -802,7 +855,7 @@ func TestMemSourceOwnership(t *testing.T) {
 	assert.Equal(t, uint64(1), e.Boundaries[0].Seq)
 	assert.Equal(t, int64(7), *e.Boundaries[0].GapStart)
 	assert.Equal(t, uint64(1), e.Closures[0].CloseSeq)
-	b, err = o.Barriers(t.Context(), 0, 10)
+	b, err = o.Barriers(t.Context(), blockTestHour, blockTestHour+hourNs)
 	require.NoError(t, err)
 	assert.Equal(t, int64(7), *b[0].GapStart)
 	assert.Equal(t, int64(7), gapStart, "the source keeps its own copy")
