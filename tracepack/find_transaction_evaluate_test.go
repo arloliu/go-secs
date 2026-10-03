@@ -62,7 +62,8 @@ func txSocketClose(t testing.TB, seq uint64) Record {
 // Each case checks the outcome, the window's end, every kept version's class and flags, and the gaps:
 // valid matches (F+1 and F0 with the primary's stream), mismatches (another stream, a wrong-stream F0),
 // control records whose bytes read like a reply, candidates after the window, two valid matches,
-// matches beside a seq gap or a possible reply, undecidable candidates,
+// matches beside a seq gap or a possible reply, an unanswered primary beside a possible reply,
+// undecidable candidates,
 // possible same-key primaries before and after a reply, and outcome records inside and after the window.
 func TestFindTransactionOutcomes(t *testing.T) {
 	t.Parallel()
@@ -114,6 +115,10 @@ func TestFindTransactionOutcomes(t *testing.T) {
 			outcome: TxMatched, end: 15,
 			records: []string{"13@0 candidate in eligible decidable valid", "14@0 possible-reply in", "15@0 same-key-primary bound"},
 			gaps:    []string{"unavailable@14"}},
+		{name: "an unanswered primary beside a possible reply",
+			recs:    []Record{txReply(13, func(r *Record) { r.FieldValidity &^= FieldValiditySystemBytes }), txRecord(14, nil)},
+			outcome: TxIncomplete, end: 14,
+			records: []string{"13@0 possible-reply in", "14@0 same-key-primary bound"}, gaps: []string{"unavailable@13"}},
 		{name: "a candidate whose function is unavailable", recs: []Record{
 			txReply(13, func(r *Record) { r.FieldValidity &^= FieldValidityFunction }), txRecord(14, nil),
 		}, outcome: TxIncomplete, end: 14,
@@ -415,6 +420,212 @@ func TestFindTransactionBoundVersion(t *testing.T) {
 			assert.Equal(t, append([]string{"12@0 primary", "13@0 candidate in eligible decidable valid"}, tt.records...),
 				recordFlags(res.Records))
 			assert.Equal(t, []string{"conflict@14"}, gapSeqs(res.Gaps))
+		})
+	}
+}
+
+// TestFindTransactionRepeatedSystemBytes reads, in one scope, records that repeat the primary's System Bytes,
+// the vectors of the tracepack semantics specification §9:
+// a completed transaction followed by an unanswered primary of the same transaction key,
+// looked up from each primary, and transactions of another session and of the other side that reuse the System Bytes.
+// The reply below the second primary is not searched, so its lookup is TxUnmatched, its window closed by the socket-close.
+// The other session's records play no role;
+// the equipment's own primary is a candidate, never a match, and the host's reply to it plays no role.
+func TestFindTransactionRepeatedSystemBytes(t *testing.T) {
+	t.Parallel()
+
+	session := func(id byte) func(r *Record) { return txFrame(func(p []byte) { p[fieldSessionIDOff+1] = id }) }
+	// sf returns an edit that gives the frame stream s (W bit set) and function f.
+	sf := func(s, f byte) func(r *Record) {
+		return txFrame(func(p []byte) { p[fieldByte6Off], p[fieldFunctionOff] = 0x80|s, f })
+	}
+	completed := []Record{txRecord(12, nil), txReply(13, nil), txRecord(14, nil), txNote(15, nil), txSocketClose(t, 16)}
+	tests := []struct {
+		name    string
+		recs    []Record
+		seq     uint64
+		outcome TxOutcome
+		end     uint64
+		records []string
+	}{
+		{name: "the completed transaction", recs: completed, seq: 12, outcome: TxMatched, end: 14, records: []string{
+			"12@0 primary", "13@0 candidate in eligible decidable valid", "14@0 same-key-primary bound", "16@0 closing",
+		}},
+		{name: "the unanswered primary of the same key", recs: completed, seq: 14, outcome: TxUnmatched, end: 16,
+			records: []string{"14@0 primary", "16@0 closing bound"}},
+		{name: "another session's transaction", recs: []Record{
+			txRecord(12, nil), txRecord(13, session(0x78)), txReply(14, session(0x78)), txReply(15, nil), txRecord(16, nil),
+		}, seq: 12, outcome: TxMatched, end: 16, records: []string{
+			"12@0 primary", "15@0 candidate in eligible decidable valid", "16@0 same-key-primary bound",
+		}},
+		{name: "the equipment's own transaction", recs: []Record{
+			txRecord(12, nil), txRecord(13, func(r *Record) { r.Dir = DirEquipmentToHost; sf(6, 11)(r) }),
+			txRecord(14, sf(6, 12)), txReply(15, nil), txRecord(16, nil),
+		}, seq: 12, outcome: TxMatched, end: 16, records: []string{
+			"12@0 primary", "13@0 candidate in eligible decidable", "15@0 candidate in eligible decidable valid",
+			"16@0 same-key-primary bound",
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := txSource(t, true, txPack(t, seg0, nil, txBlock(tt.recs...)))
+			res, err := findTx(t, t.Context(), s, txKeyAt(tt.seq), TxOptions{MaxScopes: 1})
+			require.NoError(t, err)
+			assert.Equal(t, tt.outcome, res.Outcome)
+			assert.Equal(t, new(tt.end), res.WindowEnd)
+			assert.Equal(t, tt.records, recordFlags(res.Records))
+			assert.Empty(t, res.Gaps)
+		})
+	}
+}
+
+// TestFindTransactionRefusedSocket reads an outstanding primary of epoch 1,
+// then a socket accepted and closed in epoch 2, as a refused socket is (the tracepack format specification I-7),
+// then what epoch 1 still holds.
+// The later epoch is not closure evidence (the tracepack semantics specification §7.2):
+// its socket-close plays no role and bounds nothing, so the reply of epoch 1 still matches,
+// and without a socket-close of epoch 1 the window stays open, the outcome never TxUnmatched.
+func TestFindTransactionRefusedSocket(t *testing.T) {
+	t.Parallel()
+
+	refused := []Record{
+		txRecord(12, nil),
+		testEventRecord(t, 13, blockTestHour+13, 2, &TransportEvent{Event: EventSocketAccept}),
+		testEventRecord(t, 14, blockTestHour+14, 2, &TransportEvent{Event: EventSocketClose}),
+	}
+	tests := []struct {
+		name    string
+		recs    []Record
+		outcome TxOutcome
+		end     *uint64
+		records []string
+		gaps    []string
+	}{
+		{name: "the reply, then a socket-close of the epoch", recs: []Record{txReply(15, nil), txSocketClose(t, 16)},
+			outcome: TxMatched, end: new(uint64(16)),
+			records: []string{"12@0 primary", "15@0 candidate in eligible decidable valid", "16@0 closing bound"}},
+		{name: "the reply, the epoch open", recs: []Record{txReply(15, nil)}, outcome: TxMatched,
+			records: []string{"12@0 primary", "15@0 candidate in eligible decidable valid"}, gaps: []string{"open-window"}},
+		{name: "no reply, the epoch open", outcome: TxIncomplete, records: []string{"12@0 primary"}, gaps: []string{"open-window"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := txSource(t, true, txPack(t, seg0, nil, txBlock(slices.Concat(refused, tt.recs)...)))
+			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
+			require.NoError(t, err)
+			assert.Equal(t, tt.outcome, res.Outcome)
+			assert.Equal(t, tt.end, res.WindowEnd)
+			assert.Equal(t, tt.records, recordFlags(res.Records))
+			assert.Equal(t, tt.gaps, nilIfEmpty(gapSeqs(res.Gaps)))
+		})
+	}
+}
+
+// TestFindTransactionAcrossPacks reads a transaction whose primary and reply lie in different packs:
+// two packs of the primary's scope, and a pack of the next hour's scope.
+// Each record names the pack that holds it, and the match is TxMatched without a gap.
+func TestFindTransactionAcrossPacks(t *testing.T) {
+	t.Parallel()
+
+	primary := txBlock(txRecord(12, nil))
+	reply := txBlock(txReply(13, nil), txRecord(14, nil))
+	tests := []struct {
+		name     string
+		hours    [][][]byte
+		records  []string
+		packs    []UUID
+		searched []TxScope
+	}{
+		{name: "another pack of the scope", hours: [][][]byte{{txPack(t, seg0, nil, primary), txPack(t, seg1, nil, reply)}},
+			records: []string{"12@0 primary", "13@0 candidate in eligible decidable valid", "14@0 same-key-primary bound"},
+			packs:   []UUID{seg0, seg1, seg1}, searched: []TxScope{{Hour: memTestHour, Indexed: true, Packs: []UUID{seg0, seg1}}}},
+		{name: "a pack of the next hour", hours: [][][]byte{{txPack(t, seg0, nil, primary)}, {txPackIn(t, seg1, 1, nil, reply)}},
+			records: []string{"12@0 primary", "13@1 candidate in eligible decidable valid", "14@1 same-key-primary bound"},
+			packs:   []UUID{seg0, seg1, seg1}, searched: []TxScope{
+				{Hour: memTestHour, Indexed: true, Packs: []UUID{seg0}}, {Hour: memTestHour + 1, Indexed: true, Packs: []UUID{seg1}},
+			}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			res, err := findTx(t, t.Context(), txHours(t, tt.hours...), txKeyAt(12), TxOptions{MaxScopes: len(tt.hours)})
+			require.NoError(t, err)
+			assert.Equal(t, TxMatched, res.Outcome)
+			assert.Equal(t, new(uint64(14)), res.WindowEnd)
+			assert.Equal(t, tt.records, recordFlags(res.Records))
+			packs := make([]UUID, len(res.Records))
+			for i, r := range res.Records {
+				packs[i] = r.Pack
+			}
+			assert.Equal(t, tt.packs, packs)
+			assert.Equal(t, tt.searched, res.Searched)
+			assert.Empty(t, res.Gaps)
+		})
+	}
+}
+
+// TestFindTransactionTopSeqs looks up primaries just below the largest seq, 2^63-1, with a nonempty window:
+// the window's bound, its seq gap and its open end are found without overflow.
+func TestFindTransactionTopSeqs(t *testing.T) {
+	t.Parallel()
+
+	const top = uint64(1<<63 - 1)
+	// at moves r to seq, its time blockTestHour + 10 - (top - seq) within the scope's hour,
+	// as the time blockTestHour + seq would overflow.
+	at := func(seq uint64, r Record) Record {
+		r.Seq, r.TSUTCNs = seq, blockTestHour+10-int64(top-seq)
+
+		return r
+	}
+	tests := []struct {
+		name    string
+		p       uint64
+		recs    []Record
+		outcome TxOutcome
+		end     *uint64
+		gaps    []string
+		records []string
+	}{
+		{name: "a reply, then a same-key primary at the top", p: top - 2,
+			recs:    []Record{at(top-1, txReply(0, nil)), at(top, txRecord(0, nil))},
+			outcome: TxMatched, end: new(top),
+			records: []string{
+				"9223372036854775805@0 primary", "9223372036854775806@0 candidate in eligible decidable valid",
+				"9223372036854775807@0 same-key-primary bound",
+			}},
+		{name: "a seq missing below the bound at the top", p: top - 3,
+			recs:    []Record{at(top-1, txReply(0, nil)), at(top, txRecord(0, nil))},
+			outcome: TxMatched, end: new(top), gaps: []string{"seq-gap@9223372036854775805"},
+			records: []string{
+				"9223372036854775804@0 primary", "9223372036854775806@0 candidate in eligible decidable valid",
+				"9223372036854775807@0 same-key-primary bound",
+			}},
+		{name: "a reply at the top, the window open", p: top - 1,
+			recs:    []Record{at(top, txReply(0, nil))},
+			outcome: TxMatched, gaps: []string{"open-window"},
+			records: []string{"9223372036854775806@0 primary", "9223372036854775807@0 candidate in eligible decidable valid"}},
+		{name: "a same-key primary at the top, the window empty", p: top - 1,
+			recs:    []Record{at(top, txRecord(0, nil))},
+			outcome: TxUnmatched, end: new(top),
+			records: []string{"9223372036854775806@0 primary", "9223372036854775807@0 same-key-primary bound"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			recs := append([]Record{at(tt.p, txRecord(0, nil))}, tt.recs...)
+			s := txSource(t, true, txPack(t, seg0, nil, txBlock(recs...)))
+			res, err := findTx(t, t.Context(), s, txKeyAt(tt.p), TxOptions{MaxScopes: 1})
+			require.NoError(t, err)
+			assert.Equal(t, tt.outcome, res.Outcome)
+			assert.Equal(t, tt.end, res.WindowEnd)
+			assert.Equal(t, tt.gaps, nilIfEmpty(gapSeqs(res.Gaps)))
+			assert.Equal(t, tt.records, recordFlags(res.Records))
 		})
 	}
 }
