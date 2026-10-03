@@ -1,6 +1,6 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-10-03) — phases 4, 5a and 5b done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`); phase 5c1 next (`PackSource`, `FindTransaction`), then 5c2 (listing-backed source) and 5c3 (retention).
+Status: active (2026-10-03) — phases 4, 5a, 5b and 5c1 done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`); phase 5c2 next (listing-backed source), then 5c3 (retention).
 Implements: tracepack v2.21 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
@@ -70,7 +70,7 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 4 — Verify, Repair | done |
 | 5a — ActiveView, Merge, Writer seams | done |
 | 5b — MergeIterate | done |
-| 5c1 — PackSource, FindTransaction | in progress |
+| 5c1 — PackSource, FindTransaction | done |
 | 5c2 — listing-backed PackSource, listing views | pending |
 | 5c3 — retention | pending |
 | 6 — JSONL export, conformance corpus, CLI | pending |
@@ -333,7 +333,7 @@ The implementation settled what the text above leaves open:
   a block dropped as a duplicate adds none.
   Calls of `fn` are counted apart, and `ctx` is checked before the 4096th call, the 8192nd and so on.
 
-#### 5c1 — PackSource, FindTransaction (in progress)
+#### 5c1 — PackSource, FindTransaction (done)
 
 - Spec v2.21 first (G5-120..G5-136): [SEM §7.2]'s lookup from a primary — its definitions, closing records read and checked against the evidence (G5-135),
   conflicts and block-index disagreements making it `incomplete` (G5-132..G5-134), the comparison covering the scopes read (G5-136) —
@@ -346,6 +346,61 @@ The implementation settled what the text above leaves open:
 
 Tests: the [SEM §9] lookup vectors; the barrier and closure effects of the [STO §8] end-evidence service vectors through the test source;
 an observation mutated after it was fixed; a reference built from the stored rows of the scopes read, and a whole-capture safety check that every `unmatched` lookup read every seq of its window.
+
+Done (2026-10-03): the tests above pass.
+The four [STO §8] end-evidence vectors (a cold recovered boundary, a clean end evicted, a bounded unclean end evicted, an entirely cold capture) are unit tests,
+and so is a source changed during `Observe` and before each `Scope` call, whose lookup answers from what `Observe` fixed.
+The [SEM §9] lookup vectors each have a named unit test, repeated System Bytes and transaction keys, a refused socket between epochs and transactions across packs included; they also arise in the generated captures.
+Every record of 96 generated captures is looked up
+(several epochs, backward clock steps, replies across hours, conflicts within and across hours, walked, unevaluated, damaged and staged packs, coverage, false and partial evidence, barriers),
+and each result equals one computed independently from the stored rows of the scopes read:
+the outcome, the key, the window end, every kept version with its roles and flags, the gaps, the scopes read, the conflicts and the footer errors.
+Each result also holds over the capture as written, versions in hours not read excluded (G5-136):
+an `unmatched` lookup read a bound the capture confirms and every seq of the window below it, and nothing the capture holds prevents absence;
+a `matched` lookup without a gap found the capture's one valid match.
+That check rejects a lookup whose seq-gap detection is disabled (a window seq moved into the unread hour before, a dropped annotation, a seq only inside a block's F-2 range)
+and one that takes an evidence closure as a bound (a valid footer whose `close_seq` names an annotation).
+After every lookup, failed ones included, the state recounted from what the lookup holds equals what it charged against `MaxStateBytes`.
+`FuzzFindTransaction` and `FuzzFindTransactionGenerated` passed 60-second runs under `-race` (113,421 and 8,385 executions).
+`make fuzz-tracepack` now names each target by an anchored pattern, since `FuzzMerge` also matched `FuzzMergeIterate` and the loop stopped there,
+and bounds the minimization of a new input to one second (`-fuzzminimizetime=1s`): with inputs of several KiB, the default minute left the workers minimizing instead of executing.
+The owner settled two points during implementation, as spec v2.21 amendments:
+a stop-unclean interval whose `gap_start` exceeds its `gap_end` meets every time range (G5-137),
+and a closure at a seq the lookup read is contradicted only when no version there is the closing event it names, a conflicted closing seq being reported as the conflict alone (G5-138).
+The implementation settled what the text above leaves open:
+- A primary that fails with `ErrNotPrimary` or has no key ends the lookup after its scope, without evaluation: the result is decided.
+- Copies of the primary that a block disagreeing with its F-2 entry splits across overlap clusters arrive uncompared,
+  so the lookup compares them byte for byte, as stored, `record_flags` included:
+  identical ones are one version, and different ones are a conflict (`conflict` and `no-key`), counted once against `MaxConflicts` unless `MergeIterate` listed it.
+  A conflict at the primary that `MergeIterate` listed stands whatever the lookup's comparison finds.
+- Roles are given by the bytes, a conflicted version's too.
+  A closing record bounds the window only without a conflict, within its read or across reads;
+  a same-key primary bounds it, and the first possible same-key primary limits eligibility, whether or not it conflicts,
+  since any conflict at or above the primary makes the outcome `incomplete`.
+- `Decidable` is availability alone, independent of the window, and an `unavailable` gap is listed per kept version, not per seq.
+- A version without a role that is its seq's only version in a read is not copied,
+  so under an index gap a role-less copy that precedes a copy with a role is not listed; the outcome is `incomplete` anyway.
+- The epoch barrier: every `stop-unclean` boundary of the capture's evidence is a barrier,
+  unless the lookup read an unconflicted closing record of the primary's epoch above the primary, any one, not only the bound.
+  A `stop-unclean` of the primary's capture whose gap meets the hours read is listed both as an epoch and as a time barrier.
+- An empty window (`e = p + 1`) has a `coverage` gap only for an inverted coverage entry.
+- A `close_seq` of the primary's epoch is borne out by a socket-close or a clean `stop` of the epoch at that seq, the records that end an epoch ([FMT §10]);
+  a clean `stop` entry, by a capture-boundary record of kind `stop` of the same epoch.
+  An evidence closure at or below the primary is a contradiction, a clean `stop` below the primary included, since the capture ended before it.
+  A repeated evidence entry gives a repeated gap.
+- The seqs that the primary's scope yields above the primary before any version of it, which only an index gap allows,
+  are not checked against the evidence's claims, never bound the window and never exempt the epoch barrier,
+  and a capture-boundary record among them that the evidence lacks is not listed; the index gap makes the outcome `incomplete`.
+- `TxKey.Seq` above 2^63 − 1 is an invalid query, so `p + 1` never overflows.
+- `TxResult.Records` is sorted only when evaluation completes; beside an error it keeps the order of arrival.
+- Gaps are listed per read, its mapped defects then its conflicts in arrival order,
+  then the window gap, `unavailable`, `coverage`, the epoch and time barriers, `capture-boundary`, `ordering-uncertain`, `evidence` and `contradiction`.
+- `MaxStateBytes` charges each item its Go size rounded up to 16 bytes, a record also its payload and header extension, so the charges differ between 64-bit and 32-bit platforms.
+  `ctx` is checked every 4096 iterations of one counter that every loop of the lookup shares, and right before `Barriers`.
+- `MergeIterate` lists a conflict through an unexported reservation when the lookup reads,
+  so one `MaxConflicts` allowance covers the conflicts of every read and those between them; `MergeIterate` itself behaves as before.
+- Generated captures hold no block that disagrees with its F-2 entry, since the reference reads each block by its entry,
+  so `index` gaps and the seqs before a late primary are covered by unit tests only.
 
 #### 5c2 — listing-backed PackSource, listing views (pending)
 
