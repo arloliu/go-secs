@@ -38,7 +38,8 @@ func txTinyReply(seq uint64, dt int64) Record {
 // each scope read (its view's packs, its runs, the versions it buffers or kept and the conflict gaps it holds),
 // the primary's versions and every other record in the result, the conflicts across scope reads with their hours,
 // every gap (a gap of a conflict across scope reads without its Hours, which are the conflict's),
-// the coverage entries, the footer errors, the listed conflicts, the ordering-uncertain epochs and the capture-boundary records.
+// the coverage entries, the footer errors, the listed conflicts, the ordering-uncertain epochs, the capture-boundary records,
+// and the runs of the seqs the primary's scope yielded before the primary.
 // It holds after any lookup, also one that failed, since nothing is added to the state before it is charged.
 func txStateRecount(l *txLookup) int64 {
 	var n int64
@@ -88,6 +89,7 @@ func txStateRecount(l *txLookup) int64 {
 		n += conflictCost(&l.res.Conflicts[i])
 	}
 	n += int64(len(l.uncertain))*txUncertainCharge + int64(len(l.boundaries))*txBoundaryRecordCharge
+	n += int64(len(l.earlyRuns.runs)) * txRunCharge
 
 	return n
 }
@@ -179,7 +181,7 @@ func TestTxRunsChargeMillions(t *testing.T) {
 // the charge of each lookup is computed from the charges of what it holds,
 // the lookup succeeds with exactly that budget, and fails with ErrReadLimit with one byte less.
 // No record bounds the window of any of these lookups, so each holds a TxGapOpenWindow gap,
-// and each version of a possible reply a TxGapUnavailable gap.
+// each version of a possible reply a TxGapUnavailable gap, and a coverage entry that meets the window a TxGapCoverage gap.
 func TestFindTransactionStateBudget(t *testing.T) {
 	t.Parallel()
 
@@ -249,8 +251,10 @@ func TestFindTransactionStateBudget(t *testing.T) {
 				return txSource(t, true, txPack(t, seg0, func(m *PackMeta) { m.Coverage = []Coverage{cov} },
 					txBlock(primary)))
 			},
+			// The entry meets the unbounded window (12, ∞): a coverage gap holds a second copy.
 			want: scopeCost(1) + primaryCost + txRunCharge + txPendingCoverageCharge +
-				txCoverageCharge + 2*txRawEntryCharge + 50_000 + openWindow,
+				txCoverageCharge + 2*txRawEntryCharge + 50_000 + openWindow +
+				gapCost(&TxGap{Hours: []int64{memTestHour}, Coverage: &cov}),
 		},
 	}
 	for _, tt := range tests {
@@ -306,8 +310,11 @@ func TestFindTransactionStateBudgetReleases(t *testing.T) {
 // the mapping of its status, the search for coverage at a missing primary, the comparison of the primary's copies,
 // the probes of the earlier reads for a seq, the commit of a read's conflict gaps, the marking of the kept records,
 // and each loop of the evaluation: the sort, the search for the window's end,
-// the search for a missing seq and its probes of the reads,
-// the flags of the kept records and the outcome's look at the gaps:
+// the search for a missing seq and its probes of the reads, the flags of the kept records,
+// the coverage entries, the epoch barrier and the epoch's closing record, the call of Barriers and its boundaries,
+// whether a stop bounds the window, the capture-boundaries and their look-up in the evidence,
+// the evidence closures and the versions at a closure's seq,
+// and the outcome's look at the gaps:
 // each returns ctx's error with the result so far, no outcome, and the observation closed once when it was opened.
 func TestFindTransactionCancelSteps(t *testing.T) {
 	t.Parallel()
@@ -325,6 +332,19 @@ func TestFindTransactionCancelSteps(t *testing.T) {
 				txRecord(12, nil), txReply(14, nil), txReply(15, func(r *Record) { r.FieldValidity &^= FieldValiditySystemBytes }),
 				txRecord(17, nil)))},
 			[][]byte{txPackIn(t, seg1, 1, nil, txBlock(txSeqs(20)...))})
+	}
+	// complete holds a window (12, 14) bounded by a clean stop of the epoch, a gap boundary of the epoch at 13,
+	// a coverage entry that meets the window, and a stop-unclean boundary in another epoch whose gap meets the hours read:
+	// every loop of the completeness gaps runs, and the evaluation adds a coverage, a barrier and a capture-boundary gap.
+	complete := func(t testing.TB, _ context.CancelFunc) *memSource {
+		s := txHours(t,
+			[][]byte{txPackIn(t, seg0, 0, func(m *PackMeta) { m.Coverage = []Coverage{{}} }, txBlock(
+				txRecord(12, nil), txBoundaryAt(t, 13, txTestEpoch, BoundaryKindGap, nil, nil),
+				txBoundaryAt(t, 14, txTestEpoch, BoundaryKindStop, nil, nil)))},
+			[][]byte{txPackIn(t, seg1, 1, nil, txBlock(txSeqs(20)...))})
+		s.addBoundary(txUnclean(captureLow, 100, 2, new(blockTestHour), nil))
+
+		return s
 	}
 	tests := []struct {
 		name string
@@ -466,6 +486,43 @@ func TestFindTransactionCancelSteps(t *testing.T) {
 			searched: 2, records: 5, gaps: 1, err: "find transaction: context canceled", source: evaluated},
 		{name: "while deciding the outcome", in: "decide", observes: 1, scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1},
 			searched: 2, records: 5, gaps: 2, err: "find transaction: context canceled", source: evaluated},
+		{name: "while matching the coverage entries", in: "coverageGaps", observes: 1, scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1},
+			searched: 2, records: 3, err: "find transaction: context canceled", source: complete},
+		{name: "while looking for an epoch barrier", in: "epochBarrierGaps", observes: 1,
+			scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1}, searched: 2, records: 3, gaps: 1,
+			err: "find transaction: context canceled", source: complete},
+		{name: "while looking for the epoch's closing record", in: "epochClosed", observes: 1,
+			scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1}, searched: 2, records: 3, gaps: 1,
+			err: "find transaction: context canceled", source: complete},
+		{name: "while Barriers answers", observes: 1, scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1},
+			searched: 2, records: 3, gaps: 1, err: "find transaction: barriers: context canceled",
+			source: func(t testing.TB, cancel context.CancelFunc) *memSource {
+				s := complete(t, cancel)
+				s.beforeBarriers = func(ctx context.Context, _, _ int64) error {
+					cancel()
+					return ctx.Err()
+				}
+
+				return s
+			}},
+		{name: "while checking the barriers", in: "timeBarrierGaps", observes: 1,
+			scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1}, searched: 2, records: 3, gaps: 1,
+			err: "find transaction: context canceled", source: complete},
+		{name: "while finding whether a stop bounds the window", in: "stopBound", observes: 1,
+			scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1}, searched: 2, records: 3, gaps: 2,
+			err: "find transaction: context canceled", source: complete},
+		{name: "while looking for capture-boundaries", in: "captureBoundaryGaps", observes: 1,
+			scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1}, searched: 2, records: 3, gaps: 2,
+			err: "find transaction: context canceled", source: complete},
+		{name: "while looking up a boundary read in the evidence", in: "evidenceHasBoundary", observes: 1,
+			scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1}, searched: 2, records: 3, gaps: 3,
+			err: "find transaction: context canceled", source: complete},
+		{name: "while checking the evidence closures", in: "contradictionGaps", observes: 1,
+			scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1}, searched: 2, records: 3, gaps: 3,
+			err: "find transaction: context canceled", source: complete},
+		{name: "while checking a closure's seq", in: "checkClaim", observes: 1,
+			scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1}, searched: 2, records: 3, gaps: 3,
+			err: "find transaction: context canceled", source: complete},
 		{name: "while adding a read's conflict gaps", in: "commitRead", observes: 1, scopes: map[int64]int{memTestHour: 1},
 			searched: 1, records: 3, err: "find transaction: context canceled",
 			source: func(t testing.TB, _ context.CancelFunc) *memSource {
@@ -523,6 +580,67 @@ func TestFindTransactionCancelSteps(t *testing.T) {
 			assert.Equal(t, tt.observes, closes, "closed once when opened")
 		})
 	}
+}
+
+// armedCtx is a context that is done only once armed: after arm, Err returns nil once, then context.Canceled.
+type armedCtx struct {
+	context.Context
+	armed bool
+	// passes counts the calls of Err that still return nil once armed.
+	passes int
+}
+
+// arm makes c done after the next call of Err; a later arm changes nothing.
+func (c *armedCtx) arm() {
+	if !c.armed {
+		c.armed, c.passes = true, 1
+	}
+}
+
+// Err returns the parent's error until c is armed, then nil once, then context.Canceled.
+func (c *armedCtx) Err() error {
+	if !c.armed {
+		return c.Context.Err()
+	}
+	if c.passes > 0 {
+		c.passes--
+		return nil
+	}
+
+	return context.Canceled
+}
+
+// TestFindTransactionCancelBeforeBarriers cancels a lookup right after the last check of ctx that the epoch barrier's loop makes,
+// whose one evidence boundary, a gap of another epoch, adds no gap:
+// the lookup checks ctx before it calls the observation's Barriers, and fails with ctx's error before the call.
+func TestFindTransactionCancelBeforeBarriers(t *testing.T) {
+	t.Parallel()
+
+	s := txSource(t, true, txPack(t, seg0, nil, txBlock(txRecord(12, nil), txNote(13, nil), txNote(14, nil))))
+	s.addBoundary(Boundary{Capture: captureLow, Seq: 500, Kind: BoundaryKindGap, Epoch: 2})
+	calls := 0
+	s.beforeBarriers = func(context.Context, int64, int64) error {
+		calls++
+		return nil
+	}
+	ctx := &armedCtx{Context: t.Context()}
+	var lk *txLookup
+	res, err := findTransactionWith(ctx, s, txKeyAt(12), TxOptions{MaxScopes: 1}, func(l *txLookup) {
+		lk = l
+		l.ticks.step = 1
+		l.onTick = func() {
+			if tickCaller() == "epochBarrierGaps" {
+				ctx.arm()
+			}
+		}
+	})
+	requireStateRecount(t, lk)
+	require.ErrorIs(t, err, context.Canceled)
+	require.EqualError(t, err, "tracepack: find transaction: context canceled")
+	assert.Zero(t, calls, "Barriers is not called")
+	assert.Equal(t, TxOutcome(0), res.Outcome)
+	_, _, closes := s.counts()
+	assert.Equal(t, 1, closes)
 }
 
 // tickCaller returns the name of the method or function that called the lookup's tick, called from its onTick.

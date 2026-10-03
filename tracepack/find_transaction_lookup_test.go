@@ -662,7 +662,8 @@ func TestKeepVersionCopies(t *testing.T) {
 // TestFindTransactionNamesPacks reads a scope of two packs whose second, in view order, has a corrupt block,
 // or a footer that fails validation over truthful blocks, read by walking:
 // the read gap, or the footer error, names the second pack's pack_id and the hour,
-// and the walked pack, which the walk accounts for in full, adds no gap.
+// and the walked pack, which the walk accounts for in full, adds no gap of its read;
+// its registration marked the per-capture evidence partial, which keeps the outcome from TxUnmatched.
 func TestFindTransactionNamesPacks(t *testing.T) {
 	t.Parallel()
 
@@ -689,8 +690,8 @@ func TestFindTransactionNamesPacks(t *testing.T) {
 		walked := invalidFooterFile(t, second)
 		res, err := findTx(t, t.Context(), txSource(t, true, first, walked), txKeyAt(11), TxOptions{MaxScopes: 1})
 		require.NoError(t, err)
-		assert.Equal(t, TxUnmatched, res.Outcome)
-		assert.Empty(t, res.Gaps)
+		assert.Equal(t, TxIncomplete, res.Outcome)
+		assert.Equal(t, []TxGapReason{TxGapEvidence}, gapReasons(res.Gaps))
 		require.Len(t, res.FooterErrs, 1)
 		fe := res.FooterErrs[0]
 		assert.Equal(t, memTestHour, fe.Hour)
