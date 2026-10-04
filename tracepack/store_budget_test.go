@@ -165,7 +165,8 @@ func overlappingF3Segment(t testing.TB) []byte {
 // TestStoreCostSufficient compares each cost function of a store source's charges with the bytes its structure holds:
 // Readers with a valid footer, its F-5 count arrays extended with zeros, its F-3 lists overlapping, or kept,
 // and Readers that walked their blocks, one of them with a filled PackMeta;
-// a PackMeta with every field set; a block summary with an epoch index; a defect with a coverage entry; a boundary.
+// a PackMeta with every field set; a block summary with an epoch index; a defect with a coverage entry; a boundary;
+// a listed key and a PackInfo.
 // No charge is below what its structure holds.
 func TestStoreCostSufficient(t *testing.T) {
 	t.Parallel()
@@ -230,12 +231,20 @@ func TestStoreCostSufficient(t *testing.T) {
 	assert.GreaterOrEqual(t, scopeDescriptorCost(sc), deepSize(sc))
 	cp := &CatalogPack{Key: strings.Repeat("k", 100)}
 	assert.GreaterOrEqual(t, packDescriptorCost(cp), deepSize(cp))
+	key := strings.Repeat("k", 100)
+	l := &storeListed{key: key, size: 1, k: storePackKey{tool: memStoreTool}}
+	assert.GreaterOrEqual(t, listedKeyCost(key), deepSize(l)-int64(len(l.k.tool)), "the tool is the source's own")
+	assert.GreaterOrEqual(t, storeOpenedCharge, int64(unsafe.Sizeof(storeOpened{})), "its Reader and its key are charged apart")
+	info := filled.Info()
+	info.meta = filledPackMeta(t)
+	assert.GreaterOrEqual(t, packInfoCost(&info), deepSize(&info)-int64(len(info.raw)), "its bytes are the Reader's")
 }
 
 // TestStoreSourceLimits observes, for each case, with MaxSourceBytes at the largest charge the first Observe held and one byte below it:
 // footerless packs with large walked indexes and tiny pack metadata, a valid footer with overlapping F-3 lists,
 // a large range of empty indexed scopes,
-// a long prefix and a long token, and large evidence and barriers without packs.
+// a long prefix and a long token, and large evidence and barriers without packs;
+// and in listed scopes, candidate packs of an empty view, long listed keys and tokens, and long confirmation tokens.
 // At the limit Observe succeeds, its charges as the case states and as recounted;
 // one byte below, it fails with ErrReadLimit, every object opened closed once.
 func TestStoreSourceLimits(t *testing.T) {
@@ -307,6 +316,65 @@ func TestStoreSourceLimits(t *testing.T) {
 			check: func(t testing.TB, o *storeObservation) {
 				key := len(longPrefix) + len("/staging/tool/") + uuidKeyLen + 1 + segmentFileLen
 				assert.Equal(t, 2*storeScopeDescriptorCharge+8192+storePackDescriptorCharge+int64(key), o.peak-o.charged)
+			},
+		},
+		{
+			name: "candidates of an empty listing view", hours: 2,
+			setup: func(t testing.TB, store *memStore, cat *fakeCatalog) {
+				cat.setIndexed(captureLow, memTestHour, false)
+				// Generations without commit objects: the view holds none of them.
+				for i, id := range []UUID{memA, memB, memC, memD} {
+					set := UUID{0x5E, 0x10, byte(i)}
+					store.putPack(t, memTestHour, storeArchive(t, id, set, 1, 2, 3))
+				}
+			},
+			check: func(t testing.TB, o *storeObservation) {
+				assert.Empty(t, o.scopes[0].readers)
+				assert.Equal(t, storeObservationCharge+2*storeScopeCharge, o.charged, "every candidate released")
+				assert.Greater(t, o.peak-o.charged, 4*storeReaderCharge, "the candidates were charged")
+			},
+		},
+		{
+			name: "long listed keys and tokens", prefix: longPrefix, hours: 2,
+			setup: func(t testing.TB, store *memStore, cat *fakeCatalog) {
+				store.pageSize = 1
+				cat.setIndexed(captureLow, memTestHour, false)
+				// Walked segments, whose Readers outweigh the listing's keys and tokens.
+				for i, id := range []UUID{seg0, seg1, seg2} {
+					first := uint64(1000*i + 1)
+					key, err := SegmentKey(longPrefix, memStoreTool, captureLow, first, id)
+					require.NoError(t, err)
+					file := writeRepairPack(t, CodecZstd, nil, true, seqSteps(first, first+299, 1, blockTestHour)).file
+					store.putAt(t, key, withIDs(t, file, id, captureLow))
+				}
+			},
+			check: func(t testing.TB, o *storeObservation) {
+				readers := o.scopes[0].readers
+				require.Len(t, readers, 3)
+				key := int64(len(longPrefix) + len("/staging/tool/") + uuidKeyLen + 1 + segmentFileLen)
+				require.Greater(t, readerCost(readers[0]), 3*(storeListedCharge+key)+2*(storeStringCharge+key))
+				assert.Equal(t, storeObservationCharge+2*storeScopeCharge+readerCost(readers[0])+readerCost(readers[1])+readerCost(readers[2]), o.charged)
+				// Every key is held from the staging listing until its pack is opened, with the listing's two tokens, each a key.
+				assert.GreaterOrEqual(t, o.peak-storeObservationCharge-2*storeScopeCharge, 3*(storeListedCharge+key)+2*(storeStringCharge+key))
+				// Each key stays held with its Reader, its entry and its pack_id until the view is fixed.
+				var held int64
+				for _, r := range readers {
+					held += readerCost(r) + storeListedCharge + key + storeOpenedCharge + storeUUIDCharge
+				}
+				assert.GreaterOrEqual(t, o.peak-storeObservationCharge-2*storeScopeCharge, held)
+			},
+		},
+		{
+			name: "long confirmation tokens", hours: 3,
+			setup: func(_ testing.TB, _ *memStore, cat *fakeCatalog) {
+				cat.tokenLen = 8192
+				for h := range int64(3) {
+					cat.setIndexed(captureLow, memTestHour+h, false)
+				}
+			},
+			check: func(t testing.TB, o *storeObservation) {
+				assert.Equal(t, storeObservationCharge+3*storeScopeCharge, o.charged, "each token released at its confirmation")
+				assert.Equal(t, 3*(storeScopeDescriptorCharge+8192), o.peak-o.charged)
 			},
 		},
 		{

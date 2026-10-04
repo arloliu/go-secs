@@ -37,6 +37,17 @@ func (s *memStore) putAt(t testing.TB, key string, file []byte) CatalogPack {
 	return CatalogPack{Key: key, PackID: mustOpen(t, file, ReaderOptions{}).Header().PackID, Size: int64(len(file))}
 }
 
+// putCommit stores the commit object of id in capture's scope of hour under storeTestPrefix and returns its key.
+func (s *memStore) putCommit(t testing.TB, capture UUID, hour int64, id UUID) string {
+	t.Helper()
+
+	key, err := CommitKey(storeTestPrefix, memStoreTool, capture, hour, id)
+	require.NoError(t, err)
+	s.put(key, nil)
+
+	return key
+}
+
 // segmentKeyAt returns the key of a segment of captureLow under storeTestPrefix.
 func segmentKeyAt(t testing.TB, seqFirst uint64, pack UUID) string {
 	t.Helper()
@@ -717,21 +728,6 @@ func TestStoreSourceAdapterDeadline(t *testing.T) {
 	require.Nil(t, o)
 	assert.LessOrEqual(t, after.Load(), int32(1), "only the concurrent partner of the cancelling read may run after it")
 	requireClosedOnce(t, store)
-}
-
-// TestStoreSourceListedScope observes a scope the catalog does not index after an indexed one:
-// the indexed pack is opened first, then Observe fails, since listing views are not implemented, and closes it.
-func TestStoreSourceListedScope(t *testing.T) {
-	t.Parallel()
-
-	store, cat := newMemStore(), newFakeCatalog()
-	p := store.putPack(t, memTestHour, storeSegment(t, seg0, nil, 1))
-	cat.setView(captureLow, memTestHour, p)
-	cat.setIndexed(captureLow, memTestHour+1, false)
-	_, err := observeOne(t, store, cat, nil)
-	require.ErrorIs(t, err, errListingNotImplemented)
-	opens, _ := store.openCounts()
-	assert.Equal(t, map[string]int{p.Key: 1}, opens)
 }
 
 // damagedFirstBlock returns file, a pack that is not finalized, with its first block envelope's magic broken,

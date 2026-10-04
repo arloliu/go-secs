@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 )
 
@@ -25,9 +26,6 @@ const (
 // and the error of an Observe that failed on such an object keeps it, so a caller may retry the lookup
 // (the tracepack storage specification §5, Coherent observation).
 var ErrObjectNotFound = errors.New("tracepack: object not found")
-
-// errListingNotImplemented reports a scope the catalog does not index, which the source NewStoreSource returns cannot observe yet.
-var errListingNotImplemented = errors.New("tracepack: store source: listing views are not implemented")
 
 // ObjectStore is the bucket the source NewStoreSource returns reads (the tracepack storage specification §3).
 //
@@ -157,6 +155,7 @@ type StoreSourceOptions struct {
 	Reader ReaderOptions
 	// MaxCommitListings is the largest number of traversals of one scope's commit objects an Observe takes
 	// while it waits for two consecutive complete ones that agree; default 8.
+	// It must not be 1, which no Observe of a scope the catalog does not index could meet.
 	MaxCommitListings int
 	// MaxListPages is the largest number of pages of one traversal; default 10000.
 	MaxListPages int
@@ -166,8 +165,10 @@ type StoreSourceOptions struct {
 	MaxObjects int
 	// MaxSourceBytes bounds the state one Observe holds and its Observation keeps, in bytes; default 256 MiB.
 	// The state is charged from the structures the source decodes and keeps, not from their encoded lengths:
-	// the catalog's scope and pack descriptors while it uses them, the copied evidence and barriers,
-	// and every retained Reader, from its pack metadata, block index, footer summaries and statistics.
+	// the catalog's scope and pack descriptors while it uses them, a scope's token until its confirmation,
+	// the keys, tokens and commit ids of the listings while it holds them, the copied evidence and barriers,
+	// every retained Reader, from its pack metadata, block index, footer summaries and statistics,
+	// and the PackInfo it builds for ActiveView while ActiveView runs.
 	// Not charged are the transient buffers and decode temporaries of one Open,
 	// which ReaderOptions bounds and which the source holds for one Open at a time, so an Observe may exceed the limit by one Open's;
 	// the workspace of ActiveView, released when it returns;
@@ -185,12 +186,16 @@ type StoreSourceOptions struct {
 	OnExcluded func(ExcludedPack)
 }
 
-// storeSource is the PackSource NewStoreSource returns; it is immutable, and each Observe owns its state.
+// storeSource is the PackSource NewStoreSource returns; each Observe owns its state.
+// It is immutable once built, but for activeView, which only tests set, before they observe through it.
 type storeSource struct {
 	store ObjectStore
 	cat   Catalog
 	// opts holds the options with every limit defaulted.
 	opts StoreSourceOptions
+	// activeView computes a listed hour's view; nil means ActiveView.
+	// Tests replace it to reach the checks of a view that ActiveView never returns.
+	activeView func(packs []PackInfo, commits CommitSet) (View, error)
 }
 
 var _ PackSource = (*storeSource)(nil)
@@ -201,7 +206,7 @@ type storeAcquisition struct {
 	capture  UUID
 	from, to int64
 	budget   storeBudget
-	// objects holds every object opened, in the order opened;
+	// objects holds every object opened, in the order opened, nil in the slot of one discarded since;
 	// the Observation closes them, or Observe does when it fails.
 	objects []Object
 	// descriptors is the charge of the catalog's scope and pack descriptors, released once the observation is built.
@@ -225,7 +230,18 @@ type storePackKey struct {
 // Each Observe takes one catalog snapshot.
 // It fixes each scope the catalog indexes from that snapshot:
 // it opens each pack of the scope's view, in view order, and checks it against its key and its descriptor.
-// A scope the catalog does not index is fixed by the coherent observation of the tracepack storage specification §5 and its listing view.
+// A scope the catalog does not index is fixed by the coherent observation of the tracepack storage specification §5 and its listing view:
+// its commit objects are listed until two consecutive complete listings agree,
+// then its archive packs and the capture's staging segments are listed once;
+// each segment's head, its file header and pack metadata, is read to learn its hour,
+// and a segment of an hour not observed this way is closed, its trailer and footer never decoded;
+// the packs are opened and checked, and ActiveView takes them in ascending pack_id byte order;
+// a conflicted view is fixed as conflicted, without readers;
+// and last the catalog must confirm that the scope stayed not indexed since the snapshot.
+// A listed pack whose role takes no part in a view is closed and reported through OnExcluded.
+// Every key a listing returns is parsed before it is classified, and an archive key of another capture is skipped;
+// a listing that breaks the contract of ObjectStore — a key outside its prefix or not above the one before it, a token that comes again —
+// fails the Observe.
 // Every pack opened must agree with its key, and with its descriptor when the catalog indexes its scope,
 // on pack_id and capture_id; its tool_id is Tool; its period lies in one UTC hour, the scope's;
 // a key under staging/ holds a segment, and a key under archive/ holds a pack of another role;
@@ -256,7 +272,7 @@ type storePackKey struct {
 // Returns:
 //   - PackSource: the source; nil on error.
 //   - error: non-nil for a nil store or cat, a nil OnExcluded, a Prefix ending in '/',
-//     a Tool a key cannot hold (wrapping ErrInvalidKey), or a non-zero Reader.FooterOffset.
+//     a Tool a key cannot hold (wrapping ErrInvalidKey), a MaxCommitListings of 1, or a non-zero Reader.FooterOffset.
 func NewStoreSource(store ObjectStore, cat Catalog, opts StoreSourceOptions) (PackSource, error) {
 	switch {
 	case store == nil:
@@ -269,6 +285,8 @@ func NewStoreSource(store ObjectStore, cat Catalog, opts StoreSourceOptions) (Pa
 		return nil, fmt.Errorf("tracepack: new store source: prefix %q ends in '/'", opts.Prefix)
 	case opts.Reader.FooterOffset != 0:
 		return nil, fmt.Errorf("tracepack: new store source: Reader.FooterOffset %d is a hint for one object, not for every pack", opts.Reader.FooterOffset)
+	case opts.MaxCommitListings == 1:
+		return nil, errors.New("tracepack: new store source: MaxCommitListings 1 leaves no second traversal to agree with the first")
 	}
 	if err := checkKeyTool(opts.Tool); err != nil {
 		return nil, fmt.Errorf("tracepack: new store source: %w", keyArgError(err))
@@ -384,7 +402,8 @@ func (a *storeAcquisition) run(ctx context.Context) (*storeObservation, error) {
 
 	a.budget.release(a.descriptors)
 	a.descriptors = 0
-	a.obs.objects = a.objects
+	a.obs.objects = slices.DeleteFunc(a.objects, func(obj Object) bool { return obj == nil })
+	a.objects = nil
 	a.obs.charged, a.obs.peak = a.budget.used, a.budget.peak
 
 	return a.obs, nil
@@ -579,7 +598,7 @@ func (a *storeAcquisition) openDescribed(ctx context.Context, p *CatalogPack, ho
 	if err != nil {
 		return nil, err
 	}
-	r, err := a.openPack(ctx, p.Key, p.Size, hour)
+	r, _, err := a.openPack(ctx, p.Key, p.Size, hour)
 	if err != nil {
 		return nil, err
 	}
@@ -594,12 +613,29 @@ func (a *storeAcquisition) openDescribed(ctx context.Context, p *CatalogPack, ho
 	return r, nil
 }
 
-// openPack opens the object key of size bytes, as the catalog or a listing gives it, and bootstraps a Reader over it,
-// charging the object and the Reader.
-// The object is kept for closing as soon as it is opened, and one returned with an error is closed at once.
-func (a *storeAcquisition) openPack(ctx context.Context, key string, size, hour int64) (*Reader, error) {
+// openPack opens the object key of size bytes, as the catalog or a listing gives it, of hour's scope,
+// and bootstraps a Reader over it, charging the object and the Reader.
+// It returns the slot of the object among the acquisition's objects.
+func (a *storeAcquisition) openPack(ctx context.Context, key string, size, hour int64) (*Reader, int, error) {
+	where := fmt.Sprintf("hour %d", hour)
+	obj, slot, err := a.openObject(ctx, key, size, where)
+	if err != nil {
+		return nil, 0, err
+	}
+	r, err := a.bootstrap(ctx, obj, key, size, where)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return r, slot, nil
+}
+
+// openObject opens the object key of size bytes, as the catalog or a listing gives it, counting it, and checks its size;
+// where names the scope or the listing it belongs to in errors.
+// The object is kept for closing as soon as it is opened, in the slot returned, and one returned with an error is closed at once.
+func (a *storeAcquisition) openObject(ctx context.Context, key string, size int64, where string) (Object, int, error) {
 	if err := a.budget.count(); err != nil {
-		return nil, fmt.Errorf("tracepack: store source: hour %d: opening %q: %w", hour, key, err)
+		return nil, 0, fmt.Errorf("tracepack: store source: %s: opening %q: %w", where, key, err)
 	}
 	obj, err := a.src.store.Open(ctx, key)
 	if err != nil {
@@ -609,40 +645,75 @@ func (a *storeAcquisition) openPack(ctx context.Context, key string, size, hour 
 			}
 		}
 
-		return nil, fmt.Errorf("tracepack: store source: hour %d: open %q: %w", hour, key, err)
+		return nil, 0, fmt.Errorf("tracepack: store source: %s: open %q: %w", where, key, err)
 	}
 	if obj == nil {
-		return nil, fmt.Errorf("tracepack: store source: hour %d: open %q returned no object", hour, key)
+		return nil, 0, fmt.Errorf("tracepack: store source: %s: open %q returned no object", where, key)
 	}
+	slot := len(a.objects)
 	a.objects = append(a.objects, obj)
 
 	if got := obj.Size(); got != size {
-		return nil, fmt.Errorf("tracepack: store source: hour %d: object %q holds %d bytes, not the %d given for it", hour, key, got, size)
+		return nil, 0, fmt.Errorf("tracepack: store source: %s: object %q holds %d bytes, not the %d given for it", where, key, got, size)
 	}
+
+	return obj, slot, nil
+}
+
+// bootstrap opens a Reader over obj, the object key of size bytes, and charges it; where names its scope in errors.
+func (a *storeAcquisition) bootstrap(ctx context.Context, obj Object, key string, size int64, where string) (*Reader, error) {
 	r, err := Open(ctx, obj, size, a.src.opts.Reader)
 	if err != nil {
-		return nil, fmt.Errorf("tracepack: store source: hour %d: pack %q: %w", hour, key, err)
+		return nil, fmt.Errorf("tracepack: store source: %s: pack %q: %w", where, key, err)
 	}
 	if err := a.budget.reserve(readerCost(r)); err != nil {
-		return nil, fmt.Errorf("tracepack: store source: hour %d: pack %q: %w", hour, key, err)
+		return nil, fmt.Errorf("tracepack: store source: %s: pack %q: %w", where, key, err)
 	}
 
 	return r, nil
 }
 
+// discard closes the object in slot, of key, which the acquisition no longer keeps, releasing the charge of r, its Reader when not nil.
+// Its close error fails Observe.
+func (a *storeAcquisition) discard(slot int, r *Reader, key string) error {
+	obj := a.objects[slot]
+	a.objects[slot] = nil
+	if r != nil {
+		a.budget.release(readerCost(r))
+	}
+	if err := obj.Close(); err != nil {
+		return fmt.Errorf("tracepack: store source: close %q: %w", key, err)
+	}
+
+	return nil
+}
+
 // checkPack checks the pack r opened from key, which names k, against k and hour's scope
-// (the tracepack storage specification §2 and §3):
-// its file header's pack_id and capture_id are the key's, its tool_id is the source's,
+// (the tracepack storage specification §2 and §3), as checkMeta does,
+// and checks a segment's first seq, when known (firstSeq), against the key's seq_first.
+func (a *storeAcquisition) checkPack(r *Reader, key string, k storePackKey, hour int64, indexed bool) error {
+	if err := a.checkMeta(UUID(r.hdr.PackID), UUID(r.hdr.CaptureID), r.meta, key, k, hour, indexed); err != nil {
+		return err
+	}
+	if first, known := firstSeq(r); k.segment && known && first != k.seqFirst {
+		return fmt.Errorf("tracepack: store source: hour %d: pack %q: first seq %d, not the key's seq_first %d", hour, key, first, k.seqFirst)
+	}
+
+	return nil
+}
+
+// checkMeta checks the file header ids id and capture and the pack metadata m of the pack opened from key, which names k,
+// against k and hour's scope (the tracepack storage specification §2 and §3):
+// the file header's pack_id and capture_id are the key's, its tool_id is the source's,
 // its period lies in one UTC hour, which is hour;
-// a segment is under staging/, its first seq, when known (firstSeq), the key's seq_first, and any other pack under archive/;
+// a segment is under staging/, and any other pack under archive/;
 // and a pack whose role takes part in a scope's view has the scope_generation its role requires.
 // A pack whose role takes no part in a view is an error when indexed is set.
-func (a *storeAcquisition) checkPack(r *Reader, key string, k storePackKey, hour int64, indexed bool) error {
-	m := r.meta
+func (a *storeAcquisition) checkMeta(id, capture UUID, m *PackMeta, key string, k storePackKey, hour int64, indexed bool) error {
 	fail := func(format string, args ...any) error {
 		return fmt.Errorf("tracepack: store source: hour %d: pack %q: %s", hour, key, fmt.Sprintf(format, args...))
 	}
-	switch id, capture := UUID(r.hdr.PackID), UUID(r.hdr.CaptureID); {
+	switch {
 	case id != k.pack:
 		return fail("file header pack_id %s, not the key's %s", id, k.pack)
 	case capture != k.capture:
@@ -661,9 +732,6 @@ func (a *storeAcquisition) checkPack(r *Reader, key string, k storePackKey, hour
 	case !k.segment && m.PackRole == PackRoleSegment:
 		return fail("pack_role %s under archive/", m.PackRole)
 	}
-	if first, known := firstSeq(r); k.segment && known && first != k.seqFirst {
-		return fail("first seq %d, not the key's seq_first %d", first, k.seqFirst)
-	}
 	if !tierRole(m.PackRole) {
 		if indexed {
 			return fail("pack_role %s takes no part in a scope's view", m.PackRole)
@@ -678,25 +746,14 @@ func (a *storeAcquisition) checkPack(r *Reader, key string, k storePackKey, hour
 	return nil
 }
 
-// observeListed fixes the scopes the snapshot reports not indexed.
-func (a *storeAcquisition) observeListed(ctx context.Context, scopes []CatalogScope) error {
-	for i := range scopes {
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("tracepack: store source: %w", err)
-		}
-		if !scopes[i].Indexed {
-			return fmt.Errorf("tracepack: store source: hour %d: %w", scopes[i].Hour, errListingNotImplemented)
-		}
-	}
-
-	return nil
-}
-
 // abort closes every object the acquisition opened, each once, and returns err with the close errors joined after it.
 // It runs on every path out of Observe but success, a panic included.
 func (a *storeAcquisition) abort(err error) error {
 	errs := []error{err}
 	for _, obj := range a.objects {
+		if obj == nil {
+			continue
+		}
 		if cerr := obj.Close(); cerr != nil {
 			errs = append(errs, fmt.Errorf("tracepack: store source: close: %w", cerr))
 		}
