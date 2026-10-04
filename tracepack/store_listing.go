@@ -214,7 +214,7 @@ func (a *storeAcquisition) listCommits(ctx context.Context, lh *storeListedHour)
 			return err
 		}
 		a.budget.release(prevCharge)
-		if n > 0 && maps.Equal(prev, ids) {
+		if (n > 0 && maps.Equal(prev, ids)) || (a.src.stopCommits != nil && a.src.stopCommits(n)) {
 			lh.commits, lh.commitCharge = ids, charge
 
 			return nil
