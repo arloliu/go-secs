@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"unsafe"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,7 +17,7 @@ import (
 const storeTestPrefix = "bucket//traces"
 
 // newTestStoreSource returns a StoreSource of memStoreTool over store and cat, under storeTestPrefix,
-// with its options changed by edit when set;
+// with its options changed by edit when set, whose charges at each checkpoint of its listing must cover what it holds;
 // its OnExcluded fails the test, since no indexed pack is ever reported.
 func newTestStoreSource(t testing.TB, store ObjectStore, cat Catalog, edit func(o *StoreSourceOptions)) *storeSource {
 	t.Helper()
@@ -30,8 +31,43 @@ func newTestStoreSource(t testing.TB, store ObjectStore, cat Catalog, edit func(
 	}
 	src, err := NewStoreSource(store, cat, opts)
 	require.NoError(t, err)
+	s := asStoreSource(t, src)
+	s.checkpoint = func(a *storeAcquisition, _ string, held *storeListingState) { assertAcquisitionCovered(t, a, held) }
 
-	return asStoreSource(t, src)
+	return s
+}
+
+// acquisitionSize returns the bytes an acquisition holds at a checkpoint of its listing:
+// the observation it builds, the elements of its listing state — the snapshot's scopes, the listed hours with their slots and index entries,
+// the listed segments, the PackInfo built for a view — and the slots of the objects it opened.
+// The headers of the listing state's slices and map are fixed locals of the listing, a listed hour's token is its scope's string,
+// and a PackInfo's metadata bytes are its Reader's.
+func acquisitionSize(a *storeAcquisition, held *storeListingState) int64 {
+	n := deepSize(a.obs) + int64(len(a.objects))*storeObjectSlotCharge
+	for i := range held.scopes {
+		n += deepSize(&held.scopes[i])
+	}
+	slot := int64(unsafe.Sizeof((*storeListedHour)(nil)))
+	for _, lh := range held.hours {
+		n += deepSize(lh) - int64(len(lh.token)) + slot
+	}
+	n += int64(len(held.byHour)) * (int64(unsafe.Sizeof(int64(0))) + slot)
+	for i := range held.segments {
+		n += deepSize(&held.segments[i])
+	}
+	for i := range held.infos {
+		n += deepSize(&held.infos[i]) - int64(len(held.infos[i].raw))
+	}
+
+	return n
+}
+
+// assertAcquisitionCovered asserts that an acquisition's charges cover what it holds at a checkpoint.
+// It asserts rather than requires, since a checkpoint may run on a goroutine of the test's.
+func assertAcquisitionCovered(t testing.TB, a *storeAcquisition, held *storeListingState) {
+	t.Helper()
+
+	assert.LessOrEqual(t, acquisitionSize(a, held), a.budget.used, "the charges cover what the acquisition holds")
 }
 
 // asStoreSource returns src as the *storeSource NewStoreSource built.

@@ -166,7 +166,8 @@ type StoreSourceOptions struct {
 	// MaxSourceBytes bounds the state one Observe holds and its Observation keeps, in bytes; default 256 MiB.
 	// The state is charged from the structures the source decodes and keeps, not from their encoded lengths:
 	// the catalog's scope and pack descriptors while it uses them, a scope's token until its confirmation,
-	// the keys, tokens and commit ids of the listings while it holds them, the copied evidence and barriers,
+	// the state of each listed hour, the keys, tokens and commit ids of the listings,
+	// and the slot of each object opened, while it holds them; the copied evidence and barriers,
 	// every retained Reader, from its pack metadata, block index, footer summaries and statistics,
 	// and the PackInfo it builds for ActiveView while ActiveView runs.
 	// Not charged are the transient buffers and decode temporaries of one Open,
@@ -187,7 +188,7 @@ type StoreSourceOptions struct {
 }
 
 // storeSource is the PackSource NewStoreSource returns; each Observe owns its state.
-// It is immutable once built, but for activeView and stopCommits, which only tests set, before they observe through it.
+// It is immutable once built, but for activeView, stopCommits and checkpoint, which only tests set, before they observe through it.
 type storeSource struct {
 	store ObjectStore
 	cat   Catalog
@@ -200,6 +201,11 @@ type storeSource struct {
 	// keeping that traversal's ids; nil means two consecutive traversals must agree.
 	// Tests set it to reach an acquisition that takes the commit objects of one traversal.
 	stopCommits func(n int) bool
+	// checkpoint, when set, is called with the acquisition, where it is called from and its listing state:
+	// once the listings are taken ("listed"), after each listed hour's view is fixed ("viewed"), before each confirmation ("confirming"),
+	// and while a view's PackInfo are prepared, after each is charged ("charged") and after each is built ("built").
+	// Tests set it to measure what an acquisition holds against what it charged.
+	checkpoint func(a *storeAcquisition, where string, held *storeListingState)
 }
 
 var _ PackSource = (*storeSource)(nil)
@@ -215,7 +221,12 @@ type storeAcquisition struct {
 	objects []Object
 	// descriptors is the charge of the catalog's scope and pack descriptors, released once the observation is built.
 	descriptors int64
-	obs         *storeObservation
+	// slots is the charge of the slots of objects, released once the observation is built,
+	// where a retained object's slot is its Reader's.
+	slots int64
+	obs   *storeObservation
+	// listing is the listing state a test's checkpoint measures; nil without a checkpoint.
+	listing *storeListingState
 }
 
 // storePackKey is what the key of a pack names: a staging segment's, or an archive's.
@@ -404,8 +415,8 @@ func (a *storeAcquisition) run(ctx context.Context) (*storeObservation, error) {
 		return nil, err
 	}
 
-	a.budget.release(a.descriptors)
-	a.descriptors = 0
+	a.budget.release(a.descriptors + a.slots)
+	a.descriptors, a.slots = 0, 0
 	a.obs.objects = slices.DeleteFunc(a.objects, func(obj Object) bool { return obj == nil })
 	a.objects = nil
 	a.obs.charged, a.obs.peak = a.budget.used, a.budget.peak
@@ -471,8 +482,9 @@ func (a *storeAcquisition) checkScope(ctx context.Context, sc *CatalogScope, hou
 		return nil
 	}
 
-	ids := make(map[UUID]struct{}, len(sc.Packs))
-	keys := make(map[string]struct{}, len(sc.Packs))
+	// The maps grow as each descriptor, its entries' charge included, is charged.
+	ids := make(map[UUID]struct{})
+	keys := make(map[string]struct{})
 	for j := range sc.Packs {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("tracepack: store source: %w", err)
@@ -654,6 +666,15 @@ func (a *storeAcquisition) openObject(ctx context.Context, key string, size int6
 	if obj == nil {
 		return nil, 0, fmt.Errorf("tracepack: store source: %s: open %q returned no object", where, key)
 	}
+	// The slot is charged before the object is kept, so a failure here closes it at once.
+	if err := a.budget.reserve(storeObjectSlotCharge); err != nil {
+		if cerr := obj.Close(); cerr != nil {
+			err = errors.Join(err, cerr)
+		}
+
+		return nil, 0, fmt.Errorf("tracepack: store source: %s: opening %q: %w", where, key, err)
+	}
+	a.slots += storeObjectSlotCharge
 	slot := len(a.objects)
 	a.objects = append(a.objects, obj)
 
