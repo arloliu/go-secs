@@ -11,7 +11,7 @@ import (
 )
 
 // storeListed is a pack key a listing returned, kept until its pack is opened.
-// Its key names the source's tool, which the listing's prefix fixes, so k holds the source's own tool string.
+// Its key names the source's tool, which the listing's prefix fixes, so k leaves the tool empty.
 type storeListed struct {
 	key  string
 	size int64
@@ -24,6 +24,8 @@ type storeOpened struct {
 	r    *Reader
 	slot int
 	key  string
+	// kept marks a pack of the view, once it is fixed.
+	kept bool
 }
 
 // storeListedHour is what Observe gathers of one listed hour, an hour the snapshot reports not indexed, before it fixes the hour's view.
@@ -52,18 +54,35 @@ type storeListedHour struct {
 // then each segment's head, which assigns it its hour, and the packs of the listed hours, opened in full;
 // then each hour's view;
 // and last each hour's confirmation by the catalog that the scope stayed not indexed since the snapshot.
+//
+// Every structure it holds is charged before it is built, and released once nothing holds it:
+// each listed hour, with its slots in the hours and their index, until Observe returns.
 func (a *storeAcquisition) observeListed(ctx context.Context, scopes []CatalogScope) error {
 	var hours []*storeListedHour
 	byHour := map[int64]*storeListedHour{}
+	var hoursCharge int64
+	defer func() { a.budget.release(hoursCharge) }()
 	for i := range scopes {
-		if !scopes[i].Indexed {
-			lh := &storeListedHour{scope: i, hour: scopes[i].Hour, token: scopes[i].Token, ids: map[UUID]struct{}{}}
-			hours = append(hours, lh)
-			byHour[lh.hour] = lh
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("tracepack: store source: %w", err)
 		}
+		if scopes[i].Indexed {
+			continue
+		}
+		if err := a.budget.reserve(storeListedHourCharge); err != nil {
+			return fmt.Errorf("tracepack: store source: hour %d: its listing state: %w", scopes[i].Hour, err)
+		}
+		hoursCharge += storeListedHourCharge
+		lh := &storeListedHour{scope: i, hour: scopes[i].Hour, token: scopes[i].Token, ids: map[UUID]struct{}{}}
+		hours = append(hours, lh)
+		byHour[lh.hour] = lh
 	}
 	if len(hours) == 0 {
 		return nil
+	}
+	if a.src.checkpoint != nil {
+		a.listing = &storeListingState{scopes: scopes, hours: hours, byHour: byHour}
+		defer func() { a.listing = nil }()
 	}
 
 	for _, lh := range hours {
@@ -80,11 +99,22 @@ func (a *storeAcquisition) observeListed(ctx context.Context, scopes []CatalogSc
 	if err != nil {
 		return err
 	}
+	if a.listing != nil {
+		a.listing.segments = segments
+	}
+	a.check("listed")
 
 	for _, l := range segments {
 		if err := a.openSegment(ctx, l, byHour); err != nil {
 			return err
 		}
+	}
+	// The segments' entries are dropped together, their charges with them: nothing reads segments after this.
+	for _, l := range segments {
+		a.budget.release(listedKeyCost(l.key))
+	}
+	if a.listing != nil {
+		a.listing.segments = nil
 	}
 	for _, lh := range hours {
 		if err := a.openArchives(ctx, lh); err != nil {
@@ -98,9 +128,27 @@ func (a *storeAcquisition) observeListed(ctx context.Context, scopes []CatalogSc
 		if err := a.fixListed(ctx, lh); err != nil {
 			return err
 		}
+		a.check("viewed")
 	}
 
-	return a.confirm(ctx, scopes, hours)
+	return a.confirm(ctx, scopes, hours, func() { a.check("confirming") })
+}
+
+// storeListingState is what observeListed holds while it observes the listed hours, which a test's checkpoint measures:
+// the snapshot's scopes, the listed hours and their index, the listed segments, and the PackInfo built for a view.
+type storeListingState struct {
+	scopes   []CatalogScope
+	hours    []*storeListedHour
+	byHour   map[int64]*storeListedHour
+	segments []storeListed
+	infos    []PackInfo
+}
+
+// check calls the source's checkpoint, when a test set it, with where it is called from and the listing state.
+func (a *storeAcquisition) check(where string) {
+	if a.src.checkpoint != nil {
+		a.src.checkpoint(a, where, a.listing)
+	}
 }
 
 // traverse takes one complete traversal of the listing of prefix, following each page's Next until it is "",
@@ -245,7 +293,7 @@ func (a *storeAcquisition) listArchives(ctx context.Context, lh *storeListedHour
 
 			return nil
 		}
-		lh.archives = append(lh.archives, storeListed{key: o.Key, size: o.Size, k: storePackKey{tool: a.src.opts.Tool, capture: p.capture, pack: p.pack, hour: p.hour}})
+		lh.archives = append(lh.archives, storeListed{key: o.Key, size: o.Size, k: storePackKey{capture: p.capture, pack: p.pack, hour: p.hour}})
 
 		return nil
 	})
@@ -266,7 +314,7 @@ func (a *storeAcquisition) listSegments(ctx context.Context) ([]storeListed, err
 		if err != nil {
 			return fmt.Errorf("tracepack: store source: %w", err)
 		}
-		out = append(out, storeListed{key: o.Key, size: o.Size, k: storePackKey{segment: true, tool: a.src.opts.Tool, capture: p.capture, pack: p.pack, seqFirst: p.seqFirst}})
+		out = append(out, storeListed{key: o.Key, size: o.Size, k: storePackKey{segment: true, capture: p.capture, pack: p.pack, seqFirst: p.seqFirst}})
 
 		return nil
 	})
@@ -275,8 +323,9 @@ func (a *storeAcquisition) listSegments(ctx context.Context) ([]storeListed, err
 }
 
 // openSegment opens the segment l, reads its head, which assigns it its hour, and checks the head against l's key.
-// A segment of an hour that is not listed is closed, its trailer and footer never decoded, and its key's charge released;
-// one of a listed hour is opened in full over the same object, checked, and kept with its hour's packs, its key's charge with it.
+// A segment of an hour that is not listed is closed, its trailer and footer never decoded;
+// one of a listed hour is opened in full over the same object, checked, and kept with its hour's packs.
+// The charge of l stays held while the segments' entries are; a kept pack's key is charged again with its entry.
 func (a *storeAcquisition) openSegment(ctx context.Context, l storeListed, byHour map[int64]*storeListedHour) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("tracepack: store source: %w", err)
@@ -300,8 +349,6 @@ func (a *storeAcquisition) openSegment(ctx context.Context, l storeListed, byHou
 	}
 	lh := byHour[hour]
 	if lh == nil {
-		a.budget.release(listedKeyCost(l.key))
-
 		return a.discard(slot, nil, l.key)
 	}
 
@@ -318,6 +365,7 @@ func (a *storeAcquisition) openSegment(ctx context.Context, l storeListed, byHou
 
 // openArchives opens each archive pack of lh in full and checks it.
 // A pack whose role takes no part in a view is closed, then reported through OnExcluded.
+// The archives' entries are then dropped, their charges with them.
 func (a *storeAcquisition) openArchives(ctx context.Context, lh *storeListedHour) error {
 	for _, l := range lh.archives {
 		if err := ctx.Err(); err != nil {
@@ -327,13 +375,15 @@ func (a *storeAcquisition) openArchives(ctx context.Context, lh *storeListedHour
 			return err
 		}
 	}
+	for _, l := range lh.archives {
+		a.budget.release(listedKeyCost(l.key))
+	}
 	lh.archives = nil
 
 	return nil
 }
 
-// openArchive opens the archive pack l of lh in full, checks it, and keeps it with lh's packs, its key's charge with it,
-// or excludes it for its role, its key's charge released.
+// openArchive opens the archive pack l of lh in full, checks it, and keeps it with lh's packs, or excludes it for its role.
 func (a *storeAcquisition) openArchive(ctx context.Context, lh *storeListedHour, l storeListed) error {
 	r, slot, err := a.openPack(ctx, l.key, l.size, lh.hour)
 	if err != nil {
@@ -349,7 +399,6 @@ func (a *storeAcquisition) openArchive(ctx context.Context, lh *storeListedHour,
 	if err := a.addID(lh, UUID(r.hdr.PackID), l.key); err != nil {
 		return err
 	}
-	a.budget.release(listedKeyCost(l.key))
 	ex := ExcludedPack{Key: l.key, PackID: UUID(r.hdr.PackID), Role: r.meta.PackRole, Hour: lh.hour}
 	cerr := a.discard(slot, r, l.key)
 	a.src.opts.OnExcluded(ex)
@@ -363,16 +412,16 @@ func (a *storeAcquisition) openArchive(ctx context.Context, lh *storeListedHour,
 	return nil
 }
 
-// keep keeps p among lh's packs, charging its entry; its pack_id must be new to the hour.
-// The charge of its listed key, held since the listing, stays held with it.
+// keep keeps p among lh's packs, charging its entry and its key; its pack_id must be new to the hour.
 func (a *storeAcquisition) keep(lh *storeListedHour, p storeOpened) error {
 	if err := a.addID(lh, UUID(p.r.hdr.PackID), p.key); err != nil {
 		return err
 	}
-	if err := a.budget.reserve(storeOpenedCharge); err != nil {
+	c := storeOpenedCharge + int64(len(p.key))
+	if err := a.budget.reserve(c); err != nil {
 		return fmt.Errorf("tracepack: store source: hour %d: pack %q: %w", lh.hour, p.key, err)
 	}
-	lh.held += storeOpenedCharge + listedKeyCost(p.key)
+	lh.held += c
 	lh.packs = append(lh.packs, p)
 
 	return nil
@@ -395,11 +444,14 @@ func (a *storeAcquisition) addID(lh *storeListedHour, id UUID, key string) error
 // fixListed fixes lh's view: none for an hour without packs;
 // else the active view of its packs, given in ascending pack_id byte order, under its commit set,
 // a conflicted view fixed as conflicted with every pack closed, and every pack outside the view closed.
-// It releases the charges of lh's commit set, packs and pack_ids.
+// It drops lh's commit set, packs and pack_ids, and releases their charges.
 func (a *storeAcquisition) fixListed(ctx context.Context, lh *storeListedHour) error {
 	charge := lh.commitCharge + lh.held
 	lh.commitCharge, lh.held = 0, 0
-	defer a.budget.release(charge)
+	defer func() {
+		lh.commits, lh.packs, lh.ids = nil, nil, nil
+		a.budget.release(charge)
+	}()
 
 	if len(lh.packs) == 0 {
 		a.obs.scopes[lh.scope] = storeScope{}
@@ -429,31 +481,25 @@ func (a *storeAcquisition) fixListed(ctx context.Context, lh *storeListedHour) e
 		return fmt.Errorf("tracepack: store source: hour %d: the active view is of capture %s in hour %d", lh.hour, v.Capture, v.Hour)
 	}
 
-	byID := make(map[UUID]int, len(lh.packs))
-	for i := range lh.packs {
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("tracepack: store source: %w", err)
-		}
-		byID[UUID(lh.packs[i].r.hdr.PackID)] = i
-	}
-	readers := make([]*Reader, 0, len(v.Packs))
-	kept := make(map[UUID]struct{}, len(v.Packs))
+	// lh.packs is in pack_id order, so each pack of the view is found by a search, and marked kept in place;
+	// the readers' slots are their Readers' charge.
+	readers := make([]*Reader, 0, min(len(v.Packs), len(lh.packs)))
 	for _, id := range v.Packs {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("tracepack: store source: %w", err)
 		}
-		i, ok := byID[id]
-		if _, dup := kept[id]; !ok || dup {
+		i, ok := slices.BinarySearchFunc(lh.packs, id, func(p storeOpened, id UUID) int { return bytes.Compare(p.r.hdr.PackID[:], id[:]) })
+		if !ok || lh.packs[i].kept {
 			return fmt.Errorf("tracepack: store source: hour %d: the active view names pack %s, not one opened, or twice", lh.hour, id)
 		}
-		kept[id] = struct{}{}
+		lh.packs[i].kept = true
 		readers = append(readers, lh.packs[i].r)
 	}
 	for _, p := range lh.packs {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("tracepack: store source: %w", err)
 		}
-		if _, in := kept[UUID(p.r.hdr.PackID)]; in {
+		if p.kept {
 			continue
 		}
 		if err := a.discard(p.slot, p.r, p.key); err != nil {
@@ -467,20 +513,38 @@ func (a *storeAcquisition) fixListed(ctx context.Context, lh *storeListedHour) e
 }
 
 // view returns the active view of lh's packs, in their order, under its commit set, charging their PackInfo while it runs.
+// Every PackInfo is charged before any is built:
+// its cost is its Reader's decoded pack metadata's, which a PackInfo decodes again from the same bytes.
 func (a *storeAcquisition) view(ctx context.Context, lh *storeListedHour) (View, error) {
-	infos := make([]PackInfo, len(lh.packs))
 	var charge int64
 	defer func() { a.budget.release(charge) }()
-	for i, p := range lh.packs {
+	for _, p := range lh.packs {
 		if err := ctx.Err(); err != nil {
 			return View{}, fmt.Errorf("tracepack: store source: %w", err)
 		}
-		infos[i] = p.r.Info()
-		c := packInfoCost(&infos[i])
+		c := storePackInfoCharge + packMetaCost(p.r.meta)
 		if err := a.budget.reserve(c); err != nil {
 			return View{}, fmt.Errorf("tracepack: store source: hour %d: pack %q: its PackInfo: %w", lh.hour, p.key, err)
 		}
 		charge += c
+		a.check("charged")
+	}
+	infos := make([]PackInfo, 0, len(lh.packs))
+	if a.listing != nil {
+		defer func() { a.listing.infos = nil }()
+	}
+	for _, p := range lh.packs {
+		if err := ctx.Err(); err != nil {
+			return View{}, fmt.Errorf("tracepack: store source: %w", err)
+		}
+		infos = append(infos, p.r.Info())
+		if a.listing != nil {
+			a.listing.infos = infos
+		}
+		a.check("built")
+	}
+	if err := ctx.Err(); err != nil {
+		return View{}, fmt.Errorf("tracepack: store source: %w", err)
 	}
 	activeView := a.src.activeView
 	if activeView == nil {
@@ -495,13 +559,15 @@ func (a *storeAcquisition) view(ctx context.Context, lh *storeListedHour) (View,
 }
 
 // confirm asks the catalog, for each listed hour in turn, after every acquisition read of it,
-// whether its scope stayed not indexed since the snapshot, and releases the charge of its descriptor and token.
+// whether its scope stayed not indexed since the snapshot, then drops its token and releases its charge;
+// before is called before each confirmation.
 // An error or a scope not confirmed fails Observe.
-func (a *storeAcquisition) confirm(ctx context.Context, scopes []CatalogScope, hours []*storeListedHour) error {
+func (a *storeAcquisition) confirm(ctx context.Context, scopes []CatalogScope, hours []*storeListedHour, before func()) error {
 	for _, lh := range hours {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("tracepack: store source: %w", err)
 		}
+		before()
 		ok, err := a.src.cat.ConfirmUnindexed(ctx, a.capture, lh.hour, lh.token)
 		if err != nil {
 			return fmt.Errorf("tracepack: store source: hour %d: confirming the scope not indexed: %w", lh.hour, err)
@@ -509,7 +575,8 @@ func (a *storeAcquisition) confirm(ctx context.Context, scopes []CatalogScope, h
 		if !ok {
 			return fmt.Errorf("tracepack: store source: hour %d: the catalog does not confirm that the scope stayed not indexed since its snapshot", lh.hour)
 		}
-		c := scopeDescriptorCost(&scopes[lh.scope])
+		c := int64(len(lh.token))
+		scopes[lh.scope].Token, lh.token = "", ""
 		a.budget.release(c)
 		a.descriptors -= c
 	}

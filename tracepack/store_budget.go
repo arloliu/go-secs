@@ -30,7 +30,14 @@ const (
 	// storeListedCharge is the fixed charge of a key a listing returned while the source holds it, before or after it is parsed;
 	// the key adds its length.
 	storeListedCharge = (int64(unsafe.Sizeof(storeListed{})) + storeAlignMask) &^ storeAlignMask
-	// storeOpenedCharge is the fixed charge of a listed pack opened, while the source holds its entry among its hour's packs.
+	// storeListedHourCharge is the charge of the listing state of one hour the catalog does not index:
+	// its storeListedHour, its slot among the listed hours and its entry in their index by hour.
+	storeListedHourCharge = (int64(unsafe.Sizeof(storeListedHour{})+unsafe.Sizeof((*storeListedHour)(nil))+
+		unsafe.Sizeof(int64(0))+unsafe.Sizeof((*storeListedHour)(nil))) + storeAlignMask) &^ storeAlignMask
+	// storeObjectSlotCharge is the charge of an object's slot among the objects to close, held until the observation is built.
+	storeObjectSlotCharge = int64(unsafe.Sizeof(Object(nil)))
+	// storeOpenedCharge is the fixed charge of a listed pack opened, while the source holds its entry among its hour's packs;
+	// its key adds its length.
 	storeOpenedCharge = (int64(unsafe.Sizeof(storeOpened{})) + storeAlignMask) &^ storeAlignMask
 	// storePackInfoCharge is the fixed charge of a PackInfo built for ActiveView;
 	// its decoded pack metadata adds its own, and its bytes are the Reader's.

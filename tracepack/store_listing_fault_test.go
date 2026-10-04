@@ -3,6 +3,7 @@ package tracepack
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"runtime"
 	"strings"
@@ -547,7 +548,8 @@ func TestStoreSourceOnExcludedCtx(t *testing.T) {
 }
 
 // TestStoreConfirmReleasesTokens confirms two listed scopes with long tokens:
-// each confirmation releases its scope's descriptor and token, before the next one is asked.
+// each confirmation drops its scope's token and releases its charge, before the next one is asked;
+// the scopes' descriptors stay charged, since the snapshot still holds them.
 func TestStoreConfirmReleasesTokens(t *testing.T) {
 	t.Parallel()
 
@@ -573,12 +575,211 @@ func TestStoreConfirmReleasesTokens(t *testing.T) {
 
 		return nil
 	}
-	require.NoError(t, a.confirm(t.Context(), snap.Scopes, hours))
+	require.NoError(t, a.confirm(t.Context(), snap.Scopes, hours, func() {}))
 	used = append(used, a.budget.used)
 	require.Len(t, used, 3)
 	for i := range 2 {
-		assert.Equal(t, scopeDescriptorCost(&snap.Scopes[i]), used[i]-used[i+1], "hour %d", i)
-		assert.Greater(t, scopeDescriptorCost(&snap.Scopes[i]), int64(4096))
+		assert.Equal(t, int64(4096), used[i]-used[i+1], "hour %d", i)
+		assert.Empty(t, snap.Scopes[i].Token, "hour %d: the token is dropped with its charge", i)
+		assert.Empty(t, hours[i].token, "hour %d", i)
 	}
-	assert.Zero(t, a.descriptors)
+	assert.Equal(t, 2*storeScopeDescriptorCharge, a.descriptors, "the scopes' descriptors are held until the observation is built")
+}
+
+// TestStoreSourceAcquisitionCovered observes listed scopes whose acquisition holds much at once,
+// each checkpoint of the listing requiring the charges to cover what the acquisition holds:
+// many commit objects in a first hour, viewed before a second; many candidate archives outside a first hour's view,
+// whose PackInfo are each charged before any is built;
+// long tokens, the first dropped before the second hour's confirmation; and many segments of hours not listed, each slot held.
+// 1000 empty listed hours with one-byte tokens observe at the limit their charges reach, and fail one byte below it.
+func TestStoreSourceAcquisitionCovered(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		setup func(t testing.TB, store *memStore, cat *fakeCatalog)
+	}{
+		{name: "many commit objects", setup: func(t testing.TB, store *memStore, cat *fakeCatalog) {
+			for i := range 200 {
+				store.putCommit(t, captureLow, memTestHour, UUID{0x5E, 0x30, byte(i >> 8), byte(i)})
+			}
+			cat.setIndexed(captureLow, memTestHour+1, false)
+			store.putPack(t, memTestHour+1, txPackIn(t, seg1, 1, nil, txBlock(txSeqs(5)...)))
+		}},
+		{name: "many candidates outside the view", setup: func(t testing.TB, store *memStore, cat *fakeCatalog) {
+			for i := range 100 {
+				store.putPack(t, memTestHour, storeArchive(t, UUID{0xA1, byte(i)}, UUID{0x5E, 0x40, byte(i)}, 1))
+			}
+			cat.setIndexed(captureLow, memTestHour+1, false)
+			store.putPack(t, memTestHour+1, txPackIn(t, seg1, 1, nil, txBlock(txSeqs(5)...)))
+		}},
+		{name: "long tokens", setup: func(_ testing.TB, _ *memStore, cat *fakeCatalog) {
+			cat.tokenLen = 4096
+			cat.setIndexed(captureLow, memTestHour+1, false)
+		}},
+		{name: "many segments of hours not listed", setup: func(t testing.TB, store *memStore, cat *fakeCatalog) {
+			cat.setIndexed(captureLow, memTestHour+1, false)
+			for i := range 50 {
+				id := UUID{0x60, byte(i)}
+				store.putAt(t, segmentKeyAt(t, uint64(100+i), id), txPackIn(t, id, 3, nil, txBlock(inHour(3, txRecord(uint64(100+i), nil)))))
+			}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store, cat := listedStore()
+			tt.setup(t, store, cat)
+			src := newTestStoreSource(t, store, cat, nil)
+			checks := 0
+			src.checkpoint = func(a *storeAcquisition, where string, held *storeListingState) {
+				if where == "listed" || where == "viewed" || where == "confirming" {
+					checks++
+				}
+				assertAcquisitionCovered(t, a, held)
+			}
+			o, err := src.Observe(t.Context(), captureLow, memTestHour, memTestHour+2)
+			require.NoError(t, err)
+			requireStoreCharges(t, asStoreObservation(t, o))
+			require.NoError(t, o.Close())
+			assert.Equal(t, 1+2+2, checks, "after the listings, after each view, before each confirmation")
+			requireClosedOnce(t, store)
+		})
+	}
+
+	t.Run("1000 empty listed hours", func(t *testing.T) {
+		t.Parallel()
+
+		const hours = 1000
+		cat := newFakeCatalog()
+		for h := range int64(hours) {
+			cat.setIndexed(captureLow, memTestHour+h, false)
+		}
+		var tokens int64
+		cat.editSnapshot = func(s *CatalogSnapshot) {
+			cat.mu.Lock()
+			defer cat.mu.Unlock()
+			tokens = 0
+			// One-byte tokens, distinct within the snapshot, which the catalog still confirms.
+			for i := range s.Scopes {
+				short := string(rune(0x21 + i%90))
+				if i >= 90 {
+					short = fmt.Sprintf("%c%d", rune(0x21+i%90), i/90)
+				}
+				cat.tokens[short] = cat.tokens[s.Scopes[i].Token]
+				s.Scopes[i].Token = short
+				tokens += int64(len(short))
+			}
+		}
+		store := newMemStore()
+		observe := func(limit int64) error {
+			src := newTestStoreSource(t, store, cat, func(o *StoreSourceOptions) { o.MaxSourceBytes = limit })
+			// Every checkpoint measures every hour, so only some are measured.
+			checks := 0
+			src.checkpoint = func(a *storeAcquisition, _ string, held *storeListingState) {
+				if checks++; checks%250 == 1 {
+					assertAcquisitionCovered(t, a, held)
+				}
+			}
+			o, err := src.Observe(t.Context(), captureLow, memTestHour, memTestHour+hours)
+			if err == nil {
+				requireStoreCharges(t, asStoreObservation(t, o))
+				require.NoError(t, o.Close())
+			}
+
+			return err
+		}
+		require.NoError(t, observe(math.MaxInt64))
+		limit := storeObservationCharge + hours*(storeScopeCharge+storeScopeDescriptorCharge+storeListedHourCharge) + tokens
+		require.NoError(t, observe(limit), "at the limit")
+		err := observe(limit - 1)
+		require.ErrorIs(t, err, ErrReadLimit, "one byte below")
+	})
+}
+
+// TestStoreSourcePackInfoCharged observes a listed segment whose pack metadata holds 8 MiB of notes,
+// with MaxSourceBytes at the largest charge the first Observe held and one byte below it.
+// At the limit Observe succeeds, its PackInfo built once, its charges covering what it holds at every step of the build;
+// one byte below, it fails with ErrReadLimit for the PackInfo before decoding the metadata again.
+func TestStoreSourcePackInfoCharged(t *testing.T) {
+	t.Parallel()
+
+	store, cat := listedStore()
+	notes := strings.Repeat("n", 8<<20)
+	store.putPack(t, memTestHour, storeSegment(t, seg0, func(m *PackMeta) { m.Notes = &notes }, 1))
+	observe := func(limit int64) (int64, int, error) {
+		src := newTestStoreSource(t, store, cat, func(o *StoreSourceOptions) { o.MaxSourceBytes = limit })
+		built := 0
+		src.checkpoint = func(a *storeAcquisition, where string, held *storeListingState) {
+			if where == "built" {
+				built++
+			}
+			assertAcquisitionCovered(t, a, held)
+		}
+		o, err := src.Observe(t.Context(), captureLow, memTestHour, memTestHour+1)
+		if err != nil {
+			return 0, built, err
+		}
+		so := asStoreObservation(t, o)
+		requireStoreCharges(t, so)
+		require.NoError(t, o.Close())
+
+		return so.peak, built, nil
+	}
+	peak, built, err := observe(math.MaxInt64)
+	require.NoError(t, err)
+	assert.Equal(t, 1, built)
+	assert.Greater(t, peak, int64(2*len(notes)), "the Reader's metadata and the PackInfo's")
+
+	got, built, err := observe(peak)
+	require.NoError(t, err, "at the limit")
+	assert.Equal(t, peak, got)
+	assert.Equal(t, 1, built)
+
+	_, built, err = observe(peak - 1)
+	require.ErrorIs(t, err, ErrReadLimit)
+	require.ErrorContains(t, err, "its PackInfo")
+	assert.Zero(t, built, "no PackInfo is built before it is charged")
+	requireClosedOnce(t, store)
+}
+
+// TestStoreSourcePackInfoCtx cancels Observe's context while a listed hour's PackInfo are built, after the first and after the last:
+// no further PackInfo is built, ActiveView is not called, Observe fails with the cancellation, and every object is closed once.
+func TestStoreSourcePackInfoCtx(t *testing.T) {
+	t.Parallel()
+
+	for _, at := range []int{1, 3} {
+		t.Run(fmt.Sprintf("after PackInfo %d of 3", at), func(t *testing.T) {
+			t.Parallel()
+
+			store, cat := listedStore()
+			for i, id := range []UUID{seg0, seg1, seg2} {
+				store.putPack(t, memTestHour, storeSegment(t, id, nil, uint64(i+1)))
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			src := newTestStoreSource(t, store, cat, nil)
+			built, views := 0, 0
+			src.checkpoint = func(a *storeAcquisition, where string, held *storeListingState) {
+				assertAcquisitionCovered(t, a, held)
+				if where == "built" {
+					if built++; built == at {
+						cancel()
+					}
+				}
+			}
+			src.activeView = func(packs []PackInfo, c CommitSet) (View, error) {
+				views++
+
+				return ActiveView(packs, c)
+			}
+			o, err := src.Observe(ctx, captureLow, memTestHour, memTestHour+1)
+			require.ErrorIs(t, err, context.Canceled)
+			require.Nil(t, o)
+			assert.Equal(t, at, built, "no PackInfo is built after the cancellation")
+			assert.Zero(t, views, "ActiveView is not called after the cancellation")
+			requireClosedOnce(t, store)
+		})
+	}
 }

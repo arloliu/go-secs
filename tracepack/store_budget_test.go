@@ -71,6 +71,9 @@ func (s *deepSizer) of(v reflect.Value) int64 {
 		}
 	case reflect.Slice:
 		n = int64(v.Len()) * int64(v.Type().Elem().Size())
+		if holdsNothingBeyond(v.Type().Elem().Kind()) {
+			break
+		}
 		for i := range v.Len() {
 			n += s.of(v.Index(i))
 		}
@@ -86,6 +89,18 @@ func (s *deepSizer) of(v reflect.Value) int64 {
 	}
 
 	return n
+}
+
+// holdsNothingBeyond reports whether a value of kind k holds nothing beyond its own storage, so a slice of it need not be walked.
+func holdsNothingBeyond(k reflect.Kind) bool {
+	switch k { //nolint:exhaustive // every other kind may hold more
+	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
+		return true
+	default:
+		return false
+	}
 }
 
 // fillValue sets every field v reaches to a value that is not zero:
@@ -232,8 +247,11 @@ func TestStoreCostSufficient(t *testing.T) {
 	cp := &CatalogPack{Key: strings.Repeat("k", 100)}
 	assert.GreaterOrEqual(t, packDescriptorCost(cp), deepSize(cp))
 	key := strings.Repeat("k", 100)
-	l := &storeListed{key: key, size: 1, k: storePackKey{tool: memStoreTool}}
-	assert.GreaterOrEqual(t, listedKeyCost(key), deepSize(l)-int64(len(l.k.tool)), "the tool is the source's own")
+	l := &storeListed{key: key, size: 1, k: storePackKey{seqFirst: 1}}
+	assert.GreaterOrEqual(t, listedKeyCost(key), deepSize(l))
+	lh := &storeListedHour{}
+	assert.GreaterOrEqual(t, storeListedHourCharge, deepSize(lh)+int64(unsafe.Sizeof(lh))+deepSize(map[int64]*storeListedHour{1: nil}),
+		"with its slot and its index entry")
 	assert.GreaterOrEqual(t, storeOpenedCharge, int64(unsafe.Sizeof(storeOpened{})), "its Reader and its key are charged apart")
 	info := filled.Info()
 	info.meta = filledPackMeta(t)
@@ -315,7 +333,8 @@ func TestStoreSourceLimits(t *testing.T) {
 			},
 			check: func(t testing.TB, o *storeObservation) {
 				key := len(longPrefix) + len("/staging/tool/") + uuidKeyLen + 1 + segmentFileLen
-				assert.Equal(t, 2*storeScopeDescriptorCharge+8192+storePackDescriptorCharge+int64(key), o.peak-o.charged)
+				assert.Equal(t, 2*storeScopeDescriptorCharge+8192+storePackDescriptorCharge+int64(key)+storeObjectSlotCharge, o.peak-o.charged,
+					"the descriptors and the object's slot are released")
 			},
 		},
 		{
@@ -374,7 +393,7 @@ func TestStoreSourceLimits(t *testing.T) {
 			},
 			check: func(t testing.TB, o *storeObservation) {
 				assert.Equal(t, storeObservationCharge+3*storeScopeCharge, o.charged, "each token released at its confirmation")
-				assert.Equal(t, 3*(storeScopeDescriptorCharge+8192), o.peak-o.charged)
+				assert.Equal(t, 3*(storeScopeDescriptorCharge+8192+storeListedHourCharge), o.peak-o.charged)
 			},
 		},
 		{
