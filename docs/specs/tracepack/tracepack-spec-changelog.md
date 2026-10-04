@@ -939,7 +939,7 @@ Summary:
 | P0 ×3, P1 ×4, P2 (spec round 1) open window overriding a match, the closing `stop` in the epoch-wide rule, the old unavailable-field rule, decision wording, verify/merge coverage claim, observation lifecycle, kept versions | [SEM §6], [SEM §7.2], [STO §5], `tracepack-go.md` §3, decision log |
 | P0 (spec round 2) evidence-only closure left in older text | [SEM §7.2] result preface, [STO §5] Completeness split per reader, [FMT §10] |
 
-## Changes v2.21 → v2.22: store-backed source and listing views (owner decisions G5-139..G5-147, 2026-10-03..04)
+## Changes v2.21 → v2.22: store-backed source and listing views (owner decisions G5-139..G5-148, 2026-10-03..04)
 
 Source: planning the store-backed `PackSource` (impl plan phase 5c2),
 whose plan review found that [STO §3] left the text of keys open, that [STO §5] did not say how a source establishes the coherent observation's premise against a catalog it cannot see or what a gone segment of unknown hour does,
@@ -955,7 +955,7 @@ Summary:
   a conflicted scope reported as such, its packs not read (G5-142).
 - [SEM §7.2] a conflicted scope is not read and prevents `unmatched` (G5-142); a record outside its scope's hour makes the lookup `incomplete` (G5-146);
   coverage and barriers meet the time range of the hours scheduled, which a conflicted hour belongs to; [SEM §9] vectors.
-- `tracepack-go.md` §3: `NewStoreSource` over `ObjectStore` and `Catalog`, key builders, `(*Reader).Stats()` and `AddPackEvidence`, `SourceScope.Conflicted`, the `Barriers` range rule;
+- `tracepack-go.md` §3: `NewStoreSource` over `ObjectStore` and `Catalog`, key builders and `ErrInvalidKey` (G5-148), `(*Reader).Stats()` and `AddPackEvidence`, `SourceScope.Conflicted`, the `Barriers` range rule;
   the searched scope and `Cold` for `Iterate` and `MergeIterate` wait for a query over a source (G5-140).
 - Impl plan: 5c2 rewritten.
 

@@ -236,7 +236,9 @@ type storePackKey struct {
 // and its scope_generation suits its role, as ActiveView checks it.
 // A pack the catalog indexes must have a role that takes part in a scope's view (the tracepack storage specification §2).
 // Any disagreement fails the Observe, and so does a pack that is gone when opened or read, with an error wrapping ErrObjectNotFound,
-// which a caller may retry.
+// which a caller may retry,
+// and a key a listing returns or the catalog names that does not parse as a key of the tracepack storage specification §3,
+// with an error wrapping ErrInvalidKey, which a retry does not cure.
 // An Observe that fails closes every object it opened, and returns the close errors joined after its first error.
 //
 // The source's guarantees hold while every hour observed stays retained (the tracepack storage specification §5, Retention)
@@ -253,8 +255,8 @@ type storePackKey struct {
 //
 // Returns:
 //   - PackSource: the source; nil on error.
-//   - error: non-nil for a nil store or cat, a nil OnExcluded, a Prefix ending in '/', a Tool a key cannot hold,
-//     or a non-zero Reader.FooterOffset.
+//   - error: non-nil for a nil store or cat, a nil OnExcluded, a Prefix ending in '/',
+//     a Tool a key cannot hold (wrapping ErrInvalidKey), or a non-zero Reader.FooterOffset.
 func NewStoreSource(store ObjectStore, cat Catalog, opts StoreSourceOptions) (PackSource, error) {
 	switch {
 	case store == nil:
@@ -269,7 +271,7 @@ func NewStoreSource(store ObjectStore, cat Catalog, opts StoreSourceOptions) (Pa
 		return nil, fmt.Errorf("tracepack: new store source: Reader.FooterOffset %d is a hint for one object, not for every pack", opts.Reader.FooterOffset)
 	}
 	if err := checkKeyTool(opts.Tool); err != nil {
-		return nil, fmt.Errorf("tracepack: new store source: %w", err)
+		return nil, fmt.Errorf("tracepack: new store source: %w", keyArgError(err))
 	}
 	opts.MaxCommitListings = positiveOr(opts.MaxCommitListings, DefaultMaxCommitListings)
 	opts.MaxListPages = positiveOr(opts.MaxListPages, DefaultMaxListPages)
@@ -280,7 +282,7 @@ func NewStoreSource(store ObjectStore, cat Catalog, opts StoreSourceOptions) (Pa
 }
 
 // parsePackKey parses key as the key of a pack under prefix: a segment's under staging/, else an archive's.
-// Its error wraps errInvalidKey.
+// Its error wraps ErrInvalidKey.
 func parsePackKey(prefix, key string) (storePackKey, error) {
 	if strings.HasPrefix(key, keyArea(prefix, "staging")) {
 		p, err := parseSegmentKey(prefix, key)

@@ -133,7 +133,7 @@ func requireClosedOnce(t testing.TB, store *memStore) {
 }
 
 // TestNewStoreSource builds sources from good and bad arguments:
-// a nil store, catalog or OnExcluded, a prefix ending in a slash, a tool no key can hold and a footer offset are rejected;
+// a nil store, catalog or OnExcluded, a prefix ending in a slash, a tool no key can hold (wrapping ErrInvalidKey) and a footer offset are rejected;
 // other prefixes are kept byte for byte, and every limit not set takes its default.
 func TestNewStoreSource(t *testing.T) {
 	t.Parallel()
@@ -145,15 +145,17 @@ func TestNewStoreSource(t *testing.T) {
 		cat   Catalog
 		edit  func(o *StoreSourceOptions)
 		want  string
+		// invalid marks an error wrapping ErrInvalidKey.
+		invalid bool
 	}{
 		{name: "nil store", cat: newFakeCatalog(), want: "the object store is nil"},
 		{name: "nil catalog", store: newMemStore(), want: "the catalog is nil"},
 		{name: "nil OnExcluded", edit: func(o *StoreSourceOptions) { o.OnExcluded = nil }, want: "OnExcluded is nil"},
 		{name: "trailing slash", edit: func(o *StoreSourceOptions) { o.Prefix = "a/" }, want: `prefix "a/" ends in '/'`},
 		{name: "slash only", edit: func(o *StoreSourceOptions) { o.Prefix = "/" }, want: `prefix "/" ends in '/'`},
-		{name: "empty tool", edit: func(o *StoreSourceOptions) { o.Tool = "" }, want: `tool "" cannot be stored`},
-		{name: "dot tool", edit: func(o *StoreSourceOptions) { o.Tool = "." }, want: `tool "." cannot be stored`},
-		{name: "dot-dot tool", edit: func(o *StoreSourceOptions) { o.Tool = ".." }, want: `tool ".." cannot be stored`},
+		{name: "empty tool", edit: func(o *StoreSourceOptions) { o.Tool = "" }, want: `tool "" cannot be stored`, invalid: true},
+		{name: "dot tool", edit: func(o *StoreSourceOptions) { o.Tool = "." }, want: `tool "." cannot be stored`, invalid: true},
+		{name: "dot-dot tool", edit: func(o *StoreSourceOptions) { o.Tool = ".." }, want: `tool ".." cannot be stored`, invalid: true},
 		{name: "footer offset", edit: func(o *StoreSourceOptions) { o.Reader.FooterOffset = 80 }, want: "Reader.FooterOffset 80 is a hint for one object"},
 	}
 	for _, tt := range rejected {
@@ -167,6 +169,7 @@ func TestNewStoreSource(t *testing.T) {
 		}
 		src, err := NewStoreSource(store, cat, opts)
 		require.ErrorContains(t, err, tt.want, tt.name)
+		assert.Equal(t, tt.invalid, errors.Is(err, ErrInvalidKey), tt.name)
 		assert.Nil(t, src, tt.name)
 	}
 

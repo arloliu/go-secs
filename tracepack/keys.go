@@ -36,8 +36,12 @@ const (
 	upperHex = "0123456789ABCDEF"
 )
 
-// errInvalidKey reports a key, or a key component, outside the forms of the tracepack storage specification §3.
-var errInvalidKey = errors.New("tracepack: invalid object key")
+// ErrInvalidKey reports a key, or a key component, outside the forms of the tracepack storage specification §3:
+// the key builders return an error wrapping it for arguments no key can hold,
+// and the Observe of the source NewStoreSource returns fails with an error wrapping it
+// for a key a listing returns or the catalog names that does not parse.
+// Unlike ErrObjectNotFound, it reports malformed bucket or catalog contents, which a retry does not cure.
+var ErrInvalidKey = errors.New("tracepack: invalid object key")
 
 // segmentKeyParts is what a segment key names.
 type segmentKeyParts struct {
@@ -102,14 +106,14 @@ func EscapeToolID(tool string) string {
 //
 // Returns:
 //   - string: the key; empty on error.
-//   - error: non-nil for a tool a key cannot hold or a seqFirst above 2^63-1.
+//   - error: non-nil, wrapping ErrInvalidKey, for a tool a key cannot hold or a seqFirst above 2^63-1.
 func SegmentKey(prefix, tool string, capture UUID, seqFirst uint64, pack UUID) (string, error) {
 	dir, err := stagingKeyDir(prefix, tool, capture)
 	if err != nil {
 		return "", err
 	}
 	if seqFirst > math.MaxInt64 {
-		return "", fmt.Errorf("%w: seq_first %d above 2^63-1", errInvalidKey, seqFirst)
+		return "", fmt.Errorf("%w: seq_first %d above 2^63-1", ErrInvalidKey, seqFirst)
 	}
 
 	return fmt.Sprintf("%s%0*d-%s%s", dir, seqFirstDigits, seqFirst, pack, keyPackSuffix), nil
@@ -131,7 +135,7 @@ func SegmentKey(prefix, tool string, capture UUID, seqFirst uint64, pack UUID) (
 //
 // Returns:
 //   - string: the key; empty on error.
-//   - error: non-nil for a tool a key cannot hold or an hour outside that range.
+//   - error: non-nil, wrapping ErrInvalidKey, for a tool a key cannot hold or an hour outside that range.
 func ArchiveKey(prefix, tool string, capture UUID, hour int64, pack UUID) (string, error) {
 	dir, err := archiveKeyDir(prefix, tool, hour)
 	if err != nil {
@@ -157,7 +161,7 @@ func ArchiveKey(prefix, tool string, capture UUID, hour int64, pack UUID) (strin
 //
 // Returns:
 //   - string: the key; empty on error.
-//   - error: non-nil for a tool a key cannot hold or an hour outside that range.
+//   - error: non-nil, wrapping ErrInvalidKey, for a tool a key cannot hold or an hour outside that range.
 func CommitKey(prefix, tool string, capture UUID, hour int64, id UUID) (string, error) {
 	dir, err := commitKeyDir(prefix, tool, capture, hour)
 	if err != nil {
@@ -217,7 +221,7 @@ func commitKeyDir(prefix, tool string, capture UUID, hour int64) (string, error)
 
 // checkKeyTool reports an error for a tool no key can hold: "", and "." and "..",
 // which would be path components of their own since '.' is not escaped.
-// The error states only the reason; its caller wraps it with errInvalidKey.
+// The error states only the reason; its caller wraps it with ErrInvalidKey.
 func checkKeyTool(tool string) error {
 	if tool == "" || tool == "." || tool == ".." {
 		return fmt.Errorf("tool %q cannot be stored", tool)
@@ -227,7 +231,7 @@ func checkKeyTool(tool string) error {
 }
 
 // checkKeyHour reports an error for an hour outside [minKeyHour, maxKeyHour].
-// The error states only the reason; its caller wraps it with errInvalidKey.
+// The error states only the reason; its caller wraps it with ErrInvalidKey.
 func checkKeyHour(hour int64) error {
 	if hour < minKeyHour || hour > maxKeyHour {
 		return fmt.Errorf("hour %d outside [%d, %d]", hour, minKeyHour, maxKeyHour)
@@ -351,14 +355,14 @@ func splitKey(prefix, area, key string, n int) ([]string, error) {
 	return comps, nil
 }
 
-// keyArgError wraps err, the reason a builder cannot build a key from its arguments, with errInvalidKey.
+// keyArgError wraps err, the reason a builder cannot build a key from its arguments, with ErrInvalidKey.
 func keyArgError(err error) error {
-	return fmt.Errorf("%w: %w", errInvalidKey, err)
+	return fmt.Errorf("%w: %w", ErrInvalidKey, err)
 }
 
-// keyError wraps err, the reason key does not parse, with errInvalidKey and the key.
+// keyError wraps err, the reason key does not parse, with ErrInvalidKey and the key.
 func keyError(key string, err error) error {
-	return fmt.Errorf("%w %q: %w", errInvalidKey, key, err)
+	return fmt.Errorf("%w %q: %w", ErrInvalidKey, key, err)
 }
 
 // unescapeToolID decodes a key's tool component, which EscapeToolID must have produced:
