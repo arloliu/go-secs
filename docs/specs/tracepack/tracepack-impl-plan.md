@@ -1,6 +1,6 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-10-04) — phases 4, 5a, 5b and 5c1 done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`); phase 5c2 in progress (store-backed source), then 5c3 (retention).
+Status: active (2026-10-04) — phases 4, 5a, 5b, 5c1 and 5c2 done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`); phase 5c3 next (retention).
 Implements: tracepack v2.22 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
@@ -27,7 +27,7 @@ Nested module `github.com/arloliu/go-secs/tracepack` (own `go.mod` in `tracepack
 
 | Package | Content | Public? |
 |---|---|---|
-| `tracepack` | `Record`, enums, `PackMeta`, `Writer`, `Reader`, `Filter`, `Verify`, `Repair`, `Recover` (deferred), `Merge`, `MergeIterate`, `FindTransaction`, `Extract`, `RedactionPolicy` | yes |
+| `tracepack` | `Record`, enums, `PackMeta`, `Writer`, `Reader`, `Filter`, `Verify`, `Repair`, `Recover` (deferred), `Merge`, `MergeIterate`, `FindTransaction`, `NewStoreSource`, `Extract`, `RedactionPolicy` | yes |
 | `tracepack/jsonl` | canonical export | yes |
 | `tracepack/classify` | go-secs-based `decode_status` classifier | yes |
 | `tracepack/internal/format` | byte layouts: file header, envelope, record header, trailer, F-1, F-2; CRC; UUID byte order | no |
@@ -71,7 +71,7 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 5a — ActiveView, Merge, Writer seams | done |
 | 5b — MergeIterate | done |
 | 5c1 — PackSource, FindTransaction | done |
-| 5c2 — store-backed PackSource, listing views | in-progress |
+| 5c2 — store-backed PackSource, listing views | done |
 | 5c3 — retention | pending |
 | 6 — JSONL export, conformance corpus, CLI | pending |
 | 7 — Extract and redaction | pending |
@@ -402,7 +402,7 @@ The implementation settled what the text above leaves open:
 - Generated captures hold no block that disagrees with its F-2 entry, since the reference reads each block by its entry,
   so `index` gaps and the seqs before a late primary are covered by unit tests only.
 
-#### 5c2 — store-backed PackSource, listing views (in progress)
+#### 5c2 — store-backed PackSource, listing views (done)
 
 - Spec v2.22 first (G5-139..G5-148): the key encodings of [STO §3] (G5-141, G5-143) and the segment `seq_first` check (G5-147);
   in [STO §5], a listed segment that is gone fails the observation (G5-144), premise (i) confirmed by the catalog per scope (G5-139), a conflicted scope reported as such (G5-142);
@@ -416,6 +416,73 @@ The implementation settled what the text above leaves open:
 - Not in 5c2: the searched scope and `Cold` reason in `Result` for `Iterate` and `MergeIterate`, which wait for a query over a `PackSource` (G5-140, pending, unscheduled).
 
 Tests: the coherent-observation, listing-view and window-boundary vectors of [STO §8], through `FindTransaction` over a `StoreSource`, checked against an acquisition model built from the store's history.
+
+Done (2026-10-04): the tests above pass.
+The external post-implementation review took four rounds and ended merge-clean;
+its fixes charge the listing's own state while it is held, charge each `PackInfo` before decoding it, check the context while a view's `PackInfo` are built,
+and take the model's witness after a traversal returns.
+`FuzzFindTransaction` (20,241,071 executions) and `FuzzFindTransactionGenerated` (339,115) passed 10-minute runs,
+and so did `FuzzStoreSource` (8,607,709) after its harness kept late mutations within the coherent observation's premises.
+G5-139..G5-146 were settled before implementation, in spec v2.22.
+The owner settled two points during it, as spec v2.22 amendments:
+a segment key's `seq_first` is not compared when damage hides the segment's first seq, the reads reporting the damage (G5-147),
+and a key that cannot be built, or a listed or catalog key that does not parse, is an error wrapping an exported `ErrInvalidKey`,
+which a failed `Observe` keeps (G5-148).
+The [STO §8] vectors are unit tests through a `StoreSource`:
+a paginated commit listing whose late writes land behind and ahead of the cursor,
+so the second traversal differs and the view is never G1 plus the uncertain patch;
+late commit objects and segments before, during and after the traversals;
+a settled and an unsettled scope whose listing views equal the catalog's;
+a late segment of a cold scope, alone and beside an indexed hour, and a lookup across the window boundary;
+an observation fixed before an indexed scope is evicted, a reply registered or rejected, and the evidence and barriers changed;
+supersession through listing views
+(patch of a patch, an incomplete committed set, stale and uncommitted patches, a coverage-only repair, predecessors deleted in each order);
+the confirmation failures (a scope indexed before its confirmation, a rebuild, lost history, another scope's token),
+and a scope indexed after its own confirmation keeping its listing view;
+listed packs deleted between listing and read, each failing with `ErrObjectNotFound`, and the retry that succeeds.
+An acquisition model, independent of the source, derives from the store's and the catalog's logs of what they returned and when
+each listed hour's witness interval between its two agreeing commit traversals,
+the commit set and the packs present then, and the segments a later listing may add.
+It checks every observation of 1000 generated schedules (300 under `-short`):
+each scope's readers, the evidence, the barriers and the excluded packs;
+every failure the schedule forces (an open or read of a gone object fails with `ErrObjectNotFound`);
+and the lookup over the source against the lookup over a `memSource` replay of the model's observation, an indexed scope's view taken as given.
+Non-vacuity: at least 40% of the schedules must succeed with a listed hour, and 10% each with a late commit object and with a late segment in a view;
+a source whose every `Observe` fails passes the check but fails that requirement.
+Of 300 schedules, the check rejects 187 under a source that takes one commit traversal, 170 under an empty listed view,
+28 under a dropped committed patch, and 14 under a refused confirmation accepted;
+the last two kills are structural, from the model's witness and confirmation rules.
+The lookup's generated captures now hold conflicted scopes, indexed or not, conflicted primary scopes,
+and packs breaching their scope, with a valid footer and walked, in the primary's scope too.
+The observation-bounded check rejects 82 mutated lookups that read a conflicted scope,
+8 that leave a breach's outcome complete, and 127 that ignore a breach below the primary.
+After every `Observe`, failed ones included, the charges recomputed from what the observation keeps equal what it charged against `MaxSourceBytes`,
+and a sufficiency test compares each cost function with the bytes its structure holds.
+`FuzzStoreSource` mutates keys, pages, schedules, pack bytes and segment heads, and checks every observation against the model.
+At chosen points of every test acquisition, what the listing holds is measured against its charges.
+The implementation settled what the text above leaves open:
+- Observe's order: the indexed packs opened; every listed hour's commit traversals; every listed hour's archive listing; the one staging listing;
+  segment heads and full opens in key order; the archives hour by hour; `ActiveView` per listed hour; the confirmation per listed hour.
+  A cancellation during the last confirmation is not observed.
+- A segment head of an hour not observed gets the full metadata check of a listed pack (tool, capture, pack_id, role, period in one hour, generation),
+  since the segment could belong to a listed hour.
+  The head read takes `min(size, HeadWindow)` bytes, so a small pack's footer bytes are read but never decoded.
+- An excluded pack is closed, then reported through `OnExcluded`, also when its close fails; that failure then fails `Observe`.
+- `NewStoreSource` rejects `MaxCommitListings` 1 (zero or negative takes the default)
+  and a non-zero `Reader.FooterOffset`, a hint for one object;
+  its error for a tool no key can hold wraps `ErrInvalidKey`.
+- Listing charges (listed hours, listed keys, opened packs, commit ids, object slots) are held while their state is, a higher peak for the same final charges;
+  a scope's token is released at its confirmation, its descriptor once the observation is built.
+- `Reader.Stats` keeps the F-5 count arrays as stored, trailing zeros included (the owner's go decision):
+  trimming would not bound the worst case, since a non-zero element at a high index keeps the zeros before it and extra elements must be preserved;
+  a used footer's F-5 is held for the Reader's lifetime, and each call copies it.
+- `AddPackEvidence` orders boundaries by (seq, kind, ts, epoch, gap_start, gap_end) and then capture_id,
+  so that entries differing only in capture are both kept and the result does not depend on the order of the folds.
+- A `scope-breach` gap is listed per version, in discovery order, straight into the result,
+  so it precedes the mapped gaps of its read (a missing primary ends the reads and drops that read's pending gaps).
+- A conflicted scope that comes with readers fails the lookup.
+- A barrier's `Kind` is not validated, and a token on an indexed scope is not rejected.
+- Not covered by a test: the context checks while `ActiveView`'s pack list is matched to the readers, which no double can reach between iterations.
 
 #### 5c3 — retention (pending)
 
