@@ -7,7 +7,8 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 This release follows the format revision of spec v2.13, which redefines format 1.0 in place, and its amendment in spec v2.17.
 It adds the reader and verification (spec v2.14), repair (spec v2.15 and v2.19), the active view and merge of a scope (spec v2.16 to v2.18),
-one read over several packs (spec v2.20), and the lookup of a transaction from its primary (spec v2.21).
+one read over several packs (spec v2.20), the lookup of a transaction from its primary (spec v2.21),
+and a source for that lookup over an object store and the caller's catalog (spec v2.22).
 
 ### Upgrade notes
 
@@ -74,6 +75,28 @@ one read over several packs (spec v2.20), and the lookup of a transaction from i
   `Iterate` reports it in `Result.FooterErr`, `Verify` and `Repair` fail with it,
   and `Merge` fails with it naming the input.
   No pack whose lists lie end to end, as the Writer and `Merge` write them, is affected.
+- `Observation.Barriers` requires a non-empty range within the observation's hours,
+  [from·3600·10⁹, to·3600·10⁹) for the from and to of `Observe`;
+  an empty or reversed range, or one reaching outside those hours, is an error (spec v2.22).
+  An `Observation` a caller implements must reject such ranges too;
+  `FindTransaction` asks only for the hours it schedules.
+- `FindTransaction` checks the `ts_utc_ns` hour of every version a scope read yields against the scope's hour.
+  A version outside it, from a pack that does not keep to its scope, adds a `TxGapScopeBreach` gap
+  and makes the outcome `TxIncomplete`, also beside a match;
+  the version is still classified, and kept as any other version is,
+  and in the primary's scope the breach explains a missing primary as a read defect does.
+  The check applies to every source and to walked packs,
+  so a pack already stored whose records lie in another hour now makes a lookup reading it `TxIncomplete`.
+- `FindTransaction` does not read a scope the `Observation` reports conflicted:
+  it lists a `TxGapConflicted` gap, after the `TxGapCold` gap of a scope not indexed,
+  which prevents `TxUnmatched`, while a match found in another hour is still reported;
+  a conflicted primary scope explains a missing primary as a cold one does,
+  and a conflicted scope that comes with readers fails the lookup.
+- `TxOptions.MaxScopes` is documented as the number of hours scheduled from `TxKey.Hour`, a conflicted one among them,
+  and coverage and time barriers are checked over the hours scheduled.
+  The lookup already used that range;
+  the visible effect is that a conflicted hour takes its place in the range without being read,
+  and the hours after it are still read.
 
 ### Added
 
@@ -221,13 +244,14 @@ one read over several packs (spec v2.20), and the lookup of a transaction from i
   A footer's or the per-capture evidence's claim that an epoch closed never bounds the window,
   and a claim that the records read contradict is reported;
   so is a claim at or below the primary, since it says the primary's epoch or the capture ended before the primary.
-- A conflict on a seq at or above the primary's, a block whose records disagree with its F-2 entry, or a primary without a key makes the outcome `TxIncomplete`.
+- A conflict on a seq at or above the primary's, a block whose records disagree with its F-2 entry, a version outside its scope's hour,
+  or a primary without a key makes the outcome `TxIncomplete`.
   Otherwise one valid match is `TxMatched` and several are `TxAmbiguous`, each with every gap found listed beside it.
   Without a valid match the outcome is `TxUnmatched` only when nothing prevents establishing absence:
   the lookup read a bound and every seq of the window below it;
-  no scope read is cold, and no pack read is damaged, unevaluated, or has a coverage entry that meets the window;
+  no scope is cold or conflicted, and no pack read is damaged, unevaluated, or has a coverage entry that meets the window;
   the per-capture evidence is complete and no claim of it is contradicted;
-  no stop-unclean barrier applies, one of the capture unless the lookup read a closing record of the primary's epoch, or one of the tool whose gap meets the hours read;
+  no stop-unclean barrier applies, one of the capture unless the lookup read a closing record of the primary's epoch, or one of the tool whose gap meets the hours scheduled;
   no other capture boundary and no ordering-uncertain record of the primary's epoch was found, and the primary is not correlation-incomplete;
   and no possible reply, undecidable candidate, or candidate at or after a possible same-key primary lies in the window.
   Each condition found is a `TxGap` in `TxResult.Gaps`, naming its hours, pack, block and seq where it has them.
@@ -250,7 +274,7 @@ one read over several packs (spec v2.20), and the lookup of a transaction from i
   `Observation.Scope`, `Evidence` and `Barriers` answer from what it fixed, every value returned being the caller's,
   and `Close` releases it without blocking.
   `FindTransaction` closes the observation it opened exactly once, whatever happened.
-  The module provides no `PackSource`: a caller implements one over its catalog and storage.
+  `NewStoreSource` returns one over an object store and the caller's catalog, and a caller may implement its own.
 - Types for a transaction lookup:
   `TxKey`; `TxOptions`, with `DefaultTxMaxScopes` and `DefaultTxMaxStateBytes`, which a zero or negative limit takes; `MinTxHour` and `MaxTxHour`;
   `TxOutcome`, with `TxMatched`, `TxAmbiguous`, `TxUnmatched`, `TxIncomplete` and `String`;
@@ -259,10 +283,80 @@ one read over several packs (spec v2.20), and the lookup of a transaction from i
   `TxRecord`; `TxGapReason`, one value per reason of the semantics specification §7.2, with `String`; `TxGap`; `TxScope`;
   `TxPackError`, with `Error` and `Unwrap`; `TxResult`;
   `SourceScope`, `CaptureEvidence`, `EpochClosure`, `Boundary`, and `EndState`, with `EndOpen`, `EndStopped`, `EndStoppedUnclean` and `String`.
-- `FindTransaction` has a property test that looks up every record of 96 generated captures (24 under `-short`)
+- `FindTransaction` has a property test that looks up every record of 96 generated captures (24 under `-short`),
+  conflicted scopes and packs that breach their scope among them,
   and requires each result to equal one computed from the scopes read independently of the lookup,
   and each `TxUnmatched`, and each `TxMatched` without a gap, to hold over the capture as written, versions in hours not read excluded;
   and the fuzz targets `FuzzFindTransaction` and `FuzzFindTransactionGenerated`.
+- `NewStoreSource` returns a `PackSource` of one tool over an `ObjectStore`, the bucket, and a `Catalog`, the caller's catalog,
+  which also provides the per-capture evidence and the tool's barriers (spec v2.22).
+  Each `Observe` takes one `CatalogSnapshot`.
+  A scope the catalog indexes is fixed from it:
+  the source opens each `CatalogPack` of the scope's view, in view order, and checks it against its key and its descriptor.
+  A scope the catalog does not index is fixed by the coherent observation of the storage specification §5:
+  its commit objects are listed until two consecutive complete listings agree,
+  then its archive packs and the capture's staging segments are listed once;
+  each segment's head is read to learn its hour, and a segment of an hour not observed is closed, its footer never decoded;
+  the packs are opened and checked, `ActiveView` computes the view,
+  and last the catalog must confirm that the scope stayed not indexed since the snapshot, or `Observe` fails.
+  A conflicted view, in the snapshot or in a listing view, is fixed as conflicted, without readers.
+  A listed pack whose role takes no part in a view is closed,
+  then reported as an `ExcludedPack` to the required `StoreSourceOptions.OnExcluded`, once per pack per `Observe`.
+- Every pack the source opens must agree with its key, and with its descriptor for an indexed scope, on pack_id and capture_id;
+  its tool_id is the source's tool, and its period lies in the scope's hour;
+  a key under `staging/` holds a segment, and one under `archive/` a pack of another role;
+  its size is the one the listing or the catalog gives, and its generation suits its role.
+  A segment key's `seq_first` must be the first seq of the segment's first block,
+  or the `seq_start` of a segment known to hold no record;
+  it is not compared when damage hides the first seq, which the reads over the scope then report.
+  Every key a listing returns is parsed before it is classified,
+  and a listing that breaks the `ObjectStore` contract fails the `Observe`:
+  a key outside its prefix or not above the one before it, or a token that comes again.
+  A pack that is gone when opened or read fails the `Observe` with an error wrapping `ErrObjectNotFound`,
+  which a caller may retry;
+  a listed or catalog key that does not parse fails it with an error wrapping `ErrInvalidKey`, which a retry does not cure.
+  An `Observe` that fails closes every object it opened.
+- `StoreSourceOptions` sets the bucket prefix, the tool, the `ReaderOptions` of every pack, the callback and four limits,
+  with defaults that a zero or negative value takes:
+  `MaxCommitListings` (`DefaultMaxCommitListings`, 8 traversals of a scope's commit objects; 1 is rejected),
+  `MaxListPages` (`DefaultMaxListPages`, 10000 pages per traversal),
+  `MaxObjects` (`DefaultMaxObjects`, 65536 keys listed and objects opened per `Observe`)
+  and `MaxSourceBytes` (`DefaultMaxSourceBytes`, 256 MiB of state an `Observe` holds and its observation keeps,
+  charged from the decoded structures;
+  one `Open`'s transient buffers, the workspace of `ActiveView` and the adapters' allocations excepted).
+  A limit exceeded fails the `Observe` with an error wrapping `ErrReadLimit`.
+- The adapters' contracts, stated in their Godoc:
+  `ObjectStore` and `Catalog` are safe for concurrent use,
+  and every value they return is the source's from the moment the call returns;
+  a complete listing traversal returns, in strictly ascending byte order,
+  every key that exists under its prefix throughout the traversal;
+  an `Object`'s reads are bounded by the store's own deadline and may run concurrently, and its `Close` never waits on remote I/O;
+  `Catalog.ConfirmUnindexed` answers false when it cannot tell whether the scope stayed not indexed.
+  The source's guarantees hold while every hour observed stays retained until the lookup's last use of the observation,
+  which the caller ensures.
+  The types: `ObjectStore`, `ObjectPage`, `ObjectInfo`, `Object`, `Catalog`, `CatalogSnapshot`, `CatalogScope`, `CatalogPack`,
+  `ExcludedPack` and `StoreSourceOptions`.
+- `SegmentKey`, `ArchiveKey` and `CommitKey` build the object keys of the storage specification §3 under a bucket prefix used byte for byte,
+  the UUIDs in canonical lowercase,
+  and `EscapeToolID` spells a tool_id as a key does: every byte outside the RFC 3986 unreserved set is written `%XX` in uppercase hex,
+  so each tool has one spelling and none holds `/`.
+  A tool "", "." or "..", a `seq_first` above 2^63−1 and an hour outside the int64 nanosecond range are errors wrapping `ErrInvalidKey`.
+- `Reader.Stats` returns the F-5 statistics of a pack whose footer the Reader uses,
+  as a fresh `PackStats` with `SeqRange` and `EpochStats` entries;
+  false when the footer is not used.
+  `AddPackEvidence` folds one pack's statistics into a `CaptureEvidence`, or marks it partial for a pack without them,
+  so that the same packs folded in any order, any of them repeated, give the same evidence.
+- `SourceScope.Conflicted` reports a scope whose view is conflicted;
+  `TxGapConflicted` reports such a scope in a lookup, and `TxGapScopeBreach` a version a scope read yielded outside the scope's hour.
+- `NewStoreSource` has an acquisition model that recomputes, from the store's and the catalog's logs of what they returned and when,
+  the view each scope may take, the evidence, the barriers and the excluded packs;
+  a property test checks 1000 generated schedules against it (300 under `-short`),
+  with late commit objects and segments, deletions, index changes, evidence and barriers,
+  and requires each lookup over the source to equal the lookup over a replay of the model's observation.
+  The schedules must give successful observations with a listed hour, a late commit object and a late segment at fixed shares,
+  and the check must reject a source that drops a committed patch, returns an empty view,
+  takes one commit traversal or accepts a refused confirmation.
+  The fuzz target `FuzzStoreSource` mutates the schedules' keys, pages and packs against the same model, and `FuzzKeys` the key parsers.
 - `Merge` has property tests over hand-written vectors and 64 generated scopes,
   which recompute F-2, F-3 and F-5 from each archive's records independently of the Writer,
   and check the record union, the size and greedy-coalescing rules and the report's counts;
@@ -272,7 +366,7 @@ one read over several packs (spec v2.20), and the lookup of a transaction from i
 - `DecodeStatus.Clean`, true only for a known classification outside the malformed set, so an unknown value is neither clean nor malformed.
 - Sentinel errors `ErrNotTracepack`, `ErrUnsupportedFormat`, `ErrChecksum`, `ErrReadLimit`, `ErrInvalidFooter`, `ErrInvalidQuery`,
   `ErrFieldValidity`, `ErrFieldValue`, `ErrRepairNotNeeded`, `ErrNotRepairable`,
-  `ErrViewConflicted`, `ErrMergeInput`, `ErrMergeConflict`, `ErrMergeLimit` and `ErrNotPrimary`.
+  `ErrViewConflicted`, `ErrMergeInput`, `ErrMergeConflict`, `ErrMergeLimit`, `ErrNotPrimary`, `ErrObjectNotFound` and `ErrInvalidKey`.
 
 ## [0.1.0] - 2026-09-28
 
