@@ -431,11 +431,12 @@ func parseKeyHour(year, month, day, hour string) (int64, error) {
 	var f [4]int
 
 	for i, s := range [4]string{year, month, day, hour} {
-		v, err := parseKeyDigits(s)
+		// At most four digits, so 16 bits hold every value the lengths above allow.
+		v, err := strconv.ParseUint(s, 10, 16)
 		if err != nil {
 			return 0, err
 		}
-		f[i] = int(v) // at most four digits
+		f[i] = int(v)
 	}
 	t := time.Date(f[0], time.Month(f[1]), f[2], f[3], 0, 0, 0, time.UTC)
 	if t.Year() != f[0] || int(t.Month()) != f[1] || t.Day() != f[2] || t.Hour() != f[3] {
