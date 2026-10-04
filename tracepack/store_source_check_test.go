@@ -81,7 +81,7 @@ func observeOne(t testing.TB, store *memStore, cat *fakeCatalog, edit func(o *St
 // TestStoreSourceSnapshotChecks observes snapshots that break the catalog's contract:
 // a scope missing or out of order, a conflicted scope not indexed, packs where none may be, a scope not indexed without a token,
 // and in a view a repeated pack_id or key, a key that does not parse, and a key of another tool, capture or hour.
-// Each fails Observe before any object is opened; a key that does not parse wraps errInvalidKey.
+// Each fails Observe before any object is opened; a key that does not parse wraps ErrInvalidKey.
 func TestStoreSourceSnapshotChecks(t *testing.T) {
 	t.Parallel()
 
@@ -225,7 +225,7 @@ func TestStoreSourceSnapshotChecks(t *testing.T) {
 			cat.editSnapshot = func(s *CatalogSnapshot) { tt.edit(t, s) }
 			_, err := observeOne(t, store, cat, nil)
 			require.ErrorContains(t, err, tt.want)
-			assert.Equal(t, tt.invalid, errors.Is(err, errInvalidKey), "wraps errInvalidKey")
+			assert.Equal(t, tt.invalid, errors.Is(err, ErrInvalidKey), "wraps ErrInvalidKey")
 			opens, _ := store.openCounts()
 			assert.Empty(t, opens, "nothing opened")
 		})

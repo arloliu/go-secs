@@ -404,7 +404,7 @@ The implementation settled what the text above leaves open:
 
 #### 5c2 — store-backed PackSource, listing views (in progress)
 
-- Spec v2.22 first (G5-139..G5-147): the key encodings of [STO §3] (G5-141, G5-143) and the segment `seq_first` check (G5-147);
+- Spec v2.22 first (G5-139..G5-148): the key encodings of [STO §3] (G5-141, G5-143) and the segment `seq_first` check (G5-147);
   in [STO §5], a listed segment that is gone fails the observation (G5-144), premise (i) confirmed by the catalog per scope (G5-139), a conflicted scope reported as such (G5-142);
   in [SEM §7.2], a conflicted scope not read (G5-142), a record outside its scope's hour (G5-146), the time range of the hours scheduled.
 - `NewStoreSource(ObjectStore, Catalog, StoreSourceOptions)`, a `PackSource` (G5-139):

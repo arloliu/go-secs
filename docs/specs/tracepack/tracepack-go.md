@@ -138,6 +138,7 @@ The query service, its catalog database and the live-tail interface are designed
   Every value the adapters return is the source's once returned; both adapters, and the source, are safe for concurrent use.
   Its guarantees hold while every hour observed stays retained until the lookup's last use; the retention boundary comes with phase 5c3.
   `EscapeToolID`, `SegmentKey`, `ArchiveKey` and `CommitKey` build the keys of [STO §3].
+  A key that cannot be built, and a listed or catalog key that does not parse as a key of [STO §3], is an error wrapping `ErrInvalidKey`, which the error of a failed `Observe` keeps (G5-148); retrying does not cure it.
 - `ActiveView(packs []PackInfo, commits CommitSet) (View, error)`: [STO §4] active view of one scope from pack metadata (staging segments included) and the scope's commit objects,
   plus the packs that are deletable under [STO §4] Deletion, the packs excluded for their role ([STO §2]), and the `compacted_from` the next merge writes.
   `packs` is a complete observation of the scope: every surviving pack a reader could list, replaced patches included (a catalog snapshot or a coherent observation, [STO §5]).

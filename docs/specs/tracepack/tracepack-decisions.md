@@ -711,3 +711,8 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   Rationale: a damaged segment is a gap of the reads over it ([STO §5] Completeness), not a failure of the whole observation, which a retry would not cure.
   Rejected: comparing with `seq_start` whenever no block is found; failing the observation whenever the first seq is unknown.
   Spec: [STO §3] (v2.22).
+- G5-148 An exported `ErrInvalidKey` (2026-10-04):
+  a key the builders cannot build, and a key a source lists or a catalog names that does not parse as a key of [STO §3], is an error wrapping `ErrInvalidKey`, kept by the error of a failed `Observe`.
+  Rationale: a caller tells malformed bucket contents, which a retry does not cure, from a missing object (`ErrObjectNotFound`), which it may; the package exports a sentinel for each kind of malformed input it reads.
+  Rejected: an unexported error; wrapping `ErrInvalidQuery`, which names invalid query arguments.
+  Spec: `tracepack-go.md` §3 (v2.22).

@@ -139,11 +139,11 @@ func TestKeyBuildersReject(t *testing.T) {
 
 	for _, tool := range []string{"", ".", ".."} {
 		_, err := SegmentKey("p", tool, capture, 0, pack)
-		require.ErrorIs(t, err, errInvalidKey, "segment, tool %q", tool)
+		require.ErrorIs(t, err, ErrInvalidKey, "segment, tool %q", tool)
 		_, err = ArchiveKey("p", tool, capture, hour, pack)
-		require.ErrorIs(t, err, errInvalidKey, "archive, tool %q", tool)
+		require.ErrorIs(t, err, ErrInvalidKey, "archive, tool %q", tool)
 		_, err = CommitKey("p", tool, capture, hour, pack)
-		require.ErrorIs(t, err, errInvalidKey, "commit, tool %q", tool)
+		require.ErrorIs(t, err, ErrInvalidKey, "commit, tool %q", tool)
 	}
 
 	// Dots inside a longer tool are ordinary unreserved bytes.
@@ -157,14 +157,14 @@ func TestKeyBuildersReject(t *testing.T) {
 	require.Equal(t, "p/staging/t/"+keyCaptureText+"/09223372036854775807-"+keyPackText+".tpk", key)
 	for _, seq := range []uint64{math.MaxInt64 + 1, math.MaxUint64} {
 		_, err = SegmentKey("p", "t", capture, seq, pack)
-		require.ErrorIs(t, err, errInvalidKey, "seq_first %d", seq)
+		require.ErrorIs(t, err, ErrInvalidKey, "seq_first %d", seq)
 	}
 
 	for _, h := range []int64{minKeyHour - 1, maxKeyHour + 1, math.MinInt64, math.MaxInt64} {
 		_, err = ArchiveKey("p", "t", capture, h, pack)
-		require.ErrorIs(t, err, errInvalidKey, "archive hour %d", h)
+		require.ErrorIs(t, err, ErrInvalidKey, "archive hour %d", h)
 		_, err = CommitKey("p", "t", capture, h, pack)
-		require.ErrorIs(t, err, errInvalidKey, "commit hour %d", h)
+		require.ErrorIs(t, err, ErrInvalidKey, "commit hour %d", h)
 	}
 }
 
@@ -418,11 +418,11 @@ func TestParseKeysRejectTools(t *testing.T) {
 	}
 	for _, tool := range reject {
 		_, err := parseSegmentKey("p", "p/staging/"+tool+"/"+keyCaptureText+"/00000000000000000042-"+keyPackText+".tpk")
-		require.ErrorIs(t, err, errInvalidKey, "segment, tool %q", tool)
+		require.ErrorIs(t, err, ErrInvalidKey, "segment, tool %q", tool)
 		_, err = parseArchiveKey("p", "p/archive/"+tool+"/2026/10/04/13/"+keyCaptureText+"-"+keyPackText+".tpk")
-		require.ErrorIs(t, err, errInvalidKey, "archive, tool %q", tool)
+		require.ErrorIs(t, err, ErrInvalidKey, "archive, tool %q", tool)
 		_, err = parseCommitKey("p", "p/commit/"+tool+"/"+keyCaptureText+"/2026100413/"+keyOtherText)
-		require.ErrorIs(t, err, errInvalidKey, "commit, tool %q", tool)
+		require.ErrorIs(t, err, ErrInvalidKey, "commit, tool %q", tool)
 	}
 }
 
@@ -451,26 +451,26 @@ func FuzzKeys(f *testing.F) {
 			require.NoError(t, err)
 			require.Equal(t, key, got)
 		} else {
-			require.ErrorIs(t, err, errInvalidKey)
+			require.ErrorIs(t, err, ErrInvalidKey)
 		}
 		if p, err := parseArchiveKey(prefix, key); err == nil {
 			got, err := ArchiveKey(prefix, p.tool, p.capture, p.hour, p.pack)
 			require.NoError(t, err)
 			require.Equal(t, key, got)
 		} else {
-			require.ErrorIs(t, err, errInvalidKey)
+			require.ErrorIs(t, err, ErrInvalidKey)
 		}
 		if p, err := parseCommitKey(prefix, key); err == nil {
 			got, err := CommitKey(prefix, p.tool, p.capture, p.hour, p.id)
 			require.NoError(t, err)
 			require.Equal(t, key, got)
 		} else {
-			require.ErrorIs(t, err, errInvalidKey)
+			require.ErrorIs(t, err, ErrInvalidKey)
 		}
 
 		built, err := CommitKey(prefix, tool, capture, 0, pack)
 		if checkKeyTool(tool) != nil {
-			require.ErrorIs(t, err, errInvalidKey)
+			require.ErrorIs(t, err, ErrInvalidKey)
 
 			return
 		}
@@ -481,12 +481,12 @@ func FuzzKeys(f *testing.F) {
 	})
 }
 
-// checkKeyRejects checks that parse accepts valid, the same key with no defect, and rejects every case with errInvalidKey.
+// checkKeyRejects checks that parse accepts valid, the same key with no defect, and rejects every case with ErrInvalidKey.
 func checkKeyRejects(t *testing.T, parse func(string) error, valid string, cases []keyRejectCase) {
 	t.Helper()
 	require.NoError(t, parse(valid), "control key %q", valid)
 
 	for _, tc := range cases {
-		require.ErrorIs(t, parse(tc.key), errInvalidKey, "%s: %q", tc.name, tc.key)
+		require.ErrorIs(t, parse(tc.key), ErrInvalidKey, "%s: %q", tc.name, tc.key)
 	}
 }
