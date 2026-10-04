@@ -20,6 +20,8 @@ type memStoreEvent struct {
 	at  int64
 	op  string // "put", "delete", "list", "open", "read" or "close"
 	key string // the key, or the listing prefix
+	// token is a listing's token, "" for the first page of a traversal.
+	token string
 }
 
 // memStore is an ObjectStore over objects held in memory, with an event log and hooks for faults.
@@ -35,7 +37,14 @@ type memStore struct {
 	events  []memStoreEvent
 	// pageSize is the number of keys of a page; 0 means 1000.
 	pageSize int
+	// ignoreCtx makes List and Open ignore their context, so a test sees the source's own checks; set before use.
+	ignoreCtx bool
 
+	// beforeList, when set, runs first in every List, before the page is taken; it may change the store.
+	beforeList func(prefix, token string)
+	// afterList, when set, runs on every page List takes, before List returns it;
+	// it may change the page or the store, and an error it returns is returned with the page.
+	afterList func(prefix, token string, page *ObjectPage) error
 	// openHook, when set, runs first in Open; when handled is set, Open returns its obj and err instead of opening key.
 	openHook func(ctx context.Context, key string) (handled bool, obj Object, err error)
 	// readHook, when set, runs first in every ReadAt of an object opened under key; an error it returns fails the read.
@@ -85,6 +94,8 @@ type fakeCatalog struct {
 	tokens map[string]fakeToken
 	// historyLost makes ConfirmUnindexed answer false, as a catalog that lost its history must.
 	historyLost bool
+	// tokenLen, when longer than a token, pads every token Snapshot issues to that length.
+	tokenLen int
 
 	// snapshotErr, when set, is returned by every Snapshot.
 	snapshotErr error
@@ -92,6 +103,12 @@ type fakeCatalog struct {
 	editSnapshot func(snap *CatalogSnapshot)
 	// afterSnapshot, when set, runs once a snapshot is taken, before Snapshot returns.
 	afterSnapshot func()
+	// beforeConfirm, when set, runs first in every ConfirmUnindexed;
+	// an error it returns is returned in place of the answer.
+	beforeConfirm func(hour int64) error
+
+	// ignoreCtx makes Snapshot and ConfirmUnindexed ignore their context, so a test sees the source's own checks; set before use.
+	ignoreCtx bool
 
 	snapshots int
 	confirms  int
@@ -112,6 +129,15 @@ type fakeCatalogScope struct {
 type fakeToken struct {
 	scope memScopeKey
 	at    int64
+}
+
+// doubleCtxErr returns ctx's error for a test double, or nil without asking ctx when ignore is set.
+func doubleCtxErr(ctx context.Context, ignore bool) error {
+	if ignore {
+		return nil
+	}
+
+	return ctx.Err()
 }
 
 // newMemStore returns an empty memStore.
@@ -203,14 +229,33 @@ func (s *memStore) misuseCount() int {
 	return s.misuses
 }
 
-// List returns the page of keys under prefix after token, in byte order.
+// List returns the page of keys under prefix after token, in byte order, between beforeList and afterList.
 func (s *memStore) List(ctx context.Context, prefix, token string) (ObjectPage, error) {
-	if err := ctx.Err(); err != nil {
+	if err := doubleCtxErr(ctx, s.ignoreCtx); err != nil {
 		return ObjectPage{}, err
 	}
 	s.mu.Lock()
+	before, after := s.beforeList, s.afterList
+	s.mu.Unlock()
+	if before != nil {
+		before(prefix, token)
+	}
+	page := s.page(prefix, token)
+	if after != nil {
+		if err := after(prefix, token, &page); err != nil {
+			return page, err
+		}
+	}
+
+	return page, nil
+}
+
+// page takes the page of keys under prefix after token, logging the listing.
+func (s *memStore) page(prefix, token string) ObjectPage {
+	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.log("list", prefix)
+	s.clock++
+	s.events = append(s.events, memStoreEvent{at: s.clock, op: "list", key: prefix, token: token})
 
 	size := s.pageSize
 	if size <= 0 {
@@ -229,7 +274,7 @@ func (s *memStore) List(ctx context.Context, prefix, token string) (ObjectPage, 
 		page.Objects = append(page.Objects, ObjectInfo{Key: key, Size: int64(len(s.objects[key]))})
 	}
 
-	return page, nil
+	return page
 }
 
 // Open opens the object key, or returns what openHook returns.
@@ -242,7 +287,7 @@ func (s *memStore) Open(ctx context.Context, key string) (Object, error) {
 			return obj, err
 		}
 	}
-	if err := ctx.Err(); err != nil {
+	if err := doubleCtxErr(ctx, s.ignoreCtx); err != nil {
 		return nil, err
 	}
 
@@ -332,7 +377,7 @@ func (c *fakeCatalog) addBarrier(b Boundary) {
 // Snapshot returns capture's scopes over [from, to), its evidence and the tool's barriers meeting those hours, as deep copies;
 // a scope not indexed gets a fresh token.
 func (c *fakeCatalog) Snapshot(ctx context.Context, capture UUID, from, to int64) (CatalogSnapshot, error) {
-	if err := ctx.Err(); err != nil {
+	if err := doubleCtxErr(ctx, c.ignoreCtx); err != nil {
 		return CatalogSnapshot{}, err
 	}
 	c.mu.Lock()
@@ -348,7 +393,10 @@ func (c *fakeCatalog) Snapshot(ctx context.Context, capture UUID, from, to int64
 		sc := c.scope(capture, h)
 		cs := CatalogScope{Hour: h, Indexed: sc.indexed, Conflicted: sc.indexed && sc.conflicted}
 		if !sc.indexed {
-			cs.Token = fmt.Sprintf("token-%d-%d", c.clock, h)
+			cs.Token = fmt.Sprintf("token-%d-%d-", c.clock, h)
+			if pad := c.tokenLen - len(cs.Token); pad > 0 {
+				cs.Token += strings.Repeat("x", pad)
+			}
 			c.tokens[cs.Token] = fakeToken{scope: memScopeKey{capture: capture, hour: h}, at: c.clock}
 		} else if !sc.conflicted {
 			cs.Packs = slices.Clone(sc.packs)
@@ -375,11 +423,19 @@ func (c *fakeCatalog) Snapshot(ctx context.Context, capture UUID, from, to int64
 	return snap, nil
 }
 
-// ConfirmUnindexed reports whether the scope token was issued for is capture's in hour
+// ConfirmUnindexed reports, after beforeConfirm, whether the scope token was issued for is capture's in hour
 // and has not been indexed at any instant since the token was issued; false once the history is lost.
 func (c *fakeCatalog) ConfirmUnindexed(ctx context.Context, capture UUID, hour int64, token string) (bool, error) {
-	if err := ctx.Err(); err != nil {
+	if err := doubleCtxErr(ctx, c.ignoreCtx); err != nil {
 		return false, err
+	}
+	c.mu.Lock()
+	before := c.beforeConfirm
+	c.mu.Unlock()
+	if before != nil {
+		if err := before(hour); err != nil {
+			return false, err
+		}
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()

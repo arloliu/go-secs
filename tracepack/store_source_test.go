@@ -76,10 +76,11 @@ func requireStoreCharges(t testing.TB, o *storeObservation) {
 	require.GreaterOrEqual(t, o.charged, deepSize(o), "the charges cover the observation")
 }
 
-// mirrorMemSource returns a memStore and a fakeCatalog holding what the memSource m holds of capture over [from, to),
-// every scope of which m indexes:
-// each scope's view, in view order, conflicted when m reports or computes it so, the capture's folded evidence,
-// and every stop-unclean boundary m recorded as a barrier.
+// mirrorMemSource returns a memStore and a fakeCatalog holding what the memSource m holds of capture over [from, to):
+// each indexed scope's view, in view order, conflicted when m reports or computes it so;
+// for each scope m does not index, which m must not report conflicted, every pack present, admitted or staged, and its commit objects,
+// the catalog not indexing it;
+// the capture's folded evidence, and every stop-unclean boundary m recorded as a barrier.
 func mirrorMemSource(t testing.TB, m *memSource, capture UUID, from, to int64) (*memStore, *fakeCatalog) {
 	t.Helper()
 
@@ -88,7 +89,20 @@ func mirrorMemSource(t testing.TB, m *memSource, capture UUID, from, to int64) (
 	defer m.mu.Unlock()
 	for h := from; h < to; h++ {
 		k := memScopeKey{capture: capture, hour: h}
-		require.True(t, m.indexed[k], "hour %d is not indexed", h)
+		if !m.indexed[k] {
+			require.False(t, m.conflicted[k], "hour %d is not indexed and reported conflicted", h)
+			if sc := m.scopes[k]; sc != nil {
+				for _, f := range slices.Concat(slices.Collect(maps.Values(sc.registered)), slices.Collect(maps.Values(sc.staged))) {
+					store.putPack(t, h, f)
+				}
+				for id := range sc.commits {
+					store.putCommit(t, capture, h, id)
+				}
+			}
+			cat.setIndexed(capture, h, false)
+
+			continue
+		}
 		var files [][]byte
 		var err error
 		if sc := m.scopes[k]; sc != nil {
@@ -133,7 +147,8 @@ func requireClosedOnce(t testing.TB, store *memStore) {
 }
 
 // TestNewStoreSource builds sources from good and bad arguments:
-// a nil store, catalog or OnExcluded, a prefix ending in a slash, a tool no key can hold (wrapping ErrInvalidKey) and a footer offset are rejected;
+// a nil store, catalog or OnExcluded, a prefix ending in a slash, a tool no key can hold (wrapping ErrInvalidKey), a footer offset
+// and a MaxCommitListings of 1 are rejected;
 // other prefixes are kept byte for byte, and every limit not set takes its default.
 func TestNewStoreSource(t *testing.T) {
 	t.Parallel()
@@ -157,6 +172,7 @@ func TestNewStoreSource(t *testing.T) {
 		{name: "dot tool", edit: func(o *StoreSourceOptions) { o.Tool = "." }, want: `tool "." cannot be stored`, invalid: true},
 		{name: "dot-dot tool", edit: func(o *StoreSourceOptions) { o.Tool = ".." }, want: `tool ".." cannot be stored`, invalid: true},
 		{name: "footer offset", edit: func(o *StoreSourceOptions) { o.Reader.FooterOffset = 80 }, want: "Reader.FooterOffset 80 is a hint for one object"},
+		{name: "one commit listing", edit: func(o *StoreSourceOptions) { o.MaxCommitListings = 1 }, want: "MaxCommitListings 1 leaves no second traversal"},
 	}
 	for _, tt := range rejected {
 		store, cat := tt.store, tt.cat

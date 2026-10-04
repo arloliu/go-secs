@@ -27,6 +27,14 @@ const (
 	// its key adds its length.
 	storePackDescriptorCharge = (int64(unsafe.Sizeof(CatalogPack{})+unsafe.Sizeof(UUID{})+unsafe.Sizeof("")) +
 		storeAlignMask) &^ storeAlignMask
+	// storeListedCharge is the fixed charge of a key a listing returned while the source holds it, before or after it is parsed;
+	// the key adds its length.
+	storeListedCharge = (int64(unsafe.Sizeof(storeListed{})) + storeAlignMask) &^ storeAlignMask
+	// storeOpenedCharge is the fixed charge of a listed pack opened, while the source holds its entry among its hour's packs.
+	storeOpenedCharge = (int64(unsafe.Sizeof(storeOpened{})) + storeAlignMask) &^ storeAlignMask
+	// storePackInfoCharge is the fixed charge of a PackInfo built for ActiveView;
+	// its decoded pack metadata adds its own, and its bytes are the Reader's.
+	storePackInfoCharge = (int64(unsafe.Sizeof(PackInfo{})) + storeAlignMask) &^ storeAlignMask
 	// storeBoundaryCharge is the fixed charge of a copied Boundary; each gap bound it holds adds storeWordCharge.
 	storeBoundaryCharge = (int64(unsafe.Sizeof(Boundary{})) + storeAlignMask) &^ storeAlignMask
 	// storeClosureCharge is the charge of a copied EpochClosure.
@@ -103,6 +111,16 @@ func scopeDescriptorCost(sc *CatalogScope) int64 {
 // packDescriptorCost returns the charge of the catalog's pack descriptor p.
 func packDescriptorCost(p *CatalogPack) int64 {
 	return storePackDescriptorCharge + int64(len(p.Key))
+}
+
+// listedKeyCost returns the charge of the listed key key while the source holds it.
+func listedKeyCost(key string) int64 {
+	return storeListedCharge + int64(len(key))
+}
+
+// packInfoCost returns the charge of the PackInfo p built from a retained Reader: the PackInfo and its decoded pack metadata.
+func packInfoCost(p *PackInfo) int64 {
+	return storePackInfoCharge + packMetaCost(p.meta)
 }
 
 // readerCost returns the charge of the Reader r as a storeSource retains it:
