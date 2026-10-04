@@ -187,7 +187,7 @@ type StoreSourceOptions struct {
 }
 
 // storeSource is the PackSource NewStoreSource returns; each Observe owns its state.
-// It is immutable once built, but for activeView, which only tests set, before they observe through it.
+// It is immutable once built, but for activeView and stopCommits, which only tests set, before they observe through it.
 type storeSource struct {
 	store ObjectStore
 	cat   Catalog
@@ -196,6 +196,10 @@ type storeSource struct {
 	// activeView computes a listed hour's view; nil means ActiveView.
 	// Tests replace it to reach the checks of a view that ActiveView never returns.
 	activeView func(packs []PackInfo, commits CommitSet) (View, error)
+	// stopCommits, when set, ends a listed hour's commit listing after the traversal n, from 0, it reports true for,
+	// keeping that traversal's ids; nil means two consecutive traversals must agree.
+	// Tests set it to reach an acquisition that takes the commit objects of one traversal.
+	stopCommits func(n int) bool
 }
 
 var _ PackSource = (*storeSource)(nil)

@@ -57,6 +57,14 @@ type memSource struct {
 	evidence map[UUID]*memEvidence
 	// conflicted holds the scopes the catalog reports conflicted whatever their packs.
 	conflicted map[memScopeKey]bool
+	// givenViews holds the scopes whose view is given, its files in view order, which Observe takes as given instead of computing it:
+	// a catalog's selected list, which need not hold the packs ActiveView would need to select it.
+	givenViews map[memScopeKey][][]byte
+	// givenEvidence holds the captures whose evidence is given, which Observe takes instead of folding their registrations;
+	// givenBarriers, once barriersGiven is set, the tool's barriers, which Observe takes instead of those the registrations record.
+	givenEvidence map[UUID]CaptureEvidence
+	givenBarriers []Boundary
+	barriersGiven bool
 
 	// duringObserve, when set, runs inside Observe after the views are fixed,
 	// before Observe checks that every scope it fixed as not indexed still is.
@@ -104,7 +112,8 @@ type memFixedScope struct {
 func newMemSource() *memSource {
 	return &memSource{
 		scopes: map[memScopeKey]*memScope{}, indexed: map[memScopeKey]bool{}, evidence: map[UUID]*memEvidence{},
-		conflicted: map[memScopeKey]bool{}, scopeCalls: map[int64]int{},
+		conflicted: map[memScopeKey]bool{}, givenViews: map[memScopeKey][][]byte{}, givenEvidence: map[UUID]CaptureEvidence{},
+		scopeCalls: map[int64]int{},
 	}
 }
 
@@ -206,6 +215,33 @@ func (s *memSource) setConflicted(capture UUID, hour int64, conflicted bool) {
 	s.conflicted[memScopeKey{capture: capture, hour: hour}] = conflicted
 }
 
+// giveView makes files, in view order, the view of capture's scope in hour, taken as given whatever packs the scope holds.
+func (s *memSource) giveView(capture UUID, hour int64, files ...[]byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([][]byte, len(files))
+	for i, f := range files {
+		out[i] = bytes.Clone(f)
+	}
+	s.givenViews[memScopeKey{capture: capture, hour: hour}] = out
+}
+
+// giveEvidence makes e the evidence of capture, taken as given whatever its registrations.
+func (s *memSource) giveEvidence(capture UUID, e CaptureEvidence) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e.Boundaries = cloneBoundaries(e.Boundaries)
+	e.Closures = slices.Clone(e.Closures)
+	s.givenEvidence[capture] = e
+}
+
+// giveBarriers makes bs the tool's barriers, taken as given whatever the registrations record.
+func (s *memSource) giveBarriers(bs []Boundary) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.givenBarriers, s.barriersGiven = cloneBoundaries(bs), true
+}
+
 // setIndexed makes the catalog index capture's scope in hour, or not.
 func (s *memSource) setIndexed(capture UUID, hour int64, indexed bool) {
 	s.mu.Lock()
@@ -295,6 +331,7 @@ func (s *memSource) Observe(ctx context.Context, capture UUID, from, to int64) (
 // fix returns the observation of capture over [from, to) from the source's current state; s.mu is held.
 // A scope whose active view is conflicted, indexed or not, is fixed as conflicted, without files,
 // and so is a scope setConflicted marks.
+// A given view, given evidence and given barriers are fixed as given.
 func (s *memSource) fix(ctx context.Context, capture UUID, from, to int64) (*memObservation, error) {
 	if from >= to {
 		return nil, fmt.Errorf("memSource: empty hours [%d, %d)", from, to)
@@ -305,6 +342,11 @@ func (s *memSource) fix(ctx context.Context, capture UUID, from, to int64) (*mem
 		indexed := s.indexed[k]
 		if s.conflicted[k] {
 			o.scopes[h] = memFixedScope{indexed: indexed, conflicted: true}
+
+			continue
+		}
+		if files, ok := s.givenViews[k]; ok {
+			o.scopes[h] = memFixedScope{files: files, indexed: indexed}
 
 			continue
 		}
@@ -325,6 +367,11 @@ func (s *memSource) fix(ctx context.Context, capture UUID, from, to int64) (*mem
 	}
 
 	o.evidence = s.foldEvidence(capture)
+	if s.barriersGiven {
+		o.barriers = cloneBoundaries(s.givenBarriers)
+
+		return o, nil
+	}
 	for _, id := range slices.SortedFunc(maps.Keys(s.evidence), func(a, b UUID) int { return bytes.Compare(a[:], b[:]) }) {
 		for _, b := range s.foldEvidence(id).Boundaries {
 			if b.Kind == BoundaryKindStopUnclean {
@@ -336,9 +383,15 @@ func (s *memSource) fix(ctx context.Context, capture UUID, from, to int64) (*mem
 	return o, nil
 }
 
-// foldEvidence returns capture's evidence:
+// foldEvidence returns capture's evidence, as given, or else
 // its registrations folded by AddPackEvidence in registration order; s.mu is held.
 func (s *memSource) foldEvidence(capture UUID) CaptureEvidence {
+	if e, ok := s.givenEvidence[capture]; ok {
+		e.Boundaries = cloneBoundaries(e.Boundaries)
+		e.Closures = slices.Clone(e.Closures)
+
+		return e
+	}
 	var out CaptureEvidence
 	if e := s.evidence[capture]; e != nil {
 		for _, st := range e.stats {
@@ -614,6 +667,53 @@ func TestMemSourceConflicted(t *testing.T) {
 		assert.Equal(t, SourceScope{Indexed: indexed, Conflicted: true}, sc, "reported, indexed %v", indexed)
 		require.NoError(t, o.Close())
 	}
+}
+
+// TestMemSourceGiven fixes scopes and evidence of which some are given:
+// an indexed scope whose view is given as a patch, whose generation is not among the scope's packs, then a segment,
+// fixed as given, in that order, though ActiveView over the scope's packs would select only the segment;
+// the next scope, not given, keeps its computed view;
+// and the given evidence and barriers replace those the registrations record.
+func TestMemSourceGiven(t *testing.T) {
+	t.Parallel()
+
+	s := newMemSource()
+	segment := txPack(t, seg0, nil, txBlock(txSeqs(2)...))
+	patch := listedPatch(t, patP1, 0, new(setA), []UUID{memA}, txBlock(txSeqs(1)...))
+	s.addPack(t, memTestHour, segment)
+	s.addPack(t, memTestHour, patch)
+	s.commit(captureLow, memTestHour, patP1)
+	s.giveView(captureLow, memTestHour, patch, segment)
+	s.addPack(t, memTestHour+1, txPackIn(t, seg1, 1, nil, txBlock(txSeqs(3)...)))
+	for h := range int64(2) {
+		s.setIndexed(captureLow, memTestHour+h, true)
+	}
+	gapStart := blockTestHour
+	s.addBoundary(Boundary{Capture: captureLow, Seq: 3, Kind: BoundaryKindStop})
+	s.addBoundary(Boundary{Capture: captureHigh, Seq: 9, Kind: BoundaryKindStopUnclean})
+	given := Boundary{Capture: captureHigh, Seq: 10, Kind: BoundaryKindStopUnclean, GapStart: &gapStart}
+	s.giveEvidence(captureLow, CaptureEvidence{End: EndStoppedUnclean, Closures: []EpochClosure{{Epoch: 1, CloseSeq: 2}}, Partial: true})
+	s.giveBarriers([]Boundary{given})
+
+	o, err := s.Observe(t.Context(), captureLow, memTestHour, memTestHour+2)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, o.Close()) })
+	sc, err := o.Scope(t.Context(), memTestHour)
+	require.NoError(t, err)
+	assert.Equal(t, []UUID{patP1, seg0}, packIDs(sc.Readers), "as given")
+	assert.True(t, sc.Indexed)
+	computed, err := viewFiles(t.Context(), map[UUID][]byte{seg0: segment, patP1: patch}, CommitSet{patP1: {}})
+	require.NoError(t, err)
+	assert.Equal(t, [][]byte{segment}, computed, "ActiveView selects the segment alone")
+	sc, err = o.Scope(t.Context(), memTestHour+1)
+	require.NoError(t, err)
+	assert.Equal(t, []UUID{seg1}, packIDs(sc.Readers), "computed")
+	e, err := o.Evidence(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, CaptureEvidence{End: EndStoppedUnclean, Closures: []EpochClosure{{Epoch: 1, CloseSeq: 2}}, Partial: true}, e)
+	bs, err := o.Barriers(t.Context(), memTestHour*hourNs, (memTestHour+2)*hourNs)
+	require.NoError(t, err)
+	assert.Equal(t, []Boundary{given}, bs)
 }
 
 // TestMemSourceCommits fixes a scope holding a segment and the archive of a generation compacted from it:
