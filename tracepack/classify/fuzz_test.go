@@ -3,6 +3,8 @@
 // Frame must never panic.
 // Its returned status must be one the tracepack.DecodeStatus registry names (never "unknown(<n>)").
 // Trailing must never exceed the frame's own length.
+// The classifier New returns must classify the frame as Frame does under the same ceiling,
+// a negative maxFrameLen standing for no ceiling.
 package classify
 
 import (
@@ -46,6 +48,14 @@ func FuzzFrame(f *testing.F) {
 
 		if strings.HasPrefix(status.String(), "unknown(") {
 			t.Fatalf("status %v (%d) is outside the DecodeStatus registry", status, status)
+		}
+
+		var ceiling uint64
+		if maxFrameLen > 0 {
+			ceiling = uint64(maxFrameLen)
+		}
+		if s, n := New(ceiling).Frame(frame); s != status || n != trailing {
+			t.Fatalf("New(%d).Frame = (%v, %d), Frame(_, %d) = (%v, %d)", ceiling, s, n, maxFrameLen, status, trailing)
 		}
 	})
 }

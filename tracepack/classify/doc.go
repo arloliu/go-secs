@@ -9,4 +9,6 @@
 //
 // [Name] identifies this classifier for the pack metadata's classifier tag of the tracepack format specification;
 // it is derived once, at package initialization, from the go-secs/v2 module version reported by runtime/debug.ReadBuildInfo.
+//
+// [New] returns the same classifier as a tracepack.Classifier, with a uint64 ceiling, for a writer that takes one.
 package classify

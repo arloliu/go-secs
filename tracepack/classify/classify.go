@@ -49,6 +49,53 @@ var Name = classifierName()
 //   - tracepack.DecodeStatus: the decision-table row that matched.
 //   - int: trailing_bytes, meaningful only when the status is DecodeStatusOK or DecodeStatusOKWithTrailing.
 func Frame(frame []byte, maxFrameLen int) (tracepack.DecodeStatus, int) {
+	var ceiling uint64
+	if maxFrameLen > 0 {
+		ceiling = uint64(maxFrameLen)
+	}
+
+	return classifyFrame(frame, ceiling)
+}
+
+// New returns a [tracepack.Classifier] that classifies frames as [Frame] does, under the ceiling maxFrameLen.
+//
+// The classifier compares frame lengths with maxFrameLen as uint64 values,
+// so a ceiling above the largest int, such as 2^32 or more on a 32-bit platform, is never truncated.
+// Its Name method returns [Name], and its MaxFrameLen method returns maxFrameLen.
+//
+// Parameters:
+//   - maxFrameLen: the maximum frame length, counted like a frame (prefix and header included);
+//     0 means no ceiling.
+//
+// Returns:
+//   - tracepack.Classifier: the classifier, safe for concurrent use.
+func New(maxFrameLen uint64) tracepack.Classifier {
+	return classifier{maxFrameLen: maxFrameLen}
+}
+
+// classifier is the [tracepack.Classifier] that [New] returns.
+type classifier struct {
+	maxFrameLen uint64
+}
+
+// Name returns [Name].
+func (classifier) Name() string {
+	return Name
+}
+
+// MaxFrameLen returns the ceiling given to [New].
+func (c classifier) MaxFrameLen() uint64 {
+	return c.maxFrameLen
+}
+
+// Frame classifies frame as [Frame] does, under the ceiling given to [New].
+func (c classifier) Frame(frame []byte) (tracepack.DecodeStatus, int) {
+	return classifyFrame(frame, c.maxFrameLen)
+}
+
+// classifyFrame evaluates the decision table for [Frame] and the classifier [New] returns.
+// ceiling is the maximum frame length, 0 for none; it is compared with the frame length as uint64 values.
+func classifyFrame(frame []byte, ceiling uint64) (tracepack.DecodeStatus, int) {
 	if len(frame) < minFrameLen {
 		return tracepack.DecodeStatusShortFrame, 0
 	}
@@ -72,7 +119,7 @@ func Frame(frame []byte, maxFrameLen int) (tracepack.DecodeStatus, int) {
 		return tracepack.DecodeStatusControlWithBody, 0
 	}
 
-	if maxFrameLen > 0 && len(frame) > maxFrameLen {
+	if ceiling > 0 && uint64(len(frame)) > ceiling {
 		return tracepack.DecodeStatusOversized, 0
 	}
 
@@ -81,7 +128,7 @@ func Frame(frame []byte, maxFrameLen int) (tracepack.DecodeStatus, int) {
 
 // classifyParsed decodes frame with go-secs and maps the result to the remaining decision-table rows.
 //
-// By the time it is called, Frame's own checks already guarantee a well-formed frame shape:
+// By the time it is called, classifyFrame's own checks already guarantee a well-formed frame shape:
 // a length field that matches the captured length, PType 0, a defined SType, and a control frame with no body.
 // So [hsms.DecodeHSMSMessage] fails only when the frame trips a go-secs limit outside the decision table, such as its own whole-frame size ceiling.
 // That residual case is reported as an item decode error, the closest row to "the bytes did not decode".
