@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/arloliu/go-secs/tracepack/internal/format"
 )
@@ -131,6 +132,13 @@ type TxKey struct {
 	// Hour is the UTC hour of the primary's ts_utc_ns, its scope, numbered in whole hours from 1970-01-01T00:00Z;
 	// it lies in [MinTxHour, MaxTxHour].
 	Hour int64
+}
+
+// TxKeyOf returns the TxKey of a primary from its record:
+// the capture_id of its pack, its seq, and its ts_utc_ns as a time, whose UTC hour, HourOf(ts), is the key's Hour.
+// For a record r of a pack of capture, it is TxKeyOf(capture, r.Seq, time.Unix(0, r.TSUTCNs)).
+func TxKeyOf(capture UUID, seq uint64, ts time.Time) TxKey {
+	return TxKey{Capture: capture, Seq: seq, Hour: HourOf(ts)}
 }
 
 // TxOptions configures FindTransaction.

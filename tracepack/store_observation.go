@@ -68,16 +68,9 @@ func (o *storeObservation) Barriers(ctx context.Context, from, to int64) ([]Boun
 	if err := o.check(ctx); err != nil {
 		return nil, err
 	}
-	// Observe bounded the hours by [MinTxHour, MaxTxHour+1), whose nanoseconds fit in an int64.
-	if from >= to || from < o.from*hourNs || to > o.to*hourNs {
-		return nil, fmt.Errorf("tracepack: store source: barriers range [%d, %d) is empty or not within the hours' range [%d, %d)",
-			from, to, o.from*hourNs, o.to*hourNs)
-	}
-	var out []Boundary
-	for i := range o.barriers {
-		if barrierMeets(&o.barriers[i], from, to) {
-			out = append(out, cloneBoundary(o.barriers[i]))
-		}
+	out, err := meetingBarriers(o.barriers, from, to, o.from, o.to)
+	if err != nil {
+		return nil, fmt.Errorf("tracepack: store source: %w", err)
 	}
 
 	return out, nil
