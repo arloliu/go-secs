@@ -1,6 +1,7 @@
 package classify
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -156,4 +157,88 @@ func TestName(t *testing.T) {
 
 	require.True(t, strings.HasPrefix(Name, "go-secs/"), "Name = %q, want a go-secs/<version> prefix", Name)
 	require.NotEmpty(t, strings.TrimPrefix(Name, "go-secs/"))
+}
+
+// TestNewCeilings checks the classifier New returns under ceilings beyond the range of a 32-bit int:
+// each ceiling is kept exactly, and a 14-byte frame is oversized only under a ceiling below 14.
+// On a 32-bit platform, 2^32 + 13 truncated to an int is 13, which would wrongly make that frame oversized.
+func TestNewCeilings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		ceiling    uint64
+		wantStatus tracepack.DecodeStatus
+	}{
+		{name: "no ceiling", ceiling: 0, wantStatus: tracepack.DecodeStatusOK},
+		{name: "one under the frame length", ceiling: 13, wantStatus: tracepack.DecodeStatusOversized},
+		{name: "the frame length", ceiling: 14, wantStatus: tracepack.DecodeStatusOK},
+		{name: "largest 32-bit int", ceiling: math.MaxInt32, wantStatus: tracepack.DecodeStatusOK},
+		{name: "2^32 + 13", ceiling: 1<<32 + 13, wantStatus: tracepack.DecodeStatusOK},
+		{name: "largest max_frame_len value", ceiling: 1<<63 - 1, wantStatus: tracepack.DecodeStatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := New(tt.ceiling)
+			require.Equal(t, Name, c.Name())
+			require.Equal(t, tt.ceiling, c.MaxFrameLen())
+
+			status, trailing := c.Frame(okEmptyS1F1)
+			require.Equal(t, tt.wantStatus, status)
+			require.Zero(t, trailing)
+		})
+	}
+}
+
+// TestNewMatchesFrame checks that the classifier New returns classifies every fixture as Frame does,
+// under no ceiling and under ceilings around each fixture's length,
+// and that the fixtures reach every decode_status Frame can return.
+func TestNewMatchesFrame(t *testing.T) {
+	t.Parallel()
+
+	frames := [][]byte{
+		nil,
+		shortFrame13,
+		okEmptyS1F1,
+		lengthMismatchTooBig,
+		badPType,
+		badSType8,
+		okControlSeparate,
+		controlWithBody,
+		itemDecodeErrorTruncated,
+		okSingleItem,
+		okWithTrailing,
+	}
+
+	seen := make(map[tracepack.DecodeStatus]bool)
+	for _, frame := range frames {
+		for _, ceiling := range []int{0, len(frame) - 1, len(frame), len(frame) + 1} {
+			if ceiling < 0 {
+				continue
+			}
+
+			wantStatus, wantTrailing := Frame(frame, ceiling)
+			status, trailing := New(uint64(ceiling)).Frame(frame)
+			require.Equal(t, wantStatus, status, "frame %x, ceiling %d", frame, ceiling)
+			require.Equal(t, wantTrailing, trailing, "frame %x, ceiling %d", frame, ceiling)
+			seen[status] = true
+		}
+	}
+
+	for _, status := range []tracepack.DecodeStatus{
+		tracepack.DecodeStatusOK,
+		tracepack.DecodeStatusOKWithTrailing,
+		tracepack.DecodeStatusShortFrame,
+		tracepack.DecodeStatusLengthMismatch,
+		tracepack.DecodeStatusBadPType,
+		tracepack.DecodeStatusBadSType,
+		tracepack.DecodeStatusControlWithBody,
+		tracepack.DecodeStatusOversized,
+		tracepack.DecodeStatusItemDecodeError,
+	} {
+		require.True(t, seen[status], "no fixture reached %v", status)
+	}
 }
