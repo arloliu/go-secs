@@ -39,6 +39,7 @@ const (
 // ErrInvalidKey reports a key, or a key component, outside the forms of the tracepack storage specification §3:
 // the key builders return an error wrapping it for arguments no key can hold,
 // NewStoreSource for a StoreSourceOptions.Tool no key can hold,
+// CaptureDescriptor.Validate for a ToolID no key can hold,
 // and the Observe of the source NewStoreSource returns fails with an error wrapping it
 // for a key a listing returns or the catalog names that does not parse.
 // Unlike ErrObjectNotFound, it reports malformed bucket or catalog contents, which a retry does not cure.

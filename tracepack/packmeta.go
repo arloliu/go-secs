@@ -94,13 +94,14 @@ const (
 	tagRedactionEntryDigest       uint16 = 0x0005
 )
 
-// Sentinel errors returned by PackMeta, TransportEvent and Annotation.
+// Sentinel errors returned by PackMeta, TransportEvent, Annotation and CaptureDescriptor.Validate.
 var (
 	// ErrRequiredTag reports that a "Required when" rule of the tracepack format specification §5 or §8 is not satisfied.
 	ErrRequiredTag = errors.New("tracepack: required tag is missing")
 	// ErrFieldValue reports a field holding a value the format does not allow (the tracepack format specification §5 and §9):
 	// a replacement_set_size other than 1 or a replacement_set_index other than 0, read or written,
-	// or the retired pack_role 5, which a writer never writes.
+	// the retired pack_role 5, which a writer never writes,
+	// or a CaptureDescriptor value outside the registry or its encoding, or its negative clock-step tolerance.
 	ErrFieldValue = errors.New("tracepack: field value not allowed")
 	// ErrAnnotationText reports an annotation whose text and raw tags are not exactly one of the two
 	// (the tracepack format specification §8).
@@ -263,65 +264,166 @@ type HSMSTimers struct {
 // A retired tag (the tracepack format specification §5) that UnmarshalPackMeta finds stays in Unknown like any unknown tag,
 // but MarshalBinary never writes one, so a pack written from decoded metadata drops it.
 type PackMeta struct {
-	ToolID               string
-	Transport            Transport
-	CaptureMethod        CaptureMethod
-	Vantage              Vantage
-	Recorder             string
-	Writer               string
-	Classifiers          []string
-	TimeSource           TimeSource
-	CaptureOriginUTCNs   *int64
-	CaptureOriginMonoNs  *int64
-	SourceTZ             *string
-	SourceDialect        *string
-	SourceRefs           []string
-	MaxFrameLens         []uint64
-	PeriodStart          int64
-	PeriodEnd            int64
-	LifecycleCoverage    LifecycleCoverage
-	QualityEvaluated     bool
-	Supersedes           []UUID
-	Coverage             []Coverage
-	Notes                *string
-	PackRole             PackRole
-	CompactionLevel      uint8
-	CompactedFrom        []UUID
-	RecorderInstanceID   UUID
-	PreviousCaptureID    *UUID
-	ExtractFilter        *string
-	SiteID               *string
-	EquipmentModel       *string
-	EquipmentSWRev       *string
-	HostSoftware         *string
-	HostEndpoint         *string
-	EquipmentEndpoint    *string
+	// ToolID is the tool this capture belongs to (tool_id); always required.
+	ToolID string
+	// Transport is the transport protocol the capture recorded (transport, the tracepack format specification §9);
+	// always required.
+	Transport Transport
+	// CaptureMethod is the representation the capture's bytes were taken from
+	// (capture_method, the tracepack semantics specification §2); always required.
+	CaptureMethod CaptureMethod
+	// Vantage is where the capture's observation point was (vantage, the tracepack semantics specification §2);
+	// always required.
+	Vantage Vantage
+	// Recorder names the recorder or converter product, its version and its mode (recorder); always required.
+	// It is for display and tracing, never branched on.
+	Recorder string
+	// Writer names the tracepack writer implementation and its version (writer); always required.
+	Writer string
+	// Classifiers names each implementation and version that computed derived values (classifier, one entry per value),
+	// such as decode_status;
+	// required when any record's decode_status is neither not-attempted nor not-applicable.
+	// A recorder or converter writes one value,
+	// a merge every distinct value of its inputs (the tracepack storage specification §4),
+	// and a patch those of the pack it repairs (the tracepack storage specification §6).
+	Classifiers []string
+	// TimeSource says where the capture's timestamps come from (time_source, the tracepack format specification §9);
+	// always required.
+	TimeSource TimeSource
+	// CaptureOriginUTCNs is the wall-clock counterpart of the monotonic origin (capture_origin_utc_ns,
+	// the tracepack semantics specification §4); required for a capture-clock time source.
+	CaptureOriginUTCNs *int64
+	// CaptureOriginMonoNs is the monotonic origin every mono_ns is measured from (capture_origin_mono_ns,
+	// the tracepack semantics specification §4); required for a capture-clock time source.
+	// Any value is valid, 0 included, since only differences of monotonic readings carry meaning.
+	CaptureOriginMonoNs *int64
+	// SourceTZ is the IANA time-zone name the source timestamps are parsed in (source_tz);
+	// required for a source-log time source.
+	SourceTZ *string
+	// SourceDialect is the log format and parser mode used (source_dialect, the tracepack storage specification §7);
+	// required for a log capture method.
+	SourceDialect *string
+	// SourceRefs identifies each source file (source_ref, one entry per value);
+	// required for a log capture method.
+	SourceRefs []string
+	// MaxFrameLens holds each configured maximum frame length (max_frame_len, one entry per configuration,
+	// the tracepack semantics specification §3);
+	// required when any record is classified oversized.
+	// A recorder or converter writes one value,
+	// a merge every distinct value of its inputs, and a patch those of the pack it repairs;
+	// with several values the pack does not say which one a record was classified under.
+	MaxFrameLens []uint64
+	// PeriodStart is the start of the period this pack covers, in ns since the Unix epoch (period_start); always required.
+	// The period is the flush interval of a segment, or the UTC hour of an archive (the tracepack storage specification §2).
+	PeriodStart int64
+	// PeriodEnd is the exclusive end of that period (period_end); always required.
+	PeriodEnd int64
+	// LifecycleCoverage says whether the capture sees every transport lifecycle event
+	// (lifecycle_coverage, the tracepack semantics specification §5); always required.
+	LifecycleCoverage LifecycleCoverage
+	// QualityEvaluated declares that a clear stored quality bit means its condition was checked absent
+	// (quality_evaluated, the tracepack semantics specification §6); always required.
+	QualityEvaluated bool
+	// Supersedes lists the packs this one replaces (supersedes, one entry per pack): its lineage;
+	// required for a patch, and for a generation of 1 or more that has a predecessor.
+	// A patch also removes the named packs from the view,
+	// and they stay removed when a later patch replaces the patch (the tracepack storage specification §4).
+	Supersedes []UUID
+	// Coverage lists the ranges a repair lost (coverage, one entry per range, the tracepack storage specification §6);
+	// required when a repair lost data.
+	Coverage []Coverage
+	// Notes is free text (notes); optional, and never the sole record of data loss.
+	Notes *string
+	// PackRole says what the pack is: segment, archive, extract or repair
+	// (pack_role, the tracepack storage specification §2); always required.
+	PackRole PackRole
+	// CompactionLevel is 0 for a pack a recorder or converter wrote,
+	// and n of 1 or more for a pack produced by merging packs of levels below n (compaction_level); always required.
+	CompactionLevel uint8
+	// CompactedFrom is the cumulative lineage list (compacted_from, one entry per pack):
+	// for a generation, the generation-0 packs its merge folded (the tracepack storage specification §4);
+	// for a patch, the list of the pack it repairs (the tracepack storage specification §6).
+	// It is required when that list is non-empty, absent when it is empty, and never in a segment or a patch of one.
+	CompactedFrom []UUID
+	// RecorderInstanceID is the stable identity of the recorder or converter deployment across restarts
+	// (recorder_instance_id); always required.
+	RecorderInstanceID UUID
+	// PreviousCaptureID is the capture this recorder deployment ran immediately before this one
+	// (previous_capture_id, the tracepack format specification I-7); optional.
+	PreviousCaptureID *UUID
+	// ExtractFilter describes the filter that selected an extract's records (extract_filter);
+	// required for an extract, which is never a complete period.
+	ExtractFilter *string
+	// SiteID is the site or fab identifier (site_id); optional.
+	SiteID *string
+	// EquipmentModel is the equipment model (equipment_model); optional.
+	EquipmentModel *string
+	// EquipmentSWRev is the equipment software revision (equipment_sw_rev); optional.
+	EquipmentSWRev *string
+	// HostSoftware is the host-side software, such as an EAP, with its name and version (host_software); optional.
+	HostSoftware *string
+	// HostEndpoint is the host side of the connection, "address:port" (host_endpoint); optional.
+	HostEndpoint *string
+	// EquipmentEndpoint is the equipment side of the connection, "address:port" (equipment_endpoint); optional.
+	EquipmentEndpoint *string
+	// EquipmentConnectMode says whether the equipment side is passive or active (equipment_connect_mode); optional.
 	EquipmentConnectMode *SocketRole
-	DeviceID             *uint64
-	HSMSTimers           *HSMSTimers
-	SeqStart             uint64
+	// DeviceID is the configured SessionID or DeviceID (device_id); optional.
+	DeviceID *uint64
+	// HSMSTimers are the configured HSMS timers, in milliseconds (hsms_timers); optional.
+	HSMSTimers *HSMSTimers
+	// SeqStart is the first record's seq, or for a pack without records the capture's next seq (seq_start); always required.
+	// A patch without records takes the damaged pack's seq_start (the tracepack storage specification §6),
+	// and an archive without records the largest seq_start of the merge's inputs (the tracepack storage specification §4).
+	// It lets recovery of an empty spool place its boundary.
+	SeqStart uint64
+	// ClockStepToleranceNs is the wall-clock drift the writer tolerates against its durable clock anchor before it marks a step
+	// (clock_step_tolerance_ns, the tracepack semantics specification §4); required for a capture-clock time source.
 	ClockStepToleranceNs *uint64
-	ReplacementSetID     *UUID
-	ReplacementSetSize   *uint64
-	ReplacementSetIndex  *uint64
-	FlushIntervalNs      *uint64
-	ScopeGeneration      *uint64
-	PublisherEpoch       *uint64
-	PatchBase            *UUID
-	RedactionPolicy      *RedactionPolicy
-	Redaction            []RedactionEntry
-	Unknown              []RawEntry
+	// ReplacementSetID identifies the set of packs published together as one generation
+	// (replacement_set_id, the tracepack storage specification §6); required for a generation of 1 or more.
+	ReplacementSetID *UUID
+	// ReplacementSetSize is the number of packs in the replacement set, always 1 (replacement_set_size);
+	// required with ReplacementSetID, and any other value rejects the file.
+	ReplacementSetSize *uint64
+	// ReplacementSetIndex is this pack's index in the replacement set, always 0 (replacement_set_index);
+	// required with ReplacementSetID, and any other value rejects the file.
+	ReplacementSetIndex *uint64
+	// FlushIntervalNs is the recorder's durability contract interval,
+	// or for a consumer of a durable bus its maximum normal segment-flush interval
+	// (flush_interval_ns, the tracepack storage specification §4).
+	// It is required for a recorder with a durable spool and for a consumer of a durable bus,
+	// and never written by a standalone recorder without a durable spool.
+	FlushIntervalNs *uint64
+	// ScopeGeneration is 0 for segments and patches, and 1 or more for generations produced by merges
+	// (scope_generation, the tracepack storage specification §2); required for every pack but an extract.
+	ScopeGeneration *uint64
+	// PublisherEpoch is the fence epoch of the publisher that wrote the generation
+	// (publisher_epoch, the tracepack storage specification §2); required for a generation of 1 or more.
+	PublisherEpoch *uint64
+	// PatchBase is the replacement_set_id of the generation a patch was registered against
+	// (patch_base, the tracepack storage specification §4); required for a patch whose scope has a generation.
+	PatchBase *UUID
+	// RedactionPolicy is the redaction policy an extract was written under
+	// (redaction_policy, the tracepack semantics specification §8);
+	// required when the extract was written under one.
+	RedactionPolicy *RedactionPolicy
+	// Redaction lists one mask per entry, ordered by seq, then by first masked offset
+	// (redaction, the tracepack semantics specification §8); required when a record was masked.
+	Redaction []RedactionEntry
+	// Unknown preserves every entry whose tag PackMeta does not recognize, private tags included, in stored order.
+	Unknown []RawEntry
 }
 
 var _ encoding.BinaryMarshaler = (*PackMeta)(nil)
 
-// FieldError reports which field a PackMeta, TransportEvent or Annotation rule failed for,
+// FieldError reports which field a PackMeta, TransportEvent, Annotation or CaptureDescriptor rule failed for,
 // or which commitment of the pack metadata or the file header a Writer call contradicts.
 type FieldError struct {
 	// Field is the failing tag's specification name, or a "0x%04X" tag for one PackMeta and Annotation do not name;
 	// for a Writer's commitment it may also be "redaction-present", the file header flag.
 	Field string
-	// Err is the sentinel error describing the failure.
+	// Err is the sentinel error describing the failure, or an error wrapping one.
 	Err error
 }
 
