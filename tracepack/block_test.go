@@ -335,6 +335,7 @@ func TestBoundaryBitMakesNoBoundaryRecord(t *testing.T) {
 	meta := &PackMeta{
 		ToolID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
 		PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)),
+		PeriodStart: blockTestHour, PeriodEnd: blockTestHour + hourNs,
 	}
 	pack := copyBlocks(t, WriterOptions{Meta: meta, Codec: CodecZstd}, []sourceBlock{{raw: raw, sum: sum}})
 
@@ -361,6 +362,7 @@ func TestWriterRecordsBlockSummaries(t *testing.T) {
 	meta := &PackMeta{
 		ToolID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
 		PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)),
+		PeriodStart: blockTestHour, PeriodEnd: blockTestHour + hourNs,
 	}
 
 	var buf bytes.Buffer
@@ -750,6 +752,7 @@ func TestEncodeRawBlockKeepsRecordBytes(t *testing.T) {
 				meta := &PackMeta{
 					ToolID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
 					PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)), SeqStart: sum.firstSeq,
+					PeriodStart: blockTestHour, PeriodEnd: blockTestHour + hourNs,
 				}
 				pack := copyBlocks(t, WriterOptions{Meta: meta, Codec: CodecZstd}, []sourceBlock{{raw: raw, sum: sum}})
 				rep := mustVerify(t, pack)

@@ -62,9 +62,10 @@ func digestsOf(t testing.TB, file []byte) packDigests {
 }
 
 // TestMergeAndRepairOutputDigests pins the bytes Merge and Repair write for fixed inputs, ids and options.
-// Both write through the Writer, which neither validates their blocks nor checks their scope,
+// Both write through the Writer, which does not validate their blocks and checks only their period, not their records' hours,
 // so a change to the Writer that must leave their output alone shows here.
-// A deliberate change to either output updates the digests.
+// A deliberate change to either output updates the digests,
+// and so does an upgrade of the zstd encoder (github.com/klauspost/compress), which changes the zstd digests.
 func TestMergeAndRepairOutputDigests(t *testing.T) {
 	t.Parallel()
 

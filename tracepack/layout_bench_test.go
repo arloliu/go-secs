@@ -184,7 +184,7 @@ func layoutPack(tb testing.TB, recs []Record) ([]byte, []blockSummary) {
 	m := readerTestMeta()
 	m.PeriodStart, m.PeriodEnd = layoutStart.UnixNano(), layoutStart.Add(time.Hour).UnixNano()
 	var buf bytes.Buffer
-	w, err := NewWriter(&buf, WriterOptions{Meta: m, Facts: PackFacts{AnyClassified: true}, Codec: CodecZstd, Validate: true, AssignSeq: true})
+	w, err := NewWriter(&buf, WriterOptions{Meta: m, Facts: PackFacts{AnyClassified: true}, Codec: CodecZstd, AssignSeq: true})
 	if err != nil {
 		tb.Fatal(err)
 	}

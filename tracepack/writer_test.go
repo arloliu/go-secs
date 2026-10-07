@@ -154,9 +154,17 @@ func TestRecordHSMSHeader(t *testing.T) {
 	}
 }
 
-// writerMeta returns a PackMeta valid for records classified by a classifier.
-func writerMeta() *tracepack.PackMeta {
+// hourMeta returns basePackMeta for a segment whose period is the hour starting at hourStart.
+func hourMeta() *tracepack.PackMeta {
 	m := basePackMeta()
+	m.PeriodStart, m.PeriodEnd = hourStart, hourStart+hourNs
+
+	return m
+}
+
+// writerMeta returns hourMeta valid for records classified by a classifier.
+func writerMeta() *tracepack.PackMeta {
+	m := hourMeta()
 	m.Classifiers = []string{"go-secs/test"}
 
 	return m
@@ -315,7 +323,7 @@ func TestNewWriterWritesHeaderAndMetadata(t *testing.T) {
 	assert.Equal(t, format.UUID(packID), p.Header.PackID)
 	assert.Equal(t, format.UUID(captureID), p.Header.CaptureID)
 	assert.NotZero(t, p.Header.WriterStartUTCNs)
-	assert.Equal(t, meta, p.Meta, "metadata round trip; blocks_validated absent without Validate")
+	assert.Equal(t, meta, p.Meta, "metadata round trip; a validating Writer adds no blocks_validated")
 	assert.Empty(t, p.Blocks)
 
 	mustClose(t, w)
@@ -401,7 +409,8 @@ func TestWriterClosesBlockAtUTCHourBoundary(t *testing.T) {
 		dataRecord(6, 0),           // 1970-01-01T00:00:00Z, the next hour
 	}
 
-	w, buf := newTestWriter(t, tracepack.WriterOptions{Codec: tracepack.CodecZstd})
+	// Only an extract holds records of several UTC hours.
+	w, buf := newTestWriter(t, tracepack.WriterOptions{Meta: asExtract(writerMeta()), Codec: tracepack.CodecZstd})
 	appendAll(t, w, recs)
 	mustClose(t, w)
 
@@ -584,7 +593,7 @@ func TestWriterStoresFieldValidity(t *testing.T) {
 		FieldValidity: allValidity,
 	}
 
-	w, buf := newTestWriter(t, tracepack.WriterOptions{Validate: true})
+	w, buf := newTestWriter(t, tracepack.WriterOptions{})
 	appendAll(t, w, []tracepack.Record{short, logConverted, reserved, event})
 	mustClose(t, w)
 
@@ -601,7 +610,7 @@ func TestWriterRejectsFieldValidityBeyondPayload(t *testing.T) {
 	t.Parallel()
 
 	for _, validate := range []bool{false, true} {
-		w, buf := newTestWriter(t, tracepack.WriterOptions{Validate: validate})
+		w, buf := newTestWriter(t, tracepack.WriterOptions{SkipValidation: !validate})
 
 		for _, n := range []int{5, 9, 13} {
 			r := dataRecord(0, hourStart) // every bit set
@@ -956,12 +965,18 @@ func TestNewWriterSetsRedactionPresentFromFacts(t *testing.T) {
 	assert.Equal(t, uint32(1), p.Header.Flags)
 }
 
-// extractMeta returns writerMeta for an extract pack, with one redaction entry for seq 0.
-func extractMeta() *tracepack.PackMeta {
-	m := writerMeta()
+// asExtract makes m the pack metadata of an extract, the one pack role whose records may span UTC hours.
+func asExtract(m *tracepack.PackMeta) *tracepack.PackMeta {
 	m.PackRole = tracepack.PackRoleExtract
 	m.ExtractFilter = new("stream 1")
 	m.ScopeGeneration = nil
+
+	return m
+}
+
+// extractMeta returns writerMeta for an extract pack, with one redaction entry for seq 0.
+func extractMeta() *tracepack.PackMeta {
+	m := asExtract(writerMeta())
 	m.Redaction = []tracepack.RedactionEntry{{
 		Seq: 0, Domain: "d", Digest: make([]byte, 32), MaskedRanges: []tracepack.MaskedRange{{Offset: 10, Length: 4}},
 	}}
@@ -983,12 +998,12 @@ func TestWriterRejectsRecordMetadataCannotDescribe(t *testing.T) {
 		field string
 	}{
 		{
-			"classified record without classifier", basePackMeta(), tracepack.PackFacts{},
+			"classified record without classifier", hourMeta(), tracepack.PackFacts{},
 			func(r *tracepack.Record) { r.DecodeStatus = tracepack.DecodeStatusOK },
 			"classifier",
 		},
 		{
-			"unregistered decode_status without classifier", basePackMeta(), tracepack.PackFacts{},
+			"unregistered decode_status without classifier", hourMeta(), tracepack.PackFacts{},
 			func(r *tracepack.Record) { r.DecodeStatus = 200 },
 			"classifier",
 		},
@@ -1040,7 +1055,7 @@ func TestWriterRejectsRecordMetadataCannotDescribe(t *testing.T) {
 func TestWriterAcceptsRecordsMetadataDescribes(t *testing.T) {
 	t.Parallel()
 
-	unclassified := basePackMeta()
+	unclassified := hourMeta()
 	oversizedMeta := writerMeta()
 	oversizedMeta.MaxFrameLens = []uint64{1 << 20}
 
@@ -1091,7 +1106,7 @@ func TestValidatingWriterWritesAgreeingPack(t *testing.T) {
 	t.Parallel()
 
 	meta := writerMeta()
-	w, buf := newTestWriter(t, tracepack.WriterOptions{Meta: meta, Validate: true, Codec: tracepack.CodecZstd, BlockThreshold: 200})
+	w, buf := newTestWriter(t, tracepack.WriterOptions{Meta: meta, Codec: tracepack.CodecZstd, BlockThreshold: 200})
 	recs := mixedRecords(t)
 	appendAll(t, w, recs)
 	mustClose(t, w)
@@ -1113,7 +1128,7 @@ func TestWriterDropsRetiredMetadataTags(t *testing.T) {
 		{Tag: 0x0050, Type: 7, Value: []byte{0xAA}},
 	}
 	for _, validate := range []bool{false, true} {
-		_, buf := newTestWriter(t, tracepack.WriterOptions{Meta: meta, Validate: validate})
+		_, buf := newTestWriter(t, tracepack.WriterOptions{Meta: meta, SkipValidation: !validate})
 
 		p := mustWalkPack(t, buf.Bytes())
 		assert.Equal(t, []tracepack.RawEntry{{Tag: 0x0050, Type: 7, Value: []byte{0xAA}}}, p.Meta.Unknown,
@@ -1139,7 +1154,7 @@ func corruptFirstSeq(n int) func(enc []byte) []byte {
 func TestValidatingWriterRejectsCorruptEncoding(t *testing.T) {
 	t.Parallel()
 
-	w, buf := newTestWriter(t, tracepack.WriterOptions{Validate: true})
+	w, buf := newTestWriter(t, tracepack.WriterOptions{})
 	tracepack.SetEncodedHook(w, corruptFirstSeq(1))
 
 	good := dataRecord(0, hourStart)
@@ -1190,7 +1205,7 @@ func TestValidatingWriterChecksColumnarSection(t *testing.T) {
 			t.Run(c.String()+" "+d.name, func(t *testing.T) {
 				t.Parallel()
 
-				w, buf := newTestWriter(t, tracepack.WriterOptions{Validate: true, Codec: c})
+				w, buf := newTestWriter(t, tracepack.WriterOptions{Codec: c})
 				tracepack.SetEncodedHook(w, func(enc []byte) []byte {
 					body, err := codec.Decode(uint8(c), nil, enc, bodyLen)
 					require.NoError(t, err)
@@ -1216,7 +1231,7 @@ func TestValidatingWriterChecksColumnarSection(t *testing.T) {
 func TestNonValidatingWriterWritesCorruptEncoding(t *testing.T) {
 	t.Parallel()
 
-	w, buf := newTestWriter(t, tracepack.WriterOptions{})
+	w, buf := newTestWriter(t, tracepack.WriterOptions{SkipValidation: true})
 	tracepack.SetEncodedHook(w, corruptFirstSeq(0))
 	r := dataRecord(0, hourStart)
 	require.NoError(t, w.Append(&r))
@@ -1278,7 +1293,6 @@ func TestWriterDetectsClockStep(t *testing.T) {
 	s := &sizeSyncer{buf: &buf}
 	w, err := tracepack.NewWriter(&buf, tracepack.WriterOptions{
 		Meta: clockMeta(), Facts: tracepack.PackFacts{AnyClassified: true}, AssignSeq: true, DetectClockSteps: true, Sync: s,
-		Validate: true,
 	})
 	require.NoError(t, err)
 
@@ -1332,7 +1346,7 @@ func TestWriterClockDriftWithinTolerance(t *testing.T) {
 	w, buf := newClockWriter(t, tracepack.WriterOptions{DetectClockSteps: true})
 	in := []tracepack.Record{
 		monoRecord(hourStart+1_000+clockTolerance, 1_000), // drift exactly +tolerance
-		monoRecord(hourStart+2_000-clockTolerance, 2_000), // drift exactly -tolerance
+		monoRecord(hourStart+2_000, clockTolerance+2_000), // drift exactly -tolerance
 		monoRecord(hourStart+3_000, 3_000),
 	}
 	appendAssigned(t, w, in)
@@ -1433,7 +1447,8 @@ func TestWriterWithoutDetectionPreservesClockSteps(t *testing.T) {
 func TestWriterClockStepDriftSaturates(t *testing.T) {
 	t.Parallel()
 
-	w, buf := newClockWriter(t, tracepack.WriterOptions{DetectClockSteps: true})
+	// An extract, since the record lies in another UTC hour than the period.
+	w, buf := newTestWriter(t, tracepack.WriterOptions{Meta: asExtract(clockMeta()), AssignSeq: true, DetectClockSteps: true})
 	// (wall - anchor wall) - mono is far below -2^63: the recorded step saturates.
 	r := monoRecord(math.MinInt64, math.MaxInt64)
 	require.NoError(t, w.Append(&r))

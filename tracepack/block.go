@@ -113,8 +113,9 @@ type blockBuilder struct {
 }
 
 // hourOf returns the UTC hour number of ts,
-// rounding toward negative infinity so that times before 1970 stay in their own hour.
-func hourOf(ts int64) int64 {
+// rounding toward negative infinity so that times before 1970 stay in their own hour;
+// HourOf returns the same hour for a time.Time.
+func hourOf(ts int64) int64 { //nolint:revive // hourOf takes a ts_utc_ns, the exported HourOf a time.Time
 	h := ts / hourNs
 	if ts%hourNs < 0 {
 		h--

@@ -351,6 +351,9 @@ func (r *Reader) writePatch(ctx context.Context, a *analysis, p *repairPlan, dst
 	w, err := startWriter(dst, WriterOptions{
 		Meta: p.meta, Facts: p.facts, Codec: opts.Codec, Sync: opts.Sync,
 		PackID: opts.PackID, CaptureID: UUID(r.hdr.CaptureID),
+		// Every block a repair writes goes through appendBlock, which never validates:
+		// the full read already validated it.
+		SkipValidation: true,
 	})
 	if err != nil {
 		return RepairReport{}, err

@@ -120,9 +120,11 @@ func buildReaderPack(c readerPackConfig, recs []Record) (*readerPack, error) {
 	}
 
 	var buf bytes.Buffer
+	// The reader tests' packs have no period and span UTC hours, so the Writer's scope checks are off.
 	w, err := NewWriter(&buf, WriterOptions{
 		Meta: meta, Facts: PackFacts{AnyClassified: true},
-		Codec: c.codec, BlockThreshold: c.threshold, Validate: c.validate,
+		Codec: c.codec, BlockThreshold: c.threshold, SkipValidation: !c.validate,
+		allowScopeBreach: true,
 	})
 	if err != nil {
 		return nil, err

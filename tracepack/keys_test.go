@@ -490,3 +490,40 @@ func checkKeyRejects(t *testing.T, parse func(string) error, valid string, cases
 		require.ErrorIs(t, parse(tc.key), ErrInvalidKey, "%s: %q", tc.name, tc.key)
 	}
 }
+
+func TestHourOfTime(t *testing.T) {
+	t.Parallel()
+
+	// HourOf numbers the hour of a nanosecond timestamp as the Writer and the readers do.
+	for _, ns := range []int64{
+		0, 1, -1, hourNs - 1, hourNs, hourNs + 1, -hourNs + 1, -hourNs, -hourNs - 1,
+		blockTestHour, blockTestHour - 1, math.MinInt64, math.MinInt64 + 1, math.MaxInt64, math.MaxInt64 - 1,
+	} {
+		require.Equal(t, hourOf(ns), HourOf(time.Unix(0, ns)), "ts %d", ns)
+	}
+	require.Equal(t, minKeyHour, HourOf(time.Unix(0, math.MinInt64)), "the first hour a key names")
+	require.Equal(t, maxKeyHour, HourOf(time.Unix(0, math.MaxInt64)), "the last hour a key names")
+
+	// otherZone is 2028-02-29T05:59:59.999999999Z, written in UTC+9.
+	otherZone := time.Date(2028, time.February, 29, 14, 59, 59, 999999999, time.FixedZone("UTC+9", 9*secondsPerHour))
+	tests := []struct {
+		name string
+		t    time.Time
+		want int64
+	}{
+		{"epoch", time.Unix(0, 0), 0},
+		{"a second before the epoch", time.Unix(-1, 0), -1},
+		{"an hour before the epoch", time.Unix(-secondsPerHour, 0), -1},
+		{"a second earlier", time.Unix(-secondsPerHour-1, 0), -2},
+		{"another zone, same instant", otherZone, keyHourOf(2028, time.February, 29, 5)},
+		{"after the int64 nanoseconds", time.Date(3000, time.January, 1, 0, 30, 0, 0, time.UTC), keyHourOf(3000, time.January, 1, 0)},
+		{"before the int64 nanoseconds", time.Date(1000, time.January, 1, 0, 30, 0, 0, time.UTC), keyHourOf(1000, time.January, 1, 0)},
+	}
+	for _, tt := range tests {
+		require.Equal(t, tt.want, HourOf(tt.t), tt.name)
+	}
+
+	arc, err := ArchiveKey("p", "t", keyUUID(t, keyCaptureText), HourOf(otherZone), keyUUID(t, keyPackText))
+	require.NoError(t, err)
+	require.Contains(t, arc, "/2028/02/29/05/", "the key names the instant's UTC hour")
+}
