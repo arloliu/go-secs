@@ -9,6 +9,10 @@ This release follows the format revision of spec v2.13, which redefines format 1
 It adds the reader and verification (spec v2.14), repair (spec v2.15 and v2.19), the active view and merge of a scope (spec v2.16 to v2.18),
 one read over several packs (spec v2.20), the lookup of a transaction from its primary (spec v2.21),
 and a source for that lookup over an object store and the caller's catalog (spec v2.22).
+For recorders it adds a segment writer, which writes a capture as segments through a sink,
+and a sink that stores them in a local directory laid out as a bucket;
+for readers of local files, a source for the lookup over packs the caller opened (spec v2.23 and v2.24).
+A README groups the API by audience, and runnable examples show writing and reading.
 
 ### Upgrade notes
 
@@ -30,6 +34,12 @@ and a source for that lookup over an object store and the caller's catalog (spec
   the tag is required only when the pack's lineage list is non-empty, which the pack metadata alone does not show.
 - `MarshalBinary` writes `classifier` and `max_frame_len` among the repeatable tags,
   which moves their bytes in newly written pack metadata, so a golden of encoded metadata changes.
+- `WriterOptions.Validate` is replaced by `WriterOptions.SkipValidation`, and a `Writer` now validates each block by default:
+  drop `Validate: true`, and set `SkipValidation: true` where `Validate` was left false and the check is not wanted.
+- `NewWriter` refuses a period that is empty or not inside one UTC hour, and `Writer.Append` a record of another UTC hour than the period,
+  both with `ErrScopeBreach`, for every pack but an extract.
+  A writer of packs that span hours writes an extract, or one pack per hour as `SegmentWriter` does.
+  A record of the period's hour outside the period is still accepted, and `Merge` and `Repair` write the same bytes as before.
 
 ### Changed
 
@@ -50,7 +60,7 @@ and a source for that lookup over an object store and the caller's catalog (spec
   `PackRoleCorrection`, whose value 5 now prints `unknown(5)`;
   `PackMeta.BlocksValidated` and `ErrSchemaVersion`.
 - `Writer`:
-  `WriterOptions.Validate` decodes each encoded block, gathers its record headers and checks them before writing it,
+  a validating Writer, the default unless `WriterOptions.SkipValidation` is set (below), decodes each encoded block, gathers its record headers and checks them before writing it,
   but commits nothing to the pack metadata;
   the Writer no longer derives decode-failed or no-mono,
   never writes `schema_version`, `blocks_validated` or any other retired pack-metadata tag, also not from `PackMeta.Unknown`,
@@ -97,6 +107,12 @@ and a source for that lookup over an object store and the caller's catalog (spec
   The lookup already used that range;
   the visible effect is that a conflicted hour takes its place in the range without being read,
   and the hours after it are still read.
+- `Writer` (spec v2.23): `WriterOptions.Validate` is replaced by `SkipValidation`, so validation is on unless a caller turns it off;
+  `Merge` and `Repair`, which check their blocks themselves, set it.
+  For every pack but an extract, `NewWriter` refuses a period that is empty or not inside one UTC hour, writing nothing,
+  and `Append` refuses a record whose `ts_utc_ns` lies in another UTC hour than the period, both with the new `ErrScopeBreach`.
+  A refused record is not added, takes no seq and inserts no clock-step record, and the Writer stays usable.
+  A record of the period's hour outside the period is accepted, since a clock step within the hour puts it there.
 
 ### Added
 
@@ -361,12 +377,76 @@ and a source for that lookup over an object store and the caller's catalog (spec
   which recompute F-2, F-3 and F-5 from each archive's records independently of the Writer,
   and check the record union, the size and greedy-coalescing rules and the report's counts;
   and the fuzz targets `FuzzMerge` and `FuzzMergeGenerated`.
+- `SegmentWriter` writes one capture, in capture order, as segments through a `SegmentSink` (spec v2.23 and v2.24).
+  `NewSegmentWriter` checks `SegmentWriterOptions` and the capture's descriptor before any sink call, then writes the capture's `start` boundary at `CaptureOrigin`;
+  `Close` writes its `stop` boundary at `Now()` and commits the last segment.
+  `AppendFrame` records a captured HSMS frame, its kind, `field_validity` and fidelity derived from the frame and the capture method,
+  `mono_ns` from the monotonic readings of its time and `CaptureOrigin` for a `capture-clock` capture,
+  and its decode status from the `Classifier` when one is set;
+  `AppendEvent` records a transport event, and `Append` a record the producer built, such as a log converter's.
+  `CaptureID` returns the capture's generated `capture_id` from construction on, for the next capture's `PreviousCaptureID`.
+  A segment's period is the `FlushInterval` holding its first record, `DefaultFlushInterval` (5 minutes) unless set, which must divide one hour.
+  The open segment is committed before a record of another hour or at or after its period's end,
+  once it handed `MaxSegmentBytes` to the sink (`DefaultMaxSegmentBytes`, 64 MiB unless set; a soft limit),
+  on `Tick` at or after its period's end, and on `Rotate`.
+  For a `capture-clock` capture it detects clock steps and carries the clock anchor from one segment to the next.
+  Each method that can touch a segment takes a `ctx`, checked before the first sink call, between sink calls and before an append reports success.
+- A record the `SegmentWriter` refuses is checked before it touches a segment, and the writer stays usable:
+  a nil record or event, a time that cannot be represented, an `AppendFrame` for a `log` or unknown capture method,
+  a capture boundary of kind `start`, `stop` or `stop-unclean`,
+  or a transport-event or annotation record whose payload does not decode or whose `field_validity` is not 0,
+  so `Verify` finds no writer defect in an appended record, all with the new `ErrInvalidRecord`;
+  a payload too large, a `field_validity` the payload contradicts, a record the segments' metadata cannot describe, no seq left,
+  or an event `AppendEvent` cannot encode.
+  Any later error fails the writer and aborts the open segment exactly once;
+  segments committed before it stay published, those the failing call committed included.
+  the error of a `Commit` that failed after the segment became visible wraps the new `ErrPublishUncertain`.
+  The seq counter is never rewound, so lost records leave a seq gap.
+- `CaptureDescriptor`, the pack metadata the producer of a capture owns, written unchanged into every segment,
+  and `CaptureDescriptor.Validate`, which checks the producer's "Required when" rules and the values the encoding allows, returning a `*FieldError`.
+  `DefaultClockStepTolerance` (1 s) is the tolerance a zero `ClockStepTolerance` takes.
+  Every `PackMeta` field has Godoc from the tag registry.
+- `Classifier`, the interface a `SegmentWriter` classifies frames with and takes the `classifier` and `max_frame_len` tags from,
+  and `classify.New(maxFrameLen)`, which returns the go-secs-backed classifier as one, comparing frame lengths with its ceiling as `uint64` values.
+- `SegmentSink`, `SegmentFile` and `SegmentInfo`, the sink a `SegmentWriter` writes through:
+  `SegmentInfo` holds what the segment's key needs, and nothing of a segment is visible before its `Commit`.
+- `NewDirSink(root, prefix)` stores each segment as the file `<root>/<SegmentKey(prefix, …)>`, so a local recording is laid out as a bucket.
+  `root` must exist.
+  The sink opens `root` as an `os.Root` and makes every file-system call through it,
+  so a symbolic link leading out of `root`, `.partial` included, fails the call that meets it;
+  it keeps `root` open while it is reachable, and has nothing to close.
+  It refuses a symbolic link inside `root` where it manages directories, so no link joins `.partial/` and a key area:
+  at `.partial` when the sink and each segment are created, and at every directory of a key before the rename, nothing published;
+  these checks guard against a misconfigured `root`, not against a process writing to `root` while the sink runs.
+  `NewDirSink` fails on `js`, where `os.Root` cannot exclude a link replaced after its check.
+  A segment is written under `<root>/.partial/`, which no listing of the key areas reaches,
+  then synced, renamed to its key, and the directories from the key's up to `root` synced, except on Windows;
+  an error after the rename wraps `ErrPublishUncertain`.
+  Files are created with mode 0640 and directories with mode 0750, less the umask.
+  A prefix that is neither empty nor a relative `/`-separated path, or that holds an empty, `.` or `..` component, a `\` or a `:`,
+  or whose first component is `.partial`, is refused before any file is created;
+  once `.partial/` exists, so is a prefix whose first component names that same directory, as a case variant does on a case-folding file system.
+- `NewReaderSource(readers, ReaderSourceOptions)` returns a `PackSource` over packs the caller opened, all of one tool,
+  computing each scope's view once with `ActiveView`, every generation and patch given taken as committed.
+  Without `ReaderSourceOptions.Complete`, its scopes are not indexed and every capture's evidence is partial, so a lookup is never `TxUnmatched`.
+  `Complete` asserts that the readers are every accepted pack of the tool,
+  and that they and `ReaderSourceOptions.Evidence`, the packs whose registration was rejected, are every pack a catalog of the tool would hold evidence of;
+  the scope of each `Evidence` reader is then reported not indexed, and `Evidence` readers never enter a view.
+  An `Evidence` reader whose period is empty or not inside one UTC hour is refused with `ErrInvalidQuery`.
+- `HourOf` returns the UTC hour of a time as `TxKey.Hour` and the key builders number it,
+  and `TxKeyOf` builds the `TxKey` of a primary from its capture, seq and time.
+- Runnable examples: `ExampleSegmentWriter`, `ExampleOpen`, `ExampleFindTransaction` over `NewReaderSource`, and `ExampleMergeIterate`;
+  and `README.md`, the API by audience.
+- `SegmentWriter` and `NewDirSink` have tests that inject a failure or a cancellation at each sink and file-system call, before and after publication,
+  and count the commits and aborts; an end-to-end test records a capture into a directory and finds a reply across an hour over `NewReaderSource`,
+  then merges each hour's segments.
 - `Record.HSMSHeader` and `HSMSHeader`, the HSMS header fields of a payload with their availability kept separate;
   `Record.SetCapturedFieldValidity`.
 - `DecodeStatus.Clean`, true only for a known classification outside the malformed set, so an unknown value is neither clean nor malformed.
 - Sentinel errors `ErrNotTracepack`, `ErrUnsupportedFormat`, `ErrChecksum`, `ErrReadLimit`, `ErrInvalidFooter`, `ErrInvalidQuery`,
   `ErrFieldValidity`, `ErrFieldValue`, `ErrRepairNotNeeded`, `ErrNotRepairable`,
-  `ErrViewConflicted`, `ErrMergeInput`, `ErrMergeConflict`, `ErrMergeLimit`, `ErrNotPrimary`, `ErrObjectNotFound` and `ErrInvalidKey`.
+  `ErrViewConflicted`, `ErrMergeInput`, `ErrMergeConflict`, `ErrMergeLimit`, `ErrNotPrimary`, `ErrObjectNotFound`, `ErrInvalidKey`,
+  `ErrScopeBreach`, `ErrInvalidRecord` and `ErrPublishUncertain`.
 
 ## [0.1.0] - 2026-09-28
 
