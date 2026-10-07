@@ -1,6 +1,6 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-10-05) — phases 4, 5a, 5b, 5c1 and 5c2 done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`); phase 5d next (segment writer, local source), then 5c3 (retention).
+Status: active (2026-10-06) — phases 4, 5a, 5b, 5c1, 5c2 and 5d done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`, `SegmentWriter`, `NewDirSink`, `NewReaderSource`); phase 5c3 (retention) next.
 Implements: tracepack v2.24 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
@@ -73,7 +73,7 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 5c1 — PackSource, FindTransaction | done |
 | 5c2 — store-backed PackSource, listing views | done |
 | 5c3 — retention | pending |
-| 5d — segment writer, local source | pending |
+| 5d — segment writer, local source | done |
 | 6 — JSONL export, conformance corpus, CLI | pending |
 | 7 — Extract and redaction | pending |
 | 8 — Producer API for a durable-bus capture | pending |
@@ -492,7 +492,7 @@ The implementation settled what the text above leaves open:
 
 Tests: the removed-outcome vector of [STO §8].
 
-#### 5d — segment writer, local source (pending)
+#### 5d — segment writer, local source (done)
 
 From proposal P11, applied as spec v2.23 (G5-149..G5-155), with the contracts of spec v2.24 (G5-156); the API is `tracepack-go.md` §3.
 Plan: the phase 5d writing plan, kept outside the repository (ready after plan reviews r1–r3).
@@ -520,6 +520,21 @@ the examples run as tests.
 
 Done when: a recorder writes a capture through `SegmentWriter` and `FindTransaction` over `NewReaderSource` finds its transactions,
 and segments written across an hour boundary merge without `ErrMergeInput`.
+
+Done (2026-10-06): the tests above pass, the four runnable examples among them, and so do both criteria:
+`TestReaderSourceEndToEnd` records a capture through `SegmentWriter` into a `NewDirSink` directory, finds a reply across an hour boundary with `FindTransaction` over `NewReaderSource`,
+and merges each hour's segments without `ErrMergeInput`.
+`Merge` and `Repair` write the same bytes as before the `Writer` changes, which a digest test pins.
+The implementation settled what the text above leaves open:
+`AppendFrame` refuses an `unknown` capture method, which has no fidelity rule, as it refuses `log`;
+`DefaultClockStepTolerance` (1 s), `DefaultFlushInterval` and `DefaultMaxSegmentBytes` are exported;
+`CaptureDescriptor.Validate` also refuses a value the encoding would refuse, such as invalid UTF-8 or a `u64` above 2^63 − 1;
+`NewSegmentWriter` refuses a classifier whose `MaxFrameLen` exceeds 2^63 − 1 or whose `Name` is empty;
+and an `ActiveView` error other than a conflict fails `NewReaderSource` as it is, not wrapped in `ErrInvalidQuery`.
+The owner settled two points during it, as spec v2.24 amendments:
+`NewDirSink` creates files with mode 0640 and directories with mode 0750, and refuses a prefix whose first component is `.partial` (G5-157);
+under `Complete`, the scope of each evidence reader is not indexed (G5-158).
+[STO §4] no longer calls the capture-clock tags always-required, a wording fix of spec v2.24.
 
 ### Phase 6 — JSONL export, conformance corpus, CLI
 
