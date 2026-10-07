@@ -357,7 +357,7 @@ func firstSeq(r *Reader) (uint64, bool) {
 // On error it has closed every object it opened, also when a callback it called panics.
 func (s *storeSource) Observe(ctx context.Context, capture UUID, from, to int64) (obs Observation, err error) {
 	if err := checkObserve(capture, from, to); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("tracepack: store source: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("tracepack: store source: %w", err)
@@ -383,16 +383,17 @@ func (s *storeSource) Observe(ctx context.Context, capture UUID, from, to int64)
 	return o, nil
 }
 
-// checkObserve checks the arguments of Observe: a capture_id that is not zero, and hours [from, to) not empty,
+// checkObserve checks the arguments of a PackSource's Observe: a capture_id that is not zero, and hours [from, to) not empty,
 // within [MinTxHour, MaxTxHour], the hours a lookup reads.
+// Its error names no source; the caller adds its own.
 func checkObserve(capture UUID, from, to int64) error {
 	switch {
 	case capture == UUID{}:
-		return errors.New("tracepack: store source: the capture_id is zero")
+		return errors.New("the capture_id is zero")
 	case from >= to:
-		return fmt.Errorf("tracepack: store source: hours [%d, %d) are empty", from, to)
+		return fmt.Errorf("hours [%d, %d) are empty", from, to)
 	case from < MinTxHour || to-1 > MaxTxHour:
-		return fmt.Errorf("tracepack: store source: hours [%d, %d) are not within [%d, %d]", from, to, MinTxHour, MaxTxHour)
+		return fmt.Errorf("hours [%d, %d) are not within [%d, %d]", from, to, MinTxHour, MaxTxHour)
 	}
 
 	return nil

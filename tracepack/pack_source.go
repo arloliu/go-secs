@@ -148,6 +148,26 @@ func barrierMeets(b *Boundary, from, to int64) bool {
 	return inverted(b.GapStart, b.GapEnd) || overlaps(b.GapStart, b.GapEnd, &from, &to)
 }
 
+// meetingBarriers returns deep copies of the barriers of bs whose gap interval meets [from, to) (barrierMeets), in their order,
+// for an observation of the hours [hourFrom, hourTo):
+// the range must be non-empty and lie within [hourFrom·3600·10⁹, hourTo·3600·10⁹).
+// Its error, for any other range, names no source; the caller adds its own.
+func meetingBarriers(bs []Boundary, from, to, hourFrom, hourTo int64) ([]Boundary, error) {
+	// Observe bounded the hours by [MinTxHour, MaxTxHour+1), whose nanoseconds fit in an int64.
+	if from >= to || from < hourFrom*hourNs || to > hourTo*hourNs {
+		return nil, fmt.Errorf("barriers range [%d, %d) is empty or not within the hours' range [%d, %d)",
+			from, to, hourFrom*hourNs, hourTo*hourNs)
+	}
+	var out []Boundary
+	for i := range bs {
+		if barrierMeets(&bs[i], from, to) {
+			out = append(out, cloneBoundary(bs[i]))
+		}
+	}
+
+	return out, nil
+}
+
 // String returns the end state's name in the tracepack storage specification, or "unknown(<n>)" for a value this package does not define.
 func (s EndState) String() string {
 	switch s {
