@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-10-04) — v2.22, tracepack format 1.0.
+Status: current (2026-10-05) — v2.24, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for publishers, mergers, recorders and log converters.
 
@@ -138,6 +138,12 @@ provided each commit object is deleted after the packs it commits.
   A bound that recovery cannot establish — no readable liveness anchor, or a recorder without the contract — is omitted, meaning unbounded on that side.
   Recovery never uses its own wall clock, which may have changed while the recorder was down.
   The boundary is a **completeness barrier** (§5).
+- **Recorder without a durable spool** (G5-150): a standalone recorder, one that is not a consumer of a durable bus (below), MAY write segments without the spool, the liveness anchor and recovery above.
+  It keeps every other Flush rule, so every segment still has one scope, and it writes no `flush_interval_ns`, which would state a contract it does not keep.
+  A crash loses the records not yet in a finalized segment, and no recovery appends a `stop-unclean` boundary:
+  the capture stays `open` (§5), its lost records are seq gaps, and its successor's `start` and `previous_capture_id` remain the evidence of the restart,
+  as for a producer over a durable bus that stops without a `stop` boundary (below).
+  It writes a `stop` boundary on every orderly shutdown, so the case is limited to crashes.
 - **Recorder over a durable bus** (G5-86): a deployment in which producers publish records to a message bus that persists each record before acknowledging the publish
   (the pilot uses NATS JetStream), and the recorder is a set of stateless consumers of that bus.
   - *Producer duties.* The producer keeps a stable `recorder_instance_id` for its deployment across restarts,
@@ -172,10 +178,11 @@ provided each commit object is deleted after the packs it commits.
     At flush the consumer finalizes every open segment of the scope.
     A record may be written twice, into segments of different consumers; [FMT I-12] deduplicates it, byte-identical.
     The merge below normalizes the interleaved segments of a scope, decoding the overlapping blocks as it does for any overlap.
-  - *Capture descriptor and pack metadata.* The descriptor carries every always-required pack-metadata value the producer owns
-    (`tool_id`, `transport`, `capture_method`, `vantage`, `recorder`, `time_source`, `lifecycle_coverage`, `quality_evaluated`,
-    `recorder_instance_id`, `capture_origin_utc_ns`, `capture_origin_mono_ns`, `clock_step_tolerance_ns`, and `previous_capture_id` and the optional site and equipment tags when it has them);
-    a log producer also supplies `source_tz`, `source_dialect` and `source_ref`;
+  - *Capture descriptor and pack metadata.* The descriptor carries every pack-metadata value the producer owns:
+    the always-required `tool_id`, `transport`, `capture_method`, `vantage`, `recorder`, `time_source`, `lifecycle_coverage`, `quality_evaluated` and `recorder_instance_id`;
+    `capture_origin_utc_ns`, `capture_origin_mono_ns` and `clock_step_tolerance_ns`, required when `time_source = capture-clock` ([FMT §5]);
+    and `previous_capture_id` and the optional site and equipment tags when it has them;
+    a log producer also supplies `source_dialect` and `source_ref`, required when `capture_method = log`, and `source_tz`, required when `time_source = source-log` ([FMT §5]);
     the consumer owns `writer`, `classifier`, `max_frame_len`, `period_start`, `period_end`, `seq_start`, `pack_role`, `compaction_level`, `scope_generation` and `flush_interval_ns`.
     The traffic stream is configured so that an accepted message is removed only by acknowledgement, never by a size or age limit,
     so an unacknowledged `start` stays available until its descriptor is registered and a deferred record until its descriptor exists.
@@ -389,7 +396,7 @@ Its storage technology is not part of this specification.
   since the per-capture entry's closure is a footer claim, kept as evidence and checked against that record where the lookup reads it, never by itself an exemption.
   A transaction lookup whose primary lies in an epoch it must take as still open never returns `unmatched`.
   A gap between linked captures is recorder downtime and is always reported when the earlier capture carries an end boundary;
-  a capture left `open` (§4 Recorder over a durable bus) shows the restart through its successor's `start` but supplies no downtime barrier and no gap bounds.
+  a capture left `open` (§4 Recorder without a durable spool, Recorder over a durable bus) shows the restart through its successor's `start` but supplies no downtime barrier and no gap bounds.
   - A result that touches a scope that is not indexed is `incomplete` with reason `cold` and the searched scope;
     a transaction lookup whose eligibility window touches such a scope never returns `unmatched` ([SEM §7.2]).
   - End states, barriers and epoch closures come from the per-capture entries (above), whether or not the scope holding the evidence is indexed,

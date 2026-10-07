@@ -716,3 +716,88 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   Rationale: a caller tells malformed bucket contents, which a retry does not cure, from a missing object (`ErrObjectNotFound`), which it may; the package exports a sentinel for each kind of malformed input it reads.
   Rejected: an unexported error; wrapping `ErrInvalidQuery`, which names invalid query arguments.
   Spec: `tracepack-go.md` §3 (v2.22).
+- G5-149 A `start`, `stop` or `stop-unclean` boundary carries no seq range (2026-10-04, proposal P11 Q1):
+  the record's own seq places such a boundary, and its payload holds neither `boundary_seq_first` nor `boundary_seq_last`; the seq range stays with a `gap`.
+  Rationale: [SEM §5] asked for a seq range without saying what a start or stop delimits; a writer that marshals the payload before the seq is assigned, or before a clock-step takes the seq ahead of it, cannot name one.
+  Rejected: the range of the capture's records, which a `start` cannot know and a `stop` would have to predict.
+  Spec: [SEM §5], [FMT §8] (v2.23).
+- G5-150 A recorder without a durable spool (2026-10-04, proposal P11 Q2):
+  a recorder may write segments without the durable spool and liveness anchor of [STO §4] Flush;
+  it keeps every other Flush rule, writes no `flush_interval_ns`, and a crash loses the records not yet in a finalized segment:
+  its capture stays `open`, with no `stop-unclean` barrier and no gap bounds, and the lost records are seq gaps.
+  Rationale: the reference library offers a segment writer before `Recover` exists (G5-91); the losses it allows are ones [STO §5] Completeness already reports, as for a durable-bus producer that crashes.
+  Rejected: writing `flush_interval_ns` without the contract it states; refusing to offer a segment writer until `Recover` is built.
+  Spec: [STO §4] Flush, [STO §5] Completeness (v2.23).
+- G5-151 Any `capture_origin_mono_ns` value is valid, 0 included (2026-10-04, proposal P11 Q3):
+  only differences of monotonic readings carry meaning, so a producer without a raw monotonic reading writes 0 and measures `mono_ns` from its origin instant.
+  Rationale: Go's `time.Time` carries a monotonic reading it never exposes; the question was open since impl plan phase 8.
+  Rejected: requiring a raw reading, which a Go producer cannot supply.
+  Spec: [SEM §4] (v2.23).
+- G5-152 The `Writer` refuses a scope breach and validates by default (2026-10-04, proposal P11):
+  for every pack but an `extract`, `NewWriter` refuses a period that is empty or not inside one UTC hour,
+  and `Append` refuses a record whose `ts_utc_ns` lies in another UTC hour than the period, with `ErrScopeBreach`, the Writer still usable;
+  `WriterOptions.Validate` becomes `SkipValidation`.
+  Rationale: the merge refuses such a pack and a lookup over it is `incomplete` (G5-146), so accepting the record moved the failure to another component; the zero value should be the recommended setting ([FMT §12]).
+  Rejected: checking the record against the period rather than its hour, which a same-hour clock step breaks ([STO §4] Merge); flipping the `Codec` default, whose zero value is the wire value of `none`.
+  Spec: `tracepack-go.md` §3 (v2.23).
+- G5-153 A capture descriptor and a rolling segment writer (2026-10-04, proposal P11):
+  `CaptureDescriptor` holds the pack metadata [STO §4] gives the producer, with `recorder_instance_id` required and never generated;
+  `SegmentWriter` writes one capture as segments, owning every value [STO §4] gives the writing component, the `capture_id` and the seq counter;
+  it opens a segment at the first record that needs one, rolls by the Flush rules, writes `start` before the capture's first record and `stop` at `Close`,
+  defaults to zstd and validation, takes the classifier as an interface, and writes through a `SegmentSink` (`NewDirSink` for a local directory laid out as the bucket, its unfinished files outside every key area);
+  its frame helper serves capture methods whose bytes establish the fields they hold, never a `log` capture, and sets `mono_ns` only for a `capture-clock` capture.
+  Rationale: a recorder built on `Writer` alone had to compute the period, the hour rolls, the seq threading and the commitments by hand, and every mistake surfaced in another component.
+  Rejected: presets on `PackMeta`, which leave the rolls to the caller; a durable spool in this step (G5-91).
+  Spec: `tracepack-go.md` §3 (v2.23).
+- G5-154 A `PackSource` over open readers (2026-10-04, proposal P11 Q4, Q5):
+  `NewReaderSource` serves a lookup from the `Reader`s the caller opened;
+  its scopes are not indexed and its evidence partial, so a lookup over them is never `unmatched`,
+  unless the caller asserts `Complete`, that the readers hold every accepted pack of the tool, which the barriers of other captures need;
+  even then a capture's evidence is partial while any reader of the tool has no used footer;
+  every generation and patch given counts as committed, and giving one asserts that it was accepted.
+  Rationale: local files have no catalog to vouch for completeness, and the caller who gathered them is the only one who can; an unasserted set must not prove absence.
+  Rejected: indexed by default; requiring commit objects next to local files.
+  Spec: `tracepack-go.md` §3 (v2.23).
+- G5-155 One package, grouped by audience in its documentation (2026-10-04, proposal P11 Q6):
+  the module keeps one `tracepack` package; its README and package documentation group the API for recorders, readers and the storage service.
+  Rationale: the storage-service types share unexported state with the reader, so a split costs more than it saves before v1.0.0.
+  Rejected: sub-packages per audience.
+  Spec: `tracepack-go.md` §3 (v2.23).
+- G5-156 A complete set of local packs includes the evidence a catalog would hold (2026-10-05, phase 5d plan review):
+  `NewReaderSource` takes, beside the readers of its views, readers whose statistics it folds into the evidence only (`Evidence`), never into a view;
+  `Complete` asserts that the view readers are every accepted pack of the tool and that both sets together are every pack a catalog of the tool would hold evidence of, rejected registrations included,
+  and a set from which a pack was removed cannot be `Complete`.
+  Rationale: [STO §5] Per capture keeps the evidence of every pack presented for registration, rejected ones included, and keeps it after the packs are gone;
+  a `stop-unclean` boundary in a rejected segment is still a barrier, so a set of accepted files alone could let a lookup return `unmatched` (plan review r1).
+  Rejected: folding a rejected segment into a view, which would admit its records; treating every accepted file set as complete (G5-154 as first written).
+  Spec: `tracepack-go.md` §3 (v2.24).
+- G5-157 `NewDirSink` modes and the `.partial` prefix (2026-10-06, phase 5d implementation review):
+  `NewDirSink` creates files with mode 0640 and directories with mode 0750, and refuses a prefix whose first component is `.partial`.
+  Rationale: a segment holds records in full, so no other user may read it; group read lets an uploader or merger running as another user read the files through a setgid group or a default ACL, which an owner-only mode would mask.
+  A committed segment under `.partial/` would be deleted with the crash leftovers there.
+  Rejected: 0600/0700, which rules out group and ACL access; 0644/0755, world-readable under a usual umask; a Godoc caution instead of the refusal.
+  Spec: `tracepack-go.md` §3 (v2.24).
+- G5-158 An evidence reader's scope is not indexed (2026-10-06, phase 5d implementation review):
+  under `Complete`, `NewReaderSource` reports the scope of each evidence reader, its `capture_id` and the UTC hour of its period, as not indexed; the scope's view still holds only view readers.
+  Rationale: a catalog rejects a registration only for a scope that is not indexed ([STO §5] No admissions outside the index), and a lookup through the catalog reads such a scope as `cold`;
+  reporting it indexed claims more than the catalog would, and a rejected segment holding another version of a seq in the view could let a lookup return `unmatched`.
+  Rejected: keeping the scope indexed with a Godoc note.
+  Spec: `tracepack-go.md` §3 (v2.24).
+- G5-159 `NewDirSink` stays inside its root (2026-10-06, phase 5d post-implementation review):
+  `NewDirSink` performs every file-system operation through its root opened as an `os.Root`, so a symbolic link leading out of the root fails the operation that meets it.
+  Rationale: a lexical join alone follows an existing link such as `root/staging` or `root/.partial` out of the root, publishing a segment, or keeping a temporary file, where the sink claims none lies.
+  Rejected: documenting the lexical join and leaving the root's contents to the operator; a link check before each operation, which a replacement between check and use defeats.
+  Spec: `tracepack-go.md` §3 (v2.24).
+- G5-160 `SegmentWriter` refuses a malformed event or annotation payload (2026-10-06, phase 5d post-implementation review):
+  each append decodes the payload of a transport-event or annotation record and refuses, with `ErrInvalidRecord` and before any mutation, one that does not decode or whose `field_validity` is not 0.
+  Rationale: the writer otherwise commits a payload `Verify` reports as a writer defect, so a recorder learns of its mistake only when a reader checks the pack;
+  and it writes 0 for such a record's `field_validity`, so a nonzero value the caller set would be dropped silently.
+  Rejected: documenting the payload as the caller's responsibility.
+  Spec: `tracepack-go.md` §3 (v2.24).
+- G5-161 `NewDirSink` refuses links where it manages directories (2026-10-06, phase 5d post-implementation review r2):
+  `NewDirSink` refuses a symbolic link at `<root>/.partial` and at every directory component of a key, checked after creating them and before the rename, and fails on `js`.
+  Its checks guard against a misconfigured root, not against a concurrent writer of `root`, which can remove segments anyway.
+  Rationale: `os.Root` keeps every operation inside `root` but follows links within it, so a link such as `staging` → `.partial` would publish a segment among the temporary files;
+  on `js` `os.Root` checks a link before using the path, so a replaced link escapes `root`.
+  Rejected: a traversal holding each directory handle and refusing links at every step, which needs platform-specific code to guard against an actor that can delete segments anyway; documenting links as the operator's concern.
+  Spec: `tracepack-go.md` §3 (v2.24).
