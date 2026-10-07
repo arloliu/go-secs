@@ -150,6 +150,15 @@ type clockAnchor struct {
 	mono int64
 }
 
+// packCommitments are what a pack's metadata and file header commit its records to:
+// a classifier tag, a max_frame_len tag, the pack role and the redaction-present flag.
+type packCommitments struct {
+	hasClassifier    bool
+	hasMaxFrameLen   bool
+	packRole         PackRole
+	redactionPresent bool
+}
+
 // Writer writes one tracepack file: the file header and pack metadata when it is created,
 // then its records in blocks, and on Close the footer and the trailer (the tracepack format specification §12).
 //
@@ -176,12 +185,8 @@ type Writer struct {
 	tolerance   uint64
 	anchorWall  int64
 	anchorMono  int64
-	// The written pack metadata and file header commit to hasClassifier, hasMaxFrameLen, packRole and redactionPresent;
-	// every record appended must agree with them.
-	hasClassifier    bool
-	hasMaxFrameLen   bool
-	packRole         PackRole
-	redactionPresent bool
+	// The written pack metadata and file header commit every record appended to packCommitments.
+	packCommitments
 	// seqStart is the pack's seq_start, which the first record's seq must equal.
 	seqStart uint64
 	// nextSeq is the smallest seq the next record may carry, and the seq AssignSeq gives it.
@@ -294,10 +299,12 @@ func startWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 
 		maxF3ListLen: math.MaxUint32,
 
-		hasClassifier:    len(meta.Classifiers) > 0,
-		hasMaxFrameLen:   len(meta.MaxFrameLens) > 0,
-		packRole:         meta.PackRole,
-		redactionPresent: opts.Facts.AnyRedacted,
+		packCommitments: packCommitments{
+			hasClassifier:    len(meta.Classifiers) > 0,
+			hasMaxFrameLen:   len(meta.MaxFrameLens) > 0,
+			packRole:         meta.PackRole,
+			redactionPresent: opts.Facts.AnyRedacted,
+		},
 	}
 	if meta.PackRole != PackRoleExtract && !opts.allowScopeBreach {
 		// checkOptions checked the period.
@@ -521,6 +528,36 @@ func transportEventOf(r *Record) *TransportEvent {
 	return ev
 }
 
+// checkPayload rejects r when no block can hold its payload,
+// or when r is a data or control record whose field_validity marks a field its payload lacks
+// (the tracepack format specification §7.2).
+func checkPayload(r *Record) error {
+	if len(r.Payload) > maxPayloadLen {
+		return fmt.Errorf("tracepack: payload of %d bytes above %d: %w", len(r.Payload), maxPayloadLen, ErrPayloadTooLarge)
+	}
+	if r.hasHSMSFrame() {
+		if beyond := r.FieldValidity & fieldValidityMask &^ capturedFields(len(r.Payload)); beyond != 0 {
+			return fmt.Errorf("tracepack: field_validity marks %s, but the payload is %d bytes: %w", beyond, len(r.Payload), ErrFieldValidity)
+		}
+	}
+
+	return nil
+}
+
+// clockDrift applies the clock anchor rule of the tracepack semantics specification §4 to r, whose decoded event is ev or nil,
+// against anchor a and the tolerance:
+// it reports whether r's drift exceeds the tolerance, and the drift.
+// A record without mono, and a clock-step event, which becomes the anchor itself, are never a step.
+func clockDrift(r *Record, ev *TransportEvent, a clockAnchor, tolerance uint64) (int64, bool) {
+	if !r.MonoPresent || isClockStep(ev) {
+		return 0, false
+	}
+
+	drift := subSat(subSat(r.TSUTCNs, a.wall), subSat(r.MonoNs, a.mono))
+
+	return drift, magnitude(drift) > tolerance
+}
+
 // Append adds r to the pack.
 //
 // In a pack that is not an extract it rejects a record whose ts_utc_ns lies in another UTC hour than the period,
@@ -551,15 +588,9 @@ func (w *Writer) Append(r *Record) error {
 		return err
 	}
 
-	if len(r.Payload) > maxPayloadLen {
-		return fmt.Errorf("tracepack: payload of %d bytes above %d: %w", len(r.Payload), maxPayloadLen, ErrPayloadTooLarge)
+	if err := checkPayload(r); err != nil {
+		return err
 	}
-	if r.hasHSMSFrame() {
-		if beyond := r.FieldValidity & fieldValidityMask &^ capturedFields(len(r.Payload)); beyond != 0 {
-			return fmt.Errorf("tracepack: field_validity marks %s, but the payload is %d bytes: %w", beyond, len(r.Payload), ErrFieldValidity)
-		}
-	}
-
 	if err := w.checkCommitments(r); err != nil {
 		return err
 	}
@@ -684,34 +715,6 @@ func (w *Writer) usable() error {
 	return nil
 }
 
-// checkCommitments rejects r when the pack metadata and file header already written cannot describe it
-// (the tracepack format specification §4 and §5, the tracepack semantics specification §8).
-func (w *Writer) checkCommitments(r *Record) error {
-	classified := r.DecodeStatus != DecodeStatusNotAttempted && r.DecodeStatus != DecodeStatusNotApplicable
-
-	return w.checkCommitmentFacts(classified, r.DecodeStatus == DecodeStatusOversized, r.Quality.Has(QualityRedacted))
-}
-
-// checkCommitmentFacts rejects records that are classified, oversized or redacted, as the flags say,
-// when the pack metadata and file header already written cannot describe them.
-func (w *Writer) checkCommitmentFacts(classified, oversized, redacted bool) error {
-	var field string
-	switch {
-	case classified && !w.hasClassifier:
-		field = "classifier"
-	case oversized && !w.hasMaxFrameLen:
-		field = "max_frame_len"
-	case redacted && w.packRole != PackRoleExtract:
-		field = "pack_role"
-	case redacted && !w.redactionPresent:
-		field = "redaction-present"
-	default:
-		return nil
-	}
-
-	return &FieldError{Field: field, Err: ErrMetadataCommitment}
-}
-
 // seqFor returns the seq r is written under: the next assigned seq, or r.Seq checked against the order rules.
 func (w *Writer) seqFor(r *Record) (uint64, error) {
 	seq := w.nextSeq
@@ -741,17 +744,14 @@ func (w *Writer) checkSeq(seq uint64) error {
 	return nil
 }
 
-// clockStep applies the clock anchor rule of the tracepack semantics specification §4 to r:
-// it reports whether r's drift against the anchor exceeds the tolerance, and the drift.
-// A record without mono, and a clock-step event, which becomes the anchor itself, are never a step.
+// clockStep applies the clock anchor rule of the tracepack semantics specification §4 to r against the anchor in force (clockDrift),
+// when the Writer detects clock steps.
 func (w *Writer) clockStep(r *Record, ev *TransportEvent) (int64, bool) {
-	if !w.detectSteps || !r.MonoPresent || isClockStep(ev) {
+	if !w.detectSteps {
 		return 0, false
 	}
 
-	drift := subSat(subSat(r.TSUTCNs, w.anchorWall), subSat(r.MonoNs, w.anchorMono))
-
-	return drift, magnitude(drift) > w.tolerance
+	return clockDrift(r, ev, w.anchor(), w.tolerance)
 }
 
 // writeClockStep closes and writes the open block,
@@ -1047,4 +1047,32 @@ func (w *Writer) write(b []byte, what string) error {
 	}
 
 	return nil
+}
+
+// checkCommitments rejects r when the pack metadata and file header c describes cannot describe it
+// (the tracepack format specification §4 and §5, the tracepack semantics specification §8).
+func (c *packCommitments) checkCommitments(r *Record) error {
+	classified := r.DecodeStatus != DecodeStatusNotAttempted && r.DecodeStatus != DecodeStatusNotApplicable
+
+	return c.checkCommitmentFacts(classified, r.DecodeStatus == DecodeStatusOversized, r.Quality.Has(QualityRedacted))
+}
+
+// checkCommitmentFacts rejects records that are classified, oversized or redacted, as the flags say,
+// when the pack metadata and file header c describes cannot describe them.
+func (c *packCommitments) checkCommitmentFacts(classified, oversized, redacted bool) error {
+	var field string
+	switch {
+	case classified && !c.hasClassifier:
+		field = "classifier"
+	case oversized && !c.hasMaxFrameLen:
+		field = "max_frame_len"
+	case redacted && c.packRole != PackRoleExtract:
+		field = "pack_role"
+	case redacted && !c.redactionPresent:
+		field = "redaction-present"
+	default:
+		return nil
+	}
+
+	return &FieldError{Field: field, Err: ErrMetadataCommitment}
 }
