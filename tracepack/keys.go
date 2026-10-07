@@ -44,6 +44,21 @@ const (
 // Unlike ErrObjectNotFound, it reports malformed bucket or catalog contents, which a retry does not cure.
 var ErrInvalidKey = errors.New("tracepack: invalid object key")
 
+// HourOf returns the UTC hour holding t, numbered in whole hours from 1970-01-01T00:00Z,
+// as TxKey.Hour, ArchiveKey and CommitKey number a scope's hour;
+// for a t within int64 nanoseconds, it is the hour of a record whose ts_utc_ns is t.UnixNano().
+// It rounds down, so a time before 1970 lies in a negative hour, and it takes any t,
+// also one outside the int64 nanoseconds a ts_utc_ns holds.
+func HourOf(t time.Time) int64 { //nolint:revive // HourOf takes a time.Time, the unexported hourOf a ts_utc_ns
+	sec := t.Unix()
+	h := sec / secondsPerHour
+	if sec%secondsPerHour < 0 {
+		h--
+	}
+
+	return h
+}
+
 // segmentKeyParts is what a segment key names.
 type segmentKeyParts struct {
 	tool     string // decoded tool_id

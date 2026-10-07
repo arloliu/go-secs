@@ -66,6 +66,18 @@ var (
 	ErrWriterFailed = errors.New("tracepack: writer failed")
 	// ErrClosed reports a call on a Writer after Close.
 	ErrClosed = errors.New("tracepack: writer closed")
+	// ErrScopeBreach reports a pack period or a record outside the one scope a pack holds
+	// (the tracepack storage specification §2): every pack but an extract holds the records of one UTC hour,
+	// and its period lies inside that hour.
+	//
+	// NewWriter returns it for a pack that is not an extract whose period is empty or not inside one UTC hour;
+	// it writes nothing and returns no Writer.
+	//
+	// Append returns it for a record whose ts_utc_ns lies in another UTC hour than the period of a pack that is not an extract;
+	// a record of the period's hour outside the period is accepted, since a clock step within the hour puts it there
+	// (the tracepack storage specification §4, Merge).
+	// The record was not added and the Writer is still usable.
+	ErrScopeBreach = errors.New("tracepack: record outside its pack's scope")
 )
 
 // Syncer flushes written bytes to stable storage, such as *os.File.
@@ -80,6 +92,7 @@ type Syncer interface {
 type WriterOptions struct {
 	// Meta is the pack metadata written at the start of the pack; required.
 	// NewWriter copies it and does not modify it; the Writer sets seq_start from NextSeq when AssignSeq is set.
+	// Unless the pack is an extract, its period is not empty and lies inside one UTC hour, the hour of every record (see ErrScopeBreach).
 	Meta *PackMeta
 	// Facts are the facts about the pack's records and scope that Meta is validated against.
 	// Facts.AnyRedacted also sets the file header's redaction-present flag,
@@ -93,10 +106,11 @@ type WriterOptions struct {
 	// zero means DefaultBlockThreshold.
 	// A block never exceeds it, except a block holding a single record larger than it.
 	BlockThreshold int
-	// Validate makes the Writer decode every encoded block and check it against I-2 before writing it
-	// (the tracepack format specification §12, which recommends it);
-	// it commits nothing to the pack metadata, since a reader checks every block it reads.
-	Validate bool
+	// SkipValidation turns off the check a Writer runs on every encoded block before writing it:
+	// by default it decodes the block and checks it against I-2
+	// (the tracepack format specification §12, which recommends it).
+	// The check commits nothing to the pack metadata, since a reader checks every block it reads.
+	SkipValidation bool
 	// Sync, when set, is called after every block is written and after the trailer.
 	Sync Syncer
 	// AssignSeq makes the Writer assign each record's seq, starting from NextSeq;
@@ -120,10 +134,27 @@ type WriterOptions struct {
 	// It requires a capture-clock pack and AssignSeq, since the event takes the seq before the record's.
 	// Without it the Writer stores what it receives, including a producer's clock-step events.
 	DetectClockSteps bool
+
+	// anchor, when set with DetectClockSteps, is the clock anchor the Writer starts from in place of (Meta.CaptureOriginUTCNs, 0),
+	// so a capture written as several packs carries its anchor from one pack to the next.
+	anchor *clockAnchor
+	// allowScopeBreach turns off the scope checks that return ErrScopeBreach,
+	// so a test can write the out-of-scope packs a merge, a repair or a reader must handle.
+	allowScopeBreach bool
+}
+
+// clockAnchor is the clock anchor of the tracepack semantics specification §4:
+// the wall and monotonic times of the capture origin or of the last durable clock-step event.
+type clockAnchor struct {
+	wall int64
+	mono int64
 }
 
 // Writer writes one tracepack file: the file header and pack metadata when it is created,
 // then its records in blocks, and on Close the footer and the trailer (the tracepack format specification §12).
+//
+// Every pack but an extract holds one scope (the tracepack storage specification §2):
+// the Writer refuses an empty period, a period across UTC hours and a record of another hour than the period's, with ErrScopeBreach.
 //
 // A Writer is not safe for concurrent use.
 // Any failed write, sync or validation leaves it failed:
@@ -137,6 +168,9 @@ type Writer struct {
 	threshold int
 	validate  bool
 	assignSeq bool
+	// scoped makes Append refuse a record whose UTC hour is not hour, the hour of the pack's period.
+	scoped bool
+	hour   int64
 	// detectSteps enables the clock anchor rule, with tolerance and the anchor (anchorWall, anchorMono).
 	detectSteps bool
 	tolerance   uint64
@@ -191,6 +225,7 @@ type Writer struct {
 // (the tracepack format specification §4, §5 and §12 step 1).
 //
 // With opts.AssignSeq the pack metadata's seq_start is opts.NextSeq.
+// A pack that is not an extract needs a period inside one UTC hour, its scope.
 //
 // Parameters:
 //   - w: the output; bytes are written in file order and never rewritten.
@@ -200,6 +235,7 @@ type Writer struct {
 //   - *Writer: the Writer, positioned after the pack metadata; nil on error.
 //   - error: a *FieldError from PackMeta.Validate, an invalid option,
 //     a *FieldError wrapping ErrMetadataCommitment when opts.Facts.AnyRedacted is set in a pack that is not an extract,
+//     an error wrapping ErrScopeBreach when the pack is not an extract and its period is empty or not inside one UTC hour,
 //     or the error of writing the header,
 //     which is io.ErrShortWrite when w takes fewer bytes than it was given without reporting an error.
 func NewWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
@@ -249,7 +285,7 @@ func startWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 		syncer:      opts.Sync,
 		codec:       opts.Codec,
 		threshold:   threshold,
-		validate:    opts.Validate,
+		validate:    !opts.SkipValidation,
 		assignSeq:   opts.AssignSeq,
 		detectSteps: opts.DetectClockSteps,
 		seqStart:    meta.SeqStart,
@@ -263,10 +299,17 @@ func startWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 		packRole:         meta.PackRole,
 		redactionPresent: opts.Facts.AnyRedacted,
 	}
+	if meta.PackRole != PackRoleExtract && !opts.allowScopeBreach {
+		// checkOptions checked the period.
+		wr.scoped, wr.hour = true, hourOf(meta.PeriodStart)
+	}
 	if opts.DetectClockSteps {
 		// checkOptions made this a capture-clock pack, whose metadata carries both values.
 		wr.tolerance = *meta.ClockStepToleranceNs
 		wr.anchorWall = *meta.CaptureOriginUTCNs
+		if opts.anchor != nil {
+			wr.anchorWall, wr.anchorMono = opts.anchor.wall, opts.anchor.mono
+		}
 	}
 
 	return wr, nil
@@ -296,7 +339,26 @@ func checkOptions(opts *WriterOptions) error {
 		return err
 	}
 
-	return opts.Meta.Validate(opts.Facts)
+	if err := opts.Meta.Validate(opts.Facts); err != nil {
+		return err
+	}
+
+	return checkPeriod(opts)
+}
+
+// checkPeriod refuses the period of a pack that is not an extract when it is empty or not inside one UTC hour,
+// the pack's scope (the tracepack storage specification §2).
+func checkPeriod(opts *WriterOptions) error {
+	m := opts.Meta
+	if m.PackRole == PackRoleExtract || opts.allowScopeBreach {
+		return nil
+	}
+	if _, ok := periodHour(m.PeriodStart, m.PeriodEnd); !ok {
+		return fmt.Errorf("tracepack: period [%d, %d) of a %s pack is empty or not inside one UTC hour: %w",
+			m.PeriodStart, m.PeriodEnd, m.PackRole, ErrScopeBreach)
+	}
+
+	return nil
 }
 
 // checkClockOptions rejects DetectClockSteps where the Writer cannot apply the clock anchor rule.
@@ -461,9 +523,10 @@ func transportEventOf(r *Record) *TransportEvent {
 
 // Append adds r to the pack.
 //
-// It never rejects a record for its time.
+// In a pack that is not an extract it rejects a record whose ts_utc_ns lies in another UTC hour than the period,
+// and accepts one of the period's hour outside the period (see ErrScopeBreach).
 // It closes the open block first when r's ts_utc_ns lies in another UTC hour than the block's records
-// (the tracepack format specification I-13),
+// (the tracepack format specification I-13), which only an extract holds,
 // or when r would push the block past the size threshold;
 // a record larger than the threshold is written alone in its own block.
 // With WriterOptions.AssignSeq, Append assigns the next seq and stores it in r.Seq;
@@ -475,12 +538,12 @@ func transportEventOf(r *Record) *TransportEvent {
 // With WriterOptions.DetectClockSteps, a record whose drift exceeds the tolerance is preceded by a clock-step record,
 // written with the seq before r's in a block of its own after the open block is closed;
 // a clock-step event r with mono closes the block holding it and becomes the anchor once written.
-// Closing a block writes it, and with WriterOptions.Validate checks it first,
+// Closing a block writes it, and unless WriterOptions.SkipValidation is set checks it first,
 // so Append may return the error of the block it closed.
 //
 // Returns:
-//   - error: ErrPayloadTooLarge, ErrFieldValidity, ErrSeqOrder, or a *FieldError wrapping ErrMetadataCommitment,
-//     with r not added and the Writer still usable;
+//   - error: ErrPayloadTooLarge, ErrFieldValidity, ErrSeqOrder, a *FieldError wrapping ErrMetadataCommitment,
+//     or an error wrapping ErrScopeBreach, with r not added, no seq taken and the Writer still usable;
 //     an error wrapping ErrValidation or a write or sync error, after which the Writer has failed;
 //     ErrWriterFailed or ErrClosed on a failed or closed Writer.
 func (w *Writer) Append(r *Record) error {
@@ -499,6 +562,10 @@ func (w *Writer) Append(r *Record) error {
 
 	if err := w.checkCommitments(r); err != nil {
 		return err
+	}
+	if w.scoped && hourOf(r.TSUTCNs) != w.hour {
+		return fmt.Errorf("tracepack: record at %d ns in UTC hour %d, the pack's period in hour %d: %w",
+			r.TSUTCNs, hourOf(r.TSUTCNs), w.hour, ErrScopeBreach)
 	}
 
 	seq, err := w.seqFor(r)
@@ -596,6 +663,13 @@ func (w *Writer) PackID() UUID {
 // WriterOptions.CaptureID, or the UUIDv7 NewWriter generated.
 func (w *Writer) CaptureID() UUID {
 	return w.captureID
+}
+
+// anchor returns the clock anchor in force, which a Writer keeps after Close and after a failure,
+// so the next pack of the capture can start from it.
+// It is meaningful only with WriterOptions.DetectClockSteps.
+func (w *Writer) anchor() clockAnchor {
+	return clockAnchor{wall: w.anchorWall, mono: w.anchorMono}
 }
 
 // usable reports why w cannot take a call, if it cannot.
@@ -723,7 +797,7 @@ func (w *Writer) adoptClockStep(r *Record) error {
 	return nil
 }
 
-// closeBlock encodes the open block, validates it when WriterOptions.Validate is set,
+// closeBlock encodes the open block, validates it unless WriterOptions.SkipValidation is set,
 // writes envelope and body, syncs, and records the block's summary.
 // Any failure leaves the Writer failed, so no trailer can follow a block that was not written whole.
 func (w *Writer) closeBlock() error {

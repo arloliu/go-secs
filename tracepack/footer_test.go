@@ -110,7 +110,8 @@ func writeFooterPack(t *testing.T, opts tracepack.WriterOptions) (*walkedPack, u
 func writeFooterPackBytes(t *testing.T, opts tracepack.WriterOptions) ([]byte, uint64) {
 	t.Helper()
 
-	meta := writerMeta()
+	// An extract, the one pack role whose records may span UTC hours.
+	meta := asExtract(writerMeta())
 	meta.SeqStart = 10
 	opts.Meta = meta
 	w, buf := newTestWriter(t, opts)
@@ -251,7 +252,7 @@ func TestWriterFooterPassesValidationList(t *testing.T) {
 		t.Run(c.String(), func(t *testing.T) {
 			t.Parallel()
 
-			p, _ := writeFooterPack(t, tracepack.WriterOptions{Codec: c, Validate: true})
+			p, _ := writeFooterPack(t, tracepack.WriterOptions{Codec: c})
 			verifyFooter(t, p)
 			assert.Equal(t, [][]uint64{{10, 11, 12, 13}, {15, 16, 20, 21, 22}, {23}, {24, 25}}, blockSeqs(p))
 			assert.Equal(t, uint8(c), p.Footer.Trailer.FooterCodec, "the footer uses the block codec")
@@ -386,8 +387,9 @@ func TestFooterPackStatsMatchRecords(t *testing.T) {
 func TestFooterPackStatsMatchRecordsAcrossManyBlocks(t *testing.T) {
 	t.Parallel()
 
-	// A threshold of one record per block and records spread over two hours with gaps.
-	w, buf := newTestWriter(t, tracepack.WriterOptions{BlockThreshold: 150, Codec: tracepack.CodecZstd})
+	// A threshold of one record per block and records spread over two hours with gaps, in an extract,
+	// the one pack role whose records may span UTC hours.
+	w, buf := newTestWriter(t, tracepack.WriterOptions{Meta: asExtract(writerMeta()), BlockThreshold: 150, Codec: tracepack.CodecZstd})
 	recs := mixedRecords(t)
 	for i := range 40 {
 		r := dataRecordIn(uint64(len(recs)+2*i), hourStart+int64(i)*(hourNs/30), uint32(i%3))
@@ -545,7 +547,7 @@ func TestWriterCloseSyncsEmptyPack(t *testing.T) {
 func TestWriterCloseAfterFailureWritesNothing(t *testing.T) {
 	t.Parallel()
 
-	w, buf := newTestWriter(t, tracepack.WriterOptions{Validate: true})
+	w, buf := newTestWriter(t, tracepack.WriterOptions{})
 	tracepack.SetEncodedHook(w, corruptFirstSeq(1))
 	good := dataRecord(0, hourStart)
 	require.NoError(t, w.Append(&good))

@@ -69,7 +69,8 @@ func copyOptions(r *Reader, blocks []sourceBlock, c Codec) WriterOptions {
 		h.Meta.SeqStart = blocks[0].sum.firstSeq
 	}
 
-	return WriterOptions{Meta: h.Meta, Codec: c, PackID: h.PackID, CaptureID: h.CaptureID}
+	// The source packs have no period and span UTC hours, so the Writer's scope checks are off.
+	return WriterOptions{Meta: h.Meta, Codec: c, PackID: h.PackID, CaptureID: h.CaptureID, allowScopeBreach: true}
 }
 
 // copyBlocks writes blocks into a new pack with opts and returns it.
@@ -471,6 +472,7 @@ func manyEpochPack(t testing.TB, n int) []byte {
 	meta := &PackMeta{
 		ToolID: "tool", Recorder: "rec", Writer: "wr", Classifiers: []string{"c"},
 		PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)),
+		PeriodStart: blockTestHour, PeriodEnd: blockTestHour + hourNs,
 	}
 	var buf bytes.Buffer
 	w, err := NewWriter(&buf, WriterOptions{Meta: meta, Codec: CodecZstd})
@@ -892,6 +894,7 @@ func TestNewWriterKeepsANilCaptureID(t *testing.T) {
 	meta := &PackMeta{
 		ToolID: "tool", Recorder: "rec", Writer: "wr",
 		PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)),
+		PeriodStart: blockTestHour, PeriodEnd: blockTestHour + hourNs,
 	}
 
 	var kept bytes.Buffer
