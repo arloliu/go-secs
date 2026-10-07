@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-10-04) — v2.22, tracepack format 1.0.
+Status: current (2026-10-05) — v2.24, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -225,7 +225,7 @@ Rules:
 | 0x0026 | `hsms_timers` | tlv | optional | configured timers; nested tag *n* (1–8) = T*n* in milliseconds, `u64` |
 | 0x0027 | `seq_start` | u64 | always | the first record's seq, or for a pack without records the capture's next seq (for a patch without records, the damaged pack's `seq_start`, [STO §6]; for an archive without records, the largest `seq_start` of the merge's inputs, [STO §4]); lets recovery of an empty spool place its boundary ([STO §4]) |
 | 0x0028 | `clock_step_tolerance_ns` | u64 | `time_source = capture-clock` | wall-clock drift the writer tolerates against its durable anchor before marking a step ([SEM §4]) |
-| 0x002C | `flush_interval_ns` | u64 | a recorder with a durable spool, or a consumer of a durable bus | the recorder's durability contract interval; for a bus consumer its maximum normal segment-flush interval ([STO §4]) |
+| 0x002C | `flush_interval_ns` | u64 | a recorder with a durable spool, or a consumer of a durable bus | the recorder's durability contract interval; for a bus consumer its maximum normal segment-flush interval; never written by a standalone recorder without a durable spool (G5-150), while a consumer of a durable bus writes it ([STO §4]) |
 | 0x002D | `scope_generation` | u64 | every pack except `extract` | 0 for segments and patches, ≥ 1 for generations produced by merges ([STO §2]) |
 | 0x002E | `publisher_epoch` | u64 | `scope_generation` ≥ 1 | fence epoch of the publisher that wrote the generation ([STO §2]) |
 | 0x002F | `patch_base` | uuid | a patch, when its scope has a generation | `replacement_set_id` of the generation the patch was registered against ([STO §4]) |
@@ -413,8 +413,8 @@ a reader treats the field as unavailable, and `verify` reports the defect.
   | 0x000B | `primary_function` | u64 | T3: function of the primary |
   | 0x000C | `primary_system_bytes` | bytes (4) | T3: System Bytes of the primary |
   | 0x000D | `boundary_kind` | u8 enum | capture-boundary |
-  | 0x000E | `boundary_seq_first` | u64 | capture-boundary: first seq of the range it delimits |
-  | 0x000F | `boundary_seq_last` | u64 | capture-boundary: last seq of that range |
+  | 0x000E | `boundary_seq_first` | u64 | capture-boundary `gap`: first seq of the range it delimits; absent from a `start`, `stop` or `stop-unclean` boundary, which its record's seq places ([SEM §5]) |
+  | 0x000F | `boundary_seq_last` | u64 | capture-boundary `gap`: last seq of that range |
   | 0x0010 | `gap_start` | i64 | capture-boundary gap: start of the estimated missing interval |
   | 0x0011 | `gap_end` | i64 | capture-boundary gap: end of that interval |
   | 0x0012 | `detail` | utf8 | free text |

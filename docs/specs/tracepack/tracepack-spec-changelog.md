@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-04) — spec v2.22.
+Status: current (2026-10-05) — spec v2.24.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -969,3 +969,118 @@ Summary:
 | P0 a record of another hour read as the primary's or the reply's | [SEM §7.2] scope breach (G5-146) |
 | P0 adapter buffers reused before the source copies them | `tracepack-go.md` §3 returned values are the source's |
 | P1 the listing contract, remote reads, memory bounds, excluded roles, barrier ranges, confirmation interval, conflicted scopes, evidence fold | `tracepack-go.md` §3, [STO §5] (G5-139, G5-142, G5-145) |
+
+## Changes v2.22 → v2.23: writing segments without traps, a local source (owner decisions G5-149..G5-155, 2026-10-04)
+
+Source: proposal P11 (closed by this version; its text is removed),
+written after a consumer-side review of the Go module found that writing a segment took a hand-built pack metadata and hand-built records,
+and that several mistakes were accepted when written and failed later, in a merge or a lookup.
+Format version stays 1.0: no byte changes.
+
+Summary:
+- [SEM §5], [FMT §8] a `start`, `stop` or `stop-unclean` boundary carries no seq range; its record's seq places it (G5-149).
+- [STO §4] a recorder without a durable spool keeps the other Flush rules, writes no `flush_interval_ns`, and leaves its capture `open` when it crashes;
+  [STO §5] such a capture shows the restart as one over a durable bus does (G5-150).
+- [SEM §4] any `capture_origin_mono_ns` value is valid, 0 included (G5-151), the question impl plan phase 8 had open.
+- `tracepack-go.md` §3: the `Writer` refuses a record outside its period's UTC hour and a period across an hour, and validates unless told not to (G5-152);
+  `CaptureDescriptor`, `SegmentWriter`, `SegmentSink` and `NewDirSink` (G5-153); `NewReaderSource`, `HourOf` and `TxKeyOf` (G5-154);
+  one package, documented by audience, with runnable examples (G5-155).
+- Impl plan: phase 5d.
+
+Proposal P11 outcome: applied as v2.23; Q1–Q6 decided as proposed (G5-149..G5-151, G5-154, G5-155), its §3–§6 as G5-152 and G5-153.
+
+### v2.23 review round 1 — VERDICT: fix-then-ready (2 P0, 7 P1, 2 P2), all applied (the size rule completed in round 2)
+
+| Finding | Resolution (v2.23) |
+|---|---|
+| P0 `Complete` did not cover the barriers of captures the readers do not hold | `tracepack-go.md` §3 `NewReaderSource`: `Complete` asserts every accepted pack of the tool; evidence partial without it, and while any reader has no used footer (G5-154) |
+| P0 the frame helper made placeholder identities of a log capture available, and set `mono_ns` for any time source | `AppendFrame` refuses a `log` capture; `mono_ns` only for `capture-clock` (G5-153) |
+| P1 local generations taken as committed without saying which | giving a generation or patch asserts it was accepted (G5-154) |
+| P1 `DirSink` temporary files listed beside the segments | temporary files under `.partial/`, outside every key area |
+| P1 the sink's tool could disagree with the descriptor's | `SegmentInfo` carries `tool_id`; `NewDirSink` takes no tool |
+| P1 the kind of a frame without SType | data unless the frame holds a nonzero SType |
+| P1 `MaxSegmentBytes` measurement and overshoot | bytes handed to the sink, checked before each appended record, soft; `Tick` and `Rotate` without a segment do nothing |
+| P1 no way to ask for `none` | `Uncompressed` option |
+| P1 `flush_interval_ns` wording also excluded bus consumers | [FMT §5], [STO §4] name the standalone recorder |
+| P2 phase 8 still listed the questions G5-149 and G5-151 settle; changelog Status line | impl plan phase 8, changelog Status |
+
+### v2.23 review round 2 — VERDICT: fix-then-ready (no P0, 1 P1, 3 P2), all applied
+
+| Finding | Resolution (v2.23) |
+|---|---|
+| P1 the soft size limit could not put an oversized record in a segment of its own | such a record shares its segment; only the `Writer` isolates it, in a block |
+| P2 `NewDirSink` prefixes escaping the root | prefix refused unless empty or a relative path without empty, `.` or `..` components |
+| P2 how often the sink's `Abort` runs | `Commit` and `Abort` at most once each per segment, `Abort` once after a failed `Commit`; `Close` after a failure makes no sink call (round 3) |
+| P2 no accessor for the generated `capture_id` | `SegmentWriter.CaptureID()` |
+
+### v2.23 review round 3 (precision) — VERDICT: fix-then-ready (3 P2), all applied
+
+| Finding | Resolution (v2.23) |
+|---|---|
+| P2 `NewDirSink` prefixes with `\` or a volume | refused |
+| P2 the terminal-call wording contradicted `Abort` after a failed `Commit` | counts per call stated; round 2 row corrected |
+| P2 `CaptureID()` untested | phase 5d test |
+
+## Changes v2.23 → v2.24: the segment writer's contracts (owner decision G5-156, 2026-10-05)
+
+Source: the phase 5d plan reviews r1–r3 (the phase 5d writing plan, kept outside the repository), which found the v2.23 sketch of `SegmentWriter`, `NewDirSink` and `NewReaderSource` short of contracts an implementation needs;
+no proposal document.
+Format version stays 1.0; FMT, SEM and STO are unchanged.
+
+Summary (`tracepack-go.md` §3):
+- `SegmentWriter`: a `ctx` on every method that can create, commit or abort a segment, checked before the first mutation;
+  representable times, refused rather than clamped; the `start`, `stop` and `stop-unclean` boundaries the writer owns refused from the caller (`ErrInvalidRecord`);
+  a refusal before any mutation, which leaves the writer usable, apart from a failure after it, which does not;
+  the published, uncertain (`ErrPublishUncertain`) and unpublished outcomes of a failure, the `Abort` count and the joined error.
+- `SegmentSink`: `Commit(ctx)`; `Write`, `Sync` and `Abort` bounded by the sink.
+- `NewDirSink`: `root` must exist; every commit syncs the directories from the key's up to `root`; directory syncs skipped on Windows.
+- `NewReaderSource`: evidence-only readers, validation across both sets, and `Complete` covering the evidence a catalog would hold (G5-156).
+- Impl plan: phase 5d names its plan.
+
+| Plan review finding | Resolution (v2.24) |
+|---|---|
+| r1 P1 `Complete` missed rejected or removed packs' evidence | `Evidence` readers; `Complete` sharpened (G5-156) |
+| r1 P1 §3 called every `Writer` error terminal, and a roll could precede a refusal | refusal before any mutation; failure after it terminal |
+| r1 P1 period arithmetic overflow | representable times, no clamping |
+| r1 P1 `DirSink` ancestry durability, failure after the rename | directory-sync chain, `ErrPublishUncertain` |
+| r1 P2 `Write` and `Sync` without context | bounded by the sink |
+| r2 P1 seq capacity, the clock-step's extra seq | refusal on seq capacity; `Close` without a seq for `stop` |
+| r2 P1 directory syncs not retry-safe | the whole chain on every commit |
+| r2 P2 validation across view and evidence readers; cancellation vs publication | union validation; publication-aware failure outcomes |
+| r3 P2 `Abort` error composition | cause first, `Abort` error joined after it |
+
+### v2.24 review — VERDICT: fix-then-ready (3 P1, 3 P2), all applied
+
+| Finding | Resolution (v2.24) |
+|---|---|
+| P1 `Rotate()` without `ctx` in the roll list | `Rotate(ctx)` |
+| P1 the writer-owned `start` and `stop` records underdefined | their kind, dir, fidelity, decode status and `mono_ns` |
+| P1 `Close` with an unrepresentable `Now()`, and the abort on every failure | stated: terminal, one `Abort` of the open segment on any failure |
+| P2 "survives `UnixNano`" imprecise | the round-trip predicate |
+| P2 views computed once; `Observe`'s argument checks | stated |
+| P2 a path outside the repository | named without a path |
+
+### v2.24 amendment during implementation (owner decision G5-157, 2026-10-06)
+
+`tracepack-go.md` §3 `NewDirSink`: files 0640 and directories 0750; a prefix whose first component is `.partial` is refused.
+
+### v2.24 amendment during implementation (owner decision G5-158, 2026-10-06)
+
+`tracepack-go.md` §3 `NewReaderSource`: under `Complete`, the scope of each evidence reader is not indexed, as a catalog that rejected its registration reports it.
+
+### v2.24 wording fix (2026-10-06)
+
+[STO §4] *Recorder over a durable bus*, *Capture descriptor and pack metadata*: `capture_origin_utc_ns`, `capture_origin_mono_ns` and `clock_step_tolerance_ns` are producer-owned values required when `time_source = capture-clock`, as [FMT §5] says, no longer listed as always-required.
+The same paragraph now ties `source_dialect` and `source_ref` to `capture_method = log` and `source_tz` to `time_source = source-log`, as [FMT §5] does.
+
+### v2.24 amendments after the post-implementation review (owner decisions G5-159, G5-160, 2026-10-06)
+
+`tracepack-go.md` §3:
+- `NewDirSink` performs every file-system operation through its root opened as an `os.Root` (G5-159),
+  and refuses a prefix whose first component names the same directory as `<root>/.partial/`, as a case variant does on a case-folding file system.
+- `SegmentWriter` refuses, with `ErrInvalidRecord`, a transport-event or annotation payload that does not decode or a nonzero `field_validity` on one (G5-160).
+- `NewReaderSource` refuses an evidence reader whose period is empty or not inside one UTC hour, whose scope would otherwise be unknown.
+
+### v2.24 amendment after post-implementation review r2 (owner decision G5-161, 2026-10-06)
+
+`tracepack-go.md` §3 `NewDirSink`: refuses a symbolic link at `<root>/.partial` and at every directory component of a key, and fails on `js`; its threat model is a misconfigured root, not a concurrent writer of `root`.

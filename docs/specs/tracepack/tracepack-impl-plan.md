@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-10-04) — phases 4, 5a, 5b, 5c1 and 5c2 done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`); phase 5c3 next (retention).
-Implements: tracepack v2.22 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
+Status: active (2026-10-05) — phases 4, 5a, 5b, 5c1 and 5c2 done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`); phase 5d next (segment writer, local source), then 5c3 (retention).
+Implements: tracepack v2.24 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
 
@@ -73,6 +73,7 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 5c1 — PackSource, FindTransaction | done |
 | 5c2 — store-backed PackSource, listing views | done |
 | 5c3 — retention | pending |
+| 5d — segment writer, local source | pending |
 | 6 — JSONL export, conformance corpus, CLI | pending |
 | 7 — Extract and redaction | pending |
 | 8 — Producer API for a durable-bus capture | pending |
@@ -491,6 +492,35 @@ The implementation settled what the text above leaves open:
 
 Tests: the removed-outcome vector of [STO §8].
 
+#### 5d — segment writer, local source (pending)
+
+From proposal P11, applied as spec v2.23 (G5-149..G5-155), with the contracts of spec v2.24 (G5-156); the API is `tracepack-go.md` §3.
+Plan: the phase 5d writing plan, kept outside the repository (ready after plan reviews r1–r3).
+
+- `Writer`: the scope-breach and period checks and `ErrScopeBreach`; `Validate` becomes `SkipValidation` (G5-152).
+  A seam lets a `Writer` start from a clock anchor other than (`capture_origin_utc_ns`, 0), for `SegmentWriter` and later the phase 8 producer.
+- `CaptureDescriptor` and its `Validate`; Godoc on every `PackMeta` field.
+- `SegmentWriter`, the classifier interface (implemented by `tracepack/classify`), `SegmentSink`, `SegmentInfo` and `NewDirSink`.
+- `NewReaderSource`, `HourOf`, `TxKeyOf`.
+- `tracepack/README.md`, `example_test.go`, the package documentation grouped by audience (G5-155).
+- `tracepack/CHANGELOG.md`: the breaking changes (`SkipValidation`, the `Writer` refusals) under Changed.
+
+Tests: a record of another hour refused by `Append` and the Writer still usable; a period across an hour refused by `NewWriter`; a same-hour record outside the period accepted;
+every roll trigger, a backward clock step across an hour and within one, seq continuity and one `capture_id` across segments, no empty segment;
+the anchor carried across segments, so a step recorded in one segment is not detected again in the next;
+`start` and `stop` boundaries, their epoch and the absent seq range; a failed sink aborting its segment once and leaving a seq gap, a failed `Commit` followed by exactly one `Abort` and then `Close` with no sink call;
+`CaptureID()` right after construction equal to every segment's `capture_id`, seeding a successor descriptor's `PreviousCaptureID`;
+`MaxSegmentBytes`: a small buffered record followed by one over the limit, a compressible record over it, one that triggers a clock-step;
+`AppendFrame`: frames of 0–9 bytes and an undefined SType, a `log` capture refused, no `mono_ns` outside `capture-clock`; `Uncompressed` against the zstd default;
+`DirSink`: invalid prefixes refused (`..`, empty components, `\`, `C:`), a listing while a segment is open and with an abandoned `.partial/` file, a key whose tool comes from `SegmentInfo`;
+`DirSink` keys parsing as [STO §3] segment keys and `NewStoreSource` over a `DirSink` root through a test `ObjectStore`;
+`NewReaderSource` with and without `Complete` (cold gaps and partial evidence, never `unmatched` without it), with `Complete` and another capture's reader without a used footer (partial),
+a conflicted scope, readers of two tools rejected;
+the examples run as tests.
+
+Done when: a recorder writes a capture through `SegmentWriter` and `FindTransaction` over `NewReaderSource` finds its transactions,
+and segments written across an hour boundary merge without `ErrMergeInput`.
+
 ### Phase 6 — JSONL export, conformance corpus, CLI
 
 - `jsonl.Export` per [FMT §15]; write the draft byte-exact schema (`tracepack-jsonl/1`: key order, number and base64 formatting) alongside.
@@ -525,19 +555,19 @@ but a producer that publishes one record per bus message ([STO §4], proposal P8
 
 - No exported encoding of one record outside a block:
   `canonicalHeader` and the record header layout are unexported, so the bus message of P8 §2.1 has no implementation to share between producer and consumer.
-- No capture-descriptor type:
-  `PackMeta.MarshalBinary` validates the whole pack metadata, including values the consumer owns (`scope_generation` among them),
-  so a producer cannot encode only the entries it owns.
+- No encoding of a capture descriptor:
+  phase 5d adds the `CaptureDescriptor` type (G5-153), but `PackMeta.MarshalBinary` validates the whole pack metadata,
+  including values the consumer owns (`scope_generation` among them), so a producer cannot yet encode only the entries it owns.
 - Clock-step detection is tied to seq assignment:
   `DetectClockSteps` requires `AssignSeq`, but a durable-bus producer assigns seq and detects clock steps itself ([SEM §4]),
   so it needs the detector on its own.
-- `capture_origin_mono_ns`: Go exposes no raw monotonic reading, so a Go producer writes 0 and measures `mono_ns` from its origin `time.Time`;
-  the spec should say whether 0 is an acceptable origin value or what a producer without a raw reading writes.
-- A `stop` boundary cannot name its seq in advance when a clock-step may be inserted before it.
+- Resolved by spec v2.23: a Go producer writes `capture_origin_mono_ns` = 0 (G5-151),
+  and a `stop` boundary carries no seq range, so it need not name its seq in advance (G5-149).
 - `classify.Name` falls back to `go-secs/unknown` when go-secs is replaced by a local path, so a producer sets the classifier name explicitly.
 - `Writer.Append` copies the payload a second time after the producer's own copy of a wire frame.
 
-The first four depend on proposal P8's outcome and are designed with it; the last three are small fixes.
+The record encoding, the descriptor encoding and the stand-alone detector depend on proposal P8's outcome and are designed with it;
+the classifier name and the second payload copy are small fixes, and phase 5d's anchor seam serves the detector.
 Tests and done criteria are set when P8 is decided.
 
 ## 4. Cross-cutting requirements

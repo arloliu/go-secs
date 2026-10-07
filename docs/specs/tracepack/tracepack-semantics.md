@@ -1,6 +1,6 @@
 # tracepack — record semantics
 
-Status: current (2026-10-04) — v2.22, tracepack format 1.0.
+Status: current (2026-10-05) — v2.24, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic.
 
@@ -123,6 +123,8 @@ No quality bit mirrors the predicate; readers offer the decode state of §6 inst
   whose wall-clock counterpart is `capture_origin_utc_ns` (both identical across all packs of one capture).
   Latency between two records of one capture is the `mono_ns` difference, immune to wall-clock steps.
   A recorder restart starts a new capture id, so mono values are never compared across captures.
+  Only differences of monotonic readings carry meaning, so any `capture_origin_mono_ns` value is valid, 0 included:
+  a producer without a raw monotonic reading writes 0 and measures `mono_ns` from its origin instant (G5-151).
 - Source-log records: `mono_present` clear;
   DST-ambiguous or nonexistent local times are resolved to the earlier instant and flagged `ordering-uncertain`.
 - Clock steps: a capture-clock writer keeps a **clock anchor** (wall, mono):
@@ -156,7 +158,7 @@ The table says what a writer may record and from what kind of source.
 | linktest / select / deselect / separate / reject | the control frames themselves (kind=control), plus the resulting state-transition | — | control frames are **not** duplicated as events |
 | socket-accept / socket-connect / socket-close | **socket observation only**. A state-change cause never establishes a socket event: "local close" means teardown was initiated, and a transport-error cause may cover several socket outcomes | `socket_role` | one per observed socket event; a writer without socket observation writes none, or, if it derives one, sets `inferred` and uses the notification timestamp. When both sources exist, the observed record is the socket event and the notification stays a transition; nothing is emitted twice |
 | clock-step | the comparison of wall and monotonic clocks by the component that observes them, the writer or the producer that feeds it (§4) | `clock_step_ns` | one per detected step, durable before the next record |
-| capture-boundary | writer start / stop / gap; recovery after a crash (`stop-unclean`) | `boundary_kind`; seq range; `gap_start` / `gap_end` for gaps (including packet loss in a network capture and recorder downtime between linked captures) | one per boundary |
+| capture-boundary | writer start / stop / gap; recovery after a crash (`stop-unclean`) | `boundary_kind`; for a gap, its seq range and `gap_start` / `gap_end` (including packet loss in a network capture and recorder downtime between linked captures); a `start`, `stop` or `stop-unclean` boundary carries no seq range, since its record's own seq places it (G5-149) | one per boundary |
 
 Causes the source does not name are stored as `unknown` with the source's own name in `cause_raw`,
 never mapped to a plausible value.

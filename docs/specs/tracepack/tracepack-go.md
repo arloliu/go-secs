@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
-Status: current (2026-10-04)
-Implements tracepack v2.22 (format 1.0): `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Status: current (2026-10-05)
+Implements tracepack v2.24 (format 1.0): `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -54,18 +54,137 @@ The query service, its catalog database and the live-tail interface are designed
   A second helper computes the `field_validity` of a raw frame from its length, for writers of raw captures.
   `DecodeStatus.Malformed` is true only for known malformed values, and `DecodeStatus.Clean` only for known values outside the malformed set;
   an unknown value is neither, so `!Malformed()` never proves a clean decode ([SEM §6]).
-- `Writer`: `NewWriter(w io.Writer, sync Syncer, meta PackMeta, opts)`; options: codec (default zstd), block size threshold,
-  and validation: a validating writer decodes each encoded block, gathers its record headers and checks I-2 before writing it,
+- `Writer`: `NewWriter(w io.Writer, WriterOptions)`, the layer under `SegmentWriter`, `Merge` and `Repair`;
+  options: the pack metadata, codec (its zero value is `none`, the wire value 0, so the zstd default lives in `SegmentWriterOptions`), block size threshold,
+  and validation, on unless `SkipValidation` is set (G5-152): a validating writer decodes each encoded block, gathers its record headers and checks I-2 before writing it,
   and on a failed check returns an error without writing the block or the trailer ([FMT §12]); nothing is committed to the pack metadata.
   The writer transposes the record headers into the header section when it assembles a block body ([FMT §6]);
   it may feed the header and payload buffers to the encoder in turn instead of concatenating them.
   `PackMeta` carries `capture_id`, the capture's next seq and every pack metadata tag;
   the `Writer` rejects `pack_role` 5 and replacement-set values other than size 1 and index 0,
   and drops retired tag numbers from the unknown entries it preserves ([FMT §5]).
-  `Append(*Record)` never rejects for time, assigns the capture-scoped `Seq` ([FMT I-12])
-  and closes the current block before a record from another UTC hour ([FMT I-13]);
+  For every pack but an `extract`, `NewWriter` refuses a period that is empty or not inside one UTC hour,
+  and `Append(*Record)` refuses a record whose `ts_utc_ns` lies in another UTC hour than the period with `ErrScopeBreach`, the Writer still usable (G5-152);
+  a record of the period's hour outside the period is accepted, since a same-hour clock step puts it there ([STO §4] Merge).
+  `Append` assigns the capture-scoped `Seq` ([FMT I-12])
+  and closes the current block before a record from another UTC hour ([FMT I-13]), which only an `extract` holds;
   it rejects a record whose set `field_validity` bit names bytes its payload lacks ([FMT §7.2]).
   `Flush`; `Close` writes footer + trailer ([FMT §12]) and returns the capture's next seq for the following segment.
+- `CaptureDescriptor` (G5-153): the pack metadata [STO §4] gives the producer of a capture, written unchanged into every pack of it:
+  `ToolID`, `Transport`, `CaptureMethod`, `Vantage`, `Recorder`, `RecorderInstanceID` (required, never generated: it links the deployment's captures across restarts, [FMT I-7]),
+  `PreviousCaptureID`, `TimeSource`, `CaptureOrigin` (`time.Time`; zero takes the time `NewSegmentWriter` runs),
+  `ClockStepTolerance` (`time.Duration`; zero takes a documented default), `LifecycleCoverage`, `QualityEvaluated`,
+  the log source fields and the optional site and equipment fields.
+  `capture_origin_utc_ns` is `CaptureOrigin`'s wall clock and `capture_origin_mono_ns` is 0 ([SEM §4], G5-151).
+  `Validate()` checks the producer-side "Required when" rows of [FMT §5] without `PackFacts`.
+  The Godoc of `QualityEvaluated` names what `SegmentWriter` evaluates (`correlation-incomplete` for epoch 0, the capture-boundary bit)
+  and what the producer evaluates before it sets the field (`ordering-uncertain`, `direction-inferred`, [SEM §6]).
+  Every `PackMeta` field gains Godoc from the registry's *Meaning* column and the roles that require it.
+- `SegmentWriter` (G5-153): `NewSegmentWriter(ctx, SegmentWriterOptions) (*SegmentWriter, error)` writes one capture, in capture order, as segments ([STO §4] Flush),
+  over a sink without the durable spool (G5-150), so its segments carry no `flush_interval_ns`.
+  It owns `writer` (from the module's build info, with the fallback `classify.Name` uses), `classifier`, `max_frame_len`, `period_start`, `period_end`, `seq_start`,
+  `pack_role = segment`, `compaction_level = 0` and `scope_generation = 0`, a `capture_id` it generates, and the capture's seq counter.
+  `CaptureID()` returns that `capture_id` from construction on, so a recorder can persist it as the next capture's `PreviousCaptureID`.
+  Options: `Capture` (a `CaptureDescriptor`, required), `Sink` (required), `FlushInterval` (divides one hour; default 5 minutes),
+  `MaxSegmentBytes` (default 64 MiB), `Classifier` (optional), `Uncompressed` (false writes zstd, true writes `none`), `BlockThreshold`, `SkipValidation`,
+  and `Now` (default `time.Now`, for tests).
+  Every method that can create, commit or abort a segment takes a `ctx`:
+  `AppendFrame(ctx, at, dir, epoch, frame)`, `AppendEvent(ctx, at, epoch, ev)`, `Append(ctx, r)`, `Tick(ctx, now)`, `Rotate(ctx)` and `Close(ctx)`;
+  the writer stores none, checks `ctx` before its first mutation (a done `ctx` there returns its error, the writer still usable),
+  passes it to the sink's `Create` and `Commit`, and checks it between sink calls.
+  - Times: a time `t` is representable when `time.Unix(0, t.UnixNano()).Equal(t)` and its whole flush interval, start and exclusive end, fits in `int64` nanoseconds;
+    nothing is clamped. A `CaptureOrigin` that is not representable fails `NewSegmentWriter`,
+    an appended `at` that is not fails the append before any mutation (`ErrInvalidRecord`),
+    and a `Now()` at `Close` that is not fails `Close` terminally: it aborts the open segment and writes no `stop`.
+  - Opening: a segment is opened by the first record that needs one; its period is the flush interval holding that record's `ts_utc_ns`,
+    inside the record's UTC hour because the interval divides the hour; its `seq_start` is the capture's next seq and its `pack_id` a fresh UUIDv7.
+  - Boundaries: `NewSegmentWriter` appends the capture's `start` boundary at `CaptureOrigin`, so the first segment opens with it,
+    and `Close` appends `stop` at `Now()` before it finalizes the last segment; both have epoch 0 and no seq range ([SEM §5], G5-149).
+    Each is a transport-event record, dir `local`, fidelity and decode status `not-applicable`;
+    `stop` carries `mono_ns` only for a `capture-clock` descriptor when `Now()` and `CaptureOrigin` both carry a monotonic reading, as `AppendFrame` sets it, and `start` carries `mono_ns` 0 for such a descriptor when `CaptureOrigin` carries one.
+    The writer owns them: `AppendEvent` and `Append` refuse a capture-boundary of kind `start`, `stop` or `stop-unclean` with `ErrInvalidRecord`,
+    since a second `stop` would close epochs early; a `gap` boundary is accepted.
+  - Rolls, each finalizing and committing the open segment before the record is appended:
+    a record of another UTC hour than the period (by its `ts_utc_ns`, either direction; mandatory);
+    a record of the same hour at or after `period_end`;
+    a segment that reached `MaxSegmentBytes`;
+    `Tick(ctx, now)` with `now` at or after `period_end`, so an idle segment is not held open;
+    `Rotate(ctx)`.
+    The size counts the bytes the segment's `Writer` has handed to the sink — file header, pack metadata and closed blocks, not the open block —
+    and is checked before each record the caller appends, so the limit is soft:
+    a segment can pass it by its open block, the record that closes that block and its footer,
+    and a record larger than the limit shares its segment with the records before it (the `Writer` gives it a block of its own, not a segment).
+    A `clock-step` record the writer inserts is not checked on its own: it goes into the segment of the record it precedes.
+    `Tick` and `Rotate` with no open segment do nothing; the next record opens a segment for its own period.
+    A record of the period's hour before `period_start`, after a backward clock step, stays in the open segment.
+  - Clock steps: for a `capture-clock` descriptor it applies the anchor rule of [SEM §4] to every record with a monotonic reading,
+    and the anchor in force carries over from one segment to the next, so a new segment never re-detects a step an earlier one recorded.
+  - Records: `AppendFrame(ctx, at time.Time, dir Dir, epoch uint32, frame []byte)` writes a data or control record of a captured frame,
+    for a capture method whose bytes establish the fields they hold: `raw-stream`, `decoded-message` and `generator`.
+    For a `log` capture it fails without writing, since a reconstructed frame holds placeholder bytes for identities its source lacks ([FMT §7.2]);
+    a log converter uses `Append` with the record's `field_validity`, `quality` and `decode_status` set by the converter.
+    The kind is control when the frame holds its SType byte and that byte is not 0, a defined SType or not, and data otherwise, a frame too short to hold SType included;
+    `field_validity` follows from the frame's length (`SetCapturedFieldValidity`), so a short frame's missing fields stay unavailable;
+    `fidelity` is by [SEM §2] from the capture method (`wire-exact` for `raw-stream`, `re-encoded` for `decoded-message`, `synthesized` for `generator`);
+    `ts_utc_ns` is `at`'s wall clock; for a `capture-clock` descriptor, `mono_ns` is `at` − `CaptureOrigin` when both carry a monotonic reading,
+    and for any other time source, or without both readings, `mono_present` is clear ([SEM §4]);
+    `decode_status` and `trailing_bytes` come from the classifier when one is set, which classifies a short or malformed frame as [SEM §3] says, and are `not-attempted` and 0 otherwise.
+    `AppendEvent(ctx, at, epoch, *TransportEvent)` marshals the event into a transport-event record;
+    `Append(ctx, *Record)` takes a record the producer built, its `Seq` assigned by the writer and every other field as given; the classifier is not applied to it.
+    Each copies what it keeps, so the caller may reuse its buffers when it returns.
+  - Classifier: an interface, `Name() string`, `MaxFrameLen() uint64` (0 for none) and `Frame([]byte) (DecodeStatus, int)`,
+    which `tracepack/classify` implements, so the root package does not import go-secs (impl plan §2);
+    setting one writes `classifier` and, when `MaxFrameLen` is not 0, `max_frame_len` into every segment, so the caller declares no `PackFacts`.
+  - Refusal: each append first checks the record without touching a segment —
+    `at` representable, payload size (`ErrPayloadTooLarge`), field validity against the payload (`ErrFieldValidity`),
+    the commitments the segments' metadata makes (`ErrMetadataCommitment`), the boundary kinds above (`ErrInvalidRecord`), the event's encoding,
+    a transport-event or annotation record whose payload does not decode as [FMT §8] defines it or whose `field_validity` is not 0 (`ErrInvalidRecord`, G5-160),
+    so `Verify` finds no writer defect in a record the writer appended,
+    and seq capacity (`ErrSeqOrder`): one seq, or two when a clock-step would precede the record, up to 2^63 − 1.
+    A refused record is not added, no segment is rolled or opened, and the writer stays usable;
+    so a segment is opened only for a record that will be appended.
+    `Close` with no seq left for `stop` finalizes the open segment without it and fails.
+  - Failure: after that check, any error — of the segment's `Writer`, whatever its sentinel, of the sink, or `ctx`'s — fails the `SegmentWriter`
+    and aborts the open segment exactly once, whether or not the error came from `Commit`.
+    Before the sink's `Commit` renames or uploads, a failure publishes nothing of the open segment, whose records are lost;
+    once `Commit` made the segment visible but before it is durable, the error wraps `ErrPublishUncertain` beside its cause, cancellation included:
+    the segment is published and may not survive a system crash.
+    Once `Commit` returned nil the segment is detached, so a later failure leaves it published and aborts nothing.
+    The writer calls `Commit` at most once and `Abort` at most once on a segment, `Abort` exactly once after a failed `Commit`, uncertain or not;
+    the error it returns joins the cause first and any `Abort` error after it.
+    The seq counter is never rewound, so a loss is a seq gap, never a reused seq.
+    `Close` after a failure makes no further sink call and returns the stored failure.
+  A `SegmentWriter` is not safe for concurrent use.
+- `SegmentSink` (G5-153): `Create(ctx, SegmentInfo) (SegmentFile, error)`;
+  `SegmentFile` is an `io.Writer` with `Sync()` (called after every block and after the trailer), `Commit(ctx)` (after a successful `Close`) and `Abort()` (after any failure).
+  `Write`, `Sync` and `Abort` take no context: the sink bounds each by its own deadline, as an `Object` bounds `ReadAt`.
+  A `Commit` that fails after the segment became visible returns an error wrapping `ErrPublishUncertain`.
+  `SegmentInfo` holds the `tool_id`, `capture_id`, `pack_id`, `seq_first` of the segment key ([STO §3], known at open), the hour and the period,
+  so a sink derives the key from the segment it writes and never from a tool of its own.
+  `NewDirSink(root, prefix string)` writes `<root>/<SegmentKey(prefix, info.ToolID, …)>`;
+  it refuses, before creating any file, a prefix that is not empty or a relative `/`-separated path whose components are none empty, `.` or `..`,
+  and one holding `\` or a `:`, so no platform reads it as another separator or a volume,
+  and one whose first component is `.partial`, the directory of its temporary files, so no committed segment lies among them (G5-157),
+  or, once it has created `<root>/.partial/`, names that same directory (`os.SameFile`), as a case variant does on a case-folding file system,
+  and uses an accepted prefix as given, never cleaned, so the file path spells the object key;
+  so a local recording is laid out as the bucket is ([STO §3]).
+  `root` must exist, and its own durability is the caller's; `NewDirSink` creates `<root>/.partial/` and syncs `root`.
+  It performs every file-system operation through `root` opened as an `os.Root`, so no path, `.partial/` included, resolves outside `root`:
+  a symbolic link leading out of `root` fails the operation that meets it (G5-159).
+  It also refuses a symbolic link inside `root` where it manages directories:
+  `<root>/.partial` when it creates the sink and each segment, and every directory component of a key, checked after creating them and before the rename,
+  so a link cannot alias the temporary directory and a key area; such a link fails `NewDirSink` or `Create`, or `Commit` with a plain error, nothing published (G5-161).
+  These checks guard against a misconfigured root, not against a process that writes to `root` while the sink runs, which can remove segments anyway.
+  `NewDirSink` fails on `js`, where `os.Root` cannot exclude a link replaced after its check.
+  It creates files with mode 0640 and directories with mode 0750, so no other user reads a segment, which holds records in full ([STO §3]),
+  while a group, such as one a setgid `root` gives every new file, can grant an uploader read access (G5-157).
+  It writes each segment to a temporary file under `<root>/.partial/`, outside every key area of [STO §3] and on the same filesystem.
+  `Commit` syncs and closes the temporary file, creates the key's missing directories, renames the file to its key,
+  then syncs every directory from the key's directory up to `root`, deepest first, `root` included, on every commit,
+  so a directory a failed attempt or another sink created is made durable by the next successful commit;
+  an error after the rename wraps `ErrPublishUncertain`. Directory syncs are skipped on Windows, which cannot sync a directory.
+  A listing of the key areas sees only committed segments, never an open or abandoned one;
+  `Abort` removes the temporary file, ignoring one already gone, and a temporary file left by a crash stays under `.partial/`, which no listing reaches.
 - `Reader`: `Open(ctx, ra io.ReaderAt, size, opts)` performs the [FMT §13] bootstrap, optionally seeded with a catalog footer location;
   `Header()`, `Blocks()` (F-2), `Iterate(ctx, Query, fn) (Result, error)`,
   and `Stats() (PackStats, bool)` (G5-131): the F-5 statistics of a pack whose footer it uses — counts, time and seq ranges, per-epoch summaries with `close_seq`, capture-boundary entries — as a fresh value, false without a used footer.
@@ -140,6 +259,36 @@ The query service, its catalog database and the live-tail interface are designed
   Its guarantees hold while every hour observed stays retained until the lookup's last use; the retention boundary comes with phase 5c3.
   `EscapeToolID`, `SegmentKey`, `ArchiveKey` and `CommitKey` build the keys of [STO §3].
   A key that cannot be built, and a listed or catalog key that does not parse as a key of [STO §3], is an error wrapping `ErrInvalidKey`, which the error of a failed `Observe` keeps (G5-148); retrying does not cure it.
+- `NewReaderSource(readers []*Reader, ReaderSourceOptions) (PackSource, error)` (G5-154, G5-156): a source over packs the caller opened.
+  `ReaderSourceOptions.Evidence` holds readers folded into the per-capture evidence only, never into a scope, a view or a commit set:
+  the segments and converter archives whose registration was rejected, whose evidence [STO §5] Per capture keeps.
+  It validates `readers` and `Evidence` together, each failure wrapping `ErrInvalidQuery`:
+  a nil reader, a reader given twice in either or both, a `pack_id` repeated across both, more than one `tool_id` across both,
+  a view reader whose role is not `segment`, `archive` or `repair`, an evidence reader whose role is not `segment` or `archive`,
+  and an evidence reader whose period is empty or not inside one UTC hour ([FMT §5]), whose scope would otherwise be unknown.
+  It groups the readers by `capture_id` and by the UTC hour of their period, computes each scope's view with `ActiveView`,
+  taking every generation and patch given as committed:
+  giving one asserts that it was accepted ([STO §5] commit protocol), so a caller never gives a generation whose publication failed or was rejected, nor a patch that was not registered.
+  folds the statistics of every pack of a capture, view and evidence readers alike, into its per-capture evidence with `AddPackEvidence`,
+  and takes as barriers the `stop-unclean` boundaries of the evidence of every capture of the readers' tool.
+  It computes every scope's view once, in `NewReaderSource`; `Observe` validates its arguments as `NewStoreSource`'s `Observe` does and answers from those views.
+  Without `ReaderSourceOptions.Complete`, its scopes are not indexed and every capture's evidence is `Partial`,
+  so every scope a lookup reads is a `TxGapCold` gap and the lookup is never `unmatched`.
+  `Complete` asserts that the view readers are every accepted pack of the tool, of every capture and every hour,
+  and that the view and evidence readers together are every pack a catalog of the tool would hold evidence of, rejected registrations included (G5-156):
+  a set of files from which a pack was removed, by retention or otherwise, cannot be `Complete`.
+  Only then can the source vouch for the barriers of captures other than the one observed.
+  With it, the scopes are indexed, except the scope of each evidence reader, its `capture_id` and the UTC hour of its period, which is not indexed (G5-158):
+  a catalog rejects a registration only for a scope that is not indexed ([STO §5] No admissions outside the index),
+  so a lookup reading that scope gets a `TxGapCold` gap, as it would through the catalog,
+  and the scope's view still holds only view readers.
+  With it, a capture's evidence is `Partial` when any reader of the tool, view or evidence, has no used footer,
+  since its statistics, and the boundaries and closures they hold, are then unknown;
+  `Complete` never overrides such missing evidence.
+  It rejects readers of several tools, a reader given twice, and a scope `ActiveView` rejects; a conflicted view is reported `Conflicted` with no readers.
+  `Close` of its observations closes nothing: the caller owns the readers.
+  `HourOf(time.Time) int64` returns the UTC hour of a time as `TxKey.Hour` and the key builders number it,
+  and `TxKeyOf(capture UUID, seq uint64, ts time.Time) TxKey` builds the key of a primary from its record.
 - `ActiveView(packs []PackInfo, commits CommitSet) (View, error)`: [STO §4] active view of one scope from pack metadata (staging segments included) and the scope's commit objects,
   plus the packs that are deletable under [STO §4] Deletion, the packs excluded for their role ([STO §2]), and the `compacted_from` the next merge writes.
   `packs` is a complete observation of the scope: every surviving pack a reader could list, replaced patches included (a catalog snapshot or a coherent observation, [STO §5]).
@@ -192,6 +341,10 @@ The query service, its catalog database and the live-tail interface are designed
   finalizes an unfinalized spool file as a segment of its original capture with a `stop-unclean` boundary ([STO §4]);
   `RecoverReport` holds the spool file's `VerifyReport`.
 - `ExportJSONL(ctx, r, w)`: canonical export ([FMT §15]).
+- Documentation (G5-155): one `tracepack` package; `tracepack/README.md` and the package documentation open with the API by audience:
+  recorders (`CaptureDescriptor`, `SegmentWriter`, `SegmentSink`), readers (`Open`, `MergeIterate`, `FindTransaction`, `NewReaderSource`)
+  and the storage service (`ActiveView`, `Merge`, `Repair`, `NewStoreSource`, the key builders),
+  with runnable examples: `ExampleSegmentWriter`, `ExampleOpen`, `ExampleFindTransaction` over `NewReaderSource`, and `ExampleMergeIterate`.
 
 ## 4. Classifier: go-secs → decode_status
 
