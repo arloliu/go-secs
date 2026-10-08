@@ -12,6 +12,8 @@ and a source for that lookup over an object store and the caller's catalog (spec
 For recorders it adds a segment writer, which writes a capture as segments through a sink,
 and a sink that stores them in a local directory laid out as a bucket;
 for readers of local files, a source for the lookup over packs the caller opened (spec v2.23 and v2.24).
+Every reader can apply a retention boundary, the first UTC hour still retained,
+and ends a read that meets a removed hour (spec v2.25).
 A README groups the API by audience, and runnable examples show writing and reading.
 
 ### Upgrade notes
@@ -113,6 +115,14 @@ A README groups the API by audience, and runnable examples show writing and read
   and `Append` refuses a record whose `ts_utc_ns` lies in another UTC hour than the period, both with the new `ErrScopeBreach`.
   A refused record is not added, takes no seq and inserts no clock-step record, and the Writer stays usable.
   A record of the period's hour outside the period is accepted, since a clock step within the hour puts it there.
+- `Result.Complete()` reports false while the new `Result.Removed` is non-empty, as while `Incomplete` is (spec v2.25).
+- `FindTransaction` ends with an error wrapping `ErrRemoved` on a scope the `Observation` reports `Removed`,
+  whether or not `TxOptions.Retention` is set,
+  and fails on a removed scope that comes with readers, as on a conflicted one (spec v2.25).
+  An `Observation` a caller implements reports a removed hour that way.
+- `NewStoreSource` charges each object an `Observe` opens 32 bytes against `MaxSourceBytes` on 64-bit platforms,
+  and 16 on 32-bit ones, where it charged 16 and 8, since its slot now records the object's `Reader` and hour;
+  an `Observe` that opens many objects reaches `MaxSourceBytes` sooner.
 
 ### Added
 
@@ -329,7 +339,7 @@ A README groups the API by audience, and runnable examples show writing and read
   and a listing that breaks the `ObjectStore` contract fails the `Observe`:
   a key outside its prefix or not above the one before it, or a token that comes again.
   A pack that is gone when opened or read fails the `Observe` with an error wrapping `ErrObjectNotFound`,
-  which a caller may retry;
+  which a caller may retry, unless `StoreSourceOptions.Retention` shows its hour removed (below);
   a listed or catalog key that does not parse fails it with an error wrapping `ErrInvalidKey`, which a retry does not cure.
   An `Observe` that fails closes every object it opened.
 - `StoreSourceOptions` sets the bucket prefix, the tool, the `ReaderOptions` of every pack, the callback and four limits,
@@ -362,7 +372,8 @@ A README groups the API by audience, and runnable examples show writing and read
   false when the footer is not used.
   `AddPackEvidence` folds one pack's statistics into a `CaptureEvidence`, or marks it partial for a pack without them,
   so that the same packs folded in any order, any of them repeated, give the same evidence.
-- `SourceScope.Conflicted` reports a scope whose view is conflicted;
+- `SourceScope.Conflicted` reports a scope whose view is conflicted,
+  and `SourceScope.Removed` one whose hour is removed by retention (spec v2.25);
   `TxGapConflicted` reports such a scope in a lookup, and `TxGapScopeBreach` a version a scope read yielded outside the scope's hour.
 - `NewStoreSource` has an acquisition model that recomputes, from the store's and the catalog's logs of what they returned and when,
   the view each scope may take, the evidence, the barriers and the excluded packs;
@@ -433,6 +444,44 @@ A README groups the API by audience, and runnable examples show writing and read
   and that they and `ReaderSourceOptions.Evidence`, the packs whose registration was rejected, are every pack a catalog of the tool would hold evidence of;
   the scope of each `Evidence` reader is then reported not indexed, and `Evidence` readers never enter a view.
   An `Evidence` reader whose period is empty or not inside one UTC hour is refused with `ErrInvalidQuery`.
+- The retention boundary of the storage specification §5 (spec v2.25):
+  a `Retention` provider's `RetainedFrom` returns the first UTC hour still retained, numbered as `HourOf` numbers it,
+  and every hour before it is removed.
+  `Query.Retention` gives one to `Iterate` and `MergeIterate`, `TxOptions.Retention` to `FindTransaction`,
+  and `StoreSourceOptions.Retention` to `NewStoreSource`; nil removes nothing.
+  A provider never falls behind the component deleting removed hours: it reports an hour removed before any object of it is deleted, and may run ahead.
+  It never moves the boundary back, is safe for concurrent use, and is cheap, since a read asks it at every block it emits.
+  Deleting a removed hour's objects is the storage service's work, outside this module.
+- A read covers the scope hour of each pack but an extract, whatever its records' timestamps,
+  and for an extract the hours of its indexed blocks' F-2 `ts_min` and `ts_max`
+  and of every record it decodes, filtered out or not.
+  `Iterate` and `MergeIterate` ask the provider before they read any block, before the records of each block reach the callback,
+  after a failed read, and before they return success.
+  A covered hour found removed ends the whole read with an error wrapping the new `ErrRemoved`,
+  joined after the read error when it follows one,
+  beside the `Result` found so far, `Result.Removed` listing the removed hours the read covers:
+  everything the read reported of those hours, records passed to the callback included, is superseded, and the caller discards it.
+  A callback's error, a `ctx` error and a limit of the read itself
+  (a reservation over `MergeIterateOptions.MaxHeldBytes`, one conflict over `MaxConflicts`)
+  end a read as before, with no check after them;
+  a failed `ReadAt` is checked whatever its error wraps, `ErrReadLimit` included.
+- `FindTransaction` checks the primary's hour before `Observe`,
+  after a failed `Observe` whose error is neither a `ctx` error nor `ErrReadLimit`, before each scope it schedules,
+  and before it returns an outcome, and gives the provider to every scope read.
+  A removed primary hour, or a scope read that ends with `ErrRemoved`, ends the lookup with an error wrapping `ErrRemoved`,
+  its `TxResult` keeping the diagnostics found, with no outcome;
+  an earlier error of the lookup, `ErrNotPrimary` included, stands.
+- `NewStoreSource`'s `Observe` asks the provider before every list page, before every object it opens,
+  before each listed scope's view is computed, and once after every scope is fixed.
+  A scope whose hour is removed is reported `SourceScope.Removed`, with no readers:
+  its objects are closed and their charges released at once, and nothing more is listed or opened for it.
+  An object gone from the store whose hour is known and removed marks its scope removed instead of failing `Observe`,
+  though an error closing it still fails `Observe`;
+  a staging segment gone before its head was read keeps the retriable `ErrObjectNotFound`
+  while a scope the catalog does not index is retained.
+  `Observe` never fails with `ErrRemoved`, and promises nothing about the boundary after it returns:
+  give `StoreSourceOptions.Retention` and `TxOptions.Retention` the same provider,
+  since the source's alone leaves the lookup unprotected after `Observe` returns.
 - `HourOf` returns the UTC hour of a time as `TxKey.Hour` and the key builders number it,
   and `TxKeyOf` builds the `TxKey` of a primary from its capture, seq and time.
 - Runnable examples: `ExampleSegmentWriter`, `ExampleOpen`, `ExampleFindTransaction` over `NewReaderSource`, and `ExampleMergeIterate`;
@@ -446,7 +495,7 @@ A README groups the API by audience, and runnable examples show writing and read
 - Sentinel errors `ErrNotTracepack`, `ErrUnsupportedFormat`, `ErrChecksum`, `ErrReadLimit`, `ErrInvalidFooter`, `ErrInvalidQuery`,
   `ErrFieldValidity`, `ErrFieldValue`, `ErrRepairNotNeeded`, `ErrNotRepairable`,
   `ErrViewConflicted`, `ErrMergeInput`, `ErrMergeConflict`, `ErrMergeLimit`, `ErrNotPrimary`, `ErrObjectNotFound`, `ErrInvalidKey`,
-  `ErrScopeBreach`, `ErrInvalidRecord` and `ErrPublishUncertain`.
+  `ErrScopeBreach`, `ErrInvalidRecord`, `ErrPublishUncertain` and `ErrRemoved`.
 
 ## [0.1.0] - 2026-09-28
 

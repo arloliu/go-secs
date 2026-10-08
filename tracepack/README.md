@@ -177,6 +177,20 @@ For readers and troubleshooters working on local files:
   It compares the copies of each record across the packs, yields identical copies once, and reports copies that differ as conflicts.
   See `ExampleMergeIterate`.
 - An `Item` is valid only during the callback that receives it; clone what you keep.
+- `Query.Retention` gives `Iterate` and `MergeIterate` the retention boundary of the storage specification §5:
+  a `Retention` whose `RetainedFrom` returns the first UTC hour still retained, numbered as `HourOf` numbers it.
+  Every hour before it is removed; nil removes nothing.
+  A read covers the scope hour of each pack but an extract, whatever its records' timestamps.
+  For an extract it covers the hours of its indexed blocks' F-2 `ts_min` and `ts_max`,
+  known before any block is read, pruned blocks included,
+  and the hour of every record it decodes, filtered out or not; an extract's period does not count.
+  It asks the provider before it reads, before the records of each block reach your callback,
+  after a failed read, and before it returns success.
+  When a covered hour is removed, the whole read ends with an error wrapping `ErrRemoved`,
+  and `Result.Removed` lists the removed hours it covers.
+  Discard everything the read reported of those hours, records already passed to your callback included:
+  their objects may have been deleted while it ran.
+  `Result.Complete()` is false while `Removed` is non-empty.
 - `FindTransaction(ctx, src, key, opts)` looks up the reply to a primary message, named by a `TxKey`;
   `TxKeyOf(captureID, r.Seq, time.Unix(0, r.TSUTCNs))` builds the key from the primary's record.
   It reports `TxMatched`, `TxAmbiguous`, `TxUnmatched` or `TxIncomplete`,
@@ -222,6 +236,57 @@ the key builders, `ActiveView`, `Merge`, `Verify`, `Repair` and `NewStoreSource`
   `Repair` writes a repair patch of a damaged pack, which the next merge folds in.
 - `NewStoreSource` gives `FindTransaction` a source over an `ObjectStore`, the bucket, and a `Catalog`, your catalog of one tool.
   Their Godoc states the contracts both adapters must keep.
+
+### Retention
+
+Retention removes whole UTC hours: every hour before a boundary that only moves forward (the storage specification §5).
+Deleting the packs and commit objects of a removed hour is the storage service's job;
+this package applies the boundary on the reader side, through a `Retention` provider.
+Give `StoreSourceOptions.Retention` and `TxOptions.Retention` the same provider:
+
+- `StoreSourceOptions.Retention` makes `Observe` tolerate deletion.
+  It reports a removed hour as `SourceScope.Removed`, with no readers,
+  instead of failing on its deleted objects or forming a view from a half-deleted hour.
+  Given alone, it leaves the lookup unprotected after `Observe` returns.
+- `TxOptions.Retention` makes the lookup's guarantee:
+  the lookup checks the primary's hour, each scope read checks the hours it covers,
+  and a lookup whose primary's hour is removed fails with an error wrapping `ErrRemoved` instead of returning an outcome.
+  Given alone, a deletion during `Observe` can fail `Observe`;
+  the lookup then checks the boundary again, and returns `ErrRemoved` when the primary's hour is removed.
+- A scope the source reports `Removed` ends the lookup with `ErrRemoved`, with or without `TxOptions.Retention`.
+
+A provider must keep this contract:
+
+- It never falls behind the deleting component:
+  before the component deletes any object of an hour, every provider a reader asks already reports the hour removed,
+  so a read's check sees every hour whose objects may be gone.
+  A provider that runs ahead of the deletions is safe.
+  A cached value, such as a boundary the component publishes for readers in other processes to load,
+  is safe only if the component waits out the cache's staleness before it deletes:
+  publishing the boundary first is not enough on its own.
+- The boundary never moves back.
+- It is safe for concurrent use.
+- It is cheap, an atomic load rather than a remote call: a read asks it at every block it emits.
+
+```go
+// retainedFrom is a Retention over the first UTC hour retained, as tracepack.HourOf numbers it.
+type retainedFrom struct{ hour atomic.Int64 }
+
+func (r *retainedFrom) RetainedFrom(context.Context) (int64, error) { return r.hour.Load(), nil }
+
+// advance moves the boundary to hour, never back.
+// The deleting component advances every reader's provider to hour before it deletes any object of the hours before hour;
+// a reader that loads a published copy of the boundary must report hour too,
+// so the component waits out the copy's staleness before it deletes.
+func (r *retainedFrom) advance(hour int64) {
+	for {
+		cur := r.hour.Load()
+		if hour <= cur || r.hour.CompareAndSwap(cur, hour) {
+			return
+		}
+	}
+}
+```
 
 ## Specification
 
