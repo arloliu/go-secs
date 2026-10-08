@@ -36,6 +36,9 @@
 // Records of one seq with different bytes are reported, not hidden:
 // every version the query selects is yielded, marked as a conflict,
 // and the conflict is listed in Result.Conflicts beside the defects in Result.Incomplete.
+// With Query.Retention set, a read applies the retention boundary (the tracepack storage specification §5, Retention):
+// a covered hour found removed ends the whole read with an error wrapping ErrRemoved,
+// and the caller discards everything the read reported of the hours Result.Removed lists.
 //
 // FindTransaction looks up the reply to a primary record (the tracepack semantics specification §7.2)
 // in one observation that a PackSource fixes before any record is read (the tracepack storage specification §5).
@@ -55,5 +58,7 @@
 // Verify reports the outcome of a pack's verification, and Repair writes a repair patch of a damaged pack.
 // NewStoreSource returns a PackSource over an ObjectStore, the bucket, and a Catalog, the caller's catalog of one tool;
 // the Godoc of NewStoreSource, ObjectStore and Catalog states the contracts the store and the catalog must keep.
+// Give StoreSourceOptions.Retention and TxOptions.Retention the same Retention provider;
+// deleting the objects of a removed hour is the storage service's work.
 // SegmentKey, ArchiveKey and CommitKey build the keys of the tracepack storage specification §3.
 package tracepack
