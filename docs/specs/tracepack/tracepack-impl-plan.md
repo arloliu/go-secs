@@ -1,6 +1,6 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-10-06) — phases 4, 5a, 5b, 5c1, 5c2 and 5d done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`, `SegmentWriter`, `NewDirSink`, `NewReaderSource`); phase 5c3 (retention) next.
+Status: active (2026-10-08) — phases 4, 5a, 5b, 5c1, 5c2, 5c3 and 5d done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`, `SegmentWriter`, `NewDirSink`, `NewReaderSource`, `Retention`); phases 6 to 8 pending.
 Implements: tracepack v2.25 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
@@ -72,7 +72,7 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 5b — MergeIterate | done |
 | 5c1 — PackSource, FindTransaction | done |
 | 5c2 — store-backed PackSource, listing views | done |
-| 5c3 — retention | pending |
+| 5c3 — retention | done |
 | 5d — segment writer, local source | done |
 | 6 — JSONL export, conformance corpus, CLI | pending |
 | 7 — Extract and redaction | pending |
@@ -485,7 +485,7 @@ The implementation settled what the text above leaves open:
 - A barrier's `Kind` is not validated, and a token on an indexed scope is not rejected.
 - Not covered by a test: the context checks while `ActiveView`'s pack list is matched to the readers, which no double can reach between iterations.
 
-#### 5c3 — retention (pending)
+#### 5c3 — retention (done)
 
 From spec v2.25 (G5-162..G5-165); the API is `tracepack-go.md` §3. Plan: the phase 5c3 retention plan, kept outside the repository (ready after plan reviews r1–r3).
 
@@ -495,6 +495,23 @@ From spec v2.25 (G5-162..G5-165); the API is `tracepack-go.md` §3. Plan: the ph
 - Reader side only: deleting a removed hour's objects is the service's work.
 
 Tests: the removed-outcome vector of [STO §8], driven by an event schedule independent of the implementation's checks.
+
+Done (2026-10-08): the tests above pass.
+`TestIterateRetentionScripted` and `TestMergeIterateRetentionScripted` move the boundary at a block read or a callback the seed chooses,
+over generated reads with packs of three hours and extracts, and check from the logged events alone
+that a check precedes each block's first callback, that nothing follows a check finding a removal, and what `Result.Removed` lists;
+`FuzzIterate`, `FuzzMergeIterate` and `FuzzMergeIterateGenerated` take a schedule seed.
+The store source and the lookup have unit tests for each check point, the four boundary configurations among them.
+The implementation settled what the text above leaves open:
+the lookup's retention state covers the primary's hour alone, and an earlier error of the lookup, `ErrNotPrimary` included, stands (spec v2.25 amended to say so);
+`Observe` never fails with `ErrRemoved`, a removed hour showing only as `SourceScope.Removed`;
+`Observe` samples the boundary when a listed hour reaches `MaxCommitListings`, so an hour removed during its last commit traversal is reported removed, not `ErrReadLimit`;
+a gone object of a removed hour is skipped, but an error closing it still fails `Observe`;
+an object's slot records its `Reader` and hour, so its `MaxSourceBytes` charge grew from 16 to 32 bytes on 64-bit platforms;
+an indexed extract block the footer prunes still covers its F-2 hours;
+and in `Iterate` a block whose records are all filtered out gets no check of its own, the check before success covering it.
+Open: `MergeIterate` treats any load error wrapping `ErrReadLimit` as a refused reservation,
+so a `ReadAt` error of the caller's that wraps `ErrReadLimit` skips the check after an I/O failure, which `Iterate` makes.
 
 #### 5d — segment writer, local source (done)
 
