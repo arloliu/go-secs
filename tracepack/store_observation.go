@@ -35,6 +35,8 @@ type storeScope struct {
 	readers    []*Reader
 	indexed    bool
 	conflicted bool
+	// removed marks an hour removed by retention, with no readers.
+	removed bool
 }
 
 // Scope returns the fixed view of hour's scope, its Readers in a fresh slice.
@@ -47,7 +49,7 @@ func (o *storeObservation) Scope(ctx context.Context, hour int64) (SourceScope, 
 	}
 	sc := &o.scopes[hour-o.from]
 
-	return SourceScope{Readers: slices.Clone(sc.readers), Indexed: sc.indexed, Conflicted: sc.conflicted}, nil
+	return SourceScope{Readers: slices.Clone(sc.readers), Indexed: sc.indexed, Conflicted: sc.conflicted, Removed: sc.removed}, nil
 }
 
 // Evidence returns a deep copy of the capture's evidence.

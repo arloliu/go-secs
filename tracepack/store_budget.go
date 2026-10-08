@@ -34,8 +34,9 @@ const (
 	// its storeListedHour, its slot among the listed hours and its entry in their index by hour.
 	storeListedHourCharge = (int64(unsafe.Sizeof(storeListedHour{})+unsafe.Sizeof((*storeListedHour)(nil))+
 		unsafe.Sizeof(int64(0))+unsafe.Sizeof((*storeListedHour)(nil))) + storeAlignMask) &^ storeAlignMask
-	// storeObjectSlotCharge is the charge of an object's slot among the objects to close, held until the observation is built.
-	storeObjectSlotCharge = int64(unsafe.Sizeof(Object(nil)))
+	// storeObjectSlotCharge is the charge of an object's slot among the objects to close, with its Reader and its hour,
+	// held until the observation is built.
+	storeObjectSlotCharge = int64(unsafe.Sizeof(storeSlot{}))
 	// storeOpenedCharge is the fixed charge of a listed pack opened, while the source holds its entry among its hour's packs;
 	// its key adds its length.
 	storeOpenedCharge = (int64(unsafe.Sizeof(storeOpened{})) + storeAlignMask) &^ storeAlignMask
