@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation plan (v1)
 
 Status: active (2026-10-06) — phases 4, 5a, 5b, 5c1, 5c2 and 5d done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`, `SegmentWriter`, `NewDirSink`, `NewReaderSource`); phase 5c3 (retention) next.
-Implements: tracepack v2.24 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
+Implements: tracepack v2.25 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
 
@@ -487,10 +487,14 @@ The implementation settled what the text above leaves open:
 
 #### 5c3 — retention (pending)
 
-- Retention boundary, supplied by the caller: checked before each listing and before emitting each block's records;
-  an hour that becomes removed ends with the removed outcome in `Result.Removed` ([STO §5] Retention).
+From spec v2.25 (G5-162..G5-165); the API is `tracepack-go.md` §3. Plan: the phase 5c3 retention plan, kept outside the repository (ready after plan reviews r1–r3).
 
-Tests: the removed-outcome vector of [STO §8].
+- A `Retention` provider, given to `Iterate` and `MergeIterate` (`Query.Retention`), `FindTransaction` (`TxOptions.Retention`) and `NewStoreSource` (`StoreSourceOptions.Retention`).
+- Reads check it before reading, at every block they emit, after an I/O failure and before success; a covered hour removed ends the read with `ErrRemoved` beside `Result.Removed`.
+- The lookup fails with `ErrRemoved` when the primary's hour is removed; the store source reports a removed hour as `SourceScope.Removed`.
+- Reader side only: deleting a removed hour's objects is the service's work.
+
+Tests: the removed-outcome vector of [STO §8], driven by an event schedule independent of the implementation's checks.
 
 #### 5d — segment writer, local source (done)
 

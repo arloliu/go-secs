@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-05) — spec v2.24.
+Status: current (2026-10-07) — spec v2.25.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -1084,3 +1084,32 @@ The same paragraph now ties `source_dialect` and `source_ref` to `capture_method
 ### v2.24 amendment after post-implementation review r2 (owner decision G5-161, 2026-10-06)
 
 `tracepack-go.md` §3 `NewDirSink`: refuses a symbolic link at `<root>/.partial` and at every directory component of a key, and fails on `js`; its threat model is a misconfigured root, not a concurrent writer of `root`.
+
+## Changes v2.24 → v2.25: the retention boundary on the reader side (owner decisions G5-162..G5-165, 2026-10-07)
+
+Source: the phase 5c3 retention plan and its reviews r1–r3, kept outside the repository; no proposal document.
+Format version stays 1.0; FMT and SEM are unchanged.
+
+Summary:
+- `tracepack-go.md` §3: the `Retention` provider and its contract; the hour a record belongs to and the hours a read covers;
+  the checks of `Iterate` and `MergeIterate` and the whole-read `ErrRemoved` beside `Result.Removed`; `FindTransaction`'s `ErrRemoved` for a removed primary hour;
+  `SourceScope.Removed` and `NewStoreSource`'s checks, final sample and gone-object rule; one provider for the source and the lookup.
+  The forward reference to the retention boundary in `NewStoreSource`'s paragraph is gone.
+- [STO §5] Retention: a reader may end its whole read with the outcome removed.
+
+### v2.25 review — VERDICT: fix-then-ready (3 P1, 3 P2), all applied
+
+| Finding | Fix |
+|---|---|
+| P1 [STO §5]'s whole-read sentence superseded every hour, the Go text only the removed ones | [STO §5] supersedes what was emitted of each removed hour |
+| P1 a provider failure at the check after an I/O failure dropped the I/O cause | joined after the I/O cause |
+| P1 a shared staging listing not stopped once every scope depending on it is removed | stated |
+| P2 a removed scope with readers had no consumer-side rule | a source error, as a conflicted one with readers |
+| P2 the covered hours' bound, charge and walked-block pass unstated | stated |
+| P2 a provider failure after a failed `Observe` | joined after the `Observe` cause |
+
+### v2.25 correction during implementation (2026-10-08)
+
+`tracepack-go.md` §3 Retention: the provider's freshness rule was stated backwards ("a cache may lag, never lead, the deleting component");
+a provider that lags the deletions lets a check pass after an object of the hour was deleted, which breaks the check's proof.
+It now reads: a provider never falls behind the deleting component; running ahead is safe; a cache is safe only if the deleting component waits out its staleness.
