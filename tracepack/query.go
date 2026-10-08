@@ -28,6 +28,14 @@ type Query struct {
 	// and the Filter is evaluated before the payload is dropped, so the records selected do not depend on it.
 	// MergeIterate compares payloads whatever its value.
 	Payloads bool
+	// Retention, when set, provides the retention boundary the read applies (the tracepack storage specification §5, Retention);
+	// nil removes nothing.
+	// A read covers the scope hour of each pack of a role other than extract, whatever the timestamps of its records,
+	// and for an extract the hours of its indexed blocks' F-2 ts_min and ts_max
+	// and of every record it decodes, filtered out or not.
+	// When a covered hour is removed, the read ends with an error wrapping ErrRemoved and Result.Removed set;
+	// the caller discards everything the read reported of the removed hours, records passed to fn included.
+	Retention Retention
 }
 
 // SF is the stream and function of an HSMS message header.
