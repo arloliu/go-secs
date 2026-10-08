@@ -46,6 +46,8 @@ type txLookup struct {
 	state txBudget
 	// ticks counts the iterations of the lookup's loops toward the checks of ctx.
 	ticks ctxCounter
+	// rs is the lookup's retention state over opts.Retention, covering the primary's hour alone.
+	rs retentionState
 	// onTick, set only by tests, runs at each check of ctx that tick makes, before it.
 	onTick func()
 	// skipSeqGap, trustClosures, readConflicted, breachComplete and breachFromPrimary, set only by tests,
@@ -164,23 +166,23 @@ func (l *txLookup) run(ctx context.Context) error {
 // and the scope, with a pack_id for each pack of its view, is charged against MaxStateBytes before its pack_ids are taken;
 // each reader counts toward the checks of ctx (tick).
 // A scope whose view is conflicted is not read (passConflicted).
+// The read is given opts.Retention as its Query.Retention, so it checks the hours it covers itself.
 //
 // Returns:
 //   - *txScopeRead: the read; nil, its charge released, when the observation could not answer the scope,
-//     the scope's charge failed, a reader is nil, a conflicted scope has readers,
+//     the scope is removed, the scope's charge failed, a reader is nil, a conflicted or removed scope has readers,
 //     or ctx is done while the readers' pack_ids are taken.
 //   - error: the observation's error, wrapped with the hour; ctx's error, wrapped;
-//     the read's error, else the error of its mapping, wrapped with the hour;
+//     an error wrapping ErrRemoved, or opts.Retention's error, wrapped, from the check before the scope (scopeOf);
+//     an error wrapping ErrRemoved for a scope the observation reports removed;
+//     the read's error, an error wrapping ErrRemoved among them, else the error of its mapping, wrapped with the hour;
 //     an error wrapping ErrReadLimit when a charge passes MaxStateBytes.
 func (l *txLookup) readScope(ctx context.Context, hour int64,
 	fn func(ctx context.Context, rd *txScopeRead, it *Item) error,
 ) (*txScopeRead, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("tracepack: find transaction: %w", err)
-	}
-	sc, err := l.obs.Scope(ctx, hour)
+	sc, err := l.scopeOf(ctx, hour)
 	if err != nil {
-		return nil, fmt.Errorf("tracepack: find transaction: hour %d: scope: %w", hour, err)
+		return nil, err
 	}
 	if sc.Conflicted && !l.readConflicted {
 		if len(sc.Readers) > 0 {
@@ -217,7 +219,7 @@ func (l *txLookup) readScope(ctx context.Context, hour int64,
 		}
 	}
 	l.reads = append(l.reads, rd)
-	rd.res, err = mergeIterateWith(ctx, sc.Readers, Query{Payloads: true},
+	rd.res, err = mergeIterateWith(ctx, sc.Readers, Query{Payloads: true, Retention: l.opts.Retention},
 		MergeIterateOptions{Order: OrderCapture, MaxHeldBytes: l.opts.MaxHeldBytes},
 		mergeIterateOptions{reserveConflict: l.reserveConflict, storedFlags: &l.flags},
 		func(it *Item) error { return fn(ctx, rd, it) })
@@ -241,6 +243,39 @@ func (l *txLookup) readScope(ctx context.Context, hour int64,
 	}
 
 	return rd, nil
+}
+
+// scopeOf checks ctx and the primary's hour against the retention boundary,
+// then takes the scope of hour from the observation,
+// before the scope is read or passed over, an empty or conflicted one included.
+// A scope the observation reports removed ends the lookup, whatever else it reports:
+// every hour the lookup schedules lies at or after the primary's, so the primary's hour is removed too.
+//
+// Returns:
+//   - SourceScope: the scope, neither removed nor with an error.
+//   - error: ctx's error, wrapped; an error wrapping ErrRemoved, or opts.Retention's error, wrapped;
+//     the observation's error, wrapped with the hour; an error wrapping ErrRemoved for a scope reported removed;
+//     an error for a removed scope that comes with readers.
+func (l *txLookup) scopeOf(ctx context.Context, hour int64) (SourceScope, error) {
+	if err := ctx.Err(); err != nil {
+		return SourceScope{}, fmt.Errorf("tracepack: find transaction: %w", err)
+	}
+	if err := l.rs.check(ctx); err != nil {
+		return SourceScope{}, fmt.Errorf("tracepack: find transaction: hour %d: %w", hour, err)
+	}
+	sc, err := l.obs.Scope(ctx, hour)
+	if err != nil {
+		return SourceScope{}, fmt.Errorf("tracepack: find transaction: hour %d: scope: %w", hour, err)
+	}
+	if sc.Removed {
+		if len(sc.Readers) > 0 {
+			return SourceScope{}, fmt.Errorf("tracepack: find transaction: hour %d: scope: a removed scope comes with readers (%d)", hour, len(sc.Readers))
+		}
+
+		return SourceScope{}, fmt.Errorf("tracepack: find transaction: hour %d: scope: the source reports the hour removed: %w", hour, ErrRemoved)
+	}
+
+	return sc, nil
 }
 
 // passConflicted adds the gaps of the conflicted scope rd, which the lookup does not read

@@ -91,6 +91,8 @@ type SourceScope struct {
 	// Removed reports a scope whose hour the source found removed by retention
 	// (the tracepack storage specification §5, Retention);
 	// such a scope has no Readers, and neither Indexed nor Conflicted is set.
+	// FindTransaction ends with an error wrapping ErrRemoved on a removed scope,
+	// and fails on a removed scope that comes with Readers.
 	Removed bool
 }
 
