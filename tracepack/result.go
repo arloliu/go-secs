@@ -71,6 +71,13 @@ type Result struct {
 	// For Reader.Iterate it holds FooterErr as the entry of pack 0 when FooterErr is non-nil.
 	// Like FooterErr, it is independent of Incomplete.
 	FooterErrs []PackError
+	// Removed lists the hours the read covers that its Query.Retention reports removed, ascending, each once,
+	// when the read ended with an error wrapping ErrRemoved (the tracepack storage specification §5, Retention);
+	// nil otherwise.
+	// Everything the read reported of these hours, its records passed to fn, defects and conflicts, is superseded,
+	// and the caller discards it.
+	// It is kept outside MergeIterateOptions.MaxHeldBytes.
+	Removed []int64
 }
 
 // String returns the reason's name, or "unknown(<n>)" for a value this package does not define.
@@ -93,8 +100,8 @@ func (r IncompleteReason) String() string {
 	}
 }
 
-// Complete reports whether the read is complete: whether Incomplete is empty.
+// Complete reports whether the read is complete: whether Incomplete and Removed are empty.
 // Neither FooterErr nor FooterErrs makes a read incomplete, and Conflicts are reported beside Incomplete, not in it.
 func (r Result) Complete() bool {
-	return len(r.Incomplete) == 0
+	return len(r.Incomplete) == 0 && len(r.Removed) == 0
 }
