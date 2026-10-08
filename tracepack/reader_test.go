@@ -2,6 +2,7 @@ package tracepack
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -44,8 +45,9 @@ type readCall struct {
 type gatedReader struct {
 	data   []byte
 	rounds []int
-	// fail, when set, makes the calls it selects fail with errInjected.
-	fail func(off int64, n int) bool
+	// fail, when set, makes the calls it selects fail with failErr, errInjected when failErr is nil.
+	fail    func(off int64, n int) bool
+	failErr error
 
 	mu sync.Mutex
 	// calls[i] holds the calls of gated round i; calls[len(rounds)] holds the calls after the last gated round.
@@ -365,19 +367,22 @@ func (g *gatedReader) ReadAt(p []byte, off int64) (int, error) {
 			return 0, errGateTimeout
 		}
 	}
-	if fail {
-		return 0, errInjected
+	if fail != nil {
+		return 0, fail
 	}
 
 	return bytes.NewReader(g.data).ReadAt(p, off)
 }
 
-// enter logs a call and returns the gate of its round, nil when it is not gated, and whether it fails.
-func (g *gatedReader) enter(off int64, n int) (chan struct{}, bool) {
+// enter logs a call and returns the gate of its round, nil when it is not gated, and its error, nil when it does not fail.
+func (g *gatedReader) enter(off int64, n int) (chan struct{}, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	fail := g.fail != nil && g.fail(off, n)
+	var fail error
+	if g.fail != nil && g.fail(off, n) {
+		fail = cmp.Or(g.failErr, errInjected)
+	}
 	r := g.round
 	g.calls[r] = append(g.calls[r], readCall{off: off, n: n})
 	if r == len(g.rounds) {

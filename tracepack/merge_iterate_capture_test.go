@@ -46,8 +46,9 @@ func captureRead(t testing.TB, ctx context.Context, readers []*Reader, q Query, 
 		err = p.runCapture(ctx, &q, yield)
 	}
 	assert.Zero(t, p.loader.budget.held, "nothing stays held")
+	res, err := p.rs.end(p.res, err)
 
-	return items, p.res, err
+	return items, res, err
 }
 
 // mustCaptureRead reads q over files in capture order, requiring no error.

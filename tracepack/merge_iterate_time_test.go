@@ -23,7 +23,8 @@ type orderedRead struct {
 
 // orderRead validates and plans the read of q over readers in opts.Order, then reads it,
 // passing each Item to fn when fn is set.
-// It returns what it read and the error, requiring nothing to stay held, whatever the outcome.
+// It returns what it read and the error, requiring nothing to stay held, whatever the outcome;
+// the Result lists the removed hours as MergeIterate's does.
 func orderRead(t testing.TB, ctx context.Context, readers []*Reader, q Query, opts MergeIterateOptions, fn func(*Item) error,
 ) (orderedRead, error) {
 	t.Helper()
@@ -49,7 +50,8 @@ func orderRead(t testing.TB, ctx context.Context, readers []*Reader, q Query, op
 		}
 	}
 	assert.Zero(t, p.loader.budget.held, "nothing stays held")
-	out.res, out.reads = p.res, reads
+	out.res, err = p.rs.end(p.res, err)
+	out.reads = reads
 
 	return out, err
 }

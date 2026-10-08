@@ -2,7 +2,6 @@ package tracepack
 
 import (
 	"context"
-	"fmt"
 )
 
 // captureStream is one capture of a read over several packs in capture order:
@@ -43,7 +42,9 @@ type streamHeap []*captureStream
 //     an error wrapping ErrReadLimit when a block's reservation would exceed MaxHeldBytes
 //     or one more conflict would exceed MaxConflicts;
 //     the error of the conflict reservation, wrapped, when it fails;
-//     a ReadAt error, wrapped with the pack and block index.
+//     a ReadAt error, wrapped with the pack and block index, joined with the error of the retention check after it;
+//     an error wrapping ErrRemoved when a covered hour is removed;
+//     q.Retention's error, wrapped.
 //     p.res holds the defects and conflicts found until then.
 //     Nothing stays held after runCapture, whatever its outcome.
 func (p *mergeIteratePlan) runCapture(ctx context.Context, q *Query, fn func(*Item) error) error {
@@ -90,11 +91,8 @@ func (p *mergeIteratePlan) runCapture(ctx context.Context, q *Query, fn func(*It
 		}
 		h.down(0)
 	}
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("tracepack: merge iterate: %w", err)
-	}
 
-	return nil
+	return run.finish(ctx)
 }
 
 // fill resolves the stream's next seqs until one gives candidates, which it queues, the first the stream's head.

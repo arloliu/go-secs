@@ -3,7 +3,6 @@ package tracepack
 import (
 	"cmp"
 	"context"
-	"fmt"
 	"slices"
 )
 
@@ -42,7 +41,9 @@ type pendingHeap []pendingCandidate
 //     an error wrapping ErrReadLimit when a block's reservation would exceed MaxHeldBytes
 //     or one more conflict would exceed MaxConflicts;
 //     the error of the conflict reservation, wrapped, when it fails;
-//     a ReadAt error, wrapped with the pack and block index.
+//     a ReadAt error, wrapped with the pack and block index, joined with the error of the retention check after it;
+//     an error wrapping ErrRemoved when a covered hour is removed;
+//     q.Retention's error, wrapped.
 //     p.res holds the defects and conflicts found until then.
 //     Nothing stays held after runTime, whatever its outcome.
 func (p *mergeIteratePlan) runTime(ctx context.Context, q *Query, fn func(*Item) error) error {
@@ -111,11 +112,8 @@ func (p *mergeIteratePlan) runTime(ctx context.Context, q *Query, fn func(*Item)
 	if err := yieldBelow(nil); err != nil {
 		return err
 	}
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("tracepack: merge iterate: %w", err)
-	}
 
-	return nil
+	return run.finish(ctx)
 }
 
 // less reports whether the candidate at i comes before the one at j:
