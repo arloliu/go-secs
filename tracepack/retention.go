@@ -11,20 +11,22 @@ import (
 // an hour the read covers lies before the first hour its Retention reports retained.
 // A read that ends with it supersedes what it reported of the removed hours, records passed to its callback included;
 // Result.Removed lists those hours.
+// FindTransaction fails with it when the primary's hour is removed.
 var ErrRemoved = errors.New("tracepack: hour removed by retention")
 
 // Retention provides the retention boundary (the tracepack storage specification §5, Retention):
 // every UTC hour before the one RetainedFrom returns is removed.
 //
-// It must return the authoritative boundary, the one the component deleting removed hours acts on:
-// a cached value may lag behind it, never lead it.
+// It must never fall behind the component deleting removed hours:
+// before that component deletes an object of an hour, every provider a reader asks must already report the hour removed.
+// A value that runs ahead of the deletions is safe; a cached value is safe only if the deleting component waits out its staleness before deleting.
 // The boundary never moves back; a reader keeps the largest value it has seen.
 // An implementation must be safe for concurrent use and cheap, an atomic load rather than a remote call,
 // since a read asks it at every block it emits.
 type Retention interface {
 	// RetainedFrom returns the first UTC hour still retained, numbered as HourOf numbers it;
 	// every hour before it is removed.
-	// An error ends the read that asked, wrapped.
+	// An error ends the read, lookup or Observe that asked, wrapped.
 	RetainedFrom(ctx context.Context) (int64, error)
 }
 
@@ -188,7 +190,8 @@ func (s *retentionState) check(ctx context.Context) error {
 
 // recheckAfter checks the boundary after a read failed with cause, an open or read I/O failure:
 // a covered hour now removed may be why the object was gone.
-// Callers do not call it for a ctx error or an error wrapping ErrReadLimit, which end a read as they are.
+// Callers do not call it for a ctx error or for a limit of their own, such as a refused reservation, which end a read as they are;
+// Iterate and MergeIterate call it after every failed ReadAt, whatever its error wraps, ErrReadLimit included.
 //
 // Returns:
 //   - error: cause, as is, when the check passes;

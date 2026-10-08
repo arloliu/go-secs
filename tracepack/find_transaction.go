@@ -162,8 +162,18 @@ type TxOptions struct {
 	// a record also its payload and header-extension bytes, a copied coverage entry also the values of its unknown entries,
 	// and the charge of a record copied but not kept is released;
 	// a charge that would pass MaxStateBytes fails the lookup with an error wrapping ErrReadLimit.
-	// The readers, the evidence, the barriers and what each MergeIterate builds lie outside it.
+	// The readers, the evidence, the barriers, what each MergeIterate builds and the lookup's retention state lie outside it.
 	MaxStateBytes int64
+	// Retention, when set, provides the retention boundary of the lookup (the tracepack storage specification §5, Retention),
+	// given to every scope read as its Query.Retention; nil removes nothing.
+	// The lookup fails with an error wrapping ErrRemoved when the primary's hour, TxKey.Hour, is removed,
+	// which it checks before Observe, after a failed Observe whose error is neither a ctx error nor ErrReadLimit,
+	// before each scope it schedules, and before it returns an outcome.
+	// A scope the source reports SourceScope.Removed, or a scope read ending with ErrRemoved,
+	// ends the lookup with ErrRemoved too.
+	// Give it the provider given to StoreSourceOptions.Retention:
+	// the source's alone makes Observe tolerate deletion but leaves the lookup unprotected after Observe returns.
+	Retention Retention
 }
 
 // TxOutcome is the outcome of a transaction lookup.
@@ -346,6 +356,22 @@ type TxResult struct {
 // Otherwise one valid match is TxMatched and several TxAmbiguous, each with every gap found listed beside it;
 // with none, the outcome is TxUnmatched when no gap is listed, TxIncomplete otherwise.
 //
+// With opts.Retention set,
+// the lookup checks the primary's hour, key.Hour, against the retention boundary (the tracepack storage specification §5, Retention),
+// and fails with an error wrapping ErrRemoved when a check finds it removed.
+// It checks that hour before Observe;
+// after a failed Observe whose error is neither a ctx error nor ErrReadLimit, joining ErrRemoved after that error;
+// before each scope it schedules, an empty or conflicted one included;
+// and once evaluation is done, before it closes the observation and returns an outcome.
+// These are its only checks of that hour:
+// an earlier error of the lookup, ErrNotPrimary included, stands, whatever the boundary did meanwhile.
+// Each scope read checks the hours it covers itself, given opts.Retention as its Query.Retention.
+// A scope read that ends with ErrRemoved ends the lookup with ErrRemoved too,
+// and so does a scope the observation reports removed, with or without opts.Retention:
+// every hour the lookup schedules lies at or after the primary's, so the primary's hour is removed as well.
+// The TxResult beside ErrRemoved keeps what the lookup found, as beside its other errors:
+// it describes an aborted lookup, not a result over the hours still retained.
+//
 // Parameters:
 //   - ctx: cancels the lookup; it is checked before each call to the source, during each scope read,
 //     every 4096 iterations of the lookup's own loops, and before returning.
@@ -361,8 +387,9 @@ type TxResult struct {
 //     or a last hour key.Hour + MaxScopes - 1 above MaxTxHour;
 //     ErrNotPrimary;
 //     an error of src or of the Observation, wrapped with the hour, a Close error only when nothing else failed;
-//     an error for a scope the Observation reports conflicted beside readers;
+//     an error for a scope the Observation reports conflicted or removed beside readers;
 //     a ReadAt error; an error wrapping ErrReadLimit from MaxHeldBytes, MaxConflicts or MaxStateBytes;
+//     an error wrapping ErrRemoved, joined after Observe's error when it follows one; opts.Retention's error, wrapped;
 //     ctx's error, wrapped.
 //     A block over its Reader's MaxBlockLen is not an error: it is a TxGapRead gap.
 func FindTransaction(ctx context.Context, src PackSource, key TxKey, opts TxOptions) (TxResult, error) {
@@ -378,11 +405,26 @@ func findTransactionWith(ctx context.Context, src PackSource, key TxKey, opts Tx
 	if err := ctx.Err(); err != nil {
 		return TxResult{}, fmt.Errorf("tracepack: find transaction: %w", err)
 	}
+	// The lookup checks the primary's hour alone:
+	// every hour it schedules lies at or after it, so the primary's is the first of them to be removed.
+	rs := newRetentionState(opts.Retention)
+	if err := rs.add(key.Hour); err != nil {
+		return TxResult{}, fmt.Errorf("tracepack: find transaction: %w", err)
+	}
+	if err := rs.check(ctx); err != nil {
+		return TxResult{}, fmt.Errorf("tracepack: find transaction: %w", err)
+	}
 	// checkFindTransaction bounded the last hour by MaxTxHour, so the end of the range fits.
 	to := key.Hour + int64(opts.MaxScopes)
 	obs, err := src.Observe(ctx, key.Capture, key.Hour, to)
 	if err != nil {
-		return TxResult{}, fmt.Errorf("tracepack: find transaction: observe hours [%d, %d): %w", key.Hour, to, err)
+		err = fmt.Errorf("tracepack: find transaction: observe hours [%d, %d): %w", key.Hour, to, err)
+		if !isCtxErr(err) && !errors.Is(err, ErrReadLimit) {
+			// An object may have been gone because the primary's hour was removed meanwhile.
+			err = rs.recheckAfter(ctx, err)
+		}
+
+		return TxResult{}, err
 	}
 
 	// Close runs once on every path, a panic included; its error is returned only when nothing else failed.
@@ -396,6 +438,7 @@ func findTransactionWith(ctx context.Context, src PackSource, key TxKey, opts Tx
 	}()
 
 	l := newTxLookup(key, opts, obs)
+	l.rs = rs
 	if prep != nil {
 		prep(l)
 	}
@@ -405,8 +448,19 @@ func findTransactionWith(ctx context.Context, src PackSource, key TxKey, opts Tx
 			err = fmt.Errorf("tracepack: find transaction: %w", cerr)
 		}
 	}
+	// The outcome stands only while the primary's hour is retained, after evaluation and barriers, before Close.
+	if err == nil {
+		if rerr := l.rs.check(ctx); rerr != nil {
+			err = fmt.Errorf("tracepack: find transaction: %w", rerr)
+		}
+	}
 
 	return l.res, err
+}
+
+// isCtxErr reports whether err is a context's error, context.Canceled or context.DeadlineExceeded, or wraps one.
+func isCtxErr(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 // checkFindTransaction validates the arguments of FindTransaction before anything is read and applies the defaults of opts.
