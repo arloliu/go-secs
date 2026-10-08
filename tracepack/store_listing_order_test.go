@@ -125,7 +125,7 @@ func TestStoreSourceListedCtxPerLoop(t *testing.T) {
 				return nil
 			}
 		}},
-		{name: "an hour's view", want: ".observeListed", setup: func(t testing.TB, store *memStore, cat *fakeCatalog, arm func()) {
+		{name: "an hour's view", want: ".viewListed", setup: func(t testing.TB, store *memStore, cat *fakeCatalog, arm func()) {
 			cat.setIndexed(captureLow, memTestHour+1, false)
 			// A generation without a commit object, closed when the first hour's view is fixed.
 			first := store.putPack(t, memTestHour, storeArchive(t, memA, setA, 1)).Key

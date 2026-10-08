@@ -54,6 +54,9 @@ type storeListedHour struct {
 // then each segment's head, which assigns it its hour, and the packs of the listed hours, opened in full;
 // then each hour's view;
 // and last each hour's confirmation by the catalog that the scope stayed not indexed since the snapshot.
+// An hour found removed by retention, at any sample, is skipped from then on:
+// its view is not computed nor its scope confirmed;
+// the staging listing and the opening of segments stop once every listed hour is removed.
 //
 // Every structure it holds is charged before it is built, and released once nothing holds it:
 // each listed hour, with its slots in the hours and their index, until Observe returns.
@@ -66,7 +69,7 @@ func (a *storeAcquisition) observeListed(ctx context.Context, scopes []CatalogSc
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("tracepack: store source: %w", err)
 		}
-		if scopes[i].Indexed {
+		if scopes[i].Indexed || a.needless(i) {
 			continue
 		}
 		if err := a.budget.reserve(storeListedHourCharge); err != nil {
@@ -80,6 +83,8 @@ func (a *storeAcquisition) observeListed(ctx context.Context, scopes []CatalogSc
 	if len(hours) == 0 {
 		return nil
 	}
+	a.hours = hours
+	defer func() { a.hours = nil }()
 	if a.src.checkpoint != nil {
 		a.listing = &storeListingState{scopes: scopes, hours: hours, byHour: byHour}
 		defer func() { a.listing = nil }()
@@ -121,9 +126,25 @@ func (a *storeAcquisition) observeListed(ctx context.Context, scopes []CatalogSc
 			return err
 		}
 	}
+	if err := a.viewListed(ctx, hours); err != nil {
+		return err
+	}
+
+	return a.confirm(ctx, scopes, hours, func() { a.check("confirming") })
+}
+
+// viewListed fixes the view of each listed hour in turn, once its last listing and read are done,
+// sampling the retention boundary first: an hour found removed gets no view.
+func (a *storeAcquisition) viewListed(ctx context.Context, hours []*storeListedHour) error {
 	for _, lh := range hours {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("tracepack: store source: %w", err)
+		}
+		if err := a.sample(ctx); err != nil {
+			return err
+		}
+		if a.needless(lh.scope) {
+			continue
 		}
 		if err := a.fixListed(ctx, lh); err != nil {
 			return err
@@ -131,7 +152,7 @@ func (a *storeAcquisition) observeListed(ctx context.Context, scopes []CatalogSc
 		a.check("viewed")
 	}
 
-	return a.confirm(ctx, scopes, hours, func() { a.check("confirming") })
+	return nil
 }
 
 // storeListingState is what observeListed holds while it observes the listed hours, which a test's checkpoint measures:
@@ -154,8 +175,10 @@ func (a *storeAcquisition) check(where string) {
 // traverse takes one complete traversal of the listing of prefix, following each page's Next until it is "",
 // and passes each key to fn in order, once it has counted it against MaxObjects and checked the listing contract of ObjectStore:
 // every key under prefix and above the one before it, no token repeated, and at most MaxListPages pages.
+// It samples the retention boundary before each page, and stops, with no error, once stop reports true after a sample;
+// the caller then checks stop again.
 // It charges the tokens it holds until the traversal ends.
-func (a *storeAcquisition) traverse(ctx context.Context, prefix string, fn func(o ObjectInfo) error) (err error) {
+func (a *storeAcquisition) traverse(ctx context.Context, prefix string, stop func() bool, fn func(o ObjectInfo) error) (err error) {
 	tokens := map[string]struct{}{}
 	var charge int64
 	defer func() { a.budget.release(charge) }()
@@ -167,6 +190,12 @@ func (a *storeAcquisition) traverse(ctx context.Context, prefix string, fn func(
 	for pages := 0; ; pages++ {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("tracepack: store source: %w", err)
+		}
+		if err := a.sample(ctx); err != nil {
+			return err
+		}
+		if stop() {
+			return nil
 		}
 		if pages == a.src.opts.MaxListPages {
 			return fmt.Errorf("tracepack: store source: listing %q: more than MaxListPages %d pages: %w", prefix, a.src.opts.MaxListPages, ErrReadLimit)
@@ -221,8 +250,12 @@ func (a *storeAcquisition) holdKey(o ObjectInfo) (int64, error) {
 }
 
 // listCommits takes traversals of lh's commit objects until two consecutive complete ones return the same keys,
-// at most MaxCommitListings, parsing every key, and keeps the ids of the last one.
+// at most MaxCommitListings, parsing every key, and keeps the ids of the last one;
+// it stops, keeping none, once lh is found removed by retention.
 func (a *storeAcquisition) listCommits(ctx context.Context, lh *storeListedHour) error {
+	if a.needless(lh.scope) {
+		return nil
+	}
 	prefix, err := commitKeyDir(a.src.opts.Prefix, a.src.opts.Tool, a.capture, lh.hour)
 	if err != nil {
 		return fmt.Errorf("tracepack: store source: hour %d: %w", lh.hour, err)
@@ -234,12 +267,23 @@ func (a *storeAcquisition) listCommits(ctx context.Context, lh *storeListedHour)
 			return fmt.Errorf("tracepack: store source: %w", err)
 		}
 		if n == a.src.opts.MaxCommitListings {
+			// The traversals may disagree because retention deleted the hour's commit objects meanwhile.
+			if err := a.sample(ctx); err != nil {
+				return err
+			}
+			if a.needless(lh.scope) {
+				a.budget.release(prevCharge)
+
+				return nil
+			}
+
 			return fmt.Errorf("tracepack: store source: hour %d: no two consecutive traversals of the commit objects agree within MaxCommitListings %d: %w",
 				lh.hour, a.src.opts.MaxCommitListings, ErrReadLimit)
 		}
 		ids := CommitSet{}
 		var charge int64
-		err := a.traverse(ctx, prefix, func(o ObjectInfo) error {
+		removed := func() bool { return a.needless(lh.scope) }
+		err := a.traverse(ctx, prefix, removed, func(o ObjectInfo) error {
 			c, err := a.holdKey(o)
 			if err != nil {
 				return err
@@ -261,6 +305,11 @@ func (a *storeAcquisition) listCommits(ctx context.Context, lh *storeListedHour)
 		if err != nil {
 			return err
 		}
+		if removed() {
+			a.budget.release(charge + prevCharge)
+
+			return nil
+		}
 		a.budget.release(prevCharge)
 		if (n > 0 && maps.Equal(prev, ids)) || (a.src.stopCommits != nil && a.src.stopCommits(n)) {
 			lh.commits, lh.commitCharge = ids, charge
@@ -273,13 +322,17 @@ func (a *storeAcquisition) listCommits(ctx context.Context, lh *storeListedHour)
 
 // listArchives traverses lh's archive packs once, parsing every key, and keeps those of the capture;
 // a key of another capture belongs to another scope.
+// It skips an hour found removed by retention, and stops once lh is found so.
 func (a *storeAcquisition) listArchives(ctx context.Context, lh *storeListedHour) error {
+	if a.needless(lh.scope) {
+		return nil
+	}
 	prefix, err := archiveKeyDir(a.src.opts.Prefix, a.src.opts.Tool, lh.hour)
 	if err != nil {
 		return fmt.Errorf("tracepack: store source: hour %d: %w", lh.hour, err)
 	}
 
-	return a.traverse(ctx, prefix, func(o ObjectInfo) error {
+	return a.traverse(ctx, prefix, func() bool { return a.needless(lh.scope) }, func(o ObjectInfo) error {
 		c, err := a.holdKey(o)
 		if err != nil {
 			return err
@@ -299,14 +352,18 @@ func (a *storeAcquisition) listArchives(ctx context.Context, lh *storeListedHour
 	})
 }
 
-// listSegments traverses the capture's staging segments once, parsing every key, and returns them in listing order.
+// listSegments traverses the capture's staging segments once, parsing every key, and returns them in listing order;
+// it stops once every listed hour is found removed by retention.
 func (a *storeAcquisition) listSegments(ctx context.Context) ([]storeListed, error) {
+	if a.needless(-1) {
+		return nil, nil
+	}
 	prefix, err := stagingKeyDir(a.src.opts.Prefix, a.src.opts.Tool, a.capture)
 	if err != nil {
 		return nil, fmt.Errorf("tracepack: store source: %w", err)
 	}
 	var out []storeListed
-	err = a.traverse(ctx, prefix, func(o ObjectInfo) error {
+	err = a.traverse(ctx, prefix, func() bool { return a.needless(-1) }, func(o ObjectInfo) error {
 		if _, err := a.holdKey(o); err != nil {
 			return err
 		}
@@ -323,21 +380,26 @@ func (a *storeAcquisition) listSegments(ctx context.Context) ([]storeListed, err
 }
 
 // openSegment opens the segment l, reads its head, which assigns it its hour, and checks the head against l's key.
-// A segment of an hour that is not listed is closed, its trailer and footer never decoded;
+// A segment of an hour that is not listed, or removed by retention, is closed, its trailer and footer never decoded;
 // one of a listed hour is opened in full over the same object, checked, and kept with its hour's packs.
+// A segment gone before its head is read has no known hour, and fails Observe while a listed hour is retained.
 // The charge of l stays held while the segments' entries are; a kept pack's key is charged again with its entry.
 func (a *storeAcquisition) openSegment(ctx context.Context, l storeListed, byHour map[int64]*storeListedHour) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("tracepack: store source: %w", err)
 	}
 
-	obj, slot, err := a.openObject(ctx, l.key, l.size, "staging")
-	if err != nil {
+	obj, slot, err := a.openObject(ctx, l.key, l.size, -1, "staging")
+	if err != nil || obj == nil {
 		return err
 	}
 	h, err := openHead(ctx, obj, l.size, a.src.opts.Reader)
 	if err != nil {
-		return fmt.Errorf("tracepack: store source: staging: segment %q: %w", l.key, err)
+		if err := a.gone(ctx, -1, fmt.Errorf("tracepack: store source: staging: segment %q: %w", l.key, err)); err != nil {
+			return err
+		}
+
+		return a.discard(slot, l.key)
 	}
 	hour, ok := periodHour(h.meta.PeriodStart, h.meta.PeriodEnd)
 	if !ok {
@@ -348,14 +410,17 @@ func (a *storeAcquisition) openSegment(ctx context.Context, l storeListed, byHou
 		return err
 	}
 	lh := byHour[hour]
-	if lh == nil {
-		return a.discard(slot, nil, l.key)
+	if lh == nil || a.needless(lh.scope) {
+		return a.discard(slot, l.key)
 	}
 
+	// The segment's hour is known from here on.
+	a.objects[slot].scope = lh.scope
 	r, err := a.bootstrap(ctx, obj, l.key, l.size, fmt.Sprintf("hour %d", hour))
 	if err != nil {
-		return err
+		return a.gone(ctx, lh.scope, err)
 	}
+	a.objects[slot].r = r
 	if err := a.checkPack(r, l.key, l.k, hour, false); err != nil {
 		return err
 	}
@@ -366,6 +431,7 @@ func (a *storeAcquisition) openSegment(ctx context.Context, l storeListed, byHou
 // openArchives opens each archive pack of lh in full and checks it.
 // A pack whose role takes no part in a view is closed, then reported through OnExcluded.
 // The archives' entries are then dropped, their charges with them.
+// It stops once lh is found removed by retention, which has dropped them already.
 func (a *storeAcquisition) openArchives(ctx context.Context, lh *storeListedHour) error {
 	for _, l := range lh.archives {
 		if err := ctx.Err(); err != nil {
@@ -373,6 +439,9 @@ func (a *storeAcquisition) openArchives(ctx context.Context, lh *storeListedHour
 		}
 		if err := a.openArchive(ctx, lh, l); err != nil {
 			return err
+		}
+		if a.needless(lh.scope) {
+			return nil
 		}
 	}
 	for _, l := range lh.archives {
@@ -383,10 +452,11 @@ func (a *storeAcquisition) openArchives(ctx context.Context, lh *storeListedHour
 	return nil
 }
 
-// openArchive opens the archive pack l of lh in full, checks it, and keeps it with lh's packs, or excludes it for its role.
+// openArchive opens the archive pack l of lh in full, checks it, and keeps it with lh's packs, or excludes it for its role;
+// it does nothing once lh is found removed by retention.
 func (a *storeAcquisition) openArchive(ctx context.Context, lh *storeListedHour, l storeListed) error {
-	r, slot, err := a.openPack(ctx, l.key, l.size, lh.hour)
-	if err != nil {
+	r, slot, err := a.openPack(ctx, l.key, l.size, lh.scope)
+	if err != nil || r == nil {
 		return err
 	}
 	if err := a.checkPack(r, l.key, l.k, lh.hour, false); err != nil {
@@ -400,7 +470,7 @@ func (a *storeAcquisition) openArchive(ctx context.Context, lh *storeListedHour,
 		return err
 	}
 	ex := ExcludedPack{Key: l.key, PackID: UUID(r.hdr.PackID), Role: r.meta.PackRole, Hour: lh.hour}
-	cerr := a.discard(slot, r, l.key)
+	cerr := a.discard(slot, l.key)
 	a.src.opts.OnExcluded(ex)
 	if cerr != nil {
 		return cerr
@@ -465,7 +535,7 @@ func (a *storeAcquisition) fixListed(ctx context.Context, lh *storeListedHour) e
 			if err := ctx.Err(); err != nil {
 				return fmt.Errorf("tracepack: store source: %w", err)
 			}
-			if err := a.discard(p.slot, p.r, p.key); err != nil {
+			if err := a.discard(p.slot, p.key); err != nil {
 				return err
 			}
 		}
@@ -502,7 +572,7 @@ func (a *storeAcquisition) fixListed(ctx context.Context, lh *storeListedHour) e
 		if p.kept {
 			continue
 		}
-		if err := a.discard(p.slot, p.r, p.key); err != nil {
+		if err := a.discard(p.slot, p.key); err != nil {
 			return err
 		}
 	}
@@ -561,11 +631,15 @@ func (a *storeAcquisition) view(ctx context.Context, lh *storeListedHour) (View,
 // confirm asks the catalog, for each listed hour in turn, after every acquisition read of it,
 // whether its scope stayed not indexed since the snapshot, then drops its token and releases its charge;
 // before is called before each confirmation.
+// An hour found removed by retention is not confirmed.
 // An error or a scope not confirmed fails Observe.
 func (a *storeAcquisition) confirm(ctx context.Context, scopes []CatalogScope, hours []*storeListedHour, before func()) error {
 	for _, lh := range hours {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("tracepack: store source: %w", err)
+		}
+		if a.needless(lh.scope) {
+			continue
 		}
 		before()
 		ok, err := a.src.cat.ConfirmUnindexed(ctx, a.capture, lh.hour, lh.token)

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"strings"
 )
 
@@ -185,6 +184,26 @@ type StoreSourceOptions struct {
 	// and a panic in it propagates after Observe has closed every object it opened.
 	// A catalog reports the packs of the scopes it indexes itself.
 	OnExcluded func(ExcludedPack)
+	// Retention, when set, provides the retention boundary Observe applies (the tracepack storage specification §5, Retention);
+	// nil removes nothing.
+	// Observe asks it before every page of every listing, the commit listings included, before every object it opens,
+	// after a listed scope's last listing and read and before its view is computed,
+	// and once more after every scope is fixed.
+	// Each answer is compared with every hour of the observation, against the largest boundary seen:
+	// a scope whose hour is removed is reported as SourceScope.Removed, with no Readers,
+	// its objects closed at once and their charges released, and nothing more is listed or opened for it;
+	// a scope found removed by the last answer loses the view fixed for it.
+	// The staging listing and its segments, which only the scopes the catalog does not index use,
+	// stop once all of those scopes are removed.
+	// When an object turns out gone from the store, Observe asks it again:
+	// an object whose hour is known, a pack the catalog names, an archive key, or a segment whose head was read,
+	// marks its scope removed when that answer shows its hour removed, instead of failing Observe;
+	// a segment gone before its head was read, whose hour is unknown, fails Observe with an error wrapping ErrObjectNotFound
+	// while a scope the catalog does not index is retained.
+	// An error from it fails Observe, wrapped.
+	// It promises nothing about the boundary advancing after Observe returns:
+	// give TxOptions.Retention the same provider, so the lookup checks it from there on.
+	Retention Retention
 }
 
 // storeSource is the PackSource NewStoreSource returns; each Observe owns its state.
@@ -216,9 +235,9 @@ type storeAcquisition struct {
 	capture  UUID
 	from, to int64
 	budget   storeBudget
-	// objects holds every object opened, in the order opened, nil in the slot of one discarded since;
+	// objects holds every object opened, in the order opened, with a nil object in the slot of one discarded since;
 	// the Observation closes them, or Observe does when it fails.
-	objects []Object
+	objects []storeSlot
 	// descriptors is the charge of the catalog's scope and pack descriptors, released once the observation is built.
 	descriptors int64
 	// slots is the charge of the slots of objects, released once the observation is built,
@@ -227,6 +246,24 @@ type storeAcquisition struct {
 	obs   *storeObservation
 	// listing is the listing state a test's checkpoint measures; nil without a checkpoint.
 	listing *storeListingState
+	// retention is what the acquisition knows of StoreSourceOptions.Retention's boundary.
+	retention retentionState
+	// removedTo is the number of the observation's hours, from the first, found removed by retention:
+	// the boundary never moves back, so they are always the first ones.
+	removedTo int
+	// hours holds the listed hours, in ascending hour, while the listed scopes are observed; nil otherwise.
+	hours []*storeListedHour
+}
+
+// storeSlot is the slot of an object the acquisition opened.
+type storeSlot struct {
+	// obj is the object; nil once it is discarded.
+	obj Object
+	// r is the Reader over obj once it is charged; nil before, and for a segment opened for its head only.
+	r *Reader
+	// scope is the index of the object's hour among the observation's hours;
+	// -1 for a staging segment whose head is not read yet, or whose hour is not observed.
+	scope int
 }
 
 // storePackKey is what the key of a pack names: a staging segment's, or an archive's.
@@ -267,7 +304,7 @@ type storePackKey struct {
 // and its scope_generation suits its role, as ActiveView checks it.
 // A pack the catalog indexes must have a role that takes part in a scope's view (the tracepack storage specification §2).
 // Any disagreement fails the Observe, and so does a pack that is gone when opened or read, with an error wrapping ErrObjectNotFound,
-// which a caller may retry,
+// which a caller may retry, unless StoreSourceOptions.Retention shows its hour removed,
 // and a key a listing returns or the catalog names that does not parse as a key of the tracepack storage specification §3,
 // with an error wrapping ErrInvalidKey, which a retry does not cure.
 // An Observe that fails closes every object it opened, and returns the close errors joined after its first error.
@@ -275,6 +312,9 @@ type storePackKey struct {
 // The source's guarantees hold while every hour observed stays retained (the tracepack storage specification §5, Retention)
 // from the start of Observe until the lookup's last use of the Observation;
 // enforcing that is the caller's.
+// With StoreSourceOptions.Retention set, Observe reports a scope whose hour it finds removed as SourceScope.Removed, with no Readers,
+// so no view is ever formed from an hour partly deleted;
+// from its return on, the lookup's own TxOptions.Retention checks the boundary.
 // The source and its Observations are safe for concurrent use: each Observe owns its state.
 // Observe takes a capture_id that is not zero and hours [from, to) with from < to within [MinTxHour, MaxTxHour+1),
 // the hours a lookup reads; other arguments fail it before the catalog is asked.
@@ -365,7 +405,8 @@ func (s *storeSource) Observe(ctx context.Context, capture UUID, from, to int64)
 
 	a := &storeAcquisition{
 		src: s, capture: capture, from: from, to: to,
-		budget: storeBudget{maxBytes: s.opts.MaxSourceBytes, maxObjects: s.opts.MaxObjects},
+		budget:    storeBudget{maxBytes: s.opts.MaxSourceBytes, maxObjects: s.opts.MaxObjects},
+		retention: newRetentionState(s.opts.Retention),
 	}
 	done := false
 	defer func() {
@@ -400,7 +441,7 @@ func checkObserve(capture UUID, from, to int64) error {
 }
 
 // run takes the catalog snapshot, opens the packs of the indexed scopes, observes the others,
-// and returns the observation built from them.
+// samples the retention boundary a last time, and returns the observation built from them.
 func (a *storeAcquisition) run(ctx context.Context) (*storeObservation, error) {
 	snap, err := a.src.cat.Snapshot(ctx, a.capture, a.from, a.to)
 	if err != nil {
@@ -415,10 +456,18 @@ func (a *storeAcquisition) run(ctx context.Context) (*storeObservation, error) {
 	if err := a.observeListed(ctx, snap.Scopes); err != nil {
 		return nil, err
 	}
+	// Every scope is fixed: the final sample classifies each against one boundary, discarding the views of those removed.
+	if err := a.sample(ctx); err != nil {
+		return nil, err
+	}
 
 	a.budget.release(a.descriptors + a.slots)
 	a.descriptors, a.slots = 0, 0
-	a.obs.objects = slices.DeleteFunc(a.objects, func(obj Object) bool { return obj == nil })
+	for _, s := range a.objects {
+		if s.obj != nil {
+			a.obs.objects = append(a.obs.objects, s.obj)
+		}
+	}
 	a.objects = nil
 	a.obs.charged, a.obs.peak = a.budget.used, a.budget.peak
 
@@ -578,13 +627,14 @@ func (a *storeAcquisition) copyBoundaries(ctx context.Context, bs []Boundary, wh
 
 // openIndexed opens the packs of every indexed scope that is not conflicted, in the catalog's order, and checks each;
 // a conflicted scope is fixed as conflicted, without readers.
+// A scope found removed by retention is skipped, and the opening of its packs stops.
 func (a *storeAcquisition) openIndexed(ctx context.Context, scopes []CatalogScope) error {
 	for i := range scopes {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("tracepack: store source: %w", err)
 		}
 		sc := &scopes[i]
-		if !sc.Indexed {
+		if !sc.Indexed || a.needless(i) {
 			continue
 		}
 		if sc.Conflicted {
@@ -592,31 +642,36 @@ func (a *storeAcquisition) openIndexed(ctx context.Context, scopes []CatalogScop
 
 			continue
 		}
-		var readers []*Reader
+		// The readers join the scope as they are opened, so a removal of the scope meanwhile finds them.
+		a.obs.scopes[i].indexed = true
 		for j := range sc.Packs {
 			if err := ctx.Err(); err != nil {
 				return fmt.Errorf("tracepack: store source: %w", err)
 			}
-			r, err := a.openDescribed(ctx, &sc.Packs[j], sc.Hour)
+			r, err := a.openDescribed(ctx, &sc.Packs[j], i)
 			if err != nil {
 				return err
 			}
-			readers = append(readers, r)
+			if r == nil {
+				break
+			}
+			a.obs.scopes[i].readers = append(a.obs.scopes[i].readers, r)
 		}
-		a.obs.scopes[i] = storeScope{readers: readers, indexed: true}
 	}
 
 	return nil
 }
 
-// openDescribed opens the pack the catalog describes as p, of hour's scope, and checks it against its key and p.
-func (a *storeAcquisition) openDescribed(ctx context.Context, p *CatalogPack, hour int64) (*Reader, error) {
+// openDescribed opens the pack the catalog describes as p, of the scope of index scope, and checks it against its key and p.
+// It returns a nil Reader and no error when the scope is found removed by retention.
+func (a *storeAcquisition) openDescribed(ctx context.Context, p *CatalogPack, scope int) (*Reader, error) {
+	hour := a.from + int64(scope)
 	k, err := a.packKey(p.Key, hour)
 	if err != nil {
 		return nil, err
 	}
-	r, _, err := a.openPack(ctx, p.Key, p.Size, hour)
-	if err != nil {
+	r, _, err := a.openPack(ctx, p.Key, p.Size, scope)
+	if err != nil || r == nil {
 		return nil, err
 	}
 	if UUID(r.hdr.PackID) != p.PackID {
@@ -630,39 +685,56 @@ func (a *storeAcquisition) openDescribed(ctx context.Context, p *CatalogPack, ho
 	return r, nil
 }
 
-// openPack opens the object key of size bytes, as the catalog or a listing gives it, of hour's scope,
+// openPack opens the object key of size bytes, as the catalog or a listing gives it, of the scope of index scope,
 // and bootstraps a Reader over it, charging the object and the Reader.
-// It returns the slot of the object among the acquisition's objects.
-func (a *storeAcquisition) openPack(ctx context.Context, key string, size, hour int64) (*Reader, int, error) {
-	where := fmt.Sprintf("hour %d", hour)
-	obj, slot, err := a.openObject(ctx, key, size, where)
-	if err != nil {
+// It returns the slot of the object among the acquisition's objects,
+// or a nil Reader and no error when the scope is found removed by retention.
+func (a *storeAcquisition) openPack(ctx context.Context, key string, size int64, scope int) (*Reader, int, error) {
+	where := fmt.Sprintf("hour %d", a.from+int64(scope))
+	obj, slot, err := a.openObject(ctx, key, size, scope, where)
+	if err != nil || obj == nil {
 		return nil, 0, err
 	}
 	r, err := a.bootstrap(ctx, obj, key, size, where)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, a.gone(ctx, scope, err)
 	}
+	a.objects[slot].r = r
 
 	return r, slot, nil
 }
 
-// openObject opens the object key of size bytes, as the catalog or a listing gives it, counting it, and checks its size;
+// openObject opens the object key of size bytes, as the catalog or a listing gives it, of the scope of index scope,
+// -1 for a staging segment, counting it, and checks its size;
 // where names the scope or the listing it belongs to in errors.
+// It first samples the retention boundary, and opens nothing, returning a nil Object and no error,
+// when the acquisition no longer needs the object (needless).
 // The object is kept for closing as soon as it is opened, in the slot returned, and one returned with an error is closed at once.
-func (a *storeAcquisition) openObject(ctx context.Context, key string, size int64, where string) (Object, int, error) {
+func (a *storeAcquisition) openObject(ctx context.Context, key string, size int64, scope int, where string) (Object, int, error) {
+	if err := a.sample(ctx); err != nil {
+		return nil, 0, err
+	}
+	if a.needless(scope) {
+		return nil, 0, nil
+	}
 	if err := a.budget.count(); err != nil {
 		return nil, 0, fmt.Errorf("tracepack: store source: %s: opening %q: %w", where, key, err)
 	}
 	obj, err := a.src.store.Open(ctx, key)
 	if err != nil {
+		var cerr error
 		if obj != nil {
-			if cerr := obj.Close(); cerr != nil {
-				err = errors.Join(err, cerr)
-			}
+			cerr = obj.Close()
+		}
+		if err := a.gone(ctx, scope, fmt.Errorf("tracepack: store source: %s: open %q: %w", where, key, errors.Join(err, cerr))); err != nil {
+			return nil, 0, err
+		}
+		// The object is gone with its removed hour, but a close that failed still fails Observe.
+		if cerr != nil {
+			return nil, 0, fmt.Errorf("tracepack: store source: %s: close %q: %w", where, key, cerr)
 		}
 
-		return nil, 0, fmt.Errorf("tracepack: store source: %s: open %q: %w", where, key, err)
+		return nil, 0, nil
 	}
 	if obj == nil {
 		return nil, 0, fmt.Errorf("tracepack: store source: %s: open %q returned no object", where, key)
@@ -677,7 +749,7 @@ func (a *storeAcquisition) openObject(ctx context.Context, key string, size int6
 	}
 	a.slots += storeObjectSlotCharge
 	slot := len(a.objects)
-	a.objects = append(a.objects, obj)
+	a.objects = append(a.objects, storeSlot{obj: obj, scope: scope})
 
 	if got := obj.Size(); got != size {
 		return nil, 0, fmt.Errorf("tracepack: store source: %s: object %q holds %d bytes, not the %d given for it", where, key, got, size)
@@ -699,19 +771,27 @@ func (a *storeAcquisition) bootstrap(ctx context.Context, obj Object, key string
 	return r, nil
 }
 
-// discard closes the object in slot, of key, which the acquisition no longer keeps, releasing the charge of r, its Reader when not nil.
+// discard closes the object in slot, of key, which the acquisition no longer keeps, releasing the charge of its Reader when it has one.
 // Its close error fails Observe.
-func (a *storeAcquisition) discard(slot int, r *Reader, key string) error {
-	obj := a.objects[slot]
-	a.objects[slot] = nil
-	if r != nil {
-		a.budget.release(readerCost(r))
-	}
-	if err := obj.Close(); err != nil {
+func (a *storeAcquisition) discard(slot int, key string) error {
+	if err := a.closeSlot(slot); err != nil {
 		return fmt.Errorf("tracepack: store source: close %q: %w", key, err)
 	}
 
 	return nil
+}
+
+// closeSlot closes the object in slot, which the acquisition no longer keeps, releasing the charge of its Reader when it has one,
+// and returns the close error.
+func (a *storeAcquisition) closeSlot(slot int) error {
+	s := &a.objects[slot]
+	obj := s.obj
+	if s.r != nil {
+		a.budget.release(readerCost(s.r))
+	}
+	*s = storeSlot{scope: -1}
+
+	return obj.Close()
 }
 
 // checkPack checks the pack r opened from key, which names k, against k and hour's scope
@@ -776,11 +856,11 @@ func (a *storeAcquisition) checkMeta(id, capture UUID, m *PackMeta, key string, 
 // It runs on every path out of Observe but success, a panic included.
 func (a *storeAcquisition) abort(err error) error {
 	errs := []error{err}
-	for _, obj := range a.objects {
-		if obj == nil {
+	for _, s := range a.objects {
+		if s.obj == nil {
 			continue
 		}
-		if cerr := obj.Close(); cerr != nil {
+		if cerr := s.obj.Close(); cerr != nil {
 			errs = append(errs, fmt.Errorf("tracepack: store source: close: %w", cerr))
 		}
 	}
@@ -790,4 +870,101 @@ func (a *storeAcquisition) abort(err error) error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// sample asks StoreSourceOptions.Retention for the boundary, when set (the tracepack storage specification §5, Retention),
+// and classifies every hour of the observation against the largest boundary seen:
+// each hour newly found removed is fixed as removed at once, before any more acquisition,
+// its objects closed and the charges of its readers and its listing state released.
+//
+// Returns:
+//   - error: nil; the provider's error, wrapped; or the error of closing an object of a removed hour.
+func (a *storeAcquisition) sample(ctx context.Context) error {
+	if err := a.retention.sample(ctx); err != nil {
+		return fmt.Errorf("tracepack: store source: %w", err)
+	}
+	lo := a.removedTo
+	for a.removedTo < len(a.obs.scopes) && a.retention.removedHour(a.from+int64(a.removedTo)) {
+		a.removedTo++
+	}
+	if a.removedTo == lo {
+		return nil
+	}
+
+	return a.remove(lo, a.removedTo)
+}
+
+// remove fixes the hours of index [lo, hi) as removed, with no readers:
+// it drops their listing state, releasing its charges,
+// and closes every object of theirs, each once, releasing the charges of their Readers.
+//
+// Returns:
+//   - error: nil, or the first close error.
+func (a *storeAcquisition) remove(lo, hi int) error {
+	for i := lo; i < hi; i++ {
+		a.obs.scopes[i] = storeScope{removed: true}
+	}
+	for _, lh := range a.hours {
+		if lh.scope >= lo && lh.scope < hi {
+			a.dropListed(lh)
+		}
+	}
+	for slot := range a.objects {
+		s := &a.objects[slot]
+		if s.obj == nil || s.scope < lo || s.scope >= hi {
+			continue
+		}
+		hour := a.from + int64(s.scope)
+		if err := a.closeSlot(slot); err != nil {
+			return fmt.Errorf("tracepack: store source: hour %d: removed by retention: close: %w", hour, err)
+		}
+	}
+
+	return nil
+}
+
+// dropListed drops what Observe gathered of the listed hour lh, removed by retention, and releases its charges:
+// its commit set, its archive keys, its packs and their pack_ids.
+// The objects of its packs are closed by the caller.
+// Its token stays charged with the catalog's descriptors.
+func (a *storeAcquisition) dropListed(lh *storeListedHour) {
+	charge := lh.commitCharge + lh.held
+	for _, l := range lh.archives {
+		charge += listedKeyCost(l.key)
+	}
+	a.budget.release(charge)
+	lh.commitCharge, lh.held = 0, 0
+	lh.commits, lh.archives, lh.packs, lh.ids = nil, nil, nil, nil
+}
+
+// needless reports whether the acquisition no longer needs the work of the hour of index scope, found removed by retention;
+// for scope -1, the capture-wide staging listing and its segments, whether no listed hour is still retained.
+func (a *storeAcquisition) needless(scope int) bool {
+	if scope >= 0 {
+		return scope < a.removedTo
+	}
+	// The listed hours are in ascending hour, and the removed hours are the first ones.
+	return len(a.hours) == 0 || a.hours[len(a.hours)-1].scope < a.removedTo
+}
+
+// gone returns what err becomes,
+// the failure to open or read an object of the hour of index scope, -1 for one whose hour is unknown.
+// An object that is gone (ErrObjectNotFound) may be gone because retention removed its hour:
+// when a boundary is set, gone samples it, and the failure stands only while the acquisition still needs the object (needless).
+//
+// Returns:
+//   - error: nil when the object is gone and no longer needed;
+//     else err, joined with the provider's error, wrapped, when sampling fails.
+func (a *storeAcquisition) gone(ctx context.Context, scope int, err error) error {
+	if a.retention.provider == nil || !errors.Is(err, ErrObjectNotFound) {
+		return err
+	}
+	if serr := a.sample(ctx); serr != nil {
+		return errors.Join(err, serr)
+	}
+	if a.needless(scope) {
+		return nil
+	}
+
+	return err
 }

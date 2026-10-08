@@ -88,6 +88,10 @@ type SourceScope struct {
 	// such a scope has no Readers, and FindTransaction reads none of its packs;
 	// FindTransaction fails on a conflicted scope that comes with Readers.
 	Conflicted bool
+	// Removed reports a scope whose hour the source found removed by retention
+	// (the tracepack storage specification §5, Retention);
+	// such a scope has no Readers, and neither Indexed nor Conflicted is set.
+	Removed bool
 }
 
 // EpochClosure is the closure of one epoch that the per-capture evidence records:
