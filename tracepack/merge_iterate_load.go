@@ -121,6 +121,16 @@ type heldBlock struct {
 	owners int
 }
 
+// refusedReservationError is the error of a block whose reservation heldLoader.load refused, wrapping ErrReadLimit.
+// It tells the refusal apart from a ReadAt error, which may wrap ErrReadLimit too.
+type refusedReservationError struct {
+	err error
+}
+
+func (e *refusedReservationError) Error() string { return e.err.Error() }
+
+func (e *refusedReservationError) Unwrap() error { return e.err }
+
 // heldLoader reads blocks into held buffers, each reserved against budget before it is allocated.
 type heldLoader struct {
 	budget heldBudget
@@ -148,8 +158,8 @@ func (h *heldBlock) hold() {
 //     nil with a failed block or an error.
 //   - *Defect: the block's defect, with Pack set:
 //     a failed block's (no block), or ReasonIndexMismatch beside the block, as readBlock reports them.
-//   - error: an error wrapping ErrReadLimit when the reservation would exceed the budget;
-//     the ReadAt error, wrapped with the pack and block index.
+//   - error: a *refusedReservationError, wrapping ErrReadLimit, when the reservation would exceed the budget;
+//     the ReadAt error, wrapped with the pack and block index, whatever it wraps.
 //     Nothing stays reserved for the block after a defect without a block or an error.
 func (l *heldLoader) load(r *Reader, pack, i int) (*heldBlock, *Defect, error) {
 	s, def := r.preflightBlock(i)
@@ -159,7 +169,7 @@ func (l *heldLoader) load(r *Reader, pack, i int) (*heldBlock, *Defect, error) {
 		return nil, def, nil
 	}
 	if err := l.budget.reserve(s.total); err != nil {
-		return nil, nil, fmt.Errorf("tracepack: pack %d, block %d: %w", pack, i, err)
+		return nil, nil, &refusedReservationError{err: fmt.Errorf("tracepack: pack %d, block %d: %w", pack, i, err)}
 	}
 
 	h := &heldBlock{pack: pack, block: i, buf: s.newBuf(), size: s.total, owners: 1}

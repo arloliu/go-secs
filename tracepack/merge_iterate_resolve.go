@@ -29,6 +29,9 @@ type mergeIterateRun struct {
 	copies ctxCounter
 	// yields counts the calls of fn.
 	yields ctxCounter
+	// lastPack and lastBlock name the representative's block of the record of the last call of fn, set once yielded is.
+	lastPack, lastBlock int
+	yielded             bool
 }
 
 // ctxCounter counts toward the checks of ctx at every multiple of a step,
@@ -253,24 +256,19 @@ func (cr *clusterResolver) firstSeq(pos int) uint64 {
 //
 // Returns:
 //   - *openBlock: the block opened; nil when the block contributes no records.
-//   - error: ctx's error, wrapped; the loader's error, as is:
+//   - error: ctx's error, wrapped; the error of the block's read (loadHeld):
 //     an error wrapping ErrReadLimit when the block's reservation would exceed MaxHeldBytes,
-//     or a ReadAt error, wrapped with the pack and block index.
+//     a ReadAt error, wrapped with the pack and block index, joined with the error of the retention check after it,
+//     or an error wrapping ErrRemoved when an hour of an extract's records is removed.
 func (cr *clusterResolver) load(ctx context.Context, pos int, open []*openBlock) (*openBlock, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("tracepack: merge iterate: %w", err)
 	}
 
 	p, b := cr.run.p, &cr.c.blocks[pos]
-	h, def, err := p.loader.load(p.readers[b.pack], b.pack, b.block)
-	if err != nil {
+	h, err := p.loadHeld(ctx, p.readers[b.pack], b.pack, b.block)
+	if err != nil || h == nil {
 		return nil, err
-	}
-	if def != nil {
-		p.res.Incomplete = append(p.res.Incomplete, *def)
-	}
-	if h == nil {
-		return nil, nil //nolint:nilnil // a failed block contributes no records, which load returns as nil
 	}
 	if h.d.count() == 0 {
 		p.loader.release(h)
@@ -326,17 +324,30 @@ func (r *mergeIterateRun) packID(i int) UUID {
 
 // yield passes c's record to fn in *it, as the read yields it, and counts the call,
 // after checking ctx when the call is the read's 4096th, 8192nd, and so on.
+// Every call of fn, in either order, goes through yield.
+// Before the first call, and before every call whose record's representative is in another block,
+// by pack and block, than the last call's,
+// it then checks the retention boundary,
+// so a block's records reach fn only while every hour the read covers is retained.
 // When the plan has storedFlags, it receives the record's record_flags as stored before fn is called.
 // It leaves c unreleased, and resets *it to the zero Item once fn returns,
 // so the Item keeps no block the read releases.
 //
 // Returns:
-//   - error: ctx's error, wrapped, fn not called; fn's error, as is.
+//   - error: ctx's error, wrapped, fn not called;
+//     an error wrapping ErrRemoved, or Query.Retention's error, wrapped, fn not called;
+//     fn's error, as is.
 func (r *mergeIterateRun) yield(ctx context.Context, c *candidate, it *Item, fn func(*Item) error) error {
 	if r.yields.add(1) {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("tracepack: merge iterate: %w", err)
 		}
+	}
+	if !r.yielded || c.h.pack != r.lastPack || c.h.block != r.lastBlock {
+		if err := r.p.rs.check(ctx); err != nil {
+			return err
+		}
+		r.lastPack, r.lastBlock, r.yielded = c.h.pack, c.h.block, true
 	}
 	flags := c.item(r.q, it)
 	if r.p.storedFlags != nil {
@@ -346,6 +357,18 @@ func (r *mergeIterateRun) yield(ctx context.Context, c *candidate, it *Item, fn 
 	*it = Item{}
 
 	return err
+}
+
+// finish checks ctx, then the retention boundary, once the read has yielded every record.
+//
+// Returns:
+//   - error: ctx's error, wrapped; an error wrapping ErrRemoved; Query.Retention's error, wrapped.
+func (r *mergeIterateRun) finish(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("tracepack: merge iterate: %w", err)
+	}
+
+	return r.p.rs.check(ctx)
 }
 
 // add adds n, not negative, to the count,

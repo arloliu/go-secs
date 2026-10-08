@@ -983,13 +983,16 @@ func fuzzIterateSeeds(f *testing.F) [][]byte {
 // Iterate must never panic, and must keep the invariants of the tracepack semantics specification §7.4 on every input.
 // A complete result over a mutated input yields only records of the seed packs, byte for byte,
 // because every byte a record is read from is covered by a CRC that a mutation breaks.
+// A non-zero sched draws a schedule of the retention boundary for each query (newBoundaryScript),
+// under which the read agrees with the reference of a read under a boundary (requireScriptedRead).
 func FuzzIterate(f *testing.F) {
 	opts := ReaderOptions{MaxPackMetadataLen: 1 << 20, MaxFooterLen: 1 << 20, MaxBlockLen: 1 << 20}
 	queries := fuzzIterateQueries()
 
 	known := make(map[string]bool)
-	for _, file := range fuzzIterateSeeds(f) {
-		f.Add(file)
+	for i, file := range fuzzIterateSeeds(f) {
+		f.Add(file, uint64(0))
+		f.Add(file, uint64(1+i))
 
 		r := mustOpen(f, file, opts)
 		for _, q := range []Query{{Payloads: true}, {}} {
@@ -1001,10 +1004,14 @@ func FuzzIterate(f *testing.F) {
 		}
 	}
 
-	f.Fuzz(func(t *testing.T, data []byte) {
-		r, err := Open(t.Context(), bytes.NewReader(data), int64(len(data)), opts)
+	f.Fuzz(func(t *testing.T, data []byte, sched uint64) {
+		r, at, err := openScripted(t.Context(), data, 0, opts)
 		if err != nil {
 			return
+		}
+		var facts *retentionFacts
+		if sched != 0 {
+			facts = retentionFactsOf(t, []*Reader{r})
 		}
 
 		nblocks := len(r.Blocks())
@@ -1028,6 +1035,9 @@ func FuzzIterate(f *testing.F) {
 			}
 			if res.Complete() {
 				require.Empty(t, unknown, "a complete result yields only records of the seed packs; %v", q)
+			}
+			if sched != 0 {
+				checkScripted(t, facts, iterateScripted(t, r, at, q), sched)
 			}
 		}
 	})
