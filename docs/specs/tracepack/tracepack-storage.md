@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-10-05) — v2.24, tracepack format 1.0.
+Status: current (2026-10-07) — v2.25, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for publishers, mergers, recorders and log converters.
 
@@ -436,6 +436,7 @@ Its storage technology is not part of this specification.
   A reader checks it before each listing and before emitting each block's records.
   When an hour it is reading becomes removed, the reader stops reading it and ends the hour with the outcome **removed**:
   never an empty, partial or complete result, also when it already emitted records of that hour, which the outcome supersedes.
+  A reader may instead end its whole read with the outcome removed, superseding what it emitted of each removed hour (G5-164).
   The component that performs §4 Deletion then deletes the hour physically: for each scope, its packs (segments in `staging/` included, identified by their period) in any order,
   then its commit objects, then its per-scope and per-pack catalog entries if the scope is indexed.
   Because readers stop at the logical boundary, the order among the packs of a removed hour does not matter,

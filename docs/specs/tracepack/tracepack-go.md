@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
-Status: current (2026-10-05)
-Implements tracepack v2.24 (format 1.0): `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Status: current (2026-10-07)
+Implements tracepack v2.25 (format 1.0): `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -205,7 +205,23 @@ The query service, its catalog database and the live-tail interface are designed
   `FooterErrs` lists each pack whose footer was not used, outside `Incomplete`, since a finalized pack whose walk accounts for every block is complete without its footer.
   `FindTransaction` reports a scope that is not indexed (`cold`) and the scopes it searched in `TxResult`;
   for `Iterate` and `MergeIterate`, which take readers and cannot tell whether a scope is indexed, the searched scope and a `Cold` reason wait for a query over a `PackSource` (G5-140);
-  `Removed` lists the hours that ended with the removed outcome ([STO §5] Retention), and a caller never reports records of a removed hour as a result.
+  `Removed` lists the covered hours that are removed when a read ends with `ErrRemoved` (below), ascending, each once; `Complete()` reports false while it is non-empty.
+- Retention (G5-162, G5-164): a `Retention` provider, `RetainedFrom(ctx) (int64, error)`, returns the first UTC hour still retained, numbered as `HourOf`; every hour before it is removed ([STO §5] Retention).
+  `Query.Retention`, `TxOptions.Retention` and `StoreSourceOptions.Retention` take one; nil removes nothing.
+  A provider never falls behind the deleting component — before it deletes an object of an hour, every provider a reader asks already reports the hour removed; running ahead is safe, and a cache is safe only if the deleting component waits out its staleness — never moves the boundary back, is safe for concurrent use, and is cheap, since a read asks it at every block it emits;
+  a reader keeps the largest value seen, compares in `int64` hours, and ends with the provider's error, wrapped, when a call fails;
+  when the failing call is the check after an I/O failure, the wrapped provider error is joined after the I/O cause, both reachable by `errors.Is`.
+  A record belongs to its pack's scope hour, `HourOf(period_start)`, for every role but extract, whatever its `ts_utc_ns`; an extract's record to the hour of its `ts_utc_ns`.
+  The hours a read covers are the scope hours of its non-extract packs, the F-2 `ts_min` and `ts_max` hours of its extracts' indexed blocks, and the distinct hours of the extract records it decodes, added before filtering;
+  a newly covered hour is compared at once with the largest boundary seen.
+  `MergeIterate`'s planning pass over walked blocks adds a walked extract block's record hours before it drops the block's buffer.
+  The covered hours number at most the non-extract packs, plus two per indexed extract block, plus the distinct extract record hours decoded; they are kept outside `MaxHeldBytes`.
+  `Iterate` and `MergeIterate` ask the provider before reading anything, before the first callback and before every callback whose record comes from another block than the previous callback's (for `MergeIterate`, the representative's block),
+  after an open or read I/O failure, and before returning success.
+  The deleting component deletes an object only after the boundary passed its hour, so a check that finds every covered hour retained proves that no read before it met an object retention deleted.
+  When a check finds a covered hour removed, the read ends at once with an error wrapping `ErrRemoved`, joined after the I/O cause when it follows a failure,
+  beside the `Result` found so far, with `Removed` set: its records, defects and conflicts of the removed hours, records passed to `fn` included, are superseded, and the caller discards them (G5-164).
+  A callback's error, a `ctx` error and a budget error (`ErrReadLimit`) end a read as before, with no retention check after them; a block defect is still a defect.
 - `Filter` uses typed slices (`[]SF`, `[]Kind`, `*[4]byte`) and a time range, with nil meaning "any"; no sentinel values.
   HSMS header fields are matched on payload values, available only where `field_validity` says so ([FMT §7.2]).
 - `MergeIterate(ctx, readers, Query, MergeIterateOptions, fn) (Result, error)`: one read over several packs, as [SEM §7.4] resolves and orders it;
@@ -226,13 +242,20 @@ The query service, its catalog database and the live-tail interface are designed
   A block over the reader's `MaxBlockLen`, or whose stated dimensions cannot be consistent, is a defect and is skipped, as in `Iterate`.
 - `FindTransaction(ctx, src PackSource, TxKey, TxOptions) (TxResult, error)`: [SEM §7.2]'s lookup from a primary named by `TxKey{Capture, Seq, Hour}` (G5-124);
   it derives the key from the primary (G5-122) and fails with `ErrNotPrimary` when the record is not a `data` record whose function is available and odd, or is absent from a complete read (G5-125).
-  `TxOptions`: `MaxScopes` (the hours scheduled from `Hour`, default 2, G5-121; a conflicted one is scheduled but not read), `MaxHeldBytes` per read, `MaxConflicts` over the lookup, `MaxStateBytes` for the lookup's own state.
+  `TxOptions`: `MaxScopes` (the hours scheduled from `Hour`, default 2, G5-121; a conflicted one is scheduled but not read), `MaxHeldBytes` per read, `MaxConflicts` over the lookup, `MaxStateBytes` for the lookup's own state,
+  and `Retention`, given to every scope read as its `Query.Retention`.
+  The lookup fails with an error wrapping `ErrRemoved` when the primary's hour is removed (G5-163): the lookup checks it before `Observe`, after a failed `Observe` whose error is neither a `ctx` error nor `ErrReadLimit` (`ErrRemoved`, or a failing provider's wrapped error, joined after that cause),
+  before each scheduled scope, and after evaluation and barriers, before it closes the observation and returns an outcome;
+  a scope read ending with `ErrRemoved`, or a scope the source reports `Removed`, ends it too, since such a read met removed data, and, as the lookup schedules hours from the primary's forward, a removed scheduled hour implies a removed primary hour.
+  An earlier error of the lookup, `ErrNotPrimary` included, stands: the checks above are the lookup's only retention checks.
+  The `TxResult` beside `ErrRemoved` keeps the diagnostics found, with a zero outcome, as beside the lookup's other errors.
+  A scope reported `Removed` with readers is a source error, as a conflicted one with readers is.
   `TxResult` holds the outcome (`TxMatched`, `TxAmbiguous`, `TxUnmatched`, `TxIncomplete`; zero only beside an error), the derived key with the W bit,
   the window end, every kept version as a `TxRecord` with its roles as a `TxClass` bit set (primary, candidate, possible reply, same-key primary, possible same-key primary, closing record, outcome record) and its candidate flags,
   every reason absence could not be established as a `TxGap` naming its hours and pack_id (`TxGapConflicted` for a conflicted scope not read, G5-142, and `TxGapScopeBreach` for a record outside its scope's hour, G5-146, among them), the scopes read, the conflicts and the footer errors.
   Each scope read is one `MergeIterate` in capture order; its guarantees cover the scopes read (G5-136).
   `PackSource.Observe(ctx, capture, from, to)` returns an `Observation` fixed before it returns ([STO §5] Observation of a lookup, G5-128):
-  `Scope(ctx, hour)` (a `SourceScope`: the readers of the scope's view, whether it is indexed, and `Conflicted` with no readers for a conflicted view, G5-142), `Evidence(ctx)` (end state, capture-boundary entries, epoch closures, a partial flag), `Barriers(ctx, from, to)` (the tool's `stop-unclean` boundaries meeting `[from, to)` in nanoseconds, which must be non-empty and lie within the observation's hours; any other range is an error) and `Close`, which never blocks;
+  `Scope(ctx, hour)` (a `SourceScope`: the readers of the scope's view, whether it is indexed, `Conflicted` with no readers for a conflicted view, G5-142, and `Removed` with no readers for a removed hour, G5-165), `Evidence(ctx)` (end state, capture-boundary entries, epoch closures, a partial flag), `Barriers(ctx, from, to)` (the tool's `stop-unclean` boundaries meeting `[from, to)` in nanoseconds, which must be non-empty and lie within the observation's hours; any other range is an error) and `Close`, which never blocks;
   every value returned is the caller's: `Readers` a fresh slice, the evidence and the boundaries deep copies, none changed afterwards by the source or by the lookup;
   readers stay valid until `Close`.
   An `Observe` that fails returns no `Observation`; the lookup closes one it got exactly once, after its last use, whatever happened.
@@ -256,7 +279,17 @@ The query service, its catalog database and the live-tail interface are designed
   it is called synchronously from the goroutine running `Observe`, possibly concurrently from concurrent `Observe` calls, so it must be safe for concurrent use and return promptly;
   the value it gets is its own; ctx is checked when it returns, and a panic in it propagates after `Observe` has closed every object it opened.
   Every value the adapters return is the source's once returned; both adapters, and the source, are safe for concurrent use.
-  Its guarantees hold while every hour observed stays retained until the lookup's last use; the retention boundary comes with phase 5c3.
+  Its guarantees hold while every hour observed stays retained until the lookup's last use.
+  `StoreSourceOptions.Retention` (G5-165): `Observe` asks it before every list page, commit traversals included, before each open, after a scope's last listing and read and before its view is computed,
+  and once more after every scope is fixed, classifying every scope against that final sample;
+  every sample classifies every scope known so far against the largest boundary seen.
+  A scope whose hour is removed is reported `Removed`, with no readers: removal found before its view is built skips the view and the confirmation, removal found after discards the view;
+  its objects are closed once and their charges released at once, and the acquisition work only it needs stops, so no lower-generation view is formed from a half-deleted hour;
+  the capture-wide staging listing and its pending opens stop once no retained scope of the observation depends on them.
+  A gone object whose hour is known — a pack the catalog names for an indexed scope, an archive key, a segment whose head was read — and removed marks its scope removed;
+  a gone object of an unknown hour, a segment the staging listing found whose head was not read, keeps the retriable `ErrObjectNotFound` while a retained scope depends on that listing, as does every gone object without a provider.
+  The final sample promises nothing about later advances, which the lookup's own checks cover:
+  give `StoreSourceOptions.Retention` and `TxOptions.Retention` the same provider; the source's alone leaves the lookup unprotected after `Observe` returns.
   `EscapeToolID`, `SegmentKey`, `ArchiveKey` and `CommitKey` build the keys of [STO §3].
   A key that cannot be built, and a listed or catalog key that does not parse as a key of [STO §3], is an error wrapping `ErrInvalidKey`, which the error of a failed `Observe` keeps (G5-148); retrying does not cure it.
 - `NewReaderSource(readers []*Reader, ReaderSourceOptions) (PackSource, error)` (G5-154, G5-156): a source over packs the caller opened.

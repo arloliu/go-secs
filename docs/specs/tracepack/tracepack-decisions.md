@@ -801,3 +801,23 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   on `js` `os.Root` checks a link before using the path, so a replaced link escapes `root`.
   Rejected: a traversal holding each directory handle and refusing links at every step, which needs platform-specific code to guard against an actor that can delete segments anyway; documenting links as the operator's concern.
   Spec: `tracepack-go.md` §3 (v2.24).
+- G5-162 The retention boundary is a provider the caller supplies (2026-10-07, phase 5c3):
+  a `Retention` interface, `RetainedFrom(ctx) (int64, error)`, returns the first UTC hour still retained; `Query.Retention`, `TxOptions.Retention` and `StoreSourceOptions.Retention` take one, nil removing nothing; it is asked again at every check.
+  Rationale: the boundary advances while a read runs, so a fixed value given at the start cannot express [STO §5]'s checks before each listing and each block emitted.
+  Rejected: a fixed hour per read.
+  Spec: `tracepack-go.md` §3 (v2.25).
+- G5-163 A lookup whose primary's hour is removed fails with `ErrRemoved` (2026-10-07, phase 5c3):
+  the lookup schedules hours from the primary's forward and the boundary never moves back, so every removal a lookup meets implies a removed primary hour; there is no removed gap and no removed list in `TxResult`.
+  Rationale: without its primary a lookup has no result to report.
+  Rejected: an incomplete outcome for a removed later hour, which cannot occur.
+  Spec: `tracepack-go.md` §3 (v2.25).
+- G5-164 A read that meets a removed hour ends whole (2026-10-07, phase 5c3, re-decided after plan review r1):
+  `Iterate` and `MergeIterate` end with an error wrapping `ErrRemoved` as soon as an hour the read covers is removed, beside the `Result` found so far with `Result.Removed`; [STO §5] lets a reader end its whole read this way.
+  Rationale: ending only the hour and reading the others on needs every held block, queued record, conflict version and defect of the hour invalidated mid-read.
+  Rejected: listing the hour and reading the other hours on (the first choice, withdrawn after plan review r1).
+  Spec: `tracepack-go.md` §3, `tracepack-storage.md` §5 (v2.25).
+- G5-165 Retention in the library is the reader side only (2026-10-07, phase 5c3):
+  reads, the lookup and `NewStoreSource`'s `Observe` check the boundary, and `Observe` reports a removed hour as `SourceScope.Removed` instead of failing; deleting a removed hour's objects stays the service's work, and `NewReaderSource` takes no provider.
+  Rationale: the library reads; the deleting component owns the order of physical deletion.
+  Rejected: a deletion helper over `ObjectStore`, which needs a `Delete` method.
+  Spec: `tracepack-go.md` §3 (v2.25).
