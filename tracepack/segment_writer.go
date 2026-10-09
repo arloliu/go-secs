@@ -64,6 +64,8 @@ type SegmentWriterOptions struct {
 	SkipValidation bool
 	// Now returns the current time, which a zero CaptureOrigin takes and Close stamps the stop boundary with;
 	// nil means time.Now.
+	// It is also every segment's WriterOptions.Now, which stamps the segment's writer_start_utc_ns,
+	// and it gives the time part of the capture_id and of every segment pack_id the SegmentWriter generates.
 	Now func() time.Time
 }
 
@@ -261,10 +263,7 @@ func prepareSegmentWriter(opts *SegmentWriterOptions) (*SegmentWriter, error) {
 		}
 	}
 
-	now := opts.Now
-	if now == nil {
-		now = time.Now
-	}
+	now := clockOr(opts.Now)
 
 	w := &SegmentWriter{
 		desc:       opts.Capture.resolve(now()),
@@ -298,7 +297,7 @@ func prepareSegmentWriter(opts *SegmentWriterOptions) (*SegmentWriter, error) {
 	}
 
 	var err error
-	if w.captureID, err = idOrNew(UUID{}); err != nil {
+	if w.captureID, err = idOrNew(UUID{}, now); err != nil {
 		return nil, err
 	}
 
@@ -816,7 +815,7 @@ func (w *SegmentWriter) roll(ctx context.Context) error {
 // open opens the segment of the record at ts: it builds its Writer, then has the sink create it and writes its head.
 func (w *SegmentWriter) open(ctx context.Context, ts int64) error {
 	start, end, _ := periodOf(ts, w.flush) // preflight checked the period
-	packID, err := idOrNew(UUID{})
+	packID, err := idOrNew(UUID{}, w.now)
 	if err != nil {
 		return err
 	}
@@ -836,6 +835,7 @@ func (w *SegmentWriter) open(ctx context.Context, ts int64) error {
 		PackID:           packID,
 		CaptureID:        w.captureID,
 		DetectClockSteps: w.detect,
+		Now:              w.now,
 		anchor:           &w.anchor,
 	})
 	if err != nil {

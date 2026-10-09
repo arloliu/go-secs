@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"slices"
+	"time"
 
 	"github.com/arloliu/go-secs/tracepack/internal/format"
 )
@@ -14,6 +15,7 @@ import (
 var (
 	// ErrRepairNotNeeded reports a finalized-consistent pack without the WriterDefectSeqStart defect,
 	// which Repair leaves as it is and writes nothing for (the tracepack format specification §13).
+	// Repair decides it before any refusal, so it holds whatever the pack's role.
 	ErrRepairNotNeeded = errors.New("tracepack: pack needs no repair")
 	// ErrNotRepairable reports a pack for which no faithful and consistent patch can be made
 	// (the tracepack format specification §13): a pack that is not stored, a period or a validated block outside one UTC hour, a seq-order or hour-span writer defect,
@@ -38,6 +40,11 @@ type RepairOptions struct {
 	Codec Codec
 	// Sync, when set, is called after every copied block and after the trailer, as WriterOptions.Sync is.
 	Sync Syncer
+	// Now returns the time the patch's writer_start_utc_ns is stamped with,
+	// and the time part of the PackID that Repair generates for a zero option, as WriterOptions.Now does;
+	// nil means time.Now.
+	// A supplied PackID is kept.
+	Now func() time.Time
 }
 
 // RepairReport is the result of Repair.
@@ -61,7 +68,10 @@ type RepairReport struct {
 // every validated block copied byte for byte, the footer rebuilt from the copied records, supersedes naming the damaged pack, and the damaged pack's coverage followed by entries for the records it lost.
 //
 // Repair verifies the pack first, as Verify does, and decides every refusal before it writes a byte.
-// It then reads each validated block again and copies it, requiring it to be the block the verification read.
+// A finalized-consistent pack without the seq_start writer defect has nothing to repair:
+// Repair reports ErrRepairNotNeeded for it before it checks any refusal, an extract's role included
+// (the tracepack format specification §13).
+// Otherwise it reads each validated block again and copies it, requiring it to be the block the verification read.
 // The source must not change while Repair runs.
 //
 // After any error the caller discards what was written to dst.
@@ -119,21 +129,23 @@ type repairPlan struct {
 }
 
 // planRepair decides, before anything is written, whether the pack analyzed as a can be repaired, and returns the patch's plan.
-// It decides in this order: the pack's role, whether it needs repair, its period, the writer defects,
+// It decides in this order: whether the pack needs repair, its role, its period, the writer defects,
 // the hours of the validated blocks, the metadata's commitments, the lost runs, then the options and the patch's metadata,
-// so a refusal of the pack is never masked by an option error.
+// so a pack with nothing to repair is reported as such whatever else holds, its role included
+// (the tracepack format specification §13),
+// and a refusal of the pack is never masked by an option error.
 //
 // Returns:
 //   - *repairPlan: the plan; nil on error.
 //   - error: ErrRepairNotNeeded, an error wrapping ErrNotRepairable, an empty opts.Writer, opts.PackID equal to the pack's,
 //     or a *FieldError from validating or encoding the patch's metadata.
 func (r *Reader) planRepair(a *analysis, opts *RepairOptions) (*repairPlan, error) {
+	if a.report.Outcome == OutcomeFinalizedConsistent && !hasSeqStartDefect(a.report.WriterDefects) {
+		return nil, ErrRepairNotNeeded
+	}
 	meta := r.meta
 	if role := meta.PackRole; role != PackRoleSegment && role != PackRoleArchive && role != PackRoleRepair {
 		return nil, fmt.Errorf("%w: pack_role %s is not a stored pack's", ErrNotRepairable, role)
-	}
-	if a.report.Outcome == OutcomeFinalizedConsistent && !hasSeqStartDefect(a.report.WriterDefects) {
-		return nil, ErrRepairNotNeeded
 	}
 
 	if meta.PeriodStart >= meta.PeriodEnd || hourOf(meta.PeriodStart) != hourOf(meta.PeriodEnd-1) {
@@ -350,7 +362,7 @@ func (r *Reader) patchMeta(a *analysis, opts *RepairOptions, coverage []Coverage
 func (r *Reader) writePatch(ctx context.Context, a *analysis, p *repairPlan, dst io.Writer, opts *RepairOptions) (RepairReport, error) {
 	w, err := startWriter(dst, WriterOptions{
 		Meta: p.meta, Facts: p.facts, Codec: opts.Codec, Sync: opts.Sync,
-		PackID: opts.PackID, CaptureID: UUID(r.hdr.CaptureID),
+		PackID: opts.PackID, CaptureID: UUID(r.hdr.CaptureID), Now: opts.Now,
 		// Every block a repair writes goes through appendBlock, which never validates:
 		// the full read already validated it.
 		SkipValidation: true,
