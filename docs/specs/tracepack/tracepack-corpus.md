@@ -385,7 +385,8 @@ A conflict:
 
 In capture order a conflict is discovered per seq,
 as a capture advances to its next selected record ([SEM §7.4] Order of a read over several packs):
-a capture whose selected versions are all yielded resolves its next seqs in ascending order, the conflicting ones among them,
+a capture whose selected versions are all yielded resolves its next seqs,
+in the clusters it does not exclude, in ascending order, the conflicting ones among them,
 up to its next selected record or its last seq, before the read yields another record;
 a conflict above that record, in the same cluster or a later one, is not yet discovered.
 
