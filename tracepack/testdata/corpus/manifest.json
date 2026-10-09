@@ -309,6 +309,315 @@
       ]
     },
     {
+      "id": "bootstrap-bad-magic",
+      "title": "a file header whose magic is not tracepack's, its CRC valid",
+      "cites": [
+        "FMT §4",
+        "FMT §13",
+        "CORPUS §5.3"
+      ],
+      "class": "rejection",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "rejection.json"
+      ]
+    },
+    {
+      "id": "bootstrap-conditional-tag",
+      "title": "a capture-clock pack without capture_origin_utc_ns",
+      "cites": [
+        "FMT §5",
+        "SEM §4",
+        "FMT §13",
+        "CORPUS §5.3"
+      ],
+      "class": "rejection",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "rejection.json"
+      ]
+    },
+    {
+      "id": "bootstrap-entry-framing",
+      "title": "pack metadata ending with an entry whose value runs past the list",
+      "cites": [
+        "FMT §5",
+        "FMT §13",
+        "CORPUS §5.3"
+      ],
+      "class": "rejection",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "rejection.json"
+      ]
+    },
+    {
+      "id": "bootstrap-entry-nested",
+      "title": "pack metadata holding a coverage entry whose nested list breaks framing",
+      "cites": [
+        "FMT §5",
+        "FMT §13",
+        "CORPUS §5.3"
+      ],
+      "class": "rejection",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "rejection.json"
+      ]
+    },
+    {
+      "id": "bootstrap-entry-repetition",
+      "title": "pack metadata holding tool_id twice",
+      "cites": [
+        "FMT §5",
+        "FMT §13",
+        "CORPUS §5.3"
+      ],
+      "class": "rejection",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "rejection.json"
+      ]
+    },
+    {
+      "id": "bootstrap-entry-type",
+      "title": "pack metadata whose transport entry is of value type utf8",
+      "cites": [
+        "FMT §5",
+        "FMT §13",
+        "CORPUS §5.3"
+      ],
+      "class": "rejection",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "rejection.json"
+      ]
+    },
+    {
+      "id": "bootstrap-entry-value",
+      "title": "pack metadata whose device_id is 2^63",
+      "cites": [
+        "FMT §5",
+        "FMT §2",
+        "CORPUS §8",
+        "FMT §13",
+        "CORPUS §5.3"
+      ],
+      "class": "rejection",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "rejection.json"
+      ]
+    },
+    {
+      "id": "bootstrap-header-crc",
+      "title": "a file header whose stored header_crc is wrong",
+      "cites": [
+        "FMT §4",
+        "FMT §13",
+        "CORPUS §5.3"
+      ],
+      "class": "rejection",
+      "labels": [
+        "damaged"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "rejection.json"
+      ]
+    },
+    {
+      "id": "bootstrap-metadata-crc",
+      "title": "a file header whose stored pack_metadata_crc is wrong, its header_crc valid",
+      "cites": [
+        "FMT §4",
+        "FMT §13",
+        "CORPUS §5.3"
+      ],
+      "class": "rejection",
+      "labels": [
+        "damaged"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "rejection.json"
+      ]
+    },
+    {
+      "id": "bootstrap-metadata-past-object",
+      "title": "a pack cut before the last byte of its pack metadata",
+      "cites": [
+        "FMT §4",
+        "FMT §13",
+        "CORPUS §5.3"
+      ],
+      "class": "rejection",
+      "labels": [
+        "damaged"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "rejection.json"
+      ]
+    },
+    {
+      "id": "bootstrap-record-conditioned-tag",
+      "title": "a classified record in a pack without classifier",
+      "cites": [
+        "FMT §13",
+        "FMT §5",
+        "FMT I-11"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "bootstrap-replacement-set-index",
+      "title": "a generation whose replacement_set_index is 1",
+      "cites": [
+        "FMT §5",
+        "STO §6",
+        "FMT §13",
+        "CORPUS §5.3"
+      ],
+      "class": "rejection",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "rejection.json"
+      ]
+    },
+    {
+      "id": "bootstrap-replacement-set-size",
+      "title": "a generation whose replacement_set_size is 2",
+      "cites": [
+        "FMT §5",
+        "STO §6",
+        "FMT §13",
+        "CORPUS §5.3"
+      ],
+      "class": "rejection",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "rejection.json"
+      ]
+    },
+    {
+      "id": "bootstrap-required-tag",
+      "title": "pack metadata without tool_id",
+      "cites": [
+        "FMT §5",
+        "FMT §13",
+        "CORPUS §5.3"
+      ],
+      "class": "rejection",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "rejection.json"
+      ]
+    },
+    {
+      "id": "bootstrap-short-object",
+      "title": "a file header cut before its last byte",
+      "cites": [
+        "FMT §4",
+        "FMT §13",
+        "CORPUS §5.3"
+      ],
+      "class": "rejection",
+      "labels": [
+        "damaged"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "rejection.json"
+      ]
+    },
+    {
+      "id": "bootstrap-unsupported-version",
+      "title": "a file header of format_major 2, its CRC valid",
+      "cites": [
+        "FMT §4",
+        "FMT §14",
+        "FMT §13",
+        "CORPUS §5.3"
+      ],
+      "class": "rejection",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "rejection.json"
+      ]
+    },
+    {
       "id": "footer-close-twice-one-block",
       "title": "an epoch ended by a socket-close, then a clean stop, in one block",
       "cites": [
@@ -1042,6 +1351,284 @@
         "pack.tpk",
         "export.jsonl",
         "verify.json"
+      ]
+    },
+    {
+      "id": "validation-i2-injection",
+      "title": "a validating Writer's output stopped before a block with an injected I-2 defect",
+      "cites": [
+        "FMT §12",
+        "FMT §16",
+        "FMT I-2",
+        "CORPUS §1",
+        "CORPUS §5.4"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "queries.json"
+      ]
+    },
+    {
+      "id": "verify-corrupt-middle-walked",
+      "title": "a middle block failing its body CRC, its envelope intact, the footer rejected",
+      "cites": [
+        "FMT §13",
+        "FMT I-1",
+        "FMT §16"
+      ],
+      "class": "read",
+      "labels": [
+        "damaged"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "verify-defect-event-field-validity",
+      "title": "a socket-connect record whose field_validity is not 0",
+      "cites": [
+        "FMT §13",
+        "FMT §7.2"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "verify-defect-event-payload",
+      "title": "a state-transition event whose body is not a valid TLV body",
+      "cites": [
+        "FMT §13",
+        "FMT §8",
+        "FMT §5"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "verify-defect-hour-span",
+      "title": "a block whose records lie in two UTC hours, its F-2 entry stating one",
+      "cites": [
+        "FMT §13",
+        "FMT I-13",
+        "FMT §10"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "verify-defect-seq-order",
+      "title": "a block whose first seq is below the last seq of the block before it, the footer stating it",
+      "cites": [
+        "FMT §13",
+        "FMT I-12",
+        "FMT §10"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "verify-f2-disagrees",
+      "title": "a block whose records disagree with its F-2 entry, the footer valid",
+      "cites": [
+        "FMT §13",
+        "FMT §10",
+        "CORPUS §5.4"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "queries.json"
+      ]
+    },
+    {
+      "id": "verify-f3-disagrees",
+      "title": "a block whose records disagree with its F-3 summary only",
+      "cites": [
+        "FMT §13",
+        "FMT §10",
+        "CORPUS §5.4"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "queries.json"
+      ]
+    },
+    {
+      "id": "verify-last-block-failed",
+      "title": "the last block failing its body CRC, the footer valid",
+      "cites": [
+        "FMT §13",
+        "FMT §16"
+      ],
+      "class": "read",
+      "labels": [
+        "damaged"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "verify-seq-start-above",
+      "title": "a first block whose first seq is above seq_start",
+      "cites": [
+        "FMT §13",
+        "FMT §5"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "verify-seq-start-after-failed",
+      "title": "a failed first block, then a block whose first seq is seq_start",
+      "cites": [
+        "FMT §13",
+        "FMT §5"
+      ],
+      "class": "read",
+      "labels": [
+        "damaged",
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "verify-seq-start-below",
+      "title": "a first block whose first seq is below seq_start",
+      "cites": [
+        "FMT §13",
+        "FMT §5"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "verify-truncation-none",
+      "title": "a pack of two blocks, codec none, cut at every byte offset",
+      "cites": [
+        "FMT §16",
+        "FMT §13",
+        "CORPUS §5.7"
+      ],
+      "class": "truncation",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "truncation.json"
+      ]
+    },
+    {
+      "id": "verify-truncation-zstd",
+      "title": "the records of verify-truncation-none, blocks and footer of codec zstd, cut at every byte offset",
+      "cites": [
+        "FMT §16",
+        "FMT §13",
+        "CORPUS §5.7",
+        "CORPUS §6"
+      ],
+      "class": "truncation",
+      "labels": [],
+      "codec": "zstd",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "truncation.json"
       ]
     }
   ]

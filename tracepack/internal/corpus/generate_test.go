@@ -128,6 +128,15 @@ func TestGenerateFailsOnDisagreement(t *testing.T) {
 		{"footer-invalid-socket-close-body", "a recomputed close_seq", func(e *Expectation) {
 			e.Footer.Recomputed.Blocks[0].CloseSeqs = []CloseSeq{{Epoch: 1, Seq: 2}}
 		}},
+		{"bootstrap-bad-magic", "rejection code", func(e *Expectation) { e.Rejection = RejectHeaderCRC }},
+		{"verify-truncation-none", "a row's first cut", func(e *Expectation) { e.Cuts[3].From = AtBlock(0).Plus(2) }},
+		{"verify-truncation-none", "a row's rejection", func(e *Expectation) { e.Cuts[1].Rejection = RejectShortObject }},
+		{"verify-truncation-none", "a row's outcome", func(e *Expectation) { e.Cuts[2].Outcome = tracepack.OutcomeFinalizedTruncated }},
+		{"verify-truncation-none", "a row's records", func(e *Expectation) { e.Cuts[4].Records = 1 }},
+		{"verify-truncation-none", "a row's validated blocks", func(e *Expectation) { e.Cuts[6].Validated = 1 }},
+		{"verify-truncation-none", "a row's prefix end", func(e *Expectation) { e.Cuts[5].PrefixEnd = AtBlock(0) }},
+		{"verify-truncation-none", "a row's walk stop", func(e *Expectation) { e.Cuts[3].WalkStop = Pos{} }},
+		{"verify-truncation-none", "a row missing", func(e *Expectation) { e.Cuts = e.Cuts[:len(e.Cuts)-1] }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.id+" "+tt.name, func(t *testing.T) {
@@ -138,6 +147,7 @@ func TestGenerateFailsOnDisagreement(t *testing.T) {
 			e.Seqs = slices.Clone(e.Seqs)
 			e.Failed = slices.Clone(e.Failed)
 			e.Queries = slices.Clone(e.Queries)
+			e.Cuts = slices.Clone(e.Cuts)
 			if e.Stats != nil {
 				e.Stats = new(*e.Stats)
 				e.Stats.Epochs = slices.Clone(e.Stats.Epochs)
@@ -173,6 +183,32 @@ func TestGenerateChecksRecipeDeclarations(t *testing.T) {
 	none.Expect = recipeByID(t, "basic-uuid-byte-order").Expect
 	_, err = generateRecipes(t.Context(), []Recipe{none, mixed}, "test")
 	require.ErrorContains(t, err, "share their identity")
+}
+
+// TestRecipesCheckTheirRows checks that a truncation vector, and only one, expects the rows of its table.
+func TestRecipesCheckTheirRows(t *testing.T) {
+	t.Parallel()
+
+	trunc := recipeByID(t, "verify-truncation-none")
+	trunc.Expect = new(*trunc.Expect)
+	trunc.Expect.Cuts = nil
+	require.Error(t, trunc.check(), "a truncation vector without rows")
+
+	read := recipeByID(t, "basic-codec-none")
+	read.Expect = new(*read.Expect)
+	read.Expect.Cuts = []CutWant{{From: AtOffset(0), Rejection: RejectShortObject}}
+	require.Error(t, read.check(), "rows on a read vector")
+}
+
+func TestExportLines(t *testing.T) {
+	t.Parallel()
+
+	lines, err := exportLines([]byte("{\"h\":1}\n{\"seq\":\"0\"}\n"))
+	require.NoError(t, err)
+	require.Equal(t, [][]byte{[]byte("{\"h\":1}\n"), []byte("{\"seq\":\"0\"}\n")}, lines)
+
+	_, err = exportLines([]byte("{}"))
+	require.Error(t, err)
 }
 
 func TestGenerateDeterministic(t *testing.T) {
@@ -431,7 +467,7 @@ func manifestEncoder(t *testing.T, files map[string][]byte, encoder string) func
 const specFile = "../../../docs/specs/tracepack/tracepack-corpus.md"
 
 // generatedGroups are the id prefixes of the groups the generator builds so far.
-var generatedGroups = []string{"basic-", "footer-", "framing-"}
+var generatedGroups = []string{"basic-", "bootstrap-", "footer-", "framing-", "validation-", "verify-"}
 
 // TestRecipeIDsAreCatalogued checks that every vector of a generated group that the catalogue of the tracepack corpus specification §9.4 lists has a recipe,
 // and that no recipe is missing from it.

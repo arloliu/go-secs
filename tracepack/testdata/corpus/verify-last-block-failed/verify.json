@@ -1,0 +1,28 @@
+{
+  "outcome": "finalized-truncated",
+  "finalized": true,
+  "footer_valid": true,
+  "blocks_located": 3,
+  "blocks_validated": 2,
+  "records": "8",
+  "prefix_end": "878",
+  "failed_blocks": [
+    {
+      "block": 2,
+      "offset": "878",
+      "cause": "corrupt-block"
+    }
+  ],
+  "disagreeing_blocks": [],
+  "trailer_totals_disagree": false,
+  "writer_defects": [],
+  "lost": [
+    {
+      "capture_id": "01a0ffeb-3600-7edc-babf-7e479da53a2f",
+      "seq_first": "8",
+      "seq_last": "11",
+      "time_start": "1791000000008000000",
+      "time_end": "1791000000011000000"
+    }
+  ]
+}

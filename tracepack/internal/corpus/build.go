@@ -113,15 +113,8 @@ type packSpec struct {
 // pack_id and capture_id from the seed unless s.packID is set, the corpus clock,
 // each element of s.blocks flushed as one block, then the pack closed unless s.open.
 func writeSpec(s *packSpec) ([]byte, error) {
-	packID := s.packID
-	if packID.IsZero() {
-		packID = IDFor(rolePackID, s.seed)
-	}
-
 	var buf bytes.Buffer
-	w, err := tracepack.NewWriter(&buf, tracepack.WriterOptions{
-		Meta: s.meta, PackID: packID, CaptureID: IDFor(roleCaptureID, s.seed), Codec: s.codec, BlockThreshold: s.threshold, Now: corpusNow,
-	})
+	w, err := tracepack.NewWriter(&buf, s.options())
 	if err != nil {
 		return nil, err
 	}
@@ -142,6 +135,19 @@ func writeSpec(s *packSpec) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+// options returns the options of the Writer of s:
+// pack_id and capture_id from the seed unless s.packID is set, the codec, the block size threshold and the corpus clock.
+func (s *packSpec) options() tracepack.WriterOptions {
+	packID := s.packID
+	if packID.IsZero() {
+		packID = IDFor(rolePackID, s.seed)
+	}
+
+	return tracepack.WriterOptions{
+		Meta: s.meta, PackID: packID, CaptureID: IDFor(roleCaptureID, s.seed), Codec: s.codec, BlockThreshold: s.threshold, Now: corpusNow,
+	}
 }
 
 // hsmsFrame returns an HSMS frame: the 4-byte length, the 10-byte header and text.
