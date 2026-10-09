@@ -75,7 +75,7 @@ func validationVectors() []Recipe {
 				if err != nil {
 					return nil, err
 				}
-				if err := checkInjection(run); err != nil {
+				if err := checkInjection(run, InjectI2); err != nil {
 					return nil, err
 				}
 
@@ -91,11 +91,11 @@ func validationVectors() []Recipe {
 	}
 }
 
-// checkInjection checks that InjectI2 breaks I-2, and only I-2, in the last block of run:
+// checkInjection checks that inject, InjectI2 outside tests, breaks I-2, and only I-2, in the last block of run:
 // the run's blocks written whole and left unfinalized, so that no F-2 entry is compared,
-// with the damage applied to the last block's stored body and its envelope's body_crc recomputed,
+// with inject applied to the last block's stored body and its envelope's body_crc recomputed,
 // verify that block, and that block alone, as failed.
-func checkInjection(run *WriterRun) error {
+func checkInjection(run *WriterRun, inject func(enc []byte) []byte) error {
 	last := len(run.Blocks) - 1
 	pack, err := writeSpec(&packSpec{seed: InjectionID, meta: run.Options.Meta, blocks: run.Blocks, open: true})
 	if err != nil {
@@ -109,7 +109,7 @@ func checkInjection(run *WriterRun) error {
 	if err != nil {
 		return err
 	}
-	body := InjectI2(pack[s.Offset+format.EnvelopeLen : s.Offset+s.Len])
+	body := inject(pack[s.Offset+format.EnvelopeLen : s.Offset+s.Len])
 	copy(pack[s.Offset+format.EnvelopeLen:], body)
 	if pack, err = PatchEnvelope(pack, last, func(env []byte) {
 		binary.LittleEndian.PutUint32(env[envelopeBodyCRCOff:], format.CRC(body))

@@ -363,6 +363,31 @@ func TestExportLines(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestTruncationTableChecksExportContent checks that truncationTable refuses a base export whose record lines
+// are not those of the pack, in their order, byte for byte: the record lines of each cut's export are compared, not counted.
+func TestTruncationTableChecksExportContent(t *testing.T) {
+	t.Parallel()
+
+	r := recipeByID(t, "verify-truncation-none")
+	pack := must(r.Build(r.seed()))(t).Pack
+	export, _, err := exportPack(t.Context(), must(openBytes(t.Context(), pack))(t))
+	require.NoError(t, err)
+	_, err = truncationTable(t.Context(), pack, export, nil)
+	require.NoError(t, err)
+
+	lines := must(exportLines(export))(t)
+	swapped := slices.Clone(lines)
+	swapped[1], swapped[2] = swapped[2], swapped[1]
+	changed := slices.Clone(lines)
+	changed[2] = bytes.Replace(changed[2], []byte(`"mono_ns":"0"`), []byte(`"mono_ns":"1"`), 1)
+	require.NotEqual(t, lines[2], changed[2])
+
+	for name, altered := range map[string][][]byte{"record lines 1 and 2 swapped": swapped, "a byte of record line 2 changed": changed} {
+		_, err := truncationTable(t.Context(), pack, bytes.Join(altered, nil), nil)
+		require.ErrorContains(t, err, "is not the header and the", name)
+	}
+}
+
 func TestGenerateDeterministic(t *testing.T) {
 	t.Parallel()
 
