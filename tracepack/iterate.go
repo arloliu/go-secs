@@ -123,11 +123,7 @@ func (r *Reader) Iterate(ctx context.Context, q Query, fn func(*Item) error) (Re
 	}
 
 	f := &q.Filter
-	res := Result{Incomplete: slices.Clone(r.openDefects), FooterErr: r.footerErr}
-	if r.footerErr != nil {
-		res.FooterErrs = []PackError{{Pack: 0, Err: r.footerErr}}
-	}
-	res.Incomplete = r.appendCoverageDefects(res.Incomplete, f)
+	res := r.startResult(f)
 
 	// A cancelled ctx ends the read before the retention boundary is asked.
 	// Without a provider, ctx is checked only before each block, as before retention.
@@ -182,6 +178,19 @@ func (r *Reader) Iterate(ctx context.Context, q Query, fn func(*Item) error) (Re
 	}
 
 	return res, nil
+}
+
+// startResult returns the Result a read of the pack under the filter f starts with, before any block is read:
+// the defects Open found, then the coverage defects of f (appendCoverageDefects),
+// with PackHeader.FooterErr as FooterErr and as the one entry of FooterErrs, for pack 0, when it is non-nil.
+func (r *Reader) startResult(f *Filter) Result {
+	res := Result{Incomplete: slices.Clone(r.openDefects), FooterErr: r.footerErr}
+	if r.footerErr != nil {
+		res.FooterErrs = []PackError{{Pack: 0, Err: r.footerErr}}
+	}
+	res.Incomplete = r.appendCoverageDefects(res.Incomplete, f)
+
+	return res
 }
 
 // appendCoverageDefects appends to dst a ReasonCoverage defect for every coverage entry of the pack metadata
