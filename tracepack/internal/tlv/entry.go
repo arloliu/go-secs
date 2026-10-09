@@ -117,8 +117,10 @@ func Decode(b []byte) ([]Entry, error) {
 //
 // Each well-formed entry is yielded with a nil error and aliases b, as an entry returned by Decode does.
 // At the first malformed entry the iterator yields the zero Entry and the *EntryError Decode would return, then stops;
-// the entries yielded before it are well formed, so a caller that must not act on a malformed list
-// decides only after the iteration ends without an error.
+// the entries yielded before it are well formed,
+// so a caller that must not act on a malformed list decides only after the iteration ends without an error.
+// A range over the entries alone, ignoring the error, fits only a list already found valid:
+// on a malformed list it would take that zero Entry, of tag 0, for an entry.
 // An empty b yields nothing.
 func Entries(b []byte) iter.Seq2[Entry, error] {
 	return func(yield func(Entry, error) bool) {
