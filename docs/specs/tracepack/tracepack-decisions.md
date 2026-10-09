@@ -960,3 +960,9 @@ it is not part of the owner's recorded decision or of a review's finding.
   Rejected: every capture covering the whole input, with the other tools' and the unrelated lines as annotations;
   leaving the lines of no tool out of every capture with a count only; one capture per run.
   Spec: [STO §7] items 7 and 8, [STO §8], `tracepack-go.md` §6 (v2.29).
+- G5-187 The captures of one run list the same source files (2026-10-10):
+  every pack of every capture a converter run writes lists the run's source files as the same `source_ref` entries in the same order,
+  so an annotation's `source_index` names the same file in every capture and the run-wide coverage of G5-186 can be checked.
+  Rationale *(editorial)*: without it, `source_index` is only meaningful within one pack, and coverage across captures cannot be related.
+  Rejected *(editorial)*: leaving the order to each converter, with the check matching files by their `source_ref` text.
+  Spec: [STO §7] item 8, [STO §8] (v2.29).

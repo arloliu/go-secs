@@ -1216,7 +1216,7 @@ Specification version unchanged (v2.28); editorial only, no rule changes.
   (`tracepack-go.md` §2 and §8, proposal P8, the `tracepack-go.md` notes above).
 - The decision log rewords G3-20, G3-PLACE, G3-27, G4-28, R3-6, G5-80, G5-82, G5-85 and G5-86 to these names; the decisions are unchanged.
 
-## Changes v2.28 → v2.29: a log of several tools (owner decision G5-186, 2026-10-10)
+## Changes v2.28 → v2.29: a log of several tools (owner decisions G5-186, G5-187, 2026-10-10)
 
 Source: a question from the log converter's implementation, on how the nothing-dropped rule applies when one log yields several captures; no proposal document.
 Format version stays 1.0; no byte layout changes.
@@ -1226,7 +1226,8 @@ Summary:
   and the entries and lines of no tool form one more capture under the logging program's configured identity as `tool_id`;
   every input byte range is covered by exactly one record or annotation of exactly one capture of the run, and no capture repeats another's bytes;
   the `decode_status` counts are reported per capture (G5-186).
-- [STO §7] item 8: `capture_id` is one per `tool_id` per converter run per source file set, matching [FMT I-7].
-- [STO §8]: a vector of a log holding two tools' traffic and lines of neither, converted into three captures.
+- [STO §7] item 8: `capture_id` is one per `tool_id` per converter run per source file set, matching [FMT I-7];
+  every pack of every capture of the run lists the same `source_ref` entries in the same order, so a `source_index` names the same file in each (G5-187).
+- [STO §8]: a vector of a log holding two tools' traffic and lines of neither, converted into three captures that list the same `source_ref` entries.
 - `tracepack-go.md` §6: the EAP converter writes one capture per tool and one for the EAP's own lines.
 - [CORPUS §3]: `spec_version` 2.29; no golden changes.
