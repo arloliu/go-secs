@@ -1,7 +1,7 @@
 # Proposal P8 — carrying records over the durable bus: the message unit and large records
 
 Status: draft (2026-09-28) — awaiting the owner.
-Source: owner discussion of 2026-09-28 on the eqp-hub → log service path.
+Source: owner discussion of 2026-09-28 on the equipment gateway → log service path.
 Nothing here is a decided rule.
 
 ## 1. Questions and where the outcome lands
@@ -12,7 +12,7 @@ and the log service is a set of stateless consumers sharing one work-queue consu
 It does not fix what one bus message carries,
 nor how a record larger than the bus's message limit crosses the bus;
 G5-80 places the producer-to-service transport outside the tracepack specification.
-This proposal answers two questions for the eqp-hub → log service path:
+This proposal answers two questions for the equipment gateway → log service path:
 
 - **Q1.** Does the producer collect records for a period (for example 5 minutes or N MiB) and publish them as a pack,
   or does it publish each record?
@@ -20,7 +20,7 @@ This proposal answers two questions for the eqp-hub → log service path:
   when any of the N consumer instances may take any message?
 
 P8 closes as a decision-log entry plus a non-normative note in [tracepack-go.md](../tracepack-go.md) §2,
-next to the eqp-hub producer row.
+next to the equipment-gateway producer row.
 Only the claim-check of §3.3 touches normative text:
 the rule of [STO §4] that an accepted message is removed only by acknowledgement extends to the object bucket.
 
@@ -106,7 +106,7 @@ An instance cannot acknowledge a chunk before the record's segment is durable,
 and it cannot write the record without the chunks another instance holds.
 Each instance naks or times out, the bus redelivers to arbitrary instances again,
 and a record completes only when one instance happens to hold all of its chunks at once.
-The `seqId`/`seqCount` chunking of eqp-hub's `tap_nats` works today
+The `seqId`/`seqCount` chunking of the equipment gateway's EAP bus adapter works today
 because its receiver is a single subscriber per tool subject,
 not a pool of stateless consumers.
 
@@ -162,7 +162,7 @@ A sweeper removes both; its rule is open (§5).
 
 ## 4. Consequences for the first release
 
-- eqp-hub, through the recorder device or the record emission in `tap_nats` of G5-85,
+- The equipment gateway, through the recorder device or the record emission in the EAP bus adapter of G5-85,
   publishes one message per record, inline or with a payload reference.
 - The log service's consumer handles both message forms, the acknowledgement settings of §2.2 and the sweeper.
 - The format is unchanged: the bus carries record headers and payloads as [FMT §7] and [FMT §8] define them.
@@ -178,7 +178,7 @@ A sweeper removes both; its rule is open (§5).
    Orphan: an object older than a grace period whose capture's subject holds no message,
    which meets the publish-fence question of proposal P7 §2 point 1.
 4. Whether the tracepack Go module exports the record-header encoding for use outside a block,
-   so that eqp-hub and the log service share one implementation of §2.1.
+   so that the equipment gateway and the log service share one implementation of §2.1.
 5. Outside P8's scope, noted because §2.1 places classification on the consumer:
    during a rolling upgrade, two consumers with different classifier versions can write the same (`capture_id`, `seq`) with different derived fields,
    while [FMT I-12] requires them to be byte-identical within the active view.

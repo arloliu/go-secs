@@ -1,6 +1,6 @@
 # tracepack — Go reference implementation
 
-Status: current (2026-10-09)
+Status: current (2026-10-10)
 Implements tracepack v2.28 (format 1.0): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
@@ -13,7 +13,7 @@ line numbers are avoided because they drift.
 - The go-secs dependency carries no `replace` directive, and `go.work` stays local (G5-78; `tracepack-impl-plan.md` §2.1).
   A released tracepack requires a released go-secs, at least v2.5.0 (G5-79).
 - Reference CLI `tracepack/cmd/tracepack` in the same module is the explicit exemption from the root "no binary" rule.
-- The TAP log converter lives in `veq/tools/tapconv`.
+- The EAP log converter lives in `veq/cmd/eapconv`.
 - Dependencies: `github.com/klauspost/compress/zstd` (pure Go; it offers no seekable format, so independent block bodies are the design)
   and `hash/crc32` (`crc32.ChecksumIEEE` is the spec's CRC-32/ISO-HDLC). No CGO.
 
@@ -24,8 +24,8 @@ How each Go-side producer fills the spec's capture model ([SEM §2]):
 | Producer | `capture_method` | `vantage` | default `fidelity` | `recorder` example |
 |---|---|---|---|---|
 | a go-secs application recording the frames `hsms.WithWireObserver` reports (go-secs v2.6.0 or later), before HSMS decoding | `raw-stream` | `host` or `equipment`, by the application's role | `wire-exact` | `<app>/<ver> go-secs/2.6.0` |
-| eqp-hub, frames re-emitted via `ToBytes()`: today the `eqp_hsms` device → `hsms_secsjson` adapter → `tap_nats` device → JetStream path; a recorder device on the go-secs v2.6.0 observers is planned, not built | `decoded-message` | `intermediary` | `re-encoded` | `eqp-hub/<ver> tap_nats` |
-| `tapconv` converting TAP SML logs | `log` | where TAP ran (normally `host`) | `reconstructed` | `tapconv/<ver>` |
+| an equipment gateway, frames re-emitted via `ToBytes()`: today its HSMS device → message-encoding adapter → EAP bus adapter → JetStream path; a recorder device on the go-secs v2.6.0 observers is planned, not built | `decoded-message` | `intermediary` | `re-encoded` | `<gateway>/<ver> <bus-adapter>` |
+| `eapconv` converting EAP SML logs | `log` | where the EAP ran (normally `host`) | `reconstructed` | `eapconv/<ver>` |
 | VE or test fixtures producing expected traffic | `generator` | `none` | `synthesized` | `veq/<ver>` |
 
 A recorder on the go-secs observers also installs `hsms.WithSocketObserver`
@@ -34,14 +34,14 @@ a per-capture `u32` counter keyed by the connection and its `Socket` values, sta
 because `Socket` is unique only within one connection.
 In the durable-bus deployment ([STO §4]) the producer also assigns `capture_id`, `recorder_instance_id` and `seq`, and the writer stores them as received.
 A producer without socket identity writes `epoch = 0` and `correlation-incomplete`.
-As of 2026-09-28, go-secs v2.6.0 (release pending) exposes what the eqp-hub path lacked:
+As of 2026-09-28, go-secs v2.6.0 (release pending) exposes what the equipment gateway's path lacked:
 socket and generation identity on wire, socket, lifecycle and transaction events,
 the wire and socket observers,
 and event times that carry a monotonic reading (`WireEvent.At`, `SocketEvent.At`, `LifecycleEvent.At`).
-eqp-hub itself still runs go-secs v2.3.0 and has no recorder device:
+The equipment gateway itself still runs go-secs v2.3.0 and has no recorder device:
 its path carries no generation id, no start/stop event or instance id,
 and only a wall-clock string taken when the adapter converts the message (`SourceTimeStamp`, host-local time zone, no monotonic reading),
-so its records get `epoch = 0`, `correlation-incomplete` and no monotonic time (`mono_present` clear) until eqp-hub moves to go-secs v2.6.0 and records through the observers.
+so its records get `epoch = 0`, `correlation-incomplete` and no monotonic time (`mono_present` clear) until the gateway moves to go-secs v2.6.0 and records through the observers.
 Recorders flush `segment` packs to the staging tier; the merger (a service component using `Merge`) writes `archive` packs ([STO]).
 The query service, its catalog database and the live-tail interface are designed separately.
 
@@ -519,7 +519,7 @@ A recorder that sorts by `At` within a window before it assigns `seq` gets causa
 one that arrives later is recorded where it arrives (§8 question 3),
 and a reply recorded before its primary is reported by transaction matching as an anomaly ([SEM §7.2]).
 
-## 6. TAP converter (`veq/tools/tapconv`)
+## 6. EAP converter (`veq/cmd/eapconv`)
 
 - `sml.Parse` (`sml/parser.go`) returns nil on the first failure and may return zero or several messages without error,
   hence one entry per call and the exactly-one rule ([STO §7]).
@@ -527,8 +527,8 @@ and a reply recorded before its primary is reported by transaction matching as a
   the converter sets both through `msg.Derive().WithSessionID(…).WithSystemBytes(…).WithWaitBit(…).Build()`
   (`DataMessageBuilder`, `hsms/data_msg.go`).
   `Build` rejects W on an even function, which the converter records as `build-rejected`.
-- `source_dialect` records the TAP dialect and the parser mode, `sml.Parse` or `sml.ParseStrict`.
-- Input assumptions and the dialect are confirmed against the pilot's TAP sample (G3-20, R3-6).
+- `source_dialect` records the EAP dialect and the parser mode, `sml.Parse` or `sml.ParseStrict`.
+- Input assumptions and the dialect are confirmed against the pilot's EAP sample (G3-20, R3-6).
 
 ## 7. Reference CLI (`tracepack/cmd/tracepack`)
 
@@ -547,13 +547,13 @@ Output formats of the other commands and exit codes are deferred to implementati
 
 ## 8. Open questions
 
-1. Answered by go-secs v2.6.0: eqp-hub can be given a socket-level observer.
-   `hsms.WithWireObserver` reports every frame's wire bytes, in both directions, on the connection the `eqp_hsms` device holds,
+1. Answered by go-secs v2.6.0: the equipment gateway can be given a socket-level observer.
+   `hsms.WithWireObserver` reports every frame's wire bytes, in both directions, on the connection the gateway's HSMS device holds,
    so a recorder device there writes `raw-stream` / `wire-exact` records instead of `decoded-message` / `re-encoded` (§5.5).
-   eqp-hub still has to move to v2.6.0 and build that device.
+   The gateway still has to move to v2.6.0 and build that device.
 2. Answered: go-secs v2.6.0 exposes the socket and generation on every observer event,
    and the wall and monotonic time in one `time.Time` on wire, socket and lifecycle events (§5),
-   which the eqp-hub path needs for `epoch` and `mono_ns` (§2).
+   which the equipment gateway's path needs for `epoch` and `mono_ns` (§2).
 3. How a record that reached the recorder after its ordering window is marked (§5.5):
    its `seq` follows records of events that happened after it, so a reply can be recorded before its primary.
    Whether `ordering-uncertain` ([SEM §6]) covers such a record, or it needs a marker of its own, is open.

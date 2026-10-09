@@ -1,6 +1,6 @@
 # tracepack — decision log
 
-Status: current (2026-09-29)
+Status: current (2026-10-10)
 Owner decisions for tracepack; append-only under `.agents/rules/450-doc-lifecycle.md`.
 Entries up to G5-79 were recorded in the design notes before the repository became the source of truth;
 they are copied here verbatim under their original headings, and later entries are added only here.
@@ -11,14 +11,14 @@ it is not part of the owner's recorded decision or of a review's finding.
 
 ## 2026-09-26 grilling round 3 (owner accepted all recommendations)
 
-- G3-20 TAP log (assumed until sample seen): SML text; has direction, µs timestamps, SystemBytes,
+- G3-20 EAP log (assumed until sample seen): SML text; has direction, µs timestamps, SystemBytes,
   DeviceID, W-bit; has transport events (connect, Select, T3 timeout).
 - G3-21 Query priorities: index natively supports tool+time range, S/F filter, SystemBytes transaction
   lookup, transport events; optional per-blob secondary index for CEID/ALID/RPTID/SVID; full-text
   SML and cross-tool aggregation are offline scans.
 - G3-PLACE Data-pack format + codec live in go-secs as a nested module (own go.mod), e.g.
   `github.com/arloliu/go-secs/tracepack`; reference CLI in the same nested module
-  (`tracepack/cmd/tracepack`), exempt from go-secs "no binary" rule. VE repo holds the TAP converter.
+  (`tracepack/cmd/tracepack`), exempt from go-secs "no binary" rule. VE repo holds the EAP converter.
 - G3-23 Blob scope: per tool per hour, roll at 256 MB uncompressed; S3 key `tool/YYYY/MM/DD/HH/seq.pack`.
 - G3-24 Content: raw frame bytes as payload + fixed-width header fields (ts, dir, S/F/W, SystemBytes,
   DeviceID, len, decode status) for indexing; undecodable frames stored with failure reason.
@@ -28,14 +28,14 @@ it is not part of the owner's recorded decision or of a review's finding.
   (2026-09-27: the retention part is superseded by G5-56 and G5-57 — lifecycle rules only transition `archive/` objects, retention is executed by the service;
   redaction is designed by G5-66..G5-75.)
 - G3-27 Timestamps: native capture = UTC wall + monotonic delta; converted = UTC with source tz and
-  "converted-from-TAP" recorded in pack header.
+  "converted-from-EAP" recorded in pack header.
 
 ## 2026-09-26 grilling round 4 (owner accepted all recommendations) — frontier empty
 
-- G4-28 Evidence grades: `reconstructed` (from TAP SML via converter) is accepted for semantic-layer
+- G4-28 Evidence grades: `reconstructed` (from EAP SML via converter) is accepted for semantic-layer
   learning (catalog, reply rules, timing, semantic quirks); transport-layer and malformed-frame
   quirks require `observed`. Pack header field `evidence: observed | reconstructed`.
-  Owner note: raw-byte capture can be added inside eqp-hub — either in tap_nats or as a new
+  Owner note: raw-byte capture can be added inside the equipment gateway — either in its EAP bus adapter or as a new
   `secs-recorder` device on a shadow channel (gRPC etc.). Caveat recorded: a shadow-channel recorder
   sees decoded messages (byte-exact re-serialisation for well-formed frames only); truly observed
   malformed frames need a conn-level tap (go-secs WithListener wrapper). Both writers emit tracepack.
@@ -51,7 +51,7 @@ it is not part of the owner's recorded decision or of a review's finding.
   in the pack header; v1 = single publisher per tool; corrections are additive packs referencing
   the superseded pack id, never overwrites; v1 recovery guarantees the validated prefix and
   reports incompleteness. All revisitable.
-- R3-6 Pilot tools and TAP sample: provided later. **Owner emphasis: the current goal is to
+- R3-6 Pilot tools and EAP sample: provided later. **Owner emphasis: the current goal is to
   clarify the HIGH-LEVEL design direction, not to implement.** Byte-level grammar, exact
   algorithms and test vectors belong to a later implementation-spec phase; the design docs
   should state contracts and invariants, and explicitly defer encodings.
@@ -206,7 +206,7 @@ it is not part of the owner's recorded decision or of a review's finding.
 
 ## 2026-09-27 log service review (owner answers to the log-service checkpoints)
 
-- G5-80 Writer boundary (2026-09-27): producers (eqp-hub, tap converters and others) push records to the log service,
+- G5-80 Writer boundary (2026-09-27): producers (equipment gateways, EAP converters and others) push records to the log service,
   and the log service is the traffic-log recorder in the sense of [STO §4] — the role of a log shipper such as fluentbit or vector.
   It assigns `capture_id` and capture-scoped `seq`, keeps the spool and liveness anchor, and applies the clock-anchor rule (superseded by G5-86);
   the observed fields of a record (`ts_utc_ns`, `mono_ns`, direction, epoch) come from the producer.
@@ -214,18 +214,18 @@ it is not part of the owner's recorded decision or of a review's finding.
 - G5-81 Single source of truth per tool (2026-09-27): the log service records one producer per tool;
   no policy for reconciling two captures of the same traffic from different vantages is needed.
 - G5-82 Live tail (2026-09-27): deferred, an advanced feature;
-  the intended design is that the log service discovers eqp-hub instances through the eqp-hub controller and queries them over gRPC,
+  the intended design is that the log service discovers equipment-gateway instances through the gateway controller and queries them over gRPC,
   not a tracepack read path.
 - G5-83 Catalog durability (2026-09-27): the catalog database is deployed with backup and high availability by default,
   so a catalog rebuild from the bucket is a disaster path, and the per-capture end evidence that a rebuild cannot recover (P5) is accepted as a residual risk.
 - G5-84 Cold-scope admissions (2026-09-27): the rejection of admissions for scopes outside the catalog window (P4) is a known limitation;
   converter archives that arrive after the window are read through listing views only.
-- G5-85 go-secs support for the eqp-hub producer (2026-09-27): after the format primitives land, a go-secs proposal is written first,
+- G5-85 go-secs support for the equipment-gateway producer (2026-09-27): after the format primitives land, a go-secs proposal is written first,
   exposing the connection generation number and the read-time wall and monotonic timestamps on received messages and lifecycle events.
-  Design premise: eqp-hub will emit traffic-log records either through a new `secs-recorder` device or by adding record emission to `tap_nats`;
+  Design premise: the equipment gateway will emit traffic-log records either through a new `secs-recorder` device or by adding record emission to its EAP bus adapter;
   the proposal serves both, and the log service ingests those records (G5-80).
 - G5-86 Stateless recorder over a durable bus (2026-09-27; supersedes the identity-assignment part of G5-80):
-  the producer (eqp-hub's `eqp_hsms` device, a converter, or any other) assigns `capture_id` and `recorder_instance_id` per process start,
+  the producer (the equipment gateway's HSMS device, a converter, or any other) assigns `capture_id` and `recorder_instance_id` per process start,
   assigns the capture-scoped `seq`, stamps the socket epoch and the wall and monotonic timestamps, detects its own clock steps,
   and publishes each record to NATS JetStream, which persists it before acknowledging the publish.
   The log service is a set of stateless consumers on one work-queue consumer with a queue group:
@@ -937,3 +937,13 @@ it is not part of the owner's recorded decision or of a review's finding.
   both stops were already in force, and [FMT §13] names them beside this rule.
   Rejected: continuing the walk by `body_len` past a CRC-valid envelope with an out-of-range field, failing only that block.
   Spec: [FMT §13] (v2.28).
+- G5-185 Neutral names for the log source and the gateway (2026-10-10):
+  the specification names the log source and the producers that feed the log service in neutral terms:
+  the equipment automation program's log is the EAP log, and its converter is `eapconv` in `veq/cmd/eapconv`;
+  the site's gateway is the equipment gateway,
+  and its parts are named for what they do: its HSMS device, a message-encoding adapter and the EAP bus adapter.
+  Earlier entries of this log are reworded to these names, their decisions unchanged:
+  G3-20, G3-PLACE, G3-27, G4-28, R3-6, G5-80, G5-82, G5-85 and G5-86;
+  generic uses of "tap" (a network tap, a connection-level tap) stay.
+  Rationale *(editorial)*: the earlier names were a site's own, and the specification is meant to be read outside that site.
+  Spec: `tracepack-go.md` §1, §2, §6 and §8, `tracepack-impl-plan.md` §1, proposal P8 (editorial, spec version unchanged).
