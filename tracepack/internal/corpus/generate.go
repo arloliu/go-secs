@@ -720,9 +720,7 @@ func readVector(ctx context.Context, pack []byte, in *readInputs) (*readOutputs,
 		// A read vector has no other file.
 	}
 
-	slices.SortStableFunc(out.files, func(a, b file) int {
-		return cmp.Compare(slices.Index(fileOrder, a.name), slices.Index(fileOrder, b.name))
-	})
+	slices.SortStableFunc(out.files, func(a, b file) int { return compareFiles(a.name, b.name) })
 
 	return out, nil
 }
