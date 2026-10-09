@@ -127,7 +127,7 @@ func verifyVectors() []Recipe {
 			Expect: verifyBaseExpect(&Expectation{
 				Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true,
 				WriterDefects: []DefectWant{{Kind: tracepack.WriterDefectEventFieldValidity, Seq: 1}},
-				ExportHas:     []string{`"kind":"transport-event","dir":"local","fidelity":"synthesized","decode_status":"not-applicable","field_validity":["session_id"]`},
+				ExportHas:     []string{`"kind":"transport-event","dir":"local","fidelity":"not-applicable","decode_status":"not-applicable","field_validity":["session_id"]`},
 			}),
 		},
 		{

@@ -834,7 +834,7 @@ func invalidBodyBuild(payload []byte) func(seed string) (*Built, error) {
 		}
 		bad := tracepack.Record{
 			Seq: 2, TSUTCNs: msAt(2), Epoch: 1, Kind: tracepack.KindTransportEvent, Dir: tracepack.DirLocal,
-			Fidelity: tracepack.FidelitySynthesized, DecodeStatus: tracepack.DecodeStatusNotApplicable, Payload: payload,
+			Fidelity: tracepack.FidelityNotApplicable, DecodeStatus: tracepack.DecodeStatusNotApplicable, Payload: payload,
 		}
 		pack, err := writeSpec(&packSpec{seed: seed, meta: segmentMeta(seed), blocks: [][]tracepack.Record{
 			{connect, footerData(1, 1), bad, footerData(3, 1)},
