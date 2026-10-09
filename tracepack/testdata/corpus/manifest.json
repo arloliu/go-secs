@@ -1563,6 +1563,94 @@
       ]
     },
     {
+      "id": "multi-cluster-two-hours",
+      "title": "a cluster spanning two hours, in capture and time order",
+      "cites": [
+        "SEM §7.4",
+        "SEM §9",
+        "CORPUS §5.10"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "reads.json"
+      ]
+    },
+    {
+      "id": "multi-conflict-selection",
+      "title": "a conflict of two versions differing in dir, with both, one and no version selected, listed each time",
+      "cites": [
+        "SEM §7.4",
+        "SEM §9",
+        "CORPUS §5.10"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "reads.json"
+      ]
+    },
+    {
+      "id": "multi-conflict-time-range",
+      "title": "two versions of one seq with different timestamps and a time range selecting one: both read, the conflict listed",
+      "cites": [
+        "SEM §7.4",
+        "SEM §9",
+        "CORPUS §5.10"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "reads.json"
+      ]
+    },
+    {
+      "id": "multi-equal-timestamps",
+      "title": "equal timestamps across captures, equal ts_min across clusters, and two and three versions of one record at one timestamp",
+      "cites": [
+        "SEM §7.4",
+        "SEM §9",
+        "CORPUS §5.10"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "pack-2.tpk",
+        "pack-2.verify.json",
+        "pack-3.tpk",
+        "pack-3.verify.json",
+        "pack-4.tpk",
+        "pack-4.verify.json",
+        "pack-5.tpk",
+        "pack-5.verify.json",
+        "reads.json"
+      ]
+    },
+    {
       "id": "multi-identical-copy",
       "title": "one block held identically by two packs, read in both orders: yielded once, no conflict",
       "cites": [
@@ -1587,6 +1675,46 @@
       "title": "copies differing in one message-text byte, read with and without payloads: a conflict",
       "cites": [
         "FMT §16",
+        "SEM §7.4",
+        "SEM §9",
+        "CORPUS §5.10"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "reads.json"
+      ]
+    },
+    {
+      "id": "multi-time-backward",
+      "title": "timestamps running backward within a block, across blocks and across packs, read in time order",
+      "cites": [
+        "SEM §7.4",
+        "SEM §9",
+        "CORPUS §5.10"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "reads.json"
+      ]
+    },
+    {
+      "id": "multi-unfinalized-beside-archive",
+      "title": "an unfinalized segment beside its archive, read in both orders",
+      "cites": [
         "SEM §7.4",
         "SEM §9",
         "CORPUS §5.10"

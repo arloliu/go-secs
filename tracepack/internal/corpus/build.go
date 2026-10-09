@@ -53,6 +53,7 @@ const (
 	multiPackRole     = "pack-"
 	multiCaptureRole  = "capture-"
 	multiRecorderRole = "recorder-"
+	multiSetRole      = "set-"
 )
 
 // HSMS SType values of the control frames the recipes build (SEMI E37 §8.3).
@@ -147,6 +148,9 @@ type multiPack struct {
 	blocks [][]tracepack.Record
 	// open leaves the pack unfinalized: no footer and no trailer.
 	open bool
+	// archive makes the pack an archive of generation 1 of its hour, its period the whole hour, minute unused,
+	// its replacement set its own, derived from set-<n> for pack n.
+	archive bool
 }
 
 // packSpec is what writeSpec writes.
@@ -324,7 +328,7 @@ func captureOf(seed string, k int) tracepack.UUID {
 }
 
 // writeMultiPacks writes ps, the packs of the multi-pack vector of seed, pack n from ps[n], with the public Writer:
-// each a segment of the corpus's tool, its pack_id from pack-<n>,
+// each a segment of the corpus's tool, or an archive where the pack asks for one, its pack_id from pack-<n>,
 // its capture_id and recorder instance from its capture's number, its period where the pack places it,
 // and its seq_start its first record's seq.
 func writeMultiPacks(seed string, ps []multiPack) ([]PackBuilt, error) {
@@ -332,6 +336,14 @@ func writeMultiPacks(seed string, ps []multiPack) ([]PackBuilt, error) {
 	for n := range ps {
 		p := &ps[n]
 		meta := segmentMetaIn(seed, p.hour, p.minute)
+		if p.archive {
+			// An archive of generation 1, as archiveMeta's, its period the pack's whole hour.
+			meta.PeriodStart = hourAt(p.hour, 0)
+			meta.PeriodEnd = meta.PeriodStart + hourNs
+			meta.PackRole, meta.ScopeGeneration, meta.PublisherEpoch, meta.CompactionLevel = tracepack.PackRoleArchive, new(uint64(1)), new(uint64(1)), 1
+			meta.ReplacementSetID = new(IDFor(roleReplacementSetID, multiSeed(seed, multiSetRole, n)))
+			meta.ReplacementSetSize, meta.ReplacementSetIndex = new(uint64(1)), new(uint64(0))
+		}
 		meta.RecorderInstanceID = IDFor(roleRecorderInstanceID, multiSeed(seed, multiRecorderRole, p.capture))
 		if len(p.blocks) > 0 && len(p.blocks[0]) > 0 {
 			meta.SeqStart = p.blocks[0][0].Seq
