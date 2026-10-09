@@ -43,13 +43,19 @@ func jsonlUUID(c byte) [16]byte {
 func jsonlTestReader(t *testing.T, hdr format.FileHeader, meta []byte) *Reader {
 	t.Helper()
 
+	return mustOpen(t, jsonlHeadOnlyPack(hdr, meta), ReaderOptions{})
+}
+
+// jsonlHeadOnlyPack returns a pack that holds only a file header and the pack metadata meta,
+// with the header's flags stored as given, reserved bits included.
+func jsonlHeadOnlyPack(hdr format.FileHeader, meta []byte) []byte {
 	hdr.PackMetadataLen = uint32(len(meta))
 	hdr.PackMetadataCRC = format.CRC(meta)
 	file := format.AppendFileHeader(nil, &hdr)
 	binary.LittleEndian.PutUint32(file[12:], hdr.Flags)
 	binary.LittleEndian.PutUint32(file[76:], format.CRC(file[:76]))
 
-	return mustOpen(t, append(file, meta...), ReaderOptions{})
+	return append(file, meta...)
 }
 
 // renderJSONLHeader returns the header line writeJSONLHeader writes for r.

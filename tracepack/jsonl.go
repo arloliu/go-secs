@@ -46,7 +46,7 @@ import (
 // Returns:
 //   - Result: the status of the read; on an error it holds what was found before the error.
 //   - error: an error wrapping ErrReadLimit for a reader budget, as above;
-//     ctx's error, wrapped; a ReadAt error, as Iterate returns it, wrapping io.ErrUnexpectedEOF for a short read;
+//     ctx's error, wrapped; a ReadAt error, as Iterate returns it, wrapping io.ErrUnexpectedEOF for a short read without another error;
 //     or a write error of w, wrapped, io.ErrShortWrite for a Write that accepts fewer bytes without an error.
 //     On an error the bytes already written stay written, and the caller discards them: they are not an export.
 func ExportJSONL(ctx context.Context, r *Reader, w io.Writer) (Result, error) {

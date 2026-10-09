@@ -133,9 +133,9 @@ func parseJSONLRecord(t testing.TB, line string) jsonlRecordLine {
 	return rec
 }
 
-// requireSameDefects requires got to hold the defects of want, in order: the same reasons, places and coverage entries,
-// and errors of the same text.
-func requireSameDefects(t testing.TB, want, got []Defect) {
+// requireSameDefectsAs requires got to hold the defects of want, in order: the same reasons, places and coverage entries,
+// and, when sameText is set, errors of the same text.
+func requireSameDefectsAs(t testing.TB, want, got []Defect, sameText bool) {
 	t.Helper()
 
 	require.Len(t, got, len(want), "got %v, want %v", got, want)
@@ -147,7 +147,9 @@ func requireSameDefects(t testing.TB, want, got []Defect) {
 		assert.Equal(t, w.Offset, g.Offset, "defect %d", i)
 		assert.Equal(t, w.Coverage, g.Coverage, "defect %d", i)
 		require.Error(t, g.Err, "defect %d", i)
-		assert.Equal(t, w.Err.Error(), g.Err.Error(), "defect %d", i)
+		if sameText {
+			assert.Equal(t, w.Err.Error(), g.Err.Error(), "defect %d", i)
+		}
 	}
 }
 
@@ -155,7 +157,14 @@ func requireSameDefects(t testing.TB, want, got []Defect) {
 func requireSameResult(t testing.TB, want, got Result) {
 	t.Helper()
 
-	requireSameDefects(t, want.Incomplete, got.Incomplete)
+	requireSameResultAs(t, want, got, true)
+}
+
+// requireSameResultAs is requireSameResult, comparing the text of the defects' errors only when sameText is set.
+func requireSameResultAs(t testing.TB, want, got Result, sameText bool) {
+	t.Helper()
+
+	requireSameDefectsAs(t, want.Incomplete, got.Incomplete, sameText)
 	assert.Empty(t, got.Conflicts)
 	assert.Empty(t, got.Removed)
 	if want.FooterErr == nil {
