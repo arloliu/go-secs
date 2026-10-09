@@ -1258,3 +1258,10 @@ Summary:
   conformance is producing the files [CORPUS §1] lists for each class.
 - [SEM §9]: an extract beside its source is planned with phase 7; no rule of [SEM] changes.
 - `tracepack-impl-plan.md`: 6b2 in progress, with its scope and done criteria; phase 7 gains the read of an extract beside its source.
+
+Editorial clarifications, specification version unchanged (v2.30), no rule changes:
+- [CORPUS §5.10]: in capture order a conflict is discovered per seq, as a capture advances to its next selected record, as [SEM §7.4] states.
+- [CORPUS §5.11] Early-return results: the lookups that end after the primary's scope are those whose primary is missing,
+  conflicts within its scope's read, or has no association key, as [SEM §7.2] states;
+  a primary whose versions conflict only across scope reads is no early return,
+  and a result is an early return exactly when it holds `no-key` and no `conflict` fact at p naming more than one hour.

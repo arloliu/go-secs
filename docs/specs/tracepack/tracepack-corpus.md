@@ -383,6 +383,12 @@ A conflict:
 | `seq` | string | always | the record's seq |
 | `versions` | array of arrays of numbers | always, never empty | one array per version, in version order ([SEM §7.4]): the packs holding that version, each once, in the order of `packs` |
 
+In capture order a conflict is discovered per seq,
+as a capture advances to its next selected record ([SEM §7.4] Order of a read over several packs):
+a capture whose selected versions are all yielded resolves its next seqs in ascending order, the conflicting ones among them,
+up to its next selected record or its last seq, before the read yields another record;
+a conflict above that record, in the same cluster or a later one, is not yet discovered.
+
 `incomplete` applies §5.4's decision table to each pack read, the read's filter its query; a reader's limit is never a reason (§1).
 A read's filter never lets the F-2 entries, F-3 summaries or computed summaries exclude a whole cluster that holds a conflict, a defect or a selected record,
 since whether a reader excludes such a cluster is not part of the contract ([SEM §7.4] Exclusion, §5.4):
@@ -587,7 +593,7 @@ Two distinct facts differ in some key, so the order is total.
 
 #### Early-return results
 
-A lookup whose primary has no key ends after the scope of the primary's hour ([SEM §7.2] Scopes read).
+A lookup whose primary is missing, conflicts within its scope's read, or has no association key ends after the scope of the primary's hour ([SEM §7.2] Scopes read).
 Its result is `incomplete`, has no `window_end`, holds in `records` only the versions of the primary, and searches no scope after the primary's;
 no version is in the window or bounds it.
 Its facts are of two kinds:
@@ -606,6 +612,11 @@ The three early returns:
   Every version of p is kept, `conflict` true, `roles` [`primary`]; `key` is the first version's.
 - **primary without a key**: its direction is neither `host-to-equipment` nor `equipment-to-host`, or its SessionID or System Bytes is unavailable.
   Facts: `no-key`, `correlation` when it carries `correlation-incomplete`, and the kept facts; `key` is a diagnostic.
+
+A primary whose versions conflict only across scope reads is not an early return:
+the lookup goes on through every hour scheduled, its `key` is the first version's, and its result follows the rules above,
+its `no-key` fact beside the `conflict` at p whose `hours` hold the primary's hour and each later hour whose read yielded p.
+So a result is an early return exactly when it holds `no-key` and no `conflict` fact at p naming more than one hour.
 
 A primary that is missing where nothing explains it, or that is no primary, is the error form.
 
