@@ -168,6 +168,8 @@ func TestGenerateFailsOnDisagreement(t *testing.T) {
 		{"hsms-predicates", "an unavailable field not satisfying", func(e *Expectation) {
 			e.Queries[3].Seqs = []uint64{0, 3, 5, 6, 7}
 		}},
+		{"sample-v010-rows", "the misread block agreeing", func(e *Expectation) { e.Disagreeing = nil }},
+		{"sample-v010-rows", "the misread record", func(e *Expectation) { e.ExportHas = []string{`"kind":"data"`} }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.id+" "+tt.name, func(t *testing.T) {
@@ -224,6 +226,53 @@ func TestGenerateChecksRecipeDeclarations(t *testing.T) {
 	none.Expect = recipeByID(t, "basic-uuid-byte-order").Expect
 	_, err = generateRecipes(t.Context(), []Recipe{none, mixed}, "test")
 	require.ErrorContains(t, err, "share their identity")
+
+	// A fixed pack's zstd bytes are no output of the running encoder; a generated one's would be.
+	sample := recipeByID(t, "sample-v010-rows")
+	sample.EncoderMade = true
+	_, err = generateRecipes(t.Context(), []Recipe{sample}, "test")
+	require.ErrorContains(t, err, "encoder-made")
+	sample = recipeByID(t, "sample-v010-rows")
+	sample.Source = ""
+	_, err = generateRecipes(t.Context(), []Recipe{sample}, "test")
+	require.ErrorContains(t, err, "encoder-made")
+}
+
+// TestGenerateChecksClassify checks that Generate refuses a classify.json that is not the pack's:
+// a max_frame_len other than the pack's single one, a frame whose record stores another decode_status or trailing_bytes,
+// and a seq of no data or control record.
+func TestGenerateChecksClassify(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name, err string
+		edit      func(c *Classify)
+	}{
+		{"max_frame_len", "max_frame_len", func(c *Classify) { c.MaxFrameLen++ }},
+		{"decode_status", "the record stores", func(c *Classify) { c.Frames[0].DecodeStatus = tracepack.DecodeStatusOK.String() }},
+		{"trailing_bytes", "the record stores", func(c *Classify) { c.Frames[7].TrailingBytes = 2 }},
+		{"an annotation", "no data or control record", func(c *Classify) { c.Frames[0].Seq = 10 }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := recipeByID(t, "sem-decode-status-classified")
+			build := r.Build
+			r.Build = func(seed string) (*Built, error) {
+				b, err := build(seed)
+				if err != nil {
+					return nil, err
+				}
+				b.Classify.Frames = slices.Clone(b.Classify.Frames)
+				tt.edit(b.Classify)
+
+				return b, nil
+			}
+			_, err := generateRecipes(t.Context(), []Recipe{r}, "test")
+			require.ErrorContains(t, err, tt.err)
+		})
+	}
 }
 
 // TestRecipesCheckTheirRows checks that a truncation vector, and only one, expects the rows of its table.
@@ -559,6 +608,10 @@ func TestCompareCorpus(t *testing.T) {
 		{"a missing file", func(c map[string][]byte) { delete(c, "basic-codec-zstd/"+FileVerify) }, true, true},
 		{"an orphan", func(c map[string][]byte) { c["basic-old/"+FilePack] = []byte{1} }, true, true},
 		{"a kept root file", func(c map[string][]byte) { c["README.md"] = []byte("# corpus\n") }, false, false},
+		{"the fixed sample's pack", func(c map[string][]byte) {
+			c["sample-v010-rows/"+FilePack] = must(FlipByte(c["sample-v010-rows/"+FilePack], 100))(t)
+		}, true, true},
+		{"the fixed sample's verify.json", func(c map[string][]byte) { c["sample-v010-rows/"+FileVerify][0] = ' ' }, true, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -661,7 +714,9 @@ func manifestEncoder(t *testing.T, files map[string][]byte, encoder string) func
 const specFile = "../../../docs/specs/tracepack/tracepack-corpus.md"
 
 // generatedGroups are the id prefixes of the groups the generator builds so far.
-var generatedGroups = []string{"basic-", "bootstrap-", "footer-", "framing-", "hsms-", "repair-", "validation-", "verify-"}
+var generatedGroups = []string{
+	"basic-", "bootstrap-", "footer-", "framing-", "hsms-", "repair-", "sample-", "sem-", "validation-", "verify-",
+}
 
 // TestRecipeIDsAreCatalogued checks that every vector of a generated group that the catalogue of the tracepack corpus specification §9.4 lists has a recipe,
 // and that no recipe is missing from it.

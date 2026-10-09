@@ -1,0 +1,305 @@
+{
+  "max_frame_len": "40",
+  "frames": [
+    {
+      "seq": "0",
+      "rule": "undefined-format",
+      "decode_status": "item-decode-error",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "1",
+      "rule": "length-bytes-zero",
+      "decode_status": "item-decode-error",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "2",
+      "rule": "length-bytes-cut-1",
+      "decode_status": "item-decode-error",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "3",
+      "rule": "length-bytes-cut-2",
+      "decode_status": "item-decode-error",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "4",
+      "rule": "length-bytes-cut-3",
+      "decode_status": "item-decode-error",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "5",
+      "rule": "body-short",
+      "decode_status": "item-decode-error",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "6",
+      "rule": "width-i2",
+      "decode_status": "item-decode-error",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "7",
+      "rule": "width-i4",
+      "decode_status": "item-decode-error",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "8",
+      "rule": "width-i8",
+      "decode_status": "item-decode-error",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "9",
+      "rule": "width-u2",
+      "decode_status": "item-decode-error",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "10",
+      "rule": "width-u4",
+      "decode_status": "item-decode-error",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "11",
+      "rule": "width-u8",
+      "decode_status": "item-decode-error",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "12",
+      "rule": "width-f4",
+      "decode_status": "item-decode-error",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "13",
+      "rule": "width-f8",
+      "decode_status": "item-decode-error",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "14",
+      "rule": "list-missing-element",
+      "decode_status": "item-decode-error",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "15",
+      "rule": "list-invalid-nested",
+      "decode_status": "item-decode-error",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "16",
+      "rule": "localized-length-1",
+      "decode_status": "item-decode-error",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "17",
+      "rule": "empty-list",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "18",
+      "rule": "zero-length-binary",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "19",
+      "rule": "zero-length-boolean",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "20",
+      "rule": "zero-length-ascii",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "21",
+      "rule": "zero-length-jis8",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "22",
+      "rule": "zero-length-localized",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "23",
+      "rule": "zero-length-i1",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "24",
+      "rule": "zero-length-i2",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "25",
+      "rule": "zero-length-i4",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "26",
+      "rule": "zero-length-i8",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "27",
+      "rule": "zero-length-u1",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "28",
+      "rule": "zero-length-u2",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "29",
+      "rule": "zero-length-u4",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "30",
+      "rule": "zero-length-u8",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "31",
+      "rule": "zero-length-f4",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "32",
+      "rule": "zero-length-f8",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "33",
+      "rule": "whole-width-i2",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "34",
+      "rule": "whole-width-i4",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "35",
+      "rule": "whole-width-i8",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "36",
+      "rule": "whole-width-u2",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "37",
+      "rule": "whole-width-u4",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "38",
+      "rule": "whole-width-u8",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "39",
+      "rule": "whole-width-f4",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "40",
+      "rule": "whole-width-f8",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "41",
+      "rule": "length-bytes-1",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "42",
+      "rule": "length-bytes-2",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "43",
+      "rule": "length-bytes-3",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "44",
+      "rule": "boolean-other-values",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "45",
+      "rule": "ascii-high-bytes",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "46",
+      "rule": "localized-length-2",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "47",
+      "rule": "localized-length-3",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "48",
+      "rule": "trailing",
+      "decode_status": "ok-with-trailing",
+      "trailing_bytes": 2
+    },
+    {
+      "seq": "49",
+      "rule": "empty-text",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    }
+  ]
+}

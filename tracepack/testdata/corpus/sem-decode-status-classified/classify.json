@@ -1,0 +1,89 @@
+{
+  "max_frame_len": "40",
+  "frames": [
+    {
+      "seq": "1",
+      "rule": "short-frame",
+      "decode_status": "short-frame",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "2",
+      "rule": "length-mismatch",
+      "decode_status": "length-mismatch",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "3",
+      "rule": "bad-ptype",
+      "decode_status": "bad-ptype",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "4",
+      "rule": "bad-stype",
+      "decode_status": "bad-stype",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "5",
+      "rule": "control-with-body",
+      "decode_status": "control-with-body",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "6",
+      "rule": "oversized",
+      "decode_status": "oversized",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "7",
+      "rule": "item-decode-error",
+      "decode_status": "item-decode-error",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "8",
+      "rule": "ok-with-trailing",
+      "decode_status": "ok-with-trailing",
+      "trailing_bytes": 3
+    },
+    {
+      "seq": "9",
+      "rule": "ok",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "11",
+      "rule": "short-and-bad-ptype",
+      "decode_status": "short-frame",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "12",
+      "rule": "length-mismatch-and-bad-stype",
+      "decode_status": "length-mismatch",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "13",
+      "rule": "control-with-body-and-oversized",
+      "decode_status": "control-with-body",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "14",
+      "rule": "max-frame-len-equal",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "15",
+      "rule": "max-frame-len-exceeded",
+      "decode_status": "oversized",
+      "trailing_bytes": 0
+    }
+  ]
+}
