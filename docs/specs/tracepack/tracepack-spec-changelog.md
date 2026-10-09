@@ -1249,7 +1249,7 @@ Summary:
   `lookups.json` (§5.11): each lookup's source, primary and hours scheduled, and the projection of its result: the outcome, the primary's fields present as available, the window's end,
   every kept version with its role labels and flags,
   the canonical facts (one per condition of [SEM §7.2] and [STO §5] Completeness, a barrier one fact with its bases, the existence facts without witness, a total order),
-  and the early returns of a primary without a key;
+  and the early returns of a lookup whose primary is missing, conflicts within its scope's read, or has no association key;
   §8 reads the source a lookup's `source` denotes from the vector's packs, view order included;
   §9 maps every clause of [SEM §9] to a vector, to a test of the reference implementation (read counts and a cluster excluded whole), or to phase 7, with the group prefixes `multi-` and `tx-`,
   and the two [FMT §16] clauses of G5-182 to `multi-payload-only-conflict` and `tx-candidate-selection`;
@@ -1260,7 +1260,8 @@ Summary:
 - `tracepack-impl-plan.md`: 6b2 in progress, with its scope and done criteria; phase 7 gains the read of an extract beside its source.
 
 Editorial clarifications, specification version unchanged (v2.30), no rule changes:
-- [CORPUS §5.10]: in capture order a conflict is discovered per seq, as a capture advances to its next selected record, as [SEM §7.4] states.
+- [CORPUS §5.10]: in capture order a conflict is discovered per seq, in the clusters the read does not exclude,
+  as a capture advances to its next selected record, as [SEM §7.4] states.
 - [CORPUS §5.11] Early-return results: the lookups that end after the primary's scope are those whose primary is missing,
   conflicts within its scope's read, or has no association key, as [SEM §7.2] states;
   a primary whose versions conflict only across scope reads is no early return,
