@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-10-09) — v2.27, tracepack format 1.0.
+Status: current (2026-10-09) — v2.28, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -744,6 +744,12 @@ The object size is known before reading (file system stat, object listing, the c
   decoding and validating whole bodies.
   Without a valid footer (§10), each block's header length comes from its envelope alone and there is no F-2 entry to compare;
   the walk stops at an envelope it cannot account for, and no block after it is located.
+  An envelope the walk cannot account for is one that the bytes left before the end of the block region cannot hold,
+  one whose body ends past that end,
+  or one that fails any check of the block envelope (§6, §2):
+  its magic, its CRC, or a field outside its range, such as a `first_seq` above 2^63 − 1 or a `record_header_len` below 44 (G5-184);
+  an envelope whose CRC holds is no exception, since without a footer nothing confirms its fields.
+  The block region ends at the end of the object, or at `footer_offset` when the trailer is valid.
   With a valid footer, each block's envelope is also checked against its F-2 entry,
   and its records against that entry and the block's F-3 summary (I-3);
   a block whose envelope fails is passed by its F-2 entry, so the blocks after it are still checked.
@@ -956,7 +962,7 @@ Its layout, the JSON schemas of its expectations, the item-validity checklist of
   the same with a footer a validated block disagrees with, and without a valid footer (the neighbours' seqs, the scope hour);
   a pack truncated at every byte offset after its pack metadata (a tail entry without `seq_last`), stored as one pack and a table as above; every block failed (a patch holding only `coverage`);
   a `finalized-inconsistent` pack (every block copied, no new `coverage`); a repair of a patch (its `coverage` inherited);
-  a `finalized-consistent` pack with the `seq_start` defect, above and below its first record's seq (every block copied, no new `coverage`, the patch's `seq_start` its first record's seq);
+  a `finalized-consistent` pack with the `seq_start` defect, its first record's seq above and below `seq_start` (every block copied, no new `coverage`, the patch's `seq_start` its first record's seq);
   and each refusal:
   `finalized-consistent` without the `seq_start` defect, also for an extract and for packs that also breach their period or their records' commitments (nothing to repair comes first, §13),
   an extract that is not `finalized-consistent`, a seq-order or hour-span defect, a lost run without a seq between its neighbours, a block outside the scope's hour;

@@ -928,3 +928,12 @@ it is not part of the owner's recorded decision or of a review's finding.
   Rationale *(editorial)*: a pack with nothing to repair is not a failure, and every `finalized-consistent` pack then gets one answer whatever its role.
   Rejected: freezing the implementation's order, which checked the role first while the spec stated none (plan review r1); a precedence among the refusals.
   Spec: [FMT §13], `tracepack-go.md` §3 (v2.27).
+- G5-184 The forward walk stops at any failing envelope (2026-10-09, phase 6b1):
+  without a valid footer, the forward walk stops at an envelope that fails any check of the block envelope — its magic, its CRC, or a field outside its range (`first_seq` above 2^63 − 1, `record_header_len` below 44, and the like) —
+  so an envelope whose CRC holds but whose field is out of range stops the walk, and no block after it is located.
+  Rationale *(editorial)*: without a valid footer, an envelope's fields have nothing to confirm them, and locating blocks after an envelope the walk cannot account for is deferred ([FMT §13]);
+  the rule is also the reader's existing behaviour.
+  *(editorial)* The walk also stops where the bytes left before the end of the block region cannot hold an envelope, and at an envelope whose body ends past that end;
+  both stops were already in force, and [FMT §13] names them beside this rule.
+  Rejected: continuing the walk by `body_len` past a CRC-valid envelope with an out-of-range field, failing only that block.
+  Spec: [FMT §13] (v2.28).

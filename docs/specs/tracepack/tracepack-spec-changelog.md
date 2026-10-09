@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-09) — spec v2.27.
+Status: current (2026-10-09) — spec v2.28.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -1192,3 +1192,14 @@ Summary:
 | P2 [FMT §7.2] said availability never follows the payload's extent, beside a rule that needs it | "Payload presence alone never makes a field available" |
 | P2 inferred Rationale and Rejected lines read as owner decisions; 6b2 and 6b3 done criteria read as settled | `tracepack-decisions.md` marks them *(editorial)*, keeping those the plan or its reviews record; impl plan labels the 6b2 and 6b3 done criteria provisional |
 | P2 the phase table gave 6b1 the document status `active` | `in-progress` in the phase table and the 6b1 heading; the plan's Status stays `active` |
+
+## Changes v2.27 → v2.28: where the forward walk stops (owner decision G5-184, 2026-10-09)
+
+Source: an owner question raised while the phase 6b1 corpus vectors were built; no proposal document.
+Format version stays 1.0; no byte layout changes.
+
+Summary:
+- [FMT §13]: without a valid footer, the envelope the forward walk cannot account for is one that fails any check of the block envelope — its magic, its CRC, or a field outside its range —
+  so a CRC-valid envelope with an out-of-range field stops the walk too (G5-184);
+  the same sentence names the two stops already in force: too few bytes left before the end of the block region for an envelope, and an envelope whose body ends past that end.
+- [CORPUS §3]: `spec_version` 2.28, since the goldens follow this version.
