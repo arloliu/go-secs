@@ -5,7 +5,7 @@ Status: Design approved. Awaiting implementation plan.
 
 ## Goal
 
-Close the six gaps surfaced by the eqp-hub `v2.0.0-rc5` gap report (an external
+Close the six gaps surfaced by the equipment gateway's `v2.0.0-rc5` gap report (an external
 Codex + Antigravity review pass that found real bugs the rc4 migration shipped),
 plus two `secs1/doc.go` doc-drift items. The unifying principle:
 
@@ -83,7 +83,7 @@ check (`hsms/session.go:237-239`). Two distinct failure modes result:
    and `sendWaitReply` returns `res.msg, res.err` (`hsms/connection_send.go:273-275`;
    `RouteReply` already routes `RejectError` this way) — but a lazy **body**-decode
    failure never *populates* that `err`: the reply is delivered as `{msg, nil}`.
-   Unless the caller manually calls `DecodeErr()` (which the eqp-hub migration
+   Unless the caller manually calls `DecodeErr()` (which the gateway's migration
    forgot), garbage is consumed as a valid empty reply.
 
 There is currently no option or handler for undecodable frames (`WithRejectUndecodable`,
@@ -210,7 +210,7 @@ context handed to that dial is the connection **epoch** context, created from
 caller's `Open` context — so it carries no dial deadline. Against the default
 dialer, a dial to an unreachable peer blocks for the OS connect timeout (~2 min).
 Consumers hand-roll a `net.Dialer{Timeout:…}` wrap via the existing `WithDialer`
-(`hsmsss/config.go:125`, `secs1/config.go:284`); eqp-hub does this in two places.
+(`hsmsss/config.go:125`, `secs1/config.go:284`); the equipment gateway does this in two places.
 
 ### Design
 
@@ -391,7 +391,7 @@ via `notifyAssemblerViolation` (`secs1/transport.go:183-205`), gated on
 `IsEquip() == true` (`secs1/transport.go:184`). The three assembler metrics exist
 (`secs1/metrics.go:83,89,95`). The only real change from v1 is a lost ability to
 *suppress* equipment-role S9Fx (v1 had a `ValidateDataMessage` toggle; v2 hardcodes
-it on). Host role sends nothing in either version, so **eqp-hub impact is nil**.
+it on). Host role sends nothing in either version, so **equipment-gateway impact is nil**.
 
 **Decision — drop `secs1.WithValidateDataMessage`, add a doc note instead:**
 
@@ -478,7 +478,7 @@ fails).
 - Each new surface has a test; each of Gaps 1, 4, 5 has a teeth-verified regression
   guard.
 - Godoc for every new symbol is present and free of internal jargon codes.
-- eqp-hub can delete: two hand-rolled timeout dialers (Gap 2), the `AsDataMessage`
+- The equipment gateway can delete: two hand-rolled timeout dialers (Gap 2), the `AsDataMessage`
   fall-through workarounds (Gap 4), the eight discard-the-error accessors (Gap 5),
   and the hand-forged malformed-message test bytes (Gap 6).
 - Tagged `v2.0.0-rc5` on the `v2` branch.

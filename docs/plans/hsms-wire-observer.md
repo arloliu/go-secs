@@ -11,7 +11,7 @@ which socket it belongs to,
 when it was read or written,
 and the connection's lifecycle, transaction and socket events with the same identity.
 
-The first consumer is the eqp-hub `eqp_hsms` device,
+The first consumer is an equipment gateway's HSMS device,
 which will emit records to a log service that stores them in the tracepack format (`docs/specs/tracepack/`).
 The requirements below come from that format's capture model:
 `tracepack-format.md` §7 (record header), invariant I-7 (epoch per socket),
@@ -20,8 +20,8 @@ Any other application with the same need, such as a test harness or a simulator,
 
 ## 2. Why the hook lives in go-secs
 
-An eqp-hub review of its three candidate emission points
-(the `tap_nats` device, the shadow channel, and the `eqp_hsms` device)
+An equipment-gateway review of its three candidate emission points
+(the EAP bus adapter, the shadow channel, and the HSMS device)
 found that only the device holding the go-secs connection can see everything:
 auto-replies and hub-originated messages never enter a channel,
 invalid messages are dropped before any channel,
@@ -308,7 +308,7 @@ It is the time the supervisor fired the transition,
 taken with the time's monotonic reading when `Socket` and `Generation` are snapshotted into `stateChange` (§3.2),
 never on the notifier goroutine.
 The notifier delivers events late whenever a state-change handler or subscriber ahead of it is slow,
-and eqp-hub's own state handler sends several messages synchronously there;
+and the gateway's own state handler sends several messages synchronously there;
 a recorder that stamped at receipt placed transitions up to 90 ms late in the prototype.
 The stamp is taken where the supervisor's `step` builds the `stateChange` it fires, the coalesced bring-up reported as a Select included,
 so a coalesced notification carries the `At` of the transition it reports;
@@ -378,7 +378,7 @@ and an exported count of coalesced lifecycle notifications.
 
 ## 4. What the recorder does with it
 
-For the eqp-hub device (or any recorder), with `epoch` always the per-capture value §3.4 maps from `Socket`:
+For the gateway's device (or any recorder), with `epoch` always the per-capture value §3.4 maps from `Socket`:
 - one `WireEvent` becomes one data or control record:
   `payload` = `Frame`, `ts_utc_ns` = `At.UnixNano()`, `mono_ns` = `At.Sub(origin)`,
   `dir` from `Direction` and the application's role, `fidelity` = `wire-exact`,
@@ -422,7 +422,7 @@ Buffering, shipping and back-pressure are the recorder's, never go-secs's.
 ## 6. Compatibility and release
 
 Additive API only; a minor release, go-secs v2.6.0.
-eqp-hub runs go-secs v2.3.0 and must move to v2.6.0 to use any of this;
+The equipment gateway runs go-secs v2.3.0 and must move to v2.6.0 to use any of this;
 the lifecycle subscription it also needs exists since v2.4.0.
 tracepack's writer phase then requires go-secs v2.6.0.
 
