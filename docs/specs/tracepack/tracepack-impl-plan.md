@@ -1,6 +1,6 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-10-09) — phases 4, 5a, 5b, 5c1, 5c2, 5c3 and 5d done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`, `SegmentWriter`, `NewDirSink`, `NewReaderSource`, `Retention`); phase 6 split into 6a, 6b and 6c (G5-166), 6a next; phases 7 and 8 pending.
+Status: active (2026-10-09) — phases 4, 5a, 5b, 5c1, 5c2, 5c3, 5d and 6a done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`, `SegmentWriter`, `NewDirSink`, `NewReaderSource`, `Retention`, `ExportJSONL`); phase 6 split into 6a, 6b and 6c (G5-166), 6b (conformance corpus) next; phases 7 and 8 pending.
 Implements: tracepack v2.26 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
@@ -73,7 +73,7 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 5c2 — store-backed PackSource, listing views | done |
 | 5c3 — retention | done |
 | 5d — segment writer, local source | done |
-| 6a — JSONL export | active |
+| 6a — JSONL export | done |
 | 6b — conformance corpus | pending |
 | 6c — CLI | pending |
 | 7 — Extract and redaction | pending |
@@ -562,7 +562,7 @@ under `Complete`, the scope of each evidence reader is not indexed (G5-158).
 
 Split into three sub-phases, each with its own plan, reviews and PR, in the order 6a → 6b → 6c, before phase 7 (G5-166).
 
-#### 6a — JSONL export (active)
+#### 6a — JSONL export (done)
 
 - `ExportJSONL` in package `tracepack` (G5-168), writing the byte form of [JSONL]:
   64-bit integers as decimal strings (G5-167); the validated blocks of a damaged pack, without a summary line (G5-169);
@@ -573,6 +573,21 @@ Split into three sub-phases, each with its own plan, reviews and PR, in the orde
 Done when: exact-bytes tests written from [JSONL] pass, including damaged packs, unknown tags, enum values and bits, extension areas, invalid bodies and string escaping;
 the export agrees with `Iterate` on records and `Result`, and with `verify` on body validity; the fuzz target runs clean.
 No corpus files and no CLI in 6a.
+
+Done (2026-10-09): the tests above pass.
+`TestExportJSONL_RecordLines`, `TestJSONLHeaderLine_EveryKnownTag` and `TestExportJSONL_SpecExample` hold lines written by hand from [JSONL];
+`TestExportJSONL_SameAsIterate`, `TestExportJSONL_ParseBackProperty` and `TestExportJSONL_TruncationSweep` compare the export with `Iterate` and with the record header bytes over damaged, random and truncated packs;
+`TestJSONLValidBody_RandomAgreement` and `FuzzJSONLValidBody` compare body validity with `verify`'s;
+`FuzzExportJSONL` covers every reader budget, and `ExampleExportJSONL` exports the [JSONL §10] record.
+The implementation settled what the text above leaves open:
+`Iterate` and `ExportJSONL` build their starting `Result` with one shared helper;
+a footer or walk budget fails the export with the `Result` of `Open`'s defects and the coverage entries, no `ReasonLimit` defect among them,
+and a block budget with the `Result` found before that block.
+`FuzzExportJSONL` ran 10 minutes clean.
+A damaged zstd stream can be described with different error text from one read to the next:
+a pooled decoder's history decides whether the library's assembly or generic sequence decoder runs, and they word the same failure differently.
+Whether a block decodes, and the bytes it decodes to, never vary, so tests compare defects by reason, block and offset, never by the codec's text;
+the two inputs that showed it are regression seeds of `FuzzExportJSONL`.
 
 #### 6b — conformance corpus
 
