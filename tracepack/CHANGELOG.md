@@ -14,6 +14,7 @@ and a sink that stores them in a local directory laid out as a bucket;
 for readers of local files, a source for the lookup over packs the caller opened (spec v2.23 and v2.24).
 Every reader can apply a retention boundary, the first UTC hour still retained,
 and ends a read that meets a removed hour (spec v2.25).
+A pack exports as canonical JSONL, byte for byte the same from any conforming exporter (spec v2.26).
 A README groups the API by audience, and runnable examples show writing and reading.
 
 ### Upgrade notes
@@ -484,7 +485,23 @@ A README groups the API by audience, and runnable examples show writing and read
   since the source's alone leaves the lookup unprotected after `Observe` returns.
 - `HourOf` returns the UTC hour of a time as `TxKey.Hour` and the key builders number it,
   and `TxKeyOf` builds the `TxKey` of a primary from its capture, seq and time.
-- Runnable examples: `ExampleSegmentWriter`, `ExampleOpen`, `ExampleFindTransaction` over `NewReaderSource`, and `ExampleMergeIterate`;
+- `ExportJSONL(ctx, r, w)` writes the canonical JSONL export of the pack a `Reader` reads,
+  schema `tracepack-jsonl/1` of the tracepack JSONL specification (spec v2.26):
+  a header line from the file header and the pack metadata as stored,
+  then one line per record that `Iterate` yields with `Query{Payloads: true}`, in the same order,
+  each record header field as stored, reserved bits and unknown enum values included,
+  with the block's `record_header_len`, the extension area and the payload,
+  and for a transport-event or annotation record whose payload is a valid TLV body, the body by name.
+  64-bit values are decimal strings, bytes are base64, enum values and bits are named, and unknown entries are kept opaque.
+  It returns the `Result` that `Iterate` call returns:
+  a damaged pack exports the records of its validated blocks, and nothing marks the place of a failed block, which `Result.Incomplete` lists.
+  A reader budget that keeps part of the pack out fails the export with an error wrapping `ErrReadLimit` instead of a `ReasonLimit` defect,
+  before anything is written for the footer and walk budgets,
+  so an export that succeeds does not depend on `ReaderOptions`.
+  Each line is written in pieces of at most 64 KiB, and the export's own memory does not grow with a payload, a value or an entry list.
+  Tests check its lines against bytes written by hand from the specification, its records and `Result` against `Iterate`'s over random, truncated and damaged packs,
+  and its body validity against `Verify`'s; the fuzz targets are `FuzzExportJSONL`, `FuzzJSONLPackMetadata` and `FuzzJSONLValidBody`.
+- Runnable examples: `ExampleSegmentWriter`, `ExampleOpen`, `ExampleFindTransaction` over `NewReaderSource`, `ExampleMergeIterate` and `ExampleExportJSONL`;
   and `README.md`, the API by audience.
 - `SegmentWriter` and `NewDirSink` have tests that inject a failure or a cancellation at each sink and file-system call, before and after publication,
   and count the commits and aborts; an end-to-end test records a capture into a directory and finds a reply across an hour over `NewReaderSource`,

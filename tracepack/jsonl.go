@@ -24,7 +24,7 @@ import (
 // The output depends on the pack's bytes alone: two exports of one pack are byte-identical.
 //
 // The Result is the one that Iterate call returns:
-// the defects Open found, the coverage entries of the pack metadata, which every read intersects,
+// the defects Open found, the coverage entries of the pack metadata that intersect the query,
 // and the defect of every block that failed or disagrees with its F-2 entry;
 // FooterErr and FooterErrs as Iterate sets them, a footer error alone not making the Result incomplete.
 // Where Iterate reports a reader budget as a ReasonLimit defect, ExportJSONL fails instead,
@@ -39,7 +39,7 @@ import (
 // its memory does not grow with the length of a payload, a value or an entry list.
 //
 // Parameters:
-//   - ctx: cancels the export before the header line and between blocks.
+//   - ctx: cancels the export; it is checked before the header line and before each block.
 //   - r: the pack; its file header and pack metadata passed Open, so every pack it reads has an export.
 //   - w: receives the export.
 //
