@@ -1,0 +1,154 @@
+[
+  {
+    "id": "capture-order",
+    "cites": [
+      "SEM §7.4",
+      "CORPUS §5.10"
+    ],
+    "packs": [
+      0,
+      1
+    ],
+    "order": "capture",
+    "filter": {},
+    "expect": {
+      "items": [
+        {
+          "seq": "1",
+          "pack": 0,
+          "block": 0,
+          "conflict": false
+        },
+        {
+          "seq": "2",
+          "pack": 0,
+          "block": 0,
+          "conflict": false
+        },
+        {
+          "seq": "1",
+          "pack": 1,
+          "block": 0,
+          "conflict": false
+        },
+        {
+          "seq": "2",
+          "pack": 1,
+          "block": 0,
+          "conflict": false
+        },
+        {
+          "seq": "3",
+          "pack": 1,
+          "block": 1,
+          "conflict": false
+        },
+        {
+          "seq": "4",
+          "pack": 1,
+          "block": 1,
+          "conflict": false
+        },
+        {
+          "seq": "3",
+          "pack": 0,
+          "block": 1,
+          "conflict": false
+        },
+        {
+          "seq": "4",
+          "pack": 0,
+          "block": 1,
+          "conflict": false
+        },
+        {
+          "seq": "5",
+          "pack": 0,
+          "block": 2,
+          "conflict": false
+        },
+        {
+          "seq": "6",
+          "pack": 0,
+          "block": 2,
+          "conflict": false
+        }
+      ],
+      "incomplete": [],
+      "conflicts": [],
+      "footer_errors": []
+    }
+  },
+  {
+    "id": "filter-rejects-next",
+    "cites": [
+      "SEM §7.4",
+      "CORPUS §5.10"
+    ],
+    "packs": [
+      0,
+      1
+    ],
+    "order": "capture",
+    "filter": {
+      "kinds": [
+        "data"
+      ]
+    },
+    "expect": {
+      "items": [
+        {
+          "seq": "1",
+          "pack": 0,
+          "block": 0,
+          "conflict": false
+        },
+        {
+          "seq": "2",
+          "pack": 0,
+          "block": 0,
+          "conflict": false
+        },
+        {
+          "seq": "1",
+          "pack": 1,
+          "block": 0,
+          "conflict": false
+        },
+        {
+          "seq": "2",
+          "pack": 1,
+          "block": 0,
+          "conflict": false
+        },
+        {
+          "seq": "5",
+          "pack": 0,
+          "block": 2,
+          "conflict": false
+        },
+        {
+          "seq": "6",
+          "pack": 0,
+          "block": 2,
+          "conflict": false
+        },
+        {
+          "seq": "3",
+          "pack": 1,
+          "block": 1,
+          "conflict": false
+        },
+        {
+          "seq": "4",
+          "pack": 1,
+          "block": 1,
+          "conflict": false
+        }
+      ],
+      "incomplete": [],
+      "conflicts": [],
+      "footer_errors": []
+    }
+  }
+]

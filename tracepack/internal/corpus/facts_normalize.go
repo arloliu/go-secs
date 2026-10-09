@@ -90,7 +90,7 @@ type barrierGroup struct {
 // each distinct fact once, in the order of the comparator.
 // It drops each gap's Err and names each pack by its number;
 // it drops a block index gap without a block, which reports records above the primary that arrived before it,
-// when the lookup also has an index gap of a block;
+// when the lookup also has an index gap of a block of the primary's scope;
 // it groups the barrier gaps by boundary, every field compared,
 // and gives each group's fact the bases whose predicates hold:
 // epoch when the boundary is of the primary's capture and no kept version above the primary,
@@ -104,7 +104,7 @@ type barrierGroup struct {
 //   - []Fact: the facts; [] for none.
 //   - error: a gap of a reason no rule names;
 //     a gap missing a field its rule requires or holding one its rule does not allow;
-//     a pack_id no source pack has; a read defect without a name; a block-less index gap without an index gap of a block;
+//     a pack_id no source pack has; a read defect without a name; a block-less index gap without an index gap of a block of the primary's scope;
 //     a barrier group whose number of gaps is not its number of bases;
 //     a capture-boundary gap of another capture, another epoch or another seq than its boundary's;
 //     the hours scheduled out of the range of a lookup; or a fact that the fact table refuses.
@@ -121,7 +121,7 @@ func NormalizeGaps(run *LookupRun) ([]Fact, error) {
 		}
 	}
 	if n.blockless > 0 && n.blocky == 0 {
-		return nil, fmt.Errorf("corpus: an index gap without a block, and no index gap of a block")
+		return nil, fmt.Errorf("corpus: an index gap without a block, and no index gap of a block of the primary's scope")
 	}
 	if err := n.addBarriers(run); err != nil {
 		return nil, err
@@ -167,7 +167,11 @@ func (n *gapNormalizer) add(run *LookupRun, g *tracepack.TxGap) error {
 		if g.Defect != tracepack.ReasonIndexMismatch {
 			return fmt.Errorf("an index gap of defect %v", g.Defect)
 		}
-		n.blocky++
+		// Records above the primary that arrive before it come from the primary's scope read alone,
+		// so only an index gap of a block of that scope accounts for them.
+		if len(g.Hours) > 0 && g.Hours[0] == run.Key.Hour {
+			n.blocky++
+		}
 	}
 	if b := g.Barrier; g.Reason == tracepack.TxGapCaptureBoundary &&
 		(b.Capture != run.Key.Capture || b.Epoch != run.Result.Epoch || *g.Seq != b.Seq) {

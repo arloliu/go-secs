@@ -1,0 +1,117 @@
+[
+  {
+    "id": "with-payloads",
+    "cites": [
+      "SEM §7.4",
+      "CORPUS §5.10"
+    ],
+    "packs": [
+      0,
+      1
+    ],
+    "order": "capture",
+    "payloads": true,
+    "filter": {},
+    "expect": {
+      "items": [
+        {
+          "seq": "1",
+          "pack": 0,
+          "block": 0,
+          "conflict": false
+        },
+        {
+          "seq": "2",
+          "pack": 0,
+          "block": 0,
+          "conflict": true
+        },
+        {
+          "seq": "2",
+          "pack": 1,
+          "block": 0,
+          "conflict": true
+        },
+        {
+          "seq": "3",
+          "pack": 0,
+          "block": 0,
+          "conflict": false
+        }
+      ],
+      "incomplete": [],
+      "conflicts": [
+        {
+          "capture_id": "01a0ffeb-3600-72f4-8667-e6129996445a",
+          "seq": "2",
+          "versions": [
+            [
+              0
+            ],
+            [
+              1
+            ]
+          ]
+        }
+      ],
+      "footer_errors": []
+    }
+  },
+  {
+    "id": "without-payloads",
+    "cites": [
+      "SEM §7.4",
+      "CORPUS §5.10"
+    ],
+    "packs": [
+      0,
+      1
+    ],
+    "order": "capture",
+    "filter": {},
+    "expect": {
+      "items": [
+        {
+          "seq": "1",
+          "pack": 0,
+          "block": 0,
+          "conflict": false
+        },
+        {
+          "seq": "2",
+          "pack": 0,
+          "block": 0,
+          "conflict": true
+        },
+        {
+          "seq": "2",
+          "pack": 1,
+          "block": 0,
+          "conflict": true
+        },
+        {
+          "seq": "3",
+          "pack": 0,
+          "block": 0,
+          "conflict": false
+        }
+      ],
+      "incomplete": [],
+      "conflicts": [
+        {
+          "capture_id": "01a0ffeb-3600-72f4-8667-e6129996445a",
+          "seq": "2",
+          "versions": [
+            [
+              0
+            ],
+            [
+              1
+            ]
+          ]
+        }
+      ],
+      "footer_errors": []
+    }
+  }
+]

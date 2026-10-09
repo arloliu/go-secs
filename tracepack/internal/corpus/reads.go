@@ -137,16 +137,19 @@ func ReadExpectFrom(run *ReadRun) (ReadExpect, error) {
 	if len(res.Removed) > 0 {
 		return ReadExpect{}, errors.New("corpus: a read over several packs reported removed hours")
 	}
+	// MergeIterate reports its bound on held bytes, as its conflict bound, only by an error wrapping ErrReadLimit;
+	// the harness never sets MaxHeldBytes, whose default passes every pack of the corpus,
+	// so ErrReadLimit beside exactly the stated number of conflicts is the conflict bound.
+	limited := run.MaxConflicts > 0 && errors.Is(run.Err, tracepack.ErrReadLimit) && len(res.Conflicts) == run.MaxConflicts
+	if run.Err != nil && !limited {
+		return ReadExpect{}, fmt.Errorf("corpus: the read failed: %w", run.Err)
+	}
 	conflicts, err := conflictEntries(res.Conflicts, run.IDs, run.Packs)
 	if err != nil {
 		return ReadExpect{}, err
 	}
-	if run.Err != nil {
-		if run.MaxConflicts > 0 && errors.Is(run.Err, tracepack.ErrReadLimit) && len(res.Conflicts) == run.MaxConflicts {
-			return ReadExpect{Error: ErrorConflictLimit, Conflicts: conflicts}, nil
-		}
-
-		return ReadExpect{}, fmt.Errorf("corpus: the read failed: %w", run.Err)
+	if limited {
+		return ReadExpect{Error: ErrorConflictLimit, Conflicts: conflicts}, nil
 	}
 
 	items := make([]ReadItem, 0, len(run.Items))
@@ -176,17 +179,28 @@ func ReadExpectFrom(run *ReadRun) (ReadExpect, error) {
 		}
 	}
 
-	footer := []int{}
-	last := -1
-	for _, fe := range res.FooterErrs {
-		if fe.Pack <= last || fe.Pack >= n {
-			return ReadExpect{}, fmt.Errorf("corpus: a footer error of reader %d is out of reader order", fe.Pack)
-		}
-		last = fe.Pack
-		footer = append(footer, run.Packs[fe.Pack])
+	footer, err := footerErrorPacks(res.FooterErrs, run.Packs)
+	if err != nil {
+		return ReadExpect{}, err
 	}
 
 	return ReadExpect{Items: &items, Incomplete: &incomplete, Conflicts: conflicts, FooterErrors: &footer}, nil
+}
+
+// footerErrorPacks returns the numbers of the packs of the footer errors fs, which must be in reader order, each reader once;
+// numbers holds the number of each reader's pack.
+func footerErrorPacks(fs []tracepack.PackError, numbers []int) ([]int, error) {
+	out := []int{}
+	last := -1
+	for _, fe := range fs {
+		if fe.Pack <= last || fe.Pack >= len(numbers) {
+			return nil, fmt.Errorf("corpus: a footer error of reader %d is out of reader order", fe.Pack)
+		}
+		last = fe.Pack
+		out = append(out, numbers[fe.Pack])
+	}
+
+	return out, nil
 }
 
 // conflictEntries renders cs, naming each pack by its number:

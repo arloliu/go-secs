@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/arloliu/go-secs/tracepack"
@@ -46,6 +47,14 @@ const (
 	roleRepairPackID       = "repair_pack_id"
 )
 
+// Roles of the packs, captures and recorder instances of a multi-pack vector:
+// with the vector's identity seed and a number, each names the identity seed of one (multiSeed).
+const (
+	multiPackRole     = "pack-"
+	multiCaptureRole  = "capture-"
+	multiRecorderRole = "recorder-"
+)
+
 // HSMS SType values of the control frames the recipes build (SEMI E37 §8.3).
 const (
 	stypeData      byte = 0
@@ -77,13 +86,27 @@ func IDFor(role, seed string) tracepack.UUID {
 
 // msAt returns the ts_utc_ns ms milliseconds after TimeBase.
 func msAt(ms int64) int64 {
-	return TimeBase + ms*int64(time.Millisecond)
+	return hourAt(0, ms)
+}
+
+// hourAt returns the ts_utc_ns ms milliseconds after the start of the UTC hour hour hours after TimeBase's,
+// before it for a negative hour.
+func hourAt(hour, ms int64) int64 {
+	return TimeBase + hour*hourNs + ms*int64(time.Millisecond)
 }
 
 // segmentMeta returns the pack metadata of a generator segment of seed:
 // its period the first minute of TimeBase's hour, seq_start 0, scope generation 0,
 // the fixed tool, recorder and writer, and the recorder instance of seed.
 func segmentMeta(seed string) *tracepack.PackMeta {
+	return segmentMetaIn(seed, 0, 0)
+}
+
+// segmentMetaIn returns segmentMeta's pack metadata of seed with its period minute minute of the UTC hour hour hours after TimeBase's,
+// before it for a negative hour.
+func segmentMetaIn(seed string, hour, minute int64) *tracepack.PackMeta {
+	start := hourAt(hour, 0) + minute*segmentPeriod
+
 	return &tracepack.PackMeta{
 		ToolID:             corpusToolID,
 		Transport:          tracepack.TransportHSMSSS,
@@ -92,8 +115,8 @@ func segmentMeta(seed string) *tracepack.PackMeta {
 		Recorder:           corpusRecorder,
 		Writer:             corpusWriter,
 		TimeSource:         tracepack.TimeSourceGenerator,
-		PeriodStart:        TimeBase,
-		PeriodEnd:          TimeBase + segmentPeriod,
+		PeriodStart:        start,
+		PeriodEnd:          start + segmentPeriod,
 		LifecycleCoverage:  tracepack.LifecycleCoverageNone,
 		PackRole:           tracepack.PackRoleSegment,
 		RecorderInstanceID: IDFor(roleRecorderInstanceID, seed),
@@ -111,6 +134,19 @@ func logMeta(seed string) *tracepack.PackMeta {
 	meta.Classifiers = []string{corpusClassifier}
 
 	return meta
+}
+
+// multiPack is one pack of a multi-pack vector, a segment the public Writer writes.
+type multiPack struct {
+	// capture is the number k of the pack's capture: its capture_id derives from capture-<k>, its recorder instance from recorder-<k>,
+	// so the packs of one capture share both.
+	capture int
+	// hour and minute place the pack's period: minute minute of the UTC hour hour hours after TimeBase's.
+	hour, minute int64
+	// blocks holds the records of each block, one Flush after each.
+	blocks [][]tracepack.Record
+	// open leaves the pack unfinalized: no footer and no trailer.
+	open bool
 }
 
 // packSpec is what writeSpec writes.
@@ -275,4 +311,40 @@ func newNote(seq uint64, epoch uint32, text string) (tracepack.Record, error) {
 // newSocketEvent returns a transport-event record of seq for a socket event of epoch: a socket-connect or a socket-close.
 func newSocketEvent(seq uint64, epoch uint32, ev tracepack.Event) (tracepack.Record, error) {
 	return newEvent(seq, epoch, &tracepack.TransportEvent{Event: ev, SocketRole: new(tracepack.SocketRoleActive)})
+}
+
+// multiSeed returns the identity seed of number n of role in the multi-pack vector of seed: "<seed>/<role><n>".
+func multiSeed(seed, role string, n int) string {
+	return seed + "/" + role + strconv.Itoa(n)
+}
+
+// captureOf returns the capture_id of capture k of the multi-pack vector of seed.
+func captureOf(seed string, k int) tracepack.UUID {
+	return IDFor(roleCaptureID, multiSeed(seed, multiCaptureRole, k))
+}
+
+// writeMultiPacks writes ps, the packs of the multi-pack vector of seed, pack n from ps[n], with the public Writer:
+// each a segment of the corpus's tool, its pack_id from pack-<n>,
+// its capture_id and recorder instance from its capture's number, its period where the pack places it,
+// and its seq_start its first record's seq.
+func writeMultiPacks(seed string, ps []multiPack) ([]PackBuilt, error) {
+	out := make([]PackBuilt, 0, len(ps))
+	for n := range ps {
+		p := &ps[n]
+		meta := segmentMetaIn(seed, p.hour, p.minute)
+		meta.RecorderInstanceID = IDFor(roleRecorderInstanceID, multiSeed(seed, multiRecorderRole, p.capture))
+		if len(p.blocks) > 0 && len(p.blocks[0]) > 0 {
+			meta.SeqStart = p.blocks[0][0].Seq
+		}
+		b, err := writeSpec(&packSpec{
+			seed: multiSeed(seed, multiCaptureRole, p.capture), meta: meta, blocks: p.blocks, open: p.open,
+			packID: IDFor(rolePackID, multiSeed(seed, multiPackRole, n)),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("corpus: pack %d: %w", n, err)
+		}
+		out = append(out, PackBuilt{Bytes: b})
+	}
+
+	return out, nil
 }

@@ -1543,6 +1543,67 @@
       ]
     },
     {
+      "id": "multi-capture-interleave",
+      "title": "two captures whose blocks interleave by ts_min in capture order, and a filter that rejects one capture's next record",
+      "cites": [
+        "SEM §7.4",
+        "SEM §9",
+        "CORPUS §5.10"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "reads.json"
+      ]
+    },
+    {
+      "id": "multi-identical-copy",
+      "title": "one block held identically by two packs, read in both orders: yielded once, no conflict",
+      "cites": [
+        "SEM §7.4",
+        "SEM §9",
+        "CORPUS §5.10"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "reads.json"
+      ]
+    },
+    {
+      "id": "multi-payload-only-conflict",
+      "title": "copies differing in one message-text byte, read with and without payloads: a conflict",
+      "cites": [
+        "FMT §16",
+        "SEM §7.4",
+        "SEM §9",
+        "CORPUS §5.10"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "reads.json"
+      ]
+    },
+    {
       "id": "repair-all-failed",
       "title": "every block failing its body CRC, the footer valid: a patch holding only coverage",
       "cites": [

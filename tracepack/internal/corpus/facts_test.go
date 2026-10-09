@@ -85,8 +85,14 @@ func TestFactComparator(t *testing.T) {
 			coverageFact(func(c *Coverage) { c.SeqFirst = new(U64(10)) })},
 		{"coverage seq_last", coverageFact(func(c *Coverage) { c.SeqLast = new(U64(9)) }),
 			coverageFact(func(c *Coverage) { c.SeqLast = new(U64(10)) })},
+		{"coverage seq_last absent first", coverageFact(func(c *Coverage) { c.SeqFirst = new(U64(1)) }),
+			coverageFact(func(c *Coverage) { c.SeqFirst, c.SeqLast = new(U64(1)), new(U64(0)) })},
+		{"coverage time_start absent first", coverageFact(func(c *Coverage) { c.TimeEnd = new(I64(1)) }),
+			coverageFact(func(c *Coverage) { c.TimeStart, c.TimeEnd = new(I64(0)), new(I64(1)) })},
 		{"coverage time_start signed", coverageFact(func(c *Coverage) { c.TimeStart = new(I64(-10)) }),
 			coverageFact(func(c *Coverage) { c.TimeStart = new(I64(-9)) })},
+		{"coverage time_end signed", coverageFact(func(c *Coverage) { c.TimeEnd = new(I64(-10)) }),
+			coverageFact(func(c *Coverage) { c.TimeEnd = new(I64(-9)) })},
 		{"coverage time_end absent first", coverageFact(func(c *Coverage) {}),
 			coverageFact(func(c *Coverage) { c.TimeEnd = new(I64(-1)) })},
 		{"coverage unknown absent first", coverageFact(func(c *Coverage) {}),
@@ -341,6 +347,10 @@ func TestNormalizeGaps(t *testing.T) {
 		normalized(t, testRun(blockless, block)))
 	_, err := NormalizeGaps(testRun(blockless))
 	require.Error(t, err)
+	otherHour := block
+	otherHour.Hours = []int64{11}
+	_, err = NormalizeGaps(testRun(blockless, otherHour))
+	require.Error(t, err, "an index gap of a block of another scope than the primary's does not account for it")
 
 	// A no-key gap keeps only its reason, its coverage entry included.
 	cov := testCoverage()

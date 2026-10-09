@@ -2,6 +2,7 @@ package corpus
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -214,6 +215,10 @@ func (v *Vector) check() error {
 		}
 	}
 
+	if err := v.checkClassFiles(); err != nil {
+		return fmt.Errorf("corpus: vector %q: %w", v.ID, err)
+	}
+
 	switch {
 	case v.Title == "" || len(v.Cites) == 0:
 		return fmt.Errorf("corpus: vector %q: a title and at least one cite are required", v.ID)
@@ -299,4 +304,51 @@ func hasDuplicate[T cmp.Ordered](s []T) bool {
 	sorted := slices.Sorted(slices.Values(s))
 
 	return len(slices.Compact(sorted)) != len(s)
+}
+
+// checkClassFiles checks the files of v against its class (the tracepack corpus specification §2):
+// a multi-pack vector holds pack-<n>.tpk and pack-<n>.verify.json for n from 0 without a gap,
+// and reads.json, lookups.json or both, and no other file;
+// a vector of any other class holds none of these.
+func (v *Vector) checkClassFiles() error {
+	multi := v.Class == ClassMultiPack
+	var tpk, verify []int
+	results := 0
+	for _, f := range v.Files {
+		n, isVerify, numbered := ParseNumberedFile(f)
+		switch {
+		case numbered && !multi, (f == FileReads || f == FileLookups) && !multi:
+			return fmt.Errorf("file %s in a vector of class %s", f, v.Class)
+		case numbered && isVerify:
+			verify = append(verify, n)
+		case numbered:
+			tpk = append(tpk, n)
+		case f == FileReads || f == FileLookups:
+			results++
+		case multi:
+			return fmt.Errorf("file %s in a multi-pack vector", f)
+		default:
+			// A file of a single pack, in a vector of a class that has one.
+		}
+	}
+	if !multi {
+		return nil
+	}
+	slices.Sort(tpk)
+	slices.Sort(verify)
+	for n := range len(tpk) {
+		if tpk[n] != n {
+			return fmt.Errorf("pack numbers %v do not run from 0 without a gap", tpk)
+		}
+	}
+	switch {
+	case len(tpk) == 0:
+		return errors.New("a multi-pack vector without packs")
+	case !slices.Equal(tpk, verify):
+		return fmt.Errorf("the packs %v and the verification reports %v do not pair", tpk, verify)
+	case results == 0:
+		return errors.New("a multi-pack vector without reads.json or lookups.json")
+	}
+
+	return nil
 }

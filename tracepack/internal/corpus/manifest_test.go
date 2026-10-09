@@ -165,25 +165,25 @@ func TestManifestRefuses(t *testing.T) {
 func TestManifestMultiPackFiles(t *testing.T) {
 	t.Parallel()
 
+	// Packs 0 to 10, listed backwards: Marshal orders them by number, not by name.
+	files, want := make([]string, 0, 24), make([]string, 0, 24)
+	for n := 10; n >= 0; n-- {
+		files = append(files, PackVerifyFile(n), PackFile(n))
+	}
+	for n := range 11 {
+		want = append(want, PackFile(n), PackVerifyFile(n))
+	}
+	files = append([]string{FileLookups}, append(files, FileReads)...)
+	want = append(want, FileReads, FileLookups)
 	m := NewManifest("e", []Vector{{
 		ID: "tx-files", Title: "numbered packs", Cites: []string{"CORPUS §2"}, Class: ClassMultiPack, Codec: CodecNone,
-		Source: SourceGenerated,
-		Files: []string{
-			FileLookups, PackVerifyFile(10), PackFile(2), FileReads, PackVerifyFile(0), PackFile(10), PackVerifyFile(2), PackFile(0),
-		},
+		Source: SourceGenerated, Files: files,
 	}})
 	b, err := m.Marshal()
 	require.NoError(t, err)
-	require.Contains(t, string(b), `"files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-2.tpk",
-        "pack-2.verify.json",
-        "pack-10.tpk",
-        "pack-10.verify.json",
-        "reads.json",
-        "lookups.json"
-      ]`)
+	var got Manifest
+	require.NoError(t, Unmarshal(b, &got))
+	require.Equal(t, want, got.Vectors[0].Files)
 	require.NotContains(t, string(b), `"cases"`)
 
 	for _, tt := range []struct {
@@ -203,4 +203,62 @@ func TestManifestMultiPackFiles(t *testing.T) {
 	}
 	require.Negative(t, compareFiles(FileTruncation, PackFile(0)), "the numbered files follow truncation.json")
 	require.Negative(t, compareFiles(PackVerifyFile(math.MaxInt), FileReads), "reads.json follows every numbered file")
+}
+
+// TestVectorClassFiles checks that a vector's entry lists the files its class allows (the tracepack corpus specification §2),
+// in both directions: no numbered pack, reads.json or lookups.json in a single-pack vector,
+// and in a multi-pack vector packs numbered from 0 without a gap, each with its verification report, a result file, and nothing else.
+func TestVectorClassFiles(t *testing.T) {
+	t.Parallel()
+
+	multi := []string{PackFile(0), PackVerifyFile(0), PackFile(1), PackVerifyFile(1), FileReads}
+	single := []string{FilePack, FileExport, FileVerify}
+	tests := []struct {
+		name  string
+		class string
+		files []string
+		ok    bool
+	}{
+		{"a multi-pack vector", ClassMultiPack, multi, true},
+		{"a multi-pack vector with lookups only", ClassMultiPack, []string{PackFile(0), PackVerifyFile(0), FileLookups}, true},
+		{"a read vector", ClassRead, single, true},
+		{"a gap in the pack numbers", ClassMultiPack, []string{PackFile(0), PackVerifyFile(0), PackFile(2), PackVerifyFile(2), FileReads}, false},
+		{"no pack 0", ClassMultiPack, []string{PackFile(1), PackVerifyFile(1), FileReads}, false},
+		{"a missing verification report", ClassMultiPack, []string{PackFile(0), PackVerifyFile(0), PackFile(1), FileReads}, false},
+		{"a verification report without its pack", ClassMultiPack, []string{PackFile(0), PackVerifyFile(0), PackVerifyFile(1), FileReads}, false},
+		{"no reads or lookups", ClassMultiPack, []string{PackFile(0), PackVerifyFile(0)}, false},
+		{"no packs", ClassMultiPack, []string{FileReads}, false},
+		{"pack.tpk in a multi-pack vector", ClassMultiPack, append([]string{FilePack}, multi...), false},
+		{"verify.json in a multi-pack vector", ClassMultiPack, append([]string{FileVerify}, multi...), false},
+		{"export.jsonl in a multi-pack vector", ClassMultiPack, append([]string{FileExport}, multi...), false},
+		{"queries.json in a multi-pack vector", ClassMultiPack, append([]string{FileQueries}, multi...), false},
+		{"a numbered pack in a read vector", ClassRead, append([]string{PackFile(0)}, single...), false},
+		{"a numbered verification report in a repair vector", ClassRepair, append([]string{PackVerifyFile(0)}, single...), false},
+		{"reads.json in a read vector", ClassRead, append([]string{FileReads}, single...), false},
+		{"lookups.json in a rejection vector", ClassRejection, []string{FilePack, FileRejection, FileLookups}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			v := Vector{
+				ID: "multi-x", Title: "x", Cites: []string{"CORPUS §2"}, Class: tt.class, Codec: CodecNone, Source: SourceGenerated, Files: tt.files,
+			}
+			m := NewManifest("e", []Vector{v})
+			_, err := m.Marshal()
+			committed := map[string][]byte{FileManifest: nil, FilePrimitives: nil}
+			for _, f := range tt.files {
+				committed[v.ID+"/"+f] = nil
+			}
+			problems := checkLayout(committed, &m)
+			if tt.ok {
+				require.NoError(t, err)
+				require.Empty(t, problems)
+
+				return
+			}
+			require.Error(t, err)
+			require.NotEmpty(t, problems, "the layout check")
+		})
+	}
 }

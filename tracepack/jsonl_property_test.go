@@ -346,7 +346,8 @@ func FuzzExportJSONL(f *testing.F) {
 	for _, s := range seeds {
 		f.Add(s.file, s.maxBlock, s.maxFooter, s.maxWalked)
 	}
-	// The packs of the conformance corpus, each under the default budgets.
+	// The packs of the conformance corpus, each under the default budgets:
+	// every pack.tpk and patch.tpk, and every pack-<n>.tpk of a multi-pack vector.
 	corpusPacks, err := filepath.Glob(filepath.Join("testdata", "corpus", "*", "*.tpk"))
 	require.NoError(f, err)
 	for _, p := range corpusPacks {
