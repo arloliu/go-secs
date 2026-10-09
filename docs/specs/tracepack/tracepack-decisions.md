@@ -6,6 +6,8 @@ Entries up to G5-79 were recorded in the design notes before the repository beca
 they are copied here verbatim under their original headings, and later entries are added only here.
 G3 and G4 entries come from the design grilling rounds, R3 entries from the owner's answers after review round 3, G5 entries from the tracepack design sessions.
 Decisions that concern only the Virtual Equipment program stay in its design notes, as do the files some entries name.
+From G5-173 on, a Rationale or Rejected line marked *(editorial)* was written when the entry was logged, to explain it;
+it is not part of the owner's recorded decision or of a review's finding.
 
 ## 2026-09-26 grilling round 3 (owner accepted all recommendations)
 
@@ -858,3 +860,71 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   Rationale: a payload of NULs escapes to six bytes per byte, so one line can pass 2 GiB.
   Rejected: a limit on a line's length with an error, which leaves some valid packs without an export.
   Spec: `tracepack-go.md` §3 (v2.26).
+- G5-173 Phase 6b splits into three (2026-10-09, phase 6b1):
+  6b1 holds the [FMT §16] vectors except the redaction vectors and the two of G5-182, the single-pack vectors of [SEM §9] and the query-vector format;
+  6b2 the rest of [SEM §9] (reads over several packs, transaction lookups) with their result formats;
+  6b3 the [STO §8] store vectors and a store snapshot format, and it may come after phase 7; 6c may start once 6b1 is done.
+  Rationale *(editorial)*: the multi-pack, lookup and store vectors each need a result format of their own, and one plan for all of them is too large to review; the CLI needs only single-pack goldens.
+  Rejected *(editorial)*: one 6b over [FMT §16], [SEM §9] and [STO §8]; 6b limited to [FMT §16], leaving the single-pack [SEM §9] vectors to a later phase.
+  Spec: [CORPUS §9], `tracepack-impl-plan.md` §3 (v2.27).
+- G5-174 Injectable writer clock (2026-10-09, phase 6b1):
+  `WriterOptions.Now func() time.Time`, nil meaning `time.Now`, stamps `writer_start_utc_ns` and gives the time part of a `pack_id` or `capture_id` the writer generates (UUIDv7);
+  `SegmentWriterOptions.Now` reaches each segment's `Writer`, and the `capture_id` and segment `pack_id`s the segment writer generates before that `Writer` exists.
+  Rationale *(editorial)*: `writer_start_utc_ns` and the generated ids are in every pack's bytes, so without a clock of the caller's no pack regenerates byte-identically (G5-175).
+  Rejected *(editorial)*: patching the file header and its CRC after writing, which compares a pack the `Writer` did not write.
+  Spec: `tracepack-go.md` §3 (v2.27).
+- G5-175 The corpus regenerates deterministically (2026-10-09, phase 6b1):
+  with pinned dependency versions it regenerates byte-identically, `.tpk` files included;
+  across dependency versions its decoded content and its codec-`none` packs stay identical, as G5-180 refines.
+  Rationale *(editorial)*: a byte-identical regeneration shows the generator deterministic and keeps `-update` diffs reviewable; a zstd encoder's output is not fixed across versions.
+  Rejected *(editorial)*: byte-identical goldens under every dependency version, which no zstd encoder promises; decoded comparison alone, which leaves the stored bytes unchecked.
+  Spec: [CORPUS §6.1] (v2.27).
+- G5-176 Canonical JSON goldens (2026-10-09, phase 6b1):
+  verify reports, query results and bootstrap rejections are canonical JSON whose schemas the spec defines: codes, offsets, seqs and counts, never error text.
+  Rationale *(editorial)*: error text differs between implementations, and between two reads of one damaged zstd stream (phase 6a), so only a schema lets every language compare.
+  Rejected *(editorial)*: goldens of error text or of the Go values' printed form.
+  Spec: [CORPUS §4], [CORPUS §5] (v2.27).
+- G5-177 The corpus lives in `tracepack/testdata/corpus/` (2026-10-09, phase 6b1):
+  it ships in the module zip, and stays under 2,000,000 bytes.
+  Rationale *(editorial)*: an implementation in another language takes the corpus from the module or the repository without another download; the bound keeps the module zip small.
+  Rejected *(editorial)*: a separate repository or release asset; a directory left out of the module zip.
+  Spec: `tracepack-impl-plan.md` §3 (v2.27).
+- G5-178 A truncation vector is a base pack and a table (2026-10-09, phase 6b1):
+  one base pack plus the expectations of every cut length, consecutive lengths with equal expectations merged; implementations make the cuts themselves.
+  Rationale *(editorial)*: the cuts are derived from the base pack, and one file per cut multiplies the corpus by the pack's size.
+  Rejected *(editorial)*: one stored pack per cut.
+  Spec: [FMT §16], [CORPUS §5.7] (v2.27).
+- G5-179 Repair and merge clocks (2026-10-09, phase 6b1):
+  `RepairOptions.Now` and `MergeOptions.Now` follow G5-174's contract, so a patch's and a generation's `writer_start_utc_ns` are reproducible;
+  `Merge` also takes the time part of the replacement-set and pack ids it generates from it, and keeps the ids a caller supplies.
+  Rationale: the repair vectors hold the patch's bytes, which carry the time it was written.
+  Rejected *(editorial)*: leaving the patch's file header out of the comparison.
+  Spec: `tracepack-go.md` §3 (v2.27).
+- G5-180 Offsets in zstd goldens (2026-10-09, phase 6b1):
+  the committed goldens are always checked strictly against the committed `.tpk` on the read path, which does not depend on the zstd encoder;
+  when the `klauspost/compress` version differs from the one the manifest records, a regenerated zstd pack is compared by decoded equivalence only
+  (the same metadata bytes, the same decoded block bodies, an identical `export.jsonl`) and its offset-bearing goldens are skipped, with a note that `-update` is due;
+  every vector uses codec `none` unless the codec is its subject, and damaged zstd blocks are frames built by hand, never encoder output.
+  Rationale: the offsets of a zstd pack follow its compressed sizes, which change with the encoder version, while what a reader must produce from the committed bytes does not.
+  Rejected: altering encoder output to damage it, which cannot prove that the header section stays readable (plan review r2).
+  Rejected *(editorial)*: failing the corpus test whenever the encoder version changes.
+  Spec: [CORPUS §6], `tracepack-impl-plan.md` §5 (v2.27).
+- G5-181 Format-22 items in item validity (2026-10-09, phase 6b1):
+  a format-22 (localized string) item of length 0 is valid, of length 1 invalid, of length 2 or more valid whatever its parity; no check depends on the encoding.
+  Rationale: a non-empty localized string starts with its 2-byte header (E5 §9.4), as [SEM §8] already said for redaction.
+  Rationale *(editorial)*: the encodings are open-ended, so an encoding check would tie validity to a table.
+  Rejected *(editorial)*: an even length, which only 2-byte encodings imply; validating the string against the encoding its header names.
+  Spec: [SEM §3], [SEM §8], [CORPUS §7] (v2.27).
+- G5-182 Two [FMT §16] vectors move to 6b2 (2026-10-09, phase 6b1):
+  "a payload-only identity conflict between two packs" and "transaction candidate selection ([SEM §7.2])" need 6b2's result formats;
+  6b1 keeps the single-pack S/F, SessionID and System Bytes predicates.
+  Rationale: both are reads over several packs or lookups, whose results have no canonical form before 6b2.
+  Rejected *(editorial)*: defining those result formats in 6b1.
+  Spec: [FMT §16], [CORPUS §9] (v2.27).
+- G5-183 Repair reports nothing to repair before its refusals (2026-10-09, phase 6b1 plan review r1):
+  a `finalized-consistent` pack without the `seq_start` defect is reported as having nothing to repair (`ErrRepairNotNeeded`) before any refusal condition is checked, an extract's role included, in the order [FMT §13] lists them;
+  among the refusals no precedence is defined, so each refusal vector meets one refusal condition where the conditions can be separated,
+  and an hour-span vector, whose block also lies outside the scope's hour, cites both, the coarse `not-repairable` result needing no winner (plan review r2).
+  Rationale *(editorial)*: a pack with nothing to repair is not a failure, and every `finalized-consistent` pack then gets one answer whatever its role.
+  Rejected: freezing the implementation's order, which checked the role first while the spec stated none (plan review r1); a precedence among the refusals.
+  Spec: [FMT §13], `tracepack-go.md` §3 (v2.27).

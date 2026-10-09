@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
 Status: current (2026-10-09)
-Implements tracepack v2.26 (format 1.0): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Implements tracepack v2.27 (format 1.0): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -56,6 +56,7 @@ The query service, its catalog database and the live-tail interface are designed
   an unknown value is neither, so `!Malformed()` never proves a clean decode ([SEM §6]).
 - `Writer`: `NewWriter(w io.Writer, WriterOptions)`, the layer under `SegmentWriter`, `Merge` and `Repair`;
   options: the pack metadata, codec (its zero value is `none`, the wire value 0, so the zstd default lives in `SegmentWriterOptions`), block size threshold,
+  `Now` (G5-174: the clock that stamps `writer_start_utc_ns` and gives the time part of a `pack_id` or `capture_id` the writer generates as a UUIDv7; nil means `time.Now`),
   and validation, on unless `SkipValidation` is set (G5-152): a validating writer decodes each encoded block, gathers its record headers and checks I-2 before writing it,
   and on a failed check returns an error without writing the block or the trailer ([FMT §12]); nothing is committed to the pack metadata.
   The writer transposes the record headers into the header section when it assembles a block body ([FMT §6]);
@@ -88,6 +89,8 @@ The query service, its catalog database and the live-tail interface are designed
   Options: `Capture` (a `CaptureDescriptor`, required), `Sink` (required), `FlushInterval` (divides one hour; default 5 minutes),
   `MaxSegmentBytes` (default 64 MiB), `Classifier` (optional), `Uncompressed` (false writes zstd, true writes `none`), `BlockThreshold`, `SkipValidation`,
   and `Now` (default `time.Now`, for tests).
+  `Now` also reaches each segment `Writer` as its `WriterOptions.Now` (G5-174),
+  and gives the time part of the `capture_id` and of every segment `pack_id` the writer generates, also those it generates before a segment's `Writer` exists.
   Every method that can create, commit or abort a segment takes a `ctx`:
   `AppendFrame(ctx, at, dir, epoch, frame)`, `AppendEvent(ctx, at, epoch, ev)`, `Append(ctx, r)`, `Tick(ctx, now)`, `Rotate(ctx)` and `Close(ctx)`;
   the writer stores none, checks `ctx` before its first mutation (a done `ctx` there returns its error, the writer still usable),
@@ -340,6 +343,8 @@ The query service, its catalog database and the live-tail interface are designed
   duplicates are dropped only on equal envelope and body bytes; every other overlap is resolved record by record;
   small blocks are coalesced by the greedy grouping of [STO §4], each new encoding validated in memory before it is written.
   The output is one archive per scope, a replacement set of one member ([STO §6]).
+  `MergeOptions.Now` (G5-179) is the clock of the archive's `Writer`, which stamps its `writer_start_utc_ns`,
+  and of the `ReplacementSetID` and `PackID` that `Merge` generates for a zero option; an id the caller supplies is kept.
   `ErrMergeInput`, wrapped with the pack and the cause, refuses an input that is not the pack `view.Packs` names at its position or lies outside the view's lineage,
   that is not `finalized-consistent`, breaches its scope or its own commitments, or differs from the others in a capture-level tag;
   the error of a failed read of an input, or `ErrReadLimit` for an input over a reader budget of `opts.Reader`, is returned naming the input, never as `ErrMergeInput`;
@@ -361,9 +366,9 @@ The query service, its catalog database and the live-tail interface are designed
   writes a generation-0 `repair` patch of the damaged pack, as [FMT §13] builds it ([STO §6]);
   the next `Merge` folds it into a generation, once the service admits the patch to an indexed scope ([STO §5]).
   `opts` names the patch's `writer` and its `patch_base` (the scope's current generation, supplied by the caller),
-  and optionally its `pack_id`, the footer codec and a `Syncer`.
+  and optionally its `pack_id`, the footer codec, a `Syncer` and `Now` (G5-179), the clock that stamps the patch's `writer_start_utc_ns` and a `pack_id` it generates, as `WriterOptions.Now` does.
   It verifies the pack first and decides every refusal of [FMT §13] before writing a byte:
-  `ErrRepairNotNeeded` for a `finalized-consistent` pack without the `seq_start` writer defect,
+  `ErrRepairNotNeeded` for a `finalized-consistent` pack without the `seq_start` writer defect, decided before any refusal, an extract's role included (G5-183),
   `ErrNotRepairable` for the others, both with nothing written.
   It then copies the validated blocks, checking each against what the verification read.
   After any error the caller discards what was written;

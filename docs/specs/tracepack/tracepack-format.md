@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-10-09) — v2.26, tracepack format 1.0.
+Status: current (2026-10-09) — v2.27, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -13,9 +13,9 @@ Depends on (the byte layouts, TLV encoding, footer and validation rules are self
   [STO §5] catalog and completeness barriers, [STO §7] log converter and source provenance (`source_ref`, `source_dialect`).
 - [SEM §7.1] the contract of the F-3 block summaries.
 - [SEM §8] redaction: meaning of `redaction-present`, `redaction_policy`, `redaction` entries and `quality.redacted`, and the validation of redaction entries.
-- The conformance corpus of §16 also contains the vectors of [SEM §9] and [STO §8].
+- The conformance corpus of §16 also contains the vectors of [SEM §9] and [STO §8]; its files, their schemas and the vector catalogue are [CORPUS].
 
-References: `[FMT §n]` = `tracepack-format.md`, `[SEM §n]` = `tracepack-semantics.md`, `[STO §n]` = `tracepack-storage.md`, `[OVW §n]` = `tracepack-overview.md`, `[JSONL §n]` = `tracepack-jsonl.md`; `[FMT I-n]` = invariant I-n of the format document.
+References: `[FMT §n]` = `tracepack-format.md`, `[SEM §n]` = `tracepack-semantics.md`, `[STO §n]` = `tracepack-storage.md`, `[OVW §n]` = `tracepack-overview.md`, `[JSONL §n]` = `tracepack-jsonl.md`, `[CORPUS §n]` = `tracepack-corpus.md`; `[FMT I-n]` = invariant I-n of the format document.
 Each rule is defined in exactly one document; the others only reference it.
 
 ## 1. Conventions
@@ -379,11 +379,16 @@ Positions count from the start of the payload:
 | SType, likewise | 9 | 4 |
 | System Bytes, as on the wire | 10–13 | 5 |
 
-The positions are identical for data and control records:
-for control messages, bytes 6 and 7 carry status or reason codes (E37 §8.3), which a predicate interprets according to SType.
-A field is **available** only when its `field_validity` bit is set,
-and a filter or index MUST treat an unavailable field as "cannot match" on that field unless the caller explicitly asks for records with unavailable fields.
-Availability follows the stored bit, never the payload's extent:
+The positions are identical for data and control records, and a predicate reads each field at its position for both kinds alike:
+for control messages, bytes 6 and 7 carry status or reason codes (E37 §8.3), which a stream, W or function predicate tests as the bytes stored there;
+interpreting them according to SType is the consumer's, not the predicate's.
+A field is **available** only when its `field_validity` bit is set and the payload holds every byte of the field;
+a record whose kind is neither data nor control has no available field.
+A filter or index MUST treat an unavailable field as "cannot match" on that field unless the caller explicitly asks for records with unavailable fields.
+A predicate on several fields, such as S/F (stream and function), needs each of them available:
+a record with any of them unavailable cannot match it, whatever its available fields hold,
+and when the caller asks for records with unavailable fields, such a record satisfies the whole predicate.
+Payload presence alone never makes a field available:
 a clear bit is unavailable even where the payload holds the field's bytes,
 as a log conversion's payload does for an identity its source did not carry ([STO §7]).
 
@@ -765,17 +770,30 @@ The object size is known before reading (file system stat, object listing, the c
   so in a finalized pack they come with an invalid or disagreeing footer:
   the outcome is `finalized-inconsistent` when no earlier outcome applies, for that reason and not for the defect.
   It does not compare `seq_start` with the index, so a finalized pack whose only fault is the `seq_start` defect is `finalized-consistent`.
-  The report names, with offset and cause, every failed block, the point where the walk stopped, every disagreement and every writer defect.
+  The report names, by the offset of the block envelope and the block's position among the located blocks:
+  every failed block, in file order, with its cause:
+  `unknown-codec` for a block whose envelope, its agreement with its F-2 entry where it has one, and its body CRC hold, and whose codec is outside the registry,
+  and `corrupt-block` for every other failure, so a block that fails one of those checks is `corrupt-block` whatever its codec;
+  the point where the walk stopped, as the offset of the envelope it could not account for;
+  every validated block whose records disagree with its F-2 entry or its F-3 summary, once per block, in file order;
+  whether the walked blocks disagree with the trailer's `block_count` or `record_count`,
+  compared only for a finalized pack without a valid footer whose forward walk did not stop, and reported as no disagreement in every other pack;
+  and every writer defect, by kind — `field-validity` and `event-field-validity` (§7.2), `event-payload` (§8), `seq-order` (I-12), `hour-span` (I-13), `seq-start` (§5) —
+  with the seq of its record, or of its block's first record for `seq-start`, `seq-order` and `hour-span`;
+  writer defects are listed block by block in file order,
+  within a block `seq-start`, then `seq-order`, then each record's `field-validity`, `event-field-validity` and `event-payload` in record order, then `hour-span`.
   It states whether the pack is finalized (I-5) and where the validated prefix ends:
-  at the first failed block or the point where the walk stopped, else at the end of the last block.
+  at the first failed block or the point where the walk stopped, else at the end of the last block, or at the end of the pack metadata for a pack without blocks.
   With a valid footer it also gives the seq ranges and time intervals of the failed blocks, from their F-2 entries and F-3 summaries.
+  [CORPUS §5.2] gives the report's canonical JSON form.
   A file header or pack metadata that cannot be read (§4, §5, §14) is an error, not an outcome: there is no block region to walk.
   A reader rejects a pack at bootstrap for exactly these reasons of format:
   an object shorter than the file header; a bad `magic`, `header_crc` or version (§4, §14);
   pack metadata extending past the object, or failing `pack_metadata_crc`;
-  pack metadata whose entry list breaks one of §5's rules for entry lists (framing, the type, value and repetition rules of known tags, nested lists, required tags);
+  pack metadata whose entry list breaks one of §5's rules for entry lists (framing, the type, value and repetition rules of known tags, nested lists and the required tags of their registries);
   a missing tag whose "Required when" condition the pack metadata alone decides (`always`, or a condition on another metadata value, such as `time_source = capture-clock`);
   and a `replacement_set_size` other than 1 or a `replacement_set_index` other than 0.
+  [CORPUS §5.3] names each of these reasons by a code.
   Every other requirement of §5, a condition on the records or a value tied to the role (`scope_generation` 0 for a segment) among them,
   binds writers and never rejects a pack at bootstrap; the retired `pack_role` 5 is read as `unknown(5)` (§9).
   The checks [SEM §8] makes at bootstrap on redaction entries report recoverable defects; they are not rejections.
@@ -821,8 +839,11 @@ The object size is known before reading (file system stat, object listing, the c
   a lost run holding a failed block has no seq between its neighbours, which shows that I-12 breaks inside it;
   or the validated records breach the pack metadata's commitments:
   a classified record without `classifier`, an `oversized` record without `max_frame_len`, or a `quality.redacted` record.
+  The first of these is decided before the others: a pack with nothing to repair is reported as such whatever else holds, its role included;
+  no precedence is defined among the others (G5-183).
 - **Normal reads never silently skip.** A corrupt block, a truncated tail, an unknown codec, a block whose records disagree with its F-2 entry or a `coverage` hit yields partial results
   **with** an `incomplete` status the caller must inspect.
+  [CORPUS §5.4] defines when a read of one pack reports each of these, and with which offset.
 
 ## 14. Versioning
 
@@ -874,16 +895,21 @@ The canonical JSONL export is the language-agnostic text form of a pack and its 
 ## 16. Conformance corpus
 
 The corpus lets an implementation in any language prove that it reads and writes the same bytes as every other.
+Its layout, the JSON schemas of its expectations, the item-validity checklist of [SEM §3] and the catalogue that maps each clause below to its vectors are [CORPUS];
+[CORPUS §8] states how the corpus reads the clauses whose wording leaves a choice, such as the empty pack and the maximum-value integers.
 - Contents: golden `.tpk` files, the expected canonical JSONL (§15) for each, and the expected `verify` report;
   for a vector a reader rejects at bootstrap (§13), the expected rejection instead of JSONL and report ([JSONL §8]).
+  Reports, rejections and query results are canonical JSON that holds codes, offsets, seqs and counts, never error text ([CORPUS §5]).
 - Vectors: empty pack; pack with zero records; codec `none` and codec `zstd` of the same records;
   truncated tail; corrupt middle block; bad envelope CRC; unknown codec; unknown TLV tag and enum value;
   `record_header_len` > 44, including 45–55, with the extension bytes preserved; unordered timestamps;
-  maximum-value integers (§2); UUID byte order; the CRC check value;
-  CRC-valid but structurally invalid footers, and a block whose absent `seq_range` hides a missing seq (§10 footer validation);
+  maximum-value integers (§2), at the limits and past them; UUID byte order; the CRC check value;
+  CRC-valid but structurally invalid footers, one per clause of the footer validation, and a block whose absent `seq_range` hides a missing seq (§10 footer validation);
   a footer with retired F-3 tags and with a present F-4, read with both ignored (§10);
   an epoch ended twice, by a socket-close event and then a clean `stop`, in one block and across two blocks:
-  `close_seq` is the lower seq in F-3 and in F-5, and an F-5 that states the higher one is invalid (§10);
+  an F-3 entry's `close_seq` is the lowest closing seq of its own block, and F-5's the lowest of the pack (§10),
+  so in one block F-3 and F-5 state the lower seq, and across two blocks each block's F-3 entry states its own record's seq and F-5 the lower one;
+  an F-5 that states the higher one is invalid (§10);
   in one block, an F-3 entry that states the higher one, with F-5 recomputed from it, makes `verify` report `finalized-inconsistent` (§10, §13);
   a record that carries quality bit 0 without being a capture-boundary record: no `boundary` entry (§10);
   a transport-event record whose payload is not a valid TLV body: no `boundary` entry, no `close_seq`, and a writer defect (§10, §13).
@@ -894,14 +920,15 @@ The corpus lets an implementation in any language prove that it reads and writes
   queried for those payload bytes: never matched unless unavailable fields are requested;
   a record whose System Bytes bit is set while its payload ends before them: rejected by a writer at append,
   and, in a nonconforming-writer fixture labelled as such, unavailable to a query and reported by `verify` as a writer defect;
-  control frames whose status or reason codes are read from payload bytes 6 and 7 according to SType;
-  S/F, SessionID and System Bytes predicates, including transaction candidate selection ([SEM §7.2]), evaluated on payload values.
+  control frames (`Select.rsp`, `Deselect.rsp`, `Reject.req`, `Linktest.req`) whose payload bytes 6 and 7 a query reads at their positions, as stream, W and function, whatever SType says (§7.2);
+  S/F, SessionID and System Bytes predicates, including transaction candidate selection ([SEM §7.2]), evaluated on payload values,
+  and an S/F predicate on a record with one of the two fields unavailable, with and without the request for unavailable fields.
 - Block framing vectors (§6, §7.1):
   identical decoded body bytes under different framing, as one record with a long header or as several records with 44-byte headers;
   a block of several records whose seqs, lengths and extension bytes are checked on the gathered headers;
   `record_header_len` below 44; `record_count × record_header_len` overflow; an envelope / F-2 `record_header_len` mismatch;
   a pack mixing blocks of different header lengths;
-  a block whose header section is valid but whose codec stream is short or malformed after it: `corrupt`;
+  a block whose header section is valid but whose codec stream is short or malformed after it: `corrupt` (the frames are built by hand, [CORPUS §6.2]);
   a block holding one oversized record.
 - Validation vectors (§12):
   a validating writer whose encoded block has an I-2 defect injected after encoding:
@@ -909,7 +936,8 @@ The corpus lets an implementation in any language prove that it reads and writes
   a payload-only identity conflict between two packs.
 - Verification vectors (§13), each with its expected outcome:
   a finalized pack whose blocks all pass: `finalized-consistent`;
-  a pack truncated at every byte offset: rejected at bootstrap (§13) when the cut falls inside the file header or the pack metadata,
+  a pack truncated at every byte offset, stored as one pack and a table of the expectations of each cut, which an implementation makes itself ([CORPUS §5.7]):
+  rejected at bootstrap (§13) when the cut falls inside the file header or the pack metadata,
   else `unfinalized`, and no block of the validated prefix lost;
   a finalized pack whose last block fails: `finalized-truncated`;
   a failed block between validated ones, with a valid footer and, for a block whose envelope holds, without one: `corrupt-middle`;
@@ -918,15 +946,21 @@ The corpus lets an implementation in any language prove that it reads and writes
   a first block whose first seq is above, and one whose first seq is below, `seq_start`,
   and a first validated block after a failed one whose first seq equals `seq_start`: the `seq_start` defect;
   the seq-order and hour-span defects of a finalized pack come with an invalid or disagreeing footer, so `finalized-inconsistent`.
+- Bootstrap vectors (§13): for each reason a reader rejects a pack at bootstrap, a pack with that reason alone,
+  the reason of an entry list breaking §5's rules once per kind of rule (framing, type, value, repetition, nested list),
+  and a missing tag once required `always` and once by a condition on another metadata value;
+  and a pack missing a tag that only its records require (a classified record without `classifier`): it opens, and `verify` reads it.
 - Repair vectors (§13), each patch verified `finalized-consistent`, its blocks byte-identical to the damaged pack's validated blocks,
   and every record not copied matched by a `coverage` entry:
   a failed middle block with a valid footer (the footer's ranges);
   the same with a footer a validated block disagrees with, and without a valid footer (the neighbours' seqs, the scope hour);
-  a pack truncated at every byte offset after its pack metadata (a tail entry without `seq_last`); every block failed (a patch holding only `coverage`);
+  a pack truncated at every byte offset after its pack metadata (a tail entry without `seq_last`), stored as one pack and a table as above; every block failed (a patch holding only `coverage`);
   a `finalized-inconsistent` pack (every block copied, no new `coverage`); a repair of a patch (its `coverage` inherited);
   a `finalized-consistent` pack with the `seq_start` defect, above and below its first record's seq (every block copied, no new `coverage`, the patch's `seq_start` its first record's seq);
   and each refusal:
-  `finalized-consistent` without the `seq_start` defect, an extract, a seq-order or hour-span defect, a lost run without a seq between its neighbours, a block outside the scope's hour.
+  `finalized-consistent` without the `seq_start` defect, also for an extract and for packs that also breach their period or their records' commitments (nothing to repair comes first, §13),
+  an extract that is not `finalized-consistent`, a seq-order or hour-span defect, a lost run without a seq between its neighbours, a block outside the scope's hour;
+  each refusal vector meets one refusal condition alone where the conditions can be separated.
 - Redaction vectors ([SEM §8]), written with the published test keys:
   S7F3 with its PPBODY masked (length, item headers, `decode_status` and HSMS header unchanged; entry and digest as published);
   S7F3 and S7F6 carrying the same process program, in one domain: equal digests; the same S7F3 under the second test key and key id: a different digest;
@@ -954,11 +988,11 @@ The corpus lets an implementation in any language prove that it reads and writes
 - Each query vector carries its expected query results,
   because JSONL and `verify` output alone do not exercise queries.
 - [SEM §9] and [STO §8] add the vectors for their rules to the same corpus.
-- A reader conforms when it produces the expected JSONL and `verify` report for every vector it opens, and the expected rejection for every vector rejected at bootstrap (§13),
-  and the expected query results for every query vector;
-  a writer conforms when a conforming reader round-trips its output.
+  The vectors that need the result of a read over several packs — a payload-only identity conflict between two packs and transaction candidate selection — are catalogued with those of [SEM §9] ([CORPUS §9]).
+- Conformance is [CORPUS §1]: in short, a reader produces the expected JSONL and `verify` report for every vector it opens, the expected rejection for every vector rejected at bootstrap (§13),
+  and the expected query results for every query vector, and a writer's output round-trips through a conforming reader.
 - The corpus is identified by the spec version as well as the format version,
-  so the goldens of spec v2.13 and later are told apart from earlier ones (§14).
+  so the goldens of spec v2.13 and later are told apart from earlier ones (§14) ([CORPUS §3]).
   It holds one sample of the definition before v2.13:
   a tracepack v0.1.0 pack with a multi-record block, which a reader reports `corrupt`,
   labelled as a sample of that layout, not as a detection guarantee.

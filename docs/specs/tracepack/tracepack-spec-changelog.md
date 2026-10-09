@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-09) — spec v2.26.
+Status: current (2026-10-09) — spec v2.27.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -1142,3 +1142,53 @@ Summary:
 | P1 the nesting limit of known `tlv` values was dropped | [FMT §5]: at most 32 levels, unknown `tlv` values never descended into |
 | P2 the valid-body predicate was stated in [JSONL] and [FMT §8] | [FMT §8] defines a valid TLV body; [JSONL §6] references it |
 | P2 [OVW] counted three normative documents | count removed |
+
+## Changes v2.26 → v2.27: the conformance corpus, part 1 (owner decisions G5-173..G5-183, 2026-10-09)
+
+Source: the phase 6b1 corpus plan and its reviews r1–r3, kept outside the repository; no proposal document.
+Format version stays 1.0; no byte layout changes.
+
+Summary:
+- New `tracepack-corpus.md` [CORPUS], schema `tracepack-corpus/1`:
+  what each kind of implementation reproduces; the corpus layout, manifest and identification; JSON conventions (G5-176);
+  the schemas of `primitives.json`, `verify.json`, `rejection.json` (one code per bootstrap reason), `queries.json` with the table of when a read reports each `incomplete` reason,
+  `fields.json`, `repair.json`, `truncation.json` (G5-178), `footer.json` and `classify.json`;
+  the comparison of zstd vectors across encoder versions and the hand-built damaged frames (G5-175, G5-180);
+  the item-validity checklist with its format-code table; the readings of [FMT §16] clauses; the catalogue mapping every [FMT §16] and single-pack [SEM §9] clause to vectors or to a later phase (G5-173, G5-182).
+- [FMT §7.2]: HSMS header fields are read at their positions for control records too, SType interpretation being the consumer's;
+  a field is available only when its bit is set and the payload holds it, never in a record that is neither data nor control;
+  a predicate on several fields, such as S/F, needs each of them, and the request for unavailable fields satisfies the whole predicate.
+- [FMT §13]: the report's failed-block causes (`corrupt-block`, `unknown-codec`, the codec examined only after the envelope, its F-2 agreement and the body CRC hold), its writer-defect kinds and their order;
+  the walked blocks compared with the trailer's totals only for a finalized pack without a valid footer whose walk did not stop; the validated prefix of a pack without blocks ends with its pack metadata;
+  the entry-list rejection covers the required tags of nested registries; nothing to repair is decided before every refusal, with no precedence among the refusals (G5-183);
+  pointers to [CORPUS] for the report's JSON form, the rejection codes and the `incomplete` reasons of a read.
+- [FMT §16]: points to [CORPUS]; maximum-value integers past the limit; one invalid footer per validation clause;
+  the epoch-closure clause corrected: an F-3 `close_seq` is the minimum of its block, F-5's of the pack, so across two blocks each F-3 entry states its own record's seq;
+  control frames read positionally; a partly unavailable S/F; the hand-built damaged frames; truncation stored as a base pack and a table (G5-178);
+  bootstrap vectors, one per reason and per kind of entry-list rule, and a record-conditioned missing tag that opens;
+  the repair refusals under G5-183; the two clauses that need reads over several packs catalogued with [SEM §9] (G5-182); conformance moved to [CORPUS §1].
+- [SEM §3]: `oversized` compares the captured length, length field included; a vector checked against `oversized` carries one `max_frame_len`;
+  the format-22 rule (G5-181); the checklist is [CORPUS §7]. [SEM §8]: the 1-byte format-22 rule now comes from §3. [SEM §9]: mapped by [CORPUS §9.2].
+- [JSONL §1], [JSONL §8]: point to [CORPUS].
+- [OVW §2] lists [CORPUS]; [OVW §6] no longer defers the item-validity checklist.
+- `tracepack-go.md` §3: `WriterOptions.Now`, passed down by `SegmentWriter` to its segments and generated ids (G5-174); `RepairOptions.Now` and `MergeOptions.Now` (G5-179);
+  `Repair` reports nothing to repair before any refusal (G5-183).
+- `tracepack-impl-plan.md`: `internal/corpus` row; 6b split into 6b1, 6b2 and 6b3 with done criteria, those of 6b2 and 6b3 provisional, 6c after 6b1 (G5-173); phase 4 no longer defers the nonzero `capture_origin_mono_ns` vector;
+  phase 7 gains the missing-nested-tag bootstrap vector; the zstd risk row follows G5-180.
+- `tracepack-decisions.md`: G5-173..G5-183; a Rationale or Rejected line not taken from the owner's decision or a review is marked *(editorial)*.
+
+### v2.27 review — VERDICT: fix-then-ready (8 P1, 3 P2), all applied
+
+| Finding | Fix |
+|---|---|
+| P1 `footer.json`'s `stored` required F-2, a fixed-layout table, to parse as an entry list, and framing alone left a mistyped or missing projected value without a projection | [CORPUS §5.8] defines a structurally readable footer: the footer's CRC and decoding, F-1's section bounds, F-2 read by its fixed layout with its summaries inside F-3, F-3 and F-5 framed, and type checks on the nested `epoch`, `close_seq`, `seq` and `boundary_kind` the projection reads; `stored` omitted when one fails, aggregate disagreements still projected |
+| P1 the report's trailer-totals comparison and its failed-block cause depended on the reference implementation's order of checks | [FMT §13]: the totals compared only for a finalized pack without a valid footer whose walk did not stop; `unknown-codec` only when the envelope, its F-2 agreement and the body CRC hold, `corrupt-block` otherwise; [CORPUS §5.2] and the `truncated` row of [CORPUS §5.4] reference it |
+| P1 "an array is always present" contradicted the optional arrays, and several arrays had no total order | [CORPUS §4]: an array key's presence follows its schema, a present empty array is `[]`, a coverage object follows [JSONL §4]; orders for repair `coverage_added` (by failed block then `seq_first`, or by lost run, the tail last), footer projection ties (entries kept with their multiplicity, secondary keys), filter `kinds` and `dirs` (numeric enum value) and `primitives.json` `uuids` (by bytes) |
+| P1 `classify.json` compared `trailing_bytes` where [FMT §7.2] gives it no meaning, left `max_frame_len` optional, and described the `oversized` boundary two ways | [CORPUS §5.9]: `trailing_bytes` 0 for every status but `ok-with-trailing`, the export unchanged; `max_frame_len` always present; [CORPUS §7]: the boundary cases are frames of M and M + 1 bytes under one `max_frame_len` M |
+| P1 the zstd mismatch path compared `basic-unknown-codec` by decoded equivalence, which its undecodable block cannot meet | [CORPUS §6.1] keys the mismatch path on dependence on the encoder (an encoder-made zstd block or footer), not on the manifest's `codec`; other bodies compared byte for byte, the footer not compared there; `basic-unknown-codec`'s other blocks and footer are codec `none` and its body no encoder's output, so it is compared byte for byte on every path |
+| P1 the implementation plan derived every identifier from the vector's id, dropping the codec siblings' shared identity seed | impl plan 6b1: the vectors that differ only in codec, the truncation base packs included, share one identity seed; [CORPUS §3] names the siblings, `basic-codec-mixed` among them |
+| P1 `framing-header-section-overflow` could be met by a product that does not overflow | [CORPUS §9.4]: `record_count` 2^18 × `record_header_len` 16384 = 2^32, above every valid `uncompressed_len`, so the block fails, while 32-bit arithmetic wraps it to 0 |
+| P1 [CORPUS §9.3] planned every [STO §8] vector in 6b3, the Service vectors included | the corpus vectors of [STO §8] only; the Service vectors stay outside the corpus, the recovery vectors deferred; impl plan 6b3 likewise |
+| P2 [FMT §7.2] said availability never follows the payload's extent, beside a rule that needs it | "Payload presence alone never makes a field available" |
+| P2 inferred Rationale and Rejected lines read as owner decisions; 6b2 and 6b3 done criteria read as settled | `tracepack-decisions.md` marks them *(editorial)*, keeping those the plan or its reviews record; impl plan labels the 6b2 and 6b3 done criteria provisional |
+| P2 the phase table gave 6b1 the document status `active` | `in-progress` in the phase table and the 6b1 heading; the plan's Status stays `active` |

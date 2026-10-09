@@ -1,12 +1,12 @@
 # tracepack — canonical JSONL export
 
-Status: current (2026-10-09) — v2.26, tracepack format 1.0, schema `tracepack-jsonl/1` (draft until tracepack v1.0.0).
+Status: current (2026-10-09) — v2.27, tracepack format 1.0, schema `tracepack-jsonl/1` (draft until tracepack v1.0.0).
 Normative, language-agnostic. [FMT §15] states what the export is for; this document defines its bytes.
 
 Depends on: [FMT §1] conventions, [FMT §2] portable encoding, [FMT §4] file header, [FMT §5] TLV encoding and registries,
 [FMT §7.1] record header, [FMT §8] payloads, [FMT §9] enums and bit sets, [FMT §13] bootstrap and validated blocks.
 
-References: `[JSONL §n]` = this document; `[FMT §n]` = `tracepack-format.md`, `[SEM §n]` = `tracepack-semantics.md`, `[OVW §n]` = `tracepack-overview.md`.
+References: `[JSONL §n]` = this document; `[FMT §n]` = `tracepack-format.md`, `[SEM §n]` = `tracepack-semantics.md`, `[OVW §n]` = `tracepack-overview.md`, `[CORPUS §n]` = `tracepack-corpus.md`.
 Each rule is defined in exactly one document; the others only reference it.
 
 ## 1. Conformance
@@ -16,7 +16,7 @@ so that any two conforming exporters produce identical output for the same pack 
 The output depends on the pack's bytes alone:
 an exporter that cannot read a block, the footer or a part of the block region because of its own resource limits, rather than damage,
 fails the export instead of leaving that part out (§7).
-The conformance corpus ([FMT §16]) holds the expected export of each of its vectors.
+The conformance corpus ([FMT §16], [CORPUS]) holds the expected export of each of its vectors.
 
 ## 2. Text form
 
@@ -157,7 +157,7 @@ the output it wrote is then not an export, and the caller discards it.
 
 A pack whose file header or pack metadata a reader rejects has no export ([FMT §13]):
 there is no header line to write, and none is invented.
-The corpus records the expected rejection of such a vector instead of JSONL ([FMT §16]).
+The corpus records the expected rejection of such a vector instead of JSONL ([FMT §16], [CORPUS §5.3]).
 
 ## 9. Schema versions
 
