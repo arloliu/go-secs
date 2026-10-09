@@ -92,9 +92,14 @@ func (v *Verify) Marshal() ([]byte, error) {
 
 // sortedCoverage renders entries as coverage objects ascending by seq_first.
 // The coverage the tracepack format specification §13 derives for failed blocks
-// lies within seq ranges that ascend from block to block
-// (a valid footer's seqs ascend across its F-2 entries, and a lost run's bounds follow the validated blocks around it),
-// so ascending seq_first is the order by block, then by seq_first.
+// lies within seq ranges that ascend from block to block,
+// so ascending seq_first is the order by block, then by seq_first, that verify.json's lost and repair.json's coverage_added list
+// (the tracepack corpus specification §5.2 and §5.6).
+// For lost, a valid footer's seqs ascend across its F-2 entries,
+// and without a valid footer a lost run's bounds follow the validated blocks around it.
+// For coverage_added the order holds because Repair refuses the packs where it would not:
+// a seq-order or hour-span defect, and a lost run with no seq between its neighbours,
+// which also bounds a leading run that starts at seq_start (the tracepack format specification §13).
 func sortedCoverage(entries []tracepack.Coverage) ([]Coverage, error) {
 	idx := make([]int, len(entries))
 	for i := range entries {

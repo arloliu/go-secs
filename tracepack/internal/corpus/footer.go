@@ -180,7 +180,7 @@ func FooterOf(ctx context.Context, pack []byte) (Footer, error) {
 //   - error: an error wrapping ErrFooterUnreadable that names the first check that fails;
 //     an error for a decoded footer over tracepack.DefaultMaxFooterLen, a reader limit that is never a golden.
 func ReadStoredFooter(pack []byte) (FooterProjection, error) {
-	decoded, err := decodedFooter(pack)
+	decoded, err := footerBytes(pack)
 	if err != nil {
 		return FooterProjection{}, err
 	}
@@ -262,10 +262,10 @@ func eventFacts(rec *tracepack.Record) (boundary bool, kind uint8, ends bool) {
 	return true, kind, kind == uint8(tracepack.BoundaryKindStop)
 }
 
-// decodedFooter returns pack's decoded footer, after the checks that make the pack finalized (I-5)
+// footerBytes returns pack's decoded footer, after the checks that make the pack finalized (I-5)
 // and the footer decodable under footer_codec to footer_uncompressed_len bytes.
 // The file header is not validated: only its pack_metadata_len is read, to place the footer after the pack metadata.
-func decodedFooter(pack []byte) ([]byte, error) {
+func footerBytes(pack []byte) ([]byte, error) {
 	if len(pack) < format.FileHeaderLen {
 		return nil, fmt.Errorf("%w: the pack has no file header", ErrFooterUnreadable)
 	}

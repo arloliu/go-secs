@@ -1,6 +1,7 @@
 package corpus
 
 import (
+	"encoding/binary"
 	"errors"
 	"strconv"
 	"testing"
@@ -9,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/arloliu/go-secs/tracepack"
-	"github.com/arloliu/go-secs/tracepack/internal/format"
 )
 
 func TestVerifyFromConstructedReport(t *testing.T) {
@@ -238,7 +238,7 @@ func TestVerifyTrailerTotalsDisagree(t *testing.T) {
 	b1 := []tracepack.Record{dataRecord(2, 1, nil)}
 	pack := writePack(t, testMeta(), [][]tracepack.Record{b0, b1}, true)
 	// A trailer record_count the footer's F-2 entries do not sum to rejects the footer (the tracepack format specification §10).
-	pack = patchTrailer(t, pack, func(tr *format.Trailer) { tr.RecordCount++ })
+	pack = must(PatchTrailer(pack, func(tr []byte) { addU64(tr, trailerRecordCountOff, 1) }))(t)
 	rep := verifyPack(t, pack)
 	v, err := VerifyFrom(&rep)
 	require.NoError(t, err)
@@ -281,7 +281,7 @@ func TestVerifyFailedBlockWithSeveralRanges(t *testing.T) {
 	pack, blocks := gappedPack(t)
 	off1 := metaEnd(pack) + blockLen(blocks[0])
 	// The last payload byte of the middle block: its body CRC fails, its envelope and the footer stay valid.
-	pack = flipByte(pack, int(off1+blockLen(blocks[1])-1))
+	pack = must(FlipByte(pack, int(off1+blockLen(blocks[1])-1)))(t)
 	rep := verifyPack(t, pack)
 	v, err := VerifyFrom(&rep)
 	require.NoError(t, err)
@@ -322,4 +322,48 @@ func TestVerifyFailedBlockWithSeveralRanges(t *testing.T) {
   ]
 }
 `, marshalJSON(t, &v))
+}
+
+func TestVerifyBlockDisagreeingWithF2AndF3(t *testing.T) {
+	t.Parallel()
+
+	b0 := []tracepack.Record{dataRecord(0, 1, nil), dataRecord(1, 1, nil)}
+	b1 := []tracepack.Record{dataRecord(2, 1, nil)}
+	pack := writePack(t, testMeta(), [][]tracepack.Record{b0, b1}, true)
+	// Block 0's F-2 ts_max rises to block 1's, so F-5 still aggregates it,
+	// and its F-3 quality_union and F-5's gain bit 1, which no record carries:
+	// the footer stays valid, and block 0 disagrees with both its F-2 entry and its F-3 summary.
+	pack = must(PatchFooter(pack, func(d []byte) ([]byte, error) {
+		e := must(F2Entry(d, 0))(t)
+		binary.LittleEndian.PutUint64(d[e.Off+f2TSMaxOff:], uint64(testHour+2*int64(time.Microsecond)))
+		return d, nil
+	}))(t)
+	pack = orQualityUnion(t, pack, 0, 0x0002)
+	rep := verifyPack(t, pack)
+	v, err := VerifyFrom(&rep)
+	require.NoError(t, err)
+
+	end := strconv.FormatUint(metaEnd(pack)+blockLen(b0)+blockLen(b1), 10)
+	require.Equal(t, `{
+  "outcome": "finalized-inconsistent",
+  "finalized": true,
+  "footer_valid": true,
+  "blocks_located": 2,
+  "blocks_validated": 2,
+  "records": "3",
+  "prefix_end": "`+end+`",
+  "failed_blocks": [],
+  "disagreeing_blocks": [
+    {
+      "block": 0,
+      "offset": "`+strconv.FormatUint(metaEnd(pack), 10)+`"
+    }
+  ],
+  "trailer_totals_disagree": false,
+  "writer_defects": [],
+  "lost": []
+}
+`, marshalJSON(t, &v))
+	// Both disagreements are reported, which the projection lists as one block.
+	require.Len(t, rep.Disagreements, 2)
 }

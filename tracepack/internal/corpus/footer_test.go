@@ -141,12 +141,13 @@ func TestFooterStoredApartFromValidation(t *testing.T) {
 	t.Parallel()
 
 	pack := closurePack(t)
-	d := storedFooter(t, pack)
 	// F-5 states close_seq 3 for epoch 2, which no block states:
 	// footer validation rejects the footer, whose stored values the projection still shows.
-	at := nestedValueOffset(t, d, f5Range(d), f5EpochTag, 1, epochCloseSeqTag)
-	binary.LittleEndian.PutUint64(d[at:], 3)
-	pack = replaceFooter(t, pack, d)
+	pack = must(PatchFooter(pack, func(d []byte) ([]byte, error) {
+		at := must(NestedValueOffset(d, must(F5List(d))(t), f5EpochTag, 1, epochCloseSeqTag))(t)
+		binary.LittleEndian.PutUint64(d[at:], 3)
+		return d, nil
+	}))(t)
 
 	f, err := FooterOf(t.Context(), pack)
 	require.NoError(t, err)
@@ -187,21 +188,22 @@ func TestReadStoredFooterReadsWhatValidationRejects(t *testing.T) {
 
 	tests := []struct {
 		name string
-		edit func(d []byte)
+		edit func(t *testing.T, d []byte)
 	}{
 		// Footer validation requires record_header_len >= 44; the projection does not read it.
-		{"record_header_len below 44", func(d []byte) { binary.LittleEndian.PutUint16(d[f2Entry(d, 0)+76:], 43) }},
-		{"footer_layout_version 2", func(d []byte) { binary.LittleEndian.PutUint16(d[0:], 2) }},
-		{"summary_len 0", func(d []byte) { binary.LittleEndian.PutUint32(d[f2Entry(d, 0)+f2SummaryLenOff:], 0) }},
+		{"record_header_len below 44", func(t *testing.T, d []byte) {
+			binary.LittleEndian.PutUint16(d[must(F2Entry(d, 0))(t).Off+f2RecordHeaderLenOff:], 43)
+		}},
+		{"footer_layout_version 2", func(_ *testing.T, d []byte) { binary.LittleEndian.PutUint16(d[0:], 2) }},
+		{"summary_len 0", func(t *testing.T, d []byte) {
+			binary.LittleEndian.PutUint32(d[must(F2Entry(d, 0))(t).Off+f2SummaryLenOff:], 0)
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			pack := closurePack(t)
-			d := storedFooter(t, pack)
-			tt.edit(d)
-			pack = replaceFooter(t, pack, d)
+			pack := must(PatchFooter(closurePack(t), func(d []byte) ([]byte, error) { tt.edit(t, d); return d, nil }))(t)
 			_, err := ReadStoredFooter(pack)
 			require.NoError(t, err)
 			f, err := FooterOf(t.Context(), pack)
@@ -237,52 +239,52 @@ func TestReadStoredFooterUnreadable(t *testing.T) {
 			binary.LittleEndian.PutUint64(d[prologueF5OffsetOff:], 1<<63)
 			return d
 		}},
-		{"F-3 list outside F-3", func(_ *testing.T, d []byte) []byte {
-			binary.LittleEndian.PutUint32(d[f2Entry(d, 1)+f2SummaryLenOff:], uint32(binary.LittleEndian.Uint64(d[prologueF3LenOff:])+1))
+		{"F-3 list outside F-3", func(t *testing.T, d []byte) []byte {
+			binary.LittleEndian.PutUint32(d[must(F2Entry(d, 1))(t).Off+f2SummaryLenOff:], uint32(binary.LittleEndian.Uint64(d[prologueF3LenOff:])+1))
 			return d
 		}},
 		{"F-3 list framing", func(t *testing.T, d []byte) []byte {
-			binary.LittleEndian.PutUint16(d[entryOffset(t, d, f3List(d, 0), f3BoundaryTag, 0):], 0)
+			binary.LittleEndian.PutUint16(d[must(EntryOffset(d, must(F3List(d, 0))(t), f3BoundaryTag, 0))(t):], 0)
 			return d
 		}},
 		{"F-5 framing", func(t *testing.T, d []byte) []byte {
-			binary.LittleEndian.PutUint16(d[entryOffset(t, d, f5Range(d), f5EpochTag, 0):], 0)
+			binary.LittleEndian.PutUint16(d[must(EntryOffset(d, must(F5List(d))(t), f5EpochTag, 0))(t):], 0)
 			return d
 		}},
 		{"epoch entry not tlv", func(t *testing.T, d []byte) []byte {
-			d[entryOffset(t, d, f3List(d, 0), f3EpochTag, 0)+2] = byte(tlv.TypeBytes)
+			d[must(EntryOffset(d, must(F3List(d, 0))(t), f3EpochTag, 0))(t)+2] = byte(tlv.TypeBytes)
 			return d
 		}},
 		{"epoch entry without epoch", func(t *testing.T, d []byte) []byte {
-			at := nestedValueOffset(t, d, f3List(d, 0), f3EpochTag, 0, epochEpochTag)
+			at := must(NestedValueOffset(d, must(F3List(d, 0))(t), f3EpochTag, 0, epochEpochTag))(t)
 			binary.LittleEndian.PutUint16(d[at-tlv.HeaderLen:], 0x0009)
 			return d
 		}},
 		{"epoch entry with two epochs", func(t *testing.T, d []byte) []byte {
-			at := nestedValueOffset(t, d, f5Range(d), f5EpochTag, 0, 0x0002)
+			at := must(NestedValueOffset(d, must(F5List(d))(t), f5EpochTag, 0, 0x0002))(t)
 			binary.LittleEndian.PutUint16(d[at-tlv.HeaderLen:], epochEpochTag)
 			return d
 		}},
 		{"epoch above 2^32-1", func(t *testing.T, d []byte) []byte {
-			binary.LittleEndian.PutUint64(d[nestedValueOffset(t, d, f5Range(d), f5EpochTag, 2, epochEpochTag):], 1<<32)
+			binary.LittleEndian.PutUint64(d[must(NestedValueOffset(d, must(F5List(d))(t), f5EpochTag, 2, epochEpochTag))(t):], 1<<32)
 			return d
 		}},
 		{"two close_seqs", func(t *testing.T, d []byte) []byte {
-			at := nestedValueOffset(t, d, f3List(d, 0), f3EpochTag, 0, 0x0002)
+			at := must(NestedValueOffset(d, must(F3List(d, 0))(t), f3EpochTag, 0, 0x0002))(t)
 			binary.LittleEndian.PutUint16(d[at-tlv.HeaderLen:], epochCloseSeqTag)
 			return d
 		}},
 		{"close_seq above 2^63-1", func(t *testing.T, d []byte) []byte {
-			binary.LittleEndian.PutUint64(d[nestedValueOffset(t, d, f3List(d, 1), f3EpochTag, 0, epochCloseSeqTag):], 1<<63)
+			binary.LittleEndian.PutUint64(d[must(NestedValueOffset(d, must(F3List(d, 1))(t), f3EpochTag, 0, epochCloseSeqTag))(t):], 1<<63)
 			return d
 		}},
 		{"boundary without seq", func(t *testing.T, d []byte) []byte {
-			at := nestedValueOffset(t, d, f3List(d, 1), f3BoundaryTag, 0, boundarySeqTag)
+			at := must(NestedValueOffset(d, must(F3List(d, 1))(t), f3BoundaryTag, 0, boundarySeqTag))(t)
 			binary.LittleEndian.PutUint16(d[at-tlv.HeaderLen:], 0x0009)
 			return d
 		}},
 		{"boundary_kind not u8", func(t *testing.T, d []byte) []byte {
-			at := nestedValueOffset(t, d, f5Range(d), f5BoundaryTag, 3, boundaryKindTag)
+			at := must(NestedValueOffset(d, must(F5List(d))(t), f5BoundaryTag, 3, boundaryKindTag))(t)
 			d[at-tlv.HeaderLen+2] = byte(tlv.TypeBool)
 			return d
 		}},
@@ -291,8 +293,7 @@ func TestReadStoredFooterUnreadable(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			pack := closurePack(t)
-			pack = replaceFooter(t, pack, tt.edit(t, storedFooter(t, pack)))
+			pack := must(PatchFooter(closurePack(t), func(d []byte) ([]byte, error) { return tt.edit(t, d), nil }))(t)
 			_, err := ReadStoredFooter(pack)
 			require.ErrorIs(t, err, ErrFooterUnreadable)
 			f, err := FooterOf(t.Context(), pack)
@@ -306,7 +307,9 @@ func TestReadStoredFooterUnreadable(t *testing.T) {
 		edit func(t *testing.T, pack []byte) []byte
 	}{
 		{"not finalized", func(_ *testing.T, pack []byte) []byte { return pack[:len(pack)-1] }},
-		{"trailer CRC", func(_ *testing.T, pack []byte) []byte { return flipByte(pack, len(pack)-testTrailerLen+trailerCRCOff) }},
+		{"trailer CRC", func(t *testing.T, pack []byte) []byte {
+			return must(FlipByte(pack, len(pack)-testTrailerLen+trailerCRCOff))(t)
+		}},
 		{"footer before the pack metadata ends", func(t *testing.T, pack []byte) []byte {
 			// A pack_metadata_len past footer_offset: the header is not validated, only read.
 			out := bytes.Clone(pack)
@@ -314,18 +317,16 @@ func TestReadStoredFooterUnreadable(t *testing.T) {
 			return out
 		}},
 		{"footer_len", func(t *testing.T, pack []byte) []byte {
-			return patchTrailer(t, pack, func(tr *format.Trailer) { tr.FooterLen-- })
+			return must(PatchTrailer(pack, func(tr []byte) { addU64(tr, trailerFooterLenOff, ^uint64(0)) }))(t)
 		}},
 		{"footer CRC", func(t *testing.T, pack []byte) []byte {
-			tr, err := format.UnmarshalTrailer(pack[len(pack)-testTrailerLen:])
-			require.NoError(t, err)
-			return flipByte(pack, int(tr.FooterOffset)+1)
+			return must(FlipByte(pack, int(must(Locate(pack))(t).End)+1))(t)
 		}},
 		{"footer codec", func(t *testing.T, pack []byte) []byte {
-			return patchTrailer(t, pack, func(tr *format.Trailer) { tr.FooterCodec = 9 })
+			return must(PatchTrailer(pack, func(tr []byte) { tr[trailerFooterCodecOff] = 9 }))(t)
 		}},
 		{"footer_uncompressed_len", func(t *testing.T, pack []byte) []byte {
-			return patchTrailer(t, pack, func(tr *format.Trailer) { tr.FooterUncompressedLen++ })
+			return must(PatchTrailer(pack, func(tr []byte) { addU64(tr, trailerUncompressedOff, 1) }))(t)
 		}},
 	}
 	for _, tt := range packEdits {
@@ -340,7 +341,9 @@ func TestReadStoredFooterUnreadable(t *testing.T) {
 	_, err := ReadStoredFooter(make([]byte, testFileHeaderLen-1))
 	require.ErrorIs(t, err, ErrFooterUnreadable)
 
-	huge := patchTrailer(t, closurePack(t), func(tr *format.Trailer) { tr.FooterUncompressedLen = tracepack.DefaultMaxFooterLen + 1 })
+	huge := must(PatchTrailer(closurePack(t), func(tr []byte) {
+		binary.LittleEndian.PutUint64(tr[trailerUncompressedOff:], tracepack.DefaultMaxFooterLen+1)
+	}))(t)
 	_, err = ReadStoredFooter(huge)
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrFooterUnreadable, "a reader limit is never a golden")
@@ -352,68 +355,65 @@ func indentTail(s string) string {
 	return strings.ReplaceAll(strings.TrimSuffix(s, "\n"), "\n", "\n  ")
 }
 
-// f2Entry returns the offset of F-2 entry i in the decoded footer d.
-func f2Entry(d []byte, i int) int {
-	off := binary.LittleEndian.Uint64(d[prologueF2OffsetOff:])
-	n := binary.LittleEndian.Uint32(d[prologueF2EntryLenOff:])
+// TestFooterOfEpochClosedInTwoBlocks checks the block-local and pack-wide close_seq of an epoch two blocks end
+// (the tracepack format specification §10): each F-3 entry states its own block's closure, F-5 the lowest.
+func TestFooterOfEpochClosedInTwoBlocks(t *testing.T) {
+	t.Parallel()
 
-	return int(off) + i*int(n)
-}
-
-// section is a byte range of a decoded footer.
-type section struct{ off, n int }
-
-// f3List returns block i's F-3 list in the decoded footer d.
-func f3List(d []byte, i int) section {
-	e := f2Entry(d, i)
-	f3 := binary.LittleEndian.Uint64(d[prologueF3OffsetOff:])
-
-	return section{
-		off: int(f3 + binary.LittleEndian.Uint64(d[e+f2SummaryOffsetOff:])),
-		n:   int(binary.LittleEndian.Uint32(d[e+f2SummaryLenOff:])),
+	stop := tracepack.BoundaryKindStop
+	blocks := [][]tracepack.Record{
+		{dataRecord(0, 1, nil), eventRecord(t, 1, 1, &tracepack.TransportEvent{Event: tracepack.EventSocketClose})},
+		{dataRecord(2, 1, nil), eventRecord(t, 3, 1, &tracepack.TransportEvent{Event: tracepack.EventCaptureBoundary, BoundaryKind: &stop})},
 	}
-}
-
-// f5Range returns F-5 in the decoded footer d.
-func f5Range(d []byte) section {
-	return section{off: int(binary.LittleEndian.Uint64(d[prologueF5OffsetOff:])), n: int(binary.LittleEndian.Uint64(d[prologueF5LenOff:]))}
-}
-
-// entryOffset returns the offset in d of the header of the k-th entry of tag in the entry list s.
-func entryOffset(t *testing.T, d []byte, s section, tag uint16, k int) int {
-	t.Helper()
-
-	entries, err := tlv.Decode(d[s.off : s.off+s.n])
+	f, err := FooterOf(t.Context(), writePack(t, testMeta(), blocks, true))
 	require.NoError(t, err)
-	for _, e := range entries {
-		if e.Tag == tag {
-			if k == 0 {
-				return s.off + e.Offset
-			}
-			k--
-		}
-	}
-	require.Failf(t, "entry missing", "tag 0x%04X", tag)
 
-	return 0
+	const projection = `{
+  "blocks": [
+    {
+      "block": 0,
+      "close_seqs": [
+        {
+          "epoch": 1,
+          "seq": "1"
+        }
+      ],
+      "boundaries": []
+    },
+    {
+      "block": 1,
+      "close_seqs": [
+        {
+          "epoch": 1,
+          "seq": "3"
+        }
+      ],
+      "boundaries": [
+        {
+          "seq": "3",
+          "kind": "stop"
+        }
+      ]
+    }
+  ],
+  "f5": {
+    "epochs": [
+      {
+        "epoch": 1,
+        "close_seq": "1"
+      }
+    ],
+    "boundaries": [
+      {
+        "seq": "3",
+        "kind": "stop"
+      }
+    ]
+  }
 }
-
-// nestedValueOffset returns the offset in d of the value of the nested tag inner
-// of the k-th entry of tag in the entry list s.
-func nestedValueOffset(t *testing.T, d []byte, s section, tag uint16, k int, inner uint16) int {
-	t.Helper()
-
-	outer := entryOffset(t, d, s, tag, k)
-	n := int(binary.LittleEndian.Uint32(d[outer+4:]))
-	value := outer + tlv.HeaderLen
-	nested, err := tlv.Decode(d[value : value+n])
-	require.NoError(t, err)
-	for _, e := range nested {
-		if e.Tag == inner {
-			return value + e.Offset + tlv.HeaderLen
-		}
-	}
-	require.Failf(t, "nested tag missing", "tag 0x%04X", inner)
-
-	return 0
+`
+	require.True(t, f.Accepted)
+	require.NotNil(t, f.Stored)
+	require.Equal(t, projection, marshalJSON(t, f.Stored))
+	require.Equal(t, projection, marshalJSON(t, &f.Recomputed))
 }

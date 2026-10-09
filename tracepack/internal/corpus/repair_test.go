@@ -144,7 +144,7 @@ func TestRunRepair(t *testing.T) {
 	require.Equal(t, RepairNotNeeded, r.Result)
 
 	off1 := metaEnd(pack) + blockLen(blocks[0])
-	damaged := flipByte(pack, int(off1+blockLen(blocks[1])-1))
+	damaged := must(FlipByte(pack, int(off1+blockLen(blocks[1])-1)))(t)
 	r, patch, err = RunRepair(t.Context(), damaged, o)
 	require.NoError(t, err)
 	require.NotEmpty(t, patch)
