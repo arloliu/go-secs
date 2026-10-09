@@ -2,15 +2,16 @@
 
 tracepack (`.tpk`) is an immutable, compressed, self-indexed container for recorded SECS-II traffic between one tool and its host,
 intended as a long-term archival format that any implementation, in any language, can read.
-The specification is at v2.25, format 1.0; the Go reference implementation is the nested module `github.com/arloliu/go-secs/tracepack` in `tracepack/`.
+The specification is at v2.26, format 1.0; the Go reference implementation is the nested module `github.com/arloliu/go-secs/tracepack` in `tracepack/`.
 
-Read in this order: overview, format, semantics, storage, then the Go mapping.
+Read in this order: overview, format, JSONL, semantics, storage, then the Go mapping.
 Documents here follow `.agents/rules/450-doc-lifecycle.md`.
 
 | File | Class | Status | Purpose |
 |---|---|---|---|
 | `tracepack-overview.md` | living | current | purpose, document map, terminology, diagrams, open questions, deferred items (informative) |
 | `tracepack-format.md` | living | current | byte format, registries, validation, versioning, canonical JSONL, conformance corpus (normative) |
+| `tracepack-jsonl.md` | living | current | byte form of the canonical JSONL export, schema `tracepack-jsonl/1` (normative) |
 | `tracepack-semantics.md` | living | current | record semantics, transport events, quality, indexes, transaction lookup, redaction (normative) |
 | `tracepack-storage.md` | living | current | storage profile: scopes, generations, commit protocol, catalog, retention, recovery (normative) |
 | `tracepack-go.md` | living | current | Go module, API, mapping from go-secs, CLI |

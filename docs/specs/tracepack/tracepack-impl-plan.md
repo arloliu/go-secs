@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-10-08) — phases 4, 5a, 5b, 5c1, 5c2, 5c3 and 5d done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`, `SegmentWriter`, `NewDirSink`, `NewReaderSource`, `Retention`); phases 6 to 8 pending.
-Implements: tracepack v2.25 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
+Status: active (2026-10-09) — phases 4, 5a, 5b, 5c1, 5c2, 5c3 and 5d done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`, `SegmentWriter`, `NewDirSink`, `NewReaderSource`, `Retention`); phase 6 split into 6a, 6b and 6c (G5-166), 6a next; phases 7 and 8 pending.
+Implements: tracepack v2.26 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
 
@@ -27,8 +27,7 @@ Nested module `github.com/arloliu/go-secs/tracepack` (own `go.mod` in `tracepack
 
 | Package | Content | Public? |
 |---|---|---|
-| `tracepack` | `Record`, enums, `PackMeta`, `Writer`, `Reader`, `Filter`, `Verify`, `Repair`, `Recover` (deferred), `Merge`, `MergeIterate`, `FindTransaction`, `NewStoreSource`, `Extract`, `RedactionPolicy` | yes |
-| `tracepack/jsonl` | canonical export | yes |
+| `tracepack` | `Record`, enums, `PackMeta`, `Writer`, `Reader`, `Filter`, `Verify`, `Repair`, `Recover` (deferred), `Merge`, `MergeIterate`, `FindTransaction`, `NewStoreSource`, `ExportJSONL`, `Extract`, `RedactionPolicy` | yes |
 | `tracepack/classify` | go-secs-based `decode_status` classifier | yes |
 | `tracepack/internal/format` | byte layouts: file header, envelope, record header, trailer, F-1, F-2; CRC; UUID byte order | no |
 | `tracepack/internal/tlv` | TLV entry encoding, value types, tag registries, validation | no |
@@ -74,7 +73,9 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 5c2 — store-backed PackSource, listing views | done |
 | 5c3 — retention | done |
 | 5d — segment writer, local source | done |
-| 6 — JSONL export, conformance corpus, CLI | pending |
+| 6a — JSONL export | active |
+| 6b — conformance corpus | pending |
+| 6c — CLI | pending |
 | 7 — Extract and redaction | pending |
 | 8 — Producer API for a durable-bus capture | pending |
 
@@ -559,18 +560,44 @@ under `Complete`, the scope of each evidence reader is not indexed (G5-158).
 
 ### Phase 6 — JSONL export, conformance corpus, CLI
 
-- `jsonl.Export` per [FMT §15]; write the draft byte-exact schema (`tracepack-jsonl/1`: key order, number and base64 formatting) alongside.
+Split into three sub-phases, each with its own plan, reviews and PR, in the order 6a → 6b → 6c, before phase 7 (G5-166).
+
+#### 6a — JSONL export (active)
+
+- `ExportJSONL` in package `tracepack` (G5-168), writing the byte form of [JSONL]:
+  64-bit integers as decimal strings (G5-167); the validated blocks of a damaged pack, without a summary line (G5-169);
+  a reader budget that keeps a block out is an error (G5-171); lines written in bounded pieces (G5-172).
+- TLV lists are walked over their raw bytes, so the export's own memory does not grow with a payload, a value or an entry list;
+  a registry pin test binds the names of `tracepack-jsonl/1` to [JSONL].
+
+Done when: exact-bytes tests written from [JSONL] pass, including damaged packs, unknown tags, enum values and bits, extension areas, invalid bodies and string escaping;
+the export agrees with `Iterate` on records and `Result`, and with `verify` on body validity; the fuzz target runs clean.
+No corpus files and no CLI in 6a.
+
+#### 6b — conformance corpus
+
 - Corpus generator producing the [FMT §16] vectors except the redaction vectors (phase 7), with golden `.tpk`, `.jsonl` and verify reports under `testdata/corpus/`,
+  the expected rejection for a vector rejected at bootstrap ([JSONL §8]),
   plus the expected query results of the query vectors,
   regenerated only with an explicit `-update` flag.
-- CLI: `list`, `stats`, `dump --sml | --jsonl`, `verify [--repair]`, `merge`, and `recover` once `Recover` is planned (G5-91); local paths first, `s3://` through an `io.ReaderAt` adapter;
-  on `s3://` sources, `list`, `stats` and `dump` end an hour that becomes removed with the removed outcome ([STO §5] Retention).
+  Whether 6b also covers the vectors of [SEM §9] and [STO §8] is decided when 6b is planned (G5-166).
 
-Done when: the corpus regenerates byte-identically, `dump --jsonl` matches every golden,
-every query vector yields its expected results, and the CLI works on the corpus.
+Done when: the corpus regenerates byte-identically, `ExportJSONL` matches every JSONL golden,
+every vector rejected at bootstrap is rejected as expected, and every query vector yields its expected results.
+
+#### 6c — CLI
+
+- `list`, `stats`, `dump --sml | --jsonl`, `verify [--repair]`, `merge`, and `recover` once `Recover` is planned (G5-91), on local paths (G5-170).
+  `s3://` sources are deferred until the query service or another design decides where the object-store dependency lives;
+  a storage-backed command then ends an hour that becomes removed with the removed outcome ([STO §5] Retention).
+
+Done when: `dump --jsonl` matches every JSONL golden of the corpus, rejects every vector rejected at bootstrap, and the CLI works on the corpus.
 
 ### Phase 7 — Extract and redaction
 
+- Reader prerequisite: a redaction entry with a recoverable defect ([SEM §8]), such as a `masked_ranges` array whose length is not a multiple of 8 or whose element count is odd,
+  must not fail `Open`; the reader reports it and treats the records concerned as wholly masked.
+  Until then such a pack is rejected at bootstrap by the Go reader, and the corpus holds no rejection golden for it ([JSONL §8]).
 - E5 item walker with byte offsets and the item-validity predicate of [SEM §3], plus the format-22 rule of [SEM §8].
 - Policy compilation: S/F, `*` paths, domains (1–65535 bytes), annotation kinds; invalid patterns and domains rejected.
 - Two-pass `Extract`: plan every mask and digest (captured message text, total path resolution, no-content and whole-text rules), then write header, pack metadata and masked blocks;

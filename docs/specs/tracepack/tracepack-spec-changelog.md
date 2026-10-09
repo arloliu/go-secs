@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-07) — spec v2.25.
+Status: current (2026-10-09) — spec v2.26.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -1113,3 +1113,32 @@ Summary:
 `tracepack-go.md` §3 Retention: the provider's freshness rule was stated backwards ("a cache may lag, never lead, the deleting component");
 a provider that lags the deletions lets a check pass after an object of the hour was deleted, which breaks the check's proof.
 It now reads: a provider never falls behind the deleting component; running ahead is safe; a cache is safe only if the deleting component waits out its staleness.
+
+## Changes v2.25 → v2.26: the canonical JSONL export (owner decisions G5-166..G5-172, 2026-10-09)
+
+Source: the phase 6a JSONL plan and its reviews r1–r4, kept outside the repository; no proposal document.
+Format version stays 1.0; no byte layout changes.
+
+Summary:
+- New `tracepack-jsonl.md` [JSONL]: the byte form of schema `tracepack-jsonl/1` —
+  text form, value forms (64-bit integers as strings, G5-167), names and their binding to the schema, TLV objects, header and record lines, body validity,
+  the records exported (validated blocks, G5-169; budget refusals fail, G5-171), packs without an export, schema versions, an example.
+- [FMT §2]: a writer writes no BOM, a reader keeps a leading U+FEFF; the UTF-8 rule binds a known tag's value.
+- [FMT §5]: the TLV rules split into framing (every entry), the rules of known tags, and unknown tags, which may repeat and are never interpreted;
+  "a repeated tag the registry does not mark repeatable rejects the file" now reads for known tags only, since an unknown tag has no registry entry.
+- [FMT §13]: the exact reasons a reader rejects a pack at bootstrap; every other metadata requirement binds writers; a reader's own limits are not rejections.
+- [FMT §15]: the byte form is [JSONL]; damaged and rejected packs. [FMT §16]: a vector rejected at bootstrap has an expected rejection instead of JSONL.
+- [OVW §2] lists [JSONL]; [OVW §6] keeps only the catalog schema deferred.
+- `tracepack-go.md` §3: `ExportJSONL`'s signature, `Result`, errors and memory (G5-168, G5-171, G5-172); §7: local paths only (G5-170).
+- `tracepack-impl-plan.md`: phase 6 split into 6a, 6b and 6c (G5-166); the `tracepack/jsonl` package row removed;
+  phase 7 gains the reader prerequisite that a recoverable redaction-entry defect does not fail `Open`.
+
+### v2.26 review — VERDICT: fix-then-ready (3 P1, 2 P2), all applied
+
+| Finding | Fix |
+|---|---|
+| P1 [FMT §13] rejected metadata breaking "a rule of §5", writer commitments included | names the entry-list rules only; [SEM §8]'s bootstrap checks on redaction entries are reports, not rejections |
+| P1 truncation and conformance vectors still demanded JSONL, a report or a patch for cuts inside the header or metadata | [FMT §16] splits those cuts off as bootstrap rejections; a reader conforms with the expected rejection; impl plan 6b and 6c done criteria likewise |
+| P1 the nesting limit of known `tlv` values was dropped | [FMT §5]: at most 32 levels, unknown `tlv` values never descended into |
+| P2 the valid-body predicate was stated in [JSONL] and [FMT §8] | [FMT §8] defines a valid TLV body; [JSONL §6] references it |
+| P2 [OVW] counted three normative documents | count removed |
