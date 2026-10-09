@@ -301,3 +301,9 @@ func (r *retainedFrom) advance(hour int64) {
 
 The documents in [docs/specs/tracepack/](../docs/specs/tracepack/) are the reference:
 the format, the record semantics, the storage profile, the canonical JSONL export, and the mapping to this Go package (`tracepack-go.md`).
+
+The conformance corpus in [testdata/corpus/](testdata/corpus/) holds packs and the results a conforming implementation produces from them:
+exports, verification reports, bootstrap rejections, query results, repairs and truncation tables.
+An implementation in any language checks itself against the committed files, without Go;
+its [README](testdata/corpus/README.md) says how,
+and the [corpus specification](../docs/specs/tracepack/tracepack-corpus.md) defines every file.

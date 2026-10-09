@@ -15,6 +15,8 @@ for readers of local files, a source for the lookup over packs the caller opened
 Every reader can apply a retention boundary, the first UTC hour still retained,
 and ends a read that meets a removed hour (spec v2.25).
 A pack exports as canonical JSONL, byte for byte the same from any conforming exporter (spec v2.26).
+A conformance corpus holds packs and the results a conforming implementation produces from them,
+so an implementation in any language can check itself against this one (spec v2.27 and v2.28).
 A README groups the API by audience, and runnable examples show writing and reading.
 
 ### Upgrade notes
@@ -131,6 +133,10 @@ A README groups the API by audience, and runnable examples show writing and read
 - Spec v2.27 states that a query reads the HSMS header fields of a control record at their positions, as for a data record:
   `Filter.SF` matches a control record on payload bytes 6 and 7 as stored, and interpreting them by SType is the consumer's.
   `Iterate` and `Record.HSMSHeader` already did so, so no behaviour changed.
+- Spec v2.28 states where the forward walk of a pack without a valid footer stops:
+  at an envelope that fails any of its checks, its magic, its CRC or a field outside its range;
+  where too few bytes are left for an envelope; and at an envelope whose body ends past the block region.
+  The reader already stopped there, so no behaviour changed.
 
 ### Added
 
@@ -514,6 +520,17 @@ A README groups the API by audience, and runnable examples show writing and read
   `SegmentWriterOptions.Now` now also reaches each segment's `Writer`, so it stamps every segment's `writer_start_utc_ns`,
   and gives the time part of the `capture_id` and of every segment `pack_id` the `SegmentWriter` generates.
   With a fixed clock and supplied ids, a test writes a pack whose file header is the same on every run.
+- The conformance corpus in `testdata/corpus/`, shipped in the module zip (spec v2.27 and v2.28).
+  Each vector is a pack with what a conforming implementation produces from it:
+  its JSONL export and verification report, or its bootstrap rejection,
+  and where the vector needs them, query results, HSMS header fields, footer values, classifications, a repair result or a truncation table.
+  It holds the vectors of the format specification §16, except the redaction vectors and two that need the result of a read over several packs,
+  and the single-pack vectors of the semantics specification §9.
+  The tracepack corpus specification defines its layout and the canonical JSON schemas of its files,
+  schema `tracepack-corpus/1`, a draft until tracepack v1.0.0: a change to a schema before then takes a new value.
+  Its README says how an implementation in any language checks itself against the committed files.
+  `TestCorpus` regenerates the corpus and requires every file, and every read of the committed files, to match;
+  the `classify` classifier and the validating `Writer` are checked against it too.
 - Runnable examples: `ExampleSegmentWriter`, `ExampleOpen`, `ExampleFindTransaction` over `NewReaderSource`, `ExampleMergeIterate` and `ExampleExportJSONL`;
   and `README.md`, the API by audience.
 - `SegmentWriter` and `NewDirSink` have tests that inject a failure or a cancellation at each sink and file-system call, before and after publication,
