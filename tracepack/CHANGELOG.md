@@ -5,6 +5,8 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-10
+
 This release follows the format revision of spec v2.13, which redefines format 1.0 in place, and its amendment in spec v2.17.
 It adds the reader and verification (spec v2.14), repair (spec v2.15 and v2.19), the active view and merge of a scope (spec v2.16 to v2.18),
 one read over several packs (spec v2.20), the lookup of a transaction from its primary (spec v2.21),
