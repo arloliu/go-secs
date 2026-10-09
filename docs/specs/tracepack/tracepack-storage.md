@@ -493,6 +493,8 @@ A source dialect lacking some of these is still convertible, with the effects st
 8. **Epoch**: increments on each explicit connect / accept line;
    a dialect without them yields `epoch = 0` + `correlation-incomplete` ([FMT I-7]).
    `capture_id` is one per `tool_id` per converter run per source file set ([FMT I-7]); `seq` is capture-scoped ([FMT I-12]).
+   Every pack of every capture a run writes lists the run's source files as the same `source_ref` entries in the same order ([FMT §5]),
+   so a `source_index` ([FMT §8]) names the same file in each and the coverage of item 7 can be checked across the captures.
 9. **Output**: a converter MAY write `archive` packs directly, one per (capture, UTC hour), with hour-aligned blocks ([FMT I-13]), `compaction_level = 0` and no `compacted_from`,
    since they represent no generation-0 pack ([FMT §5]); a merge whose view holds only such an archive writes none either (§4, G5-111).
 
@@ -500,7 +502,7 @@ A source dialect lacking some of these is still convertible, with the effects st
 
 The following vectors belong to the corpus of [FMT §16]:
 - converter failures (§7);
-- a log holding the traffic of two tools and lines of neither, converted into three captures whose records and annotations together cover every input byte exactly once (§7);
+- a log holding the traffic of two tools and lines of neither, converted into three captures whose packs list the same `source_ref` entries and whose records and annotations together cover every input byte exactly once (§7);
 - a merge of several segments into an archive, including overlapping inputs, an hour change forcing two segments, and a late segment producing a new generation (§4);
 - two records with the same (`capture_id`, `seq`) but different bytes: readers report a `conflict`, and a merge fails and publishes nothing ([FMT I-12], §4);
 - overlapping blocks with the same seq range but different codec or compressed bytes, and a forced `body_crc` collision (§4);
