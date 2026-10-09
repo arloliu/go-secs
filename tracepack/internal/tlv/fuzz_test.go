@@ -172,16 +172,25 @@ func FuzzDecode(f *testing.F) {
 }
 
 // checkEntries decodes b and checks the result, then checks every entry at the given nesting depth.
+// Entries must agree with Decode: the same entries, or the same error after the entries before the malformed one.
 func checkEntries(t *testing.T, b []byte, depth int) {
 	t.Helper()
 
 	entries, err := Decode(b)
+	walked, walkErr := collectEntries(b)
+	require.Equal(t, err, walkErr, "Entries stops at the entry Decode rejects, with the same error")
 	if err != nil {
 		requireEntryError(t, err)
 		require.Nil(t, entries)
+		var ee *EntryError
+		require.ErrorAs(t, err, &ee)
+		prefix, prefixErr := Decode(b[:ee.Offset])
+		require.NoError(t, prefixErr)
+		require.Equal(t, prefix, walked, "Entries yields every entry before the malformed one")
 
 		return
 	}
+	require.Equal(t, entries, walked, "Entries yields the entries Decode returns")
 	if len(b) == 0 {
 		require.Nil(t, entries)
 
@@ -223,6 +232,19 @@ func checkEntries(t *testing.T, b []byte, depth int) {
 		checkNested(t, e, depth)
 		checkArrays(t, e.Value)
 	}
+}
+
+// collectEntries returns the entries and the error Entries yields for b.
+func collectEntries(b []byte) ([]Entry, error) {
+	var out []Entry
+	for e, err := range Entries(b) {
+		if err != nil {
+			return out, err
+		}
+		out = append(out, e)
+	}
+
+	return out, nil
 }
 
 // requireValidated asserts what a nil error from Validate promises about entries:

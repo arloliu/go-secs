@@ -193,3 +193,106 @@ func TestEntriesRoundTrip(t *testing.T) {
 		assert.Equal(t, want, out[i], "entry %d", i)
 	}
 }
+
+// Entries yields what Decode returns, on well-formed input and up to the first malformed entry.
+func TestEntriesMatchesDecode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		in   string
+	}{
+		{"empty", ""},
+		{"one entry", goldenU8},
+		{"every value type", goldenU8 + goldenBool + goldenI64 + goldenU64 + goldenUUID + goldenUTF8 + goldenBytes + goldenEmpty + goldenNested + goldenUnknown},
+		{"header shorter than 8 bytes", goldenU8 + "0300010001"},
+		{"value crosses the end", goldenUTF8 + "02000600050000004551"},
+		{"length 0xFFFFFFFF", goldenBytes + "02000700ffffffff00"},
+		{"zero tag after valid entries", goldenU8 + goldenBool + "000007000000000000"},
+		{"fixed-length check on an unknown tag", goldenU8 + "ff7f010002000000ffff"},
+		{"malformed entry before valid ones", "03000100020000000101" + goldenU8},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := mustHex(t, tt.in)
+			want, wantErr := Decode(b)
+			got, err := collectEntries(b)
+			require.Equal(t, wantErr, err)
+			if wantErr == nil {
+				assert.Equal(t, want, got)
+
+				return
+			}
+
+			var ee *EntryError
+			require.ErrorAs(t, err, &ee)
+			prefix, prefixErr := Decode(b[:ee.Offset])
+			require.NoError(t, prefixErr)
+			assert.Equal(t, prefix, got, "the entries before the malformed one are yielded first")
+		})
+	}
+}
+
+// Entries yields values that alias its input, and stops when the loop body breaks.
+func TestEntriesAliasesAndStops(t *testing.T) {
+	t.Parallel()
+
+	b := mustHex(t, goldenBytes+goldenU8+"000007000000000000")
+	calls := 0
+	for e, err := range Entries(b) {
+		calls++
+		require.NoError(t, err)
+		b[8] = 'Z'
+		assert.Equal(t, []byte("Zb"), e.Value)
+
+		break
+	}
+	assert.Equal(t, 1, calls, "nothing is yielded after the loop breaks, not even the later malformed entry")
+}
+
+// Entries yields nothing after the first malformed entry, even when the loop body goes on.
+func TestEntriesNothingAfterError(t *testing.T) {
+	t.Parallel()
+
+	b := mustHex(t, goldenU8+"03000100020000000101"+goldenU8+goldenBool)
+	var tags []uint16
+	errs := 0
+	for e, err := range Entries(b) {
+		if err != nil {
+			errs++
+
+			continue
+		}
+		tags = append(tags, e.Tag)
+	}
+	assert.Equal(t, []uint16{0x0003}, tags)
+	assert.Equal(t, 1, errs)
+}
+
+// Walking an entry list with Entries, nested lists included, allocates nothing.
+func TestEntriesNoAllocations(t *testing.T) {
+	b := encodeEntries([]Entry{
+		U8Entry(0x0003, 1),
+		NestedEntry(0x0026, []Entry{U64Entry(1, 45000), U64Entry(2, 10000)}),
+		BytesEntry(0x9000, make([]byte, 1<<16)),
+	})
+
+	var count int
+	var walk func(b []byte)
+	walk = func(b []byte) {
+		for e, err := range Entries(b) {
+			if err != nil {
+				return
+			}
+			count++
+			if e.Type == TypeTLV {
+				walk(e.Value)
+			}
+		}
+	}
+	allocs := testing.AllocsPerRun(10, func() { walk(b) })
+	assert.Zero(t, allocs)
+	assert.Equal(t, 55, count, "a warm-up and 10 runs of 5 entries each")
+}

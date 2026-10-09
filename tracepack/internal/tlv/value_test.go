@@ -222,3 +222,48 @@ func TestUTF8EmptyAndMultibyte(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Asia/Taipei 台北", s)
 }
+
+// CheckValue applies the rules Validate applies to a known tag's value.
+func TestCheckValue(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		e    Entry
+		want ValueType
+		err  error
+	}{
+		{"u8", U8Entry(1, 0xFF), TypeU8, nil},
+		{"bool 0", BoolEntry(1, false), TypeBool, nil},
+		{"bool 1", BoolEntry(1, true), TypeBool, nil},
+		{"bool 2", Entry{Tag: 1, Type: TypeBool, Value: []byte{2}}, TypeBool, ErrBool},
+		{"u64 at the limit", U64Entry(1, MaxU64), TypeU64, nil},
+		{"u64 over the limit", U64Entry(1, MaxU64+1), TypeU64, ErrLimit},
+		{"i64 minimum", I64Entry(1, -1<<63), TypeI64, nil},
+		{"uuid", UUIDEntry(1, goldenUUIDValue), TypeUUID, nil},
+		{"utf8 with a leading BOM", UTF8Entry(1, "\xef\xbb\xbfa"), TypeUTF8, nil},
+		{"utf8 empty", UTF8Entry(1, ""), TypeUTF8, nil},
+		{"invalid utf8", Entry{Tag: 1, Type: TypeUTF8, Value: []byte{0xFF}}, TypeUTF8, ErrUTF8},
+		{"bytes", BytesEntry(1, []byte{0xFF}), TypeBytes, nil},
+		{"tlv value not examined", Entry{Tag: 1, Type: TypeTLV, Value: []byte{0xFF}}, TypeTLV, nil},
+		{"wrong type", U8Entry(1, 1), TypeBool, ErrType},
+		{"unknown type wanted", Entry{Tag: 1, Type: 9, Value: []byte{1}}, 9, nil},
+		{"wrong fixed length", Entry{Tag: 1, Type: TypeU64, Value: []byte{1}}, TypeU64, ErrLength},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tt.e.CheckValue(tt.want)
+			if tt.err == nil {
+				require.NoError(t, err)
+
+				return
+			}
+			require.ErrorIs(t, err, tt.err)
+			var ee *EntryError
+			require.ErrorAs(t, err, &ee)
+			assert.Equal(t, tt.e.Tag, ee.Tag)
+		})
+	}
+}
