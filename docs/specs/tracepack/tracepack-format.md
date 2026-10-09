@@ -905,7 +905,7 @@ Its layout, the JSON schemas of its expectations, the item-validity checklist of
 [CORPUS §8] states how the corpus reads the clauses whose wording leaves a choice, such as the empty pack and the maximum-value integers.
 - Contents: golden `.tpk` files and the expected results of reading them; the files of each vector are those [CORPUS §2] gives for its class.
   A vector of every class but `multi-pack` holds the expected canonical JSONL (§15) of its pack and the expected `verify` report,
-  and a repair vector also its patch, with the patch's JSONL and report;
+  and a repair vector whose result is `patched` also holds its patch, with the patch's JSONL and report;
   for a vector a reader rejects at bootstrap (§13), the expected rejection instead of JSONL and report ([JSONL §8]).
   A vector of class `multi-pack` holds several packs or one, each pack's expected `verify` report,
   and the expected results of its reads over several packs and of its transaction lookups, and no JSONL.

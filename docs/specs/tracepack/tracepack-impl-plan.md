@@ -660,7 +660,11 @@ Done when: `make lint-tracepack`, `make test-tracepack` and `make test-tracepack
 every pack of every `multi-pack` vector matches its `.verify.json`; `MergeIterate` matches every read of `reads.json`, and every record it returns matches the stored record it names;
 `FindTransaction` over `NewReaderSource` matches every lookup of `lookups.json`, its gaps turned into facts, with the same record check;
 every [SEM §9] clause and the two [FMT §16] clauses of G5-182 map to a vector, a test of `MergeIterate` or phase 7, and every catalogued id is in the manifest and the reverse;
-the corpus is under 2,000,000 bytes and every group and root file within its enforced ceiling; the external post-implementation review is clean.
+the corpus is under 2,000,000 bytes and every group and root file within its enforced ceiling;
+two independent Python checkers, kept outside the repository and written from the specification alone, without the goldens or the Go code,
+one for reads and one for lookups, agree with every committed golden,
+the lookups checker on the whole fact set of every lookup;
+the external post-implementation review is clean.
 No store, catalog, retention, redaction or zstd vector in 6b2.
 
 #### 6b3 — conformance corpus, part 3
