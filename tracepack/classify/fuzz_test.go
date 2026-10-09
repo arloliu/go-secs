@@ -38,6 +38,10 @@ func FuzzFrame(f *testing.F) {
 		f.Add(seed, 0)
 		f.Add(seed, len(seed))
 	}
+	// The frames of the conformance corpus, each under its vector's max_frame_len.
+	for _, cf := range corpusFrames(f) {
+		f.Add(cf.frame, int(cf.maxFrameLen))
+	}
 
 	f.Fuzz(func(t *testing.T, frame []byte, maxFrameLen int) {
 		status, trailing := Frame(frame, maxFrameLen)
