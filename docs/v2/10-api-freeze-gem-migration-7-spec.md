@@ -36,7 +36,7 @@ co-scheduled. The migration guide is written last so it documents the final surf
 ## 3. Locked decisions
 
 - **D7-1** — gem expands to the bounded E30 core set (§5); the nested define/link/host-command
-  families are deferred (no consumer demand; the eqp-hub proposal is stream/function-agnostic).
+  families are deferred (no consumer demand; the equipment-gateway proposal is stream/function-agnostic).
 - **D7-2** — migration deliverable = a prose guide doc; no automated codemod tool.
 - **D7-3** — a formal public-API stability review was run (two independent models) and consolidated;
   §4 is its adjudicated output.

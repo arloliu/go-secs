@@ -35,7 +35,7 @@ they are gated on a benchmark harness that is the first sub-project to land.
 ## 2. Goals
 
 From `tmp/go-secs-v2-idea.md` and the downstream consumer proposal
-`tmp/go-secs-v2-immutability-proposal.md` (`eqp-hub`, a software-defined virtual switch
+`tmp/go-secs-v2-immutability-proposal.md` (an equipment gateway, a software-defined virtual switch
 hub that forwards SECS/HSMS equipment data):
 
 1. **Full immutability** of `hsms`, `secs1`, `secs2` message objects. A frozen value is
@@ -412,7 +412,7 @@ fwd, err := msg.Derive().SessionID(42).WaitBit(false).Build() // returns (msg, e
   and `sanityCheck` already rejects W-bit on even functions (`hsms/data_msg.go:580-582`). A
   value-returning `WithWaitBit(true)` could mint an immutable *invalid* reply with nowhere to
   surface the error — so W-bit changes must flow through the validated builder. ("Change =
-  new message," same rule as stream/function/body.) The eqp-hub relay case (override session
+  new message," same rule as stream/function/body.) The equipment-gateway relay case (override session
   id) stays cheap; toggling W-bit is rarer and validated.
 - **Migration is near-mechanical:** `msg.SetSessionID(42)` (statement) →
   `msg = msg.WithSessionID(42)` (assignment) for envelope fields; `msg.SetWaitBit(false)`
@@ -460,8 +460,8 @@ copy-cost vs (b) GC-cost separately; do not silently enable both.
 A harness measuring **throughput, p50/p99 latency, allocs/op, and GC pause** across two
 workload arms:
 
-- **Relay-heavy:** decode → restamp header → forward, no structural access (eqp-hub's
-  profile).
+- **Relay-heavy:** decode → restamp header → forward, no structural access (the equipment
+  gateway's profile).
 - **Structural-heavy:** decode → inspect items → logic (gem / equipment-side profile).
 
 It prototypes the hybrid body model (raw-view vs item-tree) for one large type
