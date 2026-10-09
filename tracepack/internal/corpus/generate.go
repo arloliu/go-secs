@@ -39,8 +39,11 @@ var ErrNoEncoder = errors.New("corpus: the linked zstd encoder is not known")
 // A group adds its vectors by adding its function here.
 var groups = []func() []Recipe{
 	basicVectors,
+	bootstrapVectors,
 	footerVectors,
 	framingVectors,
+	validationVectors,
+	verifyVectors,
 }
 
 // Recipe describes one vector of the corpus and how the generator makes it (the tracepack corpus specification §3).
@@ -105,11 +108,16 @@ type RepairInput struct {
 	PatchBase *tracepack.UUID
 }
 
-// Pos is a file offset a recipe names by the pack's layout, as Locate finds it.
+// Pos is a file offset a recipe names by the pack's layout, as Locate finds it, or by its value,
+// plus a number of bytes.
 // The zero Pos names no offset.
 type Pos struct {
 	kind  posKind
 	block int
+	// at is the offset a Pos of kind posOffset names.
+	at uint64
+	// plus is added to the offset the Pos names.
+	plus uint64
 }
 
 // posKind says what a Pos names.
@@ -119,6 +127,7 @@ const (
 	posNone posKind = iota
 	posBlock
 	posEnd
+	posOffset
 )
 
 // Expectation is a vector's expectation, written by hand from the specification.
@@ -161,6 +170,22 @@ type Expectation struct {
 	Queries []QueryWant
 	// Repair is the expected repair of a repair vector.
 	Repair *RepairWant
+	// Cuts are the rows of truncation.json of a truncation vector, ascending, one per row:
+	// each names where its row starts, and its row ends where the next starts, the last at the end of the pack.
+	Cuts []CutWant
+}
+
+// CutWant is a row of truncation.json: the first cut length it covers and the expectation of its cuts,
+// a rejection code or the outcome, the records exported and validated and where the validated prefix and the walk end.
+// Positions are those of the base pack, which every cut shares up to its length.
+type CutWant struct {
+	From      Pos
+	Rejection string
+	Outcome   tracepack.Outcome
+	Validated int
+	Records   uint64
+	PrefixEnd Pos
+	WalkStop  Pos
 }
 
 // FailedWant is a failed block and its cause, ReasonCorruptBlock or ReasonUnknownCodec.
@@ -248,16 +273,17 @@ type readInputs struct {
 // readOutputs is the reads of a vector: its files, in the order of the tracepack corpus specification §2,
 // and what Expect is checked against.
 type readOutputs struct {
-	files     []file
-	rejection string
-	verify    Verify
-	export    []byte
-	seqs      []uint64
-	queries   []QueryVector
-	stats     tracepack.PackStats
-	statsOK   bool
-	footer    *Footer
-	repair    *Repair
+	files      []file
+	rejection  string
+	verify     Verify
+	export     []byte
+	seqs       []uint64
+	queries    []QueryVector
+	stats      tracepack.PackStats
+	statsOK    bool
+	footer     *Footer
+	repair     *Repair
+	truncation *Truncation
 }
 
 // AtBlock names the envelope of block i.
@@ -269,6 +295,17 @@ func AtBlock(i int) Pos {
 // footer_offset in a finalized pack, else the end of the last whole block, or the end of the pack metadata without one.
 func AtEnd() Pos {
 	return Pos{kind: posEnd}
+}
+
+// AtOffset names the file offset off.
+func AtOffset(off uint64) Pos {
+	return Pos{kind: posOffset, at: off}
+}
+
+// Plus returns the position n bytes after p.
+func (p Pos) Plus(n uint64) Pos {
+	p.plus += n
+	return p
 }
 
 // Truncated is the pack-level truncated reason of a query, at at (the zero Pos for none).
@@ -478,6 +515,8 @@ func (rec *Recipe) check() error {
 		return errors.New("a vector that opens expects an outcome and a prefix end")
 	case e.Outcome == tracepack.OutcomeUnfinalized && !e.Unfinalized:
 		return errors.New("an unfinalized outcome of a pack expected finalized")
+	case (rec.Class == ClassTruncation) != (len(e.Cuts) > 0):
+		return errors.New("a truncation vector, and only one, expects the rows of its table")
 	}
 
 	return nil
@@ -641,6 +680,7 @@ func readVector(ctx context.Context, pack []byte, in *readInputs) (*readOutputs,
 		if err := out.add(FileTruncation, &t); err != nil {
 			return nil, err
 		}
+		out.truncation = &t
 	default:
 		// A read vector has no other file.
 	}
@@ -827,7 +867,10 @@ func exportLines(export []byte) ([][]byte, error) {
 		return nil, errors.New("an export that does not end in LF")
 	}
 
-	return bytes.SplitAfter(export[:len(export)-1], []byte("\n")), nil
+	lines := bytes.SplitAfter(export, []byte("\n"))
+
+	// The final LF leaves an empty element after the last line.
+	return lines[:len(lines)-1], nil
 }
 
 // checkClassify checks that c is classify.json of the pack r reads:
@@ -946,9 +989,11 @@ func (p Pos) offset(l *Layout) (uint64, error) {
 			return 0, err
 		}
 
-		return s.Offset, nil
+		return s.Offset + p.plus, nil
 	case posEnd:
-		return l.End, nil
+		return l.End + p.plus, nil
+	case posOffset:
+		return p.at + p.plus, nil
 	case posNone:
 		return 0, errors.New("no position")
 	default:

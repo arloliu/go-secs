@@ -1,6 +1,7 @@
 package corpus
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -101,6 +102,7 @@ func (e *Expectation) check(out *readOutputs, pack []byte) error {
 	}
 	errs = append(errs, e.checkQueries(out, pos)...)
 	errs = append(errs, e.checkRepair(out)...)
+	errs = append(errs, e.checkCuts(out.truncation, &l)...)
 
 	return errors.Join(errs...)
 }
@@ -205,6 +207,74 @@ func (e *Expectation) checkRepair(out *readOutputs) []error {
 	}
 
 	return nil
+}
+
+// checkCuts compares e.Cuts with the rows of truncation.json t, read from the pack of layout l, row by row;
+// a vector without a table expects no rows.
+func (e *Expectation) checkCuts(t *Truncation, l *Layout) []error {
+	if t == nil {
+		if len(e.Cuts) > 0 {
+			return []error{errors.New("truncation.json: rows expected, none read")}
+		}
+
+		return nil
+	}
+	if len(e.Cuts) != len(t.Rows) {
+		return []error{fmt.Errorf("truncation.json: %d rows expected, %d read", len(e.Cuts), len(t.Rows))}
+	}
+
+	var errs []error
+	at := func(name string, p Pos) *U64 {
+		if p.kind == posNone {
+			return nil
+		}
+		off, err := p.offset(l)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+			return nil
+		}
+
+		return new(U64(off))
+	}
+	for i, c := range e.Cuts {
+		name := fmt.Sprintf("truncation.json row %d", i)
+		to := U64(uint64(t.Size) - 1)
+		if i+1 < len(e.Cuts) {
+			if next := at(name+" end", e.Cuts[i+1].From); next != nil {
+				to = *next - 1
+			}
+		}
+		exp := TruncationRow{To: to, Cut: Cut{Rejection: c.Rejection}}
+		if from := at(name+" from", c.From); from != nil {
+			exp.From = *from
+		}
+		if c.Rejection == "" {
+			exp.Outcome = c.Outcome.String()
+			exp.ExportedRecords = new(U64(c.Records))
+			exp.Verify = &CutVerify{BlocksValidated: c.Validated, Records: U64(c.Records), WalkStop: at(name+" walk_stop", c.WalkStop)}
+			if end := at(name+" prefix_end", c.PrefixEnd); end != nil {
+				exp.Verify.PrefixEnd = *end
+			}
+		}
+		got := t.Rows[i]
+		// A CutWant states no repair, so a row's repair part is left out of the comparison.
+		got.Repair = nil
+		if !reflect.DeepEqual(exp, got) {
+			errs = append(errs, fmt.Errorf("%s: expected %s, read %s", name, describeRow(&exp), describeRow(&got)))
+		}
+	}
+
+	return errs
+}
+
+// describeRow returns the JSON of a truncation.json row, or its Go form.
+func describeRow(r *TruncationRow) string {
+	b, err := json.Marshal(r)
+	if err != nil {
+		return fmt.Sprintf("%+v", *r)
+	}
+
+	return string(b)
 }
 
 // blockOffsets checks that every block a verification or a query names carries the offset of the envelope Locate finds for it.

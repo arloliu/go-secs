@@ -1,0 +1,84 @@
+{
+  "size": "897",
+  "rows": [
+    {
+      "from": "0",
+      "to": "79",
+      "rejection": "short-object"
+    },
+    {
+      "from": "80",
+      "to": "306",
+      "rejection": "metadata-past-object"
+    },
+    {
+      "from": "307",
+      "to": "307",
+      "outcome": "unfinalized",
+      "exported_records": "0",
+      "verify": {
+        "blocks_validated": 0,
+        "records": "0",
+        "prefix_end": "307"
+      }
+    },
+    {
+      "from": "308",
+      "to": "429",
+      "outcome": "unfinalized",
+      "exported_records": "0",
+      "verify": {
+        "blocks_validated": 0,
+        "records": "0",
+        "prefix_end": "307",
+        "walk_stop": "307"
+      }
+    },
+    {
+      "from": "430",
+      "to": "430",
+      "outcome": "unfinalized",
+      "exported_records": "2",
+      "verify": {
+        "blocks_validated": 1,
+        "records": "2",
+        "prefix_end": "430"
+      }
+    },
+    {
+      "from": "431",
+      "to": "555",
+      "outcome": "unfinalized",
+      "exported_records": "2",
+      "verify": {
+        "blocks_validated": 1,
+        "records": "2",
+        "prefix_end": "430",
+        "walk_stop": "430"
+      }
+    },
+    {
+      "from": "556",
+      "to": "556",
+      "outcome": "unfinalized",
+      "exported_records": "4",
+      "verify": {
+        "blocks_validated": 2,
+        "records": "4",
+        "prefix_end": "556"
+      }
+    },
+    {
+      "from": "557",
+      "to": "896",
+      "outcome": "unfinalized",
+      "exported_records": "4",
+      "verify": {
+        "blocks_validated": 2,
+        "records": "4",
+        "prefix_end": "556",
+        "walk_stop": "556"
+      }
+    }
+  ]
+}

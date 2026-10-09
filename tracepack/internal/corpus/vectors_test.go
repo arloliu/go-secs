@@ -40,6 +40,7 @@ func TestInvalidFooterVectorsBreakTheirClause(t *testing.T) {
 		"footer-invalid-empty-stats":          "F-1 f3_len 16 in a pack without blocks",
 		"footer-seq-range-hides-gap":          "block 0: F-3 without seq_range entries",
 		"footer-f5-higher-close-seq":          "F-5 epoch entries differ",
+		"verify-defect-seq-order":             "block 1: F-2 first_seq 2 does not follow the previous last_seq 5",
 	}
 	for id, clause := range clauses {
 		t.Run(id, func(t *testing.T) {

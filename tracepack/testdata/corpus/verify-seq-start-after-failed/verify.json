@@ -1,0 +1,35 @@
+{
+  "outcome": "corrupt-middle",
+  "finalized": true,
+  "footer_valid": true,
+  "blocks_located": 2,
+  "blocks_validated": 1,
+  "records": "2",
+  "prefix_end": "307",
+  "failed_blocks": [
+    {
+      "block": 0,
+      "offset": "307",
+      "cause": "corrupt-block"
+    }
+  ],
+  "disagreeing_blocks": [],
+  "trailer_totals_disagree": false,
+  "writer_defects": [
+    {
+      "kind": "seq-start",
+      "block": 1,
+      "offset": "467",
+      "seq": "2"
+    }
+  ],
+  "lost": [
+    {
+      "capture_id": "01a0ffeb-3600-7b60-b827-eecd279bdb67",
+      "seq_first": "0",
+      "seq_last": "1",
+      "time_start": "1791000000000000000",
+      "time_end": "1791000000001000000"
+    }
+  ]
+}

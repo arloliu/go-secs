@@ -18,10 +18,8 @@ import (
 
 // Tags and record header positions the pack surgery tests edit (the tracepack format specification §7.1 and §10).
 const (
-	rowTSOff            = 8
-	rowQualityHighOff   = 37
-	rowFieldValidityOff = 42
-	rowRecordFlagsOff   = 43
+	rowQualityHighOff = 37
+	rowRecordFlagsOff = 43
 )
 
 // editBlocks returns the records of the pack the surgery tests edit: three blocks of two, two and one data records of epoch 1.
