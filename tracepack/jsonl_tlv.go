@@ -177,8 +177,10 @@ func (reg *jsonlRegistry) valid(b []byte, depth int) (jsonlTagSet, bool) {
 }
 
 // render writes the entry list b as a TLV object (the tracepack JSONL specification §4).
-// b must be valid under reg (see valid),
-// so every walk of it is framed and every known value has its registry's type and length.
+//
+// b must be valid under reg, as valid decides, before render is called:
+// render checks nothing, every walk of it ranging over the entries alone,
+// so it relies on every entry being framed and every known value having its registry's type and length.
 //
 // The object holds one key per known tag present, in ascending tag order, each from its own walk of b,
 // so a repeatable tag's values come out in stored order;

@@ -77,11 +77,9 @@ func renderJSONLObject(t *testing.T, reg *jsonlRegistry, b []byte) string {
 	return strings.TrimSuffix(line, "\n")
 }
 
-// A pack metadata holding every known tag, with repeated, out-of-order, unknown, private and retired entries
-// and unknown nested tags, renders as the tracepack JSONL specification §4 and §5 define.
-func TestJSONLHeaderLine_EveryKnownTag(t *testing.T) {
-	t.Parallel()
-
+// jsonlEveryTagMeta returns a pack metadata holding every known tag,
+// with repeated, out-of-order, unknown, private and retired entries and unknown nested tags.
+func jsonlEveryTagMeta() []byte {
 	u64s := func(vs ...uint64) []byte {
 		var b []byte
 		for _, v := range vs {
@@ -90,7 +88,8 @@ func TestJSONLHeaderLine_EveryKnownTag(t *testing.T) {
 
 		return b
 	}
-	meta := jsonlTLV(
+
+	return jsonlTLV(
 		tlv.U64Entry(0x0027, 0),
 		tlv.UTF8Entry(0x0002, "EQ-01"),
 		tlv.U8Entry(0x0003, 1),
@@ -169,6 +168,14 @@ func TestJSONLHeaderLine_EveryKnownTag(t *testing.T) {
 		}),
 		tlv.Entry{Tag: 0x0040, Type: 9, Value: []byte("zz")},
 	)
+}
+
+// A pack metadata holding every known tag, with repeated, out-of-order, unknown, private and retired entries
+// and unknown nested tags, renders as the tracepack JSONL specification §4 and §5 define.
+func TestJSONLHeaderLine_EveryKnownTag(t *testing.T) {
+	t.Parallel()
+
+	meta := jsonlEveryTagMeta()
 	hdr := format.FileHeader{
 		FormatMajor:      1,
 		FormatMinor:      3,
@@ -266,6 +273,93 @@ func TestJSONLHeaderLine_WriteError(t *testing.T) {
 	err := writeJSONLHeader(newJSONLWriter(w), r)
 	require.ErrorIs(t, err, errJSONLWriteBoom)
 	assert.Equal(t, 1, w.calls)
+}
+
+// Every enum-typed tag renders an unknown value as unknown(<n>) and the value 0 by its name,
+// and hsms_timers names each timer it holds.
+func TestJSONLRender_UnknownAndZeroEnums(t *testing.T) {
+	t.Parallel()
+
+	meta := func(enum uint8, policy []tlv.Entry, timers ...tlv.Entry) []byte {
+		return jsonlTLV(
+			tlv.UTF8Entry(0x0002, "t"), tlv.U8Entry(0x0003, enum), tlv.U8Entry(0x0004, enum), tlv.U8Entry(0x0005, 1),
+			tlv.UTF8Entry(0x0006, "r"), tlv.UTF8Entry(0x0007, "w"), tlv.U8Entry(0x0009, enum), tlv.I64Entry(0x0010, 0),
+			tlv.I64Entry(0x0011, 1), tlv.U8Entry(0x0012, enum), tlv.BoolEntry(0x0013, true), tlv.U8Entry(0x0018, 1),
+			tlv.U8Entry(0x0019, 0), tlv.UUIDEntry(0x001B, jsonlUUID(1)), tlv.U8Entry(0x0024, enum),
+			tlv.NestedEntry(0x0026, timers), tlv.U64Entry(0x0027, 0), tlv.NestedEntry(0x0031, policy),
+		)
+	}
+	policy := func(digest uint8) []tlv.Entry {
+		return []tlv.Entry{tlv.UTF8Entry(1, "p"), tlv.U64Entry(2, 1), tlv.UTF8Entry(3, "k"), tlv.U8Entry(4, digest)}
+	}
+
+	tests := []struct {
+		name string
+		reg  *jsonlRegistry
+		in   []byte
+		want string // written by hand from the tracepack JSONL specification §3.1 and §4
+	}{
+		{
+			"pack metadata, unknown values", jsonlPackMetadataRegistry,
+			meta(9, policy(2), tlv.U64Entry(1, 1), tlv.U64Entry(4, 4), tlv.U64Entry(5, 5), tlv.U64Entry(6, 6), tlv.U64Entry(7, 7), tlv.U64Entry(8, 8)),
+			`{"tool_id":"t","transport":"unknown(9)","capture_method":"unknown(9)","vantage":"host","recorder":"r","writer":"w",` +
+				`"time_source":"unknown(9)","period_start":"0","period_end":"1","lifecycle_coverage":"unknown(9)","quality_evaluated":true,` +
+				`"pack_role":"segment","compaction_level":0,"recorder_instance_id":"01010101-0101-0101-0101-010101010101",` +
+				`"equipment_connect_mode":"unknown(9)","hsms_timers":{"T1":"1","T4":"4","T5":"5","T6":"6","T7":"7","T8":"8"},` +
+				`"seq_start":"0","redaction_policy":{"policy_id":"p","policy_version":"1","key_id":"k","digest_algorithm":"unknown(2)"}}`,
+		},
+		{
+			"pack metadata, zero values", jsonlPackMetadataRegistry, meta(0, policy(0)),
+			`{"tool_id":"t","transport":"unknown","capture_method":"unknown","vantage":"host","recorder":"r","writer":"w",` +
+				`"time_source":"unknown","period_start":"0","period_end":"1","lifecycle_coverage":"unknown","quality_evaluated":true,` +
+				`"pack_role":"segment","compaction_level":0,"recorder_instance_id":"01010101-0101-0101-0101-010101010101",` +
+				`"equipment_connect_mode":"unknown","hsms_timers":{},` +
+				`"seq_start":"0","redaction_policy":{"policy_id":"p","policy_version":"1","key_id":"k","digest_algorithm":"unknown"}}`,
+		},
+		{
+			"transport-event, unknown event, timer and boundary_kind", jsonlTransportEventRegistry,
+			jsonlTLV(tlv.U8Entry(0x0001, 8), tlv.U8Entry(0x0006, 9), tlv.U8Entry(0x000D, 5)),
+			`{"event":"unknown(8)","timer":"unknown(9)","boundary_kind":"unknown(5)"}`,
+		},
+		{
+			"annotation, unknown annotation_kind", jsonlAnnotationRegistry,
+			jsonlTLV(tlv.U8Entry(0x0001, 5), tlv.UTF8Entry(0x0005, "")),
+			`{"annotation_kind":"unknown(5)","text":""}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, ok := tt.reg.valid(tt.in, 0)
+			require.True(t, ok, "the list is valid under its registry")
+			assert.Equal(t, tt.want, renderJSONLObject(t, tt.reg, tt.in))
+		})
+	}
+}
+
+// FuzzJSONLPackMetadata checks that the validity walk accepts exactly the pack metadata tlv.Validate accepts,
+// and that a valid pack metadata renders as one valid JSON object.
+func FuzzJSONLPackMetadata(f *testing.F) {
+	plain, err := readerTestMeta().MarshalBinary()
+	require.NoError(f, err)
+	f.Add(jsonlEveryTagMeta())
+	f.Add(plain)
+
+	f.Fuzz(func(t *testing.T, b []byte) {
+		_, got := jsonlPackMetadataRegistry.valid(b, 0)
+		entries, err := tlv.Decode(b)
+		want := err == nil && tlv.Validate(entries, tlv.PackMetadata) == nil
+		require.Equal(t, want, got)
+		if !got {
+			return
+		}
+
+		var out bytes.Buffer
+		jw := newJSONLWriter(&out)
+		jsonlPackMetadataRegistry.render(jw, b)
+		require.NoError(t, jw.endLine())
+		require.True(t, json.Valid(out.Bytes()), "%q", out.Bytes())
+	})
 }
 
 // Transport-event and annotation bodies render every tag with its enum names, in ascending tag order.
@@ -622,28 +716,37 @@ func TestJSONLRender_NoAllocations(t *testing.T) {
 	// A malformed final entry: a u8 of length 9.
 	badEntry := []byte{1, 0, 1, 0, 9, 0, 0, 0}
 	// An invalid list costs the one error value of its first offending entry, however long the list.
+	event := jsonlTLV(tlv.U8Entry(0x0001, 1), tlv.UTF8Entry(0x0012, strings.Repeat("d\x00", 1<<19)))
+	for range 10000 {
+		event = tlv.AppendEntry(event, tlv.U64Entry(0x0050, 1))
+	}
 	tests := []struct {
 		name      string
+		kind      Kind
 		payload   []byte
 		maxAllocs float64
 	}{
-		{"large raw", jsonlTLV(note, tlv.BytesEntry(0x0006, make([]byte, 4<<20))), 0},
-		{"large unknown bytes", jsonlTLV(note, tlv.UTF8Entry(0x0005, "t"), tlv.BytesEntry(0x0050, make([]byte, 4<<20))), 0},
-		{"large text", jsonlTLV(note, tlv.UTF8Entry(0x0005, strings.Repeat("\x00", 1<<20))), 0},
-		{"many empty unknown entries", manyUnknown, 0},
-		{"a malformed final entry", append(jsonlTLV(note, tlv.UTF8Entry(0x0005, "t")), badEntry...), 1},
-		{"a malformed final entry after many entries", append(bytes.Clone(manyUnknown), badEntry...), 1},
-		{"a large known value failing its content rule", jsonlTLV(note, tlv.UTF8Entry(0x0005, strings.Repeat("a", 1<<20)+"\xff")), 1},
+		{"transport-event, large detail and many unknown entries", KindTransportEvent, event, 0},
+		{"large raw", KindAnnotation, jsonlTLV(note, tlv.BytesEntry(0x0006, make([]byte, 4<<20))), 0},
+		{"large unknown bytes", KindAnnotation, jsonlTLV(note, tlv.UTF8Entry(0x0005, "t"), tlv.BytesEntry(0x0050, make([]byte, 4<<20))), 0},
+		{"large text", KindAnnotation, jsonlTLV(note, tlv.UTF8Entry(0x0005, strings.Repeat("\x00", 1<<20))), 0},
+		{"many empty unknown entries", KindAnnotation, manyUnknown, 0},
+		{"a malformed final entry", KindAnnotation, append(jsonlTLV(note, tlv.UTF8Entry(0x0005, "t")), badEntry...), 1},
+		{"a malformed final entry after many entries", KindAnnotation, append(bytes.Clone(manyUnknown), badEntry...), 1},
+		{"a large known value failing its content rule", KindAnnotation, jsonlTLV(note, tlv.UTF8Entry(0x0005, strings.Repeat("a", 1<<20)+"\xff")), 1},
 	}
 	jw := newJSONLWriter(discardWriter{})
 	for _, tt := range tests {
 		allocs := testing.AllocsPerRun(5, func() {
-			if jsonlValidBody(KindAnnotation, tt.payload) {
-				jsonlAnnotationRegistry.render(jw, tt.payload)
+			if jsonlValidBody(tt.kind, tt.payload) {
+				jsonlBodyRegistry(tt.kind).render(jw, tt.payload)
 			}
 			_ = jw.endLine()
 		})
 		assert.LessOrEqual(t, allocs, tt.maxAllocs, tt.name)
+		if tt.kind == KindTransportEvent {
+			assert.True(t, jsonlValidBody(tt.kind, tt.payload), tt.name)
+		}
 	}
 
 	allocs := testing.AllocsPerRun(5, func() {
@@ -852,6 +955,7 @@ func requireJSONLRegistry(t *testing.T, reg *jsonlRegistry, rows []jsonlPinRow) 
 		assert.Equal(t, row.required, f.Required, "tag 0x%04X required", row.tag)
 		assert.Equal(t, row.enum, reg.enums[row.tag], "tag 0x%04X enum", row.tag)
 		assert.Same(t, row.nested, reg.nested[row.tag], "tag 0x%04X nested registry", row.tag)
+		assert.Equal(t, row.nested == nil, f.Nested == nil, "tag 0x%04X nests a registry exactly when the live registry does", row.tag)
 		if row.enum != nil {
 			enums++
 		}
