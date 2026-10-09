@@ -1,6 +1,7 @@
 package tracepack_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/arloliu/go-secs/tracepack"
@@ -315,6 +317,89 @@ func ExampleMergeIterate() {
 	// 09:00:05 seq 2 data from segment 1
 	// 09:00:10 seq 3 transport-event from segment 1
 	// complete: true conflicts: 0
+}
+
+// ExampleExportJSONL writes a pack holding one annotation, then exports it as canonical JSONL.
+// The header line carries the pack's generated ids and the time the Writer started,
+// so this example prints only the record lines.
+func ExampleExportJSONL() {
+	ctx := context.Background()
+
+	// A note "a<b", recorded at 2026-10-03 04:00:00 UTC, 5 µs after the capture's monotonic origin.
+	atNs := time.Date(2026, 10, 3, 4, 0, 0, 0, time.UTC).UnixNano()
+	text := "a<b"
+	payload, err := (&tracepack.Annotation{AnnotationKind: tracepack.AnnotationKindNote, Text: &text}).MarshalBinary()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	origin, originMono := atNs-5000, int64(0)
+	tolerance, scopeGeneration := uint64(time.Second), uint64(0)
+
+	var pack bytes.Buffer
+	w, err := tracepack.NewWriter(&pack, tracepack.WriterOptions{
+		Meta: &tracepack.PackMeta{
+			ToolID:               "EQP-01",
+			Transport:            tracepack.TransportHSMSSS,
+			CaptureMethod:        tracepack.CaptureMethodRawStream,
+			Vantage:              tracepack.VantageHost,
+			Recorder:             "example-recorder/1.0",
+			Writer:               "example-writer/1.0",
+			TimeSource:           tracepack.TimeSourceCaptureClock,
+			CaptureOriginUTCNs:   &origin,
+			CaptureOriginMonoNs:  &originMono,
+			ClockStepToleranceNs: &tolerance,
+			PeriodStart:          atNs,
+			PeriodEnd:            atNs + int64(5*time.Minute),
+			LifecycleCoverage:    tracepack.LifecycleCoverageSubscribed,
+			QualityEvaluated:     true,
+			PackRole:             tracepack.PackRoleSegment,
+			RecorderInstanceID:   tracepack.UUID{0x01, 0x9a, 0x2b, 0x3c, 0x4d, 0x5e, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 1},
+			SeqStart:             7,
+			ScopeGeneration:      &scopeGeneration,
+		},
+		Codec: tracepack.CodecZstd,
+	})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	err = w.Append(&tracepack.Record{
+		Seq: 7, TSUTCNs: atNs, MonoNs: 5000, MonoPresent: true, Epoch: 1,
+		Kind: tracepack.KindAnnotation, Dir: tracepack.DirLocal,
+		Fidelity: tracepack.FidelityNotApplicable, DecodeStatus: tracepack.DecodeStatusNotApplicable,
+		Payload: payload,
+	})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	if _, err := w.Close(); err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	r, err := tracepack.Open(ctx, bytes.NewReader(pack.Bytes()), int64(pack.Len()), tracepack.ReaderOptions{})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	// A damaged pack exports the records of its validated blocks, and the Result says what was lost.
+	// On an error the output is not an export: discard it.
+	var out bytes.Buffer
+	res, err := tracepack.ExportJSONL(ctx, r, &out)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	lines := strings.SplitAfter(out.String(), "\n")
+	for _, line := range lines[1:] {
+		fmt.Print(line)
+	}
+	fmt.Println("complete:", res.Complete())
+	// Output:
+	// {"seq":"7","ts_utc_ns":"1791000000000000000","mono_ns":"5000","epoch":1,"payload_len":20,"trailing_bytes":0,"quality":[],"kind":"annotation","dir":"local","fidelity":"not-applicable","decode_status":"not-applicable","field_validity":[],"record_flags":["mono_present"],"record_header_len":44,"payload":"AQABAAEAAAABBQAGAAMAAABhPGI=","body":{"annotation_kind":"note","text":"a<b"}}
+	// complete: true
 }
 
 // s1Frame returns a stream 1 HSMS data message frame, length prefix included:

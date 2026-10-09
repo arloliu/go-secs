@@ -167,7 +167,7 @@ For every pack but an extract it refuses a period not inside one UTC hour, and a
 ## Reading packs
 
 For readers and troubleshooters working on local files:
-`Open`, `Reader.Iterate`, `MergeIterate`, `FindTransaction` and `NewReaderSource`.
+`Open`, `Reader.Iterate`, `MergeIterate`, `FindTransaction`, `NewReaderSource` and `ExportJSONL`.
 
 - `Open(ctx, ra, size, opts)` opens one pack over an `io.ReaderAt`, such as an `*os.File`, which stays open while the `Reader` is used.
   `Reader.Header` returns the pack metadata, and `Reader.Iterate` yields the records a `Query` selects, in file order.
@@ -196,6 +196,15 @@ For readers and troubleshooters working on local files:
   It reports `TxMatched`, `TxAmbiguous`, `TxUnmatched` or `TxIncomplete`,
   with every reason it could not establish absence as a `TxGap`.
   See `ExampleFindTransaction`.
+- `ExportJSONL(ctx, r, w)` writes the canonical JSONL export of one pack,
+  schema `tracepack-jsonl/1` of the [JSONL specification](../docs/specs/tracepack/tracepack-jsonl.md):
+  a header line, then one line per record, the same bytes any conforming exporter writes for the pack.
+  A damaged pack exports the records of its validated blocks, and the returned `Result` reports what was lost exactly as `Iterate`'s does:
+  a failed block makes it incomplete, while a footer that is not used, with every block found by the forward walk, only sets `FooterErr`.
+  A reader budget that keeps part of the pack out fails the export with an error wrapping `ErrReadLimit` instead;
+  after any error, discard what was written.
+  Each line is written in pieces of at most 64 KiB, so one line may take several `Write` calls.
+  See `ExampleExportJSONL`.
 
 ### A lookup over local files
 
@@ -291,4 +300,4 @@ func (r *retainedFrom) advance(hour int64) {
 ## Specification
 
 The documents in [docs/specs/tracepack/](../docs/specs/tracepack/) are the reference:
-the format, the record semantics, the storage profile, and the mapping to this Go package (`tracepack-go.md`).
+the format, the record semantics, the storage profile, the canonical JSONL export, and the mapping to this Go package (`tracepack-go.md`).

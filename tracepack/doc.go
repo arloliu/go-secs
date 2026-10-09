@@ -49,6 +49,14 @@
 // its scopes are not indexed unless ReaderSourceOptions.Complete asserts
 // that the packs given, the rejected registrations among them as Evidence, are every pack a catalog of the tool would hold evidence of.
 //
+// ExportJSONL writes the canonical JSONL export of one pack, schema tracepack-jsonl/1
+// (the tracepack JSONL specification):
+// a header line, then one line per record, the same bytes any conforming exporter writes for the pack.
+// A damaged pack exports the records of its validated blocks, with the Result Iterate returns for it:
+// a failed block makes it incomplete, while a footer that is not used only sets FooterErr.
+// A reader budget that keeps part of the pack out fails the export with an error wrapping ErrReadLimit instead.
+// Each line is written in pieces of at most 64 KiB, so one line may take several Write calls.
+//
 // # Operating a store
 //
 // ActiveView computes the active view of one scope from a complete observation of the scope's packs and commit objects:
