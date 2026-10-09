@@ -311,9 +311,12 @@ func TestRepairRefusals(t *testing.T) {
 	damagedWith := func(meta func(m *PackMeta)) []byte {
 		return flipByte(writeRepairPack(t, CodecZstd, meta, false, repairSteps(t)).file, p.bodyByteOf(2))
 	}
-	extract := writeRepairPack(t, CodecZstd, func(m *PackMeta) {
+	extractMeta := func(m *PackMeta) {
 		m.PackRole, m.ScopeGeneration, m.ExtractFilter = PackRoleExtract, nil, new("all")
-	}, false, repairSteps(t)).file
+	}
+	extract := writeRepairPack(t, CodecZstd, extractMeta, false, repairSteps(t))
+	// An extract's metadata differs in length from a segment's, so its blocks lie at other offsets.
+	damagedExtract := flipByte(extract.file, extract.bodyByteOf(2))
 	// Block 0 holds a redacted record and block 3 lies in the next hour, outside the period's.
 	redactedAndOutside := rebuildPack(t, p.file, func(i int, tb *testBlock) {
 		switch i {
@@ -347,7 +350,7 @@ func TestRepairRefusals(t *testing.T) {
 		msg  string
 	}{
 		{name: "finalized-consistent", file: p.file, want: ErrRepairNotNeeded},
-		{name: "extract", want: ErrNotRepairable, msg: "extract", file: extract},
+		{name: "extract", want: ErrNotRepairable, msg: "extract", file: damagedExtract},
 		{name: "unknown pack role", file: setMetaRole(t, damaged, 0), want: ErrNotRepairable, msg: "pack_role unknown is"},
 		{name: "retired pack role", file: setMetaRole(t, damaged, packRoleRetired), want: ErrNotRepairable, msg: "unknown(5)"},
 		{name: "empty period", want: ErrNotRepairable, msg: "period", file: damagedWith(func(m *PackMeta) {
@@ -380,7 +383,19 @@ func TestRepairRefusals(t *testing.T) {
 		})},
 		{name: "a consistent pack before the pack's own id", file: p.file, opts: &RepairOptions{Writer: "w", PackID: id}, want: ErrRepairNotNeeded},
 		{name: "a consistent pack before an empty writer", file: p.file, opts: &RepairOptions{}, want: ErrRepairNotNeeded},
-		{name: "an extract before an empty writer", file: extract, opts: &RepairOptions{}, want: ErrNotRepairable, msg: "extract"},
+		{name: "an extract before an empty writer", file: damagedExtract, opts: &RepairOptions{}, want: ErrNotRepairable, msg: "extract"},
+		// Nothing to repair is decided before every refusal of the pack, its role included.
+		{name: "a consistent extract", file: extract.file, want: ErrRepairNotNeeded},
+		{name: "a consistent pack of an unknown role", file: setMetaRole(t, p.file, 0), want: ErrRepairNotNeeded},
+		{name: "a consistent pack of the retired role", file: setMetaRole(t, p.file, packRoleRetired), want: ErrRepairNotNeeded},
+		{name: "a consistent pack whose period spans two hours", want: ErrRepairNotNeeded,
+			file: writeRepairPack(t, CodecZstd, func(m *PackMeta) {
+				m.PeriodStart, m.PeriodEnd = blockTestHour+hourNs/2, blockTestHour+3*hourNs/2
+			}, false, repairSteps(t)).file},
+		{name: "a consistent pack outside its period's hour", want: ErrRepairNotNeeded,
+			file: writeRepairPack(t, CodecZstd, func(m *PackMeta) {
+				m.PeriodStart, m.PeriodEnd = blockTestHour+hourNs, blockTestHour+2*hourNs
+			}, false, repairSteps(t)).file},
 		{name: "a block outside the hour before a redacted record", file: redactedAndOutside, want: ErrNotRepairable, msg: "outside the UTC hour"},
 	}
 

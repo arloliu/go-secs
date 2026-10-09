@@ -124,6 +124,13 @@ A README groups the API by audience, and runnable examples show writing and read
 - `NewStoreSource` charges each object an `Observe` opens 32 bytes against `MaxSourceBytes` on 64-bit platforms,
   and 16 on 32-bit ones, where it charged 16 and 8, since its slot now records the object's `Reader` and hour;
   an `Observe` that opens many objects reaches `MaxSourceBytes` sooner.
+- `Repair` decides that a pack has nothing to repair before any refusal (spec v2.27):
+  a finalized-consistent pack without the `seq_start` defect returns `ErrRepairNotNeeded` whatever its role,
+  so a finalized-consistent extract, or a pack of an unknown role, is no longer refused with `ErrNotRepairable`.
+  Neither error writes anything.
+- Spec v2.27 states that a query reads the HSMS header fields of a control record at their positions, as for a data record:
+  `Filter.SF` matches a control record on payload bytes 6 and 7 as stored, and interpreting them by SType is the consumer's.
+  `Iterate` and `Record.HSMSHeader` already did so, so no behaviour changed.
 
 ### Added
 
@@ -501,6 +508,12 @@ A README groups the API by audience, and runnable examples show writing and read
   Each line is written in pieces of at most 64 KiB, and the export's own memory does not grow with a payload, a value or an entry list.
   Tests check its lines against bytes written by hand from the specification, its records and `Result` against `Iterate`'s over random, truncated and damaged packs,
   and its body validity against `Verify`'s; the fuzz targets are `FuzzExportJSONL`, `FuzzJSONLPackMetadata` and `FuzzJSONLValidBody`.
+- `WriterOptions.Now`, `RepairOptions.Now` and `MergeOptions.Now` (spec v2.27), the clock of the pack each writes:
+  it stamps the file header's `writer_start_utc_ns` and gives the time part of every `pack_id`, `capture_id` or `replacement_set_id` generated as a UUIDv7;
+  nil means `time.Now`, and a supplied id is kept.
+  `SegmentWriterOptions.Now` now also reaches each segment's `Writer`, so it stamps every segment's `writer_start_utc_ns`,
+  and gives the time part of the `capture_id` and of every segment `pack_id` the `SegmentWriter` generates.
+  With a fixed clock and supplied ids, a test writes a pack whose file header is the same on every run.
 - Runnable examples: `ExampleSegmentWriter`, `ExampleOpen`, `ExampleFindTransaction` over `NewReaderSource`, `ExampleMergeIterate` and `ExampleExportJSONL`;
   and `README.md`, the API by audience.
 - `SegmentWriter` and `NewDirSink` have tests that inject a failure or a cancellation at each sink and file-system call, before and after publication,

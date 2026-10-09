@@ -128,7 +128,7 @@ func (p *mergePlan) write(ctx context.Context, dst io.Writer, opts *MergeOptions
 func (p *mergePlan) startRun(dst io.Writer, opts *MergeOptions) (*mergeRun, error) {
 	w, err := startWriter(dst, WriterOptions{
 		Meta: p.meta, Facts: p.facts, Codec: opts.Codec, Sync: opts.Sync,
-		PackID: p.packID, CaptureID: p.captureID,
+		PackID: p.packID, CaptureID: p.captureID, Now: opts.Now,
 		// Every block a merge writes goes through appendBlock, which never validates;
 		// the merge validates each block it encodes itself.
 		SkipValidation: true,

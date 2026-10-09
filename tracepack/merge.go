@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"slices"
+	"time"
 
 	"github.com/arloliu/go-secs/tracepack/internal/codec"
 	"github.com/arloliu/go-secs/tracepack/internal/format"
@@ -136,6 +137,11 @@ type MergeOptions struct {
 	// PackID identifies the archive; the zero UUID makes Merge generate a UUIDv7.
 	// It must differ from every pack of the view's Packs and CompactedFrom, and from the member of the view's generation.
 	PackID UUID
+	// Now returns the time the archive's writer_start_utc_ns is stamped with,
+	// and the time part of the ReplacementSetID and PackID that Merge generates for a zero option, as WriterOptions.Now does;
+	// nil means time.Now.
+	// A supplied ReplacementSetID or PackID is kept.
+	Now func() time.Time
 	// Codec compresses the blocks Merge encodes and the footer; a block copied verbatim keeps its own codec.
 	// The zero value is CodecNone.
 	Codec Codec
@@ -510,7 +516,7 @@ func newMergePlan(view *View, opts *MergeOptions) (*mergePlan, UUID, error) {
 		}
 	}
 
-	setID, err := idOrNew(opts.ReplacementSetID)
+	setID, err := idOrNew(opts.ReplacementSetID, opts.Now)
 	if err != nil {
 		return nil, UUID{}, err
 	}
@@ -518,7 +524,7 @@ func newMergePlan(view *View, opts *MergeOptions) (*mergePlan, UUID, error) {
 		return nil, UUID{}, fmt.Errorf("tracepack: MergeOptions.ReplacementSetID %s is the view's generation's", setID)
 	}
 
-	packID, err := idOrNew(opts.PackID)
+	packID, err := idOrNew(opts.PackID, opts.Now)
 	if err != nil {
 		return nil, UUID{}, err
 	}

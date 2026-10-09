@@ -123,6 +123,11 @@ type WriterOptions struct {
 	// CaptureID identifies the capture; the zero UUID makes NewWriter generate a UUIDv7.
 	// A capture that rolls into several packs passes the same CaptureID to each Writer.
 	CaptureID UUID
+	// Now returns the time NewWriter stamps the file header's writer_start_utc_ns with,
+	// and the time part of a pack_id or capture_id it generates as a UUIDv7;
+	// nil means time.Now.
+	// A supplied PackID or CaptureID is written as it is.
+	Now func() time.Time
 	// DetectClockSteps makes the Writer apply the clock anchor rule of the tracepack semantics specification §4 to every record with MonoPresent set.
 	// The anchor starts at (Meta.CaptureOriginUTCNs, 0);
 	// when a record's drift (TSUTCNs − anchor wall) − (MonoNs − anchor mono) exceeds Meta.ClockStepToleranceNs in magnitude,
@@ -245,7 +250,7 @@ type Writer struct {
 //     which is io.ErrShortWrite when w takes fewer bytes than it was given without reporting an error.
 func NewWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 	var err error
-	if opts.CaptureID, err = idOrNew(opts.CaptureID); err != nil {
+	if opts.CaptureID, err = idOrNew(opts.CaptureID, opts.Now); err != nil {
 		return nil, err
 	}
 
@@ -265,7 +270,7 @@ func startWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 	}
 
 	var err error
-	if opts.PackID, err = idOrNew(opts.PackID); err != nil {
+	if opts.PackID, err = idOrNew(opts.PackID, opts.Now); err != nil {
 		return nil, err
 	}
 
@@ -398,7 +403,7 @@ func encodeHead(meta *PackMeta, opts *WriterOptions) ([]byte, error) {
 		FormatMajor:      format.FormatMajor,
 		PackMetadataLen:  uint32(len(metaBytes)),
 		PackMetadataCRC:  format.CRC(metaBytes),
-		WriterStartUTCNs: time.Now().UnixNano(),
+		WriterStartUTCNs: clockOr(opts.Now)().UnixNano(),
 		PackID:           format.UUID(opts.PackID),
 		CaptureID:        format.UUID(opts.CaptureID),
 	}
@@ -427,14 +432,24 @@ func writeFull(w io.Writer, b []byte) (int, error) {
 	return n, err
 }
 
-// idOrNew returns id, or a new UUIDv7 when id is the nil UUID
-// (the tracepack format specification §2 recommends UUIDv7 for pack_id and capture_id).
-func idOrNew(id UUID) (UUID, error) {
+// clockOr returns now, or time.Now when now is nil.
+func clockOr(now func() time.Time) func() time.Time {
+	if now == nil {
+		return time.Now
+	}
+
+	return now
+}
+
+// idOrNew returns id, or a new UUIDv7 whose time part is now's when id is the nil UUID
+// (the tracepack format specification §2 recommends UUIDv7 for pack_id and capture_id);
+// a nil now means time.Now.
+func idOrNew(id UUID, now func() time.Time) (UUID, error) {
 	if !id.IsZero() {
 		return id, nil
 	}
 
-	u, err := format.GenerateUUIDv7(time.Now, rand.Reader)
+	u, err := format.GenerateUUIDv7(clockOr(now), rand.Reader)
 	if err != nil {
 		return UUID{}, fmt.Errorf("tracepack: generate UUIDv7: %w", err)
 	}

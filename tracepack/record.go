@@ -108,8 +108,12 @@ type HSMSHeader struct {
 // (the tracepack format specification §7.2).
 //
 // A record that is neither data nor control has no HSMS frame: every field reads as zero and none is available.
-// For a control message, Stream, W and Function hold the raw bits of payload bytes 6 and 7,
-// the status or reason codes a predicate interprets according to SType (SEMI E37 §8.3).
+// Every field is read at its position, for data and control records alike (the tracepack format specification §7.2):
+// for a control message, Stream, W and Function hold the raw bits of payload bytes 6 and 7,
+// which carry its status or reason codes (SEMI E37 §8.3),
+// and a predicate on Stream, W or Function tests those bits as they are stored
+// (the tracepack semantics specification §7.4).
+// Interpreting them according to SType is the consumer's, not the predicate's.
 func (r *Record) HSMSHeader() HSMSHeader {
 	var h HSMSHeader
 	if !r.hasHSMSFrame() {
