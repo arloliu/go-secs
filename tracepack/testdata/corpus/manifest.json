@@ -307,6 +307,742 @@
         "export.jsonl",
         "verify.json"
       ]
+    },
+    {
+      "id": "footer-close-twice-one-block",
+      "title": "an epoch ended by a socket-close, then a clean stop, in one block",
+      "cites": [
+        "FMT §10",
+        "FMT §16"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "footer.json"
+      ]
+    },
+    {
+      "id": "footer-close-twice-two-blocks",
+      "title": "an epoch ended by a socket-close in block 0, then a clean stop in block 1",
+      "cites": [
+        "FMT §10",
+        "FMT §16"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "footer.json"
+      ]
+    },
+    {
+      "id": "footer-epoch-without-closure",
+      "title": "an epoch bounded by start and stop-unclean boundaries that no record ends",
+      "cites": [
+        "FMT §10",
+        "FMT §9"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "footer.json"
+      ]
+    },
+    {
+      "id": "footer-f3-higher-close-seq",
+      "title": "in one block, F-3 stating the higher close_seq of an epoch ended twice, F-5 recomputed from it",
+      "cites": [
+        "FMT §10",
+        "FMT §13",
+        "FMT §16"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "footer.json"
+      ]
+    },
+    {
+      "id": "footer-f5-higher-close-seq",
+      "title": "F-5 stating the higher close_seq of an epoch ended in two blocks",
+      "cites": [
+        "FMT §10",
+        "FMT §16"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "footer.json"
+      ]
+    },
+    {
+      "id": "footer-invalid-boundary-seq",
+      "title": "block 0's boundary at seq 2, which the block lacks, F-5's with it",
+      "cites": [
+        "FMT §10",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "footer-invalid-count-sums",
+      "title": "block 0's kind_counts summing to 4 of its 3 records, F-5 their aggregate",
+      "cites": [
+        "FMT §10",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "footer-invalid-empty-stats",
+      "title": "a pack without blocks whose F-3 is not empty",
+      "cites": [
+        "FMT §10",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "footer-invalid-epoch-entry",
+      "title": "block 0's epoch entry ending at seq 4, past the block's last seq 3",
+      "cites": [
+        "FMT §10",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "footer-invalid-epoch-range",
+      "title": "block 0's F-2 epoch_max 0, below its epoch_min 1",
+      "cites": [
+        "FMT §10",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "footer-invalid-f2-contiguity",
+      "title": "block 1's F-2 offset one byte past the end of block 0",
+      "cites": [
+        "FMT §10",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "footer-invalid-f2-entry-len",
+      "title": "F-2 entries of 79 bytes, without their last reserved byte",
+      "cites": [
+        "FMT §10",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "footer-invalid-f2-offset",
+      "title": "f2_offset 80: F-2 behind 8 bytes after the prologue, every section in place",
+      "cites": [
+        "FMT §10",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "footer-invalid-f5-aggregate",
+      "title": "F-5 content_bytes one above the blocks' uncompressed_len",
+      "cites": [
+        "FMT §10",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "queries.json"
+      ]
+    },
+    {
+      "id": "footer-invalid-header-len",
+      "title": "block 0's F-2 record_header_len 43",
+      "cites": [
+        "FMT §10",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "footer-invalid-overflow",
+      "title": "block 1's epoch record counts summing to 2^64 + 4, which wraps to its record_count 4",
+      "cites": [
+        "FMT §10",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "footer-invalid-sections",
+      "title": "F-5 placed before F-3",
+      "cites": [
+        "FMT §10",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "footer-invalid-seq-order",
+      "title": "block 0 claiming seqs 0, 1 and 4, its last_seq block 1's first_seq",
+      "cites": [
+        "FMT §10",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "footer-invalid-seq-set",
+      "title": "block 0's seq_range entries in descending order",
+      "cites": [
+        "FMT §10",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "footer-invalid-socket-close-body",
+      "title": "a socket-close event whose body repeats socket_role",
+      "cites": [
+        "FMT §10",
+        "FMT §8",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "footer.json"
+      ]
+    },
+    {
+      "id": "footer-invalid-stop-body",
+      "title": "a clean-stop capture-boundary event whose last entry runs past the body",
+      "cites": [
+        "FMT §10",
+        "FMT §8",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "footer.json"
+      ]
+    },
+    {
+      "id": "footer-invalid-summary-bounds",
+      "title": "F-3 one byte shorter than block 1's F-3 list, which ends it",
+      "cites": [
+        "FMT §10",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "footer-invalid-trailer-last-seq",
+      "title": "the trailer's last_seq one above the last block's",
+      "cites": [
+        "FMT §10",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "footer-invalid-trailer-record-count",
+      "title": "the trailer's record_count one above the records",
+      "cites": [
+        "FMT §10",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "queries.json"
+      ]
+    },
+    {
+      "id": "footer-invalid-ts-range",
+      "title": "block 0's F-2 ts_min an hour earlier, in the previous UTC hour, F-5 ts_min with it",
+      "cites": [
+        "FMT §10",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "footer-quality-bit0-data",
+      "title": "a data record carrying quality bit 0 without being a capture-boundary record",
+      "cites": [
+        "FMT §10",
+        "FMT §9",
+        "SEM §6"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "footer.json"
+      ]
+    },
+    {
+      "id": "footer-retired-f3-tags-and-f4",
+      "title": "F-3 lists holding the retired tags 0x0004 and 0x0006, and a present F-4",
+      "cites": [
+        "FMT §10"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "footer-seq-range-hides-gap",
+      "title": "a block missing a seq whose F-3 summary has no seq_range",
+      "cites": [
+        "FMT §10",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "framing-gathered-headers",
+      "title": "a block of three records of 47-byte headers, their seqs, lengths and extension bytes gathered from the columns",
+      "cites": [
+        "FMT §6",
+        "FMT §7.1",
+        "FMT I-2"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "framing-header-extension",
+      "title": "twelve blocks of one record, of record_header_len 44 and 45 to 55, each with its own extension bytes",
+      "cites": [
+        "FMT §7.1",
+        "FMT §6",
+        "FMT §16"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "framing-header-len-below-44",
+      "title": "a middle block whose envelope states record_header_len 43, the footer valid",
+      "cites": [
+        "FMT §6",
+        "FMT §7.1",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "framing-header-len-index-mismatch",
+      "title": "a middle block whose F-2 entry states record_header_len 45, its envelope 44",
+      "cites": [
+        "FMT §10",
+        "FMT §6",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "framing-header-section-overflow",
+      "title": "a last block of record_count 2^18 and record_header_len 16384, its CRCs valid and its F-2 entry agreeing",
+      "cites": [
+        "FMT §6",
+        "FMT §2",
+        "FMT I-2",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "framing-record-over-threshold",
+      "title": "a record larger than the 256-byte block threshold, alone in its block",
+      "cites": [
+        "FMT §2",
+        "FMT §6",
+        "CORPUS §8"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "framing-two-framings",
+      "title": "two blocks of equal decoded bodies: four records of 44-byte headers, one record whose header is the whole body",
+      "cites": [
+        "FMT §6",
+        "FMT §7.1",
+        "FMT I-2",
+        "FMT §16"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "framing-zstd-malformed",
+      "title": "a middle block holding a hand-built zstd frame whose last block is malformed",
+      "cites": [
+        "FMT §16",
+        "FMT I-2",
+        "FMT §2",
+        "CORPUS §6.2"
+      ],
+      "class": "read",
+      "labels": [
+        "damaged"
+      ],
+      "codec": "mixed",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "framing-zstd-short",
+      "title": "a middle block holding a hand-built zstd frame that ends one byte short",
+      "cites": [
+        "FMT §16",
+        "FMT I-2",
+        "FMT §2",
+        "CORPUS §6.2"
+      ],
+      "class": "read",
+      "labels": [
+        "damaged"
+      ],
+      "codec": "mixed",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "framing-zstd-short-checksum",
+      "title": "a middle block holding a hand-built zstd frame that ends one byte short, with a content checksum",
+      "cites": [
+        "FMT §16",
+        "FMT I-2",
+        "FMT §2",
+        "CORPUS §6.2"
+      ],
+      "class": "read",
+      "labels": [
+        "damaged"
+      ],
+      "codec": "mixed",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
     }
   ]
 }

@@ -1,0 +1,37 @@
+{
+  "stored": {
+    "blocks": [
+      {
+        "block": 0,
+        "close_seqs": [],
+        "boundaries": []
+      }
+    ],
+    "f5": {
+      "epochs": [
+        {
+          "epoch": 1
+        }
+      ],
+      "boundaries": []
+    }
+  },
+  "accepted": true,
+  "recomputed": {
+    "blocks": [
+      {
+        "block": 0,
+        "close_seqs": [],
+        "boundaries": []
+      }
+    ],
+    "f5": {
+      "epochs": [
+        {
+          "epoch": 1
+        }
+      ],
+      "boundaries": []
+    }
+  }
+}

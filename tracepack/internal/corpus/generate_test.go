@@ -120,6 +120,14 @@ func TestGenerateFailsOnDisagreement(t *testing.T) {
 			e.Queries[0].Incomplete = []IncompleteWant{Truncated(Pos{})}
 		}},
 		{"basic-empty-pack", "a repair", func(e *Expectation) { e.Repair = &RepairWant{Result: RepairNotNeeded} }},
+		{"footer-close-twice-two-blocks", "footer.json missing", func(e *Expectation) { e.Footer = nil }},
+		{"footer-close-twice-two-blocks", "a stored close_seq", func(e *Expectation) { e.Footer.Stored.Blocks[1].CloseSeqs[0].Seq = 2 }},
+		{"footer-close-twice-two-blocks", "a recomputed boundary", func(e *Expectation) { e.Footer.Recomputed.F5.Boundaries = nil }},
+		{"footer-f5-higher-close-seq", "footer accepted", func(e *Expectation) { e.Footer.Accepted = true }},
+		{"footer-f5-higher-close-seq", "no stored part", func(e *Expectation) { e.Footer.Stored = nil }},
+		{"footer-invalid-socket-close-body", "a recomputed close_seq", func(e *Expectation) {
+			e.Footer.Recomputed.Blocks[0].CloseSeqs = []CloseSeq{{Epoch: 1, Seq: 2}}
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.id+" "+tt.name, func(t *testing.T) {
@@ -423,7 +431,7 @@ func manifestEncoder(t *testing.T, files map[string][]byte, encoder string) func
 const specFile = "../../../docs/specs/tracepack/tracepack-corpus.md"
 
 // generatedGroups are the id prefixes of the groups the generator builds so far.
-var generatedGroups = []string{"basic-"}
+var generatedGroups = []string{"basic-", "footer-", "framing-"}
 
 // TestRecipeIDsAreCatalogued checks that every vector of a generated group that the catalogue of the tracepack corpus specification §9.4 lists has a recipe,
 // and that no recipe is missing from it.

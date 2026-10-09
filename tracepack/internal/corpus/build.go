@@ -105,6 +105,8 @@ type packSpec struct {
 	open bool
 	// packID, when not zero, replaces the pack_id seed gives.
 	packID tracepack.UUID
+	// threshold is the Writer's block size threshold; zero means the default.
+	threshold int
 }
 
 // writeSpec writes the pack of s with the public Writer:
@@ -118,7 +120,7 @@ func writeSpec(s *packSpec) ([]byte, error) {
 
 	var buf bytes.Buffer
 	w, err := tracepack.NewWriter(&buf, tracepack.WriterOptions{
-		Meta: s.meta, PackID: packID, CaptureID: IDFor(roleCaptureID, s.seed), Codec: s.codec, Now: corpusNow,
+		Meta: s.meta, PackID: packID, CaptureID: IDFor(roleCaptureID, s.seed), Codec: s.codec, BlockThreshold: s.threshold, Now: corpusNow,
 	})
 	if err != nil {
 		return nil, err
