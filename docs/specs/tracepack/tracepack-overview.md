@@ -1,6 +1,6 @@
 # tracepack — overview
 
-Status: current (2026-10-10) — v2.29, tracepack format 1.0.
+Status: current (2026-10-10) — v2.30, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Decisions: `tracepack-decisions.md` G3-20..G3-27, G4-28, G4-29, G3-PLACE, R3-4, R3-5, R3-6, G5-30..G5-187.
 Change history: `tracepack-spec-changelog.md`.
@@ -30,7 +30,7 @@ It targets local file systems, S3-compatible object storage and HTTP range reads
 | `tracepack-overview.md` (this) | purpose, document map, terminology, diagrams, open questions, deferred items | informative | all |
 | `tracepack-format.md` [FMT] | conventions, portable encoding, invariants, byte layouts, TLV and all registries, footer and validation, bootstrap and recovery, versioning, canonical JSONL, conformance corpus | normative | 1, 2, 3, 6, 7 |
 | `tracepack-jsonl.md` [JSONL] | byte-exact form of the canonical JSONL export (schema `tracepack-jsonl/1`) | normative | 6 |
-| `tracepack-corpus.md` [CORPUS] | conformance corpus: layout, manifest, JSON schemas of its expectations, zstd comparison, item-validity checklist, vector catalogue (schema `tracepack-corpus/1`) | normative | 6, 7 |
+| `tracepack-corpus.md` [CORPUS] | conformance corpus: layout, manifest, JSON schemas of its expectations, zstd comparison, item-validity checklist, vector catalogue (schema `tracepack-corpus/2`) | normative | 6, 7 |
 | `tracepack-semantics.md` [SEM] | capture model, decode_status, time and clock steps, transport events, quality, indexes, transaction lookup, query mapping, redaction | normative | 2, 3, 5, 7 |
 | `tracepack-storage.md` [STO] | scopes and generations, active view, commit protocol, object lifecycle and deletion, catalog contract with its window and listing views, retention, recorder durability and crash recovery, log converter | normative for publishers, recorders and converters | 4, 5, service |
 | `tracepack-go.md` | Go module, API, mapping from go-secs, CLI | Go reference implementation | — |

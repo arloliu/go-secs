@@ -1,11 +1,12 @@
 # tracepack — conformance corpus
 
-Status: current (2026-10-10) — v2.29, tracepack format 1.0, schema `tracepack-corpus/1` (draft until tracepack v1.0.0).
+Status: current (2026-10-10) — v2.30, tracepack format 1.0, schema `tracepack-corpus/2` (draft until tracepack v1.0.0).
 Normative, language-agnostic. [FMT §16] states what the corpus holds; this document defines its files, their schemas and the vector catalogue.
 
 Depends on: [FMT §2] portable encoding, [FMT §5] TLV registries, [FMT §7.2] HSMS header fields, [FMT §10] footer and its validation,
 [FMT §13] bootstrap, verification and repair, [FMT §16] corpus contents, [JSONL] value forms and the export,
-[SEM §3] `decode_status`, [SEM §7.4] queries.
+[SEM §3] `decode_status`, [SEM §7.2] transaction lookup, [SEM §7.4] queries and reads over several packs,
+[STO §4] active view, [STO §5] observation of a lookup, per-capture evidence and completeness.
 
 References: `[CORPUS §n]` = this document; `[FMT §n]` = `tracepack-format.md`, `[JSONL §n]` = `tracepack-jsonl.md`, `[SEM §n]` = `tracepack-semantics.md`, `[STO §n]` = `tracepack-storage.md`, `[OVW §n]` = `tracepack-overview.md`; `[FMT I-n]` = invariant I-n of the format document.
 Each rule is defined in exactly one document; the others only reference it.
@@ -22,7 +23,13 @@ JSON files are compared as JSON values (§4); `.jsonl` and `.tpk` files are comp
   - with `fields.json`, it reads the HSMS header fields of each data and control record as listed (§5.5);
   - with `footer.json`, it accepts or rejects the footer as `accepted` says, and, where it reads footer values, reads them as `stored` lists and computes them from the records as `recomputed` lists (§5.8);
   - of class `truncation`, every cut of `pack.tpk` meets its row of `truncation.json` (§5.7);
-  - with `patch.tpk`, it reads the patch as it reads `pack.tpk`, against `patch.jsonl` and `patch.verify.json`.
+  - with `patch.tpk`, it reads the patch as it reads `pack.tpk`, against `patch.jsonl` and `patch.verify.json`;
+  - of class `multi-pack`, it opens every `pack-<n>.tpk`, and its verification of each projects to `pack-<n>.verify.json` (§5.2).
+- An implementation of reads over several packs ([SEM §7.4]) conforms when, for every read of every `reads.json`,
+  the read of the packs it names, in the order it names them, with its order, filter and conflict bound, yields the expected result or fails as expected (§5.10).
+- An implementation of transaction lookup ([SEM §7.2]) conforms when, for every lookup of every `lookups.json`,
+  the lookup of its primary over the source its `source` object denotes (§8) projects to the expected result or fails as expected (§5.11).
+- Each record such a read or lookup returns is the record of its seq in the pack and block the result names, every record header field and, when returned, the payload, as stored.
 - An implementation of repair ([FMT §13]) conforms when, for every `repair` vector and every repair row of a truncation table,
   with the options `repair.json` or `truncation.json` gives, its result is the expected one (§5.6),
   and its patch, when it writes one, has the properties of [FMT §16] Repair vectors and holds the expected blocks, records and new `coverage` entries.
@@ -31,30 +38,38 @@ JSON files are compared as JSON values (§4); `.jsonl` and `.tpk` files are comp
 - A **writer** conforms when a conforming reader round-trips its output.
   The corpus holds one writer behaviour as bytes, the validating writer of `validation-i2-injection` (§9.4):
   another writer conforms when its output stops before the same block and holds no trailer.
-- An implementation skips the files of an operation it does not offer (repair, classification, a reading of footer values);
+- An implementation skips the files of an operation it does not offer (repair, classification, a reading of footer values, a read over several packs, a transaction lookup);
   the files of the others still bind it.
-- A reader's own limits, an I/O error or a cancellation are never goldens ([FMT §13], [JSONL §7]): no expectation depends on them.
+- A reader's own limits, an I/O error or a cancellation are never goldens ([FMT §13], [JSONL §7]): no expectation depends on them,
+  except the conflict bound a read states (§5.10);
+  an implementation that offers no conflict bound skips the reads that state one.
 
 ## 2. Layout
 
 The corpus is a directory holding `manifest.json` (§3), `primitives.json` (§5.1), a `README.md` (informative), and one directory per vector, named by the vector's `id`.
-A vector directory holds files with these fixed names, and no others:
+A vector directory holds the files its class gives below, under these fixed names, and no others:
 
 | File | Present | Content |
 |---|---|---|
-| `pack.tpk` | always | the vector's pack; for a `truncation` vector, the base pack every cut is taken from |
+| `pack.tpk` | every class but `multi-pack` | the vector's pack; for a `truncation` vector, the base pack every cut is taken from |
 | `export.jsonl` | class `read`, `repair`, `truncation` | the expected export of `pack.tpk` ([JSONL]) |
 | `rejection.json` | class `rejection` | the expected bootstrap rejection (§5.3) |
 | `verify.json` | class `read`, `repair`, `truncation` | the expected verification report of `pack.tpk` (§5.2) |
-| `queries.json` | optional | query vectors over `pack.tpk` (§5.4) |
-| `fields.json` | optional | the HSMS header fields of each data and control record (§5.5) |
-| `classify.json` | optional | the expected classification of byte-predicate frames (§5.9) |
-| `footer.json` | optional | footer expectations (§5.8) |
+| `queries.json` | optional, every class but `multi-pack` | query vectors over `pack.tpk` (§5.4) |
+| `fields.json` | optional, every class but `multi-pack` | the HSMS header fields of each data and control record (§5.5) |
+| `classify.json` | optional, every class but `multi-pack` | the expected classification of byte-predicate frames (§5.9) |
+| `footer.json` | optional, every class but `multi-pack` | footer expectations (§5.8) |
 | `repair.json` | class `repair` | the repair options and the expected result (§5.6) |
 | `patch.tpk`, `patch.jsonl`, `patch.verify.json` | class `repair`, when `repair.json`'s result is `patched` | the reference patch, its export and its verification report |
 | `truncation.json` | class `truncation` | the expectation table of every cut (§5.7) |
+| `pack-<n>.tpk` | class `multi-pack`, one or more | the vector's packs, numbered n = 0, 1, … without a gap, n in decimal without leading zeros |
+| `pack-<n>.verify.json` | class `multi-pack`, one per `pack-<n>.tpk` | the expected verification report of `pack-<n>.tpk` (§5.2) |
+| `reads.json` | class `multi-pack`, optional | reads over several packs (§5.10) |
+| `lookups.json` | class `multi-pack`, optional | transaction lookups (§5.11) |
 
 A vector of class `rejection` has no `export.jsonl` and no `verify.json`: a pack rejected at bootstrap has neither ([JSONL §8], [FMT §13]).
+A vector of class `multi-pack` holds `reads.json`, `lookups.json` or both, and no `.jsonl` file:
+the other classes cover the export, and each pack's verification report pins the state of the pack whose records the expected results name by pack and block.
 
 ## 3. Manifest and identification
 
@@ -64,8 +79,8 @@ so goldens written under different definitions are told apart ([FMT §14]).
 
 | Key | Type | Present | Value |
 |---|---|---|---|
-| `corpus` | string | always | `"tracepack-corpus/1"`, the schema of every file of this document (§10) |
-| `spec_version` | string | always | the spec version the goldens follow: `"2.29"` |
+| `corpus` | string | always | `"tracepack-corpus/2"`, the schema of every file of this document (§10) |
+| `spec_version` | string | always | the spec version the goldens follow: `"2.30"` |
 | `format_version` | string | always | `"1.0"` ([FMT §4]) |
 | `jsonl_schema` | string | always | the export schema of every `.jsonl` file: `"tracepack-jsonl/1"` ([JSONL §9]) |
 | `zstd_encoder` | string | always | the identity and version of the zstd encoder that produced the encoder-made zstd blocks and footers of the corpus, as its generator records it (§6.1) |
@@ -78,12 +93,12 @@ A vector entry:
 | `id` | string | always | kebab-case ASCII, prefixed by its group (§9.4); stable, never reused for another vector |
 | `title` | string | always | one line, informative |
 | `cites` | array of strings | always, never empty | the clauses the vector exercises, each `FMT §n`, `FMT I-n`, `SEM §n`, `STO §n`, `JSONL §n` or `CORPUS §n`, primary clause first; informative |
-| `class` | string | always | `read`, `rejection`, `truncation` or `repair` (§2) |
-| `labels` | array of strings | always, `[]` when none | ascending; `damaged`: the pack models damage after writing (a failed CRC, a cut, a broken codec stream); `nonconforming-writer`: the pack holds bytes, every CRC valid, that a conforming writer never writes; `pre-v2.13-sample`: the sample of the format definition before v2.13 ([FMT §14]) |
-| `codec` | string | always | `none` when every block body and the footer of `pack.tpk` use codec `none`, `zstd` when they all use `zstd`, `mixed` otherwise, an unknown codec included |
+| `class` | string | always | `read`, `rejection`, `truncation`, `repair` or `multi-pack` (§2) |
+| `labels` | array of strings | always, `[]` when none | ascending; `damaged`: the pack models damage after writing (a failed CRC, a cut, a broken codec stream); `nonconforming-writer`: the pack holds bytes, every CRC valid, that a conforming writer never writes; `pre-v2.13-sample`: the sample of the format definition before v2.13 ([FMT §14]); for class `multi-pack`, the labels of any of its packs |
+| `codec` | string | always | `none` when every block body and the footer of the vector's packs (`pack.tpk`, or every `pack-<n>.tpk`) use codec `none`, `zstd` when they all use `zstd`, `mixed` otherwise, an unknown codec included |
 | `source` | string | always | `generated`, or `fixed` for a file kept as committed and never regenerated |
-| `files` | array of strings | always | the vector's files, in the order of the table of §2 |
-| `cases` | array of objects | optional, never empty | single-record sub-vectors, ascending by `seq`: `{id, seq, cites}`, `id` kebab-case and unique within the vector, `seq` the record's seq (string), `cites` as above |
+| `files` | array of strings | always | the vector's files, in the order of the table of §2; for class `multi-pack`, by ascending n each `pack-<n>.tpk` then `pack-<n>.verify.json`, then `reads.json`, then `lookups.json` |
+| `cases` | array of objects | optional, never empty, never in class `multi-pack` | single-record sub-vectors, ascending by `seq`: `{id, seq, cites}`, `id` kebab-case and unique within the vector, `seq` the record's seq (string), `cites` as above |
 
 Vectors that differ only in codec (`basic-codec-none`, `basic-codec-zstd` and `basic-codec-mixed`; the truncation base packs under both codecs) carry the same `pack_id`, `capture_id` and other identifiers,
 so their exports are identical.
@@ -95,7 +110,12 @@ Every JSON file of the corpus is UTF-8 JSON text (RFC 8259) holding one object o
   UUIDs in the canonical lowercase form; enum values and bits by their [JSONL §3] names, `unknown(<n>)` and `bit(<n>)` included.
 - A block index and a count of blocks are numbers; a count of records is a string, since records are counted in `u64`.
 - A **block index** is the 0-based position of a block among the blocks the reader locates ([FMT §13]), in file order.
-- An **offset** is a file offset, in bytes from the first byte of the file the object describes (`pack.tpk`, `patch.tpk`, or a cut of `pack.tpk`), as a string.
+- An **offset** is a file offset, in bytes from the first byte of the file the object describes (`pack.tpk`, `patch.tpk`, a `pack-<n>.tpk`, or a cut of `pack.tpk`), as a string.
+- A **pack number** names the pack `pack-<n>.tpk` of a `multi-pack` vector as the number n.
+  The results of reads and lookups (§5.10, §5.11) name every pack by its number, never by its `pack_id`;
+  the packs of a vector have distinct `pack_id`s, so an implementation maps one to the other by opening the packs.
+- An **hour** is a UTC hour numbered in whole hours from 1970-01-01T00:00Z, negative before it, as a string (`i64`):
+  the hour of a `ts_utc_ns` t is ⌊t / 3 600 000 000 000⌋, the scope hour of [STO §2].
 - A **coverage object** is a `coverage` entry rendered as a [JSONL §4] TLV object under the `coverage` registry ([FMT §5]).
 - An optional key is omitted when it has no value, never written as `null` and never given a placeholder such as `-1`.
 - A key holding an array is present as its schema's Present column says, like any other key;
@@ -316,6 +336,279 @@ The stored `trailing_bytes` of the records, and so their export, are not changed
 The statuses that are not byte predicates (`not-attempted`, `reconstructed-ok`, `parse-failed`, `build-rejected`, `not-applicable`) are stored values only:
 their records are in the pack and its export, never in `classify.json`.
 
+### 5.10 `reads.json`
+
+An array of reads over several packs of a `multi-pack` vector ([SEM §7.4]), ascending by `id`.
+Each read gives the packs it names to one read, in the order it names them, and states the expected result.
+
+| Key | Type | Present | Value |
+|---|---|---|---|
+| `id` | string | always | kebab-case, unique within the vector |
+| `cites` | array of strings | always, never empty | as in the manifest (§3) |
+| `packs` | array of numbers | always, never empty | the packs read, by number (§4), in the order the read is given them; no number twice. Two reads that name the same packs in two orders read them in both orders ([SEM §7.4] Conflicts) |
+| `order` | string | always | `capture` or `time`, the order of the read ([SEM §7.4]) |
+| `payloads` | bool | only as `true` | the read returns each record's payload; no other value of the read changes |
+| `max_conflicts` | number | when the read states a conflict bound | the bound, at least 1: the read fails when it finds one conflict more ([SEM §7.4] Conflicts) |
+| `filter` | object | always | the selection, as in §5.4 |
+| `expect` | object | always | the success form or the error form, below |
+
+A read without `max_conflicts` states no bound, and its expectation depends on none a reader keeps (§1).
+A read has no retention boundary, so no hour is removed ([STO §5] Retention).
+
+`expect`, the success form, `{items, incomplete, conflicts, footer_errors}`:
+
+| Key | Type | Present | Elements and order | Value |
+|---|---|---|---|---|
+| `items` | array of objects | always | one per version yielded, in the order the read yields them, never sorted; `[]` when none | `{seq, pack, block, conflict}`, below |
+| `incomplete` | array of objects | always | the reasons of each pack, packs in the order of `packs`, each pack's reasons as §5.4 orders them; `[]` when none | `{pack, reason, block?, offset?, coverage?}`: `pack` the pack's number, the other keys as in §5.4 |
+| `conflicts` | array of objects | always | one per conflict, in discovery order ([SEM §7.4]); `[]` when none | `{capture_id, seq, versions}`, below |
+| `footer_errors` | array of numbers | always | one per pack whose footer the read did not use, in the order of `packs`; `[]` when none | the packs whose verification report has `footer_valid` false (§5.2) |
+
+An item:
+
+| Key | Type | Present | Value |
+|---|---|---|---|
+| `seq` | string | always | the record's seq |
+| `pack` | number | always | the pack of the version's representative ([SEM §7.4] Conflicts) |
+| `block` | number | always | the representative's block index in that pack (§4) |
+| `conflict` | bool | always | the record's copies differ ([SEM §7.4] Conflicts) |
+
+A version's capture is its pack's, a pack holding one capture.
+
+A conflict:
+
+| Key | Type | Present | Value |
+|---|---|---|---|
+| `capture_id` | string | always | the record's capture (UUID) |
+| `seq` | string | always | the record's seq |
+| `versions` | array of arrays of numbers | always, never empty | one array per version, in version order ([SEM §7.4]): the packs holding that version, each once, in the order of `packs` |
+
+`incomplete` applies §5.4's decision table to each pack read, the read's filter its query; a reader's limit is never a reason (§1).
+A read's filter never lets the F-2 entries, F-3 summaries or computed summaries exclude a whole cluster that holds a conflict, a defect or a selected record,
+since whether a reader excludes such a cluster is not part of the contract ([SEM §7.4] Exclusion, §5.4):
+so every cluster that decides an expected value is read whatever a reader prunes.
+
+`expect`, the error form, `{error, conflicts}`, for a read that states `max_conflicts` and finds more conflicts:
+
+| Key | Type | Present | Value |
+|---|---|---|---|
+| `error` | string | always | `conflict-limit` |
+| `conflicts` | array of objects | always | the first `max_conflicts` conflicts in discovery order, the conflicts found before the one that failed the read, as in the success form |
+
+The items and `incomplete` reasons a read yields before it fails are not part of the error form ([SEM §9]: "the conflicts found so far").
+
+### 5.11 `lookups.json`
+
+An array of transaction lookups from a primary over the packs of a `multi-pack` vector ([SEM §7.2]), ascending by `id`.
+
+| Key | Type | Present | Value |
+|---|---|---|---|
+| `id` | string | always | kebab-case, unique within the vector |
+| `cites` | array of strings | always, never empty | as in the manifest (§3) |
+| `source` | object | always | `{view, evidence, complete}`, the source of the lookup's observation ([STO §5]), below and §8 |
+| `key` | object | always | `{capture_id, seq, hour}`, the primary, below |
+| `max_scopes` | number | always | the hours scheduled, `key.hour` and the ones after it, at least 1 ([SEM §7.2] Scopes read) |
+| `expect` | object | always | the error form or the result, below |
+
+`source`, per lookup, so that one set of packs serves several sources:
+
+| Key | Type | Present | Value |
+|---|---|---|---|
+| `view` | array of numbers | always, never empty | the packs whose scopes the source serves, in the order that decides each scope's view order (§8); no number twice |
+| `evidence` | array of numbers | always, `[]` when none | the packs whose statistics are per-capture evidence only (§8); none of them in `view`, no number twice |
+| `complete` | bool | always | the packs are every pack of the tool the source holds evidence of (§8) |
+
+`key`:
+
+| Key | Type | Present | Value |
+|---|---|---|---|
+| `capture_id` | string | always | the primary's capture (UUID) |
+| `seq` | string | always | the primary's seq, p |
+| `hour` | string | always | the hour of the primary's scope (§4), as the vector names it: the hour of the primary's `ts_utc_ns` ([SEM §7.2]), except where a vector names a scope whose pack breaches its hour; an implementation uses it as given |
+
+A lookup states no budget of a reader — the bytes it holds, its own state, the conflicts it counts — and no retention boundary; none of them is a golden (§1).
+
+`expect`, the error form, `{error}`: `error` is `not-primary`, the lookup's failure when its key names no primary ([SEM §7.2] Definitions, Primary); nothing else is compared.
+
+`expect`, the result, `{outcome, key?, window_end?, records, gaps, searched, conflicts, footer_errors}`:
+
+| Key | Type | Present | Elements and order | Value |
+|---|---|---|---|---|
+| `outcome` | string | always | — | `matched`, `ambiguous`, `unmatched` or `incomplete` ([SEM §7.2] Result) |
+| `key` | object | iff the lookup kept a version of the primary | — | the primary's fields, below |
+| `window_end` | string | iff a record read bounds the window | — | e, the window's end (Facts, below) |
+| `records` | array of objects | always | one per kept version ([SEM §7.2] Identity across the scopes read), ascending by seq, then by the hour of the read that yielded it, then in version order within that read ([SEM §7.4]); `[]` when none | below |
+| `gaps` | array of objects | always | one per distinct fact, in the order of the comparator (Facts, below); `[]` when none | below |
+| `searched` | array of objects | always | one per scope read to its end, ascending by hour; `[]` when none | `{hour, indexed, packs}`: the scope's hour; whether it is indexed (§8); its view's packs by number, in view order (§8), `[]` for a scope without packs |
+| `conflicts` | array of objects | always | the conflicts each scope read listed, scope reads in the order read, each read's in discovery order ([SEM §7.4]); `[]` when none | as in §5.10, `versions` holding packs of that scope's view, in view order |
+| `footer_errors` | array of objects | always | ascending by `hour`, then in view order; `[]` when none | `{hour, pack}`: a pack of a scope read whose footer the read did not use (§5.10) |
+
+A scope read reads the packs of the scope's view in view order, in capture order, with a filter that selects every record ([SEM §7.4]);
+it covers every seq of its scope, so its conflicts include those below p.
+
+`key`, the primary's fields ([SEM §7.2] Definitions), read from the first kept version of the primary in `records` order, also when the primary has several versions, as a diagnostic:
+
+| Key | Type | Present | Value |
+|---|---|---|---|
+| `epoch` | number | always | its `epoch` |
+| `dir` | string | always | its direction, by its [JSONL §3] name, `unknown(<n>)` included |
+| `session_id` | number | iff available ([FMT §7.2]) | payload bytes 4–5 |
+| `system_bytes` | string | iff available | payload bytes 10–13 (base64) |
+| `stream` | number | iff `stream_and_w` is available | payload byte 6, bits 0–6 |
+| `function` | number | iff available | payload byte 7 |
+| `w` | bool | iff `stream_and_w` is available | payload byte 6, bit 7 |
+
+A primary whose versions conflict is settled before its first version is checked as a primary, so that version's function can be unavailable.
+
+A record, one kept version:
+
+| Key | Type | Present | Value |
+|---|---|---|---|
+| `seq` | string | always | its seq |
+| `hour` | string | always | the hour of the scope read that yielded it |
+| `pack` | number | always | the pack of its representative in that read ([SEM §7.4] Conflicts) |
+| `block` | number | always | the representative's block index in that pack (§4) |
+| `conflict` | bool | always | the lookup found its seq in conflict, within a scope read or across scope reads; `true` for every kept version of such a seq |
+| `roles` | array of strings | always | its role labels, by the role table, in its order; `[]` for a version kept only as another version of a seq that qualified |
+| `in_window` | bool | always | its seq lies in the window: above p and below e, or above p while no record read bounds the window |
+| `bound` | bool | always | its seq is e and the version bounds the window (Facts, below) |
+| `decidable`, `eligible`, `valid` | bools | iff `roles` holds `candidate` | the candidate flags of [SEM §7.2] Definitions |
+
+The roles of a version come from its own bytes, compared with the primary's fields, so the versions of one seq can differ in them.
+Role table, the order of `roles`:
+
+| Label | A version that is, against the primary's key |
+|---|---|
+| `primary` | a version of the primary's seq p, in the primary's scope or a later one |
+| `candidate` | a candidate ([SEM §7.2] Definitions) |
+| `possible-reply` | a possible reply |
+| `same-key-primary` | a same-key primary |
+| `possible-primary` | a possible same-key primary |
+| `closing` | a closing event: above p, a `transport-event` of the primary's epoch with `event` = `socket-close`, or a capture-boundary record with `boundary_kind` = `stop` of any epoch, whether or not its seq is in conflict |
+| `outcome` | an outcome record ([SEM §7.2] Definitions) |
+
+The labels are diagnostics of this document.
+`closing` says what the version's bytes are: a closing record of [SEM §7.2] is a version labelled `closing` without `conflict`,
+and whether a version bounds the window or closes the primary's epoch is what `bound` and the facts report.
+
+#### Facts
+
+A **fact** states one condition of [SEM §7.2] or [STO §5] Completeness that keeps the lookup from establishing absence or makes it `incomplete`;
+its keys locate the condition, nothing else.
+Facts equal in every key are one fact: `gaps` holds each distinct fact once.
+
+A fact, its keys in this order, each present as the fact table says:
+
+| Key | Type | Value |
+|---|---|---|
+| `reason` | string | the fact's reason |
+| `hours` | array of strings | the hours the fact concerns, ascending |
+| `pack` | number | the pack the fact concerns |
+| `block` | number | the block the fact concerns, its index in that pack |
+| `offset` | string | the envelope of that block |
+| `seq` | string | the seq the fact concerns |
+| `defect` | string | the reason of a read defect, a §5.4 name: `truncated`, `corrupt-block` or `unknown-codec` |
+| `coverage` | coverage object | the `coverage` entry (§4) |
+| `boundary` | object | the boundary, below |
+| `basis` | array of strings | the bases of a barrier, never empty: `epoch`, `time`, in that order |
+
+Fact table, the order of its rows the order of reasons; the first four make the outcome `incomplete`:
+
+| Reason | One fact per | Keys | Basis |
+|---|---|---|---|
+| `no-key` | lookup whose primary has no key: missing where a condition of its scope explains it, in conflict within its scope's read or with a version a later scope's read yields, or without an association key | — | [SEM §7.2] Definitions (Primary), Identity across the scopes read, Scopes read |
+| `conflict` | seq at or above p that one scope read yields in conflict; seq at or above p that the reads of several scopes yield | `hours` (the read's hour, or every hour whose read yielded the seq), `seq` | [SEM §7.2] Identity across the scopes read |
+| `index` | block of a scope read whose records disagree with its F-2 entry | `hours`, `pack`, `block`, `offset` | [SEM §7.2] Identity across the scopes read |
+| `scope-breach` | version a scope read yields whose `ts_utc_ns` lies outside the scope's hour | `hours`, `pack`, `block` (its representative's), `seq` | [SEM §7.2] Identity across the scopes read |
+| `cold` | hour scheduled whose scope is not indexed, read or not read because conflicted | `hours` | [SEM §7.2] What prevents `unmatched`; [STO §5] Completeness |
+| `conflicted` | hour scheduled whose scope is conflicted, so not read | `hours` | [SEM §7.2] Scopes read, What prevents `unmatched` |
+| `read` | read defect of a scope read other than a `coverage` entry and an index mismatch: a §5.4 `truncated`, `corrupt-block` or `unknown-codec` reason of a pack read | `hours`, `pack`, `block` and `offset` as §5.4 gives them, `defect` | [SEM §7.2] What prevents `unmatched` |
+| `coverage` | pair of a pack read and a `coverage` entry of it, of the primary's capture, that meets by [FMT §5] the seqs (p, e), or (p, ∞) while the window is unbounded, and the time range of the hours scheduled | `hours` (the read's hour), `pack`, `coverage` | [SEM §7.2] What prevents `unmatched` |
+| `unevaluated` | pack read whose `quality_evaluated` is false | `hours`, `pack` | [SEM §7.2] What prevents `unmatched` |
+| `evidence` | lookup whose per-capture evidence is partial (§8) | — | [SEM §7.2] What prevents `unmatched` |
+| `barrier` | `stop-unclean` boundary that is a completeness barrier on at least one basis (below) | `boundary`, `basis` | [SEM §7.2] What prevents `unmatched`; [STO §5] Completeness |
+| `capture-boundary` | capture-boundary of the primary's epoch, by an entry of the per-capture evidence or a capture-boundary record of that epoch read above p, other than the clean `stop` that bounds the window, identified by its capture, seq, `boundary_kind` and epoch | `boundary` (those four keys) | [SEM §7.2] What prevents `unmatched` |
+| `ordering-uncertain` | lookup that reads a record of the primary's epoch carrying `ordering-uncertain`, at any seq | — | [SEM §7.2] What prevents `unmatched` |
+| `correlation` | lookup whose primary carries `correlation-incomplete` | — | [SEM §7.2] What prevents `unmatched` |
+| `seq-gap` | lookup whose bounded window holds a seq that no scope read yielded | — | [SEM §7.2] Identity across the scopes read, What prevents `unmatched` |
+| `open-window` | lookup whose window no record read bounds | — | [SEM §7.2] Scopes read, What prevents `unmatched` |
+| `unavailable` | kept version in the window that is a possible reply, an eligible candidate that is not decidable, or a candidate at or after the first possible same-key primary in the window | `hours` (the read's hour), `pack`, `block`, `seq` | [SEM §7.2] Definitions (Candidate flags), What prevents `unmatched` |
+| `contradiction` | seq at which a claim of the per-capture evidence is contradicted (below); the claims at one seq give one fact | `seq` | [SEM §7.2] Definitions (Closing record) |
+
+The outcome follows from the facts ([SEM §7.2] Result):
+`incomplete` with a `no-key`, `conflict`, `index` or `scope-breach` fact;
+otherwise `matched` with one valid match and `ambiguous` with several, beside every fact;
+otherwise `unmatched` when `gaps` is `[]`, `incomplete` when it is not.
+
+**Window.** The window's end e is the smallest seq above p of a kept version that is a same-key primary, with or without a conflict,
+or labelled `closing` without a conflict ([SEM §7.2] Definitions, Window).
+It is not a fact: `window_end` and `bound` report it, and `seq-gap` or `open-window` the window it leaves.
+
+**Barrier.** One `stop-unclean` boundary is a barrier on two bases, each with its own predicate ([STO §5] Completeness, [SEM §7.2] What prevents `unmatched`):
+- `epoch`: the boundary is in the per-capture evidence of the primary's capture,
+  and the lookup read no closing record of the primary's epoch: no kept version above p, without `conflict`, labelled `closing`, whose epoch is the primary's;
+  a capture-boundary `stop` of another epoch bounds the window but does not lift this basis;
+- `time`: its gap interval [`gap_start`, `gap_end`], unbounded on a side whose bound is absent, meets the time range of the hours scheduled,
+  [`key.hour` × 3 600 000 000 000, (`key.hour` + `max_scopes`) × 3 600 000 000 000) in nanoseconds; an interval whose `gap_start` exceeds its `gap_end` meets every range.
+The boundary is one fact whose `basis` lists the bases that hold.
+Boundaries that differ in any field are distinct facts; the per-capture evidence keeps one of boundaries equal in every field (§8).
+
+**Contradiction.** The per-capture evidence makes two kinds of claim ([SEM §7.2] Definitions, Closing record), each judged by its own predicate before the facts of one seq collapse:
+- the `close_seq` c of the primary's epoch: contradicted when c ≤ p, or when the lookup read c and no kept version of c is labelled `closing` with the primary's epoch;
+- each capture-boundary entry of kind `stop`, of any epoch e, at seq s:
+  contradicted when s ≤ p, or when the lookup read s and no kept version of s is a capture-boundary record of kind `stop` in epoch e.
+The lookup read a seq when a scope read yielded a version of it.
+A seq whose versions conflict, one of them the event a claim names, gives no contradiction, only the conflict; a claim at a seq the lookup did not read is not checked.
+
+**Existence facts.** `no-key`, `evidence`, `ordering-uncertain`, `correlation`, `seq-gap` and `open-window` state a condition of the lookup once;
+[SEM §7.2] names no record or seq as their witness, so they carry none.
+
+`boundary`, [FMT §10]'s nested `boundary` names and the capture:
+
+| Key | Type | Present | Value |
+|---|---|---|---|
+| `capture_id` | string | always | the capture of the boundary (UUID) |
+| `seq` | string | always | the boundary record's seq |
+| `boundary_kind` | string | always | its [JSONL §3] name |
+| `ts` | string | in a `barrier` fact | the boundary record's `ts_utc_ns` |
+| `epoch` | number | always | the boundary record's epoch |
+| `gap_start`, `gap_end` | strings | in a `barrier` fact, each when present | the gap bounds |
+
+**Comparator.** Facts are ordered by `reason`, by the fact table;
+then by `hours`, element by element, an array before a longer one that it begins;
+then by each of `pack`, `block`, `offset`, `seq`, `defect`, `coverage`, `boundary` and `basis`, in that order, a fact without the key before one with it, then by value.
+Numbers and decimal strings compare numerically, an `i64` signed; UUIDs by their 16 bytes;
+`defect` in the order `truncated`, `corrupt-block`, `unknown-codec`; `basis` element by element, `epoch` before `time`, an array before a longer one that it begins;
+a coverage object by `capture_id`, `seq_first`, `seq_last`, `time_start` and `time_end`, each absent before present,
+  then by its [JSONL §4] `unknown` list entry by entry, an absent list first and a list before a longer one that it begins,
+  an entry by `tag`, `value_type`, then its value's bytes, unsigned, a value before a longer one that it begins;
+a boundary by `capture_id`, `seq`, `boundary_kind` (its numeric value), `epoch`, `ts`, `gap_start` and `gap_end`, each absent before present.
+Two distinct facts differ in some key, so the order is total.
+
+#### Early-return results
+
+A lookup whose primary has no key ends after the scope of the primary's hour ([SEM §7.2] Scopes read).
+Its result is `incomplete`, has no `window_end`, holds in `records` only the versions of the primary, and searches no scope after the primary's;
+no version is in the window or bounds it.
+Its facts are of two kinds:
+- **kept**, the facts its read of the primary's scope records before the primary is settled, about the scope, a pack, a block or a version at any seq:
+  `cold`, `conflicted`, `unevaluated`, `read`, `index`, and `scope-breach` above or below p;
+- **not reported**, the facts that depend on classifying versions against the primary's key:
+  `conflict` above p, `coverage`, `barrier`, `capture-boundary`, `ordering-uncertain`, `evidence`, `seq-gap`, `open-window`, `unavailable` and `contradiction`.
+
+The three early returns:
+- **missing primary**: the primary's scope yielded no version of p, and the scope is not indexed, conflicted, read with a defect other than a `coverage` entry, read with a scope breach,
+  or a `coverage` entry of a pack read in it meets p and the primary's hour.
+  Facts: `no-key` and the kept facts.
+  No `key`; `records` is `[]`; the explaining `coverage` entry is no fact of its own.
+- **conflicting primary**: the primary's versions conflict within its scope's read.
+  Facts: `conflict` (`hours` [`key.hour`], `seq` p), `no-key` and the kept facts.
+  Every version of p is kept, `conflict` true, `roles` [`primary`]; `key` is the first version's.
+- **primary without a key**: its direction is neither `host-to-equipment` nor `equipment-to-host`, or its SessionID or System Bytes is unavailable.
+  Facts: `no-key`, `correlation` when it carries `correlation-incomplete`, and the kept facts; `key` is a diagnostic.
+
+A primary that is missing where nothing explains it, or that is no primary, is the error form.
+
 ## 6. zstd vectors
 
 Every vector uses codec `none` for its blocks and footer unless a codec is its subject.
@@ -328,12 +621,12 @@ RFC 8878 fixes what a zstd frame decodes to, not the bytes an encoder produces: 
   - when the generator runs with that encoder, every regenerated file equals the committed one byte for byte, the manifest included;
   - when it runs with another encoder, or cannot establish which one it runs with,
     each vector that depends on the encoder is compared by decoded equivalence — the same file header and pack metadata bytes;
-    block by block, each encoder-made zstd body equal once decoded and every other body byte for byte; and an identical export —
-    and its files that hold offsets (`verify.json`, `queries.json`, `truncation.json`, `patch.tpk` and `patch.verify.json`) are not compared;
+    block by block, each encoder-made zstd body equal once decoded and every other body byte for byte; and an identical export, where the vector has one —
+    and its files that hold offsets (`verify.json`, `queries.json`, `truncation.json`, `patch.tpk`, `patch.verify.json`, `pack-<n>.verify.json`, `reads.json` and `lookups.json`) are not compared;
     its footer, whose F-2 offsets, lengths and CRCs follow the compressed sizes, is not compared either, the read-path checks of the committed files covering it;
     every other file is compared byte for byte, the manifest except its `zstd_encoder` value, and the generator reports that the corpus is due for regeneration.
-- A vector **depends on the encoder** when its `pack.tpk` or `patch.tpk` holds a block body or a footer of codec `zstd` that the encoder produced.
-  The manifest's `codec` (§3) lists the codecs a pack holds, not this dependence.
+- A vector **depends on the encoder** when one of its packs (`pack.tpk`, `patch.tpk` or a `pack-<n>.tpk`) holds a block body or a footer of codec `zstd` that the encoder produced.
+  The manifest's `codec` (§3) lists the codecs a vector's packs hold, not this dependence.
   Vectors without such a body or footer — codec `none`, the hand-built frames of §6.2, `basic-unknown-codec`, whose other blocks and footer are codec `none`, and the `fixed` sample —
   are compared byte for byte in every case.
 
@@ -411,7 +704,7 @@ A decoder's own limits, such as a nesting depth or a frame size it accepts, are 
 
 ## 8. Vector readings
 
-How the corpus realizes [FMT §16] clauses whose wording leaves a choice:
+How the corpus realizes [FMT §16] and [SEM §9] clauses whose wording leaves a choice:
 - **Empty pack**: the file header and the pack metadata only: not finalized, no blocks.
   **Pack with zero records**: finalized, `block_count` = 0 ([FMT §10]).
 - **A block holding one oversized record**: a record larger than the block size threshold, written alone in its own block ([FMT §2]);
@@ -424,12 +717,31 @@ How the corpus realizes [FMT §16] clauses whose wording leaves a choice:
   A `payload_len` of 2^31 − 1 is not materialized, for the corpus's size.
 - **A pack truncated at every byte offset**: one base pack and its `truncation.json` (§5.7), under codec `none` and codec `zstd`; the repair vectors' table also holds each cut's repair.
 - **Control frames**: a `Select.rsp`, a `Deselect.rsp`, a `Reject.req` and a `Linktest.req`, with `fields.json` and queries over their bytes 6 and 7, read positionally ([FMT §7.2]).
+- **A read over several packs** ([SEM §7.4]): the read is given exactly the packs a read of `reads.json` names, in the order it names them;
+  they stand for the active views of the scopes a query selects, and no active view is computed from them.
+- **The source of a lookup**: a `source` object (§5.11) denotes one observation of one tool ([STO §5] Observation of a lookup), fixed from the vector's packs alone.
+  The packs of a vector have one `tool_id`; a `view` pack is a segment, an archive or a repair pack, an `evidence` pack a segment or an archive whose period lies inside one UTC hour.
+  - **Scopes**: the `view` packs grouped by `capture_id` and the hour of `period_start`.
+    Each scope's view is its active view ([STO §4]), every archive's replacement set and every repair pack taken as committed;
+    a scope whose highest rank holds two different complete sets is `conflicted`, and the lookup reads none of its packs.
+    An hour without a `view` pack of the capture is a scope without packs.
+  - **Indexed**: with `complete` true, every scope but the scope (`capture_id`, hour of `period_start`) of each `evidence` pack, which a catalog would not index ([STO §5]);
+    with `complete` false, no scope.
+  - **Per-capture evidence** ([STO §5] Per capture): folded from the F-5 statistics of every pack of the capture, `view` and `evidence` alike:
+    every distinct `boundary` entry, those equal in every field kept once, and the smallest `close_seq` of each epoch.
+    It is partial when `complete` is false or when any pack of the vector has no valid footer.
+  - **Barriers**: the `stop-unclean` boundaries of the per-capture evidence of every capture of the vector.
+  - **View order**: the generation's member first, unless a patch based on the generation replaced it, then the scope's other view packs in the order `view` lists them.
+    [STO §4] defines the members of a view, not their order; the corpus fixes it, as a reader fixes the order of the packs it reads.
+    The order decides the representatives ([SEM §7.4] Conflicts), so the `pack` and `block` of each record, and the order of `searched`'s `packs`.
 
 ## 9. Vector catalogue
 
-Every clause of [FMT §16] and every single-pack clause of [SEM §9] is mapped below to the vectors that exercise it, or marked as planned elsewhere:
-`6b2` (reads over several packs and transaction lookups, with their result formats), `6b3` (the corpus vectors of [STO §8]), `phase 7` (extracts and redaction),
+Every clause of [FMT §16] and of [SEM §9] is mapped below to the vectors that exercise it, or marked as planned elsewhere:
+`6b3` (the corpus vectors of [STO §8]), `phase 7` (extracts and redaction),
 phases of `tracepack-impl-plan.md` that extend this corpus under a later schema value or the same one.
+A clause whose subject no result shows, how often a read reads a block or whether it excludes a cluster, is a test of the reference implementation instead of a vector:
+the results of §5.10 hold neither, since pruning is outside the contract (§5.4, §5.10).
 A vector may serve several clauses.
 
 ### 9.1 [FMT §16] clauses
@@ -461,7 +773,7 @@ A vector may serve several clauses.
 | System Bytes bit set, bytes absent (nonconforming-writer fixture) | `hsms-system-bytes-set-short`; the append refusal is a writer test, not a vector |
 | control frames, bytes 6 and 7 read positionally | `hsms-control-frames` |
 | S/F, SessionID and System Bytes predicates | `hsms-predicates` |
-| transaction candidate selection ([SEM §7.2]) | 6b2 |
+| transaction candidate selection ([SEM §7.2]) | `tx-candidate-selection` |
 | identical decoded body bytes under two framings | `framing-two-framings` |
 | a block of several records checked on gathered headers | `framing-gathered-headers` |
 | `record_header_len` below 44 | `framing-header-len-below-44` |
@@ -471,7 +783,7 @@ A vector may serve several clauses.
 | codec stream short or malformed after a valid header section | `framing-zstd-malformed`, `framing-zstd-short`, `framing-zstd-short-checksum` |
 | a block holding one oversized record | `framing-record-over-threshold` |
 | a validating writer whose encoded block has an injected I-2 defect | `validation-i2-injection` |
-| a payload-only identity conflict between two packs | 6b2 |
+| a payload-only identity conflict between two packs | `multi-payload-only-conflict` |
 | a finalized pack whose blocks all pass | `basic-codec-none`, `basic-codec-zstd` |
 | a pack truncated at every byte offset | `verify-truncation-none`, `verify-truncation-zstd` |
 | a finalized pack whose last block fails | `verify-last-block-failed` |
@@ -505,8 +817,40 @@ A vector may serve several clauses.
 | one vector per `decode_status` value | `sem-decode-status-classified`, `sem-decode-status-log` |
 | one vector per item-validity rule ([SEM §3]) | `sem-item-validity`, with the precedence cases in `sem-decode-status-classified` (§7) |
 | a nonzero `capture_origin_mono_ns` | `sem-capture-origin-mono` |
-| repeated System Bytes; cross-pack transactions; every lookup from a primary ([SEM §7.2]) | 6b2 |
-| reads over several packs ([SEM §7.4]) | 6b2 |
+| repeated System Bytes; a repeated transaction key: a completed transaction, then an unanswered primary | `tx-repeated-key` |
+| cross-pack transactions; a reply in the next hour's scope | `tx-cross-pack` |
+| an outstanding primary on epoch E1, a refused socket E2, then the E1 reply | `tx-refused-socket` |
+| a primary without System Bytes; an otherwise unanswered primary followed in its window by a reply-direction record whose System Bytes are unavailable | `tx-unavailable-fields` |
+| a window closed by a same-key primary, by a socket-close of the epoch, by a clean `stop` of another epoch, and not within the scopes read | `tx-window-bounds` |
+| a `close_seq` naming an annotation, its F-2 entry true; closure evidence at or below the primary's seq | `tx-closure-contradiction` |
+| a `close_seq` naming a seq with two versions, one of them the socket-close | `tx-closure-conflict` |
+| a conflicted scope in the primary's hour and in a later hour | `tx-conflicted-scope` |
+| a pack of hour H whose truthful blocks lie in hour K; a same-hour clock step that puts records outside a segment's period | `tx-scope-breach` |
+| a valid match, a wrong stream, an F0 abort, a wrong-stream F0, a control record whose bytes 6–7 look like F + 1, two valid matches | `tx-candidate-selection` |
+| a possible same-key primary with System Bytes unavailable, a reply before and after it; an unknown-direction record | `tx-possible-primary` |
+| a conflict within a scope on a candidate and on an unrelated record after the window, and across scopes on the primary and on a candidate | `tx-conflicts` |
+| a block whose records disagree with its F-2 entry | `tx-index-mismatch` |
+| another version of a window seq in the hour before the primary's, after a backward clock step; a seq of the window with no version in the scopes read | `tx-clock-step` |
+| a `coverage` entry meeting the window but not the hours scheduled, and the reverse; a coverage entry and a barrier meeting only a conflicted hour | `tx-coverage-barrier` |
+| an `ordering-uncertain` record of the epoch below the primary; a capture-boundary of the epoch outside the hours read | `tx-epoch-evidence` |
+| a pack with `quality_evaluated` false; a `Reject.req` with SType unavailable; a T3 `timer-expiry` without identifiers | `tx-outcome-records` |
+| (beyond the clauses) the epoch barrier, lifted only by a closing record of the primary's epoch ([SEM §7.2], [STO §5] Completeness) | `tx-epoch-barrier` |
+| (beyond the clauses) a source that is not complete, and a pack whose evidence alone counts ([STO §5]) | `tx-unindexed-source` |
+| two captures interleaved block by block in capture order, with a filter that rejects one capture's next record | `multi-capture-interleave` |
+| backward timestamps within a block, across the blocks of a pack and across packs, in time order | `multi-time-backward` |
+| equal timestamps across captures, across clusters and across the versions of one record (two and three versions) | `multi-equal-timestamps` |
+| a record held identically by two packs, yielded once | `multi-identical-copy` |
+| a conflict of two versions with both, one and no version selected | `multi-conflict-selection` |
+| copies differing only in a reserved `record_flags` bit, only in the extension area, in `record_header_len` | `multi-header-conflicts` |
+| copies differing only in the payload, payloads not requested | `multi-payload-only-conflict` |
+| versions of one seq with different timestamps, a time range selecting one | `multi-conflict-time-range` |
+| a cluster with one block the summaries exclude and one they do not (both read) | `multi-cluster-mixed-exclusion` |
+| a cluster excluded whole (not read, no conflict listed) | a test of the reference implementation (§9) |
+| a cluster spanning two hours | `multi-cluster-two-hours` |
+| a conflict limit reached exactly and exceeded by one | `multi-conflict-limit` |
+| a walked block whose computed summary excludes its cluster (read once only) | `multi-walked-excluded`; that it is read once only, a test of the reference implementation (§9) |
+| a pack that is not finalized beside its archive, in both orders | `multi-unfinalized-beside-archive` |
+| an extract beside its source | phase 7 |
 | redaction ([SEM §8]) | phase 7 |
 
 ### 9.3 [STO §8] vectors
@@ -517,7 +861,8 @@ The Service vectors of [STO §8] are not part of the corpus, as [STO §8] states
 
 ### 9.4 Vectors
 
-Group prefixes: `basic-`, `framing-`, `footer-`, `hsms-`, `validation-`, `verify-`, `repair-`, `bootstrap-`, `sem-`, `sample-`.
+Group prefixes: `basic-`, `framing-`, `footer-`, `hsms-`, `validation-`, `verify-`, `repair-`, `bootstrap-`, `sem-`, `sample-`,
+and, for class `multi-pack`, `multi-` (reads over several packs) and `tx-` (transaction lookups).
 Files beyond those of the class (§2) are named where a vector has them.
 
 | Vector | Class | Subject |
@@ -595,9 +940,45 @@ Files beyond those of the class (§2) are named where a vector has them.
 | `sem-item-validity` | read | the checklist of §7; `classify.json`, `cases` |
 | `sem-capture-origin-mono` | read | a capture-clock pack whose `capture_origin_mono_ns` is not 0 ([SEM §4]) |
 | `sample-v010-rows` | read | the tracepack v0.1.0 pack of a multi-record block, reported `corrupt`; `source` `fixed`, label `pre-v2.13-sample` ([FMT §14]) |
+| `multi-capture-interleave` | multi-pack | two captures whose blocks interleave by `ts_min` in capture order, and a filter that rejects one capture's next record; `reads.json` |
+| `multi-time-backward` | multi-pack | timestamps running backward within a block, across blocks and across packs, read in time order; `reads.json` |
+| `multi-equal-timestamps` | multi-pack | equal timestamps across captures, equal `ts_min` across clusters, and two and three versions of one record at one timestamp; `reads.json` |
+| `multi-identical-copy` | multi-pack | one block held identically by two packs, read in both orders: yielded once, no conflict; `reads.json` |
+| `multi-payload-only-conflict` | multi-pack | copies differing in one message-text byte, read with and without payloads: a conflict; `reads.json` |
+| `multi-conflict-selection` | multi-pack | a conflict of two versions differing in `dir`, with both, one and no version selected, listed each time; `reads.json` |
+| `multi-header-conflicts` | multi-pack | copies differing only in a reserved `record_flags` bit, in an extension byte and in `record_header_len`: three conflicts; `reads.json` |
+| `multi-conflict-time-range` | multi-pack | two versions of one seq with different timestamps and a time range selecting one: both read, the conflict listed; `reads.json` |
+| `multi-cluster-mixed-exclusion` | multi-pack | a cluster of a block the time range excludes and one it does not: both read, the conflict listed; `reads.json` |
+| `multi-cluster-two-hours` | multi-pack | a cluster spanning two hours, in capture and time order; `reads.json` |
+| `multi-conflict-limit` | multi-pack | three conflicts, read with a bound of three (success) and of two (`conflict-limit`); `reads.json` |
+| `multi-walked-excluded` | multi-pack | an unfinalized pack whose walked block's computed summary excludes its cluster; `reads.json` |
+| `multi-unfinalized-beside-archive` | multi-pack | an unfinalized segment beside its archive, read in both orders; `reads.json` |
+| `tx-repeated-key` | multi-pack | a completed transaction, then an unanswered primary of the same key; `lookups.json` |
+| `tx-cross-pack` | multi-pack | replies in another segment of the primary's hour and in the next hour's scope; `lookups.json` |
+| `tx-refused-socket` | multi-pack | an outstanding primary on E1, a refused socket E2, then the E1 reply; `lookups.json` |
+| `tx-unavailable-fields` | multi-pack | a primary without System Bytes, and a reply-direction record whose System Bytes are unavailable in a window; `lookups.json` |
+| `tx-window-bounds` | multi-pack | windows bounded by a same-key primary, a socket-close, a clean `stop` of another epoch, and by no record read; `lookups.json` |
+| `tx-epoch-barrier` | multi-pack | a `stop-unclean` barrier beside a `stop` of another epoch, which bounds the window but keeps the barrier, and beside a socket-close of the primary's epoch, which lifts it; `lookups.json` |
+| `tx-closure-contradiction` | multi-pack | footer claims naming an annotation, the primary's seq, a `stop` of another epoch, a socket-close as a `stop`, and a seq below the primary: contradictions; `lookups.json` |
+| `tx-closure-conflict` | multi-pack | a `close_seq` naming a seq with two versions, one of them the socket-close: the conflict, no contradiction; `lookups.json` |
+| `tx-conflicted-scope` | multi-pack | two archives of equal rank in the primary's hour (no key) and in a later hour (a match beside it); `lookups.json` |
+| `tx-scope-breach` | multi-pack | a pack of hour H whose blocks lie in another hour, a same-hour clock step, and a breach that explains a missing primary; `lookups.json` |
+| `tx-candidate-selection` | multi-pack | a valid match, a wrong stream, an F0 abort, a wrong-stream F0, a control record that looks like F + 1, two valid matches, and a key naming a reply (`not-primary`); `lookups.json` |
+| `tx-possible-primary` | multi-pack | a possible same-key primary between two replies, and an unknown-direction record; `lookups.json` |
+| `tx-conflicts` | multi-pack | conflicts within a scope and across scopes, on the primary, a candidate and a record after the window, and a conflicting primary whose first version has no function; `lookups.json` |
+| `tx-index-mismatch` | multi-pack | a block whose records disagree with its F-2 entry beside a match; `lookups.json` |
+| `tx-clock-step` | multi-pack | versions of window seqs in the hour before the primary's, after a backward clock step: outside the comparison, and a seq gap; `lookups.json` |
+| `tx-coverage-barrier` | multi-pack | `coverage` entries meeting the window or the hours alone, and both; a barrier meeting only a conflicted hour; a barrier on both bases; `lookups.json` |
+| `tx-epoch-evidence` | multi-pack | an `ordering-uncertain` record below the primary, and a capture-boundary in an hour not read; `lookups.json` |
+| `tx-outcome-records` | multi-pack | a pack with `quality_evaluated` false, `Reject.req` records with SType unavailable and available, and a T3 `timer-expiry` without identifiers; `lookups.json` |
+| `tx-unindexed-source` | multi-pack | a source that is not complete, and a pack whose evidence alone counts, its scope not indexed; `lookups.json` |
 
 ## 10. Schema versions
 
 The `corpus` value names the schemas of §3 and §5 together.
-`tracepack-corpus/1` is a draft until tracepack v1.0.0: a change to a schema before then bumps the value, and the change is recorded in the spec changelog.
-Adding a vector, a query or a case keeps the value; changing what an existing file states, or a schema, takes a new one.
+It is a draft until tracepack v1.0.0: a change to a schema before then bumps the value, and the change is recorded in the spec changelog.
+Adding a vector, a query or a case keeps the value; changing what an existing file states, a schema, or the classes and files a schema allows takes a new one.
+- `tracepack-corpus/1` (spec v2.27): the classes `read`, `rejection`, `truncation` and `repair`, and the schemas of §5.1–§5.9.
+- `tracepack-corpus/2` (spec v2.30): adds the class `multi-pack` and its files (§2, §3), the pack numbers and hours of §4,
+  the schemas of `reads.json` (§5.10) and `lookups.json` (§5.11), and the source a lookup's `source` denotes (§8).
+  The files of the other classes keep their form; only the manifest's `corpus` and `spec_version` values differ from those of `/1`.

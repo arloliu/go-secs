@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-10-09) — phases 4, 5a, 5b, 5c1, 5c2, 5c3, 5d and 6a done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`, `SegmentWriter`, `NewDirSink`, `NewReaderSource`, `Retention`, `ExportJSONL`); phase 6 split into 6a, 6b and 6c (G5-166) and 6b into 6b1, 6b2 and 6b3 (G5-173), 6b1 (conformance corpus, part 1) done; phases 7 and 8 pending.
-Implements: tracepack v2.29 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
+Status: active (2026-10-10) — phases 4, 5a, 5b, 5c1, 5c2, 5c3, 5d and 6a done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`, `SegmentWriter`, `NewDirSink`, `NewReaderSource`, `Retention`, `ExportJSONL`); phase 6 split into 6a, 6b and 6c (G5-166) and 6b into 6b1, 6b2 and 6b3 (G5-173), 6b1 (conformance corpus, part 1) done, 6b2 (part 2) in progress; phases 7 and 8 pending.
+Implements: tracepack v2.30 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
 
@@ -75,7 +75,7 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 5d — segment writer, local source | done |
 | 6a — JSONL export | done |
 | 6b1 — conformance corpus, part 1 | done |
-| 6b2 — conformance corpus, part 2: reads over several packs, transaction lookups | pending |
+| 6b2 — conformance corpus, part 2: reads over several packs, transaction lookups | in-progress |
 | 6b3 — conformance corpus, part 3: store vectors | pending |
 | 6c — CLI | pending |
 | 7 — Extract and redaction | pending |
@@ -637,12 +637,31 @@ a failed block's envelope `record_count` counts toward the trailer comparison of
 the records of a log conversion without connect lines are in epoch 0 ([STO §7]);
 and a `build-rejected` record is an `unparsed-entry` annotation holding the entry's text, since [SEM §2] names no kind for it.
 
-#### 6b2 — conformance corpus, part 2
+#### 6b2 — conformance corpus, part 2 (in-progress)
 
-- The rest of [SEM §9]: reads over several packs and transaction lookups ([SEM §7.4], [SEM §7.2]), with canonical JSON result formats added to [CORPUS],
-  and the two [FMT §16] vectors moved here (G5-182): a payload-only identity conflict between two packs, and transaction candidate selection.
+From spec v2.30; the corpus is [CORPUS], schema `tracepack-corpus/2`.
+Plan: the phase 6b2 corpus plan, kept outside the repository (ready after plan reviews r1–r3); its rules await the owner's ratification.
+- The rest of [SEM §9]: reads over several packs ([SEM §7.4], `MergeIterate`) and transaction lookups ([SEM §7.2], `FindTransaction` over `NewReaderSource`),
+  in vectors of class `multi-pack` ([CORPUS §2]) whose results are `reads.json` and `lookups.json` ([CORPUS §5.10], [CORPUS §5.11]);
+  and the two [FMT §16] vectors moved here (G5-182): a payload-only identity conflict between two packs (`multi-payload-only-conflict`) and transaction candidate selection (`tx-candidate-selection`).
+- A lookup's source is a set of the vector's packs, given to `NewReaderSource` ([CORPUS §8]); store snapshots, catalogs and listings stay in 6b3.
+- Every pack is codec `none`.
+  A `multi-pack` vector has no export, for the corpus's size: the single-pack vectors cover the export, and each pack's `verify` report is a golden.
+- `internal/corpus`: multi-pack recipes and layout, a clock that can place a pack in any hour, and the read and lookup harness,
+  which compares every record a read or lookup returns with the stored record its pack and block name,
+  and turns `FindTransaction`'s gaps into the canonical facts of [CORPUS §5.11];
+  the size budget of each vector group and root file becomes a ceiling a test enforces.
+- Not visible in a result, so tests of `MergeIterate` rather than vectors ([CORPUS §9.2]):
+  a cluster excluded whole, not read and its conflict not listed (`TestRunCaptureExcluded`), and a walked block read once only (`TestMergeIterateReadCounts`).
+- The read of an extract beside its source moves to phase 7.
 
-Done when (provisional, set when 6b2 is planned): `MergeIterate` and `FindTransaction` match every golden, under the same regeneration and size rules as 6b1.
+Done when: `make lint-tracepack`, `make test-tracepack` and `make test-tracepack-386` pass and `go fix -diff ./...` is clean;
+`-update` produces no diff and the corpus regenerates byte-identically under the pinned `go.mod`, in one process and in two;
+every pack of every `multi-pack` vector matches its `.verify.json`; `MergeIterate` matches every read of `reads.json`, and every record it returns matches the stored record it names;
+`FindTransaction` over `NewReaderSource` matches every lookup of `lookups.json`, its gaps turned into facts, with the same record check;
+every [SEM §9] clause and the two [FMT §16] clauses of G5-182 map to a vector, a test of `MergeIterate` or phase 7, and every catalogued id is in the manifest and the reverse;
+the corpus is under 2,000,000 bytes and every group and root file within its enforced ceiling; the external post-implementation review is clean.
+No store, catalog, retention, redaction or zstd vector in 6b2.
 
 #### 6b3 — conformance corpus, part 3
 
@@ -675,7 +694,9 @@ Done when: `dump --jsonl` matches every JSONL golden of the corpus, rejects ever
 - `dump --sml` rendering of masked content.
 
 Tests: the redaction vectors of [FMT §16], generated with their goldens and expected reports by the phase-6 corpus generator extended here,
-with the bootstrap vector of a missing required nested tag, which only the `redaction_policy` and `redaction` registries have ([CORPUS §9]); a sweep over the corpus asserting, for every record, that each target byte is zero, each other byte equals the source,
+with the bootstrap vector of a missing required nested tag, which only the `redaction_policy` and `redaction` registries have ([CORPUS §9]),
+and the [SEM §9] read of an extract beside its source, each masked record a `conflict` (a `multi-pack` vector with `reads.json`, [CORPUS §9.2]);
+a sweep over the corpus asserting, for every record, that each target byte is zero, each other byte equals the source,
 the payload length and every record-header field except `quality.redacted` are unchanged, and `Verify` reports exactly the source's defects and no new one.
 
 Done when: every redaction vector reproduces its bytes, entries and digests exactly, and the sweep passes.
