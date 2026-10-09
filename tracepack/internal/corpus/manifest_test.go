@@ -29,7 +29,7 @@ func TestManifestMarshal(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, `{
   "corpus": "tracepack-corpus/1",
-  "spec_version": "2.28",
+  "spec_version": "2.29",
   "format_version": "1.0",
   "jsonl_schema": "tracepack-jsonl/1",
   "zstd_encoder": "github.com/klauspost/compress v1.20.1",

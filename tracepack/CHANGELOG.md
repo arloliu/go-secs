@@ -5,6 +5,11 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+### Changed
+
+- The conformance corpus manifest names spec v2.29, which states how a log of several tools converts into captures;
+  no golden changed.
+
 ## [0.2.0] - 2026-10-10
 
 This release follows the format revision of spec v2.13, which redefines format 1.0 in place, and its amendment in spec v2.17.
