@@ -991,17 +991,23 @@ func exportLines(export []byte) ([][]byte, error) {
 }
 
 // checkClassify checks that c is classify.json of the pack r reads:
-// the pack's single max_frame_len, and a frame per data or control record of the pack
-// that stores the frame's decode_status and trailing_bytes.
+// the pack's single max_frame_len, a frame per data or control record of the pack
+// that stores the frame's decode_status and trailing_bytes,
+// and every record storing a byte-predicate status listed (the tracepack corpus specification §5.9).
 func checkClassify(ctx context.Context, r *tracepack.Reader, c *Classify) error {
 	m := r.Header().Meta.MaxFrameLens
 	if len(m) != 1 || m[0] != uint64(c.MaxFrameLen) {
 		return fmt.Errorf("classify.json's max_frame_len %d is not the pack's single max_frame_len %v", c.MaxFrameLen, m)
 	}
 	stored := make(map[uint64]ClassifyFrame)
+	var classified []uint64
 	_, err := r.Iterate(ctx, tracepack.Query{}, func(it *tracepack.Item) error {
-		if rec := &it.Record; rec.Kind == tracepack.KindData || rec.Kind == tracepack.KindControl {
+		rec := &it.Record
+		if rec.Kind == tracepack.KindData || rec.Kind == tracepack.KindControl {
 			stored[rec.Seq] = ClassifyFrame{Seq: U64(rec.Seq), DecodeStatus: rec.DecodeStatus.String(), TrailingBytes: rec.TrailingBytes}
+		}
+		if slices.Contains(bytePredicateStatuses, rec.DecodeStatus) {
+			classified = append(classified, rec.Seq)
 		}
 
 		return nil
@@ -1017,6 +1023,11 @@ func checkClassify(ctx context.Context, r *tracepack.Reader, c *Classify) error 
 		case s.DecodeStatus != f.DecodeStatus || s.TrailingBytes != f.TrailingBytes:
 			return fmt.Errorf("classify.json lists seq %d as %s with %d trailing bytes, the record stores %s with %d",
 				f.Seq, f.DecodeStatus, f.TrailingBytes, s.DecodeStatus, s.TrailingBytes)
+		}
+	}
+	for _, seq := range classified {
+		if !slices.ContainsFunc(c.Frames, func(f ClassifyFrame) bool { return uint64(f.Seq) == seq }) {
+			return fmt.Errorf("the record of seq %d stores a byte-predicate status, which classify.json does not list", seq)
 		}
 	}
 

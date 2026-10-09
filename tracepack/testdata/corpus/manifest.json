@@ -2015,8 +2015,7 @@
           "id": "not-attempted",
           "seq": "0",
           "cites": [
-            "SEM §3",
-            "CORPUS §7"
+            "SEM §3"
           ]
         },
         {
@@ -2095,8 +2094,7 @@
           "id": "not-applicable",
           "seq": "10",
           "cites": [
-            "SEM §3",
-            "CORPUS §7"
+            "SEM §3"
           ]
         },
         {
@@ -2108,7 +2106,7 @@
           ]
         },
         {
-          "id": "length-mismatch-and-bad-stype",
+          "id": "length-mismatch-and-bad-ptype",
           "seq": "12",
           "cites": [
             "SEM §3",
@@ -2116,7 +2114,7 @@
           ]
         },
         {
-          "id": "control-with-body-and-oversized",
+          "id": "length-mismatch-and-bad-stype",
           "seq": "13",
           "cites": [
             "SEM §3",
@@ -2124,7 +2122,7 @@
           ]
         },
         {
-          "id": "max-frame-len-equal",
+          "id": "bad-stype-and-control-with-body",
           "seq": "14",
           "cites": [
             "SEM §3",
@@ -2132,8 +2130,40 @@
           ]
         },
         {
-          "id": "max-frame-len-exceeded",
+          "id": "control-with-body-and-oversized",
           "seq": "15",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "oversized-and-item-decode-error",
+          "seq": "16",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "control-ok",
+          "seq": "17",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "max-frame-len-equal",
+          "seq": "18",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "max-frame-len-exceeded",
+          "seq": "19",
           "cites": [
             "SEM §3",
             "CORPUS §7"

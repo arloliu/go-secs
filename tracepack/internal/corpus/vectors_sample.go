@@ -22,8 +22,9 @@ func sampleVectors() []Recipe {
 // whose 56-byte record headers are stored one after another, a layout the format before v2.13 defined
 // (the tracepack format specification §14).
 // It holds two zstd blocks, seqs 0 to 2 (S1F3 with W, SessionID 0x1234, System Bytes 1 to 3) then seq 3 (System Bytes 4),
-// each record at the hour plus seq seconds with mono_ns seq seconds, its 56-byte header
-// seq, ts_utc_ns, mono_ns, epoch, payload_len, trailing_bytes, then at byte 36 the System Bytes, the SessionID (little-endian), quality,
+// each record at the hour plus seq seconds with mono_ns seq seconds.
+// Each record's 56-byte header holds seq, ts_utc_ns, mono_ns, epoch, payload_len and trailing_bytes,
+// then at byte 36 the System Bytes, the SessionID (little-endian) and quality,
 // and at byte 44 stream, function, PType, SType, kind, dir, fidelity, decode_status, field_validity, record_flags and two reserved bytes.
 //
 // A reader of the current format reads the header section as columns of 44-byte headers:

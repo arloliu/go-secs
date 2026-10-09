@@ -1204,3 +1204,6 @@ Summary:
   the same sentence names the two stops already in force: too few bytes left before the end of the block region for an envelope, and an envelope whose body ends past that end.
 - [CORPUS §3]: `spec_version` 2.28, since the goldens follow this version.
 - [FMT §16]: the repair `seq_start` vectors' direction is stated as the record's seq above and below `seq_start` (editorial).
+- [CORPUS §7]: a well-formed control message (`control-ok`, the control `ok` of [SEM §3]) and three more pairs of the order of evaluation
+  (`length-mismatch-and-bad-ptype`, `bad-stype-and-control-with-body`, `oversized-and-item-decode-error`) join the cases;
+  the [CORPUS §9.4] row of `sem-decode-status-classified` names them (editorial: added coverage, schema `tracepack-corpus/1` unchanged).
