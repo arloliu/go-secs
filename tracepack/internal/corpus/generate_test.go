@@ -157,6 +157,17 @@ func TestGenerateFailsOnDisagreement(t *testing.T) {
 			e.Cuts[6].Repair = &RepairWant{Result: RepairPatched, Blocks: 2, Records: 4, Coverage: []CoverageWant{hourCoverage(4, nil)}}
 		}},
 		{"repair-truncation", "a row without its repair", func(e *Expectation) { e.Cuts[7].Repair = nil }},
+		{"hsms-short-captures", "fields.json missing", func(e *Expectation) { e.Fields = nil }},
+		{"basic-codec-none", "fields.json not read", func(e *Expectation) { e.Fields = []Fields{} }},
+		{"hsms-short-captures", "a field available", func(e *Expectation) { e.Fields[0] = headerFields(0, shortFrameValues, fieldSessionID) }},
+		{"hsms-short-captures", "a field unavailable", func(e *Expectation) {
+			e.Fields[9] = headerFields(9, shortFrameValues, fieldSessionID, fieldStreamAndW, fieldFunction, fieldPType, fieldSType)
+		}},
+		{"hsms-control-frames", "a field value", func(e *Expectation) { e.Fields[2].Stream = new(uint8(0x81)) }},
+		{"hsms-system-bytes-set-short", "no writer defect", func(e *Expectation) { e.WriterDefects = nil }},
+		{"hsms-predicates", "an unavailable field not satisfying", func(e *Expectation) {
+			e.Queries[3].Seqs = []uint64{0, 3, 5, 6, 7}
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.id+" "+tt.name, func(t *testing.T) {
@@ -168,6 +179,7 @@ func TestGenerateFailsOnDisagreement(t *testing.T) {
 			e.Failed = slices.Clone(e.Failed)
 			e.Queries = slices.Clone(e.Queries)
 			e.Cuts = slices.Clone(e.Cuts)
+			e.Fields = slices.Clone(e.Fields)
 			if e.Repair != nil {
 				e.Repair = new(*e.Repair)
 				e.Repair.Coverage = slices.Clone(e.Repair.Coverage)
@@ -186,7 +198,7 @@ func TestGenerateFailsOnDisagreement(t *testing.T) {
 }
 
 // TestGenerateChecksRecipeDeclarations checks that Generate refuses a recipe whose codec or encoder dependence is wrong,
-// and codec siblings that do not export identically.
+// a case naming a seq the pack does not export, and codec siblings that do not export identically.
 func TestGenerateChecksRecipeDeclarations(t *testing.T) {
 	t.Parallel()
 
@@ -199,6 +211,11 @@ func TestGenerateChecksRecipeDeclarations(t *testing.T) {
 	unknown.Codec = CodecNone
 	_, err = generateRecipes(t.Context(), []Recipe{unknown}, "test")
 	require.ErrorContains(t, err, "codec")
+
+	short := recipeByID(t, "hsms-short-captures")
+	short.Cases = append(slices.Clone(short.Cases), Case{ID: "no-such-record", Seq: 10, Cites: []string{"FMT §7.2"}})
+	_, err = generateRecipes(t.Context(), []Recipe{short}, "test")
+	require.ErrorContains(t, err, "case no-such-record")
 
 	none, mixed := recipeByID(t, "basic-codec-none"), recipeByID(t, "basic-codec-mixed")
 	mixed.IdentitySeed = "another"
@@ -644,7 +661,7 @@ func manifestEncoder(t *testing.T, files map[string][]byte, encoder string) func
 const specFile = "../../../docs/specs/tracepack/tracepack-corpus.md"
 
 // generatedGroups are the id prefixes of the groups the generator builds so far.
-var generatedGroups = []string{"basic-", "bootstrap-", "footer-", "framing-", "repair-", "validation-", "verify-"}
+var generatedGroups = []string{"basic-", "bootstrap-", "footer-", "framing-", "hsms-", "repair-", "validation-", "verify-"}
 
 // TestRecipeIDsAreCatalogued checks that every vector of a generated group that the catalogue of the tracepack corpus specification §9.4 lists has a recipe,
 // and that no recipe is missing from it.

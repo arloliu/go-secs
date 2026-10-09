@@ -1,0 +1,110 @@
+[
+  {
+    "id": "session-ids",
+    "cites": [
+      "FMT §7.2",
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {
+      "session_ids": [
+        65535
+      ]
+    },
+    "expect": {
+      "seqs": [
+        "0",
+        "3"
+      ],
+      "incomplete": []
+    }
+  },
+  {
+    "id": "sf-reject",
+    "cites": [
+      "FMT §7.2",
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {
+      "sf": [
+        {
+          "stream": 1,
+          "function": 2
+        }
+      ]
+    },
+    "expect": {
+      "seqs": [
+        "2"
+      ],
+      "incomplete": []
+    }
+  },
+  {
+    "id": "sf-statuses",
+    "cites": [
+      "FMT §7.2",
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {
+      "sf": [
+        {
+          "stream": 0,
+          "function": 1
+        },
+        {
+          "stream": 0,
+          "function": 2
+        }
+      ]
+    },
+    "expect": {
+      "seqs": [
+        "0",
+        "1"
+      ],
+      "incomplete": []
+    }
+  },
+  {
+    "id": "sf-zero",
+    "cites": [
+      "FMT §7.2",
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {
+      "sf": [
+        {
+          "stream": 0,
+          "function": 0
+        }
+      ]
+    },
+    "expect": {
+      "seqs": [
+        "3"
+      ],
+      "incomplete": []
+    }
+  },
+  {
+    "id": "system-bytes",
+    "cites": [
+      "FMT §7.2",
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {
+      "system_bytes": "AAAADA=="
+    },
+    "expect": {
+      "seqs": [
+        "2"
+      ],
+      "incomplete": []
+    }
+  }
+]

@@ -1,0 +1,36 @@
+[
+  {
+    "seq": "0",
+    "available": [
+      "session_id",
+      "stream_and_w",
+      "function",
+      "ptype",
+      "stype"
+    ],
+    "session_id": 1,
+    "stream": 1,
+    "w": true,
+    "function": 1,
+    "ptype": 0,
+    "stype": 0
+  },
+  {
+    "seq": "1",
+    "available": [
+      "session_id",
+      "stream_and_w",
+      "function",
+      "ptype",
+      "stype",
+      "system_bytes"
+    ],
+    "session_id": 1,
+    "stream": 1,
+    "w": false,
+    "function": 2,
+    "ptype": 0,
+    "stype": 0,
+    "system_bytes": "AAAAAA=="
+  }
+]

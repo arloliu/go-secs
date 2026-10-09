@@ -1,0 +1,110 @@
+[
+  {
+    "id": "include-unavailable",
+    "cites": [
+      "FMT §7.2",
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {
+      "sf": [
+        {
+          "stream": 1,
+          "function": 1
+        }
+      ],
+      "session_ids": [
+        1
+      ],
+      "system_bytes": "CgsMDQ==",
+      "include_unavailable": true
+    },
+    "expect": {
+      "seqs": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9"
+      ],
+      "incomplete": []
+    }
+  },
+  {
+    "id": "session-ids",
+    "cites": [
+      "FMT §7.2",
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {
+      "session_ids": [
+        1
+      ]
+    },
+    "expect": {
+      "seqs": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9"
+      ],
+      "incomplete": []
+    }
+  },
+  {
+    "id": "sf",
+    "cites": [
+      "FMT §7.2",
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {
+      "sf": [
+        {
+          "stream": 1,
+          "function": 1
+        }
+      ]
+    },
+    "expect": {
+      "seqs": [
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9"
+      ],
+      "incomplete": []
+    }
+  },
+  {
+    "id": "system-bytes",
+    "cites": [
+      "FMT §7.2",
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {
+      "system_bytes": "CgsMDQ=="
+    },
+    "expect": {
+      "seqs": [
+        "9"
+      ],
+      "incomplete": []
+    }
+  }
+]

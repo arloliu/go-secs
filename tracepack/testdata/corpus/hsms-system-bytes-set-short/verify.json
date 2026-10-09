@@ -1,0 +1,21 @@
+{
+  "outcome": "finalized-consistent",
+  "finalized": true,
+  "footer_valid": true,
+  "blocks_located": 1,
+  "blocks_validated": 1,
+  "records": "2",
+  "prefix_end": "459",
+  "failed_blocks": [],
+  "disagreeing_blocks": [],
+  "trailer_totals_disagree": false,
+  "writer_defects": [
+    {
+      "kind": "field-validity",
+      "block": 0,
+      "offset": "307",
+      "seq": "0"
+    }
+  ],
+  "lost": []
+}

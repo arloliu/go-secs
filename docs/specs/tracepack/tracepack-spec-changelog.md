@@ -1203,3 +1203,4 @@ Summary:
   so a CRC-valid envelope with an out-of-range field stops the walk too (G5-184);
   the same sentence names the two stops already in force: too few bytes left before the end of the block region for an envelope, and an envelope whose body ends past that end.
 - [CORPUS §3]: `spec_version` 2.28, since the goldens follow this version.
+- [FMT §16]: the repair `seq_start` vectors' direction is stated as the record's seq above and below `seq_start` (editorial).

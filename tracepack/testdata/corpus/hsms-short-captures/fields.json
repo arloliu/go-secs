@@ -1,0 +1,131 @@
+[
+  {
+    "seq": "0",
+    "available": []
+  },
+  {
+    "seq": "1",
+    "available": [
+      "session_id"
+    ],
+    "session_id": 1
+  },
+  {
+    "seq": "2",
+    "available": [
+      "session_id",
+      "stream_and_w"
+    ],
+    "session_id": 1,
+    "stream": 1,
+    "w": true
+  },
+  {
+    "seq": "3",
+    "available": [
+      "session_id",
+      "stream_and_w",
+      "function"
+    ],
+    "session_id": 1,
+    "stream": 1,
+    "w": true,
+    "function": 1
+  },
+  {
+    "seq": "4",
+    "available": [
+      "session_id",
+      "stream_and_w",
+      "function",
+      "ptype"
+    ],
+    "session_id": 1,
+    "stream": 1,
+    "w": true,
+    "function": 1,
+    "ptype": 0
+  },
+  {
+    "seq": "5",
+    "available": [
+      "session_id",
+      "stream_and_w",
+      "function",
+      "ptype",
+      "stype"
+    ],
+    "session_id": 1,
+    "stream": 1,
+    "w": true,
+    "function": 1,
+    "ptype": 0,
+    "stype": 0
+  },
+  {
+    "seq": "6",
+    "available": [
+      "session_id",
+      "stream_and_w",
+      "function",
+      "ptype",
+      "stype"
+    ],
+    "session_id": 1,
+    "stream": 1,
+    "w": true,
+    "function": 1,
+    "ptype": 0,
+    "stype": 0
+  },
+  {
+    "seq": "7",
+    "available": [
+      "session_id",
+      "stream_and_w",
+      "function",
+      "ptype",
+      "stype"
+    ],
+    "session_id": 1,
+    "stream": 1,
+    "w": true,
+    "function": 1,
+    "ptype": 0,
+    "stype": 0
+  },
+  {
+    "seq": "8",
+    "available": [
+      "session_id",
+      "stream_and_w",
+      "function",
+      "ptype",
+      "stype"
+    ],
+    "session_id": 1,
+    "stream": 1,
+    "w": true,
+    "function": 1,
+    "ptype": 0,
+    "stype": 0
+  },
+  {
+    "seq": "9",
+    "available": [
+      "session_id",
+      "stream_and_w",
+      "function",
+      "ptype",
+      "stype",
+      "system_bytes"
+    ],
+    "session_id": 1,
+    "stream": 1,
+    "w": true,
+    "function": 1,
+    "ptype": 0,
+    "stype": 0,
+    "system_bytes": "CgsMDQ=="
+  }
+]

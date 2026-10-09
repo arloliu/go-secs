@@ -100,6 +100,7 @@ func (e *Expectation) check(out *readOutputs, pack []byte) error {
 	if want := normalFooter(e.Footer); !reflect.DeepEqual(want, out.footer) {
 		errs = append(errs, fmt.Errorf("footer.json: expected %s, read %s", describe(want), describe(out.footer)))
 	}
+	errs = append(errs, e.checkFields(out.fields)...)
 	errs = append(errs, e.checkQueries(out, pos)...)
 	errs = append(errs, e.checkRepair(out, captureID)...)
 	errs = append(errs, e.checkCuts(out.truncation, &l, captureID)...)
@@ -125,6 +126,36 @@ func (e *Expectation) checkStats(out *readOutputs) []error {
 	}
 
 	return nil
+}
+
+// checkFields compares e.Fields with got, the rows of fields.json, nil when the vector has none.
+func (e *Expectation) checkFields(got FieldRows) []error {
+	switch {
+	case e.Fields == nil && got != nil:
+		return []error{fmt.Errorf("fields.json: none expected, %d rows read", len(got))}
+	case e.Fields != nil && got == nil:
+		return []error{fmt.Errorf("fields.json: %d rows expected, none read", len(e.Fields))}
+	}
+	exp := FieldRows{}
+	for _, f := range e.Fields {
+		f.Available = nonNil(f.Available)
+		exp = append(exp, f)
+	}
+	if got != nil && !reflect.DeepEqual(exp, got) {
+		return []error{fmt.Errorf("fields.json: expected %s, read %s", describeJSON(exp), describeJSON(got))}
+	}
+
+	return nil
+}
+
+// describeJSON returns the JSON of v, or its Go form.
+func describeJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("%+v", v)
+	}
+
+	return string(b)
 }
 
 // checkQueries compares e.Queries with the queries of out, one by one and by id.
