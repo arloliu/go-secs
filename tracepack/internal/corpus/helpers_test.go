@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/arloliu/go-secs/tracepack"
-	"github.com/arloliu/go-secs/tracepack/internal/format"
 )
 
 // testHour is an hour-aligned time base, in nanoseconds since the Unix epoch.
@@ -21,6 +20,8 @@ const (
 	testEnvelopeLen     = 40
 	testRecordHeaderLen = 44
 	testTrailerLen      = 64
+
+	trailerRecordCountOff = 32
 )
 
 var (
@@ -52,9 +53,16 @@ func testMeta() *tracepack.PackMeta {
 func writePack(t *testing.T, meta *tracepack.PackMeta, blocks [][]tracepack.Record, finalize bool) []byte {
 	t.Helper()
 
+	return writePackCodec(t, meta, blocks, finalize, tracepack.CodecNone)
+}
+
+// writePackCodec writes the pack writePack writes, its blocks and footer of codec c.
+func writePackCodec(t *testing.T, meta *tracepack.PackMeta, blocks [][]tracepack.Record, finalize bool, c tracepack.Codec) []byte {
+	t.Helper()
+
 	var buf bytes.Buffer
 	w, err := tracepack.NewWriter(&buf, tracepack.WriterOptions{
-		Meta: meta, PackID: testPackID, CaptureID: testCaptureID,
+		Meta: meta, PackID: testPackID, CaptureID: testCaptureID, Codec: c,
 		Now: func() time.Time { return time.Unix(0, testHour).UTC() },
 	})
 	require.NoError(t, err)
@@ -148,41 +156,7 @@ func marshalJSON(t *testing.T, v any) string {
 	return string(b)
 }
 
-// patchTrailer rewrites pack's trailer through edit and recomputes its trailer_crc.
-func patchTrailer(t *testing.T, pack []byte, edit func(*format.Trailer)) []byte {
-	t.Helper()
-
-	at := len(pack) - testTrailerLen
-	tr, err := format.UnmarshalTrailer(pack[at:])
-	require.NoError(t, err)
-	edit(&tr)
-
-	return format.AppendTrailer(bytes.Clone(pack[:at]), &tr)
-}
-
-// replaceFooter returns pack with its codec none footer replaced by footer:
-// the trailer's footer_len, footer_uncompressed_len and footer_crc recomputed, every other byte kept.
-func replaceFooter(t *testing.T, pack []byte, footer []byte) []byte {
-	t.Helper()
-
-	at := len(pack) - testTrailerLen
-	tr, err := format.UnmarshalTrailer(pack[at:])
-	require.NoError(t, err)
-	tr.FooterLen, tr.FooterUncompressedLen, tr.FooterCRC = uint64(len(footer)), uint64(len(footer)), format.CRC(footer)
-
-	out := append(bytes.Clone(pack[:tr.FooterOffset]), footer...)
-
-	return format.AppendTrailer(out, &tr)
-}
-
-// storedFooter returns the decoded bytes of pack's codec none footer.
-func storedFooter(t *testing.T, pack []byte) []byte {
-	t.Helper()
-
-	at := len(pack) - testTrailerLen
-	tr, err := format.UnmarshalTrailer(pack[at:])
-	require.NoError(t, err)
-	require.Equal(t, uint8(0), tr.FooterCodec)
-
-	return bytes.Clone(pack[tr.FooterOffset:at])
+// addU64 adds d, modulo 2^64, to the little-endian u64 at off in b.
+func addU64(b []byte, off int, d uint64) {
+	binary.LittleEndian.PutUint64(b[off:], binary.LittleEndian.Uint64(b[off:])+d)
 }

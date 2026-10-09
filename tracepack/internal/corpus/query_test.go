@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/arloliu/go-secs/tracepack"
-	"github.com/arloliu/go-secs/tracepack/internal/format"
 )
 
 // fullFilterJSON is a filter that sets every key, in canonical form.
@@ -330,7 +329,7 @@ func TestRunQueryTrailerTotals(t *testing.T) {
 	t.Parallel()
 
 	pack := writePack(t, testMeta(), [][]tracepack.Record{{dataRecord(0, 1, nil)}, {dataRecord(1, 1, nil)}}, true)
-	pack = patchTrailer(t, pack, func(tr *format.Trailer) { tr.RecordCount++ })
+	pack = must(PatchTrailer(pack, func(tr []byte) { addU64(tr, trailerRecordCountOff, 1) }))(t)
 	got, err := RunQuery(t.Context(), openPack(t, pack), &Filter{})
 	require.NoError(t, err)
 	require.Equal(t, `{
@@ -352,7 +351,7 @@ func TestRunQueryFailedBlock(t *testing.T) {
 
 	pack, blocks := gappedPack(t)
 	off1 := metaEnd(pack) + blockLen(blocks[0])
-	pack = flipByte(pack, int(off1+blockLen(blocks[1])-1))
+	pack = must(FlipByte(pack, int(off1+blockLen(blocks[1])-1)))(t)
 	got, err := RunQuery(t.Context(), openPack(t, pack), &Filter{})
 	require.NoError(t, err)
 	require.Equal(t, `{

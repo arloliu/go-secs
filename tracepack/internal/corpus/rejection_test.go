@@ -1,9 +1,7 @@
 package corpus
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -79,7 +77,16 @@ func TestRejectionOf(t *testing.T) {
 
 	meta, err := testMeta().MarshalBinary()
 	require.NoError(t, err)
-	base := packWithMeta(meta, nil)
+	header := format.FileHeader{
+		FormatMajor: format.FormatMajor, WriterStartUTCNs: testHour, PackID: format.UUID(testPackID), CaptureID: format.UUID(testCaptureID),
+	}
+	withMeta := func(m []byte) []byte { return must(PackWithMeta(header, m))(t) }
+	withU64 := func(m []byte, tag uint16, v uint64) []byte {
+		out := slices.Clone(m)
+		require.NoError(t, SetU64(out, Section{Len: len(out)}, tag, v))
+		return out
+	}
+	base := withMeta(meta)
 	_, err = RejectionOf(t.Context(), base)
 	require.ErrorIs(t, err, ErrNotRejection, "the base pack opens")
 
@@ -100,22 +107,22 @@ func TestRejectionOf(t *testing.T) {
 		want string
 	}{
 		{"short object", base[:testFileHeaderLen-1], RejectShortObject},
-		{"bad magic", flipByte(base, 0), RejectBadMagic},
-		{"header CRC", flipByte(base, 76), RejectHeaderCRC},
-		{"unsupported version", packWithMeta(meta, func(h *format.FileHeader) { h.FormatMajor = 2 }), RejectUnsupportedVersion},
-		{"metadata past object", packWithMeta(meta, func(h *format.FileHeader) { h.PackMetadataLen++ }), RejectMetadataPastObject},
-		{"metadata CRC", flipByte(base, testFileHeaderLen+8), RejectMetadataCRC},
-		{"entry framing", packWithMeta(append(slices.Clone(meta), 0x02, 0x00, 0x06), nil), RejectMetadataEntryList},
-		{"entry type", packWithMeta(tlv.AppendEntry(slices.Clone(meta), tlv.Entry{Tag: tagTransport, Type: tlv.TypeUTF8, Value: []byte("x")}), nil), RejectMetadataEntryList},
-		{"entry value", packWithMeta(tlv.AppendEntry(slices.Clone(meta), tlv.U64Entry(tagDeviceID, 1<<63)), nil), RejectMetadataEntryList},
-		{"entry repetition", packWithMeta(tlv.AppendEntry(slices.Clone(meta), tlv.UTF8Entry(tagToolID, "again")), nil), RejectMetadataEntryList},
-		{"entry nested", packWithMeta(tlv.AppendEntry(slices.Clone(meta), tlv.Entry{Tag: tagCoverage, Type: tlv.TypeTLV, Value: []byte{0x02, 0x00, 0x04}}), nil), RejectMetadataEntryList},
-		{"nested required tag", packWithMeta(tlv.AppendEntry(slices.Clone(meta), tlv.NestedEntry(tagRedactionPolicy, []tlv.Entry{
+		{"bad magic", must(FlipByte(base, 0))(t), RejectBadMagic},
+		{"header CRC", must(FlipByte(base, 76))(t), RejectHeaderCRC},
+		{"unsupported version", must(PatchHeader(base, func(h []byte) { h[8] = 2 }))(t), RejectUnsupportedVersion},
+		{"metadata past object", must(PatchHeader(base, func(h []byte) { h[headerPackMetadataLenOff]++ }))(t), RejectMetadataPastObject},
+		{"metadata CRC", must(FlipByte(base, testFileHeaderLen+8))(t), RejectMetadataCRC},
+		{"entry framing", withMeta(append(slices.Clone(meta), 0x02, 0x00, 0x06)), RejectMetadataEntryList},
+		{"entry type", withMeta(tlv.AppendEntry(slices.Clone(meta), tlv.Entry{Tag: tagTransport, Type: tlv.TypeUTF8, Value: []byte("x")})), RejectMetadataEntryList},
+		{"entry value", withMeta(tlv.AppendEntry(slices.Clone(meta), tlv.U64Entry(tagDeviceID, 1<<63))), RejectMetadataEntryList},
+		{"entry repetition", withMeta(tlv.AppendEntry(slices.Clone(meta), tlv.UTF8Entry(tagToolID, "again"))), RejectMetadataEntryList},
+		{"entry nested", withMeta(tlv.AppendEntry(slices.Clone(meta), tlv.Entry{Tag: tagCoverage, Type: tlv.TypeTLV, Value: []byte{0x02, 0x00, 0x04}})), RejectMetadataEntryList},
+		{"nested required tag", withMeta(tlv.AppendEntry(slices.Clone(meta), tlv.NestedEntry(tagRedactionPolicy, []tlv.Entry{
 			tlv.U64Entry(tagPolicyVersionNested, 1), tlv.UTF8Entry(0x0003, "k"), tlv.U8Entry(0x0004, 1),
-		})), nil), RejectMetadataEntryList},
-		{"required tag", packWithMeta(dropTag(t, meta, tagToolID), nil), RejectMetadataRequired},
-		{"conditional tag", packWithMeta(dropTag(t, clockRaw, tagCaptureOriginUTCNs), nil), RejectMetadataRequired},
-		{"replacement set", packWithMeta(setU64(t, setRaw, tagReplacementSetSize, 2), nil), RejectReplacementSet},
+		}))), RejectMetadataEntryList},
+		{"required tag", withMeta(must(DropEntries(meta, tagToolID))(t)), RejectMetadataRequired},
+		{"conditional tag", withMeta(must(DropEntries(clockRaw, tagCaptureOriginUTCNs))(t)), RejectMetadataRequired},
+		{"replacement set", withMeta(withU64(setRaw, tagReplacementSetSize, 2)), RejectReplacementSet},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -139,61 +146,4 @@ func TestRejectionMarshalRefusesUnknownCode(t *testing.T) {
 	r := Rejection{Rejection: "metadata"}
 	_, err := r.Marshal()
 	require.Error(t, err)
-}
-
-// packWithMeta returns an unfinalized pack without blocks: a file header, edited by edit when it is not nil, and meta.
-func packWithMeta(meta []byte, edit func(*format.FileHeader)) []byte {
-	h := format.FileHeader{
-		FormatMajor: format.FormatMajor, PackMetadataLen: uint32(len(meta)), PackMetadataCRC: format.CRC(meta),
-		WriterStartUTCNs: testHour, PackID: format.UUID(testPackID), CaptureID: format.UUID(testCaptureID),
-	}
-	if edit != nil {
-		edit(&h)
-	}
-
-	return append(format.AppendFileHeader(nil, &h), meta...)
-}
-
-// flipByte returns a copy of b with the byte at off inverted.
-func flipByte(b []byte, off int) []byte {
-	out := bytes.Clone(b)
-	out[off] ^= 0xFF
-
-	return out
-}
-
-// dropTag returns the entry list meta without its entries of tag.
-func dropTag(t *testing.T, meta []byte, tag uint16) []byte {
-	t.Helper()
-
-	entries, err := tlv.Decode(meta)
-	require.NoError(t, err)
-	var out []byte
-	for _, e := range entries {
-		if e.Tag != tag {
-			out = tlv.AppendEntry(out, e)
-		}
-	}
-	require.Less(t, len(out), len(meta), "tag 0x%04X is present", tag)
-
-	return out
-}
-
-// setU64 returns the entry list meta with the u64 value of its entry of tag set to v, in place.
-func setU64(t *testing.T, meta []byte, tag uint16, v uint64) []byte {
-	t.Helper()
-
-	entries, err := tlv.Decode(meta)
-	require.NoError(t, err)
-	out := bytes.Clone(meta)
-	for _, e := range entries {
-		if e.Tag == tag {
-			binary.LittleEndian.PutUint64(out[e.Offset+tlv.HeaderLen:], v)
-
-			return out
-		}
-	}
-	require.Failf(t, "tag missing", "tag 0x%04X", tag)
-
-	return nil
 }

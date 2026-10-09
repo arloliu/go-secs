@@ -11,4 +11,13 @@
 // The package reads packs only through the public tracepack API,
 // except the structural footer reader, which reads the stored footer bytes directly
 // so that a footer's stated values can be shown apart from the package's footer validation.
+//
+// It also edits pack bytes, to derive the packs a Writer cannot produce from packs a Writer wrote.
+// Its edits come in two kinds, named apart.
+// Raw surgery (Patch*, DamageZstd, FlipByte, FooterParts) edits stored bytes in place
+// and recomputes only the CRCs, lengths and offsets each operation names,
+// so reserved bits, retired bits, extension areas and reserved TLV bytes survive any number of edits.
+// Re-encoding (ReencodeBlocks) decodes blocks into typed structures and encodes them again,
+// which writes reserved bits and bytes as zero.
+// Every edit takes a pack's bytes and returns new bytes or an error; none panics on short or malformed input.
 package corpus

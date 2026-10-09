@@ -1,6 +1,8 @@
 package corpus
 
 import (
+	"bytes"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -147,4 +149,46 @@ func TestCoverageFrom(t *testing.T) {
 // Marshal returns d in the canonical form.
 func (d *canonDoc) Marshal() ([]byte, error) {
 	return Marshal(d)
+}
+
+// TestCoverageMatchesJSONLHeader checks that CoverageFrom renders each coverage entry as the export's header line does
+// (the tracepack JSONL specification §4), unknown nested entries included.
+func TestCoverageMatchesJSONLHeader(t *testing.T) {
+	t.Parallel()
+
+	other := tracepack.UUID{0x01, 0x9a, 0x2b, 0x3c, 0x4d, 0x5e, 0x70, 0x09, 0x80, 0, 0, 0, 0, 0, 0, 0x09}
+	meta := testMeta()
+	meta.Coverage = []tracepack.Coverage{
+		{
+			CaptureID: &other, SeqFirst: new(uint64(1)), SeqLast: new(uint64(9223372036854775807)),
+			TimeStart: new(int64(-9223372036854775808)), TimeEnd: new(int64(0)),
+			Unknown: []tracepack.RawEntry{
+				{Tag: 0x8001, Type: 6, Value: []byte("h\"i<>&\u2028")},
+				{Tag: 0x0040, Type: 9, Value: []byte{}},
+				{Tag: 0x0006, Type: 8, Value: []byte{1, 2, 3}},
+			},
+		},
+		{SeqFirst: new(uint64(2))},
+		{Unknown: []tracepack.RawEntry{{Tag: 0x7FFF, Type: 4, Value: bytes.Repeat([]byte{0xff}, 8)}}},
+		{},
+	}
+	r := openPack(t, writePack(t, meta, [][]tracepack.Record{{dataRecord(0, 1, nil)}}, true))
+	var out bytes.Buffer
+	_, err := tracepack.ExportJSONL(t.Context(), r, &out)
+	require.NoError(t, err)
+
+	line, _, _ := bytes.Cut(out.Bytes(), []byte("\n"))
+	var hdr, metadata map[string]json.RawMessage
+	var coverage []json.RawMessage
+	require.NoError(t, json.Unmarshal(line, &hdr))
+	require.NoError(t, json.Unmarshal(hdr["metadata"], &metadata))
+	require.NoError(t, json.Unmarshal(metadata["coverage"], &coverage))
+	got := r.Header().Meta.Coverage
+	require.Len(t, coverage, len(meta.Coverage))
+	require.Len(t, got, len(meta.Coverage))
+	for i := range got {
+		want, err := Canonical(coverage[i])
+		require.NoError(t, err)
+		require.Equal(t, string(want), marshalJSON(t, CoverageFrom(&got[i])), "entry %d", i)
+	}
 }
