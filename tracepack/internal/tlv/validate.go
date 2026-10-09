@@ -44,7 +44,7 @@ func validateAt(entries []Entry, reg Registry, depth int) error {
 		if !known {
 			continue
 		}
-		if err := e.checkValue(f.Type); err != nil {
+		if err := e.CheckValue(f.Type); err != nil {
 			return err
 		}
 		if f.Type == TypeTLV && f.Nested != nil {
