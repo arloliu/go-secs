@@ -1,0 +1,9 @@
+{
+  "options": {
+    "writer": "tracepack-corpus",
+    "pack_id": "01a0ffeb-3600-7397-8294-9105ced84f11",
+    "codec": "none",
+    "writer_start_utc_ns": "1791000000000000000"
+  },
+  "result": "not-repairable"
+}

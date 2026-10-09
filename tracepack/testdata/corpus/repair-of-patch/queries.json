@@ -1,0 +1,32 @@
+[
+  {
+    "id": "all",
+    "cites": [
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {},
+    "expect": {
+      "seqs": [
+        "0"
+      ],
+      "incomplete": [
+        {
+          "reason": "coverage",
+          "coverage": {
+            "capture_id": "01a0ffeb-3600-7e89-b931-c95a57b4d0bf",
+            "seq_first": "2",
+            "seq_last": "3",
+            "time_start": "1791000000002000000",
+            "time_end": "1791000000003000000"
+          }
+        },
+        {
+          "reason": "corrupt-block",
+          "block": 1,
+          "offset": "525"
+        }
+      ]
+    }
+  }
+]

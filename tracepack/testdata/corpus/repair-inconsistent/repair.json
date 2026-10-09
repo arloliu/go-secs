@@ -1,0 +1,13 @@
+{
+  "options": {
+    "writer": "tracepack-corpus",
+    "pack_id": "01a0ffeb-3600-729c-a0d3-9653fcdc03b6",
+    "patch_base": "01a0ffeb-3600-7ac3-abe2-a795bcfd20c7",
+    "codec": "none",
+    "writer_start_utc_ns": "1791000000000000000"
+  },
+  "result": "patched",
+  "blocks": 3,
+  "records": "4",
+  "coverage_added": []
+}

@@ -37,7 +37,7 @@ func verifyVectors() []Recipe {
 		},
 		{
 			ID: "verify-corrupt-middle-walked", Title: "a middle block failing its body CRC, its envelope intact, the footer rejected",
-			Cites: []string{"FMT §13", "FMT I-1", "FMT §16"}, Class: ClassRead, Labels: []string{LabelDamaged},
+			Cites: []string{"FMT §13", "FMT I-1", "FMT §16"}, Class: ClassRead, Labels: []string{LabelDamaged, LabelNonconformingWriter},
 			Build: func(seed string) (*Built, error) {
 				return editedCodecPack(seed, func(pack []byte) ([]byte, error) {
 					// F-5's record_count one above the records: a footer that passes its CRC and fails validation.

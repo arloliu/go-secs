@@ -139,7 +139,7 @@ func basicVectors() []Recipe {
 		},
 		{
 			ID: "basic-bad-envelope-crc-walked", Title: "a middle block failing its envelope CRC in a finalized pack whose footer is rejected",
-			Cites: []string{"FMT §13", "FMT §6", "CORPUS §5.4"}, Class: ClassRead, Labels: []string{LabelDamaged},
+			Cites: []string{"FMT §13", "FMT §6", "CORPUS §5.4"}, Class: ClassRead, Labels: []string{LabelDamaged, LabelNonconformingWriter},
 			Build: func(seed string) (*Built, error) {
 				b, err := editedCodecPack(seed, func(pack []byte) ([]byte, error) {
 					// F-5's record_count one above the records: a footer that passes its CRC and fails validation.

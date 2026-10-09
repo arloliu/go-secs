@@ -42,6 +42,7 @@ var groups = []func() []Recipe{
 	bootstrapVectors,
 	footerVectors,
 	framingVectors,
+	repairVectors,
 	validationVectors,
 	verifyVectors,
 }
@@ -106,6 +107,12 @@ type QuerySpec struct {
 type RepairInput struct {
 	// PatchBase is the patch_base of a scope that has a generation; nil otherwise.
 	PatchBase *tracepack.UUID
+	// Intact is the pack before its damage, whose every record the patch must hold or cover by a coverage entry
+	// (the tracepack format specification §16);
+	// it is required of a repair vector whose pack lost records, and optional otherwise,
+	// when the pack's own records serve.
+	// The generator checks the patch against it and never writes it.
+	Intact []byte
 }
 
 // Pos is a file offset a recipe names by the pack's layout, as Locate finds it, or by its value,
@@ -176,7 +183,8 @@ type Expectation struct {
 }
 
 // CutWant is a row of truncation.json: the first cut length it covers and the expectation of its cuts,
-// a rejection code or the outcome, the records exported and validated and where the validated prefix and the walk end.
+// a rejection code or the outcome, the records exported and validated and where the validated prefix and the walk end,
+// and in a table with repair options the cut's repair.
 // Positions are those of the base pack, which every cut shares up to its length.
 type CutWant struct {
 	From      Pos
@@ -186,6 +194,9 @@ type CutWant struct {
 	Records   uint64
 	PrefixEnd Pos
 	WalkStop  Pos
+	// Repair is the repair of every cut of the row, in a table with repair options; nil otherwise.
+	// A row states no records copied, so its Records is 0.
+	Repair *RepairWant
 }
 
 // FailedWant is a failed block and its cause, ReasonCorruptBlock or ReasonUnknownCodec.
@@ -248,10 +259,12 @@ type RepairWant struct {
 	Coverage []CoverageWant
 }
 
-// CoverageWant is a new coverage entry of a patch: its seq_first and its seq_last, nil when absent.
+// CoverageWant is a new coverage entry of a patch: its seq_first, its seq_last (nil when absent) and its time interval.
+// The generator also checks that it names the pack's capture.
 type CoverageWant struct {
-	First uint64
-	Last  *uint64
+	First              uint64
+	Last               *uint64
+	TimeStart, TimeEnd int64
 }
 
 // file is one file of a vector.
@@ -268,6 +281,8 @@ type readInputs struct {
 	footer   bool
 	classify *Classify
 	repair   *RepairOptions
+	// intact is RepairInput.Intact; nil when the pack's own records are those the patch must hold or cover.
+	intact []byte
 }
 
 // readOutputs is the reads of a vector: its files, in the order of the tracepack corpus specification §2,
@@ -517,6 +532,8 @@ func (rec *Recipe) check() error {
 		return errors.New("an unfinalized outcome of a pack expected finalized")
 	case (rec.Class == ClassTruncation) != (len(e.Cuts) > 0):
 		return errors.New("a truncation vector, and only one, expects the rows of its table")
+	case rec.Class == ClassRepair && e.Repair == nil:
+		return errors.New("a repair vector expects its repair")
 	}
 
 	return nil
@@ -542,13 +559,17 @@ func generateVector(ctx context.Context, rec *Recipe) (Vector, *readOutputs, err
 	case built.Repair != nil && rec.Class != ClassRepair && rec.Class != ClassTruncation:
 		return Vector{}, nil, errors.New("only a repair or truncation vector is repaired")
 	case built.Repair != nil:
-		in.repair = new(RepairOptionsFor(seed, built.Repair))
+		in.repair, in.intact = new(RepairOptionsFor(seed, built.Repair)), built.Repair.Intact
 	default:
 		// Neither repaired nor refused.
 	}
 	out, err := readVector(ctx, built.Pack, in)
 	if err != nil {
 		return Vector{}, nil, err
+	}
+	v := &out.verify
+	if lost := len(v.FailedBlocks) > 0 || v.WalkStop != nil || !v.Finalized; rec.Class == ClassRepair && lost && in.intact == nil {
+		return Vector{}, nil, errors.New("a repair vector whose pack lost records needs its intact pack")
 	}
 	if err := rec.Expect.check(out, built.Pack); err != nil {
 		return Vector{}, nil, fmt.Errorf("disagrees with its Expect: %w", err)
@@ -557,15 +578,15 @@ func generateVector(ctx context.Context, rec *Recipe) (Vector, *readOutputs, err
 		return Vector{}, nil, err
 	}
 
-	v := Vector{
+	vec := Vector{
 		ID: rec.ID, Title: rec.Title, Cites: rec.Cites, Class: rec.Class, Labels: nonNil(rec.Labels),
 		Codec: cmp.Or(rec.Codec, CodecNone), Source: cmp.Or(rec.Source, SourceGenerated), Cases: rec.Cases,
 	}
 	for _, f := range out.files {
-		v.Files = append(v.Files, f.name)
+		vec.Files = append(vec.Files, f.name)
 	}
 
-	return v, out, nil
+	return vec, out, nil
 }
 
 // checkCodec checks rec's Codec and EncoderMade against the packs of out, when Locate reads them.
@@ -669,7 +690,7 @@ func readVector(ctx context.Context, pack []byte, in *readInputs) (*readOutputs,
 		if in.repair == nil {
 			return nil, errors.New("a repair vector without its repair options")
 		}
-		if err := out.readRepair(ctx, pack, in.repair); err != nil {
+		if err := out.readRepair(ctx, pack, in.repair, in.intact); err != nil {
 			return nil, err
 		}
 	case ClassTruncation:
@@ -773,9 +794,9 @@ func (out *readOutputs) checkFooter(f *Footer) error {
 }
 
 // readRepair repairs pack under opts and adds repair.json and, when patched,
-// the patch, its export and its verification report,
-// after checking that the patch verifies finalized-consistent and holds only blocks of pack, byte for byte.
-func (out *readOutputs) readRepair(ctx context.Context, pack []byte, opts *RepairOptions) error {
+// the patch, its export and its verification report, after checkPatch accepts the patch.
+// The records the patch must hold or cover are those of intact, or of pack when intact is nil.
+func (out *readOutputs) readRepair(ctx context.Context, pack []byte, opts *RepairOptions, intact []byte) error {
 	rep, patch, err := RunRepair(ctx, pack, *opts)
 	if err != nil {
 		return err
@@ -788,27 +809,96 @@ func (out *readOutputs) readRepair(ctx context.Context, pack []byte, opts *Repai
 		return nil
 	}
 
-	pr, err := openBytes(ctx, patch)
+	source := out.export
+	if intact != nil {
+		r, err := openBytes(ctx, intact)
+		if err != nil {
+			return fmt.Errorf("intact pack: %w", err)
+		}
+		if source, _, err = exportPack(ctx, r); err != nil {
+			return fmt.Errorf("intact pack: %w", err)
+		}
+	}
+	records, err := exportRecords(source)
 	if err != nil {
-		return fmt.Errorf("patch: %w", err)
+		return err
 	}
-	export, _, err := exportPack(ctx, pr)
+	export, v, err := checkPatch(ctx, pack, patch, records)
 	if err != nil {
-		return fmt.Errorf("patch: %w", err)
-	}
-	v, err := verifyBytes(ctx, patch)
-	if err != nil {
-		return fmt.Errorf("patch: %w", err)
-	}
-	if v.Outcome != tracepack.OutcomeFinalizedConsistent.String() {
-		return fmt.Errorf("the patch verifies %s", v.Outcome)
-	}
-	if err := patchBlocksCopied(pack, patch); err != nil {
 		return err
 	}
 	out.files = append(out.files, file{FilePatch, patch}, file{FilePatchExport, export})
 
 	return out.add(FilePatchVerify, &v)
+}
+
+// exportedRecord is the seq and ts_utc_ns of a record line of an export.
+type exportedRecord struct {
+	Seq U64 `json:"seq"`
+	TS  I64 `json:"ts_utc_ns"`
+}
+
+// checkPatch checks patch, a repair of pack, against the tracepack format specification §13 and §16,
+// and returns its export and its verify.json:
+// the patch verifies finalized-consistent; each of its blocks is a block of pack, byte for byte;
+// its seq_start is its first record's seq, or pack's seq_start when it holds no record;
+// and every record of source it does not hold lies in one of its coverage entries, its own or those it inherits.
+// An entry holds a record of the patch's capture whose seq and ts_utc_ns lie within its bounds,
+// an absent bound being unbounded.
+func checkPatch(ctx context.Context, pack, patch []byte, source []exportedRecord) ([]byte, Verify, error) {
+	pr, err := openBytes(ctx, patch)
+	if err != nil {
+		return nil, Verify{}, fmt.Errorf("patch: %w", err)
+	}
+	export, seqs, err := exportPack(ctx, pr)
+	if err != nil {
+		return nil, Verify{}, fmt.Errorf("patch: %w", err)
+	}
+	v, err := verifyBytes(ctx, patch)
+	if err != nil {
+		return nil, Verify{}, fmt.Errorf("patch: %w", err)
+	}
+	if v.Outcome != tracepack.OutcomeFinalizedConsistent.String() {
+		return nil, Verify{}, fmt.Errorf("the patch verifies %s", v.Outcome)
+	}
+	if err := patchBlocksCopied(pack, patch); err != nil {
+		return nil, Verify{}, err
+	}
+
+	h := pr.Header()
+	var want uint64
+	if len(seqs) > 0 {
+		want = seqs[0]
+	} else {
+		r, err := openBytes(ctx, pack)
+		if err != nil {
+			return nil, Verify{}, err
+		}
+		want = r.Header().Meta.SeqStart
+	}
+	if h.Meta.SeqStart != want {
+		return nil, Verify{}, fmt.Errorf("the patch's seq_start is %d, not %d", h.Meta.SeqStart, want)
+	}
+	for _, rec := range source {
+		if slices.Contains(seqs, uint64(rec.Seq)) {
+			continue
+		}
+		if !slices.ContainsFunc(h.Meta.Coverage, func(c tracepack.Coverage) bool { return covers(&c, h.CaptureID, rec) }) {
+			return nil, Verify{}, fmt.Errorf("record %d at %d is neither copied nor covered by the patch", rec.Seq, rec.TS)
+		}
+	}
+
+	return export, v, nil
+}
+
+// covers reports whether the coverage entry c of a pack of capture holds rec:
+// c's capture, and c's seq and time bounds around rec's.
+func covers(c *tracepack.Coverage, capture tracepack.UUID, rec exportedRecord) bool {
+	seq, ts := uint64(rec.Seq), int64(rec.TS)
+
+	return (c.CaptureID == nil || *c.CaptureID == capture) &&
+		(c.SeqFirst == nil || *c.SeqFirst <= seq) && (c.SeqLast == nil || seq <= *c.SeqLast) &&
+		(c.TimeStart == nil || *c.TimeStart <= ts) && (c.TimeEnd == nil || ts <= *c.TimeEnd)
 }
 
 // add appends the file name holding doc's canonical form.
@@ -843,22 +933,34 @@ func exportPack(ctx context.Context, r *tracepack.Reader) ([]byte, []uint64, err
 	if _, err := tracepack.ExportJSONL(ctx, r, &buf); err != nil {
 		return nil, nil, err
 	}
-	lines, err := exportLines(buf.Bytes())
+	records, err := exportRecords(buf.Bytes())
 	if err != nil {
 		return nil, nil, err
 	}
-	seqs := make([]uint64, 0, len(lines)-1)
-	for _, line := range lines[1:] {
-		var rec struct {
-			Seq U64 `json:"seq"`
-		}
-		if err := json.Unmarshal(line, &rec); err != nil {
-			return nil, nil, fmt.Errorf("export record line: %w", err)
-		}
+	seqs := make([]uint64, 0, len(records))
+	for _, rec := range records {
 		seqs = append(seqs, uint64(rec.Seq))
 	}
 
 	return buf.Bytes(), seqs, nil
+}
+
+// exportRecords returns the seq and ts_utc_ns of each record line of export, in order.
+func exportRecords(export []byte) ([]exportedRecord, error) {
+	lines, err := exportLines(export)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]exportedRecord, 0, len(lines)-1)
+	for _, line := range lines[1:] {
+		var rec exportedRecord
+		if err := json.Unmarshal(line, &rec); err != nil {
+			return nil, fmt.Errorf("export record line: %w", err)
+		}
+		out = append(out, rec)
+	}
+
+	return out, nil
 }
 
 // exportLines splits an export into its lines, each with its LF; the header line comes first.
@@ -912,7 +1014,8 @@ func patchBlocksCopied(pack, patch []byte) error {
 // truncationTable returns truncation.json of pack, whose export is export:
 // each cut's rejection, or its outcome, export and verification and, with repair options, its repair.
 // It checks the property of the tracepack corpus specification §5.7 on every cut that opens:
-// the cut's export is the header line of export and the record lines of the blocks wholly before the cut.
+// the cut's export is the header line of export and the record lines of the blocks wholly before the cut;
+// and it checks every patch of a cut with checkPatch, against the records of pack.
 func truncationTable(ctx context.Context, pack, export []byte, repair *RepairOptions) (Truncation, error) {
 	l, err := Locate(pack)
 	if err != nil {
@@ -922,11 +1025,15 @@ func truncationTable(ctx context.Context, pack, export []byte, repair *RepairOpt
 	if err != nil {
 		return Truncation{}, err
 	}
+	records, err := exportRecords(export)
+	if err != nil {
+		return Truncation{}, err
+	}
 
 	t := NewTruncationTable(uint64(len(pack)), repair)
 	for n := range len(pack) {
 		cut := pack[:n]
-		c, err := cutExpectation(ctx, cut, &l, base, repair)
+		c, err := cutExpectation(ctx, cut, &l, base, records, repair)
 		if err != nil {
 			return Truncation{}, fmt.Errorf("cut %d: %w", n, err)
 		}
@@ -938,8 +1045,9 @@ func truncationTable(ctx context.Context, pack, export []byte, repair *RepairOpt
 	return t.Table()
 }
 
-// cutExpectation returns the expectation of cut, a prefix of the pack of layout l whose export's lines are base.
-func cutExpectation(ctx context.Context, cut []byte, l *Layout, base [][]byte, repair *RepairOptions) (Cut, error) {
+// cutExpectation returns the expectation of cut, a prefix of the pack of layout l whose export's lines are base
+// and whose records are records.
+func cutExpectation(ctx context.Context, cut []byte, l *Layout, base [][]byte, records []exportedRecord, repair *RepairOptions) (Cut, error) {
 	r, err := openBytes(ctx, cut)
 	if err != nil {
 		code, err := RejectionCode(err)
@@ -972,9 +1080,14 @@ func cutExpectation(ctx context.Context, cut []byte, l *Layout, base [][]byte, r
 	if err != nil || repair == nil {
 		return c, err
 	}
-	rp, _, err := RunRepair(ctx, cut, *repair)
+	rp, patch, err := RunRepair(ctx, cut, *repair)
 	if err != nil {
 		return Cut{}, err
+	}
+	if patch != nil {
+		if _, _, err := checkPatch(ctx, cut, patch, records); err != nil {
+			return Cut{}, err
+		}
 	}
 
 	return c.WithRepair(&rp), nil

@@ -35,7 +35,8 @@
       ],
       "class": "read",
       "labels": [
-        "damaged"
+        "damaged",
+        "nonconforming-writer"
       ],
       "codec": "none",
       "source": "generated",
@@ -1354,6 +1355,417 @@
       ]
     },
     {
+      "id": "repair-all-failed",
+      "title": "every block failing its body CRC, the footer valid: a patch holding only coverage",
+      "cites": [
+        "FMT §13",
+        "FMT §16",
+        "CORPUS §5.6"
+      ],
+      "class": "repair",
+      "labels": [
+        "damaged"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "repair.json",
+        "patch.tpk",
+        "patch.jsonl",
+        "patch.verify.json"
+      ]
+    },
+    {
+      "id": "repair-inconsistent",
+      "title": "a finalized-inconsistent archive of generation 1: every block copied, no new coverage",
+      "cites": [
+        "FMT §13",
+        "FMT §16",
+        "CORPUS §5.6",
+        "STO §6"
+      ],
+      "class": "repair",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "repair.json",
+        "patch.tpk",
+        "patch.jsonl",
+        "patch.verify.json"
+      ]
+    },
+    {
+      "id": "repair-middle-disagreeing-footer",
+      "title": "a middle block failing its body CRC, a validated block disagreeing with the valid footer",
+      "cites": [
+        "FMT §13",
+        "FMT §16",
+        "CORPUS §5.6"
+      ],
+      "class": "repair",
+      "labels": [
+        "damaged",
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "repair.json",
+        "patch.tpk",
+        "patch.jsonl",
+        "patch.verify.json"
+      ]
+    },
+    {
+      "id": "repair-middle-no-footer",
+      "title": "a middle block failing its body CRC, the footer rejected: coverage from the neighbours' seqs",
+      "cites": [
+        "FMT §13",
+        "FMT §16",
+        "CORPUS §5.6"
+      ],
+      "class": "repair",
+      "labels": [
+        "damaged",
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "repair.json",
+        "patch.tpk",
+        "patch.jsonl",
+        "patch.verify.json"
+      ]
+    },
+    {
+      "id": "repair-middle-trusted-footer",
+      "title": "a middle block failing its body CRC, the footer valid: coverage from the footer's ranges",
+      "cites": [
+        "FMT §13",
+        "FMT §16",
+        "CORPUS §5.6"
+      ],
+      "class": "repair",
+      "labels": [
+        "damaged"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "repair.json",
+        "patch.tpk",
+        "patch.jsonl",
+        "patch.verify.json"
+      ]
+    },
+    {
+      "id": "repair-not-needed",
+      "title": "a finalized-consistent segment: nothing to repair",
+      "cites": [
+        "FMT §13",
+        "FMT §16",
+        "CORPUS §5.6"
+      ],
+      "class": "repair",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "repair.json"
+      ]
+    },
+    {
+      "id": "repair-not-needed-commitments",
+      "title": "a finalized-consistent segment holding a redacted record: nothing to repair",
+      "cites": [
+        "FMT §13",
+        "FMT §16",
+        "CORPUS §5.6",
+        "FMT §9"
+      ],
+      "class": "repair",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "repair.json"
+      ]
+    },
+    {
+      "id": "repair-not-needed-extract",
+      "title": "a finalized-consistent extract: nothing to repair, before its role is considered",
+      "cites": [
+        "FMT §13",
+        "FMT §16",
+        "CORPUS §5.6",
+        "STO §2"
+      ],
+      "class": "repair",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "repair.json"
+      ]
+    },
+    {
+      "id": "repair-not-needed-period",
+      "title": "a finalized-consistent segment whose period spans two UTC hours: nothing to repair",
+      "cites": [
+        "FMT §13",
+        "FMT §16",
+        "CORPUS §5.6",
+        "STO §2"
+      ],
+      "class": "repair",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "repair.json"
+      ]
+    },
+    {
+      "id": "repair-of-patch",
+      "title": "a patch whose last block fails its body CRC: its coverage inherited",
+      "cites": [
+        "FMT §13",
+        "FMT §16",
+        "CORPUS §5.6",
+        "STO §6",
+        "CORPUS §5.4"
+      ],
+      "class": "repair",
+      "labels": [
+        "damaged"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "queries.json",
+        "repair.json",
+        "patch.tpk",
+        "patch.jsonl",
+        "patch.verify.json"
+      ]
+    },
+    {
+      "id": "repair-refused-extract",
+      "title": "a finalized-inconsistent extract: not repairable",
+      "cites": [
+        "FMT §13",
+        "FMT §16",
+        "CORPUS §5.6",
+        "STO §2"
+      ],
+      "class": "repair",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "repair.json"
+      ]
+    },
+    {
+      "id": "repair-refused-hour-span",
+      "title": "a block whose records lie in two UTC hours, so also outside the scope's hour: not repairable",
+      "cites": [
+        "FMT §13",
+        "FMT §16",
+        "CORPUS §5.6",
+        "FMT I-13"
+      ],
+      "class": "repair",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "repair.json"
+      ]
+    },
+    {
+      "id": "repair-refused-lost-run",
+      "title": "a failed block without a seq between its validated neighbours: not repairable",
+      "cites": [
+        "FMT §13",
+        "FMT §16",
+        "CORPUS §5.6"
+      ],
+      "class": "repair",
+      "labels": [
+        "damaged",
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "repair.json"
+      ]
+    },
+    {
+      "id": "repair-refused-scope-breach",
+      "title": "a block of the UTC hour after the scope's, without the I-13 defect: not repairable",
+      "cites": [
+        "FMT §13",
+        "FMT §16",
+        "CORPUS §5.6"
+      ],
+      "class": "repair",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "repair.json"
+      ]
+    },
+    {
+      "id": "repair-refused-seq-order",
+      "title": "a block whose first seq is below the last seq of the block before it: not repairable",
+      "cites": [
+        "FMT §13",
+        "FMT §16",
+        "CORPUS §5.6",
+        "FMT I-12"
+      ],
+      "class": "repair",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "repair.json"
+      ]
+    },
+    {
+      "id": "repair-seq-start-above",
+      "title": "a finalized-consistent pack whose first record's seq is above seq_start",
+      "cites": [
+        "FMT §13",
+        "FMT §16",
+        "CORPUS §5.6",
+        "FMT §5"
+      ],
+      "class": "repair",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "repair.json",
+        "patch.tpk",
+        "patch.jsonl",
+        "patch.verify.json"
+      ]
+    },
+    {
+      "id": "repair-seq-start-below",
+      "title": "a finalized-consistent pack whose first record's seq is below seq_start",
+      "cites": [
+        "FMT §13",
+        "FMT §16",
+        "CORPUS §5.6",
+        "FMT §5"
+      ],
+      "class": "repair",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "repair.json",
+        "patch.tpk",
+        "patch.jsonl",
+        "patch.verify.json"
+      ]
+    },
+    {
+      "id": "repair-truncation",
+      "title": "a pack of two blocks cut at every byte offset, each cut verified and repaired",
+      "cites": [
+        "FMT §16",
+        "FMT §13",
+        "CORPUS §5.7"
+      ],
+      "class": "truncation",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "truncation.json"
+      ]
+    },
+    {
       "id": "validation-i2-injection",
       "title": "a validating Writer's output stopped before a block with an injected I-2 defect",
       "cites": [
@@ -1384,7 +1796,8 @@
       ],
       "class": "read",
       "labels": [
-        "damaged"
+        "damaged",
+        "nonconforming-writer"
       ],
       "codec": "none",
       "source": "generated",

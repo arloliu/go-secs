@@ -1,0 +1,52 @@
+{
+  "outcome": "finalized-truncated",
+  "finalized": true,
+  "footer_valid": true,
+  "blocks_located": 3,
+  "blocks_validated": 0,
+  "records": "0",
+  "prefix_end": "307",
+  "failed_blocks": [
+    {
+      "block": 0,
+      "offset": "307",
+      "cause": "corrupt-block"
+    },
+    {
+      "block": 1,
+      "offset": "405",
+      "cause": "corrupt-block"
+    },
+    {
+      "block": 2,
+      "offset": "561",
+      "cause": "corrupt-block"
+    }
+  ],
+  "disagreeing_blocks": [],
+  "trailer_totals_disagree": false,
+  "writer_defects": [],
+  "lost": [
+    {
+      "capture_id": "01a0ffeb-3600-75cd-875e-b95cb97ac332",
+      "seq_first": "0",
+      "seq_last": "0",
+      "time_start": "1791000000000000000",
+      "time_end": "1791000000000000000"
+    },
+    {
+      "capture_id": "01a0ffeb-3600-75cd-875e-b95cb97ac332",
+      "seq_first": "2",
+      "seq_last": "3",
+      "time_start": "1791000000002000000",
+      "time_end": "1791000000003000000"
+    },
+    {
+      "capture_id": "01a0ffeb-3600-75cd-875e-b95cb97ac332",
+      "seq_first": "5",
+      "seq_last": "5",
+      "time_start": "1791000000005000000",
+      "time_end": "1791000000005000000"
+    }
+  ]
+}

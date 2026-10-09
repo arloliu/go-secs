@@ -1,0 +1,34 @@
+{
+  "options": {
+    "writer": "tracepack-corpus",
+    "pack_id": "01a0ffeb-3600-7118-b6a5-20137382f2b1",
+    "codec": "none",
+    "writer_start_utc_ns": "1791000000000000000"
+  },
+  "result": "patched",
+  "blocks": 0,
+  "records": "0",
+  "coverage_added": [
+    {
+      "capture_id": "01a0ffeb-3600-75cd-875e-b95cb97ac332",
+      "seq_first": "0",
+      "seq_last": "0",
+      "time_start": "1791000000000000000",
+      "time_end": "1791000000000000000"
+    },
+    {
+      "capture_id": "01a0ffeb-3600-75cd-875e-b95cb97ac332",
+      "seq_first": "2",
+      "seq_last": "3",
+      "time_start": "1791000000002000000",
+      "time_end": "1791000000003000000"
+    },
+    {
+      "capture_id": "01a0ffeb-3600-75cd-875e-b95cb97ac332",
+      "seq_first": "5",
+      "seq_last": "5",
+      "time_start": "1791000000005000000",
+      "time_end": "1791000000005000000"
+    }
+  ]
+}

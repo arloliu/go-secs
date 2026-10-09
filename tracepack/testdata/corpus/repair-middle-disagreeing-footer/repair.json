@@ -1,0 +1,20 @@
+{
+  "options": {
+    "writer": "tracepack-corpus",
+    "pack_id": "01a0ffeb-3600-7abb-867e-49da8e1adb13",
+    "codec": "none",
+    "writer_start_utc_ns": "1791000000000000000"
+  },
+  "result": "patched",
+  "blocks": 2,
+  "records": "2",
+  "coverage_added": [
+    {
+      "capture_id": "01a0ffeb-3600-768a-b99a-6c281a972f00",
+      "seq_first": "1",
+      "seq_last": "4",
+      "time_start": "1791000000000000000",
+      "time_end": "1791003599999999999"
+    }
+  ]
+}
