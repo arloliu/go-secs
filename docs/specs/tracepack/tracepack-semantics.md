@@ -1,6 +1,6 @@
 # tracepack — record semantics
 
-Status: current (2026-10-10) — v2.29, tracepack format 1.0.
+Status: current (2026-10-10) — v2.30, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic.
 
@@ -592,4 +592,4 @@ The following vectors belong to the corpus of [FMT §16]; [CORPUS §9.2] maps ea
   a conflict limit reached exactly (the read succeeds) and exceeded by one (an error, with the conflicts found so far);
   a walked block whose computed summary excludes its cluster (read once only);
   a pack that is not finalized beside its archive, in both orders;
-  an extract beside its source (each masked record a `conflict`).
+  an extract beside its source (each masked record a `conflict`), planned with the extracts and redaction of phase 7 ([CORPUS §9.2]).

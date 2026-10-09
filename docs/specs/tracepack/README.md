@@ -2,7 +2,7 @@
 
 tracepack (`.tpk`) is an immutable, compressed, self-indexed container for recorded SECS-II traffic between one tool and its host,
 intended as a long-term archival format that any implementation, in any language, can read.
-The specification is at v2.29, format 1.0; the Go reference implementation is the nested module `github.com/arloliu/go-secs/tracepack` in `tracepack/`.
+The specification is at v2.30, format 1.0; the Go reference implementation is the nested module `github.com/arloliu/go-secs/tracepack` in `tracepack/`.
 
 Read in this order: overview, format, JSONL, corpus, semantics, storage, then the Go mapping.
 Documents here follow `.agents/rules/450-doc-lifecycle.md`.
@@ -12,7 +12,7 @@ Documents here follow `.agents/rules/450-doc-lifecycle.md`.
 | `tracepack-overview.md` | living | current | purpose, document map, terminology, diagrams, open questions, deferred items (informative) |
 | `tracepack-format.md` | living | current | byte format, registries, validation, versioning, canonical JSONL, conformance corpus contents (normative) |
 | `tracepack-jsonl.md` | living | current | byte form of the canonical JSONL export, schema `tracepack-jsonl/1` (normative) |
-| `tracepack-corpus.md` | living | current | conformance corpus: layout, manifest, JSON schemas of the goldens, item-validity checklist, vector catalogue, schema `tracepack-corpus/1` (normative) |
+| `tracepack-corpus.md` | living | current | conformance corpus: layout, manifest, JSON schemas of the goldens, item-validity checklist, vector catalogue, schema `tracepack-corpus/2` (normative) |
 | `tracepack-semantics.md` | living | current | record semantics, transport events, quality, indexes, transaction lookup, redaction (normative) |
 | `tracepack-storage.md` | living | current | storage profile: scopes, generations, commit protocol, catalog, retention, recovery (normative) |
 | `tracepack-go.md` | living | current | Go module, API, mapping from go-secs, CLI |

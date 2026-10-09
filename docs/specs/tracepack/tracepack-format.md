@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-10-10) — v2.29, tracepack format 1.0.
+Status: current (2026-10-10) — v2.30, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -903,9 +903,14 @@ The canonical JSONL export is the language-agnostic text form of a pack and its 
 The corpus lets an implementation in any language prove that it reads and writes the same bytes as every other.
 Its layout, the JSON schemas of its expectations, the item-validity checklist of [SEM §3] and the catalogue that maps each clause below to its vectors are [CORPUS];
 [CORPUS §8] states how the corpus reads the clauses whose wording leaves a choice, such as the empty pack and the maximum-value integers.
-- Contents: golden `.tpk` files, the expected canonical JSONL (§15) for each, and the expected `verify` report;
+- Contents: golden `.tpk` files and the expected results of reading them; the files of each vector are those [CORPUS §2] gives for its class.
+  A vector of every class but `multi-pack` holds the expected canonical JSONL (§15) of its pack and the expected `verify` report,
+  and a repair vector also its patch, with the patch's JSONL and report;
   for a vector a reader rejects at bootstrap (§13), the expected rejection instead of JSONL and report ([JSONL §8]).
-  Reports, rejections and query results are canonical JSON that holds codes, offsets, seqs and counts, never error text ([CORPUS §5]).
+  A vector of class `multi-pack` holds several packs or one, each pack's expected `verify` report,
+  and the expected results of its reads over several packs and of its transaction lookups, and no JSONL.
+  Reports, rejections, query results, and the results of reads over several packs and of transaction lookups are canonical JSON
+  that holds codes, offsets, seqs and counts, never error text ([CORPUS §5]).
 - Vectors: empty pack; pack with zero records; codec `none` and codec `zstd` of the same records;
   truncated tail; corrupt middle block; bad envelope CRC; unknown codec; unknown TLV tag and enum value;
   `record_header_len` > 44, including 45–55, with the extension bytes preserved; unordered timestamps;
@@ -995,7 +1000,7 @@ Its layout, the JSON schemas of its expectations, the item-validity checklist of
   because JSONL and `verify` output alone do not exercise queries.
 - [SEM §9] and [STO §8] add the vectors for their rules to the same corpus.
   The vectors that need the result of a read over several packs — a payload-only identity conflict between two packs and transaction candidate selection — are catalogued with those of [SEM §9] ([CORPUS §9]).
-- Conformance is [CORPUS §1]: in short, a reader produces the expected JSONL and `verify` report for every vector it opens, the expected rejection for every vector rejected at bootstrap (§13),
+- Conformance is [CORPUS §1]: in short, a reader produces the expected files [CORPUS §1] lists for each vector's class, the expected rejection for every vector rejected at bootstrap (§13),
   and the expected query results for every query vector, and a writer's output round-trips through a conforming reader.
 - The corpus is identified by the spec version as well as the format version,
   so the goldens of spec v2.13 and later are told apart from earlier ones (§14) ([CORPUS §3]).

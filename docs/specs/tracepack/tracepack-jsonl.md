@@ -1,6 +1,6 @@
 # tracepack — canonical JSONL export
 
-Status: current (2026-10-10) — v2.29, tracepack format 1.0, schema `tracepack-jsonl/1` (draft until tracepack v1.0.0).
+Status: current (2026-10-10) — v2.30, tracepack format 1.0, schema `tracepack-jsonl/1` (draft until tracepack v1.0.0).
 Normative, language-agnostic. [FMT §15] states what the export is for; this document defines its bytes.
 
 Depends on: [FMT §1] conventions, [FMT §2] portable encoding, [FMT §4] file header, [FMT §5] TLV encoding and registries,

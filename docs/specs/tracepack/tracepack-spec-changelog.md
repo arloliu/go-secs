@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-10) — spec v2.29.
+Status: current (2026-10-10) — spec v2.30.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -1231,3 +1231,30 @@ Summary:
 - [STO §8]: a vector of a log holding two tools' traffic and lines of neither, converted into three captures that list the same `source_ref` entries.
 - `tracepack-go.md` §6: the EAP converter writes one capture per tool and one for the EAP's own lines.
 - [CORPUS §3]: `spec_version` 2.29; no golden changes.
+
+## Changes v2.29 → v2.30: the conformance corpus, part 2 (2026-10-10)
+
+Source: the phase 6b2 corpus plan and its reviews r1–r3, kept outside the repository; no proposal document.
+Its rules are lead decisions of the corpus, part 2, awaiting owner ratification; no decision is recorded for them yet.
+Format version stays 1.0; no byte layout changes.
+
+Summary:
+- [CORPUS], schema `tracepack-corpus/2`:
+  the class `multi-pack`, a vector of numbered packs `pack-<n>.tpk`, each with its `pack-<n>.verify.json`, and `reads.json`, `lookups.json` or both, without an export (§2, §3);
+  packs named by number in every result, hours as `i64` strings (§4);
+  §1 binds reads over several packs and transaction lookups, and a read's stated conflict bound is the one reader limit a golden depends on;
+  `reads.json` (§5.10): each read's packs in the order given, its order, filter and optional conflict bound,
+  and its items, `incomplete` reasons per pack, conflicts and unused footers, or the `conflict-limit` error with the conflicts found so far;
+  pruning stays outside the contract;
+  `lookups.json` (§5.11): each lookup's source, primary and hours scheduled, and the projection of its result: the outcome, the primary's fields present as available, the window's end,
+  every kept version with its role labels and flags,
+  the canonical facts (one per condition of [SEM §7.2] and [STO §5] Completeness, a barrier one fact with its bases, the existence facts without witness, a total order),
+  and the early returns of a primary without a key;
+  §8 reads the source a lookup's `source` denotes from the vector's packs, view order included;
+  §9 maps every clause of [SEM §9] to a vector, to a test of the reference implementation (read counts and a cluster excluded whole), or to phase 7, with the group prefixes `multi-` and `tx-`,
+  and the two [FMT §16] clauses of G5-182 to `multi-payload-only-conflict` and `tx-candidate-selection`;
+  §10 records the schema values; §3: `spec_version` 2.30.
+- [FMT §16]: the files of a vector are those [CORPUS §2] gives for its class; a `multi-pack` vector holds each pack's `verify` report and the results of its reads and lookups, and no JSONL;
+  conformance is producing the files [CORPUS §1] lists for each class.
+- [SEM §9]: an extract beside its source is planned with phase 7; no rule of [SEM] changes.
+- `tracepack-impl-plan.md`: 6b2 in progress, with its scope and done criteria; phase 7 gains the read of an extract beside its source.
