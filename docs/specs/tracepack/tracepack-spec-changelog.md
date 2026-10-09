@@ -9,11 +9,11 @@ The deferred proposals and the decision log are listed in `README.md`.
 
 ## tracepack-go.md notes
 
-- 2026-09-27: the eqp-hub producer row of §2 names the path that exists (`eqp_hsms` → `hsms_secsjson` → `tap_nats` → JetStream) instead of a `secs-recorder` device that was only planned,
+- 2026-09-27: the equipment-gateway producer row of §2 names the path that exists (HSMS device → message-encoding adapter → EAP bus adapter → JetStream) instead of a `secs-recorder` device that was only planned,
   and records what that path lacks today (generation id, start/stop event, monotonic time); open question 2 added.
 - 2026-09-28: brought up to the go-secs v2.6.0 observers, and to spec v2.10.
   §2 records through `WithWireObserver` and `WithSocketObserver` instead of a conn wrapper and maps `epoch` from `Socket`;
-  the eqp-hub paragraph says what v2.6.0 exposes and what eqp-hub, still on v2.3.0 without a recorder device, lacks.
+  the equipment-gateway paragraph says what v2.6.0 exposes and what the gateway, still on v2.3.0 without a recorder device, lacks.
   §5.1 drops the branch note on `CauseHandlerExit` and gains the `SocketRefused` row;
   §5.2 takes lifecycle epochs and times from `LifecycleEvent.Socket` and `At`, keeping the drop-oldest caveat;
   §5.3 takes socket events from `WithSocketObserver`, with the `socket-close` cause mapping and the note that it can differ from the lifecycle cause;
@@ -85,7 +85,7 @@ v2.2: the confirmatory review's residual P1 (lifecycle-event epoch attribution) 
 
 | Topic | Change | Where (v2.4) |
 |---|---|---|
-| Document split (G5-37) | wire spec is language-agnostic and contains no go-secs citations or VE-program references; Go placement, API, go-secs mappings, CLI and the eqp-hub question moved to `tracepack-go.md`; change history moved to this file | spec §1.1, `tracepack-go.md` |
+| Document split (G5-37) | wire spec is language-agnostic and contains no go-secs citations or VE-program references; Go placement, API, go-secs mappings, CLI and the equipment-gateway question moved to `tracepack-go.md`; change history moved to this file | spec §1.1, `tracepack-go.md` |
 | Capture model (G5-35) | per-record `evidence` + `provenance` replaced by per-record `fidelity` (wire-exact / re-encoded / reconstructed / synthesized) and pack-level `capture_method` (raw-stream / decoded-message / log / generator), `vantage` and `recorder`; evidence grades become a derived view | spec §3.5 |
 | Fixed layouts (G5-36) | byte layouts of file header (80 B), block envelope (40 B, adds `first_seq` and `envelope_crc`), record header (56 B) and trailer (64 B); TLV entry encoding, value types and tag registry; all enum and bit registries; CRC byte ranges | spec §2.5–§2.7, §2.9, §3.1, §3.3 |
 | Record header | positional copy rule identical for data and control; `record_header_len` allows appended fields in minor versions; `quality.no-mono` tied to `mono_present` | spec §3.1, §3.2 |
@@ -1207,3 +1207,11 @@ Summary:
 - [CORPUS §7]: a well-formed control message (`control-ok`, the control `ok` of [SEM §3]) and three more pairs of the order of evaluation
   (`length-mismatch-and-bad-ptype`, `bad-stype-and-control-with-body`, `oversized-and-item-decode-error`) join the cases;
   the [CORPUS §9.4] row of `sem-decode-status-classified` names them (editorial: added coverage, schema `tracepack-corpus/1` unchanged).
+
+## Neutral names for the log source and the gateway (owner decision G5-185, 2026-10-10)
+
+Specification version unchanged (v2.28); editorial only, no rule changes.
+- The equipment automation program's log is the EAP log, and its converter is `eapconv` in `veq/cmd/eapconv` (`tracepack-go.md` §1, §2 and §6, `tracepack-impl-plan.md` §1).
+- The site's gateway and its parts are named for what they do: the equipment gateway, its HSMS device, a message-encoding adapter and the EAP bus adapter
+  (`tracepack-go.md` §2 and §8, proposal P8, the `tracepack-go.md` notes above).
+- The decision log rewords G3-20, G3-PLACE, G3-27, G4-28, R3-6, G5-80, G5-82, G5-85 and G5-86 to these names; the decisions are unchanged.

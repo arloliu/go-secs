@@ -2,7 +2,7 @@
 
 Status: current (2026-10-09) — v2.28, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
-Decisions: `tracepack-decisions.md` G3-20..G3-27, G4-28, G4-29, G3-PLACE, R3-4, R3-5, R3-6, G5-30..G5-184.
+Decisions: `tracepack-decisions.md` G3-20..G3-27, G4-28, G4-29, G3-PLACE, R3-4, R3-5, R3-6, G5-30..G5-185.
 Change history: `tracepack-spec-changelog.md`.
 This document is **informative**; the rules live in the normative documents below.
 

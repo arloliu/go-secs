@@ -18,7 +18,7 @@ In scope:
 - CLI subcommands `list`, `stats`, `dump`, `verify`, `merge`, and `recover` once `Recover` is planned (G5-91).
 
 Out of scope (separate designs or later phases):
-the go-secs conn-wrapper recorder, eqp-hub integration, `tapconv`, the query service, its MariaDB catalog, the live-tail interface,
+the go-secs conn-wrapper recorder, equipment-gateway integration, `eapconv`, the query service, its MariaDB catalog, the live-tail interface,
 indexes in the footer (no longer planned, [OVW §6]), CLI `grep` / `tx`, and the redaction policy file format and key management.
 
 ## 2. Module and package layout
