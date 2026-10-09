@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"testing"
@@ -343,6 +345,14 @@ func FuzzExportJSONL(f *testing.F) {
 	}
 	for _, s := range seeds {
 		f.Add(s.file, s.maxBlock, s.maxFooter, s.maxWalked)
+	}
+	// The packs of the conformance corpus, each under the default budgets.
+	corpusPacks, err := filepath.Glob(filepath.Join("testdata", "corpus", "*", "*.tpk"))
+	require.NoError(f, err)
+	for _, p := range corpusPacks {
+		file, err := os.ReadFile(p)
+		require.NoError(f, err)
+		f.Add(file, int64(0), int64(0), uint16(0))
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte, maxBlock, maxFooter int64, maxWalked uint16) {
