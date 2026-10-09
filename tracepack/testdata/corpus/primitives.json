@@ -1,0 +1,30 @@
+{
+  "crc": [
+    {
+      "name": "check-value",
+      "input": "MTIzNDU2Nzg5",
+      "crc": 3421780262
+    },
+    {
+      "name": "file-header",
+      "input": "iVRQSw0KGgoBAAAAAAAAAOMAAAASQ0NtAIC5yALp2hgPHi08S1p5aIeWpbTD0uHwAaD/6zYAeTmIKLIsc8eJPAAAAAAAAAAAAAAAAA==",
+      "crc": 1164035102
+    },
+    {
+      "name": "block-envelope",
+      "input": "VFBLQgAALAA6AAAAOgAAAAEAAACcGKZwAAAAAAAAAAAAAAAA",
+      "crc": 3991098388
+    }
+  ],
+  "uuids": [
+    {
+      "bytes": "AQIDBAUGBwgJCgsMDQ4PEA==",
+      "string": "01020304-0506-0708-090a-0b0c0d0e0f10"
+    },
+    {
+      "bytes": "Dx4tPEtaeWiHlqW0w9Lh8A==",
+      "string": "0f1e2d3c-4b5a-7968-8796-a5b4c3d2e1f0",
+      "pack": "basic-uuid-byte-order"
+    }
+  ]
+}

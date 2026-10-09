@@ -1,0 +1,15 @@
+{
+  "outcome": "finalized-truncated",
+  "finalized": true,
+  "footer_valid": false,
+  "blocks_located": 1,
+  "blocks_validated": 1,
+  "records": "4",
+  "prefix_end": "583",
+  "failed_blocks": [],
+  "walk_stop": "583",
+  "disagreeing_blocks": [],
+  "trailer_totals_disagree": false,
+  "writer_defects": [],
+  "lost": []
+}

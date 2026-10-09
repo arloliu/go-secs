@@ -1,0 +1,312 @@
+{
+  "corpus": "tracepack-corpus/1",
+  "spec_version": "2.27",
+  "format_version": "1.0",
+  "jsonl_schema": "tracepack-jsonl/1",
+  "zstd_encoder": "github.com/klauspost/compress v1.20.1",
+  "vectors": [
+    {
+      "id": "basic-bad-envelope-crc-indexed",
+      "title": "a middle block failing its envelope CRC, passed by its F-2 entry",
+      "cites": [
+        "FMT §13",
+        "FMT §6",
+        "FMT §10"
+      ],
+      "class": "read",
+      "labels": [
+        "damaged"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "basic-bad-envelope-crc-walked",
+      "title": "a middle block failing its envelope CRC in a finalized pack whose footer is rejected",
+      "cites": [
+        "FMT §13",
+        "FMT §6",
+        "CORPUS §5.4"
+      ],
+      "class": "read",
+      "labels": [
+        "damaged"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "queries.json"
+      ]
+    },
+    {
+      "id": "basic-codec-mixed",
+      "title": "the records of basic-codec-none, the middle block of codec zstd",
+      "cites": [
+        "FMT §16",
+        "FMT §2",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "mixed",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "basic-codec-none",
+      "title": "data, control, transport-event and annotation records in three blocks, codec none",
+      "cites": [
+        "FMT §16",
+        "FMT §2",
+        "FMT §13",
+        "SEM §7.4"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "queries.json"
+      ]
+    },
+    {
+      "id": "basic-codec-zstd",
+      "title": "the records of basic-codec-none, blocks and footer of codec zstd",
+      "cites": [
+        "FMT §16",
+        "FMT §2",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "zstd",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "basic-corrupt-middle",
+      "title": "a middle block failing its body CRC, the footer valid",
+      "cites": [
+        "FMT §13",
+        "FMT I-2",
+        "CORPUS §5.4"
+      ],
+      "class": "read",
+      "labels": [
+        "damaged"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "queries.json"
+      ]
+    },
+    {
+      "id": "basic-empty-pack",
+      "title": "a file header and pack metadata, nothing else",
+      "cites": [
+        "CORPUS §8",
+        "FMT §13",
+        "FMT I-5"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "queries.json"
+      ]
+    },
+    {
+      "id": "basic-max-int",
+      "title": "seqs, epochs, mono_ns, trailing_bytes, event and metadata values at the format's limits",
+      "cites": [
+        "FMT §2",
+        "CORPUS §8"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "basic-max-int-extract",
+      "title": "an extract whose records lie at both i64 extremes of ts_utc_ns",
+      "cites": [
+        "FMT §2",
+        "CORPUS §8",
+        "STO §2"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "basic-seq-over-limit",
+      "title": "a last block whose first seq is 2^63, its CRCs valid",
+      "cites": [
+        "FMT §2",
+        "FMT §13",
+        "CORPUS §8"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "basic-truncated-tail",
+      "title": "a pack cut inside its last block",
+      "cites": [
+        "FMT §13",
+        "FMT I-1",
+        "FMT I-5"
+      ],
+      "class": "read",
+      "labels": [
+        "damaged"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "basic-unknown-codec",
+      "title": "a middle block of a codec outside the registry, its CRCs and F-2 entry valid",
+      "cites": [
+        "FMT §2",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "mixed",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "queries.json"
+      ]
+    },
+    {
+      "id": "basic-unknown-tags-and-enums",
+      "title": "unknown and private tags and unknown enum values in the metadata, record headers and event bodies",
+      "cites": [
+        "FMT §5",
+        "FMT §9",
+        "JSONL §3",
+        "JSONL §4"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "basic-unordered-timestamps",
+      "title": "ts_utc_ns not ascending within and across blocks",
+      "cites": [
+        "FMT §16",
+        "FMT §10",
+        "SEM §4"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "basic-uuid-byte-order",
+      "title": "a pack whose pack_id is the UUID of primitives.json",
+      "cites": [
+        "FMT §2",
+        "CORPUS §5.1"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "basic-zero-records",
+      "title": "a finalized pack without blocks",
+      "cites": [
+        "CORPUS §8",
+        "FMT §10"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,107 @@
+[
+  {
+    "id": "all",
+    "cites": [
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {},
+    "expect": {
+      "seqs": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11"
+      ],
+      "incomplete": []
+    }
+  },
+  {
+    "id": "dir-equipment-to-host",
+    "cites": [
+      "SEM §7.4"
+    ],
+    "filter": {
+      "dirs": [
+        "equipment-to-host"
+      ]
+    },
+    "expect": {
+      "seqs": [
+        "2",
+        "4",
+        "6",
+        "11"
+      ],
+      "incomplete": []
+    }
+  },
+  {
+    "id": "epoch-2",
+    "cites": [
+      "SEM §7.4"
+    ],
+    "filter": {
+      "epochs": [
+        2
+      ]
+    },
+    "expect": {
+      "seqs": [
+        "9",
+        "10",
+        "11"
+      ],
+      "incomplete": []
+    }
+  },
+  {
+    "id": "kinds-control-and-events",
+    "cites": [
+      "SEM §7.4"
+    ],
+    "filter": {
+      "kinds": [
+        "control",
+        "transport-event"
+      ]
+    },
+    "expect": {
+      "seqs": [
+        "0",
+        "1",
+        "2",
+        "8",
+        "9"
+      ],
+      "incomplete": []
+    }
+  },
+  {
+    "id": "time-window",
+    "cites": [
+      "SEM §7.4"
+    ],
+    "filter": {
+      "time_from": "1791000000003000000",
+      "time_to": "1791000000007000000"
+    },
+    "expect": {
+      "seqs": [
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "incomplete": []
+    }
+  }
+]

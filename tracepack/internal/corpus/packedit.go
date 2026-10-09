@@ -44,6 +44,8 @@ const (
 
 	// f5ContentBytesTag is the F-5 tag of content_bytes, the sum of the blocks' F-2 uncompressed_len.
 	f5ContentBytesTag uint16 = 0x0007
+	// f5RecordCountTag is the F-5 tag of record_count, the pack's record count.
+	f5RecordCountTag uint16 = 0x0001
 )
 
 // ErrPackEdit reports an edit the pack surgery cannot make:

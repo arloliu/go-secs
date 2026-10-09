@@ -610,7 +610,7 @@ From spec v2.27 (G5-173..G5-183); the corpus is [CORPUS]. Plan: the phase 6b1 co
   and identifiers derived from the vector's id, with two exceptions:
   the vectors that differ only in codec, the truncation base packs included ([CORPUS §3]), derive theirs from one shared identity seed,
   so their identifiers and exports are equal; the UUID byte-order vector uses the literal UUID of `primitives.json`;
-  the v0.1.0 sample copied from `testdata/v0.1.0-rows.tpk`; `manifest.json`'s `zstd_encoder` read from the build information of the generating test binary.
+  the v0.1.0 sample copied from `testdata/v0.1.0-rows.tpk`; `manifest.json`'s `zstd_encoder` names the `klauspost/compress` module the generating test links, as `go list -m` names it from the package directory.
 
 Done when: `make lint-tracepack`, `make test-tracepack` and `make test-tracepack-386` pass and `go fix -diff ./...` is clean;
 `-update` produces no diff and the corpus regenerates byte-identically under the pinned `go.mod`;

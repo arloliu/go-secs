@@ -20,6 +20,7 @@ import (
 // (the tracepack format specification §4, §10 and §11).
 const (
 	headerPackMetadataLenOff = 16
+	headerCaptureIDOff       = 48
 
 	trailerFooterOffsetOff = 0
 	trailerFooterLenOff    = 8
