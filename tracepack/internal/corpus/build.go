@@ -30,6 +30,11 @@ const (
 
 	// segmentPeriod is the length of a generated segment's period, from TimeBase.
 	segmentPeriod = int64(time.Minute)
+
+	// logDialect, logSourceRef and logSourceTZ are the source_dialect, source_ref and source_tz of a log conversion.
+	logDialect   = "corpus-sml"
+	logSourceRef = "corpus.log"
+	logSourceTZ  = "UTC"
 )
 
 // Roles of the identifiers the corpus derives from an identity seed.
@@ -46,6 +51,11 @@ const (
 	stypeData      byte = 0
 	stypeSelectReq byte = 1
 	stypeSelectRsp byte = 2
+	// stypeDeselectRsp carries the DeselectStatus in header byte 3.
+	stypeDeselectRsp byte = 4
+	stypeLinktestReq byte = 5
+	// stypeRejectReq carries the rejected message's PType or SType in header byte 2 and the reason code in byte 3.
+	stypeRejectReq byte = 7
 )
 
 // controlSessionID is the SessionID of a control frame that names no session (SEMI E37 §8.3).
@@ -89,6 +99,18 @@ func segmentMeta(seed string) *tracepack.PackMeta {
 		RecorderInstanceID: IDFor(roleRecorderInstanceID, seed),
 		ScopeGeneration:    new(uint64(0)),
 	}
+}
+
+// logMeta returns the pack metadata of a log conversion of seed (the tracepack storage specification §7):
+// segmentMeta's, taken from a log by software on the host, its timestamps parsed in UTC,
+// with the source's dialect and file, and the classifier its reconstructed records name.
+func logMeta(seed string) *tracepack.PackMeta {
+	meta := segmentMeta(seed)
+	meta.CaptureMethod, meta.Vantage, meta.TimeSource = tracepack.CaptureMethodLog, tracepack.VantageHost, tracepack.TimeSourceSourceLog
+	meta.SourceTZ, meta.SourceDialect, meta.SourceRefs = new(logSourceTZ), new(logDialect), []string{logSourceRef}
+	meta.Classifiers = []string{corpusClassifier}
+
+	return meta
 }
 
 // packSpec is what writeSpec writes.
@@ -150,13 +172,13 @@ func (s *packSpec) options() tracepack.WriterOptions {
 	}
 }
 
-// hsmsFrame returns an HSMS frame: the 4-byte length, the 10-byte header and text.
-// b6 and b7 are header bytes 6 and 7: stream with W and function for a data message,
+// hsmsFrame returns an HSMS frame of PType 0: the 4-byte length, the 10-byte header and text.
+// b6 and b7 are payload bytes 6 and 7, header bytes 2 and 3: stream with W and function for a data message,
 // whatever the control message's SType gives them otherwise.
-func hsmsFrame(sessionID uint16, b6, b7, ptype, stype byte, systemBytes uint32, text []byte) []byte {
+func hsmsFrame(sessionID uint16, b6, b7, stype byte, systemBytes uint32, text []byte) []byte {
 	f := binary.BigEndian.AppendUint32(nil, uint32(10+len(text)))
 	f = binary.BigEndian.AppendUint16(f, sessionID)
-	f = append(f, b6, b7, ptype, stype)
+	f = append(f, b6, b7, 0, stype)
 	f = binary.BigEndian.AppendUint32(f, systemBytes)
 
 	return append(f, text...)
@@ -169,12 +191,12 @@ func dataFrame(stream, function byte, wbit bool, systemBytes uint32, text []byte
 		b6 |= 0x80
 	}
 
-	return hsmsFrame(1, b6, function, 0, stypeData, systemBytes, text)
+	return hsmsFrame(1, b6, function, stypeData, systemBytes, text)
 }
 
 // controlFrame returns the frame of a control message of stype, header bytes 6 and 7 as given.
 func controlFrame(stype, b6, b7 byte, systemBytes uint32) []byte {
-	return hsmsFrame(controlSessionID, b6, b7, 0, stype, systemBytes, nil)
+	return hsmsFrame(controlSessionID, b6, b7, stype, systemBytes, nil)
 }
 
 // frameRecord returns a record of kind data or control carrying frame, at seq and ts, wire-exact,
@@ -194,9 +216,25 @@ func newData(seq uint64, epoch uint32, dir tracepack.Dir, frame []byte) tracepac
 	return frameRecord(tracepack.KindData, seq, msAt(int64(seq)), epoch, dir, frame)
 }
 
-// newControl returns a control record of seq at msAt(seq) carrying frame.
-func newControl(seq uint64, epoch uint32, dir tracepack.Dir, frame []byte) tracepack.Record {
-	return frameRecord(tracepack.KindControl, seq, msAt(int64(seq)), epoch, dir, frame)
+// newControl returns a control record of seq and epoch 1 at msAt(seq) carrying frame.
+func newControl(seq uint64, dir tracepack.Dir, frame []byte) tracepack.Record {
+	return frameRecord(tracepack.KindControl, seq, msAt(int64(seq)), 1, dir, frame)
+}
+
+// newLogData returns a data record of seq at msAt(seq) carrying frame, as a log conversion builds it:
+// reconstructed, reconstructed-ok, and every field_validity bit of the frame's bytes set but those of missing,
+// the identities the source did not carry (the tracepack semantics specification §2 and the tracepack storage specification §7).
+// The record is correlation-incomplete when an identity is missing or its epoch is 0,
+// the epoch of a source without connect or accept lines (the tracepack format specification I-7).
+func newLogData(seq uint64, epoch uint32, dir tracepack.Dir, frame []byte, missing tracepack.FieldValidity) tracepack.Record {
+	r := newData(seq, epoch, dir, frame)
+	r.Fidelity, r.DecodeStatus = tracepack.FidelityReconstructed, tracepack.DecodeStatusReconstructedOK
+	r.FieldValidity &^= missing
+	if missing != 0 || epoch == 0 {
+		r.Quality |= tracepack.QualityCorrelationIncomplete
+	}
+
+	return r
 }
 
 // newEvent returns a transport-event record of seq at msAt(seq) carrying ev, local and synthesized.

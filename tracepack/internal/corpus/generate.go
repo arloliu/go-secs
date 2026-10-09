@@ -42,6 +42,7 @@ var groups = []func() []Recipe{
 	bootstrapVectors,
 	footerVectors,
 	framingVectors,
+	hsmsVectors,
 	repairVectors,
 	validationVectors,
 	verifyVectors,
@@ -173,6 +174,9 @@ type Expectation struct {
 	// Footer is footer.json of a vector whose Built asks for it, and must then be set:
 	// its stored part, whether the footer is accepted, and its recomputed part.
 	Footer *Footer
+	// Fields is fields.json of a vector whose Built asks for it, and must then be set:
+	// one row per data or control record, ascending by seq.
+	Fields []Fields
 	// Queries are the results of each query of Built.Queries, by id.
 	Queries []QueryWant
 	// Repair is the expected repair of a repair vector.
@@ -296,6 +300,7 @@ type readOutputs struct {
 	queries    []QueryVector
 	stats      tracepack.PackStats
 	statsOK    bool
+	fields     FieldRows
 	footer     *Footer
 	repair     *Repair
 	truncation *Truncation
@@ -574,6 +579,11 @@ func generateVector(ctx context.Context, rec *Recipe) (Vector, *readOutputs, err
 	if err := rec.Expect.check(out, built.Pack); err != nil {
 		return Vector{}, nil, fmt.Errorf("disagrees with its Expect: %w", err)
 	}
+	for _, c := range rec.Cases {
+		if !slices.Contains(out.seqs, uint64(c.Seq)) {
+			return Vector{}, nil, fmt.Errorf("case %s names seq %d, which the pack does not export", c.ID, c.Seq)
+		}
+	}
 	if err := rec.checkCodec(out); err != nil {
 		return Vector{}, nil, err
 	}
@@ -735,6 +745,7 @@ func (out *readOutputs) readOptional(ctx context.Context, r *tracepack.Reader, p
 		if err := out.add(FileFields, rows); err != nil {
 			return err
 		}
+		out.fields = rows
 	}
 	if in.classify != nil {
 		if err := checkClassify(r, in.classify, out.seqs); err != nil {

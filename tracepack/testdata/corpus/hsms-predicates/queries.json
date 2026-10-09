@@ -1,0 +1,168 @@
+[
+  {
+    "id": "session-ids",
+    "cites": [
+      "FMT §7.2",
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {
+      "session_ids": [
+        1
+      ]
+    },
+    "expect": {
+      "seqs": [
+        "0",
+        "1",
+        "2",
+        "4"
+      ],
+      "incomplete": []
+    }
+  },
+  {
+    "id": "session-ids-include-unavailable",
+    "cites": [
+      "FMT §7.2",
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {
+      "session_ids": [
+        1
+      ],
+      "include_unavailable": true
+    },
+    "expect": {
+      "seqs": [
+        "0",
+        "1",
+        "2",
+        "4",
+        "6",
+        "7"
+      ],
+      "incomplete": []
+    }
+  },
+  {
+    "id": "sf",
+    "cites": [
+      "FMT §7.2",
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {
+      "sf": [
+        {
+          "stream": 1,
+          "function": 1
+        }
+      ]
+    },
+    "expect": {
+      "seqs": [
+        "0",
+        "3"
+      ],
+      "incomplete": []
+    }
+  },
+  {
+    "id": "sf-include-unavailable",
+    "cites": [
+      "FMT §7.2",
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {
+      "sf": [
+        {
+          "stream": 1,
+          "function": 1
+        }
+      ],
+      "include_unavailable": true
+    },
+    "expect": {
+      "seqs": [
+        "0",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7"
+      ],
+      "incomplete": []
+    }
+  },
+  {
+    "id": "sf-pairs",
+    "cites": [
+      "FMT §7.2",
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {
+      "sf": [
+        {
+          "stream": 1,
+          "function": 2
+        },
+        {
+          "stream": 2,
+          "function": 1
+        }
+      ]
+    },
+    "expect": {
+      "seqs": [
+        "1",
+        "2"
+      ],
+      "incomplete": []
+    }
+  },
+  {
+    "id": "system-bytes",
+    "cites": [
+      "FMT §7.2",
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {
+      "system_bytes": "AAAAAQ=="
+    },
+    "expect": {
+      "seqs": [
+        "0",
+        "1"
+      ],
+      "incomplete": []
+    }
+  },
+  {
+    "id": "system-bytes-include-unavailable",
+    "cites": [
+      "FMT §7.2",
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {
+      "system_bytes": "AAAAAQ==",
+      "include_unavailable": true
+    },
+    "expect": {
+      "seqs": [
+        "0",
+        "1",
+        "4",
+        "5",
+        "6",
+        "7"
+      ],
+      "incomplete": []
+    }
+  }
+]

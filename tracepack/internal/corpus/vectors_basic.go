@@ -354,8 +354,8 @@ func codecBlocks() ([][]tracepack.Record, error) {
 	spec := [][]func() (tracepack.Record, error){
 		{
 			ev(0, 1, tracepack.EventSocketConnect),
-			fixed(newControl(1, 1, h2e, controlFrame(stypeSelectReq, 0, 0, 1))),
-			fixed(newControl(2, 1, e2h, controlFrame(stypeSelectRsp, 0, 0, 1))),
+			fixed(newControl(1, h2e, controlFrame(stypeSelectReq, 0, 0, 1))),
+			fixed(newControl(2, e2h, controlFrame(stypeSelectRsp, 0, 0, 1))),
 			fixed(newData(3, 1, h2e, dataFrame(1, 1, true, 2, nil))),
 		},
 		{

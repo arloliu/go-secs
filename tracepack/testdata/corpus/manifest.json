@@ -1355,6 +1355,194 @@
       ]
     },
     {
+      "id": "hsms-control-frames",
+      "title": "control frames whose payload bytes 6 and 7 are read at their positions",
+      "cites": [
+        "FMT §7.2",
+        "FMT §16",
+        "SEM §7.4",
+        "CORPUS §5.4",
+        "CORPUS §5.5",
+        "CORPUS §8"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "queries.json",
+        "fields.json"
+      ]
+    },
+    {
+      "id": "hsms-predicates",
+      "title": "S/F, SessionID and System Bytes predicates with and without the request for unavailable fields",
+      "cites": [
+        "FMT §7.2",
+        "FMT §16",
+        "SEM §7.4",
+        "CORPUS §5.4",
+        "CORPUS §5.5"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "queries.json",
+        "fields.json"
+      ]
+    },
+    {
+      "id": "hsms-short-captures",
+      "title": "data records of 5 to 14 captured bytes, each field available exactly when its bit is set",
+      "cites": [
+        "FMT §7.2",
+        "FMT §16",
+        "SEM §7.4",
+        "CORPUS §5.4",
+        "CORPUS §5.5"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "queries.json",
+        "fields.json"
+      ],
+      "cases": [
+        {
+          "id": "payload-5-bytes",
+          "seq": "0",
+          "cites": [
+            "FMT §7.2"
+          ]
+        },
+        {
+          "id": "payload-6-bytes",
+          "seq": "1",
+          "cites": [
+            "FMT §7.2"
+          ]
+        },
+        {
+          "id": "payload-7-bytes",
+          "seq": "2",
+          "cites": [
+            "FMT §7.2"
+          ]
+        },
+        {
+          "id": "payload-8-bytes",
+          "seq": "3",
+          "cites": [
+            "FMT §7.2"
+          ]
+        },
+        {
+          "id": "payload-9-bytes",
+          "seq": "4",
+          "cites": [
+            "FMT §7.2"
+          ]
+        },
+        {
+          "id": "payload-10-bytes",
+          "seq": "5",
+          "cites": [
+            "FMT §7.2"
+          ]
+        },
+        {
+          "id": "payload-11-bytes",
+          "seq": "6",
+          "cites": [
+            "FMT §7.2"
+          ]
+        },
+        {
+          "id": "payload-12-bytes",
+          "seq": "7",
+          "cites": [
+            "FMT §7.2"
+          ]
+        },
+        {
+          "id": "payload-13-bytes",
+          "seq": "8",
+          "cites": [
+            "FMT §7.2"
+          ]
+        },
+        {
+          "id": "payload-14-bytes",
+          "seq": "9",
+          "cites": [
+            "FMT §7.2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hsms-system-bytes-set-short",
+      "title": "a data record whose System Bytes bit is set while its payload ends before them",
+      "cites": [
+        "FMT §7.2",
+        "FMT §16",
+        "SEM §7.4",
+        "CORPUS §5.4",
+        "CORPUS §5.5",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "queries.json",
+        "fields.json"
+      ]
+    },
+    {
+      "id": "hsms-system-bytes-unavailable",
+      "title": "a data record whose System Bytes bit is clear while its payload holds them",
+      "cites": [
+        "FMT §7.2",
+        "FMT §16",
+        "SEM §7.4",
+        "CORPUS §5.4",
+        "CORPUS §5.5",
+        "SEM §2",
+        "STO §7"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "queries.json",
+        "fields.json"
+      ]
+    },
+    {
       "id": "repair-all-failed",
       "title": "every block failing its body CRC, the footer valid: a patch holding only coverage",
       "cites": [

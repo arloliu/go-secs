@@ -1,0 +1,38 @@
+[
+  {
+    "id": "system-bytes",
+    "cites": [
+      "FMT §7.2",
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {
+      "system_bytes": "AAAAAA=="
+    },
+    "expect": {
+      "seqs": [
+        "1"
+      ],
+      "incomplete": []
+    }
+  },
+  {
+    "id": "system-bytes-include-unavailable",
+    "cites": [
+      "FMT §7.2",
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {
+      "system_bytes": "AAAAAA==",
+      "include_unavailable": true
+    },
+    "expect": {
+      "seqs": [
+        "0",
+        "1"
+      ],
+      "incomplete": []
+    }
+  }
+]
