@@ -2,7 +2,9 @@ package corpus
 
 import (
 	"bytes"
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -106,6 +108,15 @@ func TestMultiRecipesAreChecked(t *testing.T) {
 		{"multi-capture-interleave", "a read missing", func(e *Expectation) { e.Reads = e.Reads[1:] }},
 		{"multi-capture-interleave", "a pack's blocks", func(e *Expectation) { e.Packs[1] = finalizedPack(3, 4) }},
 		{"multi-capture-interleave", "a pack's seqs", func(e *Expectation) { e.Packs[0] = finalizedPack(3, 5) }},
+		{"multi-time-backward", "the time order", func(e *Expectation) {
+			items := e.Reads[0].Items
+			items[1], items[2] = items[2], items[1]
+		}},
+		{"multi-equal-timestamps", "the version order", func(e *Expectation) {
+			e.Reads[3].Conflicts = []ConflictWant{{Capture: 2, Seq: 7, Versions: [][]int{{3}, {4}}}}
+		}},
+		{"multi-unfinalized-beside-archive", "no footer error", func(e *Expectation) { e.Reads[0].FooterErrors = nil }},
+		{"multi-unfinalized-beside-archive", "no incomplete reason", func(e *Expectation) { e.Reads[1].Incomplete = nil }},
 	}
 	for _, tt := range disagreeing {
 		t.Run(tt.id+" "+tt.name, func(t *testing.T) {
@@ -272,4 +283,104 @@ func multiRecipe(t *testing.T, id string) Recipe {
 	r.Expect = &e
 
 	return r
+}
+
+// TestReversedPacksKeepConflicts checks, for every read over several packs of the multi group without a conflict bound,
+// that the same read given its packs in the reverse order keeps which records conflict and which versions they have,
+// and so which versions it yields and which footers it does not use,
+// while the representatives, and with them the packs and blocks the items name, may change
+// (the tracepack semantics specification §7.4, Conflicts).
+// A bound is left out: it ends a read on a conflict that depends on the order of discovery.
+func TestReversedPacksKeepConflicts(t *testing.T) {
+	t.Parallel()
+
+	changed := 0
+	for _, r := range mustRecipes(t) {
+		if r.Class != ClassMultiPack || !strings.HasPrefix(r.ID, "multi-") {
+			continue
+		}
+		built, err := r.Build(r.seed())
+		require.NoError(t, err, r.ID)
+		packs := make([][]byte, 0, len(built.Packs))
+		captures := make([]string, 0, len(built.Packs))
+		for _, p := range built.Packs {
+			packs = append(packs, p.Bytes)
+			captures = append(captures, openPack(t, p.Bytes).Header().CaptureID.String())
+		}
+
+		var reads []ReadSpec
+		for _, rd := range built.Reads {
+			if len(rd.Packs) < 2 || rd.MaxConflicts > 0 {
+				continue
+			}
+			rev := rd
+			rev.ID, rev.Packs = rd.ID+"-reversed", slices.Clone(rd.Packs)
+			slices.Reverse(rev.Packs)
+			reads = append(reads, rd, rev)
+		}
+		if len(reads) == 0 {
+			continue
+		}
+		out, err := readMultiVector(t.Context(), packs, reads)
+		require.NoError(t, err, r.ID)
+		byID := make(map[string]*ReadExpect, len(out.reads))
+		for i := range out.reads {
+			byID[out.reads[i].ID] = &out.reads[i].Expect
+		}
+
+		for k := 0; k < len(reads); k += 2 {
+			id := r.ID + "/" + reads[k].ID
+			given, reversed := byID[reads[k].ID], byID[reads[k+1].ID]
+			require.Empty(t, given.Error, id)
+			require.Empty(t, reversed.Error, id)
+			require.Equal(t, conflictSet(given.Conflicts), conflictSet(reversed.Conflicts), "%s: the conflicts", id)
+			require.Equal(t, yieldedVersions(*given.Items, captures), yieldedVersions(*reversed.Items, captures), "%s: the versions yielded", id)
+			require.ElementsMatch(t, *given.FooterErrors, *reversed.FooterErrors, "%s: the footer errors", id)
+			if !slices.Equal(*given.Items, *reversed.Items) {
+				changed++
+			}
+		}
+	}
+	require.Positive(t, changed, "no read changed its representatives in the reverse order")
+
+	// The representatives change: in the reverse order, the version of pack 1 comes first, and pack 1 represents every record.
+	r := recipeByID(t, "multi-conflict-selection")
+	built, err := r.Build(r.seed())
+	require.NoError(t, err)
+	out, err := readMultiVector(t.Context(), [][]byte{built.Packs[0].Bytes, built.Packs[1].Bytes},
+		[]ReadSpec{{ID: "reversed", Cites: readCites, Packs: []int{1, 0}, Order: ReadOrderCapture}})
+	require.NoError(t, err)
+	require.Equal(t, []ReadItem{{Seq: 1, Pack: 1}, {Seq: 2, Pack: 1, Conflict: true}, {Seq: 2, Pack: 0, Conflict: true}, {Seq: 3, Pack: 1}},
+		*out.reads[0].Expect.Items)
+	require.Equal(t, [][]int{{1}, {0}}, out.reads[0].Expect.Conflicts[0].Versions)
+}
+
+// conflictSet returns the conflicts cs as a set: each conflict's capture_id, seq and versions, each version's packs ascending,
+// the versions and the conflicts sorted.
+func conflictSet(cs []ConflictEntry) []string {
+	out := make([]string, 0, len(cs))
+	for _, c := range cs {
+		vs := make([]string, 0, len(c.Versions))
+		for _, v := range c.Versions {
+			v = slices.Sorted(slices.Values(v))
+			vs = append(vs, fmt.Sprint(v))
+		}
+		slices.Sort(vs)
+		out = append(out, fmt.Sprintf("%s/%d %v", c.CaptureID, c.Seq, vs))
+	}
+	slices.Sort(out)
+
+	return out
+}
+
+// yieldedVersions returns the items as a multiset of the versions they yield, without their representatives or order:
+// each item's capture, from captures by pack number, its seq and whether it is a conflict, sorted.
+func yieldedVersions(items []ReadItem, captures []string) []string {
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, fmt.Sprintf("%s/%d %v", captures[it.Pack], it.Seq, it.Conflict))
+	}
+	slices.Sort(out)
+
+	return out
 }

@@ -1,0 +1,106 @@
+[
+  {
+    "id": "archive-first",
+    "cites": [
+      "SEM §7.4",
+      "CORPUS §5.10"
+    ],
+    "packs": [
+      1,
+      0
+    ],
+    "order": "capture",
+    "filter": {},
+    "expect": {
+      "items": [
+        {
+          "seq": "1",
+          "pack": 1,
+          "block": 0,
+          "conflict": false
+        },
+        {
+          "seq": "2",
+          "pack": 1,
+          "block": 0,
+          "conflict": false
+        },
+        {
+          "seq": "3",
+          "pack": 1,
+          "block": 0,
+          "conflict": false
+        },
+        {
+          "seq": "4",
+          "pack": 1,
+          "block": 0,
+          "conflict": false
+        }
+      ],
+      "incomplete": [
+        {
+          "pack": 0,
+          "reason": "truncated",
+          "offset": "619"
+        }
+      ],
+      "conflicts": [],
+      "footer_errors": [
+        0
+      ]
+    }
+  },
+  {
+    "id": "segment-first",
+    "cites": [
+      "SEM §7.4",
+      "CORPUS §5.10"
+    ],
+    "packs": [
+      0,
+      1
+    ],
+    "order": "capture",
+    "filter": {},
+    "expect": {
+      "items": [
+        {
+          "seq": "1",
+          "pack": 0,
+          "block": 0,
+          "conflict": false
+        },
+        {
+          "seq": "2",
+          "pack": 0,
+          "block": 0,
+          "conflict": false
+        },
+        {
+          "seq": "3",
+          "pack": 1,
+          "block": 0,
+          "conflict": false
+        },
+        {
+          "seq": "4",
+          "pack": 1,
+          "block": 0,
+          "conflict": false
+        }
+      ],
+      "incomplete": [
+        {
+          "pack": 0,
+          "reason": "truncated",
+          "offset": "619"
+        }
+      ],
+      "conflicts": [],
+      "footer_errors": [
+        0
+      ]
+    }
+  }
+]

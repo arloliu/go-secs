@@ -14,7 +14,7 @@ var readCites = []string{"SEM §7.4", "CORPUS §5.10"}
 
 // multiVectors returns the recipes of the multi group, reads over several packs (the tracepack corpus specification §9.4).
 func multiVectors() []Recipe {
-	return []Recipe{
+	return append([]Recipe{
 		{
 			ID:    "multi-capture-interleave",
 			Title: "two captures whose blocks interleave by ts_min in capture order, and a filter that rejects one capture's next record",
@@ -62,7 +62,7 @@ func multiVectors() []Recipe {
 				},
 			},
 		},
-	}
+	}, multiOrderVectors()...)
 }
 
 // captureInterleaveBuild builds multi-capture-interleave:

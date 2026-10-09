@@ -3,6 +3,7 @@ package corpus
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -284,6 +285,7 @@ func TestLookupExpectFromRefuses(t *testing.T) {
 		{"incomplete beside a valid match and no fact that makes it incomplete", func(r *LookupRun) {
 			r.Result.Gaps, r.Result.Records[1].Valid = r.Result.Gaps[:1], true
 		}},
+		{"matched with two valid matches", func(r *LookupRun) { twoValidRun(r, tracepack.TxMatched) }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -295,6 +297,40 @@ func TestLookupExpectFromRefuses(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+
+	// The same two valid matches without a fact give ambiguous.
+	run = everyKeyRun()
+	twoValidRun(&run, tracepack.TxAmbiguous)
+	got, err := LookupExpectFrom(&run)
+	require.NoError(t, err)
+	require.Equal(t, "ambiguous", got.Outcome)
+}
+
+// twoValidRun edits the run of everyKeyRun into a result without facts whose versions at seqs 6 and 7 are valid matches,
+// its outcome outcome.
+func twoValidRun(r *LookupRun, outcome tracepack.TxOutcome) {
+	r.Result.Outcome, r.Result.Gaps = outcome, nil
+	r.Result.Records[1].Valid = true
+	c := &r.Result.Records[2]
+	c.Class, c.Decidable, c.Eligible, c.Valid = tracepack.TxCandidate, true, true, true
+}
+
+// twoValidLookup edits the lookup every-key of testLookupsJSON into a result without facts
+// whose versions at seqs 6 and 7 are valid matches, its outcome outcome.
+func twoValidLookup(l *LookupVector, outcome string) {
+	l.Expect.Outcome, *l.Expect.Gaps = outcome, nil
+	(*l.Expect.Records)[1].Valid = new(true)
+	c := &(*l.Expect.Records)[2]
+	c.Roles, c.Decidable, c.Eligible, c.Valid = []string{RoleCandidate}, new(true), new(true), new(true)
+}
+
+// closingConflictLookup edits the lookup every-key of testLookupsJSON so that its window end, seq 20,
+// has a second version: a closing version in conflict, which cannot bound the window, its bound flag bound.
+func closingConflictLookup(l *LookupVector, bound bool) {
+	rs := *l.Expect.Records
+	rs[3].Conflict = true
+	closing := LookupRecord{Seq: 20, Hour: 11, Pack: 0, Block: 0, Conflict: true, Roles: []string{RoleClosing}, Bound: bound}
+	*l.Expect.Records = slices.Concat(rs[:3], []LookupRecord{closing}, rs[3:])
 }
 
 func TestLookupsMarshalRefuses(t *testing.T) {
@@ -357,6 +393,8 @@ func TestLookupsMarshalRefuses(t *testing.T) {
 		{"unmatched beside a valid match", func(l *LookupVector) {
 			l.Expect.Outcome, *l.Expect.Gaps, (*l.Expect.Records)[1].Valid = "unmatched", nil, new(true)
 		}},
+		{"matched with two valid matches", func(l *LookupVector) { twoValidLookup(l, "matched") }},
+		{"bound on a version that cannot bound the window", func(l *LookupVector) { closingConflictLookup(l, true) }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -371,6 +409,17 @@ func TestLookupsMarshalRefuses(t *testing.T) {
 
 	_, err := Lookups{ls[0], ls[0]}.Marshal()
 	require.Error(t, err, "an id twice")
+
+	// The controls of the refusals above: two valid matches without a fact are ambiguous,
+	// and a closing version in conflict at the window's end does not bound it.
+	l := base()
+	twoValidLookup(&l, "ambiguous")
+	_, err = Lookups{l}.Marshal()
+	require.NoError(t, err)
+	l = base()
+	closingConflictLookup(&l, false)
+	_, err = Lookups{l}.Marshal()
+	require.NoError(t, err)
 
 	// The early return of key-without-fields: its shape is checked too.
 	early := func() LookupVector {
