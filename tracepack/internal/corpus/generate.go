@@ -44,6 +44,8 @@ var groups = []func() []Recipe{
 	framingVectors,
 	hsmsVectors,
 	repairVectors,
+	sampleVectors,
+	semVectors,
 	validationVectors,
 	verifyVectors,
 }
@@ -600,6 +602,8 @@ func generateVector(ctx context.Context, rec *Recipe) (Vector, *readOutputs, err
 }
 
 // checkCodec checks rec's Codec and EncoderMade against the packs of out, when Locate reads them.
+// A fixed pack's zstd bytes were made by whatever encoder wrote it once, never by the running one,
+// so it never depends on the encoder (the tracepack corpus specification §6.1).
 func (rec *Recipe) checkCodec(out *readOutputs) error {
 	made := false
 	for _, f := range out.files {
@@ -614,7 +618,7 @@ func (rec *Recipe) checkCodec(out *readOutputs) error {
 		if f.name == FilePack && c != cmp.Or(rec.Codec, CodecNone) {
 			return fmt.Errorf("its pack's codec is %s, the recipe says %s", c, cmp.Or(rec.Codec, CodecNone))
 		}
-		made = made || m
+		made = made || (m && rec.Source != SourceFixed)
 	}
 	if made != rec.EncoderMade {
 		return fmt.Errorf("its packs hold encoder-made zstd bytes: %v, the recipe says %v", made, rec.EncoderMade)
@@ -748,7 +752,7 @@ func (out *readOutputs) readOptional(ctx context.Context, r *tracepack.Reader, p
 		out.fields = rows
 	}
 	if in.classify != nil {
-		if err := checkClassify(r, in.classify, out.seqs); err != nil {
+		if err := checkClassify(ctx, r, in.classify); err != nil {
 			return err
 		}
 		if err := out.add(FileClassify, in.classify); err != nil {
@@ -987,15 +991,32 @@ func exportLines(export []byte) ([][]byte, error) {
 }
 
 // checkClassify checks that c is classify.json of the pack r reads:
-// the pack's single max_frame_len, and a frame per record seqs holds.
-func checkClassify(r *tracepack.Reader, c *Classify, seqs []uint64) error {
+// the pack's single max_frame_len, and a frame per data or control record of the pack
+// that stores the frame's decode_status and trailing_bytes.
+func checkClassify(ctx context.Context, r *tracepack.Reader, c *Classify) error {
 	m := r.Header().Meta.MaxFrameLens
 	if len(m) != 1 || m[0] != uint64(c.MaxFrameLen) {
 		return fmt.Errorf("classify.json's max_frame_len %d is not the pack's single max_frame_len %v", c.MaxFrameLen, m)
 	}
+	stored := make(map[uint64]ClassifyFrame)
+	_, err := r.Iterate(ctx, tracepack.Query{}, func(it *tracepack.Item) error {
+		if rec := &it.Record; rec.Kind == tracepack.KindData || rec.Kind == tracepack.KindControl {
+			stored[rec.Seq] = ClassifyFrame{Seq: U64(rec.Seq), DecodeStatus: rec.DecodeStatus.String(), TrailingBytes: rec.TrailingBytes}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
 	for _, f := range c.Frames {
-		if !slices.Contains(seqs, uint64(f.Seq)) {
-			return fmt.Errorf("classify.json lists seq %d, which no record of the pack has", f.Seq)
+		s, ok := stored[uint64(f.Seq)]
+		switch {
+		case !ok:
+			return fmt.Errorf("classify.json lists seq %d, which no data or control record of the pack has", f.Seq)
+		case s.DecodeStatus != f.DecodeStatus || s.TrailingBytes != f.TrailingBytes:
+			return fmt.Errorf("classify.json lists seq %d as %s with %d trailing bytes, the record stores %s with %d",
+				f.Seq, f.DecodeStatus, f.TrailingBytes, s.DecodeStatus, s.TrailingBytes)
 		}
 	}
 

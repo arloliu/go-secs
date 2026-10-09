@@ -1954,6 +1954,660 @@
       ]
     },
     {
+      "id": "sample-v010-rows",
+      "title": "the tracepack v0.1.0 pack of a multi-record block, read under the current format",
+      "cites": [
+        "FMT §14",
+        "FMT §13",
+        "FMT §16"
+      ],
+      "class": "read",
+      "labels": [
+        "pre-v2.13-sample"
+      ],
+      "codec": "zstd",
+      "source": "fixed",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "sem-capture-origin-mono",
+      "title": "a capture-clock pack whose capture_origin_mono_ns is not 0",
+      "cites": [
+        "SEM §4",
+        "SEM §9",
+        "FMT §5"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ]
+    },
+    {
+      "id": "sem-decode-status-classified",
+      "title": "a record of each decode_status a classifier writes, the order of evaluation and the max_frame_len boundary",
+      "cites": [
+        "SEM §3",
+        "SEM §9",
+        "CORPUS §5.9",
+        "CORPUS §7"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "classify.json"
+      ],
+      "cases": [
+        {
+          "id": "not-attempted",
+          "seq": "0",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "short-frame",
+          "seq": "1",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "length-mismatch",
+          "seq": "2",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "bad-ptype",
+          "seq": "3",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "bad-stype",
+          "seq": "4",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "control-with-body",
+          "seq": "5",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "oversized",
+          "seq": "6",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "item-decode-error",
+          "seq": "7",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "ok-with-trailing",
+          "seq": "8",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "ok",
+          "seq": "9",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "not-applicable",
+          "seq": "10",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "short-and-bad-ptype",
+          "seq": "11",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "length-mismatch-and-bad-stype",
+          "seq": "12",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "control-with-body-and-oversized",
+          "seq": "13",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "max-frame-len-equal",
+          "seq": "14",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "max-frame-len-exceeded",
+          "seq": "15",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sem-decode-status-log",
+      "title": "a log conversion's reconstructed-ok, parse-failed and build-rejected records",
+      "cites": [
+        "SEM §3",
+        "SEM §2",
+        "SEM §9",
+        "STO §7"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json"
+      ],
+      "cases": [
+        {
+          "id": "reconstructed-ok",
+          "seq": "0",
+          "cites": [
+            "SEM §3"
+          ]
+        },
+        {
+          "id": "parse-failed",
+          "seq": "1",
+          "cites": [
+            "SEM §3",
+            "STO §7"
+          ]
+        },
+        {
+          "id": "build-rejected",
+          "seq": "2",
+          "cites": [
+            "SEM §3",
+            "SEM §2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sem-item-validity",
+      "title": "the item-validity checklist",
+      "cites": [
+        "SEM §3",
+        "SEM §9",
+        "CORPUS §7",
+        "CORPUS §5.9"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "verify.json",
+        "classify.json"
+      ],
+      "cases": [
+        {
+          "id": "undefined-format",
+          "seq": "0",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "length-bytes-zero",
+          "seq": "1",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "length-bytes-cut-1",
+          "seq": "2",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "length-bytes-cut-2",
+          "seq": "3",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "length-bytes-cut-3",
+          "seq": "4",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "body-short",
+          "seq": "5",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "width-i2",
+          "seq": "6",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "width-i4",
+          "seq": "7",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "width-i8",
+          "seq": "8",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "width-u2",
+          "seq": "9",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "width-u4",
+          "seq": "10",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "width-u8",
+          "seq": "11",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "width-f4",
+          "seq": "12",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "width-f8",
+          "seq": "13",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "list-missing-element",
+          "seq": "14",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "list-invalid-nested",
+          "seq": "15",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "localized-length-1",
+          "seq": "16",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "empty-list",
+          "seq": "17",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "zero-length-binary",
+          "seq": "18",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "zero-length-boolean",
+          "seq": "19",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "zero-length-ascii",
+          "seq": "20",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "zero-length-jis8",
+          "seq": "21",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "zero-length-localized",
+          "seq": "22",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "zero-length-i1",
+          "seq": "23",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "zero-length-i2",
+          "seq": "24",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "zero-length-i4",
+          "seq": "25",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "zero-length-i8",
+          "seq": "26",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "zero-length-u1",
+          "seq": "27",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "zero-length-u2",
+          "seq": "28",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "zero-length-u4",
+          "seq": "29",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "zero-length-u8",
+          "seq": "30",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "zero-length-f4",
+          "seq": "31",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "zero-length-f8",
+          "seq": "32",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "whole-width-i2",
+          "seq": "33",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "whole-width-i4",
+          "seq": "34",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "whole-width-i8",
+          "seq": "35",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "whole-width-u2",
+          "seq": "36",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "whole-width-u4",
+          "seq": "37",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "whole-width-u8",
+          "seq": "38",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "whole-width-f4",
+          "seq": "39",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "whole-width-f8",
+          "seq": "40",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "length-bytes-1",
+          "seq": "41",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "length-bytes-2",
+          "seq": "42",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "length-bytes-3",
+          "seq": "43",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "boolean-other-values",
+          "seq": "44",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "ascii-high-bytes",
+          "seq": "45",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "localized-length-2",
+          "seq": "46",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "localized-length-3",
+          "seq": "47",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "trailing",
+          "seq": "48",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        },
+        {
+          "id": "empty-text",
+          "seq": "49",
+          "cites": [
+            "SEM §3",
+            "CORPUS §7"
+          ]
+        }
+      ]
+    },
+    {
       "id": "validation-i2-injection",
       "title": "a validating Writer's output stopped before a block with an injected I-2 defect",
       "cites": [
