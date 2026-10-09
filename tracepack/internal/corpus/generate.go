@@ -45,6 +45,7 @@ var groups = []func() []Recipe{
 	hsmsVectors,
 	repairVectors,
 	sampleVectors,
+	multiVectors,
 	semVectors,
 	validationVectors,
 	verifyVectors,
@@ -81,9 +82,10 @@ type Recipe struct {
 	Expect *Expectation
 }
 
-// Built is what a recipe's Build makes: the pack and the inputs of the vector's optional files.
+// Built is what a recipe's Build makes: the pack and the inputs of the vector's optional files,
+// or, for a multi-pack vector, its packs and the inputs of its reads.
 type Built struct {
-	// Pack is pack.tpk.
+	// Pack is pack.tpk; nil for a multi-pack vector.
 	Pack []byte
 	// Queries are the query vectors of queries.json, without their results, which the read gives.
 	Queries []QuerySpec
@@ -96,6 +98,31 @@ type Built struct {
 	// Repair, for a repair vector or a truncation vector whose table holds each cut's repair,
 	// holds what the repair options take from the vector; nil otherwise.
 	Repair *RepairInput
+	// Packs are the packs of a multi-pack vector, pack n its pack-<n>.tpk; nil for any other class.
+	Packs []PackBuilt
+	// Reads are the reads over several packs of reads.json, without their results, which the reads give;
+	// only a multi-pack vector has them.
+	Reads []ReadSpec
+}
+
+// PackBuilt is one pack of a multi-pack vector.
+type PackBuilt struct {
+	// Bytes is the pack's file.
+	Bytes []byte
+}
+
+// ReadSpec is a read over several packs of reads.json without its expect (the tracepack corpus specification §5.10).
+type ReadSpec struct {
+	ID    string
+	Cites []string
+	// Packs holds the numbers of the packs read, in the order the read is given them.
+	Packs []int
+	// Order is ReadOrderCapture or ReadOrderTime.
+	Order    string
+	Payloads bool
+	// MaxConflicts is the conflict bound the read states; 0 for none.
+	MaxConflicts int
+	Filter       Filter
 }
 
 // QuerySpec is a query vector of queries.json without its expect.
@@ -142,6 +169,7 @@ const (
 
 // Expectation is a vector's expectation, written by hand from the specification.
 // The generator checks every field against its reads of the vector before it writes anything.
+// A multi-pack vector's expectation holds only Packs and Reads.
 type Expectation struct {
 	// Rejection is the bootstrap rejection code of a rejection vector.
 	Rejection string
@@ -186,6 +214,49 @@ type Expectation struct {
 	// Cuts are the rows of truncation.json of a truncation vector, ascending, one per row:
 	// each names where its row starts, and its row ends where the next starts, the last at the end of the pack.
 	Cuts []CutWant
+	// Packs are the expectations of the packs of a multi-pack vector, pack n's at n:
+	// the facts of its pack-<n>.verify.json and the records it holds, as for the pack of a single-pack vector,
+	// and nothing of the files a multi-pack vector does not have.
+	Packs []*Expectation
+	// Reads are the results of each read of Built.Reads, in the order of their ids.
+	Reads []ReadWant
+}
+
+// ReadWant is the result of the read over several packs of id, in the form of reads.json:
+// the error form when Error is set, its Conflicts the first in discovery order;
+// else the success form, its items in yield order, its incomplete reasons, conflicts and footer errors.
+type ReadWant struct {
+	ID string
+	// Error is ErrorConflictLimit for the error form; "" for the success form.
+	Error        string
+	Items        []ItemWant
+	Incomplete   []PackIncompleteWant
+	Conflicts    []ConflictWant
+	FooterErrors []int
+}
+
+// ItemWant is one version a read yields: the record's seq, the number and block of the version's representative,
+// and whether the record's copies differ.
+type ItemWant struct {
+	Seq      uint64
+	Pack     int
+	Block    int
+	Conflict bool
+}
+
+// PackIncompleteWant is an incomplete reason of a read over several packs: the pack's number and the reason,
+// its position one of that pack.
+type PackIncompleteWant struct {
+	Pack int
+	IncompleteWant
+}
+
+// ConflictWant is a conflict a read lists: the number of the record's capture (captureOf), its seq,
+// and the numbers of the packs holding each version, in version order.
+type ConflictWant struct {
+	Capture  int
+	Seq      uint64
+	Versions [][]int
 }
 
 // CutWant is a row of truncation.json: the first cut length it covers and the expectation of its cuts,
@@ -306,6 +377,11 @@ type readOutputs struct {
 	footer     *Footer
 	repair     *Repair
 	truncation *Truncation
+	// packs holds the reads of each pack of a multi-pack vector, pack n's at n, as of a single pack without its optional files;
+	// its export is never a file of the vector.
+	packs []*readOutputs
+	// reads holds the reads over several packs of a multi-pack vector, by id.
+	reads []ReadVector
 }
 
 // AtBlock names the envelope of block i.
@@ -531,6 +607,10 @@ func (rec *Recipe) check() error {
 		return errors.New("no Build")
 	case e == nil:
 		return errors.New("no Expect")
+	case rec.Class == ClassMultiPack:
+		return e.checkMulti()
+	case e.Packs != nil || e.Reads != nil:
+		return errors.New("only a multi-pack vector expects packs and reads")
 	case rec.Class == ClassRejection && (e.Rejection == "" || e.Outcome != 0):
 		return errors.New("a rejection vector expects a rejection code and nothing else")
 	case rec.Class != ClassRejection && (e.Rejection != "" || e.Outcome == 0 || e.PrefixEnd.kind == posNone):
@@ -555,6 +635,12 @@ func generateVector(ctx context.Context, rec *Recipe) (Vector, *readOutputs, err
 	built, err := rec.Build(seed)
 	if err != nil {
 		return Vector{}, nil, err
+	}
+	if rec.Class == ClassMultiPack {
+		return generateMulti(ctx, rec, seed, built)
+	}
+	if built.Packs != nil || built.Reads != nil {
+		return Vector{}, nil, errors.New("only a multi-pack vector has packs and reads")
 	}
 
 	in := &readInputs{
@@ -586,6 +672,12 @@ func generateVector(ctx context.Context, rec *Recipe) (Vector, *readOutputs, err
 			return Vector{}, nil, fmt.Errorf("case %s names seq %d, which the pack does not export", c.ID, c.Seq)
 		}
 	}
+
+	return rec.vector(out)
+}
+
+// vector checks rec's codec declarations against the reads out and returns rec's manifest entry, listing the files of out.
+func (rec *Recipe) vector(out *readOutputs) (Vector, *readOutputs, error) {
 	if err := rec.checkCodec(out); err != nil {
 		return Vector{}, nil, err
 	}
@@ -601,13 +693,17 @@ func generateVector(ctx context.Context, rec *Recipe) (Vector, *readOutputs, err
 	return vec, out, nil
 }
 
-// checkCodec checks rec's Codec and EncoderMade against the packs of out, when Locate reads them.
+// checkCodec checks rec's Codec and EncoderMade against the packs of out, when Locate reads them:
+// the manifest codec over every vector pack, pack.tpk or each pack-<n>.tpk, and whether a pack or patch holds encoder-made bytes.
 // A fixed pack's zstd bytes were made by whatever encoder wrote it once, never by the running one,
 // so it never depends on the encoder (the tracepack corpus specification §6.1).
 func (rec *Recipe) checkCodec(out *readOutputs) error {
 	made := false
+	packsCodec := ""
 	for _, f := range out.files {
-		if f.name != FilePack && f.name != FilePatch {
+		_, verify, numbered := ParseNumberedFile(f.name)
+		vectorPack := f.name == FilePack || numbered && !verify
+		if !vectorPack && f.name != FilePatch {
 			continue
 		}
 		c, m, err := packCodecs(f.data)
@@ -615,16 +711,29 @@ func (rec *Recipe) checkCodec(out *readOutputs) error {
 			// A pack whose structures Locate refuses is declared by hand alone.
 			continue
 		}
-		if f.name == FilePack && c != cmp.Or(rec.Codec, CodecNone) {
-			return fmt.Errorf("its pack's codec is %s, the recipe says %s", c, cmp.Or(rec.Codec, CodecNone))
+		if vectorPack {
+			packsCodec = combineCodecs(packsCodec, c)
 		}
 		made = made || (m && rec.Source != SourceFixed)
+	}
+	if want := cmp.Or(rec.Codec, CodecNone); packsCodec != "" && packsCodec != want {
+		return fmt.Errorf("its packs' codec is %s, the recipe says %s", packsCodec, want)
 	}
 	if made != rec.EncoderMade {
 		return fmt.Errorf("its packs hold encoder-made zstd bytes: %v, the recipe says %v", made, rec.EncoderMade)
 	}
 
 	return nil
+}
+
+// combineCodecs returns the manifest codec of packs whose codec so far is acc ("" for none yet) and another of codec c:
+// the codec they share, or CodecMixed.
+func combineCodecs(acc, c string) string {
+	if acc == "" || acc == c {
+		return c
+	}
+
+	return CodecMixed
 }
 
 // packCodecs returns the manifest codec of pack, from its blocks' codecs and, when finalized, its footer's,

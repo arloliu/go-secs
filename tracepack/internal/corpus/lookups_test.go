@@ -16,7 +16,7 @@ var testOtherCapture = tracepack.UUID{0x01, 0x9a, 0x2b, 0x3c, 0x4d, 0x5e, 0x70, 
 // testLookupsJSON is lookups.json written by hand from the tracepack corpus specification §5.11, every key present:
 // a lookup in the error form; one whose result holds every key, every fact reason with its keys,
 // a barrier boundary with and without gap bounds and a coverage fact with an unknown list;
-// and one whose key holds no optional field and whose version has no role.
+// and an early return whose key holds no optional field: a primary in an undefined direction.
 const testLookupsJSON = `[
 {"id": "every-key", "cites": ["SEM §7.2", "CORPUS §5.11"],
  "source": {"view": [0, 1], "evidence": [2], "complete": true},
@@ -63,16 +63,17 @@ const testLookupsJSON = `[
      {"reason": "contradiction", "seq": "8"}],
    "searched": [{"hour": "10", "indexed": true, "packs": [0, 1]}, {"hour": "11", "indexed": false, "packs": []}],
    "conflicts": [{"capture_id": "019a2b3c-4d5e-7002-8000-000000000002", "seq": "5", "versions": [[0], [1]]}],
-   "footer_errors": [{"hour": "10", "pack": 1}, {"hour": "11", "pack": 0}]}},
+   "footer_errors": [{"hour": "10", "pack": 0}, {"hour": "10", "pack": 1}]}},
 {"id": "key-without-fields", "cites": ["SEM §7.2"],
  "source": {"view": [1], "evidence": [], "complete": false},
  "key": {"capture_id": "019a2b3c-4d5e-7002-8000-000000000002", "seq": "5", "hour": "-1"},
  "max_scopes": 1,
  "expect": {
-   "outcome": "unmatched",
+   "outcome": "incomplete",
    "key": {"epoch": 0, "dir": "unknown(9)"},
-   "records": [{"seq": "5", "hour": "-1", "pack": 1, "block": 0, "conflict": false, "roles": [], "in_window": false, "bound": false}],
-   "gaps": [], "searched": [], "conflicts": [], "footer_errors": []}},
+   "records": [{"seq": "5", "hour": "-1", "pack": 1, "block": 0, "conflict": false, "roles": ["primary"], "in_window": false, "bound": false}],
+   "gaps": [{"reason": "no-key"}, {"reason": "cold", "hours": ["-1"]}],
+   "searched": [{"hour": "-1", "indexed": false, "packs": [1]}], "conflicts": [], "footer_errors": []}},
 {"id": "not-primary", "cites": ["SEM §7.2"],
  "source": {"view": [0], "evidence": [], "complete": true},
  "key": {"capture_id": "019a2b3c-4d5e-7002-8000-000000000002", "seq": "4", "hour": "10"},
@@ -152,7 +153,7 @@ func everyKeyRun() LookupRun {
 				{Hour: 11, Packs: []tracepack.UUID{}},
 			},
 			Conflicts:  []tracepack.Conflict{{CaptureID: testCaptureID, Seq: 5, Versions: [][]tracepack.UUID{{testPack0}, {testPack1}}}},
-			FooterErrs: []tracepack.TxPackError{{Hour: 10, Pack: testPack1}, {Hour: 11, Pack: testPack0}},
+			FooterErrs: []tracepack.TxPackError{{Hour: 10, Pack: testPack0}, {Hour: 10, Pack: testPack1}},
 		},
 	}
 }
@@ -171,7 +172,7 @@ func TestLookupsJSON(t *testing.T) {
 	require.False(t, *(*every.Expect.Records)[1].Valid)
 	require.Equal(t, uint8(1), *every.Expect.Key.Function)
 	require.Equal(t, &PrimaryKey{Dir: "unknown(9)"}, minimal.Expect.Key)
-	require.Equal(t, []string{}, (*minimal.Expect.Records)[0].Roles)
+	require.Equal(t, []string{}, (*every.Expect.Records)[2].Roles)
 	require.Equal(t, LookupExpect{Error: ErrorNotPrimary}, notPrimary.Expect)
 
 	key, opts, err := every.Lookup()
@@ -212,13 +213,18 @@ func TestLookupExpectFrom(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, marshalJSON(t, ls[2].Expect), marshalJSON(t, got))
 
-	// A primary in an undefined direction, with no HSMS field available.
+	// A primary in an undefined direction, with no HSMS field available, in a scope that is not indexed: an early return.
 	primary := tracepack.Record{Seq: 5, Kind: tracepack.KindData, Dir: tracepack.Dir(9)}
 	run = LookupRun{
 		Key: tracepack.TxKey{Capture: testCaptureID, Seq: 5, Hour: -1}, MaxScopes: 1, Numbers: testNumbers,
 		Result: tracepack.TxResult{
-			Outcome: tracepack.TxUnmatched, Dir: tracepack.Dir(9),
-			Records: []tracepack.TxRecord{{Record: primary, Hour: -1, Pack: testPack1}},
+			Outcome: tracepack.TxIncomplete, Dir: tracepack.Dir(9),
+			Records: []tracepack.TxRecord{{Record: primary, Hour: -1, Pack: testPack1, Class: tracepack.TxPrimary}},
+			Gaps: []tracepack.TxGap{
+				{Reason: tracepack.TxGapCold, Hours: []int64{-1}, Block: -1, Offset: -1},
+				{Reason: tracepack.TxGapNoKey, Hours: []int64{-1}, Block: -1, Offset: -1, Seq: new(uint64(5))},
+			},
+			Searched: []tracepack.TxScope{{Hour: -1, Packs: []tracepack.UUID{testPack1}}},
 		},
 	}
 	got, err = LookupExpectFrom(&run)
@@ -258,8 +264,11 @@ func TestLookupExpectFromRefuses(t *testing.T) {
 		{"a version out of view order", func(r *LookupRun) {
 			r.Result.Conflicts[0].Versions = [][]tracepack.UUID{{testPack1, testPack0}}
 		}},
-		{"footer errors out of hour order", func(r *LookupRun) {
-			r.Result.FooterErrs[0], r.Result.FooterErrs[1] = r.Result.FooterErrs[1], r.Result.FooterErrs[0]
+		{"a footer error of an hour not searched", func(r *LookupRun) {
+			r.Result.FooterErrs = []tracepack.TxPackError{{Hour: 12, Pack: testPack0}}
+		}},
+		{"a footer error of a pack not in its scope", func(r *LookupRun) {
+			r.Result.FooterErrs = []tracepack.TxPackError{{Hour: 11, Pack: testPack0}}
 		}},
 		{"footer errors out of view order", func(r *LookupRun) {
 			r.Result.FooterErrs = []tracepack.TxPackError{{Hour: 10, Pack: testPack1}, {Hour: 10, Pack: testPack0}}
@@ -269,6 +278,12 @@ func TestLookupExpectFromRefuses(t *testing.T) {
 			r.Result.Outcome, r.Result.Gaps = tracepack.TxUnmatched, r.Result.Gaps[:1]
 		}},
 		{"incomplete without facts", func(r *LookupRun) { r.Result.Gaps = nil }},
+		{"matched without a valid match", func(r *LookupRun) {
+			r.Result.Outcome, r.Result.Gaps = tracepack.TxMatched, r.Result.Gaps[:1]
+		}},
+		{"incomplete beside a valid match and no fact that makes it incomplete", func(r *LookupRun) {
+			r.Result.Gaps, r.Result.Records[1].Valid = r.Result.Gaps[:1], true
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -322,7 +337,26 @@ func TestLookupsMarshalRefuses(t *testing.T) {
 		{"an outcome its facts contradict", func(l *LookupVector) { l.Expect.Outcome = "matched" }},
 		{"searched out of order", func(l *LookupVector) { (*l.Expect.Searched)[1].Hour = 9 }},
 		{"a conflict of a pack not in view", func(l *LookupVector) { (*l.Expect.Conflicts)[0].Versions = [][]int{{2}} }},
-		{"a footer error out of order", func(l *LookupVector) { (*l.Expect.FooterErrors)[1].Hour = 9 }},
+		{"a footer error out of order", func(l *LookupVector) {
+			*l.Expect.FooterErrors = []ScopeFooterError{{Hour: 10, Pack: 1}, {Hour: 10, Pack: 0}}
+		}},
+		{"a footer error of an hour not searched", func(l *LookupVector) { (*l.Expect.FooterErrors)[1].Hour = 9 }},
+		{"a footer error of a pack not in its scope", func(l *LookupVector) { (*l.Expect.FooterErrors)[1].Hour = 11 }},
+		{"no primary role at the primary's seq", func(l *LookupVector) { (*l.Expect.Records)[0].Roles = []string{} }},
+		{"a primary role at another seq", func(l *LookupVector) { (*l.Expect.Records)[2].Roles = []string{RolePrimary} }},
+		{"no window end", func(l *LookupVector) { l.Expect.WindowEnd = nil }},
+		{"another window end", func(l *LookupVector) { l.Expect.WindowEnd = new(U64(7)) }},
+		{"a version in the window marked outside it", func(l *LookupVector) { (*l.Expect.Records)[1].InWindow = false }},
+		{"the end marked in the window", func(l *LookupVector) { (*l.Expect.Records)[3].InWindow = true }},
+		{"the end not bounding", func(l *LookupVector) { (*l.Expect.Records)[3].Bound = false }},
+		{"a bound below the end", func(l *LookupVector) { (*l.Expect.Records)[2].Bound = true }},
+		{"matched without a valid match", func(l *LookupVector) { l.Expect.Outcome, *l.Expect.Gaps = "matched", nil }},
+		{"ambiguous with one valid match", func(l *LookupVector) {
+			l.Expect.Outcome, *l.Expect.Gaps, (*l.Expect.Records)[1].Valid = "ambiguous", nil, new(true)
+		}},
+		{"unmatched beside a valid match", func(l *LookupVector) {
+			l.Expect.Outcome, *l.Expect.Gaps, (*l.Expect.Records)[1].Valid = "unmatched", nil, new(true)
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -337,4 +371,42 @@ func TestLookupsMarshalRefuses(t *testing.T) {
 
 	_, err := Lookups{ls[0], ls[0]}.Marshal()
 	require.Error(t, err, "an id twice")
+
+	// The early return of key-without-fields: its shape is checked too.
+	early := func() LookupVector {
+		var copied Lookups
+		require.NoError(t, Unmarshal(canonicalText(t, testLookupsJSON), &copied))
+
+		return copied[1]
+	}
+	_, err = Lookups{early()}.Marshal()
+	require.NoError(t, err)
+	earlyTests := []struct {
+		name string
+		edit func(*LookupVector)
+	}{
+		{"a window end", func(l *LookupVector) { l.Expect.WindowEnd = new(U64(6)) }},
+		{"a version of another seq", func(l *LookupVector) {
+			*l.Expect.Records = append(*l.Expect.Records,
+				LookupRecord{Seq: 6, Hour: -1, Pack: 1, Roles: []string{}, InWindow: true})
+		}},
+		{"the primary in the window", func(l *LookupVector) { (*l.Expect.Records)[0].InWindow = true }},
+		{"a later scope searched", func(l *LookupVector) {
+			*l.Expect.Searched = append(*l.Expect.Searched, SearchedScope{Hour: 0, Packs: []int{}})
+		}},
+		{"a fact it does not report", func(l *LookupVector) { *l.Expect.Gaps = append(*l.Expect.Gaps, Fact{Reason: FactOpenWindow}) }},
+		{"a conflict above the primary", func(l *LookupVector) {
+			*l.Expect.Gaps = append(*l.Expect.Gaps, Fact{Reason: FactConflict, Hours: hoursOf(-1), Seq: new(U64(6))})
+		}},
+	}
+	for _, tt := range earlyTests {
+		t.Run("early return "+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			l := early()
+			tt.edit(&l)
+			_, err := Lookups{l}.Marshal()
+			require.Error(t, err)
+		})
+	}
 }

@@ -446,3 +446,138 @@ func defectNamed(name string) tracepack.WriterDefectKind {
 
 	return k
 }
+
+// checkMulti refuses the expectation of a multi-pack vector that does not fit its class:
+// a field other than Packs and Reads, no pack or no read,
+// or a pack's expectation without an outcome and a prefix end or with a file that a multi-pack vector does not have.
+func (e *Expectation) checkMulti() error {
+	rest := *e
+	rest.Packs, rest.Reads = nil, nil
+	if !reflect.DeepEqual(rest, Expectation{}) {
+		return errors.New("a multi-pack vector expects its packs and reads and nothing else")
+	}
+	if len(e.Packs) == 0 || len(e.Reads) == 0 {
+		return errors.New("a multi-pack vector expects its packs and its reads")
+	}
+	for n, p := range e.Packs {
+		switch {
+		case p == nil || p.Rejection != "" || p.Outcome == 0 || p.PrefixEnd.kind == posNone:
+			return fmt.Errorf("pack %d: a pack of a multi-pack vector expects an outcome and a prefix end", n)
+		case p.Outcome == tracepack.OutcomeUnfinalized && !p.Unfinalized:
+			return fmt.Errorf("pack %d: an unfinalized outcome of a pack expected finalized", n)
+		case p.Packs != nil || p.Reads != nil || p.Queries != nil || p.Fields != nil || p.Footer != nil || p.Repair != nil || p.Cuts != nil:
+			return fmt.Errorf("pack %d expects a file a multi-pack vector does not have", n)
+		}
+	}
+
+	return nil
+}
+
+// checkMultiPack compares e, the expectation of the multi-pack vector of seed, with the reads out of its packs:
+// each pack's expectation with the reads of that pack, and each read's, by id, with the read's result.
+func (e *Expectation) checkMultiPack(out *readOutputs, packs [][]byte, seed string) error {
+	if len(e.Packs) != len(out.packs) || len(out.packs) != len(packs) {
+		return fmt.Errorf("%d packs expected, %d read", len(e.Packs), len(out.packs))
+	}
+	var errs []error
+	layouts := make([]Layout, len(packs))
+	for n, p := range e.Packs {
+		if err := p.check(out.packs[n], packs[n]); err != nil {
+			errs = append(errs, fmt.Errorf("pack %d: %w", n, err))
+		}
+		l, err := Locate(packs[n])
+		if err != nil {
+			return fmt.Errorf("pack %d: the pack's layout: %w", n, err)
+		}
+		layouts[n] = l
+	}
+	if len(e.Reads) != len(out.reads) {
+		return errors.Join(append(errs, fmt.Errorf("reads: %d expected, %d read", len(e.Reads), len(out.reads)))...)
+	}
+	for i := range out.reads {
+		errs = append(errs, e.Reads[i].check(&out.reads[i], layouts, seed)...)
+	}
+
+	return errors.Join(errs...)
+}
+
+// check compares w with got, the read of reads.json of its id, whose packs have the layouts layouts, by number,
+// and whose captures are those of the vector of seed.
+func (w *ReadWant) check(got *ReadVector, layouts []Layout, seed string) []error {
+	if w.ID != got.ID {
+		return []error{fmt.Errorf("read: expected id %s, read %s", w.ID, got.ID)}
+	}
+	var errs []error
+	want := func(name string, exp, read any) {
+		if !reflect.DeepEqual(exp, read) {
+			errs = append(errs, fmt.Errorf("read %s: %s: expected %s, read %s", got.ID, name, describeJSON(exp), describeJSON(read)))
+		}
+	}
+
+	g := &got.Expect
+	want("error", w.Error, g.Error)
+	conflicts := make([]ConflictEntry, 0, len(w.Conflicts))
+	for _, c := range w.Conflicts {
+		conflicts = append(conflicts, ConflictEntry{CaptureID: captureOf(seed, c.Capture).String(), Seq: U64(c.Seq), Versions: nonNil(c.Versions)})
+	}
+	want("conflicts", conflicts, nonNil(g.Conflicts))
+	if w.Error != "" || g.Error != "" {
+		if w.Items != nil || w.Incomplete != nil || w.FooterErrors != nil {
+			errs = append(errs, fmt.Errorf("read %s: the error form expects its conflicts alone", got.ID))
+		}
+
+		return errs
+	}
+
+	items := make([]ReadItem, 0, len(w.Items))
+	for _, it := range w.Items {
+		items = append(items, ReadItem{Seq: U64(it.Seq), Pack: it.Pack, Block: it.Block, Conflict: it.Conflict})
+	}
+	want("items", items, *g.Items)
+	want("footer_errors", nonNil(w.FooterErrors), *g.FooterErrors)
+
+	return append(errs, w.checkIncomplete(got.ID, *g.Incomplete, layouts)...)
+}
+
+// checkIncomplete compares the incomplete reasons of w with got, those of the read of id,
+// each position in the pack of its reason, of the layout of that pack in layouts.
+func (w *ReadWant) checkIncomplete(id string, got []PackIncomplete, layouts []Layout) []error {
+	if len(w.Incomplete) != len(got) {
+		return []error{fmt.Errorf("read %s: %d incomplete reasons expected, read %s", id, len(w.Incomplete), describeJSON(got))}
+	}
+
+	var errs []error
+	for k, in := range got {
+		iw := w.Incomplete[k]
+		block := -1
+		if in.Block != nil {
+			block = *in.Block
+		}
+		if iw.Pack != in.Pack || iw.Reason.String() != in.Reason || iw.Block != block {
+			errs = append(errs, fmt.Errorf("read %s: incomplete %d: expected %s of pack %d, block %d, read %s of pack %d, block %d",
+				id, k, iw.Reason, iw.Pack, iw.Block, in.Reason, in.Pack, block))
+
+			continue
+		}
+		if iw.Pack < 0 || iw.Pack >= len(layouts) {
+			errs = append(errs, fmt.Errorf("read %s: incomplete %d names pack %d of %d", id, k, iw.Pack, len(layouts)))
+
+			continue
+		}
+		var exp *U64
+		if iw.At.kind != posNone {
+			off, err := iw.At.offset(&layouts[iw.Pack])
+			if err != nil {
+				errs = append(errs, fmt.Errorf("read %s: incomplete %d: %w", id, k, err))
+
+				continue
+			}
+			exp = new(U64(off))
+		}
+		if !reflect.DeepEqual(exp, in.Offset) {
+			errs = append(errs, fmt.Errorf("read %s: incomplete %d: expected offset %v, read %v", id, k, exp, in.Offset))
+		}
+	}
+
+	return errs
+}

@@ -33,7 +33,28 @@ var keptRootFiles = []string{".gitattributes", "README.md"}
 
 // offsetFiles are the files a regeneration under another zstd encoder does not compare for a vector that depends on it:
 // they hold offsets, which follow the compressed sizes (the tracepack corpus specification §6.1).
-var offsetFiles = []string{FileVerify, FileQueries, FileTruncation, FilePatch, FilePatchVerify}
+// Each pack-<n>.verify.json of a multi-pack vector is one too (offsetFile).
+var offsetFiles = []string{FileVerify, FileQueries, FileTruncation, FilePatch, FilePatchVerify, FileReads, FileLookups}
+
+// vectorGroupCeilings are the size ceilings of the vector groups, by id prefix, in bytes:
+// the sum of every file under the directories of a group's vectors.
+var vectorGroupCeilings = map[string]int{
+	"footer-": 240_000, "repair-": 180_000, "basic-": 130_000, "verify-": 110_000, "framing-": 90_000, "sem-": 75_000,
+	"hsms-": 50_000, "bootstrap-": 15_000, "validation-": 5_000, "sample-": 3_000, "multi-": 120_000, "tx-": 330_000,
+}
+
+// rootFileCeilings are the size ceilings of the files at the corpus root, in bytes, each the sum over its files.
+var rootFileCeilings = []rootCeiling{
+	{[]string{FileManifest}, 120_000},
+	{[]string{FilePrimitives}, 1_000},
+	{[]string{"README.md", ".gitattributes"}, 20_000},
+}
+
+// rootCeiling is the size ceiling of a set of files at the corpus root: the sum of their sizes.
+type rootCeiling struct {
+	files   []string
+	ceiling int
+}
 
 // TestCorpus regenerates the corpus and compares it with the committed files,
 // byte for byte when the linked zstd encoder is the one the manifest records,
@@ -143,11 +164,11 @@ func compareCorpus(gen, committed map[string][]byte, strict bool, dependent func
 			if !bytes.Equal(g, c) {
 				problems = append(problems, k+": differs from the committed file")
 			}
-		case path.Base(k) == FilePack:
+		case vectorPackFile(path.Base(k)):
 			if err := decodedEqual(g, c); err != nil {
 				problems = append(problems, k+": "+err.Error())
 			}
-		case slices.Contains(offsetFiles, path.Base(k)):
+		case offsetFile(path.Base(k)):
 			// Holds offsets that follow the encoder's output.
 		default:
 			if !bytes.Equal(g, c) {
@@ -222,13 +243,31 @@ func decodedEqual(a, b []byte) error {
 	return nil
 }
 
+// vectorPackFile reports whether name is a vector's pack: pack.tpk, or pack-<n>.tpk of a multi-pack vector.
+func vectorPackFile(name string) bool {
+	_, verify, numbered := ParseNumberedFile(name)
+
+	return name == FilePack || numbered && !verify
+}
+
+// offsetFile reports whether name is a file that holds offsets (offsetFiles), a pack-<n>.verify.json among them.
+func offsetFile(name string) bool {
+	_, verify, numbered := ParseNumberedFile(name)
+
+	return slices.Contains(offsetFiles, name) || numbered && verify
+}
+
 // checkLayout checks the committed files against the manifest m:
 // the root holds only the manifest, primitives.json and the kept files,
-// and each vector's directory exactly the files its entry lists.
+// each vector's entry lists the files its class allows (Vector.checkClassFiles),
+// and each vector's directory holds exactly the files its entry lists.
 func checkLayout(committed map[string][]byte, m *Manifest) []string {
 	var problems []string
 	listed := make(map[string]bool)
 	for _, v := range m.Vectors {
+		if err := v.checkClassFiles(); err != nil {
+			problems = append(problems, v.ID+": "+err.Error())
+		}
 		for _, f := range v.Files {
 			k := v.ID + "/" + f
 			listed[k] = true
@@ -255,6 +294,9 @@ func readCommitted(ctx context.Context, v *Vector, committed map[string][]byte) 
 	file := func(name string) ([]byte, bool) {
 		b, ok := committed[v.ID+"/"+name]
 		return b, ok
+	}
+	if v.Class == ClassMultiPack {
+		return readCommittedMulti(ctx, v, file)
 	}
 	pack, ok := file(FilePack)
 	if !ok {
@@ -298,6 +340,62 @@ func readCommitted(ctx context.Context, v *Vector, committed map[string][]byte) 
 	if err != nil {
 		return err
 	}
+	if err := sameFiles(out, v, file); err != nil {
+		return err
+	}
+	if v.Class == ClassRejection {
+		return nil
+	}
+
+	return checkRecordCount(out.seqs, &out.verify)
+}
+
+// readCommittedMulti reads the committed multi-pack vector v, whose files file gives, as a reader of the corpus does,
+// and requires every file it gives to equal the committed one:
+// each pack-<n>.tpk, n from 0 while the vector has one, with its verification report,
+// and reads.json, each read over its packs with the inputs the committed file holds.
+func readCommittedMulti(ctx context.Context, v *Vector, file func(name string) ([]byte, bool)) error {
+	var packs [][]byte
+	for n := 0; ; n++ {
+		b, ok := file(PackFile(n))
+		if !ok {
+			break
+		}
+		packs = append(packs, b)
+	}
+	if len(packs) == 0 {
+		return errors.New("no " + PackFile(0))
+	}
+	var specs []ReadSpec
+	if b, ok := file(FileReads); ok {
+		var rs Reads
+		if err := Unmarshal(b, &rs); err != nil {
+			return err
+		}
+		for i := range rs {
+			specs = append(specs, readSpecOf(&rs[i]))
+		}
+	}
+
+	out, err := readMultiVector(ctx, packs, specs)
+	if err != nil {
+		return err
+	}
+	if err := sameFiles(out, v, file); err != nil {
+		return err
+	}
+	for n, po := range out.packs {
+		if err := checkRecordCount(po.seqs, &po.verify); err != nil {
+			return fmt.Errorf("pack %d: %w", n, err)
+		}
+	}
+
+	return nil
+}
+
+// sameFiles requires the files out gives to be the committed files of v, which file gives, byte for byte,
+// and exactly those v's entry lists, in its order.
+func sameFiles(out *readOutputs, v *Vector, file func(name string) ([]byte, bool)) error {
 	var names []string
 	for _, f := range out.files {
 		names = append(names, f.name)
@@ -312,11 +410,8 @@ func readCommitted(ctx context.Context, v *Vector, committed map[string][]byte) 
 	if !slices.Equal(names, v.Files) {
 		return fmt.Errorf("the read gives %v, the manifest lists %v", names, v.Files)
 	}
-	if v.Class == ClassRejection {
-		return nil
-	}
 
-	return checkRecordCount(out.seqs, &out.verify)
+	return nil
 }
 
 // checkRecordCount checks that an export of the record seqs holds the records the verification v counts,
@@ -327,6 +422,53 @@ func checkRecordCount(seqs []uint64, v *Verify) error {
 	}
 
 	return nil
+}
+
+// checkBudgets checks the files of a corpus, by path from its root, against the ceilings of their vector groups and root files
+// (vectorGroupCeilings, rootFileCeilings), and returns every group or root file over its ceiling,
+// every vector directory of no group and every root file of no ceiling.
+func checkBudgets(files map[string][]byte) []string {
+	groups := make(map[string]int)
+	roots := make(map[string]int)
+	var problems []string
+	for k, b := range files {
+		dir, _, inDir := strings.Cut(k, "/")
+		if !inDir {
+			roots[dir] += len(b)
+
+			continue
+		}
+		g := slices.IndexFunc(vectorGroups, func(p string) bool { return strings.HasPrefix(dir, p) })
+		if g < 0 {
+			problems = append(problems, k+": a vector of no group")
+
+			continue
+		}
+		groups[vectorGroups[g]] += len(b)
+	}
+	for g, n := range groups {
+		ceiling, ok := vectorGroupCeilings[g]
+		if !ok || n > ceiling {
+			problems = append(problems, fmt.Sprintf("group %s holds %d bytes, over its ceiling %d", g, n, ceiling))
+		}
+	}
+	for name := range roots {
+		if !slices.ContainsFunc(rootFileCeilings, func(c rootCeiling) bool { return slices.Contains(c.files, name) }) {
+			problems = append(problems, name+": a root file of no ceiling")
+		}
+	}
+	for _, c := range rootFileCeilings {
+		n := 0
+		for _, f := range c.files {
+			n += roots[f]
+		}
+		if n > c.ceiling {
+			problems = append(problems, fmt.Sprintf("%s hold %d bytes, over their ceiling %d", strings.Join(c.files, ", "), n, c.ceiling))
+		}
+	}
+	slices.Sort(problems)
+
+	return problems
 }
 
 // checkSize reports a corpus of total bytes over maxCorpusBytes.

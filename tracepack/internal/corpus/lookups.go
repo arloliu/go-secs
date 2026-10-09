@@ -176,7 +176,8 @@ func (l *LookupVector) Lookup() (tracepack.TxKey, tracepack.TxOptions, error) {
 //     or an inconsistency of the result: a pack_id no source pack has, an undefined outcome or role bit,
 //     candidate flags on a version that is not a candidate, a first kept version that is not the primary's,
 //     key fields that disagree with that version, versions, scopes or footer errors out of their order,
-//     a conflict naming packs of no scope searched, an outcome its facts contradict, or the error of NormalizeGaps.
+//     a conflict naming packs of no scope searched, a footer error naming no pack of a scope searched,
+//     an outcome its facts and valid matches contradict, or the error of NormalizeGaps.
 func LookupExpectFrom(run *LookupRun) (LookupExpect, error) {
 	if run.Err != nil {
 		if errors.Is(run.Err, tracepack.ErrNotPrimary) {
@@ -229,7 +230,7 @@ func LookupExpectFrom(run *LookupRun) (LookupExpect, error) {
 	if err != nil {
 		return LookupExpect{}, err
 	}
-	if err := checkOutcome(outcome, gaps); err != nil {
+	if err := checkOutcome(outcome, gaps, validMatches(records)); err != nil {
 		return LookupExpect{}, err
 	}
 	out.Records, out.Gaps, out.Searched, out.Conflicts, out.FooterErrors = &records, &gaps, &searched, &conflicts, &footer
@@ -395,7 +396,7 @@ func scopeConflicts(cs []tracepack.Conflict, ss []tracepack.TxScope, number func
 }
 
 // scopeFooterErrors renders the footer errors fs,
-// which must ascend by hour, then by view order where the scope was searched.
+// each of a pack of a scope searched, which must ascend by hour, then by view order.
 func scopeFooterErrors(fs []tracepack.TxPackError, searched []SearchedScope, number func(tracepack.UUID) (int, error)) ([]ScopeFooterError, error) {
 	out := make([]ScopeFooterError, 0, len(fs))
 	for i := range fs {
@@ -404,6 +405,9 @@ func scopeFooterErrors(fs []tracepack.TxPackError, searched []SearchedScope, num
 			return nil, err
 		}
 		e := ScopeFooterError{Hour: I64(fs[i].Hour), Pack: n}
+		if !ofScopeSearched(&e, searched) {
+			return nil, fmt.Errorf("corpus: the footer error of pack %d in hour %d names no pack of a scope searched", n, fs[i].Hour)
+		}
 		if i > 0 && compareFooterErrors(&out[i-1], &e, searched) >= 0 {
 			return nil, fmt.Errorf("corpus: the footer error of pack %d in hour %d is out of order", n, fs[i].Hour)
 		}
@@ -411,6 +415,13 @@ func scopeFooterErrors(fs []tracepack.TxPackError, searched []SearchedScope, num
 	}
 
 	return out, nil
+}
+
+// ofScopeSearched reports whether the footer error e names a pack of the scope of its hour in searched.
+func ofScopeSearched(e *ScopeFooterError, searched []SearchedScope) bool {
+	k := slices.IndexFunc(searched, func(s SearchedScope) bool { return s.Hour == e.Hour })
+
+	return k >= 0 && slices.Contains(searched[k].Packs, e.Pack)
 }
 
 // compareFooterErrors orders footer errors by hour, then by the view order of their scope in searched;
@@ -427,19 +438,42 @@ func compareFooterErrors(a, b *ScopeFooterError, searched []SearchedScope) int {
 	return cmp.Compare(slices.Index(searched[k].Packs, a.Pack), slices.Index(searched[k].Packs, b.Pack))
 }
 
-// checkOutcome checks that outcome follows from the facts gaps (the tracepack corpus specification §5.11, Facts):
-// incomplete with a no-key, conflict, index or scope-breach fact; unmatched only without facts;
-// incomplete without facts never.
-func checkOutcome(outcome string, gaps []Fact) error {
-	forced := slices.ContainsFunc(gaps, func(f Fact) bool { return slices.Contains(incompleteFacts, f.Reason) })
+// checkOutcome checks that outcome follows from the facts gaps and the number of valid matches valid
+// (the tracepack corpus specification §5.11, Facts):
+// incomplete with a no-key, conflict, index or scope-breach fact;
+// otherwise matched with one valid match and ambiguous with several;
+// otherwise unmatched without facts and incomplete with them.
+func checkOutcome(outcome string, gaps []Fact, valid int) error {
+	want := "incomplete"
 	switch {
-	case forced && outcome != "incomplete":
-		return fmt.Errorf("corpus: outcome %s beside a fact that makes the outcome incomplete", outcome)
-	case outcome == "unmatched" && len(gaps) > 0, outcome == "incomplete" && len(gaps) == 0:
-		return fmt.Errorf("corpus: outcome %s beside %d facts", outcome, len(gaps))
+	case slices.ContainsFunc(gaps, func(f Fact) bool { return slices.Contains(incompleteFacts, f.Reason) }):
+		// A fact that makes the outcome incomplete decides it.
+	case valid == 1:
+		want = "matched"
+	case valid > 1:
+		want = "ambiguous"
+	case len(gaps) == 0:
+		want = "unmatched"
+	default:
+		// Facts without a valid match leave the outcome incomplete.
+	}
+	if outcome != want {
+		return fmt.Errorf("corpus: outcome %s beside %d valid matches and %d facts, which give %s", outcome, valid, len(gaps), want)
 	}
 
 	return nil
+}
+
+// validMatches returns the number of kept versions whose valid flag is true.
+func validMatches(records []LookupRecord) int {
+	n := 0
+	for _, r := range records {
+		if r.Valid != nil && *r.Valid {
+			n++
+		}
+	}
+
+	return n
 }
 
 // Marshal returns lookups.json in the canonical form:
@@ -528,7 +562,10 @@ func (l *LookupVector) normalResult(e *LookupExpect) error {
 			return fmt.Errorf("a %s fact names pack %d, not in view", f.Reason, *f.Pack)
 		}
 	}
-	if err := checkOutcome(e.Outcome, gaps); err != nil {
+	if err := checkOutcome(e.Outcome, gaps, validMatches(records)); err != nil {
+		return err
+	}
+	if err := l.checkWindow(records, gaps, e.WindowEnd, *e.Searched); err != nil {
 		return err
 	}
 	if err := l.checkScopes(*e.Searched, *e.Conflicts, *e.FooterErrors); err != nil {
@@ -568,6 +605,9 @@ func (l *LookupVector) normalRecords(rs []LookupRecord) ([]LookupRecord, error) 
 		}
 		if !slices.Contains(l.Source.View, r.Pack) || r.Block < 0 || r.Roles == nil {
 			return nil, fmt.Errorf("record at seq %d names pack %d, block %d, or has no roles", r.Seq, r.Pack, r.Block)
+		}
+		if (r.Seq == l.Key.Seq) != slices.Contains(r.Roles, RolePrimary) {
+			return nil, fmt.Errorf("record at seq %d: a version is labelled primary iff it is at the primary's seq %d", r.Seq, l.Key.Seq)
 		}
 		ranks := make([]int, 0, len(r.Roles))
 		for _, role := range r.Roles {
@@ -626,10 +666,94 @@ func (l *LookupVector) checkScopes(searched []SearchedScope, conflicts []Conflic
 		}
 	}
 	for i := range footer {
-		if !slices.Contains(l.Source.View, footer[i].Pack) || i > 0 && compareFooterErrors(&footer[i-1], &footer[i], searched) >= 0 {
-			return fmt.Errorf("the footer error of pack %d in hour %d is not in view or out of order", footer[i].Pack, footer[i].Hour)
+		if !ofScopeSearched(&footer[i], searched) || i > 0 && compareFooterErrors(&footer[i-1], &footer[i], searched) >= 0 {
+			return fmt.Errorf("the footer error of pack %d in hour %d names no pack of a scope searched, or is out of order", footer[i].Pack, footer[i].Hour)
 		}
 	}
 
 	return nil
+}
+
+// notReportedEarly are the reasons of the facts an early-return result never holds,
+// besides a conflict above the primary's seq (the tracepack corpus specification §5.11, Early-return results).
+var notReportedEarly = []string{
+	FactCoverage, FactBarrier, FactCaptureBoundary, FactOrderingUncertain, FactEvidence,
+	FactSeqGap, FactOpenWindow, FactUnavailable, FactContradiction,
+}
+
+// earlyReturn reports whether a result whose facts are gaps ended after the scope of the primary's hour
+// (the tracepack corpus specification §5.11, Early-return results):
+// its primary has no key, and not because a later scope's read yields another version of it,
+// which a conflict at the primary's seq over several hours states.
+func earlyReturn(gaps []Fact, p U64) bool {
+	noKey := slices.ContainsFunc(gaps, func(f Fact) bool { return f.Reason == FactNoKey })
+	across := slices.ContainsFunc(gaps, func(f Fact) bool {
+		return f.Reason == FactConflict && f.Seq != nil && *f.Seq == p && len(f.Hours) > 1
+	})
+
+	return noKey && !across
+}
+
+// boundsWindow reports whether the kept version r can bound the window:
+// a same-key primary, with or without a conflict, or a version labelled closing without a conflict
+// (the tracepack corpus specification §5.11, Window).
+func boundsWindow(r *LookupRecord) bool {
+	return slices.Contains(r.Roles, RoleSameKeyPrimary) || slices.Contains(r.Roles, RoleClosing) && !r.Conflict
+}
+
+// checkWindow checks the window of a result against its kept versions records, ascending by seq, and its facts gaps
+// (the tracepack corpus specification §5.11, Window and Early-return results).
+// An early return has no window end, keeps only versions of the primary, none in the window or bounding it,
+// searches no scope but the primary's, and holds none of the facts it does not report.
+// Any other result's window end is the smallest seq above the primary's of a version that can bound the window,
+// absent when there is none;
+// a version is in the window when its seq lies above the primary's and below the end, if any,
+// and bounds it when it can and its seq is the end.
+func (l *LookupVector) checkWindow(records []LookupRecord, gaps []Fact, windowEnd *U64, searched []SearchedScope) error {
+	p := l.Key.Seq
+	if earlyReturn(gaps, p) {
+		return l.checkEarlyReturn(records, gaps, windowEnd, searched)
+	}
+
+	var end *U64
+	for i := range records {
+		if records[i].Seq > p && boundsWindow(&records[i]) {
+			end = &records[i].Seq
+			break
+		}
+	}
+	if (end == nil) != (windowEnd == nil) || end != nil && *end != *windowEnd {
+		return fmt.Errorf("the window end is not the smallest seq above %d of a version that bounds the window", p)
+	}
+	for i := range records {
+		r := &records[i]
+		in := r.Seq > p && (end == nil || r.Seq < *end)
+		bound := end != nil && r.Seq == *end && boundsWindow(r)
+		if r.InWindow != in || r.Bound != bound {
+			return fmt.Errorf("record at seq %d: in_window %v and bound %v, the window gives %v and %v", r.Seq, r.InWindow, r.Bound, in, bound)
+		}
+	}
+
+	return nil
+}
+
+// checkEarlyReturn checks the shape of an early-return result (the tracepack corpus specification §5.11, Early-return results):
+// no window end, only versions of the primary, none in the window or bounding it,
+// no scope searched but the primary's, and none of the facts an early return does not report.
+func (l *LookupVector) checkEarlyReturn(records []LookupRecord, gaps []Fact, windowEnd *U64, searched []SearchedScope) error {
+	p := l.Key.Seq
+	switch {
+	case windowEnd != nil:
+		return errors.New("an early return has no window end")
+	case slices.ContainsFunc(records, func(r LookupRecord) bool { return r.Seq != p || r.InWindow || r.Bound }):
+		return errors.New("an early return keeps only versions of the primary, none in the window or bounding it")
+	case len(searched) > 1 || len(searched) == 1 && searched[0].Hour != l.Key.Hour:
+		return errors.New("an early return searches no scope but the primary's")
+	case slices.ContainsFunc(gaps, func(f Fact) bool {
+		return slices.Contains(notReportedEarly, f.Reason) || f.Reason == FactConflict && f.Seq != nil && *f.Seq > p
+	}):
+		return errors.New("an early return holds a fact it does not report")
+	default:
+		return nil
+	}
 }
