@@ -137,6 +137,26 @@ func TestGenerateFailsOnDisagreement(t *testing.T) {
 		{"verify-truncation-none", "a row's prefix end", func(e *Expectation) { e.Cuts[5].PrefixEnd = AtBlock(0) }},
 		{"verify-truncation-none", "a row's walk stop", func(e *Expectation) { e.Cuts[3].WalkStop = Pos{} }},
 		{"verify-truncation-none", "a row missing", func(e *Expectation) { e.Cuts = e.Cuts[:len(e.Cuts)-1] }},
+		{"verify-truncation-none", "a row's repair", func(e *Expectation) { e.Cuts[2].Repair = &RepairWant{Result: RepairNotNeeded} }},
+		{"repair-middle-trusted-footer", "repair result", func(e *Expectation) { e.Repair = &RepairWant{Result: RepairNotRepairable} }},
+		{"repair-middle-trusted-footer", "repair blocks", func(e *Expectation) { e.Repair.Blocks = 3 }},
+		{"repair-middle-trusted-footer", "repair records", func(e *Expectation) { e.Repair.Records = 3 }},
+		{"repair-middle-trusted-footer", "repair coverage seq_last", func(e *Expectation) { e.Repair.Coverage[0].Last = new(uint64(4)) }},
+		{"repair-middle-trusted-footer", "repair coverage time", func(e *Expectation) { e.Repair.Coverage[0].TimeEnd = msAt(4) }},
+		{"repair-middle-no-footer", "repair coverage seq_first", func(e *Expectation) { e.Repair.Coverage[0].First = 2 }},
+		{"repair-middle-no-footer", "repair coverage missing", func(e *Expectation) { e.Repair.Coverage = nil }},
+		{"repair-not-needed", "repair patched", func(e *Expectation) { e.Repair = &RepairWant{Result: RepairPatched, Blocks: 3, Records: 4} }},
+		{"repair-truncation", "a row's repair result", func(e *Expectation) { e.Cuts[2].Repair = &RepairWant{Result: RepairNotRepairable} }},
+		{"repair-truncation", "a row's repair blocks", func(e *Expectation) {
+			e.Cuts[4].Repair = &RepairWant{Result: RepairPatched, Coverage: []CoverageWant{hourCoverage(2, nil)}}
+		}},
+		{"repair-truncation", "a row's repair coverage", func(e *Expectation) {
+			e.Cuts[6].Repair = &RepairWant{Result: RepairPatched, Blocks: 2, Coverage: []CoverageWant{hourCoverage(4, new(uint64(9)))}}
+		}},
+		{"repair-truncation", "a row's repair records", func(e *Expectation) {
+			e.Cuts[6].Repair = &RepairWant{Result: RepairPatched, Blocks: 2, Records: 4, Coverage: []CoverageWant{hourCoverage(4, nil)}}
+		}},
+		{"repair-truncation", "a row without its repair", func(e *Expectation) { e.Cuts[7].Repair = nil }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.id+" "+tt.name, func(t *testing.T) {
@@ -148,6 +168,10 @@ func TestGenerateFailsOnDisagreement(t *testing.T) {
 			e.Failed = slices.Clone(e.Failed)
 			e.Queries = slices.Clone(e.Queries)
 			e.Cuts = slices.Clone(e.Cuts)
+			if e.Repair != nil {
+				e.Repair = new(*e.Repair)
+				e.Repair.Coverage = slices.Clone(e.Repair.Coverage)
+			}
 			if e.Stats != nil {
 				e.Stats = new(*e.Stats)
 				e.Stats.Epochs = slices.Clone(e.Stats.Epochs)
@@ -198,6 +222,134 @@ func TestRecipesCheckTheirRows(t *testing.T) {
 	read.Expect = new(*read.Expect)
 	read.Expect.Cuts = []CutWant{{From: AtOffset(0), Rejection: RejectShortObject}}
 	require.Error(t, read.check(), "rows on a read vector")
+
+	repair := recipeByID(t, "repair-not-needed")
+	repair.Expect = new(*repair.Expect)
+	repair.Expect.Repair = nil
+	require.Error(t, repair.check(), "a repair vector without its repair")
+}
+
+// TestGenerateNeedsIntactPack checks that Generate refuses a repair vector whose pack lost records without its intact pack,
+// whose records the patch must hold or cover.
+func TestGenerateNeedsIntactPack(t *testing.T) {
+	t.Parallel()
+
+	r := recipeByID(t, "repair-middle-trusted-footer")
+	build := r.Build
+	r.Build = func(seed string) (*Built, error) {
+		b, err := build(seed)
+		if err == nil {
+			b.Repair.Intact = nil
+		}
+
+		return b, err
+	}
+	_, err := generateRecipes(t.Context(), []Recipe{r}, "test")
+	require.ErrorContains(t, err, "intact pack")
+}
+
+// coverageCaptureIDTag is the tag of a coverage entry's capture_id (the tracepack format specification §5).
+const coverageCaptureIDTag uint16 = 0x0001
+
+// TestGenerateUsesIntactPack checks that Generate checks a repair vector's patch against the records of its intact pack:
+// a record the intact pack holds that the patch neither copies nor covers fails the vector.
+func TestGenerateUsesIntactPack(t *testing.T) {
+	t.Parallel()
+
+	r := recipeByID(t, "repair-middle-trusted-footer")
+	build := r.Build
+	r.Build = func(seed string) (*Built, error) {
+		b, err := build(seed)
+		if err != nil {
+			return nil, err
+		}
+		// Seq 4 lies outside the coverage entry of the failed block's F-3 range, seqs 2 to 3.
+		b.Repair.Intact, err = writeSpec(&packSpec{seed: seed, meta: segmentMeta(seed), blocks: [][]tracepack.Record{
+			{footerData(0, 1)},
+			{footerData(2, 1), footerData(3, 1)},
+			{footerData(4, 1), footerData(5, 1)},
+		}})
+
+		return b, err
+	}
+	_, err := generateRecipes(t.Context(), []Recipe{r}, "test")
+	require.ErrorContains(t, err, "neither copied nor covered")
+}
+
+// TestCutExpectationChecksPatch checks that a truncation table's repair of a cut checks the cut's patch against the records it is given:
+// a record outside the hour of the patch's tail entry fails the cut.
+func TestCutExpectationChecksPatch(t *testing.T) {
+	t.Parallel()
+
+	r := recipeByID(t, "repair-truncation")
+	b := must(r.Build(r.seed()))(t)
+	export, _, err := exportPack(t.Context(), must(openBytes(t.Context(), b.Pack))(t))
+	require.NoError(t, err)
+	base := must(exportLines(export))(t)
+	records := must(exportRecords(export))(t)
+	l := must(Locate(b.Pack))(t)
+	opts := RepairOptionsFor(r.seed(), b.Repair)
+	const cut = 629
+
+	c, err := cutExpectation(t.Context(), b.Pack[:cut], &l, base, records, &opts)
+	require.NoError(t, err)
+	require.NotNil(t, c.Repair)
+	require.Equal(t, RepairPatched, c.Repair.Result)
+
+	outside := append(slices.Clone(records), exportedRecord{Seq: 4, TS: I64(TimeBase + hourNs)})
+	_, err = cutExpectation(t.Context(), b.Pack[:cut], &l, base, outside, &opts)
+	require.ErrorContains(t, err, "neither copied nor covered")
+}
+
+// TestCheckPatch checks each property checkPatch requires of a patch (the tracepack format specification §16):
+// finalized-consistent, its blocks those of the damaged pack, its seq_start, and every record of the intact pack held or covered.
+func TestCheckPatch(t *testing.T) {
+	t.Parallel()
+
+	r := recipeByID(t, "repair-middle-trusted-footer")
+	b := must(r.Build(r.seed()))(t)
+	_, patch, err := RunRepair(t.Context(), b.Pack, RepairOptionsFor(r.seed(), b.Repair))
+	require.NoError(t, err)
+	require.NotNil(t, patch)
+	intact := must(openBytes(t.Context(), b.Repair.Intact))(t)
+	export, _, err := exportPack(t.Context(), intact)
+	require.NoError(t, err)
+	records := must(exportRecords(export))(t)
+	require.Len(t, records, 4)
+
+	_, _, err = checkPatch(t.Context(), b.Pack, patch, records)
+	require.NoError(t, err, "the patch holds seqs 0 and 5 and covers seqs 2 and 3 at their times")
+
+	tests := []struct {
+		name        string
+		pack, patch []byte
+		records     []exportedRecord
+		contains    string
+	}{
+		{"a seq neither copied nor covered", b.Pack, patch, append(slices.Clone(records), exportedRecord{Seq: 4, TS: I64(msAt(4))}), "record 4"},
+		{"a covered seq at a time outside the entry", b.Pack, patch,
+			[]exportedRecord{records[0], {Seq: 2, TS: I64(msAt(4))}, records[2], records[3]}, "record 2"},
+		{"another seq_start", b.Pack, must(setSeqStart(patch, 0, 1))(t), records, "seq_start"},
+		{"a patch that is not finalized-consistent", b.Pack, must(flipBody(patch, 1))(t), records, "verifies"},
+		{"a block of another pack", must(setRowTime(b.Pack, 0, 0, msAt(1)))(t), patch, records, "not a block of the damaged pack"},
+		{"a new entry of another capture", b.Pack, must(editMeta(patch, func(meta []byte) ([]byte, error) {
+			at, err := NestedValueOffset(meta, Section{Len: len(meta)}, metaCoverageTag, 0, coverageCaptureIDTag)
+			if err == nil {
+				meta[at] ^= 0xFF
+			}
+
+			return meta, err
+		}))(t), records, "neither copied nor covered"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, _, err := checkPatch(t.Context(), tt.pack, tt.patch, tt.records)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.contains)
+		})
+	}
 }
 
 func TestExportLines(t *testing.T) {
@@ -467,7 +619,7 @@ func manifestEncoder(t *testing.T, files map[string][]byte, encoder string) func
 const specFile = "../../../docs/specs/tracepack/tracepack-corpus.md"
 
 // generatedGroups are the id prefixes of the groups the generator builds so far.
-var generatedGroups = []string{"basic-", "bootstrap-", "footer-", "framing-", "validation-", "verify-"}
+var generatedGroups = []string{"basic-", "bootstrap-", "footer-", "framing-", "repair-", "validation-", "verify-"}
 
 // TestRecipeIDsAreCatalogued checks that every vector of a generated group that the catalogue of the tracepack corpus specification §9.4 lists has a recipe,
 // and that no recipe is missing from it.

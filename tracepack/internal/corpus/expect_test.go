@@ -110,3 +110,18 @@ func TestExpectationChecksVerifyKeys(t *testing.T) {
 		assert.Error(t, r.Expect.check(out, built.Pack), name)
 	}
 }
+
+// TestRepairReadChecksCaptureID checks that a repair's new coverage entry must name the pack's capture.
+func TestRepairReadChecksCaptureID(t *testing.T) {
+	t.Parallel()
+
+	own, other := tracepack.UUID{1}.String(), tracepack.UUID{2}.String()
+	entry := func(id string) *[]Coverage { return &[]Coverage{{CaptureID: &id, SeqFirst: new(U64(2))}} }
+
+	got, err := repairRead(RepairPatched, new(2), new(U64(2)), entry(own), own)
+	require.NoError(t, err)
+	assert.Equal(t, RepairWant{Result: RepairPatched, Blocks: 2, Records: 2, Coverage: []CoverageWant{{First: 2}}}, got)
+
+	_, err = repairRead(RepairPatched, new(2), new(U64(2)), entry(other), own)
+	require.ErrorContains(t, err, "another capture_id")
+}

@@ -1,0 +1,26 @@
+{
+  "outcome": "finalized-inconsistent",
+  "finalized": true,
+  "footer_valid": true,
+  "blocks_located": 3,
+  "blocks_validated": 3,
+  "records": "4",
+  "prefix_end": "659",
+  "failed_blocks": [],
+  "disagreeing_blocks": [
+    {
+      "block": 1,
+      "offset": "405"
+    }
+  ],
+  "trailer_totals_disagree": false,
+  "writer_defects": [
+    {
+      "kind": "hour-span",
+      "block": 1,
+      "offset": "405",
+      "seq": "2"
+    }
+  ],
+  "lost": []
+}

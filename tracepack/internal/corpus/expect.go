@@ -101,8 +101,8 @@ func (e *Expectation) check(out *readOutputs, pack []byte) error {
 		errs = append(errs, fmt.Errorf("footer.json: expected %s, read %s", describe(want), describe(out.footer)))
 	}
 	errs = append(errs, e.checkQueries(out, pos)...)
-	errs = append(errs, e.checkRepair(out)...)
-	errs = append(errs, e.checkCuts(out.truncation, &l)...)
+	errs = append(errs, e.checkRepair(out, captureID)...)
+	errs = append(errs, e.checkCuts(out.truncation, &l, captureID)...)
 
 	return errors.Join(errs...)
 }
@@ -168,8 +168,8 @@ func (e *Expectation) checkQueries(out *readOutputs, pos func(string, Pos, *U64)
 	return errs
 }
 
-// checkRepair compares e.Repair with the repair of out.
-func (e *Expectation) checkRepair(out *readOutputs) []error {
+// checkRepair compares e.Repair with the repair of out, whose new coverage entries must name the pack's capture.
+func (e *Expectation) checkRepair(out *readOutputs, captureID string) []error {
 	switch {
 	case e.Repair == nil && out.repair == nil:
 		return nil
@@ -178,40 +178,69 @@ func (e *Expectation) checkRepair(out *readOutputs) []error {
 	}
 
 	r := out.repair
-	got := RepairWant{Result: r.Result}
-	if r.Blocks != nil {
-		got.Blocks = *r.Blocks
+	got, err := repairRead(r.Result, r.Blocks, r.Records, r.CoverageAdded, captureID)
+	if err != nil {
+		return []error{fmt.Errorf("repair: %w", err)}
 	}
-	if r.Records != nil {
-		got.Records = uint64(*r.Records)
-	}
-	if r.CoverageAdded != nil {
-		got.Coverage = []CoverageWant{}
-		for _, c := range *r.CoverageAdded {
-			var w CoverageWant
-			if c.SeqFirst != nil {
-				w.First = uint64(*c.SeqFirst)
-			}
-			if c.SeqLast != nil {
-				w.Last = new(uint64(*c.SeqLast))
-			}
-			got.Coverage = append(got.Coverage, w)
-		}
-	}
-	exp := *e.Repair
-	if exp.Result == RepairPatched {
-		exp.Coverage = nonNil(exp.Coverage)
-	}
-	if !reflect.DeepEqual(exp, got) {
+	if exp := e.Repair.normal(); !reflect.DeepEqual(exp, got) {
 		return []error{fmt.Errorf("repair: expected %+v, read %+v", exp, got)}
 	}
 
 	return nil
 }
 
-// checkCuts compares e.Cuts with the rows of truncation.json t, read from the pack of layout l, row by row;
+// repairRead returns the RepairWant of a repair result: its result, blocks, records and new coverage, each zero when absent.
+// It fails for a new coverage entry of a capture other than captureID.
+func repairRead(result string, blocks *int, records *U64, coverage *[]Coverage, captureID string) (RepairWant, error) {
+	got := RepairWant{Result: result}
+	if blocks != nil {
+		got.Blocks = *blocks
+	}
+	if records != nil {
+		got.Records = uint64(*records)
+	}
+	if coverage == nil {
+		return got, nil
+	}
+
+	got.Coverage = []CoverageWant{}
+	for _, c := range *coverage {
+		if c.CaptureID == nil || *c.CaptureID != captureID {
+			return RepairWant{}, fmt.Errorf("a new coverage entry of another capture_id than the pack's %s", captureID)
+		}
+		var w CoverageWant
+		if c.SeqFirst != nil {
+			w.First = uint64(*c.SeqFirst)
+		}
+		if c.SeqLast != nil {
+			w.Last = new(uint64(*c.SeqLast))
+		}
+		if c.TimeStart != nil {
+			w.TimeStart = int64(*c.TimeStart)
+		}
+		if c.TimeEnd != nil {
+			w.TimeEnd = int64(*c.TimeEnd)
+		}
+		got.Coverage = append(got.Coverage, w)
+	}
+
+	return got, nil
+}
+
+// normal returns a copy of w whose coverage is empty rather than nil when w is patched, as a patched repair states it.
+func (w *RepairWant) normal() RepairWant {
+	out := *w
+	if out.Result == RepairPatched {
+		out.Coverage = nonNil(out.Coverage)
+	}
+
+	return out
+}
+
+// checkCuts compares e.Cuts with the rows of truncation.json t, row by row,
+// read from the pack of layout l and capture captureID;
 // a vector without a table expects no rows.
-func (e *Expectation) checkCuts(t *Truncation, l *Layout) []error {
+func (e *Expectation) checkCuts(t *Truncation, l *Layout, captureID string) []error {
 	if t == nil {
 		if len(e.Cuts) > 0 {
 			return []error{errors.New("truncation.json: rows expected, none read")}
@@ -257,14 +286,38 @@ func (e *Expectation) checkCuts(t *Truncation, l *Layout) []error {
 			}
 		}
 		got := t.Rows[i]
-		// A CutWant states no repair, so a row's repair part is left out of the comparison.
+		// The repair parts are compared apart, as RepairWant values.
+		gotRepair := got.Repair
 		got.Repair = nil
 		if !reflect.DeepEqual(exp, got) {
 			errs = append(errs, fmt.Errorf("%s: expected %s, read %s", name, describeRow(&exp), describeRow(&got)))
 		}
+		if err := c.checkRepair(gotRepair, captureID); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+		}
 	}
 
 	return errs
+}
+
+// checkRepair compares the repair part of c with got, the repair part of its row, read from a pack of capture captureID.
+func (c *CutWant) checkRepair(got *CutRepair, captureID string) error {
+	switch {
+	case c.Repair == nil && got == nil:
+		return nil
+	case c.Repair == nil || got == nil:
+		return fmt.Errorf("expected repair %+v, read %+v", c.Repair, got)
+	}
+
+	r, err := repairRead(got.Result, got.Blocks, nil, got.CoverageAdded, captureID)
+	if err != nil {
+		return fmt.Errorf("repair: %w", err)
+	}
+	if w := c.Repair.normal(); !reflect.DeepEqual(w, r) {
+		return fmt.Errorf("expected repair %+v, read %+v", w, r)
+	}
+
+	return nil
 }
 
 // describeRow returns the JSON of a truncation.json row, or its Go form.
