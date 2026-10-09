@@ -5,7 +5,10 @@
 // Every schema type encodes, through Marshal, to the one fixed form the corpus specification §4 states:
 // two-space indentation, keys in schema order, arrays in the order their schema defines,
 // u64 and i64 values as decimal strings, absent optional keys omitted, and a final LF.
-// The conversions sort into those orders themselves; they never rely on the order of the tracepack package's slices.
+// The conversions sort into those orders themselves;
+// they rely on the order of the tracepack package's slices only for an order a read or a lookup defines,
+// its yield, discovery or version order, which they keep and check where they can.
+// The facts of a lookup are normalized from its gaps (NormalizeGaps), and any inconsistency fails the conversion.
 // Expectations are classified by sentinel errors and typed fields, never by error text.
 //
 // The package reads packs only through the public tracepack API,

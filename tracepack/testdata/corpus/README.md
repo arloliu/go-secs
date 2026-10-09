@@ -22,14 +22,14 @@ Reads over several packs, transaction lookups, store vectors and redaction vecto
 
 | Key | Value |
 |---|---|
-| `corpus` | `tracepack-corpus/1`, the schema of every JSON file here |
-| `spec_version` | the spec version the goldens follow, `2.29` |
+| `corpus` | `tracepack-corpus/2`, the schema of every JSON file here |
+| `spec_version` | the spec version the goldens follow, `2.30` |
 | `format_version` | `1.0` |
 | `jsonl_schema` | `tracepack-jsonl/1`, the schema of every `.jsonl` file |
 | `zstd_encoder` | the zstd encoder that produced the corpus's encoder-made zstd blocks and footers (see [zstd](#zstd)) |
 | `vectors` | one entry per vector, ascending by `id` |
 
-The schema `tracepack-corpus/1` is a draft until tracepack v1.0.0.
+The schema `tracepack-corpus/2` is a draft until tracepack v1.0.0.
 A change to a schema, or to what an existing file states, takes a new `corpus` value;
 adding a vector, a query or a case keeps it ([CORPUS §10]).
 
