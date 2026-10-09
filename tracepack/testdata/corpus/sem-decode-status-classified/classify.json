@@ -63,24 +63,48 @@
     },
     {
       "seq": "12",
-      "rule": "length-mismatch-and-bad-stype",
+      "rule": "length-mismatch-and-bad-ptype",
       "decode_status": "length-mismatch",
       "trailing_bytes": 0
     },
     {
       "seq": "13",
+      "rule": "length-mismatch-and-bad-stype",
+      "decode_status": "length-mismatch",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "14",
+      "rule": "bad-stype-and-control-with-body",
+      "decode_status": "bad-stype",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "15",
       "rule": "control-with-body-and-oversized",
       "decode_status": "control-with-body",
       "trailing_bytes": 0
     },
     {
-      "seq": "14",
+      "seq": "16",
+      "rule": "oversized-and-item-decode-error",
+      "decode_status": "oversized",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "17",
+      "rule": "control-ok",
+      "decode_status": "ok",
+      "trailing_bytes": 0
+    },
+    {
+      "seq": "18",
       "rule": "max-frame-len-equal",
       "decode_status": "ok",
       "trailing_bytes": 0
     },
     {
-      "seq": "15",
+      "seq": "19",
       "rule": "max-frame-len-exceeded",
       "decode_status": "oversized",
       "trailing_bytes": 0

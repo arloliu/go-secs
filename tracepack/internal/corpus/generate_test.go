@@ -240,7 +240,7 @@ func TestGenerateChecksRecipeDeclarations(t *testing.T) {
 
 // TestGenerateChecksClassify checks that Generate refuses a classify.json that is not the pack's:
 // a max_frame_len other than the pack's single one, a frame whose record stores another decode_status or trailing_bytes,
-// and a seq of no data or control record.
+// a seq of no data or control record, and a record storing a byte-predicate status that it does not list.
 func TestGenerateChecksClassify(t *testing.T) {
 	t.Parallel()
 
@@ -252,6 +252,7 @@ func TestGenerateChecksClassify(t *testing.T) {
 		{"decode_status", "the record stores", func(c *Classify) { c.Frames[0].DecodeStatus = tracepack.DecodeStatusOK.String() }},
 		{"trailing_bytes", "the record stores", func(c *Classify) { c.Frames[7].TrailingBytes = 2 }},
 		{"an annotation", "no data or control record", func(c *Classify) { c.Frames[0].Seq = 10 }},
+		{"an unlisted frame", "does not list", func(c *Classify) { c.Frames = c.Frames[1:] }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

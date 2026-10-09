@@ -104,3 +104,15 @@ func TestCheckInjection(t *testing.T) {
 	require.NoError(t, checkInjection(run, InjectI2))
 	require.Error(t, checkInjection(run, func(enc []byte) []byte { return enc }), "an identity damage")
 }
+
+// TestNewLogDataCorrelation checks that a log record of epoch 0 is correlation-incomplete without a missing identity,
+// and that one of epoch 1 with every identity is not.
+func TestNewLogDataCorrelation(t *testing.T) {
+	t.Parallel()
+
+	frame := dataFrame(1, 1, true, 1, nil)
+	epoch0 := newLogData(0, 0, tracepack.DirHostToEquipment, frame, 0)
+	assert.NotZero(t, epoch0.Quality&tracepack.QualityCorrelationIncomplete, "epoch 0")
+	epoch1 := newLogData(0, 1, tracepack.DirHostToEquipment, frame, 0)
+	assert.Zero(t, epoch1.Quality&tracepack.QualityCorrelationIncomplete, "epoch 1")
+}

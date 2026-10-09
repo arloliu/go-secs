@@ -390,13 +390,19 @@ Each case is a data message (SType 0) whose message text is the item described:
 | `trailing` | a valid item followed by more bytes | `ok-with-trailing`, `trailing_bytes` the excess |
 | `empty-text` | no message text (a header-only data message) | `ok` |
 
-The order in which [SEM §3] evaluates its predicates is exercised by frames that satisfy two at once:
+The order in which [SEM §3] evaluates its predicates is exercised by frames that satisfy two at once,
+the `ok` of a control record by a well-formed control message,
+and `max_frame_len` by two messages at its boundary:
 
 | Case | Frame | `decode_status` |
 |---|---|---|
 | `short-and-bad-ptype` | fewer than 14 captured bytes whose PType byte is not 0 | `short-frame` |
+| `length-mismatch-and-bad-ptype` | a length field that disagrees with the capture, PType not 0 | `length-mismatch` |
 | `length-mismatch-and-bad-stype` | a length field that disagrees with the capture, SType undefined | `length-mismatch` |
+| `bad-stype-and-control-with-body` | SType undefined with a body | `bad-stype` |
 | `control-with-body-and-oversized` | SType not 0 with a body, longer than `max_frame_len` | `control-with-body` |
+| `oversized-and-item-decode-error` | a data message longer than `max_frame_len` whose message text does not begin with a valid item | `oversized` |
+| `control-ok` | a well-formed control message, a `Linktest.req` | `ok` |
 | `max-frame-len-equal` | a valid data message whose frame length is M, the vector's `max_frame_len` | `ok` |
 | `max-frame-len-exceeded` | a valid data message whose frame length is M + 1 | `oversized` |
 
@@ -584,7 +590,7 @@ Files beyond those of the class (§2) are named where a vector has them.
 | `repair-refused-hour-span` | repair | the I-13 defect, its block also outside the scope's hour (both conditions cited): `not-repairable` |
 | `repair-refused-lost-run` | repair | a lost run without a seq between its neighbours: `not-repairable` |
 | `repair-refused-scope-breach` | repair | a block of one hour other than the scope's, without the I-13 defect: `not-repairable` |
-| `sem-decode-status-classified` | read | a record of each byte-predicate status, `not-attempted` and `not-applicable`, the precedence and `max_frame_len` cases of §7; `classify.json`, `cases` |
+| `sem-decode-status-classified` | read | a record of each byte-predicate status, `not-attempted` and `not-applicable`, the precedence, control and `max_frame_len` cases of §7; `classify.json`, `cases` |
 | `sem-decode-status-log` | read | a `log` capture with `reconstructed-ok`, `parse-failed` and `build-rejected` records; `cases` |
 | `sem-item-validity` | read | the checklist of §7; `classify.json`, `cases` |
 | `sem-capture-origin-mono` | read | a capture-clock pack whose `capture_origin_mono_ns` is not 0 ([SEM §4]) |

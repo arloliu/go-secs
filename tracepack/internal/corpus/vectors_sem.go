@@ -21,6 +21,9 @@ const (
 // classifyCites are the clauses of a frame classify.json lists.
 var classifyCites = []string{"SEM §3", "CORPUS §7"}
 
+// storedStatusCites are the clauses of a record of a classifier vector that stores a status that is not a byte predicate.
+var storedStatusCites = []string{"SEM §3"}
+
 // semFrame is a record of a classifier vector: the case it exercises, the kind and frame it carries,
 // and the decode_status and trailing_bytes written by hand from the tracepack semantics specification §3
 // and the tracepack corpus specification §7, which the record stores and classify.json lists.
@@ -130,7 +133,8 @@ func itemValidityFrames() []semFrame {
 		dataCase("length-bytes-3", ok, ascii<<2|3, 0x00, 0x00, 0x01, 'A'),
 		dataCase("boolean-other-values", ok, item(0o11, 0x02, 0xFF)...),
 		dataCase("ascii-high-bytes", ok, item(ascii, 0x80, 0xFF)...),
-		// A localized string's 2-byte header naming UCS-2 (encoding 1), then one byte, an odd length under a 2-byte encoding.
+		// A localized string's 2-byte header naming UCS-2 (encoding 1), alone and then followed by one byte,
+		// an odd length under a 2-byte encoding.
 		dataCase("localized-length-2", ok, item(0o22, 0x00, 0x01)...),
 		dataCase("localized-length-3", ok, item(0o22, 0x00, 0x01, 'A')...),
 	)
@@ -142,7 +146,8 @@ func itemValidityFrames() []semFrame {
 
 // decodeStatusFrames are the records of sem-decode-status-classified:
 // one per decode_status of the tracepack semantics specification §3 that a classifier writes, in the table's order,
-// then the cases of the order of evaluation and of max_frame_len of the tracepack corpus specification §7.
+// then the cases of the order of evaluation, of a well-formed control message and of max_frame_len
+// of the tracepack corpus specification §7, in its order.
 // The frames are those of the table's predicates under semMaxFrameLen.
 func decodeStatusFrames() []semFrame {
 	const m = semMaxFrameLen
@@ -186,10 +191,18 @@ func decodeStatusFrames() []semFrame {
 		}},
 		// The first 13 bytes of a frame of PType 1.
 		short("short-and-bad-ptype", withPType(textFrame(), 1)[:13]),
+		// A length field of 11 over a 10-byte header, PType 1.
+		{id: "length-mismatch-and-bad-ptype", kind: tracepack.KindData, frame: withPType(withLength(textFrame(), 11), 1), status: tracepack.DecodeStatusLengthMismatch},
 		control("length-mismatch-and-bad-stype", tracepack.DecodeStatusLengthMismatch, withLength(hsmsFrame(controlSessionID, 0, 0, stypeUndefined, 4, nil), 11)),
+		// An undefined SType with a body of one byte, the length field agreeing with the capture.
+		control("bad-stype-and-control-with-body", tracepack.DecodeStatusBadSType, hsmsFrame(controlSessionID, 0, 0, stypeUndefined, 6, []byte{0})),
 		// A Select.req with a body of 27 bytes: a frame of m + 1 bytes.
 		control("control-with-body-and-oversized", tracepack.DecodeStatusControlWithBody,
 			hsmsFrame(controlSessionID, 0, 0, stypeSelectReq, 5, counting(m+1-14))),
+		// A U2 item of 25 bytes, not a multiple of its element width: a frame of m + 1 bytes.
+		dataCase("oversized-and-item-decode-error", tracepack.DecodeStatusOversized, item(0o52, counting(m-15)...)...),
+		// A Linktest.req, a well-formed control message.
+		control("control-ok", tracepack.DecodeStatusOK, hsmsFrame(controlSessionID, 0, 0, stypeLinktestReq, 7, nil)),
 		// Binary items of 24 and 25 bytes: frames of m and m + 1 bytes.
 		dataCase("max-frame-len-equal", tracepack.DecodeStatusOK, item(0o10, counting(m-16)...)...),
 		dataCase("max-frame-len-exceeded", tracepack.DecodeStatusOversized, item(0o10, counting(m-15)...)...),
@@ -205,7 +218,11 @@ func classifiedVector(id, title string, cites []string, frames []semFrame) Recip
 	cases := make([]Case, 0, len(frames))
 	seqs := make([]uint64, 0, len(frames))
 	for i, f := range frames {
-		cases = append(cases, Case{ID: f.id, Seq: U64(i), Cites: classifyCites})
+		cites := classifyCites
+		if f.frame == nil {
+			cites = storedStatusCites
+		}
+		cases = append(cases, Case{ID: f.id, Seq: U64(i), Cites: cites})
 		seqs = append(seqs, uint64(i))
 	}
 
