@@ -1,12 +1,12 @@
 # tracepack — overview
 
-Status: current (2026-10-07) — v2.25, tracepack format 1.0.
+Status: current (2026-10-09) — v2.26, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
-Decisions: `tracepack-decisions.md` G3-20..G3-27, G4-28, G4-29, G3-PLACE, R3-4, R3-5, R3-6, G5-30..G5-165.
+Decisions: `tracepack-decisions.md` G3-20..G3-27, G4-28, G4-29, G3-PLACE, R3-4, R3-5, R3-6, G5-30..G5-172.
 Change history: `tracepack-spec-changelog.md`.
-This document is **informative**; the rules live in the three normative documents below.
+This document is **informative**; the rules live in the normative documents below.
 
-References: `[FMT §n]` = `tracepack-format.md`, `[SEM §n]` = `tracepack-semantics.md`, `[STO §n]` = `tracepack-storage.md`, `[OVW §n]` = `tracepack-overview.md`; `[FMT I-n]` = invariant I-n of the format document.
+References: `[FMT §n]` = `tracepack-format.md`, `[SEM §n]` = `tracepack-semantics.md`, `[STO §n]` = `tracepack-storage.md`, `[OVW §n]` = `tracepack-overview.md`, `[JSONL §n]` = `tracepack-jsonl.md`; `[FMT I-n]` = invariant I-n of the format document.
 Each rule is defined in exactly one document; the others only reference it.
 
 ## 1. Purpose and scope
@@ -29,6 +29,7 @@ It targets local file systems, S3-compatible object storage and HTTP range reads
 |---|---|---|---|
 | `tracepack-overview.md` (this) | purpose, document map, terminology, diagrams, open questions, deferred items | informative | all |
 | `tracepack-format.md` [FMT] | conventions, portable encoding, invariants, byte layouts, TLV and all registries, footer and validation, bootstrap and recovery, versioning, canonical JSONL, conformance corpus | normative | 1, 2, 3, 6, 7 |
+| `tracepack-jsonl.md` [JSONL] | byte-exact form of the canonical JSONL export (schema `tracepack-jsonl/1`) | normative | 6 |
 | `tracepack-semantics.md` [SEM] | capture model, decode_status, time and clock steps, transport events, quality, indexes, transaction lookup, query mapping, redaction | normative | 2, 3, 5, 7 |
 | `tracepack-storage.md` [STO] | scopes and generations, active view, commit protocol, object lifecycle and deletion, catalog contract with its window and listing views, retention, recorder durability and crash recovery, log converter | normative for publishers, recorders and converters | 4, 5, service |
 | `tracepack-go.md` | Go module, API, mapping from go-secs, CLI | Go reference implementation | — |
@@ -152,7 +153,7 @@ For transport-event and annotation records the payload is a TLV body ([FMT §8])
 | Indexes of HSMS header fields or message content in the footer (F-3 structures, an F-4 secondary index) | no longer planned (spec v2.13): records are read on demand for one tool or a few tools of one type, and the Virtual Equipment reads whole windows, so no consumer needs to filter without decoding payloads. The F-3 range 0x0010–0x001F and the F-4 slot stay reserved ([FMT §10]), so an index can still be added as a minor change; the footer is derivable ([FMT I-3]), so re-merged packs could gain it |
 | Source reference for data/control records | needs the pilot's converter inputs |
 | Exhaustive item-validity checklist ([SEM §3]) | delivered as conformance vectors |
-| Byte-exact JSONL schema and catalog schema | follow the implementation; the catalog window and the retention period are service parameters (35 days and 6 months in the pilot plan), not format properties |
+| Catalog schema | follows the implementation; the catalog window and the retention period are service parameters (35 days and 6 months in the pilot plan), not format properties (the byte-exact JSONL schema, deferred here before v2.26, is [JSONL]) |
 | Locating blocks after an envelope the forward walk cannot account for, in a pack without a valid footer ([FMT §13]) | needs a resynchronisation design |
 | Live-tail interface and query-service API | service design, outside the format |
 | Compression, latency and throughput numbers | measured on the pilot sample |

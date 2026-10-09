@@ -821,3 +821,40 @@ Decisions that concern only the Virtual Equipment program stay in its design not
   Rationale: the library reads; the deleting component owns the order of physical deletion.
   Rejected: a deletion helper over `ObjectStore`, which needs a `Delete` method.
   Spec: `tracepack-go.md` §3 (v2.25).
+- G5-166 Phase 6 splits into three sub-phases (2026-10-09, phase 6a):
+  6a JSONL export and schema, 6b conformance corpus, 6c CLI, each with its own plan, reviews and pull request, in the order 6a → 6b → 6c → phase 7;
+  whether 6b also covers the vectors of [SEM §9] and [STO §8] is decided when 6b is planned.
+  Rationale: the corpus needs the export, and the CLI needs both; one plan for all three is too large to review.
+  Rejected: one phase and one pull request; phase 7 before the corpus (its vectors and its sweep are built on the corpus generator).
+  Spec: `tracepack-impl-plan.md` §3 (v2.26).
+- G5-167 64-bit integers are decimal strings in the JSONL export (2026-10-09, phase 6a):
+  every `u64` and `i64` value is a JSON string of its decimal form; `u8`, `u16` and `u32` values are JSON numbers.
+  Rationale: nanosecond timestamps exceed 2^53, which parsers that read JSON numbers as IEEE doubles (JavaScript, jq) cannot hold.
+  Rejected: JSON numbers throughout.
+  Spec: [JSONL §3] (v2.26).
+- G5-168 `ExportJSONL` lives in package `tracepack` (2026-10-09, phase 6a):
+  there is no `tracepack/jsonl` package.
+  Rationale: the Go API contract already named it there, it keeps the one-package documentation of G5-155, and the export reads stored values `Record` does not expose (the reserved bits of `record_flags`).
+  Rejected: a `tracepack/jsonl` package, which needs new exported accessors for those values.
+  Spec: `tracepack-go.md` §3, `tracepack-impl-plan.md` §2 (v2.26).
+- G5-169 The export of a damaged pack holds its validated blocks only (2026-10-09, phase 6a):
+  the header line, then the records of every validated block in file order; a failed block is left out without a mark, and there is no summary line.
+  Rationale: the `verify` report, a separate golden of the corpus, says what was lost, and `ExportJSONL`'s `Result` says the export is incomplete.
+  Rejected: a trailing summary line; refusing packs that are not `finalized-consistent`, which leaves the damaged corpus vectors without JSONL.
+  Spec: [FMT §15], [JSONL §7] (v2.26).
+- G5-170 The CLI reads local paths only for now (2026-10-09, phase 6a):
+  `s3://` sources are deferred until the query service or another design decides where the object-store dependency lives.
+  Rationale: the CLI shares the library's `go.mod`, so an object-store SDK would reach every library consumer's module graph.
+  Rejected: `s3://` in phase 6c; a separate module for the CLI, which reverses G5-77's single nested module.
+  Spec: `tracepack-go.md` §7, `tracepack-impl-plan.md` §3 (v2.26).
+- G5-171 A reader budget that keeps part of a pack out fails the export (2026-10-09, phase 6a plan review r1):
+  an exporter that cannot read the footer, locate a block by the forward walk or read a block because of its own resource limits fails instead of leaving them out;
+  `ExportJSONL` returns an error wrapping `ErrReadLimit`.
+  Rationale: an export that succeeds is then determined by the pack's bytes alone, whatever the reader's budgets; damage stays under G5-169.
+  Rejected: listing the refused block as `incomplete` as `Iterate` does, which makes two successful exports of one pack differ.
+  Spec: [JSONL §1], [JSONL §7], `tracepack-go.md` §3 (v2.26).
+- G5-172 Export lines are written in bounded pieces (2026-10-09, phase 6a plan review r1):
+  a line is passed to the writer in pieces of at most 64 KiB, so its length does not bound the memory used, and every line can be exported on 32-bit platforms.
+  Rationale: a payload of NULs escapes to six bytes per byte, so one line can pass 2 GiB.
+  Rejected: a limit on a line's length with an error, which leaves some valid packs without an export.
+  Spec: `tracepack-go.md` §3 (v2.26).

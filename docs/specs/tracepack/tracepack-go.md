@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
-Status: current (2026-10-07)
-Implements tracepack v2.25 (format 1.0): `tracepack-format.md` [FMT], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Status: current (2026-10-09)
+Implements tracepack v2.26 (format 1.0): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -373,11 +373,23 @@ The query service, its catalog database and the live-tail interface are designed
 - `Recover(ctx, spool, dst) (RecoverReport, error)`, deferred until a local-spool recorder is planned (G5-91):
   finalizes an unfinalized spool file as a segment of its original capture with a `stop-unclean` boundary ([STO §4]);
   `RecoverReport` holds the spool file's `VerifyReport`.
-- `ExportJSONL(ctx, r, w)`: canonical export ([FMT §15]).
+- `ExportJSONL(ctx, r *Reader, w io.Writer) (Result, error)`: writes the canonical export of the pack `r` reads ([FMT §15], [JSONL]), a function of package `tracepack` (G5-168).
+  It exports the records `r.Iterate(ctx, Query{Payloads: true}, …)` yields, in the same order, and returns the `Result` that call returns:
+  open defects, the `coverage` entries that intersect the query, and every failed block and every block disagreeing with its F-2 entry in `Incomplete`, whose records are exported;
+  `FooterErr` and `FooterErrs` as `Iterate`, a footer error alone not making the result incomplete.
+  A record whose body is not valid ([JSONL §6]) is exported without `body` and adds nothing to `Result`.
+  Where `Iterate` lists a reader budget as a `ReasonLimit` defect, `ExportJSONL` fails instead (G5-171, [JSONL §7]):
+  with an error wrapping `ErrReadLimit`, before writing anything, when the footer was not used because it is over `MaxFooterLen` or the forward walk stopped at `MaxWalkedBlocks`,
+  and when it reaches a block over `MaxBlockLen`.
+  Other errors: `ctx`'s error, wrapped, checked before the header line and before each block; a `ReadAt` error, wrapped, as `Iterate` returns it;
+  a write error of `w`, wrapped, `io.ErrShortWrite` for a short write. On an error the `Result` holds what was found so far, and the bytes written stay written for the caller to discard.
+  It takes no retention provider: it reads one pack.
+  It writes each line in pieces of at most 64 KiB, so a line may take several `Write` calls (G5-172);
+  beyond the reader's decoded block and the `Result`'s diagnostics, its memory does not grow with the length of a payload, a value or an entry list.
 - Documentation (G5-155): one `tracepack` package; `tracepack/README.md` and the package documentation open with the API by audience:
-  recorders (`CaptureDescriptor`, `SegmentWriter`, `SegmentSink`), readers (`Open`, `MergeIterate`, `FindTransaction`, `NewReaderSource`)
+  recorders (`CaptureDescriptor`, `SegmentWriter`, `SegmentSink`), readers (`Open`, `MergeIterate`, `FindTransaction`, `NewReaderSource`, `ExportJSONL`)
   and the storage service (`ActiveView`, `Merge`, `Repair`, `NewStoreSource`, the key builders),
-  with runnable examples: `ExampleSegmentWriter`, `ExampleOpen`, `ExampleFindTransaction` over `NewReaderSource`, and `ExampleMergeIterate`.
+  with runnable examples: `ExampleSegmentWriter`, `ExampleOpen`, `ExampleFindTransaction` over `NewReaderSource`, `ExampleMergeIterate` and `ExampleExportJSONL`.
 
 ## 4. Classifier: go-secs → decode_status
 
@@ -516,7 +528,8 @@ and a reply recorded before its primary is reported by transaction matching as a
 ## 7. Reference CLI (`tracepack/cmd/tracepack`)
 
 Subcommands `list`, `stats`, `dump --sml`, `dump --jsonl`, `verify [--repair]`, `merge`, and `recover` once `Recover` is planned; `grep` and `tx` follow in a later phase;
-local paths and `s3://` URLs.
+local paths only. `s3://` URLs are deferred until the query service or another design decides where the object-store dependency lives,
+since the CLI shares the library's `go.mod` (G5-170).
 Every command reports `incomplete` and `conflicted` explicitly,
 and a storage-backed command whose hour becomes removed ([STO §5] Retention) ends with that outcome, never with success after the records it printed;
 the output syntax stays deferred with the other output formats.

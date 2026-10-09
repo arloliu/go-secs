@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-10-07) — v2.25, tracepack format 1.0.
+Status: current (2026-10-09) — v2.26, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -15,7 +15,7 @@ Depends on (the byte layouts, TLV encoding, footer and validation rules are self
 - [SEM §8] redaction: meaning of `redaction-present`, `redaction_policy`, `redaction` entries and `quality.redacted`, and the validation of redaction entries.
 - The conformance corpus of §16 also contains the vectors of [SEM §9] and [STO §8].
 
-References: `[FMT §n]` = `tracepack-format.md`, `[SEM §n]` = `tracepack-semantics.md`, `[STO §n]` = `tracepack-storage.md`, `[OVW §n]` = `tracepack-overview.md`; `[FMT I-n]` = invariant I-n of the format document.
+References: `[FMT §n]` = `tracepack-format.md`, `[SEM §n]` = `tracepack-semantics.md`, `[STO §n]` = `tracepack-storage.md`, `[OVW §n]` = `tracepack-overview.md`, `[JSONL §n]` = `tracepack-jsonl.md`; `[FMT I-n]` = invariant I-n of the format document.
 Each rule is defined in exactly one document; the others only reference it.
 
 ## 1. Conventions
@@ -47,8 +47,9 @@ These rules let any mainstream language implement the format from this text alon
 - **Time**: `i64` nanoseconds since 1970-01-01T00:00:00Z on the POSIX time scale (no leap seconds);
   a clock reading during a leap second is stored as the clock reported it.
   Monotonic values (`mono_ns`) are `i64` nanoseconds relative to `capture_origin_mono_ns` ([SEM §4]).
-- **Strings**: UTF-8 without BOM, length given by the enclosing structure, not NUL-terminated.
-  Invalid UTF-8 in a `utf8` value is a decode error for that entry; data that may not be UTF-8 uses a `bytes` value.
+- **Strings**: UTF-8, length given by the enclosing structure, not NUL-terminated.
+  A writer writes no BOM; a reader accepts a leading U+FEFF and keeps it as part of the string.
+  Invalid UTF-8 in the `utf8` value of a known tag is a decode error for that entry (§5); data that may not be UTF-8 uses a `bytes` value.
 - **Checksums**: every CRC is **CRC-32/ISO-HDLC** (the IEEE 802.3 / zlib / PNG CRC):
   polynomial 0x04C11DB7 reflected (0xEDB88320), initial value 0xFFFFFFFF, final XOR 0xFFFFFFFF;
   check value over ASCII `123456789` = 0xCBF43926.
@@ -172,11 +173,22 @@ The same entry encoding is used for transport-event and annotation payloads (§8
 | 7 | `bytes` | any |
 | 8 | `tlv` (nested entries; tags in the nested structure's own registry) | any |
 
-Rules:
-- An entry whose `length` does not match a fixed-length type, or whose `value_type` differs from the registry for a known tag, rejects the file.
-- Unknown tags are skipped using `length`; their raw value is preserved in the canonical export (§15).
-- A tag appears at most once unless the registry marks it repeatable; a repeated tag the registry does not mark repeatable rejects the file.
-- A required tag that is missing rejects the file.
+Rules (an entry list that breaks one is invalid: invalid pack metadata rejects the file, §13,
+and an invalid transport-event or annotation payload is not a valid TLV body, §8, §13):
+- Framing, for every entry, known or not: `tag` is not 0; the entry header and its value lie within the list;
+  a value type of fixed length (`u8`, `bool`, `i64`, `u64`, `uuid`) has exactly that length.
+  A value type outside the table has no fixed length.
+- A known tag's `value_type` equals the registry's, and its value passes the rule of its type:
+  a `bool` is 0 or 1, a `u64` is at most 2^63 − 1 (§2), a `utf8` value is valid UTF-8 (§2),
+  and a `tlv` value is itself an entry list valid under these rules and its nested registry.
+  A reader descends at most 32 levels of known nested `tlv` values below the list it checks, and a known `tlv` value deeper than that makes the list invalid;
+  the registries of format 1.0 nest one level, so no conforming list reaches the limit, and an unknown `tlv` value is never descended into.
+- A known tag appears at most once unless the registry marks it repeatable.
+- A required tag that is missing makes the list invalid;
+  of the pack metadata's conditional requirements, a reader checks at bootstrap only those its metadata alone decides (§13).
+- Unknown tags, private ones included, pass once framed: they may repeat, they are skipped using `length`,
+  and their value is never interpreted, whatever their `value_type`;
+  their raw value is preserved in the canonical export (§15).
 - A **retired** tag number is never reused.
   A writer never writes it, also not from the unknown entries it preserved when it read another pack;
   a reader treats it as an unknown tag, and the canonical export of the pack that holds it still shows it (§15).
@@ -433,6 +445,9 @@ a reader treats the field as unavailable, and `verify` reports the defect.
   | 0x0007 | `source_index` | u64 | which `source_ref` entry (0-based) the range refers to |
   | 0x0008 | `source_offset` | u64 | byte offset in that source file ([STO §7]) |
   | 0x0009 | `source_len` | u64 | byte length in that source file |
+
+- A transport-event or annotation payload is a **valid TLV body** when it is an entry list that fills the payload exactly and passes the rules of §5 under its kind's registry above,
+  a present `primary_system_bytes` holds exactly 4 bytes, and an annotation holds exactly one of `text` and `raw`, either of which may be empty.
 
 - Every record produced from a source file must be able to carry a source reference.
   Annotations carry it as above; the representation for data/control records is deferred ([OVW §6]).
@@ -755,6 +770,16 @@ The object size is known before reading (file system stat, object listing, the c
   at the first failed block or the point where the walk stopped, else at the end of the last block.
   With a valid footer it also gives the seq ranges and time intervals of the failed blocks, from their F-2 entries and F-3 summaries.
   A file header or pack metadata that cannot be read (§4, §5, §14) is an error, not an outcome: there is no block region to walk.
+  A reader rejects a pack at bootstrap for exactly these reasons of format:
+  an object shorter than the file header; a bad `magic`, `header_crc` or version (§4, §14);
+  pack metadata extending past the object, or failing `pack_metadata_crc`;
+  pack metadata whose entry list breaks one of §5's rules for entry lists (framing, the type, value and repetition rules of known tags, nested lists, required tags);
+  a missing tag whose "Required when" condition the pack metadata alone decides (`always`, or a condition on another metadata value, such as `time_source = capture-clock`);
+  and a `replacement_set_size` other than 1 or a `replacement_set_index` other than 0.
+  Every other requirement of §5, a condition on the records or a value tied to the role (`scope_generation` 0 for a segment) among them,
+  binds writers and never rejects a pack at bootstrap; the retired `pack_role` 5 is read as `unknown(5)` (§9).
+  The checks [SEM §8] makes at bootstrap on redaction entries report recoverable defects; they are not rejections.
+  A reader's own limits (a metadata size budget), an I/O error or a cancellation are failures of the read, not rejections of the pack.
   Guarantee in format 1.0: every validated block is readable, and the validated prefix is readable without the footer;
   every failed block and every byte range the walk cannot account for is reported `incomplete` with offset and cause.
   Locating blocks after an envelope the walk cannot account for, in a pack without a valid footer, is deferred ([OVW §6]).
@@ -838,7 +863,9 @@ The canonical JSONL export is the language-agnostic text form of a pack and its 
 - Then one JSON object per record carrying every §7.1 field by its spec name,
   enum values by name (`unknown(<n>)` for unknown values), bit sets as arrays of names,
   the payload as base64, and transport-event / annotation bodies as objects keyed by tag name.
-- The schema is versioned (`tracepack-jsonl/1`); its byte-exact form (key order, number formatting) is deferred ([OVW §6]).
+- The schema is versioned (`tracepack-jsonl/1`); its byte-exact form is defined in `tracepack-jsonl.md` [JSONL].
+- It holds the records of the validated blocks; a failed block is left out without a mark, and the `verify` report says what was lost ([JSONL §7]).
+  A pack rejected at bootstrap (§13) has no export.
 - A query service offering downloads returns either native packs (`archive` packs, or `extract` packs with `extract_filter`, one per capture) or this export;
   to a consumer that is not privileged it returns only extracts written under a redaction policy, or their export ([SEM §8]).
 - It is the expected output of the conformance corpus (§16),
@@ -847,7 +874,8 @@ The canonical JSONL export is the language-agnostic text form of a pack and its 
 ## 16. Conformance corpus
 
 The corpus lets an implementation in any language prove that it reads and writes the same bytes as every other.
-- Contents: golden `.tpk` files, the expected canonical JSONL (§15) for each, and the expected `verify` report.
+- Contents: golden `.tpk` files, the expected canonical JSONL (§15) for each, and the expected `verify` report;
+  for a vector a reader rejects at bootstrap (§13), the expected rejection instead of JSONL and report ([JSONL §8]).
 - Vectors: empty pack; pack with zero records; codec `none` and codec `zstd` of the same records;
   truncated tail; corrupt middle block; bad envelope CRC; unknown codec; unknown TLV tag and enum value;
   `record_header_len` > 44, including 45–55, with the extension bytes preserved; unordered timestamps;
@@ -881,7 +909,8 @@ The corpus lets an implementation in any language prove that it reads and writes
   a payload-only identity conflict between two packs.
 - Verification vectors (§13), each with its expected outcome:
   a finalized pack whose blocks all pass: `finalized-consistent`;
-  a pack truncated at every byte offset: `unfinalized`, and no block of the validated prefix lost;
+  a pack truncated at every byte offset: rejected at bootstrap (§13) when the cut falls inside the file header or the pack metadata,
+  else `unfinalized`, and no block of the validated prefix lost;
   a finalized pack whose last block fails: `finalized-truncated`;
   a failed block between validated ones, with a valid footer and, for a block whose envelope holds, without one: `corrupt-middle`;
   a finalized pack whose footer is invalid, or whose F-3 summary disagrees with its block's records, while every block passes: `finalized-inconsistent`;
@@ -893,7 +922,7 @@ The corpus lets an implementation in any language prove that it reads and writes
   and every record not copied matched by a `coverage` entry:
   a failed middle block with a valid footer (the footer's ranges);
   the same with a footer a validated block disagrees with, and without a valid footer (the neighbours' seqs, the scope hour);
-  a pack truncated at every byte offset (a tail entry without `seq_last`); every block failed (a patch holding only `coverage`);
+  a pack truncated at every byte offset after its pack metadata (a tail entry without `seq_last`); every block failed (a patch holding only `coverage`);
   a `finalized-inconsistent` pack (every block copied, no new `coverage`); a repair of a patch (its `coverage` inherited);
   a `finalized-consistent` pack with the `seq_start` defect, above and below its first record's seq (every block copied, no new `coverage`, the patch's `seq_start` its first record's seq);
   and each refusal:
@@ -925,7 +954,7 @@ The corpus lets an implementation in any language prove that it reads and writes
 - Each query vector carries its expected query results,
   because JSONL and `verify` output alone do not exercise queries.
 - [SEM §9] and [STO §8] add the vectors for their rules to the same corpus.
-- A reader conforms when it produces the expected JSONL and `verify` report for every vector,
+- A reader conforms when it produces the expected JSONL and `verify` report for every vector it opens, and the expected rejection for every vector rejected at bootstrap (§13),
   and the expected query results for every query vector;
   a writer conforms when a conforming reader round-trips its output.
 - The corpus is identified by the spec version as well as the format version,
