@@ -1,6 +1,6 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-10-09) — phases 4, 5a, 5b, 5c1, 5c2, 5c3, 5d and 6a done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`, `SegmentWriter`, `NewDirSink`, `NewReaderSource`, `Retention`, `ExportJSONL`); phase 6 split into 6a, 6b and 6c (G5-166) and 6b into 6b1, 6b2 and 6b3 (G5-173), 6b1 (conformance corpus, part 1) in progress; phases 7 and 8 pending.
+Status: active (2026-10-09) — phases 4, 5a, 5b, 5c1, 5c2, 5c3, 5d and 6a done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`, `SegmentWriter`, `NewDirSink`, `NewReaderSource`, `Retention`, `ExportJSONL`); phase 6 split into 6a, 6b and 6c (G5-166) and 6b into 6b1, 6b2 and 6b3 (G5-173), 6b1 (conformance corpus, part 1) done; phases 7 and 8 pending.
 Implements: tracepack v2.28 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
@@ -74,7 +74,7 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 5c3 — retention | done |
 | 5d — segment writer, local source | done |
 | 6a — JSONL export | done |
-| 6b1 — conformance corpus, part 1 | in-progress |
+| 6b1 — conformance corpus, part 1 | done |
 | 6b2 — conformance corpus, part 2: reads over several packs, transaction lookups | pending |
 | 6b3 — conformance corpus, part 3: store vectors | pending |
 | 6c — CLI | pending |
@@ -593,7 +593,7 @@ a pooled decoder's history decides whether the library's assembly or generic seq
 Whether a block decodes, and the bytes it decodes to, never vary, so tests compare defects by reason, block and offset, never by the codec's text;
 the two inputs that showed it are regression seeds of `FuzzExportJSONL`.
 
-#### 6b1 — conformance corpus, part 1 (in-progress)
+#### 6b1 — conformance corpus, part 1 (done)
 
 From spec v2.27 (G5-173..G5-183); the corpus is [CORPUS]. Plan: the phase 6b1 corpus plan, kept outside the repository (ready after plan reviews r1–r3).
 - The [FMT §16] vectors except the redaction vectors (phase 7) and the two that need the result of a read over several packs (G5-182),
@@ -617,6 +617,25 @@ Done when: `make lint-tracepack`, `make test-tracepack` and `make test-tracepack
 `ExportJSONL`, `Verify`, `Iterate` and `Repair` match every golden; every bootstrap vector is rejected with its code; every query vector yields its results;
 the classifier agrees with every case of `classify.json`; the corpus is under 2,000,000 bytes; the external post-implementation review is clean.
 No CLI, redaction, multi-pack or transaction vectors in 6b1.
+
+Done (2026-10-09): the tests above pass, and so do the criteria they check.
+`TestCorpus` regenerates the 112 vectors byte for byte under the recorded `klauspost/compress` version,
+reads every committed vector again with `ExportJSONL`, `Verify`, `Iterate` and `Repair`, rejects every bootstrap vector with its code and sweeps every cut of the truncation vectors;
+it also checks the layout and the 2,000,000-byte limit, whose boundary `TestCheckSize` tests.
+`TestGenerateDeterministic` and `TestGenerateFreshProcesses` generate the corpus twice, in one process and in two;
+`TestCompareCorpus` and `TestEncoderProvenance` cover regeneration under another encoder ([CORPUS §6.1]).
+`TestRecipeIDsAreCatalogued` binds the vector ids to the catalogue of [CORPUS §9.4],
+and `TestRecipesHaveExpectations` and `TestGenerateFailsOnDisagreement` show that every expectation is checked before any golden is written.
+`TestCorpusClassification` agrees with every case of `classify.json`, `TestCorpusValidatingWriter` reproduces the I-2 injection vector,
+and the committed packs seed `FuzzExportJSONL`.
+`TestWriterClock`, `TestSegmentWriterClock`, `TestMergeClock` and `TestRepairClock` cover the clocks (G5-174, G5-179), and `TestRepairRefusals` the order of G5-183.
+The corpus holds 400 files and about 669,000 bytes; its README keeps a size budget per group.
+The vectors raised one question, which the owner decided (G5-184, spec v2.28):
+a CRC-valid envelope with a field out of range stops the forward walk without a valid footer.
+The implementation settled what the text above leaves open:
+a failed block's envelope `record_count` counts toward the trailer comparison of the walked blocks ([FMT §13]);
+the records of a log conversion without connect lines are in epoch 0 ([STO §7]);
+and a `build-rejected` record is an `unparsed-entry` annotation holding the entry's text, since [SEM §2] names no kind for it.
 
 #### 6b2 — conformance corpus, part 2
 
