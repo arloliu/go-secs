@@ -40,6 +40,7 @@ const (
 	f5QualityUnionTag       uint16 = 0x0008
 
 	epochRecordCountTag uint16 = 0x0002
+	epochSeqFirstTag    uint16 = 0x0003
 	epochSeqLastTag     uint16 = 0x0004
 
 	// Transport-event tags of the hand-written invalid bodies (the tracepack format specification §8).
@@ -330,10 +331,10 @@ func checkRetiredAndF4(pack []byte) error {
 // invalidFooterVectors returns the footer-invalid vectors:
 // footerBasePack with one footer validation clause of the tracepack format specification §10 broken, every CRC valid,
 // each edit chosen so that every other clause still holds where the clause allows it.
-// Three clauses cannot be broken alone:
+// Two clauses cannot be broken alone:
 // an empty epoch range leaves the epoch entries outside it, so footer-invalid-epoch-range also breaks the epoch-entry clause;
-// an overflowing sum is never the u64 count it should equal, so footer-invalid-overflow also breaks the exact count sums;
-// and footer-invalid-empty-stats breaks only its clause, in a pack without blocks.
+// and an overflowing sum is never the u64 count it should equal, so footer-invalid-overflow also breaks the exact count sums.
+// footer-invalid-empty-stats breaks only its clause, in a pack without blocks.
 func invalidFooterVectors() []Recipe {
 	clauses := slices.Concat(layoutClauses(), summaryClauses(), boundsClauses(), trailerClauses())
 	out := make([]Recipe, 0, len(clauses)+1)

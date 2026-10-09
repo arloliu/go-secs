@@ -14,8 +14,11 @@ import (
 // whose subject is one footer validation clause (the tracepack format specification §10) for that clause:
 // the first check its validation fails names it.
 // The package checks the clauses in its own order, so this shows that no clause it checks earlier fails.
-// The recipes keep the other clauses intact where the clause allows it, and three of them check that as they build;
+// The recipes keep the other clauses intact where the clause allows it, verify-defect-seq-order's included,
+// and three of them check that as they build;
 // footer-invalid-epoch-range and footer-invalid-overflow cannot, and also break the epoch-entry clause and the exact count sums.
+// The repair vectors whose footer states a seq-order defect need only a rejected footer:
+// this pins the clause that rejects it first, and their footers break the seq-set and F-5 aggregate clauses too.
 func TestInvalidFooterVectorsBreakTheirClause(t *testing.T) {
 	t.Parallel()
 
@@ -91,4 +94,13 @@ func TestRepairRefusalVectorsMeetTheirCondition(t *testing.T) {
 			assert.Zero(t, patch.Len())
 		})
 	}
+}
+
+// TestCheckInjection checks that checkInjection accepts the I-2 injection and refuses a damage that fails no block.
+func TestCheckInjection(t *testing.T) {
+	t.Parallel()
+
+	run := must(InjectionRun())(t)
+	require.NoError(t, checkInjection(run, InjectI2))
+	require.Error(t, checkInjection(run, func(enc []byte) []byte { return enc }), "an identity damage")
 }

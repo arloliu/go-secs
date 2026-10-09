@@ -170,11 +170,16 @@ func verifyVectors() []Recipe {
 
 					return nil
 				})
+				if err != nil {
+					return nil, err
+				}
+				pack, err = seqOrderFooter(pack)
 
 				return &Built{Pack: pack}, err
 			},
 			// The footer states the defect, so its validation rejects it (F-2 first_seq 2 after last_seq 5);
-			// the walk validates both blocks by their envelopes and agrees with the trailer's totals.
+			// it states the records' seqs everywhere else, so no other clause rejects it.
+			// The walk validates both blocks by their envelopes and agrees with the trailer's totals.
 			Expect: &Expectation{
 				Outcome: tracepack.OutcomeFinalizedInconsistent, Blocks: 2, Seqs: []uint64{0, 1, 5, 2, 3}, PrefixEnd: AtEnd(),
 				WriterDefects: []DefectWant{{Kind: tracepack.WriterDefectSeqOrder, Seq: 2}},
@@ -310,4 +315,53 @@ func flipBody(pack []byte, i int) ([]byte, error) {
 	}
 
 	return FlipByte(pack, int(s.Offset)+format.EnvelopeLen)
+}
+
+// seqOrderFooter returns the pack of verify-defect-seq-order with its footer and trailer stating block 1's seqs, 2 and 3,
+// where the Writer stated 6 and 7: block 1's F-2 last_seq and F-3 epoch seqs, F-5's seq_range and epoch seq_last,
+// and the trailer's last_seq.
+// The footer then breaks only the seq-order clause of the tracepack format specification §10.
+func seqOrderFooter(pack []byte) ([]byte, error) {
+	pack, err := PatchFooter(pack, func(d []byte) ([]byte, error) {
+		e, err := F2Entry(d, 1)
+		if err != nil {
+			return nil, err
+		}
+		if err := setLE64(d, e.Off+f2LastSeqOff, 7, 3); err != nil {
+			return nil, err
+		}
+		f3, err := F3List(d, 1)
+		if err != nil {
+			return nil, err
+		}
+		if err := setNested(d, f3, f3EpochTag, 0, epochSeqFirstTag, 6, 2); err != nil {
+			return nil, err
+		}
+		if err := setNested(d, f3, f3EpochTag, 0, epochSeqLastTag, 7, 3); err != nil {
+			return nil, err
+		}
+		f5, err := F5List(d)
+		if err != nil {
+			return nil, err
+		}
+		if err := setSeqRange(d, f5, 0, [2]uint64{0, 1}, [2]uint64{0, 3}); err != nil {
+			return nil, err
+		}
+		if err := setSeqRange(d, f5, 1, [2]uint64{5, 7}, [2]uint64{5, 5}); err != nil {
+			return nil, err
+		}
+
+		return d, setNested(d, f5, f5EpochTag, 0, epochSeqLastTag, 7, 5)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var terr error
+	pack, err = PatchTrailer(pack, func(tr []byte) { terr = setLE64(tr, trailerLastSeqOff, 7, 3) })
+	if err != nil {
+		return nil, err
+	}
+
+	return pack, terr
 }
