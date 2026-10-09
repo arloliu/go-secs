@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-10-09) — phases 4, 5a, 5b, 5c1, 5c2, 5c3, 5d and 6a done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`, `SegmentWriter`, `NewDirSink`, `NewReaderSource`, `Retention`, `ExportJSONL`); phase 6 split into 6a, 6b and 6c (G5-166), 6b (conformance corpus) next; phases 7 and 8 pending.
-Implements: tracepack v2.26 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
+Status: active (2026-10-09) — phases 4, 5a, 5b, 5c1, 5c2, 5c3, 5d and 6a done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`, `SegmentWriter`, `NewDirSink`, `NewReaderSource`, `Retention`, `ExportJSONL`); phase 6 split into 6a, 6b and 6c (G5-166) and 6b into 6b1, 6b2 and 6b3 (G5-173), 6b1 (conformance corpus, part 1) in progress; phases 7 and 8 pending.
+Implements: tracepack v2.27 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
 
@@ -32,7 +32,7 @@ Nested module `github.com/arloliu/go-secs/tracepack` (own `go.mod` in `tracepack
 | `tracepack/internal/format` | byte layouts: file header, envelope, record header, trailer, F-1, F-2; CRC; UUID byte order | no |
 | `tracepack/internal/tlv` | TLV entry encoding, value types, tag registries, validation | no |
 | `tracepack/internal/codec` | `none`, `zstd` | no |
-| `tracepack/internal/corpus` | conformance vector generator | no |
+| `tracepack/internal/corpus` | conformance corpus: the [CORPUS] schemas, byte surgery on packs, the vector recipes, the generator and the conformance test; imports `tracepack` and the other internal packages, never `classify` or go-secs | no |
 | `tracepack/cmd/tracepack` | CLI | binary |
 
 Rules from the repo apply: internal packages never appear in public signatures;
@@ -74,7 +74,9 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 5c3 — retention | done |
 | 5d — segment writer, local source | done |
 | 6a — JSONL export | done |
-| 6b — conformance corpus | pending |
+| 6b1 — conformance corpus, part 1 | in-progress |
+| 6b2 — conformance corpus, part 2: reads over several packs, transaction lookups | pending |
+| 6b3 — conformance corpus, part 3: store vectors | pending |
 | 6c — CLI | pending |
 | 7 — Extract and redaction | pending |
 | 8 — Producer API for a durable-bus capture | pending |
@@ -224,7 +226,8 @@ Done when: every truncation point yields the expected outcome and no validated r
 Deferred until a local-spool recorder is planned (G5-91):
 `Recover` (spool file + liveness anchor → segment of the original capture, same seqs, plus a `stop-unclean` boundary record with `gap_start` / `gap_end` per [STO §4]);
 the writer-side spool durability helpers (liveness anchor rewritten every F, at spool rotation and after a durable clock-step, [STO §4]; segment roll at an hour change);
-and their vectors (the durable clock-step → size roll → empty spool → crash vector; nonzero `capture_origin_mono_ns`).
+and their vectors (the durable clock-step → size roll → empty spool → crash vector).
+The vector of a nonzero `capture_origin_mono_ns`, listed here before spec v2.27, is in 6b1 (`sem-capture-origin-mono`, [CORPUS §9]).
 
 ### Phase 5 — Merge, MergeIterate, FindTransaction
 
@@ -561,6 +564,7 @@ under `Complete`, the scope of each evidence reader is not indexed (G5-158).
 ### Phase 6 — JSONL export, conformance corpus, CLI
 
 Split into three sub-phases, each with its own plan, reviews and PR, in the order 6a → 6b → 6c, before phase 7 (G5-166).
+6b is split again into 6b1, 6b2 and 6b3 (G5-173): 6c may start once 6b1 is done, and 6b3 may come after phase 7.
 
 #### 6a — JSONL export (done)
 
@@ -589,22 +593,52 @@ a pooled decoder's history decides whether the library's assembly or generic seq
 Whether a block decodes, and the bytes it decodes to, never vary, so tests compare defects by reason, block and offset, never by the codec's text;
 the two inputs that showed it are regression seeds of `FuzzExportJSONL`.
 
-#### 6b — conformance corpus
+#### 6b1 — conformance corpus, part 1 (in-progress)
 
-- Corpus generator producing the [FMT §16] vectors except the redaction vectors (phase 7), with golden `.tpk`, `.jsonl` and verify reports under `testdata/corpus/`,
-  the expected rejection for a vector rejected at bootstrap ([JSONL §8]),
-  plus the expected query results of the query vectors,
-  regenerated only with an explicit `-update` flag.
-  Whether 6b also covers the vectors of [SEM §9] and [STO §8] is decided when 6b is planned (G5-166).
+From spec v2.27 (G5-173..G5-183); the corpus is [CORPUS]. Plan: the phase 6b1 corpus plan, kept outside the repository (ready after plan reviews r1–r3).
+- The [FMT §16] vectors except the redaction vectors (phase 7) and the two that need the result of a read over several packs (G5-182),
+  the single-pack vectors of [SEM §9] (one per `decode_status` value, one per item-validity case of [CORPUS §7], a nonzero `capture_origin_mono_ns`),
+  the query-vector format and every other JSON schema of [CORPUS §5], under `tracepack/testdata/corpus/`, shipped in the module zip, under 2,000,000 bytes (G5-177).
+- Injectable clocks: `WriterOptions.Now`, passed down by `SegmentWriter` (G5-174), and `RepairOptions.Now` and `MergeOptions.Now` (G5-179), so the corpus regenerates byte-identically under pinned dependency versions (G5-175).
+- `Repair` reports nothing to repair before any refusal (G5-183).
+- `internal/corpus` (§2): schema conversions written by hand from [CORPUS]; `packedit`, byte surgery on packs, either raw (edits stored bytes in place, recomputes only the CRCs and lengths it names, keeps reserved bits, extension areas and reserved TLV bytes) or re-encoding where a recipe says so, every function error-returning;
+  recipes whose expectations are written by hand from the spec, never from output, checked before any golden is written;
+  `TestCorpus` regenerates and compares per [CORPUS §6.1] and runs the read path over the committed files;
+  `go test ./internal/corpus -run '^TestCorpus$' -update` regenerates the corpus, also run by the Make target `corpus-tracepack`.
+  Satellites: `classify/corpus_test.go` runs the classifier on every frame of `classify.json` (the corpus decides, §5 risks); `tracepack/corpus_writer_test.go` reproduces the I-2 injection vector with the validating `Writer`.
+- Deterministic inputs: a fixed hour-aligned time base for every clock, a fixed `writer` and `classifier` name,
+  and identifiers derived from the vector's id, with two exceptions:
+  the vectors that differ only in codec, the truncation base packs included ([CORPUS §3]), derive theirs from one shared identity seed,
+  so their identifiers and exports are equal; the UUID byte-order vector uses the literal UUID of `primitives.json`;
+  the v0.1.0 sample copied from `testdata/v0.1.0-rows.tpk`; `manifest.json`'s `zstd_encoder` read from the build information of the generating test binary.
 
-Done when: the corpus regenerates byte-identically, `ExportJSONL` matches every JSONL golden,
-every vector rejected at bootstrap is rejected as expected, and every query vector yields its expected results.
+Done when: `make lint-tracepack`, `make test-tracepack` and `make test-tracepack-386` pass and `go fix -diff ./...` is clean;
+`-update` produces no diff and the corpus regenerates byte-identically under the pinned `go.mod`;
+`ExportJSONL`, `Verify`, `Iterate` and `Repair` match every golden; every bootstrap vector is rejected with its code; every query vector yields its results;
+the classifier agrees with every case of `classify.json`; the corpus is under 2,000,000 bytes; the external post-implementation review is clean.
+No CLI, redaction, multi-pack or transaction vectors in 6b1.
+
+#### 6b2 — conformance corpus, part 2
+
+- The rest of [SEM §9]: reads over several packs and transaction lookups ([SEM §7.4], [SEM §7.2]), with canonical JSON result formats added to [CORPUS],
+  and the two [FMT §16] vectors moved here (G5-182): a payload-only identity conflict between two packs, and transaction candidate selection.
+
+Done when (provisional, set when 6b2 is planned): `MergeIterate` and `FindTransaction` match every golden, under the same regeneration and size rules as 6b1.
+
+#### 6b3 — conformance corpus, part 3
+
+- The corpus vectors of [STO §8] and a store snapshot format added to [CORPUS]; it may come after phase 7 (G5-173).
+  The recovery vectors among them stay deferred with `Recover` (G5-91); the Service vectors of [STO §8] are outside the corpus.
+
+Done when (provisional, set when 6b3 is planned): the store-backed source, `ActiveView`, `Merge` and retention match every golden, under the same regeneration and size rules as 6b1.
 
 #### 6c — CLI
 
 - `list`, `stats`, `dump --sml | --jsonl`, `verify [--repair]`, `merge`, and `recover` once `Recover` is planned (G5-91), on local paths (G5-170).
   `s3://` sources are deferred until the query service or another design decides where the object-store dependency lives;
   a storage-backed command then ends an hour that becomes removed with the removed outcome ([STO §5] Retention).
+
+Starts once 6b1 is done (G5-173).
 
 Done when: `dump --jsonl` matches every JSONL golden of the corpus, rejects every vector rejected at bootstrap, and the CLI works on the corpus.
 
@@ -613,7 +647,7 @@ Done when: `dump --jsonl` matches every JSONL golden of the corpus, rejects ever
 - Reader prerequisite: a redaction entry with a recoverable defect ([SEM §8]), such as a `masked_ranges` array whose length is not a multiple of 8 or whose element count is odd,
   must not fail `Open`; the reader reports it and treats the records concerned as wholly masked.
   Until then such a pack is rejected at bootstrap by the Go reader, and the corpus holds no rejection golden for it ([JSONL §8]).
-- E5 item walker with byte offsets and the item-validity predicate of [SEM §3], plus the format-22 rule of [SEM §8].
+- E5 item walker with byte offsets and the item-validity predicate of [SEM §3], its format-22 rule included (G5-181), checked against the checklist of [CORPUS §7].
 - Policy compilation: S/F, `*` paths, domains (1–65535 bytes), annotation kinds; invalid patterns and domains rejected.
 - Two-pass `Extract`: plan every mask and digest (captured message text, total path resolution, no-content and whole-text rules), then write header, pack metadata and masked blocks;
   footer from the masked blocks; masked inputs rejected before any output.
@@ -621,7 +655,8 @@ Done when: `dump --jsonl` matches every JSONL golden of the corpus, rejects ever
 - Reader: entries parsed and structurally checked at `Open`, validated per record at read time, wholly masked records reported.
 - `dump --sml` rendering of masked content.
 
-Tests: the redaction vectors of [FMT §16], generated with their goldens and expected reports by the phase-6 corpus generator extended here; a sweep over the corpus asserting, for every record, that each target byte is zero, each other byte equals the source,
+Tests: the redaction vectors of [FMT §16], generated with their goldens and expected reports by the phase-6 corpus generator extended here,
+with the bootstrap vector of a missing required nested tag, which only the `redaction_policy` and `redaction` registries have ([CORPUS §9]); a sweep over the corpus asserting, for every record, that each target byte is zero, each other byte equals the source,
 the payload length and every record-header field except `quality.redacted` are unchanged, and `Verify` reports exactly the source's defects and no new one.
 
 Done when: every redaction vector reproduces its bytes, entries and digests exactly, and the sweep passes.
@@ -666,4 +701,4 @@ Tests and done criteria are set when P8 is decided.
 | Footer merge rule misses a statistic that cannot be restricted to copied blocks | brute-force recomputation tests in phases 2 and 5 |
 | go-secs classification diverges from [SEM §3] on edge cases | the corpus decides; classifier adjusted, `classifier` tag versioned |
 | tracepack needs a go-secs change after v2.5.0 | the change lands in go-secs first; tracepack requires its `main` pseudo-version until the next go-secs release (§2.1) |
-| zstd output differs across library versions | nothing depends on compressed bytes being reproducible; goldens compare decoded content plus codec `none` vectors for byte-exactness |
+| zstd output differs across library versions | the committed goldens are always read strictly, which no encoder affects; a regenerated zstd vector is compared byte for byte under the `klauspost/compress` version the manifest records, and by decoded equivalence under another, its offset-bearing goldens then skipped with a note that `-update` is due (G5-180, [CORPUS §6.1]); damaged zstd blocks are hand-built frames; every vector uses codec `none` unless the codec is its subject. If zstd output differs across GOARCH under one version, the rule extends to a GOARCH other than the generating one |

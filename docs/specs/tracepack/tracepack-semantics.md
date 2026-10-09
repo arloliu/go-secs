@@ -1,10 +1,10 @@
 # tracepack — record semantics
 
-Status: current (2026-10-09) — v2.26, tracepack format 1.0.
+Status: current (2026-10-09) — v2.27, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic.
 
-References: `[FMT §n]` = `tracepack-format.md`, `[SEM §n]` = `tracepack-semantics.md`, `[STO §n]` = `tracepack-storage.md`, `[OVW §n]` = `tracepack-overview.md`, `[JSONL §n]` = `tracepack-jsonl.md`; `[FMT I-n]` = invariant I-n of the format document.
+References: `[FMT §n]` = `tracepack-format.md`, `[SEM §n]` = `tracepack-semantics.md`, `[STO §n]` = `tracepack-storage.md`, `[OVW §n]` = `tracepack-overview.md`, `[JSONL §n]` = `tracepack-jsonl.md`, `[CORPUS §n]` = `tracepack-corpus.md`; `[FMT I-n]` = invariant I-n of the format document.
 Each rule is defined in exactly one document; the others only reference it.
 
 ## 1. Depends on
@@ -15,7 +15,7 @@ Each rule is defined in exactly one document; the others only reference it.
 - [FMT §10] footer F-2 / F-3 / F-5 content used by pruning and lookup; [FMT §13] bootstrap, which a reader of a listing view performs before using that content.
 - [FMT §6] full block reads, used by every query of §7.4.
 - [FMT §2] portable encoding rules; [FMT §5] pack metadata tags used by capture, time and quality semantics;
-  [FMT I-6] immutability; [FMT §16] corpus contract for the vectors of §9.
+  [FMT I-6] immutability; [FMT §16] corpus contract for the vectors of §9, and [CORPUS] for the corpus's files, its item-validity checklist (§3) and its vector catalogue.
 - [FMT §5] `redaction_policy` and `redaction` entries, [FMT §4] `redaction-present`, used by §8.
 - [STO §4] recorder durability contract and durable clock anchor; [STO §5] catalog completeness (seq coverage, barriers) and listing views used by transaction lookup and effective quality;
   [STO §6] repairs (patches) that re-emit records with new stored bits.
@@ -89,7 +89,7 @@ Predicates are defined on the captured bytes, per SEMI E37 §8 and E5 §9.
 | `bad-ptype` | PType ≠ 0 (E37 §8.2.6; 0 = SECS-II) | yes |
 | `bad-stype` | SType not defined by E37 Table 5 (defined: 0–7, 9) | yes |
 | `control-with-body` | SType ≠ 0 and length field ≠ 10 | yes |
-| `oversized` | frame length exceeds the `max_frame_len` in force where the record was classified | yes |
+| `oversized` | frame length (the captured bytes, the 4-byte length field included) exceeds the `max_frame_len` in force where the record was classified | yes |
 | `item-decode-error` | SType = 0, message text non-empty, and it does not begin with one complete, valid SECS-II item or list per E5 §9.2–9.3 (defined format code, 1–3 length bytes, body length consistent with the format's element size, every nested list element present) | yes |
 | `ok-with-trailing` | item valid and message text continues after it; `trailing_bytes` = the excess | quirk, not malformed |
 | `ok` | item valid with no excess, or empty message text (header-only data message), or a well-formed control message | no |
@@ -98,8 +98,12 @@ Predicates are defined on the captured bytes, per SEMI E37 §8 and E5 §9.
 | `build-rejected` | `log` writer parsed the entry but the message is invalid (e.g. W on an even function, §2) | n/a |
 | `not-applicable` | transport-event and annotation records not covered by the rows above | n/a |
 
-A pack whose records were classified under several `max_frame_len` values carries all of them and does not say which one a record was classified under ([FMT §5]).
-The exhaustive item-validity checklist is part of the conformance corpus ([FMT §16]), one vector per rule;
+A pack whose records were classified under several `max_frame_len` values carries all of them and does not say which one a record was classified under ([FMT §5]);
+so a conformance vector whose records are checked against `oversized` carries exactly one `max_frame_len` ([CORPUS §7]).
+A format-22 item (a localized string, E5 §9.4) is valid with a length of 0, or of 2 or more whatever the parity of that length,
+and invalid with a length of 1, because a non-empty localized string starts with its 2-byte header;
+no check depends on the encoding that header names (G5-181).
+The item-validity checklist, one case per rule of the `item-decode-error` predicate, is [CORPUS §7];
 E5 §9 is its normative base.
 Decoders differ in strictness on edge cases;
 because the bytes and the `classifier` are both stored, a consumer can always reclassify, except over masked ranges (§8).
@@ -440,8 +444,7 @@ How policies are written, stored and distributed is not part of this specificati
 For a `data` record, the message text screened here is every captured byte after the 4-byte length and the 10-byte HSMS message header, up to `payload_len`,
 whatever the declared length, `max_frame_len` or the stored classification say.
 A record whose payload is shorter than 14 bytes has no message text and is never masked.
-The text is **one valid item** when it holds exactly one item or list, valid per the item predicate of §3, ending at the last captured byte;
-for this purpose a format-22 item whose body is 1 byte long is not valid (E5 §9.4: a non-empty localized string starts with its 2-byte header).
+The text is **one valid item** when it holds exactly one item or list, valid per the item predicate of §3 (a format-22 item of length 1 is not), ending at the last captured byte.
 The writer decides validity by decoding the text itself; the stored `decode_status` ([FMT I-11]) is not consulted.
 
 **Paths.**
@@ -552,7 +555,7 @@ Annotation rules: `unparsed-entry`, `skipped-bytes` and `unrecognised-line`, who
 
 ## 9. Conformance vectors
 
-The following vectors belong to the corpus of [FMT §16]:
+The following vectors belong to the corpus of [FMT §16]; [CORPUS §9.2] maps each of them to the corpus's vectors or marks it as planned:
 - one vector per `decode_status` value and per item-validity rule (§3);
 - repeated System Bytes; cross-pack transactions;
 - a repeated transaction key: one completed transaction followed by an unanswered primary (§7.2);
