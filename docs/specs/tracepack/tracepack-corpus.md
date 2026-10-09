@@ -416,7 +416,7 @@ An array of transaction lookups from a primary over the packs of a `multi-pack` 
 |---|---|---|---|
 | `view` | array of numbers | always, never empty | the packs whose scopes the source serves, in the order that decides each scope's view order (§8); no number twice |
 | `evidence` | array of numbers | always, `[]` when none | the packs whose statistics are per-capture evidence only (§8); none of them in `view`, no number twice |
-| `complete` | bool | always | the packs are every pack of the tool the source holds evidence of (§8) |
+| `complete` | bool | always | the source packs, `view` and `evidence` together, are every pack of the tool the source holds evidence of (§8) |
 
 `key`:
 
@@ -505,7 +505,7 @@ A fact, its keys in this order, each present as the fact table says:
 | `hours` | array of strings | the hours the fact concerns, ascending |
 | `pack` | number | the pack the fact concerns |
 | `block` | number | the block the fact concerns, its index in that pack |
-| `offset` | string | the envelope of that block |
+| `offset` | string | the file offset the fact's reason gives (§4): for an `index` fact, the block's envelope; for a `read` fact, the offset §5.4 gives its reason |
 | `seq` | string | the seq the fact concerns |
 | `defect` | string | the reason of a read defect, a §5.4 name: `truncated`, `corrupt-block` or `unknown-codec` |
 | `coverage` | coverage object | the `coverage` entry (§4) |
@@ -719,7 +719,9 @@ How the corpus realizes [FMT §16] and [SEM §9] clauses whose wording leaves a 
 - **Control frames**: a `Select.rsp`, a `Deselect.rsp`, a `Reject.req` and a `Linktest.req`, with `fields.json` and queries over their bytes 6 and 7, read positionally ([FMT §7.2]).
 - **A read over several packs** ([SEM §7.4]): the read is given exactly the packs a read of `reads.json` names, in the order it names them;
   they stand for the active views of the scopes a query selects, and no active view is computed from them.
-- **The source of a lookup**: a `source` object (§5.11) denotes one observation of one tool ([STO §5] Observation of a lookup), fixed from the vector's packs alone.
+- **The source of a lookup**: a `source` object (§5.11) denotes one observation of one tool ([STO §5] Observation of a lookup), fixed from its **source packs** alone:
+  exactly the packs `view` and `evidence` list, together.
+  A pack of the vector that neither lists takes no part in the lookup: not in a scope, not in the evidence, not in a barrier.
   The packs of a vector have one `tool_id`; a `view` pack is a segment, an archive or a repair pack, an `evidence` pack a segment or an archive whose period lies inside one UTC hour.
   - **Scopes**: the `view` packs grouped by `capture_id` and the hour of `period_start`.
     Each scope's view is its active view ([STO §4]), every archive's replacement set and every repair pack taken as committed;
@@ -727,10 +729,10 @@ How the corpus realizes [FMT §16] and [SEM §9] clauses whose wording leaves a 
     An hour without a `view` pack of the capture is a scope without packs.
   - **Indexed**: with `complete` true, every scope but the scope (`capture_id`, hour of `period_start`) of each `evidence` pack, which a catalog would not index ([STO §5]);
     with `complete` false, no scope.
-  - **Per-capture evidence** ([STO §5] Per capture): folded from the F-5 statistics of every pack of the capture, `view` and `evidence` alike:
+  - **Per-capture evidence** ([STO §5] Per capture): folded from the F-5 statistics of every source pack of the capture, `view` and `evidence` alike:
     every distinct `boundary` entry, those equal in every field kept once, and the smallest `close_seq` of each epoch.
-    It is partial when `complete` is false or when any pack of the vector has no valid footer.
-  - **Barriers**: the `stop-unclean` boundaries of the per-capture evidence of every capture of the vector.
+    It is partial when `complete` is false or when any source pack has no valid footer.
+  - **Barriers**: the `stop-unclean` boundaries of the per-capture evidence of every capture of the source packs.
   - **View order**: the generation's member first, unless a patch based on the generation replaced it, then the scope's other view packs in the order `view` lists them.
     [STO §4] defines the members of a view, not their order; the corpus fixes it, as a reader fixes the order of the packs it reads.
     The order decides the representatives ([SEM §7.4] Conflicts), so the `pack` and `block` of each record, and the order of `searched`'s `packs`.
