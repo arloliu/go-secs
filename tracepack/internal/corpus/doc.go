@@ -20,4 +20,14 @@
 // Re-encoding (ReencodeBlocks) decodes blocks into typed structures and encodes them again,
 // which writes reserved bits and bytes as zero.
 // Every edit takes a pack's bytes and returns new bytes or an error; none panics on short or malformed input.
+//
+// Generate builds the corpus from the recipes of the vectors_<group>.go files.
+// Each recipe writes its pack with the public Writer under the corpus clock and identifiers derived from an identity seed,
+// then edits it where the vector needs bytes a Writer does not write;
+// the generator reads the pack as a reader of the corpus does
+// and checks every read against the recipe's expectation, written by hand from the specification,
+// before it returns any file.
+// TestCorpus compares the generated files with testdata/corpus, as the corpus specification §6.1 states,
+// and reads every committed vector again;
+// go test ./internal/corpus -run '^TestCorpus$' -update regenerates the committed files.
 package corpus

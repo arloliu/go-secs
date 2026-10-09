@@ -1,0 +1,24 @@
+[
+  {
+    "id": "all",
+    "cites": [
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {},
+    "expect": {
+      "seqs": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ],
+      "incomplete": [
+        {
+          "reason": "truncated",
+          "offset": "583"
+        }
+      ]
+    }
+  }
+]

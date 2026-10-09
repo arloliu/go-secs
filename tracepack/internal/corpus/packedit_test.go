@@ -19,7 +19,6 @@ import (
 // Tags and record header positions the pack surgery tests edit (the tracepack format specification §7.1 and §10).
 const (
 	f3QualityUnionTag uint16 = 0x0005
-	f5RecordCountTag  uint16 = 0x0001
 	f5QualityUnionTag uint16 = 0x0008
 	retiredF3Tag      uint16 = 0x0004
 

@@ -1,0 +1,14 @@
+{
+  "outcome": "finalized-consistent",
+  "finalized": true,
+  "footer_valid": true,
+  "blocks_located": 3,
+  "blocks_validated": 3,
+  "records": "12",
+  "prefix_end": "1057",
+  "failed_blocks": [],
+  "disagreeing_blocks": [],
+  "trailer_totals_disagree": false,
+  "writer_defects": [],
+  "lost": []
+}

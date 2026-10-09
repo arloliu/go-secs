@@ -524,7 +524,7 @@ Files beyond those of the class (§2) are named where a vector has them.
 | `basic-truncated-tail` | read | a pack cut inside its last block |
 | `basic-corrupt-middle` | read | a middle block failing its body CRC, valid footer; `queries.json` |
 | `basic-bad-envelope-crc-indexed` | read | a block failing its envelope CRC, passed by its F-2 entry |
-| `basic-bad-envelope-crc-walked` | read | the same in a finalized pack whose footer is rejected: the walk stops there, and the walked blocks disagree with the trailer; `queries.json` |
+| `basic-bad-envelope-crc-walked` | read | the same in a finalized pack whose footer is rejected: the walk stops there, so the walked blocks are not compared with the trailer's totals ([FMT §13]); `queries.json` |
 | `basic-unknown-codec` | read | a block of a codec outside the registry, its envelope, F-2 entry and body CRC valid and its body no encoder's output, every other block and the footer codec `none`; `queries.json` |
 | `basic-unknown-tags-and-enums` | read | unknown and private metadata tags, unknown enum values in the metadata, the record header and event bodies |
 | `basic-unordered-timestamps` | read | `ts_utc_ns` not ascending within and across blocks |

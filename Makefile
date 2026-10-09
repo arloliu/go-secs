@@ -148,6 +148,10 @@ check-tracepack-consumer: ## Consumer view of tracepack/: GOWORK=off, tidy go.mo
 	@cd $(TRACEPACK_DIR) && GOWORK=off go build ./...
 	@cd $(TRACEPACK_DIR) && GOWORK=off CGO_ENABLED=1 go test ./... -timeout=$(TEST_TIMEOUT) $(VERBOSE_TAG) -race
 
+corpus-tracepack: ## Regenerate tracepack's conformance corpus (tracepack/testdata/corpus)
+	@printf "Regenerate the tracepack conformance corpus...\n"
+	@cd $(TRACEPACK_DIR) && go test ./internal/corpus -run '^TestCorpus$$' -count=1 -update
+
 fuzz-tracepack: ## Run every Fuzz* target under tracepack/ for FUZZ_TIME (default 30s)
 	@printf "%s\n" "=== tracepack fuzz tests (each target for $(FUZZ_TIME)) ==="
 	@set -e; cd $(TRACEPACK_DIR); for pkg in $$(go list ./...); do \
@@ -285,7 +289,7 @@ ci: check docs-check test test-gemgen test-gemgen-integration lint-gemgen lint-t
 
 .PHONY: help lint fmt vet check docs-check \
         lint-gemgen test-gemgen test-gemgen-integration \
-        work lint-tracepack test-tracepack test-tracepack-386 check-tracepack-consumer fuzz-tracepack update-pkg-cache-tracepack \
+        work lint-tracepack test-tracepack test-tracepack-386 check-tracepack-consumer corpus-tracepack fuzz-tracepack update-pkg-cache-tracepack \
         clean clean-coverage build-tests test test-all bench \
         stress-test stress-quick fuzz-test \
         coverage coverage-report \

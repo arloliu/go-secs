@@ -1,0 +1,54 @@
+[
+  {
+    "id": "all",
+    "cites": [
+      "SEM §7.4",
+      "CORPUS §5.4"
+    ],
+    "filter": {},
+    "expect": {
+      "seqs": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "8",
+        "9",
+        "10",
+        "11"
+      ],
+      "incomplete": [
+        {
+          "reason": "corrupt-block",
+          "block": 1,
+          "offset": "583"
+        }
+      ]
+    }
+  },
+  {
+    "id": "kinds-data",
+    "cites": [
+      "SEM §7.4"
+    ],
+    "filter": {
+      "kinds": [
+        "data"
+      ]
+    },
+    "expect": {
+      "seqs": [
+        "3",
+        "10",
+        "11"
+      ],
+      "incomplete": [
+        {
+          "reason": "corrupt-block",
+          "block": 1,
+          "offset": "583"
+        }
+      ]
+    }
+  }
+]
