@@ -173,20 +173,20 @@ Measured when the last vector was added:
 
 | Group | Vectors | Files | Bytes | Budget |
 |---|---:|---:|---:|---:|
-| `footer-` | 28 | 94 | 160,630 | 240,000 |
-| `repair-` | 18 | 97 | 114,170 | 180,000 |
-| `basic-` | 16 | 53 | 87,334 | 130,000 |
-| `verify-` | 13 | 43 | 72,670 | 110,000 |
-| `framing-` | 10 | 30 | 58,136 | 90,000 |
-| `sem-` | 4 | 14 | 49,046 | 75,000 |
-| `hsms-` | 5 | 25 | 33,793 | 50,000 |
+| `footer-` | 28 | 94 | 160,798 | 240,000 |
+| `repair-` | 18 | 97 | 114,176 | 180,000 |
+| `basic-` | 16 | 53 | 87,426 | 130,000 |
+| `verify-` | 13 | 43 | 72,739 | 110,000 |
+| `framing-` | 10 | 30 | 58,163 | 90,000 |
+| `sem-` | 4 | 14 | 51,398 | 75,000 |
+| `hsms-` | 5 | 25 | 33,796 | 50,000 |
 | `bootstrap-` | 16 | 33 | 8,113 | 15,000 |
-| `validation-` | 1 | 4 | 3,416 | 5,000 |
+| `validation-` | 1 | 4 | 3,419 | 5,000 |
 | `sample-` | 1 | 3 | 2,661 | 3,000 |
-| `manifest.json` | | 1 | 63,421 | 95,000 |
+| `manifest.json` | | 1 | 64,050 | 95,000 |
 | `primitives.json` | | 1 | 718 | 1,000 |
 | `README.md`, `.gitattributes` | | 2 | 12,000 (about) | 16,000 |
-| **Total** | 112 | 400 | 666,000 (about) | 1,010,000 |
+| **Total** | 112 | 400 | 669,000 (about) | 1,010,000 |
 
 To keep a vector small:
 codec `none` unless the codec is the subject, small payloads, a block threshold of a few hundred bytes,
