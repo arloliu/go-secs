@@ -23,7 +23,7 @@ Reads over several packs, transaction lookups, store vectors and redaction vecto
 | Key | Value |
 |---|---|
 | `corpus` | `tracepack-corpus/1`, the schema of every JSON file here |
-| `spec_version` | the spec version the goldens follow, `2.28` |
+| `spec_version` | the spec version the goldens follow, `2.29` |
 | `format_version` | `1.0` |
 | `jsonl_schema` | `tracepack-jsonl/1`, the schema of every `.jsonl` file |
 | `zstd_encoder` | the zstd encoder that produced the corpus's encoder-made zstd blocks and footers (see [zstd](#zstd)) |

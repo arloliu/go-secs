@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-09) — spec v2.28.
+Status: current (2026-10-10) — spec v2.29.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -1215,3 +1215,18 @@ Specification version unchanged (v2.28); editorial only, no rule changes.
 - The site's gateway and its parts are named for what they do: the equipment gateway, its HSMS device, a message-encoding adapter and the EAP bus adapter
   (`tracepack-go.md` §2 and §8, proposal P8, the `tracepack-go.md` notes above).
 - The decision log rewords G3-20, G3-PLACE, G3-27, G4-28, R3-6, G5-80, G5-82, G5-85 and G5-86 to these names; the decisions are unchanged.
+
+## Changes v2.28 → v2.29: a log of several tools (owner decision G5-186, 2026-10-10)
+
+Source: a question from the log converter's implementation, on how the nothing-dropped rule applies when one log yields several captures; no proposal document.
+Format version stays 1.0; no byte layout changes.
+
+Summary:
+- [STO §7] item 7: an input holding the traffic of several tools yields one capture per tool,
+  and the entries and lines of no tool form one more capture under the logging program's configured identity as `tool_id`;
+  every input byte range is covered by exactly one record or annotation of exactly one capture of the run, and no capture repeats another's bytes;
+  the `decode_status` counts are reported per capture (G5-186).
+- [STO §7] item 8: `capture_id` is one per `tool_id` per converter run per source file set, matching [FMT I-7].
+- [STO §8]: a vector of a log holding two tools' traffic and lines of neither, converted into three captures.
+- `tracepack-go.md` §6: the EAP converter writes one capture per tool and one for the EAP's own lines.
+- [CORPUS §3]: `spec_version` 2.29; no golden changes.

@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-10-09) — v2.28, tracepack format 1.0.
+Status: current (2026-10-10) — v2.29, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for publishers, mergers, recorders and log converters.
 
@@ -484,11 +484,15 @@ A source dialect lacking some of these is still convertible, with the effects st
    A W-bit already invalid in the source text fails at parse time and is preserved as `parse-failed`.
 5. **Time**: parse in `source_tz`, DST rule per [SEM §4]; unparseable → previous entry's time + `ordering-uncertain`.
 6. **Transport lines**: [SEM §5]; anything else → `unrecognised-line` annotation with the raw line.
-7. **Nothing dropped**: every input byte range is covered by exactly one record or annotation;
-   the converter reports counts per `decode_status`.
+7. **Nothing dropped**: every input byte range is covered by exactly one record or annotation of exactly one capture the run writes.
+   An input that holds the traffic of several tools yields one capture per tool, each holding only its own tool's entries and lines,
+   and no capture repeats another's bytes as annotations.
+   Entries and lines that belong to no tool, such as the logging program's own lines, form one more capture when there are any,
+   whose `tool_id` is the logging program's own identity as configured in the converter, distinct from every tool's `tool_id`.
+   The converter reports counts per `decode_status` for each capture.
 8. **Epoch**: increments on each explicit connect / accept line;
    a dialect without them yields `epoch = 0` + `correlation-incomplete` ([FMT I-7]).
-   `capture_id` is one per converter run per source file set; `seq` is capture-scoped ([FMT I-12]).
+   `capture_id` is one per `tool_id` per converter run per source file set ([FMT I-7]); `seq` is capture-scoped ([FMT I-12]).
 9. **Output**: a converter MAY write `archive` packs directly, one per (capture, UTC hour), with hour-aligned blocks ([FMT I-13]), `compaction_level = 0` and no `compacted_from`,
    since they represent no generation-0 pack ([FMT §5]); a merge whose view holds only such an archive writes none either (§4, G5-111).
 
@@ -496,6 +500,7 @@ A source dialect lacking some of these is still convertible, with the effects st
 
 The following vectors belong to the corpus of [FMT §16]:
 - converter failures (§7);
+- a log holding the traffic of two tools and lines of neither, converted into three captures whose records and annotations together cover every input byte exactly once (§7);
 - a merge of several segments into an archive, including overlapping inputs, an hour change forcing two segments, and a late segment producing a new generation (§4);
 - two records with the same (`capture_id`, `seq`) but different bytes: readers report a `conflict`, and a merge fails and publishes nothing ([FMT I-12], §4);
 - overlapping blocks with the same seq range but different codec or compressed bytes, and a forced `body_crc` collision (§4);

@@ -1,6 +1,6 @@
 # tracepack — conformance corpus
 
-Status: current (2026-10-09) — v2.28, tracepack format 1.0, schema `tracepack-corpus/1` (draft until tracepack v1.0.0).
+Status: current (2026-10-10) — v2.29, tracepack format 1.0, schema `tracepack-corpus/1` (draft until tracepack v1.0.0).
 Normative, language-agnostic. [FMT §16] states what the corpus holds; this document defines its files, their schemas and the vector catalogue.
 
 Depends on: [FMT §2] portable encoding, [FMT §5] TLV registries, [FMT §7.2] HSMS header fields, [FMT §10] footer and its validation,
@@ -65,7 +65,7 @@ so goldens written under different definitions are told apart ([FMT §14]).
 | Key | Type | Present | Value |
 |---|---|---|---|
 | `corpus` | string | always | `"tracepack-corpus/1"`, the schema of every file of this document (§10) |
-| `spec_version` | string | always | the spec version the goldens follow: `"2.28"` |
+| `spec_version` | string | always | the spec version the goldens follow: `"2.29"` |
 | `format_version` | string | always | `"1.0"` ([FMT §4]) |
 | `jsonl_schema` | string | always | the export schema of every `.jsonl` file: `"tracepack-jsonl/1"` ([JSONL §9]) |
 | `zstd_encoder` | string | always | the identity and version of the zstd encoder that produced the encoder-made zstd blocks and footers of the corpus, as its generator records it (§6.1) |

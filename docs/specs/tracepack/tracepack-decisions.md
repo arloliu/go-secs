@@ -947,3 +947,16 @@ it is not part of the owner's recorded decision or of a review's finding.
   generic uses of "tap" (a network tap, a connection-level tap) stay.
   Rationale *(editorial)*: the earlier names were a site's own, and the specification is meant to be read outside that site.
   Spec: `tracepack-go.md` §1, §2, §6 and §8, `tracepack-impl-plan.md` §1, proposal P8 (editorial, spec version unchanged).
+- G5-186 A log of several tools converts into one capture per tool (2026-10-10):
+  a converter run over an input that holds the traffic of several tools writes one capture per tool, each holding only its own tool's entries and lines;
+  entries and lines that belong to no tool, such as the logging program's own, form one more capture,
+  whose `tool_id` is the logging program's identity as configured in the converter, distinct from every tool's.
+  The nothing-dropped rule holds over the run: every input byte range is covered by exactly one record or annotation of exactly one of its captures,
+  and no capture repeats another's bytes as annotations.
+  `capture_id` is one per `tool_id` per run per source file set, as [FMT I-7] already assigns it per tool;
+  the corpus `spec_version` follows the spec version although no golden changes.
+  Rationale *(editorial)*: a capture belongs to one tool ([FMT §5] `tool_id`), so a log of several tools cannot be one capture,
+  and copying every other tool's lines into each capture would multiply the stored bytes by the number of tools.
+  Rejected: every capture covering the whole input, with the other tools' and the unrelated lines as annotations;
+  leaving the lines of no tool out of every capture with a count only; one capture per run.
+  Spec: [STO §7] items 7 and 8, [STO §8], `tracepack-go.md` §6 (v2.29).

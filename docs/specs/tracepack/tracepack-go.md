@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
 Status: current (2026-10-10)
-Implements tracepack v2.28 (format 1.0): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Implements tracepack v2.29 (format 1.0): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -529,6 +529,8 @@ and a reply recorded before its primary is reported by transaction matching as a
   `Build` rejects W on an even function, which the converter records as `build-rejected`.
 - `source_dialect` records the EAP dialect and the parser mode, `sml.Parse` or `sml.ParseStrict`.
 - Input assumptions and the dialect are confirmed against the pilot's EAP sample (G3-20, R3-6).
+- An EAP log holds the traffic of several tools: the converter writes one capture per tool,
+  and one more for the lines of no tool, such as the EAP's own, whose `tool_id` is the EAP's identity as configured in the converter ([STO §7] items 7 and 8).
 
 ## 7. Reference CLI (`tracepack/cmd/tracepack`)
 

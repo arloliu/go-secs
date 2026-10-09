@@ -13,7 +13,7 @@ const (
 	// CorpusSchema names the schemas of every file of the corpus.
 	CorpusSchema = "tracepack-corpus/1"
 	// SpecVersion is the spec version the goldens follow.
-	SpecVersion = "2.28"
+	SpecVersion = "2.29"
 	// FormatVersion is the tracepack format version of the packs.
 	FormatVersion = "1.0"
 	// JSONLSchema is the export schema of every .jsonl file.
