@@ -1,0 +1,73 @@
+{
+  "stored": {
+    "blocks": [
+      {
+        "block": 0,
+        "close_seqs": [],
+        "boundaries": [
+          {
+            "seq": "0",
+            "kind": "start"
+          },
+          {
+            "seq": "2",
+            "kind": "stop-unclean"
+          }
+        ]
+      }
+    ],
+    "f5": {
+      "epochs": [
+        {
+          "epoch": 1
+        }
+      ],
+      "boundaries": [
+        {
+          "seq": "0",
+          "kind": "start"
+        },
+        {
+          "seq": "2",
+          "kind": "stop-unclean"
+        }
+      ]
+    }
+  },
+  "accepted": true,
+  "recomputed": {
+    "blocks": [
+      {
+        "block": 0,
+        "close_seqs": [],
+        "boundaries": [
+          {
+            "seq": "0",
+            "kind": "start"
+          },
+          {
+            "seq": "2",
+            "kind": "stop-unclean"
+          }
+        ]
+      }
+    ],
+    "f5": {
+      "epochs": [
+        {
+          "epoch": 1
+        }
+      ],
+      "boundaries": [
+        {
+          "seq": "0",
+          "kind": "start"
+        },
+        {
+          "seq": "2",
+          "kind": "stop-unclean"
+        }
+      ]
+    }
+  }
+}

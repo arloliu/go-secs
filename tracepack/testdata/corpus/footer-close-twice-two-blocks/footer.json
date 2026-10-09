@@ -1,0 +1,89 @@
+{
+  "stored": {
+    "blocks": [
+      {
+        "block": 0,
+        "close_seqs": [
+          {
+            "epoch": 1,
+            "seq": "2"
+          }
+        ],
+        "boundaries": []
+      },
+      {
+        "block": 1,
+        "close_seqs": [
+          {
+            "epoch": 1,
+            "seq": "3"
+          }
+        ],
+        "boundaries": [
+          {
+            "seq": "3",
+            "kind": "stop"
+          }
+        ]
+      }
+    ],
+    "f5": {
+      "epochs": [
+        {
+          "epoch": 1,
+          "close_seq": "2"
+        }
+      ],
+      "boundaries": [
+        {
+          "seq": "3",
+          "kind": "stop"
+        }
+      ]
+    }
+  },
+  "accepted": true,
+  "recomputed": {
+    "blocks": [
+      {
+        "block": 0,
+        "close_seqs": [
+          {
+            "epoch": 1,
+            "seq": "2"
+          }
+        ],
+        "boundaries": []
+      },
+      {
+        "block": 1,
+        "close_seqs": [
+          {
+            "epoch": 1,
+            "seq": "3"
+          }
+        ],
+        "boundaries": [
+          {
+            "seq": "3",
+            "kind": "stop"
+          }
+        ]
+      }
+    ],
+    "f5": {
+      "epochs": [
+        {
+          "epoch": 1,
+          "close_seq": "2"
+        }
+      ],
+      "boundaries": [
+        {
+          "seq": "3",
+          "kind": "stop"
+        }
+      ]
+    }
+  }
+}

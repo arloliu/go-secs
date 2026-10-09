@@ -20,8 +20,6 @@ const (
 	testEnvelopeLen     = 40
 	testRecordHeaderLen = 44
 	testTrailerLen      = 64
-
-	trailerRecordCountOff = 32
 )
 
 var (

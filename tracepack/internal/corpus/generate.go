@@ -39,6 +39,8 @@ var ErrNoEncoder = errors.New("corpus: the linked zstd encoder is not known")
 // A group adds its vectors by adding its function here.
 var groups = []func() []Recipe{
 	basicVectors,
+	footerVectors,
+	framingVectors,
 }
 
 // Recipe describes one vector of the corpus and how the generator makes it (the tracepack corpus specification §3).

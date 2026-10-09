@@ -18,12 +18,6 @@ import (
 
 // Tags and record header positions the pack surgery tests edit (the tracepack format specification §7.1 and §10).
 const (
-	f3QualityUnionTag uint16 = 0x0005
-	f5QualityUnionTag uint16 = 0x0008
-	retiredF3Tag      uint16 = 0x0004
-
-	f2TSMaxOff = 48
-
 	rowTSOff            = 8
 	rowQualityHighOff   = 37
 	rowFieldValidityOff = 42
@@ -94,14 +88,7 @@ func footerU64(t *testing.T, d []byte, s Section, tag uint16) uint64 {
 func orQualityUnion(t *testing.T, pack []byte, i int, bits uint64) []byte {
 	t.Helper()
 
-	return must(PatchFooter(pack, func(d []byte) ([]byte, error) {
-		f3 := must(F3List(d, i))(t)
-		f5 := must(F5List(d))(t)
-		require.NoError(t, SetU64(d, f3, f3QualityUnionTag, footerU64(t, d, f3, f3QualityUnionTag)|bits))
-		require.NoError(t, SetU64(d, f5, f5QualityUnionTag, footerU64(t, d, f5, f5QualityUnionTag)|bits))
-
-		return d, nil
-	}))(t)
+	return must(orFooterQuality(pack, i, bits))(t)
 }
 
 func TestLocate(t *testing.T) {
