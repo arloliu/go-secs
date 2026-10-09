@@ -103,7 +103,7 @@ func eventRecord(t *testing.T, seq uint64, epoch uint32, ev *tracepack.Transport
 
 	return tracepack.Record{
 		Seq: seq, TSUTCNs: testHour + int64(seq)*int64(time.Microsecond), Epoch: epoch,
-		Kind: tracepack.KindTransportEvent, Dir: tracepack.DirLocal, Fidelity: tracepack.FidelitySynthesized,
+		Kind: tracepack.KindTransportEvent, Dir: tracepack.DirLocal, Fidelity: tracepack.FidelityNotApplicable,
 		DecodeStatus: tracepack.DecodeStatusNotApplicable, Payload: payload,
 	}
 }

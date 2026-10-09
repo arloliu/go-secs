@@ -256,7 +256,7 @@ func semVectors() []Recipe {
 	classified.Expect.ExportHas = append(classified.Expect.ExportHas,
 		`"trailing_bytes":3,"quality":[],"kind":"data","dir":"host-to-equipment","fidelity":"wire-exact","decode_status":"ok-with-trailing"`,
 		`"kind":"data","dir":"host-to-equipment","fidelity":"wire-exact","decode_status":"not-attempted"`,
-		`"kind":"annotation","dir":"local","fidelity":"synthesized","decode_status":"not-applicable"`,
+		`"kind":"annotation","dir":"local","fidelity":"not-applicable","decode_status":"not-applicable"`,
 	)
 	validity := classifiedVector("sem-item-validity", "the item-validity checklist",
 		[]string{"SEM §3", "SEM §9", "CORPUS §7", "CORPUS §5.9"}, itemValidityFrames())
@@ -295,7 +295,7 @@ func logStatusVector() Recipe {
 				if err != nil {
 					return nil, err
 				}
-				r.Fidelity, r.DecodeStatus = tracepack.FidelityNotApplicable, e.status
+				r.DecodeStatus = e.status
 				recs = append(recs, r)
 			}
 			pack, err := writeSpec(&packSpec{seed: seed, meta: logMeta(seed), blocks: [][]tracepack.Record{recs}})

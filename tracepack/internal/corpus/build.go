@@ -237,7 +237,8 @@ func newLogData(seq uint64, epoch uint32, dir tracepack.Dir, frame []byte, missi
 	return r
 }
 
-// newEvent returns a transport-event record of seq at msAt(seq) carrying ev, local and synthesized.
+// newEvent returns a transport-event record of seq at msAt(seq) carrying ev, local and not-applicable:
+// the fidelity of transport-event records (the tracepack semantics specification §2).
 func newEvent(seq uint64, epoch uint32, ev *tracepack.TransportEvent) (tracepack.Record, error) {
 	payload, err := ev.MarshalBinary()
 	if err != nil {
@@ -246,12 +247,13 @@ func newEvent(seq uint64, epoch uint32, ev *tracepack.TransportEvent) (tracepack
 
 	return tracepack.Record{
 		Seq: seq, TSUTCNs: msAt(int64(seq)), Epoch: epoch,
-		Kind: tracepack.KindTransportEvent, Dir: tracepack.DirLocal, Fidelity: tracepack.FidelitySynthesized,
+		Kind: tracepack.KindTransportEvent, Dir: tracepack.DirLocal, Fidelity: tracepack.FidelityNotApplicable,
 		DecodeStatus: tracepack.DecodeStatusNotApplicable, Payload: payload,
 	}, nil
 }
 
-// newAnnotation returns an annotation record of seq at msAt(seq) carrying a, local and synthesized.
+// newAnnotation returns an annotation record of seq at msAt(seq) carrying a, local and not-applicable:
+// the fidelity of annotation records (the tracepack semantics specification §2).
 func newAnnotation(seq uint64, epoch uint32, a *tracepack.Annotation) (tracepack.Record, error) {
 	payload, err := a.MarshalBinary()
 	if err != nil {
@@ -260,7 +262,7 @@ func newAnnotation(seq uint64, epoch uint32, a *tracepack.Annotation) (tracepack
 
 	return tracepack.Record{
 		Seq: seq, TSUTCNs: msAt(int64(seq)), Epoch: epoch,
-		Kind: tracepack.KindAnnotation, Dir: tracepack.DirLocal, Fidelity: tracepack.FidelitySynthesized,
+		Kind: tracepack.KindAnnotation, Dir: tracepack.DirLocal, Fidelity: tracepack.FidelityNotApplicable,
 		DecodeStatus: tracepack.DecodeStatusNotApplicable, Payload: payload,
 	}, nil
 }
