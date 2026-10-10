@@ -113,8 +113,23 @@ func TestMultiRecipesAreChecked(t *testing.T) {
 			items[1], items[2] = items[2], items[1]
 		}},
 		{"multi-equal-timestamps", "the version order", func(e *Expectation) {
-			e.Reads[3].Conflicts = []ConflictWant{{Capture: 2, Seq: 7, Versions: [][]int{{3}, {4}}}}
+			e.Reads[4].Conflicts = []ConflictWant{{Capture: 2, Seq: 7, Versions: [][]int{{3}, {4}}}}
 		}},
+		{"multi-equal-timestamps", "the clusters tied by the order of packs", func(e *Expectation) {
+			c := e.Reads[2].Conflicts
+			e.Reads[2].Conflicts = []ConflictWant{c[1], c[0]}
+		}},
+		{"multi-header-conflicts", "a conflict missing", func(e *Expectation) { e.Reads[0].Conflicts = e.Reads[0].Conflicts[1:] }},
+		{"multi-conflict-limit", "the error form at the bound", func(e *Expectation) {
+			e.Reads[0] = ReadWant{ID: "limit-exact", Error: ErrorConflictLimit, Conflicts: limitConflicts}
+		}},
+		{"multi-conflict-limit", "success past the bound", func(e *Expectation) {
+			e.Reads[1] = ReadWant{ID: "limit-exceeded", Items: e.Reads[0].Items, Conflicts: limitConflicts}
+		}},
+		{"multi-conflict-limit", "the conflicts in the order of capture_id and seq", func(e *Expectation) {
+			e.Reads[1].Conflicts = limitConflicts[1:]
+		}},
+		{"multi-walked-excluded", "no footer error", func(e *Expectation) { e.Reads[0].FooterErrors = nil }},
 		{"multi-unfinalized-beside-archive", "no footer error", func(e *Expectation) { e.Reads[0].FooterErrors = nil }},
 		{"multi-unfinalized-beside-archive", "no incomplete reason", func(e *Expectation) { e.Reads[1].Incomplete = nil }},
 	}
@@ -285,12 +300,13 @@ func multiRecipe(t *testing.T, id string) Recipe {
 	return r
 }
 
-// TestReversedPacksKeepConflicts checks, for every read over several packs of the multi group without a conflict bound,
+// TestReversedPacksKeepConflicts checks, for every read over several packs of the multi group,
 // that the same read given its packs in the reverse order keeps which records conflict and which versions they have,
-// and so which versions it yields and which footers it does not use,
+// and so which versions it yields, which footers it does not use and which incomplete reasons it reports,
 // while the representatives, and with them the packs and blocks the items name, may change
 // (the tracepack semantics specification §7.4, Conflicts).
-// A bound is left out: it ends a read on a conflict that depends on the order of discovery.
+// A read that fails on its conflict bound fails in both orders, the number of conflicts being the same,
+// and its conflicts are not compared: the bound ends it on a conflict that depends on the order of discovery.
 func TestReversedPacksKeepConflicts(t *testing.T) {
 	t.Parallel()
 
@@ -310,7 +326,7 @@ func TestReversedPacksKeepConflicts(t *testing.T) {
 
 		var reads []ReadSpec
 		for _, rd := range built.Reads {
-			if len(rd.Packs) < 2 || rd.MaxConflicts > 0 {
+			if len(rd.Packs) < 2 {
 				continue
 			}
 			rev := rd
@@ -331,11 +347,16 @@ func TestReversedPacksKeepConflicts(t *testing.T) {
 		for k := 0; k < len(reads); k += 2 {
 			id := r.ID + "/" + reads[k].ID
 			given, reversed := byID[reads[k].ID], byID[reads[k+1].ID]
-			require.Empty(t, given.Error, id)
-			require.Empty(t, reversed.Error, id)
+			require.Equal(t, given.Error, reversed.Error, id)
+			if given.Error != "" {
+				require.Len(t, reversed.Conflicts, len(given.Conflicts), id)
+				continue
+			}
 			require.Equal(t, conflictSet(given.Conflicts), conflictSet(reversed.Conflicts), "%s: the conflicts", id)
-			require.Equal(t, yieldedVersions(*given.Items, captures), yieldedVersions(*reversed.Items, captures), "%s: the versions yielded", id)
+			require.Equal(t, yieldedVersions(*given.Items, given.Conflicts, captures), yieldedVersions(*reversed.Items, reversed.Conflicts, captures),
+				"%s: the versions yielded", id)
 			require.ElementsMatch(t, *given.FooterErrors, *reversed.FooterErrors, "%s: the footer errors", id)
+			require.ElementsMatch(t, *given.Incomplete, *reversed.Incomplete, "%s: the incomplete reasons", id)
 			if !slices.Equal(*given.Items, *reversed.Items) {
 				changed++
 			}
@@ -353,6 +374,14 @@ func TestReversedPacksKeepConflicts(t *testing.T) {
 	require.Equal(t, []ReadItem{{Seq: 1, Pack: 1}, {Seq: 2, Pack: 1, Conflict: true}, {Seq: 2, Pack: 0, Conflict: true}, {Seq: 3, Pack: 1}},
 		*out.reads[0].Expect.Items)
 	require.Equal(t, [][]int{{1}, {0}}, out.reads[0].Expect.Conflicts[0].Versions)
+
+	// An item of a conflict names its version: pack 0's copy of seq 2 in place of pack 1's is another version.
+	conflicts := out.reads[0].Expect.Conflicts
+	items := slices.Clone(*out.reads[0].Expect.Items)
+	other := slices.Clone(items)
+	other[1].Pack, other[2].Pack = 0, 0
+	captures := []string{conflicts[0].CaptureID, conflicts[0].CaptureID}
+	require.NotEqual(t, yieldedVersions(items, conflicts, captures), yieldedVersions(other, conflicts, captures))
 }
 
 // conflictSet returns the conflicts cs as a set: each conflict's capture_id, seq and versions, each version's packs ascending,
@@ -374,11 +403,28 @@ func conflictSet(cs []ConflictEntry) []string {
 }
 
 // yieldedVersions returns the items as a multiset of the versions they yield, without their representatives or order:
-// each item's capture, from captures by pack number, its seq and whether it is a conflict, sorted.
-func yieldedVersions(items []ReadItem, captures []string) []string {
+// each item's capture, from captures by pack number, and its seq,
+// and for an item of a conflict, of conflicts, the packs holding its version, the version whose packs hold the item's pack, ascending;
+// sorted.
+func yieldedVersions(items []ReadItem, conflicts []ConflictEntry, captures []string) []string {
 	out := make([]string, 0, len(items))
 	for _, it := range items {
-		out = append(out, fmt.Sprintf("%s/%d %v", captures[it.Pack], it.Seq, it.Conflict))
+		key := fmt.Sprintf("%s/%d", captures[it.Pack], it.Seq)
+		if it.Conflict {
+			version := "no version"
+			for _, c := range conflicts {
+				if c.CaptureID != captures[it.Pack] || c.Seq != it.Seq {
+					continue
+				}
+				for _, v := range c.Versions {
+					if slices.Contains(v, it.Pack) {
+						version = fmt.Sprint(slices.Sorted(slices.Values(v)))
+					}
+				}
+			}
+			key += " " + version
+		}
+		out = append(out, key)
 	}
 	slices.Sort(out)
 

@@ -181,6 +181,8 @@ func runRead(ctx context.Context, packs [][]byte, stored []map[storedKey]storedR
 // checkRecordContents checks that every item of a read is the record of its seq in the pack and block it names, as stored
 // (the tracepack corpus specification §1): every field of its record header, its header extension byte for byte,
 // and its payload byte for byte when the read returns payloads, nil when it does not.
+// The reserved bits of record_flags are not part of tracepack.Record, so the check does not compare them:
+// for copies differing in those bits alone, the item's pack and block alone identify its version.
 // packs holds the number of each reader's pack, in the order of the readers,
 // and stored the stored records of each pack, by number.
 func checkRecordContents(items []tracepack.Item, packs []int, stored []map[storedKey]storedRecord, payloads bool) error {

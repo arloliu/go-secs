@@ -129,6 +129,8 @@ func TestFactComparator(t *testing.T) {
 			barrierFact(testCaptureID, func(b *FactBoundary) { b.GapStart, b.GapEnd = new(I64(1)), new(I64(-1)) }, BasisTime)},
 		{"boundary gap_end as numbers", barrierFact(testCaptureID, func(b *FactBoundary) { b.GapEnd = new(I64(9)) }, BasisTime),
 			barrierFact(testCaptureID, func(b *FactBoundary) { b.GapEnd = new(I64(10)) }, BasisTime)},
+		{"boundary gap_end signed", barrierFact(testCaptureID, func(b *FactBoundary) { b.GapEnd = new(I64(-1)) }, BasisTime),
+			barrierFact(testCaptureID, func(b *FactBoundary) { b.GapEnd = new(I64(0)) }, BasisTime)},
 		{"basis a prefix first", barrierFact(testCaptureID, nil, BasisEpoch), barrierFact(testCaptureID, nil, BasisEpoch, BasisTime)},
 		{"basis epoch before time", barrierFact(testCaptureID, nil, BasisEpoch, BasisTime), barrierFact(testCaptureID, nil, BasisTime)},
 	}

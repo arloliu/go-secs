@@ -721,7 +721,7 @@ var generatedGroups = []string{
 
 // partialGroups are the generated groups whose catalogued vectors do not all have a recipe yet.
 // A group leaves the list with its last vector.
-var partialGroups = []string{"multi-"}
+var partialGroups = []string{}
 
 // TestRecipeIDsAreCatalogued checks that every vector of a generated group that the catalogue of the tracepack corpus specification §9.4 lists has a recipe,
 // a group of partialGroups excepted, and that no recipe is missing from it.

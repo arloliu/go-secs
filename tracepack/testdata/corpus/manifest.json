@@ -1563,6 +1563,26 @@
       ]
     },
     {
+      "id": "multi-cluster-mixed-exclusion",
+      "title": "a cluster of a block the time range excludes and one it does not: both read, the conflict listed",
+      "cites": [
+        "SEM §7.4",
+        "SEM §9",
+        "CORPUS §5.10"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "reads.json"
+      ]
+    },
+    {
       "id": "multi-cluster-two-hours",
       "title": "a cluster spanning two hours, in capture and time order",
       "cites": [
@@ -1579,6 +1599,31 @@
         "pack-0.verify.json",
         "pack-1.tpk",
         "pack-1.verify.json",
+        "reads.json"
+      ]
+    },
+    {
+      "id": "multi-conflict-limit",
+      "title": "three conflicts, read with a bound of three (success) and of two (conflict-limit)",
+      "cites": [
+        "SEM §7.4",
+        "SEM §9",
+        "CORPUS §1",
+        "CORPUS §5.10"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "pack-2.tpk",
+        "pack-2.verify.json",
+        "pack-3.tpk",
+        "pack-3.verify.json",
         "reads.json"
       ]
     },
@@ -1647,6 +1692,33 @@
         "pack-4.verify.json",
         "pack-5.tpk",
         "pack-5.verify.json",
+        "pack-6.tpk",
+        "pack-6.verify.json",
+        "pack-7.tpk",
+        "pack-7.verify.json",
+        "pack-8.tpk",
+        "pack-8.verify.json",
+        "reads.json"
+      ]
+    },
+    {
+      "id": "multi-header-conflicts",
+      "title": "copies differing only in a reserved record_flags bit, in an extension byte and in record_header_len: three conflicts",
+      "cites": [
+        "FMT §7.1",
+        "SEM §7.4",
+        "SEM §9",
+        "CORPUS §5.10"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
         "reads.json"
       ]
     },
@@ -1717,6 +1789,27 @@
       "cites": [
         "SEM §7.4",
         "SEM §9",
+        "CORPUS §5.10"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "reads.json"
+      ]
+    },
+    {
+      "id": "multi-walked-excluded",
+      "title": "an unfinalized pack whose walked block's computed summary excludes its cluster",
+      "cites": [
+        "SEM §7.4",
+        "SEM §9",
+        "CORPUS §5.4",
         "CORPUS §5.10"
       ],
       "class": "multi-pack",
