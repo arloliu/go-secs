@@ -1,33 +1,36 @@
 [
   {
-    "id": "no-system-bytes",
+    "id": "other-epoch-stop",
     "cites": [
       "SEM §7.2",
       "CORPUS §5.11"
     ],
     "source": {
       "view": [
-        0
+        0,
+        1
       ],
       "evidence": [],
       "complete": true
     },
     "key": {
-      "capture_id": "01a0ffeb-3600-7d38-9939-e0d87c48c69b",
+      "capture_id": "01a0ffeb-3600-7e51-a270-7c8f2cdf4730",
       "seq": "1",
       "hour": "497500"
     },
-    "max_scopes": 2,
+    "max_scopes": 1,
     "expect": {
       "outcome": "incomplete",
       "key": {
         "epoch": 1,
         "dir": "host-to-equipment",
         "session_id": 1,
+        "system_bytes": "AAAAcQ==",
         "stream": 1,
         "function": 1,
         "w": true
       },
+      "window_end": "3",
       "records": [
         {
           "seq": "1",
@@ -40,11 +43,35 @@
           ],
           "in_window": false,
           "bound": false
+        },
+        {
+          "seq": "3",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "closing"
+          ],
+          "in_window": false,
+          "bound": true
         }
       ],
       "gaps": [
         {
-          "reason": "no-key"
+          "reason": "barrier",
+          "boundary": {
+            "capture_id": "01a0ffeb-3600-7e51-a270-7c8f2cdf4730",
+            "seq": "9",
+            "boundary_kind": "stop-unclean",
+            "ts": "1791010800009000000",
+            "epoch": 2,
+            "gap_start": "1791010800001000000",
+            "gap_end": "1791010800008000000"
+          },
+          "basis": [
+            "epoch"
+          ]
         }
       ],
       "searched": [
@@ -61,41 +88,42 @@
     }
   },
   {
-    "id": "unavailable-reply",
+    "id": "own-epoch-socket-close",
     "cites": [
       "SEM §7.2",
       "CORPUS §5.11"
     ],
     "source": {
       "view": [
-        0
+        2,
+        3
       ],
       "evidence": [],
       "complete": true
     },
     "key": {
-      "capture_id": "01a0ffeb-3600-7d38-9939-e0d87c48c69b",
-      "seq": "3",
+      "capture_id": "01a0ffeb-3600-780e-8f20-a328ba0fd730",
+      "seq": "1",
       "hour": "497500"
     },
     "max_scopes": 1,
     "expect": {
-      "outcome": "incomplete",
+      "outcome": "unmatched",
       "key": {
-        "epoch": 2,
+        "epoch": 1,
         "dir": "host-to-equipment",
         "session_id": 1,
-        "system_bytes": "AAAAQg==",
+        "system_bytes": "AAAAcQ==",
         "stream": 1,
         "function": 1,
         "w": true
       },
-      "window_end": "5",
+      "window_end": "3",
       "records": [
         {
-          "seq": "3",
+          "seq": "1",
           "hour": "497500",
-          "pack": 0,
+          "pack": 2,
           "block": 0,
           "conflict": false,
           "roles": [
@@ -105,21 +133,9 @@
           "bound": false
         },
         {
-          "seq": "4",
+          "seq": "3",
           "hour": "497500",
-          "pack": 0,
-          "block": 0,
-          "conflict": false,
-          "roles": [
-            "possible-reply"
-          ],
-          "in_window": true,
-          "bound": false
-        },
-        {
-          "seq": "5",
-          "hour": "497500",
-          "pack": 0,
+          "pack": 2,
           "block": 0,
           "conflict": false,
           "roles": [
@@ -129,23 +145,13 @@
           "bound": true
         }
       ],
-      "gaps": [
-        {
-          "reason": "unavailable",
-          "hours": [
-            "497500"
-          ],
-          "pack": 0,
-          "block": 0,
-          "seq": "4"
-        }
-      ],
+      "gaps": [],
       "searched": [
         {
           "hour": "497500",
           "indexed": true,
           "packs": [
-            0
+            2
           ]
         }
       ],

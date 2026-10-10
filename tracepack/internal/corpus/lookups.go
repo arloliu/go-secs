@@ -579,7 +579,38 @@ func (l *LookupVector) normalResult(e *LookupExpect) error {
 	if err := l.checkSchedule(gaps, *e.Searched); err != nil {
 		return err
 	}
+	if err := checkReadPlaces(records, gaps, *e.Searched); err != nil {
+		return err
+	}
 	e.Records, e.Gaps = &records, &gaps
+
+	return nil
+}
+
+// perReadFacts are the reasons of the facts that one scope read records, each naming that read's hour alone
+// (the tracepack corpus specification §5.11, Facts).
+var perReadFacts = []string{FactIndex, FactScopeBreach, FactRead, FactCoverage, FactUnevaluated, FactUnavailable}
+
+// checkReadPlaces checks that each kept version and each fact of one scope read names a scope searched,
+// and a pack of that scope's view where it names one:
+// a version is kept from a scope read, and such a fact is recorded by one.
+func checkReadPlaces(records []LookupRecord, gaps []Fact, searched []SearchedScope) error {
+	inScope := func(hour I64, pack *int) bool {
+		k := slices.IndexFunc(searched, func(s SearchedScope) bool { return s.Hour == hour })
+
+		return k >= 0 && (pack == nil || slices.Contains(searched[k].Packs, *pack))
+	}
+	for i := range records {
+		if r := &records[i]; !inScope(r.Hour, &r.Pack) {
+			return fmt.Errorf("record at seq %d names hour %d and pack %d, no pack of a scope searched", r.Seq, r.Hour, r.Pack)
+		}
+	}
+	for i := range gaps {
+		f := &gaps[i]
+		if slices.Contains(perReadFacts, f.Reason) && (len(f.Hours) != 1 || !inScope(f.Hours[0], f.Pack)) {
+			return fmt.Errorf("a %s fact names hours %v and a pack of no scope searched", f.Reason, f.Hours)
+		}
+	}
 
 	return nil
 }

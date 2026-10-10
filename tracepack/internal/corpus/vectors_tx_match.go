@@ -48,7 +48,7 @@ func txMatchVectors() []Recipe {
 		{
 			ID:    "tx-refused-socket",
 			Title: "an outstanding primary of epoch 1, the socket-close of a refused socket of epoch 2, then the reply of epoch 1",
-			Cites: []string{"FMT I-7", "SEM §7.2", "SEM §9", "CORPUS §5.11"}, Class: ClassMultiPack,
+			Cites: []string{"SEM §7.2", "FMT I-7", "SEM §9", "CORPUS §5.11"}, Class: ClassMultiPack,
 			Build: refusedSocketBuild,
 			// The socket-close at 2 ends epoch 2, not the primary's: it is no closing record and plays no role, so it is not kept,
 			// and the reply at 3 still matches; the socket-close of epoch 1 at 4 ends the window
@@ -67,9 +67,10 @@ func txMatchVectors() []Recipe {
 		{
 			ID:    "tx-unavailable-fields",
 			Title: "a primary without System Bytes, and an unanswered primary followed in its window by a reply-direction record without System Bytes",
-			Cites: []string{"FMT §7.2", "SEM §7.2", "SEM §9", "CORPUS §5.11"}, Class: ClassMultiPack,
+			Cites: []string{"SEM §7.2", "FMT §7.2", "SEM §9", "CORPUS §5.11"}, Class: ClassMultiPack,
 			Build: unavailableFieldsBuild,
-			// The primary at 1 has no association key, so its lookup ends after its scope, incomplete, with its version alone.
+			// The primary at 1 has no association key, so its lookup ends after its scope, incomplete, with its version alone:
+			// two scopes are scheduled, and the scope of H + 1 is not searched (the tracepack semantics specification §7.2, Scopes read).
 			// The record at 4 is no candidate of the primary at 3, its System Bytes unavailable, but it could be the reply:
 			// a possible reply in the window keeps the result from unmatched (the tracepack semantics specification §7.2).
 			Expect: &Expectation{
@@ -263,10 +264,10 @@ func unavailableFieldsBuild(seed string) (*Built, error) {
 		return nil, err
 	}
 
-	return &Built{Packs: packs, Lookups: []LookupSpec{
-		txLookup(seed, "no-system-bytes", 1, 0),
-		txLookup(seed, "unavailable-reply", 3, 0),
-	}}, nil
+	noKey := txLookup(seed, "no-system-bytes", 1, 0)
+	noKey.MaxScopes = 2
+
+	return &Built{Packs: packs, Lookups: []LookupSpec{noKey, txLookup(seed, "unavailable-reply", 3, 0)}}, nil
 }
 
 // possibleSystemBytes are the System Bytes of the transactions of tx-possible-primary, by letter.

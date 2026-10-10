@@ -309,9 +309,9 @@ func newAnnotation(seq uint64, epoch uint32, a *tracepack.Annotation) (tracepack
 	}, nil
 }
 
-// newNote returns an annotation record of seq holding the note text.
-func newNote(seq uint64, epoch uint32, text string) (tracepack.Record, error) {
-	return newAnnotation(seq, epoch, &tracepack.Annotation{AnnotationKind: tracepack.AnnotationKindNote, Text: &text})
+// newNote returns an annotation record of seq and epoch 1 holding the note text.
+func newNote(seq uint64, text string) (tracepack.Record, error) {
+	return newAnnotation(seq, 1, &tracepack.Annotation{AnnotationKind: tracepack.AnnotationKindNote, Text: &text})
 }
 
 // newSocketEvent returns a transport-event record of seq for a socket event of epoch: a socket-connect or a socket-close.

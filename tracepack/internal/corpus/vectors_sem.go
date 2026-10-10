@@ -187,7 +187,7 @@ func decodeStatusFrames() []semFrame {
 		trailing,
 		dataCase(tracepack.DecodeStatusOK.String(), tracepack.DecodeStatusOK, item(0o51, 5)...),
 		{id: tracepack.DecodeStatusNotApplicable.String(), build: func(seq uint64) (tracepack.Record, error) {
-			return newNote(seq, 1, "not classified")
+			return newNote(seq, "not classified")
 		}},
 		// The first 13 bytes of a frame of PType 1.
 		short("short-and-bad-ptype", withPType(textFrame(), 1)[:13]),

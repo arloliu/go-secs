@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/arloliu/go-secs/tracepack"
 )
@@ -82,7 +83,7 @@ func txVectors() []Recipe {
 				},
 			},
 		},
-	}, txMatchVectors()...)
+	}, slices.Concat(txMatchVectors(), txWindowVectors())...)
 }
 
 // repeatedSystemBytes are the System Bytes of every data record of tx-repeated-key.
