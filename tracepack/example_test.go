@@ -358,7 +358,6 @@ func ExampleExportJSONL() {
 			SeqStart:             7,
 			ScopeGeneration:      &scopeGeneration,
 		},
-		Codec: tracepack.CodecZstd,
 	})
 	if err != nil {
 		fmt.Println(err)

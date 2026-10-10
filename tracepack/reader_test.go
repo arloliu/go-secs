@@ -125,7 +125,7 @@ func buildReaderPack(c readerPackConfig, recs []Record) (*readerPack, error) {
 	// The reader tests' packs have no period and span UTC hours, so the Writer's scope checks are off.
 	w, err := NewWriter(&buf, WriterOptions{
 		Meta: meta, Facts: PackFacts{AnyClassified: true},
-		Codec: c.codec, BlockThreshold: c.threshold, SkipValidation: !c.validate,
+		Uncompressed: c.codec == CodecNone, BlockThreshold: c.threshold, SkipValidation: !c.validate,
 		allowScopeBreach: true,
 	})
 	if err != nil {

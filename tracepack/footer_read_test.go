@@ -81,7 +81,7 @@ func writeFooterTestPack(t testing.TB, c Codec, steps []footerTestStep) *footerT
 
 	var buf bytes.Buffer
 	// The footer test packs have no period and span UTC hours, so the Writer's scope checks are off.
-	w, err := NewWriter(&buf, WriterOptions{Meta: meta, Codec: c, BlockThreshold: 220, allowScopeBreach: true})
+	w, err := NewWriter(&buf, WriterOptions{Meta: meta, Uncompressed: c == CodecNone, BlockThreshold: 220, allowScopeBreach: true})
 	require.NoError(t, err)
 	for i := range steps {
 		require.NoError(t, w.Append(&steps[i].rec), "step %d", i)

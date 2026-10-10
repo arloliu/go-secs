@@ -127,7 +127,7 @@ func (p *mergePlan) write(ctx context.Context, dst io.Writer, opts *MergeOptions
 // and returns the run that writes the rest of the archive.
 func (p *mergePlan) startRun(dst io.Writer, opts *MergeOptions) (*mergeRun, error) {
 	w, err := startWriter(dst, WriterOptions{
-		Meta: p.meta, Facts: p.facts, Codec: opts.Codec, Sync: opts.Sync,
+		Meta: p.meta, Facts: p.facts, Uncompressed: opts.Uncompressed, Sync: opts.Sync,
 		PackID: p.packID, CaptureID: p.captureID, Now: opts.Now,
 		// Every block a merge writes goes through appendBlock, which never validates;
 		// the merge validates each block it encodes itself.
@@ -140,7 +140,7 @@ func (p *mergePlan) startRun(dst io.Writer, opts *MergeOptions) (*mergeRun, erro
 	w.footerBudget = uint64(p.maxFooterLen)
 
 	m := &mergeRun{
-		p: p, w: w, codec: opts.Codec, onConflict: opts.OnConflict, coalesce: !opts.NoCoalesce,
+		p: p, w: w, codec: w.codec, onConflict: opts.OnConflict, coalesce: !opts.NoCoalesce,
 		rep: MergeReport{PackID: p.packID, ReplacementSetID: *p.meta.ReplacementSetID, Inputs: len(p.inputs)},
 	}
 	m.enc.hook = p.encodedHook

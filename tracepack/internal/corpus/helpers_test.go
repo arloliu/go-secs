@@ -60,7 +60,7 @@ func writePackCodec(t *testing.T, meta *tracepack.PackMeta, blocks [][]tracepack
 
 	var buf bytes.Buffer
 	w, err := tracepack.NewWriter(&buf, tracepack.WriterOptions{
-		Meta: meta, PackID: testPackID, CaptureID: testCaptureID, Codec: c,
+		Meta: meta, PackID: testPackID, CaptureID: testCaptureID, Uncompressed: c == tracepack.CodecNone,
 		Now: func() time.Time { return time.Unix(0, testHour).UTC() },
 	})
 	require.NoError(t, err)

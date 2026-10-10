@@ -123,7 +123,7 @@ func writeRepairPack(t testing.TB, c Codec, meta func(*PackMeta), open bool, ste
 	var buf bytes.Buffer
 	// Merge and lookup tests write packs whose period or records lie outside one UTC hour,
 	// so the Writer's scope checks are off.
-	w, err := NewWriter(&buf, WriterOptions{Meta: m, Codec: c, BlockThreshold: 1 << 16, allowScopeBreach: true})
+	w, err := NewWriter(&buf, WriterOptions{Meta: m, Uncompressed: c == CodecNone, BlockThreshold: 1 << 16, allowScopeBreach: true})
 	require.NoError(t, err)
 	for i := range steps {
 		require.NoError(t, w.Append(&steps[i].rec), "step %d", i)

@@ -10,7 +10,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/arloliu/go-secs/tracepack/internal/codec"
 	"github.com/arloliu/go-secs/tracepack/internal/format"
 	"github.com/arloliu/go-secs/tracepack/internal/tlv"
 )
@@ -144,9 +143,10 @@ type MergeOptions struct {
 	// nil means time.Now.
 	// A supplied ReplacementSetID or PackID is kept.
 	Now func() time.Time
-	// Codec compresses the blocks Merge encodes and the footer; a block copied verbatim keeps its own codec.
-	// The zero value is CodecNone.
-	Codec Codec
+	// Uncompressed writes the blocks Merge encodes and the footer with CodecNone;
+	// otherwise they are written with CodecZstd, as the tracepack format specification §2 recommends.
+	// A block copied verbatim keeps its own codec either way.
+	Uncompressed bool
 	// BlockThreshold is the decoded block size, in bytes, up to which Merge coalesces blocks and fills the blocks it encodes
 	// (the tracepack storage specification §4 Merge); zero means DefaultBlockThreshold.
 	// A record whose decoded size alone reaches it is written whole, in a block of its own,
@@ -375,7 +375,9 @@ type mergeCluster = seqCluster[mergeBlock]
 // A block whose envelope and on-disk body equal those of a block held with the same first seq is dropped as a duplicate.
 // Records of one seq that are equal, header row and payload byte for byte, are written once;
 // records of one seq that differ are a conflict, which opts.OnConflict receives.
-// The resolved records are written in new blocks encoded with opts.Codec, each checked in memory before it is written:
+// The resolved records are written in new blocks,
+// encoded with zstd, or with none when opts.Uncompressed is set,
+// each checked in memory before it is written:
 // a new block holds records of one record_header_len
 // while their decoded size, Σ record_header_len + payload_len, stays within opts.BlockThreshold,
 // so a record whose decoded size alone reaches it is written in a block of its own.
@@ -391,7 +393,8 @@ type mergeCluster = seqCluster[mergeBlock]
 // so a block whose decoded size alone reaches it is a group of its own.
 // A group of one block is written as it is:
 // an input block copied verbatim, or a block of the resolution as it encoded it.
-// A larger group is encoded with opts.Codec as one new block, its records byte for byte and in their order,
+// A larger group is encoded as one new block, with zstd, or with none when opts.Uncompressed is set,
+// its records byte for byte and in their order,
 // and checked in memory before it is written.
 // A new block whose encoding fails, its codec or its check, is discarded,
 // and the group's blocks are written as they are, each input block with its F-3 list byte for byte.
@@ -422,7 +425,7 @@ type mergeCluster = seqCluster[mergeBlock]
 // Returns:
 //   - MergeReport: what the archive holds; on error, only the conflicts found (see MergeReport).
 //   - error: an empty opts.Writer, a nil opts.OnConflict, an opts.ScopeGeneration of 0,
-//     an opts.ScopeGeneration or opts.PublisherEpoch above 2^63-1, an invalid opts.Codec,
+//     an opts.ScopeGeneration or opts.PublisherEpoch above 2^63-1,
 //     a negative or oversized opts.BlockThreshold, a negative opts.MaxOpenBlocks or opts.MaxFooterLen,
 //     no inputs, or an input without a ReaderAt;
 //     an opts.ReplacementSetID equal to an archive input's replacement_set_id,
@@ -497,8 +500,6 @@ func checkMergeOptions(inputs []MergeInput, opts *MergeOptions) error {
 	case opts.ScopeGeneration > format.MaxU64 || opts.PublisherEpoch > format.MaxU64:
 		return fmt.Errorf("tracepack: MergeOptions.ScopeGeneration %d or PublisherEpoch %d above %d",
 			opts.ScopeGeneration, opts.PublisherEpoch, format.MaxU64)
-	case !codec.Known(uint8(opts.Codec)):
-		return fmt.Errorf("tracepack: MergeOptions.Codec %s is not a codec a writer may use", opts.Codec)
 	case opts.BlockThreshold < 0 || int64(opts.BlockThreshold) > int64(format.MaxLen32):
 		return fmt.Errorf("tracepack: MergeOptions.BlockThreshold %d outside 0 to %d", opts.BlockThreshold, format.MaxLen32)
 	case opts.MaxOpenBlocks < 0:

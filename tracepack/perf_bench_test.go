@@ -3,7 +3,7 @@ package tracepack
 // Benchmarks of the read and write paths a caller of an object store sees,
 // on the synthetic HSMS traffic of layout_bench_test.go, with every pack written with the zstd codec:
 //
-//	GOWORK=off go test -run '^$' -bench 'OpenIterateHour|MergeIterateDay|MergeIterateLargePacks|WriterZstd|OpenAllocs' -benchmem -count 6
+//	GOWORK=off go test -run '^$' -bench 'OpenIterateHour|MergeIterateDay|MergeIterateLargePacks|WriterZstd|OpenAllocs|MergeSegments' -benchmem -count 6
 //
 // The read benchmarks serve each pack through a ReaderAt that counts its calls and reports
 // readat/op (ReadAt calls per operation), readbytes/op (bytes requested per operation)
@@ -16,6 +16,9 @@ package tracepack
 //
 // BenchmarkWriterZstd reports Writer throughput in uncompressed bytes per second on one goroutine, so per core;
 // the zstd codec encodes at the encoder's default level (klauspost/compress SpeedDefault, about zstd level 3).
+//
+// BenchmarkMergeSegments reports the size of the archive a merge of one hour's segments writes,
+// with the zero-value MergeOptions and with MergeOptions.Uncompressed.
 
 import (
 	"bytes"
@@ -125,7 +128,7 @@ func perfPack(tb testing.TB, recs []Record, hour int, seq uint64, blockThreshold
 	m.PeriodStart, m.PeriodEnd, m.SeqStart = start.UnixNano(), start.Add(time.Hour).UnixNano(), seq
 	var buf bytes.Buffer
 	w, err := NewWriter(&buf, WriterOptions{
-		Meta: m, Facts: PackFacts{AnyClassified: true}, Codec: CodecZstd, BlockThreshold: blockThreshold,
+		Meta: m, Facts: PackFacts{AnyClassified: true}, BlockThreshold: blockThreshold,
 		AssignSeq: true, NextSeq: seq, CaptureID: perfCapture,
 	})
 	require.NoError(tb, err)
@@ -274,7 +277,7 @@ func BenchmarkWriterZstd(b *testing.B) {
 	for b.Loop() {
 		buf.Reset()
 		w, err := NewWriter(&buf, WriterOptions{
-			Meta: m, Facts: PackFacts{AnyClassified: true}, Codec: CodecZstd, AssignSeq: true, CaptureID: perfCapture,
+			Meta: m, Facts: PackFacts{AnyClassified: true}, AssignSeq: true, CaptureID: perfCapture,
 		})
 		require.NoError(b, err)
 		for i := range recs {
@@ -284,6 +287,45 @@ func BenchmarkWriterZstd(b *testing.B) {
 		require.NoError(b, err)
 	}
 	b.ReportMetric(float64(buf.Len()), "pack-B")
+}
+
+// BenchmarkMergeSegments merges the 12 five-minute zstd segments of one hour of idle or busy traffic into an archive,
+// coalescing their blocks, once with the zero-value codec options, which write zstd, and once with MergeOptions.Uncompressed.
+// Its throughput counts the content bytes of the input records, a record header and the payload per record;
+// archive-bytes/op and blocks/op report the archive each writes.
+func BenchmarkMergeSegments(b *testing.B) {
+	for _, profile := range []struct {
+		name string
+		busy bool
+	}{{"idle", false}, {"busy", true}} {
+		recs := perfHour(profile.busy, 0)
+		segs := mergeBenchSegments(b, recs)
+		for _, mode := range []struct {
+			name         string
+			uncompressed bool
+		}{{"default", false}, {"uncompressed", true}} {
+			b.Run(profile.name+"/"+mode.name, func(b *testing.B) {
+				opts := MergeOptions{
+					Writer: "bench", ScopeGeneration: 1, PublisherEpoch: 1, Uncompressed: mode.uncompressed,
+					OnConflict: func(Conflict) {},
+				}
+				b.SetBytes(perfContentBytes(recs))
+				b.ReportAllocs()
+				var out bytes.Buffer
+				var rep MergeReport
+				for b.Loop() {
+					out.Reset()
+					var err error
+					rep, err = Merge(b.Context(), &out, inputsOf(segs...), opts)
+					if err != nil {
+						b.Fatal(err)
+					}
+				}
+				b.ReportMetric(float64(out.Len()), "archive-bytes/op")
+				b.ReportMetric(float64(rep.Blocks), "blocks/op")
+			})
+		}
+	}
 }
 
 // perfSizedPack returns a pack of about size bytes:
@@ -298,7 +340,7 @@ func perfSizedPack(tb testing.TB, size int) []byte {
 	m.PeriodStart, m.PeriodEnd = layoutStart.UnixNano(), layoutStart.Add(time.Hour).UnixNano()
 	buf := bytes.NewBuffer(make([]byte, 0, size+size/8))
 	w, err := NewWriter(buf, WriterOptions{
-		Meta: m, Facts: PackFacts{AnyClassified: true}, Codec: CodecZstd, AssignSeq: true, CaptureID: perfCapture,
+		Meta: m, Facts: PackFacts{AnyClassified: true}, AssignSeq: true, CaptureID: perfCapture,
 	})
 	require.NoError(tb, err)
 	for i, written := 0, 0; written < size-1024; i++ {

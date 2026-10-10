@@ -426,7 +426,7 @@ func TestMergeCopiesNonOverlappingSegments(t *testing.T) {
 			files := [][]byte{a, b, d}
 
 			opts := mergeOpts()
-			opts.Codec, opts.NoCoalesce = c, true
+			opts.Uncompressed, opts.NoCoalesce = c == CodecNone, true
 			out, rep := mustMerge(t, inputsOf(files...), opts)
 			requireCopied(t, rep, 4+3+3, 46, 0)
 			assert.Equal(t, uint64(10), mustOpen(t, out, ReaderOptions{}).Header().Meta.SeqStart)
@@ -938,12 +938,14 @@ func TestMergeFooterBudgetBelowAnEmptyFooter(t *testing.T) {
 	t.Parallel()
 
 	empty := mergePack(t, seg0, func(m *PackMeta) { m.SeqStart = 5 }, nil)
-	full, rep := mustMerge(t, inputsOf(empty), mergeOpts())
+	// The footer is written uncompressed, so its length on disk is the length the budget is set from.
+	opts := mergeOpts()
+	opts.Uncompressed = true
+	full, rep := mustMerge(t, inputsOf(empty), opts)
 	requireCopied(t, rep, 0, 0, 0)
 	l := layoutOf(t, full)
 	require.Equal(t, l.tr.FooterLen, l.tr.FooterUncompressedLen, "the none codec")
 
-	opts := mergeOpts()
 	opts.MaxFooterLen = int64(l.tr.FooterLen)
 	fits, _ := mustMerge(t, inputsOf(empty), opts)
 	// The file headers differ in writer_start_utc_ns only.

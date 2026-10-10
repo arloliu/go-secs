@@ -116,7 +116,7 @@ func writeFlushedPack(t testing.TB, c Codec, validate bool, meta func(*PackMeta)
 	var buf bytes.Buffer
 	// The reader tests' packs have no period and span UTC hours, so the Writer's scope checks are off.
 	w, err := NewWriter(&buf, WriterOptions{
-		Meta: m, Facts: PackFacts{AnyClassified: true}, Codec: c, SkipValidation: !validate, allowScopeBreach: true,
+		Meta: m, Facts: PackFacts{AnyClassified: true}, Uncompressed: c == CodecNone, SkipValidation: !validate, allowScopeBreach: true,
 	})
 	require.NoError(t, err)
 	for i := range recs {

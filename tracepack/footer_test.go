@@ -252,7 +252,7 @@ func TestWriterFooterPassesValidationList(t *testing.T) {
 		t.Run(c.String(), func(t *testing.T) {
 			t.Parallel()
 
-			p, _ := writeFooterPack(t, tracepack.WriterOptions{Codec: c})
+			p, _ := writeFooterPack(t, tracepack.WriterOptions{Uncompressed: c == tracepack.CodecNone})
 			verifyFooter(t, p)
 			assert.Equal(t, [][]uint64{{10, 11, 12, 13}, {15, 16, 20, 21, 22}, {23}, {24, 25}}, blockSeqs(p))
 			assert.Equal(t, uint8(c), p.Footer.Trailer.FooterCodec, "the footer uses the block codec")
@@ -263,7 +263,7 @@ func TestWriterFooterPassesValidationList(t *testing.T) {
 func TestFooterBlockIndexMatchesBlocks(t *testing.T) {
 	t.Parallel()
 
-	p, _ := writeFooterPack(t, tracepack.WriterOptions{Codec: tracepack.CodecZstd})
+	p, _ := writeFooterPack(t, tracepack.WriterOptions{})
 	verifyFooter(t, p)
 
 	var summaryOff uint64
@@ -377,7 +377,7 @@ func TestFooterPackStatsMatchRecords(t *testing.T) {
 		t.Run(c.String(), func(t *testing.T) {
 			t.Parallel()
 
-			p, _ := writeFooterPack(t, tracepack.WriterOptions{Codec: c})
+			p, _ := writeFooterPack(t, tracepack.WriterOptions{Uncompressed: c == tracepack.CodecNone})
 			verifyFooter(t, p)
 			assert.Equal(t, statsFromRecords(t, p.records()), p.Footer.F5)
 		})
@@ -389,7 +389,7 @@ func TestFooterPackStatsMatchRecordsAcrossManyBlocks(t *testing.T) {
 
 	// A threshold of one record per block and records spread over two hours with gaps, in an extract,
 	// the one pack role whose records may span UTC hours.
-	w, buf := newTestWriter(t, tracepack.WriterOptions{Meta: asExtract(writerMeta()), BlockThreshold: 150, Codec: tracepack.CodecZstd})
+	w, buf := newTestWriter(t, tracepack.WriterOptions{Meta: asExtract(writerMeta()), BlockThreshold: 150})
 	recs := mixedRecords(t)
 	for i := range 40 {
 		r := dataRecordIn(uint64(len(recs)+2*i), hourStart+int64(i)*(hourNs/30), uint32(i%3))
@@ -412,7 +412,7 @@ func TestWriterEmptyPackFooter(t *testing.T) {
 
 	meta := writerMeta()
 	meta.SeqStart = 7
-	w, buf := newTestWriter(t, tracepack.WriterOptions{Meta: meta, Codec: tracepack.CodecZstd})
+	w, buf := newTestWriter(t, tracepack.WriterOptions{Meta: meta})
 	assert.Equal(t, uint64(7), mustClose(t, w), "an empty pack's next seq is its seq_start")
 
 	p := mustWalkPack(t, buf.Bytes())
@@ -435,7 +435,7 @@ func TestFooterCodecsDecodeEqual(t *testing.T) {
 
 	footers := make(map[tracepack.Codec]*walkedFooter)
 	for _, c := range []tracepack.Codec{tracepack.CodecNone, tracepack.CodecZstd} {
-		p, _ := writeFooterPack(t, tracepack.WriterOptions{Codec: c})
+		p, _ := writeFooterPack(t, tracepack.WriterOptions{Uncompressed: c == tracepack.CodecNone})
 		verifyFooter(t, p)
 		assert.Equal(t, uint8(c), p.Footer.Trailer.FooterCodec)
 		footers[c] = p.Footer
@@ -460,7 +460,7 @@ func TestFooterCodecsDecodeEqual(t *testing.T) {
 func TestTrailerBytes(t *testing.T) {
 	t.Parallel()
 
-	b, _ := writeFooterPackBytes(t, tracepack.WriterOptions{Codec: tracepack.CodecZstd})
+	b, _ := writeFooterPackBytes(t, tracepack.WriterOptions{})
 
 	// Decode the trailer by the offsets of the tracepack format specification §11, without the format package.
 	tr := b[len(b)-64:]
@@ -547,7 +547,7 @@ func TestWriterCloseSyncsEmptyPack(t *testing.T) {
 func TestWriterCloseAfterFailureWritesNothing(t *testing.T) {
 	t.Parallel()
 
-	w, buf := newTestWriter(t, tracepack.WriterOptions{})
+	w, buf := newTestWriter(t, tracepack.WriterOptions{Uncompressed: true})
 	tracepack.SetEncodedHook(w, corruptFirstSeq(1))
 	good := dataRecord(0, hourStart)
 	require.NoError(t, w.Append(&good))

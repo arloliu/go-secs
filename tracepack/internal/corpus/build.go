@@ -169,7 +169,8 @@ func (s *packSpec) options() tracepack.WriterOptions {
 	}
 
 	return tracepack.WriterOptions{
-		Meta: s.meta, PackID: packID, CaptureID: IDFor(roleCaptureID, s.seed), Codec: s.codec, BlockThreshold: s.threshold, Now: corpusNow,
+		Meta: s.meta, PackID: packID, CaptureID: IDFor(roleCaptureID, s.seed),
+		Uncompressed: s.codec == tracepack.CodecNone, BlockThreshold: s.threshold, Now: corpusNow,
 	}
 }
 
