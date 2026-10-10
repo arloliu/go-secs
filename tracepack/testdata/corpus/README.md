@@ -25,7 +25,7 @@ Store vectors and redaction vectors are not in it yet;
 | Key | Value |
 |---|---|
 | `corpus` | `tracepack-corpus/2`, the schema of every JSON file here |
-| `spec_version` | the spec version the goldens follow, `2.30` |
+| `spec_version` | the spec version the goldens follow, `2.31` |
 | `format_version` | `1.0` |
 | `jsonl_schema` | `tracepack-jsonl/1`, the schema of every `.jsonl` file |
 | `zstd_encoder` | the zstd encoder that produced the corpus's encoder-made zstd blocks and footers (see [zstd](#zstd)) |

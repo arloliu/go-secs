@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-10-10) — v2.30, tracepack format 1.0.
+Status: current (2026-10-10) — v2.31, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -43,7 +43,9 @@ These rules let any mainstream language implement the format from this text alon
 - **UUIDs** (`pack_id`, `capture_id`, references): 16 bytes in RFC 9562 byte order,
   i.e. the order of the hex digits in the canonical string, left to right.
   Implementations whose native UUID type uses another byte order MUST convert.
-  Writers SHOULD generate `pack_id` and `capture_id` as UUIDv7 (time-ordered), so keys and catalog entries sort by creation time.
+  Writers SHOULD generate `pack_id` and `capture_id` as UUIDv7 (time-ordered), so keys and catalog entries sort by creation time;
+  a converter that reuses its ids for reproducible output derives them deterministically instead ([STO §7] item 8, Reproducible output),
+  so readers never depend on an id's order reflecting creation time.
 - **Time**: `i64` nanoseconds since 1970-01-01T00:00:00Z on the POSIX time scale (no leap seconds);
   a clock reading during a leap second is stored as the clock reported it.
   Monotonic values (`mono_ns`) are `i64` nanoseconds relative to `capture_origin_mono_ns` ([SEM §4]).
@@ -89,7 +91,9 @@ These rules let any mainstream language implement the format from this text alon
   A crash after a durable trailer leaves a finalized file even if the writer's close operation never returned.
 - **I-6 Immutable once finalized.** No byte of a finalized file is ever modified; repairs are new files ([STO §6]).
 - **I-7 Capture id across rolls; epoch bound at the transport boundary.**
-  `capture_id` is a UUID assigned per tool when the recorder or converter starts — or, over a durable bus, when the producer that feeds it starts ([STO §4]) — and written into every pack it rolls.
+  `capture_id` is a UUID assigned per tool when the recorder starts
+  — or, over a durable bus, when the producer that feeds it starts ([STO §4]), and for a converter, when it establishes a logical conversion ([STO §7] item 8) —
+  and written into every pack it rolls.
   `epoch` is assigned by a component that observes sockets directly, one per socket the HSMS implementation actually uses for a session,
   and stamped on every record from that socket independently of lifecycle notifications ([SEM §5]);
   accepted-then-refused sockets get their own epoch and a transition record.
@@ -137,7 +141,7 @@ These rules let any mainstream language implement the format from this text alon
 | 12 | u32 | `flags` | bit 0 `redaction-present`: at least one record carries `quality.redacted` ([SEM §8]); set only in extracts; bits 1–31 reserved. There is no finalized flag (§12) |
 | 16 | u32 | `pack_metadata_len` | byte length of the pack metadata; the first block starts at 80 + this value |
 | 20 | u32 | `pack_metadata_crc` | CRC over the pack metadata bytes |
-| 24 | i64 | `writer_start_utc_ns` | wall clock when the writer opened the file |
+| 24 | i64 | `writer_start_utc_ns` | wall clock when the writer opened the file; for a converter's reproducible output, a fixed time its conversion selects ([STO §7] Reproducible output); never the time of the capture |
 | 32 | [16]byte | `pack_id` | UUID of this file |
 | 48 | [16]byte | `capture_id` | UUID of the capture (I-7) |
 | 64 | [12]byte | reserved | |
@@ -237,8 +241,8 @@ and an invalid transport-event or annotation payload is not a valid TLV body, §
 | 0x0026 | `hsms_timers` | tlv | optional | configured timers; nested tag *n* (1–8) = T*n* in milliseconds, `u64` |
 | 0x0027 | `seq_start` | u64 | always | the first record's seq, or for a pack without records the capture's next seq (for a patch without records, the damaged pack's `seq_start`, [STO §6]; for an archive without records, the largest `seq_start` of the merge's inputs, [STO §4]); lets recovery of an empty spool place its boundary ([STO §4]) |
 | 0x0028 | `clock_step_tolerance_ns` | u64 | `time_source = capture-clock` | wall-clock drift the writer tolerates against its durable anchor before marking a step ([SEM §4]) |
-| 0x002C | `flush_interval_ns` | u64 | a recorder with a durable spool, or a consumer of a durable bus | the recorder's durability contract interval; for a bus consumer its maximum normal segment-flush interval; never written by a standalone recorder without a durable spool (G5-150), while a consumer of a durable bus writes it ([STO §4]) |
-| 0x002D | `scope_generation` | u64 | every pack except `extract` | 0 for segments and patches, ≥ 1 for generations produced by merges ([STO §2]) |
+| 0x002C | `flush_interval_ns` | u64 | a recorder with a durable spool, or a consumer of a durable bus | the recorder's durability contract interval; for a bus consumer its maximum normal segment-flush interval; never written by a standalone recorder without a durable spool (G5-150) or by a converter ([STO §7]), while a consumer of a durable bus writes it ([STO §4]) |
+| 0x002D | `scope_generation` | u64 | every pack except `extract` | 0 for segments and patches, ≥ 1 for generations produced by merges or written by a converter directly ([STO §2], [STO §7]) |
 | 0x002E | `publisher_epoch` | u64 | `scope_generation` ≥ 1 | fence epoch of the publisher that wrote the generation ([STO §2]) |
 | 0x002F | `patch_base` | uuid | a patch, when its scope has a generation | `replacement_set_id` of the generation the patch was registered against ([STO §4]) |
 | 0x0029 | `replacement_set_id` | uuid | `scope_generation` ≥ 1 | identity of the set of packs published together as one generation ([STO §6]) |

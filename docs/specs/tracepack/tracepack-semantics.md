@@ -1,6 +1,6 @@
 # tracepack — record semantics
 
-Status: current (2026-10-10) — v2.30, tracepack format 1.0.
+Status: current (2026-10-10) — v2.31, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic.
 
@@ -306,6 +306,8 @@ a version it read in another scope is kept only if it qualified there.
 A kept version carries the roles and candidate flags its own bytes give, so the versions of a conflicting candidate can differ in them.
 A conflict at `p` found in a later scope's read leaves the key derived from the first version, and what it classified, reported as diagnostics, beside the conflict and the missing key.
 A record whose block disagrees with its F-2 entry can arrive out of seq order and escape comparison (§7.4), so such a block in a scope read also makes the result `incomplete`, even when a match was found (G5-134).
+Yield order exempts no version from classification and no seq read from the checking of closure claims:
+a version a scope read yields before the primary is classified once the primary is established, as every other version read (G5-194).
 A record whose `ts_utc_ns` lies outside the hour of the scope it was read from breaches that scope ([FMT I-13], [STO §2]): it is reported as a **scope breach**, with its seq and hour, and makes the result `incomplete`, even when a match was found;
 in the primary's scope it also leaves a missing primary explained, as a read defect does (G5-146).
 **The comparison covers the scopes the lookup read** (G5-136), as §7.4's guarantees cover the packs read:
@@ -321,6 +323,9 @@ A scope whose view is `conflicted` ([STO §4]) is not read: it is reported as co
 a conflicted scope of the primary's hour explains the missing primary, as a scope that is not indexed does, and ends the lookup without a key (G5-142).
 It searches only seqs above `p`; candidates below the primary are outside every window and are not searched for.
 A primary that is missing, conflicting within its own scope's read, or without a key ends the lookup after that one scope, since its result is then decided.
+Such a result has no window and keeps only the primary's versions;
+it reports the primary's failure and the conditions of the completed read of the primary's scope that [CORPUS §5.11] Early-return results lists,
+and does not perform the completeness evaluation of a keyed lookup (G5-191).
 A window still unbounded after the last scope prevents `unmatched`; a match found is still reported as one (G5-127).
 
 *What prevents `unmatched`* — each reported, side by side, with the scope the lookup searched:

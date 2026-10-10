@@ -1,6 +1,6 @@
 # tracepack — storage profile
 
-Status: current (2026-10-10) — v2.30, tracepack format 1.0.
+Status: current (2026-10-10) — v2.31, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative for publishers, mergers, recorders and log converters.
 
@@ -33,19 +33,19 @@ a pack's scope comes from its period, never from its record timestamps, so a pac
 
 | `pack_role` | Written by | Content | `scope_generation` |
 |---|---|---|---|
-| `segment` | recorder, per flush | records of one flush interval of one scope, all of them for a local recorder, a subset for a consumer of a durable bus (§4), which may write several segments per interval; `compaction_level = 0` | 0 |
-| `archive` | merger (or a converter directly) | all records of one scope | ≥ 1 |
+| `segment` | recorder, per flush; or a converter (§7) | records of one flush interval of one scope, all of them for a local recorder, a subset for a consumer of a durable bus (§4), which may write several segments per interval; for a converter, records of one scope, possibly of the whole hour; `compaction_level = 0` | 0 |
+| `archive` | merger (or a converter directly, §7) | all records of one scope | ≥ 1 |
 | `repair` | `verify --repair` | a **patch**: the recoverable records of the damaged packs it names in `supersedes`, with `coverage` for the rest | 0 |
 | `extract` | query service, on request | a filtered subset of one capture (`extract_filter`), masked under a redaction policy for consumers that are not privileged ([SEM §8]); never a complete period, never stored in the tiers, never a merge input, a patch or the subject of a repair | — |
 
-A **generation** is a replacement set (§6), the one archive of a scope with one `scope_generation` ≥ 1; only merges produce generations.
+A **generation** is a replacement set (§6), the one archive of a scope with one `scope_generation` ≥ 1; merges and direct converter archive publications (§7) produce generations.
 Generations are ranked by (`publisher_epoch`, `scope_generation`), compared lexicographically.
 A **publisher epoch** fences publishing work across restarts and catalog rebuilds:
 before it claims anything, a publisher writes a fence object (§3) numbered one higher than every fence object in the bucket
 and every `publisher_epoch` on a pack the catalog indexes, committed or not (§5),
 and stamps that number on every generation it writes.
 Work started under an older epoch can therefore never outrank work accepted under a newer one, even if its upload completes later.
-Within an epoch, a merge claims the number one higher than the highest generation claimed so far for the scope (the catalog allocates it, §5);
+Within an epoch, a merge or a direct converter archive publication claims the number one higher than the highest generation claimed so far for the scope (the catalog allocates it, §5);
 because an interrupted claim may leave a gap, the active generation is the highest-ranked *complete* one, which need not be the highest claimed.
 Repairs are generation-0 **patches** registered against the current generation (`patch_base`); for an indexed scope (§5), the next merge folds them into a generation.
 
@@ -369,9 +369,10 @@ Its storage technology is not part of this specification.
   One source serves one tool; a source whose per-capture evidence is incomplete (a pack whose footer is not valid) marks it partial, and a lookup is then never `unmatched`.
 - **Roles**: the catalog registers only packs whose role takes part in the tiers (§2),
   and it reports any other pack presented to it to the operator.
-- **No admissions outside the index**: registering a segment or a patch, and claiming a merge, for a scope that is not indexed are rejected.
+- **No admissions outside the index**: registering a segment or a patch, and claiming a merge or a direct converter archive publication (§7), for a scope that is not indexed are rejected.
   A rejected segment stays in `staging/`, where listing views read it; the recorder treats the rejection as final.
-  The catalog still records the per-capture evidence of a rejected segment or converter archive (Per capture, below).
+  The catalog still records the per-capture evidence of a rejected segment or converter archive (Per capture, below);
+  a rejected converter archive never gets a commit object, so its records stay outside every view, a listing view's included (§4).
 - **Per pack**, for indexed scopes: key, `pack_id`, `capture_id`, `tool_id`, scope, `pack_role`, `scope_generation`, replacement set, `compaction_level`, cumulative `compacted_from`,
   `supersedes`, period, object size, `pack_metadata_len`, footer location (`footer_offset`, `footer_len`, `footer_codec`), F-5 statistics,
   optionally the F-2 entries (for block range reads without a bootstrap), and whether it is in its scope's active view.
@@ -380,7 +381,7 @@ Its storage technology is not part of this specification.
   the capture-boundary entries and epoch closures (F-5 `boundary`, `epoch` `close_seq`, [FMT §10]) of every segment or converter archive presented for registration, indexed scope or not,
   and the end state (`open`, `stopped`, `stopped-unclean`) and barriers that follow from them (Completeness, below).
   Per-capture entries are never removed by eviction or retention.
-- **Transactions**: registering a pack (or rejecting it and recording its per-capture evidence), claiming a merge (allocating generation G + 1 of a scope),
+- **Transactions**: registering a pack (or rejecting it and recording its per-capture evidence), claiming a merge or a direct converter archive publication (allocating generation G + 1 of a scope),
   publishing its result (recording the complete set and the new active view), and evicting a scope are each atomic.
 - **Completeness**: a query result for a (capture, epoch) or time range is complete only when the catalog shows contiguous seq coverage over it,
   no `coverage` entry of a pack in the view intersects it, and it does not reach past a completeness barrier;
@@ -402,7 +403,7 @@ Its storage technology is not part of this specification.
   - End states, barriers and epoch closures come from the per-capture entries (above), whether or not the scope holding the evidence is indexed,
     and barriers apply by their own intervals whether or not any scope of their capture is indexed.
     A capture without `stop` or `stop-unclean` evidence in its per-capture entry is `open`.
-- **Serialization**: per indexed scope, the catalog serializes patch registration, merge claims and merge publication;
+- **Serialization**: per indexed scope, the catalog serializes patch registration, merge claims and merge publication, the claims and publications of direct converter archives (§7) among them;
   eviction is serialized with every admission of the scope (Window, above).
   A patch is accepted only when its `patch_base` is the current G and every pack it names is in the view.
   A merge records the view it read (G and the generation-0 packs) at claim time;
@@ -446,7 +447,7 @@ Its storage technology is not part of this specification.
 
 ## 6. Replacement sets and repairs
 
-A **replacement set** is the archive a merge publishes as one generation, identified by its `replacement_set_id`.
+A **replacement set** is the archive a merge, or a converter directly (§7), publishes as one generation, identified by its `replacement_set_id`.
 Every set has exactly one member: `replacement_set_size` = 1 and `replacement_set_index` = 0 ([FMT §5]).
 A set is complete when its member exists; an incomplete or uncommitted set is ignored (an interrupted or rejected publication), and the view falls back to the highest-ranked committed complete generation.
 Every `archive` belongs to a set.
@@ -492,11 +493,35 @@ A source dialect lacking some of these is still convertible, with the effects st
    The converter reports counts per `decode_status` for each capture.
 8. **Epoch**: increments on each explicit connect / accept line;
    a dialect without them yields `epoch = 0` + `correlation-incomplete` ([FMT I-7]).
-   `capture_id` is one per `tool_id` per converter run per source file set ([FMT I-7]); `seq` is capture-scoped ([FMT I-12]).
+   `capture_id` is one per `tool_id` per source file set per logical conversion ([FMT I-7]); `seq` is capture-scoped ([FMT I-12]), counting across all the capture's hours,
+   and the capture-boundary records that start and stop a capture appear once per capture, never once per pack or hour.
+   A converter MAY reuse a `capture_id` for a reproducible re-run only when the source contents, their order, the interpretation inputs ([FMT §5] `tool_id` and its attribution, dialect, time zone and every other setting),
+   the converter's, parser's and classifier's versions, the capture-level metadata, the seq assignment and the record bytes are all unchanged (Reproducible output, below);
+   a change to any of them needs a new `capture_id`.
+   A converter that reuses its `capture_id`s derives each deterministically from at least a digest of each source file's contents, in the source order,
+   the `tool_id` and its attribution, the dialect, the time zone, every other interpretation setting, and the converter's, parser's and classifier's versions;
+   a source file's name alone never stands for its contents.
+   The source file requirements below apply to every run.
    Every pack of every capture a run writes lists the run's source files as the same `source_ref` entries in the same order ([FMT §5]),
    so a `source_index` ([FMT §8]) names the same file in each and the coverage of item 7 can be checked across the captures.
-9. **Output**: a converter MAY write `archive` packs directly, one per (capture, UTC hour), with hour-aligned blocks ([FMT I-13]), `compaction_level = 0` and no `compacted_from`,
+9. **Output**: a converter MAY write generation-0 `segment` packs, each holding records of one capture and one UTC hour, possibly covering the whole hour,
+   with `compaction_level = 0` and without `compacted_from`, `publisher_epoch` or replacement-set tags ([FMT §5]).
+   Such segments come from finite input, so the recorder's flush, spool and recovery contract (§4) does not apply to them, and they write no `flush_interval_ns`;
+   they use the segment keys, admission rules and active-view rules of §3–§5.
+   A converter MAY instead write `archive` packs directly, one per (capture, UTC hour), with hour-aligned blocks ([FMT I-13]), `compaction_level = 0` and no `compacted_from`,
    since they represent no generation-0 pack ([FMT §5]); a merge whose view holds only such an archive writes none either (§4, G5-111).
+   A direct archive is the first generation of a scope with no accepted packs:
+   it follows a merge's generation claim, fencing and commit protocol (§2, §5), its publication succeeding only while the scope still has no accepted pack,
+   and it enters a view only with its commit object (§4).
+   An archive rejected for a scope that is not indexed gives per-capture evidence only (§5); its records stay outside every view.
+
+**Reproducible output.**
+A converter MAY reuse a `pack_id` only for byte-identical finalized output.
+A converter that reuses its `pack_id`s derives each deterministically from at least every input that decides the output's bytes:
+the capture identity (item 8), the hour and the division of the capture into packs, every metadata value,
+the writer's, tracepack's and codec's implementations, versions and options, the block partitioning, and `writer_start_utc_ns` ([FMT §4]).
+When an existing pack's id names different bytes, the converter MUST fail without overwriting it.
+A conversion whose inputs change writes a new capture and is a new import; nothing reconciles two captures of the same traffic.
 
 ## 8. Conformance vectors
 
@@ -601,6 +626,7 @@ End evidence:
 - bounded unclean end evicted: the time barrier keeps its gap bounds, and an epoch's recorded closure stays in the per-capture entry after the closing scope is evicted;
   a transaction lookup is exempt from the epoch barrier only when it reads the closing record, so one that reaches the evicted closing scope reads it through a listing view and is `cold`, never `unmatched` ([SEM §7.2], G5-135);
 - a converter archive of a scope that is not indexed, with boundaries: rejected, its per-capture evidence recorded;
+- a converter segment of a scope that is not indexed, read through its listing view, beside a rejected converter archive of the same tool whose records the listing view excludes (§5, §7);
 - entirely cold capture: capture C has no indexed scope, and its recorded gap meets indexed hour H, which holds only capture D's records:
   a time-range query of H is `incomplete`, with C's barrier recorded at registration and again after a rebuild;
 - rebuild ordering: a retained boundary segment that was uploaded but never presented for registration is read by the rebuild before it serves results;

@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-10) — spec v2.30.
+Status: current (2026-10-10) — spec v2.31.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -1235,7 +1235,7 @@ Summary:
 ## Changes v2.29 → v2.30: the conformance corpus, part 2 (2026-10-10)
 
 Source: the phase 6b2 corpus plan and its reviews r1–r3, kept outside the repository; no proposal document.
-Its rules are lead decisions of the corpus, part 2, awaiting owner ratification; no decision is recorded for them yet.
+Its rules were lead decisions of the corpus, part 2, ratified afterwards as owner decisions G5-188..G5-191 (v2.31).
 Format version stays 1.0; no byte layout changes.
 
 Summary:
@@ -1268,3 +1268,31 @@ Editorial clarifications, specification version unchanged (v2.30), no rule chang
   and a result is an early return exactly when it holds `no-key` and no `conflict` fact at p naming more than one hour.
 - [CORPUS §5.11] `key.hour`: when p also has a version in a later hour, the hour is that of the version the lookup starts from,
   and the lookup finds the later version as a conflict at p, as [SEM §7.2] Identity across the scopes read states.
+
+## Changes v2.30 → v2.31: the corpus part 2 ratified, converter identities and outputs (owner decisions G5-188..G5-195, 2026-10-10)
+
+Source: the owner's answers to the questions left by the corpus, part 2, and from the log converter's implementation; no proposal document.
+Format version stays 1.0; no byte layout changes.
+
+Summary:
+- The rules of the corpus, part 2 (v2.30), are ratified as G5-188..G5-191,
+  with two qualifications: the pack numbers of a `multi-pack` vector are local to it, and the conflict bound is the only reader limit a golden depends on, `reads.json` `max_conflicts` alone (G5-188, G5-189).
+- [STO §7] item 8 and the new Reproducible output: a converter MAY reuse a `capture_id` for a reproducible re-run, whose inputs include the source contents and their order,
+  and a `pack_id` only for byte-identical output, whose inputs fix every input of the bytes, `writer_start_utc_ns` included;
+  an existing id naming different bytes fails the conversion, which never overwrites it;
+  `capture_id` is one per `tool_id` per source file set per logical conversion (G5-192, superseding the "per converter run" of G5-186).
+  In [FMT §2], a converter's deterministic ids are an exception to the UUIDv7 recommendation, and readers never rely on an id's order.
+  In [FMT I-7], a converter assigns `capture_id` when it establishes a logical conversion.
+  In [FMT §4], `writer_start_utc_ns` of reproducible output is a fixed time the conversion selects.
+- [STO §7] item 9: a converter MAY write generation-0 segments, one capture and hour each, outside the recorder's flush, spool and recovery contract and without `flush_interval_ns`;
+  a direct converter archive is the first generation of a scope with no accepted packs, follows a merge's claim, fencing and commit protocol, and enters a view only with its commit object;
+  a rejected one gives per-capture evidence only (G5-193, correcting G5-84).
+  [STO §2] (the role table and generations), [STO §5] (admissions outside the index, transactions, serialization), [STO §6] and [FMT §5] (`scope_generation`, `flush_interval_ns`) say so.
+  [STO §8] adds a vector: a converter segment of a scope that is not indexed read through its listing view, beside a rejected converter archive whose records it excludes.
+  [STO §7] item 8 also states that a converter's seqs count across the capture's hours and its start and stop boundaries appear once per capture.
+- [SEM §7.2]: yield order exempts no version from classification and no seq read from the checking of closure claims (G5-194);
+  an early return keeps only the primary's versions, reports the conditions [CORPUS §5.11] lists, and does not perform the completeness evaluation of a keyed lookup (G5-191).
+- [CORPUS §5.11] Early-return results: the facts not reported are those of the completeness evaluation, not all of them depending on classification;
+  the scope read's conflicts and unused footers stay in their own fields (G5-191).
+- [CORPUS §3]: `spec_version` 2.31; schema `tracepack-corpus/2` unchanged.
+- G5-195 states that only a bounding `stop` of the primary's epoch keeps that epoch's boundary at e from being reported, as [SEM §7.2] and [CORPUS §5.11] already require.
