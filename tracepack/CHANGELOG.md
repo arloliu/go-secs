@@ -5,17 +5,24 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-10
+
 The conformance corpus covers reads over several packs and transaction lookups (spec v2.30),
 so an implementation of either checks itself against the committed files as it already does for single packs.
 With them every clause of the semantics specification §9 has a vector, or a test of this implementation where no result shows it,
 but redaction and an extract beside its source, which come later.
 The two clauses of the format specification §16 that need several packs have their vectors too.
+Spec v2.31 lets a log converter reuse its ids for reproducible output and write segments;
+`FindTransaction` classifies every version it reads, also from a pack whose index disagrees with its blocks,
+and a directory sink can refuse to replace an existing segment.
 
 ### Upgrade notes
 
 - The corpus manifest's `corpus` value is now `tracepack-corpus/2`, and its `spec_version` `2.31`.
   A consumer that requires `tracepack-corpus/1` must accept the new value;
   the files of the classes it already reads keep their form, so nothing else changes for it.
+- `NewDirSink` takes options after its prefix: `NewDirSink(root, prefix string, opts ...DirSinkOption)`.
+  A call compiles unchanged; code that stores `NewDirSink` as a value of type `func(string, string) (SegmentSink, error)` must wrap it.
 
 ### Changed
 
