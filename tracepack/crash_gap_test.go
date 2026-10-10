@@ -402,7 +402,7 @@ func TestMergeIterateCrashGapPrereadFailure(t *testing.T) {
 			t.Parallel()
 
 			g := newGatedReader(failing)
-			r, err := Open(t.Context(), g, int64(len(failing)), ReaderOptions{})
+			r, err := Open(t.Context(), g, int64(len(failing)), uncachedWindows())
 			require.NoError(t, err)
 			off := int64(r.Blocks()[1].Offset)
 			g.fail = func(o int64, _ int) bool { return o == off }

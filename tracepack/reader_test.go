@@ -333,6 +333,14 @@ func tailWindows(t testing.TB, l packLayout) ReaderOptions {
 	return opts
 }
 
+// uncachedWindows returns options whose first bootstrap round reads only the file header and the trailer:
+// the windows are raised to 80 and 64 bytes, and no block of the test packs fits in either,
+// so every block read and forward-walk envelope read after it is a ReadAt call of its own,
+// which a test can count or make fail.
+func uncachedWindows() ReaderOptions {
+	return ReaderOptions{WholeReadThreshold: 1, HeadWindow: 1, TailWindow: 1}
+}
+
 // packOr returns p, or def when p is nil.
 func packOr(p, def *readerPack) *readerPack {
 	if p == nil {
@@ -756,9 +764,31 @@ func TestOpenHonorsContext(t *testing.T) {
 
 			return false
 		}
-		_, err := Open(ctx, g, int64(len(p.file)), ReaderOptions{})
+		_, err := Open(ctx, g, int64(len(p.file)), uncachedWindows())
 		require.ErrorIs(t, err, context.Canceled)
-		assert.Len(t, g.allCalls(), 2, "the whole read, then one envelope before the cancellation is seen")
+		calls := g.allCalls()
+		require.NotEmpty(t, calls)
+		assert.Equal(t, format.EnvelopeLen, calls[len(calls)-1].n, "the last read is an envelope")
+		envelopes := slices.DeleteFunc(calls, func(c readCall) bool { return c.n != format.EnvelopeLen })
+		assert.Len(t, envelopes, 1, "one envelope before the cancellation is seen")
+	})
+
+	t.Run("canceled during a walk from the whole read", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		g := newGatedReader(p.file)
+		g.fail = func(_ int64, n int) bool {
+			if n == len(p.file) {
+				cancel()
+			}
+
+			return false
+		}
+		_, err := Open(ctx, g, int64(len(p.file)), ReaderOptions{})
+		require.ErrorIs(t, err, context.Canceled, "the walk checks ctx before an envelope it reads from the whole read")
+		assert.Equal(t, []readCall{{0, len(p.file)}}, g.allCalls(), "the whole read is the only ReadAt")
 	})
 }
 
@@ -1000,7 +1030,10 @@ func TestOpenFooterOverBudget(t *testing.T) {
 	const chunk = 1 << 20
 	require.Greater(t, l.tr.FooterLen, uint64(chunk), "the footer must span more than one CRC chunk")
 	require.LessOrEqual(t, l.tr.FooterLen, uint64(2*chunk))
-	opts := ReaderOptions{MaxFooterLen: 64 << 10}
+	// A head window that ends at the pack metadata, and a tail window inside the footer, hold no block bytes,
+	// so the CRC chunks and the walk's envelopes are each a ReadAt.
+	opts := ReaderOptions{MaxFooterLen: 64 << 10, WholeReadThreshold: 1, HeadWindow: int64(l.blocksStart)}
+	require.Less(t, int64(DefaultTailWindow), int64(l.tr.FooterLen), "the tail window must lie inside the footer")
 	chunks := []readCall{{fo, chunk}, {fo + chunk, int(l.tr.FooterLen) - chunk}}
 
 	t.Run("CRC valid", func(t *testing.T) {

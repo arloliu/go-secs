@@ -17,7 +17,8 @@ var errNotFinalized = errors.New("tracepack: pack not finalized: more records ma
 //
 // The walk starts at the end of the pack metadata and ends at footer_offset when the trailer is valid,
 // else at the end of the object.
-// It reads one block envelope per ReadAt and applies only the checks of the envelope decoder:
+// It reads each block envelope from the bytes Open's first round fetched when they hold it whole, else with one ReadAt,
+// checking ctx before each, and applies only the checks of the envelope decoder:
 // the magic, the envelope CRC and the format limits of the tracepack format specification §2, never MaxBlockLen,
 // so a block over the budget is walked past by its checked length.
 // An envelope that does not fit before the end, a bad envelope, or a body past the end stops the walk
@@ -42,7 +43,7 @@ func (r *Reader) walk(ctx context.Context) error {
 			stop = walkStop(off, fmt.Errorf("tracepack: forward walk: %d bytes at offset %d cannot hold a block envelope", end-off, off))
 			break
 		}
-		if err := readRound(ctx, r.ra, []readReq{{off: int64(off), buf: env[:]}}); err != nil {
+		if err := r.readEnvelope(ctx, env[:], off); err != nil {
 			return err
 		}
 
@@ -72,6 +73,15 @@ func (r *Reader) walk(ctx context.Context) error {
 	r.openDefects = r.walkDefects(stop, off, records)
 
 	return nil
+}
+
+// readEnvelope checks ctx, then fills env with the block envelope at off, as fetch does.
+func (r *Reader) readEnvelope(ctx context.Context, env []byte, off uint64) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("tracepack: open: %w", err)
+	}
+
+	return r.fetch(env, int64(off))
 }
 
 // walkStop returns the defect of a forward walk that stops at off:

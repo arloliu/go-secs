@@ -801,7 +801,8 @@ func TestExportJSONL_Errors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			sr := mustOpen(t, file, ReaderOptions{})
+			// Block 1 must be read through sr.ra, not served from the bytes Open fetched.
+			sr := mustOpen(t, file, uncachedWindows())
 			sr.ra = &shortReaderAt{data: file, off: int64(blocks[1].Offset), err: tt.err}
 			var b bytes.Buffer
 			res, err := ExportJSONL(t.Context(), sr, &b)

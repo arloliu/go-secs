@@ -762,7 +762,7 @@ func TestReadBlockReadErrors(t *testing.T) {
 		t.Parallel()
 
 		g := newGatedReader(p.file)
-		r, err := Open(t.Context(), g, int64(len(p.file)), ReaderOptions{})
+		r, err := Open(t.Context(), g, int64(len(p.file)), uncachedWindows())
 		require.NoError(t, err)
 		g.mu.Lock()
 		g.fail = func(off int64, _ int) bool { return off == at }
@@ -779,7 +779,8 @@ func TestReadBlockReadErrors(t *testing.T) {
 		t.Parallel()
 
 		open := writeReaderPack(t, readerPackConfig{codec: CodecZstd, open: true}, hourRecords(2, 3))
-		r := mustOpen(t, open.file, ReaderOptions{})
+		// The block must be read through r.ra, not served from the bytes Open fetched.
+		r := mustOpen(t, open.file, uncachedWindows())
 		require.False(t, r.blocks[0].Indexed)
 		r.ra = bytes.NewReader(patchEnvelope(t, open.file, open.blocks[0].offset, func(e *format.BlockEnvelope) { e.FirstSeq++ }))
 
@@ -789,7 +790,7 @@ func TestReadBlockReadErrors(t *testing.T) {
 	t.Run("short read", func(t *testing.T) {
 		t.Parallel()
 
-		r := mustOpen(t, p.file, ReaderOptions{})
+		r := mustOpen(t, p.file, uncachedWindows())
 		r.ra = bytes.NewReader(p.file[:at+format.EnvelopeLen+1])
 
 		var buf blockBuf

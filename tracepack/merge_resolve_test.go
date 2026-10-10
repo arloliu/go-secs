@@ -407,7 +407,7 @@ func TestMergeConflictsAcrossClusters(t *testing.T) {
 	inputs, readers := loggedInputs(a, b)
 
 	var kept, seen []Conflict
-	opts := mergeOpts()
+	opts := uncachedMergeOpts()
 	opts.OnConflict = func(c Conflict) {
 		snapshot := c
 		snapshot.Versions = make([][]UUID, len(c.Versions))
@@ -507,7 +507,9 @@ func TestMergeConflictThenError(t *testing.T) {
 		{name: "a corrupt block", files: [][]byte{a, b, corrupt}, want: ErrMergeInput, msg: "body CRC"},
 		{
 			name: "a failed read", files: [][]byte{a, b, late}, want: errInjected, msg: "input 2, pack " + seg3.String() + ", block 0",
-			edit: func(_ *MergeOptions, inputs []MergeInput, _ func()) {
+			edit: func(opts *MergeOptions, inputs []MergeInput, _ func()) {
+				// The block must be read with ReadAt, not from the bytes Open fetched.
+				opts.Reader = uncachedWindows()
 				g := newGatedReader(late)
 				g.fail = func(off int64, _ int) bool { return off == lateOff }
 				inputs[2].ReaderAt = g

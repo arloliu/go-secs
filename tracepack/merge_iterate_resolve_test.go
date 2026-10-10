@@ -493,7 +493,7 @@ func TestClusterResolverErrorExits(t *testing.T) {
 		t.Parallel()
 
 		g := newGatedReader(b)
-		rb, err := openReader(t.Context(), g, int64(len(b)), ReaderOptions{}, false)
+		rb, err := openReader(t.Context(), g, int64(len(b)), uncachedWindows(), false)
 		require.NoError(t, err)
 		g.fail = func(off int64, _ int) bool { return off == int64(b1.Offset) }
 		q := Query{}

@@ -143,7 +143,8 @@ type TxOptions struct {
 	// MaxScopes is the number of hours scheduled from TxKey.Hour on, empty hours included, each read once;
 	// zero or negative means DefaultTxMaxScopes.
 	MaxScopes int
-	// MaxHeldBytes bounds the block buffers each hour's read holds at once, as MergeIterateOptions.MaxHeldBytes does;
+	// MaxHeldBytes bounds the block buffers each hour's read holds at once, as MergeIterateOptions.MaxHeldBytes does,
+	// outside of which the bootstrap bytes each Reader retains lie;
 	// zero or negative means DefaultMaxHeldBytes.
 	MaxHeldBytes int64
 	// MaxConflicts bounds the conflicts of the whole lookup:
@@ -158,7 +159,9 @@ type TxOptions struct {
 	// a record also its payload and header-extension bytes, a copied coverage entry also the values of its unknown entries,
 	// and the charge of a record copied but not kept is released;
 	// a charge that would pass MaxStateBytes fails the lookup with an error wrapping ErrReadLimit.
-	// The readers and what each MergeIterate builds lie outside it.
+	// The readers and what each MergeIterate builds lie outside it,
+	// the bootstrap bytes each Reader retains included,
+	// at most max(WholeReadThreshold, HeadWindow + TailWindow) of its ReaderOptions per Reader.
 	MaxStateBytes int64
 }
 

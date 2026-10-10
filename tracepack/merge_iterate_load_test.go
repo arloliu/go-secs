@@ -406,7 +406,7 @@ func TestHeldLoaderReadError(t *testing.T) {
 
 	p := writeReaderPack(t, readerPackConfig{codec: CodecZstd}, hourRecords(3, 40))
 	g := newGatedReader(p.file)
-	r, err := openReader(t.Context(), g, int64(len(p.file)), ReaderOptions{}, false)
+	r, err := openReader(t.Context(), g, int64(len(p.file)), uncachedWindows(), false)
 	require.NoError(t, err)
 	at := int64(r.blocks[1].Offset)
 	g.fail = func(off int64, _ int) bool { return off == at }

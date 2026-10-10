@@ -523,7 +523,8 @@ func TestMergeCancelledWithAPendingGroup(t *testing.T) {
 				cancel()
 				return nil
 			}}
-			out, rep, err := mergeBytes(ctx, inputs, mergeOpts())
+			// The block must be read with ReadAt, not from the bytes Open fetched, for the hook to see it.
+			out, rep, err := mergeBytes(ctx, inputs, uncachedMergeOpts())
 			require.ErrorIs(t, err, context.Canceled)
 			assert.Equal(t, MergeReport{}, rep)
 			requireNoTrailer(t, out, tt.written)

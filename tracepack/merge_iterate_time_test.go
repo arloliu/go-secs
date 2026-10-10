@@ -458,7 +458,7 @@ func TestRunTimeExits(t *testing.T) {
 		t.Parallel()
 
 		g := newGatedReader(low)
-		r, err := openReader(t.Context(), g, int64(len(low)), ReaderOptions{}, false)
+		r, err := openReader(t.Context(), g, int64(len(low)), uncachedWindows(), false)
 		require.NoError(t, err)
 		off := int64(r.blocks[1].Offset)
 		g.fail = func(o int64, _ int) bool { return o == off }

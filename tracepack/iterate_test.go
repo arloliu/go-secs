@@ -107,12 +107,13 @@ func controlRecord(seq uint64, ts int64, epoch uint32, dir Dir) Record {
 	return r
 }
 
-// openGated opens file through a gatedReader without gated rounds, which logs every ReadAt call.
+// openGated opens file through a gatedReader without gated rounds, which logs every ReadAt call,
+// with windows that hold no block (uncachedWindows), so every block read after Open is a ReadAt call it logs.
 func openGated(t testing.TB, file []byte) (*Reader, *gatedReader) {
 	t.Helper()
 
 	g := newGatedReader(file)
-	r, err := Open(t.Context(), g, int64(len(file)), ReaderOptions{})
+	r, err := Open(t.Context(), g, int64(len(file)), uncachedWindows())
 	require.NoError(t, err)
 
 	return r, g
@@ -1004,14 +1005,25 @@ func FuzzIterate(f *testing.F) {
 		}
 	}
 
+	// The schedule's reference counts block reads, so its reader keeps no bootstrap bytes (uncachedWindows).
+	scriptOpts, u := opts, uncachedWindows()
+	scriptOpts.WholeReadThreshold, scriptOpts.HeadWindow, scriptOpts.TailWindow = u.WholeReadThreshold, u.HeadWindow, u.TailWindow
+
 	f.Fuzz(func(t *testing.T, data []byte, sched uint64) {
-		r, at, err := openScripted(t.Context(), data, 0, opts)
+		r, err := Open(t.Context(), bytes.NewReader(data), int64(len(data)), opts)
 		if err != nil {
 			return
 		}
-		var facts *retentionFacts
+		var (
+			facts *retentionFacts
+			sr    *Reader
+			at    *scriptedReaderAt
+		)
 		if sched != 0 {
-			facts = retentionFactsOf(t, []*Reader{r})
+			// The windows change which reads Open issues, not whether it succeeds.
+			sr, at, err = openScripted(t.Context(), data, 0, scriptOpts)
+			require.NoError(t, err)
+			facts = retentionFactsOf(t, []*Reader{sr})
 		}
 
 		nblocks := len(r.Blocks())
@@ -1037,7 +1049,7 @@ func FuzzIterate(f *testing.F) {
 				require.Empty(t, unknown, "a complete result yields only records of the seed packs; %v", q)
 			}
 			if sched != 0 {
-				checkScripted(t, facts, iterateScripted(t, r, at, q), sched)
+				checkScripted(t, facts, iterateScripted(t, sr, at, q), sched)
 			}
 		}
 	})
