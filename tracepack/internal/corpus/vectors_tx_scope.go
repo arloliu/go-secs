@@ -68,7 +68,8 @@ func txScopeVectors() []Recipe {
 			// (the tracepack semantics specification §7.2, Identity across the scopes read).
 			// A record outside its segment's period but inside its hour breaches nothing
 			// (the tracepack storage specification §4, Flush; §5, Completeness).
-			// Packs 0 and 2 keep to no scope, which no conforming writer does (the tracepack format specification I-13).
+			// Packs 0 and 2 keep to no scope, which no conforming writer does
+			// (the tracepack storage specification §2; the tracepack format specification I-13).
 			Expect: &Expectation{
 				Packs: []*Expectation{finalizedPack(1, 3), finalizedPack(1, 3), packOf(2, 11, 13)},
 				Lookups: []LookupWant{
