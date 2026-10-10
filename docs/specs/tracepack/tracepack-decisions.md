@@ -1067,3 +1067,11 @@ it is not part of the owner's recorded decision or of a review's finding.
   Rejected: keeping a copy of every version without a role until the scope read ends, chosen first and replaced once its cost was shown —
   a conforming scope, up to a pack's size, charged to `MaxStateBytes`, 64 MiB by default; keeping those copies outside the budget.
   Spec: [SEM §7.2] Scopes read (v2.31).
+- G5-197 A directory sink that never replaces a segment (2026-10-10):
+  `NewDirSink` takes the option `DirSinkNoReplace()`, under which `Commit` publishes by hard-linking the temporary file to its key, so an existing file is never replaced, also by a concurrent writer;
+  when the key exists it compares the bytes, after the link failed, and returns `ErrSegmentExists` for identical bytes or `ErrSegmentConflict` for different ones, the existing file kept and the segment finished.
+  `ErrSegmentExists` is an error, not success, so a caller tells a reused segment from a fresh one;
+  the default still renames over an existing file.
+  Rationale *(editorial)*: a converter that reuses its `pack_id`s (G5-192) must never overwrite an existing pack, and a check before the rename races with another writer.
+  Rejected *(editorial)*: returning nil for identical bytes; a separate constructor taking an options struct, the option being one flag.
+  Spec: `tracepack-go.md` §3.

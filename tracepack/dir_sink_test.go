@@ -2,6 +2,7 @@ package tracepack
 
 import (
 	"context"
+	"io"
 	"io/fs"
 	"math"
 	"os"
@@ -921,6 +922,20 @@ func (s *recordFS) rename(from, to string) error {
 	return s.record("rename", func() error { return s.fsys.rename(from, to) }, from, to)
 }
 
+func (s *recordFS) link(from, to string) error {
+	return s.record("link", func() error { return s.fsys.link(from, to) }, from, to)
+}
+
+func (s *recordFS) open(name string) (io.ReadCloser, error) {
+	var r io.ReadCloser
+	err := s.record("open", func() (err error) {
+		r, err = s.fsys.open(name)
+		return err
+	}, name)
+
+	return r, err
+}
+
 func (s *recordFS) syncDir(name string) error {
 	return s.record("syncDir", func() error { return s.fsys.syncDir(name) }, name)
 }
@@ -965,6 +980,14 @@ func (f foldFS) mkdirAll(name string) error {
 
 func (f foldFS) rename(from, to string) error {
 	return f.fsys.rename(strings.ToLower(from), strings.ToLower(to))
+}
+
+func (f foldFS) link(from, to string) error {
+	return f.fsys.link(strings.ToLower(from), strings.ToLower(to))
+}
+
+func (f foldFS) open(name string) (io.ReadCloser, error) {
+	return f.fsys.open(strings.ToLower(name))
 }
 
 func (f foldFS) syncDir(name string) error {

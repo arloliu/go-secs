@@ -188,6 +188,17 @@ The query service, its catalog database and the live-tail interface are designed
   an error after the rename wraps `ErrPublishUncertain`. Directory syncs are skipped on Windows, which cannot sync a directory.
   A listing of the key areas sees only committed segments, never an open or abandoned one;
   `Abort` removes the temporary file, ignoring one already gone, and a temporary file left by a crash stays under `.partial/`, which no listing reaches.
+  `NewDirSink(root, prefix, DirSinkNoReplace())` never replaces a file at a key (G5-197), as reproducible converter output requires ([STO §7] Reproducible output):
+  `Commit` publishes by hard-linking the temporary file to its key, which fails when the key exists, even for a file another writer published meanwhile, then removes the temporary file;
+  when the key exists, it compares that file's bytes with the segment's, after the link failed, never before,
+  and returns an error wrapping `ErrSegmentExists` when they are identical or `ErrSegmentConflict` when they differ,
+  the existing file untouched and the temporary file removed in both cases, the segment finished and a later `Abort` doing nothing;
+  should that removal fail, the error also wraps its cause and the segment stays abortable, so `Abort` removes the file.
+  A key that is not a regular file, such as a symbolic link, which could lead to the temporary file itself,
+  fails `Commit` with a plain error once the link has failed, nothing compared or published, as a link among the key's directories does.
+  Both errors arise only from a link that did not happen, and `ErrPublishUncertain` only after a link that did, so the three never overlap;
+  the default, without the option, still renames over an existing file.
+  A file system without hard links fails such a `Commit` with the link's error, nothing published.
 - `Reader`: `Open(ctx, ra io.ReaderAt, size, opts)` performs the [FMT §13] bootstrap, optionally seeded with a catalog footer location;
   `Header()`, `Blocks()` (F-2), `Iterate(ctx, Query, fn) (Result, error)`,
   and `Stats() (PackStats, bool)` (G5-131): the F-5 statistics of a pack whose footer it uses — counts, time and seq ranges, per-epoch summaries with `close_seq`, capture-boundary entries — as a fresh value, false without a used footer.
