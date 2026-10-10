@@ -21,17 +21,18 @@ const defaultMaxOpenBlocks = 64
 // Sentinel errors returned by Merge.
 var (
 	// ErrMergeInput reports a merge input that Merge refuses (the tracepack storage specification §4 Merge),
-	// wrapped with the cause and, for one input, its position and the pack_id view.Packs names there.
+	// wrapped with the cause and the input's position, and its pack_id once Open succeeded on it.
 	// Merge returns it, before it touches dst, for:
-	// a number of inputs other than the number of view.Packs;
-	// an input that is not the pack view.Packs names at its position,
-	// or that is neither a generation-0 pack listed in view.CompactedFrom nor the member of view.Generation;
 	// an input Open fails on, for its size, file header, format version or pack metadata, with Open's error wrapped,
 	// an object shorter than its MergeInput.Size included when its ReaderAt reports the end with io.EOF
 	// (another error for it, io.ErrUnexpectedEOF included, is a failed read);
+	// a pack_id that an earlier input has;
+	// a pack_role other than segment or archive (the tracepack storage specification §2), repair and unknown values included,
+	// or a scope_generation that contradicts the role: a segment not at 0, or an archive at 0;
+	// a period that is empty or not inside one UTC hour;
+	// a capture_id, or a period's UTC hour, other than the first input's;
 	// a pack that is not finalized, or whose footer is not valid;
-	// a pack_role that takes no part in a scope's view, a capture other than view.Capture,
-	// a period that is empty or not inside view.Hour, a block whose records lie outside that hour,
+	// a block whose records lie outside the scope's UTC hour,
 	// a seq_start other than the first record's seq,
 	// records that the input's own pack metadata cannot describe (a classified record without classifier,
 	// an oversized record without max_frame_len, or a redacted record),
@@ -48,7 +49,7 @@ var (
 	// is such a read error too, wrapping io.ErrUnexpectedEOF:
 	// the object changed after Merge opened it, or its ReaderAt is inconsistent, as verification also reports it.
 	ErrMergeInput = errors.New("tracepack: merge input rejected")
-	// ErrMergeConflict reports that two records of the view have the same capture_id and seq and different bytes
+	// ErrMergeConflict reports that two records of the inputs have the same capture_id and seq and different bytes
 	// (the tracepack format specification I-12), which fails the merge (the tracepack storage specification §4 Merge).
 	// Merge returns it only after it compared every block, with MergeReport.ConflictsComplete set
 	// and MergeReport.Conflicts the number of conflicts,
@@ -124,18 +125,19 @@ type MergeOptions struct {
 	Reader ReaderOptions
 	// Writer is the archive's writer tag, the implementation and version that writes it; required.
 	Writer string
-	// ScopeGeneration is the generation number the merge claimed for the scope (the tracepack storage specification §2);
-	// at least 1.
+	// ScopeGeneration is the archive's scope_generation (the tracepack storage specification §2); at least 1.
+	// Merge writes it as given: the caller numbers the scope's generations, and Merge compares it with no input's.
 	ScopeGeneration uint64
-	// PublisherEpoch is the fence epoch of the publisher (the tracepack storage specification §2).
-	// With ScopeGeneration it is the archive's rank, which must be above the rank of the view's generation, when it has one.
+	// PublisherEpoch is the archive's publisher_epoch (the tracepack storage specification §2), written as given.
 	PublisherEpoch uint64
-	// ReplacementSetID identifies the archive's replacement set, a new one for every claim (the tracepack storage specification §4);
+	// ReplacementSetID identifies the archive's replacement set,
+	// a new one for every merge (the tracepack storage specification §6);
 	// the zero UUID makes Merge generate a UUIDv7.
-	// It must differ from the replacement_set_id of the view's generation.
+	// It must differ from the replacement_set_id of every archive input.
 	ReplacementSetID UUID
 	// PackID identifies the archive; the zero UUID makes Merge generate a UUIDv7.
-	// It must differ from every pack of the view's Packs and CompactedFrom, and from the member of the view's generation.
+	// It must differ from the pack_id of every input,
+	// and from every pack the compacted_from or the supersedes of an input names.
 	PackID UUID
 	// Now returns the time the archive's writer_start_utc_ns is stamped with,
 	// and the time part of the ReplacementSetID and PackID that Merge generates for a zero option, as WriterOptions.Now does;
@@ -241,10 +243,10 @@ type Conflict struct {
 	CaptureID UUID
 	Seq       uint64
 	// Versions holds, for each distinct version of the record, the pack_ids of the packs holding it, each once:
-	// for a merge, the inputs, those whose blocks were dropped as duplicates included, in the order of the view's Packs;
+	// for a merge, the inputs, those whose blocks were dropped as duplicates included, in input order;
 	// for a read, in the order the readers were given.
 	// The versions are in the order of the first block holding each, blocks taken in cluster order:
-	// ascending first seq, then the order of the view's Packs or of the readers, then file order.
+	// ascending first seq, then input order or the order of the readers, then file order.
 	Versions [][]UUID
 }
 
@@ -266,16 +268,18 @@ var _ error = (*inputReadError)(nil)
 // mergePlan is what the checks of Merge decided before it touches its output:
 // the opened inputs, their blocks in overlap clusters, and the archive's identities and pack metadata.
 type mergePlan struct {
-	// inputs holds the Reader of each input, in the order of the view's Packs; each keeps its footer's F-3 lists.
+	// inputs holds the Reader of each input, in input order; each keeps its footer's F-3 lists.
 	inputs []*Reader
 	// clusters holds the overlap clusters of every input block, in ascending first seq.
 	clusters []mergeCluster
 	// meta is the archive's pack metadata, validated against facts.
 	meta  *PackMeta
 	facts PackFacts
-	// packID and captureID are the ids of the archive's file header.
+	// packID and captureID are the ids of the archive's file header,
+	// captureID and hour the scope of the first input, which every input shares.
 	packID    UUID
 	captureID UUID
+	hour      int64
 	// threshold, maxOpenBlocks and maxFooterLen are the options with their defaults applied.
 	threshold     int
 	maxOpenBlocks int
@@ -293,7 +297,7 @@ type mergePlan struct {
 
 // mergeBlock is one block of a merge input, as the input's validated footer indexes it.
 type mergeBlock struct {
-	// input is the index of the block's input in the view's Packs, and block its index in that input's footer.
+	// input is the index of the block's input, and block its index in that input's footer.
 	input int
 	block int
 	// first and last are the block's F-2 seq range.
@@ -320,26 +324,30 @@ type seqCluster[T any] struct {
 // its blocks are in ascending first seq, then in input order, then in block order.
 type mergeCluster = seqCluster[mergeBlock]
 
-// Merge writes to dst the next generation of the scope of view, from inputs:
-// an archive, the one member of a new replacement set, as the tracepack storage specification §4 Merge builds it.
+// Merge writes to dst an archive of the packs inputs gives,
+// the one member of a new replacement set, as the tracepack storage specification §4 Merge builds it.
 //
-// view must be ActiveView's unchanged result over the observation the merge was claimed on,
-// and inputs[i] must be the pack view.Packs[i] names, in that order;
-// the archive lists the inputs' coverage entries in that order.
-// Merge re-checks what its inputs can show: each input's pack_id,
-// and that each is a generation-0 pack listed in view.CompactedFrom, or the member of view.Generation,
-// whose compacted_from view.CompactedFrom holds.
+// The inputs are segments and archives of one scope, the capture and the UTC hour of the first input,
+// in the order the caller gives them;
+// the archive lists their lineage and their coverage entries in that order.
+// Merge takes the scope from the inputs and the archive's generation values from opts;
+// which packs a scope's merge takes, and when it may delete them, is the caller's
+// (the tracepack storage specification §4 Merge and Deletion).
 //
-// Before it touches dst, Merge checks the options and the archive's identities;
+// Before it touches dst, Merge checks the options;
 // opens every input with opts.Reader and checks it from its pack metadata and its footer (the checks ErrMergeInput lists);
 // checks that the inputs carry the same capture-level tags;
+// checks the archive's identities against the inputs;
 // and plans the archive from the footers: the input blocks in overlap clusters, and the archive's pack metadata.
-// The archive's file header carries view.Capture exactly, the nil UUID included, and no redaction-present flag.
+// The archive's file header carries the inputs' capture_id exactly, the nil UUID included, and no redaction-present flag.
 // Its pack metadata is that of the tracepack storage specification §4 Merge:
-// pack_role archive; the claim's scope_generation, publisher_epoch and replacement_set_id, in a replacement set of one member;
-// view.Hour as the period, a bound that does not fit in an int64 clamped to the int64 range;
-// compaction_level one above the highest input's; compacted_from as view.CompactedFrom, absent when it is empty;
-// supersedes naming the member of view.Generation, absent without one;
+// pack_role archive;
+// opts.ScopeGeneration, opts.PublisherEpoch and the replacement_set_id, in a replacement set of one member;
+// the inputs' UTC hour as the period, a bound that does not fit in an int64 clamped to the int64 range;
+// compaction_level one above the highest input's;
+// compacted_from as each input's compacted_from in input order, then the pack_id of each segment input in input order,
+// each pack once, at its first occurrence, and absent when it names none;
+// supersedes as the pack_id of each archive input in input order, absent without one;
 // the capture-level tags of the inputs;
 // every coverage entry of the inputs, in input order, each carried once:
 // an entry is not carried again when its encoding equals one already carried,
@@ -361,7 +369,7 @@ type mergeCluster = seqCluster[mergeBlock]
 // the first is copied verbatim, as a cluster of one block is, and the others are dropped as duplicates.
 //
 // Any other cluster, and a duplicate candidate whose blocks differ, is resolved record by record, in ascending seq.
-// Its blocks are taken in ascending first seq, then in the order of view.Packs;
+// Its blocks are taken in ascending first seq, then in input order;
 // a block is read when the resolution reaches its first seq, and released once its last record is resolved,
 // so at most opts.MaxOpenBlocks blocks are held at once.
 // A block whose envelope and on-disk body equal those of a block held with the same first seq is dropped as a duplicate.
@@ -408,8 +416,7 @@ type mergeCluster = seqCluster[mergeBlock]
 //   - ctx: cancels the merge while it opens the inputs, before it writes, before each block it reads,
 //     after every 4096 records it resolves, and before it writes the footer.
 //   - dst: the archive's output; bytes are written in file order and never rewritten.
-//   - view: the scope's active view.
-//   - inputs: the packs of view.Packs, in that order.
+//   - inputs: the packs of one scope, segments and archives, in the order their lineage and coverage are listed.
 //   - opts: see MergeOptions.
 //
 // Returns:
@@ -417,9 +424,9 @@ type mergeCluster = seqCluster[mergeBlock]
 //   - error: an empty opts.Writer, a nil opts.OnConflict, an opts.ScopeGeneration of 0,
 //     an opts.ScopeGeneration or opts.PublisherEpoch above 2^63-1, an invalid opts.Codec,
 //     a negative or oversized opts.BlockThreshold, a negative opts.MaxOpenBlocks or opts.MaxFooterLen,
-//     a view without packs, or an input without a ReaderAt;
-//     a rank at or below view.Generation's, an opts.ReplacementSetID equal to view.Generation's,
-//     or an opts.PackID that names a pack of view.Packs, view.CompactedFrom or view.Generation;
+//     no inputs, or an input without a ReaderAt;
+//     an opts.ReplacementSetID equal to an archive input's replacement_set_id,
+//     or an opts.PackID that names an input or a pack of an input's compacted_from or supersedes;
 //     an error wrapping ErrMergeInput; an error wrapping an input's ReaderAt error, or ErrReadLimit, naming the input;
 //     a *FieldError validating the archive's pack metadata;
 //     an error wrapping ErrMergeLimit for archive pack metadata longer than opts.Reader.MaxPackMetadataLen,
@@ -431,8 +438,8 @@ type mergeCluster = seqCluster[mergeBlock]
 //     the error of writing to dst, io.ErrShortWrite for a write that takes fewer bytes without an error,
 //     or of syncing it;
 //     ctx's error, wrapped.
-func Merge(ctx context.Context, dst io.Writer, view View, inputs []MergeInput, opts MergeOptions) (MergeReport, error) {
-	p, err := planMerge(ctx, &view, inputs, &opts)
+func Merge(ctx context.Context, dst io.Writer, inputs []MergeInput, opts MergeOptions) (MergeReport, error) {
+	p, err := planMerge(ctx, inputs, &opts)
 	if err != nil {
 		return MergeReport{}, err
 	}
@@ -441,28 +448,33 @@ func Merge(ctx context.Context, dst io.Writer, view View, inputs []MergeInput, o
 }
 
 // planMerge runs the checks of Merge that come before its output is touched, in order:
-// the options and identities, every input's own checks, the capture-level tags, then the plan and ctx.
+// the options, every input's own checks, the capture-level tags, the identities, then the plan and ctx.
 //
 // Returns:
 //   - *mergePlan: the plan; nil on error.
 //   - error: the errors of Merge before the archive's header.
-func planMerge(ctx context.Context, view *View, inputs []MergeInput, opts *MergeOptions) (*mergePlan, error) {
-	if err := checkMergeOptions(view, inputs, opts); err != nil {
+func planMerge(ctx context.Context, inputs []MergeInput, opts *MergeOptions) (*mergePlan, error) {
+	if err := checkMergeOptions(inputs, opts); err != nil {
 		return nil, err
 	}
-	p, setID, err := newMergePlan(view, opts)
+	p := &mergePlan{
+		threshold:     cmp.Or(opts.BlockThreshold, DefaultBlockThreshold),
+		maxOpenBlocks: cmp.Or(opts.MaxOpenBlocks, defaultMaxOpenBlocks),
+		maxFooterLen:  cmp.Or(opts.MaxFooterLen, DefaultMaxFooterLen),
+	}
+
+	if err := p.openInputs(ctx, inputs, opts.Reader); err != nil {
+		return nil, err
+	}
+	if err := p.checkCaptureTags(); err != nil {
+		return nil, err
+	}
+	setID, err := p.identities(opts)
 	if err != nil {
 		return nil, err
 	}
-
-	if err := p.openInputs(ctx, view, inputs, opts.Reader); err != nil {
-		return nil, err
-	}
-	if err := p.checkCaptureTags(view); err != nil {
-		return nil, err
-	}
 	p.clusters = clustersOf(p.inputs)
-	if err := p.planMeta(view, opts, setID); err != nil {
+	if err := p.planMeta(opts, setID); err != nil {
 		return nil, err
 	}
 
@@ -473,8 +485,8 @@ func planMerge(ctx context.Context, view *View, inputs []MergeInput, opts *Merge
 	return p, nil
 }
 
-// checkMergeOptions rejects options Merge cannot honor, a view without packs, and an input without a ReaderAt.
-func checkMergeOptions(view *View, inputs []MergeInput, opts *MergeOptions) error {
+// checkMergeOptions rejects options Merge cannot honor, no inputs, and an input without a ReaderAt.
+func checkMergeOptions(inputs []MergeInput, opts *MergeOptions) error {
 	switch {
 	case opts.Writer == "":
 		return errors.New("tracepack: MergeOptions.Writer is empty")
@@ -483,7 +495,8 @@ func checkMergeOptions(view *View, inputs []MergeInput, opts *MergeOptions) erro
 	case opts.ScopeGeneration == 0:
 		return errors.New("tracepack: MergeOptions.ScopeGeneration is 0; generations are numbered from 1")
 	case opts.ScopeGeneration > format.MaxU64 || opts.PublisherEpoch > format.MaxU64:
-		return fmt.Errorf("tracepack: MergeOptions rank (%d, %d) above %d", opts.PublisherEpoch, opts.ScopeGeneration, format.MaxU64)
+		return fmt.Errorf("tracepack: MergeOptions.ScopeGeneration %d or PublisherEpoch %d above %d",
+			opts.ScopeGeneration, opts.PublisherEpoch, format.MaxU64)
 	case !codec.Known(uint8(opts.Codec)):
 		return fmt.Errorf("tracepack: MergeOptions.Codec %s is not a codec a writer may use", opts.Codec)
 	case opts.BlockThreshold < 0 || int64(opts.BlockThreshold) > int64(format.MaxLen32):
@@ -492,8 +505,8 @@ func checkMergeOptions(view *View, inputs []MergeInput, opts *MergeOptions) erro
 		return fmt.Errorf("tracepack: MergeOptions.MaxOpenBlocks %d is negative", opts.MaxOpenBlocks)
 	case opts.MaxFooterLen < 0:
 		return fmt.Errorf("tracepack: MergeOptions.MaxFooterLen %d is negative", opts.MaxFooterLen)
-	case len(view.Packs) == 0:
-		return errors.New("tracepack: merge: the view holds no packs")
+	case len(inputs) == 0:
+		return errors.New("tracepack: merge: no inputs")
 	}
 	for i := range inputs {
 		if inputs[i].ReaderAt == nil {
@@ -502,45 +515,6 @@ func checkMergeOptions(view *View, inputs []MergeInput, opts *MergeOptions) erro
 	}
 
 	return nil
-}
-
-// newMergePlan returns the plan's identities and options, with the defaults applied,
-// and the archive's replacement_set_id, after checking them against view.
-func newMergePlan(view *View, opts *MergeOptions) (*mergePlan, UUID, error) {
-	g := view.Generation
-	if g != nil {
-		claim := Generation{PublisherEpoch: opts.PublisherEpoch, ScopeGeneration: opts.ScopeGeneration}
-		if compareRank(claim, *g) <= 0 {
-			return nil, UUID{}, fmt.Errorf("tracepack: MergeOptions rank (%d, %d) is not above the rank (%d, %d) of the view's generation",
-				claim.PublisherEpoch, claim.ScopeGeneration, g.PublisherEpoch, g.ScopeGeneration)
-		}
-	}
-
-	setID, err := idOrNew(opts.ReplacementSetID, opts.Now)
-	if err != nil {
-		return nil, UUID{}, err
-	}
-	if g != nil && setID == g.ReplacementSetID {
-		return nil, UUID{}, fmt.Errorf("tracepack: MergeOptions.ReplacementSetID %s is the view's generation's", setID)
-	}
-
-	packID, err := idOrNew(opts.PackID, opts.Now)
-	if err != nil {
-		return nil, UUID{}, err
-	}
-	if slices.Contains(view.Packs, packID) || slices.Contains(view.CompactedFrom, packID) || (g != nil && packID == g.Member) {
-		return nil, UUID{}, fmt.Errorf("tracepack: MergeOptions.PackID %s is the id of a pack of the view or its lineage", packID)
-	}
-
-	p := &mergePlan{
-		packID:        packID,
-		captureID:     view.Capture,
-		threshold:     cmp.Or(opts.BlockThreshold, DefaultBlockThreshold),
-		maxOpenBlocks: cmp.Or(opts.MaxOpenBlocks, defaultMaxOpenBlocks),
-		maxFooterLen:  cmp.Or(opts.MaxFooterLen, DefaultMaxFooterLen),
-	}
-
-	return p, setID, nil
 }
 
 // clustersOf returns the overlap clusters of the blocks of inputs, whose footers are valid, in ascending first seq,
@@ -603,13 +577,14 @@ func inputError(i int, id UUID, cause error) error {
 	return fmt.Errorf("%w: input %d, pack %s: %w", ErrMergeInput, i, id, cause)
 }
 
-// openInput opens input i, which view names id, keeping its footer's F-3 lists.
+// openInput opens input i, keeping its footer's F-3 lists.
 // It reads the input through inputReaderAt, which the Reader keeps for every later read.
 // ctx's error is returned as itself, wrapped;
 // a failed read of the input's ReaderAt, and the ErrReadLimit of a reader budget, the pack metadata's or the footer's,
 // are returned as themselves, wrapped with the input;
 // every other failure to open it, a short read of an object shorter than in.Size included, is an input error.
-func openInput(ctx context.Context, i int, id UUID, in MergeInput, opts ReaderOptions) (*Reader, error) {
+// An error before Open succeeds on the input names it by its position only, its pack_id not yet known.
+func openInput(ctx context.Context, i int, in MergeInput, opts ReaderOptions) (*Reader, error) {
 	r, err := openReader(ctx, inputReaderAt{ra: in.ReaderAt}, in.Size, opts, true)
 	var readErr *inputReadError
 	switch {
@@ -617,68 +592,33 @@ func openInput(ctx context.Context, i int, id UUID, in MergeInput, opts ReaderOp
 	case ctx.Err() != nil && errors.Is(err, ctx.Err()):
 		return nil, fmt.Errorf("tracepack: merge: %w", err)
 	case errors.As(err, &readErr), errors.Is(err, ErrReadLimit):
-		return nil, fmt.Errorf("tracepack: merge: input %d, pack %s: %w", i, id, err)
+		return nil, fmt.Errorf("tracepack: merge: input %d: %w", i, err)
 	default:
-		return nil, inputError(i, id, err)
+		return nil, fmt.Errorf("%w: input %d: %w", ErrMergeInput, i, err)
 	}
 
 	// A footer, or its blocks' F-3 lists, over MaxFooterLen leaves the pack finalized without a footer index;
 	// the budget decides, not the pack.
 	if r.finalized && r.footer == nil && errors.Is(r.footerErr, ErrReadLimit) {
-		return nil, fmt.Errorf("tracepack: merge: input %d, pack %s: %w", i, id, r.footerErr)
+		return nil, fmt.Errorf("tracepack: merge: input %d, pack %s: %w", i, UUID(r.hdr.PackID), r.footerErr)
 	}
 
 	return r, nil
 }
 
-// checkInput checks the input r opened, which view names id, as openInputs states,
-// and returns the facts of its records.
-func checkInput(view *View, lineage map[UUID]struct{}, id UUID, r *Reader) (PackFacts, error) {
-	m := r.meta
-	switch got := UUID(r.hdr.PackID); {
-	case got != id:
-		return PackFacts{}, fmt.Errorf("the input is pack %s", got)
-	case !tierRole(m.PackRole):
-		return PackFacts{}, fmt.Errorf("pack_role %s takes no part in a scope's view", m.PackRole)
+// checkInputGeneration checks an input's scope_generation against its role (the tracepack storage specification §2):
+// a segment is at generation 0, and an archive at generation 1 or more.
+func checkInputGeneration(m *PackMeta) error {
+	// Unreachable through Open, whose decoder requires scope_generation of every role but extract;
+	// kept to guard the dereference below if that changes.
+	if m.ScopeGeneration == nil {
+		return fmt.Errorf("pack_role %s without scope_generation", m.PackRole)
 	}
-	if err := checkInputLineage(view, lineage, id, m); err != nil {
-		return PackFacts{}, err
-	}
-	if capture := UUID(r.hdr.CaptureID); capture != view.Capture {
-		return PackFacts{}, fmt.Errorf("capture_id %s, not the view's %s", capture, view.Capture)
-	}
-	if hour, ok := periodHour(m.PeriodStart, m.PeriodEnd); !ok || hour != view.Hour {
-		return PackFacts{}, fmt.Errorf("period %d to %d is not inside the view's UTC hour %d", m.PeriodStart, m.PeriodEnd, view.Hour)
-	}
-
-	return checkInputFooter(r, view.Hour)
-}
-
-// checkInputLineage checks that the pack id whose pack metadata is m, an input of view, is in the view's lineage:
-// a generation-0 pack that view.CompactedFrom lists,
-// or an archive that is the member of view.Generation, every pack of whose compacted_from view.CompactedFrom lists.
-// lineage holds the packs of view.CompactedFrom.
-func checkInputLineage(view *View, lineage map[UUID]struct{}, id UUID, m *PackMeta) error {
-	if err := checkRoleGeneration(m); err != nil {
-		return err
-	}
-	if m.PackRole != PackRoleArchive {
-		if _, listed := lineage[id]; !listed {
-			return errors.New("a generation-0 pack that the view's compacted_from does not list")
-		}
-
-		return nil
-	}
-
-	gen := generationOf(PackInfo{packID: id, meta: m})
-	if view.Generation == nil || gen != *view.Generation {
-		return fmt.Errorf("an archive of replacement set %s ranked (%d, %d) that is not the member of the view's generation",
-			gen.ReplacementSetID, gen.PublisherEpoch, gen.ScopeGeneration)
-	}
-	for _, from := range m.CompactedFrom {
-		if _, listed := lineage[from]; !listed {
-			return fmt.Errorf("its compacted_from lists %s, which the view's compacted_from does not", from)
-		}
+	switch gen := *m.ScopeGeneration; {
+	case m.PackRole == PackRoleSegment && gen != 0:
+		return fmt.Errorf("pack_role segment at scope_generation %d, not 0", gen)
+	case m.PackRole == PackRoleArchive && gen == 0:
+		return errors.New("pack_role archive at scope_generation 0")
 	}
 
 	return nil
@@ -702,7 +642,7 @@ func checkInputFooter(r *Reader, hour int64) (PackFacts, error) {
 		b := &blocks[j]
 		// The footer validation puts an F-2 entry's ts_min and ts_max in one UTC hour, so one bound places the block.
 		if hourOf(b.tsMin) != hour {
-			return PackFacts{}, fmt.Errorf("block %d at offset %d holds records outside the view's UTC hour %d", j, b.offset, hour)
+			return PackFacts{}, fmt.Errorf("block %d at offset %d holds records outside the scope's UTC hour %d", j, b.offset, hour)
 		}
 		classified, oversized, redacted := b.commitmentFacts()
 		facts.AnyClassified = facts.AnyClassified || classified
@@ -760,28 +700,25 @@ func (e *inputReadError) Unwrap() error {
 	return e.err
 }
 
-// openInputs opens every input of view and checks it: each is the pack view.Packs names at its position,
-// in the view's lineage, of a role that takes part in a scope's view, of view's capture,
-// with a period inside view.Hour and a finalized footer that checkInputFooter accepts.
+// openInputs opens every input and checks it, as Merge states:
+// a pack_id no earlier input has; a role of segment or archive, at a scope_generation its role allows;
+// a period inside one UTC hour, and the first input's capture and hour, which it keeps in p as the scope;
+// and a finalized footer that checkInputFooter accepts.
 // It keeps the Readers, and the facts of every input's records, in p.
-func (p *mergePlan) openInputs(ctx context.Context, view *View, inputs []MergeInput, opts ReaderOptions) error {
-	if len(inputs) != len(view.Packs) {
-		return fmt.Errorf("%w: %d inputs for the %d packs of the view", ErrMergeInput, len(inputs), len(view.Packs))
-	}
-
-	lineage := make(map[UUID]struct{}, len(view.CompactedFrom))
-	for _, id := range view.CompactedFrom {
-		lineage[id] = struct{}{}
-	}
-
+func (p *mergePlan) openInputs(ctx context.Context, inputs []MergeInput, opts ReaderOptions) error {
+	seen := make(map[UUID]int, len(inputs))
 	p.inputs = make([]*Reader, 0, len(inputs))
 	for i, in := range inputs {
-		id := view.Packs[i]
-		r, err := openInput(ctx, i, id, in, opts)
+		r, err := openInput(ctx, i, in, opts)
 		if err != nil {
 			return err
 		}
-		facts, err := checkInput(view, lineage, id, r)
+		id := UUID(r.hdr.PackID)
+		if j, dup := seen[id]; dup {
+			return inputError(i, id, fmt.Errorf("the pack_id of input %d", j))
+		}
+		seen[id] = i
+		facts, err := p.checkInput(i, r)
 		if err != nil {
 			return inputError(i, id, err)
 		}
@@ -793,14 +730,43 @@ func (p *mergePlan) openInputs(ctx context.Context, view *View, inputs []MergeIn
 	return nil
 }
 
+// checkInput checks input i, which r opened, as openInputs states, and returns the facts of its records.
+// Input 0 sets the scope, p.captureID and p.hour, that every later input must share.
+func (p *mergePlan) checkInput(i int, r *Reader) (PackFacts, error) {
+	m := r.meta
+	if m.PackRole != PackRoleSegment && m.PackRole != PackRoleArchive {
+		return PackFacts{}, fmt.Errorf("pack_role %s is neither segment nor archive", m.PackRole)
+	}
+	if err := checkInputGeneration(m); err != nil {
+		return PackFacts{}, err
+	}
+	hour, ok := periodHour(m.PeriodStart, m.PeriodEnd)
+	if !ok {
+		return PackFacts{}, fmt.Errorf("period %d to %d is empty or not inside one UTC hour", m.PeriodStart, m.PeriodEnd)
+	}
+	capture := UUID(r.hdr.CaptureID)
+	switch {
+	case i == 0:
+		p.captureID, p.hour = capture, hour
+	case capture != p.captureID:
+		return PackFacts{}, fmt.Errorf("capture_id %s, not input 0's %s", capture, p.captureID)
+	case hour != p.hour:
+		return PackFacts{}, fmt.Errorf("period %d to %d is not inside input 0's UTC hour %d", m.PeriodStart, m.PeriodEnd, p.hour)
+	default:
+		// A later input of the first input's scope.
+	}
+
+	return checkInputFooter(r, p.hour)
+}
+
 // checkCaptureTags checks that every input carries the first input's value of each capture-level tag.
-func (p *mergePlan) checkCaptureTags(view *View) error {
+func (p *mergePlan) checkCaptureTags() error {
 	first := p.inputs[0].meta
 	for i := 1; i < len(p.inputs); i++ {
 		m := p.inputs[i].meta
 		for _, tag := range captureTags {
 			if !tag.equal(first, m) {
-				return inputError(i, view.Packs[i], fmt.Errorf("capture-level tag %s differs from pack %s's", tag.name, view.Packs[0]))
+				return inputError(i, p.inputID(i), fmt.Errorf("capture-level tag %s differs from pack %s's", tag.name, p.inputID(0)))
 			}
 		}
 	}
@@ -808,13 +774,42 @@ func (p *mergePlan) checkCaptureTags(view *View) error {
 	return nil
 }
 
+// identities returns the archive's replacement_set_id, opts.ReplacementSetID or a new one,
+// and sets its pack_id, opts.PackID or a new one, in p,
+// after checking them against the inputs:
+// the replacement_set_id differs from every archive input's,
+// and the pack_id from every input's and from every pack an input's compacted_from or supersedes names.
+func (p *mergePlan) identities(opts *MergeOptions) (UUID, error) {
+	setID, err := idOrNew(opts.ReplacementSetID, opts.Now)
+	if err != nil {
+		return UUID{}, err
+	}
+	packID, err := idOrNew(opts.PackID, opts.Now)
+	if err != nil {
+		return UUID{}, err
+	}
+
+	for i, r := range p.inputs {
+		m := r.meta
+		if m.PackRole == PackRoleArchive && m.ReplacementSetID != nil && *m.ReplacementSetID == setID {
+			return UUID{}, fmt.Errorf("tracepack: MergeOptions.ReplacementSetID %s is the replacement_set_id of input %d", setID, i)
+		}
+		if p.inputID(i) == packID || slices.Contains(m.CompactedFrom, packID) || slices.Contains(m.Supersedes, packID) {
+			return UUID{}, fmt.Errorf("tracepack: MergeOptions.PackID %s is the id of input %d or of a pack of its lineage", packID, i)
+		}
+	}
+	p.packID = packID
+
+	return setID, nil
+}
+
 // planMeta builds the archive's pack metadata into p, as Merge states it,
 // validates it against the facts of the inputs' records,
 // and checks its encoded length against the reader budget the inputs were opened with.
-// Every input's period lies in view.Hour, so it is the hour of an int64 instant and hourBounds cannot overflow.
-func (p *mergePlan) planMeta(view *View, opts *MergeOptions, setID UUID) error {
+// Every input's period lies in p.hour, so it is the hour of an int64 instant and hourBounds cannot overflow.
+func (p *mergePlan) planMeta(opts *MergeOptions, setID UUID) error {
 	c := p.inputs[0].Header().Meta
-	start, last := hourBounds(view.Hour)
+	start, last := hourBounds(p.hour)
 	// hourBounds clamps last to the int64 maximum only when the hour's end does not fit:
 	// 2^63 is not a whole number of hours, so no unclamped last is the int64 maximum.
 	end := last
@@ -836,23 +831,21 @@ func (p *mergePlan) planMeta(view *View, opts *MergeOptions, setID UUID) error {
 		PackRole:        PackRoleArchive,
 		ScopeGeneration: new(opts.ScopeGeneration), PublisherEpoch: new(opts.PublisherEpoch),
 		ReplacementSetID: new(setID), ReplacementSetSize: new(uint64(1)), ReplacementSetIndex: new(uint64(0)),
-		CompactedFrom: slices.Clone(view.CompactedFrom),
-		SeqStart:      p.seqStart(),
+		SeqStart: p.seqStart(),
 	}
-	if g := view.Generation; g != nil {
-		m.Supersedes = []UUID{g.Member}
-	}
+	m.CompactedFrom, m.Supersedes = p.lineage()
 	m.Classifiers, m.MaxFrameLens = p.distinctCommitments()
 
 	var err error
-	if m.CompactionLevel, err = p.compactionLevel(view); err != nil {
+	if m.CompactionLevel, err = p.compactionLevel(); err != nil {
 		return err
 	}
-	if m.Coverage, err = p.coverage(view); err != nil {
+	if m.Coverage, err = p.coverage(); err != nil {
 		return err
 	}
 
-	p.facts.GenerationHasPredecessor = view.Generation != nil
+	// Taken from the inputs, not from m.Supersedes, so Validate checks the lineage built above against them.
+	p.facts.GenerationHasPredecessor = slices.ContainsFunc(p.inputs, func(r *Reader) bool { return r.meta.PackRole == PackRoleArchive })
 	if err := m.Validate(p.facts); err != nil {
 		return err
 	}
@@ -868,6 +861,34 @@ func (p *mergePlan) planMeta(view *View, opts *MergeOptions, setID UUID) error {
 	p.meta = m
 
 	return nil
+}
+
+// lineage returns the archive's compacted_from and supersedes, each nil when it names no pack:
+// every pack of each input's compacted_from in input order, then each segment input in input order,
+// each pack once, at its first occurrence;
+// and each archive input in input order.
+func (p *mergePlan) lineage() (compactedFrom, supersedes []UUID) {
+	seen := make(map[UUID]struct{})
+	add := func(id UUID) {
+		if _, dup := seen[id]; !dup {
+			seen[id] = struct{}{}
+			compactedFrom = append(compactedFrom, id)
+		}
+	}
+	for _, r := range p.inputs {
+		for _, id := range r.meta.CompactedFrom {
+			add(id)
+		}
+	}
+	for i, r := range p.inputs {
+		if r.meta.PackRole == PackRoleArchive {
+			supersedes = append(supersedes, p.inputID(i))
+		} else {
+			add(p.inputID(i))
+		}
+	}
+
+	return compactedFrom, supersedes
 }
 
 // seqStart returns the archive's seq_start: its first record's seq, the first seq of the first cluster,
@@ -902,12 +923,12 @@ func (p *mergePlan) distinctCommitments() ([]string, []uint64) {
 
 // compactionLevel returns the archive's compaction_level, one above the highest input's.
 // An input at 255 leaves no level for the archive, which is an input error.
-func (p *mergePlan) compactionLevel(view *View) (uint8, error) {
+func (p *mergePlan) compactionLevel() (uint8, error) {
 	var level uint8
 	for i, r := range p.inputs {
 		l := r.meta.CompactionLevel
 		if l == math.MaxUint8 {
-			return 0, inputError(i, view.Packs[i], errors.New("compaction_level 255 leaves no level for the archive"))
+			return 0, inputError(i, p.inputID(i), errors.New("compaction_level 255 leaves no level for the archive"))
 		}
 		level = max(level, l)
 	}
@@ -919,7 +940,7 @@ func (p *mergePlan) compactionLevel(view *View) (uint8, error) {
 // except an entry whose encoding equals an entry already returned.
 // The encoding is the one MarshalBinary writes (the tracepack format specification §5):
 // the known nested tags in tag order, the unknown nested entries in stored order, and reserved bytes zero.
-func (p *mergePlan) coverage(view *View) ([]Coverage, error) {
+func (p *mergePlan) coverage() ([]Coverage, error) {
 	var out []Coverage
 	seen := make(map[string]struct{})
 	for i, r := range p.inputs {
@@ -927,7 +948,7 @@ func (p *mergePlan) coverage(view *View) ([]Coverage, error) {
 			c := &r.meta.Coverage[k]
 			e, err := c.entry()
 			if err != nil {
-				return nil, inputError(i, view.Packs[i], fmt.Errorf("coverage entry %d: %w", k, err))
+				return nil, inputError(i, p.inputID(i), fmt.Errorf("coverage entry %d: %w", k, err))
 			}
 			key := string(tlv.AppendEntry(nil, e))
 			if _, dup := seen[key]; dup {

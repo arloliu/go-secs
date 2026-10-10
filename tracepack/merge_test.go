@@ -66,72 +66,14 @@ func hourSteps(first, last uint64, perBlock int) []footerTestStep {
 	return seqSteps(first, last, perBlock, blockTestHour)
 }
 
-// mergeView returns the active view of the scope of files, computed by ActiveView from each pack's Reader.Info.
-func mergeView(t testing.TB, commits CommitSet, files ...[]byte) View {
-	t.Helper()
-
-	infos := make([]PackInfo, len(files))
+// inputsOf returns files as merge inputs, in their order.
+func inputsOf(files ...[]byte) []MergeInput {
+	inputs := make([]MergeInput, len(files))
 	for i, f := range files {
-		infos[i] = mustOpen(t, f, ReaderOptions{}).Info()
-	}
-	v, err := ActiveView(infos, commits)
-	require.NoError(t, err)
-
-	return v
-}
-
-// soleView returns a view whose one pack, and one lineage entry, is the pack of file,
-// of viewCapture in the merge test hour, as a caller could build it by hand.
-func soleView(t testing.TB, file []byte) View {
-	t.Helper()
-
-	id := UUID(layoutHeader(t, file).PackID)
-
-	return View{Capture: viewCapture, Hour: mergeHour, Packs: []UUID{id}, CompactedFrom: []UUID{id}}
-}
-
-// cloneView returns a copy of v that shares no memory with it, so a test may change any of its fields.
-func cloneView(v View) View {
-	c := v
-	if v.Generation != nil {
-		g := *v.Generation
-		c.Generation = &g
-	}
-	c.Packs, c.CompactedFrom = slices.Clone(v.Packs), slices.Clone(v.CompactedFrom)
-	c.Deletable, c.Excluded = slices.Clone(v.Deletable), slices.Clone(v.Excluded)
-
-	return c
-}
-
-// filesOf returns the files that v.Packs names, in the order of v.Packs.
-func filesOf(t testing.TB, v View, files ...[]byte) [][]byte {
-	t.Helper()
-
-	byID := make(map[UUID][]byte, len(files))
-	for _, f := range files {
-		byID[UUID(layoutHeader(t, f).PackID)] = f
-	}
-	out := make([][]byte, len(v.Packs))
-	for i, id := range v.Packs {
-		f, ok := byID[id]
-		require.True(t, ok, "no file holds pack %s", id)
-		out[i] = f
+		inputs[i] = MergeInput{ReaderAt: bytes.NewReader(f), Size: int64(len(f))}
 	}
 
-	return out
-}
-
-// inputsOf returns the files that v.Packs names, as merge inputs in the order of v.Packs.
-func inputsOf(t testing.TB, v View, files ...[]byte) []MergeInput {
-	t.Helper()
-
-	ordered := filesOf(t, v, files...)
-	out := make([]MergeInput, len(ordered))
-	for i, f := range ordered {
-		out[i] = MergeInput{ReaderAt: bytes.NewReader(f), Size: int64(len(f))}
-	}
-
-	return out
+	return inputs
 }
 
 // mergeOpts returns the MergeOptions of the tests: a writer tag, generation 1 of epoch 1, and a conflict sink.
@@ -142,11 +84,11 @@ func mergeOpts() MergeOptions {
 // requireMergeRefused runs Merge and requires it to fail before it touches dst,
 // with an error holding msg and wrapping every error of want;
 // unless want holds ErrMergeInput, the error must not wrap it.
-func requireMergeRefused(t *testing.T, v View, inputs []MergeInput, opts MergeOptions, msg string, want ...error) {
+func requireMergeRefused(t *testing.T, inputs []MergeInput, opts MergeOptions, msg string, want ...error) {
 	t.Helper()
 
 	var dst touchWriter
-	rep, err := Merge(t.Context(), &dst, v, inputs, opts)
+	rep, err := Merge(t.Context(), &dst, inputs, opts)
 	require.Error(t, err)
 	require.ErrorContains(t, err, msg)
 	for _, w := range want {
@@ -160,10 +102,10 @@ func requireMergeRefused(t *testing.T, v View, inputs []MergeInput, opts MergeOp
 }
 
 // mustPlanMerge requires the checks of Merge before it writes to pass, and returns the plan they made.
-func mustPlanMerge(t *testing.T, v View, inputs []MergeInput, opts MergeOptions) *mergePlan {
+func mustPlanMerge(t *testing.T, inputs []MergeInput, opts MergeOptions) *mergePlan {
 	t.Helper()
 
-	p, err := planMerge(t.Context(), &v, inputs, &opts)
+	p, err := planMerge(t.Context(), inputs, &opts)
 	require.NoError(t, err)
 
 	return p
@@ -238,10 +180,11 @@ func oversizedSteps(first, last uint64, perBlock int) []footerTestStep {
 	return steps
 }
 
-// generationScope returns a scope with a generation: its member memA, of set setA ranked (2, 3),
+// generationScope returns the inputs of a scope with an archive, in their order:
+// the archive memA, of set setA at (publisher_epoch 2, scope_generation 3),
 // at compaction_level level and with compacted_from {0xC1}, holding seqs 10 to 13, edited by member;
-// and segment seg1, holding seqs 20 to 23. setA is committed.
-func generationScope(t testing.TB, level uint8, member func(m *PackMeta)) (View, [][]byte) {
+// then segment seg1, holding seqs 20 to 23.
+func generationScope(t testing.TB, level uint8, member func(m *PackMeta)) [][]byte {
 	t.Helper()
 
 	mem := mergePack(t, memA, func(m *PackMeta) {
@@ -252,12 +195,11 @@ func generationScope(t testing.TB, level uint8, member func(m *PackMeta)) (View,
 		}
 	}, hourSteps(10, 13, 2))
 	seg := mergePack(t, seg1, nil, hourSteps(20, 23, 2))
-	files := [][]byte{seg, mem}
 
-	return mergeView(t, commitSet(setA), files...), files
+	return [][]byte{mem, seg}
 }
 
-// generationOpts returns mergeOpts ranked (3, 1), above the generation of generationScope.
+// generationOpts returns mergeOpts at (publisher_epoch 3, scope_generation 1).
 func generationOpts() MergeOptions {
 	opts := mergeOpts()
 	opts.PublisherEpoch, opts.ScopeGeneration = 3, 1
@@ -270,13 +212,11 @@ func TestMergeOptionErrors(t *testing.T) {
 
 	a := mergePack(t, seg0, nil, hourSteps(10, 13, 2))
 	b := mergePack(t, seg1, nil, hourSteps(20, 23, 2))
-	v := mergeView(t, nil, a, b)
 	notPacks := []MergeInput{{ReaderAt: bytes.NewReader([]byte("x")), Size: 1}, {ReaderAt: bytes.NewReader([]byte("y")), Size: 1}}
 
 	tests := []struct {
 		name   string
 		edit   func(o *MergeOptions)
-		view   *View
 		inputs []MergeInput
 		msg    string
 	}{
@@ -284,8 +224,8 @@ func TestMergeOptionErrors(t *testing.T) {
 		{name: "no conflict sink", edit: func(o *MergeOptions) { o.OnConflict = nil }, msg: "OnConflict is nil"},
 		{name: "no conflict sink before an unreadable input", edit: func(o *MergeOptions) { o.OnConflict = nil }, inputs: notPacks, msg: "OnConflict"},
 		{name: "generation 0", edit: func(o *MergeOptions) { o.ScopeGeneration = 0 }, msg: "ScopeGeneration is 0"},
-		{name: "generation above 2^63-1", edit: func(o *MergeOptions) { o.ScopeGeneration = 1 << 63 }, msg: "rank"},
-		{name: "epoch above 2^63-1", edit: func(o *MergeOptions) { o.PublisherEpoch = 1 << 63 }, msg: "rank"},
+		{name: "generation above 2^63-1", edit: func(o *MergeOptions) { o.ScopeGeneration = 1 << 63 }, msg: "above"},
+		{name: "epoch above 2^63-1", edit: func(o *MergeOptions) { o.PublisherEpoch = 1 << 63 }, msg: "above"},
 		{name: "a codec outside the registry", edit: func(o *MergeOptions) { o.Codec = Codec(9) }, msg: "Codec"},
 		{name: "negative block threshold", edit: func(o *MergeOptions) { o.BlockThreshold = -1 }, msg: "BlockThreshold"},
 		{name: "block threshold above 2^31-1", edit: func(o *MergeOptions) {
@@ -296,8 +236,8 @@ func TestMergeOptionErrors(t *testing.T) {
 		}, msg: "BlockThreshold"},
 		{name: "negative open blocks", edit: func(o *MergeOptions) { o.MaxOpenBlocks = -1 }, msg: "MaxOpenBlocks"},
 		{name: "negative footer budget", edit: func(o *MergeOptions) { o.MaxFooterLen = -1 }, msg: "MaxFooterLen"},
-		{name: "a view without packs", view: &View{Capture: viewCapture, Hour: mergeHour}, inputs: []MergeInput{}, msg: "no packs"},
-		{name: "an input without a ReaderAt", inputs: []MergeInput{inputsOf(t, v, a, b)[0], {Size: 1}}, msg: "input 1 has no ReaderAt"},
+		{name: "no inputs", inputs: []MergeInput{}, msg: "no inputs"},
+		{name: "an input without a ReaderAt", inputs: []MergeInput{inputsOf(a)[0], {Size: 1}}, msg: "input 1 has no ReaderAt"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -307,14 +247,11 @@ func TestMergeOptionErrors(t *testing.T) {
 			if tt.edit != nil {
 				tt.edit(&opts)
 			}
-			view, inputs := v, inputsOf(t, v, a, b)
-			if tt.view != nil {
-				view = *tt.view
-			}
+			inputs := inputsOf(a, b)
 			if tt.inputs != nil {
 				inputs = tt.inputs
 			}
-			requireMergeRefused(t, view, inputs, opts, tt.msg)
+			requireMergeRefused(t, inputs, opts, tt.msg)
 		})
 	}
 }
@@ -322,52 +259,14 @@ func TestMergeOptionErrors(t *testing.T) {
 func TestMergeIdentities(t *testing.T) {
 	t.Parallel()
 
-	v, files := generationScope(t, 1, nil)
-	require.Equal(t, &Generation{ReplacementSetID: setA, PublisherEpoch: 2, ScopeGeneration: 3, Member: memA}, v.Generation)
-	require.Equal(t, []UUID{memA, seg1}, v.Packs)
-	require.Equal(t, []UUID{{0xC1}, seg1}, v.CompactedFrom)
-	inputs := inputsOf(t, v, files...)
-
-	refused := []struct {
-		name string
-		edit func(o *MergeOptions)
-		msg  string
-	}{
-		{name: "pack id of an input", edit: func(o *MergeOptions) { o.PackID = seg1 }, msg: "PackID"},
-		{name: "pack id of the generation's member", edit: func(o *MergeOptions) { o.PackID = memA }, msg: "PackID"},
-		{name: "pack id in the lineage", edit: func(o *MergeOptions) { o.PackID = UUID{0xC1} }, msg: "PackID"},
-		{name: "the generation's replacement set", edit: func(o *MergeOptions) { o.ReplacementSetID = setA }, msg: "ReplacementSetID"},
-		{name: "the generation's rank", edit: func(o *MergeOptions) { o.PublisherEpoch, o.ScopeGeneration = 2, 3 }, msg: "rank (2, 3)"},
-		{name: "a lower generation", edit: func(o *MergeOptions) { o.PublisherEpoch, o.ScopeGeneration = 2, 2 }, msg: "rank (2, 2)"},
-		{name: "a lower epoch with a higher generation", edit: func(o *MergeOptions) { o.PublisherEpoch, o.ScopeGeneration = 1, 9 }, msg: "rank (1, 9)"},
-	}
-	for _, tt := range refused {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			opts := generationOpts()
-			tt.edit(&opts)
-			requireMergeRefused(t, v, inputs, opts, tt.msg)
-		})
-	}
-
-	t.Run("a higher epoch with a lower generation", func(t *testing.T) {
-		t.Parallel()
-
-		opts := mergeOpts()
-		opts.PublisherEpoch, opts.ScopeGeneration = 3, 1
-		p := mustPlanMerge(t, v, inputs, opts)
-		assert.Equal(t, new(uint64(3)), p.meta.PublisherEpoch)
-		assert.Equal(t, new(uint64(1)), p.meta.ScopeGeneration)
-	})
+	inputs := inputsOf(generationScope(t, 1, nil)...)
 
 	t.Run("omitted ids generated", func(t *testing.T) {
 		t.Parallel()
 
-		p := mustPlanMerge(t, v, inputs, generationOpts())
-		ids := append(slices.Clone(v.Packs), v.CompactedFrom...)
+		p := mustPlanMerge(t, inputs, generationOpts())
 		assert.False(t, p.packID.IsZero())
-		assert.NotContains(t, ids, p.packID)
+		assert.NotContains(t, []UUID{memA, seg1, {0xC1}}, p.packID)
 		require.NotNil(t, p.meta.ReplacementSetID)
 		assert.False(t, p.meta.ReplacementSetID.IsZero())
 		assert.NotEqual(t, setA, *p.meta.ReplacementSetID)
@@ -379,76 +278,289 @@ func TestMergeIdentities(t *testing.T) {
 
 		opts := generationOpts()
 		opts.PackID, opts.ReplacementSetID = UUID{0xAC}, UUID{0x5E, 0xE}
-		p := mustPlanMerge(t, v, inputs, opts)
+		p := mustPlanMerge(t, inputs, opts)
 		assert.Equal(t, UUID{0xAC}, p.packID)
 		assert.Equal(t, &UUID{0x5E, 0xE}, p.meta.ReplacementSetID)
 	})
 
-	t.Run("any rank without a generation", func(t *testing.T) {
+	t.Run("any epoch without an archive input", func(t *testing.T) {
 		t.Parallel()
 
 		seg := mergePack(t, seg0, nil, hourSteps(10, 13, 2))
-		sv := mergeView(t, nil, seg)
 		opts := mergeOpts()
 		opts.PublisherEpoch = 0
-		mustPlanMerge(t, sv, inputsOf(t, sv, seg), opts)
+		mustPlanMerge(t, inputsOf(seg), opts)
 	})
 }
 
-func TestMergeTrustChecks(t *testing.T) {
+// TestMergeDerivesScopeFromInputs merges segments without naming their scope:
+// the archive takes the capture and the UTC hour of its inputs.
+func TestMergeDerivesScopeFromInputs(t *testing.T) {
 	t.Parallel()
 
-	v, files := generationScope(t, 1, nil)
-	inputs := inputsOf(t, v, files...)
-	segGen1 := mergePack(t, seg2, func(m *PackMeta) {
-		m.ScopeGeneration, m.PublisherEpoch = new(uint64(1)), new(uint64(1))
-		m.ReplacementSetID, m.ReplacementSetSize, m.ReplacementSetIndex = new(setB), new(uint64(1)), new(uint64(0))
-	}, hourSteps(30, 31, 2))
-	segView := soleView(t, segGen1)
+	capture := UUID{0xCA, 0x5C}
+	next := blockTestHour + hourNs
+	inNextHour := func(m *PackMeta) { m.PeriodStart, m.PeriodEnd = next+hourNs/4, next+hourNs/2 }
+	a := withIDs(t, mergePack(t, seg0, inNextHour, seqSteps(10, 13, 2, next)), seg0, capture)
+	b := withIDs(t, mergePack(t, seg1, inNextHour, seqSteps(20, 23, 2, next)), seg1, capture)
 
+	out, rep := mustMerge(t, inputsOf(a, b), mergeOpts())
+	assert.Equal(t, uint64(8), rep.Records)
+	h := mustOpen(t, out, ReaderOptions{}).Header()
+	assert.Equal(t, capture, h.CaptureID, "the inputs' capture")
+	assert.Equal(t, [2]int64{next, next + hourNs}, [2]int64{h.Meta.PeriodStart, h.Meta.PeriodEnd}, "the inputs' UTC hour")
+	assert.Equal(t, []UUID{seg0, seg1}, h.Meta.CompactedFrom)
+	assert.Nil(t, h.Meta.Supersedes)
+}
+
+// TestMergeRefusesRole merges, beside a valid segment, an input whose pack_role is neither segment nor archive,
+// or whose scope_generation contradicts its role (the tracepack storage specification §2 and §4 Merge):
+// Merge refuses it with ErrMergeInput naming the input, before it touches dst,
+// whether it is the first input or the second.
+// MergeIterate given the same packs reads every one of them (the tracepack storage specification §8).
+func TestMergeRefusesRole(t *testing.T) {
+	t.Parallel()
+
+	good := mergePack(t, seg0, nil, hourSteps(10, 13, 2))
+	other := func(id UUID, edit func(m *PackMeta)) []byte {
+		return mergePack(t, id, edit, hourSteps(20, 23, 2))
+	}
+	// No writer writes pack_role 5 or 9, nor, for new output, 4,
+	// so those packs are segments with the role byte set in place;
+	// the segment for role 4 already lists the supersedes a repair requires.
+	listing := other(patP1, func(m *PackMeta) { m.Supersedes = []UUID{{0xD0}} })
 	tests := []struct {
-		name   string
-		view   func(v *View)
-		inputs []MergeInput
-		msg    string
+		name string
+		file []byte
+		id   UUID
+		msg  string
 	}{
-		{name: "fewer inputs than packs", inputs: inputs[:1], msg: "1 inputs for the 2 packs"},
-		{name: "more inputs than packs", inputs: append(slices.Clone(inputs), inputs[0]), msg: "3 inputs for the 2 packs"},
-		{name: "inputs out of the view's order", inputs: []MergeInput{inputs[1], inputs[0]}, msg: "input 0, pack " + memA.String() + ": the input is pack " + seg1.String()},
-		{name: "a generation-0 pack outside the view's lineage", view: func(v *View) {
-			v.CompactedFrom = []UUID{{0xC1}}
-		}, msg: "input 1, pack " + seg1.String() + ": a generation-0 pack that the view's compacted_from does not list"},
-		{name: "the generation's lineage outside the view's", view: func(v *View) {
-			v.CompactedFrom = []UUID{seg1}
-		}, msg: "compacted_from lists " + UUID{0xC1}.String()},
-		{name: "an archive without the view's generation", view: func(v *View) {
-			v.Generation = nil
-		}, msg: "not the member of the view's generation"},
-		{name: "an archive of another rank", view: func(v *View) {
-			v.Generation.ScopeGeneration = 2
-		}, msg: "ranked (2, 3) that is not the member"},
-		{name: "an archive of another replacement set", view: func(v *View) {
-			v.Generation.ReplacementSetID = setB
-		}, msg: "not the member"},
-		{name: "a segment of generation 1", view: func(v *View) {
-			*v = cloneView(segView)
-		}, inputs: inputsOf(t, segView, segGen1), msg: "pack_role segment at scope_generation 1, not 0"},
+		{name: "repair", file: setMetaRole(t, listing, uint8(PackRoleRepair)), id: patP1,
+			msg: "pack_role repair is neither segment nor archive"},
+		{name: "retired", file: setMetaRole(t, other(seg1, nil), packRoleRetired), id: seg1,
+			msg: "pack_role unknown(5) is neither segment nor archive"},
+		{name: "unknown", file: setMetaRole(t, other(seg1, nil), 9), id: seg1,
+			msg: "pack_role unknown(9) is neither segment nor archive"},
+		{name: "unknown zero", file: setMetaRole(t, other(seg1, nil), 0), id: seg1,
+			msg: "pack_role unknown is neither segment nor archive"},
+		{name: "extract", file: other(seg1, func(m *PackMeta) {
+			m.PackRole, m.ScopeGeneration, m.ExtractFilter = PackRoleExtract, nil, new("all")
+		}), id: seg1, msg: "pack_role extract is neither segment nor archive"},
+		{name: "a segment at generation 1", file: other(seg1, func(m *PackMeta) {
+			m.ScopeGeneration, m.PublisherEpoch = new(uint64(1)), new(uint64(1))
+			m.ReplacementSetID, m.ReplacementSetSize, m.ReplacementSetIndex = new(setB), new(uint64(1)), new(uint64(0))
+		}), id: seg1, msg: "pack_role segment at scope_generation 1, not 0"},
+		{name: "an archive at generation 0", file: other(memA, func(m *PackMeta) {
+			m.PackRole = PackRoleArchive
+		}), id: memA, msg: "pack_role archive at scope_generation 0"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			view := cloneView(v)
-			if tt.view != nil {
-				tt.view(&view)
+			requireConsistent(t, tt.file)
+			second := "input 1, pack " + tt.id.String() + ": " + tt.msg
+			requireMergeRefused(t, inputsOf(good, tt.file), mergeOpts(), second, ErrMergeInput)
+			first := "input 0, pack " + tt.id.String() + ": " + tt.msg
+			requireMergeRefused(t, inputsOf(tt.file, good), mergeOpts(), first, ErrMergeInput)
+
+			readers := []*Reader{mustOpen(t, good, ReaderOptions{}), mustOpen(t, tt.file, ReaderOptions{})}
+			items, _, err := collectMergeIterate(t.Context(), readers, Query{}, MergeIterateOptions{Order: OrderCapture})
+			require.NoError(t, err)
+			seqs := make([]uint64, 0, len(items))
+			packs := make(map[int]bool)
+			for _, it := range items {
+				seqs, packs[it.pack] = append(seqs, it.rec.Seq), true
 			}
-			in := inputs
-			if tt.inputs != nil {
-				in = tt.inputs
-			}
-			requireMergeRefused(t, view, in, generationOpts(), tt.msg, ErrMergeInput)
+			assert.Equal(t, []uint64{10, 11, 12, 13, 20, 21, 22, 23}, seqs, "a read yields every record of both packs")
+			assert.Equal(t, map[int]bool{0: true, 1: true}, packs, "a read reads both packs")
 		})
 	}
+}
+
+// TestMergeLineage merges three archives of distinct scope_generation values, given in the order 2, 3, 1,
+// with disjoint records and compacted_from lists that share packs, and two segments:
+// supersedes lists every archive input in input order,
+// and compacted_from the inputs' lists in input order and then the segment inputs, each pack at its first occurrence
+// (the tracepack storage specification §4 Merge).
+// Segments alone leave supersedes absent,
+// and archives without compacted_from, a converter's, leave it absent at level 1 and again at level 2.
+func TestMergeLineage(t *testing.T) {
+	t.Parallel()
+
+	archive := func(id, set UUID, gen uint64, from []UUID, first uint64) []byte {
+		return mergePack(t, id, func(m *PackMeta) { generationMeta(m, set, 1, gen, from) }, hourSteps(first, first+3, 2))
+	}
+	g2 := archive(memB, setB, 2, []UUID{{0xC1}, {0xC2}}, 10)
+	g3 := archive(memC, setC, 3, []UUID{{0xC2}, {0xC3}, seg1}, 20)
+	g1 := archive(memA, setA, 1, []UUID{{0xC1}, {0xC4}}, 30)
+	s0 := mergePack(t, seg0, nil, hourSteps(40, 43, 2))
+	s1 := mergePack(t, seg1, nil, hourSteps(50, 53, 2))
+
+	t.Run("archives and segments", func(t *testing.T) {
+		t.Parallel()
+
+		out, rep := mustMerge(t, inputsOf(g2, s0, g3, g1, s1), mergeOpts())
+		assert.Equal(t, uint64(20), rep.Records, "every record of every input")
+		m := mustOpen(t, out, ReaderOptions{}).Header().Meta
+		assert.Equal(t, []UUID{memB, memC, memA}, m.Supersedes, "every archive input, in input order")
+		assert.Equal(t, []UUID{{0xC1}, {0xC2}, {0xC3}, seg1, {0xC4}, seg0}, m.CompactedFrom,
+			"the inputs' lists in input order, then the segment inputs, each pack once")
+		assert.Equal(t, uint8(2), m.CompactionLevel)
+	})
+
+	t.Run("segments only", func(t *testing.T) {
+		t.Parallel()
+
+		out, _ := mustMerge(t, inputsOf(s1, s0), mergeOpts())
+		m := mustOpen(t, out, ReaderOptions{}).Header().Meta
+		assert.Nil(t, m.Supersedes)
+		assert.Equal(t, []UUID{seg1, seg0}, m.CompactedFrom)
+	})
+
+	t.Run("converter archives, levels 1 then 2", func(t *testing.T) {
+		t.Parallel()
+
+		converter := func(id, set UUID, first uint64) []byte {
+			return mergePack(t, id, func(m *PackMeta) {
+				generationMeta(m, set, 1, 1, nil)
+				m.CompactionLevel = 0
+			}, hourSteps(first, first+3, 2))
+		}
+		opts := mergeOpts()
+		opts.ScopeGeneration, opts.PackID, opts.ReplacementSetID = 2, memC, setC
+		first, _ := mustMerge(t, inputsOf(converter(memA, setA, 10), converter(memB, setB, 20)), opts)
+		opts.ScopeGeneration, opts.PackID, opts.ReplacementSetID = 3, memD, setD
+		second, _ := mustMerge(t, inputsOf(first), opts)
+
+		for i, tt := range []struct {
+			file       []byte
+			supersedes []UUID
+		}{{first, []UUID{memA, memB}}, {second, []UUID{memC}}} {
+			m := mustOpen(t, tt.file, ReaderOptions{}).Header().Meta
+			assert.Nil(t, m.CompactedFrom, "level %d", i+1)
+			assert.Equal(t, uint8(i+1), m.CompactionLevel)
+			assert.Equal(t, tt.supersedes, m.Supersedes, "level %d", i+1)
+		}
+	})
+}
+
+// TestMergeGenerationValues checks that the archive takes MergeOptions.ScopeGeneration and PublisherEpoch as given,
+// whatever the generation values of its archive inputs, and that a ScopeGeneration of 0 is refused.
+func TestMergeGenerationValues(t *testing.T) {
+	t.Parallel()
+
+	input := mergePack(t, memA, func(m *PackMeta) { generationMeta(m, setA, 5, 7, []UUID{seg0}) }, hourSteps(10, 13, 2))
+	tests := []struct {
+		name       string
+		epoch, gen uint64
+	}{
+		{name: "above the input's", epoch: 6, gen: 8},
+		{name: "equal to the input's", epoch: 5, gen: 7},
+		{name: "below the input's", epoch: 1, gen: 2},
+		{name: "a lower epoch with a higher generation", epoch: 4, gen: 9},
+		{name: "a higher epoch with a lower generation", epoch: 6, gen: 1},
+		{name: "epoch 0", epoch: 0, gen: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			opts := mergeOpts()
+			opts.PublisherEpoch, opts.ScopeGeneration = tt.epoch, tt.gen
+			out, _ := mustMerge(t, inputsOf(input), opts)
+			m := mustOpen(t, out, ReaderOptions{}).Header().Meta
+			assert.Equal(t, new(tt.gen), m.ScopeGeneration)
+			assert.Equal(t, new(tt.epoch), m.PublisherEpoch)
+			assert.Equal(t, []UUID{memA}, m.Supersedes)
+		})
+	}
+
+	t.Run("generation 0", func(t *testing.T) {
+		t.Parallel()
+
+		opts := mergeOpts()
+		opts.ScopeGeneration = 0
+		requireMergeRefused(t, inputsOf(input), opts, "ScopeGeneration is 0")
+	})
+}
+
+// TestMergeInputSet merges input sets Merge refuses before it touches dst:
+// none (a plain error), a pack given twice, packs of two captures or of two UTC hours (each ErrMergeInput),
+// and a supplied PackID or ReplacementSetID that an input already uses (a plain error).
+func TestMergeInputSet(t *testing.T) {
+	t.Parallel()
+
+	a := mergePack(t, seg0, nil, hourSteps(10, 13, 2))
+	b := mergePack(t, seg1, nil, hourSteps(20, 23, 2))
+	next := blockTestHour + hourNs
+	nextHour := mergePack(t, seg1, func(m *PackMeta) { m.PeriodStart, m.PeriodEnd = next, next+hourNs }, seqSteps(20, 23, 2, next))
+	archive := mergePack(t, memA, func(m *PackMeta) {
+		generationMeta(m, setA, 1, 2, []UUID{{0xC1}})
+		m.Supersedes = []UUID{memB}
+	}, hourSteps(30, 33, 2))
+
+	t.Run("no inputs", func(t *testing.T) {
+		t.Parallel()
+
+		requireMergeRefused(t, nil, mergeOpts(), "no inputs")
+	})
+
+	refused := []struct {
+		name   string
+		inputs []MergeInput
+		msg    string
+	}{
+		{name: "one input twice", inputs: inputsOf(a, b, a), msg: "input 2, pack " + seg0.String() + ": the pack_id of input 0"},
+		{name: "a repeated pack_id", inputs: inputsOf(a, withIDs(t, b, seg0, viewCapture)),
+			msg: "input 1, pack " + seg0.String() + ": the pack_id of input 0"},
+		{name: "two captures", inputs: inputsOf(a, withIDs(t, b, seg1, UUID{0xCC})),
+			msg: "input 1, pack " + seg1.String() + ": capture_id " + UUID{0xCC}.String() + ", not input 0's " + viewCapture.String()},
+		{name: "two hours", inputs: inputsOf(a, nextHour),
+			msg: "input 1, pack " + seg1.String() + fmt.Sprintf(": period %d to %d is not inside input 0's UTC hour %d", next, next+hourNs, mergeHour)},
+	}
+	for _, tt := range refused {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			requireMergeRefused(t, tt.inputs, mergeOpts(), tt.msg, ErrMergeInput)
+		})
+	}
+
+	ids := []struct {
+		name string
+		edit func(o *MergeOptions)
+		msg  string
+	}{
+		{name: "the pack_id of a segment input", edit: func(o *MergeOptions) { o.PackID = seg1 }, msg: "PackID"},
+		{name: "the pack_id of an archive input", edit: func(o *MergeOptions) { o.PackID = memA }, msg: "PackID"},
+		{name: "a pack of an input's compacted_from", edit: func(o *MergeOptions) { o.PackID = UUID{0xC1} }, msg: "PackID"},
+		{name: "a pack of an input's supersedes", edit: func(o *MergeOptions) { o.PackID = memB }, msg: "PackID"},
+		{name: "the replacement set of an archive input", edit: func(o *MergeOptions) { o.ReplacementSetID = setA }, msg: "ReplacementSetID"},
+	}
+	for _, tt := range ids {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			opts := mergeOpts()
+			tt.edit(&opts)
+			requireMergeRefused(t, inputsOf(archive, b), opts, tt.msg)
+		})
+	}
+
+	// Only an archive input's replacement_set_id binds the archive's;
+	// a segment's, a tag the role does not require, does not.
+	t.Run("the replacement_set_id a segment carries", func(t *testing.T) {
+		t.Parallel()
+
+		tagged := mergePack(t, seg2, func(m *PackMeta) {
+			m.ReplacementSetID, m.ReplacementSetSize, m.ReplacementSetIndex = new(setC), new(uint64(1)), new(uint64(0))
+		}, hourSteps(40, 43, 2))
+		opts := mergeOpts()
+		opts.ReplacementSetID = setC
+		out, _ := mustMerge(t, inputsOf(archive, tagged), opts)
+		assert.Equal(t, new(setC), mustOpen(t, out, ReaderOptions{}).Header().Meta.ReplacementSetID)
+	})
 }
 
 func TestMergeInputChecks(t *testing.T) {
@@ -485,41 +597,25 @@ func TestMergeInputChecks(t *testing.T) {
 			require.NoError(t, mustOpen(t, file, ReaderOptions{}).Header().FooterErr)
 		})
 	}
-	extract := mergePack(t, seg0, func(m *PackMeta) {
-		m.PackRole, m.ScopeGeneration, m.ExtractFilter = PackRoleExtract, nil, new("all")
-	}, hourSteps(10, 13, 2))
 
 	type vector struct {
 		name  string
 		files [][]byte
-		// view, when set, is the view of the vector; else ActiveView's over files.
-		view *View
-		// inputs, when set, are the vector's inputs; else the files of the view's packs.
+		// inputs, when set, are the vector's inputs; else files, in their order.
 		inputs []MergeInput
-		opts   *MergeOptions
 		// cause, when set, is an error the input error wraps.
 		cause error
 		msg   string
 	}
 	sole := func(name string, file []byte, msg string) vector {
-		v := soleView(t, file)
-
-		return vector{name: name, files: [][]byte{file}, view: &v, msg: msg}
+		return vector{name: name, files: [][]byte{file}, msg: msg}
 	}
-	lv, lf := generationScope(t, math.MaxUint8, nil)
-	gOpts := generationOpts()
-	gv := soleView(t, good)
 	flipped := flipByte(good, 20)
 	tests := []vector{
-		sole("an extract", extract, "pack_role extract takes no part"),
-		sole("an unknown role", setMetaRole(t, good, 0), "pack_role unknown takes no part"),
-		sole("the retired role", setMetaRole(t, good, packRoleRetired), "pack_role unknown(5) takes no part"),
-		sole("another capture", withIDs(t, good, seg0, UUID{0xCC}), "capture_id "+UUID{0xCC}.String()),
 		sole("not finalized", withIDs(t, writeRepairPack(t, CodecZstd, nil, true, hourSteps(10, 13, 2)).file, seg0, viewCapture), "not finalized"),
 		sole("no valid footer", invalidFooterFile(t, good), "no valid footer"),
-		sole("an empty period", mergePack(t, seg0, period(h, h), nil), "period"),
-		sole("a period over two hours", mergePack(t, seg0, period(h+hourNs/2, h+3*hourNs/2), nil), "period"),
-		sole("a period in another hour", mergePack(t, seg0, period(h+hourNs, h+2*hourNs), nil), "is not inside the view's UTC hour"),
+		sole("an empty period", mergePack(t, seg0, period(h, h), nil), "is empty or not inside one UTC hour"),
+		sole("a period over two hours", mergePack(t, seg0, period(h+hourNs/2, h+3*hourNs/2), nil), "is empty or not inside one UTC hour"),
 		sole("a correctly indexed block in another hour", nextHour, "block 0 at offset"),
 		sole("blocks in two hours", twoHours, "block 1 at offset"),
 		sole("a redacted record", redacted, "a redacted record, which no stored pack holds"),
@@ -530,36 +626,26 @@ func TestMergeInputChecks(t *testing.T) {
 			msg: "input 1, pack " + seg1.String() + ": an oversized record without max_frame_len"},
 		{name: "a later input's seq_start", files: [][]byte{good, lying},
 			msg: "input 1, pack " + seg1.String() + ": seq_start 19"},
-		{name: "compaction_level 255", files: lf, view: &lv, opts: &gOpts,
+		{name: "compaction_level 255", files: generationScope(t, math.MaxUint8, nil),
 			msg: "input 0, pack " + memA.String() + ": compaction_level 255"},
-		{name: "an unreadable file header", files: [][]byte{good}, view: &gv,
-			inputs: []MergeInput{{ReaderAt: bytes.NewReader(flipped), Size: int64(len(flipped))}},
-			cause:  ErrChecksum, msg: "input 0, pack " + seg0.String()},
+		// The input's pack_id is not known when its file header cannot be read, so the error names its position only.
+		{name: "an unreadable file header", inputs: []MergeInput{{ReaderAt: bytes.NewReader(flipped), Size: int64(len(flipped))}},
+			cause: ErrChecksum, msg: "input 0: "},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			var v View
-			if tt.view != nil {
-				v = *tt.view
-			} else {
-				v = mergeView(t, nil, tt.files...)
-			}
 			inputs := tt.inputs
 			if inputs == nil {
-				inputs = inputsOf(t, v, tt.files...)
-			}
-			opts := mergeOpts()
-			if tt.opts != nil {
-				opts = *tt.opts
+				inputs = inputsOf(tt.files...)
 			}
 			// Every refusal of an input is an input error.
 			want := []error{ErrMergeInput}
 			if tt.cause != nil {
 				want = append(want, tt.cause)
 			}
-			requireMergeRefused(t, v, inputs, opts, tt.msg, want...)
+			requireMergeRefused(t, inputs, mergeOpts(), tt.msg, want...)
 		})
 	}
 }
@@ -569,19 +655,22 @@ func TestMergeInputOverReaderBudget(t *testing.T) {
 
 	a := mergePack(t, seg0, nil, hourSteps(10, 13, 2))
 	b := mergePack(t, seg1, nil, hourSteps(20, 23, 2))
-	v := mergeView(t, nil, a, b)
 	// The zstd footers are shorter on disk than decoded, so a budget between the two passes the read and fails the decode.
 	la, lb := layoutOf(t, a).tr, layoutOf(t, b).tr
 	onDisk := max(la.FooterLen, lb.FooterLen)
 	require.Less(t, onDisk, min(la.FooterUncompressedLen, lb.FooterUncompressedLen))
+	// The pack metadata's budget fails Open, before the input's pack_id is known;
+	// a footer's leaves the pack open, without a footer index.
 	tests := []struct {
 		name   string
 		budget ReaderOptions
+		input  string
 		msg    string
 	}{
-		{name: "pack metadata", budget: ReaderOptions{MaxPackMetadataLen: 8}, msg: "exceed MaxPackMetadataLen"},
-		{name: "footer on disk", budget: ReaderOptions{MaxFooterLen: 16}, msg: "footer_len"},
-		{name: "decoded footer", budget: ReaderOptions{MaxFooterLen: int64(onDisk)}, msg: "footer_uncompressed_len"},
+		{name: "pack metadata", budget: ReaderOptions{MaxPackMetadataLen: 8}, input: "input 0: ", msg: "exceed MaxPackMetadataLen"},
+		{name: "footer on disk", budget: ReaderOptions{MaxFooterLen: 16}, input: "input 0, pack " + seg0.String(), msg: "footer_len"},
+		{name: "decoded footer", budget: ReaderOptions{MaxFooterLen: int64(onDisk)}, input: "input 0, pack " + seg0.String(),
+			msg: "footer_uncompressed_len"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -590,11 +679,11 @@ func TestMergeInputOverReaderBudget(t *testing.T) {
 			opts := mergeOpts()
 			opts.Reader = tt.budget
 			var dst touchWriter
-			rep, err := Merge(t.Context(), &dst, v, inputsOf(t, v, a, b), opts)
+			rep, err := Merge(t.Context(), &dst, inputsOf(a, b), opts)
 			// A budget is not the input's defect, so the error is not an input error.
 			require.ErrorIs(t, err, ErrReadLimit)
 			require.NotErrorIs(t, err, ErrMergeInput)
-			require.ErrorContains(t, err, "input 0, pack "+seg0.String())
+			require.ErrorContains(t, err, tt.input)
 			require.ErrorContains(t, err, tt.msg+" ")
 			assert.Zero(t, dst.calls, "dst untouched")
 			assert.Equal(t, MergeReport{}, rep)
@@ -612,15 +701,14 @@ func TestMergeInputSharedF3ListsOverReaderBudget(t *testing.T) {
 	file, lists := sharedCountsF3Pack(t, mergePack(t, seg0, nil, hourSteps(1, 8, 1)), 4<<10)
 	l := layoutOf(t, file).tr
 	require.Less(t, max(l.FooterLen, l.FooterUncompressedLen), lists-1, "the budget holds the footer")
-	v := mergeView(t, nil, file)
 	opts := mergeOpts()
 	opts.Reader.MaxFooterLen = int64(lists) - 1
-	requireMergeRefused(t, v, inputsOf(t, v, file), opts, "input 0, pack "+seg0.String(), ErrReadLimit)
-	_, _, err := mergeBytes(t.Context(), v, inputsOf(t, v, file), opts)
+	requireMergeRefused(t, inputsOf(file), opts, "input 0, pack "+seg0.String(), ErrReadLimit)
+	_, _, err := mergeBytes(t.Context(), inputsOf(file), opts)
 	require.ErrorContains(t, err, "the F-3 lists of blocks 0 to 7 ")
 
 	opts.Reader.MaxFooterLen = int64(lists)
-	_, rep := mustMerge(t, v, inputsOf(t, v, file), opts)
+	_, rep := mustMerge(t, inputsOf(file), opts)
 	assert.Equal(t, uint64(8), rep.Records)
 }
 
@@ -629,25 +717,25 @@ func TestMergeInputReadFailures(t *testing.T) {
 
 	a := mergePack(t, seg0, nil, hourSteps(10, 13, 2))
 	b := mergePack(t, seg1, nil, hourSteps(20, 23, 2))
-	v := mergeView(t, nil, a, b)
 
 	t.Run("a failed read", func(t *testing.T) {
 		t.Parallel()
 
 		failing := newGatedReader(b)
 		failing.fail = func(int64, int) bool { return true }
-		inputs := inputsOf(t, v, a, b)
+		inputs := inputsOf(a, b)
 		inputs[1].ReaderAt = failing
 		// A failed read is not the input's defect: a caller retries it instead of repairing the pack.
-		requireMergeRefused(t, v, inputs, mergeOpts(), "input 1, pack "+seg1.String(), errInjected)
+		// It fails the file header's read, before the input's pack_id is known.
+		requireMergeRefused(t, inputs, mergeOpts(), "input 1: ", errInjected)
 	})
 
 	t.Run("an object shorter than its size", func(t *testing.T) {
 		t.Parallel()
 
-		inputs := inputsOf(t, v, a, b)
+		inputs := inputsOf(a, b)
 		inputs[1].Size += 100
-		requireMergeRefused(t, v, inputs, mergeOpts(), "input 1, pack "+seg1.String(), ErrMergeInput, io.ErrUnexpectedEOF)
+		requireMergeRefused(t, inputs, mergeOpts(), "input 1: ", ErrMergeInput, io.ErrUnexpectedEOF)
 	})
 }
 
@@ -655,12 +743,11 @@ func TestMergeCancelledBeforeWriting(t *testing.T) {
 	t.Parallel()
 
 	a := mergePack(t, seg0, nil, hourSteps(10, 13, 2))
-	v := mergeView(t, nil, a)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
 	var dst touchWriter
-	_, err := Merge(ctx, &dst, v, inputsOf(t, v, a), mergeOpts())
+	_, err := Merge(ctx, &dst, inputsOf(a), mergeOpts())
 	require.ErrorIs(t, err, context.Canceled)
 	assert.NotErrorIs(t, err, ErrMergeInput)
 	assert.Zero(t, dst.calls)
@@ -672,9 +759,70 @@ func TestMergeAcceptsSameHourRecordsOutsideTheSegmentPeriod(t *testing.T) {
 	h := blockTestHour
 	// A same-hour clock step puts records before the segment's flush interval.
 	seg := mergePack(t, seg0, func(m *PackMeta) { m.PeriodStart, m.PeriodEnd = h+hourNs/2, h+2*hourNs/3 }, hourSteps(10, 13, 2))
-	v := mergeView(t, nil, seg)
-	p := mustPlanMerge(t, v, inputsOf(t, v, seg), mergeOpts())
+	p := mustPlanMerge(t, inputsOf(seg), mergeOpts())
 	assert.Equal(t, [2]int64{h, h + hourNs}, [2]int64{p.meta.PeriodStart, p.meta.PeriodEnd}, "the archive's period is the hour")
+}
+
+// TestMergeSameHourClockStepRead merges two segments of one UTC hour whose flush periods a backward clock step crosses
+// (the tracepack storage specification §8):
+// the second segment's records, seqs after the first's, carry timestamps before the first's and before its own period.
+// In both input orders the merge succeeds,
+// and MergeIterate over the segments yields the records the archive yields, in the same order,
+// in capture order as Iterate reads the archive, and in time order as MergeIterate reads the archive alone,
+// each read complete.
+func TestMergeSameHourClockStepRead(t *testing.T) {
+	t.Parallel()
+
+	h := blockTestHour
+	minute := int64(60_000_000_000)
+	early := mergePack(t, seg0, func(m *PackMeta) { m.PeriodStart, m.PeriodEnd = h+10*minute, h+20*minute },
+		seqSteps(10, 13, 2, h+10*minute))
+	// The clock stepped back 15 minutes at the flush that opened the second segment.
+	late := mergePack(t, seg1, func(m *PackMeta) { m.PeriodStart, m.PeriodEnd = h+20*minute, h+30*minute },
+		seqSteps(14, 17, 2, h+5*minute))
+
+	records := func(items []iterItem) []Record {
+		out := make([]Record, len(items))
+		for i := range items {
+			out[i] = items[i].rec
+		}
+
+		return out
+	}
+	read := func(t *testing.T, readers []*Reader, order Order) []Record {
+		t.Helper()
+
+		items, res, err := collectMergeIterate(t.Context(), readers, Query{}, MergeIterateOptions{Order: order})
+		require.NoError(t, err)
+		assert.Empty(t, res.Incomplete, "a complete read")
+
+		return records(items)
+	}
+
+	for name, files := range map[string][][]byte{"early first": {early, late}, "late first": {late, early}} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			out, rep := mustMerge(t, inputsOf(files...), mergeOpts())
+			require.Equal(t, uint64(8), rep.Records)
+			archive := mustOpen(t, out, ReaderOptions{})
+			segments := []*Reader{mustOpen(t, files[0], ReaderOptions{}), mustOpen(t, files[1], ReaderOptions{})}
+
+			run := iterate(t, archive, Query{})
+			assert.Empty(t, run.res.Incomplete, "a complete read")
+			bySeq := read(t, segments, OrderCapture)
+			assert.Equal(t, records(run.items), bySeq, "capture order")
+			assert.Equal(t, []uint64{10, 11, 12, 13, 14, 15, 16, 17}, run.seqs())
+
+			byTime := read(t, segments, OrderTime)
+			assert.Equal(t, read(t, []*Reader{archive}, OrderTime), byTime, "time order")
+			seqs := make([]uint64, len(byTime))
+			for i := range byTime {
+				seqs[i] = byTime[i].Seq
+			}
+			assert.Equal(t, []uint64{14, 15, 16, 17, 10, 11, 12, 13}, seqs, "the stepped records first")
+		})
+	}
 }
 
 // captureMeta gives m a value in every capture-level tag (the tracepack storage specification §4 Merge).
@@ -748,8 +896,7 @@ func TestMergeCaptureLevelTags(t *testing.T) {
 				captureMeta(m)
 				tt.edit(m)
 			}, hourSteps(20, 23, 2))
-			v := mergeView(t, nil, a, b)
-			requireMergeRefused(t, v, inputsOf(t, v, a, b), mergeOpts(),
+			requireMergeRefused(t, inputsOf(a, b), mergeOpts(),
 				"input 1, pack "+seg1.String()+": capture-level tag "+tt.tag+" differs from pack "+seg0.String(), ErrMergeInput)
 		})
 	}
@@ -768,8 +915,7 @@ func TestMergeCaptureLevelTags(t *testing.T) {
 			captureMeta(m)
 			m.HSMSTimers = &HSMSTimers{}
 		}, hourSteps(20, 23, 2))
-		v := mergeView(t, nil, absent, empty)
-		requireMergeRefused(t, v, inputsOf(t, v, absent, empty), mergeOpts(), "capture-level tag hsms_timers differs", ErrMergeInput)
+		requireMergeRefused(t, inputsOf(absent, empty), mergeOpts(), "capture-level tag hsms_timers differs", ErrMergeInput)
 	})
 }
 
@@ -795,8 +941,7 @@ func TestMergeCarriesTheCaptureLevelTags(t *testing.T) {
 	bMeta := mustOpen(t, b, ReaderOptions{}).Header().Meta
 	require.Equal(t, &HSMSTimers{T1: new(uint64(1)), T3: new(uint64(45_000))}, bMeta.HSMSTimers, "the retagged timer is unknown")
 
-	v := mergeView(t, nil, a, b)
-	p := mustPlanMerge(t, v, inputsOf(t, v, a, b), mergeOpts())
+	p := mustPlanMerge(t, inputsOf(a, b), mergeOpts())
 	want := &PackMeta{}
 	captureMeta(want)
 	m := p.meta
@@ -870,19 +1015,16 @@ func TestMergeArchiveMetadata(t *testing.T) {
 		m.Coverage = []Coverage{cov(1), cov(3, u2, u1), cov(5)}
 		notCarried(m)
 	}, hourSteps(20, 23, 2)))
-	replaced := mergePack(t, seg2, nil, hourSteps(30, 31, 2))
-	patch := mergePack(t, patP1, func(m *PackMeta) {
-		m.PackRole, m.PatchBase, m.Supersedes = PackRoleRepair, new(setA), []UUID{seg2}
+	// A second archive, at compaction_level 1, carrying the coverage of records it lost.
+	other := mergePack(t, memB, func(m *PackMeta) {
+		generationMeta(m, setB, 1, 1, []UUID{seg2})
 		m.Coverage = []Coverage{cov(30)}
 	}, hourSteps(30, 30, 2))
-	files := [][]byte{mem, seg, replaced, patch}
-	v := mergeView(t, commitSet(setA, patP1), files...)
-	require.Equal(t, []UUID{memA, seg1, patP1}, v.Packs)
-	require.Equal(t, []UUID{{0xC1}, {0xC2}, seg1, seg2, patP1}, v.CompactedFrom)
+	files := [][]byte{mem, seg, other}
 
 	opts := generationOpts()
 	opts.ReplacementSetID = UUID{0x5E, 0xE}
-	p := mustPlanMerge(t, v, inputsOf(t, v, files...), opts)
+	p := mustPlanMerge(t, inputsOf(files...), opts)
 	m := p.meta
 
 	assert.Equal(t, PackRoleArchive, m.PackRole)
@@ -892,9 +1034,9 @@ func TestMergeArchiveMetadata(t *testing.T) {
 	assert.Equal(t, new(uint64(1)), m.ReplacementSetSize)
 	assert.Equal(t, new(uint64(0)), m.ReplacementSetIndex)
 	assert.Equal(t, [2]int64{blockTestHour, blockTestHour + hourNs}, [2]int64{m.PeriodStart, m.PeriodEnd})
-	assert.Equal(t, uint8(3), m.CompactionLevel, "one above the member's level 2")
-	assert.Equal(t, v.CompactedFrom, m.CompactedFrom)
-	assert.Equal(t, []UUID{memA}, m.Supersedes)
+	assert.Equal(t, uint8(3), m.CompactionLevel, "one above memA's level 2")
+	assert.Equal(t, []UUID{{0xC1}, {0xC2}, seg2, seg1}, m.CompactedFrom)
+	assert.Equal(t, []UUID{memA, memB}, m.Supersedes)
 	assert.Equal(t, []Coverage{cov(1), cov(3, u1, u2), cov(3, u2, u1), cov(5), cov(30)}, m.Coverage,
 		"every entry once, in input order, an entry of another encoding but the same nested entries dropped")
 	assert.Equal(t, []string{"a", "b", "c"}, m.Classifiers)
@@ -936,11 +1078,10 @@ func TestMergeArchivePackMetadataBudget(t *testing.T) {
 	}
 	a := mergePack(t, seg0, func(m *PackMeta) { m.Coverage = coverage(100, 20) }, hourSteps(10, 13, 2))
 	b := mergePack(t, seg1, func(m *PackMeta) { m.Coverage = coverage(200, 20) }, hourSteps(20, 23, 2))
-	v := mergeView(t, nil, a, b)
-	inputs := inputsOf(t, v, a, b)
+	inputs := inputsOf(a, b)
 
 	// The default budget accepts ordinary inputs.
-	raw, err := mustPlanMerge(t, v, inputs, mergeOpts()).meta.MarshalBinary()
+	raw, err := mustPlanMerge(t, inputs, mergeOpts()).meta.MarshalBinary()
 	require.NoError(t, err)
 	archiveLen := int64(len(raw))
 	inputLen := int64(max(layoutHeader(t, a).PackMetadataLen, layoutHeader(t, b).PackMetadataLen))
@@ -955,16 +1096,16 @@ func TestMergeArchivePackMetadataBudget(t *testing.T) {
 	t.Run("exactly the archive's length", func(t *testing.T) {
 		t.Parallel()
 
-		mustPlanMerge(t, v, inputs, withBudget(archiveLen))
+		mustPlanMerge(t, inputs, withBudget(archiveLen))
 	})
 	for name, budget := range map[string]int64{"one byte less": archiveLen - 1, "the longest input's length": inputLen} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
 			opts := withBudget(budget)
-			requireMergeRefused(t, v, inputs, opts,
+			requireMergeRefused(t, inputs, opts,
 				fmt.Sprintf("the archive's pack metadata of %d bytes exceeds MaxPackMetadataLen %d", archiveLen, budget), ErrMergeLimit)
-			_, err := planMerge(t.Context(), &v, inputs, &opts)
+			_, err := planMerge(t.Context(), inputs, &opts)
 			assert.NotErrorIs(t, err, ErrReadLimit, "every input fits the budget")
 		})
 	}
@@ -973,25 +1114,22 @@ func TestMergeArchivePackMetadataBudget(t *testing.T) {
 func TestMergeArchiveLineageWithoutGenerationZeroPacks(t *testing.T) {
 	t.Parallel()
 
-	// A converter's archive: a generation at compaction_level 0 without compacted_from.
+	// A converter's archive: at compaction_level 0 without compacted_from.
 	converter := mergePack(t, memA, func(m *PackMeta) {
 		generationMeta(m, setA, 1, 1, nil)
 		m.CompactionLevel = 0
 	}, hourSteps(10, 13, 2))
-	v := mergeView(t, commitSet(setA), converter)
-	require.Empty(t, v.CompactedFrom)
 
 	opts := mergeOpts()
 	opts.ScopeGeneration = 2
-	m := mustPlanMerge(t, v, inputsOf(t, v, converter), opts).meta
+	m := mustPlanMerge(t, inputsOf(converter), opts).meta
 	assert.Nil(t, m.CompactedFrom, "absent when the lineage list is empty")
 	assert.Equal(t, uint8(1), m.CompactionLevel)
 	assert.Equal(t, []UUID{memA}, m.Supersedes)
 
 	seg := mergePack(t, seg0, nil, hourSteps(10, 13, 2))
-	sv := mergeView(t, nil, seg)
-	m = mustPlanMerge(t, sv, inputsOf(t, sv, seg), mergeOpts()).meta
-	assert.Nil(t, m.Supersedes, "absent without a generation")
+	m = mustPlanMerge(t, inputsOf(seg), mergeOpts()).meta
+	assert.Nil(t, m.Supersedes, "absent without an archive input")
 	assert.Equal(t, []UUID{seg0}, m.CompactedFrom)
 	assert.Equal(t, uint8(1), m.CompactionLevel)
 }
@@ -1010,15 +1148,13 @@ func TestMergeArchiveSeqStartWithoutRecords(t *testing.T) {
 	files := [][]byte{
 		empty(seg0, 5, nil),
 		empty(seg1, 9, nil),
-		// A patch holding only coverage.
-		empty(patP1, 7, func(m *PackMeta) {
-			m.PackRole, m.Supersedes = PackRoleRepair, []UUID{{0xD0}}
+		// An archive holding only coverage.
+		empty(memA, 7, func(m *PackMeta) {
+			generationMeta(m, setA, 1, 1, []UUID{{0xD0}})
 			m.Coverage = []Coverage{{CaptureID: new(viewCapture), SeqFirst: new(uint64(7)), TimeStart: new(blockTestHour), TimeEnd: new(blockTestHour)}}
 		}),
 	}
-	v := mergeView(t, commitSet(patP1), files...)
-	require.Len(t, v.Packs, 3)
-	p := mustPlanMerge(t, v, inputsOf(t, v, files...), mergeOpts())
+	p := mustPlanMerge(t, inputsOf(files...), mergeOpts())
 	assert.Empty(t, p.clusters)
 	assert.Equal(t, uint64(9), p.meta.SeqStart, "the largest seq_start of the inputs")
 	assert.Len(t, p.meta.Coverage, 1)
@@ -1042,13 +1178,12 @@ func TestMergeArchivePeriodAtTheInt64Extremes(t *testing.T) {
 			t.Parallel()
 
 			seg := mergePack(t, seg0, func(m *PackMeta) { m.PeriodStart, m.PeriodEnd = tt.start, tt.end }, nil)
-			v := mergeView(t, nil, seg)
-			m := mustPlanMerge(t, v, inputsOf(t, v, seg), mergeOpts()).meta
+			m := mustPlanMerge(t, inputsOf(seg), mergeOpts()).meta
 			assert.Equal(t, tt.want, [2]int64{m.PeriodStart, m.PeriodEnd})
 			assert.Less(t, m.PeriodEnd-m.PeriodStart, hourNs, "a bound was clamped")
 			hour, ok := periodHour(m.PeriodStart, m.PeriodEnd)
 			assert.True(t, ok)
-			assert.Equal(t, v.Hour, hour)
+			assert.Equal(t, hourOf(tt.start), hour, "the input's hour")
 		})
 	}
 }
@@ -1057,11 +1192,9 @@ func TestMergeKeepsANilCapture(t *testing.T) {
 	t.Parallel()
 
 	seg := withIDs(t, mergePack(t, seg0, nil, hourSteps(10, 13, 2)), seg0, UUID{})
-	v := mergeView(t, nil, seg)
-	require.True(t, v.Capture.IsZero())
-	p := mustPlanMerge(t, v, inputsOf(t, v, seg), mergeOpts())
+	p := mustPlanMerge(t, inputsOf(seg), mergeOpts())
 	assert.True(t, p.captureID.IsZero(), "the archive keeps the scope's capture exactly")
-	out, _ := mustMerge(t, v, inputsOf(t, v, seg), mergeOpts())
+	out, _ := mustMerge(t, inputsOf(seg), mergeOpts())
 	assert.Equal(t, format.UUID{}, layoutHeader(t, out).CaptureID, "the archive's file header keeps the nil capture")
 }
 
@@ -1081,10 +1214,8 @@ func TestMergePlanClusters(t *testing.T) {
 	b := mergePack(t, seg1, nil, steps([2]uint64{5, 5}, [2]uint64{11, 12}, [2]uint64{21, 22}, [2]uint64{30, 35}, [2]uint64{50, 51}))
 	c := mergePack(t, seg2, nil, steps([2]uint64{35, 45}))
 	files := [][]byte{a, b, c}
-	v := mergeView(t, nil, files...)
-	require.Equal(t, []UUID{seg0, seg1, seg2}, v.Packs)
 
-	p := mustPlanMerge(t, v, inputsOf(t, v, files...), mergeOpts())
+	p := mustPlanMerge(t, inputsOf(files...), mergeOpts())
 	type ref struct{ input, block int }
 	want := []struct {
 		first, last uint64

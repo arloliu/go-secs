@@ -431,15 +431,15 @@ func failingEveryOther(calls *int) func(enc []byte) []byte {
 	}
 }
 
-// mergeChecked merges files, the packs v.Packs names in that order, with fixedIDs(opts),
+// mergeChecked merges files, in their order, with fixedIDs(opts),
 // every other coalesced encoding made to fail its check when fallbacks is set;
 // it requires the merge to succeed, which writeWithHooks requires to have the merge properties,
 // and returns the archive and the report.
-func mergeChecked(t *testing.T, v View, files [][]byte, opts MergeOptions, fallbacks bool) ([]byte, MergeReport) {
+func mergeChecked(t *testing.T, files [][]byte, opts MergeOptions, fallbacks bool) ([]byte, MergeReport) {
 	t.Helper()
 
 	var calls int
-	out, rep, err := writeWithHooks(t, v, inputsOfFiles(files), opts, func(p *mergePlan) {
+	out, rep, err := writeWithHooks(t, inputsOf(files...), opts, func(p *mergePlan) {
 		if fallbacks {
 			p.coalescedHook = failingEveryOther(&calls)
 		}
@@ -447,16 +447,6 @@ func mergeChecked(t *testing.T, v View, files [][]byte, opts MergeOptions, fallb
 	require.NoError(t, err)
 
 	return out, rep
-}
-
-// inputsOfFiles returns files as merge inputs, in their order.
-func inputsOfFiles(files [][]byte) []MergeInput {
-	inputs := make([]MergeInput, len(files))
-	for i, f := range files {
-		inputs[i] = MergeInput{ReaderAt: bytes.NewReader(f), Size: int64(len(f))}
-	}
-
-	return inputs
 }
 
 // inBlocks returns the steps writing recs in blocks of n records, the last block holding the rest.
@@ -681,10 +671,9 @@ func TestMergeProperties(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		files   [][]byte
-		commits CommitSet
-		opts    MergeOptions
+		name  string
+		files [][]byte
+		opts  MergeOptions
 		// empty reports a vector without records, and want checks the report of the counted variant.
 		empty bool
 		want  func(t *testing.T, rep MergeReport)
@@ -720,7 +709,7 @@ func TestMergeProperties(t *testing.T) {
 			widenedFrom(t, mergePackCodec(t, CodecNone, seg1, cutAt(inBlocks(c[third:], 2), mid)), mid),
 		}},
 		{
-			name: "a generation and late segments",
+			name: "an archive and a late segment",
 			files: [][]byte{
 				mergePack(t, memA, func(m *PackMeta) {
 					generationMeta(m, setA, 2, 3, []UUID{{0xC1}})
@@ -728,8 +717,7 @@ func TestMergeProperties(t *testing.T) {
 				}, inBlocks(c[:2*n/3], 5)),
 				mergePack(t, seg0, nil, inBlocks(c[n/2:], 2)),
 			},
-			commits: commitSet(setA),
-			opts:    generationOpts(),
+			opts: generationOpts(),
 		},
 		{name: "no records", files: [][]byte{empty(seg0, 5), empty(seg1, 9)}, empty: true},
 	}
@@ -738,13 +726,12 @@ func TestMergeProperties(t *testing.T) {
 			t.Run(tt.name+"/"+o.name, func(t *testing.T) {
 				t.Parallel()
 
-				v := mergeView(t, tt.commits, tt.files...)
 				opts := tt.opts
 				if opts.Writer == "" {
 					opts = mergeOpts()
 				}
 				opts.Codec, opts.NoCoalesce, opts.BlockThreshold = o.codec, o.noCoalesce, o.threshold
-				out, rep := mergeChecked(t, v, filesOf(t, v, tt.files...), opts, o.fallbacks)
+				out, rep := mergeChecked(t, tt.files, opts, o.fallbacks)
 				if tt.empty {
 					assert.Zero(t, rep.Blocks)
 					return
@@ -864,11 +851,10 @@ func genSparse(rng *rand.Rand, recs []Record) []Record {
 	return out
 }
 
-// genScope is a generated merge scope: its packs, the commit objects of its view, the merge options,
+// genScope is a generated merge scope: its packs, in input order, the merge options,
 // and whether every other coalesced encoding is made to fail its check.
 type genScope struct {
 	files     [][]byte
-	commits   CommitSet
 	opts      MergeOptions
 	fallbacks bool
 }
@@ -880,7 +866,7 @@ type genScope struct {
 // or as the segments of two to four consumers of a durable bus taking turns of one to three records,
 // a consumer now and then also taking a record of another's turn;
 // each pack is written with a random codec in blocks closed at random,
-// the first one in a fifth of the scopes as the member of a generation.
+// the first one in a fifth of the scopes as an archive.
 // Now and then a segment is also present as an exact duplicate, or with its records in blocks of the other codec,
 // and a segment without records joins the scope.
 // The merge takes a random codec, coalescing on or off, and a threshold from below one record to the default;
@@ -930,7 +916,7 @@ func genScopeOf(t testing.TB, seed uint64) genScope {
 				generationMeta(m, setA, 2, 3, []UUID{{0xC1}})
 				m.CompactionLevel = 1
 			}
-			s.commits, s.opts = commitSet(setA), generationOpts()
+			s.opts = generationOpts()
 		}
 		s.files = append(s.files, genPack(t, rng, id, codecs[rng.IntN(2)], meta, recs, wideFrom))
 	}
@@ -990,8 +976,7 @@ func TestMergeGeneratedScopes(t *testing.T) {
 			t.Parallel()
 
 			s := genScopeOf(t, seed)
-			v := mergeView(t, s.commits, s.files...)
-			_, rep := mergeChecked(t, v, filesOf(t, v, s.files...), s.opts, s.fallbacks)
+			_, rep := mergeChecked(t, s.files, s.opts, s.fallbacks)
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -1019,9 +1004,6 @@ const (
 	fuzzSmallFooter  = 1 << 5
 	// fuzzFallbacks makes every other coalesced encoding fail its check.
 	fuzzFallbacks = 1 << 6
-	// fuzzCommitted gives FuzzMerge's view a commit object for every archive and patch of its packs,
-	// so an archive or a patch can be a merge input.
-	fuzzCommitted = 1 << 7
 )
 
 // fuzzThresholds holds the MergeOptions.BlockThreshold values the control byte chooses from.
@@ -1058,20 +1040,22 @@ type fuzzMergeResult struct {
 	err       error
 }
 
-// fuzzMergeRun merges files, the packs v.Packs names in that order, with opts,
+// fuzzMergeRun merges files, in their order, with opts,
 // every other coalesced encoding made to fail its check when fallbacks is set.
-// It requires every conflict OnConflict receives to be of v's capture, with two versions or more,
+// It requires every conflict OnConflict receives to be of the inputs' capture, with two versions or more,
 // and the conflicts to come in ascending seq, each seq once.
-func fuzzMergeRun(t *testing.T, v View, files [][]byte, opts MergeOptions, fallbacks bool) fuzzMergeResult {
+func fuzzMergeRun(t *testing.T, files [][]byte, opts MergeOptions, fallbacks bool) fuzzMergeResult {
 	t.Helper()
 
 	var conflicts []Conflict
 	opts.OnConflict = func(c Conflict) { conflicts = append(conflicts, c) }
-	inputs := inputsOfFiles(files)
+	inputs := inputsOf(files...)
 	var out bytes.Buffer
 	var rep MergeReport
-	p, err := planMerge(t.Context(), &v, inputs, &opts)
+	var capture UUID
+	p, err := planMerge(t.Context(), inputs, &opts)
 	if err == nil {
+		capture = p.captureID
 		var calls int
 		if fallbacks {
 			p.coalescedHook = failingEveryOther(&calls)
@@ -1080,7 +1064,7 @@ func fuzzMergeRun(t *testing.T, v View, files [][]byte, opts MergeOptions, fallb
 	}
 
 	for i, c := range conflicts {
-		require.Equal(t, v.Capture, c.CaptureID)
+		require.Equal(t, capture, c.CaptureID)
 		require.GreaterOrEqual(t, len(c.Versions), 2, "conflict of seq %d", c.Seq)
 		if i > 0 {
 			require.Greater(t, c.Seq, conflicts[i-1].Seq, "conflicts in ascending seq, each once")
@@ -1111,7 +1095,7 @@ type fuzzMergeInput struct {
 // fuzzMergeSeeds returns the seed inputs of FuzzMerge, made of the records of propertyCapture:
 // valid inputs that are copied and coalesced, resolved, conflicting, duplicates, interleaved,
 // copied with unusual F-3 lists, or that exceed a budget, a block over MaxBlockLen included;
-// a generation's member beside a late segment, and a patch that replaced a damaged segment, both committed;
+// an archive beside a late segment, and a pack of pack_role repair beside a segment, which Merge refuses;
 // and inputs already damaged:
 // cut short, with an invalid footer, a corrupt block, a false seq_start, or F-3 disagreeing with a block.
 func fuzzMergeSeeds(t testing.TB) []fuzzMergeInput {
@@ -1141,7 +1125,9 @@ func fuzzMergeSeeds(t testing.TB) []fuzzMergeInput {
 	}, inBlocks(c[:2*n/3], 3))
 	second := mustOpen(t, a, ReaderOptions{}).Blocks()[1]
 	damaged := flipByte(a, second.Offset+format.EnvelopeLen+1)
-	patch, _ := mustRepair(t, damaged)
+	// A pack of pack_role repair, which Merge refuses: a segment listing what a repair requires, its role byte set in place.
+	repairRole := setMetaRole(t, mergePack(t, patP1, func(m *PackMeta) { m.Supersedes = []UUID{seg0} }, inBlocks(c[n/3:], 2)),
+		uint8(PackRoleRepair))
 	threshold := func(i uint8) uint8 { return i << fuzzThresholdShift }
 
 	return []fuzzMergeInput{
@@ -1160,8 +1146,8 @@ func fuzzMergeSeeds(t testing.TB) []fuzzMergeInput {
 		{a: a, b: b, ctl: fuzzOneOpenBlock},
 		{a: early, b: late, ctl: fuzzSmallFooter},
 		{a: early, b: big},
-		{a: member, b: late, ctl: fuzzCommitted | threshold(2)},
-		{a: damaged, b: patch, ctl: fuzzCommitted},
+		{a: member, b: late, ctl: threshold(2)},
+		{a: early, b: repairRole},
 		{a: a[:len(a)/2], b: b},
 		{a: invalidFooterFile(t, a), b: b},
 		{a: damaged, b: b},
@@ -1172,12 +1158,11 @@ func fuzzMergeSeeds(t testing.TB) []fuzzMergeInput {
 	}
 }
 
-// FuzzMerge merges two mutated packs with options a control byte chooses.
-// Packs that do not open, or whose ActiveView fails, are left to FuzzOpen and the view tests.
-// The view takes no commit object, so its packs are segments,
-// unless the control byte gives one to every archive and patch, ranking the merge's claim above any generation.
+// FuzzMerge merges two mutated packs, in their order, with options a control byte chooses.
+// Packs that do not open are left to FuzzOpen.
 // Every merge ends in one of the outcomes Merge has for such inputs:
-// ErrMergeInput; ErrMergeConflict, once every conflict reached OnConflict;
+// ErrMergeInput, for a pack Merge refuses or for packs of two scopes;
+// ErrMergeConflict, once every conflict reached OnConflict;
 // a budget error, ErrMergeLimit or ErrReadLimit;
 // or an archive with the merge properties (requireMergeProperties).
 // Any other error, a panic, or an archive without the properties is a failure.
@@ -1195,46 +1180,21 @@ func FuzzMerge(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, a, b []byte, ctl uint8) {
 		var files [][]byte
-		var infos []PackInfo
 		for _, data := range [][]byte{a, b} {
 			if len(data) == 0 {
 				continue
 			}
-			r, err := Open(t.Context(), bytes.NewReader(data), int64(len(data)), fuzzMergeReader)
-			if err != nil {
+			if _, err := Open(t.Context(), bytes.NewReader(data), int64(len(data)), fuzzMergeReader); err != nil {
 				return
 			}
-			files, infos = append(files, data), append(infos, r.Info())
+			files = append(files, data)
 		}
-		var commits CommitSet
-		if ctl&fuzzCommitted != 0 {
-			commits = make(CommitSet)
-			for _, p := range infos {
-				switch m := p.meta; {
-				case m.PackRole == PackRoleArchive && m.ReplacementSetID != nil:
-					commits[*m.ReplacementSetID] = struct{}{}
-				case m.PackRole == PackRoleRepair:
-					commits[p.packID] = struct{}{}
-				default:
-					// A segment, or a role outside the tiers, has no commit object.
-				}
-			}
-		}
-		v, err := ActiveView(infos, commits)
-		if err != nil || len(v.Packs) == 0 {
+		if len(files) == 0 {
 			return
 		}
-		files = filesOf(t, v, files...)
 
 		opts := fuzzOptions(MergeOptions{Reader: fuzzMergeReader, Writer: "fuzz", ScopeGeneration: 1, PublisherEpoch: 1}, ctl)
-		if g := v.Generation; g != nil {
-			// The claim ranks above the view's generation.
-			if g.PublisherEpoch >= format.MaxU64 {
-				return
-			}
-			opts.PublisherEpoch = g.PublisherEpoch + 1
-		}
-		r := fuzzMergeRun(t, v, files, opts, ctl&fuzzFallbacks != 0)
+		r := fuzzMergeRun(t, files, opts, ctl&fuzzFallbacks != 0)
 		switch err := r.err; {
 		case err == nil:
 			require.Zero(t, r.conflicts)
@@ -1269,10 +1229,9 @@ func FuzzMergeGenerated(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, seed uint64, ctl uint8) {
 		s := genScopeOf(t, seed)
-		v := mergeView(t, s.commits, s.files...)
-		files := filesOf(t, v, s.files...)
+		files := s.files
 		opts := fuzzOptions(s.opts, ctl)
-		r := fuzzMergeRun(t, v, files, opts, ctl&fuzzFallbacks != 0)
+		r := fuzzMergeRun(t, files, opts, ctl&fuzzFallbacks != 0)
 		require.Zero(t, r.conflicts)
 		if ctl&(fuzzOneOpenBlock|fuzzSmallFooter) != 0 && errors.Is(r.err, ErrMergeLimit) {
 			require.Equal(t, MergeReport{}, r.rep)
@@ -1312,17 +1271,17 @@ type overwrittenMerge struct {
 	released  int
 }
 
-// mergeOverwriting merges files, the packs v.Packs names in that order, with fixedIDs(opts),
+// mergeOverwriting merges files, in their order, with fixedIDs(opts),
 // every other coalesced encoding made to fail its check when fallbacks is set,
 // and, when overwrite is set, every block buffer overwritten (overwriteBuf)
 // as soon as the merge releases it for a later read.
-func mergeOverwriting(t *testing.T, v View, files [][]byte, opts MergeOptions, fallbacks, overwrite bool) overwrittenMerge {
+func mergeOverwriting(t *testing.T, files [][]byte, opts MergeOptions, fallbacks, overwrite bool) overwrittenMerge {
 	t.Helper()
 
 	var m overwrittenMerge
 	opts = fixedIDs(opts)
 	opts.OnConflict = func(c Conflict) { m.conflicts = append(m.conflicts, c) }
-	p := mustPlanMerge(t, v, inputsOfFiles(files), opts)
+	p := mustPlanMerge(t, inputsOf(files...), opts)
 	var calls int
 	if fallbacks {
 		p.coalescedHook = failingEveryOther(&calls)
@@ -1352,7 +1311,6 @@ func TestMergeReleasedBuffersOverwritten(t *testing.T) {
 
 	type scope struct {
 		name      string
-		v         View
 		files     [][]byte
 		opts      MergeOptions
 		fallbacks bool
@@ -1367,18 +1325,17 @@ func TestMergeReleasedBuffersOverwritten(t *testing.T) {
 	}
 	const seeds = 24
 	scopes := make([]scope, 0, 1+seeds)
-	scopes = append(scopes, scope{name: "conflicting segments", v: mergeView(t, nil, conflicting...), files: conflicting, opts: mergeOpts(), want: ErrMergeConflict})
+	scopes = append(scopes, scope{name: "conflicting segments", files: conflicting, opts: mergeOpts(), want: ErrMergeConflict})
 	for seed := range uint64(seeds) {
 		s := genScopeOf(t, seed)
-		v := mergeView(t, s.commits, s.files...)
-		scopes = append(scopes, scope{name: fmt.Sprint(seed), v: v, files: filesOf(t, v, s.files...), opts: s.opts, fallbacks: s.fallbacks})
+		scopes = append(scopes, scope{name: fmt.Sprint(seed), files: s.files, opts: s.opts, fallbacks: s.fallbacks})
 	}
 	for _, s := range scopes {
 		t.Run(s.name, func(t *testing.T) {
 			t.Parallel()
 
-			kept := mergeOverwriting(t, s.v, s.files, s.opts, s.fallbacks, false)
-			overwritten := mergeOverwriting(t, s.v, s.files, s.opts, s.fallbacks, true)
+			kept := mergeOverwriting(t, s.files, s.opts, s.fallbacks, false)
+			overwritten := mergeOverwriting(t, s.files, s.opts, s.fallbacks, true)
 			require.Positive(t, overwritten.released)
 			if s.want == nil {
 				require.NoError(t, kept.err)

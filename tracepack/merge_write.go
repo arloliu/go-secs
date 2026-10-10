@@ -222,7 +222,7 @@ func (p *mergePlan) identity(b *mergeBlock) blockIdentity {
 	}
 }
 
-// inputID returns the pack_id of input i, which openInputs checked against the view's Packs.
+// inputID returns the pack_id of input i, as its file header holds it.
 func (p *mergePlan) inputID(i int) UUID {
 	return UUID(p.inputs[i].hdr.PackID)
 }

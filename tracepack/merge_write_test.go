@@ -65,36 +65,37 @@ func fixedIDs(opts MergeOptions) MergeOptions {
 }
 
 // mergeBytes runs Merge into a buffer with fixedIDs(opts) and returns what it wrote, its report and its error.
-func mergeBytes(ctx context.Context, v View, inputs []MergeInput, opts MergeOptions) ([]byte, MergeReport, error) {
+func mergeBytes(ctx context.Context, inputs []MergeInput, opts MergeOptions) ([]byte, MergeReport, error) {
 	var out bytes.Buffer
-	rep, err := Merge(ctx, &out, v, inputs, fixedIDs(opts))
+	rep, err := Merge(ctx, &out, inputs, fixedIDs(opts))
 
 	return out.Bytes(), rep, err
 }
 
-// mustMerge merges inputs, which v.Packs names, with fixedIDs(opts),
+// mustMerge merges inputs with fixedIDs(opts),
 // and requires the archive to be written with the properties of every successful merge (requireMergeProperties):
 // finalized-consistent, its records those of the inputs, each once, its footer the one its records give,
 // and a report of no conflict that counts what it holds;
-// its file header carrying rep's pack_id, the view's capture exactly and no redaction-present flag;
+// its file header carrying rep's pack_id, the first input's capture exactly and no redaction-present flag;
 // and its pack metadata the one planMerge plans, byte for byte.
 // It returns the archive and the report, whose block counts the caller checks.
-func mustMerge(t *testing.T, v View, inputs []MergeInput, opts MergeOptions) ([]byte, MergeReport) {
+func mustMerge(t *testing.T, inputs []MergeInput, opts MergeOptions) ([]byte, MergeReport) {
 	t.Helper()
 
 	opts = fixedIDs(opts)
-	out, rep, err := mergeBytes(t.Context(), v, inputs, opts)
+	out, rep, err := mergeBytes(t.Context(), inputs, opts)
 	require.NoError(t, err)
-	requireMergeProperties(t, inputFiles(t, inputs), out, rep, opts)
+	files := inputFiles(t, inputs)
+	requireMergeProperties(t, files, out, rep, opts)
 	assert.Equal(t, opts.PackID, rep.PackID)
 	assert.Equal(t, opts.ReplacementSetID, rep.ReplacementSetID)
 
 	hdr := layoutHeader(t, out)
 	assert.Equal(t, format.UUID(opts.PackID), hdr.PackID)
-	assert.Equal(t, format.UUID(v.Capture), hdr.CaptureID, "the scope's capture exactly")
+	assert.Equal(t, layoutHeader(t, files[0]).CaptureID, hdr.CaptureID, "the scope's capture exactly")
 	assert.Zero(t, hdr.Flags&fileHeaderRedactionPresent)
 
-	want, err := mustPlanMerge(t, v, inputs, opts).meta.MarshalBinary()
+	want, err := mustPlanMerge(t, inputs, opts).meta.MarshalBinary()
 	require.NoError(t, err)
 	assert.Equal(t, want, mustOpen(t, out, ReaderOptions{}).metaRaw, "the planned pack metadata")
 
@@ -397,15 +398,12 @@ func blockReads(t testing.TB, file []byte, g *gatedReader) []int {
 	return out
 }
 
-// loggedInputs returns the files that v.Packs names as merge inputs in that order, as inputsOf does,
+// loggedInputs returns files as merge inputs in their order, as inputsOf does,
 // each read through a gatedReader without gated rounds, which logs every call.
-func loggedInputs(t testing.TB, v View, files ...[]byte) ([]MergeInput, []*gatedReader) {
-	t.Helper()
-
-	ordered := filesOf(t, v, files...)
-	inputs := make([]MergeInput, len(ordered))
-	readers := make([]*gatedReader, len(ordered))
-	for i, f := range ordered {
+func loggedInputs(files ...[]byte) ([]MergeInput, []*gatedReader) {
+	inputs := make([]MergeInput, len(files))
+	readers := make([]*gatedReader, len(files))
+	for i, f := range files {
 		readers[i] = newGatedReader(f)
 		inputs[i] = MergeInput{ReaderAt: readers[i], Size: int64(len(f))}
 	}
@@ -426,12 +424,10 @@ func TestMergeCopiesNonOverlappingSegments(t *testing.T) {
 			b := mergePackCodec(t, c, seg1, hourSteps(10, 29, 7))
 			d := mergePackCodec(t, c, seg2, append(hourSteps(50, 53, 2), hourSteps(70, 71, 2)...))
 			files := [][]byte{a, b, d}
-			v := mergeView(t, nil, files...)
-			require.Equal(t, []UUID{seg0, seg1, seg2}, v.Packs)
 
 			opts := mergeOpts()
 			opts.Codec, opts.NoCoalesce = c, true
-			out, rep := mustMerge(t, v, inputsOf(t, v, files...), opts)
+			out, rep := mustMerge(t, inputsOf(files...), opts)
 			requireCopied(t, rep, 4+3+3, 46, 0)
 			assert.Equal(t, uint64(10), mustOpen(t, out, ReaderOptions{}).Header().Meta.SeqStart)
 
@@ -461,11 +457,10 @@ func TestMergeCopiesBlocksByteForByte(t *testing.T) {
 	for _, f := range files {
 		requireConsistent(t, f)
 	}
-	v := mergeView(t, nil, files...)
 
 	opts := mergeOpts()
 	opts.NoCoalesce = true
-	out, rep := mustMerge(t, v, inputsOf(t, v, files...), opts)
+	out, rep := mustMerge(t, inputsOf(files...), opts)
 	requireCopied(t, rep, 5+2+4, 11+6+8, 0)
 
 	want := slices.Concat(blockBytes(t, a, allBlocks), blockBytes(t, b, allBlocks), blockBytes(t, d, allBlocks))
@@ -475,7 +470,7 @@ func TestMergeCopiesBlocksByteForByte(t *testing.T) {
 	assert.NotEqual(t, appendF3(nil, &mustOpen(t, out, ReaderOptions{}).footer.blocks[0]), lists[0], "a list is not rebuilt")
 
 	opts.NoCoalesce = false
-	coalesced, rep := mustMerge(t, v, inputsOf(t, v, files...), opts)
+	coalesced, rep := mustMerge(t, inputsOf(files...), opts)
 	requireCounts(t, rep, mergeCounts{blocks: 4 + 1, records: 11 + 6 + 8, copied: 4, coalescedEncodings: 1, coalesced: 7})
 	wide := format.RecordHeaderLen + wideExtraLen
 	h := format.RecordHeaderLen
@@ -493,21 +488,19 @@ func TestMergeDropsExactDuplicates(t *testing.T) {
 	b, d := withIDs(t, a, seg1, viewCapture), withIDs(t, a, seg3, viewCapture)
 	e := mergePack(t, seg2, nil, hourSteps(20, 23, 2))
 	files := [][]byte{a, b, e, d}
-	v := mergeView(t, nil, files...)
-	require.Equal(t, []UUID{seg0, seg1, seg2, seg3}, v.Packs)
 
 	t.Run("dropped", func(t *testing.T) {
 		t.Parallel()
 
 		opts := mergeOpts()
 		opts.NoCoalesce = true
-		out, rep := mustMerge(t, v, inputsOf(t, v, files...), opts)
+		out, rep := mustMerge(t, inputsOf(files...), opts)
 		requireCopied(t, rep, 4, 14, 4)
 		assert.Equal(t, slices.Concat(blockBytes(t, a, allBlocks), blockBytes(t, e, allBlocks)), blockBytes(t, out, allBlocks))
 
 		// With coalescing, the blocks kept are coalesced into one; every block, each duplicate included, is read once.
-		inputs, readers := loggedInputs(t, v, files...)
-		_, rep = mustMerge(t, v, inputs, mergeOpts())
+		inputs, readers := loggedInputs(files...)
+		_, rep = mustMerge(t, inputs, mergeOpts())
 		requireCounts(t, rep, mergeCounts{blocks: 1, records: 14, coalescedEncodings: 1, coalesced: 4, dups: 4})
 		for i, g := range readers {
 			assert.Equal(t, []int{1, 1}, blockReads(t, files[i], g), "input %d", i)
@@ -525,8 +518,7 @@ func TestMergeDropsExactDuplicates(t *testing.T) {
 		})
 		require.Equal(t, blockBytes(t, a, allBlocks), blockBytes(t, falseF3, allBlocks))
 		in := [][]byte{a, falseF3, e, d}
-		fv := mergeView(t, nil, in...)
-		out, rep, err := mergeBytes(t.Context(), fv, inputsOf(t, fv, in...), mergeOpts())
+		out, rep, err := mergeBytes(t.Context(), inputsOf(in...), mergeOpts())
 		require.ErrorIs(t, err, ErrMergeInput)
 		require.ErrorContains(t, err, "input 1, pack "+seg1.String()+": tracepack: block 1 at offset")
 		require.ErrorContains(t, err, "F-3 quality_union")
@@ -549,14 +541,12 @@ func TestMergeDuplicateCandidateWhoseBytesDiffer(t *testing.T) {
 	s3 := withIDs(t, resealedEnvelope(t, base, 0), seg3, viewCapture)
 	requireConsistent(t, s3)
 	files := [][]byte{early, base, s1, s2, s3}
-	v := mergeView(t, nil, files...)
-	require.Equal(t, []UUID{seg4, seg0, seg1, seg2, seg3}, v.Packs)
 
 	t.Run("read", func(t *testing.T) {
 		t.Parallel()
 
-		inputs, readers := loggedInputs(t, v, files...)
-		p := mustPlanMerge(t, v, inputs, mergeOpts())
+		inputs, readers := loggedInputs(files...)
+		p := mustPlanMerge(t, inputs, mergeOpts())
 		require.Len(t, p.clusters, 2)
 		c := &p.clusters[1]
 		require.Len(t, c.blocks, 4)
@@ -581,8 +571,8 @@ func TestMergeDuplicateCandidateWhoseBytesDiffer(t *testing.T) {
 	t.Run("merged", func(t *testing.T) {
 		t.Parallel()
 
-		inputs, readers := loggedInputs(t, v, files...)
-		_, rep := mustMerge(t, v, inputs, mergeOpts())
+		inputs, readers := loggedInputs(files...)
+		_, rep := mustMerge(t, inputs, mergeOpts())
 		// The early block and the resolution's block are coalesced.
 		requireCounts(t, rep, mergeCounts{blocks: 1, records: 8, coalescedEncodings: 1, coalesced: 1, dups: 2, resolved: 2, twice: 1})
 		for i, f := range files {
@@ -631,18 +621,16 @@ func TestMergeClusterOfSeveralIdentities(t *testing.T) {
 			t.Parallel()
 
 			files := [][]byte{early, tt.a, tt.b}
-			v := mergeView(t, nil, files...)
-			require.Equal(t, []UUID{seg4, seg0, seg1}, v.Packs, "readers[i] reads files[i]")
-			inputs, readers := loggedInputs(t, v, files...)
+			inputs, readers := loggedInputs(files...)
 			if tt.conflicts == nil {
-				_, rep := mustMerge(t, v, inputs, mergeOpts())
+				_, rep := mustMerge(t, inputs, mergeOpts())
 				// The early block and the resolution's block are coalesced.
 				requireCounts(t, rep, mergeCounts{blocks: 1, records: 10, coalescedEncodings: 1, coalesced: 1, resolved: 2, twice: 1})
 			} else {
 				var log conflictLog
 				opts := mergeOpts()
 				opts.OnConflict = log.add
-				out, rep, err := mergeBytes(t.Context(), v, inputs, opts)
+				out, rep, err := mergeBytes(t.Context(), inputs, opts)
 				require.ErrorIs(t, err, ErrMergeConflict)
 				assert.Equal(t, MergeReport{Conflicts: len(tt.conflicts), ConflictsComplete: true}, rep)
 				want := make([]Conflict, len(tt.conflicts))
@@ -701,11 +689,10 @@ func TestMergeRefusesDefectiveBlocks(t *testing.T) {
 			t.Parallel()
 
 			require.NoError(t, mustOpen(t, tt.file, ReaderOptions{}).Header().FooterErr, "the footer is valid")
-			v := mergeView(t, nil, tt.file, b)
-			inputs := inputsOf(t, v, tt.file, b)
-			mustPlanMerge(t, v, inputs, mergeOpts())
+			inputs := inputsOf(tt.file, b)
+			mustPlanMerge(t, inputs, mergeOpts())
 
-			out, rep, err := mergeBytes(t.Context(), v, inputs, mergeOpts())
+			out, rep, err := mergeBytes(t.Context(), inputs, mergeOpts())
 			require.ErrorIs(t, err, ErrMergeInput)
 			require.ErrorContains(t, err, "input 0, pack "+seg0.String()+": ")
 			require.ErrorContains(t, err, "block 1 at offset")
@@ -715,15 +702,14 @@ func TestMergeRefusesDefectiveBlocks(t *testing.T) {
 		})
 	}
 
-	v := mergeView(t, nil, a, b)
 	t.Run("a failed read", func(t *testing.T) {
 		t.Parallel()
 
-		inputs := inputsOf(t, v, a, b)
+		inputs := inputsOf(a, b)
 		failing := newGatedReader(a)
 		failing.fail = func(off int64, _ int) bool { return off == int64(blocks[1].Offset) }
 		inputs[0].ReaderAt = failing
-		out, rep, err := mergeBytes(t.Context(), v, inputs, mergeOpts())
+		out, rep, err := mergeBytes(t.Context(), inputs, mergeOpts())
 		// A failed read is not the input's defect: a caller retries it instead of repairing the pack.
 		require.ErrorIs(t, err, errInjected)
 		require.ErrorContains(t, err, "input 0, pack "+seg0.String()+", block 1")
@@ -735,11 +721,11 @@ func TestMergeRefusesDefectiveBlocks(t *testing.T) {
 	t.Run("a read cut short", func(t *testing.T) {
 		t.Parallel()
 
-		inputs := inputsOf(t, v, a, b)
+		inputs := inputsOf(a, b)
 		// The read of block 1 ends, with io.EOF, before a byte of it is read.
 		inputs[0].ReaderAt = &blockReadAt{file: a, off: int64(blocks[1].Offset), n: int(blocks[1].OnDiskLen),
 			hook: func(int, []byte) error { return io.EOF }}
-		out, rep, err := mergeBytes(t.Context(), v, inputs, mergeOpts())
+		out, rep, err := mergeBytes(t.Context(), inputs, mergeOpts())
 		// The input was opened whole, so the object changed since or its ReaderAt is inconsistent:
 		// a read error, as verification returns it, not a defect of the pack.
 		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
@@ -771,13 +757,12 @@ func TestMergeCancelledWhileWriting(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			v := mergeView(t, nil, tt.file)
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			dst := &cancelWriter{n: tt.cancelAt, cancel: cancel}
 			opts := mergeOpts()
 			opts.NoCoalesce = true
-			rep, err := Merge(ctx, dst, v, inputsOf(t, v, tt.file), opts)
+			rep, err := Merge(ctx, dst, inputsOf(tt.file), opts)
 			require.ErrorIs(t, err, context.Canceled)
 			assert.NotErrorIs(t, err, ErrMergeInput)
 			assert.Equal(t, MergeReport{}, rep)
@@ -791,11 +776,10 @@ func TestMergeOutputFailures(t *testing.T) {
 	t.Parallel()
 
 	a := mergePack(t, seg0, nil, hourSteps(10, 15, 2))
-	v := mergeView(t, nil, a)
 	// Without coalescing, each of a's three blocks is written and synced on its own.
 	noCoalesce := mergeOpts()
 	noCoalesce.NoCoalesce = true
-	good, _ := mustMerge(t, v, inputsOf(t, v, a), noCoalesce)
+	good, _ := mustMerge(t, inputsOf(a), noCoalesce)
 	l := layoutOf(t, good)
 	head, footerAt := int(l.blocksStart), int(l.tr.FooterOffset)
 
@@ -805,7 +789,7 @@ func TestMergeOutputFailures(t *testing.T) {
 		opts := fixedIDs(noCoalesce)
 		opts.Sync = sync
 
-		return Merge(t.Context(), dst, v, inputsOf(t, v, a), opts)
+		return Merge(t.Context(), dst, inputsOf(a), opts)
 	}
 
 	tests := []struct {
@@ -891,10 +875,9 @@ func TestMergeBlockOverReaderBudget(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			v := mergeView(t, nil, tt.file)
 			opts := mergeOpts()
 			opts.Reader.MaxBlockLen = tt.maxBlock
-			out, rep, err := mergeBytes(t.Context(), v, inputsOf(t, v, tt.file), opts)
+			out, rep, err := mergeBytes(t.Context(), inputsOf(tt.file), opts)
 			// A budget is not the input's defect: a caller raises it instead of repairing the pack.
 			require.ErrorIs(t, err, ErrReadLimit)
 			assert.NotErrorIs(t, err, ErrMergeInput)
@@ -907,7 +890,7 @@ func TestMergeBlockOverReaderBudget(t *testing.T) {
 			// A budget that holds the block both on disk and decoded.
 			info := mustOpen(t, tt.file, ReaderOptions{}).Blocks()[0]
 			opts.Reader.MaxBlockLen = int64(max(info.OnDiskLen-format.EnvelopeLen, info.UncompressedLen))
-			_, rep = mustMerge(t, v, inputsOf(t, v, tt.file), opts)
+			_, rep = mustMerge(t, inputsOf(tt.file), opts)
 			requireCopied(t, rep, 1, 1, 0)
 		})
 	}
@@ -929,14 +912,13 @@ func TestMergeFooterBudgetBoundsCopiedF3Lists(t *testing.T) {
 	require.Len(t, lists, blocks)
 	requireConsistent(t, file)
 	require.Less(t, layoutOf(t, file).tr.FooterUncompressedLen, uint64(pad+pad/2), "the input's footer is small")
-	v := mergeView(t, nil, file)
 	opts := mergeOpts()
 	opts.NoCoalesce = true
 	opts.MaxFooterLen = 4 << 20
 
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
-	out, rep, err := mergeBytes(t.Context(), v, inputsOf(t, v, file), opts)
+	out, rep, err := mergeBytes(t.Context(), inputsOf(file), opts)
 	runtime.ReadMemStats(&after)
 
 	require.ErrorIs(t, err, ErrMergeLimit)
@@ -956,20 +938,19 @@ func TestMergeFooterBudgetBelowAnEmptyFooter(t *testing.T) {
 	t.Parallel()
 
 	empty := mergePack(t, seg0, func(m *PackMeta) { m.SeqStart = 5 }, nil)
-	v := mergeView(t, nil, empty)
-	full, rep := mustMerge(t, v, inputsOf(t, v, empty), mergeOpts())
+	full, rep := mustMerge(t, inputsOf(empty), mergeOpts())
 	requireCopied(t, rep, 0, 0, 0)
 	l := layoutOf(t, full)
 	require.Equal(t, l.tr.FooterLen, l.tr.FooterUncompressedLen, "the none codec")
 
 	opts := mergeOpts()
 	opts.MaxFooterLen = int64(l.tr.FooterLen)
-	fits, _ := mustMerge(t, v, inputsOf(t, v, empty), opts)
+	fits, _ := mustMerge(t, inputsOf(empty), opts)
 	// The file headers differ in writer_start_utc_ns only.
 	assert.Equal(t, full[format.FileHeaderLen:], fits[format.FileHeaderLen:], "a footer that fills the budget")
 
 	opts.MaxFooterLen--
-	out, rep, err := mergeBytes(t.Context(), v, inputsOf(t, v, empty), opts)
+	out, rep, err := mergeBytes(t.Context(), inputsOf(empty), opts)
 	require.ErrorIs(t, err, ErrMergeLimit)
 	assert.Equal(t, MergeReport{}, rep)
 	assert.Equal(t, full[format.FileHeaderLen:l.blocksStart], out[format.FileHeaderLen:], "only the header is written")
@@ -1011,10 +992,9 @@ func TestMergeCarriesWriterDefects(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			v := mergeView(t, nil, tt.files...)
 			opts := mergeOpts()
 			opts.NoCoalesce = tt.noCoalesce
-			out, rep := mustMerge(t, v, inputsOf(t, v, tt.files...), opts)
+			out, rep := mustMerge(t, inputsOf(tt.files...), opts)
 			requireCounts(t, rep, tt.want)
 			assert.Equal(t, slices.Concat(rawRecordsOf(t, a), rawRecordsOf(t, b)), rawRecordsOf(t, out))
 			if tt.want.copied == tt.want.blocks {
@@ -1029,8 +1009,8 @@ func TestMergeCarriesWriterDefects(t *testing.T) {
 	}
 }
 
-// TestMergeWithoutRecords merges a view of a patch holding only coverage and segments without records:
-// the archive has no block, carries the coverage, and takes the largest seq_start of its inputs.
+// TestMergeWithoutRecords merges segments without records and an archive holding only coverage:
+// the archive written has no block, carries the coverage, and takes the largest seq_start of its inputs.
 func TestMergeWithoutRecords(t *testing.T) {
 	t.Parallel()
 
@@ -1046,14 +1026,13 @@ func TestMergeWithoutRecords(t *testing.T) {
 	files := [][]byte{
 		empty(seg0, 5, nil),
 		empty(seg1, 9, nil),
-		empty(patP1, 7, func(m *PackMeta) {
-			m.PackRole, m.Supersedes, m.Coverage = PackRoleRepair, []UUID{{0xD0}}, []Coverage{cov}
+		empty(memA, 7, func(m *PackMeta) {
+			generationMeta(m, setA, 1, 1, []UUID{{0xD0}})
+			m.Coverage = []Coverage{cov}
 		}),
 	}
-	v := mergeView(t, commitSet(patP1), files...)
-	require.Len(t, v.Packs, 3)
 
-	out, rep := mustMerge(t, v, inputsOf(t, v, files...), mergeOpts())
+	out, rep := mustMerge(t, inputsOf(files...), mergeOpts())
 	requireCopied(t, rep, 0, 0, 0)
 	h := mustOpen(t, out, ReaderOptions{}).Header()
 	assert.Zero(t, h.Trailer.BlockCount)
@@ -1061,8 +1040,8 @@ func TestMergeWithoutRecords(t *testing.T) {
 	assert.Equal(t, []Coverage{cov}, h.Meta.Coverage)
 }
 
-// TestMergeConverterArchiveTwice merges a converter's archive, the scope's only pack, and then that merge's archive:
-// neither archive names generation-0 packs, so neither has compacted_from.
+// TestMergeConverterArchiveTwice merges a converter's archive, alone, and then that merge's archive:
+// neither archive names a segment or an input's compacted_from, so neither has compacted_from.
 // The first merge coalesces the converter's two blocks, and the second copies that block verbatim.
 func TestMergeConverterArchiveTwice(t *testing.T) {
 	t.Parallel()
@@ -1071,16 +1050,13 @@ func TestMergeConverterArchiveTwice(t *testing.T) {
 		generationMeta(m, setA, 1, 1, nil)
 		m.CompactionLevel = 0
 	}, hourSteps(10, 13, 2))
-	v := mergeView(t, commitSet(setA), converter)
 	opts := mergeOpts()
 	opts.ScopeGeneration, opts.PackID, opts.ReplacementSetID = 2, memB, setB
-	first, rep := mustMerge(t, v, inputsOf(t, v, converter), opts)
+	first, rep := mustMerge(t, inputsOf(converter), opts)
 	requireCounts(t, rep, mergeCounts{blocks: 1, records: 4, coalescedEncodings: 1, coalesced: 2})
 
-	v = mergeView(t, commitSet(setA, setB), converter, first)
-	require.Equal(t, []UUID{memB}, v.Packs)
 	opts.ScopeGeneration, opts.PackID, opts.ReplacementSetID = 3, memC, setC
-	second, rep := mustMerge(t, v, inputsOf(t, v, first), opts)
+	second, rep := mustMerge(t, inputsOf(first), opts)
 	requireCopied(t, rep, 1, 4, 0)
 	assert.Equal(t, blockBytes(t, first, allBlocks), blockBytes(t, second, allBlocks))
 	assert.Equal(t, f3ListsOf(t, first), f3ListsOf(t, second))
@@ -1095,24 +1071,26 @@ func TestMergeConverterArchiveTwice(t *testing.T) {
 	assert.Equal(t, []UUID{memB}, mustOpen(t, second, ReaderOptions{}).Header().Meta.Supersedes)
 }
 
-// TestMergeAfterRepair repairs a damaged segment and then merges its scope:
-// the patch replaces the segment, and the archive holds the patch's records and its coverage of the records lost.
-func TestMergeAfterRepair(t *testing.T) {
+// TestMergeArchiveWithLostRecords merges an archive that lost seqs 12 and 13 and carries their coverage,
+// beside a late segment:
+// the archive written holds every record of both, carries the coverage of the records lost,
+// and names the archive in supersedes and its lineage and the segment in compacted_from.
+func TestMergeArchiveWithLostRecords(t *testing.T) {
 	t.Parallel()
 
-	baseline := mergePack(t, seg0, nil, hourSteps(10, 15, 2))
-	damaged := flipByte(baseline, mustOpen(t, baseline, ReaderOptions{}).Blocks()[1].Offset+format.EnvelopeLen+1)
-	ropts := repairOpts()
-	ropts.PackID = patP1
-	patch, _, err := repairBytes(t, damaged, ropts)
-	require.NoError(t, err)
+	lost := Coverage{
+		CaptureID: new(viewCapture), SeqFirst: new(uint64(12)), SeqLast: new(uint64(13)),
+		TimeStart: new(blockTestHour + 12), TimeEnd: new(blockTestHour + 13),
+	}
+	archive := mergePack(t, memA, func(m *PackMeta) {
+		generationMeta(m, setA, 1, 1, []UUID{seg0})
+		m.Coverage = []Coverage{lost}
+	}, append(hourSteps(10, 11, 2), hourSteps(14, 15, 2)...))
 	late := mergePack(t, seg1, nil, hourSteps(20, 23, 2))
 
-	files := [][]byte{damaged, late, patch}
-	v := mergeView(t, commitSet(patP1), files...)
-	require.Equal(t, []UUID{seg1, patP1}, v.Packs, "the patch replaces the damaged segment")
-	require.Equal(t, []UUID{seg0, seg1, patP1}, v.CompactedFrom)
-	out, rep := mustMerge(t, v, inputsOf(t, v, files...), mergeOpts())
+	opts := mergeOpts()
+	opts.ScopeGeneration = 2
+	out, rep := mustMerge(t, inputsOf(archive, late), opts)
 	requireCounts(t, rep, mergeCounts{blocks: 1, records: 8, coalescedEncodings: 1, coalesced: 4})
 
 	records := recordsOf(t, out)
@@ -1122,78 +1100,71 @@ func TestMergeAfterRepair(t *testing.T) {
 	}
 	assert.Equal(t, []uint64{10, 11, 14, 15, 20, 21, 22, 23}, seqs)
 	m := mustOpen(t, out, ReaderOptions{}).Header().Meta
-	assert.Equal(t, mustOpen(t, patch, ReaderOptions{}).Header().Meta.Coverage, m.Coverage, "the patch's coverage of the lost records")
-	assert.Equal(t, v.CompactedFrom, m.CompactedFrom)
+	assert.Equal(t, []Coverage{lost}, m.Coverage, "the coverage of the records lost")
+	assert.Equal(t, []UUID{seg0, seg1}, m.CompactedFrom)
+	assert.Equal(t, []UUID{memA}, m.Supersedes)
 }
 
-// TestMergeLineageUnderPermutations merges the scope of patchChainScope, with records:
-// generation A's member memA replaced by patQ1 and then patQ2, segment seg1 by patP1 and then patP2,
-// the scope's packs listed to ActiveView in every order of the patches, and of memA and seg1.
-// Every order writes the same records, compaction_level and supersedes,
-// compacted_from as the view lists it, which always holds A's list first and the same packs,
-// and the union of the inputs' coverage.
+// TestMergeLineageUnderPermutations merges two archives and two segments in every order of the four inputs:
+// every order writes the same records and compaction_level,
+// supersedes as the archives in input order,
+// compacted_from as the archives' lists in input order and then the segments in input order, each pack once,
+// and the archives' coverage entries in input order.
 func TestMergeLineageUnderPermutations(t *testing.T) {
 	t.Parallel()
 
 	covered := func(seq uint64) Coverage {
 		return Coverage{CaptureID: new(viewCapture), SeqFirst: new(seq), SeqLast: new(seq), TimeStart: new(blockTestHour), TimeEnd: new(blockTestHour)}
 	}
-	patch := func(id UUID, of []byte, supersedes UUID, cov ...Coverage) []byte {
-		// A patch copies the pack metadata of the pack it repairs, compaction_level and compacted_from included.
-		m := mustOpen(t, of, ReaderOptions{}).Header().Meta
-		first, last := uint64(10), uint64(13)
-		if m.PackRole == PackRoleSegment || slices.Equal(m.Supersedes, []UUID{seg1}) {
-			first, last = 20, 23
-		}
-
-		return mergePack(t, id, func(p *PackMeta) {
-			*p = *m
-			p.PackRole, p.ScopeGeneration, p.PublisherEpoch = PackRoleRepair, new(uint64(0)), nil
-			p.ReplacementSetID, p.ReplacementSetSize, p.ReplacementSetIndex = nil, nil, nil
-			p.PatchBase, p.Supersedes = new(setA), []UUID{supersedes}
-			p.Coverage = append(slices.Clone(m.Coverage), cov...)
-		}, hourSteps(first, last, 2))
+	lists := map[UUID][]UUID{memA: {seg0, seg2}, memB: {seg2, {0xC1}}}
+	coverage := map[UUID]Coverage{memA: covered(100), memB: covered(200)}
+	files := map[UUID][]byte{
+		memA: mergePack(t, memA, func(m *PackMeta) {
+			generationMeta(m, setA, 1, 1, lists[memA])
+			m.Coverage = []Coverage{coverage[memA]}
+		}, hourSteps(10, 13, 2)),
+		memB: mergePack(t, memB, func(m *PackMeta) {
+			generationMeta(m, setB, 1, 2, lists[memB])
+			m.Coverage = []Coverage{coverage[memB]}
+		}, hourSteps(30, 33, 2)),
+		seg1: mergePack(t, seg1, nil, hourSteps(20, 23, 2)),
+		seg3: mergePack(t, seg3, nil, hourSteps(40, 43, 2)),
 	}
-	mem := mergePack(t, memA, func(m *PackMeta) { generationMeta(m, setA, 1, 1, []UUID{seg0}) }, hourSteps(10, 13, 2))
-	seg := mergePack(t, seg1, nil, hourSteps(20, 23, 2))
-	p1 := patch(patP1, seg, seg1, covered(100))
-	p2 := patch(patP2, p1, patP1, covered(101))
-	q1 := patch(patQ1, mem, memA, covered(200))
-	q2 := patch(patQ2, q1, patQ1, covered(201))
-	require.Equal(t, uint8(1), mustOpen(t, q2, ReaderOptions{}).Header().Meta.CompactionLevel, "patQ2 keeps memA's level")
-	commits := commitSet(setA, patP1, patP2, patQ1, patQ2)
-	lineage := []UUID{seg0, seg1, patP1, patP2, patQ1, patQ2}
 
 	var records []iterItem
-	patches := [][]byte{p1, p2, q1, q2}
-	for _, order := range permutations([]UUID{{0}, {1}, {2}, {3}}) {
-		for _, swap := range []bool{false, true} {
-			files := []([]byte){mem, seg}
-			if swap {
-				files = []([]byte){seg, mem}
+	for _, order := range permutations([]UUID{memA, memB, seg1, seg3}) {
+		inputs := make([][]byte, len(order))
+		var supersedes, from, segments []UUID
+		var cov []Coverage
+		for i, id := range order {
+			inputs[i] = files[id]
+			list, archive := lists[id]
+			if !archive {
+				segments = append(segments, id)
+				continue
 			}
-			for _, k := range order {
-				files = append(files, patches[k[0]])
+			supersedes, cov = append(supersedes, id), append(cov, coverage[id])
+			for _, p := range list {
+				if !slices.Contains(from, p) {
+					from = append(from, p)
+				}
 			}
-			v := mergeView(t, commits, files...)
-			require.ElementsMatch(t, []UUID{patP2, patQ2}, v.Packs)
-
-			opts := mergeOpts()
-			opts.PublisherEpoch, opts.ScopeGeneration = 1, 2
-			out, rep := mustMerge(t, v, inputsOf(t, v, files...), opts)
-			requireCounts(t, rep, mergeCounts{blocks: 1, records: 8, coalescedEncodings: 1, coalesced: 4})
-			if records == nil {
-				records = recordsOf(t, out)
-			}
-			assert.Equal(t, records, recordsOf(t, out))
-
-			m := mustOpen(t, out, ReaderOptions{}).Header().Meta
-			assert.Equal(t, uint8(2), m.CompactionLevel, "one above patQ2's level")
-			assert.Equal(t, []UUID{memA}, m.Supersedes)
-			assert.Equal(t, v.CompactedFrom, m.CompactedFrom)
-			assert.Equal(t, seg0, m.CompactedFrom[0], "generation A's list first")
-			assert.ElementsMatch(t, lineage, m.CompactedFrom)
-			assert.ElementsMatch(t, []Coverage{covered(100), covered(101), covered(200), covered(201)}, m.Coverage)
 		}
+		from = append(from, segments...)
+
+		opts := mergeOpts()
+		opts.ScopeGeneration = 3
+		out, rep := mustMerge(t, inputsOf(inputs...), opts)
+		requireCounts(t, rep, mergeCounts{blocks: 1, records: 16, coalescedEncodings: 1, coalesced: 8})
+		if records == nil {
+			records = recordsOf(t, out)
+		}
+		assert.Equal(t, records, recordsOf(t, out), "order %v", order)
+
+		m := mustOpen(t, out, ReaderOptions{}).Header().Meta
+		assert.Equal(t, uint8(2), m.CompactionLevel, "order %v", order)
+		assert.Equal(t, supersedes, m.Supersedes, "order %v", order)
+		assert.Equal(t, from, m.CompactedFrom, "order %v", order)
+		assert.Equal(t, cov, m.Coverage, "order %v", order)
 	}
 }

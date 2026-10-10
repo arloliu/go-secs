@@ -640,12 +640,12 @@ func TestReaderSourceEndToEnd(t *testing.T) {
 
 	archives := slices.Clone(readers)
 	for hour, files := range byHour {
-		v := mergeView(t, nil, files...)
-		require.Equal(t, hour, v.Hour)
 		var buf bytes.Buffer
-		_, err := Merge(t.Context(), &buf, v, inputsOf(t, v, files...), mergeOpts())
+		_, err := Merge(t.Context(), &buf, inputsOf(files...), mergeOpts())
 		require.NoError(t, err, "hour %d", hour)
-		archives = append(archives, mustOpen(t, buf.Bytes(), ReaderOptions{}))
+		archive := mustOpen(t, buf.Bytes(), ReaderOptions{})
+		require.Equal(t, hour, hourOf(archive.Header().Meta.PeriodStart), "the archive of the hour's segments")
+		archives = append(archives, archive)
 	}
 	res = lookup(archives)
 	require.Equal(t, TxMatched, res.Outcome, "gaps %v", res.Gaps)

@@ -102,10 +102,9 @@ func TestMergeCoalescesSmallBlocks(t *testing.T) {
 				if tt.wide != nil {
 					a = widenFile(t, a, tt.wide)
 				}
-				v := mergeView(t, nil, a)
 				opts := mergeOpts()
 				opts.Codec, opts.BlockThreshold = c, tt.threshold
-				out, rep := mustMerge(t, v, inputsOf(t, v, a), opts)
+				out, rep := mustMerge(t, inputsOf(a), opts)
 				requireCounts(t, rep, tt.want)
 				assert.Equal(t, tt.shapes, blockShapes(t, out))
 				in, inLists := blockBytes(t, a, allBlocks), f3ListsOf(t, a)
@@ -129,14 +128,14 @@ func TestMergeCoalescesSmallBlocks(t *testing.T) {
 
 				// Only the groups of more than one block are encoded, and without coalescing none is.
 				var encoded int
-				_, rep, err := writeWithHooks(t, v, inputsOf(t, v, a), opts, func(p *mergePlan) { p.coalescedHook = countedHook(&encoded) })
+				_, rep, err := writeWithHooks(t, inputsOf(a), opts, func(p *mergePlan) { p.coalescedHook = countedHook(&encoded) })
 				require.NoError(t, err)
 				assert.Equal(t, tt.want.coalescedEncodings, encoded)
 				assert.Equal(t, tt.want.coalescedEncodings, rep.CoalescedEncodings)
 
 				encoded = 0
 				opts.NoCoalesce = true
-				_, rep, err = writeWithHooks(t, v, inputsOf(t, v, a), opts, func(p *mergePlan) {
+				_, rep, err = writeWithHooks(t, inputsOf(a), opts, func(p *mergePlan) {
 					p.coalescedHook, p.encodedHook = countedHook(&encoded), countedHook(&encoded)
 				})
 				require.NoError(t, err)
@@ -188,12 +187,11 @@ func TestMergeCoalescedEncodingFails(t *testing.T) {
 				t.Run(c.String()+"/"+g.name+"/"+e.name, func(t *testing.T) {
 					t.Parallel()
 
-					v := mergeView(t, nil, g.files...)
 					opts := mergeOpts()
 					opts.Codec = c
 					var calls int
 					n := int(g.want.records) * testRecordLen
-					out, rep, err := writeWithHooks(t, v, inputsOf(t, v, g.files...), opts, func(p *mergePlan) {
+					out, rep, err := writeWithHooks(t, inputsOf(g.files...), opts, func(p *mergePlan) {
 						p.coalescedHook = editedBody(t, c, n, &calls, e.edit)
 					})
 					require.NoError(t, err)
@@ -202,7 +200,7 @@ func TestMergeCoalescedEncodingFails(t *testing.T) {
 					requireCounts(t, rep, g.want)
 
 					opts.NoCoalesce = true
-					plain, _ := mustMerge(t, v, inputsOf(t, v, g.files...), opts)
+					plain, _ := mustMerge(t, inputsOf(g.files...), opts)
 					// The file headers differ in writer_start_utc_ns only.
 					assert.Equal(t, plain[format.FileHeaderLen:], out[format.FileHeaderLen:], "the archive written without coalescing")
 					if g.want.resolved == 0 {
@@ -264,15 +262,14 @@ func TestMergeCoalescesResolvedBlocks(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			v := mergeView(t, nil, tt.files...)
-			out, rep := mustMerge(t, v, inputsOf(t, v, tt.files...), mergeOpts())
+			out, rep := mustMerge(t, inputsOf(tt.files...), mergeOpts())
 			requireCounts(t, rep, tt.want)
 			if tt.shapes != nil {
 				assert.Equal(t, tt.shapes, blockShapes(t, out))
 			}
 
 			var resolved, coalesced int
-			_, rep, err := writeWithHooks(t, v, inputsOf(t, v, tt.files...), mergeOpts(), func(p *mergePlan) {
+			_, rep, err := writeWithHooks(t, inputsOf(tt.files...), mergeOpts(), func(p *mergePlan) {
 				p.encodedHook, p.coalescedHook = countedHook(&resolved), countedHook(&coalesced)
 			})
 			require.NoError(t, err)
@@ -281,7 +278,7 @@ func TestMergeCoalescesResolvedBlocks(t *testing.T) {
 			if tt.want.coalescedEncodings == 0 {
 				opts := mergeOpts()
 				opts.NoCoalesce = true
-				plain, _ := mustMerge(t, v, inputsOf(t, v, tt.files...), opts)
+				plain, _ := mustMerge(t, inputsOf(tt.files...), opts)
 				// The file headers differ in writer_start_utc_ns only.
 				assert.Equal(t, plain[format.FileHeaderLen:], out[format.FileHeaderLen:], "the resolution's block as it encoded it")
 			}
@@ -299,12 +296,11 @@ func TestMergeCoalescingAfterAConflict(t *testing.T) {
 	steps := hourSteps(10, 13, 4)
 	a, b := mergePack(t, seg0, nil, steps), mergePack(t, seg1, nil, changed(steps, 1, 12))
 	late := widenFile(t, mergePack(t, seg2, nil, hourSteps(20, 25, 2)), func(i int) bool { return i == 1 })
-	v := mergeView(t, nil, early, a, b, late)
 
 	var log conflictLog
 	opts := mergeOpts()
 	opts.OnConflict = log.add
-	out, rep, err := mergeBytes(t.Context(), v, inputsOf(t, v, early, a, b, late), opts)
+	out, rep, err := mergeBytes(t.Context(), inputsOf(early, a, b, late), opts)
 	require.ErrorIs(t, err, ErrMergeConflict)
 	assert.Equal(t, MergeReport{Conflicts: 1, ConflictsComplete: true}, rep)
 	require.Len(t, log.got, 1)
@@ -325,9 +321,8 @@ func TestMergeCoalescingGroupOwnsItsUnits(t *testing.T) {
 			t.Parallel()
 
 			a := widenFile(t, mergePackCodec(t, c, seg0, hourSteps(10, 15, 3)), func(i int) bool { return i == 0 })
-			v := mergeView(t, nil, a)
 			opts := fixedIDs(mergeOpts())
-			p := mustPlanMerge(t, v, inputsOf(t, v, a), opts)
+			p := mustPlanMerge(t, inputsOf(a), opts)
 			require.Len(t, p.clusters, 2)
 			var out bytes.Buffer
 			m, err := p.startRun(&out, &opts)
@@ -378,7 +373,6 @@ func TestMergeFooterBudgetWithCoalescing(t *testing.T) {
 
 	file, lists := nestedF3Pack(t, mergePack(t, seg0, nil, hourSteps(1, blocks, 1)), pad)
 	require.Len(t, lists, blocks)
-	v := mergeView(t, nil, file)
 	opts := fixedIDs(mergeOpts())
 	opts.MaxFooterLen = 4 << 20
 	// fail changes the last payload byte of the group's new block, of the none codec, so the block fails its check.
@@ -391,7 +385,7 @@ func TestMergeFooterBudgetWithCoalescing(t *testing.T) {
 	}
 
 	t.Run("the pending group", func(t *testing.T) {
-		p := mustPlanMerge(t, v, inputsOf(t, v, file), opts)
+		p := mustPlanMerge(t, inputsOf(file), opts)
 		require.Len(t, p.clusters, blocks)
 		var out bytes.Buffer
 		var before, after runtime.MemStats
@@ -426,14 +420,14 @@ func TestMergeFooterBudgetWithCoalescing(t *testing.T) {
 	})
 
 	t.Run("coalesced", func(t *testing.T) {
-		_, rep := mustMerge(t, v, inputsOf(t, v, file), opts)
+		_, rep := mustMerge(t, inputsOf(file), opts)
 		requireCounts(t, rep, mergeCounts{blocks: 1, records: blocks, coalescedEncodings: 1, coalesced: blocks})
 	})
 
 	t.Run("a fallback over the budget", func(t *testing.T) {
 		var before, after runtime.MemStats
 		runtime.ReadMemStats(&before)
-		out, rep, err := writeWithHooks(t, v, inputsOf(t, v, file), opts, fail)
+		out, rep, err := writeWithHooks(t, inputsOf(file), opts, fail)
 		runtime.ReadMemStats(&after)
 
 		require.ErrorIs(t, err, ErrMergeLimit)
@@ -448,8 +442,7 @@ func TestMergeFooterBudgetWithCoalescing(t *testing.T) {
 
 	t.Run("a fallback within the budget", func(t *testing.T) {
 		short, shortLists := nestedF3Pack(t, mergePack(t, seg0, nil, hourSteps(1, blocks, 1)), 4096)
-		sv := mergeView(t, nil, short)
-		out, rep, err := writeWithHooks(t, sv, inputsOf(t, sv, short), opts, fail)
+		out, rep, err := writeWithHooks(t, inputsOf(short), opts, fail)
 		require.NoError(t, err)
 		requireConsistent(t, out)
 		requireCounts(t, rep, mergeCounts{blocks: blocks, records: blocks, copied: blocks, fallbacks: 1})
@@ -472,8 +465,7 @@ func TestMergeFooterBudgetExceededByF5(t *testing.T) {
 		seqs[seq/200] = append(seqs[seq/200], seq)
 	}
 	a := mergePack(t, seg0, nil, seqBlocks(seqs[0], seqs[1]))
-	v := mergeView(t, nil, a)
-	full, rep := mustMerge(t, v, inputsOf(t, v, a), mergeOpts())
+	full, rep := mustMerge(t, inputsOf(a), mergeOpts())
 	requireCounts(t, rep, mergeCounts{blocks: 1, records: 200, coalescedEncodings: 1, coalesced: 2})
 
 	l := layoutOf(t, full)
@@ -492,7 +484,7 @@ func TestMergeFooterBudgetExceededByF5(t *testing.T) {
 
 	opts := mergeOpts()
 	opts.MaxFooterLen = int64(budget)
-	out, rep, err := mergeBytes(t.Context(), v, inputsOf(t, v, a), opts)
+	out, rep, err := mergeBytes(t.Context(), inputsOf(a), opts)
 	require.ErrorIs(t, err, ErrMergeLimit)
 	require.ErrorContains(t, err, fmt.Sprintf("footer of %d bytes exceeds the budget of %d", footerLen, budget))
 	assert.Equal(t, MergeReport{}, rep)
@@ -511,7 +503,6 @@ func TestMergeCancelledWithAPendingGroup(t *testing.T) {
 	a := mergePack(t, seg0, nil, hourSteps(10, 15, 2))
 	blocks := mustOpen(t, a, ReaderOptions{}).Blocks()
 	require.Len(t, blocks, 3)
-	v := mergeView(t, nil, a)
 	tests := []struct {
 		name string
 		// block is the block whose read cancels the merge, and written the number of blocks written.
@@ -527,12 +518,12 @@ func TestMergeCancelledWithAPendingGroup(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			b := blocks[tt.block]
-			inputs := inputsOf(t, v, a)
+			inputs := inputsOf(a)
 			inputs[0].ReaderAt = &blockReadAt{file: a, off: int64(b.Offset), n: int(b.OnDiskLen), hook: func(int, []byte) error {
 				cancel()
 				return nil
 			}}
-			out, rep, err := mergeBytes(ctx, v, inputs, mergeOpts())
+			out, rep, err := mergeBytes(ctx, inputs, mergeOpts())
 			require.ErrorIs(t, err, context.Canceled)
 			assert.Equal(t, MergeReport{}, rep)
 			requireNoTrailer(t, out, tt.written)

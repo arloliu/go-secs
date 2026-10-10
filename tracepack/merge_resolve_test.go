@@ -110,11 +110,11 @@ var _ blockSource = (*seqListSource)(nil)
 // writeWithHooks writes the archive of the plan of inputs with fixedIDs(opts) into a buffer,
 // the plan's hooks set by hooks before it writes, and returns what it wrote, its report and its error.
 // An archive written without an error must have the properties of every successful merge (requireMergeProperties).
-func writeWithHooks(t *testing.T, v View, inputs []MergeInput, opts MergeOptions, hooks func(p *mergePlan)) ([]byte, MergeReport, error) {
+func writeWithHooks(t *testing.T, inputs []MergeInput, opts MergeOptions, hooks func(p *mergePlan)) ([]byte, MergeReport, error) {
 	t.Helper()
 
 	opts = fixedIDs(opts)
-	p := mustPlanMerge(t, v, inputs, opts)
+	p := mustPlanMerge(t, inputs, opts)
 	hooks(p)
 	var out bytes.Buffer
 	rep, err := p.write(t.Context(), &out, &opts)
@@ -221,10 +221,9 @@ func TestMergeResolvesOverlaps(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			v := mergeView(t, nil, tt.files...)
-			p := mustPlanMerge(t, v, inputsOf(t, v, tt.files...), mergeOpts())
+			p := mustPlanMerge(t, inputsOf(tt.files...), mergeOpts())
 			require.Len(t, p.clusters, 1)
-			_, rep := mustMerge(t, v, inputsOf(t, v, tt.files...), mergeOpts())
+			_, rep := mustMerge(t, inputsOf(tt.files...), mergeOpts())
 			requireCounts(t, rep, tt.want)
 		})
 	}
@@ -242,8 +241,7 @@ func TestMergeResolvedBlockBoundaries(t *testing.T) {
 		// seg1's widened records fill the gap in seg0's block, whose range holds theirs without sharing a seq.
 		a := mergePack(t, seg0, nil, seqBlocks([]uint64{10, 11, 20}))
 		b := widenFile(t, mergePack(t, seg1, nil, seqBlocks(seqRun(12, 15))), allBlocks)
-		v := mergeView(t, nil, a, b)
-		out, rep := mustMerge(t, v, inputsOf(t, v, a, b), mergeOpts())
+		out, rep := mustMerge(t, inputsOf(a, b), mergeOpts())
 		requireCounts(t, rep, mergeCounts{blocks: 3, records: 7, resolved: 2})
 		wide := format.RecordHeaderLen + wideExtraLen
 		assert.Equal(t, [][2]int{{2, format.RecordHeaderLen}, {4, wide}, {1, format.RecordHeaderLen}}, blockShapes(t, out))
@@ -256,10 +254,9 @@ func TestMergeResolvedBlockBoundaries(t *testing.T) {
 		steps := hourSteps(10, 16, 7)
 		steps[3].rec = bigDataRecord(13, blockTestHour+13, 200)
 		a, b := mergePackCodec(t, CodecZstd, seg0, steps), mergePackCodec(t, CodecNone, seg1, steps)
-		v := mergeView(t, nil, a, b)
 		opts := mergeOpts()
 		opts.BlockThreshold = 3 * testRecordLen
-		out, rep := mustMerge(t, v, inputsOf(t, v, a, b), opts)
+		out, rep := mustMerge(t, inputsOf(a, b), opts)
 		requireCounts(t, rep, mergeCounts{blocks: 3, records: 7, resolved: 2})
 		h := format.RecordHeaderLen
 		assert.Equal(t, [][2]int{{3, h}, {1, h}, {3, h}}, blockShapes(t, out))
@@ -291,8 +288,7 @@ func TestMergeResolutionKeepsRecordBytes(t *testing.T) {
 	b := reindexed(t, rebuildPack(t, mergePackCodec(t, CodecNone, seg1, hourSteps(10, 17, 3)), unusual))
 	requireConsistent(t, a)
 	requireConsistent(t, b)
-	v := mergeView(t, nil, a, b)
-	out, rep := mustMerge(t, v, inputsOf(t, v, a, b), mergeOpts())
+	out, rep := mustMerge(t, inputsOf(a, b), mergeOpts())
 	requireCounts(t, rep, mergeCounts{blocks: 1, records: 8, resolved: 5})
 
 	records := rawRecordsOf(t, out)
@@ -370,8 +366,8 @@ func TestMergeConflicts(t *testing.T) {
 		},
 		{
 			// The blocks start at 10 (seg2), 11 (seg1) and 12 (seg0):
-			// seg2's version comes first, held by seg0 too, and the ids follow the view's Packs.
-			name: "versions by first block, ids by the view's order",
+			// seg2's version comes first, held by seg0 too, and the ids follow input order.
+			name: "versions by first block, ids in input order",
 			files: [][]byte{
 				mergePack(t, seg0, nil, seqBlocks([]uint64{12, 13})),
 				mergePack(t, seg1, nil, changed(seqBlocks([]uint64{11, 12}), 1, 12)),
@@ -385,12 +381,10 @@ func TestMergeConflicts(t *testing.T) {
 			t.Parallel()
 
 			files := append(slices.Clone(tt.files), early)
-			v := mergeView(t, nil, files...)
-			require.Equal(t, seg4, v.Packs[len(v.Packs)-1], "the input order of the files")
 			var log conflictLog
 			opts := mergeOpts()
 			opts.OnConflict = log.add
-			out, rep, err := mergeBytes(t.Context(), v, inputsOf(t, v, files...), opts)
+			out, rep, err := mergeBytes(t.Context(), inputsOf(files...), opts)
 			require.ErrorIs(t, err, ErrMergeConflict)
 			assert.NotErrorIs(t, err, ErrMergeInput)
 			assert.Equal(t, MergeReport{Conflicts: len(tt.want), ConflictsComplete: true}, rep)
@@ -410,8 +404,7 @@ func TestMergeConflictsAcrossClusters(t *testing.T) {
 	steps := slices.Concat(hourSteps(10, 13, 4), hourSteps(20, 23, 4), hourSteps(30, 33, 4))
 	a := mergePack(t, seg0, nil, steps)
 	b := mergePack(t, seg1, nil, changed(steps[:8], 1, 11, 12, 21))
-	v := mergeView(t, nil, a, b)
-	inputs, readers := loggedInputs(t, v, a, b)
+	inputs, readers := loggedInputs(a, b)
 
 	var kept, seen []Conflict
 	opts := mergeOpts()
@@ -426,7 +419,7 @@ func TestMergeConflictsAcrossClusters(t *testing.T) {
 		c.Versions[0][0] = UUID{0xFF}
 		kept = append(kept, c)
 	}
-	out, rep, err := mergeBytes(t.Context(), v, inputs, opts)
+	out, rep, err := mergeBytes(t.Context(), inputs, opts)
 	require.ErrorIs(t, err, ErrMergeConflict)
 	assert.Equal(t, MergeReport{Conflicts: 3, ConflictsComplete: true}, rep)
 
@@ -459,7 +452,6 @@ func TestMergeManyConflictsRetainNothing(t *testing.T) {
 		other[i].rec.Payload = p
 	}
 	a, b := mergePack(t, seg0, nil, steps), mergePack(t, seg1, nil, other)
-	v := mergeView(t, nil, a, b)
 
 	heapNow := func() uint64 {
 		var ms runtime.MemStats
@@ -481,7 +473,7 @@ func TestMergeManyConflictsRetainNothing(t *testing.T) {
 			late = heapNow()
 		}
 	}
-	_, rep, err := mergeBytes(t.Context(), v, inputsOf(t, v, a, b), opts)
+	_, rep, err := mergeBytes(t.Context(), inputsOf(a, b), opts)
 	require.ErrorIs(t, err, ErrMergeConflict)
 	assert.Equal(t, MergeReport{Conflicts: n, ConflictsComplete: true}, rep)
 	t.Logf("live heap after conflict 1000: %d bytes, after conflict %d: %d bytes", early, n, late)
@@ -544,8 +536,7 @@ func TestMergeConflictThenError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			v := mergeView(t, nil, tt.files...)
-			inputs := inputsOf(t, v, tt.files...)
+			inputs := inputsOf(tt.files...)
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			var log conflictLog
@@ -555,7 +546,7 @@ func TestMergeConflictThenError(t *testing.T) {
 				tt.edit(&opts, inputs, cancel)
 			}
 
-			out, rep, err := mergeBytes(ctx, v, inputs, opts)
+			out, rep, err := mergeBytes(ctx, inputs, opts)
 			require.ErrorIs(t, err, tt.want)
 			require.ErrorContains(t, err, tt.msg)
 			assert.NotErrorIs(t, err, ErrMergeConflict)
@@ -575,7 +566,6 @@ func TestMergeCancelledAfterTheLastConflict(t *testing.T) {
 	early := mergePack(t, seg4, nil, hourSteps(1, 4, 4))
 	steps := hourSteps(10, 13, 4)
 	a, b := mergePack(t, seg0, nil, steps), mergePack(t, seg1, nil, changed(steps, 1, 12))
-	v := mergeView(t, nil, a, b, early)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -585,7 +575,7 @@ func TestMergeCancelledAfterTheLastConflict(t *testing.T) {
 		log.add(c)
 		cancel()
 	}
-	out, rep, err := mergeBytes(ctx, v, inputsOf(t, v, a, b, early), opts)
+	out, rep, err := mergeBytes(ctx, inputsOf(a, b, early), opts)
 	require.ErrorIs(t, err, ErrMergeConflict)
 	assert.NotErrorIs(t, err, context.Canceled)
 	assert.Equal(t, MergeReport{Conflicts: 1, ConflictsComplete: true}, rep)
@@ -610,18 +600,17 @@ func TestMergeMaxOpenBlocks(t *testing.T) {
 		}
 	}
 	x, y := mergePack(t, seg0, nil, seqBlocks(even...)), mergePack(t, seg1, nil, seqBlocks(odd...))
-	chain := mergeView(t, nil, x, y)
 
 	t.Run("a chain two deep", func(t *testing.T) {
 		t.Parallel()
 
 		opts := mergeOpts()
 		opts.MaxOpenBlocks = 2
-		_, rep := mustMerge(t, chain, inputsOf(t, chain, x, y), opts)
+		_, rep := mustMerge(t, inputsOf(x, y), opts)
 		requireCounts(t, rep, mergeCounts{blocks: 1, records: 100, resolved: 19})
 
 		var loads []loadEvent
-		_, _, err := writeWithHooks(t, chain, inputsOf(t, chain, x, y), opts, func(p *mergePlan) {
+		_, _, err := writeWithHooks(t, inputsOf(x, y), opts, func(p *mergePlan) {
 			p.loadHook = func(b *mergeBlock, open, resolved int) {
 				loads = append(loads, loadEvent{input: b.input, first: b.first, open: open, resolved: resolved})
 			}
@@ -639,7 +628,7 @@ func TestMergeMaxOpenBlocks(t *testing.T) {
 
 		opts := mergeOpts()
 		opts.MaxOpenBlocks = 1
-		out, rep, err := mergeBytes(t.Context(), chain, inputsOf(t, chain, x, y), opts)
+		out, rep, err := mergeBytes(t.Context(), inputsOf(x, y), opts)
 		require.ErrorIs(t, err, ErrMergeLimit)
 		assert.NotErrorIs(t, err, ErrMergeInput)
 		require.ErrorContains(t, err, "the blocks of seqs 100 to 199 overlap 2 deep at seq 105, above MaxOpenBlocks 1")
@@ -654,10 +643,9 @@ func TestMergeMaxOpenBlocks(t *testing.T) {
 		a := mergePack(t, seg0, nil, hourSteps(10, 16, 7))
 		corrupt := mergePack(t, seg1, nil, hourSteps(14, 16, 3))
 		corrupt = flipByte(corrupt, mustOpen(t, corrupt, ReaderOptions{}).Blocks()[0].Offset+format.EnvelopeLen+1)
-		v := mergeView(t, nil, a, corrupt)
 		opts := mergeOpts()
 		opts.MaxOpenBlocks = 1
-		out, rep, err := mergeBytes(t.Context(), v, inputsOf(t, v, a, corrupt), opts)
+		out, rep, err := mergeBytes(t.Context(), inputsOf(a, corrupt), opts)
 		require.ErrorIs(t, err, ErrMergeInput)
 		assert.NotErrorIs(t, err, ErrMergeLimit)
 		require.ErrorContains(t, err, "input 1, pack "+seg1.String()+": ")
@@ -674,10 +662,9 @@ func TestMergeMaxOpenBlocks(t *testing.T) {
 			base, withIDs(t, base, seg1, viewCapture), withIDs(t, base, seg2, viewCapture),
 			withIDs(t, base, seg3, viewCapture), withIDs(t, base, seg4, viewCapture),
 		}
-		v := mergeView(t, nil, files...)
 		opts := mergeOpts()
 		opts.MaxOpenBlocks = 1
-		out, rep := mustMerge(t, v, inputsOf(t, v, files...), opts)
+		out, rep := mustMerge(t, inputsOf(files...), opts)
 		requireCopied(t, rep, 1, 4, 4)
 		assert.Equal(t, blockBytes(t, base, allBlocks), blockBytes(t, out, allBlocks))
 	})
@@ -692,10 +679,8 @@ func TestMergeStreamingFrontier(t *testing.T) {
 	a := mergePack(t, seg0, nil, seqBlocks([]uint64{0, 1000}))
 	b := mergePack(t, seg1, nil, seqBlocks([]uint64{1, 2}))
 	c := mergePack(t, seg2, nil, seqBlocks([]uint64{3, 4}))
-	v := mergeView(t, nil, a, b, c)
-	require.Equal(t, []UUID{seg0, seg1, seg2}, v.Packs)
 
-	out, rep := mustMerge(t, v, inputsOf(t, v, a, b, c), mergeOpts())
+	out, rep := mustMerge(t, inputsOf(a, b, c), mergeOpts())
 	requireCounts(t, rep, mergeCounts{blocks: 1, records: 6, resolved: 3})
 	seqs := make([]uint64, 0, 6)
 	for _, r := range rawRecordsOf(t, out) {
@@ -704,7 +689,7 @@ func TestMergeStreamingFrontier(t *testing.T) {
 	assert.Equal(t, []uint64{0, 1, 2, 3, 4, 1000}, seqs)
 
 	var loads []loadEvent
-	_, _, err := writeWithHooks(t, v, inputsOf(t, v, a, b, c), mergeOpts(), func(p *mergePlan) {
+	_, _, err := writeWithHooks(t, inputsOf(a, b, c), mergeOpts(), func(p *mergePlan) {
 		p.loadHook = func(b *mergeBlock, open, resolved int) {
 			loads = append(loads, loadEvent{input: b.input, first: b.first, open: open, resolved: resolved})
 		}
@@ -741,7 +726,6 @@ func TestMergeCancelledDuringResolution(t *testing.T) {
 	}
 	a, b := pack(seg0, CodecZstd), pack(seg1, CodecNone)
 	require.Len(t, mustOpen(t, a, ReaderOptions{}).Blocks(), 1)
-	v := mergeView(t, nil, a, b)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -749,7 +733,7 @@ func TestMergeCancelledDuringResolution(t *testing.T) {
 	dst := &cancelWriter{n: 2, cancel: cancel}
 	opts := fixedIDs(mergeOpts())
 	opts.BlockThreshold = 16 * testRecordLen
-	rep, err := Merge(ctx, dst, v, inputsOf(t, v, a, b), opts)
+	rep, err := Merge(ctx, dst, inputsOf(a, b), opts)
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, MergeReport{}, rep)
 	// A block is written when the record after it arrives, so by the check at record 4096
@@ -771,7 +755,6 @@ func TestMergeResolutionEncodingFails(t *testing.T) {
 	early := mergePack(t, seg4, nil, hourSteps(1, 4, 4))
 	a := mergePackCodec(t, CodecZstd, seg0, hourSteps(10, 13, 4))
 	b := mergePackCodec(t, CodecNone, seg1, hourSteps(10, 13, 2))
-	v := mergeView(t, nil, early, a, b)
 
 	tests := []struct {
 		name string
@@ -790,7 +773,7 @@ func TestMergeResolutionEncodingFails(t *testing.T) {
 				opts := mergeOpts()
 				opts.Codec, opts.BlockThreshold = c, tt.threshold
 				var hooked int
-				out, rep, err := writeWithHooks(t, v, inputsOf(t, v, early, a, b), opts, func(p *mergePlan) {
+				out, rep, err := writeWithHooks(t, inputsOf(early, a, b), opts, func(p *mergePlan) {
 					p.encodedHook = func(enc []byte) []byte {
 						hooked++
 						enc[len(enc)-1] ^= 1
