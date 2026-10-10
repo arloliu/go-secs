@@ -5,6 +5,168 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+This release follows spec v2.32, which keeps format 1.0, every pack it describes and every canonical export unchanged,
+and leaves to the caller which packs a merge or a read takes.
+`Merge` merges the inputs its caller gives, and `FindTransaction` reads the packs its caller gives for each hour;
+the active view, the commit objects, the store source, retention and repair are gone.
+A lookup reports a match, an ambiguity or no match found, with every reason it is incomplete beside the outcome,
+and every read reports the crash gaps of the `stop-unclean` boundaries whose gap meets its time range.
+A `Reader` serves blocks from the bytes it read while opening the pack, so a pack of up to 4 MiB costs one request,
+and `MergeIterate` reads the next blocks ahead.
+`NewWriter` and `Merge` write zstd unless the options ask for none.
+The conformance corpus, now `tracepack-corpus/3`, asserts format reading only.
+
+### Upgrade notes
+
+- The corpus manifest's `corpus` value is now `tracepack-corpus/3`, and its `spec_version` `2.32`.
+  A consumer of `tracepack-corpus/2` reads `export.jsonl`, `rejection.json`, `fields.json`, `footer.json` and `truncation.json` as before;
+  it drops its checks of verification reports, queries, classifications, repairs, reads over several packs and lookups,
+  and accepts `truncation.json` rows that hold only `from`, `to`, `rejection` and `exported_records`, adjacent equal rows merged.
+- `Merge(ctx, dst, inputs, opts)` takes no `View`: give it the segments and archives of one scope, in the order their lineage is to list them.
+  `MergeOptions.ScopeGeneration`, at least 1, and `MergeOptions.PublisherEpoch` are written as given,
+  never compared with an input's, so the caller numbers the scope's generations.
+  An input of a `pack_role` other than `segment` or `archive` is refused with `ErrMergeInput`, a `repair` input included.
+- `WriterOptions.Codec` and `MergeOptions.Codec` are replaced by `Uncompressed bool`, as `SegmentWriterOptions` already had,
+  and options that leave it false write zstd:
+  delete `Codec: CodecZstd`, write `Uncompressed: true` for `Codec: CodecNone`,
+  and set `Uncompressed: true` where the codec was left unset and uncompressed packs are still wanted.
+- `NewWriter` refuses `pack_role` `repair` (4) with a `*FieldError` wrapping `ErrFieldValue`, as it refuses the retired 5.
+  Every reader still reads a pack of role 4.
+- `PackSource` has one method, `Readers(ctx, hour int64) ([]*Reader, error)`, which returns the readers of every pack given for one UTC hour, of any capture;
+  a source of your own implements it in place of `Observe`.
+  `NewReaderSource(readers)` takes no options:
+  drop `ReaderSourceOptions`, and give it every pack the lookup is to read, `Complete` and `Evidence` having no replacement.
+- `FindTransaction`'s outcomes are `TxMatched` (1), `TxAmbiguous` (2) and `TxNotFound` (3, String `not-found`).
+  `TxNotFound` takes the value `TxUnmatched` had, and means only that no valid match was found in the packs read.
+  `TxIncomplete` is gone: a lookup is incomplete when `len(TxResult.Incomplete) > 0`, beside any outcome.
+- Renamed: `TxResult.Gaps` is `TxResult.Incomplete`, `TxGap.Barrier` is `TxGap.Boundary`, and `TxGapBarrier` is `TxGapCrashGap` (String `crash-gap`).
+- `TxGapReason` values are renumbered, so a value stored or compared as a number must be mapped:
+  `TxGapNoKey` 1, `TxGapConflict` 2 and `TxGapIndex` 3 keep theirs;
+  `TxGapRead` 5 → 4, `TxGapCoverage` 6 → 5, `TxGapUnevaluated` 7 → 6, `TxGapSeqGap` 9 → 7, `TxGapOpenWindow` 10 → 8,
+  `TxGapCrashGap` (was `TxGapBarrier`) 11 → 9, `TxGapCaptureBoundary` 12 → 10, `TxGapOrderingUncertain` 13 → 11,
+  `TxGapCorrelation` 14 → 12, `TxGapUnavailable` 15 → 13 and `TxGapScopeBreach` 18 → 14.
+  `TxGapCold`, `TxGapEvidence`, `TxGapContradiction` and `TxGapConflicted` are removed.
+- Reads apply no retention boundary: `Query.Retention`, `TxOptions.Retention`, `Result.Removed`, `Retention` and `ErrRemoved` are removed.
+  Retention is the storage service's; give a read only the packs of the hours still retained.
+- Packs are chosen by the caller: `ActiveView`, `View`, `Generation`, `CommitSet`, `ErrViewConflicted` and `CommitKey` are removed, with no replacement.
+- The store source is removed: open the packs a listing or your catalog names with `Open`, and give them to `NewReaderSource`.
+- `Repair`, `RepairOptions`, `RepairReport`, `ErrRepairNotNeeded` and `ErrNotRepairable` are removed, with no replacement:
+  a read reports a damaged pack's defects beside the records it could read, and `Verify` stays.
+- `Reader.Iterate`, `MergeIterate` and `ExportJSONL` report a `ReasonCrashGap` defect for every `stop-unclean` boundary whose gap meets the query's time range,
+  so a read of a pack holding one can be incomplete where it was complete; the bytes `ExportJSONL` writes do not change.
+- `DefaultWholeReadThreshold` rises from 256 KiB to 4 MiB,
+  and a `Reader` keeps up to max(`WholeReadThreshold`, `HeadWindow` + `TailWindow`) bytes for its lifetime, 4 MiB with the default options,
+  outside `MergeIterateOptions.MaxHeldBytes`, `TxOptions.MaxHeldBytes` and `TxOptions.MaxStateBytes`.
+  A process that holds many Readers open sets a smaller `ReaderOptions.WholeReadThreshold`.
+  A block served from those bytes is not read again, so a change to the object after `Open` no longer shows in it.
+- `MergeIterate` may issue several `ReadAt` calls at once on a Reader's `io.ReaderAt`, as `Open` already did,
+  so that `io.ReaderAt` must allow parallel calls, as the `io.ReaderAt` contract requires.
+
+### Removed
+
+- The active view and the commit objects:
+  `ActiveView`, `View`, `Generation`, `CommitSet`, `ErrViewConflicted` and `CommitKey`.
+  `SegmentKey`, `ArchiveKey`, `EscapeToolID` and `HourOf` stay.
+- The store source:
+  `NewStoreSource`, `StoreSourceOptions`, `ObjectStore`, `Object`, `ObjectInfo`, `ObjectPage`, `ErrObjectNotFound`,
+  `Catalog`, `CatalogSnapshot`, `CatalogScope`, `CatalogPack`, `ExcludedPack`,
+  `DefaultMaxCommitListings`, `DefaultMaxListPages`, `DefaultMaxObjects` and `DefaultMaxSourceBytes`.
+- Observations and per-capture evidence:
+  `PackSource.Observe`, `Observation`, `SourceScope`, `CaptureEvidence`, `EpochClosure`,
+  `EndState` with `EndOpen`, `EndStopped` and `EndStoppedUnclean`, `AddPackEvidence` and `ReaderSourceOptions`.
+- Lookup outcomes, reasons and fields:
+  `TxUnmatched`, `TxIncomplete`, `TxGapCold`, `TxGapEvidence`, `TxGapContradiction`, `TxGapConflicted`, `TxScope.Indexed` and `TxOptions.Retention`.
+- Retention: `Retention`, `ErrRemoved`, `Query.Retention` and `Result.Removed`.
+- Repair: `Repair`, `RepairOptions`, `RepairReport`, `ErrRepairNotNeeded` and `ErrNotRepairable`.
+- `WriterOptions.Codec` and `MergeOptions.Codec`, and the option error for a codec a writer may not use.
+  `Codec`, `CodecNone` and `CodecZstd` stay, for what readers report.
+- From the corpus: the classes `repair` and `multi-pack`;
+  the files `verify.json`, `queries.json`, `classify.json`, `repair.json`, `patch.tpk`, `patch.jsonl`, `patch.verify.json`,
+  `pack-<n>.tpk`, `pack-<n>.verify.json`, `reads.json` and `lookups.json`;
+  the 13 `multi-` vectors, the 19 `tx-` vectors and 15 of the 18 `repair-` vectors.
+  What those files asserted is now checked by tests of the Go module.
+
+### Changed
+
+- `Merge(ctx, dst, inputs []MergeInput, opts MergeOptions)` merges the inputs it is given into one archive of the first input's scope, its capture and UTC hour.
+  - `compacted_from` lists each input's `compacted_from` in input order, then the `pack_id` of each segment input, each pack once, at its first occurrence, and is absent when it names none;
+    `supersedes` lists the `pack_id` of each archive input in input order, and is absent without one.
+  - `ErrMergeInput`, before `dst` is touched, refuses a `pack_role` other than `segment` or `archive` (`repair`, the retired 5 and unknown values included),
+    a `scope_generation` that contradicts the role (a segment not at 0, an archive at 0),
+    a `pack_id` an earlier input has, and an input of another capture or UTC hour than the first.
+  - No inputs at all is a plain error, and an input that cannot be opened is named by its position.
+  - `MergeOptions.PackID` must differ from every input's `pack_id` and every pack an input's `compacted_from` or `supersedes` names,
+    and `MergeOptions.ReplacementSetID` from every archive input's `replacement_set_id`;
+    both are plain errors, checked after the inputs are opened.
+- `FindTransaction` reads, for each hour scheduled, every pack the source gives for that hour, of any capture, in one `MergeIterate` in capture order.
+  - It decides on the primary's capture only, comparing seqs as (`capture_id`, `seq`),
+    and reports read defects, scope breaches, packs with `quality_evaluated` false and crash gaps for every pack it read;
+    another capture's conflicts are listed in `TxResult.Conflicts` without making the lookup incomplete.
+  - Crash gaps come from the reads and replace the evidence barriers:
+    each boundary is reported once across the hours, as a `TxGapCrashGap` when its gap meets the time range of the hours scheduled, or of the primary's hour on an early return.
+    A crash gap of the primary's capture that meets its hour explains a missing primary.
+  - A missing primary that nothing in its hour's read explains, an empty hour included, fails with `ErrNotPrimary`;
+    a missing, conflicting or keyless primary otherwise ends the lookup as `TxNotFound` and incomplete.
+  - When a read detects that a block disagrees with its F-2 entry, or another footer value with its records,
+    only the `TxGapIndex` gap and the lookup's being incomplete are guaranteed; every other fact is best-effort.
+    Records above the primary that arrive before it, which only a block disagreeing with its F-2 entry can yield, are counted and no longer classified,
+    and an hour is no longer read a second time.
+- `NewReaderSource(readers)` groups the readers by the UTC hour of their period, whatever their capture, and accepts a pack of any role but `extract`,
+  `repair`, the retired 5 and unknown values included.
+  It rejects with `ErrInvalidQuery` a nil reader, a Reader given twice, two readers of one `pack_id`, readers of more than one `tool_id`,
+  an `extract`, and a pack whose period is empty or not inside one UTC hour.
+  It opens and closes no reader: the caller owns them.
+- `MergeIterate` lists its crash gaps after the defects of the walked blocks' first reads and before those of the clusters' reads, by pack, then by seq;
+  the crash gaps found before a read fails at its first cluster are in the `Result` returned with the error.
+  A boundary that several packs hold is reported once, with the smallest index of a pack holding it; boundaries whose gap bounds differ are each reported.
+- `NewWriter` and `Merge` write block bodies and the footer with zstd unless `Uncompressed` is set, as the format specification §2 recommends;
+  a block `Merge` copies verbatim keeps its own codec.
+  `SegmentWriter` writes the same bytes as before.
+- `NewWriter` refuses `pack_role` `repair` before it validates the pack metadata and before it writes anything;
+  `PackMeta.MarshalBinary` still encodes a pack metadata of role 4.
+- `DefaultWholeReadThreshold` rises from 256 KiB to 4 MiB.
+- A `Reader` keeps, for its lifetime, the bytes of `Open`'s first round that hold blocks:
+  the whole object, or else the head and tail windows, never the suffix read from a `FooterOffset` hint.
+  It serves every block read and forward-walk envelope read lying wholly inside them with a copy, never an alias, and validates the block as before.
+  The other buffers `Open` reads into, a `FooterOffset` suffix, the second round's reads and the chunks of a streamed footer CRC, are dropped when it returns.
+- `Result.Complete` reports whether `Incomplete` is empty.
+- `PackInfo`, `NewPackInfo` and `Reader.Info` stay; their Godoc no longer refers to views.
+- Tests now pin how readers treat an unknown `trailer_version` or `footer_layout_version` (the footer is not used and the pack is read by the forward walk),
+  and the zstd window bound: a frame declares a window of at most max(8 MiB, its decoded length), never above 64 MiB, and a larger window is rejected.
+  Neither changed behaviour.
+- The corpus follows spec v2.32 and asserts format reading only.
+  The kept `pack.tpk`, `export.jsonl`, `rejection.json`, `fields.json`, `footer.json` and `primitives.json` files are byte for byte those of `tracepack-corpus/2`.
+  `footer.json`'s `accepted` means that the pack is finalized and its footer passes validation, decided on its own; no byte changed.
+  Three `repair-` vectors stay as class `read`, since each pack serves a format clause no other vector serves:
+  `repair-of-patch`, whose committed pack the generator copies as it is, `repair-inconsistent` and `repair-not-needed-commitments`.
+  97 vectors remain, in 213 files.
+
+### Added
+
+- `ReasonCrashGap` (`crash-gap`), a defect of `Reader.Iterate`, `MergeIterate` and `ExportJSONL` for every `stop-unclean` capture boundary whose gap meets the query's time range,
+  taken from the F-5 boundary entries of every pack whose footer is used, whatever the filter excludes,
+  and from the boundary records of the walked blocks of a pack without one.
+- `Defect.Boundary`, the boundary of a `ReasonCrashGap` defect, whose `Block` and `Offset` are -1.
+- `TxNotFound`, `TxGapCrashGap`, `TxResult.Incomplete` and `TxGap.Boundary` (see Upgrade notes).
+- `WriterOptions.Uncompressed` and `MergeOptions.Uncompressed`.
+
+### Performance
+
+- A pack of up to `WholeReadThreshold` bytes costs exactly one `ReadAt` for `Open` and none for every later read of it:
+  `Reader.Iterate`, `ExportJSONL`, `MergeIterate` and the forward walk.
+  Opening and reading one busy hour (577,346 bytes) takes 1 `ReadAt` of 577,346 bytes where it took 3 of 904,444.
+  A day of 24 hourly packs takes 24 requests to open instead of 48 and none to read instead of 24;
+  with 10 ms per request, its `MergeIterate` takes about 90 ms instead of 340 ms.
+- A footer over `MaxFooterLen` that `Open`'s first round holds whole has its CRC computed from those bytes instead of streamed.
+- `MergeIterate` reads up to 8 of the next blocks it will read ahead of the one it resolves, concurrently and within `MaxHeldBytes`,
+  in time order, and in capture order when at most one capture has a cluster to read, so also for a lookup hour of one capture.
+  A read ends with `ErrReadLimit` exactly where it would without reading ahead, defects and `ReadAt` errors keep their order,
+  and a complete read issues no more `ReadAt` calls than before, an early stop at most 8 more.
+  Six packs of 256 KiB blocks at 10 ms per request read in about 57 ms instead of 399 ms, with the same 36 requests.
+  `Merge`, `Reader.Iterate` and `ExportJSONL` read as before.
+- With zstd by default, merging one hour of twelve five-minute segments writes a busy archive of 577,708 bytes instead of 1,533,515,
+  and an idle one of 24,450 bytes instead of 135,893.
+
 ## [0.3.0] - 2026-10-10
 
 The conformance corpus covers reads over several packs and transaction lookups (spec v2.30),

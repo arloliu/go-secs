@@ -24,11 +24,11 @@ This page is a map by audience; the Godoc states each contract in full.
 - A **scope** is one capture in one UTC hour.
   Every pack but an extract holds the records of one scope.
 - A **segment** is a pack a recorder writes for one flush interval of a scope, five minutes by default.
-  Segments are staged; a merge later folds a scope's segments into one **archive**, the scope's next generation.
+  Segments are staged; a merge later folds the packs of a scope it is given into one **archive**.
 - The **store** is a bucket of packs under the keys of the storage specification §3,
-  `staging/` for segments, `archive/` for archives and repair patches and `commit/` for commit objects,
-  and a catalog that indexes them.
+  `staging/` for segments and `archive/` for every other pack.
   A directory written by `NewDirSink` is laid out as such a bucket.
+  Which packs a read or a merge takes is always its caller's choice.
 
 ## Recording a capture
 
@@ -69,7 +69,7 @@ a frame longer than its ceiling is recorded with decode status `oversized` and i
   serialize the observer callbacks into the writer, for example through one channel.
 - **Map sockets to nonzero epochs.**
   An epoch numbers a connection within the capture.
-  Epoch 0 means unknown and marks the record `correlation-incomplete`, which keeps a transaction lookup from proving a reply absent.
+  Epoch 0 means unknown and marks the record `correlation-incomplete`, which makes a transaction lookup from such a primary incomplete (`TxGapCorrelation`).
   The go-secs `Socket` value is unique only within one connection,
   so keep a per-capture counter keyed by the connection and its `Socket`, starting at 1.
 - **Keep the monotonic reading of your times.**
@@ -166,151 +166,92 @@ and a `Commit` that fails after the segment became visible returns an error wrap
 ### The Writer underneath
 
 `NewWriter` writes one pack to an `io.Writer` from pack metadata you assemble;
-`SegmentWriter`, `Merge` and `Repair` are built on it.
+`SegmentWriter` and `Merge` are built on it.
+It writes block bodies and the footer with zstd, as the format specification §2 recommends, unless `WriterOptions.Uncompressed` is set;
+`Merge` does the same unless `MergeOptions.Uncompressed` is set.
 It validates each block before writing it unless `WriterOptions.SkipValidation` is set.
 For every pack but an extract it refuses a period not inside one UTC hour, and a record of another hour, with `ErrScopeBreach`.
 
 ## Reading packs
 
 For readers and troubleshooters working on local files:
-`Open`, `Reader.Iterate`, `MergeIterate`, `FindTransaction`, `NewReaderSource` and `ExportJSONL`.
+`Open`, `Reader.Iterate`, `MergeIterate`, `FindTransaction`, `NewReaderSource`, `ExportJSONL` and `Verify`.
 
 - `Open(ctx, ra, size, opts)` opens one pack over an `io.ReaderAt`, such as an `*os.File`, which stays open while the `Reader` is used.
   `Reader.Header` returns the pack metadata, and `Reader.Iterate` yields the records a `Query` selects, in file order.
   A damaged block does not fail the read: it is reported in the `Result`, beside the records that could be read.
   See `ExampleOpen`.
+- A pack of up to `ReaderOptions.WholeReadThreshold` bytes, 4 MiB by default, costs one `ReadAt` for `Open` and none for any later read of it:
+  the `Reader` keeps the bytes of `Open`'s first round that hold blocks, the whole object or else the head and tail windows,
+  and copies each block it reads from them when they hold it whole.
+  It keeps at most max(`WholeReadThreshold`, `HeadWindow` + `TailWindow`) bytes for its lifetime, 4 MiB with the defaults,
+  outside the budgets of `MergeIterateOptions.MaxHeldBytes`, `TxOptions.MaxHeldBytes` and `TxOptions.MaxStateBytes`;
+  lower `WholeReadThreshold` when many Readers stay open at once.
 - `MergeIterate` reads several packs as one read, in capture or time order.
   It compares the copies of each record across the packs, yields identical copies once, and reports copies that differ as conflicts.
+  It reads up to 8 blocks ahead of the one it resolves, within `MaxHeldBytes`,
+  in time order, and in capture order when at most one capture has a cluster to read,
+  so it may issue several `ReadAt` calls at once on a Reader's `io.ReaderAt`, as `Open` does;
+  whatever its outcome, it waits for every call it issued before it returns.
   See `ExampleMergeIterate`.
 - An `Item` is valid only during the callback that receives it; clone what you keep.
-- `Query.Retention` gives `Iterate` and `MergeIterate` the retention boundary of the storage specification §5:
-  a `Retention` whose `RetainedFrom` returns the first UTC hour still retained, numbered as `HourOf` numbers it.
-  Every hour before it is removed; nil removes nothing.
-  A read covers the scope hour of each pack but an extract, whatever its records' timestamps.
-  For an extract it covers the hours of its indexed blocks' F-2 `ts_min` and `ts_max`,
-  known before any block is read, pruned blocks included,
-  and the hour of every record it decodes, filtered out or not; an extract's period does not count.
-  It asks the provider before it reads, before the records of each block reach your callback,
-  after a failed read, and before it returns success.
-  When a covered hour is removed, the whole read ends with an error wrapping `ErrRemoved`,
-  and `Result.Removed` lists the removed hours it covers.
-  Discard everything the read reported of those hours, records already passed to your callback included:
-  their objects may have been deleted while it ran.
-  `Result.Complete()` is false while `Removed` is non-empty.
+- A read reports a **crash gap**, a `ReasonCrashGap` defect whose `Defect.Boundary` holds the boundary,
+  for every `stop-unclean` capture boundary whose gap meets the query's time range (the semantics specification §7.4):
+  records of that time may be missing.
+  It takes them from the footer of every pack whose footer it uses, whatever the filter excludes,
+  and from the boundary records of the blocks it walks in a pack without one.
 - `FindTransaction(ctx, src, key, opts)` looks up the reply to a primary message, named by a `TxKey`;
   `TxKeyOf(captureID, r.Seq, time.Unix(0, r.TSUTCNs))` builds the key from the primary's record.
-  It reports `TxMatched`, `TxAmbiguous`, `TxUnmatched` or `TxIncomplete`,
-  with every reason it could not establish absence as a `TxGap`.
+  It reports `TxMatched`, `TxAmbiguous` or `TxNotFound`,
+  and lists in `TxResult.Incomplete`, beside any outcome, every reason the lookup is incomplete, each a `TxGap`.
+  `TxNotFound` states nothing about records outside the packs it read.
   See `ExampleFindTransaction`.
 - `ExportJSONL(ctx, r, w)` writes the canonical JSONL export of one pack,
   schema `tracepack-jsonl/1` of the [JSONL specification](../docs/specs/tracepack/tracepack-jsonl.md):
   a header line, then one line per record, the same bytes any conforming exporter writes for the pack.
   A damaged pack exports the records of its validated blocks, and the returned `Result` reports what was lost exactly as `Iterate`'s does:
-  a failed block makes it incomplete, while a footer that is not used, with every block found by the forward walk, only sets `FooterErr`.
+  a failed block or a crash gap makes it incomplete, while a footer that is not used, with every block found by the forward walk, only sets `FooterErr`.
   A reader budget that keeps part of the pack out fails the export with an error wrapping `ErrReadLimit` instead;
   after any error, discard what was written.
   Each line is written in pieces of at most 64 KiB, so one line may take several `Write` calls.
   See `ExampleExportJSONL`.
+- `Verify` reads every block of a pack and reports its outcome, from finalized-consistent to corrupt.
 
 ### A lookup over local files
 
-`NewReaderSource(readers, opts)` gives `FindTransaction` a source over packs you opened, all of one tool.
-It groups them into scopes and computes each scope's view, taking every generation and patch given as committed:
-give an archive or a repair patch only if it was accepted.
+`NewReaderSource(readers)` gives `FindTransaction` a source over packs you opened, all of one tool.
+It groups them by the UTC hour of their period, whatever their capture,
+and a lookup reads, for each hour it searches, every pack of that hour.
 
-- Without `Complete`, every scope is not indexed and every capture's evidence is partial:
-  each scope a lookup reads is a `TxGapCold` gap, and a lookup is never `TxUnmatched`.
-  That is the safe default for a handful of files.
-- `Complete` is an assertion about evidence, never "all the files I found".
-  It asserts that the readers are every accepted pack of the tool, of every capture and every hour,
-  and that the readers and `Evidence` together are every pack a catalog of the tool would hold evidence of,
-  rejected registrations included.
-  A set of files from which a pack was removed, by retention or otherwise, cannot be `Complete`.
-  Only then can the source vouch for the `stop-unclean` barriers of the tool's other captures.
-- `Evidence` holds the segments and converter archives whose registration was rejected.
-  They count toward their capture's evidence and barriers, but never enter a scope's view.
-  Under `Complete` the scope of each `Evidence` reader, its capture in the hour of its period, is not indexed,
-  as a catalog that rejected the registration reports it, so a lookup reading it gets a `TxGapCold` gap.
-- An `Evidence` reader's period must lie inside one UTC hour, which names its scope;
-  `NewReaderSource` refuses one that does not with `ErrInvalidQuery`.
-- Even with `Complete`, every capture's evidence is partial while any reader of the tool has no usable footer.
-- The source never closes the readers' files: keep them open until the lookups are done.
+- Give every pack the lookup should read, segments and archives alike:
+  a pack not given is not read, and the lookup states nothing about its records.
+  A segment and an archive holding the same records may both be given; their copies are compared and yielded once.
+- A pack of any role but `extract` is accepted, if its period is not empty and lies inside one UTC hour, the hour it is read for.
+- `NewReaderSource` refuses, with `ErrInvalidQuery`, a nil reader, a `Reader` given twice, two readers of one `pack_id`,
+  readers of more than one tool, an `extract`, and a pack whose period is empty or spans hours.
+- The source never opens or closes the readers: keep them open until the lookups are done.
 
-## Operating a store
+## Merging and storage
 
 For the storage service:
-the key builders, `ActiveView`, `Merge`, `Verify`, `Repair` and `NewStoreSource`.
+`Merge` and the key builders.
 
-- `SegmentKey`, `ArchiveKey` and `CommitKey` build the object keys of the storage specification §3,
+- `SegmentKey` and `ArchiveKey` build the object keys of the storage specification §3,
   and `EscapeToolID` spells a tool as a key does.
-- `ActiveView` computes a scope's view from a complete observation of its packs and commit objects:
-  its current generation, the packs a read uses, the lineage the next merge writes, and the packs that may be deleted.
-- `Merge` writes a scope's next generation, one archive, from the packs of its view.
-  Publish the archive only after `Merge` returned nil, under the commit protocol of the storage specification §5.
-- `Verify` reads every block of a pack and reports its outcome, from finalized-consistent to corrupt;
-  `Repair` writes a repair patch of a damaged pack, which the next merge folds in.
-- `NewStoreSource` gives `FindTransaction` a source over an `ObjectStore`, the bucket, and a `Catalog`, your catalog of one tool.
-  Their Godoc states the contracts both adapters must keep.
-
-### Retention
-
-Retention removes whole UTC hours: every hour before a boundary that only moves forward (the storage specification §5).
-Deleting the packs and commit objects of a removed hour is the storage service's job;
-this package applies the boundary on the reader side, through a `Retention` provider.
-Give `StoreSourceOptions.Retention` and `TxOptions.Retention` the same provider:
-
-- `StoreSourceOptions.Retention` makes `Observe` tolerate deletion.
-  It reports a removed hour as `SourceScope.Removed`, with no readers,
-  instead of failing on its deleted objects or forming a view from a half-deleted hour.
-  Given alone, it leaves the lookup unprotected after `Observe` returns.
-- `TxOptions.Retention` makes the lookup's guarantee:
-  the lookup checks the primary's hour, each scope read checks the hours it covers,
-  and a lookup whose primary's hour is removed fails with an error wrapping `ErrRemoved` instead of returning an outcome.
-  Given alone, a deletion during `Observe` can fail `Observe`;
-  the lookup then checks the boundary again, and returns `ErrRemoved` when the primary's hour is removed.
-- A scope the source reports `Removed` ends the lookup with `ErrRemoved`, with or without `TxOptions.Retention`.
-
-A provider must keep this contract:
-
-- It never falls behind the deleting component:
-  before the component deletes any object of an hour, every provider a reader asks already reports the hour removed,
-  so a read's check sees every hour whose objects may be gone.
-  A provider that runs ahead of the deletions is safe.
-  A cached value, such as a boundary the component publishes for readers in other processes to load,
-  is safe only if the component waits out the cache's staleness before it deletes:
-  publishing the boundary first is not enough on its own.
-- The boundary never moves back.
-- It is safe for concurrent use.
-- It is cheap, an atomic load rather than a remote call: a read asks it at every block it emits.
-
-```go
-// retainedFrom is a Retention over the first UTC hour retained, as tracepack.HourOf numbers it.
-type retainedFrom struct{ hour atomic.Int64 }
-
-func (r *retainedFrom) RetainedFrom(context.Context) (int64, error) { return r.hour.Load(), nil }
-
-// advance moves the boundary to hour, never back.
-// The deleting component advances every reader's provider to hour before it deletes any object of the hours before hour;
-// a reader that loads a published copy of the boundary must report hour too,
-// so the component waits out the copy's staleness before it deletes.
-func (r *retainedFrom) advance(hour int64) {
-	for {
-		cur := r.hour.Load()
-		if hour <= cur || r.hour.CompareAndSwap(cur, hour) {
-			return
-		}
-	}
-}
-```
+- `Merge(ctx, dst, inputs, opts)` writes one archive of a scope from the segments and archives you give it, of one capture and one UTC hour,
+  with the `ScopeGeneration` and `PublisherEpoch` you set in `MergeOptions`, which it compares with no input's.
+  Its `compacted_from` lists the inputs' own lineage and then every segment input, and its `supersedes` every archive input, in the order you give them.
+  It refuses with `ErrMergeInput`, before writing anything, an input whose role is neither `segment` nor `archive`, and an input of another capture or hour.
+  Which packs a merge takes, and when a merged pack may be deleted, is yours to decide (the storage specification §4);
+  publish the archive only after `Merge` returned nil.
 
 ## Specification
 
 The documents in [docs/specs/tracepack/](../docs/specs/tracepack/) are the reference:
 the format, the record semantics, the storage profile, the canonical JSONL export, and the mapping to this Go package (`tracepack-go.md`).
 
-The conformance corpus in [testdata/corpus/](testdata/corpus/) holds packs and the results a conforming implementation produces from them:
-exports, verification reports, bootstrap rejections, query results, repairs and truncation tables,
-and the results of reads over several packs and of transaction lookups.
+The conformance corpus in [testdata/corpus/](testdata/corpus/) holds packs and what a conforming reader produces from them:
+exports, bootstrap rejections, header fields, footer checks and truncation tables.
 An implementation in any language checks itself against the committed files, without Go;
 its [README](testdata/corpus/README.md) says how,
 and the [corpus specification](../docs/specs/tracepack/tracepack-corpus.md) defines every file.

@@ -29,6 +29,15 @@ The deferred proposals and the decision log are listed in `README.md`.
   the heap outside `MaxHeldBytes` holds the block descriptors and clusters `MergeIterate` builds before reading, where it said "the plan of the read".
 - 2026-10-10: the §3 `NewDirSink` bullet gains the option `DirSinkNoReplace()`, under which `Commit` never replaces a file at a key
   and reports an existing one as `ErrSegmentExists` or `ErrSegmentConflict` (G5-197).
+- 2026-10-11: §3 follows tracepack v0.4.0.
+  `FindTransaction` states its signature and `PackSource`'s one method, `Readers(ctx, hour)`, in place of the shape the v0.4.0 implementation plan was to set;
+  `NewReaderSource(readers)` groups by the UTC hour of the period, accepts every role but `extract` and states its refusals,
+  and the sentence on a `Close` that closes nothing is dropped, the caller owning the readers.
+  The `ExportJSONL` bullet lists crash gaps among the defects of its `Result`.
+  The `Writer` bullet names `Uncompressed` for the codec option, the `Reader` bullet the bootstrap bytes a `Reader` retains and their bound,
+  and the `MergeIterate` bullet the capture-order reads it does not prefetch, the prefetched blocks' share of `MaxHeldBytes` and its concurrent `ReadAt` calls;
+  `Merge`'s `ErrMergeInput` also names a `scope_generation` that contradicts the role and a repeated `pack_id`.
+  No rule changed.
 
 ## Changes vs v1 (summary)
 
