@@ -151,6 +151,8 @@ type multiPack struct {
 	// archive makes the pack an archive of generation 1 of its hour, its period the whole hour, minute unused,
 	// its replacement set its own, derived from set-<n> for pack n.
 	archive bool
+	// edit, when set, changes the pack metadata last, after its role, period, identifiers and seq_start are set.
+	edit func(m *tracepack.PackMeta)
 }
 
 // packSpec is what writeSpec writes.
@@ -347,6 +349,9 @@ func writeMultiPacks(seed string, ps []multiPack) ([]PackBuilt, error) {
 		meta.RecorderInstanceID = IDFor(roleRecorderInstanceID, multiSeed(seed, multiRecorderRole, p.capture))
 		if len(p.blocks) > 0 && len(p.blocks[0]) > 0 {
 			meta.SeqStart = p.blocks[0][0].Seq
+		}
+		if p.edit != nil {
+			p.edit(meta)
 		}
 		b, err := writeSpec(&packSpec{
 			seed: multiSeed(seed, multiCaptureRole, p.capture), meta: meta, blocks: p.blocks, open: p.open,

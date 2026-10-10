@@ -448,16 +448,16 @@ func defectNamed(name string) tracepack.WriterDefectKind {
 }
 
 // checkMulti refuses the expectation of a multi-pack vector that does not fit its class:
-// a field other than Packs and Reads, no pack or no read,
+// a field other than Packs, Reads and Lookups, no pack, or neither a read nor a lookup,
 // or a pack's expectation without an outcome and a prefix end or with a file that a multi-pack vector does not have.
 func (e *Expectation) checkMulti() error {
 	rest := *e
-	rest.Packs, rest.Reads = nil, nil
+	rest.Packs, rest.Reads, rest.Lookups = nil, nil, nil
 	if !reflect.DeepEqual(rest, Expectation{}) {
-		return errors.New("a multi-pack vector expects its packs and reads and nothing else")
+		return errors.New("a multi-pack vector expects its packs, reads and lookups and nothing else")
 	}
-	if len(e.Packs) == 0 || len(e.Reads) == 0 {
-		return errors.New("a multi-pack vector expects its packs and its reads")
+	if len(e.Packs) == 0 || len(e.Reads) == 0 && len(e.Lookups) == 0 {
+		return errors.New("a multi-pack vector expects its packs and its reads or lookups")
 	}
 	for n, p := range e.Packs {
 		switch {
@@ -465,7 +465,7 @@ func (e *Expectation) checkMulti() error {
 			return fmt.Errorf("pack %d: a pack of a multi-pack vector expects an outcome and a prefix end", n)
 		case p.Outcome == tracepack.OutcomeUnfinalized && !p.Unfinalized:
 			return fmt.Errorf("pack %d: an unfinalized outcome of a pack expected finalized", n)
-		case p.Packs != nil || p.Reads != nil || p.Queries != nil || p.Fields != nil || p.Footer != nil || p.Repair != nil || p.Cuts != nil:
+		case p.Packs != nil || p.Reads != nil || p.Lookups != nil || p.Queries != nil || p.Fields != nil || p.Footer != nil || p.Repair != nil || p.Cuts != nil:
 			return fmt.Errorf("pack %d expects a file a multi-pack vector does not have", n)
 		}
 	}
@@ -474,7 +474,8 @@ func (e *Expectation) checkMulti() error {
 }
 
 // checkMultiPack compares e, the expectation of the multi-pack vector of seed, with the reads out of its packs:
-// each pack's expectation with the reads of that pack, and each read's, by id, with the read's result.
+// each pack's expectation with the reads of that pack, each read's, by id, with the read's result,
+// and each lookup's, by id, with the lookup's result.
 func (e *Expectation) checkMultiPack(out *readOutputs, packs [][]byte, seed string) error {
 	if len(e.Packs) != len(out.packs) || len(out.packs) != len(packs) {
 		return fmt.Errorf("%d packs expected, %d read", len(e.Packs), len(out.packs))
@@ -497,8 +498,88 @@ func (e *Expectation) checkMultiPack(out *readOutputs, packs [][]byte, seed stri
 	for i := range out.reads {
 		errs = append(errs, e.Reads[i].check(&out.reads[i], layouts, seed)...)
 	}
+	if len(e.Lookups) != len(out.lookups) {
+		return errors.Join(append(errs, fmt.Errorf("lookups: %d expected, %d looked up", len(e.Lookups), len(out.lookups)))...)
+	}
+	for i := range out.lookups {
+		errs = append(errs, e.Lookups[i].check(&out.lookups[i], seed)...)
+	}
 
 	return errors.Join(errs...)
+}
+
+// check compares w with got, the lookup of lookups.json of its id, whose captures are those of the vector of seed:
+// the error form alone, or every value of the result, each array in its order.
+func (w *LookupWant) check(got *LookupVector, seed string) []error {
+	if w.ID != got.ID {
+		return []error{fmt.Errorf("lookup: expected id %s, looked up %s", w.ID, got.ID)}
+	}
+	exp, g := w.expect(seed), got.Expect
+	var errs []error
+	want := func(name string, exp, read any) {
+		if !reflect.DeepEqual(exp, read) {
+			errs = append(errs, fmt.Errorf("lookup %s: %s: expected %s, looked up %s", got.ID, name, describeJSON(exp), describeJSON(read)))
+		}
+	}
+	want("error", exp.Error, g.Error)
+	want("outcome", exp.Outcome, g.Outcome)
+	want("key", exp.Key, g.Key)
+	want("window_end", exp.WindowEnd, g.WindowEnd)
+	want("records", exp.Records, g.Records)
+	want("gaps", exp.Gaps, g.Gaps)
+	want("searched", exp.Searched, g.Searched)
+	want("conflicts", exp.Conflicts, g.Conflicts)
+	want("footer_errors", exp.FooterErrors, g.FooterErrors)
+
+	return errs
+}
+
+// expect returns w in the form of lookups.json, its captures those of the vector of seed:
+// the error form alone, or the result with each array non-nil.
+func (w *LookupWant) expect(seed string) LookupExpect {
+	if w.Error != "" {
+		return LookupExpect{Error: w.Error}
+	}
+	e := LookupExpect{Outcome: w.Outcome, Key: w.Key}
+	if w.WindowEnd != nil {
+		e.WindowEnd = new(U64(*w.WindowEnd))
+	}
+	records := make([]LookupRecord, 0, len(w.Records))
+	for _, r := range w.Records {
+		r.Roles = nonNil(r.Roles)
+		records = append(records, r)
+	}
+	searched := make([]SearchedScope, 0, len(w.Searched))
+	for _, sc := range w.Searched {
+		sc.Packs = nonNil(sc.Packs)
+		searched = append(searched, sc)
+	}
+	footer := nonNil(w.FooterErrors)
+	gaps := make([]Fact, 0, len(w.Gaps))
+	for _, f := range w.Gaps {
+		fact := f.Fact
+		if f.Capture != nil {
+			id := captureOf(seed, *f.Capture).String()
+			if fact.Boundary != nil {
+				b := *fact.Boundary
+				b.CaptureID = id
+				fact.Boundary = &b
+			}
+			if fact.Coverage != nil {
+				c := *fact.Coverage
+				c.CaptureID = &id
+				fact.Coverage = &c
+			}
+		}
+		gaps = append(gaps, fact)
+	}
+	conflicts := make([]ConflictEntry, 0, len(w.Conflicts))
+	for _, c := range w.Conflicts {
+		conflicts = append(conflicts, ConflictEntry{CaptureID: captureOf(seed, c.Capture).String(), Seq: U64(c.Seq), Versions: nonNil(c.Versions)})
+	}
+	e.Records, e.Gaps, e.Searched, e.Conflicts, e.FooterErrors = &records, &gaps, &searched, &conflicts, &footer
+
+	return e
 }
 
 // check compares w with got, the read of reads.json of its id, whose packs have the layouts layouts, by number,

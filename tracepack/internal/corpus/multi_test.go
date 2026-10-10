@@ -129,6 +129,9 @@ func TestMultiRecipesAreChecked(t *testing.T) {
 		{"multi-conflict-limit", "the conflicts in the order of capture_id and seq", func(e *Expectation) {
 			e.Reads[1].Conflicts = limitConflicts[1:]
 		}},
+		{"multi-conflict-limit", "the bound's conflicts out of discovery order", func(e *Expectation) {
+			e.Reads[1].Conflicts = []ConflictWant{limitConflicts[1], limitConflicts[0]}
+		}},
 		{"multi-walked-excluded", "no footer error", func(e *Expectation) { e.Reads[0].FooterErrors = nil }},
 		{"multi-unfinalized-beside-archive", "no footer error", func(e *Expectation) { e.Reads[0].FooterErrors = nil }},
 		{"multi-unfinalized-beside-archive", "no incomplete reason", func(e *Expectation) { e.Reads[1].Incomplete = nil }},
@@ -282,9 +285,29 @@ func TestMultiPackReadPath(t *testing.T) {
 		bad := edits(gen, edit)
 		require.Error(t, readCommitted(t.Context(), v, bad), name)
 	}
+
+	// A lookup's result and its inputs bind the read path too.
+	k = slices.IndexFunc(m.Vectors, func(v Vector) bool { return v.ID == "tx-candidate-selection" })
+	require.GreaterOrEqual(t, k, 0)
+	v = &m.Vectors[k]
+	require.NoError(t, readCommitted(t.Context(), v, gen))
+	const txDir = "tx-candidate-selection/"
+	for name, edit := range map[string]func(c map[string][]byte){
+		"a version's flag": func(c map[string][]byte) {
+			c[txDir+FileLookups] = bytes.Replace(c[txDir+FileLookups], []byte(`"valid": true`), []byte(`"valid": false`), 1)
+		},
+		"a lookup's source": func(c map[string][]byte) {
+			c[txDir+FileLookups] = bytes.Replace(c[txDir+FileLookups], []byte(`"complete": true`), []byte(`"complete": false`), 1)
+		},
+		"lookups.json missing": func(c map[string][]byte) { delete(c, txDir+FileLookups) },
+	} {
+		bad := edits(gen, edit)
+		require.Error(t, readCommitted(t.Context(), v, bad), name)
+	}
 }
 
-// multiRecipe returns a copy of the multi-pack recipe of id whose expectation can be edited without changing the recipe's.
+// multiRecipe returns a copy of the multi-pack recipe of id whose expectation can be edited without changing the recipe's:
+// its arrays of packs, reads and lookups, and the items of each read and the records, gaps and scopes of each lookup, are copies.
 func multiRecipe(t *testing.T, id string) Recipe {
 	t.Helper()
 
@@ -294,6 +317,11 @@ func multiRecipe(t *testing.T, id string) Recipe {
 	e.Reads = slices.Clone(e.Reads)
 	for i := range e.Reads {
 		e.Reads[i].Items = slices.Clone(e.Reads[i].Items)
+	}
+	e.Lookups = slices.Clone(e.Lookups)
+	for i := range e.Lookups {
+		l := &e.Lookups[i]
+		l.Records, l.Gaps, l.Searched = slices.Clone(l.Records), slices.Clone(l.Gaps), slices.Clone(l.Searched)
 	}
 	r.Expect = &e
 
@@ -337,7 +365,7 @@ func TestReversedPacksKeepConflicts(t *testing.T) {
 		if len(reads) == 0 {
 			continue
 		}
-		out, err := readMultiVector(t.Context(), packs, reads)
+		out, err := readMultiVector(t.Context(), packs, reads, nil)
 		require.NoError(t, err, r.ID)
 		byID := make(map[string]*ReadExpect, len(out.reads))
 		for i := range out.reads {
@@ -369,7 +397,7 @@ func TestReversedPacksKeepConflicts(t *testing.T) {
 	built, err := r.Build(r.seed())
 	require.NoError(t, err)
 	out, err := readMultiVector(t.Context(), [][]byte{built.Packs[0].Bytes, built.Packs[1].Bytes},
-		[]ReadSpec{{ID: "reversed", Cites: readCites, Packs: []int{1, 0}, Order: ReadOrderCapture}})
+		[]ReadSpec{{ID: "reversed", Cites: readCites, Packs: []int{1, 0}, Order: ReadOrderCapture}}, nil)
 	require.NoError(t, err)
 	require.Equal(t, []ReadItem{{Seq: 1, Pack: 1}, {Seq: 2, Pack: 1, Conflict: true}, {Seq: 2, Pack: 0, Conflict: true}, {Seq: 3, Pack: 1}},
 		*out.reads[0].Expect.Items)

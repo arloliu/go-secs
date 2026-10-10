@@ -571,6 +571,9 @@ func (l *LookupVector) normalResult(e *LookupExpect) error {
 	if err := l.checkScopes(*e.Searched, *e.Conflicts, *e.FooterErrors); err != nil {
 		return err
 	}
+	if err := l.checkSchedule(gaps, *e.Searched); err != nil {
+		return err
+	}
 	e.Records, e.Gaps = &records, &gaps
 
 	return nil
@@ -668,6 +671,30 @@ func (l *LookupVector) checkScopes(searched []SearchedScope, conflicts []Conflic
 	for i := range footer {
 		if !ofScopeSearched(&footer[i], searched) || i > 0 && compareFooterErrors(&footer[i-1], &footer[i], searched) >= 0 {
 			return fmt.Errorf("the footer error of pack %d in hour %d names no pack of a scope searched, or is out of order", footer[i].Pack, footer[i].Hour)
+		}
+	}
+
+	return nil
+}
+
+// checkSchedule checks that a result's scopes searched lie in the hours scheduled, key.hour and the max_scopes - 1 after it,
+// and, unless the result is an early return, that each hour scheduled is searched or has a conflicted fact:
+// such a lookup reads every hour scheduled but a conflicted one (the tracepack semantics specification §7.2, Scopes read).
+func (l *LookupVector) checkSchedule(gaps []Fact, searched []SearchedScope) error {
+	first, last := l.Key.Hour, l.Key.Hour+I64(l.MaxScopes)-1
+	for _, s := range searched {
+		if s.Hour < first || s.Hour > last {
+			return fmt.Errorf("searched hour %d is not scheduled", s.Hour)
+		}
+	}
+	if earlyReturn(gaps, l.Key.Seq) {
+		return nil
+	}
+	for h := first; h <= last; h++ {
+		read := slices.ContainsFunc(searched, func(s SearchedScope) bool { return s.Hour == h })
+		conflicted := slices.ContainsFunc(gaps, func(f Fact) bool { return f.Reason == FactConflicted && slices.Equal(f.Hours, []I64{h}) })
+		if !read && !conflicted {
+			return fmt.Errorf("scheduled hour %d is neither searched nor conflicted", h)
 		}
 	}
 

@@ -47,6 +47,7 @@ var groups = []func() []Recipe{
 	sampleVectors,
 	multiVectors,
 	semVectors,
+	txVectors,
 	validationVectors,
 	verifyVectors,
 }
@@ -83,7 +84,7 @@ type Recipe struct {
 }
 
 // Built is what a recipe's Build makes: the pack and the inputs of the vector's optional files,
-// or, for a multi-pack vector, its packs and the inputs of its reads.
+// or, for a multi-pack vector, its packs and the inputs of its reads and lookups.
 type Built struct {
 	// Pack is pack.tpk; nil for a multi-pack vector.
 	Pack []byte
@@ -103,6 +104,14 @@ type Built struct {
 	// Reads are the reads over several packs of reads.json, without their results, which the reads give;
 	// only a multi-pack vector has them.
 	Reads []ReadSpec
+	// Lookups are the transaction lookups of lookups.json, without their results, which the lookups give;
+	// only a multi-pack vector has them.
+	Lookups []LookupSpec
+}
+
+// multiPack reports whether b has any part only a multi-pack vector has: packs, reads or lookups.
+func (b *Built) multiPack() bool {
+	return b.Packs != nil || b.Reads != nil || b.Lookups != nil
 }
 
 // PackBuilt is one pack of a multi-pack vector.
@@ -123,6 +132,17 @@ type ReadSpec struct {
 	// MaxConflicts is the conflict bound the read states; 0 for none.
 	MaxConflicts int
 	Filter       Filter
+}
+
+// LookupSpec is a transaction lookup of lookups.json without its expect (the tracepack corpus specification §5.11).
+type LookupSpec struct {
+	ID    string
+	Cites []string
+	// Source names the source packs by number: the view, in the order that decides each scope's view order, and the evidence.
+	Source LookupSource
+	// Key names the primary, its capture_id that of a capture of the vector (captureOf).
+	Key       LookupKey
+	MaxScopes int
 }
 
 // QuerySpec is a query vector of queries.json without its expect.
@@ -169,7 +189,7 @@ const (
 
 // Expectation is a vector's expectation, written by hand from the specification.
 // The generator checks every field against its reads of the vector before it writes anything.
-// A multi-pack vector's expectation holds only Packs and Reads.
+// A multi-pack vector's expectation holds only Packs, Reads and Lookups.
 type Expectation struct {
 	// Rejection is the bootstrap rejection code of a rejection vector.
 	Rejection string
@@ -220,6 +240,8 @@ type Expectation struct {
 	Packs []*Expectation
 	// Reads are the results of each read of Built.Reads, in the order of their ids.
 	Reads []ReadWant
+	// Lookups are the results of each lookup of Built.Lookups, in the order of their ids.
+	Lookups []LookupWant
 }
 
 // ReadWant is the result of the read over several packs of id, in the form of reads.json:
@@ -257,6 +279,33 @@ type ConflictWant struct {
 	Capture  int
 	Seq      uint64
 	Versions [][]int
+}
+
+// LookupWant is the result of the transaction lookup of id, in the form of lookups.json:
+// the error form when Error is set, nothing else expected;
+// else the result, every value of it, each array in its order, its captures by number (captureOf).
+type LookupWant struct {
+	ID string
+	// Error is ErrorNotPrimary for the error form; "" for the result.
+	Error   string
+	Outcome string
+	// Key is the primary's fields; nil when the lookup kept no version of the primary.
+	Key *PrimaryKey
+	// WindowEnd is the window's end; nil when no record read bounds the window.
+	WindowEnd    *uint64
+	Records      []LookupRecord
+	Gaps         []FactWant
+	Searched     []SearchedScope
+	Conflicts    []ConflictWant
+	FooterErrors []ScopeFooterError
+}
+
+// FactWant is a fact of a lookup's gaps whose boundary or coverage entry names a capture of the vector by number.
+type FactWant struct {
+	Fact
+	// Capture, when set, is the number of the capture of the fact's boundary and coverage entry (captureOf),
+	// whose capture_id the expectation leaves empty.
+	Capture *int
 }
 
 // CutWant is a row of truncation.json: the first cut length it covers and the expectation of its cuts,
@@ -382,6 +431,8 @@ type readOutputs struct {
 	packs []*readOutputs
 	// reads holds the reads over several packs of a multi-pack vector, by id.
 	reads []ReadVector
+	// lookups holds the transaction lookups of a multi-pack vector, by id.
+	lookups []LookupVector
 }
 
 // AtBlock names the envelope of block i.
@@ -609,8 +660,8 @@ func (rec *Recipe) check() error {
 		return errors.New("no Expect")
 	case rec.Class == ClassMultiPack:
 		return e.checkMulti()
-	case e.Packs != nil || e.Reads != nil:
-		return errors.New("only a multi-pack vector expects packs and reads")
+	case e.Packs != nil || e.Reads != nil || e.Lookups != nil:
+		return errors.New("only a multi-pack vector expects packs, reads and lookups")
 	case rec.Class == ClassRejection && (e.Rejection == "" || e.Outcome != 0):
 		return errors.New("a rejection vector expects a rejection code and nothing else")
 	case rec.Class != ClassRejection && (e.Rejection != "" || e.Outcome == 0 || e.PrefixEnd.kind == posNone):
@@ -639,8 +690,8 @@ func generateVector(ctx context.Context, rec *Recipe) (Vector, *readOutputs, err
 	if rec.Class == ClassMultiPack {
 		return generateMulti(ctx, rec, seed, built)
 	}
-	if built.Packs != nil || built.Reads != nil {
-		return Vector{}, nil, errors.New("only a multi-pack vector has packs and reads")
+	if built.multiPack() {
+		return Vector{}, nil, errors.New("only a multi-pack vector has packs, reads and lookups")
 	}
 
 	in := &readInputs{
