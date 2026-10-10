@@ -37,7 +37,11 @@ The two clauses of the format specification §16 that need several packs have th
   a `stop` of another epoch still bounds the window, but no longer hides a footer's `stop` claim of the primary's epoch at its seq,
   which is reported as a `TxGapCaptureBoundary` beside the contradiction.
   Only a footer that does not match its records reaches this case.
-- The `tx-index-mismatch` and `tx-closure-contradiction` corpus vectors gain lookups of both cases.
+- `FindTransaction` reads a scope's view a second time when its read yields one seq in two places,
+  as a block disagreeing with its F-2 entry beside another pack's block holding that seq does after the primary,
+  and keeps every version of that seq of which one version has a role, where it kept only that one.
+  The second read reports nothing again; a scope whose packs' index agrees with their blocks is still read once.
+- The `tx-index-mismatch` and `tx-closure-contradiction` corpus vectors gain lookups of these cases.
 
 ### Added
 

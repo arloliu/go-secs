@@ -879,3 +879,130 @@ func TestFindTransactionNotesBoundaryRecords(t *testing.T) {
 	}, l.boundaries)
 	assert.Equal(t, []string{"12@0 primary", "14@0 closing", "16@0 closing"}, recordSeqs(l.res.Records))
 }
+
+// TestFindTransactionRepeatedSeq reads scopes where a block whose F-2 entry understates its seqs yields a seq after the primary,
+// while another pack of the same scope yields that seq again, in another place of the read, uncompared.
+// A lookup keeps every version of a seq that one scope's read yielded once one of them plays a role
+// (the tracepack semantics specification §7.2), so the read reads the scope's view a second time
+// and keeps every version of each seq it yielded twice that qualifies, a role-less one too, in the order the read yields them.
+// The second pass reports nothing again; a scope whose read yields no seq twice is read once,
+// a damaged index alone or a seq yielded before and after the primary included.
+func TestFindTransactionRepeatedSeq(t *testing.T) {
+	t.Parallel()
+
+	note := func(seq uint64) Record { return txNote(seq, nil) }
+	tests := []struct {
+		name string
+		// hours holds the packs of the scopes memTestHour, memTestHour + 1, ….
+		hours   func(t testing.TB) [][][]byte
+		seq     uint64
+		window  *uint64
+		records []string
+		packs   []UUID
+		gaps    []string
+		// passes is the number of reads of a scope's view the lookup makes.
+		passes int
+	}{
+		{
+			name: "a role-less version first",
+			hours: func(t testing.TB) [][][]byte {
+				return [][][]byte{{txMisindexedAt(t, note(20)), txPack(t, seg1, nil, txBlock(note(15), txRecord(20, nil)))}}
+			},
+			seq: 10, window: new(uint64(20)),
+			records: []string{"10@0 primary", "20@0 none", "20@0 same-key-primary bound"},
+			packs:   []UUID{seg0, seg0, seg1}, gaps: []string{"index", "seq-gap@11"}, passes: 2,
+		},
+		{
+			name: "a role-less version second",
+			hours: func(t testing.TB) [][][]byte {
+				return [][][]byte{{txMisindexedAt(t, txRecord(20, nil)), txPack(t, seg1, nil, txBlock(note(15), note(20)))}}
+			},
+			seq: 10, window: new(uint64(20)),
+			records: []string{"10@0 primary", "20@0 same-key-primary bound", "20@0 none"},
+			packs:   []UUID{seg0, seg0, seg1}, gaps: []string{"index", "seq-gap@11"}, passes: 2,
+		},
+		{
+			name: "several repeated seqs",
+			hours: func(t testing.TB) [][][]byte {
+				return [][][]byte{{
+					txMisindexedAt(t, note(20), txRecord(21, nil)), txPack(t, seg1, nil, txBlock(note(15), txReply(20, nil), note(21))),
+				}}
+			},
+			seq: 10, window: new(uint64(21)),
+			records: []string{
+				"10@0 primary", "20@0 none in", "20@0 candidate in eligible decidable valid", "21@0 same-key-primary bound", "21@0 none",
+			},
+			packs: []UUID{seg0, seg0, seg1, seg0, seg1}, gaps: []string{"index", "seq-gap@11"}, passes: 2,
+		},
+		{
+			name: "a repeated seq in a later scope",
+			hours: func(t testing.TB) [][][]byte {
+				return [][][]byte{
+					{txPack(t, seg2, nil, txBlock(txRecord(10, nil), note(11)))},
+					{
+						txUnderstated(t, txPackIn(t, seg0, 1, nil, txBlock(note(30), note(40))), 31),
+						txPackIn(t, seg1, 1, nil, txBlock(note(35), txRecord(40, nil))),
+					},
+				}
+			},
+			seq: 10, window: new(uint64(40)),
+			records: []string{"10@0 primary", "40@1 none", "40@1 same-key-primary bound"},
+			packs:   []UUID{seg2, seg0, seg1}, gaps: []string{"index", "seq-gap@12"}, passes: 3,
+		},
+		{
+			name: "packs whose index agrees with their blocks",
+			hours: func(t testing.TB) [][][]byte {
+				return [][][]byte{{txPack(t, seg0, nil, txBlock(txRecord(10, nil), note(11))), txPack(t, seg1, nil, txBlock(note(11), txRecord(12, nil)))}}
+			},
+			seq: 10, window: new(uint64(12)),
+			records: []string{"10@0 primary", "12@0 same-key-primary bound"},
+			packs:   []UUID{seg0, seg1}, gaps: []string{}, passes: 1,
+		},
+		{
+			name: "a damaged index that yields no seq twice",
+			hours: func(t testing.TB) [][][]byte {
+				return [][][]byte{{txMisindexedAt(t, note(20)), txPack(t, seg1, nil, txBlock(note(15), txRecord(21, nil)))}}
+			},
+			seq: 10, window: new(uint64(21)),
+			records: []string{"10@0 primary", "21@0 same-key-primary bound"},
+			packs:   []UUID{seg0, seg1}, gaps: []string{"index", "seq-gap@11"}, passes: 1,
+		},
+		{
+			name: "a seq yielded before and after the primary",
+			hours: func(t testing.TB) [][][]byte {
+				return [][][]byte{{txMisindexedAt(t, note(18)), txPack(t, seg1, nil, txBlock(txRecord(15, nil), txRecord(18, nil)))}}
+			},
+			seq: 15, window: new(uint64(18)),
+			records: []string{"15@0 primary", "18@0 none", "18@0 same-key-primary bound"},
+			packs:   []UUID{seg1, seg0, seg1}, gaps: []string{"index", "index@15", "seq-gap@16"}, passes: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			hours := tt.hours(t)
+			var lk *txLookup
+			res, err := findTransactionWith(t.Context(), txHours(t, hours...), txKeyAt(tt.seq), TxOptions{MaxScopes: len(hours)},
+				func(l *txLookup) { lk = l })
+			require.NoError(t, err)
+			requireStateRecount(t, lk)
+			if len(tt.gaps) > 0 {
+				assert.Equal(t, TxIncomplete, res.Outcome)
+			} else {
+				assert.Equal(t, TxUnmatched, res.Outcome)
+			}
+			assert.Equal(t, tt.window, res.WindowEnd)
+			assert.Equal(t, tt.records, recordFlags(res.Records))
+			packs := make([]UUID, 0, len(res.Records))
+			for _, r := range res.Records {
+				packs = append(packs, r.Pack)
+			}
+			assert.Equal(t, tt.packs, packs)
+			assert.Equal(t, tt.gaps, gapSeqs(res.Gaps))
+			assert.Empty(t, res.FooterErrs)
+			assert.Len(t, res.Searched, len(hours), "each scope searched once")
+			assert.Equal(t, tt.passes, lk.passes, "the reads of the scopes' views")
+		})
+	}
+}

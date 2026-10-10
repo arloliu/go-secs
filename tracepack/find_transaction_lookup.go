@@ -54,6 +54,8 @@ type txLookup struct {
 	ticks ctxCounter
 	// rs is the lookup's retention state over opts.Retention, covering the primary's hour alone.
 	rs retentionState
+	// passes counts the reads of a scope's view: one for each scope read, and one more for each that reads its view again.
+	passes int
 	// onTick, set only by tests, runs at each check of ctx that tick makes, before it.
 	onTick func()
 	// skipSeqGap, trustClosures, readConflicted, breachComplete and breachFromPrimary, set only by tests,
@@ -92,6 +94,10 @@ type txScopeRead struct {
 	// kept holds the versions the read kept, and gaps the conflicts it found, until they are added to the result.
 	kept []TxRecord
 	gaps []txPendingGap
+	// repeats holds the seqs above the primary's that the read yielded in two places (beginGroup),
+	// and reread the versions of those seqs that its second pass over the view yields (rereadRepeats).
+	repeats txRuns
+	reread  []TxRecord
 }
 
 // txCoverage is a coverage entry of a pack a transaction lookup read.
@@ -173,7 +179,8 @@ func (l *txLookup) run(ctx context.Context) error {
 
 // readScope reads the scope of hour with one MergeIterate in capture order, a zero filter and payloads,
 // passing each item to fn with the read;
-// it then ends the read's last seq group and adds the read's status to the result (mapScope), also after the read failed.
+// it then ends the read's last seq group, reads the view a second time when the read yielded a seq in two places (rereadRepeats),
+// and adds the read's status to the result (mapScope), also after the read failed.
 // The conflicts of the read are reserved against the lookup's MaxConflicts,
 // and the scope, with a pack_id for each pack of its view, is charged against MaxStateBytes before its pack_ids are taken;
 // each reader counts toward the checks of ctx (tick).
@@ -231,6 +238,7 @@ func (l *txLookup) readScope(ctx context.Context, hour int64,
 		}
 	}
 	l.reads = append(l.reads, rd)
+	l.passes++
 	rd.res, err = mergeIterateWith(ctx, sc.Readers, Query{Payloads: true, Retention: l.opts.Retention},
 		MergeIterateOptions{Order: OrderCapture, MaxHeldBytes: l.opts.MaxHeldBytes},
 		mergeIterateOptions{reserveConflict: l.reserveConflict, storedFlags: &l.flags},
@@ -238,6 +246,9 @@ func (l *txLookup) readScope(ctx context.Context, hour int64,
 	gerr := l.endGroup(ctx, rd)
 	if err == nil {
 		err = gerr
+	}
+	if err == nil && len(rd.repeats.runs) > 0 && l.prim.keyed {
+		err = l.rereadRepeats(ctx, rd)
 	}
 	// The read's own error comes first; the mapping stops at its first error, so that the state stays within its budget.
 	if merr := l.mapScope(ctx, rd, err == nil); err == nil {

@@ -3217,6 +3217,10 @@
         "pack-6.verify.json",
         "pack-7.tpk",
         "pack-7.verify.json",
+        "pack-8.tpk",
+        "pack-8.verify.json",
+        "pack-9.tpk",
+        "pack-9.verify.json",
         "lookups.json"
       ]
     },

@@ -450,7 +450,7 @@ func seenAt(rd *txScopeRead, it *Item) txSeen {
 }
 
 // beginGroup starts the seq group of it, the first version of its seq in this stretch of the read rd:
-// the seq enters the read's run set;
+// a seq the read already yielded in an earlier stretch is noted as repeated (noteRepeat); the seq enters the read's run set;
 // a version marked as a conflict within the read adds a TxGapConflict gap (localConflict);
 // and, in a later scope, a seq that an earlier read yielded is a conflict across scope reads (crossConflict).
 //
@@ -458,6 +458,9 @@ func seenAt(rd *txScopeRead, it *Item) txSeen {
 //   - error: the error of the conflict reservation; the error of a charge, wrapping ErrReadLimit; ctx's error, as is.
 func (l *txLookup) beginGroup(ctx context.Context, rd *txScopeRead, it *Item) error {
 	seq := it.Record.Seq
+	if err := l.noteRepeat(rd, seq); err != nil {
+		return err
+	}
 	if err := rd.runs.insert(seq, &l.state); err != nil {
 		return err
 	}
@@ -470,6 +473,149 @@ func (l *txLookup) beginGroup(ctx context.Context, rd *txScopeRead, it *Item) er
 	}
 
 	return l.crossConflict(ctx, rd, seq)
+}
+
+// noteRepeat notes seq, which begins a stretch of the read rd, as repeated when the read already yielded it in an earlier stretch,
+// which only a block disagreeing with its F-2 entry beside another block holding seq brings about
+// (the tracepack semantics specification §7.4, Scope of the guarantees),
+// charging its run before it is added.
+// In scope key.Hour, the primary's seq and a seq yielded before the primary are not noted:
+// the primary's versions are all kept, and the versions of a seq yielded before it are kept or released together (keepEarly).
+// Seqs in ascending order, as a read of packs whose index agrees with their blocks yields them, cost no look-up.
+//
+// Returns:
+//   - error: the charge's error, wrapping ErrReadLimit.
+func (l *txLookup) noteRepeat(rd *txScopeRead, seq uint64) error {
+	runs := rd.runs.runs
+	if len(runs) == 0 || seq > runs[len(runs)-1].last || !rd.runs.contains(seq) {
+		return nil
+	}
+	if rd.hour == l.key.Hour && (seq == l.key.Seq || len(l.primary) == 0 || l.earlySeqs.contains(seq)) {
+		return nil
+	}
+
+	return rd.repeats.insert(seq, &l.state)
+}
+
+// rereadRepeats reads the view of the read rd a second time, over the same readers in the same order, with the same query,
+// to keep every version of each seq the first pass yielded in two places of which one version plays a role,
+// since a lookup keeps with a record that plays a role every other version of its seq that the same scope's read yielded,
+// and the first pass decided each stretch on its own (the tracepack semantics specification §7.2, Scopes read).
+// The versions of those seqs the first pass kept are dropped, their charge released, and the second pass yields them all again;
+// it classifies each, notes no boundary, and reports nothing: its conflicts, defects and footer errors are the first pass's.
+// Each version is cloned and charged before it is buffered, and each item counts toward the checks of ctx (tick).
+//
+// Returns:
+//   - error: ctx's error, as is; the error of the second pass's MergeIterate; the error of a charge, wrapping ErrReadLimit;
+//     what is not yet kept or released stays charged in rd.
+func (l *txLookup) rereadRepeats(ctx context.Context, rd *txScopeRead) error {
+	if err := l.dropRepeated(ctx, rd); err != nil {
+		return err
+	}
+	l.passes++
+	_, err := mergeIterateWith(ctx, rd.readers, Query{Payloads: true, Retention: l.opts.Retention},
+		MergeIterateOptions{Order: OrderCapture, MaxHeldBytes: l.opts.MaxHeldBytes},
+		// The conflicts are the first pass's, reserved once.
+		mergeIterateOptions{reserveConflict: func() error { return nil }},
+		func(it *Item) error { return l.collectRepeat(ctx, rd, it) })
+	if err != nil {
+		return err
+	}
+
+	return l.keepRepeated(ctx, rd)
+}
+
+// dropRepeated drops from the versions the read rd kept those of its repeated seqs, releasing their charge,
+// each version counting toward the checks of ctx (tick).
+//
+// Returns:
+//   - error: ctx's error, as is; the versions not yet looked at stay kept.
+func (l *txLookup) dropRepeated(ctx context.Context, rd *txScopeRead) error {
+	w := 0
+	for i := range rd.kept {
+		if err := l.tick(ctx); err != nil {
+			n := copy(rd.kept[w:], rd.kept[i:])
+			clear(rd.kept[w+n:])
+			rd.kept = rd.kept[:w+n]
+
+			return err
+		}
+		v := &rd.kept[i]
+		if rd.repeats.contains(v.Record.Seq) {
+			l.state.release(versionCost(&v.Record, v.HeaderExtra))
+			continue
+		}
+		rd.kept[w] = *v
+		w++
+	}
+	clear(rd.kept[w:])
+	rd.kept = rd.kept[:w]
+
+	return nil
+}
+
+// collectRepeat takes an item of the second pass of the read rd: a version of a repeated seq is classified,
+// a version of the primary as TxPrimary, cloned and buffered; any other item is passed over.
+// Each item counts toward the checks of ctx (tick).
+//
+// Returns:
+//   - error: ctx's error, as is; the clone's charge's error, wrapping ErrReadLimit.
+func (l *txLookup) collectRepeat(ctx context.Context, rd *txScopeRead, it *Item) error {
+	if err := l.tick(ctx); err != nil {
+		return err
+	}
+	seq := it.Record.Seq
+	if seq < l.key.Seq || !rd.repeats.contains(seq) {
+		return nil
+	}
+	class := TxPrimary
+	if seq != l.key.Seq {
+		class, _ = l.prim.classify(&it.Record)
+	}
+	v, err := l.cloneVersion(rd, it, class)
+	if err != nil {
+		return err
+	}
+	rd.reread = append(rd.reread, v)
+
+	return nil
+}
+
+// keepRepeated keeps, in rd, every version the second pass of the read rd yielded of a repeated seq of which one version plays a role,
+// in the order yielded, and releases the charge of every other one, then the charge of the repeated seqs' runs.
+// Each version counts toward the checks of ctx (tick) once as its seq is looked at, and once as it is kept or released.
+//
+// Returns:
+//   - error: ctx's error, as is; the versions not yet kept or released stay buffered with their charge.
+func (l *txLookup) keepRepeated(ctx context.Context, rd *txScopeRead) error {
+	// The seqs of which a version plays a role; at most one entry for each version charged.
+	qualified := make(map[uint64]struct{})
+	for i := range rd.reread {
+		if err := l.tick(ctx); err != nil {
+			return err
+		}
+		if rd.reread[i].Class != 0 {
+			qualified[rd.reread[i].Record.Seq] = struct{}{}
+		}
+	}
+	for len(rd.reread) > 0 {
+		if err := l.tick(ctx); err != nil {
+			return err
+		}
+		v := &rd.reread[0]
+		if _, ok := qualified[v.Record.Seq]; ok {
+			rd.kept = append(rd.kept, *v)
+		} else {
+			l.state.release(versionCost(&v.Record, v.HeaderExtra))
+		}
+		*v = TxRecord{}
+		rd.reread = rd.reread[1:]
+	}
+	rd.reread = nil
+	l.state.release(int64(len(rd.repeats.runs)) * txRunCharge)
+	rd.repeats = txRuns{}
+
+	return nil
 }
 
 // localConflict adds a TxGapConflict gap for the seq group of the read rd when it, a version of the group,

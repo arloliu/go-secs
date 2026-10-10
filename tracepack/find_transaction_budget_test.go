@@ -35,7 +35,8 @@ func txTinyReply(seq uint64, dt int64) Record {
 }
 
 // txStateRecount returns the charge of the state of the lookup l, recounted from that state alone:
-// each scope read (its view's packs, its runs, the versions it buffers or kept and the conflict gaps it holds),
+// each scope read (its view's packs, its runs, the versions it buffers or kept and the conflict gaps it holds,
+// its repeated seqs' runs and the versions its second pass buffers),
 // the primary's versions and every other record in the result, the conflicts across scope reads with their hours,
 // every gap (a gap of a conflict across scope reads without its Hours, which are the conflict's),
 // the coverage entries, the footer errors, the listed conflicts, the ordering-uncertain epochs, the capture-boundary records,
@@ -61,6 +62,8 @@ func txStateRecount(l *txLookup) int64 {
 		n += scopeCost(len(rd.packs)) + int64(len(rd.runs.runs))*txRunCharge
 		versions(rd.group.versions)
 		versions(rd.kept)
+		versions(rd.reread)
+		n += int64(len(rd.repeats.runs)) * txRunCharge
 		for i := range rd.gaps {
 			n += gapCost(&rd.gaps[i].gap)
 		}
@@ -840,6 +843,95 @@ func TestFindTransactionCancelEarlyVersions(t *testing.T) {
 			require.NotNil(t, lk)
 			assert.Len(t, lk.earlyVersions, tt.buffered)
 			assert.Len(t, lk.laterVersions, tt.later)
+			requireStateRecount(t, lk)
+		})
+	}
+}
+
+// TestFindTransactionStateBudgetReread charges each version the second pass over a scope's view recovers:
+// seg0's misindexed block yields a large annotation at 20 after the primary at 10, and seg1 a same-key primary at 20 later,
+// so the read yields 20 in two places and reads the view again, keeping the annotation beside the same-key primary.
+// The lookup fits in MaxStateBytes equal to its final charge, which holds the annotation, and fails with ErrReadLimit with one byte less.
+func TestFindTransactionStateBudgetReread(t *testing.T) {
+	t.Parallel()
+
+	big := txNote(20, bytes.Repeat([]byte{1}, 40_000))
+	run := func(t *testing.T, limit int64) (TxResult, *txLookup, error) {
+		t.Helper()
+
+		var l *txLookup
+		s := txSource(t, true, txMisindexedAt(t, big), txPack(t, seg1, nil, txBlock(txNote(15, nil), txRecord(20, nil))))
+		res, err := findTransactionWith(t.Context(), s, txKeyAt(10), TxOptions{MaxScopes: 1, MaxStateBytes: limit},
+			func(lk *txLookup) { l = lk })
+		require.NotNil(t, l)
+		requireStateRecount(t, l)
+
+		return res, l, err
+	}
+
+	res, l, err := run(t, DefaultTxMaxStateBytes)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"10@0 primary", "20@0 none", "20@0 same-key-primary"}, recordSeqs(res.Records))
+	assert.Equal(t, 2, l.passes)
+	limit := l.state.used
+	require.Greater(t, limit, versionCost(&big, nil), "the annotation is held")
+
+	_, _, err = run(t, limit)
+	require.NoError(t, err, "MaxStateBytes %d fits", limit)
+	_, _, err = run(t, limit-1)
+	require.ErrorIs(t, err, ErrReadLimit, "MaxStateBytes %d", limit-1)
+}
+
+// TestFindTransactionCancelReread cancels a lookup during the second pass over a scope's view that yields 20 in two places,
+// an annotation in seg0's misindexed block and a same-key primary in seg1:
+// while the versions of 20 the first pass kept are dropped, while the second pass reads, and while its versions are kept or released.
+// What is not yet dropped, kept or released keeps its charge, so the state is still as recounted, and the result has no outcome.
+func TestFindTransactionCancelReread(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// caller and nth name the check of ctx that cancels it: the nth that caller makes.
+		caller string
+		nth    int
+		// kept and reread are the versions left kept in the read and buffered by its second pass.
+		kept, reread int
+	}{
+		{name: "while dropping the versions kept", caller: "dropRepeated", nth: 1, kept: 1},
+		// The second pass yields 10, 20, 15 and 20: the first 20 is buffered before the check of the third item.
+		{name: "during the second pass", caller: "collectRepeat", nth: 3, reread: 1},
+		// keepRepeated checks ctx once for each of the two versions, then before keeping or releasing each.
+		{name: "while keeping or releasing", caller: "keepRepeated", nth: 4, kept: 1, reread: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := txSource(t, true, txMisindexedAt(t, txNote(20, nil)), txPack(t, seg1, nil, txBlock(txNote(15, nil), txRecord(20, nil))))
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			var lk *txLookup
+			calls := map[string]int{}
+			res, err := findTransactionWith(ctx, s, txKeyAt(10), TxOptions{MaxScopes: 1}, func(l *txLookup) {
+				lk = l
+				l.ticks.step = 1
+				l.onTick = func() {
+					caller := tickCaller()
+					if calls[caller]++; caller == tt.caller && calls[caller] == tt.nth {
+						cancel()
+					}
+				}
+			})
+			require.ErrorIs(t, err, context.Canceled)
+			assert.Zero(t, res.Outcome)
+			assert.Empty(t, res.Records, "the read is not committed")
+			assert.Empty(t, res.Searched, "a read that ends early is not searched")
+			require.NotNil(t, lk)
+			require.Len(t, lk.reads, 1)
+			rd := lk.reads[0]
+			assert.Len(t, rd.kept, tt.kept)
+			assert.Len(t, rd.reread, tt.reread)
+			assert.NotEmpty(t, rd.repeats.runs, "the repeated seq stays charged")
 			requireStateRecount(t, lk)
 		})
 	}

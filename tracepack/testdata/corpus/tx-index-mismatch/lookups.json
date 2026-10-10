@@ -414,5 +414,116 @@
       "conflicts": [],
       "footer_errors": []
     }
+  },
+  {
+    "id": "repeated-after-primary",
+    "cites": [
+      "SEM §7.2",
+      "CORPUS §5.11"
+    ],
+    "source": {
+      "view": [
+        8,
+        9
+      ],
+      "evidence": [],
+      "complete": true
+    },
+    "key": {
+      "capture_id": "01a0ffeb-3600-7b7f-b5fe-12845fc96938",
+      "seq": "1",
+      "hour": "497500"
+    },
+    "max_scopes": 1,
+    "expect": {
+      "outcome": "incomplete",
+      "key": {
+        "epoch": 1,
+        "dir": "host-to-equipment",
+        "session_id": 1,
+        "system_bytes": "AAAA5g==",
+        "stream": 1,
+        "function": 1,
+        "w": true
+      },
+      "window_end": "6",
+      "records": [
+        {
+          "seq": "1",
+          "hour": "497500",
+          "pack": 8,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "primary"
+          ],
+          "in_window": false,
+          "bound": false
+        },
+        {
+          "seq": "4",
+          "hour": "497500",
+          "pack": 9,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "candidate"
+          ],
+          "in_window": true,
+          "bound": false,
+          "decidable": true,
+          "eligible": true,
+          "valid": true
+        },
+        {
+          "seq": "6",
+          "hour": "497500",
+          "pack": 8,
+          "block": 0,
+          "conflict": false,
+          "roles": [],
+          "in_window": false,
+          "bound": false
+        },
+        {
+          "seq": "6",
+          "hour": "497500",
+          "pack": 9,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "same-key-primary"
+          ],
+          "in_window": false,
+          "bound": true
+        }
+      ],
+      "gaps": [
+        {
+          "reason": "index",
+          "hours": [
+            "497500"
+          ],
+          "pack": 8,
+          "block": 0,
+          "offset": "307"
+        },
+        {
+          "reason": "seq-gap"
+        }
+      ],
+      "searched": [
+        {
+          "hour": "497500",
+          "indexed": true,
+          "packs": [
+            8,
+            9
+          ]
+        }
+      ],
+      "conflicts": [],
+      "footer_errors": []
+    }
   }
 ]

@@ -116,6 +116,10 @@ func txConflictVectors() []Recipe {
 			// A lookup keeps with a record that plays a role every other version of its seq that the same scope's read yielded,
 			// so pack 6's annotation at 6 is kept beside pack 7's candidate, and pack 7's annotation at 7 beside pack 6's same-key primary,
 			// each seq's versions in the order the read yielded them (the tracepack semantics specification §7.2, Identity across the scopes read).
+			// Pack 8's block states seqs 1 and 2 while it holds the primary at 1 and an annotation at 6,
+			// so the read yields 6 there, after the primary, and again from pack 9, a same-key primary, in another place:
+			// a read that yields a seq in two places still keeps every version of it once one plays a role,
+			// so pack 8's annotation is kept beside the bound (the tracepack semantics specification §7.2, Scopes read).
 			Expect: &Expectation{
 				Packs: []*Expectation{
 					disagreeingPack(finalizedPack(1, 3), 0),
@@ -123,6 +127,7 @@ func txConflictVectors() []Recipe {
 					disagreeingPack(packOf(1, 1, 5), 0),
 					withStats(packOf(1, 3, 4, 6, 7), []EpochWant{closedAt(1, 7)}), withStats(packOf(1, 5), []EpochWant{closedAt(1, 5)}),
 					disagreeingPack(packOf(1, 1, 6, 7), 0), packOf(1, 4, 5, 6, 7),
+					disagreeingPack(packOf(1, 1, 6), 0), packOf(1, 3, 4, 6),
 				},
 				Lookups: []LookupWant{
 					{
@@ -169,6 +174,18 @@ func txConflictVectors() []Recipe {
 							Fact: Fact{Reason: FactIndex, Hours: []I64{I64(txHour)}, Pack: new(0), Block: new(0)}, At: AtBlock(0),
 						}},
 						Searched: txSearched(),
+					},
+					{
+						ID: "repeated-after-primary", Outcome: "incomplete", Key: txPrimaryKey(1, indexRepeatSystemBytes), WindowEnd: new(uint64(6)),
+						Records: []LookupRecord{
+							txAt(txKept(1, false, false, RolePrimary), 0, 8), txAt(txCandidate(4, true), 0, 9),
+							txAt(txKept(6, false, false), 0, 8), txAt(txKept(6, false, true, RoleSameKeyPrimary), 0, 9),
+						},
+						Gaps: []FactWant{
+							{Fact: Fact{Reason: FactIndex, Hours: []I64{I64(txHour)}, Pack: new(8), Block: new(0)}, At: AtBlock(0)},
+							{Fact: Fact{Reason: FactSeqGap}},
+						},
+						Searched: []SearchedScope{{Hour: I64(txHour), Indexed: true, Packs: []int{8, 9}}},
 					},
 				},
 			},
@@ -317,14 +334,17 @@ const (
 	indexEarlySystemBytes uint32 = 0xE3
 	indexClaimSystemBytes uint32 = 0xE4
 	indexSplitSystemBytes uint32 = 0xE5
+	// indexRepeatSystemBytes are the System Bytes of the transaction of capture E.
+	indexRepeatSystemBytes uint32 = 0xE6
 )
 
-// indexMismatchBuild builds tx-index-mismatch, eight segments, their quality evaluated, one block each, epoch 1,
-// the captures A, B, C and D numbered 0 to 3; a second segment of a capture's hour in its second minute:
+// indexMismatchBuild builds tx-index-mismatch, ten segments, their quality evaluated, one block each, epoch 1,
+// the captures A to E numbered 0 to 4; a second segment of a capture's hour in its second minute:
 // pack 0 of A in hour H: 1 S1F1 x, 2 S1F2 x, 3 a socket-close; then its footer edited (movedTSMax):
 // the block's F-2 ts_max, and F-5's ts_max with it, moved from the socket-close's time to indexTSMaxMs, later in hour H,
-// its seq range unchanged; packs 1 to 5 of B and C, as indexEarlyBlocks gives them, and packs 6 and 7 of D, as indexSplitBlocks does,
-// then the footers and trailers of packs 1 and 3 edited (understatedBlock) to state seqs 1 and 2, and pack 6's to state 1 to 3.
+// its seq range unchanged; packs 1 to 5 of B and C, as indexEarlyBlocks gives them, packs 6 and 7 of D, as indexSplitBlocks does,
+// and packs 8 and 9 of E, as indexRepeatBlocks does;
+// then the footers and trailers of packs 1, 3 and 8 edited (understatedBlock) to state seqs 1 and 2, and pack 6's to state 1 to 3.
 // It checks that 2 is a candidate of 1 and that the new ts_max lies after every record, in hour H.
 func indexMismatchBuild(seed string) (*Built, error) {
 	x := indexSystemBytes
@@ -348,6 +368,10 @@ func indexMismatchBuild(seed string) (*Built, error) {
 	if err != nil {
 		return nil, err
 	}
+	repeat, err := indexRepeatBlocks()
+	if err != nil {
+		return nil, err
+	}
 	packs, err := writeMultiPacks(seed, []multiPack{
 		{capture: 0, blocks: [][]tracepack.Record{records}, edit: qualityEvaluated},
 		{capture: 1, blocks: [][]tracepack.Record{blocks[0]}, edit: qualityEvaluated},
@@ -357,6 +381,8 @@ func indexMismatchBuild(seed string) (*Built, error) {
 		{capture: 2, hour: 1, blocks: [][]tracepack.Record{blocks[4]}, edit: qualityEvaluated},
 		{capture: 3, blocks: [][]tracepack.Record{split[0]}, edit: qualityEvaluated},
 		{capture: 3, minute: 1, blocks: [][]tracepack.Record{split[1]}, edit: qualityEvaluated},
+		{capture: 4, blocks: [][]tracepack.Record{repeat[0]}, edit: qualityEvaluated},
+		{capture: 4, minute: 1, blocks: [][]tracepack.Record{repeat[1]}, edit: qualityEvaluated},
 	})
 	if err != nil {
 		return nil, err
@@ -372,6 +398,9 @@ func indexMismatchBuild(seed string) (*Built, error) {
 	if packs[6].Bytes, err = understatedBlock(packs[6].Bytes, 1, 7, 3); err != nil {
 		return nil, fmt.Errorf("corpus: pack 6: %w", err)
 	}
+	if packs[8].Bytes, err = understatedBlock(packs[8].Bytes, 1, 6, 2); err != nil {
+		return nil, fmt.Errorf("corpus: pack 8: %w", err)
+	}
 	contradicted := txLookupIn(seed, "early-claim-contradicted", 2, 3, 3, 4)
 	contradicted.Source.Evidence = []int{5}
 
@@ -380,6 +409,7 @@ func indexMismatchBuild(seed string) (*Built, error) {
 		contradicted,
 		txLookupIn(seed, "early-same-key-primary", 1, 3, 1, 2),
 		txLookup(seed, "match-found", 1, 0),
+		txLookupIn(seed, "repeated-after-primary", 4, 1, 8, 9),
 	}}, nil
 }
 
@@ -551,6 +581,36 @@ func indexSplitBlocks() ([][]tracepack.Record, error) {
 	}
 
 	return [][]tracepack.Record{early, later}, nil
+}
+
+// indexRepeatBlocks returns the one block of each of tx-index-mismatch's packs 8 and 9, of E in hour H, epoch 1:
+// pack 8: 1 S1F1 v, 6 an annotation; pack 9, in the second minute: 3 an annotation, 4 S1F2 v, 6 S1F1 v.
+// It checks that pack 9's 4 is a candidate of pack 8's 1 and its 6 a same-key primary of it, and that pack 8's 6 is an annotation.
+func indexRepeatBlocks() ([][]tracepack.Record, error) {
+	v := indexRepeatSystemBytes
+	var err error
+	note := func(seq uint64) tracepack.Record {
+		var r tracepack.Record
+		if err == nil {
+			r, err = newNote(seq, "a version without a role of a seq read twice")
+		}
+
+		return r
+	}
+	first := []tracepack.Record{txPrimary(1, 1, v), note(6)}
+	second := []tracepack.Record{note(3), txReply(4, 1, 2, v), txPrimary(6, 1, v)}
+	switch {
+	case err != nil:
+		return nil, err
+	case !sameKey(&first[0], &second[1]) || second[1].Dir == first[0].Dir:
+		return nil, errors.New("corpus: pack 9's record at 4 is not a candidate of pack 8's 1")
+	case !sameKey(&first[0], &second[2]) || second[2].Dir != first[0].Dir:
+		return nil, errors.New("corpus: pack 9's record at 6 is not a same-key primary of pack 8's 1")
+	case first[1].Kind != tracepack.KindAnnotation:
+		return nil, errors.New("corpus: pack 8's 6 is not an annotation")
+	}
+
+	return [][]tracepack.Record{first, second}, nil
 }
 
 // txOutside returns txCandidate's candidate at seq after the window: decidable, neither in the window nor eligible, no valid match.
