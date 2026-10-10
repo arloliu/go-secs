@@ -17,6 +17,8 @@ type heldBudget struct {
 	limit int64
 	// held is the bytes reserved and not yet released; 0 ≤ held ≤ limit.
 	held int64
+	// peak is the most bytes held at once.
+	peak int64
 }
 
 // reserve reserves n more bytes.
@@ -26,13 +28,19 @@ type heldBudget struct {
 //   - error: nil, or an error wrapping ErrReadLimit, reserving nothing, when held + n would exceed the limit.
 func (b *heldBudget) reserve(n int64) error {
 	// held ≤ limit, so limit - held cannot overflow, while held + n could.
-	if n < 0 || n > b.limit-b.held {
+	if !b.fits(n) {
 		return fmt.Errorf("tracepack: holding %d bytes more beside the %d held exceeds MaxHeldBytes %d: %w",
 			n, b.held, b.limit, ErrReadLimit)
 	}
 	b.held += n
+	b.peak = max(b.peak, b.held)
 
 	return nil
+}
+
+// fits reports whether reserve would reserve n more bytes.
+func (b *heldBudget) fits(n int64) bool {
+	return n >= 0 && n <= b.limit-b.held
 }
 
 // release releases n bytes reserved before.
@@ -124,7 +132,11 @@ type heldBlock struct {
 // heldLoader reads blocks into held buffers, each reserved against budget before it is allocated.
 type heldLoader struct {
 	budget heldBudget
-	// readHook, set only by tests, receives every block the loader reads in full and its buffers, before the read:
+	// pf, when set, is the prefetch of the run, which load takes the blocks it read ahead from;
+	// nil reads each block on demand.
+	pf *prefetcher
+	// readHook, set only by tests, receives every block the loader loads in full and its buffers,
+	// before the read, or for a block the prefetch read ahead, before its decode:
 	// a block failing its preflight or its reservation is not read.
 	readHook func(pack, block int, buf *blockBuf)
 }
@@ -139,6 +151,9 @@ func (h *heldBlock) hold() {
 // It runs preflightBlock, reserves the block's buffer sizes against the budget,
 // allocates the buffers at exactly those capacities, decoded only once the decode needs it,
 // and reads the block with readBlock.
+// When the prefetch queued the block, the block takes over the queued reservation instead of reserving again,
+// and a block read ahead is checked and decoded from the bytes read, after waiting for that read.
+// After a load that returns no error, the prefetch admits the next blocks it can.
 // The read never grows a buffer past its capacity:
 // readBlock fills the buffers only to the sizes of the block's envelope,
 // and only after checking that the envelope agrees with the block's BlockInfo.
@@ -152,22 +167,44 @@ func (h *heldBlock) hold() {
 //     the ReadAt error, wrapped with the pack and block index, whatever it wraps.
 //     Nothing stays reserved for the block after a defect without a block or an error.
 func (l *heldLoader) load(r *Reader, pack, i int) (*heldBlock, *Defect, error) {
+	// A queued block failing its preflight holds no reservation, and fails it again below.
+	queued := l.pf.take(pack, i)
 	s, def := r.preflightBlock(i)
 	if def != nil {
 		def.Pack = pack
+		l.pf.fill()
 
 		return nil, def, nil
 	}
-	if err := l.budget.reserve(s.total); err != nil {
-		return nil, nil, fmt.Errorf("tracepack: pack %d, block %d: %w", pack, i, err)
+	if queued == nil {
+		if err := l.budget.reserve(s.total); err != nil {
+			return nil, nil, fmt.Errorf("tracepack: pack %d, block %d: %w", pack, i, err)
+		}
 	}
 
-	h := &heldBlock{pack: pack, block: i, buf: s.newBuf(), size: s.total, owners: 1}
+	h := &heldBlock{pack: pack, block: i, size: s.total, owners: 1}
+	// fetched is set for a block read ahead, whose read is waited for before its buffers are used.
+	fetched := queued != nil && queued.done != nil
+	if fetched {
+		<-queued.done
+		h.buf = s.bufFor(queued)
+	} else {
+		h.buf = s.newBuf()
+	}
 	if l.readHook != nil {
 		l.readHook(pack, i, h.buf)
 	}
 
-	d, def, err := r.readBlock(i, h.buf)
+	var d *decodedBlock
+	var err error
+	if fetched {
+		// preflightBlock checked the block against MaxBlockLen before it was read ahead.
+		if err = queued.err; err == nil {
+			d, def = r.checkAndDecode(i, h.buf)
+		}
+	} else {
+		d, def, err = r.readBlock(i, h.buf)
+	}
 	if def != nil {
 		def.Pack = pack
 	}
@@ -178,10 +215,12 @@ func (l *heldLoader) load(r *Reader, pack, i int) (*heldBlock, *Defect, error) {
 		return nil, nil, fmt.Errorf("tracepack: pack %d, block %d: %w", pack, i, err)
 	case d == nil:
 		l.drop(h)
+		l.pf.fill()
 
 		return nil, def, nil
 	}
 	h.d = d
+	l.pf.fill()
 
 	return h, def, nil
 }
@@ -195,10 +234,12 @@ func (l *heldLoader) drop(h *heldBlock) {
 	h.size = 0
 }
 
-// release drops one owner of h, and drops h once it has no owner left.
+// release drops one owner of h, and drops h once it has no owner left,
+// after which the prefetch admits the next blocks it can.
 func (l *heldLoader) release(h *heldBlock) {
 	h.owners--
 	if h.owners == 0 {
 		l.drop(h)
+		l.pf.fill()
 	}
 }

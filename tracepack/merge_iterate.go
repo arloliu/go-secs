@@ -34,6 +34,7 @@ type MergeIterateOptions struct {
 	// Order is the order the records are yielded in; it is required.
 	Order Order
 	// MaxHeldBytes bounds the bytes of the block buffers MergeIterate holds at once,
+	// those of the blocks it reads ahead included,
 	// reserved before each block is read;
 	// zero or negative means DefaultMaxHeldBytes.
 	// It does not bound the process heap:
@@ -128,6 +129,15 @@ var _ error = PackError{}
 // A reservation over the limit ends the read with ErrReadLimit.
 // It does not bound the process heap: the readers, the block descriptors and clusters MergeIterate builds before reading,
 // its queues, codec state and Result.Conflicts lie outside it.
+// In OrderTime, and in OrderCapture when at most one capture has a cluster to read,
+// MergeIterate reads up to 8 of the next blocks it will read ahead of the one it resolves, their ReadAt calls concurrent,
+// each admitted only when its whole reservation fits beside those held,
+// and never at the expense of a block the read needs:
+// a read ends with ErrReadLimit exactly where it would without reading ahead.
+// A block read ahead is checked, and its defect or ReadAt error reported, only when the read reaches it;
+// those the read never reaches are dropped with their errors.
+// Whatever its outcome, MergeIterate waits for its ReadAt calls in flight before it returns,
+// so none touches a Reader's io.ReaderAt after it returned.
 // A block over its Reader's ReaderOptions.MaxBlockLen, or whose stated dimensions cannot be consistent, is a defect and is not read;
 // a block that fails a check of its read is a defect too.
 // Neither contributes records, and the cluster's other blocks resolve its seqs.

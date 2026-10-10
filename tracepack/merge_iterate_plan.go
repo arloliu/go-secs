@@ -64,6 +64,8 @@ type mergeIteratePlan struct {
 	// zero keeps them.
 	copiesStep int
 	yieldStep  int
+	// noPrefetch, set only by tests, turns the run's prefetch off, so the run reads each block only when it demands it.
+	noPrefetch bool
 }
 
 // checkMergeIterate validates the arguments of MergeIterate before anything is read
