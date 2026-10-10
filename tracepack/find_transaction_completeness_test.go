@@ -373,8 +373,9 @@ func TestFindTransactionBarriersError(t *testing.T) {
 // a boundary both recorded and read listed once,
 // except the clean stop of the epoch that bounds the window;
 // a stop of the epoch after the window's end is one,
-// and so is a recorded stop at the window's end that a same-key primary bounds,
+// and so is a recorded stop at the window's end that a same-key primary or a clean stop of another epoch bounds,
 // whose claim the record contradicts;
+// a recorded stop at the window's end that the clean stop of the epoch bounds is none;
 // a boundary of another epoch is none.
 func TestFindTransactionCaptureBoundaries(t *testing.T) {
 	t.Parallel()
@@ -406,6 +407,13 @@ func TestFindTransactionCaptureBoundaries(t *testing.T) {
 		{name: "a recorded stop where a same-key primary bounds", recs: []Record{txNote(13, nil), txRecord(14, nil)},
 			recorded: &Boundary{Capture: captureLow, Seq: 14, Kind: BoundaryKindStop, Epoch: txTestEpoch},
 			end:      14, outcome: TxIncomplete, gaps: []string{"capture-boundary@14", "contradiction@14"}},
+		{name: "a recorded stop where a clean stop of another epoch bounds",
+			recs:     []Record{txNote(13, nil), txBoundaryAt(t, 14, 2, BoundaryKindStop, nil, nil)},
+			recorded: &Boundary{Capture: captureLow, Seq: 14, Kind: BoundaryKindStop, Epoch: txTestEpoch},
+			end:      14, outcome: TxIncomplete, gaps: []string{"capture-boundary@14", "contradiction@14"}},
+		{name: "a recorded stop where the clean stop of the epoch bounds", recs: []Record{txNote(13, nil), stop(14)},
+			recorded: &Boundary{Capture: captureLow, Seq: 14, Kind: BoundaryKindStop, Epoch: txTestEpoch},
+			end:      14, outcome: TxUnmatched},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -502,7 +510,7 @@ func TestFindTransactionContradictions(t *testing.T) {
 		{name: "a stop of the epoch claimed at a clean stop of another epoch",
 			recs:     []Record{txNote(13, nil), txBoundaryAt(t, 14, 2, BoundaryKindStop, nil, nil)},
 			recorded: &Boundary{Capture: captureLow, Seq: 14, Kind: BoundaryKindStop, Epoch: txTestEpoch},
-			end:      new(uint64(14)), outcome: TxIncomplete, gaps: []string{"contradiction@14"}},
+			end:      new(uint64(14)), outcome: TxIncomplete, gaps: []string{"capture-boundary@14", "contradiction@14"}},
 		{name: "a stop claimed at a socket-close", recs: []Record{txNote(13, nil), txSocketClose(t, 14)},
 			recorded: &Boundary{Capture: captureLow, Seq: 14, Kind: BoundaryKindStop, Epoch: txTestEpoch},
 			end:      new(uint64(14)), outcome: TxIncomplete, gaps: []string{"capture-boundary@14", "contradiction@14"}},

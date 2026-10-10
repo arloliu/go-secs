@@ -1566,11 +1566,11 @@ func (x *txExpect) completeness() {
 // each entry of the evidence,
 // then each version of a capture-boundary record of the epoch above the primary that a read yielded,
 // unless an entry of the evidence has its seq, kind and epoch;
-// the clean stop that bounds the window, a stop at its end whose bounding version is a capture-boundary stop, excepted.
+// the clean stop that bounds the window, a stop at its end whose bounding version is a capture-boundary stop of the epoch, excepted.
 func (x *txExpect) captureBoundaries() {
 	stopBound := slices.ContainsFunc(x.res.Records, func(v TxRecord) bool {
 		b, ok := txOracleBoundaryOf(x.key.Capture, &v.Record)
-		return v.Bound && ok && b.Kind == BoundaryKindStop
+		return v.Bound && ok && b.Kind == BoundaryKindStop && b.Epoch == x.k.epoch
 	})
 	bounding := func(b *Boundary) bool { return stopBound && b.Seq == x.e && b.Kind == BoundaryKindStop }
 	for _, b := range x.snap.evidence.Boundaries {

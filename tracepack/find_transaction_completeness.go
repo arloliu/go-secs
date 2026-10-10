@@ -198,16 +198,18 @@ func (l *txLookup) timeBarrierGaps(ctx context.Context, from, to int64) error {
 // each entry of the per-capture evidence, anywhere in the epoch,
 // then each capture-boundary record of the epoch a scope read yielded above the primary,
 // except one whose seq and kind an entry of the evidence already has.
-// The clean stop that bounds the window is not one: a version at e, the bound, whose bytes are a capture-boundary stop.
+// The clean stop of the primary's epoch that bounds the window is not one (epochStopBounds).
+// A clean stop of another epoch that bounds the window still bounds it,
+// but it is not the boundary of the primary's epoch that an entry at e names, so that entry is one.
 //
 // Returns:
 //   - error: ctx's error, as is; the error of a gap's charge, wrapping ErrReadLimit.
 func (l *txLookup) captureBoundaryGaps(ctx context.Context, w *txWindow) error {
-	stopBound, err := l.stopBound(ctx, w)
+	stopBounds, err := l.epochStopBounds(ctx, w)
 	if err != nil {
 		return err
 	}
-	bounds := func(b *Boundary) bool { return stopBound && b.Seq == w.e && b.Kind == BoundaryKindStop }
+	bounds := func(b *Boundary) bool { return stopBounds && b.Seq == w.e && b.Kind == BoundaryKindStop }
 	for i := range l.evidence.Boundaries {
 		if err := l.tick(ctx); err != nil {
 			return err
@@ -250,12 +252,16 @@ func (l *txLookup) captureBoundaryGaps(ctx context.Context, w *txWindow) error {
 	return nil
 }
 
-// stopBound reports whether the version that bounds the window w is a capture-boundary record of kind stop.
+// epochStopBounds reports whether the version that bounds the window w is a capture-boundary record of kind stop
+// of the primary's epoch, the one clean stop whose boundary at e captureBoundaryGaps does not report
+// (the tracepack semantics specification §7.2).
+// A boundary is identified with its epoch (the tracepack corpus specification §5.11),
+// so a bounding stop of another epoch is not the boundary of the primary's epoch at e.
 //
 // Returns:
 //   - bool: whether it is.
 //   - error: ctx's error, as is.
-func (l *txLookup) stopBound(ctx context.Context, w *txWindow) (bool, error) {
+func (l *txLookup) epochStopBounds(ctx context.Context, w *txWindow) (bool, error) {
 	if !w.bounded {
 		return false, nil
 	}
@@ -263,7 +269,7 @@ func (l *txLookup) stopBound(ctx context.Context, w *txWindow) (bool, error) {
 		if err := l.tick(ctx); err != nil {
 			return false, err
 		}
-		if v := &l.res.Records[i]; v.Bound && isStopRecord(&v.Record) {
+		if v := &l.res.Records[i]; v.Bound && v.Record.Epoch == l.prim.epoch && isStopRecord(&v.Record) {
 			return true, nil
 		}
 	}
