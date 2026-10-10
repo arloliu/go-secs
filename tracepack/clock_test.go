@@ -151,38 +151,3 @@ func TestMergeClock(t *testing.T) {
 		assert.Equal(t, archiveSet, rep.ReplacementSetID)
 	})
 }
-
-func TestRepairClock(t *testing.T) {
-	t.Parallel()
-
-	p := defaultRepairPack(t)
-	damaged := flipByte(p.file, p.bodyByteOf(2))
-	repair := func(t *testing.T, opts RepairOptions) RepairReport {
-		t.Helper()
-
-		opts.Now = clockTestNow
-		patch, rep, err := repairBytes(t, damaged, opts)
-		require.NoError(t, err)
-		hdr := layoutHeader(t, patch)
-		assert.Equal(t, clockTestTime.UnixNano(), hdr.WriterStartUTCNs)
-		assert.Equal(t, format.UUID(rep.PackID), hdr.PackID)
-		assert.Equal(t, layoutHeader(t, damaged).CaptureID, hdr.CaptureID, "the damaged pack's capture_id, never a generated one")
-
-		return rep
-	}
-
-	t.Run("generated pack_id", func(t *testing.T) {
-		t.Parallel()
-
-		rep := repair(t, repairOpts())
-		requireClockUUID(t, rep.PackID, clockTestTime, "pack_id")
-	})
-
-	t.Run("supplied pack_id kept", func(t *testing.T) {
-		t.Parallel()
-
-		opts := repairOpts()
-		opts.PackID = UUID{0xAC}
-		assert.Equal(t, UUID{0xAC}, repair(t, opts).PackID)
-	})
-}

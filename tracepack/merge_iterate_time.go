@@ -41,9 +41,7 @@ type pendingHeap []pendingCandidate
 //     an error wrapping ErrReadLimit when a block's reservation would exceed MaxHeldBytes
 //     or one more conflict would exceed MaxConflicts;
 //     the error of the conflict reservation, wrapped, when it fails;
-//     a ReadAt error, wrapped with the pack and block index, joined with the error of the retention check after it;
-//     an error wrapping ErrRemoved when a covered hour is removed;
-//     q.Retention's error, wrapped.
+//     or a ReadAt error, wrapped with the pack and block index.
 //     p.res holds the defects and conflicts found until then.
 //     Nothing stays held after runTime, whatever its outcome.
 func (p *mergeIteratePlan) runTime(ctx context.Context, q *Query, fn func(*Item) error) error {

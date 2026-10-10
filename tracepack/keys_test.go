@@ -15,9 +15,8 @@ const (
 	keyPackText    = "0190a1b2-c3d4-7e5f-9a6b-aabbccddeeff"
 	keyOtherText   = "abcdef01-2345-4678-89ab-cdef01234567"
 
-	// keyPackMixed and keyOtherMixed spell keyPackText and keyOtherText with some hex digits in uppercase.
-	keyPackMixed  = "0190a1b2-c3d4-7e5f-9a6b-AAbbccddeeFF"
-	keyOtherMixed = "Abcdef01-2345-4678-89AB-cdef01234567"
+	// keyPackMixed spells keyPackText with some hex digits in uppercase.
+	keyPackMixed = "0190a1b2-c3d4-7e5f-9a6b-AAbbccddeeFF"
 )
 
 // keyUUID parses a canonical UUID of the key tests.
@@ -61,55 +60,47 @@ func TestEscapeToolID(t *testing.T) {
 func TestKeyBuilders(t *testing.T) {
 	t.Parallel()
 
-	capture, pack, other := keyUUID(t, keyCaptureText), keyUUID(t, keyPackText), keyUUID(t, keyOtherText)
+	capture, pack := keyUUID(t, keyCaptureText), keyUUID(t, keyPackText)
 	hour := keyHourOf(2026, time.October, 4, 13)
 
 	tests := []struct {
 		name, prefix, tool string
 		segment, archive   string
-		commit             string
 	}{
 		{
 			name: "empty prefix", tool: "eqp-01",
 			segment: "staging/eqp-01/" + keyCaptureText + "/00000000000000000042-" + keyPackText + ".tpk",
 			archive: "archive/eqp-01/2026/10/04/13/" + keyCaptureText + "-" + keyPackText + ".tpk",
-			commit:  "commit/eqp-01/" + keyCaptureText + "/2026100413/" + keyOtherText,
 		},
 		{
 			name: "one component", prefix: "a", tool: "eqp-01",
 			segment: "a/staging/eqp-01/" + keyCaptureText + "/00000000000000000042-" + keyPackText + ".tpk",
 			archive: "a/archive/eqp-01/2026/10/04/13/" + keyCaptureText + "-" + keyPackText + ".tpk",
-			commit:  "a/commit/eqp-01/" + keyCaptureText + "/2026100413/" + keyOtherText,
 		},
 		{
 			name: "two components", prefix: "a/b", tool: "eqp-01",
 			segment: "a/b/staging/eqp-01/" + keyCaptureText + "/00000000000000000042-" + keyPackText + ".tpk",
 			archive: "a/b/archive/eqp-01/2026/10/04/13/" + keyCaptureText + "-" + keyPackText + ".tpk",
-			commit:  "a/b/commit/eqp-01/" + keyCaptureText + "/2026100413/" + keyOtherText,
 		},
 		{
 			name: "trailing slash used as given", prefix: "a/", tool: "eqp-01",
 			segment: "a//staging/eqp-01/" + keyCaptureText + "/00000000000000000042-" + keyPackText + ".tpk",
 			archive: "a//archive/eqp-01/2026/10/04/13/" + keyCaptureText + "-" + keyPackText + ".tpk",
-			commit:  "a//commit/eqp-01/" + keyCaptureText + "/2026100413/" + keyOtherText,
 		},
 		{
 			name: "leading slash used as given", prefix: "/a", tool: "eqp-01",
 			segment: "/a/staging/eqp-01/" + keyCaptureText + "/00000000000000000042-" + keyPackText + ".tpk",
 			archive: "/a/archive/eqp-01/2026/10/04/13/" + keyCaptureText + "-" + keyPackText + ".tpk",
-			commit:  "/a/commit/eqp-01/" + keyCaptureText + "/2026100413/" + keyOtherText,
 		},
 		{
 			name: "repeated slash used as given", prefix: "a//b", tool: "eqp-01",
 			segment: "a//b/staging/eqp-01/" + keyCaptureText + "/00000000000000000042-" + keyPackText + ".tpk",
 			archive: "a//b/archive/eqp-01/2026/10/04/13/" + keyCaptureText + "-" + keyPackText + ".tpk",
-			commit:  "a//b/commit/eqp-01/" + keyCaptureText + "/2026100413/" + keyOtherText,
 		},
 		{
 			name: "escaped tool", prefix: "p", tool: "fab 1/é%",
 			segment: "p/staging/fab%201%2F%C3%A9%25/" + keyCaptureText + "/00000000000000000042-" + keyPackText + ".tpk",
 			archive: "p/archive/fab%201%2F%C3%A9%25/2026/10/04/13/" + keyCaptureText + "-" + keyPackText + ".tpk",
-			commit:  "p/commit/fab%201%2F%C3%A9%25/" + keyCaptureText + "/2026100413/" + keyOtherText,
 		},
 	}
 	for _, tt := range tests {
@@ -123,10 +114,6 @@ func TestKeyBuilders(t *testing.T) {
 			arc, err := ArchiveKey(tt.prefix, tt.tool, capture, hour, pack)
 			require.NoError(t, err)
 			require.Equal(t, tt.archive, arc)
-
-			com, err := CommitKey(tt.prefix, tt.tool, capture, hour, other)
-			require.NoError(t, err)
-			require.Equal(t, tt.commit, com)
 		})
 	}
 }
@@ -142,8 +129,6 @@ func TestKeyBuildersReject(t *testing.T) {
 		require.ErrorIs(t, err, ErrInvalidKey, "segment, tool %q", tool)
 		_, err = ArchiveKey("p", tool, capture, hour, pack)
 		require.ErrorIs(t, err, ErrInvalidKey, "archive, tool %q", tool)
-		_, err = CommitKey("p", tool, capture, hour, pack)
-		require.ErrorIs(t, err, ErrInvalidKey, "commit, tool %q", tool)
 	}
 
 	// Dots inside a longer tool are ordinary unreserved bytes.
@@ -163,8 +148,6 @@ func TestKeyBuildersReject(t *testing.T) {
 	for _, h := range []int64{minKeyHour - 1, maxKeyHour + 1, math.MinInt64, math.MaxInt64} {
 		_, err = ArchiveKey("p", "t", capture, h, pack)
 		require.ErrorIs(t, err, ErrInvalidKey, "archive hour %d", h)
-		_, err = CommitKey("p", "t", capture, h, pack)
-		require.ErrorIs(t, err, ErrInvalidKey, "commit hour %d", h)
 	}
 }
 
@@ -182,16 +165,15 @@ func TestKeyHours(t *testing.T) {
 		name    string
 		hour    int64
 		archive string // the archive key's hour components
-		commit  string // the commit key's hour component
 	}{
-		{"first storage hour, partially representable", minKeyHour, "1677/09/21/00", "1677092100"},
-		{"last storage hour, partially representable", maxKeyHour, "2262/04/11/23", "2262041123"},
-		{"epoch", 0, "1970/01/01/00", "1970010100"},
-		{"hour before the epoch", -1, "1969/12/31/23", "1969123123"},
-		{"last hour of a year", keyHourOf(2026, time.December, 31, 23), "2026/12/31/23", "2026123123"},
-		{"first hour of a year", keyHourOf(2027, time.January, 1, 0), "2027/01/01/00", "2027010100"},
-		{"leap day", keyHourOf(2028, time.February, 29, 5), "2028/02/29/05", "2028022905"},
-		{"day after a leap day", keyHourOf(2028, time.March, 1, 0), "2028/03/01/00", "2028030100"},
+		{"first storage hour, partially representable", minKeyHour, "1677/09/21/00"},
+		{"last storage hour, partially representable", maxKeyHour, "2262/04/11/23"},
+		{"epoch", 0, "1970/01/01/00"},
+		{"hour before the epoch", -1, "1969/12/31/23"},
+		{"last hour of a year", keyHourOf(2026, time.December, 31, 23), "2026/12/31/23"},
+		{"first hour of a year", keyHourOf(2027, time.January, 1, 0), "2027/01/01/00"},
+		{"leap day", keyHourOf(2028, time.February, 29, 5), "2028/02/29/05"},
+		{"day after a leap day", keyHourOf(2028, time.March, 1, 0), "2028/03/01/00"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -203,13 +185,6 @@ func TestKeyHours(t *testing.T) {
 			ap, err := parseArchiveKey("p", arc)
 			require.NoError(t, err)
 			require.Equal(t, tt.hour, ap.hour)
-
-			com, err := CommitKey("p", "t", capture, tt.hour, pack)
-			require.NoError(t, err)
-			require.Equal(t, "p/commit/t/"+keyCaptureText+"/"+tt.commit+"/"+keyPackText, com)
-			cp, err := parseCommitKey("p", com)
-			require.NoError(t, err)
-			require.Equal(t, tt.hour, cp.hour)
 		})
 	}
 }
@@ -217,7 +192,7 @@ func TestKeyHours(t *testing.T) {
 func TestParseKeysRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	capture, pack, other := keyUUID(t, keyCaptureText), keyUUID(t, keyPackText), keyUUID(t, keyOtherText)
+	capture, pack := keyUUID(t, keyCaptureText), keyUUID(t, keyPackText)
 	tools := []string{"eqp-01", "~", "...", "a b/c%d", "é\xff\x00", "%2F"}
 	prefixes := []string{"", "a", "a/b", "a/", "/a", "a//b"}
 	seqs := []uint64{0, 1, 42, math.MaxInt64}
@@ -240,13 +215,6 @@ func TestParseKeysRoundTrip(t *testing.T) {
 				gotA, err := parseArchiveKey(prefix, key)
 				require.NoError(t, err, key)
 				require.Equal(t, wantA, gotA, key)
-
-				wantC := commitKeyParts{tool: tool, capture: capture, hour: hour, id: other}
-				key, err = CommitKey(prefix, tool, capture, hour, other)
-				require.NoError(t, err)
-				gotC, err := parseCommitKey(prefix, key)
-				require.NoError(t, err, key)
-				require.Equal(t, wantC, gotC, key)
 			}
 		}
 	}
@@ -264,10 +232,6 @@ func TestParseKeysAnyCapture(t *testing.T) {
 	arc, err := parseArchiveKey("p", "p/archive/t/2026/10/04/13/"+keyOtherText+"-"+keyPackText+".tpk")
 	require.NoError(t, err)
 	require.Equal(t, keyUUID(t, keyOtherText), arc.capture)
-
-	com, err := parseCommitKey("p", "p/commit/t/"+keyOtherText+"/2026100413/"+keyPackText)
-	require.NoError(t, err)
-	require.Equal(t, commitKeyParts{tool: "t", capture: keyUUID(t, keyOtherText), hour: keyHourOf(2026, time.October, 4, 13), id: keyUUID(t, keyPackText)}, com)
 }
 
 // TestKeyErrorMessages checks that a builder's and a parser's error name the invalid key once, with the reason.
@@ -284,8 +248,8 @@ func TestKeyErrorMessages(t *testing.T) {
 	key := "p/archive/t/2262/04/12/00/" + keyCaptureText + "-" + keyPackText + ".tpk"
 	_, err = parseArchiveKey("p", key)
 	require.EqualError(t, err, `tracepack: invalid object key "`+key+`": hour 2562048 outside [-2562048, 2562047]`)
-	key = "p/commit/../" + keyCaptureText + "/2026100413/" + keyOtherText
-	_, err = parseCommitKey("p", key)
+	key = "p/staging/../" + keyCaptureText + "/00000000000000000042-" + keyPackText + ".tpk"
+	_, err = parseSegmentKey("p", key)
 	require.EqualError(t, err, `tracepack: invalid object key "`+key+`": tool ".." cannot be stored`)
 }
 
@@ -360,26 +324,6 @@ func TestParseArchiveKeyRejects(t *testing.T) {
 	})
 }
 
-func TestParseCommitKeyRejects(t *testing.T) {
-	t.Parallel()
-
-	const dir = "p/commit/t/" + keyCaptureText + "/2026100413/"
-	checkKeyRejects(t, func(k string) error { _, err := parseCommitKey("p", k); return err }, dir+keyOtherText, []keyRejectCase{
-		{"uppercase id", dir + strings.ToUpper(keyOtherText)},
-		{"mixed-case id", dir + keyOtherMixed},
-		{"uppercase capture", "p/commit/t/" + strings.ToUpper(keyCaptureText) + "/2026100413/" + keyOtherText},
-		{"suffix after the id", dir + keyOtherText + ".tpk"},
-		{"extra component", dir + keyOtherText + "/x"},
-		{"trailing slash", dir + keyOtherText + "/"},
-		{"missing component", "p/commit/t/2026100413/" + keyOtherText},
-		{"invalid calendar hour", "p/commit/t/" + keyCaptureText + "/2026022930/" + keyOtherText},
-		{"hour of 9 digits", "p/commit/t/" + keyCaptureText + "/202610041/" + keyOtherText},
-		{"hour of 11 digits", "p/commit/t/" + keyCaptureText + "/20261004130/" + keyOtherText},
-		{"hour not decimal", "p/commit/t/" + keyCaptureText + "/2026-10-04/" + keyOtherText},
-		{"after the last storage hour", "p/commit/t/" + keyCaptureText + "/2262041200/" + keyOtherText},
-	})
-}
-
 // TestParseKeysRejectTools checks the tool component every parser shares.
 func TestParseKeysRejectTools(t *testing.T) {
 	t.Parallel()
@@ -412,7 +356,7 @@ func TestParseKeysRejectTools(t *testing.T) {
 	}
 
 	for tool, want := range accept {
-		got, err := parseCommitKey("p", "p/commit/"+tool+"/"+keyCaptureText+"/2026100413/"+keyOtherText)
+		got, err := parseSegmentKey("p", "p/staging/"+tool+"/"+keyCaptureText+"/00000000000000000042-"+keyPackText+".tpk")
 		require.NoError(t, err, "tool %q", tool)
 		require.Equal(t, want, got.tool, "tool %q", tool)
 	}
@@ -421,8 +365,6 @@ func TestParseKeysRejectTools(t *testing.T) {
 		require.ErrorIs(t, err, ErrInvalidKey, "segment, tool %q", tool)
 		_, err = parseArchiveKey("p", "p/archive/"+tool+"/2026/10/04/13/"+keyCaptureText+"-"+keyPackText+".tpk")
 		require.ErrorIs(t, err, ErrInvalidKey, "archive, tool %q", tool)
-		_, err = parseCommitKey("p", "p/commit/"+tool+"/"+keyCaptureText+"/2026100413/"+keyOtherText)
-		require.ErrorIs(t, err, ErrInvalidKey, "commit, tool %q", tool)
 	}
 }
 
@@ -435,13 +377,13 @@ func FuzzKeys(f *testing.F) {
 		require.NoError(f, err)
 		arc, err := ArchiveKey(prefix, "t", capture, minKeyHour, pack)
 		require.NoError(f, err)
-		com, err := CommitKey(prefix, "t", capture, maxKeyHour, pack)
+		late, err := ArchiveKey(prefix, "t", capture, maxKeyHour, pack)
 		require.NoError(f, err)
-		for _, key := range []string{seg, arc, com} {
+		for _, key := range []string{seg, arc, late} {
 			f.Add(prefix, key, "eqp-01")
 		}
 	}
-	f.Add("p", "p/commit/t/"+keyCaptureText+"/2026022930/"+keyOtherText, ".")
+	f.Add("p", "p/archive/t/2026/02/29/30/"+keyCaptureText+"-"+keyOtherText+".tpk", ".")
 	f.Add("p", "p/staging/%2f/"+keyCaptureText+"/09223372036854775808-"+keyPackText+".tpk", "a b")
 	f.Add("", "archive/%41/2262/04/12/00/"+keyCaptureText+"-"+keyPackText+".tpk", "\xff")
 
@@ -460,22 +402,15 @@ func FuzzKeys(f *testing.F) {
 		} else {
 			require.ErrorIs(t, err, ErrInvalidKey)
 		}
-		if p, err := parseCommitKey(prefix, key); err == nil {
-			got, err := CommitKey(prefix, p.tool, p.capture, p.hour, p.id)
-			require.NoError(t, err)
-			require.Equal(t, key, got)
-		} else {
-			require.ErrorIs(t, err, ErrInvalidKey)
-		}
 
-		built, err := CommitKey(prefix, tool, capture, 0, pack)
+		built, err := SegmentKey(prefix, tool, capture, 0, pack)
 		if checkKeyTool(tool) != nil {
 			require.ErrorIs(t, err, ErrInvalidKey)
 
 			return
 		}
 		require.NoError(t, err)
-		p, err := parseCommitKey(prefix, built)
+		p, err := parseSegmentKey(prefix, built)
 		require.NoError(t, err)
 		require.Equal(t, tool, p.tool)
 	})

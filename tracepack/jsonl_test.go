@@ -166,7 +166,6 @@ func requireSameResultAs(t testing.TB, want, got Result, sameText bool) {
 
 	requireSameDefectsAs(t, want.Incomplete, got.Incomplete, sameText)
 	assert.Empty(t, got.Conflicts)
-	assert.Empty(t, got.Removed)
 	if want.FooterErr == nil {
 		require.NoError(t, got.FooterErr)
 	} else {

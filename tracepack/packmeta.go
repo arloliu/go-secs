@@ -160,11 +160,11 @@ type PackFacts struct {
 	// GenerationHasPredecessor reports that this pack's scope_generation replaces an earlier generation,
 	// which, together with a non-zero scope_generation, requires the supersedes tag.
 	GenerationHasPredecessor bool
-	// CoverageLoss reports that a repair pack lost data it cannot recover,
-	// which requires at least one coverage entry (the tracepack storage specification §6).
+	// CoverageLoss reports that the pack lost data it cannot recover, as a repair patch of earlier versions did,
+	// which requires at least one coverage entry (the tracepack format specification §5).
 	CoverageLoss bool
 	// ScopeHasGeneration reports that the pack's scope already has a published generation,
-	// which, for a patch, requires the patch_base tag (the tracepack storage specification §4).
+	// which, for a patch, requires the patch_base tag (the tracepack format specification §5).
 	ScopeHasGeneration bool
 	// DurableRecorder reports that the writer is a recorder with a durable spool, or a consumer of a durable bus,
 	// which requires the flush_interval_ns tag (the tracepack storage specification §4).
@@ -172,12 +172,12 @@ type PackFacts struct {
 }
 
 // Coverage is one lost range of a pack metadata `coverage` entry:
-// a repair pack's account of data it could not recover (the tracepack storage specification §6).
+// an account of data a pack could not recover, which merges carry from their inputs.
 //
 // See the tracepack format specification §5.
 // Every field is optional on read.
 // A writer declaring a new entry sets CaptureID, SeqFirst, TimeStart and TimeEnd, and SeqLast when the upper bound of the lost seqs is known;
-// an entry a repair inherits is carried as it was read.
+// an entry carried from another pack is carried as it was read.
 type Coverage struct {
 	// CaptureID is the capture the lost range belongs to.
 	CaptureID *UUID
@@ -284,8 +284,8 @@ type PackMeta struct {
 	// such as decode_status;
 	// required when any record's decode_status is neither not-attempted nor not-applicable.
 	// A recorder or converter writes one value,
-	// a merge every distinct value of its inputs (the tracepack storage specification §4),
-	// and a patch those of the pack it repairs (the tracepack storage specification §6).
+	// and a merge every distinct value of its inputs (the tracepack storage specification §4);
+	// a repair patch of earlier versions holds those of the pack it repaired.
 	Classifiers []string
 	// TimeSource says where the capture's timestamps come from (time_source, the tracepack format specification §9);
 	// always required.
@@ -310,7 +310,8 @@ type PackMeta struct {
 	// the tracepack semantics specification §3);
 	// required when any record is classified oversized.
 	// A recorder or converter writes one value,
-	// a merge every distinct value of its inputs, and a patch those of the pack it repairs;
+	// and a merge every distinct value of its inputs;
+	// a repair patch of earlier versions holds those of the pack it repaired;
 	// with several values the pack does not say which one a record was classified under.
 	MaxFrameLens []uint64
 	// PeriodStart is the start of the period this pack covers, in ns since the Unix epoch (period_start); always required.
@@ -324,25 +325,26 @@ type PackMeta struct {
 	// QualityEvaluated declares that a clear stored quality bit means its condition was checked absent
 	// (quality_evaluated, the tracepack semantics specification §6); always required.
 	QualityEvaluated bool
-	// Supersedes lists the packs this one replaces (supersedes, one entry per pack): its lineage;
+	// Supersedes lists the packs this one replaces (supersedes, one entry per pack): its lineage only;
 	// required for a patch, and for a generation of 1 or more that has a predecessor.
-	// A patch also removes the named packs from the view,
-	// and they stay removed when a later patch replaces the patch (the tracepack storage specification §4).
+	// It never removes a pack from a read (the tracepack format specification §5).
 	Supersedes []UUID
-	// Coverage lists the ranges a repair lost (coverage, one entry per range, the tracepack storage specification §6);
-	// required when a repair lost data.
+	// Coverage lists the ranges the pack declares lost (coverage, one entry per range, the tracepack format specification §5),
+	// as a repair patch of earlier versions declared them and merges carry them;
+	// required when the pack lost data.
 	Coverage []Coverage
 	// Notes is free text (notes); optional, and never the sole record of data loss.
 	Notes *string
 	// PackRole says what the pack is: segment, archive, extract or repair
 	// (pack_role, the tracepack storage specification §2); always required.
+	// No Writer writes a new repair pack; readers read one like any pack.
 	PackRole PackRole
 	// CompactionLevel is 0 for a pack a recorder or converter wrote,
 	// and n of 1 or more for a pack produced by merging packs of levels below n (compaction_level); always required.
 	CompactionLevel uint8
 	// CompactedFrom is the cumulative lineage list (compacted_from, one entry per pack):
 	// for a generation, the generation-0 packs its merge folded (the tracepack storage specification §4);
-	// for a patch, the list of the pack it repairs (the tracepack storage specification §6).
+	// for a repair patch of earlier versions, the list of the pack it repaired.
 	// It is required when that list is non-empty, absent when it is empty, and never in a segment or a patch of one.
 	CompactedFrom []UUID
 	// RecorderInstanceID is the stable identity of the recorder or converter deployment across restarts
@@ -398,11 +400,13 @@ type PackMeta struct {
 	// ScopeGeneration is 0 for segments and patches, and 1 or more for generations produced by merges
 	// (scope_generation, the tracepack storage specification §2); required for every pack but an extract.
 	ScopeGeneration *uint64
-	// PublisherEpoch is the fence epoch of the publisher that wrote the generation
+	// PublisherEpoch is the publisher's epoch the caller supplies for a generation
 	// (publisher_epoch, the tracepack storage specification §2); required for a generation of 1 or more.
+	// It has no fencing meaning, and tracepack ranks nothing by it.
 	PublisherEpoch *uint64
-	// PatchBase is the replacement_set_id of the generation a patch was registered against
-	// (patch_base, the tracepack storage specification §4); required for a patch whose scope has a generation.
+	// PatchBase is the replacement_set_id of the archive a repair patch of earlier versions was registered against
+	// (patch_base, the tracepack format specification §5); required for a patch whose scope has a generation.
+	// It was written only by the repair of earlier versions; it is read and exported like any tag.
 	PatchBase *UUID
 	// RedactionPolicy is the redaction policy an extract was written under
 	// (redaction_policy, the tracepack semantics specification §8);

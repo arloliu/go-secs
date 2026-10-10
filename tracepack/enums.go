@@ -430,7 +430,8 @@ const (
 	PackRoleArchive
 	// PackRoleExtract means the pack was selected from other packs by a filter, and is never a complete period.
 	PackRoleExtract
-	// PackRoleRepair means the pack replaces a damaged pack after recovery.
+	// PackRoleRepair means the pack is a patch the repair of earlier versions wrote to replace a damaged pack.
+	// A reader reads one like any pack it is given; NewWriter refuses to write one, and Merge refuses one as an input.
 	PackRoleRepair
 )
 

@@ -672,7 +672,7 @@ func readCheckedWith(t *testing.T, readers []*Reader, q Query, opts MergeIterate
 	for _, buf := range bufs {
 		requireDropped(t, buf)
 	}
-	out.res, out.err = p.rs.end(p.res, err)
+	out.res, out.err = p.res, err
 
 	return out
 }
@@ -876,25 +876,6 @@ func genVersion(rng *rand.Rand, k int, rec *Record) {
 func genReadOf(t testing.TB, seed uint64) genRead {
 	t.Helper()
 
-	return genReadWith(t, seed, nil)
-}
-
-// genRetentionReadOf returns the read genReadOf generates from seed,
-// each pack but the packs without records given a period an hour before, at or after the test hour,
-// and a third of them the extract role, drawn from a source of their own,
-// so the read covers several hours, and the hours of an extract's blocks and records.
-func genRetentionReadOf(t testing.TB, seed uint64) genRead {
-	t.Helper()
-
-	return genReadWith(t, seed, rand.New(rand.NewPCG(seed, 0x686f757273)))
-}
-
-// genReadWith returns the read genReadOf generates from seed,
-// with the period and role of each pack drawn from roles when set (genRetentionReadOf).
-// roles draws from a source of its own, so a read generated with it holds the same records as one without.
-func genReadWith(t testing.TB, seed uint64, roles *rand.Rand) genRead {
-	t.Helper()
-
 	rng := rand.New(rand.NewPCG(seed, 0x726561642d6d))
 	var g genRead
 	made := &g.made
@@ -958,7 +939,6 @@ func genReadWith(t testing.TB, seed uint64, roles *rand.Rand) genRead {
 				meta = func(m *PackMeta) { m.Coverage = []Coverage{{TimeStart: &from, TimeEnd: &to}} }
 				made.coverage++
 			}
-			meta = genRole(roles, meta)
 			p := 0.1 + 0.5*rng.Float64()
 			steps := make([]footerTestStep, len(window))
 			for i := range window {
@@ -1009,25 +989,6 @@ func genReadWith(t testing.TB, seed uint64, roles *rand.Rand) genRead {
 	}
 
 	return g
-}
-
-// genRole returns meta, when set, followed by a change drawn from rng, when set:
-// the period moved by an hour back, none or an hour forward, and a third of the time the extract role.
-func genRole(rng *rand.Rand, meta func(m *PackMeta)) func(m *PackMeta) {
-	if rng == nil {
-		return meta
-	}
-	shift, extract := (rng.Int64N(3)-1)*hourNs, rng.IntN(3) == 0
-
-	return func(m *PackMeta) {
-		if meta != nil {
-			meta(m)
-		}
-		m.PeriodStart, m.PeriodEnd = m.PeriodStart+shift, m.PeriodEnd+shift
-		if extract {
-			m.PackRole, m.ScopeGeneration, m.ExtractFilter = PackRoleExtract, nil, new("generated")
-		}
-	}
 }
 
 // genRows returns file, a pack written by writeRepairPack, open when not finalized,
@@ -1482,34 +1443,23 @@ func fuzzReadSeeds(t testing.TB) [][3][]byte {
 // in time order the records come in ascending (ts_utc_ns, capture_id, seq),
 // and in capture order each capture's in ascending seq, unless a block read disagrees with its index;
 // a second read yields and returns the same.
-// A non-zero sched draws a schedule of the retention boundary (newBoundaryScript),
-// under which the read agrees with the reference of a read under a boundary (requireScriptedRead).
 // Every section of a pack is under a CRC, so most mutations end at Open;
 // FuzzMergeIterateGenerated mutates valid reads instead.
 func FuzzMergeIterate(f *testing.F) {
 	for i, in := range fuzzReadSeeds(f) {
-		f.Add(in[0], in[1], in[2], uint8(i), uint64(0))
-		f.Add(in[0], in[1], in[2], uint8(i), uint64(1+i))
+		f.Add(in[0], in[1], in[2], uint8(i))
 	}
 
 	queries := fuzzIterateQueries()
-	// The schedule's reference counts block reads, so under a schedule the readers keep no bootstrap bytes
-	// (uncachedWindows); without one they read with fuzzMergeReader's defaults, served from their bootstrap bytes.
-	scriptReader, u := fuzzMergeReader, uncachedWindows()
-	scriptReader.WholeReadThreshold, scriptReader.HeadWindow, scriptReader.TailWindow = u.WholeReadThreshold, u.HeadWindow, u.TailWindow
-	f.Fuzz(func(t *testing.T, a, b, c []byte, ctl uint8, sched uint64) {
-		readerOpts := fuzzMergeReader
-		if sched != 0 {
-			readerOpts = scriptReader
-		}
+	f.Fuzz(func(t *testing.T, a, b, c []byte, ctl uint8) {
 		var readers []*Reader
-		var ats []*scriptedReaderAt
 		ids := map[UUID]bool{}
 		for _, data := range [][]byte{a, b, c} {
 			if len(data) == 0 {
 				continue
 			}
-			r, at, err := openScripted(t.Context(), data, len(readers), readerOpts)
+			// The readers keep their bootstrap bytes, which serve the block reads they cover.
+			r, err := Open(t.Context(), bytes.NewReader(data), int64(len(data)), fuzzMergeReader)
 			if err != nil {
 				continue
 			}
@@ -1518,7 +1468,7 @@ func FuzzMergeIterate(f *testing.F) {
 				return
 			}
 			ids[id] = true
-			readers, ats = append(readers, r), append(ats, at)
+			readers = append(readers, r)
 		}
 		if len(readers) == 0 {
 			return
@@ -1561,42 +1511,32 @@ func FuzzMergeIterate(f *testing.F) {
 		require.Equal(t, out.res.Conflicts, again.res.Conflicts)
 		require.Equal(t, defectKeys(out.res.Incomplete), defectKeys(again.res.Incomplete))
 		require.Equal(t, out.reads, again.reads)
-
-		if sched != 0 {
-			checkScripted(t, retentionFactsOf(t, readers), mergeScripted(t, readers, ats, q, opts), sched)
-		}
 	})
 }
 
 // FuzzMergeIterateGenerated reads the read genReadOf generates from a seed, with options a control byte chooses,
 // so that mutations explore valid reads, which the CRCs of FuzzMergeIterate's packs leave it few of,
 // and requires the read to agree with the reference (requireReference).
-// A non-zero sched reads the read genRetentionReadOf generates instead,
-// and also under the schedule of the retention boundary sched draws (newBoundaryScript),
-// requiring it to agree with the reference of a read under a boundary (requireScriptedRead).
+// Its readers keep no bootstrap bytes (uncachedWindows), so every block read goes to ReadAt.
 func FuzzMergeIterateGenerated(f *testing.F) {
 	for i, ctl := range []uint8{0, fuzzReadTime, fuzzReadPayloads, fuzzReadTime | fuzzReadPayloads,
 		fuzzReadSmallHeld, fuzzReadTime | fuzzReadSmallHeld, fuzzReadOneConflict, fuzzReadTime | fuzzReadOneConflict,
 	} {
-		f.Add(uint64(i), ctl, uint64(0))
-		f.Add(uint64(i), ctl, uint64(1+i))
+		f.Add(uint64(i), ctl)
 	}
 
-	f.Fuzz(func(t *testing.T, seed uint64, ctl uint8, sched uint64) {
+	f.Fuzz(func(t *testing.T, seed uint64, ctl uint8) {
 		g := genReadOf(t, seed)
-		if sched != 0 {
-			g = genRetentionReadOf(t, seed)
-		}
 		q, opts := fuzzReadOptions(g.q, ctl)
 		if opts.MaxHeldBytes == 0 {
 			opts.MaxHeldBytes = g.heldLimit
 		}
-		readers, ats := openScriptedAll(t, g.files...)
+		readers := make([]*Reader, len(g.files))
+		for i, file := range g.files {
+			readers[i] = mustOpen(t, file, uncachedWindows())
+		}
 		ref := newMergeIterateReference(t, readers, q)
 		requireReference(t, ref, opts, readChecked(t, readers, q, opts))
-		if sched != 0 {
-			checkScripted(t, retentionFactsOf(t, readers), mergeScripted(t, readers, ats, q, opts), sched)
-		}
 	})
 }
 

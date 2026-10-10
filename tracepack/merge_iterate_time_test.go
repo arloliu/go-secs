@@ -50,7 +50,7 @@ func orderRead(t testing.TB, ctx context.Context, readers []*Reader, q Query, op
 		}
 	}
 	assert.Zero(t, p.loader.budget.held, "nothing stays held")
-	out.res, err = p.rs.end(p.res, err)
+	out.res = p.res
 	out.reads = reads
 
 	return out, err
