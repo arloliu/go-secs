@@ -1,8 +1,9 @@
 # tracepack — record semantics
 
-Status: current (2026-10-10) — v2.31, tracepack format 1.0.
+Status: current (2026-10-10) — v2.32, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
-Normative, language-agnostic.
+Normative, documented for any reader;
+the Go module is the only implementation (G5-199).
 
 References: `[FMT §n]` = `tracepack-format.md`, `[SEM §n]` = `tracepack-semantics.md`, `[STO §n]` = `tracepack-storage.md`, `[OVW §n]` = `tracepack-overview.md`, `[JSONL §n]` = `tracepack-jsonl.md`, `[CORPUS §n]` = `tracepack-corpus.md`; `[FMT I-n]` = invariant I-n of the format document.
 Each rule is defined in exactly one document; the others only reference it.
@@ -12,13 +13,13 @@ Each rule is defined in exactly one document; the others only reference it.
 - [FMT §7] record header fields and their classes, and the HSMS header fields read from the payload with their `field_validity` availability ([FMT §7.2]);
   [FMT §8] payload TLV bodies, [FMT §9] enum registries.
 - [FMT I-7] epoch binding, [FMT I-11] derived values, [FMT I-12] record identity, [FMT I-13] hour-aligned blocks.
-- [FMT §10] footer F-2 / F-3 / F-5 content used by pruning and lookup; [FMT §13] bootstrap, which a reader of a listing view performs before using that content.
+- [FMT §10] footer F-2 / F-3 / F-5 content used by pruning and lookup; [FMT §13] bootstrap, which a reader performs before using that content.
 - [FMT §6] full block reads, used by every query of §7.4.
 - [FMT §2] portable encoding rules; [FMT §5] pack metadata tags used by capture, time and quality semantics;
   [FMT I-6] immutability; [FMT §16] corpus contract for the vectors of §9, and [CORPUS] for the corpus's files, its item-validity checklist (§3) and its vector catalogue.
 - [FMT §5] `redaction_policy` and `redaction` entries, [FMT §4] `redaction-present`, used by §8.
-- [STO §4] recorder durability contract and durable clock anchor; [STO §5] catalog completeness (seq coverage, barriers) and listing views used by transaction lookup and effective quality;
-  [STO §6] repairs (patches) that re-emit records with new stored bits.
+- [STO §2] scopes; [STO §4] recorder durability contract, durable clock anchor, the packs a reader is given, and merge;
+  [STO §8] the Go module's implementation tests, beside which §9 lists those of lookup and of reads over several packs.
 
 ## 2. Capture model: fidelity, capture method, vantage
 
@@ -178,14 +179,14 @@ A writer never revisits a record already written, so stored bits never depend on
 `redacted` is set only by an extract writer (§8).
 
 **Effective** quality is computed by readers at query time from stored bits plus context:
-- a primary that would be `unmatched` (§7.2) in an epoch that also contains a `capture-boundary` (other than the clean `stop` that closes its window) or an `ordering-uncertain` record is `correlation-incomplete`, and its lookup is `incomplete`;
-  a lookup takes the epoch's capture-boundaries from the per-capture evidence, over the whole epoch, and finds `ordering-uncertain` records only in the scopes it reads (G5-130);
-- a record inside a `coverage` range, or in a seq gap that [STO §5] Completeness cannot fill, or in a scope outside the catalog's index ([STO §5]), is `incomplete`;
+- a primary whose lookup meets the epoch-boundary condition or reads an `ordering-uncertain` record of its epoch, both as §7.2 defines them, is `correlation-incomplete`,
+  and its lookup is `incomplete`;
+  the lookup finds both only in the records it reads (G5-130);
+- a record inside a `coverage` range of a pack read is `incomplete`;
 - a record from a pack with `quality_evaluated = false` never yields clean evidence.
 
-F-5 `boundary` and `epoch` entries ([FMT §10]) let a catalog, or a reader of a listing view after the [FMT §13] bootstrap, evaluate these conditions without reading blocks;
-a transaction lookup still takes an epoch's closure only from a closing record it reads (§7.2, G5-135).
-A repair may re-emit records with new stored bits ([STO §6]); it never changes records in place.
+F-5 `boundary` entries ([FMT §10]) let a reader, after the [FMT §13] bootstrap, find the crash gaps a read reports without reading blocks (§7.4);
+a transaction lookup bounds its window only by records it reads (§7.2, G5-135).
 
 **Derived predicates.**
 Readers offer two predicates computed from other fields, in place of quality bits:
@@ -228,39 +229,39 @@ Three relationships stay distinct:
 
 Which steps need what:
 candidate association, the eligibility window and the protocol-valid match use the record header's seq, epoch and direction
-and the payloads' SessionID, System Bytes and S/F, each available only when its `field_validity` bit is set ([FMT §7.2]).
-Establishing `unmatched` also needs completeness evidence per [STO §5] (below),
-and observed runtime outcomes need payloads: the T3 `timer-expiry` primary identifiers are transport-event TLV fields ([FMT §8]).
+and the payloads' SessionID, System Bytes and S/F, each available only when its `field_validity` bit is set ([FMT §7.2]);
+observed runtime outcomes need payloads: the T3 `timer-expiry` primary identifiers are transport-event TLV fields ([FMT §8]).
 
 **Unavailable key fields.**
 A field is unavailable when its `field_validity` bit is clear or the payload lacks its bytes ([FMT §7.2]);
 an unavailable field's bytes are never compared.
 A primary whose SessionID or System Bytes is unavailable has no transaction key; a lookup from it is `incomplete`.
 A record that could be the reply because a field is unavailable — a possible reply, an undecidable candidate, or a candidate at or after a possible same-key primary, in the window, as defined below —
-keeps the result from being `unmatched`: it is `incomplete`, and the record is reported with the anomalies.
+makes the result `incomplete`, and the record is reported with the anomalies.
 A record whose available fields already differ from the primary's (another System Bytes, say) cannot be the reply, whatever else is unavailable, and changes nothing.
 `matched` and `ambiguous` are decided on the candidates whose fields are available.
 
-Results: `matched` (exactly one valid match), `ambiguous`, `unmatched`, `incomplete`.
-**`unmatched` requires that every record of the eligibility window was searched**:
-the seq coverage over the eligibility window is contiguous per [STO §5] Completeness (never the case when the window touches a scope that is not indexed),
-and the window is closed by a record the lookup read (G5-135) — the next same-key primary, a record that ends the queried epoch ([FMT §10]),
-or a capture-boundary record of kind `stop`, of any epoch, showing that the capture ended with a clean `stop`;
-a footer's or a catalog's claim that the epoch closed does not close the window by itself (closing record, below);
-the existence of a later epoch is **not** closure evidence, because accepted-then-refused sockets get their own epochs while an earlier connection stays open ([FMT I-7]);
-if absence cannot be established (packs missing from the catalog or a listing view, an unevaluated pack, a `capture-boundary` in the epoch other than the clean `stop` that closes the window,
-`correlation-incomplete` on the primary, or any other condition the lookup below lists) the result is `incomplete` **with the searched scope**.
+Results (G5-204): `matched` (exactly one valid match), `ambiguous` (several), `not-found` (none);
+any of them carries an `incomplete` flag, with its reasons, when a condition of *`incomplete` reasons* (below) holds.
+`not-found` means no valid match among the records the lookup read;
+it states nothing about records outside the packs it was given.
 
-**Lookup from a primary** (G5-121, G5-122, G5-124..G5-138, G5-142, G5-146).
+**Lookup from a primary** (G5-121, G5-122, G5-124..G5-127, G5-129..G5-132, G5-134..G5-136, G5-146, G5-204).
 A lookup names its primary by (`capture_id`, `seq`, UTC hour): the hour of the primary's `ts_utc_ns`, which is its scope ([STO §2], [FMT I-13]) (G5-124).
 It reads the primary and derives the key from it (G5-122), so a caller never supplies a key that disagrees with the record.
-It reads the scopes of the primary's capture from that hour on, a caller-bounded number of them ([STO §5] observation),
+It reads the packs its caller gives for that hour and for the following hours, as many hours as the caller allows (Hours read, below),
 and decides with the definitions and rules below.
 `p` is the primary's seq.
+Each hour's read takes every pack given for that hour, of any capture (Hours read),
+but the lookup decides on the primary's capture only:
+its primary, the roles and epochs this section names, its window, its gaps, the versions it keeps and the conflicts that make it `incomplete` are of that capture,
+and a seq this section compares across reads is compared as (`capture_id`, `seq`) ([FMT I-12]).
+Records of other captures take no part in these;
+the diagnostics this section defines for every pack read or for any capture — read defects, scope breaches, packs with `quality_evaluated` false, and crash gaps (G5-209) — stay as defined.
 
 *Definitions.*
 - **Primary** (G5-125): a `data` record whose function is available and odd.
-  A lookup that names any other record — of another kind, with an even function, or absent from a complete read of its scope — fails as an error, not as a result.
+  A lookup that names any other record — of another kind, with an even function, or absent from its hour's read where nothing in that read explains it (Hours read) — fails as an error, not as a result.
   Its **association key** is (`epoch`, direction, SessionID, System Bytes); the direction is `host-to-equipment` or `equipment-to-host`, and SessionID and System Bytes are available.
   A primary whose direction is neither, or whose SessionID or System Bytes is unavailable, has no key: the lookup is `incomplete`.
   Its **match fields** are stream (which may be unavailable) and function.
@@ -275,79 +276,105 @@ and decides with the definitions and rules below.
   A record in `unknown` direction can be both a possible reply and a possible same-key primary.
 - **Closing record** (G5-135): a record the lookup read, with a seq above `p` and without a conflict, that ends the primary's epoch or the capture:
   a `transport-event` of the primary's epoch with `event` = `socket-close` ([FMT §10] "ends an epoch"),
-  or a capture-boundary record with `boundary_kind` = `stop`, of any epoch (it ends the capture, and also the primary's epoch when it is in it).
-  Only a record read establishes closure: a footer's `close_seq` and `boundary` entries, and the per-capture evidence a catalog keeps from them ([STO §5]), are checked against the records,
-  because footer validation proves their structure, not that the record they name is a closing event ([FMT §10]).
-  An evidence closure at or below `p`, or one at a seq the lookup read where no version's bytes are the closing event it names, is a **contradiction**, reported as such (G5-138);
-  one at a seq whose versions conflict, one of them that event, is reported as the conflict only;
-  one at a seq the lookup did not read is neither used nor checked.
+  or a capture-boundary record with `boundary_kind` = `stop`, of the primary's capture and any of its epochs (it ends the capture, and also the primary's epoch when it is in it).
+  Only a record the lookup read is a closing record:
+  a footer's `close_seq` and `boundary` entries never bound the window, because footer validation proves their structure, not that the record they name is a closing event ([FMT §10]).
+  The existence of a later epoch ends nothing, because accepted-then-refused sockets get their own epochs while an earlier connection stays open ([FMT I-7]).
 - **Window** (`p`, `e`), open on both sides: `e` is the smallest seq of a same-key primary or a closing record the lookup read; the window is unbounded while it read none.
 - **Candidate flags**:
   a candidate is **eligible** when its seq lies in the window and below the first possible same-key primary in the window;
   it is a **valid match** when it is eligible and decidable, has the primary's stream, and its function is the primary's function + 1, or 0.
-  An eligible candidate that is not decidable, and a candidate in the window at or after a possible same-key primary, could each be the reply: like a possible reply in the window, it makes the result `incomplete` rather than `unmatched`.
+  An eligible candidate that is not decidable, and a candidate in the window at or after a possible same-key primary, could each be the reply: like a possible reply in the window, it makes the result `incomplete`.
 - **Outcome records**, reported when in the window, never a match:
   a `control` record with SType available and 7 (`Reject.req`) in the opposite direction, of the primary's epoch, with SessionID and System Bytes available and equal to the primary's (SEMI E37 §8.3.20: both are the rejected message's);
   a `transport-event` of the primary's epoch whose payload decodes with `event` = `timer-expiry`, `timer` = T3, and `primary_session_id` and `primary_system_bytes` present and equal to the primary's,
   with `primary_stream` and `primary_function`, each where present on the event and available on the primary, equal to the primary's.
 
-*Identity across the scopes read.*
-Within one read of a scope, copies of each (`capture_id`, `seq`) are compared as §7.4 says.
-Where packs keep to their scopes, two copies of one record in different scopes are never identical, since identical copies share `ts_utc_ns` and so an hour (a pack that does not keep to its scope is a scope breach, below);
-whatever the reason, a seq yielded by the reads of two scopes is a conflict.
-**Any conflict on a seq at or above `p` among the records read makes the result `incomplete`** (G5-126, G5-132),
-whatever role its versions play and wherever it lies, inside the window or after it, within one scope or across scopes:
-the versions disagree in their bytes or in the scopes that yielded them, so neither the window nor the candidates are established.
-A conflict at `p` leaves the primary, and so the key, unestablished.
-A conflict across scopes is reported by its seq and the hours whose reads yielded it; its versions are reported where the lookup kept them (G5-133).
-A lookup **keeps** every record it reads that plays one of the roles defined above, wherever it lies relative to the final window,
-and with it every other version of its seq that the same scope's read yielded;
-a version it read in another scope is kept only if it qualified there.
-A kept version carries the roles and candidate flags its own bytes give, so the versions of a conflicting candidate can differ in them.
-A conflict at `p` found in a later scope's read leaves the key derived from the first version, and what it classified, reported as diagnostics, beside the conflict and the missing key.
-A record whose block disagrees with its F-2 entry can arrive out of seq order and escape comparison (§7.4), so such a block in a scope read also makes the result `incomplete`, even when a match was found (G5-134).
-Yield order exempts no version from classification and no seq read from the checking of closure claims:
-a version a scope read yields before the primary is classified once the primary is established, as every other version read (G5-194).
+*Identity across the hours read.*
+Within one hour's read, copies of each (`capture_id`, `seq`) are compared as §7.4 says.
+Where packs keep to their scopes, two copies of one record in different hours are never identical, since identical copies share `ts_utc_ns` and so an hour (a pack that does not keep to its scope is a scope breach, below);
+whatever the reason, a (`capture_id`, `seq`) of the primary's capture yielded by the reads of two hours is a conflict;
+the same seq of two different captures is two records, never a conflict.
+**Any conflict on a seq of the primary's capture at or above `p` among the records read makes the result `incomplete`** (G5-126, G5-132),
+whatever role its versions play and wherever it lies, inside the window or after it, within one hour's read or across hours:
+the versions disagree in their bytes or in the hours that yielded them, so neither the window nor the candidates are established.
+A conflict at `p` leaves the primary, and so the key, unestablished;
+found in a later hour's read, it leaves the key derived from the first version, and what it classified, reported as diagnostics beside the conflict.
+A conflict across hours is reported by its seq and the hours whose reads yielded it.
+The lookup reports the versions it kept of the records that play a role defined above,
+each with the roles and candidate flags its own bytes give, so the versions of a conflicting candidate can differ in them.
+A record whose block disagrees with its F-2 entry can arrive out of seq order and escape comparison (§7.4),
+so such a block in an hour read also makes the result `incomplete`, even when a match was found (G5-134);
+so does any other disagreement an hour's read detects, between a block it read and its F-3 summary or between another footer value and the records it describes (§7.4).
+The lookup then guarantees only that it is `incomplete` with that defect:
+its outcome, its other reasons, the versions it reports and every other fact are best-effort (G5-203).
 A record whose `ts_utc_ns` lies outside the hour of the scope it was read from breaches that scope ([FMT I-13], [STO §2]): it is reported as a **scope breach**, with its seq and hour, and makes the result `incomplete`, even when a match was found;
-in the primary's scope it also leaves a missing primary explained, as a read defect does (G5-146).
-**The comparison covers the scopes the lookup read** (G5-136), as §7.4's guarantees cover the packs read:
-a version of a window seq that lies only in a scope the lookup did not read — after the last scope it read, or before the primary's hour after a backward clock step (§4) — is not compared.
+in the primary's hour it also leaves a missing primary explained, as a read defect does (G5-146).
+**The comparison covers the hours the lookup read** (G5-136), as §7.4's guarantees cover the packs read:
+a version of a window seq that lies only in an hour the lookup did not read — after the last hour it read, or before the primary's hour after a backward clock step (§4) — is not compared.
 Two versions of one record are a pipeline defect, found only by an operation that compares both:
 `verify` checks one pack, and a merge compares the packs of one scope ([STO §4]), so neither is certain to compare versions that lie in different hours.
-A seq of the window with no version in the scopes read is missing from the coverage, so it never yields `unmatched`.
+A seq of the primary's capture in a bounded window with no version of that capture in the hours read is a gap, which makes the result `incomplete`;
+a record of another capture never fills it.
 
-*Scopes read* (G5-121, G5-129).
-The lookup reads the scope of the primary's hour and the following hours, as many as the caller allows, each once, every one of them even after its window is closed:
-a later scope can hold another version of a window seq or a smaller bound.
-A read of a scope that yields one seq in two places — a block disagreeing with its F-2 entry beside another block holding that seq (§7.4 Scope of the guarantees) —
-may read the scope's view again to keep every version of that seq (G5-196);
-it is still one read of that scope, over the same view, and reports what one read reports.
-A scope whose view is `conflicted` ([STO §4]) is not read: it is reported as conflicted, and, after the primary's scope, the lookup goes on with the next hour;
-a conflicted scope of the primary's hour explains the missing primary, as a scope that is not indexed does, and ends the lookup without a key (G5-142).
-It searches only seqs above `p`; candidates below the primary are outside every window and are not searched for.
-A primary that is missing, conflicting within its own scope's read, or without a key ends the lookup after that one scope, since its result is then decided.
-Such a result has no window and keeps only the primary's versions;
-it reports the primary's failure and the conditions of the completed read of the primary's scope that [CORPUS §5.11] Early-return results lists,
-and does not perform the completeness evaluation of a keyed lookup (G5-191).
-A window still unbounded after the last scope prevents `unmatched`; a match found is still reported as one (G5-127).
+*Hours read* (G5-121, G5-129).
+The lookup reads the primary's hour and the following hours, as many as the caller allows: these are the **hours scheduled**,
+and their time range runs from the start of the primary's hour to the end of the last hour scheduled.
+An hour's read is one read over several packs (§7.4), in capture order, of the packs the caller gives for that hour.
+The lookup reads each hour once, every one of them even after its window is closed:
+a later hour can hold another version of a window seq or a smaller bound.
+Each hour's read selects every record, with no filter,
+so it sees the read defects and scope breaches of its packs, the `ordering-uncertain` records of the primary's epoch at any seq, and every version of `p`;
+the conflicts it lists include those below `p` and those of other captures (§7.4), which do not make the result `incomplete`.
+`seq > p` restricts which records are candidates, possible replies, same-key primaries or possible same-key primaries, never what is read.
+A window still unbounded after the last hour read makes the result `incomplete`; a match found is still reported as one (G5-127).
 
-*What prevents `unmatched`* — each reported, side by side, with the scope the lookup searched:
-a scope that is not indexed ([STO §5]), read or not; a scope not read because it is conflicted (G5-142), reported beside its being not indexed when it is both; a read defect of a scope read, other than a `coverage` entry;
-a `coverage` entry of a pack read, of the primary's capture, that meets the lookup's query by [FMT §5] — seqs (`p`, `e`), or (`p`, ∞) while unbounded, and the time range of the hours scheduled (the primary's hour and the following ones the caller allows, a conflicted one included);
-a pack read with `quality_evaluated` false (§6); per-capture evidence that its source marks partial ([STO §5]);
-a seq of a bounded window not read (a seq gap); a window still unbounded after the last scope;
-a completeness barrier ([STO §5]): a `stop-unclean` of the primary's capture while the lookup read no closing record of the primary's epoch,
-or a `stop-unclean` of any capture of the tool whose gap interval meets the time range of the hours scheduled (an inverted interval meets every range, G5-137);
-a capture-boundary of the primary's epoch — anywhere in the epoch by the per-capture evidence, or a capture-boundary record of the epoch read above `p` — other than the clean `stop` that bounds the window (G5-130);
-an `ordering-uncertain` record of the primary's epoch in a scope read, at any seq (§6, G5-130); `correlation-incomplete` on the primary;
-a possible reply, an undecidable eligible candidate, or a candidate at or after a possible same-key primary, in the window;
-a contradiction.
-`ordering-uncertain` is detected only in the scopes read: no index records it per epoch, so a lookup that reads part of a long epoch can miss one (G5-130).
+A primary that is missing, conflicting within its own hour's read, or without a key ends the lookup after that one hour, since its result is then decided.
+Such an **early return** is `not-found` and `incomplete`, has no window, and keeps only the versions of the primary.
+It reports:
+- the primary's failure:
+  a **missing primary**, when the read of its hour yielded no version of `p` and that read has a read defect other than a `coverage` entry or a crash gap, a scope breach,
+  or a pack whose `coverage` entry meets `p` and the primary's hour ([FMT §5]), which explains the missing primary and is not reported on its own;
+  a crash gap of the primary's capture that meets the primary's hour explains a missing primary the same way a read defect of that hour does, and is reported as the crash gap below;
+  a **conflicting primary**, its versions in conflict within that read, reported as the conflict at `p`, with the key derived from the first version as a diagnostic;
+  a **primary without a key**, with its `correlation-incomplete` when it carries it, and its fields as a diagnostic;
+- what the read of the primary's hour finds before the primary is established, at any seq:
+  its read defects other than `coverage` entries and crash gaps (§7.4), a block or footer value it finds disagreeing with its records included, its scope breaches, and its packs with `quality_evaluated` false;
+- the crash gaps that meet the primary's hour, each evaluated once, against that hour alone (`incomplete` reasons, below).
+It reports no other reason, since it does not evaluate a window:
+no conflict above `p`, `coverage` entry, crash gap outside the primary's hour, epoch-boundary condition, `ordering-uncertain` record, seq gap, unbounded window or record that could be the reply.
+A primary whose versions conflict only across hours is not an early return:
+the lookup goes on through every hour scheduled, with the key derived from the first version,
+and reports the conflict at `p` with the primary's hour and each later hour whose read yielded `p`.
+A primary that is missing where nothing in its hour's read explains it, or a record that is not a primary (Definitions), fails the lookup as an error, not as a result.
 
-*Result* (G5-126, G5-127):
-a conflict on a seq at or above `p`, a block whose records disagree with its F-2 entry, a scope breach, or a primary without a key → `incomplete`;
-else one valid match → `matched`, several → `ambiguous`, each reported beside every condition above that the lookup found, none hiding another (§7.4);
-else `unmatched` when none of those conditions was found, otherwise `incomplete`.
+*`incomplete` reasons* (G5-203, G5-204, G5-209) — each reported, side by side, with the hours the lookup read:
+- every incomplete-read cause of the packs read, as §7.4 reports it — a failed block, an unknown codec, a truncation, a reader limit, a block or footer value found disagreeing with its records —
+  except `coverage` entries and crash gaps, which the lookup evaluates once, against its own bounds, by the items below;
+- a `coverage` entry of a pack read, of the primary's capture, that meets by [FMT §5] both the seqs of the window,
+  (`p`, `e`), or (`p`, ∞) while it is unbounded, and the time range of the hours scheduled;
+- a scope breach; a conflict on a seq of the primary's capture at or above `p`;
+- a pack read with `quality_evaluated` false (§6);
+- a seq of the primary's capture in a bounded window that no hour's read yielded (a gap);
+- a window still unbounded after the last hour read;
+- the **epoch-boundary condition**:
+  a capture-boundary record of the primary's epoch, read with a seq above `p`, other than the clean `stop` that bounds the window, a `stop-unclean` included;
+- a **crash gap**:
+  a `stop-unclean` boundary of any capture, from the sources §7.4 names (G5-209), whose gap meets the time range of the hours scheduled by §7.4's rule.
+  It is distinct from the epoch-boundary condition.
+  The time range it is evaluated against is that of the hours scheduled, never the unbounded selection of the hours' reads;
+  an early return evaluates it against the primary's hour only;
+- an `ordering-uncertain` record of the primary's epoch read, at any seq (§6, G5-130); `correlation-incomplete` on the primary;
+- a possible reply, an undecidable eligible candidate, or a candidate at or after a possible same-key primary, in the window;
+- a primary without a key.
+
+`ordering-uncertain` is detected only in the hours read: no index records it per epoch, so a lookup that reads part of a long epoch can miss one (G5-130).
+An I/O error, a cancellation or a limit that ends the lookup is an error, not a result.
+
+*Result* (G5-126, G5-127, G5-204):
+one valid match → `matched`, several → `ambiguous`, none → `not-found`;
+the `incomplete` flag and its reasons stand beside any of them, none hiding another (§7.4).
+When a block read disagrees with its F-2 entry, or the lookup detects another footer value disagreeing with its records, only `incomplete` and that defect are guaranteed (Identity across the hours read).
 
 ### 7.3 Secondary index
 
@@ -359,20 +386,20 @@ A later index would use the F-4 slot, per block and self-contained ([FMT I-14]).
 
 | Query | Mechanism |
 |---|---|
-| (a) tool + time | catalog, or listing views for scopes it does not index ([STO §5]) → the scopes whose hour overlaps → every pack of each scope's active view ([STO §4]) → overlap clusters across those packs, excluded whole by F-2 / F-3 (Evaluation) → range reads of the blocks of the other clusters → scan |
+| (a) tool + time | the packs the caller gives for the scopes whose hour overlaps (the service's catalog, or a listing of the key prefixes, [STO §4]) → overlap clusters across those packs, excluded whole by F-2 / F-3 (Evaluation) → range reads of the blocks of the other clusters → scan |
 | (b) + S/F | scan; the S/F of each data record is read from its payload ([FMT §7.2]) |
 | (c) CEID / ALID / … | decode-and-scan |
-| (d) System Bytes → pair | scan payloads for the System Bytes to find a primary; then §7.2's lookup from it over the scopes of its capture from its hour on, per the catalog or listing views; `incomplete` with the searched scope when absence cannot be established ([STO §5]) |
+| (d) System Bytes → pair | scan payloads for the System Bytes to find a primary; then §7.2's lookup from it over the packs given for its hour and the following hours |
 | (e) transport events | kind counts exclude clusters (Evaluation); scan; control frames are records, so Linktest / Select queries read kind=control |
-| (f) SML full text, (g) cross-tool | scan, via listing views where not indexed; catalog statistics (F-5) cover indexed scopes, and an aggregate over a range with scopes that are not indexed is `incomplete` with reason `cold` |
+| (f) SML full text, (g) cross-tool | scan |
 
 **Evaluation.**
 Every block a query reads is read in full ([FMT §6]); only F-2 and the F-3 summaries (§7.1) exclude a block without reading it.
 A predicate on an HSMS header field — SessionID, S/F, W, PType, SType or System Bytes — is evaluated on the payload's value,
 and the field is available only when its stored `field_validity` bit is set ([FMT §7.2]).
 
-A read over several packs, such as the active views of the scopes a query selects, resolves record identity ([FMT I-12]) before it filters:
-- **Selection.** Scopes are chosen by capture and hour, and every pack of a chosen scope's active view is read;
+A read over several packs, such as the packs given for the scopes a query selects, resolves record identity ([FMT I-12]) before it filters:
+- **Selection.** Scopes are chosen by capture and hour, and every pack the caller gives for a chosen scope is read;
   no pack of that set is left out for its own time range or summaries,
   since a pack outside the query's time range can hold another version of a record inside it.
 - **Overlap clusters.** The blocks of one capture whose seq ranges overlap, across every pack read, form an overlap cluster, as for a merge ([STO §4]).
@@ -404,8 +431,15 @@ A read over several packs, such as the active views of the scopes a query select
   A block whose records lie outside its F-2 seq range can place a seq in the wrong cluster,
   so a copy of that seq in another pack, even a truthful one, is not compared and can be yielded twice, unmarked;
   a record before its block's F-2 `ts_min` can be yielded out of time order.
-  A block read that disagrees with its F-2 entry makes the read `incomplete`;
-  a misstated block that is never read is not detected, so the absence of such a report does not certify the index.
+  A read checks every block it reads against its F-2 entry, and MAY check it against its F-3 summary;
+  it is not required to recompute any other footer value.
+  When a read detects a disagreement — a block it read against its F-2 entry or its F-3 summary, or another footer value against the records it describes —
+  it reports `incomplete` with that defect (Reporting of a read, below),
+  and the read then guarantees only that:
+  its other reasons, its conflicts, its order and every other fact it reports are best-effort (G5-203).
+  Every other defect — a failed block, an unknown codec, a truncated tail, a block over a reader limit — keeps the guarantees of [FMT §13]:
+  validated blocks are read, and failed or unread ranges are reported (Reporting of a read, below).
+  A misstated block that is never read is not detected, so the absence of such a report does not certify the index.
   A merge refuses such a pack ([STO §4]), and `verify` finds it ([FMT §13]).
 
 A read of a single pack holds no two copies of a seq (I-12), so it excludes blocks one by one.
@@ -434,6 +468,40 @@ A read of a single pack holds no two copies of a seq (I-12), so it excludes bloc
   and a conflict limit ends the read on the same conflict.
   Giving the packs in another order keeps which records conflict and which versions they have,
   but may change the representatives, the order of the packs holding each version, and so the interleaving of captures.
+
+**Reporting of a read** (G5-203, G5-209).
+A read reports `incomplete` beside the records it yields, never instead of them, for every cause below that it finds in the packs it reads ([FMT §13]):
+
+| Reason | Reported when | Located by |
+|---|---|---|
+| `coverage` | for every `coverage` entry of a pack's metadata that meets the query by [FMT §5]'s matching rule | the entry |
+| `truncated` | at most once per pack, the first case that applies: (1) the forward walk stopped at an envelope it could not account for; (2) else the pack is not finalized; (3) else the walked blocks disagree with the trailer's `block_count` or `record_count`, as [FMT §13] compares them | the offset: (1) of that envelope; (2) of the end of the last walked block, or of the end of the pack metadata without blocks; (3) none |
+| `corrupt-block`, `unknown-codec` | for every block the read reads that fails ([FMT §13]), by its cause | the block and its envelope's offset |
+| `index-mismatch` | for every block the read reads whose records disagree with its F-2 entry ([FMT §10]), and for every other disagreement it detects between a block it read and its F-3 summary or between another footer value and the records it describes (Scope of the guarantees) | the block and its envelope's offset; for a footer value of no single block, the pack |
+| `limit` | for every block, or the rest of a pack's walk, that the read leaves unread because of a reader limit | the block and its envelope's offset, or where the walk stopped |
+| `crash-gap` | for every `stop-unclean` boundary whose gap meets the query's time range (Crash gaps, below) | the boundary's capture and seq |
+
+A block whose records disagree only with its F-3 summary reports `index-mismatch` when the read checks that summary, and nothing otherwise:
+a reader need not check F-3 summaries or recompute footer values, so the absence of the report does not certify them.
+A finalized pack whose footer is rejected, but whose forward walk accounts for every block and agrees with the trailer's totals, reports nothing:
+the footer's rejection alone does not make the read `incomplete`.
+Whether a reader skips a block that F-2 or the F-3 summaries exclude is not part of this contract,
+so a failed or disagreeing block that the query excludes may go unreported (Scope of the guarantees).
+A reader's limits are its own parameters, not properties of the format:
+which blocks reach them is not part of this contract, and a limit, an I/O error or a cancellation that ends the read is an error, not a result.
+
+**Crash gaps** (G5-209).
+A read takes the `stop-unclean` boundaries from the F-5 `boundary` entries of every pack it is given, of any capture, read at the [FMT §13] bootstrap without decoding a block,
+and from the capture-boundary records it decodes in packs without a valid footer;
+so pruning never hides a boundary of a pack with a valid footer.
+A boundary's gap is the interval [`gap_start`, `gap_end`] its entry or record carries ([STO §4] Recovery), unbounded on a side whose bound is absent.
+It meets a time range by the matching rule of `coverage` ([FMT §5]):
+an interval whose `gap_start` exceeds its `gap_end` meets every time range, as an inverted `coverage` entry does (G5-137),
+and a query without a time range meets every gap.
+A boundary that several of the packs given hold is reported once.
+Deduplicating it never discards a differing gap:
+boundaries whose gap bounds differ are each evaluated.
+A footer's `boundary` entry can only add `incomplete`; it never hides a record.
 
 `incomplete`, `conflict` and the transaction outcomes of §7.2 are reported side by side; none replaces or hides another.
 
@@ -565,28 +633,35 @@ Annotation rules: `unparsed-entry`, `skipped-bytes` and `unrecognised-line`, who
 
 The following vectors belong to the corpus of [FMT §16]; [CORPUS §9.2] maps each of them to the corpus's vectors or marks it as planned:
 - one vector per `decode_status` value and per item-validity rule (§3);
+- a nonzero `capture_origin_mono_ns` (§4);
+- redaction (§8): the vectors of [FMT §16] "Redaction vectors".
+
+Transaction lookup (§7.2) and reads over several packs (§7.4) are tested by the Go module's own tests, as the cases of [STO §8] are;
+they are not corpus vectors (G5-199, G5-210).
+Those tests cover:
 - repeated System Bytes; cross-pack transactions;
 - a repeated transaction key: one completed transaction followed by an unanswered primary (§7.2);
-- an outstanding primary on epoch E1, a refused socket E2, then the E1 reply (§7.2 closure);
+- an outstanding primary on epoch E1, a refused socket E2, then the E1 reply (§7.2 closing record);
 - a primary without System Bytes, and an otherwise unanswered primary followed in its window by a reply-direction record whose System Bytes are unavailable: both `incomplete` (§7.2);
 - lookups from a primary (§7.2):
-  a reply in the next hour's scope; a window closed by a same-key primary, by a socket-close of the epoch, by a clean `stop` of another epoch, and not within the scopes read;
-  a footer whose `close_seq` names an annotation, with its F-2 entry true (a contradiction, never a bound);
-  a footer whose `close_seq` names a seq with two versions, one of them the socket-close (a conflict, not a contradiction);
-  a conflicted scope in the primary's hour (incomplete, no key) and in a later hour (a match in another hour still `matched`, beside it);
+  a reply in the next hour; a window bounded by a same-key primary, by a socket-close of the epoch, by a clean `stop` of another epoch, and not within the hours read;
+  a footer whose `close_seq` names an annotation, with its F-2 entry true (never a bound);
   a pack of hour H whose truthful blocks lie in hour K, holding the primary and its reply (a scope breach: incomplete), and a same-hour clock step that puts records outside a segment's period (no breach);
-  closure evidence at or below the primary's seq;
   a valid match, a wrong stream, an F0 abort, a wrong-stream F0, a control record whose bytes 6–7 look like F + 1, two valid matches (`ambiguous`);
   a possible same-key primary with System Bytes unavailable, a reply before it (valid) and after it (not eligible);
   an unknown-direction record that is both a possible reply and a possible same-key primary;
-  a conflict within a scope on a candidate and on an unrelated record after the window, and across scopes on the primary and on a candidate: each `incomplete`;
-  a block whose records disagree with its F-2 entry: `incomplete` with a match found;
-  another version of a window seq in the hour before the primary's, after a backward clock step: outside the comparison, and the same seq with no version in the scopes read: a seq gap;
-  a `coverage` entry whose seq range meets the window and whose time interval does not meet the hours scheduled, and the reverse; a coverage entry and a barrier meeting only a conflicted hour, which is scheduled though not read;
-  an `ordering-uncertain` record of the epoch below the primary, and a capture-boundary of the epoch outside the hours read;
+  a conflict within an hour's read on a candidate and on an unrelated record after the window, and across hours on the primary and on a candidate: each `incomplete`;
+  a block whose records disagree with its F-2 entry: `incomplete` with that defect, every other fact unchecked (G5-203);
+  another version of a window seq in the hour before the primary's, after a backward clock step: outside the comparison, and the same seq with no version in the hours read: a gap;
+  a `coverage` entry whose seq range meets the window and whose time interval does not meet the hours scheduled, and the reverse;
+  a `stop-unclean` boundary of another capture, from a footer, whose gap meets the hours scheduled, one whose gap does not, and one with an inverted gap;
+  the same boundary decoded from its record in a pack without a valid footer;
+  each early return: a missing primary explained by a read defect, and one nothing explains (an error); a conflicting primary;
+  a primary without a key, beside a crash gap meeting its hour and one meeting only a later hour;
+  a primary whose versions conflict only across hours (not an early return);
+  an `ordering-uncertain` record of the epoch below the primary;
+  a capture-boundary record of the epoch above the primary, other than the clean `stop` that bounds the window, and one outside the hours read (not found);
   a pack with `quality_evaluated` false; a `Reject.req` with SType unavailable; a T3 `timer-expiry` without identifiers;
-- a nonzero `capture_origin_mono_ns` (§4);
-- redaction (§8): the vectors of [FMT §16] "Redaction vectors";
 - reads over several packs (§7.4):
   two captures interleaved block by block in capture order, with a filter that rejects one capture's next record;
   backward timestamps within a block, across the blocks of a pack and across packs, read in time order;
@@ -600,4 +675,5 @@ The following vectors belong to the corpus of [FMT §16]; [CORPUS §9.2] maps ea
   a conflict limit reached exactly (the read succeeds) and exceeded by one (an error, with the conflicts found so far);
   a walked block whose computed summary excludes its cluster (read once only);
   a pack that is not finalized beside its archive, in both orders;
-  an extract beside its source (each masked record a `conflict`), planned with the extracts and redaction of phase 7 ([CORPUS §9.2]).
+  a query whose filter excludes the block holding a `stop-unclean` boundary whose gap meets the query's time range: `incomplete` from the footer's `boundary` entry;
+  an extract beside its source (each masked record a `conflict`), planned with the redaction work of phase 8.

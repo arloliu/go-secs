@@ -1,6 +1,6 @@
 # tracepack spec — change history
 
-Status: current (2026-10-10) — spec v2.31.
+Status: current (2026-10-10) — spec v2.32.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
@@ -1299,3 +1299,84 @@ Summary:
   the scope read's conflicts and unused footers stay in their own fields (G5-191).
 - [CORPUS §3]: `spec_version` 2.31; schema `tracepack-corpus/2` unchanged.
 - G5-195 states that only a bounding `stop` of the primary's epoch keeps that epoch's boundary at e from being reported, as [SEM §7.2] and [CORPUS §5.11] already require.
+
+## Changes v2.31 → v2.32: simplification against the stated purpose (owner decisions G5-198..G5-210, 2026-10-10)
+
+Source: the owner's simplification rulings (G5-198..G5-208) and the two open points of the amendment plan (G5-209, G5-210); no proposal document.
+Format version stays 1.0; no byte, no writer requirement and no canonical export changes.
+v2.32 applies the rulings that tracepack v0.4.0 implements; G5-200, G5-205, G5-207 and G5-208 are applied with proposal P8 in a later version.
+
+Summary:
+- Scope ([OVW §1]): the v1.0 non-goals of G5-198; the format is documented for any reader, and the Go module is the only implementation (G5-199).
+- No tag, enum value or bit is retired.
+  `scope_generation` and `publisher_epoch` of an archive are the publisher's values and rank nothing;
+  `replacement_set_*` are identity only; `compacted_from` and `supersedes` are lineage only, a merge writing in `supersedes` the `pack_id` of every `archive` input;
+  `patch_base` and `pack_role` `repair` are no longer written, and stay known values that readers read and export ([FMT §5], [FMT §9], [STO §2], G5-201, G5-202).
+- [STO]: the catalog contract, its window, listing views, coherent observation, per-capture evidence, completeness over a capture and retention are the service's (G5-201);
+  §5 keeps its number as a stub with an informative paragraph.
+  A reader is given its packs and reads their union, deduplicated by (`capture_id`, `seq`); there is no active view, generation ranking, publisher fencing, tool lease or commit object.
+  A merge takes the packs its caller gives and refuses any role other than `segment` or `archive`.
+  Deletion: a pack may be deleted only after a merge that took it as an input succeeded, while that merge's archive is retained or itself deleted under the same rule;
+  lineage tags are never the evidence for a deletion.
+  §6 is now archive identity; §8 lists implementation tests of the Go module instead of corpus vectors.
+  The recorder durability contract and the durable-bus text keep their rules, only their catalog and completeness wording changing (G5-205).
+- Repair is removed: `verify --repair`, the patch construction of [FMT §13] and the repair vectors (G5-202).
+- [SEM §7.2]: a transaction lookup returns `matched`, `ambiguous` or `not-found`, each with an `incomplete` flag and its reasons;
+  `not-found` states nothing about records outside the packs given (G5-204).
+  The proof of `unmatched` is removed: per-capture evidence, closure from footers, contradictions, conflicted views and not-indexed scopes.
+  Each hour is read unfiltered, `seq > p` restricting only classification; the early-return list moves here from [CORPUS §5.11].
+  The epoch-boundary condition is defined once and referenced from [SEM §6].
+- Index defects: when a read or lookup detects that a block it read disagrees with its F-2 entry or its F-3 summary, or that another footer value disagrees with the records it describes, it reports `incomplete` with that defect, and every other fact is best-effort (G5-203).
+  A reader checks every block it reads against its F-2 entry and MAY check it against its F-3 summary; it need not recompute every footer value.
+  Other defects keep their guarantees.
+- Crash gaps: a read or lookup reports `incomplete` for a `stop-unclean` gap meeting its time range, from the F-5 `boundary` entries of the packs given and the boundary records decoded in packs without a valid footer;
+  a lookup evaluates it once against the hours it schedules ([SEM §7.4], G5-209).
+  The normal-read reporting rules move from [CORPUS §5.4] to [SEM §7.4].
+- [CORPUS]: schema `tracepack-corpus/3` asserts format reading only: exports, rejections, footers, fields, primitives and truncation exports;
+  verification, queries, classification, reads over several packs and lookups become tests of the Go module (G5-199, G5-210);
+  the kept fixtures of the `repair` role are format-reading coverage, repair itself being removed (G5-202).
+  §5.2, §5.4, §5.6 and §5.9–§5.11 are stubs.
+- `tracepack-go.md`: the store, catalog, view, retention, repair and extract APIs leave the sketch; `ErrPublishUncertain`, the sinks and `SegmentWriter` stay (G5-205);
+  the CLI is `dump --jsonl`, `verify` and `find`, after phase 8 (G5-206).
+- `tracepack-impl-plan.md`: per-component statuses; 6b3 dropped; phase 7 split, its reader obligation moving to phase 8; new phase 9, the simplification (tracepack v0.4.0).
+
+Proposals closed:
+- P2 (merge-input defects and cancellation merges) closed, superseded by G5-201/G5-202; last text at `0f66458`.
+- P4 (cold-scope admissions) closed, superseded by G5-201/G5-202; last text at `b433b96`.
+- P5 (capture registry) closed, superseded by G5-201/G5-202; last text at `b433b96`.
+P7 stays deferred and P8 draft; both are rewritten with the version that applies G5-200.
+
+Review rounds (amendment plan, then the applied spec, kept outside the repository):
+
+| Round | Finding | Resolution |
+|---|---|---|
+| r1 P0 | deletion by `compacted_from` inclusion could lose records, and two archives could authorize deleting each other | deletion only after a successful merge took the pack as input, with its archive retained (acyclic) |
+| r1 P0 | retiring `supersedes` changed a writer requirement and the canonical export | no tag retired; `supersedes` kept as merge lineage |
+| r1 P0 | removing `ErrPublishUncertain` broke the frozen recorder contract | kept |
+| r1 P0 | best-effort applied to every read defect | limited to index/record disagreement (G5-203) |
+| r1 P0 | the corpus still bound diagnostics | corpus scope decided by assertion (G5-210) |
+| r1 P1 | lookup reasons omitted reader limits; coverage matched by disjunction | every incomplete-read cause propagated; coverage on seqs and time together |
+| r1 P1 | crash-gap evidence source undefined | footers of the packs given (G5-209) |
+| r1 P1 | corpus §8, zstd and truncation migration; rules left without a home (I-12, durable-bus gaps, effective quality, early returns, physical removal); impl-plan statuses | migration map and replacement texts |
+| r2 P0 | footer recomputed values omitted | kept |
+| r2 P1 | effective quality contradicted the clean-stop exception | one definition in [SEM §7.2] |
+| r2 P1 | unfiltered scope read lost with [CORPUS §5.11] | moved to [SEM §7.2] |
+| r2 P1 | removed schema sections stranded normative rules | rules moved to [SEM §7.4], [FMT §13]; stubs |
+| r2 P1 | archive row promised whole-scope completeness | records of the verified inputs only |
+| r2 P1 | `Extract` promise and phase-7 reader obligation orphaned | `Extract` removed; reader obligation to phase 8 |
+| r3 P1 | crash gaps propagated from the unfiltered read bypassed the lookup's time bounds | evaluated once against the hours scheduled |
+| r4 | — | ready |
+| apply r1 P0 | [SEM §7.2]/[SEM §7.4] guaranteed `incomplete` and the defect only for F-2 disagreement, and said an F-3-only disagreement reports nothing | one detected-disagreement rule: a detected F-2, F-3 or other footer disagreement reports `incomplete` with the defect (`index-mismatch`), every other fact best-effort; F-2 checked always, F-3 MAY be checked; a false summary of a block never read stays undetected |
+| apply r1 P1 | early returns propagated crash gaps through the generic read-defect paths | crash gaps excluded from both paths and evaluated once against the primary's hour; one meeting that hour explains a missing primary as a read defect does (`not-found` + `incomplete`) |
+| apply r1 P1 | lookup checks on bare seqs across hours of several captures | primary, window, gaps, versions and conflicts scoped to the primary's capture, identities compared as (`capture_id`, `seq`); all packs of each hour still read, crash gaps of any capture kept |
+| apply r1 P1 | I-12's byte-identity MUST over every pack given contradicted legacy repair versions and extract masking | obligation on writers and mergers separated from the reader's comparison rule; repair versions and masked records are reported conflicts that make no file invalid |
+| apply r1 P1 | phase 9 done-when required deferred tests | limited to v0.4.0's scope; recovery and spool cases (G5-205) and the extract case (phase 8) stay deferred |
+| apply r1 P1 | the sink contract compared deadlines to the removed `Object` | comparison deleted |
+| apply r1 P2 | phase statuses mixed lifecycle values with dispositions | Status column holds `pending`/`done` only, dispositions in a Note column; 6b3 and phase 7 listed as closed phases |
+| apply r1 P2 | this entry listed repair among operations becoming Go tests | removed; kept `repair`-role fixtures are format-reading coverage |
+| apply r1 P2 | [FMT §10] implied a lookup reads the record a footer entry names | a closure bounds the window only through a closing record decoded during the lookup's reads; footer entries are never chased |
+| apply r1 P2 | the reference Writer's treatment of `pack_role` 4 unstated; `dump --sml` described in the present tense | the Writer refuses role 4 for new output, readers keep it known; `dump --sml` labelled deferred |
+| apply r1 P2 | [OVW §1] redaction sentence unqualified | qualified "in format 1.0" |
+| apply r1 judged | crash-gap deduplication across packs could discard differing gap evidence | boundaries with differing gap bounds are each evaluated |
+| apply r2 P2 | [FMT §10] wording excluded the same-key primary as a window bound | a closure bounds the window only through a decoded closing record |
+| apply r2 | — | ready |

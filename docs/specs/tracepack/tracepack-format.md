@@ -1,19 +1,20 @@
 # tracepack — file format
 
-Status: current (2026-10-10) — v2.31, tracepack format 1.0.
+Status: current (2026-10-10) — v2.32, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
 Depends on (the byte layouts, TLV encoding, footer and validation rules are self-contained; these rules give meaning to some fields and are defined elsewhere):
 - [SEM §2] capture model (`fidelity`, `capture_method`, `vantage`), [SEM §3] `decode_status`, [SEM §4] time and clock anchor (`mono_ns`, `clock_step_tolerance_ns`),
   [SEM §5] transport events, [SEM §6] quality bits and `quality_evaluated`.
-- [STO §4] active view (I-12 resolves identity within it), [STO §2] scopes, roles and generations, [STO §6] replacement sets and patches
+- [STO §2] scopes and roles, [STO §4] merge and deletion, [STO §6] archive identity
   (meaning of `pack_role`, `scope_generation`, `publisher_epoch`, `patch_base`, `replacement_set_*`, `compacted_from`, `supersedes`, `coverage`),
   [STO §4] recorder durability contract (`flush_interval_ns`, `seq_start`, `stop-unclean`),
-  [STO §5] catalog and completeness barriers, [STO §7] log converter and source provenance (`source_ref`, `source_dialect`).
+  [STO §7] log converter and source provenance (`source_ref`, `source_dialect`).
+- [SEM §7.4] reads of the packs a caller gives (I-12 compares identity within them).
 - [SEM §7.1] the contract of the F-3 block summaries.
 - [SEM §8] redaction: meaning of `redaction-present`, `redaction_policy`, `redaction` entries and `quality.redacted`, and the validation of redaction entries.
-- The conformance corpus of §16 also contains the vectors of [SEM §9] and [STO §8]; its files, their schemas and the vector catalogue are [CORPUS].
+- The conformance corpus of §16 also contains the single-pack vectors of [SEM §9]; its files, their schemas and the vector catalogue are [CORPUS].
 
 References: `[FMT §n]` = `tracepack-format.md`, `[SEM §n]` = `tracepack-semantics.md`, `[STO §n]` = `tracepack-storage.md`, `[OVW §n]` = `tracepack-overview.md`, `[JSONL §n]` = `tracepack-jsonl.md`, `[CORPUS §n]` = `tracepack-corpus.md`; `[FMT I-n]` = invariant I-n of the format document.
 Each rule is defined in exactly one document; the others only reference it.
@@ -43,7 +44,7 @@ These rules let any mainstream language implement the format from this text alon
 - **UUIDs** (`pack_id`, `capture_id`, references): 16 bytes in RFC 9562 byte order,
   i.e. the order of the hex digits in the canonical string, left to right.
   Implementations whose native UUID type uses another byte order MUST convert.
-  Writers SHOULD generate `pack_id` and `capture_id` as UUIDv7 (time-ordered), so keys and catalog entries sort by creation time;
+  Writers SHOULD generate `pack_id` and `capture_id` as UUIDv7 (time-ordered), so keys and the service's catalog entries sort by creation time;
   a converter that reuses its ids for reproducible output derives them deterministically instead ([STO §7] item 8, Reproducible output),
   so readers never depend on an id's order reflecting creation time.
 - **Time**: `i64` nanoseconds since 1970-01-01T00:00:00Z on the POSIX time scale (no leap seconds);
@@ -89,7 +90,8 @@ These rules let any mainstream language implement the format from this text alon
   the trailer places the footer at or after the end of the pack metadata and ending where the trailer starts (§11), and the footer CRC matches.
   This is the single logical finalization point; no byte is rewritten after it (§12).
   A crash after a durable trailer leaves a finalized file even if the writer's close operation never returned.
-- **I-6 Immutable once finalized.** No byte of a finalized file is ever modified; repairs are new files ([STO §6]).
+- **I-6 Immutable once finalized.** No byte of a finalized file is ever modified;
+  a merge writes its archive as a new file ([STO §4]).
 - **I-7 Capture id across rolls; epoch bound at the transport boundary.**
   `capture_id` is a UUID assigned per tool when the recorder starts
   — or, over a durable bus, when the producer that feeds it starts ([STO §4]), and for a converter, when it establishes a logical conversion ([STO §7] item 8) —
@@ -117,11 +119,15 @@ These rules let any mainstream language implement the format from this text alon
   Merging packs never renumbers records, so a reference to (`capture_id`, `seq`) stays valid whichever file holds the record;
   `pack_id` identifies a file, never a record.
   Within a pack, records appear in strictly increasing seq order; gaps are allowed where other packs hold the missing records.
-  Identity is resolved **within the active view** ([STO §4]): records of replaced packs and lower generations are outside it,
-  so a repair may re-emit a record under its original identity with new stored bits or classification.
-  Within the active view, two records with the same (`capture_id`, `seq`) MUST be byte-identical (record header and payload);
-  readers keep one copy of identical records, and otherwise report a `conflict` and yield every version, marked, never choosing silently ([SEM §7.4]);
+  Writers and mergers MUST write every copy of one identity byte-identical (record header and payload),
+  whichever writer, consumer or merge writes it, except the masked records of an extract ([SEM §8]).
+  A reader compares identity **within the packs a read is given** ([SEM §7.4]):
+  it keeps one copy of identical records, and reports differing copies of one identity as a `conflict`, yielding every version, marked, never resolving it ([SEM §7.4]);
   a merge that finds one fails ([STO §4]).
+  Such a difference is reported, and makes no file invalid:
+  a `repair` patch written before v2.32 may hold a record re-emitted under its original identity with new stored bits or classification (G5-202),
+  and an extract's masked records keep their identity while their bytes differ from the source's ([SEM §8]);
+  a read given both such a file and the pack it derives from reports the conflict, and each file stays readable.
 - **I-13 Hour-aligned blocks.** All records of a block have `ts_utc_ns` in the same UTC hour;
   a writer closes the current block before appending a record from a different UTC hour.
   A block therefore belongs to exactly one hour and moves between packs without being re-encoded;
@@ -208,25 +214,25 @@ and an invalid transport-event or annotation payload is not a valid TLV body, §
 | 0x0005 | `vantage` | u8 enum | always | [SEM §2] |
 | 0x0006 | `recorder` | utf8 | always | recorder or converter product, version and mode; for display and tracing, never branched on |
 | 0x0007 | `writer` | utf8 | always | tracepack writer implementation and version |
-| 0x0008 | `classifier` | utf8, repeatable | any record's `decode_status` is not `not-attempted` / `not-applicable` | implementation and version that computed derived values (I-11); one value per classifier: a recorder or converter writes one, a merger every distinct value of its inputs ([STO §4]), a patch those of the pack it repairs ([STO §6]) |
+| 0x0008 | `classifier` | utf8, repeatable | any record's `decode_status` is not `not-attempted` / `not-applicable` | implementation and version that computed derived values (I-11); one value per classifier: a recorder or converter writes one, a merger every distinct value of its inputs ([STO §4]); a `repair` patch, no longer written (G5-202), holds those of the pack it repaired |
 | 0x0009 | `time_source` | u8 enum | always | §9 |
 | 0x000A | `capture_origin_utc_ns` | i64 | `time_source = capture-clock` | wall-clock counterpart of the mono origin ([SEM §4]) |
 | 0x000B | `capture_origin_mono_ns` | i64 | `time_source = capture-clock` | mono origin ([SEM §4]) |
 | 0x000C | `source_tz` | utf8 | `time_source = source-log` | IANA time-zone name the source timestamps are parsed in |
 | 0x000D | `source_dialect` | utf8 | `capture_method = log` | log format and parser mode used ([STO §7]) |
 | 0x000E | `source_ref` | utf8, repeatable | `capture_method = log` | identity of each source file |
-| 0x000F | `max_frame_len` | u64, repeatable | any record is classified `oversized` | the configured maximum frame length ([SEM §3]); one value per configuration: a recorder or converter writes one, a merger every distinct value of its inputs ([STO §4]), a patch those of the pack it repairs ([STO §6]); with several values the pack does not say which one a record was classified under |
+| 0x000F | `max_frame_len` | u64, repeatable | any record is classified `oversized` | the configured maximum frame length ([SEM §3]); one value per configuration: a recorder or converter writes one, a merger every distinct value of its inputs ([STO §4]); a `repair` patch, no longer written (G5-202), holds those of the pack it repaired; with several values the pack does not say which one a record was classified under |
 | 0x0010 | `period_start` | i64 | always | start of the period this pack covers: the flush interval of a segment, the UTC hour of an archive ([STO]) |
 | 0x0011 | `period_end` | i64 | always | end of that period (exclusive) |
 | 0x0012 | `lifecycle_coverage` | u8 enum | always | §9, [SEM §5] |
 | 0x0013 | `quality_evaluated` | bool | always | [SEM §6] |
 | 0x0014 | — | — | — | retired (the record header length is per block, §6) |
-| 0x0015 | `supersedes` | uuid, repeatable | patches; generations ≥ 1 with a predecessor | lineage: the packs this one replaces; for a patch it also removes the named packs from the view, and they stay removed when a later patch replaces the patch ([STO §4]) |
-| 0x0016 | `coverage` | tlv, repeatable | a repair lost data | one lost range per entry; nested tags below ([STO §6]) |
+| 0x0015 | `supersedes` | uuid, repeatable | patches; generations ≥ 1 with a predecessor | lineage only: for an archive written by a merge, the `pack_id` of every `archive` input, its predecessors, and none when it has none ([STO §4] Merge); for a `repair` patch, no longer written (G5-202), the packs it was written to replace; it never removes a pack from a read |
+| 0x0016 | `coverage` | tlv, repeatable | a repair lost data | one declared lost range per entry, carried by merges ([STO §4] Merge); nested tags below; only repair wrote new entries, so the reference implementation writes none of its own (G5-202) |
 | 0x0017 | `notes` | utf8 | optional | free text; never the sole record of data loss |
 | 0x0018 | `pack_role` | u8 enum | always | segment / archive / extract / repair (§9, [STO §2]) |
 | 0x0019 | `compaction_level` | u8 | always | 0 = written by a recorder or converter; n ≥ 1 = produced by merging packs of level < n |
-| 0x001A | `compacted_from` | uuid, repeatable | its lineage list is non-empty | lineage list, cumulative: for a generation, the generation-0 packs its merge folded ([STO §4] Merge); for a patch, the list of the pack it repairs ([STO §6]); absent when that list is empty, whatever `compaction_level` is (a converter's archive, [STO §7], and a merge whose view holds only such an archive); never in a segment or a patch of one |
+| 0x001A | `compacted_from` | uuid, repeatable | its lineage list is non-empty | lineage list, cumulative, never a deletion criterion ([STO §4] Deletion): for an archive written by a merge, the lists of its inputs plus every input segment ([STO §4] Merge); for a `repair` patch, no longer written (G5-202), the list of the pack it repaired; absent when that list is empty, whatever `compaction_level` is (a converter's archive, [STO §7], and a merge whose inputs are only such archives); never in a segment or a patch of one |
 | 0x001B | `recorder_instance_id` | uuid | always | stable identity of the recorder or converter deployment across restarts |
 | 0x001C | `previous_capture_id` | uuid | optional | the capture this recorder deployment ran immediately before this one (I-7) |
 | 0x001D | `extract_filter` | utf8 | `pack_role = extract` | description of the filter that selected the records; an extract is never a complete period |
@@ -239,13 +245,13 @@ and an invalid transport-event or annotation payload is not a valid TLV body, §
 | 0x0024 | `equipment_connect_mode` | u8 enum (`socket_role`) | optional | whether the equipment side is passive or active |
 | 0x0025 | `device_id` | u64 | optional | configured SessionID / DeviceID |
 | 0x0026 | `hsms_timers` | tlv | optional | configured timers; nested tag *n* (1–8) = T*n* in milliseconds, `u64` |
-| 0x0027 | `seq_start` | u64 | always | the first record's seq, or for a pack without records the capture's next seq (for a patch without records, the damaged pack's `seq_start`, [STO §6]; for an archive without records, the largest `seq_start` of the merge's inputs, [STO §4]); lets recovery of an empty spool place its boundary ([STO §4]) |
+| 0x0027 | `seq_start` | u64 | always | the first record's seq, or for a pack without records the capture's next seq (for a `repair` patch without records, no longer written (G5-202), the damaged pack's `seq_start`; for an archive without records, the largest `seq_start` of the merge's inputs, [STO §4]); lets recovery of an empty spool place its boundary ([STO §4]) |
 | 0x0028 | `clock_step_tolerance_ns` | u64 | `time_source = capture-clock` | wall-clock drift the writer tolerates against its durable anchor before marking a step ([SEM §4]) |
 | 0x002C | `flush_interval_ns` | u64 | a recorder with a durable spool, or a consumer of a durable bus | the recorder's durability contract interval; for a bus consumer its maximum normal segment-flush interval; never written by a standalone recorder without a durable spool (G5-150) or by a converter ([STO §7]), while a consumer of a durable bus writes it ([STO §4]) |
-| 0x002D | `scope_generation` | u64 | every pack except `extract` | 0 for segments and patches, ≥ 1 for generations produced by merges or written by a converter directly ([STO §2], [STO §7]) |
-| 0x002E | `publisher_epoch` | u64 | `scope_generation` ≥ 1 | fence epoch of the publisher that wrote the generation ([STO §2]) |
-| 0x002F | `patch_base` | uuid | a patch, when its scope has a generation | `replacement_set_id` of the generation the patch was registered against ([STO §4]) |
-| 0x0029 | `replacement_set_id` | uuid | `scope_generation` ≥ 1 | identity of the set of packs published together as one generation ([STO §6]) |
+| 0x002D | `scope_generation` | u64 | every pack except `extract` | 0 for segments and patches, ≥ 1 for archives, produced by merges or written by a converter directly; an archive's value is supplied by its publisher, and tracepack ranks nothing by it ([STO §2], [STO §7]) |
+| 0x002E | `publisher_epoch` | u64 | `scope_generation` ≥ 1 | the publisher's value, with no fencing meaning in tracepack ([STO §2]) |
+| 0x002F | `patch_base` | uuid | a patch, when its scope has a generation | written only by repair, no longer written (G5-202): the `replacement_set_id` of the archive the patch was registered against; read and exported like any tag |
+| 0x0029 | `replacement_set_id` | uuid | `scope_generation` ≥ 1 | identity only: every archive carries one ([STO §6]), and a merge writes a new value for its archive ([STO §4] Merge) |
 | 0x002A | `replacement_set_size` | u64 | with `replacement_set_id` | number of packs in the set: always 1 ([STO §6]); any other value rejects the file |
 | 0x002B | `replacement_set_index` | u64 | with `replacement_set_id` | this pack's index in the set: always 0; any other value rejects the file |
 | 0x0031 | `redaction_policy` | tlv | the extract was written under a redaction policy | the policy applied ([SEM §8]); nested tags below |
@@ -263,7 +269,7 @@ The rule errs toward `incomplete` (§13), because a missed intersection would pr
 A writer writes `capture_id`, `seq_first`, `time_start` and `time_end` in every `coverage` entry it declares,
 and `seq_last` whenever the upper bound of the lost seqs is known;
 an absent `seq_last` means the loss extends past the last seq the writer could establish.
-The entries a patch inherits ([STO §6]) are carried as data, whatever nested tags they hold:
+The entries a merge carries from its inputs ([STO §4] Merge), and those a `repair` patch inherited, are carried as data, whatever nested tags they hold:
 every entry, in its order, with every nested tag, type and value, unknown tags included;
 the nested entries may be re-encoded in another order, since their order carries no meaning, with reserved bytes zero (I-9).
 
@@ -492,7 +498,7 @@ Pack-metadata enums:
 | `vantage` | 0 unknown, 1 host, 2 equipment, 3 intermediary, 4 network, 5 none ([SEM §2]) |
 | `time_source` | 0 unknown, 1 capture-clock, 2 source-log, 3 generator |
 | `lifecycle_coverage` | 0 unknown, 1 subscribed, 2 none |
-| `pack_role` | 0 unknown, 1 segment, 2 archive, 3 extract, 4 repair; 5 retired: never written, reported `unknown(5)` like any unknown value (§1), and handled by [STO §4] as any role other than segment, archive or repair |
+| `pack_role` | 0 unknown, 1 segment, 2 archive, 3 extract, 4 repair (no longer written, G5-202; read and exported like any role); 5 retired: never written, reported `unknown(5)` like any unknown value (§1), and handled by [STO §4] as any role other than segment or archive |
 | `digest_algorithm` | 0 unknown, 1 hmac-sha256 (nested in `redaction_policy`, [SEM §8]) |
 
 Payload enums (§8, [SEM §5]):
@@ -504,7 +510,7 @@ Payload enums (§8, [SEM §5]):
 | `timer` | 0 none; 1–8 = T1..T8 (the value is the timer number; SECS-I T1 / T2 / T4 included) |
 | `cause` | 0 unknown, 1 local-open, 2 local-close, 3 select-accepted, 4 select-rejected, 5 local-deselect, 6 peer-deselect, 7 local-separate, 8 peer-separate, 9 timer-expiry, 10 linktest-failure, 11 transport-error, 12 peer-close, 13 implementation-fault |
 | `socket_role` | 0 unknown, 1 passive, 2 active |
-| `boundary_kind` | 0 unknown, 1 start, 2 stop, 3 gap, 4 stop-unclean (the capture ended without a clean stop; written by recovery; a completeness barrier, [STO §4]–[STO §5]) |
+| `boundary_kind` | 0 unknown, 1 start, 2 stop, 3 gap, 4 stop-unclean (the capture ended without a clean stop; written by recovery, [STO §4]; a read or lookup whose time range its gap meets reports `incomplete`, [SEM §7.4], G5-209) |
 | `annotation_kind` | 0 unknown, 1 note, 2 unparsed-entry, 3 skipped-bytes, 4 unrecognised-line |
 
 ## 10. Footer
@@ -631,7 +637,8 @@ An F-3 `epoch` entry carries `close_seq` when a record of the block ends that ep
 an F-5 `epoch` entry carries the minimum `close_seq` of the blocks' entries for that epoch, and none when no block's entry has one.
 A clean `stop` therefore sets `close_seq` only in the entry of its own epoch:
 that the capture ended is shown by its `boundary` entry, never by `close_seq` in the entries of other epochs;
-a transaction lookup relies on neither entry alone and reads the record they name ([SEM §7.2]).
+in a transaction lookup, an epoch or capture closure bounds the window only through a closing record actually decoded during the lookup's reads,
+and footer entries are never chased ([SEM §7.2]).
 A transport-event record whose payload is not a valid TLV body is neither a capture-boundary record nor the end of an epoch:
 it adds no `boundary` entry and no `close_seq`, and `verify` reports it as a writer defect (§13).
 
@@ -712,12 +719,12 @@ The `field_validity` check of §7.2 runs when a record is appended, not here.
 
 ## 13. Reader bootstrap and recovery (contract)
 
-The object size is known before reading (file system stat, object listing, the catalog of [STO §5], or a HEAD request).
+The object size is known before reading (file system stat, object listing, the service's catalog, or a HEAD request).
 
 ```
                       ┌─ size ≤ whole-read threshold? ── yes ──► read the whole object (1 request)
                       │
- reader ── size ──────┼─ catalog has footer location?  ── yes ─► round 1, in parallel:
+ reader ── size ──────┼─ footer location given?       ── yes ─► round 1, in parallel:
                       │                                           head read  +  footer..EOF read
                       │                                           (footer + trailer; trailer verified)
                       │
@@ -730,9 +737,9 @@ The object size is known before reading (file system stat, object listing, the c
 
 - **Bootstrap**: obtain the file header, pack metadata, trailer and footer as above.
   The head read is a speculative prefix read that normally covers the pack metadata too.
-  The catalog's footer location is a hint: the footer read extends to end of file,
+  A footer location the caller gives (e.g. from the service's catalog) is a hint: the footer read extends to end of file,
   so it always includes the trailer, which is still parsed and verified (I-5);
-  a reader never treats a pack as finalized from the catalog alone.
+  a reader never treats a pack as finalized from that hint alone.
   Validate the file header and the format version **before** reading any block.
   Typical cost is one round; the worst case is two.
   Suffix range reads (`bytes=-W`) work on S3 and GCS;
@@ -744,7 +751,7 @@ The object size is known before reading (file system stat, object listing, the c
   A trailer at the front would still need a second read for the footer,
   and a footer at the front requires buffering or rewriting the whole file,
   which breaks streaming writes, multipart upload while recording, crash safety, and I-5.
-- **Verification and recovery** (`verify`, `verify --repair`): walk blocks forward from the end of the pack metadata applying I-1 / I-2,
+- **Verification and recovery** (`verify`): walk blocks forward from the end of the pack metadata applying I-1 / I-2,
   decoding and validating whole bodies.
   Without a valid footer (§10), each block's header length comes from its envelope alone and there is no F-2 entry to compare;
   the walk stops at an envelope it cannot account for, and no block after it is located.
@@ -795,7 +802,6 @@ The object size is known before reading (file system stat, object listing, the c
   It states whether the pack is finalized (I-5) and where the validated prefix ends:
   at the first failed block or the point where the walk stopped, else at the end of the last block, or at the end of the pack metadata for a pack without blocks.
   With a valid footer it also gives the seq ranges and time intervals of the failed blocks, from their F-2 entries and F-3 summaries.
-  [CORPUS §5.2] gives the report's canonical JSON form.
   A file header or pack metadata that cannot be read (§4, §5, §14) is an error, not an outcome: there is no block region to walk.
   A reader rejects a pack at bootstrap for exactly these reasons of format:
   an object shorter than the file header; a bad `magic`, `header_crc` or version (§4, §14);
@@ -811,49 +817,15 @@ The object size is known before reading (file system stat, object listing, the c
   Guarantee in format 1.0: every validated block is readable, and the validated prefix is readable without the footer;
   every failed block and every byte range the walk cannot account for is reported `incomplete` with offset and cause.
   Locating blocks after an envelope the walk cannot account for, in a pack without a valid footer, is deferred ([OVW §6]).
-- **Repair** (`verify --repair`) never modifies the damaged file;
-  it writes a `repair` patch ([STO §6]) whose `supersedes` names the damaged pack, also when that pack is itself a patch;
-  the packs that patch replaced stay replaced ([STO §4]).
-  The patch holds every validated block of the damaged pack, those after a failed block included,
-  copied byte for byte in file order;
-  no record is re-encoded, so header extension bytes, reserved bits and unknown enum values survive.
-  Its footer is built from the copied records as a writer builds it (§10):
-  F-2 for the new offsets, F-3 from the records, F-5 aggregated.
-  Unlike a merge, which copies each block's F-3 list verbatim, a repair never propagates the damaged pack's footer,
-  which may be invalid or false, so the damaged footer's unknown F-3 tags are not kept.
-  Its `coverage` holds the damaged pack's entries, carried as data (§5), then one new entry per lost range:
-  - with a valid footer that every validated block agrees with,
-    one entry per F-3 seq range of each failed block, within the block's F-2 `ts_min`..`ts_max`;
-  - otherwise, one entry per **lost run**: a maximal run of consecutive failed blocks,
-    with a tail after the last located block when the pack is not finalized or the walk stopped.
-    `seq_first` is the last seq of the validated block before the run + 1, or the damaged pack's `seq_start` when none precedes it;
-    `seq_last` is the first seq of the validated block after the run − 1, absent when none follows;
-    the time interval is the scope's UTC hour ([STO §2]), clamped to the i64 range.
-    A tail with no seq left to lose, after a last seq of 2^63−1, yields no entry.
-  These bounds use the seqs of the validated blocks' records,
-  never a failed block's envelope, nor the F-2 entries of a footer that is not trusted.
-  A valid footer is trusted as a read that prunes by it trusts it (§10), unless a validated block disagrees with it.
-  What remains undetectable is a failed block whose records broke I-12 outside the bounds its neighbours give,
-  since its bytes cannot be read.
-  A `finalized-inconsistent` pack is repaired like any other: every block copied, no new `coverage`, the footer rebuilt.
-  So is a `finalized-consistent` pack with the `seq_start` defect,
-  whose patch states the first record's seq as its `seq_start` (§5), as every patch with records does.
-  The seqs between the damaged pack's `seq_start` and its first record are not reported lost:
-  `seq_start` states the first record's seq, so the mismatch is a fault of the pack metadata, not a sign of missing records.
-  Repair writes nothing, and the damaged pack stays, when any of these holds:
-  the pack is `finalized-consistent` without the `seq_start` defect, so there is nothing to repair;
-  it is not a stored pack, its `pack_role` being other than `segment`, `archive` or `repair`
-  (an extract is never repaired into a patch, [STO §2], and `verify` of an extract only reports);
-  its period is not inside one UTC hour, or a validated block lies outside that hour;
-  a validated block carries the I-12 or I-13 writer defect, which the patch's own footer validation would reject;
-  a lost run holding a failed block has no seq between its neighbours, which shows that I-12 breaks inside it;
-  or the validated records breach the pack metadata's commitments:
-  a classified record without `classifier`, an `oversized` record without `max_frame_len`, or a `quality.redacted` record.
-  The first of these is decided before the others: a pack with nothing to repair is reported as such whatever else holds, its role included;
-  no precedence is defined among the others (G5-183).
 - **Normal reads never silently skip.** A corrupt block, a truncated tail, an unknown codec, a block whose records disagree with its F-2 entry or a `coverage` hit yields partial results
   **with** an `incomplete` status the caller must inspect.
-  [CORPUS §5.4] defines when a read of one pack reports each of these, and with which offset.
+  [SEM §7.4] defines when a read of one pack reports each of these, and with which offset.
+  When a read or lookup detects that a block's records disagree with its F-2 entry, or that a footer value disagrees with the records it describes,
+  it guarantees only that its result is `incomplete` and names that defect;
+  its outcome, its other reasons and every other fact it reports are best-effort (G5-203).
+  Every other defect, such as a failed block, an unknown codec, a truncated tail or a block over a reader limit, keeps the guarantee above:
+  validated blocks are read, and failed or unread ranges are reported.
+  A false summary in a block that is never read is not detected ([SEM §7.4]).
 
 ## 14. Versioning
 
@@ -867,6 +839,10 @@ The object size is known before reading (file system stat, object listing, the c
   new F-3 / F-5 tags, a longer `f2_entry_len` (§10).
 - Major changes: changing any existing offset or type, and **new codec values** (§2), because an old reader cannot decode the content at all.
 - A new `classifier` is not a format change.
+- Spec v2.32 changes no byte of format 1.0 and no canonical export (§15):
+  no tag, enum value or bit is retired, and no requirement of §5 changes.
+  It changes only the meaning tracepack attaches to some tags
+  and which of them the reference implementation still writes (§5, §9; G5-201, G5-202).
 - **One exception, before any production use.**
   In spec v2.13, format 1.0 was redefined in place, without a new format number:
   the header section became byte-columnar (§6),
@@ -904,17 +880,22 @@ The canonical JSONL export is the language-agnostic text form of a pack and its 
 
 ## 16. Conformance corpus
 
-The corpus lets an implementation in any language prove that it reads and writes the same bytes as every other.
-Its layout, the JSON schemas of its expectations, the item-validity checklist of [SEM §3] and the catalogue that maps each clause below to its vectors are [CORPUS];
+The corpus binds format-level reading (G5-199):
+it pins what a reader of format 1.0 reads from each of its packs, so that drift of the format is caught over years of storage.
+The format is documented for any reader, and the Go module is the only implementation (G5-198);
+diagnostics, reads over several packs, transaction lookups and store behaviour are tested by the Go module's own tests, not by the corpus ([SEM §9], [STO §8]).
+Its layout, the JSON schemas of its expectations and the catalogue that maps each clause below to its vectors are [CORPUS];
 [CORPUS §8] states how the corpus reads the clauses whose wording leaves a choice, such as the empty pack and the maximum-value integers.
-- Contents: golden `.tpk` files and the expected results of reading them; the files of each vector are those [CORPUS §2] gives for its class.
-  A vector of every class but `multi-pack` holds the expected canonical JSONL (§15) of its pack and the expected `verify` report,
-  and a repair vector whose result is `patched` also holds its patch, with the patch's JSONL and report;
-  for a vector a reader rejects at bootstrap (§13), the expected rejection instead of JSONL and report ([JSONL §8]).
-  A vector of class `multi-pack` holds several packs or one, each pack's expected `verify` report,
-  and the expected results of its reads over several packs and of its transaction lookups, and no JSONL.
-  Reports, rejections, query results, and the results of reads over several packs and of transaction lookups are canonical JSON
-  that holds codes, offsets, seqs and counts, never error text ([CORPUS §5]).
+- Contents: golden `.tpk` files and the expected results of reading them; the files of each vector are those [CORPUS §2] gives for its class (G5-210).
+  A vector holds the expected canonical JSONL (§15) of its pack,
+  or, for a vector a reader rejects at bootstrap (§13), the expected rejection instead ([JSONL §8]);
+  a truncation vector holds one pack and the expected rejection or export of each cut.
+  A vector may also hold the HSMS header fields of its data and control records (§7.2)
+  and a projection of its footer (§10): the values the footer stores, whether a reader accepts it, and the values recomputed from the records.
+  Rejections, fields and footer projections are canonical JSON that holds codes, offsets, seqs and counts, never error text ([CORPUS §5]).
+- The corpus holds no `verify` report, query result or classification (G5-210).
+  Where a clause below states a `verify` outcome or writer defect, the result of a query or predicate, or a `decode_status`,
+  the corpus holds the pack with the expectations above, and the Go module's tests check the stated result.
 - Vectors: empty pack; pack with zero records; codec `none` and codec `zstd` of the same records;
   truncated tail; corrupt middle block; bad envelope CRC; unknown codec; unknown TLV tag and enum value;
   `record_header_len` > 44, including 45–55, with the extension bytes preserved; unordered timestamps;
@@ -936,7 +917,7 @@ Its layout, the JSON schemas of its expectations, the item-validity checklist of
   a record whose System Bytes bit is set while its payload ends before them: rejected by a writer at append,
   and, in a nonconforming-writer fixture labelled as such, unavailable to a query and reported by `verify` as a writer defect;
   control frames (`Select.rsp`, `Deselect.rsp`, `Reject.req`, `Linktest.req`) whose payload bytes 6 and 7 a query reads at their positions, as stream, W and function, whatever SType says (§7.2);
-  S/F, SessionID and System Bytes predicates, including transaction candidate selection ([SEM §7.2]), evaluated on payload values,
+  S/F, SessionID and System Bytes predicates evaluated on payload values,
   and an S/F predicate on a record with one of the two fields unavailable, with and without the request for unavailable fields.
 - Block framing vectors (§6, §7.1):
   identical decoded body bytes under different framing, as one record with a long header or as several records with 44-byte headers;
@@ -947,13 +928,13 @@ Its layout, the JSON schemas of its expectations, the item-validity checklist of
   a block holding one oversized record.
 - Validation vectors (§12):
   a validating writer whose encoded block has an I-2 defect injected after encoding:
-  the block and the trailer are not written, and recovery reports the pack unfinalized;
-  a payload-only identity conflict between two packs.
-- Verification vectors (§13), each with its expected outcome:
+  the block and the trailer are not written, and recovery reports the pack unfinalized.
+- Verification vectors (§13), each with its expected outcome, which the Go module's tests check;
+  each pack's export shows what a reader recovers from it:
   a finalized pack whose blocks all pass: `finalized-consistent`;
   a pack truncated at every byte offset, stored as one pack and a table of the expectations of each cut, which an implementation makes itself ([CORPUS §5.7]):
   rejected at bootstrap (§13) when the cut falls inside the file header or the pack metadata,
-  else `unfinalized`, and no block of the validated prefix lost;
+  else exported with no block of the validated prefix lost (its outcome `unfinalized`);
   a finalized pack whose last block fails: `finalized-truncated`;
   a failed block between validated ones, with a valid footer and, for a block whose envelope holds, without one: `corrupt-middle`;
   a finalized pack whose footer is invalid, or whose F-3 summary disagrees with its block's records, while every block passes: `finalized-inconsistent`;
@@ -964,18 +945,7 @@ Its layout, the JSON schemas of its expectations, the item-validity checklist of
 - Bootstrap vectors (§13): for each reason a reader rejects a pack at bootstrap, a pack with that reason alone,
   the reason of an entry list breaking §5's rules once per kind of rule (framing, type, value, repetition, nested list),
   and a missing tag once required `always` and once by a condition on another metadata value;
-  and a pack missing a tag that only its records require (a classified record without `classifier`): it opens, and `verify` reads it.
-- Repair vectors (§13), each patch verified `finalized-consistent`, its blocks byte-identical to the damaged pack's validated blocks,
-  and every record not copied matched by a `coverage` entry:
-  a failed middle block with a valid footer (the footer's ranges);
-  the same with a footer a validated block disagrees with, and without a valid footer (the neighbours' seqs, the scope hour);
-  a pack truncated at every byte offset after its pack metadata (a tail entry without `seq_last`), stored as one pack and a table as above; every block failed (a patch holding only `coverage`);
-  a `finalized-inconsistent` pack (every block copied, no new `coverage`); a repair of a patch (its `coverage` inherited);
-  a `finalized-consistent` pack with the `seq_start` defect, its first record's seq above and below `seq_start` (every block copied, no new `coverage`, the patch's `seq_start` its first record's seq);
-  and each refusal:
-  `finalized-consistent` without the `seq_start` defect, also for an extract and for packs that also breach their period or their records' commitments (nothing to repair comes first, §13),
-  an extract that is not `finalized-consistent`, a seq-order or hour-span defect, a lost run without a seq between its neighbours, a block outside the scope's hour;
-  each refusal vector meets one refusal condition alone where the conditions can be separated.
+  and a pack missing a tag that only its records require (a classified record without `classifier`): it opens, and its export holds its records.
 - Redaction vectors ([SEM §8]), written with the published test keys:
   S7F3 with its PPBODY masked (length, item headers, `decode_status` and HSMS header unchanged; entry and digest as published);
   S7F3 and S7F6 carrying the same process program, in one domain: equal digests; the same S7F3 under the second test key and key id: a different digest;
@@ -998,14 +968,12 @@ Its layout, the JSON schemas of its expectations, the item-validity checklist of
   reported, and exactly the records concerned treated as wholly masked;
   a valid masked record in an early block and a defective annotation entry for a record in a later block: the early record keeps its ranges, the later one is wholly masked;
   an extract requested from an extract written under a policy, or from a pack holding a `redacted` record: rejected before any output;
-  one requested from an unscreened extract (no policy, no `redacted` record): written, because its records are in full;
-  a masked record read together with its source pack: `conflict`.
-- Each query vector carries its expected query results,
-  because JSONL and `verify` output alone do not exercise queries.
-- [SEM §9] and [STO §8] add the vectors for their rules to the same corpus.
-  The vectors that need the result of a read over several packs — a payload-only identity conflict between two packs and transaction candidate selection — are catalogued with those of [SEM §9] ([CORPUS §9]).
-- Conformance is [CORPUS §1]: in short, a reader produces the expected files [CORPUS §1] lists for each vector's class, the expected rejection for every vector rejected at bootstrap (§13),
-  and the expected query results for every query vector, and a writer's output round-trips through a conforming reader.
+  one requested from an unscreened extract (no policy, no `redacted` record): written, because its records are in full.
+- [SEM §9] adds the single-pack vectors of its rules to the same corpus;
+  reads over several packs, transaction lookups and store behaviour have no corpus vectors (G5-199).
+- Conformance is [CORPUS §1]: in short, a reader produces the expected files [CORPUS §1] lists for each vector's class
+  and the expected rejection for every vector rejected at bootstrap (§13),
+  and a writer's output round-trips through a conforming reader.
 - The corpus is identified by the spec version as well as the format version,
   so the goldens of spec v2.13 and later are told apart from earlier ones (§14) ([CORPUS §3]).
   It holds one sample of the definition before v2.13:
@@ -1013,6 +981,9 @@ Its layout, the JSON schemas of its expectations, the item-validity checklist of
   labelled as a sample of that layout, not as a detection guarantee.
 
 ## Appendix A. Cross-language support (informative, as of 2026-09)
+
+Informative history: no implementation in another language is planned (G5-198);
+the table records the survey made when the format was designed.
 
 | Need | Go | Java | .NET | Python |
 |---|---|---|---|---|
