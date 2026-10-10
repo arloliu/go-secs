@@ -27,6 +27,13 @@ const windowFloor = 8 << 20
 // sharedEncoder is safe for concurrent use by multiple goroutines (EncodeAll's own contract in klauspost/compress/zstd).
 // Encode shares this one instance instead of allocating an encoder per call.
 // A concurrency of 1 keeps a single call's work on one goroutine, since the caller already parallelizes across blocks.
+//
+// It keeps the zstd library's default window of 8 MiB (windowFloor),
+// so no frame it writes declares a window above 8 MiB, whatever the body's length.
+// That meets the writer rule of the tracepack format specification §2:
+// a frame declares no window larger than the larger of 8 MiB and its decoded length, and never one above 64 MiB.
+// The package tests check the declared window at sizes around 8 MiB and above 64 MiB,
+// so a library upgrade that changed the default would not go unnoticed.
 var sharedEncoder = newSharedEncoder()
 
 // pooledDecoder is a streaming zstd decoder and the reader of the source it decodes, pooled together.
