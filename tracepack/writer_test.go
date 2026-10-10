@@ -1534,6 +1534,57 @@ func TestNewWriterRejectsRetiredPackRole(t *testing.T) {
 	assert.Zero(t, buf.Len())
 }
 
+// TestNewWriterRefusesRepairRole checks that a Writer writes no new pack of the repair role 4
+// (the tracepack storage specification §2), refusing it before it writes anything, as it refuses the retired role 5,
+// while PackMeta.MarshalBinary still encodes role 4, which readers read.
+func TestNewWriterRefusesRepairRole(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		edit func(m *tracepack.PackMeta)
+	}{
+		// A repair pack's metadata is valid with supersedes, so only the role is refused.
+		{"repair", func(m *tracepack.PackMeta) {
+			m.PackRole, m.Supersedes = tracepack.PackRoleRepair, []tracepack.UUID{uuidOfByte(0xD0)}
+		}},
+		// Without supersedes the role is refused before the metadata rules a repair pack would have to meet.
+		{"repair without supersedes", func(m *tracepack.PackMeta) { m.PackRole = tracepack.PackRoleRepair }},
+		{"retired", func(m *tracepack.PackMeta) {
+			m.PackRole, m.Supersedes = tracepack.PackRole(5), []tracepack.UUID{uuidOfByte(0xD0)}
+		}},
+	}
+	for _, tt := range tests {
+		m := writerMeta()
+		tt.edit(m)
+
+		var buf bytes.Buffer
+		w, err := tracepack.NewWriter(&buf, tracepack.WriterOptions{Meta: m, Facts: tracepack.PackFacts{AnyClassified: true}})
+		require.ErrorIs(t, err, tracepack.ErrFieldValue, tt.name)
+		assert.Nil(t, w, tt.name)
+
+		var fe *tracepack.FieldError
+		require.ErrorAs(t, err, &fe, tt.name)
+		assert.Equal(t, "pack_role", fe.Field, tt.name)
+		assert.Zero(t, buf.Len(), "%s: nothing written", tt.name)
+	}
+
+	// The pack metadata of a repair pack, its patch_base and coverage included, still encodes and decodes unchanged.
+	m := writerMeta()
+	m.PackRole, m.Supersedes = tracepack.PackRoleRepair, []tracepack.UUID{uuidOfByte(0xD0)}
+	m.PatchBase = new(uuidOfByte(0xB5))
+	m.Coverage = []tracepack.Coverage{{
+		CaptureID: new(uuidOfByte(0xC0)), SeqFirst: new(uint64(3)), SeqLast: new(uint64(7)),
+		TimeStart: new(int64(100)), TimeEnd: new(int64(200)),
+	}}
+	require.NoError(t, m.Validate(tracepack.PackFacts{AnyClassified: true, CoverageLoss: true, ScopeHasGeneration: true}))
+	raw, err := m.MarshalBinary()
+	require.NoError(t, err, "the pack metadata of a repair pack still encodes")
+	got, err := tracepack.UnmarshalPackMeta(raw)
+	require.NoError(t, err)
+	assert.Equal(t, m, got)
+}
+
 func TestWriterCloseFailsWithoutARedactedRecordUnderTheFlag(t *testing.T) {
 	t.Parallel()
 

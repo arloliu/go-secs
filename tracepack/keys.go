@@ -20,8 +20,6 @@ const (
 	segmentFileLen = seqFirstDigits + 1 + uuidKeyLen + len(keyPackSuffix)
 	// archiveFileLen is the length of an archive key's last component: <capture_id>-<pack_id>.tpk.
 	archiveFileLen = uuidKeyLen + 1 + uuidKeyLen + len(keyPackSuffix)
-	// commitHourLen is the length of a commit key's hour component, YYYYMMDDHH.
-	commitHourLen = 10
 	// secondsPerHour converts an hour number to Unix seconds, which never overflows for a key hour.
 	secondsPerHour = 3600
 
@@ -43,7 +41,7 @@ const (
 var ErrInvalidKey = errors.New("tracepack: invalid object key")
 
 // HourOf returns the UTC hour holding t, numbered in whole hours from 1970-01-01T00:00Z,
-// as TxKey.Hour, ArchiveKey and CommitKey number a scope's hour;
+// as TxKey.Hour and ArchiveKey number a scope's hour;
 // for a t within int64 nanoseconds, it is the hour of a record whose ts_utc_ns is t.UnixNano().
 // It rounds down, so a time before 1970 lies in a negative hour, and it takes any t,
 // also one outside the int64 nanoseconds a ts_utc_ns holds.
@@ -71,14 +69,6 @@ type archiveKeyParts struct {
 	hour    int64  // in [minKeyHour, maxKeyHour]
 	capture UUID
 	pack    UUID
-}
-
-// commitKeyParts is what a commit object's key names.
-type commitKeyParts struct {
-	tool    string // decoded tool_id
-	capture UUID
-	hour    int64 // in [minKeyHour, maxKeyHour]
-	id      UUID
 }
 
 // EscapeToolID returns tool as a key spells it (the tracepack storage specification §3):
@@ -159,33 +149,7 @@ func ArchiveKey(prefix, tool string, capture UUID, hour int64, pack UUID) (strin
 	return dir + capture.String() + "-" + pack.String() + keyPackSuffix, nil
 }
 
-// CommitKey returns the key of a commit object (the tracepack storage specification §3):
-// <prefix>/commit/<tool>/<capture>/<YYYYMMDDHH>/<id>, the hour in UTC.
-//
-// The prefix is used byte for byte, followed by '/' when it is not empty;
-// a configured prefix is empty or does not end in '/', which NewStoreSource checks and CommitKey does not.
-//
-// Parameters:
-//   - prefix: the bucket prefix, possibly empty.
-//   - tool: the tool_id as recorded, which the key spells with EscapeToolID; not "", "." or "..".
-//   - capture: the scope's capture_id.
-//   - hour: the scope's UTC hour number, counted from the Unix epoch;
-//     an hour holding an int64 nanosecond timestamp, -2562048 to 2562047 (the years 1677 to 2262).
-//   - id: the committed generation's replacement_set_id or the committed patch's pack_id.
-//
-// Returns:
-//   - string: the key; empty on error.
-//   - error: non-nil, wrapping ErrInvalidKey, for a tool a key cannot hold or an hour outside that range.
-func CommitKey(prefix, tool string, capture UUID, hour int64, id UUID) (string, error) {
-	dir, err := commitKeyDir(prefix, tool, capture, hour)
-	if err != nil {
-		return "", err
-	}
-
-	return dir + id.String(), nil
-}
-
-// keyArea returns the start of every key of one area (staging, archive or commit) under prefix:
+// keyArea returns the start of every key of one area (staging or archive) under prefix:
 // prefix, a '/' when prefix is not empty, then area and a '/'.
 func keyArea(prefix, area string) string {
 	if prefix == "" {
@@ -217,20 +181,6 @@ func archiveKeyDir(prefix, tool string, hour int64) (string, error) {
 	t := keyHourTime(hour)
 
 	return fmt.Sprintf("%s%s/%04d/%02d/%02d/%02d/", keyArea(prefix, "archive"), EscapeToolID(tool), t.Year(), t.Month(), t.Day(), t.Hour()), nil
-}
-
-// commitKeyDir returns the listing prefix of the scope's commit objects, <prefix>/commit/<tool>/<capture>/<YYYYMMDDHH>/,
-// or an error for a tool a key cannot hold or an hour outside [minKeyHour, maxKeyHour].
-func commitKeyDir(prefix, tool string, capture UUID, hour int64) (string, error) {
-	if err := checkKeyTool(tool); err != nil {
-		return "", keyArgError(err)
-	}
-	if err := checkKeyHour(hour); err != nil {
-		return "", keyArgError(err)
-	}
-	t := keyHourTime(hour)
-
-	return fmt.Sprintf("%s%s/%s/%04d%02d%02d%02d/", keyArea(prefix, "commit"), EscapeToolID(tool), capture, t.Year(), t.Month(), t.Day(), t.Hour()), nil
 }
 
 // checkKeyTool reports an error for a tool no key can hold: "", and "." and "..",
@@ -321,35 +271,6 @@ func parseArchiveKey(prefix, key string) (archiveKeyParts, error) {
 	}
 	if p.pack, err = parseKeyUUID(file[uuidKeyLen+1 : 2*uuidKeyLen+1]); err != nil {
 		return archiveKeyParts{}, keyError(key, err)
-	}
-
-	return p, nil
-}
-
-// parseCommitKey parses key as the key of a commit object under prefix, as CommitKey builds it.
-// It accepts only the one spelling CommitKey produces, so CommitKey rebuilds every key it accepts byte for byte;
-// it requires no particular tool, capture or hour.
-func parseCommitKey(prefix, key string) (commitKeyParts, error) {
-	comps, err := splitKey(prefix, "commit", key, 4)
-	if err != nil {
-		return commitKeyParts{}, err
-	}
-	var p commitKeyParts
-	if p.tool, err = unescapeToolID(comps[0]); err != nil {
-		return commitKeyParts{}, keyError(key, err)
-	}
-	if p.capture, err = parseKeyUUID(comps[1]); err != nil {
-		return commitKeyParts{}, keyError(key, err)
-	}
-	h := comps[2]
-	if len(h) != commitHourLen {
-		return commitKeyParts{}, keyError(key, errors.New("hour not YYYYMMDDHH"))
-	}
-	if p.hour, err = parseKeyHour(h[0:4], h[4:6], h[6:8], h[8:10]); err != nil {
-		return commitKeyParts{}, keyError(key, err)
-	}
-	if p.id, err = parseKeyUUID(comps[3]); err != nil {
-		return commitKeyParts{}, keyError(key, err)
 	}
 
 	return p, nil

@@ -38,7 +38,7 @@ type MergeIterateOptions struct {
 	// zero or negative means DefaultMaxHeldBytes.
 	// It does not bound the process heap:
 	// the readers, the block descriptors and clusters MergeIterate builds before reading,
-	// its queues, codec state, Result.Conflicts, and the hours the read covers for Query.Retention and Result.Removed lie outside it,
+	// its queues, codec state and Result.Conflicts lie outside it,
 	// and so do the bootstrap bytes each Reader retains,
 	// at most max(WholeReadThreshold, HeadWindow + TailWindow) of its ReaderOptions per Reader.
 	// A read that would exceed it ends with an error wrapping ErrReadLimit, returned with the Result found so far.
@@ -76,7 +76,7 @@ var _ error = PackError{}
 //
 // Captures compare by capture_id as raw UUID bytes, which is also the order of their text form.
 //
-// It reads every pack given, typically the packs of the active views of the scopes a query touches,
+// It reads every pack given, typically the packs of the scopes a query touches,
 // and leaves none out for its own time range or summaries:
 // a pack outside the query's time range can hold another version of a record inside it.
 // Its guarantees cover the packs given; a copy of a record in a pack not given is neither read nor compared.
@@ -127,7 +127,7 @@ var _ error = PackError{}
 // and a cluster can span hours.
 // A reservation over the limit ends the read with ErrReadLimit.
 // It does not bound the process heap: the readers, the block descriptors and clusters MergeIterate builds before reading,
-// its queues, codec state, Result.Conflicts, and the hours the read covers for q.Retention (below) and Result.Removed lie outside it.
+// its queues, codec state and Result.Conflicts lie outside it.
 // A block over its Reader's ReaderOptions.MaxBlockLen, or whose stated dimensions cannot be consistent, is a defect and is not read;
 // a block that fails a check of its read is a defect too.
 // Neither contributes records, and the cluster's other blocks resolve its seqs.
@@ -162,38 +162,15 @@ var _ error = PackError{}
 // A failed check returns ctx's error, and fn is not called again;
 // when fn returns an error, that error is returned, whatever became of ctx during the call.
 //
-// With q.Retention set, MergeIterate applies the retention boundary (the tracepack storage specification §5, Retention).
-// The read covers the scope hour of each pack, the hour of its period_start, for every role but extract,
-// so a record whose timestamp lies outside that hour still belongs to it;
-// an extract's record belongs to the hour of its own timestamp:
-// the read covers the hours of the indexed blocks' F-2 ts_min and ts_max,
-// then the hours of the records of every block it decodes, before the filter,
-// the read of each walked block before anything is yielded included,
-// all compared at once with the largest boundary seen.
-// The covered hours number at most the packs other than extracts, plus two per indexed extract block,
-// plus the distinct hours of the extract records decoded.
-// MergeIterate asks q.Retention after the arguments are validated, before it reads any block;
-// before the first call of fn, and before every call whose record's representative is in another block than the last call's,
-// whichever capture, version or release of pending records it comes from;
-// after a failed ReadAt, whatever its error wraps, ErrReadLimit included; and before it returns nil.
-// The deleting component deletes an object only after the boundary passed its hour,
-// so a check finding every covered hour retained proves that no read before it met an object retention deleted.
-// When a covered hour is removed, MergeIterate ends at once with an error wrapping ErrRemoved, passing fn nothing more,
-// and returns the Result found so far with Removed listing the removed hours:
-// everything the read reported of those hours, records passed to fn, defects and conflicts included, is superseded,
-// and the caller discards it.
-// An error from fn, ctx's error and a limit of the read itself,
-// a reservation over MaxHeldBytes or one conflict over MaxConflicts, end the read without asking q.Retention.
-//
 // Parameters:
-//   - ctx: cancels the read at the checks above; passed to q.Retention.
+//   - ctx: cancels the read at the checks above.
 //   - readers: the packs to read, distinct, none nil; an empty readers reads nothing.
 //   - q: the query; see Query.
 //   - opts: the order, required, and the limits; see MergeIterateOptions.
 //   - fn: receives each selected record; a non-nil error stops the read.
 //
 // Returns:
-//   - Result: the status of the read; complete when Incomplete and Removed are empty.
+//   - Result: the status of the read; complete when Incomplete is empty.
 //     On an error it holds what was found before the error;
 //     Result{} for an invalid argument, for ctx done when the arguments are validated, and for an empty readers.
 //   - error: an error wrapping ErrInvalidQuery, before anything is read:
@@ -201,9 +178,7 @@ var _ error = PackError{}
 //     ctx's error, wrapped;
 //     an error wrapping ErrReadLimit when a reservation would exceed MaxHeldBytes or one more conflict would exceed MaxConflicts;
 //     a ReadAt error, wrapped with the reader and block index;
-//     the error fn returned, as is;
-//     an error wrapping ErrRemoved, joined after the ReadAt error when it follows one;
-//     or the error q.Retention returned, wrapped, joined after the ReadAt error when it follows one.
+//     or the error fn returned, as is.
 func MergeIterate(ctx context.Context, readers []*Reader, q Query, opts MergeIterateOptions, fn func(*Item) error) (Result, error) {
 	return mergeIterateWith(ctx, readers, q, opts, mergeIterateOptions{}, fn)
 }
@@ -234,7 +209,7 @@ func mergeIterateWith(ctx context.Context, readers []*Reader, q Query, opts Merg
 		}
 	}
 
-	return p.rs.end(p.res, err)
+	return p.res, err
 }
 
 // String returns the order's name, or "unknown(<n>)" for a value this package does not define.

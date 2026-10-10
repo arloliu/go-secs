@@ -925,7 +925,7 @@ func TestOpenDecodedFooterOverBudget(t *testing.T) {
 // TestOpenSharedF3ListsOverBudget opens a pack whose 32 blocks share one kind_counts array of 64 KiB (sharedCountsF3Pack)
 // under a MaxFooterLen that holds the footer but not the blocks' lists, each counted once per block:
 // the footer is not used, as for a footer over the budget, and the blocks are walked.
-// Iterate reads every record and reports the budget, and Verify and Repair fail with it before reading a block,
+// Iterate reads every record and reports the budget, and Verify fails with it before reading a block,
 // as for any footer over the budget; none reports the footer invalid.
 // Under the default budget the same footer is valid and used.
 func TestOpenSharedF3ListsOverBudget(t *testing.T) {
@@ -958,12 +958,50 @@ func TestOpenSharedF3ListsOverBudget(t *testing.T) {
 	_, err := verifyBytes(t, file, VerifyOptions{Reader: opts})
 	require.ErrorIs(t, err, ErrReadLimit)
 	require.ErrorContains(t, err, "the F-3 lists of blocks 0 to ")
-	ro := repairOpts()
-	ro.Reader = opts
-	patch, rep, err := repairBytes(t, file, ro)
-	require.ErrorIs(t, err, ErrReadLimit)
-	assert.Empty(t, patch)
-	assert.Equal(t, RepairReport{}, rep)
+}
+
+// TestReadRepairRolePack reads a pack of the repair role 4, which no Writer writes any more,
+// made from a segment by setting its pack_role in place:
+// it opens, verifies, iterates, merge-iterates and exports as the segment does, its pack_role exported as repair.
+func TestReadRepairRolePack(t *testing.T) {
+	t.Parallel()
+
+	segment := writeRepairPack(t, CodecZstd, func(m *PackMeta) { m.Supersedes = []UUID{{0xD0}} }, false, repairSteps(t)).file
+	repair := setMetaRole(t, segment, uint8(PackRoleRepair))
+
+	r := mustOpen(t, repair, ReaderOptions{})
+	require.NoError(t, r.Header().FooterErr)
+	assert.Equal(t, PackRoleRepair, r.Header().Meta.PackRole)
+	assert.Equal(t, PackRoleRepair, r.Info().Meta().PackRole)
+	assert.Equal(t, OutcomeFinalizedConsistent, mustVerify(t, repair).Outcome)
+
+	want := iterate(t, mustOpen(t, segment, ReaderOptions{}), Query{Payloads: true})
+	got := iterate(t, r, Query{Payloads: true})
+	require.Len(t, got.items, len(repairSteps(t)))
+	assert.Equal(t, want.items, got.items)
+	assert.True(t, got.res.Complete())
+
+	// MergeIterate in capture order yields the records in seq order, as Iterate does.
+	var merged []iterItem
+	res, err := MergeIterate(t.Context(), []*Reader{r}, Query{Payloads: true}, MergeIterateOptions{Order: OrderCapture}, func(it *Item) error {
+		merged = append(merged, copyItem(it))
+		return nil
+	})
+	require.NoError(t, err)
+	assert.True(t, res.Complete())
+	assert.Equal(t, got.items, merged)
+
+	export := func(file []byte) string {
+		var out bytes.Buffer
+		res, err := ExportJSONL(t.Context(), mustOpen(t, file, ReaderOptions{}), &out)
+		require.NoError(t, err)
+		assert.True(t, res.Complete())
+
+		return out.String()
+	}
+	wantJSONL := export(segment)
+	require.Equal(t, 1, strings.Count(wantJSONL, `"pack_role":"segment"`))
+	assert.Equal(t, strings.Replace(wantJSONL, `"pack_role":"segment"`, `"pack_role":"repair"`, 1), export(repair))
 }
 
 // TestOpenSharedF3ListsAtBudget opens a pack whose 4 blocks share a kind_counts array (sharedCountsF3Pack)

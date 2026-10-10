@@ -3,7 +3,6 @@ package tracepack
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 )
@@ -45,8 +44,7 @@ type planCapture struct {
 // mergeIteratePlan is what MergeIterate builds before it yields the first record:
 // the status of the read so far, the overlap clusters of every capture with their exclusion,
 // the loader whose budget every block read of the read reserves against
-// (the tracepack semantics specification §7.4),
-// and what the read knows of the retention boundary (the tracepack storage specification §5, Retention).
+// (the tracepack semantics specification §7.4).
 type mergeIteratePlan struct {
 	// opts are the options with their defaults applied.
 	opts    MergeIterateOptions
@@ -56,8 +54,6 @@ type mergeIteratePlan struct {
 	// captures holds the read's captures in ascending capture_id.
 	captures []planCapture
 	loader   heldLoader
-	// rs is the read's retention state over Query.Retention, which build sets.
-	rs retentionState
 	// gaps gathers the crash gaps that build finds; MergeIterate reports them once build returns.
 	gaps crashGaps
 	// reserveConflict is mergeIterateOptions.reserveConflict; nil checks MaxConflicts instead.
@@ -141,26 +137,20 @@ func newMergeIteratePlan(opts MergeIterateOptions) *mergeIteratePlan {
 // with Pack set to the reader's index,
 // and its footer error to FooterErrs when its footer was not used;
 // it gathers the crash gaps of every footer it uses into p.gaps.
-// Then it records the hours every reader covers before any block is read (retentionState.addPack)
-// and checks the retention boundary of q.Retention.
 // Then it reads each walked block once, in reader order then file order, checking ctx before each:
 // a block that fails the read adds its defect and takes no further part;
-// a usable block gives its computed summary and its crash gaps,
-// an extract's adding the hours of its records, and is dropped at once.
+// a usable block gives its computed summary and its crash gaps, and is dropped at once.
 // Then it groups the blocks that take part by their reader's capture_id, captures in ascending capture_id,
 // chains each capture's blocks into overlap clusters,
 // and marks a cluster excluded when the footer or the computed summaries exclude every block of it from the query.
 //
 // Returns:
 //   - error: ctx's error, wrapped;
-//     the error of a walked block's read (loadHeld), an error wrapping ErrReadLimit when its reservation would exceed MaxHeldBytes among them;
-//     an error wrapping ErrRemoved when a covered hour is removed;
-//     q.Retention's error, wrapped.
+//     or the error of a walked block's read (loadHeld), an error wrapping ErrReadLimit when its reservation would exceed MaxHeldBytes among them.
 //     p.res then holds what was found before the error.
 //     Nothing stays reserved after build, whatever its outcome.
 func (p *mergeIteratePlan) build(ctx context.Context, readers []*Reader, q *Query) error {
 	p.readers = readers
-	p.rs = newRetentionState(q.Retention)
 	f := &q.Filter
 	p.gaps = crashGaps{from: f.TimeFrom, to: f.TimeTo}
 	for i, r := range readers {
@@ -179,16 +169,6 @@ func (p *mergeIteratePlan) build(ctx context.Context, readers []*Reader, q *Quer
 		if r.footer != nil {
 			p.gaps.addFooter(i, r)
 		}
-	}
-
-	// Every reader's covered hours are recorded before the boundary is asked, so a removal lists all of them.
-	for _, r := range readers {
-		if err := p.rs.addPack(r); err != nil {
-			return err
-		}
-	}
-	if err := p.rs.check(ctx); err != nil {
-		return err
 	}
 
 	byCapture := make(map[UUID][]planBlock)
@@ -233,8 +213,7 @@ func (p *mergeIteratePlan) build(ctx context.Context, readers []*Reader, q *Quer
 // preRead reads walked block i of r, the Reader at index pack, once before the read yields anything,
 // gathers the crash gaps of its records into p.gaps,
 // and returns its computed summary (the tracepack semantics specification §7.4).
-// The block is dropped before preRead returns, whatever its outcome,
-// the hours of an extract's records added to the read's covered hours before.
+// The block is dropped before preRead returns, whatever its outcome.
 //
 // Returns:
 //   - planBlock: the block's computed summary.
@@ -245,7 +224,7 @@ func (p *mergeIteratePlan) preRead(ctx context.Context, r *Reader, pack, i int) 
 		return planBlock{}, false, fmt.Errorf("tracepack: merge iterate: %w", err)
 	}
 
-	h, err := p.loadHeld(ctx, r, pack, i)
+	h, err := p.loadHeld(r, pack, i)
 	if err != nil || h == nil {
 		return planBlock{}, false, err
 	}
@@ -258,26 +237,16 @@ func (p *mergeIteratePlan) preRead(ctx context.Context, r *Reader, pack, i int) 
 }
 
 // loadHeld reads block i of r, the Reader at index pack, into a held block through the plan's loader (heldLoader.load),
-// adding the block's defect to p.res,
-// and, for an extract, adds the hours of the block's records to the read's covered hours before any of them is used.
-// After a failed ReadAt it checks the retention boundary again, whatever the ReadAt error wraps, ErrReadLimit included:
-// the block may be gone because a covered hour was removed meanwhile.
-// A refused reservation, a *refusedReservationError from the loader, ends the read as it is.
+// adding the block's defect to p.res.
 //
 // Returns:
 //   - *heldBlock: the usable block, with its caller as its one owner; nil with a failed block or an error.
 //   - error: an error wrapping ErrReadLimit when the block's reservation would exceed MaxHeldBytes;
-//     the ReadAt error, wrapped with the pack and block index, as is when every covered hour is retained,
-//     else joined before the error of the check: one wrapping ErrRemoved, or q.Retention's error, wrapped;
-//     an error wrapping ErrRemoved when an hour of the block's records is removed, the block dropped.
-func (p *mergeIteratePlan) loadHeld(ctx context.Context, r *Reader, pack, i int) (*heldBlock, error) {
+//     or the ReadAt error, wrapped with the pack and block index.
+func (p *mergeIteratePlan) loadHeld(r *Reader, pack, i int) (*heldBlock, error) {
 	h, def, err := p.loader.load(r, pack, i)
 	if err != nil {
-		if _, ok := errors.AsType[*refusedReservationError](err); ok {
-			return nil, err
-		}
-
-		return nil, p.rs.recheckAfter(ctx, err)
+		return nil, err
 	}
 	// A defect comes without a block, or as ReasonIndexMismatch beside a usable one.
 	if def != nil {
@@ -285,13 +254,6 @@ func (p *mergeIteratePlan) loadHeld(ctx context.Context, r *Reader, pack, i int)
 	}
 	if h == nil {
 		return nil, nil //nolint:nilnil // a failed block contributes no records, which loadHeld returns as nil
-	}
-	if r.meta.PackRole == PackRoleExtract {
-		if err := p.rs.addBlock(h.d); err != nil {
-			p.loader.drop(h)
-
-			return nil, err
-		}
 	}
 
 	return h, nil

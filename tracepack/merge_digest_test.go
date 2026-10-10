@@ -61,30 +61,14 @@ func digestsOf(t testing.TB, file []byte) packDigests {
 	}
 }
 
-// TestMergeAndRepairOutputDigests pins the bytes Merge and Repair write for fixed inputs, ids and options.
-// Both write through the Writer, which does not validate their blocks and checks only their period, not their records' hours,
-// so a change to the Writer that must leave their output alone shows here.
-// A deliberate change to either output updates the digests,
+// TestMergeOutputDigests pins the bytes Merge writes for fixed inputs, ids and options.
+// Merge writes through the Writer, which does not validate its blocks and checks only its period, not its records' hours,
+// so a change to the Writer that must leave its output alone shows here.
+// A deliberate change to the output updates the digests,
 // and so does an upgrade of the zstd encoder (github.com/klauspost/compress), which changes the zstd digests.
-func TestMergeAndRepairOutputDigests(t *testing.T) {
+func TestMergeOutputDigests(t *testing.T) {
 	t.Parallel()
 
-	repairID := UUID{0x4E, 0x9A}
-	repairCapture := UUID{0xCA, 0x4E}
-	repairInput := func(c Codec, open bool) *repairPack {
-		p := writeRepairPack(t, c, nil, open, repairSteps(t))
-		p.file = withIDs(t, p.file, seg0, repairCapture)
-
-		return p
-	}
-	repaired := func(file []byte, c Codec) []byte {
-		opts := repairOpts()
-		opts.PackID, opts.Codec = repairID, c
-		patch, _, err := repairBytes(t, file, opts)
-		require.NoError(t, err)
-
-		return patch
-	}
 	merged := func(c Codec, noCoalesce bool, files ...[]byte) []byte {
 		opts := mergeOpts()
 		opts.Codec, opts.NoCoalesce = c, noCoalesce
@@ -93,11 +77,6 @@ func TestMergeAndRepairOutputDigests(t *testing.T) {
 
 		return out
 	}
-
-	zstdPack := repairInput(CodecZstd, false)
-	nonePack := repairInput(CodecNone, false)
-	openPack := repairInput(CodecZstd, true)
-	cut := openPack.file[:openPack.blocks[3].offset+50]
 
 	tests := []struct {
 		name string
@@ -133,41 +112,6 @@ func TestMergeAndRepairOutputDigests(t *testing.T) {
 				blocks: "eed817cb24700258a3d0cd2acfc00d2d7569371df707544fcdb94a4fed7ccb92",
 				f3:     "3e9423553a1475d4364b9352264f7ac1927218b2f3da2d1c8699cb1fd01b057a",
 				footer: "7e59ebb31c29445915a1e276e2e503c3effee6f63a225d3f21990c44a7dabc1e",
-			},
-		},
-		{
-			name: "repair, failed middle block, zstd",
-			out:  func() []byte { return repaired(flipAll(zstdPack.file, zstdPack, 2), CodecZstd) },
-			want: packDigests{
-				file:   "d9bc7998868659ea7e1b1e2dc802f9b95d17e782e137bb4a546c295842ef9449",
-				meta:   "dd0cc641e97a369f7f90e9200a6f89148b570a75d756a8ac30edd6f38d5ec045",
-				blocks: "64f5d46f0e733ead33857f88b710f6d2f0bd756a24a6c4908140c352b61ede72",
-				f3:     "8cac9ff124ee06e8edd2291563f835e696abedbf98d18de6f5ddee9ad742b355",
-				footer: "c27db23e3c2473d16b3668ec988a169fda456ba07660b3b7f79c449973c46595",
-			},
-		},
-		{
-			name: "repair, invalid footer and two lost runs, none",
-			out: func() []byte {
-				return repaired(flipAll(invalidFooterFile(t, nonePack.file), nonePack, 1, 3), CodecNone)
-			},
-			want: packDigests{
-				file:   "823f4fc7d89ec288cb584140b61d77a9d6d383f4a8ddce113bc6225a1c97ff18",
-				meta:   "7a742584e7e758844e4886264547b5d2b06ac1f4d27dbce92b81c51f9eff2bcd",
-				blocks: "6e9818fc6f32d7790a9a85bb83f6ed0eb04a299668de23072a92467182f4dd0a",
-				f3:     "b9a3d05b0c619ac96b153d33754533c6b2bea6b9a7a83fb00c729b7503dd67b8",
-				footer: "85758678b629319b79777a3dba300e87c824f250c96ff7c25e90ec5cf4d9209a",
-			},
-		},
-		{
-			name: "repair, unfinalized and cut inside a block, zstd",
-			out:  func() []byte { return repaired(cut, CodecZstd) },
-			want: packDigests{
-				file:   "2aa20aff287a5035b5a754425f994d7a604baefebad5ba190d8b8a081560a1eb",
-				meta:   "b72e1a5965f10970a7c0eb140f2a0498d16aa6d414ca30e3a3c633ee13be135c",
-				blocks: "d92fbd6c5125d1feb407b2baf1361555746b80f354f98e8a4b46548e05015ebc",
-				f3:     "2831ea8592212cd213d8e114ae2628e6ca8b3284d1608fe597442e04a21eafc3",
-				footer: "821ba538c2bd24a6a09b0979f63644231a3ea8b1db20eb674a4c19cc47742c63",
 			},
 		},
 	}

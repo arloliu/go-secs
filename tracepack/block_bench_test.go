@@ -1,6 +1,6 @@
 package tracepack
 
-// Benchmarks of a block summary, which the Writer, Verify and Repair build record by record:
+// Benchmarks of a block summary, which the Writer and Verify build record by record:
 //
 //	GOWORK=off go test -run '^$' -bench 'BlockSummary' -benchmem
 //

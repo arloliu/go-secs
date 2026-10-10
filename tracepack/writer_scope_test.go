@@ -193,7 +193,6 @@ func TestNewWriterRefusesAPeriodOutsideOneHour(t *testing.T) {
 	roles := map[string]func(m *PackMeta){
 		"segment": func(*PackMeta) {},
 		"archive": archiveMeta,
-		"repair":  func(m *PackMeta) { m.PackRole, m.Supersedes = PackRoleRepair, []UUID{{0xD0}} },
 	}
 
 	for name, role := range roles {

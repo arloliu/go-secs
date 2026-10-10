@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"slices"
-
-	"github.com/arloliu/go-secs/tracepack/internal/format"
 )
 
 // Outcome is the verification outcome of a pack (the tracepack format specification §13).
@@ -71,7 +69,6 @@ const (
 	WriterDefectHourSpan
 	// WriterDefectSeqStart reports the first validated block when its first seq is not the pack's seq_start,
 	// or, after a failed block, is not above it (§5).
-	// It is the one writer defect Repair corrects in a finalized-consistent pack.
 	WriterDefectSeqStart
 )
 
@@ -210,62 +207,16 @@ func Verify(ctx context.Context, ra io.ReaderAt, size int64, opts VerifyOptions)
 		return VerifyReport{}, err
 	}
 
-	a, err := r.analyze(ctx, false)
-	if err != nil {
+	return r.analyze(ctx)
+}
+
+// analyze reads every located block of r in full and builds the VerifyReport of Verify.
+// A resource limit is an error before any block is counted as failed, so a budget never reads as lost records.
+func (r *Reader) analyze(ctx context.Context) (VerifyReport, error) {
+	if err := r.bootstrapLimitErr(); err != nil {
 		return VerifyReport{}, err
 	}
 
-	return a.report, nil
-}
-
-// analysis is a verification of a pack, with what a repair needs of every located block when it is kept.
-type analysis struct {
-	report VerifyReport
-	// blocks holds, when kept, one entry per located block, in file order.
-	blocks []blockAnalysis
-}
-
-// blockAnalysis is what the verification of one located block tells a repair.
-type blockAnalysis struct {
-	// failed reports a failed block; the other fields describe a validated block only.
-	failed bool
-	// firstSeq, lastSeq, tsMin and tsMax are the bounds of the block's own records, never its F-2 entry's.
-	firstSeq uint64
-	lastSeq  uint64
-	tsMin    int64
-	tsMax    int64
-	// envelopeCRC fingerprints the block as read: its envelope CRC, which covers its body CRC.
-	envelopeCRC uint32
-	// classified, oversized and redacted report a record of the block whose decode_status is neither not-attempted nor not-applicable,
-	// one whose decode_status is oversized, and one carrying quality.redacted.
-	classified bool
-	oversized  bool
-	redacted   bool
-}
-
-// blockAnalysisOf returns the analysis of a validated block whose envelope is env and whose records give s.
-func blockAnalysisOf(env *format.BlockEnvelope, s *blockSummary) blockAnalysis {
-	b := blockAnalysis{
-		firstSeq: s.firstSeq, lastSeq: s.lastSeq, tsMin: s.tsMin, tsMax: s.tsMax,
-		envelopeCRC: env.EnvelopeCRC,
-	}
-	b.classified, b.oversized, b.redacted = s.commitmentFacts()
-
-	return b
-}
-
-// analyze reads every located block of r in full and builds the VerifyReport of Verify;
-// with keep, it also keeps the analysis of every located block.
-// A resource limit is an error before any block is counted as failed, so a budget never reads as lost records.
-func (r *Reader) analyze(ctx context.Context, keep bool) (*analysis, error) {
-	if err := r.bootstrapLimitErr(); err != nil {
-		return nil, err
-	}
-
-	a := &analysis{}
-	if keep {
-		a.blocks = make([]blockAnalysis, 0, len(r.blocks))
-	}
 	rep := VerifyReport{Finalized: r.finalized, FooterErr: r.footerErr, Blocks: len(r.blocks), PrefixEnd: r.blocksStart()}
 	failed := make([]bool, len(r.blocks))
 	inPrefix := true
@@ -278,39 +229,30 @@ func (r *Reader) analyze(ctx context.Context, keep bool) (*analysis, error) {
 	var buf blockBuf
 	for i := range r.blocks {
 		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("tracepack: verify: %w", err)
+			return VerifyReport{}, fmt.Errorf("tracepack: verify: %w", err)
 		}
 
 		info := &r.blocks[i]
 		d, def, err := r.readBlock(i, &buf)
 		if err != nil {
-			return nil, err
+			return VerifyReport{}, err
 		}
 		if def != nil && def.Reason == ReasonLimit {
-			return nil, fmt.Errorf("tracepack: verify: %w", def.Err)
+			return VerifyReport{}, fmt.Errorf("tracepack: verify: %w", def.Err)
 		}
 		if d == nil {
 			failed[i] = true
 			inPrefix = false
 			rep.Failed = append(rep.Failed, *def)
 			rep.Lost = r.appendLost(rep.Lost, i)
-			if keep {
-				a.blocks = append(a.blocks, blockAnalysis{failed: true})
-			}
 
 			continue
 		}
 		if def != nil {
 			rep.Disagreements = append(rep.Disagreements, *def)
 		}
-		if r.footer != nil || keep {
-			ba, disagreement := r.summarize(i, d)
-			if disagreement != nil {
-				rep.Disagreements = append(rep.Disagreements, *disagreement)
-			}
-			if keep {
-				a.blocks = append(a.blocks, ba)
-			}
+		if disagreement := r.summarize(i, d); disagreement != nil {
+			rep.Disagreements = append(rep.Disagreements, *disagreement)
 		}
 
 		if !hasPrev && d.count() > 0 {
@@ -335,9 +277,8 @@ func (r *Reader) analyze(ctx context.Context, keep bool) (*analysis, error) {
 
 	inconsistent := r.footerErr != nil || len(rep.Disagreements) > 0
 	rep.Outcome = classifyOutcome(r.finalized, failed, r.walkStop != nil, inconsistent)
-	a.report = rep
 
-	return a, nil
+	return rep, nil
 }
 
 // bootstrapLimitErr returns the resource limit the bootstrap reached, as an error:
@@ -353,17 +294,19 @@ func (r *Reader) bootstrapLimitErr() error {
 	return nil
 }
 
-// summarize builds the summary the records of validated block i, read as d, give,
-// and returns the block's analysis and, when the footer is valid and its F-3 summary disagrees, a ReasonIndexMismatch defect.
-func (r *Reader) summarize(i int, d *decodedBlock) (blockAnalysis, *Defect) {
+// summarize checks the summary the records of validated block i, read as d, give
+// against the block's F-3 summary when the footer is valid,
+// and returns a ReasonIndexMismatch defect when they disagree; nil otherwise, and always without a valid footer.
+func (r *Reader) summarize(i int, d *decodedBlock) *Defect {
+	if r.footer == nil {
+		return nil
+	}
 	got := summaryOf(d)
-	if r.footer != nil {
-		if err := checkSummary(&r.footer.blocks[i], &got); err != nil {
-			return blockAnalysisOf(&d.env, &got), blockDefect(i, &r.blocks[i], ReasonIndexMismatch, err)
-		}
+	if err := checkSummary(&r.footer.blocks[i], &got); err != nil {
+		return blockDefect(i, &r.blocks[i], ReasonIndexMismatch, err)
 	}
 
-	return blockAnalysisOf(&d.env, &got), nil
+	return nil
 }
 
 // appendLost appends to dst, when the footer is valid, one coverage entry per seq range of failed block i:

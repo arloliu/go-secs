@@ -144,7 +144,7 @@ type WriterOptions struct {
 	// so a capture written as several packs carries its anchor from one pack to the next.
 	anchor *clockAnchor
 	// allowScopeBreach turns off the scope checks that return ErrScopeBreach,
-	// so a test can write the out-of-scope packs a merge, a repair or a reader must handle.
+	// so a test can write the out-of-scope packs a merge or a reader must handle.
 	allowScopeBreach bool
 }
 
@@ -244,6 +244,7 @@ type Writer struct {
 // Returns:
 //   - *Writer: the Writer, positioned after the pack metadata; nil on error.
 //   - error: a *FieldError from PackMeta.Validate, an invalid option,
+//     a *FieldError wrapping ErrFieldValue for pack_role repair or the retired pack_role 5,
 //     a *FieldError wrapping ErrMetadataCommitment when opts.Facts.AnyRedacted is set in a pack that is not an extract,
 //     an error wrapping ErrScopeBreach when the pack is not an extract and its period is empty or not inside one UTC hour,
 //     or the error of writing the header,
@@ -351,6 +352,11 @@ func checkOptions(opts *WriterOptions) error {
 		return err
 	}
 
+	// Readers still read a pack of role repair, but no writer makes a new one (the tracepack storage specification §2),
+	// so the role is refused before the rules a repair pack's metadata would have to meet.
+	if opts.Meta.PackRole == PackRoleRepair {
+		return &FieldError{Field: "pack_role", Err: ErrFieldValue}
+	}
 	if err := opts.Meta.Validate(opts.Facts); err != nil {
 		return err
 	}
