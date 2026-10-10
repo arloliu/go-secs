@@ -83,7 +83,7 @@ func txVectors() []Recipe {
 				},
 			},
 		},
-	}, slices.Concat(txMatchVectors(), txWindowVectors(), txEvidenceVectors())...)
+	}, slices.Concat(txMatchVectors(), txWindowVectors(), txEvidenceVectors(), txConflictVectors())...)
 }
 
 // repeatedSystemBytes are the System Bytes of every data record of tx-repeated-key.

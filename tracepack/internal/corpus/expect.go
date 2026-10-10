@@ -502,19 +502,24 @@ func (e *Expectation) checkMultiPack(out *readOutputs, packs [][]byte, seed stri
 		return errors.Join(append(errs, fmt.Errorf("lookups: %d expected, %d looked up", len(e.Lookups), len(out.lookups)))...)
 	}
 	for i := range out.lookups {
-		errs = append(errs, e.Lookups[i].check(&out.lookups[i], seed)...)
+		errs = append(errs, e.Lookups[i].check(&out.lookups[i], layouts, seed)...)
 	}
 
 	return errors.Join(errs...)
 }
 
-// check compares w with got, the lookup of lookups.json of its id, whose captures are those of the vector of seed:
+// check compares w with got, the lookup of lookups.json of its id, whose packs have the layouts layouts, by number,
+// and whose captures are those of the vector of seed:
 // the error form alone, or every value of the result, each array in its order.
-func (w *LookupWant) check(got *LookupVector, seed string) []error {
+func (w *LookupWant) check(got *LookupVector, layouts []Layout, seed string) []error {
 	if w.ID != got.ID {
 		return []error{fmt.Errorf("lookup: expected id %s, looked up %s", w.ID, got.ID)}
 	}
-	exp, g := w.expect(seed), got.Expect
+	exp, err := w.expect(layouts, seed)
+	if err != nil {
+		return []error{fmt.Errorf("lookup %s: %w", got.ID, err)}
+	}
+	g := got.Expect
 	var errs []error
 	want := func(name string, exp, read any) {
 		if !reflect.DeepEqual(exp, read) {
@@ -534,11 +539,15 @@ func (w *LookupWant) check(got *LookupVector, seed string) []error {
 	return errs
 }
 
-// expect returns w in the form of lookups.json, its captures those of the vector of seed:
+// expect returns w in the form of lookups.json, its packs of the layouts layouts, by number, and its captures those of the vector of seed:
 // the error form alone, or the result with each array non-nil.
-func (w *LookupWant) expect(seed string) LookupExpect {
+//
+// Returns:
+//   - LookupExpect: the expectation.
+//   - error: a fact whose position names no pack of layouts, or no offset in it.
+func (w *LookupWant) expect(layouts []Layout, seed string) (LookupExpect, error) {
 	if w.Error != "" {
-		return LookupExpect{Error: w.Error}
+		return LookupExpect{Error: w.Error}, nil
 	}
 	e := LookupExpect{Outcome: w.Outcome, Key: w.Key}
 	if w.WindowEnd != nil {
@@ -571,6 +580,16 @@ func (w *LookupWant) expect(seed string) LookupExpect {
 				fact.Coverage = &c
 			}
 		}
+		if f.At.kind != posNone {
+			if fact.Pack == nil || *fact.Pack < 0 || *fact.Pack >= len(layouts) {
+				return LookupExpect{}, fmt.Errorf("a %s fact with a position names no pack of the vector", fact.Reason)
+			}
+			off, err := f.At.offset(&layouts[*fact.Pack])
+			if err != nil {
+				return LookupExpect{}, fmt.Errorf("a %s fact: %w", fact.Reason, err)
+			}
+			fact.Offset = new(U64(off))
+		}
 		gaps = append(gaps, fact)
 	}
 	conflicts := make([]ConflictEntry, 0, len(w.Conflicts))
@@ -579,7 +598,7 @@ func (w *LookupWant) expect(seed string) LookupExpect {
 	}
 	e.Records, e.Gaps, e.Searched, e.Conflicts, e.FooterErrors = &records, &gaps, &searched, &conflicts, &footer
 
-	return e
+	return e, nil
 }
 
 // check compares w with got, the read of reads.json of its id, whose packs have the layouts layouts, by number,

@@ -80,6 +80,8 @@ func txWindowVectors() []Recipe {
 			// N's socket-close at 3 is of epoch 1, the primary's, and lifts the barrier
 			// (the tracepack storage specification §5, Completeness; the tracepack corpus specification §5.11, Barrier).
 			// Neither boundary is of epoch 1, so neither is a capture-boundary of the primary's epoch.
+			// M's clean stop followed by a stop-unclean is deliberately incoherent, a capture that ends twice:
+			// it is the only way to observe that a stop of another epoch bounds the window but does not lift the epoch basis.
 			Expect: &Expectation{
 				Packs: []*Expectation{
 					withStats(finalizedPack(1, 3), []EpochWant{{Epoch: 1}, closedAt(2, 3)}, BoundaryWant{Seq: 3, Kind: tracepack.BoundaryKindStop}),

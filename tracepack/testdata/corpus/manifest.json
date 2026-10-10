@@ -2988,6 +2988,45 @@
       ]
     },
     {
+      "id": "tx-conflicts",
+      "title": "conflicts within a scope and across scopes, on the primary, a candidate and a record after the window, and a conflicting primary whose first version has no function",
+      "cites": [
+        "SEM §7.2",
+        "SEM §7.4",
+        "SEM §9",
+        "CORPUS §5.11"
+      ],
+      "class": "multi-pack",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "pack-2.tpk",
+        "pack-2.verify.json",
+        "pack-3.tpk",
+        "pack-3.verify.json",
+        "pack-4.tpk",
+        "pack-4.verify.json",
+        "pack-5.tpk",
+        "pack-5.verify.json",
+        "pack-6.tpk",
+        "pack-6.verify.json",
+        "pack-7.tpk",
+        "pack-7.verify.json",
+        "pack-8.tpk",
+        "pack-8.verify.json",
+        "pack-9.tpk",
+        "pack-9.verify.json",
+        "lookups.json"
+      ]
+    },
+    {
       "id": "tx-cross-pack",
       "title": "a reply in another segment of the primary's hour, and a reply in the next hour's scope",
       "cites": [
@@ -3054,6 +3093,27 @@
         "pack-1.verify.json",
         "pack-2.tpk",
         "pack-2.verify.json",
+        "lookups.json"
+      ]
+    },
+    {
+      "id": "tx-index-mismatch",
+      "title": "a block whose records disagree with its F-2 entry beside a match",
+      "cites": [
+        "SEM §7.2",
+        "FMT §10",
+        "SEM §9",
+        "CORPUS §5.11"
+      ],
+      "class": "multi-pack",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
         "lookups.json"
       ]
     },
