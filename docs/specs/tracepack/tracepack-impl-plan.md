@@ -1,6 +1,6 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-10-10) — phases 0 to 6b2 done; spec v2.32 drops 6b3 and the extract writer of phase 7 (G5-199, G5-206) and adds phase 9, the simplification of tracepack v0.4.0, which comes next; then phase 8 (v0.5.0, format 1.1) and the minimal CLI of 6c.
+Status: active (2026-10-11) — phases 0 to 6b2 and phase 9, the simplification of tracepack v0.4.0, done; spec v2.32 drops 6b3 and the extract writer of phase 7 (G5-199, G5-206); phase 8 (v0.5.0, format 1.1) comes next, then the minimal CLI of 6c.
 Implements: tracepack v2.32 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
@@ -79,7 +79,7 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 6b2 — conformance corpus, part 2: reads over several packs, transaction lookups | done | |
 | 6c — CLI | pending | minimal, after phase 8 (G5-206) |
 | 8 — Producer API for a durable-bus capture | pending | v0.5.0, format 1.1; takes phase 7's reader obligation (G5-207) |
-| 9 — Simplification (tracepack v0.4.0) | pending | comes before phase 8 |
+| 9 — Simplification (tracepack v0.4.0) | done | before phase 8 |
 
 Closed phases, never done and not in the table:
 6b3 (conformance corpus, part 3: store vectors) is dropped by G5-199;
@@ -772,12 +772,13 @@ Tests and done criteria are set when P8 is decided.
 Goal: the module implements spec v2.32, with format 1.0 unchanged:
 every format 1.0 file stays valid and its canonical export stays the same (G5-206).
 It comes before phase 8.
-Its task plan is written after spec v2.32.
+Plan: the phase 9 task plan, kept outside the repository (ready after plan reviews r1–r4 and a precision pass); it ruled what spec v2.32 leaves to the v0.4.0 plan.
 
 Removals, each logged as a breaking change in `tracepack/CHANGELOG.md`:
 - `Repair`, its options, report and refusals; `Merge` refuses a `repair` input (G5-202).
 - `ActiveView`, `View`, `Generation`, `CommitKey`, `CommitSet` and `ErrViewConflicted`, with generation ranking and commit objects (G5-201).
-- `NewStoreSource`, `ObjectStore`, `Object`, `Catalog`, `Observation`, `StoreSourceOptions`, `ExcludedPack` and `MaxCommitListings`;
+- `NewStoreSource`, `ObjectStore`, `Object`, `Catalog`, `Observation`, `StoreSourceOptions` (with `StoreSourceOptions.MaxCommitListings`), `ExcludedPack`,
+  `DefaultMaxCommitListings`, `DefaultMaxListPages`, `DefaultMaxObjects` and `DefaultMaxSourceBytes`;
   the `Retention` provider, `ErrRemoved` and `Result.Removed`; `AddPackEvidence` and the per-capture evidence (G5-201, G5-204).
 - The `unmatched` outcome and the facts that proved it (G5-204).
 - Corpus vectors and goldens beyond format-level reading (G5-199, G5-210), schema `tracepack-corpus/3` ([CORPUS]).
@@ -800,15 +801,67 @@ the recovery and spool cases of [STO §8] stay deferred with the frozen durabili
 and the extract-beside-its-source case of [SEM §9] with phase 8;
 the external post-implementation review is clean.
 
+Done (2026-10-11): the tests below pass, and so do the release's final gates:
+every `Fuzz*` target for 2 minutes and the four generated-input targets for 10 more, with no failure;
+`ExportJSONL` of every pack of the v0.3.0 corpus, truncated packs included, byte for byte as v0.3.0 wrote it (G5-206);
+`gorelease` against v0.3.0, whose every incompatible change the module's changelog names;
+and an external post-implementation review with no P0 or P1 finding.
+- `Merge` takes its inputs (G5-201, G5-202): `TestMergeDerivesScopeFromInputs`, `TestMergeRefusesRole` (roles 4, 5, 9 and `extract`, and a `scope_generation` contradicting the role), `TestMergeLineage`,
+  `TestMergeGenerationValues`, `TestMergeInputSet`, `TestMergeRefusesUnknownVersions` and `TestMergeSameHourClockStepRead`.
+- Crash gaps in reads (G5-209): `TestIterateCrashGapFromFooter`, `TestIterateCrashGapWalkedPack`, `TestCrashGapMeetsRange`, `TestCrashGapNotFromCleanStop`,
+  `TestMergeIterateCrashGapDedup`, `TestMergeIterateCrashGapMixedSources`, `TestMergeIterateCrashGapExcludedCluster`, `TestMergeIterateCrashGapPrereadFailure` and `TestExportJSONLCrashGap`.
+- `FindTransaction` over the packs given (G5-201, G5-203, G5-204): `TestFindTransactionOutcomes`, `TestFindTransactionWindowBounds`, `TestFindTransactionCrashGaps`, `TestFindTransactionEarlyReturns`,
+  `TestFindTransactionDetectedDisagreement`, `TestFindTransactionReadGuarantees`, `TestFindTransactionOtherCaptures`, `TestFindTransactionAnyRole` and `TestNewReaderSource`,
+  beside the kept tests of the [SEM §9] lookup subcases.
+- Removals (G5-201, G5-202): `TestNewWriterRefusesRepairRole` and `TestReadRepairRolePack`; `PackInfo`, `NewPackInfo` and `Reader.Info` stay.
+- Reader bootstrap bytes (G5-211): `TestOpenIterateSmallPackOneRead`, `TestReaderServesWindows`, `TestReaderHintSuffixNotRetained`, `TestReaderFooterCRCFromRetainedBytes`, `TestReaderWalkFromBootstrap`,
+  `TestReaderBootstrapNoAliasing`, `TestReaderCachedNoneAliasing`, `TestReaderCachedReadCancel`, `TestReaderCachedDefects`, `TestReaderZeroBlockOversizedFooter`, `TestReaderFooterHintPositions` and `TestDefaultWholeReadThreshold`;
+  every failure-injection and read-count test keeps its ranges out of the retained bytes, and `TestMergeIterateReadCounts` is unchanged.
+  `DefaultWholeReadThreshold` is 4 MiB.
+- `MergeIterate` prefetch (G5-211): `TestMergeIteratePrefetchOverlaps`, `TestMergeIteratePrefetchEquivalent`, `TestMergeIteratePrefetchAdmission`, `TestMergeIteratePrefetchUnusedFailure`,
+  `TestMergeIteratePrefetchCleanup`, `TestMergeIteratePrefetchPhysicalReads`, `TestMergeIteratePrefetchCachedDemand` and `TestMergeIteratePrefetchMandatoryRefusal`.
+  It reads up to 8 blocks ahead in time order, and in capture order when at most one capture has a cluster to read;
+  with several, the filter decides which capture advances next, so such a read does not prefetch.
+- `zstd` by default (G5-211): `TestWriterDefaultCodecZstd`, `TestMergeDefaultCodecZstd` and `TestSegmentWriterCodecUnchanged`.
+- Version fields and the zstd window (G5-212): `TestUnknownTrailerVersion`, `TestUnknownFooterLayoutVersion`, `TestFooterZstdWindowBound`, `TestZstdEncoderWindowBound` and `TestZstdDecoderWindowBound`;
+  they found nothing to fix.
+- The corpus, `tracepack-corpus/3`: 97 vectors in 213 files and about 504,000 bytes;
+  its kept files are byte for byte those of `tracepack-corpus/2`, and `TestCorpus` regenerates them byte for byte.
+  `TestClassifierCases` checks the classifier expectations `classify.json` held.
+
+Measured on one AMD Ryzen 9 9950X3D, Go 1.26.8, `GOMAXPROCS=16`, the latency benchmarks adding 10 ms to every `ReadAt`:
+
+| Benchmark | v0.3.0 | v0.4.0 |
+|---|---:|---:|
+| `BenchmarkOpenIterateHour/busy`, one 577,346-byte pack | 3 `ReadAt`, 904,444 bytes | 1 `ReadAt`, 577,346 bytes |
+| `BenchmarkMergeIterateDay`, 24 hourly packs: opens | 48 `ReadAt` | 24 `ReadAt` |
+| `BenchmarkMergeIterateDay`: `MergeIterate` | 24 `ReadAt`, about 340 ms | 0 `ReadAt`, about 90 ms |
+| `BenchmarkMergeIterateLargePacks`, 6 packs: `MergeIterate` | 36 `ReadAt`, 1 in flight, about 399 ms | 36 `ReadAt`, 8 in flight, about 57 ms |
+| `BenchmarkOpenAllocs`, a 4 MiB pack | 2 `ReadAt`, 327,680 bytes, about 338,000 bytes allocated | 1 `ReadAt`, 4,154,306 bytes, about 4,174,000 bytes allocated |
+| `BenchmarkOpenAllocs`, 16 and 64 MiB packs | not measured | 2 `ReadAt`, 327,680 bytes, about 343,000 and 365,000 bytes allocated |
+| `BenchmarkMergeSegments/busy`, archive bytes | 1,533,515 | 577,708 |
+| `BenchmarkMergeSegments/idle`, archive bytes | 135,893 | 24,450 |
+| `BenchmarkMergeCoalesce/busy`, archive bytes with and without coalescing | new | 577,708 and 615,407 |
+| `BenchmarkWriterZstd`, uncompressed bytes per second per core | about 172 MB/s | about 172 MB/s |
+
+`BenchmarkMergeSegments` before is the same merge with `Uncompressed` set, as v0.3.0 wrote by default.
+`BenchmarkOpenAllocs` allocates about as much at 64 MiB as at 16 MiB, so bootstrap allocations stay flat in bytes above the retained-bytes bound;
+the allocation count still grows with the blocks a footer indexes.
+
 ## 4. Cross-cutting requirements
 
 - Performance targets (checked with benchmarks, not tuned before measurement): writer ≥ 50 MB/s uncompressed per core with zstd level 3;
-  merge throughput measured with and without coalescing; reader bootstrap allocations independent of file size, apart from the pack metadata (an extract's redaction entries).
-- Memory: the writer holds at most one block; the reader holds at most the pack metadata and the footer plus one decoded block per concurrent iterator,
-  except `MergeIterate`, which holds the blocks of its open overlap clusters and of the records it has yet to yield, bounded in bytes by a caller limit (`tracepack-go.md` §3).
+  merge throughput measured with and without coalescing; reader bootstrap allocations independent of file size above max(`WholeReadThreshold`, `HeadWindow` + `TailWindow`), apart from the pack metadata (an extract's redaction entries).
+- Memory: the writer holds at most one block; the reader holds at most the pack metadata and the footer,
+  plus the retained round-one bootstrap bytes that overlap the block region, at most max(`WholeReadThreshold`, `HeadWindow` + `TailWindow`), 4 MiB with the defaults (G5-211),
+  plus one decoded block per concurrent iterator,
+  except `MergeIterate`, which holds the blocks of its open overlap clusters, of the records it has yet to yield and of the blocks it reads ahead, bounded in bytes by a caller limit (`tracepack-go.md` §3).
+  The retained bytes lie outside `MergeIterateOptions.MaxHeldBytes` and `TxOptions.MaxStateBytes`.
+  The temporary buffers `Open` uses and drops before it returns, a footer-hint suffix, the second round's reads and the chunks of a streamed footer CRC, are not retained.
   An extract's pack metadata grows with its redaction entries.
 - Errors: sentinel errors per failure class (bad magic, CRC, limit, unknown codec, unsupported version) wrapped with offsets.
-- Concurrency: `Reader` safe for concurrent `Iterate`; `Writer` single-goroutine by contract.
+- Concurrency: `Reader` safe for concurrent `Iterate`; `Writer` single-goroutine by contract;
+  `Open` and `MergeIterate` may issue concurrent `ReadAt` calls on one `io.ReaderAt`, and `MergeIterate` waits for its calls before it returns.
 
 ## 5. Risks
 

@@ -1,6 +1,6 @@
 # tracepack — Go reference implementation
 
-Status: current (2026-10-10)
+Status: current (2026-10-11)
 Implements tracepack v2.32 (format 1.0): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
@@ -55,7 +55,7 @@ The query service, its catalog database and the live-tail interface are designed
   `DecodeStatus.Malformed` is true only for known malformed values, and `DecodeStatus.Clean` only for known values outside the malformed set;
   an unknown value is neither, so `!Malformed()` never proves a clean decode ([SEM §6]).
 - `Writer`: `NewWriter(w io.Writer, WriterOptions)`, the layer under `SegmentWriter` and `Merge`;
-  options: the pack metadata, codec (`zstd` unless the options ask for `none` explicitly, as in `SegmentWriterOptions` and `MergeOptions`, G5-211), block size threshold,
+  options: the pack metadata, `Uncompressed` (false writes block bodies and the footer with `zstd`, true with `none`, as in `SegmentWriterOptions` and `MergeOptions`, G5-211), block size threshold,
   `Now` (G5-174: the clock that stamps `writer_start_utc_ns` and gives the time part of a `pack_id` or `capture_id` the writer generates as a UUIDv7; nil means `time.Now`),
   and validation, on unless `SkipValidation` is set (G5-152): a validating writer decodes each encoded block, gathers its record headers and checks I-2 before writing it,
   and on a failed check returns an error without writing the block or the trailer ([FMT §12]); nothing is committed to the pack metadata.
@@ -200,8 +200,11 @@ The query service, its catalog database and the live-tail interface are designed
   Both errors arise only from a link that did not happen, and `ErrPublishUncertain` only after a link that did, so the three never overlap;
   the default, without the option, still renames over an existing file.
   A file system without hard links fails such a `Commit` with the link's error, nothing published.
-- `Reader`: `Open(ctx, ra io.ReaderAt, size, opts)` performs the [FMT §13] bootstrap, optionally seeded with a footer location the caller kept (e.g. in the service's catalog);
-  the bytes it reads at bootstrap serve later block reads, so a pack up to the whole-read threshold (a few MiB by default) costs one request (G5-211);
+- `Reader`: `Open(ctx, ra io.ReaderAt, size, opts)` performs the [FMT §13] bootstrap, optionally seeded with a footer location the caller kept (e.g. from an earlier `Open` of the same object);
+  the bytes it reads at bootstrap serve later block reads, so a pack up to the whole-read threshold (4 MiB by default) costs one request (G5-211).
+  The `Reader` keeps, for its lifetime, only the first round's buffers that hold blocks, the whole object or else the head and tail windows, never a footer-hint suffix:
+  at most max(`WholeReadThreshold`, `HeadWindow` + `TailWindow`) bytes, outside `MergeIterateOptions.MaxHeldBytes`, `TxOptions.MaxHeldBytes` and `TxOptions.MaxStateBytes`;
+  it copies a block lying wholly inside them, never aliasing them, and reads any other block with one `ReadAt`.
   `Header()`, `Blocks()` (F-2), `Iterate(ctx, Query, fn) (Result, error)`,
   and `Stats() (PackStats, bool)` (G5-131): the F-5 statistics of a pack whose footer it uses — counts, time and seq ranges, per-epoch summaries with `close_seq`, capture-boundary entries — as a fresh value, false without a used footer.
   `Open` parses the redaction entries with the pack metadata and runs their structural checks; its cost grows with the entries.
@@ -222,7 +225,10 @@ The query service, its catalog database and the live-tail interface are designed
   HSMS header fields are matched on payload values, available only where `field_validity` says so ([FMT §7.2]).
 - `MergeIterate(ctx, readers, Query, MergeIterateOptions, fn) (Result, error)`: one read over several packs, as [SEM §7.4] resolves and orders it;
   the options carry the `Order` (capture or time, required), `MaxHeldBytes` and `MaxConflicts`;
-  it prefetches the blocks of the packs it will read next instead of reading one block at a time (G5-211).
+  it prefetches the blocks of the packs it will read next instead of reading one block at a time (G5-211),
+  in time order, and in capture order only when at most one capture has a cluster to read, since with several the filter decides which capture advances next.
+  Prefetched blocks count against `MaxHeldBytes`, each admitted only when its whole reservation fits, so a read fails with `ErrReadLimit` exactly where it would without prefetch.
+  It may issue several `ReadAt` calls concurrently on a Reader's `io.ReaderAt`, as `Open` does, and waits for all of them before it returns, whatever its outcome.
   Readers must be distinct packs (no repeated `pack_id`); the guarantees cover the readers given.
   Copies of a record are compared before the filter, identical ones yielded once, and every selected version of a `conflict` yielded with `Item.Conflict` set;
   `Result.Conflicts` lists every conflict of every compared cluster in discovery order, each with its versions in version order,
@@ -233,12 +239,14 @@ The query service, its catalog database and the live-tail interface are designed
   a cluster can span hours, since a pack's seqs may have gaps (I-12), so this is not bounded by one hour per capture.
   `MaxHeldBytes` bounds the bytes of the block buffers held at once, reserved before each block is read;
   it does not bound the process heap:
-  the readers, the block descriptors and clusters it builds before reading, its queues, codec state and the conflict list lie outside it.
+  the readers, with the bootstrap bytes each retains, the block descriptors and clusters it builds before reading, its queues, codec state and the conflict list lie outside it.
   `MaxConflicts` bounds how many conflicts are listed, not the size of one.
   Either limit ends the read with an error wrapping `ErrReadLimit`, returned with the `Result` found so far, instead of exceeding it or omitting a conflict.
   A block over the reader's `MaxBlockLen`, or whose stated dimensions cannot be consistent, is a defect and is skipped, as in `Iterate`.
-- `FindTransaction`: [SEM §7.2]'s lookup from a primary named by `TxKey{Capture, Seq, Hour}` (G5-124), over the packs its caller gives (G5-201):
-  a source reduced to the readers of each hour, such as `NewReaderSource` over packs the caller opened; the exact shape is set by the v0.4.0 implementation plan.
+- `FindTransaction(ctx, src PackSource, key TxKey, opts TxOptions) (TxResult, error)`: [SEM §7.2]'s lookup from a primary named by `TxKey{Capture, Seq, Hour}` (G5-124), over the packs its caller gives (G5-201).
+  `PackSource` is `interface { Readers(ctx context.Context, hour int64) ([]*Reader, error) }`:
+  the readers of every pack given for one UTC hour, of any capture, distinct `pack_id`s, in a fresh slice,
+  such as `NewReaderSource` returns over packs the caller opened.
   It derives the key from the primary (G5-122) and fails with `ErrNotPrimary` when the record is not a `data` record whose function is available and odd, or is absent from a complete read (G5-125).
   `TxOptions`: `MaxScopes` (the hours scheduled from `Hour`, default 2, G5-121), `MaxHeldBytes` per read, `MaxConflicts` over the lookup and `MaxStateBytes` for the lookup's own state.
   `TxResult` holds the outcome (`TxMatched`, `TxAmbiguous`, `TxNotFound`; zero only beside an error), the derived key with the W bit,
@@ -248,9 +256,11 @@ The query service, its catalog database and the live-tail interface are designed
   when it detects that a block it read disagrees with its F-2 entry or its F-3 summary, or that another footer value disagrees with the records it describes,
   only `Incomplete` and that defect are guaranteed, every other fact best-effort (G5-203).
   Each hour read is one `MergeIterate` in capture order over that hour's readers.
-- `NewReaderSource` (G5-154): the readers of a lookup, opened by the caller, grouped by `capture_id` and by the UTC hour of their period.
-  It rejects a nil reader, a reader given twice, a repeated `pack_id` and readers of more than one `tool_id`, each failure wrapping `ErrInvalidQuery`.
-  `Close` closes nothing: the caller owns the readers.
+- `NewReaderSource(readers []*Reader) (PackSource, error)` (G5-154): the readers of a lookup, opened by the caller, grouped by the UTC hour of their period, whatever their capture.
+  It accepts a pack of any role but `extract`, `repair`, the retired 5 and unknown values included ([STO §2]).
+  It rejects a nil reader, a reader given twice, a repeated `pack_id`, readers of more than one `tool_id`, an `extract`, and a pack whose period is empty or not inside one UTC hour,
+  each failure wrapping `ErrInvalidQuery`.
+  It has no `Close` and opens or closes no reader: the caller owns the readers.
   `HourOf(time.Time) int64` returns the UTC hour of a time as `TxKey.Hour` and the key builders number it,
   and `TxKeyOf(capture UUID, seq uint64, ts time.Time) TxKey` builds the key of a primary from its record.
 - `EscapeToolID`, `SegmentKey` and `ArchiveKey` build the keys of [STO §3];
@@ -267,7 +277,7 @@ The query service, its catalog database and the live-tail interface are designed
   The output is one archive per scope, with `replacement_set_size` 1 and `replacement_set_index` 0 ([STO §6]).
   `MergeOptions.Now` (G5-179) is the clock of the archive's `Writer`, which stamps its `writer_start_utc_ns`,
   and of the `ReplacementSetID` and `PackID` that `Merge` generates for a zero option; an id the caller supplies is kept.
-  `ErrMergeInput`, wrapped with the pack and the cause, refuses an input whose role is not `segment` or `archive` or whose scope differs from the other inputs',
+  `ErrMergeInput`, wrapped with the pack and the cause, refuses an input whose role is not `segment` or `archive`, whose `scope_generation` contradicts its role, whose `pack_id` another input has, or whose scope differs from the first input's,
   one that is not `finalized-consistent`, breaches its scope or its own commitments, or differs from the others in a capture-level tag;
   the error of a failed read of an input, or `ErrReadLimit` for an input over a reader budget of `opts.Reader`, is returned naming the input, never as `ErrMergeInput`;
   record conflicts fail with `ErrMergeConflict` once every block was compared, and each conflict is passed, as it is found, to `opts.OnConflict`, which is required;
@@ -282,7 +292,7 @@ The query service, its catalog database and the live-tail interface are designed
   `RecoverReport` holds the spool file's `VerifyReport`.
 - `ExportJSONL(ctx, r *Reader, w io.Writer) (Result, error)`: writes the canonical export of the pack `r` reads ([FMT §15], [JSONL]), a function of package `tracepack` (G5-168).
   It exports the records `r.Iterate(ctx, Query{Payloads: true}, …)` yields, in the same order, and returns the `Result` that call returns:
-  open defects, the `coverage` entries that intersect the query, and every failed block and every block or footer value found disagreeing with its records ([SEM §7.4]) in `Incomplete`, whose records are exported;
+  open defects, the `coverage` entries that intersect the query, the crash gaps ([SEM §7.4] Crash gaps), and every failed block and every block or footer value found disagreeing with its records ([SEM §7.4]) in `Incomplete`, whose records are exported;
   `FooterErr` and `FooterErrs` as `Iterate`, a footer error alone not making the result incomplete.
   A record whose body is not valid ([JSONL §6]) is exported without `body` and adds nothing to `Result`.
   Where `Iterate` lists a reader budget as a `ReasonLimit` defect, `ExportJSONL` fails instead (G5-171, [JSONL §7]):
