@@ -68,6 +68,12 @@ func clonePtr[T any](v *T) *T {
 // an absent bound being unbounded, or whose first bound, of time or seq, exceeds its last;
 // the Filter has no seq range, so every entry's seq range intersects it.
 // Each such Defect carries its own copy of the entry.
+// When the footer is used, a ReasonCrashGap Defect follows for each stop-unclean boundary of its F-5 statistics
+// whose gap meets [TimeFrom, TimeTo) (the tracepack semantics specification §7.4, Crash gaps),
+// whether or not the filter excludes the block holding it;
+// a pack without a used footer reports each such boundary of the records of a walked block as the block is decoded,
+// and a walked block that fails before it is decoded reports only its own Defect.
+// Each boundary is reported once, its Defect carrying its own copy of it.
 // Then Iterate visits the blocks in file order, checking ctx before each.
 // It skips a block the footer excludes: an indexed block whose F-2 time range misses the query's,
 // whose F-2 epoch range holds none of Epochs, or whose F-3 kind or direction counts are 0 for every one of Kinds or Dirs.
@@ -141,6 +147,8 @@ func (r *Reader) Iterate(ctx context.Context, q Query, fn func(*Item) error) (Re
 	}
 
 	extract := r.meta.PackRole == PackRoleExtract
+	capture := UUID(r.hdr.CaptureID)
+	gaps := crashGaps{from: f.TimeFrom, to: f.TimeTo}
 	var (
 		buf  blockBuf
 		item Item
@@ -164,6 +172,10 @@ func (r *Reader) Iterate(ctx context.Context, q Query, fn func(*Item) error) (Re
 		if d == nil {
 			continue
 		}
+		if !r.blocks[i].Indexed {
+			gaps.addRecords(0, capture, d)
+			res.Incomplete = gaps.flush(res.Incomplete)
+		}
 		if extract {
 			if err := rs.addBlock(d); err != nil {
 				return rs.end(res, err)
@@ -182,6 +194,7 @@ func (r *Reader) Iterate(ctx context.Context, q Query, fn func(*Item) error) (Re
 
 // startResult returns the Result a read of the pack under the filter f starts with, before any block is read:
 // the defects Open found, then the coverage defects of f (appendCoverageDefects),
+// then, when the footer is used, the crash gaps of its F-5 statistics that meet f's time range,
 // with PackHeader.FooterErr as FooterErr and as the one entry of FooterErrs, for pack 0, when it is non-nil.
 func (r *Reader) startResult(f *Filter) Result {
 	res := Result{Incomplete: slices.Clone(r.openDefects), FooterErr: r.footerErr}
@@ -189,6 +202,11 @@ func (r *Reader) startResult(f *Filter) Result {
 		res.FooterErrs = []PackError{{Pack: 0, Err: r.footerErr}}
 	}
 	res.Incomplete = r.appendCoverageDefects(res.Incomplete, f)
+	if r.footer != nil {
+		gaps := crashGaps{from: f.TimeFrom, to: f.TimeTo}
+		gaps.addFooter(0, r)
+		res.Incomplete = gaps.flush(res.Incomplete)
+	}
 
 	return res
 }
