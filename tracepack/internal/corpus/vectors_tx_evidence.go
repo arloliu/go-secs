@@ -65,8 +65,10 @@ func txEvidenceVectors() []Recipe {
 			// the Reject.req at 2, its SType unavailable, and the timer-expiry at 6, without them, play no role and are not kept;
 			// the Reject.req at 4 is b's outcome record, reported in the window, never a match
 			// (the tracepack semantics specification §7.2, Definitions).
-			// A conforming writer of a capture sets a field_validity bit iff the payload holds the field's bytes
-			// (the tracepack format specification §7.2): the Reject.req at 2 holds its SType byte with its bit clear.
+			// For a raw capture, a conforming writer sets a field_validity bit iff the payload holds the field's bytes;
+			// only a log conversion clears the bit of an identity its source did not carry, over placeholder bytes
+			// (the tracepack format specification §7.2).
+			// Pack 1 is a raw capture's, and the Reject.req at 2 holds its SType byte with its bit clear.
 			Expect: &Expectation{
 				Packs: []*Expectation{finalizedPack(1, 2), finalizedPack(1, 7)},
 				Lookups: []LookupWant{

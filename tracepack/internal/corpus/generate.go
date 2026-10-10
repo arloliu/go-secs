@@ -306,6 +306,8 @@ type FactWant struct {
 	// Capture, when set, is the number of the capture of the fact's boundary and coverage entry (captureOf),
 	// whose capture_id the expectation leaves empty.
 	Capture *int
+	// At, when set, names the fact's offset in the fact's pack, whose Offset the expectation leaves empty.
+	At Pos
 }
 
 // CutWant is a row of truncation.json: the first cut length it covers and the expectation of its cuts,
