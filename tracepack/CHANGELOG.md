@@ -59,6 +59,15 @@ The two clauses of the format specification §16 that need several packs have th
   The tracepack corpus specification defines the class, the schemas of both files and how a lookup's source is read from the packs.
   `TestCorpus` runs every read with `MergeIterate` and every lookup with `FindTransaction` over `NewReaderSource`,
   and requires every record either returns to be the stored record its pack and block name.
+- `NewDirSink` takes options,
+  and `DirSinkNoReplace()` makes it never replace a file at a key, as reproducible converter output requires:
+  `Commit` publishes by hard-linking the segment to its key, which fails when the key exists,
+  even for a file another writer published meanwhile.
+  It then compares the existing file with the segment
+  and returns an error wrapping the new `ErrSegmentExists` for identical bytes or `ErrSegmentConflict` for different ones,
+  the existing file kept and the segment finished.
+  Without the option the sink still renames over an existing file;
+  a file system without hard links fails such a `Commit`, nothing published.
 
 ## [0.2.0] - 2026-10-10
 

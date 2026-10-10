@@ -27,6 +27,8 @@ The deferred proposals and the decision log are listed in `README.md`.
   capture order holds the representatives of the versions a capture has yet to yield,
   and time order the representative of every selected record not yet yielded, not every block holding one;
   the heap outside `MaxHeldBytes` holds the block descriptors and clusters `MergeIterate` builds before reading, where it said "the plan of the read".
+- 2026-10-10: the §3 `NewDirSink` bullet gains the option `DirSinkNoReplace()`, under which `Commit` never replaces a file at a key
+  and reports an existing one as `ErrSegmentExists` or `ErrSegmentConflict` (G5-197).
 
 ## Changes vs v1 (summary)
 

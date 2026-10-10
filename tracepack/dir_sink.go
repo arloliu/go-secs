@@ -1,6 +1,7 @@
 package tracepack
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -23,7 +24,35 @@ const (
 	dirSinkFileMode fs.FileMode = 0o640
 	// dirSinkDirMode is the permission of a directory a DirSink creates, which its group may list as dirSinkFileMode lets it read.
 	dirSinkDirMode fs.FileMode = 0o750
+	// dirSinkCompareChunk is the size of the chunks in which a DirSink compares a segment with the file already at its key.
+	dirSinkCompareChunk = 32 << 10
 )
+
+// ErrSegmentExists reports a segment that a DirSink created with DirSinkNoReplace did not publish
+// because a file with the same bytes already lies at its key:
+// the segment is stored, though not by this Commit.
+// Commit returns an error wrapping it that names the key,
+// so a caller tells a segment it published from one that was there already.
+var ErrSegmentExists = errors.New("tracepack: segment exists with the same bytes")
+
+// ErrSegmentConflict reports a segment that a DirSink created with DirSinkNoReplace did not publish
+// because a file with other bytes already lies at its key, which the sink left untouched.
+// Commit returns an error wrapping it that names the key.
+var ErrSegmentConflict = errors.New("tracepack: segment exists with other bytes")
+
+// DirSinkOption is an option of NewDirSink.
+type DirSinkOption func(*dirSink)
+
+// DirSinkNoReplace returns the option under which a DirSink never replaces a file at a key,
+// as reproducible converter output requires (the tracepack storage specification §7):
+// Commit publishes by hard-linking the temporary file to its key, which fails when the key exists,
+// and reports an existing file with ErrSegmentExists or ErrSegmentConflict, as NewDirSink describes.
+//
+// Returns:
+//   - DirSinkOption: the option.
+func DirSinkNoReplace() DirSinkOption {
+	return func(s *dirSink) { s.noReplace = true }
+}
 
 // dirSegmentState is where a dirSegment stands in the SegmentFile contract.
 type dirSegmentState int
@@ -31,10 +60,14 @@ type dirSegmentState int
 const (
 	// dirSegmentOpen takes writes and syncs.
 	dirSegmentOpen dirSegmentState = iota
-	// dirSegmentCommitting is a segment whose Commit was called and did not rename it.
+	// dirSegmentCommitting is a segment whose Commit was called and did not publish it.
 	dirSegmentCommitting
-	// dirSegmentPublished is a segment renamed to its key, visible, whether its directory syncs succeeded or not.
+	// dirSegmentPublished is a segment renamed or linked to its key, visible,
+	// whether the removal of its temporary file and its directory syncs succeeded or not.
 	dirSegmentPublished
+	// dirSegmentRefused is a segment whose Commit found its key holding a regular file, which it kept,
+	// and removed the temporary file.
+	dirSegmentRefused
 	// dirSegmentAborted is a segment Abort discarded.
 	dirSegmentAborted
 )
@@ -44,11 +77,13 @@ type dirSink struct {
 	fsys dirFS
 	// prefix is the bucket prefix, accepted as checkDirSinkPrefix checks it.
 	prefix string
+	// noReplace reports the sink publishing by hard link, never replacing a file at a key, as DirSinkNoReplace sets it.
+	noReplace bool
 }
 
 var _ SegmentSink = (*dirSink)(nil)
 
-// dirSegment is a segment a dirSink is writing: a temporary file under .partial/ until Commit renames it to its key.
+// dirSegment is a segment a dirSink is writing: a temporary file under .partial/ until Commit renames or links it to its key.
 type dirSegment struct {
 	sink *dirSink
 	file dirFile
@@ -76,6 +111,10 @@ type dirFS interface {
 	mkdirAll(name string) error
 	// rename renames the file from to to.
 	rename(from, to string) error
+	// link creates the file to as a hard link to the file from; it fails with an error matching fs.ErrExist when to exists.
+	link(from, to string) error
+	// open opens the file name for reading.
+	open(name string) (io.ReadCloser, error)
 	// syncDir makes the entries of the directory name durable.
 	syncDir(name string) error
 	// remove removes the file name.
@@ -140,6 +179,23 @@ var _ dirFS = rootFS{}
 // A temporary file left by a crash, or by a writer that never called Abort, stays under .partial/,
 // which no listing of the key areas reaches.
 // Directory syncs are skipped on Windows, which cannot sync a directory.
+//
+// With DirSinkNoReplace the sink never replaces a file at a key, as reproducible converter output requires;
+// without it, the rename replaces an existing file.
+// In place of the rename, its Commit hard-links the temporary file to its key, which fails when the key exists,
+// even for a file another writer published after the checks, and removes the temporary file once the link succeeded;
+// the directory syncs follow, as after a rename.
+// When the key exists, Commit compares that file's bytes with the segment's, after the link failed, never before,
+// and returns an error naming the key and wrapping ErrSegmentExists when they are identical or ErrSegmentConflict when they differ;
+// in both cases the existing file is left untouched, the temporary file is removed,
+// and the segment is finished: a later Abort does nothing.
+// Should that removal fail, the error also wraps its cause, and the segment stays abortable, so Abort removes the file.
+// Both errors arise only from a link that did not happen, and ErrPublishUncertain only after a link that did,
+// so the three never overlap; an error removing the temporary file after the link wraps ErrPublishUncertain.
+// A link failing for another reason, as on a file system without hard links, fails Commit with its error, nothing published,
+// as does a key that is not a regular file, such as a symbolic link, which the sink refuses as it refuses one among its directories,
+// and a failure to compare the files; Abort then removes the temporary file.
+//
 // NewDirSink creates files with mode 0640 and directories with mode 0750, less the process umask:
 // no other user reads a segment, which holds records in full,
 // while a group, such as one a setgid root gives every new file, can grant an uploader read access.
@@ -151,6 +207,7 @@ var _ dirFS = rootFS{}
 // Parameters:
 //   - root: an existing directory.
 //   - prefix: the bucket prefix the keys start with, possibly empty.
+//   - opts: the options, such as DirSinkNoReplace.
 //
 // Returns:
 //   - SegmentSink: the sink; nil on error.
@@ -159,7 +216,7 @@ var _ dirFS = rootFS{}
 //     an error for a .partial that is a symbolic link;
 //     an error for a prefix whose first component names .partial/ or leads out of root;
 //     or the error of syncing root.
-func NewDirSink(root, prefix string) (SegmentSink, error) {
+func NewDirSink(root, prefix string, opts ...DirSinkOption) (SegmentSink, error) {
 	if runtime.GOOS == "js" {
 		return nil, errors.New("tracepack: DirSink: unsupported on js, where os.Root cannot exclude a link replaced after its check")
 	}
@@ -170,7 +227,7 @@ func NewDirSink(root, prefix string) (SegmentSink, error) {
 	if err != nil {
 		return nil, fmt.Errorf("tracepack: DirSink root: %w", err)
 	}
-	s, err := newDirSinkFS(prefix, rootFS{root: r})
+	s, err := newDirSinkFS(prefix, rootFS{root: r}, opts...)
 	if err != nil {
 		_ = r.Close() // the error to report is newDirSinkFS's
 		return nil, err
@@ -180,7 +237,7 @@ func NewDirSink(root, prefix string) (SegmentSink, error) {
 }
 
 // newDirSinkFS is NewDirSink over the file system fsys, its root already open.
-func newDirSinkFS(prefix string, fsys dirFS) (*dirSink, error) {
+func newDirSinkFS(prefix string, fsys dirFS, opts ...DirSinkOption) (*dirSink, error) {
 	if err := checkDirSinkPrefix(prefix); err != nil {
 		return nil, err
 	}
@@ -197,7 +254,12 @@ func newDirSinkFS(prefix string, fsys dirFS) (*dirSink, error) {
 		return nil, fmt.Errorf("tracepack: DirSink: sync root: %w", err)
 	}
 
-	return &dirSink{fsys: fsys, prefix: prefix}, nil
+	s := &dirSink{fsys: fsys, prefix: prefix}
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	return s, nil
 }
 
 // checkPartialAlias reports an error when the first component of prefix names the directory .partial/ names,
@@ -349,16 +411,129 @@ func (f *dirSegment) Commit(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if f.sink.noReplace {
+		return f.commitLink(ctx, dirs)
+	}
 	if err := fsys.rename(f.temp, f.key); err != nil {
 		return fmt.Errorf("tracepack: DirSink: rename segment %s: %w", f.key, err)
 	}
 
 	f.state = dirSegmentPublished
+
+	return f.syncDirs(ctx, dirs)
+}
+
+// commitLink publishes the segment by hard-linking its temporary file to its key, then removes the temporary file
+// and syncs dirs, the key's directories up to root, deepest first;
+// when the key holds a file, it compares the two and refuses the segment, as NewDirSink describes.
+func (f *dirSegment) commitLink(ctx context.Context, dirs []string) error {
+	fsys := f.sink.fsys
+	err := fsys.link(f.temp, f.key)
+	if errors.Is(err, fs.ErrExist) {
+		return f.refuse()
+	}
+	if err != nil {
+		return fmt.Errorf("tracepack: DirSink: link segment %s: %w", f.key, err)
+	}
+
+	f.state = dirSegmentPublished
+	if err := fsys.remove(f.temp); err != nil {
+		return fmt.Errorf("%w: segment %s: remove the temporary file: %w", ErrPublishUncertain, f.key, err)
+	}
+
+	return f.syncDirs(ctx, dirs)
+}
+
+// refuse compares the file at the segment's key, which the link found there, with the temporary file,
+// removes the temporary file and returns the error wrapping ErrSegmentExists or ErrSegmentConflict.
+// It returns a plain error, the temporary file left to Abort,
+// when the key is not a regular file, such as a symbolic link, which could lead to the temporary file itself,
+// or when it cannot compare the two.
+// When the removal fails, the error wraps its cause beside the sentinel and the temporary file is left to Abort.
+func (f *dirSegment) refuse() error {
+	fi, err := f.sink.fsys.lstat(f.key)
+	if err != nil {
+		return fmt.Errorf("tracepack: DirSink: segment %s exists, examine it: %w", f.key, err)
+	}
+	if !fi.Mode().IsRegular() {
+		return fmt.Errorf("tracepack: DirSink: segment %s exists as a %s, not a regular file, which the sink refuses at a key",
+			f.key, fileKind(fi.Mode()))
+	}
+	same, err := f.sameBytes()
+	if err != nil {
+		return fmt.Errorf("tracepack: DirSink: segment %s exists, compare it: %w", f.key, err)
+	}
+	sentinel := ErrSegmentConflict
+	if same {
+		sentinel = ErrSegmentExists
+	}
+
+	if err := f.sink.fsys.remove(f.temp); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("%w: %s: remove the temporary file: %w", sentinel, f.key, err)
+	}
+	f.state = dirSegmentRefused
+
+	return fmt.Errorf("%w: %s", sentinel, f.key)
+}
+
+// fileKind names the kind of a file that is not a regular file, as its mode gives it.
+func fileKind(m fs.FileMode) string {
+	switch {
+	case m&fs.ModeSymlink != 0:
+		return "symbolic link"
+	case m.IsDir():
+		return "directory"
+	default:
+		return "special file"
+	}
+}
+
+// sameBytes reports whether the file at the segment's key holds the bytes of its temporary file.
+func (f *dirSegment) sameBytes() (bool, error) {
+	fsys := f.sink.fsys
+	existing, err := fsys.open(f.key)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = existing.Close() }() // opened for reading, its close reports nothing to act on
+	temp, err := fsys.open(f.temp)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = temp.Close() }() // as existing
+
+	return sameContent(existing, temp)
+}
+
+// sameContent reports whether a and b yield the same bytes, reading both in chunks up to the first difference.
+func sameContent(a, b io.Reader) (bool, error) {
+	bufA, bufB := make([]byte, dirSinkCompareChunk), make([]byte, dirSinkCompareChunk)
+	for {
+		na, errA := io.ReadFull(a, bufA)
+		if errA != nil && !errors.Is(errA, io.EOF) && !errors.Is(errA, io.ErrUnexpectedEOF) {
+			return false, errA
+		}
+		nb, errB := io.ReadFull(b, bufB)
+		if errB != nil && !errors.Is(errB, io.EOF) && !errors.Is(errB, io.ErrUnexpectedEOF) {
+			return false, errB
+		}
+		if na != nb || !bytes.Equal(bufA[:na], bufB[:nb]) {
+			return false, nil
+		}
+		if errA != nil { // a short chunk ends both, their lengths being equal
+			return true, nil
+		}
+	}
+}
+
+// syncDirs syncs dirs, the directories of a published segment's key up to root, deepest first,
+// checking ctx before each; an error wraps ErrPublishUncertain.
+func (f *dirSegment) syncDirs(ctx context.Context, dirs []string) error {
 	for _, dir := range dirs {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("%w: segment %s: %w", ErrPublishUncertain, f.key, err)
 		}
-		if err := fsys.syncDir(dir); err != nil {
+		if err := f.sink.fsys.syncDir(dir); err != nil {
 			return fmt.Errorf("%w: segment %s: sync directory %s: %w", ErrPublishUncertain, f.key, dir, err)
 		}
 	}
@@ -367,9 +542,9 @@ func (f *dirSegment) Commit(ctx context.Context) error {
 }
 
 // Abort closes and removes the temporary file, ignoring one already gone;
-// it does nothing once Commit renamed the segment, or after an earlier Abort.
+// it does nothing once Commit published or refused the segment, or after an earlier Abort.
 func (f *dirSegment) Abort() error {
-	if f.state == dirSegmentPublished || f.state == dirSegmentAborted {
+	if f.state == dirSegmentPublished || f.state == dirSegmentRefused || f.state == dirSegmentAborted {
 		return nil
 	}
 	f.state = dirSegmentAborted
@@ -411,6 +586,14 @@ func (f rootFS) mkdirAll(name string) error {
 
 func (f rootFS) rename(from, to string) error {
 	return f.root.Rename(filepath.FromSlash(from), filepath.FromSlash(to))
+}
+
+func (f rootFS) link(from, to string) error {
+	return f.root.Link(filepath.FromSlash(from), filepath.FromSlash(to))
+}
+
+func (f rootFS) open(name string) (io.ReadCloser, error) {
+	return f.root.Open(filepath.FromSlash(name))
 }
 
 // syncDir syncs the directory name; on Windows, which cannot sync a directory, it does nothing.

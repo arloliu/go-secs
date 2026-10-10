@@ -146,6 +146,12 @@ so a recording can be uploaded to a bucket as it is, its file paths for object k
   A listing of the key areas sees only committed segments.
   A file a crash left under `.partial/` is never listed;
   remove such leftovers only while no writer uses `root`.
+- `NewDirSink(root, prefix, DirSinkNoReplace())` never replaces a file at a key, as reproducible output needs:
+  it hard-links a segment to its key instead of renaming it,
+  and when the key exists, `Commit` returns an error wrapping `ErrSegmentExists` for identical bytes
+  or `ErrSegmentConflict` for others,
+  the existing file kept.
+  A file system without hard links fails such a `Commit`.
 - `prefix` is empty or a relative `/`-separated path, used as given.
   It may not hold an empty, `.` or `..` component, a `\` or a `:`, and its first component may not be `.partial`,
   nor, when the sink is created, name that same directory, as a case variant does on a file system that folds case.
