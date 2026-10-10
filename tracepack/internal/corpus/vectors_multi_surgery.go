@@ -26,7 +26,7 @@ func multiSurgeryVectors() []Recipe {
 	return []Recipe{
 		{
 			ID: "multi-header-conflicts", Title: "copies differing only in a reserved record_flags bit, in an extension byte and in record_header_len: three conflicts",
-			Cites: []string{"FMT §7.1", "SEM §7.4", "SEM §9", "CORPUS §5.10"}, Class: ClassMultiPack,
+			Cites: []string{"FMT §7.1", "SEM §7.4", "SEM §9", "CORPUS §5.10"}, Class: ClassMultiPack, Labels: []string{LabelNonconformingWriter},
 			Build: headerConflictsBuild,
 			// A read compares the record header as stored, all record_header_len bytes:
 			// each of seqs 1 to 3 has two versions, pack 0's and pack 1's, each yielded from its own pack's block.

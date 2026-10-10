@@ -353,7 +353,8 @@ func readCommitted(ctx context.Context, v *Vector, committed map[string][]byte) 
 // readCommittedMulti reads the committed multi-pack vector v, whose files file gives, as a reader of the corpus does,
 // and requires every file it gives to equal the committed one:
 // each pack-<n>.tpk, n from 0 while the vector has one, with its verification report,
-// and reads.json, each read over its packs with the inputs the committed file holds.
+// reads.json, each read over its packs with the inputs the committed file holds,
+// and lookups.json, each lookup over its source packs with the inputs the committed file holds.
 func readCommittedMulti(ctx context.Context, v *Vector, file func(name string) ([]byte, bool)) error {
 	var packs [][]byte
 	for n := 0; ; n++ {
@@ -377,7 +378,18 @@ func readCommittedMulti(ctx context.Context, v *Vector, file func(name string) (
 		}
 	}
 
-	out, err := readMultiVector(ctx, packs, specs)
+	var lookups []LookupSpec
+	if b, ok := file(FileLookups); ok {
+		var ls Lookups
+		if err := Unmarshal(b, &ls); err != nil {
+			return err
+		}
+		for i := range ls {
+			lookups = append(lookups, lookupSpecOf(&ls[i]))
+		}
+	}
+
+	out, err := readMultiVector(ctx, packs, specs, lookups)
 	if err != nil {
 		return err
 	}

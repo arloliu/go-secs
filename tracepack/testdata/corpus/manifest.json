@@ -1711,7 +1711,9 @@
         "CORPUS §5.10"
       ],
       "class": "multi-pack",
-      "labels": [],
+      "labels": [
+        "nonconforming-writer"
+      ],
       "codec": "none",
       "source": "generated",
       "files": [
@@ -2917,6 +2919,43 @@
             "CORPUS §7"
           ]
         }
+      ]
+    },
+    {
+      "id": "tx-candidate-selection",
+      "title": "a valid match, a wrong stream, an F0 abort, a wrong-stream F0, a control record that looks like F + 1, two valid matches, and a key naming a reply",
+      "cites": [
+        "FMT §16",
+        "SEM §7.2",
+        "SEM §9",
+        "CORPUS §5.11"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "lookups.json"
+      ]
+    },
+    {
+      "id": "tx-repeated-key",
+      "title": "a completed transaction, then an unanswered primary of the same key: the same-key primary bounds the first window",
+      "cites": [
+        "SEM §7.2",
+        "SEM §9",
+        "CORPUS §5.11"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "lookups.json"
       ]
     },
     {

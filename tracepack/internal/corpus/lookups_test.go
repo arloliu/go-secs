@@ -395,6 +395,8 @@ func TestLookupsMarshalRefuses(t *testing.T) {
 		}},
 		{"matched with two valid matches", func(l *LookupVector) { twoValidLookup(l, "matched") }},
 		{"bound on a version that cannot bound the window", func(l *LookupVector) { closingConflictLookup(l, true) }},
+		{"a scheduled hour neither searched nor conflicted", func(l *LookupVector) { l.MaxScopes = 3 }},
+		{"a searched hour not scheduled", func(l *LookupVector) { (*l.Expect.Searched)[1].Hour = 12 }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

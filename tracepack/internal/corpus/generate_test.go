@@ -716,12 +716,12 @@ const specFile = "../../../docs/specs/tracepack/tracepack-corpus.md"
 
 // generatedGroups are the id prefixes of the groups the generator builds so far.
 var generatedGroups = []string{
-	"basic-", "bootstrap-", "footer-", "framing-", "hsms-", "multi-", "repair-", "sample-", "sem-", "validation-", "verify-",
+	"basic-", "bootstrap-", "footer-", "framing-", "hsms-", "multi-", "repair-", "sample-", "sem-", "tx-", "validation-", "verify-",
 }
 
 // partialGroups are the generated groups whose catalogued vectors do not all have a recipe yet.
 // A group leaves the list with its last vector.
-var partialGroups = []string{}
+var partialGroups = []string{"tx-"}
 
 // TestRecipeIDsAreCatalogued checks that every vector of a generated group that the catalogue of the tracepack corpus specification §9.4 lists has a recipe,
 // a group of partialGroups excepted, and that no recipe is missing from it.
