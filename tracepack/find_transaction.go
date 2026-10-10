@@ -34,10 +34,9 @@ const (
 	TxMatched TxOutcome = iota + 1
 	// TxAmbiguous means several valid matches were found.
 	TxAmbiguous
-	// TxUnmatched means the lookup established that the primary has no valid match in the scopes it read.
-	TxUnmatched
-	// TxIncomplete means the lookup could establish neither a match nor its absence.
-	TxIncomplete
+	// TxNotFound means no valid match was found among the records the lookup read;
+	// it states nothing about records outside the packs it was given.
+	TxNotFound
 )
 
 // Roles of a version kept by a transaction lookup (the tracepack semantics specification §7.2), one bit each.
@@ -68,59 +67,57 @@ const (
 // txClassMask holds the defined TxClass bits.
 const txClassMask = TxPrimary | TxCandidate | TxPossibleReply | TxSameKeyPrimary | TxPossiblePrimary | TxClosing | TxOutcomeRecord
 
-// Reasons a transaction lookup is not complete (the tracepack semantics specification §7.2), each a TxGap.
-// TxGapNoKey, TxGapConflict, TxGapIndex and TxGapScopeBreach make the outcome TxIncomplete;
-// every other reason only prevents TxUnmatched.
+// Reasons a transaction lookup is incomplete (the tracepack semantics specification §7.2), each a TxGap.
+// Any of them stands beside any outcome, none hiding another.
 const (
 	// TxGapNoKey reports a primary without a transaction key:
-	// missing where a gap explains it, conflicting, in a direction other than host-to-equipment or equipment-to-host,
+	// missing where something in its hour's read explains it, conflicting,
+	// in a direction other than host-to-equipment or equipment-to-host,
 	// or with its SessionID or System Bytes unavailable.
 	TxGapNoKey TxGapReason = iota + 1
-	// TxGapConflict reports a conflict on a seq at or above the primary's, within one scope read or across scope reads.
+	// TxGapConflict reports a conflict on a seq of the primary's capture at or above the primary's,
+	// within one hour's read or across hour reads.
 	TxGapConflict
-	// TxGapIndex reports a block of a scope read whose records disagree with its F-2 entry (ReasonIndexMismatch).
+	// TxGapIndex reports a disagreement an hour's read detected (ReasonIndexMismatch):
+	// a block whose records disagree with its F-2 entry, or another footer value that disagrees with the records it describes.
+	// The lookup then guarantees only that it is incomplete with this gap; every other fact it reports is best-effort.
 	TxGapIndex
-	// TxGapCold reports a scope that the catalog does not index, read or not.
-	TxGapCold
-	// TxGapRead reports a defect of a scope read other than a coverage entry and an index mismatch.
+	// TxGapRead reports a defect of an hour's read other than a coverage entry, a crash gap and an index mismatch:
+	// a failed block, an unknown codec, a truncation or a reader limit.
 	TxGapRead
-	// TxGapCoverage reports a coverage entry of a pack read, for the primary's capture, that meets the lookup's query.
+	// TxGapCoverage reports a coverage entry of a pack read, of the primary's capture,
+	// that meets the window's seqs and the time range of the hours scheduled.
 	TxGapCoverage
 	// TxGapUnevaluated reports a pack read whose pack metadata has quality_evaluated false.
 	TxGapUnevaluated
-	// TxGapEvidence reports per-capture evidence that its source marks partial.
-	TxGapEvidence
-	// TxGapSeqGap reports a seq of a bounded window that no scope read yielded.
+	// TxGapSeqGap reports a seq of a bounded window that no hour's read yielded.
 	TxGapSeqGap
-	// TxGapOpenWindow reports a window that no record read bounds after the last scope.
+	// TxGapOpenWindow reports a window that no record read bounds after the last hour read.
 	TxGapOpenWindow
-	// TxGapBarrier reports a completeness barrier: a stop-unclean boundary (the tracepack storage specification §5).
-	TxGapBarrier
-	// TxGapCaptureBoundary reports a capture-boundary of the primary's epoch other than the clean stop that bounds the window.
+	// TxGapCrashGap reports a crash gap: a stop-unclean boundary of any capture, from a pack read,
+	// whose gap meets the time range of the hours scheduled, or of the primary's hour on an early return
+	// (the tracepack semantics specification §7.4, Crash gaps).
+	TxGapCrashGap
+	// TxGapCaptureBoundary reports a capture-boundary record of the primary's epoch above the primary
+	// other than the clean stop that bounds the window.
 	TxGapCaptureBoundary
-	// TxGapOrderingUncertain reports a record of the primary's epoch with ordering-uncertain in a scope read.
+	// TxGapOrderingUncertain reports a record of the primary's epoch with ordering-uncertain in an hour's read.
 	TxGapOrderingUncertain
 	// TxGapCorrelation reports a primary with correlation-incomplete.
 	TxGapCorrelation
 	// TxGapUnavailable reports, in the window, a possible reply, an undecidable candidate,
 	// or a candidate at or after a possible same-key primary.
 	TxGapUnavailable
-	// TxGapContradiction reports an evidence closure at or below the primary,
-	// or one at a seq the lookup read where no version is the closing record it claims.
-	TxGapContradiction
-	// TxGapConflicted reports a scope whose view is conflicted (the tracepack storage specification §4),
-	// which the lookup does not read; a scope not indexed also has its TxGapCold gap, listed first.
-	TxGapConflicted
-	// TxGapScopeBreach reports a version a scope read yielded whose ts_utc_ns lies outside the scope's hour
+	// TxGapScopeBreach reports a version an hour's read yielded whose ts_utc_ns lies outside that hour
 	// (the tracepack format specification I-13): a pack that does not keep to its scope.
-	// It names the scope's hour, the version's pack, block and seq;
-	// the version is still classified, and kept as any other version is.
+	// It names the hour, the version's pack, block and seq;
+	// a version of the primary's capture is still classified, and kept as any other version is.
 	TxGapScopeBreach
 )
 
 // ErrNotPrimary reports a TxKey that names no primary:
 // a record that is not a data record with an available odd function,
-// or no record where a complete read of an indexed scope shows none (the tracepack semantics specification §7.2).
+// or no record where nothing in the read of its hour explains its absence (the tracepack semantics specification §7.2).
 var ErrNotPrimary = errors.New("tracepack: not a primary")
 
 // TxKey names the primary record of a transaction lookup.
@@ -143,37 +140,26 @@ func TxKeyOf(capture UUID, seq uint64, ts time.Time) TxKey {
 
 // TxOptions configures FindTransaction.
 type TxOptions struct {
-	// MaxScopes is the number of hours scheduled from TxKey.Hour on, empty and conflicted hours included,
-	// each read but a conflicted one;
+	// MaxScopes is the number of hours scheduled from TxKey.Hour on, empty hours included, each read once;
 	// zero or negative means DefaultTxMaxScopes.
 	MaxScopes int
-	// MaxHeldBytes bounds the block buffers each scope read holds at once, as MergeIterateOptions.MaxHeldBytes does;
+	// MaxHeldBytes bounds the block buffers each hour's read holds at once, as MergeIterateOptions.MaxHeldBytes does;
 	// zero or negative means DefaultMaxHeldBytes.
 	MaxHeldBytes int64
 	// MaxConflicts bounds the conflicts of the whole lookup:
-	// each conflict a scope read lists counts one, and so does each seq yielded by more than one scope read, once however many,
-	// and a conflict at the primary among copies its scope's read did not compare;
+	// each conflict an hour's read lists counts one, and so does each seq yielded by more than one hour's read, once however many,
+	// and a conflict at the primary among copies its hour's read did not compare;
 	// zero or negative means DefaultMaxConflicts.
 	MaxConflicts int
 	// MaxStateBytes bounds the lookup's own state: the records it keeps, with their payloads and header extensions,
-	// and what it records of the seqs it visited, the conflicts, the gaps and the scopes read;
+	// and what it records of the seqs it visited, the conflicts, the gaps, the crash gaps and the hours read;
 	// zero or negative means DefaultTxMaxStateBytes.
 	// Each item is charged a fixed size as the state grows,
 	// a record also its payload and header-extension bytes, a copied coverage entry also the values of its unknown entries,
 	// and the charge of a record copied but not kept is released;
 	// a charge that would pass MaxStateBytes fails the lookup with an error wrapping ErrReadLimit.
-	// The readers, the evidence, the barriers, what each MergeIterate builds and the lookup's retention state lie outside it.
+	// The readers and what each MergeIterate builds lie outside it.
 	MaxStateBytes int64
-	// Retention, when set, provides the retention boundary of the lookup (the tracepack storage specification §5, Retention),
-	// given to every scope read as its Query.Retention; nil removes nothing.
-	// The lookup fails with an error wrapping ErrRemoved when the primary's hour, TxKey.Hour, is removed,
-	// which it checks before Observe, after a failed Observe whose error is neither a ctx error nor ErrReadLimit,
-	// before each scope it schedules, and before it returns an outcome.
-	// A scope the source reports SourceScope.Removed, or a scope read ending with ErrRemoved,
-	// ends the lookup with ErrRemoved too.
-	// Give it the provider given to StoreSourceOptions.Retention:
-	// the source's alone makes Observe tolerate deletion but leaves the lookup unprotected after Observe returns.
-	Retention Retention
 }
 
 // TxOutcome is the outcome of a transaction lookup.
@@ -201,12 +187,12 @@ type TxRecord struct {
 	Record Record
 	// HeaderExtra is the record header's extension area, cloned; nil for a 44-byte record header.
 	HeaderExtra []byte
-	// Hour is the hour of the scope read that yielded this version.
+	// Hour is the hour whose read yielded this version.
 	Hour int64
 	// Pack is the pack_id of the version's representative in that read, and Block the index of its block in the pack.
 	Pack  UUID
 	Block int
-	// Conflict reports that the lookup found the seq in conflict, within a scope read or across scope reads,
+	// Conflict reports that the lookup found the seq in conflict, within an hour's read or across hour reads,
 	// and is set for every kept version of that seq, not only those Item.Conflict marks:
 	// a copy that a block disagreeing with its F-2 entry let arrive uncompared is marked as well.
 	Conflict bool
@@ -225,20 +211,21 @@ type TxRecord struct {
 	Decidable, Eligible, Valid bool
 }
 
-// TxGapReason classifies why a transaction lookup is not complete.
+// TxGapReason classifies why a transaction lookup is incomplete.
 //
 // The zero value is not a reason; String prints it and any undefined value as "unknown(<n>)".
 type TxGapReason uint8
 
 var _ fmt.Stringer = TxGapReason(0)
 
-// TxGap is one reason a transaction lookup is not complete, reported beside its outcome.
+// TxGap is one reason a transaction lookup is incomplete, reported beside its outcome.
 //
 // Every pointer field is a copy, valid after FindTransaction returns.
 type TxGap struct {
 	// Reason classifies the gap.
 	Reason TxGapReason
-	// Hours holds the hours the gap concerns: one, or, for a conflict across scope reads, every hour whose read yielded the seq.
+	// Hours holds the hours the gap concerns: one, or, for a conflict across hour reads, every hour whose read yielded the seq;
+	// empty when it concerns no hour read, as for a seq gap or an open window.
 	Hours []int64
 	// Pack is the pack_id of the pack the gap concerns; nil when it concerns none.
 	Pack *UUID
@@ -247,8 +234,8 @@ type TxGap struct {
 	// Offset is the file offset of the defect the gap reports; -1 when none.
 	Offset int64
 	// Seq is the seq the gap concerns: the conflicting seq, the first missing seq of a seq gap, a capture-boundary's seq,
-	// the seq of the first ordering-uncertain record read, a contradicted closure's seq, the seq of a version outside its scope's hour;
-	// nil when none, as for a barrier, whose seq Barrier holds.
+	// the seq of the first ordering-uncertain record read, the seq of a version outside its hour;
+	// nil when none, as for a crash gap, whose seq Boundary holds.
 	Seq *uint64
 	// Defect is the reason of the read defect a TxGapRead or TxGapIndex reports; zero otherwise.
 	Defect IncompleteReason
@@ -256,25 +243,24 @@ type TxGap struct {
 	// or, for a TxGapNoKey gap of a missing primary, the first coverage entry that meets the primary's seq and hour;
 	// nil otherwise.
 	Coverage *Coverage
-	// Barrier is the boundary a TxGapBarrier or TxGapCaptureBoundary reports; nil otherwise.
-	Barrier *Boundary
+	// Boundary is the stop-unclean boundary a TxGapCrashGap reports, or the capture-boundary record a TxGapCaptureBoundary reports;
+	// nil otherwise.
+	Boundary *Boundary
 	// Err describes the gap; nil when the other fields say all.
 	Err error
 }
 
-// TxScope is one scope a transaction lookup read to its end.
+// TxScope is one hour a transaction lookup read to its end.
 type TxScope struct {
-	// Hour is the scope's UTC hour.
+	// Hour is the UTC hour.
 	Hour int64
-	// Indexed reports whether the catalog indexes the scope; a scope not indexed was read through its listing view.
-	Indexed bool
-	// Packs holds the pack_ids of the scope's view, in view order.
+	// Packs holds the pack_ids of the packs the source gave for the hour, of any capture, in the order given.
 	Packs []UUID
 }
 
 // TxPackError is a footer error of a pack a transaction lookup read, which does not make the lookup incomplete by itself.
 type TxPackError struct {
-	// Hour is the hour of the scope read the pack belongs to.
+	// Hour is the hour whose read took the pack.
 	Hour int64
 	// Pack is the pack's pack_id.
 	Pack UUID
@@ -293,7 +279,7 @@ type TxResult struct {
 	// Epoch, Dir, SessionID and SystemBytes are the association key derived from the primary,
 	// and Stream and Function its match fields, Stream valid iff StreamAvailable.
 	// They are zero when the primary is missing or the lookup fails with ErrNotPrimary, and an unavailable field stays zero;
-	// when the primary has several versions, in its own scope or a later one, they are those of the first version, as diagnostics.
+	// when the primary has several versions, in its own hour or a later one, they are those of the first version, as diagnostics.
 	Epoch           uint32
 	Dir             Dir
 	SessionID       uint16
@@ -312,84 +298,75 @@ type TxResult struct {
 	// Beside an error, it holds the versions kept until then,
 	// in the order and with the flags the lookup had reached when it failed.
 	Records []TxRecord
-	// Gaps holds every reason the lookup is not complete, in discovery order.
-	Gaps []TxGap
-	// Searched holds the scopes read to their end, in the order read.
+	// Incomplete holds every reason the lookup is incomplete, in discovery order;
+	// the lookup is complete when it is empty.
+	Incomplete []TxGap
+	// Searched holds the hours read to their end, in the order read.
 	Searched []TxScope
-	// Conflicts holds the conflicts each scope read listed, in read order.
+	// Conflicts holds the conflicts each hour's read listed, of any capture, in read order;
+	// only those on a seq of the primary's capture at or above the primary's make the lookup incomplete.
 	Conflicts []Conflict
 	// FooterErrs holds the footer error of each pack read whose footer was not used.
 	FooterErrs []TxPackError
 }
 
-// FindTransaction looks up the reply to the primary record key names, in one observation src supplies,
+// FindTransaction looks up the reply to the primary record key names, over the packs src gives,
 // and reports the outcome of the tracepack semantics specification §7.2:
-// TxMatched, TxAmbiguous, TxUnmatched or TxIncomplete,
-// with the records it kept, the conflicts, and every reason the lookup is not complete, beside the scopes it searched.
+// TxMatched, TxAmbiguous or TxNotFound,
+// with the records it kept, the conflicts, and every reason it is incomplete, beside the hours it searched.
 //
-// It opens one Observation of key.Capture over the hours [key.Hour, key.Hour + MaxScopes), and closes it before returning.
-// It reads the scope of key.Hour and each following hour of that range once, each with one MergeIterate in capture order,
+// It reads hour key.Hour and each following hour of [key.Hour, key.Hour + MaxScopes), the hours scheduled, once each,
 // every one of them even after the window is closed,
-// since a later scope can hold another version of a window seq or a smaller bound.
-// A scope whose view is conflicted is not read: it is a TxGapConflicted gap,
-// and in key.Hour it explains a missing primary, as a scope the catalog does not index does.
+// since a later hour can hold another version of a window seq or a smaller bound.
+// Each hour's read is one MergeIterate in capture order, without a filter, over every pack src gives for the hour, of any capture.
+// The lookup decides on the primary's capture only:
+// its primary, window, gaps, versions and the conflicts that make it incomplete are of that capture, seqs compared as (capture_id, seq);
+// read defects, scope breaches, packs with quality_evaluated false and crash gaps are reported for every pack read.
 // From the primary it derives the transaction key:
 // the epoch, direction, SessionID and System Bytes, and the stream and function to match.
 // It searches only the seqs above the primary's.
 // The window ends at the smallest seq of a same-key primary or closing record the lookup read;
-// a footer's or the per-capture evidence's claim that an epoch closed never bounds it,
-// and a claim the records contradict is a gap.
-// A primary missing where a gap explains it, conflicting within its own scope's read, or without a key ends the reads after that scope.
+// a footer's close_seq or boundary entry never bounds it.
 //
-// The comparison of a record's copies covers the scopes the lookup reads, as MergeIterate's covers the packs it is given:
+// A primary that is missing where something in its hour's read explains it, conflicting within that read, or without a key
+// ends the lookup after that one hour: such an early return is TxNotFound and incomplete.
+// A missing primary is explained by a read defect other than a coverage entry or a crash gap, a scope breach,
+// a coverage entry that meets its seq and hour, or a crash gap of its capture that meets its hour;
+// a primary missing where nothing explains it fails the lookup with ErrNotPrimary.
+//
+// The comparison of a record's copies covers the hours the lookup reads, as MergeIterate's covers the packs it is given:
 // another version of a record in an hour the lookup did not read is not compared,
 // whether it lies after the last hour read or before key.Hour after a backward clock step.
 // Such a version is not found by verifying one pack or merging one scope either,
 // since neither compares versions that lie in different hours.
-// A seq of the window with no version in the scopes read is a seq gap, so it never yields TxUnmatched.
-// An ordering-uncertain record of the primary's epoch is likewise detected only in the scopes read.
+// A seq of the window with no version in the hours read is a seq gap.
+// An ordering-uncertain record of the primary's epoch is likewise detected only in the hours read.
+// A stop-unclean boundary of any pack read is a crash gap when its gap meets the time range of the hours scheduled
+// (the tracepack semantics specification §7.4, Crash gaps).
 //
-// A conflict on a seq at or above the primary's, a block whose records disagree with its F-2 entry,
-// a version whose ts_utc_ns lies outside the hour of the scope that yielded it, or a primary without a key
-// makes the outcome TxIncomplete;
-// such a version in the scope of key.Hour also explains a missing primary, as a read defect does.
-// Otherwise one valid match is TxMatched and several TxAmbiguous, each with every gap found listed beside it;
-// with none, the outcome is TxUnmatched when no gap is listed, TxIncomplete otherwise.
-//
-// With opts.Retention set,
-// the lookup checks the primary's hour, key.Hour, against the retention boundary (the tracepack storage specification §5, Retention),
-// and fails with an error wrapping ErrRemoved when a check finds it removed.
-// It checks that hour before Observe;
-// after a failed Observe whose error is neither a ctx error nor ErrReadLimit, joining ErrRemoved after that error;
-// before each scope it schedules, an empty or conflicted one included;
-// and once evaluation is done, before it closes the observation and returns an outcome.
-// These are its only checks of that hour:
-// an earlier error of the lookup, ErrNotPrimary included, stands, whatever the boundary did meanwhile.
-// Each scope read checks the hours it covers itself, given opts.Retention as its Query.Retention.
-// A scope read that ends with ErrRemoved ends the lookup with ErrRemoved too,
-// and so does a scope the observation reports removed, with or without opts.Retention:
-// every hour the lookup schedules lies at or after the primary's, so the primary's hour is removed as well.
-// The TxResult beside ErrRemoved keeps what the lookup found, as beside its other errors:
-// it describes an aborted lookup, not a result over the hours still retained.
+// One valid match is TxMatched, several TxAmbiguous, none TxNotFound;
+// every reason the lookup is incomplete is listed in TxResult.Incomplete beside the outcome, none hiding another.
+// When an hour's read detects a disagreement between a block and its F-2 entry, or another footer value and its records,
+// only the TxGapIndex gap and the lookup's being incomplete are guaranteed:
+// the outcome, the other reasons, the versions and every other fact are best-effort.
 //
 // Parameters:
-//   - ctx: cancels the lookup; it is checked before each call to the source, during each scope read,
+//   - ctx: cancels the lookup; it is checked before each call to the source, during each hour's read,
 //     every 4096 iterations of the lookup's own loops, and before returning.
-//   - src: the source of the observation; not nil.
+//   - src: the source of the packs; not nil.
 //   - key: the primary; Capture not zero, Hour in [MinTxHour, MaxTxHour].
 //   - opts: the limits; see TxOptions.
 //
 // Returns:
 //   - TxResult: the result; on an error it holds what was found before the error, Outcome zero.
-//     Searched lists only scopes read to their end.
+//     Searched lists only hours read to their end.
 //   - error: an error wrapping ErrInvalidQuery, before anything is read:
 //     for a nil src, a zero key.Capture, a key.Seq above 2^63-1, a key.Hour outside [MinTxHour, MaxTxHour],
 //     or a last hour key.Hour + MaxScopes - 1 above MaxTxHour;
 //     ErrNotPrimary;
-//     an error of src or of the Observation, wrapped with the hour, a Close error only when nothing else failed;
-//     an error for a scope the Observation reports conflicted or removed beside readers;
+//     an error of src, wrapped with the hour; an error for a nil reader src gives;
+//     the error of an hour's MergeIterate, an error wrapping ErrInvalidQuery for a Reader or pack_id src gives twice among them;
 //     a ReadAt error; an error wrapping ErrReadLimit from MaxHeldBytes, MaxConflicts or MaxStateBytes;
-//     an error wrapping ErrRemoved, joined after Observe's error when it follows one; opts.Retention's error, wrapped;
 //     ctx's error, wrapped.
 //     A block over its Reader's MaxBlockLen is not an error: it is a TxGapRead gap.
 func FindTransaction(ctx context.Context, src PackSource, key TxKey, opts TxOptions) (TxResult, error) {
@@ -397,48 +374,16 @@ func FindTransaction(ctx context.Context, src PackSource, key TxKey, opts TxOpti
 }
 
 // findTransactionWith is FindTransaction; prep, set only by tests, runs on the lookup's state before the lookup starts.
-func findTransactionWith(ctx context.Context, src PackSource, key TxKey, opts TxOptions, prep func(l *txLookup)) (res TxResult, err error) {
-	opts, err = checkFindTransaction(src, key, opts)
+func findTransactionWith(ctx context.Context, src PackSource, key TxKey, opts TxOptions, prep func(l *txLookup)) (TxResult, error) {
+	opts, err := checkFindTransaction(src, key, opts)
 	if err != nil {
 		return TxResult{}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return TxResult{}, fmt.Errorf("tracepack: find transaction: %w", err)
 	}
-	// The lookup checks the primary's hour alone:
-	// every hour it schedules lies at or after it, so the primary's is the first of them to be removed.
-	rs := newRetentionState(opts.Retention)
-	if err := rs.add(key.Hour); err != nil {
-		return TxResult{}, fmt.Errorf("tracepack: find transaction: %w", err)
-	}
-	if err := rs.check(ctx); err != nil {
-		return TxResult{}, fmt.Errorf("tracepack: find transaction: %w", err)
-	}
-	// checkFindTransaction bounded the last hour by MaxTxHour, so the end of the range fits.
-	to := key.Hour + int64(opts.MaxScopes)
-	obs, err := src.Observe(ctx, key.Capture, key.Hour, to)
-	if err != nil {
-		err = fmt.Errorf("tracepack: find transaction: observe hours [%d, %d): %w", key.Hour, to, err)
-		if !isCtxErr(err) && !errors.Is(err, ErrReadLimit) {
-			// An object may have been gone because the primary's hour was removed meanwhile.
-			err = rs.recheckAfter(ctx, err)
-		}
 
-		return TxResult{}, err
-	}
-
-	// Close runs once on every path, a panic included; its error is returned only when nothing else failed.
-	defer func() {
-		if cerr := obs.Close(); cerr != nil && err == nil {
-			err = fmt.Errorf("tracepack: find transaction: close hours [%d, %d): %w", key.Hour, to, cerr)
-		}
-		if err != nil {
-			res.Outcome = 0
-		}
-	}()
-
-	l := newTxLookup(key, opts, obs)
-	l.rs = rs
+	l := newTxLookup(key, opts, src)
 	if prep != nil {
 		prep(l)
 	}
@@ -448,19 +393,11 @@ func findTransactionWith(ctx context.Context, src PackSource, key TxKey, opts Tx
 			err = fmt.Errorf("tracepack: find transaction: %w", cerr)
 		}
 	}
-	// The outcome stands only while the primary's hour is retained, after evaluation and barriers, before Close.
-	if err == nil {
-		if rerr := l.rs.check(ctx); rerr != nil {
-			err = fmt.Errorf("tracepack: find transaction: %w", rerr)
-		}
+	if err != nil {
+		l.res.Outcome = 0
 	}
 
 	return l.res, err
-}
-
-// isCtxErr reports whether err is a context's error, context.Canceled or context.DeadlineExceeded, or wraps one.
-func isCtxErr(err error) bool {
-	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 // checkFindTransaction validates the arguments of FindTransaction before anything is read and applies the defaults of opts.
@@ -516,10 +453,8 @@ func (o TxOutcome) String() string {
 		return "matched"
 	case TxAmbiguous:
 		return "ambiguous"
-	case TxUnmatched:
-		return "unmatched"
-	case TxIncomplete:
-		return "incomplete"
+	case TxNotFound:
+		return "not-found"
 	default:
 		return fmt.Sprintf("unknown(%d)", uint8(o))
 	}
@@ -577,22 +512,18 @@ func (r TxGapReason) String() string {
 		return "conflict"
 	case TxGapIndex:
 		return "index"
-	case TxGapCold:
-		return "cold"
 	case TxGapRead:
 		return "read"
 	case TxGapCoverage:
 		return "coverage"
 	case TxGapUnevaluated:
 		return "unevaluated"
-	case TxGapEvidence:
-		return "evidence"
 	case TxGapSeqGap:
 		return "seq-gap"
 	case TxGapOpenWindow:
 		return "open-window"
-	case TxGapBarrier:
-		return "barrier"
+	case TxGapCrashGap:
+		return "crash-gap"
 	case TxGapCaptureBoundary:
 		return "capture-boundary"
 	case TxGapOrderingUncertain:
@@ -601,10 +532,6 @@ func (r TxGapReason) String() string {
 		return "correlation"
 	case TxGapUnavailable:
 		return "unavailable"
-	case TxGapContradiction:
-		return "contradiction"
-	case TxGapConflicted:
-		return "conflicted"
 	case TxGapScopeBreach:
 		return "scope-breach"
 	default:

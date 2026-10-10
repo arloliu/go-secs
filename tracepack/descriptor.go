@@ -123,7 +123,7 @@ type CaptureDescriptor struct {
 //
 // Returns:
 //   - error: nil, or a *FieldError for the first rule violated, in the order of the registry's tags:
-//     tool_id that no key can hold (wrapping ErrInvalidKey, as NewStoreSource refuses such a tool);
+//     tool_id that no key can hold (wrapping ErrInvalidKey, as SegmentKey and ArchiveKey refuse such a tool);
 //     transport, capture_method or vantage outside the registry (ErrFieldValue);
 //     an empty recorder (ErrRequiredTag);
 //     time_source outside the registry (ErrFieldValue);

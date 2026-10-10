@@ -7,17 +7,15 @@ import (
 	"fmt"
 )
 
-// txLookup is the state of one FindTransaction call over one Observation.
+// txLookup is the state of one FindTransaction call over one PackSource.
 type txLookup struct {
 	key  TxKey
 	opts TxOptions
-	obs  Observation
+	src  PackSource
 	res  TxResult
-	// evidence is the capture's per-capture evidence, taken once from the observation.
-	evidence CaptureEvidence
 	// conflicts counts the conflicts reserved over the whole lookup against opts.MaxConflicts.
 	conflicts int
-	// primary holds the versions of the primary's seq that the read of scope key.Hour yielded, cloned as they arrived,
+	// primary holds the versions of the primary's seq that the read of hour key.Hour yielded, cloned as they arrived,
 	// and primaryFlags the record_flags of each, as stored, which the version's charge covers.
 	primary      []TxRecord
 	primaryFlags []uint8
@@ -25,25 +23,23 @@ type txLookup struct {
 	flags uint8
 	// prim is what the records above the primary are classified against, taken from primary's first version.
 	prim txPrimaryKey
-	// early counts the records above the primary's seq that the read of scope key.Hour yielded before any version of the primary,
-	// and earlyVersions buffers them, each cloned and charged as it arrived, in the order read,
-	// until the primary is established and they are classified (classifyEarly), or released when it is not.
-	// earlySeqs holds their seqs, and laterVersions every version of those seqs that the same read yields after the primary,
-	// classified and cloned as it arrives, whatever its roles,
-	// so that the versions of each such seq are kept or released together (keepEarly).
-	early         int
-	earlyVersions []TxRecord
-	earlySeqs     txRuns
-	laterVersions []TxRecord
+	// early counts the records above the primary's seq that the read of hour key.Hour yielded before any version of the primary,
+	// which only a block disagreeing with its F-2 entry brings about; they are not classified.
+	early int
 	// coverage holds the coverage entries of the packs read, each evaluated against the lookup's query once the reads are done.
 	coverage []txCoverage
-	// reads holds each scope read, in read order, from the charge of its scope on.
+	// crash holds the stop-unclean boundaries the reads reported, each boundary value once, in the order found,
+	// each evaluated against the lookup's time range once the reads are done;
+	// crashSeen holds the key of each.
+	crash     []txCrashGap
+	crashSeen map[crashGapKey]struct{}
+	// reads holds each hour's read, in read order, from the charge of its hour on.
 	reads []*txScopeRead
-	// cross maps each seq in conflict across scope reads to the hours that yielded it.
+	// cross maps each seq in conflict across hour reads to the hours that yielded it.
 	cross map[uint64]*txCrossConflict
-	// conflicted holds each seq in conflict within a scope read, above the primary or in a later scope.
+	// conflicted holds each seq in conflict within an hour's read, above the primary or in a later hour.
 	conflicted map[uint64]struct{}
-	// uncertain maps each epoch of a record with ordering-uncertain that a read yielded, at any seq,
+	// uncertain maps each epoch of a record of the primary's capture with ordering-uncertain that a read yielded, at any seq,
 	// to where the first such record was seen.
 	uncertain map[uint32]txSeen
 	// boundaries holds every version of a capture-boundary record of the primary's epoch above the primary that a read yielded.
@@ -52,79 +48,69 @@ type txLookup struct {
 	state txBudget
 	// ticks counts the iterations of the lookup's loops toward the checks of ctx.
 	ticks ctxCounter
-	// rs is the lookup's retention state over opts.Retention, covering the primary's hour alone.
-	rs retentionState
-	// passes counts the reads of a scope's view: one for each scope read, and one more for each that reads its view again.
-	passes int
 	// onTick, set only by tests, runs at each check of ctx that tick makes, before it.
 	onTick func()
-	// skipSeqGap, trustClosures, readConflicted, breachComplete and breachFromPrimary, set only by tests,
+	// skipSeqGap and breachFromPrimary, set only by tests,
 	// each take a rule out of the lookup, so that a test shows the checks that catch its absence.
 	// skipSeqGap leaves a bounded window's seq gap unlisted.
-	// trustClosures, when set, may move the window's end, and the per-capture evidence's closures are not checked.
-	// readConflicted reads a conflicted scope as a scope without packs.
-	// breachComplete lets a scope breach leave the outcome as the other gaps decide it.
 	// breachFromPrimary checks only the versions at or above the primary's seq for a scope breach.
 	skipSeqGap        bool
-	trustClosures     func(w *txWindow)
-	readConflicted    bool
-	breachComplete    bool
 	breachFromPrimary bool
 }
 
-// txScopeRead is one scope a transaction lookup reads: its fixed view and the status of its read.
+// txScopeRead is one hour a transaction lookup reads: the packs the source gave for it and the status of its read.
 // Once the read's status is added to the result, its readers, its Result and its group buffer are dropped.
 type txScopeRead struct {
 	hour    int64
-	indexed bool
-	// conflicted reports a scope whose view is conflicted, which is not read:
-	// it has no readers, run set or pack_ids, and is not among the lookup's reads.
-	conflicted bool
-	readers    []*Reader
-	// packs holds the pack_id of each reader, in view order.
+	readers []*Reader
+	// packs holds the pack_id of each reader, in the order the source gave them.
 	packs []UUID
 	res   Result
-	// defect reports that the read has a defect other than a coverage entry,
-	// and breach that it yielded a version outside the scope's hour.
+	// defect reports that the read has a defect other than a coverage entry or a crash gap,
+	// and breach that it yielded a version outside the hour.
 	defect, breach bool
-	// runs is the read's run set.
+	// runs is the read's run set, of the primary's capture.
 	runs *txRuns
 	// group is the seq group the read is yielding.
 	group txGroup
 	// kept holds the versions the read kept, and gaps the conflicts it found, until they are added to the result.
 	kept []TxRecord
 	gaps []txPendingGap
-	// repeats holds the seqs above the primary's that the read yielded in two places (beginGroup),
-	// and reread the versions of those seqs that its second pass over the view yields (rereadRepeats).
-	repeats txRuns
-	reread  []TxRecord
 }
 
 // txCoverage is a coverage entry of a pack a transaction lookup read.
 type txCoverage struct {
 	hour int64
 	pack UUID
+	// capture is the capture the entry belongs to: its capture_id, or else the capture of its pack.
+	capture UUID
 	// cov is the entry, a copy the read made for the lookup.
 	cov *Coverage
 }
 
-// newTxLookup returns the state of a lookup of key with opts, defaulted, over obs.
-func newTxLookup(key TxKey, opts TxOptions, obs Observation) *txLookup {
+// txCrashGap is a stop-unclean boundary an hour's read reported (ReasonCrashGap), which the lookup evaluates itself.
+type txCrashGap struct {
+	// hour is the hour of the first read that reported the boundary, and pack the pack_id of its representative in that read.
+	hour int64
+	pack UUID
+	// b is the boundary, the read's own copy.
+	b *Boundary
+}
+
+// newTxLookup returns the state of a lookup of key with opts, defaulted, over src.
+func newTxLookup(key TxKey, opts TxOptions, src PackSource) *txLookup {
 	return &txLookup{
-		key: key, opts: opts, obs: obs,
+		key: key, opts: opts, src: src,
 		state: txBudget{max: opts.MaxStateBytes}, ticks: ctxCounter{step: txCtxStep},
 	}
 }
 
-// coverageMeets reports whether the coverage entry c of a pack of capture meets the query of the seqs [first, last]
-// and the time range [from, to) of capture, by the tracepack format specification §5:
+// coverageMeets reports whether the coverage entry c meets the query of the seqs [first, last]
+// and the time range [from, to), by the tracepack format specification §5:
 // its seq range and its time interval, both inclusive, an absent bound unbounded, meet the query's;
-// an entry whose first bound exceeds its last, on either side, meets every query of its capture,
-// and an entry without capture_id belongs to the pack's capture.
-func coverageMeets(c *Coverage, capture UUID, first, last uint64, from, to int64) bool {
-	if c.CaptureID != nil && *c.CaptureID != capture {
-		return false
-	}
+// an entry whose first bound exceeds its last, on either side, meets every query of its capture.
+// The caller checks that the entry belongs to the capture queried.
+func coverageMeets(c *Coverage, first, last uint64, from, to int64) bool {
 	if inverted(c.SeqFirst, c.SeqLast) || inverted(c.TimeStart, c.TimeEnd) {
 		return true
 	}
@@ -133,22 +119,14 @@ func coverageMeets(c *Coverage, capture UUID, first, last uint64, from, to int64
 	return seqMeets && overlaps(c.TimeStart, c.TimeEnd, &from, &to)
 }
 
-// run performs the lookup: it takes the evidence, reads scope key.Hour and settles the primary;
-// with a key, it classifies the versions the read yielded before the primary, then reads the later scopes.
+// run performs the lookup: it reads hour key.Hour and settles the primary;
+// with a key, it reads the later hours and evaluates the window;
+// without one, it ends after that hour, with the crash gaps that meet it (an early return).
 //
 // Returns:
-//   - error: an error of the observation or of a read, wrapped; an error wrapping ErrNotPrimary;
+//   - error: an error of the source or of a read, wrapped; an error wrapping ErrNotPrimary;
 //     ctx's error, wrapped.
 func (l *txLookup) run(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("tracepack: find transaction: %w", err)
-	}
-	ev, err := l.obs.Evidence(ctx)
-	if err != nil {
-		return fmt.Errorf("tracepack: find transaction: evidence: %w", err)
-	}
-	l.evidence = ev
-
 	rd, err := l.readScope(ctx, l.key.Hour, l.collect)
 	if err != nil {
 		return err
@@ -158,17 +136,16 @@ func (l *txLookup) run(ctx context.Context) error {
 		return err
 	}
 	if !keyed {
-		// A primary without a key makes the outcome incomplete, and no further scope is read
-		// (the tracepack semantics specification §7.2).
-		// What the read classified above it was classified against no key, and is dropped, its charge with the lookup;
-		// the versions it yielded before the primary are not classified, and are released.
-		l.releaseEarly()
-		l.res.Outcome = TxIncomplete
+		// A primary without a key ends the lookup after its hour, not-found and incomplete
+		// (the tracepack semantics specification §7.2):
+		// what the read classified above it was classified against no key, and is dropped, its charge with the lookup,
+		// and only the crash gaps that meet the primary's hour are reported.
+		if err := l.crashGapGaps(ctx, l.key.Hour*hourNs, (l.key.Hour+1)*hourNs); err != nil {
+			return fmt.Errorf("tracepack: find transaction: %w", err)
+		}
+		l.res.Outcome = TxNotFound
 
 		return nil
-	}
-	if err := l.classifyEarly(ctx, rd); err != nil {
-		return fmt.Errorf("tracepack: find transaction: hour %d: %w", l.key.Hour, err)
 	}
 	if err := l.commitRead(ctx, rd); err != nil {
 		return fmt.Errorf("tracepack: find transaction: %w", err)
@@ -177,53 +154,39 @@ func (l *txLookup) run(ctx context.Context) error {
 	return l.searchWindow(ctx)
 }
 
-// readScope reads the scope of hour with one MergeIterate in capture order, a zero filter and payloads,
-// passing each item to fn with the read;
-// it then ends the read's last seq group, reads the view a second time when the read yielded a seq in two places (rereadRepeats),
-// and adds the read's status to the result (mapScope), also after the read failed.
+// readScope reads hour with one MergeIterate in capture order, a zero filter and payloads,
+// over the readers the source gives for it, passing each item to fn with the read;
+// it then ends the read's last seq group and adds the read's status to the result (mapScope), also after the read failed.
 // The conflicts of the read are reserved against the lookup's MaxConflicts,
-// and the scope, with a pack_id for each pack of its view, is charged against MaxStateBytes before its pack_ids are taken;
+// and the hour, with a pack_id for each reader, is charged against MaxStateBytes before its pack_ids are taken;
 // each reader counts toward the checks of ctx (tick).
-// A scope whose view is conflicted is not read (passConflicted).
-// The read is given opts.Retention as its Query.Retention, so it checks the hours it covers itself.
 //
 // Returns:
-//   - *txScopeRead: the read; nil, its charge released, when the observation could not answer the scope,
-//     the scope is removed, the scope's charge failed, a reader is nil, a conflicted or removed scope has readers,
-//     or ctx is done while the readers' pack_ids are taken.
-//   - error: the observation's error, wrapped with the hour; ctx's error, wrapped;
-//     an error wrapping ErrRemoved, or opts.Retention's error, wrapped, from the check before the scope (scopeOf);
-//     an error wrapping ErrRemoved for a scope the observation reports removed;
-//     the read's error, an error wrapping ErrRemoved among them, else the error of its mapping, wrapped with the hour;
+//   - *txScopeRead: the read; nil, its charge released, when the source could not answer the hour,
+//     the hour's charge failed, a reader is nil, or ctx is done while the readers' pack_ids are taken.
+//   - error: ctx's error, wrapped; the source's error, wrapped with the hour;
+//     the read's error, else the error of its mapping, wrapped with the hour;
 //     an error wrapping ErrReadLimit when a charge passes MaxStateBytes.
 func (l *txLookup) readScope(ctx context.Context, hour int64,
 	fn func(ctx context.Context, rd *txScopeRead, it *Item) error,
 ) (*txScopeRead, error) {
-	sc, err := l.scopeOf(ctx, hour)
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("tracepack: find transaction: %w", err)
+	}
+	readers, err := l.src.Readers(ctx, hour)
 	if err != nil {
-		return nil, err
-	}
-	if sc.Conflicted && !l.readConflicted {
-		if len(sc.Readers) > 0 {
-			return nil, fmt.Errorf("tracepack: find transaction: hour %d: scope: a conflicted scope comes with readers (%d)", hour, len(sc.Readers))
-		}
-		rd := &txScopeRead{hour: hour, indexed: sc.Indexed, conflicted: true}
-		if err := l.passConflicted(ctx, rd); err != nil {
-			return rd, fmt.Errorf("tracepack: find transaction: hour %d: %w", hour, err)
-		}
-
-		return rd, nil
+		return nil, fmt.Errorf("tracepack: find transaction: hour %d: readers: %w", hour, err)
 	}
 
-	// The scope is charged before its pack_ids are allocated; a failure after the charge releases it.
-	cost := scopeCost(len(sc.Readers))
+	// The hour is charged before its pack_ids are allocated; a failure after the charge releases it.
+	cost := scopeCost(len(readers))
 	if err := l.state.reserve(cost); err != nil {
 		return nil, fmt.Errorf("tracepack: find transaction: hour %d: %w", hour, err)
 	}
-	rd := &txScopeRead{hour: hour, indexed: sc.Indexed, readers: sc.Readers, runs: &txRuns{hour: hour}}
-	if len(sc.Readers) > 0 {
-		rd.packs = make([]UUID, len(sc.Readers))
-		for i, r := range sc.Readers {
+	rd := &txScopeRead{hour: hour, readers: readers, runs: &txRuns{hour: hour}}
+	if len(readers) > 0 {
+		rd.packs = make([]UUID, len(readers))
+		for i, r := range readers {
 			if err := l.tick(ctx); err != nil {
 				l.state.release(cost)
 
@@ -232,23 +195,19 @@ func (l *txLookup) readScope(ctx context.Context, hour int64,
 			if r == nil {
 				l.state.release(cost)
 
-				return nil, fmt.Errorf("tracepack: find transaction: hour %d: scope: reader %d is nil", hour, i)
+				return nil, fmt.Errorf("tracepack: find transaction: hour %d: readers: reader %d is nil", hour, i)
 			}
 			rd.packs[i] = UUID(r.hdr.PackID)
 		}
 	}
 	l.reads = append(l.reads, rd)
-	l.passes++
-	rd.res, err = mergeIterateWith(ctx, sc.Readers, Query{Payloads: true, Retention: l.opts.Retention},
+	rd.res, err = mergeIterateWith(ctx, readers, Query{Payloads: true},
 		MergeIterateOptions{Order: OrderCapture, MaxHeldBytes: l.opts.MaxHeldBytes},
 		mergeIterateOptions{reserveConflict: l.reserveConflict, storedFlags: &l.flags},
 		func(it *Item) error { return fn(ctx, rd, it) })
 	gerr := l.endGroup(ctx, rd)
 	if err == nil {
 		err = gerr
-	}
-	if err == nil && len(rd.repeats.runs) > 0 && l.prim.keyed {
-		err = l.rereadRepeats(ctx, rd)
 	}
 	// The read's own error comes first; the mapping stops at its first error, so that the state stays within its budget.
 	if merr := l.mapScope(ctx, rd, err == nil); err == nil {
@@ -268,59 +227,9 @@ func (l *txLookup) readScope(ctx context.Context, hour int64,
 	return rd, nil
 }
 
-// scopeOf checks ctx and the primary's hour against the retention boundary,
-// then takes the scope of hour from the observation,
-// before the scope is read or passed over, an empty or conflicted one included.
-// A scope the observation reports removed ends the lookup, whatever else it reports:
-// every hour the lookup schedules lies at or after the primary's, so the primary's hour is removed too.
-//
-// Returns:
-//   - SourceScope: the scope, neither removed nor with an error.
-//   - error: ctx's error, wrapped; an error wrapping ErrRemoved, or opts.Retention's error, wrapped;
-//     the observation's error, wrapped with the hour; an error wrapping ErrRemoved for a scope reported removed;
-//     an error for a removed scope that comes with readers.
-func (l *txLookup) scopeOf(ctx context.Context, hour int64) (SourceScope, error) {
-	if err := ctx.Err(); err != nil {
-		return SourceScope{}, fmt.Errorf("tracepack: find transaction: %w", err)
-	}
-	if err := l.rs.check(ctx); err != nil {
-		return SourceScope{}, fmt.Errorf("tracepack: find transaction: hour %d: %w", hour, err)
-	}
-	sc, err := l.obs.Scope(ctx, hour)
-	if err != nil {
-		return SourceScope{}, fmt.Errorf("tracepack: find transaction: hour %d: scope: %w", hour, err)
-	}
-	if sc.Removed {
-		if len(sc.Readers) > 0 {
-			return SourceScope{}, fmt.Errorf("tracepack: find transaction: hour %d: scope: a removed scope comes with readers (%d)", hour, len(sc.Readers))
-		}
-
-		return SourceScope{}, fmt.Errorf("tracepack: find transaction: hour %d: scope: the source reports the hour removed: %w", hour, ErrRemoved)
-	}
-
-	return sc, nil
-}
-
-// passConflicted adds the gaps of the conflicted scope rd, which the lookup does not read
-// (the tracepack semantics specification §7.2):
-// TxGapCold when the catalog does not index it, then TxGapConflicted, each charged before it is added.
-// Nothing else of the scope enters the state: no scope charge, run set, read or searched scope.
-//
-// Returns:
-//   - error: ctx's error, as is; the error of a gap's charge, wrapping ErrReadLimit.
-func (l *txLookup) passConflicted(ctx context.Context, rd *txScopeRead) error {
-	if !rd.indexed {
-		if err := l.addGap(ctx, TxGap{
-			Reason: TxGapCold, Hours: []int64{rd.hour}, Block: -1, Offset: -1, Err: errors.New("the scope is not indexed"),
-		}); err != nil {
-			return err
-		}
-	}
-
-	return l.addGap(ctx, TxGap{
-		Reason: TxGapConflicted, Hours: []int64{rd.hour}, Block: -1, Offset: -1,
-		Err: errors.New("the scope's view is conflicted, so it is not read"),
-	})
+// captureOf returns the capture_id of the pack of item it, which the read rd yielded.
+func captureOf(rd *txScopeRead, it *Item) UUID {
+	return UUID(rd.readers[it.Pack].hdr.CaptureID)
 }
 
 // reserveConflict reserves one conflict of the lookup against opts.MaxConflicts.
@@ -338,10 +247,10 @@ func (l *txLookup) reserveConflict() error {
 
 // mapScope adds the status of the read rd to the result, in this order:
 // a TxGapRead gap for each defect of the read, or TxGapIndex for a ReasonIndexMismatch one,
-// the coverage defects kept as coverage entries to evaluate, the footer errors,
-// a TxGapUnevaluated gap for each pack whose quality_evaluated is false, TxGapCold when the scope is not indexed,
-// the read's conflicts, and, when the read completed, the scope as searched.
-// Each item is charged against MaxStateBytes before it is added, the scope excepted, which readScope charged.
+// the coverage defects kept as coverage entries to evaluate and the crash-gap defects as crash gaps to evaluate,
+// the footer errors, a TxGapUnevaluated gap for each pack whose quality_evaluated is false,
+// the read's conflicts, and, when the read completed, the hour as searched.
+// Each item is charged against MaxStateBytes before it is added, the hour excepted, which readScope charged.
 //
 // Returns:
 //   - error: the first charge that passes MaxStateBytes, wrapping ErrReadLimit, or ctx's error, as is;
@@ -371,13 +280,6 @@ func (l *txLookup) mapScope(ctx context.Context, rd *txScopeRead, completed bool
 			return err
 		}
 	}
-	if !rd.indexed {
-		if err := l.addGap(ctx, TxGap{
-			Reason: TxGapCold, Hours: []int64{rd.hour}, Block: -1, Offset: -1, Err: errors.New("the scope is not indexed"),
-		}); err != nil {
-			return err
-		}
-	}
 	for i := range rd.res.Conflicts {
 		n, err := l.conflictCharge(ctx, &rd.res.Conflicts[i])
 		if err != nil {
@@ -389,16 +291,17 @@ func (l *txLookup) mapScope(ctx context.Context, rd *txScopeRead, completed bool
 		l.res.Conflicts = append(l.res.Conflicts, rd.res.Conflicts[i])
 	}
 	if completed {
-		l.res.Searched = append(l.res.Searched, TxScope{Hour: rd.hour, Indexed: rd.indexed, Packs: rd.packs})
+		l.res.Searched = append(l.res.Searched, TxScope{Hour: rd.hour, Packs: rd.packs})
 	}
 
 	return nil
 }
 
 // mapDefects adds the defects of the read rd: a TxGapRead or TxGapIndex gap for each,
-// or, for a coverage defect, a coverage entry to evaluate, each charged before it is added.
-// A crash-gap defect is skipped, so that it neither becomes a gap nor explains a missing primary:
-// the lookup currently evaluates stop-unclean boundaries itself, against the hours it schedules.
+// or, for a coverage defect, a coverage entry to evaluate, and, for a crash-gap defect, a crash gap to evaluate (noteCrashGap),
+// each charged before it is added.
+// Neither a coverage entry nor a crash gap marks the read as having a defect:
+// the lookup evaluates each once, against its own bounds (the tracepack semantics specification §7.2).
 //
 // Returns:
 //   - error: the error of a charge, wrapping ErrReadLimit, or ctx's error, as is.
@@ -406,9 +309,12 @@ func (l *txLookup) mapDefects(ctx context.Context, rd *txScopeRead) error {
 	for i := range rd.res.Incomplete {
 		d := &rd.res.Incomplete[i]
 		if d.Reason == ReasonCrashGap {
+			if err := l.noteCrashGap(ctx, rd, d); err != nil {
+				return err
+			}
+
 			continue
 		}
-		rd.defect = rd.defect || d.Reason != ReasonCoverage
 		if d.Reason == ReasonCoverage {
 			n, err := l.coverageCharge(ctx, d.Coverage)
 			if err != nil {
@@ -417,10 +323,15 @@ func (l *txLookup) mapDefects(ctx context.Context, rd *txScopeRead) error {
 			if err := l.grow(ctx, txPendingCoverageCharge+n); err != nil {
 				return err
 			}
-			l.coverage = append(l.coverage, txCoverage{hour: rd.hour, pack: rd.packs[d.Pack], cov: d.Coverage})
+			capture := UUID(rd.readers[d.Pack].hdr.CaptureID)
+			if d.Coverage.CaptureID != nil {
+				capture = *d.Coverage.CaptureID
+			}
+			l.coverage = append(l.coverage, txCoverage{hour: rd.hour, pack: rd.packs[d.Pack], capture: capture, cov: d.Coverage})
 
 			continue
 		}
+		rd.defect = true
 		reason := TxGapRead
 		if d.Reason == ReasonIndexMismatch {
 			reason = TxGapIndex
@@ -432,6 +343,30 @@ func (l *txLookup) mapDefects(ctx context.Context, rd *txScopeRead) error {
 			return err
 		}
 	}
+
+	return nil
+}
+
+// noteCrashGap keeps the boundary of d, a crash-gap defect of the read rd, as a crash gap to evaluate,
+// charged before it is kept, unless an earlier read reported the same boundary value:
+// a boundary is evaluated once, and boundaries whose gap bounds differ are each kept
+// (the tracepack semantics specification §7.4, Crash gaps).
+//
+// Returns:
+//   - error: ctx's error, as is; the charge's error, wrapping ErrReadLimit.
+func (l *txLookup) noteCrashGap(ctx context.Context, rd *txScopeRead, d *Defect) error {
+	k := keyOfCrashGap(d.Boundary)
+	if _, ok := l.crashSeen[k]; ok {
+		return l.tick(ctx)
+	}
+	if err := l.grow(ctx, txCrashGapCharge); err != nil {
+		return err
+	}
+	if l.crashSeen == nil {
+		l.crashSeen = make(map[crashGapKey]struct{})
+	}
+	l.crashSeen[k] = struct{}{}
+	l.crash = append(l.crash, txCrashGap{hour: rd.hour, pack: rd.packs[d.Pack], b: d.Boundary})
 
 	return nil
 }
@@ -460,7 +395,7 @@ func (l *txLookup) addGap(ctx context.Context, g TxGap) error {
 	if err := l.grow(ctx, n); err != nil {
 		return err
 	}
-	l.res.Gaps = append(l.res.Gaps, g)
+	l.res.Incomplete = append(l.res.Incomplete, g)
 
 	return nil
 }
@@ -490,11 +425,11 @@ func keepVersion(rd *txScopeRead, it *Item, class TxClass) TxRecord {
 	}
 }
 
-// settlePrimary settles the primary once scope key.Hour is read (the tracepack semantics specification §7.2).
+// settlePrimary settles the primary once hour key.Hour is read (the tracepack semantics specification §7.2).
 //
-// With no version, the primary is missing: a TxGapNoKey gap when the read has a defect other than a coverage entry,
-// yielded a version outside the scope's hour, a coverage entry meets the primary's seq and hour,
-// or the scope is not indexed or conflicted; ErrNotPrimary otherwise.
+// With no version, the primary is missing: a TxGapNoKey gap when the read has a defect other than a coverage entry or a crash gap,
+// yielded a version outside the hour, holds a coverage entry of the primary's capture that meets the primary's seq and hour,
+// or reported a crash gap of the primary's capture that meets that hour; ErrNotPrimary otherwise.
 // The gap carries a copy of the first coverage entry that meets the primary's seq and hour, if any.
 // A version of the primary after a record above it, in the same read, is a TxGapIndex gap: the order was broken.
 // Copies of the primary that the read yielded uncompared, from clusters that a block disagreeing with its F-2 entry split,
@@ -530,7 +465,11 @@ func (l *txLookup) settle(ctx context.Context, rd *txScopeRead) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		if at < 0 && !explainsMissing(rd) {
+		gap, err := l.crashGapAtPrimary(ctx)
+		if err != nil {
+			return false, err
+		}
+		if at < 0 && !gap && !rd.defect && !rd.breach {
 			return false, fmt.Errorf("%w: hour %d holds no seq %d of capture %s", ErrNotPrimary, l.key.Hour, p, l.key.Capture)
 		}
 		g := l.keyGap(TxGapNoKey, "the primary is missing where a gap explains it")
@@ -542,7 +481,7 @@ func (l *txLookup) settle(ctx context.Context, rd *txScopeRead) (bool, error) {
 			return false, err
 		}
 		if at >= 0 {
-			l.res.Gaps[len(l.res.Gaps)-1].Coverage = cloneCoverage(g.Coverage)
+			l.res.Incomplete[len(l.res.Incomplete)-1].Coverage = cloneCoverage(g.Coverage)
 		}
 
 		return false, nil
@@ -677,15 +616,8 @@ func sameStoredRecord(a, b *TxRecord, fa, fb uint8) bool {
 		x.FieldValidity == y.FieldValidity && bytes.Equal(x.Payload, y.Payload) && bytes.Equal(a.HeaderExtra, b.HeaderExtra)
 }
 
-// explainsMissing reports whether the read rd has a defect other than a coverage entry,
-// yielded a version outside the scope's hour, reads a scope that is not indexed, or passes over a conflicted scope,
-// any of which explains why it yielded no version of the primary.
-func explainsMissing(rd *txScopeRead) bool {
-	return !rd.indexed || rd.defect || rd.breach || rd.conflicted
-}
-
-// coverageAtPrimary finds the first coverage entry read in scope key.Hour that meets the primary's seq and hour,
-// which explains why the read yielded no version of the primary.
+// coverageAtPrimary finds the first coverage entry read in hour key.Hour, of the primary's capture,
+// that meets the primary's seq and hour, which explains why the read yielded no version of the primary.
 //
 // Returns:
 //   - int: the entry's index in the lookup's coverage entries; -1 when there is none.
@@ -696,12 +628,33 @@ func (l *txLookup) coverageAtPrimary(ctx context.Context) (int, error) {
 		if err := l.tick(ctx); err != nil {
 			return -1, err
 		}
-		if c.hour == l.key.Hour && coverageMeets(c.cov, l.key.Capture, l.key.Seq, l.key.Seq, from, to) {
+		if c.hour == l.key.Hour && c.capture == l.key.Capture && coverageMeets(c.cov, l.key.Seq, l.key.Seq, from, to) {
 			return i, nil
 		}
 	}
 
 	return -1, nil
+}
+
+// crashGapAtPrimary reports whether a crash gap of the primary's capture that the read of hour key.Hour reported
+// meets that hour, which explains why the read yielded no version of the primary, as a read defect does.
+//
+// Returns:
+//   - bool: whether there is one.
+//   - error: ctx's error, as is.
+func (l *txLookup) crashGapAtPrimary(ctx context.Context) (bool, error) {
+	from, to := l.key.Hour*hourNs, (l.key.Hour+1)*hourNs
+	for i := range l.crash {
+		if err := l.tick(ctx); err != nil {
+			return false, err
+		}
+		c := &l.crash[i]
+		if c.hour == l.key.Hour && c.b.Capture == l.key.Capture && crashGapMeets(c.b, &from, &to) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // deriveKey sets the result's association key and match fields from the primary's version rec,

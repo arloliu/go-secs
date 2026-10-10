@@ -38,11 +38,8 @@ const (
 
 // ErrInvalidKey reports a key, or a key component, outside the forms of the tracepack storage specification §3:
 // the key builders return an error wrapping it for arguments no key can hold,
-// NewStoreSource for a StoreSourceOptions.Tool no key can hold,
-// CaptureDescriptor.Validate for a ToolID no key can hold,
-// and the Observe of the source NewStoreSource returns fails with an error wrapping it
-// for a key a listing returns or the catalog names that does not parse.
-// Unlike ErrObjectNotFound, it reports malformed bucket or catalog contents, which a retry does not cure.
+// and CaptureDescriptor.Validate for a ToolID no key can hold.
+// A retry does not cure it.
 var ErrInvalidKey = errors.New("tracepack: invalid object key")
 
 // HourOf returns the UTC hour holding t, numbered in whole hours from 1970-01-01T00:00Z,
@@ -112,7 +109,7 @@ func EscapeToolID(tool string) string {
 // <prefix>/staging/<tool>/<capture>/<seq_first>-<pack>.tpk, seq_first in 20-digit zero-padded decimal.
 //
 // The prefix is used byte for byte, followed by '/' when it is not empty;
-// a configured prefix is empty or does not end in '/', which NewStoreSource checks and SegmentKey does not.
+// SegmentKey does not check that a configured prefix is empty or does not end in '/'.
 //
 // Parameters:
 //   - prefix: the bucket prefix, possibly empty.
@@ -140,7 +137,7 @@ func SegmentKey(prefix, tool string, capture UUID, seqFirst uint64, pack UUID) (
 // <prefix>/archive/<tool>/<YYYY>/<MM>/<DD>/<HH>/<capture>-<pack>.tpk, the hour in UTC.
 //
 // The prefix is used byte for byte, followed by '/' when it is not empty;
-// a configured prefix is empty or does not end in '/', which NewStoreSource checks and ArchiveKey does not.
+// ArchiveKey does not check that a configured prefix is empty or does not end in '/'.
 //
 // Parameters:
 //   - prefix: the bucket prefix, possibly empty.

@@ -11,11 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestFindTransactionArguments calls FindTransaction with arguments it must reject before observing anything,
+// TestFindTransactionArguments calls FindTransaction with arguments it must reject before reading anything,
 // and with the edges of the valid ones:
 // a rejected call returns the zero TxResult and an error wrapping ErrInvalidQuery, and never calls the source;
-// an accepted call observes the empty source once over its hours, reads the scope of its hour alone,
-// finds the primary missing from a scope not indexed, and closes the observation once.
+// an accepted call asks the empty source for the readers of its hour alone, reads that hour,
+// and finds the primary missing where nothing explains it: ErrNotPrimary.
 func TestFindTransactionArguments(t *testing.T) {
 	t.Parallel()
 
@@ -61,23 +61,20 @@ func TestFindTransactionArguments(t *testing.T) {
 				src = nil
 			}
 			res, err := FindTransaction(t.Context(), src, tt.key, tt.opts)
-			observes, scopes, closes := s.counts()
 			if tt.invalid != "" {
 				require.ErrorIs(t, err, ErrInvalidQuery)
 				require.ErrorContains(t, err, tt.invalid)
 				assert.Equal(t, TxResult{}, res)
-				assert.Zero(t, observes)
+				assert.Empty(t, s.counts())
 
 				return
 			}
 
-			require.NoError(t, err)
-			assert.Equal(t, TxIncomplete, res.Outcome)
-			assert.Equal(t, []TxGapReason{TxGapCold, TxGapNoKey}, gapReasons(res.Gaps))
+			require.ErrorIs(t, err, ErrNotPrimary)
+			assert.Zero(t, res.Outcome)
+			assert.Empty(t, res.Incomplete)
 			assert.Equal(t, []TxScope{{Hour: tt.key.Hour}}, res.Searched)
-			assert.Equal(t, 1, observes)
-			assert.Equal(t, map[int64]int{tt.key.Hour: 1}, scopes)
-			assert.Equal(t, 1, closes)
+			assert.Equal(t, map[int64]int{tt.key.Hour: 1}, s.counts())
 		})
 	}
 }
@@ -167,34 +164,33 @@ func TestTxClassNames(t *testing.T) {
 	assert.False(t, TxClass(0).Has(TxPrimary))
 }
 
-// TestTxEnumStrings formats every TxOutcome, TxGapReason and EndState value, and one undefined value of each.
+// TestTxEnumStrings formats every TxOutcome and TxGapReason value, and one undefined value of each,
+// and pins their contiguous numbering.
 func TestTxEnumStrings(t *testing.T) {
 	t.Parallel()
 
 	outcomes := map[TxOutcome]string{
-		0: "none", TxMatched: "matched", TxAmbiguous: "ambiguous", TxUnmatched: "unmatched", TxIncomplete: "incomplete",
-		5: "unknown(5)",
+		0: "none", TxMatched: "matched", TxAmbiguous: "ambiguous", TxNotFound: "not-found", 4: "unknown(4)",
 	}
 	for o, want := range outcomes {
 		assert.Equal(t, want, o.String())
 	}
+	assert.Equal(t, []TxOutcome{1, 2, 3}, []TxOutcome{TxMatched, TxAmbiguous, TxNotFound})
 
 	reasons := map[TxGapReason]string{
-		0: "unknown(0)", TxGapNoKey: "no-key", TxGapConflict: "conflict", TxGapIndex: "index", TxGapCold: "cold",
-		TxGapRead: "read", TxGapCoverage: "coverage", TxGapUnevaluated: "unevaluated", TxGapEvidence: "evidence",
-		TxGapSeqGap: "seq-gap", TxGapOpenWindow: "open-window", TxGapBarrier: "barrier",
+		0: "unknown(0)", TxGapNoKey: "no-key", TxGapConflict: "conflict", TxGapIndex: "index",
+		TxGapRead: "read", TxGapCoverage: "coverage", TxGapUnevaluated: "unevaluated",
+		TxGapSeqGap: "seq-gap", TxGapOpenWindow: "open-window", TxGapCrashGap: "crash-gap",
 		TxGapCaptureBoundary: "capture-boundary", TxGapOrderingUncertain: "ordering-uncertain",
-		TxGapCorrelation: "correlation", TxGapUnavailable: "unavailable", TxGapContradiction: "contradiction",
-		TxGapConflicted: "conflicted", TxGapScopeBreach: "scope-breach", 19: "unknown(19)",
+		TxGapCorrelation: "correlation", TxGapUnavailable: "unavailable", TxGapScopeBreach: "scope-breach", 15: "unknown(15)",
 	}
 	for r, want := range reasons {
 		assert.Equal(t, want, r.String())
 	}
-
-	ends := map[EndState]string{EndOpen: "open", EndStopped: "stopped", EndStoppedUnclean: "stopped-unclean", 3: "unknown(3)"}
-	for e, want := range ends {
-		assert.Equal(t, want, e.String())
-	}
+	assert.Equal(t, []TxGapReason{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}, []TxGapReason{
+		TxGapNoKey, TxGapConflict, TxGapIndex, TxGapRead, TxGapCoverage, TxGapUnevaluated, TxGapSeqGap, TxGapOpenWindow,
+		TxGapCrashGap, TxGapCaptureBoundary, TxGapOrderingUncertain, TxGapCorrelation, TxGapUnavailable, TxGapScopeBreach,
+	})
 }
 
 // TestTxPackError formats a TxPackError with its hour and pack_id and unwraps it to its Err.

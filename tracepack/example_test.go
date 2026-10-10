@@ -253,9 +253,9 @@ func ExampleFindTransaction() {
 		}
 	}
 
-	// These readers are every pack of the tool, none removed and none rejected,
-	// so the source may claim Complete; without it, no lookup is ever TxUnmatched.
-	src, err := tracepack.NewReaderSource(readers, tracepack.ReaderSourceOptions{Complete: true})
+	// The lookup reads every pack given for each hour it reads;
+	// TxNotFound would state nothing about packs it was not given.
+	src, err := tracepack.NewReaderSource(readers)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -265,7 +265,7 @@ func ExampleFindTransaction() {
 		fmt.Println(err)
 		return
 	}
-	fmt.Println(res.Outcome, "gaps:", len(res.Gaps))
+	fmt.Println(res.Outcome, "incomplete:", len(res.Incomplete))
 	for _, v := range res.Records {
 		if v.Valid {
 			hdr := v.Record.HSMSHeader()
@@ -273,7 +273,7 @@ func ExampleFindTransaction() {
 		}
 	}
 	// Output:
-	// matched gaps: 0
+	// matched incomplete: 0
 	// reply S1F2, 1 hour after the primary
 }
 

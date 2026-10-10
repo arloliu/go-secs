@@ -11,7 +11,6 @@ import (
 // an hour the read covers lies before the first hour its Retention reports retained.
 // A read that ends with it supersedes what it reported of the removed hours, records passed to its callback included;
 // Result.Removed lists those hours.
-// FindTransaction fails with it when the primary's hour is removed.
 var ErrRemoved = errors.New("tracepack: hour removed by retention")
 
 // Retention provides the retention boundary (the tracepack storage specification §5, Retention):

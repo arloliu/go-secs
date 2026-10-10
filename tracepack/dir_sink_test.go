@@ -750,7 +750,7 @@ func TestDirSinkSegmentFileMisuse(t *testing.T) {
 // the key areas hold only committed segments;
 // every committed file lies at its key, which parses as a segment key naming the tool of the SegmentInfo,
 // and opens as the segment it names, with the capture's records;
-// and a store source listing the root through an ObjectStore observes every segment.
+// and NewReaderSource over the committed segments gives each hour its own.
 func TestDirSinkSegmentWriter(t *testing.T) {
 	t.Parallel()
 
@@ -794,7 +794,7 @@ func writeCaptureIntoDirSink(t *testing.T, prefix string) {
 	assert.Equal(t, []string{".partial/" + abandoned.PackID.String() + ".tpk"}, partial)
 	require.Len(t, keys, 3)
 	h0 := hourOf(blockTestHour)
-	store := newMemStore()
+	readers := make([]*Reader, 0, len(keys))
 	var next uint64
 	for i, key := range keys {
 		p, err := parseSegmentKey(prefix, key)
@@ -805,8 +805,8 @@ func writeCaptureIntoDirSink(t *testing.T, prefix string) {
 
 		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(key)))
 		require.NoError(t, err)
-		store.put(key, data)
 		r := mustOpen(t, data, ReaderOptions{})
+		readers = append(readers, r)
 		h := r.Header()
 		assert.Equal(t, p.pack, h.PackID, "key %d pack_id", i)
 		assert.Equal(t, w.CaptureID(), h.CaptureID, "key %d capture_id", i)
@@ -818,23 +818,15 @@ func writeCaptureIntoDirSink(t *testing.T, prefix string) {
 		}
 	}
 	assert.Equal(t, uint64(5), next, "start, three frames and stop")
-	// The abandoned file is in the store too, under .partial/, which no listing of a key area reaches.
-	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(partial[0])))
-	require.NoError(t, err)
-	store.put(partial[0], data)
 
-	cat := newFakeCatalog()
-	cat.setIndexed(w.CaptureID(), h0, false)
-	cat.setIndexed(w.CaptureID(), h0+1, false)
-	src := newTestStoreSource(t, store, cat, func(o *StoreSourceOptions) { o.Prefix, o.Tool = prefix, dirTestTool })
-	o, err := src.Observe(t.Context(), w.CaptureID(), h0, h0+2)
+	// The listing of the key areas, the committed keys, leaves out the abandoned file under .partial/ (dirFiles),
+	// so the segments a caller lists and opens are the committed ones.
+	src, err := NewReaderSource(readers)
 	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, o.Close()) })
 	for h, want := range map[int64]int{h0: 2, h0 + 1: 1} {
-		sc, err := o.Scope(t.Context(), h)
+		got, err := src.Readers(t.Context(), h)
 		require.NoError(t, err)
-		assert.False(t, sc.Indexed)
-		assert.Len(t, sc.Readers, want, "hour %d", h)
+		assert.Len(t, got, want, "hour %d", h)
 	}
 }
 

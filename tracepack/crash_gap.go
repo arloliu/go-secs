@@ -39,6 +39,18 @@ type crashGaps struct {
 	next int
 }
 
+// cloneBoundary returns a copy of b with fresh GapStart and GapEnd pointers.
+func cloneBoundary(b Boundary) Boundary {
+	if b.GapStart != nil {
+		b.GapStart = new(*b.GapStart)
+	}
+	if b.GapEnd != nil {
+		b.GapEnd = new(*b.GapEnd)
+	}
+
+	return b
+}
+
 // crashGapMeets reports whether the gap interval [GapStart, GapEnd] of b meets the time range [from, to),
 // by the matching rule of a coverage entry (the tracepack format specification §5):
 // a nil bound of either is unbounded,

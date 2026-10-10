@@ -24,8 +24,8 @@ type txWindow struct {
 
 // boundsWindow reports whether the kept version v can bound the window:
 // a same-key primary, whether or not it conflicts, or a closing record without a conflict.
-// Any conflict on a seq above the primary's makes the outcome TxIncomplete,
-// so a disputed same-key primary decides nothing.
+// Any conflict on a seq above the primary's makes the lookup incomplete,
+// so a disputed same-key primary decides nothing more.
 func boundsWindow(v *TxRecord) bool {
 	return v.Class.Has(TxSameKeyPrimary) || v.Class.Has(TxClosing) && !v.Conflict
 }
@@ -35,16 +35,16 @@ func (w *txWindow) in(seq uint64) bool {
 	return seq > w.p && (!w.bounded || seq < w.e)
 }
 
-// evaluate decides the outcome once every scope is read (the tracepack semantics specification §7.2):
+// evaluate decides the outcome once every hour is read (the tracepack semantics specification §7.2):
 // it sorts the kept records, finds the final window, adds the gaps of the window,
 // sets each kept version's window and candidate flags,
 // adding a TxGapUnavailable gap for each version that could be the reply,
-// adds the other gaps that keep absence from being established (completenessGaps),
-// and decides the outcome from the valid matches and the gaps.
+// adds the other reasons the lookup is incomplete (completenessGaps),
+// and decides the outcome from the valid matches.
 // Each gap is charged before it is added (addGap), and each loop counts its iterations toward the checks of ctx (tick).
 //
 // Returns:
-//   - error: ctx's error, the error of a charge, wrapping ErrReadLimit, or the error of the observation's Barriers, wrapped;
+//   - error: ctx's error, or the error of a charge, wrapping ErrReadLimit;
 //     the result holds what was decided until then, without an outcome.
 func (l *txLookup) evaluate(ctx context.Context) error {
 	if err := l.evaluateWindow(ctx); err != nil {
@@ -63,9 +63,6 @@ func (l *txLookup) evaluateWindow(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if l.trustClosures != nil {
-		l.trustClosures(&w)
-	}
 	if w.bounded {
 		l.res.WindowEnd = new(w.e)
 	}
@@ -80,11 +77,7 @@ func (l *txLookup) evaluateWindow(ctx context.Context) error {
 	if err := l.completenessGaps(ctx, &w); err != nil {
 		return err
 	}
-	outcome, err := l.decide(ctx, valid)
-	if err != nil {
-		return err
-	}
-	l.res.Outcome = outcome
+	l.res.Outcome = decide(valid)
 
 	return nil
 }
@@ -146,7 +139,7 @@ func (l *txLookup) finalWindow(ctx context.Context) (txWindow, error) {
 }
 
 // windowGaps adds the gap of the window:
-// a TxGapSeqGap gap at the first seq of a bounded window that no scope read yielded,
+// a TxGapSeqGap gap at the first seq of a bounded window that no hour's read yielded,
 // or a TxGapOpenWindow gap when no record read bounds it.
 //
 // Returns:
@@ -168,11 +161,11 @@ func (l *txLookup) windowGaps(ctx context.Context, w *txWindow) error {
 
 	return l.addGap(ctx, TxGap{
 		Reason: TxGapSeqGap, Block: -1, Offset: -1, Seq: new(missing),
-		Err: fmt.Errorf("no scope read yields seq %d of the window (%d, %d)", missing, w.p, w.e),
+		Err: fmt.Errorf("no hour's read yields seq %d of the window (%d, %d)", missing, w.p, w.e),
 	})
 }
 
-// firstMissing finds the first seq of the bounded window w that lies in no run set of the scope reads.
+// firstMissing finds the first seq of the bounded window w that lies in no run set of the hour reads.
 // It walks from the window's first seq, each step jumping past the run of some read that holds the seq reached.
 // Each step, and each probe of a read's run set, counts toward the checks of ctx (tick).
 //
@@ -205,7 +198,7 @@ func (l *txLookup) firstMissing(ctx context.Context, w *txWindow) (uint64, bool,
 	}
 }
 
-// visitedFrom finds a run of a scope read that holds seq.
+// visitedFrom finds a run of an hour's read that holds seq.
 // Each probe of a read counts toward the checks of ctx (tick), its run set empty or not.
 //
 // Returns:
@@ -299,32 +292,16 @@ func (l *txLookup) unavailable(v *TxRecord, w *txWindow) string {
 	}
 }
 
-// decide returns the outcome from the valid matches and the gaps listed (the tracepack semantics specification §7.2):
-// TxIncomplete beside a TxGapNoKey, TxGapConflict, TxGapIndex or TxGapScopeBreach gap;
-// otherwise TxMatched for one valid match and TxAmbiguous for several, whatever other gap is listed;
-// otherwise TxUnmatched when no gap is listed, TxIncomplete when one is.
-//
-// Returns:
-//   - TxOutcome: the outcome.
-//   - error: ctx's error, as is.
-func (l *txLookup) decide(ctx context.Context, valid int) (TxOutcome, error) {
-	for i := range l.res.Gaps {
-		if err := l.tick(ctx); err != nil {
-			return 0, err
-		}
-		// Any other gap only prevents TxUnmatched, below.
-		if r := l.res.Gaps[i].Reason; r == TxGapNoKey || r == TxGapConflict || r == TxGapIndex || r == TxGapScopeBreach && !l.breachComplete {
-			return TxIncomplete, nil
-		}
-	}
+// decide returns the outcome from the number of valid matches (the tracepack semantics specification §7.2):
+// TxMatched for one, TxAmbiguous for several, TxNotFound for none,
+// whatever reason the lookup is incomplete, which stands beside the outcome.
+func decide(valid int) TxOutcome {
 	switch {
 	case valid == 1:
-		return TxMatched, nil
+		return TxMatched
 	case valid > 1:
-		return TxAmbiguous, nil
-	case len(l.res.Gaps) == 0:
-		return TxUnmatched, nil
+		return TxAmbiguous
 	default:
-		return TxIncomplete, nil
+		return TxNotFound
 	}
 }

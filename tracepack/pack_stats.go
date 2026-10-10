@@ -1,7 +1,6 @@
 package tracepack
 
 import (
-	"bytes"
 	"cmp"
 	"slices"
 )
@@ -49,79 +48,6 @@ type EpochStats struct {
 	TSMin, TSMax int64
 	// CloseSeq is the smallest seq of a record of the pack that ends the epoch; nil when none does.
 	CloseSeq *uint64
-}
-
-// AddPackEvidence folds the per-capture evidence of one pack, its F-5 statistics s, into e
-// (the tracepack storage specification §5, Per capture).
-//
-// A nil s, for a pack whose footer is not used, sets e.Partial and changes nothing else.
-// Otherwise every boundary of s is added to e.Boundaries,
-// which are then sorted by seq, boundary kind, ts, epoch, gap_start and gap_end, an absent gap bound first,
-// then by capture_id, so that only equal entries merge whatever the order of the folds,
-// and each distinct entry is kept once;
-// every close_seq of s is added to e.Closures, which then keep the smallest close_seq per epoch, in ascending epoch;
-// and e.End is recomputed from e.Boundaries:
-// EndStoppedUnclean when any is a stop-unclean, else EndStopped when any is a clean stop, else EndOpen.
-// Partial is never cleared.
-// Folding the same packs into an empty evidence in any order, any of them repeated, gives the same evidence.
-//
-// Which packs to fold is the catalog's registration policy, not the helper's:
-// the storage specification records the evidence of every segment or converter archive presented for registration,
-// rejected ones included.
-//
-// Parameters:
-//   - e: the evidence to fold into; it must not be nil.
-//   - s: the pack's statistics, as Reader.Stats returns them; nil for a pack without them.
-//     AddPackEvidence only reads s and keeps nothing of it:
-//     the boundaries it adds have fresh GapStart and GapEnd pointers.
-func AddPackEvidence(e *CaptureEvidence, s *PackStats) {
-	if s == nil {
-		e.Partial = true
-
-		return
-	}
-
-	for i := range s.Boundaries {
-		e.Boundaries = append(e.Boundaries, cloneBoundary(s.Boundaries[i]))
-	}
-	slices.SortFunc(e.Boundaries, compareEvidenceBoundaries)
-	e.Boundaries = slices.CompactFunc(e.Boundaries, func(a, b Boundary) bool { return compareEvidenceBoundaries(a, b) == 0 })
-
-	for i := range s.Epochs {
-		if ep := &s.Epochs[i]; ep.CloseSeq != nil {
-			e.Closures = append(e.Closures, EpochClosure{Epoch: ep.Epoch, CloseSeq: *ep.CloseSeq})
-		}
-	}
-	slices.SortFunc(e.Closures, func(a, b EpochClosure) int {
-		return cmp.Or(cmp.Compare(a.Epoch, b.Epoch), cmp.Compare(a.CloseSeq, b.CloseSeq))
-	})
-	// The first closure of each epoch is its smallest.
-	e.Closures = slices.CompactFunc(e.Closures, func(a, b EpochClosure) bool { return a.Epoch == b.Epoch })
-
-	e.End = EndOpen
-	for i := range e.Boundaries {
-		if kind := e.Boundaries[i].Kind; kind == BoundaryKindStopUnclean {
-			e.End = EndStoppedUnclean
-		} else if kind == BoundaryKindStop && e.End == EndOpen {
-			e.End = EndStopped
-		}
-	}
-}
-
-// compareEvidenceBoundaries orders capture-boundary entries by seq, boundary kind, ts, epoch, gap_start and gap_end,
-// an absent gap bound before any present one, then by capture_id, so that only equal entries compare equal:
-// without capture_id, two entries that differ only in it would compare equal,
-// and which one a fold keeps would depend on the order of the folds.
-func compareEvidenceBoundaries(a, b Boundary) int {
-	return cmp.Or(
-		cmp.Compare(a.Seq, b.Seq),
-		cmp.Compare(a.Kind, b.Kind),
-		cmp.Compare(a.TS, b.TS),
-		cmp.Compare(a.Epoch, b.Epoch),
-		compareOptional(a.GapStart, b.GapStart),
-		compareOptional(a.GapEnd, b.GapEnd),
-		bytes.Compare(a.Capture[:], b.Capture[:]),
-	)
 }
 
 // normalize puts the validated F-5 statistics st in the order Reader.Stats returns them:

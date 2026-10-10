@@ -16,26 +16,26 @@ const (
 	txAlignMask = 16 - 1
 	// txRecordCharge is the fixed charge of a kept version, beside its payload and header-extension bytes.
 	txRecordCharge = (int64(unsafe.Sizeof(TxRecord{})) + txAlignMask) &^ txAlignMask
-	// txRunCharge is the charge of one run of a scope read's run set.
+	// txRunCharge is the charge of one run of an hour read's run set.
 	txRunCharge = (int64(unsafe.Sizeof(txRun{})) + txAlignMask) &^ txAlignMask
-	// txCrossCharge is the fixed charge of a seq in conflict across scope reads, its map entry included;
+	// txCrossCharge is the fixed charge of a seq in conflict across hour reads, its map entry included;
 	// each hour it lists adds txHourCharge.
 	txCrossCharge = (int64(unsafe.Sizeof(txCrossConflict{})+unsafe.Sizeof(uint64(0))+unsafe.Sizeof(uintptr(0))) +
 		txAlignMask) &^ txAlignMask
-	// txHourCharge is the charge of one hour a conflict across scope reads or a gap lists.
+	// txHourCharge is the charge of one hour a conflict across hour reads or a gap lists.
 	txHourCharge = int64(unsafe.Sizeof(int64(0)))
 	// txGapCharge is the fixed charge of a gap, its seq and pack_id included; each hour of its own Hours adds txHourCharge.
 	txGapCharge = (int64(unsafe.Sizeof(TxGap{})+unsafe.Sizeof(uint64(0))+unsafe.Sizeof(UUID{})) +
 		txAlignMask) &^ txAlignMask
-	// txScopeCharge is the fixed charge of a scope read: its TxScope and its run set;
-	// each pack of its view adds txPackCharge.
+	// txScopeCharge is the fixed charge of an hour's read: its TxScope and its run set;
+	// each pack of the hour adds txPackCharge.
 	txScopeCharge = (int64(unsafe.Sizeof(TxScope{})+unsafe.Sizeof(txRuns{})+unsafe.Sizeof(uintptr(0))) +
 		txAlignMask) &^ txAlignMask
 	// txPackCharge is the charge of one pack_id.
 	txPackCharge = int64(unsafe.Sizeof(UUID{}))
 	// txPackErrorCharge is the charge of a footer error.
 	txPackErrorCharge = (int64(unsafe.Sizeof(TxPackError{})) + txAlignMask) &^ txAlignMask
-	// txConflictedCharge is the charge of a seq in conflict within a scope read, its map entry included.
+	// txConflictedCharge is the charge of a seq in conflict within an hour's read, its map entry included.
 	txConflictedCharge = (int64(unsafe.Sizeof(uint64(0))) + txAlignMask) &^ txAlignMask
 	// txUncertainCharge is the charge of an epoch with ordering-uncertain, its map entry included.
 	txUncertainCharge = (int64(unsafe.Sizeof(uint32(0))+unsafe.Sizeof(txSeen{})) + txAlignMask) &^ txAlignMask
@@ -50,6 +50,9 @@ const (
 	// txBoundaryCharge is the charge of a copied Boundary: the Boundary and the values of its two gap bounds.
 	txBoundaryCharge = (int64(unsafe.Sizeof(Boundary{}))+txAlignMask)&^txAlignMask +
 		2*int64(unsafe.Sizeof(int64(0)))
+	// txCrashGapCharge is the charge of a crash gap kept for evaluation, its map entry and its Boundary included.
+	txCrashGapCharge = (int64(unsafe.Sizeof(txCrashGap{})+unsafe.Sizeof(crashGapKey{}))+txAlignMask)&^txAlignMask +
+		txBoundaryCharge
 	// txBoundaryRecordCharge is the charge of a capture-boundary record noted by the lookup, its Boundary included.
 	txBoundaryRecordCharge = (int64(unsafe.Sizeof(txSeen{}))+txAlignMask)&^txAlignMask + txBoundaryCharge
 	// txConflictCharge is the fixed charge of a listed Conflict;
@@ -107,8 +110,8 @@ func rawEntryCost(e *RawEntry) int64 {
 }
 
 // gapCost returns the charge of g: its fixed charge, one hour for each of its own Hours,
-// and the copies of its Coverage and Barrier.
-// A gap of a conflict across scope reads is charged before its Hours are set, since they are the conflict's.
+// and the copies of its Coverage and Boundary.
+// A gap of a conflict across hour reads is charged before its Hours are set, since they are the conflict's.
 func gapCost(g *TxGap) int64 {
 	n := gapOwnCost(g)
 	if g.Coverage != nil {
@@ -121,7 +124,7 @@ func gapCost(g *TxGap) int64 {
 // gapOwnCost returns the charge of g but the copy of its Coverage.
 func gapOwnCost(g *TxGap) int64 {
 	n := txGapCharge + int64(len(g.Hours))*txHourCharge
-	if g.Barrier != nil {
+	if g.Boundary != nil {
 		n += txBoundaryCharge
 	}
 
@@ -192,7 +195,7 @@ func (l *txLookup) conflictCharge(ctx context.Context, c *Conflict) (int64, erro
 	return n, nil
 }
 
-// scopeCost returns the charge of a scope read whose view holds packs packs.
+// scopeCost returns the charge of an hour's read over packs packs.
 func scopeCost(packs int) int64 {
 	return txScopeCharge + int64(packs)*txPackCharge
 }
