@@ -3,6 +3,7 @@
 Status: deferred (2026-09-27) — open issue record; split out of the v2.9 amendment by owner decision after three review rounds.
 Source: the v2.9 review rounds 2 and 3 (reports kept outside the repository).
 Nothing here is a decided rule.
+Spec v2.32 removed the catalog sections this proposal cites (the catalog contract of [STO §5], its listing views and the commit protocol); it is rewritten with v2.33 (G5-200, G5-201).
 
 ## 1. The gap
 

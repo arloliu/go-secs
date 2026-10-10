@@ -1,6 +1,6 @@
 # tracepack — canonical JSONL export
 
-Status: current (2026-10-10) — v2.31, tracepack format 1.0, schema `tracepack-jsonl/1` (draft until tracepack v1.0.0).
+Status: current (2026-10-10) — v2.32, tracepack format 1.0, schema `tracepack-jsonl/1` (draft until tracepack v1.0.0).
 Normative, language-agnostic. [FMT §15] states what the export is for; this document defines its bytes.
 
 Depends on: [FMT §1] conventions, [FMT §2] portable encoding, [FMT §4] file header, [FMT §5] TLV encoding and registries,
@@ -147,7 +147,7 @@ in the order the blocks lie in the file and the records in their block:
 blocks are located through the footer when the pack is finalized (I-5) and its footer valid ([FMT §10]), else by the forward walk ([FMT §13]).
 A block whose records disagree with its F-2 entry or its F-3 summary is validated, so its records are exported.
 A failed block is left out, and nothing marks its place (G5-169);
-the `verify` report of the same pack ([FMT §13], a separate golden in the corpus) says what was lost.
+the `verify` report of the same pack ([FMT §13]) says what was lost, which the Go module's tests check (G5-210).
 
 An exporter whose own resource limits keep it from reading the footer, from locating a block by the forward walk, or from reading a located block
 fails the export with an error instead of leaving those blocks out (G5-171):

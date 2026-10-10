@@ -1,8 +1,8 @@
 # tracepack — overview
 
-Status: current (2026-10-10) — v2.31, tracepack format 1.0.
+Status: current (2026-10-10) — v2.32, tracepack format 1.0.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
-Decisions: `tracepack-decisions.md` G3-20..G3-27, G4-28, G4-29, G3-PLACE, R3-4, R3-5, R3-6, G5-30..G5-197.
+Decisions: `tracepack-decisions.md` G3-20..G3-27, G4-28, G4-29, G3-PLACE, R3-4, R3-5, R3-6, G5-30..G5-210.
 Change history: `tracepack-spec-changelog.md`.
 This document is **informative**; the rules live in the normative documents below.
 
@@ -14,32 +14,44 @@ Each rule is defined in exactly one document; the others only reference it.
 A tracepack file (`.tpk`) is an immutable, compressed, self-indexed container for recorded SECS-II traffic between one tool and its host,
 including HSMS control messages and transport lifecycle events.
 It is intended as a long-term archival format for SECS/HSMS traffic,
-written by recorders and log converters and read by any implementation, in any language, for many years.
+written by recorders and log converters and read for many years.
+The format is documented for any reader;
+the Go module (`tracepack-go.md`) is the only implementation, and the conformance corpus binds format-level reading only (G5-199).
 It targets local file systems, S3-compatible object storage and HTTP range reads.
 
 - Scope: one tool, one capture, one transport (HSMS-SS; SECS-I as a *normalised* representation, [FMT §8]) per file;
   record kinds data / control / transport-event / annotation.
 - Non-goals: not a query engine (the footer prunes the queries of [SEM §7.4] by time, epoch, seq and summary counts; everything else is a scan);
   not a learned model or metrics store;
-  its redaction is limited to masking extracts under a policy ([SEM §8]), whose rules are service configuration.
+  in format 1.0, its redaction is limited to masking extracts under a policy ([SEM §8]), whose rules are service configuration.
+- Non-goals for v1.0 (G5-198), every feature being judged by whether it serves tool and time retrieval, faithful and replayable long-term storage, Virtual Equipment training, or training data for EAP automation:
+  - readers in languages other than Go;
+  - more than one assigner of (`capture_id`, `seq`) for one capture;
+  - a catalog, listing views, coherent observation and retention in tracepack: they are the service's (G5-201);
+  - a publication protocol computable from the bucket alone, with generation ranking, fence objects, tool leases and commit objects (G5-201);
+  - repair in place (G5-202);
+  - proof of `unmatched`, and precise diagnostics on an index defect beyond `incomplete` and the defect (G5-203, G5-204);
+  - the gateway-side capture, designed by the gateway's own project (G5-200);
+  - extracts and masking on egress (G5-207);
+  - a major format change: every format 1.0 file stays valid, and a minor version may add tags and enum values ([FMT §14]).
 
 ## 2. Document set
 
 | Document | Content | Status | Implementation phases |
 |---|---|---|---|
 | `tracepack-overview.md` (this) | purpose, document map, terminology, diagrams, open questions, deferred items | informative | all |
-| `tracepack-format.md` [FMT] | conventions, portable encoding, invariants, byte layouts, TLV and all registries, footer and validation, bootstrap and recovery, versioning, canonical JSONL, conformance corpus | normative | 1, 2, 3, 6, 7 |
+| `tracepack-format.md` [FMT] | conventions, portable encoding, invariants, byte layouts, TLV and all registries, footer and validation, bootstrap and recovery, versioning, canonical JSONL, conformance corpus | normative | 1, 2, 3, 6, 8, 9 |
 | `tracepack-jsonl.md` [JSONL] | byte-exact form of the canonical JSONL export (schema `tracepack-jsonl/1`) | normative | 6 |
-| `tracepack-corpus.md` [CORPUS] | conformance corpus: layout, manifest, JSON schemas of its expectations, zstd comparison, item-validity checklist, vector catalogue (schema `tracepack-corpus/2`) | normative | 6, 7 |
-| `tracepack-semantics.md` [SEM] | capture model, decode_status, time and clock steps, transport events, quality, indexes, transaction lookup, query mapping, redaction | normative | 2, 3, 5, 7 |
-| `tracepack-storage.md` [STO] | scopes and generations, active view, commit protocol, object lifecycle and deletion, catalog contract with its window and listing views, retention, recorder durability and crash recovery, log converter | normative for publishers, recorders and converters | 4, 5, service |
+| `tracepack-corpus.md` [CORPUS] | conformance corpus of format-level reading: layout, manifest, JSON schemas of its expectations, zstd comparison, item-validity checklist, vector catalogue (schema `tracepack-corpus/3`) | normative | 6, 8, 9 |
+| `tracepack-semantics.md` [SEM] | capture model, decode_status, time and clock steps, transport events, quality, indexes, transaction lookup, query mapping, redaction | normative | 2, 3, 5, 8, 9 |
+| `tracepack-storage.md` [STO] | scopes and roles, keys, reads of the packs given, flush, merge and deletion, recorder durability and crash recovery, the durable-bus contract, log converter, implementation tests; the catalog and retention are the service's (G5-201) | normative for publishers, recorders and converters | 5, 9, service |
 | `tracepack-go.md` | Go module, API, mapping from go-secs, CLI | Go reference implementation | — |
 
 The implementation plan, the deferred proposals and the decision log are listed in `README.md`.
 
 The normative documents are defined only in terms of SEMI E37 (HSMS), SEMI E5 (SECS-II) and their own text.
 No behaviour of any library defines a field.
-Where an implementation and the text disagree, the text wins; the conformance corpus ([FMT §16], [CORPUS]) is the executable arbiter.
+Where an implementation and the text disagree, the text wins; the conformance corpus ([FMT §16], [CORPUS]) is the executable arbiter of format-level reading, and the Go module's own tests check the rest (G5-199).
 
 ## 3. Terminology
 
@@ -139,13 +151,8 @@ For transport-event and annotation records the payload is a TLV body ([FMT §8])
 ## 5. Open design questions
 
 1. Whether SECS-I block-level evidence (retries, NAK) is ever needed (a `secs1-block` kind in a minor version).
-2. Retention is by data hour ([STO §5]): a tool whose clock resets to a much older date writes records that are already past retention,
-   so readers report their hours removed and the deleting component deletes them.
-   Pre-existing and independent of the catalog window; whether recorders or the service should guard against it is open.
-3. Once retention removes the pack holding a capture's boundary, a catalog rebuild cannot recover the boundary and the capture reads as `open`;
-   a barrier whose gap reaches retained hours is then lost ([STO §5]).
-   A catalog that is not rebuilt keeps it.
-   Proposal P5 (`proposals/p5-capture-registry.md`) records the design space.
+
+Questions 2 and 3, on retention by data hour and on capture boundaries lost to retention, were removed in v2.32: retention and the catalog are the service's design (G5-201).
 
 ## 6. Deferred
 
@@ -153,13 +160,9 @@ For transport-event and annotation records the payload is a TLV body ([FMT §8])
 |---|---|
 | Indexes of HSMS header fields or message content in the footer (F-3 structures, an F-4 secondary index) | no longer planned (spec v2.13): records are read on demand for one tool or a few tools of one type, and the Virtual Equipment reads whole windows, so no consumer needs to filter without decoding payloads. The F-3 range 0x0010–0x001F and the F-4 slot stay reserved ([FMT §10]), so an index can still be added as a minor change; the footer is derivable ([FMT I-3]), so re-merged packs could gain it |
 | Source reference for data/control records | needs the pilot's converter inputs |
-| Catalog schema | follows the implementation; the catalog window and the retention period are service parameters (35 days and 6 months in the pilot plan), not format properties (the byte-exact JSONL schema, deferred here before v2.26, is [JSONL]) |
 | Locating blocks after an envelope the forward walk cannot account for, in a pack without a valid footer ([FMT §13]) | needs a resynchronisation design |
 | Live-tail interface and query-service API | service design, outside the format |
 | Compression, latency and throughput numbers | measured on the pilot sample |
-| Admissions for scopes the catalog does not index (repairs and merges of hours outside the window) | the listing-view contract of [STO §5] holds only while no admission reaches such a scope; admitting one needs a consistency design with interrupted-admission recovery (proposal P4, `proposals/p4-cold-scope-admissions.md`) |
-| Capture end evidence beyond the retained packs, and catalog rebuilds that read only the window | each design explored so far left an interval in which end evidence was missing or premature (proposal P5, `proposals/p5-capture-registry.md`; owner decisions G5-61..G5-65) |
-| Closing a crashed producer's capture over a durable bus | the service-side boundary needs a publish fence, interrupted-closure recovery, metadata for an empty capture and a rule for post-closure arrivals (proposal P7, `proposals/p7-durable-bus-capture-closure.md`); until then such a capture stays `open` |
-| Ingest partitioned by tool (a bus partition per leased tool set, so one instance receives, writes and merges a tool's records and segments stop interleaving) | second-phase optimization (G5-87): the first release ingests through one work-queue consumer and lets the hourly merge normalize interleaved segments; a partition, when introduced, is the unit the catalog leases, so ownership stays in one place |
+| Closing a crashed producer's capture over a durable bus | returns with the gateway as the capture's producer (G5-200) in v2.33, when proposal P7 (`proposals/p7-durable-bus-capture-closure.md`) is rewritten without the catalog mechanisms v2.32 removed; until then such a capture has no end boundary |
 | Redaction policy file format and key management | service design; the format records only the policy id, version and key id ([SEM §8]) |
 | Capture-time redaction with an escrowed encrypted original | a cost analysis, not a rule: recorders would hold only a public key (asymmetric encryption); a sidecar keyed by (`capture_id`, `seq`, item path) keeps merges untouched; a decrypt service needs approval and audit; private-key custody, backup and rotation dominate the cost; its unique benefit is a separate retention for sensitive items (crypto-shredding). The redaction entry of [FMT §5] is already shaped to become an annotation body |

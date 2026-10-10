@@ -3,6 +3,7 @@
 Status: draft (2026-09-28) — awaiting the owner.
 Source: owner discussion of 2026-09-28 on the equipment gateway → log service path.
 Nothing here is a decided rule.
+Spec v2.32 removed the catalog section this proposal cites ([STO §5] and its completeness rules); it is rewritten with v2.33 (G5-200, G5-201).
 
 ## 1. Questions and where the outcome lands
 

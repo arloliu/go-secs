@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-10-10) — phases 4, 5a, 5b, 5c1, 5c2, 5c3, 5d and 6a done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`, `SegmentWriter`, `NewDirSink`, `NewReaderSource`, `Retention`, `ExportJSONL`); phase 6 split into 6a, 6b and 6c (G5-166) and 6b into 6b1, 6b2 and 6b3 (G5-173), 6b1 and 6b2 (conformance corpus, parts 1 and 2) done; 6b3, 6c and phases 7 and 8 pending.
-Implements: tracepack v2.31 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
+Status: active (2026-10-10) — phases 0 to 6b2 done; spec v2.32 drops 6b3 and the extract writer of phase 7 (G5-199, G5-206) and adds phase 9, the simplification of tracepack v0.4.0, which comes next; then phase 8 (v0.5.0, format 1.1) and the minimal CLI of 6c.
+Implements: tracepack v2.32 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
 
@@ -12,14 +12,15 @@ so that recorders, the merger and a query service can be built on it.
 
 In scope:
 - every fixed structure, TLV, codec and CRC of the spec, with golden vectors;
-- `Writer`, `Reader`, `Verify`, `Repair`, `Recover` (deferred, G5-91), `Merge`, `MergeIterate`, `FindTransaction`, `ExportJSONL`, and `Extract` with redaction ([SEM §8]);
+- `Writer`, `Reader`, `Verify`, `Recover` (deferred, G5-91), `Merge`, `MergeIterate`, `FindTransaction`, `ExportJSONL`;
 - the go-secs classifier (`decode_status` from frame bytes);
-- the conformance corpus generator and its first vectors;
-- CLI subcommands `list`, `stats`, `dump`, `verify`, `merge`, and `recover` once `Recover` is planned (G5-91).
+- the conformance corpus generator and its vectors, covering format-level reading (G5-199);
+- the simplification of tracepack v0.4.0 (phase 9), which removes `Repair`, `NewStoreSource` and the store-backed reads, with format 1.0 unchanged (G5-201, G5-202);
+- CLI subcommands `dump --jsonl`, `verify` and `find` (G5-206).
 
 Out of scope (separate designs or later phases):
 the go-secs conn-wrapper recorder, equipment-gateway integration, `eapconv`, the query service, its MariaDB catalog, the live-tail interface,
-indexes in the footer (no longer planned, [OVW §6]), CLI `grep` / `tx`, and the redaction policy file format and key management.
+indexes in the footer (no longer planned, [OVW §6]), extracts and masking on egress (G5-198), and the redaction policy file format and key management.
 
 ## 2. Module and package layout
 
@@ -27,7 +28,7 @@ Nested module `github.com/arloliu/go-secs/tracepack` (own `go.mod` in `tracepack
 
 | Package | Content | Public? |
 |---|---|---|
-| `tracepack` | `Record`, enums, `PackMeta`, `Writer`, `Reader`, `Filter`, `Verify`, `Repair`, `Recover` (deferred), `Merge`, `MergeIterate`, `FindTransaction`, `NewStoreSource`, `ExportJSONL`, `Extract`, `RedactionPolicy` | yes |
+| `tracepack` | `Record`, enums, `PackMeta`, `Writer`, `Reader`, `Filter`, `Verify`, `Recover` (deferred), `Merge`, `MergeIterate`, `FindTransaction`, `ExportJSONL` | yes |
 | `tracepack/classify` | go-secs-based `decode_status` classifier | yes |
 | `tracepack/internal/format` | byte layouts: file header, envelope, record header, trailer, F-1, F-2; CRC; UUID byte order | no |
 | `tracepack/internal/tlv` | TLV entry encoding, value types, tag registries, validation | no |
@@ -59,27 +60,31 @@ only `classify` and `cmd/tracepack` (for SML rendering through `sml.Encoder`) im
 
 Each phase ends with `make lint-tracepack`, `make test-tracepack` and an external post-implementation review before the next phase starts.
 
-| Phase | Status |
-|---|---|
-| 0 — Module skeleton | done |
-| 1 — Format primitives | done |
-| 2 — Writer and classifier | done |
-| 3 — Reader | done |
-| Format revision (spec v2.13) | done |
-| 4 — Verify, Repair | done |
-| 5a — ActiveView, Merge, Writer seams | done |
-| 5b — MergeIterate | done |
-| 5c1 — PackSource, FindTransaction | done |
-| 5c2 — store-backed PackSource, listing views | done |
-| 5c3 — retention | done |
-| 5d — segment writer, local source | done |
-| 6a — JSONL export | done |
-| 6b1 — conformance corpus, part 1 | done |
-| 6b2 — conformance corpus, part 2: reads over several packs, transaction lookups | done |
-| 6b3 — conformance corpus, part 3: store vectors | pending |
-| 6c — CLI | pending |
-| 7 — Extract and redaction | pending |
-| 8 — Producer API for a durable-bus capture | pending |
+| Phase | Status | Note |
+|---|---|---|
+| 0 — Module skeleton | done | |
+| 1 — Format primitives | done | |
+| 2 — Writer and classifier | done | |
+| 3 — Reader | done | |
+| Format revision (spec v2.13) | done | |
+| 4 — Verify, Repair | done | `Verify` kept; `Repair` removed in v0.4.0 |
+| 5a — ActiveView, Merge, Writer seams | done | `ActiveView` removed, `Merge` simplified, writer seams kept in v0.4.0 |
+| 5b — MergeIterate | done | `MergeIterate` kept |
+| 5c1 — PackSource, FindTransaction | done | `FindTransaction` simplified, `PackSource` reduced in v0.4.0 |
+| 5c2 — store-backed PackSource, listing views | done | removed in v0.4.0 |
+| 5c3 — retention | done | removed in v0.4.0 |
+| 5d — segment writer, local source | done | segment writer frozen (G5-205); local reader source simplified in v0.4.0 |
+| 6a — JSONL export | done | |
+| 6b1 — conformance corpus, part 1 | done | |
+| 6b2 — conformance corpus, part 2: reads over several packs, transaction lookups | done | |
+| 6c — CLI | pending | minimal, after phase 8 (G5-206) |
+| 8 — Producer API for a durable-bus capture | pending | v0.5.0, format 1.1; takes phase 7's reader obligation (G5-207) |
+| 9 — Simplification (tracepack v0.4.0) | pending | comes before phase 8 |
+
+Closed phases, never done and not in the table:
+6b3 (conformance corpus, part 3: store vectors) is dropped by G5-199;
+phase 7's extract writer and policy engine are dropped by G5-206, and its reader obligation moves to phase 8 (G5-207).
+Their sections below keep their headings and record the closure.
 
 ### Phase 0 — Module skeleton
 
@@ -210,6 +215,8 @@ Done when: the writer and reader implement the revised layout, and the corruptio
 
 ### Phase 4 — Verify, Repair
 
+Historical since spec v2.32: tracepack v0.4.0 removes `Repair` and its patch (G5-202, phase 9); `Verify` stays.
+
 - `Verify` (done): forward block walk (I-1, I-2), the outcomes and writer defects of [FMT §13] (G5-100), report with offsets.
 - `Repair` (done): the patch of [FMT §13] and [STO §6] (G5-102..G5-106):
   every validated block copied verbatim, the footer rebuilt from the records, `supersedes` = the damaged pack,
@@ -235,6 +242,8 @@ Phase 5 is delivered in steps: 5a (`ActiveView`, `Merge` and the Writer seams th
 and 5c in three (G5-120): 5c1 (`PackSource`, `FindTransaction`), 5c2 (store-backed `PackSource`, listing views, G5-139) and 5c3 (retention).
 
 #### 5a — ActiveView, Merge, Writer seams (done)
+
+Historical since spec v2.32: tracepack v0.4.0 removes `ActiveView` and the commit-object handling, and `Merge` takes its inputs and the archive's generation values (G5-201, phase 9); the writer seams stay.
 
 - Spec v2.17 first: `classifier` and `max_frame_len` become repeatable (G5-108), an API break of `PackMeta`,
   and `compacted_from` is required only when a pack's lineage list is non-empty (G5-111).
@@ -340,6 +349,8 @@ The implementation settled what the text above leaves open:
 
 #### 5c1 — PackSource, FindTransaction (done)
 
+Historical since spec v2.32: tracepack v0.4.0 reduces `PackSource` to the packs the caller gives and simplifies `FindTransaction` to three outcomes with `incomplete` reasons (G5-201, G5-203, G5-204, phase 9).
+
 - Spec v2.21 first (G5-120..G5-136): [SEM §7.2]'s lookup from a primary — its definitions, closing records read and checked against the evidence (G5-135),
   conflicts and block-index disagreements making it `incomplete` (G5-132..G5-134), the comparison covering the scopes read (G5-136) —
   and [STO §5]'s observation of a lookup (G5-128).
@@ -408,6 +419,8 @@ The implementation settled what the text above leaves open:
   so `index` gaps and the seqs before a late primary are covered by unit tests only.
 
 #### 5c2 — store-backed PackSource, listing views (done)
+
+Historical since spec v2.32: tracepack v0.4.0 removes the store-backed source, the listing views and the per-capture evidence (G5-201, phase 9).
 
 - Spec v2.22 first (G5-139..G5-148): the key encodings of [STO §3] (G5-141, G5-143) and the segment `seq_first` check (G5-147);
   in [STO §5], a listed segment that is gone fails the observation (G5-144), premise (i) confirmed by the catalog per scope (G5-139), a conflicted scope reported as such (G5-142);
@@ -491,6 +504,8 @@ The implementation settled what the text above leaves open:
 
 #### 5c3 — retention (done)
 
+Historical since spec v2.32: tracepack v0.4.0 removes the `Retention` provider and `ErrRemoved`; retention is the service's (G5-201, phase 9).
+
 From spec v2.25 (G5-162..G5-165); the API is `tracepack-go.md` §3. Plan: the phase 5c3 retention plan, kept outside the repository (ready after plan reviews r1–r3).
 
 - A `Retention` provider, given to `Iterate` and `MergeIterate` (`Query.Retention`), `FindTransaction` (`TxOptions.Retention`) and `NewStoreSource` (`StoreSourceOptions.Retention`).
@@ -518,6 +533,8 @@ Open: `MergeIterate` treats any load error wrapping `ErrReadLimit` as a refused 
 so a `ReadAt` error of the caller's that wraps `ErrReadLimit` skips the check after an I/O failure, which `Iterate` makes.
 
 #### 5d — segment writer, local source (done)
+
+Historical since spec v2.32: the segment writer, the sinks and `ErrPublishUncertain` are frozen (G5-205), and tracepack v0.4.0 simplifies `NewReaderSource` (phase 9).
 
 From proposal P11, applied as spec v2.23 (G5-149..G5-155), with the contracts of spec v2.24 (G5-156); the API is `tracepack-go.md` §3.
 Plan: the phase 5d writing plan, kept outside the repository (ready after plan reviews r1–r3).
@@ -565,6 +582,7 @@ under `Complete`, the scope of each evidence reader is not indexed (G5-158).
 
 Split into three sub-phases, each with its own plan, reviews and PR, in the order 6a → 6b → 6c, before phase 7 (G5-166).
 6b is split again into 6b1, 6b2 and 6b3 (G5-173): 6c may start once 6b1 is done, and 6b3 may come after phase 7.
+Since spec v2.32, 6b3 is dropped and 6c follows phase 8 (G5-199, G5-206).
 
 #### 6a — JSONL export (done)
 
@@ -594,6 +612,8 @@ Whether a block decodes, and the bytes it decodes to, never vary, so tests compa
 the two inputs that showed it are regression seeds of `FuzzExportJSONL`.
 
 #### 6b1 — conformance corpus, part 1 (done)
+
+Historical since spec v2.32: tracepack v0.4.0 removes the repair vectors, and `verify.json`, `queries.json`, the verification columns of the truncation tables and `classify.json` become Go tests (G5-210, phase 9).
 
 From spec v2.27 (G5-173..G5-183); the corpus is [CORPUS]. Plan: the phase 6b1 corpus plan, kept outside the repository (ready after plan reviews r1–r3).
 - The [FMT §16] vectors except the redaction vectors (phase 7) and the two that need the result of a read over several packs (G5-182),
@@ -638,6 +658,8 @@ the records of a log conversion without connect lines are in epoch 0 ([STO §7])
 and a `build-rejected` record is an `unparsed-entry` annotation holding the entry's text, since [SEM §2] names no kind for it.
 
 #### 6b2 — conformance corpus, part 2 (done)
+
+Historical since spec v2.32: tracepack v0.4.0 removes the `multi-pack` vectors with `reads.json` and `lookups.json`, which become Go tests (G5-199, G5-210, phase 9).
 
 From spec v2.30; the corpus is [CORPUS], schema `tracepack-corpus/2`.
 Plan: the phase 6b2 corpus plan, kept outside the repository (ready after plan reviews r1–r3); its rules are ratified as G5-188..G5-191.
@@ -700,41 +722,22 @@ a scope read that yields a seq twice now reads its view again and keeps every ve
 
 #### 6b3 — conformance corpus, part 3
 
-- The corpus vectors of [STO §8] and a store snapshot format added to [CORPUS]; it may come after phase 7 (G5-173).
-  The recovery vectors among them stay deferred with `Recover` (G5-91); the Service vectors of [STO §8] are outside the corpus.
-
-Done when (provisional, set when 6b3 is planned): the store-backed source, `ActiveView`, `Merge` and retention match every golden, under the same regeneration and size rules as 6b1.
+Dropped (G5-199): the corpus covers the format layer, and [STO §8] lists the implementation tests of the Go module.
 
 #### 6c — CLI
 
-- `list`, `stats`, `dump --sml | --jsonl`, `verify [--repair]`, `merge`, and `recover` once `Recover` is planned (G5-91), on local paths (G5-170).
-  `s3://` sources are deferred until the query service or another design decides where the object-store dependency lives;
-  a storage-backed command then ends an hour that becomes removed with the removed outcome ([STO §5] Retention).
+- `dump --jsonl`, `verify` and `find` (G5-206), on local paths (G5-170).
+  `s3://` sources are deferred until the query service or another design decides where the object-store dependency lives.
 
-Starts once 6b1 is done (G5-173).
+Starts after phase 8 (G5-206).
 
 Done when: `dump --jsonl` matches every JSONL golden of the corpus, rejects every vector rejected at bootstrap, and the CLI works on the corpus.
 
 ### Phase 7 — Extract and redaction
 
-- Reader prerequisite: a redaction entry with a recoverable defect ([SEM §8]), such as a `masked_ranges` array whose length is not a multiple of 8 or whose element count is odd,
-  must not fail `Open`; the reader reports it and treats the records concerned as wholly masked.
-  Until then such a pack is rejected at bootstrap by the Go reader, and the corpus holds no rejection golden for it ([JSONL §8]).
-- E5 item walker with byte offsets and the item-validity predicate of [SEM §3], its format-22 rule included (G5-181), checked against the checklist of [CORPUS §7].
-- Policy compilation: S/F, `*` paths, domains (1–65535 bytes), annotation kinds; invalid patterns and domains rejected.
-- Two-pass `Extract`: plan every mask and digest (captured message text, total path resolution, no-content and whole-text rules), then write header, pack metadata and masked blocks;
-  footer from the masked blocks; masked inputs rejected before any output.
-- HMAC-SHA-256 with the corpus test keys; `redaction_policy` and `redaction` entries.
-- Reader: entries parsed and structurally checked at `Open`, validated per record at read time, wholly masked records reported.
-- `dump --sml` rendering of masked content.
-
-Tests: the redaction vectors of [FMT §16], generated with their goldens and expected reports by the phase-6 corpus generator extended here,
-with the bootstrap vector of a missing required nested tag, which only the `redaction_policy` and `redaction` registries have ([CORPUS §9]),
-and the [SEM §9] read of an extract beside its source, each masked record a `conflict` (a `multi-pack` vector with `reads.json`, [CORPUS §9.2]);
-a sweep over the corpus asserting, for every record, that each target byte is zero, each other byte equals the source,
-the payload length and every record-header field except `quality.redacted` are unchanged, and `Verify` reports exactly the source's defects and no new one.
-
-Done when: every redaction vector reproduces its bytes, entries and digests exactly, and the sweep passes.
+Split by spec v2.32 (G5-206, G5-207):
+the extract writer, the policy compilation and `Extract` are dropped, extracts and masking on egress being non-goals for v1.0 (G5-198);
+the reader obligation of a redaction entry with a recoverable defect moves to phase 8, with the format 1.1 redaction work.
 
 ### Phase 8 — Producer API for a durable-bus capture
 
@@ -754,9 +757,44 @@ but a producer that publishes one record per bus message ([STO §4], proposal P8
 - `classify.Name` falls back to `go-secs/unknown` when go-secs is replaced by a local path, so a producer sets the classifier name explicitly.
 - `Writer.Append` copies the payload a second time after the producer's own copy of a wire frame.
 
+Phase 8 also takes from phase 7 the reader obligation of format 1.0 ([SEM §8]):
+a redaction entry with a recoverable defect, such as a `masked_ranges` array whose length is not a multiple of 8 or whose element count is odd,
+must not fail `Open`; the reader reports it and treats the records concerned as wholly masked.
+Until then such a pack is rejected at bootstrap by the Go reader, and the corpus holds no rejection golden for it ([JSONL §8]).
+Phase 8 is released as tracepack v0.5.0, with format 1.1 for write-time encryption (G5-207) and deliberately unobserved traffic (G5-208).
+
 The record encoding, the descriptor encoding and the stand-alone detector depend on proposal P8's outcome and are designed with it;
 the classifier name and the second payload copy are small fixes, and phase 5d's anchor seam serves the detector.
 Tests and done criteria are set when P8 is decided.
+
+### Phase 9 — Simplification (tracepack v0.4.0)
+
+Goal: the module implements spec v2.32, with format 1.0 unchanged:
+every format 1.0 file stays valid and its canonical export stays the same (G5-206).
+It comes before phase 8.
+Its task plan is written after spec v2.32.
+
+Removals, each logged as a breaking change in `tracepack/CHANGELOG.md`:
+- `Repair`, its options, report and refusals; `Merge` refuses a `repair` input (G5-202).
+- `ActiveView`, `View`, `Generation`, `CommitKey`, `CommitSet` and `ErrViewConflicted`, with generation ranking and commit objects (G5-201).
+- `NewStoreSource`, `ObjectStore`, `Object`, `Catalog`, `Observation`, `StoreSourceOptions`, `ExcludedPack` and `MaxCommitListings`;
+  the `Retention` provider, `ErrRemoved` and `Result.Removed`; `AddPackEvidence` and the per-capture evidence (G5-201, G5-204).
+- The `unmatched` outcome and the facts that proved it (G5-204).
+- Corpus vectors and goldens beyond format-level reading (G5-199, G5-210), schema `tracepack-corpus/3` ([CORPUS]).
+
+Changes:
+- `Merge` takes its inputs and the archive's generation values, and writes `supersedes` as the archive inputs' `pack_id`s ([STO §4] Merge).
+- `FindTransaction` reads the packs its caller gives, with the outcomes matched, ambiguous and not found and the `incomplete` reasons of [SEM §7.2], crash gaps from footers included (G5-209).
+- A block or footer value that disagrees with the records it describes guarantees only `incomplete` and the defect (G5-203).
+- The segment writer, the sinks and `ErrPublishUncertain` stay as they are (G5-205).
+
+Done when: `make lint-tracepack`, `make test-tracepack` and `make test-tracepack-386` pass and `go fix -diff ./...` is clean;
+the corpus regenerates byte-identically and holds only the files of the kept assertions;
+the export of every pack the v0.3.0 corpus held is unchanged;
+the implementation tests of [STO §8] and [SEM §9] that apply to v0.4.0's scope pass;
+the recovery and spool cases of [STO §8] stay deferred with the frozen durability contract (G5-205),
+and the extract-beside-its-source case of [SEM §9] with phase 8;
+the external post-implementation review is clean.
 
 ## 4. Cross-cutting requirements
 
@@ -764,7 +802,7 @@ Tests and done criteria are set when P8 is decided.
   merge throughput measured with and without coalescing; reader bootstrap allocations independent of file size, apart from the pack metadata (an extract's redaction entries).
 - Memory: the writer holds at most one block; the reader holds at most the pack metadata and the footer plus one decoded block per concurrent iterator,
   except `MergeIterate`, which holds the blocks of its open overlap clusters and of the records it has yet to yield, bounded in bytes by a caller limit (`tracepack-go.md` §3).
-  An extract's pack metadata grows with its redaction entries, and the extract writer's plan grows with the matches of the selected records.
+  An extract's pack metadata grows with its redaction entries.
 - Errors: sentinel errors per failure class (bad magic, CRC, limit, unknown codec, unsupported version) wrapped with offsets.
 - Concurrency: `Reader` safe for concurrent `Iterate`; `Writer` single-goroutine by contract.
 
@@ -774,6 +812,6 @@ Tests and done criteria are set when P8 is decided.
 |---|---|
 | A spec ambiguity surfaces during implementation | stop, record it in the changelog, amend the spec before coding past it |
 | Footer merge rule misses a statistic that cannot be restricted to copied blocks | brute-force recomputation tests in phases 2 and 5 |
-| go-secs classification diverges from [SEM §3] on edge cases | the corpus decides; classifier adjusted, `classifier` tag versioned |
+| go-secs classification diverges from [SEM §3] on edge cases | [SEM §3] decides and the Go tests check it (G5-210); classifier adjusted, `classifier` tag versioned |
 | tracepack needs a go-secs change after v2.5.0 | the change lands in go-secs first; tracepack requires its `main` pseudo-version until the next go-secs release (§2.1) |
 | zstd output differs across library versions | the committed goldens are always read strictly, which no encoder affects; a regenerated zstd vector is compared byte for byte under the `klauspost/compress` version the manifest records, and by decoded equivalence under another, its offset-bearing goldens then skipped with a note that `-update` is due (G5-180, [CORPUS §6.1]); damaged zstd blocks are hand-built frames; every vector uses codec `none` unless the codec is its subject. If zstd output differs across GOARCH under one version, the rule extends to a GOARCH other than the generating one |

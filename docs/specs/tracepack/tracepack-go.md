@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
 Status: current (2026-10-10)
-Implements tracepack v2.31 (format 1.0): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Implements tracepack v2.32 (format 1.0): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -54,7 +54,7 @@ The query service, its catalog database and the live-tail interface are designed
   A second helper computes the `field_validity` of a raw frame from its length, for writers of raw captures.
   `DecodeStatus.Malformed` is true only for known malformed values, and `DecodeStatus.Clean` only for known values outside the malformed set;
   an unknown value is neither, so `!Malformed()` never proves a clean decode ([SEM §6]).
-- `Writer`: `NewWriter(w io.Writer, WriterOptions)`, the layer under `SegmentWriter`, `Merge` and `Repair`;
+- `Writer`: `NewWriter(w io.Writer, WriterOptions)`, the layer under `SegmentWriter` and `Merge`;
   options: the pack metadata, codec (its zero value is `none`, the wire value 0, so the zstd default lives in `SegmentWriterOptions`), block size threshold,
   `Now` (G5-174: the clock that stamps `writer_start_utc_ns` and gives the time part of a `pack_id` or `capture_id` the writer generates as a UUIDv7; nil means `time.Now`),
   and validation, on unless `SkipValidation` is set (G5-152): a validating writer decodes each encoded block, gathers its record headers and checks I-2 before writing it,
@@ -62,8 +62,9 @@ The query service, its catalog database and the live-tail interface are designed
   The writer transposes the record headers into the header section when it assembles a block body ([FMT §6]);
   it may feed the header and payload buffers to the encoder in turn instead of concatenating them.
   `PackMeta` carries `capture_id`, the capture's next seq and every pack metadata tag;
-  the `Writer` rejects `pack_role` 5 and replacement-set values other than size 1 and index 0,
-  and drops retired tag numbers from the unknown entries it preserves ([FMT §5]).
+  the `Writer` rejects `pack_role` 5, refuses `pack_role` 4 (`repair`) for new output ([FMT §9], G5-202), and rejects replacement-set values other than size 1 and index 0;
+  readers keep role 4 a known role and read packs that carry it.
+  The `Writer` drops retired tag numbers from the unknown entries it preserves ([FMT §5]).
   For every pack but an `extract`, `NewWriter` refuses a period that is empty or not inside one UTC hour,
   and `Append(*Record)` refuses a record whose `ts_utc_ns` lies in another UTC hour than the period with `ErrScopeBreach`, the Writer still usable (G5-152);
   a record of the period's hour outside the period is accepted, since a same-hour clock step puts it there ([STO §4] Merge).
@@ -160,7 +161,7 @@ The query service, its catalog database and the live-tail interface are designed
   A `SegmentWriter` is not safe for concurrent use.
 - `SegmentSink` (G5-153): `Create(ctx, SegmentInfo) (SegmentFile, error)`;
   `SegmentFile` is an `io.Writer` with `Sync()` (called after every block and after the trailer), `Commit(ctx)` (after a successful `Close`) and `Abort()` (after any failure).
-  `Write`, `Sync` and `Abort` take no context: the sink bounds each by its own deadline, as an `Object` bounds `ReadAt`.
+  `Write`, `Sync` and `Abort` take no context: the sink bounds each by its own deadline.
   A `Commit` that fails after the segment became visible returns an error wrapping `ErrPublishUncertain`.
   `SegmentInfo` holds the `tool_id`, `capture_id`, `pack_id`, `seq_first` of the segment key ([STO §3], known at open), the hour and the period,
   so a sink derives the key from the segment it writes and never from a tool of its own.
@@ -199,10 +200,9 @@ The query service, its catalog database and the live-tail interface are designed
   Both errors arise only from a link that did not happen, and `ErrPublishUncertain` only after a link that did, so the three never overlap;
   the default, without the option, still renames over an existing file.
   A file system without hard links fails such a `Commit` with the link's error, nothing published.
-- `Reader`: `Open(ctx, ra io.ReaderAt, size, opts)` performs the [FMT §13] bootstrap, optionally seeded with a catalog footer location;
+- `Reader`: `Open(ctx, ra io.ReaderAt, size, opts)` performs the [FMT §13] bootstrap, optionally seeded with a footer location the caller kept (e.g. in the service's catalog);
   `Header()`, `Blocks()` (F-2), `Iterate(ctx, Query, fn) (Result, error)`,
   and `Stats() (PackStats, bool)` (G5-131): the F-5 statistics of a pack whose footer it uses — counts, time and seq ranges, per-epoch summaries with `close_seq`, capture-boundary entries — as a fresh value, false without a used footer.
-  `AddPackEvidence(*CaptureEvidence, *PackStats)` folds one pack's boundaries and epoch closures into a capture's per-capture evidence ([STO §5] Per capture): boundaries sorted and exact duplicates dropped, the smallest `close_seq` per epoch, the end state recomputed, and `Partial` set for a pack without statistics; which packs to fold is the catalog's registration policy.
   `Open` parses the redaction entries with the pack metadata and runs their structural checks; its cost grows with the entries.
   Records expose `Redacted` and their masked ranges, validated against the record when it is read ([SEM §8] Marking);
   a wholly masked record reports its defect, and `Header()` exposes the policy, the entries and any bootstrap defect.
@@ -217,25 +217,6 @@ The query service, its catalog database and the live-tail interface are designed
   `Result` carries `Incomplete` and `Conflicts` side by side; neither hides the other.
   `Incomplete`'s defects and every `Item` name the pack they come from (`Pack`, an index into the readers given; 0 for `Iterate`);
   `FooterErrs` lists each pack whose footer was not used, outside `Incomplete`, since a finalized pack whose walk accounts for every block is complete without its footer.
-  `FindTransaction` reports a scope that is not indexed (`cold`) and the scopes it searched in `TxResult`;
-  for `Iterate` and `MergeIterate`, which take readers and cannot tell whether a scope is indexed, the searched scope and a `Cold` reason wait for a query over a `PackSource` (G5-140);
-  `Removed` lists the covered hours that are removed when a read ends with `ErrRemoved` (below), ascending, each once; `Complete()` reports false while it is non-empty.
-- Retention (G5-162, G5-164): a `Retention` provider, `RetainedFrom(ctx) (int64, error)`, returns the first UTC hour still retained, numbered as `HourOf`; every hour before it is removed ([STO §5] Retention).
-  `Query.Retention`, `TxOptions.Retention` and `StoreSourceOptions.Retention` take one; nil removes nothing.
-  A provider never falls behind the deleting component — before it deletes an object of an hour, every provider a reader asks already reports the hour removed; running ahead is safe, and a cache is safe only if the deleting component waits out its staleness — never moves the boundary back, is safe for concurrent use, and is cheap, since a read asks it at every block it emits;
-  a reader keeps the largest value seen, compares in `int64` hours, and ends with the provider's error, wrapped, when a call fails;
-  when the failing call is the check after an I/O failure, the wrapped provider error is joined after the I/O cause, both reachable by `errors.Is`.
-  A record belongs to its pack's scope hour, `HourOf(period_start)`, for every role but extract, whatever its `ts_utc_ns`; an extract's record to the hour of its `ts_utc_ns`.
-  The hours a read covers are the scope hours of its non-extract packs, the F-2 `ts_min` and `ts_max` hours of its extracts' indexed blocks, and the distinct hours of the extract records it decodes, added before filtering;
-  a newly covered hour is compared at once with the largest boundary seen.
-  `MergeIterate`'s planning pass over walked blocks adds a walked extract block's record hours before it drops the block's buffer.
-  The covered hours number at most the non-extract packs, plus two per indexed extract block, plus the distinct extract record hours decoded; they are kept outside `MaxHeldBytes`.
-  `Iterate` and `MergeIterate` ask the provider before reading anything, before the first callback and before every callback whose record comes from another block than the previous callback's (for `MergeIterate`, the representative's block),
-  after an open or read I/O failure, and before returning success.
-  The deleting component deletes an object only after the boundary passed its hour, so a check that finds every covered hour retained proves that no read before it met an object retention deleted.
-  When a check finds a covered hour removed, the read ends at once with an error wrapping `ErrRemoved`, joined after the I/O cause when it follows a failure,
-  beside the `Result` found so far, with `Removed` set: its records, defects and conflicts of the removed hours, records passed to `fn` included, are superseded, and the caller discards them (G5-164).
-  A callback's error, a `ctx` error and a budget error (`ErrReadLimit`) end a read as before, with no retention check after them; a block defect is still a defect.
 - `Filter` uses typed slices (`[]SF`, `[]Kind`, `*[4]byte`) and a time range, with nil meaning "any"; no sentinel values.
   HSMS header fields are matched on payload values, available only where `field_validity` says so ([FMT §7.2]).
 - `MergeIterate(ctx, readers, Query, MergeIterateOptions, fn) (Result, error)`: one read over several packs, as [SEM §7.4] resolves and orders it;
@@ -254,144 +235,52 @@ The query service, its catalog database and the live-tail interface are designed
   `MaxConflicts` bounds how many conflicts are listed, not the size of one.
   Either limit ends the read with an error wrapping `ErrReadLimit`, returned with the `Result` found so far, instead of exceeding it or omitting a conflict.
   A block over the reader's `MaxBlockLen`, or whose stated dimensions cannot be consistent, is a defect and is skipped, as in `Iterate`.
-- `FindTransaction(ctx, src PackSource, TxKey, TxOptions) (TxResult, error)`: [SEM §7.2]'s lookup from a primary named by `TxKey{Capture, Seq, Hour}` (G5-124);
-  it derives the key from the primary (G5-122) and fails with `ErrNotPrimary` when the record is not a `data` record whose function is available and odd, or is absent from a complete read (G5-125).
-  `TxOptions`: `MaxScopes` (the hours scheduled from `Hour`, default 2, G5-121; a conflicted one is scheduled but not read), `MaxHeldBytes` per read, `MaxConflicts` over the lookup, `MaxStateBytes` for the lookup's own state,
-  and `Retention`, given to every scope read as its `Query.Retention`.
-  The lookup fails with an error wrapping `ErrRemoved` when the primary's hour is removed (G5-163): the lookup checks it before `Observe`, after a failed `Observe` whose error is neither a `ctx` error nor `ErrReadLimit` (`ErrRemoved`, or a failing provider's wrapped error, joined after that cause),
-  before each scheduled scope, and after evaluation and barriers, before it closes the observation and returns an outcome;
-  a scope read ending with `ErrRemoved`, or a scope the source reports `Removed`, ends it too, since such a read met removed data, and, as the lookup schedules hours from the primary's forward, a removed scheduled hour implies a removed primary hour.
-  An earlier error of the lookup, `ErrNotPrimary` included, stands: the checks above are the lookup's only retention checks.
-  The `TxResult` beside `ErrRemoved` keeps the diagnostics found, with a zero outcome, as beside the lookup's other errors.
-  A scope reported `Removed` with readers is a source error, as a conflicted one with readers is.
-  `TxResult` holds the outcome (`TxMatched`, `TxAmbiguous`, `TxUnmatched`, `TxIncomplete`; zero only beside an error), the derived key with the W bit,
+- `FindTransaction`: [SEM §7.2]'s lookup from a primary named by `TxKey{Capture, Seq, Hour}` (G5-124), over the packs its caller gives (G5-201):
+  a source reduced to the readers of each hour, such as `NewReaderSource` over packs the caller opened; the exact shape is set by the v0.4.0 implementation plan.
+  It derives the key from the primary (G5-122) and fails with `ErrNotPrimary` when the record is not a `data` record whose function is available and odd, or is absent from a complete read (G5-125).
+  `TxOptions`: `MaxScopes` (the hours scheduled from `Hour`, default 2, G5-121), `MaxHeldBytes` per read, `MaxConflicts` over the lookup and `MaxStateBytes` for the lookup's own state.
+  `TxResult` holds the outcome (`TxMatched`, `TxAmbiguous`, `TxNotFound`; zero only beside an error), the derived key with the W bit,
   the window end, every kept version as a `TxRecord` with its roles as a `TxClass` bit set (primary, candidate, possible reply, same-key primary, possible same-key primary, closing record, outcome record) and its candidate flags,
-  every reason absence could not be established as a `TxGap` naming its hours and pack_id (`TxGapConflicted` for a conflicted scope not read, G5-142, and `TxGapScopeBreach` for a record outside its scope's hour, G5-146, among them), the scopes read, the conflicts and the footer errors.
-  Each scope read is one `MergeIterate` in capture order; its guarantees cover the scopes read (G5-136).
-  `PackSource.Observe(ctx, capture, from, to)` returns an `Observation` fixed before it returns ([STO §5] Observation of a lookup, G5-128):
-  `Scope(ctx, hour)` (a `SourceScope`: the readers of the scope's view, whether it is indexed, `Conflicted` with no readers for a conflicted view, G5-142, and `Removed` with no readers for a removed hour, G5-165), `Evidence(ctx)` (end state, capture-boundary entries, epoch closures, a partial flag), `Barriers(ctx, from, to)` (the tool's `stop-unclean` boundaries meeting `[from, to)` in nanoseconds, which must be non-empty and lie within the observation's hours; any other range is an error) and `Close`, which never blocks;
-  every value returned is the caller's: `Readers` a fresh slice, the evidence and the boundaries deep copies, none changed afterwards by the source or by the lookup;
-  readers stay valid until `Close`.
-  An `Observe` that fails returns no `Observation`; the lookup closes one it got exactly once, after its last use, whatever happened.
-  The source does not retry inside an observation: a failed call ends the lookup with its error.
-  A test source lives in the package's tests.
-- `NewStoreSource(store ObjectStore, cat Catalog, StoreSourceOptions) (PackSource, error)` (G5-139): the source of one tool over a bucket and the caller's catalog, which also provides the per-capture evidence and barriers (G5-123).
-  `ObjectStore`: `List(ctx, prefix, token)` returns one page of keys with sizes after an opaque token valid only for its traversal ("" for the first page; `Next` "" on the last);
-  keys are in strictly ascending byte order across the pages of a traversal, and a complete traversal returns every key present under the prefix throughout it (it is not a snapshot);
-  an error, also one returned with keys, invalidates the traversal.
-  The source fails `Observe` on a key outside the prefix, a key not above the previous one, a repeated token, or a traversal over `MaxListPages` pages.
-  `Open(ctx, key)` returns an `Object` (`io.ReaderAt`, `Size`, `Close`), or a nil `Object` and an error; a missing object, at `Open` or at a later `ReadAt`, is an error wrapping `ErrObjectNotFound`, which the error of a failed `Observe` keeps.
-  The adapter bounds each `ReadAt` by its own deadline and supports concurrent ones, and `Close` never waits on remote I/O (G5-145); the source checks ctx between reads, never during one.
-  `Catalog`: `Snapshot(ctx, capture, from, to)` — from one consistent snapshot, each hour's scope (indexed with its view, conflicted, or not indexed with a confirmation token), the capture's per-capture evidence and the tool's barriers;
-  `ConfirmUnindexed(ctx, capture, hour, token)` — whether the scope was not indexed at any instant since the snapshot that issued the token, false when the catalog cannot tell.
-  `Observe` fixes every scope: indexed ones from the snapshot, each pack opened and checked against its descriptor;
-  the others by [STO §5]'s coherent observation — the scope's commit objects listed until two complete listings agree, then its archive packs and the capture's segments listed, each segment's head read to learn its hour, the packs opened and checked, `ActiveView` computed, and the scope confirmed not indexed after its last read.
-  Every key is parsed strictly before it is classified ([STO §3], G5-141, G5-143); a pack whose key, descriptor, tool, hour, role, generation or size disagrees fails `Observe`, so do two packs of one scope with one `pack_id`, an indexed descriptor naming a pack of a role outside the tiers ([STO §2]), and a listed pack that is gone (G5-144, retriable).
-  `StoreSourceOptions`: `Prefix`, `Tool`, `Reader` (`ReaderOptions`), `MaxCommitListings`, `MaxListPages`, `MaxObjects`, `MaxSourceBytes` (the state an observation keeps, charged from what it decodes; one `Open`'s transient buffers, `ActiveView`'s workspace and the adapters' allocations outside it), and a required `OnExcluded` callback;
-  `NewStoreSource` rejects a `MaxCommitListings` of 1, which two agreeing traversals can never satisfy, and a non-zero `Reader.FooterOffset`, a hint for one object.
-  `OnExcluded` reports each listed pack excluded for its role ([STO §2]), once per pack per `Observe`, after the source has closed that pack, also when `Observe` later fails;
-  it is called synchronously from the goroutine running `Observe`, possibly concurrently from concurrent `Observe` calls, so it must be safe for concurrent use and return promptly;
-  the value it gets is its own; ctx is checked when it returns, and a panic in it propagates after `Observe` has closed every object it opened.
-  Every value the adapters return is the source's once returned; both adapters, and the source, are safe for concurrent use.
-  Its guarantees hold while every hour observed stays retained until the lookup's last use.
-  `StoreSourceOptions.Retention` (G5-165): `Observe` asks it before every list page, commit traversals included, before each open, after a scope's last listing and read and before its view is computed,
-  and once more after every scope is fixed, classifying every scope against that final sample;
-  every sample classifies every scope known so far against the largest boundary seen.
-  A scope whose hour is removed is reported `Removed`, with no readers: removal found before its view is built skips the view and the confirmation, removal found after discards the view;
-  its objects are closed once and their charges released at once, and the acquisition work only it needs stops, so no lower-generation view is formed from a half-deleted hour;
-  the capture-wide staging listing and its pending opens stop once no retained scope of the observation depends on them.
-  A gone object whose hour is known — a pack the catalog names for an indexed scope, an archive key, a segment whose head was read — and removed marks its scope removed;
-  a gone object of an unknown hour, a segment the staging listing found whose head was not read, keeps the retriable `ErrObjectNotFound` while a retained scope depends on that listing, as does every gone object without a provider.
-  The final sample promises nothing about later advances, which the lookup's own checks cover:
-  give `StoreSourceOptions.Retention` and `TxOptions.Retention` the same provider; the source's alone leaves the lookup unprotected after `Observe` returns.
-  `EscapeToolID`, `SegmentKey`, `ArchiveKey` and `CommitKey` build the keys of [STO §3].
-  A key that cannot be built, and a listed or catalog key that does not parse as a key of [STO §3], is an error wrapping `ErrInvalidKey`, which the error of a failed `Observe` keeps (G5-148); retrying does not cure it.
-- `NewReaderSource(readers []*Reader, ReaderSourceOptions) (PackSource, error)` (G5-154, G5-156): a source over packs the caller opened.
-  `ReaderSourceOptions.Evidence` holds readers folded into the per-capture evidence only, never into a scope, a view or a commit set:
-  the segments and converter archives whose registration was rejected, whose evidence [STO §5] Per capture keeps.
-  It validates `readers` and `Evidence` together, each failure wrapping `ErrInvalidQuery`:
-  a nil reader, a reader given twice in either or both, a `pack_id` repeated across both, more than one `tool_id` across both,
-  a view reader whose role is not `segment`, `archive` or `repair`, an evidence reader whose role is not `segment` or `archive`,
-  and an evidence reader whose period is empty or not inside one UTC hour ([FMT §5]), whose scope would otherwise be unknown.
-  It groups the readers by `capture_id` and by the UTC hour of their period, computes each scope's view with `ActiveView`,
-  taking every generation and patch given as committed:
-  giving one asserts that it was accepted ([STO §5] commit protocol), so a caller never gives a generation whose publication failed or was rejected, nor a patch that was not registered.
-  folds the statistics of every pack of a capture, view and evidence readers alike, into its per-capture evidence with `AddPackEvidence`,
-  and takes as barriers the `stop-unclean` boundaries of the evidence of every capture of the readers' tool.
-  It computes every scope's view once, in `NewReaderSource`; `Observe` validates its arguments as `NewStoreSource`'s `Observe` does and answers from those views.
-  Without `ReaderSourceOptions.Complete`, its scopes are not indexed and every capture's evidence is `Partial`,
-  so every scope a lookup reads is a `TxGapCold` gap and the lookup is never `unmatched`.
-  `Complete` asserts that the view readers are every accepted pack of the tool, of every capture and every hour,
-  and that the view and evidence readers together are every pack a catalog of the tool would hold evidence of, rejected registrations included (G5-156):
-  a set of files from which a pack was removed, by retention or otherwise, cannot be `Complete`.
-  Only then can the source vouch for the barriers of captures other than the one observed.
-  With it, the scopes are indexed, except the scope of each evidence reader, its `capture_id` and the UTC hour of its period, which is not indexed (G5-158):
-  a catalog rejects a registration only for a scope that is not indexed ([STO §5] No admissions outside the index),
-  so a lookup reading that scope gets a `TxGapCold` gap, as it would through the catalog,
-  and the scope's view still holds only view readers.
-  With it, a capture's evidence is `Partial` when any reader of the tool, view or evidence, has no used footer,
-  since its statistics, and the boundaries and closures they hold, are then unknown;
-  `Complete` never overrides such missing evidence.
-  It rejects readers of several tools, a reader given twice, and a scope `ActiveView` rejects; a conflicted view is reported `Conflicted` with no readers.
-  `Close` of its observations closes nothing: the caller owns the readers.
+  `Incomplete` with every reason of [SEM §7.2], beside any outcome and none hiding another, the hours read, the conflicts and the footer errors.
+  `TxNotFound` states nothing about records outside the packs given;
+  when it detects that a block it read disagrees with its F-2 entry or its F-3 summary, or that another footer value disagrees with the records it describes,
+  only `Incomplete` and that defect are guaranteed, every other fact best-effort (G5-203).
+  Each hour read is one `MergeIterate` in capture order over that hour's readers.
+- `NewReaderSource` (G5-154): the readers of a lookup, opened by the caller, grouped by `capture_id` and by the UTC hour of their period.
+  It rejects a nil reader, a reader given twice, a repeated `pack_id` and readers of more than one `tool_id`, each failure wrapping `ErrInvalidQuery`.
+  `Close` closes nothing: the caller owns the readers.
   `HourOf(time.Time) int64` returns the UTC hour of a time as `TxKey.Hour` and the key builders number it,
   and `TxKeyOf(capture UUID, seq uint64, ts time.Time) TxKey` builds the key of a primary from its record.
-- `ActiveView(packs []PackInfo, commits CommitSet) (View, error)`: [STO §4] active view of one scope from pack metadata (staging segments included) and the scope's commit objects,
-  plus the packs that are deletable under [STO §4] Deletion, the packs excluded for their role ([STO §2]), and the `compacted_from` the next merge writes.
-  `packs` is a complete observation of the scope: every surviving pack a reader could list, replaced patches included (a catalog snapshot or a coherent observation, [STO §5]).
-  A `PackInfo` is built only from decoded bytes:
-  `(*Reader).Info()` for a pack a `Reader` opened, or `NewPackInfo(packID, captureID, metadata)`, which decodes a pack's stored pack metadata as `UnmarshalPackMeta` does;
-  its accessors return copies.
-  Inconsistent input (no packs, a zero `PackInfo`, a period outside one hour, mixed captures or hours, a role that disagrees with its generation, a repeated `pack_id`, two members of one set) returns the zero `View` and an error,
-  and two different complete committed sets of the highest rank return `ErrViewConflicted`.
-  Whether a commit object may be deleted is decided by the service from its own record of deleted packs, never from packs missing in the input.
-- `Merge(ctx, dst io.Writer, view View, inputs []MergeInput, opts MergeOptions) (MergeReport, error)`:
-  writes the next generation of the scope of `view`, `ActiveView`'s unchanged result, from `inputs`, which are exactly `view.Packs`,
-  into the claim (`ScopeGeneration`, `PublisherEpoch`, a new `ReplacementSetID`) the caller allocated ([FMT §10], [STO §4]);
-  `view` supplies the lineage, since `compacted_from` names packs outside the inputs.
+- `EscapeToolID`, `SegmentKey` and `ArchiveKey` build the keys of [STO §3];
+  a key that cannot be built is an error wrapping `ErrInvalidKey` (G5-148), and retrying does not cure it.
+- `Merge(ctx, dst io.Writer, inputs []MergeInput, opts MergeOptions) (MergeReport, error)`:
+  writes one archive of one scope from the `inputs` the caller gives, normally every segment and archive of the scope it knows ([STO §4] Merge),
+  with the `ScopeGeneration` and `PublisherEpoch` the caller supplies in `opts`, values tracepack ranks nothing by, and a new `ReplacementSetID` ([STO §2], [FMT §5]).
+  The lineage comes from the inputs: `compacted_from` lists the inputs' own lists and every input segment, and `supersedes` names every `archive` input;
+  both are lineage only, never the evidence for a deletion ([STO §4] Deletion).
   Every input block is read in full.
   A block that overlaps no other block is copied verbatim with its F-3 list;
   duplicates are dropped only on equal envelope and body bytes; every other overlap is resolved record by record;
   small blocks are coalesced by the greedy grouping of [STO §4], each new encoding validated in memory before it is written.
-  The output is one archive per scope, a replacement set of one member ([STO §6]).
+  The output is one archive per scope, with `replacement_set_size` 1 and `replacement_set_index` 0 ([STO §6]).
   `MergeOptions.Now` (G5-179) is the clock of the archive's `Writer`, which stamps its `writer_start_utc_ns`,
   and of the `ReplacementSetID` and `PackID` that `Merge` generates for a zero option; an id the caller supplies is kept.
-  `ErrMergeInput`, wrapped with the pack and the cause, refuses an input that is not the pack `view.Packs` names at its position or lies outside the view's lineage,
-  that is not `finalized-consistent`, breaches its scope or its own commitments, or differs from the others in a capture-level tag;
+  `ErrMergeInput`, wrapped with the pack and the cause, refuses an input whose role is not `segment` or `archive` or whose scope differs from the other inputs',
+  one that is not `finalized-consistent`, breaches its scope or its own commitments, or differs from the others in a capture-level tag;
   the error of a failed read of an input, or `ErrReadLimit` for an input over a reader budget of `opts.Reader`, is returned naming the input, never as `ErrMergeInput`;
   record conflicts fail with `ErrMergeConflict` once every block was compared, and each conflict is passed, as it is found, to `opts.OnConflict`, which is required;
   exceeding `MaxOpenBlocks` or the output footer budget `MaxFooterLen` fails with `ErrMergeLimit`,
   and so does archive pack metadata longer than `opts.Reader.MaxPackMetadataLen`, the budget the next merge opens it with.
-  An error found before the archive's header leaves `dst` untouched, and after any error the caller discards `dst` and publishes nothing ([STO §5] commit protocol);
+  An error found before the archive's header leaves `dst` untouched, and after any error the caller discards `dst` and publishes nothing;
   an error of the final write or sync can leave bytes that form a finalized pack, which `Merge` still reports as a failure.
-- `Extract(ctx, src PackSource, Query, dst io.Writer, opts ExtractOptions) (ExtractReport, error)`: writes one `extract` pack of one capture.
-  With `opts.Policy` (a compiled `RedactionPolicy`: id, version, key id, item and annotation rules; compilation rejects invalid patterns and domains) and `opts.Key`,
-  it plans every mask and digest first, then writes the header, the pack metadata with `redaction_policy` and the `redaction` entries, and the masked blocks ([SEM §8]);
-  the footer is computed from the masked blocks.
-  Path resolution uses the module's own E5 item walker, which reports byte offsets; it does not depend on go-secs.
-  A record it cannot screen, a source record with `redacted` and a source pack with `redaction_policy` fail the extract before any output.
-  `ExtractReport` counts masks per rule and whole-text masks.
 - `Verify(ctx, ra, size, opts) (VerifyReport, error)`: the outcome, failed blocks, disagreements, writer defects and validated prefix of [FMT §13];
   a file header or pack metadata that cannot be read is an error, as for `Open`.
-- `Repair(ctx, ra, size, dst io.Writer, opts) (RepairReport, error)`:
-  writes a generation-0 `repair` patch of the damaged pack, as [FMT §13] builds it ([STO §6]);
-  the next `Merge` folds it into a generation, once the service admits the patch to an indexed scope ([STO §5]).
-  `opts` names the patch's `writer` and its `patch_base` (the scope's current generation, supplied by the caller),
-  and optionally its `pack_id`, the footer codec, a `Syncer` and `Now` (G5-179), the clock that stamps the patch's `writer_start_utc_ns` and a `pack_id` it generates, as `WriterOptions.Now` does.
-  It verifies the pack first and decides every refusal of [FMT §13] before writing a byte:
-  `ErrRepairNotNeeded` for a `finalized-consistent` pack without the `seq_start` writer defect, decided before any refusal, an extract's role included (G5-183),
-  `ErrNotRepairable` for the others, both with nothing written.
-  It then copies the validated blocks, checking each against what the verification read.
-  After any error the caller discards what was written;
-  an error of the final write or sync can leave bytes that form a finalized pack, which `Repair` still reports as a failure.
-  `RepairReport` holds the damaged pack's `VerifyReport` beside what the patch records:
-  its `pack_id`, the blocks and records copied, and the new `coverage` entries.
 - `Recover(ctx, spool, dst) (RecoverReport, error)`, deferred until a local-spool recorder is planned (G5-91):
   finalizes an unfinalized spool file as a segment of its original capture with a `stop-unclean` boundary ([STO §4]);
   `RecoverReport` holds the spool file's `VerifyReport`.
 - `ExportJSONL(ctx, r *Reader, w io.Writer) (Result, error)`: writes the canonical export of the pack `r` reads ([FMT §15], [JSONL]), a function of package `tracepack` (G5-168).
   It exports the records `r.Iterate(ctx, Query{Payloads: true}, …)` yields, in the same order, and returns the `Result` that call returns:
-  open defects, the `coverage` entries that intersect the query, and every failed block and every block disagreeing with its F-2 entry in `Incomplete`, whose records are exported;
+  open defects, the `coverage` entries that intersect the query, and every failed block and every block or footer value found disagreeing with its records ([SEM §7.4]) in `Incomplete`, whose records are exported;
   `FooterErr` and `FooterErrs` as `Iterate`, a footer error alone not making the result incomplete.
   A record whose body is not valid ([JSONL §6]) is exported without `body` and adds nothing to `Result`.
   Where `Iterate` lists a reader budget as a `ReasonLimit` defect, `ExportJSONL` fails instead (G5-171, [JSONL §7]):
@@ -399,12 +288,11 @@ The query service, its catalog database and the live-tail interface are designed
   and when it reaches a block over `MaxBlockLen`.
   Other errors: `ctx`'s error, wrapped, checked before the header line and before each block; a `ReadAt` error, wrapped, as `Iterate` returns it;
   a write error of `w`, wrapped, `io.ErrShortWrite` for a short write. On an error the `Result` holds what was found so far, and the bytes written stay written for the caller to discard.
-  It takes no retention provider: it reads one pack.
   It writes each line in pieces of at most 64 KiB, so a line may take several `Write` calls (G5-172);
   beyond the reader's decoded block and the `Result`'s diagnostics, its memory does not grow with the length of a payload, a value or an entry list.
 - Documentation (G5-155): one `tracepack` package; `tracepack/README.md` and the package documentation open with the API by audience:
-  recorders (`CaptureDescriptor`, `SegmentWriter`, `SegmentSink`), readers (`Open`, `MergeIterate`, `FindTransaction`, `NewReaderSource`, `ExportJSONL`)
-  and the storage service (`ActiveView`, `Merge`, `Repair`, `NewStoreSource`, the key builders),
+  recorders (`CaptureDescriptor`, `SegmentWriter`, `SegmentSink`), readers (`Open`, `MergeIterate`, `FindTransaction`, `NewReaderSource`, `ExportJSONL`, `Verify`)
+  and the storage service (`Merge`, the key builders),
   with runnable examples: `ExampleSegmentWriter`, `ExampleOpen`, `ExampleFindTransaction` over `NewReaderSource`, `ExampleMergeIterate` and `ExampleExportJSONL`.
 
 ## 4. Classifier: go-secs → decode_status
@@ -423,7 +311,7 @@ The Go classifier writes `classifier = go-secs/<version>`.
 
 For well-formed frames the data/control payload equals `(*DataMessage).ToBytes()`
 and is what `DecodeHSMSMessage` consumes.
-Where go-secs's strictness differs from the spec's item-validity rules, the conformance corpus decides and the classifier is adjusted.
+Where go-secs's strictness differs from the spec's item-validity rules, [SEM §3] decides, the Go tests check it, and the classifier is adjusted (G5-210).
 
 ## 5. Observer events: go-secs → transport events and records
 
@@ -545,17 +433,18 @@ and a reply recorded before its primary is reported by transaction matching as a
 
 ## 7. Reference CLI (`tracepack/cmd/tracepack`)
 
-Subcommands `list`, `stats`, `dump --sml`, `dump --jsonl`, `verify [--repair]`, `merge`, and `recover` once `Recover` is planned; `grep` and `tx` follow in a later phase;
-local paths only. `s3://` URLs are deferred until the query service or another design decides where the object-store dependency lives,
+Subcommands `dump --jsonl`, `verify` and `find`, after phase 8 (G5-206), on local paths only.
+`list`, `stats`, `dump --sml`, `merge` and `recover` are not in the minimal CLI; whether any of them returns is open (G5-206).
+`s3://` URLs are deferred until the query service or another design decides where the object-store dependency lives,
 since the CLI shares the library's `go.mod` (G5-170).
-Every command reports `incomplete` and `conflicted` explicitly,
-and a storage-backed command whose hour becomes removed ([STO §5] Retention) ends with that outcome, never with success after the records it printed;
+Every command reports `incomplete` explicitly;
 the output syntax stays deferred with the other output formats.
-`dump --sml` renders data records through `sml.Encoder` and falls back to hex for control, event, annotation and malformed records;
 `dump --jsonl` emits the spec's canonical export ([FMT §15]).
-In `dump --sml`, a masked subtree is shown at its path with its domain and a digest prefix, its leaves with their item type and length but no value;
+`find` prints the lookup's outcome, its `incomplete` reasons and every kept version with its roles.
+Deferred with `dump --sml`, and not part of the CLI of G5-206:
+`dump --sml` renders data records through `sml.Encoder` and falls back to hex for control, event, annotation and malformed records;
+in it, a masked subtree is shown at its path with its domain and a digest prefix, its leaves with their item type and length but no value;
 a whole-text mask is shown as masked text of its length, without inventing item types; the exact syntax is deferred with the other output formats.
-`tx` prints all candidates and outcomes with their status.
 Output formats of the other commands and exit codes are deferred to implementation.
 
 ## 8. Open questions

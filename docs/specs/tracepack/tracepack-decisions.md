@@ -158,6 +158,7 @@ it is not part of the owner's recorded decision or of a review's finding.
   Masking happens only when an extract is written: masked JSONL and SML are renderings of a masked extract,
   and a masked extract is never a merge input or a patch.
   In format 1.0 only extract writers set the `redacted` bit.
+  (2026-10-10: superseded by G5-207 — the log service masks and encrypts when it writes a pack.)
 - G5-67 Masking method: per SECS-II item, length-preserving, zero fill of the contents of every leaf item under the rule's path;
   every item header is kept, so structure, `decode_status` and framing stay valid, while the shape and lengths leak.
   A message text that cannot be decoded is zero-filled whole, keeping the HSMS header.
@@ -165,6 +166,7 @@ it is not part of the owner's recorded decision or of a review's finding.
 - G5-68 Digest: HMAC-SHA-256 over a domain string followed by the original encoded item bytes (item header included), full 32 bytes.
   Each rule names its domain, and only items of the same domain are comparable (e.g. S7F3 and S7F6 PPBODY share one).
   The key is held only by the export service; one key id per policy version; digests are comparable only under equal key ids.
+  (2026-10-10: the key-holder part is superseded by G5-207 — the traffic log service holds the key.)
 - G5-69 Placement: pack metadata `redaction_policy` (policy id, version, key id) whenever a policy was applied, even if nothing matched;
   repeatable nested `redaction` entries (seq, concrete item path, masked byte ranges, domain, digest), with an empty path for a whole-text mask;
   header flag `redaction-present` only when at least one record carries `redacted`.
@@ -181,12 +183,15 @@ it is not part of the owner's recorded decision or of a review's finding.
   The policy file format is deferred (service design).
 - G5-73 VE reads unmasked data as a privileged consumer (G1-11 unchanged); its derived models and profiles inherit the same access control.
   Recorded at G1-11, not in the tracepack spec.
+  (2026-10-10: superseded by the Virtual Equipment decision V-26 — it trains on masked captures with keyed digests; see G5-207.)
 - G5-74 Capture-time redaction with an escrowed encrypted original is deferred; its cost analysis goes to [OVW §6].
   The `redaction` entry structure is defined so that it can later become an annotation body written by a recorder.
+  (2026-10-10: no longer deferred — superseded by G5-207, written by the log service rather than a recorder.)
 - G5-75 `dump --sml` shows a masked leaf's item type, length, domain and a digest prefix; the exact syntax is deferred with the other CLI output formats.
   Process: proposal P6, external review rounds until ready, then application as v2.8 with a consistency review.
 - G5-76 Extract sources (2026-09-27, after the P6 application review A1): an extract is written only from records in full.
   An unscreened extract (no `redaction_policy`, no `redacted` record) is a valid source; an extract written under a policy, or any pack holding a `redacted` record, is rejected before output.
+  (2026-10-10: extracts are a non-goal for v1.0, G5-198 and G5-207.)
 - G5-77 tracepack module path (2026-09-27; supersedes R3-4): `github.com/arloliu/go-secs/tracepack`, a nested module in `tracepack/` with tags `tracepack/vX.Y.Z`.
   Reason: for a module in `tracepack/`, the go command maps `github.com/arloliu/go-secs/v2/tracepack` to the repository directory `v2/tracepack/`
   (Go 1.26 `cmd/go/internal/modfetch/coderepo.go`: without a trailing `/vN` there is no major-version fallback),
@@ -1017,6 +1022,7 @@ it is not part of the owner's recorded decision or of a review's finding.
   Rationale: canonical facts compare across implementations without freezing one implementation's diagnostics.
   Rejected: weakening a fact to match an implementation's omission or hiding it in normalization; describing every omitted fact as one that depends on classification.
   Spec: [CORPUS §5.11] Facts and Early-return results, [SEM §7.2] (v2.30, v2.31).
+  (2026-10-10: canonical lookup facts are removed by G5-204.)
 - G5-192 Reproducible converter identities (2026-10-10):
   a converter MAY reuse a `capture_id` for a reproducible re-run, when every input that decides the capture's records, seqs and capture-level metadata is unchanged,
   the deterministic derivation of the id covering at least:
@@ -1049,6 +1055,7 @@ it is not part of the owner's recorded decision or of a review's finding.
   Rationale *(editorial)*: what a lookup reads must not depend on the order a false index delivered it in, and the kept records, the window and the facts are conformance outputs.
   Rejected *(editorial)*: amending [SEM §7.2] to exempt those versions from classification and their seqs from claim checking, as the reference implementation did.
   Spec: [SEM §7.2] (v2.31); the reference implementation changes, no golden of v2.30 moves.
+  (2026-10-10: reversed by G5-203.)
 - G5-195 Only a bounding stop of the primary's epoch answers its boundary evidence (2026-10-10):
   the clean `stop` that bounds the window keeps a capture-boundary of the primary's epoch at e, from the per-capture evidence or read, from being reported only when that stop is itself of the primary's epoch;
   a bounding `stop` of another epoch still bounds the window,
@@ -1056,6 +1063,7 @@ it is not part of the owner's recorded decision or of a review's finding.
   Rationale *(editorial)*: a boundary is identified with its epoch ([CORPUS §5.11]), so a stop of another epoch is not the boundary the evidence names.
   Rejected *(editorial)*: ignoring the epoch for this exemption, which would give boundary identity two meanings.
   Spec: no rule changes ([SEM §7.2], [CORPUS §5.11]); the reference implementation changes.
+  (2026-10-10: falls with the evidence it concerns, G5-203 and G5-204.)
 - G5-196 A scope read that yields a seq twice reads its view again (2026-10-10):
   [SEM §7.2]'s kept set holds every version of a seq that one scope's read yielded,
   also when a block disagreeing with its F-2 entry and another block yield that seq in two places, both after the primary.
@@ -1067,6 +1075,7 @@ it is not part of the owner's recorded decision or of a review's finding.
   Rejected: keeping a copy of every version without a role until the scope read ends, chosen first and replaced once its cost was shown —
   a conforming scope, up to a pack's size, charged to `MaxStateBytes`, 64 MiB by default; keeping those copies outside the budget.
   Spec: [SEM §7.2] Scopes read (v2.31).
+  (2026-10-10: reversed by G5-203.)
 - G5-197 A directory sink that never replaces a segment (2026-10-10):
   `NewDirSink` takes the option `DirSinkNoReplace()`, under which `Commit` publishes by hard-linking the temporary file to its key, so an existing file is never replaced, also by a concurrent writer;
   when the key exists it compares the bytes, after the link failed, and returns `ErrSegmentExists` for identical bytes or `ErrSegmentConflict` for different ones, the existing file kept and the segment finished.
@@ -1075,3 +1084,141 @@ it is not part of the owner's recorded decision or of a review's finding.
   Rationale *(editorial)*: a converter that reuses its `pack_id`s (G5-192) must never overwrite an existing pack, and a check before the rename races with another writer.
   Rejected *(editorial)*: returning nil for identical bytes; a separate constructor taking an options struct, the option being one flag.
   Spec: `tracepack-go.md` §3.
+
+## 2026-10-10 simplification against the stated purpose (grilling, owner agreed)
+
+The owner's purpose statement is the yardstick for these rulings:
+tracepack exists for the Virtual Equipment and for troubleshooting, to find quickly a given tool's traffic for a time range;
+it must suit long-term storage, continuous training of the Virtual Equipment and, later, the automated EAP implementation.
+The rulings below are recorded before the spec is amended; each entry's Spec line names the documents to change.
+Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are logged in `tracepack/CHANGELOG.md`.
+
+- G5-198 Scope for v1.0 and its non-goals (2026-10-10):
+  every feature is judged by whether it serves tool and time retrieval, faithful and replayable long-term storage, Virtual Equipment training, or training data for EAP automation.
+  Non-goals for v1.0:
+  readers in languages other than Go;
+  more than one assigner of (`capture_id`, `seq`) for one capture;
+  a catalog, listing views, coherent observation and retention in tracepack (G5-201);
+  a publication protocol computable from the bucket alone, with generation ranking, fence objects, tool leases and commit objects (G5-201);
+  repair in place (G5-202);
+  proof of `unmatched`, and precise diagnostics on an index defect beyond `incomplete` and the defect (G5-203, G5-204);
+  the gateway-side capture, designed by the gateway's own project (G5-200);
+  extracts and masking on egress (G5-207);
+  a major format change: every format 1.0 file stays valid, and a minor version may add tags and enum values ([FMT §16]).
+  Rationale *(editorial)*: at v0.3.0 the spec held about 7,400 lines and the module about 22k non-test lines,
+  and veq, the only consumer, used the writer, the directory sink and `Verify` only.
+  Spec: [OVW] (non-goals section), pending (v2.32).
+  (2026-10-10: the minor-version rule cited above is [FMT §14], not [FMT §16].)
+- G5-199 Go is the only reader; the corpus covers the format layer (2026-10-10):
+  no implementation in another language is planned.
+  The conformance corpus keeps conforming packs, a few rejections and the JSONL goldens;
+  diagnostics, transaction lookups and store behaviour are tested by the Go implementation's own tests, and their corpus vectors are removed.
+  Phase 6b3 (store vectors) is dropped.
+  Rationale *(editorial)*: format goldens are the cheapest guard against format drift over years of storage; the other vectors bind only one implementation.
+  Rejected *(editorial)*: removing the corpus entirely; keeping it as it is.
+  Spec: [CORPUS], [FMT §16], [OVW], `tracepack-impl-plan.md`, pending (v2.32).
+- G5-200 The gateway is the capture's producer (2026-10-10):
+  the gateway (eqp-hub) serves one tool per instance, with one active instance chosen by leader election, and keeps no durable local state.
+  It assigns `capture_id` and `seq` as a producer, starting a new capture each time it takes leadership,
+  so an overlap during a handover yields two captures, never two assigners of one capture.
+  It publishes one record per message to NATS JetStream, the message id derived from (`capture_id`, `seq`);
+  any instance of the traffic log service consumes, writes segments holding a subset of a scope's records, and acknowledges after the upload,
+  so no sticky routing is needed and records are deduplicated by (`capture_id`, `seq`) ([FMT I-12]).
+  A capture that ends without a stop boundary, because the gateway failed, is closed by the consumer side; how is designed with proposal P8.
+  The gateway-side work (wire and socket observers, seq and timestamps, publishing) is designed by the gateway's project; tracepack defines the bus record and the consumer contract.
+  Scale for design: about 1,500 tools per phase, one month of retention by default, configurable;
+  SECS traffic of about 4.5–6 MB per tool and day as zstd packs, excluding the gateway's FDC polling, whose volume is not yet known.
+  Rationale *(editorial)*: the gateway already owns each tool exclusively and already uses JetStream;
+  a recorder in the log service would need sticky routing and a local spool, and the gateway keeps no buffer to resend from.
+  Rejected *(editorial)*: the log service assigning `seq` behind gRPC with tool affinity.
+  Spec: [STO §4], [SEM §4], proposal P8, pending (v2.33).
+- G5-201 The catalog is the service's database; the storage profile keeps keys and completeness (2026-10-10):
+  the traffic log service keeps its catalog in its own database (e.g. MariaDB), and a database transaction gives the atomicity that generations and commit objects gave.
+  tracepack keeps the key layout, immutable objects with unique keys, `Merge` and `MergeIterate`, and the replacement-set completeness check of [STO §6]:
+  merged segments are deleted only after the archive is verified complete for every input.
+  A reader without the catalog reads the union of a scope's packs, deduplicated by (`capture_id`, `seq`).
+  Removed from the spec and the module: generation ranking, publisher epochs and fence objects, tool leases, commit objects, the active view computed from the bucket,
+  the catalog contract ([STO §5]), listing views and coherent observation, retention, and the store-backed pack source;
+  a transaction lookup reads the packs its caller gives it.
+  The storage-profile decisions this supersedes are listed when the spec is amended.
+  Rationale *(editorial)*: with one assigner per capture and deduplication by (`capture_id`, `seq`), a segment and its archive present together cannot change a read,
+  so the bucket-only protocol has no remaining user.
+  Rejected *(editorial)*: removing only the catalog contract; keeping the storage profile as it is.
+  Spec: [STO §2]–[STO §6], [STO §8], [SEM §7], `tracepack-go.md`, pending (v2.32).
+- G5-202 No repair in place (2026-10-10):
+  `verify --repair`, `Repair` and the `repair` pack role with its patches are removed.
+  `Verify` reports damage, and a read over a damaged pack reports `incomplete` (G5-203);
+  recovery is a new conversion from the source log, or the loss is accepted.
+  Rationale *(editorial)*: object storage makes silent damage rare, a crash is handled by recovery, and patches were the main source of the active view's complexity.
+  Rejected *(editorial)*: a simplified repair that replaces a damaged pack whole; keeping repair as it is.
+  Spec: [STO §2], [STO §4], [STO §6], [FMT] (`repair` role and `supersedes`), `tracepack-go.md`, pending (v2.32).
+- G5-203 Index defects guarantee `incomplete` and the defect only (2026-10-10):
+  when a pack's footer or F-2 disagrees with its records, a read or lookup guarantees only that the result is `incomplete` and names the defect;
+  every other fact it reports in that case is best-effort, and the corpus holds no golden for it.
+  This reverses the reference-implementation obligations of G5-194 and G5-196, and G5-195 falls with the evidence it concerns (G5-204).
+  Rationale *(editorial)*: the outcome is `incomplete` either way, so the precise facts serve none of the stated purposes, and each fix had revealed a further corner.
+  Rejected *(editorial)*: keeping G5-194 and G5-196.
+  Spec: [SEM §7.2], [SEM §7.4], [CORPUS §5.11], pending (v2.32).
+- G5-204 Transaction lookup outcomes (2026-10-10):
+  `FindTransaction` stays, with three outcomes: matched, ambiguous, and not found in the searched range,
+  plus an `incomplete` flag with its reasons.
+  The proof of `unmatched` is removed: coverage, barriers, contradictions, epoch closure, per-capture evidence, partial evidence and canonical lookup facts (G5-191).
+  Rationale *(editorial)*: troubleshooting asks whether a reply exists in the data at hand; proving that none was ever sent is not needed by any planned consumer.
+  Rejected *(editorial)*: keeping the full semantics; removing the lookup from the v1.0 API.
+  Spec: [SEM §7.2], [SEM §7.4], [STO §5], [CORPUS §5.11], `tracepack-go.md`, pending (v2.32).
+- G5-205 The recorder's durability contract is frozen (2026-10-10):
+  the local spool, the liveness anchor, crash recovery writing `stop-unclean`, and `SegmentWriter` with its syncer stay unchanged but receive no new work;
+  whether they are removed is decided with proposal P8, once it is known whether its clock-step detection reuses them.
+  Rationale *(editorial)*: with G5-200 the bus gives durability, and removing them now could mean rebuilding the anchor seam phase 8 was to reuse.
+  Rejected *(editorial)*: removing them now; keeping them for a recorder that bypasses the gateway.
+  Spec: none until P8.
+- G5-206 Order of work (2026-10-10):
+  the rulings are applied by amending the existing spec documents, the history kept in the spec changelog.
+  First tracepack v0.4.0: the removals and the changes of G5-199 and G5-201 to G5-204, with format 1.0 unchanged.
+  Then v0.5.0: proposal P8 and phase 8 (G5-200), with format 1.1 for G5-207 and G5-208.
+  Then a minimal CLI (phase 6c): `dump --jsonl`, `verify` and `find`; phase 7 (extracts) is dropped.
+  Rationale *(editorial)*: a smaller interface makes P8's design and review lighter, and the gateway-side work has not started.
+  Rejected *(editorial)*: P8 first; one release for both; a new spec written from scratch.
+  Spec: `tracepack-impl-plan.md`, pending (v2.32).
+- G5-207 Recipe bodies are encrypted when the pack is written (2026-10-10):
+  the traffic log service, writing a pack, replaces the bodies the policy names by their masked form (G5-67) with a keyed digest (G5-68),
+  and keeps the original encrypted so that a holder of the key can restore it for a faithful replay;
+  the gateway publishes frames unchanged and holds no key.
+  By default the policy names process-program bodies (e.g. S7F3, S7F6, S7F23, S7F26, S7F108), matching the EAP's own log, which holds those bodies only encrypted;
+  identifiers such as PPID, lot and carrier stay in clear unless configured, so a search by them still works.
+  The bus that carries clear text uses TLS, JetStream encryption at rest, and a work-queue stream with a short maximum age.
+  Where the ciphertext lives, key custody (a decryption service or KMS holding the private key), and key rotation are designed with P8.
+  This needs format 1.1: a minor version that lets a pack writer set `redacted` ([FMT §16]).
+  It supersedes G5-66 (store in full, mask on egress), the key-holder part of G5-68, G5-74 (no longer deferred) and G5-76;
+  G5-73 is superseded by the Virtual Equipment's decision V-26, under which it trains on masked captures with keyed digests.
+  Rationale *(editorial)*: the EAP log already encrypts these bodies, so the traffic log must not hold them in clear;
+  a key held by the log service alone avoids distributing an HMAC secret to every gateway and keeps digests comparable across message types.
+  Rejected *(editorial)*: store in full and mask on egress; encryption at the gateway; a digest without a recoverable original.
+  Spec: [FMT], [SEM §8], [STO §3], [OVW §6], pending (v2.33).
+- G5-208 Deliberately unobserved traffic (2026-10-10, the Virtual Equipment's request V-27):
+  a data record may keep its length, header, direction and time while its body is not captured by design:
+  the body is zero-filled, which compresses to almost nothing, and a new marker tells this apart from a malformed or a masked record.
+  A capture-level tag declares traffic deliberately filtered or sampled (e.g. the gateway's FDC polling), and a merge keeps it.
+  Both come with format 1.1, designed with P8.
+  Rationale *(editorial)*: a truncated record would lose the system bytes and read as malformed,
+  and an unknown top-level entry is dropped by a merge ([STO §4]), so both need registered additions.
+  Rejected *(editorial)*: deferring both past v1.0; declining them.
+  Spec: [FMT], [SEM], pending (v2.33).
+
+## 2026-10-10 spec v2.32 open points (owner agreed)
+
+- G5-209 Crash gaps are read from the footers of the packs given (2026-10-10):
+  a read or lookup reports `incomplete` for every `stop-unclean` boundary whose gap meets its time range,
+  taking the boundaries from the F-5 `boundary` entries of every pack it is given, of any capture,
+  and from the boundary records it decodes in packs without a valid footer.
+  A gap meets a time range by the matching rule of `coverage` ([FMT §5]): an absent bound is unbounded, and an inverted interval meets every range.
+  Rationale *(editorial)*: the footer is read at bootstrap, so the check needs no block decoding and does not depend on pruning; a footer claim can only add `incomplete`, never hide a record.
+  Rejected *(editorial)*: only the boundary records a read decodes; no crash-gap reason.
+  Spec: [SEM §7.2], [SEM §7.4] (v2.32).
+- G5-210 What the corpus asserts (2026-10-10, applying G5-199):
+  the corpus keeps pack bytes with the format-reading assertions only:
+  `export.jsonl`, `rejection.json`, `footer.json` (accepted, stored and recomputed values), `fields.json`, `primitives.json`, and the exports of truncation cuts.
+  `verify.json`, `queries.json`, the verification columns of truncation tables and `classify.json` become tests of the Go module.
+  Rationale *(editorial)*: the export shows exactly what a reader recovers from a damaged pack, so the format guarantee is kept without binding diagnostics.
+  Rejected *(editorial)*: keeping `verify.json` reduced to the outcome and `classify.json`; removing only the repair, multi-pack, read and lookup files.
+  Spec: [CORPUS], [FMT §16], [JSONL §7] (v2.32).
