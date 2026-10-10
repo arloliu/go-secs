@@ -98,10 +98,9 @@ type WriterOptions struct {
 	// Facts.AnyRedacted also sets the file header's redaction-present flag,
 	// without which Append rejects a record carrying quality.redacted.
 	Facts PackFacts
-	// Codec compresses block bodies.
-	// The zero value is CodecNone;
-	// the tracepack format specification §2 recommends CodecZstd.
-	Codec Codec
+	// Uncompressed writes the block bodies and the footer with CodecNone;
+	// otherwise they are written with CodecZstd, as the tracepack format specification §2 recommends.
+	Uncompressed bool
 	// BlockThreshold is the uncompressed block size, in bytes, at which a block is closed;
 	// zero means DefaultBlockThreshold.
 	// A block never exceeds it, except a block holding a single record larger than it.
@@ -294,7 +293,7 @@ func startWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 		packID:      opts.PackID,
 		captureID:   opts.CaptureID,
 		syncer:      opts.Sync,
-		codec:       opts.Codec,
+		codec:       CodecZstd,
 		threshold:   threshold,
 		validate:    !opts.SkipValidation,
 		assignSeq:   opts.AssignSeq,
@@ -311,6 +310,9 @@ func startWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 			packRole:         meta.PackRole,
 			redactionPresent: opts.Facts.AnyRedacted,
 		},
+	}
+	if opts.Uncompressed {
+		wr.codec = CodecNone
 	}
 	if meta.PackRole != PackRoleExtract && !opts.allowScopeBreach {
 		// checkOptions checked the period.
@@ -332,9 +334,6 @@ func startWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 func checkOptions(opts *WriterOptions) error {
 	if opts.Meta == nil {
 		return errors.New("tracepack: WriterOptions.Meta is nil")
-	}
-	if !codec.Known(uint8(opts.Codec)) {
-		return fmt.Errorf("tracepack: WriterOptions.Codec %s is not a codec a writer may use", opts.Codec)
 	}
 	if opts.BlockThreshold < 0 || int64(opts.BlockThreshold) > int64(format.MaxLen32) {
 		return fmt.Errorf("tracepack: WriterOptions.BlockThreshold %d outside 0 to %d", opts.BlockThreshold, format.MaxLen32)

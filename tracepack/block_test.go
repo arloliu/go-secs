@@ -337,7 +337,7 @@ func TestBoundaryBitMakesNoBoundaryRecord(t *testing.T) {
 		PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)),
 		PeriodStart: blockTestHour, PeriodEnd: blockTestHour + hourNs,
 	}
-	pack := copyBlocks(t, WriterOptions{Meta: meta, Codec: CodecZstd}, []sourceBlock{{raw: raw, sum: sum}})
+	pack := copyBlocks(t, WriterOptions{Meta: meta}, []sourceBlock{{raw: raw, sum: sum}})
 
 	rep := mustVerify(t, pack)
 	assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome, "failed %v, disagreements %v", rep.Failed, rep.Disagreements)
@@ -366,7 +366,7 @@ func TestWriterRecordsBlockSummaries(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	w, err := NewWriter(&buf, WriterOptions{Meta: meta, Codec: CodecZstd, BlockThreshold: 140})
+	w, err := NewWriter(&buf, WriterOptions{Meta: meta, BlockThreshold: 140})
 	require.NoError(t, err)
 	headLen := buf.Len()
 
@@ -654,7 +654,7 @@ func TestWriterKeepsNoEpochIndex(t *testing.T) {
 		PeriodStart: blockTestHour, PeriodEnd: blockTestHour + hourNs,
 	}
 	var buf bytes.Buffer
-	w, err := NewWriter(&buf, WriterOptions{Meta: meta, Codec: CodecZstd, BlockThreshold: 1 << 16})
+	w, err := NewWriter(&buf, WriterOptions{Meta: meta, BlockThreshold: 1 << 16})
 	require.NoError(t, err)
 	epochs := slices.Concat(epochRange(0, 11), []uint32{3, 0, 11, 3})
 	for i, e := range epochs {
@@ -754,7 +754,7 @@ func TestEncodeRawBlockKeepsRecordBytes(t *testing.T) {
 					PackRole: PackRoleSegment, ScopeGeneration: new(uint64(0)), SeqStart: sum.firstSeq,
 					PeriodStart: blockTestHour, PeriodEnd: blockTestHour + hourNs,
 				}
-				pack := copyBlocks(t, WriterOptions{Meta: meta, Codec: CodecZstd}, []sourceBlock{{raw: raw, sum: sum}})
+				pack := copyBlocks(t, WriterOptions{Meta: meta}, []sourceBlock{{raw: raw, sum: sum}})
 				rep := mustVerify(t, pack)
 				assert.Equal(t, OutcomeFinalizedConsistent, rep.Outcome, "failed %v, disagreements %v", rep.Failed, rep.Disagreements)
 				_, blocks := readSourceBlocks(t, pack)

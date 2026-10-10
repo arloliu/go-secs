@@ -235,7 +235,6 @@ func TestMergeOptionErrors(t *testing.T) {
 		{name: "generation 0", edit: func(o *MergeOptions) { o.ScopeGeneration = 0 }, msg: "ScopeGeneration is 0"},
 		{name: "generation above 2^63-1", edit: func(o *MergeOptions) { o.ScopeGeneration = 1 << 63 }, msg: "above"},
 		{name: "epoch above 2^63-1", edit: func(o *MergeOptions) { o.PublisherEpoch = 1 << 63 }, msg: "above"},
-		{name: "a codec outside the registry", edit: func(o *MergeOptions) { o.Codec = Codec(9) }, msg: "Codec"},
 		{name: "negative block threshold", edit: func(o *MergeOptions) { o.BlockThreshold = -1 }, msg: "BlockThreshold"},
 		{name: "block threshold above 2^31-1", edit: func(o *MergeOptions) {
 			// A variable, so the test compiles where int is 32 bits:

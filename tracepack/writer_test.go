@@ -354,7 +354,7 @@ func TestWriterRoundTripMixedKinds(t *testing.T) {
 			t.Parallel()
 
 			want := mixedRecords(t)
-			w, buf := newTestWriter(t, tracepack.WriterOptions{Codec: c})
+			w, buf := newTestWriter(t, tracepack.WriterOptions{Uncompressed: c == tracepack.CodecNone})
 			appendAll(t, w, want)
 			mustClose(t, w)
 
@@ -410,7 +410,7 @@ func TestWriterClosesBlockAtUTCHourBoundary(t *testing.T) {
 	}
 
 	// Only an extract holds records of several UTC hours.
-	w, buf := newTestWriter(t, tracepack.WriterOptions{Meta: asExtract(writerMeta()), Codec: tracepack.CodecZstd})
+	w, buf := newTestWriter(t, tracepack.WriterOptions{Meta: asExtract(writerMeta())})
 	appendAll(t, w, recs)
 	mustClose(t, w)
 
@@ -466,7 +466,7 @@ func TestWriterWritesOversizedRecordAlone(t *testing.T) {
 		dataRecord(0, hourStart), dataRecord(1, hourStart+1), big, dataRecord(3, hourStart+3),
 	}
 
-	w, buf := newTestWriter(t, tracepack.WriterOptions{BlockThreshold: 200, Codec: tracepack.CodecZstd})
+	w, buf := newTestWriter(t, tracepack.WriterOptions{BlockThreshold: 200})
 	appendAll(t, w, recs)
 	mustClose(t, w)
 
@@ -637,7 +637,7 @@ func TestWriterCodecsDecodeToEqualBodies(t *testing.T) {
 
 	bodies := make(map[tracepack.Codec][][]byte)
 	for _, c := range []tracepack.Codec{tracepack.CodecNone, tracepack.CodecZstd} {
-		w, buf := newTestWriter(t, tracepack.WriterOptions{Codec: c, BlockThreshold: 250, PackID: uuidOfByte(1), CaptureID: uuidOfByte(2)})
+		w, buf := newTestWriter(t, tracepack.WriterOptions{Uncompressed: c == tracepack.CodecNone, BlockThreshold: 250, PackID: uuidOfByte(1), CaptureID: uuidOfByte(2)})
 		recs := mixedRecords(t)
 		appendAll(t, w, recs)
 		mustClose(t, w)
@@ -935,7 +935,6 @@ func TestNewWriterRejectsInvalidOptions(t *testing.T) {
 		opts tracepack.WriterOptions
 	}{
 		{"nil meta", tracepack.WriterOptions{}},
-		{"unknown codec", tracepack.WriterOptions{Meta: writerMeta(), Codec: 2}},
 		{"negative threshold", tracepack.WriterOptions{Meta: writerMeta(), BlockThreshold: -1}},
 		// Where int is 32 bits the conversion wraps to a negative threshold, refused all the same.
 		{"threshold above the body limit", tracepack.WriterOptions{Meta: writerMeta(), BlockThreshold: int(aboveBodyLimit)}},
@@ -1106,7 +1105,7 @@ func TestValidatingWriterWritesAgreeingPack(t *testing.T) {
 	t.Parallel()
 
 	meta := writerMeta()
-	w, buf := newTestWriter(t, tracepack.WriterOptions{Meta: meta, Codec: tracepack.CodecZstd, BlockThreshold: 200})
+	w, buf := newTestWriter(t, tracepack.WriterOptions{Meta: meta, BlockThreshold: 200})
 	recs := mixedRecords(t)
 	appendAll(t, w, recs)
 	mustClose(t, w)
@@ -1137,7 +1136,8 @@ func TestWriterDropsRetiredMetadataTags(t *testing.T) {
 }
 
 // corruptFirstSeq returns a hook that inverts byte 0 of the encoded body of block n and later ones, counting from 0,
-// which for codec none is byte 0 of the first record's seq, so the block's first seq no longer equals first_seq (I-2).
+// which for codec none is byte 0 of the first record's seq, so the block's first seq no longer equals first_seq (I-2);
+// its callers write with Uncompressed set for that.
 func corruptFirstSeq(n int) func(enc []byte) []byte {
 	block := 0
 
@@ -1154,7 +1154,7 @@ func corruptFirstSeq(n int) func(enc []byte) []byte {
 func TestValidatingWriterRejectsCorruptEncoding(t *testing.T) {
 	t.Parallel()
 
-	w, buf := newTestWriter(t, tracepack.WriterOptions{})
+	w, buf := newTestWriter(t, tracepack.WriterOptions{Uncompressed: true})
 	tracepack.SetEncodedHook(w, corruptFirstSeq(1))
 
 	good := dataRecord(0, hourStart)
@@ -1205,7 +1205,7 @@ func TestValidatingWriterChecksColumnarSection(t *testing.T) {
 			t.Run(c.String()+" "+d.name, func(t *testing.T) {
 				t.Parallel()
 
-				w, buf := newTestWriter(t, tracepack.WriterOptions{Codec: c})
+				w, buf := newTestWriter(t, tracepack.WriterOptions{Uncompressed: c == tracepack.CodecNone})
 				tracepack.SetEncodedHook(w, func(enc []byte) []byte {
 					body, err := codec.Decode(uint8(c), nil, enc, bodyLen)
 					require.NoError(t, err)
@@ -1231,7 +1231,7 @@ func TestValidatingWriterChecksColumnarSection(t *testing.T) {
 func TestNonValidatingWriterWritesCorruptEncoding(t *testing.T) {
 	t.Parallel()
 
-	w, buf := newTestWriter(t, tracepack.WriterOptions{SkipValidation: true})
+	w, buf := newTestWriter(t, tracepack.WriterOptions{Uncompressed: true, SkipValidation: true})
 	tracepack.SetEncodedHook(w, corruptFirstSeq(0))
 	r := dataRecord(0, hourStart)
 	require.NoError(t, w.Append(&r))

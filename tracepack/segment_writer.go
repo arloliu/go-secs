@@ -56,7 +56,8 @@ type SegmentWriterOptions struct {
 	// Classifier, when set, classifies every frame AppendFrame takes,
 	// and its Name and MaxFrameLen are written as the classifier and max_frame_len tags of every segment.
 	Classifier Classifier
-	// Uncompressed writes blocks with CodecNone; otherwise they are written with CodecZstd.
+	// Uncompressed writes the block bodies and the footer with CodecNone;
+	// otherwise they are written with CodecZstd.
 	Uncompressed bool
 	// BlockThreshold is WriterOptions.BlockThreshold for every segment.
 	BlockThreshold int
@@ -826,7 +827,7 @@ func (w *SegmentWriter) open(ctx context.Context, ts int64) error {
 	wr, err := startWriter(out, WriterOptions{
 		Meta:             w.desc.packMeta(p),
 		Facts:            p.facts(),
-		Codec:            w.codec,
+		Uncompressed:     w.codec == CodecNone,
 		BlockThreshold:   w.threshold,
 		SkipValidation:   w.skipValid,
 		Sync:             out,

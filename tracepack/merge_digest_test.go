@@ -71,7 +71,7 @@ func TestMergeOutputDigests(t *testing.T) {
 
 	merged := func(c Codec, noCoalesce bool, files ...[]byte) []byte {
 		opts := mergeOpts()
-		opts.Codec, opts.NoCoalesce = c, noCoalesce
+		opts.Uncompressed, opts.NoCoalesce = c == CodecNone, noCoalesce
 		out, _, err := mergeBytes(t.Context(), inputsOf(files...), opts)
 		require.NoError(t, err)
 

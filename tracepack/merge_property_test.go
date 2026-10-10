@@ -730,7 +730,7 @@ func TestMergeProperties(t *testing.T) {
 				if opts.Writer == "" {
 					opts = mergeOpts()
 				}
-				opts.Codec, opts.NoCoalesce, opts.BlockThreshold = o.codec, o.noCoalesce, o.threshold
+				opts.Uncompressed, opts.NoCoalesce, opts.BlockThreshold = o.codec == CodecNone, o.noCoalesce, o.threshold
 				out, rep := mergeChecked(t, tt.files, opts, o.fallbacks)
 				if tt.empty {
 					assert.Zero(t, rep.Blocks)
@@ -935,7 +935,7 @@ func genScopeOf(t testing.TB, seed uint64) genScope {
 		s.files = append(s.files, mergePack(t, UUID{0x63}, func(m *PackMeta) { m.SeqStart = seqStart }, nil))
 	}
 
-	s.opts.Codec = codecs[rng.IntN(2)]
+	s.opts.Uncompressed = codecs[rng.IntN(2)] == CodecNone
 	s.opts.NoCoalesce = rng.IntN(3) == 0
 	s.opts.BlockThreshold = [...]int{0, 50, 150, 400, 1000, 3000}[rng.IntN(6)]
 	s.fallbacks = !s.opts.NoCoalesce && rng.IntN(3) == 0
@@ -994,7 +994,7 @@ func TestMergeGeneratedScopes(t *testing.T) {
 
 // Bits of the control byte of FuzzMerge and FuzzMergeGenerated, which chooses the merge options.
 const (
-	// fuzzNoCoalesce sets MergeOptions.NoCoalesce, and fuzzZstd sets MergeOptions.Codec to CodecZstd.
+	// fuzzNoCoalesce sets MergeOptions.NoCoalesce, and fuzzZstd leaves MergeOptions.Uncompressed unset, so the archive is written with CodecZstd.
 	fuzzNoCoalesce = 1 << 0
 	fuzzZstd       = 1 << 1
 	// fuzzThresholdShift places the two bits that choose MergeOptions.BlockThreshold among fuzzThresholds.
@@ -1015,10 +1015,7 @@ var fuzzMergeReader = ReaderOptions{MaxPackMetadataLen: 1 << 20, MaxFooterLen: 1
 // fuzzOptions returns opts with the codec, coalescing, threshold, MaxOpenBlocks and MaxFooterLen
 // that the control byte ctl chooses.
 func fuzzOptions(opts MergeOptions, ctl uint8) MergeOptions {
-	opts.Codec = CodecNone
-	if ctl&fuzzZstd != 0 {
-		opts.Codec = CodecZstd
-	}
+	opts.Uncompressed = ctl&fuzzZstd == 0
 	opts.NoCoalesce = ctl&fuzzNoCoalesce != 0
 	opts.BlockThreshold = fuzzThresholds[ctl>>fuzzThresholdShift&3]
 	if ctl&fuzzOneOpenBlock != 0 {

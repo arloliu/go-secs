@@ -715,7 +715,7 @@ func TestMergeCancelledDuringResolution(t *testing.T) {
 	pack := func(id UUID, c Codec) []byte {
 		m := repairTestMeta()
 		var buf bytes.Buffer
-		w, err := NewWriter(&buf, WriterOptions{Meta: m, Codec: c, BlockThreshold: 1 << 20})
+		w, err := NewWriter(&buf, WriterOptions{Meta: m, Uncompressed: c == CodecNone, BlockThreshold: 1 << 20})
 		require.NoError(t, err)
 		for seq := range uint64(records) {
 			rec := testDataRecord(seq, blockTestHour+int64(seq), 1)
@@ -773,7 +773,7 @@ func TestMergeResolutionEncodingFails(t *testing.T) {
 				t.Parallel()
 
 				opts := mergeOpts()
-				opts.Codec, opts.BlockThreshold = c, tt.threshold
+				opts.Uncompressed, opts.BlockThreshold = c == CodecNone, tt.threshold
 				var hooked int
 				out, rep, err := writeWithHooks(t, inputsOf(early, a, b), opts, func(p *mergePlan) {
 					p.encodedHook = func(enc []byte) []byte {

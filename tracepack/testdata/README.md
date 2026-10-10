@@ -43,7 +43,7 @@ func main() {
 
 	var buf bytes.Buffer
 	w, err := tracepack.NewWriter(&buf, tracepack.WriterOptions{
-		Meta: meta, Facts: tracepack.PackFacts{AnyClassified: true}, Codec: tracepack.CodecZstd,
+		Meta: meta, Facts: tracepack.PackFacts{AnyClassified: true},
 		AssignSeq: true, PackID: packID, CaptureID: captureID,
 	})
 	if err != nil {

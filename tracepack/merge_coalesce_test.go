@@ -49,7 +49,7 @@ func countedHook(calls *int) func(enc []byte) []byte {
 // a group grows while the next block has the group's record_header_len and fits the threshold with the group,
 // a block that alone reaches the threshold is a group of its own,
 // a group of one block is copied verbatim with its F-3 list and its codec,
-// and a larger group is encoded as one new block, with the codec encodeBlock chooses for MergeOptions.Codec,
+// and a larger group is encoded as one new block, with zstd, or with none under MergeOptions.Uncompressed,
 // the inputs being written with the other codec.
 // Only the larger groups are encoded, and without coalescing no block is.
 func TestMergeCoalescesSmallBlocks(t *testing.T) {
@@ -103,7 +103,7 @@ func TestMergeCoalescesSmallBlocks(t *testing.T) {
 					a = widenFile(t, a, tt.wide)
 				}
 				opts := mergeOpts()
-				opts.Codec, opts.BlockThreshold = c, tt.threshold
+				opts.Uncompressed, opts.BlockThreshold = c == CodecNone, tt.threshold
 				out, rep := mustMerge(t, inputsOf(a), opts)
 				requireCounts(t, rep, tt.want)
 				assert.Equal(t, tt.shapes, blockShapes(t, out))
@@ -188,7 +188,7 @@ func TestMergeCoalescedEncodingFails(t *testing.T) {
 					t.Parallel()
 
 					opts := mergeOpts()
-					opts.Codec = c
+					opts.Uncompressed = c == CodecNone
 					var calls int
 					n := int(g.want.records) * testRecordLen
 					out, rep, err := writeWithHooks(t, inputsOf(g.files...), opts, func(p *mergePlan) {
@@ -374,7 +374,7 @@ func TestMergeFooterBudgetWithCoalescing(t *testing.T) {
 	file, lists := nestedF3Pack(t, mergePack(t, seg0, nil, hourSteps(1, blocks, 1)), pad)
 	require.Len(t, lists, blocks)
 	opts := fixedIDs(mergeOpts())
-	opts.MaxFooterLen = 4 << 20
+	opts.MaxFooterLen, opts.Uncompressed = 4<<20, true
 	// fail changes the last payload byte of the group's new block, of the none codec, so the block fails its check.
 	fail := func(p *mergePlan) {
 		p.coalescedHook = func(enc []byte) []byte {
@@ -465,7 +465,10 @@ func TestMergeFooterBudgetExceededByF5(t *testing.T) {
 		seqs[seq/200] = append(seqs[seq/200], seq)
 	}
 	a := mergePack(t, seg0, nil, seqBlocks(seqs[0], seqs[1]))
-	full, rep := mustMerge(t, inputsOf(a), mergeOpts())
+	// The footer is written uncompressed, so its length on disk is the length the budget counts.
+	opts := mergeOpts()
+	opts.Uncompressed = true
+	full, rep := mustMerge(t, inputsOf(a), opts)
 	requireCounts(t, rep, mergeCounts{blocks: 1, records: 200, coalescedEncodings: 1, coalesced: 2})
 
 	l := layoutOf(t, full)
@@ -482,7 +485,6 @@ func TestMergeFooterBudgetExceededByF5(t *testing.T) {
 	require.LessOrEqual(t, counted, budget, "the block is admitted")
 	require.LessOrEqual(t, f5At, budget, "F-2 and F-3 fit the budget")
 
-	opts := mergeOpts()
 	opts.MaxFooterLen = int64(budget)
 	out, rep, err := mergeBytes(t.Context(), inputsOf(a), opts)
 	require.ErrorIs(t, err, ErrMergeLimit)

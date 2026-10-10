@@ -29,7 +29,7 @@ func mergeBenchSegments(tb testing.TB, recs []Record) [][]byte {
 		m.PeriodStart, m.PeriodEnd, m.SeqStart = start.UnixNano(), end.UnixNano(), seq
 		var buf bytes.Buffer
 		w, err := NewWriter(&buf, WriterOptions{
-			Meta: m, Facts: PackFacts{AnyClassified: true}, Codec: CodecZstd,
+			Meta: m, Facts: PackFacts{AnyClassified: true},
 			AssignSeq: true, NextSeq: seq, CaptureID: perfCapture,
 		})
 		require.NoError(tb, err)
@@ -66,7 +66,7 @@ func BenchmarkMergeCoalesce(b *testing.B) {
 		}{{"coalesce", false}, {"nocoalesce", true}} {
 			b.Run(profile.name+"/"+mode.name, func(b *testing.B) {
 				opts := MergeOptions{
-					Writer: "bench", ScopeGeneration: 1, PublisherEpoch: 1, Codec: CodecZstd, NoCoalesce: mode.noCoalesce,
+					Writer: "bench", ScopeGeneration: 1, PublisherEpoch: 1, NoCoalesce: mode.noCoalesce,
 					OnConflict: func(Conflict) {},
 				}
 				b.SetBytes(perfContentBytes(recs))

@@ -70,7 +70,7 @@ func copyOptions(r *Reader, blocks []sourceBlock, c Codec) WriterOptions {
 	}
 
 	// The source packs have no period and span UTC hours, so the Writer's scope checks are off.
-	return WriterOptions{Meta: h.Meta, Codec: c, PackID: h.PackID, CaptureID: h.CaptureID, allowScopeBreach: true}
+	return WriterOptions{Meta: h.Meta, Uncompressed: c == CodecNone, PackID: h.PackID, CaptureID: h.CaptureID, allowScopeBreach: true}
 }
 
 // copyBlocks writes blocks into a new pack with opts and returns it.
@@ -475,7 +475,7 @@ func manyEpochPack(t testing.TB, n int) []byte {
 		PeriodStart: blockTestHour, PeriodEnd: blockTestHour + hourNs,
 	}
 	var buf bytes.Buffer
-	w, err := NewWriter(&buf, WriterOptions{Meta: meta, Codec: CodecZstd})
+	w, err := NewWriter(&buf, WriterOptions{Meta: meta})
 	require.NoError(t, err)
 	for i := range n {
 		rec := testDataRecord(uint64(i), blockTestHour+int64(i), uint32(i))
