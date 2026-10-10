@@ -2941,6 +2941,53 @@
       ]
     },
     {
+      "id": "tx-closure-conflict",
+      "title": "a close_seq naming a seq with two versions, one of them the socket-close: the conflict, no contradiction",
+      "cites": [
+        "SEM §7.2",
+        "SEM §9",
+        "CORPUS §5.11"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "lookups.json"
+      ]
+    },
+    {
+      "id": "tx-closure-contradiction",
+      "title": "footer claims naming an annotation, the primary's seq, a stop of another epoch, a socket-close as a stop, and a seq below the primary: contradictions",
+      "cites": [
+        "SEM §7.2",
+        "SEM §9",
+        "FMT §10",
+        "CORPUS §5.11"
+      ],
+      "class": "multi-pack",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "pack-2.tpk",
+        "pack-2.verify.json",
+        "pack-3.tpk",
+        "pack-3.verify.json",
+        "lookups.json"
+      ]
+    },
+    {
       "id": "tx-cross-pack",
       "title": "a reply in another segment of the primary's hour, and a reply in the next hour's scope",
       "cites": [
@@ -2960,6 +3007,30 @@
         "pack-1.verify.json",
         "pack-2.tpk",
         "pack-2.verify.json",
+        "lookups.json"
+      ]
+    },
+    {
+      "id": "tx-epoch-barrier",
+      "title": "a stop-unclean barrier beside a stop of another epoch, which bounds the window but keeps the barrier, and beside a socket-close of the primary's epoch, which lifts it",
+      "cites": [
+        "SEM §7.2",
+        "STO §5",
+        "CORPUS §5.11"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "pack-2.tpk",
+        "pack-2.verify.json",
+        "pack-3.tpk",
+        "pack-3.verify.json",
         "lookups.json"
       ]
     },
@@ -2985,8 +3056,8 @@
       "id": "tx-refused-socket",
       "title": "an outstanding primary of epoch 1, the socket-close of a refused socket of epoch 2, then the reply of epoch 1",
       "cites": [
-        "FMT I-7",
         "SEM §7.2",
+        "FMT I-7",
         "SEM §9",
         "CORPUS §5.11"
       ],
@@ -3022,7 +3093,25 @@
       "id": "tx-unavailable-fields",
       "title": "a primary without System Bytes, and an unanswered primary followed in its window by a reply-direction record without System Bytes",
       "cites": [
+        "SEM §7.2",
         "FMT §7.2",
+        "SEM §9",
+        "CORPUS §5.11"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "lookups.json"
+      ]
+    },
+    {
+      "id": "tx-window-bounds",
+      "title": "windows bounded by a same-key primary, a socket-close, a clean stop of another epoch, and by no record read",
+      "cites": [
         "SEM §7.2",
         "SEM §9",
         "CORPUS §5.11"
@@ -3034,6 +3123,8 @@
       "files": [
         "pack-0.tpk",
         "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
         "lookups.json"
       ]
     },

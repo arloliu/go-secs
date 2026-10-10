@@ -1,0 +1,19 @@
+{
+  "outcome": "finalized-inconsistent",
+  "finalized": true,
+  "footer_valid": true,
+  "blocks_located": 1,
+  "blocks_validated": 1,
+  "records": "7",
+  "prefix_end": "790",
+  "failed_blocks": [],
+  "disagreeing_blocks": [
+    {
+      "block": 0,
+      "offset": "307"
+    }
+  ],
+  "trailer_totals_disagree": false,
+  "writer_defects": [],
+  "lost": []
+}

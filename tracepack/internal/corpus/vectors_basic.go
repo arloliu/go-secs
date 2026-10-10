@@ -360,7 +360,7 @@ func codecBlocks() ([][]tracepack.Record, error) {
 		},
 		{
 			fixed(newData(4, 1, e2h, dataFrame(1, 2, false, 2, emptyList))),
-			func() (tracepack.Record, error) { return newNote(5, 1, "operator note") },
+			func() (tracepack.Record, error) { return newNote(5, "operator note") },
 			fixed(newData(6, 1, e2h, dataFrame(6, 11, true, 3, emptyList))),
 			fixed(newData(7, 1, h2e, dataFrame(6, 12, false, 3, []byte{0x21, 0x01, 0x00}))),
 		},

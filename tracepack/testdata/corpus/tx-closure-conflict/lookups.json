@@ -1,0 +1,123 @@
+[
+  {
+    "id": "conflicting-socket-close",
+    "cites": [
+      "SEM §7.2",
+      "CORPUS §5.11"
+    ],
+    "source": {
+      "view": [
+        0,
+        1
+      ],
+      "evidence": [],
+      "complete": true
+    },
+    "key": {
+      "capture_id": "01a0ffeb-3600-74aa-a01d-c498c0ddf753",
+      "seq": "1",
+      "hour": "497500"
+    },
+    "max_scopes": 1,
+    "expect": {
+      "outcome": "incomplete",
+      "key": {
+        "epoch": 1,
+        "dir": "host-to-equipment",
+        "session_id": 1,
+        "system_bytes": "AAAAkQ==",
+        "stream": 1,
+        "function": 1,
+        "w": true
+      },
+      "records": [
+        {
+          "seq": "1",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "primary"
+          ],
+          "in_window": false,
+          "bound": false
+        },
+        {
+          "seq": "2",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "candidate"
+          ],
+          "in_window": true,
+          "bound": false,
+          "decidable": true,
+          "eligible": true,
+          "valid": true
+        },
+        {
+          "seq": "3",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": true,
+          "roles": [
+            "closing"
+          ],
+          "in_window": true,
+          "bound": false
+        },
+        {
+          "seq": "3",
+          "hour": "497500",
+          "pack": 1,
+          "block": 0,
+          "conflict": true,
+          "roles": [],
+          "in_window": true,
+          "bound": false
+        }
+      ],
+      "gaps": [
+        {
+          "reason": "conflict",
+          "hours": [
+            "497500"
+          ],
+          "seq": "3"
+        },
+        {
+          "reason": "open-window"
+        }
+      ],
+      "searched": [
+        {
+          "hour": "497500",
+          "indexed": true,
+          "packs": [
+            0,
+            1
+          ]
+        }
+      ],
+      "conflicts": [
+        {
+          "capture_id": "01a0ffeb-3600-74aa-a01d-c498c0ddf753",
+          "seq": "3",
+          "versions": [
+            [
+              0
+            ],
+            [
+              1
+            ]
+          ]
+        }
+      ],
+      "footer_errors": []
+    }
+  }
+]

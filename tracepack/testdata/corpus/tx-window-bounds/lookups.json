@@ -1,0 +1,317 @@
+[
+  {
+    "id": "none-in-scopes",
+    "cites": [
+      "SEM §7.2",
+      "CORPUS §5.11"
+    ],
+    "source": {
+      "view": [
+        0,
+        1
+      ],
+      "evidence": [],
+      "complete": true
+    },
+    "key": {
+      "capture_id": "01a0ffeb-3600-75b1-b83e-132c8445422b",
+      "seq": "1",
+      "hour": "497500"
+    },
+    "max_scopes": 1,
+    "expect": {
+      "outcome": "incomplete",
+      "key": {
+        "epoch": 1,
+        "dir": "host-to-equipment",
+        "session_id": 1,
+        "system_bytes": "AAAAYQ==",
+        "stream": 1,
+        "function": 1,
+        "w": true
+      },
+      "records": [
+        {
+          "seq": "1",
+          "hour": "497500",
+          "pack": 1,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "primary"
+          ],
+          "in_window": false,
+          "bound": false
+        }
+      ],
+      "gaps": [
+        {
+          "reason": "open-window"
+        }
+      ],
+      "searched": [
+        {
+          "hour": "497500",
+          "indexed": true,
+          "packs": [
+            1
+          ]
+        }
+      ],
+      "conflicts": [],
+      "footer_errors": []
+    }
+  },
+  {
+    "id": "same-key-primary",
+    "cites": [
+      "SEM §7.2",
+      "CORPUS §5.11"
+    ],
+    "source": {
+      "view": [
+        0,
+        1
+      ],
+      "evidence": [],
+      "complete": true
+    },
+    "key": {
+      "capture_id": "01a0ffeb-3600-7e20-9795-b158d6ef134b",
+      "seq": "1",
+      "hour": "497500"
+    },
+    "max_scopes": 1,
+    "expect": {
+      "outcome": "unmatched",
+      "key": {
+        "epoch": 1,
+        "dir": "host-to-equipment",
+        "session_id": 1,
+        "system_bytes": "AAAAYQ==",
+        "stream": 1,
+        "function": 1,
+        "w": true
+      },
+      "window_end": "2",
+      "records": [
+        {
+          "seq": "1",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "primary"
+          ],
+          "in_window": false,
+          "bound": false
+        },
+        {
+          "seq": "2",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "same-key-primary"
+          ],
+          "in_window": false,
+          "bound": true
+        },
+        {
+          "seq": "3",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "closing"
+          ],
+          "in_window": false,
+          "bound": false
+        },
+        {
+          "seq": "5",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "closing"
+          ],
+          "in_window": false,
+          "bound": false
+        }
+      ],
+      "gaps": [],
+      "searched": [
+        {
+          "hour": "497500",
+          "indexed": true,
+          "packs": [
+            0
+          ]
+        }
+      ],
+      "conflicts": [],
+      "footer_errors": []
+    }
+  },
+  {
+    "id": "socket-close",
+    "cites": [
+      "SEM §7.2",
+      "CORPUS §5.11"
+    ],
+    "source": {
+      "view": [
+        0,
+        1
+      ],
+      "evidence": [],
+      "complete": true
+    },
+    "key": {
+      "capture_id": "01a0ffeb-3600-7e20-9795-b158d6ef134b",
+      "seq": "2",
+      "hour": "497500"
+    },
+    "max_scopes": 1,
+    "expect": {
+      "outcome": "unmatched",
+      "key": {
+        "epoch": 1,
+        "dir": "host-to-equipment",
+        "session_id": 1,
+        "system_bytes": "AAAAYQ==",
+        "stream": 1,
+        "function": 1,
+        "w": true
+      },
+      "window_end": "3",
+      "records": [
+        {
+          "seq": "2",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "primary"
+          ],
+          "in_window": false,
+          "bound": false
+        },
+        {
+          "seq": "3",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "closing"
+          ],
+          "in_window": false,
+          "bound": true
+        },
+        {
+          "seq": "5",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "closing"
+          ],
+          "in_window": false,
+          "bound": false
+        }
+      ],
+      "gaps": [],
+      "searched": [
+        {
+          "hour": "497500",
+          "indexed": true,
+          "packs": [
+            0
+          ]
+        }
+      ],
+      "conflicts": [],
+      "footer_errors": []
+    }
+  },
+  {
+    "id": "stop-other-epoch",
+    "cites": [
+      "SEM §7.2",
+      "CORPUS §5.11"
+    ],
+    "source": {
+      "view": [
+        0,
+        1
+      ],
+      "evidence": [],
+      "complete": true
+    },
+    "key": {
+      "capture_id": "01a0ffeb-3600-7e20-9795-b158d6ef134b",
+      "seq": "4",
+      "hour": "497500"
+    },
+    "max_scopes": 1,
+    "expect": {
+      "outcome": "unmatched",
+      "key": {
+        "epoch": 2,
+        "dir": "host-to-equipment",
+        "session_id": 1,
+        "system_bytes": "AAAAYg==",
+        "stream": 1,
+        "function": 1,
+        "w": true
+      },
+      "window_end": "5",
+      "records": [
+        {
+          "seq": "4",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "primary"
+          ],
+          "in_window": false,
+          "bound": false
+        },
+        {
+          "seq": "5",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "closing"
+          ],
+          "in_window": false,
+          "bound": true
+        }
+      ],
+      "gaps": [],
+      "searched": [
+        {
+          "hour": "497500",
+          "indexed": true,
+          "packs": [
+            0
+          ]
+        }
+      ],
+      "conflicts": [],
+      "footer_errors": []
+    }
+  }
+]

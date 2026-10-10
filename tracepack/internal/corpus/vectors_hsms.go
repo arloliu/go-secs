@@ -333,7 +333,7 @@ func predicatesVector() Recipe {
 		Cites: hsmsCites, Class: ClassRead,
 		Build: hsmsBuild(segmentMeta, func() ([]tracepack.Record, error) {
 			h2e, e2h := tracepack.DirHostToEquipment, tracepack.DirEquipmentToHost
-			note, err := newNote(7, 1, "predicates")
+			note, err := newNote(7, "predicates")
 			if err != nil {
 				return nil, err
 			}
