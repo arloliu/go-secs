@@ -560,6 +560,7 @@ func TestFindTransactionScopeBreachSettlement(t *testing.T) {
 // TestFindTransactionScopeBreachGapOrder pins where a read lists its scope-breach gaps:
 // as the read yields their versions, before the gaps its mapping adds, the index mismatch first among them,
 // and before the settlement's gaps.
+// The misindexed block's same-key primary at 20, yielded before the primary, bounds the window, whose seq 15 no read yields.
 func TestFindTransactionScopeBreachGapOrder(t *testing.T) {
 	t.Parallel()
 
@@ -568,7 +569,7 @@ func TestFindTransactionScopeBreachGapOrder(t *testing.T) {
 	res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
 	require.NoError(t, err)
 	assert.Equal(t, TxIncomplete, res.Outcome)
-	assert.Equal(t, []string{"scope-breach@0/13", "scope-breach@0/14", "index@0", "index@0/12", "open-window@"}, gapHours(res.Gaps))
+	assert.Equal(t, []string{"scope-breach@0/13", "scope-breach@0/14", "index@0", "index@0/12", "seq-gap@/15"}, gapHours(res.Gaps))
 }
 
 // TestTxTruthBreach requires the safety check to reject a TxUnmatched, and a TxMatched without a gap,

@@ -982,7 +982,7 @@ Files beyond those of the class (§2) are named where a vector has them.
 | `tx-candidate-selection` | multi-pack | a valid match, a wrong stream, an F0 abort, a wrong-stream F0, a control record that looks like F + 1, two valid matches, and a key naming a reply (`not-primary`); `lookups.json` |
 | `tx-possible-primary` | multi-pack | a possible same-key primary between two replies, and an unknown-direction record; `lookups.json` |
 | `tx-conflicts` | multi-pack | conflicts within a scope and across scopes, on the primary, a candidate and a record after the window, and a conflicting primary whose first version has no function; `lookups.json` |
-| `tx-index-mismatch` | multi-pack | a block whose records disagree with its F-2 entry beside a match; `lookups.json` |
+| `tx-index-mismatch` | multi-pack | a block whose records disagree with its F-2 entry beside a match; blocks whose F-2 entries understate their seq ranges, yielding records before the primary, one of them beside another pack's copies of its seqs, which the read does not compare; `lookups.json` |
 | `tx-clock-step` | multi-pack | versions of window seqs in the hour before the primary's, after a backward clock step: outside the comparison, and a seq gap; `lookups.json` |
 | `tx-coverage-barrier` | multi-pack | `coverage` entries meeting the window or the hours alone, and both; a barrier meeting only a conflicted hour; a barrier on both bases; `lookups.json` |
 | `tx-epoch-evidence` | multi-pack | an `ordering-uncertain` record below the primary, and a capture-boundary in an hour not read; `lookups.json` |

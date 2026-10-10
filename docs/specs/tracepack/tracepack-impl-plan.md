@@ -686,17 +686,18 @@ and checks every returned record against the stored record its pack and block na
 `TestMultiRecipesAreChecked` and `TestLookupRecipesAreChecked` show that every read and lookup expectation is checked before any golden is written,
 and `TestLookupViewOrder` covers the view order of [CORPUS §8], a patch replacing a segment or the generation's member included.
 Two Python checkers, written from the specification alone, agree with all 25 reads and all 53 lookups, the latter on each lookup's whole fact set.
-Open questions, which no vector depends on:
-- Records the primary's scope read yields before the primary, through a block disagreeing with its F-2 entry, are neither classified nor kept by `FindTransaction`,
-  while [SEM §7.2] lets them bound the window and checks a closure claim at their seq.
-  The outcome is `incomplete` either way, from the block's `index` fact;
-  either [SEM §7.2] states that such records are not classified, or `FindTransaction` classifies them.
-- `FindTransaction` picks the clean `stop` that bounds the window by seq and kind, not by epoch,
-  so an evidence `stop` claim of the primary's epoch at that seq gives no `capture-boundary` fact when a `stop` of another epoch bounds the window there,
-  where [CORPUS §5.11] and [SEM §7.2] identify a capture-boundary by its epoch too.
-  The outcome is `incomplete` either way, and only a nonconforming footer reaches the case;
-  comparing the epoch too, then adding the case as a vector, would close it.
-- The rules of the corpus, part 2, stated in [CORPUS] v2.30, are ratified as G5-188..G5-191.
+The rules of the corpus, part 2, stated in [CORPUS] v2.30, are ratified as G5-188..G5-191.
+Its two open questions were decided on 2026-10-10 and closed after spec v2.31, each with lookups added to an existing vector, 58 lookups in all:
+- `FindTransaction` classifies the records the primary's scope read yields before the primary, through a block disagreeing with its F-2 entry,
+  and checks a closure claim at their seq (G5-194; `tx-index-mismatch`).
+- `FindTransaction` lets only a bounding `stop` of the primary's epoch keep that epoch's capture-boundary at the window's end from being reported (G5-195; `tx-closure-contradiction`).
+The lookups checker written from the specification alone agrees with all 58.
+Open question, which no vector depends on:
+- `FindTransaction` decides each stretch of a seq that the read of one scope yields on its own,
+  so when a block disagreeing with its F-2 entry and another pack's truthful block both yield a seq after the primary,
+  a version without a role is dropped although another version of its seq has one, where [SEM §7.2] keeps every version of that seq the scope's read yielded;
+  the versions yielded before the primary are kept together with the later ones.
+  The outcome is `incomplete` either way, from the block's `index` fact.
 
 #### 6b3 — conformance corpus, part 3
 

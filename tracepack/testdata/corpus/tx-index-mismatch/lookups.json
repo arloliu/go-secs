@@ -1,5 +1,325 @@
 [
   {
+    "id": "early-and-later-versions",
+    "cites": [
+      "SEM §7.2",
+      "CORPUS §5.11"
+    ],
+    "source": {
+      "view": [
+        6,
+        7
+      ],
+      "evidence": [],
+      "complete": true
+    },
+    "key": {
+      "capture_id": "01a0ffeb-3600-735b-aa87-a4b3fa01939d",
+      "seq": "4",
+      "hour": "497500"
+    },
+    "max_scopes": 1,
+    "expect": {
+      "outcome": "incomplete",
+      "key": {
+        "epoch": 1,
+        "dir": "host-to-equipment",
+        "session_id": 1,
+        "system_bytes": "AAAA5Q==",
+        "stream": 1,
+        "function": 1,
+        "w": true
+      },
+      "window_end": "7",
+      "records": [
+        {
+          "seq": "4",
+          "hour": "497500",
+          "pack": 7,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "primary"
+          ],
+          "in_window": false,
+          "bound": false
+        },
+        {
+          "seq": "6",
+          "hour": "497500",
+          "pack": 6,
+          "block": 0,
+          "conflict": false,
+          "roles": [],
+          "in_window": true,
+          "bound": false
+        },
+        {
+          "seq": "6",
+          "hour": "497500",
+          "pack": 7,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "candidate"
+          ],
+          "in_window": true,
+          "bound": false,
+          "decidable": true,
+          "eligible": true,
+          "valid": true
+        },
+        {
+          "seq": "7",
+          "hour": "497500",
+          "pack": 6,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "same-key-primary"
+          ],
+          "in_window": false,
+          "bound": true
+        },
+        {
+          "seq": "7",
+          "hour": "497500",
+          "pack": 7,
+          "block": 0,
+          "conflict": false,
+          "roles": [],
+          "in_window": false,
+          "bound": false
+        }
+      ],
+      "gaps": [
+        {
+          "reason": "index",
+          "hours": [
+            "497500"
+          ],
+          "pack": 6,
+          "block": 0,
+          "offset": "307"
+        }
+      ],
+      "searched": [
+        {
+          "hour": "497500",
+          "indexed": true,
+          "packs": [
+            6,
+            7
+          ]
+        }
+      ],
+      "conflicts": [],
+      "footer_errors": []
+    }
+  },
+  {
+    "id": "early-claim-contradicted",
+    "cites": [
+      "SEM §7.2",
+      "CORPUS §5.11"
+    ],
+    "source": {
+      "view": [
+        3,
+        4
+      ],
+      "evidence": [
+        5
+      ],
+      "complete": true
+    },
+    "key": {
+      "capture_id": "01a0ffeb-3600-77cd-8c2f-a81cc6ecc74f",
+      "seq": "3",
+      "hour": "497500"
+    },
+    "max_scopes": 1,
+    "expect": {
+      "outcome": "incomplete",
+      "key": {
+        "epoch": 1,
+        "dir": "host-to-equipment",
+        "session_id": 1,
+        "system_bytes": "AAAA5A==",
+        "stream": 1,
+        "function": 1,
+        "w": true
+      },
+      "window_end": "7",
+      "records": [
+        {
+          "seq": "3",
+          "hour": "497500",
+          "pack": 4,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "primary"
+          ],
+          "in_window": false,
+          "bound": false
+        },
+        {
+          "seq": "4",
+          "hour": "497500",
+          "pack": 4,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "candidate"
+          ],
+          "in_window": true,
+          "bound": false,
+          "decidable": true,
+          "eligible": true,
+          "valid": true
+        },
+        {
+          "seq": "7",
+          "hour": "497500",
+          "pack": 4,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "closing"
+          ],
+          "in_window": false,
+          "bound": true
+        }
+      ],
+      "gaps": [
+        {
+          "reason": "index",
+          "hours": [
+            "497500"
+          ],
+          "pack": 3,
+          "block": 0,
+          "offset": "307"
+        },
+        {
+          "reason": "contradiction",
+          "seq": "5"
+        }
+      ],
+      "searched": [
+        {
+          "hour": "497500",
+          "indexed": true,
+          "packs": [
+            3,
+            4
+          ]
+        }
+      ],
+      "conflicts": [],
+      "footer_errors": []
+    }
+  },
+  {
+    "id": "early-same-key-primary",
+    "cites": [
+      "SEM §7.2",
+      "CORPUS §5.11"
+    ],
+    "source": {
+      "view": [
+        1,
+        2
+      ],
+      "evidence": [],
+      "complete": true
+    },
+    "key": {
+      "capture_id": "01a0ffeb-3600-768a-b32f-eeaffa06e0f5",
+      "seq": "3",
+      "hour": "497500"
+    },
+    "max_scopes": 1,
+    "expect": {
+      "outcome": "incomplete",
+      "key": {
+        "epoch": 1,
+        "dir": "host-to-equipment",
+        "session_id": 1,
+        "system_bytes": "AAAA4w==",
+        "stream": 1,
+        "function": 1,
+        "w": true
+      },
+      "window_end": "5",
+      "records": [
+        {
+          "seq": "3",
+          "hour": "497500",
+          "pack": 2,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "primary"
+          ],
+          "in_window": false,
+          "bound": false
+        },
+        {
+          "seq": "5",
+          "hour": "497500",
+          "pack": 1,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "same-key-primary"
+          ],
+          "in_window": false,
+          "bound": true
+        },
+        {
+          "seq": "7",
+          "hour": "497500",
+          "pack": 2,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "candidate"
+          ],
+          "in_window": false,
+          "bound": false,
+          "decidable": true,
+          "eligible": false,
+          "valid": false
+        }
+      ],
+      "gaps": [
+        {
+          "reason": "index",
+          "hours": [
+            "497500"
+          ],
+          "pack": 1,
+          "block": 0,
+          "offset": "307"
+        }
+      ],
+      "searched": [
+        {
+          "hour": "497500",
+          "indexed": true,
+          "packs": [
+            1,
+            2
+          ]
+        }
+      ],
+      "conflicts": [],
+      "footer_errors": []
+    }
+  },
+  {
     "id": "match-found",
     "cites": [
       "SEM §7.2",

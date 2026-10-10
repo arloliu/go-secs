@@ -252,8 +252,9 @@ func (l *txLookup) captureBoundaryGaps(ctx context.Context, w *txWindow) error {
 	return nil
 }
 
-// epochStopBounds reports whether the version that bounds the window w is a capture-boundary record of kind stop
-// of the primary's epoch, the one clean stop whose boundary at e captureBoundaryGaps does not report
+// epochStopBounds reports whether the version that bounds the window w
+// is a capture-boundary record of kind stop of the primary's epoch,
+// the one clean stop whose boundary at e captureBoundaryGaps does not report
 // (the tracepack semantics specification §7.2).
 // A boundary is identified with its epoch (the tracepack corpus specification §5.11),
 // so a bounding stop of another epoch is not the boundary of the primary's epoch at e.
@@ -358,8 +359,7 @@ func (l *txLookup) contradictionGaps(ctx context.Context) error {
 // checkClaim checks an evidence closure, named by claim, which claims that seq holds a version matching is:
 // a claim at or below the primary, or at a seq the lookup read where no kept version is one, adds a TxGapContradiction gap.
 // Every version that could be one plays a role, so the kept versions of a seq are the ones to look at,
-// except at a seq that the read of scope key.Hour yielded before the primary, whose versions it neither classified nor kept:
-// a claim there is not checked, the order of that read being broken.
+// those that a read yielded before the primary among them, since they are classified as every other version read.
 //
 // Returns:
 //   - error: ctx's error, as is; the error of the gap's charge, wrapping ErrReadLimit.
@@ -379,9 +379,6 @@ func (l *txLookup) checkClaim(ctx context.Context, seq uint64, is func(v *TxReco
 			if is(&l.res.Records[i]) {
 				return nil
 			}
-		}
-		if l.earlyRuns.contains(seq) {
-			return nil
 		}
 		why = fmt.Sprintf("%s of the per-capture evidence names a seq the lookup read, where no version is the closing record claimed", claim)
 	}

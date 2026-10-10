@@ -26,9 +26,15 @@ type txLookup struct {
 	// prim is what the records above the primary are classified against, taken from primary's first version.
 	prim txPrimaryKey
 	// early counts the records above the primary's seq that the read of scope key.Hour yielded before any version of the primary,
-	// and earlyRuns holds their seqs, none of them classified or kept.
-	early     int
-	earlyRuns txRuns
+	// and earlyVersions buffers them, each cloned and charged as it arrived, in the order read,
+	// until the primary is established and they are classified (classifyEarly), or released when it is not.
+	// earlySeqs holds their seqs, and laterVersions every version of those seqs that the same read yields after the primary,
+	// classified and cloned as it arrives, whatever its roles,
+	// so that the versions of each such seq are kept or released together (keepEarly).
+	early         int
+	earlyVersions []TxRecord
+	earlySeqs     txRuns
+	laterVersions []TxRecord
 	// coverage holds the coverage entries of the packs read, each evaluated against the lookup's query once the reads are done.
 	coverage []txCoverage
 	// reads holds each scope read, in read order, from the charge of its scope on.
@@ -121,7 +127,8 @@ func coverageMeets(c *Coverage, capture UUID, first, last uint64, from, to int64
 	return seqMeets && overlaps(c.TimeStart, c.TimeEnd, &from, &to)
 }
 
-// run performs the lookup: it takes the evidence, reads scope key.Hour and settles the primary.
+// run performs the lookup: it takes the evidence, reads scope key.Hour and settles the primary;
+// with a key, it classifies the versions the read yielded before the primary, then reads the later scopes.
 //
 // Returns:
 //   - error: an error of the observation or of a read, wrapped; an error wrapping ErrNotPrimary;
@@ -147,10 +154,15 @@ func (l *txLookup) run(ctx context.Context) error {
 	if !keyed {
 		// A primary without a key makes the outcome incomplete, and no further scope is read
 		// (the tracepack semantics specification §7.2).
-		// What the read classified above it was classified against no key, and is dropped, its charge with the lookup.
+		// What the read classified above it was classified against no key, and is dropped, its charge with the lookup;
+		// the versions it yielded before the primary are not classified, and are released.
+		l.releaseEarly()
 		l.res.Outcome = TxIncomplete
 
 		return nil
+	}
+	if err := l.classifyEarly(ctx, rd); err != nil {
+		return fmt.Errorf("tracepack: find transaction: hour %d: %w", l.key.Hour, err)
 	}
 	if err := l.commitRead(ctx, rd); err != nil {
 		return fmt.Errorf("tracepack: find transaction: %w", err)
