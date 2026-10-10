@@ -51,8 +51,7 @@ var (
 )
 
 // ErrReadLimit reports a structure larger than a reader budget of ReaderOptions,
-// or a read by MergeIterate over a limit of MergeIterateOptions: MaxHeldBytes or MaxConflicts;
-// the Observe of the source NewStoreSource returns wraps it too, for a limit of StoreSourceOptions.
+// or a read by MergeIterate over a limit of MergeIterateOptions: MaxHeldBytes or MaxConflicts.
 // It is a resource limit of the reader, not a format defect:
 // a caller raises the budget to read a legitimately larger structure.
 // The error that wraps it names the structure and its offset, or the limit and what would exceed it.
@@ -520,56 +519,6 @@ func (r *Reader) parseFileHeader(head []byte) error {
 	}
 
 	return nil
-}
-
-// packHead is what the head of a pack holds: its file header's ids and its decoded pack metadata.
-type packHead struct {
-	packID, captureID UUID
-	meta              *PackMeta
-}
-
-// openHead reads and validates only the head of the tracepack file ra of size bytes —
-// its file header and its pack metadata, the head read of the tracepack format specification §13, its trailer and footer never decoded —
-// so that its pack metadata can classify the pack before it is opened.
-//
-// It reads the first HeadWindow bytes, or the whole object when it is smaller, then, only when the pack metadata goes beyond them, the rest of it;
-// it checks ctx before each read.
-// The first read may hold blocks, the footer and the trailer of a small pack, which openHead ignores.
-// It validates what Open validates of the head, before any block is decoded:
-// the file header, the format version, the pack metadata's bounds and CRC, and its decoding.
-//
-// Returns:
-//   - packHead: the head; the zero packHead on error.
-//   - error: the errors Open returns for the file header and the pack metadata.
-func openHead(ctx context.Context, ra io.ReaderAt, size int64, opts ReaderOptions) (packHead, error) {
-	if size < format.FileHeaderLen {
-		return packHead{}, fmt.Errorf("tracepack: object of %d bytes is shorter than the %d-byte file header: %w: %w",
-			size, format.FileHeaderLen, ErrNotTracepack, io.ErrUnexpectedEOF)
-	}
-
-	r := &Reader{ra: ra, size: size, opts: opts.withDefaults()}
-	head := make([]byte, min(size, r.opts.HeadWindow))
-	if err := readRound(ctx, ra, []readReq{{off: 0, buf: head}}); err != nil {
-		return packHead{}, err
-	}
-	if err := r.parseFileHeader(head); err != nil {
-		return packHead{}, err
-	}
-	raw := make([]byte, r.hdr.PackMetadataLen)
-	n := 0
-	if len(head) > format.FileHeaderLen {
-		n = copy(raw, head[format.FileHeaderLen:])
-	}
-	if n < len(raw) {
-		if err := readRound(ctx, ra, []readReq{{off: format.FileHeaderLen + int64(n), buf: raw[n:]}}); err != nil {
-			return packHead{}, err
-		}
-	}
-	if err := r.decodeMeta(raw); err != nil {
-		return packHead{}, err
-	}
-
-	return packHead{packID: UUID(r.hdr.PackID), captureID: UUID(r.hdr.CaptureID), meta: r.meta}, nil
 }
 
 // parseTrailer decodes the trailer and checks it against the object:

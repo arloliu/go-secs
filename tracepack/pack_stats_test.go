@@ -71,10 +71,6 @@ func TestReaderStatsEmptyPack(t *testing.T) {
 	assert.Nil(t, st.SeqRanges)
 	assert.Nil(t, st.Epochs)
 	assert.Nil(t, st.Boundaries)
-
-	var e CaptureEvidence
-	AddPackEvidence(&e, &st)
-	assert.Equal(t, CaptureEvidence{}, e)
 }
 
 // TestReaderStatsFooterNotUsed opens packs whose footer the Reader does not use:
@@ -175,8 +171,8 @@ func TestReaderStatsAsStored(t *testing.T) {
 	assert.Equal(t, want, got)
 }
 
-// TestReaderStatsOwnership mutates every slice and pointer of a PackStats, and of evidence folded from another:
-// Stats called again returns the original values in fresh storage, and evidence folded earlier is unchanged.
+// TestReaderStatsOwnership mutates every slice and pointer of a PackStats:
+// Stats called again returns the original values in fresh storage.
 func TestReaderStatsOwnership(t *testing.T) {
 	t.Parallel()
 
@@ -187,10 +183,6 @@ func TestReaderStatsOwnership(t *testing.T) {
 
 	first, ok := r.Stats()
 	require.True(t, ok)
-	var e CaptureEvidence
-	AddPackEvidence(&e, &first)
-	folded := CaptureEvidence{End: EndStopped, Boundaries: slices.Clone(want.Boundaries), Closures: []EpochClosure{{1, 15}, {3, 31}}}
-	require.Equal(t, folded, e)
 
 	first.KindCounts[0], first.DirCounts[0], first.DecodeStatusCounts[0] = 99, 99, 99
 	first.SeqRanges[0].First = 99
@@ -204,131 +196,9 @@ func TestReaderStatsOwnership(t *testing.T) {
 	assert.Equal(t, want, second)
 	assert.NotSame(t, first.Epochs[1].CloseSeq, second.Epochs[1].CloseSeq)
 	assert.NotSame(t, first.Boundaries[1].GapStart, second.Boundaries[1].GapStart)
-	assert.Equal(t, folded, e, "the evidence keeps its own pointers")
 
-	var fresh CaptureEvidence
-	AddPackEvidence(&fresh, &second)
 	*second.Boundaries[1].GapStart, *second.Boundaries[1].GapEnd = 98, 98
 	second.Boundaries[1].Seq = 98
-	assert.Equal(t, folded, fresh, "evidence folded from a PackStats keeps its own pointers")
 	third, _ := r.Stats()
 	assert.Equal(t, want, third)
-}
-
-// TestAddPackEvidenceFolds folds packs repeated and in every order, holding boundaries that differ at one seq,
-// pairs equal but for their epoch, their gap_end or their capture_id, and close_seqs of one epoch:
-// the evidence is the same for every order, its boundaries sorted by every field and each distinct one kept once,
-// the smallest close_seq per epoch in ascending epoch, and the end stopped-unclean,
-// although the clean stop has the larger seq.
-func TestAddPackEvidenceFolds(t *testing.T) {
-	t.Parallel()
-
-	at := func(v int64) *int64 { return &v }
-	seq := func(v uint64) *uint64 { return &v }
-	gapNoStart := Boundary{Capture: captureLow, Seq: 5, Kind: BoundaryKindGap, TS: 7, GapEnd: at(3)}
-	gapStart1 := Boundary{Capture: captureLow, Seq: 5, Kind: BoundaryKindGap, TS: 7, GapStart: at(1), GapEnd: at(3)}
-	gapStart2 := Boundary{Capture: captureLow, Seq: 5, Kind: BoundaryKindGap, TS: 7, GapStart: at(2)}
-	startLate := Boundary{Capture: captureLow, Seq: 5, Kind: BoundaryKindStart, TS: 8}
-	startEarly := Boundary{Capture: captureLow, Seq: 5, Kind: BoundaryKindStart, TS: 6, Epoch: 1}
-	startEpoch0 := Boundary{Capture: captureLow, Seq: 5, Kind: BoundaryKindStart, TS: 6, Epoch: 0}
-	gapNoEnd := Boundary{Capture: captureLow, Seq: 5, Kind: BoundaryKindGap, TS: 7, GapStart: at(1)}
-	otherCapture := Boundary{Capture: captureHigh, Seq: 5, Kind: BoundaryKindStart, TS: 6, Epoch: 1}
-	unclean := Boundary{Capture: captureLow, Seq: 30, Kind: BoundaryKindStopUnclean, TS: 30, Epoch: 3, GapStart: at(4)}
-	stop := Boundary{Capture: captureLow, Seq: 50, Kind: BoundaryKindStop, TS: 50, Epoch: 3}
-
-	packs := []PackStats{
-		{
-			Boundaries: []Boundary{stop, gapStart2, startEarly},
-			Epochs:     []EpochStats{{Epoch: 3, CloseSeq: seq(50)}, {Epoch: 2, CloseSeq: seq(45)}, {Epoch: 1}},
-		},
-		{
-			Boundaries: []Boundary{unclean, gapNoStart, startLate, otherCapture, gapNoEnd},
-			Epochs:     []EpochStats{{Epoch: 2, CloseSeq: seq(25)}},
-		},
-		{
-			Boundaries: []Boundary{gapStart1, startEarly, startEpoch0, startEarly},
-			Epochs:     []EpochStats{{Epoch: 0, CloseSeq: seq(2)}},
-		},
-	}
-	want := CaptureEvidence{
-		End: EndStoppedUnclean,
-		Boundaries: []Boundary{
-			startEpoch0, startEarly, otherCapture, startLate, gapNoStart, gapNoEnd, gapStart1, gapStart2, unclean, stop,
-		},
-		Closures: []EpochClosure{{Epoch: 0, CloseSeq: 2}, {Epoch: 2, CloseSeq: 25}, {Epoch: 3, CloseSeq: 50}},
-	}
-
-	orders := [][]int{{0, 1, 2}, {2, 1, 0}, {1, 0, 2}, {0, 0, 1, 2, 1}, {2, 2, 1, 0, 0}}
-	for _, order := range orders {
-		var e CaptureEvidence
-		for _, i := range order {
-			AddPackEvidence(&e, &packs[i])
-		}
-		assert.Equal(t, want, e, "order %v", order)
-	}
-}
-
-// TestAddPackEvidenceEnd folds a clean stop and a stop-unclean in both orders, alone and together,
-// the clean stop above and below the stop-unclean:
-// any stop-unclean makes the end stopped-unclean, else a clean stop makes it stopped, else it is open.
-func TestAddPackEvidenceEnd(t *testing.T) {
-	t.Parallel()
-
-	stop := PackStats{Boundaries: []Boundary{{Capture: captureLow, Seq: 50, Kind: BoundaryKindStop}}}
-	stopBelow := PackStats{Boundaries: []Boundary{{Capture: captureLow, Seq: 10, Kind: BoundaryKindStop}}}
-	unclean := PackStats{Boundaries: []Boundary{{Capture: captureLow, Seq: 30, Kind: BoundaryKindStopUnclean}}}
-	start := PackStats{Boundaries: []Boundary{{Capture: captureLow, Seq: 1, Kind: BoundaryKindStart}}}
-
-	tests := []struct {
-		name  string
-		packs []*PackStats
-		want  EndState
-	}{
-		{name: "start only", packs: []*PackStats{&start}, want: EndOpen},
-		{name: "clean stop", packs: []*PackStats{&start, &stop}, want: EndStopped},
-		{name: "stop-unclean", packs: []*PackStats{&unclean}, want: EndStoppedUnclean},
-		{name: "clean stop then stop-unclean", packs: []*PackStats{&stop, &unclean}, want: EndStoppedUnclean},
-		{name: "stop-unclean then clean stop", packs: []*PackStats{&unclean, &stop}, want: EndStoppedUnclean},
-		{name: "lower clean stop then stop-unclean", packs: []*PackStats{&stopBelow, &unclean}, want: EndStoppedUnclean},
-		{name: "stop-unclean then lower clean stop", packs: []*PackStats{&unclean, &stopBelow}, want: EndStoppedUnclean},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			var e CaptureEvidence
-			for _, s := range tt.packs {
-				AddPackEvidence(&e, s)
-			}
-			assert.Equal(t, tt.want, e.End)
-		})
-	}
-}
-
-// TestAddPackEvidenceNilStats folds a pack without statistics before and after one with them:
-// it marks the evidence partial and changes nothing else, and no later fold clears it.
-// A nil evidence panics.
-func TestAddPackEvidenceNilStats(t *testing.T) {
-	t.Parallel()
-
-	stop := PackStats{
-		Boundaries: []Boundary{{Capture: captureLow, Seq: 50, Kind: BoundaryKindStop}},
-		Epochs:     []EpochStats{{Epoch: 3, CloseSeq: new(uint64(50))}},
-	}
-
-	var e CaptureEvidence
-	AddPackEvidence(&e, nil)
-	assert.Equal(t, CaptureEvidence{Partial: true}, e)
-	AddPackEvidence(&e, &stop)
-	want := CaptureEvidence{End: EndStopped, Boundaries: stop.Boundaries, Closures: []EpochClosure{{Epoch: 3, CloseSeq: 50}}, Partial: true}
-	assert.Equal(t, want, e)
-
-	// Evidence whose End disagrees with its boundaries shows that a nil fold recomputes nothing.
-	e.End = EndOpen
-	AddPackEvidence(&e, nil)
-	want.End = EndOpen
-	assert.Equal(t, want, e)
-
-	assert.Panics(t, func() { AddPackEvidence(nil, nil) })
-	assert.Panics(t, func() { AddPackEvidence(nil, &stop) })
 }

@@ -56,8 +56,8 @@ func txSocketClose(t testing.TB, seq uint64) Record {
 	return testEventRecord(t, seq, blockTestHour+int64(seq), txTestEpoch, &TransportEvent{Event: EventSocketClose})
 }
 
-// TestFindTransactionOutcomes looks up txRecord's primary at 12 (S1F3, stream available) in one scope
-// whose records leave no condition but the window's own: indexed, every pack evaluated, no coverage entry,
+// TestFindTransactionOutcomes looks up txRecord's primary at 12 (S1F3, stream available) in one hour
+// whose records leave no condition but the window's own: every pack evaluated, no coverage entry,
 // no capture-boundary, ordering-uncertain or correlation-incomplete record.
 // Each case checks the outcome, the window's end, every kept version's class and flags, and the gaps:
 // valid matches (F+1 and F0 with the primary's stream), mismatches (another stream, a wrong-stream F0),
@@ -92,16 +92,16 @@ func TestFindTransactionOutcomes(t *testing.T) {
 	tests := []outcomeCase{
 		{name: "a valid match", recs: []Record{txReply(13, nil), txRecord(14, nil)}, outcome: TxMatched, end: 14,
 			records: []string{"13@0 candidate in eligible decidable valid", "14@0 same-key-primary bound"}},
-		{name: "another stream", recs: []Record{txReply(13, txFrame(stream(2))), txRecord(14, nil)}, outcome: TxUnmatched, end: 14,
+		{name: "another stream", recs: []Record{txReply(13, txFrame(stream(2))), txRecord(14, nil)}, outcome: TxNotFound, end: 14,
 			records: []string{"13@0 candidate in eligible decidable", "14@0 same-key-primary bound"}},
 		{name: "an F0 abort", recs: []Record{txReply(13, txFrame(function(0))), txRecord(14, nil)}, outcome: TxMatched, end: 14,
 			records: []string{"13@0 candidate in eligible decidable valid", "14@0 same-key-primary bound"}},
 		{name: "a wrong-stream F0", recs: []Record{txReply(13, txFrame(func(p []byte) { stream(2)(p); function(0)(p) })), txRecord(14, nil)},
-			outcome: TxUnmatched, end: 14,
+			outcome: TxNotFound, end: 14,
 			records: []string{"13@0 candidate in eligible decidable", "14@0 same-key-primary bound"}},
 		{name: "control records that read like F+1 and F0", recs: []Record{lookalike(13, 4), lookalike(14, 0), txRecord(15, nil)},
-			outcome: TxUnmatched, end: 15, records: []string{"15@0 same-key-primary bound"}},
-		{name: "a candidate after the window's end", recs: []Record{txRecord(13, nil), txReply(14, nil)}, outcome: TxUnmatched, end: 13,
+			outcome: TxNotFound, end: 15, records: []string{"15@0 same-key-primary bound"}},
+		{name: "a candidate after the window's end", recs: []Record{txRecord(13, nil), txReply(14, nil)}, outcome: TxNotFound, end: 13,
 			records: []string{"13@0 same-key-primary bound", "14@0 candidate decidable"}},
 		{name: "two valid matches", recs: []Record{txReply(13, nil), txReply(14, txFrame(function(0))), txRecord(15, nil)},
 			outcome: TxAmbiguous, end: 15, records: []string{
@@ -117,24 +117,24 @@ func TestFindTransactionOutcomes(t *testing.T) {
 			gaps:    []string{"unavailable@14"}},
 		{name: "an unanswered primary beside a possible reply",
 			recs:    []Record{txReply(13, func(r *Record) { r.FieldValidity &^= FieldValiditySystemBytes }), txRecord(14, nil)},
-			outcome: TxIncomplete, end: 14,
+			outcome: TxNotFound, end: 14,
 			records: []string{"13@0 possible-reply in", "14@0 same-key-primary bound"}, gaps: []string{"unavailable@13"}},
 		{name: "a candidate whose function is unavailable", recs: []Record{
 			txReply(13, func(r *Record) { r.FieldValidity &^= FieldValidityFunction }), txRecord(14, nil),
-		}, outcome: TxIncomplete, end: 14,
+		}, outcome: TxNotFound, end: 14,
 			records: []string{"13@0 candidate in eligible", "14@0 same-key-primary bound"}, gaps: []string{"unavailable@13"}},
-		{name: "a one-seq window whose seq is missing", recs: []Record{txRecord(14, nil)}, outcome: TxIncomplete, end: 14,
+		{name: "a one-seq window whose seq is missing", recs: []Record{txRecord(14, nil)}, outcome: TxNotFound, end: 14,
 			records: []string{"14@0 same-key-primary bound"}, gaps: []string{"seq-gap@13"}},
-		{name: "an undecidable candidate", recs: []Record{txReply(13, noStream), txRecord(14, nil)}, outcome: TxIncomplete, end: 14,
+		{name: "an undecidable candidate", recs: []Record{txReply(13, noStream), txRecord(14, nil)}, outcome: TxNotFound, end: 14,
 			records: []string{"13@0 candidate in eligible", "14@0 same-key-primary bound"}, gaps: []string{"unavailable@13"}},
 		{name: "the primary's stream unavailable", primary: noStream, recs: []Record{txReply(13, nil), txRecord(14, nil)},
-			outcome: TxIncomplete, end: 14,
+			outcome: TxNotFound, end: 14,
 			records: []string{"13@0 candidate in eligible", "14@0 same-key-primary bound"}, gaps: []string{"unavailable@13"}},
 		{name: "a socket-close bounds the window", recs: []Record{txReply(13, nil), txSocketClose(t, 14), txReply(15, nil)},
 			outcome: TxMatched, end: 14,
 			records: []string{"13@0 candidate in eligible decidable valid", "14@0 closing bound", "15@0 candidate decidable"}},
 		{name: "outcome records inside and after the window", recs: []Record{txControl(nil), txRecord(14, nil), t3},
-			outcome: TxUnmatched, end: 14,
+			outcome: TxNotFound, end: 14,
 			records: []string{"13@0 outcome in", "14@0 same-key-primary bound", "15@0 outcome"}},
 		{name: "a reply before a possible primary", recs: []Record{txReply(13, nil), lacks(14, FieldValiditySessionID), txRecord(15, nil)},
 			outcome: TxMatched, end: 15, records: []string{
@@ -167,7 +167,7 @@ func TestFindTransactionOutcomes(t *testing.T) {
 		}
 		after[i] = outcomeCase{
 			name: "a reply after a possible primary without " + c.name, recs: []Record{c.rec, txReply(14, nil), txRecord(15, nil)},
-			outcome: TxIncomplete, end: 15,
+			outcome: TxNotFound, end: 15,
 			records: []string{"13@0 " + class, "14@0 candidate in decidable", "15@0 same-key-primary bound"}, gaps: c.gaps,
 		}
 	}
@@ -176,14 +176,14 @@ func TestFindTransactionOutcomes(t *testing.T) {
 			t.Parallel()
 
 			recs := append([]Record{txRecord(11, nil), txRecord(12, tt.primary)}, tt.recs...)
-			s := txSource(t, true, txPack(t, seg0, nil, txBlock(recs...)))
+			s := txSource(t, txPack(t, seg0, nil, txBlock(recs...)))
 			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
 			require.NoError(t, err)
 			assert.Equal(t, tt.outcome, res.Outcome)
 			assert.Equal(t, new(tt.end), res.WindowEnd)
 			assert.Equal(t, append([]string{"12@0 primary"}, tt.records...), recordFlags(res.Records))
-			assert.Equal(t, tt.gaps, nilIfEmpty(gapSeqs(res.Gaps)))
-			for _, g := range res.Gaps {
+			assert.Equal(t, tt.gaps, nilIfEmpty(gapSeqs(res.Incomplete)))
+			for _, g := range res.Incomplete {
 				if g.Reason != TxGapUnavailable {
 					continue
 				}
@@ -246,7 +246,7 @@ func TestFindTransactionWindowShrinks(t *testing.T) {
 			assert.Equal(t, TxMatched, res.Outcome)
 			assert.Equal(t, new(tt.end), res.WindowEnd)
 			assert.Equal(t, tt.records, recordFlags(res.Records))
-			assert.Equal(t, tt.gaps, nilIfEmpty(gapSeqs(res.Gaps)))
+			assert.Equal(t, tt.gaps, nilIfEmpty(gapSeqs(res.Incomplete)))
 		})
 	}
 }
@@ -263,17 +263,17 @@ func TestFindTransactionOpenWindow(t *testing.T) {
 	assert.Equal(t, TxMatched, res.Outcome)
 	assert.Nil(t, res.WindowEnd)
 	assert.Equal(t, []string{"12@0 primary", "13@0 candidate in eligible decidable valid"}, recordFlags(res.Records))
-	require.Equal(t, []string{"open-window"}, gapSeqs(res.Gaps))
-	assert.Equal(t, TxGap{Reason: TxGapOpenWindow, Block: -1, Offset: -1, Err: res.Gaps[0].Err}, res.Gaps[0])
-	require.ErrorContains(t, res.Gaps[0].Err, "hours [497222, 497225)")
+	require.Equal(t, []string{"open-window"}, gapSeqs(res.Incomplete))
+	assert.Equal(t, TxGap{Reason: TxGapOpenWindow, Block: -1, Offset: -1, Err: res.Incomplete[0].Err}, res.Incomplete[0])
+	require.ErrorContains(t, res.Incomplete[0].Err, "hours [497222, 497225)")
 	assert.Len(t, res.Searched, 3)
-	_, scopes, _ := s.counts()
+	scopes := s.counts()
 	assert.Equal(t, map[int64]int{memTestHour: 1, memTestHour + 1: 1, memTestHour + 2: 1}, scopes)
 }
 
 // TestFindTransactionIncompleteBesideMatch finds a valid match beside a conflict after the window's end,
-// within the scope's read or across two scope reads, and beside a block whose records disagree with its F-2 entry:
-// each makes the outcome TxIncomplete, the match still flagged valid.
+// within the hour's read or across two hour reads, and beside a block whose records disagree with its F-2 entry:
+// each makes the lookup incomplete beside the TxMatched outcome, the match still flagged valid.
 func TestFindTransactionIncompleteBesideMatch(t *testing.T) {
 	t.Parallel()
 
@@ -300,9 +300,9 @@ func TestFindTransactionIncompleteBesideMatch(t *testing.T) {
 
 			res, err := findTx(t, t.Context(), txHours(t, tt.hours...), txKeyAt(12), TxOptions{MaxScopes: len(tt.hours)})
 			require.NoError(t, err)
-			assert.Equal(t, TxIncomplete, res.Outcome)
+			assert.Equal(t, TxMatched, res.Outcome)
 			assert.Equal(t, new(uint64(14)), res.WindowEnd)
-			assert.Equal(t, tt.gaps, gapSeqs(res.Gaps))
+			assert.Equal(t, tt.gaps, gapSeqs(res.Incomplete))
 			i := slices.IndexFunc(res.Records, func(r TxRecord) bool { return r.Record.Seq == 13 })
 			require.GreaterOrEqual(t, i, 0)
 			assert.True(t, res.Records[i].Valid)
@@ -313,7 +313,7 @@ func TestFindTransactionIncompleteBesideMatch(t *testing.T) {
 // TestFindTransactionRecordsOrder reads, in the primary's scope, replies at 14 and 16, the latter in two versions,
 // and, in the next scope, a reply at 13 and 15, its time later by a backward clock step, and another version of 14:
 // the records are in seq order, then hour of the read, then the order in which the read yielded them.
-// The conflicts at 14 and 16 make the outcome TxIncomplete.
+// The conflicts at 14 and 16 make the lookup incomplete beside its several valid matches.
 func TestFindTransactionRecordsOrder(t *testing.T) {
 	t.Parallel()
 
@@ -334,13 +334,13 @@ func TestFindTransactionRecordsOrder(t *testing.T) {
 		packs[i] = fmt.Sprintf("%d:%x", r.Record.Seq, r.Pack[0])
 	}
 	assert.Equal(t, "12:50 13:52 14:50 14:52 15:52 16:50 16:51", strings.Join(packs, " "))
-	assert.Equal(t, TxIncomplete, res.Outcome)
+	assert.Equal(t, TxAmbiguous, res.Outcome)
 }
 
-// TestFindTransactionDisputedBound reads a window bound in conflict across two scope reads:
+// TestFindTransactionDisputedBound reads a window bound in conflict across two hour reads:
 // a socket-close at 14 bounds nothing, so the window ends at the same-key primary at 16,
 // while a same-key primary at 14 bounds the window whether or not it conflicts.
-// Either conflict makes the outcome TxIncomplete.
+// Either conflict makes the outcome TxNotFound.
 func TestFindTransactionDisputedBound(t *testing.T) {
 	t.Parallel()
 
@@ -366,16 +366,16 @@ func TestFindTransactionDisputedBound(t *testing.T) {
 				[][]byte{txPackIn(t, seg1, 1, nil, txBlock(txNote(14, nil)))})
 			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 2})
 			require.NoError(t, err)
-			assert.Equal(t, TxIncomplete, res.Outcome)
+			assert.Equal(t, TxMatched, res.Outcome)
 			assert.Equal(t, new(tt.end), res.WindowEnd)
 			assert.Equal(t, tt.records, recordFlags(res.Records))
-			assert.Equal(t, []string{"conflict@14"}, gapSeqs(res.Gaps))
+			assert.Equal(t, []string{"conflict@14"}, gapSeqs(res.Incomplete))
 		})
 	}
 }
 
 // TestFindTransactionCoverageAcrossReads bounds the window (12, 16) with seqs 13 and 15 read in the primary's scope
-// and 14 in the next: the reads together cover the window, so no seq gap is listed and the outcome is TxUnmatched.
+// and 14 in the next: the reads together cover the window, so no seq gap is listed and the outcome is TxNotFound.
 func TestFindTransactionCoverageAcrossReads(t *testing.T) {
 	t.Parallel()
 
@@ -384,14 +384,14 @@ func TestFindTransactionCoverageAcrossReads(t *testing.T) {
 		[][]byte{txPackIn(t, seg1, 1, nil, txBlock(txNote(14, nil)))})
 	res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 2})
 	require.NoError(t, err)
-	assert.Equal(t, TxUnmatched, res.Outcome)
+	assert.Equal(t, TxNotFound, res.Outcome)
 	assert.Equal(t, new(uint64(16)), res.WindowEnd)
-	assert.Empty(t, res.Gaps)
+	assert.Empty(t, res.Incomplete)
 }
 
-// TestFindTransactionBoundVersion reads two versions of the window's end, 14, in one scope read:
+// TestFindTransactionBoundVersion reads two versions of the window's end, 14, in one hour's read:
 // a same-key primary and an annotation, in either order.
-// Only the same-key primary's version is the bound; the conflict makes the outcome TxIncomplete.
+// Only the same-key primary's version is the bound; the conflict makes the outcome TxNotFound.
 func TestFindTransactionBoundVersion(t *testing.T) {
 	t.Parallel()
 
@@ -410,16 +410,16 @@ func TestFindTransactionBoundVersion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			s := txSource(t, true,
+			s := txSource(t,
 				txPack(t, seg0, nil, txBlock(txRecord(12, nil), txReply(13, nil), tt.first)),
 				txPack(t, seg1, nil, txBlock(tt.second)))
 			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
 			require.NoError(t, err)
-			assert.Equal(t, TxIncomplete, res.Outcome)
+			assert.Equal(t, TxMatched, res.Outcome)
 			assert.Equal(t, new(uint64(14)), res.WindowEnd)
 			assert.Equal(t, append([]string{"12@0 primary", "13@0 candidate in eligible decidable valid"}, tt.records...),
 				recordFlags(res.Records))
-			assert.Equal(t, []string{"conflict@14"}, gapSeqs(res.Gaps))
+			assert.Equal(t, []string{"conflict@14"}, gapSeqs(res.Incomplete))
 		})
 	}
 }
@@ -428,7 +428,7 @@ func TestFindTransactionBoundVersion(t *testing.T) {
 // the vectors of the tracepack semantics specification §9:
 // a completed transaction followed by an unanswered primary of the same transaction key,
 // looked up from each primary, and transactions of another session and of the other side that reuse the System Bytes.
-// The reply below the second primary is not searched, so its lookup is TxUnmatched, its window closed by the socket-close.
+// The reply below the second primary is not searched, so its lookup is TxNotFound, its window closed by the socket-close.
 // The other session's records play no role;
 // the equipment's own primary is a candidate, never a match, and the host's reply to it plays no role.
 func TestFindTransactionRepeatedSystemBytes(t *testing.T) {
@@ -451,7 +451,7 @@ func TestFindTransactionRepeatedSystemBytes(t *testing.T) {
 		{name: "the completed transaction", recs: completed, seq: 12, outcome: TxMatched, end: 14, records: []string{
 			"12@0 primary", "13@0 candidate in eligible decidable valid", "14@0 same-key-primary bound", "16@0 closing",
 		}},
-		{name: "the unanswered primary of the same key", recs: completed, seq: 14, outcome: TxUnmatched, end: 16,
+		{name: "the unanswered primary of the same key", recs: completed, seq: 14, outcome: TxNotFound, end: 16,
 			records: []string{"14@0 primary", "16@0 closing bound"}},
 		{name: "another session's transaction", recs: []Record{
 			txRecord(12, nil), txRecord(13, session(0x78)), txReply(14, session(0x78)), txReply(15, nil), txRecord(16, nil),
@@ -470,13 +470,13 @@ func TestFindTransactionRepeatedSystemBytes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			s := txSource(t, true, txPack(t, seg0, nil, txBlock(tt.recs...)))
+			s := txSource(t, txPack(t, seg0, nil, txBlock(tt.recs...)))
 			res, err := findTx(t, t.Context(), s, txKeyAt(tt.seq), TxOptions{MaxScopes: 1})
 			require.NoError(t, err)
 			assert.Equal(t, tt.outcome, res.Outcome)
 			assert.Equal(t, new(tt.end), res.WindowEnd)
 			assert.Equal(t, tt.records, recordFlags(res.Records))
-			assert.Empty(t, res.Gaps)
+			assert.Empty(t, res.Incomplete)
 		})
 	}
 }
@@ -486,7 +486,7 @@ func TestFindTransactionRepeatedSystemBytes(t *testing.T) {
 // then what epoch 1 still holds.
 // The later epoch is not closure evidence (the tracepack semantics specification §7.2):
 // its socket-close plays no role and bounds nothing, so the reply of epoch 1 still matches,
-// and without a socket-close of epoch 1 the window stays open, the outcome never TxUnmatched.
+// and without a socket-close of epoch 1 the window stays open and the lookup is incomplete.
 func TestFindTransactionRefusedSocket(t *testing.T) {
 	t.Parallel()
 
@@ -508,19 +508,19 @@ func TestFindTransactionRefusedSocket(t *testing.T) {
 			records: []string{"12@0 primary", "15@0 candidate in eligible decidable valid", "16@0 closing bound"}},
 		{name: "the reply, the epoch open", recs: []Record{txReply(15, nil)}, outcome: TxMatched,
 			records: []string{"12@0 primary", "15@0 candidate in eligible decidable valid"}, gaps: []string{"open-window"}},
-		{name: "no reply, the epoch open", outcome: TxIncomplete, records: []string{"12@0 primary"}, gaps: []string{"open-window"}},
+		{name: "no reply, the epoch open", outcome: TxNotFound, records: []string{"12@0 primary"}, gaps: []string{"open-window"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			s := txSource(t, true, txPack(t, seg0, nil, txBlock(slices.Concat(refused, tt.recs)...)))
+			s := txSource(t, txPack(t, seg0, nil, txBlock(slices.Concat(refused, tt.recs)...)))
 			res, err := findTx(t, t.Context(), s, txKeyAt(12), TxOptions{MaxScopes: 1})
 			require.NoError(t, err)
 			assert.Equal(t, tt.outcome, res.Outcome)
 			assert.Equal(t, tt.end, res.WindowEnd)
 			assert.Equal(t, tt.records, recordFlags(res.Records))
-			assert.Equal(t, tt.gaps, nilIfEmpty(gapSeqs(res.Gaps)))
+			assert.Equal(t, tt.gaps, nilIfEmpty(gapSeqs(res.Incomplete)))
 		})
 	}
 }
@@ -542,11 +542,11 @@ func TestFindTransactionAcrossPacks(t *testing.T) {
 	}{
 		{name: "another pack of the scope", hours: [][][]byte{{txPack(t, seg0, nil, primary), txPack(t, seg1, nil, reply)}},
 			records: []string{"12@0 primary", "13@0 candidate in eligible decidable valid", "14@0 same-key-primary bound"},
-			packs:   []UUID{seg0, seg1, seg1}, searched: []TxScope{{Hour: memTestHour, Indexed: true, Packs: []UUID{seg0, seg1}}}},
+			packs:   []UUID{seg0, seg1, seg1}, searched: []TxScope{{Hour: memTestHour, Packs: []UUID{seg0, seg1}}}},
 		{name: "a pack of the next hour", hours: [][][]byte{{txPack(t, seg0, nil, primary)}, {txPackIn(t, seg1, 1, nil, reply)}},
 			records: []string{"12@0 primary", "13@1 candidate in eligible decidable valid", "14@1 same-key-primary bound"},
 			packs:   []UUID{seg0, seg1, seg1}, searched: []TxScope{
-				{Hour: memTestHour, Indexed: true, Packs: []UUID{seg0}}, {Hour: memTestHour + 1, Indexed: true, Packs: []UUID{seg1}},
+				{Hour: memTestHour, Packs: []UUID{seg0}}, {Hour: memTestHour + 1, Packs: []UUID{seg1}},
 			}},
 	}
 	for _, tt := range tests {
@@ -564,7 +564,7 @@ func TestFindTransactionAcrossPacks(t *testing.T) {
 			}
 			assert.Equal(t, tt.packs, packs)
 			assert.Equal(t, tt.searched, res.Searched)
-			assert.Empty(t, res.Gaps)
+			assert.Empty(t, res.Incomplete)
 		})
 	}
 }
@@ -611,7 +611,7 @@ func TestFindTransactionTopSeqs(t *testing.T) {
 			records: []string{"9223372036854775806@0 primary", "9223372036854775807@0 candidate in eligible decidable valid"}},
 		{name: "a same-key primary at the top, the window empty", p: top - 1,
 			recs:    []Record{at(top, txRecord(0, nil))},
-			outcome: TxUnmatched, end: new(top),
+			outcome: TxNotFound, end: new(top),
 			records: []string{"9223372036854775806@0 primary", "9223372036854775807@0 same-key-primary bound"}},
 	}
 	for _, tt := range tests {
@@ -619,13 +619,128 @@ func TestFindTransactionTopSeqs(t *testing.T) {
 			t.Parallel()
 
 			recs := append([]Record{at(tt.p, txRecord(0, nil))}, tt.recs...)
-			s := txSource(t, true, txPack(t, seg0, nil, txBlock(recs...)))
+			s := txSource(t, txPack(t, seg0, nil, txBlock(recs...)))
 			res, err := findTx(t, t.Context(), s, txKeyAt(tt.p), TxOptions{MaxScopes: 1})
 			require.NoError(t, err)
 			assert.Equal(t, tt.outcome, res.Outcome)
 			assert.Equal(t, tt.end, res.WindowEnd)
-			assert.Equal(t, tt.gaps, nilIfEmpty(gapSeqs(res.Gaps)))
+			assert.Equal(t, tt.gaps, nilIfEmpty(gapSeqs(res.Incomplete)))
 			assert.Equal(t, tt.records, recordFlags(res.Records))
 		})
 	}
+}
+
+// txLookupOne looks up txRecord's primary at 12 over one pack seg0 of memTestHour holding txRecord(11), the primary and recs,
+// its pack metadata changed by meta when set, with MaxScopes 1.
+func txLookupOne(t *testing.T, meta func(m *PackMeta), recs ...Record) TxResult {
+	t.Helper()
+
+	all := append([]Record{txRecord(11, nil), txRecord(12, nil)}, recs...)
+	res, err := findTx(t, t.Context(), txSource(t, txPack(t, seg0, meta, txBlock(all...))), txKeyAt(12), TxOptions{MaxScopes: 1})
+	require.NoError(t, err)
+
+	return res
+}
+
+// TestFindTransactionUnavailableFields looks up a primary without System Bytes, and an otherwise unanswered primary
+// followed in its window by a reply-direction record whose System Bytes are unavailable:
+// both are incomplete (the tracepack semantics specification §7.2), the first with a TxGapNoKey gap,
+// the second TxNotFound with a TxGapUnavailable gap at the possible reply.
+func TestFindTransactionUnavailableFields(t *testing.T) {
+	t.Parallel()
+
+	noSB := func(r *Record) { r.FieldValidity &^= FieldValiditySystemBytes }
+	all := []Record{txRecord(11, nil), txRecord(12, noSB), txReply(13, nil), txRecord(14, nil)}
+	res, err := findTx(t, t.Context(), txSource(t, txPack(t, seg0, nil, txBlock(all...))), txKeyAt(12), TxOptions{MaxScopes: 1})
+	require.NoError(t, err)
+	assert.Equal(t, TxNotFound, res.Outcome)
+	assert.Equal(t, []string{"no-key@12"}, gapSeqs(res.Incomplete))
+
+	res = txLookupOne(t, nil, txReply(13, noSB), txRecord(14, nil))
+	assert.Equal(t, TxNotFound, res.Outcome)
+	assert.Equal(t, []string{"12@0 primary", "13@0 possible-reply in", "14@0 same-key-primary bound"}, recordFlags(res.Records))
+	assert.Equal(t, []string{"unavailable@13"}, gapSeqs(res.Incomplete))
+}
+
+// TestFindTransactionPossiblePrimary reads a possible same-key primary with System Bytes unavailable at 14:
+// a reply before it is a valid match, complete;
+// a reply after it is a candidate that is not eligible, and could be the reply, so the lookup is TxNotFound and incomplete.
+func TestFindTransactionPossiblePrimary(t *testing.T) {
+	t.Parallel()
+
+	possible := txRecord(14, func(r *Record) { r.FieldValidity &^= FieldValiditySystemBytes })
+
+	res := txLookupOne(t, nil, txReply(13, nil), possible, txNote(15, nil), txRecord(16, nil))
+	assert.Equal(t, TxMatched, res.Outcome)
+	assert.Equal(t, []string{
+		"12@0 primary", "13@0 candidate in eligible decidable valid", "14@0 possible-primary in", "16@0 same-key-primary bound",
+	}, recordFlags(res.Records))
+	assert.Empty(t, res.Incomplete)
+
+	res = txLookupOne(t, nil, txNote(13, nil), possible, txReply(15, nil), txRecord(16, nil))
+	assert.Equal(t, TxNotFound, res.Outcome)
+	assert.Equal(t, []string{
+		"12@0 primary", "14@0 possible-primary in", "15@0 candidate in decidable", "16@0 same-key-primary bound",
+	}, recordFlags(res.Records))
+	assert.Equal(t, []string{"unavailable@15"}, gapSeqs(res.Incomplete))
+}
+
+// TestFindTransactionUnknownDirection reads a data record in unknown direction with the primary's SessionID and System Bytes at 13:
+// it is both a possible reply and a possible same-key primary, so the reply after it is not eligible,
+// and the lookup is TxNotFound with a TxGapUnavailable gap at each.
+func TestFindTransactionUnknownDirection(t *testing.T) {
+	t.Parallel()
+
+	res := txLookupOne(t, nil, txRecord(13, func(r *Record) { r.Dir = DirUnknown }), txReply(14, nil), txRecord(15, nil))
+	assert.Equal(t, TxNotFound, res.Outcome)
+	assert.Equal(t, []string{
+		"12@0 primary", "13@0 possible-reply|possible-primary in", "14@0 candidate in decidable", "15@0 same-key-primary bound",
+	}, recordFlags(res.Records))
+	assert.Equal(t, []string{"unavailable@13", "unavailable@14"}, gapSeqs(res.Incomplete))
+}
+
+// TestFindTransactionQualityNotEvaluated looks up a primary answered in a pack whose quality_evaluated is false:
+// the match stands beside a TxGapUnevaluated gap naming the pack.
+func TestFindTransactionQualityNotEvaluated(t *testing.T) {
+	t.Parallel()
+
+	res := txLookupOne(t, func(m *PackMeta) { m.QualityEvaluated = false }, txReply(13, nil), txRecord(14, nil))
+	assert.Equal(t, TxMatched, res.Outcome)
+	require.Equal(t, []string{"unevaluated"}, gapSeqs(res.Incomplete))
+	assert.Equal(t, TxGap{
+		Reason: TxGapUnevaluated, Hours: []int64{memTestHour}, Pack: new(seg0), Block: -1, Offset: -1, Err: res.Incomplete[0].Err,
+	}, res.Incomplete[0])
+}
+
+// TestFindTransactionRejectReqUnavailable reads, in the window, a Reject.req of the primary and one whose SType is unavailable:
+// the first is an outcome record, the second plays no role and is not kept;
+// neither is a match, and the lookup is complete.
+func TestFindTransactionRejectReqUnavailable(t *testing.T) {
+	t.Parallel()
+
+	reject := txAt(13, txControl(nil))
+	unavailable := txAt(14, txControl(func(r *Record) { r.FieldValidity &^= FieldValiditySType }))
+	res := txLookupOne(t, nil, reject, unavailable, txRecord(15, nil))
+	assert.Equal(t, TxNotFound, res.Outcome)
+	assert.Equal(t, []string{"12@0 primary", "13@0 outcome in", "15@0 same-key-primary bound"}, recordFlags(res.Records))
+	assert.Empty(t, res.Incomplete)
+}
+
+// TestFindTransactionTimerExpiryWithoutIdentifiers reads, in the window, a T3 timer-expiry naming the primary
+// and T3 expiries without its primary_session_id or without its primary_system_bytes:
+// the first is an outcome record, the others play no role and are not kept; the lookup is complete.
+func TestFindTransactionTimerExpiryWithoutIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	t3 := func(seq uint64, edit func(ev *TransportEvent)) Record {
+		return testEventRecord(t, seq, blockTestHour+int64(seq), txTestEpoch, txT3(edit))
+	}
+	res := txLookupOne(t, nil,
+		t3(13, nil),
+		t3(14, func(ev *TransportEvent) { ev.PrimarySessionID = nil }),
+		t3(15, func(ev *TransportEvent) { ev.PrimarySystemBytes, ev.PrimarySystemBytesPresent = [4]byte{}, false }),
+		txRecord(16, nil))
+	assert.Equal(t, TxNotFound, res.Outcome)
+	assert.Equal(t, []string{"12@0 primary", "13@0 outcome in", "16@0 same-key-primary bound"}, recordFlags(res.Records))
+	assert.Empty(t, res.Incomplete)
 }

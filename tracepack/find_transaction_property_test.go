@@ -9,7 +9,6 @@ import (
 	"maps"
 	"math/rand/v2"
 	"slices"
-	"strings"
 	"sync"
 	"testing"
 
@@ -21,33 +20,33 @@ import (
 
 // Generated lookups (genTxCapture) are checked twice, each time by code written without the lookup's own.
 //
-// The observation-bounded check (txSnapshot.expect) takes the observation a lookup takes,
-// reads every block of every pack of each scope the lookup reads with the package's block reader,
+// The snapshot-bounded check (txSnapshot.expect) takes the packs the source gives for each hour a lookup reads,
+// reads every block of every pack of each hour with the package's block reader,
 // as the reference of a read over several packs does (newMergeIterateReference),
-// groups the copies of each seq by their bytes within each scope and by seq across the scopes,
+// takes the crash gaps from each pack's footer, or from the records of a pack without a used footer,
+// groups the copies of each seq of the primary's capture by their bytes within each hour and by seq across the hours,
 // and computes the whole TxResult from the definitions of the tracepack semantics specification §7.2.
 //
 // The safety check (txTruth.violations) takes the capture as it was written,
 // before its packs were cut, damaged or dropped,
-// and requires every TxUnmatched, and every TxMatched without a gap, to hold over it.
+// and requires every complete TxNotFound and TxMatched to hold over it.
 
 // txGenFacts counts what generated captures hold, for the check that together they exercise what they should.
 type txGenFacts struct {
 	epochs, backwardSteps, dropped, unavailable, unknownDirs, orderingUncertain, correlation int
 	primaries, replies, aborts, rejects, t3s, closes, refusedSockets, boundaries, stops      int
 	localVersions, crossVersions, copies, walked, unevaluated, coverage, invalidFooters      int
-	flipped, staged, cold, falseClosures, falseStops, partial, captureBarriers, toolBarriers int
-	conflictedScopes, coldConflicted, breaches, walkedBreaches                               int
+	flipped, breaches, walkedBreaches, otherCaptures, otherUnclean                           int
 }
 
 // txGenPack is one pack of a generated capture, as the generator wrote it.
 type txGenPack struct {
 	hour int64
 	id   UUID
+	// capture is the pack's capture_id: captureLow, or captureHigh for a pack of another capture beside it.
+	capture UUID
 	// recs holds the versions written into the pack, in ascending seq.
 	recs []Record
-	// admitted reports a pack the catalog admitted; a pack not admitted is staged, and only a listing view reads it.
-	admitted bool
 	// evaluated is the pack metadata's quality_evaluated, and coverage its coverage entries.
 	evaluated bool
 	coverage  []Coverage
@@ -64,23 +63,19 @@ type txGen struct {
 	// truth holds every record of the capture as written, one per seq, the seqs dense,
 	// before the packs were cut, damaged or dropped.
 	truth []Record
-	// packs holds every pack put in the source, admitted or staged.
+	// packs holds every pack put in the source, those of another capture beside it included.
 	packs []txGenPack
 	// first is the capture's first hour, and hours the number of hours its records lie in.
 	first int64
 	hours int
-	// indexed holds whether the catalog indexes each hour from first on, the hours after the capture's included,
-	// and conflicted whether an hour's view is conflicted.
-	indexed, conflicted map[int64]bool
 	// keys holds the lookups to run, maxScopes their MaxScopes.
 	keys      []TxKey
 	maxScopes int
-	// rough reports a capture whose packs, scopes and evidence are now and then damaged, cold or partial (txGen.now);
-	// the others hold none of that, but now and then a conflicted hour after their records,
-	// so that most of their lookups can establish absence.
+	// rough reports a capture whose packs are now and then damaged, unevaluated or covered (txGen.now);
+	// the others hold none of that, so that most of their lookups are complete.
 	rough bool
 	made  txGenFacts
-	// alt draws the conflicted scopes and the packs breaching their scope, apart from the generator's other draws,
+	// alt draws the packs breaching their scope and the packs of another capture, apart from the generator's other draws,
 	// so that no other draw of a seed changes.
 	alt *rand.Rand
 }
@@ -114,19 +109,15 @@ type txGenState struct {
 const txGenHours = 3
 
 // genTxCapture returns the capture generated from seed (genTxTraffic), cut into packs (txGen.cut),
-// with per-capture evidence and barriers beside it (txGen.evidence) and the lookups to run:
+// now and then beside packs of another capture (txGen.other), and the lookups to run:
 // one of every record at the hour of its ts_utc_ns, and one of each version written into another hour.
-// Every hour from the first to txGenHours past the last is indexed, except now and then one in a rough capture,
-// and, in a rough capture, now and then one is conflicted (txGen.conflict), more often one not indexed;
-// in any capture, now and then the first hour after its records is conflicted,
-// so that a match can stand beside a conflicted later hour.
 func genTxCapture(t testing.TB, seed uint64) *txGen {
 	t.Helper()
 
 	rng := rand.New(rand.NewPCG(seed, 0x74782d6c6f6f6b))
 	g := &txGen{
-		src: newMemSource(), first: memTestHour, hours: 3 + rng.IntN(2), maxScopes: 1 + rng.IntN(3), indexed: map[int64]bool{},
-		conflicted: map[int64]bool{}, rough: rng.IntN(2) == 0, alt: rand.New(rand.NewPCG(seed, 0x6272656163680a)),
+		src: newMemSource(), first: memTestHour, hours: 3 + rng.IntN(2), maxScopes: 1 + rng.IntN(3),
+		rough: rng.IntN(2) == 0, alt: rand.New(rand.NewPCG(seed, 0x6272656163680a)),
 	}
 	st := &txGenState{rng: rng, made: &g.made, hours: g.hours, rough: g.rough, epoch: 1}
 	if rng.IntN(10) == 0 {
@@ -140,44 +131,46 @@ func genTxCapture(t testing.TB, seed uint64) *txGen {
 		g.keys = append(g.keys, TxKey{Capture: captureLow, Seq: r.Seq, Hour: hourOf(r.TSUTCNs)})
 	}
 	g.cut(t, rng)
-	g.evidence(rng)
-	for h := g.first; h < g.first+int64(g.hours+txGenHours); h++ {
-		g.indexed[h] = !g.now(rng, 6)
-		g.src.setIndexed(captureLow, h, g.indexed[h])
-		if !g.indexed[h] {
-			g.made.cold++
+	for h := range g.hours {
+		if g.alt.IntN(3) == 0 {
+			g.other(t, g.alt, g.first+int64(h))
 		}
-	}
-	for h := g.first; h < g.first+int64(g.hours+txGenHours); h++ {
-		if g.now(g.alt, 8) || !g.indexed[h] && g.now(g.alt, 3) {
-			g.conflict(t, g.alt, h)
-		}
-	}
-	if after := g.first + int64(g.hours); !g.conflicted[after] && g.alt.IntN(3) == 0 {
-		g.conflict(t, g.alt, after)
 	}
 
 	return g
 }
 
-// conflict makes the scope of hour conflicted (memSource.conflict),
-// its two generations holding the capture's records of the hour, if any,
-// admitted, or, when the catalog does not index the hour, staged half the time, so that only its listing view is conflicted.
-func (g *txGen) conflict(t testing.TB, rng *rand.Rand, hour int64) {
+// other writes a pack of captureHigh for hour, beside the capture's own:
+// copies of one to four of the capture's records of the hour, the same seqs and bytes of another capture,
+// which a lookup of captureLow reads but never takes as its own,
+// followed, half the time, by a stop-unclean boundary of captureHigh with random gap bounds, a crash gap of another capture.
+// The pack's footer is used, or now and then not, so that the boundary comes from its footer or from its record.
+func (g *txGen) other(t testing.TB, rng *rand.Rand, hour int64) {
 	t.Helper()
 
-	var steps []footerTestStep
+	var own []Record
 	for _, r := range g.truth {
 		if hourOf(r.TSUTCNs) == hour {
-			steps = append(steps, footerTestStep{rec: r})
+			own = append(own, r)
 		}
 	}
-	g.src.conflict(t, hour, !g.indexed[hour] && rng.IntN(2) == 0, steps)
-	g.conflicted[hour] = true
-	g.made.conflictedScopes++
-	if !g.indexed[hour] {
-		g.made.coldConflicted++
+	if len(own) == 0 {
+		return
 	}
+	s := rng.IntN(len(own))
+	recs := slices.Clone(own[s : s+1+rng.IntN(min(4, len(own)-s))])
+	if rng.IntN(2) == 0 {
+		last := recs[len(recs)-1]
+		ev := &TransportEvent{
+			Event: EventCaptureBoundary, BoundaryKind: new(BoundaryKindStopUnclean),
+			GapStart: txGenGapBound(rng, g.hours), GapEnd: txGenGapBound(rng, g.hours),
+		}
+		recs = append(recs, txCanonical(testEventRecord(t, last.Seq+1, last.TSUTCNs+1, 1, ev)))
+		g.made.otherUnclean++
+	}
+	walked := rng.IntN(4) == 0
+	g.packOf(t, rng, hour, captureHigh, recs, &walked)
+	g.made.otherCaptures++
 }
 
 // genTxTraffic returns the records of a generated capture over hours hours, drawn by st (txGenState.record):
@@ -710,11 +703,8 @@ func (g *txGen) crossVersion(t testing.TB, rng *rand.Rand) {
 }
 
 // pack writes recs, unless empty, into a pack of captureLow for hour, its period that hour,
-// in blocks closed at random, with a random codec,
-// and puts it in the source: admitted, which registers its footer's evidence,
-// or staged, a third of those with its evidence registered as a rejected registration does.
-// In a rough capture, now and then the pack is staged,
-// its pack metadata has quality_evaluated false or a coverage entry,
+// in blocks closed at random, with a random codec, and gives it to the source for hour.
+// In a rough capture, now and then its pack metadata has quality_evaluated false or a coverage entry,
 // or it is left unfinalized, written with a footer that is not valid, or given a block with a body byte flipped.
 func (g *txGen) pack(t testing.TB, rng *rand.Rand, hour int64, recs []Record) {
 	t.Helper()
@@ -726,12 +716,19 @@ func (g *txGen) pack(t testing.TB, rng *rand.Rand, hour int64, recs []Record) {
 func (g *txGen) packAs(t testing.TB, rng *rand.Rand, hour int64, recs []Record, walked *bool) {
 	t.Helper()
 
+	g.packOf(t, rng, hour, captureLow, recs, walked)
+}
+
+// packOf is packAs for a pack of capture.
+func (g *txGen) packOf(t testing.TB, rng *rand.Rand, hour int64, capture UUID, recs []Record, walked *bool) {
+	t.Helper()
+
 	if len(recs) == 0 {
 		return
 	}
 	p := txGenPack{
-		hour: hour, id: UUID{0x70, byte(len(g.packs) >> 8), byte(len(g.packs))}, recs: recs,
-		admitted: !g.now(rng, 10), evaluated: !g.now(rng, 6),
+		hour: hour, id: UUID{0x70, byte(len(g.packs) >> 8), byte(len(g.packs))}, capture: capture, recs: recs,
+		evaluated: !g.now(rng, 6),
 	}
 	if walked != nil {
 		p.walked = *walked
@@ -758,7 +755,7 @@ func (g *txGen) packAs(t testing.TB, rng *rand.Rand, hour int64, recs []Record, 
 		file = invalidFooterFile(t, file)
 		g.made.invalidFooters++
 	}
-	file = withIDs(t, file, p.id, captureLow)
+	file = withIDs(t, file, p.id, capture)
 	if g.now(rng, 8) {
 		blocks := mustOpen(t, file, ReaderOptions{}).Blocks()
 		b := blocks[rng.IntN(len(blocks))]
@@ -767,18 +764,7 @@ func (g *txGen) packAs(t testing.TB, rng *rand.Rand, hour int64, recs []Record, 
 		g.made.flipped++
 	}
 	p.file = file
-	switch {
-	case p.admitted:
-		g.src.addPack(t, hour, file)
-	case rng.IntN(3) == 0:
-		g.src.stagePack(t, hour, file)
-		g.src.registerEvidence(t, file)
-	default:
-		g.src.stagePack(t, hour, file)
-	}
-	if !p.admitted {
-		g.made.staged++
-	}
+	g.src.addPack(t, hour, file)
 	if p.walked {
 		g.made.walked++
 	}
@@ -843,156 +829,98 @@ func (g *txGen) coverageEntry(rng *rand.Rand) Coverage {
 	return c
 }
 
-// evidence records, in a rough capture, per-capture evidence beside what the packs' registrations recorded,
-// each now and then:
-// a close_seq and a clean stop, each half the time,
-// at a closing record of the capture, mostly its last, or at a random record,
-// the close_seq of the record's epoch or, half the time, of another record's, and the stop likewise;
-// partial evidence; a stop-unclean of the capture, three times in four;
-// a stop-unclean of captureHigh, a barrier of the tool;
-// the stop-uncleans with random gap bounds.
-func (g *txGen) evidence(rng *rand.Rand) {
-	pick := func() *Record { return &g.truth[rng.IntN(len(g.truth))] }
-	closers := txGenClosers(g.truth)
-	at := func() *Record {
-		switch {
-		case len(closers) == 0 || rng.IntN(4) == 0:
-			return pick()
-		case rng.IntN(2) == 0:
-			return closers[len(closers)-1]
-		default:
-			return closers[rng.IntN(len(closers))]
-		}
-	}
-	epochOf := func(r *Record) uint32 {
-		if rng.IntN(2) == 0 {
-			return r.Epoch
-		}
-		for range 8 {
-			if o := pick(); o.Epoch != r.Epoch {
-				return o.Epoch
-			}
-		}
-
-		return r.Epoch + 1
-	}
-	if g.now(rng, 2) {
-		r := at()
-		g.src.addClosure(captureLow, epochOf(r), r.Seq)
-		g.made.falseClosures++
-	}
-	if g.now(rng, 2) {
-		r := at()
-		g.src.addBoundary(Boundary{Capture: captureLow, Seq: r.Seq, Kind: BoundaryKindStop, TS: r.TSUTCNs, Epoch: epochOf(r)})
-		g.made.falseStops++
-	}
-	if g.now(rng, 5) {
-		g.src.setPartial(captureLow)
-		g.made.partial++
-	}
-	if g.rough && rng.IntN(4) != 0 {
-		r := pick()
-		g.src.addBoundary(Boundary{
-			Capture: captureLow, Seq: r.Seq, Kind: BoundaryKindStopUnclean, TS: r.TSUTCNs, Epoch: r.Epoch,
-			GapStart: txGenGapBound(rng, g.hours), GapEnd: txGenGapBound(rng, g.hours),
-		})
-		g.made.captureBarriers++
-	}
-	if g.now(rng, 3) {
-		g.src.addBoundary(Boundary{
-			Capture: captureHigh, Seq: 1 + rng.Uint64N(100), Kind: BoundaryKindStopUnclean, TS: blockTestHour, Epoch: 1,
-			GapStart: txGenGapBound(rng, g.hours), GapEnd: txGenGapBound(rng, g.hours),
-		})
-		g.made.toolBarriers++
-	}
-}
-
-// txOracleScope is one scope as the observation-bounded check reads it.
+// txOracleScope is one hour as the snapshot-bounded check reads it.
 type txOracleScope struct {
-	hour    int64
-	indexed bool
-	// conflicted reports a scope whose view is conflicted, which a lookup does not read; it holds nothing else.
-	conflicted bool
-	// packs holds the pack_ids of the view, in view order; nil for a scope without packs.
-	packs []UUID
-	// items holds what a read of the scope in capture order with a zero filter and payloads yields,
+	hour int64
+	// packs holds the pack_ids of the packs the source gives for the hour, in the order given, and captures their capture_ids;
+	// nil for an hour without packs.
+	packs    []UUID
+	captures []UUID
+	// items holds what a read of the hour in capture order with a zero filter and payloads yields,
 	// and conflicts the conflicts it lists, by the reference of a read over several packs.
 	items     []iterItem
 	conflicts []Conflict
-	// defects holds the read's defects other than coverage entries, with their packs, as TxGapRead gaps.
+	// defects holds the read's defects other than coverage entries and crash gaps, with their packs, as TxGapRead gaps.
 	defects []TxGap
-	// coverage holds the coverage entries of the packs, those of another capture left out, each with its pack.
+	// coverage holds the coverage entries of the packs, each with its pack and the capture it belongs to.
 	coverage []txOracleCoverage
+	// crash holds the stop-unclean boundaries of the packs, each value once, with the smallest index of a pack holding it:
+	// from the footer of a pack whose footer is used, from the records decoded in any other.
+	crash []txOracleCrash
 	// unevaluated holds the packs whose quality_evaluated is false, footerErrs the footer errors.
 	unevaluated []UUID
 	footerErrs  []TxPackError
 }
 
-// txOracleCoverage is a coverage entry of a pack a scope's view holds.
+// txOracleCoverage is a coverage entry of a pack an hour's read takes.
 type txOracleCoverage struct {
 	pack UUID
-	c    Coverage
+	// capture is the capture the entry belongs to, its pack's.
+	capture UUID
+	c       Coverage
 }
 
-// txSnapshot is the observation a lookup takes, as the observation-bounded check reads it:
-// each scope of its hours, the capture's per-capture evidence, and every stop-unclean of the tool.
+// txOracleCrash is a stop-unclean boundary of a pack an hour's read takes, with the index of its representative pack.
+type txOracleCrash struct {
+	pack int
+	b    Boundary
+}
+
+// txSnapshot is what the packs the source gives for a lookup's hours hold, as the snapshot-bounded check reads them.
 type txSnapshot struct {
-	capture  UUID
-	scopes   map[int64]*txOracleScope
-	evidence CaptureEvidence
-	barriers []Boundary
+	capture UUID
+	scopes  map[int64]*txOracleScope
 }
 
-// newTxSnapshot takes one observation of capture over the hours [from, to) of src,
-// and reads each of its scopes with the reference of a read over several packs (newTxOracleScope).
-// The barriers are every stop-unclean boundary the observation fixed, unfiltered.
+// newTxSnapshot reads the packs src gives for each hour of [from, to)
+// with the reference of a read over several packs (newTxOracleScope), for lookups of capture.
 func newTxSnapshot(t testing.TB, src *memSource, capture UUID, from, to int64) *txSnapshot {
 	t.Helper()
 
-	obs, err := src.Observe(t.Context(), capture, from, to)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, obs.Close()) }()
-
 	s := &txSnapshot{capture: capture, scopes: map[int64]*txOracleScope{}}
-	s.evidence, err = obs.Evidence(t.Context())
-	require.NoError(t, err)
-	mo, ok := obs.(*memObservation)
-	require.True(t, ok)
-	s.barriers = cloneBoundaries(mo.barriers)
 	for h := from; h < to; h++ {
-		sc, err := obs.Scope(t.Context(), h)
+		readers, err := src.Readers(t.Context(), h)
 		require.NoError(t, err)
-		s.scopes[h] = newTxOracleScope(t, h, sc)
+		s.scopes[h] = newTxOracleScope(t, h, readers)
 	}
 
 	return s
 }
 
-// newTxOracleScope reads the scope of hour, whose fixed view is sc,
+// newTxOracleScope reads the packs readers of hour
 // with the reference of a read over several packs in capture order, a zero filter and payloads,
 // and takes from each pack what Open found:
-// its defects, its coverage entries, its quality_evaluated and its footer error.
-func newTxOracleScope(t testing.TB, hour int64, sc SourceScope) *txOracleScope {
+// its defects, its coverage entries, its stop-unclean boundaries, its quality_evaluated and its footer error.
+func newTxOracleScope(t testing.TB, hour int64, readers []*Reader) *txOracleScope {
 	t.Helper()
 
-	o := &txOracleScope{hour: hour, indexed: sc.Indexed, conflicted: sc.Conflicted}
-	for _, r := range sc.Readers {
-		o.packs = append(o.packs, r.Header().PackID)
+	o := &txOracleScope{hour: hour}
+	for _, r := range readers {
+		h := r.Header()
+		o.packs, o.captures = append(o.packs, h.PackID), append(o.captures, h.CaptureID)
 	}
-	ref := newMergeIterateReference(t, sc.Readers, Query{Payloads: true})
+	ref := newMergeIterateReference(t, readers, Query{Payloads: true})
 	o.items, o.conflicts = ref.read(OrderCapture)
 
 	defect := func(pack UUID, block int, offset int64, reason IncompleteReason) TxGap {
 		return TxGap{Reason: TxGapRead, Hours: []int64{hour}, Pack: new(pack), Block: block, Offset: offset, Defect: reason}
 	}
-	for i, r := range sc.Readers {
+	for i, r := range readers {
 		h := r.Header()
 		for _, d := range r.openDefects {
 			o.defects = append(o.defects, defect(o.packs[i], d.Block, d.Offset, d.Reason))
 		}
+		// A read reports only the entries of its pack's capture.
 		for _, c := range h.Meta.Coverage {
 			if c.CaptureID == nil || *c.CaptureID == h.CaptureID {
-				o.coverage = append(o.coverage, txOracleCoverage{pack: o.packs[i], c: c})
+				o.coverage = append(o.coverage, txOracleCoverage{pack: o.packs[i], capture: h.CaptureID, c: c})
+			}
+		}
+		for _, b := range txOracleBoundariesOf(t, r) {
+			if b.Kind == BoundaryKindStopUnclean && !slices.ContainsFunc(o.crash, func(c txOracleCrash) bool {
+				return keyOfCrashGap(&c.b) == keyOfCrashGap(&b)
+			}) {
+				o.crash = append(o.crash, txOracleCrash{pack: i, b: b})
 			}
 		}
 		if !h.Meta.QualityEvaluated {
@@ -1007,6 +935,40 @@ func newTxOracleScope(t testing.TB, hour int64, sc SourceScope) *txOracleScope {
 	}
 
 	return o
+}
+
+// txOracleBoundariesOf returns the capture-boundary entries of r's footer when r uses it,
+// else the capture-boundary records of the blocks r's own read decodes, as Boundary values of r's capture.
+func txOracleBoundariesOf(t testing.TB, r *Reader) []Boundary {
+	t.Helper()
+
+	if st, ok := r.Stats(); ok {
+		return st.Boundaries
+	}
+	capture := r.Header().CaptureID
+	var out []Boundary
+	_, err := r.Iterate(t.Context(), Query{Payloads: true}, func(it *Item) error {
+		if b, ok := txOracleBoundaryOf(capture, &it.Record); ok {
+			out = append(out, b)
+		}
+
+		return nil
+	})
+	require.NoError(t, err)
+
+	return out
+}
+
+// own returns the items of the read of sc that belong to capture, in read order.
+func (sc *txOracleScope) own(capture UUID) []iterItem {
+	var out []iterItem
+	for _, it := range sc.items {
+		if sc.captures[it.pack] == capture {
+			out = append(out, it)
+		}
+	}
+
+	return out
 }
 
 // breaches returns the items of the read of sc whose ts_utc_ns lies outside the scope's hour, in read order.
@@ -1027,7 +989,7 @@ func txOracleField(rec *Record, bit FieldValidity, end int) bool {
 	return (rec.Kind == KindData || rec.Kind == KindControl) && rec.FieldValidity&bit != 0 && len(rec.Payload) >= end
 }
 
-// txOracleKey is a primary as the observation-bounded check reads it: its association key and match fields.
+// txOracleKey is a primary as the snapshot-bounded check reads it: its association key and match fields.
 type txOracleKey struct {
 	keyed bool
 	epoch uint32
@@ -1183,13 +1145,10 @@ func txOracleMeets(lo, hi *int64, from, to int64) bool {
 	return (lo == nil || *lo < to) && (hi == nil || *hi >= from)
 }
 
-// txOracleCoverageMeets reports whether the coverage entry c of a pack of capture meets the seqs [first, last]
+// txOracleCoverageMeets reports whether the coverage entry c meets the seqs [first, last]
 // and the time range [from, to), by the tracepack format specification §5; an empty seq range (first > last) meets
 // only an entry inverted on either side.
-func txOracleCoverageMeets(c *Coverage, capture UUID, first, last uint64, from, to int64) bool {
-	if c.CaptureID != nil && *c.CaptureID != capture {
-		return false
-	}
+func txOracleCoverageMeets(c *Coverage, first, last uint64, from, to int64) bool {
 	if c.SeqFirst != nil && c.SeqLast != nil && *c.SeqFirst > *c.SeqLast ||
 		c.TimeStart != nil && c.TimeEnd != nil && *c.TimeStart > *c.TimeEnd {
 		return true
@@ -1199,11 +1158,11 @@ func txOracleCoverageMeets(c *Coverage, capture UUID, first, last uint64, from, 
 		txOracleMeets(c.TimeStart, c.TimeEnd, from, to)
 }
 
-// txExpect is the observation-bounded check's computation of one lookup's result.
+// txExpect is the snapshot-bounded check's computation of one lookup's result.
 type txExpect struct {
 	snap *txSnapshot
 	key  TxKey
-	// maxScopes is the number of hours scheduled, and reads the scopes read, a conflicted one left out.
+	// maxScopes is the number of hours scheduled, and reads the hours read.
 	maxScopes int
 	reads     []*txOracleScope
 	res       TxResult
@@ -1216,15 +1175,15 @@ type txExpect struct {
 	valid                int
 }
 
-// expect computes from the snapshot alone what a lookup of key with maxScopes scopes returns:
+// expect computes from the snapshot alone what a lookup of key with maxScopes hours returns:
 // the result, and whether the lookup fails with ErrNotPrimary,
-// the result then holding what the read of scope key.Hour found.
+// the result then holding what the read of hour key.Hour found.
 func (s *txSnapshot) expect(key TxKey, maxScopes int) (TxResult, bool) {
 	x := &txExpect{snap: s, key: key, maxScopes: maxScopes, hours: map[uint64][]int64{}}
 	first := s.scopes[key.Hour]
 	x.read(first)
 	var prims []iterItem
-	for _, it := range first.items {
+	for _, it := range first.own(key.Capture) {
 		if it.rec.Seq == key.Seq {
 			prims = append(prims, it)
 		}
@@ -1239,7 +1198,7 @@ func (s *txSnapshot) expect(key TxKey, maxScopes int) (TxResult, bool) {
 		}
 		x.keyGap(TxGapConflict)
 		x.keyGap(TxGapNoKey)
-		x.res.Outcome = TxIncomplete
+		x.earlyReturn()
 
 		return x.res, false
 	}
@@ -1256,7 +1215,7 @@ func (s *txSnapshot) expect(key TxKey, maxScopes int) (TxResult, bool) {
 	}
 	if !x.k.keyed {
 		x.keyGap(TxGapNoKey)
-		x.res.Outcome = TxIncomplete
+		x.earlyReturn()
 
 		return x.res, false
 	}
@@ -1273,19 +1232,16 @@ func (s *txSnapshot) expect(key TxKey, maxScopes int) (TxResult, bool) {
 	return x.res, false
 }
 
-// read adds the scope sc to the reads, with what its read reports: its defects,
-// a TxGapScopeBreach gap for each item whose ts_utc_ns lies outside the scope's hour, unevaluated packs, coldness,
-// conflicts, footer errors, and the scope as searched.
-// A conflicted scope is not read: it adds a TxGapCold gap when not indexed, then a TxGapConflicted gap, and nothing else.
-func (x *txExpect) read(sc *txOracleScope) {
-	if sc.conflicted {
-		if !sc.indexed {
-			x.gap(TxGap{Reason: TxGapCold, Hours: []int64{sc.hour}})
-		}
-		x.gap(TxGap{Reason: TxGapConflicted, Hours: []int64{sc.hour}})
+// earlyReturn ends a lookup after hour key.Hour: TxNotFound, with the crash gaps that meet that hour.
+func (x *txExpect) earlyReturn() {
+	x.crashGaps(x.key.Hour*hourNs, (x.key.Hour+1)*hourNs)
+	x.res.Outcome = TxNotFound
+}
 
-		return
-	}
+// read adds the hour sc to the reads, with what its read reports: its defects,
+// a TxGapScopeBreach gap for each item whose ts_utc_ns lies outside the hour, unevaluated packs,
+// conflicts, footer errors, and the hour as searched.
+func (x *txExpect) read(sc *txOracleScope) {
 	x.reads = append(x.reads, sc)
 	for _, g := range sc.defects {
 		x.gap(g)
@@ -1296,23 +1252,20 @@ func (x *txExpect) read(sc *txOracleScope) {
 	for _, id := range sc.unevaluated {
 		x.gap(TxGap{Reason: TxGapUnevaluated, Hours: []int64{sc.hour}, Pack: new(id)})
 	}
-	if !sc.indexed {
-		x.gap(TxGap{Reason: TxGapCold, Hours: []int64{sc.hour}})
-	}
 	x.res.Conflicts = append(x.res.Conflicts, sc.conflicts...)
 	x.res.FooterErrs = append(x.res.FooterErrs, sc.footerErrs...)
-	x.res.Searched = append(x.res.Searched, TxScope{Hour: sc.hour, Indexed: sc.indexed, Packs: sc.packs})
+	x.res.Searched = append(x.res.Searched, TxScope{Hour: sc.hour, Packs: sc.packs})
 }
 
 // gap adds g, its Block -1 unless it names a block of its pack, its Offset -1 unless it is a read defect's.
 func (x *txExpect) gap(g TxGap) {
-	if g.Pack == nil || g.Reason == TxGapUnevaluated || g.Reason == TxGapCoverage {
+	if g.Pack == nil || g.Reason == TxGapUnevaluated || g.Reason == TxGapCoverage || g.Reason == TxGapCrashGap {
 		g.Block = -1
 	}
 	if g.Reason != TxGapRead {
 		g.Offset = -1
 	}
-	x.res.Gaps = append(x.res.Gaps, g)
+	x.res.Incomplete = append(x.res.Incomplete, g)
 }
 
 // keyGap adds a gap of reason at the primary's seq in its hour.
@@ -1320,24 +1273,29 @@ func (x *txExpect) keyGap(reason TxGapReason) {
 	x.gap(TxGap{Reason: reason, Hours: []int64{x.key.Hour}, Seq: new(x.key.Seq)})
 }
 
-// missing returns the result of a primary that scope key.Hour does not hold:
-// TxIncomplete with a TxGapNoKey gap when the scope is not indexed or conflicted, its read has a defect,
-// yields an item outside the scope's hour, or a coverage entry meets the primary's seq and hour (the gap carries the first);
+// missing returns the result of a primary that hour key.Hour's read does not yield:
+// TxNotFound with a TxGapNoKey gap, and the crash gaps that meet the hour,
+// when its read has a defect, yields an item outside the hour,
+// holds a coverage entry of the primary's capture that meets the primary's seq and hour (the gap carries the first),
+// or holds a crash gap of the primary's capture that meets the hour;
 // ErrNotPrimary otherwise.
 func (x *txExpect) missing(sc *txOracleScope) (TxResult, bool) {
 	from, to := x.key.Hour*hourNs, (x.key.Hour+1)*hourNs
 	var at *Coverage
 	for i := range sc.coverage {
-		if c := &sc.coverage[i].c; txOracleCoverageMeets(c, x.snap.capture, x.key.Seq, x.key.Seq, from, to) {
-			at = cloneCoverage(c)
+		if c := &sc.coverage[i]; c.capture == x.key.Capture && txOracleCoverageMeets(&c.c, x.key.Seq, x.key.Seq, from, to) {
+			at = cloneCoverage(&c.c)
 			break
 		}
 	}
-	if sc.indexed && !sc.conflicted && len(sc.defects) == 0 && len(sc.breaches()) == 0 && at == nil {
+	crash := slices.ContainsFunc(sc.crash, func(c txOracleCrash) bool {
+		return c.b.Capture == x.key.Capture && txOracleMeets(c.b.GapStart, c.b.GapEnd, from, to)
+	})
+	if len(sc.defects) == 0 && len(sc.breaches()) == 0 && at == nil && !crash {
 		return x.res, true
 	}
 	x.gap(TxGap{Reason: TxGapNoKey, Hours: []int64{x.key.Hour}, Seq: new(x.key.Seq), Coverage: at})
-	x.res.Outcome = TxIncomplete
+	x.earlyReturn()
 
 	return x.res, false
 }
@@ -1384,15 +1342,15 @@ func txOracleGroups(items []iterItem) [][]iterItem {
 	return out
 }
 
-// identity finds the seqs at or above the primary's that each read yielded,
-// adds a TxGapConflict gap for each seq with several versions within a read (the primary's in its own scope excepted),
+// identity finds the seqs of the primary's capture at or above the primary's that each read yielded,
+// adds a TxGapConflict gap for each seq with several versions within a read (the primary's in its own hour excepted),
 // one for each seq several reads yielded, with their hours, and then a TxGapNoKey gap when it is the primary's,
 // and keeps every seq group above the primary in which a version plays a role, and every later version of the primary,
 // each version a conflict when its seq is, then sorts the kept versions by seq, then hour.
 func (x *txExpect) identity() {
 	p := x.key.Seq
 	for _, sc := range x.reads {
-		for _, g := range txOracleGroups(sc.items) {
+		for _, g := range txOracleGroups(sc.own(x.key.Capture)) {
 			seq := g[0].rec.Seq
 			if seq < p {
 				continue
@@ -1414,7 +1372,7 @@ func (x *txExpect) identity() {
 
 	x.res.Records[0].Conflict = len(x.hours[p]) > 1
 	for _, sc := range x.reads {
-		for _, g := range txOracleGroups(sc.items) {
+		for _, g := range txOracleGroups(sc.own(x.key.Capture)) {
 			seq := g[0].rec.Seq
 			if seq < p || seq == p && sc.hour == x.key.Hour {
 				continue
@@ -1523,10 +1481,9 @@ func (x *txExpect) unavailableGap(v *TxRecord) {
 	x.gap(TxGap{Reason: TxGapUnavailable, Hours: []int64{v.Hour}, Pack: new(v.Pack), Block: v.Block, Seq: new(v.Record.Seq)})
 }
 
-// completeness adds the gaps of the tracepack semantics specification §7.2
-// and of the tracepack storage specification §5, Completeness, beside the window's own:
-// coverage, barriers, capture-boundaries, ordering-uncertain, partial evidence, contradictions.
-// The time range is the hours scheduled, a conflicted one, which no read covers, included.
+// completeness adds the reasons of the tracepack semantics specification §7.2 beside the window's own:
+// coverage of the primary's capture, crash gaps, capture-boundaries, ordering-uncertain.
+// The time range is the hours scheduled.
 func (x *txExpect) completeness() {
 	from, to := x.key.Hour*hourNs, (x.key.Hour+int64(x.maxScopes))*hourNs
 	first, last := x.key.Seq+1, uint64(1<<64-1)
@@ -1535,37 +1492,37 @@ func (x *txExpect) completeness() {
 	}
 	for _, sc := range x.reads {
 		for i := range sc.coverage {
-			if c := &sc.coverage[i]; txOracleCoverageMeets(&c.c, x.snap.capture, first, last, from, to) {
+			if c := &sc.coverage[i]; c.capture == x.key.Capture && txOracleCoverageMeets(&c.c, first, last, from, to) {
 				x.gap(TxGap{Reason: TxGapCoverage, Hours: []int64{sc.hour}, Pack: new(c.pack), Coverage: cloneCoverage(&c.c)})
 			}
 		}
 	}
-
-	closed := slices.ContainsFunc(x.res.Records, func(v TxRecord) bool {
-		return v.Record.Seq > x.key.Seq && v.Class.Has(TxClosing) && !v.Conflict && v.Record.Epoch == x.k.epoch
-	})
-	for _, b := range x.snap.evidence.Boundaries {
-		if b.Kind == BoundaryKindStopUnclean && !closed {
-			x.gap(TxGap{Reason: TxGapBarrier, Barrier: new(cloneBoundary(b))})
-		}
-	}
-	for _, b := range x.snap.barriers {
-		if txOracleMeets(b.GapStart, b.GapEnd, from, to) {
-			x.gap(TxGap{Reason: TxGapBarrier, Barrier: new(cloneBoundary(b))})
-		}
-	}
+	x.crashGaps(from, to)
 	x.captureBoundaries()
 	x.orderingUncertain()
-	if x.snap.evidence.Partial {
-		x.gap(TxGap{Reason: TxGapEvidence})
-	}
-	x.contradictions()
 }
 
-// captureBoundaries adds a TxGapCaptureBoundary gap for each capture-boundary of the primary's epoch:
-// each entry of the evidence,
-// then each version of a capture-boundary record of the epoch above the primary that a read yielded,
-// unless an entry of the evidence has its seq, kind and epoch;
+// crashGaps adds a TxGapCrashGap gap for each stop-unclean boundary the reads hold, of any capture,
+// each value once, named by the first hour that holds it and its representative there,
+// whose gap meets [from, to), an inverted gap meeting every range.
+func (x *txExpect) crashGaps(from, to int64) {
+	var seen []crashGapKey
+	for _, sc := range x.reads {
+		for _, c := range sc.crash {
+			k := keyOfCrashGap(&c.b)
+			if slices.Contains(seen, k) {
+				continue
+			}
+			seen = append(seen, k)
+			if txOracleMeets(c.b.GapStart, c.b.GapEnd, from, to) {
+				x.gap(TxGap{Reason: TxGapCrashGap, Hours: []int64{sc.hour}, Pack: new(sc.packs[c.pack]), Boundary: new(cloneBoundary(c.b))})
+			}
+		}
+	}
+}
+
+// captureBoundaries adds a TxGapCaptureBoundary gap for each version of a capture-boundary record of the primary's epoch,
+// of its capture, above the primary that a read yielded,
 // the clean stop that bounds the window, a stop at its end whose bounding version is a capture-boundary stop of the epoch, excepted.
 func (x *txExpect) captureBoundaries() {
 	stopBound := slices.ContainsFunc(x.res.Records, func(v TxRecord) bool {
@@ -1573,33 +1530,25 @@ func (x *txExpect) captureBoundaries() {
 		return v.Bound && ok && b.Kind == BoundaryKindStop && b.Epoch == x.k.epoch
 	})
 	bounding := func(b *Boundary) bool { return stopBound && b.Seq == x.e && b.Kind == BoundaryKindStop }
-	for _, b := range x.snap.evidence.Boundaries {
-		if b.Epoch == x.k.epoch && !bounding(&b) {
-			x.gap(TxGap{Reason: TxGapCaptureBoundary, Seq: new(b.Seq), Barrier: new(cloneBoundary(b))})
-		}
-	}
 	for _, sc := range x.reads {
-		for _, it := range sc.items {
+		for _, it := range sc.own(x.key.Capture) {
 			b, ok := txOracleBoundaryOf(x.key.Capture, &it.rec)
-			if !ok || b.Seq <= x.key.Seq || b.Epoch != x.k.epoch || bounding(&b) ||
-				slices.ContainsFunc(x.snap.evidence.Boundaries, func(e Boundary) bool {
-					return e.Seq == b.Seq && e.Kind == b.Kind && e.Epoch == b.Epoch
-				}) {
+			if !ok || b.Seq <= x.key.Seq || b.Epoch != x.k.epoch || bounding(&b) {
 				continue
 			}
 			x.gap(TxGap{
 				Reason: TxGapCaptureBoundary, Hours: []int64{sc.hour}, Pack: new(sc.packs[it.pack]), Block: it.block,
-				Seq: new(b.Seq), Barrier: new(cloneBoundary(b)),
+				Seq: new(b.Seq), Boundary: new(cloneBoundary(b)),
 			})
 		}
 	}
 }
 
 // orderingUncertain adds a TxGapOrderingUncertain gap
-// at the first record of the primary's epoch with ordering-uncertain that the reads yielded, at any seq.
+// at the first record of the primary's capture and epoch with ordering-uncertain that the reads yielded, at any seq.
 func (x *txExpect) orderingUncertain() {
 	for _, sc := range x.reads {
-		for _, it := range sc.items {
+		for _, it := range sc.own(x.key.Capture) {
 			if it.rec.Epoch == x.k.epoch && it.rec.Quality.Has(QualityOrderingUncertain) {
 				x.gap(TxGap{
 					Reason: TxGapOrderingUncertain, Hours: []int64{sc.hour}, Pack: new(sc.packs[it.pack]), Block: it.block,
@@ -1612,78 +1561,19 @@ func (x *txExpect) orderingUncertain() {
 	}
 }
 
-// contradictions adds a TxGapContradiction gap for each closure of the evidence that the records read contradict:
-// the close_seq of the primary's epoch, which names a record ending the epoch,
-// and each clean stop, which names a capture-boundary stop of its epoch;
-// one at or below the primary, or at a seq a read yielded where no version is what it names.
-func (x *txExpect) contradictions() {
-	versionsAt := func(seq uint64) []*Record {
-		var out []*Record
-		for _, sc := range x.reads {
-			for i := range sc.items {
-				if sc.items[i].rec.Seq == seq {
-					out = append(out, &sc.items[i].rec)
-				}
-			}
-		}
-
-		return out
-	}
-	claim := func(seq uint64, is func(rec *Record) bool) {
-		_, read := x.hours[seq]
-		if seq > x.key.Seq && (!read || slices.ContainsFunc(versionsAt(seq), is)) {
-			return
-		}
-		x.gap(TxGap{Reason: TxGapContradiction, Seq: new(seq)})
-	}
-	isStop := func(epoch uint32) func(rec *Record) bool {
-		return func(rec *Record) bool {
-			b, ok := txOracleBoundaryOf(x.key.Capture, rec)
-			return ok && b.Kind == BoundaryKindStop && rec.Epoch == epoch
-		}
-	}
-	for _, c := range x.snap.evidence.Closures {
-		if c.Epoch != x.k.epoch {
-			continue
-		}
-		claim(c.CloseSeq, func(rec *Record) bool {
-			if isStop(c.Epoch)(rec) {
-				return true
-			}
-			ev, err := UnmarshalTransportEvent(rec.Payload)
-
-			return rec.Kind == KindTransportEvent && err == nil && ev.Event == EventSocketClose && rec.Epoch == c.Epoch
-		})
-	}
-	for _, b := range x.snap.evidence.Boundaries {
-		if b.Kind == BoundaryKindStop {
-			claim(b.Seq, isStop(b.Epoch))
-		}
-	}
-}
-
-// outcome decides the outcome: TxIncomplete beside a no-key, conflict, index or scope-breach gap;
-// otherwise TxMatched for one valid match, TxAmbiguous for several;
-// otherwise TxUnmatched without a gap, TxIncomplete with one.
+// outcome decides the outcome: TxMatched for one valid match, TxAmbiguous for several, TxNotFound for none.
 func (x *txExpect) outcome() {
-	r := &x.res
 	switch {
-	case slices.ContainsFunc(r.Gaps, func(g TxGap) bool {
-		return g.Reason == TxGapNoKey || g.Reason == TxGapConflict || g.Reason == TxGapIndex || g.Reason == TxGapScopeBreach
-	}):
-		r.Outcome = TxIncomplete
 	case x.valid == 1:
-		r.Outcome = TxMatched
+		x.res.Outcome = TxMatched
 	case x.valid > 1:
-		r.Outcome = TxAmbiguous
-	case len(r.Gaps) == 0:
-		r.Outcome = TxUnmatched
+		x.res.Outcome = TxAmbiguous
 	default:
-		r.Outcome = TxIncomplete
+		x.res.Outcome = TxNotFound
 	}
 }
 
-// txComparable returns res with what the observation-bounded check does not compare exactly made comparable:
+// txComparable returns res with what the snapshot-bounded check does not compare exactly made comparable:
 // empty payloads and header extensions nil, gaps without their Err text, sorted in a fixed order of every field,
 // and footer errors as their text.
 func txComparable(res TxResult) (TxResult, []string) {
@@ -1697,15 +1587,15 @@ func txComparable(res TxResult) (TxResult, []string) {
 			v.HeaderExtra = nil
 		}
 	}
-	keys := make([]string, 0, len(res.Gaps)+len(res.FooterErrs))
-	for i := range res.Gaps {
-		keys = append(keys, txGapKey(&res.Gaps[i]))
+	keys := make([]string, 0, len(res.Incomplete)+len(res.FooterErrs))
+	for i := range res.Incomplete {
+		keys = append(keys, txGapKey(&res.Incomplete[i]))
 	}
 	slices.Sort(keys)
 	for _, fe := range res.FooterErrs {
 		keys = append(keys, fe.Error())
 	}
-	res.Gaps, res.FooterErrs = nil, nil
+	res.Incomplete, res.FooterErrs = nil, nil
 	if len(res.Conflicts) == 0 {
 		res.Conflicts = nil
 	}
@@ -1726,8 +1616,8 @@ func txGapKey(g *TxGap) string {
 		s += fmt.Sprintf(" coverage=(%v %v %v %v %v %v)", optString(c.CaptureID), optString(c.SeqFirst), optString(c.SeqLast),
 			optString(c.TimeStart), optString(c.TimeEnd), c.Unknown)
 	}
-	if b := g.Barrier; b != nil {
-		s += fmt.Sprintf(" barrier=(%v %d %v %d %d %v %v)", b.Capture, b.Seq, b.Kind, b.TS, b.Epoch, optString(b.GapStart), optString(b.GapEnd))
+	if b := g.Boundary; b != nil {
+		s += fmt.Sprintf(" boundary=(%v %d %v %d %d %v %v)", b.Capture, b.Seq, b.Kind, b.TS, b.Epoch, optString(b.GapStart), optString(b.GapEnd))
 	}
 
 	return s
@@ -1769,10 +1659,9 @@ func txExpected(want TxResult, notPrimary bool, res TxResult, err error) bool {
 	return slices.Equal(wantKeys, gotKeys) && assert.ObjectsAreEqual(w, g)
 }
 
-// TestFindTransactionGeneratedMutations takes each of three rules out of the lookup over generated captures,
-// and requires the observation-bounded check to reject some of its lookups, so that the check has teeth for each:
-// a conflicted scope read as a scope without packs, a scope breach that does not make the outcome incomplete,
-// and the versions below the primary's seq not checked for a scope breach.
+// TestFindTransactionGeneratedMutations takes each of two rules out of the lookup over generated captures,
+// and requires the snapshot-bounded check to reject some of its lookups, so that the check has teeth for each:
+// a bounded window's seq gap left unlisted, and the versions below the primary's seq not checked for a scope breach.
 func TestFindTransactionGeneratedMutations(t *testing.T) {
 	t.Parallel()
 
@@ -1780,8 +1669,7 @@ func TestFindTransactionGeneratedMutations(t *testing.T) {
 		name   string
 		mutate func(l *txLookup)
 	}{
-		{name: "a conflicted scope read anyway", mutate: func(l *txLookup) { l.readConflicted = true }},
-		{name: "a breach that leaves the outcome complete", mutate: func(l *txLookup) { l.breachComplete = true }},
+		{name: "a seq gap left unlisted", mutate: func(l *txLookup) { l.skipSeqGap = true }},
 		{name: "a breach below the primary ignored", mutate: func(l *txLookup) { l.breachFromPrimary = true }},
 	}
 	gens := make([]*txGen, genTxLookups)
@@ -1805,7 +1693,7 @@ func TestFindTransactionGeneratedMutations(t *testing.T) {
 					}
 				}
 			}
-			t.Logf("the observation-bounded check rejects %d mutated lookups", rejected)
+			t.Logf("the snapshot-bounded check rejects %d mutated lookups", rejected)
 			assert.Positive(t, rejected)
 		})
 	}
@@ -1818,10 +1706,9 @@ type txGenStats struct {
 	gaps                                                                 map[TxGapReason]int
 	classes                                                              map[TxClass]int
 	lookups, notPrimary, bounded, conflicted, valid, eligible, decidable int
-	// conflictedPrimary counts the conflicted gaps at a lookup's primary hour, coldConflicted the conflicted gaps beside
-	// a cold gap of their hour, and breachPrimary the scope breaches in the primary's scope;
-	// matchedConflicted counts the TxMatched lookups beside a conflicted later hour.
-	conflictedPrimary, coldConflicted, breachPrimary, matchedConflicted int
+	// breachPrimary counts the scope breaches in the primary's hour, otherCrash the crash gaps of another capture,
+	// complete the lookups without a reason to be incomplete, and matchedIncomplete the TxMatched lookups beside one.
+	breachPrimary, otherCrash, complete, matchedIncomplete int
 }
 
 // add counts the lookup of key that returned res and err.
@@ -1832,23 +1719,18 @@ func (s *txGenStats) add(key TxKey, res *TxResult, err error) {
 		return
 	}
 	s.outcomes[res.Outcome]++
-	if res.Outcome == TxMatched && slices.ContainsFunc(res.Gaps, func(g TxGap) bool {
-		return g.Reason == TxGapConflicted && g.Hours[0] != key.Hour
-	}) {
-		s.matchedConflicted++
+	if len(res.Incomplete) == 0 {
+		s.complete++
+	} else if res.Outcome == TxMatched {
+		s.matchedIncomplete++
 	}
-	for _, g := range res.Gaps {
+	for _, g := range res.Incomplete {
 		s.gaps[g.Reason]++
 		switch {
-		case g.Reason == TxGapConflicted:
-			if g.Hours[0] == key.Hour {
-				s.conflictedPrimary++
-			}
-			if slices.ContainsFunc(res.Gaps, func(c TxGap) bool { return c.Reason == TxGapCold && c.Hours[0] == g.Hours[0] }) {
-				s.coldConflicted++
-			}
 		case g.Reason == TxGapScopeBreach && g.Hours[0] == key.Hour:
 			s.breachPrimary++
+		case g.Reason == TxGapCrashGap && g.Boundary.Capture != key.Capture:
+			s.otherCrash++
 		default:
 		}
 	}
@@ -1884,9 +1766,9 @@ const (
 )
 
 // TestFindTransactionGenerated generates captures (genTxCapture), looks up every record of each at its hour,
-// and requires each lookup to return what the observation-bounded check computes from the observation
+// and requires each lookup to return what the snapshot-bounded check computes from the packs given
 // (txSnapshot.expect), its state charged as recounted, and to hold over the capture as written (txTruth.violations).
-// Together the captures exercise every kind of record, version, pack, evidence and outcome,
+// Together the captures exercise every kind of record, version, pack and outcome,
 // which it checks when every capture ran, not when a -run pattern selects some of them.
 func TestFindTransactionGenerated(t *testing.T) {
 	t.Parallel()
@@ -1929,10 +1811,10 @@ func (s *txGenStats) addAll(o *txGenStats, made *txGenFacts) {
 	s.valid += o.valid
 	s.eligible += o.eligible
 	s.decidable += o.decidable
-	s.conflictedPrimary += o.conflictedPrimary
-	s.coldConflicted += o.coldConflicted
 	s.breachPrimary += o.breachPrimary
-	s.matchedConflicted += o.matchedConflicted
+	s.otherCrash += o.otherCrash
+	s.complete += o.complete
+	s.matchedIncomplete += o.matchedIncomplete
 	for k, v := range o.outcomes {
 		s.outcomes[k] += v
 	}
@@ -1951,10 +1833,8 @@ func (s *txGenStats) addAll(o *txGenStats, made *txGenFacts) {
 		{&m.boundaries, &made.boundaries}, {&m.stops, &made.stops}, {&m.localVersions, &made.localVersions},
 		{&m.crossVersions, &made.crossVersions}, {&m.copies, &made.copies}, {&m.walked, &made.walked},
 		{&m.unevaluated, &made.unevaluated}, {&m.coverage, &made.coverage}, {&m.invalidFooters, &made.invalidFooters},
-		{&m.flipped, &made.flipped}, {&m.staged, &made.staged}, {&m.cold, &made.cold}, {&m.falseClosures, &made.falseClosures},
-		{&m.falseStops, &made.falseStops}, {&m.partial, &made.partial}, {&m.captureBarriers, &made.captureBarriers},
-		{&m.toolBarriers, &made.toolBarriers}, {&m.conflictedScopes, &made.conflictedScopes},
-		{&m.coldConflicted, &made.coldConflicted}, {&m.breaches, &made.breaches}, {&m.walkedBreaches, &made.walkedBreaches},
+		{&m.flipped, &made.flipped}, {&m.breaches, &made.breaches}, {&m.walkedBreaches, &made.walkedBreaches},
+		{&m.otherCaptures, &made.otherCaptures}, {&m.otherUnclean, &made.otherUnclean},
 	} {
 		*p[0] += *p[1]
 	}
@@ -1963,8 +1843,8 @@ func (s *txGenStats) addAll(o *txGenStats, made *txGenFacts) {
 // requireTxGenStats logs what n generated captures exercised and requires each count to be positive:
 // every fact the generator counts, every outcome, every gap reason but TxGapIndex, every role,
 // lookups failing with ErrNotPrimary, bounded windows, conflicting versions and each candidate flag,
-// conflicted gaps at the primary's hour and beside a cold gap of their hour, scope breaches in the primary's scope,
-// and matches beside a conflicted later hour.
+// scope breaches in the primary's hour, crash gaps of another capture,
+// complete lookups, and matches beside a reason to be incomplete.
 func requireTxGenStats(t *testing.T, n int, s *txGenStats) {
 	t.Helper()
 
@@ -1977,17 +1857,15 @@ func requireTxGenStats(t *testing.T, n int, s *txGenStats) {
 		"capture-boundaries": m.boundaries, "stops": m.stops, "versions within a scope": m.localVersions,
 		"versions in another scope": m.crossVersions, "identical copies": m.copies, "walked packs": m.walked,
 		"unevaluated packs": m.unevaluated, "coverage entries": m.coverage, "invalid footers": m.invalidFooters,
-		"flipped blocks": m.flipped, "staged packs": m.staged, "cold scopes": m.cold, "closure claims": m.falseClosures,
-		"stop claims": m.falseStops, "partial evidence": m.partial, "stop-uncleans of the capture": m.captureBarriers,
-		"stop-uncleans of the tool": m.toolBarriers, "conflicted scopes": m.conflictedScopes,
-		"conflicted scopes not indexed": m.coldConflicted, "packs breaching their scope": m.breaches,
-		"walked packs breaching their scope": m.walkedBreaches,
-		"conflicted primary scopes":          s.conflictedPrimary, "cold and conflicted scopes": s.coldConflicted,
-		"breaches in the primary's scope": s.breachPrimary, "matched beside a conflicted later hour": s.matchedConflicted,
+		"flipped blocks": m.flipped, "packs breaching their scope": m.breaches,
+		"walked packs breaching their scope": m.walkedBreaches, "packs of another capture": m.otherCaptures,
+		"stop-uncleans of another capture": m.otherUnclean,
+		"breaches in the primary's hour":   s.breachPrimary, "crash gaps of another capture": s.otherCrash,
+		"complete lookups": s.complete, "matched and incomplete": s.matchedIncomplete,
 		"lookups": s.lookups, "not a primary": s.notPrimary, "bounded windows": s.bounded, "conflicting versions": s.conflicted,
 		"valid": s.valid, "eligible": s.eligible, "decidable": s.decidable,
 	}
-	for o := TxMatched; o <= TxIncomplete; o++ {
+	for o := TxMatched; o <= TxNotFound; o++ {
 		counts["outcome "+o.String()] = s.outcomes[o]
 	}
 	for r := TxGapNoKey; r <= TxGapScopeBreach; r++ {
@@ -2005,8 +1883,7 @@ func requireTxGenStats(t *testing.T, n int, s *txGenStats) {
 }
 
 // checkGeneratedTx looks up every key of g with opts and requires each lookup to return what the snapshot expects,
-// its state charged as recounted, no TxUnmatched beside a gap,
-// and nothing the safety check rejects (txTruth.violations);
+// its state charged as recounted, and nothing the safety check rejects (txTruth.violations);
 // it counts what the lookups found in stats.
 func checkGeneratedTx(t *testing.T, g *txGen, opts TxOptions, stats *txGenStats) {
 	t.Helper()
@@ -2019,9 +1896,6 @@ func checkGeneratedTx(t *testing.T, g *txGen, opts TxOptions, stats *txGenStats)
 		requireStateRecount(t, l)
 		want, notPrimary := snap.expect(key, opts.MaxScopes)
 		requireTxExpected(t, want, notPrimary, res, err)
-		if res.Outcome == TxUnmatched {
-			require.Empty(t, res.Gaps)
-		}
 		require.Empty(t, tr.violations(key, opts.MaxScopes, &res, txLookupRuns(l)), "the safety check")
 		stats.add(key, &res, err)
 	}
@@ -2048,27 +1922,23 @@ func FuzzFindTransactionGenerated(f *testing.F) {
 
 // Bits of the control byte of FuzzFindTransaction.
 const (
-	// fuzzTxIndexedShift places the three bits that index the hours key.Hour to key.Hour + 2.
-	fuzzTxIndexedShift = 0
 	// fuzzTxScopesShift places the two bits that choose MaxScopes, 1 to 3, or 2 for 3.
 	fuzzTxScopesShift = 3
 	// fuzzTxSmallState sets MaxStateBytes to 4 KiB, and fuzzTxOneConflict MaxConflicts to 1.
 	fuzzTxSmallState  = 1 << 5
 	fuzzTxOneConflict = 1 << 6
-	// fuzzTxConflicted makes the catalog report the hour key.Hour + seq % 3 conflicted.
-	fuzzTxConflicted = 1 << 7
 )
 
 // fuzzTxSeeds returns seed inputs of FuzzFindTransaction: the first three packs of a few generated captures,
-// each with the seq of a primary of the first, three of them again with a conflicted hour;
-// a pack whose primary and reply lie in the hour after its period, alone and with its hour conflicted;
-// a primary and its reply with the next hour conflicted;
+// each with the seq of a primary of the first;
+// a pack whose primary and reply lie in the hour after its period;
+// a primary and its reply beside a pack of another capture holding a stop-unclean boundary;
 // and packs already damaged beside valid ones.
 func fuzzTxSeeds(t testing.TB) []fuzzTxInput {
 	t.Helper()
 
 	damaged := fuzzReadSeeds(t)[6:]
-	out := make([]fuzzTxInput, 0, 12+len(damaged))
+	out := make([]fuzzTxInput, 0, 8+len(damaged))
 	for seed := range uint64(6) {
 		g := genTxCapture(t, seed)
 		var in fuzzTxInput
@@ -2081,23 +1951,18 @@ func fuzzTxSeeds(t testing.TB) []fuzzTxInput {
 				break
 			}
 		}
-		in.ctl = uint8(seed)<<fuzzTxScopesShift | 0b111
+		in.ctl = uint8(seed) << fuzzTxScopesShift
 		out = append(out, in)
 	}
-	for i := range 3 {
-		in := out[i]
-		in.ctl |= fuzzTxConflicted
-		out = append(out, in)
-	}
-	// MaxScopes 2, every hour indexed; seq 12 makes key.Hour conflicted, seq 13 the next hour.
-	ctl := uint8(1<<fuzzTxScopesShift | 0b111)
+	// MaxScopes 2.
+	ctl := uint8(1 << fuzzTxScopesShift)
 	breach := txBreachPack(t, seg0, 0, false, inHours(1, txBlock(txRecord(12, nil), txReply(13, nil))))
 	answered := txPack(t, seg0, nil, txBlock(txRecord(13, nil), txReply(14, nil)))
+	unclean := withIDs(t, txPack(t, seg1, nil, txBlock(txBoundaryAt(t, 5, 1, BoundaryKindStopUnclean, nil, nil))), seg1, captureHigh)
 	out = append(out, fuzzTxInput{packs: [3][]byte{breach}, seq: 12, ctl: ctl},
-		fuzzTxInput{packs: [3][]byte{breach}, seq: 12, ctl: ctl | fuzzTxConflicted},
-		fuzzTxInput{packs: [3][]byte{answered}, seq: 13, ctl: ctl | fuzzTxConflicted})
+		fuzzTxInput{packs: [3][]byte{answered, unclean}, seq: 13, ctl: ctl})
 	for i, in := range damaged {
-		out = append(out, fuzzTxInput{packs: in, seq: 10, ctl: uint8(i) | 0b111})
+		out = append(out, fuzzTxInput{packs: in, seq: 10, ctl: uint8(i)})
 	}
 
 	return out
@@ -2111,11 +1976,11 @@ type fuzzTxInput struct {
 }
 
 // FuzzFindTransaction looks up seq in the capture of the first of up to three mutated packs,
-// each put in the scope of its pack metadata's period, the hours indexed and the limits as a control byte chooses.
+// each given for the hour of its pack metadata's period, of any capture, the limits as a control byte chooses.
 // Packs that do not open are left to FuzzOpen, and inputs with two packs of one pack_id are skipped.
-// The control byte may also make one hour conflicted, and a pack's records may lie outside its period's hour.
-// Every lookup either fails with Outcome zero or returns an outcome, never TxUnmatched beside a gap,
-// with its state charged as recounted, each scope read at most once and the observation closed once,
+// A pack's records may lie outside its period's hour.
+// Every lookup either fails with Outcome zero or returns an outcome,
+// with its state charged as recounted, each hour read at most once,
 // its records above or at the primary's seq in ascending (seq, hour),
 // each version's window and candidate flags consistent with WindowEnd;
 // a second lookup returns the same.
@@ -2150,18 +2015,12 @@ func FuzzFindTransaction(f *testing.F) {
 		if len(ids) == 0 {
 			return
 		}
-		for i := range int64(3) {
-			s.setIndexed(key.Capture, key.Hour+i, ctl>>(fuzzTxIndexedShift+i)&1 != 0)
-		}
 		opts := TxOptions{MaxScopes: 1 + int(ctl>>fuzzTxScopesShift&3)%3}
 		if ctl&fuzzTxSmallState != 0 {
 			opts.MaxStateBytes = 4 << 10
 		}
 		if ctl&fuzzTxOneConflict != 0 {
 			opts.MaxConflicts = 1
-		}
-		if ctl&fuzzTxConflicted != 0 {
-			s.setConflicted(key.Capture, key.Hour+int64(seq%3), true)
 		}
 
 		res, err := requireTxInvariants(t, s, key, opts)
@@ -2173,10 +2032,10 @@ func FuzzFindTransaction(f *testing.F) {
 	})
 }
 
-// requireTxConflictsIncomplete requires the outcome of res, a lookup of key without an error, to follow its conflicts
+// requireTxConflictsIncomplete requires res, a lookup of key without an error, to be incomplete beside its conflicts
 // (the tracepack semantics specification §7.2):
-// TxIncomplete beside a conflict at or above the primary's seq, listed or marked on a record,
-// and a TxGapNoKey gap beside a listed conflict at the primary's seq.
+// beside a conflict of the primary's capture at or above the primary's seq, listed or marked on a record,
+// and with a TxGapNoKey gap beside a listed conflict at the primary's seq.
 func requireTxConflictsIncomplete(t *testing.T, key TxKey, res *TxResult) {
 	t.Helper()
 
@@ -2184,68 +2043,31 @@ func requireTxConflictsIncomplete(t *testing.T, key TxKey, res *TxResult) {
 		if c.CaptureID != key.Capture || c.Seq < key.Seq {
 			continue
 		}
-		require.Equal(t, TxIncomplete, res.Outcome, "the conflict at seq %d makes the outcome incomplete", c.Seq)
+		require.NotEmpty(t, res.Incomplete, "the conflict at seq %d makes the lookup incomplete", c.Seq)
 		if c.Seq == key.Seq {
-			require.Contains(t, gapReasons(res.Gaps), TxGapNoKey, "the conflict at the primary leaves no key")
+			require.Contains(t, gapReasons(res.Incomplete), TxGapNoKey, "the conflict at the primary leaves no key")
 		}
 	}
 	if slices.ContainsFunc(res.Records, func(v TxRecord) bool { return v.Conflict }) {
-		require.Equal(t, TxIncomplete, res.Outcome, "a record marked as a conflict makes the outcome incomplete")
-	}
-}
-
-// requireTxScopeGaps requires the outcome of res, a lookup of key without an error, to follow its scope gaps
-// (the tracepack semantics specification §7.2):
-// TxIncomplete beside a scope breach; no conflicted hour among the scopes searched;
-// and, for a conflicted primary scope, TxIncomplete with a TxGapNoKey gap, no record,
-// and no scope asked for but the primary's, by the Scope calls the source counted, scopes against scopes0 before the lookup.
-func requireTxScopeGaps(t *testing.T, key TxKey, res *TxResult, scopes, scopes0 map[int64]int) {
-	t.Helper()
-
-	for _, g := range res.Gaps {
-		if g.Reason == TxGapScopeBreach {
-			require.Equal(t, TxIncomplete, res.Outcome, "a scope breach makes the outcome incomplete")
-		}
-		if g.Reason != TxGapConflicted {
-			continue
-		}
-		h := g.Hours[0]
-		require.False(t, slices.ContainsFunc(res.Searched, func(sc TxScope) bool { return sc.Hour == h }), "conflicted hour %d searched", h)
-		if h != key.Hour {
-			continue
-		}
-		require.Equal(t, TxIncomplete, res.Outcome)
-		require.Contains(t, gapReasons(res.Gaps), TxGapNoKey)
-		require.Empty(t, res.Records)
-		for hour, n := range scopes {
-			require.True(t, hour == key.Hour || n == scopes0[hour], "hour %d asked for after a conflicted primary scope", hour)
-		}
+		require.NotEmpty(t, res.Incomplete, "a record marked as a conflict makes the lookup incomplete")
 	}
 }
 
 // requireTxInvariants looks up key with opts over s and requires what every lookup holds:
-// Outcome zero beside an error and an outcome otherwise, never TxUnmatched beside a gap,
-// TxIncomplete beside a conflict at or above the primary's seq, listed or marked on a record,
+// Outcome zero beside an error and an outcome otherwise,
+// a reason to be incomplete beside a conflict of the primary's capture at or above the primary's seq, listed or marked on a record,
 // and a TxGapNoKey gap beside a listed conflict at the primary's seq (the tracepack semantics specification §7.2),
-// TxIncomplete beside a scope breach, no conflicted hour searched,
-// and, for a conflicted primary scope, TxIncomplete with a TxGapNoKey gap, no record, and no other scope asked for,
-// its state charged as recounted, each scope read at most once, the observation closed once when Observe returned one,
+// its state charged as recounted, each hour read at most once and none outside the hours scheduled,
 // its records at or above the primary's seq in ascending (seq, hour),
 // and each version's window and candidate flags consistent with WindowEnd.
 func requireTxInvariants(t *testing.T, s *memSource, key TxKey, opts TxOptions) (TxResult, error) {
 	t.Helper()
 
-	observes0, scopes0, closes0 := s.counts()
+	calls0 := s.counts()
 	var l *txLookup
 	res, err := findTransactionWith(t.Context(), s, key, opts, func(lk *txLookup) { l = lk })
-	observes, scopes, closes := s.counts()
-	opened := observes - observes0
-	if err != nil && strings.Contains(err.Error(), "find transaction: observe hours") {
-		opened = 0
-	}
-	require.Equal(t, opened, closes-closes0, "every observation opened closed once")
-	for h, n := range scopes {
-		require.LessOrEqual(t, n-scopes0[h], 1, "hour %d read at most once", h)
+	for h, n := range s.counts() {
+		require.LessOrEqual(t, n-calls0[h], 1, "hour %d read at most once", h)
 		require.True(t, h >= key.Hour && h < key.Hour+int64(max(opts.MaxScopes, 1)), "hour %d read", h)
 	}
 	if l != nil {
@@ -2255,12 +2077,8 @@ func requireTxInvariants(t *testing.T, s *memSource, key TxKey, opts TxOptions) 
 		require.Zero(t, res.Outcome)
 		return res, err
 	}
-	require.True(t, res.Outcome >= TxMatched && res.Outcome <= TxIncomplete, "outcome %v", res.Outcome)
-	if res.Outcome == TxUnmatched {
-		require.Empty(t, res.Gaps)
-	}
+	require.True(t, res.Outcome >= TxMatched && res.Outcome <= TxNotFound, "outcome %v", res.Outcome)
 	requireTxConflictsIncomplete(t, key, &res)
-	requireTxScopeGaps(t, key, &res, scopes, scopes0)
 	if res.WindowEnd != nil {
 		require.Greater(t, *res.WindowEnd, key.Seq)
 	}

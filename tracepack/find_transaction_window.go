@@ -11,7 +11,7 @@ import (
 const sTypeRejectReq = 7
 
 // txPrimaryKey is what a transaction lookup classifies records against:
-// the association key and match fields of the first version of the primary its first scope read yielded.
+// the association key and match fields of the first version of the primary its first hour's read yielded.
 type txPrimaryKey struct {
 	// keyed reports that the version is a primary with an association key; a version without one classifies nothing.
 	keyed bool
@@ -31,7 +31,7 @@ type txRun struct {
 	first, last uint64
 }
 
-// txRuns is the run set of one scope read: the seqs at or above the primary's that the read yielded,
+// txRuns is the run set of one hour's read: the seqs of the primary's capture at or above the primary's that the read yielded,
 // as sorted runs, disjoint and not adjacent.
 // Within a read, seqs ascend unless a block disagrees with its F-2 entry,
 // so an insertion almost always extends or follows the last run.
@@ -40,7 +40,7 @@ type txRuns struct {
 	runs []txRun
 }
 
-// txCrossConflict is a seq that the reads of several scopes yielded, a conflict across scope reads.
+// txCrossConflict is a seq that the reads of several hours yielded, a conflict across hour reads.
 type txCrossConflict struct {
 	// hours holds the hours whose reads yielded the seq, ascending.
 	hours []int64
@@ -48,7 +48,7 @@ type txCrossConflict struct {
 	gap int
 }
 
-// txGroup is the seq group a scope read is yielding: the versions of one seq, which arrive one after the other.
+// txGroup is the seq group an hour's read is yielding: the versions of one seq, which arrive one after the other.
 type txGroup struct {
 	open bool
 	seq  uint64
@@ -60,15 +60,15 @@ type txGroup struct {
 	versions []TxRecord
 }
 
-// txPendingGap is a conflict gap a scope read found, added to the result after the read's other gaps.
+// txPendingGap is a conflict gap an hour's read found, added to the result after the read's other gaps.
 type txPendingGap struct {
 	gap TxGap
-	// cross is the conflict across scope reads whose hours the gap lists; nil for a conflict within the read,
+	// cross is the conflict across hour reads whose hours the gap lists; nil for a conflict within the read,
 	// or for the TxGapNoKey gap that a later version of the primary adds.
 	cross *txCrossConflict
 }
 
-// txSeen is where a scope read yielded a record:
+// txSeen is where an hour's read yielded a record:
 // the read's hour, the record's seq, and its representative's pack and block.
 type txSeen struct {
 	hour  int64
@@ -77,7 +77,7 @@ type txSeen struct {
 	block int
 }
 
-// txBoundaryRecord is a capture-boundary record of the primary's epoch, above the primary, that a scope read yielded,
+// txBoundaryRecord is a capture-boundary record of the primary's epoch, above the primary, that an hour's read yielded,
 // one per version.
 type txBoundaryRecord struct {
 	at txSeen
@@ -109,7 +109,7 @@ func primaryKeyOf(rec *Record) txPrimaryKey {
 // TxOutcomeRecord for a Reject.req control record or a T3 timer-expiry transport event,
 // and TxClosing for a socket-close transport event of the primary's epoch or a capture-boundary stop of any epoch.
 // The roles come from the version's own bytes: whether a conflict keeps a closing record from bounding the window
-// is decided once every scope is read.
+// is decided once every hour is read.
 //
 // Returns:
 //   - TxClass: the roles; zero for none.
@@ -288,7 +288,7 @@ func (s *txRuns) contains(seq uint64) bool {
 	return i < len(s.runs) && s.runs[i].first <= seq
 }
 
-// searchWindow reads the scopes after key.Hour, each once, in order, and evaluates the window of a keyed primary.
+// searchWindow reads the hours after key.Hour, each once, in order, and evaluates the window of a keyed primary.
 // Each read's kept versions and conflict gaps are added to the result after its other gaps, also when the read fails,
 // and every kept version of a seq in conflict, within a read or across reads, is then marked as a conflict (markConflicts).
 //
@@ -318,14 +318,15 @@ func (l *txLookup) searchWindow(ctx context.Context) error {
 
 // collect takes an item of the read rd.
 //
-// Every item whose record lies outside the scope's hour adds a TxGapScopeBreach gap (noteBreach), whatever its seq,
+// Every item whose record lies outside the read's hour adds a TxGapScopeBreach gap (noteBreach), whatever its capture and seq,
 // to the result's gaps at once, ahead of the read's mapped gaps.
+// An item of another capture than the primary's takes no further part (the tracepack semantics specification §7.2).
 // Every item whose record carries ordering-uncertain notes its epoch, whatever its seq.
 // An item at or above the primary's seq enters the read's run set and its seq group (beginGroup),
 // or, joining the open group, adds the group's conflict gap when it is the group's first version marked as a conflict (localConflict).
-// In scope key.Hour, a version of the primary is cloned and kept, the first one taken as the key to classify against,
-// and an item above the primary that arrives before any version of it is counted, cloned and buffered (bufferEarly),
-// to be classified once the primary is established (classifyEarly).
+// In hour key.Hour, a version of the primary is cloned and kept, the first one taken as the key to classify against,
+// and an item above the primary that arrives before any version of it is only counted:
+// the read has then detected a block that disagrees with its F-2 entry, and the lookup guarantees no more than that.
 // Every other item at or above the primary's seq is classified and buffered in its group (addVersion).
 // Each item counts toward the checks of ctx (tick), and what it adds to the state is charged before it is added.
 //
@@ -340,6 +341,9 @@ func (l *txLookup) collect(ctx context.Context, rd *txScopeRead, it *Item) error
 		if err := l.noteBreach(ctx, rd, it); err != nil {
 			return err
 		}
+	}
+	if captureOf(rd, it) != l.key.Capture {
+		return nil
 	}
 	if rec.Quality&QualityOrderingUncertain != 0 {
 		if err := l.noteOrderingUncertain(rd, it); err != nil {
@@ -372,8 +376,8 @@ func (l *txLookup) collect(ctx context.Context, rd *txScopeRead, it *Item) error
 			l.prim = primaryKeyOf(&l.primary[0].Record)
 		}
 	case first && len(l.primary) == 0:
-		// Its seq, conflict and group are noted above, as for any other item; only its classification waits.
-		return l.bufferEarly(rd, it)
+		// Its seq, conflict and group are noted above, as for any other item; it is not classified.
+		l.early++
 	default:
 		return l.addVersion(rd, it)
 	}
@@ -381,32 +385,13 @@ func (l *txLookup) collect(ctx context.Context, rd *txScopeRead, it *Item) error
 	return nil
 }
 
-// bufferEarly counts it, an item above the primary that the read rd of scope key.Hour yields before any version of the primary,
-// notes its seq among the early seqs and buffers a clone of it, unclassified, each charged before it is added.
-//
-// Returns:
-//   - error: the error of a charge, wrapping ErrReadLimit.
-func (l *txLookup) bufferEarly(rd *txScopeRead, it *Item) error {
-	if err := l.earlySeqs.insert(it.Record.Seq, &l.state); err != nil {
-		return err
-	}
-	v, err := l.cloneVersion(rd, it, 0)
-	if err != nil {
-		return err
-	}
-	l.earlyVersions = append(l.earlyVersions, v)
-	l.early++
-
-	return nil
-}
-
-// noteBreach adds a TxGapScopeBreach gap for it, whose record's ts_utc_ns lies outside the hour of the scope rd reads
+// noteBreach adds a TxGapScopeBreach gap for it, whose record's ts_utc_ns lies outside the hour rd reads
 // (the tracepack format specification I-13), charged before it is added (addGap),
 // and marks the read as breached, which explains a missing primary (explainsMissing).
-// The gap lists the scope's hour and names the version's pack, block and seq.
+// The gap lists the read's hour and names the version's pack, block and seq.
 // It goes to the result's gaps at once, so a read's breach gaps precede the gaps its mapping adds (mapScope):
 // unlike the conflict gaps a read pends until commitRead, they must survive an initial key failure,
-// which drops the pended gaps of the primary's scope.
+// which drops the pended gaps of hour key.Hour.
 //
 // Returns:
 //   - error: ctx's error, as is; the charge's error, wrapping ErrReadLimit.
@@ -414,7 +399,8 @@ func (l *txLookup) noteBreach(ctx context.Context, rd *txScopeRead, it *Item) er
 	rec := &it.Record
 	if err := l.addGap(ctx, TxGap{
 		Reason: TxGapScopeBreach, Hours: []int64{rd.hour}, Pack: new(rd.packs[it.Pack]), Block: it.Block, Offset: -1,
-		Seq: new(rec.Seq), Err: fmt.Errorf("the record of seq %d lies in hour %d, outside the scope's hour", rec.Seq, hourOf(rec.TSUTCNs)),
+		Seq: new(rec.Seq), Err: fmt.Errorf("the record of seq %d of capture %s lies in hour %d, outside the hour read",
+			rec.Seq, captureOf(rd, it), hourOf(rec.TSUTCNs)),
 	}); err != nil {
 		return err
 	}
@@ -450,17 +436,16 @@ func seenAt(rd *txScopeRead, it *Item) txSeen {
 }
 
 // beginGroup starts the seq group of it, the first version of its seq in this stretch of the read rd:
-// a seq the read already yielded in an earlier stretch is noted as repeated (noteRepeat); the seq enters the read's run set;
+// the seq enters the read's run set;
 // a version marked as a conflict within the read adds a TxGapConflict gap (localConflict);
-// and, in a later scope, a seq that an earlier read yielded is a conflict across scope reads (crossConflict).
+// and, in a later hour, a seq that an earlier read yielded is a conflict across hour reads (crossConflict).
+// A seq the read yields in two stretches, which only a block disagreeing with its F-2 entry brings about,
+// begins a group in each, decided on its own.
 //
 // Returns:
 //   - error: the error of the conflict reservation; the error of a charge, wrapping ErrReadLimit; ctx's error, as is.
 func (l *txLookup) beginGroup(ctx context.Context, rd *txScopeRead, it *Item) error {
 	seq := it.Record.Seq
-	if err := l.noteRepeat(rd, seq); err != nil {
-		return err
-	}
 	if err := rd.runs.insert(seq, &l.state); err != nil {
 		return err
 	}
@@ -475,152 +460,9 @@ func (l *txLookup) beginGroup(ctx context.Context, rd *txScopeRead, it *Item) er
 	return l.crossConflict(ctx, rd, seq)
 }
 
-// noteRepeat notes seq, which begins a stretch of the read rd, as repeated when the read already yielded it in an earlier stretch,
-// which only a block disagreeing with its F-2 entry beside another block holding seq brings about
-// (the tracepack semantics specification §7.4, Scope of the guarantees),
-// charging its run before it is added.
-// In scope key.Hour, the primary's seq and a seq yielded before the primary are not noted:
-// the primary's versions are all kept, and the versions of a seq yielded before it are kept or released together (keepEarly).
-// Seqs in ascending order, as a read of packs whose index agrees with their blocks yields them, cost no look-up.
-//
-// Returns:
-//   - error: the charge's error, wrapping ErrReadLimit.
-func (l *txLookup) noteRepeat(rd *txScopeRead, seq uint64) error {
-	runs := rd.runs.runs
-	if len(runs) == 0 || seq > runs[len(runs)-1].last || !rd.runs.contains(seq) {
-		return nil
-	}
-	if rd.hour == l.key.Hour && (seq == l.key.Seq || len(l.primary) == 0 || l.earlySeqs.contains(seq)) {
-		return nil
-	}
-
-	return rd.repeats.insert(seq, &l.state)
-}
-
-// rereadRepeats reads the view of the read rd a second time, over the same readers in the same order, with the same query,
-// to keep every version of each seq the first pass yielded in two places of which one version plays a role,
-// since a lookup keeps with a record that plays a role every other version of its seq that the same scope's read yielded,
-// and the first pass decided each stretch on its own (the tracepack semantics specification §7.2, Scopes read).
-// The versions of those seqs the first pass kept are dropped, their charge released, and the second pass yields them all again;
-// it classifies each, notes no boundary, and reports nothing: its conflicts, defects and footer errors are the first pass's.
-// Each version is cloned and charged before it is buffered, and each item counts toward the checks of ctx (tick).
-//
-// Returns:
-//   - error: ctx's error, as is; the error of the second pass's MergeIterate; the error of a charge, wrapping ErrReadLimit;
-//     what is not yet kept or released stays charged in rd.
-func (l *txLookup) rereadRepeats(ctx context.Context, rd *txScopeRead) error {
-	if err := l.dropRepeated(ctx, rd); err != nil {
-		return err
-	}
-	l.passes++
-	_, err := mergeIterateWith(ctx, rd.readers, Query{Payloads: true, Retention: l.opts.Retention},
-		MergeIterateOptions{Order: OrderCapture, MaxHeldBytes: l.opts.MaxHeldBytes},
-		// The conflicts are the first pass's, reserved once.
-		mergeIterateOptions{reserveConflict: func() error { return nil }},
-		func(it *Item) error { return l.collectRepeat(ctx, rd, it) })
-	if err != nil {
-		return err
-	}
-
-	return l.keepRepeated(ctx, rd)
-}
-
-// dropRepeated drops from the versions the read rd kept those of its repeated seqs, releasing their charge,
-// each version counting toward the checks of ctx (tick).
-//
-// Returns:
-//   - error: ctx's error, as is; the versions not yet looked at stay kept.
-func (l *txLookup) dropRepeated(ctx context.Context, rd *txScopeRead) error {
-	w := 0
-	for i := range rd.kept {
-		if err := l.tick(ctx); err != nil {
-			n := copy(rd.kept[w:], rd.kept[i:])
-			clear(rd.kept[w+n:])
-			rd.kept = rd.kept[:w+n]
-
-			return err
-		}
-		v := &rd.kept[i]
-		if rd.repeats.contains(v.Record.Seq) {
-			l.state.release(versionCost(&v.Record, v.HeaderExtra))
-			continue
-		}
-		rd.kept[w] = *v
-		w++
-	}
-	clear(rd.kept[w:])
-	rd.kept = rd.kept[:w]
-
-	return nil
-}
-
-// collectRepeat takes an item of the second pass of the read rd: a version of a repeated seq is classified,
-// a version of the primary as TxPrimary, cloned and buffered; any other item is passed over.
-// Each item counts toward the checks of ctx (tick).
-//
-// Returns:
-//   - error: ctx's error, as is; the clone's charge's error, wrapping ErrReadLimit.
-func (l *txLookup) collectRepeat(ctx context.Context, rd *txScopeRead, it *Item) error {
-	if err := l.tick(ctx); err != nil {
-		return err
-	}
-	seq := it.Record.Seq
-	if seq < l.key.Seq || !rd.repeats.contains(seq) {
-		return nil
-	}
-	class := TxPrimary
-	if seq != l.key.Seq {
-		class, _ = l.prim.classify(&it.Record)
-	}
-	v, err := l.cloneVersion(rd, it, class)
-	if err != nil {
-		return err
-	}
-	rd.reread = append(rd.reread, v)
-
-	return nil
-}
-
-// keepRepeated keeps, in rd, every version the second pass of the read rd yielded of a repeated seq of which one version plays a role,
-// in the order yielded, and releases the charge of every other one, then the charge of the repeated seqs' runs.
-// Each version counts toward the checks of ctx (tick) once as its seq is looked at, and once as it is kept or released.
-//
-// Returns:
-//   - error: ctx's error, as is; the versions not yet kept or released stay buffered with their charge.
-func (l *txLookup) keepRepeated(ctx context.Context, rd *txScopeRead) error {
-	// The seqs of which a version plays a role; at most one entry for each version charged.
-	qualified := make(map[uint64]struct{})
-	for i := range rd.reread {
-		if err := l.tick(ctx); err != nil {
-			return err
-		}
-		if rd.reread[i].Class != 0 {
-			qualified[rd.reread[i].Record.Seq] = struct{}{}
-		}
-	}
-	for len(rd.reread) > 0 {
-		if err := l.tick(ctx); err != nil {
-			return err
-		}
-		v := &rd.reread[0]
-		if _, ok := qualified[v.Record.Seq]; ok {
-			rd.kept = append(rd.kept, *v)
-		} else {
-			l.state.release(versionCost(&v.Record, v.HeaderExtra))
-		}
-		*v = TxRecord{}
-		rd.reread = rd.reread[1:]
-	}
-	rd.reread = nil
-	l.state.release(int64(len(rd.repeats.runs)) * txRunCharge)
-	rd.repeats = txRuns{}
-
-	return nil
-}
-
 // localConflict adds a TxGapConflict gap for the seq group of the read rd when it, a version of the group,
 // is marked as a conflict within the read and the group has no such gap yet,
-// except at the primary in scope key.Hour, whose settlement reports it;
+// except at the primary in hour key.Hour, whose settlement reports it;
 // the seq is noted as in conflict, charged before it is added, so that every kept version of it is marked (markConflicts).
 // A version that a block disagreeing with its F-2 entry let arrive uncompared can open the group
 // before the versions the read compared, or form a group of its own, so every version of the group is looked at, not only its first,
@@ -653,7 +495,7 @@ func (l *txLookup) localConflict(rd *txScopeRead, it *Item) error {
 	return nil
 }
 
-// crossConflict checks seq, which the read rd of a later scope yields, against the run sets of the earlier reads.
+// crossConflict checks seq, which the read rd of a later hour yields, against the run sets of the earlier reads.
 // A seq already in conflict across reads adds rd's hour to it.
 // A seq an earlier read yielded becomes a conflict across reads:
 // it reserves one conflict of the lookup and adds a TxGapConflict gap that lists the hours;
@@ -674,7 +516,7 @@ func (l *txLookup) crossConflict(ctx context.Context, rd *txScopeRead, seq uint6
 			}
 			c.hours = append(c.hours, rd.hour)
 			if c.gap >= 0 {
-				l.res.Gaps[c.gap].Hours = c.hours
+				l.res.Incomplete[c.gap].Hours = c.hours
 			}
 		}
 
@@ -734,7 +576,7 @@ func (l *txLookup) crossConflict(ctx context.Context, rd *txScopeRead, seq uint6
 }
 
 // pendGap charges the gap of pg, then adds pg to the read rd's conflict gaps, which commitRead adds to the result.
-// The gap of a conflict across scope reads has no Hours yet: they are the conflict's, which crossConflict charged.
+// The gap of a conflict across hour reads has no Hours yet: they are the conflict's, which crossConflict charged.
 //
 // Returns:
 //   - error: the charge's error, wrapping ErrReadLimit.
@@ -748,10 +590,8 @@ func (l *txLookup) pendGap(rd *txScopeRead, pg txPendingGap) error {
 }
 
 // addVersion classifies the version it of the read rd's open group and buffers it:
-// a later scope's version of the primary is TxPrimary, any other version takes the roles classifyVersion gives.
-// In scope key.Hour, a version of a seq the read yielded before the primary is cloned whatever its roles
-// and buffered with the later versions of those seqs, to be kept or released with the early ones (keepEarly).
-// Any other version that plays no role, and that the read compared with no other copy (Item.Conflict false),
+// a later hour's version of the primary is TxPrimary, any other version takes the roles classifyVersion gives.
+// A version that plays no role, and that the read compared with no other copy (Item.Conflict false),
 // is the only version of its seq in the read, unless a block disagrees with its F-2 entry,
 // so it is dropped without a copy, unless the group already buffers a version.
 // A version buffered is charged when it is cloned (cloneVersion).
@@ -771,15 +611,6 @@ func (l *txLookup) addVersion(rd *txScopeRead, it *Item) error {
 		var err error
 		if class, err = l.classifyVersion(seenAt(rd, it), rec); err != nil {
 			return err
-		}
-		if l.early > 0 && rd.hour == l.key.Hour && l.earlySeqs.contains(rec.Seq) {
-			v, err := l.cloneVersion(rd, it, class)
-			if err != nil {
-				return err
-			}
-			l.laterVersions = append(l.laterVersions, v)
-
-			return nil
 		}
 	}
 	if class == 0 && !it.Conflict && len(g.versions) == 0 {
@@ -832,104 +663,6 @@ func (l *txLookup) noteBoundary(at txSeen, rec *Record, ev *TransportEvent) erro
 	return nil
 }
 
-// classifyEarly classifies the versions that the read rd of scope key.Hour yielded above the primary before any version of it,
-// once the primary is established with a key, as every other version read (the tracepack semantics specification §7.2):
-// each takes the roles classifyVersion gives, a capture-boundary record of the primary's epoch noted,
-// the boundaries noted going before the read's others, since the read yielded them first.
-// Their seqs, conflicts and groups were noted as they arrived (collect), so only their classification happens here;
-// keepEarly then keeps or releases them.
-// Each version counts toward the checks of ctx (tick).
-//
-// Returns:
-//   - error: ctx's error, as is; the error of a boundary's charge, wrapping ErrReadLimit;
-//     the versions stay buffered with their charge.
-func (l *txLookup) classifyEarly(ctx context.Context, rd *txScopeRead) error {
-	if len(l.earlyVersions) == 0 {
-		return nil
-	}
-	noted := len(l.boundaries)
-	for i := range l.earlyVersions {
-		if err := l.tick(ctx); err != nil {
-			return err
-		}
-		v := &l.earlyVersions[i]
-		class, err := l.classifyVersion(txSeen{hour: v.Hour, seq: v.Record.Seq, pack: v.Pack, block: v.Block}, &v.Record)
-		if err != nil {
-			return err
-		}
-		v.Class = class
-	}
-	l.boundaries = slices.Concat(l.boundaries[noted:], l.boundaries[:noted])
-
-	return l.keepEarly(ctx, rd)
-}
-
-// keepEarly keeps, in rd, every version of a seq that the read rd yielded before the primary,
-// the early versions and the later ones alike, when one of them plays a role,
-// since a lookup keeps with a record that plays a role every other version of its seq that the same scope's read yielded
-// (the tracepack semantics specification §7.2); it releases the charge of every other one.
-// The versions kept go before the read's other kept versions, the early ones first, each in the order the read yielded it,
-// so that the sort of the records keeps the version order within the read; no other version the read kept shares their seqs.
-// The seqs' runs are released at the end.
-// Each version counts toward the checks of ctx (tick) once as its seq is looked at, and once as it is kept or released.
-//
-// Returns:
-//   - error: ctx's error, as is; the versions not yet kept or released stay buffered with their charge.
-func (l *txLookup) keepEarly(ctx context.Context, rd *txScopeRead) error {
-	// The seqs of which a version plays a role; at most one entry for each version charged.
-	qualified := make(map[uint64]struct{})
-	for _, vs := range [][]TxRecord{l.earlyVersions, l.laterVersions} {
-		for i := range vs {
-			if err := l.tick(ctx); err != nil {
-				return err
-			}
-			if vs[i].Class != 0 {
-				qualified[vs[i].Record.Seq] = struct{}{}
-			}
-		}
-	}
-	kept := len(rd.kept)
-	for _, buf := range []*[]TxRecord{&l.earlyVersions, &l.laterVersions} {
-		for len(*buf) > 0 {
-			if err := l.tick(ctx); err != nil {
-				return err
-			}
-			v := &(*buf)[0]
-			if _, ok := qualified[v.Record.Seq]; ok {
-				rd.kept = append(rd.kept, *v)
-			} else {
-				l.state.release(versionCost(&v.Record, v.HeaderExtra))
-			}
-			*v = TxRecord{}
-			*buf = (*buf)[1:]
-		}
-		*buf = nil
-	}
-	l.releaseEarlySeqs()
-	rd.kept = slices.Concat(rd.kept[kept:], rd.kept[:kept])
-
-	return nil
-}
-
-// releaseEarly drops the versions buffered before the primary and the later versions of their seqs, unclassified or not,
-// and releases their charge and the charge of the seqs' runs.
-func (l *txLookup) releaseEarly() {
-	for _, vs := range [][]TxRecord{l.earlyVersions, l.laterVersions} {
-		for i := range vs {
-			l.state.release(versionCost(&vs[i].Record, vs[i].HeaderExtra))
-		}
-		clear(vs)
-	}
-	l.earlyVersions, l.laterVersions = nil, nil
-	l.releaseEarlySeqs()
-}
-
-// releaseEarlySeqs drops the runs of the seqs yielded before the primary and releases their charge.
-func (l *txLookup) releaseEarlySeqs() {
-	l.state.release(int64(len(l.earlySeqs.runs)) * txRunCharge)
-	l.earlySeqs = txRuns{}
-}
-
 // endGroup ends the read rd's open group:
 // its versions are kept, in rd, their charge with them, when one of them plays a role;
 // otherwise they are dropped, and their charge released, each version counting toward the checks of ctx (tick).
@@ -976,16 +709,16 @@ func (l *txLookup) commitRead(ctx context.Context, rd *txScopeRead) error {
 		pg := &rd.gaps[i]
 		if pg.cross != nil {
 			pg.gap.Hours = pg.cross.hours
-			pg.cross.gap = len(l.res.Gaps)
+			pg.cross.gap = len(l.res.Incomplete)
 		}
-		l.res.Gaps = append(l.res.Gaps, pg.gap)
+		l.res.Incomplete = append(l.res.Incomplete, pg.gap)
 	}
 	rd.gaps = nil
 
 	return nil
 }
 
-// markConflicts marks as conflicting every kept version of a seq in conflict across scope reads or within one,
+// markConflicts marks as conflicting every kept version of a seq in conflict across hour reads or within one,
 // so that no version of a seq in conflict counts as one without a conflict (the tracepack semantics specification §7.2),
 // a copy that arrived uncompared included.
 //

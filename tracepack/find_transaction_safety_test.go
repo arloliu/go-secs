@@ -17,31 +17,30 @@ import (
 
 // The safety check (txTruth.violations) takes a capture as it was written,
 // before its packs were cut, damaged or dropped,
-// and requires every TxUnmatched, and every TxMatched without a gap, to hold over it,
-// with code of its own, independent of the lookup's and of the observation-bounded check's.
-// It keeps two premises apart (the tracepack semantics specification §7.2, the comparison covers the scopes read):
+// and requires every complete TxNotFound and TxMatched to hold over it,
+// with code of its own, independent of the lookup's and of the snapshot-bounded check's.
+// It keeps two premises apart (the tracepack semantics specification §7.2, the comparison covers the hours read):
 // which seqs exist is taken from the whole capture, every hour included;
 // which versions of a seq count, as a reply, a bound, a possible primary or a conflict,
 // is restricted to the comparison domain:
-// the versions written into the packs of the views of the scopes the lookup reads.
+// the versions of the capture written into the packs given for the hours the lookup reads.
 // A version only in an hour not read never counts as a reply, a bound or a conflict,
-// while a seq with no version in the scopes read still counts as missing.
+// while a seq with no version in the hours read still counts as missing.
 
 // txTruth is a capture as written, for the safety check: the source holding it,
-// every seq it wrote, and every pack put in the source with the versions written into it.
+// every seq it wrote, and every pack put in the source with the versions written into it,
+// packs of another capture included.
 type txTruth struct {
 	src     *memSource
 	capture UUID
 	// seqs holds every seq the capture wrote, in every hour, ascending.
 	seqs  []uint64
 	packs []txGenPack
-	// indexed holds whether the catalog indexes each hour, and conflicted whether its view is conflicted.
-	indexed, conflicted map[int64]bool
 }
 
 // txTruthOf returns the ground truth of the generated capture g.
 func txTruthOf(g *txGen) *txTruth {
-	tr := &txTruth{src: g.src, capture: captureLow, packs: g.packs, indexed: g.indexed, conflicted: g.conflicted}
+	tr := &txTruth{src: g.src, capture: captureLow, packs: g.packs}
 	for _, r := range g.truth {
 		tr.seqs = append(tr.seqs, r.Seq)
 	}
@@ -50,24 +49,26 @@ func txTruthOf(g *txGen) *txTruth {
 }
 
 // txTruthDomain is the comparison domain of one lookup:
-// the distinct versions of each seq written into the packs of the views of the scopes it reads, and those packs.
+// the distinct versions of each seq of the capture written into the packs given for the hours it reads,
+// and those packs, of any capture.
 type txTruthDomain struct {
 	versions map[uint64][]Record
 	seqs     []uint64
 	packs    []*txGenPack
 }
 
-// domain returns the comparison domain of a lookup of key over maxScopes scopes:
-// a scope's view holds the packs the catalog admitted, and, when the catalog does not index it, the packs staged too;
-// a conflicted scope is not read, so none of its packs is in the domain.
+// domain returns the comparison domain of a lookup of key over maxScopes hours.
 func (tr *txTruth) domain(key TxKey, maxScopes int) *txTruthDomain {
 	d := &txTruthDomain{versions: map[uint64][]Record{}}
 	for i := range tr.packs {
 		p := &tr.packs[i]
-		if p.hour < key.Hour || p.hour >= key.Hour+int64(maxScopes) || !p.admitted && tr.indexed[p.hour] || tr.conflicted[p.hour] {
+		if p.hour < key.Hour || p.hour >= key.Hour+int64(maxScopes) {
 			continue
 		}
 		d.packs = append(d.packs, p)
+		if p.capture != tr.capture {
+			continue
+		}
 		for _, r := range p.recs {
 			vs := d.versions[r.Seq]
 			if !slices.ContainsFunc(vs, func(v Record) bool { return txTruthSame(&v, &r) }) {
@@ -203,61 +204,19 @@ func (k *txTruthKey) closing(rec *Record) (closes, stop bool) {
 	return stop || ev.Event == EventSocketClose && rec.Epoch == k.epoch, stop
 }
 
-// txTruthEvidence is what the source's registrations recorded:
-// the capture's evidence and every stop-unclean of the tool.
-type txTruthEvidence struct {
-	boundaries []Boundary
-	closures   map[uint32]uint64
-	partial    bool
-	barriers   []Boundary
-}
-
-// evidence returns what the source's registrations recorded, read from the registrations themselves:
-// every boundary as often as it was recorded, the smallest close_seq per epoch, and every stop-unclean of the tool.
-func (tr *txTruth) evidence() txTruthEvidence {
-	s := tr.src
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := txTruthEvidence{closures: map[uint32]uint64{}}
-	for capture, e := range s.evidence {
-		for _, st := range e.stats {
-			if st == nil {
-				out.partial = out.partial || capture == tr.capture
-				continue
-			}
-			for _, b := range st.Boundaries {
-				if b.Kind == BoundaryKindStopUnclean {
-					out.barriers = append(out.barriers, cloneBoundary(b))
-				}
-			}
-			if capture != tr.capture {
-				continue
-			}
-			out.boundaries = append(out.boundaries, cloneBoundaries(st.Boundaries)...)
-			for _, ep := range st.Epochs {
-				if seq, ok := out.closures[ep.Epoch]; ep.CloseSeq != nil && (!ok || *ep.CloseSeq < seq) {
-					out.closures[ep.Epoch] = *ep.CloseSeq
-				}
-			}
-		}
-	}
-
-	return out
-}
-
 // violations returns how res, the result of a lookup of key over maxScopes scopes of tr's source, breaks what tr shows,
 // runs holding the run set of each scope the lookup read; nil when nothing breaks.
-// A TxUnmatched must have an unconflicted primary whose key the result reports, a bound e confirmed by the domain,
+// A complete TxNotFound must have an unconflicted primary whose key the result reports, a bound e confirmed by the domain,
 // every seq of (p, e) in the runs, which hold seqs of the domain only, every one of them a seq the capture wrote,
 // no valid match, no record that could be the reply and no conflict in the domain,
-// and none of the conditions that keep absence from being established.
-// A TxMatched without a gap must report the domain's one valid match.
-// Neither may come from a domain whose packs hold a version outside their scope's hour.
+// and none of the conditions that make a lookup incomplete.
+// A complete TxMatched must report the domain's one valid match.
+// Neither may come from a domain whose packs hold a version outside their hour.
 func (tr *txTruth) violations(key TxKey, maxScopes int, res *TxResult, runs [][]txRun) []string {
-	unmatched := res.Outcome == TxUnmatched
-	if !unmatched && (res.Outcome != TxMatched || len(res.Gaps) > 0) {
+	if len(res.Incomplete) > 0 || res.Outcome != TxNotFound && res.Outcome != TxMatched {
 		return nil
 	}
+	unmatched := res.Outcome == TxNotFound
 	d := tr.domain(key, maxScopes)
 	c := &txSafetyCheck{tr: tr, d: d, key: key, maxScopes: maxScopes, res: res}
 	c.breaches()
@@ -295,7 +254,7 @@ func (c *txSafetyCheck) failf(format string, args ...any) {
 	c.out = append(c.out, fmt.Sprintf(format, args...))
 }
 
-// breaches requires every version of every pack of the domain to lie in the pack's hour, the hour of its scope:
+// breaches requires every version of every pack of the domain, of any capture, to lie in the pack's hour, the hour of its scope:
 // a version outside it breaches the scope (the tracepack format specification I-13), which makes a lookup incomplete.
 func (c *txSafetyCheck) breaches() {
 	for _, pk := range c.d.packs {
@@ -313,12 +272,12 @@ func (c *txSafetyCheck) primary() bool {
 	p := c.key.Seq
 	for _, seq := range c.d.seqs {
 		if seq >= p && len(c.d.versions[seq]) > 1 {
-			c.failf("seq %d has %d versions in the scopes read", seq, len(c.d.versions[seq]))
+			c.failf("seq %d has %d versions in the hours read", seq, len(c.d.versions[seq]))
 		}
 	}
 	vs := c.d.versions[p]
 	if len(vs) != 1 {
-		c.failf("the primary's seq %d has %d versions in the scopes read", p, len(vs))
+		c.failf("the primary's seq %d has %d versions in the hours read", p, len(vs))
 		return false
 	}
 	rec := &vs[0]
@@ -357,7 +316,7 @@ func (c *txSafetyCheck) bound() (uint64, bool) {
 		v := &c.d.versions[seq][0]
 		if closes, _ := c.k.closing(v); closes || c.k.sameKeyPrimary(v) {
 			if c.res.WindowEnd == nil || *c.res.WindowEnd != seq {
-				c.failf("the window ends at %s, the scopes read bound it at %d", txOptSeq(c.res.WindowEnd), seq)
+				c.failf("the window ends at %s, the hours read bound it at %d", txOptSeq(c.res.WindowEnd), seq)
 			}
 
 			return seq, true
@@ -365,7 +324,7 @@ func (c *txSafetyCheck) bound() (uint64, bool) {
 	}
 	if c.res.WindowEnd != nil {
 		v := c.d.versions[*c.res.WindowEnd]
-		c.failf("the window ends at %d, where the scopes read hold %d versions, none a same-key primary or a closing record",
+		c.failf("the window ends at %d, where the hours read hold %d versions, none a same-key primary or a closing record",
 			*c.res.WindowEnd, len(v))
 	} else {
 		c.failf("the window is not bounded")
@@ -395,7 +354,7 @@ func (c *txSafetyCheck) window(e uint64, runs [][]txRun) {
 			}
 			r.first = max(r.first, p+1)
 			if n := txTruthCount(c.d.seqs, r.first, r.last); n != r.last-r.first+1 {
-				c.failf("the run [%d, %d] holds %d seqs absent from the scopes read", r.first, r.last, r.last-r.first+1-n)
+				c.failf("the run [%d, %d] holds %d seqs absent from the hours read", r.first, r.last, r.last-r.first+1-n)
 			}
 			all = append(all, r)
 		}
@@ -409,7 +368,7 @@ func (c *txSafetyCheck) window(e uint64, runs [][]txRun) {
 }
 
 // replies checks the domain's versions inside the window (p, e) against the primary:
-// for a TxUnmatched, none may be a valid match or a record that could be the reply;
+// for a TxNotFound, none may be a valid match or a record that could be the reply;
 // for a TxMatched, exactly one is a valid match, the one the result reports.
 func (c *txSafetyCheck) replies(e uint64, unmatched bool) {
 	p := c.key.Seq
@@ -449,43 +408,31 @@ func (c *txSafetyCheck) replies(e uint64, unmatched bool) {
 		}
 	}
 	if len(valid) != 1 || len(got) != 1 || !txTruthSame(&valid[0], &got[0]) {
-		c.failf("the scopes read hold %d valid matches, the result reports %d", len(valid), len(got))
+		c.failf("the hours read hold %d valid matches, the result reports %d", len(valid), len(got))
 	}
 }
 
-// conditions requires none of the conditions that keep absence from being established,
-// in the scopes read and the evidence:
-// a scope not indexed or conflicted, a pack read unfinalized, damaged or unevaluated,
-// a coverage entry meeting the window and the hours,
-// partial evidence, a barrier, a capture-boundary of the epoch other than the stop that bounds the window,
-// an ordering-uncertain record of the epoch, or a closure the evidence claims and the records contradict.
+// conditions requires none of the conditions that make a lookup incomplete, in the hours read:
+// a pack read unfinalized, damaged or unevaluated, of any capture,
+// a coverage entry of the capture meeting the window and the hours,
+// a stop-unclean of any capture whose gap meets the hours scheduled,
+// a capture-boundary of the epoch other than the stop that bounds the window,
+// or an ordering-uncertain record of the epoch.
 func (c *txSafetyCheck) conditions(e uint64) {
 	p := c.key.Seq
 	from, to := c.key.Hour*hourNs, (c.key.Hour+int64(c.maxScopes))*hourNs
-	for h := c.key.Hour; h < c.key.Hour+int64(c.maxScopes); h++ {
-		if !c.tr.indexed[h] {
-			c.failf("hour %d is not indexed", h)
-		}
-		if c.tr.conflicted[h] {
-			c.failf("hour %d is conflicted", h)
-		}
-	}
 	for _, pk := range c.d.packs {
 		if pk.walked || pk.damaged || !pk.evaluated {
 			c.failf("pack %v is unfinalized, damaged or unevaluated", pk.id)
 		}
 		for _, cv := range pk.coverage {
-			if txTruthCoverage(&cv, c.tr.capture, p+1, e-1, from, to) {
+			if txTruthCoverage(&cv, c.tr.capture, pk.capture, p+1, e-1, from, to) {
 				c.failf("a coverage entry of pack %v meets the window", pk.id)
 			}
 		}
 	}
-	ev := c.tr.evidence()
-	if ev.partial {
-		c.failf("the evidence is partial")
-	}
-	c.barriers(&ev, from, to)
-	c.boundaries(&ev, e)
+	c.crashGaps(from, to)
+	c.boundaries(e)
 	for _, seq := range c.d.seqs {
 		for _, v := range c.d.versions[seq] {
 			if v.Epoch == c.k.epoch && v.Quality.Has(QualityOrderingUncertain) {
@@ -493,14 +440,14 @@ func (c *txSafetyCheck) conditions(e uint64) {
 			}
 		}
 	}
-	c.claims(&ev)
 }
 
-// txTruthCoverage reports whether the coverage entry cv of a pack of capture
+// txTruthCoverage reports whether the coverage entry cv of a pack of capture pack, for a lookup of capture,
 // meets the seqs [lo, hi] and the times [from, to):
-// an entry of another capture never, an inverted one always, an empty seq range never otherwise.
-func txTruthCoverage(cv *Coverage, capture UUID, lo, hi uint64, from, to int64) bool {
-	if cv.CaptureID != nil && *cv.CaptureID != capture {
+// an entry of a pack of another capture, or naming another capture than its pack's, never;
+// an inverted one always, an empty seq range never otherwise.
+func txTruthCoverage(cv *Coverage, capture, pack UUID, lo, hi uint64, from, to int64) bool {
+	if pack != capture || cv.CaptureID != nil && *cv.CaptureID != capture {
 		return false
 	}
 	seqInverted := cv.SeqFirst != nil && cv.SeqLast != nil && *cv.SeqFirst > *cv.SeqLast
@@ -513,39 +460,30 @@ func txTruthCoverage(cv *Coverage, capture UUID, lo, hi uint64, from, to int64) 
 	return seqs && (cv.TimeStart == nil || *cv.TimeStart < to) && (cv.TimeEnd == nil || *cv.TimeEnd >= from)
 }
 
-// barriers requires no stop-unclean of the capture unless the domain closes the primary's epoch above it,
-// and no stop-unclean of the tool whose gap interval meets the hours scheduled, an inverted one meeting every range.
-func (c *txSafetyCheck) barriers(ev *txTruthEvidence, from, to int64) {
-	closed := false
-	for _, seq := range c.d.seqs {
-		if closes, _ := c.k.closing(&c.d.versions[seq][0]); seq > c.key.Seq && closes && c.d.versions[seq][0].Epoch == c.k.epoch {
-			closed = true
-		}
-	}
-	for _, b := range ev.boundaries {
-		if b.Kind == BoundaryKindStopUnclean && !closed {
-			c.failf("a stop-unclean of the capture at seq %d, while the scopes read close no epoch %d", b.Seq, c.k.epoch)
-		}
-	}
-	for _, b := range ev.barriers {
-		inverted := b.GapStart != nil && b.GapEnd != nil && *b.GapStart > *b.GapEnd
-		if inverted || (b.GapStart == nil || *b.GapStart < to) && (b.GapEnd == nil || *b.GapEnd >= from) {
-			c.failf("a stop-unclean of capture %v has a gap that meets the hours scheduled", b.Capture)
+// crashGaps requires no stop-unclean boundary written into a pack of the domain, of any capture,
+// whose gap interval meets the hours scheduled [from, to), an inverted one meeting every range.
+func (c *txSafetyCheck) crashGaps(from, to int64) {
+	for _, pk := range c.d.packs {
+		for i := range pk.recs {
+			ev := transportEventOf(&pk.recs[i])
+			if ev == nil || ev.Event != EventCaptureBoundary || ev.BoundaryKind == nil || *ev.BoundaryKind != BoundaryKindStopUnclean {
+				continue
+			}
+			lo, hi := ev.GapStart, ev.GapEnd
+			inverted := lo != nil && hi != nil && *lo > *hi
+			if inverted || (lo == nil || *lo < to) && (hi == nil || *hi >= from) {
+				c.failf("a stop-unclean of capture %v at seq %d has a gap that meets the hours scheduled", pk.capture, pk.recs[i].Seq)
+			}
 		}
 	}
 }
 
-// boundaries requires no capture-boundary of the primary's epoch, in the evidence or in the domain above the primary,
+// boundaries requires no capture-boundary of the primary's epoch in the domain above the primary
 // other than the stop of the epoch at e that bounds the window.
-func (c *txSafetyCheck) boundaries(ev *txTruthEvidence, e uint64) {
+func (c *txSafetyCheck) boundaries(e uint64) {
 	_, stop := c.k.closing(&c.d.versions[e][0])
 	stopBound := stop && c.d.versions[e][0].Epoch == c.k.epoch
 	bounding := func(seq uint64, kind BoundaryKind) bool { return stopBound && seq == e && kind == BoundaryKindStop }
-	for _, b := range ev.boundaries {
-		if b.Epoch == c.k.epoch && !bounding(b.Seq, b.Kind) {
-			c.failf("the evidence has a %v boundary of the epoch at seq %d", b.Kind, b.Seq)
-		}
-	}
 	for _, seq := range c.d.seqs {
 		v := &c.d.versions[seq][0]
 		if seq <= c.key.Seq || v.Epoch != c.k.epoch || v.Kind != KindTransportEvent {
@@ -565,39 +503,7 @@ func (c *txSafetyCheck) boundaries(ev *txTruthEvidence, e uint64) {
 	}
 }
 
-// claims requires every closure the evidence claims, the close_seq of the primary's epoch and each clean stop,
-// to lie above the primary and, where the domain holds its seq, to name a record that is what it claims:
-// a socket-close or a stop of the epoch for a close_seq, a stop of its epoch for a stop.
-func (c *txSafetyCheck) claims(ev *txTruthEvidence) {
-	check := func(seq uint64, epoch uint32, socketClose bool, what string) {
-		if seq <= c.key.Seq {
-			c.failf("the evidence claims %s at seq %d, at or below the primary", what, seq)
-			return
-		}
-		vs, read := c.d.versions[seq]
-		if !read {
-			return
-		}
-		v := &vs[0]
-		te, err := UnmarshalTransportEvent(v.Payload)
-		ok := v.Kind == KindTransportEvent && err == nil && v.Epoch == epoch &&
-			(te.Event == EventCaptureBoundary && te.BoundaryKind != nil && *te.BoundaryKind == BoundaryKindStop ||
-				socketClose && te.Event == EventSocketClose)
-		if !ok {
-			c.failf("the evidence claims %s at seq %d, which the scopes read contradict", what, seq)
-		}
-	}
-	if seq, ok := ev.closures[c.k.epoch]; ok {
-		check(seq, c.k.epoch, true, "the close_seq of the epoch")
-	}
-	for _, b := range ev.boundaries {
-		if b.Kind == BoundaryKindStop {
-			check(b.Seq, b.Epoch, false, "a clean stop")
-		}
-	}
-}
-
-// txLookupRuns returns the run set of each scope the lookup l read.
+// txLookupRuns returns the run set of each hour the lookup l read.
 func txLookupRuns(l *txLookup) [][]txRun {
 	out := make([][]txRun, len(l.reads))
 	for i, rd := range l.reads {
@@ -627,8 +533,8 @@ func runTxSafety(t testing.TB, tr *txTruth, key TxKey, opts TxOptions, mutate fu
 
 // txTruthPack writes recs, already in hour memTestHour + hours, into a finalized pack id of captureLow
 // whose pack metadata has quality_evaluated true, in blocks closed after the seqs of flushAfter,
-// the file changed by edit when set, admits it to tr's source, and records it in tr.
-func txTruthPack(t testing.TB, tr *txTruth, id UUID, hours int64, edit func(file []byte) []byte, flushAfter []uint64, recs ...Record) {
+// gives it to tr's source for its hour, and records it in tr.
+func txTruthPack(t testing.TB, tr *txTruth, id UUID, hours int64, flushAfter []uint64, recs ...Record) {
 	t.Helper()
 
 	steps := make([]footerTestStep, len(recs))
@@ -640,23 +546,14 @@ func txTruthPack(t testing.TB, tr *txTruth, id UUID, hours int64, edit func(file
 		m.PeriodEnd += hours * hourNs
 		m.QualityEvaluated = true
 	}, false, steps).file
-	if edit != nil {
-		file = edit(file)
-	}
 	file = withIDs(t, file, id, captureLow)
 	tr.src.addPack(t, memTestHour+hours, file)
-	tr.packs = append(tr.packs, txGenPack{hour: memTestHour + hours, id: id, recs: recs, admitted: true, evaluated: true})
+	tr.packs = append(tr.packs, txGenPack{hour: memTestHour + hours, id: id, capture: captureLow, recs: recs, evaluated: true, file: file})
 }
 
-// newTxTruth returns an empty truth over a fresh source of captureLow that wrote seqs, every hour of hours indexed.
-func newTxTruth(seqs []uint64, hours ...int64) *txTruth {
-	tr := &txTruth{src: newMemSource(), capture: captureLow, seqs: seqs, indexed: map[int64]bool{}}
-	for _, h := range hours {
-		tr.indexed[memTestHour+h] = true
-		tr.src.setIndexed(captureLow, memTestHour+h, true)
-	}
-
-	return tr
+// newTxTruth returns an empty truth over a fresh source of captureLow that wrote seqs.
+func newTxTruth(seqs []uint64) *txTruth {
+	return &txTruth{src: newMemSource(), capture: captureLow, seqs: seqs}
 }
 
 // txSeqRange returns the seqs first to last.
@@ -669,31 +566,17 @@ func txSeqRange(first, last uint64) []uint64 {
 	return out
 }
 
-// TestFindTransactionSafetyCheckCatches shows that the safety check catches a lookup without seq-gap detection,
-// and one that takes the per-capture evidence's closures as window bounds without checking them.
-// Each source holds txRecord's primary at 12 in memTestHour, read with MaxScopes 1,
-// and the capture wrote 12 to 14 or 12 to 15.
-// Without seq-gap detection, the lookup returns TxUnmatched, which the check rejects,
+// TestFindTransactionSafetyCheckCatches shows that the safety check catches a lookup without seq-gap detection.
+// Each source holds txRecord's primary at 12 in memTestHour, read with MaxScopes 1, and the capture wrote 12 to 14.
+// Without seq-gap detection, the lookup returns a complete TxNotFound, which the check rejects,
 // for an annotation at 13 that a backward clock step put in the hour before, which is not read,
 // for an annotation at 13 dropped from every pack, and for 13 inside the F-2 range of a block holding 12 and 14 only;
-// for 13 only in a walked block whose read fails, the read's own gaps keep the lookup TxIncomplete,
+// for 13 only in a walked block whose read fails, the read's own gaps keep the lookup incomplete,
 // and the visited runs still lack 13.
-// Taking the evidence's closures as bounds,
-// the lookup returns TxUnmatched for a footer whose close_seq names an annotation,
-// which the check rejects; the lookup itself lists the contradiction and an open window.
 func TestFindTransactionSafetyCheckCatches(t *testing.T) {
 	t.Parallel()
 
 	note := func(seq uint64, hours int64) Record { return inHour(hours, txNote(seq, []byte("x"))) }
-	trustClosures := func(l *txLookup) {
-		l.trustClosures = func(w *txWindow) {
-			for _, c := range l.evidence.Closures {
-				if c.Epoch == l.prim.epoch && c.CloseSeq > w.p && (!w.bounded || c.CloseSeq < w.e) {
-					w.e, w.bounded = c.CloseSeq, true
-				}
-			}
-		}
-	}
 	tests := []struct {
 		name string
 		// source fills the truth of a capture that wrote 12 to last.
@@ -708,60 +591,50 @@ func TestFindTransactionSafetyCheckCatches(t *testing.T) {
 		{
 			name: "a non-reply in the hour before", last: 14, mutate: func(l *txLookup) { l.skipSeqGap = true },
 			source: func(t *testing.T, tr *txTruth) {
-				txTruthPack(t, tr, seg0, 0, nil, nil, txRecord(12, nil), txRecord(14, nil))
-				txTruthPack(t, tr, seg1, -1, nil, nil, note(13, -1))
+				txTruthPack(t, tr, seg0, 0, nil, txRecord(12, nil), txRecord(14, nil))
+				txTruthPack(t, tr, seg1, -1, nil, note(13, -1))
 			},
-			normal: []string{"incomplete", "seq-gap@13"}, mutated: []string{"unmatched"},
+			normal: []string{"not-found", "seq-gap@13"}, mutated: []string{"not-found"},
 			violation: "seq 13 of the window (12, 14) lies in no run the lookup visited",
 		},
 		{
 			name: "a dropped annotation", last: 14, mutate: func(l *txLookup) { l.skipSeqGap = true },
 			source: func(t *testing.T, tr *txTruth) {
-				txTruthPack(t, tr, seg0, 0, nil, []uint64{12}, txRecord(12, nil), txRecord(14, nil))
+				txTruthPack(t, tr, seg0, 0, []uint64{12}, txRecord(12, nil), txRecord(14, nil))
 			},
-			normal: []string{"incomplete", "seq-gap@13"}, mutated: []string{"unmatched"},
+			normal: []string{"not-found", "seq-gap@13"}, mutated: []string{"not-found"},
 			violation: "seq 13 of the window (12, 14) lies in no run the lookup visited",
 		},
 		{
 			name: "a seq only in an F-2 range", last: 14, mutate: func(l *txLookup) { l.skipSeqGap = true },
 			source: func(t *testing.T, tr *txTruth) {
-				txTruthPack(t, tr, seg0, 0, nil, nil, txRecord(12, nil), txRecord(14, nil))
-				r := mustOpen(t, tr.src.scopes[memScopeKey{captureLow, memTestHour}].registered[seg0], ReaderOptions{})
+				txTruthPack(t, tr, seg0, 0, nil, txRecord(12, nil), txRecord(14, nil))
+				r := mustOpen(t, tr.packs[0].file, ReaderOptions{})
 				require.Len(t, r.Blocks(), 1)
 				require.Equal(t, [2]uint64{12, 14}, [2]uint64{r.Blocks()[0].FirstSeq, r.Blocks()[0].LastSeq})
 			},
-			normal: []string{"incomplete", "seq-gap@13"}, mutated: []string{"unmatched"},
+			normal: []string{"not-found", "seq-gap@13"}, mutated: []string{"not-found"},
 			violation: "seq 13 of the window (12, 14) lies in no run the lookup visited",
 		},
 		{
 			name: "a seq only in a failed walked block", last: 14, mutate: func(l *txLookup) { l.skipSeqGap = true },
 			source: func(t *testing.T, tr *txTruth) {
-				txTruthPack(t, tr, seg0, 0, nil, nil, txRecord(12, nil), txRecord(14, nil))
+				txTruthPack(t, tr, seg0, 0, nil, txRecord(12, nil), txRecord(14, nil))
 				walked := writeRepairPack(t, CodecZstd, func(m *PackMeta) { m.QualityEvaluated = true }, true, txBlock(note(13, 0))).file
 				b := mustOpen(t, walked, ReaderOptions{}).Blocks()[0]
 				tr.src.addPack(t, memTestHour, withIDs(t, flipByte(walked, b.Offset+format.EnvelopeLen+1), seg1, captureLow))
-				tr.packs = append(tr.packs, txGenPack{hour: memTestHour, id: seg1, recs: []Record{note(13, 0)}, admitted: true,
+				tr.packs = append(tr.packs, txGenPack{hour: memTestHour, id: seg1, capture: captureLow, recs: []Record{note(13, 0)},
 					evaluated: true, walked: true, damaged: true})
 			},
-			normal:  []string{"incomplete", "read@-", "read@-", "seq-gap@13", "evidence@-"},
-			mutated: []string{"incomplete", "read@-", "read@-", "evidence@-"},
-		},
-		{
-			name: "a footer's close_seq at an annotation", last: 15, mutate: trustClosures,
-			source: func(t *testing.T, tr *txTruth) {
-				txTruthPack(t, tr, seg0, 0, func(file []byte) []byte {
-					return reindexedWith(t, file, func(_ int, s *blockSummary) { s.epochs[0].closeSeq, s.epochs[0].hasCloseSeq = 14, true })
-				}, nil, txRecord(12, nil), note(13, 0), note(14, 0), note(15, 0))
-			},
-			normal: []string{"incomplete", "open-window@-", "contradiction@14"}, mutated: []string{"unmatched"},
-			violation: "the window ends at 14, where the scopes read hold 1 versions, none a same-key primary or a closing record",
+			normal:  []string{"not-found", "read@-", "read@-", "seq-gap@13"},
+			mutated: []string{"not-found", "read@-", "read@-"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			tr := newTxTruth(txSeqRange(12, tt.last), -1, 0)
+			tr := newTxTruth(txSeqRange(12, tt.last))
 			tt.source(t, tr)
 			opts := TxOptions{MaxScopes: 1}
 
@@ -801,23 +674,23 @@ func runTxSafetyKeeping(t testing.TB, tr *txTruth, key TxKey, opts TxOptions, mu
 
 // txOutcomeGaps describes res as its outcome, then each gap as "reason@seq", "-" for no seq.
 func txOutcomeGaps(res *TxResult) []string {
-	out := make([]string, 0, 1+len(res.Gaps))
+	out := make([]string, 0, 1+len(res.Incomplete))
 	out = append(out, res.Outcome.String())
-	for _, g := range res.Gaps {
+	for _, g := range res.Incomplete {
 		out = append(out, fmt.Sprintf("%v@%s", g.Reason, strings.Replace(txOptSeq(g.Seq), "none", "-", 1)))
 	}
 
 	return out
 }
 
-// TestFindTransactionUnreadEarlierHour pins that the comparison of a record's versions covers the scopes a lookup reads
+// TestFindTransactionUnreadEarlierHour pins that the comparison of a record's versions covers the hours a lookup reads
 // (the tracepack semantics specification §7.2):
 // beside txRecord's primary at 12 and a same-key primary at 14 in hour memTestHour + 1, read with MaxScopes 1,
 // another version of 13 lies in memTestHour, where a backward clock step put it:
 // a valid reply, a smaller same-key primary, or an unrelated record.
-// With an annotation at 13 in the hour read, the lookup returns TxUnmatched, as the scopes read imply,
-// and the observation-bounded and safety checks agree, the version in the hour before being outside the comparison;
-// with no version of 13 in the hour read, 13 is a seq gap and the outcome TxIncomplete.
+// With an annotation at 13 in the hour read, the lookup returns a complete TxNotFound, as the hours read imply,
+// and the snapshot-bounded and safety checks agree, the version in the hour before being outside the comparison;
+// with no version of 13 in the hour read, 13 is a seq gap, and the TxNotFound is incomplete.
 func TestFindTransactionUnreadEarlierHour(t *testing.T) {
 	t.Parallel()
 
@@ -834,21 +707,21 @@ func TestFindTransactionUnreadEarlierHour(t *testing.T) {
 			t.Run(fmt.Sprintf("%s, a version read %t", e.name, read), func(t *testing.T) {
 				t.Parallel()
 
-				tr := newTxTruth(txSeqRange(12, 14), 0, 1)
+				tr := newTxTruth(txSeqRange(12, 14))
 				recs := []Record{inHour(1, txRecord(12, nil)), inHour(1, txRecord(14, nil))}
 				if read {
 					recs = slices.Insert(recs, 1, inHour(1, txNote(13, []byte("x"))))
 				}
-				txTruthPack(t, tr, seg0, 1, nil, nil, recs...)
-				txTruthPack(t, tr, seg1, 0, nil, nil, e.rec)
+				txTruthPack(t, tr, seg0, 1, nil, recs...)
+				txTruthPack(t, tr, seg1, 0, nil, e.rec)
 				key := TxKey{Capture: captureLow, Seq: 12, Hour: memTestHour + 1}
 				opts := TxOptions{MaxScopes: 1}
 
 				res, out := runTxSafety(t, tr, key, opts, nil)
 				assert.Empty(t, out)
-				want := []string{"unmatched"}
+				want := []string{"not-found"}
 				if !read {
-					want = []string{"incomplete", "seq-gap@13"}
+					want = []string{"not-found", "seq-gap@13"}
 				}
 				assert.Equal(t, want, txOutcomeGaps(&res))
 				assert.Equal(t, []string{"12@1 primary", "14@1 same-key-primary"}, recordSeqs(res.Records))
