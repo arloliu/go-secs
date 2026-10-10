@@ -294,23 +294,39 @@ func (r *Reader) readBlock(i int, buf *blockBuf) (*decodedBlock, *Defect, error)
 	if err := r.fetch(buf.raw, int64(info.Offset)); err != nil {
 		return nil, nil, err
 	}
+	d, def := r.checkAndDecode(i, buf)
 
+	return d, def, nil
+}
+
+// checkAndDecode checks and decodes block i, whose on-disk bytes buf.raw holds, as readBlock does once it has read them:
+// the envelope's checks, the decode of the body and its records,
+// and for an indexed block the comparison of its records with its F-2 entry.
+// It does not check the block against MaxBlockLen, which its caller did before reading it.
+//
+// Returns:
+//   - *decodedBlock: the validated block, aliasing buf; nil with a failure.
+//   - *Defect: the block's defect, at its envelope offset, as readBlock reports it:
+//     ReasonUnknownCodec or ReasonCorruptBlock with a nil block,
+//     or ReasonIndexMismatch beside the block.
+func (r *Reader) checkAndDecode(i int, buf *blockBuf) (*decodedBlock, *Defect) {
+	info := &r.blocks[i]
 	env, reason, err := checkEnvelope(buf.raw, info)
 	if err != nil {
-		return nil, blockDefect(i, info, reason, err), nil
+		return nil, blockDefect(i, info, reason, err)
 	}
 
 	d, span, err := decodeBlock(&env, buf)
 	if err != nil {
-		return nil, blockDefect(i, info, ReasonCorruptBlock, err), nil
+		return nil, blockDefect(i, info, ReasonCorruptBlock, err)
 	}
 	if info.Indexed {
 		if err := span.agrees(info); err != nil {
-			return d, blockDefect(i, info, ReasonIndexMismatch, err), nil
+			return d, blockDefect(i, info, ReasonIndexMismatch, err)
 		}
 	}
 
-	return d, nil, nil
+	return d, nil
 }
 
 // checkBlockBudget checks the on-disk body length and uncompressed_len of the block of info against MaxBlockLen.

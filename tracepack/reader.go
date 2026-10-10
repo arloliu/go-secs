@@ -259,7 +259,7 @@ type bootstrap struct {
 //
 // Parameters:
 //   - ctx: cancels Open between reads.
-//   - ra: the object; Open may issue several ReadAt calls in parallel.
+//   - ra: the object; Open, and MergeIterate over the Reader, may issue several ReadAt calls in parallel.
 //   - size: the object's size, known before reading.
 //   - opts: see ReaderOptions.
 //

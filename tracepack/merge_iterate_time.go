@@ -35,6 +35,7 @@ type pendingHeap []pendingCandidate
 // so a record whose ts_utc_ns lies before its block's ts_min, as only a misstated index allows,
 // is yielded when the order reaches it.
 // fn receives one Item, reused, valid during the call; its payload and header extension alias the representative's block.
+// The blocks of the clusters ahead are read ahead of their demand within MaxHeldBytes (prefetcher).
 //
 // Returns:
 //   - error: fn's error, as is; ctx's error, wrapped;
@@ -71,6 +72,10 @@ func (p *mergeIteratePlan) runTime(ctx context.Context, q *Query, fn func(*Item)
 			cr.close()
 		}
 	}()
+	// Deferred after the cleanup above, so it runs first:
+	// no speculative read is in flight, and none is issued, once the run releases its blocks.
+	pf := p.startPrefetch(ctx, timeDemand(units))
+	defer pf.close()
 
 	// yieldBelow yields every pending candidate, while the cut-off below is set those with ts_utc_ns strictly below it.
 	// A candidate stays in the heap until fn returns nil for it, so the deferred release covers it on an error.

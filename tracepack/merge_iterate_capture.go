@@ -36,6 +36,8 @@ type streamHeap []*captureStream
 // Then the stream whose head's representative block has the smallest ts_min, ties broken by capture_id,
 // yields its head and is scheduled again by its next head, until no stream has one.
 // fn receives one Item, reused, valid during the call; its payload and header extension alias the representative's block.
+// When at most one capture has a cluster to read,
+// the blocks ahead are read ahead of their demand within MaxHeldBytes (prefetcher).
 //
 // Returns:
 //   - error: fn's error, as is; ctx's error, wrapped;
@@ -53,6 +55,10 @@ func (p *mergeIteratePlan) runCapture(ctx context.Context, q *Query, fn func(*It
 			streams[i].close(&p.loader)
 		}
 	}()
+	// Deferred after the cleanup above, so it runs first:
+	// no speculative read is in flight, and none is issued, once the run releases its blocks.
+	pf := p.startPrefetch(ctx, p.captureDemand())
+	defer pf.close()
 
 	h := make(streamHeap, 0, len(streams))
 	for k := range p.captures {
