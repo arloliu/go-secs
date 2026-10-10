@@ -1,0 +1,151 @@
+[
+  {
+    "id": "limit-exact",
+    "cites": [
+      "SEM §7.4",
+      "CORPUS §5.10"
+    ],
+    "packs": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "order": "capture",
+    "max_conflicts": 3,
+    "filter": {
+      "kinds": [
+        "data"
+      ]
+    },
+    "expect": {
+      "items": [
+        {
+          "seq": "1",
+          "pack": 0,
+          "block": 0,
+          "conflict": false
+        },
+        {
+          "seq": "1",
+          "pack": 2,
+          "block": 0,
+          "conflict": true
+        },
+        {
+          "seq": "1",
+          "pack": 3,
+          "block": 0,
+          "conflict": true
+        },
+        {
+          "seq": "2",
+          "pack": 2,
+          "block": 0,
+          "conflict": false
+        },
+        {
+          "seq": "3",
+          "pack": 0,
+          "block": 1,
+          "conflict": true
+        },
+        {
+          "seq": "3",
+          "pack": 1,
+          "block": 1,
+          "conflict": true
+        }
+      ],
+      "incomplete": [],
+      "conflicts": [
+        {
+          "capture_id": "01a0ffeb-3600-7b7f-8204-118f6c57d513",
+          "seq": "1",
+          "versions": [
+            [
+              2
+            ],
+            [
+              3
+            ]
+          ]
+        },
+        {
+          "capture_id": "01a0ffeb-3600-7656-9a79-fe2055c908a4",
+          "seq": "2",
+          "versions": [
+            [
+              0
+            ],
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "capture_id": "01a0ffeb-3600-7656-9a79-fe2055c908a4",
+          "seq": "3",
+          "versions": [
+            [
+              0
+            ],
+            [
+              1
+            ]
+          ]
+        }
+      ],
+      "footer_errors": []
+    }
+  },
+  {
+    "id": "limit-exceeded",
+    "cites": [
+      "SEM §7.4",
+      "CORPUS §5.10"
+    ],
+    "packs": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "order": "capture",
+    "max_conflicts": 2,
+    "filter": {
+      "kinds": [
+        "data"
+      ]
+    },
+    "expect": {
+      "error": "conflict-limit",
+      "conflicts": [
+        {
+          "capture_id": "01a0ffeb-3600-7b7f-8204-118f6c57d513",
+          "seq": "1",
+          "versions": [
+            [
+              2
+            ],
+            [
+              3
+            ]
+          ]
+        },
+        {
+          "capture_id": "01a0ffeb-3600-7656-9a79-fe2055c908a4",
+          "seq": "2",
+          "versions": [
+            [
+              0
+            ],
+            [
+              1
+            ]
+          ]
+        }
+      ]
+    }
+  }
+]

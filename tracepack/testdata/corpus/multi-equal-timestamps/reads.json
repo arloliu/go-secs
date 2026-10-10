@@ -87,6 +87,88 @@
     }
   },
   {
+    "id": "clusters-tie-conflicts",
+    "cites": [
+      "SEM §7.4",
+      "CORPUS §5.10"
+    ],
+    "packs": [
+      6,
+      7,
+      8
+    ],
+    "order": "time",
+    "filter": {},
+    "expect": {
+      "items": [
+        {
+          "seq": "5",
+          "pack": 7,
+          "block": 0,
+          "conflict": true
+        },
+        {
+          "seq": "5",
+          "pack": 8,
+          "block": 0,
+          "conflict": true
+        },
+        {
+          "seq": "7",
+          "pack": 6,
+          "block": 0,
+          "conflict": true
+        },
+        {
+          "seq": "7",
+          "pack": 7,
+          "block": 1,
+          "conflict": true
+        },
+        {
+          "seq": "6",
+          "pack": 7,
+          "block": 0,
+          "conflict": false
+        },
+        {
+          "seq": "8",
+          "pack": 6,
+          "block": 0,
+          "conflict": false
+        }
+      ],
+      "incomplete": [],
+      "conflicts": [
+        {
+          "capture_id": "01a0ffeb-3600-78d5-8c6d-f32692db7ac2",
+          "seq": "5",
+          "versions": [
+            [
+              7
+            ],
+            [
+              8
+            ]
+          ]
+        },
+        {
+          "capture_id": "01a0ffeb-3600-78d5-8c6d-f32692db7ac2",
+          "seq": "7",
+          "versions": [
+            [
+              6
+            ],
+            [
+              7
+            ]
+          ]
+        }
+      ],
+      "footer_errors": []
+    }
+  },
+  {
     "id": "versions-three",
     "cites": [
       "SEM §7.4",

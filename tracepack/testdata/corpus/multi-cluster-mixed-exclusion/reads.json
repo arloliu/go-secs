@@ -1,0 +1,56 @@
+[
+  {
+    "id": "one-block-excluded",
+    "cites": [
+      "SEM §7.4",
+      "CORPUS §5.10"
+    ],
+    "packs": [
+      0,
+      1
+    ],
+    "order": "capture",
+    "filter": {
+      "time_from": "1791000000000000000",
+      "time_to": "1791000600000000000"
+    },
+    "expect": {
+      "items": [
+        {
+          "seq": "1",
+          "pack": 0,
+          "block": 0,
+          "conflict": false
+        },
+        {
+          "seq": "2",
+          "pack": 0,
+          "block": 0,
+          "conflict": true
+        },
+        {
+          "seq": "3",
+          "pack": 0,
+          "block": 0,
+          "conflict": false
+        }
+      ],
+      "incomplete": [],
+      "conflicts": [
+        {
+          "capture_id": "01a0ffeb-3600-794b-a526-42e3016c95b6",
+          "seq": "2",
+          "versions": [
+            [
+              0
+            ],
+            [
+              1
+            ]
+          ]
+        }
+      ],
+      "footer_errors": []
+    }
+  }
+]

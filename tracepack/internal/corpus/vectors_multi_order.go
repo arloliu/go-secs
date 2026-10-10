@@ -48,16 +48,28 @@ func multiOrderVectors() []Recipe {
 			// Equal ts_min across clusters: the records of both clusters by ts, then seq, not cluster by cluster.
 			// Equal timestamps across versions: the versions of seq 7 in version order, the order of the first block holding each
 			// in cluster order: pack 4's block first, its first seq 6 below the others' 7, then the packs in the order given.
+			// Equal ts_min across clusters of one capture, each holding a conflict: the clusters are read by first seq,
+			// so the conflict on seq 5 is listed before the one on seq 7, though pack 6, given first, holds only seqs 7 and 8.
 			Expect: &Expectation{
 				Packs: []*Expectation{
 					finalizedPack(1, 2), finalizedPack(1, 2), packOf(2, 5, 6, 7, 8),
 					packOf(1, 7), packOf(1, 6, 7), packOf(1, 7),
+					packOf(1, 7, 8), packOf(2, 5, 6, 7, 8), packOf(1, 5, 6),
 				},
 				Reads: []ReadWant{
 					{ID: "captures-tie", Items: slices.Concat(blockItems(0, 0, 1, 2), blockItems(1, 0, 1, 2))},
 					{ID: "clusters-tie", Items: []ItemWant{
 						{Seq: 5, Pack: 2, Block: 0}, {Seq: 7, Pack: 2, Block: 1}, {Seq: 6, Pack: 2, Block: 0}, {Seq: 8, Pack: 2, Block: 1},
 					}},
+					{
+						ID: "clusters-tie-conflicts",
+						Items: []ItemWant{
+							{Seq: 5, Pack: 7, Block: 0, Conflict: true}, {Seq: 5, Pack: 8, Block: 0, Conflict: true},
+							{Seq: 7, Pack: 6, Block: 0, Conflict: true}, {Seq: 7, Pack: 7, Block: 1, Conflict: true},
+							{Seq: 6, Pack: 7, Block: 0}, {Seq: 8, Pack: 6, Block: 0},
+						},
+						Conflicts: []ConflictWant{{Capture: 3, Seq: 5, Versions: [][]int{{7}, {8}}}, {Capture: 3, Seq: 7, Versions: [][]int{{6}, {7}}}},
+					},
 					{
 						ID: "versions-three",
 						Items: []ItemWant{
@@ -216,10 +228,14 @@ func timeBackwardBuild(seed string) (*Built, error) {
 // equalTimestampsBuild builds multi-equal-timestamps:
 // pack 0 of capture A and pack 1 of capture B, each seqs 1 and 2 at 5 ms;
 // pack 2 of capture A, in the next minute, block 0 holding seqs 5 and 6 and block 1 seqs 7 and 8, at 10 and 11 ms each;
-// and packs 3, 4 and 5 of capture C, in its first three minutes, each holding a version of seq 7 at 20 ms,
-// the versions differing in their message text alone, and pack 4 also seq 6 at 20 ms.
+// packs 3, 4 and 5 of capture C, in its first three minutes, each holding a version of seq 7 at 20 ms,
+// the versions differing in their message text alone, and pack 4 also seq 6 at 20 ms, in the block of its seq 7;
+// and packs 6, 7 and 8 of capture D, in its first three minutes, every block's records at 30 and 31 ms:
+// pack 6 one block of seqs 7 and 8, pack 7 a block of seqs 5 and 6 and a block of seqs 7 and 8, pack 8 one block of seqs 5 and 6,
+// the copies of seq 7 in packs 6 and 7 and of seq 5 in packs 7 and 8 differing in their message text alone.
 // It checks that A's capture_id is below B's, the two clusters of pack 2 have one ts_min,
-// and the three copies of seq 7 have one timestamp and differ in their payloads alone.
+// the three copies of seq 7 have one timestamp and differ in their payloads alone, pack 4's seq 6 shares their timestamp and its seq 7's block,
+// and that capture D's two clusters have one ts_min, their copies of seqs 5 and 7 differ in their payloads alone and the others are the same bytes.
 func equalTimestampsBuild(seed string) (*Built, error) {
 	if a, b := captureOf(seed, 0), captureOf(seed, 1); bytes.Compare(a[:], b[:]) >= 0 {
 		return nil, errors.New("corpus: capture A's capture_id is not below capture B's")
@@ -236,6 +252,12 @@ func equalTimestampsBuild(seed string) (*Built, error) {
 		{capture: 2, blocks: [][]tracepack.Record{{seven('x')}}},
 		{capture: 2, minute: 1, blocks: [][]tracepack.Record{{multiData(6, msAt(20), asciiItem('w')), seven('y')}}},
 		{capture: 2, minute: 2, blocks: [][]tracepack.Record{{seven('z')}}},
+		{capture: 3, blocks: [][]tracepack.Record{{multiData(7, msAt(30), asciiItem('a')), multiData(8, msAt(31), nil)}}},
+		{capture: 3, minute: 1, blocks: [][]tracepack.Record{
+			{multiData(5, msAt(30), asciiItem('c')), multiData(6, msAt(31), nil)},
+			{multiData(7, msAt(30), asciiItem('b')), multiData(8, msAt(31), nil)},
+		}},
+		{capture: 3, minute: 2, blocks: [][]tracepack.Record{{multiData(5, msAt(30), asciiItem('d')), multiData(6, msAt(31), nil)}}},
 	})
 	if err != nil {
 		return nil, err
@@ -255,10 +277,23 @@ func equalTimestampsBuild(seed string) (*Built, error) {
 			}
 		}
 	}
+	if c[4][6].block != c[4][7].block || c[4][6].ts != c[4][7].ts {
+		return nil, errors.New("corpus: pack 4's seq 6 does not share its seq 7's block and timestamp")
+	}
+	x, y, z := c[6], c[7], c[8]
+	switch {
+	case y[5].block == y[7].block || y[5].ts != y[7].ts || x[7].ts != y[7].ts || z[5].ts != y[5].ts:
+		return nil, errors.New("corpus: capture D's clusters do not have one ts_min")
+	case !onlyPayloadDiffers(x[7], y[7]) || !onlyPayloadDiffers(y[5], z[5]):
+		return nil, errors.New("corpus: capture D's copies of seqs 5 and 7 do not differ in their payloads alone")
+	case !x[8].same(y[8]) || !y[6].same(z[6]):
+		return nil, errors.New("corpus: capture D's copies of seqs 6 and 8 are not the same bytes")
+	}
 
 	return &Built{Packs: packs, Reads: []ReadSpec{
 		{ID: "captures-tie", Cites: readCites, Packs: []int{0, 1}, Order: ReadOrderTime},
 		{ID: "clusters-tie", Cites: readCites, Packs: []int{2}, Order: ReadOrderTime},
+		{ID: "clusters-tie-conflicts", Cites: readCites, Packs: []int{6, 7, 8}, Order: ReadOrderTime},
 		{ID: "versions-three", Cites: readCites, Packs: []int{3, 4, 5}, Order: ReadOrderTime},
 		{ID: "versions-two", Cites: readCites, Packs: []int{3, 4}, Order: ReadOrderTime},
 	}}, nil

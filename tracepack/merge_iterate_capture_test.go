@@ -246,6 +246,7 @@ func TestRunCaptureConflictOrder(t *testing.T) {
 
 // TestRunCaptureExcluded reads captures whose clusters the query excludes:
 // an excluded capture yields nothing and is not read,
+// a cluster excluded whole is not read and its conflict is not listed,
 // and a read with nothing to yield calls fn never and returns only the planning's diagnostics.
 func TestRunCaptureExcluded(t *testing.T) {
 	t.Parallel()
@@ -278,6 +279,50 @@ func TestRunCaptureExcluded(t *testing.T) {
 		assert.Equal(t, []yieldView{{pack: 1, seq: 1}, {pack: 1, seq: 2}, {pack: 1, block: 1, seq: 3}}, items)
 		assert.Equal(t, []int{1, 1}, read, "only the kept capture's blocks are read")
 		assert.Zero(t, p.loader.budget.held)
+	})
+
+	t.Run("a conflicting cluster excluded whole", func(t *testing.T) {
+		t.Parallel()
+
+		// The cluster of seqs 3 and 4 lies wholly after the range, and its two copies of seq 3 differ:
+		// it is not read, and its conflict is not listed (the tracepack semantics specification §7.4, Exclusion).
+		late := timedBlocks(blockTestHour+1000, []uint64{3, 4})
+		a := planTestPack(t, seg0, captureLow, false, slices.Concat(timedBlocks(blockTestHour, []uint64{1, 2}), late))
+		b := planTestPack(t, seg1, captureLow, false, changed(late, 1, 3))
+		read := func(q Query) ([]yieldView, []Conflict, [][2]int) {
+			readers := openAll(t, a, b)
+			var items []yieldView
+			var blocks [][2]int
+			yield := func(it *Item) error {
+				items = append(items, yieldView{pack: it.Pack, block: it.Block, seq: it.Record.Seq, conflict: it.Conflict})
+				return nil
+			}
+			o, err := checkMergeIterate(t.Context(), readers, &q, MergeIterateOptions{Order: OrderCapture}, yield)
+			require.NoError(t, err)
+			p := newMergeIteratePlan(o)
+			p.loader.readHook = func(pack, block int, _ *blockBuf) { blocks = append(blocks, [2]int{pack, block}) }
+			require.NoError(t, p.build(t.Context(), readers, &q))
+			err = p.runCapture(t.Context(), &q, yield)
+			res, err := p.rs.end(p.res, err)
+			require.NoError(t, err)
+			assert.Zero(t, p.loader.budget.held)
+
+			return items, res.Conflicts, blocks
+		}
+
+		items, conflicts, blocks := read(early)
+		assert.Equal(t, []yieldView{{pack: 0, seq: 1}, {pack: 0, seq: 2}}, items)
+		assert.Empty(t, conflicts)
+		assert.Equal(t, [][2]int{{0, 0}}, blocks, "only the kept cluster's block is read")
+
+		// Read whole, the same cluster is compared and its conflict listed.
+		items, conflicts, blocks = read(Query{})
+		assert.Equal(t, []yieldView{
+			{pack: 0, seq: 1}, {pack: 0, seq: 2},
+			{pack: 0, block: 1, seq: 3, conflict: true}, {pack: 1, seq: 3, conflict: true}, {pack: 0, block: 1, seq: 4},
+		}, items)
+		assert.Equal(t, []Conflict{{CaptureID: captureLow, Seq: 3, Versions: [][]UUID{{seg0}, {seg1}}}}, conflicts)
+		assert.ElementsMatch(t, [][2]int{{0, 0}, {0, 1}, {1, 0}}, blocks)
 	})
 
 	t.Run("no readers", func(t *testing.T) {

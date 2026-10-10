@@ -62,7 +62,7 @@ func multiVectors() []Recipe {
 				},
 			},
 		},
-	}, multiOrderVectors()...)
+	}, slices.Concat(multiOrderVectors(), multiSurgeryVectors())...)
 }
 
 // captureInterleaveBuild builds multi-capture-interleave:

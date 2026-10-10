@@ -1,0 +1,95 @@
+[
+  {
+    "id": "all",
+    "cites": [
+      "SEM §7.4",
+      "CORPUS §5.10"
+    ],
+    "packs": [
+      0,
+      1
+    ],
+    "order": "capture",
+    "filter": {},
+    "expect": {
+      "items": [
+        {
+          "seq": "1",
+          "pack": 0,
+          "block": 0,
+          "conflict": true
+        },
+        {
+          "seq": "1",
+          "pack": 1,
+          "block": 0,
+          "conflict": true
+        },
+        {
+          "seq": "2",
+          "pack": 0,
+          "block": 0,
+          "conflict": true
+        },
+        {
+          "seq": "2",
+          "pack": 1,
+          "block": 0,
+          "conflict": true
+        },
+        {
+          "seq": "3",
+          "pack": 0,
+          "block": 1,
+          "conflict": true
+        },
+        {
+          "seq": "3",
+          "pack": 1,
+          "block": 1,
+          "conflict": true
+        }
+      ],
+      "incomplete": [],
+      "conflicts": [
+        {
+          "capture_id": "01a0ffeb-3600-7b05-97d7-b38d9082300f",
+          "seq": "1",
+          "versions": [
+            [
+              0
+            ],
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "capture_id": "01a0ffeb-3600-7b05-97d7-b38d9082300f",
+          "seq": "2",
+          "versions": [
+            [
+              0
+            ],
+            [
+              1
+            ]
+          ]
+        },
+        {
+          "capture_id": "01a0ffeb-3600-7b05-97d7-b38d9082300f",
+          "seq": "3",
+          "versions": [
+            [
+              0
+            ],
+            [
+              1
+            ]
+          ]
+        }
+      ],
+      "footer_errors": []
+    }
+  }
+]
