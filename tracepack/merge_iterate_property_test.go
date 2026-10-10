@@ -1493,7 +1493,15 @@ func FuzzMergeIterate(f *testing.F) {
 	}
 
 	queries := fuzzIterateQueries()
+	// The schedule's reference counts block reads, so under a schedule the readers keep no bootstrap bytes
+	// (uncachedWindows); without one they read with fuzzMergeReader's defaults, served from their bootstrap bytes.
+	scriptReader, u := fuzzMergeReader, uncachedWindows()
+	scriptReader.WholeReadThreshold, scriptReader.HeadWindow, scriptReader.TailWindow = u.WholeReadThreshold, u.HeadWindow, u.TailWindow
 	f.Fuzz(func(t *testing.T, a, b, c []byte, ctl uint8, sched uint64) {
+		readerOpts := fuzzMergeReader
+		if sched != 0 {
+			readerOpts = scriptReader
+		}
 		var readers []*Reader
 		var ats []*scriptedReaderAt
 		ids := map[UUID]bool{}
@@ -1501,7 +1509,7 @@ func FuzzMergeIterate(f *testing.F) {
 			if len(data) == 0 {
 				continue
 			}
-			r, at, err := openScripted(t.Context(), data, len(readers), fuzzMergeReader)
+			r, at, err := openScripted(t.Context(), data, len(readers), readerOpts)
 			if err != nil {
 				continue
 			}

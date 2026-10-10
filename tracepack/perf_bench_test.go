@@ -321,12 +321,12 @@ func perfSizedPack(tb testing.TB, size int) []byte {
 	return buf.Bytes()
 }
 
-// BenchmarkOpenAllocs opens packs of 64 KiB, of the default whole-read threshold, and of 4 and 16 times it,
+// BenchmarkOpenAllocs opens packs of 64 KiB, 1 MiB and 2 MiB, of the default whole-read threshold, and of 4 and 16 times it,
 // reporting Open's allocations, which should stay flat in the pack size above the threshold.
 // The largest pack is 16 times the threshold, not more, so that it stays at 64 MiB for a 4 MiB threshold:
 // the benchmark builds it in memory on every run.
 func BenchmarkOpenAllocs(b *testing.B) {
-	for _, size := range []int{64 << 10, DefaultWholeReadThreshold, 4 * DefaultWholeReadThreshold, 16 * DefaultWholeReadThreshold} {
+	for _, size := range []int{64 << 10, 1 << 20, 2 << 20, DefaultWholeReadThreshold, 4 * DefaultWholeReadThreshold, 16 * DefaultWholeReadThreshold} {
 		b.Run(strconv.Itoa(size>>10)+"KiB", func(b *testing.B) {
 			pack := perfSizedPack(b, size)
 			var stats perfStats

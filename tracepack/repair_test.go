@@ -228,6 +228,14 @@ func repairOpts() RepairOptions {
 	return RepairOptions{Writer: "repair-test"}
 }
 
+// uncachedRepairOpts returns repairOpts with windows that hold no block (uncachedWindows).
+func uncachedRepairOpts() RepairOptions {
+	opts := repairOpts()
+	opts.Reader = uncachedWindows()
+
+	return opts
+}
+
 // repairBytes repairs file with opts and returns what Repair wrote, its report and its error.
 func repairBytes(t testing.TB, file []byte, opts RepairOptions) ([]byte, RepairReport, error) {
 	t.Helper()
@@ -964,7 +972,7 @@ func TestRepairSecondReadDiffers(t *testing.T) {
 				return tt.second(p)
 			}}
 			var out bytes.Buffer
-			_, err := Repair(t.Context(), ra, int64(len(damaged)), &out, repairOpts())
+			_, err := Repair(t.Context(), ra, int64(len(damaged)), &out, uncachedRepairOpts())
 			require.Error(t, err)
 			if tt.want != nil {
 				require.ErrorIs(t, err, tt.want)
@@ -995,7 +1003,7 @@ func TestRepairCancelledBeforeTheFooter(t *testing.T) {
 	}}
 
 	var out bytes.Buffer
-	_, err := Repair(ctx, ra, int64(len(damaged)), &out, repairOpts())
+	_, err := Repair(ctx, ra, int64(len(damaged)), &out, uncachedRepairOpts())
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, OutcomeUnfinalized, mustVerify(t, out.Bytes()).Outcome, "no trailer is written")
 }
@@ -1218,7 +1226,7 @@ func TestRepairCancelledAfterVerification(t *testing.T) {
 	}}
 
 	var out bytes.Buffer
-	rep, err := Repair(ctx, ra, int64(len(damaged)), &out, repairOpts())
+	rep, err := Repair(ctx, ra, int64(len(damaged)), &out, uncachedRepairOpts())
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Equal(t, RepairReport{}, rep)
 	assert.Zero(t, out.Len(), "cancellation before the patch's header writes nothing")

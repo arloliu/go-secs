@@ -262,7 +262,9 @@ func checkRecords(section []byte, env *format.BlockEnvelope, offs []uint32) ([]u
 // (the tracepack format specification §6: every block read is a full read).
 //
 // It checks the block's on-disk body length and uncompressed_len against MaxBlockLen before it allocates anything,
-// then reads the whole block with one ReadAt.
+// then reads the whole block into buf:
+// copied from the bootstrap bytes the Reader keeps when they hold the whole block, else with one ReadAt.
+// Either way the block passes every check below; a block from kept bytes skips none.
 // The envelope must decode and agree with the block's BlockInfo:
 // with its F-2 entry for an indexed block (§10), with what the forward walk found for a walked one.
 // Then body_crc must match and the codec must be known (§2).
@@ -281,7 +283,7 @@ func checkRecords(section []byte, env *format.BlockEnvelope, offs []uint32) ([]u
 //     ReasonUnknownCodec for a codec outside the registry;
 //     ReasonCorruptBlock for any other failed check, all three with a nil block;
 //     ReasonIndexMismatch, with the block, for an indexed block whose records disagree with its F-2 entry.
-//   - error: the ReadAt error, wrapping io.ErrUnexpectedEOF for a short read.
+//   - error: the ReadAt error, wrapping io.ErrUnexpectedEOF for a short read; never one for a block from kept bytes.
 func (r *Reader) readBlock(i int, buf *blockBuf) (*decodedBlock, *Defect, error) {
 	info := &r.blocks[i]
 	if err := r.checkBlockBudget(info); err != nil {
@@ -289,7 +291,7 @@ func (r *Reader) readBlock(i int, buf *blockBuf) (*decodedBlock, *Defect, error)
 	}
 
 	buf.raw = slices.Grow(buf.raw[:0], int(info.OnDiskLen))[:info.OnDiskLen]
-	if err := readAt(r.ra, buf.raw, int64(info.Offset)); err != nil {
+	if err := r.fetch(buf.raw, int64(info.Offset)); err != nil {
 		return nil, nil, err
 	}
 

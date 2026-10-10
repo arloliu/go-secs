@@ -15,8 +15,8 @@ import (
 
 // Default ReaderOptions values, which a zero or negative field takes.
 const (
-	// DefaultWholeReadThreshold is the default ReaderOptions.WholeReadThreshold: 256 KiB.
-	DefaultWholeReadThreshold = 256 << 10
+	// DefaultWholeReadThreshold is the default ReaderOptions.WholeReadThreshold: 4 MiB.
+	DefaultWholeReadThreshold = 4 << 20
 	// DefaultHeadWindow is the default ReaderOptions.HeadWindow: 64 KiB.
 	DefaultHeadWindow = 64 << 10
 	// DefaultTailWindow is the default ReaderOptions.TailWindow: 256 KiB.
@@ -64,7 +64,13 @@ var ErrReadLimit = errors.New("tracepack: structure exceeds a reader budget")
 // so the first round always holds both.
 type ReaderOptions struct {
 	// WholeReadThreshold is the object size up to which Open reads the whole object in one request;
-	// default 256 KiB.
+	// default 4 MiB.
+	// A Reader keeps, for its lifetime, the bytes of Open's first round that hold blocks,
+	// and serves every block read and forward-walk envelope read lying wholly inside them with a copy instead of a ReadAt,
+	// so a pack up to the threshold costs one request for Open, and every later read of it costs none.
+	// The bytes kept are the whole object, or else the head and tail windows, never a FooterOffset suffix:
+	// at most max(WholeReadThreshold, HeadWindow + TailWindow) bytes per Reader, 4 MiB with the defaults,
+	// and outside the budgets of MergeIterateOptions.MaxHeldBytes and TxOptions.MaxStateBytes.
 	WholeReadThreshold int64
 	// HeadWindow is the length of the speculative prefix read, which normally covers the pack metadata;
 	// default 64 KiB.
@@ -73,7 +79,8 @@ type ReaderOptions struct {
 	// which holds the trailer and usually the footer;
 	// default 256 KiB.
 	TailWindow int64
-	// FooterOffset is a catalog's footer location for the object, or 0 for none;
+	// FooterOffset is the object's footer_offset when the caller already knows it,
+	// such as PackHeader.Trailer.FooterOffset from an earlier Open of the same object, or 0 for none;
 	// a real footer_offset is at least 80.
 	// It is a hint: Open reads from it to the end of the object in place of the suffix read,
 	// and never trusts it over the trailer.
@@ -106,6 +113,13 @@ type ReaderOptions struct {
 // Open reads the file header, the pack metadata, the trailer and the footer, or walks the blocks without the footer,
 // so a Reader holds an immutable snapshot of them;
 // it is safe for concurrent use.
+//
+// Besides that snapshot a Reader keeps, for its lifetime, the bytes of Open's first round that hold blocks
+// (see ReaderOptions.WholeReadThreshold for which and how many),
+// and copies a block it reads from them when they hold it whole;
+// any other block is read with one ReadAt.
+// The other buffers Open reads into are dropped when it returns:
+// a FooterOffset suffix, the second round's reads, and the chunks of a streamed footer CRC.
 type Reader struct {
 	ra   io.ReaderAt
 	size int64
@@ -131,6 +145,15 @@ type Reader struct {
 	openDefects []Defect
 	// walkStop is the forward walk's stop: the envelope it could not account for; nil when it did not stop.
 	walkStop *Defect
+	// held holds object bytes that serve reads in place of ReadAt:
+	// while Open runs, every buffer of its first round; once it returns, the buffers it retains (retain).
+	held []span
+}
+
+// span is a run of the object's bytes held in memory: data holds the bytes from offset off.
+type span struct {
+	off  int64
+	data []byte
 }
 
 // PackHeader describes a pack: its file header, its pack metadata, and its finalization.
@@ -200,10 +223,15 @@ type readReq struct {
 type bootstrap struct {
 	// head holds the object's first len(head) bytes.
 	head []byte
-	// suffix holds the object's bytes from suffixStart to its end, the trailer last.
+	// suffix holds the object's bytes from suffixStart to its end, the trailer last;
+	// it is head itself when whole is set.
 	suffix      []byte
 	suffixStart int64
-	trailer     format.Trailer
+	// whole is set when the first round read the whole object.
+	whole bool
+	// hinted is set when the suffix starts at the FooterOffset hint.
+	hinted  bool
+	trailer format.Trailer
 	// trailerErr is nil iff the trailer is valid.
 	trailerErr error
 	// meta holds the pack metadata bytes.
@@ -221,9 +249,13 @@ type bootstrap struct {
 // A second round, only when needed, reads the rest of the pack metadata and the rest of the footer concurrently.
 // Open validates the file header, the format version and the pack metadata before any block is read,
 // then decides finalization by the trailer and the footer CRC (I-5) and validates the footer (§10).
+// The footer CRC is computed from the first round's bytes when they hold the whole footer, whatever its length;
+// else a footer over MaxFooterLen has its CRC streamed in reads of at most 1 MiB.
 // A footer it cannot use makes it walk the blocks forward from the pack metadata instead (I-1),
-// one ReadAt per block, after streaming the CRC of a footer over MaxFooterLen in reads of at most 1 MiB.
+// reading each block envelope from the first round's bytes when they hold it, else with one ReadAt.
 // An invalid trailer or footer never fails Open: it is reported by PackHeader.FooterErr and the read's defects.
+// So a pack read whole in the first round costs that one ReadAt, whatever its footer,
+// and every later read of it costs none (see Reader).
 //
 // Parameters:
 //   - ctx: cancels Open between reads.
@@ -270,14 +302,64 @@ func openReader(ctx context.Context, ra io.ReaderAt, size int64, opts ReaderOpti
 
 	if r.footer != nil {
 		r.blocks = indexedBlocks(r.footer)
-
-		return r, nil
-	}
-	if err := r.walk(ctx); err != nil {
+	} else if err := r.walk(ctx); err != nil {
 		return nil, err
 	}
+	r.retain(b)
 
 	return r, nil
+}
+
+// retain keeps, of the buffers of the first round of b, those that overlap the block region,
+// from the end of the pack metadata to footer_offset, or to the end of the object without a valid trailer:
+// the whole object, or else the head window, and the tail window unless the suffix started at a FooterOffset hint.
+// A hinted suffix is never kept, so the bytes kept stay within max(WholeReadThreshold, HeadWindow + TailWindow),
+// even when a stale hint below footer_offset makes it hold blocks.
+func (r *Reader) retain(b *bootstrap) {
+	start, end := int64(r.blocksStart()), r.size
+	if r.trailer != nil {
+		end = int64(r.trailer.FooterOffset)
+	}
+	// holdsBlocks reports whether s overlaps [start, end), which is empty for a pack without blocks.
+	holdsBlocks := func(s span) bool {
+		return start < end && s.off < end && s.off+int64(len(s.data)) > start
+	}
+
+	var kept []span
+	if head := (span{off: 0, data: b.head}); holdsBlocks(head) {
+		kept = append(kept, head)
+	}
+	if tail := (span{off: b.suffixStart, data: b.suffix}); !b.whole && !b.hinted && holdsBlocks(tail) {
+		kept = append(kept, tail)
+	}
+	r.held = kept
+}
+
+// heldRange returns the n bytes at offset off of the object when one span of r.held holds them all, else nil.
+// It compares in int64, so a length beyond the int range of a 32-bit platform is simply not held.
+func (r *Reader) heldRange(off, n int64) []byte {
+	for _, s := range r.held {
+		size := int64(len(s.data))
+		if n >= 0 && n <= size && off >= s.off && off-s.off <= size-n {
+			at := off - s.off
+
+			return s.data[at : at+n]
+		}
+	}
+
+	return nil
+}
+
+// fetch fills buf from offset off of the object:
+// copied from the bytes r holds when they hold the whole range, so buf never aliases them, else with one ReadAt.
+func (r *Reader) fetch(buf []byte, off int64) error {
+	if held := r.heldRange(off, int64(len(buf))); held != nil {
+		copy(buf, held)
+
+		return nil
+	}
+
+	return readAt(r.ra, buf, off)
 }
 
 // readAt fills buf from offset off of ra.
@@ -386,7 +468,7 @@ func (r *Reader) Header() *PackHeader {
 	return h
 }
 
-// Info returns the pack's PackInfo, which ActiveView takes:
+// Info returns the pack's PackInfo:
 // the file header's pack_id and capture_id, and the pack metadata decoded afresh from the Reader's own copy of its bytes,
 // so no change to a PackHeader that Header returned reaches it.
 func (r *Reader) Info() PackInfo {
@@ -473,19 +555,24 @@ func (r *Reader) roundOne(ctx context.Context) (*bootstrap, error) {
 	var reqs []readReq
 	if r.size <= o.WholeReadThreshold || o.HeadWindow >= r.size-o.TailWindow {
 		b.head = make([]byte, r.size)
-		b.suffix = b.head
+		b.suffix, b.whole = b.head, true
 		reqs = []readReq{{off: 0, buf: b.head}}
 	} else {
 		b.head = make([]byte, o.HeadWindow)
 		b.suffixStart = r.size - o.TailWindow
 		if r.hintUsable() {
-			b.suffixStart = int64(o.FooterOffset)
+			b.suffixStart, b.hinted = int64(o.FooterOffset), true
 		}
 		b.suffix = make([]byte, r.size-b.suffixStart)
 		reqs = []readReq{{off: 0, buf: b.head}, {off: b.suffixStart, buf: b.suffix}}
 	}
 	if err := readRound(ctx, r.ra, reqs); err != nil {
 		return nil, err
+	}
+	// Until Open returns, every byte of the first round serves its later reads: the footer CRC and the forward walk.
+	r.held = []span{{off: 0, data: b.head}}
+	if !b.whole {
+		r.held = append(r.held, span{off: b.suffixStart, data: b.suffix})
 	}
 	if err := r.parseFileHeader(b.head); err != nil {
 		return nil, err
@@ -607,9 +694,14 @@ func (r *Reader) settleFooter(ctx context.Context, b *bootstrap) error {
 	tr := &b.trailer
 	r.trailer = &TrailerInfo{BlockCount: tr.BlockCount, RecordCount: tr.RecordCount, LastSeq: tr.LastSeq, FooterOffset: tr.FooterOffset}
 
+	// A footer over MaxFooterLen that the first round holds whole has its CRC computed from it, not streamed.
+	onDisk := b.footer
+	if onDisk == nil {
+		onDisk = r.heldRange(int64(tr.FooterOffset), int64(tr.FooterLen))
+	}
 	var crc uint32
-	if b.footer != nil {
-		crc = format.CRC(b.footer)
+	if onDisk != nil {
+		crc = format.CRC(onDisk)
 	} else {
 		var err error
 		if crc, err = r.streamFooterCRC(ctx, tr); err != nil {
@@ -637,7 +729,8 @@ func (r *Reader) settleFooter(ctx context.Context, b *bootstrap) error {
 }
 
 // streamFooterCRC computes the CRC of the on-disk footer of tr over sequential reads of at most 1 MiB,
-// so a footer over MaxFooterLen settles finalization without being buffered.
+// so a footer over MaxFooterLen that the first round does not hold whole settles finalization without being buffered.
+// The chunks are never kept.
 func (r *Reader) streamFooterCRC(ctx context.Context, tr *format.Trailer) (uint32, error) {
 	buf := make([]byte, min(tr.FooterLen, footerCRCChunk))
 

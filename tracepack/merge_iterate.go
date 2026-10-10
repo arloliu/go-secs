@@ -38,7 +38,9 @@ type MergeIterateOptions struct {
 	// zero or negative means DefaultMaxHeldBytes.
 	// It does not bound the process heap:
 	// the readers, the block descriptors and clusters MergeIterate builds before reading,
-	// its queues, codec state, Result.Conflicts, and the hours the read covers for Query.Retention and Result.Removed lie outside it.
+	// its queues, codec state, Result.Conflicts, and the hours the read covers for Query.Retention and Result.Removed lie outside it,
+	// and so do the bootstrap bytes each Reader retains,
+	// at most max(WholeReadThreshold, HeadWindow + TailWindow) of its ReaderOptions per Reader.
 	// A read that would exceed it ends with an error wrapping ErrReadLimit, returned with the Result found so far.
 	MaxHeldBytes int64
 	// MaxConflicts bounds len(Result.Conflicts), not the size of one conflict;

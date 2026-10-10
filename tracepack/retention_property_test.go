@@ -213,7 +213,7 @@ func openScriptedAll(t testing.TB, files ...[]byte) ([]*Reader, []*scriptedReade
 	ats := make([]*scriptedReaderAt, len(files))
 	for i, f := range files {
 		var err error
-		readers[i], ats[i], err = openScripted(t.Context(), f, i, ReaderOptions{})
+		readers[i], ats[i], err = openScripted(t.Context(), f, i, uncachedWindows())
 		require.NoError(t, err)
 	}
 
@@ -714,7 +714,7 @@ func TestIterateRetentionScripted(t *testing.T) {
 			g := genRetentionReadOf(t, seed)
 			var ends [scriptedEnds]int
 			for i, file := range g.files {
-				r, a, err := openScripted(t.Context(), file, 0, ReaderOptions{})
+				r, a, err := openScripted(t.Context(), file, 0, uncachedWindows())
 				require.NoError(t, err)
 				facts := retentionFactsOf(t, []*Reader{r})
 				got := checkScripted(t, facts, iterateScripted(t, r, a, g.q), scriptedSeeds(seed<<4|uint64(i), scriptedSchedules)...)
@@ -772,7 +772,7 @@ func TestRetentionScriptedExtracts(t *testing.T) {
 
 	var iterateEnds [scriptedEnds]int
 	for i, file := range files {
-		r, a, err := openScripted(t.Context(), file, 0, ReaderOptions{})
+		r, a, err := openScripted(t.Context(), file, 0, uncachedWindows())
 		require.NoError(t, err)
 		got := checkScripted(t, retentionFactsOf(t, []*Reader{r}), iterateScripted(t, r, a, Query{}), scriptedSeeds(uint64(2+i), schedules)...)
 		for e := range iterateEnds {

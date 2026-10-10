@@ -81,6 +81,15 @@ func mergeOpts() MergeOptions {
 	return MergeOptions{Writer: "merge-test", ScopeGeneration: 1, PublisherEpoch: 1, OnConflict: func(Conflict) {}}
 }
 
+// uncachedMergeOpts returns mergeOpts with windows that hold no block (uncachedWindows),
+// so every block read of the merge is a ReadAt of its input, which a test can count or make fail.
+func uncachedMergeOpts() MergeOptions {
+	opts := mergeOpts()
+	opts.Reader = uncachedWindows()
+
+	return opts
+}
+
 // requireMergeRefused runs Merge and requires it to fail before it touches dst,
 // with an error holding msg and wrapping every error of want;
 // unless want holds ErrMergeInput, the error must not wrap it.

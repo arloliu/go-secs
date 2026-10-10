@@ -412,7 +412,7 @@ func TestMergeIteratePlanPreReadErrors(t *testing.T) {
 			t.Parallel()
 
 			g := newGatedReader(file)
-			walked, err := openReader(t.Context(), g, int64(len(file)), ReaderOptions{}, false)
+			walked, err := openReader(t.Context(), g, int64(len(file)), uncachedWindows(), false)
 			require.NoError(t, err)
 			require.Len(t, walked.blocks, 3)
 			off := int64(walked.blocks[at].Offset)
@@ -569,7 +569,7 @@ func TestMergeIteratePlanPreReadDropsEachBuffer(t *testing.T) {
 			name: fmt.Sprintf("ReadAt fails at block %d", k),
 			reader: func(t *testing.T) *Reader {
 				g := newGatedReader(file)
-				walked, err := openReader(t.Context(), g, int64(len(file)), ReaderOptions{}, false)
+				walked, err := openReader(t.Context(), g, int64(len(file)), uncachedWindows(), false)
 				require.NoError(t, err)
 				off := int64(b.Offset)
 				g.fail = func(o int64, _ int) bool { return o == off }

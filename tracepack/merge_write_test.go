@@ -500,7 +500,7 @@ func TestMergeDropsExactDuplicates(t *testing.T) {
 
 		// With coalescing, the blocks kept are coalesced into one; every block, each duplicate included, is read once.
 		inputs, readers := loggedInputs(files...)
-		_, rep = mustMerge(t, inputs, mergeOpts())
+		_, rep = mustMerge(t, inputs, uncachedMergeOpts())
 		requireCounts(t, rep, mergeCounts{blocks: 1, records: 14, coalescedEncodings: 1, coalesced: 4, dups: 4})
 		for i, g := range readers {
 			assert.Equal(t, []int{1, 1}, blockReads(t, files[i], g), "input %d", i)
@@ -546,7 +546,7 @@ func TestMergeDuplicateCandidateWhoseBytesDiffer(t *testing.T) {
 		t.Parallel()
 
 		inputs, readers := loggedInputs(files...)
-		p := mustPlanMerge(t, inputs, mergeOpts())
+		p := mustPlanMerge(t, inputs, uncachedMergeOpts())
 		require.Len(t, p.clusters, 2)
 		c := &p.clusters[1]
 		require.Len(t, c.blocks, 4)
@@ -572,7 +572,7 @@ func TestMergeDuplicateCandidateWhoseBytesDiffer(t *testing.T) {
 		t.Parallel()
 
 		inputs, readers := loggedInputs(files...)
-		_, rep := mustMerge(t, inputs, mergeOpts())
+		_, rep := mustMerge(t, inputs, uncachedMergeOpts())
 		// The early block and the resolution's block are coalesced.
 		requireCounts(t, rep, mergeCounts{blocks: 1, records: 8, coalescedEncodings: 1, coalesced: 1, dups: 2, resolved: 2, twice: 1})
 		for i, f := range files {
@@ -623,12 +623,12 @@ func TestMergeClusterOfSeveralIdentities(t *testing.T) {
 			files := [][]byte{early, tt.a, tt.b}
 			inputs, readers := loggedInputs(files...)
 			if tt.conflicts == nil {
-				_, rep := mustMerge(t, inputs, mergeOpts())
+				_, rep := mustMerge(t, inputs, uncachedMergeOpts())
 				// The early block and the resolution's block are coalesced.
 				requireCounts(t, rep, mergeCounts{blocks: 1, records: 10, coalescedEncodings: 1, coalesced: 1, resolved: 2, twice: 1})
 			} else {
 				var log conflictLog
-				opts := mergeOpts()
+				opts := uncachedMergeOpts()
 				opts.OnConflict = log.add
 				out, rep, err := mergeBytes(t.Context(), inputs, opts)
 				require.ErrorIs(t, err, ErrMergeConflict)
@@ -709,7 +709,7 @@ func TestMergeRefusesDefectiveBlocks(t *testing.T) {
 		failing := newGatedReader(a)
 		failing.fail = func(off int64, _ int) bool { return off == int64(blocks[1].Offset) }
 		inputs[0].ReaderAt = failing
-		out, rep, err := mergeBytes(t.Context(), inputs, mergeOpts())
+		out, rep, err := mergeBytes(t.Context(), inputs, uncachedMergeOpts())
 		// A failed read is not the input's defect: a caller retries it instead of repairing the pack.
 		require.ErrorIs(t, err, errInjected)
 		require.ErrorContains(t, err, "input 0, pack "+seg0.String()+", block 1")
@@ -725,7 +725,7 @@ func TestMergeRefusesDefectiveBlocks(t *testing.T) {
 		// The read of block 1 ends, with io.EOF, before a byte of it is read.
 		inputs[0].ReaderAt = &blockReadAt{file: a, off: int64(blocks[1].Offset), n: int(blocks[1].OnDiskLen),
 			hook: func(int, []byte) error { return io.EOF }}
-		out, rep, err := mergeBytes(t.Context(), inputs, mergeOpts())
+		out, rep, err := mergeBytes(t.Context(), inputs, uncachedMergeOpts())
 		// The input was opened whole, so the object changed since or its ReaderAt is inconsistent:
 		// a read error, as verification returns it, not a defect of the pack.
 		require.ErrorIs(t, err, io.ErrUnexpectedEOF)
