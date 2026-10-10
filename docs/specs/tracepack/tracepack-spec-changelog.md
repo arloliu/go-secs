@@ -1266,3 +1266,5 @@ Editorial clarifications, specification version unchanged (v2.30), no rule chang
   conflicts within its scope's read, or has no association key, as [SEM §7.2] states;
   a primary whose versions conflict only across scope reads is no early return,
   and a result is an early return exactly when it holds `no-key` and no `conflict` fact at p naming more than one hour.
+- [CORPUS §5.11] `key.hour`: when p also has a version in a later hour, the hour is that of the version the lookup starts from,
+  and the lookup finds the later version as a conflict at p, as [SEM §7.2] Identity across the scopes read states.
