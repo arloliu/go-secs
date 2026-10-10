@@ -22,6 +22,11 @@ const (
 	// The block's records are still read, because its envelope, body CRC and I-2 checks passed;
 	// the read is incomplete, because the same index pruned the blocks it did not read.
 	ReasonIndexMismatch
+	// ReasonCrashGap reports a stop-unclean capture boundary whose gap meets the query's time range
+	// (the tracepack semantics specification §7.4, Crash gaps):
+	// records of the gap may never have been recorded.
+	// Defect.Boundary carries the boundary; Block and Offset are -1.
+	ReasonCrashGap
 )
 
 // IncompleteReason classifies why a read is incomplete.
@@ -46,13 +51,18 @@ type Defect struct {
 	Offset int64
 	// Coverage is the coverage entry that intersects the query; set for ReasonCoverage only.
 	Coverage *Coverage
+	// Boundary is the stop-unclean boundary whose gap meets the query, the caller's own copy;
+	// set for ReasonCrashGap only, whose Pack is the smallest index of a pack holding the boundary.
+	Boundary *Boundary
 	// Err describes the defect.
 	Err error
 }
 
 // Result is the status of a read, reported beside the records it yielded.
 type Result struct {
-	// Incomplete lists every cause that made the read incomplete, in the order they were found;
+	// Incomplete lists every cause that made the read incomplete, in the order they were found,
+	// except the crash gaps of MergeIterate, which it lists together, by Pack, then by seq
+	// (MergeIterate states where they stand among the other defects);
 	// empty when the read is complete.
 	Incomplete []Defect
 	// Conflicts lists every conflict of every cluster a read over several packs compared, in discovery order
@@ -95,6 +105,8 @@ func (r IncompleteReason) String() string {
 		return "limit"
 	case ReasonIndexMismatch:
 		return "index-mismatch"
+	case ReasonCrashGap:
+		return "crash-gap"
 	default:
 		return fmt.Sprintf("unknown(%d)", uint8(r))
 	}

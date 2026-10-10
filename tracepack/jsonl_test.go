@@ -214,14 +214,27 @@ func requireExportIsIterate(t *testing.T, r *Reader) []string {
 }
 
 // iterateResultBefore returns the Result of Iterate(Query{Payloads: true}) over r as ExportJSONL returns it when it fails
-// at a reader budget before block: without ReasonLimit defects and the defects of block and the blocks after it.
+// at a reader budget before block: without ReasonLimit defects and the defects of block and the blocks after it,
+// a crash gap of a pack without a used footer counting as a defect of the walked block holding its boundary record.
 func iterateResultBefore(t testing.TB, r *Reader, block int) (Result, []iterItem) {
 	t.Helper()
 
 	run := iterate(t, r, Query{Payloads: true})
 	res := run.res
+	blockOf := func(d *Defect) int {
+		if d.Reason != ReasonCrashGap || r.footer != nil {
+			return d.Block
+		}
+		b := d.Boundary
+		i := slices.IndexFunc(run.items, func(it iterItem) bool {
+			return it.rec.Kind == KindTransportEvent && it.rec.Seq == b.Seq && it.rec.TSUTCNs == b.TS && it.rec.Epoch == b.Epoch
+		})
+		require.GreaterOrEqual(t, i, 0, "the boundary record of a walked crash gap is yielded")
+
+		return run.items[i].block
+	}
 	res.Incomplete = slices.DeleteFunc(slices.Clone(res.Incomplete), func(d Defect) bool {
-		return d.Reason == ReasonLimit || d.Block >= block
+		return d.Reason == ReasonLimit || blockOf(&d) >= block
 	})
 	items := slices.DeleteFunc(slices.Clone(run.items), func(it iterItem) bool { return it.block >= block })
 

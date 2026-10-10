@@ -58,6 +58,8 @@ type mergeIteratePlan struct {
 	loader   heldLoader
 	// rs is the read's retention state over Query.Retention, which build sets.
 	rs retentionState
+	// gaps gathers the crash gaps that build finds; MergeIterate reports them once build returns.
+	gaps crashGaps
 	// reserveConflict is mergeIterateOptions.reserveConflict; nil checks MaxConflicts instead.
 	reserveConflict func() error
 	// storedFlags is mergeIterateOptions.storedFlags; nil receives nothing.
@@ -137,12 +139,14 @@ func newMergeIteratePlan(opts MergeIterateOptions) *mergeIteratePlan {
 // First it adds to the result, in reader order,
 // each reader's defects of every read and its coverage defects for the query, as Reader.Iterate does,
 // with Pack set to the reader's index,
-// and its footer error to FooterErrs when its footer was not used.
+// and its footer error to FooterErrs when its footer was not used;
+// it gathers the crash gaps of every footer it uses into p.gaps.
 // Then it records the hours every reader covers before any block is read (retentionState.addPack)
 // and checks the retention boundary of q.Retention.
 // Then it reads each walked block once, in reader order then file order, checking ctx before each:
 // a block that fails the read adds its defect and takes no further part;
-// a usable block gives its computed summary, an extract's adding the hours of its records, and is dropped at once.
+// a usable block gives its computed summary and its crash gaps,
+// an extract's adding the hours of its records, and is dropped at once.
 // Then it groups the blocks that take part by their reader's capture_id, captures in ascending capture_id,
 // chains each capture's blocks into overlap clusters,
 // and marks a cluster excluded when the footer or the computed summaries exclude every block of it from the query.
@@ -158,6 +162,7 @@ func (p *mergeIteratePlan) build(ctx context.Context, readers []*Reader, q *Quer
 	p.readers = readers
 	p.rs = newRetentionState(q.Retention)
 	f := &q.Filter
+	p.gaps = crashGaps{from: f.TimeFrom, to: f.TimeTo}
 	for i, r := range readers {
 		for _, d := range r.openDefects {
 			d.Pack = i
@@ -170,6 +175,9 @@ func (p *mergeIteratePlan) build(ctx context.Context, readers []*Reader, q *Quer
 		}
 		if r.footerErr != nil {
 			p.res.FooterErrs = append(p.res.FooterErrs, PackError{Pack: i, Err: r.footerErr})
+		}
+		if r.footer != nil {
+			p.gaps.addFooter(i, r)
 		}
 	}
 
@@ -223,6 +231,7 @@ func (p *mergeIteratePlan) build(ctx context.Context, readers []*Reader, q *Quer
 }
 
 // preRead reads walked block i of r, the Reader at index pack, once before the read yields anything,
+// gathers the crash gaps of its records into p.gaps,
 // and returns its computed summary (the tracepack semantics specification §7.4).
 // The block is dropped before preRead returns, whatever its outcome,
 // the hours of an extract's records added to the read's covered hours before.
@@ -242,6 +251,7 @@ func (p *mergeIteratePlan) preRead(ctx context.Context, r *Reader, pack, i int) 
 	}
 
 	b := computedBlock(pack, i, h.d)
+	p.gaps.addRecords(pack, UUID(r.hdr.CaptureID), h.d)
 	p.loader.drop(h)
 
 	return b, true, nil

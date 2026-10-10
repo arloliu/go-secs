@@ -25,6 +25,7 @@ import (
 //
 // The Result is the one that Iterate call returns:
 // the defects Open found, the coverage entries of the pack metadata that intersect the query,
+// a crash gap for every stop-unclean boundary of the pack, from its footer or from the records of its walked blocks,
 // and the defect of every block that failed or disagrees with its F-2 entry;
 // FooterErr and FooterErrs as Iterate sets them, a footer error alone not making the Result incomplete.
 // Where Iterate reports a reader budget as a ReasonLimit defect, ExportJSONL fails instead,
@@ -136,10 +137,13 @@ func writeJSONLRecord(jw *jsonlWriter, d *decodedBlock, j int) error {
 }
 
 // exportBlocks writes the record lines of every block of r that the filter f, which selects every record, does not prune,
-// in file order, reading each as Iterate does, and adds each block's defect to res.
+// in file order, reading each as Iterate does, and adds each block's defect to res,
+// and the crash gaps of each walked block's records after it.
 // It checks ctx before each block, and fails at a block over MaxBlockLen instead of listing it.
 func (r *Reader) exportBlocks(ctx context.Context, jw *jsonlWriter, f *Filter, res Result) (Result, error) {
 	var buf blockBuf
+	capture := UUID(r.hdr.CaptureID)
+	gaps := crashGaps{from: f.TimeFrom, to: f.TimeTo}
 	for i := range r.blocks {
 		if err := ctx.Err(); err != nil {
 			return res, fmt.Errorf("tracepack: export JSONL: %w", err)
@@ -160,6 +164,10 @@ func (r *Reader) exportBlocks(ctx context.Context, jw *jsonlWriter, f *Filter, r
 		}
 		if d == nil {
 			continue
+		}
+		if !r.blocks[i].Indexed {
+			gaps.addRecords(0, capture, d)
+			res.Incomplete = gaps.flush(res.Incomplete)
 		}
 		for j := range d.count() {
 			if err := writeJSONLRecord(jw, d, j); err != nil {

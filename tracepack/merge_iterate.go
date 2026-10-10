@@ -131,7 +131,19 @@ var _ error = PackError{}
 // Neither contributes records, and the cluster's other blocks resolve its seqs.
 // An indexed block whose records disagree with its F-2 entry adds a ReasonIndexMismatch defect and still yields its records.
 // The defects of the reads follow those of the packs: first those of the walked blocks' first reads, in reader then file order,
-// then those of the clusters' reads, in the order the blocks are read.
+// then the crash gaps, then those of the clusters' reads, in the order the blocks are read.
+//
+// A crash gap is a stop-unclean boundary whose gap meets [TimeFrom, TimeTo) of q.Filter
+// (the tracepack semantics specification §7.4, Crash gaps),
+// reported as a ReasonCrashGap defect that carries its own copy of the boundary.
+// MergeIterate takes them from the F-5 statistics of every pack whose footer it uses, whatever the filter excludes,
+// and from the records of each walked block's first read, also when the block's cluster is then excluded;
+// a walked block that fails that read contributes only its own defect.
+// A boundary that several packs hold, equal in every field, is reported once,
+// with Pack the smallest index of a pack holding it;
+// boundaries whose gap bounds differ are each reported.
+// They are listed by Pack, then by seq, then by the boundary's other fields;
+// when the read fails before it reads its first cluster, those found so far are in the Result returned with the error.
 //
 // MergeIterate trusts a valid footer's F-2 ranges and F-3 summaries,
 // so its order and identity hold, for the packs given, only when every block read and every block excluded agrees with its index:
@@ -208,7 +220,10 @@ func mergeIterateWith(ctx context.Context, readers []*Reader, q Query, opts Merg
 
 	p := newMergeIteratePlan(o)
 	p.reserveConflict, p.storedFlags = internal.reserveConflict, internal.storedFlags
-	if err = p.build(ctx, readers, &q); err == nil {
+	err = p.build(ctx, readers, &q)
+	// The crash gaps come before the defects of the run, also when build failed.
+	p.res.Incomplete = p.gaps.flush(p.res.Incomplete)
+	if err == nil {
 		// checkMergeIterate admitted no order but these two.
 		if o.Order == OrderCapture {
 			err = p.runCapture(ctx, &q, fn)

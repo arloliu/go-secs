@@ -397,12 +397,17 @@ func (l *txLookup) mapScope(ctx context.Context, rd *txScopeRead, completed bool
 
 // mapDefects adds the defects of the read rd: a TxGapRead or TxGapIndex gap for each,
 // or, for a coverage defect, a coverage entry to evaluate, each charged before it is added.
+// A crash-gap defect is skipped, so that it neither becomes a gap nor explains a missing primary:
+// the lookup currently evaluates stop-unclean boundaries itself, against the hours it schedules.
 //
 // Returns:
 //   - error: the error of a charge, wrapping ErrReadLimit, or ctx's error, as is.
 func (l *txLookup) mapDefects(ctx context.Context, rd *txScopeRead) error {
 	for i := range rd.res.Incomplete {
 		d := &rd.res.Incomplete[i]
+		if d.Reason == ReasonCrashGap {
+			continue
+		}
 		rd.defect = rd.defect || d.Reason != ReasonCoverage
 		if d.Reason == ReasonCoverage {
 			n, err := l.coverageCharge(ctx, d.Coverage)
