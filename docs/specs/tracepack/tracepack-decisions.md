@@ -1056,3 +1056,14 @@ it is not part of the owner's recorded decision or of a review's finding.
   Rationale *(editorial)*: a boundary is identified with its epoch ([CORPUS §5.11]), so a stop of another epoch is not the boundary the evidence names.
   Rejected *(editorial)*: ignoring the epoch for this exemption, which would give boundary identity two meanings.
   Spec: no rule changes ([SEM §7.2], [CORPUS §5.11]); the reference implementation changes.
+- G5-196 A scope read that yields a seq twice reads its view again (2026-10-10):
+  [SEM §7.2]'s kept set holds every version of a seq that one scope's read yielded,
+  also when a block disagreeing with its F-2 entry and another block yield that seq in two places, both after the primary.
+  The reference implementation, on finding a seq yielded a second time within one scope read, reads that scope's view again
+  and keeps every version of each such seq of which one version has a role, in the order the read yielded them;
+  the second pass belongs to the same scope read, over the same fixed view, and reports no fact, conflict or gap twice.
+  Packs whose index agrees with their blocks never yield a seq twice, so a lookup over them reads each scope once and holds no more state than before.
+  Rationale *(editorial)*: the result is exactly the one [SEM §7.2] defines, and only a damaged index costs a second read.
+  Rejected: keeping a copy of every version without a role until the scope read ends, chosen first and replaced once its cost was shown —
+  a conforming scope, up to a pack's size, charged to `MaxStateBytes`, 64 MiB by default; keeping those copies outside the budget.
+  Spec: [SEM §7.2] Scopes read (v2.31).

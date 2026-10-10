@@ -505,16 +505,26 @@ func txMisindexed(t testing.TB, seq uint64) []byte {
 
 // txMisindexedAt is txMisindexed with recs, in ascending seq, in place of the data record of seq:
 // the block holds 10 and recs, while its F-2 entry and the trailer state seqs 10 to 10 + len(recs), one seq for each record,
-// each of recs lying above that range.
-// The footer states no closure or capture-boundary in the block, so it stays valid when one of recs is a closing record.
+// each of recs lying above that range (txUnderstated).
 func txMisindexedAt(t testing.TB, recs ...Record) []byte {
 	t.Helper()
 
 	last := 10 + uint64(len(recs))
 	require.Greater(t, recs[0].Seq, last)
-	file := reindexedWith(t, txPack(t, seg0, nil, txBlock(append([]Record{txRecord(10, nil)}, recs...)...)), func(_ int, s *blockSummary) {
+
+	return txUnderstated(t, txPack(t, seg0, nil, txBlock(append([]Record{txRecord(10, nil)}, recs...)...)), last)
+}
+
+// txUnderstated returns file, a pack of one block of one epoch,
+// with the block's F-2 entry, its epoch summary and the trailer stating its seqs to run from its first to last, below its last record;
+// the caller keeps as many seqs as records in that range.
+// The footer states no closure or capture-boundary in the block, so it stays valid when a record above last is a closing record.
+func txUnderstated(t testing.TB, file []byte, last uint64) []byte {
+	t.Helper()
+
+	file = reindexedWith(t, file, func(_ int, s *blockSummary) {
 		s.lastSeq = last
-		s.seqRanges = []seqRange{{first: 10, last: last}}
+		s.seqRanges = []seqRange{{first: s.firstSeq, last: last}}
 		require.Len(t, s.epochs, 1)
 		s.epochs[0].seqLast = last
 		// The closure and boundary entries of a closing record above the stated range would name a seq outside it.
@@ -812,19 +822,7 @@ func TestFindTransactionEarlyStopOfAnotherEpoch(t *testing.T) {
 
 	const other = txTestEpoch + 1
 	inOther := func(r *Record) { r.Epoch = other }
-	file := reindexedWith(t, txPack(t, seg0, nil, txBlock(txRecord(10, inOther), txBoundaryAt(t, 17, other, BoundaryKindStop, nil, nil))),
-		func(_ int, s *blockSummary) {
-			s.lastSeq = 11
-			s.seqRanges = []seqRange{{first: 10, last: 11}}
-			require.Len(t, s.epochs, 1)
-			s.epochs[0].seqLast = 11
-			// The closure and boundary entries of the stop would name a seq outside the stated range.
-			s.epochs[0].closeSeq, s.epochs[0].hasCloseSeq = 0, false
-			s.boundaries = nil
-		})
-	tr := layoutOf(t, file).tr
-	tr.LastSeq = 11
-	misindexed := format.AppendTrailer(file[:len(file)-format.TrailerLen], &tr)
+	misindexed := txUnderstated(t, txPack(t, seg0, nil, txBlock(txRecord(10, inOther), txBoundaryAt(t, 17, other, BoundaryKindStop, nil, nil))), 11)
 
 	s := txSource(t, true, misindexed, txPack(t, seg1, nil, txBlock(txRecord(15, nil), txNote(16, nil))))
 	s.addBoundary(Boundary{Capture: captureLow, Seq: 17, Kind: BoundaryKindStop, TS: blockTestHour + 17, Epoch: txTestEpoch})

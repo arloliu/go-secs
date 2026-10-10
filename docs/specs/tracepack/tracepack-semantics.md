@@ -319,6 +319,9 @@ A seq of the window with no version in the scopes read is missing from the cover
 *Scopes read* (G5-121, G5-129).
 The lookup reads the scope of the primary's hour and the following hours, as many as the caller allows, each once, every one of them even after its window is closed:
 a later scope can hold another version of a window seq or a smaller bound.
+A read of a scope that yields one seq in two places — a block disagreeing with its F-2 entry beside another block holding that seq (§7.4 Scope of the guarantees) —
+may read the scope's view again to keep every version of that seq (G5-196);
+it is still one read of that scope, over the same view, and reports what one read reports.
 A scope whose view is `conflicted` ([STO §4]) is not read: it is reported as conflicted, and, after the primary's scope, the lookup goes on with the next hour;
 a conflicted scope of the primary's hour explains the missing primary, as a scope that is not indexed does, and ends the lookup without a key (G5-142).
 It searches only seqs above `p`; candidates below the primary are outside every window and are not searched for.

@@ -1269,7 +1269,7 @@ Editorial clarifications, specification version unchanged (v2.30), no rule chang
 - [CORPUS §5.11] `key.hour`: when p also has a version in a later hour, the hour is that of the version the lookup starts from,
   and the lookup finds the later version as a conflict at p, as [SEM §7.2] Identity across the scopes read states.
 
-## Changes v2.30 → v2.31: the corpus part 2 ratified, converter identities and outputs (owner decisions G5-188..G5-195, 2026-10-10)
+## Changes v2.30 → v2.31: the corpus part 2 ratified, converter identities and outputs (owner decisions G5-188..G5-196, 2026-10-10)
 
 Source: the owner's answers to the questions left by the corpus, part 2, and from the log converter's implementation; no proposal document.
 Format version stays 1.0; no byte layout changes.
@@ -1291,7 +1291,8 @@ Summary:
   [STO §8] adds a vector: a converter segment of a scope that is not indexed read through its listing view, beside a rejected converter archive whose records it excludes.
   [STO §7] item 8 also states that a converter's seqs count across the capture's hours and its start and stop boundaries appear once per capture.
 - [SEM §7.2]: yield order exempts no version from classification and no seq read from the checking of closure claims (G5-194);
-  an early return keeps only the primary's versions, reports the conditions [CORPUS §5.11] lists, and does not perform the completeness evaluation of a keyed lookup (G5-191).
+  an early return keeps only the primary's versions, reports the conditions [CORPUS §5.11] lists, and does not perform the completeness evaluation of a keyed lookup (G5-191);
+  a scope read that yields one seq in two places may read the scope's view again to keep every version of that seq, and is still one read of that scope (G5-196).
 - [CORPUS §5.11] Early-return results: the facts not reported are those of the completeness evaluation, not all of them depending on classification;
   the scope read's conflicts and unused footers stay in their own fields (G5-191).
 - [CORPUS §3]: `spec_version` 2.31; schema `tracepack-corpus/2` unchanged.
