@@ -11,7 +11,7 @@ import (
 	"github.com/arloliu/go-secs/tracepack"
 )
 
-// fullFilterJSON is a filter that sets every key, in canonical form.
+// fullFilterJSON is a filter that sets every key.
 const fullFilterJSON = `{
   "time_from": "-5",
   "time_to": "1791000000000000000",
@@ -67,63 +67,6 @@ func TestFilterRoundTrip(t *testing.T) {
 		SF:         []tracepack.SF{{Stream: 1, Function: 3}, {Stream: 1, Function: 13}, {Stream: 6, Function: 11}},
 		SessionIDs: []uint16{7, 65535}, SystemBytes: &[4]byte{0, 1, 2, 3}, IncludeUnavailable: true,
 	}, tf)
-
-	back := FilterFrom(&tf)
-	require.Equal(t, fullFilterJSON, marshalJSON(t, &back))
-
-	again, err := back.ToFilter()
-	require.NoError(t, err)
-	require.Equal(t, tf, again)
-}
-
-func TestFilterFromSorts(t *testing.T) {
-	t.Parallel()
-
-	tf := tracepack.Filter{
-		Kinds:      []tracepack.Kind{tracepack.Kind(200), tracepack.KindControl, tracepack.KindUnknown},
-		Dirs:       []tracepack.Dir{tracepack.DirLocal, tracepack.DirUnknown},
-		Epochs:     []uint32{9, 2},
-		SF:         []tracepack.SF{{Stream: 2, Function: 1}, {Stream: 1, Function: 2}, {Stream: 1, Function: 1}},
-		SessionIDs: []uint16{3, 1},
-	}
-	f := FilterFrom(&tf)
-	require.Equal(t, `{
-  "kinds": [
-    "unknown",
-    "control",
-    "unknown(200)"
-  ],
-  "dirs": [
-    "unknown",
-    "local"
-  ],
-  "epochs": [
-    2,
-    9
-  ],
-  "sf": [
-    {
-      "stream": 1,
-      "function": 1
-    },
-    {
-      "stream": 1,
-      "function": 2
-    },
-    {
-      "stream": 2,
-      "function": 1
-    }
-  ],
-  "session_ids": [
-    1,
-    3
-  ]
-}
-`, marshalJSON(t, &f))
-
-	empty := FilterFrom(&tracepack.Filter{Kinds: []tracepack.Kind{}, SF: []tracepack.SF{}})
-	require.Equal(t, "{}\n", marshalJSON(t, &empty), "an empty predicate is no key")
 }
 
 func TestFilterRefuses(t *testing.T) {
@@ -137,20 +80,6 @@ func TestFilterRefuses(t *testing.T) {
 		require.NoError(t, json.Unmarshal([]byte(bad), &f), bad)
 		_, err := f.ToFilter()
 		require.Error(t, err, bad)
-	}
-
-	query := func(filter string) string {
-		return "[\n  {\n    \"id\": \"q\",\n    \"cites\": [\n      \"CORPUS §5.4\"\n    ],\n    \"filter\": " + filter +
-			",\n    \"expect\": {\n      \"seqs\": [],\n      \"incomplete\": []\n    }\n  }\n]\n"
-	}
-	var qs Queries
-	require.NoError(t, Unmarshal([]byte(query("{\n      \"include_unavailable\": true\n    }")), &qs))
-	for _, bad := range []string{
-		"{\n      \"include_unavailable\": false\n    }",
-		"{\n      \"kinds\": []\n    }",
-		"{\n      \"epochs\": [\n        2,\n        1\n      ]\n    }",
-	} {
-		require.Error(t, Unmarshal([]byte(query(bad)), &qs), bad)
 	}
 }
 
@@ -240,7 +169,6 @@ func TestExpectFromRefuses(t *testing.T) {
 		{"coverage not in the metadata", tracepack.Result{Incomplete: []tracepack.Defect{{Reason: tracepack.ReasonCoverage, Block: -1, Offset: -1, Coverage: &other}}}},
 		{"block defect without offset", tracepack.Result{Incomplete: []tracepack.Defect{{Reason: tracepack.ReasonCorruptBlock, Block: 0, Offset: -1}}}},
 		{"truncated block", tracepack.Result{Incomplete: []tracepack.Defect{{Reason: tracepack.ReasonTruncated, Block: 0, Offset: 80}}}},
-		{"removed hours", tracepack.Result{Removed: []int64{0}}},
 		{"conflicts", tracepack.Result{Conflicts: []tracepack.Conflict{{}}}},
 	}
 	for _, tt := range tests {
@@ -290,7 +218,7 @@ func TestRunQueryCoverageAndTruncation(t *testing.T) {
 	b0 := []tracepack.Record{dataRecord(0, 1, nil), dataRecord(1, 1, []byte("z")), dataRecord(2, 1, nil)}
 	pack := writePack(t, meta, [][]tracepack.Record{b0}, false)
 
-	f := FilterFrom(&tracepack.Filter{TimeFrom: new(testHour + 1000), TimeTo: new(testHour + int64(time.Minute))})
+	f := Filter{TimeFrom: new(I64(testHour + 1000)), TimeTo: new(I64(testHour + int64(time.Minute)))}
 	got, err := RunQuery(t.Context(), openPack(t, pack), &f)
 	require.NoError(t, err)
 	require.Equal(t, `{
@@ -371,59 +299,4 @@ func TestRunQueryFailedBlock(t *testing.T) {
   ]
 }
 `, marshalJSON(t, &got))
-}
-
-func TestQueriesFile(t *testing.T) {
-	t.Parallel()
-
-	qs := Queries{
-		{ID: "b-all", Cites: []string{"CORPUS §5.4"}, Filter: Filter{}, Expect: Expect{Seqs: []U64{}, Incomplete: []Incomplete{}}},
-		{ID: "a-epoch", Cites: []string{"SEM §7.4"}, Filter: Filter{Epochs: []uint32{3}}, Expect: Expect{Seqs: []U64{7}, Incomplete: []Incomplete{}}},
-	}
-	b, err := qs.Marshal()
-	require.NoError(t, err)
-	want := `[
-  {
-    "id": "a-epoch",
-    "cites": [
-      "SEM §7.4"
-    ],
-    "filter": {
-      "epochs": [
-        3
-      ]
-    },
-    "expect": {
-      "seqs": [
-        "7"
-      ],
-      "incomplete": []
-    }
-  },
-  {
-    "id": "b-all",
-    "cites": [
-      "CORPUS §5.4"
-    ],
-    "filter": {},
-    "expect": {
-      "seqs": [],
-      "incomplete": []
-    }
-  }
-]
-`
-	require.Equal(t, want, string(b))
-
-	var back Queries
-	require.NoError(t, Unmarshal(b, &back))
-	require.Equal(t, Queries{qs[1], qs[0]}, back)
-
-	_, err = Queries{qs[0], qs[0]}.Marshal()
-	require.Error(t, err, "an id given twice")
-	_, err = Queries{{ID: "x", Cites: []string{"c"}, Filter: Filter{Kinds: []string{"nope"}}, Expect: qs[0].Expect}}.Marshal()
-	require.Error(t, err, "a filter ToFilter refuses")
-	empty, err := Queries(nil).Marshal()
-	require.NoError(t, err)
-	require.Equal(t, "[]\n", string(empty))
 }

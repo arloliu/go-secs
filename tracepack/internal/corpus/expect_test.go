@@ -49,8 +49,8 @@ func TestCheckRecordCount(t *testing.T) {
 	require.NoError(t, checkRecordCount(seqs, &Verify{Records: 4, WalkStop: new(U64(100))}))
 }
 
-// TestCheckFooter checks that footer.json's accepted must be verify.json's footer_valid,
-// and that the statistics of an accepted footer must be its stored F-5.
+// TestCheckFooter checks that the statistics of an accepted footer must be its stored F-5,
+// and that footer.json's accepted is not compared with the verification report's footer_valid.
 func TestCheckFooter(t *testing.T) {
 	t.Parallel()
 
@@ -70,7 +70,7 @@ func TestCheckFooter(t *testing.T) {
 
 	out, f = accepted()
 	out.verify.FooterValid = false
-	require.Error(t, out.checkFooter(f), "accepted against footer_valid")
+	require.NoError(t, out.checkFooter(f), "accepted is decided on its own, whatever footer_valid says")
 
 	out, f = accepted()
 	out.stats.Epochs[0].CloseSeq = new(uint64(3))
@@ -88,7 +88,7 @@ func TestCheckFooter(t *testing.T) {
 	require.NoError(t, rejected.checkFooter(&Footer{}), "a rejected footer's statistics are not compared")
 }
 
-// TestExpectationChecksVerifyKeys checks that an expectation fails a read whose verify.json differs from it
+// TestExpectationChecksVerifyKeys checks that an expectation fails a read whose verification report differs from it
 // in a key no expectation field names alone: blocks_validated, a block's offset, a lost entry's capture_id.
 func TestExpectationChecksVerifyKeys(t *testing.T) {
 	t.Parallel()
@@ -111,17 +111,18 @@ func TestExpectationChecksVerifyKeys(t *testing.T) {
 	}
 }
 
-// TestRepairReadChecksCaptureID checks that a repair's new coverage entry must name the pack's capture.
-func TestRepairReadChecksCaptureID(t *testing.T) {
+// TestFooterAcceptedOnItsOwn pins footer.json's accepted, which the tracepack corpus specification §5.8 defines
+// as a finalized pack whose footer passes validation:
+// accepted for footer-f3-higher-close-seq, whose F-5 is recomputed from its F-3 though a record disagrees,
+// and not for footer-f5-higher-close-seq, whose F-5 states a higher close_seq than its F-3 lists.
+func TestFooterAcceptedOnItsOwn(t *testing.T) {
 	t.Parallel()
 
-	own, other := tracepack.UUID{1}.String(), tracepack.UUID{2}.String()
-	entry := func(id string) *[]Coverage { return &[]Coverage{{CaptureID: &id, SeqFirst: new(U64(2))}} }
-
-	got, err := repairRead(RepairPatched, new(2), new(U64(2)), entry(own), own)
-	require.NoError(t, err)
-	assert.Equal(t, RepairWant{Result: RepairPatched, Blocks: 2, Records: 2, Coverage: []CoverageWant{{First: 2}}}, got)
-
-	_, err = repairRead(RepairPatched, new(2), new(U64(2)), entry(other), own)
-	require.ErrorContains(t, err, "another capture_id")
+	for id, accepted := range map[string]bool{"footer-f3-higher-close-seq": true, "footer-f5-higher-close-seq": false} {
+		r := recipeByID(t, id)
+		built := must(r.Build(r.seed()))(t)
+		f := must(FooterOf(t.Context(), built.Pack))(t)
+		assert.Equal(t, accepted, f.Accepted, id)
+		assert.NotNil(t, f.Stored, "%s: the footer is structurally readable", id)
+	}
 }

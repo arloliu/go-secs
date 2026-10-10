@@ -158,19 +158,6 @@ func Unmarshal(data []byte, doc Document) error {
 	return nil
 }
 
-// parseUUID parses a UUID in its canonical lowercase form.
-func parseUUID(s string) (tracepack.UUID, error) {
-	u, err := tracepack.ParseUUID(s)
-	if err != nil {
-		return tracepack.UUID{}, err
-	}
-	if u.String() != s {
-		return tracepack.UUID{}, fmt.Errorf("%w: UUID %q is not lowercase", ErrNotCanonical, s)
-	}
-
-	return u, nil
-}
-
 // unquoteDecimal returns the digits of the JSON string b holding a decimal integer,
 // with its sign when signed allows one,
 // and refuses every other form: no '+', no leading zero but "0" itself, no "-0".

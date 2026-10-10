@@ -67,7 +67,7 @@ func verifyVectors() []Recipe {
 		},
 		{
 			ID: "verify-f2-disagrees", Title: "a block whose records disagree with its F-2 entry, the footer valid",
-			Cites: []string{"FMT §13", "FMT §10", "CORPUS §5.4"}, Class: ClassRead, Labels: []string{LabelNonconformingWriter},
+			Cites: []string{"FMT §13", "FMT §10"}, Class: ClassRead, Labels: []string{LabelNonconformingWriter},
 			Build: func(seed string) (*Built, error) {
 				b, err := editedCodecPack(seed, func(pack []byte) ([]byte, error) {
 					// Block 0's F-2 ts_max moves from its last record's time to block 1's last, F-5's maximum unchanged.
@@ -94,7 +94,7 @@ func verifyVectors() []Recipe {
 		},
 		{
 			ID: "verify-f3-disagrees", Title: "a block whose records disagree with its F-3 summary only",
-			Cites: []string{"FMT §13", "FMT §10", "CORPUS §5.4"}, Class: ClassRead, Labels: []string{LabelNonconformingWriter},
+			Cites: []string{"FMT §13", "FMT §10"}, Class: ClassRead, Labels: []string{LabelNonconformingWriter},
 			Build: func(seed string) (*Built, error) {
 				b, err := editedCodecPack(seed, func(pack []byte) ([]byte, error) {
 					// ordering-uncertain in block 0's F-3 quality_union and F-5's, which no record carries.
@@ -107,7 +107,7 @@ func verifyVectors() []Recipe {
 				return b, err
 			},
 			// The disagreement makes the pack finalized-inconsistent,
-			// and a read reports nothing (the tracepack corpus specification §5.4).
+			// and a read reports nothing (the tracepack semantics specification §7.4).
 			Expect: &Expectation{
 				Outcome: tracepack.OutcomeFinalizedInconsistent, FooterValid: true, Blocks: 3, Seqs: seqRange(0, 11), PrefixEnd: AtEnd(),
 				Disagreeing: []int{0},

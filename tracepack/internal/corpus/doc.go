@@ -6,9 +6,8 @@
 // two-space indentation, keys in schema order, arrays in the order their schema defines,
 // u64 and i64 values as decimal strings, absent optional keys omitted, and a final LF.
 // The conversions sort into those orders themselves;
-// they rely on the order of the tracepack package's slices only for an order a read or a lookup defines,
-// its yield, discovery or version order, which they keep and check where they can.
-// The facts of a lookup are normalized from its gaps (NormalizeGaps), and any inconsistency fails the conversion.
+// they rely on the order of the tracepack package's slices only for an order a read defines, its yield order,
+// which they keep.
 // Expectations are classified by sentinel errors and typed fields, never by error text.
 //
 // The package reads packs only through the public tracepack API,
@@ -30,6 +29,9 @@
 // the generator reads the pack as a reader of the corpus does
 // and checks every read against the recipe's expectation, written by hand from the specification,
 // before it returns any file.
+// The expectation also states the pack's verification report, query results and the verification of each cut,
+// and a classifier vector's recipe its classifier expectations (ClassifierVectors):
+// the generator checks them in memory, and no file of the corpus holds them.
 // TestCorpus compares the generated files with testdata/corpus, as the corpus specification §6.1 states,
 // and reads every committed vector again;
 // go test ./internal/corpus -run '^TestCorpus$' -update regenerates the committed files.

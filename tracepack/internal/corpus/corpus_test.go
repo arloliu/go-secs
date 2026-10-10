@@ -7,13 +7,16 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/arloliu/go-secs/tracepack/internal/codec"
@@ -33,19 +36,18 @@ var keptRootFiles = []string{".gitattributes", "README.md"}
 
 // offsetFiles are the files a regeneration under another zstd encoder does not compare for a vector that depends on it:
 // they hold offsets, which follow the compressed sizes (the tracepack corpus specification §6.1).
-// Each pack-<n>.verify.json of a multi-pack vector is one too (offsetFile).
-var offsetFiles = []string{FileVerify, FileQueries, FileTruncation, FilePatch, FilePatchVerify, FileReads, FileLookups}
+var offsetFiles = []string{FileTruncation}
 
 // vectorGroupCeilings are the size ceilings of the vector groups, by id prefix, in bytes:
 // the sum of every file under the directories of a group's vectors.
 var vectorGroupCeilings = map[string]int{
-	"footer-": 240_000, "repair-": 180_000, "basic-": 130_000, "verify-": 110_000, "framing-": 90_000, "sem-": 75_000,
-	"hsms-": 50_000, "bootstrap-": 15_000, "validation-": 5_000, "sample-": 3_000, "multi-": 120_000, "tx-": 330_000,
+	"footer-": 240_000, "basic-": 130_000, "verify-": 110_000, "framing-": 90_000, "sem-": 75_000, "hsms-": 50_000,
+	"repair-": 20_000, "bootstrap-": 15_000, "validation-": 5_000, "sample-": 3_000,
 }
 
 // rootFileCeilings are the size ceilings of the files at the corpus root, in bytes, each the sum over its files.
 var rootFileCeilings = []rootCeiling{
-	{[]string{FileManifest}, 120_000},
+	{[]string{FileManifest}, 80_000},
 	{[]string{FilePrimitives}, 1_000},
 	{[]string{"README.md", ".gitattributes"}, 20_000},
 }
@@ -164,11 +166,11 @@ func compareCorpus(gen, committed map[string][]byte, strict bool, dependent func
 			if !bytes.Equal(g, c) {
 				problems = append(problems, k+": differs from the committed file")
 			}
-		case vectorPackFile(path.Base(k)):
+		case path.Base(k) == FilePack:
 			if err := decodedEqual(g, c); err != nil {
 				problems = append(problems, k+": "+err.Error())
 			}
-		case offsetFile(path.Base(k)):
+		case slices.Contains(offsetFiles, path.Base(k)):
 			// Holds offsets that follow the encoder's output.
 		default:
 			if !bytes.Equal(g, c) {
@@ -243,20 +245,6 @@ func decodedEqual(a, b []byte) error {
 	return nil
 }
 
-// vectorPackFile reports whether name is a vector's pack: pack.tpk, or pack-<n>.tpk of a multi-pack vector.
-func vectorPackFile(name string) bool {
-	_, verify, numbered := ParseNumberedFile(name)
-
-	return name == FilePack || numbered && !verify
-}
-
-// offsetFile reports whether name is a file that holds offsets (offsetFiles), a pack-<n>.verify.json among them.
-func offsetFile(name string) bool {
-	_, verify, numbered := ParseNumberedFile(name)
-
-	return slices.Contains(offsetFiles, name) || numbered && verify
-}
-
 // checkLayout checks the committed files against the manifest m:
 // the root holds only the manifest, primitives.json and the kept files,
 // each vector's entry lists the files its class allows (Vector.checkClassFiles),
@@ -288,15 +276,11 @@ func checkLayout(committed map[string][]byte, m *Manifest) []string {
 }
 
 // readCommitted reads the committed vector v as a reader of the corpus does and requires every file it gives to equal the committed one:
-// its export or rejection, its verification report, and every optional file, with the inputs those files hold
-// (the query filters, the classification, the repair options).
+// its export or rejection, and every optional file it has.
 func readCommitted(ctx context.Context, v *Vector, committed map[string][]byte) error {
 	file := func(name string) ([]byte, bool) {
 		b, ok := committed[v.ID+"/"+name]
 		return b, ok
-	}
-	if v.Class == ClassMultiPack {
-		return readCommittedMulti(ctx, v, file)
 	}
 	pack, ok := file(FilePack)
 	if !ok {
@@ -304,38 +288,8 @@ func readCommitted(ctx context.Context, v *Vector, committed map[string][]byte) 
 	}
 
 	in := &readInputs{class: v.Class}
-	if b, ok := file(FileQueries); ok {
-		var qs Queries
-		if err := Unmarshal(b, &qs); err != nil {
-			return err
-		}
-		for _, q := range qs {
-			in.queries = append(in.queries, QuerySpec{ID: q.ID, Cites: q.Cites, Filter: q.Filter})
-		}
-	}
 	_, in.fields = file(FileFields)
 	_, in.footer = file(FileFooter)
-	if b, ok := file(FileClassify); ok {
-		in.classify = new(Classify)
-		if err := Unmarshal(b, in.classify); err != nil {
-			return err
-		}
-	}
-	if b, ok := file(FileRepair); ok {
-		var r Repair
-		if err := Unmarshal(b, &r); err != nil {
-			return err
-		}
-		in.repair = &r.Options
-	}
-	if b, ok := file(FileTruncation); ok {
-		var tr Truncation
-		if err := Unmarshal(b, &tr); err != nil {
-			return err
-		}
-		in.repair = tr.RepairOptions
-	}
-
 	out, err := readVector(ctx, pack, in)
 	if err != nil {
 		return err
@@ -348,61 +302,6 @@ func readCommitted(ctx context.Context, v *Vector, committed map[string][]byte) 
 	}
 
 	return checkRecordCount(out.seqs, &out.verify)
-}
-
-// readCommittedMulti reads the committed multi-pack vector v, whose files file gives, as a reader of the corpus does,
-// and requires every file it gives to equal the committed one:
-// each pack-<n>.tpk, n from 0 while the vector has one, with its verification report,
-// reads.json, each read over its packs with the inputs the committed file holds,
-// and lookups.json, each lookup over its source packs with the inputs the committed file holds.
-func readCommittedMulti(ctx context.Context, v *Vector, file func(name string) ([]byte, bool)) error {
-	var packs [][]byte
-	for n := 0; ; n++ {
-		b, ok := file(PackFile(n))
-		if !ok {
-			break
-		}
-		packs = append(packs, b)
-	}
-	if len(packs) == 0 {
-		return errors.New("no " + PackFile(0))
-	}
-	var specs []ReadSpec
-	if b, ok := file(FileReads); ok {
-		var rs Reads
-		if err := Unmarshal(b, &rs); err != nil {
-			return err
-		}
-		for i := range rs {
-			specs = append(specs, readSpecOf(&rs[i]))
-		}
-	}
-
-	var lookups []LookupSpec
-	if b, ok := file(FileLookups); ok {
-		var ls Lookups
-		if err := Unmarshal(b, &ls); err != nil {
-			return err
-		}
-		for i := range ls {
-			lookups = append(lookups, lookupSpecOf(&ls[i]))
-		}
-	}
-
-	out, err := readMultiVector(ctx, packs, specs, lookups)
-	if err != nil {
-		return err
-	}
-	if err := sameFiles(out, v, file); err != nil {
-		return err
-	}
-	for n, po := range out.packs {
-		if err := checkRecordCount(po.seqs, &po.verify); err != nil {
-			return fmt.Errorf("pack %d: %w", n, err)
-		}
-	}
-
-	return nil
 }
 
 // sameFiles requires the files out gives to be the committed files of v, which file gives, byte for byte,
@@ -434,6 +333,145 @@ func checkRecordCount(seqs []uint64, v *Verify) error {
 	}
 
 	return nil
+}
+
+// TestGroupBudgets checks the committed corpus against the ceiling of each vector group and root file,
+// and that a group or root file over its ceiling, a vector of no group and a root file of no ceiling each fail the check;
+// and that the size-budget table of the corpus README states exactly those ceilings and their sum,
+// a changed, missing or extra row, a changed total or a missing table each failing the comparison.
+func TestGroupBudgets(t *testing.T) {
+	t.Parallel()
+
+	committed, err := readTree(corpusDir)
+	require.NoError(t, err)
+	assert.Empty(t, checkBudgets(committed))
+	readme := committed["README.md"]
+	require.NoError(t, checkBudgetTable(readme))
+	for name, edit := range map[string]func(md string) string{
+		"a ceiling changed": func(md string) string { return strings.Replace(md, "| 240,000 |", "| 241,000 |", 1) },
+		"a row missing": func(md string) string {
+			i := strings.Index(md, "| `repair-` |")
+			j := i + strings.Index(md[i:], "\n") + 1
+
+			return md[:i] + md[j:]
+		},
+		"an extra row": func(md string) string {
+			return strings.Replace(md, "| **Total**", "| `store-` | | | | 1 |\n| **Total**", 1)
+		},
+		"the total changed": func(md string) string { return strings.Replace(md, "| 839,000 |", "| 840,000 |", 1) },
+		"no table":          func(md string) string { return strings.Replace(md, "| Budget |", "| Ceiling |", 1) },
+	} {
+		edited := edit(string(readme))
+		require.NotEqual(t, string(readme), edited, name)
+		require.Error(t, checkBudgetTable([]byte(edited)), name)
+	}
+
+	// Every group of the corpus has a ceiling, and the ceilings sum to no more than the corpus's.
+	total := 0
+	for _, g := range vectorGroups {
+		c, ok := vectorGroupCeilings[g]
+		require.True(t, ok, "group %s has no ceiling", g)
+		total += c
+	}
+	require.Len(t, vectorGroupCeilings, len(vectorGroups))
+	for _, c := range rootFileCeilings {
+		total += c.ceiling
+	}
+	require.LessOrEqual(t, total, maxCorpusBytes)
+
+	tests := []struct {
+		name string
+		edit func(c map[string][]byte)
+	}{
+		{"a group over its ceiling", func(c map[string][]byte) { c["repair-x/pack.tpk"] = make([]byte, vectorGroupCeilings["repair-"]+1) }},
+		{"a group of single-pack vectors over its ceiling", func(c map[string][]byte) { c["sample-x/pack.tpk"] = make([]byte, vectorGroupCeilings["sample-"]+1) }},
+		{"the manifest over its ceiling", func(c map[string][]byte) { c[FileManifest] = make([]byte, 80_001) }},
+		{"the README over its ceiling", func(c map[string][]byte) {
+			c["README.md"] = make([]byte, 20_001-len(c[".gitattributes"]))
+		}},
+		{"a vector of no group", func(c map[string][]byte) { c["other-x/pack.tpk"] = nil }},
+		{"a root file of no ceiling", func(c map[string][]byte) { c["notes.txt"] = nil }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			problems := checkBudgets(edits(committed, tt.edit))
+			require.NotEmpty(t, problems)
+		})
+	}
+}
+
+// checkBudgetTable compares the size-budget table of the corpus README readme with the ceilings the corpus is checked against
+// (vectorGroupCeilings, rootFileCeilings):
+// the table's Budget column holds one row per vector group, by its prefix, and per set of root files, by its names,
+// each that group's or set's ceiling, and a Total row holding their sum.
+//
+// Returns:
+//   - error: a missing table, a row it cannot read, a row of no ceiling, a ceiling of no row, a budget other than its ceiling,
+//     or a total other than the sum.
+func checkBudgetTable(readme []byte) error {
+	const header = "| Group | Vectors | Files | Bytes | Budget |"
+	lines := strings.Split(string(readme), "\n")
+	start := slices.Index(lines, header)
+	if start < 0 || start+2 > len(lines) {
+		return errors.New("the README has no size-budget table")
+	}
+	ceilings := make(map[string]int, len(vectorGroupCeilings)+len(rootFileCeilings))
+	maps.Copy(ceilings, vectorGroupCeilings)
+	sum := 0
+	for _, c := range rootFileCeilings {
+		ceilings[strings.Join(c.files, ", ")] = c.ceiling
+	}
+	for _, c := range ceilings {
+		sum += c
+	}
+
+	var errs []error
+	rows := make(map[string]int)
+	total := -1
+	for _, line := range lines[start+2:] {
+		if !strings.HasPrefix(line, "|") {
+			break
+		}
+		cells := strings.Split(strings.Trim(line, "|"), "|")
+		if len(cells) != 5 {
+			errs = append(errs, fmt.Errorf("budget row %q: %d cells", line, len(cells)))
+
+			continue
+		}
+		name := strings.ReplaceAll(strings.TrimSpace(cells[0]), "`", "")
+		budget, err := strconv.Atoi(strings.ReplaceAll(strings.TrimSpace(cells[4]), ",", ""))
+		if err != nil {
+			errs = append(errs, fmt.Errorf("budget row %q: %w", line, err))
+
+			continue
+		}
+		if name == "**Total**" {
+			total = budget
+
+			continue
+		}
+		rows[name] = budget
+	}
+	for name, budget := range rows {
+		ceiling, ok := ceilings[name]
+		if !ok {
+			errs = append(errs, fmt.Errorf("budget row %s: no ceiling", name))
+		} else if budget != ceiling {
+			errs = append(errs, fmt.Errorf("budget row %s: %d, its ceiling %d", name, budget, ceiling))
+		}
+	}
+	for name := range ceilings {
+		if _, ok := rows[name]; !ok {
+			errs = append(errs, fmt.Errorf("ceiling %s: no budget row", name))
+		}
+	}
+	if total != sum {
+		errs = append(errs, fmt.Errorf("budget total %d, the ceilings sum to %d", total, sum))
+	}
+
+	return errors.Join(errs...)
 }
 
 // checkBudgets checks the files of a corpus, by path from its root, against the ceilings of their vector groups and root files

@@ -243,7 +243,7 @@ RFC 8878 fixes what a zstd frame decodes to, not the bytes an encoder produces: 
     every other file is compared byte for byte, the manifest except its `zstd_encoder` value, and the generator reports that the corpus is due for regeneration.
 - A vector **depends on the encoder** when its `pack.tpk` holds a block body or a footer of codec `zstd` that the encoder produced.
   The manifest's `codec` (§3) lists the codecs a vector's pack holds, not this dependence.
-  Vectors without such a body or footer — codec `none`, the hand-built frames of §6.2, `basic-unknown-codec`, whose other blocks and footer are codec `none`, and the `fixed` sample —
+  Vectors without such a body or footer — codec `none`, the hand-built frames of §6.2, `basic-unknown-codec`, whose other blocks and footer are codec `none`, and the `fixed` packs —
   are compared byte for byte in every case.
 
 ### 6.2 Hand-built damaged frames
@@ -478,12 +478,20 @@ Files beyond those of the class (§2) are named where a vector has them.
 | `sem-item-validity` | read | the checklist of §7; `cases` |
 | `sem-capture-origin-mono` | read | a capture-clock pack whose `capture_origin_mono_ns` is not 0 ([SEM §4]) |
 | `sample-v010-rows` | read | the tracepack v0.1.0 pack of a multi-record block, reported `corrupt`; `source` `fixed`, label `pre-v2.13-sample` ([FMT §14]) |
+| `repair-of-patch` | read | a pack of `pack_role` `repair` whose last block fails its body CRC, read like any pack a reader is given ([STO §2]); `source` `fixed`, label `damaged` |
+| `repair-inconsistent` | read | a `finalized-inconsistent` archive of generation 1: the only export of an archive's pack metadata, `publisher_epoch` and `replacement_set_*` included ([FMT §5]) |
+| `repair-not-needed-commitments` | read | a segment holding a record of quality `redacted`: the only export of that quality bit ([FMT §9]) |
 
 The `multi-` and `tx-` vectors of `tracepack-corpus/2`,
 whose files were verification reports, reads over several packs and lookups only, are removed in v0.4.0 (G5-199, G5-210).
-The `repair-` vectors lose their repair, patch and verification files (G5-202, G5-210);
-each is removed in v0.4.0, or kept with its pack and export where its pack serves a format clause, such as a `repair`-role pack read as any pack,
-as class `read`, or `truncation` for `repair-truncation`; which ones is decided per vector in v0.4.0.
+The `repair-` vectors lose their repair, patch and verification files (G5-202, G5-210).
+v0.4.0 keeps three of them as class `read`, with their pack and export, each for a format clause no other vector serves:
+`repair-of-patch`, the corpus's only `repair`-role pack,
+kept as committed since no operation of tracepack writes it any more;
+`repair-inconsistent`, the only archive whose export the corpus pins;
+and `repair-not-needed-commitments`, the only record exported with quality `redacted`.
+The other fifteen are removed, `repair-truncation` among them:
+its base pack and rows are those of `verify-truncation-none` under another identity.
 
 ## 10. Schema versions
 

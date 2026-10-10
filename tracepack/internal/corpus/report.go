@@ -8,7 +8,8 @@ import (
 	"github.com/arloliu/go-secs/tracepack"
 )
 
-// Verify is verify.json, the canonical form of a verification report (the tracepack corpus specification §5.2).
+// Verify is the projection of a verification report that the recipes' expectations are checked against, in memory;
+// no file of the corpus holds it.
 type Verify struct {
 	Outcome         string        `json:"outcome"`
 	Finalized       bool          `json:"finalized"`
@@ -26,20 +27,20 @@ type Verify struct {
 	Lost                  []Coverage     `json:"lost"`
 }
 
-// FailedBlock is a failed block of verify.json: its index, its envelope's offset and its cause.
+// FailedBlock is a failed block of a Verify: its index, its envelope's offset and its cause.
 type FailedBlock struct {
 	Block  int    `json:"block"`
 	Offset U64    `json:"offset"`
 	Cause  string `json:"cause"`
 }
 
-// BlockAt is a block of verify.json named by its index and its envelope's offset.
+// BlockAt is a block of a Verify named by its index and its envelope's offset.
 type BlockAt struct {
 	Block  int `json:"block"`
 	Offset U64 `json:"offset"`
 }
 
-// WriterDefect is a writer defect of verify.json.
+// WriterDefect is a writer defect of a Verify.
 type WriterDefect struct {
 	Kind   string `json:"kind"`
 	Block  int    `json:"block"`
@@ -47,7 +48,7 @@ type WriterDefect struct {
 	Seq    U64    `json:"seq"`
 }
 
-// VerifyFrom returns the verify.json of rep, sorted into the orders of the tracepack corpus specification §5.2:
+// VerifyFrom returns the projection of rep, sorted into these orders:
 // failed blocks and disagreeing blocks ascending by block,
 // a block that disagrees with both its F-2 entry and its F-3 summary listed once;
 // writer defects block by block,
@@ -58,7 +59,7 @@ type WriterDefect struct {
 // Returns:
 //   - Verify: the projection.
 //   - error: a defect of the reader's own limits, which is never a golden;
-//     a defect of a reason or a writer defect of a kind verify.json does not hold;
+//     a defect of a reason or a writer defect of a kind the projection does not hold;
 //     a block defect without an offset; more than one walk stop or totals disagreement; a lost entry without seq_first.
 func VerifyFrom(rep *tracepack.VerifyReport) (Verify, error) {
 	v := Verify{
@@ -85,21 +86,12 @@ func VerifyFrom(rep *tracepack.VerifyReport) (Verify, error) {
 	return v, nil
 }
 
-// Marshal returns verify.json in the canonical form.
-func (v *Verify) Marshal() ([]byte, error) {
-	return Marshal(v)
-}
-
 // sortedCoverage renders entries as coverage objects ascending by seq_first.
 // The coverage the tracepack format specification §13 derives for failed blocks
 // lies within seq ranges that ascend from block to block,
-// so ascending seq_first is the order by block, then by seq_first, that verify.json's lost and repair.json's coverage_added list
-// (the tracepack corpus specification §5.2 and §5.6).
-// For lost, a valid footer's seqs ascend across its F-2 entries,
+// so ascending seq_first is the order by block, then by seq_first, that the projection's lost lists:
+// a valid footer's seqs ascend across its F-2 entries,
 // and without a valid footer a lost run's bounds follow the validated blocks around it.
-// For coverage_added the order holds because Repair refuses the packs where it would not:
-// a seq-order or hour-span defect, and a lost run with no seq between its neighbours,
-// which also bounds a leading run that starts at seq_start (the tracepack format specification §13).
 func sortedCoverage(entries []tracepack.Coverage) ([]Coverage, error) {
 	idx := make([]int, len(entries))
 	for i := range entries {

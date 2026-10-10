@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"slices"
 	"strings"
 	"testing"
@@ -119,7 +120,6 @@ func TestGenerateFailsOnDisagreement(t *testing.T) {
 		{"basic-bad-envelope-crc-walked", "query offset", func(e *Expectation) {
 			e.Queries[0].Incomplete = []IncompleteWant{Truncated(Pos{})}
 		}},
-		{"basic-empty-pack", "a repair", func(e *Expectation) { e.Repair = &RepairWant{Result: RepairNotNeeded} }},
 		{"footer-close-twice-two-blocks", "footer.json missing", func(e *Expectation) { e.Footer = nil }},
 		{"footer-close-twice-two-blocks", "a stored close_seq", func(e *Expectation) { e.Footer.Stored.Blocks[1].CloseSeqs[0].Seq = 2 }},
 		{"footer-close-twice-two-blocks", "a recomputed boundary", func(e *Expectation) { e.Footer.Recomputed.F5.Boundaries = nil }},
@@ -129,34 +129,14 @@ func TestGenerateFailsOnDisagreement(t *testing.T) {
 			e.Footer.Recomputed.Blocks[0].CloseSeqs = []CloseSeq{{Epoch: 1, Seq: 2}}
 		}},
 		{"bootstrap-bad-magic", "rejection code", func(e *Expectation) { e.Rejection = RejectHeaderCRC }},
-		{"verify-truncation-none", "a row's first cut", func(e *Expectation) { e.Cuts[3].From = AtBlock(0).Plus(2) }},
-		{"verify-truncation-none", "a row's rejection", func(e *Expectation) { e.Cuts[1].Rejection = RejectShortObject }},
-		{"verify-truncation-none", "a row's outcome", func(e *Expectation) { e.Cuts[2].Outcome = tracepack.OutcomeFinalizedTruncated }},
-		{"verify-truncation-none", "a row's records", func(e *Expectation) { e.Cuts[4].Records = 1 }},
-		{"verify-truncation-none", "a row's validated blocks", func(e *Expectation) { e.Cuts[6].Validated = 1 }},
-		{"verify-truncation-none", "a row's prefix end", func(e *Expectation) { e.Cuts[5].PrefixEnd = AtBlock(0) }},
-		{"verify-truncation-none", "a row's walk stop", func(e *Expectation) { e.Cuts[3].WalkStop = Pos{} }},
-		{"verify-truncation-none", "a row missing", func(e *Expectation) { e.Cuts = e.Cuts[:len(e.Cuts)-1] }},
-		{"verify-truncation-none", "a row's repair", func(e *Expectation) { e.Cuts[2].Repair = &RepairWant{Result: RepairNotNeeded} }},
-		{"repair-middle-trusted-footer", "repair result", func(e *Expectation) { e.Repair = &RepairWant{Result: RepairNotRepairable} }},
-		{"repair-middle-trusted-footer", "repair blocks", func(e *Expectation) { e.Repair.Blocks = 3 }},
-		{"repair-middle-trusted-footer", "repair records", func(e *Expectation) { e.Repair.Records = 3 }},
-		{"repair-middle-trusted-footer", "repair coverage seq_last", func(e *Expectation) { e.Repair.Coverage[0].Last = new(uint64(4)) }},
-		{"repair-middle-trusted-footer", "repair coverage time", func(e *Expectation) { e.Repair.Coverage[0].TimeEnd = msAt(4) }},
-		{"repair-middle-no-footer", "repair coverage seq_first", func(e *Expectation) { e.Repair.Coverage[0].First = 2 }},
-		{"repair-middle-no-footer", "repair coverage missing", func(e *Expectation) { e.Repair.Coverage = nil }},
-		{"repair-not-needed", "repair patched", func(e *Expectation) { e.Repair = &RepairWant{Result: RepairPatched, Blocks: 3, Records: 4} }},
-		{"repair-truncation", "a row's repair result", func(e *Expectation) { e.Cuts[2].Repair = &RepairWant{Result: RepairNotRepairable} }},
-		{"repair-truncation", "a row's repair blocks", func(e *Expectation) {
-			e.Cuts[4].Repair = &RepairWant{Result: RepairPatched, Coverage: []CoverageWant{hourCoverage(2, nil)}}
-		}},
-		{"repair-truncation", "a row's repair coverage", func(e *Expectation) {
-			e.Cuts[6].Repair = &RepairWant{Result: RepairPatched, Blocks: 2, Coverage: []CoverageWant{hourCoverage(4, new(uint64(9)))}}
-		}},
-		{"repair-truncation", "a row's repair records", func(e *Expectation) {
-			e.Cuts[6].Repair = &RepairWant{Result: RepairPatched, Blocks: 2, Records: 4, Coverage: []CoverageWant{hourCoverage(4, nil)}}
-		}},
-		{"repair-truncation", "a row without its repair", func(e *Expectation) { e.Cuts[7].Repair = nil }},
+		{"verify-truncation-none", "a run's first cut", func(e *Expectation) { e.Cuts[3].From = AtBlock(0).Plus(2) }},
+		{"verify-truncation-none", "a run's rejection", func(e *Expectation) { e.Cuts[1].Rejection = RejectShortObject }},
+		{"verify-truncation-none", "a run's outcome", func(e *Expectation) { e.Cuts[2].Outcome = tracepack.OutcomeFinalizedTruncated }},
+		{"verify-truncation-none", "a run's records", func(e *Expectation) { e.Cuts[4].Records = 1 }},
+		{"verify-truncation-none", "a run's validated blocks", func(e *Expectation) { e.Cuts[6].Validated = 1 }},
+		{"verify-truncation-none", "a run's prefix end", func(e *Expectation) { e.Cuts[5].PrefixEnd = AtBlock(0) }},
+		{"verify-truncation-none", "a run's walk stop", func(e *Expectation) { e.Cuts[3].WalkStop = Pos{} }},
+		{"verify-truncation-none", "a run missing", func(e *Expectation) { e.Cuts = e.Cuts[:len(e.Cuts)-1] }},
 		{"hsms-short-captures", "fields.json missing", func(e *Expectation) { e.Fields = nil }},
 		{"basic-codec-none", "fields.json not read", func(e *Expectation) { e.Fields = []Fields{} }},
 		{"hsms-short-captures", "a field available", func(e *Expectation) { e.Fields[0] = headerFields(0, shortFrameValues, fieldSessionID) }},
@@ -182,10 +162,6 @@ func TestGenerateFailsOnDisagreement(t *testing.T) {
 			e.Queries = slices.Clone(e.Queries)
 			e.Cuts = slices.Clone(e.Cuts)
 			e.Fields = slices.Clone(e.Fields)
-			if e.Repair != nil {
-				e.Repair = new(*e.Repair)
-				e.Repair.Coverage = slices.Clone(e.Repair.Coverage)
-			}
 			if e.Stats != nil {
 				e.Stats = new(*e.Stats)
 				e.Stats.Epochs = slices.Clone(e.Stats.Epochs)
@@ -238,9 +214,10 @@ func TestGenerateChecksRecipeDeclarations(t *testing.T) {
 	require.ErrorContains(t, err, "encoder-made")
 }
 
-// TestGenerateChecksClassify checks that Generate refuses a classify.json that is not the pack's:
+// TestGenerateChecksClassify checks that Generate refuses classifier expectations that are not the pack's:
 // a max_frame_len other than the pack's single one, a frame whose record stores another decode_status or trailing_bytes,
-// a seq of no data or control record, and a record storing a byte-predicate status that it does not list.
+// a seq of no data or control record, a record storing a byte-predicate status that they do not list,
+// and a data or control record that is not exactly one of a frame and a format-only record.
 func TestGenerateChecksClassify(t *testing.T) {
 	t.Parallel()
 
@@ -249,34 +226,30 @@ func TestGenerateChecksClassify(t *testing.T) {
 		edit      func(c *Classify)
 	}{
 		{"max_frame_len", "max_frame_len", func(c *Classify) { c.MaxFrameLen++ }},
-		{"decode_status", "the record stores", func(c *Classify) { c.Frames[0].DecodeStatus = tracepack.DecodeStatusOK.String() }},
+		{"decode_status", "the record stores", func(c *Classify) { c.Frames[0].DecodeStatus = tracepack.DecodeStatusOK }},
 		{"trailing_bytes", "the record stores", func(c *Classify) { c.Frames[7].TrailingBytes = 2 }},
 		{"an annotation", "no data or control record", func(c *Classify) { c.Frames[0].Seq = 10 }},
-		{"an unlisted frame", "does not list", func(c *Classify) { c.Frames = c.Frames[1:] }},
+		{"an unlisted frame", "do not list", func(c *Classify) { c.Frames = c.Frames[1:] }},
+		{"a format-only record missing", "not exactly one", func(c *Classify) { c.FormatOnly = nil }},
+		{"a frame also format-only", "not exactly one", func(c *Classify) { c.FormatOnly = append(c.FormatOnly, c.Frames[0].Seq) }},
+		{"a format-only annotation", "no data or control record", func(c *Classify) { c.FormatOnly = append(c.FormatOnly, 10) }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			r := recipeByID(t, "sem-decode-status-classified")
-			build := r.Build
-			r.Build = func(seed string) (*Built, error) {
-				b, err := build(seed)
-				if err != nil {
-					return nil, err
-				}
-				b.Classify.Frames = slices.Clone(b.Classify.Frames)
-				tt.edit(b.Classify)
-
-				return b, nil
-			}
+			c := *r.Classify
+			c.Frames, c.FormatOnly = slices.Clone(c.Frames), slices.Clone(c.FormatOnly)
+			tt.edit(&c)
+			r.Classify = &c
 			_, err := generateRecipes(t.Context(), []Recipe{r}, "test")
 			require.ErrorContains(t, err, tt.err)
 		})
 	}
 }
 
-// TestRecipesCheckTheirRows checks that a truncation vector, and only one, expects the rows of its table.
+// TestRecipesCheckTheirRows checks that a truncation vector, and only one, expects its cuts.
 func TestRecipesCheckTheirRows(t *testing.T) {
 	t.Parallel()
 
@@ -289,134 +262,6 @@ func TestRecipesCheckTheirRows(t *testing.T) {
 	read.Expect = new(*read.Expect)
 	read.Expect.Cuts = []CutWant{{From: AtOffset(0), Rejection: RejectShortObject}}
 	require.Error(t, read.check(), "rows on a read vector")
-
-	repair := recipeByID(t, "repair-not-needed")
-	repair.Expect = new(*repair.Expect)
-	repair.Expect.Repair = nil
-	require.Error(t, repair.check(), "a repair vector without its repair")
-}
-
-// TestGenerateNeedsIntactPack checks that Generate refuses a repair vector whose pack lost records without its intact pack,
-// whose records the patch must hold or cover.
-func TestGenerateNeedsIntactPack(t *testing.T) {
-	t.Parallel()
-
-	r := recipeByID(t, "repair-middle-trusted-footer")
-	build := r.Build
-	r.Build = func(seed string) (*Built, error) {
-		b, err := build(seed)
-		if err == nil {
-			b.Repair.Intact = nil
-		}
-
-		return b, err
-	}
-	_, err := generateRecipes(t.Context(), []Recipe{r}, "test")
-	require.ErrorContains(t, err, "intact pack")
-}
-
-// coverageCaptureIDTag is the tag of a coverage entry's capture_id (the tracepack format specification §5).
-const coverageCaptureIDTag uint16 = 0x0001
-
-// TestGenerateUsesIntactPack checks that Generate checks a repair vector's patch against the records of its intact pack:
-// a record the intact pack holds that the patch neither copies nor covers fails the vector.
-func TestGenerateUsesIntactPack(t *testing.T) {
-	t.Parallel()
-
-	r := recipeByID(t, "repair-middle-trusted-footer")
-	build := r.Build
-	r.Build = func(seed string) (*Built, error) {
-		b, err := build(seed)
-		if err != nil {
-			return nil, err
-		}
-		// Seq 4 lies outside the coverage entry of the failed block's F-3 range, seqs 2 to 3.
-		b.Repair.Intact, err = writeSpec(&packSpec{seed: seed, meta: segmentMeta(seed), blocks: [][]tracepack.Record{
-			{footerData(0, 1)},
-			{footerData(2, 1), footerData(3, 1)},
-			{footerData(4, 1), footerData(5, 1)},
-		}})
-
-		return b, err
-	}
-	_, err := generateRecipes(t.Context(), []Recipe{r}, "test")
-	require.ErrorContains(t, err, "neither copied nor covered")
-}
-
-// TestCutExpectationChecksPatch checks that a truncation table's repair of a cut checks the cut's patch against the records it is given:
-// a record outside the hour of the patch's tail entry fails the cut.
-func TestCutExpectationChecksPatch(t *testing.T) {
-	t.Parallel()
-
-	r := recipeByID(t, "repair-truncation")
-	b := must(r.Build(r.seed()))(t)
-	export, _, err := exportPack(t.Context(), must(openBytes(t.Context(), b.Pack))(t))
-	require.NoError(t, err)
-	base := must(exportLines(export))(t)
-	records := must(exportRecords(export))(t)
-	l := must(Locate(b.Pack))(t)
-	opts := RepairOptionsFor(r.seed(), b.Repair)
-	const cut = 629
-
-	c, err := cutExpectation(t.Context(), b.Pack[:cut], &l, base, records, &opts)
-	require.NoError(t, err)
-	require.NotNil(t, c.Repair)
-	require.Equal(t, RepairPatched, c.Repair.Result)
-
-	outside := append(slices.Clone(records), exportedRecord{Seq: 4, TS: I64(TimeBase + hourNs)})
-	_, err = cutExpectation(t.Context(), b.Pack[:cut], &l, base, outside, &opts)
-	require.ErrorContains(t, err, "neither copied nor covered")
-}
-
-// TestCheckPatch checks each property checkPatch requires of a patch (the tracepack format specification §16):
-// finalized-consistent, its blocks those of the damaged pack, its seq_start, and every record of the intact pack held or covered.
-func TestCheckPatch(t *testing.T) {
-	t.Parallel()
-
-	r := recipeByID(t, "repair-middle-trusted-footer")
-	b := must(r.Build(r.seed()))(t)
-	_, patch, err := RunRepair(t.Context(), b.Pack, RepairOptionsFor(r.seed(), b.Repair))
-	require.NoError(t, err)
-	require.NotNil(t, patch)
-	intact := must(openBytes(t.Context(), b.Repair.Intact))(t)
-	export, _, err := exportPack(t.Context(), intact)
-	require.NoError(t, err)
-	records := must(exportRecords(export))(t)
-	require.Len(t, records, 4)
-
-	_, _, err = checkPatch(t.Context(), b.Pack, patch, records)
-	require.NoError(t, err, "the patch holds seqs 0 and 5 and covers seqs 2 and 3 at their times")
-
-	tests := []struct {
-		name        string
-		pack, patch []byte
-		records     []exportedRecord
-		contains    string
-	}{
-		{"a seq neither copied nor covered", b.Pack, patch, append(slices.Clone(records), exportedRecord{Seq: 4, TS: I64(msAt(4))}), "record 4"},
-		{"a covered seq at a time outside the entry", b.Pack, patch,
-			[]exportedRecord{records[0], {Seq: 2, TS: I64(msAt(4))}, records[2], records[3]}, "record 2"},
-		{"another seq_start", b.Pack, must(setSeqStart(patch, 0, 1))(t), records, "seq_start"},
-		{"a patch that is not finalized-consistent", b.Pack, must(flipBody(patch, 1))(t), records, "verifies"},
-		{"a block of another pack", must(setRowTime(b.Pack, 0, 0, msAt(1)))(t), patch, records, "not a block of the damaged pack"},
-		{"a new entry of another capture", b.Pack, must(editMeta(patch, func(meta []byte) ([]byte, error) {
-			at, err := NestedValueOffset(meta, Section{Len: len(meta)}, metaCoverageTag, 0, coverageCaptureIDTag)
-			if err == nil {
-				meta[at] ^= 0xFF
-			}
-
-			return meta, err
-		}))(t), records, "neither copied nor covered"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			_, _, err := checkPatch(t.Context(), tt.pack, tt.patch, tt.records)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.contains)
-		})
-	}
 }
 
 func TestExportLines(t *testing.T) {
@@ -439,7 +284,7 @@ func TestTruncationTableChecksExportContent(t *testing.T) {
 	pack := must(r.Build(r.seed()))(t).Pack
 	export, _, err := exportPack(t.Context(), must(openBytes(t.Context(), pack))(t))
 	require.NoError(t, err)
-	_, err = truncationTable(t.Context(), pack, export, nil)
+	_, err = truncationTable(t.Context(), pack, export)
 	require.NoError(t, err)
 
 	lines := must(exportLines(export))(t)
@@ -450,7 +295,7 @@ func TestTruncationTableChecksExportContent(t *testing.T) {
 	require.NotEqual(t, lines[2], changed[2])
 
 	for name, altered := range map[string][][]byte{"record lines 1 and 2 swapped": swapped, "a byte of record line 2 changed": changed} {
-		_, err := truncationTable(t.Context(), pack, bytes.Join(altered, nil), nil)
+		_, err := truncationTable(t.Context(), pack, bytes.Join(altered, nil))
 		require.ErrorContains(t, err, "is not the header and the", name)
 	}
 }
@@ -600,19 +445,19 @@ func TestCompareCorpus(t *testing.T) {
 		{"an encoder-made pack's file header", func(c map[string][]byte) {
 			c[zstdPack] = must(PatchHeader(c[zstdPack], func(h []byte) { h[64] = 1 }))(t)
 		}, true, true},
-		{"an encoder-made vector's verify.json", func(c map[string][]byte) { c["basic-codec-zstd/"+FileVerify][0] = ' ' }, true, false},
+		{"an encoder-made vector's truncation.json", func(c map[string][]byte) { c["verify-truncation-zstd/"+FileTruncation][0] = ' ' }, true, false},
 		{"an encoder-made vector's export", func(c map[string][]byte) { c["basic-codec-zstd/"+FileExport][0] = ' ' }, true, true},
-		{"another vector's verify.json", func(c map[string][]byte) { c["basic-codec-none/"+FileVerify][0] = ' ' }, true, true},
+		{"another vector's truncation.json", func(c map[string][]byte) { c["verify-truncation-none/"+FileTruncation][0] = ' ' }, true, true},
 		{"another vector's pack", func(c map[string][]byte) {
 			c["basic-unknown-codec/"+FilePack] = must(FlipByte(c["basic-unknown-codec/"+FilePack], 100))(t)
 		}, true, true},
-		{"a missing file", func(c map[string][]byte) { delete(c, "basic-codec-zstd/"+FileVerify) }, true, true},
+		{"a missing file", func(c map[string][]byte) { delete(c, "basic-codec-zstd/"+FileExport) }, true, true},
 		{"an orphan", func(c map[string][]byte) { c["basic-old/"+FilePack] = []byte{1} }, true, true},
 		{"a kept root file", func(c map[string][]byte) { c["README.md"] = []byte("# corpus\n") }, false, false},
 		{"the fixed sample's pack", func(c map[string][]byte) {
 			c["sample-v010-rows/"+FilePack] = must(FlipByte(c["sample-v010-rows/"+FilePack], 100))(t)
 		}, true, true},
-		{"the fixed sample's verify.json", func(c map[string][]byte) { c["sample-v010-rows/"+FileVerify][0] = ' ' }, true, true},
+		{"the fixed sample's export", func(c map[string][]byte) { c["sample-v010-rows/"+FileExport][0] = ' ' }, true, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -657,16 +502,20 @@ func TestCorpusLayoutAndReadPath(t *testing.T) {
 
 	// Each committed golden binds the read: a changed one fails it.
 	for k, change := range map[string][2]string{
-		"basic-codec-none/" + FileExport:  {`"seq":"3"`, `"seq":"4"`},
-		"basic-codec-none/" + FileVerify:  {`"records": "12"`, `"records": "11"`},
-		"basic-codec-none/" + FileQueries: {`"3"`, `"4"`},
+		"basic-codec-none/" + FileExport:             {`"seq":"3"`, `"seq":"4"`},
+		"bootstrap-bad-magic/" + FileRejection:       {`bad-magic`, `header-crc`},
+		"hsms-short-captures/" + FileFields:          {`"session_id": 1`, `"session_id": 2`},
+		"footer-close-twice-one-block/" + FileFooter: {`"accepted": true`, `"accepted": false`},
+		"verify-truncation-none/" + FileTruncation:   {`"exported_records": "2"`, `"exported_records": "3"`},
 	} {
 		bad := edits(got, func(c map[string][]byte) { c[k] = bytes.Replace(c[k], []byte(change[0]), []byte(change[1]), 1) })
 		require.NotEqual(t, got[k], bad[k])
-		require.Error(t, readCommitted(t.Context(), &m.Vectors[slices.IndexFunc(m.Vectors, func(v Vector) bool { return v.ID == "basic-codec-none" })], bad), k)
+		require.Error(t, readCommitted(t.Context(), &m.Vectors[slices.IndexFunc(m.Vectors, func(v Vector) bool { return v.ID == path.Dir(k) })], bad), k)
 	}
 	assert.NotEmpty(t, checkLayout(edits(got, func(c map[string][]byte) { c["basic-codec-none/fields.json"] = []byte("[]\n") }), &m), "an orphan file")
-	assert.NotEmpty(t, checkLayout(edits(got, func(c map[string][]byte) { delete(c, "basic-codec-none/"+FileVerify) }), &m), "a missing file")
+	assert.NotEmpty(t, checkLayout(edits(got, func(c map[string][]byte) { delete(c, "basic-codec-none/"+FileExport) }), &m), "a missing file")
+	assert.NotEmpty(t, checkLayout(edits(got, func(c map[string][]byte) { c["basic-codec-none/verify.json"] = []byte("{}\n") }), &m),
+		"a file of the previous schema")
 	assert.NotEmpty(t, checkLayout(edits(got, func(c map[string][]byte) { c["notes.txt"] = nil }), &m), "an unknown root file")
 }
 
@@ -716,7 +565,7 @@ const specFile = "../../../docs/specs/tracepack/tracepack-corpus.md"
 
 // generatedGroups are the id prefixes of the groups the generator builds so far.
 var generatedGroups = []string{
-	"basic-", "bootstrap-", "footer-", "framing-", "hsms-", "multi-", "repair-", "sample-", "sem-", "tx-", "validation-", "verify-",
+	"basic-", "bootstrap-", "footer-", "framing-", "hsms-", "repair-", "sample-", "sem-", "validation-", "verify-",
 }
 
 // TestRecipeIDsAreCatalogued checks that every vector of a generated group that the catalogue of the tracepack corpus specification §9.4 lists has a recipe,

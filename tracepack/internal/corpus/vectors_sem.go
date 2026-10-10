@@ -9,7 +9,7 @@ import (
 
 // Values of the sem group.
 const (
-	// semMaxFrameLen is the single max_frame_len of the packs of the sem group that list classify.json
+	// semMaxFrameLen is the single max_frame_len of the packs of the sem group that hold classifier cases
 	// (the tracepack semantics specification §3): frames of 40 bytes are within it, frames of 41 exceed it.
 	semMaxFrameLen = 40
 	// stypeUndefined is an SType SEMI E37 Table 5 does not define.
@@ -18,7 +18,7 @@ const (
 	captureOriginMono int64 = 86_400_123_456_789
 )
 
-// classifyCites are the clauses of a frame classify.json lists.
+// classifyCites are the clauses of a frame whose classification a classifier vector expects.
 var classifyCites = []string{"SEM §3", "CORPUS §7"}
 
 // storedStatusCites are the clauses of a record of a classifier vector that stores a status that is not a byte predicate.
@@ -26,8 +26,8 @@ var storedStatusCites = []string{"SEM §3"}
 
 // semFrame is a record of a classifier vector: the case it exercises, the kind and frame it carries,
 // and the decode_status and trailing_bytes written by hand from the tracepack semantics specification §3
-// and the tracepack corpus specification §7, which the record stores and classify.json lists.
-// A frame of nil is not a byte-predicate case: the record is built by build and stays out of classify.json.
+// and the tracepack corpus specification §7, which the record stores and the classifier expectations list.
+// A frame of nil is not a byte-predicate case: the record is built by build and is no classifier expectation.
 type semFrame struct {
 	id       string
 	kind     tracepack.Kind
@@ -36,6 +36,9 @@ type semFrame struct {
 	trailing uint32
 	// build makes a record that carries no classified frame.
 	build func(seq uint64) (tracepack.Record, error)
+	// formatOnly marks a data or control record that build makes:
+	// its stored status is a case of the export only, listed as format-only in the classifier expectations.
+	formatOnly bool
 }
 
 // item returns a SECS-II item of the format code code (SEMI E5 §9.2, written in octal as E5 Table 1 writes it)
@@ -170,7 +173,7 @@ func decodeStatusFrames() []semFrame {
 	trailing.trailing = 3
 
 	return []semFrame{
-		{id: tracepack.DecodeStatusNotAttempted.String(), build: func(seq uint64) (tracepack.Record, error) {
+		{id: tracepack.DecodeStatusNotAttempted.String(), formatOnly: true, build: func(seq uint64) (tracepack.Record, error) {
 			return newData(seq, 1, tracepack.DirHostToEquipment, textFrame(item(0o51, 5)...)), nil
 		}},
 		short(tracepack.DecodeStatusShortFrame.String(), textFrame()[:10]),
@@ -213,24 +216,43 @@ func decodeStatusFrames() []semFrame {
 const hsmsPTypeOff = 8
 
 // classifiedVector returns the recipe of a pack of one block holding frames at seqs 0, 1, …,
-// classified under semMaxFrameLen, with classify.json listing each classified frame and a case per record.
+// classified under semMaxFrameLen, with a case per record and the classifier expectations of every classified frame.
+// A frame whose expectation NewClassifyFrame refuses fails the recipe's Build.
 func classifiedVector(id, title string, cites []string, frames []semFrame) Recipe {
 	cases := make([]Case, 0, len(frames))
 	seqs := make([]uint64, 0, len(frames))
+	c := &Classify{MaxFrameLen: semMaxFrameLen}
+	var refused error
 	for i, f := range frames {
+		seq := uint64(i)
 		cites := classifyCites
 		if f.frame == nil {
 			cites = storedStatusCites
+			if f.formatOnly {
+				c.FormatOnly = append(c.FormatOnly, seq)
+			}
+		} else {
+			row, err := NewClassifyFrame(seq, f.id, f.status, f.trailing)
+			switch {
+			case err == nil:
+				c.Frames = append(c.Frames, row)
+			case refused == nil:
+				refused = fmt.Errorf("case %s: %w", f.id, err)
+			default:
+				// The first refusal fails the Build.
+			}
 		}
-		cases = append(cases, Case{ID: f.id, Seq: U64(i), Cites: cites})
-		seqs = append(seqs, uint64(i))
+		cases = append(cases, Case{ID: f.id, Seq: U64(seq), Cites: cites})
+		seqs = append(seqs, seq)
 	}
 
 	return Recipe{
-		ID: id, Title: title, Cites: cites, Class: ClassRead, Cases: cases,
+		ID: id, Title: title, Cites: cites, Class: ClassRead, Cases: cases, Classify: c,
 		Build: func(seed string) (*Built, error) {
+			if refused != nil {
+				return nil, refused
+			}
 			recs := make([]tracepack.Record, 0, len(frames))
-			c := &Classify{MaxFrameLen: semMaxFrameLen}
 			for i, f := range frames {
 				seq := uint64(i)
 				if f.frame == nil {
@@ -245,17 +267,12 @@ func classifiedVector(id, title string, cites []string, frames []semFrame) Recip
 				r := frameRecord(f.kind, seq, msAt(int64(seq)), 1, tracepack.DirHostToEquipment, f.frame)
 				r.DecodeStatus, r.TrailingBytes = f.status, f.trailing
 				recs = append(recs, r)
-				row, err := NewClassifyFrame(seq, f.id, f.status, f.trailing)
-				if err != nil {
-					return nil, fmt.Errorf("case %s: %w", f.id, err)
-				}
-				c.Frames = append(c.Frames, row)
 			}
 			meta := segmentMeta(seed)
 			meta.Classifiers, meta.MaxFrameLens = []string{corpusClassifier}, []uint64{semMaxFrameLen}
 			pack, err := writeSpec(&packSpec{seed: seed, meta: meta, blocks: [][]tracepack.Record{recs}})
 
-			return &Built{Pack: pack, Classify: c}, err
+			return &Built{Pack: pack}, err
 		},
 		Expect: &Expectation{
 			Outcome: tracepack.OutcomeFinalizedConsistent, FooterValid: true, Blocks: 1, Seqs: seqs, PrefixEnd: AtEnd(),
@@ -268,7 +285,7 @@ func classifiedVector(id, title string, cites []string, frames []semFrame) Recip
 func semVectors() []Recipe {
 	classified := classifiedVector("sem-decode-status-classified",
 		"a record of each decode_status a classifier writes, the order of evaluation and the max_frame_len boundary",
-		[]string{"SEM §3", "SEM §9", "CORPUS §5.9", "CORPUS §7"}, decodeStatusFrames())
+		[]string{"SEM §3", "SEM §9", "CORPUS §7"}, decodeStatusFrames())
 	// The records store the statuses that are not byte predicates as they are, and the excess of ok-with-trailing.
 	classified.Expect.ExportHas = append(classified.Expect.ExportHas,
 		`"trailing_bytes":3,"quality":[],"kind":"data","dir":"host-to-equipment","fidelity":"wire-exact","decode_status":"ok-with-trailing"`,
@@ -276,7 +293,7 @@ func semVectors() []Recipe {
 		`"kind":"annotation","dir":"local","fidelity":"not-applicable","decode_status":"not-applicable"`,
 	)
 	validity := classifiedVector("sem-item-validity", "the item-validity checklist",
-		[]string{"SEM §3", "SEM §9", "CORPUS §7", "CORPUS §5.9"}, itemValidityFrames())
+		[]string{"SEM §3", "SEM §9", "CORPUS §7"}, itemValidityFrames())
 
 	return []Recipe{classified, logStatusVector(), validity, captureOriginMonoVector()}
 }

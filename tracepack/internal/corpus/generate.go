@@ -45,9 +45,7 @@ var groups = []func() []Recipe{
 	hsmsVectors,
 	repairVectors,
 	sampleVectors,
-	multiVectors,
 	semVectors,
-	txVectors,
 	validationVectors,
 	verifyVectors,
 }
@@ -70,99 +68,41 @@ type Recipe struct {
 	// Vectors that differ only in codec share a seed, so they share every identifier and export identically,
 	// which the generator checks.
 	IdentitySeed string
-	// EncoderMade reports a pack or patch that holds a block body or footer of codec zstd made by the running zstd encoder,
+	// EncoderMade reports a pack that holds a block body or footer of codec zstd made by the running zstd encoder,
 	// so that a regeneration under another encoder compares the vector by decoded equivalence
 	// (the tracepack corpus specification §6.1).
 	// The generator checks it: such a body decodes in full, and a hand-built damaged frame does not.
 	EncoderMade bool
 	// Build makes the vector's pack and the inputs of its optional files from the identity seed.
 	Build func(seed string) (*Built, error)
+	// Classify holds the classifier expectations of the pack's records, written by hand; nil for none.
+	// The generator checks the statuses the pack stores against them,
+	// and the tests of the classify package check the classifier against them (ClassifierVectors).
+	Classify *Classify
 	// Expect is what the vector must show, written by hand from the specification, never from the generator's output.
 	// Every recipe has one; the generator refuses a recipe without it and fails, before writing anything,
 	// when a read disagrees with it.
+	// Its verification, query and cut expectations are checked in memory and written to no file.
 	Expect *Expectation
 }
 
-// Built is what a recipe's Build makes: the pack and the inputs of the vector's optional files,
-// or, for a multi-pack vector, its packs and the inputs of its reads and lookups.
+// Built is what a recipe's Build makes: the pack and the inputs of the vector's optional files and of its queries.
 type Built struct {
-	// Pack is pack.tpk; nil for a multi-pack vector.
+	// Pack is pack.tpk.
 	Pack []byte
-	// Queries are the query vectors of queries.json, without their results, which the read gives.
+	// Queries are the queries the generator runs over the pack, without their results, which the reads give;
+	// it checks the results against the expectation and writes no file of them.
 	Queries []QuerySpec
 	// Fields adds fields.json.
 	Fields bool
 	// Footer adds footer.json.
 	Footer bool
-	// Classify is classify.json, written by hand; nil for none.
-	Classify *Classify
-	// Repair, for a repair vector or a truncation vector whose table holds each cut's repair,
-	// holds what the repair options take from the vector; nil otherwise.
-	Repair *RepairInput
-	// Packs are the packs of a multi-pack vector, pack n its pack-<n>.tpk; nil for any other class.
-	Packs []PackBuilt
-	// Reads are the reads over several packs of reads.json, without their results, which the reads give;
-	// only a multi-pack vector has them.
-	Reads []ReadSpec
-	// Lookups are the transaction lookups of lookups.json, without their results, which the lookups give;
-	// only a multi-pack vector has them.
-	Lookups []LookupSpec
 }
 
-// multiPack reports whether b has any part only a multi-pack vector has: packs, reads or lookups.
-func (b *Built) multiPack() bool {
-	return b.Packs != nil || b.Reads != nil || b.Lookups != nil
-}
-
-// PackBuilt is one pack of a multi-pack vector.
-type PackBuilt struct {
-	// Bytes is the pack's file.
-	Bytes []byte
-}
-
-// ReadSpec is a read over several packs of reads.json without its expect (the tracepack corpus specification §5.10).
-type ReadSpec struct {
-	ID    string
-	Cites []string
-	// Packs holds the numbers of the packs read, in the order the read is given them.
-	Packs []int
-	// Order is ReadOrderCapture or ReadOrderTime.
-	Order    string
-	Payloads bool
-	// MaxConflicts is the conflict bound the read states; 0 for none.
-	MaxConflicts int
-	Filter       Filter
-}
-
-// LookupSpec is a transaction lookup of lookups.json without its expect (the tracepack corpus specification §5.11).
-type LookupSpec struct {
-	ID    string
-	Cites []string
-	// Source names the source packs by number: the view, in the order that decides each scope's view order, and the evidence.
-	Source LookupSource
-	// Key names the primary, its capture_id that of a capture of the vector (captureOf).
-	Key       LookupKey
-	MaxScopes int
-}
-
-// QuerySpec is a query vector of queries.json without its expect.
+// QuerySpec is a query over a vector's pack without its expect.
 type QuerySpec struct {
 	ID     string
-	Cites  []string
 	Filter Filter
-}
-
-// RepairInput is what a vector's repair options take from the vector;
-// the writer, the clock and the patch's pack_id are the corpus's (see RepairOptionsFor).
-type RepairInput struct {
-	// PatchBase is the patch_base of a scope that has a generation; nil otherwise.
-	PatchBase *tracepack.UUID
-	// Intact is the pack before its damage, whose every record the patch must hold or cover by a coverage entry
-	// (the tracepack format specification §16);
-	// it is required of a repair vector whose pack lost records, and optional otherwise,
-	// when the pack's own records serve.
-	// The generator checks the patch against it and never writes it.
-	Intact []byte
 }
 
 // Pos is a file offset a recipe names by the pack's layout, as Locate finds it, or by its value,
@@ -188,16 +128,16 @@ const (
 )
 
 // Expectation is a vector's expectation, written by hand from the specification.
-// The generator checks every field against its reads of the vector before it writes anything.
-// A multi-pack vector's expectation holds only Packs, Reads and Lookups.
+// The generator checks every field against its reads of the vector before it writes anything;
+// the verification report, the queries and the verification of each cut are read in memory only.
 type Expectation struct {
 	// Rejection is the bootstrap rejection code of a rejection vector.
 	Rejection string
 	// Outcome is the verification outcome of any other vector.
 	Outcome tracepack.Outcome
-	// Unfinalized reports a pack that is not finalized (I-5): verify.json's finalized is its negation.
+	// Unfinalized reports a pack that is not finalized (I-5): the verification report's finalized is its negation.
 	Unfinalized bool
-	// FooterValid is verify.json's footer_valid.
+	// FooterValid is the verification report's footer_valid.
 	FooterValid bool
 	// Blocks is the number of blocks located.
 	Blocks int
@@ -211,11 +151,11 @@ type Expectation struct {
 	PrefixEnd Pos
 	// Disagreeing are the indices of the blocks whose records disagree with their F-2 entry or F-3 summary, ascending.
 	Disagreeing []int
-	// TrailerTotalsDisagree is verify.json's trailer_totals_disagree.
+	// TrailerTotalsDisagree is the verification report's trailer_totals_disagree.
 	TrailerTotalsDisagree bool
-	// WriterDefects are the writer defects, in verify.json's order.
+	// WriterDefects are the writer defects, in the verification report's order.
 	WriterDefects []DefectWant
-	// Lost are verify.json's lost entries, in order; each also names the pack's capture_id, which the generator checks.
+	// Lost are the verification report's lost entries, in order; each also names the pack's capture_id, which the generator checks.
 	Lost []LostWant
 	// ExportHas are strings export.jsonl must contain, each a value the JSONL specification renders.
 	ExportHas []string
@@ -229,90 +169,14 @@ type Expectation struct {
 	Fields []Fields
 	// Queries are the results of each query of Built.Queries, by id.
 	Queries []QueryWant
-	// Repair is the expected repair of a repair vector.
-	Repair *RepairWant
-	// Cuts are the rows of truncation.json of a truncation vector, ascending, one per row:
-	// each names where its row starts, and its row ends where the next starts, the last at the end of the pack.
+	// Cuts are the expectations of the cuts of a truncation vector, ascending, one per run of cut lengths that share it:
+	// each names where its run starts, and its run ends where the next starts, the last at the end of the pack.
+	// Runs whose rows of truncation.json are equal are one row of the file.
 	Cuts []CutWant
-	// Packs are the expectations of the packs of a multi-pack vector, pack n's at n:
-	// the facts of its pack-<n>.verify.json and the records it holds, as for the pack of a single-pack vector,
-	// and nothing of the files a multi-pack vector does not have.
-	Packs []*Expectation
-	// Reads are the results of each read of Built.Reads, in the order of their ids.
-	Reads []ReadWant
-	// Lookups are the results of each lookup of Built.Lookups, in the order of their ids.
-	Lookups []LookupWant
 }
 
-// ReadWant is the result of the read over several packs of id, in the form of reads.json:
-// the error form when Error is set, its Conflicts the first in discovery order;
-// else the success form, its items in yield order, its incomplete reasons, conflicts and footer errors.
-type ReadWant struct {
-	ID string
-	// Error is ErrorConflictLimit for the error form; "" for the success form.
-	Error        string
-	Items        []ItemWant
-	Incomplete   []PackIncompleteWant
-	Conflicts    []ConflictWant
-	FooterErrors []int
-}
-
-// ItemWant is one version a read yields: the record's seq, the number and block of the version's representative,
-// and whether the record's copies differ.
-type ItemWant struct {
-	Seq      uint64
-	Pack     int
-	Block    int
-	Conflict bool
-}
-
-// PackIncompleteWant is an incomplete reason of a read over several packs: the pack's number and the reason,
-// its position one of that pack.
-type PackIncompleteWant struct {
-	Pack int
-	IncompleteWant
-}
-
-// ConflictWant is a conflict a read lists: the number of the record's capture (captureOf), its seq,
-// and the numbers of the packs holding each version, in version order.
-type ConflictWant struct {
-	Capture  int
-	Seq      uint64
-	Versions [][]int
-}
-
-// LookupWant is the result of the transaction lookup of id, in the form of lookups.json:
-// the error form when Error is set, nothing else expected;
-// else the result, every value of it, each array in its order, its captures by number (captureOf).
-type LookupWant struct {
-	ID string
-	// Error is ErrorNotPrimary for the error form; "" for the result.
-	Error   string
-	Outcome string
-	// Key is the primary's fields; nil when the lookup kept no version of the primary.
-	Key *PrimaryKey
-	// WindowEnd is the window's end; nil when no record read bounds the window.
-	WindowEnd    *uint64
-	Records      []LookupRecord
-	Gaps         []FactWant
-	Searched     []SearchedScope
-	Conflicts    []ConflictWant
-	FooterErrors []ScopeFooterError
-}
-
-// FactWant is a fact of a lookup's gaps whose boundary or coverage entry names a capture of the vector by number.
-type FactWant struct {
-	Fact
-	// Capture, when set, is the number of the capture of the fact's boundary and coverage entry (captureOf),
-	// whose capture_id the expectation leaves empty.
-	Capture *int
-	// At, when set, names the fact's offset in the fact's pack, whose Offset the expectation leaves empty.
-	At Pos
-}
-
-// CutWant is a row of truncation.json: the first cut length it covers and the expectation of its cuts,
-// a rejection code or the outcome, the records exported and validated and where the validated prefix and the walk end,
-// and in a table with repair options the cut's repair.
+// CutWant is the expectation of a run of cuts: the first cut length it covers and the expectation of its cuts,
+// a rejection code or the outcome, the records exported and validated and where the validated prefix and the walk end.
 // Positions are those of the base pack, which every cut shares up to its length.
 type CutWant struct {
 	From      Pos
@@ -322,9 +186,6 @@ type CutWant struct {
 	Records   uint64
 	PrefixEnd Pos
 	WalkStop  Pos
-	// Repair is the repair of every cut of the row, in a table with repair options; nil otherwise.
-	// A row states no records copied, so its Records is 0.
-	Repair *RepairWant
 }
 
 // FailedWant is a failed block and its cause, ReasonCorruptBlock or ReasonUnknownCodec.
@@ -339,7 +200,7 @@ type DefectWant struct {
 	Seq  uint64
 }
 
-// LostWant is a lost entry of verify.json: a closed range of seqs and the time interval of its block.
+// LostWant is a lost entry of the verification report: a closed range of seqs and the time interval of its block.
 type LostWant struct {
 	First, Last        uint64
 	TimeStart, TimeEnd int64
@@ -365,7 +226,7 @@ type BoundaryWant struct {
 	Kind tracepack.BoundaryKind
 }
 
-// QueryWant is the result of the query of id: the seqs it yields and its incomplete reasons, in queries.json's order.
+// QueryWant is the result of the query of id: the seqs it yields and its incomplete reasons, in their order.
 type QueryWant struct {
 	ID         string
 	Seqs       []uint64
@@ -377,22 +238,6 @@ type IncompleteWant struct {
 	Reason tracepack.IncompleteReason
 	Block  int
 	At     Pos
-}
-
-// RepairWant is the expected repair: its result and, when patched, the blocks and records copied and the new coverage.
-type RepairWant struct {
-	Result   string
-	Blocks   int
-	Records  uint64
-	Coverage []CoverageWant
-}
-
-// CoverageWant is a new coverage entry of a patch: its seq_first, its seq_last (nil when absent) and its time interval.
-// The generator also checks that it names the pack's capture.
-type CoverageWant struct {
-	First              uint64
-	Last               *uint64
-	TimeStart, TimeEnd int64
 }
 
 // file is one file of a vector.
@@ -408,33 +253,23 @@ type readInputs struct {
 	fields   bool
 	footer   bool
 	classify *Classify
-	repair   *RepairOptions
-	// intact is RepairInput.Intact; nil when the pack's own records are those the patch must hold or cover.
-	intact []byte
 }
 
 // readOutputs is the reads of a vector: its files, in the order of the tracepack corpus specification §2,
-// and what Expect is checked against.
+// and what Expect is checked against, the verification report, the queries and the cuts' verification read in memory only.
 type readOutputs struct {
-	files      []file
-	rejection  string
-	verify     Verify
-	export     []byte
-	seqs       []uint64
-	queries    []QueryVector
-	stats      tracepack.PackStats
-	statsOK    bool
-	fields     FieldRows
-	footer     *Footer
-	repair     *Repair
-	truncation *Truncation
-	// packs holds the reads of each pack of a multi-pack vector, pack n's at n, as of a single pack without its optional files;
-	// its export is never a file of the vector.
-	packs []*readOutputs
-	// reads holds the reads over several packs of a multi-pack vector, by id.
-	reads []ReadVector
-	// lookups holds the transaction lookups of a multi-pack vector, by id.
-	lookups []LookupVector
+	files     []file
+	rejection string
+	verify    Verify
+	export    []byte
+	seqs      []uint64
+	queries   []QueryVector
+	stats     tracepack.PackStats
+	statsOK   bool
+	fields    FieldRows
+	footer    *Footer
+	// cuts are the expectations of every run of cuts of a truncation vector, before truncation.json merges them.
+	cuts []CutRow
 }
 
 // AtBlock names the envelope of block i.
@@ -588,20 +423,6 @@ func ZstdEncoder(listed string) (string, error) {
 	return m[0] + " " + m[1], nil
 }
 
-// RepairOptionsFor returns the repair options of a vector of seed:
-// the corpus's writer, the patch's pack_id from the seed, codec none, the corpus clock, and in's patch_base.
-func RepairOptionsFor(seed string, in *RepairInput) RepairOptions {
-	out := RepairOptions{
-		Writer: corpusWriter, PackID: IDFor(roleRepairPackID, seed).String(), Codec: tracepack.CodecNone.String(),
-		WriterStartUTCNs: I64(TimeBase),
-	}
-	if in.PatchBase != nil {
-		out.PatchBase = new(in.PatchBase.String())
-	}
-
-	return out
-}
-
 // generateRecipes builds the vectors of recipes, in order, and the root files, recording encoder in the manifest.
 func generateRecipes(ctx context.Context, recipes []Recipe, encoder string) (map[string][]byte, error) {
 	files := make(map[string][]byte)
@@ -660,10 +481,6 @@ func (rec *Recipe) check() error {
 		return errors.New("no Build")
 	case e == nil:
 		return errors.New("no Expect")
-	case rec.Class == ClassMultiPack:
-		return e.checkMulti()
-	case e.Packs != nil || e.Reads != nil || e.Lookups != nil:
-		return errors.New("only a multi-pack vector expects packs, reads and lookups")
 	case rec.Class == ClassRejection && (e.Rejection == "" || e.Outcome != 0):
 		return errors.New("a rejection vector expects a rejection code and nothing else")
 	case rec.Class != ClassRejection && (e.Rejection != "" || e.Outcome == 0 || e.PrefixEnd.kind == posNone):
@@ -671,9 +488,7 @@ func (rec *Recipe) check() error {
 	case e.Outcome == tracepack.OutcomeUnfinalized && !e.Unfinalized:
 		return errors.New("an unfinalized outcome of a pack expected finalized")
 	case (rec.Class == ClassTruncation) != (len(e.Cuts) > 0):
-		return errors.New("a truncation vector, and only one, expects the rows of its table")
-	case rec.Class == ClassRepair && e.Repair == nil:
-		return errors.New("a repair vector expects its repair")
+		return errors.New("a truncation vector, and only one, expects its cuts")
 	}
 
 	return nil
@@ -684,38 +499,17 @@ func generateVector(ctx context.Context, rec *Recipe) (Vector, *readOutputs, err
 	if err := rec.check(); err != nil {
 		return Vector{}, nil, err
 	}
-	seed := rec.seed()
-	built, err := rec.Build(seed)
+	built, err := rec.Build(rec.seed())
 	if err != nil {
 		return Vector{}, nil, err
 	}
-	if rec.Class == ClassMultiPack {
-		return generateMulti(ctx, rec, seed, built)
-	}
-	if built.multiPack() {
-		return Vector{}, nil, errors.New("only a multi-pack vector has packs, reads and lookups")
-	}
 
 	in := &readInputs{
-		class: rec.Class, queries: built.Queries, fields: built.Fields, footer: built.Footer, classify: built.Classify,
-	}
-	switch {
-	case rec.Class == ClassRepair && built.Repair == nil:
-		return Vector{}, nil, errors.New("a repair vector needs its repair input")
-	case built.Repair != nil && rec.Class != ClassRepair && rec.Class != ClassTruncation:
-		return Vector{}, nil, errors.New("only a repair or truncation vector is repaired")
-	case built.Repair != nil:
-		in.repair, in.intact = new(RepairOptionsFor(seed, built.Repair)), built.Repair.Intact
-	default:
-		// Neither repaired nor refused.
+		class: rec.Class, queries: built.Queries, fields: built.Fields, footer: built.Footer, classify: rec.Classify,
 	}
 	out, err := readVector(ctx, built.Pack, in)
 	if err != nil {
 		return Vector{}, nil, err
-	}
-	v := &out.verify
-	if lost := len(v.FailedBlocks) > 0 || v.WalkStop != nil || !v.Finalized; rec.Class == ClassRepair && lost && in.intact == nil {
-		return Vector{}, nil, errors.New("a repair vector whose pack lost records needs its intact pack")
 	}
 	if err := rec.Expect.check(out, built.Pack); err != nil {
 		return Vector{}, nil, fmt.Errorf("disagrees with its Expect: %w", err)
@@ -746,17 +540,15 @@ func (rec *Recipe) vector(out *readOutputs) (Vector, *readOutputs, error) {
 	return vec, out, nil
 }
 
-// checkCodec checks rec's Codec and EncoderMade against the packs of out, when Locate reads them:
-// the manifest codec over every vector pack, pack.tpk or each pack-<n>.tpk, and whether a pack or patch holds encoder-made bytes.
+// checkCodec checks rec's Codec and EncoderMade against pack.tpk of out, when Locate reads it:
+// the manifest codec, and whether the pack holds encoder-made bytes.
 // A fixed pack's zstd bytes were made by whatever encoder wrote it once, never by the running one,
 // so it never depends on the encoder (the tracepack corpus specification §6.1).
 func (rec *Recipe) checkCodec(out *readOutputs) error {
 	made := false
-	packsCodec := ""
+	packCodec := ""
 	for _, f := range out.files {
-		_, verify, numbered := ParseNumberedFile(f.name)
-		vectorPack := f.name == FilePack || numbered && !verify
-		if !vectorPack && f.name != FilePatch {
+		if f.name != FilePack {
 			continue
 		}
 		c, m, err := packCodecs(f.data)
@@ -764,29 +556,17 @@ func (rec *Recipe) checkCodec(out *readOutputs) error {
 			// A pack whose structures Locate refuses is declared by hand alone.
 			continue
 		}
-		if vectorPack {
-			packsCodec = combineCodecs(packsCodec, c)
-		}
-		made = made || (m && rec.Source != SourceFixed)
+		packCodec = c
+		made = m && rec.Source != SourceFixed
 	}
-	if want := cmp.Or(rec.Codec, CodecNone); packsCodec != "" && packsCodec != want {
-		return fmt.Errorf("its packs' codec is %s, the recipe says %s", packsCodec, want)
+	if want := cmp.Or(rec.Codec, CodecNone); packCodec != "" && packCodec != want {
+		return fmt.Errorf("its pack's codec is %s, the recipe says %s", packCodec, want)
 	}
 	if made != rec.EncoderMade {
-		return fmt.Errorf("its packs hold encoder-made zstd bytes: %v, the recipe says %v", made, rec.EncoderMade)
+		return fmt.Errorf("its pack holds encoder-made zstd bytes: %v, the recipe says %v", made, rec.EncoderMade)
 	}
 
 	return nil
-}
-
-// combineCodecs returns the manifest codec of packs whose codec so far is acc ("" for none yet) and another of codec c:
-// the codec they share, or CodecMixed.
-func combineCodecs(acc, c string) string {
-	if acc == "" || acc == c {
-		return c
-	}
-
-	return CodecMixed
 }
 
 // packCodecs returns the manifest codec of pack, from its blocks' codecs and, when finalized, its footer's,
@@ -826,8 +606,8 @@ func packCodecs(pack []byte) (string, bool, error) {
 
 // readVector reads pack as a reader of the corpus does and returns the files the reads give, pack.tpk first:
 // rejection.json for a rejection vector;
-// else export.jsonl and verify.json, and queries.json, fields.json, classify.json, footer.json,
-// repair.json with the patch's files, or truncation.json as in asks.
+// else export.jsonl, and fields.json, footer.json or truncation.json as in asks.
+// It also verifies the pack and runs the queries and the classifier checks in asks, in memory, for Expect.
 // It is how the generator makes the goldens and how the conformance test reads the committed packs again.
 func readVector(ctx context.Context, pack []byte, in *readInputs) (*readOutputs, error) {
 	out := &readOutputs{files: []file{{FilePack, pack}}}
@@ -852,34 +632,25 @@ func readVector(ctx context.Context, pack []byte, in *readInputs) (*readOutputs,
 	if out.verify, err = verifyBytes(ctx, pack); err != nil {
 		return nil, err
 	}
-	if err := out.add(FileVerify, &out.verify); err != nil {
-		return nil, err
-	}
 	out.stats, out.statsOK = r.Stats()
 
 	if err := out.readOptional(ctx, r, pack, in); err != nil {
 		return nil, err
 	}
 
-	switch in.class {
-	case ClassRepair:
-		if in.repair == nil {
-			return nil, errors.New("a repair vector without its repair options")
-		}
-		if err := out.readRepair(ctx, pack, in.repair, in.intact); err != nil {
+	if in.class == ClassTruncation {
+		tb, err := truncationTable(ctx, pack, out.export)
+		if err != nil {
 			return nil, err
 		}
-	case ClassTruncation:
-		t, err := truncationTable(ctx, pack, out.export, in.repair)
+		t, err := tb.Table()
 		if err != nil {
 			return nil, err
 		}
 		if err := out.add(FileTruncation, &t); err != nil {
 			return nil, err
 		}
-		out.truncation = &t
-	default:
-		// A read vector has no other file.
+		out.cuts = tb.Cuts()
 	}
 
 	slices.SortStableFunc(out.files, func(a, b file) int { return compareFiles(a.name, b.name) })
@@ -887,19 +658,15 @@ func readVector(ctx context.Context, pack []byte, in *readInputs) (*readOutputs,
 	return out, nil
 }
 
-// readOptional adds the optional files in asks for: queries.json, fields.json, classify.json and footer.json.
+// readOptional runs the queries and the classifier checks in asks, in memory,
+// and adds the optional files in asks for: fields.json and footer.json.
 func (out *readOutputs) readOptional(ctx context.Context, r *tracepack.Reader, pack []byte, in *readInputs) error {
-	if len(in.queries) > 0 {
-		for _, q := range in.queries {
-			e, err := RunQuery(ctx, r, &q.Filter)
-			if err != nil {
-				return fmt.Errorf("query %s: %w", q.ID, err)
-			}
-			out.queries = append(out.queries, QueryVector{ID: q.ID, Cites: q.Cites, Filter: q.Filter, Expect: e})
+	for _, q := range in.queries {
+		e, err := RunQuery(ctx, r, &q.Filter)
+		if err != nil {
+			return fmt.Errorf("query %s: %w", q.ID, err)
 		}
-		if err := out.add(FileQueries, Queries(out.queries)); err != nil {
-			return err
-		}
+		out.queries = append(out.queries, QueryVector{ID: q.ID, Filter: q.Filter, Expect: e})
 	}
 	if in.fields {
 		rows, err := ReadFields(ctx, r)
@@ -913,9 +680,6 @@ func (out *readOutputs) readOptional(ctx context.Context, r *tracepack.Reader, p
 	}
 	if in.classify != nil {
 		if err := checkClassify(ctx, r, in.classify); err != nil {
-			return err
-		}
-		if err := out.add(FileClassify, in.classify); err != nil {
 			return err
 		}
 	}
@@ -936,13 +700,10 @@ func (out *readOutputs) readOptional(ctx context.Context, r *tracepack.Reader, p
 	return nil
 }
 
-// checkFooter checks footer.json f against the other reads of out (the tracepack corpus specification §5.8):
-// accepted is verify.json's footer_valid, and the statistics of an accepted footer are its stored F-5,
-// every epoch with its close_seq and every boundary.
+// checkFooter checks footer.json f against the statistics of out (the tracepack corpus specification §5.8):
+// the statistics of an accepted footer are its stored F-5, every epoch with its close_seq and every boundary.
+// Whether f is accepted is FooterOf's own decision, which the recipes' expectations check.
 func (out *readOutputs) checkFooter(f *Footer) error {
-	if f.Accepted != out.verify.FooterValid {
-		return fmt.Errorf("footer.json accepted is %v, verify.json footer_valid %v", f.Accepted, out.verify.FooterValid)
-	}
 	if !f.Accepted {
 		return nil
 	}
@@ -968,112 +729,9 @@ func (out *readOutputs) checkFooter(f *Footer) error {
 	return nil
 }
 
-// readRepair repairs pack under opts and adds repair.json and, when patched,
-// the patch, its export and its verification report, after checkPatch accepts the patch.
-// The records the patch must hold or cover are those of intact, or of pack when intact is nil.
-func (out *readOutputs) readRepair(ctx context.Context, pack []byte, opts *RepairOptions, intact []byte) error {
-	rep, patch, err := RunRepair(ctx, pack, *opts)
-	if err != nil {
-		return err
-	}
-	out.repair = &rep
-	if err := out.add(FileRepair, &rep); err != nil {
-		return err
-	}
-	if patch == nil {
-		return nil
-	}
-
-	source := out.export
-	if intact != nil {
-		r, err := openBytes(ctx, intact)
-		if err != nil {
-			return fmt.Errorf("intact pack: %w", err)
-		}
-		if source, _, err = exportPack(ctx, r); err != nil {
-			return fmt.Errorf("intact pack: %w", err)
-		}
-	}
-	records, err := exportRecords(source)
-	if err != nil {
-		return err
-	}
-	export, v, err := checkPatch(ctx, pack, patch, records)
-	if err != nil {
-		return err
-	}
-	out.files = append(out.files, file{FilePatch, patch}, file{FilePatchExport, export})
-
-	return out.add(FilePatchVerify, &v)
-}
-
-// exportedRecord is the seq and ts_utc_ns of a record line of an export.
+// exportedRecord is the seq of a record line of an export.
 type exportedRecord struct {
 	Seq U64 `json:"seq"`
-	TS  I64 `json:"ts_utc_ns"`
-}
-
-// checkPatch checks patch, a repair of pack, against the tracepack format specification §13 and §16,
-// and returns its export and its verify.json:
-// the patch verifies finalized-consistent; each of its blocks is a block of pack, byte for byte;
-// its seq_start is its first record's seq, or pack's seq_start when it holds no record;
-// and every record of source it does not hold lies in one of its coverage entries, its own or those it inherits.
-// An entry holds a record of the patch's capture whose seq and ts_utc_ns lie within its bounds,
-// an absent bound being unbounded.
-func checkPatch(ctx context.Context, pack, patch []byte, source []exportedRecord) ([]byte, Verify, error) {
-	pr, err := openBytes(ctx, patch)
-	if err != nil {
-		return nil, Verify{}, fmt.Errorf("patch: %w", err)
-	}
-	export, seqs, err := exportPack(ctx, pr)
-	if err != nil {
-		return nil, Verify{}, fmt.Errorf("patch: %w", err)
-	}
-	v, err := verifyBytes(ctx, patch)
-	if err != nil {
-		return nil, Verify{}, fmt.Errorf("patch: %w", err)
-	}
-	if v.Outcome != tracepack.OutcomeFinalizedConsistent.String() {
-		return nil, Verify{}, fmt.Errorf("the patch verifies %s", v.Outcome)
-	}
-	if err := patchBlocksCopied(pack, patch); err != nil {
-		return nil, Verify{}, err
-	}
-
-	h := pr.Header()
-	var want uint64
-	if len(seqs) > 0 {
-		want = seqs[0]
-	} else {
-		r, err := openBytes(ctx, pack)
-		if err != nil {
-			return nil, Verify{}, err
-		}
-		want = r.Header().Meta.SeqStart
-	}
-	if h.Meta.SeqStart != want {
-		return nil, Verify{}, fmt.Errorf("the patch's seq_start is %d, not %d", h.Meta.SeqStart, want)
-	}
-	for _, rec := range source {
-		if slices.Contains(seqs, uint64(rec.Seq)) {
-			continue
-		}
-		if !slices.ContainsFunc(h.Meta.Coverage, func(c tracepack.Coverage) bool { return covers(&c, h.CaptureID, rec) }) {
-			return nil, Verify{}, fmt.Errorf("record %d at %d is neither copied nor covered by the patch", rec.Seq, rec.TS)
-		}
-	}
-
-	return export, v, nil
-}
-
-// covers reports whether the coverage entry c of a pack of capture holds rec:
-// c's capture, and c's seq and time bounds around rec's.
-func covers(c *tracepack.Coverage, capture tracepack.UUID, rec exportedRecord) bool {
-	seq, ts := uint64(rec.Seq), int64(rec.TS)
-
-	return (c.CaptureID == nil || *c.CaptureID == capture) &&
-		(c.SeqFirst == nil || *c.SeqFirst <= seq) && (c.SeqLast == nil || seq <= *c.SeqLast) &&
-		(c.TimeStart == nil || *c.TimeStart <= ts) && (c.TimeEnd == nil || ts <= *c.TimeEnd)
 }
 
 // add appends the file name holding doc's canonical form.
@@ -1092,7 +750,7 @@ func openBytes(ctx context.Context, pack []byte) (*tracepack.Reader, error) {
 	return tracepack.Open(ctx, bytes.NewReader(pack), int64(len(pack)), tracepack.ReaderOptions{})
 }
 
-// verifyBytes verifies the in-memory pack and returns its verify.json.
+// verifyBytes verifies the in-memory pack and returns the projection of its verification report.
 func verifyBytes(ctx context.Context, pack []byte) (Verify, error) {
 	rep, err := tracepack.Verify(ctx, bytes.NewReader(pack), int64(len(pack)), tracepack.VerifyOptions{})
 	if err != nil {
@@ -1150,21 +808,22 @@ func exportLines(export []byte) ([][]byte, error) {
 	return lines[:len(lines)-1], nil
 }
 
-// checkClassify checks that c is classify.json of the pack r reads:
+// checkClassify checks the classifier expectations c against the pack r reads:
 // the pack's single max_frame_len, a frame per data or control record of the pack
 // that stores the frame's decode_status and trailing_bytes,
-// and every record storing a byte-predicate status listed (the tracepack corpus specification §5.9).
+// every record storing a byte-predicate status listed,
+// and every data or control record either a frame or a format-only record, never both.
 func checkClassify(ctx context.Context, r *tracepack.Reader, c *Classify) error {
 	m := r.Header().Meta.MaxFrameLens
-	if len(m) != 1 || m[0] != uint64(c.MaxFrameLen) {
-		return fmt.Errorf("classify.json's max_frame_len %d is not the pack's single max_frame_len %v", c.MaxFrameLen, m)
+	if len(m) != 1 || m[0] != c.MaxFrameLen {
+		return fmt.Errorf("the expected max_frame_len %d is not the pack's single max_frame_len %v", c.MaxFrameLen, m)
 	}
 	stored := make(map[uint64]ClassifyFrame)
 	var classified []uint64
 	_, err := r.Iterate(ctx, tracepack.Query{}, func(it *tracepack.Item) error {
 		rec := &it.Record
 		if rec.Kind == tracepack.KindData || rec.Kind == tracepack.KindControl {
-			stored[rec.Seq] = ClassifyFrame{Seq: U64(rec.Seq), DecodeStatus: rec.DecodeStatus.String(), TrailingBytes: rec.TrailingBytes}
+			stored[rec.Seq] = ClassifyFrame{Seq: rec.Seq, DecodeStatus: rec.DecodeStatus, TrailingBytes: rec.TrailingBytes}
 		}
 		if slices.Contains(bytePredicateStatuses, rec.DecodeStatus) {
 			classified = append(classified, rec.Seq)
@@ -1176,81 +835,65 @@ func checkClassify(ctx context.Context, r *tracepack.Reader, c *Classify) error 
 		return err
 	}
 	for _, f := range c.Frames {
-		s, ok := stored[uint64(f.Seq)]
+		s, ok := stored[f.Seq]
 		switch {
 		case !ok:
-			return fmt.Errorf("classify.json lists seq %d, which no data or control record of the pack has", f.Seq)
+			return fmt.Errorf("the expectations list seq %d, which no data or control record of the pack has", f.Seq)
 		case s.DecodeStatus != f.DecodeStatus || s.TrailingBytes != f.TrailingBytes:
-			return fmt.Errorf("classify.json lists seq %d as %s with %d trailing bytes, the record stores %s with %d",
+			return fmt.Errorf("the expectations list seq %d as %s with %d trailing bytes, the record stores %s with %d",
 				f.Seq, f.DecodeStatus, f.TrailingBytes, s.DecodeStatus, s.TrailingBytes)
 		}
 	}
 	for _, seq := range classified {
-		if !slices.ContainsFunc(c.Frames, func(f ClassifyFrame) bool { return uint64(f.Seq) == seq }) {
-			return fmt.Errorf("the record of seq %d stores a byte-predicate status, which classify.json does not list", seq)
+		if !slices.ContainsFunc(c.Frames, func(f ClassifyFrame) bool { return f.Seq == seq }) {
+			return fmt.Errorf("the record of seq %d stores a byte-predicate status, which the expectations do not list", seq)
+		}
+	}
+	for seq := range stored {
+		frame := slices.ContainsFunc(c.Frames, func(f ClassifyFrame) bool { return f.Seq == seq })
+		if frame == slices.Contains(c.FormatOnly, seq) {
+			return fmt.Errorf("the data or control record of seq %d is not exactly one of a frame and a format-only record", seq)
+		}
+	}
+	for _, seq := range c.FormatOnly {
+		if _, ok := stored[seq]; !ok {
+			return fmt.Errorf("the expectations list seq %d as format-only, which no data or control record of the pack has", seq)
 		}
 	}
 
 	return nil
 }
 
-// patchBlocksCopied checks that every block of patch is a block of pack, byte for byte.
-func patchBlocksCopied(pack, patch []byte) error {
-	pl, err := Locate(pack)
-	if err != nil {
-		return err
-	}
-	ql, err := Locate(patch)
-	if err != nil {
-		return err
-	}
-	for i, s := range ql.Blocks {
-		blk := patch[s.Offset : s.Offset+s.Len]
-		if !slices.ContainsFunc(pl.Blocks, func(d Span) bool { return bytes.Equal(pack[d.Offset:d.Offset+d.Len], blk) }) {
-			return fmt.Errorf("block %d of the patch is not a block of the damaged pack", i)
-		}
-	}
-
-	return nil
-}
-
-// truncationTable returns truncation.json of pack, whose export is export:
-// each cut's rejection, or its outcome, export and verification and, with repair options, its repair.
+// truncationTable returns the table of every cut of pack, whose export is export: each cut's rejection, or its export and verification.
 // It checks the property of the tracepack corpus specification §5.7 on every cut that opens:
-// the cut's export is the header line of export and the record lines of the blocks wholly before the cut;
-// and it checks every patch of a cut with checkPatch, against the records of pack.
-func truncationTable(ctx context.Context, pack, export []byte, repair *RepairOptions) (Truncation, error) {
+// the cut's export is the header line of export and the record lines of the blocks wholly before the cut.
+func truncationTable(ctx context.Context, pack, export []byte) (*TruncationTable, error) {
 	l, err := Locate(pack)
 	if err != nil {
-		return Truncation{}, err
+		return nil, err
 	}
 	base, err := exportLines(export)
 	if err != nil {
-		return Truncation{}, err
-	}
-	records, err := exportRecords(export)
-	if err != nil {
-		return Truncation{}, err
+		return nil, err
 	}
 
-	t := NewTruncationTable(uint64(len(pack)), repair)
+	t := NewTruncationTable(uint64(len(pack)))
 	for n := range len(pack) {
 		cut := pack[:n]
-		c, err := cutExpectation(ctx, cut, &l, base, records, repair)
+		c, err := cutExpectation(ctx, cut, &l, base)
 		if err != nil {
-			return Truncation{}, fmt.Errorf("cut %d: %w", n, err)
+			return nil, fmt.Errorf("cut %d: %w", n, err)
 		}
 		if err := t.Add(c); err != nil {
-			return Truncation{}, err
+			return nil, err
 		}
 	}
 
-	return t.Table()
+	return t, nil
 }
 
-// cutExpectation returns the expectation of cut, a prefix of the pack of layout l whose export's lines are base
-// and whose records are records.
-func cutExpectation(ctx context.Context, cut []byte, l *Layout, base [][]byte, records []exportedRecord, repair *RepairOptions) (Cut, error) {
+// cutExpectation returns the expectation of cut, a prefix of the pack of layout l whose export's lines are base.
+func cutExpectation(ctx context.Context, cut []byte, l *Layout, base [][]byte) (Cut, error) {
 	r, err := openBytes(ctx, cut)
 	if err != nil {
 		code, err := RejectionCode(err)
@@ -1279,21 +922,8 @@ func cutExpectation(ctx context.Context, cut []byte, l *Layout, base [][]byte, r
 	if err != nil {
 		return Cut{}, err
 	}
-	c, err := ReadCut(&rep, uint64(whole))
-	if err != nil || repair == nil {
-		return c, err
-	}
-	rp, patch, err := RunRepair(ctx, cut, *repair)
-	if err != nil {
-		return Cut{}, err
-	}
-	if patch != nil {
-		if _, _, err := checkPatch(ctx, cut, patch, records); err != nil {
-			return Cut{}, err
-		}
-	}
 
-	return c.WithRepair(&rp), nil
+	return ReadCut(&rep, uint64(whole))
 }
 
 // offset returns the file offset p names in the pack of layout l.
