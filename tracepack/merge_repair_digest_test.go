@@ -86,10 +86,9 @@ func TestMergeAndRepairOutputDigests(t *testing.T) {
 		return patch
 	}
 	merged := func(c Codec, noCoalesce bool, files ...[]byte) []byte {
-		v := mergeView(t, nil, files...)
 		opts := mergeOpts()
 		opts.Codec, opts.NoCoalesce = c, noCoalesce
-		out, _, err := mergeBytes(t.Context(), v, inputsOf(t, v, files...), opts)
+		out, _, err := mergeBytes(t.Context(), inputsOf(files...), opts)
 		require.NoError(t, err)
 
 		return out

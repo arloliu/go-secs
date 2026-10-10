@@ -117,13 +117,12 @@ func TestMergeClock(t *testing.T) {
 	t.Parallel()
 
 	seg := mergePack(t, seg0, nil, hourSteps(10, 13, 2))
-	v := mergeView(t, nil, seg)
 	merge := func(t *testing.T, opts MergeOptions) MergeReport {
 		t.Helper()
 
 		opts.Now = clockTestNow
 		var out bytes.Buffer
-		rep, err := Merge(t.Context(), &out, v, inputsOf(t, v, seg), opts)
+		rep, err := Merge(t.Context(), &out, inputsOf(seg), opts)
 		require.NoError(t, err)
 		h := mustOpen(t, out.Bytes(), ReaderOptions{}).Header()
 		assert.Equal(t, clockTestTime.UnixNano(), h.WriterStartUTCNs)
