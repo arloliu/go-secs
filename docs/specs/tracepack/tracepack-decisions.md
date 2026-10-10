@@ -1187,6 +1187,7 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   By default the policy names process-program bodies (e.g. S7F3, S7F6, S7F23, S7F26, S7F108), matching the EAP's own log, which holds those bodies only encrypted;
   identifiers such as PPID, lot and carrier stay in clear unless configured, so a search by them still works.
   The bus that carries clear text uses TLS, JetStream encryption at rest, and a work-queue stream with a short maximum age.
+  (2026-10-11: the maximum age is superseded by G5-213 — the stream has no age, size or count limit.)
   Where the ciphertext lives, key custody (a decryption service or KMS holding the private key), and key rotation are designed with P8.
   This needs format 1.1: a minor version that lets a pack writer set `redacted` ([FMT §16]).
   It supersedes G5-66 (store in full, mask on egress), the key-holder part of G5-68, G5-74 (no longer deferred) and G5-76;
@@ -1241,3 +1242,26 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   tracepack v0.1.0 needs no retraction or notice, because tracepack has no users yet.
   Rationale *(editorial)*: the review found that two readers could treat an unknown trailer or footer layout version differently, and that the spec set no window bound while the Go reader enforces one.
   Spec: [FMT §2], [FMT §10], [FMT §11], [FMT §14] (v2.32).
+
+## 2026-10-11 the traffic bus and redelivered records (owner agreed, from the Virtual Equipment and log service designs)
+
+- G5-213 The traffic stream has no age limit (2026-10-11):
+  the work-queue stream that carries clear-text traffic has no `max_age`, `max_bytes` or `max_msgs` limit;
+  an accepted message leaves the stream only by acknowledgement, as [STO §4] "Recorder over a durable bus" and P8 §2.2 already require.
+  Exposure of clear-text bodies at rest is covered by TLS and JetStream encryption at rest.
+  It supersedes the "short maximum age" of G5-207.
+  Rationale *(editorial)*: the acknowledgement is a record's only durability point until a consumer uploads its segment, and the gateway keeps nothing to resend (G5-200);
+  an outage longer than the age would drop unconsumed records silently, and an expired `start` would leave its descriptor unregistered, deferring the capture's later records until they expired too.
+  In normal operation work-queue retention already removes clear text within the flush interval plus upload time, so an age limit would act only during an outage, when the backlog is needed.
+  Rejected *(editorial)*: a long age with expiry declared as loss, which needs an [STO §4] amendment; masking at the gateway, which G5-207 already rejects.
+  Spec: [STO §4], pending (v2.33).
+- G5-214 A redelivered record is written with identical bytes (2026-10-11):
+  masking, the digest key, the encryption of the original and the classifier are deterministic for a record and fixed for the life of a capture;
+  a new masking policy, key or classifier applies from the next capture.
+  So a consumer that writes a record the bus redelivered after another consumer died before acknowledging it produces the same record header and payload,
+  and the duplicate stays harmless under [FMT I-12] instead of becoming a conflict that fails the merge.
+  The encryption of G5-207 therefore uses no random nonce;
+  its construction (for example a misuse-resistant AEAD such as AES-SIV under a per-capture key, since a nonce derived from `capture_id` and `seq` alone would reveal equal plaintexts) is set with P8.
+  Rationale *(editorial)*: the log service's design review found that redelivery after an upload but before registration or acknowledgement writes a record twice into different segments,
+  and that a random nonce, a key or policy change, or a rolling classifier upgrade between the two writes would make the copies differ.
+  Spec: [FMT §3] I-12, [FMT §7], [SEM §3], [SEM §8], [STO §4], pending (v2.33, with P8).
