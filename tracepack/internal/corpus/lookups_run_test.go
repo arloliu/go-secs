@@ -55,6 +55,9 @@ func TestLookupRecipesAreChecked(t *testing.T) {
 		}},
 		{"tx-candidate-selection", "a result as the error form", func(e *Expectation) { e.Lookups[4] = LookupWant{ID: "valid", Error: ErrorNotPrimary} }},
 		{"tx-candidate-selection", "a lookup missing", func(e *Expectation) { e.Lookups = e.Lookups[1:] }},
+		{"tx-index-mismatch", "a fact with both a position and an offset", func(e *Expectation) {
+			e.Lookups[0].Gaps[0].Offset = new(U64(0))
+		}},
 	}
 	for _, tt := range disagreeing {
 		t.Run(tt.id+" "+tt.name, func(t *testing.T) {
@@ -69,7 +72,8 @@ func TestLookupRecipesAreChecked(t *testing.T) {
 }
 
 // TestLookupViewOrder checks the view order of a lookup's source (the tracepack corpus specification §8):
-// the generation's member first, then the scope's other view packs in the order the source lists them,
+// the generation's member first, unless a patch based on the generation replaced it,
+// then the scope's other view packs in the order the source lists them,
 // a patch based on the generation standing where it is listed and the pack it replaces left out.
 // The view order decides searched's packs and the representative, and so the pack, of each version kept.
 func TestLookupViewOrder(t *testing.T) {
@@ -77,7 +81,8 @@ func TestLookupViewOrder(t *testing.T) {
 
 	// One scope of capture A in hour H: pack 0 the member of generation 1, holding the primary at 1;
 	// segments 1 and 2, each one block of its reply at 2 and the socket-close at 3;
-	// pack 3 a patch based on the generation that replaces segment 2, holding the same records.
+	// pack 3 a patch based on the generation that replaces segment 2, holding the same records;
+	// pack 4 a patch based on the generation that replaces the member, holding the primary.
 	// The copies of 2 and 3 lie in blocks of the same first seq, so the view order alone decides their representative
 	// (the tracepack semantics specification §7.4, Conflicts).
 	const seed = "lookup-view-order"
@@ -86,16 +91,19 @@ func TestLookupViewOrder(t *testing.T) {
 	closed, err := newSocketEvent(3, 1, tracepack.EventSocketClose)
 	require.NoError(t, err)
 	set := IDFor(roleReplacementSetID, multiSeed(seed, multiSetRole, 0))
-	patch := func(m *tracepack.PackMeta) {
-		m.PackRole, m.PatchBase = tracepack.PackRoleRepair, &set
-		m.Supersedes = []tracepack.UUID{IDFor(rolePackID, multiSeed(seed, multiPackRole, 2))}
-		m.QualityEvaluated = true
+	patch := func(replaced int) func(m *tracepack.PackMeta) {
+		return func(m *tracepack.PackMeta) {
+			m.PackRole, m.PatchBase = tracepack.PackRoleRepair, &set
+			m.Supersedes = []tracepack.UUID{IDFor(rolePackID, multiSeed(seed, multiPackRole, replaced))}
+			m.QualityEvaluated = true
+		}
 	}
 	built, err := writeMultiPacks(seed, []multiPack{
 		{capture: 0, archive: true, blocks: [][]tracepack.Record{{primary}}, edit: qualityEvaluated},
 		{capture: 0, minute: 1, blocks: [][]tracepack.Record{{reply, closed}}, edit: qualityEvaluated},
 		{capture: 0, minute: 2, blocks: [][]tracepack.Record{{reply, closed}}, edit: qualityEvaluated},
-		{capture: 0, minute: 3, blocks: [][]tracepack.Record{{reply, closed}}, edit: patch},
+		{capture: 0, minute: 3, blocks: [][]tracepack.Record{{reply, closed}}, edit: patch(2)},
+		{capture: 0, minute: 4, blocks: [][]tracepack.Record{{primary}}, edit: patch(0)},
 	})
 	require.NoError(t, err)
 	packs := make([][]byte, 0, len(built))
@@ -117,6 +125,7 @@ func TestLookupViewOrder(t *testing.T) {
 		{"segments listed in reverse", []int{2, 1, 0}, []int{0, 2, 1}, [3]int{0, 2, 2}},
 		{"a patch listed after a segment", []int{1, 3, 0, 2}, []int{0, 1, 3}, [3]int{0, 1, 1}},
 		{"a patch listed first", []int{3, 2, 1, 0}, []int{0, 3, 1}, [3]int{0, 3, 3}},
+		{"a patch replacing the member", []int{1, 4, 0, 2}, []int{1, 4, 2}, [3]int{4, 1, 1}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

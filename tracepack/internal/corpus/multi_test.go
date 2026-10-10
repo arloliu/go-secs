@@ -2,8 +2,11 @@ package corpus
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -205,13 +208,35 @@ func TestCheckRecordContents(t *testing.T) {
 }
 
 // TestGroupBudgets checks the committed corpus against the ceiling of each vector group and root file,
-// and that a group or root file over its ceiling, a vector of no group and a root file of no ceiling each fail the check.
+// and that a group or root file over its ceiling, a vector of no group and a root file of no ceiling each fail the check;
+// and that the size-budget table of the corpus README states exactly those ceilings and their sum,
+// a changed, missing or extra row, a changed total or a missing table each failing the comparison.
 func TestGroupBudgets(t *testing.T) {
 	t.Parallel()
 
 	committed, err := readTree(corpusDir)
 	require.NoError(t, err)
 	assert.Empty(t, checkBudgets(committed))
+	readme := committed["README.md"]
+	require.NoError(t, checkBudgetTable(readme))
+	for name, edit := range map[string]func(md string) string{
+		"a ceiling changed": func(md string) string { return strings.Replace(md, "| 330,000 |", "| 331,000 |", 1) },
+		"a row missing": func(md string) string {
+			i := strings.Index(md, "| `tx-` |")
+			j := i + strings.Index(md[i:], "\n") + 1
+
+			return md[:i] + md[j:]
+		},
+		"an extra row": func(md string) string {
+			return strings.Replace(md, "| **Total**", "| `store-` | | | | 1 |\n| **Total**", 1)
+		},
+		"the total changed": func(md string) string { return strings.Replace(md, "| 1,489,000 |", "| 1,490,000 |", 1) },
+		"no table":          func(md string) string { return strings.Replace(md, "| Budget |", "| Ceiling |", 1) },
+	} {
+		edited := edit(string(readme))
+		require.NotEqual(t, string(readme), edited, name)
+		require.Error(t, checkBudgetTable([]byte(edited)), name)
+	}
 
 	// Every group of the corpus has a ceiling, and the ceilings sum to no more than the corpus's.
 	total := 0
@@ -247,6 +272,78 @@ func TestGroupBudgets(t *testing.T) {
 			require.NotEmpty(t, problems)
 		})
 	}
+}
+
+// checkBudgetTable compares the size-budget table of the corpus README readme with the ceilings the corpus is checked against
+// (vectorGroupCeilings, rootFileCeilings):
+// the table's Budget column holds one row per vector group, by its prefix, and per set of root files, by its names,
+// each that group's or set's ceiling, and a Total row holding their sum.
+//
+// Returns:
+//   - error: a missing table, a row it cannot read, a row of no ceiling, a ceiling of no row, a budget other than its ceiling,
+//     or a total other than the sum.
+func checkBudgetTable(readme []byte) error {
+	const header = "| Group | Vectors | Files | Bytes | Budget |"
+	lines := strings.Split(string(readme), "\n")
+	start := slices.Index(lines, header)
+	if start < 0 || start+2 > len(lines) {
+		return errors.New("the README has no size-budget table")
+	}
+	ceilings := make(map[string]int, len(vectorGroupCeilings)+len(rootFileCeilings))
+	maps.Copy(ceilings, vectorGroupCeilings)
+	sum := 0
+	for _, c := range rootFileCeilings {
+		ceilings[strings.Join(c.files, ", ")] = c.ceiling
+	}
+	for _, c := range ceilings {
+		sum += c
+	}
+
+	var errs []error
+	rows := make(map[string]int)
+	total := -1
+	for _, line := range lines[start+2:] {
+		if !strings.HasPrefix(line, "|") {
+			break
+		}
+		cells := strings.Split(strings.Trim(line, "|"), "|")
+		if len(cells) != 5 {
+			errs = append(errs, fmt.Errorf("budget row %q: %d cells", line, len(cells)))
+
+			continue
+		}
+		name := strings.ReplaceAll(strings.TrimSpace(cells[0]), "`", "")
+		budget, err := strconv.Atoi(strings.ReplaceAll(strings.TrimSpace(cells[4]), ",", ""))
+		if err != nil {
+			errs = append(errs, fmt.Errorf("budget row %q: %w", line, err))
+
+			continue
+		}
+		if name == "**Total**" {
+			total = budget
+
+			continue
+		}
+		rows[name] = budget
+	}
+	for name, budget := range rows {
+		ceiling, ok := ceilings[name]
+		if !ok {
+			errs = append(errs, fmt.Errorf("budget row %s: no ceiling", name))
+		} else if budget != ceiling {
+			errs = append(errs, fmt.Errorf("budget row %s: %d, its ceiling %d", name, budget, ceiling))
+		}
+	}
+	for name := range ceilings {
+		if _, ok := rows[name]; !ok {
+			errs = append(errs, fmt.Errorf("ceiling %s: no budget row", name))
+		}
+	}
+	if total != sum {
+		errs = append(errs, fmt.Errorf("budget total %d, the ceilings sum to %d", total, sum))
+	}
+
+	return errors.Join(errs...)
 }
 
 // TestMultiPackReadPath checks that each committed golden of a multi-pack vector binds the read path:

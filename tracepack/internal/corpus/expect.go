@@ -544,7 +544,7 @@ func (w *LookupWant) check(got *LookupVector, layouts []Layout, seed string) []e
 //
 // Returns:
 //   - LookupExpect: the expectation.
-//   - error: a fact whose position names no pack of layouts, or no offset in it.
+//   - error: a fact that sets both a position and an offset, or whose position names no pack of layouts, or no offset in it.
 func (w *LookupWant) expect(layouts []Layout, seed string) (LookupExpect, error) {
 	if w.Error != "" {
 		return LookupExpect{Error: w.Error}, nil
@@ -581,6 +581,9 @@ func (w *LookupWant) expect(layouts []Layout, seed string) (LookupExpect, error)
 			}
 		}
 		if f.At.kind != posNone {
+			if fact.Offset != nil {
+				return LookupExpect{}, fmt.Errorf("a %s fact sets both a position and an offset", fact.Reason)
+			}
 			if fact.Pack == nil || *fact.Pack < 0 || *fact.Pack >= len(layouts) {
 				return LookupExpect{}, fmt.Errorf("a %s fact with a position names no pack of the vector", fact.Reason)
 			}
