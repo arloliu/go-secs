@@ -503,22 +503,26 @@ func txMisindexed(t testing.TB, seq uint64) []byte {
 	return txMisindexedAt(t, txRecord(seq, nil))
 }
 
-// txMisindexedAt is txMisindexed with rec, above 11, in place of the data record of seq;
-// the footer states no closure or capture-boundary in the block, so it stays valid when rec is a closing record.
-func txMisindexedAt(t testing.TB, rec Record) []byte {
+// txMisindexedAt is txMisindexed with recs, in ascending seq, in place of the data record of seq:
+// the block holds 10 and recs, while its F-2 entry and the trailer state seqs 10 to 10 + len(recs), one seq for each record,
+// each of recs lying above that range.
+// The footer states no closure or capture-boundary in the block, so it stays valid when one of recs is a closing record.
+func txMisindexedAt(t testing.TB, recs ...Record) []byte {
 	t.Helper()
 
-	file := reindexedWith(t, txPack(t, seg0, nil, txBlock(txRecord(10, nil), rec)), func(_ int, s *blockSummary) {
-		s.lastSeq = 11
-		s.seqRanges = []seqRange{{first: 10, last: 11}}
+	last := 10 + uint64(len(recs))
+	require.Greater(t, recs[0].Seq, last)
+	file := reindexedWith(t, txPack(t, seg0, nil, txBlock(append([]Record{txRecord(10, nil)}, recs...)...)), func(_ int, s *blockSummary) {
+		s.lastSeq = last
+		s.seqRanges = []seqRange{{first: 10, last: last}}
 		require.Len(t, s.epochs, 1)
-		s.epochs[0].seqLast = 11
-		// The closure and boundary entries of a closing record above 11 would name a seq outside the stated range.
+		s.epochs[0].seqLast = last
+		// The closure and boundary entries of a closing record above the stated range would name a seq outside it.
 		s.epochs[0].closeSeq, s.epochs[0].hasCloseSeq = 0, false
 		s.boundaries = nil
 	})
 	tr := layoutOf(t, file).tr
-	tr.LastSeq = 11
+	tr.LastSeq = last
 
 	return format.AppendTrailer(file[:len(file)-format.TrailerLen], &tr)
 }
@@ -526,6 +530,8 @@ func txMisindexedAt(t testing.TB, rec Record) []byte {
 // TestFindTransactionPrimaryAfterHigherSeqs reads a scope where a block whose F-2 entry under-reports its last seq
 // yields a seq above the primary before the primary arrives from another pack:
 // the order was broken, a TxGapIndex gap at the primary's seq beside the block's ReasonIndexMismatch defect.
+// The record above the primary, a same-key primary at 20, is classified once the primary is established
+// (the tracepack semantics specification §7.2): it is kept and bounds the window, whose seqs 16 to 19 no read yields.
 // Without the primary, the records above it are no gap of their own: the defect explains the missing primary.
 func TestFindTransactionPrimaryAfterHigherSeqs(t *testing.T) {
 	t.Parallel()
@@ -542,14 +548,17 @@ func TestFindTransactionPrimaryAfterHigherSeqs(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, res.FooterErrs, "the footer must stay valid")
 		assert.Equal(t, TxIncomplete, res.Outcome)
-		assert.Equal(t, []TxGapReason{TxGapIndex, TxGapIndex, TxGapOpenWindow}, gapReasons(res.Gaps))
+		assert.Equal(t, new(uint64(20)), res.WindowEnd)
+		assert.Equal(t, []string{"15@0 primary", "20@0 same-key-primary bound"}, recordFlags(res.Records))
+		require.Len(t, res.Records, 2)
+		assert.Equal(t, seg1, res.Records[0].Pack)
+		assert.Equal(t, seg0, res.Records[1].Pack)
+		assert.Equal(t, 0, res.Records[1].Block)
+		assert.Equal(t, []string{"index", "index@15", "seq-gap@16"}, gapSeqs(res.Gaps))
 		assert.Equal(t, ReasonIndexMismatch, res.Gaps[0].Defect)
 		assert.Equal(t, new(seg0), res.Gaps[0].Pack)
-		assert.Nil(t, res.Gaps[0].Seq)
-		assert.Equal(t, new(uint64(15)), res.Gaps[1].Seq)
 		assert.Nil(t, res.Gaps[1].Pack)
-		require.Len(t, res.Records, 1)
-		assert.Equal(t, seg1, res.Records[0].Pack)
+		assert.Equal(t, []TxScope{{Hour: memTestHour, Indexed: true, Packs: []UUID{seg0, seg1}}}, res.Searched)
 	})
 
 	t.Run("the primary is missing", func(t *testing.T) {
@@ -562,6 +571,303 @@ func TestFindTransactionPrimaryAfterHigherSeqs(t *testing.T) {
 		assert.Equal(t, []TxGapReason{TxGapIndex, TxGapNoKey}, gapReasons(res.Gaps))
 		assert.Equal(t, ReasonIndexMismatch, res.Gaps[0].Defect)
 	})
+}
+
+// txEarlyCase is a lookup of the primary at 15 in a scope where seg0's block, whose F-2 entry states a range from 10,
+// also holds records above the primary, which arrive before it, while seg1 holds the primary and the records after it.
+type txEarlyCase struct {
+	name string
+	// early is held by seg0's misindexed block beside 10, and later by seg1 after the primary.
+	early, later func(t testing.TB) []Record
+	// primary, when set, changes the primary at 15, txRecord's host-to-equipment S1F3 otherwise.
+	primary func(r *Record)
+	// closure, when not zero, is the close_seq of the primary's epoch in the per-capture evidence.
+	closure uint64
+	// noEvidence gives the capture empty per-capture evidence, so that every boundary is reported as a record read.
+	noEvidence bool
+	window     *uint64
+	records    []string
+	// packs, when set, is the pack of each record; otherwise every record of early's first seq is required to be seg0's.
+	packs []UUID
+	gaps  []string
+}
+
+// check runs the lookup of c and requires its outcome TxIncomplete, its window, records and gaps,
+// the footer of seg0 valid, and a capture-boundary gap at 17 placed in seg0's block 0.
+func (c *txEarlyCase) check(t *testing.T) {
+	t.Helper()
+
+	later := append([]Record{txRecord(15, c.primary)}, c.later(t)...)
+	s := txSource(t, true, txMisindexedAt(t, c.early(t)...), txPack(t, seg1, nil, txBlock(later...)))
+	if c.closure != 0 {
+		s.addClosure(captureLow, txTestEpoch, c.closure)
+	}
+	if c.noEvidence {
+		s.giveEvidence(captureLow, CaptureEvidence{})
+	}
+	res, err := findTx(t, t.Context(), s, txKeyAt(15), TxOptions{MaxScopes: 1})
+	require.NoError(t, err)
+	require.Empty(t, res.FooterErrs, "the footer must stay valid")
+	assert.Equal(t, TxIncomplete, res.Outcome)
+	assert.Equal(t, later[0].Dir, res.Dir, "the primary's direction")
+	assert.Equal(t, c.window, res.WindowEnd)
+	assert.Equal(t, c.records, recordFlags(res.Records))
+	assert.Equal(t, c.gaps, gapSeqs(res.Gaps))
+	if c.packs != nil {
+		packs := make([]UUID, 0, len(res.Records))
+		for _, r := range res.Records {
+			packs = append(packs, r.Pack)
+		}
+		assert.Equal(t, c.packs, packs)
+	}
+	for _, r := range res.Records[1:] {
+		if c.packs == nil && r.Record.Seq == c.early(t)[0].Seq {
+			assert.Equal(t, seg0, r.Pack, "seq %d is seg0's", r.Record.Seq)
+			assert.Equal(t, 0, r.Block)
+			assert.Equal(t, memTestHour, r.Hour)
+		}
+	}
+	for _, g := range res.Gaps {
+		if g.Reason == TxGapCaptureBoundary && *g.Seq == 17 {
+			assert.Equal(t, []int64{memTestHour}, g.Hours)
+			assert.Equal(t, new(seg0), g.Pack)
+			assert.Equal(t, 0, g.Block)
+			require.NotNil(t, g.Barrier)
+			assert.Equal(t, BoundaryKindGap, g.Barrier.Kind)
+		}
+	}
+}
+
+// TestFindTransactionEarlyVersions reads, in the primary's scope, seg0's block whose F-2 entry states seqs 10 to 11
+// while it also holds records above the primary at 15, so that they arrive before the primary, from seg1:
+// each is classified once the primary is established, as every other version read
+// (the tracepack semantics specification §7.2), and supplies its roles, flags, window bound and facts;
+// the disagreeing block stays a TxGapIndex gap, beside the one at the primary, and the outcome stays TxIncomplete.
+func TestFindTransactionEarlyVersions(t *testing.T) {
+	t.Parallel()
+
+	note := func(seq uint64) Record { return txNote(seq, nil) }
+	tests := []txEarlyCase{
+		{
+			name:    "an early candidate",
+			early:   func(testing.TB) []Record { return []Record{txReply(16, nil)} },
+			later:   func(testing.TB) []Record { return []Record{note(17), txRecord(18, nil)} },
+			window:  new(uint64(18)),
+			records: []string{"15@0 primary", "16@0 candidate in eligible decidable valid", "18@0 same-key-primary bound"},
+			gaps:    []string{"index", "index@15"},
+		},
+		{
+			name:    "an early same-key primary bounds the window",
+			early:   func(testing.TB) []Record { return []Record{txRecord(17, nil)} },
+			later:   func(testing.TB) []Record { return []Record{note(16), txReply(19, nil)} },
+			window:  new(uint64(17)),
+			records: []string{"15@0 primary", "17@0 same-key-primary bound", "19@0 candidate decidable"},
+			gaps:    []string{"index", "index@15"},
+		},
+		{
+			name:    "an early socket-close bounds the window and meets the close_seq",
+			early:   func(t testing.TB) []Record { return []Record{txSocketClose(t, 17)} },
+			later:   func(testing.TB) []Record { return []Record{note(16), txReply(19, nil)} },
+			closure: 17,
+			window:  new(uint64(17)),
+			records: []string{"15@0 primary", "17@0 closing bound", "19@0 candidate decidable"},
+			gaps:    []string{"index", "index@15"},
+		},
+		{
+			name: "an early gap boundary of the epoch",
+			early: func(t testing.TB) []Record {
+				return []Record{txBoundaryAt(t, 17, txTestEpoch, BoundaryKindGap, nil, nil)}
+			},
+			later:   func(testing.TB) []Record { return []Record{note(16), txRecord(18, nil)} },
+			window:  new(uint64(18)),
+			records: []string{"15@0 primary", "18@0 same-key-primary bound"},
+			gaps:    []string{"index", "index@15", "capture-boundary@17"},
+		},
+		{
+			name: "an early gap boundary before a later one",
+			early: func(t testing.TB) []Record {
+				return []Record{txBoundaryAt(t, 17, txTestEpoch, BoundaryKindGap, nil, nil)}
+			},
+			later: func(t testing.TB) []Record {
+				return []Record{txBoundaryAt(t, 16, txTestEpoch, BoundaryKindGap, nil, nil), txRecord(18, nil)}
+			},
+			noEvidence: true,
+			window:     new(uint64(18)),
+			records:    []string{"15@0 primary", "18@0 same-key-primary bound"},
+			// The read yields 17 first, so its fact is found first.
+			gaps: []string{"index", "index@15", "capture-boundary@17", "capture-boundary@16"},
+		},
+		{
+			name:    "a close_seq at an early annotation",
+			early:   func(testing.TB) []Record { return []Record{note(17)} },
+			later:   func(testing.TB) []Record { return []Record{note(16), txRecord(18, nil)} },
+			closure: 17,
+			window:  new(uint64(18)),
+			records: []string{"15@0 primary", "18@0 same-key-primary bound"},
+			gaps:    []string{"index", "index@15", "contradiction@17"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.check(t)
+		})
+	}
+}
+
+// TestFindTransactionEarlyAndLaterVersions reads a seq whose version in seg0's misindexed block arrives before the primary at 15,
+// while seg1, a pack of the same scope, yields another version of it after the primary, uncompared:
+// the tracepack semantics specification §7.2 keeps every version of a seq that the same scope's read yielded
+// once one of them plays a role, so both versions are kept, in the order the read yielded them,
+// whichever of them plays the role, the early one or the later one,
+// for a host-to-equipment primary and, with every direction swapped, an equipment-to-host one.
+func TestFindTransactionEarlyAndLaterVersions(t *testing.T) {
+	t.Parallel()
+
+	base := []txEarlyCase{
+		{
+			name:    "an early annotation, a later same-key primary",
+			early:   func(testing.TB) []Record { return []Record{txNote(18, nil)} },
+			later:   func(testing.TB) []Record { return []Record{txNote(16, nil), txReply(17, nil), txRecord(18, nil)} },
+			window:  new(uint64(18)),
+			records: []string{"15@0 primary", "17@0 candidate in eligible decidable valid", "18@0 none", "18@0 same-key-primary bound"},
+			packs:   []UUID{seg1, seg1, seg0, seg1},
+			gaps:    []string{"index", "index@15"},
+		},
+		{
+			name:    "an early same-key primary, a later annotation",
+			early:   func(testing.TB) []Record { return []Record{txRecord(18, nil)} },
+			later:   func(testing.TB) []Record { return []Record{txNote(16, nil), txReply(17, nil), txNote(18, nil)} },
+			window:  new(uint64(18)),
+			records: []string{"15@0 primary", "17@0 candidate in eligible decidable valid", "18@0 same-key-primary bound", "18@0 none"},
+			packs:   []UUID{seg1, seg1, seg0, seg1},
+			gaps:    []string{"index", "index@15"},
+		},
+		{
+			name: "early versions of two seqs, later ones of both",
+			early: func(testing.TB) []Record {
+				return []Record{txNote(17, []byte{1}), txRecord(18, nil)}
+			},
+			later: func(testing.TB) []Record {
+				return []Record{txNote(16, nil), txReply(17, nil), txNote(18, []byte{2})}
+			},
+			window: new(uint64(18)),
+			records: []string{
+				"15@0 primary", "17@0 none in", "17@0 candidate in eligible decidable valid", "18@0 same-key-primary bound", "18@0 none",
+			},
+			packs: []UUID{seg1, seg0, seg1, seg0, seg1},
+			gaps:  []string{"index", "index@15"},
+		},
+	}
+	// The same cases with the directions swapped: an equipment-to-host primary, a host-to-equipment candidate.
+	toEquipment := func(r *Record) { r.Dir = DirEquipmentToHost }
+	toHost := func(r *Record) { r.Dir = DirHostToEquipment }
+	tests := make([]txEarlyCase, 0, 2*len(base))
+	tests = append(tests, base...)
+	for _, c := range base {
+		early, later := c.early, c.later
+		c.name += ", the directions swapped"
+		c.primary = toEquipment
+		c.early = func(t testing.TB) []Record { return swapDirs(early(t), toEquipment, toHost) }
+		c.later = func(t testing.TB) []Record { return swapDirs(later(t), toEquipment, toHost) }
+		tests = append(tests, c)
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.check(t)
+		})
+	}
+}
+
+// swapDirs returns recs with every host-to-equipment data record changed by toEquipment
+// and every equipment-to-host one by toHost; other records are unchanged.
+func swapDirs(recs []Record, toEquipment, toHost func(r *Record)) []Record {
+	out := slices.Clone(recs)
+	for i := range out {
+		switch {
+		case out[i].Kind != KindData:
+		case out[i].Dir == DirHostToEquipment:
+			toEquipment(&out[i])
+		case out[i].Dir == DirEquipmentToHost:
+			toHost(&out[i])
+		default:
+			// Local or unknown: no direction to swap.
+		}
+	}
+
+	return out
+}
+
+// TestFindTransactionEarlyStopOfAnotherEpoch reads, in the primary's scope, seg0's block whose F-2 entry states seqs 10 to 11
+// while it holds 10 and a clean stop of epoch 2 at 17, both of epoch 2, so that the stop arrives before the epoch-1 primary at 15, from seg1,
+// beside per-capture evidence claiming a stop of epoch 1 at 17.
+// The early stop is classified once the primary is established: a stop of any epoch is a closing record, so it bounds the window at 17.
+// It is not the boundary of the primary's epoch that the evidence names at 17, so that entry is a capture-boundary,
+// and the claim, which no version at 17 meets, a contradiction.
+func TestFindTransactionEarlyStopOfAnotherEpoch(t *testing.T) {
+	t.Parallel()
+
+	const other = txTestEpoch + 1
+	inOther := func(r *Record) { r.Epoch = other }
+	file := reindexedWith(t, txPack(t, seg0, nil, txBlock(txRecord(10, inOther), txBoundaryAt(t, 17, other, BoundaryKindStop, nil, nil))),
+		func(_ int, s *blockSummary) {
+			s.lastSeq = 11
+			s.seqRanges = []seqRange{{first: 10, last: 11}}
+			require.Len(t, s.epochs, 1)
+			s.epochs[0].seqLast = 11
+			// The closure and boundary entries of the stop would name a seq outside the stated range.
+			s.epochs[0].closeSeq, s.epochs[0].hasCloseSeq = 0, false
+			s.boundaries = nil
+		})
+	tr := layoutOf(t, file).tr
+	tr.LastSeq = 11
+	misindexed := format.AppendTrailer(file[:len(file)-format.TrailerLen], &tr)
+
+	s := txSource(t, true, misindexed, txPack(t, seg1, nil, txBlock(txRecord(15, nil), txNote(16, nil))))
+	s.addBoundary(Boundary{Capture: captureLow, Seq: 17, Kind: BoundaryKindStop, TS: blockTestHour + 17, Epoch: txTestEpoch})
+	res, err := findTx(t, t.Context(), s, txKeyAt(15), TxOptions{MaxScopes: 1})
+	require.NoError(t, err)
+	require.Empty(t, res.FooterErrs, "the footer must stay valid")
+	assert.Equal(t, TxIncomplete, res.Outcome)
+	assert.Equal(t, new(uint64(17)), res.WindowEnd)
+	assert.Equal(t, []string{"15@0 primary", "17@0 closing bound"}, recordFlags(res.Records))
+	require.Len(t, res.Records, 2)
+	assert.Equal(t, seg0, res.Records[1].Pack)
+	assert.Equal(t, uint32(other), res.Records[1].Record.Epoch)
+	assert.Equal(t, []string{"index", "index@15", "capture-boundary@17", "contradiction@17"}, gapSeqs(res.Gaps))
+	b := res.Gaps[2].Barrier
+	require.NotNil(t, b)
+	assert.Equal(t, BoundaryKindStop, b.Kind)
+	assert.Equal(t, uint32(txTestEpoch), b.Epoch)
+	assert.Nil(t, res.Gaps[2].Pack, "the evidence entry, not a record read")
+}
+
+// TestFindTransactionEarlyCopyOfConflict reads a same-key primary at 20
+// whose copy in seg0's misindexed block arrives before the primary at 15,
+// while seg1 and seg2 hold versions of 20 that the read compares and finds in conflict:
+// the early copy is kept before them, in the order the read yielded the versions, and marked as a conflict with them.
+// A same-key primary bounds the window whether or not it conflicts, so the window ends at 20, every same-key version bound.
+func TestFindTransactionEarlyCopyOfConflict(t *testing.T) {
+	t.Parallel()
+
+	s := txSource(t, true, txMisindexed(t, 20),
+		txPack(t, seg1, nil, txBlock(txSeqs(15, 20)...)), txPack(t, seg2, nil, changed(txBlock(txSeqs(20)...), 1, 20)))
+	res, err := findTx(t, t.Context(), s, txKeyAt(15), TxOptions{MaxScopes: 1})
+	require.NoError(t, err)
+	assert.Equal(t, TxIncomplete, res.Outcome)
+	assert.Equal(t, new(uint64(20)), res.WindowEnd)
+	assert.Equal(t, []uint64{20}, conflictSeqs(res.Conflicts))
+	assert.Equal(t, []string{"15@0 primary", "20@0 same-key-primary! bound", "20@0 same-key-primary! bound", "20@0 none!"},
+		recordFlags(res.Records))
+	packs := make([]UUID, 0, len(res.Records))
+	for _, r := range res.Records {
+		packs = append(packs, r.Pack)
+	}
+	assert.Equal(t, []UUID{seg1, seg0, seg1, seg2}, packs)
+	assert.Equal(t, []string{"index", "index@15", "conflict@20", "seq-gap@16"}, gapSeqs(res.Gaps))
 }
 
 // TestFindTransactionClosesOnce ends lookups on each error of the source and of the observation,

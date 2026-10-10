@@ -39,7 +39,7 @@ func txTinyReply(seq uint64, dt int64) Record {
 // the primary's versions and every other record in the result, the conflicts across scope reads with their hours,
 // every gap (a gap of a conflict across scope reads without its Hours, which are the conflict's),
 // the coverage entries, the footer errors, the listed conflicts, the ordering-uncertain epochs, the capture-boundary records,
-// and the runs of the seqs the primary's scope yielded before the primary.
+// and the versions the primary's scope yielded before the primary, with their seqs' runs and later versions, while they are buffered.
 // It holds after any lookup, also one that failed, since nothing is added to the state before it is charged.
 func txStateRecount(l *txLookup) int64 {
 	var n int64
@@ -90,7 +90,9 @@ func txStateRecount(l *txLookup) int64 {
 	}
 	n += int64(len(l.uncertain))*txUncertainCharge + int64(len(l.boundaries))*txBoundaryRecordCharge
 	n += int64(len(l.conflicted)) * txConflictedCharge
-	n += int64(len(l.earlyRuns.runs)) * txRunCharge
+	versions(l.earlyVersions)
+	versions(l.laterVersions)
+	n += int64(len(l.earlySeqs.runs)) * txRunCharge
 
 	return n
 }
@@ -728,6 +730,119 @@ func TestFindTransactionCancelDroppingGroup(t *testing.T) {
 	require.Len(t, lk.reads, 1)
 	assert.Len(t, lk.reads[0].group.versions, 2, "the versions not released stay buffered")
 	requireStateRecount(t, lk)
+}
+
+// TestFindTransactionStateBudgetEarly charges each version a scope read yields before the primary as it arrives:
+// a large annotation that seg0's misindexed block yields before the primary at 15 plays no role,
+// yet it is cloned and charged, since it cannot be classified before the primary is established, and released once it is.
+// So the MaxStateBytes that a lookup of the same records read in seq order fits in, the annotation dropped there without a copy,
+// fails with ErrReadLimit while it is buffered; with room for it, the lookup succeeds and holds no charge of it.
+// A primary without a key ends the lookup before any classification: the versions buffered are released, not kept.
+func TestFindTransactionStateBudgetEarly(t *testing.T) {
+	t.Parallel()
+
+	big := txNote(16, bytes.Repeat([]byte{1}, 40_000))
+	run := func(t *testing.T, opts TxOptions, files ...[]byte) (TxResult, *txLookup, error) {
+		t.Helper()
+
+		var l *txLookup
+		res, err := findTransactionWith(t.Context(), txSource(t, true, files...), txKeyAt(15), opts, func(lk *txLookup) { l = lk })
+		require.NotNil(t, l)
+		requireStateRecount(t, l)
+
+		return res, l, err
+	}
+	later := txPack(t, seg1, nil, txBlock(txRecord(15, nil), txRecord(17, nil)))
+
+	res, l, err := run(t, TxOptions{MaxScopes: 1}, txMisindexedAt(t, big), later)
+	require.NoError(t, err)
+	assert.Equal(t, TxIncomplete, res.Outcome)
+	assert.Equal(t, []string{"15@0 primary", "17@0 same-key-primary"}, recordSeqs(res.Records))
+	assert.Equal(t, []string{"index", "index@15"}, gapSeqs(res.Gaps))
+	assert.Empty(t, l.earlyVersions)
+	limit := l.state.used
+	require.Less(t, limit, versionCost(&big, nil), "the annotation's charge is released")
+
+	inOrder, l, err := run(t, TxOptions{MaxScopes: 1, MaxStateBytes: limit},
+		txPack(t, seg0, nil, txBlock(txRecord(10, nil), big)), later)
+	require.NoError(t, err, "read in seq order, the annotation is dropped without a copy")
+	assert.Equal(t, TxUnmatched, inOrder.Outcome)
+	assert.LessOrEqual(t, l.state.used, limit)
+
+	_, _, err = run(t, TxOptions{MaxScopes: 1, MaxStateBytes: limit}, txMisindexedAt(t, big), later)
+	require.ErrorIs(t, err, ErrReadLimit, "the annotation is charged while it is buffered")
+
+	t.Run("a primary without a key", func(t *testing.T) {
+		t.Parallel()
+
+		unkeyed := txPack(t, seg1, nil, txBlock(txRecord(15, func(r *Record) { r.FieldValidity &^= FieldValiditySessionID }), txRecord(17, nil)))
+		res, l, err := run(t, TxOptions{MaxScopes: 1}, txMisindexedAt(t, big, txReply(18, nil)), unkeyed)
+		require.NoError(t, err)
+		assert.Equal(t, TxIncomplete, res.Outcome)
+		assert.Equal(t, []string{"15@0 primary"}, recordSeqs(res.Records))
+		assert.Equal(t, []string{"index", "index@15", "no-key@15"}, gapSeqs(res.Gaps))
+		assert.Empty(t, l.earlyVersions, "released, not kept")
+		require.Less(t, l.state.used, versionCost(&big, nil))
+	})
+}
+
+// TestFindTransactionCancelEarlyVersions cancels a lookup
+// while the versions that seg0's misindexed block yields before the primary at 15,
+// a reply at 16 and an annotation at 17, are buffered, beside seg1's later version of 17:
+// during the read, once both early versions are buffered; while they are classified;
+// and while they are kept or released, after the first of them.
+// What is not yet classified, kept or released keeps its charge, so the state is still as recounted,
+// and the result has no outcome.
+func TestFindTransactionCancelEarlyVersions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// at reports whether to cancel ctx at a check of the lookup l, the n-th check made by the same method.
+		at func(l *txLookup, n int) bool
+		// buffered and later are the versions left in the early buffer and among the later versions of early seqs.
+		buffered, later int
+		// records are the records of the result: the primary once it is settled, none of the read's others.
+		records []string
+	}{
+		{name: "during the read", at: func(l *txLookup, _ int) bool { return len(l.earlyVersions) == 2 && len(l.primary) == 0 },
+			buffered: 2, records: []string{}},
+		{name: "while classifying them", at: func(_ *txLookup, _ int) bool { return tickCaller() == "classifyEarly" },
+			buffered: 2, later: 1, records: []string{"15@0 primary"}},
+		// keepEarly checks ctx once for each of the three versions, then before keeping or releasing each.
+		{name: "while keeping or releasing them", at: func(_ *txLookup, n int) bool { return tickCaller() == "keepEarly" && n == 5 },
+			buffered: 1, later: 1, records: []string{"15@0 primary"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := txSource(t, true, txMisindexedAt(t, txReply(16, nil), txNote(17, []byte{1})),
+				txPack(t, seg1, nil, txBlock(txRecord(15, nil), txNote(17, []byte{2}), txRecord(18, nil))))
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			var lk *txLookup
+			calls := map[string]int{}
+			res, err := findTransactionWith(ctx, s, txKeyAt(15), TxOptions{MaxScopes: 1}, func(l *txLookup) {
+				lk = l
+				l.ticks.step = 1
+				l.onTick = func() {
+					caller := tickCaller()
+					calls[caller]++
+					if tt.at(l, calls[caller]) {
+						cancel()
+					}
+				}
+			})
+			require.ErrorIs(t, err, context.Canceled)
+			assert.Zero(t, res.Outcome)
+			assert.Equal(t, tt.records, recordSeqs(res.Records), "the read is not committed")
+			require.NotNil(t, lk)
+			assert.Len(t, lk.earlyVersions, tt.buffered)
+			assert.Len(t, lk.laterVersions, tt.later)
+			requireStateRecount(t, lk)
+		})
+	}
 }
 
 // TestFindTransactionTicksEmptyScopes counts the checks of ctx in the probes of the scope reads for a seq:

@@ -3203,6 +3203,20 @@
       "files": [
         "pack-0.tpk",
         "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "pack-2.tpk",
+        "pack-2.verify.json",
+        "pack-3.tpk",
+        "pack-3.verify.json",
+        "pack-4.tpk",
+        "pack-4.verify.json",
+        "pack-5.tpk",
+        "pack-5.verify.json",
+        "pack-6.tpk",
+        "pack-6.verify.json",
+        "pack-7.tpk",
+        "pack-7.verify.json",
         "lookups.json"
       ]
     },

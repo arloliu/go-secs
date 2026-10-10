@@ -324,7 +324,8 @@ func (l *txLookup) searchWindow(ctx context.Context) error {
 // An item at or above the primary's seq enters the read's run set and its seq group (beginGroup),
 // or, joining the open group, adds the group's conflict gap when it is the group's first version marked as a conflict (localConflict).
 // In scope key.Hour, a version of the primary is cloned and kept, the first one taken as the key to classify against,
-// and an item above the primary that arrives before any version of it is counted and its seq noted, not classified.
+// and an item above the primary that arrives before any version of it is counted, cloned and buffered (bufferEarly),
+// to be classified once the primary is established (classifyEarly).
 // Every other item at or above the primary's seq is classified and buffered in its group (addVersion).
 // Each item counts toward the checks of ctx (tick), and what it adds to the state is charged before it is added.
 //
@@ -371,13 +372,30 @@ func (l *txLookup) collect(ctx context.Context, rd *txScopeRead, it *Item) error
 			l.prim = primaryKeyOf(&l.primary[0].Record)
 		}
 	case first && len(l.primary) == 0:
-		if err := l.earlyRuns.insert(rec.Seq, &l.state); err != nil {
-			return err
-		}
-		l.early++
+		// Its seq, conflict and group are noted above, as for any other item; only its classification waits.
+		return l.bufferEarly(rd, it)
 	default:
 		return l.addVersion(rd, it)
 	}
+
+	return nil
+}
+
+// bufferEarly counts it, an item above the primary that the read rd of scope key.Hour yields before any version of the primary,
+// notes its seq among the early seqs and buffers a clone of it, unclassified, each charged before it is added.
+//
+// Returns:
+//   - error: the error of a charge, wrapping ErrReadLimit.
+func (l *txLookup) bufferEarly(rd *txScopeRead, it *Item) error {
+	if err := l.earlySeqs.insert(it.Record.Seq, &l.state); err != nil {
+		return err
+	}
+	v, err := l.cloneVersion(rd, it, 0)
+	if err != nil {
+		return err
+	}
+	l.earlyVersions = append(l.earlyVersions, v)
+	l.early++
 
 	return nil
 }
@@ -584,9 +602,10 @@ func (l *txLookup) pendGap(rd *txScopeRead, pg txPendingGap) error {
 }
 
 // addVersion classifies the version it of the read rd's open group and buffers it:
-// a later scope's version of the primary is TxPrimary, any other version takes the roles classify gives,
-// and a capture-boundary record of the primary's epoch is noted.
-// A version that plays no role, and that the read compared with no other copy (Item.Conflict false),
+// a later scope's version of the primary is TxPrimary, any other version takes the roles classifyVersion gives.
+// In scope key.Hour, a version of a seq the read yielded before the primary is cloned whatever its roles
+// and buffered with the later versions of those seqs, to be kept or released with the early ones (keepEarly).
+// Any other version that plays no role, and that the read compared with no other copy (Item.Conflict false),
 // is the only version of its seq in the read, unless a block disagrees with its F-2 entry,
 // so it is dropped without a copy, unless the group already buffers a version.
 // A version buffered is charged when it is cloned (cloneVersion).
@@ -603,12 +622,18 @@ func (l *txLookup) addVersion(rd *txScopeRead, it *Item) error {
 	g := &rd.group
 	class := TxPrimary
 	if rec.Seq != l.key.Seq {
-		var ev *TransportEvent
-		class, ev = l.prim.classify(rec)
-		if ev != nil && ev.Event == EventCaptureBoundary && rec.Epoch == l.prim.epoch {
-			if err := l.noteBoundary(rd, it, ev); err != nil {
+		var err error
+		if class, err = l.classifyVersion(seenAt(rd, it), rec); err != nil {
+			return err
+		}
+		if l.early > 0 && rd.hour == l.key.Hour && l.earlySeqs.contains(rec.Seq) {
+			v, err := l.cloneVersion(rd, it, class)
+			if err != nil {
 				return err
 			}
+			l.laterVersions = append(l.laterVersions, v)
+
+			return nil
 		}
 	}
 	if class == 0 && !it.Conflict && len(g.versions) == 0 {
@@ -624,11 +649,29 @@ func (l *txLookup) addVersion(rd *txScopeRead, it *Item) error {
 	return nil
 }
 
-// noteBoundary records the capture-boundary record of it, whose payload decodes to ev, charging it before it is added.
+// classifyVersion returns the roles that rec, a version above the primary's seq that a read yielded at at,
+// plays against the primary (classify), and notes it when it is a capture-boundary record of the primary's epoch (noteBoundary).
+//
+// Returns:
+//   - TxClass: the roles; zero for none.
+//   - error: the error of the boundary's charge, wrapping ErrReadLimit.
+func (l *txLookup) classifyVersion(at txSeen, rec *Record) (TxClass, error) {
+	class, ev := l.prim.classify(rec)
+	if ev != nil && ev.Event == EventCaptureBoundary && rec.Epoch == l.prim.epoch {
+		if err := l.noteBoundary(at, rec, ev); err != nil {
+			return 0, err
+		}
+	}
+
+	return class, nil
+}
+
+// noteBoundary records the capture-boundary record rec, which a read yielded at at and whose payload decodes to ev,
+// charging it before it is added.
 //
 // Returns:
 //   - error: the charge's error, wrapping ErrReadLimit.
-func (l *txLookup) noteBoundary(rd *txScopeRead, it *Item, ev *TransportEvent) error {
+func (l *txLookup) noteBoundary(at txSeen, rec *Record, ev *TransportEvent) error {
 	if err := l.state.reserve(txBoundaryRecordCharge); err != nil {
 		return err
 	}
@@ -636,12 +679,109 @@ func (l *txLookup) noteBoundary(rd *txScopeRead, it *Item, ev *TransportEvent) e
 	if ev.BoundaryKind != nil {
 		kind = *ev.BoundaryKind
 	}
-	rec := &it.Record
-	l.boundaries = append(l.boundaries, txBoundaryRecord{at: seenAt(rd, it), boundary: Boundary{
+	l.boundaries = append(l.boundaries, txBoundaryRecord{at: at, boundary: Boundary{
 		Capture: l.key.Capture, Seq: rec.Seq, Kind: kind, TS: rec.TSUTCNs, Epoch: rec.Epoch, GapStart: ev.GapStart, GapEnd: ev.GapEnd,
 	}})
 
 	return nil
+}
+
+// classifyEarly classifies the versions that the read rd of scope key.Hour yielded above the primary before any version of it,
+// once the primary is established with a key, as every other version read (the tracepack semantics specification §7.2):
+// each takes the roles classifyVersion gives, a capture-boundary record of the primary's epoch noted,
+// the boundaries noted going before the read's others, since the read yielded them first.
+// Their seqs, conflicts and groups were noted as they arrived (collect), so only their classification happens here;
+// keepEarly then keeps or releases them.
+// Each version counts toward the checks of ctx (tick).
+//
+// Returns:
+//   - error: ctx's error, as is; the error of a boundary's charge, wrapping ErrReadLimit;
+//     the versions stay buffered with their charge.
+func (l *txLookup) classifyEarly(ctx context.Context, rd *txScopeRead) error {
+	if len(l.earlyVersions) == 0 {
+		return nil
+	}
+	noted := len(l.boundaries)
+	for i := range l.earlyVersions {
+		if err := l.tick(ctx); err != nil {
+			return err
+		}
+		v := &l.earlyVersions[i]
+		class, err := l.classifyVersion(txSeen{hour: v.Hour, seq: v.Record.Seq, pack: v.Pack, block: v.Block}, &v.Record)
+		if err != nil {
+			return err
+		}
+		v.Class = class
+	}
+	l.boundaries = slices.Concat(l.boundaries[noted:], l.boundaries[:noted])
+
+	return l.keepEarly(ctx, rd)
+}
+
+// keepEarly keeps, in rd, every version of a seq that the read rd yielded before the primary,
+// the early versions and the later ones alike, when one of them plays a role,
+// since a lookup keeps with a record that plays a role every other version of its seq that the same scope's read yielded
+// (the tracepack semantics specification §7.2); it releases the charge of every other one.
+// The versions kept go before the read's other kept versions, the early ones first, each in the order the read yielded it,
+// so that the sort of the records keeps the version order within the read; no other version the read kept shares their seqs.
+// The seqs' runs are released at the end.
+// Each version counts toward the checks of ctx (tick) once as its seq is looked at, and once as it is kept or released.
+//
+// Returns:
+//   - error: ctx's error, as is; the versions not yet kept or released stay buffered with their charge.
+func (l *txLookup) keepEarly(ctx context.Context, rd *txScopeRead) error {
+	// The seqs of which a version plays a role; at most one entry for each version charged.
+	qualified := make(map[uint64]struct{})
+	for _, vs := range [][]TxRecord{l.earlyVersions, l.laterVersions} {
+		for i := range vs {
+			if err := l.tick(ctx); err != nil {
+				return err
+			}
+			if vs[i].Class != 0 {
+				qualified[vs[i].Record.Seq] = struct{}{}
+			}
+		}
+	}
+	kept := len(rd.kept)
+	for _, buf := range []*[]TxRecord{&l.earlyVersions, &l.laterVersions} {
+		for len(*buf) > 0 {
+			if err := l.tick(ctx); err != nil {
+				return err
+			}
+			v := &(*buf)[0]
+			if _, ok := qualified[v.Record.Seq]; ok {
+				rd.kept = append(rd.kept, *v)
+			} else {
+				l.state.release(versionCost(&v.Record, v.HeaderExtra))
+			}
+			*v = TxRecord{}
+			*buf = (*buf)[1:]
+		}
+		*buf = nil
+	}
+	l.releaseEarlySeqs()
+	rd.kept = slices.Concat(rd.kept[kept:], rd.kept[:kept])
+
+	return nil
+}
+
+// releaseEarly drops the versions buffered before the primary and the later versions of their seqs, unclassified or not,
+// and releases their charge and the charge of the seqs' runs.
+func (l *txLookup) releaseEarly() {
+	for _, vs := range [][]TxRecord{l.earlyVersions, l.laterVersions} {
+		for i := range vs {
+			l.state.release(versionCost(&vs[i].Record, vs[i].HeaderExtra))
+		}
+		clear(vs)
+	}
+	l.earlyVersions, l.laterVersions = nil, nil
+	l.releaseEarlySeqs()
+}
+
+// releaseEarlySeqs drops the runs of the seqs yielded before the primary and releases their charge.
+func (l *txLookup) releaseEarlySeqs() {
+	l.state.release(int64(len(l.earlySeqs.runs)) * txRunCharge)
+	l.earlySeqs = txRuns{}
 }
 
 // endGroup ends the read rd's open group:

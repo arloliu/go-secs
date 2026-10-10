@@ -816,9 +816,11 @@ func TestFindTransactionFixedObservation(t *testing.T) {
 }
 
 // TestFindTransactionClaimBeforePrimary reads, in the primary's scope, a block whose F-2 entry under-reports its last seq,
-// so that its record at 20 arrives before the primary at 15 and is neither classified nor kept,
-// beside a close_seq of the primary's epoch at 20 and a stop of the epoch claimed at 17, an annotation read after the primary:
-// the claim at 20 is not checked, the order of that read being broken, while the one at 17 is still a contradiction.
+// so that its record at 20, a same-key primary, arrives before the primary at 15,
+// beside a close_seq of the primary's epoch at 20 and a stop of the epoch claimed at 17, an annotation read after the primary.
+// Yield order exempts no seq read from the checking of closure claims (the tracepack semantics specification §7.2):
+// the record at 20 is classified once the primary is established, bounds the window and is no closing record,
+// so the claim at 20 is a contradiction, as the one at 17 is.
 func TestFindTransactionClaimBeforePrimary(t *testing.T) {
 	t.Parallel()
 
@@ -828,6 +830,8 @@ func TestFindTransactionClaimBeforePrimary(t *testing.T) {
 	res, err := findTx(t, t.Context(), s, txKeyAt(15), TxOptions{MaxScopes: 1})
 	require.NoError(t, err)
 	assert.Equal(t, TxIncomplete, res.Outcome)
-	assert.Equal(t, []string{"index", "index@15", "open-window", "capture-boundary@17", "contradiction@17"}, gapSeqs(res.Gaps))
-	assert.Equal(t, []string{"15@0 primary"}, recordSeqs(res.Records))
+	assert.Equal(t, new(uint64(20)), res.WindowEnd)
+	assert.Equal(t, []string{"index", "index@15", "seq-gap@16", "capture-boundary@17", "contradiction@20", "contradiction@17"},
+		gapSeqs(res.Gaps))
+	assert.Equal(t, []string{"15@0 primary", "20@0 same-key-primary"}, recordSeqs(res.Records))
 }

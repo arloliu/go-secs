@@ -24,6 +24,20 @@ The two clauses of the format specification §16 that need several packs have th
   spec v2.31 lets a log converter reuse its ids for reproducible output and write segments, and changes no golden.
 - The corpus README's size budget per vector group and root file is now a ceiling a test enforces,
   and the README's budget table must state the same ceilings.
+- `FindTransaction` classifies the versions that the read of the primary's scope yields before the primary,
+  which only a block disagreeing with its F-2 entry can deliver out of seq order:
+  they take their roles, can bound the window and give their boundaries,
+  and a version with a role keeps every version of its seq that the scope's read yielded, before the primary or after it.
+  An evidence closure claim at their seq is checked, a claim they do not hold being reported as a contradiction.
+  Until the primary is read they are held as copies charged to `MaxStateBytes`, so such a damaged pack can reach that limit sooner.
+  The outcome stays `incomplete`, from the block's index defect.
+  Lookups over packs whose index agrees with their blocks are unchanged.
+- `FindTransaction` reports a capture-boundary of the primary's epoch at the window's end
+  unless the clean `stop` that bounds the window is of that same epoch:
+  a `stop` of another epoch still bounds the window, but no longer hides a footer's `stop` claim of the primary's epoch at its seq,
+  which is reported as a `TxGapCaptureBoundary` beside the contradiction.
+  Only a footer that does not match its records reaches this case.
+- The `tx-index-mismatch` and `tx-closure-contradiction` corpus vectors gain lookups of both cases.
 
 ### Added
 
