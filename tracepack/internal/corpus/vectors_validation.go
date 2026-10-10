@@ -63,7 +63,7 @@ func validationVectors() []Recipe {
 	return []Recipe{
 		{
 			ID: InjectionID, Title: "a validating Writer's output stopped before a block with an injected I-2 defect",
-			Cites: []string{"FMT §12", "FMT §16", "FMT I-2", "CORPUS §1", "CORPUS §5.4"}, Class: ClassRead,
+			Cites: []string{"FMT §12", "FMT §16", "FMT I-2", "CORPUS §1"}, Class: ClassRead,
 			Build: func(seed string) (*Built, error) {
 				run, err := InjectionRun()
 				if err != nil {
@@ -82,7 +82,7 @@ func validationVectors() []Recipe {
 				return &Built{Pack: pack, Queries: []QuerySpec{allQuery()}}, nil
 			},
 			// Every block written is walked and validated; the pack is not finalized,
-			// so a read reports it truncated at the end of its last block (the tracepack corpus specification §5.4).
+			// so a read reports it truncated at the end of its last block (the tracepack semantics specification §7.4).
 			Expect: &Expectation{
 				Outcome: tracepack.OutcomeUnfinalized, Unfinalized: true, Blocks: 2, Seqs: seqRange(0, 3), PrefixEnd: AtEnd(),
 				Queries: []QueryWant{{ID: "all", Seqs: seqRange(0, 3), Incomplete: []IncompleteWant{Truncated(AtEnd())}}},

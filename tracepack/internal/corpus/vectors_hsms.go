@@ -25,7 +25,7 @@ var (
 )
 
 // hsmsCites are the clauses every vector of the hsms group exercises.
-var hsmsCites = []string{"FMT §7.2", "FMT §16", "SEM §7.4", "CORPUS §5.4", "CORPUS §5.5"}
+var hsmsCites = []string{"FMT §7.2", "FMT §16", "SEM §7.4", "CORPUS §5.5"}
 
 // headerValues are the values of the HSMS header fields of a fields.json row.
 type headerValues struct {
@@ -69,7 +69,7 @@ func systemBytes(v uint32) []byte {
 
 // hsmsQuery is a query of the hsms group.
 func hsmsQuery(id string, f Filter) QuerySpec {
-	return QuerySpec{ID: id, Cites: []string{"FMT §7.2", "SEM §7.4", "CORPUS §5.4"}, Filter: f}
+	return QuerySpec{ID: id, Filter: f}
 }
 
 // hsmsBuild returns the Build of a pack of metadata meta and one block holding records, with fields.json and the queries qs.

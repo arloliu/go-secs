@@ -1,6 +1,6 @@
 {
-  "corpus": "tracepack-corpus/2",
-  "spec_version": "2.31",
+  "corpus": "tracepack-corpus/3",
+  "spec_version": "2.32",
   "format_version": "1.0",
   "jsonl_schema": "tracepack-jsonl/1",
   "zstd_encoder": "github.com/klauspost/compress v1.20.1",
@@ -21,8 +21,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -30,8 +29,7 @@
       "title": "a middle block failing its envelope CRC in a finalized pack whose footer is rejected",
       "cites": [
         "FMT §13",
-        "FMT §6",
-        "CORPUS §5.4"
+        "FMT §6"
       ],
       "class": "read",
       "labels": [
@@ -42,9 +40,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "queries.json"
+        "export.jsonl"
       ]
     },
     {
@@ -61,8 +57,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -80,9 +75,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "queries.json"
+        "export.jsonl"
       ]
     },
     {
@@ -99,8 +92,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -108,8 +100,7 @@
       "title": "a middle block failing its body CRC, the footer valid",
       "cites": [
         "FMT §13",
-        "FMT I-2",
-        "CORPUS §5.4"
+        "FMT I-2"
       ],
       "class": "read",
       "labels": [
@@ -119,9 +110,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "queries.json"
+        "export.jsonl"
       ]
     },
     {
@@ -138,9 +127,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "queries.json"
+        "export.jsonl"
       ]
     },
     {
@@ -156,8 +143,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -174,8 +160,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -194,8 +179,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -214,8 +198,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -233,9 +216,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "queries.json"
+        "export.jsonl"
       ]
     },
     {
@@ -253,8 +234,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -271,8 +251,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -288,8 +267,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -305,8 +283,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -518,8 +495,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -632,7 +608,6 @@
       "files": [
         "pack.tpk",
         "export.jsonl",
-        "verify.json",
         "footer.json"
       ]
     },
@@ -650,7 +625,6 @@
       "files": [
         "pack.tpk",
         "export.jsonl",
-        "verify.json",
         "footer.json"
       ]
     },
@@ -668,7 +642,6 @@
       "files": [
         "pack.tpk",
         "export.jsonl",
-        "verify.json",
         "footer.json"
       ]
     },
@@ -689,7 +662,6 @@
       "files": [
         "pack.tpk",
         "export.jsonl",
-        "verify.json",
         "footer.json"
       ]
     },
@@ -709,7 +681,6 @@
       "files": [
         "pack.tpk",
         "export.jsonl",
-        "verify.json",
         "footer.json"
       ]
     },
@@ -728,8 +699,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -747,8 +717,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -766,8 +735,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -785,8 +753,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -804,8 +771,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -823,8 +789,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -842,8 +807,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -861,8 +825,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -880,9 +843,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "queries.json"
+        "export.jsonl"
       ]
     },
     {
@@ -900,8 +861,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -919,8 +879,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -938,8 +897,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -957,8 +915,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -976,8 +933,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -997,7 +953,6 @@
       "files": [
         "pack.tpk",
         "export.jsonl",
-        "verify.json",
         "footer.json"
       ]
     },
@@ -1018,7 +973,6 @@
       "files": [
         "pack.tpk",
         "export.jsonl",
-        "verify.json",
         "footer.json"
       ]
     },
@@ -1037,8 +991,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -1056,8 +1009,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -1075,9 +1027,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "queries.json"
+        "export.jsonl"
       ]
     },
     {
@@ -1095,8 +1045,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -1116,7 +1065,6 @@
       "files": [
         "pack.tpk",
         "export.jsonl",
-        "verify.json",
         "footer.json"
       ]
     },
@@ -1134,8 +1082,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -1153,8 +1100,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -1171,8 +1117,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -1189,8 +1134,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -1209,8 +1153,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -1229,8 +1172,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -1250,8 +1192,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -1268,8 +1209,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -1287,8 +1227,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -1308,8 +1247,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -1329,8 +1267,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -1350,8 +1287,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -1361,7 +1297,6 @@
         "FMT §7.2",
         "FMT §16",
         "SEM §7.4",
-        "CORPUS §5.4",
         "CORPUS §5.5",
         "CORPUS §8"
       ],
@@ -1372,8 +1307,6 @@
       "files": [
         "pack.tpk",
         "export.jsonl",
-        "verify.json",
-        "queries.json",
         "fields.json"
       ]
     },
@@ -1384,7 +1317,6 @@
         "FMT §7.2",
         "FMT §16",
         "SEM §7.4",
-        "CORPUS §5.4",
         "CORPUS §5.5"
       ],
       "class": "read",
@@ -1394,8 +1326,6 @@
       "files": [
         "pack.tpk",
         "export.jsonl",
-        "verify.json",
-        "queries.json",
         "fields.json"
       ]
     },
@@ -1406,7 +1336,6 @@
         "FMT §7.2",
         "FMT §16",
         "SEM §7.4",
-        "CORPUS §5.4",
         "CORPUS §5.5"
       ],
       "class": "read",
@@ -1416,8 +1345,6 @@
       "files": [
         "pack.tpk",
         "export.jsonl",
-        "verify.json",
-        "queries.json",
         "fields.json"
       ],
       "cases": [
@@ -1500,7 +1427,6 @@
         "FMT §7.2",
         "FMT §16",
         "SEM §7.4",
-        "CORPUS §5.4",
         "CORPUS §5.5",
         "FMT §13"
       ],
@@ -1513,8 +1439,6 @@
       "files": [
         "pack.tpk",
         "export.jsonl",
-        "verify.json",
-        "queries.json",
         "fields.json"
       ]
     },
@@ -1525,7 +1449,6 @@
         "FMT §7.2",
         "FMT §16",
         "SEM §7.4",
-        "CORPUS §5.4",
         "CORPUS §5.5",
         "SEM §2",
         "STO §7"
@@ -1537,329 +1460,20 @@
       "files": [
         "pack.tpk",
         "export.jsonl",
-        "verify.json",
-        "queries.json",
         "fields.json"
       ]
     },
     {
-      "id": "multi-capture-interleave",
-      "title": "two captures whose blocks interleave by ts_min in capture order, and a filter that rejects one capture's next record",
-      "cites": [
-        "SEM §7.4",
-        "SEM §9",
-        "CORPUS §5.10"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "reads.json"
-      ]
-    },
-    {
-      "id": "multi-cluster-mixed-exclusion",
-      "title": "a cluster of a block the time range excludes and one it does not: both read, the conflict listed",
-      "cites": [
-        "SEM §7.4",
-        "SEM §9",
-        "CORPUS §5.10"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "reads.json"
-      ]
-    },
-    {
-      "id": "multi-cluster-two-hours",
-      "title": "a cluster spanning two hours, in capture and time order",
-      "cites": [
-        "SEM §7.4",
-        "SEM §9",
-        "CORPUS §5.10"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "reads.json"
-      ]
-    },
-    {
-      "id": "multi-conflict-limit",
-      "title": "three conflicts, read with a bound of three (success) and of two (conflict-limit)",
-      "cites": [
-        "SEM §7.4",
-        "SEM §9",
-        "CORPUS §1",
-        "CORPUS §5.10"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "pack-2.tpk",
-        "pack-2.verify.json",
-        "pack-3.tpk",
-        "pack-3.verify.json",
-        "reads.json"
-      ]
-    },
-    {
-      "id": "multi-conflict-selection",
-      "title": "a conflict of two versions differing in dir, with both, one and no version selected, listed each time",
-      "cites": [
-        "SEM §7.4",
-        "SEM §9",
-        "CORPUS §5.10"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "reads.json"
-      ]
-    },
-    {
-      "id": "multi-conflict-time-range",
-      "title": "two versions of one seq with different timestamps and a time range selecting one: both read, the conflict listed",
-      "cites": [
-        "SEM §7.4",
-        "SEM §9",
-        "CORPUS §5.10"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "reads.json"
-      ]
-    },
-    {
-      "id": "multi-equal-timestamps",
-      "title": "equal timestamps across captures, equal ts_min across clusters, and two and three versions of one record at one timestamp",
-      "cites": [
-        "SEM §7.4",
-        "SEM §9",
-        "CORPUS §5.10"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "pack-2.tpk",
-        "pack-2.verify.json",
-        "pack-3.tpk",
-        "pack-3.verify.json",
-        "pack-4.tpk",
-        "pack-4.verify.json",
-        "pack-5.tpk",
-        "pack-5.verify.json",
-        "pack-6.tpk",
-        "pack-6.verify.json",
-        "pack-7.tpk",
-        "pack-7.verify.json",
-        "pack-8.tpk",
-        "pack-8.verify.json",
-        "reads.json"
-      ]
-    },
-    {
-      "id": "multi-header-conflicts",
-      "title": "copies differing only in a reserved record_flags bit, in an extension byte and in record_header_len: three conflicts",
-      "cites": [
-        "FMT §7.1",
-        "SEM §7.4",
-        "SEM §9",
-        "CORPUS §5.10"
-      ],
-      "class": "multi-pack",
-      "labels": [
-        "nonconforming-writer"
-      ],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "reads.json"
-      ]
-    },
-    {
-      "id": "multi-identical-copy",
-      "title": "one block held identically by two packs, read in both orders: yielded once, no conflict",
-      "cites": [
-        "SEM §7.4",
-        "SEM §9",
-        "CORPUS §5.10"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "reads.json"
-      ]
-    },
-    {
-      "id": "multi-payload-only-conflict",
-      "title": "copies differing in one message-text byte, read with and without payloads: a conflict",
-      "cites": [
-        "FMT §16",
-        "SEM §7.4",
-        "SEM §9",
-        "CORPUS §5.10"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "reads.json"
-      ]
-    },
-    {
-      "id": "multi-time-backward",
-      "title": "timestamps running backward within a block, across blocks and across packs, read in time order",
-      "cites": [
-        "SEM §7.4",
-        "SEM §9",
-        "CORPUS §5.10"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "reads.json"
-      ]
-    },
-    {
-      "id": "multi-unfinalized-beside-archive",
-      "title": "an unfinalized segment beside its archive, read in both orders",
-      "cites": [
-        "SEM §7.4",
-        "SEM §9",
-        "CORPUS §5.10"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "reads.json"
-      ]
-    },
-    {
-      "id": "multi-walked-excluded",
-      "title": "an unfinalized pack whose walked block's computed summary excludes its cluster",
-      "cites": [
-        "SEM §7.4",
-        "SEM §9",
-        "CORPUS §5.4",
-        "CORPUS §5.10"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "reads.json"
-      ]
-    },
-    {
-      "id": "repair-all-failed",
-      "title": "every block failing its body CRC, the footer valid: a patch holding only coverage",
-      "cites": [
-        "FMT §13",
-        "FMT §16",
-        "CORPUS §5.6"
-      ],
-      "class": "repair",
-      "labels": [
-        "damaged"
-      ],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "repair.json",
-        "patch.tpk",
-        "patch.jsonl",
-        "patch.verify.json"
-      ]
-    },
-    {
       "id": "repair-inconsistent",
-      "title": "a finalized-inconsistent archive of generation 1: every block copied, no new coverage",
+      "title": "a finalized-inconsistent archive of generation 1: its archive header exported",
       "cites": [
+        "FMT §5",
+        "JSONL §5",
+        "STO §6",
         "FMT §13",
-        "FMT §16",
-        "CORPUS §5.6",
-        "STO §6"
+        "FMT §16"
       ],
-      "class": "repair",
+      "class": "read",
       "labels": [
         "nonconforming-writer"
       ],
@@ -1867,117 +1481,19 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "repair.json",
-        "patch.tpk",
-        "patch.jsonl",
-        "patch.verify.json"
-      ]
-    },
-    {
-      "id": "repair-middle-disagreeing-footer",
-      "title": "a middle block failing its body CRC, a validated block disagreeing with the valid footer",
-      "cites": [
-        "FMT §13",
-        "FMT §16",
-        "CORPUS §5.6"
-      ],
-      "class": "repair",
-      "labels": [
-        "damaged",
-        "nonconforming-writer"
-      ],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "repair.json",
-        "patch.tpk",
-        "patch.jsonl",
-        "patch.verify.json"
-      ]
-    },
-    {
-      "id": "repair-middle-no-footer",
-      "title": "a middle block failing its body CRC, the footer rejected: coverage from the neighbours' seqs",
-      "cites": [
-        "FMT §13",
-        "FMT §16",
-        "CORPUS §5.6"
-      ],
-      "class": "repair",
-      "labels": [
-        "damaged",
-        "nonconforming-writer"
-      ],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "repair.json",
-        "patch.tpk",
-        "patch.jsonl",
-        "patch.verify.json"
-      ]
-    },
-    {
-      "id": "repair-middle-trusted-footer",
-      "title": "a middle block failing its body CRC, the footer valid: coverage from the footer's ranges",
-      "cites": [
-        "FMT §13",
-        "FMT §16",
-        "CORPUS §5.6"
-      ],
-      "class": "repair",
-      "labels": [
-        "damaged"
-      ],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "repair.json",
-        "patch.tpk",
-        "patch.jsonl",
-        "patch.verify.json"
-      ]
-    },
-    {
-      "id": "repair-not-needed",
-      "title": "a finalized-consistent segment: nothing to repair",
-      "cites": [
-        "FMT §13",
-        "FMT §16",
-        "CORPUS §5.6"
-      ],
-      "class": "repair",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "repair.json"
+        "export.jsonl"
       ]
     },
     {
       "id": "repair-not-needed-commitments",
-      "title": "a finalized-consistent segment holding a redacted record: nothing to repair",
+      "title": "a finalized-consistent segment holding a record of quality redacted",
       "cites": [
+        "FMT §9",
+        "JSONL §6",
         "FMT §13",
-        "FMT §16",
-        "CORPUS §5.6",
-        "FMT §9"
+        "FMT §16"
       ],
-      "class": "repair",
+      "class": "read",
       "labels": [
         "nonconforming-writer"
       ],
@@ -1985,256 +1501,26 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "repair.json"
-      ]
-    },
-    {
-      "id": "repair-not-needed-extract",
-      "title": "a finalized-consistent extract: nothing to repair, before its role is considered",
-      "cites": [
-        "FMT §13",
-        "FMT §16",
-        "CORPUS §5.6",
-        "STO §2"
-      ],
-      "class": "repair",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "repair.json"
-      ]
-    },
-    {
-      "id": "repair-not-needed-period",
-      "title": "a finalized-consistent segment whose period spans two UTC hours: nothing to repair",
-      "cites": [
-        "FMT §13",
-        "FMT §16",
-        "CORPUS §5.6",
-        "STO §2"
-      ],
-      "class": "repair",
-      "labels": [
-        "nonconforming-writer"
-      ],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "repair.json"
+        "export.jsonl"
       ]
     },
     {
       "id": "repair-of-patch",
-      "title": "a patch whose last block fails its body CRC: its coverage inherited",
+      "title": "a pack of role repair whose last block fails its body CRC, read as any pack",
       "cites": [
+        "STO §2",
         "FMT §13",
-        "FMT §16",
-        "CORPUS §5.6",
-        "STO §6",
-        "CORPUS §5.4"
+        "FMT §16"
       ],
-      "class": "repair",
+      "class": "read",
       "labels": [
         "damaged"
       ],
       "codec": "none",
-      "source": "generated",
+      "source": "fixed",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "queries.json",
-        "repair.json",
-        "patch.tpk",
-        "patch.jsonl",
-        "patch.verify.json"
-      ]
-    },
-    {
-      "id": "repair-refused-extract",
-      "title": "a finalized-inconsistent extract: not repairable",
-      "cites": [
-        "FMT §13",
-        "FMT §16",
-        "CORPUS §5.6",
-        "STO §2"
-      ],
-      "class": "repair",
-      "labels": [
-        "nonconforming-writer"
-      ],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "repair.json"
-      ]
-    },
-    {
-      "id": "repair-refused-hour-span",
-      "title": "a block whose records lie in two UTC hours, so also outside the scope's hour: not repairable",
-      "cites": [
-        "FMT §13",
-        "FMT §16",
-        "CORPUS §5.6",
-        "FMT I-13"
-      ],
-      "class": "repair",
-      "labels": [
-        "nonconforming-writer"
-      ],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "repair.json"
-      ]
-    },
-    {
-      "id": "repair-refused-lost-run",
-      "title": "a failed block without a seq between its validated neighbours: not repairable",
-      "cites": [
-        "FMT §13",
-        "FMT §16",
-        "CORPUS §5.6"
-      ],
-      "class": "repair",
-      "labels": [
-        "damaged",
-        "nonconforming-writer"
-      ],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "repair.json"
-      ]
-    },
-    {
-      "id": "repair-refused-scope-breach",
-      "title": "a block of the UTC hour after the scope's, without the I-13 defect: not repairable",
-      "cites": [
-        "FMT §13",
-        "FMT §16",
-        "CORPUS §5.6"
-      ],
-      "class": "repair",
-      "labels": [
-        "nonconforming-writer"
-      ],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "repair.json"
-      ]
-    },
-    {
-      "id": "repair-refused-seq-order",
-      "title": "a block whose first seq is below the last seq of the block before it: not repairable",
-      "cites": [
-        "FMT §13",
-        "FMT §16",
-        "CORPUS §5.6",
-        "FMT I-12"
-      ],
-      "class": "repair",
-      "labels": [
-        "nonconforming-writer"
-      ],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "repair.json"
-      ]
-    },
-    {
-      "id": "repair-seq-start-above",
-      "title": "a finalized-consistent pack whose first record's seq is above seq_start",
-      "cites": [
-        "FMT §13",
-        "FMT §16",
-        "CORPUS §5.6",
-        "FMT §5"
-      ],
-      "class": "repair",
-      "labels": [
-        "nonconforming-writer"
-      ],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "repair.json",
-        "patch.tpk",
-        "patch.jsonl",
-        "patch.verify.json"
-      ]
-    },
-    {
-      "id": "repair-seq-start-below",
-      "title": "a finalized-consistent pack whose first record's seq is below seq_start",
-      "cites": [
-        "FMT §13",
-        "FMT §16",
-        "CORPUS §5.6",
-        "FMT §5"
-      ],
-      "class": "repair",
-      "labels": [
-        "nonconforming-writer"
-      ],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "repair.json",
-        "patch.tpk",
-        "patch.jsonl",
-        "patch.verify.json"
-      ]
-    },
-    {
-      "id": "repair-truncation",
-      "title": "a pack of two blocks cut at every byte offset, each cut verified and repaired",
-      "cites": [
-        "FMT §16",
-        "FMT §13",
-        "CORPUS §5.7"
-      ],
-      "class": "truncation",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "truncation.json"
+        "export.jsonl"
       ]
     },
     {
@@ -2253,8 +1539,7 @@
       "source": "fixed",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -2271,8 +1556,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -2281,7 +1565,6 @@
       "cites": [
         "SEM §3",
         "SEM §9",
-        "CORPUS §5.9",
         "CORPUS §7"
       ],
       "class": "read",
@@ -2290,9 +1573,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "classify.json"
+        "export.jsonl"
       ],
       "cases": [
         {
@@ -2470,8 +1751,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ],
       "cases": [
         {
@@ -2505,8 +1785,7 @@
       "cites": [
         "SEM §3",
         "SEM §9",
-        "CORPUS §7",
-        "CORPUS §5.9"
+        "CORPUS §7"
       ],
       "class": "read",
       "labels": [],
@@ -2514,9 +1793,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "classify.json"
+        "export.jsonl"
       ],
       "cases": [
         {
@@ -2922,482 +2199,13 @@
       ]
     },
     {
-      "id": "tx-candidate-selection",
-      "title": "a valid match, a wrong stream, an F0 abort, a wrong-stream F0, a control record that looks like F + 1, two valid matches, and a key naming a reply",
-      "cites": [
-        "FMT §16",
-        "SEM §7.2",
-        "SEM §9",
-        "CORPUS §5.11"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "lookups.json"
-      ]
-    },
-    {
-      "id": "tx-clock-step",
-      "title": "versions of window seqs in the hour before the primary's, after a backward clock step: outside the comparison, and a seq gap",
-      "cites": [
-        "SEM §7.2",
-        "SEM §4",
-        "SEM §9",
-        "CORPUS §5.11"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "lookups.json"
-      ]
-    },
-    {
-      "id": "tx-closure-conflict",
-      "title": "a close_seq naming a seq with two versions, one of them the socket-close: the conflict, no contradiction",
-      "cites": [
-        "SEM §7.2",
-        "SEM §9",
-        "CORPUS §5.11"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "lookups.json"
-      ]
-    },
-    {
-      "id": "tx-closure-contradiction",
-      "title": "footer claims naming an annotation, the primary's seq, a stop of another epoch, a socket-close as a stop, and a seq below the primary: contradictions",
-      "cites": [
-        "SEM §7.2",
-        "SEM §9",
-        "FMT §10",
-        "CORPUS §5.11"
-      ],
-      "class": "multi-pack",
-      "labels": [
-        "nonconforming-writer"
-      ],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "pack-2.tpk",
-        "pack-2.verify.json",
-        "pack-3.tpk",
-        "pack-3.verify.json",
-        "pack-4.tpk",
-        "pack-4.verify.json",
-        "pack-5.tpk",
-        "pack-5.verify.json",
-        "lookups.json"
-      ]
-    },
-    {
-      "id": "tx-conflicted-scope",
-      "title": "two archives of equal rank in the primary's hour (no key) and in a later hour (a match beside it)",
-      "cites": [
-        "SEM §7.2",
-        "STO §4",
-        "SEM §9",
-        "CORPUS §5.11",
-        "CORPUS §8"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "pack-2.tpk",
-        "pack-2.verify.json",
-        "pack-3.tpk",
-        "pack-3.verify.json",
-        "pack-4.tpk",
-        "pack-4.verify.json",
-        "pack-5.tpk",
-        "pack-5.verify.json",
-        "lookups.json"
-      ]
-    },
-    {
-      "id": "tx-conflicts",
-      "title": "conflicts within a scope and across scopes, on the primary, a candidate and a record after the window, and a conflicting primary whose first version has no function",
-      "cites": [
-        "SEM §7.2",
-        "SEM §7.4",
-        "SEM §9",
-        "CORPUS §5.11"
-      ],
-      "class": "multi-pack",
-      "labels": [
-        "nonconforming-writer"
-      ],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "pack-2.tpk",
-        "pack-2.verify.json",
-        "pack-3.tpk",
-        "pack-3.verify.json",
-        "pack-4.tpk",
-        "pack-4.verify.json",
-        "pack-5.tpk",
-        "pack-5.verify.json",
-        "pack-6.tpk",
-        "pack-6.verify.json",
-        "pack-7.tpk",
-        "pack-7.verify.json",
-        "pack-8.tpk",
-        "pack-8.verify.json",
-        "pack-9.tpk",
-        "pack-9.verify.json",
-        "lookups.json"
-      ]
-    },
-    {
-      "id": "tx-coverage-barrier",
-      "title": "coverage entries meeting the window or the hours alone, and both; a barrier meeting only a conflicted hour; a barrier on both bases",
-      "cites": [
-        "SEM §7.2",
-        "STO §5",
-        "FMT §5",
-        "SEM §9",
-        "CORPUS §5.11"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "pack-2.tpk",
-        "pack-2.verify.json",
-        "pack-3.tpk",
-        "pack-3.verify.json",
-        "pack-4.tpk",
-        "pack-4.verify.json",
-        "pack-5.tpk",
-        "pack-5.verify.json",
-        "pack-6.tpk",
-        "pack-6.verify.json",
-        "pack-7.tpk",
-        "pack-7.verify.json",
-        "lookups.json"
-      ]
-    },
-    {
-      "id": "tx-cross-pack",
-      "title": "a reply in another segment of the primary's hour, and a reply in the next hour's scope",
-      "cites": [
-        "SEM §7.2",
-        "SEM §9",
-        "CORPUS §5.11",
-        "CORPUS §8"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "pack-2.tpk",
-        "pack-2.verify.json",
-        "lookups.json"
-      ]
-    },
-    {
-      "id": "tx-epoch-barrier",
-      "title": "a stop-unclean barrier beside a stop of another epoch, which bounds the window but keeps the barrier, and beside a socket-close of the primary's epoch, which lifts it",
-      "cites": [
-        "SEM §7.2",
-        "STO §5",
-        "CORPUS §5.11"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "pack-2.tpk",
-        "pack-2.verify.json",
-        "pack-3.tpk",
-        "pack-3.verify.json",
-        "lookups.json"
-      ]
-    },
-    {
-      "id": "tx-epoch-evidence",
-      "title": "an ordering-uncertain record of the epoch below the primary, and a capture-boundary of the epoch in an hour not read",
-      "cites": [
-        "SEM §7.2",
-        "SEM §9",
-        "CORPUS §5.11",
-        "CORPUS §8"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "pack-2.tpk",
-        "pack-2.verify.json",
-        "lookups.json"
-      ]
-    },
-    {
-      "id": "tx-index-mismatch",
-      "title": "a block whose records disagree with its F-2 entry beside a match",
-      "cites": [
-        "SEM §7.2",
-        "FMT §10",
-        "SEM §9",
-        "CORPUS §5.11"
-      ],
-      "class": "multi-pack",
-      "labels": [
-        "nonconforming-writer"
-      ],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "pack-2.tpk",
-        "pack-2.verify.json",
-        "pack-3.tpk",
-        "pack-3.verify.json",
-        "pack-4.tpk",
-        "pack-4.verify.json",
-        "pack-5.tpk",
-        "pack-5.verify.json",
-        "pack-6.tpk",
-        "pack-6.verify.json",
-        "pack-7.tpk",
-        "pack-7.verify.json",
-        "pack-8.tpk",
-        "pack-8.verify.json",
-        "pack-9.tpk",
-        "pack-9.verify.json",
-        "lookups.json"
-      ]
-    },
-    {
-      "id": "tx-outcome-records",
-      "title": "a pack with quality_evaluated false, Reject.req records with SType unavailable and available, and a T3 timer-expiry without identifiers",
-      "cites": [
-        "SEM §7.2",
-        "SEM §9",
-        "SEM §6",
-        "FMT §7.2",
-        "CORPUS §5.11"
-      ],
-      "class": "multi-pack",
-      "labels": [
-        "nonconforming-writer"
-      ],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "lookups.json"
-      ]
-    },
-    {
-      "id": "tx-possible-primary",
-      "title": "a possible same-key primary without System Bytes between two replies, and a record in direction unknown that is both a possible reply and a possible same-key primary",
-      "cites": [
-        "SEM §7.2",
-        "SEM §9",
-        "CORPUS §5.11"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "lookups.json"
-      ]
-    },
-    {
-      "id": "tx-refused-socket",
-      "title": "an outstanding primary of epoch 1, the socket-close of a refused socket of epoch 2, then the reply of epoch 1",
-      "cites": [
-        "SEM §7.2",
-        "FMT I-7",
-        "SEM §9",
-        "CORPUS §5.11"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "lookups.json"
-      ]
-    },
-    {
-      "id": "tx-repeated-key",
-      "title": "a completed transaction, then an unanswered primary of the same key: the same-key primary bounds the first window",
-      "cites": [
-        "SEM §7.2",
-        "SEM §9",
-        "CORPUS §5.11"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "lookups.json"
-      ]
-    },
-    {
-      "id": "tx-scope-breach",
-      "title": "a pack of hour H whose blocks lie in another hour, a same-hour clock step, and a breach that explains a missing primary",
-      "cites": [
-        "SEM §7.2",
-        "FMT I-13",
-        "STO §4",
-        "SEM §9",
-        "CORPUS §5.11"
-      ],
-      "class": "multi-pack",
-      "labels": [
-        "nonconforming-writer"
-      ],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "pack-2.tpk",
-        "pack-2.verify.json",
-        "lookups.json"
-      ]
-    },
-    {
-      "id": "tx-unavailable-fields",
-      "title": "a primary without System Bytes, and an unanswered primary followed in its window by a reply-direction record without System Bytes",
-      "cites": [
-        "SEM §7.2",
-        "FMT §7.2",
-        "SEM §9",
-        "CORPUS §5.11"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "lookups.json"
-      ]
-    },
-    {
-      "id": "tx-unindexed-source",
-      "title": "a source that is not complete, and a pack whose evidence alone counts, its scope not indexed",
-      "cites": [
-        "STO §5",
-        "SEM §7.2",
-        "CORPUS §5.11",
-        "CORPUS §8"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "lookups.json"
-      ]
-    },
-    {
-      "id": "tx-window-bounds",
-      "title": "windows bounded by a same-key primary, a socket-close, a clean stop of another epoch, and by no record read",
-      "cites": [
-        "SEM §7.2",
-        "SEM §9",
-        "CORPUS §5.11"
-      ],
-      "class": "multi-pack",
-      "labels": [],
-      "codec": "none",
-      "source": "generated",
-      "files": [
-        "pack-0.tpk",
-        "pack-0.verify.json",
-        "pack-1.tpk",
-        "pack-1.verify.json",
-        "lookups.json"
-      ]
-    },
-    {
       "id": "validation-i2-injection",
       "title": "a validating Writer's output stopped before a block with an injected I-2 defect",
       "cites": [
         "FMT §12",
         "FMT §16",
         "FMT I-2",
-        "CORPUS §1",
-        "CORPUS §5.4"
+        "CORPUS §1"
       ],
       "class": "read",
       "labels": [],
@@ -3405,9 +2213,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "queries.json"
+        "export.jsonl"
       ]
     },
     {
@@ -3427,8 +2233,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -3446,8 +2251,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -3466,8 +2270,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -3486,8 +2289,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -3506,8 +2308,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -3515,8 +2316,7 @@
       "title": "a block whose records disagree with its F-2 entry, the footer valid",
       "cites": [
         "FMT §13",
-        "FMT §10",
-        "CORPUS §5.4"
+        "FMT §10"
       ],
       "class": "read",
       "labels": [
@@ -3526,9 +2326,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "queries.json"
+        "export.jsonl"
       ]
     },
     {
@@ -3536,8 +2334,7 @@
       "title": "a block whose records disagree with its F-3 summary only",
       "cites": [
         "FMT §13",
-        "FMT §10",
-        "CORPUS §5.4"
+        "FMT §10"
       ],
       "class": "read",
       "labels": [
@@ -3547,9 +2344,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json",
-        "queries.json"
+        "export.jsonl"
       ]
     },
     {
@@ -3567,8 +2362,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -3586,8 +2380,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -3606,8 +2399,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -3625,8 +2417,7 @@
       "source": "generated",
       "files": [
         "pack.tpk",
-        "export.jsonl",
-        "verify.json"
+        "export.jsonl"
       ]
     },
     {
@@ -3644,7 +2435,6 @@
       "files": [
         "pack.tpk",
         "export.jsonl",
-        "verify.json",
         "truncation.json"
       ]
     },
@@ -3664,7 +2454,6 @@
       "files": [
         "pack.tpk",
         "export.jsonl",
-        "verify.json",
         "truncation.json"
       ]
     }

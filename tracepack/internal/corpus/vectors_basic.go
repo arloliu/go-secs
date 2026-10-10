@@ -106,7 +106,7 @@ func basicVectors() []Recipe {
 		},
 		{
 			ID: "basic-corrupt-middle", Title: "a middle block failing its body CRC, the footer valid",
-			Cites: []string{"FMT §13", "FMT I-2", "CORPUS §5.4"}, Class: ClassRead, Labels: []string{LabelDamaged},
+			Cites: []string{"FMT §13", "FMT I-2"}, Class: ClassRead, Labels: []string{LabelDamaged},
 			Build: func(seed string) (*Built, error) {
 				b, err := editedCodecPack(seed, func(pack []byte) ([]byte, error) {
 					l, err := Locate(pack)
@@ -117,7 +117,7 @@ func basicVectors() []Recipe {
 					return FlipByte(pack, int(l.Blocks[1].Offset)+format.EnvelopeLen+3)
 				})
 				if err == nil {
-					b.Queries = []QuerySpec{allQuery(), {ID: "kinds-data", Cites: []string{"SEM §7.4"}, Filter: Filter{Kinds: []string{"data"}}}}
+					b.Queries = []QuerySpec{allQuery(), {ID: "kinds-data", Filter: Filter{Kinds: []string{"data"}}}}
 				}
 
 				return b, err
@@ -139,7 +139,7 @@ func basicVectors() []Recipe {
 		},
 		{
 			ID: "basic-bad-envelope-crc-walked", Title: "a middle block failing its envelope CRC in a finalized pack whose footer is rejected",
-			Cites: []string{"FMT §13", "FMT §6", "CORPUS §5.4"}, Class: ClassRead, Labels: []string{LabelDamaged, LabelNonconformingWriter},
+			Cites: []string{"FMT §13", "FMT §6"}, Class: ClassRead, Labels: []string{LabelDamaged, LabelNonconformingWriter},
 			Build: func(seed string) (*Built, error) {
 				b, err := editedCodecPack(seed, func(pack []byte) ([]byte, error) {
 					// F-5's record_count one above the records: a footer that passes its CRC and fails validation.
@@ -164,7 +164,7 @@ func basicVectors() []Recipe {
 				return b, err
 			},
 			// The walk stops at the block, so the trailer's totals are not compared (the tracepack format specification §13),
-			// and the query reports the walk stop, the first case of the tracepack corpus specification §5.4.
+			// and the query reports the walk stop, as the tracepack semantics specification §7.4 reports it.
 			Expect: &Expectation{
 				Outcome: tracepack.OutcomeFinalizedTruncated, Blocks: 1, Seqs: seqRange(0, 3),
 				WalkStop: AtBlock(1), PrefixEnd: AtBlock(1),
@@ -336,7 +336,7 @@ func seqRange(first, last uint64) []uint64 {
 
 // allQuery is the query that selects every record.
 func allQuery() QuerySpec {
-	return QuerySpec{ID: "all", Cites: []string{"SEM §7.4", "CORPUS §5.4"}}
+	return QuerySpec{ID: "all"}
 }
 
 // codecBlocks returns the records of the codec vectors, three blocks of epochs 1 and 2:
@@ -413,14 +413,12 @@ func editedCodecPack(seed string, edit func(pack []byte) ([]byte, error)) (*Buil
 
 // codecQueries are the queries of basic-codec-none: by time, kind, direction and epoch.
 func codecQueries() []QuerySpec {
-	cites := []string{"SEM §7.4"}
-
 	return []QuerySpec{
 		allQuery(),
-		{ID: "time-window", Cites: cites, Filter: Filter{TimeFrom: new(I64(msAt(3))), TimeTo: new(I64(msAt(7)))}},
-		{ID: "kinds-control-and-events", Cites: cites, Filter: Filter{Kinds: []string{"control", "transport-event"}}},
-		{ID: "dir-equipment-to-host", Cites: cites, Filter: Filter{Dirs: []string{"equipment-to-host"}}},
-		{ID: "epoch-2", Cites: cites, Filter: Filter{Epochs: []uint32{2}}},
+		{ID: "time-window", Filter: Filter{TimeFrom: new(I64(msAt(3))), TimeTo: new(I64(msAt(7)))}},
+		{ID: "kinds-control-and-events", Filter: Filter{Kinds: []string{"control", "transport-event"}}},
+		{ID: "dir-equipment-to-host", Filter: Filter{Dirs: []string{"equipment-to-host"}}},
+		{ID: "epoch-2", Filter: Filter{Epochs: []uint32{2}}},
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
-	"strings"
 
 	"github.com/arloliu/go-secs/tracepack"
 )
@@ -14,16 +13,13 @@ import (
 // systemBytesLen is the length of the System Bytes a filter compares.
 const systemBytesLen = 4
 
-// QueryVector is one query vector of queries.json (the tracepack corpus specification §5.4).
+// QueryVector is a query over a vector's pack and what its read yields,
+// checked in memory against the recipe's expectation; no file of the corpus holds it.
 type QueryVector struct {
-	ID     string   `json:"id"`
-	Cites  []string `json:"cites"`
-	Filter Filter   `json:"filter"`
-	Expect Expect   `json:"expect"`
+	ID     string `json:"id"`
+	Filter Filter `json:"filter"`
+	Expect Expect `json:"expect"`
 }
-
-// Queries is queries.json: the query vectors over a vector's pack.
-type Queries []QueryVector
 
 // Filter is the selection of a query vector, one key per tracepack.Filter predicate;
 // an absent key places no constraint, and an array is never empty.
@@ -53,7 +49,7 @@ type Expect struct {
 	Incomplete []Incomplete `json:"incomplete"`
 }
 
-// Incomplete is one reason a query's read is incomplete, by the decision table of the tracepack corpus specification §5.4.
+// Incomplete is one reason a query's read is incomplete, as the tracepack semantics specification §7.4 reports it.
 type Incomplete struct {
 	Reason   string    `json:"reason"`
 	Block    *int      `json:"block,omitempty"`
@@ -61,45 +57,11 @@ type Incomplete struct {
 	Coverage *Coverage `json:"coverage,omitempty"`
 }
 
-// FilterFrom returns the query-vector form of f: arrays sorted into the schema's orders, empty predicates omitted.
-// Kinds and directions are named as Kind.String and Dir.String name them, "unknown(<n>)" for a value without a name.
-// Duplicate values are kept, so ToFilter gives back f with its arrays sorted.
-func FilterFrom(f *tracepack.Filter) Filter {
-	var out Filter
-	if f.TimeFrom != nil {
-		out.TimeFrom = new(I64(*f.TimeFrom))
-	}
-	if f.TimeTo != nil {
-		out.TimeTo = new(I64(*f.TimeTo))
-	}
-	for _, k := range slices.Sorted(slices.Values(f.Kinds)) {
-		out.Kinds = append(out.Kinds, k.String())
-	}
-	for _, d := range slices.Sorted(slices.Values(f.Dirs)) {
-		out.Dirs = append(out.Dirs, d.String())
-	}
-	if len(f.Epochs) > 0 {
-		out.Epochs = slices.Sorted(slices.Values(f.Epochs))
-	}
-	for _, sf := range slices.SortedFunc(slices.Values(f.SF), compareSF) {
-		out.SF = append(out.SF, SF{Stream: sf.Stream, Function: sf.Function})
-	}
-	if len(f.SessionIDs) > 0 {
-		out.SessionIDs = slices.Sorted(slices.Values(f.SessionIDs))
-	}
-	if f.SystemBytes != nil {
-		out.SystemBytes = append([]byte{}, f.SystemBytes[:]...)
-	}
-	out.IncludeUnavailable = f.IncludeUnavailable
-
-	return out
-}
-
 // ExpectFrom returns the expect of a read with result res
 // that yielded the records at seqs, block by block as blocks gives them.
 // The seqs are listed blocks in file order, each block's records in the order the read gave them;
 // incomplete lists the coverage entries in the order of coverage, the pack metadata's entries,
-// then the pack-level truncated, then the block defects ascending by block (the tracepack corpus specification §5.4).
+// then the pack-level truncated, then the block defects ascending by block.
 //
 // Parameters:
 //   - blocks, seqs: the block index and the seq of each record the read yielded, in yield order.
@@ -108,15 +70,15 @@ func FilterFrom(f *tracepack.Filter) Filter {
 //
 // Returns:
 //   - Expect: the projection.
-//   - error: a reader limit, a removed hour or a conflict, which are never goldens;
+//   - error: a reader limit or a conflict, which are never expectations;
 //     a defect of a reason or block the decision table does not hold; two pack-level truncations;
 //     a coverage defect whose entry the pack metadata does not hold.
 func ExpectFrom(blocks []int, seqs []uint64, res *tracepack.Result, coverage []tracepack.Coverage) (Expect, error) {
 	if len(blocks) != len(seqs) {
 		return Expect{}, fmt.Errorf("corpus: %d blocks for %d seqs", len(blocks), len(seqs))
 	}
-	if len(res.Removed) > 0 || len(res.Conflicts) > 0 {
-		return Expect{}, fmt.Errorf("corpus: a read of one pack reported removed hours or conflicts")
+	if len(res.Conflicts) > 0 {
+		return Expect{}, fmt.Errorf("corpus: a read of one pack reported conflicts")
 	}
 
 	order := make([]int, len(seqs))
@@ -166,12 +128,7 @@ func RunQuery(ctx context.Context, r *tracepack.Reader, f *Filter) (Expect, erro
 	return ExpectFrom(blocks, seqs, &res, r.Header().Meta.Coverage)
 }
 
-// compareSF orders S/F pairs by stream, then function.
-func compareSF(a, b tracepack.SF) int {
-	return cmp.Or(cmp.Compare(a.Stream, b.Stream), cmp.Compare(a.Function, b.Function))
-}
-
-// sortedIncomplete renders the defects ds of a read in the order of the tracepack corpus specification §5.4.
+// sortedIncomplete renders the defects ds of a read in the order ExpectFrom states.
 // A coverage defect takes the position of the first entry of coverage that renders alike and is not yet matched,
 // so entries that render alike, which are interchangeable, keep their count.
 func sortedIncomplete(ds []tracepack.Defect, coverage []tracepack.Coverage) ([]Incomplete, error) {
@@ -228,33 +185,6 @@ func sortedIncomplete(ds []tracepack.Defect, coverage []tracepack.Coverage) ([]I
 	}
 
 	return out, nil
-}
-
-// Marshal returns queries.json in the canonical form:
-// the queries ascending by id, which must be unique kebab-case ids, each filter's arrays in the schema's orders.
-// qs itself is not reordered.
-//
-// Returns:
-//   - []byte: the file's bytes.
-//   - error: an id that is not a unique kebab-case id, a query without cites, or a filter ToFilter refuses.
-func (qs Queries) Marshal() ([]byte, error) {
-	out := slices.Clone(qs)
-	slices.SortFunc(out, func(a, b QueryVector) int { return strings.Compare(a.ID, b.ID) })
-	for i := range out {
-		if !kebabID.MatchString(out[i].ID) || (i > 0 && out[i].ID == out[i-1].ID) || len(out[i].Cites) == 0 {
-			return nil, fmt.Errorf("corpus: query %q needs a unique kebab-case id and at least one cite", out[i].ID)
-		}
-		f, err := out[i].Filter.ToFilter()
-		if err != nil {
-			return nil, fmt.Errorf("corpus: query %q: %w", out[i].ID, err)
-		}
-		out[i].Filter = FilterFrom(&f)
-	}
-	if out == nil {
-		out = Queries{}
-	}
-
-	return Marshal([]QueryVector(out))
 }
 
 // ToFilter returns the tracepack.Filter f selects with, its arrays in f's order.
