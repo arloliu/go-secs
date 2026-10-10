@@ -63,7 +63,7 @@ These rules let any mainstream language implement the format from this text alon
   | Value | Codec | Rules |
   |---|---|---|
   | 0 | `none` | the on-disk body is the decoded body (§6) verbatim |
-  | 1 | `zstd` | exactly one Zstandard frame per RFC 8878; no dictionary; the frame content checksum MAY be present and is not relied on |
+  | 1 | `zstd` | exactly one Zstandard frame per RFC 8878; no dictionary; the frame content checksum MAY be present and is not relied on; the frame declares no window larger than the larger of 8 MiB and its decoded length, and never above 64 MiB, and a reader MAY reject a frame that does (G5-212) |
   | other | — | unknown: the block is unreadable and reported `incomplete`; adding a codec is a major version change (§14) |
 
   Readers MUST support `none` and `zstd`; writers SHOULD use `zstd` and MAY use `none`.
@@ -518,6 +518,7 @@ Payload enums (§8, [SEM §5]):
 The footer is encoded as a whole with the trailer's `footer_codec`.
 Offsets inside the footer are relative to the start of the **decoded** footer.
 Its layout is fixed by `footer_layout_version = 1`;
+a reader that finds another value treats the footer as not valid and reads the pack by the forward walk (§13, §14);
 extension happens through TLV tags inside F-3, F-4 and F-5, so a later index structure is a minor addition, not a new layout.
 
 ```
@@ -834,6 +835,8 @@ The object size is known before reading (file system stat, object listing, the s
   a newer minor may contain tags, enum values and record-header bytes the reader does not know,
   which it handles per §5 (skip unknown tags), §1 (preserve unknown enum values) and §7.1 (preserve unknown record-header bytes).
 - An unknown major is rejected before any block is read.
+- `trailer_version` (§11) and `footer_layout_version` (§10) are 1 within format major 1, and changing either is a major change;
+  a reader that finds another value treats the trailer or the footer as not valid, and reads the pack by the forward walk (§13, G5-212).
 - Minor changes: new TLV tags, new enum values (readers preserve unknown values),
   new record-header fields appended behind the known prefix, up to `record_header_len` = 65535 (§7.1),
   new F-3 / F-5 tags, a longer `f2_entry_len` (§10).
@@ -843,7 +846,7 @@ The object size is known before reading (file system stat, object listing, the s
   no tag, enum value or bit is retired, and no requirement of §5 changes.
   It changes only the meaning tracepack attaches to some tags
   and which of them the reference implementation still writes (§5, §9; G5-201, G5-202).
-- **One exception, before any production use.**
+- **One exception, before any production use, now closed.**
   In spec v2.13, format 1.0 was redefined in place, without a new format number:
   the header section became byte-columnar (§6),
   and the record header lost its copies of the HSMS message header and became 44 bytes (§7.1).
@@ -862,6 +865,7 @@ The object size is known before reading (file system stat, object listing, the s
   A reader written for spec v2.13 to v2.16 rejects a pack that uses either change (§5 rules),
   while every pack a writer of those versions wrote is a valid pack of v2.17.
   Once a reader of the redefined format is published, the exception is closed, and no later change uses it.
+  It closed on 2026-10-10, when tracepack v0.2.0, a reader of the redefined format, was published (G5-212).
 
 ## 15. Canonical JSONL export
 

@@ -1300,7 +1300,7 @@ Summary:
 - [CORPUS §3]: `spec_version` 2.31; schema `tracepack-corpus/2` unchanged.
 - G5-195 states that only a bounding `stop` of the primary's epoch keeps that epoch's boundary at e from being reported, as [SEM §7.2] and [CORPUS §5.11] already require.
 
-## Changes v2.31 → v2.32: simplification against the stated purpose (owner decisions G5-198..G5-210, 2026-10-10)
+## Changes v2.31 → v2.32: simplification against the stated purpose (owner decisions G5-198..G5-212, 2026-10-10)
 
 Source: the owner's simplification rulings (G5-198..G5-208) and the two open points of the amendment plan (G5-209, G5-210); no proposal document.
 Format version stays 1.0; no byte, no writer requirement and no canonical export changes.
@@ -1339,6 +1339,12 @@ Summary:
 - `tracepack-go.md`: the store, catalog, view, retention, repair and extract APIs leave the sketch; `ErrPublishUncertain`, the sinks and `SegmentWriter` stay (G5-205);
   the CLI is `dump --jsonl`, `verify` and `find`, after phase 8 (G5-206).
 - `tracepack-impl-plan.md`: per-component statuses; 6b3 dropped; phase 7 split, its reader obligation moving to phase 8; new phase 9, the simplification (tracepack v0.4.0).
+
+- After an independent format and performance review (G5-211, G5-212):
+  [FMT §2] bounds the Zstandard window a frame declares (8 MiB or its decoded length, never above 64 MiB);
+  [FMT §10], [FMT §11] and [FMT §14] fix `trailer_version` and `footer_layout_version` at 1 within major 1, another value leaving the footer unused and the pack read by the forward walk;
+  [FMT §14] records that the in-place redefinition exception closed on 2026-10-10 with tracepack v0.2.0;
+  `tracepack-go.md` and phase 9 add one request per small pack, prefetching in `MergeIterate`, and `zstd` as the default codec of `Writer` and `Merge`.
 
 Proposals closed:
 - P2 (merge-input defects and cancellation merges) closed, superseded by G5-201/G5-202; last text at `0f66458`.

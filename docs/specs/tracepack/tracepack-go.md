@@ -55,7 +55,7 @@ The query service, its catalog database and the live-tail interface are designed
   `DecodeStatus.Malformed` is true only for known malformed values, and `DecodeStatus.Clean` only for known values outside the malformed set;
   an unknown value is neither, so `!Malformed()` never proves a clean decode ([SEM §6]).
 - `Writer`: `NewWriter(w io.Writer, WriterOptions)`, the layer under `SegmentWriter` and `Merge`;
-  options: the pack metadata, codec (its zero value is `none`, the wire value 0, so the zstd default lives in `SegmentWriterOptions`), block size threshold,
+  options: the pack metadata, codec (`zstd` unless the options ask for `none` explicitly, as in `SegmentWriterOptions` and `MergeOptions`, G5-211), block size threshold,
   `Now` (G5-174: the clock that stamps `writer_start_utc_ns` and gives the time part of a `pack_id` or `capture_id` the writer generates as a UUIDv7; nil means `time.Now`),
   and validation, on unless `SkipValidation` is set (G5-152): a validating writer decodes each encoded block, gathers its record headers and checks I-2 before writing it,
   and on a failed check returns an error without writing the block or the trailer ([FMT §12]); nothing is committed to the pack metadata.
@@ -201,6 +201,7 @@ The query service, its catalog database and the live-tail interface are designed
   the default, without the option, still renames over an existing file.
   A file system without hard links fails such a `Commit` with the link's error, nothing published.
 - `Reader`: `Open(ctx, ra io.ReaderAt, size, opts)` performs the [FMT §13] bootstrap, optionally seeded with a footer location the caller kept (e.g. in the service's catalog);
+  the bytes it reads at bootstrap serve later block reads, so a pack up to the whole-read threshold (a few MiB by default) costs one request (G5-211);
   `Header()`, `Blocks()` (F-2), `Iterate(ctx, Query, fn) (Result, error)`,
   and `Stats() (PackStats, bool)` (G5-131): the F-5 statistics of a pack whose footer it uses — counts, time and seq ranges, per-epoch summaries with `close_seq`, capture-boundary entries — as a fresh value, false without a used footer.
   `Open` parses the redaction entries with the pack metadata and runs their structural checks; its cost grows with the entries.
@@ -220,7 +221,8 @@ The query service, its catalog database and the live-tail interface are designed
 - `Filter` uses typed slices (`[]SF`, `[]Kind`, `*[4]byte`) and a time range, with nil meaning "any"; no sentinel values.
   HSMS header fields are matched on payload values, available only where `field_validity` says so ([FMT §7.2]).
 - `MergeIterate(ctx, readers, Query, MergeIterateOptions, fn) (Result, error)`: one read over several packs, as [SEM §7.4] resolves and orders it;
-  the options carry the `Order` (capture or time, required), `MaxHeldBytes` and `MaxConflicts`.
+  the options carry the `Order` (capture or time, required), `MaxHeldBytes` and `MaxConflicts`;
+  it prefetches the blocks of the packs it will read next instead of reading one block at a time (G5-211).
   Readers must be distinct packs (no repeated `pack_id`); the guarantees cover the readers given.
   Copies of a record are compared before the filter, identical ones yielded once, and every selected version of a `conflict` yielded with `Item.Conflict` set;
   `Result.Conflicts` lists every conflict of every compared cluster in discovery order, each with its versions in version order,
