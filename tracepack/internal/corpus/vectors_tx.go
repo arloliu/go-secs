@@ -15,6 +15,9 @@ var lookupCites = []string{"SEM §7.2", "CORPUS §5.11"}
 const txHour = TimeBase / hourNs
 
 // Fields of the data messages of the lookup vectors: SessionID 1, and the HSMS SType of a Linktest.rsp (SEMI E37 §8.3).
+// The control record of tx-candidate-selection carries SessionID 1, not the 0xFFFF of an E37 Linktest.rsp, on purpose:
+// it then shares the key of its primary, so only its kind keeps it from being a candidate;
+// a SessionID of 0xFFFF would let a lookup tell it apart by the key alone, and the vector would no longer test the kind.
 const (
 	txSessionID       uint16 = 1
 	stypeLinktestRsp  byte   = 6
@@ -24,7 +27,7 @@ const (
 // txVectors returns the recipes of the tx group, transaction lookups over the packs of a vector
 // (the tracepack corpus specification §9.4).
 func txVectors() []Recipe {
-	return []Recipe{
+	return append([]Recipe{
 		{
 			ID:    "tx-repeated-key",
 			Title: "a completed transaction, then an unanswered primary of the same key: the same-key primary bounds the first window",
@@ -79,7 +82,7 @@ func txVectors() []Recipe {
 				},
 			},
 		},
-	}
+	}, txMatchVectors()...)
 }
 
 // repeatedSystemBytes are the System Bytes of every data record of tx-repeated-key.
@@ -119,7 +122,8 @@ var selectionSystemBytes = map[byte]uint32{'a': 0x0A, 'b': 0x0B, 'c': 0x0C, 'd':
 
 // candidateSelectionBuild builds tx-candidate-selection: pack 0 of capture A in hour H, its quality evaluated, one block, epoch 1:
 // 1 S1F1 a, 2 S1F2 a; 3 S1F3 b, 4 S2F4 b; 5 S1F5 c, 6 S1F0 c; 7 S1F7 d, 8 S2F0 d;
-// 9 S1F9 e, 10 a Linktest.rsp equipment-to-host of SessionID 1 and System Bytes e, its bytes 6 and 7 1 and 10;
+// 9 S1F9 e, 10 a Linktest.rsp equipment-to-host of SessionID 1 and System Bytes e, its bytes 6 and 7 1 and 10
+// (deliberately not the SessionID 0xFFFF of SEMI E37, so that it carries e's key);
 // 11 S1F11 f, 12 S1F12 f, 13 S1F12 f; 14 a socket-close.
 // Each odd seq up to 11 is a primary host-to-equipment, each reply equipment-to-host.
 // It checks that the replies carry their primary's key, that the System Bytes of the transactions differ,

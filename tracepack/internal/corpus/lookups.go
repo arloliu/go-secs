@@ -151,7 +151,8 @@ type LookupRun struct {
 // Returns:
 //   - tracepack.TxKey: the key.
 //   - tracepack.TxOptions: MaxScopes; no budget and no retention.
-//   - error: a capture_id that is no UUID in canonical form, or max_scopes below 1.
+//   - error: a capture_id that is no UUID in canonical form, max_scopes below 1,
+//     or hours scheduled, key.hour to key.hour + max_scopes - 1, outside [tracepack.MinTxHour, tracepack.MaxTxHour].
 func (l *LookupVector) Lookup() (tracepack.TxKey, tracepack.TxOptions, error) {
 	capture, err := parseUUID(l.Key.CaptureID)
 	if err != nil {
@@ -159,6 +160,10 @@ func (l *LookupVector) Lookup() (tracepack.TxKey, tracepack.TxOptions, error) {
 	}
 	if l.MaxScopes < 1 {
 		return tracepack.TxKey{}, tracepack.TxOptions{}, fmt.Errorf("corpus: lookup %q: max_scopes %d is below 1", l.ID, l.MaxScopes)
+	}
+	if h := int64(l.Key.Hour); h < tracepack.MinTxHour || h > tracepack.MaxTxHour || int64(l.MaxScopes) > tracepack.MaxTxHour+1-h {
+		return tracepack.TxKey{}, tracepack.TxOptions{}, fmt.Errorf("corpus: lookup %q: hour %d and max_scopes %d schedule hours out of the range of a lookup",
+			l.ID, l.Key.Hour, l.MaxScopes)
 	}
 
 	return tracepack.TxKey{Capture: capture, Seq: uint64(l.Key.Seq), Hour: int64(l.Key.Hour)}, tracepack.TxOptions{MaxScopes: l.MaxScopes}, nil
@@ -677,9 +682,12 @@ func (l *LookupVector) checkScopes(searched []SearchedScope, conflicts []Conflic
 	return nil
 }
 
-// checkSchedule checks that a result's scopes searched lie in the hours scheduled, key.hour and the max_scopes - 1 after it,
-// and, unless the result is an early return, that each hour scheduled is searched or has a conflicted fact:
-// such a lookup reads every hour scheduled but a conflicted one (the tracepack semantics specification §7.2, Scopes read).
+// checkSchedule checks the hours of a result's scopes searched and conflicted facts against the hours scheduled,
+// key.hour and the max_scopes - 1 after it (the tracepack semantics specification §7.2, Scopes read):
+// each searched or conflicted hour is scheduled, and no hour is both, since a conflicted scope is not read;
+// unless the result is an early return, every hour scheduled is searched or conflicted, as such a lookup reads every hour scheduled
+// but a conflicted one.
+// The scopes searched are distinct and the facts canonical, so the hours are counted, not looped over.
 func (l *LookupVector) checkSchedule(gaps []Fact, searched []SearchedScope) error {
 	first, last := l.Key.Hour, l.Key.Hour+I64(l.MaxScopes)-1
 	for _, s := range searched {
@@ -687,15 +695,23 @@ func (l *LookupVector) checkSchedule(gaps []Fact, searched []SearchedScope) erro
 			return fmt.Errorf("searched hour %d is not scheduled", s.Hour)
 		}
 	}
-	if earlyReturn(gaps, l.Key.Seq) {
-		return nil
-	}
-	for h := first; h <= last; h++ {
-		read := slices.ContainsFunc(searched, func(s SearchedScope) bool { return s.Hour == h })
-		conflicted := slices.ContainsFunc(gaps, func(f Fact) bool { return f.Reason == FactConflicted && slices.Equal(f.Hours, []I64{h}) })
-		if !read && !conflicted {
-			return fmt.Errorf("scheduled hour %d is neither searched nor conflicted", h)
+	conflicted := 0
+	for _, f := range gaps {
+		if f.Reason != FactConflicted {
+			continue
 		}
+		h := f.Hours[0]
+		switch {
+		case h < first || h > last:
+			return fmt.Errorf("conflicted hour %d is not scheduled", h)
+		case slices.ContainsFunc(searched, func(s SearchedScope) bool { return s.Hour == h }):
+			return fmt.Errorf("conflicted hour %d is also searched, though a conflicted scope is not read", h)
+		default:
+			conflicted++
+		}
+	}
+	if !earlyReturn(gaps, l.Key.Seq) && len(searched)+conflicted != l.MaxScopes {
+		return fmt.Errorf("%d hours searched and %d conflicted, not every one of the %d hours scheduled", len(searched), conflicted, l.MaxScopes)
 	}
 
 	return nil
