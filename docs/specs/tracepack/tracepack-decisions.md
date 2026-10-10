@@ -1222,3 +1222,22 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   Rationale *(editorial)*: the export shows exactly what a reader recovers from a damaged pack, so the format guarantee is kept without binding diagnostics.
   Rejected *(editorial)*: keeping `verify.json` reduced to the outcome and `classify.json`; removing only the repair, multi-pack, read and lookup files.
   Spec: [CORPUS], [FMT §16], [JSONL §7] (v2.32).
+
+## 2026-10-10 independent format and performance review (owner agreed)
+
+- G5-211 Read and write performance in v0.4.0 (2026-10-10):
+  tracepack v0.4.0 also makes these changes, none of which changes the format:
+  a reader keeps the bytes it read at bootstrap and serves block reads from them, so a pack up to the whole-read threshold costs one request, and the default threshold rises to a few MiB;
+  a read over several packs prefetches the blocks of the next packs instead of reading one block at a time;
+  `MergeOptions` and `WriterOptions` default to the `zstd` codec, as the segment writer already does, so a caller that leaves the codec unset no longer writes uncompressed packs.
+  Rationale *(editorial)*: an independent review measured one block per hourly archive at the stated volume, so object-store round trips, not the format, set retrieval latency; the reader fetched each small pack twice, and a merge with the zero-value codec wrote archives 2.7–5.5 times larger.
+  Rejected *(editorial)*: smaller blocks, a secondary index, and a dictionary for segments, which the review found not worth their cost.
+  Spec: `tracepack-go.md`, `tracepack-impl-plan.md` phase 9 (v2.32).
+- G5-212 Version fields, the zstd window, and the closed exception (2026-10-10):
+  `trailer_version` and `footer_layout_version` are fixed at 1 within format major 1, and changing either is a major change;
+  a reader that finds another value treats the trailer or the footer as not valid, and reads the pack by the forward walk ([FMT §13]).
+  A writer declares no Zstandard window larger than the larger of 8 MiB and the frame's decoded length, and never above 64 MiB; a reader MAY reject a frame that does.
+  The in-place redefinition exception of [FMT §14] is closed: tracepack v0.2.0, a reader of the redefined format, was published on 2026-10-10.
+  tracepack v0.1.0 needs no retraction or notice, because tracepack has no users yet.
+  Rationale *(editorial)*: the review found that two readers could treat an unknown trailer or footer layout version differently, and that the spec set no window bound while the Go reader enforces one.
+  Spec: [FMT §2], [FMT §10], [FMT §11], [FMT §14] (v2.32).

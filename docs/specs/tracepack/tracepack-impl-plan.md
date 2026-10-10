@@ -787,6 +787,10 @@ Changes:
 - `FindTransaction` reads the packs its caller gives, with the outcomes matched, ambiguous and not found and the `incomplete` reasons of [SEM §7.2], crash gaps from footers included (G5-209).
 - A block or footer value that disagrees with the records it describes guarantees only `incomplete` and the defect (G5-203).
 - The segment writer, the sinks and `ErrPublishUncertain` stay as they are (G5-205).
+- Performance (G5-211): a `Reader` serves block reads from the bytes it read at bootstrap, and the default whole-read threshold rises to a few MiB;
+  `MergeIterate` prefetches the blocks of the next packs;
+  `WriterOptions` and `MergeOptions` default to `zstd`.
+- Version fields and the zstd window per [FMT §2] and [FMT §14] (G5-212): an unknown `trailer_version` or `footer_layout_version` leaves the footer unused and the pack read by the forward walk.
 
 Done when: `make lint-tracepack`, `make test-tracepack` and `make test-tracepack-386` pass and `go fix -diff ./...` is clean;
 the corpus regenerates byte-identically and holds only the files of the kept assertions;
