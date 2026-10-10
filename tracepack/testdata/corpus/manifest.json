@@ -2941,6 +2941,27 @@
       ]
     },
     {
+      "id": "tx-clock-step",
+      "title": "versions of window seqs in the hour before the primary's, after a backward clock step: outside the comparison, and a seq gap",
+      "cites": [
+        "SEM §7.2",
+        "SEM §4",
+        "SEM §9",
+        "CORPUS §5.11"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "lookups.json"
+      ]
+    },
+    {
       "id": "tx-closure-conflict",
       "title": "a close_seq naming a seq with two versions, one of them the socket-close: the conflict, no contradiction",
       "cites": [
@@ -2988,6 +3009,36 @@
       ]
     },
     {
+      "id": "tx-conflicted-scope",
+      "title": "two archives of equal rank in the primary's hour (no key) and in a later hour (a match beside it)",
+      "cites": [
+        "SEM §7.2",
+        "STO §4",
+        "SEM §9",
+        "CORPUS §5.11",
+        "CORPUS §8"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "pack-2.tpk",
+        "pack-2.verify.json",
+        "pack-3.tpk",
+        "pack-3.verify.json",
+        "pack-4.tpk",
+        "pack-4.verify.json",
+        "pack-5.tpk",
+        "pack-5.verify.json",
+        "lookups.json"
+      ]
+    },
+    {
       "id": "tx-conflicts",
       "title": "conflicts within a scope and across scopes, on the primary, a candidate and a record after the window, and a conflicting primary whose first version has no function",
       "cites": [
@@ -3023,6 +3074,40 @@
         "pack-8.verify.json",
         "pack-9.tpk",
         "pack-9.verify.json",
+        "lookups.json"
+      ]
+    },
+    {
+      "id": "tx-coverage-barrier",
+      "title": "coverage entries meeting the window or the hours alone, and both; a barrier meeting only a conflicted hour; a barrier on both bases",
+      "cites": [
+        "SEM §7.2",
+        "STO §5",
+        "FMT §5",
+        "SEM §9",
+        "CORPUS §5.11"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "pack-2.tpk",
+        "pack-2.verify.json",
+        "pack-3.tpk",
+        "pack-3.verify.json",
+        "pack-4.tpk",
+        "pack-4.verify.json",
+        "pack-5.tpk",
+        "pack-5.verify.json",
+        "pack-6.tpk",
+        "pack-6.verify.json",
+        "pack-7.tpk",
+        "pack-7.verify.json",
         "lookups.json"
       ]
     },
@@ -3193,6 +3278,32 @@
       "files": [
         "pack-0.tpk",
         "pack-0.verify.json",
+        "lookups.json"
+      ]
+    },
+    {
+      "id": "tx-scope-breach",
+      "title": "a pack of hour H whose blocks lie in another hour, a same-hour clock step, and a breach that explains a missing primary",
+      "cites": [
+        "SEM §7.2",
+        "FMT I-13",
+        "STO §4",
+        "SEM §9",
+        "CORPUS §5.11"
+      ],
+      "class": "multi-pack",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "pack-2.tpk",
+        "pack-2.verify.json",
         "lookups.json"
       ]
     },
