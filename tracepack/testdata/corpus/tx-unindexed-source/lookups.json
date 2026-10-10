@@ -1,0 +1,279 @@
+[
+  {
+    "id": "evidence-pack",
+    "cites": [
+      "SEM §7.2",
+      "CORPUS §5.11"
+    ],
+    "source": {
+      "view": [
+        0
+      ],
+      "evidence": [
+        1
+      ],
+      "complete": true
+    },
+    "key": {
+      "capture_id": "01a0ffeb-3600-7c34-b8de-34ded242faf7",
+      "seq": "1",
+      "hour": "497500"
+    },
+    "max_scopes": 2,
+    "expect": {
+      "outcome": "matched",
+      "key": {
+        "epoch": 1,
+        "dir": "host-to-equipment",
+        "session_id": 1,
+        "system_bytes": "AAAAwQ==",
+        "stream": 1,
+        "function": 1,
+        "w": true
+      },
+      "window_end": "4",
+      "records": [
+        {
+          "seq": "1",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "primary"
+          ],
+          "in_window": false,
+          "bound": false
+        },
+        {
+          "seq": "2",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "candidate"
+          ],
+          "in_window": true,
+          "bound": false,
+          "decidable": true,
+          "eligible": true,
+          "valid": true
+        },
+        {
+          "seq": "4",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "closing"
+          ],
+          "in_window": false,
+          "bound": true
+        }
+      ],
+      "gaps": [
+        {
+          "reason": "cold",
+          "hours": [
+            "497501"
+          ]
+        }
+      ],
+      "searched": [
+        {
+          "hour": "497500",
+          "indexed": true,
+          "packs": [
+            0
+          ]
+        },
+        {
+          "hour": "497501",
+          "indexed": false,
+          "packs": []
+        }
+      ],
+      "conflicts": [],
+      "footer_errors": []
+    }
+  },
+  {
+    "id": "incomplete-source",
+    "cites": [
+      "SEM §7.2",
+      "CORPUS §5.11"
+    ],
+    "source": {
+      "view": [
+        0
+      ],
+      "evidence": [],
+      "complete": false
+    },
+    "key": {
+      "capture_id": "01a0ffeb-3600-7c34-b8de-34ded242faf7",
+      "seq": "1",
+      "hour": "497500"
+    },
+    "max_scopes": 1,
+    "expect": {
+      "outcome": "matched",
+      "key": {
+        "epoch": 1,
+        "dir": "host-to-equipment",
+        "session_id": 1,
+        "system_bytes": "AAAAwQ==",
+        "stream": 1,
+        "function": 1,
+        "w": true
+      },
+      "window_end": "4",
+      "records": [
+        {
+          "seq": "1",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "primary"
+          ],
+          "in_window": false,
+          "bound": false
+        },
+        {
+          "seq": "2",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "candidate"
+          ],
+          "in_window": true,
+          "bound": false,
+          "decidable": true,
+          "eligible": true,
+          "valid": true
+        },
+        {
+          "seq": "4",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "closing"
+          ],
+          "in_window": false,
+          "bound": true
+        }
+      ],
+      "gaps": [
+        {
+          "reason": "cold",
+          "hours": [
+            "497500"
+          ]
+        },
+        {
+          "reason": "evidence"
+        }
+      ],
+      "searched": [
+        {
+          "hour": "497500",
+          "indexed": false,
+          "packs": [
+            0
+          ]
+        }
+      ],
+      "conflicts": [],
+      "footer_errors": []
+    }
+  },
+  {
+    "id": "unanswered-incomplete-source",
+    "cites": [
+      "SEM §7.2",
+      "CORPUS §5.11"
+    ],
+    "source": {
+      "view": [
+        0
+      ],
+      "evidence": [],
+      "complete": false
+    },
+    "key": {
+      "capture_id": "01a0ffeb-3600-7c34-b8de-34ded242faf7",
+      "seq": "3",
+      "hour": "497500"
+    },
+    "max_scopes": 1,
+    "expect": {
+      "outcome": "incomplete",
+      "key": {
+        "epoch": 1,
+        "dir": "host-to-equipment",
+        "session_id": 1,
+        "system_bytes": "AAAAwg==",
+        "stream": 1,
+        "function": 1,
+        "w": true
+      },
+      "window_end": "4",
+      "records": [
+        {
+          "seq": "3",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "primary"
+          ],
+          "in_window": false,
+          "bound": false
+        },
+        {
+          "seq": "4",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "closing"
+          ],
+          "in_window": false,
+          "bound": true
+        }
+      ],
+      "gaps": [
+        {
+          "reason": "cold",
+          "hours": [
+            "497500"
+          ]
+        },
+        {
+          "reason": "evidence"
+        }
+      ],
+      "searched": [
+        {
+          "hour": "497500",
+          "indexed": false,
+          "packs": [
+            0
+          ]
+        }
+      ],
+      "conflicts": [],
+      "footer_errors": []
+    }
+  }
+]
