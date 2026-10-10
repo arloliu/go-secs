@@ -2941,9 +2941,88 @@
       ]
     },
     {
+      "id": "tx-cross-pack",
+      "title": "a reply in another segment of the primary's hour, and a reply in the next hour's scope",
+      "cites": [
+        "SEM §7.2",
+        "SEM §9",
+        "CORPUS §5.11",
+        "CORPUS §8"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "pack-2.tpk",
+        "pack-2.verify.json",
+        "lookups.json"
+      ]
+    },
+    {
+      "id": "tx-possible-primary",
+      "title": "a possible same-key primary without System Bytes between two replies, and a record in direction unknown that is both a possible reply and a possible same-key primary",
+      "cites": [
+        "SEM §7.2",
+        "SEM §9",
+        "CORPUS §5.11"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "lookups.json"
+      ]
+    },
+    {
+      "id": "tx-refused-socket",
+      "title": "an outstanding primary of epoch 1, the socket-close of a refused socket of epoch 2, then the reply of epoch 1",
+      "cites": [
+        "FMT I-7",
+        "SEM §7.2",
+        "SEM §9",
+        "CORPUS §5.11"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "lookups.json"
+      ]
+    },
+    {
       "id": "tx-repeated-key",
       "title": "a completed transaction, then an unanswered primary of the same key: the same-key primary bounds the first window",
       "cites": [
+        "SEM §7.2",
+        "SEM §9",
+        "CORPUS §5.11"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "lookups.json"
+      ]
+    },
+    {
+      "id": "tx-unavailable-fields",
+      "title": "a primary without System Bytes, and an unanswered primary followed in its window by a reply-direction record without System Bytes",
+      "cites": [
+        "FMT §7.2",
         "SEM §7.2",
         "SEM §9",
         "CORPUS §5.11"

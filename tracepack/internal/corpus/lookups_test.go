@@ -22,7 +22,7 @@ const testLookupsJSON = `[
 {"id": "every-key", "cites": ["SEM §7.2", "CORPUS §5.11"],
  "source": {"view": [0, 1], "evidence": [2], "complete": true},
  "key": {"capture_id": "019a2b3c-4d5e-7002-8000-000000000002", "seq": "5", "hour": "10"},
- "max_scopes": 2,
+ "max_scopes": 3,
  "expect": {
    "outcome": "incomplete",
    "key": {"epoch": 1, "dir": "host-to-equipment", "session_id": 7, "system_bytes": "AAAABQ==", "stream": 1, "function": 1, "w": true},
@@ -41,7 +41,7 @@ const testLookupsJSON = `[
      {"reason": "index", "hours": ["10"], "pack": 0, "block": 1, "offset": "300"},
      {"reason": "scope-breach", "hours": ["10"], "pack": 0, "block": 1, "seq": "7"},
      {"reason": "cold", "hours": ["11"]},
-     {"reason": "conflicted", "hours": ["11"]},
+     {"reason": "conflicted", "hours": ["12"]},
      {"reason": "read", "hours": ["10"], "pack": 0, "defect": "truncated"},
      {"reason": "read", "hours": ["10"], "pack": 0, "offset": "500", "defect": "truncated"},
      {"reason": "read", "hours": ["10"], "pack": 0, "block": 2, "offset": "600", "defect": "corrupt-block"},
@@ -112,7 +112,7 @@ func everyKeyRun() LookupRun {
 		{Reason: tracepack.TxGapRead, Hours: []int64{10}, Pack: new(testPack0), Block: -1, Offset: -1, Defect: tracepack.ReasonTruncated},
 		{Reason: tracepack.TxGapUnevaluated, Hours: []int64{10}, Pack: new(testPack1), Block: -1, Offset: -1},
 		{Reason: tracepack.TxGapCold, Hours: []int64{11}, Block: -1, Offset: -1},
-		{Reason: tracepack.TxGapConflicted, Hours: []int64{11}, Block: -1, Offset: -1},
+		{Reason: tracepack.TxGapConflicted, Hours: []int64{12}, Block: -1, Offset: -1},
 		{Reason: tracepack.TxGapCoverage, Hours: []int64{10}, Pack: new(testPack1), Block: -1, Offset: -1, Coverage: &cov},
 		{Reason: tracepack.TxGapBarrier, Block: -1, Offset: -1, Barrier: testBoundary(testCaptureID, new(int64(-20)), new(int64(100)))},
 		{Reason: tracepack.TxGapBarrier, Block: -1, Offset: -1, Barrier: testBoundary(testOtherCapture, nil, nil)},
@@ -132,7 +132,7 @@ func everyKeyRun() LookupRun {
 	}
 
 	return LookupRun{
-		Key: tracepack.TxKey{Capture: testCaptureID, Seq: 5, Hour: 10}, MaxScopes: 2, Numbers: testNumbers,
+		Key: tracepack.TxKey{Capture: testCaptureID, Seq: 5, Hour: 10}, MaxScopes: 3, Numbers: testNumbers,
 		Result: tracepack.TxResult{
 			Outcome: tracepack.TxIncomplete, Epoch: 1, Dir: tracepack.DirHostToEquipment, SessionID: 7, SystemBytes: [4]byte{0, 0, 0, 5},
 			Stream: 1, Function: 1, StreamAvailable: true, W: true, WAvailable: true, WindowEnd: at(20),
@@ -179,7 +179,7 @@ func TestLookupsJSON(t *testing.T) {
 	key, opts, err := every.Lookup()
 	require.NoError(t, err)
 	require.Equal(t, tracepack.TxKey{Capture: testCaptureID, Seq: 5, Hour: 10}, key)
-	require.Equal(t, tracepack.TxOptions{MaxScopes: 2}, opts)
+	require.Equal(t, tracepack.TxOptions{MaxScopes: 3}, opts)
 
 	// Marshal sorts the lookups by id, each version's roles by the role table, and the gaps by the comparator,
 	// each distinct fact once.
@@ -315,10 +315,16 @@ func twoValidRun(r *LookupRun, outcome tracepack.TxOutcome) {
 	c.Class, c.Decidable, c.Eligible, c.Valid = tracepack.TxCandidate, true, true, true
 }
 
-// twoValidLookup edits the lookup every-key of testLookupsJSON into a result without facts
+// scheduleFacts are the facts of the lookup every-key of testLookupsJSON that its schedule needs, and none other:
+// its third hour scheduled, 12, conflicted.
+func scheduleFacts() []Fact {
+	return []Fact{{Reason: FactConflicted, Hours: hoursOf(12)}}
+}
+
+// twoValidLookup edits the lookup every-key of testLookupsJSON into a result without facts but scheduleFacts
 // whose versions at seqs 6 and 7 are valid matches, its outcome outcome.
 func twoValidLookup(l *LookupVector, outcome string) {
-	l.Expect.Outcome, *l.Expect.Gaps = outcome, nil
+	l.Expect.Outcome, *l.Expect.Gaps = outcome, scheduleFacts()
 	(*l.Expect.Records)[1].Valid = new(true)
 	c := &(*l.Expect.Records)[2]
 	c.Roles, c.Decidable, c.Eligible, c.Valid = []string{RoleCandidate}, new(true), new(true), new(true)
@@ -386,17 +392,22 @@ func TestLookupsMarshalRefuses(t *testing.T) {
 		{"the end marked in the window", func(l *LookupVector) { (*l.Expect.Records)[3].InWindow = true }},
 		{"the end not bounding", func(l *LookupVector) { (*l.Expect.Records)[3].Bound = false }},
 		{"a bound below the end", func(l *LookupVector) { (*l.Expect.Records)[2].Bound = true }},
-		{"matched without a valid match", func(l *LookupVector) { l.Expect.Outcome, *l.Expect.Gaps = "matched", nil }},
+		{"matched without a valid match", func(l *LookupVector) { l.Expect.Outcome, *l.Expect.Gaps = "matched", scheduleFacts() }},
 		{"ambiguous with one valid match", func(l *LookupVector) {
-			l.Expect.Outcome, *l.Expect.Gaps, (*l.Expect.Records)[1].Valid = "ambiguous", nil, new(true)
+			l.Expect.Outcome, *l.Expect.Gaps, (*l.Expect.Records)[1].Valid = "ambiguous", scheduleFacts(), new(true)
 		}},
 		{"unmatched beside a valid match", func(l *LookupVector) {
-			l.Expect.Outcome, *l.Expect.Gaps, (*l.Expect.Records)[1].Valid = "unmatched", nil, new(true)
+			l.Expect.Outcome, *l.Expect.Gaps, (*l.Expect.Records)[1].Valid = "unmatched", scheduleFacts(), new(true)
 		}},
 		{"matched with two valid matches", func(l *LookupVector) { twoValidLookup(l, "matched") }},
 		{"bound on a version that cannot bound the window", func(l *LookupVector) { closingConflictLookup(l, true) }},
-		{"a scheduled hour neither searched nor conflicted", func(l *LookupVector) { l.MaxScopes = 3 }},
-		{"a searched hour not scheduled", func(l *LookupVector) { (*l.Expect.Searched)[1].Hour = 12 }},
+		{"a scheduled hour neither searched nor conflicted", func(l *LookupVector) { l.MaxScopes = 4 }},
+		{"a searched hour not scheduled", func(l *LookupVector) { (*l.Expect.Searched)[1].Hour = 13 }},
+		{"a conflicted hour also searched", func(l *LookupVector) {
+			*l.Expect.Searched = append(*l.Expect.Searched, SearchedScope{Hour: 12, Packs: []int{}})
+		}},
+		{"a conflicted hour not scheduled", func(l *LookupVector) { l.MaxScopes = 2 }},
+		{"hours scheduled out of the range of a lookup", func(l *LookupVector) { l.Key.Hour, l.MaxScopes = I64(tracepack.MaxTxHour), 2 }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -412,7 +423,7 @@ func TestLookupsMarshalRefuses(t *testing.T) {
 	_, err := Lookups{ls[0], ls[0]}.Marshal()
 	require.Error(t, err, "an id twice")
 
-	// The controls of the refusals above: two valid matches without a fact are ambiguous,
+	// The controls of the refusals above: two valid matches beside a conflicted hour are ambiguous,
 	// and a closing version in conflict at the window's end does not bound it.
 	l := base()
 	twoValidLookup(&l, "ambiguous")

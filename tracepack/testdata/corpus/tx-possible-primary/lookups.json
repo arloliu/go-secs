@@ -1,0 +1,219 @@
+[
+  {
+    "id": "reply-before-and-after",
+    "cites": [
+      "SEM §7.2",
+      "CORPUS §5.11"
+    ],
+    "source": {
+      "view": [
+        0
+      ],
+      "evidence": [],
+      "complete": true
+    },
+    "key": {
+      "capture_id": "01a0ffeb-3600-7560-9cdd-189854507492",
+      "seq": "1",
+      "hour": "497500"
+    },
+    "max_scopes": 1,
+    "expect": {
+      "outcome": "matched",
+      "key": {
+        "epoch": 1,
+        "dir": "host-to-equipment",
+        "session_id": 1,
+        "system_bytes": "AAAAUQ==",
+        "stream": 1,
+        "function": 1,
+        "w": true
+      },
+      "window_end": "5",
+      "records": [
+        {
+          "seq": "1",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "primary"
+          ],
+          "in_window": false,
+          "bound": false
+        },
+        {
+          "seq": "2",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "candidate"
+          ],
+          "in_window": true,
+          "bound": false,
+          "decidable": true,
+          "eligible": true,
+          "valid": true
+        },
+        {
+          "seq": "3",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "possible-primary"
+          ],
+          "in_window": true,
+          "bound": false
+        },
+        {
+          "seq": "4",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "candidate"
+          ],
+          "in_window": true,
+          "bound": false,
+          "decidable": true,
+          "eligible": false,
+          "valid": false
+        },
+        {
+          "seq": "5",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "closing"
+          ],
+          "in_window": false,
+          "bound": true
+        }
+      ],
+      "gaps": [
+        {
+          "reason": "unavailable",
+          "hours": [
+            "497500"
+          ],
+          "pack": 0,
+          "block": 0,
+          "seq": "4"
+        }
+      ],
+      "searched": [
+        {
+          "hour": "497500",
+          "indexed": true,
+          "packs": [
+            0
+          ]
+        }
+      ],
+      "conflicts": [],
+      "footer_errors": []
+    }
+  },
+  {
+    "id": "unknown-direction",
+    "cites": [
+      "SEM §7.2",
+      "CORPUS §5.11"
+    ],
+    "source": {
+      "view": [
+        0
+      ],
+      "evidence": [],
+      "complete": true
+    },
+    "key": {
+      "capture_id": "01a0ffeb-3600-7560-9cdd-189854507492",
+      "seq": "6",
+      "hour": "497500"
+    },
+    "max_scopes": 1,
+    "expect": {
+      "outcome": "incomplete",
+      "key": {
+        "epoch": 2,
+        "dir": "host-to-equipment",
+        "session_id": 1,
+        "system_bytes": "AAAAUg==",
+        "stream": 1,
+        "function": 1,
+        "w": true
+      },
+      "window_end": "8",
+      "records": [
+        {
+          "seq": "6",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "primary"
+          ],
+          "in_window": false,
+          "bound": false
+        },
+        {
+          "seq": "7",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "possible-reply",
+            "possible-primary"
+          ],
+          "in_window": true,
+          "bound": false
+        },
+        {
+          "seq": "8",
+          "hour": "497500",
+          "pack": 0,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "closing"
+          ],
+          "in_window": false,
+          "bound": true
+        }
+      ],
+      "gaps": [
+        {
+          "reason": "unavailable",
+          "hours": [
+            "497500"
+          ],
+          "pack": 0,
+          "block": 0,
+          "seq": "7"
+        }
+      ],
+      "searched": [
+        {
+          "hour": "497500",
+          "indexed": true,
+          "packs": [
+            0
+          ]
+        }
+      ],
+      "conflicts": [],
+      "footer_errors": []
+    }
+  }
+]
