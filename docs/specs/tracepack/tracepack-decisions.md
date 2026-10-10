@@ -100,6 +100,7 @@ it is not part of the owner's recorded decision or of a review's finding.
 - G5-46 Active view = highest-ranked committed complete generation, ranked by (publisher_epoch, scope_generation),
   plus uncommitted-to-generation gen-0 packs outside its cumulative compacted_from, plus committed patches whose
   patch_base is that generation. Repairs/corrections are generation-0 patches; only merges create generations.
+  (2026-10-10: a direct converter archive publication creates a generation too, G5-193.)
 - G5-47 Publisher epochs fenced by fence objects; admissions committed by commit objects (commit point) with
   roll-forward / cancel-by-new-generation recovery; deletion eligibility separate from view exclusion.
 - G5-48 Recorder durability contract: flush interval F, liveness anchor, fixed clock anchor with clock-step events;
@@ -220,6 +221,7 @@ it is not part of the owner's recorded decision or of a review's finding.
   so a catalog rebuild from the bucket is a disaster path, and the per-capture end evidence that a rebuild cannot recover (P5) is accepted as a residual risk.
 - G5-84 Cold-scope admissions (2026-09-27): the rejection of admissions for scopes outside the catalog window (P4) is a known limitation;
   converter archives that arrive after the window are read through listing views only.
+  (2026-10-10: corrected by G5-193 — a rejected converter archive gives per-capture evidence only and no listing view reads its records; converter segments are read through listing views.)
 - G5-85 go-secs support for the equipment-gateway producer (2026-09-27): after the format primitives land, a go-secs proposal is written first,
   exposing the connection generation number and the read-time wall and monotonic timestamps on received messages and lifecycle events.
   Design premise: the equipment gateway will emit traffic-log records either through a new `secs-recorder` device or by adding record emission to its EAP bus adapter;
@@ -955,6 +957,7 @@ it is not part of the owner's recorded decision or of a review's finding.
   and no capture repeats another's bytes as annotations.
   `capture_id` is one per `tool_id` per run per source file set, as [FMT I-7] already assigns it per tool;
   the corpus `spec_version` follows the spec version although no golden changes.
+  (2026-10-10: the per-run part is superseded by G5-192 — a reproducible re-run MAY reuse the capture.)
   Rationale *(editorial)*: a capture belongs to one tool ([FMT §5] `tool_id`), so a log of several tools cannot be one capture,
   and copying every other tool's lines into each capture would multiply the stored bytes by the number of tools.
   Rejected: every capture covering the whole input, with the other tools' and the unrelated lines as annotations;
@@ -966,3 +969,90 @@ it is not part of the owner's recorded decision or of a review's finding.
   Rationale *(editorial)*: without it, `source_index` is only meaningful within one pack, and coverage across captures cannot be related.
   Rejected *(editorial)*: leaving the order to each converter, with the check matching files by their `source_ref` text.
   Spec: [STO §7] item 8, [STO §8] (v2.29).
+- G5-188 The `multi-pack` corpus class (2026-10-10, ratifying the corpus part 2 as delivered in v2.30):
+  a vector of reads over several packs or of transaction lookups is of class `multi-pack`:
+  numbered packs `pack-<n>.tpk`, each with its verification report `pack-<n>.verify.json`, and `reads.json`, `lookups.json` or both, with no export;
+  group prefixes `multi-` and `tx-`; the corpus schema becomes `tracepack-corpus/2`, so a `/1` consumer does not read the new class silently.
+  A pack is named by its number n in every result of the class;
+  the numbers are local to the vector — never a `pack_id`, a position in an API's reader list or a storage key — and an implementation maps them by opening the packs, so no runtime API or key changes.
+  The vector-directory budgets (`multi-` 120,000 bytes, `tx-` 330,000) and the raised root rows are repository maintenance ceilings a test enforces, never reader or format limits.
+  [FMT §16] leaves the files of a vector to [CORPUS]'s rules per class.
+  Spec v2.30 is accepted for what it delivered; the rulings below are recorded in v2.31.
+  Rationale: self-contained vectors keep the corpus usable by other implementations, and a per-pack export would multiply its size for little coverage, per-pack verification and the returned records' bytes being checked instead.
+  Rejected: one class per file kind; reusing the packs of other vectors by reference; `pack_id` strings in the results, which a read given its packs in two orders would name two ways.
+  Spec: [CORPUS §2], [CORPUS §3], [CORPUS §4], [CORPUS §10], [FMT §16] (v2.30).
+- G5-189 Reads over several packs in the corpus (2026-10-10, ratifying v2.30):
+  `reads.json` gives each read's packs in a stated order, its order, filter and optional conflict bound,
+  and expects the items in yield order, each pack's `incomplete` reasons, the conflicts in discovery order and the footers not used,
+  or the `conflict-limit` error with the conflicts found so far, items yielded before the error not compared.
+  The conflict bound is a parameter the read states, the one exception to [CORPUS §1]'s rule that a reader's own limits are never goldens;
+  the exception covers `reads.json` `max_conflicts` only: at bound N, N conflicts succeed and an N + 1-th fails, reporting the first N;
+  it sets no precedent for a lookup's state, held bytes or default reader limits.
+  Pruning stays optional: no read depends on a whole cluster being excluded;
+  read counts and a cluster excluded whole stay tests of the reference implementation, and the catalogue says so.
+  Rationale: [SEM §7.4] defines the bound's outcome deterministically, while pruning is an optimisation [SEM] permits and does not require.
+  Rejected: leaving the bounded reads out of the corpus; a [SEM §7.4] rule requiring exclusion by the F-2 time range, which would make conforming readers nonconforming.
+  Spec: [CORPUS §1], [CORPUS §5.10], [CORPUS §9] (v2.30).
+- G5-190 Lookups over a set of packs (2026-10-10, ratifying v2.30):
+  a lookup vector names its source as packs of the vector — ordered view packs, evidence packs and whether the source is complete — read as [CORPUS §8] states,
+  only `view ∪ evidence` supplying scopes, evidence and barriers, other packs of the vector having no effect;
+  the source's assumed commits are premises of the fixture, not a way around a real admission;
+  snapshots, listings and other catalog or bucket behaviour stay with the store vectors.
+  `lookups.json` expects the outcome, the primary's fields each present as available, the window's end, every kept version in a stated order with its role labels and flags,
+  the scopes searched, their conflicts and unused footers, and the facts of G5-191.
+  The role labels, `closing` among them, are diagnostics [CORPUS §5.11] defines from a version's bytes; [SEM §7.2]'s predicates, conflict-free bounding and closure of the primary's epoch, stay separate and unchanged.
+  An extract read beside its source moves to phase 7, with redaction.
+  Rationale: the lookup's semantics are tested apart from the store, whose fixtures belong to the store vectors.
+  Rejected: a store snapshot consumed by a store source in this part; an extract written without the redaction entries a conforming extract has.
+  Spec: [CORPUS §5.11], [CORPUS §8], [SEM §9] (v2.30).
+- G5-191 Canonical lookup facts and early returns (2026-10-10, ratifying v2.30 with two qualifications):
+  a lookup's facts are canonical: one per condition of [SEM §7.2] and [STO §5] Completeness that keeps the lookup from establishing absence, identical facts collapsed;
+  a barrier is one fact with its bases; claim-specific contradictions; the existence facts carry no witness; a `capture-boundary` is identified by capture, seq, kind and epoch; one total order.
+  Canonicalization may drop duplicate representations and witness details, never a semantic fact.
+  This is ratified with its implementation closed by G5-194 and G5-195 and their regression vectors.
+  A lookup whose primary is missing, conflicts within its scope's read, or has no association key returns early:
+  the result reports the listed facts of the completed read of the primary's scope and the primary's failure,
+  and does not perform the completeness evaluation of a keyed lookup, whether or not an omitted fact depends on classifying versions (partial evidence does not);
+  the scope read's conflicts and unused footers stay in their own result fields.
+  Rationale: canonical facts compare across implementations without freezing one implementation's diagnostics.
+  Rejected: weakening a fact to match an implementation's omission or hiding it in normalization; describing every omitted fact as one that depends on classification.
+  Spec: [CORPUS §5.11] Facts and Early-return results, [SEM §7.2] (v2.30, v2.31).
+- G5-192 Reproducible converter identities (2026-10-10):
+  a converter MAY reuse a `capture_id` for a reproducible re-run, when every input that decides the capture's records, seqs and capture-level metadata is unchanged,
+  the deterministic derivation of the id covering at least:
+  a digest of each source file's contents, not only its name, in the source order; the `tool_id` and tool attribution; the dialect, time zone and every other interpretation setting; and the converter's, parser's and classifier's versions.
+  It MAY reuse a `pack_id` only for byte-identical finalized output:
+  the inputs behind that identity also cover the capture identity, the hour and partition, every metadata value, the writer's, tracepack's and codec's versions and options, the block partitioning, and a `writer_start_utc_ns` the conversion fixes.
+  An existing id that names different bytes fails the conversion, which never overwrites the file.
+  A deterministic id is an exception to [FMT §2]'s UUIDv7 recommendation, and readers do not depend on ids being ordered by creation time.
+  A conversion whose inputs change is a new import with a new capture; no rule reconciles two captures of the same traffic.
+  This supersedes the "per converter run" of G5-186: the capture is one per `tool_id` per source file set per logical conversion.
+  Rationale *(editorial)*: a retried import then neither duplicates captures nor files, while a reused id still names one capture's records and one file's bytes.
+  Rejected *(editorial)*: fresh ids on every run, which store a retry's traffic twice; a hash of the source names only, which cannot see a changed file.
+  Spec: [STO §7] item 8 and Reproducible output, [FMT §2], [FMT §4], [FMT I-7] (v2.31).
+- G5-193 Converter segments; a direct converter archive is a generation (2026-10-10):
+  a converter MAY write generation-0 `segment` packs, each of one capture and UTC hour, possibly covering the whole hour,
+  with `compaction_level` 0 and without `compacted_from`, publisher-epoch, replacement-set or `flush_interval_ns` tags;
+  they are outside the recorder's flush, spool and recovery contract and use the segment keys, admission rules and active-view rules of [STO §3]–[STO §5].
+  A converter MAY instead write an archive directly; it is the first generation of a scope with no accepted packs and follows a merge's generation claim, fencing and commit protocol,
+  so merges and direct converter archives produce generations.
+  This corrects G5-84: an archive enters a view only with a commit object ([STO §4]), and an archive rejected for a scope that is not indexed gives per-capture evidence only, its records outside every view, a listing view included.
+  A converter emits start and stop once per capture, not per hourly pack, and its seqs are capture-wide.
+  Rationale *(editorial)*: segments already enter listing views without commit objects, so historic imports need no new publication model.
+  Rejected *(editorial)*: requiring archives, which would need historic scopes indexed before admission; an implicitly committed or generation-0 archive, a second publication model.
+  Spec: [STO §2], [STO §5], [STO §6], [STO §7] item 9, [STO §8], [FMT §5] (v2.31).
+- G5-194 Records yielded before the primary are classified (2026-10-10):
+  when a block disagreeing with its F-2 entry yields versions of the primary's scope before the primary, the lookup classifies them once the primary is established,
+  as every other version read, and checks a closure claim at their seqs;
+  the disagreeing block stays an index defect that makes the result `incomplete`.
+  The early returns of G5-191 stay as they are.
+  Rationale *(editorial)*: what a lookup reads must not depend on the order a false index delivered it in, and the kept records, the window and the facts are conformance outputs.
+  Rejected *(editorial)*: amending [SEM §7.2] to exempt those versions from classification and their seqs from claim checking, as the reference implementation did.
+  Spec: [SEM §7.2] (v2.31); the reference implementation changes, no golden of v2.30 moves.
+- G5-195 Only a bounding stop of the primary's epoch answers its boundary evidence (2026-10-10):
+  the clean `stop` that bounds the window keeps a capture-boundary of the primary's epoch at e, from the per-capture evidence or read, from being reported only when that stop is itself of the primary's epoch;
+  a bounding `stop` of another epoch still bounds the window,
+  and an evidence entry of the primary's epoch claiming a `stop` at e is then reported as a `capture-boundary`, beside the contradiction its claim makes.
+  Rationale *(editorial)*: a boundary is identified with its epoch ([CORPUS §5.11]), so a stop of another epoch is not the boundary the evidence names.
+  Rejected *(editorial)*: ignoring the epoch for this exemption, which would give boundary identity two meanings.
+  Spec: no rule changes ([SEM §7.2], [CORPUS §5.11]); the reference implementation changes.

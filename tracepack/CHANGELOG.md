@@ -13,13 +13,15 @@ The two clauses of the format specification §16 that need several packs have th
 
 ### Upgrade notes
 
-- The corpus manifest's `corpus` value is now `tracepack-corpus/2`, and its `spec_version` `2.30`.
+- The corpus manifest's `corpus` value is now `tracepack-corpus/2`, and its `spec_version` `2.31`.
   A consumer that requires `tracepack-corpus/1` must accept the new value;
   the files of the classes it already reads keep their form, so nothing else changes for it.
 
 ### Changed
 
-- The corpus follows spec v2.30, after spec v2.29, which states how a log of several tools converts into captures and changed no golden.
+- The corpus follows spec v2.31, after spec v2.29, which states how a log of several tools converts into captures and changed no golden,
+  and spec v2.30, which defines the corpus part 2;
+  spec v2.31 lets a log converter reuse its ids for reproducible output and write segments, and changes no golden.
 - The corpus README's size budget per vector group and root file is now a ceiling a test enforces,
   and the README's budget table must state the same ceilings.
 

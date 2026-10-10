@@ -1,6 +1,6 @@
 # tracepack — conformance corpus
 
-Status: current (2026-10-10) — v2.30, tracepack format 1.0, schema `tracepack-corpus/2` (draft until tracepack v1.0.0).
+Status: current (2026-10-10) — v2.31, tracepack format 1.0, schema `tracepack-corpus/2` (draft until tracepack v1.0.0).
 Normative, language-agnostic. [FMT §16] states what the corpus holds; this document defines its files, their schemas and the vector catalogue.
 
 Depends on: [FMT §2] portable encoding, [FMT §5] TLV registries, [FMT §7.2] HSMS header fields, [FMT §10] footer and its validation,
@@ -80,7 +80,7 @@ so goldens written under different definitions are told apart ([FMT §14]).
 | Key | Type | Present | Value |
 |---|---|---|---|
 | `corpus` | string | always | `"tracepack-corpus/2"`, the schema of every file of this document (§10) |
-| `spec_version` | string | always | the spec version the goldens follow: `"2.30"` |
+| `spec_version` | string | always | the spec version the goldens follow: `"2.31"` |
 | `format_version` | string | always | `"1.0"` ([FMT §4]) |
 | `jsonl_schema` | string | always | the export schema of every `.jsonl` file: `"tracepack-jsonl/1"` ([JSONL §9]) |
 | `zstd_encoder` | string | always | the identity and version of the zstd encoder that produced the encoder-made zstd blocks and footers of the corpus, as its generator records it (§6.1) |
@@ -600,8 +600,10 @@ no version is in the window or bounds it.
 Its facts are of two kinds:
 - **kept**, the facts its read of the primary's scope records before the primary is settled, about the scope, a pack, a block or a version at any seq:
   `cold`, `conflicted`, `unevaluated`, `read`, `index`, and `scope-breach` above or below p;
-- **not reported**, the facts that depend on classifying versions against the primary's key:
+- **not reported**, the facts of the completeness evaluation of a keyed lookup, which an early return does not perform ([SEM §7.2] Scopes read),
+  whether or not a fact depends on classifying versions against the primary's key (partial evidence, `evidence`, does not):
   `conflict` above p, `coverage`, `barrier`, `capture-boundary`, `ordering-uncertain`, `evidence`, `seq-gap`, `open-window`, `unavailable` and `contradiction`.
+The restriction concerns the facts only: the scope read's conflicts and unused footers stay in `conflicts` and `footer_errors`.
 
 The three early returns:
 - **missing primary**: the primary's scope yielded no version of p, and the scope is not indexed, conflicted, read with a defect other than a `coverage` entry, read with a scope breach,
