@@ -1,6 +1,6 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-10-10) — phases 4, 5a, 5b, 5c1, 5c2, 5c3, 5d and 6a done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`, `SegmentWriter`, `NewDirSink`, `NewReaderSource`, `Retention`, `ExportJSONL`); phase 6 split into 6a, 6b and 6c (G5-166) and 6b into 6b1, 6b2 and 6b3 (G5-173), 6b1 (conformance corpus, part 1) done, 6b2 (part 2) in progress; phases 7 and 8 pending.
+Status: active (2026-10-10) — phases 4, 5a, 5b, 5c1, 5c2, 5c3, 5d and 6a done (`Verify`, `Repair`, `ActiveView`, `Merge`, `MergeIterate`, `PackSource`, `FindTransaction`, `NewStoreSource`, `SegmentWriter`, `NewDirSink`, `NewReaderSource`, `Retention`, `ExportJSONL`); phase 6 split into 6a, 6b and 6c (G5-166) and 6b into 6b1, 6b2 and 6b3 (G5-173), 6b1 and 6b2 (conformance corpus, parts 1 and 2) done; 6b3, 6c and phases 7 and 8 pending.
 Implements: tracepack v2.30 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
@@ -75,7 +75,7 @@ Each phase ends with `make lint-tracepack`, `make test-tracepack` and an externa
 | 5d — segment writer, local source | done |
 | 6a — JSONL export | done |
 | 6b1 — conformance corpus, part 1 | done |
-| 6b2 — conformance corpus, part 2: reads over several packs, transaction lookups | in-progress |
+| 6b2 — conformance corpus, part 2: reads over several packs, transaction lookups | done |
 | 6b3 — conformance corpus, part 3: store vectors | pending |
 | 6c — CLI | pending |
 | 7 — Extract and redaction | pending |
@@ -637,7 +637,7 @@ a failed block's envelope `record_count` counts toward the trailer comparison of
 the records of a log conversion without connect lines are in epoch 0 ([STO §7]);
 and a `build-rejected` record is an `unparsed-entry` annotation holding the entry's text, since [SEM §2] names no kind for it.
 
-#### 6b2 — conformance corpus, part 2 (in-progress)
+#### 6b2 — conformance corpus, part 2 (done)
 
 From spec v2.30; the corpus is [CORPUS], schema `tracepack-corpus/2`.
 Plan: the phase 6b2 corpus plan, kept outside the repository (ready after plan reviews r1–r3); its rules await the owner's ratification.
@@ -666,6 +666,37 @@ one for reads and one for lookups, agree with every committed golden,
 the lookups checker on the whole fact set of every lookup;
 the external post-implementation review is clean.
 No store, catalog, retention, redaction or zstd vector in 6b2.
+
+Done (2026-10-10): the tests above pass, and so do the criteria they check.
+The corpus gains 32 vectors of class `multi-pack`, every pack codec `none`:
+
+| Group | Vectors | Packs | Reads or lookups | Files | Bytes |
+|---|---:|---:|---:|---:|---:|
+| `multi-` | 13 | 35 | 25 reads | 83 | 79,053 |
+| `tx-` | 19 | 57 | 53 lookups | 133 | 192,141 |
+| Both | 32 | 92 | 78 | 216 | 271,194 |
+
+The whole corpus holds 144 vectors in 616 files and about 964,000 bytes, `manifest.json` 82,830 of them, under the 2,000,000-byte limit.
+`TestCorpus` regenerates every vector byte for byte, opens every `pack-<n>.tpk` against its `.verify.json`,
+runs every read with `MergeIterate` and every lookup with `FindTransaction` over `NewReaderSource`,
+and checks every returned record against the stored record its pack and block name.
+`TestGenerateDeterministic` and `TestGenerateFreshProcesses` regenerate the corpus in one process and in two;
+`TestRecipeIDsAreCatalogued` binds the `multi-` and `tx-` ids to [CORPUS §9.4];
+`TestGroupBudgets` enforces the ceiling of every group and root file, and requires the corpus README's budget table to state them;
+`TestMultiRecipesAreChecked` and `TestLookupRecipesAreChecked` show that every read and lookup expectation is checked before any golden is written,
+and `TestLookupViewOrder` covers the view order of [CORPUS §8], a patch replacing a segment or the generation's member included.
+Two Python checkers, written from the specification alone, agree with all 25 reads and all 53 lookups, the latter on each lookup's whole fact set.
+Open questions, which no vector depends on:
+- Records the primary's scope read yields before the primary, through a block disagreeing with its F-2 entry, are neither classified nor kept by `FindTransaction`,
+  while [SEM §7.2] lets them bound the window and checks a closure claim at their seq.
+  The outcome is `incomplete` either way, from the block's `index` fact;
+  either [SEM §7.2] states that such records are not classified, or `FindTransaction` classifies them.
+- `FindTransaction` picks the clean `stop` that bounds the window by seq and kind, not by epoch,
+  so an evidence `stop` claim of the primary's epoch at that seq gives no `capture-boundary` fact when a `stop` of another epoch bounds the window there,
+  where [CORPUS §5.11] and [SEM §7.2] identify a capture-boundary by its epoch too.
+  The outcome is `incomplete` either way, and only a nonconforming footer reaches the case;
+  comparing the epoch too, then adding the case as a vector, would close it.
+- The rules of the corpus, part 2, stated in [CORPUS] v2.30, await the owner's ratification.
 
 #### 6b3 — conformance corpus, part 3
 

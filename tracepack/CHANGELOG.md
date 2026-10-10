@@ -5,10 +5,40 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+The conformance corpus covers reads over several packs and transaction lookups (spec v2.30),
+so an implementation of either checks itself against the committed files as it already does for single packs.
+With them every clause of the semantics specification §9 has a vector, or a test of this implementation where no result shows it,
+but redaction and an extract beside its source, which come later.
+The two clauses of the format specification §16 that need several packs have their vectors too.
+
+### Upgrade notes
+
+- The corpus manifest's `corpus` value is now `tracepack-corpus/2`, and its `spec_version` `2.30`.
+  A consumer that requires `tracepack-corpus/1` must accept the new value;
+  the files of the classes it already reads keep their form, so nothing else changes for it.
+
 ### Changed
 
-- The conformance corpus manifest names spec v2.29, which states how a log of several tools converts into captures;
-  no golden changed.
+- The corpus follows spec v2.30, after spec v2.29, which states how a log of several tools converts into captures and changed no golden.
+- The corpus README's size budget per vector group and root file is now a ceiling a test enforces,
+  and the README's budget table must state the same ceilings.
+
+### Added
+
+- Corpus vectors of the new class `multi-pack`: 13 of reads over several packs (`multi-`) and 19 of transaction lookups (`tx-`).
+  Each holds numbered packs `pack-<n>.tpk`, each with its verification report `pack-<n>.verify.json`, and `reads.json`, `lookups.json` or both, without an export.
+  A read gives its packs in a stated order, with its order, filter and optional conflict bound,
+  and expects the versions yielded, each pack's `incomplete` reasons, the conflicts in discovery order and the footers not used,
+  or the conflict-limit error with the conflicts found so far.
+  A lookup names its primary, the hours to search and its source:
+  the packs whose scopes it reads, in an order that decides the view order, the packs whose statistics count only as evidence, and whether the source is complete.
+  It expects the outcome, the primary's fields, the window's end, every kept version with its role labels and flags,
+  the scopes searched, their conflicts and unused footers,
+  and canonical facts, one per condition that kept the lookup from establishing absence, in a total order;
+  or the `not-primary` error.
+  The tracepack corpus specification defines the class, the schemas of both files and how a lookup's source is read from the packs.
+  `TestCorpus` runs every read with `MergeIterate` and every lookup with `FindTransaction` over `NewReaderSource`,
+  and requires every record either returns to be the stored record its pack and block name.
 
 ## [0.2.0] - 2026-10-10
 

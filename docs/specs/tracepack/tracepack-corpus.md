@@ -431,7 +431,7 @@ An array of transaction lookups from a primary over the packs of a `multi-pack` 
 |---|---|---|---|
 | `capture_id` | string | always | the primary's capture (UUID) |
 | `seq` | string | always | the primary's seq, p |
-| `hour` | string | always | the hour of the primary's scope (§4), as the vector names it: the hour of the primary's `ts_utc_ns` ([SEM §7.2]), except where a vector names a scope whose pack breaches its hour; an implementation uses it as given |
+| `hour` | string | always | the hour of the primary's scope (§4), as the vector names it: the hour of the primary's `ts_utc_ns` ([SEM §7.2]), of the version the lookup starts from when p also has a version in a later hour, which the lookup then finds as a conflict at p ([SEM §7.2] Identity across the scopes read), except where a vector names a scope whose pack breaches its hour; an implementation uses it as given |
 
 A lookup states no budget of a reader — the bytes it holds, its own state, the conflicts it counts — and no retention boundary; none of them is a golden (§1).
 
