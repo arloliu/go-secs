@@ -536,9 +536,10 @@ func (c *txSafetyCheck) barriers(ev *txTruthEvidence, from, to int64) {
 }
 
 // boundaries requires no capture-boundary of the primary's epoch, in the evidence or in the domain above the primary,
-// other than the stop at e that bounds the window.
+// other than the stop of the epoch at e that bounds the window.
 func (c *txSafetyCheck) boundaries(ev *txTruthEvidence, e uint64) {
-	_, stopBound := c.k.closing(&c.d.versions[e][0])
+	_, stop := c.k.closing(&c.d.versions[e][0])
+	stopBound := stop && c.d.versions[e][0].Epoch == c.k.epoch
 	bounding := func(seq uint64, kind BoundaryKind) bool { return stopBound && seq == e && kind == BoundaryKindStop }
 	for _, b := range ev.boundaries {
 		if b.Epoch == c.k.epoch && !bounding(b.Seq, b.Kind) {

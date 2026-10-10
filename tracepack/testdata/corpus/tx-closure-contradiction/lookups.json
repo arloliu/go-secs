@@ -349,6 +349,162 @@
     }
   },
   {
+    "id": "stop-claim-names-epoch-stop",
+    "cites": [
+      "SEM §7.2",
+      "CORPUS §5.11"
+    ],
+    "source": {
+      "view": [
+        5
+      ],
+      "evidence": [],
+      "complete": true
+    },
+    "key": {
+      "capture_id": "01a0ffeb-3600-7fde-851d-b70993fe09f6",
+      "seq": "1",
+      "hour": "497500"
+    },
+    "max_scopes": 1,
+    "expect": {
+      "outcome": "unmatched",
+      "key": {
+        "epoch": 1,
+        "dir": "host-to-equipment",
+        "session_id": 1,
+        "system_bytes": "AAAAgQ==",
+        "stream": 1,
+        "function": 1,
+        "w": true
+      },
+      "window_end": "3",
+      "records": [
+        {
+          "seq": "1",
+          "hour": "497500",
+          "pack": 5,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "primary"
+          ],
+          "in_window": false,
+          "bound": false
+        },
+        {
+          "seq": "3",
+          "hour": "497500",
+          "pack": 5,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "closing"
+          ],
+          "in_window": false,
+          "bound": true
+        }
+      ],
+      "gaps": [],
+      "searched": [
+        {
+          "hour": "497500",
+          "indexed": true,
+          "packs": [
+            5
+          ]
+        }
+      ],
+      "conflicts": [],
+      "footer_errors": []
+    }
+  },
+  {
+    "id": "stop-claim-names-other-epoch-stop",
+    "cites": [
+      "SEM §7.2",
+      "CORPUS §5.11"
+    ],
+    "source": {
+      "view": [
+        4
+      ],
+      "evidence": [],
+      "complete": true
+    },
+    "key": {
+      "capture_id": "01a0ffeb-3600-73f9-af00-fe7e32cfa697",
+      "seq": "1",
+      "hour": "497500"
+    },
+    "max_scopes": 1,
+    "expect": {
+      "outcome": "incomplete",
+      "key": {
+        "epoch": 1,
+        "dir": "host-to-equipment",
+        "session_id": 1,
+        "system_bytes": "AAAAgQ==",
+        "stream": 1,
+        "function": 1,
+        "w": true
+      },
+      "window_end": "3",
+      "records": [
+        {
+          "seq": "1",
+          "hour": "497500",
+          "pack": 4,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "primary"
+          ],
+          "in_window": false,
+          "bound": false
+        },
+        {
+          "seq": "3",
+          "hour": "497500",
+          "pack": 4,
+          "block": 0,
+          "conflict": false,
+          "roles": [
+            "closing"
+          ],
+          "in_window": false,
+          "bound": true
+        }
+      ],
+      "gaps": [
+        {
+          "reason": "capture-boundary",
+          "boundary": {
+            "capture_id": "01a0ffeb-3600-73f9-af00-fe7e32cfa697",
+            "seq": "3",
+            "boundary_kind": "stop",
+            "epoch": 1
+          }
+        },
+        {
+          "reason": "contradiction",
+          "seq": "3"
+        }
+      ],
+      "searched": [
+        {
+          "hour": "497500",
+          "indexed": true,
+          "packs": [
+            4
+          ]
+        }
+      ],
+      "conflicts": [],
+      "footer_errors": []
+    }
+  },
+  {
     "id": "stop-claim-names-socket-close",
     "cites": [
       "SEM §7.2",

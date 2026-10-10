@@ -112,19 +112,25 @@ func txWindowVectors() []Recipe {
 				"and a seq below the primary: contradictions",
 			Cites: []string{"SEM §7.2", "SEM §9", "FMT §10", "CORPUS §5.11"}, Class: ClassMultiPack, Labels: []string{LabelNonconformingWriter},
 			Build: closureContradictionBuild,
-			// Each pack's footer claims, consistent with itself and so accepted, what its records do not show;
+			// The footer of each pack but F claims, consistent with itself and so accepted, what its records do not show;
 			// verify finds its block disagreeing with its F-3 summary (the tracepack format specification §10, §13).
 			// A claim at or below the primary, or at a seq the lookup read whose versions are not what it names, is a contradiction,
 			// never a bound; a contradiction only keeps the result from unmatched
 			// (the tracepack semantics specification §7.2, Definitions; the tracepack corpus specification §5.11, Contradiction).
 			// The stop claimed at C's 3 is not a record read, so it is a capture-boundary of epoch 1 besides; the window ends at the socket-close.
 			// D's claim at 1 is of epoch 2, no capture-boundary of the primary's epoch.
+			// E's stop of epoch 1 claimed at 3, where a stop of epoch 2 bounds the window, is a capture-boundary of epoch 1 besides:
+			// only a bounding stop of the primary's epoch is the boundary of that epoch at the window's end.
+			// F's footer, as written, records the stop of epoch 1 that bounds the window at 3: no fact.
 			Expect: &Expectation{
 				Packs: []*Expectation{
 					claimedPack(7, []EpochWant{closedAt(1, 2), closedAt(2, 5)}),
 					claimedPack(3, []EpochWant{closedAt(1, 3), closedAt(2, 3)}, BoundaryWant{Seq: 3, Kind: tracepack.BoundaryKindStop}),
 					claimedPack(4, []EpochWant{closedAt(1, 3)}, BoundaryWant{Seq: 3, Kind: tracepack.BoundaryKindStop}),
 					claimedPack(4, []EpochWant{closedAt(1, 4)}, BoundaryWant{Seq: 1, Kind: tracepack.BoundaryKindStop}),
+					claimedPack(3, []EpochWant{{Epoch: 1}, closedAt(2, 3)},
+						BoundaryWant{Seq: 3, Kind: tracepack.BoundaryKindStop}, BoundaryWant{Seq: 3, Kind: tracepack.BoundaryKindStop}),
+					withStats(finalizedPack(1, 3), []EpochWant{closedAt(1, 3)}, BoundaryWant{Seq: 3, Kind: tracepack.BoundaryKindStop}),
 				},
 				Lookups: []LookupWant{
 					{
@@ -158,6 +164,24 @@ func txWindowVectors() []Recipe {
 						},
 						Gaps:     []FactWant{txContradiction(1)},
 						Searched: []SearchedScope{{Hour: I64(txHour), Indexed: true, Packs: []int{3}}},
+					},
+					{
+						ID: "stop-claim-names-epoch-stop", Outcome: "unmatched", Key: txPrimaryKey(1, contradictionSystemBytes['x']), WindowEnd: new(uint64(3)),
+						Records: []LookupRecord{
+							txAt(txKept(1, false, false, RolePrimary), 0, 5), txAt(txKept(3, false, true, RoleClosing), 0, 5),
+						},
+						Searched: []SearchedScope{{Hour: I64(txHour), Indexed: true, Packs: []int{5}}},
+					},
+					{
+						ID: "stop-claim-names-other-epoch-stop", Outcome: "incomplete", Key: txPrimaryKey(1, contradictionSystemBytes['x']), WindowEnd: new(uint64(3)),
+						Records: []LookupRecord{
+							txAt(txKept(1, false, false, RolePrimary), 0, 4), txAt(txKept(3, false, true, RoleClosing), 0, 4),
+						},
+						Gaps: []FactWant{
+							{Fact: Fact{Reason: FactCaptureBoundary, Boundary: &FactBoundary{Seq: 3, BoundaryKind: "stop", Epoch: 1}}, Capture: new(4)},
+							txContradiction(3),
+						},
+						Searched: []SearchedScope{{Hour: I64(txHour), Indexed: true, Packs: []int{4}}},
 					},
 					{
 						ID: "stop-claim-names-socket-close", Outcome: "incomplete", Key: txPrimaryKey(1, contradictionSystemBytes['x']), WindowEnd: new(uint64(3)),
@@ -331,13 +355,15 @@ func epochBarrierBoundary() *FactBoundary {
 // contradictionSystemBytes are the System Bytes of the transactions of tx-closure-contradiction, by letter.
 var contradictionSystemBytes = map[byte]uint32{'x': 0x81, 'y': 0x82}
 
-// closureContradictionBuild builds tx-closure-contradiction, four segments in hour H, their quality evaluated, one block each,
-// each footer then given claims the records do not support, in block 0's F-3 summary and in F-5 together (plantClaims):
+// closureContradictionBuild builds tx-closure-contradiction, six segments in hour H, their quality evaluated, one block each,
+// the footer of each but the last then given claims the records do not support, in block 0's F-3 summary and in F-5 together (plantClaims):
 // pack 0 of capture A: 1 S1F1 x, 2 an annotation, 3 S1F2 x, 4 a socket-close, of epoch 1;
 // 5 S1F1 y, 6 S1F2 y, 7 a socket-close, of epoch 2; its claims epoch 1 closed at 2 and epoch 2 at 5, instead of 4 and 7;
 // pack 1 of capture B: 1 S1F1 x and 2 an annotation, of epoch 1, 3 a stop of epoch 2; its claim epoch 1 closed at 3, added;
 // pack 2 of capture C: 1 S1F1 x, 2 an annotation, 3 a socket-close, 4 an annotation, of epoch 1; its claim a stop of epoch 1 at 3, added;
-// pack 3 of capture D: 1 an annotation, 2 S1F1 x, 3 S1F2 x, 4 a socket-close, of epoch 1; its claim a stop of epoch 2 at 1, added.
+// pack 3 of capture D: 1 an annotation, 2 S1F1 x, 3 S1F2 x, 4 a socket-close, of epoch 1; its claim a stop of epoch 2 at 1, added;
+// pack 4 of capture E: 1 S1F1 x and 2 an annotation, of epoch 1, 3 a stop of epoch 2; its claim a stop of epoch 1 at 3, added;
+// pack 5 of capture F: 1 S1F1 x, 2 an annotation, 3 a stop, of epoch 1; its footer as written.
 // It checks the replies' keys and the closing records' kinds and epochs; the expectation checks each footer's claims as statistics.
 func closureContradictionBuild(seed string) (*Built, error) {
 	sb := contradictionSystemBytes
@@ -365,6 +391,7 @@ func closureContradictionBuild(seed string) (*Built, error) {
 	bNote := note(2)
 	c := []tracepack.Record{txPrimary(1, 1, sb['x']), note(2), ev(3, 1), note(4)}
 	d := []tracepack.Record{note(1), txPrimary(2, 1, sb['x']), txReply(3, 1, 2, sb['x']), ev(4, 1)}
+	eNote, fNote := note(2), note(2)
 	if err != nil {
 		return nil, err
 	}
@@ -372,14 +399,21 @@ func closureContradictionBuild(seed string) (*Built, error) {
 	if err != nil {
 		return nil, err
 	}
+	epochStop, err := txBoundaryRecord(3, 1, msAt(3), tracepack.BoundaryKindStop, nil)
+	if err != nil {
+		return nil, err
+	}
 	b := []tracepack.Record{txPrimary(1, 1, sb['x']), bNote, stop}
+	e := []tracepack.Record{txPrimary(1, 1, sb['x']), eNote, stop}
+	f := []tracepack.Record{txPrimary(1, 1, sb['x']), fNote, epochStop}
 	for _, pair := range [][2]*tracepack.Record{{&a[0], &a[2]}, {&a[4], &a[5]}, {&d[1], &d[2]}} {
 		if !sameKey(pair[0], pair[1]) || pair[0].Dir == pair[1].Dir {
 			return nil, fmt.Errorf("corpus: the record at %d is not a candidate of %d", pair[1].Seq, pair[0].Seq)
 		}
 	}
 	if !isSocketClose(&a[3], 1) || !isSocketClose(&a[6], 2) || !isSocketClose(&c[2], 1) || !isSocketClose(&d[3], 1) ||
-		!isBoundary(&b[2], tracepack.BoundaryKindStop, 2) {
+		!isBoundary(&b[2], tracepack.BoundaryKindStop, 2) || !isBoundary(&e[2], tracepack.BoundaryKindStop, 2) ||
+		!isBoundary(&f[2], tracepack.BoundaryKindStop, 1) {
 		return nil, errors.New("corpus: the closing records are not of the kinds and epochs planned")
 	}
 	packs, err := writeMultiPacks(seed, []multiPack{
@@ -387,6 +421,8 @@ func closureContradictionBuild(seed string) (*Built, error) {
 		{capture: 1, blocks: [][]tracepack.Record{b}, edit: qualityEvaluated},
 		{capture: 2, blocks: [][]tracepack.Record{c}, edit: qualityEvaluated},
 		{capture: 3, blocks: [][]tracepack.Record{d}, edit: qualityEvaluated},
+		{capture: 4, blocks: [][]tracepack.Record{e}, edit: qualityEvaluated},
+		{capture: 5, blocks: [][]tracepack.Record{f}, edit: qualityEvaluated},
 	})
 	if err != nil {
 		return nil, err
@@ -399,6 +435,7 @@ func closureContradictionBuild(seed string) (*Built, error) {
 		{closes: map[uint32]uint64{1: 3}},
 		{bound: &plantedBoundary{seq: 3, epoch: 1, ts: c[2].TSUTCNs}},
 		{bound: &plantedBoundary{seq: 1, epoch: 2, ts: d[0].TSUTCNs}},
+		{bound: &plantedBoundary{seq: 3, epoch: 1, ts: e[2].TSUTCNs}},
 	}
 	for n, cl := range claims {
 		if packs[n].Bytes, err = plantClaims(packs[n].Bytes, cl.closes, cl.bound); err != nil {
@@ -411,6 +448,8 @@ func closureContradictionBuild(seed string) (*Built, error) {
 		txLookup(seed, "closure-at-primary", 5, 0),
 		txLookupIn(seed, "e1-closure-names-e2-stop", 1, 1, 1),
 		txLookupIn(seed, "other-epoch-stop-below-primary", 3, 2, 3),
+		txLookupIn(seed, "stop-claim-names-epoch-stop", 5, 1, 5),
+		txLookupIn(seed, "stop-claim-names-other-epoch-stop", 4, 1, 4),
 		txLookupIn(seed, "stop-claim-names-socket-close", 2, 1, 2),
 	}}, nil
 }

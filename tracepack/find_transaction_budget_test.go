@@ -589,7 +589,7 @@ func TestFindTransactionCancelSteps(t *testing.T) {
 		{name: "while checking the barriers", in: "timeBarrierGaps", observes: 1,
 			scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1}, searched: 2, records: 3, gaps: 1,
 			err: "find transaction: context canceled", source: complete},
-		{name: "while finding whether a stop bounds the window", in: "stopBound", observes: 1,
+		{name: "while finding whether a stop of the epoch bounds the window", in: "epochStopBounds", observes: 1,
 			scopes: map[int64]int{memTestHour: 1, memTestHour + 1: 1}, searched: 2, records: 3, gaps: 2,
 			err: "find transaction: context canceled", source: complete},
 		{name: "while looking for capture-boundaries", in: "captureBoundaryGaps", observes: 1,
