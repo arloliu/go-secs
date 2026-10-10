@@ -3035,6 +3035,53 @@
       ]
     },
     {
+      "id": "tx-epoch-evidence",
+      "title": "an ordering-uncertain record of the epoch below the primary, and a capture-boundary of the epoch in an hour not read",
+      "cites": [
+        "SEM §7.2",
+        "SEM §9",
+        "CORPUS §5.11",
+        "CORPUS §8"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "pack-2.tpk",
+        "pack-2.verify.json",
+        "lookups.json"
+      ]
+    },
+    {
+      "id": "tx-outcome-records",
+      "title": "a pack with quality_evaluated false, Reject.req records with SType unavailable and available, and a T3 timer-expiry without identifiers",
+      "cites": [
+        "SEM §7.2",
+        "SEM §9",
+        "SEM §6",
+        "FMT §7.2",
+        "CORPUS §5.11"
+      ],
+      "class": "multi-pack",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
+        "lookups.json"
+      ]
+    },
+    {
       "id": "tx-possible-primary",
       "title": "a possible same-key primary without System Bytes between two replies, and a record in direction unknown that is both a possible reply and a possible same-key primary",
       "cites": [
@@ -3105,6 +3152,27 @@
       "files": [
         "pack-0.tpk",
         "pack-0.verify.json",
+        "lookups.json"
+      ]
+    },
+    {
+      "id": "tx-unindexed-source",
+      "title": "a source that is not complete, and a pack whose evidence alone counts, its scope not indexed",
+      "cites": [
+        "STO §5",
+        "SEM §7.2",
+        "CORPUS §5.11",
+        "CORPUS §8"
+      ],
+      "class": "multi-pack",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack-0.tpk",
+        "pack-0.verify.json",
+        "pack-1.tpk",
+        "pack-1.verify.json",
         "lookups.json"
       ]
     },
