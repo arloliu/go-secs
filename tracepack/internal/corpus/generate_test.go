@@ -719,12 +719,8 @@ var generatedGroups = []string{
 	"basic-", "bootstrap-", "footer-", "framing-", "hsms-", "multi-", "repair-", "sample-", "sem-", "tx-", "validation-", "verify-",
 }
 
-// partialGroups are the generated groups whose catalogued vectors do not all have a recipe yet.
-// A group leaves the list with its last vector.
-var partialGroups = []string{"tx-"}
-
 // TestRecipeIDsAreCatalogued checks that every vector of a generated group that the catalogue of the tracepack corpus specification §9.4 lists has a recipe,
-// a group of partialGroups excepted, and that no recipe is missing from it.
+// and that no recipe is missing from it.
 // It reads the catalogue from the specification and is skipped where the specification is absent.
 func TestRecipeIDsAreCatalogued(t *testing.T) {
 	t.Parallel()
@@ -743,24 +739,16 @@ func TestRecipeIDsAreCatalogued(t *testing.T) {
 	inGroup := func(id string) bool {
 		return slices.ContainsFunc(generatedGroups, func(p string) bool { return strings.HasPrefix(id, p) })
 	}
-	partial := func(id string) bool {
-		return slices.ContainsFunc(partialGroups, func(p string) bool { return strings.HasPrefix(id, p) })
-	}
 	for _, r := range recipes {
 		ids = append(ids, r.ID)
 		assert.True(t, inGroup(r.ID), "recipe %s is in no generated group", r.ID)
 	}
 	for _, id := range catalogue {
-		if inGroup(id) && (!partial(id) || slices.Contains(ids, id)) {
+		if inGroup(id) {
 			want = append(want, id)
 		}
 	}
 	assert.Equal(t, want, ids)
-	for _, p := range partialGroups {
-		assert.True(t, slices.ContainsFunc(ids, func(id string) bool { return strings.HasPrefix(id, p) }), "partial group %s has no recipe", p)
-		assert.True(t, slices.ContainsFunc(catalogue, func(id string) bool { return strings.HasPrefix(id, p) && !slices.Contains(ids, id) }),
-			"group %s has every catalogued vector, so it is no longer partial", p)
-	}
 }
 
 // catalogueIDs returns the vector ids of the table of §9.4 of the corpus specification spec, ascending:
