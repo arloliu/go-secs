@@ -1563,3 +1563,22 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   the normative text of P8 is in [STO §4] (G5-219), and P7's points are answered by G5-201, G5-231 and G5-240.
   Rejected *(editorial)*: keeping both files with a closed status and rewritten citations.
   Spec: `README.md`, `tracepack-spec-changelog.md`, proposals P7 and P8, pending (v2.33).
+
+## 2026-10-11 spec v2.33 plan review r1 (owner accepted the recommendations)
+
+- G5-249 The bus layout carries raw-stream captures on the capture clock (2026-10-11, the scope of G5-216):
+  layout 1 of the bus serves captures with `capture_method = raw-stream` and `time_source = capture-clock`, the gateway's captures;
+  a log conversion writes packs by the converter contract of [STO §7] and does not publish over the bus.
+  Every capture a consumer closes therefore has `clock_step_tolerance_ns` (G5-240).
+  Rationale *(editorial)*: a log conversion's reconstructed frame holds placeholder bytes for identities its source did not carry,
+  so a consumer deriving `field_validity` from the payload (G5-216) could not tell them from real ones.
+  Rejected *(editorial)*: a producer-owned `field_validity` on the bus, which amends G5-216 and leaves the close's gap bounds undefined without a capture clock.
+  Spec: [STO §4], [STO §7], pending (v2.33).
+- G5-250 A capture's fixed classifier includes its configuration (2026-10-11, the scope of G5-214):
+  what is fixed for the life of a capture is the classifier's implementation and every setting that changes its result, `max_frame_len` and the absence of a limit included;
+  a consumer that cannot classify with them defers the record.
+  The merge check of G5-232 compares `max_frame_len` with `classifier` for inputs that carry `redaction_policy`.
+  Rationale *(editorial)*: one classifier name under two frame-length ceilings classifies a frame `oversized` once and `ok` once,
+  so two copies of a redelivered record would differ.
+  Rejected *(editorial)*: fixing only the classifier's name and leaving its settings to the log service.
+  Spec: [STO §4], [FMT §5], pending (v2.33).
