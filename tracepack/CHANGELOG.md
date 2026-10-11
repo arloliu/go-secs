@@ -5,6 +5,8 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-11
+
 This release follows spec v2.32, which keeps format 1.0, every pack it describes and every canonical export unchanged,
 and leaves to the caller which packs a merge or a read takes.
 `Merge` merges the inputs its caller gives, and `FindTransaction` reads the packs its caller gives for each hour;
