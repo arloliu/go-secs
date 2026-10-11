@@ -1387,3 +1387,17 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   Rationale *(editorial)*: with G5-200 the bus gives durability, no consumer needs a spool,
   and the module never implemented one.
   Spec: [STO §4], [SEM §4], `tracepack-go.md`, `tracepack-impl-plan.md`, pending (v2.33).
+- G5-228 The encryption of an original is RFC 5297 AES-SIV bound to its record (2026-10-11, refining G5-220 with the log service design):
+  the format specifies the algorithm, not a library:
+  AES-SIV-CMAC of RFC 5297 with a 64-byte key, whose output is the 16-byte synthetic IV followed by the ciphertext;
+  no library's key or keyset format enters the pack.
+  The associated data is a fixed ASCII label the format defines, followed by the record's `capture_id` (16 bytes) and its `seq` (u64, little-endian, [FMT I-8]),
+  so a ciphertext cannot be moved to another record,
+  and equal originals in different records encrypt differently while a redelivered record encrypts identically (G5-214).
+  The format sets no limit on the length of an original for the encryption's sake.
+  Rationale *(editorial)*: the AD encoding must be in the format so that any implementation can decrypt;
+  the label separates this use from any other use of the key; equality across records stays visible through the digest, which is its purpose (G5-220).
+  AES-SIV takes two passes, so an original is encrypted and restored whole, in memory.
+  Rejected *(editorial)*: associated data without a label; binding the key, policy and digest-domain identifiers too, which the pack metadata already carries (G5-222);
+  32-byte keys, which leave too small a margin when many keys are in use.
+  Spec: [FMT], [SEM §8], pending (v2.33).
