@@ -1566,13 +1566,16 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
 
 ## 2026-10-11 spec v2.33 plan review r1 (owner accepted the recommendations)
 
-- G5-249 The bus layout carries raw-stream captures on the capture clock (2026-10-11, the scope of G5-216):
-  layout 1 of the bus serves captures with `capture_method = raw-stream` and `time_source = capture-clock`, the gateway's captures;
+- G5-249 The bus layout carries frame captures on the capture clock (2026-10-11, the scope of G5-216):
+  layout 1 of the bus serves captures with `capture_method` `raw-stream` or `decoded-message` and `time_source = capture-clock`;
   a log conversion writes packs by the converter contract of [STO §7] and does not publish over the bus.
   Every capture a consumer closes therefore has `clock_step_tolerance_ns` (G5-240).
   Rationale *(editorial)*: a log conversion's reconstructed frame holds placeholder bytes for identities its source did not carry,
-  so a consumer deriving `field_validity` from the payload (G5-216) could not tell them from real ones.
-  Rejected *(editorial)*: a producer-owned `field_validity` on the bus, which amends G5-216 and leaves the close's gap bounds undefined without a capture clock.
+  so a consumer deriving `field_validity` from the payload (G5-216) could not tell them from real ones;
+  a re-encoded frame of a decoded message holds every header field it shows,
+  and the gateway's producer may record either wire frames or the messages its devices exchange.
+  Rejected *(editorial)*: a producer-owned `field_validity` on the bus, which amends G5-216 and leaves the close's gap bounds undefined without a capture clock;
+  `raw-stream` alone, which would bar a producer that sees decoded messages.
   Spec: [STO §4], [STO §7], pending (v2.33).
 - G5-250 A capture's fixed classifier includes its configuration (2026-10-11, the scope of G5-214):
   what is fixed for the life of a capture is the classifier's implementation and every setting that changes its result, `max_frame_len` and the absence of a limit included;
@@ -1582,3 +1585,9 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   so two copies of a redelivered record would differ.
   Rejected *(editorial)*: fixing only the classifier's name and leaving its settings to the log service.
   Spec: [STO §4], [FMT §5], pending (v2.33).
+- G5-251 A start whose descriptor is not accepted is left for an operator (2026-10-11, from the plan review):
+  when a consumer cannot accept a capture's `start`, for example because its descriptor does not decode, it writes nothing for it (G5-241) and raises an alert;
+  the capture's later records stay deferred on the bus until an operator acts.
+  Rationale *(editorial)*: nothing is lost silently, and the producer's preflight of the descriptor makes the case a configuration error.
+  Rejected *(editorial)*: acknowledging the capture's records so their seqs read as gaps, at once or after a configured time.
+  Spec: [STO §4], pending (v2.33).
