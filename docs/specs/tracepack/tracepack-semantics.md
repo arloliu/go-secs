@@ -1,6 +1,6 @@
 # tracepack — record semantics
 
-Status: current (2026-10-10) — v2.32, tracepack format 1.0.
+Status: current (2026-10-12) — v2.33, tracepack format 1.1.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, documented for any reader;
 the Go module is the only implementation (G5-199).
@@ -18,7 +18,7 @@ Each rule is defined in exactly one document; the others only reference it.
 - [FMT §2] portable encoding rules; [FMT §5] pack metadata tags used by capture, time and quality semantics;
   [FMT I-6] immutability; [FMT §16] corpus contract for the vectors of §9, and [CORPUS] for the corpus's files, its item-validity checklist (§3) and its vector catalogue.
 - [FMT §5] `redaction_policy` and `redaction` entries, [FMT §4] `redaction-present`, used by §8.
-- [STO §2] scopes; [STO §4] recorder durability contract, durable clock anchor, the packs a reader is given, and merge;
+- [STO §2] scopes; [STO §4] the durable-bus contract and its clock anchor, the packs a reader is given, and merge;
   [STO §8] the Go module's implementation tests, beside which §9 lists those of lookup and of reads over several packs.
 
 ## 2. Capture model: fidelity, capture method, vantage
@@ -67,7 +67,18 @@ semantic-level analysis MAY use `wire-exact`, `re-encoded` and `reconstructed` r
 transport-level and malformed-frame analysis requires `wire-exact`;
 `synthesized` records are never counted as evidence of real traffic.
 The evidence grades `observed` (`wire-exact` or `re-encoded`) and `reconstructed` are views derived from `fidelity`, not stored fields.
-They apply only to values that are not masked (§8): a masked value of a `redacted` record is unavailable for every analysis, and its `fidelity` describes the capture, not the zeros.
+They apply only to values that are not masked (§8): a masked value of a `redacted` record is unavailable for every analysis, and its `fidelity` describes the capture, not the masked bytes.
+
+**Records unobserved by design** (G5-208, G5-224, G5-225, G5-237).
+A `data` record whose message text was not captured by design keeps its `payload_len`, its 4-byte length and 10-byte HSMS header as captured, and its direction and time;
+its message text is zero-filled, and it carries `quality.unobserved`.
+Its body is unavailable, like a masked value (§8): no conclusion rests on it.
+It is not classified: its `decode_status` is `not-attempted` and its `trailing_bytes` 0, and its `field_validity` describes the captured header as for any record ([FMT §7.2]).
+It has no `redaction` entry and no digest: it is never masked.
+Which records a producer may thin is [STO §4] *Unobserved records*: the FDC service's interval polls, identified other than by stream and function,
+of a stream and function a `thinning` entry of its pack declares ([FMT §5]); the entry says where the sampling comes from, never a rule.
+A record whose message text is genuinely empty (`payload_len` 14) is not unobserved, and is kept.
+A reader of format 1.0 preserves the bit without knowing it ([FMT §14]), so a consumer that ignores both `decode_status` and the bit reads the zeros as traffic.
 
 **Reconstruction contract** (`capture_method = log`):
 the writer builds each message from its source text,
@@ -107,12 +118,13 @@ no check depends on the encoding that header names (G5-181).
 The item-validity checklist, one case per rule of the `item-decode-error` predicate, is [CORPUS §7];
 E5 §9 is its normative base.
 Decoders differ in strictness on edge cases;
-because the bytes and the `classifier` are both stored, a consumer can always reclassify, except over masked ranges (§8).
+because the bytes and the `classifier` are both stored, a consumer can always reclassify, except over masked ranges (§8) and the message text of a record unobserved by design (§2).
 
 **Applicability by kind and capture method**, before the table is consulted:
 control records reach `ok` when the frame parses (there is no SECS-II item);
 `log` writers use only `reconstructed-ok`, `parse-failed` and `build-rejected`;
-other transport-event and annotation records use `not-applicable`.
+other transport-event and annotation records use `not-applicable`;
+a record carrying `quality.unobserved` is `not-attempted` (§2).
 **Malformed predicate**: `decode_status ∈ {short-frame, length-mismatch, bad-ptype, bad-stype, control-with-body, oversized, item-decode-error}`.
 No quality bit mirrors the predicate; readers offer the decode state of §6 instead.
 `fidelity` is independent of `decode_status`.
@@ -135,14 +147,15 @@ No quality bit mirrors the predicate; readers offer the decode state of §6 inst
 - Clock steps: a capture-clock writer keeps a **clock anchor** (wall, mono):
   (`capture_origin_utc_ns`, 0) until the first `clock-step` event, then (`ts_utc_ns`, `mono_ns`) of the latest `clock-step` event;
   anchor mono values are capture-relative, like `mono_ns`.
-  The anchor moves only at a durable `clock-step` event, never per record, so tolerated drift cannot accumulate.
+  The anchor moves only at a `clock-step` event, never per record, so tolerated drift cannot accumulate.
   For every new record the component that observes both clocks — the writer, or for a capture carried over a durable bus ([STO §4]) the producer — computes the drift `(wall − anchor_wall) − (mono − anchor_mono)`;
-  when |drift| exceeds `clock_step_tolerance_ns`, it closes and durably flushes the current block, writes a `clock-step` transport event (`clock_step_ns` = the drift),
-  makes it durable, and takes it as the new anchor before appending the record.
-  Hence every record satisfies |`ts_utc_ns` − (anchor_wall + `mono_ns` − anchor_mono)| ≤ `clock_step_tolerance_ns` for the anchor in force when it was written,
-  and that anchor is durable ([STO §4]).
-  A local writer flushes its block before writing the `clock-step`;
-  a producer over a durable bus publishes the `clock-step` and waits for the bus's acknowledgement before publishing records under the new anchor, and manages no blocks.
+  when |drift| exceeds `clock_step_tolerance_ns`, a writer closes the current block, writes a `clock-step` transport event (`clock_step_ns` = the drift),
+  and takes it as the new anchor before appending the record;
+  a producer over a durable bus, which manages no blocks, has the `clock-step` acknowledged first:
+  it publishes it and waits for the bus's acknowledgement before publishing records under the new anchor.
+  Hence every record satisfies |`ts_utc_ns` − (anchor_wall + `mono_ns` − anchor_mono)| ≤ `clock_step_tolerance_ns` for the anchor in force when it was written.
+  A consumer's close of a capture its producer left open ([STO §4] *Closing a capture left open*) is the exception:
+  it has the `ts_utc_ns` that section gives it and no monotonic time, no producer clock-step detection applies to it, and the inequality above does not hold for it.
   A pack writer that receives records from a producer preserves the `clock-step` records it receives and never synthesizes or moves one;
   no component re-checks the rule, which holds by the producer's construction.
 - Records within a file are in **write order**, which is capture order;
@@ -162,8 +175,8 @@ The table says what a writer may record and from what kind of source.
 | timer-expiry T5 / T8 | only when a `raw-stream` observer can attribute them | — | never synthesised |
 | linktest / select / deselect / separate / reject | the control frames themselves (kind=control), plus the resulting state-transition | — | control frames are **not** duplicated as events |
 | socket-accept / socket-connect / socket-close | **socket observation only**. A state-change cause never establishes a socket event: "local close" means teardown was initiated, and a transport-error cause may cover several socket outcomes | `socket_role` | one per observed socket event; a writer without socket observation writes none, or, if it derives one, sets `inferred` and uses the notification timestamp. When both sources exist, the observed record is the socket event and the notification stays a transition; nothing is emitted twice |
-| clock-step | the comparison of wall and monotonic clocks by the component that observes them, the writer or the producer that feeds it (§4) | `clock_step_ns` | one per detected step, durable before the next record |
-| capture-boundary | writer start / stop / gap; recovery after a crash (`stop-unclean`) | `boundary_kind`; for a gap, its seq range and `gap_start` / `gap_end` (including packet loss in a network capture and recorder downtime between linked captures); a `start`, `stop` or `stop-unclean` boundary carries no seq range, since its record's own seq places it (G5-149) | one per boundary |
+| clock-step | the comparison of wall and monotonic clocks by the component that observes them, the writer or the producer that feeds it (§4) | `clock_step_ns` | one per detected step, written before the next record; over a durable bus, acknowledged by the bus before the next record is published ([STO §4]) |
+| capture-boundary | writer start / stop / gap; a consumer's close of a capture its producer left open (`stop-unclean`, [STO §4]); a `stop-unclean` of earlier spec versions, written by spool recovery, is read the same way | `boundary_kind`; for a gap, its seq range and `gap_start` / `gap_end` (including packet loss in a network capture and recorder downtime between linked captures); a `start`, `stop` or `stop-unclean` boundary carries no seq range, since its record's own seq places it (G5-149) | one per boundary |
 
 Causes the source does not name are stored as `unknown` with the source's own name in `cause_raw`,
 never mapped to a plausible value.
@@ -172,11 +185,11 @@ never mapped to a plausible value.
 
 Stored `quality` bits record only what the writer knew **when it wrote the record**:
 `epoch = 0` or missing source metadata (`correlation-incomplete`), clock or DST problems (`ordering-uncertain`),
-`direction-inferred`, `redacted`, and `capture-boundary` on the boundary record itself.
+`direction-inferred`, `redacted`, `unobserved`, declared by the producer (§2), and `capture-boundary` on the boundary record itself.
 Every stored bit is declared by the writer; none mirrors another field.
 Clear stored bits mean checked absence of those conditions only when the pack metadata declares `quality_evaluated = true`.
 A writer never revisits a record already written, so stored bits never depend on later records ([FMT I-6], [FMT I-12]).
-`redacted` is set only by an extract writer (§8).
+`redacted` is set by a writer that masks under a policy (§8): an extract writer, or a consumer of a durable bus ([STO §4]).
 
 **Effective** quality is computed by readers at query time from stored bits plus context:
 - a primary whose lookup meets the epoch-boundary condition or reads an `ordering-uncertain` record of its epoch, both as §7.2 defines them, is `correlation-incomplete`,
@@ -334,7 +347,7 @@ Such an **early return** is `not-found` and `incomplete`, has no window, and kee
 It reports:
 - the primary's failure:
   a **missing primary**, when the read of its hour yielded no version of `p` and that read has a read defect other than a `coverage` entry or a crash gap, a scope breach,
-  or a pack whose `coverage` entry meets `p` and the primary's hour ([FMT §5]), which explains the missing primary and is not reported on its own;
+  or a pack whose `coverage` entry of the primary's capture (its `capture_id`, else the capture of the pack holding it) meets `p` and the primary's hour ([FMT §5]), which explains the missing primary and is not reported on its own;
   a crash gap of the primary's capture that meets the primary's hour explains a missing primary the same way a read defect of that hour does, and is reported as the crash gap below;
   a **conflicting primary**, its versions in conflict within that read, reported as the conflict at `p`, with the key derived from the first version as a diagnostic;
   a **primary without a key**, with its `correlation-incomplete` when it carries it, and its fields as a diagnostic;
@@ -351,7 +364,7 @@ A primary that is missing where nothing in its hour's read explains it, or a rec
 *`incomplete` reasons* (G5-203, G5-204, G5-209) — each reported, side by side, with the hours the lookup read:
 - every incomplete-read cause of the packs read, as §7.4 reports it — a failed block, an unknown codec, a truncation, a reader limit, a block or footer value found disagreeing with its records —
   except `coverage` entries and crash gaps, which the lookup evaluates once, against its own bounds, by the items below;
-- a `coverage` entry of a pack read, of the primary's capture, that meets by [FMT §5] both the seqs of the window,
+- a `coverage` entry of a pack read whose capture — its `capture_id`, else the capture of the pack holding it — is the primary's capture, and that meets by [FMT §5] both the seqs of the window,
   (`p`, `e`), or (`p`, ∞) while it is unbounded, and the time range of the hours scheduled;
 - a scope breach; a conflict on a seq of the primary's capture at or above `p`;
 - a pack read with `quality_evaluated` false (§6);
@@ -474,7 +487,7 @@ A read reports `incomplete` beside the records it yields, never instead of them,
 
 | Reason | Reported when | Located by |
 |---|---|---|
-| `coverage` | for every `coverage` entry of a pack's metadata that meets the query by [FMT §5]'s matching rule | the entry |
+| `coverage` | for every `coverage` entry of a pack's metadata whose capture is the capture of a pack the read reads, and that meets the query by [FMT §5]'s matching rule (G5-215) | the entry and the pack holding it |
 | `truncated` | at most once per pack, the first case that applies: (1) the forward walk stopped at an envelope it could not account for; (2) else the pack is not finalized; (3) else the walked blocks disagree with the trailer's `block_count` or `record_count`, as [FMT §13] compares them | the offset: (1) of that envelope; (2) of the end of the last walked block, or of the end of the pack metadata without blocks; (3) none |
 | `corrupt-block`, `unknown-codec` | for every block the read reads that fails ([FMT §13]), by its cause | the block and its envelope's offset |
 | `index-mismatch` | for every block the read reads whose records disagree with its F-2 entry ([FMT §10]), and for every other disagreement it detects between a block it read and its F-3 summary or between another footer value and the records it describes (Scope of the guarantees) | the block and its envelope's offset; for a footer value of no single block, the pack |
@@ -494,7 +507,8 @@ which blocks reach them is not part of this contract, and a limit, an I/O error 
 A read takes the `stop-unclean` boundaries from the F-5 `boundary` entries of every pack it is given, of any capture, read at the [FMT §13] bootstrap without decoding a block,
 and from the capture-boundary records it decodes in packs without a valid footer;
 so pruning never hides a boundary of a pack with a valid footer.
-A boundary's gap is the interval [`gap_start`, `gap_end`] its entry or record carries ([STO §4] Recovery), unbounded on a side whose bound is absent.
+A boundary's gap is the interval [`gap_start`, `gap_end`] its entry or record carries ([STO §4] *Closing a capture left open*; a `stop-unclean` of earlier spec versions carries the bounds spool recovery gave it),
+unbounded on a side whose bound is absent.
 It meets a time range by the matching rule of `coverage` ([FMT §5]):
 an interval whose `gap_start` exceeds its `gap_end` meets every time range, as an inverted `coverage` entry does (G5-137),
 and a query without a time range meets every gap.
@@ -507,13 +521,19 @@ A footer's `boundary` entry can only add `incomplete`; it never hides a record.
 
 ## 8. Redaction
 
-Records are stored in full: recorders, mergers and converters never mask, and in format 1.0 only an extract writer sets `quality.redacted`.
+Records are stored in full, or masked when written under a policy:
+in format 1.0 only an extract writer masks;
+from format 1.1 a consumer of a durable bus masks the records of a capture under the capture's policy and keeps each original encrypted in place (Encryption, below; [STO §4]).
+Recorders other than such a consumer, mergers and converters never mask; a merger carries the masks of its inputs ([STO §4] Merge).
 A consumer that is not privileged receives an `extract` ([STO §2]) written under a **redaction policy**, or the canonical export of such an extract ([FMT §15]).
 
 **Policy.**
-A policy has an id, a version and a key id, recorded in `redaction_policy` ([FMT §5]).
+A policy has an id, a version, a digest key id and, from format 1.1, an encryption algorithm and an encryption key id (Encryption), recorded in `redaction_policy` ([FMT §5]).
 It holds **item rules** — each an S/F, one item path pattern and a digest domain; several rules may share an S/F — and **annotation rules**, each an `annotation_kind` and a digest domain.
 A domain is a UTF-8 string of 1 to 65535 bytes; a policy with any other domain is rejected before use.
+A policy used with encryption is rejected before use when two of its item rules for one S/F can select overlapping items, which a comparison of their path patterns decides (G5-236):
+identical patterns, a pattern that is a prefix of another, and patterns whose `*` and numbered steps can select one item all overlap;
+the whole-text fallback at run time is no way to accept such a policy.
 How policies are written, stored and distributed is not part of this specification; the rule set is service configuration.
 
 **Message text.**
@@ -537,19 +557,23 @@ An annotation rule applies to an `annotation` record of that `annotation_kind`.
 Control records and transport events are never masked.
 
 **Masking.**
-The bytes a match sets to zero are its **target bytes**; a match with no target bytes yields no entry and changes nothing.
+The bytes a match masks are its **target bytes**:
+under a policy without encryption they are set to zero; under a policy with encryption they are replaced by their ciphertext (Encryption).
+A match with no target bytes yields no entry and changes nothing.
 - A message text that is one valid item with no content byte in any leaf (e.g. the empty list of a denial reply) is never masked: it holds nothing to hide.
 - Otherwise, when the text is one valid item and the pattern of every rule matching its S/F resolves, each rule's target bytes are the content bytes of every leaf item in the subtrees it selects;
   every item header (format byte and length bytes) is kept, and a format-22 leaf also keeps its 2-byte localized string header, which names the encoding.
-  The message text keeps its length and stays one valid item.
+  Under either policy the message text keeps its length and stays one valid item, since no item header is a target byte.
 - **Whole-text mask**: when some item rule matches the S/F and the text is not one valid item, or the pattern of any rule for that S/F does not resolve,
   the target bytes are the whole message text; the length field and the HSMS message header are kept.
-  The record then has exactly one `redaction` entry, without `item_path` and in the domain `message-text`, and no entry of any other item rule.
-  Its `decode_status` describes the source bytes, not the zeros.
+  The record then has exactly one `redaction` entry, without `item_path` and in the domain `message-text`, and no entry of any other item rule, under either policy.
+  Its `decode_status` describes the source bytes, not the masked bytes.
 - An annotation rule's target bytes are the value bytes of the record's `text` or `raw` entry; the TLV entry headers are kept ([FMT §8]),
   and zero bytes are valid UTF-8, so a `text` value stays valid.
-- Several matches of one record may overlap; each yields its own entry.
-- A writer that cannot finish screening a selected record — a resource limit, an internal error — fails the extract; it never writes a selected record unscreened.
+  Under a policy with encryption an annotation rule still sets its target bytes to zero and keeps no original, since a `text` value cannot hold ciphertext (G5-238).
+- Several matches of one record may overlap, except under a policy with encryption (Policy); each yields its own entry.
+- A writer that cannot finish screening a selected record — a resource limit, an internal error — fails the extract,
+  or, for a consumer of a durable bus, defers the record ([STO §4] *Masking*); it never writes a selected record unscreened.
 
 **Digest.**
 For each entry the writer computes HMAC-SHA-256 (RFC 2104, with SHA-256 of FIPS 180-4) under the policy's key; writers of format 1.0 use no other algorithm.
@@ -558,19 +582,39 @@ the encoded item (item header included) for a resolved path, the whole original 
 Two digests are comparable only when their algorithm, key id and domain are equal, domains compared byte for byte without normalisation;
 equal digests mean equal encoded bytes, so the same value in another item format compares unequal.
 A policy gives items that should be comparable one domain.
+The digest's input is the original encoded item, item header included, for a resolved path, while the plaintext encrypted for the same entry is its target bytes alone (Encryption).
+
+**Encryption** (G5-220, G5-221, G5-228..G5-230, G5-234, G5-243).
+From format 1.1 a policy may carry an encryption algorithm and an encryption key id ([FMT §5]); a pack masked at write always does ([STO §4] *Masking*).
+- Algorithm: AES-SIV-CMAC of RFC 5297 with a 64-byte key (`aes-siv-cmac-512`), under the capture's encryption key.
+- Plaintext of an entry: its target bytes, concatenated in the order of its `masked_ranges`, which list exactly the target bytes, bytes already zero included.
+- Associated data: one byte string, 53 bytes long, given to S2V as its single associated-data component:
+  the label `tracepack-original-v1`, its 21 ASCII bytes `74 72 61 63 65 70 61 63 6b 2d 6f 72 69 67 69 6e 61 6c 2d 76 31`, with no terminator, padding or length prefix;
+  then the record's `capture_id`, 16 bytes in [FMT §2] order; its `seq`, a little-endian `u64`; and the offset of the entry's first masked range, a little-endian `u64`.
+- Output: the 16-byte synthetic IV, stored as the entry's `siv`, followed by a ciphertext of the plaintext's length, written over the target bytes in the same range order.
+- Structure: a resolved item mask leaves every item header in place, so the message text keeps its length and stays one valid item;
+  a whole-text mask's ciphertext is opaque: the record keeps its length field and HSMS header, and its message text need not parse.
+- Restore: the holder of the key decrypts each entry with its `siv`, the record's identity and the entry's first offset, and writes the plaintext back into the ranges.
+  Restore is per record and all-or-nothing:
+  when any entry of the record fails — an authentication failure, a missing or ill-sized `siv`, a range map that fails the checks of Marking, cross-entry disjointness included —
+  no byte of the record is restored, the record stays masked, and the defect is reported (G5-243).
+- Equal originals in two records, or in two entries of one record, encrypt differently, while a redelivered record encrypts identically (G5-214);
+  equal originals under one `key_id` and domain keep equal digests, across captures.
+- AES-SIV takes two passes, so an original is encrypted and restored whole, in memory; the format sets no length limit for its sake.
 
 **Masked record.**
 A masked record keeps its identity (`capture_id`, `seq`), every record-header field — `fidelity`, `decode_status` and `trailing_bytes` included — and gains `quality.redacted`.
 A value is **masked** when any byte its interpretation depends on is a target byte of an entry.
 `redacted` takes precedence over `fidelity`: a masked value is unavailable.
 No conclusion may rest on it — neither byte-level (wire-exact analysis, byte identity, malformed-frame analysis) nor semantic:
-a zeroed parameter is not an observed zero, and the evidence grades of §2 apply only to values that are not masked.
-A consumer compares masked content only by digest; `fidelity` still describes how the source was captured.
+a masked parameter, zeroed or encrypted, is not an observed value, and the evidence grades of §2 apply only to values that are not masked.
+A consumer compares masked content only by digest, and only a holder of the key restores it (Encryption); `fidelity` still describes how the source was captured.
 A masked record and its source differ in bytes by design;
 a reader given both reports a `conflict` ([FMT I-12]), and consumers do not combine an extract with other packs of its capture.
+A capture masked at write has no unmasked copy in storage ([STO §4] *Masking*), so its packs never conflict with a source.
 
 **Marking.**
-An extract written under a policy carries `redaction_policy`, even when nothing matched,
+A pack written under a policy carries `redaction_policy`, even when nothing matched,
 and one `redaction` entry per match with target bytes, ordered by seq and then by first masked offset.
 An entry's `masked_ranges` list exactly its target bytes — bytes that were already zero included —
 as (offset, length) pairs counted from the start of the record payload, sorted, each non-empty, none overlapping or adjacent to another.
@@ -586,9 +630,17 @@ for a `data` record the whole message text is unavailable; for an annotation, th
 or its whole payload when its TLV entry boundaries cannot be established; one defective entry discards every entry of that record.
 The reader reports each defect; a defect of one record never changes another record, so results already returned stay valid.
 An unusable range map is never taken as proof that a byte is unmasked.
+Two recoverable checks concern encryption (G5-236, G5-238, G5-243).
+The target ranges of the entries of one record that carry `siv` are pairwise disjoint, adjacent ranges of two entries allowed;
+a record whose encrypted entries overlap is wholly masked, and none of its originals is restored; entries without `siv`, zero masks as format 1.0 extracts hold, may still overlap.
+Under a policy with encryption every entry of a data record carries `siv`, and an annotation's entry none:
+a present `siv` whose length is not 16 is found at bootstrap, with the other entry checks;
+a data record's entry without `siv`, and an annotation's entry with one, are found when the record is read, its kind then known;
+either way the record stays masked and its original cannot be restored.
 An extract without `redaction_policy` was not screened and is as sensitive as the packs it came from.
 An extract is written only from records in full:
-a writer rejects a source record that carries `redacted`, or a source pack with `redaction_policy`, before it writes any output, because the masks of an earlier extract could not be carried forward.
+a writer rejects a source record that carries `redacted`, or a source pack with `redaction_policy`, before it writes any output, because the masks of an earlier extract could not be carried forward;
+so an extract is never written from a pack masked at write, whose records are not in full (G5-244).
 
 **Baseline rules** (informative, paths per SEMI E5-0813).
 A policy normally covers recipe content (a row with two paths is two rules):
@@ -676,4 +728,4 @@ Those tests cover:
   a walked block whose computed summary excludes its cluster (read once only);
   a pack that is not finalized beside its archive, in both orders;
   a query whose filter excludes the block holding a `stop-unclean` boundary whose gap meets the query's time range: `incomplete` from the footer's `boundary` entry;
-  an extract beside its source (each masked record a `conflict`), planned with the redaction work of phase 8.
+  an extract beside its source (each masked record a `conflict`), deferred with extracts (G5-198, G5-244).

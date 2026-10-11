@@ -1,8 +1,8 @@
 # tracepack — overview
 
-Status: current (2026-10-10) — v2.32, tracepack format 1.0.
+Status: current (2026-10-12) — v2.33, tracepack format 1.1.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
-Decisions: `tracepack-decisions.md` G3-20..G3-27, G4-28, G4-29, G3-PLACE, R3-4, R3-5, R3-6, G5-30..G5-212.
+Decisions: `tracepack-decisions.md` G3-20..G3-27, G4-28, G4-29, G3-PLACE, R3-4, R3-5, R3-6, G5-30..G5-251.
 Change history: `tracepack-spec-changelog.md`.
 This document is **informative**; the rules live in the normative documents below.
 
@@ -23,7 +23,8 @@ It targets local file systems, S3-compatible object storage and HTTP range reads
   record kinds data / control / transport-event / annotation.
 - Non-goals: not a query engine (the footer prunes the queries of [SEM §7.4] by time, epoch, seq and summary counts; everything else is a scan);
   not a learned model or metrics store;
-  in format 1.0, its redaction is limited to masking extracts under a policy ([SEM §8]), whose rules are service configuration.
+  its redaction is masking under a policy ([SEM §8]): of extracts in format 1.0, and from format 1.1 of a capture when the log service writes it, with the originals encrypted in place;
+  the policy's rules and the keys are the service's.
 - Non-goals for v1.0 (G5-198), every feature being judged by whether it serves tool and time retrieval, faithful and replayable long-term storage, Virtual Equipment training, or training data for EAP automation:
   - readers in languages other than Go;
   - more than one assigner of (`capture_id`, `seq`) for one capture;
@@ -41,13 +42,13 @@ It targets local file systems, S3-compatible object storage and HTTP range reads
 |---|---|---|---|
 | `tracepack-overview.md` (this) | purpose, document map, terminology, diagrams, open questions, deferred items | informative | all |
 | `tracepack-format.md` [FMT] | conventions, portable encoding, invariants, byte layouts, TLV and all registries, footer and validation, bootstrap and recovery, versioning, canonical JSONL, conformance corpus | normative | 1, 2, 3, 6, 8, 9 |
-| `tracepack-jsonl.md` [JSONL] | byte-exact form of the canonical JSONL export (schema `tracepack-jsonl/1`) | normative | 6 |
-| `tracepack-corpus.md` [CORPUS] | conformance corpus of format-level reading: layout, manifest, JSON schemas of its expectations, zstd comparison, item-validity checklist, vector catalogue (schema `tracepack-corpus/3`) | normative | 6, 8, 9 |
+| `tracepack-jsonl.md` [JSONL] | byte-exact form of the canonical JSONL export (schemas `tracepack-jsonl/1` and `tracepack-jsonl/2`) | normative | 6, 8 |
+| `tracepack-corpus.md` [CORPUS] | conformance corpus of format-level reading: layout, manifest, JSON schemas of its expectations, zstd comparison, item-validity checklist, vector catalogue (schema `tracepack-corpus/4`) | normative | 6, 8, 9 |
 | `tracepack-semantics.md` [SEM] | capture model, decode_status, time and clock steps, transport events, quality, indexes, transaction lookup, query mapping, redaction | normative | 2, 3, 5, 8, 9 |
-| `tracepack-storage.md` [STO] | scopes and roles, keys, reads of the packs given, flush, merge and deletion, recorder durability and crash recovery, the durable-bus contract, log converter, implementation tests; the catalog and retention are the service's (G5-201) | normative for publishers, recorders and converters | 5, 9, service |
+| `tracepack-storage.md` [STO] | scopes and roles, keys, reads of the packs given, flush, merge and deletion, the durable-bus contract, its masking and the close of a capture left open, log converter, implementation tests; the catalog and retention are the service's (G5-201) | normative for publishers, recorders and converters | 5, 8, 9, service |
 | `tracepack-go.md` | Go module, API, mapping from go-secs, CLI | Go reference implementation | — |
 
-The implementation plan, the deferred proposals and the decision log are listed in `README.md`.
+The implementation plan, the decision log and the outcome of every proposal are listed in `README.md`.
 
 The normative documents are defined only in terms of SEMI E37 (HSMS), SEMI E5 (SECS-II) and their own text.
 No behaviour of any library defines a field.
@@ -163,6 +164,4 @@ Questions 2 and 3, on retention by data hour and on capture boundaries lost to r
 | Locating blocks after an envelope the forward walk cannot account for, in a pack without a valid footer ([FMT §13]) | needs a resynchronisation design |
 | Live-tail interface and query-service API | service design, outside the format |
 | Compression, latency and throughput numbers | measured on the pilot sample |
-| Closing a crashed producer's capture over a durable bus | returns with the gateway as the capture's producer (G5-200) in v2.33, when proposal P7 (`proposals/p7-durable-bus-capture-closure.md`) is rewritten without the catalog mechanisms v2.32 removed; until then such a capture has no end boundary |
-| Redaction policy file format and key management | service design; the format records only the policy id, version and key id ([SEM §8]) |
-| Capture-time redaction with an escrowed encrypted original | a cost analysis, not a rule: recorders would hold only a public key (asymmetric encryption); a sidecar keyed by (`capture_id`, `seq`, item path) keeps merges untouched; a decrypt service needs approval and audit; private-key custody, backup and rotation dominate the cost; its unique benefit is a separate retention for sensitive items (crypto-shredding). The redaction entry of [FMT §5] is already shaped to become an annotation body |
+| Redaction policy file format and key management | service design; the format records the policy id and version, the digest key id and the encryption key id ([FMT §5]); custody, wrapping and rotation are the service's (G5-221) |
