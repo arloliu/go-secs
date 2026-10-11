@@ -1437,3 +1437,129 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   Rationale *(editorial)*: format 1.0 lets a merge combine classifiers, and existing archives written by two converter versions for one capture must still merge.
   Rejected *(editorial)*: refusing every merge whose inputs of one capture name different classifiers.
   Spec: [FMT §5], [STO §4], pending (v2.33).
+
+## 2026-10-11 spec v2.33 open points (owner accepted the recommendations, O12 amended)
+
+- G5-233 A pack of format 1.1 exports under a new schema (2026-10-11):
+  the canonical export gains the schema `tracepack-jsonl/2`, a superset of `/1` that names the format 1.1 additions,
+  and an exporter chooses it by the pack's `format_minor`: `/1` for 0, `/2` for every other value,
+  so the export of a format 1.0 pack stays byte-identical and still depends on the pack's bytes alone.
+  The corpus takes a new schema value, `tracepack-corpus/4`, with the export schema named per vector.
+  Rationale *(editorial)*: long-term storage is read by name,
+  and `/1` would leave the format's own 1.1 fields unnamed for good.
+  Rejected *(editorial)*: keeping `/1` only, the 1.1 tags exported as unknown and the new bit as `bit(7)`.
+  Spec: [JSONL §3], [JSONL §5], [JSONL §9], [CORPUS §3], [CORPUS §10], pending (v2.33).
+- G5-234 The associated-data label is `tracepack-original-v1` (2026-10-11, the label of G5-228):
+  the label is the 21 ASCII bytes `tracepack-original-v1`,
+  ending with a version so that a later construction can separate itself.
+  Spec: [SEM §8], pending (v2.33).
+- G5-235 A masked input beside an unmasked one fails the merge (2026-10-11, completing G5-232):
+  a merge fails, publishing nothing,
+  when one input of a capture carries `redaction_policy` and another of the same capture does not.
+  Rationale *(editorial)*: the policy is fixed for the life of a capture (G5-214),
+  so the mix comes only from a nonconforming consumer,
+  and carrying both would store clear text beside masked text of one capture.
+  Rejected *(editorial)*: a merge that carries both kinds of input as they are.
+  Spec: [STO §4] Merge, pending (v2.33).
+- G5-236 A policy with encryption selects no overlapping items (2026-10-11):
+  a policy used with encryption is rejected before use
+  when two of its item rules for one stream and function can select overlapping items,
+  which a comparison of their path patterns decides.
+  Rationale *(editorial)*: encrypting two entries in place over shared target bytes would make one ciphertext the plaintext of the other;
+  a static check needs no ordering rule, and the baseline rules have no overlap.
+  Rejected *(editorial)*: encrypting entries in entry order and restoring them in reverse;
+  merging overlapping matches into a whole-text mask.
+  Spec: [SEM §8], pending (v2.33).
+- G5-237 A record unobserved by design is never masked (2026-10-11):
+  masking does not apply to a record carrying `quality.unobserved`, whose message text holds nothing to hide.
+  Rationale *(editorial)*: a digest of zeros would claim a value that was never captured.
+  Spec: [SEM §2], [SEM §8], pending (v2.33).
+- G5-238 Annotation masks keep no original (2026-10-11):
+  under a policy with encryption an annotation rule sets its target bytes to zero and keeps no encrypted original.
+  Rationale *(editorial)*: a `text` value holding ciphertext would not be valid UTF-8 ([FMT §5]),
+  and annotations are converter output, never replayed traffic.
+  Rejected *(editorial)*: no annotation rules in a policy with encryption;
+  replacing `text` by `raw`, which changes the payload length.
+  Spec: [SEM §8], pending (v2.33).
+- G5-239 `thinning` is a capture-level tag (2026-10-11):
+  every input of a merge carries the same ordered list of `thinning` entries, compared as decoded values,
+  or the merge fails,
+  as for `source_ref` ([STO §4] Merge).
+  Rationale *(editorial)*: the producer declares it once per capture in the capture descriptor.
+  Rejected *(editorial)*: the union of the inputs' entries.
+  Spec: [STO §4] Merge, [FMT §5], pending (v2.33).
+- G5-240 The bounds of a consumer's close (2026-10-11, the gap of G5-231):
+  `gap_start` is the `ts_utc_ns` of the highest staged seq minus `clock_step_tolerance_ns` for a `capture-clock` capture,
+  and is absent, unbounded, when the service staged no record of the capture;
+  `gap_end` is the trigger time plus `clock_step_tolerance_ns`,
+  the trigger time being the successor's `start` `ts_utc_ns` when a successor triggers the close,
+  and otherwise the log service's wall clock.
+  The close record's `ts_utc_ns` is the trigger time.
+  Rationale *(editorial)*: the tolerance covers the drift between the producer's clock and the service's,
+  and an absent bound errs toward `incomplete`, as reads do ([SEM §7.4]).
+  Rejected *(editorial)*: the bare times without the tolerance.
+  Spec: [STO §4], pending (v2.33).
+- G5-241 A bus message the consumer cannot decode is never written (2026-10-11):
+  a consumer takes a record's `capture_id` from `Nats-Msg-Id` and checks that its seq equals the record header's;
+  a message is never written, and its seq is a seq gap,
+  when its `Tpk-Layout` is unknown, its body does not have the layout's length, or its id disagrees.
+  Terminating such a message on the bus and raising an alert is described as informative.
+  Rationale *(editorial)*: the record header carries no `capture_id`,
+  and the stored subject may differ from the published one (G5-216).
+  Rejected *(editorial)*: leaving the case to the log service's design.
+  Spec: [STO §4], pending (v2.33).
+- G5-242 Producers may overlap during a handover (2026-10-11, aligning [STO §4] with G5-200):
+  two producers of one `recorder_instance_id` may overlap briefly during a handover, each publishing only its own capture;
+  [STO §4]'s statement that such an overlap is outside the supported configuration is removed.
+  Rationale *(editorial)*: two captures are harmless under a read of the union of the packs given (G5-201),
+  and the gateway's project could not rule the overlap out.
+  Rejected *(editorial)*: keeping the overlap unsupported.
+  Spec: [STO §4], [FMT I-7], pending (v2.33).
+- G5-243 A pack masked at write carries the encryption tags (2026-10-11, the strength of G5-221 and G5-229):
+  in a pack whose role is not `extract`, `redaction_policy` carries the encryption algorithm and the encryption key id,
+  and every `redaction` entry of a data record carries its `siv`.
+  An entry whose `siv` is missing or not 16 bytes long, and an original whose authentication fails when it is restored,
+  are recoverable defects:
+  the record stays masked and the defect is reported; neither rejects the pack.
+  Rationale *(editorial)*: masking without a recoverable original contradicts G5-207,
+  and one defective entry should not make a pack unreadable, as for the other entry defects of [SEM §8].
+  Rejected *(editorial)*: encryption optional in format 1.1 packs; rejecting a pack at bootstrap for a missing `siv`.
+  Spec: [FMT §5], [FMT §13], [SEM §8], pending (v2.33).
+- G5-244 The extract rules stay as format 1.0 defines them (2026-10-11):
+  the extract rules of [SEM §8] are kept;
+  the vectors that only an extract writer produces, and the test of an extract read beside its source,
+  are deferred with extracts (G5-198).
+  Rationale *(editorial)*: the rules stay valid for format 1.0 packs, and no extract writer is planned for v1.0.
+  Rejected *(editorial)*: removing the extract-writer rules from the specification.
+  Spec: [SEM §8], [SEM §9], [FMT §16], [CORPUS §9], pending (v2.33).
+- G5-245 The Go module uses Tink's AES-SIV (2026-10-11, owner, amending the recommendation):
+  the module encrypts and restores originals through the raw AES-SIV primitive (`daead/subtle`) of `github.com/tink-crypto/tink-go/v2`,
+  which writes the RFC 5297 output, the synthetic IV followed by the ciphertext, with no keyset prefix;
+  Tink's keyset format stays out of the pack (G5-228).
+  The module's tests check Wycheproof's AES-SIV-CMAC vectors for 512-bit keys and the corpus's own known-answer cases;
+  RFC 5297 is cited as the construction's reference, since its own vectors use 32-byte keys, which Tink and G5-228 do not take.
+  Rationale *(editorial)*: a cipher written for the module is a security risk;
+  tracepack is its own Go module, so the dependency does not reach the go-secs root module.
+  Rejected *(editorial)*: implementing RFC 5297 in the module over `crypto/aes`.
+  Spec: `tracepack-go.md` §1, `tracepack-impl-plan.md`, pending (v2.33).
+- G5-246 The writer keeps the producer's seqs; placement stays with the log service (2026-10-11, the shape G5-226 leaves):
+  the module's `Writer` gains a mode that keeps each record's given seq, strictly increasing within a pack,
+  with the masking and classification options of format 1.1;
+  placing records into segments by [STO §4] "Scope and order" stays with the log service.
+  Rationale *(editorial)*: placement is bound to the consumer's acknowledgement and flush loop;
+  a segment writer for it can follow when the log service asks.
+  Rejected *(editorial)*: a consumer segment writer implementing that placement in v0.5.0.
+  Spec: `tracepack-go.md` §3, pending (v2.33).
+- G5-247 The module restores originals (2026-10-11):
+  the module exports the restore of a record's originals, given its `redaction` entries and the encryption key;
+  key custody stays with the caller.
+  Rationale *(editorial)*: the format defines the decryption, the corpus pins it, and the module's own tests need it.
+  Rejected *(editorial)*: restore only in the log service.
+  Spec: `tracepack-go.md` §3, pending (v2.33).
+- G5-248 Proposals P7 and P8 are closed and their files removed (2026-10-11):
+  both files are deleted,
+  and the changelog and `README.md` record each one's outcome and the commit that holds its last text,
+  as for P2, P4, P5 and P9;
+  the normative text of P8 is in [STO §4] (G5-219), and P7's points are answered by G5-201, G5-231 and G5-240.
+  Rejected *(editorial)*: keeping both files with a closed status and rewritten citations.
+  Spec: `README.md`, `tracepack-spec-changelog.md`, proposals P7 and P8, pending (v2.33).
