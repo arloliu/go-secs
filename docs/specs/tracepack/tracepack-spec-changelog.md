@@ -1,11 +1,11 @@
 # tracepack spec — change history
 
-Status: current (2026-10-10) — spec v2.32.
+Status: current (2026-10-12) — spec v2.33.
 Section numbers in each entry refer to the numbering of the version it describes.
 The finding→fix tables below are the record of every review round;
 the review reports, the texts of the applied proposals P1, P3 and P6, and the single-file v2.5 are kept outside the repository;
-the last text of proposal P9 is in the repository history at commit `cd5c171`.
-The deferred proposals and the decision log are listed in `README.md`.
+the last text of proposal P9 is in the repository history at commit `cd5c171`, and those of P7 and P8 at `e77da98`.
+The decision log and the outcome of every proposal are listed in `README.md`.
 
 ## tracepack-go.md notes
 
@@ -38,6 +38,13 @@ The deferred proposals and the decision log are listed in `README.md`.
   and the `MergeIterate` bullet the capture-order reads it does not prefetch, the prefetched blocks' share of `MaxHeldBytes` and its concurrent `ReadAt` calls;
   `Merge`'s `ErrMergeInput` also names a `scope_generation` that contradicts the role and a repeated `pack_id`.
   No rule changed.
+- 2026-10-12: brought up to spec v2.33 (format 1.1).
+  §1 adds `tink-go` for AES-SIV, its raw `daead/subtle` primitive only (G5-245).
+  §2 names the gateway as the capture's producer over the durable bus, publishing frame captures (G5-200, G5-249).
+  §3 adds the bus codec, the descriptor codec, masking preparation, the format 1.1 `Writer` with its terminal `Close`, the close writer and restore (G5-226, G5-246, G5-247);
+  `Open` decodes the metadata by the pack's minor and reports recoverable redaction defects without failing;
+  `Merge` carries masks and `thinning` with the refusals of [STO §4]; `SegmentWriter` is the standalone recorder; the `Recover` bullet is removed (G5-227).
+  §7 drops `recover` from the commands whose return is open.
 
 ## Changes vs v1 (summary)
 
@@ -1395,3 +1402,93 @@ Review rounds (amendment plan, then the applied spec, kept outside the repositor
 | apply r1 judged | crash-gap deduplication across packs could discard differing gap evidence | boundaries with differing gap bounds are each evaluated |
 | apply r2 P2 | [FMT §10] wording excluded the same-key primary as a window bound | a closure bounds the window only through a decoded closing record |
 | apply r2 | — | ready |
+
+## Changes v2.32 → v2.33: format 1.1, the durable-bus contract and write-time encryption (owner decisions G5-213..G5-251, 2026-10-11)
+
+Source: the rulings G5-213..G5-232, taken after consulting the Virtual Equipment, the log service and the gateway designs,
+the rulings on the open points of the amendment plan (G5-233..G5-248) and of its first review (G5-249..G5-251), and proposals P7 and P8, now closed.
+Format 1.1 is defined; every format 1.0 file stays valid, and its canonical export is unchanged.
+v2.33 applies the rulings that tracepack v0.5.0 implements.
+
+Summary:
+- Format 1.1 ([FMT §14]): the pack metadata tag `thinning`, the nested tags `encryption_algorithm`, `encryption_key_id` (of `redaction_policy`) and `siv` (of `redaction`),
+  the enum `encryption_algorithm` and the `quality` bit 7 `unobserved`;
+  a pack of any role but `extract` may hold masked records.
+  No tag, enum value or bit is retired; `flush_interval_ns`, `seq_start` and `boundary_kind` 4 narrow their meaning without a byte changing.
+- Version-aware reading ([FMT §5], [FMT §14]): an addition is known only in a pack of its minor or later,
+  so a format 1.0 pack holding its number opens and exports as before; a pack of a newer minor is read with the newest registry.
+- The minor a writer writes ([FMT §14]): 1 exactly when the pack holds a format 1.1 feature, else 0; the close's seq and boundary alone need none.
+  A merge writes the largest minor of its inputs, refuses an input of a newer minor, and refuses an input whose bytes would gain a meaning under the output's minor (bit 7 of a minor-0 input).
+  Deployment precondition: tracepack v0.4.0 and earlier merge without these checks, dropping `thinning`, and `redaction_policy` from a policy-bearing input without a `redacted` record;
+  packs of format 1.1 are merged only by tracepack v0.5.0 or later.
+  [FMT §14] records, as informative text, what a reader of format 1.0 does with a pack of format 1.1.
+- Encryption of originals ([SEM §8], G5-220, G5-221, G5-228..G5-230, G5-234, G5-243, G5-245):
+  a consumer masks a capture at write and keeps each original encrypted in place with RFC 5297 AES-SIV-CMAC under a 64-byte per-capture key;
+  the 16-byte synthetic IV is the entry's `siv`, the 53-byte associated data binds the ciphertext to its record and first offset, and restore is all or nothing per record;
+  the digest key spans captures; overlapping matches are refused before use (G5-236), annotation masks keep no original (G5-238),
+  overlapping encrypted entries and `siv` defects are recoverable.
+  The extract rules of format 1.0 stay (G5-244).
+- Records unobserved by design ([SEM §2], [STO §4], G5-208, G5-224, G5-225, G5-237):
+  the FDC service's interval polls, identified other than by stream and function and declared in `thinning`, are kept with zero-filled message text and `quality.unobserved`, unclassified and never masked.
+- [STO §4] "Recorder over a durable bus": the scope of the bus, frame captures on the capture clock (G5-249);
+  producer duties for leadership changes, overlapping producers, seq assigned before buffering and the reserved seq 2^63 − 1 (G5-200, G5-218, G5-231, G5-242);
+  the bus message of layout 1 with its headers, sizing, preflight and the messages never written (G5-216, G5-219, G5-241, G5-251);
+  large records by claim-check with its lifetime invariant (G5-217);
+  clear-text protection by TLS and encryption at rest, no age limit (G5-207, G5-213);
+  masking with the per-capture fixity of the classifier configuration, policy and keys (G5-214, G5-222, G5-250);
+  and the close of a capture left open at seq 2^63 − 1 (G5-223, G5-231, G5-240).
+  Merge carries masks and `thinning` and refuses masked inputs that differ, or a masked input beside an unmasked one (G5-232, G5-235, G5-239).
+- The durable-spool recorder is removed: the spool, the liveness anchor and recovery ([STO §4], [SEM §4], G5-227), closing G5-205.
+- Coverage entries of another capture count in a read whose packs hold their capture ([FMT §5], [SEM §7.2], [SEM §7.4], G5-215).
+- [JSONL]: schema `tracepack-jsonl/2` names the format 1.1 additions; an exporter writes `/1` for a pack of minor 0 and `/2` otherwise (G5-233).
+- [CORPUS]: schema `tracepack-corpus/4`, with a per-vector export schema, the published digest and encryption test keys and AES-SIV cases, a footer projection with gap bounds and seq ranges,
+  and the redaction, unobserved, close and version-aware vectors.
+- `tracepack-go.md` and `tracepack-impl-plan.md`: the API of phase 8 and its scope (G5-226, G5-245..G5-247); `Recover` removed.
+
+Proposals closed (G5-248):
+- P8 (the bus message unit and large records) closed: its rules are in [STO §4] (G5-216..G5-219); last text at `e77da98`.
+- P7 (closing a crashed producer's capture) closed:
+  its publish fence by the reserved seq 2^63 − 1, its interrupted closure by the service's database and an identical retry, its capture without a descriptor left open,
+  and its arrivals after the close read normally with the gap reporting `incomplete` (G5-201, G5-231, G5-240); last text at `e77da98`.
+
+Review rounds (amendment plan, kept outside the repository):
+
+| Round | Finding | Resolution |
+|---|---|---|
+| plan review r1 P0 | the associated-data label's length | the 21 label bytes pinned in hex, one S2V component of 53 bytes, a known-answer case (a false positive about the length) |
+| plan review r1 P0 | the new tags could invalidate format 1.0 packs | additions known only from minor 1 |
+| plan review r1 P0 | the thinning rule broadened by the descriptor declaration | the FDC interval-poll restriction normative; the declaration necessary, never sufficient |
+| plan review r1 P0 | the classifier name alone did not fix redelivered bytes | the classifier configuration fixed per capture, `max_frame_len` included (G5-250) |
+| plan review r1 P0 | the bus layout lost what log captures need | the bus serves frame captures on the capture clock (G5-249) |
+| plan review r1 P0 | a close called format 1.0 unconditionally | its minor by the feature rule |
+| plan review r1 P1 | masking at append had no metadata-preparation lifecycle | masking prepared over the flush batch before the `Writer` |
+| plan review r1 P1 | whole-text masks promised a valid item | structure kept for resolved item masks only; whole-text ciphertext opaque |
+| plan review r1 P1 | the terminal close and its bounds undefined | a terminal `Close`, checked `i64` bounds, historical `stop-unclean` readable |
+| plan review r1 P1 | bus wire choices left to the implementer | sizing, a reversible tool token, the digest form and its checks, a raw descriptor codec |
+| plan review r1 P1 | the account of v0.4.0 overstated | corrected |
+| plan review r1 P1 | the corpus schemas could not hold the new expectations | exact `/4` schemas and a clause-to-vector map |
+| plan review r1 P1 | amendment targets omitted | each given replacement text; the orderly-stop requirement kept |
+| plan review r1 | an open point: a `start` the consumer cannot accept | never written, an alert, later records deferred until an operator acts (G5-251) |
+| plan review r2 P0 | `fidelity` and derived fields not scoped by record kind | both scoped by kind, with [SEM §2]'s per-record exceptions |
+| plan review r2 P0 | a merge missed entries naming a record without `redacted` | Marking checked both ways by merges and by masking preparation |
+| plan review r2 P1 | overlapping encrypted entries had no reader rule | a recoverable cross-entry disjointness rule |
+| plan review r2 P1 | the terminal `Close` signal ambiguous | success with "no continuation", distinct from errors |
+| plan review r2 P1 | the account of v0.4.0 incomplete | an over-limit range element, and the old merge's policy loss |
+| plan review r2 P1 | the capacity preflight did not prove the `start` fits | the header block bound covers claim-check headers; `max_payload` at least 4140; the final message checked |
+| plan review r2 P1 | corpus fixtures and ordering | one pack per vector; full ordering with tie-breaks; new group prefixes |
+| plan review r2 P1 | the `classifier` and `max_frame_len` rows and the `derived` class unamended | replaced |
+| plan review r2 P2 | stale wording and test ownership | corrected |
+| plan review r3 P0 | the classifier rows invalidated legacy extracts | profile-scoped writer rules; extracts keep the format 1.0 rules |
+| plan review r3 P1 | claim-check deletion not coordinated with producer retries | a lifetime invariant over the producer's retry horizon |
+| plan review r3 P1 | producer exhaustion left no seq for the `stop` | ordinary records up to 2^63 − 4, then a `clock-step` and the `stop`, and a new capture |
+| plan review r3 P1 | a mixed-minor merge could give bit 7 a meaning | the promotion refusal; a featureless minor-1 input valid |
+| plan review r3 P1 | the clear-text protections of G5-207 and G5-213 missing | required for the stream and the bucket |
+| plan review r3 P2 | the manifest's `format_version` | the format revision the corpus targets |
+| plan review r4 P1 | the close seq called the largest `u64` | the largest seq format major 1 permits |
+| plan review r4 P1 | the encryption tags' scope | required only in a masked-at-write policy |
+| plan review r4 P2 | a malformed merge instruction | split |
+| precision pass P1 | a missing `siv` cannot be told at bootstrap | a present `siv` checked at bootstrap, its presence at read; all recoverable |
+| precision pass P1 | the consumer close against [SEM §4] | an explicit exception to the anchor rule |
+| precision pass P1 | the claim-check lifetime omitted accepted references | the invariant covers them; *Already staged* an explicit exception |
+| precision pass P2 | a normative paragraph cited P8 | the citation dropped |
+| precision pass | — | ready |

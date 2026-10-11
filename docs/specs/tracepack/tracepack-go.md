@@ -1,7 +1,7 @@
 # tracepack — Go reference implementation
 
-Status: current (2026-10-11)
-Implements tracepack v2.32 (format 1.0): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
+Status: current (2026-10-12)
+Implements tracepack v2.33 (format 1.1): `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO]; overview in `tracepack-overview.md`.
 Where this document and the normative tracepack documents disagree, the normative tracepack documents wins.
 Citations name a file and symbol in `github.com/arloliu/go-secs/v2` on `main`;
 line numbers are avoided because they drift.
@@ -15,7 +15,12 @@ line numbers are avoided because they drift.
 - Reference CLI `tracepack/cmd/tracepack` in the same module is the explicit exemption from the root "no binary" rule.
 - The EAP log converter lives in `veq/cmd/eapconv`.
 - Dependencies: `github.com/klauspost/compress/zstd` (pure Go; it offers no seekable format, so independent block bodies are the design)
-  and `hash/crc32` (`crc32.ChecksumIEEE` is the spec's CRC-32/ISO-HDLC). No CGO.
+  and `hash/crc32` (`crc32.ChecksumIEEE` is the spec's CRC-32/ISO-HDLC);
+  and, for the encryption of originals, `github.com/tink-crypto/tink-go/v2`, of which the module uses only the raw AES-SIV primitive `daead/subtle`,
+  so Tink's keyset format never enters a pack (G5-228, G5-245).
+  The dependency is the tracepack module's own and does not reach the go-secs root module;
+  the module's tests check Wycheproof's AES-SIV-CMAC vectors for 512-bit keys and the corpus's cases.
+  No CGO.
 
 ## 2. Recorders and their capture descriptors
 
@@ -24,7 +29,7 @@ How each Go-side producer fills the spec's capture model ([SEM §2]):
 | Producer | `capture_method` | `vantage` | default `fidelity` | `recorder` example |
 |---|---|---|---|---|
 | a go-secs application recording the frames `hsms.WithWireObserver` reports (go-secs v2.6.0 or later), before HSMS decoding | `raw-stream` | `host` or `equipment`, by the application's role | `wire-exact` | `<app>/<ver> go-secs/2.6.0` |
-| an equipment gateway, frames re-emitted via `ToBytes()`: today its HSMS device → message-encoding adapter → EAP bus adapter → JetStream path; a recorder device on the go-secs v2.6.0 observers is planned, not built | `decoded-message` | `intermediary` | `re-encoded` | `<gateway>/<ver> <bus-adapter>` |
+| an equipment gateway, frames re-emitted via `ToBytes()`: today its HSMS device → message-encoding adapter → EAP bus adapter → JetStream path; a recorder device on the go-secs v2.6.0 observers is planned, not built; the gateway is the capture's producer over the durable bus (G5-200), publishing either wire frames through the observers (`raw-stream`) or its devices' decoded messages re-encoded (`decoded-message`, G5-249), and thinning the FDC service's polls (G5-225) | `decoded-message` | `intermediary` | `re-encoded` | `<gateway>/<ver> <bus-adapter>` |
 | `eapconv` converting EAP SML logs | `log` | where the EAP ran (normally `host`) | `reconstructed` | `eapconv/<ver>` |
 | VE or test fixtures producing expected traffic | `generator` | `none` | `synthesized` | `veq/<ver>` |
 
@@ -32,7 +37,8 @@ A recorder on the go-secs observers also installs `hsms.WithSocketObserver`
 and assigns `epoch` ([FMT I-7]) from the `Socket` value every go-secs observer event carries (§5):
 a per-capture `u32` counter keyed by the connection and its `Socket` values, starting at 1,
 because `Socket` is unique only within one connection.
-In the durable-bus deployment ([STO §4]) the producer also assigns `capture_id`, `recorder_instance_id` and `seq`, and the writer stores them as received.
+In the durable-bus deployment ([STO §4]) the producer also assigns `capture_id`, `recorder_instance_id` and `seq`, and the writer stores them as received;
+the producer publishes each record as the bus message of [STO §4], for a frame capture (`raw-stream` or `decoded-message`) on the capture clock (G5-249).
 A producer without socket identity writes `epoch = 0` and `correlation-incomplete`.
 As of 2026-09-28, go-secs v2.6.0 (release pending) exposes what the equipment gateway's path lacked:
 socket and generation identity on wire, socket, lifecycle and transaction events,
@@ -82,8 +88,31 @@ The query service, its catalog database and the live-tail interface are designed
   The Godoc of `QualityEvaluated` names what `SegmentWriter` evaluates (`correlation-incomplete` for epoch 0, the capture-boundary bit)
   and what the producer evaluates before it sets the field (`ordering-uncertain`, `direction-inferred`, [SEM §6]).
   Every `PackMeta` field gains Godoc from the registry's *Meaning* column and the roles that require it.
+- Bus codec (G5-226): encodes and decodes the 44-byte header of one record outside a block, and the body of bus layout 1, the header followed by the payload or the header alone ([STO §4] *Bus message*);
+  the module imports no NATS client, and the header names, the layout number and the digest form are constants.
+  The codec refuses a producer seq of 2^63 − 1, which only a consumer's close carries.
+- Descriptor codec (G5-226): encodes and decodes the producer-owned entries of a capture descriptor (TLV, [FMT §5]), `thinning` included, as raw values with no default applied:
+  the decoder yields the producer-owned pack-metadata values, a nonzero `capture_origin_mono_ns` and a zero `clock_step_tolerance_ns` kept, which the consumer copies;
+  `CaptureDescriptor` stays the recorder-facing type, which resolves its defaults before it encodes.
+- Masking preparation (G5-246), shaped by the metadata-first commit of [FMT §12]:
+  a function masks one record under a policy and its keys, key access going through an interface so that custody stays with the caller,
+  and returns the masked record and its `redaction` entries ([SEM §8]);
+  the caller masks its whole flush batch, which a bus consumer already holds ([STO §4]), collects the entries into the pack metadata, and then constructs the `Writer`.
+  A screening failure in preparation leaves no output.
+  The `Writer` checks Marking at append, both ways, for every record that carries `redacted` or is named by an entry, and checks that the commitments hold;
+  it still writes the metadata first and holds one block.
+- `Writer`, format 1.1: the existing `AssignSeq = false` path keeps each record's given seq, with its ordering checks (G5-246);
+  it gains the classification option for given-seq records, accepts unobserved records against the pack's `thinning`, and writes `format_minor` by [FMT §14].
+  Placing records into segments by [STO §4] *Scope and order* stays with the log service.
+  `Close` of a pack whose last record has seq 2^63 − 1 finalizes it successfully and reports "no continuation" as a result distinct from any error (e.g. a next seq with a `false` flag), never 2^63;
+  its callers — `SegmentWriter`, `Merge`, the close writer — treat it as success and publish the pack.
+  `NewWriter` refuses a `seq_start` or `NextSeq` above 2^63 − 1.
+- Close writer (G5-223, G5-231): writes the close segment of [STO §4] *Closing a capture left open* from the capture's descriptor, its consumer-owned values, the trigger time and the staged bounds;
+  its `format_minor` follows [FMT §14].
+- Restore (G5-247): restores a record's originals, given its `redaction` entries and the encryption key, all or nothing per record ([SEM §8] Encryption);
+  the caller keeps custody of the key.
 - `SegmentWriter` (G5-153): `NewSegmentWriter(ctx, SegmentWriterOptions) (*SegmentWriter, error)` writes one capture, in capture order, as segments ([STO §4] Flush),
-  over a sink without the durable spool (G5-150), so its segments carry no `flush_interval_ns`.
+  as a standalone recorder (G5-150), so its segments carry no `flush_interval_ns`; it keeps its clock-anchor code, and the module exports no stand-alone clock-step detector (G5-226).
   It owns `writer` (from the module's build info, with the fallback `classify.Name` uses), `classifier`, `max_frame_len`, `period_start`, `period_end`, `seq_start`,
   `pack_role = segment`, `compaction_level = 0` and `scope_generation = 0`, a `capture_id` it generates, and the capture's seq counter.
   `CaptureID()` returns that `capture_id` from construction on, so a recorder can persist it as the next capture's `PreviousCaptureID`.
@@ -207,8 +236,10 @@ The query service, its catalog database and the live-tail interface are designed
   it copies a block lying wholly inside them, never aliasing them, and reads any other block with one `ReadAt`.
   `Header()`, `Blocks()` (F-2), `Iterate(ctx, Query, fn) (Result, error)`,
   and `Stats() (PackStats, bool)` (G5-131): the F-5 statistics of a pack whose footer it uses — counts, time and seq ranges, per-epoch summaries with `close_seq`, capture-boundary entries — as a fresh value, false without a used footer.
-  `Open` parses the redaction entries with the pack metadata and runs their structural checks; its cost grows with the entries.
-  Records expose `Redacted` and their masked ranges, validated against the record when it is read ([SEM §8] Marking);
+  `Open` decodes the pack metadata against the registry of the pack's `format_minor` ([FMT §5]),
+  parses the redaction entries with it and runs their bootstrap checks, whose defects are recoverable and never fail `Open` ([SEM §8]); its cost grows with the entries.
+  Records expose `Redacted`, `Unobserved` and their masked ranges, and entries their `siv`, validated against the record when it is read ([SEM §8] Marking);
+  tracepack v0.4.0 rejected some of these defects at bootstrap and checked no range against its record ([FMT §14]);
   a wholly masked record reports its defect, and `Header()` exposes the policy, the entries and any bootstrap defect.
   Every block read decodes the whole body and checks I-2 before any record is used ([FMT §6]);
   the reader untransposes the decoded header section into a reusable row buffer, after which every record-level path reads headers in row form.
@@ -219,7 +250,8 @@ The query service, its catalog database and the live-tail interface are designed
 - `Query` = `Filter` plus `Payloads`, which decides only whether payloads are returned ([SEM §7.4]);
   without payloads a read over several packs still reads and compares them.
   `Result` carries `Incomplete` and `Conflicts` side by side; neither hides the other.
-  `Incomplete`'s defects and every `Item` name the pack they come from (`Pack`, an index into the readers given; 0 for `Iterate`);
+  `Incomplete`'s defects and every `Item` name the pack they come from (`Pack`, an index into the readers given; 0 for `Iterate`),
+  and a read over several packs reports a `coverage` entry one pack holds for another capture it reads, located at the pack that holds it (G5-215);
   `FooterErrs` lists each pack whose footer was not used, outside `Incomplete`, since a finalized pack whose walk accounts for every block is complete without its footer.
 - `Filter` uses typed slices (`[]SF`, `[]Kind`, `*[4]byte`) and a time range, with nil meaning "any"; no sentinel values.
   HSMS header fields are matched on payload values, available only where `field_validity` says so ([FMT §7.2]).
@@ -285,11 +317,11 @@ The query service, its catalog database and the live-tail interface are designed
   and so does archive pack metadata longer than `opts.Reader.MaxPackMetadataLen`, the budget the next merge opens it with.
   An error found before the archive's header leaves `dst` untouched, and after any error the caller discards `dst` and publishes nothing;
   an error of the final write or sync can leave bytes that form a finalized pack, which `Merge` still reports as a failure.
+  From format 1.1 it carries the masks and `thinning` of its inputs, and refuses the inputs [STO §4] Merge refuses:
+  a minor newer than it implements, preserved bytes that would gain a meaning under the output's minor,
+  masked inputs that differ in policy, classifier configuration or `thinning`, a masked input beside an unmasked one, and differing entries of one record.
 - `Verify(ctx, ra, size, opts) (VerifyReport, error)`: the outcome, failed blocks, disagreements, writer defects and validated prefix of [FMT §13];
   a file header or pack metadata that cannot be read is an error, as for `Open`.
-- `Recover(ctx, spool, dst) (RecoverReport, error)`, deferred until a local-spool recorder is planned (G5-91):
-  finalizes an unfinalized spool file as a segment of its original capture with a `stop-unclean` boundary ([STO §4]);
-  `RecoverReport` holds the spool file's `VerifyReport`.
 - `ExportJSONL(ctx, r *Reader, w io.Writer) (Result, error)`: writes the canonical export of the pack `r` reads ([FMT §15], [JSONL]), a function of package `tracepack` (G5-168).
   It exports the records `r.Iterate(ctx, Query{Payloads: true}, …)` yields, in the same order, and returns the `Result` that call returns:
   open defects, the `coverage` entries that intersect the query, the crash gaps ([SEM §7.4] Crash gaps), and every failed block and every block or footer value found disagreeing with its records ([SEM §7.4]) in `Incomplete`, whose records are exported;
@@ -446,7 +478,7 @@ and a reply recorded before its primary is reported by transaction matching as a
 ## 7. Reference CLI (`tracepack/cmd/tracepack`)
 
 Subcommands `dump --jsonl`, `verify` and `find`, after phase 8 (G5-206), on local paths only.
-`list`, `stats`, `dump --sml`, `merge` and `recover` are not in the minimal CLI; whether any of them returns is open (G5-206).
+`list`, `stats`, `dump --sml` and `merge` are not in the minimal CLI; whether any of them returns is open (G5-206).
 `s3://` URLs are deferred until the query service or another design decides where the object-store dependency lives,
 since the CLI shares the library's `go.mod` (G5-170).
 Every command reports `incomplete` explicitly;

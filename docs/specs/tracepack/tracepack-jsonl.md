@@ -1,6 +1,6 @@
 # tracepack — canonical JSONL export
 
-Status: current (2026-10-10) — v2.32, tracepack format 1.0, schema `tracepack-jsonl/1` (draft until tracepack v1.0.0).
+Status: current (2026-10-12) — v2.33, tracepack format 1.1, schemas `tracepack-jsonl/1` and `tracepack-jsonl/2` (drafts until tracepack v1.0.0).
 Normative, language-agnostic. [FMT §15] states what the export is for; this document defines its bytes.
 
 Depends on: [FMT §1] conventions, [FMT §2] portable encoding, [FMT §4] file header, [FMT §5] TLV encoding and registries,
@@ -13,7 +13,7 @@ Each rule is defined in exactly one document; the others only reference it.
 
 An exporter conforms when, for every pack its reader opens, it writes exactly the bytes this document defines,
 so that any two conforming exporters produce identical output for the same pack ([FMT §15]).
-The output depends on the pack's bytes alone:
+The output depends on the pack's bytes alone, its schema included (§5, §9):
 an exporter that cannot read a block, the footer or a part of the block region because of its own resource limits, rather than damage,
 fails the export instead of leaving that part out (§7).
 The conformance corpus ([FMT §16], [CORPUS]) holds the expected export of each of its vectors.
@@ -49,13 +49,17 @@ every other code point is written as its UTF-8 bytes, `/`, `<`, `>`, `&`, U+007F
 
 ### 3.1 Names
 
-Schema `tracepack-jsonl/1` names exactly the enum values, bits, tags and nested tags that format 1.0 defines as of spec v2.26:
+Schema `tracepack-jsonl/1` names exactly the enum values, bits, tags and nested tags that format 1.0 defines as of spec v2.26,
+and schema `tracepack-jsonl/2` exactly those that format 1.1 defines as of spec v2.33 (G5-233):
+`/2` adds the tag `thinning` and its nested tags, the nested tags `encryption_algorithm` and `encryption_key_id` of `redaction_policy` and `siv` of `redaction`,
+the enum `encryption_algorithm`, and the `quality` bit 7 `unobserved` (§3.2).
+Under either schema:
 - enum values: the names of [FMT §9]; `timer` values are named `none` and `T1` … `T8`;
   the retired `pack_role` 5 has no name, so it is written `unknown(5)`;
 - tags and nested tags: the names of the registries in [FMT §5] and [FMT §8];
   the nested tags 1 … 8 of `hsms_timers` are named `T1` … `T8`.
 
-A value, bit or tag that a later version of the format adds is unknown under `tracepack-jsonl/1`, whatever the exporter knows:
+A value, bit or tag that a later version of the format adds is unknown under a schema that does not name it, whatever the exporter knows:
 naming it changes the output, so it is named only under a new schema value (§9).
 
 Which enum each enum-typed tag holds:
@@ -65,6 +69,7 @@ Which enum each enum-typed tag holds:
 | pack metadata | `transport`, `capture_method`, `vantage`, `time_source`, `lifecycle_coverage`, `pack_role` | the enum of the same name |
 | pack metadata | `equipment_connect_mode` | `socket_role` |
 | `redaction_policy` | `digest_algorithm` | `digest_algorithm` |
+| `redaction_policy` (`/2`) | `encryption_algorithm` | `encryption_algorithm` |
 | transport-event | `event`, `cause`, `timer`, `socket_role`, `boundary_kind` | the enum of the same name |
 | transport-event | `prev_state`, `cur_state` | `state` |
 | annotation | `annotation_kind` | `annotation_kind` |
@@ -76,7 +81,7 @@ Every other `u8` tag (`compaction_level`) is a number.
 | Bit set | Names by bit |
 |---|---|
 | header `flags` ([FMT §4]) | 0 `redaction-present` |
-| `quality` ([FMT §9]) | 0 `capture-boundary`, 1 `ordering-uncertain`, 2 `correlation-incomplete`, 4 `direction-inferred`, 5 `redacted` |
+| `quality` ([FMT §9]) | 0 `capture-boundary`, 1 `ordering-uncertain`, 2 `correlation-incomplete`, 4 `direction-inferred`, 5 `redacted`; under `/2` also 7 `unobserved` |
 | `field_validity` ([FMT §7.2]) | 0 `session_id`, 1 `stream_and_w`, 2 `function`, 3 `ptype`, 4 `stype`, 5 `system_bytes` |
 | `record_flags` ([FMT §9]) | 1 `mono_present` |
 
@@ -90,7 +95,7 @@ that passed the acceptance rules of [FMT §5], under the registry that applies t
 - a present value is always written, also when it is zero, `false`, an empty string, empty bytes or an empty nested list (`{}`);
 - the value of a non-repeatable tag is its JSON form (§3); a repeatable tag's key holds an array of its values in stored order,
   also when it holds one value, equal values kept;
-- a known `tlv` value is itself a TLV object under its nested registry ([FMT §5]: `coverage`, `hsms_timers`, `redaction_policy`, `redaction`);
+- a known `tlv` value is itself a TLV object under its nested registry ([FMT §5]: `coverage`, `hsms_timers`, `redaction_policy`, `redaction`, and under `/2` `thinning`);
 - every entry whose tag the registry does not know (§3.1), retired and private tags included, is listed, in stored order,
   in a final key `unknown`: an array of objects `{"tag":<n>,"value_type":<n>,"value":"<base64>"}`,
   `tag` and `value_type` as numbers, `value` the entry's raw value bytes;
@@ -104,7 +109,7 @@ Keys, in order:
 
 | Key | Value |
 |---|---|
-| `schema` | `"tracepack-jsonl/1"` |
+| `schema` | `"tracepack-jsonl/1"` for a pack whose `format_minor` is 0, `"tracepack-jsonl/2"` for every other value ([FMT §4]) |
 | `format_major`, `format_minor` | numbers ([FMT §4]) |
 | `flags` | bit set (§3.2) |
 | `writer_start_utc_ns` | `i64` string |
@@ -162,7 +167,11 @@ The corpus records the expected rejection of such a vector instead of JSONL ([FM
 ## 9. Schema versions
 
 The `schema` value names the byte form.
-`tracepack-jsonl/1` is a draft until tracepack v1.0.0: a change to the bytes it defines before then bumps the value, and the change is recorded in the spec changelog.
+`tracepack-jsonl/1` and `tracepack-jsonl/2` are drafts until tracepack v1.0.0: a change to the bytes either defines before then bumps its value, and the change is recorded in the spec changelog.
+- `tracepack-jsonl/1` (spec v2.26): the export of format 1.0.
+- `tracepack-jsonl/2` (spec v2.33): names the format 1.1 additions (§3.1, §3.2) and otherwise writes the bytes of `/1`.
+  An exporter writes `/1` for a pack whose `format_minor` is 0 and `/2` for every other value (§5),
+  so the export of a format 1.0 pack is unchanged, and the schema still follows from the pack's bytes alone.
 Every later change to the output of a pack, naming a value the format adds (§3.1) included, takes a new schema value.
 
 ## 10. Example (informative)

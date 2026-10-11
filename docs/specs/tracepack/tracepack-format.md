@@ -1,6 +1,6 @@
 # tracepack — file format
 
-Status: current (2026-10-10) — v2.32, tracepack format 1.0.
+Status: current (2026-10-12) — v2.33, tracepack format 1.1.
 External review consensus reached (review rounds recorded in `tracepack-spec-changelog.md`).
 Normative, language-agnostic. Terminology and diagrams are in [OVW §3] and [OVW §4].
 
@@ -9,11 +9,12 @@ Depends on (the byte layouts, TLV encoding, footer and validation rules are self
   [SEM §5] transport events, [SEM §6] quality bits and `quality_evaluated`.
 - [STO §2] scopes and roles, [STO §4] merge and deletion, [STO §6] archive identity
   (meaning of `pack_role`, `scope_generation`, `publisher_epoch`, `patch_base`, `replacement_set_*`, `compacted_from`, `supersedes`, `coverage`),
-  [STO §4] recorder durability contract (`flush_interval_ns`, `seq_start`, `stop-unclean`),
+  [STO §4] the durable-bus contract (`flush_interval_ns`, `thinning`, the `stop-unclean` close),
   [STO §7] log converter and source provenance (`source_ref`, `source_dialect`).
 - [SEM §7.4] reads of the packs a caller gives (I-12 compares identity within them).
 - [SEM §7.1] the contract of the F-3 block summaries.
-- [SEM §8] redaction: meaning of `redaction-present`, `redaction_policy`, `redaction` entries and `quality.redacted`, and the validation of redaction entries.
+- [SEM §8] redaction: meaning of `redaction-present`, `redaction_policy`, `redaction` entries and `quality.redacted`, the encryption of originals, and the validation of redaction entries.
+- [SEM §2] records unobserved by design (`quality.unobserved`, `thinning`).
 - The conformance corpus of §16 also contains the single-pack vectors of [SEM §9]; its files, their schemas and the vector catalogue are [CORPUS].
 
 References: `[FMT §n]` = `tracepack-format.md`, `[SEM §n]` = `tracepack-semantics.md`, `[STO §n]` = `tracepack-storage.md`, `[OVW §n]` = `tracepack-overview.md`, `[JSONL §n]` = `tracepack-jsonl.md`, `[CORPUS §n]` = `tracepack-corpus.md`; `[FMT I-n]` = invariant I-n of the format document.
@@ -71,6 +72,7 @@ These rules let any mainstream language implement the format from this text alon
   individual SECS messages are often under 1 KiB, but a block holds many structurally repetitive records.
   The codec set is deliberately small, because every codec allowed is one that every reader must implement.
 - **Redaction digests** ([SEM §8]): HMAC-SHA-256 per RFC 2104 with SHA-256 per FIPS 180-4; the corpus (§16) publishes two test keys and the expected digests.
+- **Encryption of originals** ([SEM §8]): AES-SIV-CMAC per RFC 5297 with a 64-byte key; the corpus (§16) publishes test keys and the expected outputs.
 
 ## 3. Invariants
 
@@ -94,7 +96,8 @@ These rules let any mainstream language implement the format from this text alon
   a merge writes its archive as a new file ([STO §4]).
 - **I-7 Capture id across rolls; epoch bound at the transport boundary.**
   `capture_id` is a UUID assigned per tool when the recorder starts
-  — or, over a durable bus, when the producer that feeds it starts ([STO §4]), and for a converter, when it establishes a logical conversion ([STO §7] item 8) —
+  — or, over a durable bus, each time the producer that feeds it starts producing: at its start and at each leadership change,
+  overlapping producers each with their own capture ([STO §4], G5-242); and for a converter, when it establishes a logical conversion ([STO §7] item 8) —
   and written into every pack it rolls.
   `epoch` is assigned by a component that observes sockets directly, one per socket the HSMS implementation actually uses for a session,
   and stamped on every record from that socket independently of lifecycle notifications ([SEM §5]);
@@ -103,7 +106,7 @@ These rules let any mainstream language implement the format from this text alon
   Thus (`capture_id`, `epoch`) identifies one transport connection globally.
   A recorder restart always starts a new capture, because neither the monotonic clock nor the seq counter survives a process restart;
   consecutive captures of one recorder deployment are linked by `recorder_instance_id` and `previous_capture_id` (§5).
-- **I-8 Little-endian for tracepack's own integers; wire bytes untouched, except for the masking of extracts ([SEM §8]).**
+- **I-8 Little-endian for tracepack's own integers; wire bytes untouched, except for masking ([SEM §8]) and the zero-filled message text of a record unobserved by design ([SEM §2]).**
   HSMS payloads keep their big-endian length prefix and header (SEMI E37 §8.2).
 - **I-9 Reserved is zero on write, ignored on read.**
 - **I-10** Retired in spec v2.13; the number is not reused.
@@ -111,10 +114,12 @@ These rules let any mainstream language implement the format from this text alon
   so the HSMS header fields of a record exist only in its payload (§7.2).
 - **I-11 Derived values are opinions, not facts.** `decode_status` and `trailing_bytes` are a classifier's judgement over the captured bytes.
   The pack metadata names the classifiers that computed them (`classifier` tag, one value per classifier, §5);
-  a consumer MAY recompute them from the payload, except over the masked ranges of an extract, where the stored values describe the source bytes ([SEM §8]).
+  a consumer MAY recompute them from the payload, except over the masked ranges of a masked record, where the stored values describe the source bytes ([SEM §8]),
+  and over the message text of a record unobserved by design, which is not classified ([SEM §2]).
 - **I-12 Record identity is (`capture_id`, `seq`).** `seq` is capture-scoped:
-  it is assigned in capture order, starting at 0 and increasing by one per record, across every pack of the capture,
-  by the writer or by the producer that hands the writer its records ([STO §4] Recorder over a durable bus);
+  it is assigned in capture order, starting at 0 and increasing by one per record, across every pack of the capture;
+  a consumer's close of a capture its producer left open has seq 2^63 − 1, the capture's last ([STO §4]).
+  Seqs are assigned by the writer or by the producer that hands the writer its records ([STO §4] Recorder over a durable bus);
   a writer never renumbers a seq it received.
   Merging packs never renumbers records, so a reference to (`capture_id`, `seq`) stays valid whichever file holds the record;
   `pack_id` identifies a file, never a record.
@@ -128,6 +133,7 @@ These rules let any mainstream language implement the format from this text alon
   a `repair` patch written before v2.32 may hold a record re-emitted under its original identity with new stored bits or classification (G5-202),
   and an extract's masked records keep their identity while their bytes differ from the source's ([SEM §8]);
   a read given both such a file and the pack it derives from reports the conflict, and each file stays readable.
+  A capture masked at write has no unmasked copy to conflict with ([STO §4] *Masking*).
 - **I-13 Hour-aligned blocks.** All records of a block have `ts_utc_ns` in the same UTC hour;
   a writer closes the current block before appending a record from a different UTC hour.
   A block therefore belongs to exactly one hour and moves between packs without being re-encoded;
@@ -143,8 +149,8 @@ These rules let any mainstream language implement the format from this text alon
 |---|---|---|---|
 | 0 | [8]byte | `magic` | `89 54 50 4B 0D 0A 1A 0A` (`\x89 T P K \r \n \x1A \n`); detects non-tracepack input and text-mode transfer damage |
 | 8 | u16 | `format_major` | 1 (§14) |
-| 10 | u16 | `format_minor` | 0 (§14) |
-| 12 | u32 | `flags` | bit 0 `redaction-present`: at least one record carries `quality.redacted` ([SEM §8]); set only in extracts; bits 1–31 reserved. There is no finalized flag (§12) |
+| 10 | u16 | `format_minor` | 0 or 1 (§14) |
+| 12 | u32 | `flags` | bit 0 `redaction-present`: set exactly when at least one record carries `quality.redacted` ([SEM §8]): in an extract, or from format 1.1 in a pack masked at write ([STO §4]); bits 1–31 reserved. There is no finalized flag (§12) |
 | 16 | u32 | `pack_metadata_len` | byte length of the pack metadata; the first block starts at 80 + this value |
 | 20 | u32 | `pack_metadata_crc` | CRC over the pack metadata bytes |
 | 24 | i64 | `writer_start_utc_ns` | wall clock when the writer opened the file; for a converter's reproducible output, a fixed time its conversion selects ([STO §7] Reproducible output); never the time of the capture |
@@ -199,6 +205,9 @@ and an invalid transport-event or annotation payload is not a valid TLV body, §
 - Unknown tags, private ones included, pass once framed: they may repeat, they are skipped using `length`,
   and their value is never interpreted, whatever their `value_type`;
   their raw value is preserved in the canonical export (§15).
+- A tag, nested tag, enum value or bit that a minor version adds is known only in a pack of that minor or later (§14);
+  in a pack of an earlier minor its number keeps the status that minor gave it — an unknown tag, a reserved bit —
+  so the format 1.0 pack that holds it opens and exports as before.
 - A **retired** tag number is never reused.
   A writer never writes it, also not from the unknown entries it preserved when it read another pack;
   a reader treats it as an unknown tag, and the canonical export of the pack that holds it still shows it (§15).
@@ -214,14 +223,14 @@ and an invalid transport-event or annotation payload is not a valid TLV body, §
 | 0x0005 | `vantage` | u8 enum | always | [SEM §2] |
 | 0x0006 | `recorder` | utf8 | always | recorder or converter product, version and mode; for display and tracing, never branched on |
 | 0x0007 | `writer` | utf8 | always | tracepack writer implementation and version |
-| 0x0008 | `classifier` | utf8, repeatable | any record's `decode_status` is not `not-attempted` / `not-applicable` | implementation and version that computed derived values (I-11); one value per classifier: a recorder or converter writes one, a merger every distinct value of its inputs ([STO §4]); a `repair` patch, no longer written (G5-202), holds those of the pack it repaired |
+| 0x0008 | `classifier` | utf8, repeatable | any record's `decode_status` is not `not-attempted` / `not-applicable` | implementation and version that computed derived values (I-11); one value per classifier: a recorder or converter writes one, a merger every distinct value of its inputs ([STO §4]); a `repair` patch, no longer written (G5-202), holds those of the pack it repaired; in the masked-at-write profile of format 1.1 — a pack whose role is not `extract` and that carries `redaction_policy` — a writer writes exactly one value, its capture's classifier, whatever its records (G5-250, [STO §4] *Masking*), a writer rule that a merge checks and never a bootstrap rejection, and a merge of such packs carries that one value; every other pack, an extract under a policy included, keeps the rules above |
 | 0x0009 | `time_source` | u8 enum | always | §9 |
 | 0x000A | `capture_origin_utc_ns` | i64 | `time_source = capture-clock` | wall-clock counterpart of the mono origin ([SEM §4]) |
 | 0x000B | `capture_origin_mono_ns` | i64 | `time_source = capture-clock` | mono origin ([SEM §4]) |
 | 0x000C | `source_tz` | utf8 | `time_source = source-log` | IANA time-zone name the source timestamps are parsed in |
 | 0x000D | `source_dialect` | utf8 | `capture_method = log` | log format and parser mode used ([STO §7]) |
 | 0x000E | `source_ref` | utf8, repeatable | `capture_method = log` | identity of each source file |
-| 0x000F | `max_frame_len` | u64, repeatable | any record is classified `oversized` | the configured maximum frame length ([SEM §3]); one value per configuration: a recorder or converter writes one, a merger every distinct value of its inputs ([STO §4]); a `repair` patch, no longer written (G5-202), holds those of the pack it repaired; with several values the pack does not say which one a record was classified under |
+| 0x000F | `max_frame_len` | u64, repeatable | any record is classified `oversized` | the configured maximum frame length ([SEM §3]); one value per configuration: a recorder or converter writes one, a merger every distinct value of its inputs ([STO §4]); a `repair` patch, no longer written (G5-202), holds those of the pack it repaired; with several values the pack does not say which one a record was classified under; in the masked-at-write profile a writer writes at most one value, its capture's limit, and none when the classifier has no limit (G5-250), a writer rule that a merge checks, and a merge of such packs carries that value or its absence; every other pack keeps the rules above |
 | 0x0010 | `period_start` | i64 | always | start of the period this pack covers: the flush interval of a segment, the UTC hour of an archive ([STO]) |
 | 0x0011 | `period_end` | i64 | always | end of that period (exclusive) |
 | 0x0012 | `lifecycle_coverage` | u8 enum | always | §9, [SEM §5] |
@@ -245,18 +254,19 @@ and an invalid transport-event or annotation payload is not a valid TLV body, §
 | 0x0024 | `equipment_connect_mode` | u8 enum (`socket_role`) | optional | whether the equipment side is passive or active |
 | 0x0025 | `device_id` | u64 | optional | configured SessionID / DeviceID |
 | 0x0026 | `hsms_timers` | tlv | optional | configured timers; nested tag *n* (1–8) = T*n* in milliseconds, `u64` |
-| 0x0027 | `seq_start` | u64 | always | the first record's seq, or for a pack without records the capture's next seq (for a `repair` patch without records, no longer written (G5-202), the damaged pack's `seq_start`; for an archive without records, the largest `seq_start` of the merge's inputs, [STO §4]); lets recovery of an empty spool place its boundary ([STO §4]) |
-| 0x0028 | `clock_step_tolerance_ns` | u64 | `time_source = capture-clock` | wall-clock drift the writer tolerates against its durable anchor before marking a step ([SEM §4]) |
-| 0x002C | `flush_interval_ns` | u64 | a recorder with a durable spool, or a consumer of a durable bus | the recorder's durability contract interval; for a bus consumer its maximum normal segment-flush interval; never written by a standalone recorder without a durable spool (G5-150) or by a converter ([STO §7]), while a consumer of a durable bus writes it ([STO §4]) |
+| 0x0027 | `seq_start` | u64 | always | the first record's seq, or for a pack without records the capture's next seq (for a `repair` patch without records, no longer written (G5-202), the damaged pack's `seq_start`; for an archive without records, the largest `seq_start` of the merge's inputs, [STO §4]) |
+| 0x0028 | `clock_step_tolerance_ns` | u64 | `time_source = capture-clock` | wall-clock drift the writer tolerates against its clock anchor before marking a step ([SEM §4]) |
+| 0x002C | `flush_interval_ns` | u64 | a consumer of a durable bus | a durable-bus consumer's maximum normal segment-flush interval ([STO §4]); never written by a standalone recorder (G5-150) or by a converter ([STO §7]); spool recorders of earlier spec versions, never implemented, would have written it (G5-227) |
 | 0x002D | `scope_generation` | u64 | every pack except `extract` | 0 for segments and patches, ≥ 1 for archives, produced by merges or written by a converter directly; an archive's value is supplied by its publisher, and tracepack ranks nothing by it ([STO §2], [STO §7]) |
 | 0x002E | `publisher_epoch` | u64 | `scope_generation` ≥ 1 | the publisher's value, with no fencing meaning in tracepack ([STO §2]) |
 | 0x002F | `patch_base` | uuid | a patch, when its scope has a generation | written only by repair, no longer written (G5-202): the `replacement_set_id` of the archive the patch was registered against; read and exported like any tag |
 | 0x0029 | `replacement_set_id` | uuid | `scope_generation` ≥ 1 | identity only: every archive carries one ([STO §6]), and a merge writes a new value for its archive ([STO §4] Merge) |
 | 0x002A | `replacement_set_size` | u64 | with `replacement_set_id` | number of packs in the set: always 1 ([STO §6]); any other value rejects the file |
 | 0x002B | `replacement_set_index` | u64 | with `replacement_set_id` | this pack's index in the set: always 0; any other value rejects the file |
-| 0x0031 | `redaction_policy` | tlv | the extract was written under a redaction policy | the policy applied ([SEM §8]); nested tags below |
+| 0x0031 | `redaction_policy` | tlv | the pack was written under a redaction policy | the policy applied ([SEM §8]); nested tags below |
 | 0x0032 | `redaction` | tlv, repeatable | a record was masked | one mask per entry ([SEM §8]); nested tags below; ordered by `seq`, then first masked offset |
 | 0x0030 | — | — | — | retired (block validation commits nothing to the pack metadata, §12) |
+| 0x0033 | `thinning` | tlv, repeatable | a record carries `quality.unobserved` | from format 1.1: one thinned stream and function per entry, declared by the producer in the capture descriptor ([SEM §2], [STO §4]); a capture-level tag ([STO §4] Merge); nested tags below |
 
 Nested tags of `coverage`: 0x0001 `capture_id` uuid, 0x0002 `seq_first` u64, 0x0003 `seq_last` u64,
 0x0004 `time_start` i64, 0x0005 `time_end` i64.
@@ -265,20 +275,29 @@ the seq range [`seq_first`, `seq_last`] against the queried seqs, the time inter
 A side whose bound is absent is unbounded, so an entry without a time interval intersects every time range of its capture, and one without a seq range every seq range;
 an entry whose first bound exceeds its last intersects every query of its capture;
 an entry without `capture_id` belongs to the pack's capture.
+A read reports an entry when its capture is the capture of a pack the read reads ([SEM §7.4], G5-215),
+so a read over several packs also reports an entry one pack holds for another capture it reads.
 The rule errs toward `incomplete` (§13), because a missed intersection would present lost records as records that do not exist.
-A writer writes `capture_id`, `seq_first`, `time_start` and `time_end` in every `coverage` entry it declares,
+A writer writes `capture_id`, equal to the pack's own capture, `seq_first`, `time_start` and `time_end` in every `coverage` entry it declares,
 and `seq_last` whenever the upper bound of the lost seqs is known;
 an absent `seq_last` means the loss extends past the last seq the writer could establish.
 The entries a merge carries from its inputs ([STO §4] Merge), and those a `repair` patch inherited, are carried as data, whatever nested tags they hold:
 every entry, in its order, with every nested tag, type and value, unknown tags included;
 the nested entries may be re-encoded in another order, since their order carries no meaning, with reserved bytes zero (I-9).
 
-Nested tags of `redaction_policy`: 0x0001 `policy_id` utf8, 0x0002 `policy_version` u64, 0x0003 `key_id` utf8, 0x0004 `digest_algorithm` u8 enum (§9), all required.
+Nested tags of `redaction_policy`: 0x0001 `policy_id` utf8, 0x0002 `policy_version` u64, 0x0003 `key_id` utf8, 0x0004 `digest_algorithm` u8 enum (§9), all required;
+and from format 1.1, 0x0005 `encryption_algorithm` u8 enum (§9) and 0x0006 `encryption_key_id` utf8, both present or both absent.
+When `redaction_policy` is present in a pack of the masked-at-write profile (format 1.1, role not `extract`), both are present (G5-243);
+an extract's `redaction_policy` holds neither, and a pack without `redaction_policy` has neither requirement.
+This is a writer rule that a merge checks, never a bootstrap rejection, like the profile's `classifier` and `max_frame_len` rules.
 
 Nested tags of `redaction` (a **redaction entry**): 0x0001 `seq` u64 (required), 0x0002 `item_path` utf8 (absent for a whole-text or annotation mask; empty for the root item),
 0x0003 `masked_ranges` bytes (required: a *u64 array* of (offset, length) pairs, offsets from the start of the record payload, [SEM §8]),
-0x0004 `domain` utf8 (required), 0x0005 `digest` bytes (required; 32 bytes for `hmac-sha256`).
-The redaction entry is self-contained so that a later minor version can carry it in an annotation record written at capture time ([OVW §6]).
+0x0004 `domain` utf8 (required), 0x0005 `digest` bytes (required; 32 bytes for `hmac-sha256`),
+and from format 1.1, 0x0006 `siv` bytes (16 bytes): present in every entry that masks a data record when the policy carries `encryption_algorithm`,
+absent from an annotation's entries (G5-238, G5-243); its defects are recoverable ([SEM §8]).
+
+Nested tags of `thinning`, from format 1.1: 0x0001 `stream` u64, 0x0002 `function` u64, 0x0003 `source` utf8 (where the sampling comes from, descriptive text), all required.
 
 ## 6. Block envelope (40 bytes) and block body
 
@@ -357,7 +376,7 @@ Appending fields behind offset 44 is a minor version change; changing any existi
 Class column:
 `observed` = a captured fact;
 `declared` = assigned or declared by the writer, a fact about the capture that cannot be recomputed from the payload;
-`derived` = a classifier's judgement, recomputable (I-11) except over masked ranges ([SEM §8]);
+`derived` = a classifier's judgement, recomputable (I-11) except over masked ranges ([SEM §8]) and the message text of an unobserved record ([SEM §2]);
 `structural` = framing and capture extent, computed from the captured bytes.
 
 | Field | Class | Semantics |
@@ -368,10 +387,10 @@ Class column:
 | `epoch` | declared | transport connection number within the capture (I-7); 0 = unknown, which forces `correlation-incomplete` |
 | `kind` | declared | data / control / transport-event / annotation |
 | `dir` | observed | direction; `quality.direction-inferred` marks an inferred value |
-| `fidelity` | declared | how faithfully the payload reproduces the transmitted bytes ([SEM §2]; for a `redacted` record, the source payload, [SEM §8]) |
+| `fidelity` | declared | how faithfully the payload reproduces the transmitted bytes ([SEM §2]; for a `redacted` record, the source payload, [SEM §8]; for an `unobserved` record, the captured header, [SEM §2]) |
 | `quality` | declared | stored quality flags ([SEM §6]) |
 | `decode_status` | derived | [SEM §3] |
-| `trailing_bytes` | derived | message-text bytes after the first complete SECS-II item; meaningful only when `decode_status` is `ok` or `ok-with-trailing`; for a `redacted` record, of the source message text |
+| `trailing_bytes` | derived | message-text bytes after the first complete SECS-II item; meaningful only when `decode_status` is `ok` or `ok-with-trailing`; for a `redacted` record, of the source message text; 0 for an `unobserved` record |
 | `field_validity` | structural | which HSMS header fields of the payload are real: present in the captured bytes, or, for a log conversion, established from the source's metadata ([STO §7]) |
 | `payload_len` | structural | payload length in bytes |
 
@@ -420,7 +439,8 @@ a reader treats the field as unavailable, and `verify` reports the defect.
   4-byte big-endian length, 10-byte HSMS message header, message text (SEMI E37 §8.2).
   Short or over-long captures are stored as captured, with `field_validity` and `decode_status` saying what is missing;
   the writer never pads, truncates or repairs bytes.
-  In an extract written under a redaction policy, the payload is the captured frame with the masking of [SEM §8] applied, and nothing else changed.
+  In a pack written under a redaction policy, the payload is the captured frame with the masking of [SEM §8] applied, and nothing else changed.
+  A record unobserved by design holds its captured length field and HSMS header and a zero-filled message text ([SEM §2]).
   For `transport = secs1-normalised`: the reassembled SECS-I message in HSMS framing;
   SECS-I block-level evidence is not preserved in format 1.0 ([OVW §5]).
 - **transport-event**: a TLV body (§5 entry encoding) with these tags:
@@ -482,7 +502,7 @@ Record-header bit sets (bit 0 = least significant):
 
 | Field | Bits |
 |---|---|
-| `quality` (u16) | 0 capture-boundary, 1 ordering-uncertain, 2 correlation-incomplete, 4 direction-inferred, 5 redacted; 3 and 6 retired; 7–15 reserved |
+| `quality` (u16) | 0 capture-boundary, 1 ordering-uncertain, 2 correlation-incomplete, 4 direction-inferred, 5 redacted, 7 unobserved (from format 1.1, §5); 3 and 6 retired; 8–15 reserved |
 | `field_validity` (u8) | 0 SessionID, 1 stream and W (payload byte 6), 2 function, 3 PType, 4 SType, 5 System Bytes (§7.2); 6–7 reserved |
 | `record_flags` (u8) | 1 mono_present; 0 retired; 2–7 reserved |
 
@@ -500,6 +520,7 @@ Pack-metadata enums:
 | `lifecycle_coverage` | 0 unknown, 1 subscribed, 2 none |
 | `pack_role` | 0 unknown, 1 segment, 2 archive, 3 extract, 4 repair (no longer written, G5-202; read and exported like any role); 5 retired: never written, reported `unknown(5)` like any unknown value (§1), and handled by [STO §4] as any role other than segment or archive |
 | `digest_algorithm` | 0 unknown, 1 hmac-sha256 (nested in `redaction_policy`, [SEM §8]) |
+| `encryption_algorithm` | from format 1.1: 0 unknown, 1 aes-siv-cmac-512 (nested in `redaction_policy`, [SEM §8]) |
 
 Payload enums (§8, [SEM §5]):
 
@@ -510,7 +531,7 @@ Payload enums (§8, [SEM §5]):
 | `timer` | 0 none; 1–8 = T1..T8 (the value is the timer number; SECS-I T1 / T2 / T4 included) |
 | `cause` | 0 unknown, 1 local-open, 2 local-close, 3 select-accepted, 4 select-rejected, 5 local-deselect, 6 peer-deselect, 7 local-separate, 8 peer-separate, 9 timer-expiry, 10 linktest-failure, 11 transport-error, 12 peer-close, 13 implementation-fault |
 | `socket_role` | 0 unknown, 1 passive, 2 active |
-| `boundary_kind` | 0 unknown, 1 start, 2 stop, 3 gap, 4 stop-unclean (the capture ended without a clean stop; written by recovery, [STO §4]; a read or lookup whose time range its gap meets reports `incomplete`, [SEM §7.4], G5-209) |
+| `boundary_kind` | 0 unknown, 1 start, 2 stop, 3 gap, 4 stop-unclean (the capture ended without a clean stop; written by a consumer closing a capture its producer left open, at seq 2^63 − 1 ([STO §4]), and at other seqs by the spool recovery of earlier spec versions, which stay valid; a read or lookup whose time range its gap meets reports `incomplete`, [SEM §7.4], G5-209) |
 | `annotation_kind` | 0 unknown, 1 note, 2 unparsed-entry, 3 skipped-bytes, 4 unrecognised-line |
 
 ## 10. Footer
@@ -813,9 +834,10 @@ The object size is known before reading (file system stat, object listing, the s
   [CORPUS §5.3] names each of these reasons by a code.
   Every other requirement of §5, a condition on the records or a value tied to the role (`scope_generation` 0 for a segment) among them,
   binds writers and never rejects a pack at bootstrap; the retired `pack_role` 5 is read as `unknown(5)` (§9).
-  The checks [SEM §8] makes at bootstrap on redaction entries report recoverable defects; they are not rejections.
+  The checks [SEM §8] makes at bootstrap on redaction entries report recoverable defects, a present `siv` whose length is not 16 among them; they are not rejections.
+  A missing `siv` on an encrypted data record's entry, and a `siv` on an annotation's entry, are checked when the record is read and its kind is known ([SEM §8]), and are recoverable too.
   A reader's own limits (a metadata size budget), an I/O error or a cancellation are failures of the read, not rejections of the pack.
-  Guarantee in format 1.0: every validated block is readable, and the validated prefix is readable without the footer;
+  Guarantee: every validated block is readable, and the validated prefix is readable without the footer;
   every failed block and every byte range the walk cannot account for is reported `incomplete` with offset and cause.
   Locating blocks after an envelope the walk cannot account for, in a pack without a valid footer, is deferred ([OVW §6]).
 - **Normal reads never silently skip.** A corrupt block, a truncated tail, an unknown codec, a block whose records disagree with its F-2 entry or a `coverage` hit yields partial results
@@ -837,7 +859,7 @@ The object size is known before reading (file system stat, object listing, the s
 - An unknown major is rejected before any block is read.
 - `trailer_version` (§11) and `footer_layout_version` (§10) are 1 within format major 1, and changing either is a major change;
   a reader that finds another value treats the trailer or the footer as not valid, and reads the pack by the forward walk (§13, G5-212).
-- Minor changes: new TLV tags, new enum values (readers preserve unknown values),
+- Minor changes: new TLV tags, new enum values (readers preserve unknown values), meanings for reserved bits,
   new record-header fields appended behind the known prefix, up to `record_header_len` = 65535 (§7.1),
   new F-3 / F-5 tags, a longer `f2_entry_len` (§10).
 - Major changes: changing any existing offset or type, and **new codec values** (§2), because an old reader cannot decode the content at all.
@@ -846,6 +868,42 @@ The object size is known before reading (file system stat, object listing, the s
   no tag, enum value or bit is retired, and no requirement of §5 changes.
   It changes only the meaning tracepack attaches to some tags
   and which of them the reference implementation still writes (§5, §9; G5-201, G5-202).
+- Spec v2.33 defines **format 1.1**: it changes no byte of format 1.0 and no export of a format 1.0 pack (§15).
+  It adds the pack metadata tag `thinning`, the nested tags `encryption_algorithm` and `encryption_key_id` of `redaction_policy` and `siv` of `redaction` (§5),
+  the enum `encryption_algorithm` and the `quality` bit 7 `unobserved` (§9),
+  and it lets a pack whose role is not `extract` hold masked records ([SEM §8], [STO §4]).
+  Each addition is known only in a pack of format 1.1 or later (§5); a reader reads a pack of a newer minor with the newest registry it knows.
+- A writer writes `format_minor` 1 exactly when the pack holds a **format 1.1 feature**, and 0 otherwise:
+  a record carrying `quality.redacted`, or a `redaction` entry, in a pack whose `pack_role` is not `extract`;
+  a `redaction_policy` with the encryption tags, or a `redaction` entry with `siv`;
+  a `thinning` entry; or a record carrying `quality.unobserved`.
+  The seq 2^63 − 1 and the `stop-unclean` boundary of a consumer's close need no minor 1 by themselves ([STO §4]);
+  a close segment's minor follows this rule like any pack's.
+  A pack of minor 1 that holds no format 1.1 feature breaks this writer rule, but is valid, and is read as minor 1.
+- A merge writes the largest `format_minor` of its inputs.
+  It refuses an input of a minor newer than it implements, since it drops unknown top-level entries ([STO §4] Merge), which a newer minor may define as capture-level;
+  and an input whose preserved bytes would gain, under the output's minor, a meaning they lack under its own:
+  in format 1.1, a record of a minor-0 input carrying `quality` bit 7, reserved there and `unobserved` in minor 1.
+  A merge never clears a bit or rewrites record bytes, so it refuses instead.
+- Deployment precondition: tracepack v0.4.0 and earlier merge without these checks.
+  Given 1.1 inputs, such a merge writes a minor-0 archive that silently drops a `thinning` entry;
+  it fails on an input holding a `redacted` record, a commitment breach to it,
+  but merges a policy-bearing input that holds none — a segment whose policy matched nothing, or the close segment of a masked capture — and drops its `redaction_policy`.
+  So packs of format 1.1 are merged only by a merger of format 1.1, tracepack v0.5.0 or later.
+- *Informative*: what a reader of format 1.0, tracepack v0.4.0, does with a pack of format 1.1, which it accepts:
+
+  | Format 1.1 feature | A reader of format 1.0 |
+  |---|---|
+  | masked records in a segment or archive | reads `quality.redacted` and the entries' ranges as stored; it checks no range against its record and marks nothing wholly masked; the ciphertext is exported as payload bytes |
+  | `encryption_algorithm`, `encryption_key_id`, `siv` | unknown nested tags, skipped and never checked: a missing or ill-sized `siv` goes unseen |
+  | `thinning` | an unknown top-level tag, preserved and exported under `unknown`; its merge drops it |
+  | `quality.unobserved` | a reserved bit, preserved, exported as `bit(7)`; the zero-filled message text reads as data with `decode_status` `not-attempted` |
+  | a `masked_ranges` value whose length is not a multiple of 8, whose element count is odd, or holding an element above 2^63 − 1 | rejects the pack at bootstrap, where a reader of format 1.1 reports a recoverable defect ([SEM §8]) |
+  | every other entry defect of [SEM §8] — an empty array, a zero length, unsorted, overlapping or adjacent ranges, a range past the payload, a redacted record without entry, an entry naming a record without `redacted`, overlapping encrypted entries of one record | not detected |
+  | a policy-bearing pack with no `redacted` record, in its merge | merges it and drops `redaction_policy` |
+
+  So its acceptance of a pack of format 1.1 is no evidence that the defect handling of format 1.1 took place.
+  The unobserved row is the one silent degradation: a consumer of a reader of format 1.0 that ignores `decode_status` can take the zeros for traffic.
 - **One exception, before any production use, now closed.**
   In spec v2.13, format 1.0 was redefined in place, without a new format number:
   the header section became byte-columnar (§6),
@@ -874,7 +932,8 @@ The canonical JSONL export is the language-agnostic text form of a pack and its 
 - Then one JSON object per record carrying every §7.1 field by its spec name,
   enum values by name (`unknown(<n>)` for unknown values), bit sets as arrays of names,
   the payload as base64, and transport-event / annotation bodies as objects keyed by tag name.
-- The schema is versioned (`tracepack-jsonl/1`); its byte-exact form is defined in `tracepack-jsonl.md` [JSONL].
+- The schema is versioned: `tracepack-jsonl/1` for a pack of format 1.0, `tracepack-jsonl/2` for every later minor (G5-233);
+  its byte-exact form is defined in `tracepack-jsonl.md` [JSONL].
 - It holds the records of the validated blocks; a failed block is left out without a mark, and the `verify` report says what was lost ([JSONL §7]).
   A pack rejected at bootstrap (§13) has no export.
 - A query service offering downloads returns either native packs (`archive` packs, or `extract` packs with `extract_filter`, one per capture) or this export;
@@ -885,7 +944,7 @@ The canonical JSONL export is the language-agnostic text form of a pack and its 
 ## 16. Conformance corpus
 
 The corpus binds format-level reading (G5-199):
-it pins what a reader of format 1.0 reads from each of its packs, so that drift of the format is caught over years of storage.
+it pins what a reader of format 1.0 and 1.1 reads from each of its packs, so that drift of the format is caught over years of storage.
 The format is documented for any reader, and the Go module is the only implementation (G5-198);
 diagnostics, reads over several packs, transaction lookups and store behaviour are tested by the Go module's own tests, not by the corpus ([SEM §9], [STO §8]).
 Its layout, the JSON schemas of its expectations and the catalogue that maps each clause below to its vectors are [CORPUS];
@@ -950,29 +1009,40 @@ Its layout, the JSON schemas of its expectations and the catalogue that maps eac
   the reason of an entry list breaking §5's rules once per kind of rule (framing, type, value, repetition, nested list),
   and a missing tag once required `always` and once by a condition on another metadata value;
   and a pack missing a tag that only its records require (a classified record without `classifier`): it opens, and its export holds its records.
-- Redaction vectors ([SEM §8]), written with the published test keys:
-  S7F3 with its PPBODY masked (length, item headers, `decode_status` and HSMS header unchanged; entry and digest as published);
-  S7F3 and S7F6 carrying the same process program, in one domain: equal digests; the same S7F3 under the second test key and key id: a different digest;
-  a formatted process program (S7F23) masked through path `4`: every CCODE and PPARM leaf zeroed, every list header kept;
+- Redaction vectors ([SEM §8]), written with the published test keys, by a writer masking at write under a policy with encryption unless stated:
+  S7F3 with its PPBODY masked (length, item headers, `decode_status` and HSMS header unchanged; entry, digest and `siv` as published);
+  S7F3 and S7F6 carrying the same process program, in one domain: equal digests; the same S7F3 under the second digest key and key id: a different digest;
+  one PPBODY in two captures: equal digests, and different ciphertexts and `siv`s;
+  a formatted process program (S7F23) masked through path `4`: every CCODE and PPARM leaf masked, every list header kept;
   an S7F3 and an S6F11 carrying the same message text: only the S7F3 is masked, selected by the S/F of its payload;
   S7F3 frames whose declared length is shorter than the capture (an item after the declared end) and longer (a truncated capture): the captured text is screened, never the declared extent;
   an oversized S7F3, and records whose payload is shorter than 14 bytes: screened by the same rule, and never masked when there is no message text;
-  an S7F3 whose message text is not one valid item, one with trailing bytes, and a well-formed one whose rule path does not resolve: one whole-text entry each, in `message-text`, without `item_path`;
+  an S7F3 whose message text is not one valid item, one with trailing bytes, and a well-formed one whose rule path does not resolve:
+  one whole-text entry each, in `message-text`, without `item_path`, its ciphertext opaque;
   an S13F6 whose fourth item is not a list, and an S16F15 in which one job lacks element `4/3`: whole-text masks (a failed branch fails the pattern);
   an S13F6 whose data list is empty: nothing masked, no entry;
   empty-list denials of S7F6, S7F26 and S7F36: not masked;
   a zero-length PPBODY: no entry; a header-only S7F3 data message: no entry;
-  an S16F11 whose RCPPARVAL is a list holding a format-22 leaf: the localized string header kept, the rest zeroed; a format-22 leaf of 2 bytes: no target bytes; one of 1 byte: whole-text mask;
-  an S13F6 carrying a data set: every FILDAT zeroed;
-  a PPBODY whose content is already all zero: masked ranges still list it;
-  an `unparsed-entry` annotation masked through its `raw` value;
-  an extract under a policy that matched nothing: `redaction_policy` present, `redaction-present` clear, no entries;
-  an extract written without a policy;
-  malformed entries (empty or odd ranges array, zero length, unsorted or adjacent ranges, a range past `payload_len`, `seq` of a record without `redacted`, a `redacted` record without entry):
-  reported, and exactly the records concerned treated as wholly masked;
+  an S16F11 whose RCPPARVAL is a list holding a format-22 leaf: the localized string header kept, the rest masked; a format-22 leaf of 2 bytes: no target bytes; one of 1 byte: whole-text mask;
+  an S13F6 carrying a data set: every FILDAT masked;
+  a PPBODY whose content is already all zero: masked ranges still list it, and its restore gives it back;
+  an `unparsed-entry` annotation masked through its `raw` value: zeros, its entry without `siv`;
+  a pack under a policy that matched nothing: `redaction_policy` present, `redaction-present` clear, no entries;
+  malformed entries (empty or odd ranges array, zero length, unsorted or adjacent ranges, a range past `payload_len`, `seq` of a record without `redacted`, a `redacted` record without entry,
+  a missing and an ill-sized `siv`): the pack opens, and exactly the records concerned are treated as wholly masked;
+  encrypted entries of one record that overlap, one an exact duplicate, and entries that are only adjacent: the pack opens, and the overlapping records are wholly masked;
   a valid masked record in an early block and a defective annotation entry for a record in a later block: the early record keeps its ranges, the later one is wholly masked;
-  an extract requested from an extract written under a policy, or from a pack holding a `redacted` record: rejected before any output;
-  one requested from an unscreened extract (no policy, no `redacted` record): written, because its records are in full.
+  masked records merged from two segments, one record in both: one entry;
+  a masked pack truncated at every byte offset, and one with a corrupt block;
+  a `redaction` entry without `seq`: rejected at bootstrap.
+  Deferred with extracts (G5-198, G5-244): an extract written without a policy;
+  an extract requested from an extract written under a policy, or from a pack holding a `redacted` record, rejected before any output;
+  and one requested from an unscreened extract, written because its records are in full.
+- Format 1.1 vectors beside the redaction vectors:
+  records unobserved by design with their `thinning` entries, beside a reply whose message text is empty and an abnormal reply, both kept in full ([SEM §2]);
+  a consumer's close at seq 2^63 − 1 of a plain capture, of a masked and thinned one, of one whose capture staged no record, and merged with its capture's records ([STO §4]);
+  and the version-aware cases (§5, §14): a format 1.0 segment holding tag 0x0033 and `quality` bit 7, a format 1.0 extract holding the nested tag numbers format 1.1 assigns,
+  format 1.0 extracts under a policy without a `classifier` and with several, and a readable pack of minor 2.
 - [SEM §9] adds the single-pack vectors of its rules to the same corpus;
   reads over several packs, transaction lookups and store behaviour have no corpus vectors (G5-199).
 - Conformance is [CORPUS §1]: in short, a reader produces the expected files [CORPUS §1] lists for each vector's class
@@ -995,6 +1065,7 @@ the table records the survey made when the format was designed.
 | CRC-32/ISO-HDLC | `hash/crc32` IEEE | `java.util.zip.CRC32` | `System.IO.Hashing.Crc32` | `zlib.crc32` |
 | UUID byte order (§2) | `[16]byte` as-is | `UUID` most / least significant longs, written big-endian | **not** `Guid.ToByteArray()` (mixed-endian); use `Guid.TryWriteBytes(span, bigEndian: true, out _)` (.NET 8+) | `uuid.UUID.bytes` |
 | unsigned 64-bit | native | `long` within the §2 ≤ 2^63 − 1 limit | native | native |
+| AES-SIV-CMAC, RFC 5297 (added 2026-10) | Tink's raw primitive `daead/subtle` of `github.com/tink-crypto/tink-go/v2`, the module's choice (G5-245), 64-byte keys only; none in the standard library | Tink `subtle.AesSiv`; none in the standard library |  | Tink `tink.daead` |
 
 Codec alternatives considered: Deflate/gzip is in every standard library but compresses clearly worse and slower;
 LZ4 is fast but compresses less, and its main Java library changed maintainers in 2025 after CVEs,

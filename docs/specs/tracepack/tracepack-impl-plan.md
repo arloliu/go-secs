@@ -1,18 +1,19 @@
 # tracepack — Go reference implementation plan (v1)
 
-Status: active (2026-10-11) — phases 0 to 6b2 and phase 9, the simplification of tracepack v0.4.0, done; spec v2.32 drops 6b3 and the extract writer of phase 7 (G5-199, G5-206); phase 8 (v0.5.0, format 1.1) comes next, then the minimal CLI of 6c.
-Implements: tracepack v2.32 (format 1.0) — `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
+Status: active (2026-10-12) — phases 0 to 6b2 and phase 9, the simplification of tracepack v0.4.0, done; spec v2.32 drops 6b3 and the extract writer of phase 7 (G5-199, G5-206); phase 8 (v0.5.0, format 1.1, spec v2.33) comes next, then the minimal CLI of 6c.
+Implements: tracepack v2.33 (format 1.1) — `tracepack-format.md` [FMT], `tracepack-jsonl.md` [JSONL], `tracepack-corpus.md` [CORPUS], `tracepack-semantics.md` [SEM], `tracepack-storage.md` [STO] — and `tracepack-go.md`.
 `main` holds go-secs PR #14 (zero-length localized strings, `W` SML grammar) since 2026-09-27;
 repository integration follows G5-78 and G5-79.
 
 ## 1. Goal and scope
 
-Deliver the Go reference library for tracepack format 1.0, plus a minimal CLI,
+Deliver the Go reference library for tracepack format 1.1, plus a minimal CLI,
 so that recorders, the merger and a query service can be built on it.
 
 In scope:
 - every fixed structure, TLV, codec and CRC of the spec, with golden vectors;
-- `Writer`, `Reader`, `Verify`, `Recover` (deferred, G5-91), `Merge`, `MergeIterate`, `FindTransaction`, `ExportJSONL`;
+- `Writer`, `Reader`, `Verify`, `Merge`, `MergeIterate`, `FindTransaction`, `ExportJSONL`;
+- format 1.1 and the durable-bus capture of phase 8: the bus and descriptor codecs, masking and encryption at write, records unobserved by design, and the consumer's close;
 - the go-secs classifier (`decode_status` from frame bytes);
 - the conformance corpus generator and its vectors, covering format-level reading (G5-199);
 - the simplification of tracepack v0.4.0 (phase 9), which removes `Repair`, `NewStoreSource` and the store-backed reads, with format 1.0 unchanged (G5-201, G5-202);
@@ -28,7 +29,7 @@ Nested module `github.com/arloliu/go-secs/tracepack` (own `go.mod` in `tracepack
 
 | Package | Content | Public? |
 |---|---|---|
-| `tracepack` | `Record`, enums, `PackMeta`, `Writer`, `Reader`, `Filter`, `Verify`, `Recover` (deferred), `Merge`, `MergeIterate`, `FindTransaction`, `ExportJSONL` | yes |
+| `tracepack` | `Record`, enums, `PackMeta`, `Writer`, `Reader`, `Filter`, `Verify`, `Merge`, `MergeIterate`, `FindTransaction`, `ExportJSONL` | yes |
 | `tracepack/classify` | go-secs-based `decode_status` classifier | yes |
 | `tracepack/internal/format` | byte layouts: file header, envelope, record header, trailer, F-1, F-2; CRC; UUID byte order | no |
 | `tracepack/internal/tlv` | TLV entry encoding, value types, tag registries, validation | no |
@@ -230,10 +231,7 @@ the repair pack keeps the validated prefix byte-identical.
 
 Done when: every truncation point yields the expected outcome and no validated record is lost.
 
-Deferred until a local-spool recorder is planned (G5-91):
-`Recover` (spool file + liveness anchor → segment of the original capture, same seqs, plus a `stop-unclean` boundary record with `gap_start` / `gap_end` per [STO §4]);
-the writer-side spool durability helpers (liveness anchor rewritten every F, at spool rotation and after a durable clock-step, [STO §4]; segment roll at an hour change);
-and their vectors (the durable clock-step → size roll → empty spool → crash vector).
+Removed by G5-227: the durable-spool recorder, its `Recover`, its spool durability helpers and their vectors, once deferred here (G5-91).
 The vector of a nonzero `capture_origin_mono_ns`, listed here before spec v2.27, is in 6b1 (`sem-capture-origin-mono`, [CORPUS §9]).
 
 ### Phase 5 — Merge, MergeIterate, FindTransaction
@@ -739,33 +737,35 @@ Split by spec v2.32 (G5-206, G5-207):
 the extract writer, the policy compilation and `Extract` are dropped, extracts and masking on egress being non-goals for v1.0 (G5-198);
 the reader obligation of a redaction entry with a recoverable defect moves to phase 8, with the format 1.1 redaction work.
 
-### Phase 8 — Producer API for a durable-bus capture
+### Phase 8 — Format 1.1 and the durable-bus capture (tracepack v0.5.0)
 
+Goal: the module implements spec v2.33, format 1.1 (G5-207, G5-208, G5-216..G5-251), with every format 1.0 file valid and its canonical export unchanged ([FMT §14]).
 A recorder prototype built on go-secs v2.6.0 (2026-09-28) wrote valid packs through `Writer`,
-but a producer that publishes one record per bus message ([STO §4], proposal P8) cannot be written with the module as it is:
+but a producer that publishes one record per bus message ([STO §4]) could not be written with the module as it was; phase 8 closes that gap.
 
-- No exported encoding of one record outside a block:
-  `canonicalHeader` and the record header layout are unexported, so the bus message of P8 §2.1 has no implementation to share between producer and consumer.
-- No encoding of a capture descriptor:
-  phase 5d adds the `CaptureDescriptor` type (G5-153), but `PackMeta.MarshalBinary` validates the whole pack metadata,
-  including values the consumer owns (`scope_generation` among them), so a producer cannot yet encode only the entries it owns.
-- Clock-step detection is tied to seq assignment:
-  `DetectClockSteps` requires `AssignSeq`, but a durable-bus producer assigns seq and detects clock steps itself ([SEM §4]),
-  so it needs the detector on its own.
-- Resolved by spec v2.23: a Go producer writes `capture_origin_mono_ns` = 0 (G5-151),
-  and a `stop` boundary carries no seq range, so it need not name its seq in advance (G5-149).
-- `classify.Name` falls back to `go-secs/unknown` when go-secs is replaced by a local path, so a producer sets the classifier name explicitly.
-- `Writer.Append` copies the payload a second time after the producer's own copy of a wire frame.
+Scope:
+- the bus codec: the 44-byte record header outside a block and the body of bus layout 1, which `canonicalHeader`, unexported, could not serve ([STO §4] *Bus message*);
+- the descriptor codec: the producer-owned entries of a capture descriptor alone, as raw values,
+  where `PackMeta.MarshalBinary` validates the whole pack metadata, consumer-owned values such as `scope_generation` among them ([STO §4]);
+- masking preparation and in-place encryption under a policy ([SEM §8] Encryption), with Tink's AES-SIV (G5-245) and its tests over Wycheproof's 512-bit AES-SIV-CMAC vectors;
+- records unobserved by design and the `thinning` tag ([SEM §2], [FMT §5]);
+- the merge of masked and thinned packs, with its refusals ([STO §4] Merge);
+- the consumer's close writer and the terminal seq 2^63 − 1 ([STO §4] *Closing a capture left open*);
+- metadata decoded against the registry of the pack's `format_minor`, and the `format_minor` a writer and a merge write ([FMT §5], [FMT §14]);
+- the reader obligation taken from phase 7, unchanged:
+  a redaction entry with a recoverable defect, such as a `masked_ranges` array whose length is not a multiple of 8 or whose element count is odd,
+  must not fail `Open`; the reader reports it and treats the records concerned as wholly masked ([SEM §8]);
+  until then the Go reader rejects such a pack at bootstrap, and the corpus holds no rejection golden for it ([JSONL §8]);
+- coverage entries of another capture in reads over several packs (G5-215);
+- two small fixes: `classify.Name` falls back to `go-secs/unknown` when go-secs is replaced by a local path, so a producer sets the classifier name explicitly;
+  and `Writer.Append` copies the payload a second time after the producer's own copy of a wire frame;
+- the corpus vectors of format 1.1 ([CORPUS §9]).
 
-Phase 8 also takes from phase 7 the reader obligation of format 1.0 ([SEM §8]):
-a redaction entry with a recoverable defect, such as a `masked_ranges` array whose length is not a multiple of 8 or whose element count is odd,
-must not fail `Open`; the reader reports it and treats the records concerned as wholly masked.
-Until then such a pack is rejected at bootstrap by the Go reader, and the corpus holds no rejection golden for it ([JSONL §8]).
-Phase 8 is released as tracepack v0.5.0, with format 1.1 for write-time encryption (G5-207) and deliberately unobserved traffic (G5-208).
+No stand-alone clock-step detector is exported; the clock-anchor code stays in `SegmentWriter` (G5-226).
+Resolved by spec v2.23: a Go producer writes `capture_origin_mono_ns` = 0 (G5-151),
+and a `stop` boundary carries no seq range, so it need not name its seq in advance (G5-149).
 
-The record encoding, the descriptor encoding and the stand-alone detector depend on proposal P8's outcome and are designed with it;
-the classifier name and the second payload copy are small fixes, and phase 5d's anchor seam serves the detector.
-Tests and done criteria are set when P8 is decided.
+Tests and done criteria are set with the v0.5.0 task plan, kept outside the repository, which the owner approves before its first task.
 
 ### Phase 9 — Simplification (tracepack v0.4.0)
 
@@ -797,8 +797,8 @@ Done when: `make lint-tracepack`, `make test-tracepack` and `make test-tracepack
 the corpus regenerates byte-identically and holds only the files of the kept assertions;
 the export of every pack the v0.3.0 corpus held is unchanged;
 the implementation tests of [STO §8] and [SEM §9] that apply to v0.4.0's scope pass;
-the recovery and spool cases of [STO §8] stay deferred with the frozen durability contract (G5-205),
-and the extract-beside-its-source case of [SEM §9] with phase 8;
+the recovery and spool cases of [STO §8] stay deferred with the frozen durability contract (G5-205; removed since by G5-227),
+and the extract-beside-its-source case of [SEM §9] with phase 8 (deferred since with extracts);
 the external post-implementation review is clean.
 
 Done (2026-10-11): the tests below pass, and so do the release's final gates:
@@ -851,14 +851,14 @@ the allocation count still grows with the blocks a footer indexes.
 ## 4. Cross-cutting requirements
 
 - Performance targets (checked with benchmarks, not tuned before measurement): writer ≥ 50 MB/s uncompressed per core with zstd level 3;
-  merge throughput measured with and without coalescing; reader bootstrap allocations independent of file size above max(`WholeReadThreshold`, `HeadWindow` + `TailWindow`), apart from the pack metadata (an extract's redaction entries).
-- Memory: the writer holds at most one block; the reader holds at most the pack metadata and the footer,
+  merge throughput measured with and without coalescing; reader bootstrap allocations independent of file size above max(`WholeReadThreshold`, `HeadWindow` + `TailWindow`), apart from the pack metadata (the redaction entries of a masked pack).
+- Memory: the writer holds at most one block, and masking preparation holds the caller's flush batch, outside the writer; the reader holds at most the pack metadata and the footer,
   plus the retained round-one bootstrap bytes that overlap the block region, at most max(`WholeReadThreshold`, `HeadWindow` + `TailWindow`), 4 MiB with the defaults (G5-211),
   plus one decoded block per concurrent iterator,
   except `MergeIterate`, which holds the blocks of its open overlap clusters, of the records it has yet to yield and of the blocks it reads ahead, bounded in bytes by a caller limit (`tracepack-go.md` §3).
   The retained bytes lie outside `MergeIterateOptions.MaxHeldBytes` and `TxOptions.MaxStateBytes`.
   The temporary buffers `Open` uses and drops before it returns, a footer-hint suffix, the second round's reads and the chunks of a streamed footer CRC, are not retained.
-  An extract's pack metadata grows with its redaction entries.
+  A masked pack's metadata grows with its redaction entries.
 - Errors: sentinel errors per failure class (bad magic, CRC, limit, unknown codec, unsupported version) wrapped with offsets.
 - Concurrency: `Reader` safe for concurrent `Iterate`; `Writer` single-goroutine by contract;
   `Open` and `MergeIterate` may issue concurrent `ReadAt` calls on one `io.ReaderAt`, and `MergeIterate` waits for its calls before it returns.

@@ -1,6 +1,6 @@
 # tracepack — conformance corpus
 
-Status: current (2026-10-10) — v2.32, tracepack format 1.0, schema `tracepack-corpus/3` (draft until tracepack v1.0.0).
+Status: current (2026-10-12) — v2.33, tracepack format 1.1, schema `tracepack-corpus/4` (draft until tracepack v1.0.0).
 Normative.
 [FMT §16] states what the corpus holds; this document defines its files, their schemas and the vector catalogue.
 The format is documented for any reader;
@@ -8,7 +8,7 @@ the Go module is the only implementation, and the corpus binds format-level read
 
 Depends on: [FMT §2] portable encoding, [FMT §5] TLV registries, [FMT §7.2] HSMS header fields, [FMT §10] footer and its validation,
 [FMT §13] bootstrap and verification, [FMT §16] corpus contents, [JSONL] value forms and the export,
-[SEM §3] `decode_status`.
+[SEM §2] records unobserved by design, [SEM §3] `decode_status`, [SEM §8] masking and the encryption of originals.
 
 References: `[CORPUS §n]` = this document; `[FMT §n]` = `tracepack-format.md`, `[JSONL §n]` = `tracepack-jsonl.md`, `[SEM §n]` = `tracepack-semantics.md`, `[STO §n]` = `tracepack-storage.md`, `[OVW §n]` = `tracepack-overview.md`; `[FMT I-n]` = invariant I-n of the format document.
 Each rule is defined in exactly one document; the others only reference it.
@@ -55,10 +55,9 @@ so goldens written under different definitions are told apart ([FMT §14]).
 
 | Key | Type | Present | Value |
 |---|---|---|---|
-| `corpus` | string | always | `"tracepack-corpus/3"`, the schema of every file of this document (§10) |
-| `spec_version` | string | always | the spec version the goldens follow: `"2.32"` |
-| `format_version` | string | always | `"1.0"` ([FMT §4]) |
-| `jsonl_schema` | string | always | the export schema of every `.jsonl` file: `"tracepack-jsonl/1"` ([JSONL §9]) |
+| `corpus` | string | always | `"tracepack-corpus/4"`, the schema of every file of this document (§10) |
+| `spec_version` | string | always | the spec version the goldens follow: `"2.33"` |
+| `format_version` | string | always | `"1.1"`, the format revision the corpus targets ([FMT §4], [FMT §14]); a compatibility or rejection vector may hold a pack of another version, such as `basic-future-minor` (minor 2) or the bootstrap vector of an unsupported version |
 | `zstd_encoder` | string | always | the identity and version of the zstd encoder that produced the encoder-made zstd blocks and footers of the corpus, as its generator records it (§6.1) |
 | `vectors` | array of objects | always | one per vector, ascending by `id` |
 
@@ -72,6 +71,7 @@ A vector entry:
 | `class` | string | always | `read`, `rejection` or `truncation` (§2) |
 | `labels` | array of strings | always, `[]` when none | ascending; `damaged`: the pack models damage after writing (a failed CRC, a cut, a broken codec stream); `nonconforming-writer`: the pack holds bytes, every CRC valid, that a conforming writer never writes; `pre-v2.13-sample`: the sample of the format definition before v2.13 ([FMT §14]) |
 | `codec` | string | always | `none` when every block body and the footer of `pack.tpk` use codec `none`, `zstd` when they all use `zstd`, `mixed` otherwise, an unknown codec included |
+| `jsonl_schema` | string | for class `read` and `truncation` | the export schema of the vector's `.jsonl` file: `"tracepack-jsonl/1"` when its pack's `format_minor` is 0, `"tracepack-jsonl/2"` otherwise ([JSONL §5]) |
 | `source` | string | always | `generated`, or `fixed` for a file kept as committed and never regenerated |
 | `files` | array of strings | always | the vector's files, in the order of the table of §2 |
 | `cases` | array of objects | optional, never empty | single-record sub-vectors, ascending by `seq`: `{id, seq, cites}`, `id` kebab-case and unique within the vector, `seq` the record's seq (string), `cites` as above |
@@ -106,6 +106,10 @@ Values an implementation checks before it reads a pack.
 |---|---|---|---|
 | `crc` | array of objects | always | `{name, input, crc}`: a name (string), the input bytes (base64) and their CRC ([FMT §2]) as a number; the first entry is `check-value`, the input `123456789` in ASCII and the CRC 3421780262 (0xCBF43926), then the bytes 0–75 of a file header and the bytes 0–35 of a block envelope with their stored CRCs |
 | `uuids` | array of objects | always | `{bytes, string, pack?}`: 16 UUID bytes in [FMT §2] byte order (base64), the canonical string they denote, and, when a vector's pack has that UUID as its `pack_id`, the vector's id; ascending by the 16 bytes, compared as unsigned bytes from the first |
+| `digest_keys` | array of objects | always | `{key_id, key}`: the published HMAC-SHA-256 test keys ([FMT §2]), `key_id` a string and `key` base64; ascending by `key_id` |
+| `encryption_keys` | array of objects | always | `{key_id, key}`: the published AES-SIV-CMAC-512 test keys ([FMT §2]), `key` base64 of 64 bytes; ascending by `key_id` |
+| `hmac` | array of objects | always | `{name, key_id, domain, input, digest}`: the [SEM §8] digest of `input` (base64, the original bytes) in `domain` (a string) under the key named, `digest` base64 of 32 bytes; ascending by `name` |
+| `aes_siv` | array of objects | always | `{name, key_id, capture_id, seq, first_offset, associated_data, plaintext, output}`: `capture_id` in canonical form, `seq` and `first_offset` strings, `associated_data` base64 of the 53 bytes of [SEM §8] Encryption, `plaintext` base64, and `output` base64 of the `siv` followed by the ciphertext; ascending by `name`, the first entry `label`, whose `associated_data` an implementation checks byte for byte |
 
 ### 5.2 `verify.json`
 
@@ -195,20 +199,24 @@ it may still fail [FMT §10] validation, its aggregates disagreeing for instance
 - each `epoch` and `boundary` entry of these lists is of value type `tlv`, its value passes the framing rules,
   and the nested tags the projection reads pass the type rules of [FMT §5] for their registry type:
   an `epoch` entry holds exactly one nested `epoch`, a `u64` at most 2^32 − 1, and at most one `close_seq`, a `u64`;
-  a `boundary` entry holds exactly one `seq`, a `u64`, and exactly one `boundary_kind`, a `u8`.
+  a `boundary` entry holds exactly one `seq`, a `u64`, exactly one `boundary_kind`, a `u8`, and at most one `gap_start` and one `gap_end`, each an `i64`;
+- each F-5 `seq_range` entry holds 16 bytes.
 
 No other value is checked, and when a check fails `stored` is omitted.
 
 The projection: `{blocks, f5}`.
 `blocks` holds one object per F-2 entry (in `stored`) or per validated block (in `recomputed`), ascending by `block`:
 `{block, close_seqs, boundaries}`, `close_seqs` the F-3 `epoch` entries' `close_seq` values as `{epoch, seq}`, entries without `close_seq` left out,
-and `boundaries` the F-3 `boundary` entries as `{seq, kind}`, `kind` the `boundary_kind` name.
-`f5` is `{epochs, boundaries}`: `epochs` one `{epoch, close_seq?}` per F-5 `epoch` entry; `boundaries` as above.
+and `boundaries` the F-3 `boundary` entries as `{seq, kind, gap_start?, gap_end?}`, `kind` the `boundary_kind` name and each bound present iff the entry has it.
+`f5` is `{epochs, boundaries, seq_ranges}`: `epochs` one `{epoch, close_seq?}` per F-5 `epoch` entry; `boundaries` as above;
+`seq_ranges` one `{first, last}` per F-5 `seq_range` entry.
 Every entry gives one object, so entries that repeat an epoch or a seq are all listed.
 `close_seqs` are ascending by `epoch`, then by `seq`;
 `epochs` ascending by `epoch`, an object without `close_seq` before those with one, then by `close_seq`;
-`boundaries` ascending by `seq`, then by the numeric `boundary_kind`; objects equal in every key are interchangeable.
-`seq` and `close_seq` are strings, `epoch` and `block` numbers; arrays are `[]` when empty.
+`boundaries` ascending by `seq`, then by the numeric `boundary_kind`, then by `gap_start`, then by `gap_end`, an absent bound before every present one and present bounds compared as `i64`;
+`seq_ranges` ascending by `first`, then by `last`;
+objects equal in every key are interchangeable.
+`seq`, `close_seq`, `gap_start`, `gap_end`, `first` and `last` are strings, `epoch` and `block` numbers; arrays are `[]` when empty.
 Other footer fields are outside the projection.
 F-3's `close_seq` is the block-local minimum and F-5's the pack-wide minimum ([FMT §10]):
 an epoch ended at seq 4 in block 0 and at seq 7 in block 1 has `close_seq` 4 and 7 in the blocks' F-3 entries and 4 in F-5.
@@ -390,9 +398,33 @@ A vector may serve several clauses.
 | a writer defect of each kind | `hsms-system-bytes-set-short` (`field-validity`), `verify-defect-event-field-validity`, `verify-defect-event-payload`, `verify-defect-seq-order`, `verify-defect-hour-span`, `verify-seq-start-above` (`seq-start`) |
 | the `seq_start` defect: above, below, after a failed block | `verify-seq-start-above`, `verify-seq-start-below`, `verify-seq-start-after-failed` |
 | seq-order and hour-span defects of a finalized pack | `verify-defect-seq-order`, `verify-defect-hour-span` |
-| one bootstrap vector per rejection code | `bootstrap-short-object`, `bootstrap-bad-magic`, `bootstrap-header-crc`, `bootstrap-unsupported-version`, `bootstrap-metadata-past-object`, `bootstrap-metadata-crc`, `bootstrap-entry-framing`, `bootstrap-entry-type`, `bootstrap-entry-value`, `bootstrap-entry-repetition`, `bootstrap-entry-nested`, `bootstrap-required-tag`, `bootstrap-conditional-tag`, `bootstrap-replacement-set-size`, `bootstrap-replacement-set-index`; a missing required nested tag: phase 8, with the redaction vectors (G5-207) |
+| one bootstrap vector per rejection code | `bootstrap-short-object`, `bootstrap-bad-magic`, `bootstrap-header-crc`, `bootstrap-unsupported-version`, `bootstrap-metadata-past-object`, `bootstrap-metadata-crc`, `bootstrap-entry-framing`, `bootstrap-entry-type`, `bootstrap-entry-value`, `bootstrap-entry-repetition`, `bootstrap-entry-nested`, `bootstrap-required-tag`, `bootstrap-conditional-tag`, `bootstrap-replacement-set-size`, `bootstrap-replacement-set-index`; a missing required nested tag: `bootstrap-entry-nested-required` |
 | a missing tag whose requirement depends on the records: the pack opens | `bootstrap-record-conditioned-tag` |
-| redaction vectors | phase 8 (G5-207) |
+| S7F3 PPBODY masked: length, item headers, `decode_status` and HSMS header unchanged; entry, digest and `siv` as published | `redact-encrypted-segment` (`ppbody`) |
+| S7F3 and S7F6 carrying one process program in one domain: equal digests | `redact-encrypted-segment` (`ppbody`, `s7f6-same-program`) |
+| the same S7F3 under the second digest key and key id: another digest | `redact-second-digest-key` |
+| one PPBODY in two captures: equal digests, different ciphertexts and `siv`s | `redact-capture-a`, `redact-capture-b` (one pack each; each pins its own bytes, and a Go test compares the two) |
+| S7F23 through path `4`: every CCODE and PPARM leaf masked, every list header kept | `redact-encrypted-segment` (`s7f23`) |
+| an S7F3 and an S6F11 with the same message text: only the S7F3 masked | `redact-encrypted-segment` (`s6f11-unmasked`) |
+| S7F3 declared shorter and longer than captured: the captured text screened | `redact-encrypted-segment` (`declared-short`, `declared-long`) |
+| an oversized S7F3; payloads shorter than 14 bytes | `redact-encrypted-segment` (`oversized`, `short-payloads`) |
+| not one valid item; trailing bytes; a valid text whose path does not resolve: one whole-text entry each, its ciphertext opaque | `redact-encrypted-segment` (`whole-text-invalid`, `whole-text-trailing`, `whole-text-unresolved`) |
+| S13F6 fourth item not a list; S16F15 job lacking `4/3`: whole-text | `redact-encrypted-segment` (`s13f6-not-list`, `s16f15-missing-branch`) |
+| S13F6 with an empty data list; empty-list denials of S7F6, S7F26, S7F36; a zero-length PPBODY; a header-only S7F3: no entry | `redact-encrypted-segment` (the `no-target-*` cases) |
+| S16F11 format-22 leaf: header kept; a 2-byte leaf: no target bytes; a 1-byte leaf: whole-text | `redact-encrypted-segment` (the `format22-*` cases) |
+| S13F6 data set: every FILDAT masked | `redact-encrypted-segment` (`s13f6-fildat`) |
+| a PPBODY already all zero: ranges list it, the restore gives it back | `redact-encrypted-segment` (`already-zero`) |
+| an `unparsed-entry` annotation masked through `raw`: zeros, entry without `siv` | `redact-annotation-zeroed` |
+| a pack under a policy that matched nothing: `redaction_policy` present, `redaction-present` clear, minor 1 | `redact-matched-nothing` |
+| malformed entries (empty or odd ranges array, zero length, unsorted or adjacent ranges, a range past `payload_len`, `seq` of a record without `redacted`, a `redacted` record without entry, a missing and an ill-sized `siv`): the pack opens | `redact-recoverable-defects` (one case each) |
+| overlapping encrypted entries of one record, an exact duplicate among them, and only adjacent ones: the pack opens | `redact-overlapping-encrypted` |
+| a valid masked record early and a defective entry for a later record: the pack opens | `redact-recoverable-defects` (`isolation`) |
+| masked records merged, one record in two inputs | `redact-encrypted-archive` |
+| a masked pack truncated at every byte offset; one with a corrupt block | `redact-truncation` (class `truncation`), `redact-corrupt-block` |
+| an extract requested from an extract or a pack holding `redacted`; one from an unscreened extract; an extract without a policy | deferred with extracts (G5-244) |
+| records unobserved by design, an empty-text reply and an abnormal reply kept in full | `thin-fdc-polls` |
+| a consumer's close of a plain capture, of a masked and thinned one, of one with no staged record, and merged with its records | `close-plain`, `close-masked-thinned`, `close-no-start-bound`, `close-merged-archive` |
+| the version-aware cases: a format 1.0 pack holding the numbers format 1.1 assigns, format 1.0 extracts under a policy, and a pack of minor 2 | `basic-new-tags-segment-1-0`, `basic-new-tags-extract-1-0`, `basic-extract-policy-no-classifier-1-0`, `basic-extract-policy-multi-classifier-1-0`, `basic-future-minor` |
 | a sample of the definition before v2.13 | `sample-v010-rows` |
 
 ### 9.2 [SEM §9] clauses
@@ -402,7 +434,8 @@ A vector may serve several clauses.
 | one vector per `decode_status` value | `sem-decode-status-classified`, `sem-decode-status-log` |
 | one vector per item-validity rule ([SEM §3]) | `sem-item-validity`, with the precedence cases in `sem-decode-status-classified` (§7) |
 | a nonzero `capture_origin_mono_ns` | `sem-capture-origin-mono` |
-| redaction ([SEM §8]) | phase 8 (G5-207) |
+| redaction ([SEM §8]) | the redaction vectors of §9.1 |
+| an extract beside its source | deferred with extracts (G5-244) |
 
 The clauses of [SEM §9] on transaction lookup and on reads over several packs are tests of the Go module ([STO §8]);
 no vector of the corpus serves them (G5-199).
@@ -413,7 +446,7 @@ None: [STO §8] lists implementation tests of the Go module, not corpus vectors 
 
 ### 9.4 Vectors
 
-Group prefixes: `basic-`, `framing-`, `footer-`, `hsms-`, `validation-`, `verify-`, `bootstrap-`, `sem-`, `sample-`,
+Group prefixes: `basic-`, `framing-`, `footer-`, `hsms-`, `validation-`, `verify-`, `bootstrap-`, `sem-`, `redact-`, `thin-`, `close-`, `sample-`,
 and `repair-` for a vector kept from the repair vectors (below).
 Files beyond those of the class (§2) are named where a vector has them.
 
@@ -435,6 +468,11 @@ Files beyond those of the class (§2) are named where a vector has them.
 | `basic-max-int-extract` | read | an extract with `ts_utc_ns` at both `i64` extremes |
 | `basic-seq-over-limit` | read | a block whose first seq is 2^63 |
 | `basic-uuid-byte-order` | read | `pack_id` the UUID of `primitives.json` |
+| `basic-new-tags-segment-1-0` | read | a format 1.0 segment holding tag 0x0033 as `bytes` twice and a record carrying `quality` bit 7: the bit reserved, exported under `/1` with `bit(7)` and `unknown` ([FMT §5]) |
+| `basic-new-tags-extract-1-0` | read | a format 1.0 extract whose `redaction_policy` holds nested 0x0005 and 0x0006 as opaque `bytes` and whose `redaction` entry holds nested 0x0006 twice: exported under `/1` ([FMT §5]) |
+| `basic-extract-policy-no-classifier-1-0` | read | a format 1.0 extract under a policy that matched nothing, holding only unclassified records and no `classifier` ([FMT §5]) |
+| `basic-extract-policy-multi-classifier-1-0` | read | a format 1.0 extract under a policy with two `classifier` and two `max_frame_len` values inherited from its sources ([FMT §5]) |
+| `basic-future-minor` | read | a readable pack of minor 2 holding an unknown tag: read with the newest registry and exported under `/2` ([FMT §14]) |
 | `framing-header-extension` | read | blocks of `record_header_len` 44 and 45 to 55, each with its own extension bytes |
 | `framing-two-framings` | read | two blocks whose decoded bodies are equal: one record with a long header, several records with 44-byte headers |
 | `framing-gathered-headers` | read | a block of several records with extension bytes, seqs and lengths read from the gathered headers |
@@ -453,6 +491,8 @@ Files beyond those of the class (§2) are named where a vector has them.
 | `footer-epoch-without-closure` | read | an epoch no record ends; `footer.json` |
 | `footer-invalid-socket-close-body`, `footer-invalid-stop-body` | read | a socket-close and a clean-stop capture-boundary event whose body breaks another rule: no boundary, no closure, a writer defect; `footer.json` |
 | `footer-quality-bit0-data` | read | quality bit 0 on a data record: no boundary; `footer.json` |
+| `footer-boundary-ties` | read | a readable footer whose boundary entries are equal in `seq` and kind but differ in their bounds (`nonconforming-writer`); `footer.json` and its ordering (§5.8) |
+| `footer-seq-range-ties` | read | a readable footer whose F-5 ranges are equal in `first` but differ in `last` (`nonconforming-writer`); `footer.json` and its ordering (§5.8) |
 | `hsms-short-captures` | read | data records of 5 to 14 captured bytes, each field available exactly when its bit is set; `fields.json`, `cases` |
 | `hsms-system-bytes-unavailable` | read | a data record whose System Bytes bit is clear while its payload holds them; `fields.json` |
 | `hsms-system-bytes-set-short` | read | a data record whose System Bytes bit is set while its payload ends before them (`nonconforming-writer`); `fields.json` |
@@ -473,10 +513,26 @@ Files beyond those of the class (§2) are named where a vector has them.
 | `bootstrap-required-tag`, `bootstrap-conditional-tag` | rejection | `metadata-required-tag`: a tag required `always` missing; `capture_origin_utc_ns` missing under `time_source = capture-clock` |
 | `bootstrap-replacement-set-size`, `bootstrap-replacement-set-index` | rejection | `replacement-set` |
 | `bootstrap-record-conditioned-tag` | read | a classified record in a pack without `classifier`: the pack opens ([FMT §13]) |
+| `bootstrap-entry-nested-required` | rejection | `metadata-entry-list`: a `redaction` entry without its required nested `seq` |
 | `sem-decode-status-classified` | read | a record of each byte-predicate status, `not-attempted` and `not-applicable`, the precedence, control and `max_frame_len` cases of §7; `cases` |
 | `sem-decode-status-log` | read | a `log` capture with `reconstructed-ok`, `parse-failed` and `build-rejected` records; `cases` |
 | `sem-item-validity` | read | the checklist of §7; `cases` |
 | `sem-capture-origin-mono` | read | a capture-clock pack whose `capture_origin_mono_ns` is not 0 ([SEM §4]) |
+| `redact-encrypted-segment` | read | a segment masked at write under a policy with encryption, one case per redaction clause of §9.1 that names it; `cases` |
+| `redact-second-digest-key` | read | the `ppbody` record of `redact-encrypted-segment` under the second digest key and key id |
+| `redact-capture-a`, `redact-capture-b` | read | one PPBODY masked in two captures, one pack each |
+| `redact-annotation-zeroed` | read | an `unparsed-entry` annotation masked through `raw` under a policy with encryption: zeros, an entry without `siv` |
+| `redact-matched-nothing` | read | a segment under a policy with encryption that matched nothing: minor 1, `redaction_policy`, no entry |
+| `redact-recoverable-defects` | read | one case per recoverable entry defect of [SEM §8] Marking, and `isolation`; `cases` |
+| `redact-overlapping-encrypted` | read | encrypted entries of one record that overlap, one an exact duplicate, and entries that are only adjacent; `cases` |
+| `redact-encrypted-archive` | read | `redact-encrypted-segment`'s records merged from two segments, one record in both |
+| `redact-truncation` | truncation | a masked base pack of two or three blocks |
+| `redact-corrupt-block` | read | a masked pack with one block failing its body CRC, label `damaged` |
+| `thin-fdc-polls` | read | a `raw-stream` capture's S1F3 and S1F4 records carrying `unobserved`, zero-filled, `not-attempted`, with `thinning` entries; an S1F4 with an empty message text, and an S9F7, both kept in full; exported under `/2` |
+| `close-plain` | read | a segment holding only a consumer's close at seq 2^63 − 1 of a plain capture: minor 0, `/1`; `footer.json` |
+| `close-masked-thinned` | read | the close segment of a masked and thinned `decoded-message` capture: `redaction_policy`, `classifier`, `max_frame_len` and `thinning` inherited, minor 1, `/2` |
+| `close-merged-archive` | read | a capture's records and its close merged: two seq ranges, the close counted as one record; `footer.json` |
+| `close-no-start-bound` | read | a close whose capture staged no record: `gap_start` absent; `footer.json` |
 | `sample-v010-rows` | read | the tracepack v0.1.0 pack of a multi-record block, reported `corrupt`; `source` `fixed`, label `pre-v2.13-sample` ([FMT §14]) |
 | `repair-of-patch` | read | a pack of `pack_role` `repair` whose last block fails its body CRC, read like any pack a reader is given ([STO §2]); `source` `fixed`, label `damaged` |
 | `repair-inconsistent` | read | a `finalized-inconsistent` archive of generation 1: the only export of an archive's pack metadata, `publisher_epoch` and `replacement_set_*` included ([FMT §5]) |
@@ -510,3 +566,9 @@ Adding a vector or a case keeps the value; changing what an existing file states
   so adjacent rows whose remaining expectations are equal become one row;
   and defines `footer.json`'s `accepted` on its own instead of by `verify.json` (§5.8).
   The kept files of the remaining classes keep their form otherwise; the manifest's `corpus` and `spec_version` values change.
+- `tracepack-corpus/4` (spec v2.33): format 1.1 (G5-233).
+  The manifest's `format_version` names the format revision the corpus targets, and its `jsonl_schema` moves into each vector of class `read` or `truncation` (§3);
+  `primitives.json` gains `digest_keys`, `encryption_keys`, `hmac` and `aes_siv` (§5.1);
+  `footer.json` gains the bounds of a boundary and the F-5 seq ranges, with their order (§5.8), so every `footer.json` is regenerated;
+  and the redaction, unobserved, close and version-aware vectors are added (§9).
+  Every earlier vector keeps its `pack.tpk` and its `export.jsonl` byte for byte under `/1`.
