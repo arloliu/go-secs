@@ -1421,7 +1421,7 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   so two entries of one record with equal originals encrypt differently, while a redelivered record still encrypts identically (G5-214).
   Spec: [FMT], [SEM §8], pending (v2.33).
 - G5-231 A consumer closes a capture with a boundary at seq 2^63 − 1 (2026-10-11, the seq G5-223 leaves open):
-  the `stop-unclean` boundary a consumer writes for a capture left open has seq 2^63 − 1, the largest seq a `u64` may hold ([FMT §2]), which no producer assigns,
+  the `stop-unclean` boundary a consumer writes for a capture left open has seq 2^63 − 1, the largest seq format major 1 permits ([FMT §2]), which no producer assigns,
   so it cannot collide with a record published before the producer stopped and delivered after the close.
   It is written in a segment of its own, only for a capture whose descriptor the service has;
   its gap runs from the last record the service staged to the time the close was triggered.
