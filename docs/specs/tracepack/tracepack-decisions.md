@@ -1,6 +1,6 @@
 # tracepack — decision log
 
-Status: current (2026-10-10)
+Status: current (2026-10-11)
 Owner decisions for tracepack; append-only under `.agents/rules/450-doc-lifecycle.md`.
 Entries up to G5-79 were recorded in the design notes before the repository became the source of truth;
 they are copied here verbatim under their original headings, and later entries are added only here.
@@ -1282,3 +1282,102 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   reporting it in every read whose bounds it meets, which makes a read of one capture incomplete for another capture's loss;
   skipping it, as the reference implementation did, which hides a declared loss.
   Spec: [FMT §5], [SEM §7.4] reporting of a read, [SEM §7.2] lookups, pending (v2.33).
+
+## 2026-10-11 proposal P8 and format 1.1 (owner accepted the recommendations, after consulting the Virtual Equipment and log service designs)
+
+- G5-216 One record per bus message (2026-10-11, proposal P8 Q1):
+  the producer publishes each record as its own bus message, in the layout of proposal P8 §2.1:
+  the subject `<prefix>.<tool_id>.<capture_id>`, a body of the record header of [FMT §7.1] followed by the payload of [FMT §8],
+  `Nats-Msg-Id` set to `<capture_id>.<seq>`, and the capture descriptor in a header of the `start` record's message.
+  The producer writes as zero the fields the consumer derives with its classifier: `decode_status`, `trailing_bytes` and `field_validity`.
+  The rule that one subject names one capture ([STO §4]) concerns the published subject;
+  a stream may store a message under a transformed subject, for example with a partition token, so a consumer does not assume the stored subject equals the published one.
+  Micro-batching (P8 §2.3) stays deferred until measured traffic needs it.
+  Rationale *(editorial)*: the bus's acknowledgement is a record's durability point (G5-200), and the log service's draft design already follows P8 §2.1.
+  Rejected *(editorial)*: a producer that collects records for a period and publishes them as a pack (P8 §2, §3.4).
+  Spec: [STO §4], proposal P8, pending (v2.33).
+- G5-217 Records above the bus's message limit travel by claim-check (2026-10-11, proposal P8 Q2):
+  a record travels inline when its message fits under the bus's `max_payload` with the margin of P8 §3.3, and otherwise by the claim-check of P8 §3.3:
+  the producer puts the payload into an object bucket, waits until the put completes, and then publishes a message whose body is the record header alone, naming the object and its digest;
+  the consumer checks the object's length and digest before writing the record, never writes a record header without its payload, defers the message when the object is missing or fails the check,
+  and deletes the object only after a confirmed acknowledgement of the message.
+  `max_payload` is a deployment setting, not a tracepack value: a traffic bus on its own cluster may raise it toward 8 MiB, so that fewer records take the claim-check path.
+  Removing objects left by a stopped producer or consumer is the log service's;
+  tracepack states only that the seq of an object never published is a seq gap, and that the record of an object left after its acknowledgement is staged.
+  Rationale *(editorial)*: any consumer may take any message, so the chunks of one record would reach different consumers (P8 §3.2), and a consumer rebalance can split one partition's deliveries the same way.
+  Rejected *(editorial)*: a `max_payload` above `hsms.MaxMessageSize` (about 17 MiB), above the 8 MiB NATS recommends; chunking on the traffic stream.
+  Spec: [STO §4], proposal P8, pending (v2.33).
+- G5-218 The producer assigns seq before it buffers (2026-10-11, the log service design LS-15):
+  the producer assigns `seq` to a record before placing it in any buffer from which it may drop records,
+  so every record it drops, for example when a bounded publish buffer overflows, is a seq gap.
+  Rationale *(editorial)*: a producer's publish buffer can reject a record, at a capacity or memory limit, during a bus outage (LS-14);
+  a drop before seq assignment would be invisible to every reader.
+  Spec: [STO §4], pending (v2.33).
+- G5-219 Where proposal P8's outcome lands (2026-10-11, P8 §5 question 1):
+  the message layout, its headers and the claim-check exchange are normative text of [STO §4], since producer and consumer share them;
+  the stream, acknowledgement and pending-budget settings of P8 §2.2 are a non-normative note there.
+  P8 is rewritten against spec v2.32, without the catalog, lease and view references v2.32 removed, and is closed by v2.33.
+  Rejected *(editorial)*: the decision log with a note in `tracepack-go.md` only; a service design document outside the specification.
+  Spec: [STO §4], proposal P8, pending (v2.33).
+- G5-220 The encryption key is per capture, the digest key spans captures (2026-10-11, refining G5-207 and G5-214):
+  the encrypted original of G5-207 uses a deterministic, misuse-resistant AEAD, AES-SIV, under a key per capture (G5-214);
+  the keyed digest of G5-68 uses one digest key across captures, tools and message types, a single digest domain (the Virtual Equipment's decision V-26).
+  A digest key is rotated rarely and by declaration, and a pack records the identifier of its digest domain,
+  so that digests of two domains are never compared as equal.
+  Rationale *(editorial)*: Virtual Equipment learners compare digests across captures and tools, and a new digest key splits the domain; a per-capture key loses nothing for originals, which are compared only after decryption.
+  Spec: [FMT], [SEM §8], pending (v2.33).
+- G5-221 The ciphertext lives in the pack; the format names the identifiers, the log service holds the keys (2026-10-11, G5-207):
+  the encrypted original of a masked record is stored in the pack that holds the record, in a layout format 1.1 defines,
+  so it moves with a merge and has the pack's retention.
+  The format defines the masked record's representation and the identifiers of the encryption key, the masking policy, the digest domain and the classifier;
+  key custody, the derivation or wrapping of per-capture keys, and rotation belong to the log service.
+  Rationale *(editorial)*: one object per scope keeps long-term storage, merge and retention as they are; the identifiers are what a reader and a merge need, the keys are not.
+  Rejected *(editorial)*: a separate object store for ciphertexts, which a merge and retention would have to track beside the packs.
+  Spec: [FMT], [SEM §8], [STO §3], pending (v2.33).
+- G5-222 Per-capture fixity is recorded in the pack and checked by a merge (2026-10-11, G5-214):
+  the identifiers of G5-221 are pack-metadata values, and a merge whose inputs of one capture name different identifiers fails and publishes nothing.
+  The log service chooses the classifier, masking policy and keys of a capture, for example when it registers the capture's descriptor,
+  and a consumer writes the capture's records only with them.
+  This adds a refusal to the merge of [STO §4].
+  Rationale *(editorial)*: during a rolling upgrade two consumers of different versions can write segments of one capture;
+  the refusal names the cause before [FMT I-12] reports a conflict, and catches segments that do not overlap and would otherwise mix policies unnoticed.
+  Spec: [FMT §5], [STO §4], pending (v2.33).
+- G5-223 The consumer side closes a capture its producer left open (2026-10-11, G5-200):
+  tracepack v0.5.0 lets the consumer side write a `stop-unclean` boundary for a capture whose producer stopped without a `stop` boundary;
+  the specification defines what the boundary states, and when to write it (for example when a later capture of the same tool starts, or after inactivity) is the log service's.
+  Proposal P7 stays deferred.
+  Rationale *(editorial)*: the gateway keeps no durable state (G5-200), so after its crash only the consumer side can close the capture.
+  Spec: [STO §4], [SEM], pending (v2.33).
+- G5-224 Records unobserved by design (2026-10-11, refining G5-208 with the Virtual Equipment's V-27 and the log service design LS-7):
+  the scope is the interval polling of the FDC service, S1F3 and S1F4.
+  A record whose body is not captured by design keeps its header, direction and time, has a zero-filled body,
+  and carries a new marker that tells it apart from a genuinely empty body, which is abnormal and kept, and from a masked body (G5-207).
+  The capture-level tag names the thinned stream and function pairs and, as descriptive text, where the sampling comes from (for example the FDC service's data-collection tasks);
+  it states no sampling rule, since the polling period is set per task and can change during a capture, and each record's marker is what says that its body was omitted.
+  A merge keeps the tag.
+  Rationale *(editorial)*: the Virtual Equipment keeps every abnormal reply in full, so an empty body must stay distinguishable from one omitted by design.
+  Spec: [FMT], [SEM], pending (v2.33).
+- G5-225 The gateway thins only the polls its FDC device sends (2026-10-11, G5-208):
+  the producer zero-fills the bodies and sets the marker only for the S1F3 and S1F4 messages of a poll its FDC device sent and flagged as such,
+  never by stream and function alone, and declares the capture tag in the capture descriptor;
+  every other S1F3 and S1F4 message is kept in full.
+  G5-207's "the gateway publishes frames unchanged" holds except for this declared thinning.
+  Rationale *(editorial)*: the producer alone knows which messages are its own polls, and thinning before the bus also spares the bus the bodies;
+  stream and function alone cannot tell an FDC poll from other S1F3 traffic.
+  Rejected *(editorial)*: the log service thinning bodies, which would need the FDC configuration.
+  Spec: [STO §4], [FMT], pending (v2.33).
+- G5-226 The Go API of phase 8 (2026-10-11):
+  the module exports the encoding and decoding of a record header outside a block and of the producer-owned entries of a capture descriptor,
+  and its writers support format 1.1 masking and records unobserved by design.
+  No stand-alone clock-step detector is exported until a producer asks for one; the clock-anchor code stays inside `SegmentWriter`.
+  Rationale *(editorial)*: the log service imports the module as a consumer, and the module's own tests need the encoding;
+  the gateway's project has not decided where its producer lives or whether it uses the module (G5-200).
+  Rejected *(editorial)*: exporting a detector no producer has asked for; a consumer-only v0.5.0.
+  Spec: `tracepack-go.md`, `tracepack-impl-plan.md`, pending (v2.33).
+- G5-227 The durable-spool recorder is removed (2026-10-11, closing G5-205):
+  the local spool, the liveness anchor and crash recovery writing `stop-unclean` from a spool
+  are removed from the specification;
+  `SegmentWriter` stays, with its clock-anchor code (G5-226).
+  Rationale *(editorial)*: with G5-200 the bus gives durability, no consumer needs a spool,
+  and the module never implemented one.
+  Spec: [STO §4], [SEM §4], `tracepack-go.md`, `tracepack-impl-plan.md`, pending (v2.33).
