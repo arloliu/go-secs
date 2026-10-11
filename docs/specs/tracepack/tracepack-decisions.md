@@ -1401,3 +1401,39 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   Rejected *(editorial)*: associated data without a label; binding the key, policy and digest-domain identifiers too, which the pack metadata already carries (G5-222);
   32-byte keys, which leave too small a margin when many keys are in use.
   Spec: [FMT], [SEM §8], pending (v2.33).
+
+## 2026-10-11 format 1.1 design points (owner accepted the recommendations)
+
+- G5-229 An original is encrypted in place (2026-10-11, the layout G5-221 leaves to format 1.1):
+  a masked record's target bytes hold the AES-SIV ciphertext of the original target bytes, which has their length,
+  and the 16-byte synthetic IV is a new nested tag of the `redaction` entry.
+  The plaintext of an entry is its target bytes in the order of its `masked_ranges`, and the ciphertext fills the same ranges in the same order.
+  The record keeps its length and its item structure, so a merge carries it as data and [FMT I-12] compares it as any record;
+  the masked bytes are ciphertext instead of zeros, and stay unavailable ([SEM §8]).
+  Rationale *(editorial)*: the pack metadata is written before the first block and kept by a reader with its bootstrap bytes,
+  so ciphertexts there would make a writer buffer the whole pack and every reader hold every original;
+  the footer is derivable and lost with a truncated pack;
+  and an annotation record would need a seq the consumer cannot assign ([STO §4]).
+  Rejected *(editorial)*: zero-filled target bytes with the ciphertext in the pack metadata; a footer section; an annotation record per original.
+  Spec: [FMT §5], [FMT §8], [SEM §8], pending (v2.33).
+- G5-230 The associated data includes the entry's first masked offset (2026-10-11, amending G5-228):
+  the associated data is the label, the record's `capture_id`, its `seq`, and the offset of the entry's first masked range (u64, little-endian),
+  so two entries of one record with equal originals encrypt differently, while a redelivered record still encrypts identically (G5-214).
+  Spec: [FMT], [SEM §8], pending (v2.33).
+- G5-231 A consumer closes a capture with a boundary at seq 2^63 − 1 (2026-10-11, the seq G5-223 leaves open):
+  the `stop-unclean` boundary a consumer writes for a capture left open has seq 2^63 − 1, the largest seq a `u64` may hold ([FMT §2]), which no producer assigns,
+  so it cannot collide with a record published before the producer stopped and delivered after the close.
+  It is written in a segment of its own, only for a capture whose descriptor the service has;
+  its gap runs from the last record the service staged to the time the close was triggered.
+  A record of the capture delivered after the close is read like any other, and a read whose range the gap meets reports `incomplete` (G5-209).
+  It is the one record a consumer writes that the producer did not publish, an exception to [STO §4]'s rule that a consumer never synthesizes records.
+  A capture whose `start` never reached the bus has no descriptor and stays open.
+  Rationale *(editorial)*: a seq one past the last staged record can collide with a publish still in flight when the producer stopped (proposal P7 §2 point 1), and the collision is an [FMT I-12] conflict.
+  Rejected *(editorial)*: the last staged seq plus one; a pack-level declaration instead of a record, which needs a new merge rule and a new source for crash gaps.
+  Spec: [STO §4], [SEM §5], [FMT §8], proposal P7, pending (v2.33).
+- G5-232 The fixity check applies to masked packs of format 1.1 (2026-10-11, the scope of G5-222):
+  a merge refuses inputs of one capture that carry `redaction_policy` and differ in the policy, the keys or the classifier;
+  inputs without `redaction_policy` keep the merge of format 1.0, which writes every distinct `classifier` of its inputs.
+  Rationale *(editorial)*: format 1.0 lets a merge combine classifiers, and existing archives written by two converter versions for one capture must still merge.
+  Rejected *(editorial)*: refusing every merge whose inputs of one capture name different classifiers.
+  Spec: [FMT §5], [STO §4], pending (v2.33).
