@@ -1357,14 +1357,20 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   A merge keeps the tag.
   Rationale *(editorial)*: the Virtual Equipment keeps every abnormal reply in full, so an empty body must stay distinguishable from one omitted by design.
   Spec: [FMT], [SEM], pending (v2.33).
-- G5-225 The gateway thins only the polls its FDC device sends (2026-10-11, G5-208):
-  the producer zero-fills the bodies and sets the marker only for the S1F3 and S1F4 messages of a poll its FDC device sent and flagged as such,
-  never by stream and function alone, and declares the capture tag in the capture descriptor;
-  every other S1F3 and S1F4 message is kept in full.
+- G5-225 The gateway thins only the polls it identifies as the FDC service's (2026-10-11, G5-208):
+  the producer zero-fills the bodies and sets the marker only for the S1F3 and S1F4 messages it identifies as the FDC service's interval polling,
+  by a means other than stream and function,
+  for example the connection or channel a poll travels on, or a flag from the component that sends it;
+  the means is the gateway project's choice.
+  A reply is identified with its request by system bytes.
+  The producer declares the capture tag in the capture descriptor and keeps every other S1F3 and S1F4 message in full,
+  queries the FDC service triggers by an event included.
   G5-207's "the gateway publishes frames unchanged" holds except for this declared thinning.
-  Rationale *(editorial)*: the producer alone knows which messages are its own polls, and thinning before the bus also spares the bus the bodies;
-  stream and function alone cannot tell an FDC poll from other S1F3 traffic.
-  Rejected *(editorial)*: the log service thinning bodies, which would need the FDC configuration.
+  Rationale *(editorial)*: only the gateway's configuration tells an FDC poll from other S1F3 traffic;
+  a flag computed from a shadow copy arrives after the poll left,
+  so the rule names what is thinned, not how the gateway knows.
+  Rejected *(editorial)*: the log service thinning bodies, which would need the FDC configuration;
+  thinning by stream and function, which would thin the equipment-side program's own polls.
   Spec: [STO §4], [FMT], pending (v2.33).
 - G5-226 The Go API of phase 8 (2026-10-11):
   the module exports the encoding and decoding of a record header outside a block and of the producer-owned entries of a capture descriptor,
