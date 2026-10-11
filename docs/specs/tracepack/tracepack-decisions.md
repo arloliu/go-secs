@@ -1265,3 +1265,20 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   Rationale *(editorial)*: the log service's design review found that redelivery after an upload but before registration or acknowledgement writes a record twice into different segments,
   and that a random nonce, a key or policy change, or a rolling classifier upgrade between the two writes would make the copies differ.
   Spec: [FMT §3] I-12, [FMT §7], [SEM §3], [SEM §8], [STO §4], pending (v2.33, with P8).
+
+## 2026-10-11 coverage entries of another capture (owner, from the v0.4.0 implementation)
+
+- G5-215 A `coverage` entry counts in a read whose packs hold its capture (2026-10-11):
+  a read reports a `coverage` entry, by [FMT §5]'s matching rule, when the entry's capture (its `capture_id`, else the capture of the pack holding it) is the capture of a pack the read reads;
+  the defect locates the pack holding the entry.
+  A read of one pack therefore reports only entries of that pack's capture, as before;
+  a read over several packs (`MergeIterate`, a transaction lookup's hours) also reports an entry one pack holds for another capture it reads.
+  A writer writes `capture_id` equal to the pack's own capture in every entry it declares;
+  a merge still carries its inputs' entries as data, whatever they name.
+  Rationale *(editorial)*: [FMT §5] lets an entry name its capture and errs toward `incomplete`,
+  but the reference implementation skipped every entry naming a capture other than its pack's, so a read over several captures missed a declared loss of one captured in another's pack.
+  No writer of the reference implementation produces such an entry (merges take one capture, repair is gone), so the rule settles foreign or hand-built packs.
+  Rejected *(editorial)*: such an entry as defective, which contradicts the `capture_id` tag [FMT §5] defines and travels unchanged through merges;
+  reporting it in every read whose bounds it meets, which makes a read of one capture incomplete for another capture's loss;
+  skipping it, as the reference implementation did, which hides a declared loss.
+  Spec: [FMT §5], [SEM §7.4] reporting of a read, [SEM §7.2] lookups, pending (v2.33).
