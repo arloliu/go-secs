@@ -511,7 +511,8 @@ func (s *blockSummary) commitmentFacts() (classified, oversized, redacted bool) 
 // checkStoredCommitments rejects the records of a stored pack, as facts describe them,
 // when its pack metadata meta cannot describe them:
 // a classified record without classifier, an oversized record without max_frame_len,
-// or a redacted record, which no stored pack holds.
+// or a redacted record without redaction_policy, which only a pack masked at write stores
+// (the tracepack storage specification §4 Merge).
 // Only the AnyClassified, AnyOversized and AnyRedacted facts are read.
 func checkStoredCommitments(meta *PackMeta, facts PackFacts) error {
 	switch {
@@ -519,8 +520,8 @@ func checkStoredCommitments(meta *PackMeta, facts PackFacts) error {
 		return errors.New("a classified record without classifier in the pack metadata")
 	case facts.AnyOversized && len(meta.MaxFrameLens) == 0:
 		return errors.New("an oversized record without max_frame_len in the pack metadata")
-	case facts.AnyRedacted:
-		return errors.New("a redacted record, which no stored pack holds")
+	case facts.AnyRedacted && meta.RedactionPolicy == nil:
+		return errors.New("a redacted record without redaction_policy in the pack metadata")
 	default:
 		return nil
 	}

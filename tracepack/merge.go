@@ -31,16 +31,33 @@ var (
 	// a period that is empty or not inside one UTC hour;
 	// a capture_id, or a period's UTC hour, other than the first input's;
 	// a pack that is not finalized, or whose footer is not valid;
+	// a format_minor newer than the newest this module implements, since a newer minor may define capture-level tags;
 	// a block whose records lie outside the scope's UTC hour,
 	// a seq_start other than the first record's seq,
 	// records that the input's own pack metadata cannot describe (a classified record without classifier,
-	// an oversized record without max_frame_len, or a redacted record),
+	// an oversized record without max_frame_len, or a redacted record without redaction_policy),
 	// a compaction_level of 255, which leaves the archive no level;
-	// and a capture-level tag whose value differs from the first input's.
+	// a capture-level tag whose value differs from the first input's, thinning included;
+	// a redaction_policy without both encryption tags, whatever the input's format_minor,
+	// or one beside a number of classifier values other than one, or beside more than one max_frame_len value
+	// (the writer rules of a pack masked at write, the tracepack format specification §5);
+	// redaction entries without redaction_policy, a bootstrap defect of the entries or of the redaction-present flag,
+	// which a reader reports as recoverable (the tracepack semantics specification §8),
+	// or an entry naming a seq the input holds no record of;
+	// a redaction_policy, classifier or max_frame_len of an input carrying redaction_policy
+	// other than the first input's, or an input with redaction_policy beside one without;
+	// and a minor-0 input holding a record that carries quality bit 7 when another input's format_minor is 1 or more,
+	// since the archive would read the reserved bit as unobserved (the tracepack format specification §14).
 	// After it wrote the archive's header, as it reads each input block, Merge returns it, naming the pack and the block, for:
 	// a block that fails its full read (the tracepack format specification §6: its envelope, body CRC, codec or I-2);
 	// a block whose records disagree with its F-2 entry, the ReasonIndexMismatch a read reports beside the block;
-	// and a block whose records disagree with its F-3 summary.
+	// a block whose records disagree with its F-3 summary;
+	// in an input with redaction_policy, a record that carries quality.redacted or that an entry names
+	// and fails a check of Marking (the tracepack semantics specification §8), which a reader reports as recoverable;
+	// and in an input of format_minor 1 or more, a record carrying quality.unobserved
+	// that is not a data record unobserved by design (the tracepack semantics specification §2),
+	// wrapping ErrInvalidRecord as the Writer refuses it,
+	// or whose stream and function the input's thinning does not declare, wrapping ErrMetadataCommitment.
 	// A failed read of an input, and an input over a reader budget of MergeOptions.Reader, are not refused this way:
 	// the error wraps the ReaderAt's error, or ErrReadLimit, naming the input,
 	// so a caller retries the read or raises the budget instead of repairing a sound pack.
@@ -48,11 +65,20 @@ var (
 	// is such a read error too, wrapping io.ErrUnexpectedEOF:
 	// the object changed after Merge opened it, or its ReaderAt is inconsistent, as verification also reports it.
 	ErrMergeInput = errors.New("tracepack: merge input rejected")
-	// ErrMergeConflict reports that two records of the inputs have the same capture_id and seq and different bytes
-	// (the tracepack format specification I-12), which fails the merge (the tracepack storage specification §4 Merge).
-	// Merge returns it only after it compared every block, with MergeReport.ConflictsComplete set
+	// ErrMergeConflict reports conflicts, which fail the merge (the tracepack storage specification §4 Merge),
+	// of one of two kinds; a merge returns conflicts of one kind only.
+	//
+	// Record conflicts: two records of the inputs with the same capture_id and seq and different bytes
+	// (the tracepack format specification I-12).
+	// Merge returns them only after it compared every block, with MergeReport.ConflictsComplete set
 	// and MergeReport.Conflicts the number of conflicts,
 	// once MergeOptions.OnConflict has received every conflict.
+	//
+	// Entry conflicts: inputs carrying redaction_policy whose redaction entries for one seq differ,
+	// even when the records are equal.
+	// Merge finds them from the pack metadata, before it reads any block, and returns them before it touches dst,
+	// once MergeOptions.OnConflict has received every entry conflict, in ascending seq,
+	// with MergeReport.Conflicts their number and MergeReport.ConflictsComplete not set, since no record was compared.
 	ErrMergeConflict = errors.New("tracepack: merge found conflicting records")
 	// ErrMergeLimit reports a merge over its budget:
 	// the archive's pack metadata over MergeOptions.Reader.MaxPackMetadataLen, which Merge checks before it touches dst;
@@ -73,6 +99,7 @@ var (
 // since a nested timer entry a reader does not know is neither compared nor carried;
 // source_ref compares the ordered list, duplicates included,
 // because an annotation's source_index is a position in it (the tracepack format specification §8).
+// thinning, a capture-level tag of format 1.1, is compared by checkCaptureTags beside the list.
 var captureTags = [...]struct {
 	name  string
 	equal func(a, b *PackMeta) bool
@@ -172,7 +199,8 @@ type MergeOptions struct {
 	// and a verbatim F-3 list copied from an input counts twice, as the footer's bytes and as Merge's copy of them,
 	// so a budget admits an archive footer of up to about half its size.
 	MaxFooterLen int64
-	// OnConflict receives every record conflict the merge finds, in ascending seq, at most once per capture_id and seq;
+	// OnConflict receives every conflict the merge finds, record conflicts or entry conflicts (see ErrMergeConflict),
+	// in ascending seq, at most once per capture_id and seq;
 	// required, since a merge that finds a conflict fails and its report does not hold the conflicts.
 	// It is called synchronously, and it may keep each Conflict it receives, which Merge never reuses.
 	OnConflict func(Conflict)
@@ -185,7 +213,8 @@ type MergeOptions struct {
 // On error only Conflicts and ConflictsComplete are set, and every other field is zero:
 // Conflicts counts the conflicts MergeOptions.OnConflict received before Merge returned,
 // and ConflictsComplete is set with ErrMergeConflict alone,
-// which Merge returns once it compared every block.
+// which Merge returns for record conflicts once it compared every block;
+// for entry conflicts, which Merge returns before it reads any block, ConflictsComplete is not set (see ErrMergeConflict).
 // Any other error found while Merge compares, an input's, a read's, a budget's or ctx's,
 // is returned as itself with the conflicts counted so far and ConflictsComplete false.
 type MergeReport struct {
@@ -227,7 +256,7 @@ type MergeReport struct {
 	// CoalesceFallbacks is the number of groups whose new encoding failed, its codec or its check in memory,
 	// so their blocks were written as they were.
 	CoalesceFallbacks int
-	// Conflicts is the number of record conflicts found.
+	// Conflicts is the number of conflicts found, of records or of their redaction entries.
 	Conflicts int
 	// ConflictsComplete reports that every block was compared, so Conflicts and OnConflict saw every conflict.
 	ConflictsComplete bool
@@ -235,18 +264,26 @@ type MergeReport struct {
 	Size uint64
 }
 
-// Conflict is one record conflict of a merge or of a read over several packs:
-// records of the packs compared with the same capture_id and seq and different bytes
-// (the tracepack format specification I-12).
+// Conflict is one conflict of a merge or of a read over several packs (see ErrMergeConflict):
+// a record conflict, records of the packs compared with the same capture_id and seq and different bytes
+// (the tracepack format specification I-12);
+// or, in a merge of inputs carrying redaction_policy, an entry conflict, different redaction entries for one seq
+// (the tracepack storage specification §4 Merge).
 type Conflict struct {
 	// CaptureID and Seq identify the record.
 	CaptureID UUID
 	Seq       uint64
-	// Versions holds, for each distinct version of the record, the pack_ids of the packs holding it, each once:
-	// for a merge, the inputs, those whose blocks were dropped as duplicates included, in input order;
+	// Versions holds, for each distinct version, the pack_ids of the packs holding it, each once.
+	//
+	// For a record conflict a version is a record's bytes:
+	// for a merge, its inputs, those whose blocks were dropped as duplicates included, in input order;
 	// for a read, in the order the readers were given.
 	// The versions are in the order of the first block holding each, blocks taken in cluster order:
 	// ascending first seq, then input order or the order of the readers, then file order.
+	//
+	// For an entry conflict a version is a list of the redaction entries for Seq,
+	// with the inputs holding that list in input order;
+	// the versions are in the order of the first input holding each, and an input without entries for Seq is in none.
 	Versions [][]UUID
 }
 
@@ -275,6 +312,12 @@ type mergePlan struct {
 	// meta is the archive's pack metadata, validated against facts.
 	meta  *PackMeta
 	facts PackFacts
+	// minor is the archive's format_minor, the largest of the inputs'.
+	minor uint16
+	// entries are the archive's redaction entries (planEntries), copies of the inputs'.
+	entries []RedactionEntry
+	// thinned holds, by input, every stream and function the input's thinning declares.
+	thinned []map[SF]struct{}
 	// packID and captureID are the ids of the archive's file header,
 	// captureID and hour the scope of the first input, which every input shares.
 	packID    UUID
@@ -336,10 +379,13 @@ type mergeCluster = seqCluster[mergeBlock]
 //
 // Before it touches dst, Merge checks the options;
 // opens every input with opts.Reader and checks it from its pack metadata and its footer (the checks ErrMergeInput lists);
-// checks that the inputs carry the same capture-level tags;
+// checks that the inputs carry the same capture-level tags, agree on masking, and allow the archive's format_minor;
 // checks the archive's identities against the inputs;
+// compares the inputs' redaction entries (ErrMergeConflict);
 // and plans the archive from the footers: the input blocks in overlap clusters, and the archive's pack metadata.
-// The archive's file header carries the inputs' capture_id exactly, the nil UUID included, and no redaction-present flag.
+// The archive's file header carries the inputs' capture_id exactly, the nil UUID included,
+// the largest format_minor of the inputs, though the archive holds no feature of that minor,
+// and the redaction-present flag exactly when the archive carries a redaction entry.
 // Its pack metadata is that of the tracepack storage specification §4 Merge:
 // pack_role archive;
 // opts.ScopeGeneration, opts.PublisherEpoch and the replacement_set_id, in a replacement set of one member;
@@ -348,11 +394,14 @@ type mergeCluster = seqCluster[mergeBlock]
 // compacted_from as each input's compacted_from in input order, then the pack_id of each segment input in input order,
 // each pack once, at its first occurrence, and absent when it names none;
 // supersedes as the pack_id of each archive input in input order, absent without one;
-// the capture-level tags of the inputs;
+// the capture-level tags of the inputs, thinning included;
 // every coverage entry of the inputs, in input order, each carried once:
 // an entry is not carried again when its encoding equals one already carried,
 // with the known nested tags in tag order, the unknown nested entries in stored order and reserved bytes zero;
-// every distinct classifier and max_frame_len value of the inputs, sorted;
+// for inputs carrying redaction_policy, that redaction_policy, their one classifier, their max_frame_len value or its absence,
+// and the redaction entries of the inputs, the entries of each seq once, in ascending seq, each seq's in stored order,
+// so in seq then first masked offset order;
+// for inputs without it, every distinct classifier and max_frame_len value of the inputs, sorted;
 // opts.Writer as writer; and seq_start at the archive's first record, or without records the largest input seq_start.
 // No other tag of an input is carried.
 //
@@ -360,7 +409,9 @@ type mergeCluster = seqCluster[mergeBlock]
 // the overlap clusters in ascending first seq, then its footer and trailer, synced through opts.Sync as a Writer syncs.
 // Every block of a cluster is read in full, once, and checked before any of its bytes is written:
 // as a full read checks it (the tracepack format specification §6), against its F-2 entry,
-// and its records against its F-3 summary (the checks ErrMergeInput lists).
+// its records against its F-3 summary,
+// and, where its input's pack metadata commits them to it, against Marking and thinning (the checks ErrMergeInput lists),
+// so the records of a block copied verbatim are checked as those of a block resolved or coalesced.
 // A cluster of one block is copied verbatim, unless coalescing groups it with other blocks:
 // its envelope and on-disk body, and its F-3 list as its input's footer stores it.
 // A cluster whose blocks share one F-2 identity,
@@ -408,6 +459,7 @@ type mergeCluster = seqCluster[mergeBlock]
 // a caller publishes the archive only after Merge returns nil.
 // Every error before the archive's header leaves dst untouched:
 // an option or identity error, ErrMergeInput, an input's failed read or ErrReadLimit,
+// ErrMergeConflict for redaction entries that differ,
 // ErrMergeLimit for the archive's pack metadata, or ctx's error.
 // An error after the header returns without writing the footer or the trailer, so dst holds no finalized pack:
 // ErrMergeInput for a block, an input's failed read or ErrReadLimit, ErrMergeLimit, ErrMergeConflict,
@@ -435,7 +487,8 @@ type mergeCluster = seqCluster[mergeBlock]
 //     an error wrapping ErrMergeLimit for archive pack metadata longer than opts.Reader.MaxPackMetadataLen,
 //     for an archive footer, or the block summaries kept for it, over opts.MaxFooterLen,
 //     or for a cluster whose resolution would hold more than opts.MaxOpenBlocks blocks;
-//     an error wrapping ErrMergeConflict once every block was compared;
+//     an error wrapping ErrMergeConflict once every block was compared,
+//     or, before any block is read, for redaction entries that differ;
 //     the error of a new block of the resolution that fails its check;
 //     an error wrapping io.ErrUnexpectedEOF, naming the input and the block, for a block read cut short;
 //     the error of writing to dst, io.ErrShortWrite for a write that takes fewer bytes without an error,
@@ -444,14 +497,26 @@ type mergeCluster = seqCluster[mergeBlock]
 func Merge(ctx context.Context, dst io.Writer, inputs []MergeInput, opts MergeOptions) (MergeReport, error) {
 	p, err := planMerge(ctx, inputs, &opts)
 	if err != nil {
-		return MergeReport{}, err
+		return planReport(err), err
 	}
 
 	return p.write(ctx, dst, &opts)
 }
 
+// planReport returns the report of a merge whose plan failed with err:
+// the conflicts of differing redaction entries, or nothing.
+func planReport(err error) MergeReport {
+	var ec *entryConflictError
+	if errors.As(err, &ec) {
+		return MergeReport{Conflicts: ec.n}
+	}
+
+	return MergeReport{}
+}
+
 // planMerge runs the checks of Merge that come before its output is touched, in order:
-// the options, every input's own checks, the capture-level tags, the identities, then the plan and ctx.
+// the options, every input's own checks, the capture-level tags, the inputs' masking and format_minor,
+// the identities, the redaction entries, then the plan and ctx.
 //
 // Returns:
 //   - *mergePlan: the plan; nil on error.
@@ -472,8 +537,17 @@ func planMerge(ctx context.Context, inputs []MergeInput, opts *MergeOptions) (*m
 	if err := p.checkCaptureTags(); err != nil {
 		return nil, err
 	}
+	if err := p.checkMasked(); err != nil {
+		return nil, err
+	}
+	if err := p.checkMinors(); err != nil {
+		return nil, err
+	}
 	setID, err := p.identities(opts)
 	if err != nil {
+		return nil, err
+	}
+	if err := p.planEntries(opts.OnConflict); err != nil {
 		return nil, err
 	}
 	p.clusters = clustersOf(p.inputs)
@@ -726,6 +800,7 @@ func (p *mergePlan) openInputs(ctx context.Context, inputs []MergeInput, opts Re
 		p.facts.AnyClassified = p.facts.AnyClassified || facts.AnyClassified
 		p.facts.AnyOversized = p.facts.AnyOversized || facts.AnyOversized
 		p.inputs = append(p.inputs, r)
+		p.thinned = append(p.thinned, thinnedSFs(r.meta.Thinning))
 	}
 
 	return nil
@@ -735,6 +810,10 @@ func (p *mergePlan) openInputs(ctx context.Context, inputs []MergeInput, opts Re
 // Input 0 sets the scope, p.captureID and p.hour, that every later input must share.
 func (p *mergePlan) checkInput(i int, r *Reader) (PackFacts, error) {
 	m := r.meta
+	// A newer minor may define top-level tags as capture-level, which the merge would drop.
+	if r.hdr.FormatMinor > formatMinorNewest {
+		return PackFacts{}, fmt.Errorf("format_minor %d, newer than the %d this merge implements", r.hdr.FormatMinor, formatMinorNewest)
+	}
 	if m.PackRole != PackRoleSegment && m.PackRole != PackRoleArchive {
 		return PackFacts{}, fmt.Errorf("pack_role %s is neither segment nor archive", m.PackRole)
 	}
@@ -757,10 +836,16 @@ func (p *mergePlan) checkInput(i int, r *Reader) (PackFacts, error) {
 		// A later input of the first input's scope.
 	}
 
-	return checkInputFooter(r, p.hour)
+	facts, err := checkInputFooter(r, p.hour)
+	if err != nil {
+		return PackFacts{}, err
+	}
+
+	return facts, checkInputRedaction(r)
 }
 
-// checkCaptureTags checks that every input carries the first input's value of each capture-level tag.
+// checkCaptureTags checks that every input carries the first input's value of each capture-level tag:
+// those of captureTags, then thinning, the same ordered list of entries.
 func (p *mergePlan) checkCaptureTags() error {
 	first := p.inputs[0].meta
 	for i := 1; i < len(p.inputs); i++ {
@@ -768,6 +853,40 @@ func (p *mergePlan) checkCaptureTags() error {
 		for _, tag := range captureTags {
 			if !tag.equal(first, m) {
 				return inputError(i, p.inputID(i), fmt.Errorf("capture-level tag %s differs from pack %s's", tag.name, p.inputID(0)))
+			}
+		}
+		if !slices.Equal(first.Thinning, m.Thinning) {
+			return inputError(i, p.inputID(i), fmt.Errorf("capture-level tag thinning differs from pack %s's", p.inputID(0)))
+		}
+	}
+
+	return nil
+}
+
+// checkMinors sets p.minor to the archive's format_minor, the largest of the inputs'
+// (the tracepack format specification §14),
+// and checks that no input's records would gain a meaning under it that they lack under the input's own minor:
+// in an archive of minor 1 or more, a record of a minor-0 input carrying quality bit 7,
+// reserved in minor 0 and unobserved from minor 1.
+// A merge never clears a bit or rewrites record bytes, so it refuses such an input.
+// The bit is found in the footer's F-3 summaries, which every block's records are checked against when it is read.
+func (p *mergePlan) checkMinors() error {
+	for _, r := range p.inputs {
+		p.minor = max(p.minor, r.hdr.FormatMinor)
+	}
+	if p.minor == 0 {
+		return nil
+	}
+
+	for i, r := range p.inputs {
+		if r.hdr.FormatMinor > 0 {
+			continue
+		}
+		for j := range r.footer.blocks {
+			if r.footer.blocks[j].qualityUnion.Has(QualityUnobserved) {
+				return inputError(i, p.inputID(i), fmt.Errorf(
+					"block %d holds a record carrying quality bit 7, reserved in format_minor 0, unobserved in the archive's format_minor %d",
+					j, p.minor))
 			}
 		}
 	}
@@ -826,6 +945,7 @@ func (p *mergePlan) planMeta(opts *MergeOptions, setID UUID) error {
 		SiteID: c.SiteID, EquipmentModel: c.EquipmentModel, EquipmentSWRev: c.EquipmentSWRev, HostSoftware: c.HostSoftware,
 		HostEndpoint: c.HostEndpoint, EquipmentEndpoint: c.EquipmentEndpoint, EquipmentConnectMode: c.EquipmentConnectMode,
 		DeviceID: c.DeviceID, HSMSTimers: c.HSMSTimers, SourceTZ: c.SourceTZ, SourceDialect: c.SourceDialect, SourceRefs: c.SourceRefs,
+		Thinning: c.Thinning,
 
 		Writer:      opts.Writer,
 		PeriodStart: start, PeriodEnd: end,
@@ -835,7 +955,14 @@ func (p *mergePlan) planMeta(opts *MergeOptions, setID UUID) error {
 		SeqStart: p.seqStart(),
 	}
 	m.CompactedFrom, m.Supersedes = p.lineage()
-	m.Classifiers, m.MaxFrameLens = p.distinctCommitments()
+	if c.RedactionPolicy != nil {
+		// checkMasked has made every input's policy, classifier and max_frame_len the first input's.
+		m.RedactionPolicy, m.Classifiers, m.MaxFrameLens = c.RedactionPolicy, c.Classifiers, c.MaxFrameLens
+		m.Redaction = p.entries
+		p.facts.RedactionPolicyApplied, p.facts.AnyRedacted = true, len(p.entries) > 0
+	} else {
+		m.Classifiers, m.MaxFrameLens = p.distinctCommitments()
+	}
 
 	var err error
 	if m.CompactionLevel, err = p.compactionLevel(); err != nil {

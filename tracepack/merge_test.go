@@ -626,7 +626,7 @@ func TestMergeInputChecks(t *testing.T) {
 		sole("a period over two hours", mergePack(t, seg0, period(h+hourNs/2, h+3*hourNs/2), nil), "is empty or not inside one UTC hour"),
 		sole("a correctly indexed block in another hour", nextHour, "block 0 at offset"),
 		sole("blocks in two hours", twoHours, "block 1 at offset"),
-		sole("a redacted record", redacted, "a redacted record, which no stored pack holds"),
+		sole("a redacted record", redacted, "a redacted record without redaction_policy in the pack metadata"),
 		sole("seq_start before the first record", lying, "seq_start 19, but its first record's seq is 20"),
 		{name: "a borrowed classifier", files: [][]byte{good, unclassified},
 			msg: "input 1, pack " + seg1.String() + ": a classified record without classifier"},
