@@ -241,8 +241,10 @@ func TestWriterStartsFromASeededClockAnchor(t *testing.T) {
 	assert.Equal(t, seed, w.anchor(), "no step: the anchor is the seed")
 	stepped := monoAt(seed.wall+2_000+50_000, seed.mono+2_000) // drift +50 µs against the seed
 	require.NoError(t, w.Append(&stepped))
-	next, err := w.Close()
+	cont, err := w.Close()
 	require.NoError(t, err)
+	next, ok := cont.Next()
+	require.True(t, ok, "the capture continues")
 	assert.Equal(t, []Kind{KindData, KindTransportEvent, KindData}, kindsOf(t, buf.Bytes()))
 	after := clockAnchor{wall: stepped.TSUTCNs, mono: stepped.MonoNs}
 	assert.Equal(t, after, w.anchor(), "the anchor in force after Close is the step's")

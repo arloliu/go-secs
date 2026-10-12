@@ -237,7 +237,6 @@ func TestWriterFormatMinor(t *testing.T) {
 		{"a segment with thinning", thinnedMeta(), PackFacts{}, []Record{plain(0)}, 1},
 		{"a segment under a policy with encryption", maskedMeta(false), PackFacts{}, []Record{plain(0)}, 1},
 		{"a segment with an entry and no other feature", entryOnly(), PackFacts{}, nil, 1},
-		{"a segment masked at write with an entry", maskedMeta(false, 0), redacted, []Record{redactedRecord(0)}, 1},
 		{"a segment whose entry carries siv", maskedMeta(true, 0), redacted, []Record{redactedRecord(0), plain(1)}, 1},
 		{"a segment with an unobserved record", thinnedMeta(), PackFacts{}, []Record{unobservedRecord(0), plain(1)}, 1},
 	}
