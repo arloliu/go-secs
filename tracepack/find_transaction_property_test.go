@@ -36,7 +36,7 @@ type txGenFacts struct {
 	epochs, backwardSteps, dropped, unavailable, unknownDirs, orderingUncertain, correlation int
 	primaries, replies, aborts, rejects, t3s, closes, refusedSockets, boundaries, stops      int
 	localVersions, crossVersions, copies, walked, unevaluated, coverage, invalidFooters      int
-	flipped, breaches, walkedBreaches, otherCaptures, otherUnclean                           int
+	flipped, breaches, walkedBreaches, otherCaptures, otherUnclean, foreignCoverage          int
 }
 
 // txGenPack is one pack of a generated capture, as the generator wrote it.
@@ -136,8 +136,40 @@ func genTxCapture(t testing.TB, seed uint64) *txGen {
 			g.other(t, g.alt, g.first+int64(h))
 		}
 	}
+	// Drawn apart from every other draw, so that none of them changes.
+	if fc := rand.New(rand.NewPCG(seed, 0x636f7665720a)); fc.IntN(4) != 0 {
+		g.foreignCoverage(t, fc, g.first+int64(g.hours-fc.IntN(2)))
+	}
 
 	return g
+}
+
+// foreignCoverage writes a pack of captureHigh without records for hour, finalized and evaluated,
+// whose pack metadata holds one coverage entry (coverageEntry) naming captureLow,
+// which a lookup of captureLow evaluates whatever captures the other packs of the hour hold.
+// It counts the pack when the hour holds no pack of captureLow, so that the hour's read does not report the entry.
+func (g *txGen) foreignCoverage(t testing.TB, rng *rand.Rand, hour int64) {
+	t.Helper()
+
+	c := g.coverageEntry(rng)
+	c.CaptureID = new(captureLow)
+	p := txGenPack{
+		hour: hour, id: UUID{0x70, byte(len(g.packs) >> 8), byte(len(g.packs))}, capture: captureHigh,
+		evaluated: true, coverage: []Coverage{c},
+	}
+	off := (hour - memTestHour) * hourNs
+	file := writeRepairPack(t, CodecZstd, func(m *PackMeta) {
+		m.PeriodStart += off
+		m.PeriodEnd += off
+		m.QualityEvaluated = true
+		m.Coverage = slices.Clone(p.coverage)
+	}, false, nil).file
+	p.file = withIDs(t, file, p.id, captureHigh)
+	g.src.addPack(t, hour, p.file)
+	if !slices.ContainsFunc(g.packs, func(q txGenPack) bool { return q.hour == hour && q.capture == captureLow }) {
+		g.made.foreignCoverage++
+	}
+	g.packs = append(g.packs, p)
 }
 
 // other writes a pack of captureHigh for hour, beside the capture's own:
@@ -855,7 +887,7 @@ type txOracleScope struct {
 // txOracleCoverage is a coverage entry of a pack an hour's read takes.
 type txOracleCoverage struct {
 	pack UUID
-	// capture is the capture the entry belongs to, its pack's.
+	// capture is the capture the entry belongs to: its capture_id, or else its pack's.
 	capture UUID
 	c       Coverage
 }
@@ -910,11 +942,14 @@ func newTxOracleScope(t testing.TB, hour int64, readers []*Reader) *txOracleScop
 		for _, d := range r.openDefects {
 			o.defects = append(o.defects, defect(o.packs[i], d.Block, d.Offset, d.Reason))
 		}
-		// A read reports only the entries of its pack's capture.
+		// The lookup evaluates every entry of every pack it reads whose capture, its capture_id or else its pack's,
+		// is the primary's, whatever captures the other packs of the hour hold.
 		for _, c := range h.Meta.Coverage {
-			if c.CaptureID == nil || *c.CaptureID == h.CaptureID {
-				o.coverage = append(o.coverage, txOracleCoverage{pack: o.packs[i], capture: h.CaptureID, c: c})
+			capture := h.CaptureID
+			if c.CaptureID != nil {
+				capture = *c.CaptureID
 			}
+			o.coverage = append(o.coverage, txOracleCoverage{pack: o.packs[i], capture: capture, c: c})
 		}
 		for _, b := range txOracleBoundariesOf(t, r) {
 			if b.Kind == BoundaryKindStopUnclean && !slices.ContainsFunc(o.crash, func(c txOracleCrash) bool {
@@ -1659,9 +1694,10 @@ func txExpected(want TxResult, notPrimary bool, res TxResult, err error) bool {
 	return slices.Equal(wantKeys, gotKeys) && assert.ObjectsAreEqual(w, g)
 }
 
-// TestFindTransactionGeneratedMutations takes each of two rules out of the lookup over generated captures,
+// TestFindTransactionGeneratedMutations takes each of three rules out of the lookup over generated captures,
 // and requires the snapshot-bounded check to reject some of its lookups, so that the check has teeth for each:
-// a bounded window's seq gap left unlisted, and the versions below the primary's seq not checked for a scope breach.
+// a bounded window's seq gap left unlisted, the versions below the primary's seq not checked for a scope breach,
+// and a coverage entry of the primary's capture left out where the read of its hour holds no pack of that capture.
 func TestFindTransactionGeneratedMutations(t *testing.T) {
 	t.Parallel()
 
@@ -1671,6 +1707,7 @@ func TestFindTransactionGeneratedMutations(t *testing.T) {
 	}{
 		{name: "a seq gap left unlisted", mutate: func(l *txLookup) { l.skipSeqGap = true }},
 		{name: "a breach below the primary ignored", mutate: func(l *txLookup) { l.breachFromPrimary = true }},
+		{name: "coverage only as each hour's read reports it", mutate: func(l *txLookup) { l.hourCoverageOnly = true }},
 	}
 	gens := make([]*txGen, genTxLookups)
 	snaps := make([]*txSnapshot, genTxLookups)
@@ -1834,7 +1871,7 @@ func (s *txGenStats) addAll(o *txGenStats, made *txGenFacts) {
 		{&m.crossVersions, &made.crossVersions}, {&m.copies, &made.copies}, {&m.walked, &made.walked},
 		{&m.unevaluated, &made.unevaluated}, {&m.coverage, &made.coverage}, {&m.invalidFooters, &made.invalidFooters},
 		{&m.flipped, &made.flipped}, {&m.breaches, &made.breaches}, {&m.walkedBreaches, &made.walkedBreaches},
-		{&m.otherCaptures, &made.otherCaptures}, {&m.otherUnclean, &made.otherUnclean},
+		{&m.otherCaptures, &made.otherCaptures}, {&m.otherUnclean, &made.otherUnclean}, {&m.foreignCoverage, &made.foreignCoverage},
 	} {
 		*p[0] += *p[1]
 	}
@@ -1859,8 +1896,9 @@ func requireTxGenStats(t *testing.T, n int, s *txGenStats) {
 		"unevaluated packs": m.unevaluated, "coverage entries": m.coverage, "invalid footers": m.invalidFooters,
 		"flipped blocks": m.flipped, "packs breaching their scope": m.breaches,
 		"walked packs breaching their scope": m.walkedBreaches, "packs of another capture": m.otherCaptures,
-		"stop-uncleans of another capture": m.otherUnclean,
-		"breaches in the primary's hour":   s.breachPrimary, "crash gaps of another capture": s.otherCrash,
+		"stop-uncleans of another capture":                     m.otherUnclean,
+		"coverage of the capture in an hour without its packs": m.foreignCoverage,
+		"breaches in the primary's hour":                       s.breachPrimary, "crash gaps of another capture": s.otherCrash,
 		"complete lookups": s.complete, "matched and incomplete": s.matchedIncomplete,
 		"lookups": s.lookups, "not a primary": s.notPrimary, "bounded windows": s.bounded, "conflicting versions": s.conflicted,
 		"valid": s.valid, "eligible": s.eligible, "decidable": s.decidable,

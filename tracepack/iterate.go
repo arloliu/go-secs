@@ -150,7 +150,7 @@ func (r *Reader) Iterate(ctx context.Context, q Query, fn func(*Item) error) (Re
 }
 
 // startResult returns the Result a read of the pack under the filter f starts with, before any block is read:
-// the defects Open found, then the coverage defects of f (appendCoverageDefects),
+// the defects Open found, then the coverage defects of f for the pack's own capture (appendCoverageDefects),
 // then, when the footer is used, the crash gaps of its F-5 statistics that meet f's time range,
 // with PackHeader.FooterErr as FooterErr and as the one entry of FooterErrs, for pack 0, when it is non-nil.
 func (r *Reader) startResult(f *Filter) Result {
@@ -158,7 +158,7 @@ func (r *Reader) startResult(f *Filter) Result {
 	if r.footerErr != nil {
 		res.FooterErrs = []PackError{{Pack: 0, Err: r.footerErr}}
 	}
-	res.Incomplete = r.appendCoverageDefects(res.Incomplete, f)
+	res.Incomplete = r.appendCoverageDefects(res.Incomplete, f, []UUID{UUID(r.hdr.CaptureID)})
 	if r.footer != nil {
 		gaps := crashGaps{from: f.TimeFrom, to: f.TimeTo}
 		gaps.addFooter(0, r)
@@ -169,13 +169,20 @@ func (r *Reader) startResult(f *Filter) Result {
 }
 
 // appendCoverageDefects appends to dst a ReasonCoverage defect for every coverage entry of the pack metadata
-// that intersects the query of f (the tracepack format specification §5), in the entries' order.
+// whose capture is in captures and that intersects the query of f (the tracepack format specification §5),
+// in the entries' order.
+// An entry's capture is its capture_id, else the capture of the pack;
+// captures holds the capture of every pack the read reads (the tracepack semantics specification §7.4),
+// so a read over several packs also reports an entry one pack holds for another capture it reads.
 // Each defect carries its own copy of the entry, so a caller cannot reach the Reader's.
-func (r *Reader) appendCoverageDefects(dst []Defect, f *Filter) []Defect {
-	capture := UUID(r.hdr.CaptureID)
+func (r *Reader) appendCoverageDefects(dst []Defect, f *Filter, captures []UUID) []Defect {
 	for k := range r.meta.Coverage {
 		c := &r.meta.Coverage[k]
-		if c.CaptureID != nil && *c.CaptureID != capture {
+		capture := UUID(r.hdr.CaptureID)
+		if c.CaptureID != nil {
+			capture = *c.CaptureID
+		}
+		if !slices.Contains(captures, capture) {
 			continue
 		}
 		// An inverted entry intersects every query of its capture.

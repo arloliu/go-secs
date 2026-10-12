@@ -512,14 +512,16 @@ func TestBlockSummaryEpochLookupIsLinear(t *testing.T) {
 // TestBlockSummaryEpochsScaleLinearly summarizes blocks of 10 000 and 100 000 records, each record in an epoch of its own,
 // as BenchmarkBlockSummaryEpochs does:
 // each block allocates at most 1 KiB per record,
-// and the larger one allocates at most 20 times what the smaller one does and takes at most 20 times as long,
-// where a search over the epoch entries would take about 100 times as long.
-// A block's time is the fastest of several runs, which keeps a stray pause out of the ratio;
+// the larger one allocates at most 20 times what the smaller one does,
+// and it takes at most 40 times as long, where a search over the epoch entries would take about 100 times as long.
+// A linear summary measures about 9 to 15 times on amd64 and up to about 21 times on 386,
+// so the bound sits about twice above the slowest linear ratio seen and 2.5 times below a search.
+// A block's time is the fastest of 9 runs, which keeps a stray pause out of the ratio;
 // no absolute time is asserted, since it would depend on the machine and its load.
 // It is not parallel: no other test of the package runs beside the timed runs,
 // and it measures the process-wide TotalAlloc.
 func TestBlockSummaryEpochsScaleLinearly(t *testing.T) {
-	const runs = 5
+	const runs = 9
 
 	// measure returns the fastest of the runs that summarize n records in n epochs, and what one run allocates.
 	measure := func(n uint32) (time.Duration, uint64) {
@@ -548,7 +550,7 @@ func TestBlockSummaryEpochsScaleLinearly(t *testing.T) {
 	assert.LessOrEqual(t, smallAlloc, uint64(10_000<<10), "at most 1 KiB per record")
 	assert.LessOrEqual(t, largeAlloc, uint64(100_000<<10), "at most 1 KiB per record")
 	assert.LessOrEqual(t, largeAlloc, 20*smallAlloc, "allocation grows linearly")
-	assert.LessOrEqual(t, largeTime, 20*smallTime, "time grows linearly")
+	assert.LessOrEqual(t, largeTime, 40*smallTime, "time grows linearly")
 }
 
 // TestBlockSummaryEpochIndex checks that a block summary's epoch entries equal a linear search's,

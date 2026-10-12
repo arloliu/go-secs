@@ -50,12 +50,14 @@ type txLookup struct {
 	ticks ctxCounter
 	// onTick, set only by tests, runs at each check of ctx that tick makes, before it.
 	onTick func()
-	// skipSeqGap and breachFromPrimary, set only by tests,
+	// skipSeqGap, breachFromPrimary and hourCoverageOnly, set only by tests,
 	// each take a rule out of the lookup, so that a test shows the checks that catch its absence.
 	// skipSeqGap leaves a bounded window's seq gap unlisted.
 	// breachFromPrimary checks only the versions at or above the primary's seq for a scope breach.
+	// hourCoverageOnly evaluates only the coverage entries each hour's read reports (mapOtherCoverage).
 	skipSeqGap        bool
 	breachFromPrimary bool
+	hourCoverageOnly  bool
 }
 
 // txScopeRead is one hour a transaction lookup reads: the packs the source gave for it and the status of its read.
@@ -248,6 +250,7 @@ func (l *txLookup) reserveConflict() error {
 // mapScope adds the status of the read rd to the result, in this order:
 // a TxGapRead gap for each defect of the read, or TxGapIndex for a ReasonIndexMismatch one,
 // the coverage defects kept as coverage entries to evaluate and the crash-gap defects as crash gaps to evaluate,
+// then the coverage entries of the primary's capture the read did not report (mapOtherCoverage),
 // the footer errors, a TxGapUnevaluated gap for each pack whose quality_evaluated is false,
 // the read's conflicts, and, when the read completed, the hour as searched.
 // Each item is charged against MaxStateBytes before it is added, the hour excepted, which readScope charged.
@@ -299,7 +302,8 @@ func (l *txLookup) mapScope(ctx context.Context, rd *txScopeRead, completed bool
 
 // mapDefects adds the defects of the read rd: a TxGapRead or TxGapIndex gap for each,
 // or, for a coverage defect, a coverage entry to evaluate, and, for a crash-gap defect, a crash gap to evaluate (noteCrashGap),
-// each charged before it is added.
+// each charged before it is added;
+// then the coverage entries of the primary's capture that the read did not report (mapOtherCoverage).
 // Neither a coverage entry nor a crash gap marks the read as having a defect:
 // the lookup evaluates each once, against its own bounds (the tracepack semantics specification §7.2).
 //
@@ -341,6 +345,48 @@ func (l *txLookup) mapDefects(ctx context.Context, rd *txScopeRead) error {
 			Defect: d.Reason, Err: d.Err,
 		}); err != nil {
 			return err
+		}
+	}
+
+	return l.mapOtherCoverage(ctx, rd)
+}
+
+// mapOtherCoverage keeps, as coverage entries to evaluate, the coverage entries naming the primary's capture
+// that the packs of the read rd hold when none of its packs is of that capture, each a copy, charged before it is kept.
+// The read reports only the entries of the captures it reads (appendCoverageDefects),
+// so it reported none of them,
+// while the lookup evaluates every entry of the primary's capture in every pack it reads
+// (the tracepack semantics specification §7.2).
+// An entry without capture_id belongs to its pack's capture, so it is never one of them.
+//
+// Returns:
+//   - error: the error of a charge, wrapping ErrReadLimit, or ctx's error, as is.
+func (l *txLookup) mapOtherCoverage(ctx context.Context, rd *txScopeRead) error {
+	if l.hourCoverageOnly {
+		return nil
+	}
+	for _, r := range rd.readers {
+		if UUID(r.hdr.CaptureID) == l.key.Capture {
+			return nil
+		}
+	}
+	for i, r := range rd.readers {
+		for k := range r.meta.Coverage {
+			if err := l.tick(ctx); err != nil {
+				return err
+			}
+			c := &r.meta.Coverage[k]
+			if c.CaptureID == nil || *c.CaptureID != l.key.Capture {
+				continue
+			}
+			n, err := l.coverageCharge(ctx, c)
+			if err != nil {
+				return err
+			}
+			if err := l.grow(ctx, txPendingCoverageCharge+n); err != nil {
+				return err
+			}
+			l.coverage = append(l.coverage, txCoverage{hour: rd.hour, pack: rd.packs[i], capture: l.key.Capture, cov: cloneCoverage(c)})
 		}
 	}
 

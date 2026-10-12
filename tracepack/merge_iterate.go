@@ -84,7 +84,8 @@ var _ error = PackError{}
 // MergeIterate never modifies a Reader, so Readers can be shared with concurrent reads, Reader.Iterate and MergeIterate alike.
 //
 // The Result starts, in the order of readers, with the defects every read of each pack carries, those Open found,
-// and the coverage defects of each pack for the query, as Reader.Iterate reports them, each with Pack set to the reader's index.
+// and the coverage defects of each pack for the query, an entry counting when its capture is the capture of any of the readers,
+// each with Pack set to the reader's index.
 // FooterErrs lists each pack whose footer was not used; FooterErr stays nil.
 // Before yielding anything, MergeIterate reads each walked block, one without an F-2 entry, once,
 // to take from its records what an index would state: its seq range, time range, epoch range, and kind and dir counts;

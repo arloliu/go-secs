@@ -444,10 +444,14 @@ func (c *txSafetyCheck) conditions(e uint64) {
 
 // txTruthCoverage reports whether the coverage entry cv of a pack of capture pack, for a lookup of capture,
 // meets the seqs [lo, hi] and the times [from, to):
-// an entry of a pack of another capture, or naming another capture than its pack's, never;
+// an entry whose capture, its capture_id else the pack's, is another capture, never, whichever pack holds it;
 // an inverted one always, an empty seq range never otherwise.
 func txTruthCoverage(cv *Coverage, capture, pack UUID, lo, hi uint64, from, to int64) bool {
-	if pack != capture || cv.CaptureID != nil && *cv.CaptureID != capture {
+	own := pack
+	if cv.CaptureID != nil {
+		own = *cv.CaptureID
+	}
+	if own != capture {
 		return false
 	}
 	seqInverted := cv.SeqFirst != nil && cv.SeqLast != nil && *cv.SeqFirst > *cv.SeqLast
