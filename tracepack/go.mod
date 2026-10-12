@@ -6,6 +6,7 @@ require (
 	github.com/arloliu/go-secs/v2 v2.6.0
 	github.com/klauspost/compress v1.20.1
 	github.com/stretchr/testify v1.12.1
+	github.com/tink-crypto/tink-go/v2 v2.8.0
 )
 
 require (
