@@ -201,8 +201,11 @@ The module imports no NATS client; it encodes and checks what a message carries.
 - `CheckBusStart(headerBlockLen, bodyLen, maxPayload)` is the preflight:
   the header block, as your client encodes it, holds at most `BusHeaderBlockLimit` bytes on every message,
   and the message fits the deployment's `max_payload`, itself at least `BusMinMaxPayload`.
-- A data record of a stream and function the descriptor's `thinning` declares may be left unobserved by design:
-  it carries `QualityUnobserved`, and its message text is zero-filled.
+- A producer leaves a data record unobserved by design only when it identifies the record, by means other than its stream and function,
+  as an FDC interval-poll S1F3 or the S1F4 reply paired with it by System Bytes;
+  the descriptor's `thinning` must declare that stream and function, a declaration that is necessary, never sufficient.
+  Event-triggered queries, empty replies and every other S1F3 and S1F4 stay complete.
+  An unobserved record carries `QualityUnobserved`, and its message text is zero-filled.
 
 ## Writing the packs of a bus capture
 

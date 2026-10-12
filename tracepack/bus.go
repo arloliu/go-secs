@@ -296,7 +296,10 @@ func EncodeBusBody(br *BusRecord) ([]byte, error) {
 
 	n := format.RecordHeaderLen
 	if !br.ClaimCheck {
-		n += len(r.Payload)
+		var err error
+		if n, err = busInlineBodyLen(len(r.Payload)); err != nil {
+			return nil, err
+		}
 	}
 	body := format.AppendRecordHeader(make([]byte, 0, n), &h)
 	if !br.ClaimCheck {
@@ -497,6 +500,16 @@ func CheckBusPayload(br *BusRecord, payload []byte) error {
 	br.Record.Payload = payload
 
 	return br.checkStart(br.descriptorHeader)
+}
+
+// busInlineBodyLen returns the length of an inline body holding a payload of payloadLen bytes,
+// or an error when that length does not fit an int, as on a 32-bit platform near 2^31 bytes.
+func busInlineBodyLen(payloadLen int) (int, error) {
+	if payloadLen > math.MaxInt-format.RecordHeaderLen {
+		return 0, fmt.Errorf("%w: an inline body of a %d-byte payload does not fit in memory", ErrBusMalformed, payloadLen)
+	}
+
+	return format.RecordHeaderLen + payloadLen, nil
 }
 
 // BusInline reports whether a record whose body is bodyLen bytes long travels inline under the deployment's maxPayload:
