@@ -12,7 +12,7 @@ func TestManifestMarshal(t *testing.T) {
 	m := NewManifest("github.com/klauspost/compress v1.20.1", []Vector{
 		{
 			ID: "sem-item-validity", Title: "item validity", Cites: []string{"SEM §3", "CORPUS §7"}, Class: ClassRead,
-			Codec: CodecNone, Source: SourceGenerated,
+			Codec: CodecNone, JSONLSchema: JSONLSchema1, Source: SourceGenerated,
 			Files: []string{FileFooter, FilePack, FileExport},
 			Cases: []Case{
 				{ID: "width-i2", Seq: 10, Cites: []string{"CORPUS §7"}},
@@ -21,17 +21,20 @@ func TestManifestMarshal(t *testing.T) {
 		},
 		{
 			ID: "basic-corrupt-middle", Title: "a corrupt middle block", Cites: []string{"FMT §16"}, Class: ClassRead,
-			Labels: []string{LabelNonconformingWriter, LabelDamaged}, Codec: CodecMixed, Source: SourceFixed,
+			Labels: []string{LabelNonconformingWriter, LabelDamaged}, Codec: CodecMixed, JSONLSchema: JSONLSchema2, Source: SourceFixed,
 			Files: []string{FileFields, FilePack, FileExport},
+		},
+		{
+			ID: "bootstrap-bad-magic", Title: "a bad magic", Cites: []string{"FMT §13"}, Class: ClassRejection,
+			Codec: CodecNone, Source: SourceGenerated, Files: []string{FileRejection, FilePack},
 		},
 	})
 	b, err := m.Marshal()
 	require.NoError(t, err)
 	require.Equal(t, `{
-  "corpus": "tracepack-corpus/3",
-  "spec_version": "2.32",
-  "format_version": "1.0",
-  "jsonl_schema": "tracepack-jsonl/1",
+  "corpus": "tracepack-corpus/4",
+  "spec_version": "2.33",
+  "format_version": "1.1",
   "zstd_encoder": "github.com/klauspost/compress v1.20.1",
   "vectors": [
     {
@@ -46,11 +49,27 @@ func TestManifestMarshal(t *testing.T) {
         "nonconforming-writer"
       ],
       "codec": "mixed",
+      "jsonl_schema": "tracepack-jsonl/2",
       "source": "fixed",
       "files": [
         "pack.tpk",
         "export.jsonl",
         "fields.json"
+      ]
+    },
+    {
+      "id": "bootstrap-bad-magic",
+      "title": "a bad magic",
+      "cites": [
+        "FMT §13"
+      ],
+      "class": "rejection",
+      "labels": [],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "rejection.json"
       ]
     },
     {
@@ -63,6 +82,7 @@ func TestManifestMarshal(t *testing.T) {
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -98,6 +118,21 @@ func TestManifestMarshal(t *testing.T) {
 	require.Equal(t, string(b), string(again))
 }
 
+// TestManifestGroups checks that the groups of format 1.1 are vector groups (the tracepack corpus specification §9.4).
+func TestManifestGroups(t *testing.T) {
+	t.Parallel()
+
+	for _, id := range []string{"redact-x", "thin-x", "close-x"} {
+		v := Vector{
+			ID: id, Title: "x", Cites: []string{"CORPUS §9.4"}, Class: ClassRead, Codec: CodecNone, JSONLSchema: JSONLSchema2,
+			Source: SourceGenerated, Files: []string{FilePack, FileExport},
+		}
+		m := NewManifest("e", []Vector{v})
+		_, err := m.Marshal()
+		require.NoError(t, err, id)
+	}
+}
+
 // removedFiles are file names of tracepack-corpus/2 that tracepack-corpus/3 removes
 // (the tracepack corpus specification §10).
 var removedFiles = []string{
@@ -115,10 +150,10 @@ func TestManifestRefuses(t *testing.T) {
 	t.Parallel()
 
 	ok := Vector{
-		ID: "basic-x", Title: "x", Cites: []string{"FMT §16"}, Class: ClassRead, Codec: CodecNone, Source: SourceGenerated,
-		Files: []string{FilePack, FileExport},
+		ID: "basic-x", Title: "x", Cites: []string{"FMT §16"}, Class: ClassRead, Codec: CodecNone, JSONLSchema: JSONLSchema1,
+		Source: SourceGenerated, Files: []string{FilePack, FileExport},
 	}
-	tests := make([]vectorEdit, 0, 17+len(removedFiles))
+	tests := make([]vectorEdit, 0, 20+len(removedFiles))
 	tests = append(tests, []vectorEdit{
 		{"no group prefix", func(v *Vector) { v.ID = "other-x" }},
 		{"the multi- group", func(v *Vector) { v.ID = "multi-x" }},
@@ -132,6 +167,9 @@ func TestManifestRefuses(t *testing.T) {
 			v.Class, v.Files = "multi-pack", []string{"pack-0.tpk", "pack-0.verify.json", "reads.json"}
 		}},
 		{"codec", func(v *Vector) { v.Codec = "lz4" }},
+		{"no jsonl_schema in a read vector", func(v *Vector) { v.JSONLSchema = "" }},
+		{"an undefined jsonl_schema", func(v *Vector) { v.JSONLSchema = "tracepack-jsonl/3" }},
+		{"a jsonl_schema in a rejection vector", func(v *Vector) { v.Class, v.Files = ClassRejection, []string{FilePack, FileRejection} }},
 		{"source", func(v *Vector) { v.Source = "made" }},
 		{"label", func(v *Vector) { v.Labels = []string{"broken"} }},
 		{"label twice", func(v *Vector) { v.Labels = []string{LabelDamaged, LabelDamaged} }},
@@ -207,6 +245,9 @@ func TestVectorClassFiles(t *testing.T) {
 
 			v := Vector{
 				ID: "basic-x", Title: "x", Cites: []string{"CORPUS §2"}, Class: tt.class, Codec: CodecNone, Source: SourceGenerated, Files: tt.files,
+			}
+			if tt.class != ClassRejection {
+				v.JSONLSchema = JSONLSchema1
 			}
 			m := NewManifest("e", []Vector{v})
 			_, err := m.Marshal()

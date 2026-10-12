@@ -130,6 +130,8 @@ type packSpec struct {
 	packID tracepack.UUID
 	// threshold is the Writer's block size threshold; zero means the default.
 	threshold int
+	// facts are the facts about the records that the pack metadata is validated against.
+	facts tracepack.PackFacts
 }
 
 // writeSpec writes the pack of s with the public Writer:
@@ -161,7 +163,8 @@ func writeSpec(s *packSpec) ([]byte, error) {
 }
 
 // options returns the options of the Writer of s:
-// pack_id and capture_id from the seed unless s.packID is set, the codec, the block size threshold and the corpus clock.
+// pack_id and capture_id from the seed unless s.packID is set,
+// the codec, the block size threshold, the facts and the corpus clock.
 func (s *packSpec) options() tracepack.WriterOptions {
 	packID := s.packID
 	if packID.IsZero() {
@@ -169,7 +172,7 @@ func (s *packSpec) options() tracepack.WriterOptions {
 	}
 
 	return tracepack.WriterOptions{
-		Meta: s.meta, PackID: packID, CaptureID: IDFor(roleCaptureID, s.seed),
+		Meta: s.meta, Facts: s.facts, PackID: packID, CaptureID: IDFor(roleCaptureID, s.seed),
 		Uncompressed: s.codec == tracepack.CodecNone, BlockThreshold: s.threshold, Now: corpusNow,
 	}
 }

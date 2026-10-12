@@ -1,0 +1,77 @@
+{
+  "stored": {
+    "blocks": [
+      {
+        "block": 0,
+        "close_seqs": [],
+        "boundaries": [
+          {
+            "seq": "9223372036854775807",
+            "kind": "stop-unclean",
+            "gap_start": "1791000000001000000",
+            "gap_end": "1791000030001000000"
+          }
+        ]
+      }
+    ],
+    "f5": {
+      "epochs": [
+        {
+          "epoch": 0
+        }
+      ],
+      "boundaries": [
+        {
+          "seq": "9223372036854775807",
+          "kind": "stop-unclean",
+          "gap_start": "1791000000001000000",
+          "gap_end": "1791000030001000000"
+        }
+      ],
+      "seq_ranges": [
+        {
+          "first": "9223372036854775807",
+          "last": "9223372036854775807"
+        }
+      ]
+    }
+  },
+  "accepted": true,
+  "recomputed": {
+    "blocks": [
+      {
+        "block": 0,
+        "close_seqs": [],
+        "boundaries": [
+          {
+            "seq": "9223372036854775807",
+            "kind": "stop-unclean",
+            "gap_start": "1791000000001000000",
+            "gap_end": "1791000030001000000"
+          }
+        ]
+      }
+    ],
+    "f5": {
+      "epochs": [
+        {
+          "epoch": 0
+        }
+      ],
+      "boundaries": [
+        {
+          "seq": "9223372036854775807",
+          "kind": "stop-unclean",
+          "gap_start": "1791000000001000000",
+          "gap_end": "1791000030001000000"
+        }
+      ],
+      "seq_ranges": [
+        {
+          "first": "9223372036854775807",
+          "last": "9223372036854775807"
+        }
+      ]
+    }
+  }
+}

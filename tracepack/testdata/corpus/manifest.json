@@ -1,8 +1,7 @@
 {
-  "corpus": "tracepack-corpus/3",
-  "spec_version": "2.32",
-  "format_version": "1.0",
-  "jsonl_schema": "tracepack-jsonl/1",
+  "corpus": "tracepack-corpus/4",
+  "spec_version": "2.33",
+  "format_version": "1.1",
   "zstd_encoder": "github.com/klauspost/compress v1.20.1",
   "vectors": [
     {
@@ -18,6 +17,7 @@
         "damaged"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -37,6 +37,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -54,6 +55,7 @@
       "class": "read",
       "labels": [],
       "codec": "mixed",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -72,6 +74,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -89,6 +92,7 @@
       "class": "read",
       "labels": [],
       "codec": "zstd",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -107,6 +111,7 @@
         "damaged"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -124,6 +129,63 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl"
+      ]
+    },
+    {
+      "id": "basic-extract-policy-multi-classifier-1-0",
+      "title": "a format 1.0 extract under a policy with two classifier and two max_frame_len values inherited from its sources",
+      "cites": [
+        "FMT §5",
+        "SEM §8",
+        "FMT §14"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl"
+      ]
+    },
+    {
+      "id": "basic-extract-policy-no-classifier-1-0",
+      "title": "a format 1.0 extract under a policy that matched nothing, without classifier",
+      "cites": [
+        "FMT §5",
+        "SEM §8",
+        "FMT §14"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl"
+      ]
+    },
+    {
+      "id": "basic-future-minor",
+      "title": "a readable pack of format_minor 2 holding an unknown tag",
+      "cites": [
+        "FMT §14",
+        "FMT §5",
+        "JSONL §5"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/2",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -140,6 +202,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -157,6 +220,49 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl"
+      ]
+    },
+    {
+      "id": "basic-new-tags-extract-1-0",
+      "title": "a format 1.0 extract whose redaction_policy holds nested 0x0005 and 0x0006 and whose redaction entry holds 0x0006 twice",
+      "cites": [
+        "FMT §5",
+        "FMT §14",
+        "SEM §8",
+        "JSONL §4"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl"
+      ]
+    },
+    {
+      "id": "basic-new-tags-segment-1-0",
+      "title": "a format 1.0 segment holding tag 0x0033 twice and a record carrying quality bit 7",
+      "cites": [
+        "FMT §5",
+        "FMT §14",
+        "FMT §9",
+        "JSONL §5"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -176,6 +282,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -195,6 +302,7 @@
         "damaged"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -213,6 +321,7 @@
         "nonconforming-writer"
       ],
       "codec": "mixed",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -231,6 +340,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -248,6 +358,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -264,6 +375,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -280,6 +392,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -349,6 +462,26 @@
       "title": "pack metadata holding a coverage entry whose nested list breaks framing",
       "cites": [
         "FMT §5",
+        "FMT §13",
+        "CORPUS §5.3"
+      ],
+      "class": "rejection",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "rejection.json"
+      ]
+    },
+    {
+      "id": "bootstrap-entry-nested-required",
+      "title": "an extract's pack metadata holding a redaction entry without its required nested seq",
+      "cites": [
+        "FMT §5",
+        "SEM §8",
         "FMT §13",
         "CORPUS §5.3"
       ],
@@ -492,6 +625,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -595,6 +729,102 @@
       ]
     },
     {
+      "id": "close-masked-thinned",
+      "title": "the close segment of a masked and thinned decoded-message capture",
+      "cites": [
+        "STO §4",
+        "FMT §5",
+        "FMT §14",
+        "JSONL §5"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/2",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl"
+      ]
+    },
+    {
+      "id": "close-merged-archive",
+      "title": "a capture's records and its close merged into an archive",
+      "cites": [
+        "STO §4",
+        "FMT §10",
+        "FMT §16"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "footer.json"
+      ]
+    },
+    {
+      "id": "close-no-start-bound",
+      "title": "a consumer's close of a capture that staged no record",
+      "cites": [
+        "STO §4",
+        "FMT §10"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "footer.json"
+      ]
+    },
+    {
+      "id": "close-plain",
+      "title": "a segment holding only a consumer's close of a plain capture, at seq 2^63-1",
+      "cites": [
+        "STO §4",
+        "FMT §2",
+        "FMT §10",
+        "FMT §14"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "footer.json"
+      ]
+    },
+    {
+      "id": "footer-boundary-ties",
+      "title": "a footer whose boundary entries are equal in seq and kind but differ in their bounds",
+      "cites": [
+        "CORPUS §5.8",
+        "FMT §10"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "footer.json"
+      ]
+    },
+    {
       "id": "footer-close-twice-one-block",
       "title": "an epoch ended by a socket-close, then a clean stop, in one block",
       "cites": [
@@ -604,6 +834,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -621,6 +852,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -638,6 +870,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -658,6 +891,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -677,6 +911,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -696,6 +931,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -714,6 +950,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -732,6 +969,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -750,6 +988,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -768,6 +1007,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -786,6 +1026,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -804,6 +1045,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -822,6 +1064,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -840,6 +1083,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -858,6 +1102,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -876,6 +1121,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -894,6 +1140,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -912,6 +1159,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -930,6 +1178,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -949,6 +1198,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -969,6 +1219,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -988,6 +1239,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1006,6 +1258,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1024,6 +1277,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1042,6 +1296,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1061,6 +1316,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1079,6 +1335,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1097,10 +1354,31 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
         "export.jsonl"
+      ]
+    },
+    {
+      "id": "footer-seq-range-ties",
+      "title": "a footer whose F-5 seq ranges are equal in first but differ in last",
+      "cites": [
+        "CORPUS §5.8",
+        "FMT §10"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "footer.json"
       ]
     },
     {
@@ -1114,6 +1392,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1131,6 +1410,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1150,6 +1430,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1169,6 +1450,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1189,6 +1471,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1206,6 +1489,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1224,6 +1508,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1244,6 +1529,7 @@
         "damaged"
       ],
       "codec": "mixed",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1264,6 +1550,7 @@
         "damaged"
       ],
       "codec": "mixed",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1284,6 +1571,7 @@
         "damaged"
       ],
       "codec": "mixed",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1303,6 +1591,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1322,6 +1611,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1341,6 +1631,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1435,6 +1726,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1456,11 +1748,491 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
         "export.jsonl",
         "fields.json"
+      ]
+    },
+    {
+      "id": "redact-annotation-zeroed",
+      "title": "an unparsed-entry annotation masked through raw under a policy with encryption",
+      "cites": [
+        "SEM §8",
+        "FMT §8"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/2",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl"
+      ]
+    },
+    {
+      "id": "redact-capture-a",
+      "title": "one PPBODY masked in a capture of its own, its digest that of the other capture's",
+      "cites": [
+        "SEM §8"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/2",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl"
+      ]
+    },
+    {
+      "id": "redact-capture-b",
+      "title": "one PPBODY masked in a capture of its own, its digest that of the other capture's",
+      "cites": [
+        "SEM §8"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/2",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl"
+      ]
+    },
+    {
+      "id": "redact-corrupt-block",
+      "title": "a masked and thinned pack whose middle block fails its body CRC",
+      "cites": [
+        "FMT §13",
+        "FMT I-2",
+        "SEM §8"
+      ],
+      "class": "read",
+      "labels": [
+        "damaged"
+      ],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/2",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl"
+      ]
+    },
+    {
+      "id": "redact-encrypted-archive",
+      "title": "redact-encrypted-segment's records merged from two segments, one record in both",
+      "cites": [
+        "STO §4",
+        "SEM §8",
+        "FMT §5",
+        "FMT §14"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/2",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl"
+      ]
+    },
+    {
+      "id": "redact-encrypted-segment",
+      "title": "a segment masked at write under a policy with encryption, one case per masking clause",
+      "cites": [
+        "SEM §8",
+        "FMT §5",
+        "FMT §9",
+        "FMT §14",
+        "STO §4",
+        "JSONL §5"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/2",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl"
+      ],
+      "cases": [
+        {
+          "id": "ppbody",
+          "seq": "0",
+          "cites": [
+            "SEM §8",
+            "FMT §5"
+          ]
+        },
+        {
+          "id": "s7f6-same-program",
+          "seq": "1",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "s7f23",
+          "seq": "2",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "s6f11-unmasked",
+          "seq": "3",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "declared-short",
+          "seq": "4",
+          "cites": [
+            "SEM §8",
+            "SEM §3"
+          ]
+        },
+        {
+          "id": "declared-long",
+          "seq": "5",
+          "cites": [
+            "SEM §8",
+            "SEM §3"
+          ]
+        },
+        {
+          "id": "oversized",
+          "seq": "6",
+          "cites": [
+            "SEM §8",
+            "SEM §3"
+          ]
+        },
+        {
+          "id": "short-payloads",
+          "seq": "7",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "whole-text-invalid",
+          "seq": "8",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "whole-text-trailing",
+          "seq": "9",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "whole-text-unresolved",
+          "seq": "10",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "s13f6-not-list",
+          "seq": "11",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "s16f15-missing-branch",
+          "seq": "12",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "no-target-s13f6-empty-list",
+          "seq": "13",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "no-target-s7f6-denial",
+          "seq": "14",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "no-target-s7f26-denial",
+          "seq": "15",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "no-target-s7f36-denial",
+          "seq": "16",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "no-target-zero-length-ppbody",
+          "seq": "17",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "no-target-header-only",
+          "seq": "18",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "format22-header-kept",
+          "seq": "19",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "format22-two-byte",
+          "seq": "20",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "format22-one-byte",
+          "seq": "21",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "s13f6-fildat",
+          "seq": "22",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "already-zero",
+          "seq": "23",
+          "cites": [
+            "SEM §8"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "redact-matched-nothing",
+      "title": "a segment under a policy with encryption that matched nothing",
+      "cites": [
+        "SEM §8",
+        "FMT §5",
+        "FMT §14"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/2",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl"
+      ]
+    },
+    {
+      "id": "redact-overlapping-encrypted",
+      "title": "encrypted entries of one record that overlap, an exact duplicate, and entries only adjacent",
+      "cites": [
+        "SEM §8",
+        "FMT §5"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/2",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl"
+      ],
+      "cases": [
+        {
+          "id": "overlap",
+          "seq": "0",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "duplicate",
+          "seq": "1",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "adjacent",
+          "seq": "2",
+          "cites": [
+            "SEM §8"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "redact-recoverable-defects",
+      "title": "one recoverable redaction entry defect per record, after a valid masked record",
+      "cites": [
+        "SEM §8",
+        "FMT §5",
+        "FMT §13"
+      ],
+      "class": "read",
+      "labels": [
+        "nonconforming-writer"
+      ],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/2",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl"
+      ],
+      "cases": [
+        {
+          "id": "isolation",
+          "seq": "0",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "empty-ranges",
+          "seq": "1",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "odd-ranges",
+          "seq": "2",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "zero-length",
+          "seq": "3",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "unsorted-ranges",
+          "seq": "4",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "adjacent-ranges",
+          "seq": "5",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "range-past-payload",
+          "seq": "6",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "entry-without-redacted",
+          "seq": "7",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "redacted-without-entry",
+          "seq": "8",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "missing-siv",
+          "seq": "9",
+          "cites": [
+            "SEM §8"
+          ]
+        },
+        {
+          "id": "ill-sized-siv",
+          "seq": "10",
+          "cites": [
+            "SEM §8"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "redact-second-digest-key",
+      "title": "the ppbody S7F3 under the second digest key and key id",
+      "cites": [
+        "SEM §8",
+        "FMT §5"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/2",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl"
+      ]
+    },
+    {
+      "id": "redact-truncation",
+      "title": "a masked and thinned pack of three blocks cut at every byte offset",
+      "cites": [
+        "FMT §13",
+        "SEM §8",
+        "SEM §2",
+        "CORPUS §5.7"
+      ],
+      "class": "truncation",
+      "labels": [],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/2",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl",
+        "truncation.json"
       ]
     },
     {
@@ -1478,6 +2250,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1498,6 +2271,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1517,6 +2291,7 @@
         "damaged"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "fixed",
       "files": [
         "pack.tpk",
@@ -1536,6 +2311,7 @@
         "pre-v2.13-sample"
       ],
       "codec": "zstd",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "fixed",
       "files": [
         "pack.tpk",
@@ -1553,6 +2329,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1570,6 +2347,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1748,6 +2526,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -1790,6 +2569,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -2199,6 +2979,59 @@
       ]
     },
     {
+      "id": "thin-fdc-polls",
+      "title": "a raw-stream capture's thinned S1F3 and S1F4 polls, an S1F4 with an empty message text and an S9F7 kept in full",
+      "cites": [
+        "SEM §2",
+        "FMT §5",
+        "FMT §9",
+        "STO §4",
+        "FMT §14",
+        "JSONL §5"
+      ],
+      "class": "read",
+      "labels": [],
+      "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/2",
+      "source": "generated",
+      "files": [
+        "pack.tpk",
+        "export.jsonl"
+      ],
+      "cases": [
+        {
+          "id": "unobserved-s1f3",
+          "seq": "0",
+          "cites": [
+            "SEM §2",
+            "FMT §9"
+          ]
+        },
+        {
+          "id": "unobserved-s1f4",
+          "seq": "1",
+          "cites": [
+            "SEM §2",
+            "FMT §9"
+          ]
+        },
+        {
+          "id": "empty-text-s1f4",
+          "seq": "3",
+          "cites": [
+            "SEM §2"
+          ]
+        },
+        {
+          "id": "abnormal-reply-s9f7",
+          "seq": "4",
+          "cites": [
+            "SEM §2"
+          ]
+        }
+      ]
+    },
+    {
       "id": "validation-i2-injection",
       "title": "a validating Writer's output stopped before a block with an injected I-2 defect",
       "cites": [
@@ -2210,6 +3043,7 @@
       "class": "read",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -2230,6 +3064,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -2248,6 +3083,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -2267,6 +3103,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -2286,6 +3123,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -2305,6 +3143,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -2323,6 +3162,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -2341,6 +3181,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -2359,6 +3200,7 @@
         "damaged"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -2377,6 +3219,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -2396,6 +3239,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -2414,6 +3258,7 @@
         "nonconforming-writer"
       ],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -2431,6 +3276,7 @@
       "class": "truncation",
       "labels": [],
       "codec": "none",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",
@@ -2450,6 +3296,7 @@
       "class": "truncation",
       "labels": [],
       "codec": "zstd",
+      "jsonl_schema": "tracepack-jsonl/1",
       "source": "generated",
       "files": [
         "pack.tpk",

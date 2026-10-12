@@ -178,24 +178,27 @@ Every committed pack is also a seed of `FuzzExportJSONL`.
 `TestCorpus` fails when the files under this directory, this README included, sum to more than 2,000,000 bytes.
 To leave room for the vectors still to come, each group and root file keeps within its budget below.
 `TestGroupBudgets` enforces every budget as a ceiling and fails when this table differs from the ceilings it checks.
-Measured when the corpus moved to `tracepack-corpus/3`:
+Measured when the corpus moved to `tracepack-corpus/4`:
 
 | Group | Vectors | Files | Bytes | Budget |
 |---|---:|---:|---:|---:|
-| `footer-` | 28 | 64 | 151,505 | 240,000 |
-| `basic-` | 16 | 32 | 78,265 | 130,000 |
+| `footer-` | 30 | 70 | 163,959 | 240,000 |
+| `basic-` | 21 | 42 | 94,657 | 130,000 |
+| `redact-` | 11 | 23 | 91,609 | 150,000 |
 | `verify-` | 13 | 28 | 64,144 | 110,000 |
 | `framing-` | 10 | 20 | 53,443 | 90,000 |
 | `sem-` | 4 | 8 | 41,529 | 75,000 |
 | `hsms-` | 5 | 15 | 25,510 | 50,000 |
+| `close-` | 4 | 11 | 18,847 | 30,000 |
 | `repair-` | 3 | 6 | 11,117 | 20,000 |
-| `bootstrap-` | 16 | 32 | 7,814 | 15,000 |
+| `bootstrap-` | 17 | 34 | 8,355 | 15,000 |
+| `thin-` | 1 | 2 | 4,471 | 8,000 |
 | `validation-` | 1 | 2 | 2,811 | 5,000 |
 | `sample-` | 1 | 2 | 2,021 | 3,000 |
-| `manifest.json` | | 1 | 53,377 | 80,000 |
-| `primitives.json` | | 1 | 718 | 1,000 |
+| `manifest.json` | | 1 | 73,739 | 120,000 |
+| `primitives.json` | | 1 | 4,025 | 8,000 |
 | `README.md`, `.gitattributes` | | 2 | 12,000 (about) | 20,000 |
-| **Total** | 97 | 213 | 504,000 (about) | 839,000 |
+| **Total** | 121 | 267 | 672,000 (about) | 1,074,000 |
 
 To keep a vector small:
 codec `none` unless the codec is the subject, small payloads, a block threshold of a few hundred bytes,

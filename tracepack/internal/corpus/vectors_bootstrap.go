@@ -94,6 +94,25 @@ func bootstrapVectors() []Recipe {
 		reject("bootstrap-entry-nested", "pack metadata holding a coverage entry whose nested list breaks framing", RejectMetadataEntryList, nonconforming, []string{"FMT §5"},
 			// The nested list is three bytes, shorter than an entry header.
 			appendEntry(tlv.Entry{Tag: metaCoverageTag, Type: tlv.TypeTLV, Value: []byte{0x02, 0x00, 0x04}})),
+		reject("bootstrap-entry-nested-required", "an extract's pack metadata holding a redaction entry without its required nested seq",
+			RejectMetadataEntryList, nonconforming, []string{"FMT §5", "SEM §8"},
+			func(seed string) ([]byte, error) {
+				pack, err := writeSpec(&packSpec{
+					seed: seed, meta: extractMeta(seed, extractPolicyID), facts: tracepack.PackFacts{RedactionPolicyApplied: true}, open: true,
+				})
+				if err != nil {
+					return nil, err
+				}
+				// The entry's other nested tags are well formed: masked_ranges, domain and digest.
+				ranges := binary.LittleEndian.AppendUint64(binary.LittleEndian.AppendUint64(nil, ppbodyOffset), 1)
+
+				return editMeta(pack, func(m []byte) ([]byte, error) {
+					return tlv.AppendEntry(m, tlv.NestedEntry(metaRedactionTag, []tlv.Entry{
+						tlv.BytesEntry(redactionMaskedRangesTag, ranges), tlv.UTF8Entry(redactionDomainTag, extractDomain),
+						tlv.BytesEntry(redactionDigestTag, make([]byte, digestKeySize)),
+					})), nil
+				})
+			}),
 		reject("bootstrap-required-tag", "pack metadata without tool_id", RejectMetadataRequired, nonconforming, []string{"FMT §5"},
 			metaEdit(func(meta []byte) ([]byte, error) { return DropEntries(meta, metaToolIDTag) })),
 		reject("bootstrap-conditional-tag", "a capture-clock pack without capture_origin_utc_ns", RejectMetadataRequired, nonconforming, []string{"FMT §5", "SEM §4"},

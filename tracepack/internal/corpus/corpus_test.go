@@ -41,14 +41,14 @@ var offsetFiles = []string{FileTruncation}
 // vectorGroupCeilings are the size ceilings of the vector groups, by id prefix, in bytes:
 // the sum of every file under the directories of a group's vectors.
 var vectorGroupCeilings = map[string]int{
-	"footer-": 240_000, "basic-": 130_000, "verify-": 110_000, "framing-": 90_000, "sem-": 75_000, "hsms-": 50_000,
-	"repair-": 20_000, "bootstrap-": 15_000, "validation-": 5_000, "sample-": 3_000,
+	"footer-": 240_000, "basic-": 130_000, "redact-": 150_000, "verify-": 110_000, "framing-": 90_000, "sem-": 75_000,
+	"hsms-": 50_000, "close-": 30_000, "repair-": 20_000, "bootstrap-": 15_000, "thin-": 8_000, "validation-": 5_000, "sample-": 3_000,
 }
 
 // rootFileCeilings are the size ceilings of the files at the corpus root, in bytes, each the sum over its files.
 var rootFileCeilings = []rootCeiling{
-	{[]string{FileManifest}, 80_000},
-	{[]string{FilePrimitives}, 1_000},
+	{[]string{FileManifest}, 120_000},
+	{[]string{FilePrimitives}, 8_000},
 	{[]string{"README.md", ".gitattributes"}, 20_000},
 }
 
@@ -297,6 +297,9 @@ func readCommitted(ctx context.Context, v *Vector, committed map[string][]byte) 
 	if err := sameFiles(out, v, file); err != nil {
 		return err
 	}
+	if out.jsonlSchema != v.JSONLSchema {
+		return fmt.Errorf("the pack exports under %q, the manifest lists %q", out.jsonlSchema, v.JSONLSchema)
+	}
 	if v.Class == ClassRejection {
 		return nil
 	}
@@ -358,7 +361,7 @@ func TestGroupBudgets(t *testing.T) {
 		"an extra row": func(md string) string {
 			return strings.Replace(md, "| **Total**", "| `store-` | | | | 1 |\n| **Total**", 1)
 		},
-		"the total changed": func(md string) string { return strings.Replace(md, "| 839,000 |", "| 840,000 |", 1) },
+		"the total changed": func(md string) string { return strings.Replace(md, "| 1,074,000 |", "| 1,075,000 |", 1) },
 		"no table":          func(md string) string { return strings.Replace(md, "| Budget |", "| Ceiling |", 1) },
 	} {
 		edited := edit(string(readme))
@@ -385,7 +388,8 @@ func TestGroupBudgets(t *testing.T) {
 	}{
 		{"a group over its ceiling", func(c map[string][]byte) { c["repair-x/pack.tpk"] = make([]byte, vectorGroupCeilings["repair-"]+1) }},
 		{"a group of single-pack vectors over its ceiling", func(c map[string][]byte) { c["sample-x/pack.tpk"] = make([]byte, vectorGroupCeilings["sample-"]+1) }},
-		{"the manifest over its ceiling", func(c map[string][]byte) { c[FileManifest] = make([]byte, 80_001) }},
+		{"the manifest over its ceiling", func(c map[string][]byte) { c[FileManifest] = make([]byte, 120_001) }},
+		{"primitives.json over its ceiling", func(c map[string][]byte) { c[FilePrimitives] = make([]byte, 8_001) }},
 		{"the README over its ceiling", func(c map[string][]byte) {
 			c["README.md"] = make([]byte, 20_001-len(c[".gitattributes"]))
 		}},

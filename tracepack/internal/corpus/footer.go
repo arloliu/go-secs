@@ -42,20 +42,27 @@ const (
 	f2SummaryLenOff    = 72
 )
 
-// Tags the projection reads: the epoch and boundary entries of an F-3 list and of F-5, and their nested tags
+// Tags the projection reads: the epoch and boundary entries of an F-3 list and of F-5, F-5's seq ranges, and their nested tags
 // (the tracepack format specification §10).
 const (
 	f3EpochTag    uint16 = 0x0007
 	f3BoundaryTag uint16 = 0x0008
+	// seqRangeTag is the tag of seq_range in F-3 and in F-5.
+	seqRangeTag   uint16 = 0x0009
 	f5EpochTag    uint16 = 0x000A
 	f5BoundaryTag uint16 = 0x000B
 
 	epochEpochTag    uint16 = 0x0001
 	epochCloseSeqTag uint16 = 0x0007
 
-	boundarySeqTag  uint16 = 0x0001
-	boundaryKindTag uint16 = 0x0002
+	boundarySeqTag      uint16 = 0x0001
+	boundaryKindTag     uint16 = 0x0002
+	boundaryGapStartTag uint16 = 0x0005
+	boundaryGapEndTag   uint16 = 0x0006
 )
+
+// seqRangeLen is the length of an F-5 seq_range value: first and last, two u64 values.
+const seqRangeLen = 16
 
 // ErrFooterUnreadable reports a pack whose footer is not structurally readable (the tracepack corpus specification §5.8),
 // so footer.json has no stored part.
@@ -89,16 +96,25 @@ type CloseSeq struct {
 	Seq   U64    `json:"seq"`
 }
 
-// Boundary is one boundary entry: its seq and its boundary_kind name.
+// Boundary is one boundary entry: its seq, its boundary_kind name, and its gap_start and gap_end, each present iff the entry has it.
 type Boundary struct {
-	Seq  U64    `json:"seq"`
-	Kind string `json:"kind"`
+	Seq      U64    `json:"seq"`
+	Kind     string `json:"kind"`
+	GapStart *I64   `json:"gap_start,omitempty"`
+	GapEnd   *I64   `json:"gap_end,omitempty"`
 }
 
-// FooterF5 is the projection of F-5: one object per epoch entry, and the boundary entries.
+// FooterF5 is the projection of F-5: one object per epoch entry, the boundary entries and the seq_range entries.
 type FooterF5 struct {
 	Epochs     []F5Epoch  `json:"epochs"`
 	Boundaries []Boundary `json:"boundaries"`
+	SeqRanges  []SeqRange `json:"seq_ranges"`
+}
+
+// SeqRange is one F-5 seq_range entry: the first and last seq of a range.
+type SeqRange struct {
+	First U64 `json:"first"`
+	Last  U64 `json:"last"`
 }
 
 // F5Epoch is one F-5 epoch entry: its epoch and its close_seq, if any.
@@ -109,9 +125,10 @@ type F5Epoch struct {
 
 // projection is a footer projection before it is sorted and named.
 type projection struct {
-	blocks     []blockProjection
-	f5Epochs   []epochEntry
-	f5Boundary []boundaryEntry
+	blocks      []blockProjection
+	f5Epochs    []epochEntry
+	f5Boundary  []boundaryEntry
+	f5SeqRanges []tlv.SeqRange
 }
 
 // blockProjection is the projection of one block before it is sorted and named.
@@ -128,10 +145,11 @@ type epochEntry struct {
 	hasClose bool
 }
 
-// boundaryEntry is a boundary entry: its seq and its numeric boundary_kind.
+// boundaryEntry is a boundary entry: its seq, its numeric boundary_kind, and its gap_start and gap_end, nil when absent.
 type boundaryEntry struct {
-	seq  uint64
-	kind uint8
+	seq              uint64
+	kind             uint8
+	gapStart, gapEnd *int64
 }
 
 // FooterOf returns the footer.json of pack:
@@ -198,8 +216,10 @@ func ReadStoredFooter(pack []byte) (FooterProjection, error) {
 // by the rules of the tracepack format specification §10:
 // a block's close_seq per epoch is the lowest seq among its records that end that epoch,
 // a socket-close event or a clean stop, each a transport-event record whose payload is a valid TLV body;
-// a boundary per capture-boundary record, its boundary_kind 0 when the payload carries none;
-// F-5 holds one epoch per epoch of the records, with the lowest close_seq of the blocks, and every boundary.
+// a boundary per capture-boundary record, its boundary_kind 0 when the payload carries none,
+// with the gap_start and gap_end the payload carries;
+// F-5 holds one epoch per epoch of the records, with the lowest close_seq of the blocks, every boundary,
+// and the seqs of the records as sorted, maximal ranges.
 //
 // Returns:
 //   - FooterProjection: the projection, sorted as footer.json orders it.
@@ -208,6 +228,7 @@ func RecomputeFooter(ctx context.Context, r *tracepack.Reader) (FooterProjection
 	var (
 		p      projection
 		epochs []uint32
+		seqs   []uint64
 	)
 	res, err := r.Iterate(ctx, tracepack.Query{Payloads: true}, func(it *tracepack.Item) error {
 		if n := len(p.blocks); n == 0 || p.blocks[n-1].block != it.Block {
@@ -215,10 +236,10 @@ func RecomputeFooter(ctx context.Context, r *tracepack.Reader) (FooterProjection
 		}
 		b := &p.blocks[len(p.blocks)-1]
 		rec := &it.Record
-		epochs = append(epochs, rec.Epoch)
-		boundary, kind, ends := eventFacts(rec)
-		if boundary {
-			b.boundaries = append(b.boundaries, boundaryEntry{seq: rec.Seq, kind: kind})
+		epochs, seqs = append(epochs, rec.Epoch), append(seqs, rec.Seq)
+		boundary, ends := eventFacts(rec)
+		if boundary != nil {
+			b.boundaries = append(b.boundaries, *boundary)
 		}
 		if ends {
 			b.epochs = append(b.epochs, epochEntry{epoch: rec.Epoch, closeSeq: rec.Seq, hasClose: true})
@@ -234,33 +255,49 @@ func RecomputeFooter(ctx context.Context, r *tracepack.Reader) (FooterProjection
 	}
 
 	p.aggregate(epochs)
+	p.f5SeqRanges = seqRanges(seqs)
 
 	return p.sorted(), nil
 }
 
-// eventFacts reports whether rec is a capture-boundary record,
-// with its numeric boundary_kind, 0 when its payload carries none,
+// eventFacts returns the boundary entry of rec when it is a capture-boundary record:
+// its seq, its numeric boundary_kind, 0 when its payload carries none, and the gap_start and gap_end its payload carries;
 // and whether it ends its epoch: a socket-close event or a clean stop.
 // Only a transport-event record whose payload is a valid TLV body is either (the tracepack format specification §10).
-func eventFacts(rec *tracepack.Record) (boundary bool, kind uint8, ends bool) {
+func eventFacts(rec *tracepack.Record) (*boundaryEntry, bool) {
 	if rec.Kind != tracepack.KindTransportEvent {
-		return false, 0, false
+		return nil, false
 	}
 	ev, err := tracepack.UnmarshalTransportEvent(rec.Payload)
 	if err != nil {
-		return false, 0, false
+		return nil, false
 	}
 	if ev.Event == tracepack.EventSocketClose {
-		return false, 0, true
+		return nil, true
 	}
 	if ev.Event != tracepack.EventCaptureBoundary {
-		return false, 0, false
+		return nil, false
 	}
+	b := &boundaryEntry{seq: rec.Seq, gapStart: ev.GapStart, gapEnd: ev.GapEnd}
 	if ev.BoundaryKind != nil {
-		kind = uint8(*ev.BoundaryKind)
+		b.kind = uint8(*ev.BoundaryKind)
 	}
 
-	return true, kind, kind == uint8(tracepack.BoundaryKindStop)
+	return b, b.kind == uint8(tracepack.BoundaryKindStop)
+}
+
+// seqRanges returns the seqs of seqs as sorted, non-overlapping, maximal ranges, a seq given twice counted once.
+func seqRanges(seqs []uint64) []tlv.SeqRange {
+	var out []tlv.SeqRange
+	for _, s := range slices.Compact(slices.Sorted(slices.Values(seqs))) {
+		if n := len(out); n > 0 && out[n-1].Last != math.MaxUint64 && out[n-1].Last+1 == s {
+			out[n-1].Last = s
+			continue
+		}
+		out = append(out, tlv.SeqRange{First: s, Last: s})
+	}
+
+	return out
 }
 
 // footerBytes returns pack's decoded footer, after the checks that make the pack finalized (I-5)
@@ -331,17 +368,18 @@ func readSections(d []byte) (projection, error) {
 		if !inside(so, sl, f3Len) {
 			return projection{}, fmt.Errorf("%w: block %d's F-3 list lies outside F-3", ErrFooterUnreadable, i)
 		}
-		epochs, boundaries, err := readList(f3[so:so+sl], f3EpochTag, f3BoundaryTag)
+		l, err := readList(f3[so:so+sl], f3EpochTag, f3BoundaryTag, 0)
 		if err != nil {
 			return projection{}, fmt.Errorf("block %d's F-3 list: %w", i, err)
 		}
-		p.blocks = append(p.blocks, blockProjection{block: int(i), epochs: epochs, boundaries: boundaries})
+		p.blocks = append(p.blocks, blockProjection{block: int(i), epochs: l.epochs, boundaries: l.boundaries})
 	}
 
-	var err error
-	if p.f5Epochs, p.f5Boundary, err = readList(d[f5Off:f5Off+f5Len], f5EpochTag, f5BoundaryTag); err != nil {
+	l, err := readList(d[f5Off:f5Off+f5Len], f5EpochTag, f5BoundaryTag, seqRangeTag)
+	if err != nil {
 		return projection{}, fmt.Errorf("F-5: %w", err)
 	}
+	p.f5Epochs, p.f5Boundary, p.f5SeqRanges = l.epochs, l.boundaries, l.seqRanges
 
 	return p, nil
 }
@@ -351,49 +389,66 @@ func inside(off, n, size uint64) bool {
 	return off <= size && n <= size-off
 }
 
-// readList reads the epoch entries (tag epochTag) and boundary entries (tag boundaryTag) of the entry list b,
-// which must pass the framing rules of the tracepack format specification §5,
-// each such entry of value type tlv holding a framed entry list
+// listEntries are the entries of an F-3 list or of F-5 that the projection reads.
+type listEntries struct {
+	epochs     []epochEntry
+	boundaries []boundaryEntry
+	seqRanges  []tlv.SeqRange
+}
+
+// readList reads the epoch entries (tag epochTag), boundary entries (tag boundaryTag)
+// and, unless rangeTag is 0, seq_range entries (tag rangeTag) of the entry list b,
+// which must pass the framing rules of the tracepack format specification §5:
+// each epoch or boundary entry of value type tlv holding a framed entry list
 // with exactly one epoch, a u64 at most 2^32-1, and at most one close_seq, a u64,
-// or exactly one seq, a u64, and exactly one boundary_kind, a u8.
+// or exactly one seq, a u64, exactly one boundary_kind, a u8, and at most one gap_start and one gap_end, each an i64;
+// each seq_range entry holding 16 bytes.
 // Every other entry, and every other nested tag, is left unread.
-func readList(b []byte, epochTag, boundaryTag uint16) ([]epochEntry, []boundaryEntry, error) {
+func readList(b []byte, epochTag, boundaryTag, rangeTag uint16) (listEntries, error) {
 	entries, err := tlv.Decode(b)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: %w", ErrFooterUnreadable, err)
+		return listEntries{}, fmt.Errorf("%w: %w", ErrFooterUnreadable, err)
 	}
 
-	var (
-		epochs     []epochEntry
-		boundaries []boundaryEntry
-	)
+	var out listEntries
 	for _, e := range entries {
+		if rangeTag != 0 && e.Tag == rangeTag {
+			// Only the length is checked: an endpoint above 2^63-1 is a value footer validation judges.
+			if len(e.Value) != seqRangeLen {
+				return listEntries{}, fmt.Errorf("%w: a seq_range entry of %d bytes", ErrFooterUnreadable, len(e.Value))
+			}
+			out.seqRanges = append(out.seqRanges, tlv.SeqRange{
+				First: binary.LittleEndian.Uint64(e.Value), Last: binary.LittleEndian.Uint64(e.Value[8:]),
+			})
+
+			continue
+		}
 		if e.Tag != epochTag && e.Tag != boundaryTag {
 			continue
 		}
 		if err := e.CheckValue(tlv.TypeTLV); err != nil {
-			return nil, nil, fmt.Errorf("%w: %w", ErrFooterUnreadable, err)
+			return listEntries{}, fmt.Errorf("%w: %w", ErrFooterUnreadable, err)
 		}
 		nested, err := tlv.Decode(e.Value)
 		if err != nil {
-			return nil, nil, fmt.Errorf("%w: entry 0x%04X: %w", ErrFooterUnreadable, e.Tag, err)
+			return listEntries{}, fmt.Errorf("%w: entry 0x%04X: %w", ErrFooterUnreadable, e.Tag, err)
 		}
 		if e.Tag == epochTag {
 			ep, err := readEpoch(nested)
 			if err != nil {
-				return nil, nil, err
+				return listEntries{}, err
 			}
-			epochs = append(epochs, ep)
+			out.epochs = append(out.epochs, ep)
 		} else {
 			bd, err := readBoundary(nested)
 			if err != nil {
-				return nil, nil, err
+				return listEntries{}, err
 			}
-			boundaries = append(boundaries, bd)
+			out.boundaries = append(out.boundaries, bd)
 		}
 	}
 
-	return epochs, boundaries, nil
+	return out, nil
 }
 
 // readEpoch reads an epoch entry's nested entries:
@@ -430,11 +485,12 @@ func readEpoch(nested []tlv.Entry) (epochEntry, error) {
 	return out, nil
 }
 
-// readBoundary reads a boundary entry's nested entries: exactly one seq, a u64, and exactly one boundary_kind, a u8.
+// readBoundary reads a boundary entry's nested entries:
+// exactly one seq, a u64, exactly one boundary_kind, a u8, and at most one gap_start and one gap_end, each an i64.
 func readBoundary(nested []tlv.Entry) (boundaryEntry, error) {
 	var (
-		out         boundaryEntry
-		seqs, kinds int
+		out                       boundaryEntry
+		seqs, kinds, starts, ends int
 	)
 	for _, e := range nested {
 		var err error
@@ -445,6 +501,12 @@ func readBoundary(nested []tlv.Entry) (boundaryEntry, error) {
 		case boundaryKindTag:
 			out.kind, err = e.U8()
 			kinds++
+		case boundaryGapStartTag:
+			out.gapStart, err = i64Of(e)
+			starts++
+		case boundaryGapEndTag:
+			out.gapEnd, err = i64Of(e)
+			ends++
 		default:
 			// A nested tag the projection does not read.
 		}
@@ -452,11 +514,22 @@ func readBoundary(nested []tlv.Entry) (boundaryEntry, error) {
 			return boundaryEntry{}, fmt.Errorf("%w: boundary entry: %w", ErrFooterUnreadable, err)
 		}
 	}
-	if seqs != 1 || kinds != 1 {
-		return boundaryEntry{}, fmt.Errorf("%w: boundary entry holds %d seq and %d boundary_kind tags", ErrFooterUnreadable, seqs, kinds)
+	if seqs != 1 || kinds != 1 || starts > 1 || ends > 1 {
+		return boundaryEntry{}, fmt.Errorf("%w: boundary entry holds %d seq, %d boundary_kind, %d gap_start and %d gap_end tags",
+			ErrFooterUnreadable, seqs, kinds, starts, ends)
 	}
 
 	return out, nil
+}
+
+// i64Of returns the value of the i64 entry e.
+func i64Of(e tlv.Entry) (*int64, error) {
+	v, err := e.I64()
+	if err != nil {
+		return nil, err
+	}
+
+	return &v, nil
 }
 
 // aggregate reduces each block's epoch entries, one per record that ends an epoch,
@@ -488,9 +561,17 @@ func (p *projection) aggregate(epochs []uint32) {
 // sorted returns p in the orders and forms of footer.json:
 // blocks ascending by block; close_seqs ascending by epoch, then seq, epoch entries without close_seq left out;
 // F-5 epochs ascending by epoch, one without close_seq first, then by close_seq;
-// boundaries ascending by seq, then by numeric boundary_kind, each named.
+// boundaries ascending by seq, then by numeric boundary_kind, then by gap_start, then by gap_end, each named;
+// F-5 seq ranges ascending by first, then by last.
 func (p *projection) sorted() FooterProjection {
-	out := FooterProjection{Blocks: []FooterBlock{}, F5: FooterF5{Epochs: []F5Epoch{}, Boundaries: namedBoundaries(p.f5Boundary)}}
+	out := FooterProjection{Blocks: []FooterBlock{}, F5: FooterF5{
+		Epochs: []F5Epoch{}, Boundaries: namedBoundaries(p.f5Boundary), SeqRanges: []SeqRange{},
+	}}
+	for _, r := range slices.SortedFunc(slices.Values(p.f5SeqRanges), func(a, b tlv.SeqRange) int {
+		return cmp.Or(cmp.Compare(a.First, b.First), cmp.Compare(a.Last, b.Last))
+	}) {
+		out.F5.SeqRanges = append(out.F5.SeqRanges, SeqRange{First: U64(r.First), Last: U64(r.Last)})
+	}
 
 	blocks := slices.Clone(p.blocks)
 	slices.SortStableFunc(blocks, func(a, b blockProjection) int { return cmp.Compare(a.block, b.block) })
@@ -532,16 +613,40 @@ func compareBool(a, b bool) int {
 	}
 }
 
-// namedBoundaries returns bs ascending by seq, then by numeric boundary_kind, each kind named.
+// namedBoundaries returns bs ascending by seq, then by numeric boundary_kind, then by gap_start, then by gap_end,
+// each kind named and each bound kept as present or absent.
 func namedBoundaries(bs []boundaryEntry) []Boundary {
 	out := make([]Boundary, 0, len(bs))
-	for _, b := range slices.SortedFunc(slices.Values(bs), func(x, y boundaryEntry) int {
-		return cmp.Or(cmp.Compare(x.seq, y.seq), cmp.Compare(x.kind, y.kind))
-	}) {
-		out = append(out, Boundary{Seq: U64(b.seq), Kind: tracepack.BoundaryKind(b.kind).String()})
+	for _, b := range slices.SortedFunc(slices.Values(bs), compareBoundaries) {
+		out = append(out, Boundary{
+			Seq: U64(b.seq), Kind: tracepack.BoundaryKind(b.kind).String(), GapStart: boundOf(b.gapStart), GapEnd: boundOf(b.gapEnd),
+		})
 	}
 
 	return out
+}
+
+// compareBoundaries orders boundary entries by seq, then by numeric boundary_kind, then by gap_start, then by gap_end.
+func compareBoundaries(x, y boundaryEntry) int {
+	return cmp.Or(cmp.Compare(x.seq, y.seq), cmp.Compare(x.kind, y.kind), compareBound(x.gapStart, y.gapStart), compareBound(x.gapEnd, y.gapEnd))
+}
+
+// compareBound orders gap bounds: an absent bound before every present one, present bounds as i64.
+func compareBound(a, b *int64) int {
+	if a == nil || b == nil {
+		return compareBool(a != nil, b != nil)
+	}
+
+	return cmp.Compare(*a, *b)
+}
+
+// boundOf returns the footer.json form of a gap bound, nil when absent.
+func boundOf(v *int64) *I64 {
+	if v == nil {
+		return nil
+	}
+
+	return new(I64(*v))
 }
 
 // Marshal returns footer.json in the canonical form.
