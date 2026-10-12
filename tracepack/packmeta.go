@@ -261,8 +261,8 @@ type RedactionEntry struct {
 	// MaskedRanges lists the masked byte ranges of the record payload.
 	MaskedRanges []MaskedRange
 	// RawMaskedRanges holds the stored masked_ranges value in place of MaskedRanges
-	// when that value is not a whole array of (offset, length) pairs, a defect a reader reports,
-	// so the entry keeps it as stored.
+	// when that value is not a whole array of (offset, length) pairs or holds an element above 2^63 - 1,
+	// a defect a reader reports (PackHeader.RedactionDefects), so the entry keeps it as stored.
 	// When it is not empty, MarshalBinary writes it as masked_ranges, and MaskedRanges must be empty.
 	RawMaskedRanges []byte
 	// Domain names the redaction domain the mask belongs to.
@@ -633,7 +633,7 @@ var redactionPolicySetters = map[uint16]func(p *RedactionPolicy, e tlv.Entry) er
 var redactionEntrySetters = map[uint16]func(r *RedactionEntry, e tlv.Entry) error{
 	tagRedactionEntrySeq:          setField(tlv.Entry.U64, func(r *RedactionEntry, v uint64) { r.Seq = v }),
 	tagRedactionEntryItemPath:     setField(tlv.Entry.UTF8, func(r *RedactionEntry, v string) { r.ItemPath = &v }),
-	tagRedactionEntryMaskedRanges: setField(decodeMaskedRanges, func(r *RedactionEntry, v []MaskedRange) { r.MaskedRanges = v }),
+	tagRedactionEntryMaskedRanges: setMaskedRanges,
 	tagRedactionEntryDomain:       setField(tlv.Entry.UTF8, func(r *RedactionEntry, v string) { r.Domain = v }),
 	tagRedactionEntryDigest: setField(tlv.Entry.Bytes, func(r *RedactionEntry, v []byte) {
 		r.Digest = append([]byte(nil), v...)
@@ -1227,26 +1227,32 @@ func uuidOf(e tlv.Entry) (UUID, error) {
 	return UUID(v), err
 }
 
-// decodeMaskedRanges decodes a redaction entry's masked_ranges value: a u64 array of (offset, length) pairs.
-func decodeMaskedRanges(e tlv.Entry) ([]MaskedRange, error) {
+// setMaskedRanges decodes a redaction entry's masked_ranges value into r:
+// a u64 array of (offset, length) pairs into r.MaskedRanges,
+// and any other bytes value, whose length is not a multiple of 8, whose element count is odd
+// or which holds an element above 2^63 - 1, into r.RawMaskedRanges, as stored.
+// Such a value is a recoverable defect a reader reports (the tracepack semantics specification §8), not a decode failure.
+//
+// Returns:
+//   - error: non-nil only when the value is not of type bytes.
+func setMaskedRanges(r *RedactionEntry, e tlv.Entry) error {
 	b, err := e.Bytes()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	arr, err := tlv.DecodeU64Array(b)
-	if err != nil {
-		return nil, err
-	}
-	if len(arr)%2 != 0 {
-		return nil, fmt.Errorf("tracepack: masked_ranges holds %d elements: %w", len(arr), ErrFieldLength)
+	if err != nil || len(arr)%2 != 0 {
+		r.MaskedRanges, r.RawMaskedRanges = nil, slices.Clone(b)
+
+		return nil
 	}
 
-	ranges := make([]MaskedRange, 0, len(arr)/2)
+	r.MaskedRanges, r.RawMaskedRanges = make([]MaskedRange, 0, len(arr)/2), nil
 	for i := 0; i < len(arr); i += 2 {
-		ranges = append(ranges, MaskedRange{Offset: arr[i], Length: arr[i+1]})
+		r.MaskedRanges = append(r.MaskedRanges, MaskedRange{Offset: arr[i], Length: arr[i+1]})
 	}
 
-	return ranges, nil
+	return nil
 }
 
 // decodeHSMSTimers decodes the nested entries of a pack metadata `hsms_timers` entry.
