@@ -73,8 +73,11 @@ func validateAt(entries []Entry, reg Registry, minor uint16, depth int) error {
 	}
 
 	for _, tag := range slices.Sorted(maps.Keys(reg)) {
-		f := reg[tag]
-		if _, ok := seen[tag]; !ok && f.Required && f.Since <= minor {
+		if _, ok := seen[tag]; ok {
+			continue
+		}
+		// Only a missing tag looks up its field: every list holds most of its registry's tags.
+		if f := reg[tag]; f.Required && f.Since <= minor {
 			return &EntryError{Tag: tag, Offset: -1, Err: ErrMissing}
 		}
 	}

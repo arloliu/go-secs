@@ -783,6 +783,7 @@ func (e *inputReadError) Unwrap() error {
 func (p *mergePlan) openInputs(ctx context.Context, inputs []MergeInput, opts ReaderOptions) error {
 	seen := make(map[UUID]int, len(inputs))
 	p.inputs = make([]*Reader, 0, len(inputs))
+	p.thinned = make([]map[SF]struct{}, 0, len(inputs))
 	for i, in := range inputs {
 		r, err := openInput(ctx, i, in, opts)
 		if err != nil {

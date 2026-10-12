@@ -130,7 +130,7 @@ type Reader struct {
 	// meta is the Reader's own decoded pack metadata; it is never handed out.
 	meta *PackMeta
 	// redaction indexes meta's redaction entries, with their bootstrap defects, for the reads' Marking checks.
-	redaction *redactionIndex
+	redaction redactionIndex
 	finalized bool
 	// footerErr is non-nil when the footer was not used and blocks came from the forward walk.
 	footerErr error

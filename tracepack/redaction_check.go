@@ -73,8 +73,9 @@ type redactionIndex struct {
 // each entry on its own, the order of the entries, and the redaction-present flag.
 // A defect of an entry is kept with the entry, and an order defect with both entries of the pair,
 // so the records they name are wholly masked when read.
-func newRedactionIndex(meta *PackMeta, flags uint32) *redactionIndex {
-	x := &redactionIndex{
+// It returns the index by value, which a Reader holds inline, so an Open allocates none for it.
+func newRedactionIndex(meta *PackMeta, flags uint32) redactionIndex {
+	x := redactionIndex{
 		encrypted: meta.RedactionPolicy != nil && meta.RedactionPolicy.EncryptionAlgorithm != nil,
 		meta:      meta,
 	}
@@ -197,7 +198,7 @@ func newAppendMarking(policy *RedactionPolicy, entries []RedactionEntry, redacti
 		return nil, &FieldError{Field: field, Err: fmt.Errorf("%w: %w", ErrMetadataCommitment, d.Err)}
 	}
 
-	am := &appendMarking{x: x}
+	am := &appendMarking{x: &x}
 	for _, e := range m.Redaction {
 		// The entries passed the order check, so equal seqs are adjacent.
 		if n := len(am.seqs); n == 0 || am.seqs[n-1] != e.Seq {

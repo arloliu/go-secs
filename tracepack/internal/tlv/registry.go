@@ -223,13 +223,14 @@ type Field struct {
 	Repeatable bool
 	// Required reports whether the tag must be present in every entry list the registry applies to.
 	Required bool
+	// Since is the format minor that defines the tag: 0 for a tag of format 1.0.
+	// In a pack of an earlier minor the tag is unknown (the tracepack format specification §5 and §14).
+	// It sits beside the bools so that a Field stays 32 bytes, which keeps registry lookups as cheap as in format 1.0.
+	Since uint16
 	// Nested is the registry of the entries nested in the value of a tlv tag,
 	// which Validate decodes and validates against it;
 	// nil leaves the value unexamined.
 	Nested *Registry
-	// Since is the format minor that defines the tag: 0 for a tag of format 1.0.
-	// In a pack of an earlier minor the tag is unknown (the tracepack format specification §5 and §14).
-	Since uint16
 }
 
 // Registry maps the tags of one entry list to their fields.
