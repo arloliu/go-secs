@@ -1492,3 +1492,7 @@ Review rounds (amendment plan, kept outside the repository):
 | precision pass P1 | the claim-check lifetime omitted accepted references | the invariant covers them; *Already staged* an explicit exception |
 | precision pass P2 | a normative paragraph cited P8 | the citation dropped |
 | precision pass | — | ready |
+| apply consistency review | — | no findings; spec v2.33 ratified by the owner (2026-10-12) |
+
+After ratification, the v0.5.0 task plan added G5-252 (2026-10-12):
+[STO §4] *Capture descriptor and pack metadata* states that a descriptor holding a tag the consumer does not know does not decode, so its `start` is not accepted (G5-251).
