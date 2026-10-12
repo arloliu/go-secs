@@ -152,6 +152,119 @@ func cloneRedactionEntry(e *RedactionEntry) RedactionEntry {
 	return c
 }
 
+// appendMarking is what a Writer of a pack masked at write checks the Marking of its records against
+// (the tracepack semantics specification §8): the index of the entries it wrote,
+// and which of the seqs they name an appended record carried.
+// Its entries are copies, sharing no memory with the caller's pack metadata;
+// the policy is read once, when it is built.
+type appendMarking struct {
+	x *redactionIndex
+	// seqs holds the distinct seqs the entries name, ascending, and carried[i] whether an appended record carried seqs[i].
+	seqs    []uint64
+	carried []bool
+	// scratch holds the entries naming the record check is checking, reused across records.
+	scratch []marking.Entry
+}
+
+// newAppendMarking returns the Marking of a pack masked at write, under policy, holding entries,
+// with the file header's redaction-present flag set when redactionPresent is.
+//
+// Returns:
+//   - *appendMarking: the Marking, of copies of entries; nil on error.
+//   - error: a *FieldError wrapping ErrMetadataCommitment and ErrRedactionDefect for the first bootstrap defect:
+//     an entry failing a check on its own or out of order ("redaction"),
+//     or a redaction-present flag set other than exactly when an entry exists ("redaction-present").
+func newAppendMarking(policy *RedactionPolicy, entries []RedactionEntry, redactionPresent bool) (*appendMarking, error) {
+	m := &PackMeta{RedactionPolicy: policy, Redaction: make([]RedactionEntry, len(entries))}
+	for i := range entries {
+		m.Redaction[i] = cloneRedactionEntry(&entries[i])
+	}
+	var flags uint32
+	if redactionPresent {
+		flags = fileHeaderRedactionPresent
+	}
+
+	x := newRedactionIndex(m, flags)
+	if len(x.header) > 0 {
+		d := x.header[0]
+		field := "redaction"
+		if d.Entry < 0 {
+			field = "redaction-present"
+		}
+
+		return nil, &FieldError{Field: field, Err: fmt.Errorf("%w: %w", ErrMetadataCommitment, d.Err)}
+	}
+
+	am := &appendMarking{x: x}
+	for _, e := range m.Redaction {
+		// The entries passed the order check, so equal seqs are adjacent.
+		if n := len(am.seqs); n == 0 || am.seqs[n-1] != e.Seq {
+			am.seqs = append(am.seqs, e.Seq)
+		}
+	}
+	am.carried = make([]bool, len(am.seqs))
+
+	return am, nil
+}
+
+// check checks rec, a record about to be appended under its seq, against the entries naming it
+// (marking.CheckRecord): the checks a reader runs on it, both ways.
+//
+// Returns:
+//   - error: a *FieldError naming "redaction", wrapping ErrMetadataCommitment and ErrRedactionDefect,
+//     for the first failed check.
+func (am *appendMarking) check(rec *Record) error {
+	idx := am.x.bySeq[rec.Seq]
+	if len(idx) == 0 && !rec.Quality.Has(QualityRedacted) {
+		return nil
+	}
+
+	am.scratch = am.scratch[:0]
+	for _, i := range idx {
+		am.scratch = append(am.scratch, am.x.entries[i])
+	}
+	mrec := markingRecord(rec)
+	defects := marking.CheckRecord(&mrec, am.scratch, am.x.encrypted)
+	if len(defects) == 0 {
+		return nil
+	}
+
+	return &FieldError{Field: "redaction", Err: fmt.Errorf("%w: seq %d: %w", ErrMetadataCommitment, rec.Seq, redactionDefectError(defects[0].Err))}
+}
+
+// carry records that an appended record carried seq.
+func (am *appendMarking) carry(seq uint64) {
+	if i, found := slices.BinarySearch(am.seqs, seq); found {
+		am.carried[i] = true
+	}
+}
+
+// carryRange records that the records of a block copied whole carried every seq from first to last that an entry names,
+// first to last being one run of consecutive seqs the block holds:
+// the Writer does not see the records of such a block, whose caller checks their Marking.
+func (am *appendMarking) carryRange(first, last uint64) {
+	i, _ := slices.BinarySearch(am.seqs, first)
+	for ; i < len(am.seqs) && am.seqs[i] <= last; i++ {
+		am.carried[i] = true
+	}
+}
+
+// checkCarried checks that an appended record carried every seq an entry names.
+//
+// Returns:
+//   - error: a *FieldError naming "redaction", wrapping ErrMetadataCommitment and ErrRedactionDefect,
+//     for the lowest seq none carried.
+func (am *appendMarking) checkCarried() error {
+	i := slices.Index(am.carried, false)
+	if i < 0 {
+		return nil
+	}
+
+	err := fmt.Errorf("an entry names seq %d, which no appended record carries: %w", am.seqs[i], marking.ErrRedactedBit)
+
+	return &FieldError{Field: "redaction", Err: fmt.Errorf("%w: %w", ErrMetadataCommitment, redactionDefectError(err))}
+}
+
 // addEntryDefect keeps err, a failed bootstrap check, with entry i.
 func (x *redactionIndex) addEntryDefect(i int, err error) {
 	x.entryDefects[i] = append(x.entryDefects[i], RedactionDefect{

@@ -193,6 +193,28 @@ func TestNewCeilings(t *testing.T) {
 	}
 }
 
+// TestNewNamed checks that the classifier NewNamed returns reports the name and ceiling it was given,
+// and classifies as the classifier New returns does under that ceiling, while New keeps reporting Name.
+func TestNewNamed(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name    string
+		ceiling uint64
+	}{{"log-service/classifier-1", 0}, {"go-secs/v2.6.0", 13}, {"", 1<<63 - 1}} {
+		c := NewNamed(tt.name, tt.ceiling)
+		require.Equal(t, tt.name, c.Name())
+		require.Equal(t, tt.ceiling, c.MaxFrameLen())
+		for _, frame := range [][]byte{okEmptyS1F1, okWithTrailing, itemDecodeErrorTruncated} {
+			wantStatus, wantTrailing := New(tt.ceiling).Frame(frame)
+			status, trailing := c.Frame(frame)
+			require.Equal(t, wantStatus, status, "frame %x", frame)
+			require.Equal(t, wantTrailing, trailing, "frame %x", frame)
+		}
+	}
+	require.Equal(t, Name, New(0).Name(), "New keeps the build-info name")
+}
+
 // TestNewMatchesFrame checks that the classifier New returns classifies every fixture as Frame does,
 // under no ceiling and under ceilings around each fixture's length,
 // and that the fixtures reach every decode_status Frame can return.

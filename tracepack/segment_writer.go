@@ -877,7 +877,7 @@ func (w *SegmentWriter) finalize(ctx context.Context) error {
 	s := w.seg
 	done := s.out.use(ctx)
 	defer done()
-	next, err := s.w.Close()
+	cont, err := s.w.Close()
 	if err != nil {
 		return err
 	}
@@ -889,7 +889,12 @@ func (w *SegmentWriter) finalize(ctx context.Context) error {
 	}
 
 	w.seg = nil
-	w.nextSeq = next
+	// After the capture's last seq no seq follows: the counter stays one past it,
+	// so preflight refuses every later record and no segment opens.
+	w.nextSeq = format.MaxU64 + 1
+	if next, ok := cont.Next(); ok {
+		w.nextSeq = next
+	}
 	if w.detect {
 		w.anchor = s.w.anchor()
 	}

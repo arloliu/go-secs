@@ -128,12 +128,14 @@ func writeFooterPackBytes(t *testing.T, opts tracepack.WriterOptions) ([]byte, u
 	return buf.Bytes(), next
 }
 
-// mustClose closes w, failing the test on error, and returns the next seq.
+// mustClose closes w, failing the test on error or when the capture has no next pack, and returns the next seq.
 func mustClose(t *testing.T, w *tracepack.Writer) uint64 {
 	t.Helper()
 
-	next, err := w.Close()
+	cont, err := w.Close()
 	require.NoError(t, err)
+	next, ok := cont.Next()
+	require.True(t, ok, "the capture continues")
 
 	return next
 }
@@ -558,8 +560,10 @@ func TestWriterCloseAfterFailureWritesNothing(t *testing.T) {
 	require.ErrorIs(t, w.Flush(), tracepack.ErrValidation)
 	written := buf.Len()
 
-	next, err := w.Close()
+	cont, err := w.Close()
 	require.ErrorIs(t, err, tracepack.ErrWriterFailed)
+	next, ok := cont.Next()
+	assert.False(t, ok, "no continuation with an error")
 	assert.Zero(t, next)
 	assert.Equal(t, written, buf.Len(), "no footer and no trailer after a failure")
 

@@ -46,7 +46,11 @@ var (
 	// an oversized record in a pack without max_frame_len ("max_frame_len"),
 	// a quality.redacted record in a pack that is neither an extract nor masked at write ("pack_role")
 	// or whose file header does not set redaction-present ("redaction-present"),
-	// or a quality.unobserved record of a stream and function the pack's thinning does not declare ("thinning").
+	// or a quality.unobserved record of a stream and function the pack's thinning does not declare ("thinning");
+	// and, in a pack masked at write, a record whose Marking fails a check of the tracepack semantics specification §8
+	// against the redaction entries naming it ("redaction"), also wrapping ErrRedactionDefect:
+	// a record carrying quality.redacted that no entry names, a record an entry names that does not carry it,
+	// or an entry that does not fit the record, such as a range outside its payload or a data record's entry without siv.
 	// The record was not added and the Writer is still usable.
 	//
 	// NewWriter returns it when WriterOptions.Facts.AnyRedacted would set redaction-present
@@ -56,10 +60,14 @@ var (
 	// whose policy lacks encryption_algorithm or encryption_key_id ("encryption_algorithm", "encryption_key_id"),
 	// that does not carry exactly one classifier ("classifier") or carries more than one max_frame_len ("max_frame_len");
 	// or an extract whose policy carries an encryption tag, or one of whose entries carries siv
-	// ("encryption_algorithm", "encryption_key_id", "siv").
+	// ("encryption_algorithm", "encryption_key_id", "siv");
+	// and, in a pack masked at write, for redaction entries a reader would report at bootstrap, also wrapping ErrRedactionDefect:
+	// an entry failing a check on its own or out of order ("redaction"),
+	// or entries without the redaction-present flag that opts.Facts.AnyRedacted sets ("redaction-present").
 	// It writes nothing and returns no Writer.
 	//
-	// Close returns it when the file header set redaction-present but no written record carries quality.redacted ("redaction-present");
+	// Close returns it when the file header set redaction-present but no written record carries quality.redacted ("redaction-present"),
+	// and, in a pack masked at write, when a redaction entry names a seq no appended record carried ("redaction");
 	// it writes neither footer nor trailer, and the Writer has failed.
 	ErrMetadataCommitment = errors.New("tracepack: record contradicts the pack metadata")
 	// ErrValidation reports that an encoded block failed the checks a validating Writer runs before writing it
@@ -212,6 +220,8 @@ type Writer struct {
 	anchorMono  int64
 	// The written pack metadata and file header commit every record appended to packCommitments.
 	packCommitments
+	// marking, in a pack masked at write, is the Marking every record appended is checked against; nil in any other pack.
+	marking *appendMarking
 	// seqStart is the pack's seq_start, which the first record's seq must equal.
 	seqStart uint64
 	// nextSeq is the smallest seq the next record may carry, and the seq AssignSeq gives it.
@@ -269,6 +279,8 @@ type Writer struct {
 // (the tracepack storage specification §4, Masking), must carry both encryption tags, exactly one classifier,
 // and at most one max_frame_len, and is written with given seqs only, without AssignSeq or DetectClockSteps,
 // since its entries bind each record's seq before the Writer sees the record.
+// Its redaction entries pass the checks a reader runs on them at bootstrap (the tracepack semantics specification §8),
+// and the Writer checks the Marking of every record appended against them (see Append).
 // An extract's policy carries no encryption tag, and none of its entries carries siv.
 // A thinning entry whose stream is above 127 or whose function is above 255 is refused, since no record can match it.
 //
@@ -313,6 +325,15 @@ func startWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 		return nil, err
 	}
 
+	// In a pack masked at write the Writer checks the Marking of its records (the tracepack semantics specification §8);
+	// an extract keeps the rules of format 1.0.
+	var am *appendMarking
+	if maskedAtWrite(&meta) {
+		if am, err = newAppendMarking(meta.RedactionPolicy, meta.Redaction, opts.Facts.AnyRedacted); err != nil {
+			return nil, err
+		}
+	}
+
 	head, err := encodeHead(&meta, &opts)
 	if err != nil {
 		return nil, err
@@ -340,6 +361,7 @@ func startWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 		seqStart:    meta.SeqStart,
 		nextSeq:     meta.SeqStart,
 		offset:      uint64(len(head)),
+		marking:     am,
 
 		maxF3ListLen: math.MaxUint32,
 
@@ -733,6 +755,11 @@ func clockDrift(r *Record, ev *TransportEvent, a clockAnchor, tolerance uint64) 
 // (the tracepack semantics specification §2):
 // its stream and function available and declared in the pack metadata's thinning, its payload longer than 14 bytes,
 // its message text zero-filled, its decode_status not-attempted, its trailing_bytes 0, and quality.redacted clear.
+// In a pack masked at write, Append checks the Marking of r against the redaction entries naming its seq
+// (the tracepack semantics specification §8), both ways:
+// r carries quality.redacted exactly when an entry names it, it is a data record or an annotation,
+// and each entry fits it, as a reader checks the record when it reads it;
+// the entries are the ones NewWriter wrote, whatever the caller changed in its pack metadata since.
 // Append copies r.Payload and does not modify any other field of r:
 // the header it stores is canonical as described on Record, whatever r holds.
 // With WriterOptions.DetectClockSteps, a record whose drift exceeds the tolerance is preceded by a clock-step record,
@@ -742,7 +769,8 @@ func clockDrift(r *Record, ev *TransportEvent, a clockAnchor, tolerance uint64) 
 // so Append may return the error of the block it closed.
 //
 // Returns:
-//   - error: ErrPayloadTooLarge, ErrFieldValidity, ErrSeqOrder, a *FieldError wrapping ErrMetadataCommitment,
+//   - error: ErrPayloadTooLarge, ErrFieldValidity, ErrSeqOrder,
+//     a *FieldError wrapping ErrMetadataCommitment, and also ErrRedactionDefect for a Marking that fails,
 //     an error wrapping ErrInvalidRecord for a record carrying quality.unobserved whose own fields break the rule above,
 //     or an error wrapping ErrScopeBreach, with r not added, no seq taken and the Writer still usable;
 //     an error wrapping ErrValidation or a write or sync error, after which the Writer has failed;
@@ -757,6 +785,11 @@ func (w *Writer) Append(r *Record) error {
 	}
 	if err := w.checkCommitments(r); err != nil {
 		return err
+	}
+	if w.marking != nil {
+		if err := w.marking.check(r); err != nil {
+			return err
+		}
 	}
 	if w.scoped && hourOf(r.TSUTCNs) != w.hour {
 		return fmt.Errorf("tracepack: record at %d ns in UTC hour %d, the pack's period in hour %d: %w",
@@ -789,6 +822,9 @@ func (w *Writer) Append(r *Record) error {
 	h := canonicalHeader(r, seq, ev)
 	w.block.add(&h, r.Payload, ev)
 	w.nextSeq = seq + 1
+	if w.marking != nil {
+		w.marking.carry(seq)
+	}
 	if w.assignSeq {
 		r.Seq = seq
 	}
@@ -818,6 +854,26 @@ func (w *Writer) Flush() error {
 	return w.closeBlock()
 }
 
+// Continuation is what a finalized pack leaves its capture: the seq the capture's next pack starts at, if any.
+//
+// A capture's last seq is 2^63-1 (the tracepack format specification §2), which a consumer's close of a capture holds
+// (the tracepack storage specification §4, Closing a capture left open):
+// after a pack whose last record has it, no seq follows, and a capture never restarts at seq 0.
+// The zero Continuation reports no continuation.
+type Continuation struct {
+	seq uint64
+	ok  bool
+}
+
+// Next returns the seq the capture's next pack starts at.
+//
+// Returns:
+//   - seq: the seq after the pack's last record, or its seq_start when it holds no record; 0 when ok is false.
+//   - ok: false when no seq follows the pack's last record, so the capture has no next pack.
+func (c Continuation) Next() (seq uint64, ok bool) {
+	return c.seq, c.ok
+}
+
 // Close flushes the open block, then writes the footer and the trailer that finalize the pack,
 // and with a Syncer syncs after the trailer (the tracepack format specification §10 to §12).
 //
@@ -825,27 +881,34 @@ func (w *Writer) Flush() error {
 // but an error from the footer-and-trailer write itself, or from the sync after it, may come after the trailer reached the output.
 // Close does not close the underlying output.
 //
+// A pack whose last record has seq 2^63-1 closes successfully, and its Continuation reports no next pack.
+// In a pack masked at write, Close refuses a redaction entry naming a seq no appended record carried.
+//
 // Returns:
-//   - uint64: the seq after the pack's last record, or its seq_start when it holds no record;
-//     a capture that continues in another pack starts it there. 0 on error.
+//   - Continuation: where the capture continues in another pack: the seq after the pack's last record,
+//     or its seq_start when it holds no record; no continuation after the last seq, and the zero Continuation on error.
 //   - error: as for Flush, or the error of writing or syncing the footer and trailer, after which the Writer has failed;
 //     an error, before the footer is written, for a block summary too long for the footer's u32 summary_len;
-//     a *FieldError wrapping ErrMetadataCommitment, also leaving the Writer failed,
-//     when the file header set redaction-present but no written record carries quality.redacted;
+//     a *FieldError wrapping ErrMetadataCommitment, also leaving the Writer failed and writing neither footer nor trailer,
+//     when the file header set redaction-present but no written record carries quality.redacted ("redaction-present"),
+//     or, in a pack masked at write, when a redaction entry names a seq no appended record carried ("redaction");
 //     ErrWriterFailed on a failed Writer, and ErrClosed when already closed.
-func (w *Writer) Close() (uint64, error) {
+func (w *Writer) Close() (Continuation, error) {
 	if err := w.Flush(); err != nil {
-		return 0, err
+		return Continuation{}, err
 	}
 
 	if err := w.finalize(); err != nil {
 		w.failure = err
-		return 0, err
+		return Continuation{}, err
 	}
 
 	w.closed = true
+	if w.nextSeq > format.MaxU64 {
+		return Continuation{}, nil
+	}
 
-	return w.nextSeq, nil
+	return Continuation{seq: w.nextSeq, ok: true}, nil
 }
 
 // PackID returns the pack_id written in the file header:
@@ -1092,6 +1155,12 @@ func (w *Writer) writeRawBlock(raw []byte, s *blockSummary, f3 []byte) error {
 		return err
 	}
 	w.nextSeq = s.lastSeq + 1
+	if w.marking != nil {
+		// Only the block's seq runs are carried: a seq in a gap between them names no record of the block.
+		for _, r := range s.seqRanges {
+			w.marking.carryRange(r.first, r.last)
+		}
+	}
 
 	return nil
 }
@@ -1153,6 +1222,11 @@ func (w *Writer) checkAppendBlock(raw []byte, s *blockSummary) (format.BlockEnve
 // It writes nothing when the header set redaction-present but the pack's quality_union lacks quality.redacted:
 // the flag promised a redacted record, so the pack cannot be finalized under it (the tracepack format specification §4).
 func (w *Writer) finalize() error {
+	if w.marking != nil {
+		if err := w.marking.checkCarried(); err != nil {
+			return err
+		}
+	}
 	if uint64(len(w.blocks)) > math.MaxUint32 {
 		return fmt.Errorf("tracepack: %d blocks exceed the u32 block_count", len(w.blocks))
 	}
