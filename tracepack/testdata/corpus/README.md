@@ -1,7 +1,7 @@
 # tracepack conformance corpus
 
-This directory is the conformance corpus of tracepack format 1.0:
-packs, and the results a conforming reader produces from them.
+This directory is the conformance corpus of tracepack format 1.1:
+packs of format 1.0 and 1.1, and the results a conforming reader produces from them.
 An implementation in any language proves conformance against the committed files;
 it never needs to regenerate them, and it needs no Go.
 
@@ -17,7 +17,7 @@ The corpus holds the vectors of [FMT §16] and [SEM §9] that format-level readi
 single packs, each with its export, its bootstrap rejection or the expectation of every cut.
 Verification reports, query results, classifications, reads over several packs and transaction lookups are tests of the Go module,
 not files of the corpus ([CORPUS §1]).
-Redaction vectors are not in it yet;
+Its packs include packs masked at write, with encrypted originals, thinned packs and a consumer's close of a capture;
 [CORPUS §9] states where each clause stands.
 
 ## Identification
@@ -26,16 +26,21 @@ Redaction vectors are not in it yet;
 
 | Key | Value |
 |---|---|
-| `corpus` | `tracepack-corpus/3`, the schema of every JSON file here |
-| `spec_version` | the spec version the goldens follow, `2.32` |
-| `format_version` | `1.0` |
-| `jsonl_schema` | `tracepack-jsonl/1`, the schema of every `.jsonl` file |
+| `corpus` | `tracepack-corpus/4`, the schema of every JSON file here |
+| `spec_version` | the spec version the goldens follow, `2.33` |
+| `format_version` | `1.1`, the format the corpus targets; a vector may hold a pack of another version, such as `basic-future-minor` (minor 2) |
 | `zstd_encoder` | the zstd encoder that produced the corpus's encoder-made zstd blocks and footers (see [zstd](#zstd)) |
 | `vectors` | one entry per vector, ascending by `id` |
 
-The schema `tracepack-corpus/3` is a draft until tracepack v1.0.0.
+The schema `tracepack-corpus/4` is a draft until tracepack v1.0.0.
 A change to a schema, or to what an existing file states, takes a new `corpus` value;
 adding a vector or a case keeps it ([CORPUS §10]).
+
+`tracepack-corpus/4` moves `jsonl_schema` from the manifest into each vector of class `read` and `truncation`:
+`tracepack-jsonl/1` when the vector's pack has `format_minor` 0, and `tracepack-jsonl/2` otherwise ([JSONL §5]).
+`primitives.json` gains the published test keys and their known-answer cases,
+and `footer.json` the `gap_start` and `gap_end` of each boundary and the F-5 `seq_ranges`, with the full order of [CORPUS §5.8].
+Every earlier key keeps its value, and every earlier vector its `pack.tpk` and `export.jsonl`, byte for byte.
 
 `tracepack-corpus/3` removes from `tracepack-corpus/2` the classes `repair` and `multi-pack`,
 the files `verify.json`, `queries.json`, `classify.json`, `repair.json`, `patch.*`, `pack-<n>.*`, `reads.json` and `lookups.json`,
@@ -46,16 +51,17 @@ The kept packs, exports, rejections, `fields.json` and `footer.json` files are b
 
 ```text
 manifest.json       corpus identity and one entry per vector
-primitives.json     CRC and UUID byte-order values to check before reading a pack ([CORPUS §5.1])
+primitives.json     CRC and UUID byte-order values, test keys, digest and AES-SIV cases to check before reading a pack ([CORPUS §5.1])
 README.md           this file
 .gitattributes      keeps every file's bytes as committed
 <vector id>/        one directory per vector
 ```
 
-A vector entry gives the vector's `id`, a one-line `title`, the clauses it `cites`, its `class`, its `labels`, the `codec` its pack uses, its `source`, the `files` its directory holds,
+A vector entry gives the vector's `id`, a one-line `title`, the clauses it `cites`, its `class`, its `labels`, the `codec` its pack uses,
+for class `read` and `truncation` the `jsonl_schema` of its export, its `source`, the `files` its directory holds,
 and, for a vector of several single-record sub-vectors, its `cases` (`{id, seq, cites}`).
 Its `id` starts with its group:
-`basic-`, `bootstrap-`, `footer-`, `framing-`, `hsms-`, `repair-`, `sample-`, `sem-`, `validation-` or `verify-`.
+`basic-`, `bootstrap-`, `close-`, `footer-`, `framing-`, `hsms-`, `redact-`, `repair-`, `sample-`, `sem-`, `thin-`, `validation-` or `verify-`.
 The `repair-` vectors are the three repair vectors of `tracepack-corpus/2` whose packs serve a format clause no other vector serves,
 read like any pack ([CORPUS §9.4]).
 Ids are stable and never reused.
@@ -71,15 +77,21 @@ A vector directory holds only files with these names ([CORPUS §2]):
 | `footer.json` | optional | footer values as stored, whether the footer is accepted, and as computed from the records ([CORPUS §5.8]) |
 | `truncation.json` | class `truncation` | the expectation of every cut of the pack ([CORPUS §5.7]) |
 
-Labels mark packs that a conforming writer of format 1.0 does not write:
+Labels mark packs that a conforming writer does not write:
 `damaged` (damage after writing: a failed CRC, a cut, a broken codec stream),
 `nonconforming-writer` (bytes a conforming writer never writes, every CRC valid)
 and `pre-v2.13-sample` (`sample-v010-rows`, a pack of the format definition before v2.13, [FMT §14]).
 
 ## Using the corpus
 
-Read `manifest.json`, check `corpus`, `spec_version`, `format_version` and `jsonl_schema` against what your implementation follows,
-then take each vector in turn and the files its entry lists.
+Read `manifest.json`, check `corpus`, `spec_version` and `format_version` against what your implementation follows,
+then take each vector in turn and the files its entry lists,
+checking the `jsonl_schema` of a `read` or `truncation` vector against the schema you export for its pack.
+
+- **Check the primitives first.**
+  `primitives.json` holds CRC and UUID byte-order values, and published test keys with digest and AES-SIV known-answer cases:
+  the `label` case's 53 bytes of associated data are compared byte for byte.
+  The keys are test keys, published so that an implementation can check its digests and restore the corpus's encrypted cases; never use them elsewhere.
 
 - **Compare JSON files as JSON values**, never as text ([CORPUS §4]):
   key order and whitespace do not matter, array order does, since every array is in the order its schema states.
@@ -128,6 +140,9 @@ zstd fixes what a frame decodes to, not the bytes an encoder writes, so two enco
 The Go reference implementation generates the corpus in its internal package `internal/corpus`.
 Each vector's recipe writes its pack with the public `Writer` under a fixed clock and identifiers derived from the vector's id,
 then edits its bytes where the vector needs what a `Writer` never writes.
+A recipe masks its records with the package `redact` under the published test keys,
+and writes a consumer's close with `WriteClose` or an archive with `Merge`, where its vector needs them.
+`TestPrimitiveKeys` checks every `hmac` and `aes_siv` case of `primitives.json` against the module's own digest and AES-SIV code.
 The generator reads every pack as a reader of the corpus does
 and checks each read against the recipe's expectation, written by hand from the specification,
 before it writes any file.
@@ -159,7 +174,7 @@ Two vectors are `source: fixed`, never regenerated, and always compared byte for
 - `repair-of-patch`: its pack is the patch an earlier tracepack's repair wrote, damaged after writing;
   tracepack no longer writes such a pack, so the generator copies the committed `repair-of-patch/pack.tpk` as it is.
 
-Two tests elsewhere in the module read the committed files too (paths from `tracepack/`):
+Tests elsewhere in the module read the committed files too (paths from `tracepack/`):
 
 - `classify/corpus_test.go` (`TestClassifierCases`) takes the classifier expectations of the `sem-` recipes
   (each case's `decode_status` and `trailing_bytes`, written by hand from [SEM §3] and the checklist of [CORPUS §7]),
@@ -170,6 +185,9 @@ Two tests elsewhere in the module read the committed files too (paths from `trac
 - `corpus_writer_test.go` (`TestCorpusValidatingWriter`) runs the validating `Writer` on the inputs of `validation-i2-injection`,
   with the defect injected into its last block,
   and requires `ErrValidation` and output equal to that vector's `pack.tpk`.
+- `jsonl_v2_test.go` (`TestExportSchemaByMinor`) reproduces every `export.jsonl` byte for byte under the schema of its pack's minor.
+- `internal/secsitem/walk_test.go` (`TestWalkAgainstClassify`) checks the item walk that masking uses against `classify`
+  on the data frames of `sem-item-validity` and `sem-decode-status-classified` whose classification reaches the item predicate.
 
 Every committed pack is also a seed of `FuzzExportJSONL`.
 

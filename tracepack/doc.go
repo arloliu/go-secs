@@ -14,6 +14,12 @@
 // A scope is one capture in one UTC hour, and every pack but an extract holds the records of one scope.
 // A recorder stages segments, the packs of one flush interval;
 // a merge folds the packs of a scope its caller gives into one archive (the tracepack storage specification §2 and §4).
+// Format 1.1, a pack's format_minor 1, adds packs masked at write under a redaction policy
+// that encrypts the originals of data records (the tracepack semantics specification §8),
+// and data records unobserved by design, of the streams and functions the pack's thinning entries declare;
+// a Writer writes minor 0 for a pack holding neither, as for every pack before format 1.1.
+// A pack of minor 1 that holds no such feature is still read as minor 1, and a merge of it writes minor 1
+// (the tracepack format specification §14).
 //
 // # Recording
 //
@@ -26,6 +32,34 @@
 // an error wrapping ErrPublishUncertain reports a segment that is published but may not survive a system crash.
 // NewWriter writes one pack from pack metadata the caller assembles, the layer under SegmentWriter and Merge;
 // it and Merge write block bodies and the footer with zstd unless their options set Uncompressed.
+// A Writer writes format_minor 1 exactly when the pack metadata holds a feature of format 1.1.
+// Writer.Close returns a Continuation, whose Next gives the seq the capture's next pack starts at,
+// and reports no next pack after a pack whose last record has seq 2^63-1, the last seq of a capture.
+//
+// # Durable-bus capture
+//
+// A producer that publishes each record of a capture as one bus message (the tracepack storage specification §4)
+// encodes the capture's descriptor with EncodeDescriptor, for the start message's BusHeaderDescriptor header,
+// and each record with NewBusRecord and EncodeBusBody, inline or by claim-check as BusInline says;
+// BusSubject, BusMsgID and BusPayloadDigest give the subject and header values,
+// and CheckBusStart is its size preflight.
+// The package imports no NATS client.
+//
+// The log service, the consumer that writes the capture's packs, checks each message with CheckBusMessage:
+// ErrBusMalformed marks a message never written, its seq a seq gap,
+// and ErrBusNotAccepted a start whose descriptor it cannot accept, on which it defers the capture.
+// CheckBusPayload checks a claim-check object, DecodeDescriptor gives the producer's values of a start,
+// and DeriveBusRecord sets the values the consumer derives from the payload as received,
+// classified by a Classifier such as classify.NewNamed returns, before any masking.
+// Under a redaction policy the package tracepack/redact masks the records of a flush batch and computes their entries;
+// the consumer collects them into PackMeta.Redaction and only then constructs the Writer,
+// which writes the pack metadata first.
+// A pack masked at write, one that is not an extract and carries redaction_policy,
+// carries both encryption tags, exactly one classifier and at most one max_frame_len, and is written with given seqs;
+// NewWriter, Writer.Append and Writer.Close check the Marking of every record against its entries.
+// A record carrying QualityUnobserved needs the thinning entry of its stream and function.
+// WriteClose writes the close of a capture its producer left open, one stop-unclean record at seq 2^63-1.
+// This package never imports tracepack/redact, so a program that only reads packs links no masking or encryption code.
 //
 // # Reading
 //
@@ -48,6 +82,14 @@
 // Every read reports, as a ReasonCrashGap defect, each stop-unclean capture boundary whose gap meets the query's time range
 // (the tracepack semantics specification §7.4, Crash gaps).
 //
+// Readers decode the pack metadata under the pack's format_minor, as UnmarshalPackMetaMinor does,
+// so a number of format 1.1 keeps its format 1.0 status in a pack of minor 0;
+// Reader.Unobserved says whether a record's bit 7 means unobserved in its pack.
+// A record that carries quality.redacted or that a redaction entry names has its Marking in Item.Redaction,
+// and PackHeader.RedactionDefects lists the defects of the entries found at bootstrap
+// (the tracepack semantics specification §8);
+// a defect never fails Open or a read and never makes it incomplete, and the records it concerns read as wholly masked.
+//
 // FindTransaction looks up the reply to a primary record (the tracepack semantics specification §7.2)
 // over the packs a PackSource gives for each hour it reads, of any capture.
 // It reports TxMatched, TxAmbiguous or TxNotFound,
@@ -57,9 +99,10 @@
 // grouped by the UTC hour of their period;
 // the caller owns the readers and keeps them open while the source is used.
 //
-// ExportJSONL writes the canonical JSONL export of one pack, schema tracepack-jsonl/1
-// (the tracepack JSONL specification):
+// ExportJSONL writes the canonical JSONL export of one pack (the tracepack JSONL specification):
 // a header line, then one line per record, the same bytes any conforming exporter writes for the pack.
+// A pack of format minor 0 exports schema tracepack-jsonl/1, as earlier versions wrote it,
+// and any other pack tracepack-jsonl/2, which names the additions of format 1.1.
 // A damaged pack exports the records of its validated blocks, with the Result Iterate returns for it:
 // a failed block or a crash gap makes it incomplete, while a footer that is not used only sets FooterErr.
 // A reader budget that keeps part of the pack out fails the export with an error wrapping ErrReadLimit instead.
@@ -71,6 +114,12 @@
 // Merge writes one archive of a scope from the segments and archives its caller gives,
 // with the scope_generation and publisher_epoch the caller supplies;
 // it writes the archive's lineage, compacted_from and supersedes, from the inputs.
+// It carries the masks and thinning of format 1.1 packs and writes the largest format_minor of its inputs;
+// it refuses inputs carrying redaction_policy that differ in that policy or in their classifier configuration,
+// or a masked input beside an unmasked one,
+// while inputs without a policy merge with their classifier and max_frame_len values united, as before;
+// differing redaction entries for one seq are conflicts (the tracepack storage specification §4 Merge).
+// Packs of format 1.1 are merged only by this version or later.
 // The caller decides which packs a merge takes and when a pack may be deleted,
 // and publishes the archive only after Merge returns nil (the tracepack storage specification §4).
 // SegmentKey and ArchiveKey build the keys of the tracepack storage specification §3, and EscapeToolID spells a tool as a key does.

@@ -5,6 +5,223 @@ Releases are tagged `tracepack/vX.Y.Z` on `main`, independently of go-secs `vX.Y
 
 ## [Unreleased]
 
+## [0.5.0] - YYYY-MM-DD
+
+This release implements spec v2.33, format 1.1, and keeps every format 1.0 pack and its canonical export unchanged.
+A pack of format 1.1 can be masked at write under a redaction policy that encrypts the originals of data records in place with AES-SIV,
+and can hold records unobserved by design, of the streams and functions its `thinning` entries declare.
+Readers decode pack metadata under the pack's `format_minor`, report the defects of redaction entries without failing `Open`,
+and give the Marking of each masked record in `Item.Redaction`.
+The new package `redact` masks records, computes their digests and restores their originals.
+The bus codec and the descriptor codec carry a durable-bus capture from its producer to its consumers,
+and `WriteClose` writes the close of a capture its producer left open, at seq 2^63 − 1, the last seq of a capture.
+`Writer.Close` returns a `Continuation`, so a pack that ends at that seq reports that no pack follows.
+`Merge` merges format 1.1 packs, with the refusals of the storage specification §4.
+The conformance corpus, now `tracepack-corpus/4`, gains 24 vectors.
+
+### Upgrade notes
+
+- `Writer.Close` returns `(Continuation, error)` instead of `(uint64, error)`.
+  `Continuation.Next() (seq uint64, ok bool)` gives the seq the capture's next pack starts at,
+  and `ok` is false after a pack whose last record has seq 2^63 − 1, and with the zero `Continuation` returned beside an error.
+  Replace `next, err := w.Close()` with `cont, err := w.Close()` and `next, ok := cont.Next()`, and start no further pack when `ok` is false;
+  a call that discards the result, `_, err := w.Close()`, compiles unchanged.
+- A record carrying `quality` bit 7 is refused where v0.4.0 cleared the bit silently.
+  `Writer.Append`, and so every `SegmentWriter` append, accepts the bit only as `QualityUnobserved`,
+  on a data record unobserved by design of a stream and function the pack metadata's `thinning` declares.
+  A record whose own fields break that rule is refused with `ErrInvalidRecord`,
+  and one of a stream and function `thinning` does not declare, or in a pack without `thinning`,
+  with a `*FieldError` for `thinning` wrapping `ErrMetadataCommitment`;
+  clear bit 7 of a record that is not unobserved before appending it.
+- `ErrInvalidRecord` now covers every writer, `Writer.Append` included, and its text is "tracepack: record refused by the writer";
+  test for it with `errors.Is`, never by its text.
+- `NewWriter` refuses pack metadata that breaks a writer rule of format 1.1 (the format specification §5).
+  A pack that is not an extract and carries `redaction_policy` is masked at write:
+  its policy must carry both `encryption_algorithm` and `encryption_key_id`, its metadata exactly one `classifier` and at most one `max_frame_len`,
+  each breach refused with a `*FieldError` wrapping `ErrMetadataCommitment`.
+  v0.4.0 wrote such a segment under a policy without encryption, and its merge dropped the policy.
+  Such a pack is written with given seqs: `AssignSeq`, and so `DetectClockSteps`, which requires it, is refused with a plain error, no sentinel.
+  An extract's policy may carry neither encryption tag, and its entries no `siv`, each refused with a `*FieldError` wrapping `ErrMetadataCommitment`.
+  A `thinning` entry whose stream is above 127 or whose function is above 255 is refused with a `*FieldError` for `thinning` wrapping `ErrFieldValue`.
+- Readers decode the pack metadata under the format minor of the pack's file header:
+  `Open`, `Reader.Header().Meta` and `Reader.Info().Meta()`, `PackInfo` keeping the minor it was built with.
+  In a pack of minor 0 a number of format 1.1 keeps its format 1.0 status:
+  tag 0x0033 stays in `PackMeta.Unknown`, the nested format 1.1 tags of `redaction_policy` and `redaction` are skipped,
+  and `PackMeta.MarshalBinary` of such a value returns `ErrReservedTag`, so nothing written from it gives those bytes a meaning.
+  `UnmarshalPackMeta` and `NewPackInfo` decode with the newest registry, as for a pack of an unknown newer minor;
+  a caller that knows the pack's minor calls `UnmarshalPackMetaMinor` or `NewPackInfoMinor`.
+- `Open`, `UnmarshalPackMeta` and `UnmarshalPackMetaMinor` no longer fail on a malformed `masked_ranges`:
+  a length not a multiple of 8, an odd count, or an element above 2^63 − 1.
+  The value is kept in `RedactionEntry.RawMaskedRanges`, `PackHeader.RedactionDefects` reports the entry,
+  and the records it names read as wholly masked.
+  No redaction defect fails `Open` or a read or makes a read incomplete; `Verify` is unchanged.
+- `PackHeader` is no longer comparable, since its new field `RedactionDefects` is a slice:
+  code that compares `PackHeader` values with `==`, or uses one as a map key, compares the fields it needs instead.
+- `Merge` refuses with `ErrMergeInput`, before it writes anything to `dst`, inputs v0.4.0 merged or that format 1.1 adds:
+  an input of a `format_minor` newer than this module implements;
+  a minor-0 input holding a record that carries `quality` bit 7, as its footer shows, beside an input of minor 1 or more;
+  an input whose `redaction_policy` lacks either encryption tag, whatever its minor;
+  a policy-bearing input with a number of `classifier` values other than one, or more than one `max_frame_len`;
+  inputs carrying `redaction_policy` that differ in policy, `classifier` or `max_frame_len`, or a policy-bearing input beside one without a policy;
+  inputs whose `thinning` lists differ;
+  redaction entries without a policy, any bootstrap defect of the entries or of the `redaction-present` flag,
+  which includes a minor-0 segment that sets `redaction-present` and holds no entry, and an entry naming a seq its input does not hold.
+  Inputs without `redaction_policy` still merge with differing `classifier` and `max_frame_len` values, the archive carrying their union.
+  Differing redaction entries for one seq fail with `ErrMergeConflict`, also before `dst` is touched.
+  After the archive's header, `Merge` also refuses with `ErrMergeInput` a block holding a record that fails a check of Marking,
+  or a record carrying `quality.unobserved` that the Writer would refuse;
+  such an error leaves `dst` holding a partial, unfinalized archive, which the caller discards, as after any error of `Merge`.
+- The refusal of a redacted record in an input without `redaction_policy` now reads "a redacted record without redaction_policy in the pack metadata".
+- Merge packs of format 1.1 only with tracepack v0.5.0 or later (the format specification §14):
+  an earlier version knows nothing of format 1.1 and does not carry its masks, policies and `thinning` into the archive as this one does.
+- The module requires `github.com/tink-crypto/tink-go/v2` v2.8.0, for its raw AES-SIV primitive (`daead/subtle`) only.
+  Only `redact` and an internal package link it:
+  a program that does not import `redact` links no Tink code, whatever else of the module it uses.
+- The corpus manifest's `corpus` value is now `tracepack-corpus/4`, its `spec_version` `2.33` and its `format_version` `1.1`.
+  `jsonl_schema` moves from the manifest into each vector of class `read` and `truncation`:
+  `tracepack-jsonl/1` when its pack's `format_minor` is 0, as for every earlier vector, and `tracepack-jsonl/2` otherwise.
+  `primitives.json` gains the keys `digest_keys`, `encryption_keys`, `hmac` and `aes_siv`,
+  and `footer.json` each boundary's `gap_start` and `gap_end` and the F-5 `seq_ranges`; every earlier key keeps its value.
+
+### Added
+
+- Format 1.1 in the pack metadata:
+  `Thinning` and `PackMeta.Thinning` (tag 0x0033);
+  `RedactionPolicy.EncryptionAlgorithm` (`*EncryptionAlgorithm`) and `RedactionPolicy.EncryptionKeyID` (`*string`), each nil exactly when its tag is absent;
+  `RedactionEntry.SIV` and `RedactionEntry.HasSIV`, a present empty `siv` told apart from an absent one and any length kept;
+  `RedactionEntry.RawMaskedRanges`, which `MarshalBinary` writes as `masked_ranges` and refuses beside `MaskedRanges`;
+  the `EncryptionAlgorithm` enum, `EncryptionAlgorithmUnknown` and `EncryptionAlgorithmAESSIVCMAC512` (1);
+  and `QualityUnobserved`, bit 7 (`unobserved`).
+  A decoded value is written back by `MarshalBinary` as it was decoded.
+- `UnmarshalPackMetaMinor(b, minor)` and `NewPackInfoMinor(packID, captureID, minor, metadata)`.
+- `(*Reader).Unobserved(rec)`, true only for a record carrying bit 7 in a pack of minor 1 or later;
+  with `len(Record.Payload)` and `Record.DecodeStatus` it tells an unobserved record from a genuinely empty message text and from an abnormal reply.
+  `Filter` gains no predicate for it.
+- `PackHeader.RedactionDefects`: the recoverable defects of the redaction entries found at bootstrap,
+  each entry on its own (its ranges array, zero lengths, unsorted, overlapping or adjacent ranges, a present `siv` that is not 16 bytes),
+  the order of the entries, and a `redaction-present` flag that disagrees with them.
+- `Item.Redaction` (`*RecordRedaction`), from `Reader.Iterate` and `MergeIterate`,
+  for every record that carries `quality.redacted` or that an entry names:
+  copies of its entries, its defects and whether it is `WhollyMasked`, the same with or without `Query.Payloads`; nil for every other record.
+  `RecordRedaction`, `RedactionDefect` and `ErrRedactionDefect`, which every defect wraps.
+- The package `redact`: masking at write under a redaction policy, the in-place AES-SIV encryption of the originals of data records,
+  HMAC-SHA-256 digests comparable across captures, and an all-or-nothing restore.
+  - `Policy`, `Encryption`, `ItemRule`, `AnnotationRule`, `Compiled`, and `Keys`, an interface through which the caller keeps custody of the keys.
+  - `Compile` rejects, before use, a domain that is not 1 to 65535 bytes of UTF-8, a malformed path, a stream above 127,
+    and, under encryption, two item rules of one stream and function that can select overlapping items.
+  - `(*Compiled).Mask(capture, r, unobserved, keys)` masks one record and returns its entries;
+    the caller says whether the record is unobserved, which is never masked.
+    It refuses a record already carrying `quality.redacted`, and text nested deeper than 64 lists, which the consumer defers.
+  - `(*Compiled).PackPolicy`, the `redaction_policy` value of the pack metadata.
+  - `Restore(capture, r, rr, policy, key)` gives back the original payload of a masked data record, all or nothing;
+    it reruns every check of Marking on its own inputs and trusts no value its caller built.
+    An annotation's masks keep no original, so it restores none.
+  - `Digest`, `DigestSize`, `KeySize` and `DomainMessageText`.
+  - Errors: `ErrInvalidPolicy`, `ErrOverlappingRules` and `ErrDomain` from `Compile`;
+    `ErrCannotScreen`, `ErrNotUnobserved`, `ErrRedacted` and `ErrKeySize` from `Mask`;
+    `ErrNoEncryption`, `ErrUnsupportedAlgorithm`, `ErrKeySize`, `ErrNotRestorable` and `ErrAuthentication` from `Restore`,
+    which also returns errors wrapping `tracepack.ErrRedactionDefect`.
+- The bus codec, layout 1 of the durable-bus message (the storage specification §4):
+  - the constants `BusLayout1`, `BusHeaderLayout`, `BusHeaderMsgID`, `BusHeaderDescriptor`, `BusHeaderPayloadRef`, `BusHeaderPayloadDigest`,
+    `BusHeaderBlockLimit` (4096) and `BusMinMaxPayload` (4140);
+    the errors `ErrBusMalformed`, `ErrBusNotAccepted` and `ErrBusPayloadMismatch`; the types `BusEnvelope` and `BusRecord`.
+  - `BusToolToken`, `ParseBusToolToken` and `BusSubject`, the subject `<prefix>.<tool token>.<capture_id>`;
+    `BusMsgID` and `ParseBusMsgID`, the id `<capture_id>.<seq>`, which refuse seq 2^63 − 1, reserved for a consumer's close.
+  - `NewBusRecord` and `EncodeBusBody`, the producer's side: the 44-byte record header, then the payload inline or none for a claim-check record,
+    `decode_status`, `trailing_bytes` and `field_validity` written as zero;
+    it refuses a record carrying `quality.redacted`, seq 2^63 − 1 and an inline length that differs from the payload's.
+  - `CheckBusMessage`, the consumer's check, which returns the record normalized:
+    `ErrBusMalformed` for a message never written, `ErrBusNotAccepted` for a capture's start it cannot accept;
+    a claim-check record keeps its declared length without a payload being allocated.
+  - `BusPayloadDigest` and `CheckBusPayload` for the object of a claim-check record, which also check a claim-check start;
+    `BusInline` and `CheckBusStart`, the producer's sizing preflight;
+    and `DeriveBusRecord`, the values a consumer derives by kind, from the capture's `Classifier`.
+- The descriptor codec: `EncodeDescriptor` and `DecodeDescriptor`,
+  the producer-owned entries of a capture's pack metadata, `thinning` included, with no default applied.
+  `DecodeDescriptor` refuses a top-level tag the descriptor does not carry, single or repeated,
+  a nested tag `thinning` does not define, a `thinning` entry above stream 127 or function 255,
+  and a `capture_method` or `time_source` layout 1 does not serve.
+- `Continuation` (see Upgrade notes).
+- `WriteClose(w, CloseOptions)`, a consumer's close of a capture left open:
+  one `stop-unclean` record at seq 2^63 − 1, alone in a segment, its gap bounds computed in checked `int64` arithmetic and its `format_minor` by feature.
+  `CloseOptions` holds `Meta`, `CaptureID`, `Trigger`, `HighestSeqTS`, `PackID`, `Uncompressed`, `Sync` and `Now`;
+  equal options with a fixed `PackID` and `Now` write equal bytes, and the pack id is returned with an error, once the options are valid.
+- The export schema `tracepack-jsonl/2`, for packs of `format_minor` 1 or later:
+  it names `thinning` and its nested tags, `encryption_algorithm` (by name, such as `aes-siv-cmac-512`) and `encryption_key_id` of `redaction_policy`,
+  `siv` of `redaction`, and the `quality` bit `unobserved`; a tag a later minor adds stays under `unknown`.
+- `classify.NewNamed(name, maxFrameLen)`, a classifier whose `Name` is the one given,
+  which a consumer of a durable bus sets for every pack of a capture;
+  `classify.New` keeps the name from the build info.
+- Corpus vectors, 24 of them:
+  format 1.0 packs holding the numbers of format 1.1, legacy extracts under a policy, and a pack of minor 2;
+  footer boundaries and seq ranges equal in their first keys; a redaction entry missing a required nested tag;
+  masking at write, digests, encryption, recoverable and overlapping defects, a merged masked archive,
+  and a masked and thinned base pack cut at every offset and with a corrupt block;
+  thinned FDC polls; and the consumer's close of a plain, a masked and thinned, and an empty capture, also merged.
+  `primitives.json` publishes the test keys `test-digest-1`, `test-digest-2`, `test-enc-1` and `test-enc-2`, with HMAC and AES-SIV known-answer cases,
+  the `label` case holding the 53 bytes of associated data.
+
+### Changed
+
+- The Writer writes `format_minor` 1 exactly when the pack holds a feature of format 1.1:
+  a redaction entry in a pack that is not an extract, a policy with the encryption tags, an entry with `siv`, or a `thinning` entry;
+  every other pack keeps minor 0 and exports `tracepack-jsonl/1`, byte for byte as before.
+  A pack that is not an extract and holds entries but no policy is written as minor 1; its redacted records are refused as before.
+- A pack masked at write may hold records carrying `quality.redacted` and sets `redaction-present`.
+  The Writer checks their Marking:
+  `NewWriter` refuses entries a reader would report at bootstrap;
+  `Append` refuses, both ways, a record whose Marking does not fit the entries naming its seq, before it takes a seq or closes a block;
+  and `Close` refuses an entry naming a seq no appended record carried, leaving the pack unfinalized.
+  Each refusal of these Marking checks is a `*FieldError` for `redaction` or `redaction-present` wrapping both `ErrMetadataCommitment` and `ErrRedactionDefect`.
+  A record that breaks a commitment before the Marking checks run, such as a redacted record in a pack whose file header does not set `redaction-present`,
+  is refused, as before, with a `*FieldError` wrapping `ErrMetadataCommitment` alone,
+  so test a refusal of either kind with `errors.Is(err, ErrMetadataCommitment)`.
+  Extracts keep the rules of format 1.0.
+- The Writer stores bit 7 of an unobserved record it accepts.
+- A `SegmentWriter` whose capture reaches seq 2^63 − 1 finalizes that segment, then refuses every record with `ErrSeqOrder`; it never restarts at seq 0.
+- A reader treats a record as wholly masked when an entry naming it is defective, when it is named by either entry of a pair out of order,
+  or when it fails a check of its own:
+  ranges inside the payload, past the 14-byte frame prefix of a data record, or inside an annotation's `text` or `raw` value;
+  the `redacted` bit agreeing with the entries;
+  no entry and no `redacted` bit on a control record, a transport event or a record of an unknown kind, which are never masked;
+  under a policy carrying `encryption_algorithm`, `siv` on every entry of a data record and none on an annotation's;
+  and encrypted entries that do not overlap, overlapping zero masks staying allowed.
+- `Merge` merges format 1.1 packs.
+  The archive of inputs carrying `redaction_policy` carries that policy, their one `classifier` and `max_frame_len`, and their redaction entries,
+  each seq's once, ordered by seq, then by first masked offset;
+  the archive of inputs without it carries the union of their `classifier` and `max_frame_len` values, as before.
+  Either carries the inputs' `thinning`;
+  it sets `redaction-present` exactly when it carries an entry,
+  and writes the largest `format_minor` of its inputs, also for an archive without a feature of format 1.1.
+  Where an input's pack metadata commits its records to Marking or `thinning`,
+  a block copied verbatim is checked against them as a resolved or coalesced block is.
+- Entry conflicts: `ErrMergeConflict` also reports redaction entries that differ for one seq,
+  found from the pack metadata before any block is read.
+  `MergeOptions.OnConflict` receives each, its versions the entry lists of the inputs;
+  `MergeReport.Conflicts` counts them, and `ConflictsComplete` stays false, since no record was compared.
+- The Godoc of `PackFacts.DurableRecorder`, `BoundaryKindStopUnclean`, `CaptureDescriptor` and `DefaultClockStepTolerance` describes the consumer of a durable bus,
+  no longer a recorder with a durable spool.
+- The conformance corpus follows spec v2.33, schema `tracepack-corpus/4` (see Upgrade notes);
+  `footer.json` lists boundaries and seq ranges in their full order.
+  Every earlier vector keeps its `pack.tpk` and `export.jsonl` byte for byte.
+  121 vectors, in 267 files.
+
+### Fixed
+
+- A read over several packs, `MergeIterate` and each hour a transaction lookup reads, reports a `coverage` entry that one pack holds for another capture the read also reads,
+  the defect naming the pack holding the entry, where it skipped it.
+  A read of one pack still reports only the entries of its own capture.
+- A transaction lookup evaluates every `coverage` entry naming the primary's capture in every pack it reads,
+  also in an hour whose read holds no pack of that capture, so such an entry can explain a missing primary or leave the lookup incomplete.
+
+### Performance
+
+- `(*redact.Compiled).Mask` of an S7F3 under a policy with encryption, AES-SIV over its PPBODY and one HMAC-SHA-256 digest,
+  takes about 8 µs for a 4 KiB PPBODY and 1.7 ms for 1 MiB, about 500 and 610 MB/s, with 38 allocations and about three payloads of bytes.
+- The copy `Writer.Append` makes of a payload a producer has already copied costs about 1.2 % of the append time of a 4 KiB frame with zstd and validation,
+  and about 6.2 % without either, so no appending API that takes ownership of the payload is added.
+- `Merge` of format 1.0 packs is unchanged within about 3 %: the per-record checks of format 1.1 run only on blocks whose summary shows a redacted or unobserved record or an entry's seq.
+
 ## [0.4.0] - 2026-10-11
 
 This release follows spec v2.32, which keeps format 1.0, every pack it describes and every canonical export unchanged,

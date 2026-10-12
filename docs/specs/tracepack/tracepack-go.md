@@ -19,6 +19,8 @@ line numbers are avoided because they drift.
   and, for the encryption of originals, `github.com/tink-crypto/tink-go/v2`, of which the module uses only the raw AES-SIV primitive `daead/subtle`,
   so Tink's keyset format never enters a pack (G5-228, G5-245).
   The dependency is the tracepack module's own and does not reach the go-secs root module;
+  inside the module only the internal AES-SIV package imports it, which only `tracepack/redact` uses,
+  so a program that does not import `redact` links no Tink code;
   the module's tests check Wycheproof's AES-SIV-CMAC vectors for 512-bit keys and the corpus's cases.
   No CGO.
 
@@ -77,7 +79,8 @@ The query service, its catalog database and the live-tail interface are designed
   `Append` assigns the capture-scoped `Seq` ([FMT I-12])
   and closes the current block before a record from another UTC hour ([FMT I-13]), which only an `extract` holds;
   it rejects a record whose set `field_validity` bit names bytes its payload lacks ([FMT §7.2]).
-  `Flush`; `Close` writes footer + trailer ([FMT §12]) and returns the capture's next seq for the following segment.
+  `Flush`; `Close() (Continuation, error)` writes footer + trailer ([FMT §12]) and returns where the capture continues:
+  `Continuation.Next() (seq uint64, ok bool)` gives the following segment's start seq, `ok` false after the capture's last seq (below).
 - `CaptureDescriptor` (G5-153): the pack metadata [STO §4] gives the producer of a capture, written unchanged into every pack of it:
   `ToolID`, `Transport`, `CaptureMethod`, `Vantage`, `Recorder`, `RecorderInstanceID` (required, never generated: it links the deployment's captures across restarts, [FMT I-7]),
   `PreviousCaptureID`, `TimeSource`, `CaptureOrigin` (`time.Time`; zero takes the time `NewSegmentWriter` runs),
@@ -88,29 +91,87 @@ The query service, its catalog database and the live-tail interface are designed
   The Godoc of `QualityEvaluated` names what `SegmentWriter` evaluates (`correlation-incomplete` for epoch 0, the capture-boundary bit)
   and what the producer evaluates before it sets the field (`ordering-uncertain`, `direction-inferred`, [SEM §6]).
   Every `PackMeta` field gains Godoc from the registry's *Meaning* column and the roles that require it.
-- Bus codec (G5-226): encodes and decodes the 44-byte header of one record outside a block, and the body of bus layout 1, the header followed by the payload or the header alone ([STO §4] *Bus message*);
-  the module imports no NATS client, and the header names, the layout number and the digest form are constants.
-  The codec refuses a producer seq of 2^63 − 1, which only a consumer's close carries.
-- Descriptor codec (G5-226): encodes and decodes the producer-owned entries of a capture descriptor (TLV, [FMT §5]), `thinning` included, as raw values with no default applied:
-  the decoder yields the producer-owned pack-metadata values, a nonzero `capture_origin_mono_ns` and a zero `clock_step_tolerance_ns` kept, which the consumer copies;
+- Bus codec (G5-226): layout 1 of the bus message, in the root package ([STO §4] *Bus message* and *Large records*); the module imports no NATS client.
+  The layout number, the header names, the 4096-byte bound of a header block and the smallest `max_payload` are constants:
+  `BusLayout1`, `BusHeaderLayout`, `BusHeaderMsgID`, `BusHeaderDescriptor`, `BusHeaderPayloadRef`, `BusHeaderPayloadDigest`, `BusHeaderBlockLimit` and `BusMinMaxPayload`.
+  `BusToolToken`, `ParseBusToolToken` and `BusSubject` spell the subject, `BusMsgID` and `ParseBusMsgID` the `Nats-Msg-Id`, and `BusPayloadDigest` the claim-check digest.
+  A producer builds a `BusRecord` with `NewBusRecord(*Record)` and encodes it with `EncodeBusBody(*BusRecord) ([]byte, error)`:
+  the 44-byte record header with `decode_status`, `trailing_bytes` and `field_validity` zero, then the payload,
+  or nothing for a claim-check record, which keeps its `PayloadLen` with no payload in memory.
+  It checks a message's size with `BusInline` and `CheckBusStart`, computing the length of the NATS header block itself;
+  the 4096-byte bound holds for every message.
+  A consumer checks a message with `CheckBusMessage(BusEnvelope, body) (BusRecord, error)`,
+  which returns the record normalized, `decode_status`, `trailing_bytes` and `field_validity` zero whatever the producer wrote:
+  `ErrBusMalformed` marks a message never written, its seq a seq gap,
+  and `ErrBusNotAccepted` a `start` whose `Tpk-Capture-Descriptor` is missing, not padded standard base64 or does not decode,
+  on which the consumer alerts and defers the capture's later records.
+  `CheckBusPayload` checks a fetched claim-check object (`ErrBusPayloadMismatch`, deferred),
+  and `DeriveBusRecord(*Record, Classifier)` sets the values the consumer derives by kind, an unobserved data record's included.
+  Both directions refuse a producer seq of 2^63 − 1, which only a consumer's close carries.
+  `EncodeBusBody` also refuses a record carrying `redacted`, which a producer never sets,
+  while `CheckBusMessage` accepts a well-framed body carrying it and keeps the bit, as it keeps every defined `quality` bit.
+- Descriptor codec (G5-226): `EncodeDescriptor(*PackMeta) ([]byte, error)` and `DecodeDescriptor([]byte) (*PackMeta, error)`,
+  the producer-owned entries of a capture descriptor (TLV, [FMT §5]), `thinning` included, as raw values with no default applied:
+  the decoder yields the producer-owned pack-metadata values, a nonzero `capture_origin_mono_ns` and a zero `clock_step_tolerance_ns` kept, which the consumer copies.
+  It refuses a top-level tag a descriptor does not carry, single or repeated, a nested tag `thinning` does not define (G5-252),
+  a `thinning` entry whose stream is above 127 or whose function is above 255 (G5-254), and a `capture_method` or `time_source` layout 1 does not serve,
+  so the `start` carrying such a descriptor is not accepted.
   `CaptureDescriptor` stays the recorder-facing type, which resolves its defaults before it encodes.
-- Masking preparation (G5-246), shaped by the metadata-first commit of [FMT §12]:
-  a function masks one record under a policy and its keys, key access going through an interface so that custody stays with the caller,
-  and returns the masked record and its `redaction` entries ([SEM §8]);
-  the caller masks its whole flush batch, which a bus consumer already holds ([STO §4]), collects the entries into the pack metadata, and then constructs the `Writer`.
+- Masking preparation (G5-246), shaped by the metadata-first commit of [FMT §12], is the package `tracepack/redact`:
+  it imports the root package for its types, and the root package never imports it, so readers and `Merge` need no key material.
+  `redact.Policy{ID, Version, DigestKeyID, Encryption, ItemRules, AnnotationRules}` is compiled by `redact.Compile`,
+  which rejects an invalid domain or path and, under encryption, item rules of one stream and function that can select overlapping items, before use (G5-236).
+  `(*Compiled).Mask(capture, r, unobserved, keys) (Record, []RedactionEntry, error)` masks one record and returns its `redaction` entries ([SEM §8]),
+  key access going through the `redact.Keys` interface, `DigestKey(keyID)` and `EncryptionKey(capture, keyID)`, so that custody stays with the caller.
+  The caller says whether the record is unobserved, from the bus record's bit 7 or `Reader.Unobserved` for a record read back,
+  since a stored bit 7 means nothing in a minor-0 pack;
+  an unobserved record is never masked (G5-237).
+  Text nested deeper than 64 lists cannot be screened: `Mask` returns `ErrCannotScreen`, and the consumer defers the record.
+  `(*Compiled).PackPolicy()` gives the `redaction_policy` value, both encryption tags included under encryption, and `redact.Digest` the digest of [SEM §8].
+  The caller masks its whole flush batch, which a bus consumer already holds ([STO §4]),
+  collects the entries into `PackMeta.Redaction`, ordered by seq, then by first masked offset, and then constructs the `Writer`.
   A screening failure in preparation leaves no output.
   The `Writer` checks Marking at append, both ways, for every record that carries `redacted` or is named by an entry, and checks that the commitments hold;
-  it still writes the metadata first and holds one block.
-- `Writer`, format 1.1: the existing `AssignSeq = false` path keeps each record's given seq, with its ordering checks (G5-246);
-  it gains the classification option for given-seq records, accepts unobserved records against the pack's `thinning`, and writes `format_minor` by [FMT §14].
+  `NewWriter` refuses entries a reader would report at bootstrap, and `Close` an entry naming a seq no appended record carried;
+  the `Writer` still writes the metadata first and holds one block.
+- `Writer`, format 1.1: the existing `AssignSeq = false` path keeps each record's given seq, with its ordering checks (G5-246).
+  Classification happens before masking, outside the `Writer`,
+  since [STO §4] *Masking* classifies the payload as received and a classification at append would see ciphertext:
+  a consumer derives each bus record's `decode_status` and `trailing_bytes` with `DeriveBusRecord` and the capture's `Classifier`, then masks it.
+  The given-seq path classifies nothing; it checks, as for every pack, that the metadata's `classifier` and `max_frame_len` cover the records.
+  A pack masked at write, one that is not an `extract` and carries `redaction_policy`,
+  must carry both encryption tags, exactly one `classifier` and at most one `max_frame_len` ([FMT §5], G5-243, G5-250);
+  it is written with given seqs only, `NewWriter` refusing `AssignSeq` and `DetectClockSteps`,
+  since its entries and their associated data bind each record's seq before the `Writer` sees the record.
+  The `Writer` accepts a record carrying `QualityUnobserved` only as a data record unobserved by design ([SEM §2]) of a stream and function the pack's `thinning` declares,
+  refusing one whose own fields break the rule with `ErrInvalidRecord`,
+  and it refuses a `thinning` entry whose stream is above 127 or whose function is above 255 (G5-254).
+  It writes `format_minor` by [FMT §14], from the pack metadata, with no option; only `Merge` overrides it, with the largest input minor.
   Placing records into segments by [STO §4] *Scope and order* stays with the log service.
-  `Close` of a pack whose last record has seq 2^63 − 1 finalizes it successfully and reports "no continuation" as a result distinct from any error (e.g. a next seq with a `false` flag), never 2^63;
-  its callers — `SegmentWriter`, `Merge`, the close writer — treat it as success and publish the pack.
+  `Close` returns a `Continuation`, whose one method `Next() (seq uint64, ok bool)` is the only way to read a continuation seq:
+  after a pack whose last record has seq 2^63 − 1, `Close` succeeds and `Next` reports `ok` false,
+  so no caller can take the result for a start and a capture never restarts at seq 0 (G5-231).
+  `SegmentWriter` then refuses every later record with `ErrSeqOrder`, and `Merge` and `WriteClose` treat it as success.
   `NewWriter` refuses a `seq_start` or `NextSeq` above 2^63 − 1.
-- Close writer (G5-223, G5-231): writes the close segment of [STO §4] *Closing a capture left open* from the capture's descriptor, its consumer-owned values, the trigger time and the staged bounds;
-  its `format_minor` follows [FMT §14].
-- Restore (G5-247): restores a record's originals, given its `redaction` entries and the encryption key, all or nothing per record ([SEM §8] Encryption);
+- Close writer (G5-223, G5-231, G5-240): `WriteClose(w io.Writer, opts CloseOptions) (UUID, error)` writes the close segment of [STO §4] *Closing a capture left open*,
+  one `stop-unclean` record at seq 2^63 − 1 alone in a segment.
+  `CloseOptions` holds `Meta`, the capture's descriptor and its consumer-owned values; `CaptureID`; `Trigger`, the close's time;
+  `HighestSeqTS`, the `ts_utc_ns` of the highest seq the service staged, not the latest timestamp, nil when none is staged;
+  and `PackID`, `Uncompressed`, `Sync` and `Now`.
+  It computes `gap_start` and `gap_end` in checked `i64` arithmetic, each absent on overflow, and its `format_minor` follows [FMT §14].
+  `Sync`, when set, is called after the block and after the trailer, as `WriterOptions.Sync` is;
+  the pack id is returned with an error once the options are valid,
+  since an error after the trailer reached the output may leave a finalized pack that is not durable.
+  Equal options with a fixed `PackID` and `Now` write equal bytes, so a retried close is byte-identical.
+- Restore (G5-247): `redact.Restore(capture UUID, r *Record, rr *RecordRedaction, policy *RedactionPolicy, key []byte) ([]byte, error)` returns a record's original payload,
+  given its Marking as `Item.Redaction` reports it and the capture's encryption key, all or nothing per record ([SEM §8] Encryption);
   the caller keeps custody of the key.
+  It trusts no value its caller built:
+  it refuses a Marking listing a defect or wholly masked, a policy without both encryption tags (`ErrNoEncryption`),
+  an algorithm other than `aes-siv-cmac-512`, before any decryption, since the associated data does not bind it (`ErrUnsupportedAlgorithm`),
+  and a key that is not 64 bytes;
+  and it reruns every Marking check on its own inputs.
+  An annotation's masks keep no original (G5-238), so it restores no annotation.
 - `SegmentWriter` (G5-153): `NewSegmentWriter(ctx, SegmentWriterOptions) (*SegmentWriter, error)` writes one capture, in capture order, as segments ([STO §4] Flush),
   as a standalone recorder (G5-150), so its segments carry no `flush_interval_ns`; it keeps its clock-anchor code, and the module exports no stand-alone clock-step detector (G5-226).
   It owns `writer` (from the module's build info, with the fallback `classify.Name` uses), `classifier`, `max_frame_len`, `period_start`, `period_end`, `seq_start`,
@@ -237,10 +298,19 @@ The query service, its catalog database and the live-tail interface are designed
   `Header()`, `Blocks()` (F-2), `Iterate(ctx, Query, fn) (Result, error)`,
   and `Stats() (PackStats, bool)` (G5-131): the F-5 statistics of a pack whose footer it uses — counts, time and seq ranges, per-epoch summaries with `close_seq`, capture-boundary entries — as a fresh value, false without a used footer.
   `Open` decodes the pack metadata against the registry of the pack's `format_minor` ([FMT §5]),
-  parses the redaction entries with it and runs their bootstrap checks, whose defects are recoverable and never fail `Open` ([SEM §8]); its cost grows with the entries.
-  Records expose `Redacted`, `Unobserved` and their masked ranges, and entries their `siv`, validated against the record when it is read ([SEM §8] Marking);
-  tracepack v0.4.0 rejected some of these defects at bootstrap and checked no range against its record ([FMT §14]);
-  a wholly masked record reports its defect, and `Header()` exposes the policy, the entries and any bootstrap defect.
+  as `UnmarshalPackMetaMinor(b, minor)` and `NewPackInfoMinor(packID, captureID, minor, metadata)` do,
+  while `UnmarshalPackMeta` and `NewPackInfo` decode with the newest registry;
+  in a minor-0 pack a number of format 1.1 keeps its 1.0 status, a top-level tag kept in `Unknown`, which `MarshalBinary` refuses to write back (`ErrReservedTag`).
+  It parses the redaction entries with that registry and runs their bootstrap checks, whose defects are recoverable and never fail `Open` ([SEM §8]),
+  listed in `PackHeader.RedactionDefects`, each a `RedactionDefect{Seq, Entry, Err}` wrapping `ErrRedactionDefect`; its cost grows with the entries.
+  An entry keeps what was stored: a malformed `masked_ranges` in `RedactionEntry.RawMaskedRanges`, a present `siv` of any length in `SIV` with `HasSIV`,
+  and a policy's encryption tags in `EncryptionAlgorithm` and `EncryptionKeyID`, each nil exactly when absent.
+  Every record that carries `redacted` or is named by an entry has its Marking in `Item.Redaction`, a `RecordRedaction{Entries, WhollyMasked, Defects}`,
+  validated against the record when it is read ([SEM §8] Marking), the same with or without `Query.Payloads`;
+  tracepack v0.4.0 rejected some of these defects at bootstrap and checked no range against its record ([FMT §14]).
+  `Reader.Unobserved(*Record)` reports bit 7 as unobserved only in a pack of minor 1 or later, `Record.Quality` keeping the stored bits;
+  `Filter` has no predicate for it,
+  and `Unobserved`, `len(Record.Payload)` and `DecodeStatus` tell an unobserved record from an empty message text and from an abnormal reply.
   Every block read decodes the whole body and checks I-2 before any record is used ([FMT §6]);
   the reader untransposes the decoded header section into a reusable row buffer, after which every record-level path reads headers in row form.
   An implementation MAY view that row buffer without copying as a slice of a native struct (`unsafe.Slice`)
@@ -317,12 +387,18 @@ The query service, its catalog database and the live-tail interface are designed
   and so does archive pack metadata longer than `opts.Reader.MaxPackMetadataLen`, the budget the next merge opens it with.
   An error found before the archive's header leaves `dst` untouched, and after any error the caller discards `dst` and publishes nothing;
   an error of the final write or sync can leave bytes that form a finalized pack, which `Merge` still reports as a failure.
-  From format 1.1 it carries the masks and `thinning` of its inputs, and refuses the inputs [STO §4] Merge refuses:
-  a minor newer than it implements, preserved bytes that would gain a meaning under the output's minor,
-  masked inputs that differ in policy, classifier configuration or `thinning`, a masked input beside an unmasked one, and differing entries of one record.
+  From format 1.1 it carries the masks and `thinning` of its inputs, and refuses with `ErrMergeInput` the inputs [STO §4] Merge refuses:
+  a minor newer than it implements,
+  preserved bytes that would gain a meaning under the output's minor (a minor-0 input's bit 7 beside an input of minor 1 or more),
+  a policy lacking either encryption tag, whatever the input's minor (G5-253),
+  masked inputs that differ in policy or classifier configuration, inputs that differ in `thinning`, a masked input beside an unmasked one,
+  a bootstrap defect of an input's entries, and a record failing a Marking check;
+  differing entries of one record fail with `ErrMergeConflict` before `dst` is touched, each passed to `OnConflict` as an entry conflict.
+  It writes the largest input `format_minor`, so a featureless minor-1 input merges to minor 1 ([FMT §14]).
 - `Verify(ctx, ra, size, opts) (VerifyReport, error)`: the outcome, failed blocks, disagreements, writer defects and validated prefix of [FMT §13];
   a file header or pack metadata that cannot be read is an error, as for `Open`.
-- `ExportJSONL(ctx, r *Reader, w io.Writer) (Result, error)`: writes the canonical export of the pack `r` reads ([FMT §15], [JSONL]), a function of package `tracepack` (G5-168).
+- `ExportJSONL(ctx, r *Reader, w io.Writer) (Result, error)`: writes the canonical export of the pack `r` reads ([FMT §15], [JSONL]), a function of package `tracepack` (G5-168),
+  schema `tracepack-jsonl/1` for a pack of minor 0, so every format 1.0 export is unchanged, and `tracepack-jsonl/2` otherwise ([JSONL §5]).
   It exports the records `r.Iterate(ctx, Query{Payloads: true}, …)` yields, in the same order, and returns the `Result` that call returns:
   open defects, the `coverage` entries that intersect the query, the crash gaps ([SEM §7.4] Crash gaps), and every failed block and every block or footer value found disagreeing with its records ([SEM §7.4]) in `Incomplete`, whose records are exported;
   `FooterErr` and `FooterErrs` as `Iterate`, a footer error alone not making the result incomplete.
@@ -334,14 +410,20 @@ The query service, its catalog database and the live-tail interface are designed
   a write error of `w`, wrapped, `io.ErrShortWrite` for a short write. On an error the `Result` holds what was found so far, and the bytes written stay written for the caller to discard.
   It writes each line in pieces of at most 64 KiB, so a line may take several `Write` calls (G5-172);
   beyond the reader's decoded block and the `Result`'s diagnostics, its memory does not grow with the length of a payload, a value or an entry list.
-- Documentation (G5-155): one `tracepack` package; `tracepack/README.md` and the package documentation open with the API by audience:
-  recorders (`CaptureDescriptor`, `SegmentWriter`, `SegmentSink`), readers (`Open`, `MergeIterate`, `FindTransaction`, `NewReaderSource`, `ExportJSONL`, `Verify`)
+- Documentation (G5-155): the `tracepack` package and `tracepack/redact`; `tracepack/README.md` and the package documentation open with the API by audience:
+  recorders (`CaptureDescriptor`, `SegmentWriter`, `SegmentSink`), producers over a durable bus (the bus codec, the descriptor codec),
+  the log service (`DeriveBusRecord`, `redact`, the `Writer`'s masked-at-write path, `WriteClose`, `Merge`),
+  readers (`Open`, `MergeIterate`, `FindTransaction`, `NewReaderSource`, `ExportJSONL`, `Verify`, with `Item.Redaction` and `PackHeader.RedactionDefects`)
   and the storage service (`Merge`, the key builders),
-  with runnable examples: `ExampleSegmentWriter`, `ExampleOpen`, `ExampleFindTransaction` over `NewReaderSource`, `ExampleMergeIterate` and `ExampleExportJSONL`.
+  with runnable examples: `ExampleSegmentWriter`, `ExampleOpen`, `ExampleFindTransaction` over `NewReaderSource`, `ExampleMergeIterate`, `ExampleExportJSONL`
+  and the `redact` package's `Example`.
 
 ## 4. Classifier: go-secs → decode_status
 
-The Go classifier writes `classifier = go-secs/<version>`.
+The Go classifier writes `classifier = go-secs/<version>`:
+`classify.New(maxFrameLen)` takes the version from the module's build info, `go-secs/unknown` when go-secs is replaced by a local path.
+`classify.NewNamed(name, maxFrameLen)` writes the name given,
+as a consumer of a durable bus does, whose classifier configuration is fixed per capture (G5-250).
 
 | decode_status | go-secs source |
 |---|---|
