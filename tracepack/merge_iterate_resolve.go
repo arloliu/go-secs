@@ -103,6 +103,7 @@ func newClusterResolver(run *mergeIterateRun, capture UUID, c *planCluster) *clu
 // item sets it to the candidate's record as the read yields it, for q:
 // the record as stored in its representative, with its header extension, pack and block;
 // its payload only when q asks for payloads.
+// Its Marking is left to redaction, which needs the representative's Reader.
 // The Item aliases the representative's block, valid while the candidate is not released.
 //
 // Returns:
@@ -117,6 +118,15 @@ func (c *candidate) item(q *Query, it *Item) uint8 {
 	*it = Item{Record: rec, HeaderExtra: h.Extra, Pack: c.h.pack, Block: c.h.block, Conflict: c.conflict}
 
 	return h.RecordFlags
+}
+
+// redaction returns the Marking of rec, the candidate's record as item set it, under the redaction entries of rd,
+// the Reader of the representative's pack, checked against the stored payload, whatever the query asks for;
+// nil for a record that carries no quality.redacted and that no entry names.
+func (c *candidate) redaction(rd *Reader, rec Record) *RecordRedaction {
+	rec.Payload = c.h.d.payload(c.rec)
+
+	return rd.redaction.record(&rec)
 }
 
 // release drops the candidate's ownership of its representative's block, through l, the loader that loaded it.
@@ -335,6 +345,7 @@ func (r *mergeIterateRun) yield(ctx context.Context, c *candidate, it *Item, fn 
 		}
 	}
 	flags := c.item(r.q, it)
+	it.Redaction = c.redaction(r.p.readers[c.h.pack], it.Record)
 	if r.p.storedFlags != nil {
 		*r.p.storedFlags = flags
 	}

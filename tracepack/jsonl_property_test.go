@@ -2,6 +2,7 @@ package tracepack
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/arloliu/go-secs/tracepack/internal/codec"
 	"github.com/arloliu/go-secs/tracepack/internal/format"
+	"github.com/arloliu/go-secs/tracepack/internal/marking"
 	"github.com/arloliu/go-secs/tracepack/internal/tlv"
 )
 
@@ -45,9 +47,24 @@ func jsonlOracleBits(names []string, v uint32) []string {
 	return out
 }
 
+// jsonlOracleQualityNames returns the quality bit names the export renders for a pack of the format minor:
+// a pack of minor 0 names bit 7 bit(7), under schema tracepack-jsonl/1,
+// and a pack of minor 1 or later names it unobserved, under schema tracepack-jsonl/2.
+func jsonlOracleQualityNames(t testing.TB, minor uint16) []string {
+	t.Helper()
+
+	if minor == 0 {
+		return jsonlQualityNames
+	}
+
+	return jsonlQualityNamesV2
+}
+
 // jsonlRawBlock is a block decoded from the pack's bytes by the test, apart from the reader:
-// its record header rows gathered as stored, and its payloads.
+// its record header rows gathered as stored, and its payloads,
+// with the format minor of its pack's file header, which selects the names the export renders.
 type jsonlRawBlock struct {
+	minor    uint16
 	rhl      int
 	rows     []byte
 	payloads [][]byte
@@ -63,8 +80,11 @@ func jsonlRawBlockAt(t testing.TB, file []byte, off uint64) *jsonlRawBlock {
 	decoded, err := codec.Decode(env.Codec, nil, file[start:start+uint64(env.BodyLen)], int(env.UncompressedLen))
 	require.NoError(t, err)
 
+	hdr, err := format.UnmarshalFileHeader(file)
+	require.NoError(t, err)
+
 	n, rhl := int(env.RecordCount), int(env.RecordHeaderLen)
-	b := &jsonlRawBlock{rhl: rhl, rows: format.UntransposeHeaders(nil, decoded[:n*rhl], n, rhl)}
+	b := &jsonlRawBlock{minor: hdr.FormatMinor, rhl: rhl, rows: format.UntransposeHeaders(nil, decoded[:n*rhl], n, rhl)}
 	at := n * rhl
 	for j := range n {
 		size := int(binary.LittleEndian.Uint32(b.rows[j*rhl+28:]))
@@ -90,7 +110,7 @@ func requireJSONLLineOf(t testing.TB, line string, b *jsonlRawBlock, j int) {
 	assert.Equal(t, le.Uint32(row[24:]), got.Epoch)
 	assert.Equal(t, le.Uint32(row[28:]), got.PayloadLen)
 	assert.Equal(t, le.Uint32(row[32:]), got.TrailingBytes)
-	assert.Equal(t, jsonlOracleBits(jsonlQualityNames, uint32(le.Uint16(row[36:]))), got.Quality)
+	assert.Equal(t, jsonlOracleBits(jsonlOracleQualityNames(t, b.minor), uint32(le.Uint16(row[36:]))), got.Quality)
 	assert.Equal(t, jsonlOracleEnum(jsonlKindNames, row[38]), got.Kind)
 	assert.Equal(t, jsonlOracleEnum(jsonlDirNames, row[39]), got.Dir)
 	assert.Equal(t, jsonlOracleEnum(jsonlFidelityNames, row[40]), got.Fidelity)
@@ -251,11 +271,6 @@ func TestExportJSONL_Bootstrap(t *testing.T) {
 		{"capture-clock without capture origins", jsonlHeadOnlyPack(hdr, jsonlMeta(t, []uint16{0x0009}, tlv.U8Entry(0x0009, 1))), ErrRequiredTag},
 		{"bad header CRC", flipByte(jsonlHeadOnlyPack(hdr, jsonlMeta(t, nil)), 20), ErrChecksum},
 		{"bad pack metadata CRC", flipByte(jsonlHeadOnlyPack(hdr, jsonlMeta(t, nil)), format.FileHeaderLen+2), ErrChecksum},
-		// A current reader limitation: the format treats these redaction entry defects as recoverable,
-		// but Open fails on them today.
-		{"masked_ranges not whole elements, reader limitation", jsonlHeadOnlyPack(hdr, jsonlMeta(t, nil, redaction(make([]byte, 7)))), nil},
-		{"masked_ranges of an odd count, reader limitation", jsonlHeadOnlyPack(hdr, jsonlMeta(t, nil, redaction(u64s(1)))), nil},
-		{"masked_ranges element over 2^63-1, reader limitation", jsonlHeadOnlyPack(hdr, jsonlMeta(t, nil, redaction(u64s(1<<63, 1)))), nil},
 	}
 	for _, tt := range rejected {
 		t.Run(tt.name, func(t *testing.T) {
@@ -296,6 +311,38 @@ func TestExportJSONL_Bootstrap(t *testing.T) {
 			require.Len(t, lines, 1)
 			assert.Contains(t, lines[0], tt.want)
 			assert.False(t, res.Complete(), "a pack without a trailer is not finalized")
+		})
+	}
+
+	// A malformed masked_ranges is a recoverable defect (the tracepack semantics specification §8):
+	// the pack opens, the defect is reported with the flag's, since the header lacks redaction-present,
+	// and the value is exported as stored.
+	malformed := []struct {
+		name   string
+		ranges []byte
+	}{
+		{"masked_ranges not whole elements", make([]byte, 7)},
+		{"masked_ranges of an odd count", u64s(1)},
+		{"masked_ranges element over 2^63-1", u64s(1<<63, 1)},
+	}
+	for _, tt := range malformed {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := mustOpen(t, jsonlHeadOnlyPack(hdr, jsonlMeta(t, nil, redaction(tt.ranges))), ReaderOptions{})
+			defects := r.Header().RedactionDefects
+			require.Len(t, defects, 2)
+			assert.Equal(t, RedactionDefect{Seq: 5, Entry: 0, Err: defects[0].Err}, defects[0])
+			require.ErrorIs(t, defects[0].Err, marking.ErrRangesMalformed)
+			assert.Equal(t, -1, defects[1].Entry)
+			require.ErrorIs(t, defects[1].Err, marking.ErrPresence)
+			assert.Equal(t, tt.ranges, r.Header().Meta.Redaction[0].RawMaskedRanges)
+
+			out, _, err := runExportJSONL(t, r)
+			require.NoError(t, err)
+			lines := jsonlLines(t, out)
+			require.Len(t, lines, 1)
+			assert.Contains(t, lines[0], `"masked_ranges":"`+base64.StdEncoding.EncodeToString(tt.ranges)+`"`)
 		})
 	}
 

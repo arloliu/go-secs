@@ -141,7 +141,7 @@ func (r *Reader) Iterate(ctx context.Context, q Query, fn func(*Item) error) (Re
 			gaps.addRecords(0, capture, d)
 			res.Incomplete = gaps.flush(res.Incomplete)
 		}
-		if err := yield(&q, i, d, &item, fn); err != nil {
+		if err := r.yield(&q, i, d, &item, fn); err != nil {
 			return res, err
 		}
 	}
@@ -218,8 +218,9 @@ func (r *Reader) prunes(i int, f *Filter) bool {
 }
 
 // yield calls fn with every record of block i, read as d, that q's filter selects, reusing item.
-// The HSMS header fields are read from the payload once per record, only when the filter tests one.
-func yield(q *Query, i int, d *decodedBlock, item *Item, fn func(*Item) error) error {
+// The HSMS header fields are read from the payload once per record, only when the filter tests one,
+// and the record's Marking is checked against its stored payload before a read without payloads drops it.
+func (r *Reader) yield(q *Query, i int, d *decodedBlock, item *Item, fn func(*Item) error) error {
 	f := &q.Filter
 	fields := f.hasFieldPredicate()
 	for j := range d.count() {
@@ -234,11 +235,12 @@ func yield(q *Query, i int, d *decodedBlock, item *Item, fn func(*Item) error) e
 				continue
 			}
 		}
+		redaction := r.redaction.record(&rec)
 		if !q.Payloads {
 			rec.Payload = nil
 		}
 
-		*item = Item{Record: rec, HeaderExtra: h.Extra, Block: i}
+		*item = Item{Record: rec, HeaderExtra: h.Extra, Block: i, Redaction: redaction}
 		if err := fn(item); err != nil {
 			return err
 		}

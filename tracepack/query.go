@@ -93,6 +93,12 @@ type Item struct {
 	// Conflict reports that another version of the record exists among the copies the read compared;
 	// Reader.Iterate never sets it.
 	Conflict bool
+	// Redaction is the Marking of a record that carries quality.redacted or that a redaction entry of its pack names
+	// (the tracepack semantics specification §8), for MergeIterate the entries of the representative's pack:
+	// copies of those entries, the defects of the record and of its entries, and whether the record is wholly masked.
+	// It is checked against the stored payload, so it is the same whether or not Query.Payloads is set.
+	// Nil for every other record.
+	Redaction *RecordRedaction
 }
 
 // overlaps reports whether the inclusive interval [lo, hi] meets the half-open range [from, to),

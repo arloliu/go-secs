@@ -128,7 +128,9 @@ type Reader struct {
 	// metaRaw holds the pack metadata bytes, from which Header decodes a fresh copy on every call.
 	metaRaw []byte
 	// meta is the Reader's own decoded pack metadata; it is never handed out.
-	meta      *PackMeta
+	meta *PackMeta
+	// redaction indexes meta's redaction entries, with their bootstrap defects, for the reads' Marking checks.
+	redaction *redactionIndex
 	finalized bool
 	// footerErr is non-nil when the footer was not used and blocks came from the forward walk.
 	footerErr error
@@ -176,6 +178,15 @@ type PackHeader struct {
 	FooterErr error
 	// Trailer is the trailer's content; nil when the trailer is invalid.
 	Trailer *TrailerInfo
+	// RedactionDefects lists the recoverable defects of the pack's redaction entries found at bootstrap
+	// (the tracepack semantics specification §8), each wrapping ErrRedactionDefect:
+	// first, by entry, the defects of each entry checked on its own
+	// (its ranges array, every range's length, the ranges' order, a present siv that is not 16 bytes)
+	// and of the order of the entries, an order defect listed with both entries of the pair;
+	// then a redaction-present flag that is not set exactly when an entry exists.
+	// The records a defective entry names are wholly masked (Item.Redaction); the flag's defect masks nothing.
+	// Empty when there is none; a defect never fails Open.
+	RedactionDefects []RedactionDefect
 }
 
 // TrailerInfo is the content of a valid trailer (the tracepack format specification §11).
@@ -459,6 +470,7 @@ func (r *Reader) Header() *PackHeader {
 		Meta:             meta,
 		Finalized:        r.finalized,
 		FooterErr:        r.footerErr,
+		RedactionDefects: r.redaction.headerDefects(),
 	}
 	if r.trailer != nil {
 		t := *r.trailer
@@ -688,7 +700,8 @@ func (r *Reader) roundTwo(ctx context.Context, b *bootstrap) error {
 }
 
 // decodeMeta checks the pack metadata CRC and decodes the pack metadata under the file header's format minor,
-// and keeps both the bytes and the decoded value.
+// and keeps both the bytes and the decoded value,
+// with the index of its redaction entries, whose bootstrap checks report recoverable defects only.
 func (r *Reader) decodeMeta(raw []byte) error {
 	if crc := format.CRC(raw); crc != r.hdr.PackMetadataCRC {
 		return fmt.Errorf("tracepack: pack metadata CRC 0x%08X, pack_metadata_crc 0x%08X: %w", crc, r.hdr.PackMetadataCRC, ErrChecksum)
@@ -699,6 +712,7 @@ func (r *Reader) decodeMeta(raw []byte) error {
 		return err
 	}
 	r.metaRaw, r.meta = raw, meta
+	r.redaction = newRedactionIndex(meta, r.hdr.Flags)
 
 	return nil
 }

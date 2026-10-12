@@ -34,6 +34,11 @@ func FuzzUnmarshalPackMeta(f *testing.F) {
 	repeated, err := twoClassifiersMeta().MarshalBinary()
 	require.NoError(f, err)
 	f.Add(repeated)
+	for _, m := range toleratedRedactionMetas() {
+		b, err := m.MarshalBinary()
+		require.NoError(f, err)
+		f.Add(b)
+	}
 
 	f.Fuzz(func(t *testing.T, b []byte) {
 		m, err := tracepack.UnmarshalPackMeta(b)
@@ -64,6 +69,41 @@ func FuzzUnmarshalPackMeta(f *testing.F) {
 		}
 		require.Equal(t, &want, got)
 	})
+}
+
+// toleratedRedactionMetas returns pack metadata holding each redaction defect a reader tolerates and reports
+// (the tracepack semantics specification §8), each of which decodes and re-encodes as stored:
+// a masked_ranges value that is not whole elements, of an odd count or holding an element above 2^63 - 1,
+// a present siv of 0 or 15 bytes, and a policy holding one encryption tag.
+func toleratedRedactionMetas() []*tracepack.PackMeta {
+	entry := func(raw []byte, siv []byte, hasSIV bool) tracepack.RedactionEntry {
+		e := tracepack.RedactionEntry{Seq: 5, Domain: "d", Digest: make([]byte, 32), RawMaskedRanges: raw, SIV: siv, HasSIV: hasSIV}
+		if raw == nil {
+			e.MaskedRanges = []tracepack.MaskedRange{{Offset: 16, Length: 4}}
+		}
+
+		return e
+	}
+	odd := []byte{1, 0, 0, 0, 0, 0, 0, 0}
+	over := []byte{0, 0, 0, 0, 0, 0, 0, 0x80, 1, 0, 0, 0, 0, 0, 0, 0}
+	entries := []tracepack.RedactionEntry{
+		entry(make([]byte, 7), nil, false), entry(odd, nil, false), entry(over, nil, false),
+		entry(nil, []byte{}, true), entry(nil, make([]byte, 15), true),
+	}
+
+	var metas []*tracepack.PackMeta
+	for _, e := range entries {
+		m := basePackMeta()
+		m.Redaction = []tracepack.RedactionEntry{e}
+		metas = append(metas, m)
+	}
+	algorithm := tracepack.EncryptionAlgorithmAESSIVCMAC512
+	m := basePackMeta()
+	m.RedactionPolicy = &tracepack.RedactionPolicy{
+		PolicyID: "p", PolicyVersion: 1, KeyID: "k", DigestAlgorithm: tracepack.DigestAlgorithmHMACSHA256, EncryptionAlgorithm: &algorithm,
+	}
+
+	return append(metas, m)
 }
 
 // FuzzUnmarshalTransportEvent fuzzes UnmarshalTransportEvent.
