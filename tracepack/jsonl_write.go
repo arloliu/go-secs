@@ -11,7 +11,8 @@ import (
 // so a line of any length reaches the destination in pieces of at most this many bytes.
 const jsonlBufferSize = 64 << 10
 
-// Enum names of schema tracepack-jsonl/1, indexed by value (the tracepack JSONL specification §3.1).
+// Enum names of schema tracepack-jsonl/1, indexed by value (the tracepack JSONL specification §3.1),
+// which schema tracepack-jsonl/2 names alike.
 // A value past the end of its table has no name and is written "unknown(<n>)":
 // the retired pack_role 5 is such a value.
 var (
@@ -43,7 +44,12 @@ var (
 	jsonlAnnotationKindNames = []string{"unknown", "note", "unparsed-entry", "skipped-bytes", "unrecognised-line"}
 )
 
-// Bit names of schema tracepack-jsonl/1, indexed by bit (the tracepack JSONL specification §3.2).
+// jsonlEncryptionAlgorithmNames holds the names of the encryption_algorithm enum, indexed by value:
+// only schema tracepack-jsonl/2 names it (the tracepack JSONL specification §3.1).
+var jsonlEncryptionAlgorithmNames = []string{"unknown", "aes-siv-cmac-512"}
+
+// Bit names of schema tracepack-jsonl/1, indexed by bit (the tracepack JSONL specification §3.2),
+// which schema tracepack-jsonl/2 names alike but for the quality bits.
 // An empty name, or a bit past the end of its table, has no name and is written "bit(<n>)".
 var (
 	jsonlHeaderFlagNames    = []string{"redaction-present"}
@@ -51,6 +57,12 @@ var (
 	jsonlFieldValidityNames = []string{"session_id", "stream_and_w", "function", "ptype", "stype", "system_bytes"}
 	jsonlRecordFlagNames    = []string{"", "mono_present"}
 )
+
+// jsonlQualityNamesV2 holds the names of the quality bits under schema tracepack-jsonl/2, indexed by bit:
+// those of tracepack-jsonl/1 and bit 7 unobserved (the tracepack JSONL specification §3.2).
+var jsonlQualityNamesV2 = []string{
+	"capture-boundary", "ordering-uncertain", "correlation-incomplete", "", "direction-inferred", "redacted", "", "unobserved",
+}
 
 // jsonlWriter writes JSON lines in the byte form of the tracepack JSONL specification §2–§3 to an io.Writer.
 //

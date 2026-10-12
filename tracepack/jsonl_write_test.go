@@ -511,8 +511,9 @@ func TestJSONLWriter_EnumTablesMatchStringMethods(t *testing.T) {
 		{"socket_role", jsonlSocketRoleNames, func(v uint8) string { return SocketRole(v).String() }},
 		{"boundary_kind", jsonlBoundaryKindNames, func(v uint8) string { return BoundaryKind(v).String() }},
 		{"annotation_kind", jsonlAnnotationKindNames, func(v uint8) string { return AnnotationKind(v).String() }},
+		{"encryption_algorithm /2", jsonlEncryptionAlgorithmNames, func(v uint8) string { return EncryptionAlgorithm(v).String() }},
 	}
-	// The tables pin schema tracepack-jsonl/1: a value the format adds later has a String name but stays unknown here,
+	// The tables pin their schema: a value the format adds later has a String name but stays unknown here,
 	// so only the values within a table are compared with String.
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -557,6 +558,15 @@ func TestJSONLWriter_BitSets(t *testing.T) {
 		},
 		{"quality retired", jsonlQualityNames, 1<<3 | 1<<6, `["bit(3)","bit(6)"]`},
 		{
+			"quality /2 every bit",
+			jsonlQualityNamesV2,
+			0xffff,
+			`["capture-boundary","ordering-uncertain","correlation-incomplete","bit(3)","direction-inferred","redacted",` +
+				`"bit(6)","unobserved","bit(8)","bit(9)","bit(10)","bit(11)","bit(12)","bit(13)","bit(14)","bit(15)"]`,
+		},
+		{"quality /2 unobserved", jsonlQualityNamesV2, 1 << 7, `["unobserved"]`},
+		{"quality /1 bit 7", jsonlQualityNames, 1 << 7, `["bit(7)"]`},
+		{
 			"field_validity every bit",
 			jsonlFieldValidityNames,
 			0xff,
@@ -588,6 +598,7 @@ func TestJSONLWriter_BitTablesMatchNamesMethods(t *testing.T) {
 		namesFunc func(v uint32) []string
 	}{
 		{"quality", jsonlQualityNames, func(v uint32) []string { return Quality(v).Names() }},
+		{"quality /2", jsonlQualityNamesV2, func(v uint32) []string { return Quality(v).Names() }},
 		{"field_validity", jsonlFieldValidityNames, func(v uint32) []string { return FieldValidity(v).Names() }},
 		{"record_flags", jsonlRecordFlagNames, func(v uint32) []string { return RecordFlags(v).Names() }},
 		{
@@ -602,7 +613,7 @@ func TestJSONLWriter_BitTablesMatchNamesMethods(t *testing.T) {
 			},
 		},
 	}
-	// The tables pin schema tracepack-jsonl/1: a bit the format names later has a name in Names but stays unnamed here,
+	// The tables pin their schema: a bit the format names later has a name in Names but stays unnamed here,
 	// so only the bits within a table are compared with Names.
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
