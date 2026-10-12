@@ -1602,3 +1602,16 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   refusing the `start` makes a producer newer than its consumers visible while it can still be fixed.
   Rejected *(editorial)*: keeping unknown entries raw and copying them into every segment, to be dropped by the merge.
   Spec: [STO §4], v2.33.
+- G5-253 A merge input outside extracts carrying a policy without encryption fails, whatever its minor (2026-10-12, the scope of G5-243):
+  an input whose role is not `extract` and whose `redaction_policy` lacks either encryption tag fails the merge,
+  a minor-0 input included, though the masked-at-write profile is defined for format 1.1.
+  Rationale *(editorial)*: tracepack v0.4.0, the only writer of such minor-0 packs, has no consumer, so no stored pack is refused,
+  and one rule for every minor is simpler than carrying a policy without encryption into an archive.
+  Rejected *(editorial)*: applying only the equal-policy and single-classifier rules to minor-0 inputs and carrying the policy;
+  dropping the policy, as v0.4.0 did.
+  Spec: [STO §4] Merge, [FMT §5], v2.33.
+- G5-254 A `thinning` entry outside the SECS-II ranges makes its descriptor undecodable (2026-10-12, the scope of G5-252):
+  a capture descriptor holding a `thinning` entry whose stream is above 127 or whose function is above 255 does not decode, so its `start` is not accepted (G5-251).
+  Rationale *(editorial)*: no SECS-II message has such a stream or function, and the writer refuses the entry, so an accepted capture could write no segment.
+  Rejected *(editorial)*: accepting the entry, which never matches a record.
+  Spec: [STO §4], v2.33.

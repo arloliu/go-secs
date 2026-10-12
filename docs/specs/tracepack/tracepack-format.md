@@ -289,7 +289,8 @@ Nested tags of `redaction_policy`: 0x0001 `policy_id` utf8, 0x0002 `policy_versi
 and from format 1.1, 0x0005 `encryption_algorithm` u8 enum (§9) and 0x0006 `encryption_key_id` utf8, both present or both absent.
 When `redaction_policy` is present in a pack of the masked-at-write profile (format 1.1, role not `extract`), both are present (G5-243);
 an extract's `redaction_policy` holds neither, and a pack without `redaction_policy` has neither requirement.
-This is a writer rule that a merge checks, never a bootstrap rejection, like the profile's `classifier` and `max_frame_len` rules.
+This is a writer rule that a merge checks, never a bootstrap rejection, like the profile's `classifier` and `max_frame_len` rules;
+a merge checks it on every input whose role is not `extract` and that carries `redaction_policy`, whatever its minor (G5-253, [STO §4] Merge).
 
 Nested tags of `redaction` (a **redaction entry**): 0x0001 `seq` u64 (required), 0x0002 `item_path` utf8 (absent for a whole-text or annotation mask; empty for the root item),
 0x0003 `masked_ranges` bytes (required: a *u64 array* of (offset, length) pairs, offsets from the start of the record payload, [SEM §8]),
