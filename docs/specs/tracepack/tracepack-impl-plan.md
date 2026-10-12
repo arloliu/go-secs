@@ -834,9 +834,20 @@ Measured on one AMD Ryzen 9 9950X3D, Go 1.26.8, `GOMAXPROCS=16`:
 | `BenchmarkMaskPPBODY`, a 1 MiB PPBODY | about 1.71 ms, 607–622 MB/s, 3,165,345 bytes and 38 allocations |
 | `BenchmarkWriterAppendFrame`, 4 KiB frames, zstd and validation: one payload copy | about 10 of 883 ns, 1.2 % |
 | `BenchmarkWriterAppendFrame`, no codec and no validation: one payload copy | about 18 of 310 ns, 6.2 % |
-| `BenchmarkMergeCoalesce/idle` and `BenchmarkMergeSegments/idle`, format 1.0 packs, before and after the merge of format 1.1 | within 3 % |
+| `BenchmarkOpenAllocs`, `BenchmarkOpenIterateHour`, `BenchmarkMergeIterateDay`, `BenchmarkMergeIterateLargePacks`, `BenchmarkMergeSegments`, `BenchmarkMergeCoalesce/*/coalesce`, format 1.0 packs, against v0.4.0 | within noise; geomean −0.4 % |
+| `BenchmarkMergeCoalesce/*/nocoalesce`, format 1.0 packs, against v0.4.0 | about +3 %, from the stack offset of the block-summary loop, which moves v0.4.0 by up to 5 % alike; the record checks of format 1.1 do no per-record work there |
+| `BenchmarkWriterZstd` against v0.4.0 | within its run-to-run spread of ±3–4.5 % |
 
 The second payload copy at `Append` stays below 10 % of append time on both paths, so no owning append is added.
+A format 1.0 `Open` makes as many allocations as v0.4.0, a `Merge` one more.
+
+Release gates (2026-10-13): lint, the race tests and the 386 leg, `go fix -diff`, `docs-check` and the consumer check pass;
+`make corpus-tracepack` is deterministic in one process and in two, and every file of the earlier corpus is byte-identical;
+the canonical export of all 320 packs of the v0.4.0 and v0.3.0 corpora, and of every truncation cut of them, is byte-identical to v0.4.0's;
+the read and merge outcomes of v0.4.0 over format 1.1 packs are as [FMT §14] describes, and the two legacy extract vectors export the same bytes under both versions;
+every fuzz target ran 2 minutes, and the masking, bus, descriptor, merge and export targets 10 minutes each, with no crasher;
+`gorelease` against v0.4.0 suggests v0.5.0 and reports only the incompatible changes the CHANGELOG's upgrade notes list;
+the external post-implementation review recommends merge.
 
 ### Phase 9 — Simplification (tracepack v0.4.0)
 
