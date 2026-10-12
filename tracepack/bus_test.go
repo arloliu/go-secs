@@ -934,3 +934,22 @@ func TestDeriveBusRecordRefuses(t *testing.T) {
 		require.ErrorIs(t, DeriveBusRecord(&tc.rec, tc.cls), ErrInvalidRecord, tc.name)
 	}
 }
+
+// TestBusInlineBodyLen checks that an inline body's length is computed without overflow:
+// a payload whose body would pass the int limit, as on a 32-bit platform near 2^31 bytes, is refused before any allocation.
+func TestBusInlineBodyLen(t *testing.T) {
+	t.Parallel()
+
+	const busTestHeaderLen = 44 // the record header of the format specification §6
+
+	n, err := busInlineBodyLen(0)
+	require.NoError(t, err)
+	require.Equal(t, busTestHeaderLen, n)
+
+	n, err = busInlineBodyLen(math.MaxInt - busTestHeaderLen)
+	require.NoError(t, err)
+	require.Equal(t, math.MaxInt, n)
+
+	_, err = busInlineBodyLen(math.MaxInt - busTestHeaderLen + 1)
+	require.ErrorIs(t, err, ErrBusMalformed)
+}
