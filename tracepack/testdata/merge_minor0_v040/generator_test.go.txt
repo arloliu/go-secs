@@ -1,0 +1,146 @@
+package tracepack_test
+
+// Generator of the merge_minor0_v040 golden fixture: a merge of two format 1.0 (minor 0) segments
+// by the released tracepack v0.4.0 module, and the canonical export of its archive.
+//
+// It runs inside the tracepack v0.4.0 module (git archive tracepack/v0.4.0 tracepack), offline:
+//
+//	cd tracepack && MERGE_GOLDEN_OUT=<dir> GOWORK=off GOFLAGS=-mod=mod GOPROXY=off \
+//		go test -run '^TestMergeMinor0Golden$' -count=1 .
+//
+// It writes a.tpk and b.tpk, the inputs, written by v0.4.0's Writer with fixed ids and clock,
+// archive.tpk, their merge by v0.4.0's Merge with fixed ids and clock, and export.jsonl, the archive's export.
+//
+// The inputs are segments of one capture in one UTC hour, under a classifier and a max_frame_len:
+// a holds seqs 0 to 5, b seqs 4 to 9, in blocks of two records,
+// so the overlapping blocks are resolved and every block is then coalesced, under the default options;
+// the records are S1F1 and S6F11 data frames, an annotation note at seq 7 and a start boundary at seq 0.
+
+import (
+	"bytes"
+	"encoding/binary"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/arloliu/go-secs/tracepack"
+)
+
+// goldenHour is 2026-09-21T14:00:00Z in nanoseconds since the Unix epoch.
+const goldenHour int64 = 1_789_999_200_000_000_000
+
+var (
+	goldenCapture = tracepack.UUID{0xC0, 0x40, 0x01}
+	goldenNow     = time.Unix(0, goldenHour+int64(30*time.Minute)).UTC()
+)
+
+// goldenFrame returns the HSMS data frame of stream s and function f with message text text.
+func goldenFrame(s, f byte, text []byte) []byte {
+	b := make([]byte, 14, 14+len(text))
+	binary.BigEndian.PutUint32(b, uint32(10+len(text)))
+	b[5], b[6], b[7], b[13] = 1, 0x80|s, f, 9
+
+	return append(b, text...)
+}
+
+// goldenRecord returns the record of seq of the golden capture.
+func goldenRecord(t *testing.T, seq uint64) tracepack.Record {
+	t.Helper()
+
+	r := tracepack.Record{
+		Seq: seq, TSUTCNs: goldenHour + int64(seq)*int64(time.Second), Epoch: 1,
+		Kind: tracepack.KindData, Dir: tracepack.DirEquipmentToHost, Fidelity: tracepack.FidelityWireExact,
+		DecodeStatus: tracepack.DecodeStatusOK,
+	}
+	switch {
+	case seq == 0:
+		ev := tracepack.TransportEvent{Event: tracepack.EventCaptureBoundary, BoundaryKind: new(tracepack.BoundaryKindStart)}
+		payload, err := ev.MarshalBinary()
+		require.NoError(t, err)
+		r.Kind, r.Dir, r.Fidelity, r.DecodeStatus, r.Epoch = tracepack.KindTransportEvent, tracepack.DirLocal,
+			tracepack.FidelityNotApplicable, tracepack.DecodeStatusNotApplicable, 0
+		r.Quality = tracepack.QualityCaptureBoundary
+		r.Payload = payload
+	case seq == 7:
+		r.Kind, r.Dir, r.Fidelity, r.DecodeStatus = tracepack.KindAnnotation, tracepack.DirLocal,
+			tracepack.FidelityNotApplicable, tracepack.DecodeStatusNotApplicable
+		payload, err := (&tracepack.Annotation{AnnotationKind: tracepack.AnnotationKindNote, Text: new("operator note")}).MarshalBinary()
+		require.NoError(t, err)
+		r.Payload = payload
+	case seq%2 == 0:
+		r.Payload = goldenFrame(6, 11, []byte{0x01, 0x02, 0xA9, 0x02, 0x00, byte(seq), 0x41, 0x03, 'E', 'V', 'T'})
+	default:
+		r.Payload = goldenFrame(1, 1, nil)
+		r.Dir = tracepack.DirHostToEquipment
+	}
+	if r.Kind == tracepack.KindData {
+		r.SetCapturedFieldValidity()
+	}
+
+	return r
+}
+
+// goldenSegment writes the segment id of seqs first to last, in blocks of two records.
+func goldenSegment(t *testing.T, id tracepack.UUID, first, last uint64) []byte {
+	t.Helper()
+
+	m := &tracepack.PackMeta{
+		ToolID: "tool/golden", Transport: tracepack.TransportHSMSSS, CaptureMethod: tracepack.CaptureMethodRawStream,
+		Vantage: tracepack.VantageHost, Recorder: "recorder/1", Writer: "writer/1", TimeSource: tracepack.TimeSourceGenerator,
+		Classifiers: []string{"go-secs/golden"}, MaxFrameLens: []uint64{1 << 20},
+		PackRole: tracepack.PackRoleSegment, ScopeGeneration: new(uint64(0)),
+		PeriodStart: goldenHour, PeriodEnd: goldenHour + int64(time.Hour), SeqStart: first,
+	}
+	var buf bytes.Buffer
+	w, err := tracepack.NewWriter(&buf, tracepack.WriterOptions{
+		Meta: m, PackID: id, CaptureID: goldenCapture, Now: func() time.Time { return goldenNow },
+		Facts: tracepack.PackFacts{AnyClassified: true},
+	})
+	require.NoError(t, err)
+	for seq := first; seq <= last; seq++ {
+		r := goldenRecord(t, seq)
+		require.NoError(t, w.Append(&r))
+		if (seq-first)%2 == 1 {
+			require.NoError(t, w.Flush())
+		}
+	}
+	_, err = w.Close()
+	require.NoError(t, err)
+
+	return buf.Bytes()
+}
+
+func TestMergeMinor0Golden(t *testing.T) {
+	dir := os.Getenv("MERGE_GOLDEN_OUT")
+	if dir == "" {
+		t.Skip("MERGE_GOLDEN_OUT not set")
+	}
+
+	a := goldenSegment(t, tracepack.UUID{0x5E, 0x0A}, 0, 5)
+	b := goldenSegment(t, tracepack.UUID{0x5E, 0x0B}, 4, 9)
+	var archive bytes.Buffer
+	_, err := tracepack.Merge(t.Context(), &archive, []tracepack.MergeInput{
+		{ReaderAt: bytes.NewReader(a), Size: int64(len(a))},
+		{ReaderAt: bytes.NewReader(b), Size: int64(len(b))},
+	}, tracepack.MergeOptions{
+		Writer: "merger/golden", ScopeGeneration: 1, PublisherEpoch: 1,
+		ReplacementSetID: tracepack.UUID{0x5E, 0x75}, PackID: tracepack.UUID{0xA4, 0xC1},
+		Now: func() time.Time { return goldenNow }, OnConflict: func(tracepack.Conflict) { t.Fatal("conflict") },
+	})
+	require.NoError(t, err)
+
+	r, err := tracepack.Open(t.Context(), bytes.NewReader(archive.Bytes()), int64(archive.Len()), tracepack.ReaderOptions{})
+	require.NoError(t, err)
+	var export bytes.Buffer
+	_, err = tracepack.ExportJSONL(t.Context(), r, &export)
+	require.NoError(t, err)
+
+	for name, data := range map[string][]byte{
+		"a.tpk": a, "b.tpk": b, "archive.tpk": archive.Bytes(), "export.jsonl": export.Bytes(),
+	} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), data, 0o644))
+	}
+}

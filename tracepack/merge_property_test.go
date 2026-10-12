@@ -3,8 +3,11 @@ package tracepack
 import (
 	"bytes"
 	"cmp"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"math/rand/v2"
 	"slices"
@@ -369,11 +372,13 @@ func requireDerivedFooter(t *testing.T, inputs [][]byte, out []byte, blocks []wa
 //     two neighbouring blocks of one record_header_len exceed the threshold together,
 //     since the greedy grouping of the tracepack storage specification §4 Merge would have coalesced them otherwise;
 //   - rep counts what out holds, no conflict, and counts that agree (requireCountsAgree);
-//     without coalescing, the blocks written are the blocks copied and those the resolution encoded.
+//     without coalescing, the blocks written are the blocks copied and those the resolution encoded;
+//   - it carries the format 1.1 values of the inputs (requireMergedRedaction).
 func requireMergeProperties(t *testing.T, inputs [][]byte, out []byte, rep MergeReport, opts MergeOptions) {
 	t.Helper()
 
 	requireConsistent(t, out)
+	requireMergedRedaction(t, inputs, out)
 	blocks, tr := walkBlocks(t, out)
 
 	records := make([][]rawRecord, len(inputs))
@@ -415,6 +420,57 @@ func requireMergeProperties(t *testing.T, inputs [][]byte, out []byte, rep Merge
 		assert.Zero(t, rep.CoalesceFallbacks)
 		assert.Equal(t, rep.Copied+rep.ResolvedEncodings, rep.Blocks)
 	}
+}
+
+// requireMergedRedaction requires out, the archive of the pack files inputs, to carry their format 1.1 values
+// as the tracepack storage specification §4 Merge carries them:
+// the largest format_minor of the inputs; the first input's thinning and redaction_policy;
+// the redaction entries of every input, those of each seq once, in ascending seq,
+// with redaction-present exactly when there is one;
+// no redaction defect at bootstrap, and none on any record read.
+func requireMergedRedaction(t *testing.T, inputs [][]byte, out []byte) {
+	t.Helper()
+
+	var minor uint16
+	bySeq := make(map[uint64][]RedactionEntry)
+	for _, f := range inputs {
+		minor = max(minor, layoutHeader(t, f).FormatMinor)
+		own := make(map[uint64][]RedactionEntry)
+		for _, e := range mustOpen(t, f, ReaderOptions{}).Header().Meta.Redaction {
+			own[e.Seq] = append(own[e.Seq], e)
+		}
+		for seq, es := range own {
+			if _, kept := bySeq[seq]; !kept {
+				bySeq[seq] = es
+			}
+		}
+	}
+	seqs := slices.Sorted(maps.Keys(bySeq))
+	var want []RedactionEntry
+	for _, seq := range seqs {
+		want = append(want, bySeq[seq]...)
+	}
+
+	first := mustOpen(t, inputs[0], ReaderOptions{}).Header().Meta
+	r := mustOpen(t, out, ReaderOptions{})
+	h := r.Header()
+	require.Equal(t, minor, h.FormatMinor, "the inputs' largest format_minor")
+	require.Equal(t, first.Thinning, h.Meta.Thinning)
+	require.Equal(t, first.RedactionPolicy, h.Meta.RedactionPolicy)
+	require.Equal(t, want, h.Meta.Redaction, "every input's entries, each seq's once, in seq order")
+	require.Equal(t, len(want) > 0, h.Flags&fileHeaderRedactionPresent != 0, "redaction-present")
+	require.Empty(t, h.RedactionDefects)
+	if len(want) == 0 {
+		return
+	}
+	_, err := r.Iterate(t.Context(), Query{}, func(it *Item) error {
+		if it.Redaction != nil {
+			require.Empty(t, it.Redaction.Defects, "seq %d", it.Record.Seq)
+		}
+
+		return nil
+	})
+	require.NoError(t, err)
 }
 
 // failingEveryOther returns a hook for the on-disk body of new blocks, as mergePlan.coalescedHook takes it,
@@ -825,12 +881,122 @@ func genPack(t testing.TB, rng *rand.Rand, id UUID, c Codec, meta func(m *PackMe
 	for i := range recs {
 		steps[i] = footerTestStep{rec: recs[i], flush: rng.Float64() < p}
 	}
-	file := writeRepairPack(t, c, meta, false, cutAt(steps, wideFrom)).file
+	file := writeGenPack(t, c, meta, cutAt(steps, wideFrom))
 	if len(recs) > 0 && recs[len(recs)-1].Seq >= wideFrom {
 		file = widenedFrom(t, file, wideFrom)
 	}
 
 	return withIDs(t, file, id, viewCapture)
+}
+
+// writeGenPack writes steps into a new finalized pack whose metadata is repairTestMeta changed by meta, when set,
+// as writeRepairPack does, with the facts of a pack masked at write when meta gives it redaction_policy.
+func writeGenPack(t testing.TB, c Codec, meta func(*PackMeta), steps []footerTestStep) []byte {
+	t.Helper()
+
+	m := repairTestMeta()
+	if meta != nil {
+		meta(m)
+	}
+	if len(steps) > 0 {
+		m.SeqStart = steps[0].rec.Seq
+	}
+	facts := PackFacts{RedactionPolicyApplied: m.RedactionPolicy != nil, AnyRedacted: len(m.Redaction) > 0}
+
+	var buf bytes.Buffer
+	w, err := NewWriter(&buf, WriterOptions{Meta: m, Facts: facts, Uncompressed: c == CodecNone, BlockThreshold: 1 << 16, allowScopeBreach: true})
+	require.NoError(t, err)
+	for i := range steps {
+		require.NoError(t, w.Append(&steps[i].rec), "step %d", i)
+		if steps[i].flush {
+			require.NoError(t, w.Flush())
+		}
+	}
+	_, err = w.Close()
+	require.NoError(t, err)
+
+	return buf.Bytes()
+}
+
+// genMasking is how a generated capture is masked at write and thinned (genMaskingOf).
+type genMasking struct {
+	// entries holds the one redaction entry of every masked record, by seq; nil when the capture is not masked at write.
+	entries map[uint64]RedactionEntry
+	// thinning is the capture's thinning; nil when the capture is not thinned.
+	thinning []Thinning
+}
+
+// genMaskingOf masks and thins capture in place, drawing from a generator of its own seeded with seed,
+// so a scope it neither masks nor thins is the scope genScopeOf generated before it did either:
+// a quarter of the captures are thinned and a quarter masked at write, independently.
+// A thinned capture has about a quarter of its data records made unobserved S1F4 records,
+// which its thinning declares;
+// a masked capture has about a third of its other data records with a message text masked:
+// each carries quality.redacted and one entry of a range in its text, with a digest and a siv derived from its seq,
+// so every pack holding the record holds the same entry.
+// The masks are not encryptions of the records' bytes, which a merge does not check.
+func genMaskingOf(seed uint64, capture []Record) genMasking {
+	rng := rand.New(rand.NewPCG(seed, 0x6d61736b))
+	var g genMasking
+	if rng.IntN(4) == 0 {
+		g.thinning = genThinning
+	}
+	if rng.IntN(4) == 0 {
+		g.entries = make(map[uint64]RedactionEntry)
+	}
+	g.apply(rng, capture)
+
+	return g
+}
+
+// genThinning is the thinning of a generated capture that is thinned: S1F4.
+var genThinning = []Thinning{{Stream: 1, Function: 4, Source: "generated poll"}}
+
+// apply thins capture in place when g is thinned and masks it when g is masked at write, as genMaskingOf states,
+// drawing from rng, and records each masked record's entry in g.
+func (g *genMasking) apply(rng *rand.Rand, capture []Record) {
+	for i := range capture {
+		r := &capture[i]
+		if r.Kind != KindData {
+			continue
+		}
+		switch {
+		case g.thinning != nil && rng.IntN(4) == 0:
+			r.Payload = hsmsFrame(1, 4, make([]byte, 6))
+			r.DecodeStatus, r.Quality = DecodeStatusNotAttempted, QualityUnobserved
+			r.SetCapturedFieldValidity()
+		case g.entries != nil && len(r.Payload) > fieldSystemBytesEnd && rng.IntN(3) == 0:
+			r.Quality |= QualityRedacted
+			sum := sha256.Sum256(binary.LittleEndian.AppendUint64(nil, r.Seq))
+			length := uint64(min(4, len(r.Payload)-fieldSystemBytesEnd))
+			g.entries[r.Seq] = RedactionEntry{
+				Seq: r.Seq, MaskedRanges: []MaskedRange{{Offset: fieldSystemBytesEnd, Length: length}},
+				Domain: "message-text", Digest: sum[:], SIV: slices.Clone(sum[:16]), HasSIV: true,
+			}
+		default:
+			// The record stays as generated.
+		}
+	}
+}
+
+// meta returns the pack metadata change of a pack of the capture holding recs, in ascending seq, after base when set:
+// the capture's thinning, and in a capture masked at write the policy and the entries of recs' masked records.
+func (g *genMasking) meta(base func(m *PackMeta), recs []Record) func(m *PackMeta) {
+	return func(m *PackMeta) {
+		if base != nil {
+			base(m)
+		}
+		m.Thinning = g.thinning
+		if g.entries == nil {
+			return
+		}
+		m.RedactionPolicy = encryptedPolicy()
+		for _, r := range recs {
+			if e, masked := g.entries[r.Seq]; masked {
+				m.Redaction = append(m.Redaction, e)
+			}
+		}
+	}
 }
 
 // genSparse returns recs, or, half the time, recs with each record dropped with probability 1/5, keeping at least one.
@@ -869,6 +1035,7 @@ type genScope struct {
 // the first one in a fifth of the scopes as an archive.
 // Now and then a segment is also present as an exact duplicate, or with its records in blocks of the other codec,
 // and a segment without records joins the scope.
+// The capture may be masked at write or thinned (genMaskingOf), every pack of the scope then carrying its policy or thinning.
 // The merge takes a random codec, coalescing on or off, and a threshold from below one record to the default;
 // with coalescing, a third of the scopes have every other coalesced encoding fail.
 func genScopeOf(t testing.TB, seed uint64) genScope {
@@ -877,6 +1044,7 @@ func genScopeOf(t testing.TB, seed uint64) genScope {
 	rng := rand.New(rand.NewPCG(seed, 0x6d65726765))
 	codecs := [...]Codec{CodecNone, CodecZstd}
 	capture := genCapture(t, rng, 20+rng.IntN(100))
+	masking := genMaskingOf(seed, capture)
 	n := len(capture)
 	wideFrom := uint64(math.MaxUint64)
 	if rng.IntN(3) == 0 {
@@ -910,12 +1078,12 @@ func genScopeOf(t testing.TB, seed uint64) genScope {
 	s := genScope{opts: mergeOpts()}
 	member := rng.IntN(5) == 0
 	for k, recs := range parts {
-		id, meta := UUID{0x60, byte(k)}, func(*PackMeta) {}
+		id, meta := UUID{0x60, byte(k)}, masking.meta(nil, recs)
 		if k == 0 && member {
-			id, meta = memA, func(m *PackMeta) {
+			id, meta = memA, masking.meta(func(m *PackMeta) {
 				generationMeta(m, setA, 2, 3, []UUID{{0xC1}})
 				m.CompactionLevel = 1
-			}
+			}, recs)
 			s.opts = generationOpts()
 		}
 		s.files = append(s.files, genPack(t, rng, id, codecs[rng.IntN(2)], meta, recs, wideFrom))
@@ -932,7 +1100,7 @@ func genScopeOf(t testing.TB, seed uint64) genScope {
 	}
 	if rng.IntN(8) == 0 {
 		seqStart := capture[rng.IntN(n)].Seq
-		s.files = append(s.files, mergePack(t, UUID{0x63}, func(m *PackMeta) { m.SeqStart = seqStart }, nil))
+		s.files = append(s.files, mergePack(t, UUID{0x63}, masking.meta(func(m *PackMeta) { m.SeqStart = seqStart }, nil), nil))
 	}
 
 	s.opts.Uncompressed = codecs[rng.IntN(2)] == CodecNone
@@ -956,13 +1124,16 @@ func TestMergeGeneratedScopes(t *testing.T) {
 
 	var mu sync.Mutex
 	var sum MergeReport
-	merged := 0
+	// masked and thinned count the archives carrying redaction entries and thinning.
+	merged, masked, thinned := 0, 0, 0
 	// A cleanup runs once every scope's subtest has finished.
 	t.Cleanup(func() {
 		if merged != genScopes {
 			return
 		}
-		t.Logf("over %d scopes: %+v", genScopes, sum)
+		t.Logf("over %d scopes, %d masked and %d thinned: %+v", genScopes, masked, thinned, sum)
+		assert.Positive(t, masked)
+		assert.Positive(t, thinned)
 		assert.Positive(t, sum.Copied)
 		assert.Positive(t, sum.Duplicates)
 		assert.Positive(t, sum.Resolved)
@@ -976,11 +1147,18 @@ func TestMergeGeneratedScopes(t *testing.T) {
 			t.Parallel()
 
 			s := genScopeOf(t, seed)
-			_, rep := mergeChecked(t, s.files, s.opts, s.fallbacks)
+			out, rep := mergeChecked(t, s.files, s.opts, s.fallbacks)
+			meta := mustOpen(t, out, ReaderOptions{}).Header().Meta
 
 			mu.Lock()
 			defer mu.Unlock()
 			merged++
+			if len(meta.Redaction) > 0 {
+				masked++
+			}
+			if len(meta.Thinning) > 0 {
+				thinned++
+			}
 			sum.Copied += rep.Copied
 			sum.Duplicates += rep.Duplicates
 			sum.Resolved += rep.Resolved
@@ -1041,6 +1219,8 @@ type fuzzMergeResult struct {
 // every other coalesced encoding made to fail its check when fallbacks is set.
 // It requires every conflict OnConflict receives to be of the inputs' capture, with two versions or more,
 // and the conflicts to come in ascending seq, each seq once.
+// The capture is the first input's, read from its file header,
+// since a conflict of redaction entries is reported while the merge plans, before a plan exists.
 func fuzzMergeRun(t *testing.T, files [][]byte, opts MergeOptions, fallbacks bool) fuzzMergeResult {
 	t.Helper()
 
@@ -1050,9 +1230,13 @@ func fuzzMergeRun(t *testing.T, files [][]byte, opts MergeOptions, fallbacks boo
 	var out bytes.Buffer
 	var rep MergeReport
 	var capture UUID
+	// A merge reports conflicts only of inputs that opened, so the first input has a file header.
+	if hdr, err := format.UnmarshalFileHeader(files[0]); err == nil {
+		capture = UUID(hdr.CaptureID)
+	}
 	p, err := planMerge(t.Context(), inputs, &opts)
+	rep = planReport(err)
 	if err == nil {
-		capture = p.captureID
 		var calls int
 		if fallbacks {
 			p.coalescedHook = failingEveryOther(&calls)
@@ -1091,6 +1275,7 @@ type fuzzMergeInput struct {
 
 // fuzzMergeSeeds returns the seed inputs of FuzzMerge, made of the records of propertyCapture:
 // valid inputs that are copied and coalesced, resolved, conflicting, duplicates, interleaved,
+// masked at write and thinned, masked beside unmasked,
 // copied with unusual F-3 lists, or that exceed a budget, a block over MaxBlockLen included;
 // an archive beside a late segment, and a pack of pack_role repair beside a segment, which Merge refuses;
 // and inputs already damaged:
@@ -1125,6 +1310,27 @@ func fuzzMergeSeeds(t testing.TB) []fuzzMergeInput {
 	// A pack of pack_role repair, which Merge refuses: a segment listing what a repair requires, its role byte set in place.
 	repairRole := setMetaRole(t, mergePack(t, patP1, func(m *PackMeta) { m.Supersedes = []UUID{seg0} }, inBlocks(c[n/3:], 2)),
 		uint8(PackRoleRepair))
+	// The capture masked at write and thinned, in two overlapping segments.
+	mc := slices.Clone(c)
+	g := genMasking{entries: make(map[uint64]RedactionEntry), thinning: genThinning}
+	g.apply(rand.New(rand.NewPCG(1, 2)), mc)
+	maskedPack := func(id UUID, recs []Record, perBlock int) []byte {
+		return withIDs(t, writeGenPack(t, CodecZstd, g.meta(nil, recs), inBlocks(recs, perBlock)), id, viewCapture)
+	}
+	maskedA, maskedB := maskedPack(seg0, mc[:2*n/3], 2), maskedPack(seg1, mc[n/3:], 3)
+	// maskedB with another digest in the entry of the first masked record both segments hold:
+	// equal records with differing entries, a conflict found before any block is read.
+	other := genMasking{entries: maps.Clone(g.entries), thinning: g.thinning}
+	for _, r := range mc[n/3 : 2*n/3] {
+		if e, masked := other.entries[r.Seq]; masked {
+			e.Digest = slices.Clone(e.Digest)
+			e.Digest[0] ^= 1
+			other.entries[r.Seq] = e
+
+			break
+		}
+	}
+	otherEntries := withIDs(t, writeGenPack(t, CodecZstd, other.meta(nil, mc[n/3:]), inBlocks(mc[n/3:], 3)), seg1, viewCapture)
 	threshold := func(i uint8) uint8 { return i << fuzzThresholdShift }
 
 	return []fuzzMergeInput{
@@ -1145,6 +1351,10 @@ func fuzzMergeSeeds(t testing.TB) []fuzzMergeInput {
 		{a: early, b: big},
 		{a: member, b: late, ctl: threshold(2)},
 		{a: early, b: repairRole},
+		{a: maskedA, b: maskedB},
+		{a: maskedA, b: maskedB, ctl: fuzzNoCoalesce | threshold(1)},
+		{a: maskedA, b: late},
+		{a: maskedA, b: otherEntries},
 		{a: a[:len(a)/2], b: b},
 		{a: invalidFooterFile(t, a), b: b},
 		{a: damaged, b: b},
@@ -1159,7 +1369,7 @@ func fuzzMergeSeeds(t testing.TB) []fuzzMergeInput {
 // Packs that do not open are left to FuzzOpen.
 // Every merge ends in one of the outcomes Merge has for such inputs:
 // ErrMergeInput, for a pack Merge refuses or for packs of two scopes;
-// ErrMergeConflict, once every conflict reached OnConflict;
+// ErrMergeConflict, once every conflict reached OnConflict, before any block was compared for differing redaction entries;
 // a budget error, ErrMergeLimit or ErrReadLimit;
 // or an archive with the merge properties (requireMergeProperties).
 // Any other error, a panic, or an archive without the properties is a failure.
@@ -1199,8 +1409,14 @@ func FuzzMerge(f *testing.F) {
 
 			return
 		case errors.Is(err, ErrMergeConflict):
+			// Differing redaction entries are conflicts found before any block was compared.
+			var entries *entryConflictError
+			early := errors.As(err, &entries)
 			require.Positive(t, r.conflicts)
-			require.Equal(t, MergeReport{Conflicts: r.conflicts, ConflictsComplete: true}, r.rep)
+			require.Equal(t, MergeReport{Conflicts: r.conflicts, ConflictsComplete: !early}, r.rep)
+			if early {
+				require.Empty(t, r.out, "a conflict of redaction entries leaves the output untouched")
+			}
 		case errors.Is(err, ErrMergeInput), errors.Is(err, ErrMergeLimit), errors.Is(err, ErrReadLimit):
 			require.Equal(t, MergeReport{Conflicts: r.conflicts}, r.rep)
 		default:

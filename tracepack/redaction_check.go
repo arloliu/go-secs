@@ -1,11 +1,13 @@
 package tracepack
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"slices"
 
 	"github.com/arloliu/go-secs/tracepack/internal/marking"
+	"github.com/arloliu/go-secs/tracepack/internal/tlv"
 )
 
 // ErrRedactionDefect is wrapped by the Err of every RedactionDefect:
@@ -308,4 +310,218 @@ func (x *redactionIndex) record(rec *Record) *RecordRedaction {
 	rr.WhollyMasked = len(rr.Defects) > 0
 
 	return rr
+}
+
+// entryConflictError reports the records whose redaction entries differ between merge inputs,
+// which fails the merge as a record conflict does (the tracepack storage specification §4 Merge);
+// it wraps ErrMergeConflict.
+type entryConflictError struct {
+	// n is the number of records whose entries differ.
+	n int
+}
+
+var _ error = (*entryConflictError)(nil)
+
+// checkInputRedaction checks the redaction commitments of a merge input, which r opened,
+// that its pack metadata and footer show (the tracepack storage specification §4 Merge):
+// with redaction_policy, the writer rules of a pack masked at write, whatever its format_minor:
+// both encryption tags, exactly one classifier and at most one max_frame_len;
+// without it, no redaction entry;
+// no bootstrap defect of its entries or of its redaction-present flag;
+// and every entry naming the seq of one of its records, since the archive's entries name only the records it writes.
+func checkInputRedaction(r *Reader) error {
+	m := r.meta
+	if p := m.RedactionPolicy; p != nil {
+		switch {
+		case p.EncryptionAlgorithm == nil:
+			return errors.New("redaction_policy without encryption_algorithm in a pack that is not an extract")
+		case p.EncryptionKeyID == nil:
+			return errors.New("redaction_policy without encryption_key_id in a pack that is not an extract")
+		case len(m.Classifiers) != 1:
+			return fmt.Errorf("redaction_policy with %d classifier values, not one", len(m.Classifiers))
+		case len(m.MaxFrameLens) > 1:
+			return fmt.Errorf("redaction_policy with %d max_frame_len values, not at most one", len(m.MaxFrameLens))
+		}
+	} else if len(m.Redaction) > 0 {
+		return errors.New("redaction entries without redaction_policy")
+	}
+	if d := r.redaction.header; len(d) > 0 {
+		return d[0].Err
+	}
+
+	return checkEntrySeqs(m.Redaction, r.footer.blocks)
+}
+
+// checkEntrySeqs checks that each of entries, in ascending seq, names a seq that one of blocks holds,
+// blocks being those of a valid footer, in ascending seq, each with its seq ranges.
+func checkEntrySeqs(entries []RedactionEntry, blocks []blockSummary) error {
+	var ranges []seqRange
+	if len(entries) > 0 {
+		for j := range blocks {
+			ranges = append(ranges, blocks[j].seqRanges...)
+		}
+	}
+	k := 0
+	for i := range entries {
+		seq := entries[i].Seq
+		for k < len(ranges) && ranges[k].last < seq {
+			k++
+		}
+		if k == len(ranges) || ranges[k].first > seq {
+			return fmt.Errorf("redaction entry %d names seq %d, which the pack holds no record of", i, seq)
+		}
+	}
+
+	return nil
+}
+
+// equalRedactionPolicy reports whether a and b hold equal values, an encryption tag absent in both or equal in both.
+func equalRedactionPolicy(a, b *RedactionPolicy) bool {
+	return a.PolicyID == b.PolicyID && a.PolicyVersion == b.PolicyVersion && a.KeyID == b.KeyID &&
+		a.DigestAlgorithm == b.DigestAlgorithm &&
+		equalPtr(a.EncryptionAlgorithm, b.EncryptionAlgorithm) && equalPtr(a.EncryptionKeyID, b.EncryptionKeyID)
+}
+
+// checkMasked checks that the inputs agree on masking (the tracepack storage specification §4 Merge):
+// every input carries redaction_policy or none does, and inputs that carry it carry equal values of it,
+// the same classifier and the same max_frame_len value or its absence.
+// checkInputRedaction has given each input with it one classifier and at most one max_frame_len.
+func (p *mergePlan) checkMasked() error {
+	first := p.inputs[0].meta
+	for i := 1; i < len(p.inputs); i++ {
+		m := p.inputs[i].meta
+		var why string
+		switch {
+		case first.RedactionPolicy == nil && m.RedactionPolicy == nil:
+			continue
+		case first.RedactionPolicy == nil:
+			why = "redaction_policy beside pack %s, which carries none"
+		case m.RedactionPolicy == nil:
+			why = "no redaction_policy beside pack %s, which carries one"
+		case !equalRedactionPolicy(first.RedactionPolicy, m.RedactionPolicy):
+			why = "redaction_policy differs from pack %s's"
+		case !slices.Equal(first.Classifiers, m.Classifiers):
+			why = "classifier differs from pack %s's, under redaction_policy"
+		case !slices.Equal(first.MaxFrameLens, m.MaxFrameLens):
+			why = "max_frame_len differs from pack %s's, under redaction_policy"
+		default:
+			continue
+		}
+
+		return inputError(i, p.inputID(i), fmt.Errorf(why, p.inputID(0)))
+	}
+
+	return nil
+}
+
+// entryVersion is one distinct list of the redaction entries that merge inputs hold for one seq.
+type entryVersion struct {
+	// key is the list's encoding, and entries the list as the first input holding it stores it.
+	key     string
+	entries []RedactionEntry
+	// inputs holds the indexes of the inputs holding the list, in input order.
+	inputs []int
+}
+
+// planEntries sets p.entries to the archive's redaction entries (the tracepack storage specification §4 Merge):
+// the entries of every input, those of each seq taken once, in ascending seq, each seq's in stored order.
+// The entries of one seq must be equal in every input holding entries for it:
+// each seq whose entries differ is a conflict onConflict receives, in ascending seq,
+// whose versions are the distinct lists of entries, each with the inputs holding it, in input order.
+// checkInputRedaction has checked each input's entries in order, each naming a record of the input.
+//
+// Returns:
+//   - error: an *entryConflictError wrapping ErrMergeConflict when the entries of a seq differ;
+//     an input error for an entry that does not encode.
+func (p *mergePlan) planEntries(onConflict func(Conflict)) error {
+	bySeq := make(map[uint64][]entryVersion)
+	var seqs []uint64
+	for i, r := range p.inputs {
+		es := r.meta.Redaction
+		for start := 0; start < len(es); {
+			seq, end := es[start].Seq, start+1
+			for end < len(es) && es[end].Seq == seq {
+				end++
+			}
+			var key []byte
+			for k := start; k < end; k++ {
+				e, err := es[k].entry()
+				if err != nil {
+					return inputError(i, p.inputID(i), fmt.Errorf("redaction entry %d: %w", k, err))
+				}
+				key = tlv.AppendEntry(key, e)
+			}
+			vs, seen := bySeq[seq]
+			if !seen {
+				seqs = append(seqs, seq)
+			}
+			v := slices.IndexFunc(vs, func(v entryVersion) bool { return v.key == string(key) })
+			if v < 0 {
+				vs = append(vs, entryVersion{key: string(key), entries: es[start:end]})
+				v = len(vs) - 1
+			}
+			vs[v].inputs = append(vs[v].inputs, i)
+			bySeq[seq] = vs
+			start = end
+		}
+	}
+	slices.Sort(seqs)
+
+	conflicts := 0
+	for _, seq := range seqs {
+		vs := bySeq[seq]
+		if len(vs) == 1 {
+			for k := range vs[0].entries {
+				p.entries = append(p.entries, cloneRedactionEntry(&vs[0].entries[k]))
+			}
+
+			continue
+		}
+		c := Conflict{CaptureID: p.captureID, Seq: seq, Versions: make([][]UUID, len(vs))}
+		for k := range vs {
+			for _, i := range vs[k].inputs {
+				c.Versions[k] = append(c.Versions[k], p.inputID(i))
+			}
+		}
+		onConflict(c)
+		conflicts++
+	}
+	if conflicts > 0 {
+		p.entries = nil
+
+		return &entryConflictError{n: conflicts}
+	}
+
+	return nil
+}
+
+// namesAny reports whether an entry names a seq from first to last; the entries must be in order.
+func (x *redactionIndex) namesAny(first, last uint64) bool {
+	es := x.meta.Redaction
+	i, _ := slices.BinarySearchFunc(es, first, func(e RedactionEntry, seq uint64) int { return cmp.Compare(e.Seq, seq) })
+
+	return i < len(es) && es[i].Seq <= last
+}
+
+// mergeDefect returns the first defect of the Marking of rec, a record of a merge input as stored, payload included;
+// nil when rec carries no Marking or passes every check.
+// A reader treats such a defect as recoverable, while a merge, which writes a new pack, refuses it
+// (the tracepack storage specification §4 Merge).
+func (x *redactionIndex) mergeDefect(rec *Record) error {
+	rr := x.record(rec)
+	if rr == nil || len(rr.Defects) == 0 {
+		return nil
+	}
+
+	return rr.Defects[0].Err
+}
+
+// Error describes the conflicts.
+func (e *entryConflictError) Error() string {
+	return fmt.Sprintf("tracepack: merge: %d conflicts of redaction entries: %v", e.n, ErrMergeConflict)
+}
+
+// Unwrap returns ErrMergeConflict.
+func (e *entryConflictError) Unwrap() error {
+	return ErrMergeConflict
 }

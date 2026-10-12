@@ -132,6 +132,8 @@ func (p *mergePlan) startRun(dst io.Writer, opts *MergeOptions) (*mergeRun, erro
 		// Every block a merge writes goes through appendBlock, which never validates;
 		// the merge validates each block it encodes itself.
 		SkipValidation: true,
+		// The archive's format_minor is the inputs' largest, even when its metadata holds no feature of that minor.
+		formatMinor: p.minor,
 	})
 	if err != nil {
 		return nil, err
@@ -195,8 +197,53 @@ func (p *mergePlan) readInputBlock(ctx context.Context, b *mergeBlock, buf *bloc
 	if err := checkSummary(&r.footer.blocks[b.block], &s); err != nil {
 		return nil, blockSummary{}, inputError(b.input, id, blockDefect(b.block, &r.blocks[b.block], ReasonIndexMismatch, err).Err)
 	}
+	if err := p.checkRecords(b.input, d, &s); err != nil {
+		return nil, blockSummary{}, inputError(b.input, id, fmt.Errorf("block %d: %w", b.block, err))
+	}
 
 	return d, s, nil
+}
+
+// checkRecords checks the records of a block of input i, decoded as d and summarized as s,
+// against the commitments of the input's pack metadata that only its records show
+// (the tracepack storage specification §4 Merge),
+// since the archive's Writer sees none of the records of the blocks a merge appends:
+// in an input carrying redaction_policy, every record that carries quality.redacted or that an entry names
+// passes the checks of the tracepack semantics specification §8 Marking;
+// in an input of format_minor 1 or more, every record carrying quality.unobserved
+// meets every rule the Writer applies to such a record it appends (packCommitments.checkUnobserved):
+// a data record unobserved by design (the tracepack semantics specification §2),
+// of a stream and function the input's thinning declares.
+// A block whose summary shows neither kind of record is not decoded record by record.
+//
+// Returns:
+//   - error: the first record that fails a check, by seq; nil when every record passes.
+func (p *mergePlan) checkRecords(i int, d *decodedBlock, s *blockSummary) error {
+	r := p.inputs[i]
+	marked := r.meta.RedactionPolicy != nil && (s.qualityUnion.Has(QualityRedacted) || r.redaction.namesAny(s.firstSeq, s.lastSeq))
+	unobserved := r.hdr.FormatMinor >= 1 && s.qualityUnion.Has(QualityUnobserved)
+	if !marked && !unobserved {
+		return nil
+	}
+	// Only the thinning of the input's commitments is read by checkUnobserved.
+	thinned := packCommitments{thinned: p.thinned[i]}
+
+	for k := range d.count() {
+		h := d.header(k)
+		rec := storedRecord(&h, d.payload(k))
+		if unobserved && rec.Quality.Has(QualityUnobserved) {
+			if err := thinned.checkUnobserved(&rec); err != nil {
+				return fmt.Errorf("seq %d: %w", rec.Seq, err)
+			}
+		}
+		if marked {
+			if err := r.redaction.mergeDefect(&rec); err != nil {
+				return fmt.Errorf("seq %d: %w", rec.Seq, err)
+			}
+		}
+	}
+
+	return nil
 }
 
 // duplicateCandidate reports whether every block of cluster c has the F-2 identity of its first block.
