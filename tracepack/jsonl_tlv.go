@@ -14,19 +14,25 @@ const jsonlSchema = "tracepack-jsonl/1"
 // every one is below it, so the known tags of an entry list fit a jsonlTagSet.
 const jsonlTagLimit = 256
 
+// jsonlPackMetadata10 is the format 1.0 view of the pack metadata registry, the one schema tracepack-jsonl/1 renders:
+// a tag a later minor defines is unknown in it, at every nesting level,
+// so every pack, whatever its minor, exports as a reader of format 1.0 sees it.
+var jsonlPackMetadata10 = tlv.PackMetadata.AtMinor(0)
+
 // Registries of the entry lists the export renders, with the enum each enum-typed tag holds
 // (the tracepack JSONL specification §3.1) and the registry of each known tlv tag.
+// Each nested registry is the one jsonlPackMetadata10 names, so the walk descends with the registry its validation uses.
 var (
-	jsonlCoverageRegistry        = &jsonlRegistry{reg: tlv.Coverage}
-	jsonlHSMSTimersRegistry      = &jsonlRegistry{reg: tlv.HSMSTimers}
+	jsonlCoverageRegistry        = &jsonlRegistry{reg: *jsonlPackMetadata10[tagCoverage].Nested}
+	jsonlHSMSTimersRegistry      = &jsonlRegistry{reg: *jsonlPackMetadata10[tagHSMSTimers].Nested}
 	jsonlRedactionPolicyRegistry = &jsonlRegistry{
-		reg:   tlv.RedactionPolicy,
+		reg:   *jsonlPackMetadata10[tagRedactionPolicy].Nested,
 		enums: map[uint16][]string{tagRedactionPolicyDigestAlgorithm: jsonlDigestAlgorithmNames},
 	}
-	jsonlRedactionRegistry = &jsonlRegistry{reg: tlv.Redaction}
+	jsonlRedactionRegistry = &jsonlRegistry{reg: *jsonlPackMetadata10[tagRedaction].Nested}
 
 	jsonlPackMetadataRegistry = &jsonlRegistry{
-		reg: tlv.PackMetadata,
+		reg: jsonlPackMetadata10,
 		enums: map[uint16][]string{
 			tagTransport:            jsonlTransportNames,
 			tagCaptureMethod:        jsonlCaptureMethodNames,

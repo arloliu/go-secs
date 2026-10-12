@@ -22,7 +22,14 @@ const (
 // tracepackModulePath is this module's path, which the writer tag reports the version of.
 const tracepackModulePath = "github.com/arloliu/go-secs/tracepack"
 
-// ErrInvalidRecord reports a record a SegmentWriter refuses before it touches a segment:
+// ErrInvalidRecord reports a record a writer refuses for its own fields, before it adds the record.
+//
+// Writer.Append returns it for a record carrying quality.unobserved that is not a data record unobserved by design
+// (the tracepack semantics specification §2): a record of another kind,
+// a payload of 14 bytes or fewer, a stream or function unavailable, a message text that is not zero-filled,
+// a decode_status other than not-attempted, trailing_bytes other than 0, or quality.redacted set.
+//
+// A SegmentWriter returns it before it touches a segment, for the record above and for
 // an AppendFrame for a capture method whose frames it cannot describe,
 // a time that is not representable,
 // a capture-boundary event of kind start, stop or stop-unclean, which the SegmentWriter writes itself,
@@ -30,8 +37,9 @@ const tracepackModulePath = "github.com/arloliu/go-secs/tracepack"
 // so Verify finds no writer defect in a record the SegmentWriter appended,
 // a classifier's trailing_bytes outside 0 to 2^32-1,
 // or a nil record or event.
-// The record was not added and the SegmentWriter is still usable.
-var ErrInvalidRecord = errors.New("tracepack: record refused by the segment writer")
+//
+// The record was not added and the writer is still usable.
+var ErrInvalidRecord = errors.New("tracepack: record refused by the writer")
 
 // writerTag is the writer tag of every segment a SegmentWriter writes.
 var writerTag = writerTagOf(debug.ReadBuildInfo())

@@ -446,8 +446,8 @@ func positiveOr[T int | int64](v, def T) T {
 // Every call returns a new PackHeader with Meta decoded afresh,
 // so a caller may modify the result without affecting the Reader or any other PackHeader.
 func (r *Reader) Header() *PackHeader {
-	// Open decoded the same bytes without error, so decoding them again cannot fail.
-	meta, _ := UnmarshalPackMeta(r.metaRaw)
+	// Open decoded the same bytes under the same minor without error, so decoding them again cannot fail.
+	meta, _ := UnmarshalPackMetaMinor(r.metaRaw, r.hdr.FormatMinor)
 
 	h := &PackHeader{
 		FormatMajor:      r.hdr.FormatMajor,
@@ -472,11 +472,34 @@ func (r *Reader) Header() *PackHeader {
 // the file header's pack_id and capture_id, and the pack metadata decoded afresh from the Reader's own copy of its bytes,
 // so no change to a PackHeader that Header returned reaches it.
 func (r *Reader) Info() PackInfo {
-	// Open decoded the same bytes without error, so decoding them again cannot fail.
-	meta, _ := UnmarshalPackMeta(r.metaRaw)
+	// Open decoded the same bytes under the same minor without error, so decoding them again cannot fail.
+	meta, _ := UnmarshalPackMetaMinor(r.metaRaw, r.hdr.FormatMinor)
 
 	// The Reader never modifies metaRaw, and PackInfo never hands it out, so the two share it.
-	return PackInfo{packID: UUID(r.hdr.PackID), captureID: UUID(r.hdr.CaptureID), raw: r.metaRaw, meta: meta}
+	return PackInfo{
+		packID: UUID(r.hdr.PackID), captureID: UUID(r.hdr.CaptureID), minor: r.hdr.FormatMinor, raw: r.metaRaw, meta: meta,
+	}
+}
+
+// Unobserved reports whether rec, a record of the pack r reads, is unobserved by design
+// (the tracepack semantics specification §2):
+// its stored quality carries bit 7, which is QualityUnobserved in a pack of format minor 1 or later
+// and a reserved bit, with no meaning, in a pack of minor 0 (the tracepack format specification §9 and §14).
+// Record.Quality keeps the stored bits either way;
+// a caller of MergeIterate asks the Reader of each Item's pack, or reads its PackHeader.FormatMinor.
+//
+// A filter selects an unobserved record like any record of its stream and function,
+// since the format defines no predicate on it.
+// A caller tells the three kinds of record that hold no message text to analyse apart with Unobserved,
+// len(Record.Payload) read with Query.Payloads, and Record.DecodeStatus:
+// an unobserved record has a payload longer than 14 bytes, a zero-filled message text and decode_status not-attempted;
+// a record whose message text is genuinely empty has a 14-byte payload and is not unobserved;
+// and an abnormal reply, such as an S9 message, carries its own message text and its classification.
+//
+// Returns:
+//   - bool: true when rec carries bit 7 in a pack of minor 1 or later; false for a nil rec.
+func (r *Reader) Unobserved(rec *Record) bool {
+	return rec != nil && r.hdr.FormatMinor >= 1 && rec.Quality.Has(QualityUnobserved)
 }
 
 // Blocks returns a copy of the pack's block index, in file order.
@@ -664,14 +687,14 @@ func (r *Reader) roundTwo(ctx context.Context, b *bootstrap) error {
 	return readRound(ctx, r.ra, reqs)
 }
 
-// decodeMeta checks the pack metadata CRC and decodes the pack metadata,
+// decodeMeta checks the pack metadata CRC and decodes the pack metadata under the file header's format minor,
 // and keeps both the bytes and the decoded value.
 func (r *Reader) decodeMeta(raw []byte) error {
 	if crc := format.CRC(raw); crc != r.hdr.PackMetadataCRC {
 		return fmt.Errorf("tracepack: pack metadata CRC 0x%08X, pack_metadata_crc 0x%08X: %w", crc, r.hdr.PackMetadataCRC, ErrChecksum)
 	}
 
-	meta, err := UnmarshalPackMeta(raw)
+	meta, err := UnmarshalPackMetaMinor(raw, r.hdr.FormatMinor)
 	if err != nil {
 		return err
 	}

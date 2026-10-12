@@ -818,3 +818,120 @@ func TestCoverageMarshalRejectsUnknownEntries(t *testing.T) {
 		})
 	}
 }
+
+// minor0NewNumbersMeta returns basePackMeta encoded with the numbers format 1.1 assigns,
+// as a pack of minor 0 may hold them:
+// tag 0x0033 twice as bytes, and a redaction_policy holding nested 0x0005 and 0x0006 as bytes,
+// value types those tags do not have in format 1.1.
+func minor0NewNumbersMeta(t *testing.T) []byte {
+	t.Helper()
+
+	raw, err := basePackMeta().MarshalBinary()
+	require.NoError(t, err)
+	entries, err := tlv.Decode(raw)
+	require.NoError(t, err)
+	entries = append(entries,
+		tlv.BytesEntry(0x0033, []byte("thinning-1")),
+		tlv.NestedEntry(0x0031, []tlv.Entry{
+			tlv.UTF8Entry(1, "p"), tlv.U64Entry(2, 1), tlv.UTF8Entry(3, "k"), tlv.U8Entry(4, 1),
+			tlv.BytesEntry(5, []byte{1}), tlv.BytesEntry(6, []byte("test-enc-1")),
+		}),
+		tlv.BytesEntry(0x0033, []byte("thinning-2")),
+	)
+
+	var b []byte
+	for _, e := range entries {
+		b = tlv.AppendEntry(b, e)
+	}
+
+	return b
+}
+
+// A tag or nested tag format 1.1 defines is known only in a pack of minor 1 or later:
+// in a pack of minor 0 its number keeps its format 1.0 status (the tracepack format specification §5 and §14).
+func TestUnmarshalPackMetaMinor(t *testing.T) {
+	t.Parallel()
+
+	b := minor0NewNumbersMeta(t)
+	m, err := tracepack.UnmarshalPackMetaMinor(b, 0)
+	require.NoError(t, err)
+	assert.Equal(t, []tracepack.RawEntry{
+		{Tag: 0x0033, Type: 7, Value: []byte("thinning-1")},
+		{Tag: 0x0033, Type: 7, Value: []byte("thinning-2")},
+	}, m.Unknown, "kept unknown, repeated and in stored order")
+	assert.Nil(t, m.Thinning)
+	assert.Equal(t, &tracepack.RedactionPolicy{
+		PolicyID: "p", PolicyVersion: 1, KeyID: "k", DigestAlgorithm: tracepack.DigestAlgorithmHMACSHA256,
+	}, m.RedactionPolicy, "the policy's unknown nested tags are skipped, as before")
+
+	_, err = m.MarshalBinary()
+	require.ErrorIs(t, err, tracepack.ErrReservedTag, "a format 1.1 number kept in Unknown is never written back")
+
+	for _, minor := range []uint16{1, 2} {
+		_, err := tracepack.UnmarshalPackMetaMinor(b, minor)
+		require.ErrorIs(t, err, tlv.ErrType, "minor %d", minor)
+	}
+	_, err = tracepack.UnmarshalPackMeta(b)
+	require.ErrorIs(t, err, tlv.ErrType, "the newest registry")
+}
+
+// A pack metadata of minor 1 holding thinning, the policy's encryption and an entry's siv round-trips,
+// and decodes under minor 0 without them.
+func TestPackMetaFormat11RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	m := basePackMeta()
+	m.Thinning = []tracepack.Thinning{{Stream: 1, Function: 4, Source: "fdc"}, {Stream: 1, Function: 3, Source: "fdc"}}
+	m.RedactionPolicy = &tracepack.RedactionPolicy{
+		PolicyID: "p", PolicyVersion: 2, KeyID: "k", DigestAlgorithm: tracepack.DigestAlgorithmHMACSHA256,
+		EncryptionAlgorithm: new(tracepack.EncryptionAlgorithmAESSIVCMAC512), EncryptionKeyID: new("test-enc-1"),
+	}
+	m.Redaction = []tracepack.RedactionEntry{{
+		Seq: 0, ItemPath: new("1"), MaskedRanges: []tracepack.MaskedRange{{Offset: 24, Length: 5}}, Domain: "d",
+		Digest: make([]byte, 32), SIV: []byte("0123456789abcdef"), HasSIV: true,
+	}}
+	b, err := m.MarshalBinary()
+	require.NoError(t, err)
+
+	got, err := tracepack.UnmarshalPackMetaMinor(b, 1)
+	require.NoError(t, err)
+	assert.Equal(t, m, got)
+	again, err := got.MarshalBinary()
+	require.NoError(t, err)
+	assert.Equal(t, b, again)
+
+	old, err := tracepack.UnmarshalPackMetaMinor(b, 0)
+	require.NoError(t, err)
+	assert.Nil(t, old.Thinning)
+	assert.Nil(t, old.RedactionPolicy.EncryptionAlgorithm)
+	assert.Nil(t, old.RedactionPolicy.EncryptionKeyID)
+	assert.False(t, old.Redaction[0].HasSIV)
+	assert.Nil(t, old.Redaction[0].SIV)
+	require.Len(t, old.Unknown, 2)
+	assert.Equal(t, uint16(0x0033), old.Unknown[0].Tag)
+}
+
+// An entry's masked_ranges is written from RawMaskedRanges when that is set, and never from both fields.
+func TestRedactionEntryRawMaskedRanges(t *testing.T) {
+	t.Parallel()
+
+	m := basePackMeta()
+	m.Redaction = []tracepack.RedactionEntry{{Seq: 0, RawMaskedRanges: []byte{1, 2, 3}, Domain: "d", Digest: make([]byte, 32)}}
+	b, err := m.MarshalBinary()
+	require.NoError(t, err)
+	entries, err := tlv.Decode(b)
+	require.NoError(t, err)
+	var stored []byte
+	for _, e := range entries {
+		if e.Tag == 0x0032 {
+			nested, err := e.Nested()
+			require.NoError(t, err)
+			stored = nested[1].Value
+		}
+	}
+	assert.Equal(t, []byte{1, 2, 3}, stored)
+
+	m.Redaction[0].MaskedRanges = []tracepack.MaskedRange{{Offset: 1, Length: 1}}
+	_, err = m.MarshalBinary()
+	require.ErrorIs(t, err, tracepack.ErrFieldValue)
+}

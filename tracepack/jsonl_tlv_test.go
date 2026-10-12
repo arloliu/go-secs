@@ -164,7 +164,7 @@ func jsonlEveryTagMeta() []byte {
 			tlv.BytesEntry(0x0003, u64s(14, 4)),
 			tlv.UTF8Entry(0x0004, "d"),
 			tlv.BytesEntry(0x0005, []byte{0xAB, 0xCD, 0xEF}),
-			{Tag: 0x0006, Type: tlv.TypeBool, Value: []byte{2}},
+			{Tag: 0x0007, Type: tlv.TypeBool, Value: []byte{2}},
 		}),
 		tlv.Entry{Tag: 0x0040, Type: 9, Value: []byte("zz")},
 	)
@@ -209,7 +209,7 @@ func TestJSONLHeaderLine_EveryKnownTag(t *testing.T) {
 		`"redaction_policy":{"policy_id":"p","policy_version":"2","key_id":"k1","digest_algorithm":"hmac-sha256",` +
 		`"unknown":[{"tag":16,"value_type":7,"value":""}]},` +
 		`"redaction":[{"seq":"5","item_path":"","masked_ranges":"DgAAAAAAAAAEAAAAAAAAAA==","domain":"d","digest":"q83v",` +
-		`"unknown":[{"tag":6,"value_type":2,"value":"Ag=="}]}],` +
+		`"unknown":[{"tag":7,"value_type":2,"value":"Ag=="}]}],` +
 		`"unknown":[{"tag":20,"value_type":4,"value":"AQAAAAAAAAA="},{"tag":32769,"value_type":7,"value":"AQID"},` +
 		`{"tag":64,"value_type":9,"value":"eno="}]` +
 		"}}\n"
@@ -219,7 +219,7 @@ func TestJSONLHeaderLine_EveryKnownTag(t *testing.T) {
 	require.Equal(t, want, got)
 	require.True(t, json.Valid([]byte(got)))
 
-	keys := slices.Sorted(maps.Keys(tlv.PackMetadata))
+	keys := slices.Sorted(maps.Keys(tlv.PackMetadata.AtMinor(0)))
 	var obj struct {
 		Metadata map[string]json.RawMessage `json:"metadata"`
 	}
@@ -337,7 +337,8 @@ func TestJSONLRender_UnknownAndZeroEnums(t *testing.T) {
 	}
 }
 
-// FuzzJSONLPackMetadata checks that the validity walk accepts exactly the pack metadata tlv.Validate accepts,
+// FuzzJSONLPackMetadata checks that the validity walk accepts exactly the pack metadata
+// tlv.ValidateMinor accepts at minor 0, the registry view schema tracepack-jsonl/1 renders,
 // and that a valid pack metadata renders as one valid JSON object.
 func FuzzJSONLPackMetadata(f *testing.F) {
 	plain, err := readerTestMeta().MarshalBinary()
@@ -348,7 +349,7 @@ func FuzzJSONLPackMetadata(f *testing.F) {
 	f.Fuzz(func(t *testing.T, b []byte) {
 		_, got := jsonlPackMetadataRegistry.valid(b, 0)
 		entries, err := tlv.Decode(b)
-		want := err == nil && tlv.Validate(entries, tlv.PackMetadata) == nil
+		want := err == nil && tlv.ValidateMinor(entries, tlv.PackMetadata, 0) == nil
 		require.Equal(t, want, got)
 		if !got {
 			return
@@ -654,7 +655,8 @@ func TestJSONLValid_NestingDepthLimit(t *testing.T) {
 	}
 }
 
-// The validity walk rejects what tlv.Validate rejects in nested values, and accepts what it accepts.
+// The validity walk rejects what tlv.ValidateMinor rejects at minor 0 in nested values, and accepts what it accepts:
+// the numbers format 1.1 assigns are unknown to it, whatever their value types.
 func TestJSONLValid_AgreesWithValidate(t *testing.T) {
 	t.Parallel()
 
@@ -685,6 +687,9 @@ func TestJSONLValid_AgreesWithValidate(t *testing.T) {
 		{"hsms_timers with a repeated timer", with(tlv.NestedEntry(0x0026, []tlv.Entry{tlv.U64Entry(1, 1), tlv.U64Entry(1, 1)})), false},
 		{"hsms_timers with unknown nested tags", with(tlv.NestedEntry(0x0026, []tlv.Entry{tlv.U64Entry(9, 1<<63), tlv.U64Entry(9, 1)})), true},
 		{"a known tlv tag of another type", with(tlv.BytesEntry(0x0026, nil)), false},
+		{"thinning as bytes, repeated", with(tlv.BytesEntry(0x0033, nil), tlv.BytesEntry(0x0033, nil)), true},
+		{"redaction_policy with encryption tags as bytes", with(tlv.NestedEntry(0x0031,
+			append(slices.Clone(policy), tlv.BytesEntry(5, nil), tlv.BytesEntry(6, nil), tlv.BytesEntry(6, nil)))), true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -694,7 +699,8 @@ func TestJSONLValid_AgreesWithValidate(t *testing.T) {
 			assert.Equal(t, tt.valid, ok)
 			entries, err := tlv.Decode(b)
 			require.NoError(t, err)
-			assert.Equal(t, tlv.Validate(entries, tlv.PackMetadata) == nil, ok, "the walk agrees with tlv.Validate")
+			assert.Equal(t, tlv.ValidateMinor(entries, tlv.PackMetadata, 0) == nil, ok,
+				"the walk agrees with tlv.ValidateMinor at minor 0")
 		})
 	}
 }
@@ -804,6 +810,7 @@ var (
 
 // Every registry the export uses, every enum it names and every bit name are those of schema tracepack-jsonl/1:
 // a registry change fails this test until the schema value and the JSONL specification change with it.
+// The export renders the format 1.0 view of the registries, so the tags of format 1.1 are not among them.
 func TestJSONLRegistriesPinned(t *testing.T) {
 	t.Parallel()
 

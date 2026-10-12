@@ -23,8 +23,10 @@ const (
 
 // Record header bit-set masks, per the tracepack format specification §9.
 const (
-	// recordHeaderQualityMask keeps bits 0-2, 4 and 5; bits 3 and 6 are retired, bits 7-15 reserved.
-	recordHeaderQualityMask uint16 = 0x0037
+	// recordHeaderQualityMask keeps bits 0-2, 4, 5 and 7, unobserved from format 1.1;
+	// bits 3 and 6 are retired, bits 8-15 reserved.
+	// The writer, not this encoder, decides when a record may carry bit 7.
+	recordHeaderQualityMask uint16 = 0x00B7
 	// recordHeaderFieldValidityMask keeps bits 0-5; bits 6-7 are reserved.
 	recordHeaderFieldValidityMask uint8 = 0x3F
 	// recordHeaderRecordFlagsMask keeps bit 1, mono_present; bit 0 is retired, bits 2-7 reserved.

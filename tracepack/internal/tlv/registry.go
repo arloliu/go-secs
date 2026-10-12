@@ -57,6 +57,7 @@ var (
 		0x002F: {Name: "patch_base", Type: TypeUUID},
 		0x0031: {Name: "redaction_policy", Type: TypeTLV, Nested: &RedactionPolicy},
 		0x0032: {Name: "redaction", Type: TypeTLV, Repeatable: true, Nested: &Redaction},
+		0x0033: {Name: "thinning", Type: TypeTLV, Repeatable: true, Nested: &Thinning, Since: 1},
 	}
 
 	// Coverage is the registry of the entries nested in a pack metadata `coverage` entry.
@@ -71,22 +72,36 @@ var (
 
 	// RedactionPolicy is the registry of the entries nested in a pack metadata `redaction_policy` entry.
 	// The tracepack format specification §5 defines it.
+	// encryption_algorithm and encryption_key_id are present together or not at all,
+	// a writer rule that a merge checks, never a reader's, so neither is Required.
 	RedactionPolicy = Registry{
 		0x0001: {Name: "policy_id", Type: TypeUTF8, Required: true},
 		0x0002: {Name: "policy_version", Type: TypeU64, Required: true},
 		0x0003: {Name: "key_id", Type: TypeUTF8, Required: true},
 		0x0004: {Name: "digest_algorithm", Type: TypeU8, Required: true},
+		0x0005: {Name: "encryption_algorithm", Type: TypeU8, Since: 1},
+		0x0006: {Name: "encryption_key_id", Type: TypeUTF8, Since: 1},
 	}
 
 	// Redaction is the registry of the entries nested in a pack metadata `redaction` entry.
 	// The tracepack format specification §5 defines it.
 	// The masked_ranges value is a u64 array of (offset, length) pairs.
+	// The siv value is 16 bytes; a value of another length is a defect a reader reports, not an invalid list.
 	Redaction = Registry{
 		0x0001: {Name: "seq", Type: TypeU64, Required: true},
 		0x0002: {Name: "item_path", Type: TypeUTF8},
 		0x0003: {Name: "masked_ranges", Type: TypeBytes, Required: true},
 		0x0004: {Name: "domain", Type: TypeUTF8, Required: true},
 		0x0005: {Name: "digest", Type: TypeBytes, Required: true},
+		0x0006: {Name: "siv", Type: TypeBytes, Since: 1},
+	}
+
+	// Thinning is the registry of the entries nested in a pack metadata `thinning` entry.
+	// The tracepack format specification §5 defines it, from format 1.1.
+	Thinning = Registry{
+		0x0001: {Name: "stream", Type: TypeU64, Required: true, Since: 1},
+		0x0002: {Name: "function", Type: TypeU64, Required: true, Since: 1},
+		0x0003: {Name: "source", Type: TypeUTF8, Required: true, Since: 1},
 	}
 
 	// HSMSTimers is the registry of the entries nested in a pack metadata `hsms_timers` entry.
@@ -212,8 +227,53 @@ type Field struct {
 	// which Validate decodes and validates against it;
 	// nil leaves the value unexamined.
 	Nested *Registry
+	// Since is the format minor that defines the tag: 0 for a tag of format 1.0.
+	// In a pack of an earlier minor the tag is unknown (the tracepack format specification §5 and §14).
+	Since uint16
 }
 
 // Registry maps the tags of one entry list to their fields.
 // A tag absent from the registry is unknown: a reader skips it and preserves its raw value.
 type Registry map[uint16]Field
+
+// AtMinor returns the registry a pack of the given format minor reads with:
+// r without the tags a later minor defines, at every nesting level (the tracepack format specification §5 and §14).
+//
+// A registry that holds no such tag, nested ones included, is returned itself;
+// otherwise the result is a new registry whose tlv fields name the views of their nested registries.
+// The registries of the package nest one level, so a view never recurses deeply.
+func (r Registry) AtMinor(minor uint16) Registry {
+	if !r.definesAfter(minor, 0) {
+		return r
+	}
+
+	view := make(Registry, len(r))
+	for tag, f := range r {
+		if f.Since > minor {
+			continue
+		}
+		if f.Nested != nil && f.Nested.definesAfter(minor, 1) {
+			nested := f.Nested.AtMinor(minor)
+			f.Nested = &nested
+		}
+		view[tag] = f
+	}
+
+	return view
+}
+
+// definesAfter reports whether r holds a tag defined after minor,
+// in itself or in a registry nested in it, within MaxNestingDepth levels;
+// r lies depth levels below the registry a view starts at.
+func (r Registry) definesAfter(minor uint16, depth int) bool {
+	if depth > MaxNestingDepth {
+		return false
+	}
+	for _, f := range r {
+		if f.Since > minor || (f.Nested != nil && f.Nested.definesAfter(minor, depth+1)) {
+			return true
+		}
+	}
+
+	return false
+}

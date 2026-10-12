@@ -24,6 +24,7 @@ func TestQuality_Names(t *testing.T) {
 		{"bit4", tracepack.QualityDirectionInferred, []string{"direction-inferred"}},
 		{"bit5", tracepack.QualityRedacted, []string{"redacted"}},
 		{"bit6 retired", 1 << 6, nil},
+		{"bit7, from format 1.1", tracepack.QualityUnobserved, []string{"unobserved"}},
 		{
 			"ascending order regardless of set order",
 			tracepack.QualityRedacted | tracepack.QualityCaptureBoundary,
@@ -32,14 +33,14 @@ func TestQuality_Names(t *testing.T) {
 		{
 			"all known bits",
 			tracepack.QualityCaptureBoundary | tracepack.QualityOrderingUncertain | tracepack.QualityCorrelationIncomplete |
-				tracepack.QualityDirectionInferred | tracepack.QualityRedacted,
+				tracepack.QualityDirectionInferred | tracepack.QualityRedacted | tracepack.QualityUnobserved,
 			[]string{
 				"capture-boundary", "ordering-uncertain", "correlation-incomplete",
-				"direction-inferred", "redacted",
+				"direction-inferred", "redacted", "unobserved",
 			},
 		},
-		{"reserved bit only", 1 << 7, nil},
-		{"known bit plus reserved bit", tracepack.QualityRedacted | 1<<7, []string{"redacted"}},
+		{"reserved bit only", 1 << 8, nil},
+		{"known bits plus reserved bits", tracepack.QualityRedacted | 1<<7 | 1<<8 | 1<<15, []string{"redacted", "unobserved"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -59,6 +60,7 @@ func TestQuality_String(t *testing.T) {
 	}{
 		{"zero", 0, ""},
 		{"one bit", tracepack.QualityRedacted, "redacted"},
+		{"unobserved", tracepack.QualityUnobserved, "unobserved"},
 		{
 			"multiple bits joined ascending",
 			tracepack.QualityRedacted | tracepack.QualityCaptureBoundary | 1<<3 | 1<<6,

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/arloliu/go-secs/tracepack/internal/codec"
@@ -43,12 +44,20 @@ var (
 	// Append returns it for a record the committed metadata cannot describe:
 	// a classified decode_status in a pack without classifier ("classifier"),
 	// an oversized record in a pack without max_frame_len ("max_frame_len"),
-	// or a quality.redacted record in a pack that is not an extract ("pack_role")
-	// or whose file header does not set redaction-present ("redaction-present").
+	// a quality.redacted record in a pack that is neither an extract nor masked at write ("pack_role")
+	// or whose file header does not set redaction-present ("redaction-present"),
+	// or a quality.unobserved record of a stream and function the pack's thinning does not declare ("thinning").
 	// The record was not added and the Writer is still usable.
 	//
-	// NewWriter returns it when WriterOptions.Facts.AnyRedacted would set redaction-present in a pack that is not an extract ("redaction-present");
-	// it writes nothing and returns no Writer.
+	// NewWriter returns it when WriterOptions.Facts.AnyRedacted would set redaction-present
+	// in a pack that is neither an extract nor masked at write ("redaction-present"),
+	// and for pack metadata that breaks a writer rule of format 1.1 (the tracepack format specification §5):
+	// a pack masked at write, one whose role is not extract and that carries redaction_policy,
+	// whose policy lacks encryption_algorithm or encryption_key_id ("encryption_algorithm", "encryption_key_id"),
+	// that does not carry exactly one classifier ("classifier") or carries more than one max_frame_len ("max_frame_len");
+	// or an extract whose policy carries an encryption tag, or one of whose entries carries siv
+	// ("encryption_algorithm", "encryption_key_id", "siv").
+	// It writes nothing and returns no Writer.
 	//
 	// Close returns it when the file header set redaction-present but no written record carries quality.redacted ("redaction-present");
 	// it writes neither footer nor trailer, and the Writer has failed.
@@ -96,7 +105,8 @@ type WriterOptions struct {
 	Meta *PackMeta
 	// Facts are the facts about the pack's records and scope that Meta is validated against.
 	// Facts.AnyRedacted also sets the file header's redaction-present flag,
-	// without which Append rejects a record carrying quality.redacted.
+	// without which Append rejects a record carrying quality.redacted;
+	// only an extract and a pack masked at write may set it (see ErrMetadataCommitment).
 	Facts PackFacts
 	// Uncompressed writes the block bodies and the footer with CodecNone;
 	// otherwise they are written with CodecZstd, as the tracepack format specification §2 recommends.
@@ -145,6 +155,11 @@ type WriterOptions struct {
 	// allowScopeBreach turns off the scope checks that return ErrScopeBreach,
 	// so a test can write the out-of-scope packs a merge or a reader must handle.
 	allowScopeBreach bool
+	// formatMinor, which only a merge sets, is the smallest format_minor the Writer writes:
+	// the largest minor of the merge's inputs, so a minor-1 input without a format 1.1 feature merges to minor 1
+	// (the tracepack format specification §14).
+	// The Writer writes the larger of it and the minor its own metadata needs, so a feature is never written under minor 0.
+	formatMinor uint16
 }
 
 // clockAnchor is the clock anchor of the tracepack semantics specification §4:
@@ -155,12 +170,18 @@ type clockAnchor struct {
 }
 
 // packCommitments are what a pack's metadata and file header commit its records to:
-// a classifier tag, a max_frame_len tag, the pack role and the redaction-present flag.
+// a classifier tag, a max_frame_len tag, the pack role and profile, the redaction-present flag
+// and the streams and functions thinning declares.
 type packCommitments struct {
-	hasClassifier    bool
-	hasMaxFrameLen   bool
-	packRole         PackRole
+	hasClassifier  bool
+	hasMaxFrameLen bool
+	packRole       PackRole
+	// maskedAtWrite reports a pack of the masked-at-write profile (maskedAtWrite),
+	// which, like an extract, may hold redacted records.
+	maskedAtWrite    bool
 	redactionPresent bool
+	// thinned holds every stream and function the metadata's thinning declares.
+	thinned map[SF]struct{}
 }
 
 // Writer writes one tracepack file: the file header and pack metadata when it is created,
@@ -236,6 +257,21 @@ type Writer struct {
 // With opts.AssignSeq the pack metadata's seq_start is opts.NextSeq.
 // A pack that is not an extract needs a period inside one UTC hour, its scope.
 //
+// The file header's format_minor is 1 exactly when the pack holds a format 1.1 feature, and 0 otherwise
+// (the tracepack format specification §14):
+// a redaction entry in a pack whose role is not extract, a redaction_policy with the encryption tags,
+// a redaction entry with siv, or a thinning entry.
+// The pack metadata decides it, since every record that is a format 1.1 feature needs one of them:
+// a redacted record outside an extract needs a pack masked at write, whose policy carries the encryption tags,
+// and an unobserved record needs the thinning entry of its stream and function.
+//
+// A pack masked at write, one whose role is not extract and that carries redaction_policy
+// (the tracepack storage specification §4, Masking), must carry both encryption tags, exactly one classifier,
+// and at most one max_frame_len, and is written with given seqs only, without AssignSeq or DetectClockSteps,
+// since its entries bind each record's seq before the Writer sees the record.
+// An extract's policy carries no encryption tag, and none of its entries carries siv.
+// A thinning entry whose stream is above 127 or whose function is above 255 is refused, since no record can match it.
+//
 // Parameters:
 //   - w: the output; bytes are written in file order and never rewritten.
 //   - opts: see WriterOptions.
@@ -244,7 +280,10 @@ type Writer struct {
 //   - *Writer: the Writer, positioned after the pack metadata; nil on error.
 //   - error: a *FieldError from PackMeta.Validate, an invalid option,
 //     a *FieldError wrapping ErrFieldValue for pack_role repair or the retired pack_role 5,
-//     a *FieldError wrapping ErrMetadataCommitment when opts.Facts.AnyRedacted is set in a pack that is not an extract,
+//     or for a thinning entry outside the stream and function ranges,
+//     a *FieldError wrapping ErrMetadataCommitment when opts.Facts.AnyRedacted is set in a pack that is neither an extract
+//     nor masked at write, or when the metadata breaks a writer rule of format 1.1 (see ErrMetadataCommitment),
+//     an error for AssignSeq in a pack masked at write,
 //     an error wrapping ErrScopeBreach when the pack is not an extract and its period is empty or not inside one UTC hour,
 //     or the error of writing the header,
 //     which is io.ErrShortWrite when w takes fewer bytes than it was given without reporting an error.
@@ -308,7 +347,9 @@ func startWriter(w io.Writer, opts WriterOptions) (*Writer, error) {
 			hasClassifier:    len(meta.Classifiers) > 0,
 			hasMaxFrameLen:   len(meta.MaxFrameLens) > 0,
 			packRole:         meta.PackRole,
+			maskedAtWrite:    maskedAtWrite(&meta),
 			redactionPresent: opts.Facts.AnyRedacted,
+			thinned:          thinnedSFs(meta.Thinning),
 		},
 	}
 	if opts.Uncompressed {
@@ -359,8 +400,101 @@ func checkOptions(opts *WriterOptions) error {
 	if err := opts.Meta.Validate(opts.Facts); err != nil {
 		return err
 	}
+	if err := checkFormat11(opts); err != nil {
+		return err
+	}
 
 	return checkPeriod(opts)
+}
+
+// maskedAtWrite reports whether m is the pack metadata of the masked-at-write profile of format 1.1:
+// a pack whose role is not extract and that carries redaction_policy (the tracepack storage specification §4, Masking).
+func maskedAtWrite(m *PackMeta) bool {
+	return m.PackRole != PackRoleExtract && m.RedactionPolicy != nil
+}
+
+// hasSIV reports whether e carries siv, as MarshalBinary writes it.
+func hasSIV(e RedactionEntry) bool {
+	return e.HasSIV || len(e.SIV) > 0
+}
+
+// formatMinorOf returns the format_minor the pack metadata m needs (the tracepack format specification §14):
+// 1 when it holds a format 1.1 feature, else 0.
+// The record features need a metadata feature the Writer checks for (see NewWriter), so m alone decides.
+func formatMinorOf(m *PackMeta) uint16 {
+	p := m.RedactionPolicy
+	switch {
+	case m.PackRole != PackRoleExtract && len(m.Redaction) > 0,
+		p != nil && (p.EncryptionAlgorithm != nil || p.EncryptionKeyID != nil),
+		slices.ContainsFunc(m.Redaction, hasSIV),
+		len(m.Thinning) > 0:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// checkFormat11 rejects pack metadata that breaks a writer rule of format 1.1 (the tracepack format specification §5):
+// a thinning entry no record can match, an extract carrying encryption, and the profile rules of a pack masked at write.
+func checkFormat11(opts *WriterOptions) error {
+	m := opts.Meta
+	for _, t := range m.Thinning {
+		if t.Stream > streamMask || t.Function > math.MaxUint8 {
+			return &FieldError{Field: "thinning", Err: fmt.Errorf("stream %d, function %d: %w", t.Stream, t.Function, ErrFieldValue)}
+		}
+	}
+
+	p := m.RedactionPolicy
+	if m.PackRole == PackRoleExtract {
+		// An extract's policy holds neither encryption tag, so no entry of an extract carries siv.
+		switch {
+		case p != nil && p.EncryptionAlgorithm != nil:
+			return &FieldError{Field: "encryption_algorithm", Err: ErrMetadataCommitment}
+		case p != nil && p.EncryptionKeyID != nil:
+			return &FieldError{Field: "encryption_key_id", Err: ErrMetadataCommitment}
+		case slices.ContainsFunc(m.Redaction, hasSIV):
+			return &FieldError{Field: "siv", Err: ErrMetadataCommitment}
+		}
+
+		return nil
+	}
+	if p == nil {
+		return nil
+	}
+
+	var field string
+	switch {
+	case p.EncryptionAlgorithm == nil:
+		field = "encryption_algorithm"
+	case p.EncryptionKeyID == nil:
+		field = "encryption_key_id"
+	case len(m.Classifiers) != 1:
+		field = "classifier"
+	case len(m.MaxFrameLens) > 1:
+		field = "max_frame_len"
+	case opts.AssignSeq:
+		return errors.New("tracepack: WriterOptions.AssignSeq and DetectClockSteps in a pack masked at write, " +
+			"whose redaction entries bind each record's seq before the Writer sees it")
+	default:
+		return nil
+	}
+
+	return &FieldError{Field: field, Err: ErrMetadataCommitment}
+}
+
+// thinnedSFs returns the set of the streams and functions thinning declares;
+// checkFormat11 has checked that each fits a record's stream and function.
+func thinnedSFs(thinning []Thinning) map[SF]struct{} {
+	if len(thinning) == 0 {
+		return nil
+	}
+
+	set := make(map[SF]struct{}, len(thinning))
+	for _, t := range thinning {
+		set[SF{Stream: uint8(t.Stream), Function: uint8(t.Function)}] = struct{}{}
+	}
+
+	return set
 }
 
 // checkPeriod refuses the period of a pack that is not an extract when it is empty or not inside one UTC hour,
@@ -394,7 +528,8 @@ func checkClockOptions(opts *WriterOptions) error {
 	return nil
 }
 
-// encodeHead encodes the file header followed by meta, with the pack and capture ids of opts.
+// encodeHead encodes the file header followed by meta, with the pack and capture ids of opts,
+// and the format_minor meta needs, or opts.formatMinor when that is larger.
 func encodeHead(meta *PackMeta, opts *WriterOptions) ([]byte, error) {
 	metaBytes, err := meta.MarshalBinary()
 	if err != nil {
@@ -406,6 +541,7 @@ func encodeHead(meta *PackMeta, opts *WriterOptions) ([]byte, error) {
 
 	h := format.FileHeader{
 		FormatMajor:      format.FormatMajor,
+		FormatMinor:      max(formatMinorOf(meta), opts.formatMinor),
 		PackMetadataLen:  uint32(len(metaBytes)),
 		PackMetadataCRC:  format.CRC(metaBytes),
 		WriterStartUTCNs: clockOr(opts.Now)().UnixNano(),
@@ -413,8 +549,9 @@ func encodeHead(meta *PackMeta, opts *WriterOptions) ([]byte, error) {
 		CaptureID:        format.UUID(opts.CaptureID),
 	}
 	if opts.Facts.AnyRedacted {
-		// The flag is set only in extracts (the tracepack format specification §4).
-		if meta.PackRole != PackRoleExtract {
+		// The flag is set only in an extract, and from format 1.1 in a pack masked at write
+		// (the tracepack format specification §4).
+		if meta.PackRole != PackRoleExtract && !maskedAtWrite(meta) {
 			return nil, &FieldError{Field: "redaction-present", Err: ErrMetadataCommitment}
 		}
 		h.Flags |= fileHeaderRedactionPresent
@@ -469,7 +606,9 @@ func idOrNew(id UUID, now func() time.Time) (UUID, error) {
 // record_flags is derived from MonoPresent,
 // quality.capture-boundary is derived, overriding r.Quality,
 // and quality.correlation-incomplete is added for epoch 0.
-// Retired and reserved bits of quality and field_validity are cleared, so the block summary's quality_union covers only stored bits.
+// Retired and reserved bits of quality and field_validity are cleared,
+// so the block summary's quality_union covers only stored bits;
+// bit 7, unobserved, is kept, since Append refuses a record carrying it unless it is unobserved by design.
 func canonicalHeader(r *Record, seq uint64, ev *TransportEvent) format.RecordHeader {
 	h := format.RecordHeader{
 		Seq:           seq,
@@ -590,6 +729,10 @@ func clockDrift(r *Record, ev *TransportEvent, a clockAnchor, tolerance uint64) 
 // otherwise r.Seq must equal seq_start for the first record and exceed the previous seq after that.
 // It rejects a data or control record whose field_validity marks a field its payload lacks;
 // a clear bit over present bytes is kept, as a log conversion needs (the tracepack format specification §7.2).
+// A record carrying quality.unobserved must be a data record unobserved by design
+// (the tracepack semantics specification §2):
+// its stream and function available and declared in the pack metadata's thinning, its payload longer than 14 bytes,
+// its message text zero-filled, its decode_status not-attempted, its trailing_bytes 0, and quality.redacted clear.
 // Append copies r.Payload and does not modify any other field of r:
 // the header it stores is canonical as described on Record, whatever r holds.
 // With WriterOptions.DetectClockSteps, a record whose drift exceeds the tolerance is preceded by a clock-step record,
@@ -600,6 +743,7 @@ func clockDrift(r *Record, ev *TransportEvent, a clockAnchor, tolerance uint64) 
 //
 // Returns:
 //   - error: ErrPayloadTooLarge, ErrFieldValidity, ErrSeqOrder, a *FieldError wrapping ErrMetadataCommitment,
+//     an error wrapping ErrInvalidRecord for a record carrying quality.unobserved whose own fields break the rule above,
 //     or an error wrapping ErrScopeBreach, with r not added, no seq taken and the Writer still usable;
 //     an error wrapping ErrValidation or a write or sync error, after which the Writer has failed;
 //     ErrWriterFailed or ErrClosed on a failed or closed Writer.
@@ -1070,15 +1214,59 @@ func (w *Writer) write(b []byte, what string) error {
 }
 
 // checkCommitments rejects r when the pack metadata and file header c describes cannot describe it
-// (the tracepack format specification §4 and §5, the tracepack semantics specification §8).
+// (the tracepack format specification §4 and §5, the tracepack semantics specification §2 and §8).
 func (c *packCommitments) checkCommitments(r *Record) error {
+	if err := c.checkUnobserved(r); err != nil {
+		return err
+	}
 	classified := r.DecodeStatus != DecodeStatusNotAttempted && r.DecodeStatus != DecodeStatusNotApplicable
 
 	return c.checkCommitmentFacts(classified, r.DecodeStatus == DecodeStatusOversized, r.Quality.Has(QualityRedacted))
 }
 
+// checkUnobserved rejects r when it carries quality.unobserved but is not a data record unobserved by design
+// (the tracepack semantics specification §2):
+// an error wrapping ErrInvalidRecord when r's own fields break the rule,
+// and a *FieldError wrapping ErrMetadataCommitment when the pack's thinning does not declare its stream and function.
+func (c *packCommitments) checkUnobserved(r *Record) error {
+	if !r.Quality.Has(QualityUnobserved) {
+		return nil
+	}
+
+	h := r.HSMSHeader()
+	var why string
+	switch {
+	case r.Kind != KindData:
+		why = "a " + r.Kind.String() + " record"
+	case len(r.Payload) <= fieldSystemBytesEnd:
+		why = fmt.Sprintf("a payload of %d bytes, which holds no message text", len(r.Payload))
+	case !h.Available.Has(FieldValidityStreamAndW) || !h.Available.Has(FieldValidityFunction):
+		why = "its stream or function unavailable"
+	case slices.ContainsFunc(r.Payload[fieldSystemBytesEnd:], func(b byte) bool { return b != 0 }):
+		why = "a message text that is not zero-filled"
+	case r.DecodeStatus != DecodeStatusNotAttempted:
+		why = "decode_status " + r.DecodeStatus.String()
+	case r.TrailingBytes != 0:
+		why = fmt.Sprintf("%d trailing bytes", r.TrailingBytes)
+	case r.Quality.Has(QualityRedacted):
+		why = "quality.redacted, but an unobserved record is never masked"
+	default:
+		// r is unobserved by design; only its stream and function remain to check.
+	}
+	if why != "" {
+		return fmt.Errorf("tracepack: unobserved record with %s: %w", why, ErrInvalidRecord)
+	}
+
+	if _, declared := c.thinned[SF{Stream: h.Stream, Function: h.Function}]; !declared {
+		return &FieldError{Field: "thinning", Err: fmt.Errorf("unobserved S%dF%d: %w", h.Stream, h.Function, ErrMetadataCommitment)}
+	}
+
+	return nil
+}
+
 // checkCommitmentFacts rejects records that are classified, oversized or redacted, as the flags say,
 // when the pack metadata and file header c describes cannot describe them.
+// A redacted record needs an extract or a pack masked at write.
 func (c *packCommitments) checkCommitmentFacts(classified, oversized, redacted bool) error {
 	var field string
 	switch {
@@ -1086,7 +1274,7 @@ func (c *packCommitments) checkCommitmentFacts(classified, oversized, redacted b
 		field = "classifier"
 	case oversized && !c.hasMaxFrameLen:
 		field = "max_frame_len"
-	case redacted && c.packRole != PackRoleExtract:
+	case redacted && c.packRole != PackRoleExtract && !c.maskedAtWrite:
 		field = "pack_role"
 	case redacted && !c.redactionPresent:
 		field = "redaction-present"

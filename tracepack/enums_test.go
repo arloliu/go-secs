@@ -231,6 +231,18 @@ func TestDigestAlgorithm_String(t *testing.T) {
 	checkEnumStrings[tracepack.DigestAlgorithm](t, cases, 2)
 }
 
+func TestEncryptionAlgorithm_String(t *testing.T) {
+	t.Parallel()
+
+	// Transcribed from the tracepack format specification §9, `encryption_algorithm` row, from format 1.1.
+	cases := []enumCase{
+		{0, "unknown"},
+		{1, "aes-siv-cmac-512"},
+	}
+	checkEnumStrings[tracepack.EncryptionAlgorithm](t, cases, 2)
+	require.Equal(t, tracepack.EncryptionAlgorithm(1), tracepack.EncryptionAlgorithmAESSIVCMAC512)
+}
+
 func TestEvent_String(t *testing.T) {
 	t.Parallel()
 
