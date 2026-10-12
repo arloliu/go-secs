@@ -1,6 +1,9 @@
 package tlv
 
 import (
+	"maps"
+	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,6 +30,7 @@ func assertRegistry(t *testing.T, reg Registry, rows []specRow) {
 			continue
 		}
 		f.Nested = nil // checked by TestNestedRegistries
+		f.Since = 0    // checked by TestFormatMinorSince
 		assert.Equal(t, Field{Name: r.name, Type: r.vt, Repeatable: r.repeatable, Required: r.required}, f,
 			"tag 0x%04X", r.tag)
 	}
@@ -86,6 +90,7 @@ func TestPackMetadataRegistry(t *testing.T) {
 		{0x002B, "replacement_set_index", TypeU64, false, false},
 		{0x0031, "redaction_policy", TypeTLV, false, false},
 		{0x0032, "redaction", TypeTLV, true, false},
+		{0x0033, "thinning", TypeTLV, true, false},
 	}
 	assertRegistry(t, PackMetadata, rows)
 
@@ -108,7 +113,8 @@ func TestCoverageRegistry(t *testing.T) {
 	})
 }
 
-// Transcribed from "Nested tags of redaction_policy" in §5: "all required".
+// Transcribed from "Nested tags of redaction_policy" in §5: the four tags of format 1.0 are "all required";
+// the two of format 1.1 are "both present or both absent", a writer rule, so neither is required.
 func TestRedactionPolicyRegistry(t *testing.T) {
 	t.Parallel()
 
@@ -117,6 +123,8 @@ func TestRedactionPolicyRegistry(t *testing.T) {
 		{0x0002, "policy_version", TypeU64, false, true},
 		{0x0003, "key_id", TypeUTF8, false, true},
 		{0x0004, "digest_algorithm", TypeU8, false, true},
+		{0x0005, "encryption_algorithm", TypeU8, false, false},
+		{0x0006, "encryption_key_id", TypeUTF8, false, false},
 	})
 }
 
@@ -130,7 +138,77 @@ func TestRedactionRegistry(t *testing.T) {
 		{0x0003, "masked_ranges", TypeBytes, false, true},
 		{0x0004, "domain", TypeUTF8, false, true},
 		{0x0005, "digest", TypeBytes, false, true},
+		{0x0006, "siv", TypeBytes, false, false},
 	})
+}
+
+// Transcribed from "Nested tags of thinning" in §5: "all required".
+func TestThinningRegistry(t *testing.T) {
+	t.Parallel()
+
+	assertRegistry(t, Thinning, []specRow{
+		{0x0001, "stream", TypeU64, false, true},
+		{0x0002, "function", TypeU64, false, true},
+		{0x0003, "source", TypeUTF8, false, true},
+	})
+}
+
+// Every tag format 1.1 adds is marked with the minor that defines it, and no tag of format 1.0 is
+// (the tracepack format specification §5 and §14).
+func TestFormatMinorSince(t *testing.T) {
+	t.Parallel()
+
+	added := map[string]map[uint16]uint16{
+		"pack metadata":    {0x0033: 1},
+		"redaction policy": {0x0005: 1, 0x0006: 1},
+		"redaction":        {0x0006: 1},
+		"thinning":         {0x0001: 1, 0x0002: 1, 0x0003: 1},
+	}
+	for _, r := range allRegistries() {
+		for tag, f := range r.reg {
+			assert.Equal(t, added[r.name][tag], f.Since, "%s tag 0x%04X", r.name, tag)
+		}
+	}
+}
+
+// AtMinor keeps exactly the tags a pack of the minor knows, at every nesting level,
+// and returns a registry whose every tag is known at the minor as it is.
+func TestRegistryAtMinor(t *testing.T) {
+	t.Parallel()
+
+	v0 := PackMetadata.AtMinor(0)
+	assert.NotContains(t, v0, uint16(0x0033))
+	assert.Len(t, v0, len(PackMetadata)-1)
+	assert.Equal(t, []uint16{1, 2, 3, 4}, slices.Sorted(maps.Keys(*v0[0x0031].Nested)))
+	assert.Equal(t, []uint16{1, 2, 3, 4, 5}, slices.Sorted(maps.Keys(*v0[0x0032].Nested)))
+	assert.Same(t, PackMetadata[0x0016].Nested, v0[0x0016].Nested, "coverage has no newer tag")
+	for tag, f := range v0 {
+		g := PackMetadata[tag]
+		f.Nested, g.Nested = nil, nil
+		assert.Equal(t, g, f, "tag 0x%04X", tag)
+	}
+
+	for _, minor := range []uint16{1, 2} {
+		v := PackMetadata.AtMinor(minor)
+		assert.Equal(t, reflect.ValueOf(PackMetadata).Pointer(), reflect.ValueOf(v).Pointer(), "minor %d", minor)
+	}
+	assert.Equal(t, reflect.ValueOf(Coverage).Pointer(), reflect.ValueOf(Coverage.AtMinor(0)).Pointer())
+}
+
+// namedRegistry is a registry of the package with its name.
+type namedRegistry struct {
+	name string
+	reg  Registry
+}
+
+// allRegistries returns every registry of the package.
+func allRegistries() []namedRegistry {
+	return []namedRegistry{
+		{"pack metadata", PackMetadata}, {"coverage", Coverage}, {"redaction policy", RedactionPolicy},
+		{"redaction", Redaction}, {"thinning", Thinning}, {"hsms timers", HSMSTimers},
+		{"transport event", TransportEvent}, {"annotation", Annotation}, {"F-3", F3}, {"F-5", F5},
+		{"epoch", Epoch}, {"boundary", Boundary},
+	}
 }
 
 // Transcribed from the hsms_timers row of §5: nested tag n (1–8) is Tn in milliseconds, u64.
@@ -265,7 +343,7 @@ func TestBoundaryRegistry(t *testing.T) {
 }
 
 // Every tlv tag names the registry of its nested entries, from the specification text:
-// §5 "Nested tags of coverage", "of redaction_policy", "of redaction" and the hsms_timers row,
+// §5 "Nested tags of coverage", "of redaction_policy", "of redaction", "of thinning" and the hsms_timers row,
 // and §10 "Nested tags of epoch (F-3 and F-5)" and "of boundary".
 // No tag of another value type names one.
 func TestNestedRegistries(t *testing.T) {
@@ -281,6 +359,7 @@ func TestNestedRegistries(t *testing.T) {
 		{"pack metadata hsms_timers", PackMetadata, 0x0026, &HSMSTimers},
 		{"pack metadata redaction_policy", PackMetadata, 0x0031, &RedactionPolicy},
 		{"pack metadata redaction", PackMetadata, 0x0032, &Redaction},
+		{"pack metadata thinning", PackMetadata, 0x0033, &Thinning},
 		{"F-3 epoch", F3, 0x0007, &Epoch},
 		{"F-3 boundary", F3, 0x0008, &Boundary},
 		{"F-5 epoch", F5, 0x000A, &Epoch},
@@ -290,16 +369,8 @@ func TestNestedRegistries(t *testing.T) {
 		assert.Same(t, w.nested, w.reg[w.tag].Nested, w.name)
 	}
 
-	all := []struct {
-		name string
-		reg  Registry
-	}{
-		{"pack metadata", PackMetadata}, {"coverage", Coverage}, {"redaction policy", RedactionPolicy},
-		{"redaction", Redaction}, {"hsms timers", HSMSTimers}, {"transport event", TransportEvent},
-		{"annotation", Annotation}, {"F-3", F3}, {"F-5", F5}, {"epoch", Epoch}, {"boundary", Boundary},
-	}
 	wired := 0
-	for _, r := range all {
+	for _, r := range allRegistries() {
 		for tag, f := range r.reg {
 			if f.Type == TypeTLV {
 				assert.NotNil(t, f.Nested, "%s tag 0x%04X is tlv without a nested registry", r.name, tag)

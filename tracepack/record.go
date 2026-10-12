@@ -43,7 +43,9 @@ const (
 // and owns the quality bit QualityCaptureBoundary, set iff the record is a transport event whose payload decodes to a capture-boundary event.
 // It adds QualityCorrelationIncomplete to a record of epoch 0 (the tracepack format specification I-7),
 // and keeps the bit the caller set on any other epoch.
-// QualityRedacted is accepted only in an extract whose file header sets redaction-present.
+// QualityRedacted is accepted only in an extract or a pack masked at write, whose file header sets redaction-present,
+// and QualityUnobserved only on a data record unobserved by design of a stream and function the pack's thinning declares
+// (see Writer.Append).
 type Record struct {
 	// Seq is the capture-scoped record number;
 	// a Writer with WriterOptions.AssignSeq assigns it.

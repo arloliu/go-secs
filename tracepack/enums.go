@@ -478,6 +478,32 @@ func (a DigestAlgorithm) String() string {
 	}
 }
 
+// EncryptionAlgorithm classifies which algorithm encrypted the masked bytes of a pack masked at write, from format 1.1
+// (the tracepack semantics specification §8).
+//
+// Value 0 means unknown.
+// See the tracepack format specification §9 for the full registry.
+type EncryptionAlgorithm uint8
+
+const (
+	// EncryptionAlgorithmUnknown means the algorithm was not classified.
+	EncryptionAlgorithmUnknown EncryptionAlgorithm = iota
+	// EncryptionAlgorithmAESSIVCMAC512 means AES-SIV-CMAC per RFC 5297 with a 64-byte key.
+	EncryptionAlgorithmAESSIVCMAC512
+)
+
+// String returns the tracepack format specification's name for a, or "unknown(<n>)" for a value outside the registry.
+func (a EncryptionAlgorithm) String() string {
+	switch a {
+	case EncryptionAlgorithmUnknown:
+		return "unknown"
+	case EncryptionAlgorithmAESSIVCMAC512:
+		return "aes-siv-cmac-512"
+	default:
+		return fmt.Sprintf("unknown(%d)", uint8(a))
+	}
+}
+
 // Event classifies a transport-event record's kind of transport lifecycle event.
 //
 // Value 0 means unknown.
@@ -733,7 +759,9 @@ const (
 	BoundaryKindStop
 	// BoundaryKindGap means the capture is missing an interval of records.
 	BoundaryKindGap
-	// BoundaryKindStopUnclean means the capture ended without a clean stop, as written by recovery.
+	// BoundaryKindStopUnclean means the capture ended without a clean stop:
+	// written by a consumer closing a capture its producer left open, at seq 2^63-1 (the tracepack storage specification §4),
+	// and at other seqs by the spool recovery of earlier specification versions, whose packs stay valid.
 	BoundaryKindStopUnclean
 )
 

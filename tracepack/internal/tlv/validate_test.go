@@ -26,6 +26,7 @@ var specRequired = []struct {
 	{"coverage", Coverage, nil},
 	{"redaction policy", RedactionPolicy, []uint16{0x0001, 0x0002, 0x0003, 0x0004}},
 	{"redaction", Redaction, []uint16{0x0001, 0x0003, 0x0004, 0x0005}},
+	{"thinning", Thinning, []uint16{0x0001, 0x0002, 0x0003}},
 	{"hsms timers", HSMSTimers, nil},
 	{"transport event", TransportEvent, []uint16{0x0001}},
 	{"annotation", Annotation, []uint16{0x0001}},
@@ -330,6 +331,60 @@ func TestValidateNested(t *testing.T) {
 			assert.Equal(t, tt.innerOffset, inner.Offset, "the nested offset is relative to the nested value")
 		})
 	}
+}
+
+// ValidateMinor treats a tag of a minor above the pack's as unknown, at every nesting level,
+// so a number format 1.1 assigns keeps its format 1.0 status in a pack of minor 0
+// (the tracepack format specification §5 and §14).
+func TestValidateMinor(t *testing.T) {
+	t.Parallel()
+
+	policy := func(extra ...Entry) Entry {
+		return NestedEntry(0x0031, append([]Entry{UTF8Entry(1, "p"), U64Entry(2, 1), UTF8Entry(3, "k"), U8Entry(4, 1)}, extra...))
+	}
+	entry := func(extra ...Entry) Entry {
+		return NestedEntry(0x0032, append([]Entry{U64Entry(1, 0), BytesEntry(3, nil), UTF8Entry(4, "d"), BytesEntry(5, nil)}, extra...))
+	}
+	thinning := NestedEntry(0x0033, []Entry{U64Entry(1, 1), U64Entry(2, 3), UTF8Entry(3, "fdc")})
+	reg := Registry{0x0031: PackMetadata[0x0031], 0x0032: PackMetadata[0x0032], 0x0033: PackMetadata[0x0033]}
+
+	tests := []struct {
+		name    string
+		entries []Entry
+		minor1  error // the result in a pack of minor 1 or later; minor 0 accepts every list
+	}{
+		{"thinning as bytes, twice", []Entry{BytesEntry(0x0033, []byte("a")), BytesEntry(0x0033, []byte("b"))}, ErrType},
+		{"thinning repeated", []Entry{thinning, thinning}, nil},
+		{"thinning missing a nested tag", []Entry{NestedEntry(0x0033, []Entry{U64Entry(1, 1)})}, ErrMissing},
+		{"policy encryption tags as bytes", []Entry{policy(BytesEntry(5, []byte{1}), BytesEntry(6, []byte("k")))}, ErrType},
+		{"policy encryption tags", []Entry{policy(U8Entry(5, 1), UTF8Entry(6, "k"))}, nil},
+		{"policy encryption key id repeated", []Entry{policy(UTF8Entry(6, "k"), UTF8Entry(6, "k"))}, ErrDuplicate},
+		{"siv repeated", []Entry{entry(BytesEntry(6, make([]byte, 16)), BytesEntry(6, make([]byte, 16)))}, ErrDuplicate},
+		{"siv as utf8", []Entry{entry(UTF8Entry(6, "s"))}, ErrType},
+		{"siv", []Entry{entry(BytesEntry(6, make([]byte, 16)))}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			entries, err := Decode(encodeEntries(tt.entries))
+			require.NoError(t, err)
+			require.NoError(t, ValidateMinor(entries, reg, 0), "minor 0")
+			requireErrorIs(t, tt.minor1, ValidateMinor(entries, reg, 1), "minor 1")
+			requireErrorIs(t, tt.minor1, ValidateMinor(entries, reg, 2), "a newer minor reads with the newest registry")
+			requireErrorIs(t, tt.minor1, Validate(entries, reg), "Validate uses the newest registry")
+		})
+	}
+}
+
+// requireErrorIs checks that err is nil when want is, and wraps want otherwise.
+func requireErrorIs(t *testing.T, want, err error, msg string) {
+	t.Helper()
+
+	if want == nil {
+		require.NoError(t, err, msg)
+		return
+	}
+	require.ErrorIs(t, err, want, msg)
 }
 
 // Validate descends at most MaxNestingDepth levels of nested tlv values,

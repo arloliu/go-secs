@@ -1003,10 +1003,9 @@ func TestMergeArchiveMetadata(t *testing.T) {
 		}
 	}
 	// notCarried gives m a value in every tag the archive does not carry.
+	// The inputs stay unmasked, without redaction_policy or redaction entries, so their classifiers are a union.
 	notCarried := func(m *PackMeta) {
 		m.FlushIntervalNs, m.Notes, m.ExtractFilter = new(uint64(60_000_000_000)), new("note"), new("filter")
-		m.RedactionPolicy = &RedactionPolicy{PolicyID: "p", PolicyVersion: 1, KeyID: "k", DigestAlgorithm: DigestAlgorithmHMACSHA256}
-		m.Redaction = []RedactionEntry{{Seq: 1, MaskedRanges: []MaskedRange{{Offset: 0, Length: 2}}, Domain: "d", Digest: bytes.Repeat([]byte{0xD1}, 32)}}
 		m.Unknown = []RawEntry{{Tag: 0x8001, Type: 7, Value: []byte{1}}}
 	}
 
@@ -1055,8 +1054,6 @@ func TestMergeArchiveMetadata(t *testing.T) {
 	assert.Nil(t, m.FlushIntervalNs)
 	assert.Nil(t, m.Notes)
 	assert.Nil(t, m.PatchBase)
-	assert.Nil(t, m.RedactionPolicy)
-	assert.Nil(t, m.Redaction)
 	assert.Nil(t, m.ExtractFilter)
 	assert.Nil(t, m.Unknown)
 

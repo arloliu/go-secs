@@ -59,7 +59,12 @@ const (
 	tagPatchBase            uint16 = 0x002F
 	tagRedactionPolicy      uint16 = 0x0031
 	tagRedaction            uint16 = 0x0032
+	tagThinning             uint16 = 0x0033
 )
+
+// formatMinorNewest is the newest format minor this package knows (the tracepack format specification §14).
+// A pack of a newer minor is read with the registry of this one.
+const formatMinorNewest uint16 = 1
 
 // retiredPackMetaTags are the retired pack metadata tag numbers (the tracepack format specification §5):
 // a writer never writes them, and a reader treats them as unknown tags.
@@ -83,6 +88,9 @@ const (
 	tagRedactionPolicyPolicyVersion   uint16 = 0x0002
 	tagRedactionPolicyKeyID           uint16 = 0x0003
 	tagRedactionPolicyDigestAlgorithm uint16 = 0x0004
+	// From format 1.1.
+	tagRedactionPolicyEncryptionAlgorithm uint16 = 0x0005
+	tagRedactionPolicyEncryptionKeyID     uint16 = 0x0006
 )
 
 // Nested tags of a pack metadata `redaction` entry (the tracepack format specification §5).
@@ -92,6 +100,15 @@ const (
 	tagRedactionEntryMaskedRanges uint16 = 0x0003
 	tagRedactionEntryDomain       uint16 = 0x0004
 	tagRedactionEntryDigest       uint16 = 0x0005
+	// From format 1.1.
+	tagRedactionEntrySIV uint16 = 0x0006
+)
+
+// Nested tags of a pack metadata `thinning` entry, from format 1.1 (the tracepack format specification §5).
+const (
+	tagThinningStream   uint16 = 0x0001
+	tagThinningFunction uint16 = 0x0002
+	tagThinningSource   uint16 = 0x0003
 )
 
 // Sentinel errors returned by PackMeta, TransportEvent, Annotation and CaptureDescriptor.Validate.
@@ -166,8 +183,9 @@ type PackFacts struct {
 	// ScopeHasGeneration reports that the pack's scope already has a published generation,
 	// which, for a patch, requires the patch_base tag (the tracepack format specification §5).
 	ScopeHasGeneration bool
-	// DurableRecorder reports that the writer is a recorder with a durable spool, or a consumer of a durable bus,
+	// DurableRecorder reports that the writer is a consumer of a durable bus,
 	// which requires the flush_interval_ns tag (the tracepack storage specification §4).
+	// A standalone recorder and a converter never set it.
 	DurableRecorder bool
 }
 
@@ -194,11 +212,15 @@ type Coverage struct {
 	Unknown []RawEntry
 }
 
-// RedactionPolicy is the policy an extract's pack metadata `redaction_policy` entry names
-// (the tracepack semantics specification §8).
+// RedactionPolicy is the policy a pack metadata `redaction_policy` entry names (the tracepack semantics specification §8):
+// the policy an extract was written under, or, from format 1.1, the policy a pack masked at write was written under.
 //
 // See the tracepack format specification §5.
-// Every field is required whenever RedactionPolicy is present.
+// PolicyID, PolicyVersion, KeyID and DigestAlgorithm are required whenever RedactionPolicy is present.
+// EncryptionAlgorithm and EncryptionKeyID, from format 1.1, are each nil exactly when their tag is absent,
+// so a policy holding neither, either one or both decodes and re-encodes as it was stored, whatever their values.
+// A writer writes both or neither: both in a pack masked at write, neither in an extract;
+// a reader reports no defect for a policy holding one (the tracepack format specification §5).
 type RedactionPolicy struct {
 	// PolicyID identifies the policy.
 	PolicyID string
@@ -208,6 +230,12 @@ type RedactionPolicy struct {
 	KeyID string
 	// DigestAlgorithm is the algorithm the digests were computed with.
 	DigestAlgorithm DigestAlgorithm
+	// EncryptionAlgorithm is the algorithm that encrypted the masked bytes of data records
+	// (encryption_algorithm, from format 1.1); nil when the tag is absent.
+	EncryptionAlgorithm *EncryptionAlgorithm
+	// EncryptionKeyID identifies the key that encrypted them (encryption_key_id, from format 1.1);
+	// nil when the tag is absent, and possibly empty when present.
+	EncryptionKeyID *string
 }
 
 // MaskedRange is one (offset, length) pair of a RedactionEntry's masked ranges,
@@ -223,6 +251,7 @@ type MaskedRange struct {
 //
 // See the tracepack format specification §5.
 // ItemPath is absent for a whole-text or annotation mask, and empty for the root item;
+// SIV, from format 1.1, is present in the entries of data records under a policy with encryption;
 // the other fields are required.
 type RedactionEntry struct {
 	// Seq is the masked record's seq.
@@ -231,10 +260,38 @@ type RedactionEntry struct {
 	ItemPath *string
 	// MaskedRanges lists the masked byte ranges of the record payload.
 	MaskedRanges []MaskedRange
+	// RawMaskedRanges holds the stored masked_ranges value in place of MaskedRanges
+	// when that value is not a whole array of (offset, length) pairs, a defect a reader reports,
+	// so the entry keeps it as stored.
+	// When it is not empty, MarshalBinary writes it as masked_ranges, and MaskedRanges must be empty.
+	RawMaskedRanges []byte
 	// Domain names the redaction domain the mask belongs to.
 	Domain string
 	// Digest is the digest of the masked bytes, computed under RedactionPolicy.DigestAlgorithm.
 	Digest []byte
+	// SIV is the synthetic initialization vector of the encrypted masked bytes (siv, from format 1.1),
+	// 16 bytes when well formed; any other length is kept as stored, so a reader can report it.
+	SIV []byte
+	// HasSIV reports that the entry carries siv, which may be empty:
+	// decoding sets it for every present siv, and MarshalBinary writes siv when it is set or SIV is not empty.
+	HasSIV bool
+}
+
+// Thinning is one entry of a pack metadata `thinning` entry, from format 1.1:
+// a stream and function whose records the producer may leave unobserved by design,
+// and where the sampling of those records comes from
+// (the tracepack semantics specification §2, the tracepack storage specification §4).
+//
+// See the tracepack format specification §5; every field is required.
+// A stream and function a record can carry are at most 127 and 255;
+// a Writer refuses an entry outside them, since no record could match it.
+type Thinning struct {
+	// Stream is the thinned stream (stream).
+	Stream uint64
+	// Function is the thinned function (function).
+	Function uint64
+	// Source says where the sampling comes from (source), descriptive text, never a rule.
+	Source string
 }
 
 // HSMSTimers carries the HSMS timers a pack metadata `hsms_timers` entry configures, in milliseconds.
@@ -377,7 +434,6 @@ type PackMeta struct {
 	// SeqStart is the first record's seq, or for a pack without records the capture's next seq (seq_start); always required.
 	// A patch without records takes the damaged pack's seq_start (the tracepack storage specification §6),
 	// and an archive without records the largest seq_start of the merge's inputs (the tracepack storage specification §4).
-	// It lets recovery of an empty spool place its boundary.
 	SeqStart uint64
 	// ClockStepToleranceNs is the wall-clock drift the writer tolerates against its durable clock anchor before it marks a step
 	// (clock_step_tolerance_ns, the tracepack semantics specification §4); required for a capture-clock time source.
@@ -408,14 +464,22 @@ type PackMeta struct {
 	// (patch_base, the tracepack format specification §5); required for a patch whose scope has a generation.
 	// It was written only by the repair of earlier versions; it is read and exported like any tag.
 	PatchBase *UUID
-	// RedactionPolicy is the redaction policy an extract was written under
-	// (redaction_policy, the tracepack semantics specification §8);
-	// required when the extract was written under one.
+	// RedactionPolicy is the redaction policy the pack was written under
+	// (redaction_policy, the tracepack semantics specification §8):
+	// an extract's, or, from format 1.1, that of a pack masked at write, a pack whose role is not extract
+	// (the tracepack storage specification §4, Masking); required when the pack was written under one.
 	RedactionPolicy *RedactionPolicy
 	// Redaction lists one mask per entry, ordered by seq, then by first masked offset
 	// (redaction, the tracepack semantics specification §8); required when a record was masked.
 	Redaction []RedactionEntry
+	// Thinning lists one thinned stream and function per entry, in stored order
+	// (thinning, from format 1.1, the tracepack semantics specification §2);
+	// required when a record carries quality.unobserved.
+	// It is a capture-level tag, declared by the producer in the capture descriptor (the tracepack storage specification §4).
+	Thinning []Thinning
 	// Unknown preserves every entry whose tag PackMeta does not recognize, private tags included, in stored order.
+	// In a pack of format minor 0 that includes a tag a later minor defines, such as 0x0033,
+	// which keeps the status minor 0 gives it (the tracepack format specification §5).
 	Unknown []RawEntry
 }
 
@@ -494,10 +558,50 @@ var packMetaSetters = map[uint16]func(m *PackMeta, e tlv.Entry) error{
 	tagScopeGeneration:      setField(tlv.Entry.U64, func(m *PackMeta, v uint64) { m.ScopeGeneration = &v }),
 	tagPublisherEpoch:       setField(tlv.Entry.U64, func(m *PackMeta, v uint64) { m.PublisherEpoch = &v }),
 	tagPatchBase:            setField(uuidOf, func(m *PackMeta, v UUID) { m.PatchBase = &v }),
-	tagRedactionPolicy:      setNested(decodeNested(redactionPolicySetters), func(m *PackMeta, v RedactionPolicy) { m.RedactionPolicy = &v }),
-	tagRedaction: setNested(decodeNested(redactionEntrySetters), func(m *PackMeta, v RedactionEntry) {
-		m.Redaction = append(m.Redaction, v)
-	}),
+	tagRedactionPolicy:      redactionPolicySetter(formatMinorNewest),
+	tagRedaction:            redactionSetter(formatMinorNewest),
+	tagThinning:             setNested(decodeNested(thinningSetters), func(m *PackMeta, v Thinning) { m.Thinning = append(m.Thinning, v) }),
+}
+
+// packMetaSettersByMinor holds, for each format minor up to the newest,
+// the setters of the tags a pack of that minor knows:
+// packMetaSetters without the tags a later minor defines, at every nesting level (the tracepack format specification §5),
+// so an entry of such a tag is kept in PackMeta.Unknown, or skipped inside a nested value, as its minor treats it.
+var packMetaSettersByMinor = func() (s [formatMinorNewest + 1]map[uint16]func(*PackMeta, tlv.Entry) error) {
+	for minor := range s {
+		s[minor] = settersAt(packMetaSetters, tlv.PackMetadata, uint16(minor))
+		// The nested registries that gain tags in a later minor: their decoders skip those tags at this minor.
+		s[minor][tagRedactionPolicy] = redactionPolicySetter(uint16(minor))
+		s[minor][tagRedaction] = redactionSetter(uint16(minor))
+	}
+
+	return s
+}()
+
+// redactionPolicySetter returns the setter of a `redaction_policy` entry in a pack of the format minor.
+func redactionPolicySetter(minor uint16) func(*PackMeta, tlv.Entry) error {
+	return setNested(decodeNested(settersAt(redactionPolicySetters, tlv.RedactionPolicy, minor)),
+		func(m *PackMeta, v RedactionPolicy) { m.RedactionPolicy = &v })
+}
+
+// redactionSetter returns the setter of a `redaction` entry in a pack of the format minor.
+func redactionSetter(minor uint16) func(*PackMeta, tlv.Entry) error {
+	return setNested(decodeNested(settersAt(redactionEntrySetters, tlv.Redaction, minor)),
+		func(m *PackMeta, v RedactionEntry) { m.Redaction = append(m.Redaction, v) })
+}
+
+// settersAt returns the setters of setters whose tags a pack of the format minor knows by reg:
+// a tag reg defines in a later minor is dropped, so the decoder treats it as unknown.
+func settersAt[R any](setters map[uint16]func(*R, tlv.Entry) error, reg tlv.Registry, minor uint16) map[uint16]func(*R, tlv.Entry) error {
+	out := make(map[uint16]func(*R, tlv.Entry) error, len(setters))
+	for tag, set := range setters {
+		if f, known := reg[tag]; known && f.Since > minor {
+			continue
+		}
+		out[tag] = set
+	}
+
+	return out
 }
 
 // coverageSetters decodes one nested tag of a pack metadata `coverage` entry into c, keyed by tag.
@@ -510,7 +614,8 @@ var coverageSetters = map[uint16]func(c *Coverage, e tlv.Entry) error{
 }
 
 // redactionPolicySetters decodes one nested tag of a pack metadata `redaction_policy` entry into p, keyed by tag.
-// Every field is required by the registry, so tlv.Validate has already confirmed each tag is present.
+// The four tags of format 1.0 are required by the registry, so tlv.Validate has already confirmed each is present;
+// the two encryption tags set their pointer only when present.
 var redactionPolicySetters = map[uint16]func(p *RedactionPolicy, e tlv.Entry) error{
 	tagRedactionPolicyPolicyID:      setField(tlv.Entry.UTF8, func(p *RedactionPolicy, v string) { p.PolicyID = v }),
 	tagRedactionPolicyPolicyVersion: setField(tlv.Entry.U64, func(p *RedactionPolicy, v uint64) { p.PolicyVersion = v }),
@@ -518,6 +623,10 @@ var redactionPolicySetters = map[uint16]func(p *RedactionPolicy, e tlv.Entry) er
 	tagRedactionPolicyDigestAlgorithm: setField(u8As[DigestAlgorithm], func(p *RedactionPolicy, v DigestAlgorithm) {
 		p.DigestAlgorithm = v
 	}),
+	tagRedactionPolicyEncryptionAlgorithm: setField(u8As[EncryptionAlgorithm], func(p *RedactionPolicy, v EncryptionAlgorithm) {
+		p.EncryptionAlgorithm = &v
+	}),
+	tagRedactionPolicyEncryptionKeyID: setField(tlv.Entry.UTF8, func(p *RedactionPolicy, v string) { p.EncryptionKeyID = &v }),
 }
 
 // redactionEntrySetters decodes one nested tag of a pack metadata `redaction` entry into r, keyed by tag.
@@ -529,6 +638,18 @@ var redactionEntrySetters = map[uint16]func(r *RedactionEntry, e tlv.Entry) erro
 	tagRedactionEntryDigest: setField(tlv.Entry.Bytes, func(r *RedactionEntry, v []byte) {
 		r.Digest = append([]byte(nil), v...)
 	}),
+	tagRedactionEntrySIV: setField(tlv.Entry.Bytes, func(r *RedactionEntry, v []byte) {
+		r.SIV, r.HasSIV = append([]byte(nil), v...), true
+	}),
+}
+
+// thinningSetters decodes one nested tag of a pack metadata `thinning` entry into t, keyed by tag.
+// Every field is required by the registry, so tlv.Validate has already confirmed each tag is present;
+// an unknown nested tag is skipped.
+var thinningSetters = map[uint16]func(t *Thinning, e tlv.Entry) error{
+	tagThinningStream:   setField(tlv.Entry.U64, func(t *Thinning, v uint64) { t.Stream = v }),
+	tagThinningFunction: setField(tlv.Entry.U64, func(t *Thinning, v uint64) { t.Function = v }),
+	tagThinningSource:   setField(tlv.Entry.UTF8, func(t *Thinning, v string) { t.Source = v }),
 }
 
 // Validate checks m against the conditional "Required when" rules of the pack metadata tag registry
@@ -603,11 +724,19 @@ func (m *PackMeta) Validate(facts PackFacts) error {
 // It rejects any value UnmarshalPackMeta would reject:
 // a string that is not valid UTF-8, a u64 above 2^63-1, nested values included.
 //
+// The values of format 1.1 are written as they are held, so a decoded PackMeta is written back as it was decoded:
+// each encryption tag of RedactionPolicy when its pointer is set, siv when HasSIV is set or SIV is not empty,
+// RawMaskedRanges in place of MaskedRanges when it is not empty, and every Thinning entry.
+// MarshalBinary checks no writer rule of format 1.1; a Writer does (see NewWriter).
+// An Unknown entry naming a tag of format 1.1, as UnmarshalPackMetaMinor keeps one for a pack of minor 0,
+// is refused with ErrReservedTag like any tag this package encodes.
+//
 // Returns:
 //   - []byte: the encoded pack metadata.
 //   - error: a *FieldError from Validate, a *FieldError wrapping ErrFieldValue for pack_role 5,
 //     a *FieldError wrapping ErrReservedTag for an Unknown entry, of the metadata or of a coverage entry,
 //     that names a tag this package already encodes,
+//     a *FieldError wrapping ErrFieldValue for a redaction entry holding both MaskedRanges and RawMaskedRanges,
 //     or an error naming the first value the decoder would reject.
 func (m *PackMeta) MarshalBinary() ([]byte, error) {
 	if err := m.validateIntrinsic(); err != nil {
@@ -646,23 +775,46 @@ func (m *PackMeta) MarshalBinary() ([]byte, error) {
 // which calls Validate itself when it has PackFacts to check against.
 // An entry whose tag is not in the registry, a retired tag included, is preserved in the returned PackMeta's Unknown field.
 //
+// It decodes b with the newest registry this package knows, as the pack metadata of a pack of an unknown newer minor;
+// a reader that knows the pack's format minor calls UnmarshalPackMetaMinor.
+//
 // Returns:
 //   - *PackMeta: the decoded pack metadata; nil on error.
 //   - error: non-nil if b is not valid TLV or fails the registry check;
 //     a *FieldError wrapping ErrRequiredTag for the first "Required when" rule the metadata itself violates,
 //     or ErrFieldValue for a replacement-set value other than size 1 and index 0.
 func UnmarshalPackMeta(b []byte) (*PackMeta, error) {
+	return UnmarshalPackMetaMinor(b, formatMinorNewest)
+}
+
+// UnmarshalPackMetaMinor decodes b as UnmarshalPackMeta does,
+// as the pack metadata of a pack whose file header states the format minor:
+// a tag, nested tag or enum value a later minor defines is known only in a pack of that minor or later,
+// and in a pack of an earlier minor keeps the status that minor gives it (the tracepack format specification §5 and §14).
+// So in a pack of minor 0 a top-level tag of format 1.1, such as 0x0033, is kept in Unknown whatever its value type,
+// and a nested tag of format 1.1 in redaction_policy or redaction is skipped, as every unknown nested tag of those two is.
+// A minor above the newest this package knows decodes with the newest registry.
+//
+// Such a PackMeta keeps in Unknown a tag this package encodes as a typed field,
+// which MarshalBinary refuses with ErrReservedTag:
+// nothing written from it can give those bytes a meaning they lack in their pack.
+//
+// Returns:
+//   - *PackMeta: the decoded pack metadata; nil on error.
+//   - error: as for UnmarshalPackMeta.
+func UnmarshalPackMetaMinor(b []byte, minor uint16) (*PackMeta, error) {
 	entries, err := tlv.Decode(b)
 	if err != nil {
 		return nil, fmt.Errorf("tracepack: decode pack metadata: %w", err)
 	}
-	if err := tlv.Validate(entries, tlv.PackMetadata); err != nil {
+	if err := tlv.ValidateMinor(entries, tlv.PackMetadata, minor); err != nil {
 		return nil, fmt.Errorf("tracepack: validate pack metadata: %w", err)
 	}
 
+	setters := packMetaSettersByMinor[min(minor, formatMinorNewest)]
 	m := &PackMeta{}
 	for _, e := range entries {
-		if set, known := packMetaSetters[e.Tag]; known {
+		if set, known := setters[e.Tag]; known {
 			if err := set(m, e); err != nil {
 				return nil, err
 			}
@@ -744,7 +896,8 @@ func (c Coverage) entry() (tlv.Entry, error) {
 	return tlv.NestedEntry(tagCoverage, sub), nil
 }
 
-// entry returns p as the nested entry list of a pack metadata `redaction_policy` entry.
+// entry returns p as the nested entry list of a pack metadata `redaction_policy` entry,
+// with each encryption tag that p holds.
 func (p RedactionPolicy) entry() tlv.Entry {
 	sub := []tlv.Entry{
 		tlv.UTF8Entry(tagRedactionPolicyPolicyID, p.PolicyID),
@@ -752,28 +905,60 @@ func (p RedactionPolicy) entry() tlv.Entry {
 		tlv.UTF8Entry(tagRedactionPolicyKeyID, p.KeyID),
 		tlv.U8Entry(tagRedactionPolicyDigestAlgorithm, uint8(p.DigestAlgorithm)),
 	}
+	sub = appendPresent(sub, []optionalEntry{
+		{p.EncryptionAlgorithm != nil, func() tlv.Entry {
+			return tlv.U8Entry(tagRedactionPolicyEncryptionAlgorithm, uint8(*p.EncryptionAlgorithm))
+		}},
+		{p.EncryptionKeyID != nil, func() tlv.Entry { return tlv.UTF8Entry(tagRedactionPolicyEncryptionKeyID, *p.EncryptionKeyID) }},
+	})
 
 	return tlv.NestedEntry(tagRedactionPolicy, sub)
 }
 
-// entry returns r as the nested entry list of a pack metadata `redaction` entry.
-func (r RedactionEntry) entry() tlv.Entry {
+// entry returns r as the nested entry list of a pack metadata `redaction` entry:
+// its masked_ranges from RawMaskedRanges when that is not empty, else from MaskedRanges,
+// and its siv when HasSIV is set or SIV is not empty.
+//
+// Returns:
+//   - tlv.Entry: the redaction entry.
+//   - error: a *FieldError wrapping ErrFieldValue when both RawMaskedRanges and MaskedRanges are set.
+func (r RedactionEntry) entry() (tlv.Entry, error) {
 	sub := []tlv.Entry{tlv.U64Entry(tagRedactionEntrySeq, r.Seq)}
 	if r.ItemPath != nil {
 		sub = append(sub, tlv.UTF8Entry(tagRedactionEntryItemPath, *r.ItemPath))
 	}
 
-	flat := make([]uint64, 0, 2*len(r.MaskedRanges))
-	for _, mr := range r.MaskedRanges {
-		flat = append(flat, mr.Offset, mr.Length)
+	ranges := r.RawMaskedRanges
+	if len(ranges) > 0 {
+		if len(r.MaskedRanges) > 0 {
+			return tlv.Entry{}, &FieldError{Field: "masked_ranges", Err: ErrFieldValue}
+		}
+	} else {
+		flat := make([]uint64, 0, 2*len(r.MaskedRanges))
+		for _, mr := range r.MaskedRanges {
+			flat = append(flat, mr.Offset, mr.Length)
+		}
+		ranges = tlv.AppendU64Array(nil, flat)
 	}
 	sub = append(sub,
-		tlv.BytesEntry(tagRedactionEntryMaskedRanges, tlv.AppendU64Array(nil, flat)),
+		tlv.BytesEntry(tagRedactionEntryMaskedRanges, ranges),
 		tlv.UTF8Entry(tagRedactionEntryDomain, r.Domain),
 		tlv.BytesEntry(tagRedactionEntryDigest, r.Digest),
 	)
+	if r.HasSIV || len(r.SIV) > 0 {
+		sub = append(sub, tlv.BytesEntry(tagRedactionEntrySIV, r.SIV))
+	}
 
-	return tlv.NestedEntry(tagRedaction, sub)
+	return tlv.NestedEntry(tagRedaction, sub), nil
+}
+
+// entry returns t as the nested entry list of a pack metadata `thinning` entry.
+func (t Thinning) entry() tlv.Entry {
+	return tlv.NestedEntry(tagThinning, []tlv.Entry{
+		tlv.U64Entry(tagThinningStream, t.Stream),
+		tlv.U64Entry(tagThinningFunction, t.Function),
+		tlv.UTF8Entry(tagThinningSource, t.Source),
+	})
 }
 
 // entry returns t as the nested entry list of a pack metadata `hsms_timers` entry.
@@ -857,7 +1042,7 @@ func (m *PackMeta) appendOptionalScalarEntries(dst []tlv.Entry) []tlv.Entry {
 }
 
 // appendRepeatableEntries appends the entries of m's repeatable tags.
-// It returns the error of the first coverage entry that cannot be encoded, naming its index.
+// It returns the error of the first coverage or redaction entry that cannot be encoded, naming its index.
 func (m *PackMeta) appendRepeatableEntries(dst []tlv.Entry) ([]tlv.Entry, error) {
 	for _, s := range m.Classifiers {
 		dst = append(dst, tlv.UTF8Entry(tagClassifier, s))
@@ -881,8 +1066,15 @@ func (m *PackMeta) appendRepeatableEntries(dst []tlv.Entry) ([]tlv.Entry, error)
 		}
 		dst = append(dst, e)
 	}
-	for _, r := range m.Redaction {
-		dst = append(dst, r.entry())
+	for i, r := range m.Redaction {
+		e, err := r.entry()
+		if err != nil {
+			return nil, fmt.Errorf("tracepack: redaction entry %d: %w", i, err)
+		}
+		dst = append(dst, e)
+	}
+	for _, t := range m.Thinning {
+		dst = append(dst, t.entry())
 	}
 
 	return dst, nil

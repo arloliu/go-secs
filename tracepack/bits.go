@@ -6,7 +6,9 @@ import "strings"
 //
 // Zero means none of the quality conditions apply.
 // See the tracepack format specification §9 for the full registry;
-// bits 3 and 6 are retired and bits 7-15 reserved: they never appear in [Quality.Names] or [Quality.String].
+// bits 3 and 6 are retired and bits 8-15 reserved: they never appear in [Quality.Names] or [Quality.String].
+// Bit 7, [QualityUnobserved], is defined from format 1.1 and reserved in a pack of format minor 0:
+// a Quality holds the stored bits either way, and [Reader.Unobserved] says what a record's bit 7 means in its pack.
 type Quality uint16
 
 const (
@@ -21,11 +23,17 @@ const (
 	QualityDirectionInferred Quality = 1 << 4
 	// QualityRedacted marks a record whose payload was masked by a redaction policy.
 	QualityRedacted Quality = 1 << 5
+	// QualityUnobserved marks a data record unobserved by design, from format 1.1:
+	// its message text was not captured and is zero-filled (the tracepack semantics specification §2).
+	// A Writer accepts it only on a data record of a stream and function the pack metadata's thinning declares.
+	QualityUnobserved Quality = 1 << 7
 )
 
-// qualityMask holds the defined quality bits; bits 3 and 6 are retired and bits 7-15 reserved, all zero on write (I-9).
+// qualityMask holds the quality bits a Writer stores, those format 1.1 defines;
+// bits 3 and 6 are retired and bits 8-15 reserved, all zero on write (I-9).
+// A record carrying bit 7 is refused unless it is unobserved by design, so a stored bit 7 always means unobserved.
 const qualityMask = QualityCaptureBoundary | QualityOrderingUncertain | QualityCorrelationIncomplete |
-	QualityDirectionInferred | QualityRedacted
+	QualityDirectionInferred | QualityRedacted | QualityUnobserved
 
 // FieldValidity is the record-header bit set marking which HSMS header fields of a record's payload are real
 // (the tracepack format specification §7.2).
@@ -87,6 +95,7 @@ func (q Quality) Names() []string {
 		{QualityCorrelationIncomplete, "correlation-incomplete"},
 		{QualityDirectionInferred, "direction-inferred"},
 		{QualityRedacted, "redacted"},
+		{QualityUnobserved, "unobserved"},
 	} {
 		if q.Has(b.bit) {
 			names = append(names, b.name)
