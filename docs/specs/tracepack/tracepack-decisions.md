@@ -1615,3 +1615,10 @@ Breaking API and behaviour changes are allowed before tracepack v1.0.0 and are l
   Rationale *(editorial)*: no SECS-II message has such a stream or function, and the writer refuses the entry, so an accepted capture could write no segment.
   Rejected *(editorial)*: accepting the entry, which never matches a record.
   Spec: [STO §4], v2.33.
+- G5-255 A lookup counts a `coverage` entry of its primary's capture in every pack it reads (2026-10-12, the scope of G5-215):
+  a transaction lookup evaluates once, against its own bounds, every `coverage` entry of a pack it reads whose capture is the primary's capture ([SEM §7.2]),
+  also when the hour whose read holds the entry holds no pack of the primary's capture.
+  G5-215's "a transaction lookup's hours" is read at the level of the lookup, not of each hour.
+  Rationale *(editorial)*: [SEM §7.2] states the rule for the lookup as a whole, and an hour whose packs of the primary's capture are all lost is the case an entry of another pack most needs to report; the lookup errs toward `incomplete`.
+  Rejected *(editorial)*: counting the entry only in an hour whose read holds a pack of the primary's capture.
+  Spec: [SEM §7.2], v2.33.
