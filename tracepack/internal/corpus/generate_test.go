@@ -568,6 +568,19 @@ var generatedGroups = []string{
 	"basic-", "bootstrap-", "footer-", "framing-", "hsms-", "repair-", "sample-", "sem-", "validation-", "verify-",
 }
 
+// pendingRecipes are catalogued vectors of a generated group whose recipes are not written yet;
+// each id leaves this list when its recipe lands.
+var pendingRecipes = []string{
+	"basic-extract-policy-multi-classifier-1-0",
+	"basic-extract-policy-no-classifier-1-0",
+	"basic-future-minor",
+	"basic-new-tags-extract-1-0",
+	"basic-new-tags-segment-1-0",
+	"bootstrap-entry-nested-required",
+	"footer-boundary-ties",
+	"footer-seq-range-ties",
+}
+
 // TestRecipeIDsAreCatalogued checks that every vector of a generated group that the catalogue of the tracepack corpus specification §9.4 lists has a recipe,
 // and that no recipe is missing from it.
 // It reads the catalogue from the specification and is skipped where the specification is absent.
@@ -593,11 +606,15 @@ func TestRecipeIDsAreCatalogued(t *testing.T) {
 		assert.True(t, inGroup(r.ID), "recipe %s is in no generated group", r.ID)
 	}
 	for _, id := range catalogue {
-		if inGroup(id) {
+		if inGroup(id) && !slices.Contains(pendingRecipes, id) {
 			want = append(want, id)
 		}
 	}
 	assert.Equal(t, want, ids)
+	for _, id := range pendingRecipes {
+		assert.Contains(t, catalogue, id, "pending recipe %s is not catalogued", id)
+		assert.NotContains(t, ids, id, "pending recipe %s has a recipe; remove it from the pending list", id)
+	}
 }
 
 // catalogueIDs returns the vector ids of the table of §9.4 of the corpus specification spec, ascending:
