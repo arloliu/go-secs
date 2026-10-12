@@ -16,7 +16,8 @@ import (
 // One second keeps slewed corrections from being recorded as steps;
 // a step between that threshold and one second is absorbed within the tolerance, not recorded,
 // while a step of a second or more is recorded.
-// A larger tolerance would also widen the interval by which crash recovery bounds a gap (the tracepack storage specification §4).
+// A larger tolerance would also widen the gap by which a consumer of a durable bus closes a capture its producer left open
+// (the tracepack storage specification §4).
 const DefaultClockStepTolerance = time.Second
 
 // CaptureDescriptor is the pack metadata the producer of one capture owns,
@@ -26,7 +27,10 @@ const DefaultClockStepTolerance = time.Second
 // The SegmentWriter owns the rest of the pack metadata:
 // writer, classifier, max_frame_len, period_start, period_end, seq_start, pack_role, compaction_level and scope_generation,
 // and the capture_id it generates.
-// It writes no flush_interval_ns, since it writes over a sink without a durable spool.
+// It writes no flush_interval_ns, which a standalone recorder never writes (the tracepack storage specification §4).
+//
+// A consumer of a durable bus does not use CaptureDescriptor:
+// it decodes the descriptor its producer publishes with DecodeDescriptor, which applies none of the defaults below.
 //
 // A pointer or slice field is written only when it is non-nil or non-empty.
 // Validate checks the descriptor before a SegmentWriter takes it.
